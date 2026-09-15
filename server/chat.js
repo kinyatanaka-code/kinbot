@@ -87,17 +87,19 @@ async function sendTo({ webhook_url, space_id }, text) {
 // kind を渡すと、その種類がONになっている宛先だけに送る。
 // 送り先ごとに、本文の {呼びかけ} をその人への呼びかけに置き換える。
 // スペースごとに人の番号が違うので、送る直前に差し替える。
-async function fillMention(text, target, personName) {
-  if (!text.includes("{呼びかけ}")) return text;
-  let m = "";
-  if (personName && target.space_id && chatAppConfigured()) {
-    m = await mentionFor(target.space_id, personName).catch(() => "");
-  }
-  // 呼びかけが作れないときは、名前をそのまま書く（誰あてか分かるように）
-  return text.replace(/\{呼びかけ\}/g, m || (personName ? `${personName}さん` : ""));
+async function fillMention(text, target, personName, personName2) {
+  if (!text.includes("{呼びかけ}") && !text.includes("{呼びかけ2}")) return text;
+  const one = async (nm) => {
+    let m = "";
+    if (nm && target.space_id && chatAppConfigured()) m = await mentionFor(target.space_id, nm).catch(() => "");
+    return m || (nm ? `${nm}さん` : "");
+  };
+  let out = text.replace(/\{呼びかけ\}/g, await one(personName));
+  out = out.replace(/\{呼びかけ2\}/g, await one(personName2));
+  return out;
 }
 
-export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
+export async function notifyAll(text, kind = "", { mentionName = "", mentionName2 = "" } = {}) {
   const t = String(text || "").trim();
   if (!t) return { ok: false, skipped: true, reason: "本文が空です" };
 
@@ -135,7 +137,7 @@ export async function notifyAll(text, kind = "", { mentionName = "" } = {}) {
   let sent = 0;
   for (const tg of list) {
     try {
-      const r = await sendTo(tg, await fillMention(t, tg, mentionName));
+      const r = await sendTo(tg, await fillMention(t, tg, mentionName, mentionName2));
       sent++;
       markChatTarget(tg.id, { ok: true }).catch(() => {});
       if (r && r.name) logChatSent({ name: r.name, space: r.space, target: tg.name, kind, text: t }).catch(() => {});

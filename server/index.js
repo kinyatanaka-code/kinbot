@@ -339,6 +339,8 @@ import {
   contactCandidatesForCompany,
   listApoValidCandidates,
   markValidNotified,
+  listApoDocCandidates,
+  markDocNotified,
   refreshApoOppMeta,
   autolaunchForSlugs,
   autolaunchByCompanies,
@@ -4417,7 +4419,7 @@ app.get("/api/recall/leave-reason", async (req, res) => {
 });
 
 // ===== インサイド獲得アポが「有効商談」になったら獲得者へ通知 =====
-let _oppStageCache = { at: 0, idx: -1, names: [] };
+let _oppStageCache = { at: 0, idx: -1, docIdx: -1, names: [] };
 async function opportunityStageOrder(op) {
   if (_oppStageCache.names.length && Date.now() - _oppStageCache.at < 60 * 60 * 1000) return _oppStageCache;
   try {
@@ -4425,7 +4427,8 @@ async function opportunityStageOrder(op) {
     const sf = (d.fields || []).find((f) => f.name === "StageName");
     const names = ((sf && sf.picklistValues) || []).filter((v) => v.active !== false).map((v) => v.value || v.label);
     const idx = names.findIndex((n) => /有効商談/.test(n));
-    _oppStageCache = { at: Date.now(), idx, names };
+    const docIdx = names.findIndex((n) => /申込書回収/.test(n) || /SS0?6/i.test(n));
+    _oppStageCache = { at: Date.now(), idx, docIdx, names };
   } catch { /* keep old cache */ }
   return _oppStageCache;
 }
@@ -4483,6 +4486,61 @@ async function checkValidDeals() {
     if (firstRun) { await saveSettings({ validDealNotifyInit: true }).catch(() => {}); console.log(`[有効商談通知] 初回：既存 ${marked}件を既済化（通知なし）`); }
     else if (notified) console.log(`[有効商談通知] ${notified}件を獲得者へ通知`);
   } catch (e) { console.warn("[有効商談通知]", e.message); }
+}
+async function checkDocDeals() {
+  try {
+    const cands = await listApoDocCandidates();
+    if (!cands.length) return;
+    const op = await sfOperator("").catch(() => "");
+    if (!op) return;
+    const order = await opportunityStageOrder(op);
+    if (!order || order.docIdx < 0) return; // 「申込書回収」ステージを特定できないときは何もしない
+    const docIdx = order.docIdx;
+    const st = await getSettings().catch(() => ({}));
+    const firstRun = !st.docNotifyInit; // 初回は既存を静かに既済化（一斉通知しない）
+    const ids = [...new Set(cands.map((c) => c.opp_id).filter(Boolean))];
+    const byId = {};
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const idList = chunk.map((id) => `'${String(id).replace(/'/g, "\\'")}'`).join(",");
+      const d = await sfQuery(op, `SELECT Id, Name, StageName, IsClosed, IsWon FROM Opportunity WHERE Id IN (${idList})`).catch(() => ({ records: [] }));
+      for (const o of d.records || []) byId[o.Id] = o;
+    }
+    // インサイド判定（有効商談通知と同じ条件）＋メール→名前
+    const _norm = (s) => String(s || "").replace(/[\s\u3000]/g, "").toLowerCase();
+    const insideNames = new Set(), insideEmails = new Set();
+    const nameByEmail = {};
+    for (const u of (await listUsers().catch(() => []))) if (u.email) nameByEmail[String(u.email).toLowerCase()] = u.name || "";
+    try {
+      for (const it of (await listInterns().catch(() => []))) { if (it.name) insideNames.add(_norm(it.name)); if (it.email) insideEmails.add(_norm(it.email)); }
+      for (const m of (await listMembers().catch(() => []))) { if (Array.isArray(m.roles) && m.roles.includes("inside")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
+    } catch {}
+    const isInside = (c) => insideEmails.has(_norm(c.setter_email)) || insideNames.has(_norm(c.setter));
+    let notified = 0;
+    for (const c of cands) {
+      const o = byId[c.opp_id];
+      if (!o) continue;
+      const stage = String(o.StageName || "");
+      const si = order.names.findIndex((n) => n === stage);
+      const reached = si >= 0 ? si >= docIdx : /申込書回収/.test(stage);
+      const isLost = o.IsClosed && !o.IsWon;
+      if (!reached || isLost) continue;
+      if (!isInside(c)) { await markDocNotified(c.slug).catch(() => {}); continue; } // インサイド獲得のみ
+      if (!firstRun) {
+        const co = c.company || parseLaunchTitle(c.label || "").company || o.Name || "その会社";
+        const setterName = String(c.setter || "").trim();
+        const closerName = nameByEmail[String(c.current_owner || "").toLowerCase()] || "";
+        const chMsg = setterName
+          ? `【申込書回収】{呼びかけ}${closerName ? "／{呼びかけ2}" : ""} が獲得したアポ「${co}」が申込書回収（SS06）に進みました。`
+          : `【申込書回収】アポ「${co}」が申込書回収（SS06）に進みました。`;
+        await notifyAll(chMsg, "valid", { mentionName: setterName, mentionName2: closerName }).catch(() => {});
+        notified++;
+      }
+      await markDocNotified(c.slug).catch(() => {});
+    }
+    if (firstRun) { await saveSettings({ docNotifyInit: true }).catch(() => {}); console.log("[申込書回収通知] 初回：既存を既済化（通知なし）"); }
+    else if (notified) console.log(`[申込書回収通知] ${notified}件を通知`);
+  } catch (e) { console.warn("[申込書回収通知]", e.message); }
 }
 function prefFromAddress(addr) {
   const m = /([^\s0-9〒]{1,4}?[都道府県])/.exec(String(addr || ""));
@@ -20043,7 +20101,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14n kincallコネクタの架電記録(list_call_logs)を、管理者・クローザーに関係なく誰でも全員分取得できるようにした。callerを省略すれば全員の架電履歴が返る。";
+const BUILD_TAG = "2026-09-14o 案件が「申込書回収(SS06)」に進んだときも通知するようにした。通知先は有効商談と同じ（通知先で「有効商談」ON）、メンションは獲得者（インサイド）＋営業担当の両方、対象はインサイド獲得のみ（有効商談と同条件）。1案件につき1回だけ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25607,6 +25665,8 @@ server.listen(PORT, async () => {
   // インサイドが獲得したアポが「有効商談」になったら獲得者へ通知（初回は既存分を静かに既済化してから運用開始）
   setTimeout(() => { checkValidDeals().catch(() => {}); }, 30000);
   setInterval(() => { checkValidDeals().catch(() => {}); }, 5 * 60 * 1000);
+  setTimeout(() => { checkDocDeals().catch(() => {}); }, 45000);
+  setInterval(() => { checkDocDeals().catch(() => {}); }, 5 * 60 * 1000);
   startSessionMonitor();
   if (CALENDAR_AUTO_JOIN) startAutoJoinCalendarMonitor();
   // 起動から1分後、「無題」や担当なしのまま残っている最近の商談をカレンダーから補完する

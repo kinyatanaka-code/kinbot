@@ -1315,6 +1315,7 @@ export async function initDb() {
   await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS linked_at TIMESTAMPTZ;`);
   await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS linked_by TEXT;`);
   await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS valid_notified_at TIMESTAMPTZ;`);
+  await sq(`ALTER TABLE sf_autolaunch ADD COLUMN IF NOT EXISTS doc_notified_at TIMESTAMPTZ;`);   // 申込書回収(SS06)通知の済み
   // 会社（商談履歴の会社カード）を、SFの商談に手でひも付ける保存先。
   // cross-status（会社名検索）で見つからない/取り違えるときの上書きに使う。
   await sq(`
@@ -5895,6 +5896,26 @@ export async function listApoValidCandidates() {
 export async function markValidNotified(slug) {
   if (!pool || !slug) return;
   try { await pool.query(`UPDATE sf_autolaunch SET valid_notified_at=now() WHERE slug=$1`, [slug]); } catch {}
+}
+// 申込書回収（SS06）通知の候補：まだ申込書回収通知をしていないもの（獲得者・営業担当つき）。
+export async function listApoDocCandidates() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.slug, a.opp_id, a.company, a.title, s.setter_email, s.setter, s.label, s.current_owner
+         FROM sf_autolaunch a
+         LEFT JOIN smart_links s ON s.slug = a.slug
+        WHERE a.opp_id IS NOT NULL
+          AND a.doc_notified_at IS NULL
+          AND COALESCE(s.setter_email,'') <> ''
+        ORDER BY a.tried_at DESC NULLS LAST
+        LIMIT 800`);
+    return rows || [];
+  } catch { return []; }
+}
+export async function markDocNotified(slug) {
+  if (!pool || !slug) return;
+  try { await pool.query(`UPDATE sf_autolaunch SET doc_notified_at=now() WHERE slug=$1`, [slug]); } catch {}
 }
 
 // 商談(bot_id)にひも付いたSF商談(opp_id)を引く。
