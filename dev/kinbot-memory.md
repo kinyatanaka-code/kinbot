@@ -790,3 +790,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-14 BUILD_TAG=2026-09-14l 議事録から記録の商談名をカレンダーから選べるように。index.html 議事録パネルの title-row に #txCalBtn(cal-btn)＋#txCalPanel(cal-panel)追加。app.js で txCalBtn→openCalPicker(txCalPanel, ev=>{ txTitle=ev.title; txDate=ev.startのJST日付 })。他パネル(calBtn/upCalBtn)と同じ openCalPicker 再利用。版20260914l。
 
 - 2026-09-14 BUILD_TAG=2026-09-14m kincallコネクタ(MCP)で全員の架電履歴を分析可能に。mcp.js list_call_logs は従来 isAdmin以外だと caller=req.user 固定（本人分のみ）だった。canSeeAllCalls()＝isAdmin || KINCALL_MCP_ALL(env,カンマ区切りメール) || memberのroles含closer を追加し、これがtrueなら caller=args.caller||""（＝省略で全員分）。list_call_stats は元から callStatsByDay で全員分。listMembers を import。田中がクローザー/管理者なら全員分取得可、そうでなければ env KINCALL_MCP_ALL に追加。版20260914m。
+
+- 2026-09-14 BUILD_TAG=2026-09-14n kincallコネクタ list_call_logs を「誰でも全員分」に。前回の canSeeAllCalls(admin/closer/env)制限を撤廃し、caller=(args.caller||"")（＝省略で全員分・指定でその人だけ）に。誰がコネクタを使っても全員の架電履歴を分析できる。list_call_stats も全員分。版20260914n。

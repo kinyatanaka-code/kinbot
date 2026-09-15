@@ -20043,7 +20043,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14m kincallコネクタの架電記録(list_call_logs)を、管理者だけでなくクローザー（や指定ユーザー）も全員分取得できるようにした。callerを省略すれば全員の架電履歴を返すので、全員分の傾向分析ができる。list_call_statsは元から全員分。";
+const BUILD_TAG = "2026-09-14n kincallコネクタの架電記録(list_call_logs)を、管理者・クローザーに関係なく誰でも全員分取得できるようにした。callerを省略すれば全員の架電履歴が返る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
