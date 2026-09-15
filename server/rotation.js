@@ -16,7 +16,7 @@
 //      所属チームのアポ累計が少ない側を先に試す。
 //   6. 全員埋まっていたら未割り当てのまま残す（画面で手動対応）
 // ───────────────────────────────────────────────────────────
-import { freeBusy, isSlotFree } from "./google.js";
+import { freeBusy, isSlotFree, listCalendarEvents } from "./google.js";
 import {
   getSettings, saveSettings,
   listClosers, markCloserAssigned, markCloserSkipped,
@@ -242,18 +242,31 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
     ? new Date(link.end_time).toISOString()
     : new Date(new Date(link.start_time).getTime() + 60 * 60 * 1000).toISOString();
 
-  // 空き状況は1回のAPI呼び出しで全員分まとめて取る
-  let fb = {};
-  try {
-    fb = await freeBusy(
-      inviteOwner,
-      cands.map((c) => c.email),
-      new Date(new Date(startISO).getTime() - conf.bufferMin * 60000),
-      new Date(new Date(endISO).getTime() + conf.bufferMin * 60000)
-    );
-  } catch (e) {
-    return { email: null, name: "", reason: `空き状況を取得できませんでした: ${e.message}`, skipped: [] };
+  // 空き状況：各人の予定を取り、リスケ・キャンセル・参加拒否・終日は空きとして扱う（＝埋まり扱いにしない）。
+  const buf = (conf.bufferMin || 0) * 60000;
+  const winS = new Date(new Date(startISO).getTime() - buf - 3600000).toISOString();
+  const winE = new Date(new Date(endISO).getTime() + buf + 3600000).toISOString();
+  const busyByEmail = new Map();
+  for (const c of cands) {
+    const em = String(c.email || "").toLowerCase(); if (!em) continue;
+    let evs;
+    try { evs = await listCalendarEvents(inviteOwner, em, { timeMin: winS, timeMax: winE }); }
+    catch { busyByEmail.set(em, null); continue; }   // 読めない人は据え置き（下で「読めません」扱い）
+    const arr = [];
+    for (const e of evs || []) {
+      if (e.allDay || e.selfResponse === "declined") continue;
+      if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;   // リスケ・キャンセルは空き
+      const s = Date.parse(e.start), en = Date.parse(e.end);
+      if (!isNaN(s) && !isNaN(en) && en > s) arr.push([s, en]);
+    }
+    busyByEmail.set(em, arr);
   }
+  const slotFree = (arr, sISO, eISO) => {
+    if (arr == null) return { free: false, reason: "カレンダーを読めませんでした" };
+    const s = Date.parse(sISO) - buf, e = Date.parse(eISO) + buf;
+    return arr.some(([bs, be]) => bs < e && be > s)
+      ? { free: false, reason: "この時間帯に別の予定が入っています" } : { free: true };
+  };
 
   const day = jstDate(startISO);
   // 割り振りの平等は「配られた日（今日）」で見る。商談の開催日ではない。
@@ -284,7 +297,7 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
         continue;
       }
     }
-    const chk = isSlotFree(fb, c.email, startISO, endISO, conf.bufferMin);
+    const chk = slotFree(busyByEmail.get(String(c.email).toLowerCase()), startISO, endISO);
     if (!chk.free) {
       skipped.push({ email: c.email, name: c.name, team: teamOf(c), reason: chk.reason });
       continue;
