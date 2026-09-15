@@ -9172,6 +9172,7 @@ app.get("/api/calls/targets", async (req, res) => {
         所有者: r.owner_name || "",
         最終ステータス: r.status || "",
         温度: r.temperature || "",
+        担当者不在ランク: r.absent_rank || "",
         元のリスト: r.nurture_from_name || "",
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
         // SFへまだ送れていないkinbotの記録があれば、それも足す。
@@ -10472,8 +10473,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(result)) 自動ステージ = ARCHIVE_STAGE;  // 現在使われていない→アーカイブ
     else if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
     else if (/営業フォロー/.test(result)) 自動ステージ = JUDGE_STAGE;
-    // 担当者不在ランクAは即リサイクル（B=2週間後・C=1ヶ月後はスケジューラで移す）
-    else if (/不在/.test(result) && String(b.absentRank || "").toUpperCase() === "A") 自動ステージ = RECYCLE_STAGE;
+    // 担当者不在ランクCだけがリサイクルへ移る（A・Bは何回不在でも移動しない）。移動はスケジューラで期限（1ヶ月）が来たときに行う。
     const finalStage = 自動ステージ || 次のステージ;
     // 断り理由タグと温度をリードに残す（リサイクル復活の優先順に使う）。
     // 温度：架電結果が入っていない＝A。タグがあれば recycle_rules の温度。タグ無しで結果ありなら既定B。
@@ -10494,14 +10494,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       ...(finalStage !== undefined && finalStage !== null ? { stage: finalStage } : {}),
       status: result,
     }).catch(() => {});
-    // 担当者不在ランクAは、記録した瞬間に同じグループの次の担当へ回す（リサイクルAとして）
-    if (/不在/.test(result) && String(b.absentRank || "").toUpperCase() === "A") {
-      try {
-        const peers = await groupPeersForTarget(id);
-        const next = nextInRotation(peers, t.assigned_to);
-        await recycleRotateLead(id, next, RECYCLE_STAGE);
-      } catch (e) { console.warn("[リサイクルA]", e.message); }
-    }
+    // 担当者不在ランクによる自動リサイクルはCのみ（スケジューラで1ヶ月経過後に移動）。A・Bはここでは何もしない。
 
     // Salesforceへ（活動履歴＋リードの状態）
     //
@@ -20016,7 +20009,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14h リストを非表示にしても画面に反映されなかった不具合を修正。一覧APIが hidden フラグを返していなかったため、非表示にしてもカードが「非表示中」にならなかった。hidden を返すようにして、非表示にすると本人の画面では薄い「非表示中」表示に、他の人からは消えるようにした。";
+const BUILD_TAG = "2026-09-14i 担当者不在のリサイクル移動をCランクだけに変更（A・Bは何回不在でも移動しない）。Cは1ヶ月経過でリサイクルへ。あわせて、かける一覧で担当者不在のリードに不在ランク（不在A／不在B／不在C）のタグを表示するようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

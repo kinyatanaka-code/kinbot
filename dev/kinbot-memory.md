@@ -780,3 +780,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-14 BUILD_TAG=2026-09-14g 非表示リストが本人の画面からも消える不具合を修正。原因：リスト一覧取得(listCallLists includeHidden)が canHideLists(req)だけを見ていて、DBクローザーは me.canHideLists=true(closer OR)でボタンは出るのに includeHidden=false → 自分で非表示にすると自分の画面からも消えていた。対応：includeHidden = canHideLists(req) || isCloserUser(req.user) に。→非表示にできる人(クローザー・管理者・田中欽也等)の画面には kc-list-hidden「非表示中」で残る／他の人からは消える。版20260914g。
 
 - 2026-09-14 BUILD_TAG=2026-09-14h リスト非表示が画面に反映されない不具合を修正。原因：GET /api/calls/lists の items マッピングに hidden を含めておらず（listCallLists は l.* で hidden あり・includeHiddenで非表示も返していた）、クライアントの x.hidden が常にundefined→カードが「非表示中」にならず、ボタンも常に「非表示にする」表示だった。対応：items に hidden:!!r.hidden を追加。→非表示にすると本人(権限者)には kc-list-hidden「非表示中」、他の人からは消える。版20260914h。
+
+- 2026-09-14 BUILD_TAG=2026-09-14i 担当者不在ランクの仕様変更（前回のA即/B2週を撤回）。リサイクル移動はCのみ：listRankRecycleDue は absent_rank='C' かつ absent_rank_at<=now-1month だけ。A・Bは何回不在でも移動しない（record のランクA即リサイクル＆RECYCLEステージ設定を削除）。recycleRankTick/recycleRotateLead/groupPeersForTarget は流用（Cのみ発火）。タグ：queue APIに 担当者不在ランク=r.absent_rank 追加、calls.js absentRankBadge(x)＝担当者不在ランクA/B/C かつ 最終結果/最終ステータスが/不在/のとき「不在A/不在B/不在C」を会社名横に表示（tempBadgeの隣）。CSS .kc-absent-A/B/C。版20260914i。

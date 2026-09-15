@@ -7912,16 +7912,15 @@ export async function groupPeersForTarget(id) {
     return rows.map((r) => r.em).filter(Boolean);
   } catch (e) { console.error("[db] groupPeersForTarget", e.message); return []; }
 }
-// リサイクル移動の対象：担当者不在ランクB（2週間経過）・C（1ヶ月経過）で、まだ移していないもの。
+// リサイクル移動の対象：担当者不在ランクCのみ（1ヶ月経過）。A・Bは何回不在でも移動しない。
 export async function listRankRecycleDue() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
       `SELECT id, assigned_to, absent_rank
          FROM call_targets
-        WHERE done = false AND absent_rank IN ('B','C') AND absent_rank_at IS NOT NULL
-          AND ( (absent_rank='B' AND absent_rank_at <= now() - INTERVAL '14 days')
-             OR (absent_rank='C' AND absent_rank_at <= now() - INTERVAL '1 month') )
+        WHERE done = false AND absent_rank = 'C' AND absent_rank_at IS NOT NULL
+          AND absent_rank_at <= now() - INTERVAL '1 month'
         LIMIT 500`);
     return rows;
   } catch (e) { console.error("[db] listRankRecycleDue", e.message); return []; }

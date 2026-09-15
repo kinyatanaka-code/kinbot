@@ -225,6 +225,14 @@ function tempBadge(x) {
   if (!t || !["A", "B", "C"].includes(t)) return "";
   return ` <span class="kc-temp-badge kc-temp-${t}" title="リサイクル復活の温度 ${t}">${t}</span>`;
 }
+// 担当者不在ランク（A/B/C）のタグ。ステータス/最終結果が担当者不在のときに出す。
+function absentRankBadge(x) {
+  const r = String((x && x["担当者不在ランク"]) || "").trim().toUpperCase();
+  if (!["A", "B", "C"].includes(r)) return "";
+  const st = String((x && (x["最終結果"] || x["最終ステータス"])) || "");
+  if (!/不在/.test(st)) return "";
+  return ` <span class="kc-absent-badge kc-absent-${r}" title="担当者不在ランク ${r}">不在${r}</span>`;
+}
 function doneBadge(x) {
   if (isDeadNumber(x)) return ' <span class="kc-dead-badge">使われていない番号</span>';
   if (isUser(x)) return ' <span class="kc-user-badge">ユーザー</span>';
@@ -584,7 +592,7 @@ function render() {
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         ${listId !== "all" ? `<td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
-        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${doneBadge(x)}${bizBadge(x)}${fromBadge(x)}${
+        <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${absentRankBadge(x)}${doneBadge(x)}${bizBadge(x)}${fromBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>

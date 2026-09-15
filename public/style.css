@@ -6285,3 +6285,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .cs-del { flex:none; }
 .kc-nur-week { font-size: 12px; color: #5a6b64; margin-top: 2px; }
 .kc-nur-week b { color: #0f6e56; }
+
+/* 担当者不在ランクのタグ */
+.kc-absent-badge { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:20px; margin-left:6px; }
+.kc-absent-A { background:#e6f4ec; color:#0f6e56; }
+.kc-absent-B { background:#eaf2fb; color:#2b6cb0; }
+.kc-absent-C { background:#fdeceb; color:#c0392b; }
