@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260914k" />
+    <link rel="stylesheet" href="style.css?v=20260914l" />
   </head>
   <body>
     <div class="app">
@@ -95,6 +95,8 @@
                 <p class="join-desc">手元の議事録テキストを貼り付ける／テキストファイルを読み込むと、要約・分析を作成して商談履歴に保存します。</p>
                 <div class="title-row">
                   <input id="txTitle" type="text" placeholder="商談名（例：【初回】〇〇株式会社／〇〇様）" />
+                  <button type="button" id="txCalBtn" class="cal-btn" title="カレンダーから選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3" fill="#E1F5EE" stroke="#11a47f" stroke-width="1.6"/><line x1="3" y1="9" x2="21" y2="9" stroke="#11a47f" stroke-width="1.6"/><line x1="8" y1="2.5" x2="8" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="2.5" x2="16" y2="6.5" stroke="#0F6E56" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="16" cy="13.5" r="1.4" fill="#11a47f"/><circle cx="8" cy="17.5" r="1.4" fill="#11a47f"/><circle cx="12" cy="17.5" r="1.4" fill="#11a47f"/></svg></button>
+                  <div class="cal-panel" id="txCalPanel" hidden></div>
                 </div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0">
                   <label style="font-size:13px;color:#4a5a54">商談日 <input id="txDate" type="date" /></label>
@@ -281,7 +283,7 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="app.js?v=20260914k"></script>
+    <script src="app.js?v=20260914l"></script>
     <script>
       (function () {
         const tabs = document.getElementById("recTabs");
@@ -303,7 +305,7 @@
         }
       })();
     </script>
-    <script src="nav.js?v=20260914k"></script>
+    <script src="nav.js?v=20260914l"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

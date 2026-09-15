@@ -164,6 +164,29 @@ if (upCalBtn && upCalPanel) {
   });
 }
 
+// 議事録から記録：商談名をカレンダーの予定から選ぶ（商談日も予定の日付に合わせる）
+const txCalBtn = $("txCalBtn");
+const txCalPanel = $("txCalPanel");
+if (txCalBtn && txCalPanel) {
+  document.addEventListener("click", (e) => {
+    if (!txCalPanel.hidden && !txCalPanel.contains(e.target) && e.target !== txCalBtn && !txCalBtn.contains(e.target)) txCalPanel.hidden = true;
+  });
+  txCalBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!txCalPanel.hidden) { txCalPanel.hidden = true; return; }
+    openCalPicker(txCalPanel, (ev) => {
+      if ($("txTitle")) $("txTitle").value = ev.title || "";
+      try {
+        const d = ev.start ? new Date(ev.start) : null;
+        if (d && !isNaN(d.getTime()) && $("txDate")) {
+          const j = new Date(d.getTime() + 9 * 3600000);
+          $("txDate").value = `${j.getUTCFullYear()}-${String(j.getUTCMonth() + 1).padStart(2, "0")}-${String(j.getUTCDate()).padStart(2, "0")}`;
+        }
+      } catch {}
+    });
+  });
+}
+
 // 予定のリンクを登録リンクのプルダウンに「📅 この予定のリンク」として追加する。
 // カレンダー選択時点ではURLは載せず、プルダウンで「予定のリンク」か「登録リンク」を選んで初めてURLが入る。
 function setCalendarLinkOption(url) {
