@@ -7458,6 +7458,7 @@ app.get("/api/calls/lists", async (req, res) => {
         自分のぶん: Number(r["自分のぶん"] || 0),
         作った人: r.owner || "",
         closed: !!r.closed,
+        hidden: !!r.hidden,
       })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -20015,7 +20016,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14g 非表示にしたリストが、非表示にできる人（田中欽也などクローザー・管理者）の画面には「非表示中」として残って見えるように修正。前は権限判定がずれていて、自分で非表示にすると自分の画面からも消えてしまっていた。他の人の画面からは今まで通り消える。";
+const BUILD_TAG = "2026-09-14h リストを非表示にしても画面に反映されなかった不具合を修正。一覧APIが hidden フラグを返していなかったため、非表示にしてもカードが「非表示中」にならなかった。hidden を返すようにして、非表示にすると本人の画面では薄い「非表示中」表示に、他の人からは消えるようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
