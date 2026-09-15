@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260914j" />
+    <link rel="stylesheet" href="style.css?v=20260914k" />
   </head>
   <body>
     <div class="app">
@@ -58,6 +58,7 @@
               <div class="rec-tabs" id="recTabs">
                 <button type="button" class="rec-tab active" data-rectab="rec">商談を記録する</button>
                 <button type="button" class="rec-tab" data-rectab="file">ファイルから記録</button>
+                <button type="button" class="rec-tab" data-rectab="text">議事録から記録</button>
               </div>
               <div class="join-card" data-mrec="rec" data-recpanel="rec">
                 <img class="join-mascot" src="kinbot.svg" alt="kinbot" />
@@ -88,6 +89,21 @@
                 <input id="upFile" type="file" accept="audio/*,video/*" />
                 <button class="btn big" id="upBtn">アップロードして記録</button>
                 <p class="join-consent" id="upMsg">対応形式：mp3 / m4a / wav / mp4 など。最大2GB。処理完了後、商談履歴に表示されます。</p>
+              </div>
+              <div class="join-card upload-card" data-mrec="text" data-recpanel="text" hidden>
+                <h2 class="join-title">議事録テキストから記録</h2>
+                <p class="join-desc">手元の議事録テキストを貼り付ける／テキストファイルを読み込むと、要約・分析を作成して商談履歴に保存します。</p>
+                <div class="title-row">
+                  <input id="txTitle" type="text" placeholder="商談名（例：【初回】〇〇株式会社／〇〇様）" />
+                </div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin:8px 0">
+                  <label style="font-size:13px;color:#4a5a54">商談日 <input id="txDate" type="date" /></label>
+                  <input id="txRep" type="text" placeholder="担当者名（任意）" style="flex:1 1 180px" />
+                </div>
+                <input id="txFile" type="file" accept=".txt,text/plain" />
+                <textarea id="txText" placeholder="ここに議事録テキストを貼り付け（「話者: 発言」の形式でも、そのままでもOK）" style="width:100%;min-height:180px;margin-top:8px;border:1px solid #d7e3dd;border-radius:10px;padding:10px;font-size:13px;font-family:inherit;box-sizing:border-box"></textarea>
+                <button class="btn big" id="txBtn">議事録を取り込む</button>
+                <p class="join-consent" id="txMsg">.txt ファイルを選ぶか、テキストを貼り付けてください。取り込むと商談履歴に表示されます。</p>
               </div>
             </div>
             <div class="active-block" data-mrec="live">
@@ -265,7 +281,7 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="app.js?v=20260914j"></script>
+    <script src="app.js?v=20260914k"></script>
     <script>
       (function () {
         const tabs = document.getElementById("recTabs");
@@ -287,7 +303,7 @@
         }
       })();
     </script>
-    <script src="nav.js?v=20260914j"></script>
+    <script src="nav.js?v=20260914k"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

@@ -497,6 +497,7 @@ import {
   listAllAutoJoinEnabled,
   setMeetingStatus,
   createMeeting,
+  setMeetingCreatedAt,
   setMeetingSfUrl,
   setMeetingSfRecorded,
   smartLinksByEventIds,
@@ -19874,6 +19875,39 @@ app.get("/api/meetings/:id/recording", async (req, res) => {
 });
 
 // 履歴：文字起こしから要約＋営業フィードバックを生成して保存
+// 議事録テキストを商談履歴として取り込む（Recallを使わず、貼り付け/アップロードしたテキストから商談を作る）
+app.post("/api/meetings/from-text", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const text = String(b.transcript || b.text || "").trim();
+    if (!text) return res.status(400).json({ error: "議事録テキストがありません" });
+    const title = String(b.title || "").trim() || "（無題の商談）";
+    const repName = String(b.repName || b.rep_name || "").trim();
+    // 「話者: 発言」の形なら話者を分ける。無ければ1行=1発言。
+    const segs = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+      const mm = l.match(/^([^:：]{1,20})[:：]\s*(.+)$/);
+      return mm ? { speaker: { name: mm[1].trim() }, text: mm[2].trim() } : { speaker: { name: "" }, text: l };
+    });
+    if (!segs.length) return res.status(400).json({ error: "議事録テキストがありません" });
+    const botId = `text-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await createMeeting(botId, { meetingUrl: "", repName, title, owner: req.user });
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(b.date || ""))) {
+      await setMeetingCreatedAt(botId, new Date(b.date + "T10:00:00+09:00").toISOString()).catch(() => {});
+    }
+    await saveMeeting(botId, { transcript: segs });
+    // 要約＋営業フィードバックを生成して保存（失敗しても商談は残る）
+    try {
+      const joined = segs.map((u) => `${u.speaker?.name || "話者"}: ${u.text}`).join("\n").slice(-12000);
+      const speakers = [...new Set(segs.map((u) => u.speaker?.name).filter(Boolean))];
+      const dateStr = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      const result = await analyzeMeeting({ transcript: joined, repName, dateStr, speakers });
+      await saveAnalysis(botId, result);
+    } catch (e) { console.warn("[from-text analyze]", e.message); }
+    console.log(`[meetings] 議事録テキストから商談を作成 ${botId}（${title}）by ${req.user}`);
+    res.json({ ok: true, botId });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/meetings/:id/analyze", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
@@ -20009,7 +20043,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14j クローザーへのアポ割り振りで、カレンダーに「リスケ」「キャンセル」の予定があってもその時間は空きとみなして割り振れるように修正した。以前はGoogleの空き情報を使っていて予定名で除外できず、キャンセル予定でも埋まり扱いになり割り振れないことがあった。参加拒否・終日も空き扱い。";
+const BUILD_TAG = "2026-09-14k 議事録テキストから商談履歴を作れるようにした。レコーディング画面に「議事録から記録」タブを追加。商談名・日付・担当・議事録テキスト（貼り付け or .txt 読み込み）を入れて取り込むと、要約・分析を作成して商談履歴に保存する（Recall不要）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

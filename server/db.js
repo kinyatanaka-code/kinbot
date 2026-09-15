@@ -1467,6 +1467,12 @@ export async function createMeeting(botId, { meetingUrl, repName, title, owner, 
   }
 }
 
+// 取り込んだ議事録などで、商談の日時を指定の日に合わせる。
+export async function setMeetingCreatedAt(botId, iso) {
+  if (!pool || !botId || !iso) return;
+  try { await pool.query(`UPDATE meetings SET created_at=$2, updated_at=now() WHERE bot_id=$1`, [botId, iso]); }
+  catch (e) { console.error("[db] setMeetingCreatedAt", e.message); }
+}
 export async function saveMeeting(botId, { transcript, summary, suggestions, aiLog, metrics }) {
   if (!pool) return;
   try {

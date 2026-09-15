@@ -314,6 +314,42 @@ if (upBtn) {
   });
 }
 
+// 議事録テキストから記録：.txt を読み込む／貼り付けて、商談履歴に保存する
+const txFile = $("txFile");
+if (txFile) txFile.addEventListener("change", async () => {
+  const f = txFile.files && txFile.files[0]; if (!f) return;
+  try {
+    const t = await f.text();
+    const ta = $("txText"); if (ta) ta.value = t;
+    const ti = $("txTitle"); if (ti && !ti.value) ti.value = String(f.name || "").replace(/\.txt$/i, "");
+  } catch {}
+});
+const txBtn = $("txBtn");
+if (txBtn) txBtn.addEventListener("click", async () => {
+  const text = ($("txText") && $("txText").value || "").trim();
+  const msg = $("txMsg");
+  if (!text) { if (msg) msg.textContent = "議事録テキストを入れてください（.txt を選ぶか貼り付け）"; return; }
+  txBtn.disabled = true; const orig = txBtn.textContent; txBtn.textContent = "取り込み中…";
+  if (msg) msg.textContent = "取り込んでいます…（要約・分析を作成中。少し時間がかかります）";
+  try {
+    const r = await fetch("/api/meetings/from-text", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: ($("txTitle") && $("txTitle").value) || "",
+        date: ($("txDate") && $("txDate").value) || "",
+        repName: ($("txRep") && $("txRep").value) || "",
+        transcript: text,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "取り込めませんでした");
+    if (msg) msg.innerHTML = '取り込みました。<a href="history.html">商談履歴</a>で確認できます。';
+    if ($("txText")) $("txText").value = "";
+    if ($("txTitle")) $("txTitle").value = "";
+  } catch (e) { if (msg) msg.textContent = "取り込みに失敗: " + e.message; }
+  finally { txBtn.disabled = false; txBtn.textContent = orig; }
+});
+
 // 登録リンクをプルダウンに読み込む
 if (els.linkSelect) {
   els.linkSelect.addEventListener("change", () => {
