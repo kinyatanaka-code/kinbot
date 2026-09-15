@@ -11,6 +11,7 @@ import {
   listMeetings,
   getMeeting,
   listUsers,
+  listMembers,
   listRepTeams,
   listAccounts,
   getAccount,
@@ -145,7 +146,7 @@ const CALL_TOOLS = [
       properties: {
         from: { type: "string", description: "開始日 YYYY-MM-DD（任意・省略で今月1日）" },
         to: { type: "string", description: "終了日 YYYY-MM-DD（任意・省略で今日）" },
-        caller: { type: "string", description: "かけた人のメールアドレスで絞り込み（任意）" },
+        caller: { type: "string", description: "かけた人のメールアドレスで絞り込み（任意・省略すると全員分。全員分の取得は管理者・クローザーのみ）" },
         limit: { type: "number", description: "最大件数（任意・既定500・最大2000）" },
       },
     },
@@ -210,6 +211,16 @@ function profileFromMap(map, companyName) {
 export async function callTool(name, args, req) {
   const isAdmin = !!req.isAdmin;
   const owner = isAdmin ? (args && args.owner) || null : req.user;
+  // 架電履歴を「全員分」見られるか：管理者／クローザー／env(KINCALL_MCP_ALL) の許可ユーザー。
+  const canSeeAllCalls = async () => {
+    if (isAdmin) return true;
+    const allow = String(process.env.KINCALL_MCP_ALL || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+    if (allow.includes(String(req.user || "").toLowerCase())) return true;
+    try {
+      const me = (await listMembers().catch(() => [])).find((m) => String(m.email || "").toLowerCase() === String(req.user || "").toLowerCase());
+      return !!(me && Array.isArray(me.roles) && me.roles.includes("closer"));
+    } catch { return false; }
+  };
   switch (name) {
     case "list_deals": {
       const rows = await listDeals({
@@ -316,7 +327,7 @@ export async function callTool(name, args, req) {
       const rows = await recentCallLogs({
         from: (args && args.from) || mFrom,
         to: (args && args.to) || mTo,
-        caller: isAdmin ? (args && args.caller) || "" : req.user,
+        caller: (await canSeeAllCalls()) ? (args && args.caller) || "" : req.user,
         limit: (args && args.limit) || 500,
       });
       const nameMap = await buildNameMap();
