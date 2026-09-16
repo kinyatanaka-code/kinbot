@@ -365,6 +365,7 @@ import {
   nurtureNoDateCount,
   nurtureDiag,
   moveToNurtureLists,
+  revertRecycledJudgeFollow,
   revertFromNurture,
   revertWrongNurture,
   updateRecycleRule,
@@ -2187,6 +2188,9 @@ async function runNurtureAuto(why = "定期") {
   try {
     const r = await moveToNurtureLists({ dryRun: false, createdBy: "auto-nurture" });
     if (r.移動) console.log(`[ナーチャリング] 自動まとめ（${why}）：${r.移動}件`);
+    // ジャッジ・営業フォローだったのにリサイクルへ落ちたものを、ナーチャリングへ戻す（全メンバー）
+    const rev = await revertRecycledJudgeFollow({ dryRun: false, createdBy: "auto-nurture" }).catch(() => null);
+    if (rev && rev.戻した) console.log(`[ナーチャリング] リサイクルから戻し（${why}）：${rev.戻した}件`);
     // 日付は「営業フォロー・ジャッジにした日」に揃える（記録が無いものはリードの作成日）。
     // 入れそこねを毎回ならすので、あとから記録が付いたものも正しい日に直る。
     await backfillNurtureMovedAt({ 全部やり直す: true }).catch(() => {});
@@ -20101,7 +20105,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14o 案件が「申込書回収(SS06)」に進んだときも通知するようにした。通知先は有効商談と同じ（通知先で「有効商談」ON）、メンションは獲得者（インサイド）＋営業担当の両方、対象はインサイド獲得のみ（有効商談と同条件）。1案件につき1回だけ。";
+const BUILD_TAG = "2026-09-14p リサイクルの扱いを2点調整。(1)ナーチャリングに入っているリードは、担当者不在C（1ヶ月）でもリサイクルへ移動しないようにした。(2)ジャッジ・営業フォローだったのにリサイクルへ落ちてしまったリードを、全メンバー分ナーチャリングへ自動で戻すようにした（10分ごとの自動処理）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

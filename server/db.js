@@ -7939,15 +7939,16 @@ export async function groupPeersForTarget(id) {
     return rows.map((r) => r.em).filter(Boolean);
   } catch (e) { console.error("[db] groupPeersForTarget", e.message); return []; }
 }
-// リサイクル移動の対象：担当者不在ランクCのみ（1ヶ月経過）。A・Bは何回不在でも移動しない。
+// リサイクル移動の対象：担当者不在ランクCのみ（1ヶ月経過）。A・Bは移動しない。ナーチャリングに入っているものは移動しない。
 export async function listRankRecycleDue() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT id, assigned_to, absent_rank
-         FROM call_targets
-        WHERE done = false AND absent_rank = 'C' AND absent_rank_at IS NOT NULL
-          AND absent_rank_at <= now() - INTERVAL '1 month'
+      `SELECT t.id, t.assigned_to, t.absent_rank
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE t.done = false AND t.absent_rank = 'C' AND t.absent_rank_at IS NOT NULL
+          AND t.absent_rank_at <= now() - INTERVAL '1 month'
+          AND COALESCE(l.kind,'') <> 'nurture' AND l.name NOT LIKE '【ナーチャリング】%'
         LIMIT 500`);
     return rows;
   } catch (e) { console.error("[db] listRankRecycleDue", e.message); return []; }
@@ -8860,6 +8861,40 @@ export async function moveToNurtureLists({ dryRun = true, createdBy = null } = {
     }
     return { 対象: rows.length, 移動, byMember, dryRun: false };
   } catch (e) { console.error("[db] moveToNurtureLists", e.message); return { 対象: 0, 移動: 0, byMember: [], error: e.message }; }
+}
+
+// ジャッジ・営業フォローだったのにリサイクルへ落ちてしまったリードを、ナーチャリングへ戻す（全メンバー）。
+export async function revertRecycledJudgeFollow({ dryRun = true, createdBy = null } = {}) {
+  if (!pool) return { 対象: 0, 戻した: 0, byMember: [] };
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) AS email
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+          AND ( COALESCE(t.status,'') ILIKE '%営業フォロー%'
+             OR COALESCE(t.stage,'')  ILIKE '%営業フォロー%'
+             OR t.nurture_from_id IS NOT NULL )
+          AND COALESCE(l.kind,'') <> 'nurture'`);
+    const byM = new Map();
+    for (const r of rows) { if (!r.email) continue; if (!byM.has(r.email)) byM.set(r.email, []); byM.get(r.email).push(r.id); }
+    const byMember = [...byM.entries()].map(([email, ids]) => ({ email, 件数: ids.length }));
+    if (dryRun) return { 対象: rows.length, 戻した: 0, byMember, dryRun: true };
+    let 戻した = 0;
+    for (const [email, ids] of byM.entries()) {
+      const list = await ensureNurtureList({ owner: email, createdBy });
+      if (!list) continue;
+      try {
+        // リサイクル状態を解除してナーチャリングへ。ランク・温度もクリア。
+        await pool.query(
+          `UPDATE call_targets
+              SET list_id = $2, assigned_to = $3, stage = NULL, temperature = NULL,
+                  absent_rank = NULL, absent_rank_at = NULL, done = false
+            WHERE id = ANY($1::int[])`, [ids, list.id, email]);
+        戻した += ids.length;
+      } catch (e) { console.error("[db] revertRecycledJudgeFollow move", email, e.message); }
+    }
+    return { 対象: rows.length, 戻した, byMember, dryRun: false };
+  } catch (e) { console.error("[db] revertRecycledJudgeFollow", e.message); return { 対象: 0, 戻した: 0, byMember: [], error: e.message }; }
 }
 
 // ナーチャリングリストのリードを、元のリストへ戻す。
