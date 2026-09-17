@@ -458,6 +458,8 @@ import {
   upsertInsideShift,
   getDailyTargets,
   setDailyTarget,
+  getDailyHours,
+  setDailyHours,
   callSpansByDay,
   upsertIntern,
   deleteIntern,
@@ -3953,6 +3955,11 @@ function resolveTargets(members, targets, rate) {
     return { ...m, calls, auto, isManual, target };
   });
 }
+// 稼働時間の手動上書きを反映する（自動計算より優先）
+function applyHoursOverride(members, hoursMap) {
+  for (const m of members) if (hoursMap && hoursMap[m.name] != null && isFinite(hoursMap[m.name])) m.hours = Math.round(Number(hoursMap[m.name]) * 100) / 100;
+  return members;
+}
 function fmtHoursJa(h) { const r = Math.round(h * 100) / 100; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace(/\.0$/, "")) + "h"; }
 function genDailyTargetText(members, targets, rate) {
   const rows = resolveTargets(members, targets, rate);
@@ -3973,6 +3980,7 @@ app.get("/api/daily/working", async (req, res) => {
   try {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : jstTodayStr();
     const members = await dailyWorkingMembers(date);
+    applyHoursOverride(members, await getDailyHours(date).catch(() => ({})));
     const targets = await getDailyTargets(date).catch(() => ({}));
     const rate = await dailyAvgRate();
     res.json({ ok: true, date, rate, members: resolveTargets(members, targets, rate) });
@@ -3988,6 +3996,15 @@ app.post("/api/daily/target", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 平均アポ率（%）を保存（目標の自動記入に使う）
+app.post("/api/daily/hours", async (req, res) => {
+  try {
+    const who = String(req.body?.who || "").trim();
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.date || "")) ? String(req.body.date) : jstTodayStr();
+    if (!who) return res.status(400).json({ error: "メンバーがありません" });
+    await setDailyHours(who, date, req.body?.hours);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/daily/avg-rate", async (req, res) => {
   try {
     const r = Number(req.body?.rate);
@@ -4000,6 +4017,7 @@ app.get("/api/daily/report", async (req, res) => {
   try {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : jstTodayStr();
     const members = await dailyWorkingMembers(date);
+    applyHoursOverride(members, await getDailyHours(date).catch(() => ({})));
     const targets = await getDailyTargets(date).catch(() => ({}));
     const rate = await dailyAvgRate();
     res.json({ ok: true, date, text: genDailyTargetText(members, targets, rate) });
@@ -4057,6 +4075,7 @@ async function dailyGoalTick() {
     await saveSettings({ dailyGoalSentDay: day }).catch(() => {});
     _lastDailyGoalDay = day;
     const members = await dailyWorkingMembers(day);
+    applyHoursOverride(members, await getDailyHours(day).catch(() => ({})));
     const targets = await getDailyTargets(day).catch(() => ({}));
     const rate = await dailyAvgRate();
     const resolved = resolveTargets(members, targets, rate);
@@ -20124,7 +20143,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14r 非表示にしたリストを、かける画面のリスト選択プルダウンから除外した。あわせて「全てのリード（まとめ）」でも非表示リストのリードを対象外にした（非表示＝架電対象から外れる）。非表示リストの管理・復元はリスト管理から従来どおり可能。";
+const BUILD_TAG = "2026-09-14s デイリー目標で稼働時間も手で変えられるようにした。稼働の欄を入力にして、変えると想定コール（稼働×20）・必要アポ率・生成テキストがその場で更新される。手で入れた稼働時間は保存され、朝8時の通知にも反映される（自動計算より優先）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

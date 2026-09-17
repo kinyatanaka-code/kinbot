@@ -3344,18 +3344,33 @@ async function loadDailyGoal() {
   let html = '<table class="kc-table"><thead><tr><th>メンバー</th><th>区分</th><th>稼働</th><th>アポ目標</th><th>想定コール</th><th>必要アポ率</th></tr></thead><tbody>';
   _dgMembers.forEach((m, i) => {
     const c = Math.round(m.hours * 20); const r = c > 0 ? ((m.target || 0) / c * 100) : 0;
-    html += `<tr><td>${esc(m.name)}</td><td>${roleLbl(m.role)}</td><td>${dgFmtH(m.hours)}</td>` +
+    html += `<tr><td>${esc(m.name)}</td><td>${roleLbl(m.role)}</td>` +
+      `<td><input type="number" step="0.5" min="0" class="kc-input dg-h" data-i="${i}" value="${m.hours}" style="width:64px" />h</td>` +
       `<td><input type="number" min="0" class="kc-input dg-t" data-i="${i}" value="${m.target || 0}" style="width:72px" /></td>` +
       `<td class="dg-calls">${c}</td><td class="dg-rate">${r.toFixed(2)}%</td></tr>`;
   });
   html += "</tbody></table>";
   if (wrap) wrap.innerHTML = html;
+  const dgUpdateRow = (tr, i) => {
+    const m = _dgMembers[i]; const c = Math.round(m.hours * 20); const r = c > 0 ? ((m.target || 0) / c * 100) : 0;
+    const cc = tr.querySelector(".dg-calls"); if (cc) cc.textContent = c;
+    const rc = tr.querySelector(".dg-rate"); if (rc) rc.textContent = r.toFixed(2) + "%";
+    dgRenderText();
+  };
+  wrap.querySelectorAll(".dg-h").forEach((inp) => {
+    inp.addEventListener("input", () => {
+      const i = +inp.dataset.i; const v = Math.max(0, parseFloat(inp.value) || 0); _dgMembers[i].hours = v;
+      dgUpdateRow(inp.closest("tr"), i);
+    });
+    inp.addEventListener("change", () => {
+      const i = +inp.dataset.i;
+      fetch("/api/daily/hours", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ who: _dgMembers[i].name, date, hours: _dgMembers[i].hours }) }).catch(() => {});
+    });
+  });
   wrap.querySelectorAll(".dg-t").forEach((inp) => {
     inp.addEventListener("input", () => {
       const i = +inp.dataset.i; const v = Math.max(0, parseInt(inp.value, 10) || 0); _dgMembers[i].target = v;
-      const tr = inp.closest("tr"); const c = Math.round(_dgMembers[i].hours * 20); const r = c > 0 ? (v / c * 100) : 0;
-      const rc = tr.querySelector(".dg-rate"); if (rc) rc.textContent = r.toFixed(2) + "%";
-      dgRenderText();
+      dgUpdateRow(inp.closest("tr"), i);
     });
     inp.addEventListener("change", () => {
       const i = +inp.dataset.i;

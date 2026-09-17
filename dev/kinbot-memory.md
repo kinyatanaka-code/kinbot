@@ -800,3 +800,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-14 BUILD_TAG=2026-09-14q 録画取りこぼしの自動リカバリを常時稼働。既存 importFromRecall（Recallのbot一覧→doneかつ未商談を取り込み・Recall文字起こし無ければDeepgram/AIで作成）を、recallReconcileTick で30分ごと＋起動3分後に自動実行（fakeReq/Res で呼ぶ、hours:96/max:5、owner=""）。→webhook未達・ボット不調・途中退出でもRecall側に録画があれば商談履歴に自動で載る。※Recallに録画自体が無い（開始前に退出した等）ケースは対象外＝別途 automatic_leave のタイムアウト延長(20260913s)＋要leave理由調査。診断は /api/meetings/import-from-recall（手動）・/api/recall/leave-reason?botId=。版20260914q。
 
 - 2026-09-14 BUILD_TAG=2026-09-14r 非表示リストをかける画面から除外。calls.js loadLists の option生成に !x.hidden を追加（プルダウンに出ない・APIが返す hidden を利用）。db.js listAllLeadsForMember の where に AND NOT COALESCE(l.hidden,false) を追加→「全てのリード（まとめ）」でも非表示リストのリードは対象外。※リスト管理では従来どおり権限者に「非表示中」で表示・復元可（includeHidden）。版20260914r。
+
+- 2026-09-14 BUILD_TAG=2026-09-14s デイリー目標の稼働時間を手動編集可に。db.js daily_hours(who,day,hours PK(who,day))＋getDailyHours(day)/setDailyHours(who,day,hours)。index.js applyHoursOverride(members,map)＝手動上書きを自動計算より優先し /api/daily/working・report・8時 tick で適用。POST /api/daily/hours{who,date,hours}。calls.js 稼働セルを .dg-h 入力に、dgUpdateRow で行のコール(round(h×20))・率(target/コール)・生成テキストを即更新、change で保存。目標(dg-t)も同じ dgUpdateRow を使うよう整理。版20260914s。

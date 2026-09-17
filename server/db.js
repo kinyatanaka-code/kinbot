@@ -226,6 +226,16 @@ export async function initDb() {
       PRIMARY KEY (who, day)
     );
   `);
+  // その日の稼働時間の手動上書き（メンバー名ごと・日ごと・時間）。自動計算より優先する。
+  await sq(`
+    CREATE TABLE IF NOT EXISTS daily_hours (
+      who        TEXT NOT NULL,
+      day        DATE NOT NULL,
+      hours      NUMERIC NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (who, day)
+    );
+  `);
   // 事前ブリーフのキャッシュ（会社ごと。再作成で上書き）
   await sq(`
     CREATE TABLE IF NOT EXISTS deal_briefs (
@@ -1976,6 +1986,24 @@ export async function setDailyTarget(who, day, target) {
        ON CONFLICT (who, day) DO UPDATE SET target=$3, updated_at=now()`,
       [String(who), day, Math.max(0, parseInt(target, 10) || 0)]);
   } catch (e) { console.error("[db] setDailyTarget", e.message); }
+}
+// 稼働時間の手動上書き（時間）。
+export async function getDailyHours(day) {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(`SELECT who, hours FROM daily_hours WHERE day=$1`, [day]);
+    const out = {}; for (const r of rows) out[r.who] = Number(r.hours); return out;
+  } catch { return {}; }
+}
+export async function setDailyHours(who, day, hours) {
+  if (!pool || !who || !day) return;
+  const h = Math.max(0, Math.round((Number(hours) || 0) * 100) / 100);
+  try {
+    await pool.query(
+      `INSERT INTO daily_hours (who, day, hours, updated_at) VALUES ($1,$2,$3,now())
+       ON CONFLICT (who, day) DO UPDATE SET hours=$3, updated_at=now()`,
+      [String(who), day, h]);
+  } catch (e) { console.error("[db] setDailyHours", e.message); }
 }
 // 架電ログから、かけた人×日ごとの最初/最後の架電時刻（JST・HH:MM）と件数を返す（出退勤の推定に使う）。
 export async function callSpansByDay(fromDay, toDay) {
