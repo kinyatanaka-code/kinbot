@@ -58,7 +58,7 @@ async function loadLists() {
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
     const specialOpt = `<option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
     sel.innerHTML = allOpt + (items.length
-      ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル"; })
+      ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !x.hidden; })
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
     if (keep && (["all", "archive", "recycle"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;

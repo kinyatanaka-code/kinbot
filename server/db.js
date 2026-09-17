@@ -4224,7 +4224,7 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
     const p = [String(member).toLowerCase()];
     // そのメンバーが「持ち主のリスト」＋「自分に配られた（担当の）架電先」を対象にする。
     // これで、リストを所有していない人（配られただけの人）でもまとまって出る。
-    let where = `(l.owner = $1 OR lower(coalesce(t.assigned_to,'')) = $1) AND NOT l.closed`;
+    let where = `(l.owner = $1 OR lower(coalesce(t.assigned_to,'')) = $1) AND NOT l.closed AND NOT COALESCE(l.hidden, false)`;
     if (q) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
