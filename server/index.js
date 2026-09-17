@@ -10365,6 +10365,25 @@ async function importFromRecall(req, res) {
   } catch (e) { res.status(500).json({ error: e.message }); }
 }
 
+// 【録画を絶対に落とさないための自動リカバリ】30分ごとに、Recallに録画があるのに商談になっていないものを自動で取り込む。
+// webhookの取りこぼし・ボットの不調・途中退出でも、Recall側に録画が残っていれば拾い直す。
+let _recallRecoverBusy = false;
+async function recallReconcileTick() {
+  if (_recallRecoverBusy) return;
+  _recallRecoverBusy = true;
+  try {
+    let captured = null;
+    const fakeReq = { body: { hours: 96, max: 5 }, user: "" };
+    const fakeRes = { json: (x) => { captured = x; }, status: () => ({ json: (x) => { captured = x; } }) };
+    await importFromRecall(fakeReq, fakeRes);
+    const n = captured && captured.結果 ? captured.結果.filter((r) => String(r.状態 || "").includes("取り込みました")).length : 0;
+    if (n) console.log(`[録画リカバリ] Recallから ${n}件を自動取り込みしました`);
+  } catch (e) { console.warn("[録画リカバリ]", e.message); }
+  finally { _recallRecoverBusy = false; }
+}
+setInterval(() => { recallReconcileTick(); }, 30 * 60 * 1000);   // 30分ごと
+setTimeout(() => { recallReconcileTick(); }, 3 * 60 * 1000);     // 起動3分後に一度
+
 // 【点検用】Recallのbotの中身をそのまま見る（文字起こしがどこにあるか調べる）
 app.get("/api/meetings/_botdiag", async (req, res) => {
   try {
@@ -20105,7 +20124,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14p リサイクルの扱いを2点調整。(1)ナーチャリングに入っているリードは、担当者不在C（1ヶ月）でもリサイクルへ移動しないようにした。(2)ジャッジ・営業フォローだったのにリサイクルへ落ちてしまったリードを、全メンバー分ナーチャリングへ自動で戻すようにした（10分ごとの自動処理）。";
+const BUILD_TAG = "2026-09-14q 録画の取りこぼし対策を強化。Recallに録画があるのに商談になっていないもの（webhook取りこぼし・ボット不調・途中退出など）を、30分ごとに自動で取り込み直すリカバリを常時稼働にした。手動の「Recallから取り込み直す」を裏で定期実行する形。録画が残っていれば必ず商談履歴に載る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
