@@ -90,16 +90,16 @@ async function loadTable() {
     // リストを選んでいなくても、管理者は探す欄から全メンバーのリストを横断して探せる
     const q0 = ($("clFind") && $("clFind").value || "").trim();
     box.innerHTML = '<div class="empty-state">リストを選んでください。</div>' +
-      (canFindAll && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
-    if (canFindAll && q0.length >= 2) findAcrossMembers();
+      (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
+    if (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2) findAcrossMembers();
     return;
   }
   if (listId === "all" || listId === "archive" || listId === "recycle") selectedIds.clear();
   {
     const q0 = ($("clFind") && $("clFind").value || "").trim();
     box.innerHTML = '<div class="empty-state">読み込んでいます…</div>' +
-      (canFindAll && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
-    if (canFindAll && q0.length >= 2) findAcrossMembers();   // 自分のリストの読み込みを待たずに、横断で先に探す
+      (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
+    if (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2) findAcrossMembers();   // 自分のリストの読み込みを待たずに、横断で先に探す
   }
   try {
     const q = $("clFind") && $("clFind").value.trim();
@@ -118,6 +118,7 @@ async function loadTable() {
 
 // 絞り込みと並べ替えの状態
 let canFindAll = false;              // 全メンバーのリストを横断して探せる人（管理者）
+let _isTanaka = false;               // 田中欽也（全てのリードで全メンバー横断・kcAllHitは重複するので出さない）
 const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {} };
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
@@ -519,8 +520,8 @@ function render() {
   if (!rows.length) {
     const q0 = ($("clFind") && $("clFind").value || "").trim();
     box.innerHTML = `<div class="empty-state">${q0 ? "自分のリストには見つかりませんでした。" : "リストを選んでください。"}</div>` +
-      (canFindAll && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
-    if (canFindAll && q0.length >= 2) findAcrossMembers();
+      (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2 ? '<div class="kc-allhit" id="kcAllHit"></div>' : "");
+    if (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2) findAcrossMembers();
     return;
   }
   const apoN = fullList.filter(isApoDone).length;
@@ -554,7 +555,7 @@ function render() {
      </div>` : "") +
     `<div class="kc-tablewrap"><table class="kc-table${listId !== "all" ? " kc-has-check" : ""}">
       <tr>
-        ${listId !== "all" ? `<th class="kc-th-c kc-fx-check" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>` : ""}
+        <th class="kc-th-c kc-fx-check" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>
         <th class="kc-th-s kc-fx-stage"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
         <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
         <th class="kc-th-p">担当者</th>
@@ -590,7 +591,7 @@ function render() {
         : "";
       return 区切り + かけ区切り + `
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
-        ${listId !== "all" ? `<td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>` : ""}
+        <td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${absentRankBadge(x)}${doneBadge(x)}${bizBadge(x)}${fromBadge(x)}${
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
@@ -610,7 +611,7 @@ function render() {
         }).join("")}
       </tr>`;
     }).join("") + (list.length ? "" : `<tr><td colspan="99" style="text-align:center;padding:26px 10px;color:#7d8c86">この条件に当てはまるものがありません。見出しの「▾」から絞り込みを変えられます。<br><button type="button" class="btn ghost" id="kcFiltReset" style="margin-top:10px">絞り込みをすべて解除</button></td></tr>`) + `</table></div>` +
-    (canFindAll && ($("clFind") && $("clFind").value.trim().length >= 2)
+    (canFindAll && !(_isTanaka && listId === "all") && ($("clFind") && $("clFind").value.trim().length >= 2)
       ? `<div class="kc-allhit" id="kcAllHit"></div>` : "");
 
   // 見出しの絞り込み・並べ替え
@@ -691,7 +692,7 @@ function render() {
   const hideBtn = $("kcHideApo");
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
   // 管理者だけ：いまのリストに無くても、他のメンバーのリストから探せる
-  if (canFindAll && $("kcAllHit")) { _allHitFor = ""; findAcrossMembers(); }
+  if (canFindAll && !(_isTanaka && listId === "all") && $("kcAllHit")) { _allHitFor = ""; findAcrossMembers(); }
   const fReset = $("kcFiltReset");
   if (fReset) fReset.addEventListener("click", () => {
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
@@ -3772,6 +3773,7 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
     iAmAdmin = !!(me && me.admin);
     canHideList = !!(me && (me.admin || me.canHideLists));
     canFindAll = !!(me && me.admin);
+    _isTanaka = !!(me && String(me.username || "").toLowerCase() === "kinya.tanaka@neo-career.co.jp");
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
         .forEach((el) => el.remove());
