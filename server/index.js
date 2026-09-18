@@ -10404,8 +10404,16 @@ async function recallReconcileTick() {
   } catch (e) { console.warn("[録画リカバリ]", e.message); }
   finally { _recallRecoverBusy = false; }
 }
-setInterval(() => { recallReconcileTick(); }, 30 * 60 * 1000);   // 30分ごと
-setTimeout(() => { recallReconcileTick(); }, 3 * 60 * 1000);     // 起動3分後に一度
+// 【一時停止】自動リカバリは過去ぶんの未取り込みボット（既定名「議事録」）まで取り込み、
+// 取り込み時刻＝今日として「今日の商談」に大量に出てしまうため止めている。
+// 特定の録画が失われたときは手動の「Recallから取り込み直す」(/api/meetings/import-from-recall) を使う。
+// 再開する場合は「取り込む対象を本当の商談だけに絞る」「作成日時を録画時刻にそろえる」対応が必要。
+// setInterval(() => { recallReconcileTick(); }, 30 * 60 * 1000);
+// setTimeout(() => { recallReconcileTick(); }, 3 * 60 * 1000);
+if (process.env.RECALL_AUTO_RECOVER === "1") {
+  setInterval(() => { recallReconcileTick(); }, 30 * 60 * 1000);
+  setTimeout(() => { recallReconcileTick(); }, 3 * 60 * 1000);
+}
 
 // 【点検用】Recallのbotの中身をそのまま見る（文字起こしがどこにあるか調べる）
 app.get("/api/meetings/_botdiag", async (req, res) => {
@@ -20147,7 +20155,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14v 田中の全メンバー検索を安定化。全てのリードで検索したとき、検索結果が一瞬で消える原因（横断検索の別枠kcAllHitが二重に走り再描画で消えていた）を、田中の全てのリード時はkcAllHitを出さないことで解消。あわせて「全てのリード」でもチェックボックスを表示し、見つけたリードを選んで他のリストへ移せるようにした。";
+const BUILD_TAG = "2026-09-14w 「議事録」の商談が今日の商談に大量に出る件を止めた。原因は先日入れたRecallからの自動リカバリ（30分ごと）が、過去の未取り込みボット（既定名『議事録』）まで取り込み、取り込み時刻＝今日として今日の商談に並べていたこと。自動リカバリは既定オフにし、必要時のみ手動の『Recallから取り込み直す』を使う形に戻した。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
