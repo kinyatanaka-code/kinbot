@@ -198,6 +198,7 @@ import {
   createCallList,
   listCallTargets,
   listAllLeadsForMember,
+  searchAllLeadsGlobal,
   removeMyCallTargets,
   assignCallTargets,
   deleteCallTargets,
@@ -9164,10 +9165,13 @@ app.get("/api/calls/targets", async (req, res) => {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
       if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
-      rows = await listAllLeadsForMember(member, {
-        q: String(req.query.q || ""),
-        limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
-      });
+      const q = String(req.query.q || "").trim();
+      // 田中だけは、検索したときに全メンバーの全リードから探せる
+      if (q && String(req.user || "").toLowerCase() === "kinya.tanaka@neo-career.co.jp") {
+        rows = await searchAllLeadsGlobal({ q, limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000) });
+      } else {
+        rows = await listAllLeadsForMember(member, { q, limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000) });
+      }
     } else {
       const listId = parseInt(listParam, 10);
       if (!listId) return res.status(400).json({ error: "リストを選んでください" });
@@ -20143,7 +20147,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14s デイリー目標で稼働時間も手で変えられるようにした。稼働の欄を入力にして、変えると想定コール（稼働×20）・必要アポ率・生成テキストがその場で更新される。手で入れた稼働時間は保存され、朝8時の通知にも反映される（自動計算より優先）。";
+const BUILD_TAG = "2026-09-14t 田中欽也だけ、かける画面の「全てのリード」で検索したときに、全メンバーの全リードから探せるようにした（検索語を入れたときのみ全員横断・自分のリストに無くても見つかる）。他のメンバーは従来どおり自分のリストのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

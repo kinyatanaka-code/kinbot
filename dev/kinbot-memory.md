@@ -802,3 +802,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-14 BUILD_TAG=2026-09-14r 非表示リストをかける画面から除外。calls.js loadLists の option生成に !x.hidden を追加（プルダウンに出ない・APIが返す hidden を利用）。db.js listAllLeadsForMember の where に AND NOT COALESCE(l.hidden,false) を追加→「全てのリード（まとめ）」でも非表示リストのリードは対象外。※リスト管理では従来どおり権限者に「非表示中」で表示・復元可（includeHidden）。版20260914r。
 
 - 2026-09-14 BUILD_TAG=2026-09-14s デイリー目標の稼働時間を手動編集可に。db.js daily_hours(who,day,hours PK(who,day))＋getDailyHours(day)/setDailyHours(who,day,hours)。index.js applyHoursOverride(members,map)＝手動上書きを自動計算より優先し /api/daily/working・report・8時 tick で適用。POST /api/daily/hours{who,date,hours}。calls.js 稼働セルを .dg-h 入力に、dgUpdateRow で行のコール(round(h×20))・率(target/コール)・生成テキストを即更新、change で保存。目標(dg-t)も同じ dgUpdateRow を使うよう整理。版20260914s。
+
+- 2026-09-14 BUILD_TAG=2026-09-14t 田中だけ全メンバーの全リード検索可。db.js searchAllLeadsGlobal({q,limit})＝call_targets JOIN call_lists で NOT closed/NOT hidden かつ company/person/phone/email ILIKE q、owner絞りなし・全員横断、重複まとめ、qが空なら空配列（全件ダンプ防止）。index.js GET /api/calls/targets の list=all 分岐で、q有り かつ req.user=="kinya.tanaka@neo-career.co.jp" のとき searchAllLeadsGlobal、それ以外は従来 listAllLeadsForMember。→田中は自分のリストに無くても他メンバーのリードを検索でヒットできる。他メンバーは従来どおり。版20260914t。

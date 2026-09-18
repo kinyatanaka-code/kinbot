@@ -4244,6 +4244,40 @@ export async function listCallTargets(listId, { q = "", limit = 500, assignedTo 
   } catch (e) { console.error("[db] listCallTargets", e.message); return []; }
 }
 
+// 全メンバー横断で架電先を検索する（田中だけが使う。検索語が無いときは何も返さない）。
+export async function searchAllLeadsGlobal({ q = "", limit = 2000 } = {}) {
+  if (!pool) return [];
+  const term = String(q || "").trim();
+  if (!term) return [];
+  try {
+    const p = [`%${term.replace(/[%_]/g, "")}%`];
+    const { rows } = await pool.query(
+      `SELECT t.*,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
+              (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
+              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時,
+              l.owner AS リスト所有者, l.name AS リスト名
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE NOT l.closed AND NOT COALESCE(l.hidden, false)
+          AND (t.company ILIKE $1 OR t.person ILIKE $1 OR t.phone ILIKE $1 OR t.email ILIKE $1)
+        ORDER BY t.done, t.id
+        LIMIT 5000`, p);
+    const seen = new Set(); const out = [];
+    const norm = (s) => String(s || "").replace(/[\s　]/g, "").replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "").toLowerCase();
+    for (const r of rows) {
+      const keys = []; const lid = String(r.lead_id || "").trim(); if (lid) keys.push("lead:" + lid);
+      const tel = String(r.phone || "").replace(/[^\d]/g, ""); const co = norm(r.company);
+      if (tel.length >= 9 && co) keys.push("cp:" + co + "|" + tel);
+      if (keys.length && keys.some((k) => seen.has(k))) continue;
+      for (const k of keys) seen.add(k);
+      out.push(r);
+      if (out.length >= Math.max(1, Math.min(2000, limit))) break;
+    }
+    return out;
+  } catch (e) { console.error("[db] searchAllLeadsGlobal", e.message); return []; }
+}
+
 // 「全てのリード」用：そのメンバーが持ち主（作成者）の全リストの架電先を、まとめて返す。
 // 重複（同じ会社＋電話／同じリード）は1件にまとめる。実体のリストではなく、横断表示用。
 export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {}) {
