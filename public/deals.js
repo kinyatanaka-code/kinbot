@@ -2926,6 +2926,13 @@ async function initSfTab(account) {
             if (!isNaN(n)) fields[api] = n;
             return;
           }
+          if (t === "datetime") {
+            // datetime-local（YYYY-MM-DDTHH:MM・端末のローカル＝日本時間）を、SFが受け取れるISO(UTC)に変換
+            const dd = new Date(val);
+            fields[api] = isNaN(dd.getTime()) ? val : dd.toISOString();
+            return;
+          }
+          if (t === "date") { fields[api] = val.slice(0, 10); return; }
           fields[api] = val;
         });
         // 「不足項目を入力して再更新」で入れた項目も一緒に送る（別々に送るとバリデーションで弾かれるため）
@@ -3620,7 +3627,8 @@ function renderSSFieldsStatic(stageName) {
     html += fields.map((f) => {
       const currentVal = sfLinkedOpp?.[f.api] || "";
       if (f.type === "textarea") return `<div class="sf-field"><label>${esc(f.label)}</label><textarea class="sf-textarea" data-sf-field="${f.api}" rows="2">${esc(currentVal)}</textarea></div>`;
-      if (f.type === "date" || f.type === "datetime") return `<div class="sf-field"><label>${esc(f.label)}</label><input type="date" class="sf-input" data-sf-field="${f.api}" value="${esc(String(currentVal).slice(0, 10))}" /></div>`;
+      if (f.type === "date") return `<div class="sf-field"><label>${esc(f.label)}</label><input type="date" class="sf-input" data-sf-field="${f.api}" value="${esc(String(currentVal).slice(0, 10))}" /></div>`;
+      if (f.type === "datetime") return `<div class="sf-field"><label>${esc(f.label)}</label><input type="datetime-local" class="sf-input" data-sf-field="${f.api}" value="${esc(String(currentVal).replace(" ", "T").slice(0, 16))}" /></div>`;
       return `<div class="sf-field"><label>${esc(f.label)}</label><input type="text" class="sf-input" data-sf-field="${f.api}" value="${esc(currentVal)}" /></div>`;
     }).join("");
     html += `</div>`;
