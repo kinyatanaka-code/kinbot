@@ -815,3 +815,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 - 2026-09-14 BUILD_TAG=2026-09-14y デイリー目標(アポ目標)の8時通知を土日祝日・休業日はスキップ。dailyGoalTick で j.getUTCDay()==0/6 or JP_HOLIDAYS[day] or settings.closedDays.includes(day) なら _lastDailyGoalDay=day にして return（通知なし）。平日のみ通知。版20260914y。
 - ※未pushの警告：GitHub PAT失効で push が「Invalid username or token」。20260914x(SF MCPツール sf_query/sf_update/sf_create)と 20260914y(この土日祝日スキップ)はローカルコミット済みだが未push＝未デプロイ。新しいPATが必要。
+
+- 2026-09-19 BUILD_TAG=2026-09-19a 外部WebアプリからのSF連携HTTP APIを追加（ASUMO→kinbot→SF）。index.js に POST /api/sf/query（SOQL・SELECTのみ）・/api/sf/update・/api/sf/create。認証はBearerトークン(API_TOKENS)、権限 canUseSfHttp(req)=isAdmin||KINBOT_SF_MCP(env)||kinya.tanaka||isCloserUser。owner=settings.sfProxyUser||req.user。書き込み対象は SF_HTTP_WRITE_OBJECTS（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case/Campaign/CampaignMember）限定。salesforce.js の sfQuery/sfUpdateRecord/sfCreateRecord を再利用（import追加）。相手アプリにSF資格情報を渡さずkinbotがゲートウェイ。サーバー間呼び出し前提（トークン秘匿）。ブラウザ直叩きはCORS要検討（現状未対応）。版20260919a。

@@ -632,7 +632,8 @@ import {
   createContactRole,
   describeContactRolePicklist,
   fillEmptyFields,
-  createTaskIdempotent, createOpportunity, firstOpportunityStage, snapshotLead, deleteRecord, isFreshlyCreated } from "./salesforce.js";
+  createTaskIdempotent, createOpportunity, firstOpportunityStage, snapshotLead, deleteRecord, isFreshlyCreated,
+  sfUpdateRecord, sfCreateRecord } from "./salesforce.js";
 import {
   authEnabled,
   getUser,
@@ -4393,6 +4394,50 @@ app.put("/api/smart-links/:slug/excluded", async (req, res) => {
 
     res.json({ ok: true, excluded: row.excluded, calendar, chat });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== 外部ツール向け Salesforce API（kinbot経由でSFを読み書き。ASUMO等のWebアプリから Bearer トークンで叩く） =====
+const SF_HTTP_WRITE_OBJECTS = new Set(["Opportunity", "Lead", "Account", "Contact", "Task", "Event", "OpportunityLineItem", "Case", "Campaign", "CampaignMember"]);
+async function canUseSfHttp(req) {
+  if (req.isAdmin) return true;
+  const u = String(req.user || "").toLowerCase();
+  const allow = String(process.env.KINBOT_SF_MCP || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (allow.includes(u) || u === "kinya.tanaka@neo-career.co.jp") return true;
+  try { return await isCloserUser(req.user).catch(() => false); } catch { return false; }
+}
+async function sfHttpOwner(req) {
+  const st = await getSettings().catch(() => ({}));
+  return String(st.sfProxyUser || req.user || "").trim();
+}
+// SOQLで読み取り
+app.post("/api/sf/query", async (req, res) => {
+  try {
+    if (!(await canUseSfHttp(req))) return res.status(403).json({ error: "Salesforceの操作は許可されていません" });
+    const soql = String(req.body?.soql || "").trim();
+    if (!/^select\s/i.test(soql)) return res.status(400).json({ error: "SOQL（SELECT文）を soql に入れてください" });
+    const d = await sfQuery(await sfHttpOwner(req), soql);
+    res.json({ ok: true, totalSize: d.totalSize, done: d.done, records: d.records || [] });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+// レコード更新
+app.post("/api/sf/update", async (req, res) => {
+  try {
+    if (!(await canUseSfHttp(req))) return res.status(403).json({ error: "Salesforceの更新は許可されていません" });
+    const so = String(req.body?.sobject || "");
+    if (!SF_HTTP_WRITE_OBJECTS.has(so)) return res.status(400).json({ error: `このオブジェクトは更新できません（許可: ${[...SF_HTTP_WRITE_OBJECTS].join(", ")}）` });
+    const r = await sfUpdateRecord(await sfHttpOwner(req), so, String(req.body?.id || ""), req.body?.fields || {});
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+// レコード新規作成
+app.post("/api/sf/create", async (req, res) => {
+  try {
+    if (!(await canUseSfHttp(req))) return res.status(403).json({ error: "Salesforceの作成は許可されていません" });
+    const so = String(req.body?.sobject || "");
+    if (!SF_HTTP_WRITE_OBJECTS.has(so)) return res.status(400).json({ error: `このオブジェクトは作成できません` });
+    const r = await sfCreateRecord(await sfHttpOwner(req), so, req.body?.fields || {});
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
 // ===== Salesforceの自動立ち上げ =====
@@ -20161,7 +20206,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14y 朝8時のデイリー目標（アポ目標）通知を、土日・祝日・休業日には送らないようにした（平日のみ通知）。";
+const BUILD_TAG = "2026-09-19a 外部Webアプリ（ASUMO等）が kinbot 経由でSalesforceを読み書きできるHTTP APIを追加。POST /api/sf/query（SOQL読み取り）・/api/sf/update・/api/sf/create を、Bearerトークン認証で提供。kinbotのSF接続（代理アカウント）を使うので、相手アプリにSFの資格情報を渡さずに連携できる（ASUMO→kinbot→SF）。更新/作成は主要オブジェクト限定・許可ユーザーのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
