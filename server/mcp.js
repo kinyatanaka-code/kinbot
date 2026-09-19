@@ -12,6 +12,7 @@ import {
   getMeeting,
   listUsers,
   listMembers,
+  getSettings,
   listRepTeams,
   listAccounts,
   getAccount,
@@ -23,6 +24,7 @@ import {
   aposTakenInRange,
   callListOverview,
 } from "./db.js";
+import { sfQuery, sfUpdateRecord, sfCreateRecord } from "./salesforce.js";
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
 const PROTOCOL_VERSION = "2025-03-26";
@@ -134,6 +136,22 @@ const TOOLS = [
     },
   },
 
+  {
+    name: "sf_query",
+    description: "SalesforceにSOQLで問い合わせてレコードを取得する（読み取り）。例: SELECT Id, Name, StageName FROM Opportunity WHERE CreatedDate = THIS_MONTH LIMIT 50。kinbotのSF接続（代理アカウント）を使う。許可ユーザー（管理者・クローザー等）のみ。",
+    inputSchema: { type: "object", properties: { soql: { type: "string", description: "実行するSOQL（SELECT文）" } }, required: ["soql"] },
+  },
+  {
+    name: "sf_update",
+    description: "Salesforceのレコードを更新する（書き込み）。オブジェクトAPI名・レコードID・更新フィールドを指定。例: sobject=Opportunity, id=006xxx, fields={StageName:\"02 : 有効商談（3ヵ月以内検討）\"}。許可ユーザーのみ。対象は主要オブジェクト（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case 等）に限定。",
+    inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, id: { type: "string", description: "レコードのSalesforce ID" }, fields: { type: "object", description: "更新するフィールド {API名: 値}" } }, required: ["sobject", "id", "fields"] },
+  },
+  {
+    name: "sf_create",
+    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。許可ユーザーのみ。対象は主要オブジェクトに限定。",
+    inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, fields: { type: "object", description: "作成するフィールド {API名: 値}" } }, required: ["sobject", "fields"] },
+  },
+
 ];
 
 // 架電（kincall）専用ツール。別コネクタ /kincall/mcp で出す（商談ツールと混ざらないように）。
@@ -208,6 +226,20 @@ function profileFromMap(map, companyName) {
 
 // ---- ツール実行 ----
 // ChatGPT Custom GPT Actions 用の REST ラッパー(gpt_actions.js)からも再利用する。
+// SF連携ツール（許可ユーザーのみ）。更新できるオブジェクトは主要なものに限定。
+const SF_WRITE_OBJECTS = new Set(["Opportunity", "Lead", "Account", "Contact", "Task", "Event", "OpportunityLineItem", "Case", "Campaign", "CampaignMember"]);
+async function canUseSf(req) {
+  if (req.isAdmin) return true;
+  const u = String(req.user || "").toLowerCase();
+  const allow = String(process.env.KINBOT_SF_MCP || "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+  if (allow.includes(u) || u === "kinya.tanaka@neo-career.co.jp") return true;
+  try { const me = (await listMembers().catch(() => [])).find((m) => String(m.email || "").toLowerCase() === u); return !!(me && Array.isArray(me.roles) && me.roles.includes("closer")); } catch { return false; }
+}
+async function sfOwnerFor(req) {
+  const st = await getSettings().catch(() => ({}));
+  return String(st.sfProxyUser || req.user || "").trim();
+}
+
 export async function callTool(name, args, req) {
   const isAdmin = !!req.isAdmin;
   const owner = isAdmin ? (args && args.owner) || null : req.user;
@@ -354,6 +386,26 @@ export async function callTool(name, args, req) {
         獲得者: resolveDisplayName(a.setter_email || a.setter, nameMap), 現担当: resolveDisplayName(a.current_owner, nameMap),
         商談予定日: a.start_time, 取得日: a.taken_at,
       }));
+    }
+    case "sf_query": {
+      if (!(await canUseSf(req))) throw new Error("Salesforceの操作は許可されていません（管理者・クローザー等の許可ユーザーのみ）");
+      const owner = await sfOwnerFor(req);
+      const d = await sfQuery(owner, String(args && args.soql || ""));
+      return { records: (d && d.records) || [], totalSize: d && d.totalSize, done: d && d.done };
+    }
+    case "sf_update": {
+      if (!(await canUseSf(req))) throw new Error("Salesforceの更新は許可されていません");
+      const so = String(args && args.sobject || "");
+      if (!SF_WRITE_OBJECTS.has(so)) throw new Error(`このオブジェクトは更新できません（許可: ${[...SF_WRITE_OBJECTS].join(", ")}）`);
+      const owner = await sfOwnerFor(req);
+      return await sfUpdateRecord(owner, so, String(args.id || ""), (args && args.fields) || {});
+    }
+    case "sf_create": {
+      if (!(await canUseSf(req))) throw new Error("Salesforceの作成は許可されていません");
+      const so = String(args && args.sobject || "");
+      if (!SF_WRITE_OBJECTS.has(so)) throw new Error(`このオブジェクトは作成できません（許可: ${[...SF_WRITE_OBJECTS].join(", ")}）`);
+      const owner = await sfOwnerFor(req);
+      return await sfCreateRecord(owner, so, (args && args.fields) || {});
     }
     default:
       throw new Error(`不明なツール: ${name}`);

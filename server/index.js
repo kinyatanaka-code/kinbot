@@ -20155,7 +20155,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14w 「議事録」の商談が今日の商談に大量に出る件を止めた。原因は先日入れたRecallからの自動リカバリ（30分ごと）が、過去の未取り込みボット（既定名『議事録』）まで取り込み、取り込み時刻＝今日として今日の商談に並べていたこと。自動リカバリは既定オフにし、必要時のみ手動の『Recallから取り込み直す』を使う形に戻した。";
+const BUILD_TAG = "2026-09-14x kinbotのSalesforce連携を、他の許可ツール（Claude等のMCP）から使えるようにした。kinbotのMCPに sf_query（SOQL読み取り）・sf_update（更新）・sf_create（新規作成）を追加。kinbotのSF接続（代理アカウント）経由でSFを読み書きできる（＝SF→kinbot→Claude）。更新/作成は主要オブジェクトに限定し、使えるのは管理者・クローザー・許可ユーザーのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

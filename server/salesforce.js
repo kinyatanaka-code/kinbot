@@ -316,6 +316,38 @@ export async function updateOpportunity(owner, id, fields) {
   return { ok: true };
 }
 
+// 任意オブジェクトのレコードを更新する（PATCH）。
+export async function sfUpdateRecord(owner, sobject, id, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const so = String(sobject || "").replace(/[^A-Za-z0-9_]/g, "");
+  const rid = String(id || "").replace(/[^A-Za-z0-9]/g, "");
+  if (!so || !rid) throw new Error("オブジェクト名かレコードIDが不正です");
+  const res = await fetch(`${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/${so}/${rid}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+    body: JSON.stringify(fields || {}),
+  });
+  if (res.status === 204) return { ok: true, id: rid };
+  if (!res.ok) throw new Error(`SF update ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  return { ok: true, id: rid };
+}
+// 任意オブジェクトのレコードを新規作成する（POST）。
+export async function sfCreateRecord(owner, sobject, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const so = String(sobject || "").replace(/[^A-Za-z0-9_]/g, "");
+  if (!so) throw new Error("オブジェクト名が不正です");
+  const res = await fetch(`${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/${so}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" },
+    body: JSON.stringify(fields || {}),
+  });
+  const d = await res.json().catch(() => ({}));
+  if (!res.ok || d.success === false) throw new Error(`SF create ${res.status}: ${JSON.stringify(d).slice(0, 300)}`);
+  return { ok: true, id: d.id };
+}
+
 // SOQL クエリ実行
 export async function sfQuery(owner, soql) {
   const acc = await getAccess(owner);
