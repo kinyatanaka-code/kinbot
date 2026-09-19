@@ -4477,65 +4477,84 @@ let GROUPS = [];
 async function loadGroups() {
   try { const d = await (await fetch("/api/calls/groups")).json(); GROUPS = d.items || []; } catch { GROUPS = []; }
 }
-// ===== リスト整理タブ：リストを選んで全件一覧＋所有者変更 =====
+// ===== リスト整理タブ：メンバー列にリストカードをドラッグして所有者を変えるボード =====
 let _orgInit = false;
 let _orgMembers = [];
 async function orgLoadLists() {
-  const sel = $("orgList"); if (!sel) return;
+  const board = $("orgBoard"); if (!board) return;
   if (!_orgInit) { _orgInit = true;
-    if ($("orgReload")) $("orgReload").addEventListener("click", () => { if ($("orgList").value) orgLoadLeads($("orgList").value); });
-    if ($("orgList")) $("orgList").addEventListener("change", () => { const v = $("orgList").value; if (v) orgLoadLeads(v); else { $("orgTable").innerHTML = '<div class="note">リストを選ぶと中身が出ます。</div>'; $("orgOwnerBox").style.display = "none"; } });
-    if ($("orgOwnerSave")) $("orgOwnerSave").addEventListener("click", orgSaveOwner);
+    if ($("orgReload")) $("orgReload").addEventListener("click", orgLoadLists);
+    if ($("orgDetailClose")) $("orgDetailClose").addEventListener("click", () => { $("orgDetail").hidden = true; });
   }
+  board.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
-    const d = await (await fetch("/api/calls/lists-all")).json();
-    const items = d.items || [];
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">リストを選ぶ…</option>' +
-      items.map((x) => `<option value="${x.id}">${esc(x.name)}（${esc(x.owner || "?")}・${x.全部}件）</option>`).join("");
-    if (cur) sel.value = cur;
-  } catch {}
-  if (!_orgMembers.length) { try { const m = await (await fetch("/api/calls/members")).json(); _orgMembers = m.items || []; } catch {} }
-  const os = $("orgOwner");
-  if (os && _orgMembers.length) os.innerHTML = _orgMembers.map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)}</option>`).join("");
+    const ld = await (await fetch("/api/calls/lists-all")).json();
+    const md = await (await fetch("/api/calls/members")).json();
+    const lists = ld.items || [];
+    _orgMembers = md.items || [];
+    const byOwner = new Map();
+    for (const l of lists) { const k = String(l.owner || "").toLowerCase(); if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(l); }
+    const cols = _orgMembers.map((m) => ({ email: String(m.email || "").toLowerCase(), name: m.name || m.email }));
+    const memSet = new Set(cols.map((c) => c.email));
+    for (const o of [...byOwner.keys()].filter((k) => k && !memSet.has(k))) cols.push({ email: o, name: o });
+    if (byOwner.has("")) cols.push({ email: "", name: "未割当" });
+    const bar = (l) => { const t = l.全部 || 0, done = l.済み || 0; const pct = t ? Math.round((t - done) / t * 100) : 0; const col = pct >= 60 ? "#1d9e75" : pct >= 25 ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; };
+    board.innerHTML = cols.map((c) => `
+      <div class="org-col" data-owner="${esc(c.email)}">
+        <div class="org-col-h"><span class="org-ava">${esc(String(c.name || "?").slice(0, 1))}</span><b>${esc(c.name)}</b><span class="org-col-n">${(byOwner.get(c.email) || []).length}</span></div>
+        <div class="org-col-body">${(byOwner.get(c.email) || []).map((l) => `
+            <div class="org-card" draggable="true" data-id="${l.id}" data-name="${esc(l.name)}">
+              <div class="org-card-name">${esc(l.name)}</div>
+              <div class="org-card-meta">全 ${l.全部} / 残 ${l.残り}</div>
+              ${bar(l)}
+            </div>`).join("") || '<div class="org-empty">リストなし</div>'}</div>
+      </div>`).join("");
+    let dragId = null;
+    board.querySelectorAll(".org-card").forEach((card) => {
+      card.addEventListener("dragstart", (e) => { dragId = card.dataset.id; card.classList.add("dragging"); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; });
+      card.addEventListener("dragend", () => { dragId = null; card.classList.remove("dragging"); board.querySelectorAll(".org-col").forEach((c) => c.classList.remove("over")); });
+      card.addEventListener("click", () => orgLoadLeads(card.dataset.id, card.dataset.name));
+    });
+    board.querySelectorAll(".org-col").forEach((col) => {
+      col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
+      col.addEventListener("dragleave", () => col.classList.remove("over"));
+      col.addEventListener("drop", async (e) => {
+        e.preventDefault(); col.classList.remove("over");
+        const id = dragId, owner = col.dataset.owner; dragId = null;
+        if (!id) return;
+        const card = board.querySelector(`.org-card[data-id="${id}"]`);
+        const nm = card ? card.dataset.name : "";
+        const targetName = (col.querySelector(".org-col-h b") || {}).textContent || owner || "その他";
+        if (!owner) { alert("移動先の担当者が特定できません"); return; }
+        if (!confirm(`「${nm}」を ${targetName} に移しますか？（このリストの担当も ${targetName} にそろえます）`)) return;
+        const st = $("orgOwnerSt"); if (st) st.textContent = "移動中…";
+        try {
+          const r = await fetch(`/api/calls/lists/${encodeURIComponent(id)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) });
+          const d = await r.json(); if (!r.ok) throw new Error(d.error || "移せませんでした");
+          if (st) { st.textContent = `${targetName} に移しました`; setTimeout(() => (st.textContent = ""), 2500); }
+          orgLoadLists();
+        } catch (e2) { if (st) st.textContent = "失敗：" + e2.message; }
+      });
+    });
+  } catch (e) { board.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
 }
-async function orgLoadLeads(listId) {
+async function orgLoadLeads(listId, name) {
   const tbl = $("orgTable"); if (!tbl) return;
+  if ($("orgDetail")) $("orgDetail").hidden = false;
+  if ($("orgDetailName")) $("orgDetailName").textContent = name || "リスト";
   tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
-  $("orgOwnerBox").style.display = "none";
   try {
     const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}&limit=20000`)).json();
     const rows = d.items || [];
     if ($("orgCount")) $("orgCount").textContent = `${rows.length.toLocaleString()}件`;
-    // 所有者ボックス（今の所有者を選択）
-    const opt = $("orgList").options[$("orgList").selectedIndex];
-    const ownerNow = (opt && /（([^・]+)・/.exec(opt.textContent) || [])[1] || "";
-    const os = $("orgOwner");
-    if (os) { for (const o of os.options) { if ((o.textContent || "").includes(ownerNow) || o.value.includes(ownerNow)) { os.value = o.value; break; } } }
-    $("orgOwnerBox").style.display = "flex";
     const g = (r, ...keys) => { for (const k of keys) if (r[k]) return String(r[k]); return ""; };
     tbl.innerHTML = rows.length
-      ? '<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev"><thead><tr><th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>最終ステータス</th><th>担当</th></tr></thead><tbody>' +
+      ? '<div class="kc-prev-wrap" style="max-height:56vh"><table class="kc-table kc-prev"><thead><tr><th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>最終ステータス</th><th>担当</th></tr></thead><tbody>' +
         rows.map((r) => `<tr><td>${esc(g(r, "会社名", "company"))}</td><td>${esc(g(r, "担当者", "person"))}</td><td>${esc(g(r, "電話", "電話番号", "phone"))}</td><td>${esc(g(r, "ステージ", "stage"))}</td><td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td><td>${esc(g(r, "担当", "assigned_to"))}</td></tr>`).join("") +
         "</tbody></table></div>"
       : '<div class="empty-state">このリストにリードがありません。</div>';
+    if ($("orgDetail")) $("orgDetail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (e) { tbl.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
-}
-async function orgSaveOwner() {
-  const listId = $("orgList") && $("orgList").value;
-  const owner = $("orgOwner") && $("orgOwner").value;
-  if (!listId || !owner) return;
-  const st = $("orgOwnerSt"); if (st) st.textContent = "変更中…";
-  try {
-    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/owner`, {
-      method: "PUT", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ owner, reassign: !!($("orgReassign") && $("orgReassign").checked) }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || "変えられませんでした");
-    if (st) { st.textContent = "所有者を変えました"; setTimeout(() => (st.textContent = ""), 2000); }
-    orgLoadLists(); orgLoadLeads(listId);
-  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
 }
 
 // グループ別ビュー：あるグループのリストを、メンバー横断で一覧表示（押すとプレビュー）
