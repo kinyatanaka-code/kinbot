@@ -4071,6 +4071,12 @@ async function dailyGoalTick() {
     const day = jstTodayStr();
     if (_lastDailyGoalDay === day) return;               // メモリ上の速い判定
     const st = await getSettings().catch(() => ({}));
+    // 土日・祝日・休業日は通知しない
+    const dow = j.getUTCDay();
+    const closed = Array.isArray(st.closedDays) ? st.closedDays : [];
+    if (dow === 0 || dow === 6 || JP_HOLIDAYS[day] || closed.includes(day)) {
+      _lastDailyGoalDay = day; console.log("[デイリー目標] 土日祝日・休業日のため通知なし", day); return;
+    }
     if (st.dailyGoalSentDay === day) { _lastDailyGoalDay = day; return; } // 再起動後もこれで二重送信を防ぐ
     // 先に「送信済み」を記録してから送る（送信中の再起動でも二重に送らない）
     await saveSettings({ dailyGoalSentDay: day }).catch(() => {});
@@ -20155,7 +20161,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-14x kinbotのSalesforce連携を、他の許可ツール（Claude等のMCP）から使えるようにした。kinbotのMCPに sf_query（SOQL読み取り）・sf_update（更新）・sf_create（新規作成）を追加。kinbotのSF接続（代理アカウント）経由でSFを読み書きできる（＝SF→kinbot→Claude）。更新/作成は主要オブジェクトに限定し、使えるのは管理者・クローザー・許可ユーザーのみ。";
+const BUILD_TAG = "2026-09-14y 朝8時のデイリー目標（アポ目標）通知を、土日・祝日・休業日には送らないようにした（平日のみ通知）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
