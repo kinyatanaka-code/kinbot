@@ -3636,6 +3636,7 @@ function showPane() {
     });
     if (name === "manage") asLoad();
     if (name === "status") loadListStatus();
+    if (name === "organize") orgLoadLists();
     if (name === "find") { const q = $("lsFindQ"); if (q) q.focus(); }
     // リスト作成は、Salesforceのリード一覧をそのまま使う
     if (name === "make") {
@@ -4476,6 +4477,67 @@ let GROUPS = [];
 async function loadGroups() {
   try { const d = await (await fetch("/api/calls/groups")).json(); GROUPS = d.items || []; } catch { GROUPS = []; }
 }
+// ===== リスト整理タブ：リストを選んで全件一覧＋所有者変更 =====
+let _orgInit = false;
+let _orgMembers = [];
+async function orgLoadLists() {
+  const sel = $("orgList"); if (!sel) return;
+  if (!_orgInit) { _orgInit = true;
+    if ($("orgReload")) $("orgReload").addEventListener("click", () => { if ($("orgList").value) orgLoadLeads($("orgList").value); });
+    if ($("orgList")) $("orgList").addEventListener("change", () => { const v = $("orgList").value; if (v) orgLoadLeads(v); else { $("orgTable").innerHTML = '<div class="note">リストを選ぶと中身が出ます。</div>'; $("orgOwnerBox").style.display = "none"; } });
+    if ($("orgOwnerSave")) $("orgOwnerSave").addEventListener("click", orgSaveOwner);
+  }
+  try {
+    const d = await (await fetch("/api/calls/lists-all")).json();
+    const items = d.items || [];
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">リストを選ぶ…</option>' +
+      items.map((x) => `<option value="${x.id}">${esc(x.name)}（${esc(x.owner || "?")}・${x.全部}件）</option>`).join("");
+    if (cur) sel.value = cur;
+  } catch {}
+  if (!_orgMembers.length) { try { const m = await (await fetch("/api/calls/members")).json(); _orgMembers = m.items || []; } catch {} }
+  const os = $("orgOwner");
+  if (os && _orgMembers.length) os.innerHTML = _orgMembers.map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)}</option>`).join("");
+}
+async function orgLoadLeads(listId) {
+  const tbl = $("orgTable"); if (!tbl) return;
+  tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
+  $("orgOwnerBox").style.display = "none";
+  try {
+    const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}&limit=20000`)).json();
+    const rows = d.items || [];
+    if ($("orgCount")) $("orgCount").textContent = `${rows.length.toLocaleString()}件`;
+    // 所有者ボックス（今の所有者を選択）
+    const opt = $("orgList").options[$("orgList").selectedIndex];
+    const ownerNow = (opt && /（([^・]+)・/.exec(opt.textContent) || [])[1] || "";
+    const os = $("orgOwner");
+    if (os) { for (const o of os.options) { if ((o.textContent || "").includes(ownerNow) || o.value.includes(ownerNow)) { os.value = o.value; break; } } }
+    $("orgOwnerBox").style.display = "flex";
+    const g = (r, ...keys) => { for (const k of keys) if (r[k]) return String(r[k]); return ""; };
+    tbl.innerHTML = rows.length
+      ? '<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev"><thead><tr><th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>最終ステータス</th><th>担当</th></tr></thead><tbody>' +
+        rows.map((r) => `<tr><td>${esc(g(r, "会社名", "company"))}</td><td>${esc(g(r, "担当者", "person"))}</td><td>${esc(g(r, "電話", "電話番号", "phone"))}</td><td>${esc(g(r, "ステージ", "stage"))}</td><td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td><td>${esc(g(r, "担当", "assigned_to"))}</td></tr>`).join("") +
+        "</tbody></table></div>"
+      : '<div class="empty-state">このリストにリードがありません。</div>';
+  } catch (e) { tbl.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
+}
+async function orgSaveOwner() {
+  const listId = $("orgList") && $("orgList").value;
+  const owner = $("orgOwner") && $("orgOwner").value;
+  if (!listId || !owner) return;
+  const st = $("orgOwnerSt"); if (st) st.textContent = "変更中…";
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/owner`, {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ owner, reassign: !!($("orgReassign") && $("orgReassign").checked) }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "変えられませんでした");
+    if (st) { st.textContent = "所有者を変えました"; setTimeout(() => (st.textContent = ""), 2000); }
+    orgLoadLists(); orgLoadLeads(listId);
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+
 // グループ別ビュー：あるグループのリストを、メンバー横断で一覧表示（押すとプレビュー）
 async function asLoadGroup(gid, gname) {
   const box = $("asCards");

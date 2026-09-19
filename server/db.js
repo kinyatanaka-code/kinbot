@@ -3850,6 +3850,22 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
 }
 
 // リストの一覧（残り件数つき）
+// 全メンバーのリストをまとめて返す（リスト整理タブのプルダウン用）。
+export async function listAllCallLists() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id, l.name, l.owner, l.group_id,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み
+         FROM call_lists l
+        WHERE NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        ORDER BY l.owner, l.name`);
+    return rows;
+  } catch (e) { console.error("[db] listAllCallLists", e.message); return []; }
+}
+
 // あるグループに属するリストを、メンバー横断でまとめて返す（グループ別ビュー用）。
 export async function listCallListsByGroup(groupId) {
   if (!pool || !groupId) return [];
@@ -4240,7 +4256,7 @@ export async function listCallTargets(listId, { q = "", limit = 500, assignedTo 
       p.push(who);
       where += ` AND (lower(coalesce(t.assigned_to,'')) = $${p.length} OR coalesce(t.assigned_to,'') = '')`;
     }
-    p.push(Math.max(1, Math.min(2000, limit)));
+    p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
       `SELECT t.*,
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
@@ -4287,7 +4303,7 @@ export async function searchAllLeadsGlobal({ q = "", limit = 2000 } = {}) {
       if (keys.length && keys.some((k) => seen.has(k))) continue;
       for (const k of keys) seen.add(k);
       out.push(r);
-      if (out.length >= Math.max(1, Math.min(2000, limit))) break;
+      if (out.length >= Math.max(1, Math.min(20000, limit))) break;
     }
     return out;
   } catch (e) { console.error("[db] searchAllLeadsGlobal", e.message); return []; }
@@ -7983,10 +7999,14 @@ export async function getCallListOwner(listId) {
   try { const { rows } = await pool.query(`SELECT owner FROM call_lists WHERE id=$1`, [listId]); return rows[0] ? (rows[0].owner || null) : null; }
   catch { return null; }
 }
-export async function setCallListOwner(listId, owner) {
-  if (!pool || !listId) return;
-  try { await pool.query(`UPDATE call_lists SET owner=$2 WHERE id=$1`, [listId, owner || null]); }
-  catch (e) { console.error("[db] setCallListOwner", e.message); }
+export async function setCallListOwner(listId, owner, { reassign = false } = {}) {
+  if (!pool || !listId) return null;
+  const em = String(owner || "").trim().toLowerCase() || null;
+  try {
+    const { rows } = await pool.query(`UPDATE call_lists SET owner=$2 WHERE id=$1 RETURNING id, name, owner`, [listId, em]);
+    if (reassign && em) await pool.query(`UPDATE call_targets SET assigned_to=$2 WHERE list_id=$1`, [listId, em]).catch(() => {});
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setCallListOwner", e.message); return null; }
 }
 
 // 連続不在の回数を記録する（5回で自動リサイクル送りの判定に使う）

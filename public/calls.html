@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260919b" />
+    <link rel="stylesheet" href="style.css?v=20260919c" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -224,6 +224,7 @@
             <div class="kc-period-tabs" id="lsTabs">
               <button type="button" class="kc-ptab active" data-ls="manage">リスト管理</button>
               <button type="button" class="kc-ptab" data-ls="status">リスト状況</button>
+              <button type="button" class="kc-ptab" data-ls="organize">リスト整理</button>
               <button type="button" class="kc-ptab" data-ls="find" id="lsFindTab" hidden>全体検索</button>
               <button type="button" class="kc-ptab" data-ls="make">リスト作成</button>
             </div>
@@ -239,6 +240,22 @@
             <div class="ls-block" data-ls-pane="status" hidden>
               <p class="note">各メンバーのリード数（リストの合計）です。<b>全部</b>＝そのメンバーのリード総数、<b>残り</b>＝まだ架電していない数、<b>リスト数</b>＝持っているリストの数。</p>
               <div id="lsStatus"><div class="note">読み込んでいます…</div></div>
+            </div>
+            <div class="ls-block" data-ls-pane="organize" hidden>
+              <p class="note">リストを選ぶと、中身を一覧で全件表示します（かける画面と同じ見え方）。ここからリストの所有者を変えられます。</p>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+                <select id="orgList" class="kc-input" style="max-width:420px"><option value="">リストを選ぶ…</option></select>
+                <button type="button" class="btn ghost" id="orgReload">更新</button>
+                <span class="note" id="orgCount" style="margin:0"></span>
+              </div>
+              <div id="orgOwnerBox" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;border:1px solid #e6ece9;border-radius:10px;padding:10px">
+                <b style="font-size:13px;color:#173a30">所有者を変える：</b>
+                <select id="orgOwner" class="kc-input" style="max-width:220px"></select>
+                <label style="font-size:13px;color:#4a5a54"><input type="checkbox" id="orgReassign" checked /> このリストの担当もこの人にそろえる</label>
+                <button type="button" class="btn" id="orgOwnerSave">所有者を変更</button>
+                <span class="rev-status" id="orgOwnerSt"></span>
+              </div>
+              <div id="orgTable"><div class="note">リストを選ぶと中身が出ます。</div></div>
             </div>
             <div class="ls-block" data-ls-pane="manage">
               <p class="note">メンバーを選ぶと、その人のリストを管理できます。リストのカードを押すと「かける」に移り、右上の × で削除します。<br>
@@ -358,9 +375,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260919b"></script>
-    <script src="calls.js?v=20260919b"></script>
-    <script src="nav.js?v=20260919b"></script>
+    <script src="sf-data.js?v=20260919c"></script>
+    <script src="calls.js?v=20260919c"></script>
+    <script src="nav.js?v=20260919c"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
