@@ -3850,6 +3850,21 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
 }
 
 // リストの一覧（残り件数つき）
+// あるグループに属するリストを、メンバー横断でまとめて返す（グループ別ビュー用）。
+export async function listCallListsByGroup(groupId) {
+  if (!pool || !groupId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.*,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み
+         FROM call_lists l
+        WHERE l.group_id = $1 AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        ORDER BY l.owner, l.name`, [groupId]);
+    return rows;
+  } catch (e) { console.error("[db] listCallListsByGroup", e.message); return []; }
+}
 export async function listCallLists({ owner = "", includeClosed = false, ownerOnly = false, includeHidden = false } = {}) {
   if (!pool) return [];
   try {

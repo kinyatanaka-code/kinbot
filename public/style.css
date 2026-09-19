@@ -6291,3 +6291,13 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-absent-A { background:#e6f4ec; color:#0f6e56; }
 .kc-absent-B { background:#eaf2fb; color:#2b6cb0; }
 .kc-absent-C { background:#fdeceb; color:#c0392b; }
+
+/* リスト管理：メンバー別/グループ別トグル＋プレビュー */
+.kc-view-toggle { display:flex; gap:6px; margin-bottom:12px; }
+.kc-vt { border:1px solid #d7e3dd; background:#fff; color:#4a5a54; border-radius:20px; padding:5px 16px; font-size:13px; cursor:pointer; }
+.kc-vt.active { background:#0f6e56; color:#fff; border-color:#0f6e56; }
+.kc-grp-card { background:#f6faf8; }
+.kc-prev-wrap { max-height:46vh; overflow:auto; border:1px solid #e6ece9; border-radius:10px; margin-top:4px; }
+.kc-prev { width:100%; font-size:12.5px; }
+.kc-prev th { position:sticky; top:0; background:#f6faf8; z-index:1; }
+.kc-prev td, .kc-prev th { padding:6px 8px; border-bottom:1px solid #eef2f0; text-align:left; white-space:nowrap; }

@@ -4126,6 +4126,7 @@ document.addEventListener("click", (ev) => {
 // 第1階層：メンバーのカード一覧
 // 消したメンバー／足したメンバーは、みんな同じ並びになるようサーバーに覚えておく
 let memberView = { hidden: new Set(), extra: new Set() };
+let asView = "member";   // リスト管理の表示：メンバー別 / グループ別
 function hiddenMembers() { return memberView.hidden; }
 function extraMembers() { return memberView.extra; }
 async function saveMemberView() {
@@ -4162,7 +4163,21 @@ async function asLoad() {
     const addable = 候補.filter((c) => !shownKeys.has(String(c.email || "").toLowerCase()));
 
     box.classList.remove("kc-lists-grid");   // 親が格子だと1列になるので外す
-    box.innerHTML =
+    const _toggle = `<div class="kc-view-toggle"><button type="button" class="kc-vt${asView === "member" ? " active" : ""}" data-view="member">メンバー別</button><button type="button" class="kc-vt${asView === "group" ? " active" : ""}" data-view="group">グループ別</button></div>`;
+    // グループ別ビュー：グループのカードを出し、押すとそのグループのリスト一覧へ
+    if (asView === "group") {
+      const gs = Array.isArray(GROUPS) ? GROUPS : [];
+      box.innerHTML = _toggle +
+        (gs.length
+          ? '<div class="kc-mem-grid">' + gs.map((g) => `<div class="kc-mem-card kc-grp-card" data-gid="${g.id}" data-gname="${esc(g.name)}"><span class="kc-mem-name">${esc(g.name)}</span></div>`).join("") + "</div>"
+          : '<div class="empty-state">グループがありません。下の「グループを作る」で作れます。</div>') +
+        '<div class="kc-grp-box" id="kcGrpBox"></div>';
+      renderGroups();
+      box.querySelectorAll(".kc-grp-card").forEach((c) => c.addEventListener("click", () => asLoadGroup(c.dataset.gid, c.dataset.gname)));
+      box.querySelectorAll(".kc-vt").forEach((b) => b.addEventListener("click", () => { asView = b.dataset.view; asLoad(); }));
+      return;
+    }
+    box.innerHTML = _toggle +
       '<div class="kc-mem-grid">' + shown.map((m) => `
         <div class="kc-mem-card" data-email="${esc(m.email)}" data-name="${esc(m.name)}">
           ${変えられる ? `<button type="button" class="kc-mem-hide" data-hide="${esc(m.email)}" title="このカードを消す" aria-label="消す">✕</button>` : ""}
@@ -4175,6 +4190,7 @@ async function asLoad() {
       '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
       '<div class="kc-grp-box" id="kcGrpBox"></div>';
     renderGroups();
+    box.querySelectorAll(".kc-vt").forEach((b) => b.addEventListener("click", () => { asView = b.dataset.view; asLoad(); }));
 
     // 「＋ メンバーを足す」でカードを増やせる
     const addCard = $("kcAddCard");
@@ -4459,6 +4475,30 @@ async function renderGroups() {
 let GROUPS = [];
 async function loadGroups() {
   try { const d = await (await fetch("/api/calls/groups")).json(); GROUPS = d.items || []; } catch { GROUPS = []; }
+}
+// グループ別ビュー：あるグループのリストを、メンバー横断で一覧表示（押すとプレビュー）
+async function asLoadGroup(gid, gname) {
+  const box = $("asCards");
+  if (!box) return;
+  box.classList.remove("kc-lists-grid");
+  box.innerHTML = '<div class="note">読み込んでいます…</div>';
+  try {
+    const d = await (await fetch("/api/calls/lists-by-group?group=" + encodeURIComponent(gid))).json();
+    const items = d.items || [];
+    box.innerHTML =
+      `<div class="kc-mem-head"><button type="button" class="kc-mem-back" id="asgBack">← 戻る</button><span class="kc-mem-title">${esc(gname || "グループ")}（${items.length}リスト）</span></div>` +
+      (items.length
+        ? '<div class="kc-lists kc-lists-grid">' + items.map((x) =>
+            `<div class="kc-list-card" data-id="${x.id}" data-name="${esc(x.name)}" data-owner="${esc(x.owner)}">
+               <div class="kc-list-name">${esc(x.name)}</div>
+               <div class="kc-list-meta"><span class="kc-list-chip">全 ${x.全部}件</span> <span class="kc-list-chip">残 ${x.残り}件</span> <span class="kc-list-chip grp">${esc(x.owner || "")}</span></div>
+             </div>`).join("") + "</div>"
+        : '<div class="empty-state">このグループのリストはありません。</div>');
+    const bk = $("asgBack");
+    if (bk) bk.addEventListener("click", asLoad);
+    box.querySelectorAll(".kc-list-card").forEach((c) =>
+      c.addEventListener("click", () => openSplit(c.dataset.id, c.dataset.name, c.dataset.owner, c.dataset.owner)));
+  } catch (e) { box.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
 }
 async function asLoadMember(email, name) {
   await loadGroups();
@@ -4896,7 +4936,22 @@ async function openSplit(listId, listName, memberEmail, memberName) {
            <button class="btn ghost" id="spOpen">このリストでかける</button>
            <span class="rev-status" id="spStatus"></span>
          </div>
+         <div class="kc-split-row" style="margin-top:6px;border-top:1px solid #e6ece9;padding-top:10px"><div class="kc-split-lb">プレビュー（先頭 ${Math.min(50, rows.length)} 件）</div></div>
+         <div class="kc-prev-wrap" id="spPreview"></div>
        </div>`;
+
+    // リストの中身をプレビュー表示（先頭50件）
+    {
+      const prev = $("spPreview");
+      if (prev) {
+        const g = (r, ...keys) => { for (const k of keys) if (r[k]) return String(r[k]); return ""; };
+        if (!rows.length) prev.innerHTML = '<div class="note">このリストにリードがありません。</div>';
+        else prev.innerHTML =
+          '<table class="kc-table kc-prev"><thead><tr><th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>最終ステータス</th></tr></thead><tbody>' +
+          rows.slice(0, 50).map((r) => `<tr><td>${esc(g(r, "会社名", "company"))}</td><td>${esc(g(r, "担当者", "person"))}</td><td>${esc(g(r, "電話", "電話番号", "phone"))}</td><td>${esc(g(r, "ステージ", "stage"))}</td><td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td></tr>`).join("") +
+          "</tbody></table>" + (rows.length > 50 ? `<div class="note">ほか ${rows.length - 50} 件</div>` : "");
+      }
+    }
 
     const back = $("spBack");
     if (back) back.addEventListener("click", () => asLoadMember(memberEmail, memberName));

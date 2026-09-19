@@ -251,6 +251,7 @@ import {
   updateCallTargetFields,
   addCallTargets,
   listCallLists,
+  listCallListsByGroup,
   nextCallTarget,
   callHistory,
   upsertRecruitInfo,
@@ -7593,6 +7594,25 @@ app.get("/api/calls/lists", async (req, res) => {
         作った人: r.owner || "",
         closed: !!r.closed,
         hidden: !!r.hidden,
+      })),
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// グループ別ビュー：あるグループのリストを、メンバー横断でまとめて返す
+app.get("/api/calls/lists-by-group", async (req, res) => {
+  try {
+    const gid = parseInt(req.query.group, 10);
+    if (!gid) return res.status(400).json({ error: "グループがわかりません" });
+    const rows = await listCallListsByGroup(gid);
+    res.json({
+      ok: true,
+      items: rows.map((r) => ({
+        id: r.id, name: r.name, note: r.note || "",
+        group_id: r.group_id || null, group_name: r.group_name || "",
+        owner: r.owner || "", 作った人: r.owner || "",
+        全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0),
+        残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
       })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -20206,7 +20226,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19a 外部Webアプリ（ASUMO等）が kinbot 経由でSalesforceを読み書きできるHTTP APIを追加。POST /api/sf/query（SOQL読み取り）・/api/sf/update・/api/sf/create を、Bearerトークン認証で提供。kinbotのSF接続（代理アカウント）を使うので、相手アプリにSFの資格情報を渡さずに連携できる（ASUMO→kinbot→SF）。更新/作成は主要オブジェクト限定・許可ユーザーのみ。";
+const BUILD_TAG = "2026-09-19b リスト管理を使いやすく。(1)リストのカードを押すと、そのリストの中身（会社名・担当者・電話・ステージ・ステータス）を先頭50件プレビュー表示（絞り込み画面の下に追加）。(2)「メンバー別／グループ別」で切り替えられるようにし、グループを押すと、そのグループに属するリストをメンバー横断で一覧できる（押すとプレビュー）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
