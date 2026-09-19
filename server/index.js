@@ -252,6 +252,8 @@ import {
   addCallTargets,
   listCallLists,
   listCallListsByGroup,
+  listAllCallLists,
+  setCallTargetFields,
   nextCallTarget,
   callHistory,
   upsertRecruitInfo,
@@ -7618,6 +7620,44 @@ app.get("/api/calls/lists-by-group", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リスト整理／編集：全メンバーのリスト一覧
+app.get("/api/calls/lists-all", async (req, res) => {
+  try {
+    const rows = await listAllCallLists();
+    res.json({ ok: true, items: rows.map((r) => ({
+      id: r.id, name: r.name, owner: r.owner || "", group_id: r.group_id || null, group_name: r.group_name || "",
+      全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0), 残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
+    })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// リストの所有者を変える（クローザー・管理者のみ）。reassign=true で担当もそろえる。
+app.put("/api/calls/lists/:id/owner", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const id = parseInt(req.params.id, 10);
+    const owner = String(req.body?.owner || "").trim();
+    if (!id || !owner) return res.status(400).json({ error: "リストと新しい所有者を指定してください" });
+    const r = await setCallListOwner(id, owner, { reassign: req.body?.reassign === true });
+    if (!r) return res.status(500).json({ error: "変えられませんでした" });
+    console.log(`[kincall] リスト${id}（${r.name}）の所有者を ${owner} に変更${req.body?.reassign ? "（担当もそろえ）" : ""} by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 編集画面：kincall内だけの項目（従業員数・採用人数・媒体掲載）を保存
+app.post("/api/calls/targets/:id/fields", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リードがわかりません" });
+    const b = req.body || {};
+    const patch = {};
+    if ("employees" in b) patch.employees = b.employees;
+    if ("hires" in b) patch.hires = b.hires;
+    if ("media_tags" in b) patch.media_tags = b.media_tags;
+    await setCallTargetFields(id, patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // CSV（貼り付け）から、Salesforceのクロスリードと突き合わせてリストを作る。
 //   1) 会社名でクロスリードを探す → あればそのリードでリスト化
 //   2) 無ければ 会社名・電話番号・担当者名 で新しいクロスリードを作ってからリスト化
@@ -9330,6 +9370,9 @@ app.get("/api/calls/targets", async (req, res) => {
         最終ステータス: r.status || "",
         温度: r.temperature || "",
         担当者不在ランク: r.absent_rank || "",
+        従業員数: r.employees == null ? "" : r.employees,
+        採用人数: r.hires == null ? "" : r.hires,
+        媒体掲載: r.media_tags || "",
         元のリスト: r.nurture_from_name || "",
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
         // SFへまだ送れていないkinbotの記録があれば、それも足す。
@@ -20226,7 +20269,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19d リスト整理タブをドラッグ操作のボードに刷新。メンバーが列、リストがカード。カードを別の人の列へドラッグ→確認→所有者と担当をその人にそろえる。カードのバーの色で消化ぐあい（緑=多く残る/黄=減った/赤=枯れ）が分かる。カードを押すとそのリストの中身を全件表示。";
+const BUILD_TAG = "2026-09-19e リスト整理タブで欠けていたAPI（全リスト取得・所有者変更）を追加し、ドラッグでの所有者変更が動くように修正。編集の土台として、リードに従業員数・採用人数・媒体掲載の項目（kincall内だけ）を追加し、リストの中身表示でその3項目をその場編集・保存できるようにした。従業員数の自動取得やタブ3構成、フィルターは次段階。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

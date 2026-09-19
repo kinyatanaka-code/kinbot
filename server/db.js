@@ -710,6 +710,10 @@ export async function initDb() {
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS consecutive_absent INT NOT NULL DEFAULT 0;`); // 連続不通回数
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS absent_rank TEXT;`);        // 担当者不在ランク A/B/C
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS absent_rank_at TIMESTAMPTZ;`); // そのランクを付けた日時（リサイクル移動の起点）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS employees INT;`);        // 従業員数（kincall内・SF非連動）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS hires INT;`);            // 採用人数
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS media_tags TEXT;`);      // 媒体掲載（有料求人サイトのタグ・カンマ区切り）
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS enrich_at TIMESTAMPTZ;`); // 自動取得した日時
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS reject_tag     TEXT;`);          // 直近の断り理由タグ（recycle_rules.tag）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS temperature    TEXT;`);          // 温度 A/B/C/卒業/連携
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS recall_count   INT NOT NULL DEFAULT 0;`); // 再架電回数
@@ -8014,6 +8018,18 @@ export async function setCallTargetAbsent(id, n) {
   if (!pool || !id) return;
   try { await pool.query(`UPDATE call_targets SET consecutive_absent=$2 WHERE id=$1`, [id, Math.max(0, parseInt(n, 10) || 0)]); }
   catch (e) { console.error("[db] setCallTargetAbsent", e.message); }
+}
+// 編集画面から、kincall内だけの項目（従業員数・採用人数・媒体掲載）を保存する。SFには書き戻さない。
+export async function setCallTargetFields(id, { employees, hires, media_tags } = {}) {
+  if (!pool || !id) return;
+  const sets = [], vals = [id]; let i = 2;
+  const num = (v) => { if (v === "" || v == null) return null; const n = parseInt(v, 10); return isFinite(n) ? n : null; };
+  if (employees !== undefined) { sets.push(`employees = $${i++}`); vals.push(num(employees)); }
+  if (hires !== undefined) { sets.push(`hires = $${i++}`); vals.push(num(hires)); }
+  if (media_tags !== undefined) { sets.push(`media_tags = $${i++}`); vals.push(media_tags == null ? null : String(media_tags)); }
+  if (!sets.length) return;
+  try { await pool.query(`UPDATE call_targets SET ${sets.join(", ")} WHERE id = $1`, vals); }
+  catch (e) { console.error("[db] setCallTargetFields", e.message); }
 }
 // 担当者不在ランク（A/B/C）を記録する。付けた日時も残す（リサイクル移動の起点にする）。
 export async function setCallTargetAbsentRank(id, rank) {

@@ -4547,12 +4547,30 @@ async function orgLoadLeads(listId, name) {
     const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}&limit=20000`)).json();
     const rows = d.items || [];
     if ($("orgCount")) $("orgCount").textContent = `${rows.length.toLocaleString()}件`;
-    const g = (r, ...keys) => { for (const k of keys) if (r[k]) return String(r[k]); return ""; };
+    const g = (r, ...keys) => { for (const k of keys) if (r[k] !== undefined && r[k] !== null && r[k] !== "") return String(r[k]); return ""; };
     tbl.innerHTML = rows.length
-      ? '<div class="kc-prev-wrap" style="max-height:56vh"><table class="kc-table kc-prev"><thead><tr><th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>最終ステータス</th><th>担当</th></tr></thead><tbody>' +
-        rows.map((r) => `<tr><td>${esc(g(r, "会社名", "company"))}</td><td>${esc(g(r, "担当者", "person"))}</td><td>${esc(g(r, "電話", "電話番号", "phone"))}</td><td>${esc(g(r, "ステージ", "stage"))}</td><td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td><td>${esc(g(r, "担当", "assigned_to"))}</td></tr>`).join("") +
+      ? '<div class="kc-prev-wrap" style="max-height:56vh"><table class="kc-table kc-prev"><thead><tr><th>企業名</th><th>担当者</th><th>電話</th><th>メール</th><th>ステージ</th><th>状態</th><th>従業員数</th><th>採用人数</th><th>媒体掲載</th></tr></thead><tbody>' +
+        rows.map((r) => `<tr data-id="${r.id}">
+          <td>${esc(g(r, "会社名", "company"))}</td>
+          <td>${esc(g(r, "担当者", "person"))}</td>
+          <td>${esc(g(r, "電話", "電話番号", "phone"))}</td>
+          <td>${esc(g(r, "メール", "メールアドレス", "email"))}</td>
+          <td>${esc(g(r, "ステージ", "stage"))}</td>
+          <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
+          <td><input type="number" min="0" class="org-f org-emp" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:74px" /></td>
+          <td><input type="number" min="0" class="org-f org-hire" data-f="hires" value="${esc(g(r, "採用人数", "hires"))}" style="width:70px" /></td>
+          <td><input type="text" class="org-f org-media" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体（カンマ区切り）" style="width:200px" /></td>
+        </tr>`).join("") +
         "</tbody></table></div>"
       : '<div class="empty-state">このリストにリードがありません。</div>';
+    // その場編集（従業員数・採用人数・媒体掲載）→ kincall内に保存
+    tbl.querySelectorAll(".org-f").forEach((inp) => inp.addEventListener("change", async () => {
+      const tr = inp.closest("tr"); const id = tr && tr.dataset.id; if (!id) return;
+      const body = {}; body[inp.dataset.f] = inp.value;
+      inp.style.outline = "2px solid #f0b429";
+      try { const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/fields`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!r.ok) throw new Error(); inp.style.outline = "2px solid #1d9e75"; setTimeout(() => (inp.style.outline = ""), 800); }
+      catch { inp.style.outline = "2px solid #e06b5e"; }
+    }));
     if ($("orgDetail")) $("orgDetail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (e) { tbl.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
 }
