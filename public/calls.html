@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260919e" />
+    <link rel="stylesheet" href="style.css?v=20260919f" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -222,11 +222,10 @@
           <!-- リストの割り振り -->
           <section class="card kc-pane" data-p="lists" hidden>
             <div class="kc-period-tabs" id="lsTabs">
-              <button type="button" class="kc-ptab active" data-ls="manage">リスト管理</button>
-              <button type="button" class="kc-ptab" data-ls="status">リスト状況</button>
-              <button type="button" class="kc-ptab" data-ls="organize">リスト整理</button>
+              <button type="button" class="kc-ptab active" data-ls="status">状況</button>
+              <button type="button" class="kc-ptab" data-ls="organize">編集</button>
               <button type="button" class="kc-ptab" data-ls="find" id="lsFindTab" hidden>全体検索</button>
-              <button type="button" class="kc-ptab" data-ls="make">リスト作成</button>
+              <button type="button" class="kc-ptab" data-ls="make">作成</button>
             </div>
             <div class="ls-block" data-ls-pane="find" hidden>
               <p class="note">すべてのメンバーのリストから、会社名・担当者名・電話・メールでリードを探します（管理者だけ）。誰のどのリストに入っているかが分かります。</p>
@@ -237,27 +236,28 @@
               </div>
               <div id="lsFindBox"></div>
             </div>
-            <div class="ls-block" data-ls-pane="status" hidden>
+            <div class="ls-block" data-ls-pane="status">
               <p class="note">各メンバーのリード数（リストの合計）です。<b>全部</b>＝そのメンバーのリード総数、<b>残り</b>＝まだ架電していない数、<b>リスト数</b>＝持っているリストの数。</p>
               <div id="lsStatus"><div class="note">読み込んでいます…</div></div>
             </div>
             <div class="ls-block" data-ls-pane="organize" hidden>
-              <p class="note">リストのカードを<b>別の人の列へドラッグ</b>すると、所有者が変わります（そのリストの担当もその人にそろえます）。カードを<b>押すと中身を全件表示</b>します。バーの色は消化ぐあい（緑=多く残っている／黄=減ってきた／赤=ほぼ枯れ）。</p>
-              <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-                <button type="button" class="btn ghost" id="orgReload">更新</button>
-                <span class="rev-status" id="orgOwnerSt"></span>
+              <p class="note">編集したいリストを選んで「選択したリストを編集」を押すと、まとめて一覧・編集できます。従業員数・採用人数・媒体掲載はここで直せます（<b>kincall内だけ</b>・Salesforceには反映しません）。</p>
+              <div id="edPick" class="ed-pick"><div class="note">読み込んでいます…</div></div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0">
+                <button type="button" class="btn" id="edGo">選択したリストを編集</button>
+                <button type="button" class="btn ghost" id="edReload">更新</button>
+                <span class="rev-status" id="edSt"></span>
               </div>
-              <div id="orgBoard" class="org-board"><div class="note">読み込んでいます…</div></div>
-              <div id="orgDetail" hidden style="margin-top:14px;border-top:1px solid #e6ece9;padding-top:12px">
-                <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-                  <b id="orgDetailName" style="font-size:14px;color:#173a30"></b>
-                  <span class="note" id="orgCount" style="margin:0"></span>
-                  <button type="button" class="btn ghost" id="orgDetailClose" style="margin-left:auto">閉じる</button>
-                </div>
-                <div id="orgTable"></div>
+              <div id="edFilterBar" hidden style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;border-top:1px solid #e6ece9;padding-top:10px">
+                <input type="text" id="edQ" class="kc-input" placeholder="企業名・担当者・電話・メールで絞る" style="max-width:260px" />
+                <select id="edStage" class="kc-input" style="max-width:170px"><option value="">ステージ（すべて）</option></select>
+                <select id="edStatus" class="kc-input" style="max-width:170px"><option value="">状態（すべて）</option></select>
+                <select id="edMedia" class="kc-input" style="max-width:170px"><option value="">媒体（すべて）</option></select>
+                <span class="note" id="edCount" style="margin:0"></span>
               </div>
+              <div id="edTable"></div>
             </div>
-            <div class="ls-block" data-ls-pane="manage">
+            <div class="ls-block" data-ls-pane="manage" hidden>
               <p class="note">メンバーを選ぶと、その人のリストを管理できます。リストのカードを押すと「かける」に移り、右上の × で削除します。<br>
               <b>もとになるSalesforceのレポートは変わりません。</b>ここで消しても、Salesforce側のリードはそのまま残ります。</p>
               <div id="asCards" class="kc-lists-grid"><div class="note">読み込んでいます…</div></div>
@@ -375,9 +375,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260919e"></script>
-    <script src="calls.js?v=20260919e"></script>
-    <script src="nav.js?v=20260919e"></script>
+    <script src="sf-data.js?v=20260919f"></script>
+    <script src="calls.js?v=20260919f"></script>
+    <script src="nav.js?v=20260919f"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
