@@ -839,3 +839,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19k 編集タブのリスト選択をカード化。calls.js orgLoadListsのpick描画を .ed-owner-block（担当ごと・全部選ぶ/外すトグル）＋ .ed-card-grid/.ed-lcard（隠しcheckbox .ed-lchk＋ .ed-lcard-check、消化バー org-bar、選択で .sel）。change/click で .sel 同期。CSS .ed-owner-block/.ed-card-grid/.ed-lcard 等追加（旧 .ed-pick-grid系は不使用）。スマホで見やすく。版20260919k。
 
 - 2026-09-19 BUILD_TAG=2026-09-19l 編集タブのリスト選択カードの担当見出しを登録名表示に。calls.js orgLoadLists で nameOf(email)＝_edMembers から name を引き（無ければemail）、ed-owner-h の <b> を nameOf(owner) に。data-owner はメールのまま（全部選ぶ判定用）。版20260919l。
+
+- 2026-09-19 BUILD_TAG=2026-09-19m 「整理」タブ復活（calls.html lsTabs に data-ls=manage「整理」を再追加。asLoad(メンバー→リストカード・移動/非表示)は元から健在、タブ handler の manage→asLoad も既存）。従業員数enrichの client バッチ 25→8（進捗を早く反映）。※従業員数が0の主因候補：Railwayに GBIZINFO_TOKEN 未設定でgBizスキップ＋SFのNumberOfEmployees空＋Web検索(lookupEmployeeCount)が332件で非常に遅い。対策案内：GBIZINFO_TOKEN設定、フィルタで絞って実行。版20260919m。
