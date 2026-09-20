@@ -4479,7 +4479,8 @@ async function loadGroups() {
 }
 // ===== 編集タブ：リストを複数選んで1つの一覧にまとめて編集 =====
 let _edInit = false;
-let _edLists = {};    // id -> {name, owner, group_name}
+let _edLists = {};    // id -> {name, owner, group_name, group_id}
+let _edMembers = [];  // 所有者プルダウン用
 let _edRows = [];     // まとめたリード
 async function orgLoadLists() {
   const pick = $("edPick"); if (!pick) return;
@@ -4496,9 +4497,11 @@ async function orgLoadLists() {
   }
   pick.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
+    if (!Array.isArray(GROUPS) || !GROUPS.length) await loadGroups().catch(() => {});
+    if (!_edMembers.length) { try { const m = await (await fetch("/api/calls/members")).json(); _edMembers = m.items || []; } catch {} }
     const d = await (await fetch("/api/calls/lists-all")).json();
     const items = d.items || [];
-    _edLists = {}; for (const x of items) _edLists[x.id] = { name: x.name, owner: x.owner, group_name: x.group_name };
+    _edLists = {}; for (const x of items) _edLists[x.id] = { name: x.name, owner: x.owner, group_name: x.group_name, group_id: x.group_id || null };
     const byOwner = new Map();
     for (const x of items) { const k = x.owner || "?"; if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
     pick.innerHTML = '<div class="ed-pick-grid">' + [...byOwner.entries()].map(([owner, ls]) => `
@@ -4520,7 +4523,7 @@ async function orgLoadEdit(listIds) {
     for (const id of listIds) {
       const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000`)).json();
       const meta = _edLists[id] || {};
-      for (const r of (d.items || [])) { r._listId = id; r._listName = meta.name || ""; r._owner = meta.owner || ""; r._group = meta.group_name || ""; all.push(r); }
+      for (const r of (d.items || [])) { r._listId = id; r._listName = meta.name || ""; r._owner = meta.owner || ""; r._group = meta.group_name || ""; r._groupId = meta.group_id || ""; all.push(r); }
     }
     _edRows = all;
     // フィルタの選択肢
@@ -4616,10 +4619,35 @@ function edRender() {
         <td><input type="number" min="0" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
         <td><input type="number" min="0" class="ed-f" data-f="hires" value="${esc(g(r, "採用人数", "hires"))}" style="width:64px" /></td>
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
-        <td>${esc(r._group || "")}</td>
-        <td>${esc(r._owner || "")}</td>
+        <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
+        <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>
       </tr>`).join("") + "</tbody></table></div>"
     : '<div class="empty-state">条件に合うリードがありません。</div>';
+  // グループ変更（リスト全体に適用）
+  tbl.querySelectorAll(".ed-group").forEach((sel) => sel.addEventListener("change", async () => {
+    const list = sel.dataset.list; const gid = sel.value; const gname = gid ? ((GROUPS.find((x) => String(x.id) === String(gid)) || {}).name || "") : "";
+    sel.style.outline = "2px solid #f0b429";
+    try {
+      const r = await fetch(`/api/calls/lists/${encodeURIComponent(list)}/group`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: gid || null }) });
+      if (!r.ok) throw new Error();
+      _edRows.forEach((x) => { if (String(x._listId) === String(list)) { x._groupId = gid; x._group = gname; } });
+      if (_edLists[list]) { _edLists[list].group_id = gid; _edLists[list].group_name = gname; }
+      sel.style.outline = "2px solid #1d9e75"; setTimeout(() => (sel.style.outline = ""), 800);
+    } catch { sel.style.outline = "2px solid #e06b5e"; }
+  }));
+  // 所有者変更（リスト全体・担当もそろえる）
+  tbl.querySelectorAll(".ed-owner").forEach((sel) => sel.addEventListener("change", async () => {
+    const list = sel.dataset.list; const owner = sel.value;
+    if (!confirm(`このリストの所有者を変更します（担当もそろえます）。よろしいですか？`)) { edRender(); return; }
+    sel.style.outline = "2px solid #f0b429";
+    try {
+      const r = await fetch(`/api/calls/lists/${encodeURIComponent(list)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "");
+      _edRows.forEach((x) => { if (String(x._listId) === String(list)) x._owner = owner; });
+      if (_edLists[list]) _edLists[list].owner = owner;
+      sel.style.outline = "2px solid #1d9e75"; setTimeout(() => (sel.style.outline = ""), 800);
+    } catch (e) { sel.style.outline = "2px solid #e06b5e"; }
+  }));
   tbl.querySelectorAll(".ed-f").forEach((inp) => inp.addEventListener("change", async () => {
     const tr = inp.closest("tr"); const id = tr && tr.dataset.id; if (!id) return;
     const body = {}; body[inp.dataset.f] = inp.value;
