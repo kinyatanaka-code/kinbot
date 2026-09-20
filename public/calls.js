@@ -4491,6 +4491,7 @@ async function orgLoadLists() {
       orgLoadEdit(ids);
     });
     ["edQ", "edStage", "edStatus", "edMedia"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
+    if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", edEnrichEmployees);
   }
   pick.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
@@ -4532,20 +4533,49 @@ async function orgLoadEdit(listIds) {
     edRender();
   } catch (e) { tbl.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
 }
-function edRender() {
-  const tbl = $("edTable"); if (!tbl) return;
-  const g = (r, ...keys) => { for (const k of keys) if (r[k] !== undefined && r[k] !== null && r[k] !== "") return String(r[k]); return ""; };
+function _edg(r, ...keys) { for (const k of keys) if (r[k] !== undefined && r[k] !== null && r[k] !== "") return String(r[k]); return ""; }
+function edFiltered() {
+  const g = _edg;
   const q = ($("edQ") && $("edQ").value.trim().toLowerCase()) || "";
   const stg = ($("edStage") && $("edStage").value) || "";
   const sts = ($("edStatus") && $("edStatus").value) || "";
   const med = ($("edMedia") && $("edMedia").value) || "";
-  const rows = _edRows.filter((r) => {
+  return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
     if (sts && g(r, "最終ステータス", "最終結果", "status") !== sts) return false;
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
     if (q) { const hay = [g(r, "会社名", "company"), g(r, "担当者", "person"), g(r, "電話", "電話番号", "phone"), g(r, "メール", "メールアドレス", "email")].join(" ").toLowerCase(); if (!hay.includes(q)) return false; }
     return true;
   });
+}
+async function edEnrichEmployees() {
+  const g = _edg;
+  const targets = edFiltered().filter((r) => !g(r, "従業員数", "employees")); // 表示中で空欄のものだけ
+  const st = $("edEnrichSt");
+  if (!targets.length) { if (st) st.textContent = "空欄の会社はありません"; return; }
+  if (!confirm(`表示中で従業員数が空の ${targets.length} 社を自動取得します。件数が多いと数分かかります。続けますか？`)) return;
+  const btn = $("edEnrichEmp"); if (btn) btn.disabled = true;
+  let done = 0, got = 0;
+  try {
+    for (let i = 0; i < targets.length; i += 25) {
+      const batch = targets.slice(i, i + 25);
+      if (st) st.textContent = `取得中… ${done}/${targets.length}`;
+      const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 25 }) });
+      const d = await r.json();
+      for (const res of (d.results || [])) {
+        done++;
+        if (res.employees != null) { got++; const row = _edRows.find((x) => String(x.id) === String(res.id)); if (row) row["従業員数"] = res.employees; }
+      }
+      edRender();
+    }
+    if (st) st.textContent = `完了：${got}/${targets.length} 社に従業員数を入れました`;
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+  finally { if (btn) btn.disabled = false; }
+}
+function edRender() {
+  const tbl = $("edTable"); if (!tbl) return;
+  const g = _edg;
+  const rows = edFiltered();
   if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
   tbl.innerHTML = rows.length
     ? '<div class="kc-prev-wrap" style="max-height:60vh"><table class="kc-table kc-prev ed-table"><thead><tr><th>ステージ</th><th>企業名</th><th>担当者</th><th>電話</th><th>メール</th><th>架電状態</th><th>従業員数</th><th>採用人数</th><th>媒体掲載</th><th>グループ</th><th>所有者</th></tr></thead><tbody>' +

@@ -7620,6 +7620,47 @@ app.get("/api/calls/lists-by-group", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 「約320名」「1,200名」「1.2万人」などから整数を取り出す
+function parseEmpNum(s) {
+  if (s == null) return null;
+  const str = String(s).replace(/[,，、\s]/g, "");
+  const man = /([\d.]+)\s*万/.exec(str); if (man) return Math.round(parseFloat(man[1]) * 10000);
+  const m = /(\d{1,7})/.exec(str); return m ? parseInt(m[1], 10) : null;
+}
+// 編集画面：従業員数を自動取得（SF一括 → gBizINFO → Web検索 の順）
+app.post("/api/calls/enrich-employees", async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, Math.max(1, Math.min(40, parseInt(req.body?.max, 10) || 30))) : [];
+    if (!items.length) return res.json({ ok: true, results: [] });
+    // 1) SF から一括で NumberOfEmployees を取る
+    const sfMap = {};
+    const leadIds = [...new Set(items.map((x) => String(x.lead_id || "").trim()).filter(Boolean))].slice(0, 200);
+    if (leadIds.length) {
+      try {
+        const owner = (await getSettings().catch(() => ({}))).sfProxyUser || "";
+        const inList = leadIds.map((id) => `'${id.replace(/'/g, "")}'`).join(",");
+        const d = await sfQuery(owner, `SELECT Id, NumberOfEmployees FROM Lead WHERE Id IN (${inList})`);
+        for (const r of (d.records || [])) if (r.NumberOfEmployees != null) sfMap[r.Id] = r.NumberOfEmployees;
+      } catch (e) { console.warn("[enrich-emp] SF一括失敗", e.message); }
+    }
+    const results = [];
+    for (const it of items) {
+      const id = it.id, company = String(it.company || "").trim();
+      let emp = null, src = "";
+      if (it.lead_id && sfMap[it.lead_id] != null) { emp = parseEmpNum(sfMap[it.lead_id]); if (emp != null) src = "SF"; }
+      if (emp == null && company && gbizConfigured()) {
+        try { const hits = await searchCompanies(company, 1); if (hits[0]) { const dd = await getCompanyDetail(hits[0].corporate_number).catch(() => null); if (dd && dd.employees) { emp = parseEmpNum(dd.employees); if (emp != null) src = "gBiz"; } } } catch {}
+      }
+      if (emp == null && company) {
+        try { const w = await lookupEmployeeCount(company).catch(() => null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
+      }
+      if (emp != null && id) await setCallTargetFields(id, { employees: emp }).catch(() => {});
+      results.push({ id, employees: emp, source: src });
+    }
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト整理／編集：全メンバーのリスト一覧
 app.get("/api/calls/lists-all", async (req, res) => {
   try {
@@ -20269,7 +20310,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19f リスト管理のタブを「状況・編集・作成」の3つに集約。編集タブを新設：メンバーのリストを複数選んで「選択したリストを編集」を押すと、1つの一覧にまとめて表示（ステージ・企業名・担当者・電話・メール・架電状態・従業員数・採用人数・媒体掲載・グループ・所有者）。企業名/担当者/電話/メールでの絞り込み＋ステージ/状態/媒体のフィルターに対応し、従業員数・採用人数・媒体掲載はその場で編集・保存できる（kincall内のみ）。従業員数などの自動取得は次段階。";
+const BUILD_TAG = "2026-09-19g 編集画面に「従業員数を自動取得」を追加。表示中で従業員数が空の会社を、SF（NumberOfEmployees一括）→gBizINFO→Web検索の順で調べて自動で入れる。gBizINFOは環境変数 GBIZINFO_TOKEN を使用。取得後はその場で保存され表に反映。件数が多いと数分かかるため表示中ぶんを対象にバッチ実行。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
