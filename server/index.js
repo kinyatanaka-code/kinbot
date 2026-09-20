@@ -523,7 +523,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -7673,6 +7673,23 @@ app.post("/api/calls/enrich-media", async (req, res) => {
       if (company) { try { const m = await lookupJobMedia(company).catch(() => null); if (m && Array.isArray(m.media)) tags = m.media.join(", "); } catch {} }
       if (id) await setCallTargetFields(id, { media_tags: tags }).catch(() => {});
       results.push({ id, media_tags: tags });
+    }
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 編集画面：採用人数を自動取得（Web検索で年間採用予定人数を特定・確認できたものだけ）
+app.post("/api/calls/enrich-hires", async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, Math.max(1, Math.min(20, parseInt(req.body?.max, 10) || 12))) : [];
+    if (!items.length) return res.json({ ok: true, results: [] });
+    const results = [];
+    for (const it of items) {
+      const id = it.id, company = String(it.company || "").trim();
+      let hires = null;
+      if (company) { try { const h = await lookupHiringCount(company).catch(() => null); if (h && h.found) hires = parseEmpNum(h.hires); } catch {} }
+      if (hires != null && id) await setCallTargetFields(id, { hires }).catch(() => {});
+      results.push({ id, hires });
     }
     res.json({ ok: true, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -20327,7 +20344,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19i 編集画面のリストグループ・リスト所有者を、その場のプルダウンで変更できるようにした（そのリスト全体に適用。所有者変更は担当もそろえる）。これで編集画面は、11項目の表示・フィルター・従業員数/採用人数/媒体掲載のその場編集・従業員数と媒体掲載の自動取得・グループ/所有者変更まで一通りそろった。";
+const BUILD_TAG = "2026-09-19j 編集画面に「採用人数を自動取得」を追加。会社名をWeb検索し、確認できた年間採用予定人数だけを入れる（推測はしない・出典が無ければ入れない）。これで編集画面は従業員数・媒体掲載・採用人数すべて自動取得に対応。採用人数のSF項目があれば優先させられるので、項目名が分かれば連携追加可能。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -621,6 +621,44 @@ export async function lookupEmployeeCount(companyName, hint = "") {
   };
 }
 
+// 採用人数：会社名でWeb検索し、確認できた年間採用予定人数/採用人数を返す（推測しない）。
+export async function lookupHiringCount(companyName, hint = "") {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false };
+  let research = "";
+  try {
+    research = await geminiGrounded(
+      `「${name}」${hint ? "（" + hint + "）" : ""}の採用予定人数（年間の採用人数）を調べてください。` +
+      `「${name} 採用予定人数」「${name} 採用人数」「${name} 新卒 採用人数」「${name} 中途 募集人数」で検索し、` +
+      `公式採用サイト、マイナビ・リクナビ等の募集要項、就職四季報などの複数ソースを照合してください。` +
+      `数値が確認できたソースのURLを必ず挙げてください。確認できない場合は「不明」と明記し、憶測で数値を作らないこと。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[hiring-lookup] grounding失敗", e.message);
+    return { found: false, error: "検索に失敗しました" };
+  }
+  const schema = {
+    type: "object",
+    properties: {
+      found: { type: "boolean" },
+      hires: { type: "string" },
+      source_url: { type: "string" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+    },
+    required: ["found", "hires", "source_url", "confidence"],
+  };
+  const sys =
+    "あなたは企業の採用調査アシスタントです。与えられた検索リサーチ結果だけを根拠に、年間の採用予定人数（採用人数）を厳密に判断します。" +
+    "リサーチ結果に採用人数の記載と出典が無ければ found=false にします。決して推測で数値を作らないこと。" +
+    "範囲（例: 3〜5名）の場合はその文字列のまま hires に入れてよい。出力は指定JSONのみ。";
+  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、採用人数をJSONで出力してください。`;
+  const o = parseJson(await callLLM(sys, user, 400, { schema, provider: "anthropic" })) || {};
+  const h = String(o.hires || "").trim();
+  if (!o.found || !h) return { found: false };
+  return { found: true, hires: h, source_url: String(o.source_url || "").trim(), confidence: ["high", "medium", "low"].includes(o.confidence) ? o.confidence : "low" };
+}
+
 // 媒体掲載：会社名でWeb検索し、掲載が確認できた有料求人サイトをタグとして返す。
 export const PAID_JOB_SITES = [
   // 中途
