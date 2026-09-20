@@ -4807,6 +4807,9 @@ async function asLoadMember(email, name) {
               <label class="oz-menu-row"><span>グループ</span>
                 <select class="kc-grp-sel" data-list="${x.id}"><option value="">なし</option>${GROUPS.map((g) => `<option value="${g.id}"${String(x.group_id || "") === String(g.id) ? " selected" : ""}>${esc(g.name)}</option>`).join("")}</select>
               </label>
+              <label class="oz-menu-row"><span>担当</span>
+                <select class="oz-move-one" data-list="${x.id}" data-name="${esc(x.name)}"><option value="">別の担当へ移す…</option></select>
+              </label>
               ${canHideList ? `<button type="button" class="kc-list-hide oz-menu-btn" data-hide="${x.id}" data-now="${x.hidden ? 1 : 0}">${x.hidden ? "表示にする" : "非表示にする"}</button>` : ""}
               <button type="button" class="kc-list-hide oz-menu-btn" data-sffill="${x.id}" title="会社名と電話番号から、Salesforceの担当者名・メール・紐づけを補います（空欄のときだけ）">SFから補う</button>
               <button type="button" class="oz-menu-btn oz-danger" data-del="${x.id}">削除</button>
@@ -4819,8 +4822,21 @@ async function asLoadMember(email, name) {
         const refresh = () => { const n = sel().length; if (bar) bar.hidden = n === 0; if (nEl) nEl.textContent = `${n}件選択中`; };
         box.querySelectorAll(".oz-sel").forEach((c) => c.addEventListener("change", refresh));
         // 移動先メンバー
+        let memOpts = "";
+        try { const m = await (await fetch("/api/calls/members")).json(); const list = (m.items || []).filter((x) => String(x.email).toLowerCase() !== String(email).toLowerCase() && !EX_OWNERS.includes(String(x.email || "").toLowerCase())); memOpts = list.map((x) => `<option value="${esc(x.email)}">${esc(x.name || x.email)} へ移す</option>`).join(""); } catch {}
         const mt = $("ozMoveTo");
-        if (mt) { try { const m = await (await fetch("/api/calls/members")).json(); mt.innerHTML = '<option value="">別の担当へ移す…</option>' + (m.items || []).filter((x) => String(x.email).toLowerCase() !== String(email).toLowerCase() && !EX_OWNERS.includes(String(x.email || "").toLowerCase())).map((x) => `<option value="${esc(x.email)}">${esc(x.name || x.email)} へ移す</option>`).join(""); } catch {} }
+        if (mt) mt.innerHTML = '<option value="">別の担当へ移す…</option>' + memOpts;
+        // 各行の「⋯ → 担当」から1リストだけ移す
+        const moveList = async (listId, owner, nm, ownerNm) => {
+          if (!owner) return;
+          if (!confirm(`「${nm}」を ${ownerNm} に移しますか？（担当もそろえます）`)) return;
+          try { const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) }); if (!r.ok) throw new Error(); asLoadMember(email, name); } catch { alert("移せませんでした"); }
+        };
+        box.querySelectorAll(".oz-move-one").forEach((se) => {
+          se.innerHTML = '<option value="">別の担当へ移す…</option>' + memOpts;
+          se.addEventListener("change", () => moveList(se.dataset.list, se.value, se.dataset.name, (se.options[se.selectedIndex] || {}).textContent || se.value));
+          se.addEventListener("click", (e) => e.stopPropagation());
+        });
         if (mt) mt.addEventListener("change", async () => {
           const owner = mt.value; const ids = sel(); mt.value = "";
           if (!owner || !ids.length) return;
