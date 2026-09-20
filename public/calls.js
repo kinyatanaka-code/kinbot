@@ -4505,10 +4505,11 @@ async function orgLoadLists() {
     _edLists = {}; for (const x of items) _edLists[x.id] = { name: x.name, owner: x.owner, group_name: x.group_name, group_id: x.group_id || null };
     const byOwner = new Map();
     for (const x of items) { const k = x.owner || "?"; if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
+    const nameOf = (email) => { const m = _edMembers.find((x) => String(x.email || "").toLowerCase() === String(email || "").toLowerCase()); return (m && m.name) || email || "?"; };
     const barOf = (x) => { const pct = x.全部 ? Math.round(x.残り / x.全部 * 100) : 0; const col = (x.全部 && x.残り / x.全部 >= 0.6) ? "#1d9e75" : (x.全部 && x.残り / x.全部 >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; };
     pick.innerHTML = [...byOwner.entries()].map(([owner, ls]) => `
       <div class="ed-owner-block">
-        <div class="ed-owner-h"><b>${esc(owner)}</b><span class="ed-owner-n">${ls.length}リスト</span><button type="button" class="ed-allof" data-owner="${esc(owner)}">全部選ぶ</button></div>
+        <div class="ed-owner-h"><b>${esc(nameOf(owner))}</b><span class="ed-owner-n">${ls.length}リスト</span><button type="button" class="ed-allof" data-owner="${esc(owner)}">全部選ぶ</button></div>
         <div class="ed-card-grid">
           ${ls.map((x) => `
             <label class="ed-lcard">

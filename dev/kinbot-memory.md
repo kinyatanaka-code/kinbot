@@ -837,3 +837,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19j 採用人数の自動取得（Web）。analyzer.js lookupHiringCount(company)＝geminiGroundedで「採用予定人数/採用人数」検索→callLLM(schema:found/hires/source_url/confidence)で確認できたものだけ返す（推測禁止、範囲文字列可）。index.js import lookupHiringCount、POST /api/calls/enrich-hires{items:[{id,company}],max≤20}→parseEmpNumで整数化しsetCallTargetFields(hires)保存。calls.js edEnrichHires＝表示中で採用人数空を10件バッチ→_edRows更新→edRender。HTML #edEnrichHire。※SFに採用人数の確実な項目が不明のためWebのみ。SF項目名判明時は enrich-hires にSF一括を前段追加可。→編集画面の自動取得は 従業員数(SF→gBiz→Web)/媒体掲載(Web)/採用人数(Web) 完備。版20260919j。
 
 - 2026-09-19 BUILD_TAG=2026-09-19k 編集タブのリスト選択をカード化。calls.js orgLoadListsのpick描画を .ed-owner-block（担当ごと・全部選ぶ/外すトグル）＋ .ed-card-grid/.ed-lcard（隠しcheckbox .ed-lchk＋ .ed-lcard-check、消化バー org-bar、選択で .sel）。change/click で .sel 同期。CSS .ed-owner-block/.ed-card-grid/.ed-lcard 等追加（旧 .ed-pick-grid系は不使用）。スマホで見やすく。版20260919k。
+
+- 2026-09-19 BUILD_TAG=2026-09-19l 編集タブのリスト選択カードの担当見出しを登録名表示に。calls.js orgLoadLists で nameOf(email)＝_edMembers から name を引き（無ければemail）、ed-owner-h の <b> を nameOf(owner) に。data-owner はメールのまま（全部選ぶ判定用）。版20260919l。
