@@ -573,7 +573,7 @@ function render() {
           const btn = (isEnd || isHire)
             ? `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-rcflt="${isEnd ? "post" : "hire"}">${esc(k)} ▾</button>`
             : `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-exflt="${esc(k)}">${esc(k)} ▾</button>`;
-          return `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${btn}</th>`;
+          return `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${btn}<button type="button" class="kc-rc-x" data-rcx="${esc(k)}" title="この列を消す" aria-label="この列を消す">✕</button></th>`;
         }).join("")}
       </tr>` +
     list.map((x, i) => {
@@ -624,6 +624,17 @@ function render() {
     }));
   box.querySelectorAll("[data-exflt]").forEach((b) =>
     b.addEventListener("click", (e) => { e.stopPropagation(); openFilter(b.dataset.exflt, b); }));
+  box.querySelectorAll("[data-rcx]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const k = b.dataset.rcx;
+      let cfg = {}; try { cfg = JSON.parse(localStorage.getItem("kcExtraCols") || "{}") || {}; } catch {}
+      const order = Array.isArray(cfg.order) ? cfg.order : [];
+      const hidden = new Set(Array.isArray(cfg.hidden) ? cfg.hidden : []);
+      hidden.add(k);
+      saveExtraCols(order, [...hidden]);   // この端末に保存（「列を選ぶ」で再表示できる）
+      render();
+    }));
   box.querySelectorAll("[data-sort]").forEach((b) =>
     b.addEventListener("click", () => {
       if (sortBy === b.dataset.sort) sortDesc = !sortDesc;

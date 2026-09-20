@@ -6419,3 +6419,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed3-chosen-x { background:rgba(255,255,255,.2); color:#fff; border:none; border-radius:50%; width:22px; height:22px; cursor:pointer; flex:none; }
 .ed3-go { margin-top:8px; }
 @media (max-width:760px){ .ed3 { grid-template-columns:1fr; } .ed3-col + .ed3-col { border-left:none; padding-left:0; border-top:1px solid #eef2f0; padding-top:10px; margin-top:6px; } .ed3-body { max-height:34vh; } }
+
+/* かける一覧：列ヘッダの「✕で列を消す」 */
+.kc-th-rc { position:relative; }
+.kc-rc-x { margin-left:4px; border:none; background:transparent; color:#b6bdb9; font-size:11px; cursor:pointer; padding:0 2px; border-radius:4px; line-height:1; vertical-align:middle; }
+.kc-th-rc:hover .kc-rc-x { color:#8a8f8c; }
+.kc-rc-x:hover { background:#f3d4cf; color:#c0392b; }
