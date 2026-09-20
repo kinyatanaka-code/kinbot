@@ -6354,3 +6354,34 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .oz-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; background:#eef6f2; border:1px solid #cfe0d8; border-radius:12px; padding:8px 12px; margin:8px 0 4px; position:sticky; top:0; z-index:5; }
 .oz-bar-n { font-size:13px; font-weight:600; color:#0f6e56; }
 @media (max-width:640px){ .kc-lists-grid-in { grid-template-columns:1fr; } .oz-bar { position:static; } }
+
+/* ===== 整理タブ 案1+3：1行リスト＋⋯メニュー＋下部操作バー ===== */
+.oz-list { display:flex; flex-direction:column; gap:6px; padding-bottom:74px; }
+.oz-row { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid #e6ece9; border-radius:10px; padding:9px 12px; }
+.oz-row.oz-hidden { opacity:.6; }
+.oz-row:has(.oz-sel:checked) { border-color:#0f6e56; box-shadow:0 0 0 2px rgba(15,110,86,.15); background:#f5fbf8; }
+.oz-row .oz-sel { width:18px; height:18px; flex:none; cursor:pointer; }
+.oz-strip { width:5px; height:34px; border-radius:3px; flex:none; }
+.oz-row-main { flex:1; min-width:0; }
+.oz-row-name { font-size:13px; font-weight:600; color:#173a30; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.oz-row-sub { font-size:11px; color:#8a8f8c; margin-top:2px; }
+.oz-row-bar { width:90px; height:6px; background:#eef2f0; border-radius:4px; overflow:hidden; flex:none; }
+.oz-row-bar > div { height:6px; border-radius:4px; }
+.oz-row-grp { flex:none; }
+.oz-menu { position:relative; flex:none; }
+.oz-menu > summary { list-style:none; cursor:pointer; width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; color:#6b7a74; font-size:18px; }
+.oz-menu > summary::-webkit-details-marker { display:none; }
+.oz-menu[open] > summary { background:#eef6f2; color:#0f6e56; }
+.oz-menu-pop { position:absolute; right:0; top:34px; z-index:20; background:#fff; border:1px solid #e6ece9; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.14); padding:8px; min-width:190px; display:flex; flex-direction:column; gap:6px; }
+.oz-menu-row { display:flex; align-items:center; gap:6px; font-size:12px; color:#4a5a54; }
+.oz-menu-row select { flex:1; }
+.oz-menu-btn { text-align:left; background:#fff; border:1px solid #e0e7e4; border-radius:8px; padding:6px 10px; font-size:12px; color:#173a30; cursor:pointer; }
+.oz-menu-btn:hover { background:#f6faf8; }
+.oz-menu-btn.oz-danger { color:#c0392b; border-color:#f0d4cf; }
+.oz-bar { position:fixed; left:0; right:0; bottom:0; margin:0; border:none; border-radius:16px 16px 0 0; background:#173a30; color:#fff; padding:12px 16px; z-index:60; box-shadow:0 -4px 20px rgba(0,0,0,.18); justify-content:flex-start; }
+.oz-bar[hidden] { display:none; }
+.oz-bar .oz-bar-n { color:#fff; }
+.oz-bar select, .oz-bar .btn { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.25); border-radius:20px; }
+.oz-bar select option { color:#173a30; }
+.oz-bar .rev-status { color:#cfe8dd; }
+@media (max-width:640px){ .oz-row-bar { display:none; } .oz-row-grp { display:none; } }
