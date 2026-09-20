@@ -851,3 +851,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19q 自動取得を高速化（並列化）。enrich-employees/media/hires の for ループを await Promise.all(items.map(async…)) に変更＝バッチ内を同時処理（各社の withTimeout は維持）。client バッチ拡大：従業員数 4→12、媒体/採用 10→12。→バッチ所要時間が合計から最長1件へ短縮。※rate limit次第でさらに調整可。版20260919q。
 
 - 2026-09-19 BUILD_TAG=2026-09-19r 編集タブの選択UIを3ペイン化。calls.html organizeペインを #edPane .ed3（#edMembers/#edLists(＋#edAll)/#edChosen(#edChosenBody・#edChosenN・#edGo)）。calls.js：状態 _edByOwner/_edActive/_edChosen(Map id->{name,owner})。orgLoadLists＝lists-all→owner別、①メンバー描画→クリックで edRenderLists()、②リストは ed3-lrow クリックで _edChosen トグル、③ edRenderChosen で選択中カード＋件数＋#edGo有効化。edGo→orgLoadEdit([..._edChosen.keys()])。edAll＝現メンバーの全リスト一括トグル。別メンバー横断で選択可。CSS .ed3/.ed3-col/.ed3-mem-item/.ed3-lrow/.ed3-chosen、@media760で縦積み。旧 .ed-pick/.ed-lcard 系は不使用。版20260919r。
+
+- 2026-09-19 BUILD_TAG=2026-09-19s メンバー一覧から goldfly32@gmail.com を除外。calls.js に EX_OWNERS=["goldfly32@gmail.com"]。編集3ペインの _edByOwner 構築時に owner が EX_OWNERS なら skip、_edMembers 取得時に filter、整理 asLoad の items を filter、ozMoveTo（別担当へ移す先）も filter。※クライアント表示のみの除外（サーバーのメンバーAPIは変更なし）。版20260919s。

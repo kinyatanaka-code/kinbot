@@ -4146,7 +4146,7 @@ async function asLoad() {
   box.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
     const d = await (await fetch("/api/calls/members")).json();
-    const items = d.items || [];
+    const items = (d.items || []).filter((x) => !EX_OWNERS.includes(String(x.email || "").toLowerCase()));
     if (!items.length) {
       box.innerHTML = '<div class="empty-state">メンバーがいません。設定→メンバー管理で追加してください。</div>';
       return;
@@ -4480,6 +4480,7 @@ async function loadGroups() {
 // ===== 編集タブ：リストを複数選んで1つの一覧にまとめて編集 =====
 let _edInit = false;
 let _edLists = {};    // id -> {name, owner, group_name, group_id}
+const EX_OWNERS = ["goldfly32@gmail.com"];   // メンバー一覧に出さない
 let _edMembers = [];  // 所有者プルダウン用
 let _edByOwner = new Map();  // owner -> lists（3ペイン）
 let _edActive = "";          // 選択中メンバー
@@ -4510,12 +4511,12 @@ async function orgLoadLists() {
   memBox.querySelector(".ed3-body").innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
     if (!Array.isArray(GROUPS) || !GROUPS.length) await loadGroups().catch(() => {});
-    if (!_edMembers.length) { try { const m = await (await fetch("/api/calls/members")).json(); _edMembers = m.items || []; } catch {} }
+    if (!_edMembers.length) { try { const m = await (await fetch("/api/calls/members")).json(); _edMembers = (m.items || []).filter((x) => !EX_OWNERS.includes(String(x.email || "").toLowerCase())); } catch {} }
     const d = await (await fetch("/api/calls/lists-all")).json();
     const items = d.items || [];
     _edLists = {}; for (const x of items) _edLists[x.id] = { name: x.name, owner: x.owner, group_name: x.group_name, group_id: x.group_id || null };
     _edByOwner = new Map();
-    for (const x of items) { const k = x.owner || "?"; if (!_edByOwner.has(k)) _edByOwner.set(k, []); _edByOwner.get(k).push(x); }
+    for (const x of items) { const k = x.owner || "?"; if (EX_OWNERS.includes(String(k).toLowerCase())) continue; if (!_edByOwner.has(k)) _edByOwner.set(k, []); _edByOwner.get(k).push(x); }
     // ① メンバー
     memBox.querySelector(".ed3-body").innerHTML = [..._edByOwner.entries()].map(([owner, ls]) =>
       `<button type="button" class="ed3-mem-item${owner === _edActive ? " active" : ""}" data-owner="${esc(owner)}"><span class="ed3-ava">${esc(String(_edNameOf(owner)).slice(0, 1))}</span><span class="ed3-mem-name">${esc(_edNameOf(owner))}</span><span class="ed3-mem-n">${ls.length}</span></button>`
@@ -4819,7 +4820,7 @@ async function asLoadMember(email, name) {
         box.querySelectorAll(".oz-sel").forEach((c) => c.addEventListener("change", refresh));
         // 移動先メンバー
         const mt = $("ozMoveTo");
-        if (mt) { try { const m = await (await fetch("/api/calls/members")).json(); mt.innerHTML = '<option value="">別の担当へ移す…</option>' + (m.items || []).filter((x) => String(x.email).toLowerCase() !== String(email).toLowerCase()).map((x) => `<option value="${esc(x.email)}">${esc(x.name || x.email)} へ移す</option>`).join(""); } catch {} }
+        if (mt) { try { const m = await (await fetch("/api/calls/members")).json(); mt.innerHTML = '<option value="">別の担当へ移す…</option>' + (m.items || []).filter((x) => String(x.email).toLowerCase() !== String(email).toLowerCase() && !EX_OWNERS.includes(String(x.email || "").toLowerCase())).map((x) => `<option value="${esc(x.email)}">${esc(x.name || x.email)} へ移す</option>`).join(""); } catch {} }
         if (mt) mt.addEventListener("change", async () => {
           const owner = mt.value; const ids = sel(); mt.value = "";
           if (!owner || !ids.length) return;
