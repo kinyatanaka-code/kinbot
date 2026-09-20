@@ -621,6 +621,40 @@ export async function lookupEmployeeCount(companyName, hint = "") {
   };
 }
 
+// 媒体掲載：会社名でWeb検索し、掲載が確認できた有料求人サイトをタグとして返す。
+export const PAID_JOB_SITES = [
+  // 中途
+  "リクナビNEXT", "doda", "マイナビ転職", "エン転職", "type", "女の転職type", "Green", "Wantedly", "ビズリーチ", "リクルートダイレクトスカウト", "求人ボックス", "エンゲージ",
+  // 新卒
+  "リクナビ", "マイナビ", "キャリタス就活", "あさがくナビ", "ONE CAREER", "ダイヤモンド就活ナビ",
+];
+export async function lookupJobMedia(companyName) {
+  const name = String(companyName || "").trim();
+  if (!name) return { found: false, media: [] };
+  let research = "";
+  try {
+    research = await geminiGrounded(
+      `「${name}」が現在掲載している求人媒体を調べてください。「${name} 求人」「${name} 中途採用」「${name} 新卒 採用」などで検索し、` +
+      `次の有料求人サイトのうち、${name} の求人ページ（掲載）が実在するものを特定してください: ${PAID_JOB_SITES.join("、")}。` +
+      `各媒体について掲載ページのURLを挙げてください。確認できないものは含めないこと。憶測で判断しないこと。`,
+      ""
+    );
+  } catch (e) {
+    console.warn("[media-lookup] grounding失敗", e.message);
+    return { found: false, media: [], error: "検索に失敗しました" };
+  }
+  const schema = { type: "object", properties: { media: { type: "array", items: { type: "string" } } }, required: ["media"] };
+  const sys =
+    "あなたは求人媒体の調査アシスタントです。与えられた検索リサーチ結果だけを根拠に、会社が掲載している有料求人サイトを判定します。" +
+    `出力する媒体名は必ず次のいずれかに正規化すること: ${PAID_JOB_SITES.join("、")}。` +
+    "検索結果にその媒体の掲載ページ（URL）が確認できるものだけを media に入れます。確認できなければ空配列。推測で足さないこと。出力は指定JSONのみ。";
+  const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、掲載が確認できた有料求人サイトをJSONで出力してください。`;
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const allow = new Set(PAID_JOB_SITES.map((s) => s.toLowerCase()));
+  const media = [...new Set((Array.isArray(o.media) ? o.media : []).map((x) => String(x).trim()).filter((x) => allow.has(x.toLowerCase())))];
+  return { found: media.length > 0, media };
+}
+
 // 業界・設立日・本社所在地をまとめてWeb検索で調べる（gBizINFOに無い項目を補完するため）。
 // 従業員数と同じく「Webで確認できた場合のみ返す。無ければ found:false」の厳格版。
 // which: 求める項目名 ["industry","founded","location"] を指定。省略時は全部。

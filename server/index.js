@@ -523,7 +523,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -7656,6 +7656,23 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
       }
       if (emp != null && id) await setCallTargetFields(id, { employees: emp }).catch(() => {});
       results.push({ id, employees: emp, source: src });
+    }
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 編集画面：媒体掲載を自動取得（会社名でWeb検索→掲載が確認できた有料求人サイトをタグ付け）
+app.post("/api/calls/enrich-media", async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, Math.max(1, Math.min(20, parseInt(req.body?.max, 10) || 12))) : [];
+    if (!items.length) return res.json({ ok: true, results: [] });
+    const results = [];
+    for (const it of items) {
+      const id = it.id, company = String(it.company || "").trim();
+      let tags = "";
+      if (company) { try { const m = await lookupJobMedia(company).catch(() => null); if (m && Array.isArray(m.media)) tags = m.media.join(", "); } catch {} }
+      if (id) await setCallTargetFields(id, { media_tags: tags }).catch(() => {});
+      results.push({ id, media_tags: tags });
     }
     res.json({ ok: true, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -20310,7 +20327,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19g 編集画面に「従業員数を自動取得」を追加。表示中で従業員数が空の会社を、SF（NumberOfEmployees一括）→gBizINFO→Web検索の順で調べて自動で入れる。gBizINFOは環境変数 GBIZINFO_TOKEN を使用。取得後はその場で保存され表に反映。件数が多いと数分かかるため表示中ぶんを対象にバッチ実行。";
+const BUILD_TAG = "2026-09-19h 編集画面に「媒体掲載を自動取得」を追加。会社名をWeb検索し、掲載が確認できた有料求人サイト（リクナビNEXT/doda/マイナビ転職/エン転職/type/女の転職type/Green/Wantedly/ビズリーチ/リクルートダイレクトスカウト/求人ボックス/エンゲージ/リクナビ/マイナビ/キャリタス就活/あさがくナビ/ONE CAREER/ダイヤモンド就活ナビ）をタグ付けする。確認できたものだけ・推測はしない。1社ずつ検索するため件数が多いと時間がかかる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

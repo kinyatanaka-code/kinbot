@@ -4492,6 +4492,7 @@ async function orgLoadLists() {
     });
     ["edQ", "edStage", "edStatus", "edMedia"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
     if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", edEnrichEmployees);
+    if ($("edEnrichMedia")) $("edEnrichMedia").addEventListener("click", edEnrichMedia);
   }
   pick.innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
@@ -4569,6 +4570,32 @@ async function edEnrichEmployees() {
       edRender();
     }
     if (st) st.textContent = `完了：${got}/${targets.length} 社に従業員数を入れました`;
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+  finally { if (btn) btn.disabled = false; }
+}
+async function edEnrichMedia() {
+  const g = _edg;
+  const targets = edFiltered().filter((r) => !g(r, "媒体掲載", "media_tags")); // 表示中で空欄のものだけ
+  const st = $("edEnrichSt");
+  if (!targets.length) { if (st) st.textContent = "空欄の会社はありません"; return; }
+  if (!confirm(`表示中で媒体掲載が空の ${targets.length} 社を、Web検索で調べます。1社ずつ検索するため時間がかかります（数十社で数分〜）。続けますか？`)) return;
+  const btn = $("edEnrichMedia"); if (btn) btn.disabled = true;
+  let done = 0, got = 0;
+  try {
+    for (let i = 0; i < targets.length; i += 10) {
+      const batch = targets.slice(i, i + 10);
+      if (st) st.textContent = `取得中… ${done}/${targets.length}`;
+      const r = await fetch("/api/calls/enrich-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company") })), max: 10 }) });
+      const d = await r.json();
+      for (const res of (d.results || [])) {
+        done++;
+        const row = _edRows.find((x) => String(x.id) === String(res.id));
+        if (row) row["媒体掲載"] = res.media_tags || "";
+        if (res.media_tags) got++;
+      }
+      edRender();
+    }
+    if (st) st.textContent = `完了：${got}/${targets.length} 社で掲載媒体が見つかりました`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
   finally { if (btn) btn.disabled = false; }
 }
