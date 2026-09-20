@@ -4803,15 +4803,15 @@ async function asLoadMember(email, name) {
         const pct = total ? Math.round(left / total * 100) : 0;
         const col = pct >= 60 ? "#1d9e75" : pct >= 25 ? "#f0b429" : "#e06b5e";
         return `
-        <div class="oz-row${x.hidden ? " oz-hidden" : ""}" data-id="${x.id}">
+        <div class="oz-card${x.hidden ? " oz-hidden" : ""}" data-id="${x.id}">
+          <span class="oz-card-top" style="background:${col}"></span>
           <input type="checkbox" class="oz-sel" data-id="${x.id}" data-name="${esc(x.name)}" title="選択" onclick="event.stopPropagation()" />
-          <span class="oz-strip" style="background:${col}"></span>
-          <div class="oz-row-main">
-            <div class="oz-row-name">${esc(x.name)}${x.hidden ? '<span class="kc-list-chip hid">非表示中</span>' : ""}</div>
-            <div class="oz-row-sub">残 ${left} / 全 ${total}${x["自分のぶん"] && x["自分のぶん"] !== total ? ` ・ この人 ${x["自分のぶん"]}` : ""}</div>
+          <div class="oz-card-body">
+            <div class="oz-card-name">${esc(x.name)}${x.hidden ? '<span class="kc-list-chip hid">非表示中</span>' : ""}</div>
+            <div class="oz-card-sub">残 ${left} / 全 ${total}${x["自分のぶん"] && x["自分のぶん"] !== total ? ` ・ この人 ${x["自分のぶん"]}` : ""}</div>
+            <div class="oz-card-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>
+            ${x.group_name ? `<span class="kc-list-chip grp">${esc(x.group_name)}</span>` : `<span class="kc-list-chip nogrp">未設定</span>`}
           </div>
-          <div class="oz-row-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>
-          ${x.group_name ? `<span class="kc-list-chip grp oz-row-grp">${esc(x.group_name)}</span>` : `<span class="kc-list-chip nogrp oz-row-grp">未設定</span>`}
           <details class="oz-menu" onclick="event.stopPropagation()">
             <summary aria-label="操作">⋯</summary>
             <div class="oz-menu-pop">

@@ -859,3 +859,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19u かける一覧に従業員数・採用人数・媒体掲載の列を追加可能に。index.js のかける item の 追加 を、r.extra に加えて employees→従業員数/hires→採用人数/media_tags→媒体掲載 をマージ（空は除外、無ければnull）。→ rowExtra(x.追加) 経由で extraKeysOf に載り「列を選ぶ」で表示切替可。編集タブで入れた値がそのまま出る。トップレベルの 従業員数/採用人数/媒体掲載（編集タブ用）はそのまま併存。版20260919u。
 
 - 2026-09-19 BUILD_TAG=2026-09-19v かける一覧の追加列ヘッダに✕（列削除）。calls.js render の kc-th-rc に data-rcx の✕ボタン追加、handler で kcExtraCols(localStorage)の hidden に k を add→saveExtraCols→render。＝その列を非表示（「列を選ぶ」で再表示可、端末保存）。CSS .kc-rc-x。版20260919v。
+
+- 2026-09-19 BUILD_TAG=2026-09-19w 整理タブを1行→リストカード表示に戻す。calls.js asLoadMember の描画を .oz-card（.oz-card-top 左色帯・.oz-sel 左上・.oz-menu 右上・.oz-card-body に name/sub/bar/groupchip）に。選択(.oz-sel)＋下部操作バー(#ozBar)＋⋯メニュー(グループ/担当移動/非表示/SF補完/削除)はそのまま。CSS .oz-list を grid(auto-fill minmax250)、.oz-card 一式追加、@media600で1列。版20260919w。

@@ -6425,3 +6425,18 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-rc-x { margin-left:4px; border:none; background:transparent; color:#b6bdb9; font-size:11px; cursor:pointer; padding:0 2px; border-radius:4px; line-height:1; vertical-align:middle; }
 .kc-th-rc:hover .kc-rc-x { color:#8a8f8c; }
 .kc-rc-x:hover { background:#f3d4cf; color:#c0392b; }
+
+/* ===== 整理タブ：1行→カードに戻す（選択・⋯操作はそのまま） ===== */
+.oz-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:10px; padding-bottom:74px; }
+.oz-card { position:relative; background:#fff; border:1px solid #e6ece9; border-radius:12px; padding:12px 12px 12px 14px; overflow:hidden; cursor:default; }
+.oz-card.oz-hidden { opacity:.6; }
+.oz-card:has(.oz-sel:checked) { border-color:#0f6e56; box-shadow:0 0 0 2px rgba(15,110,86,.16); background:#f5fbf8; }
+.oz-card-top { position:absolute; left:0; top:0; bottom:0; width:5px; }
+.oz-card .oz-sel { position:absolute; top:10px; left:12px; width:18px; height:18px; z-index:2; cursor:pointer; }
+.oz-card .oz-menu { position:absolute; top:6px; right:6px; }
+.oz-card-body { padding-left:24px; }
+.oz-card-name { font-size:13px; font-weight:600; color:#173a30; line-height:1.35; padding-right:24px; }
+.oz-card-sub { font-size:11px; color:#8a8f8c; margin:3px 0 6px; }
+.oz-card-bar { height:5px; background:#eef2f0; border-radius:3px; overflow:hidden; margin-bottom:8px; }
+.oz-card-bar > div { height:5px; border-radius:3px; }
+@media (max-width:600px){ .oz-list { grid-template-columns:1fr; } }
