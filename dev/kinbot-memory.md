@@ -855,3 +855,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19s メンバー一覧から goldfly32@gmail.com を除外。calls.js に EX_OWNERS=["goldfly32@gmail.com"]。編集3ペインの _edByOwner 構築時に owner が EX_OWNERS なら skip、_edMembers 取得時に filter、整理 asLoad の items を filter、ozMoveTo（別担当へ移す先）も filter。※クライアント表示のみの除外（サーバーのメンバーAPIは変更なし）。版20260919s。
 
 - 2026-09-19 BUILD_TAG=2026-09-19t 整理タブの各リスト行から個別に担当割り振り。oz-menu-pop に「担当」行＋ .oz-move-one select（data-list/data-name）追加。選択操作の非同期ブロックでメンバー取得(memOpts, 現ownerとEX_OWNERS除外)を共通化し、ozMoveTo と全 .oz-move-one に反映。moveList(listId,owner,nm,ownerNm)＝確認→PUT /api/calls/lists/:id/owner{owner,reassign:true}→asLoadMember再読込。click stopPropagationでメニュー閉じ防止。まとめ操作(#ozBar)は従来どおり。版20260919t。
+
+- 2026-09-19 BUILD_TAG=2026-09-19u かける一覧に従業員数・採用人数・媒体掲載の列を追加可能に。index.js のかける item の 追加 を、r.extra に加えて employees→従業員数/hires→採用人数/media_tags→媒体掲載 をマージ（空は除外、無ければnull）。→ rowExtra(x.追加) 経由で extraKeysOf に載り「列を選ぶ」で表示切替可。編集タブで入れた値がそのまま出る。トップレベルの 従業員数/採用人数/媒体掲載（編集タブ用）はそのまま併存。版20260919u。

@@ -9461,7 +9461,13 @@ app.get("/api/calls/targets", async (req, res) => {
         最終日時: r["最終日時"] || null,
         次回予定: r.next_call_at || null,
         済み: !!r.done,
-        追加: (r.extra && typeof r.extra === "object") ? r.extra : null,
+        追加: (() => {
+          const base = (r.extra && typeof r.extra === "object") ? { ...r.extra } : {};
+          if (r.employees != null) base["従業員数"] = r.employees;
+          if (r.hires != null) base["採用人数"] = r.hires;
+          if (r.media_tags) base["媒体掲載"] = r.media_tags;
+          return Object.keys(base).length ? base : null;
+        })(),
     }));
     // 会社名で求人情報（取り込み済みなら）を付ける。データがある行にだけ「求人」が入る。
     let recruitFound = items.some((x) => x.追加 && Object.keys(x.追加).length);
@@ -20348,7 +20354,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19t 整理タブの各リスト行からも、別の担当へ割り振れるようにした。行の「⋯」メニューに「担当（別の担当へ移す）」を追加。選ぶとそのリスト1つの所有者を変更し、担当もその人にそろえる。まとめて選んで移す機能はそのまま。";
+const BUILD_TAG = "2026-09-19u かける画面の一覧に、従業員数・採用人数・媒体掲載の列を出せるようにした。上部の「列を選ぶ」から表示のオン/オフができる（編集タブで自動取得・入力した値がそのまま出る）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
