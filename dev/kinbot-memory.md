@@ -847,3 +847,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19o 整理タブUI刷新（案1+3）。asLoadMember のリスト描画を .oz-list/.oz-row（左 .oz-strip 色帯＝残率≥60緑/≥25黄/以下赤、名前、残/全・この人、.oz-row-bar 進捗、グループchip、.oz-menu details/summary「⋯」に グループselect(.kc-grp-sel)・非表示(data-hide)・SFから補う(data-sffill)・削除(data-del) 集約）。既存ハンドラのフックはそのまま維持。#ozBar を position:fixed 下部の黒バーに変更（案3）：選択で表示、別担当へ移す(select)＋非表示＋解除。旧 .kc-list-card グリッドは不使用。CSS一式追加、@media640で bar/grp列を隠す。版20260919o。
 
 - 2026-09-19 BUILD_TAG=2026-09-19p 自動取得が0から進まない不具合を修正。原因：外部呼び出しにタイムアウトが無く、1件（特にSFクエリ＝SF未接続時）が固まると endpoint 全体が停止し進捗0のまま。対応：index.js に withTimeout(promise,ms,fallback)（Promise.race）を追加し、enrich-employees の sfQuery(12s)/searchCompanies・getCompanyDetail(10s)/lookupEmployeeCount(25s)、enrich-media の lookupJobMedia(25s)、enrich-hires の lookupHiringCount(25s) を全部ラップ。従業員数の client バッチ 8→4。※依存：GBIZINFO_TOKEN(gBiz)/GEMINI_API_KEY(Web geminiGrounded)。版20260919p。
+
+- 2026-09-19 BUILD_TAG=2026-09-19q 自動取得を高速化（並列化）。enrich-employees/media/hires の for ループを await Promise.all(items.map(async…)) に変更＝バッチ内を同時処理（各社の withTimeout は維持）。client バッチ拡大：従業員数 4→12、媒体/採用 10→12。→バッチ所要時間が合計から最長1件へ短縮。※rate limit次第でさらに調整可。版20260919q。

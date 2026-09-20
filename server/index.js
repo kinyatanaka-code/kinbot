@@ -7650,8 +7650,7 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
         for (const r of (d.records || [])) if (r.NumberOfEmployees != null) sfMap[r.Id] = r.NumberOfEmployees;
       } catch (e) { console.warn("[enrich-emp] SF一括失敗", e.message); }
     }
-    const results = [];
-    for (const it of items) {
+    const results = await Promise.all(items.map(async (it) => {
       const id = it.id, company = String(it.company || "").trim();
       let emp = null, src = "";
       if (it.lead_id && sfMap[it.lead_id] != null) { emp = parseEmpNum(sfMap[it.lead_id]); if (emp != null) src = "SF"; }
@@ -7662,8 +7661,8 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
         try { const w = await withTimeout(lookupEmployeeCount(company), 25000, null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
       }
       if (emp != null && id) await setCallTargetFields(id, { employees: emp }).catch(() => {});
-      results.push({ id, employees: emp, source: src });
-    }
+      return { id, employees: emp, source: src };
+    }));
     res.json({ ok: true, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -7673,14 +7672,13 @@ app.post("/api/calls/enrich-media", async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, Math.max(1, Math.min(20, parseInt(req.body?.max, 10) || 12))) : [];
     if (!items.length) return res.json({ ok: true, results: [] });
-    const results = [];
-    for (const it of items) {
+    const results = await Promise.all(items.map(async (it) => {
       const id = it.id, company = String(it.company || "").trim();
       let tags = "";
       if (company) { try { const m = await withTimeout(lookupJobMedia(company), 25000, null); if (m && Array.isArray(m.media)) tags = m.media.join(", "); } catch {} }
       if (id) await setCallTargetFields(id, { media_tags: tags }).catch(() => {});
-      results.push({ id, media_tags: tags });
-    }
+      return { id, media_tags: tags };
+    }));
     res.json({ ok: true, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -7690,14 +7688,13 @@ app.post("/api/calls/enrich-hires", async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, Math.max(1, Math.min(20, parseInt(req.body?.max, 10) || 12))) : [];
     if (!items.length) return res.json({ ok: true, results: [] });
-    const results = [];
-    for (const it of items) {
+    const results = await Promise.all(items.map(async (it) => {
       const id = it.id, company = String(it.company || "").trim();
       let hires = null;
       if (company) { try { const h = await withTimeout(lookupHiringCount(company), 25000, null); if (h && h.found) hires = parseEmpNum(h.hires); } catch {} }
       if (hires != null && id) await setCallTargetFields(id, { hires }).catch(() => {});
-      results.push({ id, hires });
-    }
+      return { id, hires };
+    }));
     res.json({ ok: true, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -20351,7 +20348,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19p 自動取得が「0から進まない」不具合を修正。外部呼び出し（SFクエリ・gBiz・Web検索）にタイムアウトを付け、1件が固まっても全体が止まらないようにした。従業員数の取得は4件ずつに変更して進捗が早く出るようにした。※gBizは環境変数 GBIZINFO_TOKEN、Web検索は GEMINI_API_KEY が要る。";
+const BUILD_TAG = "2026-09-19q 自動取得を高速化。これまで1社ずつ順番に外部検索していたのを、サーバー側でまとめて並列処理するようにした（各社のタイムアウトは維持）。あわせて一度に処理する件数も増やした。従業員数・採用人数・媒体掲載のいずれも速くなる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

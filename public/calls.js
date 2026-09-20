@@ -4578,10 +4578,10 @@ async function edEnrichEmployees() {
   const btn = $("edEnrichEmp"); if (btn) btn.disabled = true;
   let done = 0, got = 0;
   try {
-    for (let i = 0; i < targets.length; i += 4) {
-      const batch = targets.slice(i, i + 4);
+    for (let i = 0; i < targets.length; i += 12) {
+      const batch = targets.slice(i, i + 12);
       if (st) st.textContent = `取得中… ${done}/${targets.length}`;
-      const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 4 }) });
+      const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 12 }) });
       const d = await r.json();
       for (const res of (d.results || [])) {
         done++;
@@ -4602,10 +4602,10 @@ async function edEnrichHires() {
   const btn = $("edEnrichHire"); if (btn) btn.disabled = true;
   let done = 0, got = 0;
   try {
-    for (let i = 0; i < targets.length; i += 10) {
-      const batch = targets.slice(i, i + 10);
+    for (let i = 0; i < targets.length; i += 12) {
+      const batch = targets.slice(i, i + 12);
       if (st) st.textContent = `取得中… ${done}/${targets.length}`;
-      const r = await fetch("/api/calls/enrich-hires", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company") })), max: 10 }) });
+      const r = await fetch("/api/calls/enrich-hires", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company") })), max: 12 }) });
       const d = await r.json();
       for (const res of (d.results || [])) {
         done++;
@@ -4626,10 +4626,10 @@ async function edEnrichMedia() {
   const btn = $("edEnrichMedia"); if (btn) btn.disabled = true;
   let done = 0, got = 0;
   try {
-    for (let i = 0; i < targets.length; i += 10) {
-      const batch = targets.slice(i, i + 10);
+    for (let i = 0; i < targets.length; i += 12) {
+      const batch = targets.slice(i, i + 12);
       if (st) st.textContent = `取得中… ${done}/${targets.length}`;
-      const r = await fetch("/api/calls/enrich-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company") })), max: 10 }) });
+      const r = await fetch("/api/calls/enrich-media", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company") })), max: 12 }) });
       const d = await r.json();
       for (const res of (d.results || [])) {
         done++;
