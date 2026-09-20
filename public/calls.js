@@ -4505,13 +4505,28 @@ async function orgLoadLists() {
     _edLists = {}; for (const x of items) _edLists[x.id] = { name: x.name, owner: x.owner, group_name: x.group_name, group_id: x.group_id || null };
     const byOwner = new Map();
     for (const x of items) { const k = x.owner || "?"; if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
-    pick.innerHTML = '<div class="ed-pick-grid">' + [...byOwner.entries()].map(([owner, ls]) => `
-      <div class="ed-pick-col">
-        <div class="ed-pick-h"><label><input type="checkbox" class="ed-allof" data-owner="${esc(owner)}" /> <b>${esc(owner)}</b></label></div>
-        ${ls.map((x) => `<label class="ed-pick-item"><input type="checkbox" class="ed-lchk" value="${x.id}" data-owner="${esc(owner)}" /> ${esc(x.name)} <span class="note" style="margin:0">残${x.残り}</span></label>`).join("")}
-      </div>`).join("") + "</div>";
-    pick.querySelectorAll(".ed-allof").forEach((a) => a.addEventListener("change", () => {
-      pick.querySelectorAll(`.ed-lchk[data-owner="${CSS.escape(a.dataset.owner)}"]`).forEach((c) => (c.checked = a.checked));
+    const barOf = (x) => { const pct = x.全部 ? Math.round(x.残り / x.全部 * 100) : 0; const col = (x.全部 && x.残り / x.全部 >= 0.6) ? "#1d9e75" : (x.全部 && x.残り / x.全部 >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; };
+    pick.innerHTML = [...byOwner.entries()].map(([owner, ls]) => `
+      <div class="ed-owner-block">
+        <div class="ed-owner-h"><b>${esc(owner)}</b><span class="ed-owner-n">${ls.length}リスト</span><button type="button" class="ed-allof" data-owner="${esc(owner)}">全部選ぶ</button></div>
+        <div class="ed-card-grid">
+          ${ls.map((x) => `
+            <label class="ed-lcard">
+              <input type="checkbox" class="ed-lchk" value="${x.id}" data-owner="${esc(owner)}" />
+              <span class="ed-lcard-check" aria-hidden="true"></span>
+              <span class="ed-lcard-name">${esc(x.name)}</span>
+              <span class="ed-lcard-meta">残 ${x.残り} ／ 全 ${x.全部}</span>
+              ${barOf(x)}
+            </label>`).join("")}
+        </div>
+      </div>`).join("");
+    const syncSel = (chk) => { const card = chk.closest(".ed-lcard"); if (card) card.classList.toggle("sel", chk.checked); };
+    pick.querySelectorAll(".ed-lchk").forEach((c) => c.addEventListener("change", () => syncSel(c)));
+    pick.querySelectorAll(".ed-allof").forEach((a) => a.addEventListener("click", () => {
+      const boxes = [...pick.querySelectorAll(`.ed-lchk[data-owner="${CSS.escape(a.dataset.owner)}"]`)];
+      const allOn = boxes.every((c) => c.checked);
+      boxes.forEach((c) => { c.checked = !allOn; syncSel(c); });
+      a.textContent = allOn ? "全部選ぶ" : "全部外す";
     }));
   } catch (e) { pick.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
 }

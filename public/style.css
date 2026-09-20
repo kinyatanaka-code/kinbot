@@ -6328,3 +6328,20 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed-pick-item { display:flex; align-items:center; gap:6px; font-size:12px; padding:2px 0; color:#3a4a44; }
 .ed-table th { position:sticky; top:0; background:#f6faf8; z-index:1; }
 .ed-table td { vertical-align:middle; }
+
+/* 編集タブ：リスト選択をカード化 */
+.ed-owner-block { margin-bottom:14px; }
+.ed-owner-h { display:flex; align-items:center; gap:8px; padding-bottom:6px; margin-bottom:8px; border-bottom:1px solid #e6ece9; }
+.ed-owner-h b { font-size:13px; color:#173a30; word-break:break-all; }
+.ed-owner-n { font-size:11px; color:#8a8f8c; }
+.ed-owner-h .ed-allof { margin-left:auto; flex:none; font-size:11px; border:1px solid #cfe0d8; background:#fff; color:#0f6e56; border-radius:14px; padding:3px 12px; cursor:pointer; }
+.ed-card-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:8px; }
+.ed-lcard { position:relative; display:block; background:#fff; border:1.5px solid #e6ece9; border-radius:12px; padding:10px 12px 10px 34px; cursor:pointer; transition:border-color .12s, box-shadow .12s, background .12s; }
+.ed-lcard:hover { border-color:#bcd8cd; }
+.ed-lcard input { position:absolute; opacity:0; pointer-events:none; }
+.ed-lcard-check { position:absolute; left:10px; top:11px; width:18px; height:18px; border:2px solid #cfd8d4; border-radius:5px; background:#fff; }
+.ed-lcard.sel { border-color:#0f6e56; background:#f2faf6; box-shadow:0 1px 4px rgba(15,110,86,.12); }
+.ed-lcard.sel .ed-lcard-check { background:#0f6e56; border-color:#0f6e56; }
+.ed-lcard.sel .ed-lcard-check::after { content:"✓"; color:#fff; font-size:12px; position:absolute; left:3px; top:-2px; }
+.ed-lcard-name { display:block; font-size:12.5px; font-weight:600; color:#173a30; line-height:1.35; }
+.ed-lcard-meta { display:block; font-size:11px; color:#8a8f8c; margin:3px 0 5px; }
