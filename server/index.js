@@ -7620,6 +7620,13 @@ app.get("/api/calls/lists-by-group", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 外部呼び出しが固まっても全体を止めないためのタイムアウト付きラッパー
+function withTimeout(promise, ms, fallback) {
+  return Promise.race([
+    Promise.resolve(promise).catch(() => fallback),
+    new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
 // 「約320名」「1,200名」「1.2万人」などから整数を取り出す
 function parseEmpNum(s) {
   if (s == null) return null;
@@ -7639,7 +7646,7 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
       try {
         const owner = (await getSettings().catch(() => ({}))).sfProxyUser || "";
         const inList = leadIds.map((id) => `'${id.replace(/'/g, "")}'`).join(",");
-        const d = await sfQuery(owner, `SELECT Id, NumberOfEmployees FROM Lead WHERE Id IN (${inList})`);
+        const d = await withTimeout(sfQuery(owner, `SELECT Id, NumberOfEmployees FROM Lead WHERE Id IN (${inList})`), 12000, { records: [] });
         for (const r of (d.records || [])) if (r.NumberOfEmployees != null) sfMap[r.Id] = r.NumberOfEmployees;
       } catch (e) { console.warn("[enrich-emp] SF一括失敗", e.message); }
     }
@@ -7649,10 +7656,10 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
       let emp = null, src = "";
       if (it.lead_id && sfMap[it.lead_id] != null) { emp = parseEmpNum(sfMap[it.lead_id]); if (emp != null) src = "SF"; }
       if (emp == null && company && gbizConfigured()) {
-        try { const hits = await searchCompanies(company, 1); if (hits[0]) { const dd = await getCompanyDetail(hits[0].corporate_number).catch(() => null); if (dd && dd.employees) { emp = parseEmpNum(dd.employees); if (emp != null) src = "gBiz"; } } } catch {}
+        try { const hits = await withTimeout(searchCompanies(company, 1), 10000, []); if (hits[0]) { const dd = await withTimeout(getCompanyDetail(hits[0].corporate_number), 10000, null); if (dd && dd.employees) { emp = parseEmpNum(dd.employees); if (emp != null) src = "gBiz"; } } } catch {}
       }
       if (emp == null && company) {
-        try { const w = await lookupEmployeeCount(company).catch(() => null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
+        try { const w = await withTimeout(lookupEmployeeCount(company), 25000, null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
       }
       if (emp != null && id) await setCallTargetFields(id, { employees: emp }).catch(() => {});
       results.push({ id, employees: emp, source: src });
@@ -7670,7 +7677,7 @@ app.post("/api/calls/enrich-media", async (req, res) => {
     for (const it of items) {
       const id = it.id, company = String(it.company || "").trim();
       let tags = "";
-      if (company) { try { const m = await lookupJobMedia(company).catch(() => null); if (m && Array.isArray(m.media)) tags = m.media.join(", "); } catch {} }
+      if (company) { try { const m = await withTimeout(lookupJobMedia(company), 25000, null); if (m && Array.isArray(m.media)) tags = m.media.join(", "); } catch {} }
       if (id) await setCallTargetFields(id, { media_tags: tags }).catch(() => {});
       results.push({ id, media_tags: tags });
     }
@@ -7687,7 +7694,7 @@ app.post("/api/calls/enrich-hires", async (req, res) => {
     for (const it of items) {
       const id = it.id, company = String(it.company || "").trim();
       let hires = null;
-      if (company) { try { const h = await lookupHiringCount(company).catch(() => null); if (h && h.found) hires = parseEmpNum(h.hires); } catch {} }
+      if (company) { try { const h = await withTimeout(lookupHiringCount(company), 25000, null); if (h && h.found) hires = parseEmpNum(h.hires); } catch {} }
       if (hires != null && id) await setCallTargetFields(id, { hires }).catch(() => {});
       results.push({ id, hires });
     }
@@ -20344,7 +20351,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19o 整理タブのリスト表示を作り直し。カードをやめて1行表示にし、左の色帯と進捗バーで消化ぐあいが一目（緑=残多い/黄=減った/赤=枯れ）。1行あたりの操作（グループ変更・非表示・SFから補う・削除）は右の「⋯」メニューに集約して画面をすっきり。選ぶと画面下から操作バーがせり上がり、選択したリストの「別の担当へ移す／非表示」ができる。PC・スマホ両対応。";
+const BUILD_TAG = "2026-09-19p 自動取得が「0から進まない」不具合を修正。外部呼び出し（SFクエリ・gBiz・Web検索）にタイムアウトを付け、1件が固まっても全体が止まらないようにした。従業員数の取得は4件ずつに変更して進捗が早く出るようにした。※gBizは環境変数 GBIZINFO_TOKEN、Web検索は GEMINI_API_KEY が要る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
