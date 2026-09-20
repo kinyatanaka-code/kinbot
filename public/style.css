@@ -6345,3 +6345,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed-lcard.sel .ed-lcard-check::after { content:"✓"; color:#fff; font-size:12px; position:absolute; left:3px; top:-2px; }
 .ed-lcard-name { display:block; font-size:12.5px; font-weight:600; color:#173a30; line-height:1.35; }
 .ed-lcard-meta { display:block; font-size:11px; color:#8a8f8c; margin:3px 0 5px; }
+
+/* 整理タブ：カード選択＋まとめ操作バー（レスポンシブ） */
+.kc-lists-grid-in { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px; }
+.kc-list-card { position:relative; }
+.oz-sel { position:absolute; top:8px; left:8px; width:18px; height:18px; z-index:2; cursor:pointer; }
+.kc-list-card:has(.oz-sel:checked) { border-color:#0f6e56; box-shadow:0 0 0 2px rgba(15,110,86,.18); background:#f2faf6; }
+.oz-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; background:#eef6f2; border:1px solid #cfe0d8; border-radius:12px; padding:8px 12px; margin:8px 0 4px; position:sticky; top:0; z-index:5; }
+.oz-bar-n { font-size:13px; font-weight:600; color:#0f6e56; }
+@media (max-width:640px){ .kc-lists-grid-in { grid-template-columns:1fr; } .oz-bar { position:static; } }

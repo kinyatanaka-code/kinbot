@@ -841,3 +841,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19l 編集タブのリスト選択カードの担当見出しを登録名表示に。calls.js orgLoadLists で nameOf(email)＝_edMembers から name を引き（無ければemail）、ed-owner-h の <b> を nameOf(owner) に。data-owner はメールのまま（全部選ぶ判定用）。版20260919l。
 
 - 2026-09-19 BUILD_TAG=2026-09-19m 「整理」タブ復活（calls.html lsTabs に data-ls=manage「整理」を再追加。asLoad(メンバー→リストカード・移動/非表示)は元から健在、タブ handler の manage→asLoad も既存）。従業員数enrichの client バッチ 25→8（進捗を早く反映）。※従業員数が0の主因候補：Railwayに GBIZINFO_TOKEN 未設定でgBizスキップ＋SFのNumberOfEmployees空＋Web検索(lookupEmployeeCount)が332件で非常に遅い。対策案内：GBIZINFO_TOKEN設定、フィルタで絞って実行。版20260919m。
+
+- 2026-09-19 BUILD_TAG=2026-09-19n 整理タブ(asLoadMember)にリストカードの選択＋まとめ操作を追加。各 .kc-list-card に .oz-sel チェックボックス、head に操作バー #ozBar（#ozBarN件数・#ozMoveTo 別担当へ移す select・#ozHide 非表示・#ozClear 解除）。移す＝選択各リストに PUT /api/calls/lists/:id/owner{owner,reassign:true}、非表示＝PUT /api/calls/lists/:id/hidden{hidden:true}（POSTでなくPUT）。CSS .kc-lists-grid-in を auto-fill minmax(230px)＋@media640で1列、:has(.oz-sel:checked)で選択強調、.oz-barはsticky。※左メンバー常設の2ペインフル改修は未実施（既存のメンバーカード→asLoadMemberのままに選択操作を追加）。版20260919n。

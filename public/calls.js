@@ -4749,12 +4749,20 @@ async function asLoadMember(email, name) {
            GROUPS.map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("")}</select>
          <button type="button" class="btn ghost" id="asRevAdd">＋ 復活リストを作る</button>
          <span class="rev-status" id="asRevSt"></span>
+       </div>
+       <div class="oz-bar" id="ozBar" hidden>
+         <span id="ozBarN" class="oz-bar-n">0件選択中</span>
+         <select id="ozMoveTo" class="kc-input" style="max-width:180px"><option value="">別の担当へ移す…</option></select>
+         ${canHideList ? '<button type="button" class="btn ghost" id="ozHide">非表示にする</button>' : ""}
+         <button type="button" class="btn ghost" id="ozClear">選択解除</button>
+         <span class="rev-status" id="ozBarSt"></span>
        </div>`;
     if (!items.length) {
       box.innerHTML = head + '<div class="empty-state">このメンバーのリストはまだありません。</div>';
     } else {
       box.innerHTML = head + '<div class="kc-lists-grid kc-lists-grid-in">' + items.map((x) => `
         <div class="kc-list-card${x.hidden ? " kc-list-hidden" : ""}" data-id="${x.id}">
+          <input type="checkbox" class="oz-sel" data-id="${x.id}" data-name="${esc(x.name)}" title="選択" onclick="event.stopPropagation()" />
           <button type="button" class="kc-list-del" data-del="${x.id}" aria-label="削除" title="削除">✕</button>
           <div class="kc-list-name">${esc(x.name)}${x.hidden ? '<span class="kc-list-chip hid">非表示中</span>' : ""}</div>
           <div class="kc-list-meta"><span class="kc-list-chip">全 ${x["全部"]}件</span>${
@@ -4770,6 +4778,39 @@ async function asLoadMember(email, name) {
             <button type="button" class="kc-list-hide" data-sffill="${x.id}" title="会社名と電話番号から、Salesforceの担当者名・メール・紐づけを補います（空欄のときだけ）">SFから補う</button>
           </div>
         </div>`).join("") + '</div>';
+      // 選択して「別の担当へ移す／非表示」まとめ操作
+      (async () => {
+        const bar = $("ozBar"), nEl = $("ozBarN"), sel = () => [...box.querySelectorAll(".oz-sel:checked")];
+        const refresh = () => { const n = sel().length; if (bar) bar.hidden = n === 0; if (nEl) nEl.textContent = `${n}件選択中`; };
+        box.querySelectorAll(".oz-sel").forEach((c) => c.addEventListener("change", refresh));
+        // 移動先メンバー
+        const mt = $("ozMoveTo");
+        if (mt) { try { const m = await (await fetch("/api/calls/members")).json(); mt.innerHTML = '<option value="">別の担当へ移す…</option>' + (m.items || []).filter((x) => String(x.email).toLowerCase() !== String(email).toLowerCase()).map((x) => `<option value="${esc(x.email)}">${esc(x.name || x.email)} へ移す</option>`).join(""); } catch {} }
+        if (mt) mt.addEventListener("change", async () => {
+          const owner = mt.value; const ids = sel(); mt.value = "";
+          if (!owner || !ids.length) return;
+          const nm = (mt.options[mt.selectedIndex] || {}).textContent || owner;
+          if (!confirm(`選択した ${ids.length} リストを ${nm}（担当もそろえます）。よろしいですか？`)) return;
+          const st = $("ozBarSt"); if (st) st.textContent = "移動中…";
+          let ok = 0;
+          for (const c of ids) { try { const r = await fetch(`/api/calls/lists/${encodeURIComponent(c.dataset.id)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) }); if (r.ok) ok++; } catch {} }
+          if (st) st.textContent = `${ok}件 移しました`;
+          asLoadMember(email, name);
+        });
+        const hide = $("ozHide");
+        if (hide) hide.addEventListener("click", async () => {
+          const ids = sel(); if (!ids.length) return;
+          if (!confirm(`選択した ${ids.length} リストを非表示にしますか？`)) return;
+          const st = $("ozBarSt"); if (st) st.textContent = "処理中…";
+          let ok = 0;
+          for (const c of ids) { try { const r = await fetch(`/api/calls/lists/${encodeURIComponent(c.dataset.id)}/hidden`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ hidden: true }) }); if (r.ok) ok++; } catch {} }
+          if (st) st.textContent = `${ok}件 非表示にしました`;
+          asLoadMember(email, name);
+        });
+        const clr = $("ozClear");
+        if (clr) clr.addEventListener("click", () => { box.querySelectorAll(".oz-sel:checked").forEach((c) => (c.checked = false)); refresh(); });
+        refresh();
+      })();
       box.querySelectorAll("[data-sffill]").forEach((b) => b.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         const id = b.dataset.sffill;
