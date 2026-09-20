@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260919q" />
+    <link rel="stylesheet" href="style.css?v=20260919r" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -243,9 +243,14 @@
             </div>
             <div class="ls-block" data-ls-pane="organize" hidden>
               <p class="note">編集したいリストを選んで「選択したリストを編集」を押すと、まとめて一覧・編集できます。従業員数・採用人数・媒体掲載はここで直せます（<b>kincall内だけ</b>・Salesforceには反映しません）。</p>
-              <div id="edPick" class="ed-pick"><div class="note">読み込んでいます…</div></div>
+              <div id="edPane" class="ed3">
+                <div class="ed3-col" id="edMembers"><div class="ed3-h">① メンバー</div><div class="ed3-body ed3-mem"><div class="note">読み込んでいます…</div></div></div>
+                <div class="ed3-col" id="edLists"><div class="ed3-h">② リスト <button type="button" class="ed3-all" id="edAll" hidden>全部選ぶ</button></div><div class="ed3-body ed3-listbody"><div class="note ed3-empty">左でメンバーを選んでください</div></div></div>
+                <div class="ed3-col" id="edChosen"><div class="ed3-h">③ 選択中 <span class="ed3-badge" id="edChosenN">0</span></div><div class="ed3-body" id="edChosenBody"><div class="note ed3-empty">リストを選ぶとここに入ります</div></div>
+                  <button type="button" class="btn ed3-go" id="edGo" disabled>選択したリストを編集</button>
+                </div>
+              </div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0">
-                <button type="button" class="btn" id="edGo">選択したリストを編集</button>
                 <button type="button" class="btn ghost" id="edReload">更新</button>
                 <span class="rev-status" id="edSt"></span>
               </div>
@@ -380,9 +385,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260919q"></script>
-    <script src="calls.js?v=20260919q"></script>
-    <script src="nav.js?v=20260919q"></script>
+    <script src="sf-data.js?v=20260919r"></script>
+    <script src="calls.js?v=20260919r"></script>
+    <script src="nav.js?v=20260919r"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

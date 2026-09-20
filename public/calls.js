@@ -4481,55 +4481,81 @@ async function loadGroups() {
 let _edInit = false;
 let _edLists = {};    // id -> {name, owner, group_name, group_id}
 let _edMembers = [];  // 所有者プルダウン用
+let _edByOwner = new Map();  // owner -> lists（3ペイン）
+let _edActive = "";          // 選択中メンバー
+let _edChosen = new Map();   // 選んだリスト id -> {name, owner}
 let _edRows = [];     // まとめたリード
+function _edNameOf(email) { const m = _edMembers.find((x) => String(x.email || "").toLowerCase() === String(email || "").toLowerCase()); return (m && m.name) || email || "?"; }
+function _edBar(x) { const pct = x.全部 ? Math.round(x.残り / x.全部 * 100) : 0; const col = (x.全部 && x.残り / x.全部 >= 0.6) ? "#1d9e75" : (x.全部 && x.残り / x.全部 >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
 async function orgLoadLists() {
-  const pick = $("edPick"); if (!pick) return;
+  const memBox = $("edMembers"); if (!memBox) return;
   if (!_edInit) { _edInit = true;
     if ($("edReload")) $("edReload").addEventListener("click", orgLoadLists);
     if ($("edGo")) $("edGo").addEventListener("click", () => {
-      const ids = [...pick.querySelectorAll(".ed-lchk:checked")].map((c) => c.value);
+      const ids = [..._edChosen.keys()];
       if (!ids.length) { const st = $("edSt"); if (st) st.textContent = "リストを選んでください"; return; }
       orgLoadEdit(ids);
+    });
+    if ($("edAll")) $("edAll").addEventListener("click", () => {
+      const ls = _edByOwner.get(_edActive) || [];
+      const allIn = ls.length && ls.every((x) => _edChosen.has(String(x.id)));
+      ls.forEach((x) => { if (allIn) _edChosen.delete(String(x.id)); else _edChosen.set(String(x.id), { name: x.name, owner: x.owner }); });
+      edRenderLists(); edRenderChosen();
     });
     ["edQ", "edStage", "edStatus", "edMedia"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
     if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", edEnrichEmployees);
     if ($("edEnrichMedia")) $("edEnrichMedia").addEventListener("click", edEnrichMedia);
     if ($("edEnrichHire")) $("edEnrichHire").addEventListener("click", edEnrichHires);
   }
-  pick.innerHTML = '<div class="note">読み込んでいます…</div>';
+  memBox.querySelector(".ed3-body").innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
     if (!Array.isArray(GROUPS) || !GROUPS.length) await loadGroups().catch(() => {});
     if (!_edMembers.length) { try { const m = await (await fetch("/api/calls/members")).json(); _edMembers = m.items || []; } catch {} }
     const d = await (await fetch("/api/calls/lists-all")).json();
     const items = d.items || [];
     _edLists = {}; for (const x of items) _edLists[x.id] = { name: x.name, owner: x.owner, group_name: x.group_name, group_id: x.group_id || null };
-    const byOwner = new Map();
-    for (const x of items) { const k = x.owner || "?"; if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
-    const nameOf = (email) => { const m = _edMembers.find((x) => String(x.email || "").toLowerCase() === String(email || "").toLowerCase()); return (m && m.name) || email || "?"; };
-    const barOf = (x) => { const pct = x.全部 ? Math.round(x.残り / x.全部 * 100) : 0; const col = (x.全部 && x.残り / x.全部 >= 0.6) ? "#1d9e75" : (x.全部 && x.残り / x.全部 >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; };
-    pick.innerHTML = [...byOwner.entries()].map(([owner, ls]) => `
-      <div class="ed-owner-block">
-        <div class="ed-owner-h"><b>${esc(nameOf(owner))}</b><span class="ed-owner-n">${ls.length}リスト</span><button type="button" class="ed-allof" data-owner="${esc(owner)}">全部選ぶ</button></div>
-        <div class="ed-card-grid">
-          ${ls.map((x) => `
-            <label class="ed-lcard">
-              <input type="checkbox" class="ed-lchk" value="${x.id}" data-owner="${esc(owner)}" />
-              <span class="ed-lcard-check" aria-hidden="true"></span>
-              <span class="ed-lcard-name">${esc(x.name)}</span>
-              <span class="ed-lcard-meta">残 ${x.残り} ／ 全 ${x.全部}</span>
-              ${barOf(x)}
-            </label>`).join("")}
-        </div>
-      </div>`).join("");
-    const syncSel = (chk) => { const card = chk.closest(".ed-lcard"); if (card) card.classList.toggle("sel", chk.checked); };
-    pick.querySelectorAll(".ed-lchk").forEach((c) => c.addEventListener("change", () => syncSel(c)));
-    pick.querySelectorAll(".ed-allof").forEach((a) => a.addEventListener("click", () => {
-      const boxes = [...pick.querySelectorAll(`.ed-lchk[data-owner="${CSS.escape(a.dataset.owner)}"]`)];
-      const allOn = boxes.every((c) => c.checked);
-      boxes.forEach((c) => { c.checked = !allOn; syncSel(c); });
-      a.textContent = allOn ? "全部選ぶ" : "全部外す";
-    }));
-  } catch (e) { pick.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
+    _edByOwner = new Map();
+    for (const x of items) { const k = x.owner || "?"; if (!_edByOwner.has(k)) _edByOwner.set(k, []); _edByOwner.get(k).push(x); }
+    // ① メンバー
+    memBox.querySelector(".ed3-body").innerHTML = [..._edByOwner.entries()].map(([owner, ls]) =>
+      `<button type="button" class="ed3-mem-item${owner === _edActive ? " active" : ""}" data-owner="${esc(owner)}"><span class="ed3-ava">${esc(String(_edNameOf(owner)).slice(0, 1))}</span><span class="ed3-mem-name">${esc(_edNameOf(owner))}</span><span class="ed3-mem-n">${ls.length}</span></button>`
+    ).join("");
+    memBox.querySelectorAll(".ed3-mem-item").forEach((b) => b.addEventListener("click", () => { _edActive = b.dataset.owner; memBox.querySelectorAll(".ed3-mem-item").forEach((x) => x.classList.toggle("active", x === b)); edRenderLists(); }));
+    if (!_edActive && _edByOwner.size) _edActive = [..._edByOwner.keys()][0];
+    memBox.querySelectorAll(".ed3-mem-item").forEach((x) => x.classList.toggle("active", x.dataset.owner === _edActive));
+    edRenderLists(); edRenderChosen();
+  } catch (e) { memBox.querySelector(".ed3-body").innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
+}
+function edRenderLists() {
+  const box = $("edLists"); if (!box) return;
+  const body = box.querySelector(".ed3-body");
+  const ls = _edByOwner.get(_edActive) || [];
+  if ($("edAll")) $("edAll").hidden = !ls.length;
+  if (!ls.length) { body.innerHTML = '<div class="note ed3-empty">左でメンバーを選んでください</div>'; return; }
+  body.innerHTML = ls.map((x) => {
+    const on = _edChosen.has(String(x.id));
+    return `<div class="ed3-lrow${on ? " on" : ""}" data-id="${x.id}">
+      <span class="ed3-check">${on ? "✓" : ""}</span>
+      <div class="ed3-lrow-main"><div class="ed3-lrow-name">${esc(x.name)}</div><div class="ed3-lrow-sub">残 ${x.残り} ／ 全 ${x.全部}</div></div>
+      ${_edBar(x)}
+    </div>`;
+  }).join("");
+  body.querySelectorAll(".ed3-lrow").forEach((r) => r.addEventListener("click", () => {
+    const id = r.dataset.id; const x = ls.find((y) => String(y.id) === String(id));
+    if (_edChosen.has(id)) _edChosen.delete(id); else _edChosen.set(id, { name: x.name, owner: x.owner });
+    edRenderLists(); edRenderChosen();
+  }));
+}
+function edRenderChosen() {
+  const body = $("edChosenBody"); if (!body) return;
+  const n = _edChosen.size;
+  if ($("edChosenN")) $("edChosenN").textContent = n;
+  if ($("edGo")) { $("edGo").disabled = n === 0; $("edGo").textContent = n ? `この ${n} 件を編集` : "選択したリストを編集"; }
+  if (!n) { body.innerHTML = '<div class="note ed3-empty">リストを選ぶとここに入ります</div>'; return; }
+  body.innerHTML = [..._edChosen.entries()].map(([id, v]) =>
+    `<div class="ed3-chosen" data-id="${id}"><div class="ed3-chosen-main"><div class="ed3-chosen-name">${esc(v.name)}</div><div class="ed3-chosen-sub">${esc(_edNameOf(v.owner))}</div></div><button type="button" class="ed3-chosen-x" data-id="${id}" title="外す">✕</button></div>`
+  ).join("");
+  body.querySelectorAll(".ed3-chosen-x").forEach((b) => b.addEventListener("click", () => { _edChosen.delete(b.dataset.id); edRenderLists(); edRenderChosen(); }));
 }
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
