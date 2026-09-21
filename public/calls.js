@@ -4779,7 +4779,7 @@ async function edEnrichEmployees(mode) {
     const remain = blanks().length;
     if (st) st.textContent = (_edEnrichStop ? "止めました" : "終わりました") + `：入った ${totalGot}・取れず「-」 ${_edEnrichStop ? "" : (edFiltered().filter((r)=>String(_edg(r,"従業員数","employees"))==="-").length)}・残り ${remain}（${srcStr(bySrc)}）`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-  finally { if (btn) btn.disabled = false; }
+  finally { _edEnrichRunning = false; _edEnrichStop = false; if (btn) btn.textContent = "従業員数を自動取得"; }
 }
 async function edEnrichHires() {
   const g = _edg;
@@ -4803,7 +4803,7 @@ async function edEnrichHires() {
     }
     if (st) st.textContent = `完了：${got}/${targets.length} 社に採用人数を入れました`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-  finally { _edEnrichRunning = false; _edEnrichStop = false; if (btn) btn.textContent = "従業員数を自動取得"; }
+  finally { if (btn) btn.disabled = false; }
 }
 async function edEnrichMedia() {
   const g = _edg;

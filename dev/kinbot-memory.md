@@ -909,3 +909,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20t 公式サイト抽出強化（無料・取得率UP）。companyenrich.js extractEmployeesRegex：ラベル拡充（従業者数/総従業員数/グループ従業員(数)/人員数/Headcount等）＋単体優先マッチ＋「◯名/◯人」直後が分/年なら除外＋名/人なし保険（年除外）。aboutLinksFrom(url)＝トップHTMLの<a>から会社概要/企業情報/about/company等のリンク（同一host）を最大8件抽出。employeesFromSite：paths に /recruit//ir//info/追加＋aboutLinksFrom発見URLを合流（最大14）→並列fetch→「従業員」語ありページ優先でregex抽出。テスト9件パス（単体800/連結除外/年除外/全角/カンマ）。版20260920t。
 
 - 2026-09-20 BUILD_TAG=2026-09-20u 従業員数の再取得で「-」も対象化。calls.js edEnrichEmployees：isTarget=（空欄 or "-"）、targetsAll/dashN を初期チェック＆confirm表示。実行開始時に edFiltered の "-" を r["従業員数"]="" に戻して edRender（＝空欄扱いにしてから取得、blanks()は空欄のままなのでループは安全・末尾で再び"-"確定）。→抽出強化後に前回"-"の会社も拾い直せる。版20260920u。
+
+- 2026-09-20 BUILD_TAG=2026-09-20v 【修正】従業員数取得後にボタンが「止める」のまま再実行不可だった不具合。原因：20260920rのsedで finally のリセット（_edEnrichRunning=false＋ボタン文言戻し）が edEnrichEmployees ではなく直後の edEnrichHires に誤付与されていた。edEnrichEmployees の finally を running/ボタン文言リセットに、edEnrichHires の finally を btn.disabled=false に戻して入れ替え。→完了で「従業員数を自動取得」に戻り再取得可能。版20260920v。
