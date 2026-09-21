@@ -80,22 +80,34 @@ async function extractFromText(company, url, text) {
 export function extractEmployeesRegex(text) {
   if (!text) return "";
   const t = String(text).replace(/[\t\r\u3000]+/g, " ");
-  const label = "(?:従業員数|従業員|従業者数|社員数|正社員数|総従業員数|グループ従業員(?:数)?|スタッフ数|人員数|Employees?|Number of employees|Headcount)";
+  // 従業員数を表すラベル（福祉/病院/学校の「職員」、有報の「就業人員」、英語表記なども）
+  const label = "(?:従業員数|従業員合計|従業員計|従業員|従業者数|就業人員数|就業人員|社員数|正社員数|総従業員数|グループ従業員(?:数)?|グループ社員(?:数)?|職員数|正職員数|正職員|常勤職員(?:数)?|職員|スタッフ数|人員数|陣容|Employees?|Number of employees|No\\.?\\s*of\\s*employees|Total\\s*(?:number of\\s*)?employees|Staff)";
   const num = "([0-9０-９][0-9０-９,，\\.]{0,9})";
-  const toNum = (s) => {
-    const h = s.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0)).replace(/[，,．.]/g, "");
-    const n = parseInt(h, 10);
+  const unit = "\\s*(万|千)?";               // 数字の後ろの「万／千」
+  const suffix = "\\s*(?:名|人|名超|余名|名以上|人以上)";
+  const toNum = (s, u) => {
+    const h = s.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0));
+    if (u === "万" || u === "千") {
+      const f = parseFloat(h.replace(/[，,]/g, ""));
+      if (!isFinite(f)) return 0;
+      const n = Math.round(f * (u === "万" ? 10000 : 1000));
+      return (n > 0 && n <= 5000000) ? n : 0;
+    }
+    const n = parseInt(h.replace(/[，,．.]/g, ""), 10);
     return (isFinite(n) && n > 0 && n <= 5000000) ? n : 0;
   };
-  // ラベルの近くに「単体」があれば、その数字を優先（連結の大きい数を避ける）
-  let m = new RegExp(label + "[^0-9０-９]{0,18}?単体[^0-9０-９]{0,8}?" + num + "\\s*(?:名|人)", "i").exec(t);
-  if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
-  // ① ラベル→(約/連結など)→数字→名/人（精度が高い）。直後が「分/年」は除外
-  m = new RegExp(label + "[^0-9０-９]{0,25}?" + num + "\\s*(?:名|人)(?!\\s*[分年])", "i").exec(t);
-  if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
-  // ② ラベル→数字（名/人なしの保険）。直後が「年」は除外（設立年などを避ける）
-  m = new RegExp(label + "[^0-9０-９]{0,12}?" + num + "(?!\\s*年)", "i").exec(t);
-  if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
+  const run = (pre) => {
+    const m = new RegExp(label + "[^0-9０-９]{0,25}?" + (pre || "") + num + unit + suffix + "(?!\\s*[分年])", "i").exec(t);
+    if (m) { const n = toNum(m[1], m[2]); if (n) return String(n) + "名"; }
+    return "";
+  };
+  // ① 単体／提出会社（有報）を優先＝連結の大きい数字を避ける
+  let r = run("(?:単体|提出会社)[^0-9０-９]{0,8}?"); if (r) return r;
+  // ② ラベル→(約/連結など)→数字[万/千]→名/人
+  r = run(""); if (r) return r;
+  // ③ 名/人が無い保険（設立年などを避けるため「年」直後は除外）
+  const m3 = new RegExp(label + "[^0-9０-９]{0,12}?" + num + unit + "(?!\\s*年)", "i").exec(t);
+  if (m3) { const n = toNum(m3[1], m3[2]); if (n) return String(n) + "名"; }
   return "";
 }
 // トップページのHTMLから「会社概要」系ページのURL候補を拾う

@@ -911,3 +911,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20u 従業員数の再取得で「-」も対象化。calls.js edEnrichEmployees：isTarget=（空欄 or "-"）、targetsAll/dashN を初期チェック＆confirm表示。実行開始時に edFiltered の "-" を r["従業員数"]="" に戻して edRender（＝空欄扱いにしてから取得、blanks()は空欄のままなのでループは安全・末尾で再び"-"確定）。→抽出強化後に前回"-"の会社も拾い直せる。版20260920u。
 
 - 2026-09-20 BUILD_TAG=2026-09-20v 【修正】従業員数取得後にボタンが「止める」のまま再実行不可だった不具合。原因：20260920rのsedで finally のリセット（_edEnrichRunning=false＋ボタン文言戻し）が edEnrichEmployees ではなく直後の edEnrichHires に誤付与されていた。edEnrichEmployees の finally を running/ボタン文言リセットに、edEnrichHires の finally を btn.disabled=false に戻して入れ替え。→完了で「従業員数を自動取得」に戻り再取得可能。版20260920v。
+
+- 2026-09-20 BUILD_TAG=2026-09-20w 従業員数正規表現を大幅拡充。extractEmployeesRegex：ラベルに 従業員合計/計・就業人員(数)・職員数/正職員/常勤職員・グループ社員・陣容・No. of employees/Total employees/Staff 追加。単位「万/千」対応（toNumで float*10000/1000、1.2万→12000/3千→3000）。suffix に 名超/余名/名以上/人以上。単体/提出会社を優先。年/分直後は除外。テスト18ケースOK（英語Staff of 200も200で妥当）。→無料の公式サイト抽出の取得率UP。版20260920w。
