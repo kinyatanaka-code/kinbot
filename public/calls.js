@@ -911,10 +911,12 @@ function renderDock() {
     .kc-modal-min{border:none;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:#6b7c74;width:26px;height:26px;border-radius:6px;}
     .kc-modal-min:hover{background:#eef3f0;color:#0d5b47;}
     .kc-two{display:flex;gap:16px;align-items:flex-start;}
-    .kc-two-l{flex:1 1 45%;min-width:0;border-right:1px solid #e6ece9;padding-right:14px;max-height:60vh;overflow:auto;}
+    .kc-two-co{flex:1 1 24%;min-width:190px;border-right:1px solid #e6ece9;padding-right:14px;max-height:64vh;overflow:auto;}
+    .kc-two-l{flex:1 1 34%;min-width:0;border-right:1px solid #e6ece9;padding-right:14px;max-height:64vh;overflow:auto;}
     .kc-two-histonly .kc-two-r{display:none;}
+    .kc-two-histonly .kc-two-co{display:none;}
     .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
-    .kc-two-r{flex:1 1 55%;min-width:0;}
+    .kc-two-r{flex:1 1 42%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
     .kc-dock{position:fixed;right:16px;bottom:16px;z-index:60;width:280px;max-width:calc(100vw - 32px);background:#fff;border:1px solid #d7e5dd;border-radius:14px;box-shadow:0 14px 40px -16px rgba(13,91,71,.5);display:none;overflow:hidden;}
     .kc-dock.on{display:block;}
@@ -931,7 +933,7 @@ function renderDock() {
     .kc-chip.draft .kc-chip-r{color:#8a9a92;}
     .kc-chip-x{border:none;background:transparent;color:#b6c3bc;cursor:pointer;font-size:12px;flex:0 0 auto;}
     .kc-chip-x:hover{color:#e05a5a;}
-    @media(max-width:720px){.kc-two{flex-direction:column;}.kc-two-l{border-right:none;border-bottom:1px solid #e6ece9;padding-right:0;padding-bottom:12px;max-height:40vh;}}
+    @media(max-width:720px){.kc-two{flex-direction:column;}.kc-two-co,.kc-two-l{border-right:none;border-bottom:1px solid #e6ece9;padding-right:0;padding-bottom:12px;max-height:38vh;}}
     /* 表は内容にあわせて広げ、途中で切らずに全部見えるようにする（必要なら横スクロール） */
     /* 表は1画面に収める。縦は表の中だけスクロールし、見出しは残す。 */
     .kc-table{table-layout:auto;width:100%;}
@@ -1390,8 +1392,11 @@ async function openTarget(id, draft, opt) {
   const 相手名 = `${x["会社名"] || ""}${x["担当者"] ? `　${x["担当者"]}` : ""}`;
   const m = openModal(相手名 || (histOnly ? "これまでのやり取り" : "記録する"), `
     <div class="kc-two${histOnly ? " kc-two-histonly" : ""}">
-      <div class="kc-two-l">
+      <div class="kc-two-co">
+        <div class="kc-two-h">会社情報</div>
         <div class="kc-co-info" id="kcCoInfo"><div class="note">会社情報を読み込んでいます…</div></div>
+      </div>
+      <div class="kc-two-l">
         <div class="kc-two-h">これまでのやり取り</div>
         <div id="kcHist"><div class="note">読み込んでいます…</div></div>
       </div>
