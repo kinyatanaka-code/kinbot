@@ -4811,22 +4811,15 @@ async function asLoadMember(email, name) {
             <div class="oz-card-sub">残 ${left} / 全 ${total}${x["自分のぶん"] && x["自分のぶん"] !== total ? ` ・ この人 ${x["自分のぶん"]}` : ""}</div>
             <div class="oz-card-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>
             ${x.group_name ? `<span class="kc-list-chip grp">${esc(x.group_name)}</span>` : `<span class="kc-list-chip nogrp">未設定</span>`}
+            <span class="oz-card-go" aria-hidden="true">›</span>
           </div>
-          <details class="oz-menu" onclick="event.stopPropagation()">
-            <summary aria-label="操作">⋯</summary>
-            <div class="oz-menu-pop">
-              <label class="oz-menu-row"><span>グループ</span>
-                <select class="kc-grp-sel" data-list="${x.id}"><option value="">なし</option>${GROUPS.map((g) => `<option value="${g.id}"${String(x.group_id || "") === String(g.id) ? " selected" : ""}>${esc(g.name)}</option>`).join("")}</select>
-              </label>
-              <label class="oz-menu-row"><span>担当</span>
-                <select class="oz-move-one" data-list="${x.id}" data-name="${esc(x.name)}"><option value="">別の担当へ移す…</option></select>
-              </label>
-              ${canHideList ? `<button type="button" class="kc-list-hide oz-menu-btn" data-hide="${x.id}" data-now="${x.hidden ? 1 : 0}">${x.hidden ? "表示にする" : "非表示にする"}</button>` : ""}
-              <button type="button" class="kc-list-hide oz-menu-btn" data-sffill="${x.id}" title="会社名と電話番号から、Salesforceの担当者名・メール・紐づけを補います（空欄のときだけ）">SFから補う</button>
-              <button type="button" class="oz-menu-btn oz-danger" data-del="${x.id}">削除</button>
-            </div>
-          </details>
         </div>`; }).join("") + '</div>';
+      // カードをクリック → そのリストの詳細（プレビュー＋操作）を開く。チェックボックスは選択用。
+      box.querySelectorAll(".oz-card").forEach((card) => card.addEventListener("click", (e) => {
+        if (e.target.closest(".oz-sel")) return;
+        const id = card.dataset.id; const x = items.find((y) => String(y.id) === String(id)); if (!x) return;
+        openSplit(x.id, x.name, email, name);
+      }));
       // 選択して「別の担当へ移す／非表示」まとめ操作
       (async () => {
         const bar = $("ozBar"), nEl = $("ozBarN"), sel = () => [...box.querySelectorAll(".oz-sel:checked")];
@@ -5264,6 +5257,14 @@ async function openSplit(listId, listName, memberEmail, memberName) {
            <button class="btn ghost" id="spOpen">このリストでかける</button>
            <span class="rev-status" id="spStatus"></span>
          </div>
+         <div class="kc-split-row" style="margin-top:6px;border-top:1px solid #e6ece9;padding-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+           <span class="kc-split-lb" style="margin:0">このリストを</span>
+           <select id="spMoveTo" class="kc-input" style="max-width:200px"><option value="">別の担当へ移す…</option></select>
+           <select id="spGroup" class="kc-input" style="max-width:180px"><option value="">グループを変える…</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((g) => `<option value="${g.id}">${esc(g.name)}</option>`).join("")}</select>
+           ${canHideList ? '<button class="btn ghost" id="spHide">非表示にする</button>' : ""}
+           <button class="btn ghost" id="spDel" style="color:#c0392b;border-color:#f0d4cf">削除</button>
+           <span class="rev-status" id="spOpSt"></span>
+         </div>
          <div class="kc-split-row" style="margin-top:6px;border-top:1px solid #e6ece9;padding-top:10px"><div class="kc-split-lb">プレビュー（先頭 ${Math.min(50, rows.length)} 件）</div></div>
          <div class="kc-prev-wrap" id="spPreview"></div>
        </div>`;
@@ -5285,6 +5286,33 @@ async function openSplit(listId, listName, memberEmail, memberName) {
     if (back) back.addEventListener("click", () => asLoadMember(memberEmail, memberName));
     const open = $("spOpen");
     if (open) open.addEventListener("click", () => selectListAndCall(listId, memberEmail));
+    // 別の担当へ移す
+    const spMove = $("spMoveTo"), spOpSt = $("spOpSt");
+    if (spMove) {
+      try { const m = await (await fetch("/api/calls/members")).json(); spMove.innerHTML = '<option value="">別の担当へ移す…</option>' + (m.items || []).filter((x) => String(x.email).toLowerCase() !== String(memberEmail).toLowerCase() && !EX_OWNERS.includes(String(x.email || "").toLowerCase())).map((x) => `<option value="${esc(x.email)}">${esc(x.name || x.email)} へ移す</option>`).join(""); } catch {}
+      spMove.addEventListener("change", async () => {
+        const owner = spMove.value; if (!owner) return;
+        const nm = (spMove.options[spMove.selectedIndex] || {}).textContent || owner;
+        if (!confirm(`「${listName}」を ${nm}（担当もそろえます）。よろしいですか？`)) { spMove.value = ""; return; }
+        if (spOpSt) spOpSt.textContent = "移動中…";
+        try { const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) }); if (!r.ok) throw new Error(); asLoadMember(memberEmail, memberName); } catch { if (spOpSt) spOpSt.textContent = "失敗"; }
+      });
+    }
+    const spGroup = $("spGroup");
+    if (spGroup) spGroup.addEventListener("change", async () => {
+      if (spOpSt) spOpSt.textContent = "変更中…";
+      try { await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/group`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: spGroup.value || null }) }); if (spOpSt) spOpSt.textContent = "グループを変えました"; } catch { if (spOpSt) spOpSt.textContent = "失敗"; }
+    });
+    const spHide = $("spHide");
+    if (spHide) spHide.addEventListener("click", async () => {
+      if (!confirm(`「${listName}」を非表示にしますか？`)) return;
+      try { const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/hidden`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ hidden: true }) }); if (!r.ok) throw new Error(); asLoadMember(memberEmail, memberName); } catch { if (spOpSt) spOpSt.textContent = "失敗"; }
+    });
+    const spDel = $("spDel");
+    if (spDel) spDel.addEventListener("click", async () => {
+      if (!confirm(`「${listName}」を削除しますか？（Salesforce側のリードは残ります）`)) return;
+      try { const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}`, { method: "DELETE" }); if (!r.ok) throw new Error(); asLoadMember(memberEmail, memberName); } catch { if (spOpSt) spOpSt.textContent = "失敗"; }
+    });
 
     // クローザー：このリストに、SFレポート／CSVから追加する（リスト作成タブを使う）
     const addMore = $("spAddMore");

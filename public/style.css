@@ -6378,7 +6378,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .oz-menu-btn { text-align:left; background:#fff; border:1px solid #e0e7e4; border-radius:8px; padding:6px 10px; font-size:12px; color:#173a30; cursor:pointer; }
 .oz-menu-btn:hover { background:#f6faf8; }
 .oz-menu-btn.oz-danger { color:#c0392b; border-color:#f0d4cf; }
-.oz-bar { position:fixed; left:0; right:0; bottom:0; margin:0; border:none; border-radius:16px 16px 0 0; background:#173a30; color:#fff; padding:12px 16px; z-index:60; box-shadow:0 -4px 20px rgba(0,0,0,.18); justify-content:flex-start; }
+.oz-bar { position:fixed; left:0; right:0; bottom:0; margin:0; border:none; border-radius:16px 16px 0 0; background:#173a30; color:#fff; padding:12px 16px; z-index:60; box-shadow:0 -4px 20px rgba(0,0,0,.18); justify-content:flex-start; max-height:120px; overflow:auto; }
 .oz-bar[hidden] { display:none; }
 .oz-bar .oz-bar-n { color:#fff; }
 .oz-bar select, .oz-bar .btn { background:rgba(255,255,255,.14); color:#fff; border:1px solid rgba(255,255,255,.25); border-radius:20px; }
@@ -6440,3 +6440,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .oz-card-bar { height:5px; background:#eef2f0; border-radius:3px; overflow:hidden; margin-bottom:8px; }
 .oz-card-bar > div { height:5px; border-radius:3px; }
 @media (max-width:600px){ .oz-list { grid-template-columns:1fr; } }
+
+/* 整理カード：クリックで詳細へ */
+.oz-card { cursor:pointer; }
+.oz-card:hover { border-color:#bcd8cd; }
+.oz-card-go { position:absolute; right:10px; bottom:8px; color:#c9d3ce; font-size:16px; }

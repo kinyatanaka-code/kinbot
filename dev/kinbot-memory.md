@@ -861,3 +861,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19v かける一覧の追加列ヘッダに✕（列削除）。calls.js render の kc-th-rc に data-rcx の✕ボタン追加、handler で kcExtraCols(localStorage)の hidden に k を add→saveExtraCols→render。＝その列を非表示（「列を選ぶ」で再表示可、端末保存）。CSS .kc-rc-x。版20260919v。
 
 - 2026-09-19 BUILD_TAG=2026-09-19w 整理タブを1行→リストカード表示に戻す。calls.js asLoadMember の描画を .oz-card（.oz-card-top 左色帯・.oz-sel 左上・.oz-menu 右上・.oz-card-body に name/sub/bar/groupchip）に。選択(.oz-sel)＋下部操作バー(#ozBar)＋⋯メニュー(グループ/担当移動/非表示/SF補完/削除)はそのまま。CSS .oz-list を grid(auto-fill minmax250)、.oz-card 一式追加、@media600で1列。版20260919w。
+
+- 2026-09-19 BUILD_TAG=2026-09-19x 整理タブ崩れ修正＋カード→詳細遷移。カードの ⋯details(oz-menu)を廃止（崩れ原因）、.oz-card クリックで openSplit(listId,name,email,name) を開く（チェックボックスクリックは除外）。openSplit に操作行追加：spMoveTo(別担当へ移す・PUT owner reassign)・spGroup(PUT group)・spHide(PUT hidden)・spDel(DELETE list)、いずれも成功で asLoadMember 再描画（openSplitはインライン描画なので m.close 不要）。下バー .oz-bar に max-height:120px;overflow:auto を付けて画面占有を抑止。CSS .oz-card クリック可・.oz-card-go。版20260919x。
