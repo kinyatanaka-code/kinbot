@@ -1501,14 +1501,20 @@ async function openTarget(id, draft, opt) {
   if (pen) pen.addEventListener("click", showEdit);
   const edCancel = m.el.querySelector("#kcEdCancel");
   if (edCancel) edCancel.addEventListener("click", hideEdit);
-  // ヘッダー（会社名 担当者）にも鉛筆マークを付ける
+  // ヘッダー（会社名／担当者。担当者の上にふりがな）を組み直し、鉛筆マークも付ける
   const headB = m.el.querySelector(".kc-modal-head b");
-  if (headB && !headB.querySelector(".kc-edit-pen")) {
+  const renderHead = () => {
+    if (!headB) return;
+    const co = x["会社名"] || "", pn = x["担当者"] || "", kn = x["ふりがな"] || "";
+    headB.innerHTML =
+      `<span class="kc-head-co">${esc(co)}</span>` +
+      (pn ? `　<span class="kc-head-person">${kn ? `<span class="kc-head-kana">${esc(kn)}</span>` : ""}<span class="kc-head-name">${esc(pn)}</span></span>` : "");
     const hp = document.createElement("button");
     hp.type = "button"; hp.className = "kc-edit-pen kc-head-pen"; hp.title = "会社名・担当者を編集"; hp.textContent = "✎";
     hp.addEventListener("click", showEdit);
     headB.appendChild(hp);
-  }
+  };
+  renderHead();
   // 保存（会社名・担当者・ふりがな・電話・メール → kincall＋Salesforce）
   const edSave = m.el.querySelector("#kcEdSave");
   if (edSave) edSave.addEventListener("click", async () => {
@@ -1531,8 +1537,8 @@ async function openTarget(id, draft, opt) {
         `<button type="button" class="kc-edit-pen" id="kcEditPen2" title="連絡先を編集">✎</button>` +
         (body.email ? `<div class="kc-mail-big"><a href="mailto:${esc(body.email)}">${esc(body.email)}</a></div>` : "");
       const pen2 = m.el.querySelector("#kcEditPen2"); if (pen2) pen2.addEventListener("click", showEdit);
-      // ヘッダーの会社名 担当者も更新（鉛筆は付け直す）
-      if (headB) { headB.textContent = `${body.company || ""}${body.person ? "　" + body.person : ""}`; const hp2 = document.createElement("button"); hp2.type = "button"; hp2.className = "kc-edit-pen kc-head-pen"; hp2.title = "会社名・担当者を編集"; hp2.textContent = "✎"; hp2.addEventListener("click", showEdit); headB.appendChild(hp2); }
+      // ヘッダーの会社名／担当者／ふりがなを更新（鉛筆も付け直す）
+      renderHead();
       render();
       if (st) { st.textContent = d.sf && d.sf.ok ? "保存＋Salesforce反映" : `保存（SF：${esc((d.sf && d.sf.reason) || "未反映")}）`; }
       setTimeout(() => { hideEdit(); if (st) st.textContent = ""; }, 1200);

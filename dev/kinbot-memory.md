@@ -883,3 +883,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20g 記録モーダル左右パネルの高さ統一。.kc-copanel(会社情報)/.kc-slotpanel(おすすめ日程) を max-height:78vh → height:calc(100vh - 110px);max-height:none に（top:80px共通）。中身量に依らず左右同高・上下端そろう。@900pxの slotpanel モバイル上書きに height:auto 追加。copanelは@1200pxで非表示のまま。版20260920g。
 
 - 2026-09-20 BUILD_TAG=2026-09-20h 記録モーダルの連絡先を鉛筆トグル編集に。kc-rec-top を #kcContactView(表示：電話big＋メール＋鉛筆 .kc-edit-pen #kcEditPen)＋#kcContactEdit(hidden：会社名/担当者/ふりがな/電話/メール input＋保存/やめる)に。showEdit/hideEditで切替、ヘッダー .kc-modal-head b に鉛筆(.kc-head-pen)をJS注入→showEdit。保存で POST /api/calls/targets/:id/edit（kincall＋SF反映）→viewとヘッダーを更新し1.2秒後にhideEdit。CSS .kc-edit-pen/.kc-head-pen/.kc-contact-view。版20260920h。
+
+- 2026-09-20 BUILD_TAG=2026-09-20i 記録モーダルのヘッダーに担当者ふりがな表示。openTargetで .kc-modal-head b を renderHead() で組み直し：会社名(kc-head-co)＋担当者(kc-head-person：上にkc-head-kana=ふりがな、下にkc-head-name)＋鉛筆。保存後も renderHead() で更新（従来の textContent 差し替えは廃止）。CSS .kc-head-person(flex column)/.kc-head-kana(小)。版20260920i。
