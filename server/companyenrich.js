@@ -79,31 +79,58 @@ async function extractFromText(company, url, text) {
 // 会社概要ページの本文から「従業員数◯名」を正規表現で拾う（Gemini不使用＝完全無料）
 export function extractEmployeesRegex(text) {
   if (!text) return "";
-  const t = String(text).replace(/[\t\r]+/g, " ").replace(/\u3000/g, " ");
-  const label = "(?:従業員数|従業員|社員数|正社員数|従業員\\s*\\(連結\\)|スタッフ数|Employees?|Number of employees)";
-  const numGrp = "([0-9０-９][0-9０-９,，\\.]{0,9})";
+  const t = String(text).replace(/[\t\r\u3000]+/g, " ");
+  const label = "(?:従業員数|従業員|従業者数|社員数|正社員数|総従業員数|グループ従業員(?:数)?|スタッフ数|人員数|Employees?|Number of employees|Headcount)";
+  const num = "([0-9０-９][0-9０-９,，\\.]{0,9})";
   const toNum = (s) => {
     const h = s.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0)).replace(/[，,．.]/g, "");
     const n = parseInt(h, 10);
     return (isFinite(n) && n > 0 && n <= 5000000) ? n : 0;
   };
-  // ① ラベル→(約/連結など)→数字→名/人（精度が高い）
-  let m = new RegExp(label + "[^0-9０-９]{0,25}?" + numGrp + "\\s*(?:名|人)", "i").exec(t);
+  // ラベルの近くに「単体」があれば、その数字を優先（連結の大きい数を避ける）
+  let m = new RegExp(label + "[^0-9０-９]{0,18}?単体[^0-9０-９]{0,8}?" + num + "\\s*(?:名|人)", "i").exec(t);
   if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
-  // ② ラベル→数字（名/人なしの保険）
-  m = new RegExp(label + "[^0-9０-９]{0,15}?" + numGrp, "i").exec(t);
+  // ① ラベル→(約/連結など)→数字→名/人（精度が高い）。直後が「分/年」は除外
+  m = new RegExp(label + "[^0-9０-９]{0,25}?" + num + "\\s*(?:名|人)(?!\\s*[分年])", "i").exec(t);
+  if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
+  // ② ラベル→数字（名/人なしの保険）。直後が「年」は除外（設立年などを避ける）
+  m = new RegExp(label + "[^0-9０-９]{0,12}?" + num + "(?!\\s*年)", "i").exec(t);
   if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
   return "";
+}
+// トップページのHTMLから「会社概要」系ページのURL候補を拾う
+async function aboutLinksFrom(url) {
+  try {
+    const r = await withTimeout(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; kincall/1.0)" } }, 10000);
+    if (!r.ok) return [];
+    const html = (await r.text()).slice(0, 400000);
+    const base = new URL(url);
+    const out = new Set();
+    const re = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    let m;
+    const want = /(会社概要|会社案内|企業情報|会社情報|企業概要|概要|about|company|corporate|profile|outline)/i;
+    while ((m = re.exec(html)) && out.size < 8) {
+      const href = m[1]; const txt = m[2].replace(/<[^>]+>/g, "");
+      if (!want.test(href) && !want.test(txt)) continue;
+      try { const abs = new URL(href, base).href; if (/^https?:/i.test(abs) && new URL(abs).host === base.host) out.add(abs.split("#")[0]); } catch {}
+    }
+    return [...out];
+  } catch { return []; }
 }
 export async function employeesFromSite(company, website) {
   const site = String(website || "").trim();
   if (!site) return "";
   const base = site.replace(/\/+$/, "");
-  // 会社概要系のよくあるパスを「並列」で軽く取得
-  const paths = ["", "/company/", "/about/", "/company/outline/", "/corporate/", "/profile/", "/company/profile/", "/outline/"];
-  const urls = [...new Set(paths.map((p) => (/^https?:/i.test(p) ? p : base + p)))];
+  // 会社概要系のよくあるパス＋採用/IRページ
+  const paths = ["", "/company/", "/about/", "/company/outline/", "/corporate/", "/profile/", "/company/profile/", "/outline/", "/company/about/", "/recruit/", "/ir/", "/info/"];
+  const commonUrls = [...new Set(paths.map((p) => (/^https?:/i.test(p) ? p : base + p)))];
+  // トップページのHTMLから「会社概要」ページのURLも自動で見つける（独自パス対策）
+  const discovered = await aboutLinksFrom(base + "/").catch(() => []);
+  const urls = [...new Set([...commonUrls, ...discovered])].slice(0, 14);
   const texts = await Promise.all(urls.map((u) => fetchPageText(u).then((t) => ({ u, t })).catch(() => ({ u, t: "" }))));
-  // 正規表現で従業員数を抽出（無料）。取れたら即返す。
+  // 正規表現で従業員数を抽出（無料）。取れたら即返す。まず「従業員」語のあるページを優先。
+  const withLabel = texts.filter((x) => x.t && /従業員|社員数|従業員数|Employees|スタッフ|人員/i.test(x.t));
+  for (const x of withLabel) { const e = extractEmployeesRegex(x.t); if (e) return e; }
   for (const x of texts) { if (!x.t) continue; const e = extractEmployeesRegex(x.t); if (e) return e; }
   return "";
 }
