@@ -525,7 +525,7 @@ import {
 import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
-import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite } from "./companyenrich.js";
+import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
@@ -7665,18 +7665,8 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
       }
       // --- ここまでが無料/激安（mode=cheap は Web検索をしない） ---
       if (emp == null && company && mode !== "cheap") {
-        // まず Brave で公式サイトを見つけて会社概要を読む（gBizにURLが無かった会社。Geminiより安い）
-        if (!website) {
-          try { const w = await withTimeout(enrichCompanyFromWeb(company), 16000, null); if (w) { if (w.employees) { const n = parseEmpNum(w.employees); if (n != null) { emp = n; src = "公式サイト(Brave)"; } } if (!website && w.website) website = w.website; } } catch {}
-        }
-        // 見つかったURLでまだ読めていなければ直読み
-        if (emp == null && website) {
-          try { const e = await withTimeout(employeesFromSite(company, website), 12000, ""); const n = parseEmpNum(e); if (n != null) { emp = n; src = "公式サイト"; } } catch {}
-        }
-        // 最後の手段：Gemini のWeb検索（grounding）
-        if (emp == null) {
-          try { const w = await withTimeout(lookupEmployeeCount(company), 18000, null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
-        }
+        // 最後は Brave のみ（Geminiは使わない）：Brave検索→スニペット/公式サイトを正規表現で読む（安い）
+        try { const e = await withTimeout(employeesViaBrave(company), 16000, ""); const n = parseEmpNum(e); if (n != null) { emp = n; src = "Brave"; } } catch {}
       }
       if (emp != null && id) await setCallTargetFields(id, { employees: emp }).catch(() => {});
       return { id, employees: emp, source: src };
@@ -20480,7 +20470,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20r 従業員数を「全部埋まるまで」動くようにした。空欄を繰り返し取得し、数周試しても取れなかった会社には「-」を記入して確定する（＝調べ済みの印）。これで空欄が無くなり、必ず終わる。従業員数の列は「-」も入れられるように文字型にした。手入力の数字や「-」も残る。";
+const BUILD_TAG = "2026-09-20s 従業員数の取得を基本無料に。公式サイトの会社概要ページの読み取りを、Gemini抽出→正規表現抽出（完全無料）に変更。取得順は SF→gBiz（無料）→公式サイト直読み＋正規表現（無料）→最後にBraveのみ（検索スニペットや公式サイトを正規表現で読む・安い）。高価なGeminiのWeb検索は使わなくした。取れない会社は「-」。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

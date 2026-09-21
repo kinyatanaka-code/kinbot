@@ -76,19 +76,48 @@ async function extractFromText(company, url, text) {
 
 // 公式サイトURL（gBizのcompany_url等）が分かっているとき、その会社概要ページを直接読んで従業員数を拾う。
 // 検索APIを使わずHTTP取得＋抽出だけなので安く、一次情報なので精度が高い。取れなければ空文字。
+// 会社概要ページの本文から「従業員数◯名」を正規表現で拾う（Gemini不使用＝完全無料）
+export function extractEmployeesRegex(text) {
+  if (!text) return "";
+  const t = String(text).replace(/[\t\r]+/g, " ").replace(/\u3000/g, " ");
+  const label = "(?:従業員数|従業員|社員数|正社員数|従業員\\s*\\(連結\\)|スタッフ数|Employees?|Number of employees)";
+  const numGrp = "([0-9０-９][0-9０-９,，\\.]{0,9})";
+  const toNum = (s) => {
+    const h = s.replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0)).replace(/[，,．.]/g, "");
+    const n = parseInt(h, 10);
+    return (isFinite(n) && n > 0 && n <= 5000000) ? n : 0;
+  };
+  // ① ラベル→(約/連結など)→数字→名/人（精度が高い）
+  let m = new RegExp(label + "[^0-9０-９]{0,25}?" + numGrp + "\\s*(?:名|人)", "i").exec(t);
+  if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
+  // ② ラベル→数字（名/人なしの保険）
+  m = new RegExp(label + "[^0-9０-９]{0,15}?" + numGrp, "i").exec(t);
+  if (m) { const n = toNum(m[1]); if (n) return String(n) + "名"; }
+  return "";
+}
 export async function employeesFromSite(company, website) {
   const site = String(website || "").trim();
   if (!site) return "";
   const base = site.replace(/\/+$/, "");
-  // 会社概要系のよくあるパスを「並列」で軽く取得（直列だと遅いため）
-  const paths = ["", "/company/", "/about/", "/company/outline/", "/corporate/", "/profile/"];
+  // 会社概要系のよくあるパスを「並列」で軽く取得
+  const paths = ["", "/company/", "/about/", "/company/outline/", "/corporate/", "/profile/", "/company/profile/", "/outline/"];
   const urls = [...new Set(paths.map((p) => (/^https?:/i.test(p) ? p : base + p)))];
   const texts = await Promise.all(urls.map((u) => fetchPageText(u).then((t) => ({ u, t })).catch(() => ({ u, t: "" }))));
-  // 「従業員」の語がある本文だけを対象に、1ページだけ抽出（LLM呼び出しを1回に）
-  const hit = texts.find((x) => x.t && /従業員|社員数|従業員数|Employees|スタッフ数/i.test(x.t));
-  if (!hit) return "";
-  const info = await extractFromText(company, hit.u, hit.t).catch(() => ({}));
-  return (info && info.employees) || "";
+  // 正規表現で従業員数を抽出（無料）。取れたら即返す。
+  for (const x of texts) { if (!x.t) continue; const e = extractEmployeesRegex(x.t); if (e) return e; }
+  return "";
+}
+
+// Braveで検索して従業員数を拾う（Geminiは使わない＝安い）。①検索スニペットから正規表現 ②公式サイトを直読み(正規表現)。
+export async function employeesViaBrave(company) {
+  if (!BRAVE_KEY() || !company) return "";
+  const res = await braveSearch(`${company} 従業員数 会社概要`, 6).catch(() => []);
+  // ① 検索結果の説明文(スニペット)から直接拾う（サイトを開かず取れることも）
+  for (const r of (res || [])) { const e = extractEmployeesRegex(`${r.title || ""} ${r.desc || ""}`); if (e) return e; }
+  // ② 公式サイトらしきURLを見つけて会社概要ページを直読み（正規表現）
+  const off = pickOfficial(res || [], company);
+  if (off && off.url) { const e = await employeesFromSite(company, off.url).catch(() => ""); if (e) return e; }
+  return "";
 }
 
 // メイン：会社名から、公式サイトURL・住所・従業員数を集める。
