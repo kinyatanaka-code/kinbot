@@ -564,7 +564,6 @@ function render() {
         <th class="kc-th-h"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-l">最終架電日</th>
         <th class="kc-th-r">記録</th>
-        <th class="kc-th-e">編集</th>
         <th class="kc-th-d">資料送付</th>
         ${rcols.map((k) => {
           const isEnd = /掲載終了/.test(k), isHire = /採用人数|採用予定人数/.test(k);
@@ -580,7 +579,7 @@ function render() {
       const 済 = isDone(x);
       const 予定 = nextDueLabel(x);
       const かけた = (r) => !!(r && r["最終日時"]) && !isDone(r) && !(r["次回予定"] && new Date(r["次回予定"]).getTime() <= Date.now());
-      const cols = (listId !== "all" ? 12 : 11) + rcols.length;
+      const cols = (listId !== "all" ? 11 : 10) + rcols.length;
       const 直前未済 = i > 0 && !isDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
@@ -601,7 +600,6 @@ function render() {
         <td><button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
-        <td><button type="button" class="kc-btn kc-edit" data-id="${x.id}">編集</button></td>
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
         ${rcols.map((k) => {
           const e = rowExtra(x);
@@ -1400,9 +1398,16 @@ async function openTarget(id, draft, opt) {
       </div>
       <div class="kc-two-r">
         <div class="kc-rec-top">
-          <div>
-            ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>` : `<span class="kc-none">電話番号なし</span>`}
-            ${x["メール"] ? `<div class="kc-mail-big"><a href="mailto:${esc(x["メール"])}">${esc(x["メール"])}</a></div>` : ""}
+          <div class="kc-rec-edit">
+            <div class="kc-rec-edit-tel">
+              <input type="tel" class="kc-input kc-ed-f kc-ed-phone" id="kcEdPhone" value="${esc(x["電話番号"] || "")}" placeholder="電話番号" />
+              ${x["電話番号"] ? `<a class="kc-tel" href="${callHref(x["電話番号"])}" title="この番号にかける">かける</a>` : ""}
+            </div>
+            <input type="email" class="kc-input kc-ed-f" id="kcEdEmail" value="${esc(x["メール"] || "")}" placeholder="メールアドレス" />
+            <input type="text" class="kc-input kc-ed-f" id="kcEdCompany" value="${esc(x["会社名"] || "")}" placeholder="会社名" />
+            <input type="text" class="kc-input kc-ed-f" id="kcEdPerson" value="${esc(x["担当者"] || "")}" placeholder="担当者名" />
+            <input type="text" class="kc-input kc-ed-f" id="kcEdKana" value="${esc(x["ふりがな"] || "")}" placeholder="ふりがな" />
+            <div class="kc-rec-edit-save"><button type="button" class="btn ghost" id="kcEdSave">この情報を保存</button> <span class="rev-status" id="kcEdSt"></span></div>
           </div>
           <!-- いまのステージと、変えるところ -->
           <div class="kc-rec-stage">
@@ -1481,6 +1486,25 @@ async function openTarget(id, draft, opt) {
     },
   });
 
+  // 上部の会社名・担当者・ふりがな・電話・メールを保存
+  const edSave = m.el.querySelector("#kcEdSave");
+  if (edSave) edSave.addEventListener("click", async () => {
+    const st = m.el.querySelector("#kcEdSt"); if (st) st.textContent = "保存中…";
+    const body = {
+      company: (m.el.querySelector("#kcEdCompany") || {}).value || "",
+      person: (m.el.querySelector("#kcEdPerson") || {}).value || "",
+      kana: (m.el.querySelector("#kcEdKana") || {}).value || "",
+      phone: (m.el.querySelector("#kcEdPhone") || {}).value || "",
+      email: (m.el.querySelector("#kcEdEmail") || {}).value || "",
+    };
+    try {
+      const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (!r.ok) throw new Error();
+      x["会社名"] = body.company; x["担当者"] = body.person; x["ふりがな"] = body.kana; x["電話番号"] = body.phone; x["メール"] = body.email;
+      render();
+      if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 2000); }
+    } catch { if (st) st.textContent = "保存できませんでした"; }
+  });
   // 左側にこれまでのやり取りを読み込む
   const histBox = m.el.querySelector("#kcHist");
   renderHistoryInto(histBox, id);
