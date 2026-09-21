@@ -74,6 +74,28 @@ async function extractFromText(company, url, text) {
   } catch { return {}; }
 }
 
+// 公式サイトURL（gBizのcompany_url等）が分かっているとき、その会社概要ページを直接読んで従業員数を拾う。
+// 検索APIを使わずHTTP取得＋抽出だけなので安く、一次情報なので精度が高い。取れなければ空文字。
+export async function employeesFromSite(company, website) {
+  const site = String(website || "").trim();
+  if (!site) return "";
+  const base = site.replace(/\/+$/, "");
+  // まずトップ、次に「会社概要」系のよくあるパスを軽く見る
+  const paths = ["", "/company/", "/company", "/about/", "/about", "/corporate/", "/company/outline/", "/company/about/", "/outline/", "/profile/", "/company/profile/", "/overview/"];
+  const seen = new Set();
+  for (const p of paths) {
+    const u = /^https?:/i.test(p) ? p : base + p;
+    if (seen.has(u)) continue; seen.add(u);
+    const text = await fetchPageText(u);
+    if (!text) continue;
+    // 「従業員」の語が本文に無ければ抽出をかけない（LLM呼び出しを節約）
+    if (!/従業員|社員数|従業員数|Employees|スタッフ数/i.test(text)) continue;
+    const info = await extractFromText(company, u, text).catch(() => ({}));
+    if (info && info.employees) return info.employees;
+  }
+  return "";
+}
+
 // メイン：会社名から、公式サイトURL・住所・従業員数を集める。
 // 返り値：{ website, address, employees, official_name, source:"web" } 取れたものだけ入る。
 export async function enrichCompanyFromWeb(company) {

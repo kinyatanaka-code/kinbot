@@ -525,7 +525,7 @@ import {
 import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
-import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText } from "./companyenrich.js";
+import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
@@ -7654,8 +7654,13 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
       const id = it.id, company = String(it.company || "").trim();
       let emp = null, src = "";
       if (it.lead_id && sfMap[it.lead_id] != null) { emp = parseEmpNum(sfMap[it.lead_id]); if (emp != null) src = "SF"; }
+      let website = it.website || "";
       if (emp == null && company && gbizConfigured()) {
-        try { const hits = await withTimeout(searchCompanies(company, 1), 10000, []); if (hits[0]) { const dd = await withTimeout(getCompanyDetail(hits[0].corporate_number), 10000, null); if (dd && dd.employees) { emp = parseEmpNum(dd.employees); if (emp != null) src = "gBiz"; } } } catch {}
+        try { const hits = await withTimeout(searchCompanies(company, 1), 10000, []); if (hits[0]) { const dd = await withTimeout(getCompanyDetail(hits[0].corporate_number), 10000, null); if (dd) { if (dd.employees) { emp = parseEmpNum(dd.employees); if (emp != null) src = "gBiz"; } if (!website) website = dd.company_url || ""; } } } catch {}
+      }
+      // 公式サイトの会社概要ページを直接読んで従業員数を拾う（gBizのURL優先・一次情報で高精度・安価）
+      if (emp == null && company && website) {
+        try { const e = await withTimeout(employeesFromSite(company, website), 18000, ""); const n = parseEmpNum(e); if (n != null) { emp = n; src = "公式サイト"; } } catch {}
       }
       if (emp == null && company) {
         try { const w = await withTimeout(lookupEmployeeCount(company), 25000, null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
@@ -20451,7 +20456,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20j 会社情報は、開いたときは無料のgBizだけで表示し、見つからないときは「Web検索する」ボタンを出すようにした。ボタンを押したときだけ有料のWeb検索（Gemini）を使うので、費用を抑えられる。gBizで概要が空のときも「概要をWeb検索する」ボタンで補える。";
+const BUILD_TAG = "2026-09-20k 従業員数の精度を強化。取得順を「SF→gBiz→公式サイトの会社概要ページ直読み→Web検索」にした。gBizが返す公式サイトURLの会社概要（会社概要/about等のページ）を直接読み、一次情報から従業員数を拾う（検索APIを使わずHTTP取得＋抽出のみで安価・高精度）。それでも取れない分だけWeb検索。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -887,3 +887,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20i 記録モーダルのヘッダーに担当者ふりがな表示。openTargetで .kc-modal-head b を renderHead() で組み直し：会社名(kc-head-co)＋担当者(kc-head-person：上にkc-head-kana=ふりがな、下にkc-head-name)＋鉛筆。保存後も renderHead() で更新（従来の textContent 差し替えは廃止）。CSS .kc-head-person(flex column)/.kc-head-kana(小)。版20260920i。
 
 - 2026-09-20 BUILD_TAG=2026-09-20j 会社情報カードを「gBizのみ自動→Web検索はボタン」に。/api/company-card に web=1 追加：web時のみ enrichCompany(Gemini)フォールバック、web=1はキャッシュbypass、hasDataのときだけ30日キャッシュ、found を返す。calls.js openCompanyPanel を load(web)化：初回 gBizのみ、not found時 notFound()で「Web検索する」ボタン→load(true)。概要が空でgBizのときは「概要をWeb検索する」ボタン。→自動でGeminiを呼ばず、押したときだけ有料。版20260920j。
+
+- 2026-09-20 BUILD_TAG=2026-09-20k 従業員数を公式サイト直読みで高精度化。companyenrich.js employeesFromSite(company,website)＝サイトのトップ＋会社概要系パス(/company//about//outline//profile/等)を fetchPageText、「従業員」語がある本文のみ extractFromText(LLM抽出)で従業員数を返す（検索API不使用・一次情報）。index.js import＋enrich-employees の順を SF→gBiz(番号)＋company_url取得→employeesFromSite(gBiz URL優先,18sTO)→lookupEmployeeCount(Web) に。src="公式サイト"。it.website も利用可。→gBizで番号無しでもURLがあれば公式ページから拾える。版20260920k。
