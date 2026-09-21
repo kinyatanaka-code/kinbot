@@ -915,7 +915,7 @@ function renderDock() {
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
     /* 会社情報：左の別パネル（おすすめ日程パネルの左版） */
-    .kc-copanel{position:fixed;top:80px;left:24px;width:290px;max-height:78vh;overflow:auto;background:#ffffff;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 18px 48px rgba(20,40,30,.28);z-index:9300;padding:16px;}
+    .kc-copanel{position:fixed;top:80px;left:24px;width:290px;height:calc(100vh - 110px);max-height:none;overflow:auto;background:#ffffff;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 18px 48px rgba(20,40,30,.28);z-index:9300;padding:16px;}
     .kc-copanel .kc-slot-h{font-weight:700;color:#0d5b47;font-size:15px;margin-bottom:10px;}
     @media (max-width:1200px){ .kc-copanel{display:none;} }
     .kc-dock{position:fixed;right:16px;bottom:16px;z-index:60;width:280px;max-width:calc(100vw - 32px);background:#fff;border:1px solid #d7e5dd;border-radius:14px;box-shadow:0 14px 40px -16px rgba(13,91,71,.5);display:none;overflow:hidden;}
@@ -1254,7 +1254,7 @@ function renderDock() {
     .kc-imp-row.skip .kc-imp-mark{color:#a6afaa;}
     .kc-imp-name{font-weight:600;color:#1f2a26;flex:0 0 auto;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .kc-imp-st{color:#5b7a6d;}
-    .kc-slotpanel{position:fixed;top:80px;right:24px;width:280px;max-height:78vh;overflow:auto;background:#ffffff;opacity:1;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 18px 48px rgba(20,40,30,.28);z-index:9300;padding:16px;}
+    .kc-slotpanel{position:fixed;top:80px;right:24px;width:280px;height:calc(100vh - 110px);max-height:none;overflow:auto;background:#ffffff;opacity:1;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 18px 48px rgba(20,40,30,.28);z-index:9300;padding:16px;}
     .kc-slot-h{font-weight:700;color:#0d5b47;font-size:15px;margin-bottom:10px;}
     .kc-slot-sub{font-weight:500;color:#5b7a6d;font-size:11px;}
     .kc-slot-tgt{font-size:11px;color:#5b7a6d;margin-bottom:10px;}
@@ -1329,7 +1329,7 @@ function renderDock() {
     .kc-dcard.rank1{border-color:#d4af37;box-shadow:0 6px 18px -8px rgba(212,175,55,.7);}
     .kc-dcard.rank2{border-color:#b9c0c6;}
     .kc-dcard.rank3{border-color:#c68642;}
-    @media (max-width:900px){ .kc-slotpanel{position:static;width:auto;max-height:none;margin:10px 0;box-shadow:none;} }
+    @media (max-width:900px){ .kc-slotpanel{position:static;width:auto;height:auto;max-height:none;margin:10px 0;box-shadow:none;} }
     .kc-sum-user{color:#0d5b47;}
     .kc-sum-lost{color:#8a9691;}
     .kc-summary{display:flex;align-items:center;gap:10px;padding:8px 4px;font-size:13px;color:#0d5b47;}

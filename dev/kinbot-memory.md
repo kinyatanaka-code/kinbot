@@ -879,3 +879,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20e 記録モーダル上部を連絡先編集フォーム化＋一覧の編集列削除。calls.js openTarget の kc-rec-top 電話/メール表示を .kc-rec-edit（#kcEdPhone/#kcEdEmail/#kcEdCompany/#kcEdPerson/#kcEdKana＋#kcEdSave/#kcEdSt、電話横に「かける」リンク）に置換、保存は POST /api/calls/targets/:id/edit（既存 updateCallTargetFields）→ローカルx更新＋render()。一覧の編集列：th.kc-th-e と td(.kc-edit)を削除、cols を 12/11→11/10 に調整（.kc-edit ハンドラは残置=無害）。CSS .kc-rec-edit 一式。版20260920e。
 
 - 2026-09-20 BUILD_TAG=2026-09-20f 記録モーダル連絡先編集のSF反映を明示。編集エンドポイント POST /api/calls/targets/:id/edit は元々SFへ反映（lead_id有＋SF接続時、company→Lead.Company/person→LastName/phone→Phone/email→Email、ふりがなはSF送らずkincall内のみ、代理sfProxyUserフォールバックあり）。calls.js の保存ハンドラを d.sf.ok で「保存＋Salesforce反映しました」/未反映理由表示に変更。※ふりがなをSFにも入れたい場合はSFのカナ用カスタム項目API名が必要。版20260920f。
+
+- 2026-09-20 BUILD_TAG=2026-09-20g 記録モーダル左右パネルの高さ統一。.kc-copanel(会社情報)/.kc-slotpanel(おすすめ日程) を max-height:78vh → height:calc(100vh - 110px);max-height:none に（top:80px共通）。中身量に依らず左右同高・上下端そろう。@900pxの slotpanel モバイル上書きに height:auto 追加。copanelは@1200pxで非表示のまま。版20260920g。

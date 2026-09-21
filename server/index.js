@@ -20449,7 +20449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20f 記録モーダルの連絡先編集はSalesforceにも反映される（会社名→Company／担当者→LastName／電話→Phone／メール→Email。ふりがなはkincall内のみ）。保存時に「保存＋Salesforce反映しました」または反映できない理由を表示するようにした。SF反映はリードに紐づき・SF接続がある場合のみ。";
+const BUILD_TAG = "2026-09-20g 記録モーダルの左（会社情報）と右（おすすめの日程）のパネルの高さを揃えた（同じ固定高さ・上端も同じ）。中身の量に関係なく左右が同じ高さになる。スマホでは従来どおり縦に積む。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
