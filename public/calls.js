@@ -4722,6 +4722,7 @@ async function edEnrichEmployees() {
   if (!confirm(`表示中で従業員数が空の ${targets.length} 社を自動取得します。件数が多いと数分かかります。続けますか？`)) return;
   const btn = $("edEnrichEmp"); if (btn) btn.disabled = true;
   let done = 0, got = 0;
+  const bySrc = {};
   try {
     for (let i = 0; i < targets.length; i += 12) {
       const batch = targets.slice(i, i + 12);
@@ -4730,11 +4731,12 @@ async function edEnrichEmployees() {
       const d = await r.json();
       for (const res of (d.results || [])) {
         done++;
-        if (res.employees != null) { got++; const row = _edRows.find((x) => String(x.id) === String(res.id)); if (row) row["従業員数"] = res.employees; }
+        if (res.employees != null) { got++; const s = res.source || "?"; bySrc[s] = (bySrc[s] || 0) + 1; const row = _edRows.find((x) => String(x.id) === String(res.id)); if (row) row["従業員数"] = res.employees; }
       }
       edRender();
     }
-    if (st) st.textContent = `完了：${got}/${targets.length} 社に従業員数を入れました`;
+    const brk = Object.keys(bySrc).length ? "（" + Object.entries(bySrc).map(([k, v]) => `${k} ${v}`).join("・") + `・取れず ${targets.length - got}）` : `（取れず ${targets.length}）`;
+    if (st) st.textContent = `完了：${got}/${targets.length}${brk}`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
   finally { if (btn) btn.disabled = false; }
 }
