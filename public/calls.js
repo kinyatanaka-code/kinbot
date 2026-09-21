@@ -4263,6 +4263,7 @@ let _nmLists = [];                  // lists-all（goldfly除外）
 let _nmMembers = [];               // 全メンバー（役割つき）
 let _nmMemByEmail = new Map();      // email -> member
 let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"group", key, name}
+let _nmChosen = new Set();          // 編集のために選んだリスト id
 function nmMemberName(email) { const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 function nmTeamOf(email) { const m = _nmMemByEmail.get(String(email || "").toLowerCase()); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
 function nmBar(zan, all) { const pct = all ? Math.round(zan / all * 100) : 0; const col = (all && zan / all >= 0.6) ? "#1d9e75" : (all && zan / all >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
@@ -4279,11 +4280,11 @@ async function nmLoad() {
   if (!_nmInit) { _nmInit = true;
     if ($("nmModeSeg")) $("nmModeSeg").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
       if (_nmMode === b.dataset.nmmode) return;
-      _nmMode = b.dataset.nmmode; _nmSel = null;
+      _nmMode = b.dataset.nmmode; _nmSel = null; _nmChosen = new Set();
       $("nmModeSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
       nmRenderRoot();
     }));
-    if ($("nmReload")) $("nmReload").addEventListener("click", () => { _nmMembers = []; _nmSel = null; nmLoad(); });
+    if ($("nmReload")) $("nmReload").addEventListener("click", () => { _nmMembers = []; _nmSel = null; _nmChosen = new Set(); nmLoad(); });
   }
   body.innerHTML = '<div class="note">読み込んでいます…</div>';
   try { await nmFetch(); nmRenderRoot(); }
@@ -4308,7 +4309,7 @@ function nmRenderCards() {
       `</div></div>`;
   }
   body.innerHTML = any ? html : '<div class="empty-state">リストを持っているメンバーがいません</div>';
-  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) }; nmRenderDetail(); }));
+  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) }; nmRenderDetail(); }));
 }
 function nmRenderGroupCards(body) {
   const byGroup = new Map();
@@ -4318,7 +4319,7 @@ function nmRenderGroupCards(body) {
   body.innerHTML = `<div class="nm-sec"><div class="nm-sec-h">グループ</div><div class="nm-grid">` +
     entries.map(([key, g]) => { const nm = key === "__none__" ? "（グループなし）" : (g.name || ("グループ " + key)); const zan = g.ls.reduce((s, x) => s + Number(x.残り || 0), 0); return `<button type="button" class="nm-card" data-group="${esc(key)}" data-gname="${esc(nm)}"><div class="nm-card-name">${esc(nm)}</div><div class="nm-card-sub">${g.ls.length} リスト・残 ${zan}</div></button>`; }).join("") +
     `</div></div>`;
-  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
+  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
 }
 function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
@@ -4326,21 +4327,58 @@ function nmRenderDetail() {
   if (_nmSel.type === "owner") ls = _nmLists.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
   else ls = _nmLists.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
   ls = ls.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"));
+  // 選択は、いま表示中のリストにあるものだけに絞る（非表示/割り振りで消えた分を落とす）
+  const idset = new Set(ls.map((x) => String(x.id)));
+  _nmChosen = new Set([..._nmChosen].filter((id) => idset.has(String(id))));
   const movable = _nmMembers.filter((m) => !NM_EX.includes(String(m.email || "").toLowerCase()));
   const rows = ls.map((x) => {
     const zan = Number(x.残り || 0), all = Number(x.全部 || 0);
     const sub = _nmSel.type === "owner" ? (x.group_name ? ("グループ：" + x.group_name) : "") : ("担当：" + nmMemberName(x.owner));
     const opts = movable.filter((m) => String(m.email || "").toLowerCase() !== String(x.owner || "").toLowerCase()).map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)} へ移す</option>`).join("");
-    return `<div class="nm-lrow" data-id="${x.id}">
+    const on = _nmChosen.has(String(x.id));
+    return `<div class="nm-lrow${on ? " sel" : ""}" data-id="${x.id}">
+      <label class="nm-check"><input type="checkbox" class="nm-selchk" data-id="${x.id}"${on ? " checked" : ""}></label>
       <div class="nm-lrow-main"><div class="nm-lrow-name">${esc(x.name)}</div><div class="nm-lrow-sub">残 ${zan} ／ 全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}</div>
       <div class="nm-lrow-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option>${opts}</select><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button></div>
     </div>`;
   }).join("");
-  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${ls.length} リスト</span></div></div>` +
-    `<div class="nm-lrows">${rows || '<div class="empty-state">リストがありません</div>'}</div><span class="rev-status" id="nmOpSt"></span>`;
-  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmSel = null; nmRenderCards(); });
+  const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
+  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${ls.length} リスト</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
+    `<div class="nm-lrows">${rows || '<div class="empty-state">リストがありません</div>'}</div><span class="rev-status" id="nmOpSt"></span>` +
+    `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button></div>`;
+  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
+  body.querySelectorAll(".nm-selchk").forEach((c) => c.addEventListener("change", () => {
+    const id = String(c.dataset.id);
+    if (c.checked) _nmChosen.add(id); else _nmChosen.delete(id);
+    const row = c.closest(".nm-lrow"); if (row) row.classList.toggle("sel", c.checked);
+    nmUpdateEditBar();
+  }));
+  if ($("nmSelAll")) $("nmSelAll").addEventListener("click", () => {
+    if (allOn) ls.forEach((x) => _nmChosen.delete(String(x.id)));
+    else ls.forEach((x) => _nmChosen.add(String(x.id)));
+    nmRenderDetail();
+  });
+  if ($("nmEditGo")) $("nmEditGo").addEventListener("click", nmGoEdit);
+  nmUpdateEditBar();
+}
+function nmUpdateEditBar() {
+  const bar = $("nmEditBar"); if (!bar) return;
+  const n = _nmChosen.size;
+  bar.hidden = n === 0;
+  if ($("nmEditN")) $("nmEditN").textContent = n;
+}
+// 選んだリストを、既存の「編集」タブの編集テーブルでそのまま開く
+function nmGoEdit() {
+  const ids = [..._nmChosen];
+  if (!ids.length) return;
+  _edChosen.clear();
+  for (const id of ids) { const x = _nmLists.find((y) => String(y.id) === String(id)); if (x) _edChosen.set(String(id), { name: x.name, owner: x.owner }); }
+  const tab = document.querySelector('.kc-ptab[data-ls="organize"]');
+  if (tab) tab.click();          // 「編集」タブを開く（ピッカーも選択済みで用意される）
+  orgLoadEdit(ids);              // 選んだリストで編集テーブルを表示
+  setTimeout(() => { const t = $("edTable"); if (t && t.scrollIntoView) t.scrollIntoView({ behavior: "smooth", block: "start" }); }, 200);
 }
 async function nmMove(listId, owner) {
   if (!owner) return;
