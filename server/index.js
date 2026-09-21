@@ -7763,6 +7763,17 @@ app.post("/api/calls/import-edit", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 自動取得で使えるAPIの有効状況（キー設定の有無）を返す。編集タブで「どの取得元が動くか」を見せる用。
+app.get("/api/calls/enrich-status", async (req, res) => {
+  res.json({
+    ok: true,
+    gbiz: gbizConfigured(),
+    brave: webSearchConfigured(),
+    gemini: !!process.env.GEMINI_API_KEY,
+    sf: (typeof salesforceConfigured === "function") ? salesforceConfigured() : false,
+  });
+});
+
 // 記録モーダル左の会社カード（会社概要・Webサイト・サムネ用ドメイン）。enrichCompanyを使い、結果は7日キャッシュ。
 const _companyCardCache = new Map();
 app.get("/api/company-card", async (req, res) => {
@@ -20469,7 +20480,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20o 従業員数の読み取りを高速化。公式サイトの会社概要ページを、複数ページ直列取得→よくある数ページを並列取得＋抽出は1回に短縮。一度に処理する会社数も増やし（12→20）、各段のタイムアウトも短くして、遅い会社は早めに次へ進むようにした。";
+const BUILD_TAG = "2026-09-20p 従業員数の取得状況をもっと見えるようにした。編集タブに「使える取得元（gBiz／Brave／Web・Geminiのキー設定状況）」を表示。自動取得の実行中も、取得元ごとの件数（gBiz○・公式サイト○・公式サイト(Brave)○・Web○・取れず○）をリアルタイムで表示する。どのAPIで何件取れたかが一目で分かる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

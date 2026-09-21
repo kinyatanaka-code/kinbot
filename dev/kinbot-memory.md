@@ -897,3 +897,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20n 従業員数ボタンを1本化。#edEnrichEmpWeb 廃止、#edEnrichEmp→edEnrichEmployees()（mode未指定＝フルチェーン）。enrich-employeesは mode!=cheap で各社 SF→gBiz→公式サイト→Brave(enrichCompanyFromWeb)→Gemini の順に自動実行（最初に取れた段で確定）。＝無料段を先に、空欄だけ有料段。confirm文も統合。版20260920n。
 
 - 2026-09-20 BUILD_TAG=2026-09-20o 従業員数の高速化。companyenrich.js employeesFromSite：paths 12→6、直列→Promise.all並列取得、従業員語のある1ページのみ extractFromText（LLM1回）。index.js enrich-employees の client バッチ 12→20/max20、タイムアウト短縮（employeesFromSite 18→12s、enrichCompanyFromWeb 22→16s、lookupEmployeeCount 25→18s）。→遅い会社は早く次へ、並列度UPで全体が速い。版20260920o。
+
+- 2026-09-20 BUILD_TAG=2026-09-20p 取得状況の可視化。index.js GET /api/calls/enrich-status＝{gbiz:gbizConfigured, brave:webSearchConfigured, gemini:!!GEMINI_API_KEY, sf}。calls.html #edEnrichApi、_edInitで取得して「使える取得元： gBiz✓/Brave✓/Web・Gemini✗（要KEY）」表示。edEnrichEmployees の進捗を「取得中… done/total 入った got（gBiz○・公式サイト○・公式サイト(Brave)○・Web○・取れず○）」にリアルタイム化。※前回内訳: 公式サイト(Brave)23/公式1/Web1/取れず109 → gBizとGeminiが未設定/不調と判明。版20260920p。

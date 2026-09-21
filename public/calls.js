@@ -4619,6 +4619,17 @@ async function orgLoadLists() {
       edRenderLists(); edRenderChosen();
     });
     ["edQ", "edStage", "edStatus", "edMedia"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
+    (async () => {
+      try {
+        const s = await (await fetch("/api/calls/enrich-status")).json();
+        const el = $("edEnrichApi");
+        if (el) el.innerHTML = "使える取得元： " + [
+          `gBiz ${s.gbiz ? "✓" : "✗（無料・要 GBIZINFO_TOKEN）"}`,
+          `Brave ${s.brave ? "✓" : "✗（要 BRAVE_API_KEY）"}`,
+          `Web/Gemini ${s.gemini ? "✓" : "✗（要 GEMINI_API_KEY）"}`,
+        ].join("　／　");
+      } catch {}
+    })();
     if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", () => edEnrichEmployees());
     if ($("edEnrichMedia")) $("edEnrichMedia").addEventListener("click", edEnrichMedia);
     if ($("edEnrichHire")) $("edEnrichHire").addEventListener("click", edEnrichHires);
@@ -4727,7 +4738,8 @@ async function edEnrichEmployees(mode) {
   try {
     for (let i = 0; i < targets.length; i += 20) {
       const batch = targets.slice(i, i + 20);
-      if (st) st.textContent = `取得中… ${done}/${targets.length}`;
+      const brkNow = Object.keys(bySrc).length ? "（" + Object.entries(bySrc).map(([k, v]) => `${k} ${v}`).join("・") + `・取れず ${done - got}）` : "";
+      if (st) st.textContent = `取得中… ${done}/${targets.length}　入った ${got}${brkNow}`;
       const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 20 }) });
       const d = await r.json();
       for (const res of (d.results || [])) {
