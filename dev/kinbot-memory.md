@@ -869,3 +869,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-19 BUILD_TAG=2026-09-19z 記録モーダル左に会社情報カード。index.js GET /api/company-card?company=（&url,&refresh=1）＝enrichCompany(withTimeout22s)→{name,overview(business),industry,employees,founded,location,website}、_companyCardCache で7日メモリキャッシュ。calls.js openTarget の .kc-two-l 先頭に #kcCoInfo、モーダル表示後に fetch→サムネ=logo.clearbit.com/<website domain>(onerrorで隠す)＋会社概要＋業界/従業員/設立/所在地＋Webサイトリンク(target=_blank)。CSS .kc-co-info 一式。※enrichはGemini利用（初回のみ・以降キャッシュ）。版20260919z。
 
 - 2026-09-20 BUILD_TAG=2026-09-20a 記録モーダルを3カラム化。会社情報を .kc-two-l から独立の .kc-two-co（左）に分離、中=.kc-two-l(これまでのやり取り)、右=.kc-two-r(記録)。CSS(calls.js内インライン)：.kc-two-co flex 1 1 24%/min190/border-right/scroll、.kc-two-l 34%、.kc-two-r 42%、histonlyは co/r 非表示・l 全幅、@720で縦積み(co/l max-height38vh)。→履歴が会社情報で圧迫されない。版20260920a。
+
+- 2026-09-20 BUILD_TAG=2026-09-20b 会社情報を記録モーダルから独立した左パネルに。モーダルは履歴+記録の2カラムに戻す。openCompanyPanel(m,company)＝.kc-copanel(position:fixed;left:24px;おすすめ日程panelの左版)をbody直下に生成、/api/company-card取得→ロゴ(clearbit)+概要+業界/従業員/設立/所在地+Webサイト、MutationObserverでモーダル消滅時にpanel除去。openTargetで openSlotPanel(m) の直後に openCompanyPanel(m, x[会社名])。CSS .kc-copanel、@1200px以下は非表示。版20260920b。
