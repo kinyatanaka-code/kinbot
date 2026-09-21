@@ -1817,12 +1817,18 @@ function openCompanyPanel(m, company) {
   document.body.appendChild(panel);
   const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { panel.remove(); obs.disconnect(); } });
   obs.observe(document.body, { childList: true, subtree: true });
-  (async () => {
-    const box = panel.querySelector("#kcCoInfo");
+  const box = panel.querySelector("#kcCoInfo");
+  const notFound = (msg, canWeb) => {
+    box.innerHTML = `<div class="kc-co-name">${esc(company)}</div><div class="note" style="margin:6px 0 8px">${esc(msg)}</div>` +
+      (canWeb ? `<button type="button" class="btn ghost kc-co-search" id="kcCoSearch">Web検索する</button><div class="note" style="margin:6px 0 0;font-size:11px">※Web検索は少し時間がかかります</div>` : "");
+    const b = box.querySelector("#kcCoSearch"); if (b) b.addEventListener("click", () => load(true));
+  };
+  const load = async (web) => {
+    box.innerHTML = `<div class="note">${web ? "Webで調べています…" : "読み込んでいます…"}</div>`;
     try {
-      const d = await (await fetch("/api/company-card?company=" + encodeURIComponent(company))).json();
+      const d = await (await fetch("/api/company-card?company=" + encodeURIComponent(company) + (web ? "&web=1" : ""))).json();
       const c = d && d.card;
-      if (!c || (!c.overview && !c.website && !c.industry)) { box.innerHTML = `<div class="kc-co-name">${esc(company)}</div><div class="note" style="margin:4px 0 0">会社情報は見つかりませんでした</div>`; return; }
+      if (!d || !d.found || !c) { notFound(web ? "Web検索でも見つかりませんでした" : "会社情報は見つかりませんでした", !web); return; }
       const domain = String(c.website || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
       const thumb = domain ? `<img class="kc-co-thumb" src="https://logo.clearbit.com/${encodeURIComponent(domain)}" onerror="this.style.display='none'" alt="" />` : "";
       const meta = [c.industry && `業界：${esc(c.industry)}`, c.employees && `従業員：${esc(c.employees)}`, c.founded && `設立：${esc(c.founded)}`, c.location && `所在地：${esc(c.location)}`].filter(Boolean).join("<br>");
@@ -1830,9 +1836,12 @@ function openCompanyPanel(m, company) {
         `<div class="kc-co-head">${thumb}<div class="kc-co-name">${esc(c.name || company)}</div></div>` +
         (c.overview ? `<div class="kc-co-ov">${esc(c.overview)}</div>` : "") +
         (meta ? `<div class="kc-co-meta">${meta}</div>` : "") +
-        (c.website ? `<a class="kc-co-web" href="${esc(c.website)}" target="_blank" rel="noopener">Webサイトを開く ↗</a>` : "");
-    } catch { box.innerHTML = `<div class="kc-co-name">${esc(company)}</div><div class="note" style="margin:4px 0 0">会社情報を取得できませんでした</div>`; }
-  })();
+        (c.website ? `<a class="kc-co-web" href="${esc(c.website)}" target="_blank" rel="noopener">Webサイトを開く ↗</a>` : "") +
+        (!c.overview && !web ? `<div style="margin-top:8px"><button type="button" class="btn ghost kc-co-search" id="kcCoSearch">概要をWeb検索する</button></div>` : "");
+      const b = box.querySelector("#kcCoSearch"); if (b) b.addEventListener("click", () => load(true));
+    } catch { notFound("会社情報を取得できませんでした", !web); }
+  };
+  load(false);
 }
 function openSlotPanel(m) {
   document.querySelectorAll(".kc-slotpanel").forEach((el) => el.remove());

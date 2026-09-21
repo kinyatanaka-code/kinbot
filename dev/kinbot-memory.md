@@ -885,3 +885,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20h 記録モーダルの連絡先を鉛筆トグル編集に。kc-rec-top を #kcContactView(表示：電話big＋メール＋鉛筆 .kc-edit-pen #kcEditPen)＋#kcContactEdit(hidden：会社名/担当者/ふりがな/電話/メール input＋保存/やめる)に。showEdit/hideEditで切替、ヘッダー .kc-modal-head b に鉛筆(.kc-head-pen)をJS注入→showEdit。保存で POST /api/calls/targets/:id/edit（kincall＋SF反映）→viewとヘッダーを更新し1.2秒後にhideEdit。CSS .kc-edit-pen/.kc-head-pen/.kc-contact-view。版20260920h。
 
 - 2026-09-20 BUILD_TAG=2026-09-20i 記録モーダルのヘッダーに担当者ふりがな表示。openTargetで .kc-modal-head b を renderHead() で組み直し：会社名(kc-head-co)＋担当者(kc-head-person：上にkc-head-kana=ふりがな、下にkc-head-name)＋鉛筆。保存後も renderHead() で更新（従来の textContent 差し替えは廃止）。CSS .kc-head-person(flex column)/.kc-head-kana(小)。版20260920i。
+
+- 2026-09-20 BUILD_TAG=2026-09-20j 会社情報カードを「gBizのみ自動→Web検索はボタン」に。/api/company-card に web=1 追加：web時のみ enrichCompany(Gemini)フォールバック、web=1はキャッシュbypass、hasDataのときだけ30日キャッシュ、found を返す。calls.js openCompanyPanel を load(web)化：初回 gBizのみ、not found時 notFound()で「Web検索する」ボタン→load(true)。概要が空でgBizのときは「概要をWeb検索する」ボタン。→自動でGeminiを呼ばず、押したときだけ有料。版20260920j。

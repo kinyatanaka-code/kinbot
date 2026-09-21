@@ -7752,8 +7752,9 @@ app.get("/api/company-card", async (req, res) => {
     const company = String(req.query.company || "").trim();
     if (!company) return res.json({ ok: true, card: null });
     const key = company.toLowerCase();
+    const web = req.query.web === "1";   // Web検索（有料）を使うのはボタンで web=1 のときだけ
     const hit = _companyCardCache.get(key);
-    if (hit && Date.now() - hit.at < 30 * 24 * 3600 * 1000 && req.query.refresh !== "1") return res.json({ ok: true, card: hit.data, cached: true });
+    if (hit && Date.now() - hit.at < 30 * 24 * 3600 * 1000 && !web && req.query.refresh !== "1") return res.json({ ok: true, card: hit.data, cached: true });
     const website0 = String(req.query.url || "").trim();
     const card = { name: company, overview: "", industry: "", employees: "", founded: "", location: "", website: website0 };
     let gbizHit = false;
@@ -7776,8 +7777,8 @@ app.get("/api/company-card", async (req, res) => {
         }
       } catch {}
     }
-    // 2) gBizで見つからなかったときだけ、Web検索（Gemini・有料）で補う
-    if (!gbizHit) {
+    // 2) gBizで見つからず、かつ「Web検索する」ボタン(web=1)のときだけ、Web検索（Gemini・有料）で補う
+    if (!gbizHit && web) {
       const g2 = await withTimeout(enrichCompany({ name: company, url: website0 }), 22000, null);
       if (g2) {
         card.name = g2.official_name || company;
@@ -7789,8 +7790,9 @@ app.get("/api/company-card", async (req, res) => {
         card.website = g2.website || g2.company_url || website0 || "";
       }
     }
-    _companyCardCache.set(key, { at: Date.now(), data: card });
-    res.json({ ok: true, card, source: gbizHit ? "gBiz" : "web" });
+    const hasData = !!(card.overview || card.industry || card.employees || card.location || card.website);
+    if (hasData) _companyCardCache.set(key, { at: Date.now(), data: card });
+    res.json({ ok: true, card, found: hasData, source: gbizHit ? "gBiz" : (web ? "web" : "gbiz-only") });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -20449,7 +20451,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20i 記録モーダルのヘッダーで、担当者名の上にふりがなを表示するようにした。鉛筆マークでふりがなを編集して保存すると、ヘッダーの担当者名の上にすぐ反映される。";
+const BUILD_TAG = "2026-09-20j 会社情報は、開いたときは無料のgBizだけで表示し、見つからないときは「Web検索する」ボタンを出すようにした。ボタンを押したときだけ有料のWeb検索（Gemini）を使うので、費用を抑えられる。gBizで概要が空のときも「概要をWeb検索する」ボタンで補える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
