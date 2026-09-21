@@ -871,3 +871,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20a 記録モーダルを3カラム化。会社情報を .kc-two-l から独立の .kc-two-co（左）に分離、中=.kc-two-l(これまでのやり取り)、右=.kc-two-r(記録)。CSS(calls.js内インライン)：.kc-two-co flex 1 1 24%/min190/border-right/scroll、.kc-two-l 34%、.kc-two-r 42%、histonlyは co/r 非表示・l 全幅、@720で縦積み(co/l max-height38vh)。→履歴が会社情報で圧迫されない。版20260920a。
 
 - 2026-09-20 BUILD_TAG=2026-09-20b 会社情報を記録モーダルから独立した左パネルに。モーダルは履歴+記録の2カラムに戻す。openCompanyPanel(m,company)＝.kc-copanel(position:fixed;left:24px;おすすめ日程panelの左版)をbody直下に生成、/api/company-card取得→ロゴ(clearbit)+概要+業界/従業員/設立/所在地+Webサイト、MutationObserverでモーダル消滅時にpanel除去。openTargetで openSlotPanel(m) の直後に openCompanyPanel(m, x[会社名])。CSS .kc-copanel、@1200px以下は非表示。版20260920b。
+
+- 2026-09-20 BUILD_TAG=2026-09-20c 会社情報カードのコスト削減。/api/company-card を gBiz優先に：gbizConfiguredなら searchCompanies→getCompanyDetail(official_name/business=概要/industry/employees/founded/location/company_url=website) を使い gbizHit=true。gbizHit時は enrichCompany(Gemini)を呼ばない。gBiz未ヒット時のみ enrichCompany で補完。キャッシュ 7→30日。＝多くの会社は無料(gBiz)、有料Web検索は激減。要 GBIZINFO_TOKEN。版20260920c。

@@ -7753,21 +7753,44 @@ app.get("/api/company-card", async (req, res) => {
     if (!company) return res.json({ ok: true, card: null });
     const key = company.toLowerCase();
     const hit = _companyCardCache.get(key);
-    if (hit && Date.now() - hit.at < 7 * 24 * 3600 * 1000 && req.query.refresh !== "1") return res.json({ ok: true, card: hit.data, cached: true });
+    if (hit && Date.now() - hit.at < 30 * 24 * 3600 * 1000 && req.query.refresh !== "1") return res.json({ ok: true, card: hit.data, cached: true });
     const website0 = String(req.query.url || "").trim();
-    const g = await withTimeout(enrichCompany({ name: company, url: website0 }), 22000, null);
-    const website = (g && (g.website || g.company_url)) || website0 || "";
-    const card = {
-      name: (g && g.official_name) || company,
-      overview: (g && g.business) || "",
-      industry: (g && g.industry) || "",
-      employees: (g && g.employees) || "",
-      founded: (g && g.founded) || "",
-      location: (g && g.location) || "",
-      website,
-    };
+    const card = { name: company, overview: "", industry: "", employees: "", founded: "", location: "", website: website0 };
+    let gbizHit = false;
+    // 1) まず gBizINFO（無料）で取る
+    if (gbizConfigured()) {
+      try {
+        const hits = await withTimeout(searchCompanies(company, 1), 8000, []);
+        if (hits && hits[0]) {
+          const g = await withTimeout(getCompanyDetail(hits[0].corporate_number), 8000, null);
+          if (g) {
+            gbizHit = true;
+            card.name = g.official_name || company;
+            card.overview = g.business || "";
+            card.industry = g.industry || "";
+            card.employees = g.employees || "";
+            card.founded = g.founded || "";
+            card.location = g.location || "";
+            card.website = g.company_url || website0 || "";
+          }
+        }
+      } catch {}
+    }
+    // 2) gBizで見つからなかったときだけ、Web検索（Gemini・有料）で補う
+    if (!gbizHit) {
+      const g2 = await withTimeout(enrichCompany({ name: company, url: website0 }), 22000, null);
+      if (g2) {
+        card.name = g2.official_name || company;
+        card.overview = g2.business || "";
+        card.industry = g2.industry || "";
+        card.employees = g2.employees || "";
+        card.founded = g2.founded || "";
+        card.location = g2.location || "";
+        card.website = g2.website || g2.company_url || website0 || "";
+      }
+    }
     _companyCardCache.set(key, { at: Date.now(), data: card });
-    res.json({ ok: true, card });
+    res.json({ ok: true, card, source: gbizHit ? "gBiz" : "web" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -20426,7 +20449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20b 会社情報を記録モーダルの中から切り出し、左に別パネル（浮遊）で表示するようにした。右の「おすすめの日程」と対になる形で、左に会社概要・業界・従業員・所在地・Webサイト・ロゴを出す。記録モーダルを閉じると一緒に消える。画面が狭いときは自動で隠す。";
+const BUILD_TAG = "2026-09-20c 会社情報カードのコストを削減。まず無料のgBizINFO（会社概要・業界・従業員・設立・所在地・Webサイト）で取得し、gBizで見つからなかった会社だけWeb検索（有料）で補うようにした。キャッシュも7日→30日に延長。＝多くの会社は無料で表示、有料の検索は激減する（要 GBIZINFO_TOKEN）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
