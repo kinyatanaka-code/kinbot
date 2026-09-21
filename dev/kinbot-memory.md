@@ -895,3 +895,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20m 従業員数取得を2段化。index.js enrich-employees に mode（"cheap"=Web検索なし＝SF→gBiz→公式サイト(gBiz URL)まで）。mode!=cheap（web）時のみ、空欄に対し enrichCompanyFromWeb(Brave→公式サイト→employees, src="公式サイト(Brave)")→employeesFromSite→lookupEmployeeCount(Gemini, src="Web") の順。calls.html #edEnrichEmp（まず無料=cheap）＋#edEnrichEmpWeb（空白をWeb=web）。calls.js edEnrichEmployees(mode)：webは有料の確認文、bodyに mode、両ボタンdisable/復帰、取得元内訳表示。→まず無料で埋め、残りだけWeb（Brave優先で安く）。要 GBIZINFO_TOKEN（無料段）/ BRAVE_API_KEY・GEMINI_API_KEY（Web段）。版20260920m。
 
 - 2026-09-20 BUILD_TAG=2026-09-20n 従業員数ボタンを1本化。#edEnrichEmpWeb 廃止、#edEnrichEmp→edEnrichEmployees()（mode未指定＝フルチェーン）。enrich-employeesは mode!=cheap で各社 SF→gBiz→公式サイト→Brave(enrichCompanyFromWeb)→Gemini の順に自動実行（最初に取れた段で確定）。＝無料段を先に、空欄だけ有料段。confirm文も統合。版20260920n。
+
+- 2026-09-20 BUILD_TAG=2026-09-20o 従業員数の高速化。companyenrich.js employeesFromSite：paths 12→6、直列→Promise.all並列取得、従業員語のある1ページのみ extractFromText（LLM1回）。index.js enrich-employees の client バッチ 12→20/max20、タイムアウト短縮（employeesFromSite 18→12s、enrichCompanyFromWeb 22→16s、lookupEmployeeCount 25→18s）。→遅い会社は早く次へ、並列度UPで全体が速い。版20260920o。

@@ -80,20 +80,15 @@ export async function employeesFromSite(company, website) {
   const site = String(website || "").trim();
   if (!site) return "";
   const base = site.replace(/\/+$/, "");
-  // まずトップ、次に「会社概要」系のよくあるパスを軽く見る
-  const paths = ["", "/company/", "/company", "/about/", "/about", "/corporate/", "/company/outline/", "/company/about/", "/outline/", "/profile/", "/company/profile/", "/overview/"];
-  const seen = new Set();
-  for (const p of paths) {
-    const u = /^https?:/i.test(p) ? p : base + p;
-    if (seen.has(u)) continue; seen.add(u);
-    const text = await fetchPageText(u);
-    if (!text) continue;
-    // 「従業員」の語が本文に無ければ抽出をかけない（LLM呼び出しを節約）
-    if (!/従業員|社員数|従業員数|Employees|スタッフ数/i.test(text)) continue;
-    const info = await extractFromText(company, u, text).catch(() => ({}));
-    if (info && info.employees) return info.employees;
-  }
-  return "";
+  // 会社概要系のよくあるパスを「並列」で軽く取得（直列だと遅いため）
+  const paths = ["", "/company/", "/about/", "/company/outline/", "/corporate/", "/profile/"];
+  const urls = [...new Set(paths.map((p) => (/^https?:/i.test(p) ? p : base + p)))];
+  const texts = await Promise.all(urls.map((u) => fetchPageText(u).then((t) => ({ u, t })).catch(() => ({ u, t: "" }))));
+  // 「従業員」の語がある本文だけを対象に、1ページだけ抽出（LLM呼び出しを1回に）
+  const hit = texts.find((x) => x.t && /従業員|社員数|従業員数|Employees|スタッフ数/i.test(x.t));
+  if (!hit) return "";
+  const info = await extractFromText(company, hit.u, hit.t).catch(() => ({}));
+  return (info && info.employees) || "";
 }
 
 // メイン：会社名から、公式サイトURL・住所・従業員数を集める。
