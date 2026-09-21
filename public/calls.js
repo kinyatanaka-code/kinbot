@@ -4619,8 +4619,7 @@ async function orgLoadLists() {
       edRenderLists(); edRenderChosen();
     });
     ["edQ", "edStage", "edStatus", "edMedia"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
-    if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", () => edEnrichEmployees("cheap"));
-    if ($("edEnrichEmpWeb")) $("edEnrichEmpWeb").addEventListener("click", () => edEnrichEmployees("web"));
+    if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", () => edEnrichEmployees());
     if ($("edEnrichMedia")) $("edEnrichMedia").addEventListener("click", edEnrichMedia);
     if ($("edEnrichHire")) $("edEnrichHire").addEventListener("click", edEnrichHires);
     if ($("edCsvOut")) $("edCsvOut").addEventListener("click", edExportCsv);
@@ -4720,20 +4719,16 @@ async function edEnrichEmployees(mode) {
   const targets = edFiltered().filter((r) => !g(r, "従業員数", "employees")); // 表示中で空欄のものだけ
   const st = $("edEnrichSt");
   if (!targets.length) { if (st) st.textContent = "空欄の会社はありません"; return; }
-  const web = mode === "web";
-  const msg = web
-    ? `表示中で従業員数が空の ${targets.length} 社を、Web検索（有料）で埋めます。件数が多いと時間と費用がかかります。続けますか？`
-    : `表示中で従業員数が空の ${targets.length} 社を、無料/激安（SF→gBiz→公式サイト）で埋めます。続けますか？`;
-  if (!confirm(msg)) return;
-  const btn = $(web ? "edEnrichEmpWeb" : "edEnrichEmp"); if (btn) btn.disabled = true;
-  const other = $(web ? "edEnrichEmp" : "edEnrichEmpWeb"); if (other) other.disabled = true;
+  if (!confirm(`表示中で従業員数が空の ${targets.length} 社を自動取得します。まず無料（gBiz・公式サイト）で埋め、それでも取れない分だけWeb検索（有料）で埋めます。件数が多いと時間がかかります。続けますか？`)) return;
+  const btn = $("edEnrichEmp"); if (btn) btn.disabled = true;
+  const other = null;
   let done = 0, got = 0;
   const bySrc = {};
   try {
     for (let i = 0; i < targets.length; i += 12) {
       const batch = targets.slice(i, i + 12);
       if (st) st.textContent = `取得中… ${done}/${targets.length}`;
-      const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 12, mode: web ? "web" : "cheap" }) });
+      const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 12 }) });
       const d = await r.json();
       for (const res of (d.results || [])) {
         done++;
@@ -4768,7 +4763,7 @@ async function edEnrichHires() {
     }
     if (st) st.textContent = `完了：${got}/${targets.length} 社に採用人数を入れました`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-  finally { if (btn) btn.disabled = false; if (other) other.disabled = false; }
+  finally { if (btn) btn.disabled = false; }
 }
 async function edEnrichMedia() {
   const g = _edg;

@@ -893,3 +893,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20l 従業員数自動取得に取得元内訳表示。calls.js edEnrichEmployees で res.source を bySrc 集計、完了時に「gBiz N・公式サイト N・Web N・SF N・取れず N」を表示。診断用（どの段が動いているか可視化）。※8/154しか入らない件の切り分け用。要確認：Railwayの GBIZINFO_TOKEN / GEMINI_API_KEY 設定、Web(grounding)がgemini-flash-latestで通っているか。版20260920l。
 
 - 2026-09-20 BUILD_TAG=2026-09-20m 従業員数取得を2段化。index.js enrich-employees に mode（"cheap"=Web検索なし＝SF→gBiz→公式サイト(gBiz URL)まで）。mode!=cheap（web）時のみ、空欄に対し enrichCompanyFromWeb(Brave→公式サイト→employees, src="公式サイト(Brave)")→employeesFromSite→lookupEmployeeCount(Gemini, src="Web") の順。calls.html #edEnrichEmp（まず無料=cheap）＋#edEnrichEmpWeb（空白をWeb=web）。calls.js edEnrichEmployees(mode)：webは有料の確認文、bodyに mode、両ボタンdisable/復帰、取得元内訳表示。→まず無料で埋め、残りだけWeb（Brave優先で安く）。要 GBIZINFO_TOKEN（無料段）/ BRAVE_API_KEY・GEMINI_API_KEY（Web段）。版20260920m。
+
+- 2026-09-20 BUILD_TAG=2026-09-20n 従業員数ボタンを1本化。#edEnrichEmpWeb 廃止、#edEnrichEmp→edEnrichEmployees()（mode未指定＝フルチェーン）。enrich-employeesは mode!=cheap で各社 SF→gBiz→公式サイト→Brave(enrichCompanyFromWeb)→Gemini の順に自動実行（最初に取れた段で確定）。＝無料段を先に、空欄だけ有料段。confirm文も統合。版20260920n。
