@@ -6393,6 +6393,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed3-h { font-size:12px; font-weight:700; color:#173a30; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
 .ed3-badge { background:#0f6e56; color:#fff; border-radius:12px; padding:1px 8px; font-size:11px; }
 .ed3-all { margin-left:auto; font-size:11px; border:1px solid #cfe0d8; background:#fff; color:#0f6e56; border-radius:12px; padding:2px 10px; cursor:pointer; }
+.ed3-seg { display:inline-flex; border:1px solid #cfe0d8; border-radius:12px; overflow:hidden; }
+.ed3-seg button { border:none; background:#fff; color:#0f6e56; font-size:11px; font-weight:700; padding:2px 11px; cursor:pointer; line-height:1.6; }
+.ed3-seg button + button { border-left:1px solid #cfe0d8; }
+.ed3-seg button.active { background:#0f6e56; color:#fff; }
 .ed3-body { flex:1; overflow:auto; max-height:52vh; display:flex; flex-direction:column; gap:5px; }
 .ed3-empty { color:#b6bdb9; padding:8px 4px; }
 /* メンバー列 */
