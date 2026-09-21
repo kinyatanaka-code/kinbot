@@ -680,9 +680,11 @@ export async function lookupJobMedia(companyName) {
   let research = "";
   try {
     research = await geminiGrounded(
-      `「${name}」が現在掲載している求人媒体を調べてください。「${name} 求人」「${name} 中途採用」「${name} 新卒 採用」などで検索し、` +
-      `次の有料求人サイトのうち、${name} の求人ページ（掲載）が実在するものを特定してください: ${PAID_JOB_SITES.join("、")}。` +
-      `各媒体について掲載ページのURLを挙げてください。確認できないものは含めないこと。憶測で判断しないこと。`,
+      `「${name}」が掲載している求人・就活サイトを、中途採用と新卒採用の両方調べてください。` +
+      `【中途】「${name} 中途採用 求人」「${name} doda」「${name} マイナビ転職」「${name} リクナビNEXT」「${name} エン転職」等で検索。` +
+      `【新卒】「${name} 新卒採用」「${name} マイナビ 20XX」「${name} リクナビ 就活」「${name} キャリタス就活」「${name} ONE CAREER」「${name} あさがくナビ」等で必ず検索すること（新卒ナビは見落としやすいので中途と同じくらい丁寧に）。` +
+      `新卒サイトのURL目安: マイナビ(新卒)=job.mynavi.jp、リクナビ(新卒)=job.rikunabi.com、キャリタス=career-tasu.jp、ONE CAREER=onecareer.jp。` +
+      `次の有料求人サイトのうち、${name} の掲載（企業ページ/求人ページ）が実在するものを、URLを挙げて特定してください: ${PAID_JOB_SITES.join("、")}。確認できないものは含めない・憶測しない。`,
       ""
     );
   } catch (e) {
@@ -691,7 +693,8 @@ export async function lookupJobMedia(companyName) {
   }
   const schema = { type: "object", properties: { media: { type: "array", items: { type: "string" } } }, required: ["media"] };
   const sys =
-    "あなたは求人媒体の調査アシスタントです。与えられた検索リサーチ結果だけを根拠に、会社が掲載している有料求人サイトを判定します。" +
+    "あなたは求人媒体の調査アシスタントです。与えられた検索リサーチ結果だけを根拠に、会社が掲載している有料求人・就活サイトを判定します。中途と新卒の両方を必ず確認すること。" +
+    "重要な区別：『マイナビ転職』=中途／『マイナビ』=新卒（job.mynavi.jp）、『リクナビNEXT』=中途／『リクナビ』=新卒（job.rikunabi.com）。混同しないこと。新卒サイト（リクナビ・マイナビ・キャリタス就活・あさがくナビ・ONE CAREER・ダイヤモンド就活ナビ）の掲載も、確認できれば必ず入れること。" +
     `出力する媒体名は必ず次のいずれかに正規化すること: ${PAID_JOB_SITES.join("、")}。` +
     "検索結果にその媒体の掲載ページ（URL）が確認できるものだけを media に入れます。確認できなければ空配列。推測で足さないこと。出力は指定JSONのみ。";
   const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、掲載が確認できた有料求人サイトをJSONで出力してください。`;

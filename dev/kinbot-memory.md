@@ -913,3 +913,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-20 BUILD_TAG=2026-09-20v 【修正】従業員数取得後にボタンが「止める」のまま再実行不可だった不具合。原因：20260920rのsedで finally のリセット（_edEnrichRunning=false＋ボタン文言戻し）が edEnrichEmployees ではなく直後の edEnrichHires に誤付与されていた。edEnrichEmployees の finally を running/ボタン文言リセットに、edEnrichHires の finally を btn.disabled=false に戻して入れ替え。→完了で「従業員数を自動取得」に戻り再取得可能。版20260920v。
 
 - 2026-09-20 BUILD_TAG=2026-09-20w 従業員数正規表現を大幅拡充。extractEmployeesRegex：ラベルに 従業員合計/計・就業人員(数)・職員数/正職員/常勤職員・グループ社員・陣容・No. of employees/Total employees/Staff 追加。単位「万/千」対応（toNumで float*10000/1000、1.2万→12000/3千→3000）。suffix に 名超/余名/名以上/人以上。単体/提出会社を優先。年/分直後は除外。テスト18ケースOK（英語Staff of 200も200で妥当）。→無料の公式サイト抽出の取得率UP。版20260920w。
+
+- 2026-09-20 BUILD_TAG=2026-09-20x 媒体掲載の新卒ナビ拾い改善。analyzer.js lookupJobMedia：geminiGroundedのクエリを【中途】【新卒】両方明示（新卒ナビ名＋URL目安 job.mynavi.jp/job.rikunabi.com/career-tasu.jp/onecareer.jp を列挙、新卒も丁寧に検索指示）。抽出sysに『マイナビ転職=中途/マイナビ=新卒』『リクナビNEXT=中途/リクナビ=新卒』の区別と新卒掲載を入れる指示を追加。1回のgroundingのまま（費用増やさず）新卒検出UP狙い。版20260920x。
