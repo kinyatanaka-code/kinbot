@@ -4731,8 +4731,15 @@ async function edEnrichEmployees(mode) {
   const g = _edg;
   const st = $("edEnrichSt");
   const blanks = () => edFiltered().filter((r) => !g(r, "従業員数", "employees"));
-  if (!blanks().length) { if (st) st.textContent = "空欄の会社はありません"; return; }
-  if (!confirm(`空欄の会社を、全部埋まるまで自動で繰り返し取得します。まず無料（gBiz・公式サイト）→残りだけWeb検索。数周試しても取れなかった会社は「-」を入れて確定します（＝調べ済みの印）。途中で「止める」も押せます。続けますか？`)) return;
+  // 「-」（前回取れなかった印）も読み直す対象に含める
+  const isTarget = (r) => { const v = String(g(r, "従業員数", "employees") || "").trim(); return v === "" || v === "-"; };
+  const targetsAll = edFiltered().filter(isTarget);
+  const dashN = targetsAll.filter((r) => String(g(r, "従業員数", "employees") || "").trim() === "-").length;
+  if (!targetsAll.length) { if (st) st.textContent = "空欄・「-」の会社はありません"; return; }
+  if (!confirm(`空欄と「-」の ${targetsAll.length} 社（うち「-」の再取得 ${dashN} 社）を、埋まるまで自動で取得します。まず無料（gBiz・公式サイト）→残りだけWeb検索。数周試しても取れない会社は再び「-」にします。途中で「止める」も押せます。続けますか？`)) return;
+  // 「-」を一度空欄に戻してから取り直す（取れたら数字、ダメなら最後にまた「-」）
+  edFiltered().forEach((r) => { if (String(g(r, "従業員数", "employees") || "").trim() === "-") r["従業員数"] = ""; });
+  edRender();
   const btn = $("edEnrichEmp");
   _edEnrichRunning = true; _edEnrichStop = false;
   if (btn) btn.textContent = "止める";
