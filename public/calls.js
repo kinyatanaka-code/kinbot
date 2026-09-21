@@ -1391,6 +1391,7 @@ async function openTarget(id, draft, opt) {
   const m = openModal(相手名 || (histOnly ? "これまでのやり取り" : "記録する"), `
     <div class="kc-two${histOnly ? " kc-two-histonly" : ""}">
       <div class="kc-two-l">
+        <div class="kc-co-info" id="kcCoInfo"><div class="note">会社情報を読み込んでいます…</div></div>
         <div class="kc-two-h">これまでのやり取り</div>
         <div id="kcHist"><div class="note">読み込んでいます…</div></div>
       </div>
@@ -1477,6 +1478,25 @@ async function openTarget(id, draft, opt) {
     },
   });
 
+  // 左側の会社情報カード（会社概要・Webサイト・サムネ）
+  (async () => {
+    const box = m.el.querySelector("#kcCoInfo"); if (!box) return;
+    const company = x["会社名"] || "";
+    if (!company) { box.style.display = "none"; return; }
+    try {
+      const d = await (await fetch("/api/company-card?company=" + encodeURIComponent(company))).json();
+      const c = d && d.card;
+      if (!c || (!c.overview && !c.website && !c.industry)) { box.innerHTML = '<div class="kc-co-name">' + esc(company) + '</div><div class="note" style="margin:4px 0 0">会社情報は見つかりませんでした</div>'; return; }
+      const domain = String(c.website || "").replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
+      const thumb = domain ? `<img class="kc-co-thumb" src="https://logo.clearbit.com/${encodeURIComponent(domain)}" onerror="this.style.display='none'" alt="" />` : "";
+      const meta = [c.industry && `業界：${esc(c.industry)}`, c.employees && `従業員：${esc(c.employees)}`, c.founded && `設立：${esc(c.founded)}`, c.location && `所在地：${esc(c.location)}`].filter(Boolean).join("<br>");
+      box.innerHTML =
+        `<div class="kc-co-head">${thumb}<div class="kc-co-name">${esc(c.name || company)}</div></div>` +
+        (c.overview ? `<div class="kc-co-ov">${esc(c.overview)}</div>` : "") +
+        (meta ? `<div class="kc-co-meta">${meta}</div>` : "") +
+        (c.website ? `<a class="kc-co-web" href="${esc(c.website)}" target="_blank" rel="noopener">Webサイトを開く ↗</a>` : "");
+    } catch { box.innerHTML = '<div class="kc-co-name">' + esc(company) + '</div><div class="note" style="margin:4px 0 0">会社情報を取得できませんでした</div>'; }
+  })();
   // 左側にこれまでのやり取りを読み込む
   const histBox = m.el.querySelector("#kcHist");
   renderHistoryInto(histBox, id);

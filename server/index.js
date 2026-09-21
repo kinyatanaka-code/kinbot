@@ -7745,6 +7745,32 @@ app.post("/api/calls/import-edit", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 記録モーダル左の会社カード（会社概要・Webサイト・サムネ用ドメイン）。enrichCompanyを使い、結果は7日キャッシュ。
+const _companyCardCache = new Map();
+app.get("/api/company-card", async (req, res) => {
+  try {
+    const company = String(req.query.company || "").trim();
+    if (!company) return res.json({ ok: true, card: null });
+    const key = company.toLowerCase();
+    const hit = _companyCardCache.get(key);
+    if (hit && Date.now() - hit.at < 7 * 24 * 3600 * 1000 && req.query.refresh !== "1") return res.json({ ok: true, card: hit.data, cached: true });
+    const website0 = String(req.query.url || "").trim();
+    const g = await withTimeout(enrichCompany({ name: company, url: website0 }), 22000, null);
+    const website = (g && (g.website || g.company_url)) || website0 || "";
+    const card = {
+      name: (g && g.official_name) || company,
+      overview: (g && g.business) || "",
+      industry: (g && g.industry) || "",
+      employees: (g && g.employees) || "",
+      founded: (g && g.founded) || "",
+      location: (g && g.location) || "",
+      website,
+    };
+    _companyCardCache.set(key, { at: Date.now(), data: card });
+    res.json({ ok: true, card });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト整理／編集：全メンバーのリスト一覧
 app.get("/api/calls/lists-all", async (req, res) => {
   try {
@@ -20400,7 +20426,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19y 編集タブにCSV書き出し／取り込みを追加。表示中の一覧をCSV（UTF-8 BOM）で書き出し、Excel等で編集して取り込むと、リードIDで突合して 会社名・従業員数・採用人数・媒体掲載・担当・グループ を反映する。担当は「担当メール」優先、無ければ「担当（登録名）」で照合し、特定できない行はスキップ。反映前に件数プレビューを出す。SFには書き戻さない・担当はリード単位。";
+const BUILD_TAG = "2026-09-19z かけるの記録モーダルの左側に会社情報カードを追加。会社概要・業界・従業員数・所在地・Webサイトのリンク・会社ロゴ（サムネ）を表示する。会社名からWeb検索で取得し、結果は7日キャッシュ（次回以降は速い）。取れないときはその旨を表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
