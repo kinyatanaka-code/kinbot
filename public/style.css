@@ -6424,6 +6424,30 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed3-go { margin-top:8px; }
 @media (max-width:760px){ .ed3 { grid-template-columns:1fr; } .ed3-col + .ed3-col { border-left:none; padding-left:0; border-top:1px solid #eef2f0; padding-top:10px; margin-top:6px; } .ed3-body { max-height:34vh; } }
 
+/* 新「管理」タブ（メンバー別／グループ別） */
+.nm-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 14px; }
+.nm-sec { margin-bottom:16px; }
+.nm-sec-h { font-size:12px; font-weight:700; color:#0f6e56; margin:0 0 8px; padding-bottom:5px; border-bottom:1px solid #e6ece9; }
+.nm-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+.nm-card { text-align:left; background:#fff; border:1px solid #e6ece9; border-radius:10px; padding:11px 12px; cursor:pointer; transition:border-color .12s, box-shadow .12s; }
+.nm-card:hover { border-color:#5DCAA5; box-shadow:0 1px 6px rgba(29,158,117,.14); }
+.nm-card-name { font-size:13px; font-weight:700; color:#173a30; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nm-card-sub { font-size:11px; color:#8a8f8c; margin-top:3px; }
+.nm-detail-head { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+.nm-back { border:1px solid #cfe0d8; background:#fff; color:#0f6e56; border-radius:9px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; }
+.nm-detail-title { font-size:14px; font-weight:700; color:#173a30; display:flex; align-items:center; gap:8px; min-width:0; }
+.nm-detail-n { font-size:11px; font-weight:600; color:#8a8f8c; }
+.nm-lrows { display:flex; flex-direction:column; gap:6px; }
+.nm-lrow { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid #e6ece9; border-radius:10px; padding:9px 11px; }
+.nm-lrow-main { flex:1; min-width:0; }
+.nm-lrow-name { font-size:13px; font-weight:600; color:#173a30; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nm-lrow-sub { font-size:11px; color:#8a8f8c; margin:2px 0 4px; }
+.nm-lrow .org-bar { width:120px; max-width:40%; }
+.nm-lrow-ops { display:flex; align-items:center; gap:6px; flex:none; flex-wrap:wrap; justify-content:flex-end; }
+.nm-move { font-size:12px; border:1px solid #cfe0d8; border-radius:8px; padding:4px 6px; max-width:160px; color:#173a30; background:#fff; }
+.nm-hide { font-size:12px; padding:4px 10px; }
+@media (max-width:640px){ .nm-lrow { flex-wrap:wrap; } .nm-lrow-ops { width:100%; justify-content:flex-start; } .nm-lrow .org-bar { width:90px; } }
+
 /* かける一覧：列ヘッダの「✕で列を消す」 */
 .kc-th-rc { position:relative; }
 .kc-rc-x { margin-left:4px; border:none; background:transparent; color:#b6bdb9; font-size:11px; cursor:pointer; padding:0 2px; border-radius:4px; line-height:1; vertical-align:middle; }

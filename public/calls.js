@@ -3750,6 +3750,7 @@ function showPane() {
       el.hidden = el.dataset.lsPane !== name;
     });
     if (name === "manage") asLoad();
+    if (name === "newmanage") nmLoad();
     if (name === "status") loadListStatus();
     if (name === "organize") orgLoadLists();
     if (name === "find") { const q = $("lsFindQ"); if (q) q.focus(); }
@@ -4252,6 +4253,112 @@ async function saveMemberView() {
       body: JSON.stringify({ "消した": [...memberView.hidden], "足した": [...memberView.extra] }),
     });
   } catch {}
+}
+
+/* ===== 新「管理」タブ（メンバー別／グループ別） ===== */
+const NM_EX = ["goldfly32@gmail.com"];   // ここでも goldfly は出さない
+let _nmInit = false;
+let _nmMode = "owner";              // owner=メンバー別／group=グループ別
+let _nmLists = [];                  // lists-all（goldfly除外）
+let _nmMembers = [];               // 全メンバー（役割つき）
+let _nmMemByEmail = new Map();      // email -> member
+let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"group", key, name}
+function nmMemberName(email) { const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
+function nmTeamOf(email) { const m = _nmMemByEmail.get(String(email || "").toLowerCase()); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
+function nmBar(zan, all) { const pct = all ? Math.round(zan / all * 100) : 0; const col = (all && zan / all >= 0.6) ? "#1d9e75" : (all && zan / all >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
+async function nmFetch() {
+  const [d, mm] = await Promise.all([
+    fetch("/api/calls/lists-all").then((r) => r.json()).catch(() => ({ items: [] })),
+    (_nmMembers.length ? Promise.resolve(null) : fetch("/api/members").then((r) => r.json()).catch(() => null)),
+  ]);
+  _nmLists = (d.items || []).filter((x) => !NM_EX.includes(String(x.owner || "").toLowerCase()));
+  if (mm && Array.isArray(mm.members)) { _nmMembers = mm.members.filter((m) => m.active !== false); _nmMemByEmail = new Map(_nmMembers.map((m) => [String(m.email || "").toLowerCase(), m])); }
+}
+async function nmLoad() {
+  const body = $("nmBody"); if (!body) return;
+  if (!_nmInit) { _nmInit = true;
+    if ($("nmModeSeg")) $("nmModeSeg").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      if (_nmMode === b.dataset.nmmode) return;
+      _nmMode = b.dataset.nmmode; _nmSel = null;
+      $("nmModeSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
+      nmRenderRoot();
+    }));
+    if ($("nmReload")) $("nmReload").addEventListener("click", () => { _nmMembers = []; _nmSel = null; nmLoad(); });
+  }
+  body.innerHTML = '<div class="note">読み込んでいます…</div>';
+  try { await nmFetch(); nmRenderRoot(); }
+  catch (e) { body.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
+}
+function nmRenderRoot() { if (_nmSel) nmRenderDetail(); else nmRenderCards(); }
+function nmRenderCards() {
+  const body = $("nmBody"); if (!body) return;
+  if (_nmMode === "group") return nmRenderGroupCards(body);
+  // メンバー別：所有者で束ねてチーム（セールス／インサイド／他）に振り分け
+  const byOwner = new Map();
+  for (const x of _nmLists) { const k = String(x.owner || "").toLowerCase(); if (!k) continue; if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
+  const buckets = { sales: [], inside: [], other: [] };
+  for (const [email, ls] of byOwner) buckets[nmTeamOf(email)].push({ email, ls });
+  const secs = [["sales", "セールス"], ["inside", "インサイド"], ["other", "他"]];
+  let html = "", any = false;
+  for (const [key, label] of secs) {
+    const arr = buckets[key]; if (!arr.length) continue; any = true;
+    arr.sort((a, b) => nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
+    html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}</div><div class="nm-grid">` +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残り || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-sub">${ls.length} リスト・残 ${zan}</div></button>`; }).join("") +
+      `</div></div>`;
+  }
+  body.innerHTML = any ? html : '<div class="empty-state">リストを持っているメンバーがいません</div>';
+  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) }; nmRenderDetail(); }));
+}
+function nmRenderGroupCards(body) {
+  const byGroup = new Map();
+  for (const x of _nmLists) { const k = (x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__"; if (!byGroup.has(k)) byGroup.set(k, { name: x.group_name || "", ls: [] }); const g = byGroup.get(k); if (x.group_name && !g.name) g.name = x.group_name; g.ls.push(x); }
+  const entries = [...byGroup.entries()].sort((a, b) => (a[0] === "__none__") - (b[0] === "__none__") || String(a[1].name).localeCompare(String(b[1].name), "ja"));
+  if (!entries.length) { body.innerHTML = '<div class="empty-state">グループがありません</div>'; return; }
+  body.innerHTML = `<div class="nm-sec"><div class="nm-sec-h">グループ</div><div class="nm-grid">` +
+    entries.map(([key, g]) => { const nm = key === "__none__" ? "（グループなし）" : (g.name || ("グループ " + key)); const zan = g.ls.reduce((s, x) => s + Number(x.残り || 0), 0); return `<button type="button" class="nm-card" data-group="${esc(key)}" data-gname="${esc(nm)}"><div class="nm-card-name">${esc(nm)}</div><div class="nm-card-sub">${g.ls.length} リスト・残 ${zan}</div></button>`; }).join("") +
+    `</div></div>`;
+  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
+}
+function nmRenderDetail() {
+  const body = $("nmBody"); if (!body || !_nmSel) return;
+  let ls;
+  if (_nmSel.type === "owner") ls = _nmLists.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
+  else ls = _nmLists.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
+  ls = ls.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"));
+  const movable = _nmMembers.filter((m) => !NM_EX.includes(String(m.email || "").toLowerCase()));
+  const rows = ls.map((x) => {
+    const zan = Number(x.残り || 0), all = Number(x.全部 || 0);
+    const sub = _nmSel.type === "owner" ? (x.group_name ? ("グループ：" + x.group_name) : "") : ("担当：" + nmMemberName(x.owner));
+    const opts = movable.filter((m) => String(m.email || "").toLowerCase() !== String(x.owner || "").toLowerCase()).map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)} へ移す</option>`).join("");
+    return `<div class="nm-lrow" data-id="${x.id}">
+      <div class="nm-lrow-main"><div class="nm-lrow-name">${esc(x.name)}</div><div class="nm-lrow-sub">残 ${zan} ／ 全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}</div>
+      <div class="nm-lrow-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option>${opts}</select><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button></div>
+    </div>`;
+  }).join("");
+  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${ls.length} リスト</span></div></div>` +
+    `<div class="nm-lrows">${rows || '<div class="empty-state">リストがありません</div>'}</div><span class="rev-status" id="nmOpSt"></span>`;
+  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmSel = null; nmRenderCards(); });
+  body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
+  body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
+}
+async function nmMove(listId, owner) {
+  if (!owner) return;
+  const st = $("nmOpSt"); if (st) st.textContent = "移しています…";
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) });
+    if (!r.ok) throw new Error();
+    await nmFetch(); nmRenderRoot(); const s = $("nmOpSt"); if (s) s.textContent = "移しました";
+  } catch { const s = $("nmOpSt"); if (s) s.textContent = "移せませんでした（権限がないか、通信に失敗しました）"; }
+}
+async function nmHide(listId, name) {
+  if (!confirm(`「${name}」を非表示にします。よろしいですか？\n（もとのSalesforceのリードは残ります）`)) return;
+  const st = $("nmOpSt"); if (st) st.textContent = "非表示にしています…";
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/hidden`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ hidden: true }) });
+    if (!r.ok) throw new Error();
+    await nmFetch(); nmRenderRoot(); const s = $("nmOpSt"); if (s) s.textContent = "非表示にしました";
+  } catch { const s = $("nmOpSt"); if (s) s.textContent = "できませんでした（権限がないか、通信に失敗しました）"; }
 }
 
 async function asLoad() {

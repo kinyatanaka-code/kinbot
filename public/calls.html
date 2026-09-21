@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260922a" />
+    <link rel="stylesheet" href="style.css?v=20260922b" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -225,6 +225,7 @@
               <button type="button" class="kc-ptab active" data-ls="status">状況</button>
               <button type="button" class="kc-ptab" data-ls="organize">編集</button>
               <button type="button" class="kc-ptab" data-ls="manage">整理</button>
+              <button type="button" class="kc-ptab" data-ls="newmanage">管理（新）</button>
               <button type="button" class="kc-ptab" data-ls="find" id="lsFindTab" hidden>全体検索</button>
               <button type="button" class="kc-ptab" data-ls="make">作成</button>
             </div>
@@ -276,6 +277,17 @@
               <b>もとになるSalesforceのレポートは変わりません。</b>ここで消しても、Salesforce側のリードはそのまま残ります。</p>
               <div id="asCards" class="kc-lists-grid"><div class="note">読み込んでいます…</div></div>
               <span class="rev-status" id="asStatus"></span>
+            </div>
+
+            <div class="ls-block" data-ls-pane="newmanage" hidden>
+              <p class="note">メンバー別／グループ別にリストを見て、その場で<b>非表示</b>にしたり<b>別の人へ割り振り</b>できます。<br>
+              <b>もとになるSalesforceのレポートは変わりません。</b>非表示にしても、Salesforce側のリードはそのまま残ります。</p>
+              <div class="nm-head">
+                <span class="ed3-seg" id="nmModeSeg"><button type="button" data-nmmode="owner" class="active">メンバー別</button><button type="button" data-nmmode="group">グループ別</button></span>
+                <button type="button" class="btn ghost" id="nmReload">更新</button>
+                <span class="rev-status" id="nmSt"></span>
+              </div>
+              <div id="nmBody"><div class="note">読み込んでいます…</div></div>
             </div>
 
             <div class="ls-block" data-ls-pane="make" hidden>
@@ -389,9 +401,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260922a"></script>
-    <script src="calls.js?v=20260922a"></script>
-    <script src="nav.js?v=20260922a"></script>
+    <script src="sf-data.js?v=20260922b"></script>
+    <script src="calls.js?v=20260922b"></script>
+    <script src="nav.js?v=20260922b"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
