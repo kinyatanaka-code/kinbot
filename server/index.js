@@ -20449,7 +20449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20c 会社情報カードのコストを削減。まず無料のgBizINFO（会社概要・業界・従業員・設立・所在地・Webサイト）で取得し、gBizで見つからなかった会社だけWeb検索（有料）で補うようにした。キャッシュも7日→30日に延長。＝多くの会社は無料で表示、有料の検索は激減する（要 GBIZINFO_TOKEN）。";
+const BUILD_TAG = "2026-09-20d 会社情報などのWeb検索（grounding）を、Gemini 2.5系から3.x系（最新Flash）に切り替えた。検索の課金レートが約1/2.5になるため、gBizで足りず検索する分のコストが下がる。万一3.xで検索が通らない場合は自動で2.5にフォールバックするので止まらない。モデルは環境変数 GEMINI_WEB_MODEL で個別指定も可能。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

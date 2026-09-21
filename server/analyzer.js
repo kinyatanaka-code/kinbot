@@ -552,19 +552,27 @@ day は 日 月 火 水 木 金 土 のいずれか。時刻は "HH:MM"。営業
 async function geminiGrounded(question, siteText) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY 未設定");
-  const model = process.env.GEMINI_WEB_MODEL || "gemini-2.5-flash";
   const user = `${question}\n\n企業サイト本文の抜粋:\n"""\n${(siteText || "").slice(0, 6000)}\n"""`;
   const body = {
     contents: [{ role: "user", parts: [{ text: user }] }],
     generationConfig: { temperature: 0.2, maxOutputTokens: 1100 },
     tools: [{ google_search: {} }],
   };
-  const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 120)}`);
-  const data = await res.json();
-  return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+  // まず 3.x（安いgrounding）を使い、もし失敗したら 2.5 にフォールバックする。
+  const primary = process.env.GEMINI_WEB_MODEL || "gemini-flash-latest";
+  const models = [...new Set([primary, "gemini-2.5-flash"])];
+  let lastErr = "";
+  for (const model of models) {
+    try {
+      const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (!res.ok) { lastErr = `Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 120)}`; continue; }
+      const data = await res.json();
+      return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+    } catch (e) { lastErr = e.message; }
+  }
+  throw new Error(lastErr || "Gemini grounding 失敗");
 }
 
 const COMPANY_EXTRACT_PROMPT = `あなたは情報抽出器です。渡されたテキスト（企業サイト抜粋・リサーチ結果）から会社概要を抽出します。
@@ -1028,8 +1036,8 @@ export async function chatWithData({ messages, material, model, web }) {
   let standard = process.env.GEMINI_CHAT_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   // Web検索(グラウンディング)はLite非対応のことがあるのでFlashに引き上げ
   if (web) {
-    if (/lite/i.test(primary)) primary = process.env.GEMINI_WEB_MODEL || "gemini-2.5-flash";
-    standard = process.env.GEMINI_WEB_MODEL || "gemini-2.5-flash";
+    if (/lite/i.test(primary)) primary = process.env.GEMINI_WEB_MODEL || "gemini-flash-latest";
+    standard = process.env.GEMINI_WEB_MODEL || "gemini-flash-latest";
   }
   const system =
     CHAT_SYSTEM +
