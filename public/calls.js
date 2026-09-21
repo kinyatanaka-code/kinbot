@@ -1499,10 +1499,11 @@ async function openTarget(id, draft, opt) {
     };
     try {
       const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/edit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error();
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "");
       x["会社名"] = body.company; x["担当者"] = body.person; x["ふりがな"] = body.kana; x["電話番号"] = body.phone; x["メール"] = body.email;
       render();
-      if (st) { st.textContent = "保存しました"; setTimeout(() => (st.textContent = ""), 2000); }
+      if (st) { st.textContent = d.sf && d.sf.ok ? "保存＋Salesforce反映しました" : `保存しました（SF：${esc((d.sf && d.sf.reason) || "未反映")}）`; setTimeout(() => (st.textContent = ""), 4000); }
     } catch { if (st) st.textContent = "保存できませんでした"; }
   });
   // 左側にこれまでのやり取りを読み込む
