@@ -711,6 +711,7 @@ export async function initDb() {
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS absent_rank TEXT;`);        // 担当者不在ランク A/B/C
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS absent_rank_at TIMESTAMPTZ;`); // そのランクを付けた日時（リサイクル移動の起点）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS employees INT;`);        // 従業員数（kincall内・SF非連動）
+  await sq(`ALTER TABLE call_targets ALTER COLUMN employees TYPE TEXT USING employees::text;`); // 「-」（取れなかった印）も入れられるようTEXTへ
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS hires INT;`);            // 採用人数
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS media_tags TEXT;`);      // 媒体掲載（有料求人サイトのタグ・カンマ区切り）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS enrich_at TIMESTAMPTZ;`); // 自動取得した日時
@@ -8025,7 +8026,8 @@ export async function setCallTargetFields(id, { employees, hires, media_tags, co
   if (!pool || !id) return;
   const sets = [], vals = [id]; let i = 2;
   const num = (v) => { if (v === "" || v == null) return null; const n = parseInt(v, 10); return isFinite(n) ? n : null; };
-  if (employees !== undefined) { sets.push(`employees = $${i++}`); vals.push(num(employees)); }
+  // 従業員数はTEXT。数字はそのまま、「-」（取れなかった印）も許可。空はnull。
+  if (employees !== undefined) { const ev = (employees === "" || employees == null) ? null : String(employees).trim(); sets.push(`employees = $${i++}`); vals.push(ev); }
   if (hires !== undefined) { sets.push(`hires = $${i++}`); vals.push(num(hires)); }
   if (media_tags !== undefined) { sets.push(`media_tags = $${i++}`); vals.push(media_tags == null ? null : String(media_tags)); }
   if (company !== undefined && company !== "" && company != null) { sets.push(`company = $${i++}`); vals.push(String(company)); }

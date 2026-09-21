@@ -4732,7 +4732,7 @@ async function edEnrichEmployees(mode) {
   const st = $("edEnrichSt");
   const blanks = () => edFiltered().filter((r) => !g(r, "従業員数", "employees"));
   if (!blanks().length) { if (st) st.textContent = "空欄の会社はありません"; return; }
-  if (!confirm(`空欄の会社を、埋まるまで自動で繰り返し取得します（これ以上取れなくなったら止まります）。まず無料（gBiz・公式サイト）→残りだけWeb検索。途中で「止める」も押せます。続けますか？`)) return;
+  if (!confirm(`空欄の会社を、全部埋まるまで自動で繰り返し取得します。まず無料（gBiz・公式サイト）→残りだけWeb検索。数周試しても取れなかった会社は「-」を入れて確定します（＝調べ済みの印）。途中で「止める」も押せます。続けますか？`)) return;
   const btn = $("edEnrichEmp");
   _edEnrichRunning = true; _edEnrichStop = false;
   if (btn) btn.textContent = "止める";
@@ -4760,8 +4760,17 @@ async function edEnrichEmployees(mode) {
       }
       if (roundGot === 0) break;                 // この周で1件も増えなかった＝これ以上は取れない
     }
+    // 数周試してもダメだった空欄は「-」で確定（＝もう調べ済みの印。止めていないときだけ）
+    if (!_edEnrichStop) {
+      const rest = blanks();
+      for (let j = 0; j < rest.length; j++) {
+        if (st) st.textContent = `取れなかった分に「-」を記入中… ${j}/${rest.length}`;
+        try { await fetch(`/api/calls/targets/${encodeURIComponent(rest[j].id)}/fields`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ employees: "-" }) }); rest[j]["従業員数"] = "-"; } catch {}
+      }
+      if (rest.length) edRender();
+    }
     const remain = blanks().length;
-    if (st) st.textContent = (_edEnrichStop ? "止めました" : (remain ? "取れる分は取り切りました" : "全部そろいました")) + `：入った ${totalGot}・残り ${remain}（${srcStr(bySrc)}）`;
+    if (st) st.textContent = (_edEnrichStop ? "止めました" : "終わりました") + `：入った ${totalGot}・取れず「-」 ${_edEnrichStop ? "" : (edFiltered().filter((r)=>String(_edg(r,"従業員数","employees"))==="-").length)}・残り ${remain}（${srcStr(bySrc)}）`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
   finally { if (btn) btn.disabled = false; }
 }
@@ -4889,7 +4898,7 @@ function edRender() {
         <td>${esc(g(r, "電話", "電話番号", "phone"))}</td>
         <td>${esc(g(r, "メール", "メールアドレス", "email"))}</td>
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
-        <td><input type="number" min="0" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
+        <td><input type="text" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
         <td><input type="number" min="0" class="ed-f" data-f="hires" value="${esc(g(r, "採用人数", "hires"))}" style="width:64px" /></td>
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
         <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
