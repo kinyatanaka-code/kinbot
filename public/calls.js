@@ -4518,6 +4518,9 @@ async function orgLoadLists() {
     if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", edEnrichEmployees);
     if ($("edEnrichMedia")) $("edEnrichMedia").addEventListener("click", edEnrichMedia);
     if ($("edEnrichHire")) $("edEnrichHire").addEventListener("click", edEnrichHires);
+    if ($("edCsvOut")) $("edCsvOut").addEventListener("click", edExportCsv);
+    if ($("edCsvIn")) $("edCsvIn").addEventListener("click", () => $("edCsvFile") && $("edCsvFile").click());
+    if ($("edCsvFile")) $("edCsvFile").addEventListener("change", edImportCsv);
   }
   memBox.querySelector(".ed3-body").innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
@@ -4680,6 +4683,66 @@ async function edEnrichMedia() {
     if (st) st.textContent = `完了：${got}/${targets.length} 社で掲載媒体が見つかりました`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
   finally { if (btn) btn.disabled = false; }
+}
+function _csvCell(v) { v = v == null ? "" : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function _parseCsv(text) {
+  text = text.replace(/^\uFEFF/, "");
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) { const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else { if (c === '"') q = true; else if (c === ",") { row.push(cur); cur = ""; } else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; } else if (c === "\r") { } else cur += c; }
+  }
+  if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+function edExportCsv() {
+  const g = _edg; const rows = edFiltered();
+  const st = $("edEnrichSt");
+  if (!rows.length) { if (st) st.textContent = "書き出す行がありません"; return; }
+  const nameOf = (email) => { const m = _edMembers.find((x) => String(x.email || "").toLowerCase() === String(email || "").toLowerCase()); return (m && m.name) || ""; };
+  const head = ["リードID", "会社名", "担当者", "電話", "メール", "ステージ", "状態", "従業員数", "採用人数", "媒体掲載", "グループ", "担当", "担当メール"];
+  const lines = [head.join(",")];
+  for (const r of rows) {
+    const asg = g(r, "担当", "assigned_to");
+    lines.push([r.id, g(r, "会社名", "company"), g(r, "担当者", "person"), g(r, "電話", "電話番号", "phone"), g(r, "メール", "メールアドレス", "email"),
+      g(r, "ステージ", "stage"), g(r, "最終ステータス", "最終結果", "status"), g(r, "従業員数", "employees"), g(r, "採用人数", "hires"),
+      g(r, "媒体掲載", "media_tags"), r._group || "", nameOf(asg) || asg, asg].map(_csvCell).join(","));
+  }
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `リスト編集_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  if (st) st.textContent = `${rows.length}件を書き出しました`;
+}
+async function edImportCsv(ev) {
+  const file = ev.target.files && ev.target.files[0]; ev.target.value = "";
+  if (!file) return;
+  const st = $("edEnrichSt");
+  const text = await file.text();
+  const grid = _parseCsv(text).filter((r) => r.length && r.some((c) => String(c).trim() !== ""));
+  if (grid.length < 2) { alert("CSVにデータがありません"); return; }
+  const head = grid[0].map((h) => String(h).trim());
+  const idx = (n) => head.indexOf(n);
+  const cId = idx("リードID"), cCo = idx("会社名"), cEmp = idx("従業員数"), cHire = idx("採用人数"), cMed = idx("媒体掲載"), cGrp = idx("グループ"), cAsg = idx("担当"), cAsgE = idx("担当メール");
+  if (cId < 0) { alert("「リードID」列が見つかりません。書き出したCSVを編集して使ってください。"); return; }
+  const rows = grid.slice(1).map((r) => ({
+    id: r[cId], company: cCo >= 0 ? r[cCo] : undefined, employees: cEmp >= 0 ? r[cEmp] : undefined, hires: cHire >= 0 ? r[cHire] : undefined,
+    media_tags: cMed >= 0 ? r[cMed] : undefined, group: cGrp >= 0 ? r[cGrp] : "", assigned_name: cAsg >= 0 ? r[cAsg] : "", assigned_email: cAsgE >= 0 ? r[cAsgE] : "",
+  })).filter((r) => String(r.id || "").trim());
+  if (!rows.length) { alert("有効な行がありません"); return; }
+  if (st) st.textContent = "確認中…";
+  try {
+    const dr = await (await fetch("/api/calls/import-edit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows, dryRun: true }) })).json();
+    const s = dr.summary || {};
+    const msg = `${rows.length}件を反映します。\n担当変更 ${s.assignedChanged || 0}／会社名 ${s.companyChanged || 0}／従業員数など ${s.fieldChanged || 0}／グループ ${s.groupChanged || 0}` +
+      ((s.skipped && s.skipped.length) ? `\n担当が特定できずスキップ ${s.skipped.length}件` : "") + `\n\n実行しますか？`;
+    if (!confirm(msg)) { if (st) st.textContent = ""; return; }
+    if (st) st.textContent = "反映中…";
+    const ap = await (await fetch("/api/calls/import-edit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows, dryRun: false }) })).json();
+    const s2 = ap.summary || {};
+    if (st) st.textContent = `反映しました（更新 ${s2.updated || 0}／担当 ${s2.assignedChanged || 0}／スキップ ${(s2.skipped || []).length}）`;
+    if (_edChosen.size) orgLoadEdit([..._edChosen.keys()]);
+  } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
 }
 function edRender() {
   const tbl = $("edTable"); if (!tbl) return;

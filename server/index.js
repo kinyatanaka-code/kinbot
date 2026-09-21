@@ -7699,6 +7699,52 @@ app.post("/api/calls/enrich-hires", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 編集：CSV取り込み（リードIDで突合し、会社名/従業員数/採用人数/媒体掲載/担当/グループを更新。SFには書き戻さない）
+app.post("/api/calls/import-edit", async (req, res) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const dryRun = req.body?.dryRun === true;
+    if (!rows.length) return res.json({ ok: true, dryRun, summary: { total: 0, updated: 0, assignedChanged: 0, companyChanged: 0, fieldChanged: 0, groupChanged: 0, skipped: [] } });
+    const members = await listMembers().catch(() => []);
+    const byEmail = new Map(members.map((m) => [String(m.email || "").toLowerCase(), m]));
+    const nameCount = new Map(), byName = new Map();
+    for (const m of members) { const n = String(m.name || "").trim(); if (!n) continue; nameCount.set(n, (nameCount.get(n) || 0) + 1); byName.set(n, m); }
+    // グループ名→id
+    const gmap = new Map();
+    try { const gr = await pool.query(`SELECT id, name FROM call_list_groups`); for (const g of gr.rows) gmap.set(String(g.name).trim(), g.id); } catch {}
+    // 対象idのlist_id（グループ適用用）
+    const ids = rows.map((r) => parseInt(r.id, 10)).filter(Boolean);
+    const listOf = new Map();
+    if (ids.length) { try { const tr = await pool.query(`SELECT id, list_id FROM call_targets WHERE id = ANY($1::int[])`, [ids]); for (const t of tr.rows) listOf.set(t.id, t.list_id); } catch {} }
+    let updated = 0, assignedChanged = 0, companyChanged = 0, fieldChanged = 0, groupChanged = 0;
+    const skipped = [];
+    const listGroupSet = new Map(); // list_id -> gid（後でまとめて適用）
+    for (const r of rows) {
+      const id = parseInt(r.id, 10); if (!id) { skipped.push({ id: r.id || "", reason: "リードIDがありません" }); continue; }
+      const patch = {};
+      if (r.company != null && String(r.company).trim() !== "") patch.company = String(r.company).trim();
+      if (r.employees !== undefined && String(r.employees).trim() !== "") patch.employees = r.employees;
+      if (r.hires !== undefined && String(r.hires).trim() !== "") patch.hires = r.hires;
+      if (r.media_tags !== undefined && String(r.media_tags).trim() !== "") patch.media_tags = String(r.media_tags).trim();
+      // 担当（メール優先→登録名）
+      const em = String(r.assigned_email || "").trim().toLowerCase();
+      const nm = String(r.assigned_name || "").trim();
+      let assignEmail = "";
+      if (em) { if (byEmail.has(em)) assignEmail = em; else skipped.push({ id, reason: `担当メールが見つかりません: ${em}` }); }
+      else if (nm) { if ((nameCount.get(nm) || 0) > 1) skipped.push({ id, reason: `担当名が重複しています: ${nm}` }); else if (byName.has(nm)) assignEmail = String(byName.get(nm).email).toLowerCase(); else skipped.push({ id, reason: `担当名が見つかりません: ${nm}` }); }
+      if (assignEmail) { patch.assigned_to = assignEmail; assignedChanged++; }
+      if (patch.company) companyChanged++;
+      if ("employees" in patch || "hires" in patch || "media_tags" in patch) fieldChanged++;
+      // グループ（そのリードのリストに適用。同一リストは最後の指定が有効）
+      const gname = String(r.group || "").trim();
+      if (gname && listOf.has(id)) { const gid = gmap.has(gname) ? gmap.get(gname) : null; listGroupSet.set(listOf.get(id), gid); }
+      if (Object.keys(patch).length) { if (!dryRun) await setCallTargetFields(id, patch).catch(() => {}); updated++; }
+    }
+    for (const [listId, gid] of listGroupSet.entries()) { groupChanged++; if (!dryRun) await setListGroup(listId, gid).catch(() => {}); }
+    res.json({ ok: true, dryRun, summary: { total: rows.length, updated, assignedChanged, companyChanged, fieldChanged, groupChanged, skipped } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト整理／編集：全メンバーのリスト一覧
 app.get("/api/calls/lists-all", async (req, res) => {
   try {
@@ -20354,7 +20400,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-19x 整理タブの崩れを修正し、カードをクリックすると詳細（中身プレビュー＋操作）が開くようにした。カード内の⋯メニューは廃止（これが崩れの原因）。詳細に「別の担当へ移す・グループを変える・非表示・削除・かける」を集約。複数選択して下バーでまとめて移す/非表示も従来どおり。下バーが画面を覆う不具合も抑止。";
+const BUILD_TAG = "2026-09-19y 編集タブにCSV書き出し／取り込みを追加。表示中の一覧をCSV（UTF-8 BOM）で書き出し、Excel等で編集して取り込むと、リードIDで突合して 会社名・従業員数・採用人数・媒体掲載・担当・グループ を反映する。担当は「担当メール」優先、無ければ「担当（登録名）」で照合し、特定できない行はスキップ。反映前に件数プレビューを出す。SFには書き戻さない・担当はリード単位。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

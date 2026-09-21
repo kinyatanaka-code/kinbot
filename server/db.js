@@ -8019,14 +8019,17 @@ export async function setCallTargetAbsent(id, n) {
   try { await pool.query(`UPDATE call_targets SET consecutive_absent=$2 WHERE id=$1`, [id, Math.max(0, parseInt(n, 10) || 0)]); }
   catch (e) { console.error("[db] setCallTargetAbsent", e.message); }
 }
-// 編集画面から、kincall内だけの項目（従業員数・採用人数・媒体掲載）を保存する。SFには書き戻さない。
-export async function setCallTargetFields(id, { employees, hires, media_tags } = {}) {
+// 編集画面から、kincall内だけの項目を保存する。SFには書き戻さない。
+// 従業員数・採用人数・媒体掲載に加え、会社名(company)・担当(assigned_to)もCSV取り込みで更新する。
+export async function setCallTargetFields(id, { employees, hires, media_tags, company, assigned_to } = {}) {
   if (!pool || !id) return;
   const sets = [], vals = [id]; let i = 2;
   const num = (v) => { if (v === "" || v == null) return null; const n = parseInt(v, 10); return isFinite(n) ? n : null; };
   if (employees !== undefined) { sets.push(`employees = $${i++}`); vals.push(num(employees)); }
   if (hires !== undefined) { sets.push(`hires = $${i++}`); vals.push(num(hires)); }
   if (media_tags !== undefined) { sets.push(`media_tags = $${i++}`); vals.push(media_tags == null ? null : String(media_tags)); }
+  if (company !== undefined && company !== "" && company != null) { sets.push(`company = $${i++}`); vals.push(String(company)); }
+  if (assigned_to !== undefined && assigned_to !== "" && assigned_to != null) { sets.push(`assigned_to = $${i++}`); vals.push(String(assigned_to).toLowerCase()); }
   if (!sets.length) return;
   try { await pool.query(`UPDATE call_targets SET ${sets.join(", ")} WHERE id = $1`, vals); }
   catch (e) { console.error("[db] setCallTargetFields", e.message); }
