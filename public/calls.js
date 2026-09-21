@@ -1398,16 +1398,22 @@ async function openTarget(id, draft, opt) {
       </div>
       <div class="kc-two-r">
         <div class="kc-rec-top">
-          <div class="kc-rec-edit">
-            <div class="kc-rec-edit-tel">
-              <input type="tel" class="kc-input kc-ed-f kc-ed-phone" id="kcEdPhone" value="${esc(x["電話番号"] || "")}" placeholder="電話番号" />
-              ${x["電話番号"] ? `<a class="kc-tel" href="${callHref(x["電話番号"])}" title="この番号にかける">かける</a>` : ""}
+          <div>
+            <!-- 表示（普段） -->
+            <div class="kc-contact-view" id="kcContactView">
+              ${x["電話番号"] ? `<a class="kc-tel kc-tel-big" href="${callHref(x["電話番号"])}">${esc(x["電話番号"])}</a>` : `<span class="kc-none">電話番号なし</span>`}
+              <button type="button" class="kc-edit-pen" id="kcEditPen" title="連絡先を編集" aria-label="連絡先を編集">✎</button>
+              ${x["メール"] ? `<div class="kc-mail-big"><a href="mailto:${esc(x["メール"])}">${esc(x["メール"])}</a></div>` : ""}
             </div>
-            <input type="email" class="kc-input kc-ed-f" id="kcEdEmail" value="${esc(x["メール"] || "")}" placeholder="メールアドレス" />
-            <input type="text" class="kc-input kc-ed-f" id="kcEdCompany" value="${esc(x["会社名"] || "")}" placeholder="会社名" />
-            <input type="text" class="kc-input kc-ed-f" id="kcEdPerson" value="${esc(x["担当者"] || "")}" placeholder="担当者名" />
-            <input type="text" class="kc-input kc-ed-f" id="kcEdKana" value="${esc(x["ふりがな"] || "")}" placeholder="ふりがな" />
-            <div class="kc-rec-edit-save"><button type="button" class="btn ghost" id="kcEdSave">この情報を保存</button> <span class="rev-status" id="kcEdSt"></span></div>
+            <!-- 編集（鉛筆を押すと出る） -->
+            <div class="kc-rec-edit" id="kcContactEdit" hidden>
+              <input type="text" class="kc-input kc-ed-f" id="kcEdCompany" value="${esc(x["会社名"] || "")}" placeholder="会社名" />
+              <input type="text" class="kc-input kc-ed-f" id="kcEdPerson" value="${esc(x["担当者"] || "")}" placeholder="担当者名" />
+              <input type="text" class="kc-input kc-ed-f" id="kcEdKana" value="${esc(x["ふりがな"] || "")}" placeholder="ふりがな" />
+              <input type="tel" class="kc-input kc-ed-f" id="kcEdPhone" value="${esc(x["電話番号"] || "")}" placeholder="電話番号" />
+              <input type="email" class="kc-input kc-ed-f" id="kcEdEmail" value="${esc(x["メール"] || "")}" placeholder="メールアドレス" />
+              <div class="kc-rec-edit-save"><button type="button" class="btn" id="kcEdSave">保存</button> <button type="button" class="btn ghost" id="kcEdCancel">やめる</button> <span class="rev-status" id="kcEdSt"></span></div>
+            </div>
           </div>
           <!-- いまのステージと、変えるところ -->
           <div class="kc-rec-stage">
@@ -1486,7 +1492,24 @@ async function openTarget(id, draft, opt) {
     },
   });
 
-  // 上部の会社名・担当者・ふりがな・電話・メールを保存
+  // 連絡先の「表示⇄編集」トグル（鉛筆マークで編集モードへ）
+  const viewBox = m.el.querySelector("#kcContactView");
+  const editBox = m.el.querySelector("#kcContactEdit");
+  const showEdit = () => { if (editBox) editBox.hidden = false; if (viewBox) viewBox.hidden = true; const f = m.el.querySelector("#kcEdCompany"); if (f) f.focus(); };
+  const hideEdit = () => { if (editBox) editBox.hidden = true; if (viewBox) viewBox.hidden = false; };
+  const pen = m.el.querySelector("#kcEditPen");
+  if (pen) pen.addEventListener("click", showEdit);
+  const edCancel = m.el.querySelector("#kcEdCancel");
+  if (edCancel) edCancel.addEventListener("click", hideEdit);
+  // ヘッダー（会社名 担当者）にも鉛筆マークを付ける
+  const headB = m.el.querySelector(".kc-modal-head b");
+  if (headB && !headB.querySelector(".kc-edit-pen")) {
+    const hp = document.createElement("button");
+    hp.type = "button"; hp.className = "kc-edit-pen kc-head-pen"; hp.title = "会社名・担当者を編集"; hp.textContent = "✎";
+    hp.addEventListener("click", showEdit);
+    headB.appendChild(hp);
+  }
+  // 保存（会社名・担当者・ふりがな・電話・メール → kincall＋Salesforce）
   const edSave = m.el.querySelector("#kcEdSave");
   if (edSave) edSave.addEventListener("click", async () => {
     const st = m.el.querySelector("#kcEdSt"); if (st) st.textContent = "保存中…";
@@ -1502,8 +1525,17 @@ async function openTarget(id, draft, opt) {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "");
       x["会社名"] = body.company; x["担当者"] = body.person; x["ふりがな"] = body.kana; x["電話番号"] = body.phone; x["メール"] = body.email;
+      // 表示を更新
+      if (viewBox) viewBox.innerHTML =
+        (body.phone ? `<a class="kc-tel kc-tel-big" href="${callHref(body.phone)}">${esc(body.phone)}</a>` : `<span class="kc-none">電話番号なし</span>`) +
+        `<button type="button" class="kc-edit-pen" id="kcEditPen2" title="連絡先を編集">✎</button>` +
+        (body.email ? `<div class="kc-mail-big"><a href="mailto:${esc(body.email)}">${esc(body.email)}</a></div>` : "");
+      const pen2 = m.el.querySelector("#kcEditPen2"); if (pen2) pen2.addEventListener("click", showEdit);
+      // ヘッダーの会社名 担当者も更新（鉛筆は付け直す）
+      if (headB) { headB.textContent = `${body.company || ""}${body.person ? "　" + body.person : ""}`; const hp2 = document.createElement("button"); hp2.type = "button"; hp2.className = "kc-edit-pen kc-head-pen"; hp2.title = "会社名・担当者を編集"; hp2.textContent = "✎"; hp2.addEventListener("click", showEdit); headB.appendChild(hp2); }
       render();
-      if (st) { st.textContent = d.sf && d.sf.ok ? "保存＋Salesforce反映しました" : `保存しました（SF：${esc((d.sf && d.sf.reason) || "未反映")}）`; setTimeout(() => (st.textContent = ""), 4000); }
+      if (st) { st.textContent = d.sf && d.sf.ok ? "保存＋Salesforce反映" : `保存（SF：${esc((d.sf && d.sf.reason) || "未反映")}）`; }
+      setTimeout(() => { hideEdit(); if (st) st.textContent = ""; }, 1200);
     } catch { if (st) st.textContent = "保存できませんでした"; }
   });
   // 左側にこれまでのやり取りを読み込む
