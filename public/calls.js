@@ -4754,11 +4754,21 @@ let _edEnrichStop = false;      // 途中で止めるフラグ
 function _edNameOf(email) { const m = _edMembers.find((x) => String(x.email || "").toLowerCase() === String(email || "").toLowerCase()); return (m && m.name) || email || "?"; }
 function _edGroupName(key) { if (key === "__none__") return "（グループなし）"; const ls = _edByGroup.get(key) || []; return (ls[0] && ls[0].group_name) || ("グループ " + key); }
 function edActiveLists() { return _edMode === "group" ? (_edByGroup.get(_edActiveGroup) || []) : (_edByOwner.get(_edActive) || []); }
+// 表モード：on=編集テーブルだけの全画面一覧（①②③ピッカーを隠す）／off=ピッカーに戻す
+function edSetTableMode(on) {
+  const set = (id, hide) => { const el = $(id); if (el) el.hidden = hide; };
+  set("edIntro", on);
+  set("edPane", on);
+  set("edReloadRow", on);
+  set("edTableHead", !on);
+}
 function _edBar(x) { const pct = x.全部 ? Math.round(x.残り / x.全部 * 100) : 0; const col = (x.全部 && x.残り / x.全部 >= 0.6) ? "#1d9e75" : (x.全部 && x.残り / x.全部 >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
 async function orgLoadLists() {
   const memBox = $("edMembers"); if (!memBox) return;
+  edSetTableMode(false);   // 編集タブを開いた/更新したら、まず選択ピッカーを見せる
   if (!_edInit) { _edInit = true;
     if ($("edReload")) $("edReload").addEventListener("click", orgLoadLists);
+    if ($("edBack")) $("edBack").addEventListener("click", () => { edSetTableMode(false); if ($("edTable")) $("edTable").innerHTML = ""; if ($("edFilterBar")) $("edFilterBar").hidden = true; if ($("edSt")) $("edSt").textContent = ""; });
     if ($("edGo")) $("edGo").addEventListener("click", () => {
       const ids = [..._edChosen.keys()];
       if (!ids.length) { const st = $("edSt"); if (st) st.textContent = "リストを選んでください"; return; }
@@ -4868,6 +4878,8 @@ function edRenderChosen() {
 }
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
+  edSetTableMode(true);   // 表だけの全画面一覧に切り替え
+  if ($("edTableTitle")) $("edTableTitle").textContent = `リスト編集（${(listIds || []).length} 件のリスト）`;
   tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
   const st = $("edSt"); if (st) st.textContent = "";
   try {

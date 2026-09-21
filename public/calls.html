@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260922c" />
+    <link rel="stylesheet" href="style.css?v=20260922d" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -243,7 +243,7 @@
               <div id="lsStatus"><div class="note">読み込んでいます…</div></div>
             </div>
             <div class="ls-block" data-ls-pane="organize" hidden>
-              <p class="note">編集したいリストを選んで「選択したリストを編集」を押すと、まとめて一覧・編集できます。従業員数・採用人数・媒体掲載はここで直せます（<b>kincall内だけ</b>・Salesforceには反映しません）。</p>
+              <p class="note" id="edIntro">編集したいリストを選んで「選択したリストを編集」を押すと、まとめて一覧・編集できます。従業員数・採用人数・媒体掲載はここで直せます（<b>kincall内だけ</b>・Salesforceには反映しません）。</p>
               <div id="edPane" class="ed3">
                 <div class="ed3-col" id="edMembers"><div class="ed3-h">① <span class="ed3-seg" id="edModeSeg"><button type="button" data-edmode="owner" class="active">メンバー</button><button type="button" data-edmode="group">グループ</button></span></div><div class="ed3-body ed3-mem"><div class="note">読み込んでいます…</div></div></div>
                 <div class="ed3-col" id="edLists"><div class="ed3-h">② リスト <button type="button" class="ed3-all" id="edAll" hidden>全部選ぶ</button></div><div class="ed3-body ed3-listbody"><div class="note ed3-empty">左でメンバーを選んでください</div></div></div>
@@ -251,9 +251,13 @@
                   <button type="button" class="btn ed3-go" id="edGo" disabled>選択したリストを編集</button>
                 </div>
               </div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0">
+              <div id="edReloadRow" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0">
                 <button type="button" class="btn ghost" id="edReload">更新</button>
                 <span class="rev-status" id="edSt"></span>
+              </div>
+              <div id="edTableHead" hidden style="display:flex;align-items:center;gap:12px;margin:4px 0 12px">
+                <button type="button" class="nm-back" id="edBack">← 選び直す</button>
+                <div class="nm-detail-title" id="edTableTitle">リスト編集</div>
               </div>
               <div id="edFilterBar" hidden style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;border-top:1px solid #e6ece9;padding-top:10px">
                 <input type="text" id="edQ" class="kc-input" placeholder="企業名・担当者・電話・メールで絞る" style="max-width:260px" />
@@ -401,9 +405,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260922c"></script>
-    <script src="calls.js?v=20260922c"></script>
-    <script src="nav.js?v=20260922c"></script>
+    <script src="sf-data.js?v=20260922d"></script>
+    <script src="calls.js?v=20260922d"></script>
+    <script src="nav.js?v=20260922d"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
