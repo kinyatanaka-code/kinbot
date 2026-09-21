@@ -4601,6 +4601,8 @@ let _edByOwner = new Map();  // owner -> lists（3ペイン）
 let _edActive = "";          // 選択中メンバー
 let _edChosen = new Map();   // 選んだリスト id -> {name, owner}
 let _edRows = [];     // まとめたリード
+let _edEnrichRunning = false;   // 従業員数の繰り返し取得が動作中か
+let _edEnrichStop = false;      // 途中で止めるフラグ
 function _edNameOf(email) { const m = _edMembers.find((x) => String(x.email || "").toLowerCase() === String(email || "").toLowerCase()); return (m && m.name) || email || "?"; }
 function _edBar(x) { const pct = x.全部 ? Math.round(x.残り / x.全部 * 100) : 0; const col = (x.全部 && x.残り / x.全部 >= 0.6) ? "#1d9e75" : (x.全部 && x.残り / x.全部 >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
 async function orgLoadLists() {
@@ -4630,7 +4632,7 @@ async function orgLoadLists() {
         ].join("　／　");
       } catch {}
     })();
-    if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", () => edEnrichEmployees());
+    if ($("edEnrichEmp")) $("edEnrichEmp").addEventListener("click", () => { if (_edEnrichRunning) { _edEnrichStop = true; const b = $("edEnrichEmp"); if (b) b.textContent = "止めています…"; } else { edEnrichEmployees(); } });
     if ($("edEnrichMedia")) $("edEnrichMedia").addEventListener("click", edEnrichMedia);
     if ($("edEnrichHire")) $("edEnrichHire").addEventListener("click", edEnrichHires);
     if ($("edCsvOut")) $("edCsvOut").addEventListener("click", edExportCsv);
@@ -4727,29 +4729,39 @@ function edFiltered() {
 }
 async function edEnrichEmployees(mode) {
   const g = _edg;
-  const targets = edFiltered().filter((r) => !g(r, "従業員数", "employees")); // 表示中で空欄のものだけ
   const st = $("edEnrichSt");
-  if (!targets.length) { if (st) st.textContent = "空欄の会社はありません"; return; }
-  if (!confirm(`表示中で従業員数が空の ${targets.length} 社を自動取得します。まず無料（gBiz・公式サイト）で埋め、それでも取れない分だけWeb検索（有料）で埋めます。件数が多いと時間がかかります。続けますか？`)) return;
-  const btn = $("edEnrichEmp"); if (btn) btn.disabled = true;
-  const other = null;
-  let done = 0, got = 0;
+  const blanks = () => edFiltered().filter((r) => !g(r, "従業員数", "employees"));
+  if (!blanks().length) { if (st) st.textContent = "空欄の会社はありません"; return; }
+  if (!confirm(`空欄の会社を、埋まるまで自動で繰り返し取得します（これ以上取れなくなったら止まります）。まず無料（gBiz・公式サイト）→残りだけWeb検索。途中で「止める」も押せます。続けますか？`)) return;
+  const btn = $("edEnrichEmp");
+  _edEnrichRunning = true; _edEnrichStop = false;
+  if (btn) btn.textContent = "止める";
+  const srcStr = (o) => Object.keys(o).length ? Object.entries(o).map(([k, v]) => `${k} ${v}`).join("・") : "—";
   const bySrc = {};
+  let totalGot = 0;
   try {
-    for (let i = 0; i < targets.length; i += 20) {
-      const batch = targets.slice(i, i + 20);
-      const brkNow = Object.keys(bySrc).length ? "（" + Object.entries(bySrc).map(([k, v]) => `${k} ${v}`).join("・") + `・取れず ${done - got}）` : "";
-      if (st) st.textContent = `取得中… ${done}/${targets.length}　入った ${got}${brkNow}`;
-      const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 20 }) });
-      const d = await r.json();
-      for (const res of (d.results || [])) {
-        done++;
-        if (res.employees != null) { got++; const s = res.source || "?"; bySrc[s] = (bySrc[s] || 0) + 1; const row = _edRows.find((x) => String(x.id) === String(res.id)); if (row) row["従業員数"] = res.employees; }
+    const MAX_ROUND = 6;   // 取れなくても最大6周まで（時間切れ・レート制限の取りこぼしを拾い直す）
+    for (let round = 1; round <= MAX_ROUND && !_edEnrichStop; round++) {
+      const targets = blanks();
+      if (!targets.length) break;               // 全部埋まった
+      let done = 0, roundGot = 0;
+      for (let i = 0; i < targets.length && !_edEnrichStop; i += 20) {
+        const batch = targets.slice(i, i + 20);
+        if (st) st.textContent = `${round}周目 取得中… ${done}/${targets.length}　入った ${totalGot}（${srcStr(bySrc)}）`;
+        try {
+          const r = await fetch("/api/calls/enrich-employees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: g(x, "会社名", "company"), lead_id: x.leadId || x.lead_id || "" })), max: 20 }) });
+          const d = await r.json();
+          for (const res of (d.results || [])) {
+            done++;
+            if (res.employees != null) { totalGot++; roundGot++; const s = res.source || "?"; bySrc[s] = (bySrc[s] || 0) + 1; const row = _edRows.find((x) => String(x.id) === String(res.id)); if (row) row["従業員数"] = res.employees; }
+          }
+          edRender();
+        } catch { /* この塊は失敗＝次の周で拾い直す */ }
       }
-      edRender();
+      if (roundGot === 0) break;                 // この周で1件も増えなかった＝これ以上は取れない
     }
-    const brk = Object.keys(bySrc).length ? "（" + Object.entries(bySrc).map(([k, v]) => `${k} ${v}`).join("・") + `・取れず ${targets.length - got}）` : `（取れず ${targets.length}）`;
-    if (st) st.textContent = `完了：${got}/${targets.length}${brk}`;
+    const remain = blanks().length;
+    if (st) st.textContent = (_edEnrichStop ? "止めました" : (remain ? "取れる分は取り切りました" : "全部そろいました")) + `：入った ${totalGot}・残り ${remain}（${srcStr(bySrc)}）`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
   finally { if (btn) btn.disabled = false; }
 }
@@ -4775,7 +4787,7 @@ async function edEnrichHires() {
     }
     if (st) st.textContent = `完了：${got}/${targets.length} 社に採用人数を入れました`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-  finally { if (btn) btn.disabled = false; }
+  finally { _edEnrichRunning = false; _edEnrichStop = false; if (btn) btn.textContent = "従業員数を自動取得"; }
 }
 async function edEnrichMedia() {
   const g = _edg;
