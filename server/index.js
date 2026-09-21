@@ -7639,6 +7639,7 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
   try {
     const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, Math.max(1, Math.min(40, parseInt(req.body?.max, 10) || 30))) : [];
     if (!items.length) return res.json({ ok: true, results: [] });
+    const mode = String(req.body?.mode || "").trim();   // "cheap"=Web検索しない（SF/gBiz/公式サイトのみ）
     // 1) SF から一括で NumberOfEmployees を取る
     const sfMap = {};
     const leadIds = [...new Set(items.map((x) => String(x.lead_id || "").trim()).filter(Boolean))].slice(0, 200);
@@ -7662,8 +7663,20 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
       if (emp == null && company && website) {
         try { const e = await withTimeout(employeesFromSite(company, website), 18000, ""); const n = parseEmpNum(e); if (n != null) { emp = n; src = "公式サイト"; } } catch {}
       }
-      if (emp == null && company) {
-        try { const w = await withTimeout(lookupEmployeeCount(company), 25000, null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
+      // --- ここまでが無料/激安（mode=cheap は Web検索をしない） ---
+      if (emp == null && company && mode !== "cheap") {
+        // まず Brave で公式サイトを見つけて会社概要を読む（gBizにURLが無かった会社。Geminiより安い）
+        if (!website) {
+          try { const w = await withTimeout(enrichCompanyFromWeb(company), 22000, null); if (w) { if (w.employees) { const n = parseEmpNum(w.employees); if (n != null) { emp = n; src = "公式サイト(Brave)"; } } if (!website && w.website) website = w.website; } } catch {}
+        }
+        // 見つかったURLでまだ読めていなければ直読み
+        if (emp == null && website) {
+          try { const e = await withTimeout(employeesFromSite(company, website), 18000, ""); const n = parseEmpNum(e); if (n != null) { emp = n; src = "公式サイト"; } } catch {}
+        }
+        // 最後の手段：Gemini のWeb検索（grounding）
+        if (emp == null) {
+          try { const w = await withTimeout(lookupEmployeeCount(company), 25000, null); if (w && w.found) { emp = parseEmpNum(w.employees); if (emp != null) src = "Web"; } } catch {}
+        }
       }
       if (emp != null && id) await setCallTargetFields(id, { employees: emp }).catch(() => {});
       return { id, employees: emp, source: src };
@@ -20456,7 +20469,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-20l 従業員数の自動取得で「取得元の内訳」を表示するようにした（gBiz・公式サイト・Web・SF・取れず の件数）。どの取得元が効いているかが分かるので、取れない原因（gBizトークン未設定・Web検索キー未設定など）を切り分けられる。";
+const BUILD_TAG = "2026-09-20m 従業員数の取得を2段構えにした。①「まず無料で」＝SF→gBiz→公式サイト直読み（費用ほぼゼロ・Web検索なし）で埋める。②「空白をWeb検索で埋める」＝残った空欄だけ、Brave（公式サイト特定→会社概要読み）→Geminiの順で埋める（有料）。まず①、残りだけ②という運用で、費用を抑えつつ埋める。取得元の内訳も表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
