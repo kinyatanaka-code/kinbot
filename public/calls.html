@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260922w" />
+    <link rel="stylesheet" href="style.css?v=20260922x" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -263,6 +263,7 @@
                 <button type="button" class="btn ghost" id="edEnrichHire" title="表示中で空欄の会社を、Web検索で採用予定人数を調べて入れる">採用人数を自動取得</button>
                 <button type="button" class="btn ghost" id="edCsvOut" title="表示中の一覧をCSVで書き出す">CSV書き出し</button>
                 <button type="button" class="btn ghost" id="edCsvIn" title="編集したCSVを取り込んで反映（リードIDで突合）">CSV取り込み</button>
+                <button type="button" class="btn ghost" id="edDedupe" title="同じリード（リードIDが同じ、または会社・担当・電話が同じ）が重複している場合、履歴の多い1件を残して他を削除します">重複を削除</button>
                 <button type="button" class="btn" id="edExtract" title="いま絞り込んで表示している行を、元のリストから移して、新しい1つのリストにまとめます（担当はそのまま）">絞り込んだ分を新リストに抜き出す</button>
                 <input type="file" id="edCsvFile" accept=".csv,text/csv" hidden />
                 <span class="note" id="edCount" style="margin:0"></span>
@@ -411,9 +412,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260922w"></script>
-    <script src="calls.js?v=20260922w"></script>
-    <script src="nav.js?v=20260922w"></script>
+    <script src="sf-data.js?v=20260922x"></script>
+    <script src="calls.js?v=20260922x"></script>
+    <script src="nav.js?v=20260922x"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

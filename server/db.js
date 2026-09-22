@@ -4155,6 +4155,39 @@ export async function moveCallTargets(ids = [], toListId) {
   } catch (e) { console.error("[db] moveCallTargets", e.message); return { moved: 0, error: e.message }; }
 }
 
+// 指定リスト内の重複リードを削除する。同一キー（リードID、無ければ 会社＋担当＋電話）でまとめ、
+// 履歴（call_logs）が最も多いものを1件だけ残して、他を削除（call_logs は ON DELETE CASCADE で一緒に消える）。
+export async function dedupeTargetsInLists(listIds) {
+  if (!pool || !Array.isArray(listIds) || !listIds.length) return 0;
+  const ids = [...new Set(listIds.map((x) => parseInt(x, 10)).filter(Number.isFinite))];
+  if (!ids.length) return 0;
+  const norm = (s) => String(s || "").replace(/[\s　]/g, "").replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "").toLowerCase();
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.lead_id, t.company, t.person, t.phone,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id)::int AS logs
+         FROM call_targets t WHERE t.list_id = ANY($1::int[])`, [ids]);
+    const groups = new Map();
+    for (const r of rows) {
+      const lid = String(r.lead_id || "").trim();
+      const tel = String(r.phone || "").replace(/[^\d]/g, "");
+      const key = lid ? ("lead:" + lid) : ("cpt:" + norm(r.company) + "|" + String(r.person || "").replace(/[\s　]/g, "") + "|" + tel);
+      if (key === "cpt:||") continue;   // 会社・担当・電話が全部空はスキップ
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    }
+    const losers = [];
+    for (const arr of groups.values()) {
+      if (arr.length < 2) continue;
+      arr.sort((a, b) => (Number(b.logs || 0) - Number(a.logs || 0)) || (Number(a.id) - Number(b.id)));   // 履歴多→古い を残す
+      for (let i = 1; i < arr.length; i++) losers.push(arr[i].id);
+    }
+    if (!losers.length) return 0;
+    const r = await pool.query(`DELETE FROM call_targets WHERE id = ANY($1::int[])`, [losers]);
+    return r.rowCount || 0;
+  } catch (e) { console.error("[db] dedupeTargetsInLists", e.message); return 0; }
+}
+
 export async function deleteCallTargets(listId, { stages = [], statuses = [], hist = "" } = {}) {
   if (!pool || !listId) return 0;
   try {

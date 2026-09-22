@@ -203,6 +203,7 @@ import {
   removeMyCallTargets,
   assignCallTargets,
   deleteCallTargets,
+  dedupeTargetsInLists,
   countCallTargets,
   deleteCallList,
   getCallListOwner,
@@ -8825,6 +8826,18 @@ app.post("/api/calls/targets/count", async (req, res) => {
 });
 
 // 条件に当てはまるものを消す
+// 指定リスト内の重複リードを削除（履歴の多い1件を残す）。クローザー・管理者のみ。
+app.post("/api/calls/targets/dedupe", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const listIds = Array.isArray(req.body?.listIds) ? req.body.listIds : [];
+    if (!listIds.length) return res.status(400).json({ error: "リストがありません" });
+    const removed = await dedupeTargetsInLists(listIds);
+    console.log(`[kincall] 重複リード ${removed}件を削除 by ${req.user}`);
+    res.json({ ok: true, removed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/calls/targets/delete", async (req, res) => {
   try {
     const listId = parseInt(req.body?.listId, 10);
@@ -20503,7 +20516,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22w 実績カードのナーチャリングが0になっていたのを修正（キーずれ）。集計を管理タブと同じ『リストの持ち主(owner)で束ねる NURTURE_WHERE 件数』にし、キーをメールに統一。実績カードは c.key(メール)で引くように変更。これで実績のナーチャリング＝管理タブの各メンバーの数と一致する。前段2026-09-22v の email→名前解決のズレを是正。";
+const BUILD_TAG = "2026-09-22x 編集テーブルに『重複を削除』を追加。編集中のリスト内で同一リード（リードIDが同じ、無ければ 会社(正規化)＋担当＋電話 が同じ）をまとめ、call_logs（履歴）が最も多い1件だけ残して他を削除（call_logsはON DELETE CASCADEで一緒に消える）。db.dedupeTargetsInLists＋POST /api/calls/targets/dedupe（クローザー/管理者のみ）。削除後は表を取り直す。SFのリードは残る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

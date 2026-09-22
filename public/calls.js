@@ -4913,6 +4913,7 @@ async function orgLoadLists() {
     if ($("edCsvIn")) $("edCsvIn").addEventListener("click", () => $("edCsvFile") && $("edCsvFile").click());
     if ($("edCsvFile")) $("edCsvFile").addEventListener("change", edImportCsv);
     if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
+    if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
   }
   memBox.querySelector(".ed3-body").innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
@@ -5236,6 +5237,23 @@ async function edImportCsv(ev) {
     if (st) st.textContent = `反映しました（更新 ${s2.updated || 0}／担当 ${s2.assignedChanged || 0}／スキップ ${(s2.skipped || []).length}）`;
     if (_edChosen.size) orgLoadEdit([..._edChosen.keys()]);
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+}
+// いま編集中のリスト内で、重複しているリードを削除する（履歴の多い1件を残す）
+async function edDedupe() {
+  const ids = [..._edChosen.keys()];
+  if (!ids.length) { alert("リストが選ばれていません。"); return; }
+  if (!confirm("同じリード（リードIDが同じ、または 会社・担当・電話 が同じ）が重複している場合、履歴の多い1件だけ残して他を削除します。\n（もとのSalesforceのリードは残ります）\n取り消せません。よろしいですか？")) return;
+  const btn = $("edDedupe"); if (btn) btn.disabled = true;
+  const st = $("edEnrichSt"); if (st) st.textContent = "重複を削除しています…";
+  try {
+    const r = await fetch("/api/calls/targets/dedupe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listIds: ids }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "");
+    if (st) st.textContent = d.removed ? `重複 ${d.removed} 件を削除しました` : "重複はありませんでした";
+    if (_edChosen.size) orgLoadEdit([..._edChosen.keys()]);   // 表を取り直す
+  } catch (e) {
+    if (st) st.textContent = "できませんでした（" + (e.message || "権限がないか通信に失敗") + "）";
+  } finally { const b = $("edDedupe"); if (b) b.disabled = false; }
 }
 // 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持）
 async function edExtract() {
