@@ -7849,11 +7849,13 @@ app.put("/api/calls/lists/:id/owner", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const id = parseInt(req.params.id, 10);
+    const unassign = req.body?.unassign === true;   // その他（未割り当て）にする
     const owner = String(req.body?.owner || "").trim();
-    if (!id || !owner) return res.status(400).json({ error: "リストと新しい所有者を指定してください" });
-    const r = await setCallListOwner(id, owner, { reassign: req.body?.reassign === true });
+    if (!id) return res.status(400).json({ error: "リストがわかりません" });
+    if (!unassign && !owner) return res.status(400).json({ error: "リストと新しい所有者を指定してください" });
+    const r = await setCallListOwner(id, unassign ? null : owner, { reassign: !unassign && req.body?.reassign === true });
     if (!r) return res.status(500).json({ error: "変えられませんでした" });
-    console.log(`[kincall] リスト${id}（${r.name}）の所有者を ${owner} に変更${req.body?.reassign ? "（担当もそろえ）" : ""} by ${req.user}`);
+    console.log(`[kincall] リスト${id}（${r.name}）の所有者を ${unassign ? "（未割り当て・その他）" : owner} に変更${(!unassign && req.body?.reassign) ? "（担当もそろえ）" : ""} by ${req.user}`);
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -20489,7 +20491,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22m 「整理」タブを削除（管理に一本化。管理者は全体検索のみ）。管理タブのカード（メンバー/グループ/その他・詳細のリスト）で「残」の件数を大きな数字で強調表示（.nm-card-zan/.nm-lcard-zan、緑の大きな数字）。フロントのみ。";
+const BUILD_TAG = "2026-09-22n 管理タブの割り振りを拡張。(1)リストカードの割り振りに「その他（未割り当て）へ」を追加（owner endpoint に unassign を追加し owner=NULL に）。(2)整理タブ廃止で埋もれていた『特定リストを複数メンバーへランダム割り振り』(openRedistribute)を、リストカードの「複数人に分ける」ボタンから使えるように復活（成功後 onDone=nmLoad で再取得）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

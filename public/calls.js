@@ -4355,7 +4355,7 @@ function nmRenderDetail() {
       <div class="nm-lcard-name">${esc(x.name)}</div>
       <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
-      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option>${opts}</select><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button></div>
+      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><button type="button" class="btn ghost nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button></div>
     </div>`;
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
@@ -4365,6 +4365,7 @@ function nmRenderDetail() {
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
+  body.querySelectorAll(".nm-redist").forEach((b) => b.addEventListener("click", () => openRedistribute(b.dataset.id, b.dataset.name, null, null, nmLoad)));
   body.querySelectorAll(".nm-selchk").forEach((c) => c.addEventListener("change", () => {
     const id = String(c.dataset.id);
     if (c.checked) _nmChosen.add(id); else _nmChosen.delete(id);
@@ -4438,11 +4439,13 @@ function nmGoMake() {
 }
 async function nmMove(listId, owner) {
   if (!owner) return;
-  const st = $("nmOpSt"); if (st) st.textContent = "移しています…";
+  const unassign = owner === "__unassign__";
+  const st = $("nmOpSt"); if (st) st.textContent = unassign ? "その他（未割り当て）にしています…" : "移しています…";
   try {
-    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) });
+    const body = unassign ? { unassign: true } : { owner, reassign: true };
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if (!r.ok) throw new Error();
-    await nmFetch(); nmRenderRoot(); const s = $("nmOpSt"); if (s) s.textContent = "移しました";
+    await nmFetch(); nmRenderRoot(); const s = $("nmOpSt"); if (s) s.textContent = unassign ? "その他へ移しました" : "移しました";
   } catch { const s = $("nmOpSt"); if (s) s.textContent = "移せませんでした（権限がないか、通信に失敗しました）"; }
 }
 async function nmHide(listId, name) {
@@ -4638,7 +4641,7 @@ async function openMoveTargets(ids) {
 }
 
 // リストの架電先を、他のメンバーへランダムに割り振り直す窓
-async function openRedistribute(listId, listName, backEmail, backName) {
+async function openRedistribute(listId, listName, backEmail, backName, onDone) {
   const m = openModal(`他のメンバーに割り振る：${listName || ""}`, `
     <div class="kc-redist">
       <p class="note">このリストの未架電の架電先を、選んだメンバーの<b>すでにあるリスト</b>へ割り振ります（そのメンバーがリストを持っていなければ、新しいリストを作ります）。<b>入れた件数のぶんだけ</b>移り、余りは元のリスト（このリストの持ち主）に残します。件数を入れなかった人がいれば、その人が余りを受け取ります。</p>
@@ -4710,7 +4713,7 @@ async function openRedistribute(listId, listName, backEmail, backName) {
           `試算：${esc(内訳)}${d.残した ? `／元のリストに残す ${d.残した}件` : ""}${esc(jTxt)}<br>（対象 ${d.total}件中 ${d.割り振った}件を移します）よければ「この人たちに割り振る」を押してください。`;
       } else {
         st.textContent = `${内訳}${d.残した ? `／元に残し ${d.残した}件` : ""}${jTxt} を分けました`;
-        setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); }, 1800);
+        setTimeout(() => { m.close(); if (backEmail) asLoadMember(backEmail, backName); else if (typeof onDone === "function") onDone(); }, 1800);
       }
     } catch (e) { st.textContent = "失敗：" + e.message; }
   };
