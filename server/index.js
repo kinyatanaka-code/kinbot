@@ -8978,7 +8978,7 @@ async function fetchCrosslostOppData(sfUser, crossFrom) {
   const out = {};
   try {
     const f = await crossOppFields(sfUser);
-    const cols = [...new Set(["Account.Name", f.lostDate, f.lossReason, f.nextAction].filter(Boolean))];
+    const cols = [...new Set(["Account.Name", "Owner.Name", f.lostDate, f.lossReason, f.nextAction].filter(Boolean))];
     const d = await sfQuery(sfUser,
       `SELECT ${cols.join(", ")} FROM Opportunity
         WHERE RecordType.Name LIKE '%クロス%' AND IsClosed = true AND IsWon = false AND CloseDate >= ${crossFrom}
@@ -8986,7 +8986,7 @@ async function fetchCrosslostOppData(sfUser, crossFrom) {
     for (const o of d.records || []) {
       const co = (o.Account && o.Account.Name) || ""; if (!co) continue;
       const k = normCompanyKey(co);
-      const rec = { "失注日": o[f.lostDate] || o.CloseDate || "" };
+      const rec = { "失注日": o[f.lostDate] || o.CloseDate || "", "商談所有者": (o.Owner && o.Owner.Name) || "" };
       if (f.lossReason) rec["失注理由"] = o[f.lossReason] || "";
       if (f.nextAction) rec["失注後次回アクション日"] = o[f.nextAction] || "";
       // 同じ会社に複数あれば、失注日が新しい方を残す
@@ -9752,7 +9752,7 @@ app.get("/api/calls/targets", async (req, res) => {
             for (const x of items) {
               const d = oppMap[normCompanyKey(x.会社名)];
               if (d) {
-                x["失注日"] = d["失注日"] || ""; x["失注理由"] = d["失注理由"] || ""; x["失注後次回アクション日"] = d["失注後次回アクション日"] || "";
+                x["失注日"] = d["失注日"] || ""; x["失注理由"] = d["失注理由"] || ""; x["失注後次回アクション日"] = d["失注後次回アクション日"] || ""; x["商談所有者"] = d["商談所有者"] || "";
                 x.追加 = { ...(x.追加 || {}), ...d };   // かける表向けにも残す
               }
             }
@@ -20630,7 +20630,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23q リスト管理のクロス失注を、過去リストの3カード（今月かける／失注リスト／月別）に置き換え。今月かける＝失注後次回アクション日≤翌月末で絞った編集テーブル、失注リスト＝全件、月別＝次回アクション日の月別件数（棒グラフ、月クリックでその月の一覧）。集計は /api/calls/crosslost-summary（total/nowCount/byMonth、5分キャッシュ、SF未接続でもtotalは返る）。カードは先に描画→件数は後追い更新。SF由来のため要現地確認。";
+const BUILD_TAG = "2026-09-23r 過去リスト（クロス失注）の一覧に、失注した商談の所有者（商談所有者＝Opportunity Owner.Name）列を追加。fetchCrosslostOppData の SELECT に Owner.Name、mapに商談所有者。targets crosslost付与でリードに x.商談所有者。編集テーブルのクロス失注列に商談所有者（プルダウン絞り込み付き）、colspan 15。SF由来。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
