@@ -1541,7 +1541,7 @@ export async function listMeetings({ owner, isAdmin, from, to, limit, light } = 
   // 商談日でしぼる（日本時間の日付で比較）
   if (from) { vals.push(from); conds.push(`(m.created_at AT TIME ZONE 'Asia/Tokyo')::date >= $${vals.length}::date`); }
   if (to)   { vals.push(to);   conds.push(`(m.created_at AT TIME ZONE 'Asia/Tokyo')::date <= $${vals.length}::date`); }
-  const lim = Math.max(1, Math.min(3000, Number(limit) || 300));
+  const lim = Math.max(1, Math.min(20000, Number(limit) || 300));
   const { rows } = await pool.query(
     `${base} WHERE ${conds.join(" AND ")} ORDER BY m.created_at DESC LIMIT ${lim}`, vals
   );
@@ -9012,12 +9012,12 @@ export async function nurtureCountsByMember() {
 export async function listNurtureTargetsForMember(member, { q = "", limit = 2000 } = {}) {
   if (!pool) return [];
   const m = String(member || "").trim().toLowerCase();
-  if (!m) return [];
   try {
-    const p = [m];
-    let where = `(${NURTURE_WHERE}) AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) = $1`;
+    const p = [];
+    let where = `(${NURTURE_WHERE})`;
+    if (m) { p.push(m); where += ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) = $${p.length}`; }   // 空なら全体（管理の「ナーチャリング」用）
     if (q) { p.push(`%${String(q).replace(/[%_]/g, "")}%`); where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length} OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`; }
-    p.push(Math.max(1, Math.min(3000, limit)));
+    p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
       `SELECT t.*,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,

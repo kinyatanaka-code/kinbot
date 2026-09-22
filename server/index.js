@@ -9506,7 +9506,7 @@ app.get("/api/calls/targets", async (req, res) => {
       const statusMatch = listParam === "archive" ? ["現在使われて", "現アナ", "欠番", "不通", "使われていない番号"] : [];
       rows = await listStageTargets(kw, {
         q: String(req.query.q || ""),
-        limit: Math.min(3000, parseInt(req.query.limit, 10) || 3000),
+        limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
         statusMatch,
       });
     } else if (listParam === "nurture") {
@@ -9515,7 +9515,13 @@ app.get("/api/calls/targets", async (req, res) => {
       if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
       rows = await listNurtureTargetsForMember(member, {
         q: String(req.query.q || ""),
-        limit: Math.min(3000, parseInt(req.query.limit, 10) || 3000),
+        limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
+      });
+    } else if (listParam === "nurture-all") {
+      // ナーチャリング（全体）：担当を問わず、ジャッジ・営業フォローのリードを横断で集める（管理タブ用）
+      rows = await listNurtureTargetsForMember("", {
+        q: String(req.query.q || ""),
+        limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
       });
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
@@ -9543,7 +9549,7 @@ app.get("/api/calls/targets", async (req, res) => {
     // ただしアーカイブ／リサイクルのカード、および「リサイクル復活リスト」の中身は出す。
     if (rawEdit) {
       // 編集テーブルでは全件そのまま出す（カードの「全」の件数と一致させる）
-    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "nurture" && !復活リストか) {
+    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "nurture" && listParam !== "nurture-all" && !復活リストか) {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
@@ -9609,7 +9615,7 @@ app.get("/api/calls/targets", async (req, res) => {
       sf数えた = 失敗 < Math.ceil(ids.length / 80);   // 全部失敗でなければ数えられた扱い
     }
     const items = rows.map((r) => ({
-        id: r.id, leadId: r.lead_id || "",
+        id: r.id, listId: r.list_id || null, leadId: r.lead_id || "",
         ステージ: r.stage || "",
         会社名: r.company || "", 担当者: r.person || "", ふりがな: r.person_kana || "",
         電話番号: r.phone || "", メール: r.email || "",
@@ -20522,7 +20528,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23b 管理タブ（メンバー別）の「その他」を4カードに分割：未割り当て（所有者なしリスト、残＝担当者不在/空欄＋ナーチャリング、クリックでリスト操作）／ナーチャリング（全体の件数、クリックで説明）／リサイクル（全体）／アーカイブ（全体）。ナーチャリング/リサイクル/アーカイブは横断集計の情報カード（かける画面のまとめで対応）。物理アーカイブ/リサイクルの小リストは未割り当てから除外。フロントのみ。";
+const BUILD_TAG = "2026-09-23c 管理タブの ナーチャリング/リサイクル/アーカイブ カードを、クリックで実際のリード一覧（編集テーブル）を開くように。ナーチャリングは全体（list=nurture-all＝担当問わずジャッジ/営業フォロー横断）、リサイクル/アーカイブは list=recycle/archive。上限を2万件に引き上げ、targetsレスポンスに listId を追加して編集テーブルが各リードの実リストを対象に編集（所有者/グループ/抜き出し）できるように。フィルタ・抜き出しも使える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

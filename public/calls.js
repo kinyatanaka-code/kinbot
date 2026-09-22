@@ -4362,16 +4362,26 @@ function nmStageCards() {
   return card("アーカイブ（全体）", _nmStage.archive, "ステージがアーカイブ・使われていない番号の全リード。かける画面の「アーカイブ（まとめ）」で対応します。") +
     card("リサイクル（全体）", _nmStage.recycle, "ステージがリサイクルの全リード。かける画面の「リサイクル（まとめ）」で対応します。");
 }
-// ナーチャリング／リサイクル／アーカイブ（横断集計）の情報詳細
+// ナーチャリング／リサイクル／アーカイブ：横断のリード一覧を編集テーブルで開く
 function nmRenderSpecial(body) {
   const info = {
-    nurture: { name: "ナーチャリング", n: _nmLists.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0), note: "ジャッジ・営業フォローのリード（全体）。元リストに残したまま、かける画面の「ナーチャリング（まとめ）」から架電・記録できます。" },
-    recycle: { name: "リサイクル", n: _nmStage.recycle, note: "ステージがリサイクルのリード（全体）。かける画面の「リサイクル（まとめ）」から対応できます。" },
-    archive: { name: "アーカイブ", n: _nmStage.archive, note: "ステージがアーカイブ・使われていない番号のリード（全体）。かける画面の「アーカイブ（まとめ）」から対応できます。" },
-  }[_nmSel.key] || { name: "その他", n: 0, note: "" };
-  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(info.name)}<span class="nm-detail-n">${Number(info.n).toLocaleString()} 件</span></div></div>` +
-    `<div class="nm-lgrid"><div class="nm-lcard nm-lcard-virt"><div class="nm-lcard-name"><span class="nm-lname-t">${esc(info.name)}（全体）</span></div><div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(info.n).toLocaleString()}</span></div><div class="nm-lcard-sub">${esc(info.note)}</div></div></div>`;
-  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+    nurture: { name: "ナーチャリング", vid: "nurture-all" },
+    recycle: { name: "リサイクル", vid: "recycle" },
+    archive: { name: "アーカイブ", vid: "archive" },
+  }[_nmSel.key];
+  if (!info) { body.innerHTML = '<div class="empty-state">表示できませんでした</div>'; return; }
+  nmGoEditVirtual(info.vid, `${info.name}（全体）`);
+}
+// 仮想リスト（nurture-all / recycle / archive）を編集テーブルで開く
+function nmGoEditVirtual(virtId, title) {
+  if (!_edInit) orgLoadLists();
+  _edChosen.clear();
+  const shared = $("edShared"), slot = $("nmHostSlot");
+  if (shared && slot) slot.appendChild(shared);
+  _nmHostMode = "edit";
+  nmHostShow(title);
+  orgLoadEdit([virtId]);
+  if ($("edTableHead")) $("edTableHead").hidden = true;
 }
 function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
@@ -5036,7 +5046,7 @@ async function orgLoadEdit(listIds) {
     for (const id of listIds) {
       const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000&edit=1`)).json();
       const meta = _edLists[id] || {};
-      for (const r of (d.items || [])) { r._listId = id; r._listName = meta.name || ""; r._owner = meta.owner || ""; r._group = meta.group_name || ""; r._groupId = meta.group_id || ""; all.push(r); }
+      for (const r of (d.items || [])) { r._listId = r.listId || id; r._listName = meta.name || ""; r._owner = meta.owner || ""; r._group = meta.group_name || ""; r._groupId = meta.group_id || ""; all.push(r); }
     }
     _edRows = all;
     if ($("edFilterBar")) $("edFilterBar").hidden = false;
