@@ -3903,6 +3903,8 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
       if (mk) mk.remove();
       const mkp = document.querySelector('[data-ls-pane="make"]');
       if (mkp) mkp.remove();
+      const nmb = document.getElementById("nmMakeBtn");
+      if (nmb) nmb.hidden = true;   // 作れない人には「＋新しいリストを作る」を出さない
     }
   } catch {}
 })();
@@ -4290,6 +4292,7 @@ async function nmLoad() {
     if ($("nmReload")) $("nmReload").addEventListener("click", () => { _nmMembers = []; _nmSel = null; _nmChosen = new Set(); nmLoad(); });
     if ($("nmMakeBtn")) $("nmMakeBtn").addEventListener("click", nmGoMake);
     if ($("nmHostBack")) $("nmHostBack").addEventListener("click", nmExitHost);
+    if ($("nmMakeBtn") && !document.querySelector('[data-ls-pane="make"]')) $("nmMakeBtn").hidden = true;
   }
   body.innerHTML = '<div class="note">読み込んでいます…</div>';
   try { await nmFetch(); nmRenderRoot(); }
@@ -4418,7 +4421,8 @@ function nmGoEdit() {
 // 管理（新）の中で「作成」UIを開く（作成タブへは飛ばない）
 function nmGoMake() {
   const mk = $("mkShared"), slot = $("nmHostSlot");
-  if (mk && slot) slot.appendChild(mk);
+  if (!mk || !slot) { alert("このアカウントではリストの作成はできません。"); return; }
+  slot.appendChild(mk);
   _nmHostMode = "make";
   nmHostShow("新しいリストを作る");
   try { if (typeof window.initSfReport === "function") window.initSfReport("lead"); } catch {}
@@ -4712,15 +4716,17 @@ async function openRedistribute(listId, listName, backEmail, backName) {
 function goAppendToList(id, name) {
   appendTarget = { id, name };
   window.__kcAppend = { id, name };
-  const mk = document.querySelector('.kc-ptab[data-ls="make"]');
-  if (mk) mk.click();
+  // 「管理」タブへ移り、その中で作成UIを開いて追記する
+  const nmTab = document.querySelector('.kc-ptab[data-ls="newmanage"]');
+  if (nmTab) nmTab.click();
+  if (typeof nmGoMake === "function") nmGoMake();
   renderAppendBanner();
-  const pane = document.querySelector('[data-ls-pane="make"]');
-  if (pane && pane.scrollIntoView) pane.scrollIntoView({ behavior: "smooth", block: "start" });
+  const host = document.getElementById("nmEditHost");
+  if (host && host.scrollIntoView) host.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderAppendBanner() {
-  const pane = document.querySelector('[data-ls-pane="make"]');
+  const pane = document.getElementById("mkShared") || document.querySelector('[data-ls-pane="make"]');
   if (!pane) return;
   let bar = document.getElementById("kcAppendBar");
   if (appendTarget) {
@@ -6732,8 +6738,8 @@ document.addEventListener("click", (ev) => {
     return !!sel && Array.from(sel.options).some((o) => o.value);
   }
   function canMakeList() {
-    // 「リスト作成」タブがある人＝自分で作れる（kincallだけの人には無い）
-    return !!document.querySelector('.kc-ptab[data-ls="make"]');
+    // 作成UI（makeペイン）がある人＝自分で作れる（kincallだけの人には無い）
+    return !!document.querySelector('[data-ls-pane="make"]');
   }
 
   // 案内する順番を、そのときの状況に合わせて組み立てる。
@@ -6778,12 +6784,12 @@ document.addEventListener("click", (ev) => {
         : "ここでリストを用意します。メンバーを選ぶと、その人のリストを扱えます。" });
 
     if (canMake) {
-      s.push({ p: "lists", sel: "#mkTabs", ls: "make",
+      s.push({ p: "lists", sel: "#nmMakeBtn", ls: "newmanage",
         title: "リストを作る",
-        body: "Salesforceのレポートからか、CSVから、架電リストを作れます。ここで作ると「かける」で選べるようになります。" });
-      s.push({ p: "lists", sel: "#srShare", ls: "make",
+        body: "「＋新しいリストを作る」から、SalesforceのレポートかCSVで架電リストを作れます。作ると「かける」で選べるようになります。" });
+      s.push({ p: "lists", sel: null, ls: "newmanage",
         title: "みんなで分ける",
-        body: "「分ける人」を選ぶと、選んだメンバーに均等に配れます。選ばなければ、作った人のリストになります。" });
+        body: "作成のときに「分ける人」を選ぶと、選んだメンバーに均等に配れます。選ばなければ、作った人のリストになります。" });
     }
 
     s.push({ p: "call", sel: null,
@@ -6791,7 +6797,7 @@ document.addEventListener("click", (ev) => {
       body: hasList
         ? "迷ったら、右上の「使い方」からいつでもこの案内を開けます。"
         : (canMake
-            ? "まずは「リスト管理」→「リスト作成」でリストを用意しましょう。迷ったら、右上の「使い方」からもう一度見られます。"
+            ? "まずは「リスト管理」→「管理」→「＋新しいリストを作る」でリストを用意しましょう。迷ったら、右上の「使い方」からもう一度見られます。"
             : "リストが分けられると「かける」に出ます。迷ったら、右上の「使い方」からもう一度見られます。") });
     return s;
   }
