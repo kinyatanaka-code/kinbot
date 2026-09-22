@@ -9168,21 +9168,28 @@ export async function nurtureDiag() {
 
 // 【ナーチャリング】◯◯ のリストに入っている件数を、名前ごとに返すだけ。
 export async function nurtureCountsByListName() {
-  if (!pool) return [];
+  if (!pool) return {};
   try {
+    // その人が「所有している」ナーチャリング相当（ジャッジ・営業フォロー）のリード数。
+    // 担当(assigned_to)、無ければリストの持ち主(owner)を「その人」とする（物理【ナーチャリング】リストではなく実データで数える）。
     const { rows } = await pool.query(
-      `SELECT l.name, count(t.id)::int AS 件数
-         FROM call_lists l LEFT JOIN call_targets t ON t.list_id = l.id
-        WHERE l.name LIKE '【ナーチャリング】%' OR COALESCE(l.kind,'') = 'nurture'
-        GROUP BY l.name`);
+      `SELECT lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) AS email, count(*)::int AS 件数
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE (${NURTURE_WHERE}) AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        GROUP BY email`);
+    const names = await _nameByEmail(rows.map((r) => r.email));
     const out = {};
-    for (const r of rows) {
-      const nm = String(r.name || "").replace(/^【ナーチャリング】\s*/, "").trim();
-      if (!nm) continue;
-      out[nm] = (out[nm] || 0) + Number(r.件数 || 0);
-    }
+    for (const r of rows) { if (!r.email) continue; const nm = names[r.email] || r.email; out[nm] = (out[nm] || 0) + Number(r.件数 || 0); }
     return out;
   } catch (e) { console.error("[db] nurtureCountsByListName", e.message); return {}; }
+}
+// email配列 → {email: 名前} を users から引く（ナーチャリング集計の名前解決に使う）
+async function _nameByEmail(emails) {
+  const uniq = [...new Set((emails || []).filter(Boolean))];
+  const names = {};
+  if (!pool || !uniq.length) return names;
+  try { const { rows } = await pool.query(`SELECT lower(email) AS email, name FROM users WHERE lower(email) = ANY($1::text[])`, [uniq]); for (const u of rows) names[u.email] = u.name; } catch {}
+  return names;
 }
 
 // ナーチャリングのうち、今週（JSTの月〜日）に架電予定（next_call_at）が入っている件数を名前ごとに返す。
@@ -9191,19 +9198,17 @@ export async function nurtureWeekPlanByListName() {
   try {
     const { rows } = await pool.query(
       `WITH wk AS (SELECT date_trunc('week', (now() AT TIME ZONE 'Asia/Tokyo')) AS mon)
-       SELECT l.name, count(t.id)::int AS 件数
-         FROM call_lists l JOIN call_targets t ON t.list_id = l.id, wk
-        WHERE (l.name LIKE '【ナーチャリング】%' OR COALESCE(l.kind,'') = 'nurture')
+       SELECT lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) AS email, count(*)::int AS 件数
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id, wk
+        WHERE (${NURTURE_WHERE})
+          AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
           AND t.done = false AND t.next_call_at IS NOT NULL
           AND (t.next_call_at AT TIME ZONE 'Asia/Tokyo') >= wk.mon
           AND (t.next_call_at AT TIME ZONE 'Asia/Tokyo') <  wk.mon + INTERVAL '7 days'
-        GROUP BY l.name`);
+        GROUP BY email`);
+    const names = await _nameByEmail(rows.map((r) => r.email));
     const out = {};
-    for (const r of rows) {
-      const nm = String(r.name || "").replace(/^【ナーチャリング】\s*/, "").trim();
-      if (!nm) continue;
-      out[nm] = (out[nm] || 0) + Number(r.件数 || 0);
-    }
+    for (const r of rows) { if (!r.email) continue; const nm = names[r.email] || r.email; out[nm] = (out[nm] || 0) + Number(r.件数 || 0); }
     return out;
   } catch (e) { console.error("[db] nurtureWeekPlanByListName", e.message); return {}; }
 }

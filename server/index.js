@@ -20503,7 +20503,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22u 管理タブのリストカードが操作ボタンで詰まって見づらかったのを整理。二次操作（複数人に分ける／非表示／削除）を「⋯」メニューに集約。カードは『別の人へ割り振り』選択＋⋯だけのすっきり表示に。名前変更は名前横の✎のまま。フロントのみ。";
+const BUILD_TAG = "2026-09-22v 実績カードの『ナーチャリング』件数と『今週かける予定』を、物理【ナーチャリング】リストの数ではなく、その人が所有している（担当=assigned_to、無ければ持ち主=owner）ジャッジ・営業フォローの実データ数に変更。nurtureCountsByListName / nurtureWeekPlanByListName を NURTURE_WHERE ベースの所有者集計へ書き換え（email→名前は users で解決）。ナーチャリングをビュー化した後も正しく数える（移行前後どちらでも実データで一致）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
