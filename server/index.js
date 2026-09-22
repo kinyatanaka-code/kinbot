@@ -7839,6 +7839,11 @@ app.get("/api/calls/stage-summary", async (req, res) => {
 app.get("/api/calls/crosslost-members", async (req, res) => {
   try { res.json({ ok: true, byMember: await crosslostCountsByMember() }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 過去リスト（クロス失注）の集計：total / nowCount（次回アクション日≤翌月末）/ byMonth。
+app.get("/api/calls/crosslost-summary", async (req, res) => {
+  try { const sfUser = await pickSfUser(req.user, req).catch(() => ""); res.json(await crosslostSummary(sfUser)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 絞り込んだリード（call_target id の配列）を、新しい1つのリストへ「移動」して抜き出す。
 // 担当(assigned_to)はそのまま。所有者は操作者。クローザー・管理者のみ。
@@ -8988,6 +8993,34 @@ async function fetchCrosslostOppData(sfUser, crossFrom) {
       if (!out[k] || String(rec["失注日"] || "") >= String(out[k]["失注日"] || "")) out[k] = rec;
     }
   } catch (e) { console.warn("[crosslost] 商談項目の取得失敗", e.message); }
+  return out;
+}
+
+// 過去リスト（クロス失注）の集計。失注後次回アクション日を会社名で紐づけ、
+//   total=全件 / nowCount=次回アクション日≤翌月末 / byMonth=次回アクション日の月別件数。
+// SFに1回問い合わせるので数分キャッシュ。SF未接続でも total は返る（nowCount/byMonthは0）。
+let _clSummaryCache = null, _clSummaryAt = 0;
+async function crosslostSummary(sfUser) {
+  if (_clSummaryCache && Date.now() - _clSummaryAt < 5 * 60 * 1000) return _clSummaryCache;
+  const out = { total: 0, nowCount: 0, byMonth: {} };
+  try {
+    const leads = await listStageTargets("クロス失注", { statusMatch: ["クロス失注"], limit: 20000 }).catch(() => []);
+    out.total = leads.length;
+    let oppMap = {};
+    try {
+      if (sfUser && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) oppMap = await fetchCrosslostOppData(sfUser, "2026-03-01");
+    } catch {}
+    const now = new Date();
+    const nextMonthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    for (const l of leads) {
+      const d = oppMap[normCompanyKey(l.company)];
+      const na = d && d["失注後次回アクション日"] ? String(d["失注後次回アクション日"]).slice(0, 10) : "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(na)) continue;
+      out.byMonth[na.slice(0, 7)] = (out.byMonth[na.slice(0, 7)] || 0) + 1;
+      if (new Date(na) <= nextMonthEnd) out.nowCount++;
+    }
+    _clSummaryCache = out; _clSummaryAt = Date.now();
+  } catch (e) { console.warn("[crosslost-summary]", e.message); }
   return out;
 }
 
@@ -20597,7 +20630,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23p 自動取得のコスト削減2段階。(1)geminiGrounded の既定モデルを gemini-flash-latest(3.x/月5000無料)→gemini-2.5-flash(1日1500=月45000無料)に（GEMINI_WEB_MODELで上書き可）。(2)媒体掲載/採用人数を Brave検索先行＋抽出を Gemini flash-lite に変更、Braveが薄いときだけ Geminiグラウンディングにフォールバック（従来はいきなりグラウンディング＋抽出Claude）。Claude代を削減しつつ精度はフォールバックで担保。従業員数は従来どおり。";
+const BUILD_TAG = "2026-09-23q リスト管理のクロス失注を、過去リストの3カード（今月かける／失注リスト／月別）に置き換え。今月かける＝失注後次回アクション日≤翌月末で絞った編集テーブル、失注リスト＝全件、月別＝次回アクション日の月別件数（棒グラフ、月クリックでその月の一覧）。集計は /api/calls/crosslost-summary（total/nowCount/byMonth、5分キャッシュ、SF未接続でもtotalは返る）。カードは先に描画→件数は後追い更新。SF由来のため要現地確認。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

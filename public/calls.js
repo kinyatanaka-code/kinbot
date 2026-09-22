@@ -4299,7 +4299,22 @@ let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"gr
 let _nmChosen = new Set();          // 編集のために選んだリスト id
 let _nmStage = { archive: 0, recycle: 0, crosslost: 0 };   // アーカイブ／リサイクル／クロス失注の実データ件数（横断集計）
 let _nmCrosslost = {};   // クロス失注のメンバー別件数（email -> 件数）
+let _nmClSummary = { total: 0, nowCount: 0, byMonth: {} };   // 過去リストの集計
 let _edVirtMember = "";  // 仮想リスト（クロス失注など）をメンバーで絞るとき
+let _edClMode = "";      // "" / "now"（今月かける）/ 月(YYYY-MM) … クロス失注の絞り込みモード
+// 過去リストカードの件数（今月かける・月別）を後追いで取得して差し込む
+async function nmFetchClSummary() {
+  try {
+    const s = await (await fetch("/api/calls/crosslost-summary?_=" + Date.now(), { cache: "no-store" })).json();
+    if (s && !s.error) {
+      _nmClSummary = { total: Number(s.total || 0), nowCount: Number(s.nowCount || 0), byMonth: s.byMonth || {} };
+      const set = (k, v) => { const el = document.querySelector(`[data-clbig="${k}"]`); if (el) { const u = el.querySelector("small"); el.textContent = v; if (u) el.appendChild(u); } };
+      set("now", (_nmClSummary.nowCount || 0).toLocaleString());
+      set("all", (_nmClSummary.total || 0).toLocaleString());
+      set("month", String(Object.keys(_nmClSummary.byMonth || {}).length));
+    }
+  } catch {}
+}
 function nmMemberName(email) { if (email === "__other__") return "未割り当て"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わらずセールス扱いにする人
 function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
@@ -4365,20 +4380,56 @@ function nmRenderCards() {
     spCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") +
     spCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") +
     `</div></div>`;
-  // クロス失注：メンバーごとにカード化
-  const clEntries = Object.entries(_nmCrosslost || {}).filter(([e, n]) => Number(n) > 0);
-  if (clEntries.length) {
-    clEntries.sort((a, b) => Number(b[1]) - Number(a[1]));
-    html += `<div class="nm-sec"><div class="nm-sec-h">クロス失注</div><div class="nm-grid">` +
-      clEntries.map(([email, n]) => `<button type="button" class="nm-card" data-special="crosslost" data-member="${esc(email)}" data-mname="${esc(nmMemberName(email))}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n).toLocaleString()}</span></div><div class="nm-card-sub">クロス失注のリード</div></button>`).join("") +
+  // 過去リスト（クロス失注）：3枚のリストカード（今月かける／失注リスト／月別）
+  {
+    const s = _nmClSummary || { total: 0, nowCount: 0, byMonth: {} };
+    const months = Object.keys(s.byMonth || {}).length;
+    const clcard = (key, ic, nm, big, unit, ds, cc) =>
+      `<button type="button" class="nm-card nm-clcard" data-cl="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big" data-clbig="${key}">${big}<small>${unit}</small></div><div class="nm-card-sub">${ds}</div></button>`;
+    html += `<div class="nm-sec"><div class="nm-sec-h">過去リスト（クロス失注）</div><div class="nm-grid nm-cl3">` +
+      clcard("now", "📞", "今月かける", (s.nowCount || 0).toLocaleString(), "件", "失注後次回アクション日が翌月末までのリード。上から順に対応。", "#1d9e75") +
+      clcard("all", "🗂", "失注リスト", (s.total || 0).toLocaleString(), "件", "クロス失注の全リード。失注日・理由などで一覧。", "#d9536a") +
+      clcard("month", "📅", "月別", String(months), "ヶ月", "失注後次回アクション日を月別に集計。月ごとに内訳。", "#2f86c9") +
       `</div></div>`;
   }
   body.innerHTML = html;
+  nmFetchClSummary();   // カードの件数（今月かける・月別）を後追いで更新
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
     _nmChosen = new Set();
+    if (c.dataset.cl) { nmOpenCrosslost(c.dataset.cl); return; }   // 過去リストカード（今月かける／失注リスト／月別）
     if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special, member: c.dataset.member || "", name: c.dataset.mname || "" };
     else _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) };
     nmRenderDetail();
+  }));
+}
+// 過去リストカードを開く。now/all=編集テーブル（絞り込みモード付き）、month=月別ビュー。
+function nmOpenCrosslost(mode) {
+  if (mode === "month") { nmRenderMonthly(); return; }
+  _edClMode = (mode === "now") ? "now" : "";
+  const title = (mode === "now") ? "今月かける（クロス失注）" : "失注リスト（全体）";
+  _nmSel = { type: "special", key: "crosslost", member: "", name: "" };
+  nmGoEditVirtual("crosslost", title, "");
+}
+// 月別ビュー：失注後次回アクション日の月別件数を棒で表示。月をクリックでその月の一覧へ。
+function nmRenderMonthly() {
+  const body = $("nmBody"); if (!body) return;
+  const s = _nmClSummary || { byMonth: {} };
+  const entries = Object.entries(s.byMonth || {}).sort((a, b) => a[0].localeCompare(b[0]));
+  const max = Math.max(1, ...entries.map((e) => Number(e[1])));
+  const curYm = new Date().toISOString().slice(0, 7);
+  const cls = (m) => m < curYm ? "past" : (m === curYm ? "cur" : "");
+  body.innerHTML =
+    `<button type="button" class="btn ghost nm-mback">← 戻る</button>` +
+    `<div class="nm-sec-h" style="margin:10px 0">失注後次回アクション日 × 月別</div>` +
+    (entries.length
+      ? `<div class="nm-bars">` + entries.map(([m, n]) =>
+          `<div class="nm-bar-row ${cls(m)}" data-m="${esc(m)}"><div class="nm-bar-ml">${esc(m)}${m < curYm ? "（遅延）" : m === curYm ? "（今月）" : ""}</div><div class="nm-bar-track"><div class="nm-bar-fill" style="width:${Math.round(n / max * 100)}%"></div></div><div class="nm-bar-n">${Number(n).toLocaleString()}</div></div>`).join("") + `</div>`
+      : `<div class="note">失注後次回アクション日のデータがまだありません（SF未接続・または対象なし）。</div>`);
+  body.querySelector(".nm-mback").addEventListener("click", nmLoad);
+  body.querySelectorAll(".nm-bar-row").forEach((r) => r.addEventListener("click", () => {
+    _edClMode = r.dataset.m;   // その月で絞る
+    _nmSel = { type: "special", key: "crosslost", member: "", name: "" };
+    nmGoEditVirtual("crosslost", `${r.dataset.m} のクロス失注`, "");
   }));
 }
 function nmRenderGroupCards(body) {
@@ -4526,7 +4577,7 @@ function nmExitHost() {
   if ($("nmEditHost")) $("nmEditHost").hidden = true;
   if ($("nmCards")) $("nmCards").hidden = false;
   _nmHostMode = null;
-  _edVirtMember = "";
+  _edVirtMember = ""; _edClMode = "";
   if (_nmSel && _nmSel.type === "special") _nmSel = null;   // 特別（ナーチャ/リサイクル/アーカイブ/クロス失注）は詳細が再ホストになるのでカードへ戻す
   nmLoad();   // 編集/作成での変更を反映するため取り直す
 }
@@ -4534,7 +4585,7 @@ function nmExitHost() {
 function nmGoEdit() {
   const ids = [..._nmChosen];
   if (!ids.length) return;
-  _edVirtMember = "";
+  _edVirtMember = ""; _edClMode = "";
   if (!_edInit) orgLoadLists();   // 編集まわりのボタン配線をまだしていなければ用意する
   _edChosen.clear();
   for (const id of ids) { const x = _nmLists.find((y) => String(y.id) === String(id)); if (x) _edChosen.set(String(id), { name: x.name, owner: x.owner }); }
@@ -5127,6 +5178,16 @@ function edFiltered() {
       if (lr && g(r, "失注理由") !== lr) return false;
       const qLd = v("edQLostDate"); if (qLd && !String(g(r, "失注日")).toLowerCase().includes(qLd)) return false;
       const qNa = v("edQNextAct"); if (qNa && !String(g(r, "失注後次回アクション日")).toLowerCase().includes(qNa)) return false;
+      if (_edClMode) {
+        const na = String(g(r, "失注後次回アクション日")).slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(na)) return false;   // 次回アクション日が無いものは今月/月別からは除外
+        if (_edClMode === "now") {
+          const t = new Date(); const nme = new Date(t.getFullYear(), t.getMonth() + 2, 0);
+          if (new Date(na) > nme) return false;   // 翌月末まで
+        } else if (/^\d{4}-\d{2}$/.test(_edClMode)) {
+          if (na.slice(0, 7) !== _edClMode) return false;   // 指定した月
+        }
+      }
     }
     const empRaw = String(g(r, "従業員数", "employees")).trim();
     if (dashOnly) {
