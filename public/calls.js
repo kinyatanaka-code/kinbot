@@ -2217,8 +2217,9 @@ function dashCard(c, big) {
          <div class="kc-inc-more">押すと実施済みの商談を見る</div>
        </div>` : "";
   // ナーチャリング（育っている見込み）の件数。個人カードにだけ出す。
-  const nurN = (!big && _nurtureByName) ? Number(_nurtureByName[String(c.label || "").trim()] || 0) : null;
-  const nurWeek = (!big && _nurtureWeekByName) ? Number(_nurtureWeekByName[String(c.label || "").trim()] || 0) : 0;
+  const _nurKey = String(c.key || "").trim().toLowerCase();
+  const nurN = (!big && _nurtureByName) ? Number(_nurtureByName[_nurKey] || 0) : null;
+  const nurWeek = (!big && _nurtureWeekByName) ? Number(_nurtureWeekByName[_nurKey] || 0) : 0;
   const nurLine = (nurN !== null && dashPeriod !== "week")
     ? `<div class="kc-nur-line" title="ジャッジ・営業フォローのリード数">ナーチャリング <b>${nurN.toLocaleString()}</b> 件</div>` +
       `<div class="kc-nur-week" title="今週（月〜日）に架電予定が入っているナーチャリング">今週かける予定 <b>${nurWeek.toLocaleString()}</b> 件</div>` : "";
