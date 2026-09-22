@@ -6447,6 +6447,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .nm-card:hover { border-color:#5DCAA5; box-shadow:0 1px 6px rgba(29,158,117,.14); }
 .nm-card-name { font-size:13px; font-weight:700; color:#173a30; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .nm-card-sub { font-size:11px; color:#8a8f8c; margin-top:3px; }
+.nm-card-zan, .nm-lcard-zan { display:flex; align-items:baseline; gap:5px; margin:5px 0 1px; }
+.nm-zan-lb { font-size:11px; color:#8a8f8c; font-weight:700; }
+.nm-zan-n { font-size:23px; font-weight:800; color:#0f6e56; line-height:1.05; }
 .nm-detail-head { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
 .nm-back { border:1px solid #cfe0d8; background:#fff; color:#0f6e56; border-radius:9px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; }
 .nm-detail-title { font-size:14px; font-weight:700; color:#173a30; display:flex; align-items:center; gap:8px; min-width:0; }

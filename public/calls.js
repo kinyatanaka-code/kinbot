@@ -4316,7 +4316,7 @@ function nmRenderCards() {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
     arr.sort((a, b) => nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
     html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}</div><div class="nm-grid">` +
-      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-sub">${ls.length} リスト・残 ${zan}・ナーチャリング ${nur}</div></button>`; }).join("") +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div></button>`; }).join("") +
       `</div></div>`;
   }
   body.innerHTML = any ? html : '<div class="empty-state">リストを持っているメンバーがいません</div>';
@@ -4328,7 +4328,7 @@ function nmRenderGroupCards(body) {
   const entries = [...byGroup.entries()].sort((a, b) => (a[0] === "__none__") - (b[0] === "__none__") || String(a[1].name).localeCompare(String(b[1].name), "ja"));
   if (!entries.length) { body.innerHTML = '<div class="empty-state">グループがありません</div>'; return; }
   body.innerHTML = `<div class="nm-sec"><div class="nm-sec-h">グループ</div><div class="nm-grid">` +
-    entries.map(([key, g]) => { const nm = key === "__none__" ? "（グループなし）" : (g.name || ("グループ " + key)); const zan = g.ls.reduce((s, x) => s + Number(x.残ステータス || 0), 0); const nur = g.ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-group="${esc(key)}" data-gname="${esc(nm)}"><div class="nm-card-name">${esc(nm)}</div><div class="nm-card-sub">${g.ls.length} リスト・残 ${zan}・ナーチャリング ${nur}</div></button>`; }).join("") +
+    entries.map(([key, g]) => { const nm = key === "__none__" ? "（グループなし）" : (g.name || ("グループ " + key)); const zan = g.ls.reduce((s, x) => s + Number(x.残ステータス || 0), 0); const nur = g.ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-group="${esc(key)}" data-gname="${esc(nm)}"><div class="nm-card-name">${esc(nm)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${g.ls.length} リスト</div></button>`; }).join("") +
     `</div></div>`;
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
 }
@@ -4353,7 +4353,8 @@ function nmRenderDetail() {
     return `<div class="nm-lcard${on ? " sel" : ""}" data-id="${x.id}">
       <label class="nm-check"><input type="checkbox" class="nm-selchk" data-id="${x.id}"${on ? " checked" : ""}></label>
       <div class="nm-lcard-name">${esc(x.name)}</div>
-      <div class="nm-lcard-sub">残 ${zan}・ナーチャリング ${nur}・全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
+      <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
       <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option>${opts}</select><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button></div>
     </div>`;
   }).join("");
