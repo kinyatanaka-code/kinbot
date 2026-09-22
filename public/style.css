@@ -6459,7 +6459,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .nm-lcard { position:relative; background:#fff; border:1px solid #e6ece9; border-radius:12px; padding:12px 12px 10px; display:flex; flex-direction:column; gap:4px; }
 .nm-lcard.sel { border-color:#0f6e56; background:#f2faf6; }
 .nm-lcard .nm-check { position:absolute; top:10px; right:10px; }
-.nm-lcard-name { font-size:13px; font-weight:700; color:#173a30; padding-right:26px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nm-lcard-name { font-size:13px; font-weight:700; color:#173a30; padding-right:26px; display:flex; align-items:center; gap:4px; }
+.nm-lname-t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.nm-rename { flex:none; border:1px solid #e6ece9; background:#fff; color:#0f6e56; border-radius:6px; font-size:11px; line-height:1; padding:2px 5px; cursor:pointer; }
+.nm-rename:hover { border-color:#5DCAA5; background:#f2faf6; }
 .nm-lcard-sub { font-size:11px; color:#8a8f8c; }
 .nm-lcard .org-bar { width:100%; margin:3px 0 7px; }
 .nm-lcard-ops { display:flex; gap:6px; align-items:center; margin-top:auto; }
