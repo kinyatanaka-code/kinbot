@@ -6458,6 +6458,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .nm-lgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:8px; }
 .nm-lcard { position:relative; background:#fff; border:1px solid #e6ece9; border-radius:12px; padding:12px 12px 10px; display:flex; flex-direction:column; gap:4px; }
 .nm-lcard.sel { border-color:#0f6e56; background:#f2faf6; }
+.nm-lcard-virt { background:#f6f9f8; border-style:dashed; }
+.nm-lcard-virt .nm-zan-n { color:#5a6b64; }
 .nm-lcard .nm-check { position:absolute; top:10px; right:10px; }
 .nm-lcard-name { font-size:13px; font-weight:700; color:#173a30; padding-right:26px; display:flex; align-items:flex-start; gap:4px; }
 .nm-lname-t { min-width:0; white-space:normal; overflow-wrap:anywhere; word-break:break-word; line-height:1.35; }

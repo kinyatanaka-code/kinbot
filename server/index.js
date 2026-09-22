@@ -204,6 +204,7 @@ import {
   assignCallTargets,
   deleteCallTargets,
   dedupeTargetsInLists,
+  stageSummaryCounts,
   countCallTargets,
   deleteCallList,
   getCallListOwner,
@@ -7829,6 +7830,11 @@ app.get("/api/calls/lists-all", async (req, res) => {
     })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// アーカイブ／リサイクルの実データ件数（管理タブの「その他」で表示）。
+app.get("/api/calls/stage-summary", async (req, res) => {
+  try { res.json(await stageSummaryCounts()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 絞り込んだリード（call_target id の配列）を、新しい1つのリストへ「移動」して抜き出す。
 // 担当(assigned_to)はそのまま。所有者は操作者。クローザー・管理者のみ。
 app.post("/api/calls/lists/extract", async (req, res) => {
@@ -20516,7 +20522,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22z 管理タブのカードのリスト名/メンバー・グループ名を、…で切らず折り返して全部表示（.nm-card-name/.nm-lname-t を white-space:normal + overflow-wrap:anywhere）。リスト名 span に title(ホバー全文)も付与。フロントのみ。";
+const BUILD_TAG = "2026-09-23a 管理タブ『その他』にアーカイブ／リサイクルの実データ集計を表示。物理の小さな アーカイブ/リサイクル リストは その他一覧から外し、代わりに横断集計（ステージ=アーカイブ＋死番／ステージ=リサイクル、非closed/hidden）の『アーカイブ（全体）』『リサイクル（全体）』カードを先頭に出す（情報表示、かける画面のまとめで対応）。db.stageSummaryCounts＋GET /api/calls/stage-summary、nmFetchで取得。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

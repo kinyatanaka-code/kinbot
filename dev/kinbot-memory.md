@@ -965,3 +965,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-22 BUILD_TAG=2026-09-22y 管理タブの「残」にナーチャリングを合算。calls.js nmRenderCards/nmRenderGroupCards/nmRenderDetail の zan を 残ステータス＋ナーチャリング に（両者は定義上重複しないので合算＝担当者不在/空欄＋ジャッジ/営業フォロー）。ナーチャリングの内訳（副題）は据え置き、bar も新zan基準。フロントのみ。版20260922y。
 
 - 2026-09-22 BUILD_TAG=2026-09-22z 管理カードのリスト名/メンバー・グループ名が「…」で切れていたのを全文表示に。style.css .nm-card-name と .nm-lname-t を white-space:normal＋overflow-wrap:anywhere＋word-break:break-word＋line-height:1.35 に（ellipsis撤去）、.nm-lcard-name を align-items:flex-start（✎を上寄せ）。calls.js リスト名 span に title=全文。フロントのみ。版20260922z。
+
+- 2026-09-23 BUILD_TAG=2026-09-23a 管理「その他」にアーカイブ/リサイクルの実データ集計を表示（物理の小さな アーカイブ/リサイクル 名リストは その他一覧から除外）。db.js stageSummaryCounts()＝count FILTER(archive: stage ILIKE アーカイブ OR status ~ 現在使われて/現アナ/欠番/不通/使われていない番号 ; recycle: stage ILIKE リサイクル)、非closed/hidden。index.js GET /api/calls/stage-summary＋import。calls.js：状態 _nmStage、nmFetch の Promise.all に stage-summary 追加、nmRenderDetail の __other__ フィルタで name∈{アーカイブ,リサイクル} を除外、先頭に nmStageCards()（.nm-lcard-virt 情報カード：件数＋かける画面まとめ案内、操作なし）。CSS .nm-lcard-virt 破線。※実際の対応はかける画面のアーカイブ/リサイクル（まとめ）。版20260923a。

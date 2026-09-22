@@ -3879,6 +3879,22 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
 
 // リストの一覧（残り件数つき）
 // 全メンバーのリストをまとめて返す（リスト整理タブのプルダウン用）。
+// アーカイブ／リサイクルの実データ件数（どのリストにあっても、ステージ/ステータスで横断集計）。
+// かける画面の「アーカイブ／リサイクル（まとめ）」と同じ考え方。
+export async function stageSummaryCounts() {
+  if (!pool) return { archive: 0, recycle: 0 };
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%アーカイブ%' OR COALESCE(t.status,'') ~ '現在使われて|現アナ|欠番|不通|使われていない番号') AS archive,
+         count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%') AS recycle
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)`);
+    const r = rows[0] || {};
+    return { archive: Number(r.archive || 0), recycle: Number(r.recycle || 0) };
+  } catch (e) { console.error("[db] stageSummaryCounts", e.message); return { archive: 0, recycle: 0 }; }
+}
+
 export async function listAllCallLists() {
   if (!pool) return [];
   try {
