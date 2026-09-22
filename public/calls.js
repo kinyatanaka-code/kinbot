@@ -4269,7 +4269,7 @@ let _nmMembers = [];               // 全メンバー（役割つき）
 let _nmMemByEmail = new Map();      // email -> member
 let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"group", key, name}
 let _nmChosen = new Set();          // 編集のために選んだリスト id
-function nmMemberName(email) { const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
+function nmMemberName(email) { if (email === "__other__") return "その他（未割り当て・アーカイブ・リサイクル）"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わらずセールス扱いにする人
 function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
 function nmBar(zan, all) { const pct = all ? Math.round(zan / all * 100) : 0; const col = (all && zan / all >= 0.6) ? "#1d9e75" : (all && zan / all >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
@@ -4305,9 +4305,11 @@ function nmRenderCards() {
   if (_nmMode === "group") return nmRenderGroupCards(body);
   // メンバー別：所有者で束ねてチーム（セールス／インサイド／他）に振り分け
   const byOwner = new Map();
-  for (const x of _nmLists) { const k = String(x.owner || "").toLowerCase(); if (!k) continue; if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
+  const orphan = [];   // 所有者なし（誰にも振り分けられていない・アーカイブ・リサイクル）
+  for (const x of _nmLists) { const k = String(x.owner || "").toLowerCase(); if (!k) { orphan.push(x); continue; } if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
   const buckets = { sales: [], inside: [], other: [] };
   for (const [email, ls] of byOwner) buckets[nmTeamOf(email)].push({ email, ls });
+  if (orphan.length) buckets.other.push({ email: "__other__", ls: orphan });   // 「その他」メンバー
   const secs = [["sales", "セールス"], ["inside", "インサイド"], ["other", "他"]];
   let html = "", any = false;
   for (const [key, label] of secs) {
@@ -4333,7 +4335,10 @@ function nmRenderGroupCards(body) {
 function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
   let ls;
-  if (_nmSel.type === "owner") ls = _nmLists.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
+  if (_nmSel.type === "owner") {
+    if (_nmSel.key === "__other__") ls = _nmLists.filter((x) => !String(x.owner || "").trim());
+    else ls = _nmLists.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
+  }
   else ls = _nmLists.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
   ls = ls.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"));
   // 選択は、いま表示中のリストにあるものだけに絞る（非表示/割り振りで消えた分を落とす）
