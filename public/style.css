@@ -6435,6 +6435,9 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed-dash { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; cursor:pointer; }
 .ed-dash input { width:14px; height:14px; accent-color:#0f6e56; margin:0; }
 
+/* 管理（新）：中で編集/作成を開くときの上部バー */
+.nm-hostbar { display:flex; align-items:center; gap:12px; margin:2px 0 12px; }
+
 /* 新「管理」タブ（メンバー別／グループ別） */
 .nm-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 14px; }
 .nm-sec { margin-bottom:16px; }

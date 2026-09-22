@@ -3745,6 +3745,7 @@ function showPane() {
     if (!b) return;
     if (b.id === "kcDocSettings") { openDocSettings(); return; }
     const name = b.dataset.ls || "manage";
+    if (_nmHostMode && name !== "newmanage") nmExitHost();   // 借りていた編集/作成UIを元へ返す
     tabs.querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b && !!x.dataset.ls));
     document.querySelectorAll("[data-ls-pane]").forEach((el) => {
       el.hidden = el.dataset.lsPane !== name;
@@ -3761,6 +3762,8 @@ function showPane() {
       if (typeof srFillShare === "function") srFillShare();
     }
   });
+  // 既定タブは「管理（新）」。編集まわりのボタン配線も先に用意しておく。
+  setTimeout(() => { try { orgLoadLists(); } catch (e) {} try { nmLoad(); } catch (e) {} }, 0);
 })();
 
 // 全メンバーのリストからリードを探す（管理者だけ）
@@ -4285,6 +4288,8 @@ async function nmLoad() {
       nmRenderRoot();
     }));
     if ($("nmReload")) $("nmReload").addEventListener("click", () => { _nmMembers = []; _nmSel = null; _nmChosen = new Set(); nmLoad(); });
+    if ($("nmMakeBtn")) $("nmMakeBtn").addEventListener("click", nmGoMake);
+    if ($("nmHostBack")) $("nmHostBack").addEventListener("click", nmExitHost);
   }
   body.innerHTML = '<div class="note">読み込んでいます…</div>';
   try { await nmFetch(); nmRenderRoot(); }
@@ -4369,16 +4374,55 @@ function nmUpdateEditBar() {
   bar.hidden = n === 0;
   if ($("nmEditN")) $("nmEditN").textContent = n;
 }
-// 選んだリストを、既存の「編集」タブの編集テーブルでそのまま開く
+// 管理（新）の中で、共有UI（編集テーブル／作成）を出し入れする
+let _nmHostMode = null;   // "edit" | "make" | null
+function nmHostShow(title) {
+  if ($("nmCards")) $("nmCards").hidden = true;
+  if ($("nmEditHost")) $("nmEditHost").hidden = false;
+  if ($("nmHostTitle")) $("nmHostTitle").textContent = title || "";
+}
+// 借りていた共有UIを元の場所（編集ペイン／作成ペイン）へ返して、カードに戻る
+function nmExitHost() {
+  const slot = $("nmHostSlot");
+  const shared = $("edShared"), mk = $("mkShared");
+  if (shared && slot && slot.contains(shared)) {
+    const org = document.querySelector('[data-ls-pane="organize"]');
+    if (org) org.appendChild(shared);
+    edSetTableMode(false);
+    if ($("edTable")) $("edTable").innerHTML = "";
+    if ($("edFilterBar")) $("edFilterBar").hidden = true;
+  }
+  if (mk && slot && slot.contains(mk)) {
+    const mkp = document.querySelector('[data-ls-pane="make"]');
+    if (mkp) mkp.appendChild(mk);
+  }
+  if ($("nmEditHost")) $("nmEditHost").hidden = true;
+  if ($("nmCards")) $("nmCards").hidden = false;
+  _nmHostMode = null;
+  nmLoad();   // 編集/作成での変更を反映するため取り直す
+}
+// 選んだリストを、管理（新）の中で編集テーブルとして開く（編集タブへは飛ばない）
 function nmGoEdit() {
   const ids = [..._nmChosen];
   if (!ids.length) return;
+  if (!_edInit) orgLoadLists();   // 編集まわりのボタン配線をまだしていなければ用意する
   _edChosen.clear();
   for (const id of ids) { const x = _nmLists.find((y) => String(y.id) === String(id)); if (x) _edChosen.set(String(id), { name: x.name, owner: x.owner }); }
-  const tab = document.querySelector('.kc-ptab[data-ls="organize"]');
-  if (tab) tab.click();          // 「編集」タブを開く（ピッカーも選択済みで用意される）
-  orgLoadEdit(ids);              // 選んだリストで編集テーブルを表示
-  setTimeout(() => { const t = $("edTable"); if (t && t.scrollIntoView) t.scrollIntoView({ behavior: "smooth", block: "start" }); }, 200);
+  const shared = $("edShared"), slot = $("nmHostSlot");
+  if (shared && slot) slot.appendChild(shared);   // 編集UIを管理（新）へ持ってくる
+  _nmHostMode = "edit";
+  nmHostShow(`リスト編集（${ids.length} 件のリスト）`);
+  orgLoadEdit(ids);
+  if ($("edTableHead")) $("edTableHead").hidden = true;   // 戻るはホストのバーにあるので重複を隠す
+}
+// 管理（新）の中で「作成」UIを開く（作成タブへは飛ばない）
+function nmGoMake() {
+  const mk = $("mkShared"), slot = $("nmHostSlot");
+  if (mk && slot) slot.appendChild(mk);
+  _nmHostMode = "make";
+  nmHostShow("新しいリストを作る");
+  try { if (typeof window.initSfReport === "function") window.initSfReport("lead"); } catch {}
+  try { if (typeof srFillShare === "function") srFillShare(); } catch {}
 }
 async function nmMove(listId, owner) {
   if (!owner) return;
@@ -4768,7 +4812,7 @@ async function orgLoadLists() {
   edSetTableMode(false);   // 編集タブを開いた/更新したら、まず選択ピッカーを見せる
   if (!_edInit) { _edInit = true;
     if ($("edReload")) $("edReload").addEventListener("click", orgLoadLists);
-    if ($("edBack")) $("edBack").addEventListener("click", () => { edSetTableMode(false); if ($("edTable")) $("edTable").innerHTML = ""; if ($("edFilterBar")) $("edFilterBar").hidden = true; if ($("edSt")) $("edSt").textContent = ""; });
+    if ($("edBack")) $("edBack").addEventListener("click", () => { if (_nmHostMode === "edit") { nmExitHost(); return; } edSetTableMode(false); if ($("edTable")) $("edTable").innerHTML = ""; if ($("edFilterBar")) $("edFilterBar").hidden = true; if ($("edSt")) $("edSt").textContent = ""; });
     if ($("edGo")) $("edGo").addEventListener("click", () => {
       const ids = [..._edChosen.keys()];
       if (!ids.length) { const st = $("edSt"); if (st) st.textContent = "リストを選んでください"; return; }

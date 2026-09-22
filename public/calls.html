@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260922g" />
+    <link rel="stylesheet" href="style.css?v=20260922h" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -222,10 +222,9 @@
           <!-- リストの割り振り -->
           <section class="card kc-pane" data-p="lists" hidden>
             <div class="kc-period-tabs" id="lsTabs">
-              <button type="button" class="kc-ptab active" data-ls="status">状況</button>
               <button type="button" class="kc-ptab" data-ls="organize">編集</button>
               <button type="button" class="kc-ptab" data-ls="manage">整理</button>
-              <button type="button" class="kc-ptab" data-ls="newmanage">管理（新）</button>
+              <button type="button" class="kc-ptab active" data-ls="newmanage">管理（新）</button>
               <button type="button" class="kc-ptab" data-ls="find" id="lsFindTab" hidden>全体検索</button>
               <button type="button" class="kc-ptab" data-ls="make">作成</button>
             </div>
@@ -238,7 +237,7 @@
               </div>
               <div id="lsFindBox"></div>
             </div>
-            <div class="ls-block" data-ls-pane="status">
+            <div class="ls-block" data-ls-pane="status" hidden>
               <p class="note">各メンバーのリード数（リストの合計）です。<b>全部</b>＝そのメンバーのリード総数、<b>残り</b>＝まだ架電していない数、<b>リスト数</b>＝持っているリストの数。</p>
               <div id="lsStatus"><div class="note">読み込んでいます…</div></div>
             </div>
@@ -255,6 +254,7 @@
                 <button type="button" class="btn ghost" id="edReload">更新</button>
                 <span class="rev-status" id="edSt"></span>
               </div>
+              <div id="edShared">
               <div id="edTableHead" hidden style="display:flex;align-items:center;gap:12px;margin:4px 0 12px">
                 <button type="button" class="nm-back" id="edBack">← 選び直す</button>
                 <div class="nm-detail-title" id="edTableTitle">リスト編集</div>
@@ -273,6 +273,7 @@
                 <span class="note" id="edEnrichApi" style="width:100%;margin:2px 0 0;font-size:11px"></span>
               </div>
               <div id="edTable"></div>
+              </div>
             </div>
             <div class="ls-block" data-ls-pane="manage" hidden>
               <p class="note">メンバーを選ぶと、その人のリストを管理できます。リストのカードを押すと「かける」に移り、右上の × で削除します。<br>
@@ -281,18 +282,26 @@
               <span class="rev-status" id="asStatus"></span>
             </div>
 
-            <div class="ls-block" data-ls-pane="newmanage" hidden>
+            <div class="ls-block" data-ls-pane="newmanage">
+              <div id="nmCards">
               <p class="note">メンバー別／グループ別にリストを見て、その場で<b>非表示</b>にしたり<b>別の人へ割り振り</b>できます。<br>
               <b>もとになるSalesforceのレポートは変わりません。</b>非表示にしても、Salesforce側のリードはそのまま残ります。</p>
               <div class="nm-head">
                 <span class="ed3-seg" id="nmModeSeg"><button type="button" data-nmmode="owner" class="active">メンバー別</button><button type="button" data-nmmode="group">グループ別</button></span>
                 <button type="button" class="btn ghost" id="nmReload">更新</button>
+                <button type="button" class="btn" id="nmMakeBtn">＋ 新しいリストを作る</button>
                 <span class="rev-status" id="nmSt"></span>
               </div>
               <div id="nmBody"><div class="note">読み込んでいます…</div></div>
+              </div>
+              <div id="nmEditHost" hidden>
+                <div class="nm-hostbar"><button type="button" class="nm-back" id="nmHostBack">← 戻る</button><span class="nm-detail-title" id="nmHostTitle"></span></div>
+                <div id="nmHostSlot"></div>
+              </div>
             </div>
 
             <div class="ls-block" data-ls-pane="make" hidden>
+              <div id="mkShared">
               <div class="kc-period-tabs" id="mkTabs">
                 <button type="button" class="kc-ptab active" data-mk="sf">Salesforceのレポートから作る</button>
                 <button type="button" class="kc-ptab" data-mk="csv">CSVから作る</button>
@@ -367,6 +376,7 @@
                 </div>
               </div>
               </div>
+              </div>
             </div>
           </section>
 
@@ -403,9 +413,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260922g"></script>
-    <script src="calls.js?v=20260922g"></script>
-    <script src="nav.js?v=20260922g"></script>
+    <script src="sf-data.js?v=20260922h"></script>
+    <script src="calls.js?v=20260922h"></script>
+    <script src="nav.js?v=20260922h"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
