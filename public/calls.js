@@ -48,6 +48,17 @@ function when(v) {
   return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}`;
 }
 
+// リスト選択のピル（隠しselectの鏡写し。クリックでselectを切り替える）
+function renderClPills() {
+  const sel = $("clList"), box = $("clPills"); if (!sel || !box) return;
+  const cur = String(sel.value || "");
+  const short = (v, t) => v === "all" ? "☆ 全てのリード" : String(t);
+  box.innerHTML = [...sel.options].map((o) => {
+    const on = o.value === cur;
+    const star = o.value === "all";
+    return `<button type="button" class="cl-pill${on ? " active" : ""}${star ? " star" : ""}" data-v="${esc(o.value)}"><span class="cl-pdot"></span>${esc(short(o.value, o.textContent))}</button>`;
+  }).join("");
+}
 // ───────── リストを選ぶ ─────────
 async function loadLists() {
   try {
@@ -62,6 +73,7 @@ async function loadLists() {
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
     if (keep && (["all", "archive", "recycle", "nurture"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
+    renderClPills();
     {
       const v = sel.value;
       listId = ["all", "archive", "recycle", "nurture"].includes(v) ? v : (Number(v) || 0);
@@ -86,6 +98,7 @@ async function loadTable() {
   // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
   const selV = ($("clList") && $("clList").value) || "";
   if (selV) listId = ["all", "archive", "recycle", "nurture"].includes(selV) ? selV : (Number(selV) || 0);
+  if (typeof renderClPills === "function") renderClPills();
   if (!listId) {
     // リストを選んでいなくても、管理者は探す欄から全メンバーのリストを横断して探せる
     const q0 = ($("clFind") && $("clFind").value || "").trim();
@@ -3386,10 +3399,16 @@ if ($("clList")) {
     const v = $("clList").value;
     listId = v === "all" ? "all" : (Number(v) || 0);
     rememberListId(v);   // 選んだリストを覚える
-    callAsMember = "";   // ドロップダウンで選び直したら、担当の絞り込みは外す
+    callAsMember = "";   // 選び直したら、担当の絞り込みは外す
     loadTable();
   });
 }
+if ($("clPills")) $("clPills").addEventListener("click", (e) => {
+  const b = e.target.closest(".cl-pill"); if (!b) return;
+  const sel = $("clList"); if (!sel) return;
+  if (sel.value !== b.dataset.v) { sel.value = b.dataset.v; sel.dispatchEvent(new Event("change")); }
+  renderClPills();
+});
 if ($("clMine")) $("clMine").addEventListener("change", loadStats);
 // 日・週・月の切り替え
 if ($("stPeriod")) {
