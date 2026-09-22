@@ -5047,7 +5047,7 @@ async function orgLoadEdit(listIds) {
     for (const id of listIds) {
       const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000&edit=1`)).json();
       const meta = _edLists[id] || {};
-      for (const r of (d.items || [])) { r._listId = r.listId || id; r._listName = meta.name || ""; r._owner = meta.owner || ""; r._group = meta.group_name || ""; r._groupId = meta.group_id || ""; all.push(r); }
+      for (const r of (d.items || [])) { r._listId = r.listId || id; r._listName = meta.name || ""; r._owner = meta.owner || r.listOwner || ""; r._group = meta.group_name || r.listGroupName || ""; r._groupId = (meta.group_id != null && meta.group_id !== "") ? meta.group_id : (r.listGroupId || ""); all.push(r); }
     }
     _edRows = all;
     if ($("edFilterBar")) $("edFilterBar").hidden = false;

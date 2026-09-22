@@ -4009,14 +4009,16 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
                       OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
     }
-    p.push(Math.max(1, Math.min(3000, limit)));
+    p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
       `SELECT t.*,
+              cl.owner AS _list_owner, cl.group_id AS _list_group_id,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS _list_group_name,
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id AND l.sf_task_id IS NULL) AS 未送信数,
               (SELECT l.result FROM call_logs l WHERE l.target_id = t.id ORDER BY l.at DESC LIMIT 1) AS 最終結果,
               (SELECT l.at FROM call_logs l WHERE l.target_id = t.id ORDER BY l.at DESC LIMIT 1) AS 最終日時
-         FROM call_targets t
+         FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id
         WHERE ${where}
         ORDER BY t.id DESC
         LIMIT $${p.length}`, p);
@@ -9020,6 +9022,8 @@ export async function listNurtureTargetsForMember(member, { q = "", limit = 2000
     p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
       `SELECT t.*,
+              l.owner AS _list_owner, l.group_id AS _list_group_id,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS _list_group_name,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
               (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,

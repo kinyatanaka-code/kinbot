@@ -9615,7 +9615,7 @@ app.get("/api/calls/targets", async (req, res) => {
       sf数えた = 失敗 < Math.ceil(ids.length / 80);   // 全部失敗でなければ数えられた扱い
     }
     const items = rows.map((r) => ({
-        id: r.id, listId: r.list_id || null, leadId: r.lead_id || "",
+        id: r.id, listId: r.list_id || null, listOwner: r._list_owner || "", listGroupId: r._list_group_id || null, listGroupName: r._list_group_name || "", leadId: r.lead_id || "",
         ステージ: r.stage || "",
         会社名: r.company || "", 担当者: r.person || "", ふりがな: r.person_kana || "",
         電話番号: r.phone || "", メール: r.email || "",
@@ -20528,7 +20528,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23d 修正：ナーチャリング/リサイクル/アーカイブの一覧から「← 戻る」で戻れない不具合。nmExitHost が _nmSel を残していたため、戻る→nmLoad→nmRenderRoot で特別カードの詳細（＝編集ビュー）を即再表示していた。特別カードのときは戻る時に _nmSel をクリアしてカード一覧へ戻すように。フロントのみ。";
+const BUILD_TAG = "2026-09-23e 修正：ナーチャリング/リサイクル/アーカイブの横断リード一覧で、所有者が全員あなたに見えていた（各リードの実所有者が渡っておらず所有者selの初期選択が空→先頭メンバーになっていた）。listStageTargets/listNurtureTargetsForMember に call_lists を結合して owner/group を返し、targets items に listOwner/listGroupId/listGroupName を追加。orgLoadEdit は meta が無い仮想時に各リードの実リストの所有者/グループを使うように。表示が正しくなり、所有者/グループ変更も各リードの実リストに効く。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
