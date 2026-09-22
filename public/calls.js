@@ -4298,17 +4298,21 @@ let _nmMemByEmail = new Map();      // email -> member
 let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"group", key, name}
 let _nmChosen = new Set();          // 編集のために選んだリスト id
 let _nmStage = { archive: 0, recycle: 0, crosslost: 0 };   // アーカイブ／リサイクル／クロス失注の実データ件数（横断集計）
+let _nmCrosslost = {};   // クロス失注のメンバー別件数（email -> 件数）
+let _edVirtMember = "";  // 仮想リスト（クロス失注など）をメンバーで絞るとき
 function nmMemberName(email) { if (email === "__other__") return "未割り当て"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わらずセールス扱いにする人
 function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
 function nmBar(zan, all) { const pct = all ? Math.round(zan / all * 100) : 0; const col = (all && zan / all >= 0.6) ? "#1d9e75" : (all && zan / all >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
 async function nmFetch() {
-  const [d, mm, sg] = await Promise.all([
+  const [d, mm, sg, clm] = await Promise.all([
     fetch("/api/calls/lists-all?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => ({ items: [] })),
     (_nmMembers.length ? Promise.resolve(null) : fetch("/api/members", { cache: "no-store" }).then((r) => r.json()).catch(() => null)),
     fetch("/api/calls/stage-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+    fetch("/api/calls/crosslost-members?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
   ]);
   if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0), crosslost: Number(sg.crosslost || 0) };
+  if (clm && clm.byMember) _nmCrosslost = clm.byMember || {};
   _nmLists = (d.items || []).filter((x) => !NM_EX.includes(String(x.owner || "").toLowerCase()));
   if (mm && Array.isArray(mm.members)) { _nmMembers = mm.members.filter((m) => m.active !== false); _nmMemByEmail = new Map(_nmMembers.map((m) => [String(m.email || "").toLowerCase(), m])); }
 }
@@ -4360,12 +4364,19 @@ function nmRenderCards() {
     spCard("nurture", "ナーチャリング", totalNur, "ジャッジ・営業フォロー（全体）") +
     spCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") +
     spCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") +
-    spCard("crosslost", "クロス失注", _nmStage.crosslost, "クロス失注のリード（全体）") +
     `</div></div>`;
+  // クロス失注：メンバーごとにカード化
+  const clEntries = Object.entries(_nmCrosslost || {}).filter(([e, n]) => Number(n) > 0);
+  if (clEntries.length) {
+    clEntries.sort((a, b) => Number(b[1]) - Number(a[1]));
+    html += `<div class="nm-sec"><div class="nm-sec-h">クロス失注</div><div class="nm-grid">` +
+      clEntries.map(([email, n]) => `<button type="button" class="nm-card" data-special="crosslost" data-member="${esc(email)}" data-mname="${esc(nmMemberName(email))}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n).toLocaleString()}</span></div><div class="nm-card-sub">クロス失注のリード</div></button>`).join("") +
+      `</div></div>`;
+  }
   body.innerHTML = html;
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
     _nmChosen = new Set();
-    if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special };
+    if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special, member: c.dataset.member || "", name: c.dataset.mname || "" };
     else _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) };
     nmRenderDetail();
   }));
@@ -4399,12 +4410,15 @@ function nmRenderSpecial(body) {
     crosslost: { name: "クロス失注", vid: "crosslost" },
   }[_nmSel.key];
   if (!info) { body.innerHTML = '<div class="empty-state">表示できませんでした</div>'; return; }
-  nmGoEditVirtual(info.vid, `${info.name}（全体）`);
+  const member = _nmSel.member || "";
+  const title = member ? `${info.name} - ${_nmSel.name || member}` : `${info.name}（全体）`;
+  nmGoEditVirtual(info.vid, title, member);
 }
-// 仮想リスト（nurture-all / recycle / archive）を編集テーブルで開く
-function nmGoEditVirtual(virtId, title) {
+// 仮想リスト（nurture-all / recycle / archive / crosslost）を編集テーブルで開く。member でメンバー絞り込み可。
+function nmGoEditVirtual(virtId, title, member) {
   if (!_edInit) orgLoadLists();
   _edChosen.clear();
+  _edVirtMember = String(member || "");
   const shared = $("edShared"), slot = $("nmHostSlot");
   if (shared && slot) slot.appendChild(shared);
   _nmHostMode = "edit";
@@ -4512,13 +4526,15 @@ function nmExitHost() {
   if ($("nmEditHost")) $("nmEditHost").hidden = true;
   if ($("nmCards")) $("nmCards").hidden = false;
   _nmHostMode = null;
-  if (_nmSel && _nmSel.type === "special") _nmSel = null;   // 特別（ナーチャ/リサイクル/アーカイブ）は詳細が再ホストになるのでカードへ戻す
+  _edVirtMember = "";
+  if (_nmSel && _nmSel.type === "special") _nmSel = null;   // 特別（ナーチャ/リサイクル/アーカイブ/クロス失注）は詳細が再ホストになるのでカードへ戻す
   nmLoad();   // 編集/作成での変更を反映するため取り直す
 }
 // 選んだリストを、管理（新）の中で編集テーブルとして開く（編集タブへは飛ばない）
 function nmGoEdit() {
   const ids = [..._nmChosen];
   if (!ids.length) return;
+  _edVirtMember = "";
   if (!_edInit) orgLoadLists();   // 編集まわりのボタン配線をまだしていなければ用意する
   _edChosen.clear();
   for (const id of ids) { const x = _nmLists.find((y) => String(y.id) === String(id)); if (x) _edChosen.set(String(id), { name: x.name, owner: x.owner }); }
@@ -5074,7 +5090,7 @@ async function orgLoadEdit(listIds) {
   try {
     const all = [];
     for (const id of listIds) {
-      const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000&edit=1`)).json();
+      const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000&edit=1${_edVirtMember ? "&member=" + encodeURIComponent(_edVirtMember) : ""}`)).json();
       const meta = _edLists[id] || {};
       for (const r of (d.items || [])) { r._listId = r.listId || id; r._listName = meta.name || ""; r._owner = meta.owner || r.listOwner || ""; r._group = meta.group_name || r.listGroupName || ""; r._groupId = (meta.group_id != null && meta.group_id !== "") ? meta.group_id : (r.listGroupId || ""); all.push(r); }
     }

@@ -205,6 +205,7 @@ import {
   deleteCallTargets,
   dedupeTargetsInLists,
   stageSummaryCounts,
+  crosslostCountsByMember,
   countCallTargets,
   deleteCallList,
   getCallListOwner,
@@ -7834,6 +7835,10 @@ app.get("/api/calls/lists-all", async (req, res) => {
 app.get("/api/calls/stage-summary", async (req, res) => {
   try { res.json(await stageSummaryCounts()); } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// クロス失注のメンバー別件数（管理タブのクロス失注をメンバーカードで出すため）。
+app.get("/api/calls/crosslost-members", async (req, res) => {
+  try { res.json({ ok: true, byMember: await crosslostCountsByMember() }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 絞り込んだリード（call_target id の配列）を、新しい1つのリストへ「移動」して抜き出す。
 // 担当(assigned_to)はそのまま。所有者は操作者。クローザー・管理者のみ。
@@ -9509,6 +9514,7 @@ app.get("/api/calls/targets", async (req, res) => {
         q: String(req.query.q || ""),
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
         statusMatch,
+        owner: (listParam === "crosslost") ? String(req.query.member || "").trim().toLowerCase() : "",   // クロス失注はメンバーで絞れる
       });
     } else if (listParam === "nurture") {
       // ナーチャリング（まとめ）：ジャッジ・営業フォローのリードを、元リストに置いたまま横断で集める
@@ -20529,7 +20535,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23k 編集テーブルの「新リストに抜き出す」で、所有者を選べるように。抜き出しボタンの隣に所有者ドロップダウン（自分の所有＝従来／メンバーを選ぶとそのメンバー所有＋担当もそのメンバーに一括）。クロス失注などを、選んだメンバーの所有で一括まとめられる。extract endpoint に owner を追加、extractTargetsToNewList に reassign（assigned_to をそろえる）を追加。";
+const BUILD_TAG = "2026-09-23l 管理タブのクロス失注を、単一カードからメンバー別カードに変更。担当(assigned_to、無ければowner)ごとに件数を集計（crosslostCountsByMember / GET /api/calls/crosslost-members）、その他の下に「クロス失注」セクションでメンバーカード表示。カードを押すと、そのメンバーのクロス失注だけを編集テーブルで一覧（list=crosslost&member、listStageTargets に owner 絞り込み追加）。SF失注日/失注理由/次回アクション日の表示(2)は別途SF項目名待ち。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

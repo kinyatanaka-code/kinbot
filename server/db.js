@@ -3900,6 +3900,22 @@ export async function stageSummaryCounts() {
   } catch (e) { console.error("[db] stageSummaryCounts", e.message); return { archive: 0, recycle: 0, crosslost: 0 }; }
 }
 
+// クロス失注のリード数を、担当(assigned_to、無ければ持ち主 owner)ごとに返す（管理タブのメンバーカード用）。
+export async function crosslostCountsByMember() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), l.owner)) AS email, count(*)::int AS n
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE (COALESCE(t.stage,'') ILIKE '%クロス失注%' OR COALESCE(t.status,'') ILIKE '%クロス失注%')
+          AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        GROUP BY lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), l.owner))`);
+    const out = {};
+    for (const r of rows) if (r.email) out[r.email] = Number(r.n || 0);
+    return out;
+  } catch (e) { console.error("[db] crosslostCountsByMember", e.message); return {}; }
+}
+
 export async function listAllCallLists() {
   if (!pool) return [];
   try {
@@ -4002,7 +4018,7 @@ export async function sweepStageLists(listId = null) {
 // ステージ（リード状況）が…（上の sweepStageLists）
 
 // ステージ（リード状況）で横断して架電先を集める（アーカイブ/リサイクルのカード用）。
-export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [] } = {}) {
+export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "" } = {}) {
   if (!pool || !keyword) return [];
   try {
     const p = [`%${keyword}%`];
@@ -4010,6 +4026,8 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     // ステージだけでなく、指定したステータス（例：現在使われていない）も「その仮想ビュー」に含める
     for (const k of statusMatch) { p.push(`%${k}%`); stageOr += ` OR COALESCE(t.status,'') ILIKE $${p.length}`; }
     let where = `(${stageOr})`;
+    const own = String(owner || "").trim().toLowerCase();
+    if (own) { p.push(own); where += ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), cl.owner)) = $${p.length}`; }
     if (q) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
