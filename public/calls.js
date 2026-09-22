@@ -5117,7 +5117,7 @@ function _parseCsv(text) {
   return rows;
 }
 // 会社名の表記ゆれを吸収して突合するための正規化（サーバの突合キーと同じ考え方）
-function _normCo(s) { return String(s || "").replace(/[\s　]/g, "").replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "").toLowerCase(); }
+function _normCo(s) { return String(s || "").replace(/[\s　]/g, "").replace(/(株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|㈲|合同会社|合資会社|合名会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|学校法人|医療法人社団|医療法人財団|社会医療法人|医療法人|宗教法人|特定非営利活動法人|npo法人|独立行政法人|国立大学法人|地方独立行政法人|協同組合|生活協同組合|農業協同組合)/gi, "").toLowerCase(); }
 function edExportCsv() {
   const g = _edg; const rows = edFiltered();
   const st = $("edEnrichSt");
@@ -5145,11 +5145,17 @@ async function edImportCsv(ev) {
   const grid = _parseCsv(text).filter((r) => r.length && r.some((c) => String(c).trim() !== ""));
   if (grid.length < 2) { alert("CSVにデータがありません"); return; }
   const head = grid[0].map((h) => String(h).trim());
-  const idx = (n) => head.indexOf(n);
-  const cId = idx("リードID");
-  const cCo = idx("会社名") >= 0 ? idx("会社名") : idx("企業名");   // どちらの見出しでも会社名として扱う
-  const cEmp = idx("従業員数"), cHire = idx("採用人数"), cMed = idx("媒体掲載"), cGrp = idx("グループ"), cAsg = idx("担当"), cAsgE = idx("担当メール");
-  let rows, byCompany = false, coMatched = 0, coNoMatch = 0;
+  // 見出しの表記ゆれ（空白・かっこ・大文字小文字）を吸収して列を探す
+  const norm = (s) => String(s || "").replace(/[\s　()（）]/g, "").toLowerCase();
+  const H = head.map(norm);
+  const findCol = (cands) => { for (const c of cands) { const i = H.indexOf(norm(c)); if (i >= 0) return i; } for (let i = 0; i < H.length; i++) { if (cands.some((c) => H[i].includes(norm(c)))) return i; } return -1; };
+  const cId = H.indexOf(norm("リードID"));
+  const cCo = findCol(["会社名", "企業名", "会社", "企業", "社名"]);
+  const cEmp = findCol(["従業員数", "従業員", "社員数", "社員"]);
+  const cHire = findCol(["採用人数", "採用予定人数", "採用数"]);
+  const cMed = findCol(["媒体掲載", "媒体"]);
+  const cGrp = H.indexOf(norm("グループ")), cAsg = H.indexOf(norm("担当")), cAsgE = H.indexOf(norm("担当メール"));
+  let rows, byCompany = false, coMatched = 0, coNoMatch = 0, noMatchSamples = [];
   if (cId >= 0) {
     // 書き出したCSV（リードID列あり）：従来どおりリードIDで突合
     rows = grid.slice(1).map((r) => ({
@@ -5159,13 +5165,14 @@ async function edImportCsv(ev) {
   } else if (cCo >= 0) {
     // リードIDが無いCSV（会社名＋従業員数など）：いま表示中の編集テーブルの行に会社名で突合する
     byCompany = true;
+    if (cEmp < 0 && cHire < 0 && cMed < 0) { alert(`CSVに「従業員数」などの列（従業員数・採用人数・媒体掲載）が見つかりませんでした。\n見出しを「従業員数」にしてください。\n\n今のCSVの見出し：\n${head.join(" / ")}`); return; }
     const byCo = new Map();
     for (const er of _edRows) { const k = _normCo(_edg(er, "会社名", "company")); if (!k) continue; if (!byCo.has(k)) byCo.set(k, []); byCo.get(k).push(er); }
     const map = new Map();   // call_target id -> 反映内容（同じ会社が複数行あれば後勝ち）
     for (const gr of grid.slice(1)) {
       const k = _normCo(gr[cCo]); if (!k) continue;
       const ers = byCo.get(k) || [];
-      if (!ers.length) { coNoMatch++; continue; }
+      if (!ers.length) { coNoMatch++; if (noMatchSamples.length < 5) noMatchSamples.push(String(gr[cCo] || "").trim()); continue; }
       coMatched++;
       const emp = cEmp >= 0 ? gr[cEmp] : undefined, hire = cHire >= 0 ? gr[cHire] : undefined, med = cMed >= 0 ? gr[cMed] : undefined;
       for (const er of ers) map.set(String(er.id), { id: er.id, employees: emp, hires: hire, media_tags: med });   // その会社の全リードに反映
@@ -5181,8 +5188,11 @@ async function edImportCsv(ev) {
   try {
     const dr = await (await fetch("/api/calls/import-edit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows, dryRun: true }) })).json();
     const s = dr.summary || {};
+    const empRows = rows.filter((r) => r.employees !== undefined && String(r.employees).trim() !== "").length;
     const msg = (byCompany
-      ? `会社名で突合して ${rows.length} 行に反映します（一致 ${coMatched} 社・該当なし ${coNoMatch} 社）。\n従業員数など ${s.fieldChanged || 0} 件を更新します。`
+      ? `会社名で突合しました：一致 ${coMatched} 社・該当なし ${coNoMatch} 社\n従業員数を入れる行 ${empRows}／採用・媒体も含め ${s.fieldChanged || 0} 行を更新します。` +
+        (empRows === 0 ? `\n\n⚠ 従業員数を入れる行が0です。CSVの従業員数の値が空か、会社名が編集テーブルと一致していない可能性があります。${cEmp < 0 ? "（従業員数の列も見つかっていません）" : ""}` : "") +
+        (noMatchSamples.length ? `\n該当なしの会社例：${noMatchSamples.join("、")}` : "")
       : `${rows.length}件を反映します。\n担当変更 ${s.assignedChanged || 0}／会社名 ${s.companyChanged || 0}／従業員数など ${s.fieldChanged || 0}／グループ ${s.groupChanged || 0}`) +
       ((s.skipped && s.skipped.length) ? `\n担当が特定できずスキップ ${s.skipped.length}件` : "") + `\n\n実行しますか？`;
     if (!confirm(msg)) { if (st) st.textContent = ""; return; }
