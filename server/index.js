@@ -20597,7 +20597,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23o クロス失注一覧に失注日/失注理由/失注後次回アクション日が出なかった件を修正。編集テーブルは固定列で追加データを列表示しないため、クロス失注時(_edCrosslost)だけ3列を追加。サーバは失注商談項目をリードのトップレベル(x.失注日/失注理由/失注後次回アクション日)にも付与。edBuildTable/edRenderBodyに3列＋絞り込み（失注理由=プルダウン、失注日/次回アクション日=テキスト）、空表示colspanも調整。SF由来なので値はSF連携・突合次第。";
+const BUILD_TAG = "2026-09-23p 自動取得のコスト削減2段階。(1)geminiGrounded の既定モデルを gemini-flash-latest(3.x/月5000無料)→gemini-2.5-flash(1日1500=月45000無料)に（GEMINI_WEB_MODELで上書き可）。(2)媒体掲載/採用人数を Brave検索先行＋抽出を Gemini flash-lite に変更、Braveが薄いときだけ Geminiグラウンディングにフォールバック（従来はいきなりグラウンディング＋抽出Claude）。Claude代を削減しつつ精度はフォールバックで担保。従業員数は従来どおり。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

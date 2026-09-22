@@ -549,6 +549,20 @@ day は 日 月 火 水 木 金 土 のいずれか。時刻は "HH:MM"。営業
 }
 
 // 会社サイト＋Web検索から会社概要を取得（A+B / 2段階で確実にJSON化）
+// Brave検索の結果（タイトル・説明・URL）を「リサーチ結果テキスト」として返す（安い一次調査）。
+// キー未設定・失敗時は空文字。circular import を避けるため analyzer 内に持つ。
+async function braveResearch(query, count = 6) {
+  const key = process.env.BRAVE_API_KEY;
+  if (!key) return "";
+  try {
+    const u = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&country=jp&search_lang=jp`;
+    const r = await fetchWithTimeout(u, { headers: { "Accept": "application/json", "X-Subscription-Token": key } }, 12000);
+    if (!r.ok) return "";
+    const d = await r.json().catch(() => null);
+    const items = (d && d.web && d.web.results) || [];
+    return items.map((x) => `- ${x.title || ""}\n  ${x.description || ""}\n  ${x.url || ""}`).filter((s) => s.trim()).join("\n");
+  } catch { return ""; }
+}
 async function geminiGrounded(question, siteText) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY 未設定");
@@ -558,9 +572,10 @@ async function geminiGrounded(question, siteText) {
     generationConfig: { temperature: 0.2, maxOutputTokens: 1100 },
     tools: [{ google_search: {} }],
   };
-  // まず 3.x（安いgrounding）を使い、もし失敗したら 2.5 にフォールバックする。
-  const primary = process.env.GEMINI_WEB_MODEL || "gemini-flash-latest";
-  const models = [...new Set([primary, "gemini-2.5-flash"])];
+  // 2.5系はグラウンディング無料枠が1日1,500件（≒月45,000件）と広く、この規模では実質無料。
+  // （3.x系は月5,000件のみ無料。大量に回すなら GEMINI_WEB_MODEL で切替可）
+  const primary = process.env.GEMINI_WEB_MODEL || "gemini-2.5-flash";
+  const models = [...new Set([primary, "gemini-2.5-flash", "gemini-flash-latest"])];
   let lastErr = "";
   for (const model of models) {
     try {
@@ -633,19 +648,25 @@ export async function lookupEmployeeCount(companyName, hint = "") {
 export async function lookupHiringCount(companyName, hint = "") {
   const name = String(companyName || "").trim();
   if (!name) return { found: false };
+  // ① Brave検索を先に（安い）。
   let research = "";
   try {
-    research = await geminiGrounded(
-      `「${name}」${hint ? "（" + hint + "）" : ""}の採用予定人数（年間の採用人数）を調べてください。` +
-      `「${name} 採用予定人数」「${name} 採用人数」「${name} 新卒 採用人数」「${name} 中途 募集人数」で検索し、` +
-      `公式採用サイト、マイナビ・リクナビ等の募集要項、就職四季報などの複数ソースを照合してください。` +
-      `数値が確認できたソースのURLを必ず挙げてください。確認できない場合は「不明」と明記し、憶測で数値を作らないこと。`,
-      ""
-    );
-  } catch (e) {
-    console.warn("[hiring-lookup] grounding失敗", e.message);
-    return { found: false, error: "検索に失敗しました" };
+    research = await braveResearch(`${name} 採用予定人数 採用人数 新卒 中途 募集人数`, 8);
+  } catch {}
+  // ② Braveが薄いときだけ、Geminiグラウンディングで補う（保険）。
+  if (!research || research.trim().length < 150) {
+    try {
+      const g = await geminiGrounded(
+        `「${name}」${hint ? "（" + hint + "）" : ""}の採用予定人数（年間の採用人数）を調べてください。` +
+        `「${name} 採用予定人数」「${name} 採用人数」「${name} 新卒 採用人数」「${name} 中途 募集人数」で検索し、` +
+        `公式採用サイト、マイナビ・リクナビ等の募集要項、就職四季報などの複数ソースを照合してください。` +
+        `数値が確認できたソースのURLを必ず挙げてください。確認できない場合は「不明」と明記し、憶測で数値を作らないこと。`,
+        ""
+      );
+      research = [research, g].filter(Boolean).join("\n");
+    } catch (e) { console.warn("[hiring-lookup] grounding失敗", e.message); }
   }
+  if (!research || !research.trim()) return { found: false };
   const schema = {
     type: "object",
     properties: {
@@ -661,7 +682,7 @@ export async function lookupHiringCount(companyName, hint = "") {
     "リサーチ結果に採用人数の記載と出典が無ければ found=false にします。決して推測で数値を作らないこと。" +
     "範囲（例: 3〜5名）の場合はその文字列のまま hires に入れてよい。出力は指定JSONのみ。";
   const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、採用人数をJSONで出力してください。`;
-  const o = parseJson(await callLLM(sys, user, 400, { schema, provider: "anthropic" })) || {};
+  const o = parseJson(await callLLM(sys, user, 400, { schema, provider: "gemini", model: "gemini-2.5-flash-lite" })) || {};
   const h = String(o.hires || "").trim();
   if (!o.found || !h) return { found: false };
   return { found: true, hires: h, source_url: String(o.source_url || "").trim(), confidence: ["high", "medium", "low"].includes(o.confidence) ? o.confidence : "low" };
@@ -677,20 +698,30 @@ export const PAID_JOB_SITES = [
 export async function lookupJobMedia(companyName) {
   const name = String(companyName || "").trim();
   if (!name) return { found: false, media: [] };
+  // ① Brave検索を先に（安い）。中途と新卒でそれぞれ検索してスニペットを集める。
   let research = "";
   try {
-    research = await geminiGrounded(
-      `「${name}」が掲載している求人・就活サイトを、中途採用と新卒採用の両方調べてください。` +
-      `【中途】「${name} 中途採用 求人」「${name} doda」「${name} マイナビ転職」「${name} リクナビNEXT」「${name} エン転職」等で検索。` +
-      `【新卒】「${name} 新卒採用」「${name} マイナビ 20XX」「${name} リクナビ 就活」「${name} キャリタス就活」「${name} ONE CAREER」「${name} あさがくナビ」等で必ず検索すること（新卒ナビは見落としやすいので中途と同じくらい丁寧に）。` +
-      `新卒サイトのURL目安: マイナビ(新卒)=job.mynavi.jp、リクナビ(新卒)=job.rikunabi.com、キャリタス=career-tasu.jp、ONE CAREER=onecareer.jp。` +
-      `次の有料求人サイトのうち、${name} の掲載（企業ページ/求人ページ）が実在するものを、URLを挙げて特定してください: ${PAID_JOB_SITES.join("、")}。確認できないものは含めない・憶測しない。`,
-      ""
-    );
-  } catch (e) {
-    console.warn("[media-lookup] grounding失敗", e.message);
-    return { found: false, media: [], error: "検索に失敗しました" };
+    const [a, b] = await Promise.all([
+      braveResearch(`${name} 求人 掲載 doda マイナビ転職 リクナビNEXT エン転職 Indeed`, 6),
+      braveResearch(`${name} 新卒採用 マイナビ リクナビ キャリタス就活 ONE CAREER あさがくナビ`, 6),
+    ]);
+    research = [a, b].filter(Boolean).join("\n");
+  } catch {}
+  // ② Braveが薄い（掲載URLが拾えていない）ときだけ、Geminiグラウンディングで補う（保険）。
+  if (!research || research.trim().length < 150) {
+    try {
+      const g = await geminiGrounded(
+        `「${name}」が掲載している求人・就活サイトを、中途採用と新卒採用の両方調べてください。` +
+        `【中途】「${name} 中途採用 求人」「${name} doda」「${name} マイナビ転職」「${name} リクナビNEXT」「${name} エン転職」等で検索。` +
+        `【新卒】「${name} 新卒採用」「${name} マイナビ」「${name} リクナビ 就活」「${name} キャリタス就活」「${name} ONE CAREER」「${name} あさがくナビ」等で必ず検索すること（新卒ナビは見落としやすい）。` +
+        `新卒サイトのURL目安: マイナビ(新卒)=job.mynavi.jp、リクナビ(新卒)=job.rikunabi.com、キャリタス=career-tasu.jp、ONE CAREER=onecareer.jp。` +
+        `次の有料求人サイトのうち、${name} の掲載（企業ページ/求人ページ）が実在するものを、URLを挙げて特定してください: ${PAID_JOB_SITES.join("、")}。確認できないものは含めない・憶測しない。`,
+        ""
+      );
+      research = [research, g].filter(Boolean).join("\n");
+    } catch (e) { console.warn("[media-lookup] grounding失敗", e.message); }
   }
+  if (!research || !research.trim()) return { found: false, media: [] };
   const schema = { type: "object", properties: { media: { type: "array", items: { type: "string" } } }, required: ["media"] };
   const sys =
     "あなたは求人媒体の調査アシスタントです。与えられた検索リサーチ結果だけを根拠に、会社が掲載している有料求人・就活サイトを判定します。中途と新卒の両方を必ず確認すること。" +
@@ -698,7 +729,7 @@ export async function lookupJobMedia(companyName) {
     `出力する媒体名は必ず次のいずれかに正規化すること: ${PAID_JOB_SITES.join("、")}。` +
     "検索結果にその媒体の掲載ページ（URL）が確認できるものだけを media に入れます。確認できなければ空配列。推測で足さないこと。出力は指定JSONのみ。";
   const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、掲載が確認できた有料求人サイトをJSONで出力してください。`;
-  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "gemini", model: "gemini-2.5-flash-lite" })) || {};
   const allow = new Set(PAID_JOB_SITES.map((s) => s.toLowerCase()));
   const media = [...new Set((Array.isArray(o.media) ? o.media : []).map((x) => String(x).trim()).filter((x) => allow.has(x.toLowerCase())))];
   return { found: media.length > 0, media };
