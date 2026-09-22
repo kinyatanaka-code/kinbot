@@ -196,6 +196,7 @@ import {
   markBooked,
   listBookViewers,
   createCallList,
+  extractTargetsToNewList,
   listCallTargets,
   listAllLeadsForMember,
   searchAllLeadsGlobal,
@@ -7825,6 +7826,23 @@ app.get("/api/calls/lists-all", async (req, res) => {
     })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 絞り込んだリード（call_target id の配列）を、新しい1つのリストへ「移動」して抜き出す。
+// 担当(assigned_to)はそのまま。所有者は操作者。クローザー・管理者のみ。
+app.post("/api/calls/lists/extract", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const name = String(req.body?.name || "").trim();
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!name) return res.status(400).json({ error: "新しいリストの名前を入れてください" });
+    if (!ids.length) return res.status(400).json({ error: "抜き出す行がありません" });
+    const owner = String(req.user || "").trim().toLowerCase() || null;
+    const r = await extractTargetsToNewList({ name, ids, owner, createdBy: req.user, note: "編集テーブルから抜き出し" });
+    if (!r) return res.status(500).json({ error: "抜き出せませんでした" });
+    console.log(`[kincall] ${r.moved}件を新リスト「${r.name}」(#${r.listId})へ抜き出し by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リストの所有者を変える（クローザー・管理者のみ）。reassign=true で担当もそろえる。
 app.put("/api/calls/lists/:id/owner", async (req, res) => {
   try {
@@ -20470,7 +20488,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22e 編集テーブルに従業員数の範囲しぼり込み（下限〜上限 名）を追加。edFilteredで従業員数の数字を取り出し min/max で絞る（空欄・「-」は範囲指定時に外れる）。※『絞った分を別リストへ抜き出す』機能は仕様確認中で未実装。前段：2026-09-22d 「編集」タブで『選択したリストを編集』（や管理（新）の『このN件を編集』）を押すと、①②③の選択ピッカーを隠して編集テーブルだけの全画面リスト一覧に切り替わるように。左上『← 選び直す』で選択に戻れる。編集タブを開き直す/更新すると選択画面に戻る。前段：2026-09-22c 「管理（新）」タブのメンバー/グループ詳細で、リストを複数選択できるように（各行チェックボックス＋全部選ぶ/はずす）。1件以上選ぶと下部に『このN件を編集する』ボタンが出て、押すと既存「編集」タブの編集テーブル（ステージ/企業名/担当者/電話/メール/ステータス/従業員数/採用人数/媒体掲載…）にそのリストを読み込んで切り替わる。編集テーブルは流用（orgLoadEdit）。非表示/割り振りは従来どおり併存。前段：2026-09-22b リスト管理に新タブ「管理（新）」を追加（既存の状況/編集/整理はそのまま）。メンバー別／グループ別を上部で切替。メンバー別はメンバーカードをチーム（セールス=closer／インサイド=inside／他）ごとに並べ、カードを押すとその人の保有リスト一覧→各リストを『非表示』または『別の人へ割り振り』できる。グループ別はグループカード→そのグループのリスト（担当横断）で同じ操作。lists-all＋/api/membersの役割で構成し、非表示=PUT hidden・割り振り=PUT owner(reassign)を再利用。サーバ無改修・フロントのみ。";
+const BUILD_TAG = "2026-09-22f 編集テーブルで『絞り込んだ分を新リストに抜き出す』を追加。いま表示中（従業員数の範囲等で絞った）行を、元のリストから新しい1つのリストへ移動（list_id付替）してまとめる。各リードの担当(assigned_to)・従業員数・履歴は保持、新リストの所有者は操作者。クローザー/管理者のみ（POST /api/calls/lists/extract、db.extractTargetsToNewList でトランザクション）。前段：2026-09-22e 従業員数の範囲しぼり込み。前段：2026-09-22d 「編集」タブで『選択したリストを編集』（や管理（新）の『このN件を編集』）を押すと、①②③の選択ピッカーを隠して編集テーブルだけの全画面リスト一覧に切り替わるように。左上『← 選び直す』で選択に戻れる。編集タブを開き直す/更新すると選択画面に戻る。前段：2026-09-22c 「管理（新）」タブのメンバー/グループ詳細で、リストを複数選択できるように（各行チェックボックス＋全部選ぶ/はずす）。1件以上選ぶと下部に『このN件を編集する』ボタンが出て、押すと既存「編集」タブの編集テーブル（ステージ/企業名/担当者/電話/メール/ステータス/従業員数/採用人数/媒体掲載…）にそのリストを読み込んで切り替わる。編集テーブルは流用（orgLoadEdit）。非表示/割り振りは従来どおり併存。前段：2026-09-22b リスト管理に新タブ「管理（新）」を追加（既存の状況/編集/整理はそのまま）。メンバー別／グループ別を上部で切替。メンバー別はメンバーカードをチーム（セールス=closer／インサイド=inside／他）ごとに並べ、カードを押すとその人の保有リスト一覧→各リストを『非表示』または『別の人へ割り振り』できる。グループ別はグループカード→そのグループのリスト（担当横断）で同じ操作。lists-all＋/api/membersの役割で構成し、非表示=PUT hidden・割り振り=PUT owner(reassign)を再利用。サーバ無改修・フロントのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

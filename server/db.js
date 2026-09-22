@@ -3791,6 +3791,29 @@ export async function createCallList({ name, owner, note, createdBy }) {
   } catch (e) { console.error("[db] createCallList", e.message); return null; }
 }
 
+// 指定した call_target を新しいリストへ「移動」する（list_id を付け替え）。
+// 担当(assigned_to)・従業員数・履歴などの列はそのまま。所有者は owner に持たせる。
+export async function extractTargetsToNewList({ name, ids, owner = null, createdBy = null, note = "" }) {
+  if (!pool || !Array.isArray(ids) || !ids.length) return null;
+  const nums = [...new Set(ids.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n)))];
+  if (!nums.length) return null;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      `INSERT INTO call_lists (name, owner, note, created_by) VALUES ($1,$2,$3,$4) RETURNING id, name`,
+      [String(name || "抜き出しリスト").slice(0, 120), owner || null, String(note || "").slice(0, 300), createdBy || null]);
+    const listId = rows[0].id;
+    const upd = await client.query(`UPDATE call_targets SET list_id = $1 WHERE id = ANY($2::int[])`, [listId, nums]);
+    await client.query("COMMIT");
+    return { listId, name: rows[0].name, moved: upd.rowCount };
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch {}
+    console.error("[db] extractTargetsToNewList", e.message);
+    return null;
+  } finally { client.release(); }
+}
+
 // リストに宛先を足す（何件でもまとめて）
 // 架電先が同じかどうかを見分けるためのカギ（リードID・電話・会社名）
 function callDedupeKeys(leadId, phone, company) {

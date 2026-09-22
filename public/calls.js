@@ -4804,6 +4804,7 @@ async function orgLoadLists() {
     if ($("edCsvOut")) $("edCsvOut").addEventListener("click", edExportCsv);
     if ($("edCsvIn")) $("edCsvIn").addEventListener("click", () => $("edCsvFile") && $("edCsvFile").click());
     if ($("edCsvFile")) $("edCsvFile").addEventListener("change", edImportCsv);
+    if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
   }
   memBox.querySelector(".ed3-body").innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
@@ -5089,11 +5090,37 @@ async function edImportCsv(ev) {
     if (_edChosen.size) orgLoadEdit([..._edChosen.keys()]);
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
 }
+// 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持）
+async function edExtract() {
+  const rows = edFiltered();
+  const ids = rows.map((r) => r.id).filter(Boolean);
+  if (!ids.length) { alert("抜き出す行がありません（絞り込み結果が0件です）"); return; }
+  const min = ($("edEmpMin") && $("edEmpMin").value) || "", max = ($("edEmpMax") && $("edEmpMax").value) || "";
+  const rangeLabel = (min || max) ? `従業員${min || "?"}〜${max || "?"}名 ` : "";
+  const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  const def = `抜き出し ${rangeLabel}${today}`;
+  const name = prompt(`新しいリストの名前を入れてください。\nいま表示中の ${ids.length} 件を、元のリストから移して、この新しいリストにまとめます（担当はそのまま保持されます）。`, def);
+  if (name == null) return;
+  const nm = String(name).trim(); if (!nm) return;
+  const btn = $("edExtract"); if (btn) btn.disabled = true;
+  const st = $("edEnrichSt"); if (st) st.textContent = "抜き出しています…";
+  try {
+    const r = await fetch("/api/calls/lists/extract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nm, ids }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "");
+    const moved = new Set(ids.map(String));
+    _edRows = _edRows.filter((x) => !moved.has(String(x.id)));   // 移動したので一覧から外す
+    if (st) st.textContent = `${d.moved} 件を新リスト「${d.name}」に抜き出しました`;
+  } catch (e) {
+    if (st) st.textContent = "抜き出せませんでした（" + (e.message || "権限がないか、通信に失敗しました") + "）";
+  } finally { edRender(); }
+}
 function edRender() {
   const tbl = $("edTable"); if (!tbl) return;
   const g = _edg;
   const rows = edFiltered();
   if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
+  if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
   tbl.innerHTML = rows.length
     ? '<div class="kc-prev-wrap" style="max-height:60vh"><table class="kc-table kc-prev ed-table"><thead><tr><th>ステージ</th><th>企業名</th><th>担当者</th><th>電話</th><th>メール</th><th>架電状態</th><th>従業員数</th><th>採用人数</th><th>媒体掲載</th><th>グループ</th><th>所有者</th></tr></thead><tbody>' +
       rows.map((r) => `<tr data-id="${r.id}">
