@@ -4293,6 +4293,7 @@ async function nmLoad() {
     if ($("nmReload")) $("nmReload").addEventListener("click", () => { _nmMembers = []; _nmSel = null; _nmChosen = new Set(); nmLoad(); });
     if ($("nmMakeBtn")) $("nmMakeBtn").addEventListener("click", nmGoMake);
     if ($("nmRevertNurture")) $("nmRevertNurture").addEventListener("click", nmRevertNurture);
+    document.addEventListener("click", (e) => { if (!e.target.closest || !e.target.closest(".nm-kebab")) document.querySelectorAll(".nm-kmenu").forEach((m) => (m.hidden = true)); });
     if ($("nmHostBack")) $("nmHostBack").addEventListener("click", nmExitHost);
     if ($("nmMakeBtn") && !document.querySelector('[data-ls-pane="make"]')) $("nmMakeBtn").hidden = true;
   }
@@ -4356,7 +4357,7 @@ function nmRenderDetail() {
       <div class="nm-lcard-name"><span class="nm-lname-t">${esc(x.name)}</span><button type="button" class="nm-rename" data-id="${x.id}" data-name="${esc(x.name)}" title="名前を変える">✎</button></div>
       <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
-      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><button type="button" class="btn ghost nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button><button type="button" class="btn ghost nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除</button></div>
+      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button><button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
     </div>`;
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
@@ -4369,6 +4370,12 @@ function nmRenderDetail() {
   body.querySelectorAll(".nm-redist").forEach((b) => b.addEventListener("click", () => openRedistribute(b.dataset.id, b.dataset.name, null, null, nmLoad)));
   body.querySelectorAll(".nm-del").forEach((b) => b.addEventListener("click", () => nmDelete(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-rename").forEach((b) => b.addEventListener("click", () => nmRename(b.dataset.id, b.dataset.name)));
+  body.querySelectorAll(".nm-kebab").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const menu = b.parentElement.querySelector(".nm-kmenu"); const open = menu && !menu.hidden;
+    body.querySelectorAll(".nm-kmenu").forEach((m) => (m.hidden = true));
+    if (menu) menu.hidden = open;
+  }));
   body.querySelectorAll(".nm-selchk").forEach((c) => c.addEventListener("change", () => {
     const id = String(c.dataset.id);
     if (c.checked) _nmChosen.add(id); else _nmChosen.delete(id);

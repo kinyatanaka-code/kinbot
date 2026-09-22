@@ -6470,6 +6470,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .nm-lcard-ops .nm-hide { font-size:12px; padding:4px 10px; flex:none; }
 .nm-lcard-ops .nm-del { font-size:12px; padding:4px 10px; flex:none; color:#c0392b; border-color:#e6b0aa; }
 .nm-lcard-ops .nm-del:hover { background:#fdecea; border-color:#d98880; }
+.nm-kebab-wrap { position:relative; flex:none; }
+.nm-kebab { border:1px solid #cfe0d8; background:#fff; color:#173a30; border-radius:8px; font-size:15px; line-height:1; padding:5px 10px; cursor:pointer; }
+.nm-kebab:hover { border-color:#5DCAA5; background:#f2faf6; }
+.nm-kmenu { position:absolute; right:0; top:calc(100% + 4px); z-index:30; background:#fff; border:1px solid #e6ece9; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.14); padding:4px; min-width:150px; display:flex; flex-direction:column; }
+.nm-mi { text-align:left; border:none; background:#fff; color:#173a30; font-size:12px; padding:8px 11px; border-radius:7px; cursor:pointer; white-space:nowrap; }
+.nm-mi:hover { background:#f2faf6; }
+.nm-mi.nm-del { color:#c0392b; }
+.nm-mi.nm-del:hover { background:#fdecea; }
 .nm-lrow { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid #e6ece9; border-radius:10px; padding:9px 11px; }
 .nm-lrow-main { flex:1; min-width:0; }
 .nm-lrow-name { font-size:13px; font-weight:600; color:#173a30; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
