@@ -49,6 +49,7 @@ function when(v) {
 }
 
 // リスト選択のピル（隠しselectの鏡写し。クリックでselectを切り替える）
+let _clCounts = {};   // value(リストid / "all") -> 残り件数
 function renderClPills() {
   const sel = $("clList"), box = $("clPills"); if (!sel || !box) return;
   const cur = String(sel.value || "");
@@ -56,7 +57,9 @@ function renderClPills() {
   box.innerHTML = [...sel.options].map((o) => {
     const on = o.value === cur;
     const star = o.value === "all";
-    return `<button type="button" class="cl-pill${on ? " active" : ""}${star ? " star" : ""}" data-v="${esc(o.value)}"><span class="cl-pdot"></span>${esc(short(o.value, o.textContent))}</button>`;
+    const n = _clCounts[o.value];
+    const cnt = (n != null) ? `<span class="cl-pcnt">${Number(n).toLocaleString()}</span>` : "";
+    return `<button type="button" class="cl-pill${on ? " active" : ""}${star ? " star" : ""}" data-v="${esc(o.value)}"><span class="cl-pdot"></span>${esc(short(o.value, o.textContent))}${cnt}</button>`;
   }).join("");
 }
 // ───────── リストを選ぶ ─────────
@@ -73,6 +76,8 @@ async function loadLists() {
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
     if (keep && (["all", "archive", "recycle", "nurture"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
+    _clCounts = { all: items.reduce((s, x) => s + Number(x.残り || 0), 0) };
+    for (const x of items) _clCounts[String(x.id)] = Number(x.残り || 0);
     renderClPills();
     {
       const v = sel.value;

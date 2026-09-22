@@ -20528,7 +20528,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23g かける画面のリスト選択を、ドロップダウンからタップ式のピル（白×緑）に。実体の #clList select は hidden で残し、それを鏡写しにする #clPills を生成（renderClPills）。ピルのクリックで select.value を変えて change を発火＝既存の切替ロジックはそのまま。loadLists で構築、loadTable で active 同期。カード/コンパクト切替は無し。フロントのみ（表・ヘッダー・記録は現状のまま）。";
+const BUILD_TAG = "2026-09-23h かけるのリストピルを調整。(1)☆全ての紫→濃い緑(#0d5b47)。(2)各ピルに件数（残り）を表示（/api/calls/lists の残り、☆全ては合計）。(3)探す検索ボックスを立体的に（角丸・影・フォーカス緑リング、固定幅解除）。フロントのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
