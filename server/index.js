@@ -9499,11 +9499,11 @@ app.get("/api/calls/targets", async (req, res) => {
     const rawEdit = req.query.edit === "1";   // 編集テーブル用：打ち切らず全件・ステージ除外なし
     let rows;
     let 復活リストか = false;
-    if (listParam === "archive" || listParam === "recycle") {
-      // アーカイブ／リサイクルのカード：ステージで横断して集める（どのリストにあっても）
-      const kw = listParam === "archive" ? "アーカイブ" : "リサイクル";
-      // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱い＝アーカイブのまとめに含める
-      const statusMatch = listParam === "archive" ? ["現在使われて", "現アナ", "欠番", "不通", "使われていない番号"] : [];
+    if (listParam === "archive" || listParam === "recycle" || listParam === "crosslost") {
+      // アーカイブ／リサイクル／クロス失注のカード：ステージ・ステータスで横断して集める（どのリストにあっても）
+      const kw = listParam === "archive" ? "アーカイブ" : listParam === "recycle" ? "リサイクル" : "クロス失注";
+      // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱い。クロス失注はステータス側にも入りうる。
+      const statusMatch = listParam === "archive" ? ["現在使われて", "現アナ", "欠番", "不通", "使われていない番号"] : listParam === "crosslost" ? ["クロス失注"] : [];
       rows = await listStageTargets(kw, {
         q: String(req.query.q || ""),
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
@@ -9549,7 +9549,7 @@ app.get("/api/calls/targets", async (req, res) => {
     // ただしアーカイブ／リサイクルのカード、および「リサイクル復活リスト」の中身は出す。
     if (rawEdit) {
       // 編集テーブルでは全件そのまま出す（カードの「全」の件数と一致させる）
-    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "nurture" && listParam !== "nurture-all" && !復活リストか) {
+    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && !復活リストか) {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
@@ -20528,7 +20528,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23e 修正：ナーチャリング/リサイクル/アーカイブの横断リード一覧で、所有者が全員あなたに見えていた（各リードの実所有者が渡っておらず所有者selの初期選択が空→先頭メンバーになっていた）。listStageTargets/listNurtureTargetsForMember に call_lists を結合して owner/group を返し、targets items に listOwner/listGroupId/listGroupName を追加。orgLoadEdit は meta が無い仮想時に各リードの実リストの所有者/グループを使うように。表示が正しくなり、所有者/グループ変更も各リードの実リストに効く。";
+const BUILD_TAG = "2026-09-23f 管理タブ「その他」に『クロス失注』カードを追加。ステータス「失注（クロス失注）」等（stage/status ILIKE クロス失注）のリードを横断で集計・一覧。カードを押すと編集テーブルで一覧表示され、絞り込んで『新リストに抜き出す』で1つのリストにまとめられる。list=crosslost（listStageTargets kw=クロス失注＋statusMatch）、stage-summary に crosslost 追加、後段フィルタ除外。プレーンな失注は対象外。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -3887,12 +3887,13 @@ export async function stageSummaryCounts() {
     const { rows } = await pool.query(
       `SELECT
          count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%アーカイブ%' OR COALESCE(t.status,'') ~ '現在使われて|現アナ|欠番|不通|使われていない番号') AS archive,
-         count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%') AS recycle
+         count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%') AS recycle,
+         count(*) FILTER (WHERE COALESCE(t.stage,'') ILIKE '%クロス失注%' OR COALESCE(t.status,'') ILIKE '%クロス失注%') AS crosslost
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)`);
     const r = rows[0] || {};
-    return { archive: Number(r.archive || 0), recycle: Number(r.recycle || 0) };
-  } catch (e) { console.error("[db] stageSummaryCounts", e.message); return { archive: 0, recycle: 0 }; }
+    return { archive: Number(r.archive || 0), recycle: Number(r.recycle || 0), crosslost: Number(r.crosslost || 0) };
+  } catch (e) { console.error("[db] stageSummaryCounts", e.message); return { archive: 0, recycle: 0, crosslost: 0 }; }
 }
 
 export async function listAllCallLists() {

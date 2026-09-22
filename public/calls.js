@@ -4270,7 +4270,7 @@ let _nmMembers = [];               // 全メンバー（役割つき）
 let _nmMemByEmail = new Map();      // email -> member
 let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"group", key, name}
 let _nmChosen = new Set();          // 編集のために選んだリスト id
-let _nmStage = { archive: 0, recycle: 0 };   // アーカイブ／リサイクルの実データ件数（横断集計）
+let _nmStage = { archive: 0, recycle: 0, crosslost: 0 };   // アーカイブ／リサイクル／クロス失注の実データ件数（横断集計）
 function nmMemberName(email) { if (email === "__other__") return "未割り当て"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わらずセールス扱いにする人
 function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
@@ -4281,7 +4281,7 @@ async function nmFetch() {
     (_nmMembers.length ? Promise.resolve(null) : fetch("/api/members", { cache: "no-store" }).then((r) => r.json()).catch(() => null)),
     fetch("/api/calls/stage-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
   ]);
-  if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0) };
+  if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0), crosslost: Number(sg.crosslost || 0) };
   _nmLists = (d.items || []).filter((x) => !NM_EX.includes(String(x.owner || "").toLowerCase()));
   if (mm && Array.isArray(mm.members)) { _nmMembers = mm.members.filter((m) => m.active !== false); _nmMemByEmail = new Map(_nmMembers.map((m) => [String(m.email || "").toLowerCase(), m])); }
 }
@@ -4333,6 +4333,7 @@ function nmRenderCards() {
     spCard("nurture", "ナーチャリング", totalNur, "ジャッジ・営業フォロー（全体）") +
     spCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") +
     spCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") +
+    spCard("crosslost", "クロス失注", _nmStage.crosslost, "クロス失注のリード（全体）") +
     `</div></div>`;
   body.innerHTML = html;
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
@@ -4368,6 +4369,7 @@ function nmRenderSpecial(body) {
     nurture: { name: "ナーチャリング", vid: "nurture-all" },
     recycle: { name: "リサイクル", vid: "recycle" },
     archive: { name: "アーカイブ", vid: "archive" },
+    crosslost: { name: "クロス失注", vid: "crosslost" },
   }[_nmSel.key];
   if (!info) { body.innerHTML = '<div class="empty-state">表示できませんでした</div>'; return; }
   nmGoEditVirtual(info.vid, `${info.name}（全体）`);
