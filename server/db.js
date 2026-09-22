@@ -3793,18 +3793,22 @@ export async function createCallList({ name, owner, note, createdBy }) {
 
 // 指定した call_target を新しいリストへ「移動」する（list_id を付け替え）。
 // 担当(assigned_to)・従業員数・履歴などの列はそのまま。所有者は owner に持たせる。
-export async function extractTargetsToNewList({ name, ids, owner = null, createdBy = null, note = "" }) {
+export async function extractTargetsToNewList({ name, ids, owner = null, createdBy = null, note = "", reassign = false }) {
   if (!pool || !Array.isArray(ids) || !ids.length) return null;
   const nums = [...new Set(ids.map((x) => parseInt(x, 10)).filter((n) => Number.isFinite(n)))];
   if (!nums.length) return null;
+  const own = owner ? String(owner).trim().toLowerCase() : null;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const { rows } = await client.query(
       `INSERT INTO call_lists (name, owner, note, created_by) VALUES ($1,$2,$3,$4) RETURNING id, name`,
-      [String(name || "抜き出しリスト").slice(0, 120), owner || null, String(note || "").slice(0, 300), createdBy || null]);
+      [String(name || "抜き出しリスト").slice(0, 120), own, String(note || "").slice(0, 300), createdBy || null]);
     const listId = rows[0].id;
-    const upd = await client.query(`UPDATE call_targets SET list_id = $1 WHERE id = ANY($2::int[])`, [listId, nums]);
+    // reassign=true のときは、リストの持ち主に合わせて担当(assigned_to)もそろえる
+    const upd = (reassign && own)
+      ? await client.query(`UPDATE call_targets SET list_id = $1, assigned_to = $3 WHERE id = ANY($2::int[])`, [listId, nums, own])
+      : await client.query(`UPDATE call_targets SET list_id = $1 WHERE id = ANY($2::int[])`, [listId, nums]);
     await client.query("COMMIT");
     return { listId, name: rows[0].name, moved: upd.rowCount };
   } catch (e) {

@@ -7844,8 +7844,9 @@ app.post("/api/calls/lists/extract", async (req, res) => {
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
     if (!name) return res.status(400).json({ error: "新しいリストの名前を入れてください" });
     if (!ids.length) return res.status(400).json({ error: "抜き出す行がありません" });
-    const owner = String(req.user || "").trim().toLowerCase() || null;
-    const r = await extractTargetsToNewList({ name, ids, owner, createdBy: req.user, note: "編集テーブルから抜き出し" });
+    const chosen = String(req.body?.owner || "").trim().toLowerCase();   // 抜き出し先の所有者（メンバー）。空なら自分の所有・担当そのまま
+    const owner = chosen || (String(req.user || "").trim().toLowerCase() || null);
+    const r = await extractTargetsToNewList({ name, ids, owner, createdBy: req.user, note: "編集テーブルから抜き出し", reassign: !!chosen });
     if (!r) return res.status(500).json({ error: "抜き出せませんでした" });
     console.log(`[kincall] ${r.moved}件を新リスト「${r.name}」(#${r.listId})へ抜き出し by ${req.user}`);
     res.json({ ok: true, ...r });
@@ -20528,7 +20529,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23j かける画面に、その他（未割り当て＝所有者なし）のリストが出ていた不具合を修正。listCallLists（リストピル）と listAllLeadsForMember（全てのリード）の「自分に配られたリードがある」パスを、所有者ありのリストに限定（COALESCE(l.owner,'') <> ''）。自分が持ち主のリスト、他人が持ち主で自分に配られた分は従来どおり表示、その他へ振り分けたリストは出さない。";
+const BUILD_TAG = "2026-09-23k 編集テーブルの「新リストに抜き出す」で、所有者を選べるように。抜き出しボタンの隣に所有者ドロップダウン（自分の所有＝従来／メンバーを選ぶとそのメンバー所有＋担当もそのメンバーに一括）。クロス失注などを、選んだメンバーの所有で一括まとめられる。extract endpoint に owner を追加、extractTargetsToNewList に reassign（assigned_to をそろえる）を追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

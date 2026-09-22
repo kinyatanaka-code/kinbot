@@ -5080,6 +5080,7 @@ async function orgLoadEdit(listIds) {
     }
     _edRows = all;
     if ($("edFilterBar")) $("edFilterBar").hidden = false;
+    edFillExtractOwner();
     edRender();
   } catch (e) { tbl.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
 }
@@ -5334,7 +5335,16 @@ async function edDedupe() {
     if (st) st.textContent = "できませんでした（" + (e.message || "権限がないか通信に失敗") + "）";
   } finally { const b = $("edDedupe"); if (b) b.disabled = false; }
 }
-// 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持）
+// 抜き出し先の所有者ドロップダウンをメンバーで埋める
+function edFillExtractOwner() {
+  const sel = $("edExtractOwner"); if (!sel) return;
+  const cur = sel.value;
+  const opts = (_edMembers || []).filter((m) => !["goldfly32@gmail.com"].includes(String(m.email || "").toLowerCase()))
+    .map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)} の所有にする（担当も${esc(m.name || m.email)}に）</option>`).join("");
+  sel.innerHTML = `<option value="">抜き出し先：自分の所有（担当はそのまま）</option>` + opts;
+  if (cur) sel.value = cur;
+}
+// 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持 or 選んだメンバーへ）
 async function edExtract() {
   const rows = edFiltered();
   const ids = rows.map((r) => r.id).filter(Boolean);
@@ -5344,13 +5354,17 @@ async function edExtract() {
   const rangeLabel = dash ? "従業員数未取得 " : (min || max) ? `従業員${min || "?"}〜${max || "?"}名 ` : "";
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
   const def = `抜き出し ${rangeLabel}${today}`;
-  const name = prompt(`新しいリストの名前を入れてください。\nいま表示中の ${ids.length} 件を、元のリストから移して、この新しいリストにまとめます（担当はそのまま保持されます）。`, def);
+  const ownerSel = $("edExtractOwner");
+  const ownerVal = (ownerSel && ownerSel.value) || "";
+  const ownerName = ownerVal && ownerSel ? (ownerSel.options[ownerSel.selectedIndex].textContent.replace(/\s*の所有にする.*/, "")) : "";
+  const ownerLine = ownerVal ? `\n所有者：${ownerName}（担当も${ownerName}にそろえます）` : "\n所有者：自分（担当はそのまま）";
+  const name = prompt(`新しいリストの名前を入れてください。\nいま表示中の ${ids.length} 件を、元のリストから移して、この新しいリストにまとめます。${ownerLine}`, def);
   if (name == null) return;
   const nm = String(name).trim(); if (!nm) return;
   const btn = $("edExtract"); if (btn) btn.disabled = true;
   const st = $("edEnrichSt"); if (st) st.textContent = "抜き出しています…";
   try {
-    const r = await fetch("/api/calls/lists/extract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nm, ids }) });
+    const r = await fetch("/api/calls/lists/extract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nm, ids, owner: ownerVal }) });
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.ok) throw new Error(d.error || "");
     const moved = new Set(ids.map(String));
