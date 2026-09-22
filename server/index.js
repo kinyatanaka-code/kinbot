@@ -20516,7 +20516,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22x 編集テーブルに『重複を削除』を追加。編集中のリスト内で同一リード（リードIDが同じ、無ければ 会社(正規化)＋担当＋電話 が同じ）をまとめ、call_logs（履歴）が最も多い1件だけ残して他を削除（call_logsはON DELETE CASCADEで一緒に消える）。db.dedupeTargetsInLists＋POST /api/calls/targets/dedupe（クローザー/管理者のみ）。削除後は表を取り直す。SFのリードは残る。";
+const BUILD_TAG = "2026-09-22y 管理タブの「残」にナーチャリングも合算（残＝担当者不在/空欄 ＋ ジャッジ/営業フォロー）。メンバー/グループカードと詳細リストカードの残を 残ステータス＋ナーチャリング に。ナーチャリングの内訳表示はそのまま。フロントのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
