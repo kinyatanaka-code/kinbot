@@ -6424,9 +6424,16 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed3-go { margin-top:8px; }
 @media (max-width:760px){ .ed3 { grid-template-columns:1fr; } .ed3-col + .ed3-col { border-left:none; padding-left:0; border-top:1px solid #eef2f0; padding-top:10px; margin-top:6px; } .ed3-body { max-height:34vh; } }
 
-/* 編集テーブル：従業員数の範囲しぼり込み */
-.ed-emp-range { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:#173a30; white-space:nowrap; }
-.ed-emp-in { width:74px; max-width:74px; }
+/* 編集テーブル：列ヘッダーの絞り込み */
+.ed-table th { vertical-align:top; }
+.ed-th-name { font-weight:700; font-size:12px; color:#173a30; margin-bottom:4px; }
+.ed-th-f { font-weight:400; }
+.ed-cf { width:100%; min-width:74px; font-size:12px; padding:3px 6px; border:1px solid #cfe0d8; border-radius:7px; background:#fff; color:#173a30; box-sizing:border-box; }
+.ed-empf { display:flex; align-items:center; gap:3px; flex-wrap:wrap; font-size:11px; color:#173a30; }
+.ed-empf .ed-emp-in { width:52px; max-width:52px; }
+.ed-emp-in { width:74px; max-width:74px; font-size:12px; padding:3px 5px; border:1px solid #cfe0d8; border-radius:7px; box-sizing:border-box; }
+.ed-dash { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; cursor:pointer; }
+.ed-dash input { width:14px; height:14px; accent-color:#0f6e56; margin:0; }
 
 /* 新「管理」タブ（メンバー別／グループ別） */
 .nm-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:4px 0 14px; }

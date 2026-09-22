@@ -4786,7 +4786,7 @@ async function orgLoadLists() {
       $("edModeSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
       edRenderMembers(); edRenderLists();
     }));
-    ["edQ", "edStage", "edStatus", "edMedia", "edEmpMin", "edEmpMax"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
+
     (async () => {
       try {
         const s = await (await fetch("/api/calls/enrich-status")).json();
@@ -4891,13 +4891,6 @@ async function orgLoadEdit(listIds) {
       for (const r of (d.items || [])) { r._listId = id; r._listName = meta.name || ""; r._owner = meta.owner || ""; r._group = meta.group_name || ""; r._groupId = meta.group_id || ""; all.push(r); }
     }
     _edRows = all;
-    // フィルタの選択肢
-    const uniq = (fn) => [...new Set(all.map(fn).filter(Boolean))].sort();
-    const g = (r, ...keys) => { for (const k of keys) if (r[k] !== undefined && r[k] !== null && r[k] !== "") return String(r[k]); return ""; };
-    const fill = (selId, vals) => { const el = $(selId); if (!el) return; const cur = el.value; const head = el.options[0].outerHTML; el.innerHTML = head + vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join(""); el.value = cur; };
-    fill("edStage", uniq((r) => g(r, "ステージ", "stage")));
-    fill("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status")));
-    fill("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")));
     if ($("edFilterBar")) $("edFilterBar").hidden = false;
     edRender();
   } catch (e) { tbl.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
@@ -4905,24 +4898,32 @@ async function orgLoadEdit(listIds) {
 function _edg(r, ...keys) { for (const k of keys) if (r[k] !== undefined && r[k] !== null && r[k] !== "") return String(r[k]); return ""; }
 function edFiltered() {
   const g = _edg;
-  const q = ($("edQ") && $("edQ").value.trim().toLowerCase()) || "";
+  const v = (id) => { const el = $(id); return el ? String(el.value || "").trim().toLowerCase() : ""; };
   const stg = ($("edStage") && $("edStage").value) || "";
   const sts = ($("edStatus") && $("edStatus").value) || "";
   const med = ($("edMedia") && $("edMedia").value) || "";
+  const qCo = v("edQCompany"), qPe = v("edQPerson"), qPh = v("edQPhone"), qEm = v("edQEmail");
   const empMin = parseInt(($("edEmpMin") && $("edEmpMin").value) || "", 10);
   const empMax = parseInt(($("edEmpMax") && $("edEmpMax").value) || "", 10);
   const hasMin = Number.isFinite(empMin), hasMax = Number.isFinite(empMax);
+  const dashOnly = !!($("edEmpDash") && $("edEmpDash").checked);
   return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
     if (sts && g(r, "最終ステータス", "最終結果", "status") !== sts) return false;
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
-    if (hasMin || hasMax) {
-      const n = parseInt(String(g(r, "従業員数", "employees")).replace(/[^\d]/g, ""), 10);
+    if (qCo && !g(r, "会社名", "company").toLowerCase().includes(qCo)) return false;
+    if (qPe && !g(r, "担当者", "person").toLowerCase().includes(qPe)) return false;
+    if (qPh && !g(r, "電話", "電話番号", "phone").toLowerCase().includes(qPh)) return false;
+    if (qEm && !g(r, "メール", "メールアドレス", "email").toLowerCase().includes(qEm)) return false;
+    const empRaw = String(g(r, "従業員数", "employees")).trim();
+    if (dashOnly) {
+      if (empRaw !== "-") return false;   // 「-」（未取得）だけに絞る
+    } else if (hasMin || hasMax) {
+      const n = parseInt(empRaw.replace(/[^\d]/g, ""), 10);
       if (!Number.isFinite(n)) return false;   // 空欄・「-」など数値でないものは範囲指定時に外す
       if (hasMin && n < empMin) return false;
       if (hasMax && n > empMax) return false;
     }
-    if (q) { const hay = [g(r, "会社名", "company"), g(r, "担当者", "person"), g(r, "電話", "電話番号", "phone"), g(r, "メール", "メールアドレス", "email")].join(" ").toLowerCase(); if (!hay.includes(q)) return false; }
     return true;
   });
 }
@@ -5096,7 +5097,8 @@ async function edExtract() {
   const ids = rows.map((r) => r.id).filter(Boolean);
   if (!ids.length) { alert("抜き出す行がありません（絞り込み結果が0件です）"); return; }
   const min = ($("edEmpMin") && $("edEmpMin").value) || "", max = ($("edEmpMax") && $("edEmpMax").value) || "";
-  const rangeLabel = (min || max) ? `従業員${min || "?"}〜${max || "?"}名 ` : "";
+  const dash = !!($("edEmpDash") && $("edEmpDash").checked);
+  const rangeLabel = dash ? "従業員数未取得 " : (min || max) ? `従業員${min || "?"}〜${max || "?"}名 ` : "";
   const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
   const def = `抜き出し ${rangeLabel}${today}`;
   const name = prompt(`新しいリストの名前を入れてください。\nいま表示中の ${ids.length} 件を、元のリストから移して、この新しいリストにまとめます（担当はそのまま保持されます）。`, def);
@@ -5115,15 +5117,37 @@ async function edExtract() {
     if (st) st.textContent = "抜き出せませんでした（" + (e.message || "権限がないか、通信に失敗しました") + "）";
   } finally { edRender(); }
 }
-function edRender() {
+function edBuildTable() {
   const tbl = $("edTable"); if (!tbl) return;
+  const g = _edg;
+  const uniq = (fn) => [...new Set(_edRows.map(fn).filter(Boolean))].sort();
+  const sel = (id, vals, head) => `<select id="${id}" class="ed-cf"><option value="">${head}</option>${vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>`;
+  const txt = (id) => `<input id="${id}" class="ed-cf" placeholder="絞り込み" />`;
+  const th = (name, filter) => `<th><div class="ed-th-name">${name}</div>${filter ? `<div class="ed-th-f">${filter}</div>` : ""}</th>`;
+  const empF = `<div class="ed-empf"><input type="number" id="edEmpMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edEmpMax" class="ed-emp-in" placeholder="上限" min="0" /><label class="ed-dash"><input type="checkbox" id="edEmpDash" />「-」のみ</label></div>`;
+  const head = "<tr>" +
+    th("ステージ", sel("edStage", uniq((r) => g(r, "ステージ", "stage")), "すべて")) +
+    th("企業名", txt("edQCompany")) +
+    th("担当者", txt("edQPerson")) +
+    th("電話", txt("edQPhone")) +
+    th("メール", txt("edQEmail")) +
+    th("架電状態", sel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status")), "すべて")) +
+    th("従業員数", empF) +
+    th("採用人数", "") +
+    th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) +
+    th("グループ", "") +
+    th("所有者", "") + "</tr>";
+  tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
+  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+}
+function edRenderBody() {
   const g = _edg;
   const rows = edFiltered();
   if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
   if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
-  tbl.innerHTML = rows.length
-    ? '<div class="kc-prev-wrap" style="max-height:60vh"><table class="kc-table kc-prev ed-table"><thead><tr><th>ステージ</th><th>企業名</th><th>担当者</th><th>電話</th><th>メール</th><th>架電状態</th><th>従業員数</th><th>採用人数</th><th>媒体掲載</th><th>グループ</th><th>所有者</th></tr></thead><tbody>' +
-      rows.map((r) => `<tr data-id="${r.id}">
+  const tb = $("edTbody"); if (!tb) return;
+  tb.innerHTML = rows.length
+    ? rows.map((r) => `<tr data-id="${r.id}">
         <td>${esc(g(r, "ステージ", "stage"))}</td>
         <td>${esc(g(r, "会社名", "company"))}</td>
         <td>${esc(g(r, "担当者", "person"))}</td>
@@ -5135,10 +5159,9 @@ function edRender() {
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
         <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
         <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>
-      </tr>`).join("") + "</tbody></table></div>"
-    : '<div class="empty-state">条件に合うリードがありません。</div>';
-  // グループ変更（リスト全体に適用）
-  tbl.querySelectorAll(".ed-group").forEach((sel) => sel.addEventListener("change", async () => {
+      </tr>`).join("")
+    : '<tr><td colspan="11" class="empty-state" style="padding:18px">条件に合うリードがありません。</td></tr>';
+  tb.querySelectorAll(".ed-group").forEach((sel) => sel.addEventListener("change", async () => {
     const list = sel.dataset.list; const gid = sel.value; const gname = gid ? ((GROUPS.find((x) => String(x.id) === String(gid)) || {}).name || "") : "";
     sel.style.outline = "2px solid #f0b429";
     try {
@@ -5149,10 +5172,9 @@ function edRender() {
       sel.style.outline = "2px solid #1d9e75"; setTimeout(() => (sel.style.outline = ""), 800);
     } catch { sel.style.outline = "2px solid #e06b5e"; }
   }));
-  // 所有者変更（リスト全体・担当もそろえる）
-  tbl.querySelectorAll(".ed-owner").forEach((sel) => sel.addEventListener("change", async () => {
+  tb.querySelectorAll(".ed-owner").forEach((sel) => sel.addEventListener("change", async () => {
     const list = sel.dataset.list; const owner = sel.value;
-    if (!confirm(`このリストの所有者を変更します（担当もそろえます）。よろしいですか？`)) { edRender(); return; }
+    if (!confirm(`このリストの所有者を変更します（担当もそろえます）。よろしいですか？`)) { edRenderBody(); return; }
     sel.style.outline = "2px solid #f0b429";
     try {
       const r = await fetch(`/api/calls/lists/${encodeURIComponent(list)}/owner`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, reassign: true }) });
@@ -5162,16 +5184,20 @@ function edRender() {
       sel.style.outline = "2px solid #1d9e75"; setTimeout(() => (sel.style.outline = ""), 800);
     } catch (e) { sel.style.outline = "2px solid #e06b5e"; }
   }));
-  tbl.querySelectorAll(".ed-f").forEach((inp) => inp.addEventListener("change", async () => {
+  tb.querySelectorAll(".ed-f").forEach((inp) => inp.addEventListener("change", async () => {
     const tr = inp.closest("tr"); const id = tr && tr.dataset.id; if (!id) return;
     const body = {}; body[inp.dataset.f] = inp.value;
-    // メモリ側も更新（フィルタ再描画で戻らないように）
     const row = _edRows.find((x) => String(x.id) === String(id));
     if (row) { const map = { employees: "従業員数", hires: "採用人数", media_tags: "媒体掲載" }; row[map[inp.dataset.f]] = inp.value; }
     inp.style.outline = "2px solid #f0b429";
     try { const rr = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/fields`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!rr.ok) throw new Error(); inp.style.outline = "2px solid #1d9e75"; setTimeout(() => (inp.style.outline = ""), 800); }
     catch { inp.style.outline = "2px solid #e06b5e"; }
   }));
+}
+function edRender() {
+  const tbl = $("edTable"); if (!tbl) return;
+  if (!$("edTbody")) edBuildTable();
+  edRenderBody();
 }
 
 // グループ別ビュー：あるグループのリストを、メンバー横断で一覧表示（押すとプレビュー）
