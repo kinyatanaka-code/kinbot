@@ -621,8 +621,11 @@ function render() {
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
         ${rcols.map((k) => {
           const e = rowExtra(x);
-          const v = cleanRecruitVal(e && e[k]);
-          const cls = RECRUIT_DATE_KEYS.has(k) ? deadlineClass(v) : "";
+          const isDate = RECRUIT_DATE_KEYS.has(k) || /掲載終了|終了日/.test(k);
+          let v = cleanRecruitVal(e && e[k]);
+          // 掲載終了日：見出しキーが空でも、掲載終了系の別キー（表記ゆれ）から値を拾う
+          if (isDate && !v) v = recruitVal(x, /掲載終了/);
+          const cls = isDate ? deadlineClass(v) : "";
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
       </tr>`;
