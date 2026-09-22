@@ -4271,7 +4271,7 @@ let _nmMemByEmail = new Map();      // email -> member
 let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"group", key, name}
 let _nmChosen = new Set();          // 編集のために選んだリスト id
 let _nmStage = { archive: 0, recycle: 0 };   // アーカイブ／リサイクルの実データ件数（横断集計）
-function nmMemberName(email) { if (email === "__other__") return "その他（未割り当て・アーカイブ・リサイクル）"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
+function nmMemberName(email) { if (email === "__other__") return "未割り当て"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わらずセールス扱いにする人
 function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
 function nmBar(zan, all) { const pct = all ? Math.round(zan / all * 100) : 0; const col = (all && zan / all >= 0.6) ? "#1d9e75" : (all && zan / all >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
@@ -4312,10 +4312,9 @@ function nmRenderCards() {
   // メンバー別：所有者で束ねてチーム（セールス／インサイド／他）に振り分け
   const byOwner = new Map();
   const orphan = [];   // 所有者なし（誰にも振り分けられていない・アーカイブ・リサイクル）
-  for (const x of _nmLists) { const k = String(x.owner || "").toLowerCase(); if (!k) { orphan.push(x); continue; } if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
+  for (const x of _nmLists) { const k = String(x.owner || "").toLowerCase(); if (!k) { if (!["アーカイブ", "リサイクル"].includes(String(x.name || "").trim())) orphan.push(x); continue; } if (!byOwner.has(k)) byOwner.set(k, []); byOwner.get(k).push(x); }
   const buckets = { sales: [], inside: [], other: [] };
   for (const [email, ls] of byOwner) buckets[nmTeamOf(email)].push({ email, ls });
-  if (orphan.length) buckets.other.push({ email: "__other__", ls: orphan });   // 「その他」メンバー
   const secs = [["sales", "セールス"], ["inside", "インサイド"], ["other", "他"]];
   let html = "", any = false;
   for (const [key, label] of secs) {
@@ -4325,8 +4324,23 @@ function nmRenderCards() {
       arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div></button>`; }).join("") +
       `</div></div>`;
   }
-  body.innerHTML = any ? html : '<div class="empty-state">リストを持っているメンバーがいません</div>';
-  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) }; nmRenderDetail(); }));
+  // その他：未割り当て／ナーチャリング／リサイクル／アーカイブ をそれぞれカードで出す
+  const totalNur = _nmLists.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0);
+  const unZan = orphan.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
+  const spCard = (key, name, n, sub) => `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`;
+  html += `<div class="nm-sec"><div class="nm-sec-h">その他</div><div class="nm-grid">` +
+    `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div></button>` +
+    spCard("nurture", "ナーチャリング", totalNur, "ジャッジ・営業フォロー（全体）") +
+    spCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") +
+    spCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") +
+    `</div></div>`;
+  body.innerHTML = html;
+  body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
+    _nmChosen = new Set();
+    if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special };
+    else _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) };
+    nmRenderDetail();
+  }));
 }
 function nmRenderGroupCards(body) {
   const byGroup = new Map();
@@ -4348,8 +4362,20 @@ function nmStageCards() {
   return card("アーカイブ（全体）", _nmStage.archive, "ステージがアーカイブ・使われていない番号の全リード。かける画面の「アーカイブ（まとめ）」で対応します。") +
     card("リサイクル（全体）", _nmStage.recycle, "ステージがリサイクルの全リード。かける画面の「リサイクル（まとめ）」で対応します。");
 }
+// ナーチャリング／リサイクル／アーカイブ（横断集計）の情報詳細
+function nmRenderSpecial(body) {
+  const info = {
+    nurture: { name: "ナーチャリング", n: _nmLists.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0), note: "ジャッジ・営業フォローのリード（全体）。元リストに残したまま、かける画面の「ナーチャリング（まとめ）」から架電・記録できます。" },
+    recycle: { name: "リサイクル", n: _nmStage.recycle, note: "ステージがリサイクルのリード（全体）。かける画面の「リサイクル（まとめ）」から対応できます。" },
+    archive: { name: "アーカイブ", n: _nmStage.archive, note: "ステージがアーカイブ・使われていない番号のリード（全体）。かける画面の「アーカイブ（まとめ）」から対応できます。" },
+  }[_nmSel.key] || { name: "その他", n: 0, note: "" };
+  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(info.name)}<span class="nm-detail-n">${Number(info.n).toLocaleString()} 件</span></div></div>` +
+    `<div class="nm-lgrid"><div class="nm-lcard nm-lcard-virt"><div class="nm-lcard-name"><span class="nm-lname-t">${esc(info.name)}（全体）</span></div><div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(info.n).toLocaleString()}</span></div><div class="nm-lcard-sub">${esc(info.note)}</div></div></div>`;
+  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+}
 function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
+  if (_nmSel.type === "special") return nmRenderSpecial(body);
   let ls;
   if (_nmSel.type === "owner") {
     if (_nmSel.key === "__other__") ls = _nmLists.filter((x) => !String(x.owner || "").trim() && !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
@@ -4376,7 +4402,7 @@ function nmRenderDetail() {
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
   body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${ls.length} リスト</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
-    `<div class="nm-lgrid">${(_nmSel.key === "__other__" ? nmStageCards() : "")}${rows || (_nmSel.key === "__other__" ? "" : '<div class="empty-state">リストがありません</div>')}</div><span class="rev-status" id="nmOpSt"></span>` +
+    `<div class="nm-lgrid">${rows || '<div class="empty-state">リストがありません</div>'}</div><span class="rev-status" id="nmOpSt"></span>` +
     `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button></div>`;
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
