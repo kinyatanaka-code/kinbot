@@ -5103,6 +5103,8 @@ function _parseCsv(text) {
   if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
   return rows;
 }
+// 会社名の表記ゆれを吸収して突合するための正規化（サーバの突合キーと同じ考え方）
+function _normCo(s) { return String(s || "").replace(/[\s　]/g, "").replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "").toLowerCase(); }
 function edExportCsv() {
   const g = _edg; const rows = edFiltered();
   const st = $("edEnrichSt");
@@ -5131,18 +5133,44 @@ async function edImportCsv(ev) {
   if (grid.length < 2) { alert("CSVにデータがありません"); return; }
   const head = grid[0].map((h) => String(h).trim());
   const idx = (n) => head.indexOf(n);
-  const cId = idx("リードID"), cCo = idx("会社名"), cEmp = idx("従業員数"), cHire = idx("採用人数"), cMed = idx("媒体掲載"), cGrp = idx("グループ"), cAsg = idx("担当"), cAsgE = idx("担当メール");
-  if (cId < 0) { alert("「リードID」列が見つかりません。書き出したCSVを編集して使ってください。"); return; }
-  const rows = grid.slice(1).map((r) => ({
-    id: r[cId], company: cCo >= 0 ? r[cCo] : undefined, employees: cEmp >= 0 ? r[cEmp] : undefined, hires: cHire >= 0 ? r[cHire] : undefined,
-    media_tags: cMed >= 0 ? r[cMed] : undefined, group: cGrp >= 0 ? r[cGrp] : "", assigned_name: cAsg >= 0 ? r[cAsg] : "", assigned_email: cAsgE >= 0 ? r[cAsgE] : "",
-  })).filter((r) => String(r.id || "").trim());
+  const cId = idx("リードID");
+  const cCo = idx("会社名") >= 0 ? idx("会社名") : idx("企業名");   // どちらの見出しでも会社名として扱う
+  const cEmp = idx("従業員数"), cHire = idx("採用人数"), cMed = idx("媒体掲載"), cGrp = idx("グループ"), cAsg = idx("担当"), cAsgE = idx("担当メール");
+  let rows, byCompany = false, coMatched = 0, coNoMatch = 0;
+  if (cId >= 0) {
+    // 書き出したCSV（リードID列あり）：従来どおりリードIDで突合
+    rows = grid.slice(1).map((r) => ({
+      id: r[cId], company: cCo >= 0 ? r[cCo] : undefined, employees: cEmp >= 0 ? r[cEmp] : undefined, hires: cHire >= 0 ? r[cHire] : undefined,
+      media_tags: cMed >= 0 ? r[cMed] : undefined, group: cGrp >= 0 ? r[cGrp] : "", assigned_name: cAsg >= 0 ? r[cAsg] : "", assigned_email: cAsgE >= 0 ? r[cAsgE] : "",
+    })).filter((r) => String(r.id || "").trim());
+  } else if (cCo >= 0) {
+    // リードIDが無いCSV（会社名＋従業員数など）：いま表示中の編集テーブルの行に会社名で突合する
+    byCompany = true;
+    const byCo = new Map();
+    for (const er of _edRows) { const k = _normCo(_edg(er, "会社名", "company")); if (!k) continue; if (!byCo.has(k)) byCo.set(k, []); byCo.get(k).push(er); }
+    const map = new Map();   // call_target id -> 反映内容（同じ会社が複数行あれば後勝ち）
+    for (const gr of grid.slice(1)) {
+      const k = _normCo(gr[cCo]); if (!k) continue;
+      const ers = byCo.get(k) || [];
+      if (!ers.length) { coNoMatch++; continue; }
+      coMatched++;
+      const emp = cEmp >= 0 ? gr[cEmp] : undefined, hire = cHire >= 0 ? gr[cHire] : undefined, med = cMed >= 0 ? gr[cMed] : undefined;
+      for (const er of ers) map.set(String(er.id), { id: er.id, employees: emp, hires: hire, media_tags: med });   // その会社の全リードに反映
+    }
+    rows = [...map.values()];
+    if (!rows.length) { alert(`会社名が一致する行がありませんでした（CSV ${grid.length - 1}行）。株式会社の有無などの表記ゆれは吸収しますが、それでも一致しない場合は「リードID」列つきの書き出しCSVを使ってください。`); return; }
+  } else {
+    alert("「リードID」列か「会社名（企業名）」列が必要です。書き出したCSVを編集するか、会社名＋従業員数のCSVを使ってください。");
+    return;
+  }
   if (!rows.length) { alert("有効な行がありません"); return; }
   if (st) st.textContent = "確認中…";
   try {
     const dr = await (await fetch("/api/calls/import-edit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows, dryRun: true }) })).json();
     const s = dr.summary || {};
-    const msg = `${rows.length}件を反映します。\n担当変更 ${s.assignedChanged || 0}／会社名 ${s.companyChanged || 0}／従業員数など ${s.fieldChanged || 0}／グループ ${s.groupChanged || 0}` +
+    const msg = (byCompany
+      ? `会社名で突合して ${rows.length} 行に反映します（一致 ${coMatched} 社・該当なし ${coNoMatch} 社）。\n従業員数など ${s.fieldChanged || 0} 件を更新します。`
+      : `${rows.length}件を反映します。\n担当変更 ${s.assignedChanged || 0}／会社名 ${s.companyChanged || 0}／従業員数など ${s.fieldChanged || 0}／グループ ${s.groupChanged || 0}`) +
       ((s.skipped && s.skipped.length) ? `\n担当が特定できずスキップ ${s.skipped.length}件` : "") + `\n\n実行しますか？`;
     if (!confirm(msg)) { if (st) st.textContent = ""; return; }
     if (st) st.textContent = "反映中…";
