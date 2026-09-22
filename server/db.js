@@ -3941,8 +3941,9 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
     // （中身を配られただけの人のカードに、他人のリストが出てしまうのを防ぐ）
     // ownerOnly=true でも「自分に配られたぶんがあるリスト」は出す。
     // （リストを作った人は別でも、分配された人のカードに出したいため）
-    const scope = `($1 = '' OR l.owner = $1 OR l.name IN ('アーカイブ', 'リサイクル') OR EXISTS (
-             SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1))`;
+    // 所有者なし（その他／未割り当て）のリストは、自分の担当リードがあっても かける には出さない。
+    const scope = `($1 = '' OR l.owner = $1 OR l.name IN ('アーカイブ', 'リサイクル') OR (COALESCE(l.owner,'') <> '' AND EXISTS (
+             SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1)))`;
     const { rows } = await pool.query(
       `SELECT l.*,
               (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
@@ -4405,7 +4406,7 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
     const p = [String(member).toLowerCase()];
     // そのメンバーが「持ち主のリスト」＋「自分に配られた（担当の）架電先」を対象にする。
     // これで、リストを所有していない人（配られただけの人）でもまとまって出る。
-    let where = `(l.owner = $1 OR lower(coalesce(t.assigned_to,'')) = $1) AND NOT l.closed AND NOT COALESCE(l.hidden, false)`;
+    let where = `(l.owner = $1 OR (COALESCE(l.owner,'') <> '' AND lower(coalesce(t.assigned_to,'')) = $1)) AND NOT l.closed AND NOT COALESCE(l.hidden, false)`;
     if (q) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
