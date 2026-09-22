@@ -5081,8 +5081,10 @@ function edRenderChosen() {
   ).join("");
   body.querySelectorAll(".ed3-chosen-x").forEach((b) => b.addEventListener("click", () => { _edChosen.delete(b.dataset.id); edRenderLists(); edRenderChosen(); }));
 }
+let _edCrosslost = false;   // クロス失注ビューか（失注日/失注理由/失注後次回アクション日の列を出す）
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
+  _edCrosslost = (listIds || []).map(String).includes("crosslost");
   edSetTableMode(true);   // 表だけの全画面一覧に切り替え
   if ($("edTableTitle")) $("edTableTitle").textContent = `リスト編集（${(listIds || []).length} 件のリスト）`;
   tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
@@ -5120,6 +5122,12 @@ function edFiltered() {
     if (qPe && !g(r, "担当者", "person").toLowerCase().includes(qPe)) return false;
     if (qPh && !g(r, "電話", "電話番号", "phone").toLowerCase().includes(qPh)) return false;
     if (qEm && !g(r, "メール", "メールアドレス", "email").toLowerCase().includes(qEm)) return false;
+    if (_edCrosslost) {
+      const lr = ($("edLostReason") && $("edLostReason").value) || "";
+      if (lr && g(r, "失注理由") !== lr) return false;
+      const qLd = v("edQLostDate"); if (qLd && !String(g(r, "失注日")).toLowerCase().includes(qLd)) return false;
+      const qNa = v("edQNextAct"); if (qNa && !String(g(r, "失注後次回アクション日")).toLowerCase().includes(qNa)) return false;
+    }
     const empRaw = String(g(r, "従業員数", "employees")).trim();
     if (dashOnly) {
       if (empRaw !== "-") return false;   // 「-」（未取得）だけに絞る
@@ -5409,9 +5417,10 @@ function edBuildTable() {
     th("採用人数", "") +
     th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) +
     th("グループ", "") +
-    th("所有者", "") + "</tr>";
+    th("所有者", "") +
+    (_edCrosslost ? th("失注日", txt("edQLostDate")) + th("失注理由", sel("edLostReason", uniq((r) => g(r, "失注理由")), "すべて")) + th("失注後次回アクション日", txt("edQNextAct")) : "") + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edQLostDate", "edQNextAct"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
 }
 function edRenderBody() {
   const g = _edg;
@@ -5432,8 +5441,9 @@ function edRenderBody() {
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
         <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
         <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>
+        ${_edCrosslost ? `<td>${esc(g(r, "失注日"))}</td><td>${esc(g(r, "失注理由"))}</td><td>${esc(g(r, "失注後次回アクション日"))}</td>` : ""}
       </tr>`).join("")
-    : '<tr><td colspan="11" class="empty-state" style="padding:18px">条件に合うリードがありません。</td></tr>';
+    : `<tr><td colspan="${_edCrosslost ? 14 : 11}" class="empty-state" style="padding:18px">条件に合うリードがありません。</td></tr>`;
   tb.querySelectorAll(".ed-group").forEach((sel) => sel.addEventListener("change", async () => {
     const list = sel.dataset.list; const gid = sel.value; const gname = gid ? ((GROUPS.find((x) => String(x.id) === String(gid)) || {}).name || "") : "";
     sel.style.outline = "2px solid #f0b429";

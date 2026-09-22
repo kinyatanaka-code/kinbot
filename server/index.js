@@ -9718,7 +9718,10 @@ app.get("/api/calls/targets", async (req, res) => {
           if (Object.keys(oppMap).length) {
             for (const x of items) {
               const d = oppMap[normCompanyKey(x.会社名)];
-              if (d) x.追加 = { ...(x.追加 || {}), ...d };   // 失注商談の項目を優先して見せる
+              if (d) {
+                x["失注日"] = d["失注日"] || ""; x["失注理由"] = d["失注理由"] || ""; x["失注後次回アクション日"] = d["失注後次回アクション日"] || "";
+                x.追加 = { ...(x.追加 || {}), ...d };   // かける表向けにも残す
+              }
             }
           }
         }
@@ -20594,7 +20597,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23n クロス失注一覧のSF失注項目を、確認済みのAPI名に確定：失注日=order_date__c（☆受失注日）、失注理由=Loss_Reason__c（受失注理由(大項目)）、失注後次回アクション日=LostOpp_nextactiondate__c。ラベル自動判別（小/中項目や理由詳細を誤取得する恐れ）を廃し、describeで実在チェックのうえ直接指定。list=crosslost のときだけ・全てtry/catchでgraceful。";
+const BUILD_TAG = "2026-09-23o クロス失注一覧に失注日/失注理由/失注後次回アクション日が出なかった件を修正。編集テーブルは固定列で追加データを列表示しないため、クロス失注時(_edCrosslost)だけ3列を追加。サーバは失注商談項目をリードのトップレベル(x.失注日/失注理由/失注後次回アクション日)にも付与。edBuildTable/edRenderBodyに3列＋絞り込み（失注理由=プルダウン、失注日/次回アクション日=テキスト）、空表示colspanも調整。SF由来なので値はSF連携・突合次第。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
