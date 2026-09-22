@@ -963,3 +963,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-22 BUILD_TAG=2026-09-22x 編集テーブルに「重複を削除」。db.js dedupeTargetsInLists(listIds)＝対象リストの call_targets を取り、キー(lead_id あれば lead:、無ければ cpt:会社正規化|担当(空白除去)|電話数字)でグループ化、call_logs 件数(logs)最多→id小 を残し残りを DELETE（call_logs は ON DELETE CASCADE で一緒に消える、cpt:|| は除外）。index.js POST /api/calls/targets/dedupe（クローザー/管理者のみ、body{listIds}）＋import。calls.html #edFilterBar の抜き出しボタン前に #edDedupe「重複を削除」。calls.js edDedupe()＝_edChosen.keys()を listIds に confirm→POST→#edEnrichSt に結果→orgLoadEdit 再読込、init 配線。SFリードは残る。スコープは編集中リスト内のみ。版20260922x。
 
 - 2026-09-22 BUILD_TAG=2026-09-22y 管理タブの「残」にナーチャリングを合算。calls.js nmRenderCards/nmRenderGroupCards/nmRenderDetail の zan を 残ステータス＋ナーチャリング に（両者は定義上重複しないので合算＝担当者不在/空欄＋ジャッジ/営業フォロー）。ナーチャリングの内訳（副題）は据え置き、bar も新zan基準。フロントのみ。版20260922y。
+
+- 2026-09-22 BUILD_TAG=2026-09-22z 管理カードのリスト名/メンバー・グループ名が「…」で切れていたのを全文表示に。style.css .nm-card-name と .nm-lname-t を white-space:normal＋overflow-wrap:anywhere＋word-break:break-word＋line-height:1.35 に（ellipsis撤去）、.nm-lcard-name を align-items:flex-start（✎を上寄せ）。calls.js リスト名 span に title=全文。フロントのみ。版20260922z。

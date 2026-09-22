@@ -4355,7 +4355,7 @@ function nmRenderDetail() {
     const on = _nmChosen.has(String(x.id));
     return `<div class="nm-lcard${on ? " sel" : ""}" data-id="${x.id}">
       <label class="nm-check"><input type="checkbox" class="nm-selchk" data-id="${x.id}"${on ? " checked" : ""}></label>
-      <div class="nm-lcard-name"><span class="nm-lname-t">${esc(x.name)}</span><button type="button" class="nm-rename" data-id="${x.id}" data-name="${esc(x.name)}" title="名前を変える">✎</button></div>
+      <div class="nm-lcard-name"><span class="nm-lname-t" title="${esc(x.name)}">${esc(x.name)}</span><button type="button" class="nm-rename" data-id="${x.id}" data-name="${esc(x.name)}" title="名前を変える">✎</button></div>
       <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
       <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button><button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>

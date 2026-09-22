@@ -20516,7 +20516,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22y 管理タブの「残」にナーチャリングも合算（残＝担当者不在/空欄 ＋ ジャッジ/営業フォロー）。メンバー/グループカードと詳細リストカードの残を 残ステータス＋ナーチャリング に。ナーチャリングの内訳表示はそのまま。フロントのみ。";
+const BUILD_TAG = "2026-09-22z 管理タブのカードのリスト名/メンバー・グループ名を、…で切らず折り返して全部表示（.nm-card-name/.nm-lname-t を white-space:normal + overflow-wrap:anywhere）。リスト名 span に title(ホバー全文)も付与。フロントのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

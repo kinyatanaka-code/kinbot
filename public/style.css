@@ -6445,7 +6445,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .nm-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
 .nm-card { text-align:left; background:#fff; border:1px solid #e6ece9; border-radius:10px; padding:11px 12px; cursor:pointer; transition:border-color .12s, box-shadow .12s; }
 .nm-card:hover { border-color:#5DCAA5; box-shadow:0 1px 6px rgba(29,158,117,.14); }
-.nm-card-name { font-size:13px; font-weight:700; color:#173a30; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nm-card-name { font-size:13px; font-weight:700; color:#173a30; white-space:normal; overflow-wrap:anywhere; word-break:break-word; line-height:1.35; }
 .nm-card-sub { font-size:11px; color:#8a8f8c; margin-top:3px; }
 .nm-card-zan, .nm-lcard-zan { display:flex; align-items:baseline; gap:5px; margin:5px 0 1px; }
 .nm-zan-lb { font-size:11px; color:#8a8f8c; font-weight:700; }
@@ -6459,8 +6459,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .nm-lcard { position:relative; background:#fff; border:1px solid #e6ece9; border-radius:12px; padding:12px 12px 10px; display:flex; flex-direction:column; gap:4px; }
 .nm-lcard.sel { border-color:#0f6e56; background:#f2faf6; }
 .nm-lcard .nm-check { position:absolute; top:10px; right:10px; }
-.nm-lcard-name { font-size:13px; font-weight:700; color:#173a30; padding-right:26px; display:flex; align-items:center; gap:4px; }
-.nm-lname-t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.nm-lcard-name { font-size:13px; font-weight:700; color:#173a30; padding-right:26px; display:flex; align-items:flex-start; gap:4px; }
+.nm-lname-t { min-width:0; white-space:normal; overflow-wrap:anywhere; word-break:break-word; line-height:1.35; }
 .nm-rename { flex:none; border:1px solid #e6ece9; background:#fff; color:#0f6e56; border-radius:6px; font-size:11px; line-height:1; padding:2px 5px; cursor:pointer; }
 .nm-rename:hover { border-color:#5DCAA5; background:#f2faf6; }
 .nm-lcard-sub { font-size:11px; color:#8a8f8c; }
