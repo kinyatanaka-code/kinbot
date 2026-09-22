@@ -9477,6 +9477,7 @@ app.post("/api/calls/lists/split", async (req, res) => {
 app.get("/api/calls/targets", async (req, res) => {
   try {
     const listParam = String(req.query.list || "");
+    const rawEdit = req.query.edit === "1";   // 編集テーブル用：打ち切らず全件・ステージ除外なし
     let rows;
     let 復活リストか = false;
     if (listParam === "archive" || listParam === "recycle") {
@@ -9514,14 +9515,16 @@ app.get("/api/calls/targets", async (req, res) => {
       復活リストか = await isRevivalList(listId).catch(() => false);
       rows = await listCallTargets(listId, {
         q: String(req.query.q || ""),
-        limit: Math.min(2000, parseInt(req.query.limit, 10) || 2000),
+        limit: Math.min(rawEdit ? 20000 : 2000, parseInt(req.query.limit, 10) || (rawEdit ? 20000 : 2000)),
         assignedTo: String(req.query.assignedTo || ""),
       });
     }
 
     // かける一覧では、ステージが「ユーザー／失注／アーカイブ／リサイクル」のものは出さない。
     // ただしアーカイブ／リサイクルのカード、および「リサイクル復活リスト」の中身は出す。
-    if (listParam !== "archive" && listParam !== "recycle" && listParam !== "nurture" && !復活リストか) {
+    if (rawEdit) {
+      // 編集テーブルでは全件そのまま出す（カードの「全」の件数と一致させる）
+    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "nurture" && !復活リストか) {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
@@ -9548,7 +9551,7 @@ app.get("/api/calls/targets", async (req, res) => {
     }
     const sf接続 = salesforceConfigured() && (await sfConnected(数える人).catch(() => false));
     let sf数えた = false;
-    if (ids.length && sf接続) {
+    if (!rawEdit && ids.length && sf接続) {
       // 一度に長すぎる問い合わせはSalesforceに弾かれるので、小分けにする
       const 束 = 80;
       let 失敗 = 0;
@@ -20500,7 +20503,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22p ナーチャリングを「移動」から「元リストに残すビュー」方式へ。(1)自動でナーチャリングへ移す処理を既定OFF（NURTURE_AUTO=1のときだけ動く）。(2)かける画面のリスト選択に『🌱 ナーチャリング（まとめ）』を追加し、ジャッジ・営業フォローのリードを元リストに置いたまま横断表示（list=nurture＝db.listNurtureTargetsForMember、担当=assigned_to/持ち主で絞る）。物理【ナーチャリング】リストはpickerから隠す。(3)管理タブに『ナーチャリングを元に戻す』を追加＝既存の nurture-revert(all) を叩き、全員ぶんのリードを元リストへ戻す（最初に一度だけ）。これで同じリード1件を元リスト＆まとめビューの両方で見え、どちらから記録しても反映される。";
+const BUILD_TAG = "2026-09-22q 編集テーブルの件数がカードの「全」と合わない不具合を修正。原因は targets 取得の(1)1リスト2000件で打ち切り(2)ユーザー/失注/アーカイブ/リサイクル/死番のステージ除外、が編集にも効いていたこと。edit=1 のとき打ち切りを最大2万件に上げ、ステージ除外をせず全件そのまま返す（重いSF活動集計もスキップ）。orgLoadEdit は &edit=1 で取得。これで編集テーブルの件数＝カードの全件になる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

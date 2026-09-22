@@ -4960,7 +4960,7 @@ async function orgLoadEdit(listIds) {
   try {
     const all = [];
     for (const id of listIds) {
-      const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000`)).json();
+      const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(id)}&limit=20000&edit=1`)).json();
       const meta = _edLists[id] || {};
       for (const r of (d.items || [])) { r._listId = id; r._listName = meta.name || ""; r._owner = meta.owner || ""; r._group = meta.group_name || ""; r._groupId = meta.group_id || ""; all.push(r); }
     }
