@@ -56,15 +56,15 @@ async function loadLists() {
     const sel = $("clList");
     const keep = sel.value || savedListId();   // リロード時は、前回選んでいたリストに戻す
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
-    const specialOpt = `<option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
+    const specialOpt = `<option value="nurture">🌱 ナーチャリング（まとめ）</option><option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
     sel.innerHTML = allOpt + (items.length
-      ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !x.hidden; })
+      ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !n.startsWith("【ナーチャリング】") && !x.hidden; })
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
-    if (keep && (["all", "archive", "recycle"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
+    if (keep && (["all", "archive", "recycle", "nurture"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
     {
       const v = sel.value;
-      listId = ["all", "archive", "recycle"].includes(v) ? v : (Number(v) || 0);
+      listId = ["all", "archive", "recycle", "nurture"].includes(v) ? v : (Number(v) || 0);
       rememberListId(v);
       showProgress(items.find((x) => x.id === listId));
       loadTable();
@@ -85,7 +85,7 @@ async function loadTable() {
   const box = $("clTable");
   // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
   const selV = ($("clList") && $("clList").value) || "";
-  if (selV) listId = ["all", "archive", "recycle"].includes(selV) ? selV : (Number(selV) || 0);
+  if (selV) listId = ["all", "archive", "recycle", "nurture"].includes(selV) ? selV : (Number(selV) || 0);
   if (!listId) {
     // リストを選んでいなくても、管理者は探す欄から全メンバーのリストを横断して探せる
     const q0 = ($("clFind") && $("clFind").value || "").trim();
@@ -94,7 +94,7 @@ async function loadTable() {
     if (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2) findAcrossMembers();
     return;
   }
-  if (listId === "all" || listId === "archive" || listId === "recycle") selectedIds.clear();
+  if (listId === "all" || listId === "archive" || listId === "recycle" || listId === "nurture") selectedIds.clear();
   {
     const q0 = ($("clFind") && $("clFind").value || "").trim();
     box.innerHTML = '<div class="empty-state">読み込んでいます…</div>' +
@@ -103,7 +103,7 @@ async function loadTable() {
   }
   try {
     const q = $("clFind") && $("clFind").value.trim();
-    const who = (callAsMember && listId !== "all") ? "&assignedTo=" + encodeURIComponent(callAsMember) : "";
+    const who = (callAsMember && listId !== "all") ? (listId === "nurture" ? "&member=" + encodeURIComponent(callAsMember) : "&assignedTo=" + encodeURIComponent(callAsMember)) : "";
     const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
@@ -4292,6 +4292,7 @@ async function nmLoad() {
     }));
     if ($("nmReload")) $("nmReload").addEventListener("click", () => { _nmMembers = []; _nmSel = null; _nmChosen = new Set(); nmLoad(); });
     if ($("nmMakeBtn")) $("nmMakeBtn").addEventListener("click", nmGoMake);
+    if ($("nmRevertNurture")) $("nmRevertNurture").addEventListener("click", nmRevertNurture);
     if ($("nmHostBack")) $("nmHostBack").addEventListener("click", nmExitHost);
     if ($("nmMakeBtn") && !document.querySelector('[data-ls-pane="make"]')) $("nmMakeBtn").hidden = true;
   }
@@ -4385,6 +4386,18 @@ function nmUpdateEditBar() {
   const n = _nmChosen.size;
   bar.hidden = n === 0;
   if ($("nmEditN")) $("nmEditN").textContent = n;
+}
+// ナーチャリングのリードを全員ぶん元のリストへ戻す（最初の移行。以降は元リストに残す方針）
+async function nmRevertNurture() {
+  if (!confirm("今ナーチャリングリストに入っているリードを、全員ぶん元のリストへ戻します。\n（以降ナーチャリングは、元リストに残したまま「まとめ」で見る方式になります）\n実行しますか？")) return;
+  const st = $("nmSt"); if (st) st.textContent = "元のリストへ戻しています…";
+  try {
+    const r = await fetch("/api/calls/nurture-revert", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ all: true }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "");
+    if (st) st.textContent = `${d.戻した || 0} 件を元のリストへ戻しました`;
+    _nmMembers = []; nmLoad();
+  } catch (e) { const s = $("nmSt"); if (s) s.textContent = "戻せませんでした（" + (e.message || "権限がないか通信に失敗") + "）"; }
 }
 // 管理（新）の中で、共有UI（編集テーブル／作成）を出し入れする
 let _nmHostMode = null;   // "edit" | "make" | null

@@ -8958,6 +8958,32 @@ export async function nurtureCountsByMember() {
     return rows.filter((r) => r.email).map((r) => ({ email: r.email, name: names[r.email] || r.email, 件数: r.件数, リスト内: r.リスト内 }));
   } catch (e) { console.error("[db] nurtureCountsByMember", e.message); return []; }
 }
+// ナーチャリング（ジャッジ・営業フォロー）のリードを、元リストに置いたまま「まとめビュー」として返す。
+// 担当（assigned_to、無ければリストの持ち主）がそのメンバーのぶんだけ。かける画面の仮想リスト用。
+export async function listNurtureTargetsForMember(member, { q = "", limit = 2000 } = {}) {
+  if (!pool) return [];
+  const m = String(member || "").trim().toLowerCase();
+  if (!m) return [];
+  try {
+    const p = [m];
+    let where = `(${NURTURE_WHERE}) AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) = $1`;
+    if (q) { p.push(`%${String(q).replace(/[%_]/g, "")}%`); where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length} OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`; }
+    p.push(Math.max(1, Math.min(3000, limit)));
+    const { rows } = await pool.query(
+      `SELECT t.*,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
+              (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
+              (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
+              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時
+         FROM call_targets t
+         JOIN call_lists l ON l.id = t.list_id
+        WHERE ${where}
+          AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        ORDER BY t.id DESC
+        LIMIT $${p.length}`, p);
+    return rows;
+  } catch (e) { console.error("[db] listNurtureTargetsForMember", e.message); return []; }
+}
 // ナーチャリングリスト（担当ごとに1つ）。無ければ作る。
 export async function ensureNurtureList({ owner, createdBy, name }) {
   if (!pool || !owner) return null;
