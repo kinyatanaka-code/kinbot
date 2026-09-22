@@ -4483,6 +4483,7 @@ function nmExitHost() {
   if ($("nmEditHost")) $("nmEditHost").hidden = true;
   if ($("nmCards")) $("nmCards").hidden = false;
   _nmHostMode = null;
+  if (_nmSel && _nmSel.type === "special") _nmSel = null;   // 特別（ナーチャ/リサイクル/アーカイブ）は詳細が再ホストになるのでカードへ戻す
   nmLoad();   // 編集/作成での変更を反映するため取り直す
 }
 // 選んだリストを、管理（新）の中で編集テーブルとして開く（編集タブへは飛ばない）
