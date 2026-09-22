@@ -7823,6 +7823,7 @@ app.get("/api/calls/lists-all", async (req, res) => {
     res.json({ ok: true, items: rows.map((r) => ({
       id: r.id, name: r.name, owner: r.owner || "", group_id: r.group_id || null, group_name: r.group_name || "",
       全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0), 残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
+      残ステータス: Number(r["残ステータス"] || 0), ナーチャリング: Number(r["ナーチャリング"] || 0),
     })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -20488,7 +20489,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-22j 管理タブ：田中欽也を（役割に関わらず）セールスに表示。詳細のリストをカード表示（.nm-lgrid/.nm-lcard）に。件数を確実に反映するため lists-all/members の再取得を no-store＋キャッシュ無効化（抜き出しで移動した分が残/全に反映される）。";
+const BUILD_TAG = "2026-09-22k 管理タブのメンバー/グループカードと詳細リストカードに『残』と『ナーチャリング』件数を表示。残＝ステータスが担当者不在または空欄（ナーチャリング/失注/アーカイブ/リサイクル/死番は除く）。ナーチャリング＝ジャッジまたは営業フォロー。listAllCallLists に 残ステータス／ナーチャリング の集計を追加し lists-all で返す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

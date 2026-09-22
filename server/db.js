@@ -3886,7 +3886,15 @@ export async function listAllCallLists() {
       `SELECT l.id, l.name, l.owner, l.group_id,
               (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
-              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id
+                 AND (COALESCE(t.status,'')='' OR t.status ILIKE '%担当者不在%')
+                 AND COALESCE(t.stage,'')  !~ 'ユーザー|失注|アーカイブ|リサイクル|ジャッジ|営業フォロー'
+                 AND COALESCE(t.status,'') !~ '営業フォロー|アポ獲得|使われて|現在使わ|現アナ|欠番|不通') AS 残ステータス,
+              (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id
+                 AND ( COALESCE(t.stage,'') ILIKE '%ジャッジ%' OR COALESCE(t.status,'') ILIKE '%営業フォロー%' OR COALESCE(t.stage,'') ILIKE '%営業フォロー%' )
+                 AND COALESCE(t.stage,'')  !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
+                 AND COALESCE(t.status,'') !~ 'アポ獲得|使われて|現在使わ|現アナ|欠番|不通') AS ナーチャリング
          FROM call_lists l
         WHERE NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
         ORDER BY l.owner, l.name`);
