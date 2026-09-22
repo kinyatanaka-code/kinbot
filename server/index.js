@@ -8948,6 +8948,44 @@ async function fetchCrossBuckets(sfUser, crossFrom) {
   return { 受注, 進行中, 失注 };
 }
 
+// クロス失注商談の「失注理由・失注後次回アクション日・失注日」項目を、SFのdescribeでラベルから自動判別する（プロセス内キャッシュ）。
+let _crossOppFieldsCache = null;
+async function crossOppFields(sfUser) {
+  if (_crossOppFieldsCache) return _crossOppFieldsCache;
+  try {
+    const d = await describeOpportunity(sfUser);
+    const fs = d.fields || [];
+    const byLabel = (re) => { const f = fs.find((x) => re.test(String(x.label || ""))); return f ? f.name : ""; };
+    const lossReason = byLabel(/失注理由|ロスト理由|不採用理由/);
+    const nextAction = byLabel(/失注後.*次回アクション/) || byLabel(/次回アクション日|次回アクション/);
+    const lostDate = byLabel(/^失注日|失注日$/) || "CloseDate";
+    _crossOppFieldsCache = { lossReason, nextAction, lostDate };
+  } catch (e) { console.warn("[crosslost] Opportunity describe失敗", e.message); _crossOppFieldsCache = { lossReason: "", nextAction: "", lostDate: "CloseDate" }; }
+  return _crossOppFieldsCache;
+}
+// クロス失注商談を会社名キーで引き、{失注日, 失注理由, 失注後次回アクション日} を返す。失敗時は空。
+async function fetchCrosslostOppData(sfUser, crossFrom) {
+  const out = {};
+  try {
+    const f = await crossOppFields(sfUser);
+    const cols = [...new Set(["Account.Name", f.lostDate, f.lossReason, f.nextAction].filter(Boolean))];
+    const d = await sfQuery(sfUser,
+      `SELECT ${cols.join(", ")} FROM Opportunity
+        WHERE RecordType.Name LIKE '%クロス%' AND IsClosed = true AND IsWon = false AND CloseDate >= ${crossFrom}
+        LIMIT 5000`);
+    for (const o of d.records || []) {
+      const co = (o.Account && o.Account.Name) || ""; if (!co) continue;
+      const k = normCompanyKey(co);
+      const rec = { "失注日": o[f.lostDate] || o.CloseDate || "" };
+      if (f.lossReason) rec["失注理由"] = o[f.lossReason] || "";
+      if (f.nextAction) rec["失注後次回アクション日"] = o[f.nextAction] || "";
+      // 同じ会社に複数あれば、失注日が新しい方を残す
+      if (!out[k] || String(rec["失注日"] || "") >= String(out[k]["失注日"] || "")) out[k] = rec;
+    }
+  } catch (e) { console.warn("[crosslost] 商談項目の取得失敗", e.message); }
+  return out;
+}
+
 // 1つの架電リストを、SFの最新状態で監査して反映する。
 //   ステージ列 ＝ リードの状況（NEW/担当者未接触/ジャッジ 等）← SFの最新に更新
 //   最終ステータス列：
@@ -9665,6 +9703,22 @@ app.get("/api/calls/targets", async (req, res) => {
         }
       }
     } catch (e) { console.warn("[calls/targets] 求人情報の付与に失敗", e.message); }
+
+    // クロス失注ビューのときだけ：SFの失注商談から「失注日・失注理由・失注後次回アクション日」を会社名で付ける。
+    if (listParam === "crosslost") {
+      try {
+        const sfUser = await pickSfUser(req.user, req).catch(() => "");
+        if (sfUser && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
+          const oppMap = await fetchCrosslostOppData(sfUser, "2026-03-01");
+          if (Object.keys(oppMap).length) {
+            for (const x of items) {
+              const d = oppMap[normCompanyKey(x.会社名)];
+              if (d) x.追加 = { ...(x.追加 || {}), ...d };   // 失注商談の項目を優先して見せる
+            }
+          }
+        }
+      } catch (e) { console.warn("[calls/targets] 失注商談項目の付与に失敗", e.message); }
+    }
 
     // 各社の営業時間（Googleキャッシュ）から、営業中/営業時間外を付ける。
     if (placesEnabled()) {
@@ -20535,7 +20589,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23l 管理タブのクロス失注を、単一カードからメンバー別カードに変更。担当(assigned_to、無ければowner)ごとに件数を集計（crosslostCountsByMember / GET /api/calls/crosslost-members）、その他の下に「クロス失注」セクションでメンバーカード表示。カードを押すと、そのメンバーのクロス失注だけを編集テーブルで一覧（list=crosslost&member、listStageTargets に owner 絞り込み追加）。SF失注日/失注理由/次回アクション日の表示(2)は別途SF項目名待ち。";
+const BUILD_TAG = "2026-09-23m クロス失注の一覧に、SF商談（Opportunity）の失注日・失注理由・失注後次回アクション日を列表示。失注理由/次回アクション日は describe でラベルから項目API名を自動判別（キャッシュ）、失注日は失注日ラベル項目→無ければCloseDate。クロス失注商談（RecordTypeクロス/IsClosed/IsWon=false/CloseDate>=基準）を会社名キーで各リードに付与。list=crosslost のときだけ・全てtry/catchで失敗時は空列（既存動作を壊さない）。SF権限のあるユーザーのビューでのみ取得。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
