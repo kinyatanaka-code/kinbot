@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260922d" />
+    <link rel="stylesheet" href="style.css?v=20260922e" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -264,6 +264,7 @@
                 <select id="edStage" class="kc-input" style="max-width:170px"><option value="">ステージ（すべて）</option></select>
                 <select id="edStatus" class="kc-input" style="max-width:170px"><option value="">状態（すべて）</option></select>
                 <select id="edMedia" class="kc-input" style="max-width:170px"><option value="">媒体（すべて）</option></select>
+                <span class="ed-emp-range" title="従業員数の範囲でしぼり込みます（「-」や空欄は範囲を指定すると外れます）">従業員数 <input type="number" id="edEmpMin" class="kc-input ed-emp-in" placeholder="下限" min="0" /> 〜 <input type="number" id="edEmpMax" class="kc-input ed-emp-in" placeholder="上限" min="0" /> 名</span>
                 <button type="button" class="btn ghost" id="edEnrichEmp" title="空欄の会社を、まず無料（SF→gBiz→公式サイト）で埋め、それでも空いた分だけWeb検索（Brave→Gemini）で埋めます">従業員数を自動取得</button>
                 <button type="button" class="btn ghost" id="edEnrichMedia" title="表示中で空欄の会社を、Web検索で有料求人サイトの掲載を調べてタグ付け">媒体掲載を自動取得</button>
                 <button type="button" class="btn ghost" id="edEnrichHire" title="表示中で空欄の会社を、Web検索で採用予定人数を調べて入れる">採用人数を自動取得</button>
@@ -405,9 +406,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260922d"></script>
-    <script src="calls.js?v=20260922d"></script>
-    <script src="nav.js?v=20260922d"></script>
+    <script src="sf-data.js?v=20260922e"></script>
+    <script src="calls.js?v=20260922e"></script>
+    <script src="nav.js?v=20260922e"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

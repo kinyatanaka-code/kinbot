@@ -4786,7 +4786,7 @@ async function orgLoadLists() {
       $("edModeSeg").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b));
       edRenderMembers(); edRenderLists();
     }));
-    ["edQ", "edStage", "edStatus", "edMedia"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
+    ["edQ", "edStage", "edStatus", "edMedia", "edEmpMin", "edEmpMax"].forEach((id) => { const el = $(id); if (el) el.addEventListener("input", edRender); });
     (async () => {
       try {
         const s = await (await fetch("/api/calls/enrich-status")).json();
@@ -4908,10 +4908,19 @@ function edFiltered() {
   const stg = ($("edStage") && $("edStage").value) || "";
   const sts = ($("edStatus") && $("edStatus").value) || "";
   const med = ($("edMedia") && $("edMedia").value) || "";
+  const empMin = parseInt(($("edEmpMin") && $("edEmpMin").value) || "", 10);
+  const empMax = parseInt(($("edEmpMax") && $("edEmpMax").value) || "", 10);
+  const hasMin = Number.isFinite(empMin), hasMax = Number.isFinite(empMax);
   return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
     if (sts && g(r, "最終ステータス", "最終結果", "status") !== sts) return false;
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
+    if (hasMin || hasMax) {
+      const n = parseInt(String(g(r, "従業員数", "employees")).replace(/[^\d]/g, ""), 10);
+      if (!Number.isFinite(n)) return false;   // 空欄・「-」など数値でないものは範囲指定時に外す
+      if (hasMin && n < empMin) return false;
+      if (hasMax && n > empMax) return false;
+    }
     if (q) { const hay = [g(r, "会社名", "company"), g(r, "担当者", "person"), g(r, "電話", "電話番号", "phone"), g(r, "メール", "メールアドレス", "email")].join(" ").toLowerCase(); if (!hay.includes(q)) return false; }
     return true;
   });
