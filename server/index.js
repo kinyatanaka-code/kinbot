@@ -8952,15 +8952,20 @@ async function fetchCrossBuckets(sfUser, crossFrom) {
 let _crossOppFieldsCache = null;
 async function crossOppFields(sfUser) {
   if (_crossOppFieldsCache) return _crossOppFieldsCache;
+  // 確認済みのSF商談カスタム項目のAPI名
+  const want = { lostDate: "order_date__c", lossReason: "Loss_Reason__c", nextAction: "LostOpp_nextactiondate__c" };
   try {
     const d = await describeOpportunity(sfUser);
-    const fs = d.fields || [];
-    const byLabel = (re) => { const f = fs.find((x) => re.test(String(x.label || ""))); return f ? f.name : ""; };
-    const lossReason = byLabel(/失注理由|ロスト理由|不採用理由/);
-    const nextAction = byLabel(/失注後.*次回アクション/) || byLabel(/次回アクション日|次回アクション/);
-    const lostDate = byLabel(/^失注日|失注日$/) || "CloseDate";
-    _crossOppFieldsCache = { lossReason, nextAction, lostDate };
-  } catch (e) { console.warn("[crosslost] Opportunity describe失敗", e.message); _crossOppFieldsCache = { lossReason: "", nextAction: "", lostDate: "CloseDate" }; }
+    const names = new Set((d.fields || []).map((x) => String(x.name)));   // 実在する項目だけ使う（誤ってクエリを壊さない）
+    _crossOppFieldsCache = {
+      lostDate: names.has(want.lostDate) ? want.lostDate : "CloseDate",
+      lossReason: names.has(want.lossReason) ? want.lossReason : "",
+      nextAction: names.has(want.nextAction) ? want.nextAction : "",
+    };
+  } catch (e) {
+    console.warn("[crosslost] Opportunity describe失敗（確認済み項目名を使用）", e.message);
+    _crossOppFieldsCache = { ...want };
+  }
   return _crossOppFieldsCache;
 }
 // クロス失注商談を会社名キーで引き、{失注日, 失注理由, 失注後次回アクション日} を返す。失敗時は空。
@@ -20589,7 +20594,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23m クロス失注の一覧に、SF商談（Opportunity）の失注日・失注理由・失注後次回アクション日を列表示。失注理由/次回アクション日は describe でラベルから項目API名を自動判別（キャッシュ）、失注日は失注日ラベル項目→無ければCloseDate。クロス失注商談（RecordTypeクロス/IsClosed/IsWon=false/CloseDate>=基準）を会社名キーで各リードに付与。list=crosslost のときだけ・全てtry/catchで失敗時は空列（既存動作を壊さない）。SF権限のあるユーザーのビューでのみ取得。";
+const BUILD_TAG = "2026-09-23n クロス失注一覧のSF失注項目を、確認済みのAPI名に確定：失注日=order_date__c（☆受失注日）、失注理由=Loss_Reason__c（受失注理由(大項目)）、失注後次回アクション日=LostOpp_nextactiondate__c。ラベル自動判別（小/中項目や理由詳細を誤取得する恐れ）を廃し、describeで実在チェックのうえ直接指定。list=crosslost のときだけ・全てtry/catchでgraceful。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
