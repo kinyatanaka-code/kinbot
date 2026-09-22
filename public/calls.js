@@ -4356,7 +4356,7 @@ function nmRenderDetail() {
       <div class="nm-lcard-name">${esc(x.name)}</div>
       <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
-      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><button type="button" class="btn ghost nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button></div>
+      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><button type="button" class="btn ghost nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="btn ghost nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示</button><button type="button" class="btn ghost nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除</button></div>
     </div>`;
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
@@ -4367,6 +4367,7 @@ function nmRenderDetail() {
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-redist").forEach((b) => b.addEventListener("click", () => openRedistribute(b.dataset.id, b.dataset.name, null, null, nmLoad)));
+  body.querySelectorAll(".nm-del").forEach((b) => b.addEventListener("click", () => nmDelete(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-selchk").forEach((c) => c.addEventListener("change", () => {
     const id = String(c.dataset.id);
     if (c.checked) _nmChosen.add(id); else _nmChosen.delete(id);
@@ -4460,6 +4461,17 @@ async function nmMove(listId, owner) {
     if (!r.ok) throw new Error();
     await nmFetch(); nmRenderRoot(); const s = $("nmOpSt"); if (s) s.textContent = unassign ? "その他へ移しました" : "移しました";
   } catch { const s = $("nmOpSt"); if (s) s.textContent = "移せませんでした（権限がないか、通信に失敗しました）"; }
+}
+async function nmDelete(listId, name) {
+  if (!confirm(`「${name}」を削除します。\nこのリストとkincall上の記録が消えます（もとのSalesforceのリードは残ります）。\n※他の人にも配っているリストは、その人のぶんは残ります。\n\n取り消せません。よろしいですか？`)) return;
+  const st = $("nmOpSt"); if (st) st.textContent = "削除しています…";
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}`, { method: "DELETE" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "");
+    await nmFetch(); nmRenderRoot();
+    const s = $("nmOpSt"); if (s) s.textContent = d.他人のぶんは残した ? `自分のぶん ${d.外した || 0} 件を外しました（他の人のぶんは残しました）` : "削除しました";
+  } catch (e) { const s = $("nmOpSt"); if (s) s.textContent = "削除できませんでした（" + (e.message || "権限がないか通信に失敗") + "）"; }
 }
 async function nmHide(listId, name) {
   if (!confirm(`「${name}」を非表示にします。よろしいですか？\n（もとのSalesforceのリードは残ります）`)) return;
