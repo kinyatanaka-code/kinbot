@@ -20630,7 +20630,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23r 過去リスト（クロス失注）の一覧に、失注した商談の所有者（商談所有者＝Opportunity Owner.Name）列を追加。fetchCrosslostOppData の SELECT に Owner.Name、mapに商談所有者。targets crosslost付与でリードに x.商談所有者。編集テーブルのクロス失注列に商談所有者（プルダウン絞り込み付き）、colspan 15。SF由来。";
+const BUILD_TAG = "2026-09-23s スマホのメニュー整理。下タブ（サイドバー→下部固定）に出す項目を主要5つ（ホーム/レコーディング/商談履歴/アポ/kincall）だけに絞り、残り（資料トラッキング/Salesforce/AI社員/その他ツール）は右上「⋯」メニュー＝その他へ。nav.jsで非主要に kb-mobhide 付与（kincallのkc-sideは対象外）、style.css 760pxで kb-mobhide/ドロップダウン非表示＋選択タブをゲーム風の光る緑ピルに。PCは不変。フロントのみ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

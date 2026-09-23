@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260923r";
+    sc.src = "kbchat.js?v=20260923s";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -392,6 +392,22 @@ window.kbProgress = function (el, opts = {}) {
   document.querySelectorAll('.side-item').forEach(a => {
     const href = a.getAttribute("href") || "";
     if (/report\.html/.test(href) && !/panel=/.test(href)) a.classList.add('active');
+  });
+})();
+
+// スマホの下タブは主要5つだけに絞る（ホーム/レコーディング/商談履歴/アポ/kincall）。
+// 残り（資料トラッキング・Salesforce・AI社員・その他ツール等）は右上「⋯」メニュー＝その他へ。
+(function () {
+  if (/^\/kincall/.test(location.pathname)) return;   // kincall は独自サイドバー（kc-side）なので対象外
+  const bar = document.querySelector(".sidebar"); if (!bar || bar.classList.contains("kc-side")) return;
+  const primary = ["home.html", "index.html", "history.html", "apo.html", "/kincall"];
+  const isPrimary = (href) => {
+    const h = String(href || "");
+    return primary.some((p) => p === "/kincall" ? h.startsWith("/kincall") : h.split("?")[0] === p);
+  };
+  bar.querySelectorAll(":scope > .side-item, :scope > .side-wrap").forEach((el) => {
+    const a = el.classList.contains("side-item") ? el : el.querySelector(".side-item");
+    el.classList.toggle("kb-mobhide", !(a && isPrimary(a.getAttribute("href"))));
   });
 })();
 
