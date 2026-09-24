@@ -20687,7 +20687,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23u インターンのシフト提出を、専用トークンではなくkincallログイン必須に変更。/shift.html と /api/shift/* を公開パスから外し（未ログインはlogin.htmlへ誘導）、本人=req.user のメールで保存（inside_shifts）。API：/api/shift/me（本人名）・load（本月＋提出済み）・save（保存/提出＝月ロック）・admin-link（URL/shift.html）・unlock（管理者）。shift.htmlは名前選択を廃止しログイン本人で直接カレンダー。同姓同名の混同なし。管理者は出勤管理で全員分＋リンク配布。";
+const BUILD_TAG = "2026-09-23v 中澤良太がクローザー復活のため、アポ獲得の通知・集計に乗るよう「必ず除外する人」から外した。ハードコードの MANDATORY_SKIP と既定 SKIP_INVITERS_DEFAULT から中澤を削除（isSkippedPerson が通知・集計・プロセスシートで共通利用）。→植野・江田と同様にアポ獲得がチャット通知され、実績にも計上される。※中澤名義のインターン代理アポがあると中澤に計上され得るため要確認。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -23260,11 +23260,11 @@ const NAME_ROMAJI = {
   "中澤": ["nakazawa", "nakasawa"],
   "浦林": ["urabayashi"],
 };
-const SKIP_INVITERS_DEFAULT = "中澤,浦林";
+const SKIP_INVITERS_DEFAULT = "浦林";   // 中澤良太はクローザー復活のため既定の「数えない人」からも外す
 let _skipInviters = null;
 
 // 設定に関わらず、必ず集計・通知から外す人（コール担当でない管理者など）。
-const MANDATORY_SKIP = ["中澤", "浦林", "森田", "笹原", "迫間", "田中綾"];
+const MANDATORY_SKIP = ["浦林", "森田", "笹原", "迫間", "田中綾"];   // 中澤良太はクローザー復活のため除外リストから外す（アポ獲得を通知・集計する）
 async function loadSkipInviters() {
   const st = await getSettings().catch(() => ({}));
   const raw = st.skipInviters === undefined ? SKIP_INVITERS_DEFAULT : String(st.skipInviters);
