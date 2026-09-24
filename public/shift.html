@@ -22,10 +22,6 @@
   .banner{display:none;background:#fdf3e2;border-bottom:1px solid #f3e0bd;color:#a9701c;font-weight:700;font-size:13px;padding:10px 16px;text-align:center}
   .banner.show{display:block}
   .body{padding:16px}
-  .field{margin-bottom:14px}
-  .field label{display:block;font-size:12px;color:var(--dim);font-weight:700;margin-bottom:6px}
-  .field input{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:13px;font-size:16px;font-family:inherit;color:var(--text);background:#fff}
-  .field input:focus{outline:none;border-color:var(--acc)}
   .timebar{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:14px}
   .timebar .lb{font-size:12px;color:var(--dim);font-weight:700} .timebar .sp{flex:1}
   .timebar input{width:66px;padding:8px;border:1px solid var(--line);border-radius:10px;font-size:15px;text-align:center;font-family:inherit;color:var(--text)}
@@ -49,7 +45,6 @@
   .btn{border:0;cursor:pointer;font-weight:800;font-size:15px;padding:14px 18px;border-radius:14px}
   .btn.save{background:#fff;border:1px solid var(--acc3);color:var(--acc2);flex:1}
   .btn.send{background:linear-gradient(180deg,#22b587,#0d5b47);color:#fff;flex:1.4;box-shadow:0 14px 30px -12px rgba(29,158,117,.7)}
-  .btn.full{width:100%;background:linear-gradient(180deg,#22b587,#0d5b47);color:#fff}
   .btn:active{transform:scale(.98)} .btn:disabled{opacity:.5;cursor:not-allowed}
   .note{margin-top:12px;font-size:12px;color:var(--dim);line-height:1.6;text-align:center}
   .scrim{position:fixed;inset:0;background:rgba(10,40,32,.45);display:none;align-items:flex-end;justify-content:center;z-index:30}
@@ -74,17 +69,8 @@
   </div>
   <div class="banner" id="banner">✅ この月は提出済みです（修正できません）。変更は管理者に連絡してください。</div>
 
-  <!-- 名前選択 -->
-  <div class="body" id="pane-name">
-    <div class="center" id="loading">読み込んでいます…</div>
-    <div id="name-form" style="display:none">
-      <div class="field"><label>お名前（フルネーム）</label><input id="name" list="names" placeholder="例：田中 花子" autocomplete="off" /><datalist id="names"></datalist></div>
-      <button class="btn full" id="start">はじめる</button>
-      <div class="note">自分の名前を入れて「はじめる」を押すと、シフトを入力できます。次回も同じ名前で開いてください。</div>
-    </div>
-  </div>
+  <div class="body" id="pane-load"><div class="center" id="loading">読み込んでいます…</div></div>
 
-  <!-- カレンダー -->
   <div class="body" id="pane-cal" style="display:none">
     <div class="timebar"><span class="lb">一括設定時間</span><span class="sp"></span><input id="t1" value="10:00" /><span class="tl">〜</span><input id="t2" value="18:00" /></div>
     <div class="mnav"><button id="prev">‹</button><b id="mlabel"></b><button id="next">›</button></div>
@@ -109,10 +95,8 @@
 <script>
   const WD = ["日","月","火","水","木","金","土"];
   const $ = (id) => document.getElementById(id);
-  const TOKEN = new URLSearchParams(location.search).get("t") || "";
   const now = new Date();
   let ym = { y: now.getFullYear(), m: now.getMonth() };
-  let personName = "";
   const shifts = {};            // "YYYY-MM-DD" -> {t1,t2}
   const submittedMonths = {};   // "YYYY-MM" -> true
   let editingKey = null, busy = false;
@@ -122,29 +106,22 @@
   function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 
   async function init(){
-    if(!TOKEN){ $('loading').textContent = "リンクが正しくありません。"; return; }
     try{
-      const r = await fetch(`/api/shift/init?t=${encodeURIComponent(TOKEN)}`);
+      const r = await fetch('/api/shift/me', { cache:'no-store' });
+      if(r.status===401){ location.href='/login.html'; return; }
       const d = await r.json();
-      if(!r.ok || !d.ok) throw new Error(d.error||"");
-      $('names').innerHTML = (d.names||[]).map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('');
-      $('loading').style.display='none'; $('name-form').style.display='block';
-    }catch(e){ $('loading').textContent = "リンクが無効です。管理者に新しいリンクをもらってください。"; }
+      if(!r.ok || !d.ok) throw new Error(d.error||'');
+      $('hi').innerHTML = `こんにちは、<b>${(d.name||'').replace(/</g,'&lt;')}</b> さん`;
+      $('pane-load').style.display='none'; $('pane-cal').style.display='block';
+      await loadMonth();
+    }catch(e){ $('loading').textContent = '読み込めませんでした。ログインし直してください。'; }
   }
-  $('start').onclick = async () => {
-    const n = $('name').value.trim(); if(!n){ toast('名前を入れてください'); return; }
-    personName = n; $('hi').innerHTML = `こんにちは、<b>${n}</b> さん`;
-    $('pane-name').style.display='none'; $('pane-cal').style.display='block';
-    await loadMonth();
-  };
-
   async function loadMonth(){
     const my = ymStr();
     try{
-      const r = await fetch(`/api/shift/load?t=${encodeURIComponent(TOKEN)}&name=${encodeURIComponent(personName)}&ym=${my}`);
+      const r = await fetch(`/api/shift/load?ym=${my}`, { cache:'no-store' });
       const d = await r.json();
       if(r.ok && d.ok){
-        // その月の既存だけ入れ替え
         Object.keys(shifts).forEach(k=>{ if(k.startsWith(my)) delete shifts[k]; });
         (d.shifts||[]).forEach(s=>{ if(s.day) shifts[s.day]={t1:s.t1||'10:00',t2:s.t2||'18:00'}; });
         submittedMonths[my] = !!d.submitted;
@@ -191,7 +168,7 @@
     const list = Object.keys(shifts).filter(k=>k.startsWith(my)).map(k=>({day:k,t1:shifts[k].t1,t2:shifts[k].t2}));
     try{
       const r = await fetch('/api/shift/save',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({t:TOKEN,name:personName,ym:my,shifts:list,submit})});
+        body:JSON.stringify({ym:my,shifts:list,submit})});
       const d = await r.json();
       if(!r.ok || !d.ok) throw new Error(d.error||'');
       if(submit){ submittedMonths[my]=true; toast('提出しました'); render(); }

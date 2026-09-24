@@ -3732,7 +3732,7 @@ if ($("scShiftLink")) $("scShiftLink").addEventListener("click", async () => {
     if (!d.ok) throw new Error(d.error || "");
     const url = location.origin + d.url;
     try { await navigator.clipboard.writeText(url); } catch {}
-    prompt("インターンに共有するシフト提出リンク（コピー済み）。開いた人が名前を選んで自分のシフトを入力→提出します。", url);
+    prompt("インターンに共有するシフト提出リンク（コピー済み）。開くとkincallのログインを求められ、ログインした本人のシフトを入力→提出します。", url);
   } catch (e) { alert("リンクを取得できませんでした（" + (e.message || "権限がないか通信エラー") + "）"); }
 });
 

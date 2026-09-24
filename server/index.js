@@ -839,8 +839,6 @@ app.use(async (req, res, next) => {
   //   /c/xxx  … リンクのクリック計測
   //   /api/doc/xxx … ビューアーが呼ぶ処理（資料の中身・進捗の記録）
   if (/^\/(d|px|c)\//.test(req.path) || req.path.startsWith("/api/doc/")) return next();
-  // インターンのシフト提出（専用リンク）は、ログインなしで通す（トークンで中身を確認）
-  if (req.path === "/shift.html" || req.path === "/shift" || req.path.startsWith("/api/shift/")) return next();
   // APIトークンでの認証（Cookie不要。外部プログラム・Claude Code用）
   const tk = apiTokenUser(req);
   if (tk) {
@@ -4047,71 +4045,54 @@ const JP_HOLIDAYS = {
   "2026-09-21": "敬老の日", "2026-09-22": "国民の休日", "2026-09-23": "秋分の日", "2026-10-12": "スポーツの日",
   "2026-11-03": "文化の日", "2026-11-23": "勤労感謝の日",
 };
-// ===== インターンのシフト提出（専用リンク・ログイン不要・トークンで保護） =====
-async function ensureShiftToken() {
-  const st = await getSettings().catch(() => ({}));
-  if (st && st.shiftToken) return st.shiftToken;
-  const tok = "sft_" + crypto.randomBytes(12).toString("hex");
-  await saveSettings({ shiftToken: tok }).catch(() => {});
-  return tok;
-}
-async function shiftTokenOk(req) {
-  const t = String(req.query.t || req.body?.t || "").trim();
-  if (!t) return false;
-  const st = await getSettings().catch(() => ({}));
-  return !!st.shiftToken && t === st.shiftToken;
+// ===== インターンのシフト提出（kincallログイン必須・本人のみ入力） =====
+async function shiftUserName(email) {
+  try { const u = (await listUsers()).find((x) => (x.email || "").toLowerCase() === String(email || "").toLowerCase()); return (u && u.name) || email; }
+  catch { return email; }
 }
 const H2M = (s) => { const m = String(s || "").match(/^(\d{1,2}):(\d{2})$/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
 const M2H = (n) => (n == null ? "" : `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`);
-const shiftPerson = (name) => "shift:" + String(name || "").trim();
+const shiftPerson = (req) => String(req.user || "").trim().toLowerCase();
 
-// 入口：トークン検証＋既存の名前一覧を返す
-app.get("/api/shift/init", async (req, res) => {
-  try {
-    if (!(await shiftTokenOk(req))) return res.status(403).json({ error: "リンクが無効です" });
-    res.json({ ok: true, names: await listShiftPersonNames().catch(() => []) });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+// ログイン本人の表示名（あいさつ用）
+app.get("/api/shift/me", async (req, res) => {
+  const p = shiftPerson(req); if (!p) return res.status(401).json({ error: "ログインが必要です" });
+  res.json({ ok: true, email: p, name: await shiftUserName(p) });
 });
-// 読み込み：その人・その月のシフト＋提出済みか
+// 読み込み：本人・その月のシフト＋提出済みか
 app.get("/api/shift/load", async (req, res) => {
   try {
-    if (!(await shiftTokenOk(req))) return res.status(403).json({ error: "リンクが無効です" });
-    const name = String(req.query.name || "").trim(); const ym = String(req.query.ym || "").trim();
-    if (!name || !/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "名前と月を指定してください" });
-    const person = shiftPerson(name);
+    const person = shiftPerson(req); if (!person) return res.status(401).json({ error: "ログインが必要です" });
+    const ym = String(req.query.ym || "").trim(); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月を指定してください" });
     const rows = await listMonthShifts(person, ym);
     res.json({ ok: true, submitted: await isShiftSubmitted(person, ym), shifts: rows.map((r) => ({ day: r.day, t1: M2H(r.start_min), t2: M2H(r.end_min) })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// 保存（下書き）／提出（submit=true でロック）
+// 保存（下書き）／提出（submit=true でロック）。本人のみ。
 app.post("/api/shift/save", async (req, res) => {
   try {
-    if (!(await shiftTokenOk(req))) return res.status(403).json({ error: "リンクが無効です" });
-    const name = String(req.body?.name || "").trim(); const ym = String(req.body?.ym || "").trim();
-    if (!name || !/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "名前と月を指定してください" });
-    const person = shiftPerson(name);
+    const person = shiftPerson(req); if (!person) return res.status(401).json({ error: "ログインが必要です" });
+    const ym = String(req.body?.ym || "").trim(); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月を指定してください" });
     if (await isShiftSubmitted(person, ym)) return res.status(409).json({ error: "この月は提出済みで、修正できません（管理者に連絡してください）" });
+    const name = await shiftUserName(person);
     const items = (Array.isArray(req.body?.shifts) ? req.body.shifts : []).map((s) => ({ day: s.day, start_min: H2M(s.t1), end_min: H2M(s.t2) }));
     await replaceMonthShifts(person, name, ym, items);
     if (req.body?.submit === true) await setShiftSubmitted(person, ym, true);
     res.json({ ok: true, submitted: req.body?.submit === true, count: items.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// 管理者：専用リンクのトークンを取得（kincall出勤管理から使う）
+// 管理者：共有するシフト提出ページのURL（ログイン必須ページ）
 app.get("/api/shift/admin-link", async (req, res) => {
-  try {
-    if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "権限がありません" });
-    const tok = await ensureShiftToken();
-    res.json({ ok: true, token: tok, url: `/shift.html?t=${tok}` });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "権限がありません" });
+  res.json({ ok: true, url: "/shift.html" });
 });
-// 管理者：提出ロックを解除
+// 管理者：提出ロックを解除（email＝本人のログインメール）
 app.post("/api/shift/unlock", async (req, res) => {
   try {
     if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "権限がありません" });
-    const name = String(req.body?.name || "").trim(); const ym = String(req.body?.ym || "").trim();
-    if (!name || !/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "名前と月を指定してください" });
-    await setShiftSubmitted(shiftPerson(name), ym, false);
+    const email = String(req.body?.email || "").trim().toLowerCase(); const ym = String(req.body?.ym || "").trim();
+    if (!email || !/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "対象を指定してください" });
+    await setShiftSubmitted(email, ym, false);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -20706,7 +20687,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23t インターンのシフト提出を、専用リンク（ログイン不要・トークン保護）で実装。public/shift.html＝名前を選ぶ→カレンダーで出勤日タップ（一括設定時間・日別編集）→保存(下書き)/提出(月ロック)。API：/api/shift/init・load・save（トークン必須、公開パス）、/api/shift/admin-link・unlock（管理者）。保存は inside_shifts（email=shift:名前）に月単位で置換、提出ロックは shift_submissions。kincall出勤管理に「シフト提出リンク」ボタン追加。管理者は既存の出勤管理で全員分を確認。";
+const BUILD_TAG = "2026-09-23u インターンのシフト提出を、専用トークンではなくkincallログイン必須に変更。/shift.html と /api/shift/* を公開パスから外し（未ログインはlogin.htmlへ誘導）、本人=req.user のメールで保存（inside_shifts）。API：/api/shift/me（本人名）・load（本月＋提出済み）・save（保存/提出＝月ロック）・admin-link（URL/shift.html）・unlock（管理者）。shift.htmlは名前選択を廃止しログイン本人で直接カレンダー。同姓同名の混同なし。管理者は出勤管理で全員分＋リンク配布。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
