@@ -216,6 +216,15 @@ export async function initDb() {
       PRIMARY KEY (email, day)
     );
   `);
+  // シフト提出のロック状態（人×月。提出したら本人は編集不可）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS shift_submissions (
+      person       TEXT NOT NULL,
+      ym           TEXT NOT NULL,
+      submitted_at TIMESTAMPTZ DEFAULT now(),
+      PRIMARY KEY (person, ym)
+    );
+  `);
   // その日のアポ目標（メンバー名ごと・日ごと）
   await sq(`
     CREATE TABLE IF NOT EXISTS daily_apo_targets (
@@ -1960,6 +1969,58 @@ export async function listInsideShifts(fromDay, toDay) {
     return rows;
   } catch (e) { console.error("[db] listInsideShifts", e.message); return []; }
 }
+// シフト提出（インターン専用リンク）まわり。person は "shift:<名前>"、name は表示名。
+export async function listShiftPersonNames() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT DISTINCT name FROM inside_shifts WHERE email LIKE 'shift:%' AND COALESCE(name,'') <> '' ORDER BY name`);
+    return rows.map((r) => r.name);
+  } catch (e) { console.error("[db] listShiftPersonNames", e.message); return []; }
+}
+export async function isShiftSubmitted(person, ym) {
+  if (!pool) return false;
+  try { const { rows } = await pool.query(`SELECT 1 FROM shift_submissions WHERE person=$1 AND ym=$2`, [person, ym]); return !!rows.length; }
+  catch (e) { console.error("[db] isShiftSubmitted", e.message); return false; }
+}
+export async function setShiftSubmitted(person, ym, on) {
+  if (!pool) return;
+  try {
+    if (on) await pool.query(`INSERT INTO shift_submissions (person, ym) VALUES ($1,$2) ON CONFLICT (person, ym) DO UPDATE SET submitted_at=now()`, [person, ym]);
+    else await pool.query(`DELETE FROM shift_submissions WHERE person=$1 AND ym=$2`, [person, ym]);
+  } catch (e) { console.error("[db] setShiftSubmitted", e.message); }
+}
+// その人のその月のシフトを丸ごと置き換える（提出/保存で使う）。ロック中は呼ばない。
+export async function replaceMonthShifts(person, name, ym, items) {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM inside_shifts WHERE email=$1 AND to_char(day,'YYYY-MM')=$2`, [person, ym]);
+    for (const it of (items || [])) {
+      const day = String(it.day || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      const sm = it.start_min == null ? null : parseInt(it.start_min, 10);
+      const em = it.end_min == null ? null : parseInt(it.end_min, 10);
+      const ok = sm != null && em != null && !isNaN(sm) && !isNaN(em) && em > sm;
+      await client.query(
+        `INSERT INTO inside_shifts (email, name, day, start_min, end_min, updated_at) VALUES ($1,$2,$3,$4,$5,now())
+         ON CONFLICT (email, day) DO UPDATE SET name=$2, start_min=$4, end_min=$5, updated_at=now()`,
+        [person, name || "", day, ok ? sm : null, ok ? em : null]);
+    }
+    await client.query("COMMIT");
+  } catch (e) { try { await client.query("ROLLBACK"); } catch {} console.error("[db] replaceMonthShifts", e.message); }
+  finally { client.release(); }
+}
+export async function listMonthShifts(person, ym) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT to_char(day,'YYYY-MM-DD') AS day, start_min, end_min FROM inside_shifts WHERE email=$1 AND to_char(day,'YYYY-MM')=$2 ORDER BY day`,
+      [person, ym]);
+    return rows;
+  } catch (e) { console.error("[db] listMonthShifts", e.message); return []; }
+}
+
 export async function upsertInsideShift(email, name, day, startMin, endMin) {
   if (!pool || !email || !day) return;
   const em = String(email).trim().toLowerCase();

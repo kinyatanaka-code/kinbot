@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>シフト提出</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&family=Noto+Sans+JP:wght@500;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root{ box-sizing:border-box; --line:#e2efe8; --text:#123a2e; --dim:#6b857b; --dim2:#9cb2a8;
+    --acc:#1d9e75; --acc2:#0d5b47; --acc3:#5DCAA5; --soft:#eaf7f1;
+    padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  *{box-sizing:inherit} html,body{margin:0}
+  body{font-family:'Noto Sans JP','Inter',system-ui,sans-serif;color:var(--text);
+    background:radial-gradient(700px 400px at 50% -5%,rgba(93,202,165,.2),transparent 60%),linear-gradient(160deg,#0d5b47,#0a3f31);
+    min-height:100vh;display:grid;place-items:start center;padding:18px 10px 48px}
+  .app{width:430px;max-width:100%;background:linear-gradient(180deg,#f6fbf9,#eef7f3);border-radius:26px;overflow:hidden;box-shadow:0 30px 70px -20px rgba(0,0,0,.5);position:relative}
+  .top{background:linear-gradient(180deg,#fff,#f3faf7);padding:18px;border-bottom:1px solid var(--line)}
+  .hi{font-size:13px;color:var(--dim)} .hi b{color:var(--acc2)}
+  .h2{font-size:19px;font-weight:800;color:var(--acc2);margin-top:2px}
+  .banner{display:none;background:#fdf3e2;border-bottom:1px solid #f3e0bd;color:#a9701c;font-weight:700;font-size:13px;padding:10px 16px;text-align:center}
+  .banner.show{display:block}
+  .body{padding:16px}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12px;color:var(--dim);font-weight:700;margin-bottom:6px}
+  .field input{width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:13px;font-size:16px;font-family:inherit;color:var(--text);background:#fff}
+  .field input:focus{outline:none;border-color:var(--acc)}
+  .timebar{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:14px}
+  .timebar .lb{font-size:12px;color:var(--dim);font-weight:700} .timebar .sp{flex:1}
+  .timebar input{width:66px;padding:8px;border:1px solid var(--line);border-radius:10px;font-size:15px;text-align:center;font-family:inherit;color:var(--text)}
+  .timebar .tl{color:var(--dim)}
+  .mnav{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+  .mnav b{font-size:17px;font-weight:800;color:var(--acc2)}
+  .mnav button{width:38px;height:38px;border-radius:12px;border:1px solid var(--line);background:#fff;color:var(--acc2);font-size:18px;cursor:pointer}
+  .wk{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:6px}
+  .wk div{text-align:center;font-size:11px;font-weight:700;color:var(--dim)} .wk .sun{color:#d9536a} .wk .sat{color:#2f86c9}
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+  .cell{aspect-ratio:1/1.15;border-radius:13px;border:1px solid var(--line);background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;position:relative;transition:transform .12s;user-select:none}
+  .cell:active{transform:scale(.93)} .cell.empty{background:transparent;border:0;cursor:default}
+  .cell .d{font-size:15px;font-weight:700;color:#33544a} .cell.sun .d{color:#d9536a} .cell.sat .d{color:#2f86c9}
+  .cell.today{outline:2px solid var(--acc3)}
+  .cell.on{background:linear-gradient(180deg,#22b587,#0d5b47);border-color:transparent;box-shadow:0 10px 22px -12px rgba(29,158,117,.8)}
+  .cell.on .d{color:#fff} .cell .t{font-size:9px;font-weight:700;color:#c9fbe8;line-height:1.15;text-align:center}
+  .cell .plus{position:absolute;bottom:5px;font-size:10px;color:var(--dim2)} .cell.on .plus{display:none}
+  .locked .cal{opacity:.85} .locked .cell{cursor:default}
+  .foot{margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .cnt{font-size:13px;color:var(--dim);flex-basis:100%} .cnt b{color:var(--acc2);font-size:17px}
+  .btn{border:0;cursor:pointer;font-weight:800;font-size:15px;padding:14px 18px;border-radius:14px}
+  .btn.save{background:#fff;border:1px solid var(--acc3);color:var(--acc2);flex:1}
+  .btn.send{background:linear-gradient(180deg,#22b587,#0d5b47);color:#fff;flex:1.4;box-shadow:0 14px 30px -12px rgba(29,158,117,.7)}
+  .btn.full{width:100%;background:linear-gradient(180deg,#22b587,#0d5b47);color:#fff}
+  .btn:active{transform:scale(.98)} .btn:disabled{opacity:.5;cursor:not-allowed}
+  .note{margin-top:12px;font-size:12px;color:var(--dim);line-height:1.6;text-align:center}
+  .scrim{position:fixed;inset:0;background:rgba(10,40,32,.45);display:none;align-items:flex-end;justify-content:center;z-index:30}
+  .scrim.show{display:flex}
+  .sheet{width:430px;max-width:100%;background:#fff;border-radius:22px 22px 0 0;padding:12px 18px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -20px 50px -20px rgba(0,0,0,.4)}
+  .grip{width:40px;height:5px;border-radius:5px;background:#dfeae5;margin:4px auto 12px}
+  .sheet h3{margin:0 0 12px;font-size:16px;font-weight:800;color:var(--acc2);text-align:center}
+  .sheet .row{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px}
+  .sheet .row input{width:88px;padding:11px;border:1px solid var(--line);border-radius:12px;font-size:17px;text-align:center;font-family:inherit}
+  .sheet .acts{display:flex;gap:10px} .sheet .acts button{flex:1;border:0;cursor:pointer;font-weight:800;font-size:14px;padding:13px;border-radius:13px}
+  .sheet .rm{background:#fdeef0;color:#c03e56;border:1px solid #f4d3da} .sheet .ok{background:linear-gradient(180deg,#22b587,#0d5b47);color:#fff}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;background:var(--acc2);color:#fff;padding:12px 18px;border-radius:12px;font-weight:700;font-size:14px;opacity:0;transition:.2s;box-shadow:0 14px 30px -12px rgba(0,0,0,.5);z-index:40}
+  .toast.show{opacity:1}
+  .center{text-align:center;padding:40px 16px;color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="top">
+    <div class="hi" id="hi">シフト提出</div>
+    <div class="h2">シフト提出カレンダー</div>
+  </div>
+  <div class="banner" id="banner">✅ この月は提出済みです（修正できません）。変更は管理者に連絡してください。</div>
+
+  <!-- 名前選択 -->
+  <div class="body" id="pane-name">
+    <div class="center" id="loading">読み込んでいます…</div>
+    <div id="name-form" style="display:none">
+      <div class="field"><label>お名前（フルネーム）</label><input id="name" list="names" placeholder="例：田中 花子" autocomplete="off" /><datalist id="names"></datalist></div>
+      <button class="btn full" id="start">はじめる</button>
+      <div class="note">自分の名前を入れて「はじめる」を押すと、シフトを入力できます。次回も同じ名前で開いてください。</div>
+    </div>
+  </div>
+
+  <!-- カレンダー -->
+  <div class="body" id="pane-cal" style="display:none">
+    <div class="timebar"><span class="lb">一括設定時間</span><span class="sp"></span><input id="t1" value="10:00" /><span class="tl">〜</span><input id="t2" value="18:00" /></div>
+    <div class="mnav"><button id="prev">‹</button><b id="mlabel"></b><button id="next">›</button></div>
+    <div class="wk"><div class="sun">日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div class="sat">土</div></div>
+    <div class="cal" id="cal"></div>
+    <div class="foot">
+      <div class="cnt">この月の出勤 <b id="cnt">0</b> 日</div>
+      <button class="btn save" id="save">保存（下書き）</button>
+      <button class="btn send" id="send">シフトを提出</button>
+    </div>
+    <div class="note">出勤する日をタップ→一括設定時間で緑に。<b>緑の日をもう一度タップ</b>で、その日だけ時間変更・取り消し。<br>「提出」すると、その月は修正できなくなります。</div>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"><div class="sheet">
+  <div class="grip"></div><h3 id="sh-title"></h3>
+  <div class="row"><input id="sh1" /><span>〜</span><input id="sh2" /></div>
+  <div class="acts"><button class="rm" id="sh-rm">取り消し</button><button class="ok" id="sh-ok">この時間で決定</button></div>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+  const WD = ["日","月","火","水","木","金","土"];
+  const $ = (id) => document.getElementById(id);
+  const TOKEN = new URLSearchParams(location.search).get("t") || "";
+  const now = new Date();
+  let ym = { y: now.getFullYear(), m: now.getMonth() };
+  let personName = "";
+  const shifts = {};            // "YYYY-MM-DD" -> {t1,t2}
+  const submittedMonths = {};   // "YYYY-MM" -> true
+  let editingKey = null, busy = false;
+  const key = (y,m,d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const ymStr = () => `${ym.y}-${String(ym.m+1).padStart(2,'0')}`;
+  const isLocked = () => !!submittedMonths[ymStr()];
+  function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
+
+  async function init(){
+    if(!TOKEN){ $('loading').textContent = "リンクが正しくありません。"; return; }
+    try{
+      const r = await fetch(`/api/shift/init?t=${encodeURIComponent(TOKEN)}`);
+      const d = await r.json();
+      if(!r.ok || !d.ok) throw new Error(d.error||"");
+      $('names').innerHTML = (d.names||[]).map(n=>`<option value="${n.replace(/"/g,'&quot;')}">`).join('');
+      $('loading').style.display='none'; $('name-form').style.display='block';
+    }catch(e){ $('loading').textContent = "リンクが無効です。管理者に新しいリンクをもらってください。"; }
+  }
+  $('start').onclick = async () => {
+    const n = $('name').value.trim(); if(!n){ toast('名前を入れてください'); return; }
+    personName = n; $('hi').innerHTML = `こんにちは、<b>${n}</b> さん`;
+    $('pane-name').style.display='none'; $('pane-cal').style.display='block';
+    await loadMonth();
+  };
+
+  async function loadMonth(){
+    const my = ymStr();
+    try{
+      const r = await fetch(`/api/shift/load?t=${encodeURIComponent(TOKEN)}&name=${encodeURIComponent(personName)}&ym=${my}`);
+      const d = await r.json();
+      if(r.ok && d.ok){
+        // その月の既存だけ入れ替え
+        Object.keys(shifts).forEach(k=>{ if(k.startsWith(my)) delete shifts[k]; });
+        (d.shifts||[]).forEach(s=>{ if(s.day) shifts[s.day]={t1:s.t1||'10:00',t2:s.t2||'18:00'}; });
+        submittedMonths[my] = !!d.submitted;
+      }
+    }catch(e){}
+    render();
+  }
+  function render(){
+    $('mlabel').textContent = `${ym.y}年 ${ym.m+1}月`;
+    const locked = isLocked();
+    $('app').classList.toggle('locked', locked);
+    $('banner').classList.toggle('show', locked);
+    $('save').disabled = locked; $('send').disabled = locked; $('t1').disabled = locked; $('t2').disabled = locked;
+    $('send').textContent = locked ? '提出済み' : 'シフトを提出';
+    const first = new Date(ym.y,ym.m,1).getDay(), days = new Date(ym.y,ym.m+1,0).getDate();
+    const cal = $('cal'); cal.innerHTML='';
+    for(let i=0;i<first;i++){ const e=document.createElement('div'); e.className='cell empty'; cal.appendChild(e); }
+    const td = new Date();
+    for(let dd=1;dd<=days;dd++){
+      const dow=new Date(ym.y,ym.m,dd).getDay(), k=key(ym.y,ym.m,dd), s=shifts[k];
+      const c=document.createElement('div');
+      c.className='cell'+(dow===0?' sun':dow===6?' sat':'')+(s?' on':'')
+        +(ym.y===td.getFullYear()&&ym.m===td.getMonth()&&dd===td.getDate()?' today':'');
+      c.innerHTML=`<span class="d">${dd}</span>`+(s?`<span class="t">${s.t1}-<br>${s.t2}</span>`:'<span class="plus">＋出勤</span>');
+      if(!locked) c.addEventListener('click',()=>onTap(k,dd,dow));
+      cal.appendChild(c);
+    }
+    $('cnt').textContent = Object.keys(shifts).filter(k=>k.startsWith(ymStr())).length;
+  }
+  function onTap(k,dd,dow){
+    if(shifts[k]){ editingKey=k; $('sh-title').textContent=`${ym.m+1}月${dd}日（${WD[dow]}）の出勤`;
+      $('sh1').value=shifts[k].t1; $('sh2').value=shifts[k].t2; $('scrim').classList.add('show'); }
+    else { shifts[k]={t1:$('t1').value,t2:$('t2').value}; render(); }
+  }
+  $('prev').onclick=()=>{ ym.m--; if(ym.m<0){ym.m=11;ym.y--;} loadMonth(); };
+  $('next').onclick=()=>{ ym.m++; if(ym.m>11){ym.m=0;ym.y++;} loadMonth(); };
+  $('sh-ok').onclick=()=>{ if(editingKey) shifts[editingKey]={t1:$('sh1').value,t2:$('sh2').value}; $('scrim').classList.remove('show'); render(); };
+  $('sh-rm').onclick=()=>{ if(editingKey) delete shifts[editingKey]; $('scrim').classList.remove('show'); render(); };
+  $('scrim').addEventListener('click',e=>{ if(e.target===$('scrim')) $('scrim').classList.remove('show'); });
+
+  async function post(submit){
+    if(busy || isLocked()) return; busy=true;
+    const my=ymStr();
+    const list = Object.keys(shifts).filter(k=>k.startsWith(my)).map(k=>({day:k,t1:shifts[k].t1,t2:shifts[k].t2}));
+    try{
+      const r = await fetch('/api/shift/save',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({t:TOKEN,name:personName,ym:my,shifts:list,submit})});
+      const d = await r.json();
+      if(!r.ok || !d.ok) throw new Error(d.error||'');
+      if(submit){ submittedMonths[my]=true; toast('提出しました'); render(); }
+      else toast('保存しました（下書き）');
+    }catch(e){ toast(e.message||'うまくいきませんでした'); }
+    finally{ busy=false; }
+  }
+  $('save').onclick=()=>post(false);
+  $('send').onclick=()=>{ if(isLocked())return; if(confirm(`${ym.m+1}月分を提出します。提出後は修正できません。よろしいですか？`)) post(true); };
+
+  init();
+</script>
+</body>
+</html>

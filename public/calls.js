@@ -3726,6 +3726,15 @@ if ($("scPrev")) $("scPrev").addEventListener("click", () => { if (_scY == null)
 if ($("scNext")) $("scNext").addEventListener("click", () => { if (_scY == null) scInit(); _scM++; if (_scM > 11) { _scM = 0; _scY++; } loadShiftCal(); });
 if ($("scToday")) $("scToday").addEventListener("click", () => { scInit(); loadShiftCal(); });
 if ($("scBulk")) $("scBulk").addEventListener("click", openBulkShift);
+if ($("scShiftLink")) $("scShiftLink").addEventListener("click", async () => {
+  try {
+    const d = await (await fetch("/api/shift/admin-link", { cache: "no-store" })).json();
+    if (!d.ok) throw new Error(d.error || "");
+    const url = location.origin + d.url;
+    try { await navigator.clipboard.writeText(url); } catch {}
+    prompt("インターンに共有するシフト提出リンク（コピー済み）。開いた人が名前を選んで自分のシフトを入力→提出します。", url);
+  } catch (e) { alert("リンクを取得できませんでした（" + (e.message || "権限がないか通信エラー") + "）"); }
+});
 
 
 
