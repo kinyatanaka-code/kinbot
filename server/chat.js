@@ -17,6 +17,7 @@ export const NOTIFY_KINDS = [
   { key: "assign",  label: "アポの割り振り" },
   { key: "apo",     label: "アポ獲得のお知らせ（メルマガ等）" },
   { key: "resched", label: "リスケ・キャンセル" },
+  { key: "datechg", label: "日程変更の連絡" },
   { key: "incentive", label: "インセンティブの到達（初実施・5,000円ごと）" },
   { key: "mail",    label: "御礼メールの下書き" },
   { key: "doc",     label: "資料の閲覧・ダウンロード" },
@@ -124,6 +125,8 @@ export async function notifyAll(text, kind = "", { mentionName = "", mentionName
     incentive: "on_incentive",
     // リスケ・キャンセル。指定したチャットだけに送れるようにする。
     resched: "on_resched",
+    // 日程変更の連絡（アポの日時変更）。チェックしたチャットにだけ送る。
+    datechg: "on_datechg",
     // アポ獲得のお知らせ（メルマガ等）
     apo: "on_apo",
     // 有効商談になったお知らせ（インサイド獲得アポ）

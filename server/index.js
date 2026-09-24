@@ -3471,9 +3471,9 @@ app.post("/api/apo/:slug/reschedule", async (req, res) => {
       repName ? `担当：${repName}` : "",
       `※リマインドは、変更後の日時で送ります。`,
     ].filter(Boolean).join("\n");
-    // 担当者へ（届かなければチームのスペースへ）
-    const pr = await notifyPerson(link.current_owner, msg).catch(() => ({ ok: false }));
-    if (!pr || !pr.ok) await notifyChat(msg).catch(() => {});
+    // 担当者へ直接 ＋ 「日程変更の連絡」をONにしたチャットへ
+    await notifyPerson(link.current_owner, msg).catch(() => {});
+    await notifyAll(msg, "datechg").catch(() => {});
 
     console.log(`[apo] ${slug} の日程を変更：${before.start_time} → ${startISO} by ${req.user}`);
     res.json({ ok: true, start: startISO, 前: before.start_time, カレンダー });
@@ -15644,7 +15644,7 @@ app.get("/api/chat-targets", async (req, res) => {
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
         onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily,
         onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev, onIncentive: r.on_incentive,
-        onResched: r.on_resched, onApo: r.on_apo,
+        onResched: r.on_resched, onDatechg: r.on_datechg, onApo: r.on_apo,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
         via: r.space_id ? "kinbot名義" : "Webhook",
       })),
@@ -15674,7 +15674,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onApo", "onValid", "onDaily", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onDatechg", "onApo", "onValid", "onDaily", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -20687,7 +20687,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-23v 中澤良太がクローザー復活のため、アポ獲得の通知・集計に乗るよう「必ず除外する人」から外した。ハードコードの MANDATORY_SKIP と既定 SKIP_INVITERS_DEFAULT から中澤を削除（isSkippedPerson が通知・集計・プロセスシートで共通利用）。→植野・江田と同様にアポ獲得がチャット通知され、実績にも計上される。※中澤名義のインターン代理アポがあると中澤に計上され得るため要確認。";
+const BUILD_TAG = "2026-09-24a 日程変更（アポ日時変更）の通知が旧notifyChat（テスト1件）にしか行っていなかったのを、通知の種類「日程変更の連絡」を新設して各チャットで選べるように。知らせ画面に「日程変更の連絡」チェックボックス追加（既定OFF＝チェックしたチャットだけ送る）。reschedule は notifyPerson（担当者）＋notifyAll(datechg)（ONのチャット）へ。列 on_datechg 追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -2663,6 +2663,7 @@ const CT_KINDS = [
   ["onDev", "開発（朝の通知）"],
   ["onIncentive", "インセンティブの到達"],
   ["onResched", "リスケ・キャンセル"],
+  ["onDatechg", "日程変更の連絡"],
   ["onApo", "アポ獲得のお知らせ"],
   ["onValid", "有効商談になったお知らせ"],
   ["onDaily", "デイリー目標（朝8時）"],

@@ -904,6 +904,7 @@ export async function initDb() {
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_incentive BOOLEAN NOT NULL DEFAULT true;`);
   // リスケ・キャンセルの通知。送り先ごとにON/OFFできるようにする（既定ON＝これまでどおり）
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_resched BOOLEAN NOT NULL DEFAULT true;`);
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_datechg BOOLEAN NOT NULL DEFAULT false;`);   // 日程変更の連絡（既定OFF＝チェックしたチャットだけ）
   // アポ獲得のお知らせ（メルマガ等）
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_apo BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_dev BOOLEAN NOT NULL DEFAULT false;`);
@@ -5874,6 +5875,7 @@ export async function updateChatTarget(id, patch) {
     onDev: "on_dev",
     onIncentive: "on_incentive",
     onResched: "on_resched",
+    onDatechg: "on_datechg",
     onApo: "on_apo",
     onValid: "on_valid",
     onDaily: "on_daily",
