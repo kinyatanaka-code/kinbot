@@ -10607,6 +10607,23 @@ app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
     const sinceMs = Date.parse(String(req.query.since || "")) || (Date.now() - 30 * 60000);
     const sinceIso = new Date(sinceMs - 2 * 60000).toISOString();   // 押した直前の通話も拾えるよう2分ゆとり
     const options = String(req.query.opts || "").split("|").map((x) => x.trim()).filter(Boolean).slice(0, 40);
+    // 「最新の録音を取り込む」：この番号の、直近（昨日〜今日）でいちばん新しい録音を、使用済みでも返す
+    if (req.query.latest === "1") {
+      const l9 = zoomLast9(t.phone);
+      if (l9.length < 6) return res.json({ ok: true, none: true, reason: "電話番号がありません" });
+      let recs = [];
+      try { recs = await zoomPhoneRecordings({ ...zoomRecRange(), max: 300 }); }
+      catch (e) { return res.json({ ok: false, none: true, reason: "録音一覧を取得できません（Zoomの権限を確認）" }); }
+      const skip = new Set(String(req.query.skip || "").split(",").filter(Boolean));
+      const r = recs.filter((x) => zoomLast9(x.number) === l9 && x.at && (x.downloadUrl || x.transcriptUrl) && !skip.has(x.id))
+        .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+      if (!r) return res.json({ ok: true, none: true, reason: "この番号の録音は見つかりませんでした（昨日〜今日）" });
+      const o = await zoomRecSummaryCached(r, t.id, req.user, options);
+      if (!o.summary) return res.json({ ok: true, none: true, reason: "録音はありますが要約できませんでした" });
+      const c = await getZoomRecSummary(r.id);
+      const used = (await isZoomRecProcessed(r.id)) || !!(c && c.log_id);
+      return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: o.summary, result: o.result || "", used });
+    }
     // ①先に要約済み（15分ごとの処理で作られたもの）
     const cached = await findUnusedZoomSummary(t.id, sinceIso);
     if (cached) {
@@ -20918,7 +20935,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-25d 履歴の録音再生を改善。音声の中継にHTTP Range（206）対応＋直近20件をメモリキャッシュ（長さ0表示・早送り不可を解消）、プレイヤーは preload=metadata、見出しに「🎧 録音 0:27」（zoom_rec_summaries.duration）、読めないときは「録音を読み込めませんでした」表示。";
+const BUILD_TAG = "2026-09-25e 記録の窓に「🎧 最新の録音を取り込む」ボタンを常時表示。その番号の昨日〜今日でいちばん新しい録音を（30分の枠や使用済みに関係なく）要約して説明欄の要約を差し替え、結果も選び直す。別の記録で使用済みなら注意を表示。zoom-summary に latest=1 モード。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
