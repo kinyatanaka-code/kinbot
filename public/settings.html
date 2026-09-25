@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260924c" />
+    <link rel="stylesheet" href="style.css?v=20260924d" />
   </head>
   <body>
     <div class="app">
@@ -393,9 +393,11 @@
               <div class="modal-actions" style="margin-top:10px">
                 <button class="btn ghost" id="zpCheck" type="button">接続を確認する</button>
                 <button class="btn" id="zpSync" type="button">通話履歴を今すぐ同期（直近26時間）</button>
+                <button class="btn ghost" id="zpRec" type="button">通話録音を記録の説明に反映（直近26時間）</button>
                 <span class="rev-status" id="zpSt"></span>
               </div>
               <p class="note" id="zpHint" style="margin-top:8px"></p>
+              <p class="note" style="margin-top:6px">通話録音は、要約して<b>kincallの記録の「説明」</b>とSalesforceの活動の説明に自動で追記されます（15分ごと。通話後45分は本人の記録を待ってから載せます）。必要なZoomのスコープ：phone:read:list_recordings（録音一覧）とダウンロード権限。録音はZoom側で自動録音（またはアドホック録音）を有効にした通話だけが対象です。</p>
             </div>
               </div>
               <div class="set-pane-inner" data-integ="notion" hidden>
@@ -822,8 +824,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260924c"></script>
-      <script src="nav.js?v=20260924c"></script>
+    <script src="settings.js?v=20260924d"></script>
+      <script src="nav.js?v=20260924d"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

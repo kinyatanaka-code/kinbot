@@ -654,6 +654,19 @@ async function loadZoomPane() {
 (function () {
   const ck = document.getElementById("zpCheck");
   if (ck) ck.addEventListener("click", loadZoomPane);
+  const rc = document.getElementById("zpRec");
+  if (rc) rc.addEventListener("click", async () => {
+    const st = document.getElementById("zpSt");
+    rc.disabled = true; if (st) st.textContent = "録音を要約しています…（少し時間がかかります）";
+    try {
+      const r = await fetch("/api/zoom-phone/sync-recordings", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 26 }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "反映できませんでした");
+      if (d.エラー) throw new Error(d.エラー);
+      if (st) st.textContent = `録音 ${d.録音 || 0}件 → 説明に反映 ${d.反映 || 0}件（本人の記録待ち ${d.待機 || 0}／照合なし ${d.照合なし || 0}／要約できず ${d.要約できず || 0}）`;
+    } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+    finally { rc.disabled = false; }
+  });
   const sy = document.getElementById("zpSync");
   if (sy) sy.addEventListener("click", async () => {
     const st = document.getElementById("zpSt");

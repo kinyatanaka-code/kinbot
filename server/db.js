@@ -786,6 +786,7 @@ export async function initDb() {
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS sf_task_id TEXT;`);
   // Zoom Phoneの通話ID（履歴の重複取り込み防止）
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS zoom_call_id TEXT;`);
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS zoom_rec_id TEXT;`);   // 通話録音の要約を反映済みのZoom録音ID
   await sq(`CREATE UNIQUE INDEX IF NOT EXISTS ux_call_logs_zoom ON call_logs(zoom_call_id) WHERE zoom_call_id IS NOT NULL;`);
   // ── 再架電スケジューラ②用（まず箱だけ。ロジックは未実装） ──
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS recall_at     TIMESTAMPTZ;`);   // この記録から決めた再架電予定
@@ -3129,6 +3130,44 @@ export async function findCallTargetByPhone(phone, { caller = "" } = {}) {
         LIMIT 1`, [last9, String(caller || "").toLowerCase()]);
     return rows[0] || null;
   } catch (e) { console.error("[db] findCallTargetByPhone", e.message); return null; }
+}
+
+// Zoomの通話録音：反映済みか
+export async function isZoomRecProcessed(recId) {
+  if (!pool || !recId) return false;
+  try { const { rows } = await pool.query(`SELECT 1 FROM call_logs WHERE zoom_rec_id = $1 LIMIT 1`, [String(recId)]); return !!rows.length; }
+  catch { return false; }
+}
+// 録音を載せる記録を探す：①同じ相手で通話時刻の前後60分に本人が付けた記録（手入力）→ ②Zoom同期で作られた記録
+export async function findCallLogForZoom({ targetId, at, zoomCallIds = [] } = {}) {
+  if (!pool || !targetId) return null;
+  try {
+    const t = at ? new Date(at) : new Date();
+    const { rows } = await pool.query(
+      `SELECT id, memo, result, sf_task_id, caller, zoom_rec_id FROM call_logs
+        WHERE target_id = $1 AND zoom_call_id IS NULL AND zoom_rec_id IS NULL
+          AND at BETWEEN $2::timestamptz - interval '60 minutes' AND $2::timestamptz + interval '60 minutes'
+        ORDER BY abs(extract(epoch from (at - $2::timestamptz))) LIMIT 1`, [targetId, t.toISOString()]);
+    if (rows[0]) return rows[0];
+    const ids = (zoomCallIds || []).filter(Boolean).map((x) => "zoom:" + x);
+    if (ids.length) {
+      const r2 = await pool.query(
+        `SELECT id, memo, result, sf_task_id, caller, zoom_rec_id FROM call_logs WHERE zoom_call_id = ANY($1::text[]) AND zoom_rec_id IS NULL LIMIT 1`, [ids]);
+      if (r2.rows[0]) return r2.rows[0];
+    }
+    return null;
+  } catch (e) { console.error("[db] findCallLogForZoom", e.message); return null; }
+}
+// 記録の説明（memo）の末尾に、通話録音の要約を足す
+export async function appendZoomSummary(logId, recId, summary) {
+  if (!pool || !logId) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE call_logs SET memo = CASE WHEN coalesce(btrim(memo),'') = '' THEN $3 ELSE memo || E'\n\n' || $3 END, zoom_rec_id = $2
+        WHERE id = $1 RETURNING id, memo, result, sf_task_id, caller`,
+      [logId, String(recId), "【通話録音の要約】\n" + String(summary || "").trim()]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] appendZoomSummary", e.message); return null; }
 }
 
 // Zoom Phoneの通話を、kincallの架電記録として入れる（zoom_call_idで重複防止）。

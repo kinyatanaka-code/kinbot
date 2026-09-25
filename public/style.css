@@ -5808,7 +5808,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-hist-at { color: var(--muted); width: 84px; flex: none; }
 .kc-hist-r { font-weight: 700; color: #0F6E56; }
 .kc-hist-who { margin-left: auto; color: var(--muted); font-size: 10.5px; }
-.kc-hist-m { margin-top: 4px; font-size: 12.5px; line-height: 1.7; }
+.kc-hist-m { margin-top: 4px; font-size: 12.5px; line-height: 1.7; white-space: pre-wrap; word-break: break-word; }
 
 /* kincallの一覧：画面いっぱいに使い、記録まで見えるようにする */
 /* かける画面は、上から下まで使い切って、表の中だけをスクロールさせる */

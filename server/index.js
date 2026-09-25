@@ -27,7 +27,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo, NOTIFY_KINDS, notifyDisabledSet } from "./chat.js";
 import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
 import { deepgramReady, transcribeUrl } from "./deepgram.js";
-import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall } from "./zoomphone.js";
+import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall, zoomPhoneRecordings, zoomDownload } from "./zoomphone.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -240,6 +240,9 @@ import {
   recentCallLogs,
   findCallTargetByPhone,
   addZoomCallLog,
+  isZoomRecProcessed,
+  findCallLogForZoom,
+  appendZoomSummary,
   listStageTargets,
   cleanupPhysicalStageLists,
   listTargetsNeedingSf,
@@ -533,7 +536,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -10474,6 +10477,89 @@ async function syncZoomCallHistory({ hours = 26 } = {}) {
   console.log(`[zoom-phone] 履歴取り込み：${追加}件を記録（${from}〜${to}・照合なし${照合なし}）`);
   return { 追加, 照合なし, 対象期間: `${from}〜${to}`, 件数: calls.length };
 }
+// Zoomの通話録音を要約して、kincallの記録の「説明」に載せる（SFの活動の説明にも反映）。
+// ①同じ相手・通話時刻±60分に本人が付けた記録 → ②Zoom同期の記録 → ③無ければ新しく記録を作る。
+let _zoomRecRunning = false;
+async function syncZoomRecordings({ hours = 26 } = {}) {
+  if (!zoomPhoneConfigured()) return { skipped: true };
+  if (_zoomRecRunning) return { skipped: true, reason: "実行中" };
+  _zoomRecRunning = true;
+  const out = { 録音: 0, 反映: 0, 照合なし: 0, 要約できず: 0, エラー: "" };
+  try {
+    const now = new Date(Date.now() + 9 * 3600 * 1000);
+    const to = now.toISOString().slice(0, 10);
+    const from = new Date(now.getTime() - hours * 3600 * 1000).toISOString().slice(0, 10);
+    let recs = [];
+    try { recs = await zoomPhoneRecordings({ from, to, max: 300 }); }
+    catch (e) { out.エラー = `録音一覧を取得できません：${e.message}（スコープ phone:read:list_recordings を確認）`; return out; }
+    out.録音 = recs.length;
+    const users = await zoomPhoneUsers().catch(() => ({}));
+    const idToEmail = {}; for (const [email, u] of Object.entries(users)) idToEmail[u.id] = email;
+    const st = await getSettings().catch(() => ({}));
+    for (const r of recs) {
+      if (!r.id || (!r.downloadUrl && !r.transcriptUrl)) continue;
+      if (await isZoomRecProcessed(r.id)) continue;
+      const caller = r.ownerEmail || idToEmail[r.ownerId] || "";
+      const t = await findCallTargetByPhone(r.number, { caller }).catch(() => null);
+      if (!t) { out.照合なし++; continue; }
+      // まず本人が付けた記録（手入力）を探す。通話から45分以内なら、本人が記録するのを待つ（次回の同期で再挑戦）。
+      let log = await findCallLogForZoom({ targetId: t.id, at: r.at, zoomCallIds: [] });
+      if (!log) {
+        const ageMin = r.at ? (Date.now() - new Date(r.at).getTime()) / 60000 : 999;
+        if (ageMin < 45) { out.待機 = (out.待機 || 0) + 1; continue; }
+        log = await findCallLogForZoom({ targetId: t.id, at: r.at, zoomCallIds: [r.callId, r.callLogId] });
+      }
+      // 要約：Zoomの文字起こしがあればそれを、無ければ音声をそのまま渡す
+      let summary = "";
+      try {
+        if (r.transcriptUrl) {
+          const tr = await zoomDownload(r.transcriptUrl).catch(() => null);
+          if (tr && tr.buf && tr.buf.length) {
+            let text = tr.buf.toString("utf8");
+            try { const j = JSON.parse(text); const tl = j.timeline || j.recording_transcript || []; if (Array.isArray(tl) && tl.length) text = tl.map((x) => `${(x.users && x.users[0] && x.users[0].username) || x.speaker || ""}：${x.text || ""}`).join("\n"); } catch {}
+            summary = await summarizeCallRecording({ transcriptText: text });
+          }
+        }
+        if (!summary && r.downloadUrl) {
+          const au = await zoomDownload(r.downloadUrl);
+          const mime = /mp4|m4a/i.test(au.contentType) ? "audio/mp4" : (/wav/i.test(au.contentType) ? "audio/wav" : "audio/mpeg");
+          summary = await summarizeCallRecording({ buf: au.buf, mimeType: mime });
+        }
+      } catch (e) { console.warn("[zoom-rec] 要約失敗", e.message); }
+      if (!summary) { out.要約できず++; continue; }
+      // 載せる記録が無ければ、Zoom記録として作る
+      if (!log) {
+        const zid = r.callLogId || r.callId || r.id;
+        await addZoomCallLog({ zoomCallId: `zoom:${zid}`, targetId: t.id, leadId: t.lead_id || "", company: t.company || "",
+          result: zoomResultToKincall("answered", r.duration), memo: `Zoom Phone（${r.direction === "inbound" ? "着信" : "発信"}・通話${Math.round(r.duration)}秒）`, caller, at: r.at });
+        log = await findCallLogForZoom({ targetId: t.id, at: r.at, zoomCallIds: [zid] });
+      }
+      if (!log) { out.照合なし++; continue; }
+      const saved = await appendZoomSummary(log.id, r.id, summary);
+      if (!saved) continue;
+      out.反映++;
+      // SFの活動（Task）の説明にも反映
+      if (saved.sf_task_id && salesforceConfigured()) {
+        try {
+          const cand = [saved.caller, st.sfProxyUser].filter((x) => String(x || "").includes("@"));
+          let sfUser = "";
+          for (const c of cand) { if (await sfConnected(c).catch(() => false)) { sfUser = c; break; } }
+          if (!sfUser) sfUser = await sfOperator("");
+          if (sfUser) await updateTask(sfUser, String(saved.sf_task_id), { Description: [`結果：${saved.result || ""}`, `メモ：${saved.memo || ""}`].join("\n").slice(0, 31000) });
+        } catch (e) { console.warn("[zoom-rec] SF活動の更新失敗", e.message); }
+      }
+    }
+    console.log(`[zoom-rec] 録音${out.録音}件 → 記録に反映${out.反映}件（照合なし${out.照合なし}・要約できず${out.要約できず}）`);
+    return out;
+  } finally { _zoomRecRunning = false; }
+}
+app.post("/api/zoom-phone/sync-recordings", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.status(400).json({ error: "Zoomの資格情報が未設定です（Railwayの環境変数）" });
+    const r = await syncZoomRecordings({ hours: Math.max(1, Math.min(720, parseInt(req.body?.hours, 10) || 26)) });
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/zoom-phone/sync", async (req, res) => {
   try {
     if (!zoomPhoneConfigured()) return res.status(400).json({ error: "Zoomの資格情報が未設定です（Railwayの環境変数）" });
@@ -10488,6 +10574,7 @@ setInterval(async () => {
     const st = await getSettings().catch(() => ({}));
     if (st.zoomAutoSync === false) return;
     await syncZoomCallHistory({ hours: 3 }).catch(() => {});
+    if (st.zoomRecSummary !== false) await syncZoomRecordings({ hours: 3 }).catch(() => {});
   } catch {}
 }, 15 * 60 * 1000);
 
@@ -20697,7 +20784,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-24c 設定＞外部連携に「Zoom Phone連携」カードを追加。バッジ＝未設定／接続エラー／連携済み（/api/zoom-phone/status）。詳細画面で 資格情報・接続（電話ユーザー数）・Zoom発信ON/OFF・エラー内容を表示、「接続を確認する」「通話履歴を今すぐ同期（直近26時間）」ボタン付き。status に users・autoSync を追加。";
+const BUILD_TAG = "2026-09-24d Zoom Phoneの通話録音を要約して、kincallの記録の「説明」（とSF活動のDescription）に自動追記。/phone/recordings を取得→電話番号でリード照合→Zoom文字起こし（あれば）or 音声をGeminiで要約→同じ相手・通話±60分の本人の記録に【通話録音の要約】として追記（通話後45分は本人の記録を待ち、無ければZoom記録に）。zoom_rec_id で二重反映防止。15分ごとの自動同期に組み込み（設定 zoomRecSummary=false で停止）。設定＞Zoom Phoneに手動ボタン。履歴のメモは改行表示。要スコープ phone:read:list_recordings＋ダウンロード。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

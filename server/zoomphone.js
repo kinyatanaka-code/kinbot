@@ -104,3 +104,46 @@ export function zoomResultToKincall(result, duration) {
   if (/voicemail|vm/.test(r)) return "担当者不在";
   return "コールのみ";
 }
+
+// 通話録音の一覧（アカウント全体）。from/to は YYYY-MM-DD。
+// 返り値：[{ id, callId, callLogId, number, direction, ownerEmail, ownerId, at, duration, downloadUrl, transcriptUrl }]
+// スコープ：phone:read:list_recordings:admin（または phone:read:admin）／ダウンロードに phone:read:recording:admin 等。
+export async function zoomPhoneRecordings({ from, to, max = 300 } = {}) {
+  const items = [];
+  let token = "";
+  for (let page = 0; page < 10 && items.length < max; page++) {
+    const d = await zoomGet("/phone/recordings", { from, to, page_size: 100, next_page_token: token });
+    for (const r of d.recordings || []) {
+      const direction = String(r.direction || "").toLowerCase();
+      const number = String(direction === "inbound"
+        ? (r.caller_number || "")
+        : (r.callee_number || "")) || String(r.callee_number || r.caller_number || "");
+      items.push({
+        id: String(r.id || ""),
+        callId: String(r.call_id || ""),
+        callLogId: String(r.call_log_id || ""),
+        number,
+        direction,
+        ownerEmail: String((r.owner && r.owner.email) || r.caller_email || "").toLowerCase(),
+        ownerId: String((r.owner && r.owner.id) || ""),
+        at: r.date_time || r.start_time || null,
+        duration: Number(r.duration || 0),
+        downloadUrl: String(r.download_url || ""),
+        transcriptUrl: String(r.transcript_download_url || ""),
+      });
+      if (items.length >= max) break;
+    }
+    token = d.next_page_token || "";
+    if (!token) break;
+  }
+  return items;
+}
+
+// ZoomのダウンロードURL（録音・文字起こし）を、トークン付きで取得する。
+export async function zoomDownload(url) {
+  const tokenStr = await getToken();
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${tokenStr}` }, redirect: "follow" });
+  if (!res.ok) throw new Error(`Zoomダウンロード失敗 ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { buf, contentType: String(res.headers.get("content-type") || "") };
+}

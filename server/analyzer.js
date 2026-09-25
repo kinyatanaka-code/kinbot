@@ -2245,3 +2245,42 @@ export async function splitPhases({ transcript, repName }) {
   if (out.length && out[out.length - 1].to < arr.length - 1) out[out.length - 1].to = arr.length - 1;
   return out;
 }
+
+// 架電の録音（音声 or Zoomの文字起こし）から、kincall記録の「説明」に入れる要約を作る。
+// 返り値：プレーンテキスト（空なら要約できず）。
+const CALL_SUMMARY_PROMPT =
+  "これは日本語の営業電話（テレアポ）の録音です。kincallの架電記録の「説明」欄に入れる要約を作ってください。\n" +
+  "次の形で、箇条書き（・）で簡潔に。該当しない項目は省く。推測で書かない。\n" +
+  "・相手：誰が出たか（受付／担当者名・役職など）\n" +
+  "・要点：会話の内容（2〜3行）\n" +
+  "・反応：相手の反応・断り理由・関心\n" +
+  "・次回：次のアクションや再架電の日時（言及があれば）\n" +
+  "会話がほぼ無い（留守電・無言・すぐ切れた）場合は「・会話なし（留守電/不在など）」の1行だけ。";
+export async function summarizeCallRecording({ buf = null, mimeType = "audio/mpeg", transcriptText = "" } = {}) {
+  const t = String(transcriptText || "").trim();
+  if (t) {
+    const out = await callLLM("あなたは営業記録の作成担当です。", `${CALL_SUMMARY_PROMPT}\n\n文字起こし：\n"""\n${t.slice(0, 12000)}\n"""`, 600,
+      { provider: "gemini", model: "gemini-2.5-flash-lite" }).catch(() => "");
+    return String(out || "").trim();
+  }
+  if (!buf || !buf.length) return "";
+  if (buf.length > 18 * 1024 * 1024) return "";   // 長すぎる通話は対象外（営業電話では通常ありえない）
+  const key = String(process.env.GEMINI_API_KEY || "").trim();
+  if (!key) return "";
+  for (const m of [process.env.GEMINI_CALL_MODEL || "gemini-2.5-flash", "gemini-flash-latest"]) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: CALL_SUMMARY_PROMPT }, { inline_data: { mime_type: mimeType || "audio/mpeg", data: buf.toString("base64") } }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 1024 },
+        }),
+      });
+      if (!res.ok) continue;
+      const d = await res.json().catch(() => ({}));
+      const txt = ((d.candidates || [])[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
+      if (txt) return txt;
+    } catch {}
+  }
+  return "";
+}
