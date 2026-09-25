@@ -248,6 +248,7 @@ import {
   markZoomRecUsed,
   findUnusedZoomSummary,
   zoomRecMapForTarget,
+  zoomRecDurations,
   listStageTargets,
   cleanupPhysicalStageLists,
   listTargetsNeedingSf,
@@ -9951,6 +9952,11 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       sfNote = "この相手はSalesforceのリードと結びついていません";
     }
 
+    // 録音の長さ（秒）を付ける
+    {
+      const recIds = items.map((h) => h.zoomRecId).filter(Boolean);
+      if (recIds.length) { const du = await zoomRecDurations(recIds).catch(() => ({})); for (const h of items) if (h.zoomRecId && du[h.zoomRecId]) h.録音秒 = du[h.zoomRecId]; }
+    }
     // 同じ架電が「kinbot側」と「SF側」で二重に出るのを防ぐ（同じ人・同じ結果・ほぼ同時刻はまとめる）
     const seen = new Set();
     const uniq = [];
@@ -10551,6 +10557,7 @@ function zoomRecRange() {
   return { from: new Date(now.getTime() - 86400000).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
 }
 
+const _zoomAudioCache = new Map();   // recId -> {buf, contentType}（最近の20件）
 // 録音の音声を再生する（ログインした人だけ。ZoomのURLはトークンが要るので、ここで中継する）
 app.get("/api/calls/zoom-rec/:recId/audio", async (req, res) => {
   try {
@@ -10565,11 +10572,29 @@ app.get("/api/calls/zoom-rec/:recId/audio", async (req, res) => {
       if (r && r.downloadUrl) { url = r.downloadUrl; await saveZoomRecSummary({ recId, at: r.at, duration: r.duration, downloadUrl: url, summary: ((await getZoomRecSummary(recId)) || {}).summary || "" }).catch(() => {}); }
     }
     if (!url) return res.status(404).json({ error: "録音が見つかりません" });
-    const au = await zoomDownload(url);
+    let au = _zoomAudioCache.get(recId);
+    if (!au) {
+      au = await zoomDownload(url);
+      _zoomAudioCache.set(recId, au);
+      while (_zoomAudioCache.size > 20) _zoomAudioCache.delete(_zoomAudioCache.keys().next().value);
+    }
+    const buf = au.buf, total = buf.length;
     res.setHeader("Content-Type", /mp4|m4a/i.test(au.contentType) ? "audio/mp4" : (/wav/i.test(au.contentType) ? "audio/wav" : "audio/mpeg"));
-    res.setHeader("Content-Length", String(au.buf.length));
+    res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, max-age=3600");
-    res.end(au.buf);
+    // ブラウザの再生は「途中から」を Range で取りに来る。応えないと長さ0や早送り不可になる。
+    const m = String(req.headers.range || "").match(/bytes=(\d*)-(\d*)/);
+    if (m && total) {
+      let start = m[1] === "" ? Math.max(0, total - Number(m[2] || 0)) : Number(m[1]);
+      let end = (m[1] !== "" && m[2] !== "") ? Math.min(Number(m[2]), total - 1) : total - 1;
+      if (!(start >= 0 && start < total && end >= start)) { res.setHeader("Content-Range", `bytes */${total}`); return res.status(416).end(); }
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${total}`);
+      res.setHeader("Content-Length", String(end - start + 1));
+      return res.end(buf.subarray(start, end + 1));
+    }
+    res.setHeader("Content-Length", String(total));
+    res.end(buf);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -20893,7 +20918,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-25c 架電まわり2点。(1)電話番号を押したら「発信しますか？」の確認（番号・会社名・発信方法、📞発信する／やめる）を挟む。(2)Zoom Phone Smart Embed をkincallに埋め込めるように（設定＞Zoom Phone連携で「kincallの中でZoom電話を使う」ON）。左下の📞Zoom電話パネルから発信（zp-make-call・本人の発信者番号を /api/zoom-phone/caller-id で付与）、切る・ミュート・録音はパネル内で操作。通話終了・録音完了の合図で録音要約をすぐ取りに行く。PUT /api/zoom-phone/settings、status に embed。要Zoom管理者：Smart Embedアプリ追加＋承認ドメイン登録、サードパーティアプリから自動発信ON。";
+const BUILD_TAG = "2026-09-25d 履歴の録音再生を改善。音声の中継にHTTP Range（206）対応＋直近20件をメモリキャッシュ（長さ0表示・早送り不可を解消）、プレイヤーは preload=metadata、見出しに「🎧 録音 0:27」（zoom_rec_summaries.duration）、読めないときは「録音を読み込めませんでした」表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -3182,6 +3182,17 @@ export async function zoomRecMapForTarget(targetId, leadId = "") {
   } catch {}
   return out;
 }
+// 録音IDごとの長さ（秒）。履歴に「録音 0:27」を出すため
+export async function zoomRecDurations(ids = []) {
+  const out = {};
+  const list = [...new Set((ids || []).filter(Boolean).map(String))];
+  if (!pool || !list.length) return out;
+  try {
+    const { rows } = await pool.query(`SELECT rec_id, duration FROM zoom_rec_summaries WHERE rec_id = ANY($1::text[])`, [list]);
+    for (const r of rows) out[r.rec_id] = Number(r.duration || 0);
+  } catch {}
+  return out;
+}
 // その相手の、まだ記録に使っていない要約（新しい順・since以降）
 export async function findUnusedZoomSummary(targetId, sinceIso) {
   if (!pool || !targetId) return null;

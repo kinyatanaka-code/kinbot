@@ -862,7 +862,7 @@ async function renderHistoryInto(box, id) {
                 ${h["直せる"] ? '<button type="button" class="kc-hist-edit" data-hedit="1">直す</button>' : ""}
               </div>
               ${h["メモ"] ? `<div class="kc-hist-m">${esc(h["メモ"])}</div>` : ""}
-              ${h.zoomRecId ? `<audio class="kc-hist-audio" controls preload="none" src="/api/calls/zoom-rec/${encodeURIComponent(h.zoomRecId)}/audio"></audio>` : ""}
+              ${h.zoomRecId ? `<div class="kc-hist-rec"><span class="kc-hist-rec-lb">🎧 録音${h["録音秒"] ? " " + Math.floor(h["録音秒"] / 60) + ":" + String(Math.round(h["録音秒"]) % 60).padStart(2, "0") : ""}</span><audio class="kc-hist-audio" controls preload="metadata" src="/api/calls/zoom-rec/${encodeURIComponent(h.zoomRecId)}/audio" onerror="this.outerHTML='<span class=&quot;kc-hist-rec-err&quot;>録音を読み込めませんでした</span>'"></audio></div>` : ""}
             </div>`).join("")
         : `<div class="note">まだ記録がありません。</div>`);
   } catch (e) {
