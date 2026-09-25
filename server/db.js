@@ -800,6 +800,7 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT now()
     );
   `);
+  await sq(`ALTER TABLE zoom_rec_summaries ADD COLUMN IF NOT EXISTS download_url TEXT;`);   // 再生用（Zoomの録音URL）
   await sq(`CREATE UNIQUE INDEX IF NOT EXISTS ux_call_logs_zoom ON call_logs(zoom_call_id) WHERE zoom_call_id IS NOT NULL;`);
   // ── 再架電スケジューラ②用（まず箱だけ。ロジックは未実装） ──
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS recall_at     TIMESTAMPTZ;`);   // この記録から決めた再架電予定
@@ -3151,13 +3152,14 @@ export async function getZoomRecSummary(recId) {
   try { const { rows } = await pool.query(`SELECT * FROM zoom_rec_summaries WHERE rec_id = $1`, [String(recId)]); return rows[0] || null; }
   catch { return null; }
 }
-export async function saveZoomRecSummary({ recId, targetId, caller = "", at = null, duration = 0, summary = "" }) {
+export async function saveZoomRecSummary({ recId, targetId, caller = "", at = null, duration = 0, summary = "", downloadUrl = "" }) {
   if (!pool || !recId) return;
   try {
     await pool.query(
-      `INSERT INTO zoom_rec_summaries (rec_id, target_id, caller, at, duration, summary) VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (rec_id) DO UPDATE SET summary = EXCLUDED.summary, target_id = EXCLUDED.target_id`,
-      [String(recId), targetId || null, String(caller || "").toLowerCase(), at || null, Math.round(Number(duration) || 0), String(summary || "")]);
+      `INSERT INTO zoom_rec_summaries (rec_id, target_id, caller, at, duration, summary, download_url) VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (rec_id) DO UPDATE SET summary = EXCLUDED.summary, target_id = EXCLUDED.target_id,
+         download_url = COALESCE(NULLIF(EXCLUDED.download_url, ''), zoom_rec_summaries.download_url)`,
+      [String(recId), targetId || null, String(caller || "").toLowerCase(), at || null, Math.round(Number(duration) || 0), String(summary || ""), String(downloadUrl || "")]);
   } catch (e) { console.error("[db] saveZoomRecSummary", e.message); }
 }
 // 記録に使った録音として印を付ける（記録の zoom_rec_id と、キャッシュの log_id）
@@ -3167,6 +3169,18 @@ export async function markZoomRecUsed(recId, logId) {
     await pool.query(`UPDATE call_logs SET zoom_rec_id = $1 WHERE id = $2`, [String(recId), logId]);
     await pool.query(`UPDATE zoom_rec_summaries SET log_id = $2 WHERE rec_id = $1`, [String(recId), logId]);
   } catch (e) { console.error("[db] markZoomRecUsed", e.message); }
+}
+// 記録（ログID/SF活動ID）→ Zoom録音ID の対応（履歴で再生ボタンを出すため）
+export async function zoomRecMapForTarget(targetId, leadId = "") {
+  const out = { byLog: {}, byTask: {} };
+  if (!pool) return out;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, sf_task_id, zoom_rec_id FROM call_logs
+        WHERE (target_id = $1 OR ($2 <> '' AND lead_id = $2)) AND zoom_rec_id IS NOT NULL`, [targetId || 0, String(leadId || "")]);
+    for (const r of rows) { out.byLog[r.id] = r.zoom_rec_id; if (r.sf_task_id) out.byTask[r.sf_task_id] = r.zoom_rec_id; }
+  } catch {}
+  return out;
 }
 // その相手の、まだ記録に使っていない要約（新しい順・since以降）
 export async function findUnusedZoomSummary(targetId, sinceIso) {
@@ -4722,7 +4736,7 @@ export async function callHistory(targetId, leadId, limit = 5) {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT id, result, memo, caller, at, sf_task_id FROM call_logs
+      `SELECT id, result, memo, caller, at, sf_task_id, zoom_rec_id FROM call_logs
         WHERE target_id = $1 OR ($2 <> '' AND lead_id = $2)
         ORDER BY at DESC LIMIT $3`,
       [targetId || 0, String(leadId || ""), limit]);

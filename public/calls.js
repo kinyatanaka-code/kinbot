@@ -856,6 +856,7 @@ async function renderHistoryInto(box, id) {
                 ${h["直せる"] ? '<button type="button" class="kc-hist-edit" data-hedit="1">直す</button>' : ""}
               </div>
               ${h["メモ"] ? `<div class="kc-hist-m">${esc(h["メモ"])}</div>` : ""}
+              ${h.zoomRecId ? `<audio class="kc-hist-audio" controls preload="none" src="/api/calls/zoom-rec/${encodeURIComponent(h.zoomRecId)}/audio"></audio>` : ""}
             </div>`).join("")
         : `<div class="note">まだ記録がありません。</div>`);
   } catch (e) {
@@ -1810,7 +1811,14 @@ function wireZoomSummary(m, id) {
     const block = `${MARK}\n${String(d.summary || "").trim()}`;
     memo.value = memo.value.trim() ? `${memo.value.trim()}\n\n${block}` : block;
     m._zoomRecId = d.recId || "";
-    show(`<span class="kc-zsum-ok">✓ Zoom録音（${esc(hm(d.at))}の通話${d.duration ? "・" + Math.round(d.duration) + "秒" : ""}）の要約を入れました。確認して、結果を選んで記録してください。</span>` +
+    // 結果のプルダウンも、まだ選んでいなければ要約から自動で選ぶ（あとから変えられる）
+    let picked = "";
+    const sel = m.el.querySelector("#kcResult");
+    if (sel && !sel.value && d.result && [...sel.options].some((o) => o.value === d.result)) {
+      sel.value = d.result; picked = d.result;
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    show(`<span class="kc-zsum-ok">✓ Zoom録音（${esc(hm(d.at))}の通話${d.duration ? "・" + Math.round(d.duration) + "秒" : ""}）の要約を入れました${picked ? `。結果は「${esc(picked)}」を自動で選びました` : ""}。確認して記録してください。</span>` +
       ` <button type="button" class="kc-zsum-x" id="kcZsumX">別の通話なら消す</button>`);
     const x = m.el.querySelector("#kcZsumX");
     if (x) x.addEventListener("click", () => {
@@ -1822,7 +1830,10 @@ function wireZoomSummary(m, id) {
   };
   const fetchOnce = async () => {
     try {
-      const d = await (await fetch(`/api/calls/targets/${encodeURIComponent(id)}/zoom-summary${since ? "?since=" + encodeURIComponent(since) : ""}`, { cache: "no-store" })).json();
+      const sel = m.el.querySelector("#kcResult");
+      const opts = sel ? [...sel.options].map((o) => o.value).filter(Boolean).join("|") : "";
+      const qs = new URLSearchParams(); if (since) qs.set("since", since); if (opts) qs.set("opts", opts);
+      const d = await (await fetch(`/api/calls/targets/${encodeURIComponent(id)}/zoom-summary?${qs.toString()}`, { cache: "no-store" })).json();
       if (d && d.summary) { put(d); return true; }
       return d || {};
     } catch { return {}; }

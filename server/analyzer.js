@@ -2246,41 +2246,76 @@ export async function splitPhases({ transcript, repName }) {
   return out;
 }
 
-// 架電の録音（音声 or Zoomの文字起こし）から、kincall記録の「説明」に入れる要約を作る。
-// 返り値：プレーンテキスト（空なら要約できず）。
+// 架電の録音（音声 or Zoomの文字起こし）から、kincall記録の「説明」に入れる要約と、結果の候補を作る。
+// 返り値：{ summary: "・相手：…\n・要点：…", result: "選択肢のどれか" }（作れなければ summary は空）
 const CALL_SUMMARY_PROMPT =
-  "これは日本語の営業電話（テレアポ）の録音です。kincallの架電記録の「説明」欄に入れる要約を作ってください。\n" +
-  "次の形で、箇条書き（・）で簡潔に。該当しない項目は省く。推測で書かない。\n" +
-  "・相手：誰が出たか（受付／担当者名・役職など）\n" +
-  "・要点：会話の内容（2〜3行）\n" +
-  "・反応：相手の反応・断り理由・関心\n" +
-  "・次回：次のアクションや再架電の日時（言及があれば）\n" +
-  "会話がほぼ無い（留守電・無言・すぐ切れた）場合は「・会話なし（留守電/不在など）」の1行だけ。";
-export async function summarizeCallRecording({ buf = null, mimeType = "audio/mpeg", transcriptText = "" } = {}) {
-  const t = String(transcriptText || "").trim();
-  if (t) {
-    const out = await callLLM("あなたは営業記録の作成担当です。", `${CALL_SUMMARY_PROMPT}\n\n文字起こし：\n"""\n${t.slice(0, 12000)}\n"""`, 600,
-      { provider: "gemini", model: "gemini-2.5-flash-lite" }).catch(() => "");
-    return String(out || "").trim();
+  "これは日本語の営業電話（テレアポ）の録音です。kincallの架電記録に入れる内容を作ってください。\n" +
+  "summary：次の項目を1行ずつ「・項目：内容」で。該当しない項目は省く。推測で書かない。\n" +
+  "  ・相手：誰が出たか（受付／担当者名・役職など）\n  ・要点：会話の内容\n  ・反応：相手の反応・断り理由・関心\n  ・次回：次のアクションや再架電の日時（言及があれば）\n" +
+  "  会話がほぼ無い（留守電・無言・すぐ切れた）場合は「・会話なし（留守電/不在など）」の1行だけ。\n" +
+  "result：架電の結果。";
+// JSONで返ってきても、箇条書きの文字にそろえる
+export function cleanCallSummary(v) {
+  let s = String(v == null ? "" : v).trim();
+  if (!s) return "";
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  if (/^[\[{]/.test(s)) {
+    try {
+      const j = JSON.parse(s);
+      const lines = [];
+      const walk = (x, k) => {
+        if (x == null) return;
+        if (Array.isArray(x)) return x.forEach((y) => walk(y, k));
+        if (typeof x === "object") {
+          if (typeof x.summary === "string") return walk(x.summary);
+          return Object.entries(x).forEach(([kk, vv]) => (typeof vv === "object" ? walk(vv, kk) : walk(vv, kk)));
+        }
+        const t = String(x).trim(); if (!t) return;
+        if (/^[・\-•]/.test(t) || t.includes("\n")) lines.push(...t.split(/\n+/).map((z) => z.trim()).filter(Boolean));
+        else lines.push(k && !/^(説明|summary|text|内容|要約|result)$/i.test(k) ? `・${k}：${t}` : `・${t}`);
+      };
+      walk(j);
+      s = lines.join("\n");
+    } catch {}
   }
-  if (!buf || !buf.length) return "";
-  if (buf.length > 18 * 1024 * 1024) return "";   // 長すぎる通話は対象外（営業電話では通常ありえない）
+  return s.split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => (/^[・\-•]/.test(l) ? l.replace(/^[\-•]\s*/, "・") : "・" + l)).join("\n");
+}
+export async function summarizeCallRecording({ buf = null, mimeType = "audio/mpeg", transcriptText = "", options = [] } = {}) {
   const key = String(process.env.GEMINI_API_KEY || "").trim();
-  if (!key) return "";
-  for (const m of [process.env.GEMINI_CALL_MODEL || "gemini-2.5-flash", "gemini-flash-latest"]) {
+  if (!key) return { summary: "", result: "" };
+  const t = String(transcriptText || "").trim();
+  if (!t && (!buf || !buf.length || buf.length > 18 * 1024 * 1024)) return { summary: "", result: "" };
+  const opts = (options || []).map((x) => String(x || "").trim()).filter(Boolean).slice(0, 40);
+  const prompt = CALL_SUMMARY_PROMPT + (opts.length ? `次の選択肢から1つだけ、文字を変えずに選ぶ：${opts.join(" / ")}` : "「担当者不在」「受付ブロック」「担当者接触：お断り」「担当者接触：アポ獲得」「コールのみ」などから1つ。") ;
+  const parts = t ? [{ text: `${prompt}\n\n文字起こし：\n"""\n${t.slice(0, 12000)}\n"""` }]
+    : [{ text: prompt }, { inline_data: { mime_type: mimeType || "audio/mpeg", data: buf.toString("base64") } }];
+  const schema = { type: "OBJECT", properties: { summary: { type: "STRING" }, result: { type: "STRING" } }, required: ["summary", "result"] };
+  const models = t ? ["gemini-2.5-flash-lite", "gemini-2.5-flash"] : [process.env.GEMINI_CALL_MODEL || "gemini-2.5-flash", "gemini-flash-latest"];
+  for (const m of models) {
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: CALL_SUMMARY_PROMPT }, { inline_data: { mime_type: mimeType || "audio/mpeg", data: buf.toString("base64") } }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 1024 },
-        }),
+        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: "application/json", responseSchema: schema } }),
       });
       if (!res.ok) continue;
       const d = await res.json().catch(() => ({}));
       const txt = ((d.candidates || [])[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
-      if (txt) return txt;
+      if (!txt) continue;
+      let o = null; try { o = JSON.parse(txt); } catch {}
+      const summary = cleanCallSummary(o && o.summary != null ? o.summary : txt);
+      let result = String((o && o.result) || "").trim();
+      if (opts.length && !opts.includes(result)) result = opts.find((x) => result && (x.includes(result) || result.includes(x))) || "";
+      if (summary) return { summary, result };
     } catch {}
   }
-  return "";
+  return { summary: "", result: "" };
+}
+// 要約の文から、結果の選択肢を1つ選ぶ（キャッシュの要約を使うとき用・安いモデル）
+export async function guessCallResult(summary, options = []) {
+  const opts = (options || []).map((x) => String(x || "").trim()).filter(Boolean).slice(0, 40);
+  if (!summary || !opts.length) return "";
+  const out = await callLLM("あなたは営業電話の記録係です。", `次の架電の要約から、結果を選択肢の中から1つだけ、文字を変えずに答えてください。答えだけを1行で。\n選択肢：${opts.join(" / ")}\n\n要約：\n${String(summary).slice(0, 2000)}`, 60,
+    { provider: "gemini", model: "gemini-2.5-flash-lite" }).catch(() => "");
+  const a = cleanCallSummary(out).replace(/^・/, "").trim();
+  return opts.includes(a) ? a : (opts.find((x) => a && (a.includes(x) || x.includes(a))) || "");
 }

@@ -247,6 +247,7 @@ import {
   saveZoomRecSummary,
   markZoomRecUsed,
   findUnusedZoomSummary,
+  zoomRecMapForTarget,
   listStageTargets,
   cleanupPhysicalStageLists,
   listTargetsNeedingSf,
@@ -540,7 +541,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -9895,7 +9896,9 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
         logId: h.id, sfTaskId: h.sf_task_id || "",
         結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at,
         元: "kinbot", まだ送れていない: true, 直せる: true,
+        zoomRecId: h.zoom_rec_id || "",
       }));
+    const zmap = zoomPhoneConfigured() ? await zoomRecMapForTarget(id, t.lead_id).catch(() => ({ byTask: {} })) : { byTask: {} };
 
     // Salesforceに残っている架電の履歴も混ぜる（過去のやり取りはSFにある）
     // SFアカウントの無い人（インターン生など）でも読めるよう、
@@ -9928,6 +9931,7 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
           }
           items.push({
             taskId: a.Id || "", 直せる: !!a.Id,
+            zoomRecId: (a.Id && zmap.byTask[a.Id]) || "",
             件名: String(a.Subject || "").replace(/^コール：/, "") || "活動",
             結果,
             メモ: desc.slice(0, 500),
@@ -10484,39 +10488,65 @@ async function syncZoomCallHistory({ hours = 26, force = false } = {}) {
   return { 追加, 照合なし, 対象期間: `${from}〜${to}`, 件数: calls.length };
 }
 // ===== Zoomの通話録音 → 要約（記録の「説明」に入れる） =====
-// 録音1件を要約する（Zoomの文字起こしがあればそれ、無ければ音声をそのまま渡す）
-async function summarizeZoomRec(r) {
+// 録音1件を要約する（Zoomの文字起こしがあればそれ、無ければ音声をそのまま渡す）。{summary, result}
+async function summarizeZoomRec(r, options = []) {
   try {
     if (r.transcriptUrl) {
       const tr = await zoomDownload(r.transcriptUrl).catch(() => null);
       if (tr && tr.buf && tr.buf.length) {
         let text = tr.buf.toString("utf8");
         try { const j = JSON.parse(text); const tl = j.timeline || j.recording_transcript || []; if (Array.isArray(tl) && tl.length) text = tl.map((x) => `${(x.users && x.users[0] && x.users[0].username) || x.speaker || ""}：${x.text || ""}`).join("\n"); } catch {}
-        const s1 = await summarizeCallRecording({ transcriptText: text });
-        if (s1) return s1;
+        const o1 = await summarizeCallRecording({ transcriptText: text, options });
+        if (o1.summary) return o1;
       }
     }
     if (r.downloadUrl) {
       const au = await zoomDownload(r.downloadUrl);
       const mime = /mp4|m4a/i.test(au.contentType) ? "audio/mp4" : (/wav/i.test(au.contentType) ? "audio/wav" : "audio/mpeg");
-      return await summarizeCallRecording({ buf: au.buf, mimeType: mime });
+      return await summarizeCallRecording({ buf: au.buf, mimeType: mime, options });
     }
   } catch (e) { console.warn("[zoom-rec] 要約失敗", e.message); }
-  return "";
+  return { summary: "", result: "" };
 }
-// キャッシュがあればそれを、無ければ要約して保存
-async function zoomRecSummaryCached(r, targetId, caller) {
+// キャッシュがあればそれを、無ければ要約して保存。{summary, result}
+async function zoomRecSummaryCached(r, targetId, caller, options = []) {
   const c = await getZoomRecSummary(r.id);
-  if (c && c.summary) return c.summary;
-  const sm = await summarizeZoomRec(r);
-  if (sm) await saveZoomRecSummary({ recId: r.id, targetId, caller, at: r.at, duration: r.duration, summary: sm });
-  return sm;
+  if (c && c.summary) {
+    if (r.downloadUrl && !c.download_url) await saveZoomRecSummary({ recId: r.id, targetId, caller, at: r.at, duration: r.duration, summary: c.summary, downloadUrl: r.downloadUrl });
+    const summary = cleanCallSummary(c.summary);
+    return { summary, result: options.length ? await guessCallResult(summary, options).catch(() => "") : "" };
+  }
+  const o = await summarizeZoomRec(r, options);
+  if (o.summary) await saveZoomRecSummary({ recId: r.id, targetId, caller, at: r.at, duration: r.duration, summary: o.summary, downloadUrl: r.downloadUrl });
+  return o;
 }
 const zoomLast9 = (v) => String(v || "").replace(/\D/g, "").slice(-9);
 function zoomRecRange() {
   const now = new Date(Date.now() + 9 * 3600 * 1000);
   return { from: new Date(now.getTime() - 86400000).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
 }
+
+// 録音の音声を再生する（ログインした人だけ。ZoomのURLはトークンが要るので、ここで中継する）
+app.get("/api/calls/zoom-rec/:recId/audio", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.status(404).end();
+    const recId = String(req.params.recId || "");
+    let url = ((await getZoomRecSummary(recId)) || {}).download_url || "";
+    if (!url) {
+      // 古い要約はURLを持っていないので、直近30日の録音一覧から探す
+      const now = new Date(Date.now() + 9 * 3600 * 1000);
+      const recs = await zoomPhoneRecordings({ from: new Date(now.getTime() - 29 * 86400000).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10), max: 1000 }).catch(() => []);
+      const r = recs.find((x) => x.id === recId);
+      if (r && r.downloadUrl) { url = r.downloadUrl; await saveZoomRecSummary({ recId, at: r.at, duration: r.duration, downloadUrl: url, summary: ((await getZoomRecSummary(recId)) || {}).summary || "" }).catch(() => {}); }
+    }
+    if (!url) return res.status(404).json({ error: "録音が見つかりません" });
+    const au = await zoomDownload(url);
+    res.setHeader("Content-Type", /mp4|m4a/i.test(au.contentType) ? "audio/mp4" : (/wav/i.test(au.contentType) ? "audio/wav" : "audio/mpeg"));
+    res.setHeader("Content-Length", String(au.buf.length));
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.end(au.buf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 記録の窓から呼ぶ：この相手の、架電後の録音の要約を返す（?since=ISO 以降の通話。無ければ直近30分）
 app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
@@ -10526,9 +10556,14 @@ app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
     if (!t) return res.status(404).json({ error: "見つかりません" });
     const sinceMs = Date.parse(String(req.query.since || "")) || (Date.now() - 30 * 60000);
     const sinceIso = new Date(sinceMs - 2 * 60000).toISOString();   // 押した直前の通話も拾えるよう2分ゆとり
+    const options = String(req.query.opts || "").split("|").map((x) => x.trim()).filter(Boolean).slice(0, 40);
     // ①先に要約済み（15分ごとの処理で作られたもの）
     const cached = await findUnusedZoomSummary(t.id, sinceIso);
-    if (cached) return res.json({ ok: true, recId: cached.rec_id, at: cached.at, duration: cached.duration, summary: cached.summary });
+    if (cached) {
+      const summary = cleanCallSummary(cached.summary);
+      const result = options.length ? await guessCallResult(summary, options).catch(() => "") : "";
+      return res.json({ ok: true, recId: cached.rec_id, at: cached.at, duration: cached.duration, summary, result });
+    }
     // ②Zoomから、この番号の録音を探す
     const last9 = zoomLast9(t.phone);
     if (last9.length < 6) return res.json({ ok: true, none: true, reason: "電話番号がありません" });
@@ -10542,8 +10577,8 @@ app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
       if (await isZoomRecProcessed(r.id)) continue;
       const c = await getZoomRecSummary(r.id);
       if (c && c.log_id) continue;
-      const sm = await zoomRecSummaryCached(r, t.id, req.user);
-      if (sm) return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: sm });
+      const o = await zoomRecSummaryCached(r, t.id, req.user, options);
+      if (o.summary) return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: o.summary, result: o.result || "" });
       return res.json({ ok: true, none: true, reason: "録音はありますが要約できませんでした" });
     }
     res.json({ ok: true, none: true, reason: "録音はまだありません（通話後、Zoomに録音が出るまで少しかかります）" });
@@ -10576,7 +10611,7 @@ async function syncZoomRecordings({ hours = 26 } = {}) {
       const caller = r.ownerEmail || idToEmail[r.ownerId] || "";
       const t = await findCallTargetByPhone(r.number, { caller }).catch(() => null);
       if (!t) { out.照合なし++; continue; }
-      const summary = await zoomRecSummaryCached(r, t.id, caller);
+      const summary = (await zoomRecSummaryCached(r, t.id, caller)).summary;
       if (!summary) { out.要約できず++; continue; }
       out.要約++;
       // 本人が要約なしで記録済みなら、その説明に追記
@@ -20833,7 +20868,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-25a Zoom録音の要約を、記録の窓の「説明」欄に通話直後に自動で入れる方式へ。窓の電話番号から架電→15秒ごと最大8分、GET /api/calls/targets/:id/zoom-summary?since= で録音を探して要約→説明欄に【通話録音の要約】を挿入（先にかけて後から窓を開いた場合は直近30分）。結果は架電者が選んで記録、記録時に zoomRecId を使用済みに。要約は zoom_rec_summaries にキャッシュ（15分ごとに先回り要約、要約なしで先に記録した場合のみ後から追記）。Zoom通話履歴から仮の結果で記録を自動作成するのは停止（設定 zoomAutoLog=true で復活）。";
+const BUILD_TAG = "2026-09-25b Zoom録音まわり3点。(1)履歴に録音の再生プレイヤー（GET /api/calls/zoom-rec/:recId/audio でZoomの録音をトークン付きで中継、履歴itemsに zoomRecId）。(2)要約と同時に結果の選択肢を推定し、未選択なら結果プルダウンを自動選択（窓から選択肢をopts=で渡す、キャッシュ済みは guessCallResult）。(3)要約がJSONのまま入る不具合を修正（Geminiを responseSchema {summary,result} で呼び、cleanCallSummary で箇条書きに整形、キャッシュ分も整形して返す）。zoom_rec_summaries に download_url。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
