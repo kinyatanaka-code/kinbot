@@ -6606,3 +6606,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-head-person { display:inline-flex; flex-direction:column; vertical-align:bottom; line-height:1.15; }
 .kc-head-kana { font-size:10px; font-weight:500; opacity:.8; }
 .kc-head-name { font-size:inherit; }
+
+/* Zoom Phone連携の状態表示 */
+.zp-rows { display:flex; flex-direction:column; gap:0; border:1px solid #e6ece9; border-radius:12px; overflow:hidden; margin-top:8px; }
+.zp-row { display:flex; gap:12px; padding:10px 14px; font-size:13px; border-top:1px solid #eef3f0; }
+.zp-row:first-child { border-top:0; }
+.zp-k { flex:0 0 120px; color:#6b857b; font-weight:600; }
+.zp-v { flex:1; color:#1f2a26; word-break:break-word; }

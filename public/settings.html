@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260924b" />
+    <link rel="stylesheet" href="style.css?v=20260924c" />
   </head>
   <body>
     <div class="app">
@@ -273,6 +273,13 @@
                 <span class="integ-name">ChatGPTで会話</span>
                 <span class="integ-state integ-state-ok">利用可能</span>
               </button>
+              <button class="integ-card" data-integ="zoomphone">
+                <span class="integ-icon" style="background:#0B5CFF">
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="#fff" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1l-2.3 2.2z"/></svg>
+                </span>
+                <span class="integ-name">Zoom Phone連携</span>
+                <span class="integ-state" id="integState-zoomphone">未確認</span>
+              </button>
               <button class="integ-card" data-integ="status">
                 <span class="integ-icon integ-icon-status"><i class="ti ti-plug-connected" aria-hidden="true"></i></span>
                 <span class="integ-name">接続状況・API一覧</span>
@@ -373,6 +380,24 @@
             </div>
               </div>
 
+              <div class="set-pane-inner" data-integ="zoomphone" hidden>
+            <div class="set-card">
+              <h3>Zoom Phone連携</h3>
+              <p class="note">kincallの発信をZoom Phoneで行い、通話履歴を架電記録として取り込みます（15分ごとに自動同期）。資格情報（ZOOM_ACCOUNT_ID / ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET）はRailwayの環境変数で設定します。</p>
+              <div class="zp-rows">
+                <div class="zp-row"><span class="zp-k">資格情報</span><span class="zp-v" id="zpCfg">確認中…</span></div>
+                <div class="zp-row"><span class="zp-k">Zoomへの接続</span><span class="zp-v" id="zpConn">確認中…</span></div>
+                <div class="zp-row"><span class="zp-k">Zoomで発信</span><span class="zp-v" id="zpCtc">確認中…</span></div>
+                <div class="zp-row"><span class="zp-k">エラー内容</span><span class="zp-v" id="zpErr">—</span></div>
+              </div>
+              <div class="modal-actions" style="margin-top:10px">
+                <button class="btn ghost" id="zpCheck" type="button">接続を確認する</button>
+                <button class="btn" id="zpSync" type="button">通話履歴を今すぐ同期（直近26時間）</button>
+                <span class="rev-status" id="zpSt"></span>
+              </div>
+              <p class="note" id="zpHint" style="margin-top:8px"></p>
+            </div>
+              </div>
               <div class="set-pane-inner" data-integ="notion" hidden>
             <div class="set-card">
               <h3>Notion連携（あなた専用）</h3>
@@ -797,8 +822,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260924b"></script>
-      <script src="nav.js?v=20260924b"></script>
+    <script src="settings.js?v=20260924c"></script>
+      <script src="nav.js?v=20260924c"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

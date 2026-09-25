@@ -10446,7 +10446,7 @@ app.get("/api/zoom-phone/status", async (req, res) => {
     if (!zoomPhoneConfigured()) return res.json({ ok: true, 設定済み: false });
     const st = await getSettings().catch(() => ({}));
     const ping = await zoomPhonePing().catch((e) => ({ ok: false, error: e.message }));
-    res.json({ ok: true, 設定済み: true, 接続: ping.ok, error: ping.error || "", clickToCall: st.zoomClickToCall !== false });
+    res.json({ ok: true, 設定済み: true, 接続: ping.ok, error: ping.error || "", clickToCall: st.zoomClickToCall !== false, users: ping.users_total || 0, autoSync: st.zoomAutoSync !== false });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -20697,7 +20697,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-24b 失注リスト（クロス失注の編集テーブル）の列を指定構成に整合。見出しは既に新列だったが本体セルが旧列で不整合だったのを修正：クロス失注時は 採用人数/媒体掲載/グループ/所有者 を出さず、ステージ/企業名/担当者/電話/メール/架電状態/従業員数/失注理由（大項目）/失注理由（中項目）/失注理由詳細/商談所有者 を表示。edFiltered も 大/中/詳細/商談所有者 で絞り込み。今月かけるも同じテーブルなので同表示。SFは失注理由(大=Loss_Reason__c/中=Loss_Reason1__c/詳細=order_reason_detail__c)を取得済み。";
+const BUILD_TAG = "2026-09-24c 設定＞外部連携に「Zoom Phone連携」カードを追加。バッジ＝未設定／接続エラー／連携済み（/api/zoom-phone/status）。詳細画面で 資格情報・接続（電話ユーザー数）・Zoom発信ON/OFF・エラー内容を表示、「接続を確認する」「通話履歴を今すぐ同期（直近26時間）」ボタン付き。status に users・autoSync を追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

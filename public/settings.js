@@ -576,6 +576,7 @@ function showIntegDetail(name) {
   if (name === "status") { loadIntegrations(); loadRecallStatus(); }
   if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
   if (name === "chatgpt") { initGptConnector(); }
+  if (name === "zoomphone") { loadZoomPane(); }
 }
 (function () {
   const grid = document.getElementById("integGrid");
@@ -613,7 +614,60 @@ async function refreshIntegStates() {
       setIntegState("notion", d && d.configured ? "連携済み" : "未連携", d && d.configured);
     }
   } catch {}
+  // Zoom Phone連携
+  refreshZoomState();
 }
+// Zoom Phone：カードのバッジと詳細画面
+async function zpFetchStatus() {
+  const r = await fetch("/api/zoom-phone/status", { cache: "no-store" });
+  return r.ok ? r.json() : null;
+}
+function zpBadge(d) {
+  if (!d || !d.設定済み) return ["未設定", false];
+  if (!d.接続) return ["接続エラー", false];
+  return ["連携済み", true];
+}
+async function refreshZoomState() {
+  try { const d = await zpFetchStatus(); const [lb, ok] = zpBadge(d); setIntegState("zoomphone", lb, ok); } catch {}
+}
+async function loadZoomPane() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set("zpCfg", "確認中…"); set("zpConn", "確認中…"); set("zpCtc", "確認中…"); set("zpErr", "—"); set("zpHint", "");
+  try {
+    const d = await zpFetchStatus();
+    const [lb, ok] = zpBadge(d); setIntegState("zoomphone", lb, ok);
+    if (!d || !d.設定済み) {
+      set("zpCfg", "⚪ 未設定"); set("zpConn", "—"); set("zpCtc", "—");
+      set("zpHint", "RailwayのVariablesに ZOOM_ACCOUNT_ID / ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET を登録すると、ここが「連携済み」になります。");
+      return;
+    }
+    set("zpCfg", "🟢 設定済み");
+    set("zpConn", d.接続 ? `🟢 接続OK（電話ユーザー ${Number(d.users || 0)}名）` : "🔴 接続できません");
+    set("zpCtc", d.clickToCall ? "ON（かける画面の電話番号がZoomで発信）" : "OFF（端末の電話アプリで発信）");
+    set("zpErr", d.error || "—");
+    if (!d.接続) set("zpHint", /40[13]|scope|権限|invalid/i.test(d.error || "")
+      ? "資格情報かスコープ（phone:read:list_call_logs / phone:read:list_users）を確認してください。"
+      : "資格情報が正しいか、Zoomアプリが有効（Activate）になっているか確認してください。");
+    else set("zpHint", d.autoSync ? "通話履歴は15分ごとに自動で取り込まれます。" : "自動同期はOFFです。必要なときに「今すぐ同期」を押してください。");
+  } catch (e) { set("zpConn", "確認できませんでした"); set("zpErr", e.message || ""); }
+}
+(function () {
+  const ck = document.getElementById("zpCheck");
+  if (ck) ck.addEventListener("click", loadZoomPane);
+  const sy = document.getElementById("zpSync");
+  if (sy) sy.addEventListener("click", async () => {
+    const st = document.getElementById("zpSt");
+    sy.disabled = true; if (st) st.textContent = "同期しています…";
+    try {
+      const r = await fetch("/api/zoom-phone/sync", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hours: 26 }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "同期できませんでした");
+      if (st) st.textContent = `取り込み ${d.追加 || 0}件／通話 ${d.件数 || 0}件（照合なし ${d.照合なし || 0}）${d.対象期間 ? "・" + d.対象期間 : ""}`;
+    } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+    finally { sy.disabled = false; }
+  });
+})();
+
 function setIntegState(key, label, ok) {
   const el = document.getElementById(`integState-${key}`);
   if (!el) return;
