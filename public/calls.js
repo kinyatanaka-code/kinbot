@@ -5184,9 +5184,10 @@ function edFiltered() {
     if (qEm && !g(r, "メール", "メールアドレス", "email").toLowerCase().includes(qEm)) return false;
     if (_edCrosslost) {
       const lr = ($("edLostReason") && $("edLostReason").value) || "";
-      if (lr && g(r, "失注理由") !== lr) return false;
-      const qLd = v("edQLostDate"); if (qLd && !String(g(r, "失注日")).toLowerCase().includes(qLd)) return false;
-      const qNa = v("edQNextAct"); if (qNa && !String(g(r, "失注後次回アクション日")).toLowerCase().includes(qNa)) return false;
+      if (lr && g(r, "失注理由（大項目）") !== lr) return false;
+      const lrm = ($("edLostReasonMid") && $("edLostReasonMid").value) || "";
+      if (lrm && g(r, "失注理由（中項目）") !== lrm) return false;
+      const qDt = v("edQLostDetail"); if (qDt && !String(g(r, "失注理由詳細")).toLowerCase().includes(qDt)) return false;
       const oo = ($("edOppOwner") && $("edOppOwner").value) || ""; if (oo && g(r, "商談所有者") !== oo) return false;
       if (_edClMode) {
         const na = String(g(r, "失注後次回アクション日")).slice(0, 10);
@@ -5485,13 +5486,12 @@ function edBuildTable() {
     th("メール", txt("edQEmail")) +
     th("架電状態", sel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status")), "すべて")) +
     th("従業員数", empF) +
-    th("採用人数", "") +
-    th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) +
-    th("グループ", "") +
-    th("所有者", "") +
-    (_edCrosslost ? th("失注日", txt("edQLostDate")) + th("失注理由", sel("edLostReason", uniq((r) => g(r, "失注理由")), "すべて")) + th("失注後次回アクション日", txt("edQNextAct")) + th("商談所有者", sel("edOppOwner", uniq((r) => g(r, "商談所有者")), "すべて")) : "") + "</tr>";
+    (!_edCrosslost
+      ? th("採用人数", "") + th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) + th("グループ", "") + th("所有者", "")
+      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("商談所有者", sel("edOppOwner", uniq((r) => g(r, "商談所有者")), "すべて"))
+    ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edQLostDate", "edQNextAct", "edOppOwner"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edOppOwner"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
 }
 function edRenderBody() {
   const g = _edg;
@@ -5500,7 +5500,14 @@ function edRenderBody() {
   if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
   const tb = $("edTbody"); if (!tb) return;
   tb.innerHTML = rows.length
-    ? rows.map((r) => `<tr data-id="${r.id}">
+    ? rows.map((r) => {
+        const editCells = _edCrosslost ? "" : `
+        <td><input type="number" min="0" class="ed-f" data-f="hires" value="${esc(g(r, "採用人数", "hires"))}" style="width:64px" /></td>
+        <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
+        <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
+        <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>`;
+        const lossCells = _edCrosslost ? `<td>${esc(g(r, "失注理由（大項目）"))}</td><td>${esc(g(r, "失注理由（中項目）"))}</td><td>${esc(g(r, "失注理由詳細"))}</td><td>${esc(g(r, "商談所有者"))}</td>` : "";
+        return `<tr data-id="${r.id}">
         <td>${esc(g(r, "ステージ", "stage"))}</td>
         <td>${esc(g(r, "会社名", "company"))}</td>
         <td>${esc(g(r, "担当者", "person"))}</td>
@@ -5508,13 +5515,11 @@ function edRenderBody() {
         <td>${esc(g(r, "メール", "メールアドレス", "email"))}</td>
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
         <td><input type="text" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
-        <td><input type="number" min="0" class="ed-f" data-f="hires" value="${esc(g(r, "採用人数", "hires"))}" style="width:64px" /></td>
-        <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
-        <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
-        <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>
-        ${_edCrosslost ? `<td>${esc(g(r, "失注日"))}</td><td>${esc(g(r, "失注理由"))}</td><td>${esc(g(r, "失注後次回アクション日"))}</td><td>${esc(g(r, "商談所有者"))}</td>` : ""}
-      </tr>`).join("")
-    : `<tr><td colspan="${_edCrosslost ? 15 : 11}" class="empty-state" style="padding:18px">条件に合うリードがありません。</td></tr>`;
+        ${editCells}
+        ${lossCells}
+      </tr>`;
+      }).join("")
+    : `<tr><td colspan="11" class="empty-state" style="padding:18px">条件に合うリードがありません。</td></tr>`;
   tb.querySelectorAll(".ed-group").forEach((sel) => sel.addEventListener("change", async () => {
     const list = sel.dataset.list; const gid = sel.value; const gname = gid ? ((GROUPS.find((x) => String(x.id) === String(gid)) || {}).name || "") : "";
     sel.style.outline = "2px solid #f0b429";
