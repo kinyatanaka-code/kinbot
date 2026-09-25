@@ -6613,3 +6613,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .zp-row:first-child { border-top:0; }
 .zp-k { flex:0 0 120px; color:#6b857b; font-weight:600; }
 .zp-v { flex:1; color:#1f2a26; word-break:break-word; }
+
+/* 記録の窓：Zoom録音の要約の状態 */
+.kc-zsum { margin-top: 6px; font-size: 12px; line-height: 1.6; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kc-zsum-ok { color: #0d5b47; font-weight: 600; }
+.kc-zsum-wait { color: #6b857b; }
+.kc-zsum-x { border: 1px solid #d7e0db; background: #fff; color: #5b7a6d; border-radius: 8px; padding: 2px 9px; font-size: 11.5px; cursor: pointer; }
+.kc-zsum-x:hover { border-color: #1d9e75; color: #0d5b47; }

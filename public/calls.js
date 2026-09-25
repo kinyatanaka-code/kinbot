@@ -31,12 +31,13 @@ function telOf(v) {
 }
 // 電話リンクのhref。Zoom Phone連携がONならZoomで発信、そうでなければ端末の電話アプリ。
 let _zoomCall = false;   // /api/zoom-phone/status で更新
+let _zoomOn = false;     // Zoom Phoneにつながっている（録音の要約を説明欄に入れる）
 function callHref(v) {
   const num = telOf(v);
   return _zoomCall ? `zoomphonecall://${num}` : `tel:${num}`;
 }
 (async () => {
-  try { const z = await (await fetch("/api/zoom-phone/status")).json(); _zoomCall = !!(z && z.設定済み && z.接続 && z.clickToCall !== false); } catch {}
+  try { const z = await (await fetch("/api/zoom-phone/status")).json(); _zoomOn = !!(z && z.設定済み && z.接続); _zoomCall = _zoomOn && z.clickToCall !== false; } catch {}
 })();
 
 // 日本時間で「8/12 14:30」の形にする
@@ -1470,6 +1471,7 @@ async function openTarget(id, draft, opt) {
 
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
+        <div class="kc-zsum" id="kcZsum" hidden></div>
 
         <div class="kc-lb">次回いつかける？（任意）</div>
         <div class="kc-quick" id="kcQuickDate">
@@ -1720,6 +1722,7 @@ async function openTarget(id, draft, opt) {
   drawReason();
 
   wireQuickNext(m);
+  if (!histOnly) wireZoomSummary(m, id);
   openSlotPanel(m);
   openCompanyPanel(m, x["会社名"] || "");
 
@@ -1738,6 +1741,8 @@ async function openTarget(id, draft, opt) {
           result: 結果,
           absentRank,
           memo: m.el.querySelector("#kcMemo").value,
+          // 説明に入れたZoom録音の要約（使用済みにして、後から二重に入らないようにする）
+          zoomRecId: (m._zoomRecId && /【通話録音の要約】/.test(m.el.querySelector("#kcMemo").value)) ? m._zoomRecId : "",
           status: m.el.querySelector("#kcStatus").value,
           // Salesforceのリードの状態も、この値で書き換える
           leadStatus: m.el.querySelector("#kcStatus").value,
@@ -1785,6 +1790,62 @@ async function openTarget(id, draft, opt) {
       btn.disabled = false;
     }
   });
+}
+
+// Zoom Phoneの録音の要約を、記録の窓の「説明」に入れる。
+//  ・窓の電話番号を押して架電 → 通話が終わって録音が出たら、自動で説明欄に入れる（15秒ごとに最大8分見る）
+//  ・先にZoomでかけてから窓を開いた場合も、直近30分の録音があれば入れる
+//  結果（担当者不在など）は架電者が選ぶ。
+function wireZoomSummary(m, id) {
+  if (!_zoomOn) return;
+  const box = m.el.querySelector("#kcZsum");
+  const memo = m.el.querySelector("#kcMemo");
+  if (!box || !memo) return;
+  const MARK = "【通話録音の要約】";
+  let watching = 0, since = "";
+  const show = (html) => { box.hidden = false; box.innerHTML = html; };
+  const hm = (v) => { const d = new Date(v); return isNaN(d) ? "" : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  const put = (d) => {
+    if (memo.value.includes(MARK)) return;
+    const block = `${MARK}\n${String(d.summary || "").trim()}`;
+    memo.value = memo.value.trim() ? `${memo.value.trim()}\n\n${block}` : block;
+    m._zoomRecId = d.recId || "";
+    show(`<span class="kc-zsum-ok">✓ Zoom録音（${esc(hm(d.at))}の通話${d.duration ? "・" + Math.round(d.duration) + "秒" : ""}）の要約を入れました。確認して、結果を選んで記録してください。</span>` +
+      ` <button type="button" class="kc-zsum-x" id="kcZsumX">別の通話なら消す</button>`);
+    const x = m.el.querySelector("#kcZsumX");
+    if (x) x.addEventListener("click", () => {
+      const i = memo.value.indexOf(MARK);
+      if (i >= 0) memo.value = memo.value.slice(0, i).trim();
+      m._zoomRecId = "";
+      show('<span class="kc-zsum-wait">要約を消しました。</span>');
+    });
+  };
+  const fetchOnce = async () => {
+    try {
+      const d = await (await fetch(`/api/calls/targets/${encodeURIComponent(id)}/zoom-summary${since ? "?since=" + encodeURIComponent(since) : ""}`, { cache: "no-store" })).json();
+      if (d && d.summary) { put(d); return true; }
+      return d || {};
+    } catch { return {}; }
+  };
+  const watch = async () => {
+    const my = ++watching;
+    show('<span class="kc-zsum-wait">📞 通話が終わると、Zoomの録音から要約をここに入れます…</span>');
+    for (let i = 0; i < 32; i++) {   // 15秒ごと × 32回 ≒ 8分
+      await new Promise((r) => setTimeout(r, 15000));
+      if (my !== watching || !document.body.contains(m.el) || memo.value.includes(MARK)) return;
+      const r = await fetchOnce();
+      if (r === true) return;
+      if (r && r.ok === false && r.reason) { show(`<span class="kc-zsum-wait">${esc(r.reason)}</span>`); return; }
+    }
+    if (my === watching && !memo.value.includes(MARK)) show('<span class="kc-zsum-wait">録音が見つかりませんでした（録音が無い通話か、Zoomへの反映待ち）。</span> <button type="button" class="kc-zsum-x" id="kcZsumRe">もう一度さがす</button>');
+    const re = m.el.querySelector("#kcZsumRe"); if (re) re.addEventListener("click", watch);
+  };
+  // 窓の電話番号を押したら、そこから先の通話を見張る
+  m.el.addEventListener("click", (e) => {
+    if (e.target && e.target.closest && e.target.closest(".kc-tel")) { since = new Date().toISOString(); watch(); }
+  });
+  // 先にかけてから窓を開いた場合：直近30分の録音があれば入れる
+  if (!memo.value.includes(MARK)) fetchOnce();
 }
 
 // 表の1行だけを書き換える。

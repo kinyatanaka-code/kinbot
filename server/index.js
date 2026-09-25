@@ -243,6 +243,10 @@ import {
   isZoomRecProcessed,
   findCallLogForZoom,
   appendZoomSummary,
+  getZoomRecSummary,
+  saveZoomRecSummary,
+  markZoomRecUsed,
+  findUnusedZoomSummary,
   listStageTargets,
   cleanupPhysicalStageLists,
   listTargetsNeedingSf,
@@ -10454,8 +10458,10 @@ app.get("/api/zoom-phone/status", async (req, res) => {
 });
 
 // Zoomの通話履歴を取り込んで、kincallの架電記録に紐づける（電話番号で照合）。
-async function syncZoomCallHistory({ hours = 26 } = {}) {
+async function syncZoomCallHistory({ hours = 26, force = false } = {}) {
   if (!zoomPhoneConfigured()) return { skipped: true };
+  // 結果は架電者が手動で記録する方針。通話履歴から仮の結果で記録を作るのは、設定 zoomAutoLog=true のときだけ。
+  if (!force) { const st0 = await getSettings().catch(() => ({})); if (st0.zoomAutoLog !== true) return { skipped: true, off: true }; }
   const now = new Date(Date.now() + 9 * 3600 * 1000);
   const to = now.toISOString().slice(0, 10);
   const from = new Date(now.getTime() - hours * 3600 * 1000).toISOString().slice(0, 10);
@@ -10477,21 +10483,87 @@ async function syncZoomCallHistory({ hours = 26 } = {}) {
   console.log(`[zoom-phone] 履歴取り込み：${追加}件を記録（${from}〜${to}・照合なし${照合なし}）`);
   return { 追加, 照合なし, 対象期間: `${from}〜${to}`, 件数: calls.length };
 }
-// Zoomの通話録音を要約して、kincallの記録の「説明」に載せる（SFの活動の説明にも反映）。
-// ①同じ相手・通話時刻±60分に本人が付けた記録 → ②Zoom同期の記録 → ③無ければ新しく記録を作る。
+// ===== Zoomの通話録音 → 要約（記録の「説明」に入れる） =====
+// 録音1件を要約する（Zoomの文字起こしがあればそれ、無ければ音声をそのまま渡す）
+async function summarizeZoomRec(r) {
+  try {
+    if (r.transcriptUrl) {
+      const tr = await zoomDownload(r.transcriptUrl).catch(() => null);
+      if (tr && tr.buf && tr.buf.length) {
+        let text = tr.buf.toString("utf8");
+        try { const j = JSON.parse(text); const tl = j.timeline || j.recording_transcript || []; if (Array.isArray(tl) && tl.length) text = tl.map((x) => `${(x.users && x.users[0] && x.users[0].username) || x.speaker || ""}：${x.text || ""}`).join("\n"); } catch {}
+        const s1 = await summarizeCallRecording({ transcriptText: text });
+        if (s1) return s1;
+      }
+    }
+    if (r.downloadUrl) {
+      const au = await zoomDownload(r.downloadUrl);
+      const mime = /mp4|m4a/i.test(au.contentType) ? "audio/mp4" : (/wav/i.test(au.contentType) ? "audio/wav" : "audio/mpeg");
+      return await summarizeCallRecording({ buf: au.buf, mimeType: mime });
+    }
+  } catch (e) { console.warn("[zoom-rec] 要約失敗", e.message); }
+  return "";
+}
+// キャッシュがあればそれを、無ければ要約して保存
+async function zoomRecSummaryCached(r, targetId, caller) {
+  const c = await getZoomRecSummary(r.id);
+  if (c && c.summary) return c.summary;
+  const sm = await summarizeZoomRec(r);
+  if (sm) await saveZoomRecSummary({ recId: r.id, targetId, caller, at: r.at, duration: r.duration, summary: sm });
+  return sm;
+}
+const zoomLast9 = (v) => String(v || "").replace(/\D/g, "").slice(-9);
+function zoomRecRange() {
+  const now = new Date(Date.now() + 9 * 3600 * 1000);
+  return { from: new Date(now.getTime() - 86400000).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) };
+}
+
+// 記録の窓から呼ぶ：この相手の、架電後の録音の要約を返す（?since=ISO 以降の通話。無ければ直近30分）
+app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.json({ ok: true, none: true, reason: "Zoom未設定" });
+    const t = await getCallTarget(parseInt(req.params.id, 10));
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const sinceMs = Date.parse(String(req.query.since || "")) || (Date.now() - 30 * 60000);
+    const sinceIso = new Date(sinceMs - 2 * 60000).toISOString();   // 押した直前の通話も拾えるよう2分ゆとり
+    // ①先に要約済み（15分ごとの処理で作られたもの）
+    const cached = await findUnusedZoomSummary(t.id, sinceIso);
+    if (cached) return res.json({ ok: true, recId: cached.rec_id, at: cached.at, duration: cached.duration, summary: cached.summary });
+    // ②Zoomから、この番号の録音を探す
+    const last9 = zoomLast9(t.phone);
+    if (last9.length < 6) return res.json({ ok: true, none: true, reason: "電話番号がありません" });
+    let recs = [];
+    try { recs = await zoomPhoneRecordings({ ...zoomRecRange(), max: 300 }); }
+    catch (e) { return res.json({ ok: false, none: true, reason: "録音一覧を取得できません（Zoomの権限を確認）" }); }
+    const hit = recs
+      .filter((r) => zoomLast9(r.number) === last9 && r.at && Date.parse(r.at) >= Date.parse(sinceIso) && (r.downloadUrl || r.transcriptUrl))
+      .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    for (const r of hit) {
+      if (await isZoomRecProcessed(r.id)) continue;
+      const c = await getZoomRecSummary(r.id);
+      if (c && c.log_id) continue;
+      const sm = await zoomRecSummaryCached(r, t.id, req.user);
+      if (sm) return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: sm });
+      return res.json({ ok: true, none: true, reason: "録音はありますが要約できませんでした" });
+    }
+    res.json({ ok: true, none: true, reason: "録音はまだありません（通話後、Zoomに録音が出るまで少しかかります）" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 15分ごと：録音を先に要約しておく（窓を開いたときにすぐ出せるように）。
+// 本人が要約なしで先に記録していた場合は、その記録の説明に追記する。記録を勝手に作ることはしない。
 let _zoomRecRunning = false;
 async function syncZoomRecordings({ hours = 26 } = {}) {
   if (!zoomPhoneConfigured()) return { skipped: true };
   if (_zoomRecRunning) return { skipped: true, reason: "実行中" };
   _zoomRecRunning = true;
-  const out = { 録音: 0, 反映: 0, 照合なし: 0, 要約できず: 0, エラー: "" };
+  const out = { 録音: 0, 要約: 0, 反映: 0, 照合なし: 0, 要約できず: 0, エラー: "" };
   try {
-    const now = new Date(Date.now() + 9 * 3600 * 1000);
-    const to = now.toISOString().slice(0, 10);
-    const from = new Date(now.getTime() - hours * 3600 * 1000).toISOString().slice(0, 10);
     let recs = [];
-    try { recs = await zoomPhoneRecordings({ from, to, max: 300 }); }
-    catch (e) { out.エラー = `録音一覧を取得できません：${e.message}（スコープ phone:read:list_recordings を確認）`; return out; }
+    try { recs = await zoomPhoneRecordings({ ...zoomRecRange(), max: 300 }); }
+    catch (e) { out.エラー = `録音一覧を取得できません：${e.message}（Zoomの権限を確認）`; return out; }
+    const since = Date.now() - hours * 3600 * 1000;
+    recs = recs.filter((r) => !r.at || Date.parse(r.at) >= since);
     out.録音 = recs.length;
     const users = await zoomPhoneUsers().catch(() => ({}));
     const idToEmail = {}; for (const [email, u] of Object.entries(users)) idToEmail[u.id] = email;
@@ -10499,46 +10571,21 @@ async function syncZoomRecordings({ hours = 26 } = {}) {
     for (const r of recs) {
       if (!r.id || (!r.downloadUrl && !r.transcriptUrl)) continue;
       if (await isZoomRecProcessed(r.id)) continue;
+      const c0 = await getZoomRecSummary(r.id);
+      if (c0 && c0.log_id) continue;
       const caller = r.ownerEmail || idToEmail[r.ownerId] || "";
       const t = await findCallTargetByPhone(r.number, { caller }).catch(() => null);
       if (!t) { out.照合なし++; continue; }
-      // まず本人が付けた記録（手入力）を探す。通話から45分以内なら、本人が記録するのを待つ（次回の同期で再挑戦）。
-      let log = await findCallLogForZoom({ targetId: t.id, at: r.at, zoomCallIds: [] });
-      if (!log) {
-        const ageMin = r.at ? (Date.now() - new Date(r.at).getTime()) / 60000 : 999;
-        if (ageMin < 45) { out.待機 = (out.待機 || 0) + 1; continue; }
-        log = await findCallLogForZoom({ targetId: t.id, at: r.at, zoomCallIds: [r.callId, r.callLogId] });
-      }
-      // 要約：Zoomの文字起こしがあればそれを、無ければ音声をそのまま渡す
-      let summary = "";
-      try {
-        if (r.transcriptUrl) {
-          const tr = await zoomDownload(r.transcriptUrl).catch(() => null);
-          if (tr && tr.buf && tr.buf.length) {
-            let text = tr.buf.toString("utf8");
-            try { const j = JSON.parse(text); const tl = j.timeline || j.recording_transcript || []; if (Array.isArray(tl) && tl.length) text = tl.map((x) => `${(x.users && x.users[0] && x.users[0].username) || x.speaker || ""}：${x.text || ""}`).join("\n"); } catch {}
-            summary = await summarizeCallRecording({ transcriptText: text });
-          }
-        }
-        if (!summary && r.downloadUrl) {
-          const au = await zoomDownload(r.downloadUrl);
-          const mime = /mp4|m4a/i.test(au.contentType) ? "audio/mp4" : (/wav/i.test(au.contentType) ? "audio/wav" : "audio/mpeg");
-          summary = await summarizeCallRecording({ buf: au.buf, mimeType: mime });
-        }
-      } catch (e) { console.warn("[zoom-rec] 要約失敗", e.message); }
+      const summary = await zoomRecSummaryCached(r, t.id, caller);
       if (!summary) { out.要約できず++; continue; }
-      // 載せる記録が無ければ、Zoom記録として作る
-      if (!log) {
-        const zid = r.callLogId || r.callId || r.id;
-        await addZoomCallLog({ zoomCallId: `zoom:${zid}`, targetId: t.id, leadId: t.lead_id || "", company: t.company || "",
-          result: zoomResultToKincall("answered", r.duration), memo: `Zoom Phone（${r.direction === "inbound" ? "着信" : "発信"}・通話${Math.round(r.duration)}秒）`, caller, at: r.at });
-        log = await findCallLogForZoom({ targetId: t.id, at: r.at, zoomCallIds: [zid] });
-      }
-      if (!log) { out.照合なし++; continue; }
+      out.要約++;
+      // 本人が要約なしで記録済みなら、その説明に追記
+      const log = await findCallLogForZoom({ targetId: t.id, at: r.at, zoomCallIds: [] });
+      if (!log) continue;
       const saved = await appendZoomSummary(log.id, r.id, summary);
       if (!saved) continue;
+      await markZoomRecUsed(r.id, log.id);
       out.反映++;
-      // SFの活動（Task）の説明にも反映
       if (saved.sf_task_id && salesforceConfigured()) {
         try {
           const cand = [saved.caller, st.sfProxyUser].filter((x) => String(x || "").includes("@"));
@@ -10549,7 +10596,7 @@ async function syncZoomRecordings({ hours = 26 } = {}) {
         } catch (e) { console.warn("[zoom-rec] SF活動の更新失敗", e.message); }
       }
     }
-    console.log(`[zoom-rec] 録音${out.録音}件 → 記録に反映${out.反映}件（照合なし${out.照合なし}・要約できず${out.要約できず}）`);
+    console.log(`[zoom-rec] 録音${out.録音}件・要約${out.要約}件・後から追記${out.反映}件（照合なし${out.照合なし}・要約できず${out.要約できず}）`);
     return out;
   } finally { _zoomRecRunning = false; }
 }
@@ -11194,6 +11241,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       targetId: id, leadId: t.lead_id, company: t.company,
       result, memo: String(b.memo || ""), caller: req.user,
     });
+    // 説明に入れたZoom録音の要約を「使用済み」にする（後から二重に追記しないため）
+    if (b.zoomRecId && log && log.id) await markZoomRecUsed(String(b.zoomRecId), log.id).catch(() => {});
     // ステージと最終ステータスを書き換える。
     // 最終ステータスは「いま記録した結果」を入れる（空で上書きしない）。
     // ステージは、選ばれたときだけ変える。
@@ -20784,7 +20833,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-24d Zoom Phoneの通話録音を要約して、kincallの記録の「説明」（とSF活動のDescription）に自動追記。/phone/recordings を取得→電話番号でリード照合→Zoom文字起こし（あれば）or 音声をGeminiで要約→同じ相手・通話±60分の本人の記録に【通話録音の要約】として追記（通話後45分は本人の記録を待ち、無ければZoom記録に）。zoom_rec_id で二重反映防止。15分ごとの自動同期に組み込み（設定 zoomRecSummary=false で停止）。設定＞Zoom Phoneに手動ボタン。履歴のメモは改行表示。要スコープ phone:read:list_recordings＋ダウンロード。";
+const BUILD_TAG = "2026-09-25a Zoom録音の要約を、記録の窓の「説明」欄に通話直後に自動で入れる方式へ。窓の電話番号から架電→15秒ごと最大8分、GET /api/calls/targets/:id/zoom-summary?since= で録音を探して要約→説明欄に【通話録音の要約】を挿入（先にかけて後から窓を開いた場合は直近30分）。結果は架電者が選んで記録、記録時に zoomRecId を使用済みに。要約は zoom_rec_summaries にキャッシュ（15分ごとに先回り要約、要約なしで先に記録した場合のみ後から追記）。Zoom通話履歴から仮の結果で記録を自動作成するのは停止（設定 zoomAutoLog=true で復活）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260924d" />
+    <link rel="stylesheet" href="style.css?v=20260925a" />
   </head>
   <body>
     <div class="app">
@@ -383,7 +383,7 @@
               <div class="set-pane-inner" data-integ="zoomphone" hidden>
             <div class="set-card">
               <h3>Zoom Phone連携</h3>
-              <p class="note">kincallの発信をZoom Phoneで行い、通話履歴を架電記録として取り込みます（15分ごとに自動同期）。資格情報（ZOOM_ACCOUNT_ID / ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET）はRailwayの環境変数で設定します。</p>
+              <p class="note">kincallの発信をZoom Phoneで行い、通話録音の要約を記録の「説明」に入れます。資格情報（ZOOM_ACCOUNT_ID / ZOOM_CLIENT_ID / ZOOM_CLIENT_SECRET）はRailwayの環境変数で設定します。</p>
               <div class="zp-rows">
                 <div class="zp-row"><span class="zp-k">資格情報</span><span class="zp-v" id="zpCfg">確認中…</span></div>
                 <div class="zp-row"><span class="zp-k">Zoomへの接続</span><span class="zp-v" id="zpConn">確認中…</span></div>
@@ -392,12 +392,11 @@
               </div>
               <div class="modal-actions" style="margin-top:10px">
                 <button class="btn ghost" id="zpCheck" type="button">接続を確認する</button>
-                <button class="btn" id="zpSync" type="button">通話履歴を今すぐ同期（直近26時間）</button>
-                <button class="btn ghost" id="zpRec" type="button">通話録音を記録の説明に反映（直近26時間）</button>
+                <button class="btn ghost" id="zpRec" type="button">通話録音を今すぐ要約（直近26時間）</button>
                 <span class="rev-status" id="zpSt"></span>
               </div>
               <p class="note" id="zpHint" style="margin-top:8px"></p>
-              <p class="note" style="margin-top:6px">通話録音は、要約して<b>kincallの記録の「説明」</b>とSalesforceの活動の説明に自動で追記されます（15分ごと。通話後45分は本人の記録を待ってから載せます）。必要なZoomのスコープ：phone:read:list_recordings（録音一覧）とダウンロード権限。録音はZoom側で自動録音（またはアドホック録音）を有効にした通話だけが対象です。</p>
+              <p class="note" style="margin-top:6px">通話録音は要約して、<b>記録の窓の「説明」欄に自動で入ります</b>（窓の電話番号から架電→通話が終わって録音が出たら入る）。結果は架電者が選んで記録します。要約なしで先に記録した場合は、あとから15分ごとの処理でその記録の説明に追記します。必要なZoomのスコープ：phone:read:list_recordings（録音一覧）とダウンロード権限。録音はZoom側で自動録音（またはアドホック録音）を有効にした通話だけが対象です。</p>
             </div>
               </div>
               <div class="set-pane-inner" data-integ="notion" hidden>
@@ -824,8 +823,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260924d"></script>
-      <script src="nav.js?v=20260924d"></script>
+    <script src="settings.js?v=20260925a"></script>
+      <script src="nav.js?v=20260925a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

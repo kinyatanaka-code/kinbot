@@ -648,7 +648,7 @@ async function loadZoomPane() {
     if (!d.接続) set("zpHint", /40[13]|scope|権限|invalid/i.test(d.error || "")
       ? "資格情報かスコープ（phone:read:list_call_logs / phone:read:list_users）を確認してください。"
       : "資格情報が正しいか、Zoomアプリが有効（Activate）になっているか確認してください。");
-    else set("zpHint", d.autoSync ? "通話履歴は15分ごとに自動で取り込まれます。" : "自動同期はOFFです。必要なときに「今すぐ同期」を押してください。");
+    else set("zpHint", "接続OK。記録の窓から架電すると、通話後に録音の要約が説明欄に入ります。");
   } catch (e) { set("zpConn", "確認できませんでした"); set("zpErr", e.message || ""); }
 }
 (function () {
@@ -663,7 +663,7 @@ async function loadZoomPane() {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "反映できませんでした");
       if (d.エラー) throw new Error(d.エラー);
-      if (st) st.textContent = `録音 ${d.録音 || 0}件 → 説明に反映 ${d.反映 || 0}件（本人の記録待ち ${d.待機 || 0}／照合なし ${d.照合なし || 0}／要約できず ${d.要約できず || 0}）`;
+      if (st) st.textContent = `録音 ${d.録音 || 0}件 → 要約 ${d.要約 || 0}件・記録へ追記 ${d.反映 || 0}件（照合なし ${d.照合なし || 0}／要約できず ${d.要約できず || 0}）`;
     } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
     finally { rc.disabled = false; }
   });
