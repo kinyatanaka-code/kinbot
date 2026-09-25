@@ -642,6 +642,7 @@ async function loadZoomPane() {
       return;
     }
     set("zpCfg", "🟢 設定済み");
+    const eb = document.getElementById("zpEmbed"); if (eb) eb.checked = !!d.embed;
     set("zpConn", d.接続 ? `🟢 接続OK（電話ユーザー ${Number(d.users || 0)}名）` : "🔴 接続できません");
     set("zpCtc", d.clickToCall ? "ON（かける画面の電話番号がZoomで発信）" : "OFF（端末の電話アプリで発信）");
     set("zpErr", d.error || "—");
@@ -654,6 +655,16 @@ async function loadZoomPane() {
 (function () {
   const ck = document.getElementById("zpCheck");
   if (ck) ck.addEventListener("click", loadZoomPane);
+  const eb = document.getElementById("zpEmbed");
+  if (eb) eb.addEventListener("change", async () => {
+    const st = document.getElementById("zpSt");
+    try {
+      const r = await fetch("/api/zoom-phone/settings", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ embed: eb.checked }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      if (st) st.textContent = eb.checked ? "ONにしました（kincallを開き直すと左下にZoom電話が出ます）" : "OFFにしました";
+    } catch (e) { eb.checked = !eb.checked; if (st) st.textContent = "失敗：" + e.message; }
+  });
   const rc = document.getElementById("zpRec");
   if (rc) rc.addEventListener("click", async () => {
     const st = document.getElementById("zpSt");

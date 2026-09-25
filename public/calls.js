@@ -32,12 +32,18 @@ function telOf(v) {
 // 電話リンクのhref。Zoom Phone連携がONならZoomで発信、そうでなければ端末の電話アプリ。
 let _zoomCall = false;   // /api/zoom-phone/status で更新
 let _zoomOn = false;     // Zoom Phoneにつながっている（録音の要約を説明欄に入れる）
+let _zoomEmbed = false;  // kincallの中にZoom電話（Smart Embed）を埋め込む（切る・ミュートもkincallで）
 function callHref(v) {
   const num = telOf(v);
   return _zoomCall ? `zoomphonecall://${num}` : `tel:${num}`;
 }
 (async () => {
-  try { const z = await (await fetch("/api/zoom-phone/status")).json(); _zoomOn = !!(z && z.設定済み && z.接続); _zoomCall = _zoomOn && z.clickToCall !== false; } catch {}
+  try {
+    const z = await (await fetch("/api/zoom-phone/status")).json();
+    _zoomOn = !!(z && z.設定済み && z.接続); _zoomCall = _zoomOn && z.clickToCall !== false;
+    _zoomEmbed = _zoomOn && z.embed === true && window.innerWidth > 760;
+    if (_zoomEmbed && typeof zpPanel === "function") zpPanel(false);   // 先に読み込んでおく（サインイン・着信のため）
+  } catch {}
 })();
 
 // 日本時間で「8/12 14:30」の形にする
@@ -1793,6 +1799,105 @@ async function openTarget(id, draft, opt) {
   });
 }
 
+// ===== 発信の確認 ＋ kincallの中のZoom電話（Zoom Phone Smart Embed） =====
+// 電話番号を押したら、すぐかけずに「発信しますか？」を出す。
+// 埋め込みがONなら、kincallの中のZoom電話からかける（切る・ミュート・録音はその中で操作）。
+const ZP_ORIGIN = "https://applications.zoom.us";
+let _zpReady = false, _zpQueue = [], _zpCallerId = null;
+function zpE164(v) {
+  let d = String(v || "").normalize("NFKC").replace(/[^0-9+]/g, "");
+  if (d.startsWith("+")) return d;
+  if (d.startsWith("0")) return "+81" + d.slice(1);
+  return d;
+}
+function zpPost(msg) {
+  const f = document.getElementById("kcZpFrame");
+  if (f && f.contentWindow) f.contentWindow.postMessage(msg, ZP_ORIGIN);
+}
+function zpPanel(open) {
+  let el = document.getElementById("kcZp");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "kcZp"; el.className = "kc-zp min";
+    el.innerHTML = `<div class="kc-zp-head" id="kcZpHead"><span>📞 Zoom電話</span><span class="kc-zp-st" id="kcZpSt"></span><button type="button" class="kc-zp-btn" id="kcZpMin" title="小さくする／ひらく">▲</button></div>
+      <div class="kc-zp-body"><iframe id="kcZpFrame" src="${ZP_ORIGIN}/integration/phone/embeddablephone/home" allow="microphone; autoplay; clipboard-read; clipboard-write ${ZP_ORIGIN}"></iframe></div>`;
+    document.body.appendChild(el);
+    const f = el.querySelector("#kcZpFrame");
+    f.addEventListener("load", () => setTimeout(() => {
+      zpPost({ type: "zp-init-config", data: { enableSavingLog: false, enableAutoLog: false, enableContactSearching: false, enableContactMatching: false, enableAISummary: true, disableInactiveTabCallEvent: true } });
+      _zpReady = true;
+      const q = _zpQueue; _zpQueue = []; q.forEach(zpPost);
+    }, 1500));
+    el.querySelector("#kcZpMin").addEventListener("click", (e) => { e.stopPropagation(); zpToggle(el.classList.contains("min")); });
+    // 見出しをドラッグで動かせる
+    const head = el.querySelector("#kcZpHead");
+    let dx = 0, dy = 0, drag = false;
+    head.addEventListener("pointerdown", (e) => { if (e.target.closest("button")) return; drag = true; const r = el.getBoundingClientRect(); dx = e.clientX - r.left; dy = e.clientY - r.top; head.setPointerCapture(e.pointerId); });
+    head.addEventListener("pointermove", (e) => { if (!drag) return; el.style.left = Math.max(0, Math.min(window.innerWidth - 120, e.clientX - dx)) + "px"; el.style.top = Math.max(0, Math.min(window.innerHeight - 40, e.clientY - dy)) + "px"; el.style.bottom = "auto"; });
+    head.addEventListener("pointerup", () => { drag = false; });
+  }
+  if (open) zpToggle(true);
+  return el;
+}
+function zpToggle(open) {
+  const el = document.getElementById("kcZp"); if (!el) return;
+  el.classList.toggle("min", !open);
+  const b = el.querySelector("#kcZpMin"); if (b) b.textContent = open ? "▼" : "▲";
+}
+async function zpDial(number) {
+  zpPanel(true);
+  if (_zpCallerId === null) {
+    try { _zpCallerId = ((await (await fetch("/api/zoom-phone/caller-id")).json()) || {}).callerId || ""; } catch { _zpCallerId = ""; }
+  }
+  const msg = { type: "zp-make-call", data: { number: zpE164(number), autoDial: true, ...(_zpCallerId ? { callerId: _zpCallerId } : {}) } };
+  if (_zpReady) zpPost(msg); else _zpQueue.push(msg);
+}
+// 埋め込みZoom電話からの合図（通話中・終了・録音完了）
+window.addEventListener("message", (e) => {
+  if (e.origin !== ZP_ORIGIN || !e.data || typeof e.data.type !== "string") return;
+  const ty = e.data.type;
+  const st = document.getElementById("kcZpSt");
+  if (st) {
+    if (ty === "zp-call-ringing-event") st.textContent = "呼び出し中…";
+    else if (ty === "zp-call-connected-event") st.textContent = "通話中";
+    else if (ty === "zp-call-ended-event") st.textContent = "終了";
+  }
+  if (/^zp-call-/.test(ty)) document.dispatchEvent(new CustomEvent("kc-zoom-event", { detail: { type: ty, data: e.data.data || {} } }));
+});
+function kcConfirmDial(number, who) {
+  const num = String(number || "").trim();
+  if (!num) return;
+  const how = _zoomEmbed ? "kincallのZoom電話" : (_zoomCall ? "Zoom Phone" : "この端末の電話");
+  const m = openModal("発信しますか？", `
+    <div class="kc-dial">
+      ${who ? `<div class="kc-dial-who">${esc(who)}</div>` : ""}
+      <div class="kc-dial-num">${esc(num)}</div>
+      <div class="note" style="text-align:center;margin:4px 0 14px">${esc(how)}でかけます</div>
+      <div class="kc-dial-acts">
+        <button type="button" class="btn ghost" id="kcDialNo">やめる</button>
+        <button type="button" class="btn kc-dial-go" id="kcDialGo">📞 発信する</button>
+      </div>
+    </div>`);
+  const go = m.el.querySelector("#kcDialGo");
+  if (go) go.focus();
+  m.el.querySelector("#kcDialNo").addEventListener("click", () => m.close());
+  go.addEventListener("click", () => {
+    m.close();
+    document.dispatchEvent(new CustomEvent("kc-dial", { detail: { number: num } }));
+    if (_zoomEmbed) zpDial(num);
+    else location.href = callHref(num);
+  });
+}
+// 電話番号のリンクは、押してもすぐかけずに確認を出す
+document.addEventListener("click", (e) => {
+  const a = e.target && e.target.closest ? e.target.closest("a.kc-tel") : null;
+  if (!a) return;
+  e.preventDefault(); e.stopPropagation();
+  const box = a.closest(".kc-modal");
+  const who = box ? ((box.querySelector(".kc-head-co") || {}).textContent || "") : "";
+  kcConfirmDial(a.textContent, who);
+}, true);
+
 // Zoom Phoneの録音の要約を、記録の窓の「説明」に入れる。
 //  ・窓の電話番号を押して架電 → 通話が終わって録音が出たら、自動で説明欄に入れる（15秒ごとに最大8分見る）
 //  ・先にZoomでかけてから窓を開いた場合も、直近30分の録音があれば入れる
@@ -1851,10 +1956,18 @@ function wireZoomSummary(m, id) {
     if (my === watching && !memo.value.includes(MARK)) show('<span class="kc-zsum-wait">録音が見つかりませんでした（録音が無い通話か、Zoomへの反映待ち）。</span> <button type="button" class="kc-zsum-x" id="kcZsumRe">もう一度さがす</button>');
     const re = m.el.querySelector("#kcZsumRe"); if (re) re.addEventListener("click", watch);
   };
-  // 窓の電話番号を押したら、そこから先の通話を見張る
-  m.el.addEventListener("click", (e) => {
-    if (e.target && e.target.closest && e.target.closest(".kc-tel")) { since = new Date().toISOString(); watch(); }
-  });
+  // 発信したら（確認で「発信する」を押したら）、そこから先の通話を見張る
+  const onDial = () => { if (!document.body.contains(m.el)) { document.removeEventListener("kc-dial", onDial); return; } since = new Date().toISOString(); watch(); };
+  document.addEventListener("kc-dial", onDial);
+  // 埋め込みZoom電話から「通話が終わった」「録音ができた」が来たら、すぐ探す
+  const onZoomEv = (e) => {
+    if (!document.body.contains(m.el)) { document.removeEventListener("kc-zoom-event", onZoomEv); return; }
+    const ty = e.detail && e.detail.type;
+    if (memo.value.includes(MARK)) return;
+    if (ty === "zp-call-recording-completed-event") fetchOnce();
+    else if (ty === "zp-call-ended-event") setTimeout(() => { if (!memo.value.includes(MARK)) fetchOnce(); }, 20000);
+  };
+  document.addEventListener("kc-zoom-event", onZoomEv);
   // 先にかけてから窓を開いた場合：直近30分の録音があれば入れる
   if (!memo.value.includes(MARK)) fetchOnce();
 }

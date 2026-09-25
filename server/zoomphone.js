@@ -147,3 +147,13 @@ export async function zoomDownload(url) {
   const buf = Buffer.from(await res.arrayBuffer());
   return { buf, contentType: String(res.headers.get("content-type") || "") };
 }
+
+// その人のZoom Phoneの電話番号（発信者番号）。Smart Embedの zp-make-call で callerId に使う。
+export async function zoomPhoneUserNumber(email) {
+  const e = String(email || "").trim();
+  if (!e) return "";
+  const d = await zoomGet(`/phone/users/${encodeURIComponent(e)}`).catch(() => null);
+  const nums = (d && d.phone_numbers) || [];
+  const n = nums.find((x) => x && x.number) || null;
+  return n ? String(n.number) : "";
+}

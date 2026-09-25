@@ -27,7 +27,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo, NOTIFY_KINDS, notifyDisabledSet } from "./chat.js";
 import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
 import { deepgramReady, transcribeUrl } from "./deepgram.js";
-import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall, zoomPhoneRecordings, zoomDownload } from "./zoomphone.js";
+import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall, zoomPhoneRecordings, zoomDownload, zoomPhoneUserNumber } from "./zoomphone.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -10457,8 +10457,33 @@ app.get("/api/zoom-phone/status", async (req, res) => {
     if (!zoomPhoneConfigured()) return res.json({ ok: true, 設定済み: false });
     const st = await getSettings().catch(() => ({}));
     const ping = await zoomPhonePing().catch((e) => ({ ok: false, error: e.message }));
-    res.json({ ok: true, 設定済み: true, 接続: ping.ok, error: ping.error || "", clickToCall: st.zoomClickToCall !== false, users: ping.users_total || 0, autoSync: st.zoomAutoSync !== false });
+    res.json({ ok: true, 設定済み: true, 接続: ping.ok, error: ping.error || "", clickToCall: st.zoomClickToCall !== false, embed: st.zoomEmbed === true, users: ping.users_total || 0, autoSync: st.zoomAutoSync !== false });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Zoom Phoneの使い方の設定（管理者・クローザー）：embed=kincallの中にZoom電話を埋め込む／clickToCall=Zoomで発信
+app.put("/api/zoom-phone/settings", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}, patch = {};
+    if (typeof b.embed === "boolean") patch.zoomEmbed = b.embed;
+    if (typeof b.clickToCall === "boolean") patch.zoomClickToCall = b.clickToCall;
+    await saveSettings(patch);
+    res.json({ ok: true, ...patch });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ログインした本人の発信者番号（Zoom Phoneの番号）。埋め込み電話から発信するときに使う。
+const _callerIdCache = new Map();
+app.get("/api/zoom-phone/caller-id", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.json({ ok: true, callerId: "" });
+    const me = String(req.user || "").toLowerCase();
+    const c = _callerIdCache.get(me);
+    if (c && Date.now() - c.at < 6 * 3600 * 1000) return res.json({ ok: true, callerId: c.v });
+    const v = await zoomPhoneUserNumber(me).catch(() => "");
+    _callerIdCache.set(me, { v, at: Date.now() });
+    res.json({ ok: true, callerId: v });
+  } catch (e) { res.json({ ok: true, callerId: "" }); }
 });
 
 // Zoomの通話履歴を取り込んで、kincallの架電記録に紐づける（電話番号で照合）。
@@ -20868,7 +20893,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-25b Zoom録音まわり3点。(1)履歴に録音の再生プレイヤー（GET /api/calls/zoom-rec/:recId/audio でZoomの録音をトークン付きで中継、履歴itemsに zoomRecId）。(2)要約と同時に結果の選択肢を推定し、未選択なら結果プルダウンを自動選択（窓から選択肢をopts=で渡す、キャッシュ済みは guessCallResult）。(3)要約がJSONのまま入る不具合を修正（Geminiを responseSchema {summary,result} で呼び、cleanCallSummary で箇条書きに整形、キャッシュ分も整形して返す）。zoom_rec_summaries に download_url。";
+const BUILD_TAG = "2026-09-25c 架電まわり2点。(1)電話番号を押したら「発信しますか？」の確認（番号・会社名・発信方法、📞発信する／やめる）を挟む。(2)Zoom Phone Smart Embed をkincallに埋め込めるように（設定＞Zoom Phone連携で「kincallの中でZoom電話を使う」ON）。左下の📞Zoom電話パネルから発信（zp-make-call・本人の発信者番号を /api/zoom-phone/caller-id で付与）、切る・ミュート・録音はパネル内で操作。通話終了・録音完了の合図で録音要約をすぐ取りに行く。PUT /api/zoom-phone/settings、status に embed。要Zoom管理者：Smart Embedアプリ追加＋承認ドメイン登録、サードパーティアプリから自動発信ON。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

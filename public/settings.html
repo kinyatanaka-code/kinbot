@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260925b" />
+    <link rel="stylesheet" href="style.css?v=20260925c" />
   </head>
   <body>
     <div class="app">
@@ -390,6 +390,12 @@
                 <div class="zp-row"><span class="zp-k">Zoomで発信</span><span class="zp-v" id="zpCtc">確認中…</span></div>
                 <div class="zp-row"><span class="zp-k">エラー内容</span><span class="zp-v" id="zpErr">—</span></div>
               </div>
+              <label class="ks-check" style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px">
+                <input type="checkbox" id="zpEmbed" /> <b>kincallの中でZoom電話を使う</b>（切る・ミュート・録音をkincallの画面で操作）
+              </label>
+              <p class="note" style="margin:4px 0 0">ONにすると、kincallの左下に「📞 Zoom電話」が出ます。初回だけ、その中でZoomにサインインしてください。<br>
+              事前にZoomの管理者が必要な設定：①Zoom Marketplaceで「<b>Zoom Phone Smart Embed</b>」アプリを追加し、承認済みドメインに <code>kinbot-production-225f.up.railway.app</code> を登録　②アカウント設定 → Zoom Phone →「<b>サードパーティアプリから自動発信</b>」をON。<br>
+              OFFのときは、これまでどおりZoomアプリ（または端末の電話）で発信します。</p>
               <div class="modal-actions" style="margin-top:10px">
                 <button class="btn ghost" id="zpCheck" type="button">接続を確認する</button>
                 <button class="btn ghost" id="zpRec" type="button">通話録音を今すぐ要約（直近26時間）</button>
@@ -823,8 +829,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20260925b"></script>
-      <script src="nav.js?v=20260925b"></script>
+    <script src="settings.js?v=20260925c"></script>
+      <script src="nav.js?v=20260925c"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
