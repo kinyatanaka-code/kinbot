@@ -4628,7 +4628,7 @@ function nmRenderCards() {
       clcard("now", "📞", "今月かける", (s.nowCount || 0).toLocaleString(), "件", "失注後次回アクション日が翌月末までのリード。上から順に対応。", "#1d9e75") +
       clcard("all", "🗂", "失注リスト", (s.total || 0).toLocaleString(), "件", "クロス失注の全リード。失注日・理由などで一覧。", "#d9536a") +
       clcard("month", "📅", "月別", String(months), "ヶ月", "失注後次回アクション日を月別に集計。月ごとに内訳。", "#2f86c9") +
-      `</div><div class="nm-cl-move"><button type="button" class="btn ghost" id="nmClImport">kincallに無い失注の会社を取り込む</button><button type="button" class="btn ghost" id="nmClConsolidate">他のリストにある失注リードを、担当ごとの「クロス失注」リストへ移す</button><span class="rev-status" id="nmClConSt"></span></div><div class="note" style="margin-top:4px">SFで新しくクロス失注になった会社は、毎朝7時にも自動で取り込みます（担当＝商談所有者、担当者名＝主.取引先責任者）。</div></div>`;
+      `</div><div class="nm-cl-move"><button type="button" class="btn ghost" id="nmClImport">kincallに無い失注の会社を取り込む</button><button type="button" class="btn ghost" id="nmClConsolidate">他のリストにある失注リードを、担当ごとの「クロス失注」リストへ移す</button><span class="rev-status" id="nmClConSt"></span></div><div class="note" style="margin-top:4px">SFで新しくクロス失注になった会社は、毎朝7時にも自動で「クロス失注（未割り当て）」へ取り込みます（担当者名＝主.取引先責任者）。</div></div>`;
   }
   body.innerHTML = html;
   if ($("nmClConsolidate")) $("nmClConsolidate").addEventListener("click", nmClConsolidate);
@@ -4658,12 +4658,12 @@ async function nmClImportMissing() {
     if (st) st.textContent = "SFのクロス失注の商談を調べています…";
     const p = await call(true);
     if (!p.total) { if (st) st.textContent = `取り込むものはありません（SFのクロス失注 ${p.deals || 0} 件はすべてkincallに入っています）`; return; }
-    const lines = (p.plan || []).map((x) => `・${x.name}：${x.count}社`).join("\n");
-    if (!confirm(`kincallのどのリストにも無いクロス失注の会社が ${p.total} 社あります。\n担当（商談所有者）ごとの「クロス失注」リストへ取り込みます。\n\n${lines}\n\n担当者名は主.取引先責任者、電話・メールは取引先責任者（無ければ取引先）から入れます。\n取り込みますか？`)) { if (st) st.textContent = ""; return; }
+    const lines = (p.plan || []).slice(0, 12).map((x) => `・${x.name}：${x.count}社`).join("\n");
+    if (!confirm(`kincallのどのリストにも無いクロス失注の会社が ${p.total} 社あります。\n1つのリスト「クロス失注（未割り当て）」にまとめて取り込み、失注リストに入れます（担当は付けません）。\n\n商談所有者の内訳：\n${lines}\n\n担当者名は主.取引先責任者、電話・メールは取引先責任者（無ければ取引先）から入れます。\n取り込みますか？`)) { if (st) st.textContent = ""; return; }
     if (st) st.textContent = "取り込んでいます…";
     const d = await call(false);
     await nmLoad();
-    const st2 = $("nmClConSt"); if (st2) st2.textContent = `${d.imported || 0}社を取り込みました${d.created ? `（新しく「クロス失注」リストを ${d.created} 件作成）` : ""}`;
+    const st2 = $("nmClConSt"); if (st2) st2.textContent = `${d.imported || 0}社を「クロス失注（未割り当て）」に取り込みました`;
   } catch (e) { if (st) st.textContent = "失敗：" + (e.message || ""); }
   finally { const b = $("nmClImport"); if (b) b.disabled = false; }
 }

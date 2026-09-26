@@ -7918,8 +7918,8 @@ app.get("/api/calls/crosslost-members", async (req, res) => {
   try { res.json({ ok: true, byMember: await crosslostCountsByMember() }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // kincallのどのリストにも無い「クロス失注」の会社を、SFの商談から取り込む。
-//   担当＝商談所有者（kincallのメンバーなら）、担当者名＝主.取引先責任者、電話/メール＝取引先責任者（無ければ取引先）。
-//   入れ先はその人の「クロス失注」リスト（メンバー外の所有者は「クロス失注（未割り当て）」）。重複は addCallTargets の重複除外で防ぐ。
+//   担当者名＝主.取引先責任者、電話/メール＝取引先責任者（無ければ取引先）。担当は付けず、
+//   1つのリスト「クロス失注（未割り当て）」にまとめる（失注リストに出る）。重複は addCallTargets の重複除外で防ぐ。
 async function importMissingCrosslost({ sfUser, dryRun = true, by = "" } = {}) {
   if (!sfUser || !salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) throw new Error("Salesforceにつながっていません");
   const base = `FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND IsClosed = true AND IsWon = false AND CloseDate >= 2026-03-01 ORDER BY CloseDate DESC, LastModifiedDate DESC LIMIT 5000`;
@@ -7945,10 +7945,11 @@ async function importMissingCrosslost({ sfUser, dryRun = true, by = "" } = {}) {
   const have = new Set((await listActiveTargetCompanies()).map((r) => normCompanyKey(r.company)).filter(Boolean));
   const members = await listMembers().catch(() => []);
   const memSet = new Set(members.map((m) => String(m.email || "").toLowerCase()));
-  const plan = new Map();   // member("" = 未割り当て) -> items
+  // 担当ごとには分けず、1つのリスト「クロス失注（未割り当て）」にまとめて入れる（失注リストに出る）。
+  // 商談所有者は内訳の表示にだけ使う。
+  const items = [], byOwner = new Map();
   for (const [k, x] of byCo.entries()) {
     if (have.has(k)) continue;
-    const m = memSet.has(x.owner) ? x.owner : "";
     const c = x.contact || {};
     const item = {
       leadId: null, company: x.company,
@@ -7956,22 +7957,19 @@ async function importMissingCrosslost({ sfUser, dryRun = true, by = "" } = {}) {
       phone: String(c.Phone || c.MobilePhone || x.accPhone || "").trim(),
       email: String(c.Email || "").trim(),
       stage: "", status: "失注（クロス失注）",
-      ...(m ? { assignedTo: m } : {}),
     };
     if (!item.company && !item.phone) continue;
-    if (!plan.has(m)) plan.set(m, []);
-    plan.get(m).push(item);
+    items.push(item);
+    const on = x.ownerName || "（所有者なし）";
+    byOwner.set(on, (byOwner.get(on) || 0) + 1);
   }
-  const nameOf = (e) => { const u = members.find((z) => String(z.email || "").toLowerCase() === e); return (u && u.name) || e || "未割り当て"; };
-  const summary = [...plan.entries()].map(([m, items]) => ({ member: m, name: nameOf(m), count: items.length })).sort((a, b) => b.count - a.count);
-  const total = summary.reduce((a, x) => a + x.count, 0);
+  const summary = [...byOwner.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  const total = items.length;
   if (dryRun) return { dryRun: true, total, plan: summary, deals: (d.records || []).length };
   let imported = 0, created = 0;
-  for (const [m, items] of plan.entries()) {
-    const list = await findOrCreateNamedList(m || null, m ? "クロス失注" : "クロス失注（未割り当て）", by);
-    if (!list) continue;
-    if (list.created) created++;
-    imported += await addCallTargets(list.id, items, { dedupe: true });
+  if (items.length) {
+    const list = await findOrCreateNamedList(null, "クロス失注（未割り当て）", by);
+    if (list) { if (list.created) created++; imported = await addCallTargets(list.id, items, { dedupe: true }); }
   }
   _clIdsCache = null; _clSummaryCache = null;
   console.log(`[kincall] kincallに無いクロス失注の会社を${imported}件取り込み（新規リスト${created}）by ${by || "自動"}`);
@@ -21145,7 +21143,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26i kincallに無いクロス失注の会社を、SFの商談から取り込む機能。会社ごとに直近の失注商談を採用し、担当＝商談所有者（kincallメンバーなら）、担当者名＝主.取引先責任者（OpportunityContactRoles IsPrimary）、電話/メール＝取引先責任者→無ければ取引先の電話。入れ先は担当ごとの「クロス失注」リスト（メンバー外は「クロス失注（未割り当て）」）、ステータス「失注（クロス失注）」、重複は既存の重複除外で防止。リスト管理の過去リスト欄にボタン（件数確認つき）、毎朝7時に自動実行（設定 crossImportAuto=false で停止）。POST /api/calls/crosslost/import-missing。";
+const BUILD_TAG = "2026-09-26j kincallに無いクロス失注の会社の取り込み先を、商談所有者ごとのリストではなく1つのリスト「クロス失注（未割り当て）」にまとめるよう変更（担当は付けない・失注リストに出る）。確認画面の内訳は商談所有者別の社数。毎朝7時の自動取り込みも同じ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
