@@ -8867,6 +8867,8 @@ app.post("/api/calls/from-report", async (req, res) => {
     // 分ける人が選ばれていれば、順番に均等に配る
     const 分ける人R = (Array.isArray(b.share) ? b.share : [])
       .map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+    // 分ける人がいれば順番に担当を付ける（いなければそのまま＝リストの持ち主がかける）
+    const 入れる = 分ける人R.length ? items.map((x, i) => ({ ...x, assignedTo: 分ける人R[i % 分ける人R.length] })) : items;
     // 分配するときは、持ち主も分ける人にする（作成者のカードに出さないため）
     const 既存R = parseInt(b.listId, 10) || 0;
     const list = 既存R
@@ -21049,7 +21051,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26e 他のリストに入っている失注リードを、担当ごとの「クロス失注」リストへ実際に移す機能。リスト管理の過去リスト欄のボタン→先に担当ごとの件数を確認→移動。担当＝assigned_to（無ければ元リストの持ち主）、その人の「クロス失注」リストが無ければ作成、持ち主不在は「クロス失注（未割り当て）」。担当は変えない（空なら持ち主を担当に固定）。既に「クロス失注」にあるもの・アーカイブ/リサイクルは動かさない。POST /api/calls/crosslost/consolidate {dryRun}。";
+const BUILD_TAG = "2026-09-26f SFレポートから「リストを作る」が必ず失敗していた不具合を修正（/api/calls/from-report で変数「入れる」が未定義→ReferenceError）。分ける人がいれば順番に担当を付けた一覧として定義。画面側はサーバーがHTML等を返しても理由が分かるエラー表示に。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

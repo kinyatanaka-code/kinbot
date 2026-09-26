@@ -861,8 +861,9 @@ async function srToKincall() {
         ...(window.__kcAppend && window.__kcAppend.id ? { listId: window.__kcAppend.id } : {}),
       }),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "送れませんでした");
+    const raw = await r.text();
+    let j = {}; try { j = JSON.parse(raw); } catch { j = {}; }
+    if (!r.ok || !j.ok) throw new Error(j.error || (r.status === 413 ? "行が多すぎて送れませんでした（分けて送ってください）" : `サーバーの応答エラー（${r.status}）`));
     if (btn) { btn.textContent = `${j["件数"]}件を送りました`; }
     if (window.__kcAppend) { window.__kcAppend = null; if (typeof renderAppendBanner === "function") renderAppendBanner(); }
     const 分けた = Number(j["分けた人数"] || 0);
