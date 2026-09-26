@@ -248,6 +248,7 @@ import {
   markZoomRecUsed,
   findUnusedZoomSummary,
   nurtureSummary,
+  listActiveTargetCompanies,
   assignTargetsTo,
   zoomRecMapForTarget,
   zoomRecDurations,
@@ -9051,26 +9052,50 @@ async function fetchCrosslostOppData(sfUser, crossFrom) {
   try {
     const f = await crossOppFields(sfUser);
     const cols = [...new Set(["Account.Name", "Owner.Name", f.lostDate, f.lossReason, f.lossReasonMid, f.lossReasonDetail, f.nextAction].filter(Boolean))];
+    if (!cols.includes("CloseDate")) cols.push("CloseDate");
     const d = await sfQuery(sfUser,
-      `SELECT ${cols.join(", ")} FROM Opportunity
+      `SELECT ${cols.join(", ")}, LastModifiedDate FROM Opportunity
         WHERE RecordType.Name LIKE '%クロス%' AND IsClosed = true AND IsWon = false AND CloseDate >= ${crossFrom}
+        ORDER BY CloseDate DESC, LastModifiedDate DESC
         LIMIT 5000`);
+    // 同じ会社に複数あるときは「直近」の1件：失注日（無ければ完了予定日）→最終更新の新しい順
+    const rank = (o) => `${String(o[f.lostDate] || o.CloseDate || "").slice(0, 10)}|${String(o.LastModifiedDate || "")}`;
+    const best = {};
     for (const o of d.records || []) {
       const co = (o.Account && o.Account.Name) || ""; if (!co) continue;
       const k = normCompanyKey(co);
+      if (!best[k] || rank(o) > rank(best[k])) best[k] = o;
+    }
+    for (const [k, o] of Object.entries(best)) {
       const rec = { "失注日": o[f.lostDate] || o.CloseDate || "", "商談所有者": (o.Owner && o.Owner.Name) || "" };
       if (f.lossReason) rec["失注理由（大項目）"] = o[f.lossReason] || "";
       if (f.lossReasonMid) rec["失注理由（中項目）"] = o[f.lossReasonMid] || "";
       if (f.lossReasonDetail) rec["失注理由詳細"] = o[f.lossReasonDetail] || "";
       if (f.nextAction) rec["失注後次回アクション日"] = o[f.nextAction] || "";
-      // 同じ会社に複数あれば、失注日が新しい方を残す
-      if (!out[k] || String(rec["失注日"] || "") >= String(out[k]["失注日"] || "")) out[k] = rec;
+      out[k] = rec;
     }
     _crossOppDataCache = out; _crossOppDataAt = Date.now();
   } catch (e) { console.warn("[crosslost] 商談項目の取得失敗", e.message); }
   return out;
 }
 
+// SFのクロス失注商談と会社名が一致する架電先（どのリストに入っていても拾う）。5分キャッシュ。
+let _clIdsCache = null, _clIdsAt = 0;
+async function crosslostMatchedIds(sfUser) {
+  if (_clIdsCache && Date.now() - _clIdsAt < 5 * 60 * 1000) return _clIdsCache;
+  let ids = [];
+  try {
+    if (sfUser && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
+      const oppMap = await fetchCrosslostOppData(sfUser, "2026-03-01");
+      if (Object.keys(oppMap).length) {
+        const rows = await listActiveTargetCompanies();
+        ids = rows.filter((r) => oppMap[normCompanyKey(r.company)]).map((r) => r.id);
+      }
+    }
+  } catch (e) { console.warn("[crosslost] 会社名の突き合わせ失敗", e.message); }
+  _clIdsCache = ids; _clIdsAt = Date.now();
+  return ids;
+}
 // 過去リスト（クロス失注）の集計。失注後次回アクション日を会社名で紐づけ、
 //   total=全件 / nowCount=次回アクション日≤翌月末 / byMonth=次回アクション日の月別件数。
 // SFに1回問い合わせるので数分キャッシュ。SF未接続でも total は返る（nowCount/byMonthは0）。
@@ -9079,7 +9104,8 @@ async function crosslostSummary(sfUser) {
   if (_clSummaryCache && Date.now() - _clSummaryAt < 5 * 60 * 1000) return _clSummaryCache;
   const out = { total: 0, nowCount: 0, byMonth: {} };
   try {
-    const leads = await listStageTargets("クロス失注", { statusMatch: ["クロス失注"], limit: 20000 }).catch(() => []);
+    const extraIds = await crosslostMatchedIds(sfUser).catch(() => []);
+    const leads = await listStageTargets("クロス失注", { statusMatch: ["クロス失注"], limit: 20000, extraIds }).catch(() => []);
     out.total = leads.length;
     let oppMap = {};
     try {
@@ -9679,10 +9705,13 @@ app.post("/api/calls/lists/split", async (req, res) => {
 
 app.get("/api/calls/targets", async (req, res) => {
   try {
-    const listParam = String(req.query.list || "");
+    let listParam = String(req.query.list || "");
     const rawEdit = req.query.edit === "1";   // 編集テーブル用：打ち切らず全件・ステージ除外なし
     let rows;
     let 復活リストか = false;
+    // かける画面の「過去リスト（今月かける）」＝自分担当のクロス失注。次回アクション日での絞り込みは後段で行う。
+    const clNow = listParam === "crosslost-now";
+    if (clNow) listParam = "crosslost";
     if (listParam === "archive" || listParam === "recycle" || listParam === "crosslost") {
       // アーカイブ／リサイクル／クロス失注のカード：ステージ・ステータスで横断して集める（どのリストにあっても）
       const kw = listParam === "archive" ? "アーカイブ" : listParam === "recycle" ? "リサイクル" : "クロス失注";
@@ -9692,7 +9721,9 @@ app.get("/api/calls/targets", async (req, res) => {
         q: String(req.query.q || ""),
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
         statusMatch,
-        owner: (listParam === "crosslost") ? String(req.query.member || "").trim().toLowerCase() : "",   // クロス失注はメンバーで絞れる
+        owner: (listParam === "crosslost") ? String(req.query.member || (clNow ? req.user : "") || "").trim().toLowerCase() : "",   // クロス失注はメンバーで絞れる（かける画面は自分）
+        // クロス失注は、SFの失注商談と会社名が一致する架電先も（ステータスに関係なく）含める
+        extraIds: listParam === "crosslost" ? await crosslostMatchedIds(await pickSfUser(req.user, req).catch(() => "")) : [],
       });
     } else if (listParam === "nurture") {
       // ナーチャリング（まとめ）：ジャッジ・営業フォローのリードを、元リストに置いたまま横断で集める
@@ -9866,6 +9897,14 @@ app.get("/api/calls/targets", async (req, res) => {
           }
         }
       } catch (e) { console.warn("[calls/targets] 失注商談項目の付与に失敗", e.message); }
+      // かける画面の「過去リスト（今月かける）」：失注後次回アクション日が翌月末までのものを、日付の近い順に
+      if (clNow) {
+        const t = new Date(Date.now() + 9 * 3600 * 1000);
+        const nme = `${new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 2, 0)).toISOString().slice(0, 10)}`;
+        const na = (x) => String(x["失注後次回アクション日"] || "").slice(0, 10);
+        const kept = items.filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(na(x)) && na(x) <= nme).sort((a, b) => na(a).localeCompare(na(b)));
+        items.length = 0; items.push(...kept);
+      }
     }
 
     // 各社の営業時間（Googleキャッシュ）から、営業中/営業時間外を付ける。
@@ -20966,7 +21005,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26b ナーチャリングを別枠で管理。リスト管理に「ナーチャリング」セクション（全体／今週かける予定＝次回架電日が今週日曜まで・期限切れ含む）。カードから一覧を開くと、次回架電日・担当メンバー・元のリストを表示し、1件ずつプルダウンで、または絞り込んだ分をまとめて別メンバーへ移せる（POST /api/calls/targets/assign＝assigned_toの付け替え、リストはそのまま）。移したナーチャリングは元の人の☆全てから消え、移した先の人に出る。GET /api/calls/nurture-summary、list=nurture-week（member絞り込み可）。";
+const BUILD_TAG = "2026-09-26c 過去リスト整理。(1)クロス失注の対象を、ステータス「クロス失注」だけでなく、SFのクロス失注商談と会社名が一致する架電先（他のリストに入っているものも）まで広げた（crosslostMatchedIds・5分キャッシュ、集計も同様）。(2)同じ会社に失注商談が複数あるときは直近の1件（失注日→無ければCloseDate→最終更新の新しい順）を採用。(3)かける画面に「🗂 過去リスト（今月かける）」を追加（自分担当・失注後次回アクション日が翌月末まで・日付順、list=crosslost-now）。記録の窓に「前回の失注」（理由 大/中・詳細・失注日・次回アクション日・商談所有者）を表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

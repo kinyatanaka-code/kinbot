@@ -4193,13 +4193,16 @@ export async function sweepStageLists(listId = null) {
 // ステージ（リード状況）が…（上の sweepStageLists）
 
 // ステージ（リード状況）で横断して架電先を集める（アーカイブ/リサイクルのカード用）。
-export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "" } = {}) {
+export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [] } = {}) {
   if (!pool || !keyword) return [];
   try {
     const p = [`%${keyword}%`];
     let stageOr = `COALESCE(t.stage,'') ILIKE $1`;
     // ステージだけでなく、指定したステータス（例：現在使われていない）も「その仮想ビュー」に含める
     for (const k of statusMatch) { p.push(`%${k}%`); stageOr += ` OR COALESCE(t.status,'') ILIKE $${p.length}`; }
+    // ステータスに関係なく含めたい架電先（例：SFのクロス失注商談と会社名が一致したもの）
+    const xs = [...new Set((extraIds || []).map((x) => parseInt(x, 10)).filter(Boolean))];
+    if (xs.length) { p.push(xs); stageOr += ` OR t.id = ANY($${p.length}::int[])`; }
     let where = `(${stageOr})`;
     const own = String(owner || "").trim().toLowerCase();
     if (own) { p.push(own); where += ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), cl.owner)) = $${p.length}`; }
@@ -4223,6 +4226,17 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
         LIMIT $${p.length}`, p);
     return rows;
   } catch (e) { console.error("[db] listStageTargets", e.message); return []; }
+}
+
+// 有効なリストにある架電先の id と会社名（SFの会社名と突き合わせるため）
+export async function listActiveTargetCompanies() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(t.company,'') <> '' AND NOT COALESCE(l.closed,false) AND NOT COALESCE(l.hidden,false)`);
+    return rows;
+  } catch (e) { console.error("[db] listActiveTargetCompanies", e.message); return []; }
 }
 
 // 以前つくってしまった物理リスト「アーカイブ」「リサイクル」（owner無し）を安全に消す。

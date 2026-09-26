@@ -77,18 +77,18 @@ async function loadLists() {
     const sel = $("clList");
     const keep = sel.value || savedListId();   // リロード時は、前回選んでいたリストに戻す
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
-    const specialOpt = `<option value="nurture">🌱 ナーチャリング（まとめ）</option><option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
+    const specialOpt = `<option value="crosslost-now">🗂 過去リスト（今月かける）</option><option value="nurture">🌱 ナーチャリング（まとめ）</option><option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
     sel.innerHTML = allOpt + (items.length
       ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !n.startsWith("【ナーチャリング】") && !x.hidden; })
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
-    if (keep && (["all", "archive", "recycle", "nurture"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
+    if (keep && (["all", "archive", "recycle", "nurture", "crosslost-now"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
     _clCounts = { all: items.reduce((s, x) => s + Number(x.残り || 0), 0) };
     for (const x of items) _clCounts[String(x.id)] = Number(x.残り || 0);
     renderClPills();
     {
       const v = sel.value;
-      listId = ["all", "archive", "recycle", "nurture"].includes(v) ? v : (Number(v) || 0);
+      listId = ["all", "archive", "recycle", "nurture", "crosslost-now"].includes(v) ? v : (Number(v) || 0);
       rememberListId(v);
       showProgress(items.find((x) => x.id === listId));
       loadTable();
@@ -109,7 +109,7 @@ async function loadTable() {
   const box = $("clTable");
   // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
   const selV = ($("clList") && $("clList").value) || "";
-  if (selV) listId = ["all", "archive", "recycle", "nurture"].includes(selV) ? selV : (Number(selV) || 0);
+  if (selV) listId = ["all", "archive", "recycle", "nurture", "crosslost-now"].includes(selV) ? selV : (Number(selV) || 0);
   if (typeof renderClPills === "function") renderClPills();
   if (!listId) {
     // リストを選んでいなくても、管理者は探す欄から全メンバーのリストを横断して探せる
@@ -119,7 +119,7 @@ async function loadTable() {
     if (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2) findAcrossMembers();
     return;
   }
-  if (listId === "all" || listId === "archive" || listId === "recycle" || listId === "nurture") selectedIds.clear();
+  if (listId === "all" || listId === "archive" || listId === "recycle" || listId === "nurture" || listId === "crosslost-now") selectedIds.clear();
   {
     const q0 = ($("clFind") && $("clFind").value || "").trim();
     box.innerHTML = '<div class="empty-state">読み込んでいます…</div>' +
@@ -128,7 +128,7 @@ async function loadTable() {
   }
   try {
     const q = $("clFind") && $("clFind").value.trim();
-    const who = (callAsMember && listId !== "all") ? (listId === "nurture" ? "&member=" + encodeURIComponent(callAsMember) : "&assignedTo=" + encodeURIComponent(callAsMember)) : "";
+    const who = (callAsMember && listId !== "all") ? ((listId === "nurture" || listId === "crosslost-now") ? "&member=" + encodeURIComponent(callAsMember) : "&assignedTo=" + encodeURIComponent(callAsMember)) : "";
     const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
@@ -1434,6 +1434,7 @@ async function openTarget(id, draft, opt) {
               <button type="button" class="kc-edit-pen" id="kcEditPen" title="連絡先を編集" aria-label="連絡先を編集">✎</button>
               ${x["メール"] ? `<div class="kc-mail-big"><a href="mailto:${esc(x["メール"])}">${esc(x["メール"])}</a></div>` : ""}
             </div>
+            ${kcLossBox(x)}
             <!-- 編集（鉛筆を押すと出る） -->
             <div class="kc-rec-edit" id="kcContactEdit" hidden>
               <input type="text" class="kc-input kc-ed-f" id="kcEdCompany" value="${esc(x["会社名"] || "")}" placeholder="会社名" />
@@ -1799,6 +1800,20 @@ async function openTarget(id, draft, opt) {
   });
 }
 
+// 過去リスト（クロス失注）のリードなら、記録の窓に失注の内容を出す（かける前に理由が分かるように）
+function kcLossBox(x) {
+  const g = (k) => String((x && (x[k] || (x.追加 && x.追加[k]))) || "").trim();
+  const big = g("失注理由（大項目）"), mid = g("失注理由（中項目）"), det = g("失注理由詳細");
+  const lost = g("失注日"), next = g("失注後次回アクション日"), owner = g("商談所有者");
+  if (!big && !mid && !det && !lost && !next) return "";
+  const d = (v) => { const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${+m[2]}/${+m[3]}` : v; };
+  return `<div class="kc-loss">
+    <div class="kc-loss-h">🗂 前回の失注${lost ? `（${esc(d(lost))}）` : ""}${owner ? `<span class="kc-loss-o">商談：${esc(owner)}</span>` : ""}</div>
+    ${big || mid ? `<div class="kc-loss-r"><b>${esc(big)}</b>${mid ? ` ／ ${esc(mid)}` : ""}</div>` : ""}
+    ${det ? `<div class="kc-loss-d">${esc(det)}</div>` : ""}
+    ${next ? `<div class="kc-loss-n">次回アクション日：${esc(d(next))}</div>` : ""}
+  </div>`;
+}
 // ===== 発信の確認 ＋ kincallの中のZoom電話（Zoom Phone Smart Embed） =====
 // 電話番号を押したら、すぐかけずに「発信しますか？」を出す。
 // 埋め込みがONなら、kincallの中のZoom電話からかける（切る・ミュート・録音はその中で操作）。
