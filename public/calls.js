@@ -4531,8 +4531,9 @@ const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わ�
 function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
 function nmBar(zan, all) { const pct = all ? Math.round(zan / all * 100) : 0; const col = (all && zan / all >= 0.6) ? "#1d9e75" : (all && zan / all >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
 async function nmFetch() {
-  const [d, mm, sg, clm] = await Promise.all([
+  const [d, _grpLoaded, mm, sg, clm] = await Promise.all([
     fetch("/api/calls/lists-all?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => ({ items: [] })),
+    loadGroups(),
     (_nmMembers.length ? Promise.resolve(null) : fetch("/api/members", { cache: "no-store" }).then((r) => r.json()).catch(() => null)),
     fetch("/api/calls/stage-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     fetch("/api/calls/crosslost-members?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
@@ -4711,14 +4712,16 @@ function nmRenderDetail() {
       <label class="nm-check"><input type="checkbox" class="nm-selchk" data-id="${x.id}"${on ? " checked" : ""}></label>
       <div class="nm-lcard-name"><span class="nm-lname-t" title="${esc(x.name)}">${esc(x.name)}</span><button type="button" class="nm-rename" data-id="${x.id}" data-name="${esc(x.name)}" title="名前を変える">✎</button></div>
       <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
-      <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
+      <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${_nmSel.type !== "owner" && sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
+      <div class="nm-lcard-grp"><select class="nm-group" data-id="${x.id}" title="このリストのグループ">${nmGroupOpts(x.group_id)}</select></div>
       <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button><button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
     </div>`;
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
   body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${ls.length} リスト</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
     `<div class="nm-lgrid">${rows || '<div class="empty-state">リストがありません</div>'}</div><span class="rev-status" id="nmOpSt"></span>` +
-    `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button></div>`;
+    `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button>` +
+    `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
@@ -4743,7 +4746,41 @@ function nmRenderDetail() {
     nmRenderDetail();
   });
   if ($("nmEditGo")) $("nmEditGo").addEventListener("click", nmGoEdit);
+  body.querySelectorAll(".nm-group").forEach((sel) => sel.addEventListener("change", () => nmSetGroup([sel.dataset.id], sel.value)));
+  if ($("nmGrpBulk")) $("nmGrpBulk").addEventListener("change", (e) => { const v = e.target.value; if (v) nmSetGroup([..._nmChosen], v); });
   nmUpdateEditBar();
+}
+// グループの選択肢（カードのプルダウン用）
+function nmGroupOpts(cur) {
+  const c = (cur != null && cur !== "") ? String(cur) : "";
+  return `<option value="__none__"${c ? "" : " selected"}>グループ：なし</option>` +
+    (GROUPS || []).map((g) => `<option value="${g.id}"${String(g.id) === c ? " selected" : ""}>グループ：${esc(g.name)}</option>`).join("") +
+    `<option value="__new__">＋新しいグループを作る…</option>`;
+}
+// リストをグループに入れる（value＝グループID／__none__＝外す／__new__＝作ってから入れる）
+async function nmSetGroup(ids, value) {
+  ids = (ids || []).filter(Boolean);
+  if (!ids.length || !value) return;
+  const st = $("nmOpSt");
+  try {
+    let gid = value === "__none__" ? null : value, gname = "";
+    if (value === "__new__") {
+      const name = String(prompt("新しいグループの名前を入れてください（例：インターン用、DOC過去）") || "").trim();
+      if (!name) { nmRenderDetail(); return; }
+      const r = await fetch("/api/calls/groups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.group) throw new Error(d.error || "グループを作れませんでした");
+      gid = d.group.id; gname = d.group.name;
+    } else if (gid) gname = ((GROUPS || []).find((g) => String(g.id) === String(gid)) || {}).name || "";
+    if (st) st.textContent = "グループを変えています…";
+    for (const id of ids) {
+      const r = await fetch(`/api/calls/lists/${encodeURIComponent(id)}/group`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: gid }) });
+      if (!r.ok) throw new Error("保存できませんでした");
+    }
+    _nmChosen = new Set();
+    await nmLoad();
+    const st2 = $("nmOpSt"); if (st2) st2.textContent = gid ? `${ids.length}件を「${gname}」に入れました` : `${ids.length}件をグループから外しました`;
+  } catch (e) { if (st) st.textContent = "失敗：" + (e.message || ""); nmRenderDetail(); }
 }
 function nmUpdateEditBar() {
   const bar = $("nmEditBar"); if (!bar) return;
