@@ -4511,6 +4511,8 @@ let _nmChosen = new Set();          // 編集のために選んだリスト id
 let _nmStage = { archive: 0, recycle: 0, crosslost: 0 };   // アーカイブ／リサイクル／クロス失注の実データ件数（横断集計）
 let _nmCrosslost = {};   // クロス失注のメンバー別件数（email -> 件数）
 let _nmClSummary = { total: 0, nowCount: 0, byMonth: {} };   // 過去リストの集計
+let _nmNur = { total: 0, week: 0, byMember: {} };   // ナーチャリングの集計（担当メンバー別）
+let _edNurture = "";   // 編集テーブルがナーチャリング（"all"/"week"）のとき
 let _edVirtMember = "";  // 仮想リスト（クロス失注など）をメンバーで絞るとき
 let _edClMode = "";      // "" / "now"（今月かける）/ 月(YYYY-MM) … クロス失注の絞り込みモード
 // 過去リストカードの件数（今月かける・月別）を後追いで取得して差し込む
@@ -4537,6 +4539,7 @@ async function nmFetch() {
     (_nmMembers.length ? Promise.resolve(null) : fetch("/api/members", { cache: "no-store" }).then((r) => r.json()).catch(() => null)),
     fetch("/api/calls/stage-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
     fetch("/api/calls/crosslost-members?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).catch(() => null),
+    fetch("/api/calls/nurture-summary?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d && d.ok) _nmNur = { total: d.total || 0, week: d.week || 0, byMember: d.byMember || {} }; }).catch(() => null),
   ]);
   if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0), crosslost: Number(sg.crosslost || 0) };
   if (clm && clm.byMember) _nmCrosslost = clm.byMember || {};
@@ -4588,10 +4591,18 @@ function nmRenderCards() {
   const spCard = (key, name, n, sub) => `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`;
   html += `<div class="nm-sec"><div class="nm-sec-h">その他</div><div class="nm-grid">` +
     `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div></button>` +
-    spCard("nurture", "ナーチャリング", totalNur, "ジャッジ・営業フォロー（全体）") +
     spCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") +
     spCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") +
     `</div></div>`;
+  // ナーチャリング：全体／今週かける予定（担当メンバー間で移せる）
+  {
+    const nc = (key, ic, nm, n, ds, cc) =>
+      `<button type="button" class="nm-card nm-clcard" data-nur="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big">${Number(n || 0).toLocaleString()}<small>件</small></div><div class="nm-card-sub">${ds}</div></button>`;
+    html += `<div class="nm-sec"><div class="nm-sec-h">ナーチャリング</div><div class="nm-grid nm-cl3">` +
+      nc("all", "🌱", "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75") +
+      nc("week", "📅", "今週かける予定", _nmNur.week, "次回架電日が今週末まで（期限切れ含む）のリード。担当メンバーを移せます。", "#e0912b") +
+      `</div></div>`;
+  }
   // 過去リスト（クロス失注）：3枚のリストカード（今月かける／失注リスト／月別）
   {
     const s = _nmClSummary || { total: 0, nowCount: 0, byMonth: {} };
@@ -4609,12 +4620,17 @@ function nmRenderCards() {
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
     _nmChosen = new Set();
     if (c.dataset.cl) { nmOpenCrosslost(c.dataset.cl); return; }   // 過去リストカード（今月かける／失注リスト／月別）
+    if (c.dataset.nur) { nmOpenNurture(c.dataset.nur); return; }   // ナーチャリング（全体／今週）
     if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special, member: c.dataset.member || "", name: c.dataset.mname || "" };
     else _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) };
     nmRenderDetail();
   }));
 }
 // 過去リストカードを開く。now/all=編集テーブル（絞り込みモード付き）、month=月別ビュー。
+function nmOpenNurture(mode) {
+  _nmSel = { type: "special", key: "nurture", member: "", name: "" };
+  nmGoEditVirtual(mode === "week" ? "nurture-week" : "nurture-all", mode === "week" ? "今週かける予定（ナーチャリング）" : "ナーチャリング（全体）", "");
+}
 function nmOpenCrosslost(mode) {
   if (mode === "month") { nmRenderMonthly(); return; }
   _edClMode = (mode === "now") ? "now" : "";
@@ -5384,6 +5400,7 @@ let _edCrosslost = false;   // クロス失注ビューか（失注日/失注理
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
   _edCrosslost = (listIds || []).map(String).includes("crosslost");
+  { const ids = (listIds || []).map(String); _edNurture = ids.includes("nurture-week") ? "week" : (ids.includes("nurture-all") ? "all" : ""); }
   edSetTableMode(true);   // 表だけの全画面一覧に切り替え
   if ($("edTableTitle")) $("edTableTitle").textContent = `リスト編集（${(listIds || []).length} 件のリスト）`;
   tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
@@ -5421,6 +5438,11 @@ function edFiltered() {
     if (qPe && !g(r, "担当者", "person").toLowerCase().includes(qPe)) return false;
     if (qPh && !g(r, "電話", "電話番号", "phone").toLowerCase().includes(qPh)) return false;
     if (qEm && !g(r, "メール", "メールアドレス", "email").toLowerCase().includes(qEm)) return false;
+    if (_edNurture) {
+      const qN = v("edQNext"); if (qN) { const nd = r["次回予定"] ? new Date(r["次回予定"]) : null; const t = nd && !isNaN(nd) ? `${nd.getMonth() + 1}/${nd.getDate()}` : ""; if (!t.includes(qN)) return false; }
+      const who = ($("edNurWho") && $("edNurWho").value) || ""; if (who && nmMemberName(r["担当メール"] || "") !== who) return false;
+      const qF = v("edQFrom"); if (qF && !edListName(r).toLowerCase().includes(qF)) return false;
+    }
     if (_edCrosslost) {
       const lr = ($("edLostReason") && $("edLostReason").value) || "";
       if (lr && g(r, "失注理由（大項目）") !== lr) return false;
@@ -5725,22 +5747,79 @@ function edBuildTable() {
     th("メール", txt("edQEmail")) +
     th("架電状態", sel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status")), "すべて")) +
     th("従業員数", empF) +
-    (!_edCrosslost
+    (_edNurture
+      ? th("次回架電日", txt("edQNext")) + th("担当メンバー", sel("edNurWho", uniq((r) => nmMemberName(r["担当メール"] || "")), "すべて")) + th("元のリスト", txt("edQFrom"))
+    : !_edCrosslost
       ? th("採用人数", "") + th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) + th("グループ", "") + th("所有者", "")
       : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("商談所有者", sel("edOppOwner", uniq((r) => g(r, "商談所有者")), "すべて"))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edOppOwner"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edOppOwner", "edQNext", "edNurWho", "edQFrom"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  edNurBar();
+}
+// 仮想ビュー（ナーチャリング等）でも元のリスト名を出す
+function edListName(r) {
+  if (r._listName) return r._listName;
+  const id = String(r.listId || r._listId || "");
+  const hit = (_nmLists || []).find((x) => String(x.id) === id) || (_edLists && _edLists[id]) || null;
+  return (hit && hit.name) || r["元のリスト"] || "";
+}
+// ナーチャリングの担当メンバーの選択肢
+function nmNurMemberOpts(cur) {
+  const c = String(cur || "").toLowerCase();
+  const ms = (_edMembers && _edMembers.length ? _edMembers : _nmMembers) || [];
+  const has = ms.some((m) => String(m.email || "").toLowerCase() === c);
+  return (has || !c ? "" : `<option value="${esc(c)}" selected>${esc(nmMemberName(c))}</option>`) +
+    ms.map((m) => `<option value="${esc(m.email)}"${String(m.email || "").toLowerCase() === c ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("");
+}
+// ナーチャリング：絞り込んだ分をまとめて別のメンバーへ移すバー
+function edNurBar() {
+  let bar = $("edNurBar");
+  if (!_edNurture) { if (bar) bar.remove(); return; }
+  const tbl = $("edTable"); if (!tbl) return;
+  if (!bar) { bar = document.createElement("div"); bar.id = "edNurBar"; bar.className = "ed-nurbar"; tbl.parentNode.insertBefore(bar, tbl); }
+  const ms = (_edMembers && _edMembers.length ? _edMembers : _nmMembers) || [];
+  bar.innerHTML = `<span class="ed-nurbar-lb">担当を移す：</span><span id="edNurN">0</span> 件（いま絞り込んでいる分）を
+    <select id="edNurTo"><option value="">移す先のメンバー…</option>${ms.map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)}</option>`).join("")}</select>
+    <button type="button" class="btn" id="edNurGo">へ移す</button><span class="rev-status" id="edNurSt"></span>
+    <div class="note" style="margin:4px 0 0">リストはそのままで、担当（かける人）だけが変わります。移した人の「かける」のナーチャリングに出て、元の人からは消えます。</div>`;
+  $("edNurGo").addEventListener("click", () => {
+    const to = $("edNurTo").value; if (!to) { $("edNurSt").textContent = "移す先を選んでください"; return; }
+    const ids = edFiltered().map((r) => r.id).filter(Boolean);
+    if (!ids.length) return;
+    if (!confirm(`${ids.length}件の担当を「${nmMemberName(to)}」へ移します。よろしいですか？`)) return;
+    edNurMove(ids, to);
+  });
+  const n = $("edNurN"); if (n) n.textContent = edFiltered().length.toLocaleString();
+}
+async function edNurMove(ids, to) {
+  const st = $("edNurSt");
+  if (!ids.length || !to) return;
+  if (st) st.textContent = "移しています…";
+  try {
+    const r = await fetch("/api/calls/targets/assign", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, to }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "移せませんでした");
+    const set = new Set(ids.map(String));
+    for (const row of _edRows) if (set.has(String(row.id))) row["担当メール"] = to;
+    edBuildTable(); edRenderBody();
+    const st2 = $("edNurSt"); if (st2) st2.textContent = `${d.moved || ids.length}件を「${nmMemberName(to)}」へ移しました`;
+  } catch (e) { const st2 = $("edNurSt"); if (st2) st2.textContent = "失敗：" + (e.message || ""); }
 }
 function edRenderBody() {
   const g = _edg;
   const rows = edFiltered();
   if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
+  if ($("edNurN")) $("edNurN").textContent = rows.length.toLocaleString();
   if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
   const tb = $("edTbody"); if (!tb) return;
   tb.innerHTML = rows.length
     ? rows.map((r) => {
-        const editCells = _edCrosslost ? "" : `
+        const nd = r["次回予定"] ? new Date(r["次回予定"]) : null;
+        const nurCells = _edNurture ? `<td>${nd && !isNaN(nd) ? esc(`${nd.getMonth() + 1}/${nd.getDate()} ${String(nd.getHours()).padStart(2, "0")}:${String(nd.getMinutes()).padStart(2, "0")}`) + (nd < new Date() ? ' <span class="ed-late">期限切れ</span>' : "") : '<span class="kc-none">—</span>'}</td>
+        <td><select class="ed-nurwho" data-id="${r.id}" style="max-width:140px">${nmNurMemberOpts(r["担当メール"] || "")}</select></td>
+        <td>${esc(edListName(r))}</td>` : "";
+        const editCells = (_edCrosslost || _edNurture) ? "" : `
         <td><input type="number" min="0" class="ed-f" data-f="hires" value="${esc(g(r, "採用人数", "hires"))}" style="width:64px" /></td>
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
         <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
@@ -5756,9 +5835,11 @@ function edRenderBody() {
         <td><input type="text" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
         ${editCells}
         ${lossCells}
+        ${nurCells}
       </tr>`;
       }).join("")
     : `<tr><td colspan="11" class="empty-state" style="padding:18px">条件に合うリードがありません。</td></tr>`;
+  tb.querySelectorAll(".ed-nurwho").forEach((sel) => sel.addEventListener("change", () => edNurMove([sel.dataset.id], sel.value)));
   tb.querySelectorAll(".ed-group").forEach((sel) => sel.addEventListener("change", async () => {
     const list = sel.dataset.list; const gid = sel.value; const gname = gid ? ((GROUPS.find((x) => String(x.id) === String(gid)) || {}).name || "") : "";
     sel.style.outline = "2px solid #f0b429";

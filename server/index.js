@@ -247,6 +247,8 @@ import {
   saveZoomRecSummary,
   markZoomRecUsed,
   findUnusedZoomSummary,
+  nurtureSummary,
+  assignTargetsTo,
   zoomRecMapForTarget,
   zoomRecDurations,
   listStageTargets,
@@ -9340,6 +9342,33 @@ app.post("/api/calls/lists/:id/relink-reset", async (req, res) => {
 });
 
 // 選んだ架電先を、別のリストへそのまま移す（既存リストへ移動・担当は移行先の持ち主に付け替え）。
+// 今週の終わり（日本時間の日曜 23:59:59）
+function jstWeekEndIso() {
+  const j = new Date(Date.now() + 9 * 3600 * 1000);
+  const dow = j.getUTCDay();                       // 0=日
+  const add = dow === 0 ? 0 : 7 - dow;
+  const end = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate() + add, 23, 59, 59) - 9 * 3600 * 1000;
+  return new Date(end).toISOString();
+}
+// ナーチャリングの件数（全体・今週かける予定・メンバー別）
+app.get("/api/calls/nurture-summary", async (req, res) => {
+  try { res.json({ ok: true, weekEnd: jstWeekEndIso(), ...(await nurtureSummary(jstWeekEndIso())) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 架電先の担当を別のメンバーへ移す（リストはそのまま。ナーチャリングの振り分け用）
+app.post("/api/calls/targets/assign", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).slice(0, 5000);
+    const to = String(req.body?.to || "").trim().toLowerCase();
+    if (!ids.length) return res.status(400).json({ error: "移す架電先を選んでください" });
+    if (!to.includes("@")) return res.status(400).json({ error: "移す先のメンバーを選んでください" });
+    const n = await assignTargetsTo(ids, to);
+    console.log(`[kincall] ${n}件の担当を ${to} へ by ${req.user}`);
+    res.json({ ok: true, moved: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/calls/targets/move", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
@@ -9673,11 +9702,12 @@ app.get("/api/calls/targets", async (req, res) => {
         q: String(req.query.q || ""),
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
       });
-    } else if (listParam === "nurture-all") {
-      // ナーチャリング（全体）：担当を問わず、ジャッジ・営業フォローのリードを横断で集める（管理タブ用）
-      rows = await listNurtureTargetsForMember("", {
+    } else if (listParam === "nurture-all" || listParam === "nurture-week") {
+      // ナーチャリング（全体／今週かける予定）：担当を問わず横断で集める（管理タブ用）。member で担当を絞れる。
+      rows = await listNurtureTargetsForMember(String(req.query.member || "").trim().toLowerCase(), {
         q: String(req.query.q || ""),
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
+        until: listParam === "nurture-week" ? jstWeekEndIso() : "",
       });
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
@@ -9705,7 +9735,7 @@ app.get("/api/calls/targets", async (req, res) => {
     // ただしアーカイブ／リサイクルのカード、および「リサイクル復活リスト」の中身は出す。
     if (rawEdit) {
       // 編集テーブルでは全件そのまま出す（カードの「全」の件数と一致させる）
-    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && !復活リストか) {
+    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && listParam !== "nurture-week" && !復活リストか) {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
@@ -9790,6 +9820,7 @@ app.get("/api/calls/targets", async (req, res) => {
         最終結果: r["最終結果"] || "",
         最終日時: r["最終日時"] || null,
         次回予定: r.next_call_at || null,
+        担当メール: String(r.assigned_to || r._list_owner || "").trim().toLowerCase(),
         済み: !!r.done,
         追加: (() => {
           const base = (r.extra && typeof r.extra === "object") ? { ...r.extra } : {};
@@ -20935,7 +20966,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26a リスト管理でリストをグループ分けできるように。各リストカードに「グループ：◯◯」プルダウン（なし／既存グループ／＋新しいグループを作る）、選択中のリストをまとめて入れる一括プルダウン（編集バー横）。既存API（POST /api/calls/groups、PUT /api/calls/lists/:id/group）を使用。管理タブ読み込み時にグループも取得。";
+const BUILD_TAG = "2026-09-26b ナーチャリングを別枠で管理。リスト管理に「ナーチャリング」セクション（全体／今週かける予定＝次回架電日が今週日曜まで・期限切れ含む）。カードから一覧を開くと、次回架電日・担当メンバー・元のリストを表示し、1件ずつプルダウンで、または絞り込んだ分をまとめて別メンバーへ移せる（POST /api/calls/targets/assign＝assigned_toの付け替え、リストはそのまま）。移したナーチャリングは元の人の☆全てから消え、移した先の人に出る。GET /api/calls/nurture-summary、list=nurture-week（member絞り込み可）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

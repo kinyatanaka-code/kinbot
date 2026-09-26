@@ -6650,3 +6650,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .nm-lcard-grp { margin-top: 6px; }
 .nm-group { width: 100%; font-size: 11.5px; padding: 3px 6px; border: 1px solid #d7e3dd; border-radius: 8px; background: #f7fbf9; color: #0d5b47; }
 .nm-grpbulk { font-size: 12.5px; padding: 7px 10px; border: 1px solid #cfe0d8; border-radius: 10px; background: #fff; color: #0d5b47; margin-left: 8px; }
+
+/* ナーチャリング：担当を移す */
+.ed-nurbar { margin: 8px 0 10px; padding: 10px 12px; border: 1px solid #cfe6da; background: #f3faf6; border-radius: 12px; font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ed-nurbar-lb { font-weight: 700; color: #0d5b47; }
+.ed-nurbar select { padding: 6px 8px; border: 1px solid #cfe0d8; border-radius: 8px; }
+.ed-nurbar .note { flex-basis: 100%; }
+.ed-late { font-size: 10.5px; color: #c03e56; font-weight: 700; }

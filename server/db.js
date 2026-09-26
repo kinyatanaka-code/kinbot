@@ -4603,7 +4603,8 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
     const p = [String(member).toLowerCase()];
     // そのメンバーが「持ち主のリスト」＋「自分に配られた（担当の）架電先」を対象にする。
     // これで、リストを所有していない人（配られただけの人）でもまとまって出る。
-    let where = `(l.owner = $1 OR (COALESCE(l.owner,'') <> '' AND lower(coalesce(t.assigned_to,'')) = $1)) AND NOT l.closed AND NOT COALESCE(l.hidden, false)`;
+    let where = `(l.owner = $1 OR (COALESCE(l.owner,'') <> '' AND lower(coalesce(t.assigned_to,'')) = $1)) AND NOT l.closed AND NOT COALESCE(l.hidden, false)
+      AND NOT ((${NURTURE_WHERE}) AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner, '')) <> $1)`;   // ナーチャリングは担当メンバーに従う（移したら元の人には出さない）
     if (q) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
@@ -9211,7 +9212,7 @@ export async function nurtureCountsByMember() {
 }
 // ナーチャリング（ジャッジ・営業フォロー）のリードを、元リストに置いたまま「まとめビュー」として返す。
 // 担当（assigned_to、無ければリストの持ち主）がそのメンバーのぶんだけ。かける画面の仮想リスト用。
-export async function listNurtureTargetsForMember(member, { q = "", limit = 2000 } = {}) {
+export async function listNurtureTargetsForMember(member, { q = "", limit = 2000, until = "" } = {}) {
   if (!pool) return [];
   const m = String(member || "").trim().toLowerCase();
   try {
@@ -9219,6 +9220,8 @@ export async function listNurtureTargetsForMember(member, { q = "", limit = 2000
     let where = `(${NURTURE_WHERE})`;
     if (m) { p.push(m); where += ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) = $${p.length}`; }   // 空なら全体（管理の「ナーチャリング」用）
     if (q) { p.push(`%${String(q).replace(/[%_]/g, "")}%`); where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length} OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`; }
+    // 今週かける予定：次回架電日が until まで（期限切れも含む）
+    if (until) { p.push(until); where += ` AND t.next_call_at IS NOT NULL AND t.next_call_at <= $${p.length}::timestamptz AND NOT COALESCE(t.done, false)`; }
     p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
       `SELECT t.*,
@@ -9237,6 +9240,36 @@ export async function listNurtureTargetsForMember(member, { q = "", limit = 2000
     return rows;
   } catch (e) { console.error("[db] listNurtureTargetsForMember", e.message); return []; }
 }
+// ナーチャリングの件数（全体・今週かける予定、担当メンバー別）。担当＝assigned_to、無ければリストの持ち主。
+export async function nurtureSummary(untilIso) {
+  const out = { total: 0, week: 0, byMember: {} };
+  if (!pool) return out;
+  try {
+    const { rows } = await pool.query(
+      `SELECT lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner, '')) AS email,
+              count(*)::int AS n,
+              count(*) FILTER (WHERE t.next_call_at IS NOT NULL AND t.next_call_at <= $1::timestamptz AND NOT COALESCE(t.done,false))::int AS w
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE (${NURTURE_WHERE}) AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        GROUP BY 1`, [untilIso]);
+    for (const r of rows) {
+      out.total += r.n; out.week += r.w;
+      if (r.email) out.byMember[r.email] = { all: r.n, week: r.w };
+    }
+  } catch (e) { console.error("[db] nurtureSummary", e.message); }
+  return out;
+}
+// 架電先の担当を付け替える（リストはそのまま）
+export async function assignTargetsTo(ids, email) {
+  if (!pool) return 0;
+  const nums = [...new Set((ids || []).map((x) => parseInt(x, 10)).filter(Boolean))];
+  if (!nums.length || !email) return 0;
+  try {
+    const r = await pool.query(`UPDATE call_targets SET assigned_to = $2 WHERE id = ANY($1::int[])`, [nums, String(email).trim().toLowerCase()]);
+    return r.rowCount;
+  } catch (e) { console.error("[db] assignTargetsTo", e.message); return 0; }
+}
+
 // ナーチャリングリスト（担当ごとに1つ）。無ければ作る。
 export async function ensureNurtureList({ owner, createdBy, name }) {
   if (!pool || !owner) return null;
