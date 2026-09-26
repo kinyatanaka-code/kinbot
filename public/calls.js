@@ -5488,6 +5488,7 @@ function edFiltered() {
       const lrm = ($("edLostReasonMid") && $("edLostReasonMid").value) || "";
       if (lrm && g(r, "失注理由（中項目）") !== lrm) return false;
       const qDt = v("edQLostDetail"); if (qDt && !String(g(r, "失注理由詳細")).toLowerCase().includes(qDt)) return false;
+      const qNa = v("edQNextAct"); if (qNa && !String(g(r, "失注後次回アクション日")).replace(/-/g, "/").includes(qNa.replace(/-/g, "/"))) return false;
       const oo = ($("edOppOwner") && $("edOppOwner").value) || ""; if (oo && g(r, "商談所有者") !== oo) return false;
       if (_edClMode) {
         const na = String(g(r, "失注後次回アクション日")).slice(0, 10);
@@ -5805,10 +5806,10 @@ function edBuildTable() {
       ? th("次回架電日", txt("edQNext")) + th("担当メンバー", sel("edNurWho", uniq((r) => nmMemberName(r["担当メール"] || "")), "すべて")) + th("元のリスト", txt("edQFrom"))
     : !_edCrosslost
       ? th("採用人数", "") + th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) + th("グループ", "") + th("所有者", "")
-      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("商談所有者", sel("edOppOwner", uniq((r) => g(r, "商談所有者")), "すべて"))
+      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("失注後次回アクション日", txt("edQNextAct")) + th("商談所有者", sel("edOppOwner", uniq((r) => g(r, "商談所有者")), "すべて"))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edOppOwner", "edQNext", "edNurWho", "edQFrom"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edOppOwner", "edQNextAct", "edQNext", "edNurWho", "edQFrom"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
 }
 // 仮想ビュー（ナーチャリング等）でも元のリスト名を出す
@@ -5878,7 +5879,7 @@ function edRenderBody() {
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
         <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
         <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>`;
-        const lossCells = _edCrosslost ? `<td>${esc(g(r, "失注理由（大項目）"))}</td><td>${esc(g(r, "失注理由（中項目）"))}</td><td>${esc(g(r, "失注理由詳細"))}</td><td>${esc(g(r, "商談所有者"))}</td>` : "";
+        const lossCells = _edCrosslost ? `<td>${esc(g(r, "失注理由（大項目）"))}</td><td>${esc(g(r, "失注理由（中項目）"))}</td><td>${esc(g(r, "失注理由詳細"))}</td><td class="ed-nowrap">${esc(String(g(r, "失注後次回アクション日") || "").slice(0, 10))}</td><td>${esc(g(r, "商談所有者"))}</td>` : "";
         return `<tr data-id="${r.id}">
         <td>${esc(g(r, "ステージ", "stage"))}</td>
         <td>${esc(g(r, "会社名", "company"))}</td>
