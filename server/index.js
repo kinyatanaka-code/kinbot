@@ -7804,7 +7804,7 @@ app.post("/api/calls/import-edit", async (req, res) => {
     const ids = rows.map((r) => parseInt(r.id, 10)).filter(Boolean);
     const listOf = new Map();
     if (ids.length) { try { const tr = await pool.query(`SELECT id, list_id FROM call_targets WHERE id = ANY($1::int[])`, [ids]); for (const t of tr.rows) listOf.set(t.id, t.list_id); } catch {} }
-    let updated = 0, assignedChanged = 0, companyChanged = 0, fieldChanged = 0, groupChanged = 0;
+    let updated = 0, assignedChanged = 0, companyChanged = 0, fieldChanged = 0, groupChanged = 0, personChanged = 0;
     const skipped = [];
     const listGroupSet = new Map(); // list_id -> gid（後でまとめて適用）
     for (const r of rows) {
@@ -7814,6 +7814,8 @@ app.post("/api/calls/import-edit", async (req, res) => {
       if (r.employees !== undefined && String(r.employees).trim() !== "") patch.employees = r.employees;
       if (r.hires !== undefined && String(r.hires).trim() !== "") patch.hires = r.hires;
       if (r.media_tags !== undefined && String(r.media_tags).trim() !== "") patch.media_tags = String(r.media_tags).trim();
+      // 担当者名（相手先の人）。「担当者」だけの仮の値は入れない
+      if (r.person !== undefined && String(r.person).trim() !== "" && String(r.person).trim() !== "担当者") patch.person = String(r.person).trim();
       // 担当（メール優先→登録名）
       const em = String(r.assigned_email || "").trim().toLowerCase();
       const nm = String(r.assigned_name || "").trim();
@@ -7823,13 +7825,14 @@ app.post("/api/calls/import-edit", async (req, res) => {
       if (assignEmail) { patch.assigned_to = assignEmail; assignedChanged++; }
       if (patch.company) companyChanged++;
       if ("employees" in patch || "hires" in patch || "media_tags" in patch) fieldChanged++;
+      if ("person" in patch) personChanged++;
       // グループ（そのリードのリストに適用。同一リストは最後の指定が有効）
       const gname = String(r.group || "").trim();
       if (gname && listOf.has(id)) { const gid = gmap.has(gname) ? gmap.get(gname) : null; listGroupSet.set(listOf.get(id), gid); }
       if (Object.keys(patch).length) { if (!dryRun) await setCallTargetFields(id, patch).catch(() => {}); updated++; }
     }
     for (const [listId, gid] of listGroupSet.entries()) { groupChanged++; if (!dryRun) await setListGroup(listId, gid).catch(() => {}); }
-    res.json({ ok: true, dryRun, summary: { total: rows.length, updated, assignedChanged, companyChanged, fieldChanged, groupChanged, skipped } });
+    res.json({ ok: true, dryRun, summary: { total: rows.length, updated, assignedChanged, companyChanged, fieldChanged, groupChanged, personChanged, skipped } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -8802,7 +8805,16 @@ app.post("/api/calls/from-report", async (req, res) => {
     };
     const ix = {
       company: find("会社名", "会社", "company", "取引先"),
-      person: find("担当者名", "担当者", "姓", "名前", "氏名", "name"),
+      // 商談・取引先のレポートは「主.取引先責任者」が担当者名（「取引先責任者: メール」等の列は除く）
+      person: (() => {
+        const norm = (v) => String(v || "").replace(/[\s　_・.．:：]/g, "").toLowerCase();
+        const bad = /メール|mail|電話|phone|tel|役職|部署|id$/i;
+        for (const w of ["主取引先責任者", "取引先責任者名", "取引先責任者"]) {
+          const i = cols.findIndex((c) => norm(c).includes(norm(w)) && !bad.test(String(c)));
+          if (i >= 0) return i;
+        }
+        return find("担当者名", "担当者", "姓", "名前", "氏名", "name");
+      })(),
       phone: find("電話", "phone", "tel"),
       email: find("メール", "email", "mail"),
       stage: find("リード状況", "リード 状況", "状況", "ステージ", "status"),
@@ -21051,7 +21063,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26f SFレポートから「リストを作る」が必ず失敗していた不具合を修正（/api/calls/from-report で変数「入れる」が未定義→ReferenceError）。分ける人がいれば順番に担当を付けた一覧として定義。画面側はサーバーがHTML等を返しても理由が分かるエラー表示に。";
+const BUILD_TAG = "2026-09-26g 過去リスト（商談レポート由来）の担当者名。レポートから作るとき「主.取引先責任者」を担当者名として読む（メール・電話の列は除外）。編集テーブルのCSV取り込みで「担当者名／主.取引先責任者／取引先責任者／担当者」列を担当者名として反映（リードID突合・会社名突合どちらも、会社名は「取引先名」も可）。「担当者」だけの仮の値は上書きしない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

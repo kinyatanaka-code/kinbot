@@ -1040,3 +1040,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 - 2026-09-26 BUILD_TAG=2026-09-26f SFレポート→「リストを作る」(public/sf-data.js srToKincall→POST /api/calls/from-report) が常に失敗：endpoint 内で「入れる」が未定義（リポジトリ最初のコミット83b90efから）→ ReferenceError 500。修正：const 入れる = 分ける人R.length ? items.map((x,i)=>({...x,assignedTo:分ける人R[i
 - 2026-09-26 BUILD_TAG=2026-09-26f SFレポート→「リストを作る」(public/sf-data.js srToKincall→POST /api/calls/from-report) が常に失敗：endpoint 内で「入れる」が未定義（リポジトリ最初のコミット83b90efから）→ ReferenceError 500。修正：const 入れる = 分ける人R.length ? items.map((x,i)=>({...x,assignedTo:分ける人R[i % 分ける人R.length]})) : items（既存R の前）。sf-data.js は r.text()→JSON.parse、413/非JSONでも理由表示。ユーザー例は商談レポート「きんや用DOC直販」1075行（リードIDは Lead IsConverted=false で会社名照合のため取引先由来は紐づかないことが多い）。版20260926f。
+
+- 2026-09-26 BUILD_TAG=2026-09-26g 担当者名＝主.取引先責任者。from-report の ix.person を「主取引先責任者→取引先責任者名→取引先責任者」（記号除去で比較、メール/電話/役職/部署/id列は除外）優先、無ければ従来。CSV取り込み(edImportCsv)に cPer（担当者名/主.取引先責任者/取引先責任者/担当者、メール電話等除外）→rows.person、会社名突合モードでも person 反映、cCo に「取引先名」追加。server import-edit：r.person（「担当者」だけは無視）→patch.person、summary.personChanged。db setCallTargetFields に person。既存の「担当者」表示の行は、商談レポートCSVを過去リストでCSV取り込みすれば会社名で反映。版20260926g。
