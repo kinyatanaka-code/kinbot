@@ -4628,9 +4628,10 @@ function nmRenderCards() {
       clcard("now", "📞", "今月かける", (s.nowCount || 0).toLocaleString(), "件", "失注後次回アクション日が翌月末までのリード。上から順に対応。", "#1d9e75") +
       clcard("all", "🗂", "失注リスト", (s.total || 0).toLocaleString(), "件", "クロス失注の全リード。失注日・理由などで一覧。", "#d9536a") +
       clcard("month", "📅", "月別", String(months), "ヶ月", "失注後次回アクション日を月別に集計。月ごとに内訳。", "#2f86c9") +
-      `</div></div>`;
+      `</div><div class="nm-cl-move"><button type="button" class="btn ghost" id="nmClConsolidate">他のリストにある失注リードを、担当ごとの「クロス失注」リストへ移す</button><span class="rev-status" id="nmClConSt"></span></div></div>`;
   }
   body.innerHTML = html;
+  if ($("nmClConsolidate")) $("nmClConsolidate").addEventListener("click", nmClConsolidate);
   nmFetchClSummary();   // カードの件数（今月かける・月別）を後追いで更新
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
     _nmChosen = new Set();
@@ -4642,6 +4643,29 @@ function nmRenderCards() {
   }));
 }
 // 過去リストカードを開く。now/all=編集テーブル（絞り込みモード付き）、month=月別ビュー。
+// 失注リードを担当ごとの「クロス失注」リストへ移す（先に件数を見せて確認）
+async function nmClConsolidate() {
+  const st = $("nmClConSt"), btn = $("nmClConsolidate");
+  const call = async (dryRun) => {
+    const r = await fetch("/api/calls/crosslost/consolidate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "うまくいきませんでした");
+    return d;
+  };
+  try {
+    if (btn) btn.disabled = true;
+    if (st) st.textContent = "対象を数えています…（SFと突き合わせるので少しかかります）";
+    const p = await call(true);
+    if (!p.total) { if (st) st.textContent = `移すものはありません（すでに「クロス失注」リストにある ${p.already || 0} 件）`; return; }
+    const lines = (p.plan || []).map((x) => `・${x.name}：${x.count}件`).join("\n");
+    if (!confirm(`次の ${p.total} 件を、担当ごとの「クロス失注」リストへ移します（無い人にはリストを作ります）。\n\n${lines}\n\n元のリストからは外れます。担当（かける人）は変わりません。\n（すでに「クロス失注」リストにある ${p.already || 0} 件、アーカイブ/リサイクルの ${p.skipped || 0} 件はそのまま）\n\n移しますか？`)) { if (st) st.textContent = ""; return; }
+    if (st) st.textContent = "移しています…";
+    const d = await call(false);
+    await nmLoad();
+    const st2 = $("nmClConSt"); if (st2) st2.textContent = `${d.moved || 0}件を移しました${d.created ? `（新しく「クロス失注」リストを ${d.created} 件作成）` : ""}`;
+  } catch (e) { if (st) st.textContent = "失敗：" + (e.message || ""); }
+  finally { const b = $("nmClConsolidate"); if (b) b.disabled = false; }
+}
 function nmOpenNurture(mode) {
   _nmSel = { type: "special", key: "nurture", member: "", name: "" };
   nmGoEditVirtual(mode === "week" ? "nurture-week" : "nurture-all", mode === "week" ? "今週かける予定（ナーチャリング）" : "ナーチャリング（全体）", "");

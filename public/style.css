@@ -6665,3 +6665,5 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-loss-r { color: #33443d; }
 .kc-loss-d { color: #4d5e57; white-space: pre-wrap; }
 .kc-loss-n { color: #6b857b; font-size: 11.5px; }
+
+.nm-cl-move { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

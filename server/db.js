@@ -4214,7 +4214,7 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
       `SELECT t.*,
-              cl.owner AS _list_owner, cl.group_id AS _list_group_id,
+              cl.owner AS _list_owner, cl.group_id AS _list_group_id, cl.name AS _list_name,
               (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS _list_group_name,
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id AND l.sf_task_id IS NULL) AS 未送信数,
@@ -4226,6 +4226,33 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
         LIMIT $${p.length}`, p);
     return rows;
   } catch (e) { console.error("[db] listStageTargets", e.message); return []; }
+}
+
+// 持ち主と名前でリストを探し、無ければ作る（「クロス失注」リストの用意に使う）
+export async function findOrCreateNamedList(owner, name, createdBy = "") {
+  if (!pool || !name) return null;
+  const own = owner ? String(owner).trim().toLowerCase() : null;
+  try {
+    const q = own
+      ? await pool.query(`SELECT id, name, owner FROM call_lists WHERE lower(owner) = $1 AND name = $2 AND NOT COALESCE(closed,false) AND NOT COALESCE(hidden,false) ORDER BY id LIMIT 1`, [own, name])
+      : await pool.query(`SELECT id, name, owner FROM call_lists WHERE COALESCE(owner,'') = '' AND name = $1 AND NOT COALESCE(closed,false) AND NOT COALESCE(hidden,false) ORDER BY id LIMIT 1`, [name]);
+    if (q.rows[0]) return { ...q.rows[0], created: false };
+    const { rows } = await pool.query(`INSERT INTO call_lists (name, owner, note, created_by) VALUES ($1,$2,$3,$4) RETURNING id, name, owner`,
+      [name, own, "過去リスト（クロス失注）の移動先", createdBy || null]);
+    return rows[0] ? { ...rows[0], created: true } : null;
+  } catch (e) { console.error("[db] findOrCreateNamedList", e.message); return null; }
+}
+// 架電先を別のリストへ移す。担当が空なら member を担当にして、かける人が変わらないようにする。
+export async function moveTargetsKeepAssignee(ids, listId, member) {
+  if (!pool || !listId) return 0;
+  const nums = [...new Set((ids || []).map((x) => parseInt(x, 10)).filter(Boolean))];
+  if (!nums.length) return 0;
+  try {
+    const r = await pool.query(
+      `UPDATE call_targets SET list_id = $2, assigned_to = COALESCE(NULLIF(btrim(assigned_to),''), $3) WHERE id = ANY($1::int[])`,
+      [nums, listId, member ? String(member).toLowerCase() : null]);
+    return r.rowCount;
+  } catch (e) { console.error("[db] moveTargetsKeepAssignee", e.message); return 0; }
 }
 
 // 有効なリストにある架電先の id と会社名（SFの会社名と突き合わせるため）

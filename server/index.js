@@ -249,6 +249,8 @@ import {
   findUnusedZoomSummary,
   nurtureSummary,
   listActiveTargetCompanies,
+  findOrCreateNamedList,
+  moveTargetsKeepAssignee,
   assignTargetsTo,
   zoomRecMapForTarget,
   zoomRecDurations,
@@ -7912,6 +7914,44 @@ app.get("/api/calls/stage-summary", async (req, res) => {
 app.get("/api/calls/crosslost-members", async (req, res) => {
   try { res.json({ ok: true, byMember: await crosslostCountsByMember() }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 他のリストに入っている失注リードを、担当ごとの「クロス失注」リストへ移す。dryRun=true なら件数だけ返す。
+//   担当＝assigned_to、無ければ元リストの持ち主。持ち主もいなければ「クロス失注（未割り当て）」。
+//   すでに「クロス失注」リストにあるもの、アーカイブ/リサイクルに入っているものは動かさない。
+app.post("/api/calls/crosslost/consolidate", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const dryRun = req.body?.dryRun !== false;
+    const sfUser = await pickSfUser(req.user, req).catch(() => "");
+    const extraIds = await crosslostMatchedIds(sfUser).catch(() => []);
+    const rows = await listStageTargets("クロス失注", { statusMatch: ["クロス失注"], limit: 20000, extraIds });
+    const byMember = new Map();   // member("" = 未割り当て) -> ids
+    let already = 0, skipped = 0;
+    for (const r of rows) {
+      const ln = String(r._list_name || "").trim();
+      if (ln === "クロス失注" || ln === "クロス失注（未割り当て）") { already++; continue; }
+      if (ln === "アーカイブ" || ln === "リサイクル") { skipped++; continue; }
+      const m = String(r.assigned_to || r._list_owner || "").trim().toLowerCase();
+      if (!byMember.has(m)) byMember.set(m, []);
+      byMember.get(m).push(r.id);
+    }
+    const members = await listMembers().catch(() => []);
+    const nameOf = (e) => { const u = members.find((x) => String(x.email || "").toLowerCase() === e); return (u && u.name) || e || "未割り当て"; };
+    const plan = [...byMember.entries()].map(([m, ids]) => ({ member: m, name: nameOf(m), count: ids.length })).sort((a, b) => b.count - a.count);
+    const total = plan.reduce((s0, x) => s0 + x.count, 0);
+    if (dryRun) return res.json({ ok: true, dryRun: true, total, already, skipped, plan });
+    let moved = 0, created = 0;
+    for (const [m, ids] of byMember.entries()) {
+      const list = await findOrCreateNamedList(m || null, m ? "クロス失注" : "クロス失注（未割り当て）", req.user);
+      if (!list) continue;
+      if (list.created) created++;
+      moved += await moveTargetsKeepAssignee(ids, list.id, m || null);
+    }
+    _clSummaryCache = null;
+    console.log(`[kincall] 失注リード${moved}件を担当ごとの「クロス失注」リストへ移動（新規リスト${created}）by ${req.user}`);
+    res.json({ ok: true, dryRun: false, moved, created, plan });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 過去リスト（クロス失注）の集計：total / nowCount（次回アクション日≤翌月末）/ byMonth。
 app.get("/api/calls/crosslost-summary", async (req, res) => {
   try { const sfUser = await pickSfUser(req.user, req).catch(() => ""); res.json(await crosslostSummary(sfUser)); }
@@ -21009,7 +21049,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26d 従業員数の自動取得に「Web検索（Gemini）」の段を復活。SF→gBiz→公式サイト→Brave で取れなかった会社だけ、最後に lookupEmployeeCount（Googleグラウンディングで検索→出典つきの数値だけ採用）で調べる。9/20の無料化で外していたため、Braveで拾えない会社が「-」になっていた。読み取りは Claude→Gemini flash-lite に変更してコストを抑制。";
+const BUILD_TAG = "2026-09-26e 他のリストに入っている失注リードを、担当ごとの「クロス失注」リストへ実際に移す機能。リスト管理の過去リスト欄のボタン→先に担当ごとの件数を確認→移動。担当＝assigned_to（無ければ元リストの持ち主）、その人の「クロス失注」リストが無ければ作成、持ち主不在は「クロス失注（未割り当て）」。担当は変えない（空なら持ち主を担当に固定）。既に「クロス失注」にあるもの・アーカイブ/リサイクルは動かさない。POST /api/calls/crosslost/consolidate {dryRun}。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
