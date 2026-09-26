@@ -7917,6 +7917,88 @@ app.get("/api/calls/stage-summary", async (req, res) => {
 app.get("/api/calls/crosslost-members", async (req, res) => {
   try { res.json({ ok: true, byMember: await crosslostCountsByMember() }); } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// kincallのどのリストにも無い「クロス失注」の会社を、SFの商談から取り込む。
+//   担当＝商談所有者（kincallのメンバーなら）、担当者名＝主.取引先責任者、電話/メール＝取引先責任者（無ければ取引先）。
+//   入れ先はその人の「クロス失注」リスト（メンバー外の所有者は「クロス失注（未割り当て）」）。重複は addCallTargets の重複除外で防ぐ。
+async function importMissingCrosslost({ sfUser, dryRun = true, by = "" } = {}) {
+  if (!sfUser || !salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) throw new Error("Salesforceにつながっていません");
+  const base = `FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND IsClosed = true AND IsWon = false AND CloseDate >= 2026-03-01 ORDER BY CloseDate DESC, LastModifiedDate DESC LIMIT 5000`;
+  let d, withContact = true;
+  try {
+    d = await sfQuery(sfUser, `SELECT Id, Account.Name, Account.Phone, Owner.Email, Owner.Name, CloseDate,
+      (SELECT Contact.Name, Contact.Phone, Contact.MobilePhone, Contact.Email FROM OpportunityContactRoles WHERE IsPrimary = true LIMIT 1) ${base}`);
+  } catch (e) {
+    withContact = false;   // 取引先責任者の役割が読めない組織では、取引先の情報だけで入れる
+    d = await sfQuery(sfUser, `SELECT Id, Account.Name, Account.Phone, Owner.Email, Owner.Name, CloseDate ${base}`);
+  }
+  // 会社ごとに直近の商談1件（並びが新しい順なので最初のもの）。責任者が空なら同じ会社の別の商談から補う。
+  const byCo = new Map();
+  for (const o of d.records || []) {
+    const co = (o.Account && o.Account.Name) || ""; if (!co) continue;
+    const k = normCompanyKey(co);
+    const c = withContact && o.OpportunityContactRoles && o.OpportunityContactRoles.records && o.OpportunityContactRoles.records[0] && o.OpportunityContactRoles.records[0].Contact;
+    const cur = byCo.get(k);
+    if (!cur) byCo.set(k, { company: co, owner: String((o.Owner && o.Owner.Email) || "").toLowerCase(), ownerName: (o.Owner && o.Owner.Name) || "", contact: c || null, accPhone: (o.Account && o.Account.Phone) || "" });
+    else if (!cur.contact && c) cur.contact = c;
+  }
+  // すでにkincallの有効なリストにある会社は除く
+  const have = new Set((await listActiveTargetCompanies()).map((r) => normCompanyKey(r.company)).filter(Boolean));
+  const members = await listMembers().catch(() => []);
+  const memSet = new Set(members.map((m) => String(m.email || "").toLowerCase()));
+  const plan = new Map();   // member("" = 未割り当て) -> items
+  for (const [k, x] of byCo.entries()) {
+    if (have.has(k)) continue;
+    const m = memSet.has(x.owner) ? x.owner : "";
+    const c = x.contact || {};
+    const item = {
+      leadId: null, company: x.company,
+      person: String(c.Name || "").trim(),
+      phone: String(c.Phone || c.MobilePhone || x.accPhone || "").trim(),
+      email: String(c.Email || "").trim(),
+      stage: "", status: "失注（クロス失注）",
+      ...(m ? { assignedTo: m } : {}),
+    };
+    if (!item.company && !item.phone) continue;
+    if (!plan.has(m)) plan.set(m, []);
+    plan.get(m).push(item);
+  }
+  const nameOf = (e) => { const u = members.find((z) => String(z.email || "").toLowerCase() === e); return (u && u.name) || e || "未割り当て"; };
+  const summary = [...plan.entries()].map(([m, items]) => ({ member: m, name: nameOf(m), count: items.length })).sort((a, b) => b.count - a.count);
+  const total = summary.reduce((a, x) => a + x.count, 0);
+  if (dryRun) return { dryRun: true, total, plan: summary, deals: (d.records || []).length };
+  let imported = 0, created = 0;
+  for (const [m, items] of plan.entries()) {
+    const list = await findOrCreateNamedList(m || null, m ? "クロス失注" : "クロス失注（未割り当て）", by);
+    if (!list) continue;
+    if (list.created) created++;
+    imported += await addCallTargets(list.id, items, { dedupe: true });
+  }
+  _clIdsCache = null; _clSummaryCache = null;
+  console.log(`[kincall] kincallに無いクロス失注の会社を${imported}件取り込み（新規リスト${created}）by ${by || "自動"}`);
+  return { dryRun: false, total, imported, created, plan: summary };
+}
+app.post("/api/calls/crosslost/import-missing", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const sfUser = await pickSfUser(req.user, req).catch(() => "");
+    res.json({ ok: true, ...(await importMissingCrosslost({ sfUser, dryRun: req.body?.dryRun !== false, by: req.user })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 毎朝7時（日本時間）に自動で取り込む（設定 crossImportAuto=false で止まる）
+setInterval(async () => {
+  try {
+    const j = new Date(Date.now() + 9 * 3600 * 1000);
+    if (j.getUTCHours() !== 7) return;
+    const today = j.toISOString().slice(0, 10);
+    const st = await getSettings().catch(() => ({}));
+    if (st.crossImportAuto === false || st.crossImportLast === today) return;
+    await saveSettings({ crossImportLast: today });
+    const sfUser = (st.sfProxyUser && (await sfConnected(st.sfProxyUser).catch(() => false))) ? st.sfProxyUser : await sfOperator("");
+    if (!sfUser) return;
+    await importMissingCrosslost({ sfUser, dryRun: false, by: "" });
+  } catch (e) { console.warn("[crosslost] 自動取り込み失敗", e.message); }
+}, 10 * 60 * 1000);
+
 // 他のリストに入っている失注リードを、担当ごとの「クロス失注」リストへ移す。dryRun=true なら件数だけ返す。
 //   担当＝assigned_to、無ければ元リストの持ち主。持ち主もいなければ「クロス失注（未割り当て）」。
 //   すでに「クロス失注」リストにあるもの、アーカイブ/リサイクルに入っているものは動かさない。
@@ -21063,7 +21145,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26h 失注リスト（クロス失注の表）に「失注後次回アクション日」列を戻した（失注理由詳細と商談所有者の間、テキスト絞り込み付き・2026/10 のような入力でも可）。";
+const BUILD_TAG = "2026-09-26i kincallに無いクロス失注の会社を、SFの商談から取り込む機能。会社ごとに直近の失注商談を採用し、担当＝商談所有者（kincallメンバーなら）、担当者名＝主.取引先責任者（OpportunityContactRoles IsPrimary）、電話/メール＝取引先責任者→無ければ取引先の電話。入れ先は担当ごとの「クロス失注」リスト（メンバー外は「クロス失注（未割り当て）」）、ステータス「失注（クロス失注）」、重複は既存の重複除外で防止。リスト管理の過去リスト欄にボタン（件数確認つき）、毎朝7時に自動実行（設定 crossImportAuto=false で停止）。POST /api/calls/crosslost/import-missing。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
