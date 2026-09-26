@@ -631,7 +631,7 @@ export async function lookupEmployeeCount(companyName, hint = "") {
     "リサーチ結果に従業員数の記載と出典が無ければ found=false にします。決して推測で数値を作らないこと。" +
     "複数ソースで数値が食い違う場合は最も公式に近いものを採用し、confidence を medium 以下にします。出力は指定JSONのみ。";
   const user = `会社名: ${name}\n\n検索リサーチ結果:\n"""\n${(research || "(なし)").slice(0, 6000)}\n"""\n\n上記だけを根拠に、従業員数をJSONで出力してください。`;
-  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {};
+  const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "gemini", model: "gemini-2.5-flash-lite" })) || {};
   const emp = String(o.employees || "").trim();
   if (!o.found || !emp) return { found: false };
   return {

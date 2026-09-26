@@ -7742,6 +7742,10 @@ app.post("/api/calls/enrich-employees", async (req, res) => {
         // 最後は Brave のみ（Geminiは使わない）：Brave検索→スニペット/公式サイトを正規表現で読む（安い）
         try { const e = await withTimeout(employeesViaBrave(company), 16000, ""); const n = parseEmpNum(e); if (n != null) { emp = n; src = "Brave"; } } catch {}
       }
+      // それでも取れなければ、Web検索（Gemini）で調べる。出典が確認できた数値だけを使う。
+      if (emp == null && company && mode !== "cheap" && mode !== "brave") {
+        try { const w = await withTimeout(lookupEmployeeCount(company, website || ""), 25000, null); if (w && w.found) { const n = parseEmpNum(w.employees); if (n != null) { emp = n; src = "Web"; } } } catch {}
+      }
       if (emp != null && id) await setCallTargetFields(id, { employees: emp }).catch(() => {});
       return { id, employees: emp, source: src };
     }));
@@ -21005,7 +21009,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26c 過去リスト整理。(1)クロス失注の対象を、ステータス「クロス失注」だけでなく、SFのクロス失注商談と会社名が一致する架電先（他のリストに入っているものも）まで広げた（crosslostMatchedIds・5分キャッシュ、集計も同様）。(2)同じ会社に失注商談が複数あるときは直近の1件（失注日→無ければCloseDate→最終更新の新しい順）を採用。(3)かける画面に「🗂 過去リスト（今月かける）」を追加（自分担当・失注後次回アクション日が翌月末まで・日付順、list=crosslost-now）。記録の窓に「前回の失注」（理由 大/中・詳細・失注日・次回アクション日・商談所有者）を表示。";
+const BUILD_TAG = "2026-09-26d 従業員数の自動取得に「Web検索（Gemini）」の段を復活。SF→gBiz→公式サイト→Brave で取れなかった会社だけ、最後に lookupEmployeeCount（Googleグラウンディングで検索→出典つきの数値だけ採用）で調べる。9/20の無料化で外していたため、Braveで拾えない会社が「-」になっていた。読み取りは Claude→Gemini flash-lite に変更してコストを抑制。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
