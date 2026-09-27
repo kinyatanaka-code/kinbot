@@ -6818,3 +6818,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hub-grp { border: 1px solid #e2efe8; background: #fff; border-radius: 12px; padding: 8px 12px; font: inherit; font-weight: 700; font-size: 13px; color: #33544a; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .hub-grp span { font-size: 11px; font-weight: 600; color: #6b857b; }
 .hub-grp.on { border-color: #1d9e75; background: #eaf7f1; color: #0d5b47; }
+
+/* かける：長い文の列は3行まで（もっと見るで開く） */
+.kc-rc-long { min-width: 200px; max-width: 260px; white-space: normal; vertical-align: top; }
+.kc-rc-long .kc-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.55; font-size: 12.5px; word-break: break-word; }
+.kc-rc-long.open .kc-clamp { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.kc-more { margin-top: 3px; border: 0; background: none; color: #1d9e75; font-size: 11.5px; font-weight: 700; cursor: pointer; padding: 0; }
+.kc-more:hover { text-decoration: underline; }

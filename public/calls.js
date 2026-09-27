@@ -752,6 +752,8 @@ function render() {
           // 掲載終了日：見出しキーが空でも、掲載終了系の別キー（表記ゆれ）から値を拾う
           if (isDate && !v) v = recruitVal(x, /掲載終了/);
           const cls = isDate ? deadlineClass(v) : "";
+          // 長い文は3行で折り返して、それ以上は「もっと見る」で開く（横に広がりすぎないように）
+          if (v && String(v).length > 36) return `<td class="kc-rc kc-rc-long${cls ? " " + cls : ""}"><div class="kc-clamp">${esc(v)}</div><button type="button" class="kc-more">もっと見る</button></td>`;
           return `<td class="kc-rc${cls ? " " + cls : ""}">${v ? esc(v) : '<span class="kc-none">—</span>'}</td>`;
         }).join("")}
       </tr>`;
@@ -2158,6 +2160,15 @@ function wireZoomSummary(m, id) {
   if (!memo.value.includes(MARK)) fetchOnce();
 }
 
+// 長い列の「もっと見る／閉じる」
+document.addEventListener("click", (e) => {
+  const b = e.target && e.target.closest ? e.target.closest(".kc-more") : null;
+  if (!b) return;
+  e.stopPropagation();
+  const td = b.closest(".kc-rc-long"); if (!td) return;
+  const open = td.classList.toggle("open");
+  b.textContent = open ? "閉じる" : "もっと見る";
+});
 // 表の1行だけを書き換える。
 // 一覧ぜんたいを読み直さないので、しぼり込みや見ている場所がそのまま残る。
 // 最終架電日を「M/D」で短く表示する（無ければ空）
