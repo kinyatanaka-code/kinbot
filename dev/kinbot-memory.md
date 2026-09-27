@@ -1074,3 +1074,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-27 BUILD_TAG=2026-09-27i ハブのナーチャリング：_hubNu.who/_hubNu.to を Set 化。hubMsel(id,title,opts,sel)/hubWireMsel(id,sel,onDone)（fixed ポップオーバー、全員/すべて外す/決定、外側クリックで決定）。担当は件数付きで多い順、移す先は出勤者が上＋出勤時間ラベル。「選んだ人へ移す」は round-robin で今の担当と同じ人を避け、複数/スキップ時は confirm。版20260927i。
 
 - 2026-09-28 BUILD_TAG=2026-09-28a ユーザー「移動させたらナーチャリングが減った」＝bumpLate で期限切れ→今日に付け替わっただけ（件数は消えていない）。bumpLateNextCall を GREATEST(now(), 今日9:00 JST) に変更（以前は now() で深夜時刻が入った）。hub の移動確認に期限切れの付け替え件数を明示。版20260928a。
+
+- 2026-09-28 BUILD_TAG=2026-09-28b かける表：履歴列を最終ステータスの前へ。履歴セル .kc-histc＝.kc-lastmemo（最終コメント 2行clamp, title全文）＋件数ボタン。db の架電先SELECT 7か所に 最終メモ（call_logs の直近の空でない memo）、index items 最終コメント(300字)。記録後 x.最終コメント/最終日時 を更新し updateRow で差し替え。SF側の活動コメントは未反映（kincall記録のみ）。版20260928b。

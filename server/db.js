@@ -4223,7 +4223,8 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs l WHERE l.target_id = t.id AND l.sf_task_id IS NULL) AS 未送信数,
               (SELECT l.result FROM call_logs l WHERE l.target_id = t.id ORDER BY l.at DESC LIMIT 1) AS 最終結果,
-              (SELECT l.at FROM call_logs l WHERE l.target_id = t.id ORDER BY l.at DESC LIMIT 1) AS 最終日時
+              (SELECT l.at FROM call_logs l WHERE l.target_id = t.id ORDER BY l.at DESC LIMIT 1) AS 最終日時,
+              (SELECT l.memo FROM call_logs l WHERE l.target_id = t.id AND coalesce(btrim(l.memo),'') <> '' ORDER BY l.at DESC LIMIT 1) AS 最終メモ
          FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id
         WHERE ${where}
         ORDER BY t.id DESC
@@ -4675,7 +4676,9 @@ export async function listCallTargets(listId, { q = "", limit = 500, assignedTo 
               (SELECT l.result FROM call_logs l WHERE l.target_id = t.id
                 ORDER BY l.at DESC LIMIT 1) AS 最終結果,
               (SELECT l.at FROM call_logs l WHERE l.target_id = t.id
-                ORDER BY l.at DESC LIMIT 1) AS 最終日時
+                ORDER BY l.at DESC LIMIT 1) AS 最終日時,
+              (SELECT l.memo FROM call_logs l WHERE l.target_id = t.id AND coalesce(btrim(l.memo),'') <> ''
+                ORDER BY l.at DESC LIMIT 1) AS 最終メモ
          FROM call_targets t
         WHERE ${where}
         ORDER BY t.done, t.sort_order, t.id
@@ -4697,6 +4700,7 @@ export async function searchAllLeadsGlobal({ q = "", limit = 2000 } = {}) {
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
               (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
               (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時,
+              (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) AS 最終メモ,
               l.owner AS リスト所有者, l.name AS リスト名
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE NOT l.closed AND NOT COALESCE(l.hidden, false)
@@ -4739,7 +4743,8 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
               (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
-              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時
+              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時,
+              (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) AS 最終メモ
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
         WHERE ${where}
@@ -8658,6 +8663,7 @@ export async function groupBreakdown(groupId, fromJst, toJst) {
       `SELECT cl.name AS list_name, t.company, t.person,
               (SELECT cl2.result FROM call_logs cl2 WHERE cl2.target_id = t.id ORDER BY cl2.at DESC LIMIT 1) AS 最終結果,
               (SELECT cl2.at FROM call_logs cl2 WHERE cl2.target_id = t.id ORDER BY cl2.at DESC LIMIT 1) AS 最終日時,
+              (SELECT cl2.memo FROM call_logs cl2 WHERE cl2.target_id = t.id AND coalesce(btrim(cl2.memo),'') <> '' ORDER BY cl2.at DESC LIMIT 1) AS 最終メモ,
               (SELECT count(*) FROM call_logs cl2 WHERE cl2.target_id = t.id)::int AS コール数
          FROM call_targets t
          JOIN call_lists cl ON cl.id = t.list_id
@@ -9249,7 +9255,8 @@ export async function searchAllLeads(q, { limit = 300 } = {}) {
               u.name AS owner_name,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
               (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
-              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時
+              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時,
+              (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) AS 最終メモ
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
          LEFT JOIN users u ON lower(u.email) = lower(coalesce(t.assigned_to, l.owner))
@@ -9357,7 +9364,8 @@ export async function listNurtureTargetsForMember(member, { q = "", limit = 2000
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
               (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
-              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時
+              (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時,
+              (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) AS 最終メモ
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
         WHERE ${where}

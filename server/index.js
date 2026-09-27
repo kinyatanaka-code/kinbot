@@ -10136,6 +10136,7 @@ app.get("/api/calls/targets", async (req, res) => {
         履歴数: (sfCount.get(id15(r.lead_id)) || 0) + Number(r["未送信数"] || 0),
         最終結果: r["最終結果"] || "",
         最終日時: r["最終日時"] || null,
+        最終コメント: String(r["最終メモ"] || "").slice(0, 300),
         次回予定: r.next_call_at || null,
         担当メール: String(r.assigned_to || r._list_owner || "").trim().toLowerCase(),
         済み: !!r.done,
@@ -21292,7 +21293,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28a ナーチャリングの期限切れを移したときの付け替え時刻を、移した瞬間ではなく今日の9:00（9時を過ぎていれば今）に。移す前の確認に「期限切れ◯件は今日に付け替える（期限切れの数から今日の数へ移る）」を表示。";
+const BUILD_TAG = "2026-09-28b かける一覧で「履歴」と「最終ステータス」の列を入れ替え。履歴セルに最終活動コメント（kincallで記録した直近の説明、2行まで・全文はマウスを乗せると表示）と履歴件数だけを表示。架電先の取得に 最終メモ を追加（items の 最終コメント）、記録直後もその場で更新。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
