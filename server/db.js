@@ -4095,7 +4095,7 @@ export async function listAllCallLists() {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT l.id, l.name, l.owner, l.group_id,
+      `SELECT l.id, l.name, l.owner, l.group_id, COALESCE(l.hidden, false) AS hidden,
               (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み,
@@ -4108,7 +4108,7 @@ export async function listAllCallLists() {
                  AND COALESCE(t.stage,'')  !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
                  AND COALESCE(t.status,'') !~ 'アポ獲得|使われて|現在使わ|現アナ|欠番|不通') AS ナーチャリング
          FROM call_lists l
-        WHERE NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        WHERE NOT COALESCE(l.closed, false)   -- 非表示のリストも返す（リスト管理で見えるように。かける画面は別の処理で除外）
         ORDER BY l.owner, l.name`);
     return rows;
   } catch (e) { console.error("[db] listAllCallLists", e.message); return []; }

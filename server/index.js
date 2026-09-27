@@ -7906,6 +7906,7 @@ app.get("/api/calls/lists-all", async (req, res) => {
       id: r.id, name: r.name, owner: r.owner || "", group_id: r.group_id || null, group_name: r.group_name || "",
       全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0), 残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
       残ステータス: Number(r["残ステータス"] || 0), ナーチャリング: Number(r["ナーチャリング"] || 0),
+      hidden: !!r.hidden,
     })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -21144,7 +21145,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-27a かける画面の「探す」と「操作」を一番上のバー（kincall・今日の実績・使い方の並び）へ移動。かける画面を開いているときだけ表示（他の画面では隠す）。";
+const BUILD_TAG = "2026-09-27b リスト管理で非表示にしたリストも見えるように。メンバー／グループの詳細に、表示中のリストのあとへ薄い「非表示中」カードで並べ、⋯メニューから「表示に戻す」。件数（残など）は表示中のリストだけで数える。かける画面には従来どおり出さない。lists-all に hidden を追加。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

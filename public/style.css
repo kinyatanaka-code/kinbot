@@ -6699,3 +6699,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 @media (max-width: 760px) { .kc-top-find input { width: 150px; } .kc-top-find { margin-left: 8px; } }
 
 .topbar:has(.kc-top-ops) { z-index: 50; }   /* 操作メニューが下の表の上に出るように */
+
+/* リスト管理：非表示のリスト */
+.nm-lcard.hid { opacity: .55; background: #f5f7f6; border-style: dashed; position: relative; }
+.nm-lcard.hid:hover { opacity: .85; }
+.nm-hid-badge { position: absolute; top: -8px; left: 10px; font-size: 10.5px; font-weight: 700; color: #6b857b; background: #e9efec; border: 1px solid #d5dfda; border-radius: 6px; padding: 1px 7px; }

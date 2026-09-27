@@ -4594,7 +4594,8 @@ async function saveMemberView() {
 const NM_EX = ["goldfly32@gmail.com"];   // ここでも goldfly は出さない
 let _nmInit = false;
 let _nmMode = "owner";              // owner=メンバー別／group=グループ別
-let _nmLists = [];                  // lists-all（goldfly除外）
+let _nmLists = [];                  // lists-all（goldfly除外・表示中のみ）
+let _nmHiddenLists = [];            // 非表示にしたリスト
 let _nmMembers = [];               // 全メンバー（役割つき）
 let _nmMemByEmail = new Map();      // email -> member
 let _nmSel = null;                  // ドリルダウン中：{type:"owner"|"group", key, name}
@@ -4634,7 +4635,9 @@ async function nmFetch() {
   ]);
   if (sg && !sg.error) _nmStage = { archive: Number(sg.archive || 0), recycle: Number(sg.recycle || 0), crosslost: Number(sg.crosslost || 0) };
   if (clm && clm.byMember) _nmCrosslost = clm.byMember || {};
-  _nmLists = (d.items || []).filter((x) => !NM_EX.includes(String(x.owner || "").toLowerCase()));
+  const _all = (d.items || []).filter((x) => !NM_EX.includes(String(x.owner || "").toLowerCase()));
+  _nmLists = _all.filter((x) => !x.hidden);          // 件数・カードは表示中のリストだけで数える
+  _nmHiddenLists = _all.filter((x) => x.hidden);     // 非表示のリスト（詳細画面では薄く出して、表示に戻せる）
   if (mm && Array.isArray(mm.members)) { _nmMembers = mm.members.filter((m) => m.active !== false); _nmMemByEmail = new Map(_nmMembers.map((m) => [String(m.email || "").toLowerCase(), m])); }
 }
 async function nmLoad() {
@@ -4847,13 +4850,17 @@ function nmGoEditVirtual(virtId, title, member) {
 function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
   if (_nmSel.type === "special") return nmRenderSpecial(body);
-  let ls;
-  if (_nmSel.type === "owner") {
-    if (_nmSel.key === "__other__") ls = _nmLists.filter((x) => !String(x.owner || "").trim() && !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
-    else ls = _nmLists.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
-  }
-  else ls = _nmLists.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
-  ls = ls.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"));
+  const pick = (arr) => {
+    if (_nmSel.type === "owner") {
+      if (_nmSel.key === "__other__") return arr.filter((x) => !String(x.owner || "").trim() && !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
+      return arr.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
+    }
+    return arr.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
+  };
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), "ja");
+  const visN = pick(_nmLists).length;
+  // 表示中のリストのあとに、非表示のリストを薄く並べる（「表示に戻す」ができる）
+  let ls = [...pick(_nmLists).sort(byName), ...pick(_nmHiddenLists || []).sort(byName)];
   // 選択は、いま表示中のリストにあるものだけに絞る（非表示/割り振りで消えた分を落とす）
   const idset = new Set(ls.map((x) => String(x.id)));
   _nmChosen = new Set([..._nmChosen].filter((id) => idset.has(String(id))));
@@ -4863,23 +4870,25 @@ function nmRenderDetail() {
     const sub = _nmSel.type === "owner" ? (x.group_name ? ("グループ：" + x.group_name) : "") : ("担当：" + nmMemberName(x.owner));
     const opts = movable.filter((m) => String(m.email || "").toLowerCase() !== String(x.owner || "").toLowerCase()).map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)} へ移す</option>`).join("");
     const on = _nmChosen.has(String(x.id));
-    return `<div class="nm-lcard${on ? " sel" : ""}" data-id="${x.id}">
+    const hid = !!x.hidden;
+    return `<div class="nm-lcard${on ? " sel" : ""}${hid ? " hid" : ""}" data-id="${x.id}">${hid ? '<span class="nm-hid-badge">非表示中</span>' : ""}
       <label class="nm-check"><input type="checkbox" class="nm-selchk" data-id="${x.id}"${on ? " checked" : ""}></label>
       <div class="nm-lcard-name"><span class="nm-lname-t" title="${esc(x.name)}">${esc(x.name)}</span><button type="button" class="nm-rename" data-id="${x.id}" data-name="${esc(x.name)}" title="名前を変える">✎</button></div>
       <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${_nmSel.type !== "owner" && sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
       <div class="nm-lcard-grp"><select class="nm-group" data-id="${x.id}" title="このリストのグループ">${nmGroupOpts(x.group_id)}</select></div>
-      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button><button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button><button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
+      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button>${hid ? `<button type="button" class="nm-mi nm-unhide" data-id="${x.id}" data-name="${esc(x.name)}">表示に戻す</button>` : `<button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button>`}<button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
     </div>`;
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
-  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${ls.length} リスト</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
+  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${visN} リスト${ls.length > visN ? `（非表示 ${ls.length - visN}）` : ""}</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
     `<div class="nm-lgrid">${rows || '<div class="empty-state">リストがありません</div>'}</div><span class="rev-status" id="nmOpSt"></span>` +
     `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
+  body.querySelectorAll(".nm-unhide").forEach((b) => b.addEventListener("click", () => nmUnhide(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-redist").forEach((b) => b.addEventListener("click", () => openRedistribute(b.dataset.id, b.dataset.name, null, null, nmLoad)));
   body.querySelectorAll(".nm-del").forEach((b) => b.addEventListener("click", () => nmDelete(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-rename").forEach((b) => b.addEventListener("click", () => nmRename(b.dataset.id, b.dataset.name)));
@@ -5043,6 +5052,14 @@ async function nmDelete(listId, name) {
     await nmFetch(); nmRenderRoot();
     const s = $("nmOpSt"); if (s) s.textContent = d.他人のぶんは残した ? `自分のぶん ${d.外した || 0} 件を外しました（他の人のぶんは残しました）` : "削除しました";
   } catch (e) { const s = $("nmOpSt"); if (s) s.textContent = "削除できませんでした（" + (e.message || "権限がないか通信に失敗") + "）"; }
+}
+async function nmUnhide(listId, name) {
+  const st = $("nmOpSt"); if (st) st.textContent = "表示に戻しています…";
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/hidden`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ hidden: false }) });
+    if (!r.ok) throw new Error();
+    await nmFetch(); nmRenderRoot(); const s2 = $("nmOpSt"); if (s2) s2.textContent = `「${name}」を表示に戻しました（かける画面にも出ます）`;
+  } catch { const s2 = $("nmOpSt"); if (s2) s2.textContent = "できませんでした（権限がないか、通信に失敗しました）"; }
 }
 async function nmHide(listId, name) {
   if (!confirm(`「${name}」を非表示にします。よろしいですか？\n（もとのSalesforceのリードは残ります）`)) return;
@@ -5472,10 +5489,10 @@ async function orgLoadLists() {
     const items = d.items || [];
     _edLists = {}; for (const x of items) _edLists[x.id] = { name: x.name, owner: x.owner, group_name: x.group_name, group_id: x.group_id || null };
     _edByOwner = new Map();
-    for (const x of items) { const k = x.owner || "?"; if (EX_OWNERS.includes(String(k).toLowerCase())) continue; if (!_edByOwner.has(k)) _edByOwner.set(k, []); _edByOwner.get(k).push(x); }
+    for (const x of items) { if (x.hidden) continue; const k = x.owner || "?"; if (EX_OWNERS.includes(String(k).toLowerCase())) continue; if (!_edByOwner.has(k)) _edByOwner.set(k, []); _edByOwner.get(k).push(x); }
     // グループ別（メンバーは所有者、グループはリストのグループで束ねる。goldflyは両方で除外）
     _edByGroup = new Map();
-    for (const x of items) { if (EX_OWNERS.includes(String(x.owner || "").toLowerCase())) continue; const k = (x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__"; if (!_edByGroup.has(k)) _edByGroup.set(k, []); _edByGroup.get(k).push(x); }
+    for (const x of items) { if (x.hidden || EX_OWNERS.includes(String(x.owner || "").toLowerCase())) continue; const k = (x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__"; if (!_edByGroup.has(k)) _edByGroup.set(k, []); _edByGroup.get(k).push(x); }
     if (!_edActive && _edByOwner.size) _edActive = [..._edByOwner.keys()][0];
     if (!_edActiveGroup && _edByGroup.size) _edActiveGroup = [..._edByGroup.keys()][0];
     edRenderMembers(); edRenderLists(); edRenderChosen();
