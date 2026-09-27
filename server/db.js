@@ -4308,6 +4308,57 @@ export async function moveToWeeklyRevival({ email, name, ids, createdBy }) {
     return r.rowCount;
   } catch (e) { console.error("[db] moveToWeeklyRevival", e.message); return 0; }
 }
+// 配ったリサイクル復活（kind=recycle_revival のリスト）の中身を、リサイクルに戻す。
+//   元のリストが分かる（origin_list_id が有効なリスト）→ 元のリストへ。
+//   分からない → 復活リストと同じグループの「リサイクル（戻し）」リスト（担当なし）へ。グループも無ければ「リサイクル（戻し）」。
+//   担当は外す。ステージは変えない。空になった復活リストは非表示にする。
+export async function revertRevivalToRecycle({ dryRun = true, createdBy = null } = {}) {
+  if (!pool) return null;
+  const { rows } = await pool.query(
+    `SELECT t.id, t.assigned_to, t.origin_list_id, t.list_id, l.name AS rev_name, l.owner AS rev_owner, l.group_id,
+            (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
+            (SELECT 1 FROM call_lists o WHERE o.id = t.origin_list_id AND NOT COALESCE(o.closed,false) AND COALESCE(o.kind,'') <> 'recycle_revival') AS origin_ok
+       FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+      WHERE l.kind = 'recycle_revival' AND NOT COALESCE(l.closed,false)`);
+  const byOwner = {}, lists = new Set();
+  let toOrigin = 0, toHolding = 0;
+  for (const r of rows) {
+    const k = String(r.rev_owner || "").toLowerCase(); byOwner[k] = (byOwner[k] || 0) + 1;
+    lists.add(r.list_id);
+    if (r.origin_ok) toOrigin++; else toHolding++;
+  }
+  if (dryRun) return { dryRun: true, total: rows.length, toOrigin, toHolding, lists: lists.size, byOwner };
+  let moved = 0;
+  // 元のリストへ
+  const back = rows.filter((r) => r.origin_ok).map((r) => r.id);
+  if (back.length) {
+    const u = await pool.query(`UPDATE call_targets SET list_id = origin_list_id, assigned_to = NULL WHERE id = ANY($1::int[])`, [back]);
+    moved += u.rowCount;
+  }
+  // グループごとの「リサイクル（戻し）」へ
+  const byG = new Map();
+  for (const r of rows.filter((x) => !x.origin_ok)) { const g = r.group_id || 0; if (!byG.has(g)) byG.set(g, { name: r.group_name || "", ids: [] }); byG.get(g).ids.push(r.id); }
+  for (const [gid, v] of byG) {
+    const nm = gid ? `リサイクル（戻し）- ${v.name || "グループ"}` : "リサイクル（戻し）";
+    let q = gid
+      ? await pool.query(`SELECT id FROM call_lists WHERE name=$1 AND group_id=$2 AND COALESCE(owner,'')='' AND NOT COALESCE(closed,false) LIMIT 1`, [nm, gid])
+      : await pool.query(`SELECT id FROM call_lists WHERE name=$1 AND group_id IS NULL AND COALESCE(owner,'')='' AND NOT COALESCE(closed,false) LIMIT 1`, [nm]);
+    let lid = q.rows[0] && q.rows[0].id;
+    if (!lid) {
+      const ins = await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ($1, NULL, $2, $3, $4) RETURNING id`,
+        [nm.slice(0, 120), "配ったリサイクル復活を戻した先", createdBy, gid || null]);
+      lid = ins.rows[0].id;
+    }
+    const u = await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = NULL WHERE id = ANY($1::int[])`, [v.ids, lid]);
+    moved += u.rowCount;
+  }
+  // 空になった復活リストは非表示に
+  const hid = await pool.query(
+    `UPDATE call_lists l SET hidden = true WHERE l.kind = 'recycle_revival' AND NOT COALESCE(l.hidden,false)
+        AND NOT EXISTS (SELECT 1 FROM call_targets t WHERE t.list_id = l.id)`);
+  return { dryRun: false, total: rows.length, moved, toOrigin, toHolding, hiddenLists: hid.rowCount, byOwner };
+}
+
 // 架電記録（対象の架電先ぶん）
 export async function callLogsForTargets(ids) {
   if (!pool || !ids || !ids.length) return [];

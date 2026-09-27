@@ -1082,3 +1082,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28d かけるピッカーの特別項目：crosslost-now/archive/recycle は kinya.tanaka@neo-career.co.jp のみ（kcIsTanaka()＝/api/me を1回だけ取る promise）。他は nurture のみ。保存済み選択の復元は実在 option だけ。サーバ側の list=archive 等は制限していない。版20260928d。
 
 - 2026-09-28 BUILD_TAG=2026-09-28e かけるピル：option 順を all→nurture→各リスト→(田中のみ crosslost-now/archive/recycle)。ピルは draggable、clWirePillDrag で HTML5 DnD（左右半分で insertBefore）、dragend で localStorage kcPillOrder に value 配列を保存、renderClPills は clSortOptions で保存順→未保存は元順で後ろ。select 自体の順は変えない。版20260928e。
+
+- 2026-09-28 BUILD_TAG=2026-09-28f 配ったリサイクル復活の一括戻し。db revertRevivalToRecycle({dryRun,createdBy})：kind=recycle_revival の全ターゲット→origin_list_id が有効なら元へ、無ければ復活リストの group ごとに owner NULL の「リサイクル（戻し）- グループ名」（group 無しは「リサイクル（戻し）」）を作成/再利用して移動、assigned_to=NULL、stage は変えない、空の復活リストは hidden=true。旧来の distributeRecycleToRevival/記録時の補充は moveCallTargets で origin を残していなかったため、それらは戻しリスト行き。POST /api/calls/hub/recycle/revert {dryRun}、ハブのリサイクルタブにボタン（dryRun→担当別件数 confirm→実行）。版20260928f。

@@ -255,6 +255,7 @@ import {
   moveToWeeklyRevival,
   callLogsForTargets,
   bumpLateNextCall,
+  revertRevivalToRecycle,
   findOrCreateNamedList,
   moveTargetsKeepAssignee,
   assignTargetsTo,
@@ -9636,6 +9637,17 @@ app.post("/api/calls/hub/recycle/make", async (req, res) => {
     hubClear(); _clSummaryCache = null;
     console.log(`[kincall] 今週の復活：${moved}件を割り振り（前回担当のため除外${skipped}）by ${req.user}`);
     res.json({ ok: true, moved, skipped, name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 配ったリサイクル復活を、全部リサイクルに戻す（dryRun=true で件数だけ）
+app.post("/api/calls/hub/recycle/revert", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const r = await revertRevivalToRecycle({ dryRun: req.body?.dryRun !== false, createdBy: req.user });
+    if (r && !r.dryRun) { hubClear(); _clSummaryCache = null; console.log(`[kincall] 配ったリサイクル復活を戻す：${r.moved}件（元リスト${r.toOrigin}・戻しリスト${r.toHolding}、非表示${r.hiddenLists}）by ${req.user}`); }
+    const names = {};
+    for (const e of Object.keys((r && r.byOwner) || {})) { try { names[e] = (await listUsers()).find((u) => String(u.email || "").toLowerCase() === e)?.name || e; } catch { names[e] = e; } }
+    res.json({ ok: true, ...r, names });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/calls/hub/nurture", async (req, res) => {
@@ -21293,7 +21305,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28e かける画面のリスト：「ナーチャリング（まとめ）」を「全てのリード」の隣に。リストのピルはドラッグ＆ドロップで並び替えでき、この端末に保存（新しく増えたリストは後ろに付く）。";
+const BUILD_TAG = "2026-09-28f リスト管理＞リサイクルに「配った復活を全部リサイクルに戻す」。復活リスト（kind=recycle_revival）の中身を、元のリストが分かれば元へ、分からなければグループごとの「リサイクル（戻し）」リスト（担当なし）へ移し、担当を外す（ステージは変えない）。空になった復活リストは非表示。先に担当者別の件数を確認。POST /api/calls/hub/recycle/revert。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

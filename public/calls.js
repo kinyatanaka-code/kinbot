@@ -4856,7 +4856,7 @@ function hubRcDraw() {
     <div class="hub-tl">${WK.map((l, i) => { const b = _hubRc.buckets[i] || { n: 0, A: 0, B: 0, C: 0 }; return `<button type="button" class="hub-tlc${i === _hubRc.week ? " on" : ""}" data-w="${i}"><div class="l">${l}</div><div class="n">${b.n.toLocaleString()}</div><div class="r"><span class="ra">A ${b.A}</span><span class="rb">B ${b.B}</span><span class="rc">C ${b.C}</span></div></button>`; }).join("")}</div>
     <div class="hub-bar"><label><input type="checkbox" id="hubRcAll"> すべて選ぶ</label><span>選択 <b id="hubRcN">0</b> 件</span>
       <select id="hubRcTemp"><option value="">温度：すべて</option>${["A", "B", "C"].map((t) => `<option${_hubRc.temp === t ? " selected" : ""}>${t}</option>`).join("")}</select>
-      <span style="flex:1"></span><button type="button" class="btn" id="hubRcMake" disabled>選んだ分で「復活リスト」を作る</button></div>
+      <span style="flex:1"></span><button type="button" class="btn ghost" id="hubRcRevert">配った復活を全部リサイクルに戻す</button><button type="button" class="btn" id="hubRcMake" disabled>選んだ分で「復活リスト」を作る</button></div>
     <div class="hub-scroll"><table class="hub-tbl"><tr><th></th><th>温度</th><th>会社名</th><th>断り理由</th><th>リサイクルに入った</th><th>復活目安</th><th>前回の担当</th><th>元のリスト</th><th>次回の担当（ルール）</th><th>時間帯</th></tr>
       ${xs.slice(0, 1500).map((x) => `<tr><td><input type="checkbox" class="hub-rcck" data-id="${x.id}"></td><td><span class="hub-pill ${tcls[x.temp] || ""}">${esc(x.temp)}</span></td><td><b>${esc(x.company)}</b></td><td>${esc(x.tag || "—")}</td><td>${hubMd(x.since)}</td><td>${hubMd(x.due)}</td><td>${esc(hubNm(x.prev))}</td><td class="dim2">${esc(x.list || "—")}</td><td>${esc(x.next || "—")}</td><td>${esc(x.slot || "")}</td></tr>`).join("") || '<tr><td colspan="10" class="dim" style="padding:18px">この週の候補はありません</td></tr>'}</table></div>
     <div id="hubRcAssign"></div></div>`;
@@ -4866,6 +4866,25 @@ function hubRcDraw() {
   pane.querySelectorAll(".hub-rcck").forEach((c) => c.addEventListener("change", () => { c.checked ? _hubRc.pick.add(+c.dataset.id) : _hubRc.pick.delete(+c.dataset.id); sync(); }));
   $("hubRcAll").addEventListener("change", (e) => { pane.querySelectorAll(".hub-rcck").forEach((c) => { c.checked = e.target.checked; c.checked ? _hubRc.pick.add(+c.dataset.id) : _hubRc.pick.delete(+c.dataset.id); }); sync(); });
   $("hubRcMake").addEventListener("click", hubRcAssignPanel);
+  $("hubRcRevert").addEventListener("click", hubRcRevert);
+}
+// 配ったリサイクル復活を、全部リサイクルに戻す（件数を確認してから）
+async function hubRcRevert() {
+  const call = async (dryRun) => {
+    const r = await fetch("/api/calls/hub/recycle/revert", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun }) });
+    const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "うまくいきませんでした"); return d;
+  };
+  try {
+    const p = await call(true);
+    if (!p.total) { alert("配っているリサイクル復活はありません。"); return; }
+    const lines = Object.entries(p.byOwner || {}).sort((a, b) => b[1] - a[1]).map(([e, n]) => `・${(p.names && p.names[e]) || e}：${n}件`).join("\n");
+    if (!confirm(`配っているリサイクル復活 ${p.total}件（${p.lists}リスト）を、全部リサイクルに戻します。\n\n${lines}\n\n・元のリストが分かる ${p.toOrigin}件 → 元のリストへ\n・分からない ${p.toHolding}件 → グループごとの「リサイクル（戻し）」リストへ\n担当は外します（ステージは変えません）。空になった復活リストは非表示にします。\n\n戻しますか？`)) return;
+    const d = await call(false);
+    await nmFetch().catch(() => {});
+    hubLoadSummary();
+    await hubRenderRecycle(_hubRc.week);
+    const pane = $("hubPane"); if (pane) pane.insertAdjacentHTML("afterbegin", `<div class="hub-done">${hubIco("check")}${d.moved}件をリサイクルに戻しました（元のリストへ ${d.toOrigin}件・「リサイクル（戻し）」へ ${d.toHolding}件、復活リスト ${d.hiddenLists}件を非表示）</div>`);
+  } catch (e) { alert("失敗：" + (e.message || "")); }
 }
 function hubRcAssignPanel() {
   const box = $("hubRcAssign"); if (!box) return;
