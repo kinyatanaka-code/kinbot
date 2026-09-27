@@ -1080,3 +1080,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28c かける列順：メール→最終架電日→最終ステータス→履歴(コメント+件数)→記録→資料送付。.kc-histc 幅180px(150〜190)、.kc-lastmemo 折り返し＋2行 line-clamp。版20260928c。
 
 - 2026-09-28 BUILD_TAG=2026-09-28d かけるピッカーの特別項目：crosslost-now/archive/recycle は kinya.tanaka@neo-career.co.jp のみ（kcIsTanaka()＝/api/me を1回だけ取る promise）。他は nurture のみ。保存済み選択の復元は実在 option だけ。サーバ側の list=archive 等は制限していない。版20260928d。
+
+- 2026-09-28 BUILD_TAG=2026-09-28e かけるピル：option 順を all→nurture→各リスト→(田中のみ crosslost-now/archive/recycle)。ピルは draggable、clWirePillDrag で HTML5 DnD（左右半分で insertBefore）、dragend で localStorage kcPillOrder に value 配列を保存、renderClPills は clSortOptions で保存順→未保存は元順で後ろ。select 自体の順は変えない。版20260928e。

@@ -57,17 +57,46 @@ function when(v) {
 
 // リスト選択のピル（隠しselectの鏡写し。クリックでselectを切り替える）
 let _clCounts = {};   // value(リストid / "all") -> 残り件数
+// リストのピルの並び順（この端末に保存。ドラッグで入れ替え）
+function clPillOrder() { try { const a = JSON.parse(localStorage.getItem("kcPillOrder") || "[]"); return Array.isArray(a) ? a.map(String) : []; } catch { return []; } }
+function clSortOptions(opts) {
+  const order = clPillOrder();
+  if (!order.length) return opts;
+  const pos = new Map(order.map((v, i) => [v, i]));
+  // 保存した順を優先。新しいリストは元の並びのまま後ろへ
+  return opts.map((o, i) => ({ o, i })).sort((a, b) => {
+    const pa = pos.has(a.o.value) ? pos.get(a.o.value) : 1e6 + a.i, pb = pos.has(b.o.value) ? pos.get(b.o.value) : 1e6 + b.i;
+    return pa - pb;
+  }).map((x) => x.o);
+}
 function renderClPills() {
   const sel = $("clList"), box = $("clPills"); if (!sel || !box) return;
   const cur = String(sel.value || "");
   const short = (v, t) => v === "all" ? "☆ 全てのリード" : String(t);
-  box.innerHTML = [...sel.options].map((o) => {
+  box.innerHTML = clSortOptions([...sel.options]).map((o) => {
     const on = o.value === cur;
     const star = o.value === "all";
     const n = _clCounts[o.value];
     const cnt = (n != null) ? `<span class="cl-pcnt">${Number(n).toLocaleString()}</span>` : "";
-    return `<button type="button" class="cl-pill${on ? " active" : ""}${star ? " star" : ""}" data-v="${esc(o.value)}"><span class="cl-pdot"></span>${esc(short(o.value, o.textContent))}${cnt}</button>`;
+    return `<button type="button" class="cl-pill${on ? " active" : ""}${star ? " star" : ""}" draggable="true" data-v="${esc(o.value)}" title="ドラッグで並び順を変えられます"><span class="cl-pdot"></span>${esc(short(o.value, o.textContent))}${cnt}</button>`;
   }).join("");
+  clWirePillDrag(box);
+}
+function clWirePillDrag(box) {
+  if (box._dragWired) return; box._dragWired = true;
+  let dragEl = null, moved = false;
+  box.addEventListener("dragstart", (e) => { dragEl = e.target.closest(".cl-pill"); moved = false; if (dragEl) { dragEl.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragEl.dataset.v); } catch {} } });
+  box.addEventListener("dragover", (e) => {
+    if (!dragEl) return; e.preventDefault();
+    const over = e.target.closest(".cl-pill"); if (!over || over === dragEl) return;
+    const r = over.getBoundingClientRect();
+    box.insertBefore(dragEl, (e.clientX - r.left) > r.width / 2 ? over.nextSibling : over); moved = true;
+  });
+  box.addEventListener("dragend", () => {
+    if (dragEl) dragEl.classList.remove("dragging");
+    if (moved) { try { localStorage.setItem("kcPillOrder", JSON.stringify([...box.querySelectorAll(".cl-pill")].map((b) => b.dataset.v))); } catch {} }
+    dragEl = null;
+  });
 }
 // ───────── リストを選ぶ ─────────
 async function loadLists() {
@@ -79,9 +108,9 @@ async function loadLists() {
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
     // 過去リスト・アーカイブ・リサイクルのまとめは田中欽也だけに出す（ほかの人はナーチャリングのまとめだけ）
     const tanaka = await kcIsTanaka();
-    const specialOpt = (tanaka ? `<option value="crosslost-now">過去リスト（今月かける）</option>` : "") + `<option value="nurture">ナーチャリング（まとめ）</option>` +
-      (tanaka ? `<option value="archive">アーカイブ（まとめ）</option><option value="recycle">リサイクル（まとめ）</option>` : "");
-    sel.innerHTML = allOpt + (items.length
+    const nurOpt = `<option value="nurture">ナーチャリング（まとめ）</option>`;   // 全てのリードの隣
+    const specialOpt = tanaka ? `<option value="crosslost-now">過去リスト（今月かける）</option><option value="archive">アーカイブ（まとめ）</option><option value="recycle">リサイクル（まとめ）</option>` : "";
+    sel.innerHTML = allOpt + nurOpt + (items.length
       ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !n.startsWith("【ナーチャリング】") && !x.hidden; })
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
