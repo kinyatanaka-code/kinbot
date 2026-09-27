@@ -1102,3 +1102,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28n トークスクリプトをメンバーごとに。db talk_scripts(owner,group_id NULL=基本,text) ＋ unique(lower(owner),COALESCE(group_id,0))、listTalkScripts/saveTalkScript（空文字は削除）。GET/PUT /api/calls/talk/mine、GET /api/calls/talk-script は 自分のグループ用→自分の基本→settings.talkScripts.groups→default の順（source: mine-group/mine/group/default）。calls.html サイド「トーク」(?p=talk)＋section data-p=talk（#tkList/#tkText/#tkPrev/#tkSave/#tkTemplate/#tkDelete）。calls.js talkRender/kcMyShortName/kcLoadTalk（表示のみ・編集リンク）/loadTalkPane/tkSelect/tkSave、showPane に talk。版20260928n。
 
 - 2026-09-28 BUILD_TAG=2026-09-28o トーク：他メンバーの台本閲覧。db listTalkScriptOwners()（空でない台本を持つ人・件数・名前）。GET /api/calls/talk/of?email=、/talk/mine に me/owners。calls.html #tkWho セレクト、#tkActsOther（#tkCopy）。calls.js _tk.mine/_tk.who、tkSwitchWho（readOnly・ボタン切替）、tkCopyToMine（同じ枠へ PUT）。版20260928o。
+
+- 2026-09-28 BUILD_TAG=2026-09-28p kcLoadTalk に view()/edit()：左パネルで textarea 編集→PUT /api/calls/talk/mine（groupId＝グループ用 or null＝基本）。表示中が mine-group なら既定はグループ用、他は基本。トークページと同じデータ。版20260928p。

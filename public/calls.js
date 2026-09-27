@@ -2254,12 +2254,40 @@ async function kcLoadTalk(box, x) {
   let d = null, me = "";
   try { [d, me] = await Promise.all([fetch(`/api/calls/talk-script?listId=${encodeURIComponent(lid || "")}`, { cache: "no-store" }).then((r) => r.json()), kcMyShortName()]); } catch {}
   if (!d || !d.ok) { box.innerHTML = '<div class="note">トークスクリプトを読み込めませんでした</div>'; return; }
-  const src = { "mine-group": `自分の台本（${esc(d.groupName || "")}用）`, mine: "自分の基本の台本", group: `共有の台本（${esc(d.groupName || "")}）`, default: "共有の台本" }[d.source] || "";
   const person = (x && x["担当者"] && x["担当者"] !== "担当者") ? x["担当者"] : "";
-  box.innerHTML = `<div class="kc-talk-top"><div class="kc-slot-h" style="margin:0">トーク</div><a class="kc-talk-edit" href="/kincall?p=talk" target="_blank" rel="noopener">編集</a></div>` +
-    (src ? `<div class="kc-talk-src">${src}</div>` : "") +
-    (d.script ? `<div class="kc-talk-body">${talkRender(d.script, { company: x && x["会社名"], person, me })}</div>`
-      : `<div class="note">まだ台本がありません。左のメニューの「トーク」から、自分の台本を登録してください。</div>`);
+  const view = () => {
+    const src = { "mine-group": `自分の台本（${esc(d.groupName || "")}用）`, mine: "自分の基本の台本", group: `共有の台本（${esc(d.groupName || "")}）`, default: "共有の台本" }[d.source] || "";
+    box.innerHTML = `<div class="kc-talk-top"><div class="kc-slot-h" style="margin:0">トーク</div><button type="button" class="kc-talk-edit" id="kcTalkEdit">編集</button></div>` +
+      (src ? `<div class="kc-talk-src">${src}</div>` : "") +
+      (d.script ? `<div class="kc-talk-body">${talkRender(d.script, { company: x && x["会社名"], person, me })}</div>`
+        : `<div class="note">まだ台本がありません。「編集」から自分の台本を登録できます。</div>`);
+    box.querySelector("#kcTalkEdit").addEventListener("click", edit);
+  };
+  // その場で編集 → 自分の台本（トークページと同じもの）に保存
+  const edit = () => {
+    const slotGroup = d.source === "mine-group";   // いま出ているのが自分のグループ用なら、そこを直す
+    box.innerHTML = `<div class="kc-talk-top"><div class="kc-slot-h" style="margin:0">トークを編集</div></div>
+      <div class="note" style="margin:0 0 6px">保存すると、トークページの自分の台本も同じ内容になります。{会社名} {担当者} {自分} は自動で差し込み。</div>
+      <textarea class="kc-talk-ta" id="kcTalkTa">${esc(d.script || TALK_TEMPLATE)}</textarea>
+      <div class="kc-talk-acts">
+        ${d.groupId ? `<button type="button" class="btn${slotGroup ? "" : " ghost"}" data-save="group">「${esc(d.groupName || "")}」用として保存</button>` : ""}
+        <button type="button" class="btn${slotGroup ? " ghost" : ""}" data-save="base">基本の台本として保存</button>
+        <button type="button" class="btn ghost" data-save="cancel">やめる</button>
+      </div><span class="rev-status" id="kcTalkSt"></span>`;
+    box.querySelectorAll("[data-save]").forEach((b) => b.addEventListener("click", async () => {
+      if (b.dataset.save === "cancel") { view(); return; }
+      const text = box.querySelector("#kcTalkTa").value;
+      const st = box.querySelector("#kcTalkSt"); st.textContent = "保存しています…";
+      try {
+        const toGroup = b.dataset.save === "group";
+        const r = await fetch("/api/calls/talk/mine", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: toGroup ? d.groupId : null, text }) });
+        const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "保存できませんでした");
+        d.script = text; d.source = toGroup ? "mine-group" : "mine";
+        view();
+      } catch (e) { st.textContent = "失敗：" + (e.message || ""); }
+    }));
+  };
+  view();
 }
 // 「トーク」メニュー：自分の台本（基本＋グループ別）を編集
 let _tk = { scripts: [], mine: [], groups: [], owners: [], who: "", myEmail: "", sel: null, me: "" };
