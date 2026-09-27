@@ -6791,3 +6791,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hub-shift .hub-ico { color: #1d9e75; margin-right: 0; }
 .hub-shift-m { background: #fff; border: 1px solid #dcefe5; border-radius: 8px; padding: 2px 8px; }
 .hub-tbl .dim2 { color: #6b857b; font-size: 12px; }
+
+/* ハブ：複数選べるプルダウン */
+.hub-msel { position: relative; }
+.hub-msel-btn { padding: 7px 11px; border: 1px solid #cfe6da; border-radius: 10px; background: #fff; font: inherit; font-size: 13px; color: #33544a; cursor: pointer; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.hub-msel-btn.on { border-color: #1d9e75; background: #eef8f3; color: #0d5b47; font-weight: 700; }
+.hub-msel-pop { position: fixed; z-index: 9600; width: 290px; max-height: 360px; overflow-y: auto; background: #fff; border: 1px solid #cfe0d8; border-radius: 12px; box-shadow: 0 14px 34px rgba(15,40,34,.2); padding: 6px; }
+.hub-msel-acts { display: flex; gap: 6px; justify-content: flex-end; padding: 2px 4px 6px; border-bottom: 1px solid #eef3f0; margin-bottom: 4px; position: sticky; top: -6px; background: #fff; }
+.hub-msel-acts button { border: 0; background: none; color: #1d9e75; font-size: 12px; cursor: pointer; padding: 3px 6px; }
+.hub-msel-acts button.ok { background: #1d9e75; color: #fff; border-radius: 8px; font-weight: 700; }
+.hub-msel-it { display: flex; align-items: center; gap: 7px; padding: 6px; font-size: 12.5px; border-radius: 7px; cursor: pointer; font-weight: 400; }
+.hub-msel-it:hover { background: #f3faf6; }
