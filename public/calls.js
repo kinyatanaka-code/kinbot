@@ -144,12 +144,13 @@ async function loadTable() {
 // 絞り込みと並べ替えの状態
 let canFindAll = false;              // 全メンバーのリストを横断して探せる人（管理者）
 let _isTanaka = false;               // 田中欽也（全てのリードで全メンバー横断・kcAllHitは重複するので出さない）
-const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {} };
+const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {}, range: {} };   // range: 日付の列の範囲 {列名: {from, to, empty}}
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
   if (Array.isArray(_f.status)) filt.status = new Set(_f.status);
   if (typeof _f.hist === "string") filt.hist = _f.hist;
   if (_f.extra && typeof _f.extra === "object") { filt.extra = {}; for (const k in _f.extra) if (Array.isArray(_f.extra[k]) && _f.extra[k].length) filt.extra[k] = new Set(_f.extra[k]); }
+  if (_f.range && typeof _f.range === "object") filt.range = _f.range;
 } catch {}
 let hideApo = false;   // アポ獲得済みを隠しているか
 let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
@@ -164,6 +165,14 @@ function visibleRows() {
   for (const k in (filt.extra || {})) {
     const set = filt.extra[k];
     if (set && set.size) list = list.filter((x) => set.has(cleanRecruitVal((rowExtra(x) || {})[k])));
+  }
+  for (const k in (filt.range || {})) {
+    const r = filt.range[k]; if (!r) continue;
+    list = list.filter((x) => {
+      const d = normDateLoose(cleanRecruitVal((rowExtra(x) || {})[k]));
+      if (!d) return !!r.empty;
+      return (!r.from || d >= r.from) && (!r.to || d <= r.to);
+    });
   }
   if (filt.hist === "none") list = list.filter((x) => !x["履歴数"]);
   if (filt.hist === "some") list = list.filter((x) => x["履歴数"] > 0);
@@ -303,6 +312,11 @@ function openFilter(which, btn) {
   // 空欄（-）も選べるように、末尾に「（空欄）」を足す。値は "" を使う。
   const options = emptyN ? [...values, ""] : values;
   const cur = extraKey ? (filt.extra[extraKey] || new Set()) : filt[which];
+  // 日付の列（値のほとんどが日付）なら「日付〜日付」の範囲でしぼる
+  if (extraKey) {
+    const dated = values.filter((v) => normDateLoose(v)).length;
+    if (values.length && dated >= Math.max(1, values.length * 0.8)) return openDateRangeFilter(extraKey, valOf, emptyN);
+  }
   const inner =
     `<div class="kc-flt-list">` +
     options.map((v) => `<label class="kc-flt-row">
@@ -333,12 +347,66 @@ function openFilter(which, btn) {
   });
 }
 
+// 日付の列を「日付〜日付」でしぼる窓
+function openDateRangeFilter(key, valOf, emptyN) {
+  const cur = (filt.range && filt.range[key]) || {};
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const now = new Date();
+  const inner = `
+    <div class="kc-dr">
+      <div class="kc-dr-row"><input type="date" id="drFrom" value="${esc(cur.from || "")}" /><span>〜</span><input type="date" id="drTo" value="${esc(cur.to || "")}" /></div>
+      <div class="kc-dr-quick">
+        <button type="button" class="btn ghost" data-q="late">今日まで（期限切れ含む）</button>
+        <button type="button" class="btn ghost" data-q="month">今月</button>
+        <button type="button" class="btn ghost" data-q="next">翌月末まで</button>
+        <button type="button" class="btn ghost" data-q="clear">日付をクリア</button>
+      </div>
+      <label class="kc-dr-empty"><input type="checkbox" id="drEmpty"${cur.empty ? " checked" : ""} /> 日付が入っていないものも表示（${emptyN}件）</label>
+      <div class="kc-dr-n" id="drN"></div>
+    </div>
+    <div class="kc-modal-foot">
+      <button type="button" class="btn" id="drOk">この条件で見る</button>
+      <button type="button" class="btn ghost" id="drAll">すべて（しぼらない）</button>
+    </div>`;
+  const m = openModal(`${key}でしぼる`, inner);
+  const f = m.el.querySelector("#drFrom"), t = m.el.querySelector("#drTo"), e = m.el.querySelector("#drEmpty");
+  const count = () => {
+    const a = f.value, b = t.value, em = e.checked;
+    const n = rows.filter((x) => { const d = normDateLoose(valOf(x)); if (!d) return em; return (!a || d >= a) && (!b || d <= b); }).length;
+    m.el.querySelector("#drN").textContent = `この条件で ${n.toLocaleString()} 件`;
+  };
+  [f, t, e].forEach((el) => el.addEventListener("input", count));
+  m.el.querySelectorAll("[data-q]").forEach((b) => b.addEventListener("click", () => {
+    const q = b.dataset.q;
+    if (q === "late") { f.value = ""; t.value = ymd(now); }
+    else if (q === "month") { f.value = ymd(new Date(now.getFullYear(), now.getMonth(), 1)); t.value = ymd(new Date(now.getFullYear(), now.getMonth() + 1, 0)); }
+    else if (q === "next") { f.value = ""; t.value = ymd(new Date(now.getFullYear(), now.getMonth() + 2, 0)); }
+    else { f.value = ""; t.value = ""; }
+    count();
+  }));
+  m.el.querySelector("#drOk").addEventListener("click", () => {
+    if (!filt.range) filt.range = {};
+    if (!f.value && !t.value && !e.checked) delete filt.range[key];
+    else if (!f.value && !t.value && e.checked) filt.range[key] = { from: "", to: "", empty: true };
+    else filt.range[key] = { from: f.value, to: t.value, empty: e.checked };
+    if (filt.extra) delete filt.extra[key];
+    saveFilt(); m.close(); render();
+  });
+  m.el.querySelector("#drAll").addEventListener("click", () => {
+    if (filt.range) delete filt.range[key];
+    if (filt.extra) delete filt.extra[key];
+    saveFilt(); m.close(); render();
+  });
+  count();
+}
+
 // しぼり込みを、この端末に覚えておく（ページを移動しても戻らないように）
 function saveFilt() {
   try {
     localStorage.setItem("kcFilt", JSON.stringify({
       stage: [...filt.stage], status: [...filt.status], hist: filt.hist || "",
       extra: Object.fromEntries(Object.entries(filt.extra || {}).map(([k, v]) => [k, [...v]])),
+      range: filt.range || {},
     }));
   } catch {}
 }
@@ -592,7 +660,7 @@ function render() {
         <th class="kc-th-d">資料送付</th>
         ${rcols.map((k) => {
           const isEnd = /掲載終了/.test(k), isHire = /採用人数|採用予定人数/.test(k);
-          const exOn = filt.extra && filt.extra[k] && filt.extra[k].size ? " on" : "";
+          const exOn = (filt.extra && filt.extra[k] && filt.extra[k].size) || (filt.range && filt.range[k]) ? " on" : "";
           const onCls = (isEnd && filt.post) || (isHire && (filt.hireMin !== "" || filt.hireMax !== "")) ? " on" : exOn;
           const btn = (isEnd || isHire)
             ? `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-rcflt="${isEnd ? "post" : "hire"}">${esc(k)} ▾</button>`
@@ -735,6 +803,7 @@ function render() {
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
     filt.post = ""; filt.hireMin = ""; filt.hireMax = "";
     if (filt.extra) filt.extra = {};
+    filt.range = {};
     if (typeof saveFilt === "function") saveFilt();
     render();
   });

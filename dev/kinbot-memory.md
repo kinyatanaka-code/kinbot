@@ -1050,3 +1050,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-26 BUILD_TAG=2026-09-26j importMissingCrosslost の入れ先を1リスト「クロス失注（未割り当て）」（owner NULL）に統一、assignedTo なし（ユーザー要望：所有者ごとに分けず失注リストにだけ）。内訳 plan は商談所有者名(Owner.Name)別の社数。owner NULL なので誰の☆全てにも出ず、失注リスト/今月かける(全体)に出る（かける画面の過去リスト（今月かける）は担当者本人分なので出ない→担当を付けたい場合はナーチャ同様の担当移動が必要）。版20260926j。
 
 - 2026-09-26 BUILD_TAG=2026-09-26k 失注リストの商談所有者フィルタを複数選択化。edBuildTable に msel(id,vals)（.ed-msel ボタン＋.ed-msel-pop チェック一覧、position:fixed でスクロール枠に切られない）、edWireMsel(box)（開閉・外側クリックで閉じる・change で edRenderBody・すべて外す）、edMselVals(id)=Set。edFiltered の商談所有者は Set.has。汎用フィルタ配線から edOppOwner を外した。他の列にも使い回し可。版20260926k。
+
+- 2026-09-26 BUILD_TAG=2026-09-26l かける列フィルタの日付範囲化。filt.range={列名:{from,to,empty}}（localStorage kcFilt.range に保存、リセットで消去、見出しの on 表示にも反映）。openFilter で extraKey の値の80%以上が normDateLoose で日付になれば openDateRangeFilter(key,valOf,emptyN)（date input 2つ、クイック：今日まで/今月/翌月末まで/クリア、日付なしも表示、件数ライブ）。visibleRows で normDateLoose 比較。値チェック式の filt.extra[key] とは排他（範囲を決めると extra を消す）。版20260926l。
