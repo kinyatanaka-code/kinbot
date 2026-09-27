@@ -1088,3 +1088,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28g リサイクルのグループ別管理。db：listRecycleCandidates に group_id/group_name、moveToWeeklyRevival に groupId（同名・同グループの復活リストを再利用し hidden 解除）、findOrCreateGroupRecycleList(gid,gname)＝owner NULL の「リサイクル - グループ名」（旧「リサイクル（戻し）- グループ名」があれば改名して再利用、グループなしは「リサイクル（グループなし）」）、revertRevivalToRecycle は gid=COALESCE(復活リストのgroup, 元リストのgroup) ごとにその戻し先へ全件（origin の元リストへ戻す分岐は廃止）。index：hubRecycle item に groupId/group、/hub/recycle?group=（''=全,'0'=なし）で items/buckets 絞り込み＋groups[{id,name,n,thisWeek}]、make は人×グループで「【復活】グループ名 M/D週」。calls.js：.hub-grps チップ、表にグループ列、revert confirm はグループ別件数。版20260928g。
 
 - 2026-09-28 BUILD_TAG=2026-09-28h かける追加列(rcols)：値が36文字超なら td.kc-rc-long＞.kc-clamp(3行 line-clamp)＋button.kc-more、document 委譲クリックで .open をトグル。幅 200〜260px。版20260928h。
+
+- 2026-09-28 BUILD_TAG=2026-09-28i .kc-table td.kc-rc-long と .kc-clamp に width/max-width 240px＋white-space:normal !important（.kc-table td の nowrap が継承されて開くと横に伸びていた）。版20260928i。
