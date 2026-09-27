@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260928n" />
+    <link rel="stylesheet" href="style.css?v=20260928o" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -194,7 +194,8 @@
           <section class="card kc-pane" data-p="talk" hidden>
             <div class="tk-wrap">
               <div class="tk-side">
-                <div class="tk-h">自分のトークスクリプト</div>
+                <label class="tk-who">見る台本 <select id="tkWho"><option value="">自分（編集できる）</option></select></label>
+                <div class="tk-h" id="tkSideH">自分のトークスクリプト</div>
                 <p class="note" style="margin:0 0 10px">ここで保存した台本が、架電の記録の窓の左に出ます。リストのグループ用の台本があればそれを、無ければ「基本の台本」を出します。</p>
                 <div id="tkList"><div class="note">読み込んでいます…</div></div>
               </div>
@@ -205,7 +206,8 @@
                   <textarea id="tkText" class="tk-ta" placeholder="■ 受付&#10;お世話になっております。株式会社ネオキャリアの{自分}と申します。{担当者}様はいらっしゃいますでしょうか。"></textarea>
                   <div class="tk-prev"><div class="tk-prev-h">プレビュー（例：株式会社サンプル／山田様）</div><div id="tkPrev" class="kc-talk-body"></div></div>
                 </div>
-                <div class="tk-acts"><button type="button" class="btn" id="tkSave">保存</button><button type="button" class="btn ghost" id="tkTemplate">ひな形を入れる</button><button type="button" class="btn ghost" id="tkDelete">この台本を消す</button></div>
+                <div class="tk-acts" id="tkActsMine"><button type="button" class="btn" id="tkSave">保存</button><button type="button" class="btn ghost" id="tkTemplate">ひな形を入れる</button><button type="button" class="btn ghost" id="tkDelete">この台本を消す</button></div>
+                <div class="tk-acts" id="tkActsOther" hidden><button type="button" class="btn" id="tkCopy">この台本を自分の台本にコピー</button><span class="note" style="margin:0;align-self:center">同じ枠（基本／同じグループ）の自分の台本に上書きします</span></div>
               </div>
             </div>
           </section>
@@ -446,9 +448,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260928n"></script>
-    <script src="calls.js?v=20260928n"></script>
-    <script src="nav.js?v=20260928n"></script>
+    <script src="sf-data.js?v=20260928o"></script>
+    <script src="calls.js?v=20260928o"></script>
+    <script src="nav.js?v=20260928o"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

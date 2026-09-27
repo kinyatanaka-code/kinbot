@@ -2262,13 +2262,17 @@ async function kcLoadTalk(box, x) {
       : `<div class="note">まだ台本がありません。左のメニューの「トーク」から、自分の台本を登録してください。</div>`);
 }
 // 「トーク」メニュー：自分の台本（基本＋グループ別）を編集
-let _tk = { scripts: [], groups: [], sel: null, me: "" };
+let _tk = { scripts: [], mine: [], groups: [], owners: [], who: "", myEmail: "", sel: null, me: "" };
 async function loadTalkPane() {
   const list = $("tkList"); if (!list) return;
   try {
     const [d, me] = await Promise.all([fetch("/api/calls/talk/mine?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()), kcMyShortName()]);
     if (!d.ok) throw new Error(d.error || "");
-    _tk.scripts = d.scripts || []; _tk.groups = d.groups || []; _tk.me = me;
+    _tk.mine = d.scripts || []; _tk.groups = d.groups || []; _tk.me = me; _tk.owners = d.owners || []; _tk.myEmail = d.me || "";
+    if (!_tk.who) _tk.scripts = _tk.mine;
+    const ws = $("tkWho");
+    ws.innerHTML = `<option value="">自分（編集できる）</option>` + _tk.owners.filter((o) => o.email !== _tk.myEmail)
+      .map((o) => `<option value="${esc(o.email)}"${_tk.who === o.email ? " selected" : ""}>${esc(o.name || o.email.split("@")[0])}（${o.n}件）</option>`).join("");
   } catch (e) { list.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
   if (!$("tkText")._wired) {
     $("tkText")._wired = true;
@@ -2276,9 +2280,39 @@ async function loadTalkPane() {
     $("tkSave").addEventListener("click", () => tkSave(false));
     $("tkDelete").addEventListener("click", () => { if (confirm("この台本を消しますか？")) tkSave(true); });
     $("tkTemplate").addEventListener("click", () => { const ta = $("tkText"); if (ta.value.trim() && !confirm("いまの内容をひな形に置き換えますか？")) return; ta.value = TALK_TEMPLATE; tkPreview(); });
+    $("tkWho").addEventListener("change", tkSwitchWho);
+    $("tkCopy").addEventListener("click", tkCopyToMine);
   }
   tkRenderList();
   tkSelect(_tk.sel === null ? "" : _tk.sel);
+}
+// 見る台本を切り替える（自分＝編集できる／他の人＝見るだけ）
+async function tkSwitchWho() {
+  _tk.who = $("tkWho").value;
+  if (!_tk.who) _tk.scripts = _tk.mine;
+  else {
+    try { const d = await (await fetch("/api/calls/talk/of?email=" + encodeURIComponent(_tk.who), { cache: "no-store" })).json(); _tk.scripts = (d && d.scripts) || []; }
+    catch { _tk.scripts = []; }
+  }
+  const other = !!_tk.who;
+  const o = _tk.owners.find((x) => x.email === _tk.who);
+  $("tkSideH").textContent = other ? `${(o && o.name) || _tk.who.split("@")[0]}さんのトークスクリプト` : "自分のトークスクリプト";
+  $("tkText").readOnly = other;
+  $("tkText").classList.toggle("ro", other);
+  $("tkActsMine").hidden = other; $("tkActsOther").hidden = !other;
+  tkSelect(_tk.sel || "");
+}
+async function tkCopyToMine() {
+  const text = $("tkText").value;
+  if (!text.trim()) { $("tkSt").textContent = "この枠には台本がありません"; return; }
+  const exists = _tk.mine.some((x) => String(x.group_id || "") === String(_tk.sel || "") && String(x.text || "").trim());
+  if (exists && !confirm("自分の同じ枠の台本を、この台本で上書きします。よろしいですか？")) return;
+  try {
+    const r = await fetch("/api/calls/talk/mine", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: _tk.sel || null, text }) });
+    const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "コピーできませんでした");
+    _tk.mine = _tk.mine.filter((x) => String(x.group_id || "") !== String(_tk.sel || "")); _tk.mine.push({ group_id: _tk.sel ? Number(_tk.sel) : null, text });
+    $("tkSt").textContent = "自分の台本にコピーしました（「見る台本：自分」で編集できます）";
+  } catch (e) { $("tkSt").textContent = "失敗：" + (e.message || ""); }
 }
 function tkTextOf(gid) { const f = _tk.scripts.find((x) => String(x.group_id || "") === String(gid || "")); return f ? f.text : ""; }
 function tkRenderList() {
@@ -2305,8 +2339,9 @@ async function tkSave(del) {
     const r = await fetch("/api/calls/talk/mine", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: _tk.sel || null, text }) });
     const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "保存できませんでした");
     const k = String(_tk.sel || "");
-    _tk.scripts = _tk.scripts.filter((x) => String(x.group_id || "") !== k);
-    if (text.trim()) _tk.scripts.push({ group_id: _tk.sel ? Number(_tk.sel) : null, text });
+    _tk.mine = _tk.mine.filter((x) => String(x.group_id || "") !== k);
+    if (text.trim()) _tk.mine.push({ group_id: _tk.sel ? Number(_tk.sel) : null, text });
+    _tk.scripts = _tk.mine;
     if (del) $("tkText").value = "";
     tkRenderList(); tkPreview();
     st.textContent = del ? "消しました" : "保存しました（次の架電から左のトークに出ます）";

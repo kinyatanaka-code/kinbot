@@ -1100,3 +1100,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28m 失注リスト表：失注理由詳細 36字超は td.kc-rc-long＋.kc-clamp＋.kc-more（かけると共通の委譲トグル）。列追加：担当（担当メール→nmMemberName、空は（未割り当て））、リスト（edListName：_listName→items.リスト名(r._list_name)→_nmLists/_edLists）。フィルタ msel edClWho/edClList。版20260928m。
 
 - 2026-09-28 BUILD_TAG=2026-09-28n トークスクリプトをメンバーごとに。db talk_scripts(owner,group_id NULL=基本,text) ＋ unique(lower(owner),COALESCE(group_id,0))、listTalkScripts/saveTalkScript（空文字は削除）。GET/PUT /api/calls/talk/mine、GET /api/calls/talk-script は 自分のグループ用→自分の基本→settings.talkScripts.groups→default の順（source: mine-group/mine/group/default）。calls.html サイド「トーク」(?p=talk)＋section data-p=talk（#tkList/#tkText/#tkPrev/#tkSave/#tkTemplate/#tkDelete）。calls.js talkRender/kcMyShortName/kcLoadTalk（表示のみ・編集リンク）/loadTalkPane/tkSelect/tkSave、showPane に talk。版20260928n。
+
+- 2026-09-28 BUILD_TAG=2026-09-28o トーク：他メンバーの台本閲覧。db listTalkScriptOwners()（空でない台本を持つ人・件数・名前）。GET /api/calls/talk/of?email=、/talk/mine に me/owners。calls.html #tkWho セレクト、#tkActsOther（#tkCopy）。calls.js _tk.mine/_tk.who、tkSwitchWho（readOnly・ボタン切替）、tkCopyToMine（同じ枠へ PUT）。版20260928o。

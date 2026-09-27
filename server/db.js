@@ -4406,6 +4406,17 @@ export async function listTalkScripts(owner) {
     return rows;
   } catch (e) { console.error("[db] listTalkScripts", e.message); return []; }
 }
+// 台本を登録している人の一覧（件数つき）
+export async function listTalkScriptOwners() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT lower(s.owner) AS email, count(*)::int AS n, max(s.updated_at) AS updated,
+              (SELECT u.name FROM users u WHERE lower(u.email) = lower(s.owner) LIMIT 1) AS name
+         FROM talk_scripts s WHERE coalesce(btrim(s.text),'') <> '' GROUP BY lower(s.owner) ORDER BY max(s.updated_at) DESC`);
+    return rows;
+  } catch (e) { console.error("[db] listTalkScriptOwners", e.message); return []; }
+}
 export async function saveTalkScript(owner, groupId, text) {
   if (!pool || !owner) return false;
   const gid = groupId ? parseInt(groupId, 10) : null;

@@ -251,6 +251,7 @@ import {
   listActiveTargetCompanies,
   isPastLostList,
   listTalkScripts,
+  listTalkScriptOwners,
   saveTalkScript,
   callCountsSince,
   listRecycleCandidates,
@@ -9543,8 +9544,16 @@ app.get("/api/calls/talk-script", async (req, res) => {
 // 自分のトークスクリプト（「トーク」メニュー）
 app.get("/api/calls/talk/mine", async (req, res) => {
   try {
-    const [scripts, groups] = await Promise.all([listTalkScripts(req.user), listGroups().catch(() => [])]);
-    res.json({ ok: true, scripts, groups: groups.map((g) => ({ id: g.id, name: g.name })) });
+    const [scripts, groups, owners] = await Promise.all([listTalkScripts(req.user), listGroups().catch(() => []), listTalkScriptOwners()]);
+    res.json({ ok: true, me: String(req.user || "").toLowerCase(), scripts, groups: groups.map((g) => ({ id: g.id, name: g.name })), owners });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 他のメンバーの台本（見るだけ）
+app.get("/api/calls/talk/of", async (req, res) => {
+  try {
+    const email = String(req.query.email || "").trim().toLowerCase();
+    if (!email.includes("@")) return res.status(400).json({ error: "メンバーを選んでください" });
+    res.json({ ok: true, scripts: await listTalkScripts(email) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/calls/talk/mine", async (req, res) => {
@@ -21376,7 +21385,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28n サイドメニューに「トーク」を追加。各メンバーが自分のトークスクリプト（基本の台本＋グループ別の台本）を編集・保存でき、プレビュー付き。記録の窓の左の「トーク」には、その人の台本（このリストのグループ用→基本→以前の共有台本の順）を表示（左では編集せず「編集」でトークメニューへ）。talk_scripts テーブル、GET/PUT /api/calls/talk/mine。";
+const BUILD_TAG = "2026-09-28o トークメニューで他のメンバーの台本も見られるように。「見る台本」で台本を登録している人を選ぶと、その人の基本／グループ別の台本を見るだけで表示（プレビュー付き）。「この台本を自分の台本にコピー」で同じ枠の自分の台本へ取り込める。GET /api/calls/talk/of、talk/mine に owners。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
