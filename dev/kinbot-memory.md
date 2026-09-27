@@ -1052,3 +1052,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-26 BUILD_TAG=2026-09-26k 失注リストの商談所有者フィルタを複数選択化。edBuildTable に msel(id,vals)（.ed-msel ボタン＋.ed-msel-pop チェック一覧、position:fixed でスクロール枠に切られない）、edWireMsel(box)（開閉・外側クリックで閉じる・change で edRenderBody・すべて外す）、edMselVals(id)=Set。edFiltered の商談所有者は Set.has。汎用フィルタ配線から edOppOwner を外した。他の列にも使い回し可。版20260926k。
 
 - 2026-09-26 BUILD_TAG=2026-09-26l かける列フィルタの日付範囲化。filt.range={列名:{from,to,empty}}（localStorage kcFilt.range に保存、リセットで消去、見出しの on 表示にも反映）。openFilter で extraKey の値の80%以上が normDateLoose で日付になれば openDateRangeFilter(key,valOf,emptyN)（date input 2つ、クイック：今日まで/今月/翌月末まで/クリア、日付なしも表示、件数ライブ）。visibleRows で normDateLoose 比較。値チェック式の filt.extra[key] とは排他（範囲を決めると extra を消す）。版20260926l。
+
+- 2026-09-26 BUILD_TAG=2026-09-26m かけるに他人のリスト（中村宗太郎・中澤良太のリスト等）が出る不具合。原因：listCallLists scope の「owner<>'' かつ t.assigned_to=me のリードが1件でもあれば出す」（crosslost consolidate/import-edit/ナーチャ移動で assigned_to が付いたリードがあると他人のリストごと出た）。修正：scope を l.owner=me（＋アーカイブ/リサイクル名）のみ。listAllLeadsForMember も l.owner=me のみ＋例外 NURTURE_WHERE かつ assigned_to=me（ナーチャ移動分）。listStageTargets に ownerStrict（cl.owner=me）を追加し crosslost-now で使用。redistribute は人ごとのリストへ移す方式なので影響なし。版20260926m。

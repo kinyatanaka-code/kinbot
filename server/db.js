@@ -4137,8 +4137,9 @@ export async function listCallLists({ owner = "", includeClosed = false, ownerOn
     // ownerOnly=true でも「自分に配られたぶんがあるリスト」は出す。
     // （リストを作った人は別でも、分配された人のカードに出したいため）
     // 所有者なし（その他／未割り当て）のリストは、自分の担当リードがあっても かける には出さない。
-    const scope = `($1 = '' OR l.owner = $1 OR l.name IN ('アーカイブ', 'リサイクル') OR (COALESCE(l.owner,'') <> '' AND EXISTS (
-             SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.assigned_to = $1)))`;
+    // かける画面に出すのは、リスト管理でその人に振り分けた（持ち主がその人の）リストだけ。
+    // 他の人のリストに自分が担当のリードが混ざっていても、そのリストは出さない。
+    const scope = `($1 = '' OR l.owner = $1 OR l.name IN ('アーカイブ', 'リサイクル'))`;
     const { rows } = await pool.query(
       `SELECT l.*,
               (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
@@ -4193,7 +4194,7 @@ export async function sweepStageLists(listId = null) {
 // ステージ（リード状況）が…（上の sweepStageLists）
 
 // ステージ（リード状況）で横断して架電先を集める（アーカイブ/リサイクルのカード用）。
-export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [] } = {}) {
+export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [], ownerStrict = false } = {}) {
   if (!pool || !keyword) return [];
   try {
     const p = [`%${keyword}%`];
@@ -4205,7 +4206,8 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     if (xs.length) { p.push(xs); stageOr += ` OR t.id = ANY($${p.length}::int[])`; }
     let where = `(${stageOr})`;
     const own = String(owner || "").trim().toLowerCase();
-    if (own) { p.push(own); where += ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), cl.owner)) = $${p.length}`; }
+    // ownerStrict：かける画面用。持ち主がその人のリストにあるものだけ（他の人のリストは出さない）
+    if (own) { p.push(own); where += ownerStrict ? ` AND lower(COALESCE(cl.owner,'')) = $${p.length}` : ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), cl.owner)) = $${p.length}`; }
     if (q) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);
       where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
@@ -4644,7 +4646,8 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
     const p = [String(member).toLowerCase()];
     // そのメンバーが「持ち主のリスト」＋「自分に配られた（担当の）架電先」を対象にする。
     // これで、リストを所有していない人（配られただけの人）でもまとまって出る。
-    let where = `(l.owner = $1 OR (COALESCE(l.owner,'') <> '' AND lower(coalesce(t.assigned_to,'')) = $1)) AND NOT l.closed AND NOT COALESCE(l.hidden, false)
+    // ☆全てのリード＝自分が持ち主のリスト。例外は、ナーチャリングで担当を自分へ移されたリードだけ。
+    let where = `(l.owner = $1 OR ((${NURTURE_WHERE}) AND COALESCE(l.owner,'') <> '' AND lower(coalesce(t.assigned_to,'')) = $1)) AND NOT l.closed AND NOT COALESCE(l.hidden, false)
       AND NOT ((${NURTURE_WHERE}) AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner, '')) <> $1)`;   // ナーチャリングは担当メンバーに従う（移したら元の人には出さない）
     if (q) {
       p.push(`%${String(q).replace(/[%_]/g, "")}%`);

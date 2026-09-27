@@ -9862,6 +9862,7 @@ app.get("/api/calls/targets", async (req, res) => {
         owner: (listParam === "crosslost") ? String(req.query.member || (clNow ? req.user : "") || "").trim().toLowerCase() : "",   // クロス失注はメンバーで絞れる（かける画面は自分）
         // クロス失注は、SFの失注商談と会社名が一致する架電先も（ステータスに関係なく）含める
         extraIds: listParam === "crosslost" ? await crosslostMatchedIds(await pickSfUser(req.user, req).catch(() => "")) : [],
+        ownerStrict: clNow,
       });
     } else if (listParam === "nurture") {
       // ナーチャリング（まとめ）：ジャッジ・営業フォローのリードを、元リストに置いたまま横断で集める
@@ -21143,7 +21144,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-26l かける画面の列の絞り込みで、日付の列（値の8割以上が日付：失注後次回アクション日・初回アポ設定日など）は「日付〜日付」の範囲でしぼる窓に。今日まで／今月／翌月末までのボタン、日付なしも表示のチェック、件数のその場表示。この端末に保存。";
+const BUILD_TAG = "2026-09-26m かける画面に、リスト管理で自分に振り分けていない（他の人が持ち主の）リストが出ていた不具合を修正。リスト一覧の条件から「他の人のリストでも自分担当のリードがあれば出す」を外し、持ち主が自分のリストだけに。☆全てのリードも持ち主が自分のリストだけ（ナーチャリングで担当を自分へ移されたリードは例外で出す）。過去リスト（今月かける）も自分のリストの分だけ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
