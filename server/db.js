@@ -4278,6 +4278,7 @@ export async function listRecycleCandidates() {
     const { rows } = await pool.query(
       `SELECT t.id, t.company, t.person, t.phone, t.reject_tag, t.temperature, t.assigned_to, l.owner AS list_owner, l.name AS list_name,
               COALESCE(t.origin_list_name, t.nurture_from_name) AS origin_name,
+              l.group_id, (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
               COALESCE((SELECT max(cl.at) FROM call_logs cl WHERE cl.target_id = t.id), t.created_at) AS since
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
@@ -4288,15 +4289,20 @@ export async function listRecycleCandidates() {
   } catch (e) { console.error("[db] listRecycleCandidates", e.message); return []; }
 }
 // 今週の復活リストへ移す：その人の復活リスト（無ければ作る）へ、担当をその人にして、未済みに戻す
-export async function moveToWeeklyRevival({ email, name, ids, createdBy }) {
+export async function moveToWeeklyRevival({ email, name, ids, createdBy, groupId = null }) {
   if (!pool || !email || !ids || !ids.length) return 0;
   const nums = [...new Set(ids.map((x) => parseInt(x, 10)).filter(Boolean))];
   try {
-    let { rows } = await pool.query(`SELECT id FROM call_lists WHERE kind='recycle_revival' AND lower(owner)=lower($1) AND name=$2 AND NOT COALESCE(closed,false) LIMIT 1`, [email, name]);
+    const gid = groupId ? parseInt(groupId, 10) : null;
+    let { rows } = await pool.query(
+      `SELECT id FROM call_lists WHERE kind='recycle_revival' AND lower(owner)=lower($1) AND name=$2 AND COALESCE(group_id,0)=COALESCE($3,0) AND NOT COALESCE(closed,false) LIMIT 1`,
+      [email, name, gid]);
     let listId = rows[0] && rows[0].id;
     if (!listId) {
-      const ins = await pool.query(`INSERT INTO call_lists (name, owner, created_by, kind) VALUES ($1,$2,$3,'recycle_revival') RETURNING id`, [name.slice(0, 120), String(email).toLowerCase(), createdBy || null]);
+      const ins = await pool.query(`INSERT INTO call_lists (name, owner, created_by, kind, group_id) VALUES ($1,$2,$3,'recycle_revival',$4) RETURNING id`, [name.slice(0, 120), String(email).toLowerCase(), createdBy || null, gid]);
       listId = ins.rows[0].id;
+    } else {
+      await pool.query(`UPDATE call_lists SET hidden = false WHERE id = $1`, [listId]);
     }
     // 元のリストを残してから移す（すでに記録があれば上書きしない＝最初の元リストを保つ）
     const r = await pool.query(
@@ -4312,51 +4318,51 @@ export async function moveToWeeklyRevival({ email, name, ids, createdBy }) {
 //   元のリストが分かる（origin_list_id が有効なリスト）→ 元のリストへ。
 //   分からない → 復活リストと同じグループの「リサイクル（戻し）」リスト（担当なし）へ。グループも無ければ「リサイクル（戻し）」。
 //   担当は外す。ステージは変えない。空になった復活リストは非表示にする。
+// グループの「リサイクル」リスト（担当なし）を探し、無ければ作る。以前の「リサイクル（戻し）- グループ」があればそれを使う
+export async function findOrCreateGroupRecycleList(groupId, groupName, createdBy = null) {
+  if (!pool) return null;
+  const gid = groupId ? parseInt(groupId, 10) : null;
+  const names = gid ? [`リサイクル - ${groupName || "グループ"}`, `リサイクル（戻し）- ${groupName || "グループ"}`] : ["リサイクル（グループなし）", "リサイクル（戻し）"];
+  const q = await pool.query(
+    `SELECT id FROM call_lists WHERE name = ANY($1::text[]) AND COALESCE(group_id,0) = COALESCE($2,0) AND COALESCE(owner,'') = '' AND NOT COALESCE(closed,false)
+      ORDER BY (name = $3) DESC, id LIMIT 1`, [names, gid, names[0]]);
+  if (q.rows[0]) { await pool.query(`UPDATE call_lists SET name = $2, hidden = false WHERE id = $1`, [q.rows[0].id, names[0]]); return q.rows[0].id; }
+  const ins = await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ($1, NULL, $2, $3, $4) RETURNING id`,
+    [names[0].slice(0, 120), "グループのリサイクル（復活を配る元）", createdBy, gid]);
+  return ins.rows[0].id;
+}
+// 配ったリサイクル復活（kind=recycle_revival のリスト）の中身を、グループごとの「リサイクル - グループ名」リストへ戻す。
+//   グループ＝復活リストのグループ（無ければ元のリストのグループ）。どちらも無ければ「リサイクル（グループなし）」。
+//   担当は外す。ステージは変えない。空になった復活リストは非表示にする。
 export async function revertRevivalToRecycle({ dryRun = true, createdBy = null } = {}) {
   if (!pool) return null;
   const { rows } = await pool.query(
-    `SELECT t.id, t.assigned_to, t.origin_list_id, t.list_id, l.name AS rev_name, l.owner AS rev_owner, l.group_id,
-            (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
-            (SELECT 1 FROM call_lists o WHERE o.id = t.origin_list_id AND NOT COALESCE(o.closed,false) AND COALESCE(o.kind,'') <> 'recycle_revival') AS origin_ok
+    `SELECT t.id, t.list_id, l.owner AS rev_owner,
+            COALESCE(l.group_id, o.group_id) AS gid,
+            (SELECT g.name FROM call_list_groups g WHERE g.id = COALESCE(l.group_id, o.group_id)) AS gname
        FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+       LEFT JOIN call_lists o ON o.id = t.origin_list_id
       WHERE l.kind = 'recycle_revival' AND NOT COALESCE(l.closed,false)`);
-  const byOwner = {}, lists = new Set();
-  let toOrigin = 0, toHolding = 0;
+  const byOwner = {}, byGroup = {}, lists = new Set();
   for (const r of rows) {
     const k = String(r.rev_owner || "").toLowerCase(); byOwner[k] = (byOwner[k] || 0) + 1;
+    const g = r.gname || "（グループなし）"; byGroup[g] = (byGroup[g] || 0) + 1;
     lists.add(r.list_id);
-    if (r.origin_ok) toOrigin++; else toHolding++;
   }
-  if (dryRun) return { dryRun: true, total: rows.length, toOrigin, toHolding, lists: lists.size, byOwner };
-  let moved = 0;
-  // 元のリストへ
-  const back = rows.filter((r) => r.origin_ok).map((r) => r.id);
-  if (back.length) {
-    const u = await pool.query(`UPDATE call_targets SET list_id = origin_list_id, assigned_to = NULL WHERE id = ANY($1::int[])`, [back]);
-    moved += u.rowCount;
-  }
-  // グループごとの「リサイクル（戻し）」へ
+  if (dryRun) return { dryRun: true, total: rows.length, lists: lists.size, byOwner, byGroup };
   const byG = new Map();
-  for (const r of rows.filter((x) => !x.origin_ok)) { const g = r.group_id || 0; if (!byG.has(g)) byG.set(g, { name: r.group_name || "", ids: [] }); byG.get(g).ids.push(r.id); }
+  for (const r of rows) { const g = r.gid || 0; if (!byG.has(g)) byG.set(g, { name: r.gname || "", ids: [] }); byG.get(g).ids.push(r.id); }
+  let moved = 0;
   for (const [gid, v] of byG) {
-    const nm = gid ? `リサイクル（戻し）- ${v.name || "グループ"}` : "リサイクル（戻し）";
-    let q = gid
-      ? await pool.query(`SELECT id FROM call_lists WHERE name=$1 AND group_id=$2 AND COALESCE(owner,'')='' AND NOT COALESCE(closed,false) LIMIT 1`, [nm, gid])
-      : await pool.query(`SELECT id FROM call_lists WHERE name=$1 AND group_id IS NULL AND COALESCE(owner,'')='' AND NOT COALESCE(closed,false) LIMIT 1`, [nm]);
-    let lid = q.rows[0] && q.rows[0].id;
-    if (!lid) {
-      const ins = await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ($1, NULL, $2, $3, $4) RETURNING id`,
-        [nm.slice(0, 120), "配ったリサイクル復活を戻した先", createdBy, gid || null]);
-      lid = ins.rows[0].id;
-    }
+    const lid = await findOrCreateGroupRecycleList(gid || null, v.name, createdBy);
+    if (!lid) continue;
     const u = await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = NULL WHERE id = ANY($1::int[])`, [v.ids, lid]);
     moved += u.rowCount;
   }
-  // 空になった復活リストは非表示に
   const hid = await pool.query(
     `UPDATE call_lists l SET hidden = true WHERE l.kind = 'recycle_revival' AND NOT COALESCE(l.hidden,false)
         AND NOT EXISTS (SELECT 1 FROM call_targets t WHERE t.list_id = l.id)`);
-  return { dryRun: false, total: rows.length, moved, toOrigin, toHolding, hiddenLists: hid.rowCount, byOwner };
+  return { dryRun: false, total: rows.length, moved, hiddenLists: hid.rowCount, byOwner, byGroup };
 }
 
 // 架電記録（対象の架電先ぶん）

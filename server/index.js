@@ -9545,7 +9545,8 @@ async function hubRecycle() {
       const week = Math.max(0, Math.min(4, Math.floor((due.getTime() - ws) / WEEK_MS)));
       items.push({ id: c.id, company: c.company || "", person: c.person || "", tag: c.reject_tag || "", temp: temp || "-",
         since: c.since, due, week, prev: String(c.assigned_to || c.list_owner || "").toLowerCase(),
-        next: (rule && rule.next_owner) || "", slot: (rule && rule.time_slot) || "", talk: (rule && rule.talk_axis) || "", list: c.origin_name || c.list_name || "" });
+        next: (rule && rule.next_owner) || "", slot: (rule && rule.time_slot) || "", talk: (rule && rule.talk_axis) || "", list: c.origin_name || c.list_name || "",
+        groupId: c.group_id || 0, group: c.group_name || "" });
     }
     const buckets = [0, 1, 2, 3, 4].map((w) => { const xs = items.filter((x) => x.week === w); return { n: xs.length, A: xs.filter((x) => x.temp === "A").length, B: xs.filter((x) => x.temp === "B").length, C: xs.filter((x) => x.temp === "C").length }; });
     return { items, buckets, weekStart: new Date(ws).toISOString() };
@@ -9614,9 +9615,17 @@ app.get("/api/calls/hub/recycle", async (req, res) => {
   try {
     const d = await hubRecycle();
     const w = Math.max(0, Math.min(4, parseInt(req.query.week, 10) || 0));
+    // グループで絞る（""＝すべて、"0"＝グループなし）
+    const gq = String(req.query.group ?? "");
+    const inG = (x) => gq === "" ? true : String(x.groupId || 0) === gq;
+    const gItems = d.items.filter(inG);
+    const buckets = [0, 1, 2, 3, 4].map((wk) => { const xs = gItems.filter((x) => x.week === wk); return { n: xs.length, A: xs.filter((x) => x.temp === "A").length, B: xs.filter((x) => x.temp === "B").length, C: xs.filter((x) => x.temp === "C").length }; });
+    const gm = new Map();
+    for (const x of d.items) { const k = String(x.groupId || 0); if (!gm.has(k)) gm.set(k, { id: k, name: x.group || "グループなし", n: 0, thisWeek: 0 }); const g = gm.get(k); g.n++; if (x.week === 0) g.thisWeek++; }
+    const groups = [...gm.values()].sort((a, b) => (a.id === "0") - (b.id === "0") || b.n - a.n);
     const ord = { A: 0, B: 1, C: 2 };
-    const items = d.items.filter((x) => x.week === w).sort((a, b) => (ord[a.temp] ?? 9) - (ord[b.temp] ?? 9) || new Date(a.due) - new Date(b.due)).slice(0, 3000);
-    res.json({ ok: true, buckets: d.buckets, weekStart: d.weekStart, items });
+    const items = gItems.filter((x) => x.week === w).sort((a, b) => (ord[a.temp] ?? 9) - (ord[b.temp] ?? 9) || new Date(a.due) - new Date(b.due)).slice(0, 3000);
+    res.json({ ok: true, buckets, groups, weekStart: d.weekStart, items });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 今週の復活リストを作る：人ごとに件数を割り振ったIDを受け取り、その人の「♻ 復活（M/D週）」リストへ移す。前回の担当者には入れない。
@@ -9625,14 +9634,20 @@ app.post("/api/calls/hub/recycle/make", async (req, res) => {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const assign = Array.isArray(req.body?.assign) ? req.body.assign : [];
     const d = await hubRecycle();
-    const prevOf = new Map(d.items.map((x) => [x.id, x.prev]));
+    const byId = new Map(d.items.map((x) => [x.id, x]));
     const ws = new Date(jstWeekStartMs() + 9 * 3600 * 1000);
-    const name = `【復活】${ws.getUTCMonth() + 1}/${ws.getUTCDate()}週`;
-    let moved = 0, skipped = 0;
+    const wk = `${ws.getUTCMonth() + 1}/${ws.getUTCDate()}週`;
+    let moved = 0, skipped = 0, name = "";
     for (const a of assign) {
       const email = String(a.email || "").trim().toLowerCase(); if (!email.includes("@")) continue;
-      const ids = (Array.isArray(a.ids) ? a.ids : []).map(Number).filter((id) => { if (prevOf.get(id) === email) { skipped++; return false; } return prevOf.has(id); });
-      if (ids.length) moved += await moveToWeeklyRevival({ email, name, ids, createdBy: req.user });
+      const ids = (Array.isArray(a.ids) ? a.ids : []).map(Number).filter((id) => { const it = byId.get(id); if (!it) return false; if (it.prev === email) { skipped++; return false; } return true; });
+      // グループごとに、その人の「【復活】グループ名 M/D週」リストへ（リサイクルと同じグループで管理）
+      const byG = new Map();
+      for (const id of ids) { const it = byId.get(id); const g = it.groupId || 0; if (!byG.has(g)) byG.set(g, { name: it.group || "", ids: [] }); byG.get(g).ids.push(id); }
+      for (const [gid, v] of byG) {
+        name = gid ? `【復活】${v.name} ${wk}` : `【復活】${wk}`;
+        moved += await moveToWeeklyRevival({ email, name, ids: v.ids, createdBy: req.user, groupId: gid || null });
+      }
     }
     hubClear(); _clSummaryCache = null;
     console.log(`[kincall] 今週の復活：${moved}件を割り振り（前回担当のため除外${skipped}）by ${req.user}`);
@@ -9644,7 +9659,7 @@ app.post("/api/calls/hub/recycle/revert", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const r = await revertRevivalToRecycle({ dryRun: req.body?.dryRun !== false, createdBy: req.user });
-    if (r && !r.dryRun) { hubClear(); _clSummaryCache = null; console.log(`[kincall] 配ったリサイクル復活を戻す：${r.moved}件（元リスト${r.toOrigin}・戻しリスト${r.toHolding}、非表示${r.hiddenLists}）by ${req.user}`); }
+    if (r && !r.dryRun) { hubClear(); _clSummaryCache = null; console.log(`[kincall] 配ったリサイクル復活をグループのリサイクルへ戻す：${r.moved}件（非表示${r.hiddenLists}）by ${req.user}`); }
     const names = {};
     for (const e of Object.keys((r && r.byOwner) || {})) { try { names[e] = (await listUsers()).find((u) => String(u.email || "").toLowerCase() === e)?.name || e; } catch { names[e] = e; } }
     res.json({ ok: true, ...r, names });
@@ -21305,7 +21320,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28f リスト管理＞リサイクルに「配った復活を全部リサイクルに戻す」。復活リスト（kind=recycle_revival）の中身を、元のリストが分かれば元へ、分からなければグループごとの「リサイクル（戻し）」リスト（担当なし）へ移し、担当を外す（ステージは変えない）。空になった復活リストは非表示。先に担当者別の件数を確認。POST /api/calls/hub/recycle/revert。";
+const BUILD_TAG = "2026-09-28g リサイクルをグループ別に管理。リスト管理＞リサイクルにグループの切り替え（件数・今週の件数つき）、表にグループ列。今週の復活は人×グループごとに「【復活】グループ名 M/D週」（グループ付き）で作る。配った復活を戻すときは、復活リストのグループ（無ければ元のリストのグループ）ごとの「リサイクル - グループ名」リスト（担当なし）へ戻す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
