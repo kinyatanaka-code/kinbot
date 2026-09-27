@@ -5513,7 +5513,7 @@ function edFiltered() {
       if (lrm && g(r, "失注理由（中項目）") !== lrm) return false;
       const qDt = v("edQLostDetail"); if (qDt && !String(g(r, "失注理由詳細")).toLowerCase().includes(qDt)) return false;
       const qNa = v("edQNextAct"); if (qNa && !String(g(r, "失注後次回アクション日")).replace(/-/g, "/").includes(qNa.replace(/-/g, "/"))) return false;
-      const oo = ($("edOppOwner") && $("edOppOwner").value) || ""; if (oo && g(r, "商談所有者") !== oo) return false;
+      const oo = edMselVals("edOppOwner"); if (oo.size && !oo.has(g(r, "商談所有者"))) return false;
       if (_edClMode) {
         const na = String(g(r, "失注後次回アクション日")).slice(0, 10);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(na)) return false;   // 次回アクション日が無いものは今月/月別からは除外
@@ -5816,6 +5816,10 @@ function edBuildTable() {
   const uniq = (fn) => [...new Set(_edRows.map(fn).filter(Boolean))].sort();
   const sel = (id, vals, head) => `<select id="${id}" class="ed-cf"><option value="">${head}</option>${vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>`;
   const txt = (id) => `<input id="${id}" class="ed-cf" placeholder="絞り込み" />`;
+  // 複数選べる絞り込み（チェック式）。何も選ばなければ「すべて」
+  const msel = (id, vals) => `<div class="ed-msel" id="${id}"><button type="button" class="ed-cf ed-msel-btn">すべて ▾</button><div class="ed-msel-pop" hidden>
+    <div class="ed-msel-acts"><button type="button" data-mall="1">すべて外す</button></div>
+    ${vals.map((v) => `<label class="ed-msel-it"><input type="checkbox" value="${esc(v)}"> ${esc(v)}</label>`).join("")}</div></div>`;
   const th = (name, filter) => `<th><div class="ed-th-name">${name}</div>${filter ? `<div class="ed-th-f">${filter}</div>` : ""}</th>`;
   const empF = `<div class="ed-empf"><input type="number" id="edEmpMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edEmpMax" class="ed-emp-in" placeholder="上限" min="0" /><label class="ed-dash"><input type="checkbox" id="edEmpDash" />「-」のみ</label></div>`;
   const head = "<tr>" +
@@ -5830,11 +5834,35 @@ function edBuildTable() {
       ? th("次回架電日", txt("edQNext")) + th("担当メンバー", sel("edNurWho", uniq((r) => nmMemberName(r["担当メール"] || "")), "すべて")) + th("元のリスト", txt("edQFrom"))
     : !_edCrosslost
       ? th("採用人数", "") + th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) + th("グループ", "") + th("所有者", "")
-      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("失注後次回アクション日", txt("edQNextAct")) + th("商談所有者", sel("edOppOwner", uniq((r) => g(r, "商談所有者")), "すべて"))
+      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("失注後次回アクション日", txt("edQNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者"))))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edOppOwner", "edQNextAct", "edQNext", "edNurWho", "edQFrom"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edQNextAct", "edQNext", "edNurWho", "edQFrom"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
+  document.querySelectorAll("#edTable .ed-msel").forEach(edWireMsel);
+}
+function edMselVals(id) {
+  return new Set([...document.querySelectorAll(`#${id} .ed-msel-it input:checked`)].map((x) => x.value));
+}
+function edWireMsel(box) {
+  const btn = box.querySelector(".ed-msel-btn"), pop = box.querySelector(".ed-msel-pop");
+  const label = () => {
+    const v = [...edMselVals(box.id)];
+    btn.textContent = (v.length === 0 ? "すべて" : v.length === 1 ? v[0] : `${v.length}人を選択中`) + " ▾";
+    btn.classList.toggle("on", v.length > 0);
+  };
+  const close = (e) => { if (!box.contains(e.target)) { pop.hidden = true; document.removeEventListener("mousedown", close); } };
+  btn.addEventListener("click", () => {
+    if (!pop.hidden) { pop.hidden = true; return; }
+    const r = btn.getBoundingClientRect();
+    pop.style.left = Math.max(8, Math.min(window.innerWidth - 240, r.left)) + "px";
+    pop.style.top = (r.bottom + 4) + "px";
+    pop.hidden = false;
+    document.addEventListener("mousedown", close);
+  });
+  pop.addEventListener("change", () => { label(); edRenderBody(); });
+  pop.querySelector("[data-mall]").addEventListener("click", () => { pop.querySelectorAll("input:checked").forEach((x) => { x.checked = false; }); label(); edRenderBody(); });
+  label();
 }
 // 仮想ビュー（ナーチャリング等）でも元のリスト名を出す
 function edListName(r) {
