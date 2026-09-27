@@ -1092,3 +1092,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28i .kc-table td.kc-rc-long と .kc-clamp に width/max-width 240px＋white-space:normal !important（.kc-table td の nowrap が継承されて開くと横に伸びていた）。版20260928i。
 
 - 2026-09-28 BUILD_TAG=2026-09-28j かける：メール列 170px ellipsis。ヘッダー名「架電リスト」（kc-sub 非表示、showPane の call も）。横断検索 /api/calls/search-all の管理者制限を撤廃、canFindAll=true（全員）、searchAllLeads に list_hidden/list_closed/group_name/list_owner_name、電話の数字一致（4桁以上）、閉じたリストは後ろ。結果表：会社/担当者/電話/ステージ・最終結果/リスト（グループ・札：閉じた/非表示/復活/リサイクル/アーカイブ/ナーチャリング）/持ち主/担当/最終架電。openMoveTargets を「①誰の（/api/calls/members で名前）→②どのリスト」に。版20260928j。
+
+- 2026-09-28 BUILD_TAG=2026-09-28k トークスクリプト。ユーザーは記録画面の全面リデザイン案（artifact G1cEkhifAFs8fsKgYjziNn）を却下「トーク以外今のままの仕様で」。settings.talkScripts={default,groups:{gid:text}}、GET /api/calls/talk-script?listId=（getListGroupId でグループ解決、group→default）、PUT {text,groupId|null}（管理者/クローザー）。calls.js openCompanyPanel(m,company,x) に #kcTalk、kcLoadTalk(box,x)：■/【/# 行を見出し、{会社名}{担当者}{自分}（/api/me の name→username）差し込み、編集テキストエリア（初期テンプレあり）。左パネルは幅1200px未満では非表示のまま。版20260928k。

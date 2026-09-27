@@ -9514,6 +9514,37 @@ app.post("/api/calls/lists/:id/relink-reset", async (req, res) => {
 });
 
 // 選んだ架電先を、別のリストへそのまま移す（既存リストへ移動・担当は移行先の持ち主に付け替え）。
+// ===== トークスクリプト（記録の窓の左に出す）=====
+// 設定 talkScripts = { default: "台本", groups: { [グループID]: "台本" } }。リストのグループの台本→無ければ全体の台本。
+// 台本の中の {会社名} {担当者} {自分} は、画面で差し込む。
+app.get("/api/calls/talk-script", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const ts = (st.talkScripts && typeof st.talkScripts === "object") ? st.talkScripts : {};
+    let groupId = parseInt(req.query.groupId, 10) || null, groupName = "";
+    const listId = parseInt(req.query.listId, 10) || 0;
+    if (!groupId && listId) groupId = await getListGroupId(listId).catch(() => null);
+    if (groupId) { try { groupName = ((await listGroups()).find((g) => Number(g.id) === Number(groupId)) || {}).name || ""; } catch {} }
+    const g = groupId && ts.groups ? String(ts.groups[groupId] || "") : "";
+    const canEdit = !!(req.isAdmin || req.actingCloser || (await isCloserUser(req.user).catch(() => false)));
+    res.json({ ok: true, script: g || String(ts.default || ""), source: g ? "group" : (ts.default ? "default" : "none"), groupId, groupName, canEdit });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/talk-script", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが編集できます" });
+    const st = await getSettings().catch(() => ({}));
+    const ts = (st.talkScripts && typeof st.talkScripts === "object") ? { ...st.talkScripts } : {};
+    ts.groups = { ...(ts.groups || {}) };
+    const text = String(req.body?.text || "").slice(0, 20000);
+    const gid = parseInt(req.body?.groupId, 10) || null;
+    if (gid) { if (text.trim()) ts.groups[gid] = text; else delete ts.groups[gid]; }
+    else ts.default = text;
+    await saveSettings({ talkScripts: ts });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== リスト管理ハブ（概要・リサイクル・ナーチャリング・過去リスト） =====
 const WEEK_MS = 7 * 86400000;
 function jstWeekStartMs() {   // 今週の月曜 0:00（日本時間）
@@ -21320,7 +21351,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28j かける画面4点。(1)メールアドレス列を170pxに（はみ出しは…）。(2)上のバーの名前を「架電リスト」にし、小さい「架電リスト」の札を削除。(3)探すで、全メンバー・全リスト（ナーチャリング・リサイクル・アーカイブ・非表示・閉じたリストも）から検索（誰でも使える）、結果にリスト名・グループ・状態の札・リストの持ち主・担当・最終架電、電話は数字だけでも一致。(4)選んだリードを他のリストへ移すとき「①誰の → ②どのリスト」で選べるように。";
+const BUILD_TAG = "2026-09-28k 記録の窓の左（会社情報）の下にトークスクリプトを表示。リストのグループごとの台本→無ければ全体の台本。「■」「【】」で始まる行は見出し、{会社名}{担当者}{自分}は自動で差し込み。クローザー・管理者はその場で「編集」→グループの台本／全体の台本として保存。GET/PUT /api/calls/talk-script（設定 talkScripts）。記録の窓のほかの仕様は変えていない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

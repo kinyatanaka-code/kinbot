@@ -1899,7 +1899,7 @@ async function openTarget(id, draft, opt) {
   wireQuickNext(m);
   if (!histOnly) wireZoomSummary(m, id);
   openSlotPanel(m);
-  openCompanyPanel(m, x["会社名"] || "");
+  openCompanyPanel(m, x["会社名"] || "", x);
 
   m.el.querySelector("#kcSave").addEventListener("click", async () => {
     const 結果 = picked();
@@ -2228,14 +2228,71 @@ function updateRowContact(x) {
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
 }
 
+// ===== トークスクリプト（会社情報の下）=====
+// 台本の書き方：「■」や「【】」で始まる行は見出し。{会社名} {担当者} {自分} は自動で差し込む。
+async function kcLoadTalk(box, x) {
+  if (!box) return;
+  const lid = (x && (x.listId || x._listId)) || (/^\d+$/.test(String(listId || "")) ? listId : "");
+  let d = null, me = null;
+  try {
+    if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null);
+    [d, me] = await Promise.all([fetch(`/api/calls/talk-script?listId=${encodeURIComponent(lid || "")}`, { cache: "no-store" }).then((r) => r.json()), _meP]);
+  } catch {}
+  if (!d || !d.ok) { box.innerHTML = '<div class="note">トークスクリプトを読み込めませんでした</div>'; return; }
+  const myName = String((me && (me.name || me.displayName)) || "").trim() || String((me && me.username) || "").split("@")[0];
+  const fill = (t) => String(t || "")
+    .replace(/\{会社名\}/g, (x && x["会社名"]) || "御社")
+    .replace(/\{担当者\}/g, ((x && x["担当者"] && x["担当者"] !== "担当者") ? x["担当者"] : "ご担当者"))
+    .replace(/\{自分\}/g, myName.split(/[\s　]/)[0] || myName);
+  const renderText = (t) => {
+    const lines = fill(t).split(/\r?\n/);
+    return lines.map((ln) => {
+      const v = ln.trim();
+      if (!v) return '<div class="kc-talk-gap"></div>';
+      if (/^(■|【|#)/.test(v)) return `<div class="kc-talk-h">${esc(v.replace(/^#+\s*/, ""))}</div>`;
+      return `<div class="kc-talk-p">${esc(v)}</div>`;
+    }).join("");
+  };
+  const src = d.source === "group" ? `グループ「${esc(d.groupName || "")}」の台本` : d.source === "default" ? "全体の台本" : "";
+  const view = () => {
+    box.innerHTML = `<div class="kc-talk-top"><div class="kc-slot-h" style="margin:0">トークスクリプト</div>${d.canEdit ? '<button type="button" class="kc-talk-edit" id="kcTalkEdit">編集</button>' : ""}</div>` +
+      (src ? `<div class="kc-talk-src">${src}</div>` : "") +
+      (d.script ? `<div class="kc-talk-body">${renderText(d.script)}</div>` : `<div class="note">まだ台本がありません。${d.canEdit ? "「編集」から登録できます。" : "クローザー・管理者に登録してもらってください。"}</div>`);
+    const eb = box.querySelector("#kcTalkEdit"); if (eb) eb.addEventListener("click", edit);
+  };
+  const edit = () => {
+    box.innerHTML = `<div class="kc-slot-h">トークスクリプトを編集</div>
+      <div class="note" style="margin:0 0 6px">「■」や「【】」で始まる行は見出しになります。<b>{会社名}</b> <b>{担当者}</b> <b>{自分}</b> は架電時に自動で差し込まれます。</div>
+      <textarea class="kc-talk-ta" id="kcTalkTa">${esc(d.script || "■ 受付\nお世話になっております。株式会社ネオキャリアの{自分}と申します。{担当者}様はいらっしゃいますでしょうか。\n\n■ 担当者\n{担当者}様、お忙しいところ恐れ入ります。{会社名}様の採用について…\n\n■ アポの打診\n一度15分ほど、オンラインでお時間いただけないでしょうか。\n\n■ 切り返し：予算がない\n費用のご検討は後で大丈夫です。まずは事例だけでも…")}</textarea>
+      <div class="kc-talk-acts">
+        ${d.groupId ? `<button type="button" class="btn" data-save="group">グループ「${esc(d.groupName || "")}」の台本として保存</button>` : ""}
+        <button type="button" class="btn ${d.groupId ? "ghost" : ""}" data-save="default">全体の台本として保存</button>
+        <button type="button" class="btn ghost" data-save="cancel">やめる</button>
+      </div><span class="rev-status" id="kcTalkSt"></span>`;
+    box.querySelectorAll("[data-save]").forEach((b) => b.addEventListener("click", async () => {
+      if (b.dataset.save === "cancel") { view(); return; }
+      const text = box.querySelector("#kcTalkTa").value;
+      const st = box.querySelector("#kcTalkSt"); st.textContent = "保存しています…";
+      try {
+        const r = await fetch("/api/calls/talk-script", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, groupId: b.dataset.save === "group" ? d.groupId : null }) });
+        const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "保存できませんでした");
+        d.script = text; d.source = b.dataset.save === "group" ? "group" : "default"; view();
+      } catch (e) { st.textContent = "失敗：" + (e.message || ""); }
+    }));
+  };
+  view();
+}
+
 // 記録モーダルの右に、クローザーの空き枠の候補を出すパネル
 // 記録モーダルの左に、会社情報を別パネルで出す（おすすめ日程パネルの左版）
-function openCompanyPanel(m, company) {
+function openCompanyPanel(m, company, x) {
   document.querySelectorAll(".kc-copanel").forEach((el) => el.remove());
   if (!company) return;
   const panel = document.createElement("div");
   panel.className = "kc-copanel";
-  panel.innerHTML = `<div class="kc-slot-h">会社情報</div><div class="kc-co-info" id="kcCoInfo"><div class="note">読み込んでいます…</div></div>`;
+  panel.innerHTML = `<div class="kc-slot-h">会社情報</div><div class="kc-co-info" id="kcCoInfo"><div class="note">読み込んでいます…</div></div>` +
+    `<div class="kc-talk" id="kcTalk"><div class="note">トークスクリプトを読み込んでいます…</div></div>`;
+  kcLoadTalk(panel.querySelector("#kcTalk"), x || { 会社名: company });
   document.body.appendChild(panel);
   const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { panel.remove(); obs.disconnect(); } });
   obs.observe(document.body, { childList: true, subtree: true });

@@ -6836,3 +6836,17 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 .kc-ah-tag { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin: 2px 4px 0 0; }
 .kc-ah-tag.gray { background: #eef1f0; color: #6b857b; } .kc-ah-tag.vio { background: #f1edfc; color: #6a48c4; } .kc-ah-tag.grn { background: #eaf7f1; color: #0d5b47; }
+
+/* 記録の窓の左：トークスクリプト */
+.kc-talk { margin-top: 14px; padding-top: 12px; border-top: 1px solid #e6efea; }
+.kc-talk-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.kc-talk-edit { border: 1px solid #cfe6da; background: #fff; color: #0d5b47; border-radius: 8px; padding: 3px 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.kc-talk-src { font-size: 11px; color: #6b857b; margin-bottom: 8px; }
+.kc-talk-body { font-size: 13px; line-height: 1.75; color: #1f3a31; }
+.kc-talk-h { margin: 10px 0 3px; font-weight: 800; color: #0d5b47; font-size: 12.5px; border-left: 3px solid #1d9e75; padding-left: 8px; }
+.kc-talk-h:first-child { margin-top: 0; }
+.kc-talk-p { padding-left: 11px; }
+.kc-talk-gap { height: 4px; }
+.kc-talk-ta { width: 100%; min-height: 320px; border: 1px solid #cfe6da; border-radius: 10px; padding: 9px 10px; font: inherit; font-size: 12.5px; line-height: 1.7; resize: vertical; }
+.kc-talk-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.kc-talk-acts .btn { padding: 7px 10px; font-size: 12px; }
