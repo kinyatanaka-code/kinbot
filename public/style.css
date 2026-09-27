@@ -6707,3 +6707,12 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 .kc-sum-filt { margin-left: 10px; color: #a9701c; font-size: 12.5px; font-weight: 600; }
 .kc-sum-filt b { color: #a9701c; }
+
+/* 列を選ぶ：ドラッグで並び替え */
+.kc-colrow { display: flex; align-items: center; gap: 6px; padding: 4px 2px; border-bottom: 0.5px solid #eef2f0; background: #fff; }
+.kc-colrow.dragging { opacity: .45; background: #eef8f3; }
+.kc-colgrip { cursor: grab; color: #9cb2a8; font-size: 13px; letter-spacing: -2px; padding: 0 6px; user-select: none; }
+.kc-colgrip:active { cursor: grabbing; }
+.kc-colmv { display: inline-flex; gap: 2px; }
+.kc-colmv button { border: 1px solid #e2ebe7; background: #fff; color: #6b857b; border-radius: 6px; width: 24px; height: 22px; font-size: 9px; cursor: pointer; }
+.kc-colmv button:hover { border-color: #1d9e75; color: #0d5b47; }

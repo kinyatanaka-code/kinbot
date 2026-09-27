@@ -853,21 +853,51 @@ function render() {
     let order = (cfg && Array.isArray(cfg.order)) ? cfg.order.filter((k) => allKeys.includes(k)) : [];
     for (const k of allKeys) if (!order.includes(k)) order.push(k);
     const inner =
-      `<p class="note" style="margin:0 0 8px">かける一覧に出す列を選べます（この端末に保存）。並び順は、一覧の見出しをドラッグして変えられます。</p>` +
-      `<div style="max-height:50vh;overflow:auto">` +
+      `<p class="note" style="margin:0 0 8px">かける一覧に出す列を選べます（この端末に保存）。左の <b>⋮⋮</b> をつかんで上下にドラッグすると、並び順を変えられます（上ほど左に出ます）。</p>` +
+      `<div class="kc-colsort" id="kcColSort" style="max-height:50vh;overflow:auto">` +
       order.map((k) =>
-        `<label class="ks-check" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid #eef2f0">
-           <input type="checkbox" class="kc-colshow" value="${esc(k)}"${hidden.has(k) ? "" : " checked"}/>
-           <span style="flex:1;font-size:13px">${esc(k)}</span>
-         </label>`).join("") +
+        `<div class="kc-colrow" draggable="true" data-k="${esc(k)}">
+           <span class="kc-colgrip" title="ドラッグで並び替え">⋮⋮</span>
+           <label class="ks-check" style="display:flex;align-items:center;gap:8px;flex:1;margin:0">
+             <input type="checkbox" class="kc-colshow" value="${esc(k)}"${hidden.has(k) ? "" : " checked"}/>
+             <span style="flex:1;font-size:13px">${esc(k)}</span>
+           </label>
+           <span class="kc-colmv"><button type="button" data-mv="-1" title="上へ">▲</button><button type="button" data-mv="1" title="下へ">▼</button></span>
+         </div>`).join("") +
       `</div>` +
       `<div class="modal-actions" style="margin-top:12px"><button type="button" class="btn" id="kcColSave">保存</button>` +
       `<button type="button" class="btn ghost" id="kcColReset">既定に戻す</button></div>`;
     const m = openModal("列を選ぶ", inner);
+    // ドラッグで並び替え（▲▼でも1つずつ動かせる）
+    const wrap = m.el.querySelector("#kcColSort");
+    let dragEl = null;
+    wrap.addEventListener("dragstart", (e) => { dragEl = e.target.closest(".kc-colrow"); if (dragEl) { dragEl.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", dragEl.dataset.k); } catch {} } });
+    wrap.addEventListener("dragend", () => { if (dragEl) dragEl.classList.remove("dragging"); dragEl = null; });
+    wrap.addEventListener("dragover", (e) => {
+      if (!dragEl) return;
+      e.preventDefault();
+      const over = e.target.closest(".kc-colrow");
+      if (!over || over === dragEl) return;
+      const r = over.getBoundingClientRect();
+      wrap.insertBefore(dragEl, (e.clientY - r.top) > r.height / 2 ? over.nextSibling : over);
+    });
+    wrap.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-mv]"); if (!b) return;
+      e.preventDefault();
+      const row = b.closest(".kc-colrow");
+      if (b.dataset.mv === "-1" && row.previousElementSibling) wrap.insertBefore(row, row.previousElementSibling);
+      if (b.dataset.mv === "1" && row.nextElementSibling) wrap.insertBefore(row.nextElementSibling, row);
+    });
     m.el.querySelector("#kcColSave").addEventListener("click", () => {
-      const boxes = [...m.el.querySelectorAll(".kc-colshow")];
-      const hid = order.filter((k, i) => boxes[i] && !boxes[i].checked);
-      saveExtraCols(order, hid); m.close(); render();
+      const rowsEl = [...wrap.querySelectorAll(".kc-colrow")];
+      const newOrder = rowsEl.map((r) => r.dataset.k);
+      const hid = rowsEl.filter((r) => !r.querySelector(".kc-colshow").checked).map((r) => r.dataset.k);
+      // このリストに無い列の並び・非表示設定は残す
+      const prevOrder = (cfg && Array.isArray(cfg.order)) ? cfg.order : [];
+      const prevHid = (cfg && Array.isArray(cfg.hidden)) ? cfg.hidden : [];
+      const keep = prevOrder.filter((k) => !newOrder.includes(k));
+      const keepHid = prevHid.filter((k) => !newOrder.includes(k));
+      saveExtraCols([...newOrder, ...keep], [...hid, ...keepHid]); m.close(); render();
     });
     m.el.querySelector("#kcColReset").addEventListener("click", () => {
       try { localStorage.removeItem("kcExtraCols"); } catch {}
