@@ -1078,3 +1078,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28b かける表：履歴列を最終ステータスの前へ。履歴セル .kc-histc＝.kc-lastmemo（最終コメント 2行clamp, title全文）＋件数ボタン。db の架電先SELECT 7か所に 最終メモ（call_logs の直近の空でない memo）、index items 最終コメント(300字)。記録後 x.最終コメント/最終日時 を更新し updateRow で差し替え。SF側の活動コメントは未反映（kincall記録のみ）。版20260928b。
 
 - 2026-09-28 BUILD_TAG=2026-09-28c かける列順：メール→最終架電日→最終ステータス→履歴(コメント+件数)→記録→資料送付。.kc-histc 幅180px(150〜190)、.kc-lastmemo 折り返し＋2行 line-clamp。版20260928c。
+
+- 2026-09-28 BUILD_TAG=2026-09-28d かけるピッカーの特別項目：crosslost-now/archive/recycle は kinya.tanaka@neo-career.co.jp のみ（kcIsTanaka()＝/api/me を1回だけ取る promise）。他は nurture のみ。保存済み選択の復元は実在 option だけ。サーバ側の list=archive 等は制限していない。版20260928d。

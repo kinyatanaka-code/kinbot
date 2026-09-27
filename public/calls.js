@@ -77,12 +77,15 @@ async function loadLists() {
     const sel = $("clList");
     const keep = sel.value || savedListId();   // リロード時は、前回選んでいたリストに戻す
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
-    const specialOpt = `<option value="crosslost-now">過去リスト（今月かける）</option><option value="nurture">ナーチャリング（まとめ）</option><option value="archive">アーカイブ（まとめ）</option><option value="recycle">リサイクル（まとめ）</option>`;
+    // 過去リスト・アーカイブ・リサイクルのまとめは田中欽也だけに出す（ほかの人はナーチャリングのまとめだけ）
+    const tanaka = await kcIsTanaka();
+    const specialOpt = (tanaka ? `<option value="crosslost-now">過去リスト（今月かける）</option>` : "") + `<option value="nurture">ナーチャリング（まとめ）</option>` +
+      (tanaka ? `<option value="archive">アーカイブ（まとめ）</option><option value="recycle">リサイクル（まとめ）</option>` : "");
     sel.innerHTML = allOpt + (items.length
       ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !n.startsWith("【ナーチャリング】") && !x.hidden; })
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
-    if (keep && (["all", "archive", "recycle", "nurture", "crosslost-now"].includes(keep) || items.some((x) => String(x.id) === keep))) sel.value = keep;
+    if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
     _clCounts = { all: items.reduce((s, x) => s + Number(x.残り || 0), 0) };
     for (const x of items) _clCounts[String(x.id)] = Number(x.残り || 0);
     renderClPills();
@@ -145,6 +148,11 @@ async function loadTable() {
 // 絞り込みと並べ替えの状態
 let canFindAll = false;              // 全メンバーのリストを横断して探せる人（管理者）
 let _isTanaka = false;               // 田中欽也（全てのリードで全メンバー横断・kcAllHitは重複するので出さない）
+let _meP = null;   // /api/me を1回だけ取りに行く
+function kcIsTanaka() {
+  if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null);
+  return _meP.then((me) => !!(me && String(me.username || "").toLowerCase() === "kinya.tanaka@neo-career.co.jp"));
+}
 const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {}, range: {} };   // range: 日付の列の範囲 {列名: {from, to, empty}}
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
