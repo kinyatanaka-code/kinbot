@@ -133,6 +133,7 @@ async function loadTable() {
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
+    _pastLost = !!d.pastLost;   // 過去失注のリスト（DOC過去失注グループ）は見せ方を変える
     _sfDisconnected = !!d["SF未接続"];
     render();
     loadToday();
@@ -241,9 +242,20 @@ function 状況(x) { return String((x && x["最終ステータス"]) || ""); }
 // ユーザー（クロス受注＝既存顧客）。かける対象から外す。
 function isUser(x) { return /ユーザー/.test(状況(x)); }
 // 直近失注（クロス失注）。かける対象から外す。
-function isLost(x) { return /失注/.test(状況(x)); }
+// 過去失注のリストでは、失注は「かける対象」（対象外にしない）
+let _pastLost = false;
+function isLost(x) { return !_pastLost && /失注/.test(状況(x)); }
+// 初回商談日（なければ初回アポ設定日）が今日以降か＝これから商談がある
+function hasUpcomingMeeting(x) {
+  const raw = recruitVal(x, /初回商談日|初回商談予定日/) || recruitVal(x, /初回アポ設定日|初回アポ日/) || (x && (x["初回商談日"] || x["初回アポ設定日"])) || "";
+  const d = normDateLoose(raw);
+  if (!d) return false;
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  return d >= today;
+}
 // アポ獲得済みかどうか（最終ステータスに「アポ獲得」が入っているか。ユーザーは除く）
-function isApoDone(x) { return /アポ獲得/.test(状況(x)) && !isUser(x); }
+// 過去失注のリストは、初回商談日が今日以降の会社だけを「アポ獲得」とみなす（過去のアポは、かける対象）
+function isApoDone(x) { return !isUser(x) && (_pastLost ? hasUpcomingMeeting(x) : /アポ獲得/.test(状況(x))); }
 // かける対象から外すもの（アポ獲得済み・ユーザー・失注）。まとめて下に沈める／隠せる。
 // 使われていない番号（不通・現アナ・欠番）。かける対象から外して自動でフラグ化する。
 function isDeadNumber(x) { return /使われて|使わない|現在使わ|現アナ|欠番|不通|【使われていない番号】/.test(状況(x)); }

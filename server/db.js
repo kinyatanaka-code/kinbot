@@ -4257,6 +4257,16 @@ export async function moveTargetsKeepAssignee(ids, listId, member) {
   } catch (e) { console.error("[db] moveTargetsKeepAssignee", e.message); return 0; }
 }
 
+// 「過去失注」グループのリストか（DOC過去失注など）。かけるの見せ方・自動移動を変える。
+export async function isPastLostList(listId) {
+  if (!pool || !listId) return false;
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM call_lists l JOIN call_list_groups g ON g.id = l.group_id WHERE l.id = $1 AND g.name LIKE '%過去失注%' LIMIT 1`, [listId]);
+    return !!rows.length;
+  } catch { return false; }
+}
+
 // 有効なリストにある架電先の id と会社名（SFの会社名と突き合わせるため）
 export async function listActiveTargetCompanies() {
   if (!pool) return [];
@@ -8395,6 +8405,7 @@ export async function listRankRecycleDue() {
         WHERE t.done = false AND t.absent_rank = 'C' AND t.absent_rank_at IS NOT NULL
           AND t.absent_rank_at <= now() - INTERVAL '1 month'
           AND COALESCE(l.kind,'') <> 'nurture' AND l.name NOT LIKE '【ナーチャリング】%'
+          AND NOT EXISTS (SELECT 1 FROM call_list_groups pg WHERE pg.id = l.group_id AND pg.name LIKE '%過去失注%')
         LIMIT 500`);
     return rows;
   } catch (e) { console.error("[db] listRankRecycleDue", e.message); return []; }
@@ -9218,7 +9229,8 @@ const NURTURE_WHERE = `
     OR COALESCE(t.stage,'') ILIKE '%営業フォロー%' )
   AND COALESCE(t.stage,'')  !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
   AND COALESCE(t.status,'') !~ 'アポ獲得|使われて|現在使わ|現アナ|欠番|不通'
-`;
+  AND NOT EXISTS (SELECT 1 FROM call_list_groups pg WHERE pg.id = l.group_id AND pg.name LIKE '%過去失注%')
+`;   // 「DOC過去失注」などのグループのリストは、ジャッジでもナーチャリングへ回さない
 // メンバーごとのナーチャリング件数（担当＝assigned_to、無ければリストの持ち主）
 export async function nurtureCountsByMember() {
   if (!pool) return [];

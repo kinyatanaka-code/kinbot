@@ -249,6 +249,7 @@ import {
   findUnusedZoomSummary,
   nurtureSummary,
   listActiveTargetCompanies,
+  isPastLostList,
   findOrCreateNamedList,
   moveTargetsKeepAssignee,
   assignTargetsTo,
@@ -9848,6 +9849,7 @@ app.get("/api/calls/targets", async (req, res) => {
     const rawEdit = req.query.edit === "1";   // 編集テーブル用：打ち切らず全件・ステージ除外なし
     let rows;
     let 復活リストか = false;
+    let 過去失注リストか = false;
     // かける画面の「過去リスト（今月かける）」＝自分担当のクロス失注。次回アクション日での絞り込みは後段で行う。
     const clNow = listParam === "crosslost-now";
     if (clNow) listParam = "crosslost";
@@ -9895,6 +9897,7 @@ app.get("/api/calls/targets", async (req, res) => {
       const listId = parseInt(listParam, 10);
       if (!listId) return res.status(400).json({ error: "リストを選んでください" });
       復活リストか = await isRevivalList(listId).catch(() => false);
+      過去失注リストか = await isPastLostList(listId).catch(() => false);
       rows = await listCallTargets(listId, {
         q: String(req.query.q || ""),
         limit: Math.min(rawEdit ? 20000 : 2000, parseInt(req.query.limit, 10) || (rawEdit ? 20000 : 2000)),
@@ -9906,6 +9909,10 @@ app.get("/api/calls/targets", async (req, res) => {
     // ただしアーカイブ／リサイクルのカード、および「リサイクル復活リスト」の中身は出す。
     if (rawEdit) {
       // 編集テーブルでは全件そのまま出す（カードの「全」の件数と一致させる）
+    } else if (過去失注リストか) {
+      // 過去失注のリスト：ステージは全部見せる（ユーザーと使われていない番号だけ出さない）
+      const 死番 = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
+      rows = rows.filter((r) => !/ユーザー/.test(String(r.stage || "")) && !死番.test(String(r.status || "")) && !死番.test(String(r.stage || "")));
     } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && listParam !== "nurture-week" && !復活リストか) {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
@@ -10063,6 +10070,7 @@ app.get("/api/calls/targets", async (req, res) => {
     }
     res.json({
       ok: true,
+      pastLost: !!過去失注リストか,   // 過去失注のリスト：画面側で失注を「対象外」にしない等
       件数: rows.length,
       残り: rows.filter((r) => !r.done).length,
       結果の種類: CALL_RESULTS.map((x) => x.key),
@@ -11574,7 +11582,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (/不在/.test(result) && b.absentRank) await setCallTargetAbsentRank(id, b.absentRank).catch(() => {});
     let 自動ステージ = null;
     if (/現在使われて|現アナ|欠番|不通|使われていない番号/.test(result)) 自動ステージ = ARCHIVE_STAGE;  // 現在使われていない→アーカイブ
-    else if (/お断り/.test(result)) 自動ステージ = RECYCLE_STAGE;
+    else if (/お断り/.test(result) && !(await isPastLostList(t.list_id).catch(() => false))) 自動ステージ = RECYCLE_STAGE;   // 過去失注のリストはリサイクルへ回さない
     else if (/営業フォロー/.test(result)) 自動ステージ = JUDGE_STAGE;
     // 担当者不在ランクCだけがリサイクルへ移る（A・Bは何回不在でも移動しない）。移動はスケジューラで期限（1ヶ月）が来たときに行う。
     const finalStage = 自動ステージ || 次のステージ;
@@ -21145,7 +21153,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-27b リスト管理で非表示にしたリストも見えるように。メンバー／グループの詳細に、表示中のリストのあとへ薄い「非表示中」カードで並べ、⋯メニューから「表示に戻す」。件数（残など）は表示中のリストだけで数える。かける画面には従来どおり出さない。lists-all に hidden を追加。";
+const BUILD_TAG = "2026-09-27c 「DOC過去失注」など名前に「過去失注」を含むグループのリストは、かけるの仕様を別に。ステージは全部表示（ユーザーと使われていない番号だけ除外）、失注は対象外にしない、アポ獲得は初回商談日（無ければ初回アポ設定日）が今日以降の会社だけ。ユーザーは他と同じく対象外。お断りでもリサイクルにしない・担当者不在Cの1ヶ月後リサイクル移動もしない、ジャッジ/営業フォローでもナーチャリングへ回さない（NURTURE_WHERE から除外）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
