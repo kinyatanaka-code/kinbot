@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260927e" />
+    <link rel="stylesheet" href="style.css?v=20260927f" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -287,7 +287,15 @@
             </div>
 
             <div class="ls-block" data-ls-pane="newmanage">
-              <div id="nmCards">
+              <div class="hub-tabs" id="hubTabs">
+                <button type="button" class="hub-tab on" data-hub="ov">📊 概要</button>
+                <button type="button" class="hub-tab" data-hub="ls">📋 リスト</button>
+                <button type="button" class="hub-tab" data-hub="rc">♻ リサイクル <span class="hub-b" id="hubBRc"></span></button>
+                <button type="button" class="hub-tab" data-hub="nu">🌱 ナーチャリング <span class="hub-b warn" id="hubBNu"></span></button>
+                <button type="button" class="hub-tab" data-hub="pl">🗂 過去リスト <span class="hub-b" id="hubBPl"></span></button>
+              </div>
+              <div id="hubPane"><div class="note">読み込んでいます…</div></div>
+              <div id="nmCards" hidden>
               <p class="note">メンバー別／グループ別にリストを見て、その場で<b>非表示</b>にしたり<b>別の人へ割り振り</b>できます。<br>
               <b>もとになるSalesforceのレポートは変わりません。</b>非表示にしても、Salesforce側のリードはそのまま残ります。</p>
               <div class="nm-head">
@@ -418,9 +426,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260927e"></script>
-    <script src="calls.js?v=20260927e"></script>
-    <script src="nav.js?v=20260927e"></script>
+    <script src="sf-data.js?v=20260927f"></script>
+    <script src="calls.js?v=20260927f"></script>
+    <script src="nav.js?v=20260927f"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

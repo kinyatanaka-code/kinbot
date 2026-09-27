@@ -4257,6 +4257,64 @@ export async function moveTargetsKeepAssignee(ids, listId, member) {
   } catch (e) { console.error("[db] moveTargetsKeepAssignee", e.message); return 0; }
 }
 
+// ===== リスト管理ハブ用 =====
+// 期間内の架電数（かけた人ごと）
+export async function callCountsSince(sinceIso) {
+  const out = {};
+  if (!pool) return out;
+  try {
+    const { rows } = await pool.query(`SELECT lower(coalesce(caller,'')) AS who, count(*)::int AS n FROM call_logs WHERE at >= $1::timestamptz GROUP BY 1`, [sinceIso]);
+    for (const r of rows) if (r.who) out[r.who] = r.n;
+  } catch (e) { console.error("[db] callCountsSince", e.message); }
+  return out;
+}
+// リサイクルの候補（有効なリスト・復活リスト以外・過去失注グループ以外）。入った日＝最後の架電日（無ければ作成日）
+export async function listRecycleCandidates() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company, t.person, t.phone, t.reject_tag, t.temperature, t.assigned_to, l.owner AS list_owner, l.name AS list_name,
+              COALESCE((SELECT max(cl.at) FROM call_logs cl WHERE cl.target_id = t.id), t.created_at) AS since
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
+          AND NOT COALESCE(l.closed,false) AND COALESCE(l.kind,'') <> 'recycle_revival'
+          AND NOT EXISTS (SELECT 1 FROM call_list_groups pg WHERE pg.id = l.group_id AND pg.name LIKE '%過去失注%')
+        LIMIT 20000`);
+    return rows;
+  } catch (e) { console.error("[db] listRecycleCandidates", e.message); return []; }
+}
+// 今週の復活リストへ移す：その人の復活リスト（無ければ作る）へ、担当をその人にして、未済みに戻す
+export async function moveToWeeklyRevival({ email, name, ids, createdBy }) {
+  if (!pool || !email || !ids || !ids.length) return 0;
+  const nums = [...new Set(ids.map((x) => parseInt(x, 10)).filter(Boolean))];
+  try {
+    let { rows } = await pool.query(`SELECT id FROM call_lists WHERE kind='recycle_revival' AND lower(owner)=lower($1) AND name=$2 AND NOT COALESCE(closed,false) LIMIT 1`, [email, name]);
+    let listId = rows[0] && rows[0].id;
+    if (!listId) {
+      const ins = await pool.query(`INSERT INTO call_lists (name, owner, created_by, kind) VALUES ($1,$2,$3,'recycle_revival') RETURNING id`, [name.slice(0, 120), String(email).toLowerCase(), createdBy || null]);
+      listId = ins.rows[0].id;
+    }
+    const r = await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3, done = false WHERE id = ANY($1::int[])`, [nums, listId, String(email).toLowerCase()]);
+    return r.rowCount;
+  } catch (e) { console.error("[db] moveToWeeklyRevival", e.message); return 0; }
+}
+// 架電記録（対象の架電先ぶん）
+export async function callLogsForTargets(ids) {
+  if (!pool || !ids || !ids.length) return [];
+  try {
+    const { rows } = await pool.query(`SELECT target_id, at, result FROM call_logs WHERE target_id = ANY($1::int[])`, [[...new Set(ids.map(Number).filter(Boolean))]]);
+    return rows;
+  } catch (e) { console.error("[db] callLogsForTargets", e.message); return []; }
+}
+// 期限切れのナーチャリングを移したとき、次回架電を今にそろえる
+export async function bumpLateNextCall(ids) {
+  if (!pool || !ids || !ids.length) return 0;
+  try {
+    const r = await pool.query(`UPDATE call_targets SET next_call_at = now() WHERE id = ANY($1::int[]) AND next_call_at IS NOT NULL AND next_call_at < now()`, [[...new Set(ids.map(Number).filter(Boolean))]]);
+    return r.rowCount;
+  } catch (e) { console.error("[db] bumpLateNextCall", e.message); return 0; }
+}
+
 // 「過去失注」グループのリストか（DOC過去失注など）。かけるの見せ方・自動移動を変える。
 export async function isPastLostList(listId) {
   if (!pool || !listId) return false;

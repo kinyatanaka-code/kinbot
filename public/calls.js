@@ -4705,6 +4705,249 @@ async function nmLoad() {
   body.innerHTML = '<div class="note">読み込んでいます…</div>';
   try { await nmFetch(); nmRenderRoot(); }
   catch (e) { body.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
+  hubAfterLoad();
+}
+
+// ===== リスト管理ハブ（概要／リスト／リサイクル／ナーチャリング／過去リスト） =====
+let _hubTab = "ov", _hubInit = false, _hubSum = null;
+const hubMembers = () => (_nmMembers || []).filter((m) => !NM_EX.includes(String(m.email || "").toLowerCase()));
+const hubNm = (e) => nmMemberName(String(e || "").toLowerCase()) || e || "（未割り当て）";
+const hubMd = (v) => { const d = new Date(v); return isNaN(d) ? "" : `${d.getMonth() + 1}/${d.getDate()}`; };
+function hubAfterLoad() {
+  if (!_hubInit) {
+    _hubInit = true;
+    const bar = $("hubTabs");
+    if (bar) bar.addEventListener("click", (e) => { const b = e.target.closest(".hub-tab"); if (b) hubShow(b.dataset.hub); });
+  }
+  hubShow(_hubTab);
+  hubLoadSummary();
+}
+function hubShow(tab) {
+  _hubTab = tab;
+  document.querySelectorAll("#hubTabs .hub-tab").forEach((b) => b.classList.toggle("on", b.dataset.hub === tab));
+  const pane = $("hubPane"), cards = $("nmCards"), host = $("nmEditHost");
+  if (tab === "ls") {
+    if (pane) pane.hidden = true;
+    if (host && !host.hidden) return;   // 編集中はそのまま
+    if (cards) cards.hidden = false;
+    return;
+  }
+  if (host && !host.hidden) nmExitHost();
+  if (cards) cards.hidden = true;
+  if (pane) { pane.hidden = false; pane.innerHTML = '<div class="note">読み込んでいます…</div>'; }
+  if (tab === "ov") hubRenderOverview();
+  else if (tab === "rc") hubRenderRecycle(0);
+  else if (tab === "nu") hubRenderNurture();
+  else if (tab === "pl") hubRenderPast();
+}
+async function hubLoadSummary() {
+  try {
+    const d = await (await fetch("/api/calls/hub/summary?_=" + Date.now(), { cache: "no-store" })).json();
+    if (!d.ok) return;
+    _hubSum = d;
+    const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+    set("hubBRc", d.recycle ? d.recycle.thisWeek : "");
+    set("hubBNu", d.nurture && d.nurture.late ? `期限切れ ${d.nurture.late}` : "");
+    set("hubBPl", d.past && d.past.total ? Math.round(d.past.called / d.past.total * 100) + "%" : "");
+    if (_hubTab === "ov") hubRenderOverview();
+  } catch {}
+}
+
+// --- 概要
+function hubRenderOverview() {
+  const pane = $("hubPane"); if (!pane || _hubTab !== "ov") return;
+  const d = _hubSum;
+  const zanOf = (e) => (_nmLists || []).filter((x) => String(x.owner || "").toLowerCase() === e).reduce((a, x) => a + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
+  const totalZan = (_nmLists || []).filter((x) => String(x.owner || "").trim()).reduce((a, x) => a + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
+  const weekCalls = d ? Object.values(d.weekCalls || {}).reduce((a, n) => a + n, 0) : 0;
+  const nu = (d && d.nurture) || { week: 0, late: 0, byMember: {} };
+  const past = d && d.past;
+  const pct = past && past.total ? Math.round(past.called / past.total * 100) : 0;
+  const pastBy = {};
+  if (past && past.byOwner) for (const [k, v] of Object.entries(past.byOwner)) pastBy[String(k).replace(/[\s　]/g, "")] = v;
+  const kpi = (cc, go, t, v, unit, dsc, al) => `<div class="hub-kpi" style="--cc:${cc}" data-go="${go}"><div class="t">${t}</div><div class="v">${v}<small>${unit}</small></div><div class="d">${dsc}</div>${al || ""}</div>`;
+  const rows = hubMembers().map((m) => {
+    const e = String(m.email || "").toLowerCase();
+    const nb = nu.byMember[e] || { week: 0, late: 0 };
+    const pb = pastBy[String(m.name || "").replace(/[\s　]/g, "")];
+    return `<tr${nb.late ? ' class="late"' : ""} data-e="${esc(e)}"><td><b>${esc(m.name || e)}</b></td><td class="r">${zanOf(e).toLocaleString()}</td><td class="r">${Number((d && d.weekCalls && d.weekCalls[e]) || 0).toLocaleString()}</td><td class="r">${nb.week}</td><td class="r">${nb.late ? `<span class="hub-pill red">${nb.late}</span>` : '<span class="dim">0</span>'}</td><td class="r">${pb && pb.total ? Math.round(pb.called / pb.total * 100) + "%" : '<span class="dim">—</span>'}</td></tr>`;
+  }).join("");
+  pane.innerHTML = `<div class="hub-grid4">
+      ${kpi("#1d9e75", "ls", "📋 かける残り（全メンバー）", totalZan.toLocaleString(), "件", `今週の架電 ${weekCalls.toLocaleString()}件`)}
+      ${kpi("#7b57d6", "rc", "♻ 今週復活させる", d && d.recycle ? d.recycle.thisWeek.toLocaleString() : "…", "件", "復活目安が今週に来たもの（前回と別のメンバーへ）")}
+      ${kpi("#e0912b", "nu", "🌱 ナーチャリング 今日から7日", nu.week.toLocaleString(), "件", "次回架電日が7日以内", nu.late ? `<span class="hub-alert red">期限切れ ${nu.late}件</span>` : '<span class="hub-alert green">期限切れなし</span>')}
+      ${kpi("#2f86c9", "pl", "🗂 過去リスト アプローチ率", past ? pct : "…", "%", past ? `${past.total.toLocaleString()}件中 ${past.called.toLocaleString()}件にアプローチ済み` : "SFと突き合わせています…", past ? `<span class="hub-alert green">アポ再獲得 ${past.apo}件</span>` : "")}
+    </div>
+    <div class="hub-card" style="margin-top:14px"><div class="hub-h">メンバー別の状況 <span class="note">赤＝ナーチャリングの期限切れがある人。行を押すとその人のリストへ</span></div>
+      <div style="overflow-x:auto"><table class="hub-tbl"><tr><th>メンバー</th><th class="r">かける残り</th><th class="r">今週の架電</th><th class="r">ナーチャ7日</th><th class="r">期限切れ</th><th class="r">過去リスト アプローチ</th></tr>${rows}</table></div></div>`;
+  pane.querySelectorAll(".hub-kpi").forEach((k) => k.addEventListener("click", () => hubShow(k.dataset.go)));
+  pane.querySelectorAll("tr[data-e]").forEach((tr) => tr.addEventListener("click", () => {
+    _nmSel = { type: "owner", key: tr.dataset.e, name: hubNm(tr.dataset.e) }; _nmChosen = new Set();
+    hubShow("ls"); nmRenderDetail();
+  }));
+}
+
+// --- リサイクル
+let _hubRc = { week: 0, items: [], buckets: [], pick: new Set(), temp: "" };
+async function hubRenderRecycle(week) {
+  const pane = $("hubPane"); if (!pane) return;
+  _hubRc.week = week; _hubRc.pick = new Set();
+  try {
+    const d = await (await fetch(`/api/calls/hub/recycle?week=${week}&_=${Date.now()}`, { cache: "no-store" })).json();
+    if (!d.ok) throw new Error(d.error || "");
+    _hubRc.items = d.items || []; _hubRc.buckets = d.buckets || [];
+  } catch (e) { pane.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
+  hubRcDraw();
+}
+function hubRcDraw() {
+  const pane = $("hubPane"); if (!pane || _hubTab !== "rc") return;
+  const WK = ["今週", "来週", "再来週", "3週後", "それ以降"];
+  const xs = _hubRc.items.filter((x) => !_hubRc.temp || x.temp === _hubRc.temp);
+  const tcls = { A: "red", B: "amb", C: "blu" };
+  pane.innerHTML = `<div class="hub-card">
+    <div class="hub-h">♻ 復活のタイミング <span class="note">断り理由ごとの「復活までの目安（週）」から算出（期限を過ぎたものは今週に入ります）</span></div>
+    <div class="hub-tl">${WK.map((l, i) => { const b = _hubRc.buckets[i] || { n: 0, A: 0, B: 0, C: 0 }; return `<button type="button" class="hub-tlc${i === _hubRc.week ? " on" : ""}" data-w="${i}"><div class="l">${l}</div><div class="n">${b.n.toLocaleString()}</div><div class="r"><span class="ra">A ${b.A}</span><span class="rb">B ${b.B}</span><span class="rc">C ${b.C}</span></div></button>`; }).join("")}</div>
+    <div class="hub-bar"><label><input type="checkbox" id="hubRcAll"> すべて選ぶ</label><span>選択 <b id="hubRcN">0</b> 件</span>
+      <select id="hubRcTemp"><option value="">温度：すべて</option>${["A", "B", "C"].map((t) => `<option${_hubRc.temp === t ? " selected" : ""}>${t}</option>`).join("")}</select>
+      <span style="flex:1"></span><button type="button" class="btn" id="hubRcMake" disabled>選んだ分で「復活リスト」を作る</button></div>
+    <div class="hub-scroll"><table class="hub-tbl"><tr><th></th><th>温度</th><th>会社名</th><th>断り理由</th><th>リサイクルに入った</th><th>復活目安</th><th>前回の担当</th><th>次回の担当（ルール）</th><th>時間帯</th></tr>
+      ${xs.slice(0, 1500).map((x) => `<tr><td><input type="checkbox" class="hub-rcck" data-id="${x.id}"></td><td><span class="hub-pill ${tcls[x.temp] || ""}">${esc(x.temp)}</span></td><td><b>${esc(x.company)}</b></td><td>${esc(x.tag || "—")}</td><td>${hubMd(x.since)}</td><td>${hubMd(x.due)}</td><td>${esc(hubNm(x.prev))}</td><td>${esc(x.next || "—")}</td><td>${esc(x.slot || "")}</td></tr>`).join("") || '<tr><td colspan="9" class="dim" style="padding:18px">この週の候補はありません</td></tr>'}</table></div>
+    <div id="hubRcAssign"></div></div>`;
+  pane.querySelectorAll(".hub-tlc").forEach((b) => b.addEventListener("click", () => hubRenderRecycle(+b.dataset.w)));
+  $("hubRcTemp").addEventListener("change", (e) => { _hubRc.temp = e.target.value; _hubRc.pick = new Set(); hubRcDraw(); });
+  const sync = () => { $("hubRcN").textContent = _hubRc.pick.size; $("hubRcMake").disabled = !_hubRc.pick.size; };
+  pane.querySelectorAll(".hub-rcck").forEach((c) => c.addEventListener("change", () => { c.checked ? _hubRc.pick.add(+c.dataset.id) : _hubRc.pick.delete(+c.dataset.id); sync(); }));
+  $("hubRcAll").addEventListener("change", (e) => { pane.querySelectorAll(".hub-rcck").forEach((c) => { c.checked = e.target.checked; c.checked ? _hubRc.pick.add(+c.dataset.id) : _hubRc.pick.delete(+c.dataset.id); }); sync(); });
+  $("hubRcMake").addEventListener("click", hubRcAssignPanel);
+}
+function hubRcAssignPanel() {
+  const box = $("hubRcAssign"); if (!box) return;
+  const sel = _hubRc.items.filter((x) => _hubRc.pick.has(x.id));
+  const ms = hubMembers();
+  box.innerHTML = `<div class="hub-h" style="margin-top:14px">割り振り <span class="note">人ごとの件数を入れる（空欄は0）。復活は前回と別のメンバーへ＝前回の担当者には入りません</span></div>
+    <div class="hub-assign">${ms.map((m) => { const e = String(m.email || "").toLowerCase(); const own = sel.filter((x) => x.prev === e).length; return `<div class="hub-am"><div class="nm">${esc(m.name || e)}</div>${own ? `<div class="ld warn">前回担当の ${own}件は入りません</div>` : '<div class="ld">&nbsp;</div>'}<input type="number" min="0" class="hub-amn" data-e="${esc(e)}" placeholder="0"> 件</div>`; }).join("")}</div>
+    <div class="hub-bar" style="margin-top:10px"><button type="button" class="btn ghost" id="hubRcEven">均等に入れる</button><span id="hubRcSum" class="dim"></span><span style="flex:1"></span><button type="button" class="btn" id="hubRcGo">この割り振りで復活リストを作る</button><span class="rev-status" id="hubRcSt"></span></div>`;
+  const ins = [...box.querySelectorAll(".hub-amn")];
+  const sum = () => { const t = ins.reduce((a, i) => a + (+i.value || 0), 0); $("hubRcSum").innerHTML = `割り振り ${t} / 選択 ${sel.length} 件${t !== sel.length ? ' <b style="color:#c03e56">（数が合っていません）</b>' : ""}`; };
+  ins.forEach((i) => i.addEventListener("input", sum)); sum();
+  $("hubRcEven").addEventListener("click", () => { const n = sel.length; ins.forEach((i, k) => { i.value = Math.floor(n / ins.length) + (k < n % ins.length ? 1 : 0); }); sum(); });
+  $("hubRcGo").addEventListener("click", async () => {
+    // 件数どおりに、前回の担当者以外から順に取っていく
+    const pool = sel.slice(); const assign = []; let short = 0;
+    for (const i of ins) {
+      let n = +i.value || 0; if (!n) continue;
+      const e = i.dataset.e, ids = [];
+      for (let k = 0; k < pool.length && n > 0;) { if (pool[k].prev !== e) { ids.push(pool[k].id); pool.splice(k, 1); n--; } else k++; }
+      short += n;
+      if (ids.length) assign.push({ email: e, ids });
+    }
+    if (!assign.length) { $("hubRcSt").textContent = "件数を入れてください"; return; }
+    if (short && !confirm(`前回の担当者と重なるため、${short}件は割り振れませんでした。残りで作りますか？`)) return;
+    $("hubRcSt").textContent = "作っています…";
+    try {
+      const r = await fetch("/api/calls/hub/recycle/make", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ assign }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) throw new Error(d.error || "作れませんでした");
+      await nmFetch().catch(() => {});
+      hubLoadSummary();
+      await hubRenderRecycle(_hubRc.week);
+      const st = $("hubPane"); if (st) st.insertAdjacentHTML("afterbegin", `<div class="hub-done">✓ ${d.moved}件を「${esc(d.name)}」として割り振りました（それぞれのかける画面に出ます）</div>`);
+    } catch (e) { $("hubRcSt").textContent = "失敗：" + (e.message || ""); }
+  });
+  box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// --- ナーチャリング
+let _hubNu = { items: [], todayStart: "", day: "all", who: "", pick: new Set() };
+async function hubRenderNurture() {
+  const pane = $("hubPane"); if (!pane) return;
+  try {
+    const d = await (await fetch("/api/calls/hub/nurture?_=" + Date.now(), { cache: "no-store" })).json();
+    if (!d.ok) throw new Error(d.error || "");
+    _hubNu.items = d.items || []; _hubNu.todayStart = d.todayStart; _hubNu.pick = new Set();
+  } catch (e) { pane.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
+  hubNuDraw();
+}
+function hubNuDraw() {
+  const pane = $("hubPane"); if (!pane || _hubTab !== "nu") return;
+  const t0 = new Date(_hubNu.todayStart).getTime(), DAY = 86400000, WD = "日月火水木金土";
+  const dayIdx = (x) => { const t = new Date(x.next).getTime(); return t < t0 ? -1 : Math.floor((t - t0) / DAY); };
+  const cnt = (i) => _hubNu.items.filter((x) => dayIdx(x) === i).length;
+  let xs = _hubNu.items.filter((x) => _hubNu.day === "all" ? true : dayIdx(x) === _hubNu.day);
+  if (_hubNu.who) xs = xs.filter((x) => x.who === _hubNu.who);
+  xs.sort((a, b) => new Date(a.next) - new Date(b.next));
+  const ms = hubMembers();
+  const whoOpts = [...new Set(_hubNu.items.map((x) => x.who))].map((e) => `<option value="${esc(e)}"${_hubNu.who === e ? " selected" : ""}>${esc(hubNm(e))}</option>`).join("");
+  pane.innerHTML = `<div class="hub-card">
+    <div class="hub-h">🌱 これからかける予定 <span class="note">日付を押すとその日の分。赤＝期限切れ（過ぎたのにまだかけていない）。もう一度押すと全部に戻ります</span></div>
+    <div class="hub-week"><button type="button" class="hub-wd late${_hubNu.day === -1 ? " on" : ""}" data-d="-1"><div class="l">期限切れ</div><div class="n">${cnt(-1)}</div></button>
+      ${[0, 1, 2, 3, 4, 5, 6].map((i) => { const dd = new Date(t0 + i * DAY + 9 * 3600000); return `<button type="button" class="hub-wd${i === 0 ? " today" : ""}${_hubNu.day === i ? " on" : ""}" data-d="${i}"><div class="l">${dd.getUTCMonth() + 1}/${dd.getUTCDate()}（${WD[dd.getUTCDay()]}）</div><div class="n">${cnt(i)}</div></button>`; }).join("")}</div>
+    <div class="hub-bar"><label><input type="checkbox" id="hubNuAll"> すべて選ぶ</label><span>選択 <b id="hubNuN">0</b> 件</span>
+      <select id="hubNuWho"><option value="">担当：すべて</option>${whoOpts}</select><span style="flex:1"></span>
+      <select id="hubNuTo"><option value="">移す先のメンバー…</option>${ms.map((m) => `<option value="${esc(String(m.email || "").toLowerCase())}">${esc(m.name || m.email)}</option>`).join("")}</select>
+      <button type="button" class="btn" id="hubNuMove" disabled>へ移す</button>
+      <button type="button" class="btn ghost" id="hubNuEven" disabled>予定が少ない人へ均等に</button><span class="rev-status" id="hubNuSt"></span></div>
+    <div class="hub-scroll"><table class="hub-tbl"><tr><th></th><th>次回架電</th><th>会社名</th><th>ステージ</th><th>最終結果</th><th>担当</th></tr>
+      ${xs.slice(0, 2000).map((x) => { const late = new Date(x.next).getTime() < t0; const dd = new Date(x.next); const days = Math.ceil((t0 - dd.getTime()) / DAY); return `<tr><td><input type="checkbox" class="hub-nuck" data-id="${x.id}"></td><td>${hubMd(x.next)} ${String(dd.getHours()).padStart(2, "0")}:${String(dd.getMinutes()).padStart(2, "0")}${late ? ` <span class="hub-pill red">${days}日過ぎ</span>` : ""}</td><td><b>${esc(x.company)}</b></td><td>${esc(x.stage)}</td><td>${esc(x.status)}</td><td>${esc(hubNm(x.who))}</td></tr>`; }).join("") || '<tr><td colspan="6" class="dim" style="padding:18px">該当するリードはありません</td></tr>'}</table></div></div>`;
+  pane.querySelectorAll(".hub-wd").forEach((b) => b.addEventListener("click", () => { const d = +b.dataset.d; _hubNu.day = _hubNu.day === d ? "all" : d; _hubNu.pick = new Set(); hubNuDraw(); }));
+  $("hubNuWho").addEventListener("change", (e) => { _hubNu.who = e.target.value; _hubNu.pick = new Set(); hubNuDraw(); });
+  const sync = () => { $("hubNuN").textContent = _hubNu.pick.size; $("hubNuMove").disabled = !_hubNu.pick.size || !$("hubNuTo").value; $("hubNuEven").disabled = !_hubNu.pick.size; };
+  pane.querySelectorAll(".hub-nuck").forEach((c) => c.addEventListener("change", () => { c.checked ? _hubNu.pick.add(+c.dataset.id) : _hubNu.pick.delete(+c.dataset.id); sync(); }));
+  $("hubNuAll").addEventListener("change", (e) => { pane.querySelectorAll(".hub-nuck").forEach((c) => { c.checked = e.target.checked; c.checked ? _hubNu.pick.add(+c.dataset.id) : _hubNu.pick.delete(+c.dataset.id); }); sync(); });
+  $("hubNuTo").addEventListener("change", sync);
+  const send = async (groups) => {
+    $("hubNuSt").textContent = "移しています…";
+    try {
+      let n = 0;
+      for (const [to, ids] of groups) {
+        const r = await fetch("/api/calls/targets/assign", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, to, bumpLate: true }) });
+        const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "移せませんでした"); n += d.moved || ids.length;
+      }
+      await hubRenderNurture(); hubLoadSummary();
+      const st = $("hubNuSt"); if (st) st.textContent = `${n}件を移しました（期限切れのものは今の予定にしました）`;
+    } catch (e) { const st = $("hubNuSt"); if (st) st.textContent = "失敗：" + (e.message || ""); }
+  };
+  $("hubNuMove").addEventListener("click", () => { const to = $("hubNuTo").value; if (to) send([[to, [..._hubNu.pick]]]); });
+  $("hubNuEven").addEventListener("click", () => {
+    // 今日から7日の予定が少ない人から順に、1件ずつ配る（元の担当には戻さない）
+    const load = new Map(ms.map((m) => [String(m.email || "").toLowerCase(), 0]));
+    for (const x of _hubNu.items) if (load.has(x.who) && new Date(x.next).getTime() >= t0) load.set(x.who, load.get(x.who) + 1);
+    const groups = new Map();
+    for (const id of _hubNu.pick) {
+      const it = _hubNu.items.find((x) => x.id === id);
+      const cand = [...load.entries()].filter(([e]) => !it || e !== it.who).sort((a, b) => a[1] - b[1]);
+      if (!cand.length) continue;
+      const e = cand[0][0]; load.set(e, cand[0][1] + 1);
+      if (!groups.has(e)) groups.set(e, []); groups.get(e).push(id);
+    }
+    const lines = [...groups.entries()].map(([e, ids]) => `・${hubNm(e)}：${ids.length}件`).join("\n");
+    if (confirm(`次のように配ります。\n\n${lines}\n\nよろしいですか？`)) send([...groups.entries()]);
+  });
+}
+
+// --- 過去リスト
+async function hubRenderPast() {
+  const pane = $("hubPane"); if (!pane) return;
+  pane.innerHTML = '<div class="note">SFの失注商談と架電記録を突き合わせています…（少し時間がかかります）</div>';
+  let d;
+  try { d = await (await fetch("/api/calls/hub/past?_=" + Date.now(), { cache: "no-store" })).json(); if (!d.ok) throw new Error(d.error || ""); }
+  catch (e) { pane.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
+  if (_hubTab !== "pl") return;
+  const pc = (a, b) => b ? Math.round(a / b * 100) : 0;
+  const row = (label, v) => { const a = v.contact, b = v.called - v.contact; return `<tr><td>${esc(label)}</td><td style="width:100%"><div class="hub-stack"><i class="s1" style="width:${pc(a, v.total)}%"></i><i class="s2" style="width:${pc(b, v.total)}%"></i></div></td><td class="r"><b>${pc(v.called, v.total)}%</b></td><td class="r dim">${v.called}/${v.total}</td><td class="r">${v.apo ? `<span class="hub-pill grn">アポ ${v.apo}</span>` : ""}</td></tr>`; };
+  const own = Object.entries(d.byOwner || {}).sort((a, b) => b[1].total - a[1].total);
+  const mon = Object.entries(d.byMonth || {}).sort((a, b) => a[0].localeCompare(b[0]));
+  pane.innerHTML = `<div class="hub-card"><div class="hub-h">🗂 アプローチの進み具合 <span class="note">アプローチ＝失注日のあとに1回以上架電したもの（失注日が分からないものは全期間）</span></div>
+      <div class="hub-funnel">
+        <div class="fs a"><div class="l">失注リード</div><div class="n">${d.total.toLocaleString()}</div><div class="p">過去リストの全件</div></div>
+        <div class="fs b"><div class="l">アプローチ済み</div><div class="n">${d.called.toLocaleString()}</div><div class="p">${pc(d.called, d.total)}%・残り ${(d.total - d.called).toLocaleString()}件</div></div>
+        <div class="fs c"><div class="l">担当者と接触</div><div class="n">${d.contact.toLocaleString()}</div><div class="p">アプローチの ${pc(d.contact, d.called)}%</div></div>
+        <div class="fs d"><div class="l">アポ再獲得</div><div class="n">${d.apo.toLocaleString()}</div><div class="p">接触の ${pc(d.apo, d.contact)}%</div></div>
+      </div></div>
+    <div class="hub-grid2" style="margin-top:14px">
+      <div class="hub-card"><div class="hub-h">担当別（商談所有者）</div><div class="hub-legend"><span style="--c:#0f7a58">接触</span><span style="--c:#5DCAA5">かけた（接触なし）</span><span style="--c:#d7e7df">まだ</span></div><table class="hub-tbl">${own.map(([k, v]) => row(k, v)).join("")}</table></div>
+      <div class="hub-card"><div class="hub-h">失注後次回アクション月別</div><div class="hub-legend"><span style="--c:#0f7a58">接触</span><span style="--c:#5DCAA5">かけた</span><span style="--c:#d7e7df">まだ</span></div><table class="hub-tbl">${mon.map(([k, v]) => row(k === "未設定" ? k : k.replace("-", "/"), v)).join("")}</table></div>
+    </div>`;
 }
 function nmRenderRoot() { if (_nmSel) nmRenderDetail(); else nmRenderCards(); }
 function nmRenderCards() {

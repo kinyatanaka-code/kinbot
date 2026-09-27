@@ -250,6 +250,11 @@ import {
   nurtureSummary,
   listActiveTargetCompanies,
   isPastLostList,
+  callCountsSince,
+  listRecycleCandidates,
+  moveToWeeklyRevival,
+  callLogsForTargets,
+  bumpLateNextCall,
   findOrCreateNamedList,
   moveTargetsKeepAssignee,
   assignTargetsTo,
@@ -9508,6 +9513,129 @@ app.post("/api/calls/lists/:id/relink-reset", async (req, res) => {
 });
 
 // 選んだ架電先を、別のリストへそのまま移す（既存リストへ移動・担当は移行先の持ち主に付け替え）。
+// ===== リスト管理ハブ（概要・リサイクル・ナーチャリング・過去リスト） =====
+const WEEK_MS = 7 * 86400000;
+function jstWeekStartMs() {   // 今週の月曜 0:00（日本時間）
+  const j = new Date(Date.now() + 9 * 3600 * 1000);
+  const dow = (j.getUTCDay() + 6) % 7;
+  return Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate() - dow) - 9 * 3600 * 1000;
+}
+const _hubCache = new Map();   // key -> {at, v}
+async function hubCached(key, ms, fn) {
+  const c = _hubCache.get(key);
+  if (c && Date.now() - c.at < ms) return c.v;
+  const v = await fn(); _hubCache.set(key, { at: Date.now(), v }); return v;
+}
+const hubClear = () => _hubCache.clear();
+// リサイクル：断り理由ごとの「復活までの目安（週）」から、いつ復活させるかを出す
+async function hubRecycle() {
+  return hubCached("recycle", 3 * 60 * 1000, async () => {
+    const [cands, rules] = await Promise.all([listRecycleCandidates(), listRecycleRules().catch(() => [])]);
+    const rmap = new Map(rules.map((r) => [r.tag, r]));
+    const defW = { A: 4, B: 8, C: 16 };
+    const ws = jstWeekStartMs();
+    const items = [];
+    for (const c of cands) {
+      const rule = rmap.get(c.reject_tag) || null;
+      const temp = String(c.temperature || (rule && rule.temperature) || "").trim();
+      if (/卒業|連携/.test(temp)) continue;   // 復活させないもの
+      const w = rule && rule.revive_weeks_min != null ? Number(rule.revive_weeks_min) : (defW[temp] != null ? defW[temp] : 8);
+      const due = new Date(new Date(c.since).getTime() + w * WEEK_MS);
+      const week = Math.max(0, Math.min(4, Math.floor((due.getTime() - ws) / WEEK_MS)));
+      items.push({ id: c.id, company: c.company || "", person: c.person || "", tag: c.reject_tag || "", temp: temp || "-",
+        since: c.since, due, week, prev: String(c.assigned_to || c.list_owner || "").toLowerCase(),
+        next: (rule && rule.next_owner) || "", slot: (rule && rule.time_slot) || "", talk: (rule && rule.talk_axis) || "", list: c.list_name || "" });
+    }
+    const buckets = [0, 1, 2, 3, 4].map((w) => { const xs = items.filter((x) => x.week === w); return { n: xs.length, A: xs.filter((x) => x.temp === "A").length, B: xs.filter((x) => x.temp === "B").length, C: xs.filter((x) => x.temp === "C").length }; });
+    return { items, buckets, weekStart: new Date(ws).toISOString() };
+  });
+}
+// ナーチャリング：今日から7日分＋期限切れ
+async function hubNurture() {
+  return hubCached("nurture", 2 * 60 * 1000, async () => {
+    const ws = jstWeekStartMs();
+    const j = new Date(Date.now() + 9 * 3600 * 1000);
+    const todayStart = Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate()) - 9 * 3600 * 1000;
+    const until = new Date(todayStart + 7 * 86400000 - 1000).toISOString();
+    const rows = await listNurtureTargetsForMember("", { until, limit: 20000 });
+    const items = rows.map((r) => ({ id: r.id, company: r.company || "", person: r.person || "", stage: r.stage || "", status: r.status || r.最終結果 || "",
+      next: r.next_call_at, who: String(r.assigned_to || r._list_owner || "").toLowerCase() }));
+    return { items, todayStart: new Date(todayStart).toISOString(), weekStart: new Date(ws).toISOString() };
+  });
+}
+// 過去リスト：失注日のあとに何件アプローチしたか（接触・アポ再獲得まで）
+async function hubPast(req) {
+  return hubCached("past", 5 * 60 * 1000, async () => {
+    const sfUser = await pickSfUser(req.user, req).catch(() => "");
+    let oppMap = {};
+    try { if (sfUser && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) oppMap = await fetchCrosslostOppData(sfUser, "2026-03-01"); } catch {}
+    const extraIds = await crosslostMatchedIds(sfUser).catch(() => []);
+    const leads = await listStageTargets("クロス失注", { statusMatch: ["クロス失注"], limit: 20000, extraIds });
+    const logs = await callLogsForTargets(leads.map((l) => l.id));
+    const byT = new Map(); for (const g of logs) { if (!byT.has(g.target_id)) byT.set(g.target_id, []); byT.get(g.target_id).push(g); }
+    const tot = { total: 0, called: 0, contact: 0, apo: 0 };
+    const byOwner = {}, byMonth = {};
+    const add = (m, k, st) => { if (!m[k]) m[k] = { total: 0, called: 0, contact: 0, apo: 0 }; m[k].total++; if (st.called) m[k].called++; if (st.contact) m[k].contact++; if (st.apo) m[k].apo++; };
+    for (const l of leads) {
+      const o = oppMap[normCompanyKey(l.company)] || {};
+      const lost = String(o["失注日"] || "").slice(0, 10);
+      const after = (byT.get(l.id) || []).filter((g) => !lost || new Date(g.at).toISOString().slice(0, 10) >= lost);
+      const st = { called: after.length > 0, contact: after.some((g) => /接触/.test(String(g.result || ""))), apo: after.some((g) => /アポ獲得/.test(String(g.result || ""))) };
+      tot.total++; if (st.called) tot.called++; if (st.contact) tot.contact++; if (st.apo) tot.apo++;
+      add(byOwner, o["商談所有者"] || "（不明）", st);
+      add(byMonth, String(o["失注後次回アクション日"] || "").slice(0, 7) || "未設定", st);
+    }
+    return { ...tot, byOwner, byMonth };
+  });
+}
+app.get("/api/calls/hub/summary", async (req, res) => {
+  try {
+    const ws = jstWeekStartMs();
+    const [calls, nu, rc] = await Promise.all([callCountsSince(new Date(ws).toISOString()), hubNurture(), hubRecycle()]);
+    const now = Date.now();
+    const nuBy = {};
+    for (const x of nu.items) { const k = x.who || ""; if (!nuBy[k]) nuBy[k] = { week: 0, late: 0 }; if (x.next && new Date(x.next).getTime() < new Date(nu.todayStart).getTime()) nuBy[k].late++; else nuBy[k].week++; }
+    let past = null; try { past = await hubPast(req); } catch {}
+    res.json({ ok: true, weekCalls: calls, nurture: { byMember: nuBy, week: nu.items.filter((x) => new Date(x.next).getTime() >= new Date(nu.todayStart).getTime()).length, late: nu.items.filter((x) => new Date(x.next).getTime() < new Date(nu.todayStart).getTime()).length },
+      recycle: { thisWeek: rc.buckets[0].n }, past: past ? { total: past.total, called: past.called, contact: past.contact, apo: past.apo, byOwner: past.byOwner } : null, at: now });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/hub/recycle", async (req, res) => {
+  try {
+    const d = await hubRecycle();
+    const w = Math.max(0, Math.min(4, parseInt(req.query.week, 10) || 0));
+    const ord = { A: 0, B: 1, C: 2 };
+    const items = d.items.filter((x) => x.week === w).sort((a, b) => (ord[a.temp] ?? 9) - (ord[b.temp] ?? 9) || new Date(a.due) - new Date(b.due)).slice(0, 3000);
+    res.json({ ok: true, buckets: d.buckets, weekStart: d.weekStart, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 今週の復活リストを作る：人ごとに件数を割り振ったIDを受け取り、その人の「♻ 復活（M/D週）」リストへ移す。前回の担当者には入れない。
+app.post("/api/calls/hub/recycle/make", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const assign = Array.isArray(req.body?.assign) ? req.body.assign : [];
+    const d = await hubRecycle();
+    const prevOf = new Map(d.items.map((x) => [x.id, x.prev]));
+    const ws = new Date(jstWeekStartMs() + 9 * 3600 * 1000);
+    const name = `♻ 復活（${ws.getUTCMonth() + 1}/${ws.getUTCDate()}週）`;
+    let moved = 0, skipped = 0;
+    for (const a of assign) {
+      const email = String(a.email || "").trim().toLowerCase(); if (!email.includes("@")) continue;
+      const ids = (Array.isArray(a.ids) ? a.ids : []).map(Number).filter((id) => { if (prevOf.get(id) === email) { skipped++; return false; } return prevOf.has(id); });
+      if (ids.length) moved += await moveToWeeklyRevival({ email, name, ids, createdBy: req.user });
+    }
+    hubClear(); _clSummaryCache = null;
+    console.log(`[kincall] 今週の復活：${moved}件を割り振り（前回担当のため除外${skipped}）by ${req.user}`);
+    res.json({ ok: true, moved, skipped, name });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/hub/nurture", async (req, res) => {
+  try { res.json({ ok: true, ...(await hubNurture()) }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/hub/past", async (req, res) => {
+  try { res.json({ ok: true, ...(await hubPast(req)) }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 今週の終わり（日本時間の日曜 23:59:59）
 function jstWeekEndIso() {
   const j = new Date(Date.now() + 9 * 3600 * 1000);
@@ -9530,6 +9658,8 @@ app.post("/api/calls/targets/assign", async (req, res) => {
     if (!ids.length) return res.status(400).json({ error: "移す架電先を選んでください" });
     if (!to.includes("@")) return res.status(400).json({ error: "移す先のメンバーを選んでください" });
     const n = await assignTargetsTo(ids, to);
+    if (req.body?.bumpLate) await bumpLateNextCall(ids).catch(() => {});   // 期限切れは今の予定にそろえる
+    hubClear();
     console.log(`[kincall] ${n}件の担当を ${to} へ by ${req.user}`);
     res.json({ ok: true, moved: n });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -21153,7 +21283,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-27e かける画面の「列を選ぶ」で、列の並び順をドラッグ＆ドロップ（左の⋮⋮）と▲▼で変えられるように。保存すると一覧の列の順に反映（上ほど左）。他のリストにしか無い列の並び・非表示設定は残す。";
+const BUILD_TAG = "2026-09-27f リスト管理をハブ化（タブ：概要／リスト／リサイクル／ナーチャリング／過去リスト）。概要＝かける残り・今週復活・ナーチャ7日と期限切れ・過去リストのアプローチ率とメンバー別表。リサイクル＝断り理由の復活目安(週)から今週〜それ以降の帯（温度A/B/C）、選んで人ごとの件数を手入力→その人の「♻ 復活（M/D週）」リストへ（前回の担当者には入れない）。ナーチャリング＝期限切れ＋今日から7日の帯、選んで別メンバーへ／予定が少ない人へ均等に（期限切れは今の予定に）。過去リスト＝失注日後のアプローチ済み→接触→アポ再獲得、商談所有者別・次回アクション月別。API /api/calls/hub/summary|recycle|recycle/make|nurture|past。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
