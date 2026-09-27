@@ -667,9 +667,9 @@ function render() {
         <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
         <th class="kc-th-p">担当者</th>
         <th class="kc-th-m">メールアドレス</th>
-        <th class="kc-th-h kc-th-histc"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
-        <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
         <th class="kc-th-l">最終架電日</th>
+        <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
+        <th class="kc-th-h kc-th-histc"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-r">記録</th>
         <th class="kc-th-d">資料送付</th>
         ${rcols.map((k) => {
@@ -703,9 +703,9 @@ function render() {
           予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
-        <td class="kc-histc">${x["最終コメント"] ? `<div class="kc-lastmemo" title="${esc(x["最終コメント"])}">${esc(x["最終コメント"])}</div>` : ""}<button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
-        <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
+        <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
+        <td class="kc-histc">${x["最終コメント"] ? `<div class="kc-lastmemo" title="${esc(x["最終コメント"])}">${esc(x["最終コメント"])}</div>` : ""}<button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
         ${rcols.map((k) => {
