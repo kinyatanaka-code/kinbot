@@ -6776,3 +6776,13 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .hub-legend span::before { content:""; display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:4px; vertical-align:-1px; background:var(--c); }
 .hub-done { margin-bottom:10px; padding:10px 14px; border-radius:12px; background:#eaf7f1; color:#0d5b47; font-weight:700; font-size:13px; }
 @media (max-width:760px) { .hub-week { grid-template-columns:repeat(4,1fr); } .hub-tl { grid-template-columns:repeat(3,1fr); } .hub-funnel { flex-wrap:wrap; } .hub-funnel .fs { flex-basis:45%; } }
+
+.hub-ico { width: 16px; height: 16px; fill: currentColor; flex: 0 0 auto; vertical-align: -3px; margin-right: 6px; }
+.hub-tab .hub-ico { margin-right: 0; }
+.hub-kpi .t { display: flex; align-items: center; color: #33544a; }
+.hub-kpi .t .hub-ico { color: var(--cc); }
+.hub-h .hub-ico { color: #1d9e75; margin-right: 0; }
+.hub-done { display: flex; align-items: center; gap: 6px; }
+
+.nm-cl-ic .hub-ico { width: 22px; height: 22px; color: var(--cc,#1d9e75); margin: 0; }
+.kc-loss-h .hub-ico { width: 14px; height: 14px; color: #a33a4c; margin-right: 4px; }

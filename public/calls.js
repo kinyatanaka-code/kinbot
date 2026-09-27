@@ -77,7 +77,7 @@ async function loadLists() {
     const sel = $("clList");
     const keep = sel.value || savedListId();   // リロード時は、前回選んでいたリストに戻す
     const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
-    const specialOpt = `<option value="crosslost-now">🗂 過去リスト（今月かける）</option><option value="nurture">🌱 ナーチャリング（まとめ）</option><option value="archive">🗄 アーカイブ（まとめ）</option><option value="recycle">♻ リサイクル（まとめ）</option>`;
+    const specialOpt = `<option value="crosslost-now">過去リスト（今月かける）</option><option value="nurture">ナーチャリング（まとめ）</option><option value="archive">アーカイブ（まとめ）</option><option value="recycle">リサイクル（まとめ）</option>`;
     sel.innerHTML = allOpt + (items.length
       ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !n.startsWith("【ナーチャリング】") && !x.hidden; })
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
@@ -1923,7 +1923,7 @@ function kcLossBox(x) {
   if (!big && !mid && !det && !lost && !next) return "";
   const d = (v) => { const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${+m[2]}/${+m[3]}` : v; };
   return `<div class="kc-loss">
-    <div class="kc-loss-h">🗂 前回の失注${lost ? `（${esc(d(lost))}）` : ""}${owner ? `<span class="kc-loss-o">商談：${esc(owner)}</span>` : ""}</div>
+    <div class="kc-loss-h">${hubIco("archive")}前回の失注${lost ? `（${esc(d(lost))}）` : ""}${owner ? `<span class="kc-loss-o">商談：${esc(owner)}</span>` : ""}</div>
     ${big || mid ? `<div class="kc-loss-r"><b>${esc(big)}</b>${mid ? ` ／ ${esc(mid)}` : ""}</div>` : ""}
     ${det ? `<div class="kc-loss-d">${esc(det)}</div>` : ""}
     ${next ? `<div class="kc-loss-n">次回アクション日：${esc(d(next))}</div>` : ""}
@@ -4709,6 +4709,8 @@ async function nmLoad() {
 }
 
 // ===== リスト管理ハブ（概要／リスト／リサイクル／ナーチャリング／過去リスト） =====
+const HUB_ICO = {"status": "M3 13h4v8H3zm7-5h4v13h-4zm7-5h4v18h-4z", "list": "M4 5h16v2.6H4zm0 5.7h16v2.6H4zm0 5.7h10v2.6H4z", "recycle": "M12 4a8 8 0 0 1 7.3 4.8H22l-3.6 4.4-3.6-4.4h2.3A6 6 0 0 0 6.4 10L4.6 9.1A8 8 0 0 1 12 4zM5.6 10.8l3.6 4.4H6.9a6 6 0 0 0 10.7 1.2l1.8.9A8 8 0 0 1 4.7 15.2H2z", "leaf": "M20 4C12.5 4 7 7.8 7 14.2c0 1.3.3 2.5.8 3.5L5 20.5 6.4 22l2.8-2.8c1 .5 2.1.8 3.3.8C18.6 20 20 13 20 4zm-8.3 13.9c-.5 0-1.1-.1-1.6-.3 2-3 4.5-5.6 7.4-7.6-2.9 1.2-5.6 3.6-7.8 6.4-.3-.7-.4-1.4-.4-2.2 0-4.8 3.6-7.6 8.6-8.1-.3 7-2.4 11.8-6.2 11.8z", "archive": "M3 4h18v4H3zm1 5h16v11H4zm5 3v2h6v-2z", "phone": "M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z", "cal": "M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2zm12 7v10H5V9zM7 11v2h2v-2zm4 0v2h2v-2zm4 0v2h2v-2z", "check": "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"};
+const hubIco = (k) => `<svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${HUB_ICO[k]}"/></svg>`;
 let _hubTab = "ov", _hubInit = false, _hubSum = null;
 const hubMembers = () => (_nmMembers || []).filter((m) => !NM_EX.includes(String(m.email || "").toLowerCase()));
 const hubNm = (e) => nmMemberName(String(e || "").toLowerCase()) || e || "（未割り当て）";
@@ -4773,12 +4775,12 @@ function hubRenderOverview() {
     return `<tr${nb.late ? ' class="late"' : ""} data-e="${esc(e)}"><td><b>${esc(m.name || e)}</b></td><td class="r">${zanOf(e).toLocaleString()}</td><td class="r">${Number((d && d.weekCalls && d.weekCalls[e]) || 0).toLocaleString()}</td><td class="r">${nb.week}</td><td class="r">${nb.late ? `<span class="hub-pill red">${nb.late}</span>` : '<span class="dim">0</span>'}</td><td class="r">${pb && pb.total ? Math.round(pb.called / pb.total * 100) + "%" : '<span class="dim">—</span>'}</td></tr>`;
   }).join("");
   pane.innerHTML = `<div class="hub-grid4">
-      ${kpi("#1d9e75", "ls", "📋 かける残り（全メンバー）", totalZan.toLocaleString(), "件", `今週の架電 ${weekCalls.toLocaleString()}件`)}
-      ${kpi("#7b57d6", "rc", "♻ 今週復活させる", d && d.recycle ? d.recycle.thisWeek.toLocaleString() : "…", "件", "復活目安が今週に来たもの（前回と別のメンバーへ）")}
-      ${kpi("#e0912b", "nu", "🌱 ナーチャリング 今日から7日", nu.week.toLocaleString(), "件", "次回架電日が7日以内", nu.late ? `<span class="hub-alert red">期限切れ ${nu.late}件</span>` : '<span class="hub-alert green">期限切れなし</span>')}
-      ${kpi("#2f86c9", "pl", "🗂 過去リスト アプローチ率", past ? pct : "…", "%", past ? `${past.total.toLocaleString()}件中 ${past.called.toLocaleString()}件にアプローチ済み` : "SFと突き合わせています…", past ? `<span class="hub-alert green">アポ再獲得 ${past.apo}件</span>` : "")}
+      ${kpi("#1d9e75", "ls", hubIco("list") + "かける残り（全メンバー）", totalZan.toLocaleString(), "件", `今週の架電 ${weekCalls.toLocaleString()}件`)}
+      ${kpi("#7b57d6", "rc", hubIco("recycle") + "今週復活させる", d && d.recycle ? d.recycle.thisWeek.toLocaleString() : "…", "件", "復活目安が今週に来たもの（前回と別のメンバーへ）")}
+      ${kpi("#e0912b", "nu", hubIco("leaf") + "ナーチャリング 今日から7日", nu.week.toLocaleString(), "件", "次回架電日が7日以内", nu.late ? `<span class="hub-alert red">期限切れ ${nu.late}件</span>` : '<span class="hub-alert green">期限切れなし</span>')}
+      ${kpi("#2f86c9", "pl", hubIco("archive") + "過去リスト アプローチ率", past ? pct : "…", "%", past ? `${past.total.toLocaleString()}件中 ${past.called.toLocaleString()}件にアプローチ済み` : "SFと突き合わせています…", past ? `<span class="hub-alert green">アポ再獲得 ${past.apo}件</span>` : "")}
     </div>
-    <div class="hub-card" style="margin-top:14px"><div class="hub-h">メンバー別の状況 <span class="note">赤＝ナーチャリングの期限切れがある人。行を押すとその人のリストへ</span></div>
+    <div class="hub-card" style="margin-top:14px"><div class="hub-h">${hubIco("status")}メンバー別の状況 <span class="note">赤＝ナーチャリングの期限切れがある人。行を押すとその人のリストへ</span></div>
       <div style="overflow-x:auto"><table class="hub-tbl"><tr><th>メンバー</th><th class="r">かける残り</th><th class="r">今週の架電</th><th class="r">ナーチャ7日</th><th class="r">期限切れ</th><th class="r">過去リスト アプローチ</th></tr>${rows}</table></div></div>`;
   pane.querySelectorAll(".hub-kpi").forEach((k) => k.addEventListener("click", () => hubShow(k.dataset.go)));
   pane.querySelectorAll("tr[data-e]").forEach((tr) => tr.addEventListener("click", () => {
@@ -4805,7 +4807,7 @@ function hubRcDraw() {
   const xs = _hubRc.items.filter((x) => !_hubRc.temp || x.temp === _hubRc.temp);
   const tcls = { A: "red", B: "amb", C: "blu" };
   pane.innerHTML = `<div class="hub-card">
-    <div class="hub-h">♻ 復活のタイミング <span class="note">断り理由ごとの「復活までの目安（週）」から算出（期限を過ぎたものは今週に入ります）</span></div>
+    <div class="hub-h">${hubIco("recycle")}復活のタイミング <span class="note">断り理由ごとの「復活までの目安（週）」から算出（期限を過ぎたものは今週に入ります）</span></div>
     <div class="hub-tl">${WK.map((l, i) => { const b = _hubRc.buckets[i] || { n: 0, A: 0, B: 0, C: 0 }; return `<button type="button" class="hub-tlc${i === _hubRc.week ? " on" : ""}" data-w="${i}"><div class="l">${l}</div><div class="n">${b.n.toLocaleString()}</div><div class="r"><span class="ra">A ${b.A}</span><span class="rb">B ${b.B}</span><span class="rc">C ${b.C}</span></div></button>`; }).join("")}</div>
     <div class="hub-bar"><label><input type="checkbox" id="hubRcAll"> すべて選ぶ</label><span>選択 <b id="hubRcN">0</b> 件</span>
       <select id="hubRcTemp"><option value="">温度：すべて</option>${["A", "B", "C"].map((t) => `<option${_hubRc.temp === t ? " selected" : ""}>${t}</option>`).join("")}</select>
@@ -4851,7 +4853,7 @@ function hubRcAssignPanel() {
       await nmFetch().catch(() => {});
       hubLoadSummary();
       await hubRenderRecycle(_hubRc.week);
-      const st = $("hubPane"); if (st) st.insertAdjacentHTML("afterbegin", `<div class="hub-done">✓ ${d.moved}件を「${esc(d.name)}」として割り振りました（それぞれのかける画面に出ます）</div>`);
+      const st = $("hubPane"); if (st) st.insertAdjacentHTML("afterbegin", `<div class="hub-done">${hubIco("check")}${d.moved}件を「${esc(d.name)}」として割り振りました（それぞれのかける画面に出ます）</div>`);
     } catch (e) { $("hubRcSt").textContent = "失敗：" + (e.message || ""); }
   });
   box.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -4879,7 +4881,7 @@ function hubNuDraw() {
   const ms = hubMembers();
   const whoOpts = [...new Set(_hubNu.items.map((x) => x.who))].map((e) => `<option value="${esc(e)}"${_hubNu.who === e ? " selected" : ""}>${esc(hubNm(e))}</option>`).join("");
   pane.innerHTML = `<div class="hub-card">
-    <div class="hub-h">🌱 これからかける予定 <span class="note">日付を押すとその日の分。赤＝期限切れ（過ぎたのにまだかけていない）。もう一度押すと全部に戻ります</span></div>
+    <div class="hub-h">${hubIco("leaf")}これからかける予定 <span class="note">日付を押すとその日の分。赤＝期限切れ（過ぎたのにまだかけていない）。もう一度押すと全部に戻ります</span></div>
     <div class="hub-week"><button type="button" class="hub-wd late${_hubNu.day === -1 ? " on" : ""}" data-d="-1"><div class="l">期限切れ</div><div class="n">${cnt(-1)}</div></button>
       ${[0, 1, 2, 3, 4, 5, 6].map((i) => { const dd = new Date(t0 + i * DAY + 9 * 3600000); return `<button type="button" class="hub-wd${i === 0 ? " today" : ""}${_hubNu.day === i ? " on" : ""}" data-d="${i}"><div class="l">${dd.getUTCMonth() + 1}/${dd.getUTCDate()}（${WD[dd.getUTCDay()]}）</div><div class="n">${cnt(i)}</div></button>`; }).join("")}</div>
     <div class="hub-bar"><label><input type="checkbox" id="hubNuAll"> すべて選ぶ</label><span>選択 <b id="hubNuN">0</b> 件</span>
@@ -4937,7 +4939,7 @@ async function hubRenderPast() {
   const row = (label, v) => { const a = v.contact, b = v.called - v.contact; return `<tr><td>${esc(label)}</td><td style="width:100%"><div class="hub-stack"><i class="s1" style="width:${pc(a, v.total)}%"></i><i class="s2" style="width:${pc(b, v.total)}%"></i></div></td><td class="r"><b>${pc(v.called, v.total)}%</b></td><td class="r dim">${v.called}/${v.total}</td><td class="r">${v.apo ? `<span class="hub-pill grn">アポ ${v.apo}</span>` : ""}</td></tr>`; };
   const own = Object.entries(d.byOwner || {}).sort((a, b) => b[1].total - a[1].total);
   const mon = Object.entries(d.byMonth || {}).sort((a, b) => a[0].localeCompare(b[0]));
-  pane.innerHTML = `<div class="hub-card"><div class="hub-h">🗂 アプローチの進み具合 <span class="note">アプローチ＝失注日のあとに1回以上架電したもの（失注日が分からないものは全期間）</span></div>
+  pane.innerHTML = `<div class="hub-card"><div class="hub-h">${hubIco("archive")}アプローチの進み具合 <span class="note">アプローチ＝失注日のあとに1回以上架電したもの（失注日が分からないものは全期間）</span></div>
       <div class="hub-funnel">
         <div class="fs a"><div class="l">失注リード</div><div class="n">${d.total.toLocaleString()}</div><div class="p">過去リストの全件</div></div>
         <div class="fs b"><div class="l">アプローチ済み</div><div class="n">${d.called.toLocaleString()}</div><div class="p">${pc(d.called, d.total)}%・残り ${(d.total - d.called).toLocaleString()}件</div></div>
@@ -4982,8 +4984,8 @@ function nmRenderCards() {
     const nc = (key, ic, nm, n, ds, cc) =>
       `<button type="button" class="nm-card nm-clcard" data-nur="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big">${Number(n || 0).toLocaleString()}<small>件</small></div><div class="nm-card-sub">${ds}</div></button>`;
     html += `<div class="nm-sec"><div class="nm-sec-h">ナーチャリング</div><div class="nm-grid nm-cl3">` +
-      nc("all", "🌱", "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75") +
-      nc("week", "📅", "今週かける予定", _nmNur.week, "次回架電日が今週末まで（期限切れ含む）のリード。担当メンバーを移せます。", "#e0912b") +
+      nc("all", hubIco("leaf"), "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75") +
+      nc("week", hubIco("cal"), "今週かける予定", _nmNur.week, "次回架電日が今週末まで（期限切れ含む）のリード。担当メンバーを移せます。", "#e0912b") +
       `</div></div>`;
   }
   // 過去リスト（クロス失注）：3枚のリストカード（今月かける／失注リスト／月別）
@@ -4993,9 +4995,9 @@ function nmRenderCards() {
     const clcard = (key, ic, nm, big, unit, ds, cc) =>
       `<button type="button" class="nm-card nm-clcard" data-cl="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big" data-clbig="${key}">${big}<small>${unit}</small></div><div class="nm-card-sub">${ds}</div></button>`;
     html += `<div class="nm-sec"><div class="nm-sec-h">過去リスト（クロス失注）</div><div class="nm-grid nm-cl3">` +
-      clcard("now", "📞", "今月かける", (s.nowCount || 0).toLocaleString(), "件", "失注後次回アクション日が翌月末までのリード。上から順に対応。", "#1d9e75") +
-      clcard("all", "🗂", "失注リスト", (s.total || 0).toLocaleString(), "件", "クロス失注の全リード。失注日・理由などで一覧。", "#d9536a") +
-      clcard("month", "📅", "月別", String(months), "ヶ月", "失注後次回アクション日を月別に集計。月ごとに内訳。", "#2f86c9") +
+      clcard("now", hubIco("phone"), "今月かける", (s.nowCount || 0).toLocaleString(), "件", "失注後次回アクション日が翌月末までのリード。上から順に対応。", "#1d9e75") +
+      clcard("all", hubIco("archive"), "失注リスト", (s.total || 0).toLocaleString(), "件", "クロス失注の全リード。失注日・理由などで一覧。", "#d9536a") +
+      clcard("month", hubIco("cal"), "月別", String(months), "ヶ月", "失注後次回アクション日を月別に集計。月ごとに内訳。", "#2f86c9") +
       `</div><div class="nm-cl-move"><button type="button" class="btn ghost" id="nmClImport">kincallに無い失注の会社を取り込む</button><button type="button" class="btn ghost" id="nmClConsolidate">他のリストにある失注リードを、担当ごとの「クロス失注」リストへ移す</button><span class="rev-status" id="nmClConSt"></span></div><div class="note" style="margin-top:4px">SFで新しくクロス失注になった会社は、毎朝7時にも自動で「クロス失注（未割り当て）」へ取り込みます（担当者名＝主.取引先責任者）。</div></div>`;
   }
   body.innerHTML = html;
@@ -5407,7 +5409,7 @@ async function asLoad() {
         </div>`).join("") +
         (addable.length && 変えられる ? '<div class="kc-mem-card kc-mem-add" id="kcAddCard"><span class="kc-mem-name">＋ メンバーを足す</span></div>' : "") +
         '<div class="kc-mem-card kc-mem-special" data-special="archive"><span class="kc-mem-name">🗄 アーカイブ</span></div>' +
-        '<div class="kc-mem-card kc-mem-special" data-special="recycle"><span class="kc-mem-name">♻ リサイクル</span></div>' +
+        '<div class="kc-mem-card kc-mem-special" data-special="recycle"><span class="kc-mem-name">リサイクル</span></div>' +
       '</div>' +
       '<div class="kc-mem-pick" id="kcPick" hidden></div>' +
       '<div class="kc-grp-box" id="kcGrpBox"></div>';

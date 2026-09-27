@@ -9617,7 +9617,7 @@ app.post("/api/calls/hub/recycle/make", async (req, res) => {
     const d = await hubRecycle();
     const prevOf = new Map(d.items.map((x) => [x.id, x.prev]));
     const ws = new Date(jstWeekStartMs() + 9 * 3600 * 1000);
-    const name = `♻ 復活（${ws.getUTCMonth() + 1}/${ws.getUTCDate()}週）`;
+    const name = `【復活】${ws.getUTCMonth() + 1}/${ws.getUTCDate()}週`;
     let moved = 0, skipped = 0;
     for (const a of assign) {
       const email = String(a.email || "").trim().toLowerCase(); if (!email.includes("@")) continue;
@@ -21283,7 +21283,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-27f リスト管理をハブ化（タブ：概要／リスト／リサイクル／ナーチャリング／過去リスト）。概要＝かける残り・今週復活・ナーチャ7日と期限切れ・過去リストのアプローチ率とメンバー別表。リサイクル＝断り理由の復活目安(週)から今週〜それ以降の帯（温度A/B/C）、選んで人ごとの件数を手入力→その人の「♻ 復活（M/D週）」リストへ（前回の担当者には入れない）。ナーチャリング＝期限切れ＋今日から7日の帯、選んで別メンバーへ／予定が少ない人へ均等に（期限切れは今の予定に）。過去リスト＝失注日後のアプローチ済み→接触→アポ再獲得、商談所有者別・次回アクション月別。API /api/calls/hub/summary|recycle|recycle/make|nurture|past。";
+const BUILD_TAG = "2026-09-27g リスト管理ハブの絵文字アイコンを、kincallのサイドバーと同じ塗りのSVGアイコンに統一（状況・リスト・リサイクル・ナーチャリング・過去リスト、カード・見出し・前回の失注）。「概要」タブを「状況」に改名。かける画面のまとめリスト名からも絵文字を外し、今週の復活リスト名は「【復活】M/D週」に。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
