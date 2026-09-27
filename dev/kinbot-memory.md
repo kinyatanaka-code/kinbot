@@ -1096,3 +1096,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28k トークスクリプト。ユーザーは記録画面の全面リデザイン案（artifact G1cEkhifAFs8fsKgYjziNn）を却下「トーク以外今のままの仕様で」。settings.talkScripts={default,groups:{gid:text}}、GET /api/calls/talk-script?listId=（getListGroupId でグループ解決、group→default）、PUT {text,groupId|null}（管理者/クローザー）。calls.js openCompanyPanel(m,company,x) に #kcTalk、kcLoadTalk(box,x)：■/【/# 行を見出し、{会社名}{担当者}{自分}（/api/me の name→username）差し込み、編集テキストエリア（初期テンプレあり）。左パネルは幅1200px未満では非表示のまま。版20260928k。
 
 - 2026-09-28 BUILD_TAG=2026-09-28l 編集テーブル：_edCrosslost 列に「受失注日」(g(r,'失注日'))を失注理由詳細と失注後次回アクション日の間に。見出し helper drange(id)＝#idFrom/#idTo の date input 2つ、edInRange(ymd,id)。受失注日 edDLost・失注後次回アクション日 edDNextAct・ナーチャ次回架電日 edDNext を範囲化（旧テキスト edQNextAct/edQNext は廃止）。版20260928l。
+
+- 2026-09-28 BUILD_TAG=2026-09-28m 失注リスト表：失注理由詳細 36字超は td.kc-rc-long＋.kc-clamp＋.kc-more（かけると共通の委譲トグル）。列追加：担当（担当メール→nmMemberName、空は（未割り当て））、リスト（edListName：_listName→items.リスト名(r._list_name)→_nmLists/_edLists）。フィルタ msel edClWho/edClList。版20260928m。

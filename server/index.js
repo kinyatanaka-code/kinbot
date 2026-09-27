@@ -10197,6 +10197,7 @@ app.get("/api/calls/targets", async (req, res) => {
         最終コメント: String(r["最終メモ"] || "").slice(0, 300),
         次回予定: r.next_call_at || null,
         担当メール: String(r.assigned_to || r._list_owner || "").trim().toLowerCase(),
+        リスト名: r._list_name || r.リスト名 || "",
         済み: !!r.done,
         追加: (() => {
           const base = (r.extra && typeof r.extra === "object") ? { ...r.extra } : {};
@@ -21351,7 +21352,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28l 失注リストの表に「受失注日」列（SFの失注日＝order_date__c、無ければ完了予定日）を追加。日付の列（受失注日・失注後次回アクション日、ナーチャリングの次回架電日）は見出しで「日付〜日付」の範囲で絞り込めるように（範囲を入れると日付が空の行は外れる）。";
+const BUILD_TAG = "2026-09-28m 失注リスト（過去リスト）の表：失注理由詳細は3行で折り返し、それ以上は「もっと見る」で開く。振り分けている「担当（かける人）」と「リスト」の列を追加し、どちらも複数選択で絞り込めるように（items に リスト名 を追加）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
