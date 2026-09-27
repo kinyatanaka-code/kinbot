@@ -6829,3 +6829,10 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 /* もっと見る：開いても横に伸ばさず、下に折り返す（表の nowrap を打ち消して幅を固定） */
 .kc-table td.kc-rc-long { white-space: normal !important; width: 240px; min-width: 240px; max-width: 240px; }
 .kc-table td.kc-rc-long .kc-clamp { width: 240px; max-width: 240px; white-space: normal !important; overflow-wrap: anywhere; word-break: break-word; }
+
+/* かける：メールアドレスは細く（はみ出しは…、マウスで全文） */
+.kc-table th.kc-th-m { width: 170px !important; max-width: 170px; }
+.kc-table td.kc-mail { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+
+.kc-ah-tag { display: inline-block; font-size: 10.5px; font-weight: 700; border-radius: 6px; padding: 1px 6px; margin: 2px 4px 0 0; }
+.kc-ah-tag.gray { background: #eef1f0; color: #6b857b; } .kc-ah-tag.vio { background: #f1edfc; color: #6a48c4; } .kc-ah-tag.grn { background: #eaf7f1; color: #0d5b47; }

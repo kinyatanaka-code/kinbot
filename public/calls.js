@@ -635,18 +635,31 @@ async function findAcrossMembers() {
     const items = (d.items || []).filter((x) => String(x.list_id) !== String(listId));
     box.dataset.done = "1";
     if (!items.length) { box.innerHTML = ""; return; }
+    const tag = (x) => {
+      const t = [];
+      if (x.list_closed) t.push('<span class="kc-ah-tag gray">閉じたリスト</span>');
+      else if (x.list_hidden) t.push('<span class="kc-ah-tag gray">非表示</span>');
+      if (x.list_kind === "recycle_revival") t.push('<span class="kc-ah-tag vio">復活</span>');
+      if (/リサイクル/.test(x.stage || "")) t.push('<span class="kc-ah-tag vio">リサイクル</span>');
+      else if (/アーカイブ/.test(x.stage || "")) t.push('<span class="kc-ah-tag gray">アーカイブ</span>');
+      else if (/ジャッジ|営業フォロー/.test((x.stage || "") + (x.status || ""))) t.push('<span class="kc-ah-tag grn">ナーチャリング</span>');
+      return t.join("");
+    };
+    const who = (e, nm) => esc(nm || (e ? String(e).split("@")[0] : "（未割り当て）"));
     box.innerHTML =
-      `<details class="kc-allhit-d" open><summary>全メンバーのリストから <b>${items.length}</b> 件みつかりました</summary>` +
+      `<details class="kc-allhit-d" open><summary>全メンバー・全リストから <b>${items.length}</b> 件みつかりました（このリスト以外）</summary>` +
       `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
-         <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ</th><th>リスト</th><th>持ち主・担当</th>
+         <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ・最終ステータス</th><th>リスト</th><th>リストの持ち主</th><th>担当（かける人）</th><th>最終架電</th>
        </tr></thead><tbody>` +
       items.map((x) => `<tr>
          <td class="lst-name">${esc(x.company || "")}</td>
          <td>${esc(x.person || "")}</td>
          <td>${esc(x.phone || "")}</td>
-         <td>${esc(x.stage || "")}</td>
-         <td>${esc(x.list_name || "")}</td>
-         <td>${esc(x.owner_name || x.assigned_to || x.list_owner || "")}</td>
+         <td>${esc(x.stage || "—")}<div class="dim" style="font-size:11px">${esc(x.最終結果 || x.status || "")}</div></td>
+         <td><b>${esc(x.list_name || "")}</b>${x.group_name ? `<div class="dim" style="font-size:11px">グループ：${esc(x.group_name)}</div>` : ""}<div>${tag(x)}</div></td>
+         <td>${who(x.list_owner, x.list_owner_name)}</td>
+         <td>${x.assigned_to ? who(x.assigned_to, x.owner_name) : '<span class="dim">持ち主と同じ</span>'}</td>
+         <td>${x["最終日時"] ? esc(lastCallLabel(x["最終日時"])) : '<span class="dim">—</span>'}</td>
        </tr>`).join("") + `</tbody></table></div></details>`;
   } catch (e) {
     box.innerHTML = `<div class="note">横断して探せませんでした：${esc(e.message)}</div>`;
@@ -4152,7 +4165,7 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   // ヘッダーの表示を、いま開いているページに合わせる
-  const 名前 = { call: ["kincall", "架電リスト"], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
+  const 名前 = { call: ["架電リスト", ""], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
   const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
   const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
   if (p === "stats") { if (statsTop === "dash") loadDash(); else loadStats(); }
@@ -4324,7 +4337,7 @@ let selectedIds = new Set();          // 一覧で選択した架電先のid
     iAmRedistributor = !!(me && (me.canRedistribute || me.closer || me.admin));
     iAmAdmin = !!(me && me.admin);
     canHideList = !!(me && (me.admin || me.canHideLists));
-    canFindAll = !!(me && me.admin);
+    canFindAll = true;   // 全メンバー・全リストから探す（誰でも）
     _isTanaka = !!(me && String(me.username || "").toLowerCase() === "kinya.tanaka@neo-career.co.jp");
     if (me && me.kincallOnly) {
       document.querySelectorAll(".kc-side .side-app, .kc-side .side-sep")
@@ -5642,9 +5655,14 @@ async function openMoveTargets(ids) {
   const m = openModal(`選んだ ${idList.length}件 を他のリストへ移す`, `
     <div class="kc-move">
       <p class="note">選んだ架電先を、下で選んだ<b>既存のリスト</b>へそのまま移します（コピーではなく移動。元のリストからは外れます）。担当は、移行先リストの持ち主に付け替わります。</p>
-      <label style="display:block;font-size:13px;margin:6px 0">移行先のリスト
-        <select id="kcMoveList" style="display:block;width:100%;margin-top:4px;border:1px solid #e6ece9;border-radius:8px;padding:6px 8px;font-size:13px">
+      <label style="display:block;font-size:13px;margin:6px 0">① 誰の
+        <select id="kcMoveWho" style="display:block;width:100%;margin-top:4px;border:1px solid #e6ece9;border-radius:8px;padding:6px 8px;font-size:13px">
           <option value="">読み込んでいます…</option>
+        </select>
+      </label>
+      <label style="display:block;font-size:13px;margin:6px 0">② どのリストへ
+        <select id="kcMoveList" style="display:block;width:100%;margin-top:4px;border:1px solid #e6ece9;border-radius:8px;padding:6px 8px;font-size:13px">
+          <option value="">先に「誰の」を選んでください</option>
         </select>
       </label>
       <div class="kc-modal-foot">
@@ -5653,12 +5671,27 @@ async function openMoveTargets(ids) {
       </div>
     </div>`, { wide: true });
   try {
-    const d = await (await fetch("/api/calls/lists/all")).json();
+    const [d, mm] = await Promise.all([
+      fetch("/api/calls/lists/all").then((r) => r.json()),
+      fetch("/api/calls/members").then((r) => r.json()).catch(() => ({ items: [] })),
+    ]);
     const lists = ((d && d.items) || []).filter((l) => String(l.id) !== String(listId));
-    const sel = m.el.querySelector("#kcMoveList");
-    sel.innerHTML = `<option value="">選んでください</option>` +
-      lists.map((l) => `<option value="${l.id}">${esc(l.name)}${l["持ち主"] ? "（" + esc(String(l["持ち主"]).split("@")[0]) + "）" : ""}${l["件数"] != null ? " ・" + l["件数"] + "件" : ""}</option>`).join("");
-  } catch { m.el.querySelector("#kcMoveList").innerHTML = `<option value="">読み込めませんでした</option>`; }
+    const names = {}; for (const u of (mm.items || [])) names[String(u.email || "").toLowerCase()] = u.name || u.email;
+    const ownerOf = (l) => String(l["持ち主"] || l.owner || "").toLowerCase();
+    // ① 誰の：リストを持っている人（多い順）＋未割り当て
+    const byOwner = new Map();
+    for (const l of lists) { const o = ownerOf(l); byOwner.set(o, (byOwner.get(o) || 0) + 1); }
+    const who = m.el.querySelector("#kcMoveWho"), sel = m.el.querySelector("#kcMoveList");
+    who.innerHTML = `<option value="">選んでください</option>` +
+      [...byOwner.entries()].sort((a, b) => (a[0] === "") - (b[0] === "") || String(names[a[0]] || a[0]).localeCompare(String(names[b[0]] || b[0]), "ja"))
+        .map(([o, n]) => `<option value="${esc(o)}">${esc(o ? (names[o] || o.split("@")[0]) : "未割り当て（持ち主なし）")}（${n}リスト）</option>`).join("");
+    who.addEventListener("change", () => {
+      const o = who.value;
+      const mine = lists.filter((l) => ownerOf(l) === o).sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"));
+      sel.innerHTML = who.value === "" && !mine.length ? `<option value="">先に「誰の」を選んでください</option>` :
+        `<option value="">選んでください</option>` + mine.map((l) => `<option value="${l.id}">${esc(l.name)}${l["件数"] != null ? " ・" + l["件数"] + "件" : ""}</option>`).join("");
+    });
+  } catch { m.el.querySelector("#kcMoveWho").innerHTML = `<option value="">読み込めませんでした</option>`; }
 
   m.el.querySelector("#kcMoveRun").addEventListener("click", async () => {
     const st = m.el.querySelector("#kcMoveSt");

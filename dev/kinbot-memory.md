@@ -1090,3 +1090,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28h かける追加列(rcols)：値が36文字超なら td.kc-rc-long＞.kc-clamp(3行 line-clamp)＋button.kc-more、document 委譲クリックで .open をトグル。幅 200〜260px。版20260928h。
 
 - 2026-09-28 BUILD_TAG=2026-09-28i .kc-table td.kc-rc-long と .kc-clamp に width/max-width 240px＋white-space:normal !important（.kc-table td の nowrap が継承されて開くと横に伸びていた）。版20260928i。
+
+- 2026-09-28 BUILD_TAG=2026-09-28j かける：メール列 170px ellipsis。ヘッダー名「架電リスト」（kc-sub 非表示、showPane の call も）。横断検索 /api/calls/search-all の管理者制限を撤廃、canFindAll=true（全員）、searchAllLeads に list_hidden/list_closed/group_name/list_owner_name、電話の数字一致（4桁以上）、閉じたリストは後ろ。結果表：会社/担当者/電話/ステージ・最終結果/リスト（グループ・札：閉じた/非表示/復活/リサイクル/アーカイブ/ナーチャリング）/持ち主/担当/最終架電。openMoveTargets を「①誰の（/api/calls/members で名前）→②どのリスト」に。版20260928j。

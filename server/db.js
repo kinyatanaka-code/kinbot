@@ -9309,6 +9309,9 @@ export async function searchAllLeads(q, { limit = 300 } = {}) {
       `SELECT t.id, t.company, t.person, t.phone, t.email, t.stage, t.status,
               t.assigned_to, t.done, t.next_call_at, t.lead_id, t.temperature,
               l.id AS list_id, l.name AS list_name, l.owner AS list_owner, l.kind AS list_kind,
+              COALESCE(l.hidden,false) AS list_hidden, COALESCE(l.closed,false) AS list_closed,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
+              (SELECT lu.name FROM users lu WHERE lower(lu.email) = lower(l.owner) LIMIT 1) AS list_owner_name,
               u.name AS owner_name,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
               (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
@@ -9317,9 +9320,10 @@ export async function searchAllLeads(q, { limit = 300 } = {}) {
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
          LEFT JOIN users u ON lower(u.email) = lower(coalesce(t.assigned_to, l.owner))
-        WHERE (t.company ILIKE $1 OR t.person ILIKE $1 OR t.phone ILIKE $1 OR t.email ILIKE $1)
-        ORDER BY t.company, t.id
-        LIMIT $2`, [like, Math.min(1000, Math.max(1, parseInt(limit, 10) || 300))]);
+        WHERE (t.company ILIKE $1 OR t.person ILIKE $1 OR t.phone ILIKE $1 OR t.email ILIKE $1
+               OR ($3 <> '' AND regexp_replace(coalesce(t.phone,''), '[^0-9]', '', 'g') LIKE $3))
+        ORDER BY COALESCE(l.closed,false), t.company, t.id
+        LIMIT $2`, [like, Math.min(1000, Math.max(1, parseInt(limit, 10) || 300)), (kw.replace(/[^0-9]/g, "").length >= 4 ? `%${kw.replace(/[^0-9]/g, "")}%` : "")]);
     return rows;
   } catch (e) { console.error("[db] searchAllLeads", e.message); return []; }
 }

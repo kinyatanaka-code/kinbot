@@ -5702,7 +5702,7 @@ app.get("/api/docs", async (req, res) => {
 // 「どのリストに・誰の担当で入っているか」を返す。
 app.get("/api/calls/search-all", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "この検索は管理者だけが使えます" });
+    // 全メンバー・全リスト（ナーチャリング・リサイクル・アーカイブ・非表示も）から探す。誰でも使える。
     const q = String(req.query.q || "").trim();
     if (q.length < 2) return res.json({ items: [], note: "2文字以上で探してください" });
     const items = await searchAllLeads(q, { limit: parseInt(req.query.limit, 10) || 300 });
@@ -21320,7 +21320,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28i かける一覧の長い列の「もっと見る」で開いたとき、横に伸びずに下へ折り返すよう修正（セル・中身の幅を240pxに固定し、表の折り返さない設定を打ち消し）。";
+const BUILD_TAG = "2026-09-28j かける画面4点。(1)メールアドレス列を170pxに（はみ出しは…）。(2)上のバーの名前を「架電リスト」にし、小さい「架電リスト」の札を削除。(3)探すで、全メンバー・全リスト（ナーチャリング・リサイクル・アーカイブ・非表示・閉じたリストも）から検索（誰でも使える）、結果にリスト名・グループ・状態の札・リストの持ち主・担当・最終架電、電話は数字だけでも一致。(4)選んだリードを他のリストへ移すとき「①誰の → ②どのリスト」で選べるように。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
