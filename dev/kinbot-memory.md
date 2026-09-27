@@ -1098,3 +1098,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28l 編集テーブル：_edCrosslost 列に「受失注日」(g(r,'失注日'))を失注理由詳細と失注後次回アクション日の間に。見出し helper drange(id)＝#idFrom/#idTo の date input 2つ、edInRange(ymd,id)。受失注日 edDLost・失注後次回アクション日 edDNextAct・ナーチャ次回架電日 edDNext を範囲化（旧テキスト edQNextAct/edQNext は廃止）。版20260928l。
 
 - 2026-09-28 BUILD_TAG=2026-09-28m 失注リスト表：失注理由詳細 36字超は td.kc-rc-long＋.kc-clamp＋.kc-more（かけると共通の委譲トグル）。列追加：担当（担当メール→nmMemberName、空は（未割り当て））、リスト（edListName：_listName→items.リスト名(r._list_name)→_nmLists/_edLists）。フィルタ msel edClWho/edClList。版20260928m。
+
+- 2026-09-28 BUILD_TAG=2026-09-28n トークスクリプトをメンバーごとに。db talk_scripts(owner,group_id NULL=基本,text) ＋ unique(lower(owner),COALESCE(group_id,0))、listTalkScripts/saveTalkScript（空文字は削除）。GET/PUT /api/calls/talk/mine、GET /api/calls/talk-script は 自分のグループ用→自分の基本→settings.talkScripts.groups→default の順（source: mine-group/mine/group/default）。calls.html サイド「トーク」(?p=talk)＋section data-p=talk（#tkList/#tkText/#tkPrev/#tkSave/#tkTemplate/#tkDelete）。calls.js talkRender/kcMyShortName/kcLoadTalk（表示のみ・編集リンク）/loadTalkPane/tkSelect/tkSave、showPane に talk。版20260928n。

@@ -205,6 +205,17 @@ export async function initDb() {
     );
   `);
   // インサイドの出勤シフト（管理者が1ヶ月分まとめて入力・開始/終了は分単位）
+  // メンバーごとのトークスクリプト（group_id が NULL＝その人の基本の台本）
+  await sq(`
+    CREATE TABLE IF NOT EXISTS talk_scripts (
+      id         SERIAL PRIMARY KEY,
+      owner      TEXT NOT NULL,
+      group_id   INTEGER,
+      text       TEXT NOT NULL DEFAULT '',
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await sq(`CREATE UNIQUE INDEX IF NOT EXISTS ux_talk_scripts_owner_group ON talk_scripts (lower(owner), COALESCE(group_id, 0));`);
   await sq(`
     CREATE TABLE IF NOT EXISTS inside_shifts (
       email      TEXT NOT NULL,
@@ -4383,6 +4394,29 @@ export async function bumpLateNextCall(ids) {
         WHERE id = ANY($1::int[]) AND next_call_at IS NOT NULL AND next_call_at < now()`, [[...new Set(ids.map(Number).filter(Boolean))]]);
     return r.rowCount;
   } catch (e) { console.error("[db] bumpLateNextCall", e.message); return 0; }
+}
+
+// トークスクリプト（メンバーごと）
+export async function listTalkScripts(owner) {
+  if (!pool || !owner) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.group_id, s.text, s.updated_at, (SELECT g.name FROM call_list_groups g WHERE g.id = s.group_id) AS group_name
+         FROM talk_scripts s WHERE lower(s.owner) = lower($1) ORDER BY s.group_id NULLS FIRST`, [owner]);
+    return rows;
+  } catch (e) { console.error("[db] listTalkScripts", e.message); return []; }
+}
+export async function saveTalkScript(owner, groupId, text) {
+  if (!pool || !owner) return false;
+  const gid = groupId ? parseInt(groupId, 10) : null;
+  const t = String(text || "");
+  try {
+    if (!t.trim()) { await pool.query(`DELETE FROM talk_scripts WHERE lower(owner) = lower($1) AND COALESCE(group_id,0) = COALESCE($2,0)`, [owner, gid]); return true; }
+    await pool.query(
+      `INSERT INTO talk_scripts (owner, group_id, text, updated_at) VALUES (lower($1), $2, $3, now())
+       ON CONFLICT (lower(owner), COALESCE(group_id, 0)) DO UPDATE SET text = EXCLUDED.text, updated_at = now()`, [owner, gid, t.slice(0, 20000)]);
+    return true;
+  } catch (e) { console.error("[db] saveTalkScript", e.message); return false; }
 }
 
 // 「過去失注」グループのリストか（DOC過去失注など）。かけるの見せ方・自動移動を変える。

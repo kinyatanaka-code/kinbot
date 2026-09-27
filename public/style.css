@@ -6857,3 +6857,21 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .ed-dr input { width: 100%; font-size: 11.5px; padding: 3px 5px; }
 
 .ed-table td.kc-rc-long { vertical-align: top; }
+
+/* トーク（自分の台本） */
+.tk-wrap { display: grid; grid-template-columns: 260px 1fr; gap: 18px; }
+@media (max-width: 900px) { .tk-wrap { grid-template-columns: 1fr; } }
+.tk-h { font-size: 15px; font-weight: 800; color: #0d5b47; margin-bottom: 6px; }
+.tk-item { width: 100%; text-align: left; border: 1px solid #e2efe8; background: #fff; border-radius: 12px; padding: 10px 12px; margin-bottom: 7px; cursor: pointer; font: inherit; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+.tk-item .nm { font-weight: 700; font-size: 13.5px; color: #1f3a31; }
+.tk-item .st { font-size: 11px; font-weight: 700; color: #9cb2a8; } .tk-item .st.ok { color: #1d9e75; }
+.tk-item .nt { grid-column: 1 / -1; font-size: 11px; color: #6b857b; }
+.tk-item.on { border-color: #1d9e75; background: #eaf7f1; }
+.tk-top { display: flex; align-items: center; gap: 10px; }
+.tk-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 1100px) { .tk-cols { grid-template-columns: 1fr; } }
+.tk-ta { width: 100%; min-height: 460px; border: 1px solid #cfe6da; border-radius: 12px; padding: 12px; font: inherit; font-size: 13.5px; line-height: 1.75; resize: vertical; }
+.tk-prev { border: 1px solid #e2efe8; border-radius: 12px; padding: 12px 14px; background: #fbfdfc; min-height: 460px; }
+.tk-prev-h { font-size: 11.5px; color: #6b857b; font-weight: 700; margin-bottom: 8px; }
+.tk-acts { display: flex; gap: 8px; margin-top: 10px; }
+a.kc-talk-edit { text-decoration: none; }

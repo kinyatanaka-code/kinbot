@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260928m" />
+    <link rel="stylesheet" href="style.css?v=20260928n" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -29,6 +29,8 @@
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3v6l5 3 .8-1.3-4.3-2.6V7z"/></svg></span><span class="side-label">デイリー目標</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=shifts">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2zm12 7v10H5V9zM7 11v2h2v-2zm4 0v2h2v-2zm4 0v2h2v-2z"/></svg></span><span class="side-label">出勤管理</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=talk">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 5v2h10V8zm0 4v2h7v-2z"/></svg></span><span class="side-label">トーク</span></a></div>
         <div class="side-wrap"><a class="side-item" id="kcSideDoc" href="#docset">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6 2h8l4 4v16H6zm8 1.5V7h3.5zM8 11h8v2H8zm0 4h8v2H8z"/></svg></span><span class="side-label">資料送付設定</span></a></div>
         <div class="side-sep"></div>
@@ -189,6 +191,24 @@
           </section>
 
           <!-- デイリー目標 -->
+          <section class="card kc-pane" data-p="talk" hidden>
+            <div class="tk-wrap">
+              <div class="tk-side">
+                <div class="tk-h">自分のトークスクリプト</div>
+                <p class="note" style="margin:0 0 10px">ここで保存した台本が、架電の記録の窓の左に出ます。リストのグループ用の台本があればそれを、無ければ「基本の台本」を出します。</p>
+                <div id="tkList"><div class="note">読み込んでいます…</div></div>
+              </div>
+              <div class="tk-main">
+                <div class="tk-top"><div class="tk-h" id="tkTitle">基本の台本</div><span class="rev-status" id="tkSt"></span></div>
+                <p class="note" style="margin:0 0 6px">「■」や「【】」で始まる行は見出しになります。<b>{会社名}</b> <b>{担当者}</b> <b>{自分}</b> は架電時に自動で差し込まれます。</p>
+                <div class="tk-cols">
+                  <textarea id="tkText" class="tk-ta" placeholder="■ 受付&#10;お世話になっております。株式会社ネオキャリアの{自分}と申します。{担当者}様はいらっしゃいますでしょうか。"></textarea>
+                  <div class="tk-prev"><div class="tk-prev-h">プレビュー（例：株式会社サンプル／山田様）</div><div id="tkPrev" class="kc-talk-body"></div></div>
+                </div>
+                <div class="tk-acts"><button type="button" class="btn" id="tkSave">保存</button><button type="button" class="btn ghost" id="tkTemplate">ひな形を入れる</button><button type="button" class="btn ghost" id="tkDelete">この台本を消す</button></div>
+              </div>
+            </div>
+          </section>
           <section class="card kc-pane" data-p="daily" hidden>
             <div id="clDailyWrap">
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
@@ -426,9 +446,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260928m"></script>
-    <script src="calls.js?v=20260928m"></script>
-    <script src="nav.js?v=20260928m"></script>
+    <script src="sf-data.js?v=20260928n"></script>
+    <script src="calls.js?v=20260928n"></script>
+    <script src="nav.js?v=20260928n"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

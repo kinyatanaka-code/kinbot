@@ -2228,59 +2228,89 @@ function updateRowContact(x) {
   setTimeout(() => tr.classList.remove("kc-just"), 1600);
 }
 
-// ===== トークスクリプト（会社情報の下）=====
-// 台本の書き方：「■」や「【】」で始まる行は見出し。{会社名} {担当者} {自分} は自動で差し込む。
+// ===== トークスクリプト =====
+// 台本の書き方：「■」「【】」「#」で始まる行は見出し。{会社名} {担当者} {自分} は自動で差し込む。
+const TALK_TEMPLATE = "■ 受付\nお世話になっております。株式会社ネオキャリアの{自分}と申します。{担当者}様はいらっしゃいますでしょうか。\n\n■ 担当者\n{担当者}様、お忙しいところ恐れ入ります。{会社名}様の採用について…\n\n■ アポの打診\n一度15分ほど、オンラインでお時間いただけないでしょうか。\n\n■ 切り返し：予算がない\n費用のご検討は後で大丈夫です。まずは事例だけでも…";
+function talkRender(text, vals) {
+  const v = vals || {};
+  const fill = (t) => String(t || "").replace(/\{会社名\}/g, v.company || "御社").replace(/\{担当者\}/g, v.person || "ご担当者").replace(/\{自分\}/g, v.me || "（自分）");
+  return fill(text).split(/\r?\n/).map((ln) => {
+    const t = ln.trim();
+    if (!t) return '<div class="kc-talk-gap"></div>';
+    if (/^(■|【|#)/.test(t)) return `<div class="kc-talk-h">${esc(t.replace(/^#+\s*/, ""))}</div>`;
+    return `<div class="kc-talk-p">${esc(t)}</div>`;
+  }).join("");
+}
+async function kcMyShortName() {
+  if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null);
+  const me = await _meP;
+  const full = String((me && (me.name || me.displayName)) || "").trim() || String((me && me.username) || "").split("@")[0];
+  return full.split(/[\s　]/)[0] || full;
+}
+// 記録の窓の左（会社情報の下）に出す。編集は「トーク」メニューで行う。
 async function kcLoadTalk(box, x) {
   if (!box) return;
   const lid = (x && (x.listId || x._listId)) || (/^\d+$/.test(String(listId || "")) ? listId : "");
-  let d = null, me = null;
-  try {
-    if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null);
-    [d, me] = await Promise.all([fetch(`/api/calls/talk-script?listId=${encodeURIComponent(lid || "")}`, { cache: "no-store" }).then((r) => r.json()), _meP]);
-  } catch {}
+  let d = null, me = "";
+  try { [d, me] = await Promise.all([fetch(`/api/calls/talk-script?listId=${encodeURIComponent(lid || "")}`, { cache: "no-store" }).then((r) => r.json()), kcMyShortName()]); } catch {}
   if (!d || !d.ok) { box.innerHTML = '<div class="note">トークスクリプトを読み込めませんでした</div>'; return; }
-  const myName = String((me && (me.name || me.displayName)) || "").trim() || String((me && me.username) || "").split("@")[0];
-  const fill = (t) => String(t || "")
-    .replace(/\{会社名\}/g, (x && x["会社名"]) || "御社")
-    .replace(/\{担当者\}/g, ((x && x["担当者"] && x["担当者"] !== "担当者") ? x["担当者"] : "ご担当者"))
-    .replace(/\{自分\}/g, myName.split(/[\s　]/)[0] || myName);
-  const renderText = (t) => {
-    const lines = fill(t).split(/\r?\n/);
-    return lines.map((ln) => {
-      const v = ln.trim();
-      if (!v) return '<div class="kc-talk-gap"></div>';
-      if (/^(■|【|#)/.test(v)) return `<div class="kc-talk-h">${esc(v.replace(/^#+\s*/, ""))}</div>`;
-      return `<div class="kc-talk-p">${esc(v)}</div>`;
-    }).join("");
-  };
-  const src = d.source === "group" ? `グループ「${esc(d.groupName || "")}」の台本` : d.source === "default" ? "全体の台本" : "";
-  const view = () => {
-    box.innerHTML = `<div class="kc-talk-top"><div class="kc-slot-h" style="margin:0">トークスクリプト</div>${d.canEdit ? '<button type="button" class="kc-talk-edit" id="kcTalkEdit">編集</button>' : ""}</div>` +
-      (src ? `<div class="kc-talk-src">${src}</div>` : "") +
-      (d.script ? `<div class="kc-talk-body">${renderText(d.script)}</div>` : `<div class="note">まだ台本がありません。${d.canEdit ? "「編集」から登録できます。" : "クローザー・管理者に登録してもらってください。"}</div>`);
-    const eb = box.querySelector("#kcTalkEdit"); if (eb) eb.addEventListener("click", edit);
-  };
-  const edit = () => {
-    box.innerHTML = `<div class="kc-slot-h">トークスクリプトを編集</div>
-      <div class="note" style="margin:0 0 6px">「■」や「【】」で始まる行は見出しになります。<b>{会社名}</b> <b>{担当者}</b> <b>{自分}</b> は架電時に自動で差し込まれます。</div>
-      <textarea class="kc-talk-ta" id="kcTalkTa">${esc(d.script || "■ 受付\nお世話になっております。株式会社ネオキャリアの{自分}と申します。{担当者}様はいらっしゃいますでしょうか。\n\n■ 担当者\n{担当者}様、お忙しいところ恐れ入ります。{会社名}様の採用について…\n\n■ アポの打診\n一度15分ほど、オンラインでお時間いただけないでしょうか。\n\n■ 切り返し：予算がない\n費用のご検討は後で大丈夫です。まずは事例だけでも…")}</textarea>
-      <div class="kc-talk-acts">
-        ${d.groupId ? `<button type="button" class="btn" data-save="group">グループ「${esc(d.groupName || "")}」の台本として保存</button>` : ""}
-        <button type="button" class="btn ${d.groupId ? "ghost" : ""}" data-save="default">全体の台本として保存</button>
-        <button type="button" class="btn ghost" data-save="cancel">やめる</button>
-      </div><span class="rev-status" id="kcTalkSt"></span>`;
-    box.querySelectorAll("[data-save]").forEach((b) => b.addEventListener("click", async () => {
-      if (b.dataset.save === "cancel") { view(); return; }
-      const text = box.querySelector("#kcTalkTa").value;
-      const st = box.querySelector("#kcTalkSt"); st.textContent = "保存しています…";
-      try {
-        const r = await fetch("/api/calls/talk-script", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, groupId: b.dataset.save === "group" ? d.groupId : null }) });
-        const j = await r.json().catch(() => ({})); if (!r.ok || !j.ok) throw new Error(j.error || "保存できませんでした");
-        d.script = text; d.source = b.dataset.save === "group" ? "group" : "default"; view();
-      } catch (e) { st.textContent = "失敗：" + (e.message || ""); }
-    }));
-  };
-  view();
+  const src = { "mine-group": `自分の台本（${esc(d.groupName || "")}用）`, mine: "自分の基本の台本", group: `共有の台本（${esc(d.groupName || "")}）`, default: "共有の台本" }[d.source] || "";
+  const person = (x && x["担当者"] && x["担当者"] !== "担当者") ? x["担当者"] : "";
+  box.innerHTML = `<div class="kc-talk-top"><div class="kc-slot-h" style="margin:0">トーク</div><a class="kc-talk-edit" href="/kincall?p=talk" target="_blank" rel="noopener">編集</a></div>` +
+    (src ? `<div class="kc-talk-src">${src}</div>` : "") +
+    (d.script ? `<div class="kc-talk-body">${talkRender(d.script, { company: x && x["会社名"], person, me })}</div>`
+      : `<div class="note">まだ台本がありません。左のメニューの「トーク」から、自分の台本を登録してください。</div>`);
+}
+// 「トーク」メニュー：自分の台本（基本＋グループ別）を編集
+let _tk = { scripts: [], groups: [], sel: null, me: "" };
+async function loadTalkPane() {
+  const list = $("tkList"); if (!list) return;
+  try {
+    const [d, me] = await Promise.all([fetch("/api/calls/talk/mine?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()), kcMyShortName()]);
+    if (!d.ok) throw new Error(d.error || "");
+    _tk.scripts = d.scripts || []; _tk.groups = d.groups || []; _tk.me = me;
+  } catch (e) { list.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
+  if (!$("tkText")._wired) {
+    $("tkText")._wired = true;
+    $("tkText").addEventListener("input", tkPreview);
+    $("tkSave").addEventListener("click", () => tkSave(false));
+    $("tkDelete").addEventListener("click", () => { if (confirm("この台本を消しますか？")) tkSave(true); });
+    $("tkTemplate").addEventListener("click", () => { const ta = $("tkText"); if (ta.value.trim() && !confirm("いまの内容をひな形に置き換えますか？")) return; ta.value = TALK_TEMPLATE; tkPreview(); });
+  }
+  tkRenderList();
+  tkSelect(_tk.sel === null ? "" : _tk.sel);
+}
+function tkTextOf(gid) { const f = _tk.scripts.find((x) => String(x.group_id || "") === String(gid || "")); return f ? f.text : ""; }
+function tkRenderList() {
+  const items = [{ id: "", name: "基本の台本", note: "グループ用が無いときに出す" }, ..._tk.groups.map((g) => ({ id: String(g.id), name: g.name, note: "このグループのリストのとき" }))];
+  $("tkList").innerHTML = items.map((it) => {
+    const has = !!tkTextOf(it.id);
+    return `<button type="button" class="tk-item${String(_tk.sel) === it.id ? " on" : ""}" data-g="${esc(it.id)}"><span class="nm">${esc(it.name)}</span><span class="st ${has ? "ok" : ""}">${has ? "登録済み" : "未登録"}</span><span class="nt">${esc(it.note)}</span></button>`;
+  }).join("");
+  $("tkList").querySelectorAll(".tk-item").forEach((b) => b.addEventListener("click", () => tkSelect(b.dataset.g)));
+}
+function tkSelect(gid) {
+  _tk.sel = gid || "";
+  const g = _tk.groups.find((x) => String(x.id) === String(gid));
+  $("tkTitle").textContent = g ? `グループ「${g.name}」用の台本` : "基本の台本";
+  $("tkText").value = tkTextOf(gid);
+  $("tkSt").textContent = "";
+  tkRenderList(); tkPreview();
+}
+function tkPreview() { $("tkPrev").innerHTML = talkRender($("tkText").value || "", { company: "株式会社サンプル", person: "山田", me: _tk.me }) || '<div class="note">ここにプレビューが出ます</div>'; }
+async function tkSave(del) {
+  const st = $("tkSt"); st.textContent = "保存しています…";
+  try {
+    const text = del ? "" : $("tkText").value;
+    const r = await fetch("/api/calls/talk/mine", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: _tk.sel || null, text }) });
+    const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "保存できませんでした");
+    const k = String(_tk.sel || "");
+    _tk.scripts = _tk.scripts.filter((x) => String(x.group_id || "") !== k);
+    if (text.trim()) _tk.scripts.push({ group_id: _tk.sel ? Number(_tk.sel) : null, text });
+    if (del) $("tkText").value = "";
+    tkRenderList(); tkPreview();
+    st.textContent = del ? "消しました" : "保存しました（次の架電から左のトークに出ます）";
+  } catch (e) { st.textContent = "失敗：" + (e.message || ""); }
 }
 
 // 記録モーダルの右に、クローザーの空き枠の候補を出すパネル
@@ -4222,13 +4252,14 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   // ヘッダーの表示を、いま開いているページに合わせる
-  const 名前 = { call: ["架電リスト", ""], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
+  const 名前 = { talk: ["トーク", "自分のトークスクリプト"], call: ["架電リスト", ""], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
   const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
   const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
   if (p === "stats") { if (statsTop === "dash") loadDash(); else loadStats(); }
   if (p === "lists") loadListStatus();
   if (p === "shifts") loadShiftCal();
   if (p === "daily") loadDailyGoal();
+  if (p === "talk") loadTalkPane();
 }
 
 // サイドメニューの「資料送付設定」→ モーダルを開く（ページ遷移はしない）

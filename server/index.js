@@ -250,6 +250,8 @@ import {
   nurtureSummary,
   listActiveTargetCompanies,
   isPastLostList,
+  listTalkScripts,
+  saveTalkScript,
   callCountsSince,
   listRecycleCandidates,
   moveToWeeklyRevival,
@@ -9525,9 +9527,31 @@ app.get("/api/calls/talk-script", async (req, res) => {
     const listId = parseInt(req.query.listId, 10) || 0;
     if (!groupId && listId) groupId = await getListGroupId(listId).catch(() => null);
     if (groupId) { try { groupName = ((await listGroups()).find((g) => Number(g.id) === Number(groupId)) || {}).name || ""; } catch {} }
+    // 優先順：自分のこのグループの台本 → 自分の基本の台本 → 共有（以前の）グループの台本 → 共有の全体台本
+    const mine = await listTalkScripts(req.user).catch(() => []);
+    const myG = groupId ? (mine.find((x) => Number(x.group_id) === Number(groupId)) || {}).text || "" : "";
+    const myD = (mine.find((x) => x.group_id == null) || {}).text || "";
     const g = groupId && ts.groups ? String(ts.groups[groupId] || "") : "";
-    const canEdit = !!(req.isAdmin || req.actingCloser || (await isCloserUser(req.user).catch(() => false)));
-    res.json({ ok: true, script: g || String(ts.default || ""), source: g ? "group" : (ts.default ? "default" : "none"), groupId, groupName, canEdit });
+    let script = "", source = "none";
+    if (myG) { script = myG; source = "mine-group"; }
+    else if (myD) { script = myD; source = "mine"; }
+    else if (g) { script = g; source = "group"; }
+    else if (ts.default) { script = String(ts.default); source = "default"; }
+    res.json({ ok: true, script, source, groupId, groupName });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 自分のトークスクリプト（「トーク」メニュー）
+app.get("/api/calls/talk/mine", async (req, res) => {
+  try {
+    const [scripts, groups] = await Promise.all([listTalkScripts(req.user), listGroups().catch(() => [])]);
+    res.json({ ok: true, scripts, groups: groups.map((g) => ({ id: g.id, name: g.name })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/talk/mine", async (req, res) => {
+  try {
+    const ok = await saveTalkScript(req.user, req.body?.groupId || null, req.body?.text || "");
+    if (!ok) return res.status(500).json({ error: "保存できませんでした" });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/calls/talk-script", async (req, res) => {
@@ -21352,7 +21376,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28m 失注リスト（過去リスト）の表：失注理由詳細は3行で折り返し、それ以上は「もっと見る」で開く。振り分けている「担当（かける人）」と「リスト」の列を追加し、どちらも複数選択で絞り込めるように（items に リスト名 を追加）。";
+const BUILD_TAG = "2026-09-28n サイドメニューに「トーク」を追加。各メンバーが自分のトークスクリプト（基本の台本＋グループ別の台本）を編集・保存でき、プレビュー付き。記録の窓の左の「トーク」には、その人の台本（このリストのグループ用→基本→以前の共有台本の順）を表示（左では編集せず「編集」でトークメニューへ）。talk_scripts テーブル、GET/PUT /api/calls/talk/mine。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
