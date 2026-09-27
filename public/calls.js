@@ -4941,7 +4941,7 @@ function hubNuDraw() {
         const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "移せませんでした"); n += d.moved || ids.length;
       }
       await hubRenderNurture(); hubLoadSummary();
-      const st = $("hubNuSt"); if (st) st.textContent = `${n}件を移しました（期限切れのものは今の予定にしました）`;
+      const st = $("hubNuSt"); if (st) st.textContent = `${n}件を移しました（期限切れだったものは、今日の予定に付け替えました）`;
     } catch (e) { const st = $("hubNuSt"); if (st) st.textContent = "失敗：" + (e.message || ""); }
   };
   // 移す先を複数選んだら、その人たちへ順番に配る（今の担当者には戻さない）
@@ -4955,9 +4955,10 @@ function hubNuDraw() {
       if (!e) { skipped++; continue; }
       if (!groups.has(e)) groups.set(e, []); groups.get(e).push(id);
     }
-    if (tos.length > 1 || skipped) {
+    const lateN = [..._hubNu.pick].filter((id) => { const it = _hubNu.items.find((x) => x.id === id); return it && new Date(it.next).getTime() < t0; }).length;
+    if (tos.length > 1 || skipped || lateN) {
       const lines = [...groups.entries()].map(([e, ids]) => `・${hubNm(e)}：${ids.length}件`).join("\n");
-      if (!confirm(`次のように移します。\n\n${lines}${skipped ? `\n\n（今の担当と同じ人しかいない ${skipped}件は動かしません）` : ""}\n\nよろしいですか？`)) return;
+      if (!confirm(`次のように移します。\n\n${lines}${skipped ? `\n\n（今の担当と同じ人しかいない ${skipped}件は動かしません）` : ""}${lateN ? `\n\n期限切れの ${lateN}件は、次回架電を「今日」に付け替えます（期限切れの数から今日の数へ移ります）。` : ""}\n\nよろしいですか？`)) return;
     }
     send([...groups.entries()]);
   });

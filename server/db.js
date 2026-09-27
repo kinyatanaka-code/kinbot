@@ -4319,7 +4319,10 @@ export async function callLogsForTargets(ids) {
 export async function bumpLateNextCall(ids) {
   if (!pool || !ids || !ids.length) return 0;
   try {
-    const r = await pool.query(`UPDATE call_targets SET next_call_at = now() WHERE id = ANY($1::int[]) AND next_call_at IS NOT NULL AND next_call_at < now()`, [[...new Set(ids.map(Number).filter(Boolean))]]);
+    // 今日の9:00（日本時間）。もう9時を過ぎていれば今の時刻
+    const r = await pool.query(
+      `UPDATE call_targets SET next_call_at = GREATEST(now(), (date_trunc('day', now() AT TIME ZONE 'Asia/Tokyo') + interval '9 hours') AT TIME ZONE 'Asia/Tokyo')
+        WHERE id = ANY($1::int[]) AND next_call_at IS NOT NULL AND next_call_at < now()`, [[...new Set(ids.map(Number).filter(Boolean))]]);
     return r.rowCount;
   } catch (e) { console.error("[db] bumpLateNextCall", e.message); return 0; }
 }

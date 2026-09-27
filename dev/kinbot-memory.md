@@ -1072,3 +1072,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-27 BUILD_TAG=2026-09-27h call_targets に origin_list_id/origin_list_name（移動前の元リスト、COALESCEで最初の元を保持）。moveToWeeklyRevival で記録。targets の 元のリスト＝origin_list_name||nurture_from_name（fromBadge「元：」）。hubRecycle item.list＝origin||現リスト、hubNurture item.list＝origin||nurture_from||_list_name（listNurtureTargetsForMember に l.name AS _list_name 追加）。hubNurture に shifts{YYYY-MM-DD:[{email,name,start,end}]}（listInsideShifts 今日〜+6日）。hubNuDraw：tIdx=選択日 or 今日、.hub-shift に出勤者、移す先 option に出勤時間/出勤予定なし（出勤者を上に）、担当列に「休み」pill、均等配分は出勤者のみ（いなければ全員）。版20260927h。
 
 - 2026-09-27 BUILD_TAG=2026-09-27i ハブのナーチャリング：_hubNu.who/_hubNu.to を Set 化。hubMsel(id,title,opts,sel)/hubWireMsel(id,sel,onDone)（fixed ポップオーバー、全員/すべて外す/決定、外側クリックで決定）。担当は件数付きで多い順、移す先は出勤者が上＋出勤時間ラベル。「選んだ人へ移す」は round-robin で今の担当と同じ人を避け、複数/スキップ時は confirm。版20260927i。
+
+- 2026-09-28 BUILD_TAG=2026-09-28a ユーザー「移動させたらナーチャリングが減った」＝bumpLate で期限切れ→今日に付け替わっただけ（件数は消えていない）。bumpLateNextCall を GREATEST(now(), 今日9:00 JST) に変更（以前は now() で深夜時刻が入った）。hub の移動確認に期限切れの付け替え件数を明示。版20260928a。
