@@ -4812,8 +4812,8 @@ function hubRcDraw() {
     <div class="hub-bar"><label><input type="checkbox" id="hubRcAll"> すべて選ぶ</label><span>選択 <b id="hubRcN">0</b> 件</span>
       <select id="hubRcTemp"><option value="">温度：すべて</option>${["A", "B", "C"].map((t) => `<option${_hubRc.temp === t ? " selected" : ""}>${t}</option>`).join("")}</select>
       <span style="flex:1"></span><button type="button" class="btn" id="hubRcMake" disabled>選んだ分で「復活リスト」を作る</button></div>
-    <div class="hub-scroll"><table class="hub-tbl"><tr><th></th><th>温度</th><th>会社名</th><th>断り理由</th><th>リサイクルに入った</th><th>復活目安</th><th>前回の担当</th><th>次回の担当（ルール）</th><th>時間帯</th></tr>
-      ${xs.slice(0, 1500).map((x) => `<tr><td><input type="checkbox" class="hub-rcck" data-id="${x.id}"></td><td><span class="hub-pill ${tcls[x.temp] || ""}">${esc(x.temp)}</span></td><td><b>${esc(x.company)}</b></td><td>${esc(x.tag || "—")}</td><td>${hubMd(x.since)}</td><td>${hubMd(x.due)}</td><td>${esc(hubNm(x.prev))}</td><td>${esc(x.next || "—")}</td><td>${esc(x.slot || "")}</td></tr>`).join("") || '<tr><td colspan="9" class="dim" style="padding:18px">この週の候補はありません</td></tr>'}</table></div>
+    <div class="hub-scroll"><table class="hub-tbl"><tr><th></th><th>温度</th><th>会社名</th><th>断り理由</th><th>リサイクルに入った</th><th>復活目安</th><th>前回の担当</th><th>元のリスト</th><th>次回の担当（ルール）</th><th>時間帯</th></tr>
+      ${xs.slice(0, 1500).map((x) => `<tr><td><input type="checkbox" class="hub-rcck" data-id="${x.id}"></td><td><span class="hub-pill ${tcls[x.temp] || ""}">${esc(x.temp)}</span></td><td><b>${esc(x.company)}</b></td><td>${esc(x.tag || "—")}</td><td>${hubMd(x.since)}</td><td>${hubMd(x.due)}</td><td>${esc(hubNm(x.prev))}</td><td class="dim2">${esc(x.list || "—")}</td><td>${esc(x.next || "—")}</td><td>${esc(x.slot || "")}</td></tr>`).join("") || '<tr><td colspan="10" class="dim" style="padding:18px">この週の候補はありません</td></tr>'}</table></div>
     <div id="hubRcAssign"></div></div>`;
   pane.querySelectorAll(".hub-tlc").forEach((b) => b.addEventListener("click", () => hubRenderRecycle(+b.dataset.w)));
   $("hubRcTemp").addEventListener("change", (e) => { _hubRc.temp = e.target.value; _hubRc.pick = new Set(); hubRcDraw(); });
@@ -4860,13 +4860,13 @@ function hubRcAssignPanel() {
 }
 
 // --- ナーチャリング
-let _hubNu = { items: [], todayStart: "", day: "all", who: "", pick: new Set() };
+let _hubNu = { items: [], shifts: {}, todayStart: "", day: "all", who: "", pick: new Set() };
 async function hubRenderNurture() {
   const pane = $("hubPane"); if (!pane) return;
   try {
     const d = await (await fetch("/api/calls/hub/nurture?_=" + Date.now(), { cache: "no-store" })).json();
     if (!d.ok) throw new Error(d.error || "");
-    _hubNu.items = d.items || []; _hubNu.todayStart = d.todayStart; _hubNu.pick = new Set();
+    _hubNu.items = d.items || []; _hubNu.shifts = d.shifts || {}; _hubNu.todayStart = d.todayStart; _hubNu.pick = new Set();
   } catch (e) { pane.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
   hubNuDraw();
 }
@@ -4880,17 +4880,28 @@ function hubNuDraw() {
   xs.sort((a, b) => new Date(a.next) - new Date(b.next));
   const ms = hubMembers();
   const whoOpts = [...new Set(_hubNu.items.map((x) => x.who))].map((e) => `<option value="${esc(e)}"${_hubNu.who === e ? " selected" : ""}>${esc(hubNm(e))}</option>`).join("");
+  // 振り分ける日（日付を選んでいればその日、それ以外は今日）の出勤予定
+  const tIdx = typeof _hubNu.day === "number" && _hubNu.day >= 0 ? _hubNu.day : 0;
+  const tDate = new Date(t0 + tIdx * DAY + 9 * 3600000);
+  const tKey = tDate.toISOString().slice(0, 10);
+  const hm = (m) => m == null ? "" : `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+  const work = new Map((_hubNu.shifts[tKey] || []).map((x) => [x.email, x]));
+  const workLabel = (e) => { const w = work.get(e); return w ? `出勤 ${hm(w.start)}${w.end != null ? "〜" + hm(w.end) : ""}` : "出勤予定なし"; };
+  const msSorted = ms.slice().sort((a, b) => (work.has(String(b.email || "").toLowerCase()) ? 1 : 0) - (work.has(String(a.email || "").toLowerCase()) ? 1 : 0));
+  const dayLabel = `${tDate.getUTCMonth() + 1}/${tDate.getUTCDate()}（${WD[tDate.getUTCDay()]}）`;
+  const workers = [...work.values()];
   pane.innerHTML = `<div class="hub-card">
     <div class="hub-h">${hubIco("leaf")}これからかける予定 <span class="note">日付を押すとその日の分。赤＝期限切れ（過ぎたのにまだかけていない）。もう一度押すと全部に戻ります</span></div>
     <div class="hub-week"><button type="button" class="hub-wd late${_hubNu.day === -1 ? " on" : ""}" data-d="-1"><div class="l">期限切れ</div><div class="n">${cnt(-1)}</div></button>
       ${[0, 1, 2, 3, 4, 5, 6].map((i) => { const dd = new Date(t0 + i * DAY + 9 * 3600000); return `<button type="button" class="hub-wd${i === 0 ? " today" : ""}${_hubNu.day === i ? " on" : ""}" data-d="${i}"><div class="l">${dd.getUTCMonth() + 1}/${dd.getUTCDate()}（${WD[dd.getUTCDay()]}）</div><div class="n">${cnt(i)}</div></button>`; }).join("")}</div>
     <div class="hub-bar"><label><input type="checkbox" id="hubNuAll"> すべて選ぶ</label><span>選択 <b id="hubNuN">0</b> 件</span>
       <select id="hubNuWho"><option value="">担当：すべて</option>${whoOpts}</select><span style="flex:1"></span>
-      <select id="hubNuTo"><option value="">移す先のメンバー…</option>${ms.map((m) => `<option value="${esc(String(m.email || "").toLowerCase())}">${esc(m.name || m.email)}</option>`).join("")}</select>
+      <select id="hubNuTo"><option value="">移す先のメンバー…</option>${msSorted.map((m) => { const e = String(m.email || "").toLowerCase(); return `<option value="${esc(e)}">${esc(m.name || m.email)}（${workLabel(e)}）</option>`; }).join("")}</select>
       <button type="button" class="btn" id="hubNuMove" disabled>へ移す</button>
-      <button type="button" class="btn ghost" id="hubNuEven" disabled>予定が少ない人へ均等に</button><span class="rev-status" id="hubNuSt"></span></div>
-    <div class="hub-scroll"><table class="hub-tbl"><tr><th></th><th>次回架電</th><th>会社名</th><th>ステージ</th><th>最終結果</th><th>担当</th></tr>
-      ${xs.slice(0, 2000).map((x) => { const late = new Date(x.next).getTime() < t0; const dd = new Date(x.next); const days = Math.ceil((t0 - dd.getTime()) / DAY); return `<tr><td><input type="checkbox" class="hub-nuck" data-id="${x.id}"></td><td>${hubMd(x.next)} ${String(dd.getHours()).padStart(2, "0")}:${String(dd.getMinutes()).padStart(2, "0")}${late ? ` <span class="hub-pill red">${days}日過ぎ</span>` : ""}</td><td><b>${esc(x.company)}</b></td><td>${esc(x.stage)}</td><td>${esc(x.status)}</td><td>${esc(hubNm(x.who))}</td></tr>`; }).join("") || '<tr><td colspan="6" class="dim" style="padding:18px">該当するリードはありません</td></tr>'}</table></div></div>`;
+      <button type="button" class="btn ghost" id="hubNuEven" disabled>${workers.length ? `${dayLabel}の出勤者へ均等に` : "予定が少ない人へ均等に"}</button><span class="rev-status" id="hubNuSt"></span></div>
+    <div class="hub-shift">${hubIco("cal")}<b>${dayLabel}の出勤</b>：${workers.length ? workers.map((w) => `<span class="hub-shift-m">${esc(hubNm(w.email) || w.name)} <span class="dim">${hm(w.start)}${w.end != null ? "〜" + hm(w.end) : ""}</span></span>`).join("") : '<span class="dim">出勤管理に予定が入っていません</span>'}</div>
+    <div class="hub-scroll"><table class="hub-tbl"><tr><th></th><th>次回架電</th><th>会社名</th><th>ステージ</th><th>最終結果</th><th>担当</th><th>元のリスト</th></tr>
+      ${xs.slice(0, 2000).map((x) => { const late = new Date(x.next).getTime() < t0; const dd = new Date(x.next); const days = Math.ceil((t0 - dd.getTime()) / DAY); return `<tr><td><input type="checkbox" class="hub-nuck" data-id="${x.id}"></td><td>${hubMd(x.next)} ${String(dd.getHours()).padStart(2, "0")}:${String(dd.getMinutes()).padStart(2, "0")}${late ? ` <span class="hub-pill red">${days}日過ぎ</span>` : ""}</td><td><b>${esc(x.company)}</b></td><td>${esc(x.stage)}</td><td>${esc(x.status)}</td><td>${esc(hubNm(x.who))}${work.has(x.who) ? "" : ' <span class="hub-pill amb" title="振り分ける日の出勤予定がありません">休み</span>'}</td><td class="dim2">${esc(x.list || "—")}</td></tr>`; }).join("") || '<tr><td colspan="7" class="dim" style="padding:18px">該当するリードはありません</td></tr>'}</table></div></div>`;
   pane.querySelectorAll(".hub-wd").forEach((b) => b.addEventListener("click", () => { const d = +b.dataset.d; _hubNu.day = _hubNu.day === d ? "all" : d; _hubNu.pick = new Set(); hubNuDraw(); }));
   $("hubNuWho").addEventListener("change", (e) => { _hubNu.who = e.target.value; _hubNu.pick = new Set(); hubNuDraw(); });
   const sync = () => { $("hubNuN").textContent = _hubNu.pick.size; $("hubNuMove").disabled = !_hubNu.pick.size || !$("hubNuTo").value; $("hubNuEven").disabled = !_hubNu.pick.size; };
@@ -4912,7 +4923,9 @@ function hubNuDraw() {
   $("hubNuMove").addEventListener("click", () => { const to = $("hubNuTo").value; if (to) send([[to, [..._hubNu.pick]]]); });
   $("hubNuEven").addEventListener("click", () => {
     // 今日から7日の予定が少ない人から順に、1件ずつ配る（元の担当には戻さない）
-    const load = new Map(ms.map((m) => [String(m.email || "").toLowerCase(), 0]));
+    // その日の出勤者がいれば出勤者だけに、いなければ全員に
+    const pool = workers.length ? workers.map((w) => w.email) : ms.map((m) => String(m.email || "").toLowerCase());
+    const load = new Map(pool.map((e) => [e, 0]));
     for (const x of _hubNu.items) if (load.has(x.who) && new Date(x.next).getTime() >= t0) load.set(x.who, load.get(x.who) + 1);
     const groups = new Map();
     for (const id of _hubNu.pick) {

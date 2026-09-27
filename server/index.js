@@ -9544,7 +9544,7 @@ async function hubRecycle() {
       const week = Math.max(0, Math.min(4, Math.floor((due.getTime() - ws) / WEEK_MS)));
       items.push({ id: c.id, company: c.company || "", person: c.person || "", tag: c.reject_tag || "", temp: temp || "-",
         since: c.since, due, week, prev: String(c.assigned_to || c.list_owner || "").toLowerCase(),
-        next: (rule && rule.next_owner) || "", slot: (rule && rule.time_slot) || "", talk: (rule && rule.talk_axis) || "", list: c.list_name || "" });
+        next: (rule && rule.next_owner) || "", slot: (rule && rule.time_slot) || "", talk: (rule && rule.talk_axis) || "", list: c.origin_name || c.list_name || "" });
     }
     const buckets = [0, 1, 2, 3, 4].map((w) => { const xs = items.filter((x) => x.week === w); return { n: xs.length, A: xs.filter((x) => x.temp === "A").length, B: xs.filter((x) => x.temp === "B").length, C: xs.filter((x) => x.temp === "C").length }; });
     return { items, buckets, weekStart: new Date(ws).toISOString() };
@@ -9559,8 +9559,17 @@ async function hubNurture() {
     const until = new Date(todayStart + 7 * 86400000 - 1000).toISOString();
     const rows = await listNurtureTargetsForMember("", { until, limit: 20000 });
     const items = rows.map((r) => ({ id: r.id, company: r.company || "", person: r.person || "", stage: r.stage || "", status: r.status || r.最終結果 || "",
-      next: r.next_call_at, who: String(r.assigned_to || r._list_owner || "").toLowerCase() }));
-    return { items, todayStart: new Date(todayStart).toISOString(), weekStart: new Date(ws).toISOString() };
+      next: r.next_call_at, who: String(r.assigned_to || r._list_owner || "").toLowerCase(),
+      list: r.origin_list_name || r.nurture_from_name || r._list_name || "" }));
+    // 出勤管理の予定（今日から7日）：その日に出勤する人を、振り分けのときに見せる
+    const d0 = new Date(todayStart + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const d6 = new Date(todayStart + 6 * 86400000 + 9 * 3600 * 1000).toISOString().slice(0, 10);
+    const shifts = {};
+    for (const x of await listInsideShifts(d0, d6).catch(() => [])) {
+      const e = String(x.email || "").toLowerCase(); if (!e.includes("@")) continue;
+      (shifts[x.day] = shifts[x.day] || []).push({ email: e, name: x.name || "", start: x.start_min, end: x.end_min });
+    }
+    return { items, shifts, todayStart: new Date(todayStart).toISOString(), weekStart: new Date(ws).toISOString() };
   });
 }
 // 過去リスト：失注日のあとに何件アプローチしたか（接触・アポ再獲得まで）
@@ -10120,7 +10129,7 @@ app.get("/api/calls/targets", async (req, res) => {
         従業員数: r.employees == null ? "" : r.employees,
         採用人数: r.hires == null ? "" : r.hires,
         媒体掲載: r.media_tags || "",
-        元のリスト: r.nurture_from_name || "",
+        元のリスト: r.origin_list_name || r.nurture_from_name || "",
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
         // SFへまだ送れていないkinbotの記録があれば、それも足す。
         // lead_id が15桁でも18桁でも合うよう、先頭15桁で引く。
@@ -21283,7 +21292,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-27g リスト管理ハブの絵文字アイコンを、kincallのサイドバーと同じ塗りのSVGアイコンに統一（状況・リスト・リサイクル・ナーチャリング・過去リスト、カード・見出し・前回の失注）。「概要」タブを「状況」に改名。かける画面のまとめリスト名からも絵文字を外し、今週の復活リスト名は「【復活】M/D週」に。";
+const BUILD_TAG = "2026-09-27h 元のリストを記録：今週の復活リストへ移すとき、移す前のリスト（最初の元リスト）を origin_list_id/name に残し、かけるの「元：」表示・リサイクル/ナーチャリングの表に「元のリスト」列。ナーチャリングの振り分けを出勤管理と連動：選んだ日（未選択なら今日）の出勤者と時間を表示、移す先の選択肢に出勤時間／出勤予定なし、担当に「休み」印、均等に配るのはその日の出勤者だけ。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

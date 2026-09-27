@@ -731,6 +731,8 @@ export async function initDb() {
   // ナーチャリングへ移したとき、元のリストを覚えておく（一覧にバッジ表示・元へ戻す用）
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_id   INTEGER;`);
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_name TEXT;`);
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS origin_list_id INT;`);     // 復活などで移す前にいたリスト
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS origin_list_name TEXT;`);
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_moved_at TIMESTAMPTZ;`); // ナーチャリングへ入れた日時（日次・週次の集計用） // 担当ルート/既存取引＝社内連携
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_score ON call_targets(list_id, score DESC);`);
   // 求人情報（会社名で架電先に紐づける外部データ）
@@ -4274,6 +4276,7 @@ export async function listRecycleCandidates() {
   try {
     const { rows } = await pool.query(
       `SELECT t.id, t.company, t.person, t.phone, t.reject_tag, t.temperature, t.assigned_to, l.owner AS list_owner, l.name AS list_name,
+              COALESCE(t.origin_list_name, t.nurture_from_name) AS origin_name,
               COALESCE((SELECT max(cl.at) FROM call_logs cl WHERE cl.target_id = t.id), t.created_at) AS since
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE COALESCE(t.stage,'') ILIKE '%リサイクル%'
@@ -4294,7 +4297,13 @@ export async function moveToWeeklyRevival({ email, name, ids, createdBy }) {
       const ins = await pool.query(`INSERT INTO call_lists (name, owner, created_by, kind) VALUES ($1,$2,$3,'recycle_revival') RETURNING id`, [name.slice(0, 120), String(email).toLowerCase(), createdBy || null]);
       listId = ins.rows[0].id;
     }
-    const r = await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3, done = false WHERE id = ANY($1::int[])`, [nums, listId, String(email).toLowerCase()]);
+    // 元のリストを残してから移す（すでに記録があれば上書きしない＝最初の元リストを保つ）
+    const r = await pool.query(
+      `UPDATE call_targets t SET
+          origin_list_id   = COALESCE(t.origin_list_id, t.list_id),
+          origin_list_name = COALESCE(t.origin_list_name, (SELECT name FROM call_lists WHERE id = t.list_id)),
+          list_id = $2, assigned_to = $3, done = false
+        WHERE t.id = ANY($1::int[])`, [nums, listId, String(email).toLowerCase()]);
     return r.rowCount;
   } catch (e) { console.error("[db] moveToWeeklyRevival", e.message); return 0; }
 }
@@ -9340,7 +9349,7 @@ export async function listNurtureTargetsForMember(member, { q = "", limit = 2000
     p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
       `SELECT t.*,
-              l.owner AS _list_owner, l.group_id AS _list_group_id,
+              l.owner AS _list_owner, l.group_id AS _list_group_id, l.name AS _list_name,
               (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS _list_group_name,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
