@@ -6850,3 +6850,8 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-talk-ta { width: 100%; min-height: 320px; border: 1px solid #cfe6da; border-radius: 10px; padding: 9px 10px; font: inherit; font-size: 12.5px; line-height: 1.7; resize: vertical; }
 .kc-talk-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .kc-talk-acts .btn { padding: 7px 10px; font-size: 12px; }
+
+/* 編集テーブル：日付の範囲の絞り込み */
+.ed-dr { display: flex; flex-direction: column; gap: 3px; min-width: 128px; }
+.ed-dr span { font-size: 10px; color: #9cb2a8; text-align: center; line-height: 1; }
+.ed-dr input { width: 100%; font-size: 11.5px; padding: 3px 5px; }

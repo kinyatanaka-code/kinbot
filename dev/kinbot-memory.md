@@ -1094,3 +1094,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28j かける：メール列 170px ellipsis。ヘッダー名「架電リスト」（kc-sub 非表示、showPane の call も）。横断検索 /api/calls/search-all の管理者制限を撤廃、canFindAll=true（全員）、searchAllLeads に list_hidden/list_closed/group_name/list_owner_name、電話の数字一致（4桁以上）、閉じたリストは後ろ。結果表：会社/担当者/電話/ステージ・最終結果/リスト（グループ・札：閉じた/非表示/復活/リサイクル/アーカイブ/ナーチャリング）/持ち主/担当/最終架電。openMoveTargets を「①誰の（/api/calls/members で名前）→②どのリスト」に。版20260928j。
 
 - 2026-09-28 BUILD_TAG=2026-09-28k トークスクリプト。ユーザーは記録画面の全面リデザイン案（artifact G1cEkhifAFs8fsKgYjziNn）を却下「トーク以外今のままの仕様で」。settings.talkScripts={default,groups:{gid:text}}、GET /api/calls/talk-script?listId=（getListGroupId でグループ解決、group→default）、PUT {text,groupId|null}（管理者/クローザー）。calls.js openCompanyPanel(m,company,x) に #kcTalk、kcLoadTalk(box,x)：■/【/# 行を見出し、{会社名}{担当者}{自分}（/api/me の name→username）差し込み、編集テキストエリア（初期テンプレあり）。左パネルは幅1200px未満では非表示のまま。版20260928k。
+
+- 2026-09-28 BUILD_TAG=2026-09-28l 編集テーブル：_edCrosslost 列に「受失注日」(g(r,'失注日'))を失注理由詳細と失注後次回アクション日の間に。見出し helper drange(id)＝#idFrom/#idTo の date input 2つ、edInRange(ymd,id)。受失注日 edDLost・失注後次回アクション日 edDNextAct・ナーチャ次回架電日 edDNext を範囲化（旧テキスト edQNextAct/edQNext は廃止）。版20260928l。

@@ -6111,7 +6111,7 @@ function edFiltered() {
     if (qPh && !g(r, "電話", "電話番号", "phone").toLowerCase().includes(qPh)) return false;
     if (qEm && !g(r, "メール", "メールアドレス", "email").toLowerCase().includes(qEm)) return false;
     if (_edNurture) {
-      const qN = v("edQNext"); if (qN) { const nd = r["次回予定"] ? new Date(r["次回予定"]) : null; const t = nd && !isNaN(nd) ? `${nd.getMonth() + 1}/${nd.getDate()}` : ""; if (!t.includes(qN)) return false; }
+      { const nd = r["次回予定"] ? new Date(r["次回予定"]) : null; const ymd = nd && !isNaN(nd) ? `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, "0")}-${String(nd.getDate()).padStart(2, "0")}` : ""; if (!edInRange(ymd, "edDNext")) return false; }
       const who = ($("edNurWho") && $("edNurWho").value) || ""; if (who && nmMemberName(r["担当メール"] || "") !== who) return false;
       const qF = v("edQFrom"); if (qF && !edListName(r).toLowerCase().includes(qF)) return false;
     }
@@ -6121,7 +6121,8 @@ function edFiltered() {
       const lrm = ($("edLostReasonMid") && $("edLostReasonMid").value) || "";
       if (lrm && g(r, "失注理由（中項目）") !== lrm) return false;
       const qDt = v("edQLostDetail"); if (qDt && !String(g(r, "失注理由詳細")).toLowerCase().includes(qDt)) return false;
-      const qNa = v("edQNextAct"); if (qNa && !String(g(r, "失注後次回アクション日")).replace(/-/g, "/").includes(qNa.replace(/-/g, "/"))) return false;
+      if (!edInRange(normDateLoose(g(r, "失注後次回アクション日")), "edDNextAct")) return false;
+      if (!edInRange(normDateLoose(g(r, "失注日")), "edDLost")) return false;
       const oo = edMselVals("edOppOwner"); if (oo.size && !oo.has(g(r, "商談所有者"))) return false;
       if (_edClMode) {
         const na = String(g(r, "失注後次回アクション日")).slice(0, 10);
@@ -6425,6 +6426,8 @@ function edBuildTable() {
   const uniq = (fn) => [...new Set(_edRows.map(fn).filter(Boolean))].sort();
   const sel = (id, vals, head) => `<select id="${id}" class="ed-cf"><option value="">${head}</option>${vals.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select>`;
   const txt = (id) => `<input id="${id}" class="ed-cf" placeholder="絞り込み" />`;
+  // 日付の列：開始〜終了で絞り込む
+  const drange = (id) => `<div class="ed-dr"><input type="date" id="${id}From" class="ed-cf" title="この日から" /><span>〜</span><input type="date" id="${id}To" class="ed-cf" title="この日まで" /></div>`;
   // 複数選べる絞り込み（チェック式）。何も選ばなければ「すべて」
   const msel = (id, vals) => `<div class="ed-msel" id="${id}"><button type="button" class="ed-cf ed-msel-btn">すべて ▾</button><div class="ed-msel-pop" hidden>
     <div class="ed-msel-acts"><button type="button" data-mall="1">すべて外す</button></div>
@@ -6440,15 +6443,22 @@ function edBuildTable() {
     th("架電状態", sel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status")), "すべて")) +
     th("従業員数", empF) +
     (_edNurture
-      ? th("次回架電日", txt("edQNext")) + th("担当メンバー", sel("edNurWho", uniq((r) => nmMemberName(r["担当メール"] || "")), "すべて")) + th("元のリスト", txt("edQFrom"))
+      ? th("次回架電日", drange("edDNext")) + th("担当メンバー", sel("edNurWho", uniq((r) => nmMemberName(r["担当メール"] || "")), "すべて")) + th("元のリスト", txt("edQFrom"))
     : !_edCrosslost
       ? th("採用人数", "") + th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) + th("グループ", "") + th("所有者", "")
-      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("失注後次回アクション日", txt("edQNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者"))))
+      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者"))))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edQNextAct", "edQNext", "edNurWho", "edQFrom"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
   document.querySelectorAll("#edTable .ed-msel").forEach(edWireMsel);
+}
+// 日付（YYYY-MM-DD）が、見出しの「から〜まで」に入っているか。どちらも空なら全部通す。日付が空の行は、範囲を入れたら外す
+function edInRange(ymd, id) {
+  const a = ($(id + "From") || {}).value || "", b = ($(id + "To") || {}).value || "";
+  if (!a && !b) return true;
+  if (!ymd) return false;
+  return (!a || ymd >= a) && (!b || ymd <= b);
 }
 function edMselVals(id) {
   return new Set([...document.querySelectorAll(`#${id} .ed-msel-it input:checked`)].map((x) => x.value));
@@ -6540,7 +6550,7 @@ function edRenderBody() {
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
         <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
         <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>`;
-        const lossCells = _edCrosslost ? `<td>${esc(g(r, "失注理由（大項目）"))}</td><td>${esc(g(r, "失注理由（中項目）"))}</td><td>${esc(g(r, "失注理由詳細"))}</td><td class="ed-nowrap">${esc(String(g(r, "失注後次回アクション日") || "").slice(0, 10))}</td><td>${esc(g(r, "商談所有者"))}</td>` : "";
+        const lossCells = _edCrosslost ? `<td>${esc(g(r, "失注理由（大項目）"))}</td><td>${esc(g(r, "失注理由（中項目）"))}</td><td>${esc(g(r, "失注理由詳細"))}</td><td class="ed-nowrap">${esc(String(g(r, "失注日") || "").slice(0, 10))}</td><td class="ed-nowrap">${esc(String(g(r, "失注後次回アクション日") || "").slice(0, 10))}</td><td>${esc(g(r, "商談所有者"))}</td>` : "";
         return `<tr data-id="${r.id}">
         <td>${esc(g(r, "ステージ", "stage"))}</td>
         <td>${esc(g(r, "会社名", "company"))}</td>
