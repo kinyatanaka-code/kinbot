@@ -4034,6 +4034,13 @@ if ($("clFind")) {
 
 // ───────── 画面の切り替え ─────────
 // メニューを押すと、その画面だけを出す（かける／今日の実績／リストを作る）
+// 上のバーの「探す」「操作」は、かける画面を開いているときだけ出す
+(function () {
+  const call = document.getElementById("call");
+  const sync = () => { const on = call && !call.hidden; ["kcTopFind", "kcTopOps"].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = !on; }); };
+  if (call) new MutationObserver(sync).observe(call, { attributes: true, attributeFilter: ["hidden"] });
+  sync();
+})();
 function showPane() {
   const p = new URLSearchParams(location.search).get("p") || "call";
   document.querySelectorAll(".kc-pane").forEach((el) => { el.hidden = el.dataset.p !== p; });

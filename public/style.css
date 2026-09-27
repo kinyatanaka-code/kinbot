@@ -6688,3 +6688,14 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 .kc-dr-quick .btn { padding: 6px 10px; font-size: 12px; }
 .kc-dr-empty { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 13px; }
 .kc-dr-n { margin-top: 10px; font-size: 13px; font-weight: 700; color: #0d5b47; }
+
+/* 上のバー：探す・操作（かける画面） */
+.kc-top-find { display: inline-flex; align-items: center; gap: 8px; margin-left: 0; font-size: 13px; color: #33544a; font-weight: 600; }
+.kc-top-find input { width: 240px; padding: 9px 13px; border: 1px solid #e2efe8; border-radius: 12px; background: #fff; box-shadow: 0 6px 14px -12px rgba(13,91,71,.45); font-size: 13px; }
+.kc-top-find input:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.14); }
+.kc-top-ops { margin-left: auto; position: relative; }
+.kc-top-ops + .kctut-help { margin-left: 8px; }
+.kc-top-find[hidden], .kc-top-ops[hidden] { display: none !important; }
+@media (max-width: 760px) { .kc-top-find input { width: 150px; } .kc-top-find { margin-left: 8px; } }
+
+.topbar:has(.kc-top-ops) { z-index: 50; }   /* 操作メニューが下の表の上に出るように */

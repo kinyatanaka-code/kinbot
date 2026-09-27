@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260926m" />
+    <link rel="stylesheet" href="style.css?v=20260927a" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -47,6 +47,29 @@
             <span class="kc-today-it"><b id="kcTodayCt">0</b><span>接触</span></span>
             <span class="kc-today-it apo"><b id="kcTodayApo">0</b><span>アポ</span></span>
           </div>
+          <!-- かける画面のときだけ出す：探す・操作 -->
+          <label class="kc-top-find" id="kcTopFind">探す <input type="text" id="clFind" placeholder="会社名・担当者・電話" /></label>
+          <div class="kc-top-ops" id="kcTopOps">
+          <div class="cl-tools">
+            <div class="cl-menu">
+              <button type="button" class="cl-menu-btn" id="clMenuBtn" aria-haspopup="true" aria-expanded="false">操作 ▾</button>
+              <div class="cl-menu-list" id="clMenuList" hidden role="menu">
+                <div class="cl-menu-group">表示</div>
+                <button type="button" class="cl-menu-item" id="clReset">しぼり込みを外す</button>
+                <div class="cl-menu-group">Salesforce</div>
+                <button type="button" class="cl-menu-item" id="clRefreshSf">SFの状態を更新</button>
+                <button type="button" class="cl-menu-item" id="clLinkSf">SFと連携する</button>
+                <button type="button" class="cl-menu-item" id="clToCross">クロスリードに変更</button>
+                <button type="button" class="cl-menu-item" id="clFixLinks">紐づけの修復</button>
+                <button type="button" class="cl-menu-item" id="clFillSf">SFから名前・メールを補う</button>
+                <div class="cl-menu-group">データ・整理</div>
+                <button type="button" class="cl-menu-item" id="clBizHours">営業時間を取得</button>
+                <button type="button" class="cl-menu-item" id="clCheck">履歴の件数を調べる</button>
+                <button type="button" class="cl-menu-item" id="clDedup">重複した活動履歴を整理</button>
+              </div>
+            </div>
+          </div>
+          </div>
         </header>
 
         <main class="report-page kc-page">
@@ -56,26 +79,6 @@
             <div class="cl-head">
               <select id="clList" hidden></select>
               <span class="cl-prog" id="clProg"></span>
-              <label>探す <input type="text" id="clFind" placeholder="会社名・担当者・電話" /></label>
-              <div class="cl-tools">
-                <div class="cl-menu">
-                  <button type="button" class="cl-menu-btn" id="clMenuBtn" aria-haspopup="true" aria-expanded="false">操作 ▾</button>
-                  <div class="cl-menu-list" id="clMenuList" hidden role="menu">
-                    <div class="cl-menu-group">表示</div>
-                    <button type="button" class="cl-menu-item" id="clReset">しぼり込みを外す</button>
-                    <div class="cl-menu-group">Salesforce</div>
-                    <button type="button" class="cl-menu-item" id="clRefreshSf">SFの状態を更新</button>
-                    <button type="button" class="cl-menu-item" id="clLinkSf">SFと連携する</button>
-                    <button type="button" class="cl-menu-item" id="clToCross">クロスリードに変更</button>
-                    <button type="button" class="cl-menu-item" id="clFixLinks">紐づけの修復</button>
-                    <button type="button" class="cl-menu-item" id="clFillSf">SFから名前・メールを補う</button>
-                    <div class="cl-menu-group">データ・整理</div>
-                    <button type="button" class="cl-menu-item" id="clBizHours">営業時間を取得</button>
-                    <button type="button" class="cl-menu-item" id="clCheck">履歴の件数を調べる</button>
-                    <button type="button" class="cl-menu-item" id="clDedup">重複した活動履歴を整理</button>
-                  </div>
-                </div>
-              </div>
               <span class="rev-status" id="clStatus"></span>
             </div>
             <style>
@@ -415,9 +418,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260926m"></script>
-    <script src="calls.js?v=20260926m"></script>
-    <script src="nav.js?v=20260926m"></script>
+    <script src="sf-data.js?v=20260927a"></script>
+    <script src="calls.js?v=20260927a"></script>
+    <script src="nav.js?v=20260927a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
