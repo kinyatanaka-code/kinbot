@@ -651,6 +651,8 @@ function render() {
         `<button type="button" class="kc-sum-btn" id="kcHideApo">${hideApo ? "対象外も表示" : "対象外を隠す"}</button>`
       : "") +
     (allKeys.length ? `／<span class="kc-sum-user">列データ <b>${rcMatched}</b>件</span><button type="button" class="kc-sum-btn" id="kcRcCols">列を選ぶ</button>` : "") +
+    // 見出しの▾で絞り込んでいるときは、全体の件数と解除ボタンを出す（絞り込みはこの端末に残るので気づけるように）
+    (fullList.length < rows.length ? `<span class="kc-sum-filt">絞り込み中：全 <b>${rows.length.toLocaleString()}</b> 件のうち ${fullList.length.toLocaleString()} 件を表示</span><button type="button" class="kc-sum-btn" id="kcFiltReset2">絞り込みを外す</button>` : "") +
     `</div>` +
     ((listId !== "all")
       ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
@@ -810,6 +812,8 @@ function render() {
   if (hideBtn) hideBtn.addEventListener("click", () => { hideApo = !hideApo; render(); });
   // 管理者だけ：いまのリストに無くても、他のメンバーのリストから探せる
   if (canFindAll && !(_isTanaka && listId === "all") && $("kcAllHit")) { _allHitFor = ""; findAcrossMembers(); }
+  const fReset2 = $("kcFiltReset2");
+  if (fReset2) fReset2.addEventListener("click", () => { const f = $("kcFiltReset"); if (f) f.click(); else { filt.stage = new Set(); filt.status = new Set(); filt.hist = ""; filt.post = ""; filt.hireMin = ""; filt.hireMax = ""; filt.extra = {}; filt.range = {}; saveFilt(); render(); } });
   const fReset = $("kcFiltReset");
   if (fReset) fReset.addEventListener("click", () => {
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
