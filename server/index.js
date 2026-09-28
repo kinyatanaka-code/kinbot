@@ -8034,21 +8034,35 @@ app.post("/api/calls/pastlost-old/import", async (req, res) => {
     const keyOf = (co, ph) => `${normCompanyKey(co || "")}|${String(ph || "").replace(/\D/g, "").slice(-9)}`;
     const have = new Set();
     if (listId) for (const t of await listCallTargets(listId, { limit: 50000 }).catch(() => [])) have.add(keyOf(t.company, t.phone));
-    const items = [], seen = new Set(); let dup = 0, empty = 0;
+    // 2026/3/1以降の失注リスト（SF連携の方）に入っている会社は省く（会社名 または 電話番号が同じなら同じとみなす）
+    const newCo = new Set(), newPh = new Set();
+    try {
+      const sfUser = await pickSfUser(req.user, req).catch(() => "");
+      const extraIds = await crosslostMatchedIds(sfUser).catch(() => []);
+      const cur = await listStageTargets("クロス失注", { statusMatch: ["クロス失注"], limit: 20000, extraIds });
+      for (const t of cur) {
+        if (listId && Number(t.list_id) === Number(listId)) continue;   // 〜2026/2 のリスト自身は数えない
+        const ck = normCompanyKey(t.company || ""); if (ck) newCo.add(ck);
+        const pk = String(t.phone || "").replace(/\D/g, "").slice(-9); if (pk.length >= 9) newPh.add(pk);
+      }
+    } catch (e) { console.warn("[pastlost-old] 2026/3以降の失注の読み込み失敗", e.message); }
+    const items = [], seen = new Set(); let dup = 0, empty = 0, dupNew = 0;
     for (const r of rows) {
       const company = String(r.company || "").trim(); const phone = String(r.phone || "").trim();
       if (!company && !phone) { empty++; continue; }
+      const ck = normCompanyKey(company), pk = phone.replace(/\D/g, "").slice(-9);
+      if ((ck && newCo.has(ck)) || (pk.length >= 9 && newPh.has(pk))) { dupNew++; continue; }
       const k = keyOf(company, phone);
       if (have.has(k) || seen.has(k)) { dup++; continue; }
       seen.add(k);
       const extra = (r.extra && typeof r.extra === "object") ? r.extra : {};
       items.push({ leadId: null, company, person: String(r.person || "").trim(), phone, email: String(r.email || "").trim(), stage: "", status: OLD_LOST_STATUS, extra });
     }
-    if (dryRun) return res.json({ ok: true, dryRun: true, total: rows.length, willAdd: items.length, dup, empty });
+    if (dryRun) return res.json({ ok: true, dryRun: true, total: rows.length, willAdd: items.length, dup, dupNew, newTotal: newCo.size, empty });
     const n = await addCallTargets(listId, items, { dedupe: false });
     _oldLostSumCache = null;
-    console.log(`[kincall] 〜2026/2の失注を${n}件取り込み（重複${dup}・空${empty}）by ${req.user}`);
-    res.json({ ok: true, dryRun: false, added: n, dup, empty, listId });
+    console.log(`[kincall] 〜2026/2の失注を${n}件取り込み（重複${dup}・2026/3以降と重複${dupNew}・空${empty}）by ${req.user}`);
+    res.json({ ok: true, dryRun: false, added: n, dup, dupNew, empty, listId });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 件数（全件・今月かける・月別）
@@ -21454,7 +21468,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28s 失注リストを2種類に。今あるもの＝「過去リスト（クロス失注・2026/3〜 SF連携）」、新しく「過去の失注（〜2026/2/28・CSV取り込み）」：今月かける／失注リスト／月別の3カード＋CSV取り込み（UTF-8/Shift_JIS自動判別、取引先名・主.取引先責任者・電話・メール・受失注日・失注理由大/中/詳細・失注後次回アクション日・商談所有者を読み、他の列も残す、同じリスト内の重複は除外、先に件数確認）。取り込み先は「過去の失注（〜2026/2）」リスト（グループ「過去失注（〜2026/2）」＝かけるは過去失注の仕様）。表は失注リストと同じ列。";
+const BUILD_TAG = "2026-09-28t 〜2026/2/28の失注のCSV取り込みで、2026/3/1以降の失注リスト（SF連携）に入っている会社を省く（会社名が同じ、または電話番号の末尾9桁が同じ）。確認画面に「2026/3/1以降と重複（省く）◯件」を表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

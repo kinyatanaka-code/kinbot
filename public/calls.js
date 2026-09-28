@@ -5444,11 +5444,11 @@ async function nmOldImport(ev) {
     };
     const p = await call(true);
     const found = Object.entries(ex).filter(([, i]) => i >= 0).map(([k]) => k).join("・") || "（なし）";
-    if (!confirm(`${rows.length}行を読み込みました。\n・取り込む：${p.willAdd}件\n・すでにある／CSV内の重複：${p.dup}件\n・会社名も電話も空：${p.empty}件\n\n読み取れた失注の列：${found}\n\n「過去の失注（〜2026/2）」リストに取り込みますか？`)) { if (st) st.textContent = ""; return; }
+    if (!confirm(`${rows.length}行を読み込みました。\n・取り込む：${p.willAdd}件\n・2026/3/1以降の失注リストと重複（省く）：${p.dupNew || 0}件\n・すでに取り込み済み／CSV内の重複：${p.dup}件\n・会社名も電話も空：${p.empty}件\n\n読み取れた失注の列：${found}\n\n「過去の失注（〜2026/2）」リストに取り込みますか？`)) { if (st) st.textContent = ""; return; }
     if (st) st.textContent = "取り込んでいます…";
     const d = await call(false);
     await nmLoad();
-    const st2 = $("nmOldSt"); if (st2) st2.textContent = `${d.added}件を取り込みました`;
+    const st2 = $("nmOldSt"); if (st2) st2.textContent = `${d.added}件を取り込みました（2026/3以降と重複して省いた ${d.dupNew || 0}件）`;
   } catch (e) { if (st) st.textContent = "失敗：" + (e.message || ""); }
 }
 // 月別ビュー：失注後次回アクション日の月別件数を棒で表示。月をクリックでその月の一覧へ。
