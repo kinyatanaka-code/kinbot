@@ -5403,10 +5403,12 @@ async function readCsvSmart(file) {
   catch { try { return new TextDecoder("shift_jis").decode(buf); } catch { return new TextDecoder().decode(buf); } }
 }
 // 〜2026/2/28 の失注をCSVで取り込む（先に件数を確認）
-async function nmOldImport(ev) {
+async function nmOldImport(ev, fromTable = false) {
   const file = ev.target.files && ev.target.files[0]; ev.target.value = "";
   if (!file) return;
-  const st = $("nmOldSt"); if (st) st.textContent = "読み込んでいます…";
+  // 表から呼んだときは、失敗だけ画面に出す（成功は取り込み後にまとめて知らせる）
+  const st = (!fromTable && $("nmOldSt")) || { set textContent(v) { if (v && /^失敗/.test(v)) alert(v); } };
+  st.textContent = "読み込んでいます…";
   try {
     const grid = csvParse(await readCsvSmart(file)).filter((r) => r.some((c) => String(c || "").trim()));
     if (grid.length < 2) throw new Error("CSVに行がありません");
@@ -5444,12 +5446,13 @@ async function nmOldImport(ev) {
     };
     const p = await call(true);
     const found = Object.entries(ex).filter(([, i]) => i >= 0).map(([k]) => k).join("・") || "（なし）";
-    if (!confirm(`${rows.length}行を読み込みました。\n・取り込む：${p.willAdd}件\n・2026/3/1以降の失注リストと重複（省く）：${p.dupNew || 0}件\n・すでに取り込み済み／CSV内の重複：${p.dup}件\n・会社名も電話も空：${p.empty}件\n\n読み取れた失注の列：${found}\n\n「過去の失注（〜2026/2）」リストに取り込みますか？`)) { if (st) st.textContent = ""; return; }
-    if (st) st.textContent = "取り込んでいます…";
+    if (!confirm(`${rows.length}行を読み込みました。\n・取り込む：${p.willAdd}件\n・2026/3/1以降の失注リストと重複（省く）：${p.dupNew || 0}件\n・すでに取り込み済み／CSV内の重複：${p.dup}件\n・会社名も電話も空：${p.empty}件\n\n読み取れた失注の列：${found}\n\n「過去の失注（〜2026/2）」リストに取り込みますか？`)) { st.textContent = ""; return; }
+    st.textContent = "取り込んでいます…";
     const d = await call(false);
-    await nmLoad();
-    const st2 = $("nmOldSt"); if (st2) st2.textContent = `${d.added}件を取り込みました（2026/3以降と重複して省いた ${d.dupNew || 0}件）`;
-  } catch (e) { if (st) st.textContent = "失敗：" + (e.message || ""); }
+    const msg = `${d.added}件を取り込みました（2026/3以降と重複して省いた ${d.dupNew || 0}件）`;
+    if (fromTable) { await orgLoadEdit(["pastlost-old"]); alert(msg); }
+    else { await nmLoad(); const st2 = $("nmOldSt"); if (st2) st2.textContent = msg; }
+  } catch (e) { st.textContent = "失敗：" + (e.message || ""); }
 }
 // 月別ビュー：失注後次回アクション日の月別件数を棒で表示。月をクリックでその月の一覧へ。
 function nmRenderMonthly(kind = "crosslost") {
@@ -6244,12 +6247,14 @@ function edRenderChosen() {
   body.querySelectorAll(".ed3-chosen-x").forEach((b) => b.addEventListener("click", () => { _edChosen.delete(b.dataset.id); edRenderLists(); edRenderChosen(); }));
 }
 let _edCrosslost = false;   // クロス失注ビューか（失注日/失注理由/失注後次回アクション日の列を出す）
-let _edPastLost = false;    // 過去失注グループ（DOC過去失注など）のリストの編集か（失注理由（大項目）の列を出す）
+let _edPastLost = false;
+let _edIsOldLost = false;   // 〜2026/2 の失注（CSV）の表を開いているか（表の「CSV取り込み」を新規取り込みにする）    // 過去失注グループ（DOC過去失注など）のリストの編集か（失注理由（大項目）の列を出す）
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
   _edCrosslost = (listIds || []).map(String).some((v) => v === "crosslost" || v === "pastlost-old");
   _edPastLost = !_edCrosslost && (listIds || []).length > 0 && (listIds || []).every((id) => /過去失注/.test(String(((_edLists && _edLists[id]) || {}).group_name || "")));
   { const ids = (listIds || []).map(String); _edNurture = ids.includes("nurture-week") ? "week" : (ids.includes("nurture-all") ? "all" : ""); }
+  _edIsOldLost = (listIds || []).map(String).includes("pastlost-old");
   edSetTableMode(true);   // 表だけの全画面一覧に切り替え
   if ($("edTableTitle")) $("edTableTitle").textContent = `リスト編集（${(listIds || []).length} 件のリスト）`;
   tbl.innerHTML = '<div class="note">読み込んでいます…</div>';
@@ -6464,6 +6469,11 @@ function edExportCsv() {
   if (st) st.textContent = `${rows.length}件を書き出しました`;
 }
 async function edImportCsv(ev) {
+  // 〜2026/2 の失注の表では、上書きではなく「新しく取り込む」
+  if (_edIsOldLost) {
+    await nmOldImport(ev, true);
+    return;
+  }
   const file = ev.target.files && ev.target.files[0]; ev.target.value = "";
   if (!file) return;
   const st = $("edEnrichSt");
