@@ -764,7 +764,9 @@ function isKincallSelfSettingPath(p) {
   return p === "/settings.html" ||
     p === "/auth/google" || p === "/auth/google/callback" ||
     p === "/api/calendar/status" || p === "/api/calendar/disconnect" ||
-    p === "/api/my-zoom-link" || p === "/api/links";
+    p === "/api/my-zoom-link" || p === "/api/links" ||
+    // Zoom Phone：接続の確認と、自分の発信者番号（かける画面のZoom発信・録音の要約で使う）。設定の変更・同期は管理者だけ
+    p === "/api/zoom-phone/status" || p === "/api/zoom-phone/caller-id";
 }
 
 const OPEN_PATHS = new Set([
@@ -21468,7 +21470,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28w 記録の窓と左右のパネル（会社情報・トーク／おすすめの日程）が重なる問題を修正。パネルが開いているときは、窓をパネルの間の空きに収まるよう縮めて配置。幅1500px以下ではパネルを250pxに細く、1200px以下は会社情報パネルなし、900px以下は日程が窓の中に入る。";
+const BUILD_TAG = "2026-09-28x kincallだけのメンバーもZoom Phone連携を使えるように。サーバで止めていた /api/zoom-phone/status と /caller-id を開放（かける画面のZoom発信・録音の要約が動くように）。設定の外部連携にZoom Phone連携カードを表示（埋め込みの切替・録音の一括要約など管理者向けの操作は隠す）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

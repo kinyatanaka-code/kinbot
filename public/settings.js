@@ -521,10 +521,12 @@ loadThanks();
     menu.querySelectorAll(".set-menu-item").forEach((t) => {
       if (!allow.has(t.dataset.tab)) t.hidden = true;
     });
-    // 外部連携カードはGoogle（カレンダー/Gmail）だけ残す
+    // 外部連携カードはGoogle（カレンダー/Gmail）とZoom Phoneだけ残す
     document.querySelectorAll("#integGrid .integ-card").forEach((c) => {
-      if (c.dataset.integ !== "calendar") c.hidden = true;
+      if (c.dataset.integ !== "calendar" && c.dataset.integ !== "zoomphone") c.hidden = true;
     });
+    // Zoom Phoneの詳細では、管理者向けの操作（埋め込みの切替・録音の一括要約）を隠す
+    document.body.classList.add("kc-only");
     // 最初に開くタブを、開けるものにする
     const active = menu.querySelector(".set-menu-item.active");
     if (!active || active.hidden) {

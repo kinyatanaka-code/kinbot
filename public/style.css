@@ -6895,3 +6895,5 @@ body:has(.kc-slotpanel) .kc-modal-back { padding-right: 320px; }
 @media (max-width: 900px) {    /* 日程のパネルは窓の中に入る幅 */
   body:has(.kc-slotpanel) .kc-modal-back { padding-right: 16px; }
 }
+
+body.kc-only .zp-admin { display: none !important; }

@@ -1118,3 +1118,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28v nmOldImport が csvParse（オブジェクト配列を返す）を使っていて r.some エラー。生の行配列を返す _parseCsv に変更。版20260928v。
 
 - 2026-09-28 BUILD_TAG=2026-09-28w 記録モーダルと左右パネルの重なり：body:has(.kc-copanel)/(.kc-slotpanel) で .kc-modal-back に padding-left 330/right 320（≤1500px はパネル250px・padding 278）、≤1200px は左 16px、≤900px は右 16px。.kc-modal-wide は width:100%（max 920）。版20260928w。
+
+- 2026-09-28 BUILD_TAG=2026-09-28x kincallOnly ユーザーは isKincallSelfSettingPath に /api/zoom-phone/status・/caller-id が無く 403 → かけるの _zoomOn が常に false だった。両方を許可。settings.js の kincallOnly は integ カード calendar＋zoomphone を残し body.kc-only、.zp-admin（#zpEmbed ラベル・説明・#zpRec）を非表示。/api/zoom-phone/settings・sync・sync-recordings は引き続き不可。版20260928x。
