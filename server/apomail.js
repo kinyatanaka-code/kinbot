@@ -143,10 +143,18 @@ export function parseTitleParts(title) {
   const HONonly = /^(様|さま|さん|殿|御中)$/;
   const clean = (s) => String(s || "").replace(/[^\p{L}\p{N}ー]/gu, "").trim();
 
-  // 会社トークン：法人格を含むもの。無ければ最初のトークン。
+  // 会社名は「／」「｜」だけで区切った塊から取る（「中日本ハイウェイ・メンテナンス北陸株式会社」のように
+  // 中黒・空白・読点を含む社名を分けてしまわないため）。塊の末尾に付いた「○○様」は落とす。
+  const segs = t.split(/[\/／|｜]+/).map((s) => s.trim()).filter(Boolean);
+  let si = segs.findIndex((x) => CORP.test(x));
+  if (si < 0) si = 0;
+  const HON = "(?:様|さま|さん|殿|御中)";
+  const company = String(segs[si] || t)
+    .replace(new RegExp(`[\\s、,・]+[^\\s、,・]{1,16}\\s*${HON}(?:\\s*[・、,]\\s*[^\\s・、,]{1,16}\\s*${HON})*\\s*$`, "u"), "")
+    .replace(/\s+/g, "");
+  // 担当者の探し方は従来どおり（細かいトークン）。後ろの「会社トークンの次」を探すための位置だけ使う
   let ci = tokens.findIndex((x) => CORP.test(x));
   if (ci < 0) ci = 0;
-  const company = (tokens[ci] || t).replace(/\s+/g, "");
 
   // 担当者：
   //  1) 敬称（様/さん/殿）が付いたトークン、または敬称だけのトークンの直前を優先

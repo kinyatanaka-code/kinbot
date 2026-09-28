@@ -1106,3 +1106,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28p kcLoadTalk に view()/edit()：左パネルで textarea 編集→PUT /api/calls/talk/mine（groupId＝グループ用 or null＝基本）。表示中が mine-group なら既定はグループ用、他は基本。トークページと同じデータ。版20260928p。
 
 - 2026-09-28 BUILD_TAG=2026-09-28q 編集テーブル _edPastLost（選んだリストが全部 group_name に「過去失注」）→ 架電状態の後に「失注理由（大項目）」列＋msel edPlReason。edLossBig(r)＝_edg(失注理由（大項目）,失注理由)→recruitVal(/受?失注理由.{0,2}大項目/)。server targets の失注商談付与条件に 過去失注リストか を追加。版20260928q。
+
+- 2026-09-28 BUILD_TAG=2026-09-28r apomail.js parseTitleParts：会社名を中黒・読点・空白でも分割していたため「中日本ハイウェイ・メンテナンス北陸株式会社」→「メンテナンス北陸株式会社」（中澤さん報告）。会社名は / ／ | ｜ だけで分けた segs から法人格を含む塊→末尾の「区切り＋○○様（・○○様…）」を除去→空白除去。担当者は従来の tokens ロジック。テスト8件OK。版20260928r。
