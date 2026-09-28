@@ -1094,7 +1094,7 @@ function renderDock() {
   const s = document.createElement("style");
   s.id = "kc-combo-style";
   s.textContent = `
-    .kc-modal-wide{max-width:920px;width:calc(100vw - 40px);}
+    .kc-modal-wide{max-width:920px;width:100%;}
     .kc-modal-head{display:flex;align-items:center;gap:10px;}
     .kc-modal-btns{margin-left:auto;display:inline-flex;gap:8px;align-items:center;}
     .kc-modal-min,.kc-modal-x{border:1px solid #d7e5dd;background:#f4faf7;color:#0d5b47;width:32px;height:32px;border-radius:8px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;padding:0;}

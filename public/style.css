@@ -6879,3 +6879,19 @@ a.kc-talk-edit { text-decoration: none; }
 .tk-who { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: #6b857b; margin-bottom: 12px; }
 .tk-who select { padding: 8px 10px; border: 1px solid #cfe6da; border-radius: 10px; font: inherit; font-size: 13px; color: #1f3a31; background: #fff; }
 .tk-ta.ro { background: #f6faf8; color: #33544a; }
+
+/* 記録の窓：左右のパネル（会社情報・トーク／おすすめの日程）と重ならないよう、間の空きに収める */
+body:has(.kc-copanel) .kc-modal-back { padding-left: 330px; }
+body:has(.kc-slotpanel) .kc-modal-back { padding-right: 320px; }
+@media (max-width: 1500px) {
+  .kc-copanel { width: 250px !important; left: 16px !important; padding: 14px !important; }
+  .kc-slotpanel { width: 250px !important; right: 16px !important; padding: 14px !important; }
+  body:has(.kc-copanel) .kc-modal-back { padding-left: 278px; }
+  body:has(.kc-slotpanel) .kc-modal-back { padding-right: 278px; }
+}
+@media (max-width: 1200px) {   /* 会社情報のパネルは出さない幅 */
+  body:has(.kc-copanel) .kc-modal-back { padding-left: 16px; }
+}
+@media (max-width: 900px) {    /* 日程のパネルは窓の中に入る幅 */
+  body:has(.kc-slotpanel) .kc-modal-back { padding-right: 16px; }
+}

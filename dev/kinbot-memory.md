@@ -1116,3 +1116,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28u ユーザーが〜2026/2の表で既存の「CSV取り込み」（edImportCsv＝上書き用）を押し「会社名が一致する行がありません」。_edIsOldLost（orgLoadEdit で pastlost-old）なら edImportCsv→nmOldImport(ev,true)、成功後 orgLoadEdit(['pastlost-old'])＋alert。版20260928u。
 
 - 2026-09-28 BUILD_TAG=2026-09-28v nmOldImport が csvParse（オブジェクト配列を返す）を使っていて r.some エラー。生の行配列を返す _parseCsv に変更。版20260928v。
+
+- 2026-09-28 BUILD_TAG=2026-09-28w 記録モーダルと左右パネルの重なり：body:has(.kc-copanel)/(.kc-slotpanel) で .kc-modal-back に padding-left 330/right 320（≤1500px はパネル250px・padding 278）、≤1200px は左 16px、≤900px は右 16px。.kc-modal-wide は width:100%（max 920）。版20260928w。

@@ -21468,7 +21468,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28v 〜2026/2の失注のCSV取り込みで「r.some is not a function」になる不具合を修正（行の配列を返す _parseCsv を使うように。csvParse は項目を振り分けた形を返すため）。";
+const BUILD_TAG = "2026-09-28w 記録の窓と左右のパネル（会社情報・トーク／おすすめの日程）が重なる問題を修正。パネルが開いているときは、窓をパネルの間の空きに収まるよう縮めて配置。幅1500px以下ではパネルを250pxに細く、1200px以下は会社情報パネルなし、900px以下は日程が窓の中に入る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
