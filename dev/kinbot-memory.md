@@ -1114,3 +1114,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28t pastlost-old/import：crosslost 集合（listStageTargets クロス失注＋crosslostMatchedIds、〜2026/2 リスト自身は除く）の normCompanyKey と電話末尾9桁で一致する行を dupNew として除外。confirm/結果に件数表示。既に取り込み済みの重複の掃除は未実装（依頼があれば）。版20260928t。
 
 - 2026-09-28 BUILD_TAG=2026-09-28u ユーザーが〜2026/2の表で既存の「CSV取り込み」（edImportCsv＝上書き用）を押し「会社名が一致する行がありません」。_edIsOldLost（orgLoadEdit で pastlost-old）なら edImportCsv→nmOldImport(ev,true)、成功後 orgLoadEdit(['pastlost-old'])＋alert。版20260928u。
+
+- 2026-09-28 BUILD_TAG=2026-09-28v nmOldImport が csvParse（オブジェクト配列を返す）を使っていて r.some エラー。生の行配列を返す _parseCsv に変更。版20260928v。

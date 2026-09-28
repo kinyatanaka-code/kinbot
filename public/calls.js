@@ -5410,7 +5410,7 @@ async function nmOldImport(ev, fromTable = false) {
   const st = (!fromTable && $("nmOldSt")) || { set textContent(v) { if (v && /^失敗/.test(v)) alert(v); } };
   st.textContent = "読み込んでいます…";
   try {
-    const grid = csvParse(await readCsvSmart(file)).filter((r) => r.some((c) => String(c || "").trim()));
+    const grid = _parseCsv(await readCsvSmart(file)).filter((r) => Array.isArray(r) && r.some((c) => String(c || "").trim()));
     if (grid.length < 2) throw new Error("CSVに行がありません");
     const head = grid[0].map((h) => String(h || "").trim());
     const nz = (h) => h.normalize("NFKC").replace(/[\s　()（）.．:：_]/g, "").toLowerCase();
