@@ -5452,7 +5452,9 @@ export async function listApoPerf({ from = null, to = null } = {}) {
               EXISTS(
                 SELECT 1 FROM calendar_bots cb JOIN meetings mt ON mt.bot_id = cb.bot_id
                  WHERE cb.event_id = s.event_id OR cb.event_id = s.invite_event_id
-              ) AS conducted
+              ) AS conducted,
+              (SELECT array_agg(DISTINCT cb.bot_id) FROM calendar_bots cb JOIN meetings mt ON mt.bot_id = cb.bot_id
+                 WHERE cb.event_id = s.event_id OR cb.event_id = s.invite_event_id) AS conducted_bots
          FROM smart_links s
          LEFT JOIN sf_autolaunch a ON a.slug = s.slug
          ${where}

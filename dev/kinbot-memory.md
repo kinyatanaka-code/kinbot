@@ -1122,3 +1122,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28x kincallOnly ユーザーは isKincallSelfSettingPath に /api/zoom-phone/status・/caller-id が無く 403 → かけるの _zoomOn が常に false だった。両方を許可。settings.js の kincallOnly は integ カード calendar＋zoomphone を残し body.kc-only、.zp-admin（#zpEmbed ラベル・説明・#zpRec）を非表示。/api/zoom-phone/settings・sync・sync-recordings は引き続き不可。版20260928x。
 
 - 2026-09-29 BUILD_TAG=2026-09-29a 横断検索結果に操作列：.kc-ah-act（リードの状態 picklist の select＋「ステージだけ変える」→POST /api/calls/targets/:id/stage、listId が数値なら「このリストに入れて復活」→POST /api/calls/targets/:id/revive {listId,stage}：origin_list 記録・list_id 変更・assigned_to NULL・done=false・stage・SF Status 更新、権限＝移し先 owner 本人 or クローザー/管理者）。復活後 loadTable()。版20260929a。
+
+- 2026-09-29 BUILD_TAG=2026-09-29b /api/apo/perf の実施：①meetings.apo_setter ②listApoPerf に conducted_bots（calendar_bots で event_id/invite_event_id に入った bot_id 配列）③アポ label の apoCompanyKey と初回商談（isFirstMeetingTitle・category 商談）の会社キー一致＋start_time と created_at の dayDiff≤2（apo_setter が他人のものは除外）を bot_id の Set で合算。クローザーはlistInterns外で①に乗らず0だった（植野・江田・中澤）。版20260929b。

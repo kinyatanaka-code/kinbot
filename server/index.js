@@ -21504,7 +21504,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-29a かける画面の「全メンバー・全リストから探す」の結果に操作を追加。ステージを選んで「ステージだけ変える」（SFにも反映）、自分のリストを開いているときは「このリストに入れて復活」（ステージを変えて今のリストへ移し、担当を外して未架電に戻す・元のリストを記録）。POST /api/calls/targets/:id/revive（移し先の持ち主本人か、クローザー・管理者）。";
+const BUILD_TAG = "2026-09-29b アポ実績の「実施」に、セールス側（クローザー）が取ったアポも数えるように。これまでは商談のアポ獲得者（インターンのカレンダー照合）だけで数えていたため、植野・江田・中澤などが0だった。アポの予定にkinbotが入った商談、またはアポと会社名が一致し予定日の前後2日以内の初回商談も実施に含める（同じ商談は1回、別の獲得者が付いた商談は除く）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -26277,21 +26277,62 @@ app.get("/api/apo/perf", async (req, res) => {
       if (won || isWonStage(stage)) return funnel.length - 1;
       return funnel.indexOf(String(stage || ""));
     };
-    // 実施：kincallの実績（インセンティブ）と同じ数え方。録音あり商談を apo_setter（獲得者）ごとに数える。
+    // 実施：録音あり商談を獲得者ごとに数える。次の3つを合わせ、同じ商談は1回だけ数える。
+    //  ① 商談の apo_setter（インターンのカレンダー照合・予定本文・手入力）
+    //  ② アポの予定（event_id / invite_event_id）にkinbotが入った商談
+    //  ③ アポの会社名と商談名の会社が一致し、商談日が予定日の前後2日以内（apo_setter が別の人の商談は除く）
+    //  セールス側（クローザー）が取ったアポはインターン照合の対象外で①に乗らないため、②③で拾う。
     const normName = (s) => String(s || "").replace(/[\s　]/g, "");
-    const jisshiBySetter = new Map();     // 正規化名 -> 件数
+    const jisshiBots = new Map();         // 正規化名 -> Set(bot_id)
     const jisshiCoBySetter = new Map();   // 正規化名 -> 会社名の配列
+    const addJisshi = (key, mt) => {
+      if (!key || !mt) return;
+      if (!jisshiBots.has(key)) jisshiBots.set(key, new Set());
+      const set = jisshiBots.get(key);
+      if (set.has(mt.bot_id)) return;
+      set.add(mt.bot_id);
+      if (!jisshiCoBySetter.has(key)) jisshiCoBySetter.set(key, []);
+      const arr = jisshiCoBySetter.get(key);
+      if (arr.length < 400) arr.push(companyFromTitle(mt.title || "") || mt.account || "(名称なし)");
+    };
     try {
       const meetings = await listMeetings({ isAdmin: true, from: from ? String(from).slice(0, 10) : null, to: null, limit: 5000, light: true }).catch(() => []);
+      const byBot = new Map(meetings.map((mt) => [mt.bot_id, mt]));
+      for (const mt of meetings) addJisshi(normName(mt.apo_setter || ""), mt);   // ①
+      // ③ 用：初回商談を会社キーで引けるようにする
+      const firstByCo = new Map();
       for (const mt of meetings) {
-        const key = normName(mt.apo_setter || "");
+        if (mt.category && mt.category !== "商談") continue;
+        if (!isFirstMeetingTitle(mt.title)) continue;
+        const k = apoCompanyKey(apoNameParts(mt.title || "").company);
+        if (!k) continue;
+        if (!firstByCo.has(k)) firstByCo.set(k, []);
+        firstByCo.get(k).push(mt);
+      }
+      for (const a of apps) {
+        const key = normName(a.setter || "");
         if (!key) continue;
-        jisshiBySetter.set(key, (jisshiBySetter.get(key) || 0) + 1);
-        if (!jisshiCoBySetter.has(key)) jisshiCoBySetter.set(key, []);
-        const arr = jisshiCoBySetter.get(key);
-        if (arr.length < 400) arr.push(companyFromTitle(mt.title || "") || mt.account || "(名称なし)");
+        let hit = null;
+        for (const b of (a.conducted_bots || [])) { if (byBot.has(b)) { hit = byBot.get(b); break; } }   // ②
+        if (!hit) {   // ③
+          const k = apoCompanyKey(apoNameParts(a.label || "").company) || apoCompanyKey(companyFromTitle(a.label || "") || a.opp_name || "");
+          const ad = jstDateStr(a.start_time || a.apo_at);
+          if (k && ad) {
+            let best = null;
+            for (const mt of (firstByCo.get(k) || [])) {
+              const other = normName(mt.apo_setter || "");
+              if (other && other !== key) continue;
+              const diff = dayDiff(ad, jstDateStr(mt.created_at));
+              if (diff > 2) continue;
+              if (!best || diff < best.diff) best = { diff, mt };
+            }
+            if (best) hit = best.mt;
+          }
+        }
+        if (hit) addJisshi(key, hit);
       }
     } catch (e) { console.warn("[アポ実績] 実施の商談取得失敗", e.message); }
+    const jisshiBySetter = new Map([...jisshiBots].map(([k, v]) => [k, v.size]));
 
     const bySetter = {};
     for (const a of apps) {
