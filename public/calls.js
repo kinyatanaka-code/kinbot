@@ -6163,9 +6163,11 @@ function edRenderChosen() {
   body.querySelectorAll(".ed3-chosen-x").forEach((b) => b.addEventListener("click", () => { _edChosen.delete(b.dataset.id); edRenderLists(); edRenderChosen(); }));
 }
 let _edCrosslost = false;   // クロス失注ビューか（失注日/失注理由/失注後次回アクション日の列を出す）
+let _edPastLost = false;    // 過去失注グループ（DOC過去失注など）のリストの編集か（失注理由（大項目）の列を出す）
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
   _edCrosslost = (listIds || []).map(String).includes("crosslost");
+  _edPastLost = !_edCrosslost && (listIds || []).length > 0 && (listIds || []).every((id) => /過去失注/.test(String(((_edLists && _edLists[id]) || {}).group_name || "")));
   { const ids = (listIds || []).map(String); _edNurture = ids.includes("nurture-week") ? "week" : (ids.includes("nurture-all") ? "all" : ""); }
   edSetTableMode(true);   // 表だけの全画面一覧に切り替え
   if ($("edTableTitle")) $("edTableTitle").textContent = `リスト編集（${(listIds || []).length} 件のリスト）`;
@@ -6199,6 +6201,7 @@ function edFiltered() {
   return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
     if (sts && g(r, "最終ステータス", "最終結果", "status") !== sts) return false;
+    if (_edPastLost) { const pr = edMselVals("edPlReason"); if (pr.size && !pr.has(edLossBig(r) || "（なし）")) return false; }
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
     if (qCo && !g(r, "会社名", "company").toLowerCase().includes(qCo)) return false;
     if (qPe && !g(r, "担当者", "person").toLowerCase().includes(qPe)) return false;
@@ -6537,6 +6540,7 @@ function edBuildTable() {
     th("電話", txt("edQPhone")) +
     th("メール", txt("edQEmail")) +
     th("架電状態", sel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status")), "すべて")) +
+    (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
     th("従業員数", empF) +
     (_edNurture
       ? th("次回架電日", drange("edDNext")) + th("担当メンバー", sel("edNurWho", uniq((r) => nmMemberName(r["担当メール"] || "")), "すべて")) + th("元のリスト", txt("edQFrom"))
@@ -6555,6 +6559,12 @@ function edInRange(ymd, id) {
   if (!a && !b) return true;
   if (!ymd) return false;
   return (!a || ymd >= a) && (!b || ymd <= b);
+}
+// 失注理由（大項目）：SFの失注商談の値→無ければレポート取り込み時の「受失注理由(大項目)」列
+function edLossBig(r) {
+  const v = _edg(r, "失注理由（大項目）", "失注理由");
+  if (v) return v;
+  return (typeof recruitVal === "function" ? recruitVal(r, /受?失注理由.{0,2}大項目/) : "") || "";
 }
 function edMselVals(id) {
   return new Set([...document.querySelectorAll(`#${id} .ed-msel-it input:checked`)].map((x) => x.value));
@@ -6655,6 +6665,7 @@ function edRenderBody() {
         <td>${esc(g(r, "電話", "電話番号", "phone"))}</td>
         <td>${esc(g(r, "メール", "メールアドレス", "email"))}</td>
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
+        ${_edPastLost ? `<td>${esc(edLossBig(r) || "—")}</td>` : ""}
         <td><input type="text" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
         ${editCells}
         ${lossCells}

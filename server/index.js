@@ -10259,7 +10259,7 @@ app.get("/api/calls/targets", async (req, res) => {
     // クロス失注ビュー、または「かける」で表示中のリストにクロス失注リードが含まれるとき：
     // SFの失注商談から失注理由（大/中）・詳細・商談所有者などを会社名で付ける（失注リストだけ列が出る）。
     const _hasCrosslostLead = items.some((x) => /クロス失注/.test(String(x.架電状態 || x.最終ステータス || "")));
-    if (listParam === "crosslost" || _hasCrosslostLead) {
+    if (listParam === "crosslost" || _hasCrosslostLead || 過去失注リストか) {
       try {
         const sfUser = await pickSfUser(req.user, req).catch(() => "");
         if (sfUser && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
@@ -21385,7 +21385,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28p 記録の窓の左の「トーク」でその場で編集できるように。保存先は自分の台本（トークページと同じ）：いま出ているのが自分のグループ用ならそのグループ用、それ以外は基本の台本（グループ用として保存も選べる）。";
+const BUILD_TAG = "2026-09-28q 「DOC過去失注」など過去失注グループのリストを編集するとき、架電状態の右に「失注理由（大項目）」列（複数選択で絞り込み）。値はSFの失注商談（会社名で突き合わせ）→無ければレポート取り込み時の受失注理由(大項目)。過去失注リストの取得時にもSFの失注項目を付けるように。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

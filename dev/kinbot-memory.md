@@ -1104,3 +1104,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28o トーク：他メンバーの台本閲覧。db listTalkScriptOwners()（空でない台本を持つ人・件数・名前）。GET /api/calls/talk/of?email=、/talk/mine に me/owners。calls.html #tkWho セレクト、#tkActsOther（#tkCopy）。calls.js _tk.mine/_tk.who、tkSwitchWho（readOnly・ボタン切替）、tkCopyToMine（同じ枠へ PUT）。版20260928o。
 
 - 2026-09-28 BUILD_TAG=2026-09-28p kcLoadTalk に view()/edit()：左パネルで textarea 編集→PUT /api/calls/talk/mine（groupId＝グループ用 or null＝基本）。表示中が mine-group なら既定はグループ用、他は基本。トークページと同じデータ。版20260928p。
+
+- 2026-09-28 BUILD_TAG=2026-09-28q 編集テーブル _edPastLost（選んだリストが全部 group_name に「過去失注」）→ 架電状態の後に「失注理由（大項目）」列＋msel edPlReason。edLossBig(r)＝_edg(失注理由（大項目）,失注理由)→recruitVal(/受?失注理由.{0,2}大項目/)。server targets の失注商談付与条件に 過去失注リストか を追加。版20260928q。
