@@ -6897,3 +6897,11 @@ body:has(.kc-slotpanel) .kc-modal-back { padding-right: 320px; }
 }
 
 body.kc-only .zp-admin { display: none !important; }
+
+/* 探した結果：ステージを変える・復活 */
+.kc-ah-act { min-width: 200px; }
+.kc-ah-stage { width: 100%; font-size: 12px; padding: 4px 6px; border: 1px solid #cfe6da; border-radius: 8px; }
+.kc-ah-btns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.kc-ah-btns .kc-btn { font-size: 11.5px; padding: 3px 8px; }
+.kc-ah-rev { background: #eaf7f1 !important; border-color: #1d9e75 !important; color: #0d5b47 !important; font-weight: 700; }
+.kc-ah-st { font-size: 11px; color: #0d5b47; margin-top: 3px; }

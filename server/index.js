@@ -10733,6 +10733,40 @@ app.post("/api/calls/targets/:id/stage", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 探した結果から「このリストに入れて復活」：ステージを変え、指定したリストへ移して未架電に戻す（元のリストを記録）。
+// 移し先のリストの持ち主本人か、クローザー・管理者だけ。
+app.post("/api/calls/targets/:id/revive", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const t = await getCallTarget(id);
+    if (!t) return res.status(404).json({ error: "見つかりません" });
+    const listId = parseInt(req.body?.listId, 10);
+    const stage = String(req.body?.stage || "").trim();
+    if (!listId) return res.status(400).json({ error: "入れるリストを選んでください" });
+    const list = ((await pool.query(`SELECT id, name, owner FROM call_lists WHERE id = $1`, [listId])).rows || [])[0];
+    if (!list) return res.status(404).json({ error: "リストが見つかりません" });
+    const me = String(req.user || "").toLowerCase();
+    const mine = String(list.owner || "").toLowerCase() === me;
+    if (!mine && !req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "自分のリストにだけ入れられます" });
+    await pool.query(
+      `UPDATE call_targets t SET
+          origin_list_id   = COALESCE(t.origin_list_id, t.list_id),
+          origin_list_name = COALESCE(t.origin_list_name, (SELECT name FROM call_lists WHERE id = t.list_id)),
+          list_id = $2, assigned_to = NULL, done = false${stage ? ", stage = $3" : ""}
+        WHERE t.id = $1`, stage ? [id, listId, stage] : [id, listId]);
+    let sf = { ok: false, reason: "" };
+    if (stage && t.lead_id && salesforceConfigured()) {
+      const sfUser = await pickSfUser(req.user, req);
+      if (await sfConnected(sfUser).catch(() => false)) {
+        try { await updateLead(sfUser, t.lead_id, { Status: stage }); sf = { ok: true }; } catch (e) { sf = { ok: false, reason: String(e.message).slice(0, 120) }; }
+      }
+    }
+    hubClear();
+    console.log(`[kincall] 復活：target=${id} を「${list.name}」へ${stage ? `（ステージ ${stage}）` : ""} by ${req.user}`);
+    res.json({ ok: true, list: list.name, stage, sf });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 会社名・担当者名・電話番号・メールアドレスを編集する。
 // ローカルの宛先を書き換え、Salesforceのリードにも同じ内容を反映する。
 app.post("/api/calls/targets/:id/edit", async (req, res) => {
@@ -21470,7 +21504,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28x kincallだけのメンバーもZoom Phone連携を使えるように。サーバで止めていた /api/zoom-phone/status と /caller-id を開放（かける画面のZoom発信・録音の要約が動くように）。設定の外部連携にZoom Phone連携カードを表示（埋め込みの切替・録音の一括要約など管理者向けの操作は隠す）。";
+const BUILD_TAG = "2026-09-29a かける画面の「全メンバー・全リストから探す」の結果に操作を追加。ステージを選んで「ステージだけ変える」（SFにも反映）、自分のリストを開いているときは「このリストに入れて復活」（ステージを変えて今のリストへ移し、担当を外して未架電に戻す・元のリストを記録）。POST /api/calls/targets/:id/revive（移し先の持ち主本人か、クローザー・管理者）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

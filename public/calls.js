@@ -646,10 +646,12 @@ async function findAcrossMembers() {
       return t.join("");
     };
     const who = (e, nm) => esc(nm || (e ? String(e).split("@")[0] : "（未割り当て）"));
+    const canRevive = /^\d+$/.test(String(listId || ""));   // いま自分のリストを開いているときだけ「このリストに入れる」
+    const 状態の選択肢 = (((await loadPicks().catch(() => null)) || {})["リードの状態"]) || [];
     box.innerHTML =
       `<details class="kc-allhit-d" open><summary>全メンバー・全リストから <b>${items.length}</b> 件みつかりました（このリスト以外）</summary>` +
       `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
-         <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ・最終ステータス</th><th>リスト</th><th>リストの持ち主</th><th>担当（かける人）</th><th>最終架電</th>
+         <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ・最終ステータス</th><th>リスト</th><th>リストの持ち主</th><th>担当（かける人）</th><th>最終架電</th><th>ステージを変える・復活</th>
        </tr></thead><tbody>` +
       items.map((x) => `<tr>
          <td class="lst-name">${esc(x.company || "")}</td>
@@ -660,7 +662,32 @@ async function findAcrossMembers() {
          <td>${who(x.list_owner, x.list_owner_name)}</td>
          <td>${x.assigned_to ? who(x.assigned_to, x.owner_name) : '<span class="dim">持ち主と同じ</span>'}</td>
          <td>${x["最終日時"] ? esc(lastCallLabel(x["最終日時"])) : '<span class="dim">—</span>'}</td>
+         <td class="kc-ah-act" data-id="${x.id}">
+           <select class="kc-ah-stage"><option value="">ステージ（変えない）</option>${(状態の選択肢 || []).map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`).join("")}</select>
+           <div class="kc-ah-btns"><button type="button" class="kc-btn" data-ah="stage">ステージだけ変える</button>${canRevive ? `<button type="button" class="kc-btn kc-ah-rev" data-ah="revive">このリストに入れて復活</button>` : ""}</div>
+           <div class="kc-ah-st"></div>
+         </td>
        </tr>`).join("") + `</tbody></table></div></details>`;
+    box.querySelectorAll(".kc-ah-act").forEach((cell) => cell.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-ah]"); if (!b) return;
+      const id = cell.dataset.id, stage = cell.querySelector(".kc-ah-stage").value, st = cell.querySelector(".kc-ah-st");
+      if (b.dataset.ah === "stage" && !stage) { st.textContent = "変えるステージを選んでください"; return; }
+      b.disabled = true; st.textContent = "変えています…";
+      try {
+        const url = b.dataset.ah === "revive" ? `/api/calls/targets/${encodeURIComponent(id)}/revive` : `/api/calls/targets/${encodeURIComponent(id)}/stage`;
+        const body = b.dataset.ah === "revive" ? { listId, stage } : { stage };
+        const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "変えられませんでした");
+        if (b.dataset.ah === "revive") {
+          st.textContent = `「${d.list}」に入れました`;
+          await loadTable();   // 今のリストを読み直して、入れた行を出す
+        } else {
+          st.textContent = `ステージを「${stage}」にしました${d.sf && d.sf.ok ? "（SFにも反映）" : ""}`;
+          const td = cell.parentElement.children[3]; if (td && td.firstChild) td.firstChild.textContent = stage;
+        }
+      } catch (err) { st.textContent = "失敗：" + (err.message || ""); }
+      finally { b.disabled = false; }
+    }));
   } catch (e) {
     box.innerHTML = `<div class="note">横断して探せませんでした：${esc(e.message)}</div>`;
   }

@@ -1120,3 +1120,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-28 BUILD_TAG=2026-09-28w 記録モーダルと左右パネルの重なり：body:has(.kc-copanel)/(.kc-slotpanel) で .kc-modal-back に padding-left 330/right 320（≤1500px はパネル250px・padding 278）、≤1200px は左 16px、≤900px は右 16px。.kc-modal-wide は width:100%（max 920）。版20260928w。
 
 - 2026-09-28 BUILD_TAG=2026-09-28x kincallOnly ユーザーは isKincallSelfSettingPath に /api/zoom-phone/status・/caller-id が無く 403 → かけるの _zoomOn が常に false だった。両方を許可。settings.js の kincallOnly は integ カード calendar＋zoomphone を残し body.kc-only、.zp-admin（#zpEmbed ラベル・説明・#zpRec）を非表示。/api/zoom-phone/settings・sync・sync-recordings は引き続き不可。版20260928x。
+
+- 2026-09-29 BUILD_TAG=2026-09-29a 横断検索結果に操作列：.kc-ah-act（リードの状態 picklist の select＋「ステージだけ変える」→POST /api/calls/targets/:id/stage、listId が数値なら「このリストに入れて復活」→POST /api/calls/targets/:id/revive {listId,stage}：origin_list 記録・list_id 変更・assigned_to NULL・done=false・stage・SF Status 更新、権限＝移し先 owner 本人 or クローザー/管理者）。復活後 loadTable()。版20260929a。
