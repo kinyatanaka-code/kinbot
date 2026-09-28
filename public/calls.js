@@ -5293,19 +5293,33 @@ function nmRenderCards() {
     const months = Object.keys(s.byMonth || {}).length;
     const clcard = (key, ic, nm, big, unit, ds, cc) =>
       `<button type="button" class="nm-card nm-clcard" data-cl="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big" data-clbig="${key}">${big}<small>${unit}</small></div><div class="nm-card-sub">${ds}</div></button>`;
-    html += `<div class="nm-sec"><div class="nm-sec-h">過去リスト（クロス失注）</div><div class="nm-grid nm-cl3">` +
+    html += `<div class="nm-sec"><div class="nm-sec-h">過去リスト（クロス失注・2026/3〜 SF連携）</div><div class="nm-grid nm-cl3">` +
       clcard("now", hubIco("phone"), "今月かける", (s.nowCount || 0).toLocaleString(), "件", "失注後次回アクション日が翌月末までのリード。上から順に対応。", "#1d9e75") +
       clcard("all", hubIco("archive"), "失注リスト", (s.total || 0).toLocaleString(), "件", "クロス失注の全リード。失注日・理由などで一覧。", "#d9536a") +
       clcard("month", hubIco("cal"), "月別", String(months), "ヶ月", "失注後次回アクション日を月別に集計。月ごとに内訳。", "#2f86c9") +
       `</div><div class="nm-cl-move"><button type="button" class="btn ghost" id="nmClImport">kincallに無い失注の会社を取り込む</button><button type="button" class="btn ghost" id="nmClConsolidate">他のリストにある失注リードを、担当ごとの「クロス失注」リストへ移す</button><span class="rev-status" id="nmClConSt"></span></div><div class="note" style="margin-top:4px">SFで新しくクロス失注になった会社は、毎朝7時にも自動で「クロス失注（未割り当て）」へ取り込みます（担当者名＝主.取引先責任者）。</div></div>`;
+  // 〜2026/2/28 の失注（CSV取り込み）：同じ3枚のカード
+  {
+    const oc = (key, ic, nm, unit, ds, cc) =>
+      `<button type="button" class="nm-card nm-clcard" data-clold="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big" data-oldbig="${key}">…<small>${unit}</small></div><div class="nm-card-sub">${ds}</div></button>`;
+    html += `<div class="nm-sec"><div class="nm-sec-h">過去の失注（〜2026/2/28・CSV取り込み）</div><div class="nm-grid nm-cl3">` +
+      oc("now", hubIco("phone"), "今月かける", "件", "失注後次回アクション日が翌月末までのもの。", "#1d9e75") +
+      oc("all", hubIco("archive"), "失注リスト", "件", "CSVで取り込んだ〜2026/2/28の失注の全件。", "#c95b6e") +
+      oc("month", hubIco("cal"), "月別", "ヶ月", "失注後次回アクション日を月別に集計。", "#2f86c9") +
+      `</div><div class="nm-cl-move"><label class="btn ghost" style="cursor:pointer">CSVを取り込む<input type="file" id="nmOldCsv" accept=".csv,text/csv" hidden></label><span class="rev-status" id="nmOldSt"></span></div>` +
+      `<div class="note" style="margin-top:4px">SFの失注レポートをCSVで保存して取り込みます。使う列：取引先名（会社名）・主.取引先責任者・電話・メール・受失注日・失注理由（大項目／中項目／詳細）・失注後次回アクション日・商談所有者。ほかの列もそのまま残ります。</div></div>`;
+  }
   }
   body.innerHTML = html;
   if ($("nmClConsolidate")) $("nmClConsolidate").addEventListener("click", nmClConsolidate);
   if ($("nmClImport")) $("nmClImport").addEventListener("click", nmClImportMissing);
+  if ($("nmOldCsv")) $("nmOldCsv").addEventListener("change", nmOldImport);
+  nmFetchOldSummary();
   nmFetchClSummary();   // カードの件数（今月かける・月別）を後追いで更新
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => {
     _nmChosen = new Set();
     if (c.dataset.cl) { nmOpenCrosslost(c.dataset.cl); return; }   // 過去リストカード（今月かける／失注リスト／月別）
+    if (c.dataset.clold) { nmOpenCrosslost(c.dataset.clold, "pastlost-old"); return; }   // 〜2026/2 の失注
     if (c.dataset.nur) { nmOpenNurture(c.dataset.nur); return; }   // ナーチャリング（全体／今週）
     if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special, member: c.dataset.member || "", name: c.dataset.mname || "" };
     else _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) };
@@ -5363,17 +5377,84 @@ function nmOpenNurture(mode) {
   _nmSel = { type: "special", key: "nurture", member: "", name: "" };
   nmGoEditVirtual(mode === "week" ? "nurture-week" : "nurture-all", mode === "week" ? "今週かける予定（ナーチャリング）" : "ナーチャリング（全体）", "");
 }
-function nmOpenCrosslost(mode) {
-  if (mode === "month") { nmRenderMonthly(); return; }
+function nmOpenCrosslost(mode, kind = "crosslost") {
+  if (mode === "month") { nmRenderMonthly(kind); return; }
   _edClMode = (mode === "now") ? "now" : "";
-  const title = (mode === "now") ? "今月かける（クロス失注）" : "失注リスト（全体）";
-  _nmSel = { type: "special", key: "crosslost", member: "", name: "" };
-  nmGoEditVirtual("crosslost", title, "");
+  const old = kind === "pastlost-old";
+  const title = (mode === "now") ? (old ? "今月かける（〜2026/2の失注）" : "今月かける（クロス失注）") : (old ? "失注リスト（〜2026/2・CSV）" : "失注リスト（全体）");
+  _nmSel = { type: "special", key: kind, member: "", name: "" };
+  nmGoEditVirtual(kind, title, "");
+}
+let _nmOldSummary = { total: 0, nowCount: 0, byMonth: {} };
+async function nmFetchOldSummary() {
+  try {
+    const s = await (await fetch("/api/calls/pastlost-old/summary?_=" + Date.now(), { cache: "no-store" })).json();
+    if (s && s.ok) {
+      _nmOldSummary = { total: Number(s.total || 0), nowCount: Number(s.nowCount || 0), byMonth: s.byMonth || {} };
+      const set = (k, v) => { const el = document.querySelector(`[data-oldbig="${k}"]`); if (el) { const u = el.querySelector("small"); el.textContent = v; if (u) el.appendChild(u); } };
+      set("now", _nmOldSummary.nowCount.toLocaleString()); set("all", _nmOldSummary.total.toLocaleString()); set("month", String(Object.keys(_nmOldSummary.byMonth).length));
+    }
+  } catch {}
+}
+// CSVの文字コード（UTF-8／Shift_JIS）を自動で見分けて読む
+async function readCsvSmart(file) {
+  const buf = await file.arrayBuffer();
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^\uFEFF/, ""); }
+  catch { try { return new TextDecoder("shift_jis").decode(buf); } catch { return new TextDecoder().decode(buf); } }
+}
+// 〜2026/2/28 の失注をCSVで取り込む（先に件数を確認）
+async function nmOldImport(ev) {
+  const file = ev.target.files && ev.target.files[0]; ev.target.value = "";
+  if (!file) return;
+  const st = $("nmOldSt"); if (st) st.textContent = "読み込んでいます…";
+  try {
+    const grid = csvParse(await readCsvSmart(file)).filter((r) => r.some((c) => String(c || "").trim()));
+    if (grid.length < 2) throw new Error("CSVに行がありません");
+    const head = grid[0].map((h) => String(h || "").trim());
+    const nz = (h) => h.normalize("NFKC").replace(/[\s　()（）.．:：_]/g, "").toLowerCase();
+    const H = head.map(nz);
+    const find = (...res) => { for (const re of res) { const i = H.findIndex((h) => re.test(h)); if (i >= 0) return i; } return -1; };
+    const bad = /メール|mail|電話|tel|phone/;
+    const col = {
+      company: find(/^(会社名|企業名|取引先名)$/, /取引先名|会社名|企業名/),
+      person: (() => { for (const re of [/主取引先責任者/, /取引先責任者(名)?$/, /^担当者名?$/]) { const i = H.findIndex((h) => re.test(h) && !bad.test(h)); if (i >= 0) return i; } return -1; })(),
+      phone: find(/^(電話|電話番号|tel|phone)$/, /電話/),
+      email: find(/^(メール|メールアドレス|email)$/, /メール|email/),
+    };
+    const ex = {
+      "失注日": find(/^受?失注日$/, /受失注日|失注日/),
+      "失注理由（大項目）": find(/失注理由大項目/),
+      "失注理由（中項目）": find(/失注理由中項目/),
+      "失注理由詳細": find(/失注理由詳細/),
+      "失注後次回アクション日": find(/次回アクション/),
+      "商談所有者": find(/商談所有者/, /^所有者$/),
+    };
+    if (col.company < 0 && col.phone < 0) throw new Error("「取引先名（会社名）」か「電話」の列が見つかりません");
+    const used = new Set([...Object.values(col), ...Object.values(ex)].filter((i) => i >= 0));
+    const date = (v) => { const t = String(v || "").trim().replace(/\//g, "-"); const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : t; };
+    const rows = grid.slice(1).map((r) => {
+      const extra = {};
+      for (const [k, i] of Object.entries(ex)) if (i >= 0 && String(r[i] || "").trim()) extra[k] = k.endsWith("日") ? date(r[i]) : String(r[i]).trim();
+      head.forEach((h, i) => { if (!used.has(i) && h && String(r[i] || "").trim()) extra[h] = String(r[i]).trim(); });
+      return { company: col.company >= 0 ? r[col.company] : "", person: col.person >= 0 ? r[col.person] : "", phone: col.phone >= 0 ? r[col.phone] : "", email: col.email >= 0 ? r[col.email] : "", extra };
+    });
+    const call = async (dryRun) => {
+      const r = await fetch("/api/calls/pastlost-old/import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows, dryRun }) });
+      const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "取り込めませんでした"); return d;
+    };
+    const p = await call(true);
+    const found = Object.entries(ex).filter(([, i]) => i >= 0).map(([k]) => k).join("・") || "（なし）";
+    if (!confirm(`${rows.length}行を読み込みました。\n・取り込む：${p.willAdd}件\n・すでにある／CSV内の重複：${p.dup}件\n・会社名も電話も空：${p.empty}件\n\n読み取れた失注の列：${found}\n\n「過去の失注（〜2026/2）」リストに取り込みますか？`)) { if (st) st.textContent = ""; return; }
+    if (st) st.textContent = "取り込んでいます…";
+    const d = await call(false);
+    await nmLoad();
+    const st2 = $("nmOldSt"); if (st2) st2.textContent = `${d.added}件を取り込みました`;
+  } catch (e) { if (st) st.textContent = "失敗：" + (e.message || ""); }
 }
 // 月別ビュー：失注後次回アクション日の月別件数を棒で表示。月をクリックでその月の一覧へ。
-function nmRenderMonthly() {
+function nmRenderMonthly(kind = "crosslost") {
   const body = $("nmBody"); if (!body) return;
-  const s = _nmClSummary || { byMonth: {} };
+  const s = (kind === "pastlost-old" ? _nmOldSummary : _nmClSummary) || { byMonth: {} };
   const entries = Object.entries(s.byMonth || {}).sort((a, b) => a[0].localeCompare(b[0]));
   const max = Math.max(1, ...entries.map((e) => Number(e[1])));
   const curYm = new Date().toISOString().slice(0, 7);
@@ -5388,8 +5469,8 @@ function nmRenderMonthly() {
   body.querySelector(".nm-mback").addEventListener("click", nmLoad);
   body.querySelectorAll(".nm-bar-row").forEach((r) => r.addEventListener("click", () => {
     _edClMode = r.dataset.m;   // その月で絞る
-    _nmSel = { type: "special", key: "crosslost", member: "", name: "" };
-    nmGoEditVirtual("crosslost", `${r.dataset.m} のクロス失注`, "");
+    _nmSel = { type: "special", key: kind, member: "", name: "" };
+    nmGoEditVirtual(kind, `${r.dataset.m} の${kind === "pastlost-old" ? "失注（〜2026/2）" : "クロス失注"}`, "");
   }));
 }
 function nmRenderGroupCards(body) {
@@ -6166,7 +6247,7 @@ let _edCrosslost = false;   // クロス失注ビューか（失注日/失注理
 let _edPastLost = false;    // 過去失注グループ（DOC過去失注など）のリストの編集か（失注理由（大項目）の列を出す）
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
-  _edCrosslost = (listIds || []).map(String).includes("crosslost");
+  _edCrosslost = (listIds || []).map(String).some((v) => v === "crosslost" || v === "pastlost-old");
   _edPastLost = !_edCrosslost && (listIds || []).length > 0 && (listIds || []).every((id) => /過去失注/.test(String(((_edLists && _edLists[id]) || {}).group_name || "")));
   { const ids = (listIds || []).map(String); _edNurture = ids.includes("nurture-week") ? "week" : (ids.includes("nurture-all") ? "all" : ""); }
   edSetTableMode(true);   // 表だけの全画面一覧に切り替え

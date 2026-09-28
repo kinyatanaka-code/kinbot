@@ -8008,6 +8008,68 @@ setInterval(async () => {
   } catch (e) { console.warn("[crosslost] 自動取り込み失敗", e.message); }
 }, 10 * 60 * 1000);
 
+// ===== 〜2026/2/28 の失注（CSVで取り込む、SFと連携しない方の失注リスト）=====
+const OLD_LOST_LIST = "過去の失注（〜2026/2）";
+const OLD_LOST_GROUP = "過去失注（〜2026/2）";   // 名前に「過去失注」を含む＝かけるで全ステージ表示・ナーチャ/リサイクルへ回さない
+const OLD_LOST_STATUS = "失注（〜2026/2）";
+const OLD_LOST_KEYS = ["失注日", "失注理由（大項目）", "失注理由（中項目）", "失注理由詳細", "失注後次回アクション日", "商談所有者"];
+async function oldLostListId(create = false, by = null) {
+  const gs = await listGroups().catch(() => []);
+  let g = gs.find((x) => x.name === OLD_LOST_GROUP);
+  if (!g && create) g = await addGroup(OLD_LOST_GROUP);
+  const l = create ? await findOrCreateNamedList(null, OLD_LOST_LIST, by) : null;
+  let id = l && l.id;
+  if (!id) { const all = await listAllCallLists().catch(() => []); const hit = all.find((x) => x.name === OLD_LOST_LIST && !String(x.owner || "").trim()); id = hit && hit.id; }
+  if (id && g && create) await setListGroup(id, g.id).catch(() => {});
+  return id || null;
+}
+// CSVの行を取り込む：rows=[{company, person, phone, email, extra:{失注日, 失注理由（大項目）…}}]
+app.post("/api/calls/pastlost-old/import", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const rows = (Array.isArray(req.body?.rows) ? req.body.rows : []).slice(0, 20000);
+    const dryRun = req.body?.dryRun !== false;
+    const listId = await oldLostListId(!dryRun, req.user);
+    // 同じリストの中だけで重複を見る（会社名＋電話）
+    const keyOf = (co, ph) => `${normCompanyKey(co || "")}|${String(ph || "").replace(/\D/g, "").slice(-9)}`;
+    const have = new Set();
+    if (listId) for (const t of await listCallTargets(listId, { limit: 50000 }).catch(() => [])) have.add(keyOf(t.company, t.phone));
+    const items = [], seen = new Set(); let dup = 0, empty = 0;
+    for (const r of rows) {
+      const company = String(r.company || "").trim(); const phone = String(r.phone || "").trim();
+      if (!company && !phone) { empty++; continue; }
+      const k = keyOf(company, phone);
+      if (have.has(k) || seen.has(k)) { dup++; continue; }
+      seen.add(k);
+      const extra = (r.extra && typeof r.extra === "object") ? r.extra : {};
+      items.push({ leadId: null, company, person: String(r.person || "").trim(), phone, email: String(r.email || "").trim(), stage: "", status: OLD_LOST_STATUS, extra });
+    }
+    if (dryRun) return res.json({ ok: true, dryRun: true, total: rows.length, willAdd: items.length, dup, empty });
+    const n = await addCallTargets(listId, items, { dedupe: false });
+    _oldLostSumCache = null;
+    console.log(`[kincall] 〜2026/2の失注を${n}件取り込み（重複${dup}・空${empty}）by ${req.user}`);
+    res.json({ ok: true, dryRun: false, added: n, dup, empty, listId });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 件数（全件・今月かける・月別）
+let _oldLostSumCache = null, _oldLostSumAt = 0;
+app.get("/api/calls/pastlost-old/summary", async (req, res) => {
+  try {
+    if (_oldLostSumCache && Date.now() - _oldLostSumAt < 60 * 1000) return res.json(_oldLostSumCache);
+    const id = await oldLostListId(false);
+    const rows = id ? await listCallTargets(id, { limit: 50000 }).catch(() => []) : [];
+    const t = new Date(Date.now() + 9 * 3600 * 1000);
+    const nme = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 2, 0)).toISOString().slice(0, 10);
+    let nowCount = 0; const byMonth = {};
+    for (const r of rows) {
+      const na = String(((r.extra || {})["失注後次回アクション日"]) || "").replace(/\//g, "-").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(na)) { if (na <= nme) nowCount++; const m = na.slice(0, 7); byMonth[m] = (byMonth[m] || 0) + 1; }
+    }
+    _oldLostSumCache = { ok: true, total: rows.length, nowCount, byMonth, listId: id }; _oldLostSumAt = Date.now();
+    res.json(_oldLostSumCache);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 他のリストに入っている失注リードを、担当ごとの「クロス失注」リストへ移す。dryRun=true なら件数だけ返す。
 //   担当＝assigned_to、無ければ元リストの持ち主。持ち主もいなければ「クロス失注（未割り当て）」。
 //   すでに「クロス失注」リストにあるもの、アーカイブ/リサイクルに入っているものは動かさない。
@@ -10105,6 +10167,10 @@ app.get("/api/calls/targets", async (req, res) => {
         q: String(req.query.q || ""),
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
       });
+    } else if (listParam === "pastlost-old") {
+      // 〜2026/2/28 の失注（CSV取り込み）。失注の項目は取り込んだ値（extra）を使う
+      const id = await oldLostListId(false);
+      rows = id ? await listCallTargets(id, { limit: Math.min(50000, parseInt(req.query.limit, 10) || 20000) }) : [];
     } else if (listParam === "nurture-all" || listParam === "nurture-week") {
       // ナーチャリング（全体／今週かける予定）：担当を問わず横断で集める（管理タブ用）。member で担当を絞れる。
       rows = await listNurtureTargetsForMember(String(req.query.member || "").trim().toLowerCase(), {
@@ -10143,7 +10209,7 @@ app.get("/api/calls/targets", async (req, res) => {
       // 過去失注のリスト：ステージは全部見せる（ユーザーと使われていない番号だけ出さない）
       const 死番 = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
       rows = rows.filter((r) => !/ユーザー/.test(String(r.stage || "")) && !死番.test(String(r.status || "")) && !死番.test(String(r.stage || "")));
-    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && listParam !== "nurture-week" && !復活リストか) {
+    } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && listParam !== "nurture-week" && listParam !== "pastlost-old" && !復活リストか) {
       const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
@@ -10256,6 +10322,9 @@ app.get("/api/calls/targets", async (req, res) => {
       }
     } catch (e) { console.warn("[calls/targets] 求人情報の付与に失敗", e.message); }
 
+    if (listParam === "pastlost-old") {
+      for (const x of items) { const e = x.追加 || {}; for (const k of OLD_LOST_KEYS) if (e[k] != null && e[k] !== "") x[k] = String(e[k]).replace(/\//g, k.endsWith("日") ? "-" : "/"); }
+    }
     // クロス失注ビュー、または「かける」で表示中のリストにクロス失注リードが含まれるとき：
     // SFの失注商談から失注理由（大/中）・詳細・商談所有者などを会社名で付ける（失注リストだけ列が出る）。
     const _hasCrosslostLead = items.some((x) => /クロス失注/.test(String(x.架電状態 || x.最終ステータス || "")));
@@ -21385,7 +21454,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-28r アポイントメールの宛名の会社名が、社名に「・」を含むと途中から切れる不具合を修正（例：中日本ハイウェイ・メンテナンス北陸株式会社→メンテナンス北陸株式会社になっていた）。会社名は「／」「｜」だけで区切った塊から取り、末尾の「○○様」を落とす形に。担当者名の取り方は従来どおり。";
+const BUILD_TAG = "2026-09-28s 失注リストを2種類に。今あるもの＝「過去リスト（クロス失注・2026/3〜 SF連携）」、新しく「過去の失注（〜2026/2/28・CSV取り込み）」：今月かける／失注リスト／月別の3カード＋CSV取り込み（UTF-8/Shift_JIS自動判別、取引先名・主.取引先責任者・電話・メール・受失注日・失注理由大/中/詳細・失注後次回アクション日・商談所有者を読み、他の列も残す、同じリスト内の重複は除外、先に件数確認）。取り込み先は「過去の失注（〜2026/2）」リスト（グループ「過去失注（〜2026/2）」＝かけるは過去失注の仕様）。表は失注リストと同じ列。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
