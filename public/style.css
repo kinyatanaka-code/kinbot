@@ -6905,3 +6905,7 @@ body.kc-only .zp-admin { display: none !important; }
 .kc-ah-btns .kc-btn { font-size: 11.5px; padding: 3px 8px; }
 .kc-ah-rev { background: #eaf7f1 !important; border-color: #1d9e75 !important; color: #0d5b47 !important; font-weight: 700; }
 .kc-ah-st { font-size: 11px; color: #0d5b47; margin-top: 3px; }
+
+/* スマホのメニュー：kincallの項目はサイドバーと同じ線画SVGを使う */
+.kb-menu-item .kb-menu-svg { width: 21px; height: 21px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+.kb-menu-item .kb-menu-svg svg { width: 19px; height: 19px; fill: currentColor; }

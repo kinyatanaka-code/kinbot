@@ -1483,6 +1483,13 @@ function renderDock() {
       .kc-ptab{ flex:0 0 auto; }
       /* 実績の日付列が詰まりすぎないように最小幅 */
       .kc-grid th, .kc-grid td{ white-space:nowrap; }
+      /* デイリー目標・出勤管理・トーク：はみ出す表は横スクロール、入力欄は折り返す */
+      #dgTableWrap, #clDailyWrap, #scCal, #scTotals{ overflow-x:auto; -webkit-overflow-scrolling:touch; max-width:100%; }
+      .kc-pane[data-p="daily"] .kc-input, .kc-pane[data-p="shifts"] .kc-input{ max-width:100% !important; }
+      .kc-pane[data-p="daily"] label, .kc-pane[data-p="shifts"] label{ flex-wrap:wrap; }
+      #dgText{ width:100%; box-sizing:border-box; }
+      .tk-cols{ flex-direction:column; grid-template-columns:1fr !important; }
+      .tk-side, .tk-main, .tk-prev{ width:auto !important; max-width:100% !important; }
     }
     .kc-g-title{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;border:0;cursor:pointer;padding:2px 0;margin:0 0 4px;font-family:inherit;font-size:13px;font-weight:700;color:#0d5b47;}
     .kc-g-title:hover .kc-g-tname{color:#0b7a5e;}

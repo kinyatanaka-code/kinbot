@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20260929d";
+    sc.src = "kbchat.js?v=20260929e";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -455,13 +455,8 @@ window.kbSheet = function (html) {
   // パソコンのサイドバーと同じ内容を使う（下に平らに並べる）
   const items = [];
   if (inKincall) {
-    // kincallの中では、kincallの画面を並べる（スマホはサイドバーが隠れるため、ここが唯一の入り口）
-    items.push({ href: "/kincall", label: "かける", ico: "ico-phone" });
-    items.push({ href: "/kincall?p=stats", label: "実績", ico: "ico-chart" });
-    items.push({ href: "/kincall?p=lists", label: "リスト管理", ico: "ico-people" });
-    items.push({ href: "#docset", label: "資料送付設定", ico: "ico-doc" });
-    items.push({ href: "home.html", label: "kinbotに戻る", ico: "ico-home" });
-    items.push({ href: "settings.html", label: "設定", ico: "ico-set" });
+    // kincallの中では、左のサイドバー（kc-side）の項目をそのまま並べる（開いたときに読むので、権限で隠した項目は出ない）。
+    // スマホはサイドバーが隠れるため、ここが唯一の入り口。
   } else {
     for (const m of KB_MENU) {
       if (m.subs) for (const x of m.subs) items.push({ href: x.href, label: x.label, ico: m.ico });
@@ -477,8 +472,28 @@ window.kbSheet = function (html) {
     items.push({ href: "settings.html", label: "設定", ico: "ico-set" });
   }
 
+  // kincall：サイドバーの項目（デイリー目標・出勤管理・トークなども）をメニュー用に読む
+  const kincallItems = () => {
+    const out = [];
+    document.querySelectorAll(".kc-side .side-item").forEach((a) => {
+      const wrap = a.closest(".side-wrap") || a;
+      if (a.hidden || wrap.hidden || a.style.display === "none" || wrap.style.display === "none") return;
+      const href = a.getAttribute("href") || "";
+      if (!href) return;
+      const label = ((a.querySelector(".side-label") || {}).textContent || "").trim();
+      if (!label) return;
+      if (a.classList.contains("side-app")) { out.push({ href: "home.html", label: "kinbotに戻る", ico: "ico-home" }); return; }
+      const svg = a.querySelector(".kc-side-ico svg");
+      out.push({ href, label, svg: svg ? svg.outerHTML : "", real: a });
+    });
+    out.push({ href: "settings.html", label: "設定", ico: "ico-set" });
+    return out;
+  };
+
   const open = () => {
     if (document.querySelector(".kb-menu")) return;
+    const list = inKincall ? kincallItems() : items;
+    const hereK = location.pathname + location.search;
     const who = (document.getElementById("who") || {}).textContent || "";
     const wrap = document.createElement("div");
     wrap.className = "kb-menu";
@@ -491,10 +506,13 @@ window.kbSheet = function (html) {
              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
            </button>
          </div>
-         ${items.map((it) => {
-           const on = here === it.href || (it.href === "home.html" && (here === "" || here === "home.html"));
-           return `<a class="kb-menu-item${on ? " is-on" : ""}" href="${it.href}">
-             <span class="side-ico ${it.ico}"></span><span>${it.label}</span>
+         ${list.map((it, i) => {
+           const on = inKincall
+             ? (it.real && (it.real.classList.contains("active") || hereK === it.href))
+             : (here === it.href || (it.href === "home.html" && (here === "" || here === "home.html")));
+           const ico = it.svg ? `<span class="kb-menu-svg">${it.svg}</span>` : `<span class="side-ico ${it.ico}"></span>`;
+           return `<a class="kb-menu-item${on ? " is-on" : ""}" href="${it.href}" data-i="${i}">
+             ${ico}<span>${it.label.replace(/[<>&]/g, "")}</span>
            </a>`;
          }).join("")}
          <a class="kb-menu-item kb-menu-out" href="#" id="kbMenuLogout"><span>ログアウト</span></a>
