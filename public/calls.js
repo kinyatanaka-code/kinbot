@@ -137,7 +137,13 @@ function showProgress(x) {
 }
 
 // ───────── 一覧（SFのリードレポートのような表） ─────────
+// 探す欄の言葉をそろえる（サーバーの normCallQuery と同じ：空白・ハイフン類を除き、小文字に）
+function kcNormQ(v) {
+  return String(v || "").replace(/[\s\u3000\-\uFF0D\u2010\u2011\u2012\u2013\u2014\u2212]/g, "").toLowerCase();
+}
+let _loadSeq = 0;   // 一覧の読み込みの番号。後から始めた読み込みの結果だけを使う（古い結果で上書きしない）
 async function loadTable() {
+  const seq = ++_loadSeq;
   const box = $("clTable");
   // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
   const selV = ($("clList") && $("clList").value) || "";
@@ -162,6 +168,7 @@ async function loadTable() {
     const q = $("clFind") && $("clFind").value.trim();
     const who = (callAsMember && listId !== "all") ? ((listId === "nurture" || listId === "crosslost-now") ? "&member=" + encodeURIComponent(callAsMember) : "&assignedTo=" + encodeURIComponent(callAsMember)) : "";
     const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
+    if (seq !== _loadSeq) return;   // 途中で別の読み込み（検索語の変更・リスト切替）が始まった
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
@@ -170,6 +177,7 @@ async function loadTable() {
     render();
     loadToday();
   } catch (e) {
+    if (seq !== _loadSeq) return;
     box.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`;
   }
 }
@@ -198,6 +206,12 @@ let sortBy = "", sortDesc = false;
 // いま出すぶんを決める
 function visibleRows() {
   let list = rows.slice();
+  const q = kcNormQ($("clFind") && $("clFind").value);
+  if (q) {
+    // 探しているときは、見出しの絞り込みに関係なく当てはまるものを全部出す（絞り込みで隠れて「見つからない」にならないように）
+    list = list.filter((x) => [x["会社名"], x["担当者"], x["電話番号"], x["メール"]].some((f) => kcNormQ(f).includes(q)));
+    return sortRows(list);
+  }
   if (filt.stage.size) list = list.filter((x) => filt.stage.has((x["ステージ"] || "").trim()));
   if (filt.status.size) list = list.filter((x) => filt.status.has((x["最終ステータス"] || "").trim()));
   for (const k in (filt.extra || {})) {
@@ -234,12 +248,9 @@ function visibleRows() {
       return n >= lo && n <= hi;
     });
   }
-  const q = ($("clFind") && $("clFind").value || "").trim().toLowerCase();
-  if (q) {
-    const norm = (v) => String(v || "").replace(/[\s　-]/g, "").toLowerCase();
-    list = list.filter((x) =>
-      [x["会社名"], x["担当者"], x["電話番号"], x["メール"]].some((f) => norm(f).includes(norm(q))));
-  }
+  return sortRows(list);
+}
+function sortRows(list) {
   if (sortBy) {
     const key = { stage: "ステージ", company: "会社名", status: "最終ステータス", hist: "履歴数" }[sortBy];
     list.sort((a, b) => {
@@ -679,8 +690,12 @@ async function findAcrossMembers() {
   _allHitFor = q;
   try {
     const d = await (await fetch("/api/calls/search-all?q=" + encodeURIComponent(q))).json();
+    // 探している言葉が変わった／表が描き直されたら、古い結果は捨てる
+    if (!box.isConnected || (($("clFind") && $("clFind").value) || "").trim() !== q) return;
     if (d.error) throw new Error(d.error);
-    const items = (d.items || []).filter((x) => String(x.list_id) !== String(listId));
+    // いまの表に出ているものだけ除く。同じリストでも、ステージ（失注・アーカイブ等）で表に出ないものはここに出す
+    const shown = new Set((rows || []).map((r) => String(r.id)));
+    const items = (d.items || []).filter((x) => !shown.has(String(x.id)));
     box.dataset.done = "1";
     if (!items.length) { box.innerHTML = ""; return; }
     const tag = (x) => {
@@ -697,7 +712,7 @@ async function findAcrossMembers() {
     const canRevive = /^\d+$/.test(String(listId || ""));   // いま自分のリストを開いているときだけ「このリストに入れる」
     const 状態の選択肢 = (((await loadPicks().catch(() => null)) || {})["リードの状態"]) || [];
     box.innerHTML =
-      `<details class="kc-allhit-d" open><summary>全メンバー・全リストから <b>${items.length}</b> 件みつかりました（このリスト以外）</summary>` +
+      `<details class="kc-allhit-d" open><summary>全メンバー・全リストから <b>${items.length}</b> 件みつかりました（上の表に出ていないもの）</summary>` +
       `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
          <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ・最終ステータス</th><th>リスト</th><th>リストの持ち主</th><th>担当（かける人）</th><th>最終架電</th><th>ステージを変える・復活</th>
        </tr></thead><tbody>` +
@@ -744,7 +759,8 @@ async function findAcrossMembers() {
 function render() {
   const box = $("clTable");
   const fullList = visibleRows();
-  const list = hideApo ? fullList.filter((x) => !isDone(x)) : fullList;
+  const _searching = !!kcNormQ($("clFind") && $("clFind").value);
+  const list = (hideApo && !_searching) ? fullList.filter((x) => !isDone(x)) : fullList;   // 探しているときは隠さない
   const arrow = (k) => sortBy === k ? (sortDesc ? " ▾" : " ▴") : "";
   const on = (k) => filt[k] && filt[k].size ? " on" : "";
   if (!rows.length) {
@@ -4381,10 +4397,18 @@ if ($("scShiftLink")) $("scShiftLink").addEventListener("click", async () => {
 
 
 if ($("clFind")) {
-  let timer = null;
-  $("clFind").addEventListener("input", () => {
-    clearTimeout(timer);
-    timer = setTimeout(loadTable, 250);
+  let timer = null, composing = false;
+  const kick = () => { clearTimeout(timer); timer = setTimeout(loadTable, 250); };
+  // 日本語入力の変換中（ひらがなの途中）は探さない。確定したときに探す。
+  $("clFind").addEventListener("compositionstart", () => { composing = true; clearTimeout(timer); });
+  $("clFind").addEventListener("compositionend", () => { composing = false; kick(); });
+  $("clFind").addEventListener("input", (e) => {
+    if (composing || e.isComposing) return;
+    kick();
+  });
+  // Enterでもすぐ探し直せるように
+  $("clFind").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing && !composing) { clearTimeout(timer); loadTable(); }
   });
 }
 

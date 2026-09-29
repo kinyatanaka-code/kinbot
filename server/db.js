@@ -4207,6 +4207,21 @@ export async function sweepStageLists(listId = null) {
 // ステージ（リード状況）が…（上の sweepStageLists）
 
 // ステージ（リード状況）で横断して架電先を集める（アーカイブ/リサイクルのカード用）。
+
+// ===== 架電先の検索（会社名・担当者・電話・メール） =====
+// 空白（全角も）・ハイフン類を取り除き、大文字小文字をそろえて比べる。
+// 「イナゾウ 株式会社」「03-1234-5678」のような表記の違いで見つからないのを防ぐ。
+const _Q_STRIP_RE = /[\s\u3000\-\uFF0D\u2010\u2011\u2012\u2013\u2014\u2212]/g;
+export function normCallQuery(q) {
+  return String(q || "").replace(/[%_\\]/g, "").replace(_Q_STRIP_RE, "").toLowerCase();
+}
+const _qn = (col) => `regexp_replace(lower(coalesce(${col},'')), '[[:space:]\u3000\uFF0D\u2010\u2011\u2012\u2013\u2014\u2212-]', '', 'g')`;
+// $n を使った検索条件（t. の列）
+function callQueryWhere(n, alias = "t") {
+  return `(${_qn(alias + ".company")} LIKE $${n} OR ${_qn(alias + ".person")} LIKE $${n}
+           OR ${_qn(alias + ".phone")} LIKE $${n} OR ${_qn(alias + ".email")} LIKE $${n})`;
+}
+
 export async function listStageTargets(keyword, { q = "", limit = 2000, statusMatch = [], owner = "", extraIds = [], ownerStrict = false } = {}) {
   if (!pool || !keyword) return [];
   try {
@@ -4222,9 +4237,8 @@ export async function listStageTargets(keyword, { q = "", limit = 2000, statusMa
     // ownerStrict：かける画面用。持ち主がその人のリストにあるものだけ（他の人のリストは出さない）
     if (own) { p.push(own); where += ownerStrict ? ` AND lower(COALESCE(cl.owner,'')) = $${p.length}` : ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to), ''), cl.owner)) = $${p.length}`; }
     if (q) {
-      p.push(`%${String(q).replace(/[%_]/g, "")}%`);
-      where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
-                      OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+      const nq = normCallQuery(q);
+      if (nq) { p.push(`%${nq}%`); where += ` AND ${callQueryWhere(p.length)}`; }
     }
     p.push(Math.max(1, Math.min(20000, limit)));
     const { rows } = await pool.query(
@@ -4757,9 +4771,8 @@ export async function listCallTargets(listId, { q = "", limit = 500, assignedTo 
     const p = [listId];
     let where = `t.list_id = $1`;
     if (q) {
-      p.push(`%${String(q).replace(/[%_]/g, "")}%`);
-      where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
-                      OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+      const nq = normCallQuery(q);
+      if (nq) { p.push(`%${nq}%`); where += ` AND ${callQueryWhere(p.length)}`; }
     }
     // 担当で絞る場合：その人に割り振られたぶん＋まだ誰にも割り振られていないぶん（担当が付いた
     // 他の人のぶんは出さない）。これで、割り振り済みのリストで全件が出てしまうのを防ぐ。
@@ -4795,7 +4808,8 @@ export async function searchAllLeadsGlobal({ q = "", limit = 2000 } = {}) {
   const term = String(q || "").trim();
   if (!term) return [];
   try {
-    const p = [`%${term.replace(/[%_]/g, "")}%`];
+    if (!normCallQuery(term)) return [];
+    const p = [`%${normCallQuery(term)}%`];
     const { rows } = await pool.query(
       `SELECT t.*,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
@@ -4806,7 +4820,7 @@ export async function searchAllLeadsGlobal({ q = "", limit = 2000 } = {}) {
               l.owner AS リスト所有者, l.name AS リスト名
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE NOT l.closed AND NOT COALESCE(l.hidden, false)
-          AND (t.company ILIKE $1 OR t.person ILIKE $1 OR t.phone ILIKE $1 OR t.email ILIKE $1)
+          AND ${callQueryWhere(1)}
         ORDER BY t.done, t.id
         LIMIT 5000`, p);
     const seen = new Set(); const out = [];
@@ -4836,9 +4850,8 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
     let where = `(l.owner = $1 OR ((${NURTURE_WHERE}) AND COALESCE(l.owner,'') <> '' AND lower(coalesce(t.assigned_to,'')) = $1)) AND NOT l.closed AND NOT COALESCE(l.hidden, false)
       AND NOT ((${NURTURE_WHERE}) AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner, '')) <> $1)`;   // ナーチャリングは担当メンバーに従う（移したら元の人には出さない）
     if (q) {
-      p.push(`%${String(q).replace(/[%_]/g, "")}%`);
-      where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length}
-                      OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`;
+      const nq = normCallQuery(q);
+      if (nq) { p.push(`%${nq}%`); where += ` AND ${callQueryWhere(p.length)}`; }
     }
     const { rows } = await pool.query(
       `SELECT t.*,
@@ -9351,7 +9364,8 @@ export async function searchAllLeads(q, { limit = 300 } = {}) {
   const kw = String(q || "").trim();
   if (!kw) return [];
   try {
-    const like = `%${kw.replace(/[%_]/g, "")}%`;
+    if (!normCallQuery(kw)) return [];
+    const like = `%${normCallQuery(kw)}%`;
     const { rows } = await pool.query(
       `SELECT t.id, t.company, t.person, t.phone, t.email, t.stage, t.status,
               t.assigned_to, t.done, t.next_call_at, t.lead_id, t.temperature,
@@ -9367,7 +9381,7 @@ export async function searchAllLeads(q, { limit = 300 } = {}) {
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
          LEFT JOIN users u ON lower(u.email) = lower(coalesce(t.assigned_to, l.owner))
-        WHERE (t.company ILIKE $1 OR t.person ILIKE $1 OR t.phone ILIKE $1 OR t.email ILIKE $1
+        WHERE (${callQueryWhere(1)}
                OR ($3 <> '' AND regexp_replace(coalesce(t.phone,''), '[^0-9]', '', 'g') LIKE $3))
         ORDER BY COALESCE(l.closed,false), t.company, t.id
         LIMIT $2`, [like, Math.min(1000, Math.max(1, parseInt(limit, 10) || 300)), (kw.replace(/[^0-9]/g, "").length >= 4 ? `%${kw.replace(/[^0-9]/g, "")}%` : "")]);
@@ -9461,7 +9475,7 @@ export async function listNurtureTargetsForMember(member, { q = "", limit = 2000
     const p = [];
     let where = `(${NURTURE_WHERE})`;
     if (m) { p.push(m); where += ` AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) = $${p.length}`; }   // 空なら全体（管理の「ナーチャリング」用）
-    if (q) { p.push(`%${String(q).replace(/[%_]/g, "")}%`); where += ` AND (t.company ILIKE $${p.length} OR t.person ILIKE $${p.length} OR t.phone ILIKE $${p.length} OR t.email ILIKE $${p.length})`; }
+    if (q && normCallQuery(q)) { p.push(`%${normCallQuery(q)}%`); where += ` AND ${callQueryWhere(p.length)}`; }
     // 今週かける予定：次回架電日が until まで（期限切れも含む）
     if (until) { p.push(until); where += ` AND t.next_call_at IS NOT NULL AND t.next_call_at <= $${p.length}::timestamptz AND NOT COALESCE(t.done, false)`; }
     p.push(Math.max(1, Math.min(20000, limit)));
