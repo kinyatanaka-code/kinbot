@@ -12105,6 +12105,38 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
 });
 
 // 架電予定（次回予定）を消す（かけ終わったら、その予定タグを消せるように）
+// 架電予定の日時を変える。body: { date:"YYYY-MM-DD", time:"HH:MM" }
+// kincallの予定（next_call_at）を書き換え、SFに未完了の「ネクストアクション（架電予定）」があればその活動日も合わせる。
+app.post("/api/calls/targets/:id/set-next", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "IDがありません" });
+    const b = req.body || {};
+    const date = String(b.date || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "日付を選んでください" });
+    let hm = String(b.time || "").trim();
+    if (!/^\d{1,2}:\d{2}$/.test(hm)) hm = "09:00";
+    if (hm.length === 4) hm = "0" + hm;
+    const iso = `${date}T${hm}:00+09:00`;
+    const row = await setCallTargetNextCall(id, iso);
+    if (!row) return res.status(404).json({ error: "架電先が見つかりません" });
+    let sfNote = "";
+    try {
+      const t = await getCallTarget(id);
+      if (t && t.lead_id && salesforceConfigured()) {
+        const sfUser = await pickSfUser(req.user, req);
+        if (sfUser && await sfConnected(sfUser).catch(() => false)) {
+          const q = await sfQuery(sfUser,
+            `SELECT Id FROM Task WHERE WhoId='${String(t.lead_id).replace(/'/g, "\\'")}' AND IsClosed=false AND Subject='ネクストアクション（架電予定）' ORDER BY CreatedDate DESC LIMIT 1`);
+          const task = (q.records || [])[0];
+          if (task) { await updateTask(sfUser, task.Id, { ActivityDate: date }); sfNote = "SFの活動予定も変更"; }
+        }
+      }
+    } catch (e) { sfNote = "SFの活動予定は変えられませんでした：" + String(e.message).slice(0, 60); }
+    console.log(`[kincall] 架電予定を変更 target=${id} → ${iso} by ${req.user}${sfNote ? " / " + sfNote : ""}`);
+    res.json({ ok: true, nextCallAt: iso, sfNote });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/calls/targets/:id/clear-next", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -21504,7 +21536,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-29b アポ実績の「実施」に、セールス側（クローザー）が取ったアポも数えるように。これまでは商談のアポ獲得者（インターンのカレンダー照合）だけで数えていたため、植野・江田・中澤などが0だった。アポの予定にkinbotが入った商談、またはアポと会社名が一致し予定日の前後2日以内の初回商談も実施に含める（同じ商談は1回、別の獲得者が付いた商談は除く）。";
+const BUILD_TAG = "2026-09-29c かける画面の架電予定タグの日時をクリックすると、日付・時刻を選び直せる小窓を出す（明日・3日後・1週間後のボタン付き）。保存するとkincallの架電予定を変え、SFに未完了のネクストアクション（架電予定）があればその活動日も合わせる。×（消す）は従来どおり。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

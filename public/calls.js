@@ -338,6 +338,54 @@ function bizBadge(x) {
 }
 
 // 次回架電の予定時刻が来ているか（来ていれば表示用の文言）
+// 架電予定の日時を変える小窓（タグの下に出す）
+function openNextEdit(anchor, id) {
+  document.querySelectorAll(".kc-next-pop").forEach((e) => e.remove());
+  const row = rows.find((x) => String(x.id) === String(id));
+  const cur = row && row["次回予定"] ? new Date(row["次回予定"]) : new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const dv = `${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`;
+  const tv = `${pad(cur.getHours())}:${pad(cur.getMinutes())}`;
+  const pop = document.createElement("div");
+  pop.className = "kc-next-pop";
+  pop.innerHTML = `<div class="kc-np-h">架電予定を変更</div>
+    <div class="kc-np-row"><input type="date" class="kc-np-d" value="${dv}" /><input type="time" class="kc-np-t" value="${tv}" step="300" /></div>
+    <div class="kc-np-quick"><button type="button" data-q="1">明日</button><button type="button" data-q="3">3日後</button><button type="button" data-q="7">1週間後</button></div>
+    <div class="kc-np-msg"></div>
+    <div class="kc-np-act"><button type="button" class="kc-np-cancel">やめる</button><button type="button" class="kc-np-save">保存</button></div>`;
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  const w = 260;
+  pop.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + "px";
+  const top = r.bottom + 6;
+  pop.style.top = (top + 190 > window.innerHeight ? Math.max(8, r.top - 196) : top) + "px";
+  const d = pop.querySelector(".kc-np-d"), t = pop.querySelector(".kc-np-t"), msg = pop.querySelector(".kc-np-msg");
+  const close = () => { pop.remove(); document.removeEventListener("mousedown", outside, true); };
+  const outside = (e) => { if (!pop.contains(e.target)) close(); };
+  setTimeout(() => document.addEventListener("mousedown", outside, true), 0);
+  pop.querySelectorAll(".kc-np-quick button").forEach((q) => q.addEventListener("click", () => {
+    const n = new Date(); n.setDate(n.getDate() + Number(q.dataset.q));
+    d.value = `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+  }));
+  pop.querySelector(".kc-np-cancel").addEventListener("click", close);
+  pop.querySelector(".kc-np-save").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    if (!d.value) { msg.textContent = "日付を選んでください"; return; }
+    btn.disabled = true; msg.textContent = "保存しています…";
+    try {
+      const res = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/set-next`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: d.value, time: t.value || "09:00" }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "保存できませんでした");
+      if (row) row["次回予定"] = j.nextCallAt;
+      close();
+      render();
+    } catch (err) { msg.textContent = err.message; btn.disabled = false; }
+  });
+}
+
 function nextDueLabel(x) {
   const v = x && x["次回予定"]; if (!v) return "";
   const t = new Date(v).getTime(); if (isNaN(t)) return "";
@@ -777,7 +825,7 @@ function render() {
         <td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${absentRankBadge(x)}${doneBadge(x)}${bizBadge(x)}${fromBadge(x)}${
-          予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}<button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
+          予定 ? ` <span class="kc-next-badge${予定.due ? " due" : ""}"><button type="button" class="kc-next-edit" data-id="${x.id}" title="クリックで日時を変更">${予定.due ? "架電予定 " : "予定 "}${esc(予定.md)} ${esc(予定.hhmm)}</button><button type="button" class="kc-next-x" data-id="${x.id}" title="この架電予定を消す">×</button></span>` : ""}</td>
         <td class="kc-person">${x["ふりがな"] ? `<span class="kc-kana">${esc(x["ふりがな"])}</span>` : ""}<span class="kc-pname">${esc(x["担当者"] || "")}</span></td>
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
@@ -859,6 +907,10 @@ function render() {
         render();
       } catch { b.disabled = false; }
     }));
+
+  // 架電予定タグの日時部分：日時を変える小窓を出す
+  box.querySelectorAll(".kc-next-edit").forEach((b) =>
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); openNextEdit(b, b.dataset.id); }));
 
   // 選択（チェック）の配線
   const updateSelBar = () => {
@@ -1573,6 +1625,18 @@ function renderDock() {
     .kc-plan-row:not(.on) .kc-plan-rest{opacity:.4;}
     .kc-next-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:#eef3f1;color:#5b7a6d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-next-badge.due{background:#f0a020;color:#fff;}
+    .kc-next-edit{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;}
+    .kc-next-edit:hover{text-decoration:underline;}
+    .kc-next-pop{position:fixed;z-index:3000;width:260px;box-sizing:border-box;background:#fff;border:1px solid #d7e6df;border-radius:12px;box-shadow:0 8px 24px rgba(13,91,71,.15);padding:12px;font-size:12px;color:#1f3a30;}
+    .kc-next-pop .kc-np-h{font-weight:700;color:#0d5b47;margin-bottom:8px;}
+    .kc-next-pop .kc-np-row{display:flex;gap:6px;}
+    .kc-next-pop input{flex:1;min-width:0;border:1px solid #cfe0d8;border-radius:8px;padding:5px 6px;font:inherit;}
+    .kc-next-pop .kc-np-quick{display:flex;gap:6px;margin-top:8px;}
+    .kc-next-pop .kc-np-quick button{flex:1;border:1px solid #cfe0d8;background:#f4f9f7;color:#0d5b47;border-radius:8px;padding:4px 0;font:inherit;cursor:pointer;}
+    .kc-next-pop .kc-np-msg{min-height:14px;margin-top:6px;color:#b0452f;}
+    .kc-next-pop .kc-np-act{display:flex;justify-content:flex-end;gap:6px;margin-top:4px;}
+    .kc-next-pop .kc-np-act button{border-radius:8px;padding:5px 12px;font:inherit;cursor:pointer;border:1px solid #cfe0d8;background:#fff;color:#1f3a30;}
+    .kc-next-pop .kc-np-save{background:#0d5b47 !important;color:#fff !important;border-color:#0d5b47 !important;}
     .kc-next-x{margin-left:5px;border:0;background:transparent;color:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:0 1px;line-height:1;opacity:.75;}
     .kc-next-x:hover{opacity:1;}
     .kc-quick{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 6px;}
