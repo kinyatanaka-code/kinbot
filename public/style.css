@@ -6250,7 +6250,7 @@ input:focus, select:focus, textarea:focus, .sf-input:focus, .sf-select:focus, .s
 
 /* 出勤管理カレンダー（kincall） */
 .sc-grid { border:1px solid #e6ece9; border-radius:12px; overflow:hidden; }
-.sc-row { display:grid; grid-template-columns:repeat(7,1fr); }
+.sc-row { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); }   /* 中身が長くても列幅を等しく保つ */
 .sc-head .sc-hcell { background:#f6faf8; text-align:center; font-size:12px; color:#4a5a54; padding:6px 0; border-bottom:1px solid #e6ece9; }
 .sc-hcell.sc-sun { color:#c0392b; } .sc-hcell.sc-sat { color:#2b6cb0; }
 .sc-cell { min-height:92px; border-right:1px solid #eef2f0; border-bottom:1px solid #eef2f0; padding:6px; cursor:pointer; position:relative; background:#fff; }
@@ -6909,3 +6909,23 @@ body.kc-only .zp-admin { display: none !important; }
 /* スマホのメニュー：kincallの項目はサイドバーと同じ線画SVGを使う */
 .kb-menu-item .kb-menu-svg { width: 21px; height: 21px; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .kb-menu-item .kb-menu-svg svg { width: 19px; height: 19px; fill: currentColor; }
+
+/* 出勤管理カレンダー：曜日はスマホの一覧表示でだけ出す */
+.sc-wd { display:none; }
+@media (max-width: 760px) {
+  /* ページ全体を縦にスクロールできるように（かける画面以外） */
+  .kc-body .kc-page { overflow-y:auto; -webkit-overflow-scrolling:touch; padding:10px 10px 24px; }
+  /* 7列の月カレンダーは狭くて読めないので、1日1行の一覧にする */
+  #scCal { overflow-x:visible !important; }
+  .sc-grid { overflow:visible; }
+  .sc-row.sc-head { display:none; }
+  .sc-row { display:block; }
+  .sc-cell.sc-empty { display:none; }
+  .sc-cell { display:flex; align-items:flex-start; gap:10px; min-height:0; padding:10px 10px; border-right:none; }
+  .sc-dnum { flex:0 0 64px; margin:0; font-size:14px; font-weight:700; color:#1f3a30; line-height:1.5; }
+  .sc-wd { display:inline; font-size:11px; font-weight:600; margin-left:1px; }
+  .sc-holname { display:block; margin:2px 0 0; font-size:10.5px; line-height:1.3; }
+  .sc-tags { flex:1 1 auto; min-width:0; flex-direction:row; flex-wrap:wrap; gap:4px; }
+  .sc-tag { white-space:normal; font-size:12px; padding:3px 8px; border-radius:8px; }
+  .sc-add { position:static; flex:0 0 auto; align-self:center; font-size:11.5px; color:#1d9e75; white-space:nowrap; }
+}

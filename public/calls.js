@@ -4264,7 +4264,7 @@ function renderShiftCal() {
         }
       }
       const cellCls = ["sc-cell", c === 0 ? "sc-sun" : "", c === 6 ? "sc-sat" : "", (hol || isWeekend) ? "sc-holiday" : ""].filter(Boolean).join(" ");
-      html += `<div class="${cellCls}" data-day="${ds}"><div class="sc-dnum">${day}${hol ? `<span class="sc-holname">${esc(hol)}</span>` : ""}</div><div class="sc-tags">${tags}</div><div class="sc-add">＋追加</div></div>`;
+      html += `<div class="${cellCls}" data-day="${ds}"><div class="sc-dnum">${day}<span class="sc-wd">（${wd[c]}）</span>${hol ? `<span class="sc-holname">${esc(hol)}</span>` : ""}</div><div class="sc-tags">${tags}</div><div class="sc-add">＋追加</div></div>`;
     }
     html += "</div>";
   }

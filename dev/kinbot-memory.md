@@ -1130,3 +1130,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-29 BUILD_TAG=2026-09-29d かける画面の検索が時々出ない件。原因候補：loadTableの応答の順番入れ替わり（IME変換中のひらがなで投げた遅い応答が後から上書き）、保存された見出し絞り込み・対象外を隠すで検索結果が隠れる、サーバーILIKEが空白・ハイフンの違いで不一致、横断検索が同じlist_idを丸ごと除外（ステージで一覧に出ないリードがどこにも出ない）。対策：_loadSeq、composition中は検索しない＋Enterで即検索、db.js normCallQuery/callQueryWhere（regexp_replaceで空白・ハイフン類除去＋lower）を架電先検索6か所に適用、calls.js kcNormQ、visibleRowsは検索時に絞り込み無視（sortRowsへ分離）、hideApoも検索時は無効、横断結果は表に出ているidだけ除外。版20260929d。
 
 - 2026-09-29 BUILD_TAG=2026-09-29e スマホ（〜760px）は .sidebar を隠し nav.js の右上メニュー（kb-menu）が唯一の入口。kincall分が固定4項目でデイリー目標・出勤管理・トークが無かった。nav.js kincallItems() で開くたびに .kc-side .side-item（隠れていないもの）から href・ラベル・SVG を読み、side-app は「kinbotに戻る」、最後に設定。アイコンは .kb-menu-svg（style.css末尾）。calls.js のスマホCSSに #dgTableWrap/#clDailyWrap/#scCal/#scTotals の横スクロール、トークの段組み縦並びを追加。版20260929e。
+
+- 2026-09-29 BUILD_TAG=2026-09-29f スマホ出勤管理：.sc-row が repeat(7,1fr)＋.sc-tag nowrap で列が中身幅に広がり、.sc-grid overflow:hidden で右側が切れていた。style.css末尾の @media(max-width:760px) で .sc-head 非表示・.sc-row block・空セル非表示・.sc-cell を横並び（日付64px＋タグ折り返し＋＋追加）に。日付に .sc-wd（曜日、スマホだけ表示）を追加。.kc-body .kc-page をスマホで overflow-y:auto。PCも minmax(0,1fr) に。版20260929f。
