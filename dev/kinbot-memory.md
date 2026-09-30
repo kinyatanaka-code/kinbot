@@ -1134,3 +1134,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-29 BUILD_TAG=2026-09-29f スマホ出勤管理：.sc-row が repeat(7,1fr)＋.sc-tag nowrap で列が中身幅に広がり、.sc-grid overflow:hidden で右側が切れていた。style.css末尾の @media(max-width:760px) で .sc-head 非表示・.sc-row block・空セル非表示・.sc-cell を横並び（日付64px＋タグ折り返し＋＋追加）に。日付に .sc-wd（曜日、スマホだけ表示）を追加。.kc-body .kc-page をスマホで overflow-y:auto。PCも minmax(0,1fr) に。版20260929f。
 
 - 2026-09-29 BUILD_TAG=2026-09-29g かける画面の並べ替え。sortBy は stage/company/person/mail/lastcall/status/hist と追加列 "x:列名"、localStorage kcSort に保存（setSort）。sortVal：数字（カンマ・名/人/件等を除く）→数値、日付→時刻、空欄→null（常に下）、文字は localeCompare numeric。sortRows は sortBy があれば compareSort の順で、isDone だけ下へ（従来は後段のグループ分けで並べ替えが崩れていた）。並べ替え中は「かけ済み」区切りを出さない。openFilter/openDateRangeFilter/openPostFilter/openHireFilter の窓に addSortBar（昇順/降順/解除）。見出しに ↑↓ 表示。版20260929g。
+
+- 2026-09-30 BUILD_TAG=2026-09-30a SF監査（fetchCrossBuckets→アポ獲得済み（クロス商談））等の会社名照合で、SF半角・kincall全角が不一致だった。db.js normCompanyKey の先頭に normalize("NFKC") を追加。キーを保存している deal_briefs/recruit_info/place_hours/company_sf_link は migrateCompanyKeysNfkc() を起動時に実行（名前列から新キーを計算、新キーが無いときだけ UPDATE）。cross-status 等の SOQL LIKE 候補に core.normalize("NFKC") を追加。反映は次のSF監査（30分ごと）か「SFの状態を更新」。版20260930a。

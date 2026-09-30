@@ -2967,13 +2967,42 @@ export async function countEmbeddedChunks() {
 // ===== Feature A: deals / deal_events の操作 =====
 
 // 会社名を正規化（表記ゆれ吸収）してマッチ用キーにする
+// 全角英数字・半角カナなどの違いは NFKC でそろえる（SFは半角、kincallは全角、のような違いで一致しないのを防ぐ）
 export function normCompanyKey(name) {
   return String(name || "")
+    .normalize("NFKC")
     .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|公益社団法人|社会福祉法人|学校法人/g, "")
     .replace(/[\s　]+/g, "")
     .replace(/様$/u, "")
     .trim()
     .toLowerCase();
+}
+
+// 会社名キーの作り方を変えた（NFKC）ので、保存済みのキーを新しいキーに付け替える（起動時・1回だけ。変わる行だけ）。
+// 新しいキーの行がすでにあるときは、そちらを残して古い行はそのまま（消さない）。
+export async function migrateCompanyKeysNfkc() {
+  if (!pool) return { moved: 0 };
+  const tables = [
+    { t: "deal_briefs", k: "company_key", n: "company_name" },
+    { t: "recruit_info", k: "company_key", n: "company" },
+    { t: "place_hours", k: "company_key", n: "company" },
+    { t: "company_sf_link", k: "norm_key", n: "company" },
+  ];
+  let moved = 0;
+  for (const { t, k, n } of tables) {
+    try {
+      const { rows } = await pool.query(`SELECT ${k} AS key, ${n} AS name FROM ${t} WHERE ${n} IS NOT NULL AND ${n} <> ''`);
+      for (const r of rows) {
+        const nk = normCompanyKey(r.name);
+        if (!nk || nk === r.key) continue;
+        const u = await pool.query(
+          `UPDATE ${t} SET ${k} = $2 WHERE ${k} = $1 AND NOT EXISTS (SELECT 1 FROM ${t} WHERE ${k} = $2)`, [r.key, nk]);
+        moved += u.rowCount || 0;
+      }
+    } catch (e) { console.warn(`[db] 会社名キーの付け替え ${t}`, e.message); }
+  }
+  if (moved) console.log(`[db] 会社名キーをNFKCに付け替えました：${moved}件`);
+  return { moved };
 }
 
 // ===== 求人情報（kincallの架電先に、会社名で紐づける外部データ）=====

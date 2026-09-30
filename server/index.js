@@ -507,6 +507,7 @@ import {
   getDealBrief,
   saveDealBrief,
   normCompanyKey,
+  migrateCompanyKeysNfkc,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -3659,7 +3660,7 @@ app.post("/api/apo/cross-status", async (req, res) => {
     for (const co of companies) {
       const noSpace = String(co).replace(/[\s　]/g, "");
       const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
-      const vs = new Set([String(co).trim(), noSpace, core].filter((s) => s && s.length >= 2));
+      const vs = new Set([String(co).trim(), noSpace, core, core.normalize("NFKC")].filter((s) => s && s.length >= 2));
       for (const v of vs) likeOrs.push(`Account.Name LIKE '%${esc(v)}%'`);
     }
     if (!likeOrs.length) return res.json({ ok: true, byCompany });
@@ -3745,7 +3746,7 @@ app.get("/api/company/sf-candidates", async (req, res) => {
     const esc = (v) => String(v).replace(/'/g, "\\'");
     const noSpace = co.replace(/[\s　]/g, "");
     const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
-    const ors = [...new Set([co, noSpace, core].filter((s) => s && s.length >= 2))].map((v) => `Account.Name LIKE '%${esc(v)}%'`);
+    const ors = [...new Set([co, noSpace, core, core.normalize("NFKC")].filter((s) => s && s.length >= 2))].map((v) => `Account.Name LIKE '%${esc(v)}%'`);
     const d = await sfQuery(sfUser,
       `SELECT Id, Account.Name, Name, StageName, IsWon, IsClosed, CreatedDate FROM Opportunity
         WHERE RecordType.Name LIKE '%クロス%' AND (${ors.join(" OR ")})
@@ -4324,7 +4325,7 @@ app.post("/api/apo/sf-status", async (req, res) => {
         const co = companies[slug]; if (!co) continue;
         const noSpace = String(co).replace(/[\s　]/g, "");
         const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
-        for (const v of new Set([String(co).trim(), noSpace, core].filter((s) => s && s.length >= 2))) likeOrs.push(`Account.Name LIKE '%${esc(v)}%'`);
+        for (const v of new Set([String(co).trim(), noSpace, core, core.normalize("NFKC")].filter((s) => s && s.length >= 2))) likeOrs.push(`Account.Name LIKE '%${esc(v)}%'`);
       }
       if (likeOrs.length) {
         try {
@@ -4365,7 +4366,7 @@ app.get("/api/apo/:slug/sf-candidates", async (req, res) => {
     const esc = (v) => String(v).replace(/'/g, "\\'");
     const noSpace = co.replace(/[\s　]/g, "");
     const core = noSpace.replace(/(株式会社|有限会社|合同会社|合資会社|㈱|（株）|\(株\)|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人|社会福祉法人|学校法人|協同組合|組合)/g, "");
-    const ors = [...new Set([co, noSpace, core].filter((s) => s && s.length >= 2))].map((v) => `Account.Name LIKE '%${esc(v)}%'`);
+    const ors = [...new Set([co, noSpace, core, core.normalize("NFKC")].filter((s) => s && s.length >= 2))].map((v) => `Account.Name LIKE '%${esc(v)}%'`);
     const d = await sfQuery(sfUser,
       `SELECT Id, Account.Name, Name, StageName, IsWon, IsClosed, CreatedDate FROM Opportunity
         WHERE RecordType.Name LIKE '%クロス%' AND (${ors.join(" OR ")})
@@ -21536,7 +21537,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-29g かける画面の列に昇順・降順の並べ替えを付けた。会社名・担当者・メール・最終架電日は見出しを押すたびに昇順→降順→解除、ステージ・最終ステータス・追加列（従業員数・失注日・商談所有者など）は「▾」の窓の上に 昇順／降順／解除。数字・日付は値として比べ、空欄はいつも下。並べ替え中はその順を優先（対象外だけ下）。選んだ並べ替えは端末に保存。";
+const BUILD_TAG = "2026-09-30a SFでアポ獲得（クロス商談あり）の会社が、SFは半角・kincallは全角のように表記が違うと照合できず、かける一覧から外れていなかったのを直した。会社名の照合キー（normCompanyKey）で全角・半角（英数字・カナ・記号）をそろえる（NFKC）。保存済みの会社キー（求人情報・営業時間・SFひも付け・事前ブリーフ）は起動時に新しいキーへ付け替え。SFの会社名検索にも半角の候補を足した。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -27125,6 +27126,7 @@ app.delete("/api/proposals/:id", async (req, res) => {
 
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
+  migrateCompanyKeysNfkc().catch((e) => console.warn("[db] 会社名キーの付け替え失敗", e.message));
   // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。
   cleanupPhysicalStageLists().then((r) => { if ((r.deleted || 0) + (r.moved || 0)) console.log(`[kincall] 旧アーカイブ/リサイクルリストを整理：${r.deleted}件削除・${r.moved}件を元の持ち主のリストへ`); }).catch(() => {});
   // プロセスシートの「最後の書き込み」を設定から戻す（再起動で未実行に見えないように）
