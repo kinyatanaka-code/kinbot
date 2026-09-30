@@ -1168,3 +1168,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30p ダッシュボード月次のインサイドに 累計（INCENTIVE_FROM の月〜見ている月）：computeStatsGrid(month, n, {anchor})で月ごとのアポを合算（手補正も月ごとに加算）、目標は getApoGoalsByKeys(month) の合計。p.累計={from,to,目標,実績,差分,月数}、calls.js dashCard の .kc-cum-line（目標・実績行の下、ナーチャリングの上）。版20260930p。
 
 - 2026-09-30 BUILD_TAG=2026-09-30q 月プルダウンの（今月）（先の月）表記を削除。版20260930q。
+
+- 2026-09-30 BUILD_TAG=2026-09-30r 累計表示を .kc-cum（見出し＋3列グリッド、カード幅に収める）に変更。data-goal-other（累計目標−この月の目標）と data-act を持たせ、.kc-dgoal の change で累計目標・差分を再計算。版20260930r。

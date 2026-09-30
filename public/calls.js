@@ -1711,9 +1711,13 @@ function renderDock() {
     .fn-step-link b{text-decoration:underline;text-underline-offset:3px;}
     .kc-apo-whos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:#5b7a6d;margin:4px 0 10px;}
     .kc-apo-who{background:#eef7f3;color:#0d5b47;border-radius:999px;padding:2px 10px;}
-    .kc-cum-line{font-size:11px;color:#6b8a7d;margin:-2px 0 6px;padding-top:4px;border-top:1px dashed #e3ece8;white-space:nowrap;}
-    .kc-cum-line b{font-size:12px;color:#1f3a30;font-weight:700;}
-    .kc-cum-line b.kc-d-minus{color:#b0452f;} .kc-cum-line b.kc-d-plus{color:#1d9e75;}
+    .kc-cum{margin:2px 0 8px;padding:6px 8px;border-radius:10px;background:#f4f9f7;box-sizing:border-box;max-width:100%;}
+    .kc-cum-h{font-size:10.5px;font-weight:700;color:#5b7a6d;margin-bottom:2px;}
+    .kc-cum-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;}
+    .kc-cum-c{display:flex;flex-direction:column;min-width:0;}
+    .kc-cum-c span{font-size:10px;color:#8aa39a;}
+    .kc-cum-c b{font-size:14px;color:#1f3a30;font-weight:700;line-height:1.2;}
+    .kc-cum-c b.kc-d-minus{color:#b0452f;} .kc-cum-c b.kc-d-plus{color:#1d9e75;} .kc-cum-c b.kc-d-zero{color:#8aa39a;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -2987,8 +2991,18 @@ function dashCard(c, big) {
       `<div class="kc-nur-week" title="今週（月〜日）に架電予定が入っているナーチャリング">今週かける予定 <b>${nurWeek.toLocaleString()}</b> 件</div>` : "";
   // インサイド：9月からの累計（月次だけ）
   const cu = c.累計;
-  const cumLine = (cu && dashPeriod !== "week")
-    ? `<div class="kc-cum-line" title="${esc(cu.from)}〜${esc(cu.to)}（${cu.月数}か月）の合計">${Number(cu.from.slice(5, 7))}月からの累計　目標 <b>${cu.目標}</b>　実績 <b>${cu.実績}</b>　差分 <b class="${cu.差分 > 0 ? "kc-d-plus" : cu.差分 < 0 ? "kc-d-minus" : "kc-d-zero"}">${cu.差分 > 0 ? "+" : ""}${cu.差分}</b></div>` : "";
+  const cumLine = (cu && dashPeriod !== "week") ? (() => {
+      const df = cu.差分;
+      const other = Number(cu.目標 || 0) - Number(c.goal || 0);   // この月以外の目標の合計（目標を直したらその場で足し直す）
+      return `<div class="kc-cum" data-goal-other="${other}" data-act="${Number(cu.実績 || 0)}" title="${esc(cu.from)}〜${esc(cu.to)}（${cu.月数}か月）の合計">
+        <div class="kc-cum-h">${Number(cu.from.slice(5, 7))}月からの累計</div>
+        <div class="kc-cum-row">
+          <div class="kc-cum-c"><span>目標</span><b class="kc-cum-goal">${cu.目標}</b></div>
+          <div class="kc-cum-c"><span>実績</span><b>${cu.実績}</b></div>
+          <div class="kc-cum-c"><span>差分</span><b class="kc-cum-diff ${df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"}">${df > 0 ? "+" : ""}${df}</b></div>
+        </div>
+      </div>`;
+    })() : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}" data-periodkey="${esc(c.periodKey || "")}">
     <div class="kc-dname">${esc(c.label)}</div>
     ${dashPeriod === "week" ? "" : inc}
@@ -3051,6 +3065,14 @@ function renderDash(d) {
       const actual = Number((card.querySelector(".kc-dcol:nth-child(2) .kc-d-act") || {}).textContent || 0);
       const de = card.querySelector(".kc-d-diff");
       if (de) { const df = actual - goal; de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-d-diff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
+      // 9月からの累計も、その場で足し直す
+      const cum = card.querySelector(".kc-cum");
+      if (cum) {
+        const cg = Number(cum.dataset.goalOther || 0) + goal, ca = Number(cum.dataset.act || 0), cd = ca - cg;
+        const g1 = cum.querySelector(".kc-cum-goal"), d1 = cum.querySelector(".kc-cum-diff");
+        if (g1) g1.textContent = cg;
+        if (d1) { d1.textContent = cd > 0 ? `+${cd}` : `${cd}`; d1.className = "kc-cum-diff " + (cd > 0 ? "kc-d-plus" : cd < 0 ? "kc-d-minus" : "kc-d-zero"); }
+      }
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
