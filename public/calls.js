@@ -4065,7 +4065,7 @@ async function loadListStats() {
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
-// ───────── リードソース別の実績（リスト別と同じ見方。リードソース＝SFのLeadSource） ─────────
+// ───────── リードソース別の実績（リスト別と同じ見方。リードソース＝SFのLeadSourceだけ） ─────────
 let SRC_GROUP = "";
 try { SRC_GROUP = localStorage.getItem("kcSrcGroup") || ""; } catch {}
 let _srcItems = [];

@@ -13534,7 +13534,7 @@ app.get("/api/calls/group-apos/:id", async (req, res) => {
 });
 
 // ───────── リードソース別の実績 ─────────
-// リードソース＝SFのリード（または取引先責任者）の LeadSource。リストのデータに「リードソース」列があればそちらを優先。
+// リードソース＝SFのリード（または取引先責任者）の LeadSource だけで分ける（リストのデータの列は使わない）。
 // SFに無い（リードIDなし）ものは「（SF未連携）」、SFで空欄なら「（リードソース未入力）」。
 const _leadSrcCache = new Map();   // id(15桁) -> { v, at }
 async function listSfUserForStats() {
@@ -13569,8 +13569,6 @@ async function leadSourceMap(ids, sfUser) {
   return out;
 }
 function leadSourceOf(r, map) {
-  const ex = String(r.src_extra || "").trim();
-  if (ex) return ex;
   if (!r.lead_id) return "（SF未連携）";
   const v = map.get(String(r.lead_id).slice(0, 15));
   if (v === undefined) return "（SFで見つからない）";
@@ -21804,7 +21802,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30f 実績に「リードソース別」を追加。リスト別と同じカード（コール→接触→アポ→実施→案件化→KPI→MID→受注）を、SFのリードソース（LeadSource。リストに「リードソース」列があればそちら）ごとに出す。上のプルダウンでリストのグループを絞れ、カードを押すとグループ別の内訳、アポを押すとアポが取れた会社の一覧。SF未連携・未入力はそれぞれ別のカードにまとめる。";
+const BUILD_TAG = "2026-09-30g リードソース別を、SFのリードソース（LeadSource）だけで分けるようにした（リストのデータの「リードソース」列は使わない）。SF未連携・未入力は別カードのまま。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
