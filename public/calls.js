@@ -1711,6 +1711,9 @@ function renderDock() {
     .fn-step-link b{text-decoration:underline;text-underline-offset:3px;}
     .kc-apo-whos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:#5b7a6d;margin:4px 0 10px;}
     .kc-apo-who{background:#eef7f3;color:#0d5b47;border-radius:999px;padding:2px 10px;}
+    .kc-cum-line{font-size:11px;color:#6b8a7d;margin:-2px 0 6px;padding-top:4px;border-top:1px dashed #e3ece8;white-space:nowrap;}
+    .kc-cum-line b{font-size:12px;color:#1f3a30;font-weight:700;}
+    .kc-cum-line b.kc-d-minus{color:#b0452f;} .kc-cum-line b.kc-d-plus{color:#1d9e75;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -2982,6 +2985,10 @@ function dashCard(c, big) {
   const nurLine = (nurN !== null && dashPeriod !== "week")
     ? `<div class="kc-nur-line" title="ジャッジ・営業フォローのリード数">ナーチャリング <b>${nurN.toLocaleString()}</b> 件</div>` +
       `<div class="kc-nur-week" title="今週（月〜日）に架電予定が入っているナーチャリング">今週かける予定 <b>${nurWeek.toLocaleString()}</b> 件</div>` : "";
+  // インサイド：9月からの累計（月次だけ）
+  const cu = c.累計;
+  const cumLine = (cu && dashPeriod !== "week")
+    ? `<div class="kc-cum-line" title="${esc(cu.from)}〜${esc(cu.to)}（${cu.月数}か月）の合計">${Number(cu.from.slice(5, 7))}月からの累計　目標 <b>${cu.目標}</b>　実績 <b>${cu.実績}</b>　差分 <b class="${cu.差分 > 0 ? "kc-d-plus" : cu.差分 < 0 ? "kc-d-minus" : "kc-d-zero"}">${cu.差分 > 0 ? "+" : ""}${cu.差分}</b></div>` : "";
   return `<div class="kc-dcard${big ? " kc-dcard-big" : ""}${rankCls}" data-subj="${esc(c.key)}" data-label="${esc(c.label)}" data-periodkey="${esc(c.periodKey || "")}">
     <div class="kc-dname">${esc(c.label)}</div>
     ${dashPeriod === "week" ? "" : inc}
@@ -2990,6 +2997,7 @@ function dashCard(c, big) {
       <div class="kc-dcol"><div class="kc-dlb">実績</div><div class="kc-d-act">${c.actual}</div></div>
       <div class="kc-dcol"><div class="kc-dlb">差分</div><div class="kc-d-diff ${dcls}">${dtxt}</div></div>
     </div>
+    ${cumLine}
     ${nurLine}
   </div>`;
 }

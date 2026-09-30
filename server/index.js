@@ -13014,6 +13014,35 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       });
     const salesP = persons.filter((p) => p.role === "sales");
     const insideP = persons.filter((p) => p.role === "inside");
+    // インサイド：9月（INCENTIVE_FROM の月）から、見ている月までの累計（目標・実績）。月次のときだけ。
+    if (period === "month" && insideP.length) {
+      try {
+        const cumFrom = String(process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 7);
+        const curKey = monthKey;   // 見ている月
+        if (curKey && curKey >= cumFrom) {
+          const [fy, fm] = cumFrom.split("-").map(Number), [cy, cm] = curKey.split("-").map(Number);
+          const nMonths = (cy - fy) * 12 + (cm - fm) + 1;
+          const gc = await computeStatsGrid("month", Math.max(2, nMonths), { anchor: `${curKey}-01` });
+          const idxs = (gc.区切り || []).map((c, j) => (c.key >= cumFrom && c.key <= curKey) ? j : -1).filter((j) => j >= 0);
+          const keys = idxs.map((j) => gc.区切り[j].key);
+          const gg = await getApoGoalsByKeys("month", keys).catch(() => ({}));
+          const byKey = new Map((gc.members || []).map((m) => [String(m.email || m.誰).toLowerCase(), m]));
+          for (const p of insideP) {
+            const m = byKey.get(p.key);
+            let act = 0;
+            for (const j of idxs) {
+              const v = m && m.値 && m.値[j];
+              act += v ? Number(v.アポ内 || 0) + Number(v.アポ外 || 0) : 0;
+              const adj = adjAll[`month:${gc.区切り[j].key}`] || {};
+              if (m) act += Number(adj[String(m.email || "").toLowerCase()] || 0) + Number(adj[String(m.誰 || "").replace(/[\s　]/g, "")] || 0);
+            }
+            let goal = 0;
+            for (const k of keys) goal += Number((((gg[p.key] || {})[k] || {})["アポ"]) || 0);
+            p.累計 = { from: cumFrom, to: curKey, 目標: goal, 実績: act, 差分: act - goal, 月数: keys.length };
+          }
+        }
+      } catch (e) { console.warn("[dashboard] 累計", e.message); }
+    }
     // チーム：目標はそのチーム自身の手入力（その月の月次目標）、実績はメンバー合計。
     const sumA = (arr) => arr.reduce((a, p) => a + p.actual, 0);
     const team = (key, label, arr) => { const actual = sumA(arr), goal = goalOf(key); return { key, label, role: "team", actual, goal, diff: actual - goal }; };
@@ -21902,7 +21931,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30o ダッシュボードの月の選択肢を、2026年9月から6か月先までにした（先の月も開いて、月次の目標・週ラップの目標を先に入れておける）。";
+const BUILD_TAG = "2026-09-30p ダッシュボード月次のインサイドのカードに、9月から見ている月までの累計（目標・実績・差分）を小さく出すようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
