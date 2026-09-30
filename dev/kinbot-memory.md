@@ -1172,3 +1172,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30r 累計表示を .kc-cum（見出し＋3列グリッド、カード幅に収める）に変更。data-goal-other（累計目標−この月の目標）と data-act を持たせ、.kc-dgoal の change で累計目標・差分を再計算。版20260930r。
 
 - 2026-09-30 BUILD_TAG=2026-09-30s /api/apo/perf の window に YYYY-MM（JST月初〜翌月初、listApoPerf の to を使用）。apo.js loadPerf で #pfWindow に 2026-09〜今月の月を追加。版20260930s。
+
+- 2026-09-30 BUILD_TAG=2026-09-30t 代理操作中にZoom埋め込み電話で発信できない件。/api/zoom-phone/caller-id が req.user（代理先）の番号を返し、埋め込みにサインインしている操作者のZoomと合わず zp-make-call が通らなかった。req.impersonatorFrom があればその人の番号（admin は空）。calls.js zpDial：8秒以内に ringing/connected/ended が来なければ callerId なしで再送、ヘッダに zoomphonecall:// の「Zoomアプリでかける」。版20260930t。

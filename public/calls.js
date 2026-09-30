@@ -1718,6 +1718,8 @@ function renderDock() {
     .kc-cum-c span{font-size:10px;color:#8aa39a;}
     .kc-cum-c b{font-size:14px;color:#1f3a30;font-weight:700;line-height:1.2;}
     .kc-cum-c b.kc-d-minus{color:#b0452f;} .kc-cum-c b.kc-d-plus{color:#1d9e75;} .kc-cum-c b.kc-d-zero{color:#8aa39a;}
+    .kc-zp-alt{font-size:11px;color:#fff;background:rgba(255,255,255,.18);border-radius:999px;padding:2px 8px;margin-left:auto;margin-right:6px;text-decoration:none;white-space:nowrap;}
+    .kc-zp-alt:hover{background:rgba(255,255,255,.3);}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -2218,13 +2220,37 @@ function zpToggle(open) {
   el.classList.toggle("min", !open);
   const b = el.querySelector("#kcZpMin"); if (b) b.textContent = open ? "▼" : "▲";
 }
+let _zpDialSeq = 0, _zpGotEvent = 0;
 async function zpDial(number) {
-  zpPanel(true);
+  const el = zpPanel(true);
   if (_zpCallerId === null) {
     try { _zpCallerId = ((await (await fetch("/api/zoom-phone/caller-id")).json()) || {}).callerId || ""; } catch { _zpCallerId = ""; }
   }
-  const msg = { type: "zp-make-call", data: { number: zpE164(number), autoDial: true, ...(_zpCallerId ? { callerId: _zpCallerId } : {}) } };
-  if (_zpReady) zpPost(msg); else _zpQueue.push(msg);
+  const e164 = zpE164(number);
+  const send = (withCaller) => {
+    const msg = { type: "zp-make-call", data: { number: e164, autoDial: true, ...(withCaller && _zpCallerId ? { callerId: _zpCallerId } : {}) } };
+    if (_zpReady) zpPost(msg); else _zpQueue.push(msg);
+  };
+  // つながらないとき用：Zoomアプリ（デスクトップ）でかけるリンク
+  const st = el && el.querySelector("#kcZpSt");
+  let alt = el && el.querySelector("#kcZpAlt");
+  if (el && !alt) {
+    alt = document.createElement("a");
+    alt.id = "kcZpAlt"; alt.className = "kc-zp-alt";
+    el.querySelector(".kc-zp-head").insertBefore(alt, el.querySelector("#kcZpMin"));
+    alt.addEventListener("click", (e) => e.stopPropagation());
+  }
+  if (alt) { alt.href = `zoomphonecall://${telOf(number)}`; alt.textContent = "Zoomアプリでかける"; alt.title = "埋め込みの電話でかからないときは、Zoomアプリから発信します"; }
+  if (st) st.textContent = "発信しています…";
+  const seq = ++_zpDialSeq, t0 = Date.now();
+  send(true);
+  // 8秒たっても呼び出し・通話の合図が来なければ、発信者番号を付けずにもう一度かける（番号の指定で弾かれる場合があるため）
+  if (_zpCallerId) setTimeout(() => {
+    if (seq !== _zpDialSeq || _zpGotEvent > t0) return;
+    console.warn("[Zoom電話] 呼び出しにならないため、発信者番号なしでかけ直します");
+    if (st) st.textContent = "かけ直しています…";
+    send(false);
+  }, 8000);
 }
 // 埋め込みZoom電話からの合図（通話中・終了・録音完了）
 window.addEventListener("message", (e) => {
@@ -2236,6 +2262,7 @@ window.addEventListener("message", (e) => {
     else if (ty === "zp-call-connected-event") st.textContent = "通話中";
     else if (ty === "zp-call-ended-event") st.textContent = "終了";
   }
+  if (/^zp-call-(ringing|connected|ended)/.test(ty)) _zpGotEvent = Date.now();
   if (/^zp-call-/.test(ty)) document.dispatchEvent(new CustomEvent("kc-zoom-event", { detail: { type: ty, data: e.data.data || {} } }));
 });
 function kcConfirmDial(number, who) {

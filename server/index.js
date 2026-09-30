@@ -11172,11 +11172,14 @@ app.put("/api/zoom-phone/settings", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ログインした本人の発信者番号（Zoom Phoneの番号）。埋め込み電話から発信するときに使う。
+// 他メンバーとして操作しているときは、埋め込みのZoom電話にサインインしているのは操作している本人なので、
+// 操作している本人（元のアカウント）の番号を返す（代理先の番号を付けると、Zoomが発信を受け付けない）。
 const _callerIdCache = new Map();
 app.get("/api/zoom-phone/caller-id", async (req, res) => {
   try {
     if (!zoomPhoneConfigured()) return res.json({ ok: true, callerId: "" });
-    const me = String(req.user || "").toLowerCase();
+    const me = String(req.impersonatorFrom && req.impersonatorFrom !== "admin" ? req.impersonatorFrom : req.user || "").toLowerCase();
+    if (req.impersonatorFrom === "admin") return res.json({ ok: true, callerId: "" });
     const c = _callerIdCache.get(me);
     if (c && Date.now() - c.at < 6 * 3600 * 1000) return res.json({ ok: true, callerId: c.v });
     const v = await zoomPhoneUserNumber(me).catch(() => "");
@@ -21931,7 +21934,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30s アポ履歴のアポ実績（アポ獲得者別ファネル）で、期間を月ごと（2026年9月〜今月）に選べるようにした。当月・通算はそのまま。";
+const BUILD_TAG = "2026-09-30t 他メンバーとして操作しているとき、kincallのZoom電話から発信できなかった不具合を直した。発信者番号に代理先（例：飯島）の番号を付けていたため、埋め込みにサインインしている本人のZoomでは発信が通らなかった。発信者番号は操作している本人の番号にする。さらに、発信後8秒たっても呼び出しにならなければ発信者番号なしでかけ直し、Zoom電話の窓に「Zoomアプリでかける」も出す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
