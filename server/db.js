@@ -8852,24 +8852,46 @@ export async function apoCompaniesByGroup(fromJst, toJst) {
 }
 
 // あるグループで、期間内に「アポ獲得」と記録された架電（1件ずつ）。リスト別のアポ数と同じ数え方。
+// groupId を 0/null にすると全グループ（グループ未設定のリストも含む）
 export async function listGroupApoLogs(groupId, fromJst, toJst) {
-  if (!pool || !groupId) return [];
+  if (!pool) return [];
   try {
     const { rows } = await pool.query(
       `SELECT l.id, l.at, l.result, l.memo, lower(COALESCE(l.caller,'')) AS caller,
               t.id AS target_id, t.company, t.person, t.phone, t.lead_id,
-              cl.id AS list_id, cl.name AS list_name
+              COALESCE(t.extra->>'リードソース', t.extra->>'LeadSource', t.extra->>'Lead Source') AS src_extra,
+              cl.id AS list_id, cl.name AS list_name, cl.group_id,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name
          FROM call_logs l
          JOIN call_targets t ON t.id = l.target_id
          JOIN call_lists cl  ON cl.id = t.list_id
-        WHERE cl.group_id = $1
+        WHERE ($1::int IS NULL OR cl.group_id = $1)
           AND l.result ~ 'アポ獲得'
           AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $2::date
           AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $3::date
         ORDER BY l.at DESC
-        LIMIT 2000`, [groupId, fromJst, toJst]);
+        LIMIT 5000`, [groupId ? Number(groupId) : null, fromJst, toJst]);
     return rows;
   } catch (e) { console.error("[db] listGroupApoLogs", e.message); return []; }
+}
+
+// リードソース別の実績用：期間内の架電を「架電先×結果」でまとめて返す（グループ未設定のリストも含む）
+export async function callStatsByTarget(fromJst, toJst) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id AS target_id, t.lead_id, t.company,
+              COALESCE(t.extra->>'リードソース', t.extra->>'LeadSource', t.extra->>'Lead Source') AS src_extra,
+              cl.group_id, g.name AS group_name, l.result, count(*)::int AS n
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl  ON cl.id = t.list_id
+         LEFT JOIN call_list_groups g ON g.id = cl.group_id
+        WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY t.id, t.lead_id, t.company, src_extra, cl.group_id, g.name, l.result`, [fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] callStatsByTarget", e.message); return []; }
 }
 
 // あるグループの中を見る：リストごとの件数と、会社ごとの最終結果

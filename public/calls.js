@@ -3269,6 +3269,7 @@ async function loadStats(force) {
   if (!box) return;
   if (statsPeriod === "analysis") return loadAnalysis();
   if (statsPeriod === "list") return loadListStats();
+  if (statsPeriod === "source") return loadSourceStats();
   try {
     if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
     const d = await fetchStats(force);
@@ -4064,6 +4065,147 @@ async function loadListStats() {
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
+// ───────── リードソース別の実績（リスト別と同じ見方。リードソース＝SFのLeadSource） ─────────
+let SRC_GROUP = "";
+try { SRC_GROUP = localStorage.getItem("kcSrcGroup") || ""; } catch {}
+let _srcItems = [];
+function srcRangeQuery() {
+  if (LIST_FROM && LIST_TO) return `from=${encodeURIComponent(LIST_FROM)}&to=${encodeURIComponent(LIST_TO)}`;
+  return `period=day`;   // リスト別と同じ既定（直近2週間）
+}
+async function loadSourceStats() {
+  const box = $("clStats");
+  if (!box) return;
+  box.innerHTML = `<div class="note">読み込んでいます…（SFのリードソースを確認しています）</div>`;
+  try {
+    const d = await (await fetch(`/api/calls/source-funnel?${srcRangeQuery()}${SRC_GROUP ? "&group=" + encodeURIComponent(SRC_GROUP) : ""}`)).json();
+    if (d.error) throw new Error(d.error);
+    if (statsPeriod !== "source") return;
+    const rg = $("stRange"); if (rg) rg.textContent = d.from && d.to ? `${d.from} 〜 ${d.to}` : "";
+    const sfwarn = d["SF未接続"] ? `<div class="kc-sfwarn">Salesforceに接続できていないため、リードソース・案件化・KPI・MID・受注が正しく出せません。設定 → Salesforce連携で再連携してください。</div>` : "";
+    _srcItems = d.items || [];
+    const card = (L, i) => {
+      const step = (名, 数, 率) => (名 === "アポ" && Number(数) > 0)
+        ? `<div class="fn-step fn-step-link" data-src-apo="${i}" title="押すと、アポが取れた会社の一覧を出します"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`
+        : `<div class="fn-step"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`;
+      return `<div class="kc-listcard src-card" data-src-i="${i}" style="cursor:pointer" title="押すと、グループごとの内訳を出します">
+        <div class="kc-listcard-h">${esc(L.source)}<span class="kc-listcard-sum">リード ${L["リード数"] || 0}件｜グループ ${L["グループ数"] || 0}</span>
+          <span class="kc-listcard-sum">コール ${L["コール"]}｜接触率 ${esc(L["接触率"])}｜アポ率 ${esc(L["アポ率"])}｜案件化率 ${esc(L["案件化率"])}</span>
+        </div>
+        <div class="fn-row">
+          ${step("コール", L["コール"], "")}
+          ${step("接触", L["接触"], L["接触率"])}
+          ${step("アポ", L["アポ"], L["アポ率"])}
+          ${step("実施", L["実施"], L["実施率"])}
+          ${step("案件化", L["案件化"], L["案件化率"])}
+          ${step("KPI", L["KPI"], L["KPI率"])}
+          ${step("MID", L["MID"], L["MID率"])}
+          ${step("受注", L["受注"], L["受注率"])}
+        </div>
+      </div>`;
+    };
+    const gopts = [`<option value="">すべてのグループ</option>`]
+      .concat((d.groups || []).map((g) => `<option value="${g.id}"${String(g.id) === SRC_GROUP ? " selected" : ""}>${esc(g.name)}</option>`))
+      .concat([`<option value="none"${SRC_GROUP === "none" ? " selected" : ""}>（グループ未設定のリスト）</option>`]).join("");
+    const 期間欄 = `<div class="kc-fn-range">
+        <label>期間 <input type="date" id="sfFrom" value="${esc(LIST_FROM || d.from || "")}" /></label>
+        <span>〜</span>
+        <label><input type="date" id="sfTo" value="${esc(LIST_TO || d.to || "")}" /></label>
+        <button class="pr-b" id="sfApply" type="button">この期間で見る</button>
+        <button class="pr-b" id="sfClear" type="button">既定に戻す</button>
+        <label style="margin-left:10px">グループ <select id="sfGroup" class="kc-input" style="max-width:220px">${gopts}</select></label>
+      </div>`;
+    box.innerHTML = sfwarn + 期間欄 + (_srcItems.length
+      ? `<div class="kc-listgrid">${_srcItems.map(card).join("")}</div>`
+      : `<div class="note">この期間の架電はありません。</div>`) + `<div id="grpDetail"></div>`;
+    const ap = $("sfApply"); if (ap) ap.addEventListener("click", () => {
+      const f = ($("sfFrom") || {}).value, t = ($("sfTo") || {}).value;
+      if (!f || !t) { alert("開始日と終了日を入れてください"); return; }
+      LIST_FROM = f; LIST_TO = t;
+      try { localStorage.setItem("kcListFrom", f); localStorage.setItem("kcListTo", t); } catch {}
+      loadSourceStats();
+    });
+    const cl = $("sfClear"); if (cl) cl.addEventListener("click", () => {
+      LIST_FROM = ""; LIST_TO = "";
+      try { localStorage.removeItem("kcListFrom"); localStorage.removeItem("kcListTo"); } catch {}
+      loadSourceStats();
+    });
+    const gs = $("sfGroup"); if (gs) gs.addEventListener("change", () => {
+      SRC_GROUP = gs.value;
+      try { localStorage.setItem("kcSrcGroup", SRC_GROUP); } catch {}
+      loadSourceStats();
+    });
+    box.querySelectorAll(".src-card").forEach((c) => c.addEventListener("click", () => openSourceGroups(Number(c.dataset.srcI))));
+    box.querySelectorAll("[data-src-apo]").forEach((el) => el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      openSourceApos(Number(el.dataset.srcApo), d.from, d.to);
+    }));
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+// リードソースの中を、リストのグループごとに見る
+function openSourceGroups(i) {
+  const box = document.getElementById("grpDetail"); if (!box) return;
+  const L = _srcItems[i]; if (!L) return;
+  const key = "srcg:" + i;
+  if (box.dataset.open === key) { box.innerHTML = ""; box.dataset.open = ""; return; }
+  box.dataset.open = key;
+  const rows = (L.groups || []).map((g) =>
+    `<tr><td class="kc-g-name">${esc(g.group_name)}</td><td class="kc-g-n">${g["コール"]}</td><td class="kc-g-n">${g["接触"]}（${esc(g["接触率"])}）</td><td class="kc-g-n">${g["アポ"]}（${esc(g["アポ率"])}）</td></tr>`).join("");
+  box.innerHTML = `<div class="kc-listcard" style="margin-top:12px">
+      <div class="kc-listcard-h">${esc(L.source)} のグループ別<button type="button" class="pr-b" id="grpApoClose" style="margin-left:auto">閉じる</button></div>
+      <table class="sh-table kc-grid"><tr><th class="kc-g-name">リストのグループ</th><th class="kc-g-h">コール</th><th class="kc-g-h">接触</th><th class="kc-g-h">アポ</th></tr>${rows || `<tr><td colspan="4" class="kc-g-name">ありません。</td></tr>`}</table>
+    </div>`;
+  const c = $("grpApoClose"); if (c) c.addEventListener("click", () => { box.innerHTML = ""; box.dataset.open = ""; });
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+// リードソースのアポ：取れた会社の一覧
+async function openSourceApos(i, from, to) {
+  const box = document.getElementById("grpDetail"); if (!box) return;
+  const L = _srcItems[i]; if (!L) return;
+  const key = "srca:" + i;
+  if (box.dataset.open === key) { box.innerHTML = ""; box.dataset.open = ""; return; }
+  box.dataset.open = key;
+  box.innerHTML = `<div class="note">アポの内訳を読み込んでいます…</div>`;
+  try {
+    const qs = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&source=${encodeURIComponent(L.source)}${SRC_GROUP ? "&group=" + encodeURIComponent(SRC_GROUP) : ""}`;
+    const d = await (await fetch(`/api/calls/source-apos?${qs}`)).json();
+    if (d.error) throw new Error(d.error);
+    if (box.dataset.open !== key) return;
+    renderApoList(box, `${L.source} のアポ ${d["件数"]}件`, d, true);
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+// アポ一覧の表（リスト別・リードソース別で共通）
+function renderApoList(box, title, d, withGroup) {
+  const who = Object.entries(d["獲得者別"] || {}).sort((a, b) => b[1] - a[1])
+    .map(([n, c]) => `<span class="kc-apo-who">${esc(n)} <b>${c}</b></span>`).join("");
+  const stageChip = (s2) => {
+    if (!s2) return `<span class="st-chip none">SFに商談なし</span>`;
+    const cls = /受注処理完了/.test(s2) ? "won" : /04/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
+    return `<span class="st-chip ${cls}">${esc(s2)}</span>`;
+  };
+  const rowsHtml = (d.items || []).map((x) => `<tr>
+      <td class="kc-g-n" style="white-space:nowrap">${esc(x["日時"])}</td>
+      <td class="kc-g-name">${esc(x["会社"])}${x["担当者"] ? `<div class="ww">${esc(x["担当者"])}</div>` : ""}</td>
+      <td class="kc-g-name"><div class="ww" style="margin:0">${withGroup && x["グループ"] ? esc(x["グループ"]) + "／" : ""}${esc(x["リスト"])}</div></td>
+      <td class="kc-g-n" style="white-space:nowrap">${esc(x["獲得者"] || "—")}</td>
+      <td class="kc-g-n">${x["実施"] ? "実施済み" : "—"}</td>
+      <td class="kc-g-n">${stageChip(x["SFステージ"])}</td>
+      <td class="kc-g-name"><div class="ww" style="margin:0">${esc(x["メモ"] || "")}</div></td>
+    </tr>`).join("");
+  box.innerHTML = `
+    <div class="kc-listcard" style="margin-top:12px">
+      <div class="kc-listcard-h">${esc(title)}<span class="kc-listcard-sum">${esc(d.from)}〜${esc(d.to)}</span>
+        <button type="button" class="pr-b" id="grpApoClose" style="margin-left:auto">閉じる</button></div>
+      ${who ? `<div class="kc-apo-whos">獲得者別：${who}</div>` : ""}
+      <div style="max-height:480px;overflow:auto">
+      <table class="sh-table kc-grid"><tr><th class="kc-g-h">取った日時</th><th class="kc-g-name">会社</th><th class="kc-g-name">${withGroup ? "グループ／リスト" : "リスト"}</th><th class="kc-g-h">獲得者</th><th class="kc-g-h">商談</th><th class="kc-g-h">SFステージ</th><th class="kc-g-name">メモ</th></tr>
+      ${rowsHtml || `<tr><td colspan="7" class="kc-g-name">この期間のアポはありません。</td></tr>`}</table>
+      </div>
+    </div>`;
+  const c = $("grpApoClose"); if (c) c.addEventListener("click", () => { box.innerHTML = ""; box.dataset.open = ""; });
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 // アポの内訳：そのグループで期間内にアポが取れた会社の一覧
 async function openGroupApos(gid, card) {
   const box = document.getElementById("grpDetail"); if (!box) return;
@@ -4212,7 +4354,7 @@ if ($("stPeriod")) {
       statsPeriod = b.dataset.period || "day";
       $("stPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
       // リスト別・メンバー別の分析・設定管理のときは、全体/個別は効かない
-      const off = statsPeriod === "analysis" || statsPeriod === "list" || statsPeriod === "admin";
+      const off = statsPeriod === "analysis" || statsPeriod === "list" || statsPeriod === "source" || statsPeriod === "admin";
       const sc = $("stScope"); if (sc) sc.style.opacity = off ? "0.4" : "1";
       loadStats();
     }));

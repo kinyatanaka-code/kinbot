@@ -315,6 +315,7 @@ import {
   groupBreakdown,
   apoCompaniesByGroup,
   listGroupApoLogs,
+  callStatsByTarget,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -13532,6 +13533,175 @@ app.get("/api/calls/group-apos/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ───────── リードソース別の実績 ─────────
+// リードソース＝SFのリード（または取引先責任者）の LeadSource。リストのデータに「リードソース」列があればそちらを優先。
+// SFに無い（リードIDなし）ものは「（SF未連携）」、SFで空欄なら「（リードソース未入力）」。
+const _leadSrcCache = new Map();   // id(15桁) -> { v, at }
+async function listSfUserForStats() {
+  const st = await getSettings().catch(() => ({}));
+  const TANAKA_SF = String(process.env.LIST_SF_OWNER || "kinya.tanaka@neo-career.co.jp").trim().toLowerCase();
+  return (TANAKA_SF && (await sfConnected(TANAKA_SF).catch(() => false))) ? TANAKA_SF : String(st.psOwner || "").trim();
+}
+async function leadSourceMap(ids, sfUser) {
+  const out = new Map();
+  const now = Date.now();
+  const need = { Lead: [], Contact: [] };
+  for (const raw of new Set((ids || []).filter(Boolean).map((x) => String(x).trim()))) {
+    const k = raw.slice(0, 15);
+    const c = _leadSrcCache.get(k);
+    if (c && now - c.at < 6 * 3600 * 1000) { out.set(k, c.v); continue; }
+    if (/^00Q/.test(raw)) need.Lead.push(raw); else if (/^003/.test(raw)) need.Contact.push(raw);
+  }
+  if (!sfUser) return out;
+  for (const obj of ["Lead", "Contact"]) {
+    const arr = need[obj];
+    for (let i = 0; i < arr.length; i += 150) {
+      const chunk = arr.slice(i, i + 150).map((x) => `'${x.replace(/[^a-zA-Z0-9]/g, "")}'`).join(",");
+      try {
+        const d = await sfQuery(sfUser, `SELECT Id, LeadSource FROM ${obj} WHERE Id IN (${chunk})`);
+        for (const r of d.records || []) {
+          const k = String(r.Id).slice(0, 15), v = String(r.LeadSource || "").trim();
+          _leadSrcCache.set(k, { v, at: now }); out.set(k, v);
+        }
+      } catch (e) { console.warn("[source-funnel] SF:", e.message); break; }
+    }
+  }
+  return out;
+}
+function leadSourceOf(r, map) {
+  const ex = String(r.src_extra || "").trim();
+  if (ex) return ex;
+  if (!r.lead_id) return "（SF未連携）";
+  const v = map.get(String(r.lead_id).slice(0, 15));
+  if (v === undefined) return "（SFで見つからない）";
+  return v || "（リードソース未入力）";
+}
+// 実施・案件化以降を数えるための材料（リスト別と同じ）：クロス商談の最高ステージ／商談の記録
+async function funnelStageContext(from, sfUser) {
+  const stageOf = new Map();
+  let sfOk = false;
+  if (sfUser) {
+    try {
+      const d = await sfQuery(sfUser,
+        `SELECT Account.Name, StageName FROM Opportunity
+          WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC LIMIT 5000`);
+      const rank = (s) => /受注処理完了/.test(s) ? 5 : /04/.test(s) ? 4 : /03/.test(s) ? 3 : /02/.test(s) ? 2 : /01/.test(s) ? 1 : 0;
+      for (const o of d.records || []) {
+        const k = normCompanyKey((o.Account && o.Account.Name) || ""); if (!k) continue;
+        const stage = String(o.StageName || ""), cur = stageOf.get(k);
+        if (!cur || rank(stage) > rank(cur)) stageOf.set(k, stage);
+      }
+      sfOk = true;
+    } catch (e) { console.warn("[source-funnel] SFステージ:", e.message); }
+  }
+  const 実施キー = new Set();
+  try {
+    const ms = await listMeetings({ isAdmin: true, from, limit: 4000, light: true }).catch(() => []);
+    for (const m of ms) { const k1 = normCompanyKey(companyFromTitle(m.title || "") || ""); const k2 = normCompanyKey(m.account || ""); if (k1) 実施キー.add(k1); if (k2) 実施キー.add(k2); }
+  } catch {}
+  return { stageOf, 実施キー, sfOk };
+}
+function statsRange(req, defMonths = 0) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+  let from = String(req.query.from || ""), to = String(req.query.to || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    const period = String(req.query.period || "month");
+    const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth(), d0 = nowJ.getUTCDate();
+    if (period === "month") { from = ymd(new Date(Date.UTC(y, m - defMonths, 1))); to = ymd(new Date(Date.UTC(y, m + 1, 0))); }
+    else if (period === "week") { const off = (nowJ.getUTCDay() + 6) % 7; from = ymd(new Date(Date.UTC(y, m, d0 - off - 7 * 7))); to = ymd(new Date(Date.UTC(y, m, d0 - off + 6))); }
+    else { from = ymd(new Date(Date.UTC(y, m, d0 - 13))); to = ymd(new Date(Date.UTC(y, m, d0))); }
+  }
+  return { from, to };
+}
+// グループの絞り込み：group= 空（すべて）／数字（そのグループ）／none（グループ未設定）
+function groupFilterOf(req) {
+  const g = String(req.query.group || "").trim();
+  if (!g) return () => true;
+  if (g === "none") return (r) => !r.group_id;
+  return (r) => String(r.group_id || "") === g;
+}
+
+app.get("/api/calls/source-funnel", async (req, res) => {
+  try {
+    const { from, to } = statsRange(req, 5);
+    const gf = groupFilterOf(req);
+    const rows = (await callStatsByTarget(from, to)).filter(gf);
+    const sfUser = await listSfUserForStats();
+    const srcMap = await leadSourceMap(rows.map((r) => r.lead_id), sfUser);
+    const ctx = await funnelStageContext(from, sfUser);
+    const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
+    const bySrc = new Map();
+    const get = (src) => {
+      if (!bySrc.has(src)) bySrc.set(src, { source: src, コール: 0, 接触: 0, アポ: 0, apoKeys: new Set(), targets: new Set(), groups: new Map() });
+      return bySrc.get(src);
+    };
+    for (const r of rows) {
+      const o = get(leadSourceOf(r, srcMap));
+      const gname = r.group_name || "（グループなし）";
+      if (!o.groups.has(gname)) o.groups.set(gname, { group_id: r.group_id || null, group_name: gname, コール: 0, 接触: 0, アポ: 0 });
+      const gg = o.groups.get(gname);
+      o.targets.add(r.target_id);
+      o.コール += r.n; gg.コール += r.n;
+      if (isContacted(r.result)) { o.接触 += r.n; gg.接触 += r.n; }
+      if (/アポ獲得/.test(r.result)) { o.アポ += r.n; gg.アポ += r.n; const k = normCompanyKey(r.company || ""); if (k) o.apoKeys.add(k); }
+    }
+    const items = [...bySrc.values()].map((o) => {
+      let 実施 = 0, 案件化 = 0, kpi = 0, mid = 0, 受注 = 0;
+      for (const k of o.apoKeys) {
+        if (ctx.実施キー.has(k)) 実施++;
+        const sname = ctx.stageOf.get(k) || ""; if (!sname) continue;
+        if (/受注処理完了/.test(sname)) { 受注++; mid++; kpi++; 案件化++; }
+        else if (/04/.test(sname)) { mid++; kpi++; 案件化++; }
+        else if (/03/.test(sname)) { kpi++; 案件化++; }
+        else if (/02/.test(sname)) { 案件化++; }
+      }
+      const groups = [...o.groups.values()].map((g) => ({ ...g, 接触率: pct(g.接触, g.コール), アポ率: pct(g.アポ, g.コール) }))
+        .sort((a, b) => b.コール - a.コール);
+      return {
+        source: o.source, リード数: o.targets.size, グループ数: groups.length, groups,
+        コール: o.コール, 接触: o.接触, アポ: o.アポ, 実施, 案件化, KPI: kpi, MID: mid, 受注,
+        接触率: pct(o.接触, o.コール), アポ率: pct(o.アポ, o.コール),
+        実施率: pct(実施, o.アポ), 案件化率: pct(案件化, o.アポ),
+        KPI率: pct(kpi, 案件化), MID率: pct(mid, kpi), 受注率: pct(受注, 案件化),
+      };
+    }).sort((a, b) => b.コール - a.コール);
+    const groups = (await listGroups().catch(() => [])).map((g) => ({ id: g.id, name: g.name }));
+    res.json({ ok: true, from, to, items, groups, SF未接続: !ctx.sfOk });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// リードソース別：アポが取れた会社の一覧（source= のリードソースだけ）
+app.get("/api/calls/source-apos", async (req, res) => {
+  try {
+    const { from, to } = statsRange(req, 0);
+    const src = String(req.query.source || "");
+    const gf = groupFilterOf(req);
+    const logs = (await listGroupApoLogs(null, from, to)).filter(gf);
+    const sfUser = await listSfUserForStats();
+    const srcMap = await leadSourceMap(logs.map((r) => r.lead_id), sfUser);
+    const mine = logs.filter((r) => leadSourceOf(r, srcMap) === src);
+    const ctx = await funnelStageContext(from, sfUser);
+    const names = new Map();
+    for (const c of new Set(mine.map((r) => r.caller).filter(Boolean))) names.set(c, await displayNameOf(c).catch(() => "") || c.split("@")[0]);
+    const items = mine.map((r) => {
+      const k = normCompanyKey(r.company || "");
+      const at = new Date(new Date(r.at).getTime() + 9 * 3600 * 1000).toISOString();
+      return {
+        日時: `${at.slice(5, 10).replace("-", "/")} ${at.slice(11, 16)}`,
+        会社: r.company || "", 担当者: r.person || "", リスト: r.list_name || "", グループ: r.group_name || "（グループなし）",
+        獲得者: names.get(r.caller) || "",
+        メモ: String(r.memo || "").replace(/\s+/g, " ").slice(0, 120),
+        SFステージ: ctx.stageOf.get(k) || "", 実施: ctx.実施キー.has(k),
+      };
+    });
+    const 獲得者別 = {};
+    for (const x of items) { const n = x.獲得者 || "（不明）"; 獲得者別[n] = (獲得者別[n] || 0) + 1; }
+    res.json({ ok: true, from, to, source: src, 件数: items.length, 獲得者別, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // グループ別のファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）
 app.get("/api/calls/group-funnel", async (req, res) => {
   try {
@@ -21634,7 +21804,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30e 実績のリスト別で、各グループの「アポ」の数字を押すと、その期間にアポが取れた会社の一覧（取った日時・会社・担当者・リスト・獲得者・商談の実施・SFステージ・メモ）と獲得者別の件数を出すようにした。数はカードのアポと同じ（アポ獲得の架電記録1件ずつ）。";
+const BUILD_TAG = "2026-09-30f 実績に「リードソース別」を追加。リスト別と同じカード（コール→接触→アポ→実施→案件化→KPI→MID→受注）を、SFのリードソース（LeadSource。リストに「リードソース」列があればそちら）ごとに出す。上のプルダウンでリストのグループを絞れ、カードを押すとグループ別の内訳、アポを押すとアポが取れた会社の一覧。SF未連携・未入力はそれぞれ別のカードにまとめる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
