@@ -9418,13 +9418,23 @@ async function auditCallList(sfUser, listId, buckets, opts = {}) {
   }
 
   // 2) リードごとの「最新のコール活動」の結果
+  // 組織に Task.Type が無いときは、件名が「コール：」で始まる活動で代わりに見る（一度わかったら覚えておく）
   const lastCall = new Map();
   for (let i = 0; i < withLead.length; i += 200) {
     const chunk = withLead.slice(i, i + 200);
     const inIds = chunk.map((t) => `'${id15(t.lead_id).replace(/[^A-Za-z0-9]/g, "")}'`).join(",");
     if (!inIds) continue;
     try {
-      const d = await sfQuery(sfUser, `SELECT WhoId, Subject, CallDisposition, CreatedDate FROM Task WHERE WhoId IN (${inIds}) AND Type = 'Call' ORDER BY CreatedDate DESC LIMIT 2000`);
+      const callCond = _taskTypeMissing ? "Subject LIKE 'コール%'" : "Type = 'Call'";
+      let d;
+      try {
+        d = await sfQuery(sfUser, `SELECT WhoId, Subject, CallDisposition, CreatedDate FROM Task WHERE WhoId IN (${inIds}) AND ${callCond} ORDER BY CreatedDate DESC LIMIT 2000`);
+      } catch (e2) {
+        if (_taskTypeMissing || !/No such column 'Type'|INVALID_FIELD/i.test(e2.message || "")) throw e2;
+        _taskTypeMissing = true;
+        console.warn("[SF監査] Task.Type が無い組織のため、件名「コール：」で最新コールを見ます");
+        d = await sfQuery(sfUser, `SELECT WhoId, Subject, CallDisposition, CreatedDate FROM Task WHERE WhoId IN (${inIds}) AND Subject LIKE 'コール%' ORDER BY CreatedDate DESC LIMIT 2000`);
+      }
       for (const r of d.records || []) {
         const k = id15(r.WhoId);
         if (lastCall.has(k)) continue;
@@ -9476,6 +9486,7 @@ async function auditCallList(sfUser, listId, buckets, opts = {}) {
   return { 対象: withLead.length, 反映, ユーザー: ユーザー化, クロス商談あり: クロス化, 直近失注: 失注化, 表記ゆれ等で除外: 怪しい一致, 担当そろえ, SF未連携: targets.length - withLead.length };
 }
 
+let _taskTypeMissing = false;   // SF組織に Task.Type 項目が無い（SF監査の最新コール取得で使う）
 // 会社名から、クロス商談の状態（ユーザー／アポ獲得済み／失注）を決める。
 // 優先：完全一致の受注 ＞ 完全一致の進行中 ＞ 表記ゆれ・一部一致の受注 ＞ 同じく進行中 ＞ 完全一致の失注。
 // 表記ゆれ（ヶ/が、ノ/之/の、異体字、ひらがな/カタカナ、長音・記号）や一部一致は「怪しい」ので、かける対象から外す。
@@ -21805,7 +21816,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30j サーバーが「Not Found」のまま戻らなくなったため、直前に足した railway.json（ヘルスチェック・再起動の設定）を外して、Railwayの画面側の設定に戻した。/healthz は残す。";
+const BUILD_TAG = "2026-09-30k SF監査の「最新コール取得」が、SFにTask.Type項目が無いためエラーを出し続けていた（最終ステータスにSFのコール結果が反映されない）。項目が無いとわかったら、件名が「コール：」で始まる活動で代わりに見る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
