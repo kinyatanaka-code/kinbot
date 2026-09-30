@@ -12886,6 +12886,11 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 });
 
 // アポのダッシュボード（月次のみ）。目標は日次目標を月内で合計したもの。
+// ダッシュボードのアポ実績の手補正（記録に反映されなかったアポの分）。キー「month:YYYY-MM」「week:週の月曜日」。
+// ここに書いた分は、実績のダッシュボードの数字にだけ足す（架電記録・リスト別などの集計は変えない）。
+const DASH_APO_ADJUST_BASE = {
+  "month:2026-09": { "田中欽也": 1 },   // 2026-09-30 依頼：田中欽也のアポ1件が反映されていない分
+};
 app.get("/api/calls/apo-dashboard", async (req, res) => {
   try {
     const period = req.query.period === "week" ? "week" : "month";   // ダッシュボードは月次/週次
@@ -12916,13 +12921,18 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     const excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean), "田中綾"])];
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
     const apoArr = (arr) => (arr && arr[i]) ? (Number(arr[i].アポ内 || 0) + Number(arr[i].アポ外 || 0)) : 0;
+    // ダッシュボードだけの手補正（記録に残らなかったアポを足す等）。「期間:期間キー」→ { 名前 or メール: 足す数 }
+    const adjAll = { ...DASH_APO_ADJUST_BASE };
+    try { const stA = await getSettings(); for (const [k, v] of Object.entries(stA.dashApoAdjust || {})) adjAll[k] = { ...(adjAll[k] || {}), ...v }; } catch {}
+    const adjNow = adjAll[`${period}:${monthKey}`] || {};
+    const adjOf = (m) => Number(adjNow[String(m.email || "").toLowerCase()] || 0) + Number(adjNow[String(m.誰 || "").replace(/[\s　]/g, "")] || 0);
     // 個別（除外・田中付替え）
     const persons = (g.members || [])
       .filter((m) => !nameHas(m.誰, excludeNames))
       .map((m) => {
         const role = nameHas(m.誰, salesNames) ? "sales" : m.role;
         const key = String(m.email || m.誰).toLowerCase();
-        const actual = apoArr(m.値);
+        const actual = apoArr(m.値) + adjOf(m);
         const goal = goalOf(key);
         return { key, label: m.誰, role, actual, goal, diff: actual - goal };
       });
@@ -21816,7 +21826,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30k SF監査の「最新コール取得」が、SFにTask.Type項目が無いためエラーを出し続けていた（最終ステータスにSFのコール結果が反映されない）。項目が無いとわかったら、件名が「コール：」で始まる活動で代わりに見る。";
+const BUILD_TAG = "2026-09-30l 実績のダッシュボードに手補正（DASH_APO_ADJUST_BASE／設定 dashApoAdjust）を追加し、田中欽也の9月のアポを+1（反映されていなかった1件分）。ダッシュボードの数字（個人・セールス・グループ合計）にだけ足し、架電記録・リスト別などは変えない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

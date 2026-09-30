@@ -1156,3 +1156,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30j 本番が Railway の Not Found のまま応答しなくなった（MCPも無応答）。直前の 7597b4bd で追加した railway.json（healthcheckPath=/healthz・startCommand・restartPolicy）を削除してダッシュボード設定に戻す。/healthz ルートは残置。原因はログ未確認。版20260930j。
 
 - 2026-09-30 BUILD_TAG=2026-09-30k 本番ログ（2026-09-30j 起動分）は正常起動（1秒でlisten、クラッシュなし）。ログで見つかった SF監査「最新コール取得」の 400（No such column 'Type' on entity 'Task'）を修正：_taskTypeMissing を立てて Subject LIKE 'コール%' にフォールバック。版20260930k。
+
+- 2026-09-30 BUILD_TAG=2026-09-30l /api/calls/apo-dashboard に手補正。DASH_APO_ADJUST_BASE（コード）＋ settings.dashApoAdjust を「period:期間キー」→{名前(空白なし) or メール: 数} で合算し、個人の actual に足す（チーム合計にも乗る）。2026-09 月次で 田中欽也 +1（記録に反映されなかったアポ1件）。架電記録・stats-grid・リスト別は変更なし。版20260930l。
