@@ -1158,3 +1158,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30k 本番ログ（2026-09-30j 起動分）は正常起動（1秒でlisten、クラッシュなし）。ログで見つかった SF監査「最新コール取得」の 400（No such column 'Type' on entity 'Task'）を修正：_taskTypeMissing を立てて Subject LIKE 'コール%' にフォールバック。版20260930k。
 
 - 2026-09-30 BUILD_TAG=2026-09-30l /api/calls/apo-dashboard に手補正。DASH_APO_ADJUST_BASE（コード）＋ settings.dashApoAdjust を「period:期間キー」→{名前(空白なし) or メール: 数} で合算し、個人の actual に足す（チーム合計にも乗る）。2026-09 月次で 田中欽也 +1（記録に反映されなかったアポ1件）。架電記録・stats-grid・リスト別は変更なし。版20260930l。
+
+- 2026-09-30 BUILD_TAG=2026-09-30m 出勤PDF取り込み。ai_read.js readShiftCalendar（Gemini、responseMimeType=json、登録インターン氏名を渡してフルネームで返させ raw に表記、前後月の日は除外）。POST /api/inside-shifts/read-file（multer memory 20MB、名前→フルネーム一致 or 名字の前方一致で1人に決まるとき）→ items（未確定は email 空）。POST /api/inside-shifts/import {month, replace, shifts}（replace は db.deleteInsideShiftsBetween で月を消してから upsertInsideShift）。calls.html #scPdf/#scPdfFile、calls.js openShiftImport（行ごとにチェック・メンバー選択・時刻修正、置き換えは既定ON＋確認）。版20260930m。

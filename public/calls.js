@@ -4649,6 +4649,97 @@ if ($("scPrev")) $("scPrev").addEventListener("click", () => { if (_scY == null)
 if ($("scNext")) $("scNext").addEventListener("click", () => { if (_scY == null) scInit(); _scM++; if (_scM > 11) { _scM = 0; _scY++; } loadShiftCal(); });
 if ($("scToday")) $("scToday").addEventListener("click", () => { scInit(); loadShiftCal(); });
 if ($("scBulk")) $("scBulk").addEventListener("click", openBulkShift);
+// 出勤カレンダーのPDFから取り込む：読み取り → 一覧で確認・直す → 取り込む
+if ($("scPdf")) $("scPdf").addEventListener("click", () => { const f = $("scPdfFile"); if (f) { f.value = ""; f.click(); } });
+if ($("scPdfFile")) $("scPdfFile").addEventListener("change", async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const btn = $("scPdf"); const label = btn ? btn.textContent : "";
+  if (btn) { btn.disabled = true; btn.textContent = "読み取っています…"; }
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("year", String(_scY)); fd.append("month", String(_scM + 1));
+    const r = await fetch("/api/inside-shifts/read-file", { method: "POST", body: fd });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) throw new Error(d.error || "読み取れませんでした");
+    openShiftImport(d);
+  } catch (e) { alert("PDFを読み取れませんでした：" + e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+});
+function openShiftImport(d) {
+  if (document.querySelector(".sc-back")) return;
+  const ym = `${d.year}-${String(d.month).padStart(2, "0")}`;
+  const members = d.members || [];
+  const items = (d.items || []).map((x, i) => ({ ...x, i, on: !!x.email }));
+  const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  const memOpts = (sel) => `<option value="">（選んでください）</option>` + members.map((m) => `<option value="${esc(m.email)}"${m.email === sel ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("");
+  const back = document.createElement("div"); back.className = "sc-back";
+  const unknown = items.filter((x) => !x.email).length;
+  back.innerHTML = `<div class="sc-modal sc-modal-lg"><div class="sc-mh"><span>${d.year}年${d.month}月の出勤をPDFから取り込む</span><button type="button" class="sc-x">×</button></div>
+    <div class="sc-mbody">
+      <div class="note" style="margin-bottom:8px">読み取った ${items.length}件 です。${unknown ? `<b style="color:#b0452f">名前が決まらなかった ${unknown}件</b>は、メンバーを選ぶと取り込めます。` : "内容を確かめてから取り込んでください。"}</div>
+      <label style="display:flex;gap:6px;align-items:center;margin-bottom:10px;font-size:13px"><input type="checkbox" id="scImpReplace" checked />
+        この月（${d.month}月）の出勤予定はPDFの内容で置き換える（PDFに無い予定は消えます）</label>
+      <div style="max-height:52vh;overflow:auto;border:1px solid #e3ece8;border-radius:10px">
+      <table class="sh-table" style="width:100%"><tr><th style="width:36px"></th><th>日付</th><th>PDFの表記</th><th>メンバー</th><th>時間</th></tr>
+      ${items.map((x) => {
+        const dt = new Date(x.day + "T00:00:00+09:00");
+        return `<tr data-i="${x.i}"${x.email ? "" : ' style="background:#fdf1ee"'}>
+          <td><input type="checkbox" class="sc-imp-on"${x.on ? " checked" : ""} /></td>
+          <td style="white-space:nowrap">${dt.getMonth() + 1}/${dt.getDate()}（${wd[dt.getDay()]}）</td>
+          <td>${esc(x.raw)}</td>
+          <td><select class="kc-input sc-imp-mem" style="max-width:160px">${memOpts(x.email)}</select></td>
+          <td style="white-space:nowrap"><input type="time" class="sc-imp-s" value="${esc(x.start)}" /> 〜 <input type="time" class="sc-imp-e" value="${esc(x.end)}" /></td>
+        </tr>`;
+      }).join("")}
+      </table></div>
+      <div class="sc-preview sc-preview-on" id="scImpPrev" style="margin-top:10px"></div>
+    </div>
+    <div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">取り込む</button></div></div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  back.querySelector(".sc-x").addEventListener("click", close);
+  back.querySelector(".sc-cancel").addEventListener("click", close);
+  const collect = () => [...back.querySelectorAll("tr[data-i]")].map((tr) => {
+    const em = tr.querySelector(".sc-imp-mem").value;
+    const m = members.find((x) => x.email === em);
+    return {
+      on: tr.querySelector(".sc-imp-on").checked, email: em, name: m ? m.name : "",
+      day: items[Number(tr.dataset.i)].day,
+      start_min: scHm2m(tr.querySelector(".sc-imp-s").value), end_min: scHm2m(tr.querySelector(".sc-imp-e").value),
+    };
+  });
+  const upd = () => {
+    const all = collect();
+    const ok = all.filter((x) => x.on && x.email && x.start_min != null && x.end_min != null && x.end_min > x.start_min);
+    const ng = all.filter((x) => x.on && !x.email).length;
+    back.querySelector("#scImpPrev").textContent = `${ok.length}件を取り込みます` + (ng ? `（メンバー未選択の ${ng}件は取り込みません）` : "");
+  };
+  back.querySelectorAll(".sc-imp-mem").forEach((sel) => sel.addEventListener("change", () => {
+    const tr = sel.closest("tr"); if (sel.value) { tr.querySelector(".sc-imp-on").checked = true; tr.style.background = ""; } upd();
+  }));
+  back.querySelectorAll("input").forEach((el) => el.addEventListener("change", upd));
+  upd();
+  back.querySelector(".sc-save").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const shifts = collect().filter((x) => x.on && x.email && x.start_min != null && x.end_min != null && x.end_min > x.start_min);
+    const replace = back.querySelector("#scImpReplace").checked;
+    if (!shifts.length) { alert("取り込むものがありません"); return; }
+    if (replace && !confirm(`${d.month}月の出勤予定を、PDFの内容（${shifts.length}件）で置き換えます。よろしいですか？`)) return;
+    btn.disabled = true; btn.textContent = "取り込んでいます…";
+    try {
+      const r = await fetch("/api/inside-shifts/import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ month: ym, replace, shifts }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw new Error(j.error || "取り込めませんでした");
+      close();
+      _scY = d.year; _scM = d.month - 1;   // 取り込んだ月を表示する
+      loadShiftCal();
+      alert(`${j.added}件を取り込みました`);
+    } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "取り込む"; }
+  });
+}
 if ($("scShiftLink")) $("scShiftLink").addEventListener("click", async () => {
   try {
     const d = await (await fetch("/api/shift/admin-link", { cache: "no-store" })).json();

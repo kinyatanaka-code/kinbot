@@ -491,6 +491,7 @@ import {
   listInterns,
   listInsideShifts,
   upsertInsideShift,
+  deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
   setShiftSubmitted,
@@ -608,7 +609,7 @@ import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as liv
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
-import { readDocument, readerAvailable, readWhiteboard } from "./ai_read.js";
+import { readDocument, readerAvailable, readWhiteboard, readShiftCalendar } from "./ai_read.js";
 import { mountMcpServer } from "./mcp.js";
 import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
@@ -4157,6 +4158,74 @@ app.post("/api/inside-shifts", async (req, res) => {
       await upsertInsideShift(email, r.name || "", day, ok ? sm : null, ok ? em : null);
     }
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 出勤カレンダーのPDF（画像も可）を読み取って、取り込む前の一覧を返す（まだ保存しない）。
+const shiftPdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+app.post("/api/inside-shifts/read-file", shiftPdfUpload.single("file"), async (req, res) => {
+  try {
+    if (!readerAvailable()) return res.status(400).json({ error: "ファイルを読む設定（GEMINI_API_KEY）がありません" });
+    if (!req.file || !req.file.buffer) return res.status(400).json({ error: "ファイルがありません" });
+    const interns = (await listInterns().catch(() => [])).filter((x) => x && x.email);
+    const norm = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
+    const hy = parseInt(req.body && req.body.year, 10) || 0, hmn = parseInt(req.body && req.body.month, 10) || 0;
+    const r = await readShiftCalendar({
+      buffer: req.file.buffer, mimeType: req.file.mimetype || "application/pdf",
+      memberNames: interns.map((x) => norm(x.name)).filter(Boolean), hintYear: hy, hintMonth: hmn,
+    });
+    if (!r.year || !r.month) return res.status(400).json({ error: "何年何月のカレンダーか読み取れませんでした" });
+    // 名前 → メンバー（フルネーム一致 → 名字の前方一致で1人に決まるとき）
+    const pick = (name, raw) => {
+      const n = norm(name), rw = norm(raw);
+      let hit = interns.find((x) => norm(x.name) === n && n);
+      if (!hit && rw) {
+        const c = interns.filter((x) => norm(x.name).startsWith(rw));   // 「加藤」→「加藤宋宙」
+        if (c.length === 1) hit = c[0];
+      }
+      return hit || null;
+    };
+    const pad = (x) => String(x).padStart(2, "0");
+    const last = new Date(Date.UTC(r.year, r.month, 0)).getUTCDate();
+    const seen = new Set();
+    const items = [];
+    for (const x of r.shifts) {
+      if (x.day > last) continue;
+      const m = pick(x.name, x.raw);
+      const day = `${r.year}-${pad(r.month)}-${pad(x.day)}`;
+      const k = (m ? m.email : "?" + x.raw) + "|" + day;
+      if (seen.has(k)) continue; seen.add(k);
+      const [sh, sm] = x.start.split(":").map(Number), [eh, em] = x.end.split(":").map(Number);
+      const s0 = sh * 60 + sm, e0 = eh * 60 + em;
+      items.push({ day, raw: x.raw, email: m ? m.email : "", name: m ? m.name : "", start: x.start, end: x.end,
+                   start_min: s0, end_min: e0, ok: !!m && e0 > s0 });
+    }
+    items.sort((a, b) => a.day.localeCompare(b.day) || a.start.localeCompare(b.start));
+    console.log(`[出勤PDF] ${r.year}年${r.month}月を読み取り：${items.length}件（名前が決まらない ${items.filter((x) => !x.email).length}件） by ${req.user}`);
+    res.json({ ok: true, year: r.year, month: r.month, items, members: interns.map((x) => ({ email: x.email, name: x.name })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 読み取った一覧を取り込む。replace=true なら、その月の出勤予定をいったん消してから入れる（PDFを正とする）。
+app.post("/api/inside-shifts/import", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const ym = String(b.month || "");
+    if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月がありません" });
+    const rows = (Array.isArray(b.shifts) ? b.shifts : []).filter((r) => String(r.day || "").startsWith(ym + "-"));
+    const [y, m] = ym.split("-").map(Number);
+    const from = `${ym}-01`, to = `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+    let removed = 0;
+    if (b.replace) removed = await deleteInsideShiftsBetween(from, to);
+    let added = 0;
+    for (const r of rows) {
+      const email = String(r.email || "").trim().toLowerCase();
+      const sm = parseInt(r.start_min, 10), em = parseInt(r.end_min, 10);
+      if (!email || isNaN(sm) || isNaN(em) || em <= sm) continue;
+      await upsertInsideShift(email, r.name || "", String(r.day), sm, em);
+      added++;
+    }
+    console.log(`[出勤PDF] ${ym} を取り込み：${added}件${b.replace ? `（先に ${removed}件を消去）` : ""} by ${req.user}`);
+    res.json({ ok: true, added, removed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -21826,7 +21895,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30l 実績のダッシュボードに手補正（DASH_APO_ADJUST_BASE／設定 dashApoAdjust）を追加し、田中欽也の9月のアポを+1（反映されていなかった1件分）。ダッシュボードの数字（個人・セールス・グループ合計）にだけ足し、架電記録・リスト別などは変えない。";
+const BUILD_TAG = "2026-09-30m 出勤管理に「PDFから取り込む」を追加。インターン出勤カレンダーのPDF（画像も可）をAIで読み取り、日付・名前（名字→登録メンバーに当てはめ）・時間の一覧を出す。確認・修正してから取り込む。既定はその月の出勤予定をPDFの内容で置き換え（前後の月の薄い日は入れない）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

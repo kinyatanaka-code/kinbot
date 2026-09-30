@@ -2065,6 +2065,16 @@ export async function upsertInsideShift(email, name, day, startMin, endMin) {
     }
   } catch (e) { console.error("[db] upsertInsideShift", e.message); }
 }
+// ある期間の出勤予定をまとめて消す（PDF取り込みで「置き換える」ときに使う）。emails を渡すとその人たちだけ。
+export async function deleteInsideShiftsBetween(fromDay, toDay, emails = null) {
+  if (!pool || !fromDay || !toDay) return 0;
+  try {
+    const r = emails && emails.length
+      ? await pool.query(`DELETE FROM inside_shifts WHERE day >= $1::date AND day <= $2::date AND email = ANY($3)`, [fromDay, toDay, emails.map((e) => String(e).toLowerCase())])
+      : await pool.query(`DELETE FROM inside_shifts WHERE day >= $1::date AND day <= $2::date`, [fromDay, toDay]);
+    return r.rowCount || 0;
+  } catch (e) { console.error("[db] deleteInsideShiftsBetween", e.message); return 0; }
+}
 // ===== デイリーのアポ目標 =====
 export async function getDailyTargets(day) {
   if (!pool) return {};

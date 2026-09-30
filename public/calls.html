@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20260930l" />
+    <link rel="stylesheet" href="style.css?v=20260930m" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -240,6 +240,8 @@
               <button type="button" class="btn ghost" id="scNext">›</button>
               <button type="button" class="btn ghost" id="scToday">今月</button>
               <button type="button" class="btn" id="scBulk">複数日に一括入力</button>
+              <button type="button" class="btn ghost" id="scPdf" title="出勤カレンダーのPDF（画像も可）を読み取って、まとめて入れます">PDFから取り込む</button>
+              <input type="file" id="scPdfFile" accept="application/pdf,image/*" hidden />
               <button type="button" class="btn ghost" id="scShiftLink">🔗 シフト提出リンク</button>
               <span class="note" style="margin:0">日付/タグをクリックで編集。緑＝架電記録から推定した出退勤、赤＝欠勤（出勤予定だが架電なし）、灰＝予定。</span>
             </div>
@@ -449,9 +451,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20260930l"></script>
-    <script src="calls.js?v=20260930l"></script>
-    <script src="nav.js?v=20260930l"></script>
+    <script src="sf-data.js?v=20260930m"></script>
+    <script src="calls.js?v=20260930m"></script>
+    <script src="nav.js?v=20260930m"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

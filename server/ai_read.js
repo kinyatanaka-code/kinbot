@@ -157,3 +157,50 @@ export async function readDocument({ buffer, mimeType, text, displayName }) {
   }
   throw new Error("読み取り対象がありません");
 }
+
+
+// 出勤カレンダー（PDF・画像）から、日ごとの出勤予定を読み取る。
+// memberNames：kinbotに登録されているインサイドの氏名。名字だけの表記を、この中のだれかに当てはめて返させる。
+export async function readShiftCalendar({ buffer, mimeType = "application/pdf", memberNames = [], hintYear, hintMonth }) {
+  if (!GEMINI_KEY) throw new Error("ファイルを読む設定（GEMINI_API_KEY）がありません");
+  if (!buffer || !buffer.length) throw new Error("ファイルがありません");
+  const instr = `あなたは、インターンの出勤カレンダー（月のカレンダー表）を読み取る担当です。
+各日のマスに「名前 開始時刻-終了時刻」が並んでいます。読み取って、次のJSONだけを返してください（説明・コードフェンスは書かない）。
+
+{"year":2026,"month":10,"shifts":[{"day":1,"name":"加藤宋宙","raw":"加藤","start":"10:00","end":"16:00"}]}
+
+決まり:
+- year と month は、表の見出し（例「2026年10月」）から読む。${hintYear && hintMonth ? `見出しが読めないときは ${hintYear}年${hintMonth}月 とする。` : ""}
+- その月の日だけを入れる。前の月・次の月の日（薄い色・灰色で表示されている日）は入れない。
+- 名前は、次のメンバーのうち当てはまる人の氏名（フルネーム）で name に入れる：${memberNames.length ? memberNames.join("、") : "（一覧なし）"}
+  表に書かれていた表記はそのまま raw に入れる。どのメンバーか決められないときは name を空文字にする。
+- start と end は24時間表記の "HH:MM"。
+- 1人1日1件。祝日名・メモなど、出勤ではない文字は入れない。
+- 読めない字は推測しない。自信が無い行は入れない。`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${READ_MODEL}:generateContent?key=${GEMINI_KEY}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: instr }, { inline_data: { mime_type: mimeType, data: buffer.toString("base64") } }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 16384, responseMimeType: "application/json" },
+    }),
+  });
+  if (!res.ok) throw new Error(`読み取りに失敗しました（${res.status}）`);
+  const data = await res.json();
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").replace(/```json|```/g, "").trim();
+  let out = null;
+  try { out = JSON.parse(text); } catch { const m = text.match(/\{[\s\S]*\}/); if (m) { try { out = JSON.parse(m[0]); } catch {} } }
+  if (!out || !Array.isArray(out.shifts)) throw new Error("カレンダーを読み取れませんでした");
+  const hm = (v) => { const m = String(v || "").normalize("NFKC").match(/(\d{1,2})[:：](\d{2})/); return m ? `${m[1].padStart(2, "0")}:${m[2]}` : ""; };
+  return {
+    year: Number(out.year) || hintYear || 0,
+    month: Number(out.month) || hintMonth || 0,
+    shifts: out.shifts.map((x) => ({
+      day: Number(x.day) || 0,
+      name: String(x.name || "").trim(),
+      raw: String(x.raw || x.name || "").trim(),
+      start: hm(x.start), end: hm(x.end),
+    })).filter((x) => x.day >= 1 && x.day <= 31 && x.start && x.end),
+  };
+}
