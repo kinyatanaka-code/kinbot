@@ -2896,7 +2896,7 @@ let dashWeekMonth = "";            // 見る月（YYYY-MM、空＝今月）。�
 function fillDashMonths() {
   const sel = $("dashWeekMonth");
   if (!sel || sel.options.length) return;
-  // 2026年9月から、6か月先まで選べる（先の月は目標を先に入れておける）。新しい月が上。
+  // 2026年9月から、6か月先まで選べる（月が進んでも9月以降はずっと残る）。新しい月が上。
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const FIRST = "2026-09";
@@ -2904,7 +2904,7 @@ function fillDashMonths() {
     const d = new Date(now.getFullYear(), now.getMonth() + k, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     if (key < FIRST) break;
-    sel.add(new Option(`${d.getFullYear()}年${d.getMonth() + 1}月${key === curKey ? "（今月）" : key > curKey ? "（先の月）" : ""}`, key));
+    sel.add(new Option(`${d.getFullYear()}年${d.getMonth() + 1}月`, key));
   }
   if (!dashWeekMonth) dashWeekMonth = curKey;  // 既定は今月
   sel.value = dashWeekMonth;
