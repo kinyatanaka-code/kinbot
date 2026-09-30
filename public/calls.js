@@ -201,7 +201,60 @@ try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
 let hideApo = false;   // アポ獲得済みを隠しているか
 let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
 let _reasonChips = null;       // 記録モーダルの理由チップ（サーバから取得）
-let sortBy = "", sortDesc = false;
+let sortBy = "", sortDesc = false;   // sortBy：stage/company/person/mail/lastcall/status/hist、追加列は "x:列名"
+try { const _s = JSON.parse(localStorage.getItem("kcSort") || "{}"); if (_s && typeof _s.by === "string") { sortBy = _s.by; sortDesc = !!_s.desc; } } catch {}
+function saveSort() { try { localStorage.setItem("kcSort", JSON.stringify({ by: sortBy, desc: sortDesc })); } catch {} }
+function setSort(by, desc) { sortBy = by || ""; sortDesc = !!desc; saveSort(); }
+// 並べ替えに使う値（空欄は null）。数字・日付は数値にそろえて比べる
+function sortVal(x, by) {
+  let v;
+  if (by === "stage") v = x["ステージ"];
+  else if (by === "company") v = x["会社名"];
+  else if (by === "person") v = x["ふりがな"] || x["担当者"];
+  else if (by === "mail") v = x["メール"];
+  else if (by === "status") v = x["最終ステータス"];
+  else if (by === "hist") return Number(x["履歴数"] || 0);
+  else if (by === "lastcall") { const t = x["最終日時"] ? new Date(x["最終日時"]).getTime() : NaN; return isNaN(t) ? null : t; }
+  else if (by.startsWith("x:")) {
+    const k = by.slice(2);
+    v = cleanRecruitVal((rowExtra(x) || {})[k]);
+    if (!v && (RECRUIT_DATE_KEYS.has(k) || /掲載終了|終了日/.test(k))) v = recruitVal(x, /掲載終了/);
+  }
+  v = String(v == null ? "" : v).trim();
+  if (!v || v === "-" || v === "—") return null;
+  const num = v.replace(/[,，\s]/g, "").replace(/(名|人|件|円|万円|%|％)$/, "");
+  if (/^-?\d+(\.\d+)?$/.test(num)) return Number(num);
+  const d = normDateLoose(v);
+  if (d && /\d{1,4}[\/\-年.]\d{1,2}/.test(v)) { const t = new Date(d).getTime(); if (!isNaN(t)) return t; }
+  return v;
+}
+function compareSort(a, b) {
+  const A = sortVal(a, sortBy), B = sortVal(b, sortBy);
+  if (A === null && B === null) return 0;
+  if (A === null) return 1;    // 空欄は昇順・降順どちらでも下に
+  if (B === null) return -1;
+  const n = (typeof A === "number" && typeof B === "number") ? A - B
+    : String(A).localeCompare(String(B), "ja", { numeric: true });
+  return sortDesc ? -n : n;
+}
+// 絞り込みの窓の上に「並べ替え」を出す
+function addSortBar(m, by) {
+  const body = m && m.el && m.el.querySelector(".kc-modal-body");
+  if (!body) return;
+  const cur = sortBy === by ? (sortDesc ? "desc" : "asc") : "";
+  const bar = document.createElement("div");
+  bar.className = "kc-sortbar";
+  bar.innerHTML = `<span class="kc-sortbar-l">並べ替え</span>
+    <button type="button" class="kc-sortbar-b${cur === "asc" ? " on" : ""}" data-s="asc">昇順</button>
+    <button type="button" class="kc-sortbar-b${cur === "desc" ? " on" : ""}" data-s="desc">降順</button>
+    ${cur ? '<button type="button" class="kc-sortbar-b kc-sortbar-off" data-s="off">解除</button>' : ""}`;
+  body.insertBefore(bar, body.firstChild);
+  bar.querySelectorAll("[data-s]").forEach((b) => b.addEventListener("click", () => {
+    const s = b.dataset.s;
+    if (s === "off") setSort("", false); else setSort(by, s === "desc");
+    m.close(); render();
+  }));
+}
 
 // いま出すぶんを決める
 function visibleRows() {
@@ -252,12 +305,9 @@ function visibleRows() {
 }
 function sortRows(list) {
   if (sortBy) {
-    const key = { stage: "ステージ", company: "会社名", status: "最終ステータス", hist: "履歴数" }[sortBy];
-    list.sort((a, b) => {
-      const A = a[key], B = b[key];
-      const n = (typeof A === "number") ? A - B : String(A || "").localeCompare(String(B || ""), "ja");
-      return sortDesc ? -n : n;
-    });
+    // 見出しで並べ替えを選んだときは、その順を優先する（かける対象外だけは下にまとめる）
+    list.sort(compareSort);
+    return [...list.filter((x) => !isDone(x)), ...list.filter(isDone)];
   }
   // 並びの優先度：
   //  1) 架電予定の時刻が来たもの（次回予定 <= 今）を、いちばん上に（予定が早い順）
@@ -438,6 +488,7 @@ function openFilter(which, btn) {
        <button type="button" class="btn ghost" id="fltAll">すべて</button>
      </div>`;
   const m = openModal(`${key}でしぼる`, inner);
+  addSortBar(m, extraKey ? "x:" + extraKey : which);
   m.el.querySelector("#fltOk").addEventListener("click", () => {
     const picked = [...m.el.querySelectorAll("input:checked")].map((c) => c.value);
     const next = picked.length === options.length ? new Set() : new Set(picked);
@@ -477,6 +528,7 @@ function openDateRangeFilter(key, valOf, emptyN) {
       <button type="button" class="btn ghost" id="drAll">すべて（しぼらない）</button>
     </div>`;
   const m = openModal(`${key}でしぼる`, inner);
+  addSortBar(m, "x:" + key);
   const f = m.el.querySelector("#drFrom"), t = m.el.querySelector("#drTo"), e = m.el.querySelector("#drEmpty");
   const count = () => {
     const a = f.value, b = t.value, em = e.checked;
@@ -631,7 +683,7 @@ function cleanRecruitVal(v) {
 }
 
 // 掲載（掲載中／掲載終了／日付なし）でしぼる窓（列見出しの▾から）
-function openPostFilter() {
+function openPostFilter(colKey) {
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const stateOf = (x) => {
     const d = normDateLoose(recruitVal(x, /掲載終了/));
@@ -648,6 +700,7 @@ function openPostFilter() {
        <span>${lb}</span><span class="kc-flt-n">${c}</span></label>`).join("") +
     `</div><div class="kc-modal-foot"><button type="button" class="btn" id="pfOk">この条件で見る</button></div>`;
   const m = openModal("掲載でしぼる", inner);
+  if (colKey) addSortBar(m, "x:" + colKey);
   m.el.querySelector("#pfOk").addEventListener("click", () => {
     const sel = m.el.querySelector('input[name="pf"]:checked');
     filt.post = sel ? sel.value : "";
@@ -655,7 +708,7 @@ function openPostFilter() {
   });
 }
 // 採用人数（最小〜最大）でしぼる窓（列見出しの▾から）
-function openHireFilter() {
+function openHireFilter(colKey) {
   const inner =
     `<div style="display:flex;align-items:center;gap:8px;font-size:13px">
       <input type="number" class="kc-input" id="hfMin" min="0" placeholder="最小" value="${esc(filt.hireMin)}" style="width:90px" />
@@ -668,6 +721,7 @@ function openHireFilter() {
       <button type="button" class="btn ghost" id="hfClr">絞り込みを消す</button>
     </div>`;
   const m = openModal("採用人数でしぼる", inner);
+  if (colKey) addSortBar(m, "x:" + colKey);
   m.el.querySelector("#hfOk").addEventListener("click", () => {
     filt.hireMin = m.el.querySelector("#hfMin").value.trim();
     filt.hireMax = m.el.querySelector("#hfMax").value.trim();
@@ -761,7 +815,7 @@ function render() {
   const fullList = visibleRows();
   const _searching = !!kcNormQ($("clFind") && $("clFind").value);
   const list = (hideApo && !_searching) ? fullList.filter((x) => !isDone(x)) : fullList;   // 探しているときは隠さない
-  const arrow = (k) => sortBy === k ? (sortDesc ? " ▾" : " ▴") : "";
+  const arrow = (k) => sortBy === k ? `<span class="kc-sort-ind" title="${sortDesc ? "降順" : "昇順"}">${sortDesc ? "↓" : "↑"}</span>` : "";
   const on = (k) => filt[k] && filt[k].size ? " on" : "";
   if (!rows.length) {
     const q0 = ($("clFind") && $("clFind").value || "").trim();
@@ -804,12 +858,12 @@ function render() {
     `<div class="kc-tablewrap"><table class="kc-table${listId !== "all" ? " kc-has-check" : ""}">
       <tr>
         <th class="kc-th-c kc-fx-check" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>
-        <th class="kc-th-s kc-fx-stage"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ ▾</button></th>
-        <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b" data-sort="company">会社名${arrow("company")}</button></th>
-        <th class="kc-th-p">担当者</th>
-        <th class="kc-th-m">メールアドレス</th>
-        <th class="kc-th-l">最終架電日</th>
-        <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス ▾</button></th>
+        <th class="kc-th-s kc-fx-stage"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ${arrow("stage")} ▾</button></th>
+        <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b" data-sort="company" title="押すたびに 昇順→降順→解除">会社名${arrow("company")}</button></th>
+        <th class="kc-th-p"><button type="button" class="kc-th-b" data-sort="person" title="押すたびに 昇順→降順→解除">担当者${arrow("person")}</button></th>
+        <th class="kc-th-m"><button type="button" class="kc-th-b" data-sort="mail" title="押すたびに 昇順→降順→解除">メールアドレス${arrow("mail")}</button></th>
+        <th class="kc-th-l"><button type="button" class="kc-th-b" data-sort="lastcall" title="押すたびに 昇順→降順→解除">最終架電日${arrow("lastcall")}</button></th>
+        <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス${arrow("status")} ▾</button></th>
         <th class="kc-th-h kc-th-histc"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-r">記録</th>
         <th class="kc-th-d">資料送付</th>
@@ -818,8 +872,8 @@ function render() {
           const exOn = (filt.extra && filt.extra[k] && filt.extra[k].size) || (filt.range && filt.range[k]) ? " on" : "";
           const onCls = (isEnd && filt.post) || (isHire && (filt.hireMin !== "" || filt.hireMax !== "")) ? " on" : exOn;
           const btn = (isEnd || isHire)
-            ? `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-rcflt="${isEnd ? "post" : "hire"}">${esc(k)} ▾</button>`
-            : `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-exflt="${esc(k)}">${esc(k)} ▾</button>`;
+            ? `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-rcflt="${isEnd ? "post" : "hire"}" data-rck2="${esc(k)}">${esc(k)}${arrow("x:" + k)} ▾</button>`
+            : `<button type="button" class="kc-th-b kc-th-rcb${onCls}" data-exflt="${esc(k)}">${esc(k)}${arrow("x:" + k)} ▾</button>`;
           return `<th class="kc-th-rc" draggable="true" data-rck="${esc(k)}" title="ドラッグで並べ替え">${btn}<button type="button" class="kc-rc-x" data-rcx="${esc(k)}" title="この列を消す" aria-label="この列を消す">✕</button></th>`;
         }).join("")}
       </tr>` +
@@ -833,7 +887,7 @@ function render() {
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
         : "";
       // かけた（記録済み）グループの先頭に、区切りを出す（どこまでかけたか分かるように）
-      const かけ区切り = (かけた(x) && (i === 0 || !かけた(list[i - 1])))
+      const かけ区切り = (!sortBy && かけた(x) && (i === 0 || !かけた(list[i - 1])))
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter(かけた).length}件）</td></tr>`
         : "";
       return 区切り + かけ区切り + `
@@ -871,7 +925,7 @@ function render() {
   box.querySelectorAll("[data-rcflt]").forEach((b) =>
     b.addEventListener("click", (e) => {
       e.stopPropagation();
-      (b.dataset.rcflt === "post" ? openPostFilter : openHireFilter)();
+      (b.dataset.rcflt === "post" ? openPostFilter : openHireFilter)(b.dataset.rck2);
     }));
   box.querySelectorAll("[data-exflt]").forEach((b) =>
     b.addEventListener("click", (e) => { e.stopPropagation(); openFilter(b.dataset.exflt, b); }));
@@ -888,8 +942,11 @@ function render() {
     }));
   box.querySelectorAll("[data-sort]").forEach((b) =>
     b.addEventListener("click", () => {
-      if (sortBy === b.dataset.sort) sortDesc = !sortDesc;
-      else { sortBy = b.dataset.sort; sortDesc = false; }
+      // 昇順 → 降順 → 解除
+      const k = b.dataset.sort;
+      if (sortBy !== k) setSort(k, false);
+      else if (!sortDesc) setSort(k, true);
+      else setSort("", false);
       render();
     }));
   const hb = box.querySelector("[data-hist]");
@@ -897,7 +954,7 @@ function render() {
     // 履歴は「なし → あり → 全部」で切り替える
     filt.hist = filt.hist === "" ? "none" : filt.hist === "none" ? "some" : "";
     saveFilt();
-    if (!filt.hist) { sortBy = "hist"; sortDesc = !sortDesc; }
+    if (!filt.hist) setSort("hist", sortBy === "hist" ? !sortDesc : false);
     render();
   });
 
@@ -1648,6 +1705,12 @@ function renderDock() {
     .kc-plan-row:not(.on) .kc-plan-rest{opacity:.4;}
     .kc-next-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:#eef3f1;color:#5b7a6d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-next-badge.due{background:#f0a020;color:#fff;}
+    .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
+    .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
+    .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
+    .kc-sortbar-b.on{background:#0d5b47;border-color:#0d5b47;color:#fff;font-weight:700;}
+    .kc-sortbar-off{margin-left:auto;color:#5b7a6d;}
+    .kc-sort-ind{display:inline-block;margin-left:3px;color:#1d9e75;font-weight:800;}
     .kc-next-edit{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;cursor:pointer;}
     .kc-next-edit:hover{text-decoration:underline;}
     .kc-next-pop{position:fixed;z-index:3000;width:260px;box-sizing:border-box;background:#fff;border:1px solid #d7e6df;border-radius:12px;box-shadow:0 8px 24px rgba(13,91,71,.15);padding:12px;font-size:12px;color:#1f3a30;}
@@ -4953,7 +5016,7 @@ document.addEventListener("click", (ev) => {
     ev.preventDefault();
     filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
     saveFilt();
-    sortBy = ""; sortDesc = false;
+    setSort("", false);
     if ($("clFind")) $("clFind").value = "";
     render();
   }
