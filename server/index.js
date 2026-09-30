@@ -734,6 +734,9 @@ if (!PUBLIC_URL) {
 }
 
 const app = express();
+// Railwayのヘルスチェック用（ログイン不要・DB不要）。新しいデプロイがここに200を返してから切り替わるので、
+// 入れ替えの間に「Not Found」になる時間を無くす。
+app.get("/healthz", (req, res) => res.status(200).type("text/plain").send("ok"));
 
 // --- 個人アカウント認証（Cookieセッション） ---
 // その人が「kincallだけ」の役割かどうか
@@ -21802,7 +21805,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30h アポの内訳（リスト別・リードソース別でアポを押すと出る一覧）に「CSVで書き出す」を付けた。取った日・時刻・会社・担当者・電話・グループ・リスト・獲得者・商談・SFステージ・メモ（全文）をExcelで開けるCSV（BOM付きUTF-8）で保存。画面のメモは120字で切り、全文はマウスを載せると出る。";
+const BUILD_TAG = "2026-09-30i デプロイの入れ替え中に Railway の「Not Found」になって止まって見えることがあったため、ヘルスチェック（/healthz、ログイン不要）と railway.json を追加。新しい版が起動して応答できるまで古い版が動き続け、落ちたときは自動で再起動する。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
