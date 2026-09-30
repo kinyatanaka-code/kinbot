@@ -1003,6 +1003,18 @@ async function loadPerf() {
   if (!body) return;
   if (!_pfWired) {
     _pfWired = true;
+    // 期間に月を足す（2026年9月〜今月。新しい月が上。当月・通算の下に並べる）
+    const sel = $("pfWindow");
+    if (sel && !sel.dataset.months) {
+      sel.dataset.months = "1";
+      const now = new Date(Date.now() + 9 * 3600 * 1000);
+      for (let k = 0; k < 36; k++) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - k, 1));
+        const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        if (key < "2026-09") break;
+        sel.add(new Option(`${d.getUTCFullYear()}年${d.getUTCMonth() + 1}月`, key));
+      }
+    }
     const rl = $("pfReload"); if (rl) rl.addEventListener("click", loadPerf);
     const w = $("pfWindow"); if (w) w.addEventListener("change", loadPerf);
   }

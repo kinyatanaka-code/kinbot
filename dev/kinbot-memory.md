@@ -1170,3 +1170,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30q 月プルダウンの（今月）（先の月）表記を削除。版20260930q。
 
 - 2026-09-30 BUILD_TAG=2026-09-30r 累計表示を .kc-cum（見出し＋3列グリッド、カード幅に収める）に変更。data-goal-other（累計目標−この月の目標）と data-act を持たせ、.kc-dgoal の change で累計目標・差分を再計算。版20260930r。
+
+- 2026-09-30 BUILD_TAG=2026-09-30s /api/apo/perf の window に YYYY-MM（JST月初〜翌月初、listApoPerf の to を使用）。apo.js loadPerf で #pfWindow に 2026-09〜今月の月を追加。版20260930s。

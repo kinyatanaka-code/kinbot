@@ -21931,7 +21931,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30r ダッシュボードのインサイドの「9月からの累計」を、カードの中に収まる2段（見出し／目標・実績・差分）にした。月の目標を直すと、累計の目標・差分もその場で足し直す。";
+const BUILD_TAG = "2026-09-30s アポ履歴のアポ実績（アポ獲得者別ファネル）で、期間を月ごと（2026年9月〜今月）に選べるようにした。当月・通算はそのまま。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -26696,13 +26696,19 @@ app.put("/api/apo/closer-order", async (req, res) => {
 // アポ獲得＝取得した全アポ。以降は紐づくSF商談の現ステージで到達数・移行率・企業名を出す。受注/失注は別に数える。
 app.get("/api/apo/perf", async (req, res) => {
   try {
-    const window = req.query.window === "all" ? "all" : "month";
-    let from = null;
+    // window：all＝通算／month＝当月／YYYY-MM＝その月（JSTの月初〜翌月初）
+    const wq = String(req.query.window || "");
+    const window = wq === "all" ? "all" : /^\d{4}-\d{2}$/.test(wq) ? wq : "month";
+    let from = null, to = null;
     if (window === "month") {
       const now = new Date(Date.now() + 9 * 3600 * 1000);
       from = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 9 * 3600 * 1000).toISOString();
+    } else if (window !== "all") {
+      const [yy, mm] = window.split("-").map(Number);
+      from = new Date(Date.UTC(yy, mm - 1, 1) - 9 * 3600 * 1000).toISOString();
+      to = new Date(Date.UTC(yy, mm, 1) - 9 * 3600 * 1000).toISOString();
     }
-    const apps = await listApoPerf({ from });
+    const apps = await listApoPerf({ from, to });
 
     const sfUser = await sfOperator(req.user).catch(() => "");
     const sfOk = !!(salesforceConfigured() && sfUser && await sfConnected(sfUser).catch(() => false));
