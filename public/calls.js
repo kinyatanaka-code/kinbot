@@ -6820,7 +6820,7 @@ function edFiltered() {
   const g = _edg;
   const v = (id) => { const el = $(id); return el ? String(el.value || "").trim().toLowerCase() : ""; };
   const stg = ($("edStage") && $("edStage").value) || "";
-  const sts = ($("edStatus") && $("edStatus").value) || "";
+  const sts = $("edStatus") ? edMselVals("edStatus") : new Set();   // 架電状態は複数選べる（何も選ばなければすべて）
   const med = ($("edMedia") && $("edMedia").value) || "";
   const qCo = v("edQCompany"), qPe = v("edQPerson"), qPh = v("edQPhone"), qEm = v("edQEmail");
   const empMin = parseInt(($("edEmpMin") && $("edEmpMin").value) || "", 10);
@@ -6829,7 +6829,7 @@ function edFiltered() {
   const dashOnly = !!($("edEmpDash") && $("edEmpDash").checked);
   return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
-    if (sts && g(r, "最終ステータス", "最終結果", "status") !== sts) return false;
+    if (sts.size && !sts.has(g(r, "最終ステータス", "最終結果", "status") || "（なし）")) return false;
     if (_edPastLost) { const pr = edMselVals("edPlReason"); if (pr.size && !pr.has(edLossBig(r) || "（なし）")) return false; }
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
     if (qCo && !g(r, "会社名", "company").toLowerCase().includes(qCo)) return false;
@@ -7173,7 +7173,7 @@ function edBuildTable() {
     th("担当者", txt("edQPerson")) +
     th("電話", txt("edQPhone")) +
     th("メール", txt("edQEmail")) +
-    th("架電状態", sel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status")), "すべて")) +
+    th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
     th("従業員数", empF) +
     (_edNurture
@@ -7207,7 +7207,8 @@ function edWireMsel(box) {
   const btn = box.querySelector(".ed-msel-btn"), pop = box.querySelector(".ed-msel-pop");
   const label = () => {
     const v = [...edMselVals(box.id)];
-    btn.textContent = (v.length === 0 ? "すべて" : v.length === 1 ? v[0] : `${v.length}人を選択中`) + " ▾";
+    const unit = box.id === "edStatus" || box.id === "edPlReason" || box.id === "edClList" ? "件" : "人";
+    btn.textContent = (v.length === 0 ? "すべて" : v.length === 1 ? v[0] : `${v.length}${unit}を選択中`) + " ▾";
     btn.classList.toggle("on", v.length > 0);
   };
   const close = (e) => { if (!box.contains(e.target)) { pop.hidden = true; document.removeEventListener("mousedown", close); } };
