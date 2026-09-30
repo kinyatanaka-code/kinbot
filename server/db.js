@@ -9512,12 +9512,12 @@ export async function apoSetterCoverage({ from, to } = {}) {
 // ただし アポ獲得・ユーザー・失注・アーカイブ・リサイクル・死番 は入れない。
 const NURTURE_WHERE = `
   ( COALESCE(t.stage,'') ILIKE '%ジャッジ%'
+    OR COALESCE(t.status,'') ILIKE '%ジャッジ%'
     OR COALESCE(t.status,'') ILIKE '%営業フォロー%'
     OR COALESCE(t.stage,'') ILIKE '%営業フォロー%' )
   AND COALESCE(t.stage,'')  !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
-  AND COALESCE(t.status,'') !~ 'アポ獲得|使われて|現在使わ|現アナ|欠番|不通'
-  AND NOT EXISTS (SELECT 1 FROM call_list_groups pg WHERE pg.id = l.group_id AND pg.name LIKE '%過去失注%')
-`;   // 「DOC過去失注」などのグループのリストは、ジャッジでもナーチャリングへ回さない
+  AND COALESCE(t.status,'') !~ 'アポ獲得|ユーザー|使われて|現在使わ|現アナ|欠番|不通'
+`;   // 2026-09-30：全リスト（過去失注グループ・終了・非表示のリストも）のジャッジ・営業フォローを対象にする
 // メンバーごとのナーチャリング件数（担当＝assigned_to、無ければリストの持ち主）
 export async function nurtureCountsByMember() {
   if (!pool) return [];
@@ -9579,10 +9579,17 @@ export async function listNurtureTargetsForMember(member, { q = "", limit = 2000
          FROM call_targets t
          JOIN call_lists l ON l.id = t.list_id
         WHERE ${where}
-          AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
-        ORDER BY t.id DESC
+        ORDER BY (COALESCE(l.closed, false) OR COALESCE(l.hidden, false)), t.id DESC
         LIMIT $${p.length}`, p);
-    return rows;
+    // 終了・非表示のリストも含めるので、同じリードが複数リストにあるときは1件にまとめる（開いているリストの方を残す）
+    const seen = new Set(), out = [];
+    for (const r of rows) {
+      const k = r.lead_id ? "L:" + String(r.lead_id).slice(0, 15)
+        : "C:" + normCompanyKey(r.company) + "|" + String(r.phone || "").replace(/\D/g, "").slice(-9) + "|" + String(r.person || "").replace(/[\s　]/g, "");
+      if (seen.has(k)) continue;
+      seen.add(k); out.push(r);
+    }
+    return out;
   } catch (e) { console.error("[db] listNurtureTargetsForMember", e.message); return []; }
 }
 // ナーチャリングの件数（全体・今週かける予定、担当メンバー別）。担当＝assigned_to、無ければリストの持ち主。
@@ -9595,7 +9602,7 @@ export async function nurtureSummary(untilIso) {
               count(*)::int AS n,
               count(*) FILTER (WHERE t.next_call_at IS NOT NULL AND t.next_call_at <= $1::timestamptz AND NOT COALESCE(t.done,false))::int AS w
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
-        WHERE (${NURTURE_WHERE}) AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        WHERE (${NURTURE_WHERE})
         GROUP BY 1`, [untilIso]);
     for (const r of rows) {
       out.total += r.n; out.week += r.w;
@@ -9801,14 +9808,13 @@ export async function nurtureDiag() {
 export async function nurtureCountsByListName() {
   if (!pool) return {};
   try {
-    // その人が持ち主(owner)のリストの中の、ナーチャリング相当（ジャッジ・営業フォロー）のリード数。
-    // ＝管理タブのカードと同じ数え方（リストの持ち主で束ねる）。キーはメール（実績カードの key と一致させる）。
+    // その人が担当（assigned_to、無ければリストの持ち主）の、ナーチャリング相当（ジャッジ・営業フォロー）のリード数。
+    // ＝かける画面の「ナーチャリング（まとめ）」と同じ数え方（全リスト。終了・非表示のリストも含む）。キーはメール（実績カードの key と一致させる）。
     const { rows } = await pool.query(
-      `SELECT lower(l.owner) AS email, count(*)::int AS 件数
+      `SELECT lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) AS email, count(*)::int AS 件数
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
-        WHERE (${NURTURE_WHERE}) AND l.owner IS NOT NULL
-          AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
-        GROUP BY lower(l.owner)`);
+        WHERE (${NURTURE_WHERE}) AND COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner) IS NOT NULL
+        GROUP BY 1`);
     const out = {};
     for (const r of rows) { if (r.email) out[r.email] = Number(r.件数 || 0); }
     return out;
@@ -9821,14 +9827,13 @@ export async function nurtureWeekPlanByListName() {
   try {
     const { rows } = await pool.query(
       `WITH wk AS (SELECT date_trunc('week', (now() AT TIME ZONE 'Asia/Tokyo')) AS mon)
-       SELECT lower(l.owner) AS email, count(*)::int AS 件数
+       SELECT lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner)) AS email, count(*)::int AS 件数
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id, wk
-        WHERE (${NURTURE_WHERE}) AND l.owner IS NOT NULL
-          AND NOT COALESCE(l.closed, false) AND NOT COALESCE(l.hidden, false)
+        WHERE (${NURTURE_WHERE}) AND COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner) IS NOT NULL
           AND t.done = false AND t.next_call_at IS NOT NULL
           AND (t.next_call_at AT TIME ZONE 'Asia/Tokyo') >= wk.mon
           AND (t.next_call_at AT TIME ZONE 'Asia/Tokyo') <  wk.mon + INTERVAL '7 days'
-        GROUP BY lower(l.owner)`);
+        GROUP BY 1`);
     const out = {};
     for (const r of rows) { if (r.email) out[r.email] = Number(r.件数 || 0); }
     return out;

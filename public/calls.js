@@ -342,7 +342,8 @@ function isUser(x) { return /ユーザー/.test(状況(x)); }
 // 直近失注（クロス失注）。かける対象から外す。
 // 過去失注のリストでは、失注は「かける対象」（対象外にしない）
 let _pastLost = false;
-function isLost(x) { return !_pastLost && /失注/.test(状況(x)); }
+// ナーチャリング（まとめ）は、ジャッジ・営業フォローを追うための一覧なので、失注の記録があっても対象外にしない
+function isLost(x) { return !_pastLost && !/^nurture/.test(String(listId || "")) && /失注/.test(状況(x)); }
 // 初回商談日（なければ初回アポ設定日）が今日以降か＝これから商談がある
 function hasUpcomingMeeting(x) {
   const raw = recruitVal(x, /初回商談日|初回商談予定日/) || recruitVal(x, /初回アポ設定日|初回アポ日/) || (x && (x["初回商談日"] || x["初回アポ設定日"])) || "";
