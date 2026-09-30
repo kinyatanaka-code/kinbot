@@ -1160,3 +1160,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30l /api/calls/apo-dashboard に手補正。DASH_APO_ADJUST_BASE（コード）＋ settings.dashApoAdjust を「period:期間キー」→{名前(空白なし) or メール: 数} で合算し、個人の actual に足す（チーム合計にも乗る）。2026-09 月次で 田中欽也 +1（記録に反映されなかったアポ1件）。架電記録・stats-grid・リスト別は変更なし。版20260930l。
 
 - 2026-09-30 BUILD_TAG=2026-09-30m 出勤PDF取り込み。ai_read.js readShiftCalendar（Gemini、responseMimeType=json、登録インターン氏名を渡してフルネームで返させ raw に表記、前後月の日は除外）。POST /api/inside-shifts/read-file（multer memory 20MB、名前→フルネーム一致 or 名字の前方一致で1人に決まるとき）→ items（未確定は email 空）。POST /api/inside-shifts/import {month, replace, shifts}（replace は db.deleteInsideShiftsBetween で月を消してから upsertInsideShift）。calls.html #scPdf/#scPdfFile、calls.js openShiftImport（行ごとにチェック・メンバー選択・時刻修正、置き換えは既定ON＋確認）。版20260930m。
+
+- 2026-09-30 BUILD_TAG=2026-09-30n ダッシュボード月次の月選択。/api/calls/apo-dashboard?period=month&month=YYYY-MM → computeStatsGrid(month, span, {anchor: YYYY-MM-01})、monthKey（g.今）＝選んだ月なので目標・手補正（DASH_APO_ADJUST_BASE）もその月。インセンティブ（INCENTIVE_FROM から3か月）・ナーチャリング・今週かける予定は月に依らず現在値。calls.js：#dashWeekMonth を月次でも表示（12か月分）、クエリに month を常に付与、openDashDetail は過去月ならその月末を anchor に。版20260930n。

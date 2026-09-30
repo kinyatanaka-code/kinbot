@@ -12978,7 +12978,14 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const weeksBack = Math.ceil((nowJw.getTime() - monthStartD.getTime()) / (7 * 86400000)) + 6;
       span = Math.min(26, Math.max(6, weeksBack));
     }
-    const g = await computeStatsGrid(period, span);
+    // 月次も「月」を選べる（既定は今月）。選んだ月を基準日にして、その月の実績・目標を出す。
+    // インサイドの実施インセンティブ（9〜11月の実施）・ナーチャリング・今週かける予定は、月に関係なく今の値のまま。
+    let anchor = "";
+    if (period === "month" && /^\d{4}-\d{2}$/.test(String(req.query.month || ""))) {
+      selMonth = String(req.query.month);
+      anchor = `${selMonth}-01`;
+    }
+    const g = await computeStatsGrid(period, span, anchor ? { anchor } : {});
     const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
     const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
     const bucket = (g.区切り && g.区切り[i]) ? g.区切り[i] : null;
@@ -21895,7 +21902,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30m 出勤管理に「PDFから取り込む」を追加。インターン出勤カレンダーのPDF（画像も可）をAIで読み取り、日付・名前（名字→登録メンバーに当てはめ）・時間の一覧を出す。確認・修正してから取り込む。既定はその月の出勤予定をPDFの内容で置き換え（前後の月の薄い日は入れない）。";
+const BUILD_TAG = "2026-09-30n 実績のダッシュボードの月次で、月を選べるようにした（これまでは今月だけ）。アポの実績・目標・差分はその月の分（月ごとにリセット）。インサイドの実施インセンティブ見込み・ナーチャリング・今週かける予定は、どの月を見ても今の値のまま。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

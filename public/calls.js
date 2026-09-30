@@ -2888,13 +2888,13 @@ function openEdit(id) {
 // ───────── ダッシュボード（アポの目標・実績・差分／月次・週次） ─────────
 let _dashData = null;
 let dashPeriod = "month";          // month（月次）/ week（週次）
-let dashWeekMonth = "";            // 週次で見る月（YYYY-MM、空＝今月）
+let dashWeekMonth = "";            // 見る月（YYYY-MM、空＝今月）。月次・週次で共通
 // 週次の月セレクタの選択肢（直近6か月）を用意する
 function fillDashMonths() {
   const sel = $("dashWeekMonth");
   if (!sel || sel.options.length) return;
   const now = new Date();
-  for (let k = 0; k < 6; k++) {
+  for (let k = 0; k < 12; k++) {
     const d = new Date(now.getFullYear(), now.getMonth() - k, 1);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     sel.add(new Option(`${d.getFullYear()}年${d.getMonth() + 1}月`, key));
@@ -2908,10 +2908,10 @@ async function loadDash() {
   fillDashMonths();
   // トグル・月セレクタの見た目を今の期間に合わせる
   document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.classList.toggle("active", b.dataset.p === dashPeriod));
-  const msel = $("dashWeekMonth"); if (msel) { msel.style.display = dashPeriod === "week" ? "" : "none"; msel.value = dashWeekMonth; }
+  const msel = $("dashWeekMonth"); if (msel) { msel.style.display = ""; msel.value = dashWeekMonth; }
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    const q = dashPeriod === "week" ? `period=week&month=${encodeURIComponent(dashWeekMonth)}` : `period=month`;
+    const q = `period=${dashPeriod === "week" ? "week" : "month"}&month=${encodeURIComponent(dashWeekMonth)}`;
     const d = await (await fetch(`/api/calls/apo-dashboard?${q}`)).json();
     if (d.error) throw new Error(d.error);
     _dashData = d;
@@ -3148,6 +3148,16 @@ async function openDashDetail(subject, label) {
   const m = openModal(`${label} ・ 内訳`, inner, { wide: true });
   let p = "day";   // 最初は日次
   let anchor = ""; // 基準日（空＝今日）。矢印で過去へ動かす
+  // ダッシュボードで過去の月を見ているときは、その月の最終週から開く
+  {
+    const nj = new Date(Date.now() + 9 * 3600000);
+    const cur = `${nj.getUTCFullYear()}-${String(nj.getUTCMonth() + 1).padStart(2, "0")}`;
+    if (dashWeekMonth && dashWeekMonth < cur) {
+      const [yy, mm] = dashWeekMonth.split("-").map(Number);
+      const ld = new Date(Date.UTC(yy, mm, 0));
+      anchor = `${ld.getUTCFullYear()}-${String(ld.getUTCMonth() + 1).padStart(2, "0")}-${String(ld.getUTCDate()).padStart(2, "0")}`;
+    }
+  }
   const ymdOf = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
   const shiftAnchor = (dir) => {
     // 期間の見えている本数ぶん、まとめて前後に動かす
