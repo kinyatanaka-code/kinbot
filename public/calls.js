@@ -1706,6 +1706,11 @@ function renderDock() {
     .kc-plan-row:not(.on) .kc-plan-rest{opacity:.4;}
     .kc-next-badge{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:10px;background:#eef3f1;color:#5b7a6d;font-size:11px;font-weight:700;vertical-align:middle;}
     .kc-next-badge.due{background:#f0a020;color:#fff;}
+    .fn-step-link{cursor:pointer;box-shadow:inset 0 0 0 1.5px #1d9e75;}
+    .fn-step-link:hover{background:#e3f4ed;}
+    .fn-step-link b{text-decoration:underline;text-underline-offset:3px;}
+    .kc-apo-whos{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:#5b7a6d;margin:4px 0 10px;}
+    .kc-apo-who{background:#eef7f3;color:#0d5b47;border-radius:999px;padding:2px 10px;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -4012,7 +4017,9 @@ async function loadListStats() {
     if (!items.length) { box.innerHTML = sfwarn + `<div class="note">グループがまだありません。リスト管理でグループを作り、各リストに割り当ててください。</div>`; return; }
     const pct = (a, b) => (b ? (a / b * 100).toFixed(1) + "%" : "—");
     const card = (L) => {
-      const step = (名, 数, 率) => `<div class="fn-step"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`;
+      const step = (名, 数, 率) => (名 === "アポ" && Number(数) > 0)
+        ? `<div class="fn-step fn-step-link" data-apo-gid="${L.group_id}" title="押すと、アポが取れた会社の一覧を出します"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`
+        : `<div class="fn-step"><b>${数}</b><span>${esc(名)}</span><i>${esc(率 || "")}</i></div>`;
       return `<div class="kc-listcard grp-card" data-gid="${L.group_id}" style="cursor:pointer">
         <div class="kc-listcard-h">${esc(L.group_name)}<span class="kc-listcard-sum">リスト ${L["リスト数"] || 0}件</span>
           <span class="kc-listcard-sum">コール ${L["コール"]}｜接触率 ${esc(L["接触率"])}｜アポ率 ${esc(L["アポ率"])}｜案件化率 ${esc(L["案件化率"])}</span>
@@ -4050,6 +4057,57 @@ async function loadListStats() {
       loadListStats();
     });
     box.querySelectorAll(".grp-card").forEach((c) => c.addEventListener("click", () => openGroupDetail(c.dataset.gid, c)));
+    box.querySelectorAll("[data-apo-gid]").forEach((el) => el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      openGroupApos(el.dataset.apoGid, el.closest(".grp-card"));
+    }));
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
+// アポの内訳：そのグループで期間内にアポが取れた会社の一覧
+async function openGroupApos(gid, card) {
+  const box = document.getElementById("grpDetail"); if (!box) return;
+  const key = "apo:" + gid;
+  if (box.dataset.open === key) { box.innerHTML = ""; box.dataset.open = ""; return; }
+  box.dataset.open = key;
+  box.innerHTML = `<div class="note">アポの内訳を読み込んでいます…</div>`;
+  const pickedFrom = LIST_FROM, pickedTo = LIST_TO;
+  try {
+    let qq = "";
+    if (pickedFrom && pickedTo) qq = `?from=${encodeURIComponent(pickedFrom)}&to=${encodeURIComponent(pickedTo)}`;
+    else { const rg = ($("stRange") || {}).textContent || ""; const m = rg.match(/(\d{4}-\d{2}-\d{2})\s*〜\s*(\d{4}-\d{2}-\d{2})/); if (m) qq = `?from=${m[1]}&to=${m[2]}`; }
+    const d = await (await fetch(`/api/calls/group-apos/${encodeURIComponent(gid)}${qq}`)).json();
+    if (d.error) throw new Error(d.error);
+    if (box.dataset.open !== key) return;
+    const h = card ? ((card.querySelector(".kc-listcard-h") || {}).firstChild || {}).textContent || "" : "";
+    const who = Object.entries(d["獲得者別"] || {}).sort((a, b) => b[1] - a[1])
+      .map(([n, c]) => `<span class="kc-apo-who">${esc(n)} <b>${c}</b></span>`).join("");
+    const stageChip = (s2) => {
+      if (!s2) return `<span class="st-chip none">SFに商談なし</span>`;
+      const cls = /受注処理完了/.test(s2) ? "won" : /04/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
+      return `<span class="st-chip ${cls}">${esc(s2)}</span>`;
+    };
+    const rowsHtml = (d.items || []).map((x) => `<tr>
+        <td class="kc-g-n" style="white-space:nowrap">${esc(x["日時"])}</td>
+        <td class="kc-g-name">${esc(x["会社"])}${x["担当者"] ? `<div class="ww">${esc(x["担当者"])}</div>` : ""}</td>
+        <td class="kc-g-name"><div class="ww" style="margin:0">${esc(x["リスト"])}</div></td>
+        <td class="kc-g-n" style="white-space:nowrap">${esc(x["獲得者"] || "—")}</td>
+        <td class="kc-g-n">${x["実施"] ? "実施済み" : "—"}</td>
+        <td class="kc-g-n">${stageChip(x["SFステージ"])}</td>
+        <td class="kc-g-name"><div class="ww" style="margin:0">${esc(x["メモ"] || "")}</div></td>
+      </tr>`).join("");
+    box.innerHTML = `
+      <div class="kc-listcard" style="margin-top:12px">
+        <div class="kc-listcard-h">${esc(h.trim())} のアポ ${d["件数"]}件<span class="kc-listcard-sum">${esc(d.from)}〜${esc(d.to)}</span>
+          <button type="button" class="pr-b" id="grpApoClose" style="margin-left:auto">閉じる</button></div>
+        ${who ? `<div class="kc-apo-whos">獲得者別：${who}</div>` : ""}
+        <div style="max-height:480px;overflow:auto">
+        <table class="sh-table kc-grid"><tr><th class="kc-g-h">取った日時</th><th class="kc-g-name">会社</th><th class="kc-g-name">リスト</th><th class="kc-g-h">獲得者</th><th class="kc-g-h">商談</th><th class="kc-g-h">SFステージ</th><th class="kc-g-name">メモ</th></tr>
+        ${rowsHtml || `<tr><td colspan="7" class="kc-g-name">この期間のアポはありません。</td></tr>`}</table>
+        </div>
+      </div>`;
+    const c = $("grpApoClose"); if (c) c.addEventListener("click", () => { box.innerHTML = ""; box.dataset.open = ""; });
+    box.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 

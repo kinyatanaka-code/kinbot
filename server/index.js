@@ -314,6 +314,7 @@ import {
   companiesByGroup,
   groupBreakdown,
   apoCompaniesByGroup,
+  listGroupApoLogs,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -13473,6 +13474,64 @@ app.get("/api/calls/group-detail/:id", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リスト別のアポの内訳：そのグループで期間内にアポ獲得になった架電を、会社ごとに1件ずつ返す
+app.get("/api/calls/group-apos/:id", async (req, res) => {
+  try {
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600 * 1000);
+    let from = String(req.query.from || ""), to = String(req.query.to || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      const y = nowJ.getUTCFullYear(), m = nowJ.getUTCMonth();
+      from = ymd(new Date(Date.UTC(y, m, 1))); to = ymd(new Date(Date.UTC(y, m + 1, 0)));
+    }
+    const gid = parseInt(req.params.id, 10);
+    if (!gid) return res.status(400).json({ error: "グループがありません" });
+    const logs = await listGroupApoLogs(gid, from, to);
+    // 獲得者の名前
+    const names = new Map();
+    for (const c of new Set(logs.map((r) => r.caller).filter(Boolean))) names.set(c, await displayNameOf(c).catch(() => "") || c.split("@")[0]);
+    // SFのステージ（クロス商談・会社名で引く）
+    const stageOf = new Map();
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = String(st.psOwner || "").trim();
+    if (sfUser && logs.length) {
+      try {
+        const q = await sfQuery(sfUser,
+          `SELECT Account.Name, StageName FROM Opportunity
+            WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC LIMIT 5000`);
+        const rank = (x) => /受注処理完了/.test(x) ? 5 : /04/.test(x) ? 4 : /03/.test(x) ? 3 : /02/.test(x) ? 2 : /01/.test(x) ? 1 : 0;
+        for (const o of q.records || []) {
+          const k = normCompanyKey((o.Account && o.Account.Name) || ""); if (!k) continue;
+          const sname = String(o.StageName || ""); const cur = stageOf.get(k);
+          if (!cur || rank(sname) > rank(cur)) stageOf.set(k, sname);
+        }
+      } catch (e) { console.warn("[group-apos] SF:", e.message); }
+    }
+    // 商談の記録（実施）
+    const 実施キー = new Set();
+    try {
+      const ms = await listMeetings({ isAdmin: true, from, limit: 4000, light: true }).catch(() => []);
+      for (const m of ms) { const k1 = normCompanyKey(companyFromTitle(m.title || "") || ""); const k2 = normCompanyKey(m.account || ""); if (k1) 実施キー.add(k1); if (k2) 実施キー.add(k2); }
+    } catch {}
+    const items = logs.map((r) => {
+      const k = normCompanyKey(r.company || "");
+      const at = new Date(new Date(r.at).getTime() + 9 * 3600 * 1000).toISOString();
+      return {
+        日時: `${at.slice(5, 10).replace("-", "/")} ${at.slice(11, 16)}`,
+        会社: r.company || "", 担当者: r.person || "", リスト: r.list_name || "",
+        獲得者: names.get(r.caller) || "", 結果: r.result || "",
+        メモ: String(r.memo || "").replace(/\s+/g, " ").slice(0, 120),
+        SFステージ: stageOf.get(k) || "", 実施: 実施キー.has(k), target_id: r.target_id,
+      };
+    });
+    // 獲得者ごとの件数
+    const 獲得者別 = {};
+    for (const x of items) { const n = x.獲得者 || "（不明）"; 獲得者別[n] = (獲得者別[n] || 0) + 1; }
+    res.json({ ok: true, from, to, 件数: items.length, 獲得者別, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // グループ別のファネル（コール→接触→アポ→実施→案件化→KPI→MID→受注）
 app.get("/api/calls/group-funnel", async (req, res) => {
   try {
@@ -21575,7 +21634,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30d カレンダーで「リスケ」と書いたアポにリマインドが送られてしまう不具合を直した。これまでは取り込んだときの予定名だけを見ていて、担当の商談予定（kinbotが作った予定）に書いた場合や、スキャン前に書いた場合を取りこぼしていた。送る直前（と1時間前の予告時）に、アポ獲得者の予定と担当の商談予定の両方を読み直し、予定名にリスケ・キャンセル等／本文の行頭にリスケ・キャンセル／予定の削除があれば送らない。15分ごとのスキャンでも、商談予定側に書かれたリスケ・キャンセルでアポを外す。";
+const BUILD_TAG = "2026-09-30e 実績のリスト別で、各グループの「アポ」の数字を押すと、その期間にアポが取れた会社の一覧（取った日時・会社・担当者・リスト・獲得者・商談の実施・SFステージ・メモ）と獲得者別の件数を出すようにした。数はカードのアポと同じ（アポ獲得の架電記録1件ずつ）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

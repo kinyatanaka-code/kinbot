@@ -8851,6 +8851,27 @@ export async function apoCompaniesByGroup(fromJst, toJst) {
   } catch (e) { console.error("[db] apoCompaniesByGroup", e.message); return []; }
 }
 
+// あるグループで、期間内に「アポ獲得」と記録された架電（1件ずつ）。リスト別のアポ数と同じ数え方。
+export async function listGroupApoLogs(groupId, fromJst, toJst) {
+  if (!pool || !groupId) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id, l.at, l.result, l.memo, lower(COALESCE(l.caller,'')) AS caller,
+              t.id AS target_id, t.company, t.person, t.phone, t.lead_id,
+              cl.id AS list_id, cl.name AS list_name
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl  ON cl.id = t.list_id
+        WHERE cl.group_id = $1
+          AND l.result ~ 'アポ獲得'
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $2::date
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $3::date
+        ORDER BY l.at DESC
+        LIMIT 2000`, [groupId, fromJst, toJst]);
+    return rows;
+  } catch (e) { console.error("[db] listGroupApoLogs", e.message); return []; }
+}
+
 // あるグループの中を見る：リストごとの件数と、会社ごとの最終結果
 export async function groupBreakdown(groupId, fromJst, toJst) {
   if (!pool || !groupId) return { lists: [], companies: [] };
