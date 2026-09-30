@@ -1162,3 +1162,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30m 出勤PDF取り込み。ai_read.js readShiftCalendar（Gemini、responseMimeType=json、登録インターン氏名を渡してフルネームで返させ raw に表記、前後月の日は除外）。POST /api/inside-shifts/read-file（multer memory 20MB、名前→フルネーム一致 or 名字の前方一致で1人に決まるとき）→ items（未確定は email 空）。POST /api/inside-shifts/import {month, replace, shifts}（replace は db.deleteInsideShiftsBetween で月を消してから upsertInsideShift）。calls.html #scPdf/#scPdfFile、calls.js openShiftImport（行ごとにチェック・メンバー選択・時刻修正、置き換えは既定ON＋確認）。版20260930m。
 
 - 2026-09-30 BUILD_TAG=2026-09-30n ダッシュボード月次の月選択。/api/calls/apo-dashboard?period=month&month=YYYY-MM → computeStatsGrid(month, span, {anchor: YYYY-MM-01})、monthKey（g.今）＝選んだ月なので目標・手補正（DASH_APO_ADJUST_BASE）もその月。インセンティブ（INCENTIVE_FROM から3か月）・ナーチャリング・今週かける予定は月に依らず現在値。calls.js：#dashWeekMonth を月次でも表示（12か月分）、クエリに month を常に付与、openDashDetail は過去月ならその月末を anchor に。版20260930n。
+
+- 2026-09-30 BUILD_TAG=2026-09-30o fillDashMonths：2026-09 〜 今月+6か月（新しい月が上、今月／先の月の表示付き）。サーバーは先の月でも月次（anchor）・週ラップ（選んだ月の平日ラップ）とも実績0で出るので、目標だけ先に入れられる。版20260930o。
