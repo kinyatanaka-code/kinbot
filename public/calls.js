@@ -3635,9 +3635,10 @@ async function loadAdmin() {
             <button class="btn" id="psRun" type="button">今すぐ実行</button>
             <button class="btn ghost" id="psDry" type="button">お試し（書き込まず件数だけ）</button>
             <button class="btn ghost" id="psForce" type="button">実績で強制上書き</button>
+            <button class="btn ghost" id="psClear" type="button" style="color:#a32d2d;border-color:#e8c4bd">実績をクリア</button>
             <span class="saved" id="psMsg" hidden></span>
           </div>
-          <p class="note" style="margin:2px 0 0">通常の実行は、人が手で直したセルは上書きしません（kinbotが前回書いた値のままのセルだけ最新の実績に更新）。「強制上書き」は手入力も含めて実績で置き換えます。</p>
+          <p class="note" style="margin:2px 0 0">通常の実行は、人が手で直したセルは上書きしません（kinbotが前回書いた値のままのセルだけ最新の実績に更新）。「強制上書き」は手入力も含めて実績で置き換えます。「実績をクリア」は、選んだメンバーの実績の欄を空にします（目標は残ります）。</p>
           <div class="note" id="psResult" style="margin-top:6px"></div>
           <div id="psDetail" style="margin-top:6px;font-size:12px;line-height:1.6"></div>
         </div>
@@ -3727,6 +3728,47 @@ async function loadAdmin() {
         const r = await fetch("/api/process-sheet", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ autoRun: e.target.checked }) });
         if (!r.ok) throw new Error((await r.json()).error || "変更できません");
       } catch (err) { alert("変更できませんでした：" + err.message); e.target.checked = !e.target.checked; }
+    });
+    // 実績をクリア：対象のメンバーを選んで、そのメンバーの実績セルを空にする
+    if ($("psClear")) $("psClear").addEventListener("click", async () => {
+      const rs = $("psResult");
+      rs.textContent = "シートを読んでいます…";
+      try {
+        const r0 = await fetch("/api/process-sheet/clear", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ dryRun: true }) });
+        const d0 = await r0.json();
+        if (!r0.ok) throw new Error(d0.error || "シートを読めませんでした");
+        rs.textContent = "";
+        const ppl = d0.people || [];
+        const m = openModal("実績をクリア", `
+          <div class="note" style="margin-bottom:8px">反映先シートの、選んだメンバーの<b>実績</b>の欄（コール・接触・アポ（期内）・アポ（期外））を、すべての日付で空にします。目標・稼働時間目標は消しません。</div>
+          <label style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-weight:700"><input type="checkbox" id="psClAll" checked /> 全員</label>
+          <div id="psClList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:4px 10px;max-height:40vh;overflow:auto;padding:6px;border:1px solid #e3ece8;border-radius:10px">
+            ${ppl.map((n) => `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="psClP" value="${esc(n)}" checked /> ${esc(n)}</label>`).join("")}
+          </div>
+          <div class="modal-actions" style="margin-top:12px">
+            <button class="btn ghost" type="button" id="psClNo">やめる</button>
+            <button class="btn" type="button" id="psClGo" style="background:#a32d2d;border-color:#a32d2d">クリアする</button>
+          </div>`);
+        const all = m.el.querySelector("#psClAll");
+        const boxes = () => [...m.el.querySelectorAll(".psClP")];
+        all.addEventListener("change", () => boxes().forEach((x) => { x.checked = all.checked; }));
+        boxes().forEach((x) => x.addEventListener("change", () => { all.checked = boxes().every((y) => y.checked); }));
+        m.el.querySelector("#psClNo").addEventListener("click", () => m.close());
+        m.el.querySelector("#psClGo").addEventListener("click", async (e) => {
+          const picked = boxes().filter((x) => x.checked).map((x) => x.value);
+          if (!picked.length) { alert("メンバーを選んでください"); return; }
+          if (!confirm(`${picked.length}人分の実績を、シートから消します。よろしいですか？`)) return;
+          e.currentTarget.disabled = true;
+          try {
+            const r = await fetch("/api/process-sheet/clear", { method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ people: all.checked ? null : picked }) });
+            const d = await r.json();
+            if (!r.ok) throw new Error(d.error || "クリアできませんでした");
+            m.close();
+            rs.textContent = `クリアしました：${(d.target || []).length}人・${d.count}セルを空にしました（次の「今すぐ実行」で実績が入ります）`;
+          } catch (err) { alert(err.message); e.currentTarget.disabled = false; }
+        });
+      } catch (err) { rs.textContent = "できませんでした：" + err.message; }
     });
     const runPs = async (dry, force) => {
       const rs = $("psResult"); rs.textContent = dry ? "お試し中…" : (force ? "強制上書き中…" : "実行中…");

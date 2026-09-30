@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20261001b";
+    sc.src = "kbchat.js?v=20261001c";
     sc.defer = true;
     document.head.appendChild(sc);
   }

@@ -566,7 +566,7 @@ import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, ana
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
-import { readLayout, readGoals, tally, buildUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
+import { readLayout, readGoals, tally, buildUpdates, buildClearUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
   googleConfigured,
   authUrl,
@@ -16651,6 +16651,41 @@ app.post("/api/process-sheet/run", async (req, res) => {
   }
 });
 
+// 各メンバーの「実績」セルを空にする（目標・稼働時間目標は触らない）。body: { people?: [名前], dryRun?: true }
+// 空にしたセルは影の記録（手入力を守る判定）からも外すので、次の実行ではそのまま実績が書き込まれる。
+app.post("/api/process-sheet/clear", async (req, res) => {
+  try {
+    const st = await getSettings();
+    const b = req.body || {};
+    const sheetId = String(b.sheetId || st.psSheetId || "").trim();
+    const sheetName = String(b.sheetName || st.psSheetName || "").trim();
+    const owner = String(b.owner || st.psOwner || req.user || "").trim();
+    if (!sheetId || !sheetName) return res.status(400).json({ error: "反映先のスプレッドシートとシート名を指定してください" });
+    const values = await readSheet(owner, sheetId, `${sheetName}!A1:DZ200`);
+    const layout = readLayout(values);
+    if (layout.error) return res.status(400).json({ error: layout.error });
+    const people = Array.isArray(b.people) ? b.people.map(String).filter(Boolean) : null;
+    const cells = buildClearUpdates(layout, { people });
+    const names = [...new Set(cells.map((c) => c.who))];
+    if (b.dryRun) return res.json({ ok: true, dryRun: true, count: cells.length, people: layout.people.map((p) => p.name), target: names });
+    if (!cells.length) return res.json({ ok: true, count: 0, target: [] });
+    const gasUrl = String(st.psGasUrl || "").trim(), gasSecret = String(st.psGasSecret || "");
+    if (gasUrl) await writeViaAppsScript(gasUrl, gasSecret, { sheetName, cells });
+    else await updateSheetCells(owner, sheetId, sheetName, cells);
+    // 影の記録から外す
+    try {
+      const sig = `${sheetId}|${sheetName}`;
+      const w = JSON.parse(st.psShadow || "{}") || {};
+      if (w.sig === sig && w.cells) { for (const c of cells) delete w.cells[c.range]; await saveSettings({ psShadow: JSON.stringify(w) }); }
+    } catch {}
+    console.log(`[プロセスシート] 実績をクリア：${cells.length}セル（${names.join("、")}） by ${req.user}`);
+    res.json({ ok: true, count: cells.length, target: names, via: gasUrl ? "gas" : "google" });
+  } catch (e) {
+    console.error("[プロセスシート] クリア", e.message);
+    res.status(400).json({ error: e.message });
+  }
+});
+
 // 書き込めるかどうかを、事前に調べる
 app.post("/api/process-sheet/permission", async (req, res) => {
   try {
@@ -21934,7 +21969,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01b ダッシュボードのカードで、今月の目標（入力欄）を実績と同じくらいの大きさにした（9月からの累計よりはっきり見えるように）。";
+const BUILD_TAG = "2026-10-01c プロセスシートの管理に「実績をクリア」を追加。反映先シートの各メンバーの実績セル（コール・接触・アポ期内・期外）を空にする（目標・稼働時間目標は触らない）。全員か、選んだメンバーだけかを選べる。空にしたセルは次の実行でそのまま実績が入る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

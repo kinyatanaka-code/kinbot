@@ -1178,3 +1178,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-01 BUILD_TAG=2026-10-01a 編集表の架電状態（edStatus）を msel（チェック式複数選択）に。edFiltered は edMselVals の Set で判定、空欄は（なし）。msel のボタン表記は架電状態・失注理由・リストでは「N件を選択中」。版20261001a。
 
 - 2026-10-01 BUILD_TAG=2026-10-01b calls.html：.kc-dgoal（ダッシュボードの目標入力）を 66×34px・20px・太字、big カードは 23px。版20261001b。
+
+- 2026-10-01 BUILD_TAG=2026-10-01c プロセスシート「実績をクリア」。processsheet.js buildClearUpdates(layout,{people,dates})（METRICS の行×各日付の実績列を ""）。POST /api/process-sheet/clear {people?, dryRun?}（dryRun でシート上の担当者一覧）→ GAS or updateSheetCells、psShadow から該当セルを削除。calls.js #psClear → メンバー選択モーダル（全員/個別）→ 確認 → 実行。版20261001c。

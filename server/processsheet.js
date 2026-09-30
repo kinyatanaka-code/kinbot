@@ -387,3 +387,24 @@ export function buildUpdates(layout, tallied, { onlyDates = null, zeroFrom = "",
   }
   return { updates, skipped };
 }
+
+
+// 各担当者の「実績」セル（コール・接触・アポ（期内）・アポ（期外））を空にする書き込み一覧を作る。
+// people：名前の配列（空なら全員）。dates：「10/1」の形の配列（空なら全部の日）。目標・稼働時間目標の列は触らない。
+export function buildClearUpdates(layout, { people = null, dates = null } = {}) {
+  const updates = [];
+  const want = people && people.length ? people : null;
+  for (const p of layout.people || []) {
+    if (want && !want.some((n) => sameName(p.name, n))) continue;
+    for (const d of layout.dates || []) {
+      const key = `${d.m}/${d.d}`;
+      if (dates && dates.length && !dates.includes(key)) continue;
+      for (const metric of METRICS) {
+        const row = p.rows[metric];
+        if (row == null) continue;
+        updates.push({ range: `${colName(d.col)}${row + 1}`, value: "", who: p.name, date: key, metric });
+      }
+    }
+  }
+  return updates;
+}
