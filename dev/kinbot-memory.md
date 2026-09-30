@@ -1176,3 +1176,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30t 代理操作中にZoom埋め込み電話で発信できない件。/api/zoom-phone/caller-id が req.user（代理先）の番号を返し、埋め込みにサインインしている操作者のZoomと合わず zp-make-call が通らなかった。req.impersonatorFrom があればその人の番号（admin は空）。calls.js zpDial：8秒以内に ringing/connected/ended が来なければ callerId なしで再送、ヘッダに zoomphonecall:// の「Zoomアプリでかける」。版20260930t。
 
 - 2026-10-01 BUILD_TAG=2026-10-01a 編集表の架電状態（edStatus）を msel（チェック式複数選択）に。edFiltered は edMselVals の Set で判定、空欄は（なし）。msel のボタン表記は架電状態・失注理由・リストでは「N件を選択中」。版20261001a。
+
+- 2026-10-01 BUILD_TAG=2026-10-01b calls.html：.kc-dgoal（ダッシュボードの目標入力）を 66×34px・20px・太字、big カードは 23px。版20261001b。
