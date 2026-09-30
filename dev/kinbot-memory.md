@@ -1152,3 +1152,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30h アポ内訳のCSV。calls.js renderApoList に #grpApoCsv → downloadApoCsv(title,d)（BOM付き、列：取った日・時刻・会社・担当者・電話・グループ・リスト・獲得者・商談・SFステージ・メモ）。openGroupApos も renderApoList を使うよう統一。group-apos/source-apos の items に 電話・取得日・グループ を追加、メモは2000字まで（画面は120字で切る）。版20260930h。
 
 - 2026-09-30 BUILD_TAG=2026-09-30i 本番が一時「Not Found（The train has not arrived）」。ローカルでDBありの起動は正常、数分後にMCP経由で応答回復＝デプロイの入れ替え中の停止と判断。ヘルスチェックが無かったため /healthz（app作成直後・認証前、200 ok）と railway.json（healthcheckPath=/healthz, timeout 300, restart ON_FAILURE×10, startCommand npm start）を追加。/api/version はDBありだと401になるのでヘルスチェックには使えない。版20260930i。
+
+- 2026-09-30 BUILD_TAG=2026-09-30j 本番が Railway の Not Found のまま応答しなくなった（MCPも無応答）。直前の 7597b4bd で追加した railway.json（healthcheckPath=/healthz・startCommand・restartPolicy）を削除してダッシュボード設定に戻す。/healthz ルートは残置。原因はログ未確認。版20260930j。

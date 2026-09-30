@@ -21805,7 +21805,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30i デプロイの入れ替え中に Railway の「Not Found」になって止まって見えることがあったため、ヘルスチェック（/healthz、ログイン不要）と railway.json を追加。新しい版が起動して応答できるまで古い版が動き続け、落ちたときは自動で再起動する。";
+const BUILD_TAG = "2026-09-30j サーバーが「Not Found」のまま戻らなくなったため、直前に足した railway.json（ヘルスチェック・再起動の設定）を外して、Railwayの画面側の設定に戻した。/healthz は残す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
