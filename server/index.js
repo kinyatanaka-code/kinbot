@@ -599,7 +599,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent, freeBusy, isSlotFree, patchCalendarEvent } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -7056,6 +7056,13 @@ async function maybeNoticeBeforeReminder() {
 
     const all = await listTomorrowReminders();
     if (!all.length) return;
+    // 予告の時点でも、カレンダーの予定を読み直して「リスケ」「キャンセル」「削除」を反映する
+    for (const x of all) {
+      if (!x.送る) continue;
+      const link = await getSmartLink(x.slug).catch(() => null);
+      const lc = link ? await reminderLiveCheck(link).catch(() => null) : null;
+      if (lc && lc.skip) { x.送る = false; x["状態"] = `送らない（${lc.reason}）`; }
+    }
 
     // 担当者ごとにまとめる（送れないものも一緒に知らせる）
     const byOwner = new Map();
@@ -21568,7 +21575,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30c ナーチャリング（まとめ）に、各メンバーが担当する全リストのジャッジ・営業フォローを出すようにした。これまでは過去失注グループ（DOC過去失注など）・終了したリスト・非表示のリストのものが出ず、ステータス側に「ジャッジ」とあるものも拾っていなかった。同じリードが複数リストにあれば1件にまとめる。まとめの中では失注の記録があっても対象外にしない。管理タブのナーチャリング件数も同じ数え方（担当者ベース・全リスト）に。";
+const BUILD_TAG = "2026-09-30d カレンダーで「リスケ」と書いたアポにリマインドが送られてしまう不具合を直した。これまでは取り込んだときの予定名だけを見ていて、担当の商談予定（kinbotが作った予定）に書いた場合や、スキャン前に書いた場合を取りこぼしていた。送る直前（と1時間前の予告時）に、アポ獲得者の予定と担当の商談予定の両方を読み直し、予定名にリスケ・キャンセル等／本文の行頭にリスケ・キャンセル／予定の削除があれば送らない。15分ごとのスキャンでも、商談予定側に書かれたリスケ・キャンセルでアポを外す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -24331,7 +24338,10 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         // 予定をコピーしたり作り直すとIDが変わるので、本文の目印でも見る。
         // これを拾うと、kinbotの予定から次のアポができ、際限なく増えてしまう。
         if (await isKinbotInviteEvent(ev, inviteIds)) {
-          console.log(`[apo-scan] kinbotが作った予定なので取り込みません：${String(ev.title || "").slice(0, 40)}`);
+          // kinbotが作った商談予定に「リスケ」「キャンセル」と書かれたら、元のアポも外す（リマインドも止まる）
+          const h2 = apoHeadState(ev.title);
+          if (h2) seenHeadStates.push({ ev, head: h2, setter: st.name, invite: true });
+          else console.log(`[apo-scan] kinbotが作った予定なので取り込みません：${String(ev.title || "").slice(0, 40)}`);
           continue;
         }
         // 数えない人から招かれた予定は、アポとして拾わない
@@ -24558,6 +24568,10 @@ async function handleHeadStates(list) {
     const ev = x.ev;
     // すでにアポとして登録されていたら、数から外す
     let link = await getSmartLinkByEvent(ev.id).catch(() => null);
+    if (!link) {   // kinbotが作った商談予定（invite_event_id）側に書かれた場合
+      const hit = (await smartLinksByEventIds([ev.id]).catch(() => []))[0];
+      if (hit) link = await getSmartLink(hit.slug).catch(() => null);
+    }
     if (!link) link = await findSmartLinkByLabelStart(ev.title, ev.start).catch(() => null);
     if (link && !link.excluded) await excludeApo(link.slug, x.head).catch(() => {});
 
@@ -24573,6 +24587,33 @@ async function handleHeadStates(list) {
     ].join("\n"), "resched").catch(() => {});
     console.log(`[apo-scan] ${x.head}として扱いました：${String(ev.title).slice(0, 40)}`);
   }
+}
+
+// リマインドを送る直前の確認：アポ獲得者の予定と、担当の商談予定（kinbotが作った予定）を読み直し、
+// 予定名に「リスケ」「キャンセル」等がある／本文の行頭にそう書いてある／予定が削除されている なら送らない。
+// リスケ・キャンセルと書かれていたら、スキャンと同じくアポの数からも外す。
+async function reminderLiveCheck(link) {
+  const checks = [];
+  if (link.event_id && link.setter_email) checks.push({ owner: link.setter_email, id: link.event_id, who: "アポ獲得者の予定" });
+  if (link.invite_event_id) checks.push({ owner: link.invite_event_owner || link.current_owner, id: link.invite_event_id, who: "担当の商談予定" });
+  for (const c of checks) {
+    if (!c.owner || !(await gcalConnected(c.owner).catch(() => false))) continue;
+    const st = await getCalendarEventState(c.owner, c.id).catch(() => null);
+    if (!st) continue;   // 読めない（別カレンダー等）ときは判断しない
+    if (st.status === "cancelled") return { skip: true, reason: `${c.who}が削除されています` };
+    let head = apoHeadState(st.title);
+    if (!head) {
+      // 本文は、行の先頭に「リスケ」「キャンセル」と書いたときだけ見る（「日程変更の可能性あり」等のメモで止めないため）
+      const memo = String(st.description || "").replace(/<[^>]+>/g, "\n").normalize("NFKC");
+      if (/(^|\n)[\s【\[(（]*(キャンセル|中止|取り消し|取消)/.test(memo)) head = "キャンセル";
+      else if (/(^|\n)[\s【\[(（]*(リスケ|日程変更|延期)/.test(memo)) head = "リスケ";
+    }
+    if (head) {
+      if (!link.excluded) await excludeApo(link.slug, head).catch(() => {});
+      return { skip: true, reason: `${c.who}に「${head}」と書かれています` };
+    }
+  }
+  return { skip: false };
 }
 
 // カレンダーから消された予定を、kinbotの数からも外す。
@@ -26953,7 +26994,7 @@ app.put("/api/apo-mail-config", async (req, res) => {
 // 前日リマインドを今すぐ流す（動作確認用）
 app.post("/api/apo-mail/run-reminders", async (req, res) => {
   try {
-    const r = await runReminderSweep({ joinUrl, repNameOf: repDisplayName });
+    const r = await runReminderSweep({ joinUrl, repNameOf: repDisplayName, liveCheck: reminderLiveCheck });
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -27371,7 +27412,7 @@ server.listen(PORT, async () => {
       lastReminderRunDay = dateStr;
       reminderRunning = true;
       console.log(`[apo-mail] 前日リマインドの定時実行を開始（${cfg.reminderHour}:00 JST）: ${dateStr}`);
-      await runReminderSweep({ joinUrl, repNameOf: repDisplayName });
+      await runReminderSweep({ joinUrl, repNameOf: repDisplayName, liveCheck: reminderLiveCheck });
     } catch (e) {
       console.error("[apo-mail] 前日リマインド実行エラー:", e.message);
     } finally { reminderRunning = false; }

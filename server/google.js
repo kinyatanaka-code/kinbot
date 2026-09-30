@@ -1455,6 +1455,22 @@ export async function getCalendarEvent(owner, eventId, calendarId = "primary") {
            organizer: d.organizer?.email || "" };
 }
 
+// 予定の今の状態（削除済みかどうか・予定名・本文）を読む。読めなければ null（別カレンダーの予定など）。
+// getCalendarEvent と違い、削除（cancelled）も status で返す。
+export async function getCalendarEventState(owner, eventId, calendarId = "primary") {
+  const token = await accessToken(owner);
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}` +
+    `/events/${encodeURIComponent(eventId)}`,
+    { headers: { authorization: `Bearer ${token}` } }
+  );
+  if (res.status === 404 || res.status === 410) return null;
+  if (!res.ok) throw new Error(`予定の読み取り ${res.status}`);
+  const d = await res.json();
+  return { id: d.id, status: d.status || "", title: d.summary || "", description: d.description || "",
+           start: (d.start && (d.start.dateTime || d.start.date)) || "" };
+}
+
 // 予定の一部（日時など）を書き換える。日程変更で使う。
 export async function patchCalendarEvent(owner, eventId, patch = {}, calendarId = "primary") {
   const token = await accessToken(owner);

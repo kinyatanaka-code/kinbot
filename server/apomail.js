@@ -562,7 +562,7 @@ export async function listTomorrowReminders(dateJst = "") {
   });
 }
 
-export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
+export async function runReminderSweep({ joinUrl, repNameOf, liveCheck } = {}) {
   const cfg = await getApoMailConfig();
   if (!cfg.autoReminder) return { skipped: true, reason: "リマインド自動送信がOFFです" };
 
@@ -587,6 +587,16 @@ export async function runReminderSweep({ joinUrl, repNameOf } = {}) {
     if (/リスケ|キャンセル/.test(String(link.label || ""))) {
       results.push({ slug: link.slug, ok: false, skipped: true, reason: "リスケ・キャンセルのため送信しません" });
       continue;
+    }
+    // 送る直前に、カレンダーの予定（アポ獲得者の予定・担当の商談予定）を読み直す。
+    // あとから予定名に「リスケ」「キャンセル」と書いた／予定を消した、を取りこぼさないため。
+    if (liveCheck) {
+      const lc = await liveCheck(link).catch(() => null);
+      if (lc && lc.skip) {
+        console.log(`[apo-mail] リマインドを送りません：${link.label || link.slug}（${lc.reason}）`);
+        results.push({ slug: link.slug, ok: false, skipped: true, reason: lc.reason });
+        continue;
+      }
     }
     const repName = repNameOf ? await repNameOf(link.current_owner) : link.current_owner;
     const r = await sendApoMail(link, "reminder", {
