@@ -1148,3 +1148,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-09-30 BUILD_TAG=2026-09-30f 実績「リードソース別」（data-period=source）。GET /api/calls/source-funnel?from&to|period&group=(id|none) → items（source・リード数・groups[]・ファネル）＋groups。リードソース＝t.extra の リードソース/LeadSource 列 → SF Lead/Contact.LeadSource（leadSourceMap：150件ずつIN、6時間キャッシュ）→ 無ければ（SF未連携）/（リードソース未入力）/（SFで見つからない）。実施以降は funnelStageContext（リスト別と同じ：クロス商談の最高ステージ×アポ会社キー、listMeetings）。GET /api/calls/source-apos?source= でアポ一覧。db.js callStatsByTarget（グループ未設定リストも含む）、listGroupApoLogs は groupId null で全体。calls.js loadSourceStats / openSourceGroups / openSourceApos / renderApoList、グループ選択は localStorage kcSrcGroup、期間は LIST_FROM/TO を共有。版20260930f。
 
 - 2026-09-30 BUILD_TAG=2026-09-30g リードソース別は SF の LeadSource だけで分ける（leadSourceOf から t.extra のリードソース列優先を削除）。版20260930g。
+
+- 2026-09-30 BUILD_TAG=2026-09-30h アポ内訳のCSV。calls.js renderApoList に #grpApoCsv → downloadApoCsv(title,d)（BOM付き、列：取った日・時刻・会社・担当者・電話・グループ・リスト・獲得者・商談・SFステージ・メモ）。openGroupApos も renderApoList を使うよう統一。group-apos/source-apos の items に 電話・取得日・グループ を追加、メモは2000字まで（画面は120字で切る）。版20260930h。

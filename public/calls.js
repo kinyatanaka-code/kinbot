@@ -4190,12 +4190,13 @@ function renderApoList(box, title, d, withGroup) {
       <td class="kc-g-n" style="white-space:nowrap">${esc(x["獲得者"] || "—")}</td>
       <td class="kc-g-n">${x["実施"] ? "実施済み" : "—"}</td>
       <td class="kc-g-n">${stageChip(x["SFステージ"])}</td>
-      <td class="kc-g-name"><div class="ww" style="margin:0">${esc(x["メモ"] || "")}</div></td>
+      <td class="kc-g-name"><div class="ww" style="margin:0" title="${esc(x["メモ"] || "")}">${esc(String(x["メモ"] || "").slice(0, 120))}${String(x["メモ"] || "").length > 120 ? "…" : ""}</div></td>
     </tr>`).join("");
   box.innerHTML = `
     <div class="kc-listcard" style="margin-top:12px">
       <div class="kc-listcard-h">${esc(title)}<span class="kc-listcard-sum">${esc(d.from)}〜${esc(d.to)}</span>
-        <button type="button" class="pr-b" id="grpApoClose" style="margin-left:auto">閉じる</button></div>
+        <button type="button" class="pr-b" id="grpApoCsv" style="margin-left:auto"${(d.items || []).length ? "" : " disabled"}>CSVで書き出す</button>
+        <button type="button" class="pr-b" id="grpApoClose">閉じる</button></div>
       ${who ? `<div class="kc-apo-whos">獲得者別：${who}</div>` : ""}
       <div style="max-height:480px;overflow:auto">
       <table class="sh-table kc-grid"><tr><th class="kc-g-h">取った日時</th><th class="kc-g-name">会社</th><th class="kc-g-name">${withGroup ? "グループ／リスト" : "リスト"}</th><th class="kc-g-h">獲得者</th><th class="kc-g-h">商談</th><th class="kc-g-h">SFステージ</th><th class="kc-g-name">メモ</th></tr>
@@ -4203,7 +4204,27 @@ function renderApoList(box, title, d, withGroup) {
       </div>
     </div>`;
   const c = $("grpApoClose"); if (c) c.addEventListener("click", () => { box.innerHTML = ""; box.dataset.open = ""; });
+  const cv = $("grpApoCsv"); if (cv) cv.addEventListener("click", () => downloadApoCsv(title, d));
   box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+// アポ一覧をCSVで書き出す（Excelで開けるようBOM付きUTF-8）
+function downloadApoCsv(title, d) {
+  const head = ["取った日", "取った時刻", "会社", "担当者", "電話", "グループ", "リスト", "獲得者", "商談", "SFステージ", "メモ"];
+  const cell = (v) => {
+    const t = String(v == null ? "" : v).replace(/\r?\n/g, " ");
+    return /[",]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const lines = [head.join(",")].concat((d.items || []).map((x) => [
+    x["取得日"] || "", String(x["日時"] || "").split(" ")[1] || "",
+    x["会社"], x["担当者"], x["電話"], x["グループ"] || "", x["リスト"], x["獲得者"],
+    x["実施"] ? "実施済み" : "", x["SFステージ"] || "SFに商談なし", x["メモ"],
+  ].map(cell).join(",")));
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const name = `${String(title).replace(/\s*\d+件$/, "").replace(/[\\/:*?"<>|\s]+/g, "_")}_${d.from || ""}_${d.to || ""}.csv`;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 // アポの内訳：そのグループで期間内にアポが取れた会社の一覧
@@ -4222,34 +4243,7 @@ async function openGroupApos(gid, card) {
     if (d.error) throw new Error(d.error);
     if (box.dataset.open !== key) return;
     const h = card ? ((card.querySelector(".kc-listcard-h") || {}).firstChild || {}).textContent || "" : "";
-    const who = Object.entries(d["獲得者別"] || {}).sort((a, b) => b[1] - a[1])
-      .map(([n, c]) => `<span class="kc-apo-who">${esc(n)} <b>${c}</b></span>`).join("");
-    const stageChip = (s2) => {
-      if (!s2) return `<span class="st-chip none">SFに商談なし</span>`;
-      const cls = /受注処理完了/.test(s2) ? "won" : /04/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
-      return `<span class="st-chip ${cls}">${esc(s2)}</span>`;
-    };
-    const rowsHtml = (d.items || []).map((x) => `<tr>
-        <td class="kc-g-n" style="white-space:nowrap">${esc(x["日時"])}</td>
-        <td class="kc-g-name">${esc(x["会社"])}${x["担当者"] ? `<div class="ww">${esc(x["担当者"])}</div>` : ""}</td>
-        <td class="kc-g-name"><div class="ww" style="margin:0">${esc(x["リスト"])}</div></td>
-        <td class="kc-g-n" style="white-space:nowrap">${esc(x["獲得者"] || "—")}</td>
-        <td class="kc-g-n">${x["実施"] ? "実施済み" : "—"}</td>
-        <td class="kc-g-n">${stageChip(x["SFステージ"])}</td>
-        <td class="kc-g-name"><div class="ww" style="margin:0">${esc(x["メモ"] || "")}</div></td>
-      </tr>`).join("");
-    box.innerHTML = `
-      <div class="kc-listcard" style="margin-top:12px">
-        <div class="kc-listcard-h">${esc(h.trim())} のアポ ${d["件数"]}件<span class="kc-listcard-sum">${esc(d.from)}〜${esc(d.to)}</span>
-          <button type="button" class="pr-b" id="grpApoClose" style="margin-left:auto">閉じる</button></div>
-        ${who ? `<div class="kc-apo-whos">獲得者別：${who}</div>` : ""}
-        <div style="max-height:480px;overflow:auto">
-        <table class="sh-table kc-grid"><tr><th class="kc-g-h">取った日時</th><th class="kc-g-name">会社</th><th class="kc-g-name">リスト</th><th class="kc-g-h">獲得者</th><th class="kc-g-h">商談</th><th class="kc-g-h">SFステージ</th><th class="kc-g-name">メモ</th></tr>
-        ${rowsHtml || `<tr><td colspan="7" class="kc-g-name">この期間のアポはありません。</td></tr>`}</table>
-        </div>
-      </div>`;
-    const c = $("grpApoClose"); if (c) c.addEventListener("click", () => { box.innerHTML = ""; box.dataset.open = ""; });
-    box.scrollIntoView({ behavior: "smooth", block: "start" });
+    renderApoList(box, `${h.trim()} のアポ ${d["件数"]}件`, d, false);
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 

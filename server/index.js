@@ -13520,9 +13520,9 @@ app.get("/api/calls/group-apos/:id", async (req, res) => {
       const at = new Date(new Date(r.at).getTime() + 9 * 3600 * 1000).toISOString();
       return {
         日時: `${at.slice(5, 10).replace("-", "/")} ${at.slice(11, 16)}`,
-        会社: r.company || "", 担当者: r.person || "", リスト: r.list_name || "",
+        会社: r.company || "", 担当者: r.person || "", 電話: r.phone || "", 取得日: at.slice(0, 10), リスト: r.list_name || "", グループ: r.group_name || "",
         獲得者: names.get(r.caller) || "", 結果: r.result || "",
-        メモ: String(r.memo || "").replace(/\s+/g, " ").slice(0, 120),
+        メモ: String(r.memo || "").replace(/\s+/g, " ").slice(0, 2000),
         SFステージ: stageOf.get(k) || "", 実施: 実施キー.has(k), target_id: r.target_id,
       };
     });
@@ -13688,9 +13688,9 @@ app.get("/api/calls/source-apos", async (req, res) => {
       const at = new Date(new Date(r.at).getTime() + 9 * 3600 * 1000).toISOString();
       return {
         日時: `${at.slice(5, 10).replace("-", "/")} ${at.slice(11, 16)}`,
-        会社: r.company || "", 担当者: r.person || "", リスト: r.list_name || "", グループ: r.group_name || "（グループなし）",
+        会社: r.company || "", 担当者: r.person || "", 電話: r.phone || "", 取得日: at.slice(0, 10), リスト: r.list_name || "", グループ: r.group_name || "（グループなし）",
         獲得者: names.get(r.caller) || "",
-        メモ: String(r.memo || "").replace(/\s+/g, " ").slice(0, 120),
+        メモ: String(r.memo || "").replace(/\s+/g, " ").slice(0, 2000),
         SFステージ: ctx.stageOf.get(k) || "", 実施: ctx.実施キー.has(k),
       };
     });
@@ -21802,7 +21802,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30g リードソース別を、SFのリードソース（LeadSource）だけで分けるようにした（リストのデータの「リードソース」列は使わない）。SF未連携・未入力は別カードのまま。";
+const BUILD_TAG = "2026-09-30h アポの内訳（リスト別・リードソース別でアポを押すと出る一覧）に「CSVで書き出す」を付けた。取った日・時刻・会社・担当者・電話・グループ・リスト・獲得者・商談・SFステージ・メモ（全文）をExcelで開けるCSV（BOM付きUTF-8）で保存。画面のメモは120字で切り、全文はマウスを載せると出る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
