@@ -2967,15 +2967,74 @@ export async function countEmbeddedChunks() {
 // ===== Feature A: deals / deal_events の操作 =====
 
 // 会社名を正規化（表記ゆれ吸収）してマッチ用キーにする
+// 会社名の表記ゆれをそろえる（地名・人名によく出るもの）
+//   ヶ・ケ・ヵ・が・ガ（〇ヶ崎／〇が崎／〇ガ崎）、ノ・之・の・乃・廼（〇ノ内／〇之内／〇の内）、
+//   異体字（髙→高、﨑・嵜・碕→崎、嶋・嶌→島、齋・齊・斉→斎、邊・邉→辺、澤→沢、濱・濵→浜 など）
+const _CO_VARIANTS = [
+  [/[ヶケヵがガｹ]/g, "ケ"],
+  [/[ノ之の乃廼ﾉ]/g, "ノ"],
+  [/[髙]/g, "高"], [/[﨑嵜碕埼]/g, "崎"], [/[嶋嶌]/g, "島"], [/[齋齊斉]/g, "斎"],
+  [/[邊邉]/g, "辺"], [/[澤]/g, "沢"], [/[濱濵]/g, "浜"], [/[廣]/g, "広"], [/[冨]/g, "富"],
+  [/[國]/g, "国"], [/[德]/g, "徳"], [/[瀨]/g, "瀬"], [/[櫻]/g, "桜"], [/[龍]/g, "竜"],
+  [/[惠]/g, "恵"], [/[條]/g, "条"], [/[榮]/g, "栄"], [/[藪籔]/g, "薮"], [/[淵渊]/g, "渕"],
+  [/[槇]/g, "槙"], [/[曾]/g, "曽"], [/[萬]/g, "万"], [/[壽]/g, "寿"], [/[實]/g, "実"],
+  [/[眞]/g, "真"], [/[關]/g, "関"], [/[驛]/g, "駅"], [/[會]/g, "会"], [/[學]/g, "学"],
+];
+export function foldCompanyVariants(s) {
+  let v = String(s || "");
+  for (const [re, to] of _CO_VARIANTS) v = v.replace(re, to);
+  return v;
+}
 // 全角英数字・半角カナなどの違いは NFKC でそろえる（SFは半角、kincallは全角、のような違いで一致しないのを防ぐ）
 export function normCompanyKey(name) {
-  return String(name || "")
+  return foldCompanyVariants(String(name || "")
     .normalize("NFKC")
     .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|公益社団法人|社会福祉法人|学校法人/g, "")
     .replace(/[\s　]+/g, "")
     .replace(/様$/u, "")
     .trim()
-    .toLowerCase();
+    .toLowerCase());
+}
+
+// さらにゆるい会社名キー（「怪しい」一致の判定用）：ひらがな→カタカナ、小さいカナ→大きいカナ、
+// 長音・中黒・記号の除去、法人格・支店名などを広めに除く。
+const _SMALL_KANA = { "ァ": "ア", "ィ": "イ", "ゥ": "ウ", "ェ": "エ", "ォ": "オ", "ッ": "ツ", "ャ": "ヤ", "ュ": "ユ", "ョ": "ヨ", "ヮ": "ワ", "ヴ": "ブ", "ヰ": "イ", "ヱ": "エ" };
+export function looseCompanyKey(name) {
+  let v = String(name || "").normalize("NFKC")
+    .replace(/[ぁ-ゖ]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));   // ひらがな→カタカナ
+  v = v.replace(/(株式会社|有限会社|合同会社|合資会社|合名会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社団法人|財団法人|社会福祉法人|医療法人社団|医療法人財団|医療法人|学校法人|宗教法人|特定非営利活動法人|NPO法人|生活協同組合|協同組合|\(株\)|\(有\)|\(同\)|\(医\)|\(福\)|\(社\)|\(学\))/gi, "");
+  v = v.replace(/(本社|本店|支店|支社|営業所|事業所|出張所)$/u, "");
+  v = foldCompanyVariants(v).replace(/[ァィゥェォッャュョヮヴヰヱ]/g, (c) => _SMALL_KANA[c] || c);
+  v = v.replace(/[\sー‐‑‒–—―−\-~〜・･,.、。'"’‘`「」『』【】\[\]()（）〔〕<>＜＞:;!?！？&＆+＋\/／\\|｜_＿*＊#＃@＠]/g, "");
+  return v.replace(/様$/u, "").toLowerCase();
+}
+
+// SFの会社名の集まりに対して「一致」「怪しい一致」を判定する入れ物。
+//   exact：normCompanyKey が同じ
+//   loose：looseCompanyKey が同じ（表記ゆれ）
+//   part ：ゆるいキーの片方がもう片方を含む（4文字以上。グループ会社・支店名つき等）
+export function makeCompanyMatcher(names = []) {
+  const exact = new Set(), loose = new Set(), subs = new Set(), looseList = new Set();
+  for (const n of names) {
+    const e = normCompanyKey(n); if (e) exact.add(e);
+    const l = looseCompanyKey(n); if (!l) continue;
+    loose.add(l); looseList.add(l);
+    // 部分文字列は4〜16文字だけ持つ（メモリを抑える。これより長い会社名がまるごと含まれるケースはまれ）
+    if (l.length >= 4) for (let i = 0; i < l.length; i++) for (let j = i + 4; j <= Math.min(l.length, i + 16); j++) subs.add(l.slice(i, j));
+  }
+  const match = (name) => {
+    const e = normCompanyKey(name);
+    if (e && exact.has(e)) return "exact";
+    const l = looseCompanyKey(name);
+    if (!l) return null;
+    if (loose.has(l)) return "loose";
+    if (l.length >= 4 && l.length <= 16 && subs.has(l)) return "part";          // kincall側がSF側に含まれる
+    for (let i = 0; i < l.length; i++) for (let j = i + 4; j <= l.length; j++) {
+      if ((i > 0 || j < l.length) && looseList.has(l.slice(i, j))) return "part";   // SF側がkincall側に含まれる
+    }
+    return null;
+  };
+  return { exact, match, size: exact.size };
 }
 
 // 会社名キーの作り方を変えた（NFKC）ので、保存済みのキーを新しいキーに付け替える（起動時・1回だけ。変わる行だけ）。

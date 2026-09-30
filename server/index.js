@@ -508,6 +508,7 @@ import {
   saveDealBrief,
   normCompanyKey,
   migrateCompanyKeysNfkc,
+  makeCompanyMatcher,
   getSetCache,
   saveSetCache,
   listUsers,
@@ -8315,6 +8316,7 @@ app.post("/api/calls/from-csv", async (req, res) => {
     // 既定は 2026-03-01。取り込み時に crossFrom（YYYY-MM-DD）で変えられる。
     const CROSS_FROM = /^\d{4}-\d{2}-\d{2}$/.test(String(b.crossFrom || "")) ? b.crossFrom : "2026-03-01";
     const crossOppCompanies = new Set();
+    const crossOppNames = [];
     try {
       if (salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
         const d = await sfQuery(sfUser,
@@ -8322,10 +8324,11 @@ app.post("/api/calls/from-csv", async (req, res) => {
           `WHERE CloseDate >= ${CROSS_FROM} AND RecordType.Name LIKE '%クロス%' LIMIT 5000`);
         for (const o of d.records || []) {
           const co = (o.Account && o.Account.Name) || "";
-          if (co) crossOppCompanies.add(normCompanyKey(co));
+          if (co) { crossOppCompanies.add(normCompanyKey(co)); crossOppNames.push(co); }
         }
       }
     } catch (e) { console.warn("[kincall] クロス商談の確認に失敗:", e.message); }
+    const crossOppM = makeCompanyMatcher(crossOppNames);   // 表記ゆれ・一部一致も「クロス商談あり」とみなす
 
     const 結果 = [];
     // この取り込みの中で、同じ相手・同じ結果・同じコメントの活動を二度作らないための覚え書き
@@ -8341,9 +8344,10 @@ app.post("/api/calls/from-csv", async (req, res) => {
 
       // クロス商談（初回商談日2026-03-01以降）が既にある会社は、アポ獲得済み扱い。
       // リードの検索・作成もせず、リストにも入れない。見つかったことは明細に出す。
-      if (crossOppCompanies.has(normCompanyKey(company))) {
+      const crossHit = crossOppCompanies.has(normCompanyKey(company)) ? "exact" : crossOppM.match(company);
+      if (crossHit) {
         結果.push({ company, person: person || "担当者", phone,
-          状態: "クロス商談あり（アポ獲得済み）",
+          状態: crossHit === "exact" ? "クロス商談あり（アポ獲得済み）" : crossHit === "part" ? "クロス商談あり（会社名の一部一致の疑い）" : "クロス商談あり（表記ゆれ）",
           リード種別: "クロス商談あり", クロス商談: true,
           架電日: ymdOf(r.callDate), ...振り分け(r) });
         continue;
@@ -9230,6 +9234,7 @@ async function fetchCrossBuckets(sfUser, crossFrom) {
   const 受注 = new Set();     // クロス受注（＝ユーザー）
   const 進行中 = new Set();   // 立ち上がったクロス商談（＝アポ獲得済み）
   const 失注 = new Set();     // 直近で失注したクロス商談
+  const 受注名 = [], 進行中名 = [];   // 表記ゆれ・一部一致（怪しい一致）の判定用に元の会社名も持つ
   try {
     // 受注は時期を問わず（ユーザーはずっとユーザー）／進行中はオープン／失注は CloseDate 以降だけ拾う。
     const d = await sfQuery(sfUser,
@@ -9241,13 +9246,13 @@ async function fetchCrossBuckets(sfUser, crossFrom) {
       const co = (o.Account && o.Account.Name) || "";
       if (!co) continue;
       const k = normCompanyKey(co);
-      if (o.IsWon) { 受注.add(k); continue; }                 // 受注（ユーザー）
-      if (o.IsClosed === false) { 進行中.add(k); continue; }  // 進行中（アポ獲得）
+      if (o.IsWon) { 受注.add(k); 受注名.push(co); continue; }                 // 受注（ユーザー）
+      if (o.IsClosed === false) { 進行中.add(k); 進行中名.push(co); continue; }  // 進行中（アポ獲得）
       // ここまで来たら IsClosed=true かつ IsWon=false ＝ 失注。CloseDate 以降だけ「直近失注」とする。
       if (o.CloseDate && String(o.CloseDate) >= crossFrom) 失注.add(k);
     }
   } catch (e) { console.warn("[SF監査] クロス商談取得", e.message); }
-  return { 受注, 進行中, 失注 };
+  return { 受注, 進行中, 失注, 受注M: makeCompanyMatcher(受注名), 進行中M: makeCompanyMatcher(進行中名) };
 }
 
 // クロス失注商談の「失注理由・失注後次回アクション日・失注日」項目を、SFのdescribeでラベルから自動判別する（プロセス内キャッシュ）。
@@ -9365,6 +9370,7 @@ async function auditCallList(sfUser, listId, buckets, opts = {}) {
   const crossFrom = /^\d{4}-\d{2}-\d{2}$/.test(String(opts.crossFrom || "")) ? opts.crossFrom : "2026-03-01";
   if (!buckets) buckets = await fetchCrossBuckets(sfUser, crossFrom);
   const { 受注, 進行中, 失注 } = buckets;
+  const 受注M = buckets.受注M || makeCompanyMatcher([]), 進行中M = buckets.進行中M || makeCompanyMatcher([]);
 
   // 「SFの所有者を優先」：SFのリード所有者に一致するメンバーへ担当（assigned_to）を合わせる。
   let nameToEmail = new Map();
@@ -9417,7 +9423,15 @@ async function auditCallList(sfUser, listId, buckets, opts = {}) {
   }
 
   // 3) 各架電先を更新（優先順位：受注（ユーザー）＞ 進行中（アポ獲得）＞ 直近失注）
-  let 反映 = 0, ユーザー化 = 0, クロス化 = 0, 失注化 = 0, 担当そろえ = 0;
+  let 反映 = 0, ユーザー化 = 0, クロス化 = 0, 失注化 = 0, 担当そろえ = 0, 怪しい一致 = 0;
+  // SF未連携（リードIDなし）の架電先も、会社名でクロス商談と照合して外す
+  for (const t of targets.filter((x) => !x.lead_id)) {
+    const fz = fuzzyCrossStatus(t.company, normCompanyKey(t.company), { 受注, 進行中, 失注, 受注M, 進行中M });
+    if (!fz || String(t.status || "") === fz.status) continue;
+    await setCallTargetStatus(t.id, { stage: t.stage || "", status: fz.status }).catch(() => {});
+    if (fz.kind === "user") ユーザー化++; else if (fz.kind === "apo") クロス化++; else 失注化++;
+    if (fz.fuzzy) 怪しい一致++;
+  }
   for (const t of withLead) {
     const li = info.get(id15(t.lead_id)) || {};
     // kincall側で付けた運用ステージ（リサイクル・アーカイブ・ジャッジ）は、SFの状況で上書きしない。
@@ -9428,9 +9442,12 @@ async function auditCallList(sfUser, listId, buckets, opts = {}) {
     let statusPatch = undefined;
     const 架電結果 = lastCall.get(id15(t.lead_id)) || "";
     const リード種別が残っている = /リード/.test(String(t.status || ""));
-    if (受注.has(key)) { statusPatch = "ユーザー（クロス受注）"; ユーザー化++; }
-    else if (進行中.has(key)) { statusPatch = "アポ獲得済み（クロス商談）"; クロス化++; }
-    else if (失注.has(key)) { statusPatch = "失注（クロス失注）"; 失注化++; }
+    const fz = fuzzyCrossStatus(t.company, key, { 受注, 進行中, 失注, 受注M, 進行中M });
+    if (fz) {
+      statusPatch = fz.status;
+      if (fz.kind === "user") ユーザー化++; else if (fz.kind === "apo") クロス化++; else 失注化++;
+      if (fz.fuzzy) 怪しい一致++;
+    }
     else if (架電結果) { statusPatch = 架電結果; }
     else if (リード種別が残っている) { statusPatch = ""; }
     await setCallTargetStatus(t.id, statusPatch !== undefined ? { stage, status: statusPatch } : { stage }).catch(() => {});
@@ -9444,7 +9461,21 @@ async function auditCallList(sfUser, listId, buckets, opts = {}) {
     }
     反映++;
   }
-  return { 対象: withLead.length, 反映, ユーザー: ユーザー化, クロス商談あり: クロス化, 直近失注: 失注化, 担当そろえ, SF未連携: targets.length - withLead.length };
+  return { 対象: withLead.length, 反映, ユーザー: ユーザー化, クロス商談あり: クロス化, 直近失注: 失注化, 表記ゆれ等で除外: 怪しい一致, 担当そろえ, SF未連携: targets.length - withLead.length };
+}
+
+// 会社名から、クロス商談の状態（ユーザー／アポ獲得済み／失注）を決める。
+// 優先：完全一致の受注 ＞ 完全一致の進行中 ＞ 表記ゆれ・一部一致の受注 ＞ 同じく進行中 ＞ 完全一致の失注。
+// 表記ゆれ（ヶ/が、ノ/之/の、異体字、ひらがな/カタカナ、長音・記号）や一部一致は「怪しい」ので、かける対象から外す。
+function fuzzyCrossStatus(company, key, b) {
+  if (b.受注.has(key)) return { kind: "user", status: "ユーザー（クロス受注）" };
+  if (b.進行中.has(key)) return { kind: "apo", status: "アポ獲得済み（クロス商談）" };
+  const mu = b.受注M && b.受注M.match(company);
+  if (mu) return { kind: "user", fuzzy: true, status: mu === "part" ? "ユーザー（クロス受注・会社名の一部一致の疑い）" : "ユーザー（クロス受注・表記ゆれ）" };
+  const ma = b.進行中M && b.進行中M.match(company);
+  if (ma) return { kind: "apo", fuzzy: true, status: ma === "part" ? "アポ獲得済み（クロス商談・会社名の一部一致の疑い）" : "アポ獲得済み（クロス商談・表記ゆれ）" };
+  if (b.失注.has(key)) return { kind: "lost", status: "失注（クロス失注）" };
+  return null;
 }
 
 app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
@@ -9462,7 +9493,7 @@ app.post("/api/calls/lists/:id/refresh-sf", async (req, res) => {
     const preferSfOwner = (st0 && st0.sfOwnerPriority === true) || b.preferSfOwner === true;
     const r = await auditCallList(sfUser, id, null, { crossFrom: CROSS_FROM, preferSfOwner });
     console.log(`[SF更新] リスト${id}：${r.反映}件をSF最新に反映（ユーザー ${r.ユーザー}・クロス商談 ${r.クロス商談あり}・直近失注 ${r.直近失注}${preferSfOwner ? `・SF所有者に担当をそろえ ${r.担当そろえ}` : ""}）by ${req.user}`);
-    res.json({ ok: true, 対象: r.対象, 反映: r.反映, ユーザー: r.ユーザー, クロス商談あり: r.クロス商談あり, 直近失注: r.直近失注, 担当そろえ: r.担当そろえ, SF未連携: r.SF未連携 });
+    res.json({ ok: true, 対象: r.対象, 反映: r.反映, ユーザー: r.ユーザー, クロス商談あり: r.クロス商談あり, 直近失注: r.直近失注, 表記ゆれ等で除外: r.表記ゆれ等で除外, 担当そろえ: r.担当そろえ, SF未連携: r.SF未連携 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -21537,7 +21568,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-09-30a SFでアポ獲得（クロス商談あり）の会社が、SFは半角・kincallは全角のように表記が違うと照合できず、かける一覧から外れていなかったのを直した。会社名の照合キー（normCompanyKey）で全角・半角（英数字・カナ・記号）をそろえる（NFKC）。保存済みの会社キー（求人情報・営業時間・SFひも付け・事前ブリーフ）は起動時に新しいキーへ付け替え。SFの会社名検索にも半角の候補を足した。";
+const BUILD_TAG = "2026-09-30b 会社名の表記ゆれ（ヶ/ケ/が/ガ、ノ/之/の/乃、髙/高・﨑/崎・嶋/島・齋/斎・邊/辺・澤/沢・濱/浜などの異体字）を照合でそろえた。さらにSFのクロス商談（受注・進行中）と「表記ゆれ（ひらがな/カタカナ、長音・記号、法人格・支店名）」や「会社名の一部一致（4文字以上）」の怪しい一致も、かける対象外（ユーザー／アポ獲得済み）にする。状態に「表記ゆれ」「一部一致の疑い」と出る。リードIDの無い架電先も会社名で照合。取り込み時も同じ基準でクロス商談ありとして除く。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
