@@ -13218,7 +13218,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
 
 // ───────── ダッシュボード「実施」：クローザーごとの 設定数・実施数（Salesforceのクロス商談で数える） ─────────
 // 設定＝クロス商談のうち「初回アポ設定日」がその期間のもの（空なら、ステージ01の商談に限り CloseDate＝初回商談日で見る）。
-// 実施＝そのうちステージが 01：アポ獲得 から進んだもの（02〜06・受注）。99：失注 は SS02昇格日 が入っているものだけ。
+// 実施＝そのうち、kinbotに商談の記録がある（会社名が同じで、設定の日の3日前以降）もの。
 // 並び：全体／植野／江田／中澤／他（他＝田中欽也・浦林）。この5人以外の所有者の商談は数えない。
 const JISSHI_GROUPS = [
   { name: "植野", match: ["植野"] },
@@ -13257,11 +13257,36 @@ async function sfJisshiOpps(from, to) {
     const raw = (fFirst && o[fFirst]) || o.CloseDate || "";
     const day = /T/.test(String(raw)) ? jstDateStr(raw) : String(raw).slice(0, 10);   // 日時は日本時間の日付に
     const st = String(o.StageName || "");
-    const lost = /^99/.test(st) || (/失注/.test(st) && !o.IsWon);
-    const advanced = o.IsWon || /^0[2-6]/.test(st) || /受注/.test(st);
-    const done = advanced || (lost && fSs02 && !!o[fSs02]);
-    return { id: o.Id, name: o.Name, owner: (o.Owner && o.Owner.Name) || "", company: (o.Account && o.Account.Name) || "", stage: st, day, done };
+    // 商談名「直販_クロス_〇〇株式会社_03：…」から会社名も取っておく（取引先名と違うときの照合用）
+    const nm = String(o.Name || "").split(/[_＿]/).map((x) => x.trim()).find((x) => /株式会社|有限会社|合同会社|法人|組合|会社/.test(x)) || "";
+    return { id: o.Id, name: o.Name, owner: (o.Owner && o.Owner.Name) || "", company: (o.Account && o.Account.Name) || "", company2: nm, stage: st, day, done: false };
   }).filter((x) => x.day);
+}
+// 実施はkinbotの商談記録で見る：その会社の商談（種類＝商談）が、設定の日の3日前以降にkinbotに記録されていれば実施。
+async function markJisshiByKinbot(opps, from) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const t = new Date(from + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() - 5);
+  const since = `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
+  const ms = await listMeetings({ isAdmin: true, from: since, limit: 8000, light: true }).catch(() => []);
+  const byCo = new Map();
+  for (const m of ms) {
+    if (m.category && m.category !== "商談") continue;
+    const d = jstDateStr(m.created_at);
+    for (const nmx of [companyFromTitle(m.title || ""), m.account]) {
+      const k = normCompanyKey(nmx || ""); if (!k) continue;
+      if (!byCo.has(k)) byCo.set(k, []);
+      byCo.get(k).push(d);
+    }
+  }
+  const back3 = (ymd) => { const x = new Date(ymd + "T00:00:00Z"); x.setUTCDate(x.getUTCDate() - 3); return x.toISOString().slice(0, 10); };
+  for (const o of opps) {
+    const lo = back3(o.day);
+    o.done = [o.company, o.company2].some((c) => {
+      const k = normCompanyKey(c || "");
+      return k && (byCo.get(k) || []).some((d) => d && d >= lo);
+    });
+  }
+  return opps;
 }
 function jisshiCardsFrom(opps, from, to) {
   const today = jstDateStr(new Date());
@@ -13291,7 +13316,7 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const mFrom = `${sel}-01`, mTo = ymd(new Date(Date.UTC(y, m, 0)));
     const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo };
-    const opps = await sfJisshiOpps(mFrom, mTo);
+    const opps = await markJisshiByKinbot(await sfJisshiOpps(mFrom, mTo), mFrom);   // 設定＝SF、実施＝kinbot
     if (period === "month") {
       out.cards = jisshiCardsFrom(opps, mFrom, mTo);
     } else {
@@ -22152,7 +22177,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02c ダッシュボードの「実施」の週ラップを、月初からの積み上げにした（アポの週ラップと同じ）。";
+const BUILD_TAG = "2026-10-02d ダッシュボードの「実施」を、設定数＝SFのクロス商談（初回アポ設定日）、実施数＝そのうちkinbotに商談の記録があるもの（会社名が同じで、設定の日の3日前以降）にした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

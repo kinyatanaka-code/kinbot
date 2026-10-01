@@ -3101,7 +3101,7 @@ function jisshiCard(c, big) {
 }
 function renderJisshiDash(d) {
   const box = $("clDash");
-  const note = `<p class="note" style="margin-top:10px">Salesforceのクロス商談で数えています。設定数＝「初回アポ設定日」がその期間の商談（空欄ならステージ01の商談だけ初回商談日で判定）を、商談所有者ごとに数えたもの。実施数＝そのうちステージが「01：アポ獲得」から進んだもの（02〜06・受注。99：失注は一度02に上がったものだけ）。実施率＝実施数÷初回アポ設定日が今日までの設定数。他＝田中欽也・浦林。${d.period === "week" ? "週ラップは、月初からその週の終わりまでの積み上げです。" : ""}</p>`;
+  const note = `<p class="note" style="margin-top:10px">設定数はSalesforce、実施数はkinbotで数えています。設定数＝「初回アポ設定日」がその期間の商談（空欄ならステージ01の商談だけ初回商談日で判定）を、商談所有者ごとに数えたもの。実施数＝そのうち、kinbotに商談の記録があるもの（会社名が同じで、初回アポ設定日の3日前以降の記録）。実施率＝実施数÷初回アポ設定日が今日までの設定数。他＝田中欽也・浦林。${d.period === "week" ? "週ラップは、月初からその週の終わりまでの積み上げです。" : ""}</p>`;
   const row = (cards) => `<div class="kc-dgrid kc-jrow">${(cards || []).map((c, i) => jisshiCard(c, i === 0)).join("")}</div>`;
   if (d.period === "week") {
     box.innerHTML = (d.weeks || []).map((w) => `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>${row(w.cards)}</div>`).join("") + note;

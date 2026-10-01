@@ -1202,3 +1202,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02a 実施ダッシュボードをSF化。sfJisshiOpps(from,to)：describe(Opportunity) のラベル「初回アポ設定日」「SS02昇格日」でAPI名解決（6時間キャッシュ）、RecordType クロス、日付＝初回アポ設定日 or（空かつ Stage 01 のとき）CloseDate。done＝IsWon・0[2-6]・受注、または 99失注で SS02昇格日あり。jisshiCardsFrom：JISSHI_GROUPS（植野/江田/中澤/他＝田中欽也・浦林）以外の所有者は除外、済み設定＝日付が今日まで。月のSOQLを1回だけ投げて週ラップに振り分け。kinbot記録ベースの jisshiCardsBetween は削除。版20261002a。
 
 - 2026-10-02 BUILD_TAG=2026-10-02c 実施の週ラップを積み上げに（jisshiCardsFrom(opps, 月初, ラップ末)）。版20261002c。
+
+- 2026-10-02 BUILD_TAG=2026-10-02d 実施ダッシュボード：設定＝SF（sfJisshiOpps、done は使わない）、実施＝markJisshiByKinbot（listMeetings 月初−5日〜、category 商談、companyFromTitle/account の normCompanyKey と Account.Name・商談名の会社部分を照合、記録日 ≥ 設定日−3日）。版20261002d。
