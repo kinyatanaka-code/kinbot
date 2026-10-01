@@ -21975,7 +21975,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01d 商談のGmailの過去のやり取りで、各メールの返信先・宛先（To）・CCを見られるようにした。";
+const BUILD_TAG = "2026-10-01e 商談のGmailの過去のやり取りで、スレッド内のメール（返信）を全部、古い順に差出人・宛先・CC・本文の冒頭つきで見られるようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

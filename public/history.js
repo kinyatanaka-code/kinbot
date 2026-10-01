@@ -1663,6 +1663,19 @@ async function loadDetail(botId, openTab, opts = {}) {
               (t.cc ? `<div><span class="gm-addr-k">CC</span>${escapeHtml(t.cc)}</div>` : `<div><span class="gm-addr-k">CC</span><span style="color:#9aa8a1">なし</span></div>`) +
             `</div>` +
             `<div class="gm-snip">${escapeHtml(t.snippet || "")}</div>` +
+            ((t.messages || []).length > 1
+              ? `<details class="gm-msgs" open><summary>このスレッドのメール ${t.messages.length}件（古い順）</summary>` +
+                t.messages.map((mm, mi) =>
+                  `<div class="gm-msg${mi === t.messages.length - 1 ? " gm-msg-last" : ""}">` +
+                    `<div class="gm-msg-top"><span class="gm-msg-no">${mi + 1}</span><span class="gm-from">${escapeHtml(mm.from || "")}</span><span class="gm-date">${escapeHtml((mm.date || "").slice(0, 25))}</span></div>` +
+                    `<div class="gm-addr">` +
+                      (mm.to ? `<div><span class="gm-addr-k">宛先</span>${escapeHtml(mm.to)}</div>` : "") +
+                      (mm.cc ? `<div><span class="gm-addr-k">CC</span>${escapeHtml(mm.cc)}</div>` : "") +
+                    `</div>` +
+                    `<div class="gm-snip">${escapeHtml(mm.snippet || "")}</div>` +
+                  `</div>`).join("") +
+                `</details>`
+              : "") +
             `<div class="gm-act">` +
               `<button type="button" class="btn btn-ghost gm-reply-btn">この相手への返信を作成</button>` +
               `<button type="button" class="btn btn-ghost gm-arch-btn">アーカイブ</button>` +

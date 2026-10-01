@@ -6933,3 +6933,12 @@ body.kc-only .zp-admin { display: none !important; }
 /* 商談のGmail：返信先・宛先・CC */
 .gm-addr { margin: 4px 0 6px; font-size: 12px; color: #3d4f47; line-height: 1.6; word-break: break-all; }
 .gm-addr-k { display: inline-block; min-width: 46px; margin-right: 6px; padding: 0 6px; border-radius: 6px; background: #eef5f2; color: #2c6e57; font-size: 11px; font-weight: 700; text-align: center; }
+
+/* 商談のGmail：スレッドの中のメールを全部 */
+.gm-msgs { margin: 6px 0 8px; border: 1px solid #e3ece8; border-radius: 10px; background: #fafcfb; }
+.gm-msgs > summary { cursor: pointer; padding: 6px 10px; font-size: 12px; font-weight: 700; color: #2c6e57; }
+.gm-msg { padding: 8px 10px; border-top: 1px dashed #e3ece8; }
+.gm-msg-last { background: #f1f8f5; }
+.gm-msg-top { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.gm-msg-top .gm-date { margin-left: auto; }
+.gm-msg-no { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: #2c6e57; color: #fff; font-size: 10px; font-weight: 700; flex: 0 0 auto; }

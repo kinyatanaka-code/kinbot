@@ -722,6 +722,12 @@ export async function gmailSearchThreads(owner, query, max = 6) {
         date: headerVal(h, "Date"),
         snippet: last.snippet || th.snippet || "",
         count: msgs.length,
+        // スレッドの中のメールを全部（古い順）。返信のやり取りを全部見られるように。
+        messages: msgs.map((mm) => {
+          const hh = mm.payload && mm.payload.headers;
+          return { id: mm.id, from: headerVal(hh, "From"), to: headerVal(hh, "To"), cc: headerVal(hh, "Cc"),
+                   date: headerVal(hh, "Date"), snippet: mm.snippet || "" };
+        }),
       });
     } catch {}
   }
