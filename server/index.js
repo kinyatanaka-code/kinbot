@@ -13295,7 +13295,7 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
     if (period === "month") {
       out.cards = jisshiCardsFrom(opps, mFrom, mTo);
     } else {
-      // 週ラップ（平日の月〜金で区切る。月をまたがない）。ラップごとの数（積み上げではない）。
+      // 週ラップ（平日の月〜金で区切る。月をまたがない）。
       const laps = [];
       let d = new Date(Date.UTC(y, m - 1, 1)); const end = new Date(Date.UTC(y, m, 0));
       while (d <= end) {
@@ -13306,7 +13306,8 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
         d = new Date(to.getTime() + 86400000);
       }
       out.weeks = [];
-      for (const l of laps) out.weeks.push({ ...l, cards: jisshiCardsFrom(opps, l.from, l.to) });
+      // 週ラップは月初からの積み上げ（その週の終わりまでの合計）
+      for (const l of laps) out.weeks.push({ ...l, cards: jisshiCardsFrom(opps, mFrom, l.to) });
     }
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -22151,7 +22152,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02b ダッシュボードの「実施」をSalesforceのクロス商談で数えるようにした。設定＝初回アポ設定日がその期間のもの（空ならステージ01の商談だけCloseDateで）、実施＝ステージが01から進んだもの（99失注はSS02昇格日があるものだけ）。全体／植野／江田／中澤／他（田中欽也・浦林）。";
+const BUILD_TAG = "2026-10-02c ダッシュボードの「実施」の週ラップを、月初からの積み上げにした（アポの週ラップと同じ）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
