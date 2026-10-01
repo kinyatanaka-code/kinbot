@@ -20227,6 +20227,33 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
       query = w;
       if (threads.length) break;
     }
+    // 先方から来たメール（別スレッドになっている返信など）も拾う：
+    // 見つかったやり取りの相手のアドレス（社外・自動送信以外）と、商談の連絡先メールで、送受信どちらも探して足す。
+    try {
+      const myDom = String(req.user || "").split("@")[1] || "";
+      const addrs = new Set();
+      const addOf = (v) => {
+        for (const part of String(v || "").split(",")) {
+          const a = parseEmailAddr(part).toLowerCase();
+          if (!a || !a.includes("@")) continue;
+          const dom = a.split("@")[1];
+          if (myDom && dom === myDom) continue;
+          if (/mailer-daemon|postmaster|no-?reply|noreply|notification/i.test(a)) continue;
+          addrs.add(a);
+        }
+      };
+      for (const t of threads) for (const mm of (t.messages || [t])) { addOf(mm.from); addOf(mm.to); addOf(mm.cc); }
+      if (m.client_email) addOf(m.client_email);
+      const doms = [...new Set([...addrs].map((a) => a.split("@")[1]).filter((d) => d && !/^(gmail|yahoo|icloud|outlook|hotmail|docomo|ezweb|softbank)\./i.test(d)))];
+      const terms = [...[...addrs].slice(0, 5).map((a) => `from:${a} OR to:${a} OR cc:${a}`), ...doms.slice(0, 2).map((d) => `from:@${d}`)];
+      if (terms.length) {
+        const more = await gmailSearchThreads(req.user, terms.map((x) => `(${x})`).join(" OR "), 12).catch(() => []);
+        const seen = new Set(threads.map((t) => t.threadId));
+        for (const t of more) if (!seen.has(t.threadId)) { seen.add(t.threadId); threads.push(t); }
+      }
+    } catch (e) { console.warn("[gmail-threads] 先方メールの追加検索", e.message); }
+    // 新しい順に並べる
+    threads.sort((a, b) => (Date.parse(b.date || "") || 0) - (Date.parse(a.date || "") || 0));
     // 返信したときの宛先（下書きと同じ決め方：最後のメールが自分からなら To、相手からなら Reply-To か From）
     const me = String(req.user || "").toLowerCase();
     for (const t of threads) {
@@ -21975,7 +22002,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01e 商談のGmailの過去のやり取りで、スレッド内のメール（返信）を全部、古い順に差出人・宛先・CC・本文の冒頭つきで見られるようにした。";
+const BUILD_TAG = "2026-10-01f 商談のGmailの過去のやり取りで、先方から来たメール（別のスレッドになっている返信など）も出すようにした。見つかったやり取りの相手のアドレス・ドメインと商談の連絡先メールで送受信を探して足し、新しい順に並べる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
