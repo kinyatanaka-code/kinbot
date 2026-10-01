@@ -3073,19 +3073,21 @@ function renderDash(d) {
   const box = $("clDash");
   const note = `<p class="note" style="margin-top:10px">${(d.period === "week")
       ? "週は平日（月〜金）で区切ります（土日は含みません）。実績は月初からの積み上げ、差分は 積み上げ実績−その週の目標。目標は各週に直接入力でき、その週の目標として保存されます。"
-      : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}${dashMetric === "jisshi" ? "　実施：アポ獲得者ごとに、商談が行われた数を商談日で数えます（アポの目標とは別に、実施の目標を入れられます）。" : ""}</p>`;
+      : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}${dashMetric === "jisshi" ? "　実施：アポ獲得者ごとに、商談が行われた数を商談日で数えます（アポの目標とは別に、実施の目標を入れられます）。インサイドは実施では出しません（グループ（全体）はインサイドが取ったアポの実施も含みます）。" : ""}</p>`;
   const assign = "";   // 「未照合の商談に獲得者を割り当てる」は廃止（手入力は商談履歴・照合は自動）
 
   if (d.period === "week" && Array.isArray(d.weeks)) {
     // 週ごとに グループ/セールス/インサイド のカードを並べる
     box.innerHTML = d.weeks.map((w) =>
       `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>` +
-      `<div class="kc-dgrid kc-dteams">${(w.teams || []).map((c) => dashCard(c, true)).join("")}</div></div>`
+      `<div class="kc-dgrid kc-dteams">${(w.teams || []).filter((c) => !(dashMetric === "jisshi" && c.key === "inside")).map((c) => dashCard(c, true)).join("")}</div></div>`
     ).join("") + note + assign;
   } else {
-    const teams = (d.teams || []).map((c) => dashCard(c, true)).join("");
+    // 実施で見るときは、インサイド（チームのカード・メンバーのカード）は出さない
+    const noInside = dashMetric === "jisshi";
+    const teams = (d.teams || []).filter((c) => !(noInside && c.key === "inside")).map((c) => dashCard(c, true)).join("");
     const sales = (d.sales || []).map((c) => dashCard(c, false)).join("");
-    const inside = (d.inside || []).map((c) => dashCard(c, false)).join("");
+    const inside = noInside ? "" : (d.inside || []).map((c) => dashCard(c, false)).join("");
     box.innerHTML =
       `<div class="kc-dgrid kc-dteams">${teams}</div>` +
       (sales ? `<div class="kc-dsub">セールス</div><div class="kc-dgrid">${sales}</div>` : "") +
