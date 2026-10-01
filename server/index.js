@@ -13232,7 +13232,7 @@ async function oppFieldsByLabel(sfUser) {
   const d = await describeObject(sfUser, "Opportunity");
   const norm = (x) => String(x || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
   const map = {};
-  for (const f of d.fields || []) map[norm(f.label)] = f.name;
+  for (const f of d.fields || []) { map[norm(f.label)] = f.name; map["type:" + f.name] = f.type; }
   _oppFieldCache.map = map; _oppFieldCache.at = Date.now();
   return map;
 }
@@ -13243,14 +13243,19 @@ async function sfJisshiOpps(from, to) {
   const fFirst = fm["初回アポ設定日"] || "";
   const fSs02 = fm["ss02昇格日"] || "";
   const sel = ["Id", "Name", "StageName", "IsWon", "CloseDate", "Owner.Name", "Account.Name"].concat([fFirst, fSs02].filter(Boolean));
-  const range = (col) => `(${col} >= ${from} AND ${col} <= ${to})`;
+  // 日付項目と日時項目で、SOQLの書き方が違う（日時は日本時間の0時〜翌0時）
+  const nextDay = (ymd) => { const t = new Date(ymd + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); };
+  const range = (col) => fm["type:" + col] === "datetime"
+    ? `(${col} >= ${from}T00:00:00+09:00 AND ${col} < ${nextDay(to)}T00:00:00+09:00)`
+    : `(${col} >= ${from} AND ${col} <= ${to})`;
   const where = fFirst
     ? `(${range(fFirst)} OR (${fFirst} = null AND StageName LIKE '01%' AND ${range("CloseDate")}))`
     : `(StageName LIKE '01%' AND ${range("CloseDate")})`;
   const q = `SELECT ${[...new Set(sel)].join(", ")} FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND ${where} LIMIT 2000`;
   const d = await sfQuery(sfUser, q);
   return (d.records || []).map((o) => {
-    const day = String((fFirst && o[fFirst]) || o.CloseDate || "").slice(0, 10);
+    const raw = (fFirst && o[fFirst]) || o.CloseDate || "";
+    const day = /T/.test(String(raw)) ? jstDateStr(raw) : String(raw).slice(0, 10);   // 日時は日本時間の日付に
     const st = String(o.StageName || "");
     const lost = /^99/.test(st) || (/失注/.test(st) && !o.IsWon);
     const advanced = o.IsWon || /^0[2-6]/.test(st) || /受注/.test(st);
@@ -22146,7 +22151,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02a ダッシュボードの「実施」をSalesforceのクロス商談で数えるようにした。設定＝初回アポ設定日がその期間のもの（空ならステージ01の商談だけCloseDateで）、実施＝ステージが01から進んだもの（99失注はSS02昇格日があるものだけ）。全体／植野／江田／中澤／他（田中欽也・浦林）。";
+const BUILD_TAG = "2026-10-02b ダッシュボードの「実施」をSalesforceのクロス商談で数えるようにした。設定＝初回アポ設定日がその期間のもの（空ならステージ01の商談だけCloseDateで）、実施＝ステージが01から進んだもの（99失注はSS02昇格日があるものだけ）。全体／植野／江田／中澤／他（田中欽也・浦林）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
