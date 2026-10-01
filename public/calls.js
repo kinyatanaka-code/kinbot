@@ -2806,6 +2806,9 @@ async function openDocSend(id) {
       <div id="kcDocForm" style="display:none">
         <div class="kc-lb">宛先（メール）</div>
         <input type="email" class="kc-input" id="kcDocTo" />
+        <div class="kc-lb">CC</div>
+        <div class="note" id="kcDocCcFixed" style="margin:0 0 4px"></div>
+        <input type="text" class="kc-input" id="kcDocCc" placeholder="ほかにCCに入れる人（任意・カンマ区切り）" />
         <div class="kc-lb">件名</div>
         <input type="text" class="kc-input" id="kcDocSub" />
         <div class="kc-lb">本文（この内容で送られます。URLは本文内に入っています）</div>
@@ -2827,6 +2830,7 @@ async function openDocSend(id) {
     m.el.querySelector("#kcDocLoad").style.display = "none";
     m.el.querySelector("#kcDocForm").style.display = "";
     m.el.querySelector("#kcDocTo").value = d.to || "";
+    m.el.querySelector("#kcDocCcFixed").textContent = d.cc ? `いつもCCに入る人：${d.cc}` : "いつもCCに入る人：なし（送る本人のため）";
     m.el.querySelector("#kcDocSub").value = d.subject || "";
     m.el.querySelector("#kcDocBody").value = d.body || "";
     m.el.querySelector("#kcDocMeta").textContent =
@@ -2847,7 +2851,7 @@ async function openDocSend(id) {
     try {
       const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/doc/send`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to, subject, body }),
+        body: JSON.stringify({ to, subject, body, cc: m.el.querySelector("#kcDocCc").value.trim() }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "送れませんでした");

@@ -10690,6 +10690,14 @@ app.post("/api/calls/targets/:id/history/edit", async (req, res) => {
 
 // ===== kincall：かける画面から、トラッキング資料を送る =====
 // 「資料送付」ボタン → プレビューを出す → 確認して送信、の2段。
+// 資料送付は、いつも田中欽也をCCに入れる（設定 docSendCc で変えられる。送る本人がその人なら付けない）。
+const DOC_SEND_CC_DEFAULT = "kinya.tanaka@neo-career.co.jp";
+async function docSendCcFor(sender) {
+  const st = await getSettings().catch(() => ({}));
+  const list = String(st.docSendCc ?? DOC_SEND_CC_DEFAULT).split(/[,\s、]+/).map((x) => x.trim().toLowerCase()).filter((x) => /@/.test(x));
+  const me = String(sender || "").toLowerCase();
+  return [...new Set(list)].filter((x) => x !== me).join(", ");
+}
 
 // 送る前のプレビューを作る。会社向けの資料URLを（無ければ）発行し、
 // 宛先・件名・本文（URL入り）を返す。
@@ -10744,7 +10752,7 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
     const body = fill(String(st.docSendBody || 既定本文));
 
     res.json({
-      ok: true, to, company, person, subject, body, url, docName,
+      ok: true, to, cc: await docSendCcFor(req.user), company, person, subject, body, url, docName,
       warn: to ? "" : "この相手のメールアドレスが登録されていません。宛先を入れてください。",
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -10797,8 +10805,13 @@ app.post("/api/calls/targets/:id/doc/send", async (req, res) => {
     if (!(await gcalConnected(req.user).catch(() => false))) {
       return res.status(400).json({ error: "あなたのGoogle連携が必要です（設定→連携→Google）" });
     }
+    // CC：いつもの人（田中欽也）＋画面で足した人
+    const ccFixed = await docSendCcFor(req.user);
+    const ccExtra = String(b.cc || "").split(/[,\s、]+/).map((x) => x.trim()).filter((x) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+    const cc = [...new Set([...ccFixed.split(/,\s*/).filter(Boolean), ...ccExtra].map((x) => x.toLowerCase()))]
+      .filter((x) => x !== to.toLowerCase() && x !== String(req.user || "").toLowerCase()).join(", ");
     try {
-      await gmailSend(req.user, { to, subject, bodyText: body });
+      await gmailSend(req.user, { to, subject, bodyText: body, cc });
     } catch (e) {
       return res.status(500).json({ error: e.needScope
         ? "Gmailの送信権限がありません。設定→連携→Google連携で、連携解除→再連携し、Gmailの項目を許可してください。"
@@ -22012,7 +22025,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01g 商談のGmailの過去のやり取りで、各メールの「全文を見る」を押すと本文を全部読めるようにした（冒頭の文字化け（&#39; など）も直した）。";
+const BUILD_TAG = "2026-10-01h kincallの資料送付メールに、いつも田中欽也（kinya.tanaka@neo-career.co.jp）をCCで入れるようにした（送る本人が田中のときは付けない）。送る前の画面にCCを表示し、ほかの人を足すこともできる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

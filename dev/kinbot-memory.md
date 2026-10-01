@@ -1188,3 +1188,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-01 BUILD_TAG=2026-10-01f /api/meetings/:id/gmail-threads：最初の検索結果の社外アドレス（自社ドメイン・mailer-daemon等を除く）と m.client_email で `from:/to:/cc:` と社外ドメイン `from:@domain`（フリーメール除外）を OR で追加検索し、threadId で重複除去、日付の新しい順に。版20261001f。
 
 - 2026-10-01 BUILD_TAG=2026-10-01g GET /api/gmail/thread-full/:threadId（gmailGetThread の本文、各8000字まで）。history.js：各メールに .gm-full-btn（押すとスレッド全文を1回だけ取得してキャッシュ、該当メールの本文を pre-wrap 表示、再押下で閉じる）。google.js decodeEnt で snippet の文字参照を戻す。版20261001g。
+
+- 2026-10-01 BUILD_TAG=2026-10-01h kincall資料送付（/api/calls/targets/:id/doc/send）に CC：docSendCcFor(sender)＝settings.docSendCc（既定 kinya.tanaka@neo-career.co.jp、送る本人は除く）＋画面の追加CC。preview が cc を返し、calls.js openDocSend に「いつもCCに入る人」表示と追加CC欄。版20261001h。
