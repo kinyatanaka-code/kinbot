@@ -682,6 +682,12 @@ function collectText(part) {
   return out;
 }
 
+// Gmailの snippet は HTML の文字参照（&#39; &amp; など）のまま来るので、普通の文字に戻す
+function decodeEnt(t) {
+  return String(t || "").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+}
 export async function gmailSearchThreads(owner, query, max = 6) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
@@ -720,13 +726,13 @@ export async function gmailSearchThreads(owner, query, max = 6) {
         replyTo: headerVal(h, "Reply-To"),
         subject: headerVal(h, "Subject"),
         date: headerVal(h, "Date"),
-        snippet: last.snippet || th.snippet || "",
+        snippet: decodeEnt(last.snippet || th.snippet || ""),
         count: msgs.length,
         // スレッドの中のメールを全部（古い順）。返信のやり取りを全部見られるように。
         messages: msgs.map((mm) => {
           const hh = mm.payload && mm.payload.headers;
           return { id: mm.id, from: headerVal(hh, "From"), to: headerVal(hh, "To"), cc: headerVal(hh, "Cc"),
-                   date: headerVal(hh, "Date"), snippet: mm.snippet || "" };
+                   date: headerVal(hh, "Date"), snippet: decodeEnt(mm.snippet || "") };
         }),
       });
     } catch {}

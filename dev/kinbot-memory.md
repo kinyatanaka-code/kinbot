@@ -1186,3 +1186,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-01 BUILD_TAG=2026-10-01e gmailSearchThreads が messages[]（各メールの from/to/cc/date/snippet、古い順）も返す。history.js：2通以上のスレッドに details.gm-msgs（番号・差出人・日時・宛先・CC・冒頭、最後のメールを薄緑）。版20261001e。
 
 - 2026-10-01 BUILD_TAG=2026-10-01f /api/meetings/:id/gmail-threads：最初の検索結果の社外アドレス（自社ドメイン・mailer-daemon等を除く）と m.client_email で `from:/to:/cc:` と社外ドメイン `from:@domain`（フリーメール除外）を OR で追加検索し、threadId で重複除去、日付の新しい順に。版20261001f。
+
+- 2026-10-01 BUILD_TAG=2026-10-01g GET /api/gmail/thread-full/:threadId（gmailGetThread の本文、各8000字まで）。history.js：各メールに .gm-full-btn（押すとスレッド全文を1回だけ取得してキャッシュ、該当メールの本文を pre-wrap 表示、再押下で閉じる）。google.js decodeEnt で snippet の文字参照を戻す。版20261001g。

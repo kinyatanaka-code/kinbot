@@ -1663,6 +1663,9 @@ async function loadDetail(botId, openTab, opts = {}) {
               (t.cc ? `<div><span class="gm-addr-k">CC</span>${escapeHtml(t.cc)}</div>` : `<div><span class="gm-addr-k">CC</span><span style="color:#9aa8a1">なし</span></div>`) +
             `</div>` +
             `<div class="gm-snip">${escapeHtml(t.snippet || "")}</div>` +
+            ((t.messages || []).length <= 1
+              ? `<button type="button" class="gm-full-btn" data-mid="${escapeHtml(t.messageId || "")}">全文を見る</button><div class="gm-full" hidden></div>`
+              : "") +
             ((t.messages || []).length > 1
               ? `<details class="gm-msgs" open><summary>このスレッドのメール ${t.messages.length}件（古い順）</summary>` +
                 t.messages.map((mm, mi) =>
@@ -1673,6 +1676,8 @@ async function loadDetail(botId, openTab, opts = {}) {
                       (mm.cc ? `<div><span class="gm-addr-k">CC</span>${escapeHtml(mm.cc)}</div>` : "") +
                     `</div>` +
                     `<div class="gm-snip">${escapeHtml(mm.snippet || "")}</div>` +
+                    `<button type="button" class="gm-full-btn" data-mid="${escapeHtml(mm.id || "")}">全文を見る</button>` +
+                    `<div class="gm-full" hidden></div>` +
                   `</div>`).join("") +
                 `</details>`
               : "") +
@@ -1681,6 +1686,27 @@ async function loadDetail(botId, openTab, opts = {}) {
               `<button type="button" class="btn btn-ghost gm-arch-btn">アーカイブ</button>` +
               `<button type="button" class="btn btn-ghost gm-trash-btn">ゴミ箱へ</button>` +
             `</div>`;
+
+          // 全文を見る：スレッドの本文をまとめて1回だけ読み、押したメールの本文を出す（もう一度押すと閉じる）
+          let fullCache = null;
+          el.querySelectorAll(".gm-full-btn").forEach((fb) => fb.addEventListener("click", async () => {
+            const box = fb.nextElementSibling;
+            if (!box) return;
+            if (!box.hidden) { box.hidden = true; fb.textContent = "全文を見る"; return; }
+            fb.disabled = true; fb.textContent = "読み込み中…";
+            try {
+              if (!fullCache) {
+                const rr = await fetch(`/api/gmail/thread-full/${encodeURIComponent(t.threadId)}`);
+                const dd = await rr.json();
+                if (!rr.ok) throw new Error(dd.error || "読み込めませんでした");
+                fullCache = dd.messages || [];
+              }
+              const hit = fullCache.find((x) => x.id === fb.dataset.mid) || fullCache[fullCache.length - 1];
+              box.textContent = (hit && hit.body) ? hit.body : "（本文がありません）";
+              box.hidden = false; fb.textContent = "全文を閉じる";
+            } catch (err) { box.textContent = "読み込めませんでした：" + err.message; box.hidden = false; fb.textContent = "全文を見る"; }
+            finally { fb.disabled = false; }
+          }));
 
           // アーカイブ / ゴミ箱。どちらもGmail側で元に戻せるので、取り消しボタンを出す。
           const runAct = async (btn, action, confirmMsg) => {
