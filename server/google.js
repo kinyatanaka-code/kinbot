@@ -703,7 +703,7 @@ export async function gmailSearchThreads(owner, query, max = 6) {
   for (const th of threads) {
     try {
       const tr = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${th.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject&metadataHeaders=Date`,
+        `https://gmail.googleapis.com/gmail/v1/users/me/threads/${th.id}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Reply-To&metadataHeaders=Subject&metadataHeaders=Date`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!tr.ok) continue;
@@ -716,6 +716,8 @@ export async function gmailSearchThreads(owner, query, max = 6) {
         messageId: last.id,
         from: headerVal(h, "From"),
         to: headerVal(h, "To"),
+        cc: headerVal(h, "Cc"),
+        replyTo: headerVal(h, "Reply-To"),
         subject: headerVal(h, "Subject"),
         date: headerVal(h, "Date"),
         snippet: last.snippet || th.snippet || "",

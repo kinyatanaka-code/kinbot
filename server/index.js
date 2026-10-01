@@ -20227,6 +20227,12 @@ app.get("/api/meetings/:id/gmail-threads", async (req, res) => {
       query = w;
       if (threads.length) break;
     }
+    // 返信したときの宛先（下書きと同じ決め方：最後のメールが自分からなら To、相手からなら Reply-To か From）
+    const me = String(req.user || "").toLowerCase();
+    for (const t of threads) {
+      const fromA = parseEmailAddr(t.from).toLowerCase();
+      t.返信先 = fromA && fromA !== me ? (t.replyTo || t.from) : t.to;
+    }
     res.json({ ...out, query, company, person, threads });
   } catch (e) {
     if (e.needScope) return res.json({ connected: true, threads: [], needScope: true });
@@ -21969,7 +21975,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01c プロセスシートの管理に「実績をクリア」を追加。反映先シートの各メンバーの実績セル（コール・接触・アポ期内・期外）を空にする（目標・稼働時間目標は触らない）。全員か、選んだメンバーだけかを選べる。空にしたセルは次の実行でそのまま実績が入る。";
+const BUILD_TAG = "2026-10-01d 商談のGmailの過去のやり取りで、各メールの返信先・宛先（To）・CCを見られるようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

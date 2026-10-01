@@ -1657,6 +1657,11 @@ async function loadDetail(botId, openTab, opts = {}) {
           el.innerHTML =
             `<div class="gm-thread-top"><span class="gm-from">${escapeHtml(t.from || "")}</span><span class="gm-date">${escapeHtml((t.date || "").slice(0, 25))}</span></div>` +
             `<div class="gm-subj">${escapeHtml(t.subject || "(件名なし)")}</div>` +
+            `<div class="gm-addr">` +
+              (t["返信先"] ? `<div><span class="gm-addr-k">返信先</span>${escapeHtml(t["返信先"])}</div>` : "") +
+              (t.to ? `<div><span class="gm-addr-k">宛先</span>${escapeHtml(t.to)}</div>` : "") +
+              (t.cc ? `<div><span class="gm-addr-k">CC</span>${escapeHtml(t.cc)}</div>` : `<div><span class="gm-addr-k">CC</span><span style="color:#9aa8a1">なし</span></div>`) +
+            `</div>` +
             `<div class="gm-snip">${escapeHtml(t.snippet || "")}</div>` +
             `<div class="gm-act">` +
               `<button type="button" class="btn btn-ghost gm-reply-btn">この相手への返信を作成</button>` +
