@@ -13216,57 +13216,64 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ───────── ダッシュボード「実施」：クローザーごとの 設定数・実施数 ─────────
-// 設定＝その期間が商談日の初回アポ（【初回】【新/ヒ】、除外を除く）を、商談の担当（招待先→現担当）ごとに数える。
-// 実施＝そのうち、kinbotに商談の記録がある（会社名が同じで、商談日の前後2日以内）もの。
-// 並び：全体／植野／江田／中澤／他（DASH_CLOSERS で変えられる）。
-async function jisshiCardsBetween(from, to) {
-  const closers = String(process.env.DASH_CLOSERS || "植野,江田,中澤").split(",").map((x) => x.trim()).filter(Boolean);
-  const apos = (await aposByMeetingDate(from, to).catch(() => [])).filter((a) => isApoCountableTitle(a.label));
-  const pad = (n) => String(n).padStart(2, "0");
-  const shift = (ymd, d) => { const t = new Date(ymd + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + d); return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`; };
-  const ms = await listMeetings({ isAdmin: true, from: shift(from, -3), to: shift(to, 3), limit: 8000, light: true }).catch(() => []);
-  const byCo = new Map();
-  for (const m of ms) {
-    if (m.category && m.category !== "商談") continue;
-    const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || "");
-    if (!k) continue;
-    if (!byCo.has(k)) byCo.set(k, []);
-    byCo.get(k).push(m);
-  }
-  const used = new Set();
-  const nameCache = new Map();
-  const nameOf = async (em) => {
-    const e = String(em || "").toLowerCase(); if (!e) return "";
-    if (!nameCache.has(e)) nameCache.set(e, await displayNameOf(e).catch(() => "") || "");
-    return nameCache.get(e);
-  };
+// ───────── ダッシュボード「実施」：クローザーごとの 設定数・実施数（Salesforceのクロス商談で数える） ─────────
+// 設定＝クロス商談のうち「初回アポ設定日」がその期間のもの（空なら、ステージ01の商談に限り CloseDate＝初回商談日で見る）。
+// 実施＝そのうちステージが 01：アポ獲得 から進んだもの（02〜06・受注）。99：失注 は SS02昇格日 が入っているものだけ。
+// 並び：全体／植野／江田／中澤／他（他＝田中欽也・浦林）。この5人以外の所有者の商談は数えない。
+const JISSHI_GROUPS = [
+  { name: "植野", match: ["植野"] },
+  { name: "江田", match: ["江田"] },
+  { name: "中澤", match: ["中澤"] },
+  { name: "他", match: ["田中欽也", "浦林"] },
+];
+const _oppFieldCache = { at: 0, map: null };
+async function oppFieldsByLabel(sfUser) {
+  if (_oppFieldCache.map && Date.now() - _oppFieldCache.at < 6 * 3600 * 1000) return _oppFieldCache.map;
+  const d = await describeObject(sfUser, "Opportunity");
+  const norm = (x) => String(x || "").replace(/[\s　()（）:：★☆・_]/g, "").toLowerCase();
+  const map = {};
+  for (const f of d.fields || []) map[norm(f.label)] = f.name;
+  _oppFieldCache.map = map; _oppFieldCache.at = Date.now();
+  return map;
+}
+async function sfJisshiOpps(from, to) {
+  const sfUser = await listSfUserForStats();
+  if (!sfUser) throw new Error("Salesforceに接続できるユーザーがいません（設定 → Salesforce連携）");
+  const fm = await oppFieldsByLabel(sfUser);
+  const fFirst = fm["初回アポ設定日"] || "";
+  const fSs02 = fm["ss02昇格日"] || "";
+  const sel = ["Id", "Name", "StageName", "IsWon", "CloseDate", "Owner.Name", "Account.Name"].concat([fFirst, fSs02].filter(Boolean));
+  const range = (col) => `(${col} >= ${from} AND ${col} <= ${to})`;
+  const where = fFirst
+    ? `(${range(fFirst)} OR (${fFirst} = null AND StageName LIKE '01%' AND ${range("CloseDate")}))`
+    : `(StageName LIKE '01%' AND ${range("CloseDate")})`;
+  const q = `SELECT ${[...new Set(sel)].join(", ")} FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND ${where} LIMIT 2000`;
+  const d = await sfQuery(sfUser, q);
+  return (d.records || []).map((o) => {
+    const day = String((fFirst && o[fFirst]) || o.CloseDate || "").slice(0, 10);
+    const st = String(o.StageName || "");
+    const lost = /^99/.test(st) || (/失注/.test(st) && !o.IsWon);
+    const advanced = o.IsWon || /^0[2-6]/.test(st) || /受注/.test(st);
+    const done = advanced || (lost && fSs02 && !!o[fSs02]);
+    return { id: o.Id, name: o.Name, owner: (o.Owner && o.Owner.Name) || "", company: (o.Account && o.Account.Name) || "", stage: st, day, done };
+  }).filter((x) => x.day);
+}
+function jisshiCardsFrom(opps, from, to) {
   const today = jstDateStr(new Date());
-  const cards = new Map();
-  const card = (name) => { if (!cards.has(name)) cards.set(name, { name, 設定: 0, 実施: 0, 済み設定: 0, これから: 0 }); return cards.get(name); };
-  card("全体"); for (const c of closers) card(c); card("他");
-  for (const a of apos) {
-    const owner = a.invite_event_owner || a.current_owner || "";
-    const nm = await nameOf(owner);
-    const hit = closers.find((c) => String(nm).includes(c));
-    const bucket = hit || "他";
-    const day = jstDateStr(a.start_time);
-    const past = day && day <= today;
-    let done = false;
-    const k = normCompanyKey(companyFromTitle(a.label || "") || "");
-    if (k && byCo.has(k)) {
-      for (const m of byCo.get(k)) {
-        if (used.has(m.bot_id)) continue;
-        if (dayDiff(day, jstDateStr(m.created_at)) <= 2) { used.add(m.bot_id); done = true; break; }
-      }
-    }
-    for (const c of [card("全体"), card(bucket)]) {
+  const norm = (x) => String(x || "").replace(/[\s　]/g, "");
+  const cards = [{ name: "全体" }, ...JISSHI_GROUPS.map((g) => ({ name: g.name }))].map((c) => ({ ...c, 設定: 0, 実施: 0, 済み設定: 0, これから: 0 }));
+  const byName = new Map(cards.map((c) => [c.name, c]));
+  for (const o of opps) {
+    if (o.day < from || o.day > to) continue;
+    const g = JISSHI_GROUPS.find((x) => x.match.some((m) => norm(o.owner).includes(m)));
+    if (!g) continue;   // 対象の5人以外は数えない
+    for (const c of [byName.get("全体"), byName.get(g.name)]) {
       c.設定++;
-      if (past) c.済み設定++; else c.これから++;
-      if (done) c.実施++;
+      if (o.day <= today) c.済み設定++; else c.これから++;
+      if (o.done) c.実施++;
     }
   }
-  return [...cards.values()].map((c) => ({ ...c, 実施率: c.済み設定 ? Math.round(c.実施 / c.済み設定 * 100) : null }));
+  return cards.map((c) => ({ ...c, 実施率: c.済み設定 ? Math.round(c.実施 / c.済み設定 * 100) : null }));
 }
 app.get("/api/calls/jisshi-dashboard", async (req, res) => {
   try {
@@ -13279,8 +13286,9 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const mFrom = `${sel}-01`, mTo = ymd(new Date(Date.UTC(y, m, 0)));
     const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo };
+    const opps = await sfJisshiOpps(mFrom, mTo);
     if (period === "month") {
-      out.cards = await jisshiCardsBetween(mFrom, mTo);
+      out.cards = jisshiCardsFrom(opps, mFrom, mTo);
     } else {
       // 週ラップ（平日の月〜金で区切る。月をまたがない）。ラップごとの数（積み上げではない）。
       const laps = [];
@@ -13293,7 +13301,7 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
         d = new Date(to.getTime() + 86400000);
       }
       out.weeks = [];
-      for (const l of laps) out.weeks.push({ ...l, cards: await jisshiCardsBetween(l.from, l.to) });
+      for (const l of laps) out.weeks.push({ ...l, cards: jisshiCardsFrom(opps, l.from, l.to) });
     }
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -22138,7 +22146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01m 商談のSF更新で入力規則に止められたとき、「不足している項目」をエラー文から読み取れず、入力欄が出なかった。SFの元のエラー文と「不足している項目：「…」」の両方から項目を探し、中黒で並んだ項目名も1つずつ・まとめての両方で探すようにした。";
+const BUILD_TAG = "2026-10-02a ダッシュボードの「実施」をSalesforceのクロス商談で数えるようにした。設定＝初回アポ設定日がその期間のもの（空ならステージ01の商談だけCloseDateで）、実施＝ステージが01から進んだもの（99失注はSS02昇格日があるものだけ）。全体／植野／江田／中澤／他（田中欽也・浦林）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

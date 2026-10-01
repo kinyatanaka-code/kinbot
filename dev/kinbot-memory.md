@@ -1198,3 +1198,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-01 BUILD_TAG=2026-10-01k 実施モードを差し替え：GET /api/calls/jisshi-dashboard?period=month|week&month → cards[全体・DASH_CLOSERS（既定 植野,江田,中澤）・他]（設定＝aposByMeetingDate の isApoCountableTitle、担当＝invite_event_owner||current_owner の displayName に名前が含まれるか、実施＝normCompanyKey 一致かつ dayDiff≤2 の商談記録（1商談1件）、済み設定＝今日までの商談日、これから、実施率＝実施/済み設定）。週はラップごと（積み上げなし）。calls.js：dashMetric=jisshi なら renderJisshiDash（5列の kc-jrow、jisshiCard）。apo-dashboard の metric=実施 処理は残置。版20261001k。
 
 - 2026-10-01 BUILD_TAG=2026-10-01l SF更新の入力規則エラーで不足項目が特定できなかった（画面は friendly 文しか持っておらず requiredHints が「不足している項目：「…」」を読めなかった）。deals.js：エラーに sfDetail（SF元文）を持たせ showRequiredFieldsPrompt に渡す、requiredHints が「不足している項目：「X」」を全体・中黒分割の両方で、中黒入りの項目名もまとめて候補に。sfErrorResponse の項目抽出を60字に。版20261001l。
+
+- 2026-10-02 BUILD_TAG=2026-10-02a 実施ダッシュボードをSF化。sfJisshiOpps(from,to)：describe(Opportunity) のラベル「初回アポ設定日」「SS02昇格日」でAPI名解決（6時間キャッシュ）、RecordType クロス、日付＝初回アポ設定日 or（空かつ Stage 01 のとき）CloseDate。done＝IsWon・0[2-6]・受注、または 99失注で SS02昇格日あり。jisshiCardsFrom：JISSHI_GROUPS（植野/江田/中澤/他＝田中欽也・浦林）以外の所有者は除外、済み設定＝日付が今日まで。月のSOQLを1回だけ投げて週ラップに振り分け。kinbot記録ベースの jisshiCardsBetween は削除。版20261002a。
