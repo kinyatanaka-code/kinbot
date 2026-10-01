@@ -13001,6 +13001,27 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       selMonth = String(req.query.month);
       anchor = `${selMonth}-01`;
     }
+    // 指標：アポ（既定）／実施（商談が行われた数。アポ獲得者ごと、商談日で数える）
+    const metric = String(req.query.metric || "") === "jisshi" ? "実施" : "アポ";
+    const normN = (s) => String(s || "").replace(/[\s　]/g, "");
+    const _jisshiCache = new Map();
+    // from〜to（YYYY-MM-DD、JST）に行われた商談を、アポ獲得者（apo_setter）の名前ごとに数える
+    const jisshiBetween = async (from, to) => {
+      const ck = `${from}|${to}`;
+      if (_jisshiCache.has(ck)) return _jisshiCache.get(ck);
+      const out = new Map();
+      const ms = await listMeetings({ isAdmin: true, from, to, limit: 8000, light: true }).catch(() => []);
+      for (const mt of ms) {
+        const d = jstDateStr(mt.created_at);
+        if (!d || d < from || d > to) continue;
+        if (mt.category && mt.category !== "商談") continue;
+        const k = normN(mt.apo_setter || "");
+        if (!k) continue;
+        out.set(k, (out.get(k) || 0) + 1);
+      }
+      _jisshiCache.set(ck, out);
+      return out;
+    };
     const g = await computeStatsGrid(period, span, anchor ? { anchor } : {});
     const idx = (g.区切り || []).findIndex((c) => c.key === g.今);
     const i = idx >= 0 ? idx : (g.区切り || []).length - 1;
@@ -13008,7 +13029,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     // 目標は「その期間の目標（手入力）」を直接使う（配分はしない）。
     const monthKey = g.今 || "";
     const mg = await getApoGoalsByKeys(period, [monthKey]);
-    const goalOf = (key) => Number((((mg[key] || {})[monthKey] || {})["アポ"]) || 0);
+    const goalOf = (key) => Number((((mg[key] || {})[monthKey] || {})[metric]) || 0);
     const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((s) => s.trim()).filter(Boolean);
     const excludeNames = [...new Set([...String(process.env.DASH_EXCLUDE_NAMES || "浦林,森田,笹原,迫間").split(",").map((s) => s.trim()).filter(Boolean), "田中綾"])];
     const nameHas = (name, toks) => toks.some((t) => String(name || "").includes(t));
@@ -13016,15 +13037,17 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     // ダッシュボードだけの手補正（記録に残らなかったアポを足す等）。「期間:期間キー」→ { 名前 or メール: 足す数 }
     const adjAll = { ...DASH_APO_ADJUST_BASE };
     try { const stA = await getSettings(); for (const [k, v] of Object.entries(stA.dashApoAdjust || {})) adjAll[k] = { ...(adjAll[k] || {}), ...v }; } catch {}
-    const adjNow = adjAll[`${period}:${monthKey}`] || {};
+    const adjNow = metric === "アポ" ? (adjAll[`${period}:${monthKey}`] || {}) : {};   // 手補正はアポだけ
     const adjOf = (m) => Number(adjNow[String(m.email || "").toLowerCase()] || 0) + Number(adjNow[String(m.誰 || "").replace(/[\s　]/g, "")] || 0);
+    // 実施で見るときは、その期間（月次はその月）の実施数を使う
+    const jMap = (metric === "実施" && bucket) ? await jisshiBetween(bucket.from, bucket.to) : null;
     // 個別（除外・田中付替え）
     const persons = (g.members || [])
       .filter((m) => !nameHas(m.誰, excludeNames))
       .map((m) => {
         const role = nameHas(m.誰, salesNames) ? "sales" : m.role;
         const key = String(m.email || m.誰).toLowerCase();
-        const actual = apoArr(m.値) + adjOf(m);
+        const actual = jMap ? (jMap.get(normN(m.誰)) || 0) : apoArr(m.値) + adjOf(m);
         const goal = goalOf(key);
         return { key, label: m.誰, role, actual, goal, diff: actual - goal };
       });
@@ -13043,17 +13066,20 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
           const keys = idxs.map((j) => gc.区切り[j].key);
           const gg = await getApoGoalsByKeys("month", keys).catch(() => ({}));
           const byKey = new Map((gc.members || []).map((m) => [String(m.email || m.誰).toLowerCase(), m]));
+          const cumJ = metric === "実施" && idxs.length
+            ? await jisshiBetween(gc.区切り[idxs[0]].from, gc.区切り[idxs[idxs.length - 1]].to) : null;
           for (const p of insideP) {
             const m = byKey.get(p.key);
             let act = 0;
-            for (const j of idxs) {
+            if (cumJ) act = cumJ.get(normN(p.label)) || 0;
+            else for (const j of idxs) {
               const v = m && m.値 && m.値[j];
               act += v ? Number(v.アポ内 || 0) + Number(v.アポ外 || 0) : 0;
               const adj = adjAll[`month:${gc.区切り[j].key}`] || {};
               if (m) act += Number(adj[String(m.email || "").toLowerCase()] || 0) + Number(adj[String(m.誰 || "").replace(/[\s　]/g, "")] || 0);
             }
             let goal = 0;
-            for (const k of keys) goal += Number((((gg[p.key] || {})[k] || {})["アポ"]) || 0);
+            for (const k of keys) goal += Number((((gg[p.key] || {})[k] || {})[metric]) || 0);
             p.累計 = { from: cumFrom, to: curKey, 目標: goal, 実績: act, 差分: act - goal, 月数: keys.length };
           }
         }
@@ -13155,15 +13181,19 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       { let d2 = new Date(monthStart); while (d2.getTime() <= monthEnd.getTime()) { oldKeys.push(ymd(d2)); d2 = new Date(d2.getTime() + 7 * 86400000); } }
       const wgOld = await getApoGoalsByKeys("week", oldKeys).catch(() => ({}));
       const wGoal = (subj, wk, li) => {
-        const v = Number((((wg[subj] || {})[wk] || {})["アポ"]) || 0);
-        if (v) return v;
+        const v = Number((((wg[subj] || {})[wk] || {})[metric]) || 0);
+        if (v || metric !== "アポ") return v;
         const ok = oldKeys[li];   // 同じ順番の旧キーから引き継ぐ
         return ok ? Number((((wgOld[subj] || {})[ok] || {})["アポ"]) || 0) : 0;
       };
+      // 実施で見るときは、ラップごとの実施数（アポ獲得者の役割で セールス／インサイド に分ける）
+      const lapJ = metric === "実施" ? await Promise.all(laps.map((l) => jisshiBetween(ymd(l.from), ymd(l.to)))) : null;
+      const jIdx = (li, r) => memRolesD.filter((x) => r === "all" || x.role === r)
+        .reduce((a, x) => a + (lapJ[li].get(normN(x.m.誰)) || 0), 0);
       const cumAct = { group: 0, sales: 0, inside: 0 };
       weeks = laps.map((l, li) => {
         const key = ymd(l.from);
-        const rangeSum = (r) => actIdx(li, r);
+        const rangeSum = (r) => lapJ ? jIdx(li, r) : actIdx(li, r);
         const wAct = { group: rangeSum("all"), sales: rangeSum("sales"), inside: rangeSum("inside") };
         cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside;
         // 差分＝その週までの積み上げ実績−その週に入れた目標（カード表示の 実績−目標 と一致させる）
@@ -13177,7 +13207,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     }
 
     res.json({
-      ok: true, period, periodKey: g.今 || "",
+      ok: true, period, metric, periodKey: g.今 || "",
       periodLabel: period === "week" ? monthLabelW : (bucket ? bucket.名前 : ""),
       month: selMonth || undefined,
       teams, sales: salesP, inside: insideP,
@@ -13206,7 +13236,7 @@ app.put("/api/calls/apo-goals", async (req, res) => {
     const subject = String(b.subject || "").trim().toLowerCase();
     const period = ["day", "week", "month"].includes(String(b.period)) ? String(b.period) : "";
     const periodKey = String(b.periodKey || b.date || "").trim();
-    const metric = ["コール", "接触", "アポ"].includes(String(b.metric)) ? String(b.metric) : "アポ";
+    const metric = ["コール", "接触", "アポ", "実施"].includes(String(b.metric)) ? String(b.metric) : "アポ";
     if (!subject || !period || !periodKey) return res.status(400).json({ error: "subject / period / periodKey が必要です" });
     await setApoGoal(subject, period, periodKey, metric, b.value);
     res.json({ ok: true });
@@ -22025,7 +22055,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01h kincallの資料送付メールに、いつも田中欽也（kinya.tanaka@neo-career.co.jp）をCCで入れるようにした（送る本人が田中のときは付けない）。送る前の画面にCCを表示し、ほかの人を足すこともできる。";
+const BUILD_TAG = "2026-10-01i 実績のダッシュボードに「アポ／実施」の切り替えを追加（案B）。実施にすると、月次・週次ラップ・9月からの累計・グループ/セールス/インサイド/各メンバーのカードが、商談の実施数（アポ獲得者ごと・商談日で数える）になり、実施の目標をアポとは別に入れられる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -2927,6 +2927,8 @@ function openEdit(id) {
 let _dashData = null;
 let dashPeriod = "month";          // month（月次）/ week（週次）
 let dashWeekMonth = "";            // 見る月（YYYY-MM、空＝今月）。月次・週次で共通
+let dashMetric = "apo";            // apo（アポ）/ jisshi（実施）
+try { if (localStorage.getItem("kcDashMetric") === "jisshi") dashMetric = "jisshi"; } catch {}
 // 週次の月セレクタの選択肢（直近6か月）を用意する
 function fillDashMonths() {
   const sel = $("dashWeekMonth");
@@ -2950,18 +2952,27 @@ async function loadDash() {
   fillDashMonths();
   // トグル・月セレクタの見た目を今の期間に合わせる
   document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.classList.toggle("active", b.dataset.p === dashPeriod));
+  document.querySelectorAll("#dashMetricTabs .kc-ptab").forEach((b) => b.classList.toggle("active", b.dataset.m === dashMetric));
   const msel = $("dashWeekMonth"); if (msel) { msel.style.display = ""; msel.value = dashWeekMonth; }
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
-    const q = `period=${dashPeriod === "week" ? "week" : "month"}&month=${encodeURIComponent(dashWeekMonth)}`;
+    const q = `period=${dashPeriod === "week" ? "week" : "month"}&month=${encodeURIComponent(dashWeekMonth)}&metric=${dashMetric}`;
     const d = await (await fetch(`/api/calls/apo-dashboard?${q}`)).json();
     if (d.error) throw new Error(d.error);
     _dashData = d;
     const 期 = (d.period === "week") ? "週次" : "月次";
-    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}（${期}）` : "";
+    const rg = $("dashRange"); if (rg) rg.textContent = d.periodLabel ? `対象：${d.periodLabel}（${期}・${dashMetric === "jisshi" ? "実施" : "アポ"}）` : "";
     renderDash(d);
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
+// アポ／実施の切替
+document.querySelectorAll("#dashMetricTabs .kc-ptab").forEach((b) => b.addEventListener("click", () => {
+  const m = b.dataset.m === "jisshi" ? "jisshi" : "apo";
+  if (m === dashMetric) return;
+  dashMetric = m;
+  try { localStorage.setItem("kcDashMetric", m); } catch {}
+  loadDash();
+}));
 // 月次/週次の切替
 document.querySelectorAll("#dashPeriodTabs .kc-ptab").forEach((b) => b.addEventListener("click", () => {
   const p = b.dataset.p === "week" ? "week" : "month";
@@ -3029,7 +3040,7 @@ function dashCard(c, big) {
         <div class="kc-cum-h">${Number(cu.from.slice(5, 7))}月からの累計</div>
         <div class="kc-cum-row">
           <div class="kc-cum-c"><span>目標</span><b class="kc-cum-goal">${cu.目標}</b></div>
-          <div class="kc-cum-c"><span>実績</span><b>${cu.実績}</b></div>
+          <div class="kc-cum-c"><span>${dashMetric === "jisshi" ? "実施" : "実績"}</span><b>${cu.実績}</b></div>
           <div class="kc-cum-c"><span>差分</span><b class="kc-cum-diff ${df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"}">${df > 0 ? "+" : ""}${df}</b></div>
         </div>
       </div>`;
@@ -3038,8 +3049,8 @@ function dashCard(c, big) {
     <div class="kc-dname">${esc(c.label)}</div>
     ${dashPeriod === "week" ? "" : inc}
     <div class="kc-drow">
-      <div class="kc-dcol"><div class="kc-dlb">目標</div>${goalCell}</div>
-      <div class="kc-dcol"><div class="kc-dlb">実績</div><div class="kc-d-act">${c.actual}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">${dashMetric === "jisshi" ? "実施目標" : "目標"}</div>${goalCell}</div>
+      <div class="kc-dcol"><div class="kc-dlb">${dashMetric === "jisshi" ? "実施" : "実績"}</div><div class="kc-d-act">${c.actual}</div></div>
       <div class="kc-dcol"><div class="kc-dlb">差分</div><div class="kc-d-diff ${dcls}">${dtxt}</div></div>
     </div>
     ${cumLine}
@@ -3062,7 +3073,7 @@ function renderDash(d) {
   const box = $("clDash");
   const note = `<p class="note" style="margin-top:10px">${(d.period === "week")
       ? "週は平日（月〜金）で区切ります（土日は含みません）。実績は月初からの積み上げ、差分は 積み上げ実績−その週の目標。目標は各週に直接入力でき、その週の目標として保存されます。"
-      : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}</p>`;
+      : "目標はここで直接（月次）変更できます（その月の目標として保存されます）。グループ・セールス・インサイドも手動で設定でき、実績はメンバーの合計です。差分は 実績−目標。カードをクリックすると内訳（日次）が出ます。"}${dashMetric === "jisshi" ? "　実施：アポ獲得者ごとに、商談が行われた数を商談日で数えます（アポの目標とは別に、実施の目標を入れられます）。" : ""}</p>`;
   const assign = "";   // 「未照合の商談に獲得者を割り当てる」は廃止（手入力は商談履歴・照合は自動）
 
   if (d.period === "week" && Array.isArray(d.weeks)) {
@@ -3107,7 +3118,7 @@ function renderDash(d) {
       try {
         await fetch("/api/calls/apo-goals", {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ subject, period: d.period || dashPeriod, periodKey: pkey, metric: "アポ", value: goal }),
+          body: JSON.stringify({ subject, period: d.period || dashPeriod, periodKey: pkey, metric: dashMetric === "jisshi" ? "実施" : "アポ", value: goal }),
         });
         if (typeof _statsGoals === "object") for (const k in _statsGoals) delete _statsGoals[k];
       } catch (err) { inp.style.borderColor = "#e24b4a"; }

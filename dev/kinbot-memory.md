@@ -1190,3 +1190,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-01 BUILD_TAG=2026-10-01g GET /api/gmail/thread-full/:threadId（gmailGetThread の本文、各8000字まで）。history.js：各メールに .gm-full-btn（押すとスレッド全文を1回だけ取得してキャッシュ、該当メールの本文を pre-wrap 表示、再押下で閉じる）。google.js decodeEnt で snippet の文字参照を戻す。版20261001g。
 
 - 2026-10-01 BUILD_TAG=2026-10-01h kincall資料送付（/api/calls/targets/:id/doc/send）に CC：docSendCcFor(sender)＝settings.docSendCc（既定 kinya.tanaka@neo-career.co.jp、送る本人は除く）＋画面の追加CC。preview が cc を返し、calls.js openDocSend に「いつもCCに入る人」表示と追加CC欄。版20261001h。
+
+- 2026-10-01 BUILD_TAG=2026-10-01i ダッシュボード案B：/api/calls/apo-dashboard?metric=jisshi。実施＝listMeetings（category 商談 or 空）の apo_setter（空白除去名）ごと件数を商談日（created_at JST）で数える（jisshiBetween、期間ごとキャッシュ）。月次は bucket.from〜to、累計は INCENTIVE_FROM の月〜見ている月、週ラップは各ラップ。役割はアポと同じ（セールス＝DASH_SALES_NAMES）。目標は apo_goals の metric「実施」（PUT /api/calls/apo-goals が 実施 を受け付ける）。手補正はアポのみ。calls.html #dashMetricTabs、calls.js dashMetric（localStorage kcDashMetric）、カードのラベル 実施目標/実施。版20261001i。
