@@ -1720,6 +1720,14 @@ function renderDock() {
     .kc-cum-c b.kc-d-minus{color:#b0452f;} .kc-cum-c b.kc-d-plus{color:#1d9e75;} .kc-cum-c b.kc-d-zero{color:#8aa39a;}
     .kc-zp-alt{font-size:11px;color:#fff;background:rgba(255,255,255,.18);border-radius:999px;padding:2px 8px;margin-left:auto;margin-right:6px;text-decoration:none;white-space:nowrap;}
     .kc-zp-alt:hover{background:rgba(255,255,255,.3);}
+    .kc-jrow{grid-template-columns:repeat(5,minmax(0,1fr)) !important;}
+    @media (max-width:900px){ .kc-jrow{grid-template-columns:repeat(2,minmax(0,1fr)) !important;} }
+    .kc-jcard{cursor:default;}
+    .kc-j-done{color:#0f6e56;}
+    .kc-j-rate{color:#1f2d28;}
+    .kc-j-bar{height:6px;border-radius:3px;background:#eef3f0;overflow:hidden;margin:8px 0 4px;}
+    .kc-j-bar i{display:block;height:100%;background:#1d9e75;border-radius:3px;}
+    .kc-j-sub{font-size:11px;color:#6b8a7d;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -2957,6 +2965,14 @@ async function loadDash() {
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
     const q = `period=${dashPeriod === "week" ? "week" : "month"}&month=${encodeURIComponent(dashWeekMonth)}&metric=${dashMetric}`;
+    if (dashMetric === "jisshi") {
+      // 実施：全体／植野／江田／中澤／他 の 設定数・実施数
+      const dj = await (await fetch(`/api/calls/jisshi-dashboard?${q}`)).json();
+      if (dj.error) throw new Error(dj.error);
+      const rgj = $("dashRange"); if (rgj) rgj.textContent = `対象：${dj.periodLabel}（${dashPeriod === "week" ? "週次" : "月次"}・実施）`;
+      renderJisshiDash(dj);
+      return;
+    }
     const d = await (await fetch(`/api/calls/apo-dashboard?${q}`)).json();
     if (d.error) throw new Error(d.error);
     _dashData = d;
@@ -3069,6 +3085,30 @@ async function loadNurture(redraw) {
   } catch { _nurtureByName = _nurtureByName || {}; }
 }
 
+// 実施のカード：設定数・実施数・実施率（終わった商談に対して）・これからの商談
+function jisshiCard(c, big) {
+  const rate = c.実施率 == null ? "—" : `${c.実施率}%`;
+  return `<div class="kc-dcard kc-jcard${big ? " kc-dcard-big" : ""}">
+    <div class="kc-dname">${esc(c.name)}</div>
+    <div class="kc-drow">
+      <div class="kc-dcol"><div class="kc-dlb">設定数</div><div class="kc-d-act">${c.設定}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">実施数</div><div class="kc-d-act kc-j-done">${c.実施}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">実施率</div><div class="kc-d-diff kc-j-rate">${rate}</div></div>
+    </div>
+    <div class="kc-j-bar"><i style="width:${c.済み設定 ? Math.min(100, Math.round(c.実施 / c.済み設定 * 100)) : 0}%"></i></div>
+    <div class="kc-j-sub">終わった商談 ${c.済み設定}件中 ${c.実施}件 実施${c.これから ? `　／　これから ${c.これから}件` : ""}</div>
+  </div>`;
+}
+function renderJisshiDash(d) {
+  const box = $("clDash");
+  const note = `<p class="note" style="margin-top:10px">設定数＝その期間が商談日の初回アポ（【初回】【新/ヒ】。リスケ・キャンセルで外したものは除く）を、商談の担当ごとに数えたもの。実施数＝そのうちkinbotに商談の記録があるもの（会社名が同じで商談日の前後2日以内）。実施率＝実施数÷終わった商談の設定数。${d.period === "week" ? "週ラップは、その週が商談日の分だけを数えます（積み上げではありません）。" : ""}</p>`;
+  const row = (cards) => `<div class="kc-dgrid kc-jrow">${(cards || []).map((c, i) => jisshiCard(c, i === 0)).join("")}</div>`;
+  if (d.period === "week") {
+    box.innerHTML = (d.weeks || []).map((w) => `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>${row(w.cards)}</div>`).join("") + note;
+  } else {
+    box.innerHTML = row(d.cards) + note;
+  }
+}
 function renderDash(d) {
   const box = $("clDash");
   const note = `<p class="note" style="margin-top:10px">${(d.period === "week")

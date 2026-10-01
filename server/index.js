@@ -13216,6 +13216,89 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ───────── ダッシュボード「実施」：クローザーごとの 設定数・実施数 ─────────
+// 設定＝その期間が商談日の初回アポ（【初回】【新/ヒ】、除外を除く）を、商談の担当（招待先→現担当）ごとに数える。
+// 実施＝そのうち、kinbotに商談の記録がある（会社名が同じで、商談日の前後2日以内）もの。
+// 並び：全体／植野／江田／中澤／他（DASH_CLOSERS で変えられる）。
+async function jisshiCardsBetween(from, to) {
+  const closers = String(process.env.DASH_CLOSERS || "植野,江田,中澤").split(",").map((x) => x.trim()).filter(Boolean);
+  const apos = (await aposByMeetingDate(from, to).catch(() => [])).filter((a) => isApoCountableTitle(a.label));
+  const pad = (n) => String(n).padStart(2, "0");
+  const shift = (ymd, d) => { const t = new Date(ymd + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + d); return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`; };
+  const ms = await listMeetings({ isAdmin: true, from: shift(from, -3), to: shift(to, 3), limit: 8000, light: true }).catch(() => []);
+  const byCo = new Map();
+  for (const m of ms) {
+    if (m.category && m.category !== "商談") continue;
+    const k = normCompanyKey(companyFromTitle(m.title || "") || m.account || "");
+    if (!k) continue;
+    if (!byCo.has(k)) byCo.set(k, []);
+    byCo.get(k).push(m);
+  }
+  const used = new Set();
+  const nameCache = new Map();
+  const nameOf = async (em) => {
+    const e = String(em || "").toLowerCase(); if (!e) return "";
+    if (!nameCache.has(e)) nameCache.set(e, await displayNameOf(e).catch(() => "") || "");
+    return nameCache.get(e);
+  };
+  const today = jstDateStr(new Date());
+  const cards = new Map();
+  const card = (name) => { if (!cards.has(name)) cards.set(name, { name, 設定: 0, 実施: 0, 済み設定: 0, これから: 0 }); return cards.get(name); };
+  card("全体"); for (const c of closers) card(c); card("他");
+  for (const a of apos) {
+    const owner = a.invite_event_owner || a.current_owner || "";
+    const nm = await nameOf(owner);
+    const hit = closers.find((c) => String(nm).includes(c));
+    const bucket = hit || "他";
+    const day = jstDateStr(a.start_time);
+    const past = day && day <= today;
+    let done = false;
+    const k = normCompanyKey(companyFromTitle(a.label || "") || "");
+    if (k && byCo.has(k)) {
+      for (const m of byCo.get(k)) {
+        if (used.has(m.bot_id)) continue;
+        if (dayDiff(day, jstDateStr(m.created_at)) <= 2) { used.add(m.bot_id); done = true; break; }
+      }
+    }
+    for (const c of [card("全体"), card(bucket)]) {
+      c.設定++;
+      if (past) c.済み設定++; else c.これから++;
+      if (done) c.実施++;
+    }
+  }
+  return [...cards.values()].map((c) => ({ ...c, 実施率: c.済み設定 ? Math.round(c.実施 / c.済み設定 * 100) : null }));
+}
+app.get("/api/calls/jisshi-dashboard", async (req, res) => {
+  try {
+    const period = req.query.period === "week" ? "week" : "month";
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const cur = `${nowJ.getUTCFullYear()}-${String(nowJ.getUTCMonth() + 1).padStart(2, "0")}`;
+    const sel = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : cur;
+    const [y, m] = sel.split("-").map(Number);
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const mFrom = `${sel}-01`, mTo = ymd(new Date(Date.UTC(y, m, 0)));
+    const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo };
+    if (period === "month") {
+      out.cards = await jisshiCardsBetween(mFrom, mTo);
+    } else {
+      // 週ラップ（平日の月〜金で区切る。月をまたがない）。ラップごとの数（積み上げではない）。
+      const laps = [];
+      let d = new Date(Date.UTC(y, m - 1, 1)); const end = new Date(Date.UTC(y, m, 0));
+      while (d <= end) {
+        const dow = d.getUTCDay();
+        if (dow === 0 || dow === 6) { d = new Date(d.getTime() + 86400000); continue; }
+        let to = new Date(d.getTime() + (5 - dow) * 86400000); if (to > end) to = new Date(end);
+        laps.push({ from: ymd(d), to: ymd(to), label: `${d.getUTCMonth() + 1}/${d.getUTCDate()}〜${to.getUTCMonth() + 1}/${to.getUTCDate()}` });
+        d = new Date(to.getTime() + 86400000);
+      }
+      out.weeks = [];
+      for (const l of laps) out.weeks.push({ ...l, cards: await jisshiCardsBetween(l.from, l.to) });
+    }
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 日次目標を期間で取る（実績グリッド・モーダルの目標行が、日次入力＋週月合計を出すため）
 app.get("/api/calls/apo-goals-cells", async (req, res) => {
   try {
@@ -22055,7 +22138,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01j ダッシュボードの「実施」では、インサイド（チームのカード・メンバーのカード・週ラップのインサイド）を出さないようにした。";
+const BUILD_TAG = "2026-10-01k ダッシュボードの「実施」を、全体／植野／江田／中澤／他 のカードで「設定数（その期間が商談日の初回アポ）・実施数（kinbotに商談の記録があるもの）・実施率・これからの商談」が見える形にした。月次と週ラップ（週ごとの数）で見られる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

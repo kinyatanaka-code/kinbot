@@ -1194,3 +1194,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-01 BUILD_TAG=2026-10-01i ダッシュボード案B：/api/calls/apo-dashboard?metric=jisshi。実施＝listMeetings（category 商談 or 空）の apo_setter（空白除去名）ごと件数を商談日（created_at JST）で数える（jisshiBetween、期間ごとキャッシュ）。月次は bucket.from〜to、累計は INCENTIVE_FROM の月〜見ている月、週ラップは各ラップ。役割はアポと同じ（セールス＝DASH_SALES_NAMES）。目標は apo_goals の metric「実施」（PUT /api/calls/apo-goals が 実施 を受け付ける）。手補正はアポのみ。calls.html #dashMetricTabs、calls.js dashMetric（localStorage kcDashMetric）、カードのラベル 実施目標/実施。版20261001i。
 
 - 2026-10-01 BUILD_TAG=2026-10-01j ダッシュボード実施モードではインサイドを非表示（renderDash で teams の inside と d.inside を除外、週ラップも）。グループ（全体）はそのまま全体。版20261001j。
+
+- 2026-10-01 BUILD_TAG=2026-10-01k 実施モードを差し替え：GET /api/calls/jisshi-dashboard?period=month|week&month → cards[全体・DASH_CLOSERS（既定 植野,江田,中澤）・他]（設定＝aposByMeetingDate の isApoCountableTitle、担当＝invite_event_owner||current_owner の displayName に名前が含まれるか、実施＝normCompanyKey 一致かつ dayDiff≤2 の商談記録（1商談1件）、済み設定＝今日までの商談日、これから、実施率＝実施/済み設定）。週はラップごと（積み上げなし）。calls.js：dashMetric=jisshi なら renderJisshiDash（5列の kc-jrow、jisshiCard）。apo-dashboard の metric=実施 処理は残置。版20261001k。
