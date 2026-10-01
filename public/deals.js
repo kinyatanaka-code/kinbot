@@ -2327,6 +2327,7 @@ function requiredHints(errMsg) {
       const cut = t.replace(/^.*?(?:時には|には|の場合、?)/, "");
       if (cut && cut.length >= 2) t = cut;
       t = t.replace(/の(?:入力|選択|登録|設定|記入)$/, "");
+      if (/この項目|その項目|上記|SF管理者/.test(t)) continue;   // kinbotの案内文から拾ったものは捨てる
       if (t && t.length >= 2 && !clean.includes(t)) clean.push(t);
     }
     if (clean.length) hints.push(clean);
