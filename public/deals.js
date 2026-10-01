@@ -2290,8 +2290,14 @@ function normFieldLabel(s) {
 // エラー文から「入力が必要な項目」の手がかり語を取り出す
 // 例：「セキュリティーチェックが不要な場合、その理由の入力が必要です」→ ["セキュリティーチェック", "理由"]
 function requiredHints(errMsg) {
-  const clauses = String(errMsg || "").split(/[。\n]+|\s*[\/／]\s*/).map((c) => c.trim()).filter(Boolean);
   const hints = [];
+  // kinbotがまとめた「不足している項目：「A・B」」の形。項目名そのものに「・」が入ることがあるので、まとめて・1つずつの両方で探す
+  for (const mm of String(errMsg || "").matchAll(/不足している項目[：:]\s*「([^」]+)」/g)) {
+    const whole = mm[1].trim();
+    if (whole.length >= 2) hints.push([whole]);
+    whole.split(/[・､、,／\/]+/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 30).forEach((x) => hints.push([x]));
+  }
+  const clauses = String(errMsg || "").split(/[。\n]+|\s*[\/／]\s*/).map((c) => c.trim()).filter(Boolean);
   for (const c of clauses) {
     const toks = [];
     // 「〜にはA・B・Cを入力してください」形式（項目が中黒で並ぶ）
@@ -2301,6 +2307,7 @@ function requiredHints(errMsg) {
     const multi = mList || (mNeed && /[「『・]/.test(mNeed[1]) ? mNeed : null);
     if (multi) {
       let seg = String(multi[1]).replace(/^.*?(?:のためには|ためには|には|は)\s*/, "");
+      { const w = seg.replace(/[「『」』]/g, "").trim(); if (w.length >= 2 && w.length <= 60 && /・/.test(w)) hints.push([w]); }   // 中黒入りの1つの項目名かもしれない
       // 「商談種別」「初回提案商品」のようなかぎかっこ区切りにも対応
       seg = seg.replace(/[「『]/g, "・").replace(/[」』]/g, "・");
       const items = seg.split(/[・､、,／\/]+/).map((x) => x.trim()).filter((x) => x.length >= 2 && x.length <= 30);
@@ -2345,7 +2352,7 @@ function fieldsForHint(fields, toks) {
   return hit.slice(0, 2);
 }
 
-async function showRequiredFieldsPrompt(container, errMsg, retry) {
+async function showRequiredFieldsPrompt(container, errMsg, retry, rawDetail = "") {
   if (!container) return;
   container.innerHTML = `<div class="sf-err-box">${esc(errMsg)}</div><div class="sf-cr-box"><div class="sf-cr-title">不足している項目を入力して再更新します</div><div class="sf-ss-note">項目を読み込み中…</div></div>`;
   const box = container.querySelector(".sf-cr-box");
@@ -2355,7 +2362,7 @@ async function showRequiredFieldsPrompt(container, errMsg, retry) {
 
   // エラー文から必要な項目を推測する
   const matched = [];
-  for (const toks of requiredHints(errMsg)) {
+  for (const toks of requiredHints(errMsg + (rawDetail ? "\n" + rawDetail : ""))) {
     for (const f of fieldsForHint(fields, toks)) {
       if (!matched.find((y) => y.name === f.name)) matched.push(f);
     }
@@ -2950,7 +2957,9 @@ async function initSfTab(account) {
           const d = await r.json().catch(() => ({}));
           if (!r.ok) {
             if (d.sfReauth) { showSfReauth($("sfStageFields")); return; }
-            throw new Error(d.error || "更新失敗");
+            const er = new Error(d.error || "更新失敗");
+            er.sfDetail = d.sfDetail || "";   // SFの元のエラー文（不足項目を探すのに使う）
+            throw er;
           }
           ownerChanged = !!d.ownerChanged;
         }
@@ -2966,7 +2975,7 @@ async function initSfTab(account) {
         } else if (/商品|product|OpportunityLineItem|価格表|Pricebook/i.test(msg)) {
           showProductPrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
         } else if (/の入力が必要|の確認が必要|の選択が必要|の登録が必要|の設定が必要|が必須|required/i.test(msg)) {
-          showRequiredFieldsPrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click());
+          showRequiredFieldsPrompt($("sfUpdateMsg"), cleanSfError(msg), () => updateBtn.click(), cleanSfError(e.sfDetail || ""));
         } else {
           $("sfUpdateMsg").innerHTML = `<div class="sf-err-box">更新できませんでした：<br>${esc(cleanSfError(msg))}</div>`;
         }

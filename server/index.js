@@ -22138,7 +22138,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-01k ダッシュボードの「実施」を、全体／植野／江田／中澤／他 のカードで「設定数（その期間が商談日の初回アポ）・実施数（kinbotに商談の記録があるもの）・実施率・これからの商談」が見える形にした。月次と週ラップ（週ごとの数）で見られる。";
+const BUILD_TAG = "2026-10-01l 商談のSF更新で入力規則に止められたとき、「不足している項目」をエラー文から読み取れず、入力欄が出なかった。SFの元のエラー文と「不足している項目：「…」」の両方から項目を探し、中黒で並んだ項目名も1つずつ・まとめての両方で探すようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -22410,7 +22410,7 @@ function sfErrorResponse(res, e) {
   if (/FIELD_CUSTOM_VALIDATION_EXCEPTION|CANNOT_EXECUTE_FLOW_TRIGGER|VALIDATION/i.test(msg)) {
     // 「〇〇を入力してください」の部分だけ拾う
     const m = msg.match(/([^:「]*?)を入力してください/);
-    const 項目 = m ? m[1].replace(/["'。、\s]/g, "").slice(-30) : "";
+    const 項目 = m ? m[1].replace(/["'。、\s]/g, "").replace(/^.*?(?:のためには|ためには|には|は)(?=.{2,})/, "").slice(-60) : "";
     const flow = /CANNOT_EXECUTE_FLOW_TRIGGER/i.test(msg) ? "（Salesforceのフローが関連レコードを更新しようとしています）" : "";
     friendly = `Salesforceの入力規則で保存できませんでした${flow}。` +
       (項目 ? `不足している項目：「${項目}」。` : "") +
