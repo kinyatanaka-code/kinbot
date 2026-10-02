@@ -1212,3 +1212,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02g server/gemini_failover.js：globalThis.fetch を包み、generativelanguage.googleapis.com への ?key=GEMINI_API_KEY の呼び出しが 403/429/400(キー無効・billing) なら GEMINI_API_KEY_BACKUP に差し替えて再送、30分は予備を使用（本文が文字列のときだけ再送）。index.js の先頭で import。GET /api/gemini-key-status。予備キー未設定なら何もしない。版20261002g。
 
 - 2026-10-02 BUILD_TAG=2026-10-02h findAcrossMembers：行ごとに .kc-ah-list（/api/calls/lists/all を持ち主ごと optgroup、閉じた・非表示は除く、既定＝今のリスト）と「選んだリストへ移す」（/revive に選んだ listId）。今のリストへ移したときだけ loadTable。版20261002h。
+
+- 2026-10-02 BUILD_TAG=2026-10-02i 2026-10-02 本番で Gemini 403「Lightning dunning decision is deny for project: projects/26338471121」（Google Cloud の支払い未払いで停止）。gemini_failover.js geminiErrorText で dunning/billing・429 を日本語の案内に。analyzer.js の3か所で使用。復旧は支払い、または Railway に GEMINI_API_KEY_BACKUP を設定。版20261002i。

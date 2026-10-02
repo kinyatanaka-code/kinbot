@@ -48,3 +48,13 @@ globalThis.fetch = async function (input, init) {
   console.warn(`[Gemini] いつものキーで ${res.status} のため、予備のキー（GEMINI_API_KEY_BACKUP）に切り替えます（30分）`);
   return _fetch(swapKey(url, main, backup), init);
 };
+
+// 使う人に見せるエラー文：支払い停止（dunning / billing）のときは、技術的な英文ではなく理由がわかる文にする
+export function geminiErrorText(status, text) {
+  const t = String(text || "");
+  if (status === 403 && /dunning|BILLING|billing/i.test(t)) {
+    return "AI（Gemini）の利用料金の支払いが止まっているため、いまAIの読み取り・作成が使えません。管理者が対応中です。少し時間をおいてお試しください。";
+  }
+  if (status === 429) return "AI（Gemini）の利用回数の上限に当たりました。少し時間をおいてお試しください。";
+  return `Gemini ${status}: ${t.slice(0, 200)}`;
+}

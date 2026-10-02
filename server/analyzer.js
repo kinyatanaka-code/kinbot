@@ -1,5 +1,6 @@
 // server/analyzer.js
 // 要約・提案を生成。LLM_PROVIDER で gemini / anthropic / ollama を切替。
+import { geminiErrorText } from "./gemini_failover.js";
 import { retrieve } from "./retrieval.js";
 import { getSettings } from "./db.js";
 import { readFileSync } from "fs";
@@ -582,7 +583,7 @@ async function geminiGrounded(question, siteText) {
       const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
       });
-      if (!res.ok) { lastErr = `Gemini ${res.status}: ${(await res.text().catch(() => "")).slice(0, 120)}`; continue; }
+      if (!res.ok) { lastErr = geminiErrorText(res.status, await res.text().catch(() => "")); continue; }
       const data = await res.json();
       return (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
     } catch (e) { lastErr = e.message; }
@@ -1093,7 +1094,7 @@ export async function chatWithData({ messages, material, model, web }) {
     const res = await fetchWithTimeout(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, "Gemini");
     if (!res.ok) {
       const t = await res.text().catch(() => "");
-      throw new Error(`Gemini ${res.status}: ${t.slice(0, 200)}`);
+      throw new Error(geminiErrorText(res.status, t));
     }
     const data = await res.json();
     const cand = data.candidates?.[0];
@@ -1355,7 +1356,7 @@ async function callGemini(system, user, maxTokens, json = true, schema = null, m
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
-    throw new Error(`Gemini ${res.status}: ${t.slice(0, 300)}`);
+    throw new Error(geminiErrorText(res.status, t));
   }
   const data = await res.json();
   const cand = data.candidates?.[0];
