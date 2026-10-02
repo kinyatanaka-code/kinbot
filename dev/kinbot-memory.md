@@ -1214,3 +1214,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02h findAcrossMembers：行ごとに .kc-ah-list（/api/calls/lists/all を持ち主ごと optgroup、閉じた・非表示は除く、既定＝今のリスト）と「選んだリストへ移す」（/revive に選んだ listId）。今のリストへ移したときだけ loadTable。版20261002h。
 
 - 2026-10-02 BUILD_TAG=2026-10-02i 2026-10-02 本番で Gemini 403「Lightning dunning decision is deny for project: projects/26338471121」（Google Cloud の支払い未払いで停止）。gemini_failover.js geminiErrorText で dunning/billing・429 を日本語の案内に。analyzer.js の3か所で使用。復旧は支払い、または Railway に GEMINI_API_KEY_BACKUP を設定。版20261002i。
+
+- 2026-10-02 BUILD_TAG=2026-10-02j gemini_failover.js：textViaGroq（既定ON）。generateContent の本文が text パーツだけ・tools なし なら Groq chat/completions（GROQ_TEXT_MODEL||GROQ_MODEL||llama-3.3-70b-versatile、max_tokens≤8000、responseMimeType json なら system にJSONのみ指示）に送り、Gemini形式（candidates[0].content.parts[0].text、finishReason）に直して返す。失敗時はGeminiへ。GET/PUT /api/ai-text-groq（settings.aiTextViaGroq、起動時に反映）。画像・PDF・音声・ファイル・google_search は対象外。版20261002j。

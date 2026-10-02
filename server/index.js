@@ -1,6 +1,6 @@
 // server/index.js
 import "dotenv/config";
-import { geminiFailoverStatus } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
+import { geminiFailoverStatus, setTextViaGroq, groqRouteStats } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
 import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -21176,7 +21176,19 @@ app.put("/api/settings", async (req, res) => {
 });
 
 // Geminiのキーの状態（予備に切り替わっているか）
-app.get("/api/gemini-key-status", (req, res) => res.json({ ok: true, ...geminiFailoverStatus() }));
+app.get("/api/gemini-key-status", (req, res) => res.json({ ok: true, ...geminiFailoverStatus(), groq: groqRouteStats() }));
+// 文章だけのAI処理をGroqで動かすか（一時的な切り替え。既定ON）。設定 aiTextViaGroq に保存。
+app.get("/api/ai-text-groq", (req, res) => res.json({ ok: true, ...groqRouteStats() }));
+app.put("/api/ai-text-groq", async (req, res) => {
+  try {
+    if (!req.isAdmin && !isAdmin(req.user)) return res.status(403).json({ error: "管理者だけが変えられます" });
+    const on = !!(req.body && req.body.on);
+    await saveSettings({ aiTextViaGroq: on });
+    setTextViaGroq(on);
+    console.log(`[設定] 文章だけのAI処理を ${on ? "Groq" : "Gemini"} に by ${req.user}`);
+    res.json({ ok: true, ...groqRouteStats() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // 商談中のAI提案（ライブ分析）の入/切。チーム共通。トークンを多く使うので既定は切。
 app.get("/api/live-ai", async (req, res) => {
@@ -22197,7 +22209,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02i Geminiの支払い停止（403 dunning）のとき、英語の技術エラーではなく「AIの利用料金の支払いが止まっているため使えません。管理者が対応中です」と出すようにした。予備キー（GEMINI_API_KEY_BACKUP）が入っていれば自動で切り替わる。";
+const BUILD_TAG = "2026-10-02j 一時的に、文章だけのAI処理（まとめ・判定・御礼メール作成など）をGeminiではなくGroqで動かすようにした。画像・PDF・音声・Google検索つきの処理はGeminiのまま。Groqで失敗したらGeminiに送る。/api/ai-text-groq（管理者）で戻せる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -27827,6 +27839,8 @@ app.delete("/api/proposals/:id", async (req, res) => {
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   migrateCompanyKeysNfkc().catch((e) => console.warn("[db] 会社名キーの付け替え失敗", e.message));
+  // 文章だけのAI処理をGroqにするか（設定があればそれに従う。無ければ既定ON）
+  getSettings().then((st) => { if (st && (st.aiTextViaGroq === false || st.aiTextViaGroq === "false")) setTextViaGroq(false); }).catch(() => {});
   // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。
   cleanupPhysicalStageLists().then((r) => { if ((r.deleted || 0) + (r.moved || 0)) console.log(`[kincall] 旧アーカイブ/リサイクルリストを整理：${r.deleted}件削除・${r.moved}件を元の持ち主のリストへ`); }).catch(() => {});
   // プロセスシートの「最後の書き込み」を設定から戻す（再起動で未実行に見えないように）
