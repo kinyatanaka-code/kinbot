@@ -5448,6 +5448,33 @@ export async function excludeApo(slug, reason = "") {
   } catch (e) { console.error("[db] excludeApo", e.message); return null; }
 }
 
+// 2026-10-02 に【キックオフ】の予定がアポとして取り込まれてしまった分を、数から外す（何度動かしても同じ結果）。
+// 【初回】【新】【ヒ】の印が付いていない、キックオフだけの予定が対象。カレンダーの予定は消さない（相手に取り消しが届くため）。
+export async function excludeKickoffApos() {
+  if (!pool) return [];
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`).catch(() => {});
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET excluded = true, excluded_reason = 'キックオフ（初回アポではない）', updated_at = now()
+        WHERE label ILIKE '%キックオフ%'
+          AND label !~ '【[^】]*(初回|新|ヒ)[^】]*】'
+          AND NOT COALESCE(excluded, false)
+          AND created_at >= '2026-10-01T15:00:00Z'
+        RETURNING slug, label, setter, current_owner, invite_event_id, invite_event_owner, start_time`);
+    for (const r of rows) console.log(`[apo] キックオフを数から外しました ${r.label}`);
+    return rows;
+  } catch (e) { console.error("[db] excludeKickoffApos", e.message); return []; }
+}
+export async function listKickoffApos() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, setter, current_owner, invite_event_id, invite_event_owner, start_time, excluded, excluded_reason, created_at
+         FROM smart_links WHERE label ILIKE '%キックオフ%' AND created_at >= '2026-10-01T15:00:00Z' ORDER BY created_at DESC LIMIT 200`);
+    return rows;
+  } catch (e) { return []; }
+}
+
 // ===== ライブ中継の宛先 =====
 export async function saveLiveRelay(token, dest, botId = "") {
   if (!pool || !token || !dest) return null;

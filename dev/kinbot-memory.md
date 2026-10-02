@@ -1222,3 +1222,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02l 【キックオフ】を初回アポとして扱う。KICKOFF_TAG_RE を apoTitleTag・isApoCountableTitle・isFirstMeetingTitle・アポ集計の対象タイトルに追加。スキャン時は kickoffIsFirst（apoNameParts の会社から法人格を除いた文字で db.smartLinksByLabelLike(365日)、同じ normCompanyKey の【初回】【新/ヒ】があれば取り込まない）。版20261002l。
 
 - 2026-10-02 BUILD_TAG=2026-10-02m 2026-10-02l（【キックオフ】を初回アポに数える）を revert。予定名のキックオフでは数えない方針（ユーザー指示）。電話で申込が決まった場合の数え方は確認中。版20261002m。
+
+- 2026-10-02 BUILD_TAG=2026-10-02o 2026-10-02l の間に取り込まれた【キックオフ】アポを外す：db.excludeKickoffApos（label にキックオフ、【初回/新/ヒ】タグなし、created_at≥2026-10-02 JST、excluded=true・理由『キックオフ（初回アポではない）』）を起動時に実行。kinbotが作った招待予定は sendUpdates=all で相手に取り消しが飛ぶため消さない。GET /api/apo/kickoff-cleanup（?run=1 で再実行）。版20261002o。

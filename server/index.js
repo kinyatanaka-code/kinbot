@@ -167,6 +167,8 @@ import {
   addDevNote,
   futureApos,
   excludeApo,
+  excludeKickoffApos,
+  listKickoffApos,
   listCalendarWatches,
   countLiveRelay,
   saveCalendarWatch,
@@ -22209,7 +22211,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02n 【キックオフ】の予定名で初回アポとして数える変更（2026-10-02l）を取り消した。予定名のキックオフでは数えない。";
+const BUILD_TAG = "2026-10-02o 一時的に【キックオフ】の予定がアポとして取り込まれた分を、起動時にすべてアポの数から外した（リマインド・アポ数・割り振りの対象外）。カレンダーの予定は消さない。/api/apo/kickoff-cleanup で一覧を確認できる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -26629,6 +26631,17 @@ app.get("/api/apo/invites", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 2026-10-02 に取り込まれた【キックオフ】のアポの一覧（外れたかの確認用）。?run=1 でもう一度外す。
+app.get("/api/apo/kickoff-cleanup", async (req, res) => {
+  try {
+    if (req.query.run) await excludeKickoffApos();
+    const rows = await listKickoffApos();
+    res.json({ ok: true, 件数: rows.length, 外したもの: rows.filter((r) => r.excluded).length,
+      items: rows.map((r) => ({ label: r.label, 商談日: r.start_time, 外した: !!r.excluded, 理由: r.excluded_reason || "",
+        kinbotが作った商談予定: r.invite_event_id ? (r.invite_event_owner || "あり") : "" })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 1件の商談予定をカレンダーから消す（アポの割り当て自体は残す）
 app.delete("/api/apo/invites/:slug", async (req, res) => {
   try {
@@ -27839,6 +27852,8 @@ app.delete("/api/proposals/:id", async (req, res) => {
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   migrateCompanyKeysNfkc().catch((e) => console.warn("[db] 会社名キーの付け替え失敗", e.message));
+  // 2026-10-02：【キックオフ】の予定がアポとして取り込まれた分を外す（起動のたびに確認。外すものが無ければ何もしない）
+  excludeKickoffApos().then((r) => { if (r.length) console.log(`[apo] キックオフ ${r.length}件をアポの数から外しました`); }).catch(() => {});
   // 文章だけのAI処理をGroqにするか（設定があればそれに従う。無ければ既定ON）
   getSettings().then((st) => { if (st && (st.aiTextViaGroq === false || st.aiTextViaGroq === "false")) setTextViaGroq(false); }).catch(() => {});
   // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。
