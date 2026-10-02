@@ -1234,3 +1234,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02s db.findCallTargetPhone({company,email})（email一致→法人格除去の ILIKE 候補を normCompanyKey 一致、新しい順）。lookupCompanyInfo の最初に merge、/api/apo/:slug/company-info は全段で kincall の電話を優先（phoneFrom=kincall）、GET /api/apo/:slug/kincall-phone、apo.js openLaunchModal で lcPhone が空なら開いた時に取得。版20261002s。
 
 - 2026-10-02 BUILD_TAG=2026-10-02t 実施ダッシュボードの手直し：settings.jisshiAdjust=[{name,date,delta,by,at}]、jisshiCardsFrom(opps,from,to,adjs,editDate) が from〜to の delta を各人に加算（全体は合計、率は100%で頭打ち）。編集できるのは JISSHI_EDITOR（kinya.tanaka、代理操作中は元の本人で判定）。PUT /api/calls/jisshi-adjust {name,date,value,shown}→ その date に (value−shown) を足す。月次は月末日、週ラップはラップ末日に足す（積み上げなのでその週以降に効く）。calls.js 編集モード（#kcJEdit）。版20261002t。
+
+- 2026-10-02 BUILD_TAG=2026-10-02u #kcJEdit を鉛筆SVGの丸ボタン（.kc-j-pen、編集中は緑塗り）に。版20261002u。

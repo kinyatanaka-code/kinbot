@@ -1756,6 +1756,9 @@ function renderDock() {
     .kc-j-bar i{display:block;height:100%;background:#1d9e75;border-radius:3px;}
     .kc-j-sub{font-size:11px;color:#6b8a7d;}
     .kc-j-adj{color:#b07a1f;margin-left:4px;}
+    .kc-j-pen{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid #cfe0d8;background:#fff;color:#0d5b47;cursor:pointer;flex:0 0 auto;}
+    .kc-j-pen:hover{background:#eef5f2;}
+    .kc-j-pen.on{background:#0d5b47;border-color:#0d5b47;color:#fff;}
     .kc-ah-list{display:block;width:100%;max-width:260px;margin-top:6px;font-size:12px;padding:4px 6px;border:1px solid #cfe0d8;border-radius:8px;background:#fff;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
@@ -3139,7 +3142,7 @@ function renderJisshiDash(d) {
   const note = `<p class="note" style="margin-top:10px">設定数はSalesforce、実施数はkinbotで数えています。設定数＝「初回アポ設定日」がその期間の商談（空欄ならステージ01の商談だけ初回商談日で判定）を、商談所有者ごとに数えたもの。実施数＝そのうち、kinbotに商談の記録があるもの（会社名が同じで、初回アポ設定日の3日前以降の記録）。実施率＝実施数÷初回アポ設定日が今日までの設定数。他＝田中欽也・浦林。${d.period === "week" ? "週ラップは、月初からその週の終わりまでの積み上げです。" : ""}</p>`;
   const row = (cards, ctx) => `<div class="kc-dgrid kc-jrow">${(cards || []).map((c, i) => jisshiCard(c, i === 0, ctx)).join("")}</div>`;
   const editBar = d.canEdit
-    ? `<div style="margin:0 0 8px"><button type="button" class="btn ${_jisshiEdit ? "" : "ghost"}" id="kcJEdit">${_jisshiEdit ? "編集モードを終える" : "編集モード（実施数を直す）"}</button>${_jisshiEdit ? `<span class="note" style="margin-left:8px">植野・江田・中澤・他の実施数を直せます（全体は合計）。${d.period === "week" ? "週で直した分は、その週から後の積み上げにも入ります。" : ""}</span>` : ""}</div>`
+    ? `<div style="margin:0 0 8px;display:flex;align-items:center;gap:8px"><button type="button" class="kc-j-pen${_jisshiEdit ? " on" : ""}" id="kcJEdit" title="${_jisshiEdit ? "編集を終える" : "実施数を直す"}" aria-label="${_jisshiEdit ? "編集を終える" : "実施数を直す"}"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.21a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>${_jisshiEdit ? `<span class="note">植野・江田・中澤・他の実施数を直せます（全体は合計）。${d.period === "week" ? "週で直した分は、その週から後の積み上げにも入ります。" : ""}もう一度鉛筆を押すと終わります。</span>` : ""}</div>`
     : "";
   if (d.period === "week") {
     box.innerHTML = editBar + (d.weeks || []).map((w) => `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>${row(w.cards, { canEdit: d.canEdit, date: w.to, from: d.from })}</div>`).join("") + note;
