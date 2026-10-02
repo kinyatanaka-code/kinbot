@@ -1974,7 +1974,7 @@ function rcRender() {
         ? c.businesses.map((b) => `<span class="ap-biz-badge ap-biz-${esc(b)}">${esc(b)}</span>`).join("")
         : `<span class="ap-biz-badge ap-biz-none" title="事業が未設定のため、DOCとMOCHICAの両方に出ています">事業未設定</span>`) +
       `<span class="ap-rot-meta">${c.daily_cap ? "1日" + c.daily_cap + "件まで" : "上限なし"}</span>` +
-      `<span class="ap-rot-cnt">${c.period_count || 0}件` +
+      `<span class="ap-rot-cnt" title="比べる期間に割り振った件数（自分で取ったアポは入れない）">割り振り${c.period_count || 0}件` +
         `${c.eligible_days > 0 ? `／稼働${c.eligible_days}日` : ""}` +
         `${c.eligible_days > 0 && c.per_day != null ? `／1日あたり${c.per_day}件` : ""}` +
         `${c.suspended_days > 0 ? `<span class="ap-susp-chip">停止${c.suspended_days}日を除外</span>` : ""}</span>` +

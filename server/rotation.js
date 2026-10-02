@@ -22,7 +22,7 @@ import {
   listClosers, markCloserAssigned, markCloserSkipped,
   countAssignedOnDate, countDistributedOnDate, logAssign, clearCloserPriority,
   listTeams, syncTeamsFromClosers, markTeamAssigned, markTeamsSkipped, clearTeamPriority, setTeamNext,
-  teamAssignStats, closerAssignStats, suspendedNow, eligibleDays, listSuspensions,
+  teamAssignStats, closerAssignStats, suspendedNow, eligibleDays, listSuspensions, countDistributedBetween,
 } from "./db.js";
 
 // JSTの「YYYY-MM-DD」
@@ -161,10 +161,11 @@ export function orderByBalance(cands, { perDay = {}, todayCount = {} } = {}) {
   });
   return [...normal, ...fb];
 }
-// 比べる期間の、1人ずつの 稼働1日あたりの件数（画面の「件数／稼働日」と同じ数え方）
+// 比べる期間の、1人ずつの「割り振った件数 ÷ 稼働日」（画面の「割り振り件数／稼働日」と同じ数え方）
+// 割り振った件数＝その期間に配った数（自分で取ったアポ・外したアポは入れない）。停止していない人は稼働日が同じなので、実質「割り振り件数をそろえる」。
 export async function personPerDay(cfg) {
   const range = balanceRange(cfg.balanceWindow, cfg.fairnessStart);
-  const [byCloser, days] = await Promise.all([closerAssignStats(range.from, range.to), eligibleDays(range.from, range.to)]);
+  const [byCloser, days] = await Promise.all([countDistributedBetween(range.from, range.to), eligibleDays(range.from, range.to)]);
   const out = {};
   const emails = new Set([...Object.keys(byCloser || {}), ...Object.keys(days || {})].map((e) => String(e).toLowerCase()));
   for (const e of emails) {
@@ -457,10 +458,12 @@ export async function rotationStatus(business = "") {
   // チーム表示は均等化がOFFでも見たいので、常に集計する
   await syncTeamsFromClosers();
   const range = balanceRange(cfg.balanceWindow, cfg.fairnessStart);
-  const [teams, teamStats, byCloser, susp, days, suspList] = await Promise.all([
-    listTeams(), teamAssignStats(range.from, range.to, biz), closerAssignStats(range.from, range.to),
+  const [teams, teamStats, byCloser0, susp, days, suspList] = await Promise.all([
+    listTeams(), teamAssignStats(range.from, range.to, biz), countDistributedBetween(range.from, range.to),
     suspendedNow(), eligibleDays(range.from, range.to), listSuspensions(),
   ]);
+  // メールの大文字小文字をそろえて引けるようにする
+  const byCloser = new Proxy(byCloser0 || {}, { get: (o, k) => o[String(k).toLowerCase()] });
   const cands0 = orderCandidates(all.filter((c) => !susp[c.email]), nextOrderFor(cfg, biz), {
     teamBalance: cfg.teamBalance, teamStats, teams,
   });

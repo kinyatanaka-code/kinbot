@@ -1228,3 +1228,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02p smart_links.force_count を追加。db.forceCountApoByLabel(text)：最新の該当アポを excluded=false・force_count=true にし、今日の assign_log が無ければ1件挿入（通知カウント＝assignCountsRaw に入る）。isApoCountableTitle は force_count のラベル（_forcedApoLabels、5分ごと更新）なら true。excludeKickoffApos は force_count を除外。起動時に『藤友五幸会』を force → キックオフ除外 の順。版20261002p。
 
 - 2026-10-02 BUILD_TAG=2026-10-02q 割り振りの偏り：pickCloser の並びが orderByToday（今日配られた件数＋代打 priority＝最優先）で、月の累計（closerAssignStats：start_time が期間内・current_owner、baseline 込み ÷ eligibleDays）を見ていなかった。rotation.js orderByBalance（①期間の稼働1日あたり件数 ②今日の配布数 ③priority ④ローテ順、予備は最後）＋ personPerDay を追加し pickCloser・rotationStatus で使用。代打の priority は同点時の順番だけに。apo.js の表示文言も変更。版20261002q。
+
+- 2026-10-02 BUILD_TAG=2026-10-02r 均等化の件数を db.countDistributedBetween（assign_log の配布日が期間内・自分で獲得/割り振りなし除外・外したアポ除外・いまも担当が同じもの、baseline 加算）に変更。personPerDay と rotationStatus（画面の period_count）で使用。closerAssignStats（商談日ベース・自分で取った分込み）は使わない。版20261002r。

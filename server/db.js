@@ -6113,6 +6113,31 @@ export async function countDistributedOnDate(email, jstDate) {
   } catch { return 0; }
 }
 
+// 期間内に「割り振った」件数（人ごと）。自分で取ったアポ・割り振りなしは数えない。外したアポも数えない。
+// 割り振りの均等化に使う（商談日ではなく、配った日で数える）。過去の実績（取り込み分）も足す。
+export async function countDistributedBetween(fromISO, toISO) {
+  if (!pool) return {};
+  try {
+    const params = [];
+    let where = "";
+    if (fromISO && toISO) { params.push(fromISO, toISO); where = `AND a.created_at >= $1 AND a.created_at < $2`; }
+    const { rows } = await pool.query(
+      `SELECT lower(a.assigned) AS email, COUNT(DISTINCT a.slug)::int AS n
+         FROM assign_log a JOIN smart_links s ON s.slug = a.slug
+        WHERE COALESCE(a.assigned,'') <> '' AND NOT COALESCE(s.excluded, false)
+          AND COALESCE(a.reason,'') NOT LIKE '%自分で獲得%'
+          AND COALESCE(a.reason,'') NOT LIKE '%割り振りなし%'
+          AND lower(COALESCE(s.current_owner,'')) = lower(a.assigned)
+          ${where}
+        GROUP BY 1`, params);
+    const out = {};
+    for (const r of rows) out[r.email] = r.n;
+    const { rows: bs } = await pool.query(`SELECT lower(email) AS email, baseline_count FROM closer_rotation WHERE baseline_count > 0`);
+    for (const r of bs) out[r.email] = (out[r.email] || 0) + r.baseline_count;
+    return out;
+  } catch (e) { console.error("[db] countDistributedBetween", e.message); return {}; }
+}
+
 // テストで作ったアポを、集計から外す／戻す
 // 複数のアポを、まとめて集計から外す／戻す
 // 同じカレンダー予定から作られた重複を片付ける。
