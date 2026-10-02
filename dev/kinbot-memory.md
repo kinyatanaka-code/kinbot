@@ -1218,3 +1218,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02j gemini_failover.js：textViaGroq（既定ON）。generateContent の本文が text パーツだけ・tools なし なら Groq chat/completions（GROQ_TEXT_MODEL||GROQ_MODEL||llama-3.3-70b-versatile、max_tokens≤8000、responseMimeType json なら system にJSONのみ指示）に送り、Gemini形式（candidates[0].content.parts[0].text、finishReason）に直して返す。失敗時はGeminiへ。GET/PUT /api/ai-text-groq（settings.aiTextViaGroq、起動時に反映）。画像・PDF・音声・ファイル・google_search は対象外。版20261002j。
 
 - 2026-10-02 BUILD_TAG=2026-10-02k askbot.js：isApiErrorQuestion（エラーコード・dunning等、または「エラー/失敗/できない…」＋「AI/Gemini/読み取り/文字起こし/まとめ/作成…」）なら LLM を呼ばずに API_ERROR_ANSWER（APIのエラーです・他のAPIでも試すようにします）と note kind=bug。SYSTEM にも同じ決まり、LLM失敗時の文言もAPIのエラーとして案内。版20261002k。
+
+- 2026-10-02 BUILD_TAG=2026-10-02l 【キックオフ】を初回アポとして扱う。KICKOFF_TAG_RE を apoTitleTag・isApoCountableTitle・isFirstMeetingTitle・アポ集計の対象タイトルに追加。スキャン時は kickoffIsFirst（apoNameParts の会社から法人格を除いた文字で db.smartLinksByLabelLike(365日)、同じ normCompanyKey の【初回】【新/ヒ】があれば取り込まない）。版20261002l。
