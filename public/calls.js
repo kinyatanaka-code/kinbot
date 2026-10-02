@@ -764,12 +764,33 @@ async function findAcrossMembers() {
       return t.join("");
     };
     const who = (e, nm) => esc(nm || (e ? String(e).split("@")[0] : "（未割り当て）"));
-    const canRevive = /^\d+$/.test(String(listId || ""));   // いま自分のリストを開いているときだけ「このリストに入れる」
+    const curListId = /^\d+$/.test(String(listId || "")) ? String(listId) : "";
     const 状態の選択肢 = (((await loadPicks().catch(() => null)) || {})["リードの状態"]) || [];
+    // 移し先のリスト：持ち主ごとにまとめた一覧（1行ずつ選べる）
+    let 移し先 = "";
+    try {
+      const [dl, mm] = await Promise.all([
+        fetch("/api/calls/lists/all").then((r) => r.json()),
+        fetch("/api/calls/members").then((r) => r.json()).catch(() => ({ items: [] })),
+      ]);
+      const names = {}; for (const u of (mm.items || [])) names[String(u.email || "").toLowerCase()] = u.name || u.email;
+      const byOwner = new Map();
+      for (const l of ((dl && dl.items) || [])) {
+        if (l.closed || l.hidden) continue;
+        const o = String(l["持ち主"] || l.owner || "").toLowerCase();
+        if (!byOwner.has(o)) byOwner.set(o, []);
+        byOwner.get(o).push(l);
+      }
+      移し先 = [...byOwner.entries()]
+        .sort((a, b) => String(names[a[0]] || a[0]).localeCompare(String(names[b[0]] || b[0]), "ja"))
+        .map(([o, ls]) => `<optgroup label="${esc(o ? (names[o] || o.split("@")[0]) : "未割り当て")}">` +
+          ls.sort((a, b) => String(a.name).localeCompare(String(b.name), "ja"))
+            .map((l) => `<option value="${l.id}">${esc(l.name)}${l["件数"] != null ? "（" + l["件数"] + "件）" : ""}</option>`).join("") + `</optgroup>`).join("");
+    } catch {}
     box.innerHTML =
       `<details class="kc-allhit-d" open><summary>全メンバー・全リストから <b>${items.length}</b> 件みつかりました（上の表に出ていないもの）</summary>` +
       `<div class="lst-wrap"><table class="lst-tbl"><thead><tr>
-         <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ・最終ステータス</th><th>リスト</th><th>リストの持ち主</th><th>担当（かける人）</th><th>最終架電</th><th>ステージを変える・復活</th>
+         <th>会社名</th><th>担当者</th><th>電話</th><th>ステージ・最終ステータス</th><th>リスト</th><th>リストの持ち主</th><th>担当（かける人）</th><th>最終架電</th><th>ステージ・リストを変える</th>
        </tr></thead><tbody>` +
       items.map((x) => `<tr>
          <td class="lst-name">${esc(x.company || "")}</td>
@@ -782,7 +803,9 @@ async function findAcrossMembers() {
          <td>${x["最終日時"] ? esc(lastCallLabel(x["最終日時"])) : '<span class="dim">—</span>'}</td>
          <td class="kc-ah-act" data-id="${x.id}">
            <select class="kc-ah-stage"><option value="">ステージ（変えない）</option>${(状態の選択肢 || []).map((v) => `<option value="${esc(v.value)}">${esc(v.label)}</option>`).join("")}</select>
-           <div class="kc-ah-btns"><button type="button" class="kc-btn" data-ah="stage">ステージだけ変える</button>${canRevive ? `<button type="button" class="kc-btn kc-ah-rev" data-ah="revive">このリストに入れて復活</button>` : ""}</div>
+           <div class="kc-ah-btns"><button type="button" class="kc-btn" data-ah="stage">ステージだけ変える</button></div>
+           ${移し先 ? `<select class="kc-ah-list" title="移し先のリスト"><option value="">移し先のリストを選ぶ</option>${移し先.replace(`value="${curListId}"`, `value="${curListId}" selected`)}</select>
+           <div class="kc-ah-btns"><button type="button" class="kc-btn kc-ah-rev" data-ah="revive">選んだリストへ移す</button></div>` : ""}
            <div class="kc-ah-st"></div>
          </td>
        </tr>`).join("") + `</tbody></table></div></details>`;
@@ -790,15 +813,18 @@ async function findAcrossMembers() {
       const b = e.target.closest("[data-ah]"); if (!b) return;
       const id = cell.dataset.id, stage = cell.querySelector(".kc-ah-stage").value, st = cell.querySelector(".kc-ah-st");
       if (b.dataset.ah === "stage" && !stage) { st.textContent = "変えるステージを選んでください"; return; }
+      const toList = (cell.querySelector(".kc-ah-list") || {}).value || "";
+      if (b.dataset.ah === "revive" && !toList) { st.textContent = "移し先のリストを選んでください"; return; }
       b.disabled = true; st.textContent = "変えています…";
       try {
         const url = b.dataset.ah === "revive" ? `/api/calls/targets/${encodeURIComponent(id)}/revive` : `/api/calls/targets/${encodeURIComponent(id)}/stage`;
-        const body = b.dataset.ah === "revive" ? { listId, stage } : { stage };
+        const body = b.dataset.ah === "revive" ? { listId: toList, stage } : { stage };
         const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "変えられませんでした");
         if (b.dataset.ah === "revive") {
-          st.textContent = `「${d.list}」に入れました`;
-          await loadTable();   // 今のリストを読み直して、入れた行を出す
+          st.textContent = `「${d.list}」に移しました`;
+          const tdl = cell.parentElement.children[4]; if (tdl) tdl.innerHTML = `<b>${esc(d.list)}</b><div class="kc-ah-tag grn" style="display:inline-block">移した</div>`;
+          if (String(toList) === curListId) await loadTable();   // 今開いているリストに入れたときは読み直して出す
         } else {
           st.textContent = `ステージを「${stage}」にしました${d.sf && d.sf.ok ? "（SFにも反映）" : ""}`;
           const td = cell.parentElement.children[3]; if (td && td.firstChild) td.firstChild.textContent = stage;
@@ -1729,6 +1755,7 @@ function renderDock() {
     .kc-j-bar{height:6px;border-radius:3px;background:#eef3f0;overflow:hidden;margin:8px 0 4px;}
     .kc-j-bar i{display:block;height:100%;background:#1d9e75;border-radius:3px;}
     .kc-j-sub{font-size:11px;color:#6b8a7d;}
+    .kc-ah-list{display:block;width:100%;max-width:260px;margin-top:6px;font-size:12px;padding:4px 6px;border:1px solid #cfe0d8;border-radius:8px;background:#fff;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}

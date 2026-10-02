@@ -1210,3 +1210,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02f #kcSelBar（選択したリードを他のリストへ移す）が listId==="all" のとき描画されていなかった。条件を外して全リスト共通に（/api/calls/targets/move は target id ベースなので問題なし）。版20261002f。
 
 - 2026-10-02 BUILD_TAG=2026-10-02g server/gemini_failover.js：globalThis.fetch を包み、generativelanguage.googleapis.com への ?key=GEMINI_API_KEY の呼び出しが 403/429/400(キー無効・billing) なら GEMINI_API_KEY_BACKUP に差し替えて再送、30分は予備を使用（本文が文字列のときだけ再送）。index.js の先頭で import。GET /api/gemini-key-status。予備キー未設定なら何もしない。版20261002g。
+
+- 2026-10-02 BUILD_TAG=2026-10-02h findAcrossMembers：行ごとに .kc-ah-list（/api/calls/lists/all を持ち主ごと optgroup、閉じた・非表示は除く、既定＝今のリスト）と「選んだリストへ移す」（/revive に選んだ listId）。今のリストへ移したときだけ loadTable。版20261002h。
