@@ -515,6 +515,7 @@ import {
   getDealBrief,
   saveDealBrief,
   normCompanyKey,
+  findCallTargetPhone,
   migrateCompanyKeysNfkc,
   makeCompanyMatcher,
   getSetCache,
@@ -4915,6 +4916,8 @@ async function ciFromDeep(company, email, hint, have = {}) {
 async function lookupCompanyInfo(company, email, sfUser, hint = "") {
   const out = { official_name: "", website: "", phone: "", street: "", state: "", employees: "" };
   const merge = (o) => { for (const k of Object.keys(out)) { if (!out[k] && o && o[k] != null && String(o[k]).trim()) out[k] = String(o[k]).trim(); } };
+  // 電話番号は、まずkincallの架電先から（実際にかけている番号なので確か）
+  merge({ phone: await findCallTargetPhone({ company, email }).catch(() => "") });
   merge(await ciFromSf(sfUser, company));
   merge(await ciFromGbiz(company, email));
   const need = () => !out.website || !out.phone || !out.street || !out.employees;
@@ -5534,9 +5537,25 @@ app.get("/api/apo/:slug/company-info", async (req, res) => {
       employees: String(req.query.employees || "").trim(),
     });
     else info = await lookupCompanyInfo(company, email, sfUser, hint);
+    // 電話番号は、どの段でもkincallの架電先にあればそれを使う
+    if (company || email) {
+      const kp = await findCallTargetPhone({ company, email }).catch(() => "");
+      if (kp) info = { ...(info || {}), phone: kp, phoneFrom: "kincall" };
+    }
     let person = parsed.person || "";
     if (!person && company && (stage === "sf" || stage === "all")) person = await personForCompany(company).catch(() => "");
     res.json({ ok: true, company, person, info, stage });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// kincallの架電先から電話番号だけを引く（立ち上げの画面を開いたときに使う）
+app.get("/api/apo/:slug/kincall-phone", async (req, res) => {
+  try {
+    const link = await getSmartLink(String(req.params.slug || ""));
+    const parsed = link ? parseLaunchTitle(link.label) : { company: "" };
+    const company = String(req.query.company || "").trim() || parsed.company || "";
+    const email = String(req.query.email || "").trim() || (link && link.client_email) || "";
+    res.json({ ok: true, phone: await findCallTargetPhone({ company, email }).catch(() => "") });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -22218,7 +22237,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02r 割り振りの均等化を「割り振った件数」でそろえるようにした（その期間に配った数。自分で取ったアポ・外したアポは入れない。停止期間があれば稼働日で割る）。前回飛ばされた人は、件数が同じときに先に回るだけ。画面の件数も割り振った件数で出す。";
+const BUILD_TAG = "2026-10-02s SF商談の立ち上げで、電話番号をkincallの架電先から拾うようにした（メールが同じ架電先→会社名が同じ架電先）。画面を開いたときに空なら自動で入れ、自動補完・自動立ち上げでもkincallの番号を優先する。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

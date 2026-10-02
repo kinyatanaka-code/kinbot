@@ -6113,6 +6113,29 @@ export async function countDistributedOnDate(email, jstDate) {
   } catch { return 0; }
 }
 
+// kincallの架電先から、会社の電話番号を探す（SF商談の立ち上げで電話番号を埋めるのに使う）。
+// メールアドレスが同じ架電先 → 会社名（表記ゆれをそろえたキー）が同じ架電先、の順。最近のものを優先。
+export async function findCallTargetPhone({ company = "", email = "" } = {}) {
+  if (!pool) return "";
+  try {
+    const em = String(email || "").trim().toLowerCase();
+    if (em) {
+      const { rows } = await pool.query(
+        `SELECT phone FROM call_targets WHERE lower(COALESCE(email,'')) = $1 AND COALESCE(phone,'') <> '' ORDER BY id DESC LIMIT 1`, [em]);
+      if (rows[0] && rows[0].phone) return String(rows[0].phone).trim();
+    }
+    const key = normCompanyKey(company);
+    if (!key || key.length < 2) return "";
+    const core = String(company || "").replace(/株式会社|有限会社|合同会社|医療法人社団|医療法人|社会福祉法人|一般社団法人|学校法人|\(株\)|（株）|㈱/g, "").replace(/[\s　]+/g, "").trim();
+    if (core.length < 2) return "";
+    const { rows } = await pool.query(
+      `SELECT company, phone FROM call_targets WHERE company ILIKE $1 AND COALESCE(phone,'') <> '' ORDER BY id DESC LIMIT 200`,
+      [`%${core.replace(/[%_]/g, "")}%`]);
+    const hit = rows.find((r) => normCompanyKey(r.company) === key);
+    return hit ? String(hit.phone).trim() : "";
+  } catch (e) { console.error("[db] findCallTargetPhone", e.message); return ""; }
+}
+
 // 期間内に「割り振った」件数（人ごと）。自分で取ったアポ・割り振りなしは数えない。外したアポも数えない。
 // 割り振りの均等化に使う（商談日ではなく、配った日で数える）。過去の実績（取り込み分）も足す。
 export async function countDistributedBetween(fromISO, toISO) {

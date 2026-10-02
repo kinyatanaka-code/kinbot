@@ -721,6 +721,16 @@ function openLaunchModal(i, reasonText) {
   const go = back.querySelector(".ap-lc-go");
   // 予定名から会社名・担当者を、SF取引先→gBiz→ネット→サイト読込 の順で補う。空欄だけ埋める（入力済みは尊重）。
   const setIfEmpty = (id, v) => { const el = back.querySelector("#" + id); if (el && !(el.value || "").trim() && v) { el.value = v; return true; } return false; };
+  // 電話が空なら、kincallの架電先の番号を入れておく（実際にかけている番号）
+  (async () => {
+    const ph = back.querySelector("#lcPhone");
+    if (!ph || (ph.value || "").trim()) return;
+    try {
+      const qs = new URLSearchParams({ company: (back.querySelector("#lcCompany") || {}).value || "", email: (back.querySelector("#lcEmail") || {}).value || "" });
+      const d = await (await fetch(`/api/apo/${encodeURIComponent(a.slug)}/kincall-phone?` + qs.toString())).json();
+      if (d && d.phone && !(ph.value || "").trim()) { ph.value = d.phone; ph.title = "kincallの架電先から入れました"; }
+    } catch {}
+  })();
   const autofill = async (silent) => {
     const btn = back.querySelector(".ap-lc-fill");
     const msg = back.querySelector("#lcMsg");
