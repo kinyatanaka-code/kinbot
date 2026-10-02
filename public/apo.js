@@ -1968,7 +1968,7 @@ function rcRender() {
         `${c.fallback ? '<span class="ap-badge ap-badge-fb">予備</span>' : ""}` +
         `${c.active === false ? '<span class="ap-badge ap-pending">在籍なし</span>' : ""}` +
         `${c.suspended ? '<span class="ap-badge ap-warn">停止中</span>' : ""}` +
-        `${c.priority && !c.fallback ? '<span class="ap-badge ap-warn">次を最優先</span>' : ""}</span>` +
+        `${c.priority && !c.fallback ? '<span class="ap-badge ap-warn" title="前回、予定が埋まっていて飛ばされた人。件数が同じときに先に回ります">前回飛ばされた</span>' : ""}</span>` +
       `<span class="ap-rot-meta">${esc(c.team || "チーム未設定")}</span>` +
       ((c.businesses && c.businesses.length)
         ? c.businesses.map((b) => `<span class="ap-biz-badge ap-biz-${esc(b)}">${esc(b)}</span>`).join("")
@@ -2151,7 +2151,7 @@ function rcNextLabel() {
   el.classList.remove("ap-rot-next-warn");
   if (n) {
     el.innerHTML = `次に割り振られるのは <b>${esc(n.name || n.email)}</b> さん${n.team ? `（${esc(n.team)}）` : ""}です` +
-      `${n.fallback ? " ※通常メンバーが全員埋まっているため予備" : n.priority ? " ※前回代打で飛ばされたため最優先" : ""}`;
+      `${n.fallback ? " ※通常メンバーが全員埋まっているため予備" : " ※稼働1日あたりの件数がいちばん少ないため"}`;
     return;
   }
   // サーバーに保存されていないが、画面上に候補が並んでいる状態

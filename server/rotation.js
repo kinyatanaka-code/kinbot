@@ -143,6 +143,38 @@ export function orderByToday(cands, todayCount = {}) {
   });
 }
 
+// 1人ずつの「比べる期間の 稼働1日あたりの件数」がいちばん少ない人から試す並び（2026-10-02〜）。
+// これまでは「今日配られた件数」と「代打の最優先」で並べていたため、日ごとには平らでも
+// 月の累計（画面の 件数／稼働日）が人によって開いていた。
+// 並び：①稼働1日あたりの件数が少ない ②今日配られた件数が少ない ③代打で飛ばされた人 ④ローテーション順。予備は最後のまま。
+export function orderByBalance(cands, { perDay = {}, todayCount = {} } = {}) {
+  const key = (c) => String(c.email || "").toLowerCase();
+  const pd = (c) => { const v = perDay[key(c)]; return v == null ? Number.POSITIVE_INFINITY : Math.round(v * 1000) / 1000; };
+  const td = (c) => Number(todayCount[key(c)] ?? 0);
+  const normal = cands.filter((c) => !c.fallback), fb = cands.filter((c) => c.fallback);
+  normal.sort((a, b) => {
+    if (pd(a) !== pd(b)) return pd(a) - pd(b);
+    if (td(a) !== td(b)) return td(a) - td(b);
+    if (!!a.priority !== !!b.priority) return a.priority ? -1 : 1;
+    if (a._rot !== b._rot) return (a._rot ?? 0) - (b._rot ?? 0);
+    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+  });
+  return [...normal, ...fb];
+}
+// 比べる期間の、1人ずつの 稼働1日あたりの件数（画面の「件数／稼働日」と同じ数え方）
+export async function personPerDay(cfg) {
+  const range = balanceRange(cfg.balanceWindow, cfg.fairnessStart);
+  const [byCloser, days] = await Promise.all([closerAssignStats(range.from, range.to), eligibleDays(range.from, range.to)]);
+  const out = {};
+  const emails = new Set([...Object.keys(byCloser || {}), ...Object.keys(days || {})].map((e) => String(e).toLowerCase()));
+  for (const e of emails) {
+    const cnt = Number((byCloser || {})[e] || 0);
+    const d = Number(((days || {})[e] || {}).days || 0);
+    out[e] = d ? cnt / d : cnt;
+  }
+  return out;
+}
+
 export function orderCandidates(closers, nextOrder, opts = {}) {
   const mode = opts.teamBalance || "off";
   const stats = {};
@@ -276,15 +308,19 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
   // 「配られた日」で数えるので、割り振ったのに0件のまま積み増す不具合は起きない。
   // 自分で取ったアポは平等の計算に入れない（割り振りぶんだけ数える）。
   // 設定で「その日を平らにする」を切っているときは、これまでの順番のまま。
-  let order = cands;
+  // 並び：比べる期間の「稼働1日あたりの件数」が少ない人 → 今日配られた件数が少ない人 → 代打で飛ばされた人 → ローテーション順
+  const todayCount = {};
   if (conf.dayBalance !== false) {
-    const todayCount = {};
     for (const c of cands) {
       todayCount[String(c.email).toLowerCase()] = await countDistributedOnDate(c.email, balanceDay).catch(() => 0);
     }
-    order = orderByToday(cands, todayCount);
-    // なぜその人になったかを言えるよう、件数を持たせる
-    for (const c of order) c._today = todayCount[String(c.email).toLowerCase()] ?? 0;
+  }
+  const perDayMap = (teamCtx && teamCtx.perDay) || (await personPerDay(conf).catch(() => ({})));
+  const order = orderByBalance(cands, { perDay: perDayMap, todayCount });
+  // なぜその人になったかを言えるよう、件数を持たせる
+  for (const c of order) {
+    c._today = todayCount[String(c.email).toLowerCase()] ?? 0;
+    c._perDay = perDayMap[String(c.email).toLowerCase()];
   }
 
   const skipped = [];
@@ -308,10 +344,12 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
       // 通常メンバーが全員埋まっていたので予備に回った
       why = `予備（通常メンバーが全員埋まっていたため）／${teamOf(c)}のアポ累計${st ? st.count : 0}件で最少`;
     } else {
-      why = c.priority ? "前回代打で飛ばされたため最優先"
+      why = (c._perDay != null && isFinite(c._perDay))
+        ? `稼働1日あたり${Math.round(c._perDay * 100) / 100}件でいちばん少ない`
         : (conf.dayBalance !== false && c._today !== undefined)
           ? `今日${c._today}件でいちばん少ない`
           : "ローテーション順";
+      if (c.priority) why += "（前回代打で飛ばされた）";
       if (conf.teamBalance !== "off" && st) {
         if (conf.teamBalance === "perDay") {
           why += `／${st.team}が稼働1日あたり${st.perDay ?? 0}件で最少（稼働${st.personDays ?? 0}人日）`;
@@ -423,9 +461,19 @@ export async function rotationStatus(business = "") {
     listTeams(), teamAssignStats(range.from, range.to, biz), closerAssignStats(range.from, range.to),
     suspendedNow(), eligibleDays(range.from, range.to), listSuspensions(),
   ]);
-  const cands = orderCandidates(all.filter((c) => !susp[c.email]), nextOrderFor(cfg, biz), {
+  const cands0 = orderCandidates(all.filter((c) => !susp[c.email]), nextOrderFor(cfg, biz), {
     teamBalance: cfg.teamBalance, teamStats, teams,
   });
+  cands0.forEach((c, i) => { c._rot = i; });
+  // 画面の「次に割り振られるのは」も、実際の割り振りと同じ並び（稼働1日あたりの件数が少ない人から）で出す
+  const perDayMap = {};
+  for (const c of all) { const d = (days[c.email] || {}).days || 0; const n = byCloser[c.email] || 0; perDayMap[String(c.email).toLowerCase()] = d ? n / d : n; }
+  const todayCount = {};
+  if (cfg.dayBalance !== false) {
+    const today = jstDate(new Date().toISOString());
+    for (const c of cands0) todayCount[String(c.email).toLowerCase()] = await countDistributedOnDate(c.email, today).catch(() => 0);
+  }
+  const cands = orderByBalance(cands0, { perDay: perDayMap, todayCount });
   return {
     config: cfg,
     closers: all.map((c) => {
