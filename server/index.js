@@ -303,7 +303,6 @@ import {
   callStatsRange,
   callStatsByDay,
   aposByMeetingDate,
-  smartLinksByLabelLike,
   apoWonCallsInRange,
   callStatsByList,
   listCompaniesByList,
@@ -12653,7 +12652,7 @@ function isApoCountableTitle(title) {
   const t = String(title || "");
   if (/メルマガ/.test(t)) return false;
   // 【初回】【初回/フロッグ】【初回/コールド】【初回/過去失注】… と 【新/ヒ】系を、初回アポとして数える。
-  return /【[^】]*初回[^】]*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t) || /【[^】]*キックオフ[^】]*】/.test(t);
+  return /【[^】]*初回[^】]*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t);
 }
 
 async function computeStatsGrid(periodIn, spanIn, opts = {}) {
@@ -13470,7 +13469,7 @@ app.get("/api/calls/process", async (req, res) => {
 
     const ymdJst = (v) => { if (!v) return ""; const d = new Date(v); if (isNaN(d.getTime())) return String(v).slice(0, 10); const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${pad(j.getUTCMonth() + 1)}-${pad(j.getUTCDate())}`; };
     const isWeekend = (ymd) => { if (!/^\d{4}-\d{2}-\d{2}$/.test(String(ymd))) return false; const d = new Date(ymd + "T00:00:00Z"); const w = d.getUTCDay(); return w === 0 || w === 6; };
-    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /【[^】]*キックオフ[^】]*】/.test(s) || /メルマガ/.test(s); };
+    const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
     const members = await listMembers().catch(() => []);
     const closers = new Map();
     for (const mm of members) { const em = String(mm.email || "").toLowerCase(); if ((Array.isArray(mm.roles) && mm.roles.includes("closer")) && em) closers.set(em, mm.name || mm.email); }
@@ -22210,7 +22209,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02l 予定名が【キックオフ】の商談も初回アポとして数えるようにした（電話で申し込みまで決まり、初回の商談がキックオフになったケース）。同じ会社の【初回】【新/ヒ】アポがこの1年にあれば（ふつうの商談からの受注のキックオフ）数えない。";
+const BUILD_TAG = "2026-10-02k ロボのチャットで、AIの読み取り・作成・文字起こしなどのエラーについて聞かれたら「API（AIのサービス）側のエラーです。他のAPIでも試すようにします」と答えるようにした（AIを使わずに見分けるので、AIが止まっていても答えられる）。開発メモにも残す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -24617,7 +24616,6 @@ function isFirstMeetingTitle(title) {
   const t = String(title || "").normalize("NFKC");
   if (/【[^】]*新\s*\/\s*ヒ[^】]*】/.test(t)) return true; // 【新/ヒ】
   if (/【\s*初回[^】]*】/.test(t)) return true;            // 【初回/】【初回/コールド】【初回/過去失注】
-  if (/【[^】]*キックオフ[^】]*】/.test(t)) return true;     // 【キックオフ】（電話で申し込みまで決まった初回）
   return false;
 }
 
@@ -24768,22 +24766,9 @@ async function isWrongClientEmail(email) {
 // 【新/ヒ】【初回/】【初回】【新】【ヒ】【初回/フロッグ】【初回/コールド】のように、
 // 先頭が「新・初回・ヒ」なら、その後ろに /フロッグ 等が付いていても拾う（全角半角・記号ゆれOK）。
 const APO_TAG_RE = /【\s*(?:新|初回|ヒ)[^】]*】/;
-// 【キックオフ】：電話で申し込みまで決まり、初回の商談がキックオフになったもの。初回アポとして数える。
-// ただし、同じ会社の初回アポが前にある（＝ふつうの商談からの受注のキックオフ）なら数えない。
-const KICKOFF_TAG_RE = /【[^】]*キックオフ[^】]*】/;
-function isKickoffTitle(title) { return KICKOFF_TAG_RE.test(String(title || "").normalize("NFKC")); }
 function apoTitleTag(title) {
   const t = String(title || "").normalize("NFKC");
-  return APO_TAG_RE.test(t) || KICKOFF_TAG_RE.test(t);
-}
-// キックオフの予定が「初回アポとして数えるもの」か：同じ会社の初回（【初回】【新/ヒ】）アポが、この1年に無いこと
-async function kickoffIsFirst(title) {
-  const co = apoNameParts(title).company;
-  const core = String(co || "").replace(/株式会社|有限会社|合同会社|医療法人社団|医療法人|社会福祉法人|一般社団法人|学校法人|\(株\)|（株）|㈱/g, "").replace(/\s+/g, "").trim();
-  if (core.length < 2) return true;
-  const prev = await smartLinksByLabelLike(core, { days: 365 }).catch(() => []);
-  const key = normCompanyKey(co);
-  return !prev.some((p) => !isKickoffTitle(p.label) && (APO_TAG_RE.test(String(p.label || "").normalize("NFKC"))) && normCompanyKey(apoNameParts(p.label).company) === key);
+  return APO_TAG_RE.test(t);
 }
 
 // この人たちが招いた予定は、アポとして数えない。
@@ -25007,16 +24992,8 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           seenHeadStates.push({ ev, head, setter: st.name });
           continue;
         }
-        // タイトルが【新/ヒ】【初回/】【キックオフ】を含む予定だけ（全角半角問わず）
+        // タイトルが【新/ヒ】または【初回/】を含む予定だけ（全角半角問わず）
         if (!apoTitleTag(ev.title)) continue;
-        // 【キックオフ】は、同じ会社の初回アポが前に無いとき（電話で申し込みまで決まったとき）だけ取り込む
-        if (isKickoffTitle(ev.title) && !APO_TAG_RE.test(String(ev.title).normalize("NFKC"))) {
-          const already = await getSmartLinkByEvent(ev.id).catch(() => null);
-          if (!already && !(await kickoffIsFirst(ev.title))) {
-            console.log(`[apo-scan] 同じ会社の初回アポがあるキックオフなので数えません：${String(ev.title).slice(0, 40)}`);
-            continue;
-          }
-        }
 
         // 「メルマガ…」で始まる予定は、メルマガ由来のアポ。
         // コールのアポとしては割り振らず（担当を付けず）、印だけ付けて残す（合計・メルマガ件数用）。

@@ -5532,18 +5532,6 @@ export async function findSmartLinkByLabelStart(label, startTime) {
   } catch { return null; }
 }
 
-// 予定名に文字を含むアポ（キックオフの重複確認用：同じ会社の初回アポが前にあるか）
-export async function smartLinksByLabelLike(text, { days = 365, limit = 20 } = {}) {
-  if (!pool || !text) return [];
-  try {
-    const { rows } = await pool.query(
-      `SELECT slug, label, start_time, excluded FROM smart_links
-        WHERE label ILIKE $1 AND created_at >= now() - ($2 || ' days')::interval
-        ORDER BY created_at DESC LIMIT $3`, [`%${String(text).replace(/[%_]/g, "")}%`, String(days), limit]);
-    return rows;
-  } catch (e) { console.error("[db] smartLinksByLabelLike", e.message); return []; }
-}
-
 export async function getSmartLink(slug) {
   if (!pool) return null;
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE slug=$1`, [slug]);
