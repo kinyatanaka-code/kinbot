@@ -1204,3 +1204,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02c 実施の週ラップを積み上げに（jisshiCardsFrom(opps, 月初, ラップ末)）。版20261002c。
 
 - 2026-10-02 BUILD_TAG=2026-10-02d 実施ダッシュボード：設定＝SF（sfJisshiOpps、done は使わない）、実施＝markJisshiByKinbot（listMeetings 月初−5日〜、category 商談、companyFromTitle/account の normCompanyKey と Account.Name・商談名の会社部分を照合、記録日 ≥ 設定日−3日）。版20261002d。
+
+- 2026-10-02 BUILD_TAG=2026-10-02e 商談中のライブAI提案（sessions.js maybeAnalyze、30秒ごと・文字起こし末尾8000字）を既定停止。settings.liveAiSuggest=true のときだけ実行（liveAiOn 1分キャッシュ）。GET/PUT /api/live-ai（PUT は管理者）、settings.html 動作設定にチェック。商談後の analyzeMeeting/analyzeDeep/Q&A は対象外。版20261002e。

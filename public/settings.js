@@ -3232,3 +3232,27 @@ if (document.getElementById("sfProxy")) {
   const rb = document.getElementById("csReload");
   if (rb) rb.addEventListener("click", loadChatSent);
 })();
+
+
+// 商談中のAI提案の入/切（チーム共通・管理者だけ）
+(async () => {
+  const cb = document.getElementById("liveAiOn"), tx = document.getElementById("liveAiTxt");
+  if (!cb) return;
+  const show = (on) => { cb.checked = on; if (tx) tx.textContent = on ? "動かしています（トークンを使います）" : "止めています"; };
+  try {
+    const d = await (await fetch("/api/live-ai")).json();
+    show(!!d.on);
+    if (!d.admin) { cb.disabled = true; if (tx) tx.textContent += "（管理者だけ変更できます）"; }
+  } catch {}
+  cb.addEventListener("change", async () => {
+    const want = cb.checked;
+    cb.disabled = true;
+    try {
+      const r = await fetch("/api/live-ai", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ on: want }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "変えられませんでした");
+      show(!!j.on);
+    } catch (e) { alert(e.message); show(!want); }
+    finally { cb.disabled = false; }
+  });
+})();

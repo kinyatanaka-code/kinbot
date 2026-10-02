@@ -5,6 +5,16 @@ import { buildChapters } from "./chapters.js";
 import { disableLiveStream } from "./live.js";
 
 const DEFAULT_INTERVAL_MS = Number(process.env.ANALYZE_INTERVAL_MS || 30000);
+// 商談中のAI提案（ライブ分析：30秒ごとに文字起こしをAIに送る）を動かすか。トークンを多く使うので既定は止める。
+// 設定 liveAiSuggest=true のときだけ動かす（1分ごとに読み直す）。商談後のまとめ・Q&A（聞いたときの回答）は別で、止めない。
+let _liveAiOn = false, _liveAiAt = 0;
+async function liveAiOn() {
+  if (Date.now() - _liveAiAt < 60000) return _liveAiOn;
+  _liveAiAt = Date.now();
+  try { const st = await getSettings(); _liveAiOn = st.liveAiSuggest === true || st.liveAiSuggest === "true"; } catch {}
+  return _liveAiOn;
+}
+export function liveAiCacheClear() { _liveAiAt = 0; }
 // 前回の分析からこれだけ話が進んでいなければ、AIを呼ばない（無駄な課金を減らす）
 const MIN_NEW_CHARS = Number(process.env.ANALYZE_MIN_CHARS || 250);
 // 商談以外（社内MTG・ユーザーフォロー）はライブ分析をしない
@@ -246,6 +256,7 @@ class Session {
   async maybeAnalyze() {
     if (Date.now() < this.cooldownUntil) return; // 429などで休止中
     if (SKIP_LIVE.test(String(this.title || ""))) return; // 商談以外はライブ分析しない
+    if (!(await liveAiOn())) return; // 商談中のAI提案は止めている（設定で再開できる）
     const full = this.transcriptText();
     if (full.length - this.lastAnalyzedLen < MIN_NEW_CHARS) return;
     if (this.analyzing) return;

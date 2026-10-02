@@ -100,7 +100,7 @@ import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownl
          PIXEL, docUrl, pixelUrl, clickUrl, fmtSeconds, topPages } from "./docs.js";
 import { transcribeFile, transcriberAvailable } from "./transcribe.js";
 import { createBot, leaveBot, parseTranscriptEvent, parseChatEvent, outputAudio, getRecordingUrl, getBot, getBotTranscript, getAudioUrl, getMediaForTranscript, getBotLeaveReason, listRecentBots, recallConnectionInfo, getRecallUsage, getLastRecallCreate } from "./recall.js";
-import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized } from "./sessions.js";
+import { createSession, getSession, removeSession, listActiveSessions, setOnMeetingFinalized , liveAiCacheClear } from "./sessions.js";
 import { scoreTranscript } from "./temperature.js";
 import { buildChapters } from "./chapters.js";
 import {
@@ -21174,6 +21174,22 @@ app.put("/api/settings", async (req, res) => {
   }
 });
 
+// 商談中のAI提案（ライブ分析）の入/切。チーム共通。トークンを多く使うので既定は切。
+app.get("/api/live-ai", async (req, res) => {
+  const st = await getSettings().catch(() => ({}));
+  res.json({ ok: true, on: st.liveAiSuggest === true || st.liveAiSuggest === "true", admin: !!(req.isAdmin || isAdmin(req.user)) });
+});
+app.put("/api/live-ai", async (req, res) => {
+  try {
+    if (!req.isAdmin && !isAdmin(req.user)) return res.status(403).json({ error: "管理者だけが変えられます" });
+    const on = !!(req.body && req.body.on);
+    await saveSettings({ liveAiSuggest: on });
+    liveAiCacheClear();
+    console.log(`[設定] 商談中のAI提案を${on ? "再開" : "停止"} by ${req.user}`);
+    res.json({ ok: true, on });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Salesforceを代わりに更新する人（チーム共通の設定）
 app.get("/api/sf-proxy", async (req, res) => {
   try {
@@ -22177,7 +22193,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02d ダッシュボードの「実施」を、設定数＝SFのクロス商談（初回アポ設定日）、実施数＝そのうちkinbotに商談の記録があるもの（会社名が同じで、設定の日の3日前以降）にした。";
+const BUILD_TAG = "2026-10-02e レコーディング（商談中）のAI提案（30秒ごとに文字起こしをAIに送るライブ分析）を止めた。トークンを多く使うため既定で切。設定の動作設定から管理者が入/切できる。商談後のまとめ・分析、聞いたときのQ&Aはそのまま。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

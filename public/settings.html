@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261002d" />
+    <link rel="stylesheet" href="style.css?v=20261002e" />
   </head>
   <body>
     <div class="app">
@@ -123,6 +123,9 @@
                 </select></label>
               <label class="field"><span>Deepgramモデル</span>
                 <input id="deepgramModel" type="text" placeholder="nova-2" /></label>
+<label class="field"><span>商談中のAI提案</span>
+                <span style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="liveAiOn" /> <span id="liveAiTxt" style="font-size:13px">止めています</span></span></label>
+              <p class="note" style="margin:-4px 0 8px">商談中に30秒ごとに文字起こしをAIに送って、提案を出す機能です。トークンを多く使うので、ふだんは止めておきます（チーム全体の設定・管理者だけ変更できます）。商談後のまとめ・分析はこの設定に関係なく動きます。</p>
               <label class="field"><span>要約・提案の間隔（秒）</span>
                 <input id="analyzeIntervalSec" type="number" min="8" placeholder="20" /></label>
               <div class="modal-actions">
@@ -829,8 +832,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261002d"></script>
-      <script src="nav.js?v=20261002d"></script>
+    <script src="settings.js?v=20261002e"></script>
+      <script src="nav.js?v=20261002e"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
