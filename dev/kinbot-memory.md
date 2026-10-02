@@ -1224,3 +1224,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02m 2026-10-02l（【キックオフ】を初回アポに数える）を revert。予定名のキックオフでは数えない方針（ユーザー指示）。電話で申込が決まった場合の数え方は確認中。版20261002m。
 
 - 2026-10-02 BUILD_TAG=2026-10-02o 2026-10-02l の間に取り込まれた【キックオフ】アポを外す：db.excludeKickoffApos（label にキックオフ、【初回/新/ヒ】タグなし、created_at≥2026-10-02 JST、excluded=true・理由『キックオフ（初回アポではない）』）を起動時に実行。kinbotが作った招待予定は sendUpdates=all で相手に取り消しが飛ぶため消さない。GET /api/apo/kickoff-cleanup（?run=1 で再実行）。版20261002o。
+
+- 2026-10-02 BUILD_TAG=2026-10-02p smart_links.force_count を追加。db.forceCountApoByLabel(text)：最新の該当アポを excluded=false・force_count=true にし、今日の assign_log が無ければ1件挿入（通知カウント＝assignCountsRaw に入る）。isApoCountableTitle は force_count のラベル（_forcedApoLabels、5分ごと更新）なら true。excludeKickoffApos は force_count を除外。起動時に『藤友五幸会』を force → キックオフ除外 の順。版20261002p。

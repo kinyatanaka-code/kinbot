@@ -5459,11 +5459,41 @@ export async function excludeKickoffApos() {
         WHERE label ILIKE '%キックオフ%'
           AND label !~ '【[^】]*(初回|新|ヒ)[^】]*】'
           AND NOT COALESCE(excluded, false)
+          AND NOT COALESCE(force_count, false)
           AND created_at >= '2026-10-01T15:00:00Z'
         RETURNING slug, label, setter, current_owner, invite_event_id, invite_event_owner, start_time`);
     for (const r of rows) console.log(`[apo] キックオフを数から外しました ${r.label}`);
     return rows;
   } catch (e) { console.error("[db] excludeKickoffApos", e.message); return []; }
+}
+// 手で「アポとして数える」アポにする（キックオフでも数える例外）。外していたら戻し、
+// 今日の割り振り記録が無ければ1件足して、アポ通知の数（本日・今週・今月）にも入るようにする。何度動かしても同じ結果。
+export async function forceCountApoByLabel(text, reason = "手で数える") {
+  if (!pool || !text) return null;
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS force_count BOOLEAN DEFAULT false;`).catch(() => {});
+    const { rows } = await pool.query(
+      `SELECT slug, label, current_owner, excluded, force_count FROM smart_links
+        WHERE label ILIKE $1 ORDER BY created_at DESC LIMIT 1`, [`%${String(text).replace(/[%_]/g, "")}%`]);
+    const l = rows[0];
+    if (!l) return null;
+    await pool.query(`UPDATE smart_links SET excluded = false, excluded_reason = NULL, force_count = true, updated_at = now() WHERE slug = $1`, [l.slug]);
+    const { rows: lg } = await pool.query(
+      `SELECT 1 FROM assign_log WHERE slug = $1
+         AND created_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Tokyo') AT TIME ZONE 'Asia/Tokyo' LIMIT 1`, [l.slug]);
+    let added = false;
+    if (!lg.length) {
+      await pool.query(`INSERT INTO assign_log (slug, assigned, reason, actor) VALUES ($1, $2, $3, 'system')`, [l.slug, l.current_owner || "", reason]);
+      added = true;
+    }
+    console.log(`[apo] 手でアポとして数えます：${l.label}${added ? "（通知の数にも1件足しました）" : ""}`);
+    return { slug: l.slug, label: l.label, added };
+  } catch (e) { console.error("[db] forceCountApoByLabel", e.message); return null; }
+}
+export async function forcedApoLabels() {
+  if (!pool) return [];
+  try { const { rows } = await pool.query(`SELECT label FROM smart_links WHERE COALESCE(force_count, false)`); return rows.map((r) => r.label); }
+  catch { return []; }
 }
 export async function listKickoffApos() {
   if (!pool) return [];

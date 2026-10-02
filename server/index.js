@@ -168,6 +168,8 @@ import {
   futureApos,
   excludeApo,
   excludeKickoffApos,
+  forceCountApoByLabel,
+  forcedApoLabels,
   listKickoffApos,
   listCalendarWatches,
   countLiveRelay,
@@ -12650,8 +12652,13 @@ app.get("/api/calls/analysis", async (req, res) => {
 // 実績を並べて比べる（メンバー × 日付／週／月）
 // アポとして数える予定か（カレンダーのタイトルで判定）。
 // 数える：【初回】または【新/ヒ】を含む。数えない：「メルマガ」を含む、それ以外のタイトル。
+// 手で「アポとして数える」にしたアポの予定名（キックオフなどの例外）。起動時と5分ごとに読み直す。
+let _forcedApoLabels = new Set();
+async function refreshForcedApoLabels() { try { _forcedApoLabels = new Set(await forcedApoLabels()); } catch {} }
+setInterval(refreshForcedApoLabels, 5 * 60 * 1000).unref?.();
 function isApoCountableTitle(title) {
   const t = String(title || "");
+  if (_forcedApoLabels.has(t)) return true;
   if (/メルマガ/.test(t)) return false;
   // 【初回】【初回/フロッグ】【初回/コールド】【初回/過去失注】… と 【新/ヒ】系を、初回アポとして数える。
   return /【[^】]*初回[^】]*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t);
@@ -22211,7 +22218,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02o 一時的に【キックオフ】の予定がアポとして取り込まれた分を、起動時にすべてアポの数から外した（リマインド・アポ数・割り振りの対象外）。カレンダーの予定は消さない。/api/apo/kickoff-cleanup で一覧を確認できる。";
+const BUILD_TAG = "2026-10-02p 藤友五幸会（電話で申込が決まったキックオフ）を、例外として今日のアポとして数えるようにした（アポの数・実績・アポ通知の本日/今週/今月の数に1件）。ほかのキックオフは外したまま。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -27853,7 +27860,12 @@ server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   migrateCompanyKeysNfkc().catch((e) => console.warn("[db] 会社名キーの付け替え失敗", e.message));
   // 2026-10-02：【キックオフ】の予定がアポとして取り込まれた分を外す（起動のたびに確認。外すものが無ければ何もしない）
-  excludeKickoffApos().then((r) => { if (r.length) console.log(`[apo] キックオフ ${r.length}件をアポの数から外しました`); }).catch(() => {});
+  // 2026-10-02 依頼：藤友五幸会（電話で申込が決まったキックオフ）は、今日のアポとして数える（通知の数にも1件）
+  forceCountApoByLabel("藤友五幸会", "手で数える：電話で申込（キックオフ）")
+    .then(() => excludeKickoffApos())
+    .then((r) => { if (r && r.length) console.log(`[apo] キックオフ ${r.length}件をアポの数から外しました`); })
+    .then(() => refreshForcedApoLabels())
+    .catch(() => {});
   // 文章だけのAI処理をGroqにするか（設定があればそれに従う。無ければ既定ON）
   getSettings().then((st) => { if (st && (st.aiTextViaGroq === false || st.aiTextViaGroq === "false")) setTextViaGroq(false); }).catch(() => {});
   // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。
