@@ -13317,7 +13317,23 @@ async function markJisshiByKinbot(opps, from) {
   }
   return opps;
 }
-function jisshiCardsFrom(opps, from, to) {
+// 実施数の手直し（田中欽也だけ）。settings.jisshiAdjust = [{ date:"YYYY-MM-DD", name:"植野", delta:1 }]
+// date の日に足したものとして扱う（週ラップは積み上げなので、その週以降と月の合計に効く）。
+const JISSHI_EDITOR = "kinya.tanaka@neo-career.co.jp";
+function jisshiEditorOk(req) {
+  const real = String(req.impersonatorFrom && req.impersonatorFrom !== "admin" ? req.impersonatorFrom : req.user || "").toLowerCase();
+  return real === JISSHI_EDITOR;
+}
+function jisshiAdjOf(adjs, name, from, to, exactDate = "") {
+  let sum = 0, here = 0;
+  for (const a of adjs || []) {
+    if (a.name !== name || a.date < from || a.date > to) continue;
+    sum += Number(a.delta) || 0;
+    if (exactDate && a.date === exactDate) here += Number(a.delta) || 0;
+  }
+  return { sum, here };
+}
+function jisshiCardsFrom(opps, from, to, adjs = [], editDate = "") {
   const today = jstDateStr(new Date());
   const norm = (x) => String(x || "").replace(/[\s　]/g, "");
   const cards = [{ name: "全体" }, ...JISSHI_GROUPS.map((g) => ({ name: g.name }))].map((c) => ({ ...c, 設定: 0, 実施: 0, 済み設定: 0, これから: 0 }));
@@ -13332,8 +13348,45 @@ function jisshiCardsFrom(opps, from, to) {
       if (o.done) c.実施++;
     }
   }
-  return cards.map((c) => ({ ...c, 実施率: c.済み設定 ? Math.round(c.実施 / c.済み設定 * 100) : null }));
+  // 手直しを足す（全体は各人の合計）
+  let totalAdj = 0;
+  for (const c of cards) {
+    if (c.name === "全体") continue;
+    const a = jisshiAdjOf(adjs, c.name, from, to, editDate);
+    c.実施 = Math.max(0, c.実施 + a.sum);
+    c.手直し = a.sum; c.手直しここ = a.here; c.編集日 = editDate;
+    totalAdj += a.sum;
+  }
+  const all = byName.get("全体"); if (all) { all.実施 = Math.max(0, all.実施 + totalAdj); all.手直し = totalAdj; }
+  return cards.map((c) => ({ ...c, 実施率: c.済み設定 ? Math.min(100, Math.round(c.実施 / c.済み設定 * 100)) : null }));
 }
+// 実施数を手で直す（田中欽也だけ）。body: { name, date, value }＝その欄に出したい実施数
+app.put("/api/calls/jisshi-adjust", async (req, res) => {
+  try {
+    if (!jisshiEditorOk(req)) return res.status(403).json({ error: "実施数を直せるのは田中欽也さんだけです" });
+    const b = req.body || {};
+    const name = String(b.name || "");
+    const date = String(b.date || "");
+    const from = String(b.from || "");
+    if (!JISSHI_GROUPS.some((g) => g.name === name)) return res.status(400).json({ error: "直せない欄です" });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return res.status(400).json({ error: "日付がありません" });
+    const want = Math.max(0, parseInt(b.value, 10) || 0);
+    const shown = Math.max(0, parseInt(b.shown, 10) || 0);       // いま画面に出ている実施数（手直し込み）
+    const st = await getSettings();
+    let adjs = Array.isArray(st.jisshiAdjust) ? st.jisshiAdjust.slice() : [];
+    // 差分を、その日の手直しに足す
+    const delta = want - shown;
+    if (delta !== 0) {
+      const i = adjs.findIndex((a) => a.name === name && a.date === date);
+      if (i >= 0) adjs[i] = { ...adjs[i], delta: (Number(adjs[i].delta) || 0) + delta, by: req.user, at: new Date().toISOString() };
+      else adjs.push({ name, date, delta, by: req.user, at: new Date().toISOString() });
+      adjs = adjs.filter((a) => Number(a.delta) !== 0);
+      await saveSettings({ jisshiAdjust: adjs });
+      console.log(`[実施] 手直し ${name} ${date} ${delta > 0 ? "+" : ""}${delta}（→${want}） by ${req.user}`);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/calls/jisshi-dashboard", async (req, res) => {
   try {
     const period = req.query.period === "week" ? "week" : "month";
@@ -13344,10 +13397,11 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
     const pad = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const mFrom = `${sel}-01`, mTo = ymd(new Date(Date.UTC(y, m, 0)));
-    const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo };
+    const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo, canEdit: jisshiEditorOk(req) };
     const opps = await markJisshiByKinbot(await sfJisshiOpps(mFrom, mTo), mFrom);   // 設定＝SF、実施＝kinbot
+    const adjs = ((await getSettings().catch(() => ({}))).jisshiAdjust) || [];
     if (period === "month") {
-      out.cards = jisshiCardsFrom(opps, mFrom, mTo);
+      out.cards = jisshiCardsFrom(opps, mFrom, mTo, adjs, mTo);   // 月次で直した分は月末の日に足す
     } else {
       // 週ラップ（平日の月〜金で区切る。月をまたがない）。
       const laps = [];
@@ -13361,7 +13415,7 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
       }
       out.weeks = [];
       // 週ラップは月初からの積み上げ（その週の終わりまでの合計）
-      for (const l of laps) out.weeks.push({ ...l, cards: jisshiCardsFrom(opps, mFrom, l.to) });
+      for (const l of laps) out.weeks.push({ ...l, cards: jisshiCardsFrom(opps, mFrom, l.to, adjs, l.to) });   // その週で直した分は週の最終日に足す
     }
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -22237,7 +22291,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02s SF商談の立ち上げで、電話番号をkincallの架電先から拾うようにした（メールが同じ架電先→会社名が同じ架電先）。画面を開いたときに空なら自動で入れ、自動補完・自動立ち上げでもkincallの番号を優先する。";
+const BUILD_TAG = "2026-10-02t ダッシュボードの「実施」に編集モードを付けた。田中欽也さんだけが、植野・江田・中澤・他の実施数を手で直せる（全体は合計）。月次で直した分は月末、週ラップで直した分はその週の最終日に足したものとして、積み上げに反映する。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

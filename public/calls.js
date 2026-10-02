@@ -1755,6 +1755,7 @@ function renderDock() {
     .kc-j-bar{height:6px;border-radius:3px;background:#eef3f0;overflow:hidden;margin:8px 0 4px;}
     .kc-j-bar i{display:block;height:100%;background:#1d9e75;border-radius:3px;}
     .kc-j-sub{font-size:11px;color:#6b8a7d;}
+    .kc-j-adj{color:#b07a1f;margin-left:4px;}
     .kc-ah-list{display:block;width:100%;max-width:260px;margin-top:6px;font-size:12px;padding:4px 6px;border:1px solid #cfe0d8;border-radius:8px;background:#fff;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
@@ -3114,28 +3115,48 @@ async function loadNurture(redraw) {
 }
 
 // 実施のカード：設定数・実施数・実施率（終わった商談に対して）・これからの商談
-function jisshiCard(c, big) {
+let _jisshiEdit = false;   // 実施の編集モード（田中欽也さんだけ）
+function jisshiCard(c, big, ctx = {}) {
   const rate = c.実施率 == null ? "—" : `${c.実施率}%`;
+  const editable = _jisshiEdit && ctx.canEdit && c.name !== "全体";
+  const doneCell = editable
+    ? `<input type="number" min="0" class="kc-goal kc-dgoal kc-j-edit" value="${c.実施}" data-name="${esc(c.name)}" data-date="${esc(c.編集日 || ctx.date || "")}" data-from="${esc(ctx.from || "")}" data-shown="${c.実施}" />`
+    : `<div class="kc-d-act kc-j-done">${c.実施}</div>`;
+  const adjNote = c.手直し ? `<span class="kc-j-adj" title="手で直した分">（手直し ${c.手直し > 0 ? "+" : ""}${c.手直し}）</span>` : "";
   return `<div class="kc-dcard kc-jcard${big ? " kc-dcard-big" : ""}">
     <div class="kc-dname">${esc(c.name)}</div>
     <div class="kc-drow">
       <div class="kc-dcol"><div class="kc-dlb">設定数</div><div class="kc-d-act">${c.設定}</div></div>
-      <div class="kc-dcol"><div class="kc-dlb">実施数</div><div class="kc-d-act kc-j-done">${c.実施}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">実施数</div>${doneCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実施率</div><div class="kc-d-diff kc-j-rate">${rate}</div></div>
     </div>
     <div class="kc-j-bar"><i style="width:${c.済み設定 ? Math.min(100, Math.round(c.実施 / c.済み設定 * 100)) : 0}%"></i></div>
-    <div class="kc-j-sub">終わった商談 ${c.済み設定}件中 ${c.実施}件 実施${c.これから ? `　／　これから ${c.これから}件` : ""}</div>
+    <div class="kc-j-sub">終わった商談 ${c.済み設定}件中 ${c.実施}件 実施${c.これから ? `　／　これから ${c.これから}件` : ""}${adjNote}</div>
   </div>`;
 }
 function renderJisshiDash(d) {
   const box = $("clDash");
   const note = `<p class="note" style="margin-top:10px">設定数はSalesforce、実施数はkinbotで数えています。設定数＝「初回アポ設定日」がその期間の商談（空欄ならステージ01の商談だけ初回商談日で判定）を、商談所有者ごとに数えたもの。実施数＝そのうち、kinbotに商談の記録があるもの（会社名が同じで、初回アポ設定日の3日前以降の記録）。実施率＝実施数÷初回アポ設定日が今日までの設定数。他＝田中欽也・浦林。${d.period === "week" ? "週ラップは、月初からその週の終わりまでの積み上げです。" : ""}</p>`;
-  const row = (cards) => `<div class="kc-dgrid kc-jrow">${(cards || []).map((c, i) => jisshiCard(c, i === 0)).join("")}</div>`;
+  const row = (cards, ctx) => `<div class="kc-dgrid kc-jrow">${(cards || []).map((c, i) => jisshiCard(c, i === 0, ctx)).join("")}</div>`;
+  const editBar = d.canEdit
+    ? `<div style="margin:0 0 8px"><button type="button" class="btn ${_jisshiEdit ? "" : "ghost"}" id="kcJEdit">${_jisshiEdit ? "編集モードを終える" : "編集モード（実施数を直す）"}</button>${_jisshiEdit ? `<span class="note" style="margin-left:8px">植野・江田・中澤・他の実施数を直せます（全体は合計）。${d.period === "week" ? "週で直した分は、その週から後の積み上げにも入ります。" : ""}</span>` : ""}</div>`
+    : "";
   if (d.period === "week") {
-    box.innerHTML = (d.weeks || []).map((w) => `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>${row(w.cards)}</div>`).join("") + note;
+    box.innerHTML = editBar + (d.weeks || []).map((w) => `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>${row(w.cards, { canEdit: d.canEdit, date: w.to, from: d.from })}</div>`).join("") + note;
   } else {
-    box.innerHTML = row(d.cards) + note;
+    box.innerHTML = editBar + row(d.cards, { canEdit: d.canEdit, date: d.to, from: d.from }) + note;
   }
+  const eb = $("kcJEdit"); if (eb) eb.addEventListener("click", () => { _jisshiEdit = !_jisshiEdit; renderJisshiDash(d); });
+  box.querySelectorAll(".kc-j-edit").forEach((inp) => inp.addEventListener("change", async () => {
+    inp.disabled = true;
+    try {
+      const r = await fetch("/api/calls/jisshi-adjust", { method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: inp.dataset.name, date: inp.dataset.date, from: inp.dataset.from, value: inp.value, shown: inp.dataset.shown }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "直せませんでした");
+      loadDash();
+    } catch (e) { alert(e.message); inp.disabled = false; inp.value = inp.dataset.shown; }
+  }));
 }
 function renderDash(d) {
   const box = $("clDash");

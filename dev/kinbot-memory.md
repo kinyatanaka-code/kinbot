@@ -1232,3 +1232,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02r 均等化の件数を db.countDistributedBetween（assign_log の配布日が期間内・自分で獲得/割り振りなし除外・外したアポ除外・いまも担当が同じもの、baseline 加算）に変更。personPerDay と rotationStatus（画面の period_count）で使用。closerAssignStats（商談日ベース・自分で取った分込み）は使わない。版20261002r。
 
 - 2026-10-02 BUILD_TAG=2026-10-02s db.findCallTargetPhone({company,email})（email一致→法人格除去の ILIKE 候補を normCompanyKey 一致、新しい順）。lookupCompanyInfo の最初に merge、/api/apo/:slug/company-info は全段で kincall の電話を優先（phoneFrom=kincall）、GET /api/apo/:slug/kincall-phone、apo.js openLaunchModal で lcPhone が空なら開いた時に取得。版20261002s。
+
+- 2026-10-02 BUILD_TAG=2026-10-02t 実施ダッシュボードの手直し：settings.jisshiAdjust=[{name,date,delta,by,at}]、jisshiCardsFrom(opps,from,to,adjs,editDate) が from〜to の delta を各人に加算（全体は合計、率は100%で頭打ち）。編集できるのは JISSHI_EDITOR（kinya.tanaka、代理操作中は元の本人で判定）。PUT /api/calls/jisshi-adjust {name,date,value,shown}→ その date に (value−shown) を足す。月次は月末日、週ラップはラップ末日に足す（積み上げなのでその週以降に効く）。calls.js 編集モード（#kcJEdit）。版20261002t。
