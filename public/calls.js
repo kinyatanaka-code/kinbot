@@ -1756,6 +1756,8 @@ function renderDock() {
     .kc-j-bar i{display:block;height:100%;background:#1d9e75;border-radius:3px;}
     .kc-j-sub{font-size:11px;color:#6b8a7d;}
     .kc-j-adj{color:#b07a1f;margin-left:4px;}
+    .kc-jcard .kc-dlb{white-space:nowrap;}
+    .kc-j-edit{width:100%;max-width:64px;box-sizing:border-box;height:32px;font-size:18px;font-weight:600;text-align:center;border:1px solid #cfe0d8;border-radius:8px;padding:0 2px;color:#1f2d28;}
     .kc-j-pen{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid #cfe0d8;background:#fff;color:#0d5b47;cursor:pointer;flex:0 0 auto;}
     .kc-j-pen:hover{background:#eef5f2;}
     .kc-j-pen.on{background:#0d5b47;border-color:#0d5b47;color:#fff;}
@@ -3121,15 +3123,17 @@ async function loadNurture(redraw) {
 let _jisshiEdit = false;   // 実施の編集モード（田中欽也さんだけ）
 function jisshiCard(c, big, ctx = {}) {
   const rate = c.実施率 == null ? "—" : `${c.実施率}%`;
-  const editable = _jisshiEdit && ctx.canEdit && c.name !== "全体";
-  const doneCell = editable
-    ? `<input type="number" min="0" class="kc-goal kc-dgoal kc-j-edit" value="${c.実施}" data-name="${esc(c.name)}" data-date="${esc(c.編集日 || ctx.date || "")}" data-from="${esc(ctx.from || "")}" data-shown="${c.実施}" />`
-    : `<div class="kc-d-act kc-j-done">${c.実施}</div>`;
-  const adjNote = c.手直し ? `<span class="kc-j-adj" title="手で直した分">（手直し ${c.手直し > 0 ? "+" : ""}${c.手直し}）</span>` : "";
+  const editable = _jisshiEdit && ctx.canEdit;
+  const inp = (field, v) => `<input type="number" min="0" class="kc-j-edit" value="${v}" data-field="${field}" data-name="${esc(c.name)}" data-date="${esc(c.編集日 || ctx.date || "")}" data-from="${esc(ctx.from || "")}" data-shown="${v}" />`;
+  const setCell = editable ? inp("設定", c.設定) : `<div class="kc-d-act">${c.設定}</div>`;
+  const doneCell = editable ? inp("実施", c.実施) : `<div class="kc-d-act kc-j-done">${c.実施}</div>`;
+  const sgn = (n) => `${n > 0 ? "+" : ""}${n}`;
+  const adjParts = [c.設定手直し ? `設定${sgn(c.設定手直し)}` : "", c.手直し ? `実施${sgn(c.手直し)}` : ""].filter(Boolean);
+  const adjNote = adjParts.length ? `<span class="kc-j-adj" title="手で直した分">（手直し ${adjParts.join("・")}）</span>` : "";
   return `<div class="kc-dcard kc-jcard${big ? " kc-dcard-big" : ""}">
     <div class="kc-dname">${esc(c.name)}</div>
     <div class="kc-drow">
-      <div class="kc-dcol"><div class="kc-dlb">設定数</div><div class="kc-d-act">${c.設定}</div></div>
+      <div class="kc-dcol"><div class="kc-dlb">設定数</div>${setCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実施数</div>${doneCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実施率</div><div class="kc-d-diff kc-j-rate">${rate}</div></div>
     </div>
@@ -3142,7 +3146,7 @@ function renderJisshiDash(d) {
   const note = `<p class="note" style="margin-top:10px">設定数はSalesforce、実施数はkinbotで数えています。設定数＝「初回アポ設定日」がその期間の商談（空欄ならステージ01の商談だけ初回商談日で判定）を、商談所有者ごとに数えたもの。実施数＝そのうち、kinbotに商談の記録があるもの（会社名が同じで、初回アポ設定日の3日前以降の記録）。実施率＝実施数÷初回アポ設定日が今日までの設定数。他＝田中欽也・浦林。${d.period === "week" ? "週ラップは、月初からその週の終わりまでの積み上げです。" : ""}</p>`;
   const row = (cards, ctx) => `<div class="kc-dgrid kc-jrow">${(cards || []).map((c, i) => jisshiCard(c, i === 0, ctx)).join("")}</div>`;
   const editBar = d.canEdit
-    ? `<div style="margin:0 0 8px;display:flex;align-items:center;gap:8px"><button type="button" class="kc-j-pen${_jisshiEdit ? " on" : ""}" id="kcJEdit" title="${_jisshiEdit ? "編集を終える" : "実施数を直す"}" aria-label="${_jisshiEdit ? "編集を終える" : "実施数を直す"}"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.21a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>${_jisshiEdit ? `<span class="note">植野・江田・中澤・他の実施数を直せます（全体は合計）。${d.period === "week" ? "週で直した分は、その週から後の積み上げにも入ります。" : ""}もう一度鉛筆を押すと終わります。</span>` : ""}</div>`
+    ? `<div style="margin:0 0 8px;display:flex;align-items:center;gap:8px"><button type="button" class="kc-j-pen${_jisshiEdit ? " on" : ""}" id="kcJEdit" title="${_jisshiEdit ? "編集を終える" : "実施数を直す"}" aria-label="${_jisshiEdit ? "編集を終える" : "実施数を直す"}"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.21a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg></button>${_jisshiEdit ? `<span class="note">設定数・実施数を直せます（実施率は自動で計算し直します）。各人で直した分は全体にも入ります。${d.period === "week" ? "週で直した分は、その週から後の積み上げにも入ります。" : ""}もう一度鉛筆を押すと終わります。</span>` : ""}</div>`
     : "";
   if (d.period === "week") {
     box.innerHTML = editBar + (d.weeks || []).map((w) => `<div class="kc-week-sec"><div class="kc-dsub kc-week-h">${esc(w.label)}</div>${row(w.cards, { canEdit: d.canEdit, date: w.to, from: d.from })}</div>`).join("") + note;
@@ -3154,7 +3158,7 @@ function renderJisshiDash(d) {
     inp.disabled = true;
     try {
       const r = await fetch("/api/calls/jisshi-adjust", { method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: inp.dataset.name, date: inp.dataset.date, from: inp.dataset.from, value: inp.value, shown: inp.dataset.shown }) });
+        body: JSON.stringify({ name: inp.dataset.name, field: inp.dataset.field, date: inp.dataset.date, from: inp.dataset.from, value: inp.value, shown: inp.dataset.shown }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || "直せませんでした");
       loadDash();

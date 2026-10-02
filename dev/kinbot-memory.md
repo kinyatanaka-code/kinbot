@@ -1236,3 +1236,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02t 実施ダッシュボードの手直し：settings.jisshiAdjust=[{name,date,delta,by,at}]、jisshiCardsFrom(opps,from,to,adjs,editDate) が from〜to の delta を各人に加算（全体は合計、率は100%で頭打ち）。編集できるのは JISSHI_EDITOR（kinya.tanaka、代理操作中は元の本人で判定）。PUT /api/calls/jisshi-adjust {name,date,value,shown}→ その date に (value−shown) を足す。月次は月末日、週ラップはラップ末日に足す（積み上げなのでその週以降に効く）。calls.js 編集モード（#kcJEdit）。版20261002t。
 
 - 2026-10-02 BUILD_TAG=2026-10-02u #kcJEdit を鉛筆SVGの丸ボタン（.kc-j-pen、編集中は緑塗り）に。版20261002u。
+
+- 2026-10-02 BUILD_TAG=2026-10-02v 実施手直しを設定数にも拡大：jisshiAdjust の各要素に field（実施|設定、無ければ実施）。設定の手直しは日付が今日まで→済み設定、先→これから。全体の手直し（name=全体）は全体だけに加算、各人の分は全体にも入る。編集モードで全カードの設定数・実施数が入力欄（.kc-j-edit）。版20261002v。

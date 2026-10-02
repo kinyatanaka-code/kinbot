@@ -13324,10 +13324,13 @@ function jisshiEditorOk(req) {
   const real = String(req.impersonatorFrom && req.impersonatorFrom !== "admin" ? req.impersonatorFrom : req.user || "").toLowerCase();
   return real === JISSHI_EDITOR;
 }
-function jisshiAdjOf(adjs, name, from, to, exactDate = "") {
+function jisshiAdjOf(adjs, name, from, to, exactDate = "", field = "実施", onlyPast = null) {
   let sum = 0, here = 0;
   for (const a of adjs || []) {
     if (a.name !== name || a.date < from || a.date > to) continue;
+    if ((a.field || "実施") !== field) continue;
+    if (onlyPast === true && a.date > jstDateStr(new Date())) continue;
+    if (onlyPast === false && a.date <= jstDateStr(new Date())) continue;
     sum += Number(a.delta) || 0;
     if (exactDate && a.date === exactDate) here += Number(a.delta) || 0;
   }
@@ -13348,16 +13351,32 @@ function jisshiCardsFrom(opps, from, to, adjs = [], editDate = "") {
       if (o.done) c.実施++;
     }
   }
-  // 手直しを足す（全体は各人の合計）
-  let totalAdj = 0;
+  // 手直しを足す。各人の分は全体にも入る。全体だけの手直しは全体にだけ足す。
+  // 設定数の手直しは、その日が今日までなら「終わった商談」、先なら「これから」に入れる（実施率の分母がそろうように）。
+  const tot = { 実施: 0, 設定: 0, 済み: 0, 先: 0 };
+  const apply = (c, name) => {
+    const j = jisshiAdjOf(adjs, name, from, to, editDate, "実施");
+    const sAll = jisshiAdjOf(adjs, name, from, to, editDate, "設定");
+    const sPast = jisshiAdjOf(adjs, name, from, to, "", "設定", true).sum;
+    c.実施 = Math.max(0, c.実施 + j.sum);
+    c.設定 = Math.max(0, c.設定 + sAll.sum);
+    c.済み設定 = Math.max(0, c.済み設定 + sPast);
+    c.これから = Math.max(0, c.これから + (sAll.sum - sPast));
+    c.手直し = j.sum; c.設定手直し = sAll.sum; c.編集日 = editDate;
+    return { j: j.sum, s: sAll.sum, sp: sPast };
+  };
   for (const c of cards) {
     if (c.name === "全体") continue;
-    const a = jisshiAdjOf(adjs, c.name, from, to, editDate);
-    c.実施 = Math.max(0, c.実施 + a.sum);
-    c.手直し = a.sum; c.手直しここ = a.here; c.編集日 = editDate;
-    totalAdj += a.sum;
+    const r = apply(c, c.name);
+    tot.実施 += r.j; tot.設定 += r.s; tot.済み += r.sp; tot.先 += r.s - r.sp;
   }
-  const all = byName.get("全体"); if (all) { all.実施 = Math.max(0, all.実施 + totalAdj); all.手直し = totalAdj; }
+  const all = byName.get("全体");
+  if (all) {
+    all.実施 = Math.max(0, all.実施 + tot.実施); all.設定 = Math.max(0, all.設定 + tot.設定);
+    all.済み設定 = Math.max(0, all.済み設定 + tot.済み); all.これから = Math.max(0, all.これから + tot.先);
+    const own = apply(all, "全体");
+    all.手直し = tot.実施 + own.j; all.設定手直し = tot.設定 + own.s;
+  }
   return cards.map((c) => ({ ...c, 実施率: c.済み設定 ? Math.min(100, Math.round(c.実施 / c.済み設定 * 100)) : null }));
 }
 // 実施数を手で直す（田中欽也だけ）。body: { name, date, value }＝その欄に出したい実施数
@@ -13368,7 +13387,8 @@ app.put("/api/calls/jisshi-adjust", async (req, res) => {
     const name = String(b.name || "");
     const date = String(b.date || "");
     const from = String(b.from || "");
-    if (!JISSHI_GROUPS.some((g) => g.name === name)) return res.status(400).json({ error: "直せない欄です" });
+    if (name !== "全体" && !JISSHI_GROUPS.some((g) => g.name === name)) return res.status(400).json({ error: "直せない欄です" });
+    const field = String(b.field || "実施") === "設定" ? "設定" : "実施";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return res.status(400).json({ error: "日付がありません" });
     const want = Math.max(0, parseInt(b.value, 10) || 0);
     const shown = Math.max(0, parseInt(b.shown, 10) || 0);       // いま画面に出ている実施数（手直し込み）
@@ -13377,12 +13397,12 @@ app.put("/api/calls/jisshi-adjust", async (req, res) => {
     // 差分を、その日の手直しに足す
     const delta = want - shown;
     if (delta !== 0) {
-      const i = adjs.findIndex((a) => a.name === name && a.date === date);
-      if (i >= 0) adjs[i] = { ...adjs[i], delta: (Number(adjs[i].delta) || 0) + delta, by: req.user, at: new Date().toISOString() };
-      else adjs.push({ name, date, delta, by: req.user, at: new Date().toISOString() });
+      const i = adjs.findIndex((a) => a.name === name && a.date === date && (a.field || "実施") === field);
+      if (i >= 0) adjs[i] = { ...adjs[i], field, delta: (Number(adjs[i].delta) || 0) + delta, by: req.user, at: new Date().toISOString() };
+      else adjs.push({ name, date, field, delta, by: req.user, at: new Date().toISOString() });
       adjs = adjs.filter((a) => Number(a.delta) !== 0);
       await saveSettings({ jisshiAdjust: adjs });
-      console.log(`[実施] 手直し ${name} ${date} ${delta > 0 ? "+" : ""}${delta}（→${want}） by ${req.user}`);
+      console.log(`[実施] 手直し ${name} ${field} ${date} ${delta > 0 ? "+" : ""}${delta}（→${want}） by ${req.user}`);
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -22291,7 +22311,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02u 実施ダッシュボードの編集モードのボタンを鉛筆のアイコンにした（押すと編集、もう一度押すと終わる）。";
+const BUILD_TAG = "2026-10-02v 実施ダッシュボードの編集モードで、全体・植野・江田・中澤・他の「設定数」「実施数」をすべて直せるようにした（実施率は直した数字で計算し直す）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
