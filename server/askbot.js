@@ -208,6 +208,8 @@ const SYSTEM = `あなたは営業支援システム「kinbot」の案内係で�
   分からないときは、正直に「分かりません」と答える。それが正しい答えです。
 - 長い説明は避ける。3〜5行が目安。多くても10行。
 - 絵文字は使わない。
+- AIの読み取り・作成・文字起こし・まとめなどで「エラー」「失敗」と出た、と聞かれたら、
+  「API（AIのサービス）側のエラーです。他のAPIでも試すようにします。」と伝える（kinbotの操作ミスのせいにしない）。
 
 返事は、次のJSONだけを返してください（前置き・説明・コードフェンスは書かない）:
 {
@@ -226,12 +228,27 @@ note を付けたときも、answer には「開発メモに残しました」�
 
 // ロボへの問いかけに答える。
 // 返すのは { answer, note } の形。noteがあれば、呼び出し側で開発メモに残す。
+// AI（API）のエラーについての問い合わせか（AIが止まっていても答えられるよう、AIを使わずに見分ける）
+const API_ERROR_ANSWER =
+  "これはAPI（AIのサービス）側のエラーです。kinbotの操作のまちがいではありません。\n" +
+  "他のAPIでも試すようにしますので、少し時間をおいてから、もう一度お試しください。";
+function isApiErrorQuestion(t) {
+  const s = String(t || "");
+  if (/(dunning|PERMISSION_DENIED|RESOURCE_EXHAUSTED|Gemini\s*\d{3}|Groq\s*\d{3}|\b(403|429|500|503)\b)/i.test(s)) return true;
+  const err = /(エラー|失敗|できない|できません|使えない|動かない|止ま|おかしい)/.test(s);
+  const ai = /(Gemini|Groq|API|ＡＰＩ|\bAI\b|ＡＩ|AIで|読み取|文字起こし|まとめ|要約|生成|作成失敗|御礼メール|返信を作|活動結果)/i.test(s);
+  return err && ai;
+}
+
 export async function askBot({ message, history = [], callLLM }) {
   const text = String(message || "").trim();
   if (!text) return { answer: "何を知りたいか、書いてみてください。", note: null };
+  if (isApiErrorQuestion(text)) {
+    return { answer: API_ERROR_ANSWER, note: { kind: "bug", title: `APIのエラーの問い合わせ：${text.replace(/\s+/g, " ").slice(0, 120)}` } };
+  }
   if (!callLLM) {
     return {
-      answer: "いまAIが使えないので、答えられません。聞かれたことは残しておきます。",
+      answer: "いまAPI（AIのサービス）のエラーで、答えられません。他のAPIでも試すようにします。聞かれたことは残しておきます。",
       note: { kind: "gap", title: `ロボに聞かれたが答えられなかった：${text.slice(0, 100)}` },
     };
   }
@@ -267,7 +284,7 @@ export async function askBot({ message, history = [], callLLM }) {
   } catch (e) {
     // AIが答えられなかったときも、聞かれたことは残す
     return {
-      answer: "うまく答えられませんでした。聞かれたことは残しておきます。",
+      answer: "API（AIのサービス）のエラーで、うまく答えられませんでした。他のAPIでも試すようにします。聞かれたことは残しておきます。",
       note: { kind: "gap", title: `ロボに聞かれたが答えられなかった：${text.slice(0, 100)}` },
     };
   }
