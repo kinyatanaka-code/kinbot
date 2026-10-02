@@ -850,13 +850,14 @@ function render() {
     // 見出しの▾で絞り込んでいるときは、全体の件数と解除ボタンを出す（絞り込みはこの端末に残るので気づけるように）
     (fullList.length < rows.length ? `<span class="kc-sum-filt">絞り込み中：全 <b>${rows.length.toLocaleString()}</b> 件のうち ${fullList.length.toLocaleString()} 件を表示</span><button type="button" class="kc-sum-btn" id="kcFiltReset2">絞り込みを外す</button>` : "") +
     `</div>` +
-    ((listId !== "all")
+    // 選択したリードの移動は、「全てのリード」「ナーチャリング（まとめ）」でも使える（架電先のIDはリストをまたいで一意）
+    (true
       ? `<div class="kc-selbar" id="kcSelBar" hidden style="display:flex;align-items:center;gap:10px;padding:8px 4px;">
        <span id="kcSelCount" style="font-size:13px;color:#0d5b47;font-weight:600;"></span>
        <button type="button" class="btn" id="kcSelMove">選択したリードを他のリストへ移す</button>
        <button type="button" class="btn kc-outline" id="kcSelClear">選択を外す</button>
      </div>` : "") +
-    `<div class="kc-tablewrap"><table class="kc-table${listId !== "all" ? " kc-has-check" : ""}">
+    `<div class="kc-tablewrap"><table class="kc-table kc-has-check">
       <tr>
         <th class="kc-th-c kc-fx-check" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>
         <th class="kc-th-s kc-fx-stage"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ${arrow("stage")} ▾</button></th>
