@@ -1,5 +1,6 @@
 // server/index.js
 import "dotenv/config";
+import { geminiFailoverStatus } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
 import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -21174,6 +21175,9 @@ app.put("/api/settings", async (req, res) => {
   }
 });
 
+// Geminiのキーの状態（予備に切り替わっているか）
+app.get("/api/gemini-key-status", (req, res) => res.json({ ok: true, ...geminiFailoverStatus() }));
+
 // 商談中のAI提案（ライブ分析）の入/切。チーム共通。トークンを多く使うので既定は切。
 app.get("/api/live-ai", async (req, res) => {
   const st = await getSettings().catch(() => ({}));
@@ -22193,7 +22197,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02f かける画面の「全てのリード」で、リードにチェックを入れても「選択したリードを他のリストへ移す」が出なかったのを直した（全てのリード・ナーチャリング（まとめ）でも選んで移せる）。";
+const BUILD_TAG = "2026-10-02g Geminiのキーに予備を持てるようにした。環境変数 GEMINI_API_KEY_BACKUP を入れておくと、いつものキーが支払い停止・無効・使いすぎ（403/400/429）で返されたときに自動で予備のキーで送り直し、30分は予備を使う。/api/gemini-key-status で状態を確認できる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

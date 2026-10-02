@@ -1208,3 +1208,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02e 商談中のライブAI提案（sessions.js maybeAnalyze、30秒ごと・文字起こし末尾8000字）を既定停止。settings.liveAiSuggest=true のときだけ実行（liveAiOn 1分キャッシュ）。GET/PUT /api/live-ai（PUT は管理者）、settings.html 動作設定にチェック。商談後の analyzeMeeting/analyzeDeep/Q&A は対象外。版20261002e。
 
 - 2026-10-02 BUILD_TAG=2026-10-02f #kcSelBar（選択したリードを他のリストへ移す）が listId==="all" のとき描画されていなかった。条件を外して全リスト共通に（/api/calls/targets/move は target id ベースなので問題なし）。版20261002f。
+
+- 2026-10-02 BUILD_TAG=2026-10-02g server/gemini_failover.js：globalThis.fetch を包み、generativelanguage.googleapis.com への ?key=GEMINI_API_KEY の呼び出しが 403/429/400(キー無効・billing) なら GEMINI_API_KEY_BACKUP に差し替えて再送、30分は予備を使用（本文が文字列のときだけ再送）。index.js の先頭で import。GET /api/gemini-key-status。予備キー未設定なら何もしない。版20261002g。
