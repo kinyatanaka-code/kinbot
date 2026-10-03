@@ -35,8 +35,8 @@ export function geminiFailoverStatus() {
 let textViaGroq = true;
 export function setTextViaGroq(on) { textViaGroq = !!on; }
 export function textViaGroqOn() { return textViaGroq && !!String(process.env.GROQ_API_KEY || "").trim(); }
-let groqCount = 0, groqFail = 0;
-export function groqRouteStats() { return { on: textViaGroqOn(), routed: groqCount, failed: groqFail }; }
+let groqCount = 0, groqFail = 0, groqSkipped = 0;
+export function groqRouteStats() { return { on: textViaGroqOn(), routed: groqCount, failed: groqFail, longToGemini: groqSkipped }; }
 
 function textOnlyGeminiBody(url, body) {
   if (!/:generateContent\b/.test(url) || typeof body !== "string") return null;
@@ -59,13 +59,25 @@ async function viaGroq(b) {
   if (sysAll) messages.push({ role: "system", content: sysAll });
   for (const c of b.contents) messages.push({ role: c.role === "model" ? "assistant" : "user", content: (c.parts || []).map((p) => p.text).join("\n") });
   const model = (process.env.GROQ_TEXT_MODEL || process.env.GROQ_MODEL || "llama-3.3-70b-versatile").replace(/.*(whisper|orpheus|tts).*/i, "llama-3.3-70b-versatile");
-  const maxTok = Math.min(8000, Math.max(256, Number(gc.maxOutputTokens || gc.max_output_tokens || 4096)));
-  const r = await _fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${process.env.GROQ_API_KEY}` },
-    body: JSON.stringify({ model, messages, temperature: typeof gc.temperature === "number" ? gc.temperature : 0.4, max_tokens: maxTok }),
-  });
-  const j = await r.json().catch(() => ({}));
+  const maxTok = Math.min(4000, Math.max(256, Number(gc.maxOutputTokens || gc.max_output_tokens || 2048)));
+  const payload = JSON.stringify({ model, messages, temperature: typeof gc.temperature === "number" ? gc.temperature : 0.4, max_tokens: maxTok });
+  // 1分あたりの上限（429）に当たったら、言われた秒数だけ待ってやり直す（最大3回・1回60秒まで）
+  let r, j;
+  for (let i = 0; i < 4; i++) {
+    r = await _fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${process.env.GROQ_API_KEY}` },
+      body: payload,
+    });
+    j = await r.json().catch(() => ({}));
+    if (r.status !== 429 || i === 3) break;
+    const msg = JSON.stringify(j);
+    if (/tokens per day|requests per day|TPD|RPD/i.test(msg)) break;   // 1日の上限はいくら待ってもだめ
+    const m = msg.match(/try again in\s+(?:(\d+)m)?([\d.]+)\s*s/i);
+    const waitMs = Math.min(60000, Math.max(3000, m ? ((Number(m[1] || 0) * 60) + Number(m[2])) * 1000 + 500 : 10000));
+    console.warn(`[AI] Groqの1分あたりの上限に当たったので ${Math.round(waitMs / 1000)}秒待ってやり直します`);
+    await new Promise((res) => setTimeout(res, waitMs));
+  }
   if (!r.ok) throw new Error(`Groq ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
   const text = String((((j.choices || [])[0] || {}).message || {}).content || "");
   const fin = ((j.choices || [])[0] || {}).finish_reason === "length" ? "MAX_TOKENS" : "STOP";
@@ -80,9 +92,14 @@ const _fetch = globalThis.fetch;
 globalThis.fetch = async function (input, init) {
   const url = typeof input === "string" ? input : (input && input.url) || "";
   if (!url.includes(HOST)) return _fetch(input, init);
-  // 文章だけの処理はGroqへ（失敗したらGeminiに送る）
+  // 文章だけの処理はGroqへ（失敗したらGeminiに送る）。
+  // ただし長い文章（商談の要約など）はGroqの無料枠（1回・1分あたりの量）に入らないので、最初からGeminiに送る。
   if (textViaGroqOn() && typeof input === "string") {
-    const b = textOnlyGeminiBody(url, init && init.body);
+    let b = textOnlyGeminiBody(url, init && init.body);
+    if (b) {
+      const chars = JSON.stringify(b.contents || []).length + JSON.stringify(b.systemInstruction || b.system_instruction || "").length;
+      if (chars > Number(process.env.GROQ_MAX_CHARS || 7000)) { groqSkipped++; b = null; }
+    }
     if (b) {
       try { const r = await viaGroq(b); groqCount++; return r; }
       catch (e) { groqFail++; console.warn("[AI] Groqで失敗したのでGeminiに送ります:", e.message); }
@@ -109,7 +126,9 @@ globalThis.fetch = async function (input, init) {
 export function geminiErrorText(status, text) {
   const t = String(text || "");
   if (status === 403 && /dunning|BILLING|billing/i.test(t)) {
-    return "AI（Gemini）の利用料金の支払いが止まっているため、いまAIの読み取り・作成が使えません。管理者が対応中です。少し時間をおいてお試しください。";
+    const b = String(process.env.GEMINI_API_KEY_BACKUP || "").trim();
+    return "AI（Gemini）の利用料金の支払いが止まっているため、いまAIの読み取り・作成が使えません。管理者が対応中です。少し時間をおいてお試しください。" +
+      (b ? "（予備のキーでも止められています。予備のキーが、止まっている請求先とは別のアカウント・プロジェクトで作られているか確認してください）" : "（予備のキー GEMINI_API_KEY_BACKUP がまだ入っていません）");
   }
   if (status === 429) return "AI（Gemini）の利用回数の上限に当たりました。少し時間をおいてお試しください。";
   return `Gemini ${status}: ${t.slice(0, 200)}`;
