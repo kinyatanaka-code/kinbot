@@ -10528,9 +10528,13 @@ app.get("/api/calls/targets", async (req, res) => {
           const h = hmap[normCompanyKey(x.会社名)];
           if (h) x.営業 = { 状態: openState(h.periods, h.business_status), 説明: (h.weekday_desc || []).join(" / "), 出典: h.source || "" };
         }
-        // 未取得の会社を、裏でまとめて取ってキャッシュする（画面表示は待たせない）。
-        const missing = await placeHoursMissing(companies, 30);
-        if (missing.length) fetchPlaceHoursBatch(missing.slice(0, 25), items).catch(() => {});
+        // 未取得の会社を裏でまとめて取る処理は、2026-10-04から既定で止める（Places・Geminiの検索の回数を使うため）。
+        // 取りたいときは、画面の「営業時間を取得」ボタン（/api/calls/place-hours/refresh）で取る。
+        // 自動に戻すときは環境変数 PLACE_HOURS_AUTO=1。
+        if (process.env.PLACE_HOURS_AUTO === "1") {
+          const missing = await placeHoursMissing(companies, 30);
+          if (missing.length) fetchPlaceHoursBatch(missing.slice(0, 25), items).catch(() => {});
+        }
       } catch (e) { console.warn("[calls/targets] 営業時間の付与に失敗", e.message); }
     }
     res.json({
@@ -22311,7 +22315,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-02w 商談の要約が403で失敗する件。長い文章（要約・判定など）はGroqの無料枠に入らずGeminiに落ちて止まっていたため、7,000字を超える処理は最初からGemini（予備キー）に送り、短い処理だけGroqにした。Groqの1分あたりの上限は待ってやり直す。要約が失敗しても、見回りで自動でやり直す（従来どおり）。";
+const BUILD_TAG = "2026-10-04a かける一覧を開いたときに、営業時間（営業中／営業時間外）を裏で自動取得するのを止めた（Google Places・Geminiの検索の回数を使うため）。取得済みの営業時間はそのまま表示し、取りたいときはボタンで取る。PLACE_HOURS_AUTO=1 で自動に戻せる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

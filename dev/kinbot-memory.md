@@ -1240,3 +1240,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-02 BUILD_TAG=2026-10-02v 実施手直しを設定数にも拡大：jisshiAdjust の各要素に field（実施|設定、無ければ実施）。設定の手直しは日付が今日まで→済み設定、先→これから。全体の手直し（name=全体）は全体だけに加算、各人の分は全体にも入る。編集モードで全カードの設定数・実施数が入力欄（.kc-j-edit）。版20261002v。
 
 - 2026-10-02 BUILD_TAG=2026-10-02w 要約403：analyzeMeeting は最大24,000字＋出力8,000で、Groq無料枠（TPM/TPD）に入らず失敗→Geminiへ→403（dunning）。gemini_failover：本文 > GROQ_MAX_CHARS（既定7000字）は Groq に送らない（longToGemini で集計）、Groq 429 は try again in の秒数待って最大3回再送（1日上限は待たない）、max_tokens 上限4000。dunning エラー文に予備キーの有無・別請求先の確認を追記。要約の取りこぼしは既存の商談自動記録の見回りで再生成される。版20261002w。
+
+- 2026-10-04 BUILD_TAG=2026-10-04a /api/calls/targets の営業時間の裏取得（placeHoursMissing→fetchPlaceHoursBatch 25社、Places＋lookupBusinessHours の Gemini 検索）を既定停止。PLACE_HOURS_AUTO=1 で復活。表示（キャッシュ）と手動の /api/calls/place-hours/refresh は残す。版20261004a。
