@@ -88,6 +88,57 @@ async function viaGroq(b) {
   }), { status: 200, headers: { "content-type": "application/json" } });
 }
 
+// ───── Geminiの混雑（503・UNAVAILABLE・overloaded）への対処 ─────
+// 少し待って同じモデルでもう一度 → まだ混んでいれば、別のモデル（GEMINI_FALLBACK_MODELS）で送り直す。
+// 混雑は一時的で、モデルごとに起きるので、別のモデルなら通ることが多い。
+const FALLBACK_MODELS = String(process.env.GEMINI_FALLBACK_MODELS || "gemini-2.5-flash-lite,gemini-2.0-flash").split(",").map((x) => x.trim()).filter(Boolean);
+let busyRetried = 0, busyModelSwitched = 0;
+export function geminiBusyStats() { return { retried: busyRetried, modelSwitched: busyModelSwitched, fallbackModels: FALLBACK_MODELS }; }
+async function isBusy(res) {
+  if (res.status === 503 || res.status === 529) return true;
+  if (res.status === 500) { const t = await res.clone().text().catch(() => ""); return /UNAVAILABLE|overloaded|high demand|INTERNAL/i.test(t); }
+  return false;
+}
+function withModel(url, body, model) {
+  const u = url.replace(/\/models\/[^:\/?]+:/, `/models/${model}:`);
+  if (typeof body !== "string") return { url: u, body };
+  // 2.0系などは「思考」の設定を受け付けないので外す
+  if (!/2\.5|3\./.test(model)) {
+    try {
+      const b = JSON.parse(body);
+      const gc = b.generationConfig || b.generation_config;
+      if (gc && gc.thinkingConfig) delete gc.thinkingConfig;
+      return { url: u, body: JSON.stringify(b) };
+    } catch {}
+  }
+  return { url: u, body };
+}
+async function sendWithBusyRetry(url, init) {
+  let res = await _fetch(url, init);
+  if (!/:generateContent\b/.test(url) || !(await isBusy(res))) return res;
+  const body = init && init.body;
+  if (body != null && typeof body !== "string") return res;   // 送り直せない本文
+  // 1) 同じモデルで、少し待ってもう一度（2回）
+  for (const wait of [2000, 6000]) {
+    await new Promise((r) => setTimeout(r, wait));
+    busyRetried++;
+    res = await _fetch(url, init);
+    if (!(await isBusy(res))) return res;
+  }
+  // 2) 別のモデルで
+  const cur = (url.match(/\/models\/([^:\/?]+):/) || [])[1] || "";
+  for (const m of FALLBACK_MODELS) {
+    if (m === cur) continue;
+    const w = withModel(url, body, m);
+    console.warn(`[Gemini] ${cur} が混雑しているため、${m} で送り直します`);
+    busyModelSwitched++;
+    const r2 = await _fetch(w.url, { ...(init || {}), body: w.body });
+    if (r2.ok || !(await isBusy(r2))) return r2;
+    res = r2;
+  }
+  return res;
+}
+
 const _fetch = globalThis.fetch;
 globalThis.fetch = async function (input, init) {
   const url = typeof input === "string" ? input : (input && input.url) || "";
@@ -106,25 +157,26 @@ globalThis.fetch = async function (input, init) {
     }
   }
   const { main, backup } = keys();
-  if (!backup || !main) return _fetch(input, init);
+  if (!backup || !main) return typeof input === "string" ? sendWithBusyRetry(input, init) : _fetch(input, init);
   const body = init && init.body;
   const retryable = body == null || typeof body === "string";   // 送り直せる本文だけ（ストリームは送り直せない）
   // 予備に切り替え中なら、最初から予備のキーで送る
   if (Date.now() < useBackupUntil && typeof input === "string" && url.includes(main)) {
-    return _fetch(swapKey(url, main, backup), init);
+    return sendWithBusyRetry(swapKey(url, main, backup), init);
   }
-  const res = await _fetch(input, init);
+  const res = typeof input === "string" ? await sendWithBusyRetry(input, init) : await _fetch(input, init);
   if (typeof input !== "string" || !url.includes(main) || !retryable) return res;
   if (!(await shouldFailover(res))) return res;
   lastReason = `HTTP ${res.status}`;
   useBackupUntil = Date.now() + HOLD_MS;
   console.warn(`[Gemini] いつものキーで ${res.status} のため、予備のキー（GEMINI_API_KEY_BACKUP）に切り替えます（30分）`);
-  return _fetch(swapKey(url, main, backup), init);
+  return sendWithBusyRetry(swapKey(url, main, backup), init);
 };
 
 // 使う人に見せるエラー文：支払い停止（dunning / billing）のときは、技術的な英文ではなく理由がわかる文にする
 export function geminiErrorText(status, text) {
   const t = String(text || "");
+  if (status === 503 || /UNAVAILABLE|high demand|overloaded/i.test(t)) return "AI（Gemini）が混み合っていて、いま処理できませんでした（別のモデルでも試しました）。少し時間をおいてもう一度お試しください。自動の見回りでもやり直します。";
   if (status === 403 && /dunning|BILLING|billing/i.test(t)) {
     const b = String(process.env.GEMINI_API_KEY_BACKUP || "").trim();
     return "AI（Gemini）の利用料金の支払いが止まっているため、いまAIの読み取り・作成が使えません。管理者が対応中です。少し時間をおいてお試しください。" +

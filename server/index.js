@@ -1,6 +1,6 @@
 // server/index.js
 import "dotenv/config";
-import { geminiFailoverStatus, setTextViaGroq, groqRouteStats } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
+import { geminiFailoverStatus, setTextViaGroq, groqRouteStats, geminiBusyStats } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
 import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -21282,7 +21282,7 @@ app.put("/api/settings", async (req, res) => {
 });
 
 // Geminiのキーの状態（予備に切り替わっているか）
-app.get("/api/gemini-key-status", (req, res) => res.json({ ok: true, ...geminiFailoverStatus(), groq: groqRouteStats() }));
+app.get("/api/gemini-key-status", (req, res) => res.json({ ok: true, ...geminiFailoverStatus(), groq: groqRouteStats(), busy: geminiBusyStats() }));
 // 文章だけのAI処理をGroqで動かすか（一時的な切り替え。既定ON）。設定 aiTextViaGroq に保存。
 app.get("/api/ai-text-groq", (req, res) => res.json({ ok: true, ...groqRouteStats() }));
 app.put("/api/ai-text-groq", async (req, res) => {
@@ -22315,7 +22315,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04a かける一覧を開いたときに、営業時間（営業中／営業時間外）を裏で自動取得するのを止めた（Google Places・Geminiの検索の回数を使うため）。取得済みの営業時間はそのまま表示し、取りたいときはボタンで取る。PLACE_HOURS_AUTO=1 で自動に戻せる。";
+const BUILD_TAG = "2026-10-04b Geminiの「混雑（503 high demand）」で要約・段階分けが失敗する件。少し待って同じモデルで2回やり直し、まだ混んでいれば別のモデル（gemini-2.5-flash-lite → gemini-2.0-flash）で送り直すようにした。エラー文も日本語の案内に。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
