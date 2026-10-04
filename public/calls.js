@@ -5764,14 +5764,20 @@ function nmExpPill(rate, title) {
   return `<span class="nm-exp" title="${esc(title || "想定アポ率（予測）")}">想定 ${(Math.round(rate * 1000) / 10).toFixed(1)}%</span>`;
 }
 // メンバーの想定：その人のリストの想定アポ率を、残件数で重み付けした平均（＝残りを全部かけたときの見込み）
-function nmMemberExpected(ls) {
+function nmNurExpected(email) {
+  const en = _nmRates && _nmRates.expectedNurture; if (!en) return null;
+  const k = String(email || "").toLowerCase();
+  return (en.byCaller && en.byCaller[k]) ? en.byCaller[k].rate : en.rate;
+}
+function nmMemberExpected(ls, email) {
   if (!_nmRates || !_nmRates.expected) return null;
+  const nr = nmNurExpected(email);
   let w = 0, sum = 0;
   for (const x of ls || []) {
-    const e = _nmRates.expected[String(x.id)]; if (!e) continue;
-    const zan = Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0);
-    if (zan <= 0) continue;
-    w += zan; sum += zan * e.rate;
+    const e = _nmRates.expected[String(x.id)];
+    const zan = Number(x.残ステータス || 0), nur = Number(x.ナーチャリング || 0);
+    if (e && zan > 0) { w += zan; sum += zan * e.rate; }          // ふつうの残りは、そのリストの想定で
+    if (nr != null && nur > 0) { w += nur; sum += nur * nr; }       // ナーチャリングの分は、ナーチャリングの想定で
   }
   return w ? sum / w : null;
 }
@@ -6372,7 +6378,7 @@ function nmRenderCards() {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
     arr.sort((a, b) => nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
     html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}</div><div class="nm-grid">` +
-      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${nmExpPill(nmMemberExpected(ls), "想定アポ率：この人の残りのリードを全部かけたときの見込み（各リストの想定を残件数で重み付け）")}</div></button>`; }).join("") +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${nmExpPill(nmMemberExpected(ls, email), "想定アポ率：この人の残りのリードを全部かけたときの見込み（各リストの想定を残件数で重み付け。ナーチャリング分はナーチャリングの想定で）")}</div></button>`; }).join("") +
       `</div></div>`;
   }
   // その他：未割り当て／ナーチャリング／リサイクル／アーカイブ をそれぞれカードで出す
@@ -6389,7 +6395,7 @@ function nmRenderCards() {
     const nc = (key, ic, nm, n, ds, cc) =>
       `<button type="button" class="nm-card nm-clcard" data-nur="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big">${Number(n || 0).toLocaleString()}<small>件</small></div><div class="nm-card-sub">${ds}</div></button>`;
     html += `<div class="nm-sec"><div class="nm-sec-h">ナーチャリング</div><div class="nm-grid nm-cl3">` +
-      nc("all", hubIco("leaf"), "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75").replace("</button>", `${nmRatePill(_nmRates && _nmRates.byFrame && _nmRates.byFrame.nurture, "ナーチャリングの枠のアポ率（直近3か月）")}</button>`) +
+      nc("all", hubIco("leaf"), "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75").replace("</button>", `<div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byFrame && _nmRates.byFrame.nurture, "ナーチャリングの枠のアポ率（直近3か月）")}${nmExpPill(_nmRates && _nmRates.expectedNurture ? _nmRates.expectedNurture.rate : null, "想定アポ率：ナーチャリングの枠全体の実績（直近3か月）から見込んだ値")}</div></button>`) +
       nc("week", hubIco("cal"), "今週かける予定", _nmNur.week, "次回架電日が今週末まで（期限切れ含む）のリード。担当メンバーを移せます。", "#e0912b") +
       `</div></div>`;
   }
@@ -6662,7 +6668,7 @@ function nmRenderDetail() {
     parts.sort((a, b) => b.n - a.n);
     nurCard = `<div class="nm-lcard nm-nurcard">
       <div class="nm-lcard-name"><span class="nm-lname-t">ナーチャリング（${esc(_nmSel.name)}のまとめ）</span></div>
-      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${nurTotal.toLocaleString()}</span></div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${nurTotal.toLocaleString()}</span>${nmRatePill(_nmRates && _nmRates.expectedNurture && _nmRates.expectedNurture.byCaller ? (() => { const en = _nmRates.expectedNurture.byCaller[String(_nmSel.key).toLowerCase()]; return en ? { calls: en.calls, apos: Math.round(en.calls * 0) } : null; })() : null, "") === "" ? "" : ""}${nmExpPill(nmNurExpected(_nmSel.key), `想定アポ率：${_nmSel.name}さんのナーチャリングでの実績を、ナーチャリング全体の実績に寄せてならした見込み`)}</div>
       <div class="nm-lcard-sub">ジャッジ・営業フォローのリードを、各リストから集めたもの</div>
       <div class="nm-nur-parts">${parts.slice(0, 5).map((p) => `<div><span title="${esc(p.name)}">${esc(p.name)}</span><b>${p.n}</b></div>`).join("") || '<div style="color:#8aa39a">まだありません</div>'}${parts.length > 5 ? `<div style="color:#8aa39a">ほか${parts.length - 5}リスト</div>` : ""}</div>
       <div class="nm-lcard-ops"><button type="button" class="btn ghost nm-nur-open" style="padding:4px 12px">中身を見る</button></div>

@@ -1272,3 +1272,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04p GET /api/calls/apo-rates?months=3（apoStructureRows から byList・byCaller・byFrame・all）。calls.js nmLoadRates（nmLoad で並行取得し、届いたら描き直し）、nmRatePill（緑2%以上/黄0.5〜2%/赤）。メンバーカード＝byCaller（その人がかけた分）、未割り当て・グループ・リストカード＝byList の合計、ナーチャリング（全体）カード＝byFrame.nurture。版20261004p。
 
 - 2026-10-04 BUILD_TAG=2026-10-04q 想定アポ率：/api/calls/apo-rates が expected[list_id]＝(リストのアポ＋K×土台)÷(リストのコール＋K)、K=200、土台＝主ソース（db.listMainSources、300コール以上）→枠→全体（ナーチャリングの架電は bySrc から除く）。calls.js nmExpPill（青い点線の『想定 x%』）をリストカードに、メンバーカードは nmMemberExpected（各リストの想定を残件数で重み付け）。版20261004q。
+
+- 2026-10-04 BUILD_TAG=2026-10-04r ナーチャリングの想定：/api/calls/apo-rates に expectedNurture（rate＝byFrame.nurture、byCaller＝その人のナーチャリング架電を K=200 で枠の率に寄せる）。ナーチャリング（全体）カードに想定、メンバーのナーチャリングまとめカードに nmNurExpected、nmMemberExpected はナーチャリング分をこの想定で重み付け。版20261004r。

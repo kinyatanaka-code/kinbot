@@ -14178,11 +14178,12 @@ app.get("/api/calls/apo-rates", async (req, res) => {
     const from = `${f.getUTCFullYear()}-${pad(f.getUTCMonth() + 1)}-01`;
     const to = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}-${pad(nowJ.getUTCDate())}`;
     const rows = await apoStructureRows(from, to);
-    const byList = {}, byCaller = {}, byFrame = {}, bySrc = {}, all = { calls: 0, apos: 0 };
+    const byList = {}, byCaller = {}, byFrame = {}, bySrc = {}, byCallerNur = {}, all = { calls: 0, apos: 0 };
     const add = (m, k, r) => { const o = m[k] || (m[k] = { calls: 0, apos: 0 }); o.calls += r.calls; o.apos += r.apos; };
     for (const r of rows) {
       add(byList, String(r.list_id), r);
       if (r.caller) add(byCaller, r.caller, r);
+      if (r.caller && r.nurture) add(byCallerNur, r.caller, r);
       add(byFrame, r.nurture ? "nurture" : frameOfSource(r.source), r);
       if (!r.nurture) add(bySrc, r.source, r);
       all.calls += r.calls; all.apos += r.apos;
@@ -14205,7 +14206,11 @@ app.get("/api/calls/apo-rates", async (req, res) => {
       const o = byList[id] || { calls: 0, apos: 0 };
       expected[id] = { rate: (o.apos + K * base) / (o.calls + K), basis, calls: o.calls };
     }
-    res.json({ ok: true, from, to, byList, byCaller, byFrame, bySrc, all, expected, K });
+    // ナーチャリングの想定：枠全体のアポ率と、人ごと（その人のナーチャリングでの実績を枠の値に寄せてならす）
+    const nurBase = rt(byFrame.nurture) ?? rt(all) ?? 0;
+    const expectedNurture = { rate: nurBase, calls: (byFrame.nurture || {}).calls || 0, byCaller: {} };
+    for (const [e, o] of Object.entries(byCallerNur)) expectedNurture.byCaller[e] = { rate: (o.apos + K * nurBase) / (o.calls + K), calls: o.calls };
+    res.json({ ok: true, from, to, byList, byCaller, byFrame, bySrc, all, expected, expectedNurture, K });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -22499,7 +22504,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04q リスト管理のカードに「想定アポ率」（予測）を出した。リストは、そのリストの実績をソースの実績に寄せてならした値（かけた数が少ないほどソースの値に近い）。メンバーは、その人の残りのリードをかけたときの想定（各リストの想定を残件数で重み付け）。";
+const BUILD_TAG = "2026-10-04r ナーチャリングにも想定アポ率を出した：ナーチャリング（全体）のカードは枠全体の実績、メンバーのナーチャリングのまとめカードはその人の実績を枠の実績に寄せてならした値。メンバーのカードの想定も、ナーチャリング分はこの値で見込むようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
