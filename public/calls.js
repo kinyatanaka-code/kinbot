@@ -1762,6 +1762,18 @@ function renderDock() {
     .kc-j-pen:hover{background:#eef5f2;}
     .kc-j-pen.on{background:#0d5b47;border-color:#0d5b47;color:#fff;}
     .kc-ah-list{display:block;width:100%;max-width:260px;margin-top:6px;font-size:12px;padding:4px 6px;border:1px solid #cfe0d8;border-radius:8px;background:#fff;}
+    .hub-src-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 14px;}
+    .hub-src-row{display:grid;grid-template-columns:150px minmax(0,1fr) 110px;grid-template-rows:auto auto;gap:2px 12px;align-items:center;padding:8px 12px;border:1px solid #e3ece8;border-radius:10px;background:#fff;}
+    .hub-src-row.warn{border-color:#f0c9bd;background:#fdf6f3;}
+    .hub-src-name{font-size:13px;font-weight:700;color:#1f3a30;}
+    .hub-src-bar{height:8px;border-radius:4px;background:#eef3f0;overflow:hidden;}
+    .hub-src-bar i{display:block;height:100%;background:#1d9e75;border-radius:4px;}
+    .hub-src-row.warn .hub-src-bar i{background:#d85a30;}
+    .hub-src-n{font-size:12px;text-align:right;color:#5b7a6d;}
+    .hub-src-n b{font-size:15px;color:#1f3a30;margin-right:2px;}
+    .hub-src-n span{margin-left:6px;}
+    .hub-src-sub{grid-column:1 / -1;font-size:11px;color:#6b8a7d;}
+    .hub-src-h{margin:10px 0 4px;font-size:13px;color:#0d5b47;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -5659,6 +5671,54 @@ function hubShow(tab) {
   else if (tab === "rc") hubRenderRecycle(0);
   else if (tab === "nu") hubRenderNurture();
   else if (tab === "pl") hubRenderPast();
+  else if (tab === "src") hubRenderSources();
+}
+
+// --- ソース（どこから来たリードか）：ソースごとの件数（担当別・未割り当て）と、「要確認」のリストを選び直す
+async function hubRenderSources() {
+  const pane = $("hubPane"); if (!pane || _hubTab !== "src") return;
+  try {
+    const d = await (await fetch("/api/calls/sources?_=" + Date.now(), { cache: "no-store" })).json();
+    if (!d.ok) throw new Error(d.error || "読み込めませんでした");
+    if (_hubTab !== "src") return;
+    const unk = (d.sources || []).find((x) => x.source === "要確認");
+    const b = $("hubBSrc"); if (b) b.textContent = unk && unk.件数 ? `要確認 ${unk.件数}` : "";
+    const total = (d.sources || []).reduce((a, x) => a + x.件数, 0) || 1;
+    const max = Math.max(1, ...(d.sources || []).map((x) => x.件数));
+    const rows = (d.sources || []).map((x) => {
+      const top = Object.entries(x.担当別 || {}).sort((a, c) => c[1] - a[1]).slice(0, 4)
+        .map(([e, n]) => `${esc(hubNm(e))} ${n.toLocaleString()}`).join("・");
+      const warn = x.source === "要確認";
+      return `<div class="hub-src-row${warn ? " warn" : ""}">
+        <div class="hub-src-name">${esc(x.source)}</div>
+        <div class="hub-src-bar"><i style="width:${Math.max(2, Math.round(x.件数 / max * 100))}%"></i></div>
+        <div class="hub-src-n"><b>${x.件数.toLocaleString()}</b>件<span>${Math.round(x.件数 / total * 100)}%</span></div>
+        <div class="hub-src-sub">未架電 ${x.未架電.toLocaleString()}・未割り当て ${x.未割り当て.toLocaleString()}${top ? `　｜　${top}` : ""}</div>
+      </div>`;
+    }).join("");
+    const opts = (d.choices || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    const unkRows = (d.unknownLists || []).map((l) => `<tr data-id="${l.id}">
+        <td>${esc(l.name)}</td><td style="text-align:right">${l.n.toLocaleString()}</td>
+        <td><select class="kc-input hub-src-sel" style="max-width:200px"><option value="">（選ぶ）</option>${opts}<option value="その他">その他</option></select></td>
+        <td><button type="button" class="btn ghost hub-src-go" style="padding:4px 12px">決める</button> <span class="hub-src-st"></span></td></tr>`).join("");
+    pane.innerHTML = `
+      <p class="note">リード1件ずつに付けた「ソース」（どこから来たリードか）の集計です。リストのグループの設定 → リスト名、の順で自動で付けています。リストを移ってもソースは変わりません。</p>
+      <div class="hub-src-list">${rows || '<div class="note">まだソースが付いていません。</div>'}</div>
+      <h4 class="hub-src-h">要確認のリスト（${(d.unknownLists || []).length}本）</h4>
+      <p class="note">いろいろなソースが混ざっていて、自動で決められなかったリストです。リストごとにソースを選ぶと、そのリストのリードにまとめて付けます。</p>
+      ${unkRows ? `<div style="overflow-x:auto"><table class="sh-table" style="width:100%"><tr><th>リスト</th><th style="text-align:right">件数</th><th>ソース</th><th></th></tr>${unkRows}</table></div>` : '<div class="note">要確認のリストはありません。</div>'}`;
+    pane.querySelectorAll(".hub-src-go").forEach((btn) => btn.addEventListener("click", async () => {
+      const tr = btn.closest("tr"), sel = tr.querySelector(".hub-src-sel"), st = tr.querySelector(".hub-src-st");
+      if (!sel.value) { st.textContent = "ソースを選んでください"; return; }
+      btn.disabled = true; st.textContent = "付けています…";
+      try {
+        const r = await fetch(`/api/calls/lists/${tr.dataset.id}/source`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ source: sel.value }) });
+        const j = await r.json(); if (!r.ok) throw new Error(j.error || "できませんでした");
+        st.textContent = `${j.updated}件に付けました`;
+        setTimeout(() => hubRenderSources(), 800);
+      } catch (e) { st.textContent = e.message; btn.disabled = false; }
+    }));
+  } catch (e) { pane.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 async function hubLoadSummary() {
   try {

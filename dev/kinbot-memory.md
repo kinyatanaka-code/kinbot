@@ -1246,3 +1246,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04b 新しい無料キーで 403 は解消、代わりに Gemini 503（high demand）。gemini_failover.js sendWithBusyRetry：generateContent が 503/529/500(UNAVAILABLE) なら 2秒・6秒待って再送→ GEMINI_FALLBACK_MODELS（既定 gemini-2.5-flash-lite,gemini-2.0-flash、2.0系は thinkingConfig を外す）で再送。全Gemini送信（予備キー含む）に適用。geminiErrorText に混雑の案内。/api/gemini-key-status に busy 統計。版20261004b。
 
 - 2026-10-04 BUILD_TAG=2026-10-04c リスト管理の作り直し第1段。call_targets.source を追加（index）。db.classifyListSource（グループ名→リスト名の規則、【復活】・" - 〇〇"を除いて判定。インターン最新版/フロッグ/DOC過去失注/MO過去失注/過去失注（〜2026/2）/クロス失注（2026/3〜）（過去リスト含む）/6月直販コールド/ベールズ/エキスポ/メルマガ、他は要確認）。fillLeadSources を起動時＋10分ごと（source が NULL のものだけ）。leadSourceSummary・GET /api/calls/sources・PUT /api/calls/lists/:id/source。MCP list_call_lists_overview に ソース内訳。版20261004c。
+
+- 2026-10-04 BUILD_TAG=2026-10-04d ソースはグループ設定優先で確定（ユーザー判断）。リスト管理ハブに data-hub=src「ソース」タブ：hubRenderSources（/api/calls/sources の棒グラフ・未架電・未割り当て・担当上位4人、要確認リストは select＋PUT /api/calls/lists/:id/source、「その他」も選べる）。タブに要確認件数バッジ #hubBSrc。版20261004d。
