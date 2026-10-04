@@ -1276,3 +1276,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04r ナーチャリングの想定：/api/calls/apo-rates に expectedNurture（rate＝byFrame.nurture、byCaller＝その人のナーチャリング架電を K=200 で枠の率に寄せる）。ナーチャリング（全体）カードに想定、メンバーのナーチャリングまとめカードに nmNurExpected、nmMemberExpected はナーチャリング分をこの想定で重み付け。版20261004r。
 
 - 2026-10-04 BUILD_TAG=2026-10-04t メンバーカードの想定＝nmMemberListAvg（その人の _nmLists（表示中）の expected[id].rate の単純平均、hidden は除外）。nmMemberExpected は未使用で残置。版20261004t。
+
+- 2026-10-04 BUILD_TAG=2026-10-04u GET /api/calls/nurture-inflow?days=30：db.nurtureInflowDaily（新規の枠のソースで、その日にはじめて結果がジャッジ/営業フォローになったリード数＝DISTINCT ON target の最初のログ日、あわせてその日の新規リストの架電（すでにナーチャリングだったリードの架電は除く）を結果別に）。isContacted で接触、アポ獲得でアポ。calls.js 枠別アポ率の下に loadNurtureInflow（KPI：1日あたり／接触あたり／接触率／アポ率、日ごとの棒、直近14日の表）。版20261004u。

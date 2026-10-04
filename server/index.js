@@ -325,6 +325,7 @@ import {
   leadSourceSummary,
   leadSourceLists,
   listMainSources,
+  nurtureInflowDaily,
   setListLeadSource,
   sourceDistributeCandidates,
   sourceMemberRates,
@@ -14168,6 +14169,40 @@ app.post("/api/calls/sources/distribute", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 新規リストから毎日どれくらいナーチャリングが増えているか（日ごと：コール・接触・アポ・ナーチャリング化）
+app.get("/api/calls/nurture-inflow", async (req, res) => {
+  try {
+    const days = Math.max(7, Math.min(120, parseInt(req.query.days, 10) || 30));
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const to = ymd(nowJ);
+    const from = ymd(new Date(nowJ.getTime() - (days - 1) * 86400000));
+    const sources = LEAD_FRAMES.new.sources;
+    const { inflow, calls } = await nurtureInflowDaily(from, to, sources);
+    const map = new Map();
+    for (let t = new Date(from + "T00:00:00Z"); ymd(t) <= to; t = new Date(t.getTime() + 86400000)) {
+      const k = ymd(t); map.set(k, { date: k, dow: "日月火水木金土"[t.getUTCDay()], コール: 0, 接触: 0, アポ: 0, ナーチャリング化: 0, ソース別: {} });
+    }
+    const keyOf = (d) => (d instanceof Date ? ymd(new Date(d.getTime() + 9 * 3600000)) : String(d).slice(0, 10));
+    for (const r of calls) {
+      const o = map.get(keyOf(r.d)); if (!o) continue;
+      o.コール += r.n;
+      if (isContacted(r.result)) o.接触 += r.n;
+      if (/アポ獲得/.test(r.result)) o.アポ += r.n;
+    }
+    for (const r of inflow) {
+      const o = map.get(keyOf(r.d)); if (!o) continue;
+      o.ナーチャリング化 += r.n; o.ソース別[r.source] = (o.ソース別[r.source] || 0) + r.n;
+    }
+    const list = [...map.values()];
+    const work = list.filter((x) => x.コール > 0);
+    const sum = (k) => list.reduce((a, x) => a + x[k], 0);
+    const tot = { コール: sum("コール"), 接触: sum("接触"), アポ: sum("アポ"), ナーチャリング化: sum("ナーチャリング化"), かけた日数: work.length };
+    res.json({ ok: true, from, to, days: list, total: tot });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リスト管理のカードに出すアポ率（直近3か月の架電）：リストごと・かけた人ごと・枠ごと
 app.get("/api/calls/apo-rates", async (req, res) => {
   try {
@@ -22504,7 +22539,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04t メンバーのカードの想定アポ率を、その人が持っている表示中のリストの想定アポ率の平均にした（非表示のリストは入れない）。";
+const BUILD_TAG = "2026-10-04u 実績の「枠別アポ率」に、新規リストから毎日どれくらいナーチャリングが増えているか（日ごとのコール・接触・アポ・ナーチャリング化と、接触あたりのナーチャリング化率）を追加。ナーチャリング化＝その日にはじめてジャッジ・営業フォローになったリード。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

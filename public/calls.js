@@ -1849,6 +1849,11 @@ function renderDock() {
     .fr-d0{background:#fbfdfc;} .fr-rate{font-weight:700;color:#1f2d28;}
     .fr-tg{display:inline-block;width:14px;color:#1d9e75;} .fr-tg0{color:transparent;}
     .fr-sub{display:block;font-size:10px;color:#8aa39a;}
+    .ni-chart{display:flex;align-items:flex-end;gap:3px;height:130px;padding:8px 6px 0;background:#fff;border:1px solid #e3ece8;border-radius:10px;margin-top:6px;overflow-x:auto;}
+    .ni-c{flex:1;min-width:14px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;}
+    .ni-b{width:100%;max-width:22px;background:#85b7eb;border-radius:4px 4px 0 0;}
+    .ni-c.we .ni-b{background:#d3d1c7;}
+    .ni-v{font-size:10px;color:#185fa5;font-weight:700;min-height:12px;} .ni-d{font-size:9px;color:#8aa39a;}
     .nm-nurcard{border-color:#b5d4f4 !important;background:#f4f8fc !important;}
     .nm-rate{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-top:4px;white-space:nowrap;}
     .nm-lcard-zan .nm-rate{margin:0 0 0 8px;vertical-align:4px;}
@@ -4423,8 +4428,11 @@ async function loadFrameStats() {
       <div style="overflow-x:auto"><table class="fr-t"><tr><th class="fr-name">まとまり</th><th>コール</th><th>アポ</th><th>アポ率</th>${d.months.map((ym) => `<th>${mlab(ym)}</th>`).join("")}</tr>${tree}</table></div>
       <h4 class="fr-h">メンバー × 枠<span>その枠でかけた数のうち、アポになった割合（右の小さい数字はアポ／コール）。</span></h4>
       <div style="overflow-x:auto"><table class="fr-t"><tr><th class="fr-name">メンバー</th>${(d.frames || []).map((f) => `<th>${esc(f.label)}</th>`).join("")}<th>全体</th></tr>${memRows}</table></div>
-      <p class="note" style="margin-top:8px">ナーチャリング＝その架電の前にジャッジ・営業フォローになっていたリード（今ジャッジ・営業フォローのものも含む）。新規・過去の枠からは外して数えます。</p>`;
+      <p class="note" style="margin-top:8px">ナーチャリング＝その架電の前にジャッジ・営業フォローになっていたリード（今ジャッジ・営業フォローのものも含む）。新規・過去の枠からは外して数えます。</p>
+      <h4 class="fr-h">新規リストから毎日増えるナーチャリング<span>その日に「はじめて」ジャッジ・営業フォローになったリードの数（新規リストのソースだけ）。</span></h4>
+      <div id="frInflow"><div class="note">読み込んでいます…</div></div>`;
     box.querySelectorAll("[data-frm]").forEach((b) => b.addEventListener("click", () => { FR_MONTHS = Number(b.dataset.frm); loadFrameStats(); }));
+    loadNurtureInflow();
     box.querySelectorAll(".fr-r").forEach((tr) => tr.addEventListener("click", () => {
       const id = tr.dataset.id;
       const kids = box.querySelectorAll(`.fr-r[data-p="${id}"]`);
@@ -4434,6 +4442,35 @@ async function loadFrameStats() {
       const closeAll = (pid) => box.querySelectorAll(`.fr-r[data-p="${pid}"]`).forEach((k) => { k.hidden = true; const t = k.querySelector(".fr-tg"); if (t && t.textContent) t.textContent = "▸"; closeAll(k.dataset.id); });
       if (open) kids.forEach((k) => { k.hidden = false; }); else closeAll(id);
     }));
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
+// 新規リストから毎日増えるナーチャリング（直近30日）
+async function loadNurtureInflow() {
+  const box = $("frInflow"); if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/nurture-inflow?days=30")).json();
+    if (d.error) throw new Error(d.error);
+    const t = d.total || {};
+    const per = (a, b) => b ? (Math.round(a / b * 1000) / 10).toFixed(1) + "%" : "—";
+    const avg = t.かけた日数 ? (t.ナーチャリング化 / t.かけた日数) : 0;
+    const max = Math.max(1, ...d.days.map((x) => x.ナーチャリング化));
+    const bars = d.days.map((x) => {
+      const h = Math.round(x.ナーチャリング化 / max * 90);
+      const weekend = x.dow === "土" || x.dow === "日";
+      return `<div class="ni-c${weekend ? " we" : ""}" title="${x.date}（${x.dow}）：ナーチャリング化 ${x.ナーチャリング化}件・コール ${x.コール}・接触 ${x.接触}・アポ ${x.アポ}"><span class="ni-v">${x.ナーチャリング化 || ""}</span><div class="ni-b" style="height:${Math.max(x.ナーチャリング化 ? 3 : 1, h)}px"></div><span class="ni-d">${Number(x.date.slice(8))}</span></div>`;
+    }).join("");
+    const rows = [...d.days].reverse().filter((x) => x.コール || x.ナーチャリング化).slice(0, 14).map((x) =>
+      `<tr><td class="fr-name">${Number(x.date.slice(5, 7))}/${Number(x.date.slice(8))}（${x.dow}）</td><td>${x.コール}</td><td>${x.接触}</td><td>${x.アポ}</td><td class="fr-rate">${x.ナーチャリング化}</td><td>${per(x.ナーチャリング化, x.接触)}</td><td>${per(x.アポ, x.コール)}</td></tr>`).join("");
+    box.innerHTML = `
+      <div class="fr-kpis">
+        <div class="fr-kpi"><div class="fr-kl">1日あたりのナーチャリング化</div><div class="fr-kv" style="color:#185fa5">${(Math.round(avg * 10) / 10).toFixed(1)}<small style="font-size:13px">件</small></div><div class="fr-ks">かけた${t.かけた日数 || 0}日の平均（30日で${(t.ナーチャリング化 || 0).toLocaleString()}件）</div></div>
+        <div class="fr-kpi"><div class="fr-kl">接触あたりのナーチャリング化</div><div class="fr-kv">${per(t.ナーチャリング化, t.接触)}</div><div class="fr-ks">${(t.ナーチャリング化 || 0).toLocaleString()} / 接触${(t.接触 || 0).toLocaleString()}</div></div>
+        <div class="fr-kpi"><div class="fr-kl">新規リストの接触率</div><div class="fr-kv">${per(t.接触, t.コール)}</div><div class="fr-ks">接触${(t.接触 || 0).toLocaleString()} / ${(t.コール || 0).toLocaleString()}コール</div></div>
+        <div class="fr-kpi"><div class="fr-kl">新規リストのアポ率</div><div class="fr-kv" style="color:#0f6e56">${per(t.アポ, t.コール)}</div><div class="fr-ks">アポ${(t.アポ || 0).toLocaleString()} / ${(t.コール || 0).toLocaleString()}コール</div></div>
+      </div>
+      <div class="ni-chart">${bars}</div>
+      <div style="overflow-x:auto;margin-top:8px"><table class="fr-t"><tr><th class="fr-name">日付</th><th>コール</th><th>接触</th><th>アポ</th><th>ナーチャリング化</th><th>接触あたり</th><th>アポ率</th></tr>${rows || '<tr><td colspan="7" class="fr-name">まだ記録がありません。</td></tr>'}</table></div>`;
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 

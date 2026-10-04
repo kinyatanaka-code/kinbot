@@ -4791,6 +4791,31 @@ export async function apoStructureRows(fromJst, toJst) {
   return rows;
 }
 
+// 新規リストからのナーチャリングの増え方（日ごと）。
+// その日に「はじめて」ジャッジ・営業フォローの結果になったリードを数える（同じリードの2回目以降は数えない）。
+// あわせて、その日の新規リストのコール数・結果（接触・アポの判定は呼び出し側で）も返す。
+export async function nurtureInflowDaily(fromJst, toJst, sources) {
+  if (!pool) return { inflow: [], calls: [] };
+  const p = [fromJst, toJst, sources];
+  const { rows: inflow } = await pool.query(
+    `SELECT d, COALESCE(source,'（未設定）') AS source, count(*)::int AS n FROM (
+        SELECT DISTINCT ON (l.target_id) l.target_id, (l.at AT TIME ZONE 'Asia/Tokyo')::date AS d, t.source
+          FROM call_logs l JOIN call_targets t ON t.id = l.target_id
+         WHERE l.result ~ 'ジャッジ|営業フォロー'
+         ORDER BY l.target_id, l.at
+      ) f
+     WHERE d >= $1::date AND d <= $2::date AND source = ANY($3)
+     GROUP BY 1, 2 ORDER BY 1`, p);
+  const { rows: calls } = await pool.query(
+    `SELECT (l.at AT TIME ZONE 'Asia/Tokyo')::date AS d, l.result, count(*)::int AS n
+       FROM call_logs l JOIN call_targets t ON t.id = l.target_id
+      WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        AND t.source = ANY($3)
+        AND NOT EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー')
+      GROUP BY 1, 2`, p);
+  return { inflow, calls };
+}
+
 // リストごとの主なソース（いちばん件数が多いソース）
 export async function listMainSources() {
   if (!pool) return {};
