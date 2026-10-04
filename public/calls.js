@@ -5686,7 +5686,7 @@ async function openSourceDistribute(source, summary) {
   try { mem = ((await (await fetch("/api/calls/members")).json()).items || []).filter((m) => m.email); } catch {}
   const s0 = (summary.sources || []).find((x) => x.source === source) || {};
   const owners = Object.keys(s0.担当別 || {});
-  const inside = mem.filter((m) => m.role === "inside" || m.inside || (Array.isArray(m.roles) && m.roles.includes("inside")));
+  const inside = mem.filter((m) => m.インサイド);
   const others = mem.filter((m) => !inside.includes(m));
   const box = (m, on) => `<label class="sd-m"><input type="checkbox" value="${esc(m.email)}"${on ? " checked" : ""} /> ${esc(m.name || m.email)}</label>`;
   const m = openModal(`「${source}」をメンバーに配る`, `
