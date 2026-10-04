@@ -321,6 +321,10 @@ import {
   apoCompaniesByGroup,
   listGroupApoLogs,
   callStatsByTarget,
+  fillLeadSources,
+  leadSourceSummary,
+  setListLeadSource,
+  LEAD_SOURCES,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -14074,6 +14078,22 @@ app.get("/api/calls/source-funnel", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リードの「ソース」（どこから来たか）の集計と、「要確認」になったリスト。PUT でリストごとにソースを決める。
+app.get("/api/calls/sources", async (req, res) => {
+  try { res.json({ ok: true, choices: LEAD_SOURCES, ...(await leadSourceSummary()) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/lists/:id/source", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const src = String((req.body && req.body.source) || "").trim();
+    if (!id || !src) return res.status(400).json({ error: "リストとソースを選んでください" });
+    const n = await setListLeadSource(id, src);
+    console.log(`[kincall] リスト${id}のリードのソースを「${src}」に：${n}件 by ${req.user}`);
+    res.json({ ok: true, updated: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リードソース別：アポが取れた会社の一覧（source= のリードソースだけ）
 app.get("/api/calls/source-apos", async (req, res) => {
   try {
@@ -22315,7 +22335,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04b Geminiの「混雑（503 high demand）」で要約・段階分けが失敗する件。少し待って同じモデルで2回やり直し、まだ混んでいれば別のモデル（gemini-2.5-flash-lite → gemini-2.0-flash）で送り直すようにした。エラー文も日本語の案内に。";
+const BUILD_TAG = "2026-10-04c リスト管理の作り直し 第1段：リード1件ずつに「ソース」（どこから来たリードか）を持たせた。今あるリードには、リストのグループ名→リスト名から自動で付ける（決められないものは「要確認」）。付け替えでリストを移ってもソースは変わらない。/api/calls/sources で集計、PUT /api/calls/lists/:id/source で要確認を直せる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -27956,6 +27976,9 @@ app.delete("/api/proposals/:id", async (req, res) => {
 server.listen(PORT, async () => {
   await initDb().catch((e) => console.error("[db] init失敗", e.message));
   migrateCompanyKeysNfkc().catch((e) => console.warn("[db] 会社名キーの付け替え失敗", e.message));
+  // リードにソースを付ける（まだ無いものだけ。新しく入ったリードも10分ごとに付ける）
+  fillLeadSources().catch(() => {});
+  setInterval(() => fillLeadSources().catch(() => {}), 10 * 60 * 1000).unref?.();
   // 2026-10-02：【キックオフ】の予定がアポとして取り込まれた分を外す（起動のたびに確認。外すものが無ければ何もしない）
   // 2026-10-02 依頼：藤友五幸会（電話で申込が決まったキックオフ）は、今日のアポとして数える（通知の数にも1件）
   forceCountApoByLabel("藤友五幸会", "手で数える：電話で申込（キックオフ）")

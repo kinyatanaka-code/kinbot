@@ -4609,6 +4609,86 @@ export async function recentCallLogs({ from = "", to = "", caller = "", limit = 
 
 // 全リストの現状をまとめて集計する（コネクタでの分析用）。
 // リストごとに、件数・架電済み/未架電・アポ獲得・ステージ内訳・結果内訳・担当別の件数を返す。
+// ===== リードのソース（どこから来たリードか） =====
+// リスト（入れ物）とは別に、リード1件ずつに「ソース」を持たせる。付け替えでリストを移ってもソースは変わらない。
+// まずは今あるリードに、リストのグループ名 → リスト名 の順で自動で付ける。決められないものは「要確認」。
+export const LEAD_SOURCES = ["インターン最新版", "フロッグ", "DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"];
+export const SOURCE_UNKNOWN = "要確認";
+export function classifySourceName(raw) {
+  const s = String(raw || "").normalize("NFKC").replace(/【\s*復活\s*】/g, "").replace(/\s+-\s+.*$/, "").trim();
+  if (!s) return "";
+  if (/MO過去失注/.test(s)) return "MO過去失注";
+  if (/過去の失注|〜\s*2026\/2|~\s*2026\/2/.test(s)) return "過去失注（〜2026/2）";
+  if (/クロス失注|過去リスト/.test(s)) return "クロス失注（2026/3〜）";
+  if (/DOC過去失注|インターン用過去失注|過去失注/.test(s)) return "DOC過去失注";
+  if (/フロッグ/.test(s)) return "フロッグ";
+  if (/インターン/.test(s)) return "インターン最新版";
+  if (/直販新規コールド|6月直販/.test(s)) return "6月直販コールド";
+  if (/ベールズ/.test(s)) return "ベールズ";
+  if (/エキスポ/.test(s)) return "エキスポ";
+  if (/メルマガ/.test(s)) return "メルマガ";
+  return "";
+}
+// グループ名（ナーチャリング・リサイクル復活のような「状態」のグループは見ない）→ リスト名 → 要確認
+export function classifyListSource(listName, groupName) {
+  const g = String(groupName || "");
+  if (g && !/ナーチャリング|リサイクル|復活/.test(g)) { const v = classifySourceName(g); if (v) return v; }
+  return classifySourceName(listName) || SOURCE_UNKNOWN;
+}
+// まだソースが無いリードに付ける（何度動かしても同じ。付いているものは変えない）
+export async function fillLeadSources() {
+  if (!pool) return { updated: 0 };
+  try {
+    await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS source TEXT;`).catch(() => {});
+    await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_source ON call_targets(source);`).catch(() => {});
+    const { rows } = await pool.query(
+      `SELECT l.id, l.name, g.name AS group_name
+         FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id
+        WHERE EXISTS (SELECT 1 FROM call_targets t WHERE t.list_id = l.id AND t.source IS NULL)`);
+    let updated = 0;
+    for (const r of rows) {
+      const src = classifyListSource(r.name, r.group_name);
+      const u = await pool.query(`UPDATE call_targets SET source = $1 WHERE list_id = $2 AND source IS NULL`, [src, r.id]);
+      updated += u.rowCount || 0;
+    }
+    if (updated) console.log(`[kincall] リードにソースを付けました：${updated}件`);
+    return { updated };
+  } catch (e) { console.error("[db] fillLeadSources", e.message); return { updated: 0, error: e.message }; }
+}
+// ソースごとの件数（担当ごと・未割り当て・未架電つき）と、「要確認」になったリスト
+export async function leadSourceSummary() {
+  if (!pool) return { sources: [], unknownLists: [] };
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(t.source, '（未設定）') AS source,
+              COALESCE(NULLIF(btrim(t.assigned_to),''), '') AS assigned,
+              count(*)::int AS n,
+              count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id))::int AS untouched
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE NOT COALESCE(l.closed, false)
+        GROUP BY 1, 2`);
+    const bySrc = new Map();
+    for (const r of rows) {
+      if (!bySrc.has(r.source)) bySrc.set(r.source, { source: r.source, 件数: 0, 未架電: 0, 未割り当て: 0, 担当別: {} });
+      const o = bySrc.get(r.source);
+      o.件数 += r.n; o.未架電 += r.untouched;
+      if (!r.assigned) o.未割り当て += r.n; else o.担当別[r.assigned] = (o.担当別[r.assigned] || 0) + r.n;
+    }
+    const { rows: unk } = await pool.query(
+      `SELECT l.id, l.name, count(t.id)::int AS n
+         FROM call_lists l JOIN call_targets t ON t.list_id = l.id
+        WHERE t.source = $1 AND NOT COALESCE(l.closed, false)
+        GROUP BY l.id, l.name ORDER BY n DESC LIMIT 100`, [SOURCE_UNKNOWN]);
+    return { sources: [...bySrc.values()].sort((a, b) => b.件数 - a.件数), unknownLists: unk };
+  } catch (e) { console.error("[db] leadSourceSummary", e.message); return { sources: [], unknownLists: [], error: e.message }; }
+}
+// リストのリードのソースを手で決める（「要確認」を直す）
+export async function setListLeadSource(listId, source) {
+  if (!pool || !listId || !source) return 0;
+  const r = await pool.query(`UPDATE call_targets SET source = $1 WHERE list_id = $2`, [String(source), listId]);
+  return r.rowCount || 0;
+}
+
 export async function callListOverview({ limit = 60 } = {}) {
   if (!pool) return [];
   try {
@@ -4639,6 +4719,9 @@ export async function callListOverview({ limit = 60 } = {}) {
       const { rows: byStage } = await pool.query(
         `SELECT COALESCE(NULLIF(t.stage,''),'(なし)') AS ステージ, count(*)::int AS 件数
            FROM call_targets t WHERE t.list_id = $1 GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [L.id]);
+      const { rows: bySrc } = await pool.query(
+        `SELECT COALESCE(t.source,'（未設定）') AS ソース, count(*)::int AS 件数
+           FROM call_targets t WHERE t.list_id = $1 GROUP BY 1 ORDER BY 2 DESC LIMIT 12`, [L.id]).catch(() => ({ rows: [] }));
       const a = agg[0] || {};
       out.push({
         リスト: L.name, id: L.id, 作成者: L.owner || "", 作成日: L.created_at,
@@ -4647,7 +4730,7 @@ export async function callListOverview({ limit = 60 } = {}) {
         アーカイブ: a.アーカイブ || 0, リサイクル: a.リサイクル || 0,
         担当人数: a.担当人数 || 0,
         進捗率: (a.件数 ? Math.round((a.架電済み / a.件数) * 1000) / 10 : 0),
-        担当別: byOwner, ステージ内訳: byStage,
+        担当別: byOwner, ステージ内訳: byStage, ソース内訳: bySrc,
       });
     }
     return out;
