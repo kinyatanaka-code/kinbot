@@ -1280,3 +1280,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04u GET /api/calls/nurture-inflow?days=30：db.nurtureInflowDaily（新規の枠のソースで、その日にはじめて結果がジャッジ/営業フォローになったリード数＝DISTINCT ON target の最初のログ日、あわせてその日の新規リストの架電（すでにナーチャリングだったリードの架電は除く）を結果別に）。isContacted で接触、アポ獲得でアポ。calls.js 枠別アポ率の下に loadNurtureInflow（KPI：1日あたり／接触あたり／接触率／アポ率、日ごとの棒、直近14日の表）。版20261004u。
 
 - 2026-10-04 BUILD_TAG=2026-10-04v /api/calls/targets の行に ソース（t.source）。calls.js fromBadge を作り直し：会社名の下にソースのタグ（新規＝緑・過去＝赤茶・他＝灰）と、元のリスト（あれば）または まとめ表示（listId が数字でない＝全てのリード・ナーチャリング等）のときは入っているリスト名。版20261004v。
+
+- 2026-10-04 BUILD_TAG=2026-10-04w かける画面に仮想リスト today「今日かけるリード」（全てのリードの隣）。/api/calls/targets?list=today：listAllLeadsForMember（表示中・未終了のリスト）から done・アポ/ユーザー/失注/アーカイブ/リサイクル/使われていない番号・ナーチャリング（ジャッジ/営業フォロー）・next_call_at が明日以降 を除く。件数はリストの残り（非表示・【ナーチャリング】除く）の合計を先に出す。版20261004w。

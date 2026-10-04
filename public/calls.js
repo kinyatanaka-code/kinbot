@@ -72,10 +72,10 @@ function clSortOptions(opts) {
 function renderClPills() {
   const sel = $("clList"), box = $("clPills"); if (!sel || !box) return;
   const cur = String(sel.value || "");
-  const short = (v, t) => v === "all" ? "☆ 全てのリード" : String(t);
+  const short = (v, t) => v === "all" ? "☆ 全てのリード" : v === "today" ? "今日かけるリード" : String(t);
   box.innerHTML = clSortOptions([...sel.options]).map((o) => {
     const on = o.value === cur;
-    const star = o.value === "all";
+    const star = o.value === "all" || o.value === "today";
     const n = _clCounts[o.value];
     const cnt = (n != null) ? `<span class="cl-pcnt">${Number(n).toLocaleString()}</span>` : "";
     return `<button type="button" class="cl-pill${on ? " active" : ""}${star ? " star" : ""}" draggable="true" data-v="${esc(o.value)}" title="ドラッグで並び順を変えられます"><span class="cl-pdot"></span>${esc(short(o.value, o.textContent))}${cnt}</button>`;
@@ -105,7 +105,8 @@ async function loadLists() {
     const items = d.items || [];
     const sel = $("clList");
     const keep = sel.value || savedListId();   // リロード時は、前回選んでいたリストに戻す
-    const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>`;
+    const allOpt = `<option value="all">☆ 全てのリード（自分の全リストをまとめて）</option>` +
+      `<option value="today">今日かけるリード（表示中のリストの残りをまとめて）</option>`;
     // 過去リスト・アーカイブ・リサイクルのまとめは田中欽也だけに出す（ほかの人はナーチャリングのまとめだけ）
     const tanaka = await kcIsTanaka();
     const nurOpt = `<option value="nurture">ナーチャリング（まとめ）</option>`;   // 全てのリードの隣
@@ -116,6 +117,7 @@ async function loadLists() {
       : "") + specialOpt;
     if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
     _clCounts = { all: items.reduce((s, x) => s + Number(x.残り || 0), 0) };
+    _clCounts.today = items.filter((x) => !x.hidden && !String(x.name || "").startsWith("【ナーチャリング】")).reduce((s, x) => s + Number(x.残り || 0), 0);
     for (const x of items) _clCounts[String(x.id)] = Number(x.残り || 0);
     renderClPills();
     {

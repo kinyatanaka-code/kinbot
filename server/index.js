@@ -10354,6 +10354,22 @@ app.get("/api/calls/targets", async (req, res) => {
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
         until: listParam === "nurture-week" ? jstWeekEndIso() : "",
       });
+    } else if (listParam === "today") {
+      // 「今日かけるリード」：表示しているリストで、まだかける先として残っているものだけをまとめる。
+      // ナーチャリング（ジャッジ・営業フォロー）は「ナーチャリング（まとめ）」にあるので入れない。架電予定が明日以降のものも入れない。
+      const member = String(req.query.member || req.user || "").trim().toLowerCase();
+      if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
+      const all = await listAllLeadsForMember(member, { q: String(req.query.q || "").trim(), limit: 5000 });
+      const nowJ = new Date(Date.now() + 9 * 3600000);
+      const endToday = Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth(), nowJ.getUTCDate() + 1) - 9 * 3600000;
+      const nur = /ジャッジ|営業フォロー/;
+      const dead = /アポ|ユーザー|失注|アーカイブ|リサイクル|使われて|現在使わ|現アナ|欠番|不通/;
+      rows = all.filter((r) => {
+        const st = `${r.stage || ""} ${r.status || ""}`;
+        if (r.done || dead.test(st) || nur.test(st)) return false;
+        if (r.next_call_at && new Date(r.next_call_at).getTime() >= endToday) return false;
+        return true;
+      });
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
@@ -22540,7 +22556,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04v かける画面の各リードに、どこから来たリードか（ソース）と、入っているリスト名を小さく出すようにした。ナーチャリング（まとめ）や全てのリードのように複数のリストをまとめて見るときも、1件ずつ出どころが分かる。";
+const BUILD_TAG = "2026-10-04w かける画面の「☆全てのリード」の隣に「今日かけるリード」を追加。表示しているリストで、まだかける先として残っているリードだけをまとめる（ナーチャリング・アポ獲得や失注などの対象外・架電予定が明日以降のものは入れない）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
