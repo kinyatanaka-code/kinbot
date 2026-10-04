@@ -1558,6 +1558,7 @@ export async function listMeetings({ owner, isAdmin, from, to, limit, light } = 
     ? `m.bot_id, m.meeting_url, m.rep_name, m.title, m.owner,
        m.round_no, m.phase, m.status, m.created_at, m.updated_at,
        jsonb_build_object('overview', m.summary->'overview') AS summary,
+       left(COALESCE(m.custom_analysis,''), 400) AS custom_head,
        m.sf_url, m.sf_recorded_at, m.drive_file_id, m.mux_playback_id,
        COALESCE(m.account,'') AS account, m.category, m.deal_kind,
        m.apo_setter, m.apo_setter_manual, u.name AS owner_name`

@@ -1284,3 +1284,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04w かける画面に仮想リスト today「今日かけるリード」（全てのリードの隣）。/api/calls/targets?list=today：listAllLeadsForMember（表示中・未終了のリスト）から done・アポ/ユーザー/失注/アーカイブ/リサイクル/使われていない番号・ナーチャリング（ジャッジ/営業フォロー）・next_call_at が明日以降 を除く。件数はリストの残り（非表示・【ナーチャリング】除く）の合計を先に出す。版20261004w。
 
 - 2026-10-04 BUILD_TAG=2026-10-04y 今日かけるリードにナーチャリングも含める（dead 判定はナーチャリングでないときだけ）。fromBadge にステージ/最終ステータスがジャッジ・営業フォローなら青い「ナーチャリング」タグ（.kc-src-tag.nur）を先頭に。件数は表示中リストの残りの合計。版20261004y。
+
+- 2026-10-04 BUILD_TAG=2026-10-04z history.js：FBタブの pane-bar に #genBtn（/analyze＝要約＋FB）・#deepBtn（/deep-analyze＝AI評価）を復活（ハンドラはあったがボタンのHTMLが無かった）。カードの要約は listMeetings(light) の custom_head（custom_analysis の先頭400字）→ customHeadLine を優先、無ければ summary.overview。版20261004z。

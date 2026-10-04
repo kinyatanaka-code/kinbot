@@ -646,7 +646,7 @@ function meetingCardEl(r) {
       ? "⏳ 文字起こし・分析を処理中…（数分後に表示されます）"
       : r.status === "error"
       ? "⚠️ 処理に失敗しました（ファイル形式やキー設定をご確認ください）"
-      : summaryLine(r.summary) || "（要約なし）";
+      : customHeadLine(r.custom_head) || summaryLine(r.summary) || "（要約なし）";
   const tags = [];
   if (r.round_no) tags.push(`${r.round_no}回目`);
   if (r.phase) tags.push(phaseLabel(r.phase));
@@ -1333,7 +1333,7 @@ async function loadDetail(botId, openTab, opts = {}) {
           <div class="ai-feed" id="dailog"></div>
         </div>
         <div class="tabpane" data-pane="fb" hidden>
-          <div class="pane-bar"><button class="btn ghost copy-mini" id="copyFb">コピー</button></div>
+          <div class="pane-bar"><button class="btn" id="genBtn" title="文字起こしから、要約と営業フィードバックを作ります">要約・フィードバックを作る</button><button class="btn ghost" id="deepBtn" title="温度感・BANTなどのAIによる評価を作ります">AI分析を作る</button><button class="btn ghost copy-mini" id="copyFb">コピー</button></div>
           <div class="pane-content" id="dfbwrap">
             <h3>営業フィードバック</h3>
             <div id="dfeedback"></div>
@@ -2956,6 +2956,14 @@ function renderAiLogInto(el, log) {
 }
 
 // 一覧やカードに1行で出すための要約。overview が無ければ formatted の先頭を使う。
+// 要約タブに出している内容（設定したプロンプトでの出力）の頭の部分を、カードの1〜3行にする
+function customHeadLine(t) {
+  let x = String(t || "").split("\n").map((v) => v.replace(/^[#＃■●○◆◇・\-—*\s]+/, "").trim())
+    .filter((v) => v && !/^[■●○\-—=＝]*$/.test(v) && !/^(要約|概要|商談の要約|サマリー)[:：]?$/.test(v))
+    .slice(0, 3).join(" ");
+  if (x.length > 160) x = x.slice(0, 160) + "…";
+  return x;
+}
 function summaryLine(s) {
   s = s || {};
   const ov = String(s.overview || "").trim();
@@ -2983,7 +2991,7 @@ function renderSummaryInto(el, s) {
   html += group("合意事項", s.agreements);
   html += group("宿題・次アクション", s.action_items);
   html += group("相手の懸念", s.customer_concerns);
-  el.innerHTML = html || '<div class="empty-state">要約なし（「要約・FB生成」で作成）</div>';
+  el.innerHTML = html || '<div class="empty-state">要約はまだありません。「FB & 分析」タブの「要約・フィードバックを作る」で作れます。</div>';
 }
 
 // Salesforce等に貼りやすいプレーンテキストを生成
@@ -3015,7 +3023,7 @@ function renderFeedbackInto(el, fb) {
   html += group("改善点", fb.improvements);
   html += group("見落とし・機会損失", fb.missed);
   html += group("次回への宿題", fb.next_steps);
-  el.innerHTML = html || '<div class="empty-state">フィードバックなし（「要約・フィードバックを生成」で作成）</div>';
+  el.innerHTML = html || '<div class="empty-state">フィードバックはまだありません。上の「要約・フィードバックを作る」で作れます。</div>';
 }
 
 function group(label, items) {
