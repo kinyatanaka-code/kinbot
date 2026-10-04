@@ -324,6 +324,7 @@ import {
   fillLeadSources,
   leadSourceSummary,
   leadSourceLists,
+  listMainSources,
   setListLeadSource,
   sourceDistributeCandidates,
   sourceMemberRates,
@@ -14177,15 +14178,34 @@ app.get("/api/calls/apo-rates", async (req, res) => {
     const from = `${f.getUTCFullYear()}-${pad(f.getUTCMonth() + 1)}-01`;
     const to = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}-${pad(nowJ.getUTCDate())}`;
     const rows = await apoStructureRows(from, to);
-    const byList = {}, byCaller = {}, byFrame = {}, all = { calls: 0, apos: 0 };
+    const byList = {}, byCaller = {}, byFrame = {}, bySrc = {}, all = { calls: 0, apos: 0 };
     const add = (m, k, r) => { const o = m[k] || (m[k] = { calls: 0, apos: 0 }); o.calls += r.calls; o.apos += r.apos; };
     for (const r of rows) {
       add(byList, String(r.list_id), r);
       if (r.caller) add(byCaller, r.caller, r);
       add(byFrame, r.nurture ? "nurture" : frameOfSource(r.source), r);
+      if (!r.nurture) add(bySrc, r.source, r);
       all.calls += r.calls; all.apos += r.apos;
     }
-    res.json({ ok: true, from, to, byList, byCaller, byFrame, all });
+    // 想定アポ率（予測）：リストの実績を、そのリストのソースの実績に寄せてならす（かけた数が少ないほどソースの値に近くなる）。
+    //   想定 = (リストのアポ + K × 土台の率) ÷ (リストのコール + K)。K＝200コール分。
+    //   土台：ソースの実績（300コール以上あるとき）→ 枠の実績 → 全体。
+    const K = 200;
+    const rt = (o) => (o && o.calls) ? o.apos / o.calls : null;
+    const mainSrc = await listMainSources().catch(() => ({}));
+    const expected = {};
+    const listIds = new Set([...Object.keys(byList), ...Object.keys(mainSrc)]);
+    for (const id of listIds) {
+      const src = mainSrc[id] || "";
+      const fr = frameOfSource(src);
+      let base = null, basis = "全体";
+      if (bySrc[src] && bySrc[src].calls >= 300) { base = rt(bySrc[src]); basis = `ソース「${src}」`; }
+      else if (byFrame[fr] && byFrame[fr].calls >= 300) { base = rt(byFrame[fr]); basis = `枠「${({ new: "新規リスト", past: "過去リスト", other: "その他" })[fr] || fr}」`; }
+      else base = rt(all) || 0;
+      const o = byList[id] || { calls: 0, apos: 0 };
+      expected[id] = { rate: (o.apos + K * base) / (o.calls + K), basis, calls: o.calls };
+    }
+    res.json({ ok: true, from, to, byList, byCaller, byFrame, bySrc, all, expected, K });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -22479,7 +22499,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04p リスト管理の「リスト」タブのカードにアポ率（直近3か月）を出した：メンバーのカード＝その人がかけた分、グループのカード・リストのカード＝そのリストでかけた分、ナーチャリング＝ナーチャリングの枠、未割り当て＝そのリストの分。";
+const BUILD_TAG = "2026-10-04q リスト管理のカードに「想定アポ率」（予測）を出した。リストは、そのリストの実績をソースの実績に寄せてならした値（かけた数が少ないほどソースの値に近い）。メンバーは、その人の残りのリードをかけたときの想定（各リストの想定を残件数で重み付け）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

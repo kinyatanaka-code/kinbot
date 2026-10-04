@@ -4791,6 +4791,17 @@ export async function apoStructureRows(fromJst, toJst) {
   return rows;
 }
 
+// リストごとの主なソース（いちばん件数が多いソース）
+export async function listMainSources() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT ON (list_id) list_id, COALESCE(source,'（未設定）') AS source, count(*) AS n
+         FROM call_targets GROUP BY list_id, source ORDER BY list_id, n DESC`);
+    const out = {}; for (const r of rows) out[String(r.list_id)] = r.source; return out;
+  } catch (e) { return {}; }
+}
+
 // ソースごとのリスト（ソースの中で、そのリードが入っているリストと件数・担当）
 export async function leadSourceLists() {
   if (!pool) return {};

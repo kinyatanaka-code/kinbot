@@ -1854,6 +1854,9 @@ function renderDock() {
     .nm-lcard-zan .nm-rate{margin:0 0 0 8px;vertical-align:4px;}
     .nm-rate.g{background:#e1f5ee;color:#085041;} .nm-rate.y{background:#faeeda;color:#633806;} .nm-rate.r{background:#fcebeb;color:#791f1f;}
     .nm-rate.none{background:#f1efe8;color:#888780;font-weight:400;}
+    .nm-rates{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;} .nm-rates .nm-rate{margin-top:0;}
+    .nm-exp{display:inline-block;font-size:11px;font-weight:700;padding:0 8px;border-radius:999px;border:1px dashed #85b7eb;color:#185fa5;background:#fff;white-space:nowrap;}
+    .nm-lcard-zan .nm-exp{margin-left:4px;vertical-align:4px;}
     .nm-nurcard .nm-lname-t{color:#185fa5;font-weight:800;}
     .nm-nur-parts{font-size:11px;color:#3d4f47;display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;}
     .nm-nur-parts div{display:flex;justify-content:space-between;gap:8px;} .nm-nur-parts span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -5755,6 +5758,23 @@ function nmRatePill(o, title) {
   const cls = v >= 2 ? "g" : v >= 0.5 ? "y" : "r";
   return `<span class="nm-rate ${cls}" title="${esc(title || "アポ率（直近3か月）")}：${o.apos}/${o.calls}コール">アポ率 ${(Math.round(v * 10) / 10).toFixed(1)}%</span>`;
 }
+// 想定アポ率（予測）の表示
+function nmExpPill(rate, title) {
+  if (rate == null || !isFinite(rate)) return "";
+  return `<span class="nm-exp" title="${esc(title || "想定アポ率（予測）")}">想定 ${(Math.round(rate * 1000) / 10).toFixed(1)}%</span>`;
+}
+// メンバーの想定：その人のリストの想定アポ率を、残件数で重み付けした平均（＝残りを全部かけたときの見込み）
+function nmMemberExpected(ls) {
+  if (!_nmRates || !_nmRates.expected) return null;
+  let w = 0, sum = 0;
+  for (const x of ls || []) {
+    const e = _nmRates.expected[String(x.id)]; if (!e) continue;
+    const zan = Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0);
+    if (zan <= 0) continue;
+    w += zan; sum += zan * e.rate;
+  }
+  return w ? sum / w : null;
+}
 function nmSumRates(ls) {
   const o = { calls: 0, apos: 0 };
   for (const x of ls || []) { const r = _nmRates && _nmRates.byList && _nmRates.byList[String(x.id)]; if (r) { o.calls += r.calls; o.apos += r.apos; } }
@@ -6352,7 +6372,7 @@ function nmRenderCards() {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
     arr.sort((a, b) => nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
     html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}</div><div class="nm-grid">` +
-      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div>${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}</button>`; }).join("") +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${nmExpPill(nmMemberExpected(ls), "想定アポ率：この人の残りのリードを全部かけたときの見込み（各リストの想定を残件数で重み付け）")}</div></button>`; }).join("") +
       `</div></div>`;
   }
   // その他：未割り当て／ナーチャリング／リサイクル／アーカイブ をそれぞれカードで出す
@@ -6657,7 +6677,7 @@ function nmRenderDetail() {
     return `<div class="nm-lcard${on ? " sel" : ""}${hid ? " hid" : ""}" data-id="${x.id}">${hid ? '<span class="nm-hid-badge">非表示中</span>' : ""}
       <label class="nm-check"><input type="checkbox" class="nm-selchk" data-id="${x.id}"${on ? " checked" : ""}></label>
       <div class="nm-lcard-name"><span class="nm-lname-t" title="${esc(x.name)}">${esc(x.name)}</span><button type="button" class="nm-rename" data-id="${x.id}" data-name="${esc(x.name)}" title="名前を変える">✎</button></div>
-      <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span>${nmRatePill(_nmRates && _nmRates.byList && _nmRates.byList[String(x.id)], "このリストでかけた分のアポ率（直近3か月）")}</div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span>${nmRatePill(_nmRates && _nmRates.byList && _nmRates.byList[String(x.id)], "このリストでかけた分のアポ率（直近3か月）")}${(() => { const e = _nmRates && _nmRates.expected && _nmRates.expected[String(x.id)]; return e ? nmExpPill(e.rate, `想定アポ率：このリストの実績（${e.calls}コール）を${e.basis}の実績に寄せてならした見込み`) : ""; })()}</div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${_nmSel.type !== "owner" && sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
       <div class="nm-lcard-grp"><select class="nm-group" data-id="${x.id}" title="このリストのグループ">${nmGroupOpts(x.group_id)}</select></div>
       <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button>${hid ? `<button type="button" class="nm-mi nm-unhide" data-id="${x.id}" data-name="${esc(x.name)}">表示に戻す</button>` : `<button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button>`}<button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
