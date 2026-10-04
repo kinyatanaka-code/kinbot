@@ -5213,6 +5213,8 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
     }
     const { rows } = await pool.query(
       `SELECT t.*,
+              l.owner AS _list_owner, l.group_id AS _list_group_id, l.name AS _list_name,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS _list_group_name,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
               (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,

@@ -8090,7 +8090,7 @@ function edRenderBody() {
         <td><input type="number" min="0" class="ed-f" data-f="hires" value="${esc(g(r, "採用人数", "hires"))}" style="width:64px" /></td>
         <td><input type="text" class="ed-f" data-f="media_tags" value="${esc(g(r, "媒体掲載", "media_tags"))}" placeholder="媒体" style="width:180px" /></td>
         <td><select class="ed-group" data-list="${r._listId}" style="max-width:130px"><option value="">（なし）</option>${(Array.isArray(GROUPS) ? GROUPS : []).map((gr) => `<option value="${gr.id}"${String(gr.id) === String(r._groupId) ? " selected" : ""}>${esc(gr.name)}</option>`).join("")}</select></td>
-        <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>`;
+        <td><select class="ed-owner" data-list="${r._listId}" style="max-width:130px">${(!r._owner || !_edMembers.some((m) => String(m.email).toLowerCase() === String(r._owner).toLowerCase())) ? `<option value="" selected>${r._owner ? esc(String(r._owner).split("@")[0]) : "（不明）"}</option>` : ""}${_edMembers.map((m) => `<option value="${esc(m.email)}"${String(m.email).toLowerCase() === String(r._owner).toLowerCase() ? " selected" : ""}>${esc(m.name || m.email)}</option>`).join("")}</select></td>`;
         const lossCells = _edCrosslost ? `<td>${esc(g(r, "失注理由（大項目）"))}</td><td>${esc(g(r, "失注理由（中項目）"))}</td>${(() => { const v = String(g(r, "失注理由詳細") || ""); return v.length > 36 ? `<td class="kc-rc-long"><div class="kc-clamp">${esc(v)}</div><button type="button" class="kc-more">もっと見る</button></td>` : `<td>${esc(v)}</td>`; })()}<td class="ed-nowrap">${esc(String(g(r, "失注日") || "").slice(0, 10))}</td><td class="ed-nowrap">${esc(String(g(r, "失注後次回アクション日") || "").slice(0, 10))}</td><td>${esc(g(r, "商談所有者"))}</td><td class="ed-nowrap">${esc((r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）"))}</td><td class="ed-nowrap">${esc(edListName(r) || "（不明）")}</td>` : "";
         return `<tr data-id="${r.id}">
         <td>${esc(g(r, "ステージ", "stage"))}</td>
@@ -8121,6 +8121,7 @@ function edRenderBody() {
   }));
   tb.querySelectorAll(".ed-owner").forEach((sel) => sel.addEventListener("change", async () => {
     const list = sel.dataset.list; const owner = sel.value;
+    if (!owner || !/^\d+$/.test(String(list || ""))) { edRenderBody(); return; }   // 所有者が分からない行・リストが決まらない行では変えない
     if (!confirm(`このリストの所有者を変更します（担当もそろえます）。よろしいですか？`)) { edRenderBody(); return; }
     sel.style.outline = "2px solid #f0b429";
     try {
