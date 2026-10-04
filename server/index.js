@@ -14085,8 +14085,27 @@ app.get("/api/calls/source-funnel", async (req, res) => {
 
 // リードの「ソース」（どこから来たか）の集計と、「要確認」になったリスト。PUT でリストごとにソースを決める。
 app.get("/api/calls/sources", async (req, res) => {
-  try { res.json({ ok: true, choices: LEAD_SOURCES, frameDefs: LEAD_FRAMES, ...(await leadSourceSummary()) }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const sum = await leadSourceSummary();
+    // アポ率（直近3か月の架電）：ソースごと・枠ごと、人ごと、月ごと
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const pad = (n) => String(n).padStart(2, "0");
+    const months = [2, 1, 0].map((k) => { const d = new Date(Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth() - k, 1)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; });
+    const rows = await apoStructureRows(`${months[0]}-01`, `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}-${pad(nowJ.getUTCDate())}`).catch(() => []);
+    const mk = () => ({ calls: 0, apos: 0, m: {}, mem: {} });
+    const add = (o, r) => {
+      o.calls += r.calls; o.apos += r.apos;
+      const x = o.m[r.ym] || (o.m[r.ym] = { calls: 0, apos: 0 }); x.calls += r.calls; x.apos += r.apos;
+      if (r.caller) { const y = o.mem[r.caller] || (o.mem[r.caller] = { calls: 0, apos: 0 }); y.calls += r.calls; y.apos += r.apos; }
+    };
+    const bySrc = {}, byFrame = { new: mk(), past: mk(), nurture: mk(), other: mk() }, all = mk();
+    for (const r of rows) {
+      add(bySrc[r.source] || (bySrc[r.source] = mk()), r);
+      add(byFrame[r.nurture ? "nurture" : frameOfSource(r.source)], r);
+      add(all, r);
+    }
+    res.json({ ok: true, choices: LEAD_SOURCES, frameDefs: LEAD_FRAMES, ...sum, rates: { months, bySrc, byFrame, all } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/calls/lists/:id/source", async (req, res) => {
   try {
@@ -22433,7 +22452,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04i Google Cloudの支払いが戻ったので、AIを元に戻した：文章だけの処理をGroqに回すのをやめ、全部Geminiで動かす（いつものキーを優先。止まったら予備キーへ切り替える仕組みは残す）。Places API（New）は停止（PLACES_ENABLED=1 で戻せる）。";
+const BUILD_TAG = "2026-10-04j リスト管理の「ソース」タブを、左で選んで右で詳しく見る形（案C）に作り直した。左は3つの枠とソースをアポ率つきで並べ、右に件数・アポ率・未架電・配れる件数、担当別の件数とアポ率、月ごとのアポ率、「メンバーに配る」を出す。アポ率は直近3か月の架電。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

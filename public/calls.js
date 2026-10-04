@@ -1762,6 +1762,30 @@ function renderDock() {
     .kc-j-pen:hover{background:#eef5f2;}
     .kc-j-pen.on{background:#0d5b47;border-color:#0d5b47;color:#fff;}
     .kc-ah-list{display:block;width:100%;max-width:260px;margin-top:6px;font-size:12px;padding:4px 6px;border:1px solid #cfe0d8;border-radius:8px;background:#fff;}
+    .sc-wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;align-items:start;margin-top:4px;}
+    @media (max-width:760px){ .sc-wrap{grid-template-columns:1fr;} }
+    .sc-left{background:#fff;border:1px solid #e3ece8;border-radius:14px;padding:6px;display:flex;flex-direction:column;gap:2px;position:sticky;top:8px;}
+    .sc-gh,.sc-li{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;border:0;background:none;font:inherit;text-align:left;cursor:pointer;border-radius:9px;padding:7px 10px;color:#1f3a30;}
+    .sc-gh{font-size:13px;font-weight:800;color:var(--fc);margin-top:6px;} .sc-gh:first-child{margin-top:0;}
+    .sc-li{font-size:12.5px;padding-left:20px;}
+    .sc-gh:hover,.sc-li:hover{background:#f2f8f5;} .sc-gh.on,.sc-li.on{background:#e1f5ee;}
+    .sc-gh2{font-size:11px;font-weight:700;color:#8aa39a;margin:8px 10px 2px;}
+    .sc-r{font-size:12px;font-weight:700;padding:1px 7px;border-radius:7px;white-space:nowrap;}
+    .sc-r.g{background:#e1f5ee;color:#085041;} .sc-r.y{background:#faeeda;color:#633806;} .sc-r.r{background:#fcebeb;color:#791f1f;}
+    .sc-right{background:#fff;border:1px solid #e3ece8;border-radius:14px;padding:14px 16px;min-height:300px;}
+    .sc-dh{display:flex;justify-content:space-between;align-items:center;gap:10px;} .sc-dt{font-size:17px;font-weight:800;color:#1f3a30;}
+    .sc-k4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px;}
+    @media (max-width:760px){ .sc-k4{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    .sc-k{background:#f4f9f7;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;}
+    .sc-k span{font-size:11px;color:#6b8a7d;} .sc-k b{font-size:20px;color:#1f2d28;} .sc-k b.sc-r{font-size:18px;align-self:flex-start;} .sc-k small{font-size:10px;color:#8aa39a;}
+    .sc-st{font-size:12px;font-weight:800;color:#0d5b47;margin:14px 0 6px;}
+    .sc-hb{display:grid;grid-template-columns:90px minmax(0,1fr) 70px 58px;gap:8px;align-items:center;font-size:12px;margin:4px 0;}
+    .sc-hn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .sc-hc{text-align:right;color:#5b7a6d;}
+    .sc-bar{height:9px;border-radius:5px;background:#eef3f0;overflow:hidden;} .sc-bar i{display:block;height:100%;background:#85b7eb;border-radius:5px;}
+    .sc-mo{display:flex;align-items:flex-end;gap:14px;height:96px;padding-top:6px;}
+    .sc-mc{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:#1f3a30;}
+    .sc-mc small{font-size:10px;color:#8aa39a;} .sc-mb{width:100%;max-width:90px;background:#5dcaa5;border-radius:6px 6px 0 0;}
+    .sc-unk{margin-top:14px;background:#fff;border:1px solid #e3ece8;border-radius:12px;padding:8px 12px;} .sc-unk summary{cursor:pointer;font-size:13px;font-weight:700;color:#993c1d;}
     .hub-src-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 14px;}
     .hub-src-row{display:grid;grid-template-columns:150px minmax(0,1fr) 110px;grid-template-rows:auto auto;gap:2px 12px;align-items:center;padding:8px 12px;border:1px solid #e3ece8;border-radius:10px;background:#fff;}
     .hub-src-row.warn{border-color:#f0c9bd;background:#fdf6f3;}
@@ -5809,6 +5833,7 @@ async function openSourceDistribute(source, summary, label) {
 }
 
 // --- ソース（どこから来たリードか）：ソースごとの件数（担当別・未割り当て）と、「要確認」のリストを選び直す
+let _srcSel = "frame:new";   // ソースタブで選んでいるもの（frame:キー か ソース名）
 async function hubRenderSources() {
   const pane = $("hubPane"); if (!pane || _hubTab !== "src") return;
   try {
@@ -5816,49 +5841,77 @@ async function hubRenderSources() {
     if (!d.ok) throw new Error(d.error || "読み込めませんでした");
     if (_hubTab !== "src") return;
     const unk = (d.sources || []).find((x) => x.source === "要確認");
-    const b = $("hubBSrc"); if (b) b.textContent = unk && unk.件数 ? `要確認 ${unk.件数}` : "";
-    const total = (d.sources || []).reduce((a, x) => a + x.件数, 0) || 1;
-    const max = Math.max(1, ...(d.sources || []).map((x) => x.件数));
-    const rows = (d.sources || []).map((x) => {
-      const top = Object.entries(x.担当別 || {}).sort((a, c) => c[1] - a[1]).slice(0, 4)
-        .map(([e, n]) => `${esc(hubNm(e))} ${n.toLocaleString()}`).join("・");
-      const warn = x.source === "要確認";
-      return `<div class="hub-src-row${warn ? " warn" : ""}">
-        <div class="hub-src-name">${esc(x.source)}</div>
-        <div class="hub-src-bar"><i style="width:${Math.max(2, Math.round(x.件数 / max * 100))}%"></i></div>
-        <div class="hub-src-n"><b>${x.件数.toLocaleString()}</b>件<span>${Math.round(x.件数 / total * 100)}%</span></div>
-        <div class="hub-src-sub">未架電 ${x.未架電.toLocaleString()}・未割り当て ${x.未割り当て.toLocaleString()}（配れる ${Number(x.配れる未割り当て || 0).toLocaleString()}）・<span class="hub-src-nur">ナーチャリング ${Number(x.ナーチャリング || 0).toLocaleString()}</span>${top ? `　｜　${top}` : ""}
-          ${warn ? "" : `<button type="button" class="hub-src-dist" data-src="${esc(x.source)}">このソースから配る</button>`}</div>
-      </div><!--r-->`;
-    }).join("");
-    // 3つの大きな枠（新規リスト／過去リスト／ナーチャリング）でまとめる
-    const srcRow = (x) => rows.split("<!--r-->").find((h) => h.includes(`data-src="${esc(x.source)}"`) || h.includes(`>${esc(x.source)}</div>`)) || "";
-    const frameIco = { new: "ti-sparkles", past: "ti-history", nurture: "ti-plant-2" };
-    const byFrame = (k) => (d.sources || []).filter((x) => x.枠 === k);
-    const frameHtml = (d.frames || []).map((f) => {
-      const inner = f.key === "nurture"
-        ? `<div class="note" style="margin:4px 0 0">ジャッジ・営業フォローのリードを、どのソースからも集めた枠です（ソースごとの内訳は各行の「ナーチャリング ○件」）。</div>`
-        : byFrame(f.key).map(srcRow).join("");
-      return `<div class="hub-frame hub-frame-${f.key}">
-        <div class="hub-frame-h"><span class="hub-frame-t">${esc(f.label)}</span>
-          <span class="hub-frame-n"><b>${f.件数.toLocaleString()}</b>件・配れる未割り当て ${f.配れる未割り当て.toLocaleString()}</span>
-          <button type="button" class="hub-src-dist" data-src="frame:${f.key}" data-label="${esc(f.label)}">この枠からメンバーに配る</button></div>
-        ${inner}</div>`;
-    }).join("");
-    const otherRows = (d.sources || []).filter((x) => x.枠 === "other").map(srcRow).join("");
+    const bdg = $("hubBSrc"); if (bdg) bdg.textContent = unk && unk.件数 ? `要確認 ${unk.件数}` : "";
+    const R = d.rates || { months: [], bySrc: {}, byFrame: {}, all: {} };
+    const rate = (o) => (o && o.calls) ? (Math.round(o.apos / o.calls * 1000) / 10).toFixed(1) + "%" : "—";
+    const rcls = (o) => { if (!o || !o.calls) return ""; const v = o.apos / o.calls * 100; return v >= 2 ? "g" : v >= 0.5 ? "y" : "r"; };
+    const FC = { new: "#0f6e56", past: "#993c1d", nurture: "#185fa5", other: "#5f5e5a" };
+    const frames = d.frames || [];
+    const srcOf = (k) => (d.sources || []).filter((x) => x.枠 === k);
+    // 左：枠とソースの一覧
+    const left = frames.map((f) => {
+      const fr = R.byFrame[f.key];
+      const items = f.key === "nurture" ? "" : srcOf(f.key).map((x) => {
+        const sr = R.bySrc[x.source];
+        return `<button type="button" class="sc-li${_srcSel === x.source ? " on" : ""}" data-sel="${esc(x.source)}"><span>${esc(x.source)}</span><span class="sc-r ${rcls(sr)}">${rate(sr)}</span></button>`;
+      }).join("");
+      return `<button type="button" class="sc-gh${_srcSel === "frame:" + f.key ? " on" : ""}" data-sel="frame:${f.key}" style="--fc:${FC[f.key]}"><span>${esc(f.label)}</span><span class="sc-r ${rcls(fr)}">${rate(fr)}</span></button>${items}`;
+    }).join("") + (() => {
+      const o = srcOf("other");
+      return o.length ? `<div class="sc-gh2">その他・要確認</div>` + o.map((x) => `<button type="button" class="sc-li${_srcSel === x.source ? " on" : ""}" data-sel="${esc(x.source)}"><span>${esc(x.source)}</span><span class="sc-r">${Number(x.件数).toLocaleString()}件</span></button>`).join("") : "";
+    })();
+    // 右：選んだものの詳しい中身
+    const isFrame = _srcSel.startsWith("frame:");
+    const fk = isFrame ? _srcSel.slice(6) : "";
+    const fobj = isFrame ? frames.find((f) => f.key === fk) : null;
+    const sobj = isFrame ? null : (d.sources || []).find((x) => x.source === _srcSel);
+    const rt = isFrame ? R.byFrame[fk] : R.bySrc[_srcSel];
+    let right = "";
+    if (!fobj && !sobj) right = `<div class="note">左から選んでください。</div>`;
+    else {
+      const title = isFrame ? fobj.label : sobj.source;
+      const 件数 = isFrame ? fobj.件数 : sobj.件数;
+      const 配れる = isFrame ? fobj.配れる未割り当て : sobj.配れる未割り当て;
+      const 未架電 = isFrame ? srcOf(fk).reduce((a, x) => a + (x.未架電 || 0), 0) : sobj.未架電;
+      const nur = isFrame ? null : sobj.ナーチャリング;
+      // 担当別（件数＝そのソースで担当しているリード数、アポ率＝直近3か月にその人がかけた分）
+      const holders = {};
+      (isFrame ? (fk === "nurture" ? [] : srcOf(fk)) : [sobj]).forEach((x) => Object.entries(x.担当別 || {}).forEach(([e, n]) => { holders[e] = (holders[e] || 0) + n; }));
+      Object.keys((rt && rt.mem) || {}).forEach((e) => { if (!(e in holders)) holders[e] = 0; });
+      const hs = Object.entries(holders).sort((a, b) => b[1] - a[1]).slice(0, 12);
+      const hmax = Math.max(1, ...hs.map((h) => h[1]));
+      const hRows = hs.map(([e, n]) => { const mr = rt && rt.mem && rt.mem[e]; return `<div class="sc-hb"><span class="sc-hn">${esc(hubNm(e))}</span><div class="sc-bar"><i style="width:${Math.round(n / hmax * 100)}%"></i></div><span class="sc-hc">${n.toLocaleString()}件</span><span class="sc-r ${rcls(mr)}">${rate(mr)}</span></div>`; }).join("");
+      const months = R.months || [];
+      const mvals = months.map((ym) => (rt && rt.m && rt.m[ym]) || null);
+      const mmax = Math.max(0.001, ...mvals.map((o) => o && o.calls ? o.apos / o.calls : 0));
+      const mBars = months.map((ym, i) => { const o = mvals[i]; const v = o && o.calls ? o.apos / o.calls : 0; return `<div class="sc-mc"><div class="sc-mb" style="height:${Math.max(3, Math.round(v / mmax * 54))}px"></div><span>${Number(ym.slice(5))}月 ${rate(o)}</span><small>${o ? `${o.apos}/${o.calls}` : "—"}</small></div>`; }).join("");
+      right = `<div class="sc-dh"><span class="sc-dt">${esc(title)}</span>${fk === "nurture" ? "" : ""}<button type="button" class="btn" id="scGive">メンバーに配る</button></div>
+        <div class="sc-k4">
+          <div class="sc-k"><span>件数</span><b>${Number(件数 || 0).toLocaleString()}</b></div>
+          <div class="sc-k"><span>アポ率（直近3か月）</span><b class="sc-r ${rcls(rt)}">${rate(rt)}</b><small>${rt ? `${rt.apos.toLocaleString()} / ${rt.calls.toLocaleString()}コール` : ""}</small></div>
+          <div class="sc-k"><span>未架電</span><b>${fk === "nurture" ? "—" : Number(未架電 || 0).toLocaleString()}</b></div>
+          <div class="sc-k"><span>配れる未割り当て</span><b>${Number(配れる || 0).toLocaleString()}</b></div>
+        </div>
+        ${nur != null ? `<div class="note" style="margin:6px 0 0">このうちナーチャリング（ジャッジ・営業フォロー）${Number(nur).toLocaleString()}件は、ナーチャリングの枠で数えます。</div>` : ""}
+        <div class="sc-st">担当別（担当しているリード数と、その人のアポ率）</div>
+        ${hRows || '<div class="note">まだ担当がいません。</div>'}
+        <div class="sc-st">月ごとのアポ率</div>
+        <div class="sc-mo">${mBars}</div>`;
+    }
+    // 要確認のリスト
     const opts = (d.choices || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
     const unkRows = (d.unknownLists || []).map((l) => `<tr data-id="${l.id}">
         <td>${esc(l.name)}</td><td style="text-align:right">${l.n.toLocaleString()}</td>
         <td><select class="kc-input hub-src-sel" style="max-width:200px"><option value="">（選ぶ）</option>${opts}<option value="その他">その他</option></select></td>
         <td><button type="button" class="btn ghost hub-src-go" style="padding:4px 12px">決める</button> <span class="hub-src-st"></span></td></tr>`).join("");
     pane.innerHTML = `
-      <p class="note">リード1件ずつに付けた「ソース」（どこから来たリードか）の集計です。リストのグループの設定 → リスト名、の順で自動で付けています。リストを移ってもソースは変わりません。</p>
-      <div class="hub-src-list">${frameHtml || rows || '<div class="note">まだソースが付いていません。</div>'}
-        ${otherRows ? `<div class="hub-frame hub-frame-other"><div class="hub-frame-h"><span class="hub-frame-t">その他・要確認</span></div>${otherRows}</div>` : ""}</div>
-      <h4 class="hub-src-h">要確認のリスト（${(d.unknownLists || []).length}本）</h4>
-      <p class="note">いろいろなソースが混ざっていて、自動で決められなかったリストです。リストごとにソースを選ぶと、そのリストのリードにまとめて付けます。</p>
-      ${unkRows ? `<div style="overflow-x:auto"><table class="sh-table" style="width:100%"><tr><th>リスト</th><th style="text-align:right">件数</th><th>ソース</th><th></th></tr>${unkRows}</table></div>` : '<div class="note">要確認のリストはありません。</div>'}`;
-    pane.querySelectorAll(".hub-src-dist").forEach((btn) => btn.addEventListener("click", () => openSourceDistribute(btn.dataset.src, d, btn.dataset.label)));
+      <div class="sc-wrap"><div class="sc-left">${left}</div><div class="sc-right">${right}</div></div>
+      ${unkRows ? `<details class="sc-unk"${_srcSel === "要確認" ? " open" : ""}><summary>要確認のリスト（${(d.unknownLists || []).length}本）をソースに振り分ける</summary>
+        <p class="note">いろいろなソースが混ざっていて、自動で決められなかったリストです。リストごとにソースを選ぶと、そのリストのリードにまとめて付けます。</p>
+        <div style="overflow-x:auto"><table class="sh-table" style="width:100%"><tr><th>リスト</th><th style="text-align:right">件数</th><th>ソース</th><th></th></tr>${unkRows}</table></div></details>` : ""}`;
+    pane.querySelectorAll("[data-sel]").forEach((b) => b.addEventListener("click", () => { _srcSel = b.dataset.sel; hubRenderSources(); }));
+    const give = $("scGive");
+    if (give) give.addEventListener("click", () => openSourceDistribute(_srcSel, d, isFrame && fobj ? fobj.label : _srcSel));
     pane.querySelectorAll(".hub-src-go").forEach((btn) => btn.addEventListener("click", async () => {
       const tr = btn.closest("tr"), sel = tr.querySelector(".hub-src-sel"), st = tr.querySelector(".hub-src-st");
       if (!sel.value) { st.textContent = "ソースを選んでください"; return; }

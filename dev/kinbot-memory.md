@@ -1256,3 +1256,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04h 実績「枠別アポ率」（data-period=frames）。GET /api/calls/apo-structure?months=1..12（直近Nか月の call_logs）。db.apoStructureRows：source・nurture（その架電より前に結果がジャッジ/営業フォローのログがある or 今ナーチャリングかつアポ獲得でない）・list・origin（extra.失注日の年月、無ければリスト作成月）・架電月・caller で calls/apos。サーバーで 枠→ソース→時期→リスト の木と、メンバー×枠 を組み立て。calls.js loadFrameStats（KPI4枚、行クリックで開閉する木の表、横に月ごとのアポ率、メンバー×枠表、期間ボタン1/3/6か月）。版20261004h。
 
 - 2026-10-04 BUILD_TAG=2026-10-04i 支払い完了。gemini_failover の textViaGroq 既定を false（settings.aiTextViaGroq=true のときだけON）。予備キーへの切替・混雑時の再送は残す。再デプロイで予備キー保持状態（useBackupUntil）はリセットされ、いつものキーから使う。places.js placesEnabled は PLACES_ENABLED=1 のときだけ true（既定停止）。版20261004i。
+
+- 2026-10-04 BUILD_TAG=2026-10-04j ソースタブを案C（マスター・ディテール）に：/api/calls/sources に rates（apoStructureRows 直近3か月：bySrc・byFrame（nurture は架電時ナーチャリング）・all、各 m（月）・mem（人））。calls.js hubRenderSources を左一覧（枠＋ソース、アポ率の色：2%以上緑/0.5〜2%黄/未満赤）＋右詳細（件数・アポ率・未架電・配れる、担当別の件数とアポ率、月ごとのアポ率の棒、メンバーに配る）に作り直し、選択は _srcSel。要確認は下の details に。版20261004j。
