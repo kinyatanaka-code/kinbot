@@ -1306,3 +1306,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05j 想定アポ率の計算を computeApoRates(months)（10分キャッシュ）に切り出し、/api/calls/apo-rates はそれを返すだけ。今日かけるリード：新規の候補を H（想定の高い順）と P（いつもの順）で、H の上位 k 件＋P で埋める組み合わせを k を動かして試し、全体の想定平均が TODAY_TARGET_RATE（既定0.03）にいちばん近いもの（届いたら止める）。todayPlan に 目標アポ率・想定アポ率・想定アポ数、かける画面の帯に表示。版20261005j。
 
 - 2026-10-05 BUILD_TAG=2026-10-05k 今日かけるリード：過去リストの上限なし（pc を TODAY_PAST=30 から増やし、各 pc で新規の H上位k＋P埋め を試し、全体想定が TODAY_TARGET_RATE に届いた最初の組み合わせ、届かなければ想定最大）。かける画面の帯からアポ率（目標・想定）表示を削除、件数の内訳のみ。リスト管理の today カードの想定表示は残す。版20261005k。
+
+- 2026-10-05 BUILD_TAG=2026-10-05l 出勤管理の編集をセールス・管理者だけに：canEditShifts(req)（isAdmin・actingCloser・isAlwaysCloser・isCloserUser、代理操作中は元の本人で判定）で POST /api/inside-shifts・/read-file・/import を403。GET /api/inside-shifts/can-edit。calls.js loadShiftCal で _scCanEdit、非許可なら scBulk/scPdf/scShiftLink を隠し .sc-readonly（＋追加を消し、日付クリックで編集を開かない）、「見るだけ」表示。/shift.html の本人提出はそのまま。版20261005l。

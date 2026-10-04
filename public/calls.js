@@ -1972,6 +1972,9 @@ function renderDock() {
     .kc-src-tag.new{background:#e1f5ee;color:#085041;} .kc-src-tag.past{background:#faece7;color:#712b13;} .kc-src-tag.other{background:#f1efe8;color:#5f5e5a;}
     .kc-src-list{font-size:10px;color:#6b8a7d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;}
     .kc-tagf-g{font-size:11px;font-weight:700;color:#0d5b47;margin:8px 0 2px;}
+    .sc-readonly .sc-add{display:none !important;}
+    .sc-readonly .sc-cell{cursor:default !important;}
+    .sc-ro{font-size:11px;color:#8a938c;background:#f1efe8;border-radius:999px;padding:2px 10px;margin-left:8px;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -5008,8 +5011,12 @@ function scTodayStr() { const j = new Date(Date.now() + 9 * 3600000); const p = 
 function scWorkH(s, e) { if (s == null || e == null || e <= s) return 0; const lunch = Math.max(0, Math.min(e, 780) - Math.max(s, 720)); const h = (e - s - lunch) / 60; return h < 1 ? 0 : Math.round(h * 100) / 100; }
 function scRound30(m) { return Math.round(m / 30) * 30; }   // 10:10→10:00 / 10:15→10:30 / 17:45→18:00
 function scActual(email, ds) { const c = _scCalls[`${String(email).toLowerCase()}|${ds}`]; if (!c || !c.cnt || c.first_min == null || c.last_min == null) return null; return { start: Math.max(0, scRound30(c.first_min)), end: Math.min(1440, scRound30(c.last_min)), cnt: c.cnt }; }
+let _scCanEdit = null;   // 出勤管理を追加・編集できるか（セールス・管理者だけ）
 async function loadShiftCal() {
   if (_scY == null) scInit();
+  if (_scCanEdit == null) { try { _scCanEdit = !!((await (await fetch("/api/inside-shifts/can-edit")).json()) || {}).canEdit; } catch { _scCanEdit = false; } }
+  ["scBulk", "scPdf", "scShiftLink"].forEach((id) => { const el = $(id); if (el) el.hidden = !_scCanEdit; });
+  { const lb = $("scLabel"); if (lb && !_scCanEdit && !lb.dataset.ro) { lb.dataset.ro = "1"; lb.insertAdjacentHTML("afterend", '<span class="sc-ro">見るだけ（追加・編集はセールスだけ）</span>'); } }
   const cal = $("scCal"); if (cal) cal.innerHTML = '<div class="note">読み込んでいます…</div>';
   if (!_scInterns.length) { try { const arr = await (await fetch("/api/interns")).json(); _scInterns = (Array.isArray(arr) ? arr : []).filter((x) => String(x.name || "").replace(/[\s　]/g, "") !== "田中欽也"); } catch {} }
   const p = (n) => String(n).padStart(2, "0");
@@ -5067,7 +5074,8 @@ function renderShiftCal() {
   }
   html += "</div>";
   cal.innerHTML = html;
-  cal.querySelectorAll(".sc-cell[data-day]").forEach((c) => c.addEventListener("click", () => openShiftDay(c.dataset.day)));
+  if (_scCanEdit) cal.querySelectorAll(".sc-cell[data-day]").forEach((c) => c.addEventListener("click", () => openShiftDay(c.dataset.day)));
+  else cal.classList.add("sc-readonly");
   const tw = $("scTotals");
   if (tw) {
     const rows = Object.values(totals).sort((a, b) => (b.planH - a.planH) || (b.actualH - a.actualH));

@@ -4133,6 +4133,17 @@ app.post("/api/shift/save", async (req, res) => {
     res.json({ ok: true, submitted: req.body?.submit === true, count: items.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 出勤管理のカレンダーを追加・編集できる人：セールス（クローザー）と管理者。
+// 他メンバーとして操作しているときは、操作している本人（元のアカウント）で判断する。
+async function canEditShifts(req) {
+  if (req.isAdmin || req.actingCloser) return true;
+  const who = (req.impersonatorFrom && req.impersonatorFrom !== "admin") ? req.impersonatorFrom : req.user;
+  if (req.impersonatorFrom === "admin") return true;
+  if (isAlwaysCloser(who)) return true;
+  return await isCloserUser(who).catch(() => false);
+}
+app.get("/api/inside-shifts/can-edit", async (req, res) => res.json({ ok: true, canEdit: await canEditShifts(req) }));
+
 // 管理者：共有するシフト提出ページのURL（ログイン必須ページ）
 app.get("/api/shift/admin-link", async (req, res) => {
   if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "権限がありません" });
@@ -4165,6 +4176,7 @@ app.get("/api/inside-shifts", async (req, res) => {
 });
 app.post("/api/inside-shifts", async (req, res) => {
   try {
+    if (!(await canEditShifts(req))) return res.status(403).json({ error: "出勤管理を追加・編集できるのはセールスだけです" });
     const rows = Array.isArray(req.body?.shifts) ? req.body.shifts : [];
     for (const r of rows) {
       const email = String(r.email || "").trim().toLowerCase();
@@ -4183,6 +4195,7 @@ app.post("/api/inside-shifts", async (req, res) => {
 const shiftPdfUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 app.post("/api/inside-shifts/read-file", shiftPdfUpload.single("file"), async (req, res) => {
   try {
+    if (!(await canEditShifts(req))) return res.status(403).json({ error: "出勤管理を追加・編集できるのはセールスだけです" });
     if (!readerAvailable()) return res.status(400).json({ error: "ファイルを読む設定（GEMINI_API_KEY）がありません" });
     if (!req.file || !req.file.buffer) return res.status(400).json({ error: "ファイルがありません" });
     const interns = (await listInterns().catch(() => [])).filter((x) => x && x.email);
@@ -4226,6 +4239,7 @@ app.post("/api/inside-shifts/read-file", shiftPdfUpload.single("file"), async (r
 // 読み取った一覧を取り込む。replace=true なら、その月の出勤予定をいったん消してから入れる（PDFを正とする）。
 app.post("/api/inside-shifts/import", async (req, res) => {
   try {
+    if (!(await canEditShifts(req))) return res.status(403).json({ error: "出勤管理を追加・編集できるのはセールスだけです" });
     const b = req.body || {};
     const ym = String(b.month || "");
     if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月がありません" });
@@ -22629,7 +22643,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05k 今日かけるリードの過去リストの上限をなくし、想定アポ率が3%に届くまで過去リストを増やせるようにした（30件ほどから始めて足りなければ増やす）。かける画面からはアポ率の表示を外した（件数の内訳だけ）。";
+const BUILD_TAG = "2026-10-05l 出勤管理のカレンダーを追加・編集できるのを、セールス（クローザー）と管理者だけにした。ほかの人は見るだけ（＋追加・一括入力・PDF取り込み・シフト提出リンクのボタンを出さず、日付を押しても編集が開かない）。インターンが自分のシフトを提出するページはそのまま使える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
