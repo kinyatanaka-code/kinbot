@@ -10356,7 +10356,7 @@ app.get("/api/calls/targets", async (req, res) => {
       });
     } else if (listParam === "today") {
       // 「今日かけるリード」：表示しているリストで、まだかける先として残っているものだけをまとめる。
-      // ナーチャリング（ジャッジ・営業フォロー）は「ナーチャリング（まとめ）」にあるので入れない。架電予定が明日以降のものも入れない。
+      // ナーチャリング（ジャッジ・営業フォロー）も入れる（画面で「ナーチャリング」の印を付ける）。架電予定が明日以降のものは入れない。
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
       if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
       const all = await listAllLeadsForMember(member, { q: String(req.query.q || "").trim(), limit: 5000 });
@@ -10366,7 +10366,7 @@ app.get("/api/calls/targets", async (req, res) => {
       const dead = /アポ|ユーザー|失注|アーカイブ|リサイクル|使われて|現在使わ|現アナ|欠番|不通/;
       rows = all.filter((r) => {
         const st = `${r.stage || ""} ${r.status || ""}`;
-        if (r.done || dead.test(st) || nur.test(st)) return false;
+        if (r.done || (dead.test(st) && !nur.test(st))) return false;
         if (r.next_call_at && new Date(r.next_call_at).getTime() >= endToday) return false;
         return true;
       });
@@ -22556,7 +22556,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04x かける画面の「☆全てのリード」の隣に「今日かけるリード」を追加。表示しているリストで、まだかける先として残っているリードだけをまとめる（ナーチャリング・アポ獲得や失注などの対象外・架電予定が明日以降のものは入れない）。";
+const BUILD_TAG = "2026-10-04y 「今日かけるリード」にナーチャリング（ジャッジ・営業フォロー）のリードも入れ、かける画面の各リードに「ナーチャリング」の印を出すようにした（ソース・リスト名の印と並ぶ）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
