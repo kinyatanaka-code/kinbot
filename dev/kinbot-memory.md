@@ -1302,3 +1302,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05h 今日かけるリードの想定：calls.js leadsExpected(items, rates, member)（ナーチャリング＝expectedNurture.byCaller[member]、他＝expected[listId]、無ければ全体）で平均の率と合計（想定アポ数）。かける画面は kcGetRates（apo-rates を1回だけ）で #kcTodayExp、リスト管理の today カードは _nmRates で #nmTodayExp。版20261005h。
 
 - 2026-10-05 BUILD_TAG=2026-10-05i listAllLeadsForMember が _list_owner/_list_name/_list_group_id/_list_group_name を返していなかった（全てのリード・今日かけるリードの編集表で所有者のselectが先頭メンバー＝飯島に見え、リスト名も空）。SELECT に追加。編集表の所有者selectは不明なら「（不明）」を選択状態に、変更時は owner 空・list 非数値なら何もしない。版20261005i。
+
+- 2026-10-05 BUILD_TAG=2026-10-05j 想定アポ率の計算を computeApoRates(months)（10分キャッシュ）に切り出し、/api/calls/apo-rates はそれを返すだけ。今日かけるリード：新規の候補を H（想定の高い順）と P（いつもの順）で、H の上位 k 件＋P で埋める組み合わせを k を動かして試し、全体の想定平均が TODAY_TARGET_RATE（既定0.03）にいちばん近いもの（届いたら止める）。todayPlan に 目標アポ率・想定アポ率・想定アポ数、かける画面の帯に表示。版20261005j。

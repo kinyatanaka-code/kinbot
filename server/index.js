@@ -10388,10 +10388,38 @@ app.get("/api/calls/targets", async (req, res) => {
       const nurDue = live.filter((r) => isNur(r) && r.next_call_at).sort(byPri);   // かけられるナーチャリング＝架電予定が今日までのもの
       const rest = live.filter((r) => !isNur(r));
       const past = rest.filter((r) => frameOfSource(r.source || "") === "past").sort(byPri).slice(0, PAST_N);
-      const fresh = rest.filter((r) => frameOfSource(r.source || "") !== "past").sort(byPri)
-        .slice(0, Math.max(0, TOTAL - nurDue.length - past.length));
+      // 新規リストは、全体の想定アポ率が目標（TODAY_TARGET_RATE、既定3%）に近くなるように選ぶ。
+      // 想定アポ率の高いリストのリードを何件入れるかを変えながら、目標にいちばん近い組み合わせにする（足りないときは高い方から）。
+      const TARGET = Math.max(0, Number(process.env.TODAY_TARGET_RATE || "0.03")) || 0.03;
+      const rates = await computeApoRates(3).catch(() => null);
+      const allR = rates && rates.all && rates.all.calls ? rates.all.apos / rates.all.calls : 0;
+      const nurR = rates ? ((rates.expectedNurture.byCaller[member] || {}).rate ?? rates.expectedNurture.rate ?? allR) : 0;
+      const expOf = (r) => isNur(r) ? nurR : ((rates && rates.expected[String(r.list_id)]) || {}).rate ?? allR;
+      const freshCand = rest.filter((r) => frameOfSource(r.source || "") !== "past");
+      const N = Math.max(0, Math.min(freshCand.length, TOTAL - nurDue.length - past.length));
+      const P = [...freshCand].sort(byPri);                                  // いつもの順
+      const H = [...freshCand].sort((a, b) => expOf(b) - expOf(a) || byPri(a, b));   // 想定の高い順
+      const base = [...nurDue, ...past].reduce((a, r) => a + expOf(r), 0);
+      const pickWith = (k) => {
+        const taken = new Set(H.slice(0, k).map((r) => r.id));
+        const sel = H.slice(0, k);
+        for (const r of P) { if (sel.length >= N) break; if (!taken.has(r.id)) { sel.push(r); taken.add(r.id); } }
+        return sel;
+      };
+      let best = pickWith(0), bestGap = Infinity, bestAvg = 0;
+      const total = nurDue.length + past.length + N;
+      const step = Math.max(1, Math.ceil(N / 60));
+      for (let k = 0; k <= N; k += step) {
+        const sel = pickWith(k);
+        const avg = total ? (base + sel.reduce((a, r) => a + expOf(r), 0)) / total : 0;
+        const gap = Math.abs(avg - TARGET) + (avg < TARGET ? 0.0001 : 0);   // 同じ近さなら目標以上を選ぶ
+        if (gap < bestGap) { bestGap = gap; best = sel; bestAvg = avg; }
+        if (avg >= TARGET && k > 0) break;   // 目標に届いたら、それ以上高い方へは寄せない
+      }
+      const fresh = best.sort(byPri);
       rows = [...nurDue, ...past, ...fresh];
-      todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 過去の目安: PAST_N };
+      todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 過去の目安: PAST_N,
+        目標アポ率: TARGET, 想定アポ率: Math.round(bestAvg * 10000) / 10000, 想定アポ数: Math.round(bestAvg * rows.length * 10) / 10 };
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
@@ -14244,9 +14272,12 @@ app.get("/api/calls/nurture-inflow", async (req, res) => {
 });
 
 // リスト管理のカードに出すアポ率（直近3か月の架電）：リストごと・かけた人ごと・枠ごと
-app.get("/api/calls/apo-rates", async (req, res) => {
-  try {
-    const months = Math.max(1, Math.min(12, parseInt(req.query.months, 10) || 3));
+// 想定アポ率の計算（リスト管理のカード・今日かけるリードの組み立てで使う）。10分キャッシュ。
+const _apoRatesCache = new Map();
+async function computeApoRates(monthsIn = 3) {
+    const months = Math.max(1, Math.min(12, parseInt(monthsIn, 10) || 3));
+    const c = _apoRatesCache.get(months);
+    if (c && Date.now() - c.at < 10 * 60 * 1000) return c.v;
     const nowJ = new Date(Date.now() + 9 * 3600000);
     const pad = (n) => String(n).padStart(2, "0");
     const f = new Date(Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth() - (months - 1), 1));
@@ -14285,8 +14316,14 @@ app.get("/api/calls/apo-rates", async (req, res) => {
     const nurBase = rt(byFrame.nurture) ?? rt(all) ?? 0;
     const expectedNurture = { rate: nurBase, calls: (byFrame.nurture || {}).calls || 0, byCaller: {} };
     for (const [e, o] of Object.entries(byCallerNur)) expectedNurture.byCaller[e] = { rate: (o.apos + K * nurBase) / (o.calls + K), calls: o.calls };
-    res.json({ ok: true, from, to, byList, byCaller, byFrame, bySrc, all, expected, expectedNurture, K });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    const out = { ok: true, from, to, byList, byCaller, byFrame, bySrc, all, expected, expectedNurture, K };
+    _apoRatesCache.set(months, { at: Date.now(), v: out });
+    return out;
+}
+
+app.get("/api/calls/apo-rates", async (req, res) => {
+  try { res.json(await computeApoRates(req.query.months)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // アポ率の構成：全体／3つの枠、枠→ソース→時期→リストの掘り下げ（横は月ごと）、メンバー×枠
@@ -22579,7 +22616,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05i 今日かけるリード・全てのリードを編集表で開いたとき、所有者がみな同じ人（一覧の先頭の人）に見えていた不具合を直した。リストの所有者・リスト名・グループを一緒に返すようにし、分からないときは「（不明）」と出して、そのまま変えられないようにした。";
+const BUILD_TAG = "2026-10-05j 今日かけるリードを、想定アポ率が3%に近くなるように組み立てるようにした。ナーチャリング全部・過去リスト30件ほどはそのままで、新規リストの中から想定アポ率の高いリストのリードを、全体が3%に近づくぶんだけ入れる（届かないときは高い方から）。目標は TODAY_TARGET_RATE で変えられる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
