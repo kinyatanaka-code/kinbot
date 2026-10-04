@@ -1294,3 +1294,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05d _clCounts.today：loadLists で /api/calls/targets?list=today を裏で取り !isDone を数える、render で listId=today のとき rows の !isDone 数に更新（絞り込み前のかける先）。版20261005d。
 
 - 2026-10-05 BUILD_TAG=2026-10-05e talkRender を作り直し：空行・見出し（■【#）で段落に分けて .kc-tk-block（2〜20段落なら番号）、質問っぽい行（？・ですか・ませんか・でしょうか で終わる）に「質問」、〜様→担当者名様（不明なら〇〇様）、〇〇/〜 を入れる所として色。段落クリックで .now（今ここ）。CSS は style.css 末尾。版20261005e。
+
+- 2026-10-05 BUILD_TAG=2026-10-05f nmRenderDetail（メンバー）に todayCard を先頭に：/api/calls/targets?list=today&member= を裏で取り !isDone 件数・リスト名ごとの内訳上位5・うちナーチャリング、中身を見る＝nmGoEditVirtual('today', …, member)（orgLoadEdit は list=today&edit=1&member= で取得）。版20261005f。

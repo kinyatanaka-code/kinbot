@@ -1930,6 +1930,8 @@ function renderDock() {
     .ni-c.we .ni-b{background:#d3d1c7;}
     .ni-v{font-size:10px;color:#185fa5;font-weight:700;min-height:12px;} .ni-d{font-size:9px;color:#8aa39a;}
     .nm-nurcard{border-color:#b5d4f4 !important;background:#f4f8fc !important;}
+    .nm-todaycard{border-color:#9fe1cb !important;background:#f0faf5 !important;}
+    .nm-todaycard .nm-lname-t{color:#0f6e56;font-weight:800;}
     .nm-rate{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-top:4px;white-space:nowrap;}
     .nm-lcard-zan .nm-rate{margin:0 0 0 8px;vertical-align:4px;}
     .nm-rate.g{background:#e1f5ee;color:#085041;} .nm-rate.y{background:#faeeda;color:#633806;} .nm-rate.r{background:#fcebeb;color:#791f1f;}
@@ -6801,7 +6803,7 @@ function nmRenderDetail() {
   // ナーチャリングは、その人の各リストでナーチャリング（ジャッジ・営業フォロー）になっているリードの集まりとして、1枚のカードにまとめる。
   // 【ナーチャリング】〇〇 のような入れ物のリストは、このまとめのカードに含めて、個別のカードには出さない。
   const isNurList = (x) => /【\s*ナーチャリング\s*】/.test(String(x.name || "")) || /ナーチャリング/.test(String(x.group_name || ""));
-  let nurCard = "";
+  let nurCard = "", todayCard = "";
   if (_nmSel.type === "owner" && _nmSel.key !== "__other__") {
     const parts = [];
     let nurTotal = 0;
@@ -6813,6 +6815,13 @@ function nmRenderDetail() {
     }
     ls = ls.filter((x) => !isNurList(x));
     parts.sort((a, b) => b.n - a.n);
+    todayCard = `<div class="nm-lcard nm-todaycard">
+      <div class="nm-lcard-name"><span class="nm-lname-t">今日かけるリード（${esc(_nmSel.name)}）</span></div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n" id="nmTodayN">…</span></div>
+      <div class="nm-lcard-sub">表示中のリストの残り（ナーチャリング含む）のうち、架電予定が今日までのもの</div>
+      <div class="nm-nur-parts" id="nmTodayParts"></div>
+      <div class="nm-lcard-ops"><button type="button" class="btn ghost nm-today-open" style="padding:4px 12px">中身を見る</button></div>
+    </div>`;
     nurCard = `<div class="nm-lcard nm-nurcard">
       <div class="nm-lcard-name"><span class="nm-lname-t">ナーチャリング（${esc(_nmSel.name)}のまとめ）</span></div>
       <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${nurTotal.toLocaleString()}</span>${nmExpPill(nmNurExpected(_nmSel.key), `想定アポ率：${_nmSel.name}さんのナーチャリングでの実績を、ナーチャリング全体の実績に寄せてならした見込み`)}</div>
@@ -6838,11 +6847,28 @@ function nmRenderDetail() {
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
   body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${visN} リスト${ls.length > visN ? `（非表示 ${ls.length - visN}）` : ""}</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
-    `<div class="nm-lgrid">${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}</div><span class="rev-status" id="nmOpSt"></span>` +
+    `<div class="nm-lgrid">${todayCard}${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}</div><span class="rev-status" id="nmOpSt"></span>` +
     `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
   body.querySelectorAll(".nm-nur-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("nurture-all", `ナーチャリング - ${_nmSel.name}`, _nmSel.key)));
+  body.querySelectorAll(".nm-today-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("today", `今日かけるリード - ${_nmSel.name}`, _nmSel.key)));
+  // 今日かけるリードの件数（かける先の数）と、リストごとの内訳を裏で取る
+  if (todayCard) {
+    const who = _nmSel.key, seq = (window._nmTodaySeq = (window._nmTodaySeq || 0) + 1);
+    fetch(`/api/calls/targets?list=today&member=${encodeURIComponent(who)}`).then((r) => r.json()).then((d) => {
+      if (seq !== window._nmTodaySeq) return;
+      const items = (d && d.items || []).filter((x) => !isDone(x));
+      const nEl = $("nmTodayN"); if (nEl) nEl.textContent = items.length.toLocaleString();
+      const by = {}; for (const x of items) { const k = x["リスト名"] || "（リスト不明）"; by[k] = (by[k] || 0) + 1; }
+      const parts = Object.entries(by).sort((a, b) => b[1] - a[1]);
+      const nur = items.filter((x) => /ジャッジ|営業フォロー/.test(`${x["ステージ"] || ""} ${x["最終ステータス"] || ""}`)).length;
+      const pEl = $("nmTodayParts");
+      if (pEl) pEl.innerHTML = parts.slice(0, 5).map(([k, n]) => `<div><span title="${esc(k)}">${esc(k)}</span><b>${n}</b></div>`).join("") +
+        (parts.length > 5 ? `<div style="color:#8aa39a">ほか${parts.length - 5}リスト</div>` : "") +
+        (nur ? `<div style="color:#185fa5">うちナーチャリング<b>${nur}</b></div>` : "");
+    }).catch(() => { const nEl = $("nmTodayN"); if (nEl) nEl.textContent = "—"; });
+  }
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-unhide").forEach((b) => b.addEventListener("click", () => nmUnhide(b.dataset.id, b.dataset.name)));
