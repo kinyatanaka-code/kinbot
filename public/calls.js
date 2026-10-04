@@ -1106,10 +1106,10 @@ function render() {
   // 管理者だけ：いまのリストに無くても、他のメンバーのリストから探せる
   if (canFindAll && !(_isTanaka && listId === "all") && $("kcAllHit")) { _allHitFor = ""; findAcrossMembers(); }
   const fReset2 = $("kcFiltReset2");
-  if (fReset2) fReset2.addEventListener("click", () => { const f = $("kcFiltReset"); if (f) f.click(); else { filt.stage = new Set(); filt.status = new Set(); filt.hist = ""; filt.post = ""; filt.hireMin = ""; filt.hireMax = ""; filt.extra = {}; filt.range = {}; saveFilt(); render(); } });
+  if (fReset2) fReset2.addEventListener("click", () => { const f = $("kcFiltReset"); if (f) f.click(); else { filt.stage = new Set(); filt.status = new Set(); filt.hist = ""; filt.post = ""; filt.hireMin = ""; filt.hireMax = ""; filt.extra = {}; filt.range = {}; filt.tags = new Set(); saveFilt(); render(); } });
   const fReset = $("kcFiltReset");
   if (fReset) fReset.addEventListener("click", () => {
-    filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
+    filt.stage = new Set(); filt.status = new Set(); filt.hist = ""; filt.tags = new Set();
     filt.post = ""; filt.hireMin = ""; filt.hireMax = "";
     if (filt.extra) filt.extra = {};
     filt.range = {};
@@ -5777,7 +5777,7 @@ document.addEventListener("click", (ev) => {
   }
   if (t.id === "clReset") {
     ev.preventDefault();
-    filt.stage = new Set(); filt.status = new Set(); filt.hist = "";
+    filt.stage = new Set(); filt.status = new Set(); filt.hist = ""; filt.tags = new Set();
     saveFilt();
     setSort("", false);
     if ($("clFind")) $("clFind").value = "";
