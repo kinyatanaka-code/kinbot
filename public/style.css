@@ -6963,3 +6963,33 @@ body.kc-only .zp-admin { display: none !important; }
 .kc-tk-q { display: inline-block; font-size: 10px; font-weight: 700; color: #854f0b; background: #faeeda; border-radius: 5px; padding: 0 5px; margin-right: 5px; vertical-align: 1px; }
 .kc-tk-v { font-weight: 700; color: #0c447c; background: #e6f1fb; border-radius: 4px; padding: 0 3px; }
 .kc-tk-slot { font-weight: 700; color: #712b13; background: #faece7; border-radius: 4px; padding: 0 3px; }
+
+/* 記録の窓：3つを1つの窓にまとめる（左：会社情報・トーク／真ん中：記録／右：おすすめの日程） */
+.kc-modal-back.kc-rec3-back { padding: 16px !important; display: flex; align-items: center; justify-content: center; }
+.kc-rec3 { display: grid; grid-template-columns: minmax(320px, 1.05fr) minmax(560px, 1.6fr) minmax(260px, .8fr);
+  width: min(1600px, 100%); height: calc(100vh - 32px); background: #fff; border-radius: 18px; overflow: hidden;
+  box-shadow: 0 24px 60px rgba(20,40,30,.32); }
+.kc-rec3.no-left { grid-template-columns: minmax(560px, 1.6fr) minmax(260px, .8fr); }
+.kc-rec3.no-right { grid-template-columns: minmax(320px, 1.05fr) minmax(560px, 1.6fr); }
+.kc-rec3.no-left.no-right { grid-template-columns: minmax(560px, 1fr); }
+.kc-rec3 > .kc-copanel, .kc-rec3 > .kc-slotpanel {
+  position: static !important; display: block !important; width: auto !important; height: 100% !important; max-height: none !important;
+  box-shadow: none !important; border: 0 !important; border-radius: 0 !important; overflow: auto !important; padding: 18px 18px 24px !important; }
+.kc-rec3 > .kc-copanel { background: #f7fbf9 !important; border-right: 1px solid #e3ece8 !important; }
+.kc-rec3 > .kc-slotpanel { background: #fbfdfc !important; border-left: 1px solid #e3ece8 !important; }
+.kc-rec3 > .kc-modal { position: static !important; width: auto !important; max-width: none !important; height: 100% !important; max-height: none !important;
+  margin: 0 !important; border-radius: 0 !important; box-shadow: none !important; display: flex; flex-direction: column; overflow: hidden; }
+.kc-rec3 > .kc-modal > .kc-modal-body { flex: 1 1 auto; overflow: auto; }
+/* まとめた窓では、左右に空けていた余白はいらない */
+body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; padding-right: 16px !important; }
+/* トークは列の幅いっぱいに、読みやすく */
+.kc-rec3 .kc-talk-body { font-size: 14px; }
+.kc-rec3 .kc-tk-block { padding: 10px 12px; }
+@media (max-width: 1280px) {
+  .kc-rec3 { grid-template-columns: minmax(280px, 1fr) minmax(480px, 1.5fr) minmax(220px, .75fr); }
+}
+@media (max-width: 1050px) {   /* 狭い画面：縦に並べ、窓全体をスクロール */
+  .kc-rec3, .kc-rec3.no-left, .kc-rec3.no-right { display: flex; flex-direction: column; height: calc(100vh - 32px); overflow: auto; }
+  .kc-rec3 > .kc-copanel, .kc-rec3 > .kc-slotpanel, .kc-rec3 > .kc-modal { height: auto !important; overflow: visible !important; border: 0 !important; }
+  .kc-rec3 > .kc-modal { order: -1; }
+}

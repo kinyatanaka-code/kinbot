@@ -1308,3 +1308,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05k 今日かけるリード：過去リストの上限なし（pc を TODAY_PAST=30 から増やし、各 pc で新規の H上位k＋P埋め を試し、全体想定が TODAY_TARGET_RATE に届いた最初の組み合わせ、届かなければ想定最大）。かける画面の帯からアポ率（目標・想定）表示を削除、件数の内訳のみ。リスト管理の today カードの想定表示は残す。版20261005k。
 
 - 2026-10-05 BUILD_TAG=2026-10-05l 出勤管理の編集をセールス・管理者だけに：canEditShifts(req)（isAdmin・actingCloser・isAlwaysCloser・isCloserUser、代理操作中は元の本人で判定）で POST /api/inside-shifts・/read-file・/import を403。GET /api/inside-shifts/can-edit。calls.js loadShiftCal で _scCanEdit、非許可なら scBulk/scPdf/scShiftLink を隠し .sc-readonly（＋追加を消し、日付クリックで編集を開かない）、「見るだけ」表示。/shift.html の本人提出はそのまま。版20261005l。
+
+- 2026-10-05 BUILD_TAG=2026-10-05m 記録の窓：dockRecordPanels(m) で .kc-copanel・.kc-modal・.kc-slotpanel を .kc-rec3（grid 1.05fr/1.6fr/.8fr、高さ100vh-32px、各列スクロール）にまとめ、back に .kc-rec3-back。左右の固定配置・余白の CSS を上書き。1050px 以下は縦並び（記録を先頭）。版20261005m。

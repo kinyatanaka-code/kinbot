@@ -2347,6 +2347,7 @@ async function openTarget(id, draft, opt) {
   if (!histOnly) wireZoomSummary(m, id);
   openSlotPanel(m);
   openCompanyPanel(m, x["会社名"] || "", x);
+  dockRecordPanels(m);
 
   m.el.querySelector("#kcSave").addEventListener("click", async () => {
     const 結果 = picked();
@@ -2909,6 +2910,20 @@ function openCompanyPanel(m, company, x) {
     } catch { notFound("会社情報を取得できませんでした", !web); }
   };
   load(false);
+}
+// 記録の窓：左（会社情報・トーク）・真ん中（記録）・右（おすすめの日程）を1つの大きな窓にまとめる。
+// それぞれの列は中だけスクロールする。狭い画面では縦に並べる。
+function dockRecordPanels(m) {
+  const box = m && m.el && m.el.querySelector(".kc-modal");
+  if (!box) return;
+  const left = document.querySelector(".kc-copanel"), right = document.querySelector(".kc-slotpanel");
+  const wrap = document.createElement("div");
+  wrap.className = "kc-rec3" + (left ? "" : " no-left") + (right ? "" : " no-right");
+  box.parentNode.insertBefore(wrap, box);
+  if (left) wrap.appendChild(left);
+  wrap.appendChild(box);
+  if (right) wrap.appendChild(right);
+  m.el.classList.add("kc-rec3-back");
 }
 function openSlotPanel(m) {
   document.querySelectorAll(".kc-slotpanel").forEach((el) => el.remove());
