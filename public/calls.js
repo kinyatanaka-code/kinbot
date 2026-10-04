@@ -122,7 +122,7 @@ async function loadLists() {
     renderClPills();
     {
       const v = sel.value;
-      listId = ["all", "archive", "recycle", "nurture", "crosslost-now"].includes(v) ? v : (Number(v) || 0);
+      listId = ["all", "today", "archive", "recycle", "nurture", "crosslost-now"].includes(v) ? v : (Number(v) || 0);
       rememberListId(v);
       showProgress(items.find((x) => x.id === listId));
       loadTable();
@@ -149,7 +149,7 @@ async function loadTable() {
   const box = $("clTable");
   // ドロップダウンの現在値を優先（「全てのリード」= all を確実に扱う）
   const selV = ($("clList") && $("clList").value) || "";
-  if (selV) listId = ["all", "archive", "recycle", "nurture", "crosslost-now"].includes(selV) ? selV : (Number(selV) || 0);
+  if (selV) listId = ["all", "today", "archive", "recycle", "nurture", "crosslost-now"].includes(selV) ? selV : (Number(selV) || 0);
   if (typeof renderClPills === "function") renderClPills();
   if (!listId) {
     // リストを選んでいなくても、管理者は探す欄から全メンバーのリストを横断して探せる
@@ -159,7 +159,7 @@ async function loadTable() {
     if (canFindAll && !(_isTanaka && listId === "all") && q0.length >= 2) findAcrossMembers();
     return;
   }
-  if (listId === "all" || listId === "archive" || listId === "recycle" || listId === "nurture" || listId === "crosslost-now") selectedIds.clear();
+  if (listId === "all" || listId === "today" || listId === "archive" || listId === "recycle" || listId === "nurture" || listId === "crosslost-now") selectedIds.clear();
   {
     const q0 = ($("clFind") && $("clFind").value || "").trim();
     box.innerHTML = '<div class="empty-state">読み込んでいます…</div>' +
@@ -5513,7 +5513,7 @@ document.addEventListener("click", (ev) => {
   if (t.id === "clToCross") {
     ev.preventDefault();
     (async () => {
-      if (!listId || listId === "all") { say("clStatus", "リストを選んでください（全てのリードでは実行できません）", 5000); return; }
+      if (!listId || listId === "all" || listId === "today") { say("clStatus", "リストを選んでください（全てのリードでは実行できません）", 5000); return; }
       say("clStatus", "対象を調べています…");
       let 対象 = 0;
       try {
@@ -5575,7 +5575,7 @@ document.addEventListener("click", (ev) => {
   if (t.id === "clFillSf") {
     ev.preventDefault();
     (async () => {
-      if (!listId || listId === "all") { say("clStatus", "リストを選んでください", 4000); return; }
+      if (!listId || listId === "all" || listId === "today") { say("clStatus", "リストを選んでください", 4000); return; }
       const call = (body) => fetch(`/api/calls/lists/${encodeURIComponent(listId)}/fill-from-sf`, {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
       }).then((r) => r.json());
