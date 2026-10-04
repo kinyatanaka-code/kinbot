@@ -1278,3 +1278,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04t メンバーカードの想定＝nmMemberListAvg（その人の _nmLists（表示中）の expected[id].rate の単純平均、hidden は除外）。nmMemberExpected は未使用で残置。版20261004t。
 
 - 2026-10-04 BUILD_TAG=2026-10-04u GET /api/calls/nurture-inflow?days=30：db.nurtureInflowDaily（新規の枠のソースで、その日にはじめて結果がジャッジ/営業フォローになったリード数＝DISTINCT ON target の最初のログ日、あわせてその日の新規リストの架電（すでにナーチャリングだったリードの架電は除く）を結果別に）。isContacted で接触、アポ獲得でアポ。calls.js 枠別アポ率の下に loadNurtureInflow（KPI：1日あたり／接触あたり／接触率／アポ率、日ごとの棒、直近14日の表）。版20261004u。
+
+- 2026-10-04 BUILD_TAG=2026-10-04v /api/calls/targets の行に ソース（t.source）。calls.js fromBadge を作り直し：会社名の下にソースのタグ（新規＝緑・過去＝赤茶・他＝灰）と、元のリスト（あれば）または まとめ表示（listId が数字でない＝全てのリード・ナーチャリング等）のときは入っているリスト名。版20261004v。

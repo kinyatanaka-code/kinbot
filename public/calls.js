@@ -362,9 +362,19 @@ function isDone(x) { return isApoDone(x) || isUser(x) || isLost(x) || isDeadNumb
 // 行のバッジ（会社名の右）
 // ナーチャリングへ移したリードに「元：どのリストから来たか」を出す
 function fromBadge(x) {
-  const n = String((x && x["元のリスト"]) || "").trim();
-  if (!n) return "";
-  return `<div class="kc-from-badge">元：${esc(n)}</div>`;
+  // どこから来たリードか：ソース（色は枠）＋ 入っているリスト（まとめ表示のとき）／元のリスト
+  const src = String((x && x["ソース"]) || "").trim();
+  const origin = String((x && x["元のリスト"]) || "").trim();
+  const ln = String((x && x["リスト名"]) || "").trim();
+  const multi = !/^\d+$/.test(String(listId || ""));   // 全てのリード・ナーチャリング（まとめ）など、複数のリストをまとめて見ているとき
+  const NEW = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"];
+  const PAST = ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"];
+  const fr = NEW.includes(src) ? "new" : PAST.includes(src) ? "past" : "other";
+  const parts = [];
+  if (src && src !== "要確認") parts.push(`<span class="kc-src-tag ${fr}" title="どこから来たリードか（ソース）">${esc(src)}</span>`);
+  const listShown = origin || (multi ? ln : "");
+  if (listShown) parts.push(`<span class="kc-src-list" title="${origin ? "元のリスト" : "入っているリスト"}：${esc(listShown)}">${origin ? "元：" : ""}${esc(listShown.replace(/^【\s*復活\s*】/, "復活・"))}</span>`);
+  return parts.length ? `<div class="kc-src-line">${parts.join("")}</div>` : "";
 }
 function tempBadge(x) {
   const t = String((x && x["温度"]) || "").trim().toUpperCase();
@@ -1865,6 +1875,10 @@ function renderDock() {
     .nm-nurcard .nm-lname-t{color:#185fa5;font-weight:800;}
     .nm-nur-parts{font-size:11px;color:#3d4f47;display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;}
     .nm-nur-parts div{display:flex;justify-content:space-between;gap:8px;} .nm-nur-parts span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
+    .kc-src-tag{font-size:10px;font-weight:700;padding:0 6px;border-radius:5px;white-space:nowrap;}
+    .kc-src-tag.new{background:#e1f5ee;color:#085041;} .kc-src-tag.past{background:#faece7;color:#712b13;} .kc-src-tag.other{background:#f1efe8;color:#5f5e5a;}
+    .kc-src-list{font-size:10px;color:#6b8a7d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
