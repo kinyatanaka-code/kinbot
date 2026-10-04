@@ -10316,6 +10316,7 @@ app.get("/api/calls/targets", async (req, res) => {
     let listParam = String(req.query.list || "");
     const rawEdit = req.query.edit === "1";   // 編集テーブル用：打ち切らず全件・ステージ除外なし
     let rows;
+    let todayPlan = null;   // 今日かけるリードの内訳
     let 復活リストか = false;
     let 過去失注リストか = false;
     // かける画面の「過去リスト（今月かける）」＝自分担当のクロス失注。次回アクション日での絞り込みは後段で行う。
@@ -10364,12 +10365,33 @@ app.get("/api/calls/targets", async (req, res) => {
       const endToday = Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth(), nowJ.getUTCDate() + 1) - 9 * 3600000;
       const nur = /ジャッジ|営業フォロー/;
       const dead = /アポ|ユーザー|失注|アーカイブ|リサイクル|使われて|現在使わ|現アナ|欠番|不通/;
-      rows = all.filter((r) => {
+      const live = all.filter((r) => {
         const st = `${r.stage || ""} ${r.status || ""}`;
         if (r.done || (dead.test(st) && !nur.test(st))) return false;
         if (r.next_call_at && new Date(r.next_call_at).getTime() >= endToday) return false;
         return true;
       });
+      // 1日ぶんの組み立て（既定 150件前後）：
+      //   ① その日にかけられるナーチャリング（架電予定が今日まで）は全部
+      //   ② 過去リストは30件ほど
+      //   ③ 残りを新規リストで埋める
+      // 選ぶ順：架電予定の時刻が来ているもの → まだかけていないもの → 最後にかけたのが古いもの
+      const TOTAL = Math.max(10, parseInt(process.env.TODAY_TOTAL || "150", 10) || 150);
+      const PAST_N = Math.max(0, parseInt(process.env.TODAY_PAST || "30", 10) || 30);
+      const isNur = (r) => nur.test(`${r.stage || ""} ${r.status || ""}`);
+      const pri = (r) => {
+        const due = r.next_call_at ? new Date(r.next_call_at).getTime() : null;
+        const last = r["最終日時"] ? new Date(r["最終日時"]).getTime() : null;
+        return [due != null ? 0 : (last == null ? 1 : 2), due != null ? due : (last == null ? 0 : last), r.id];
+      };
+      const byPri = (a, b) => { const x = pri(a), y = pri(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+      const nurDue = live.filter((r) => isNur(r) && r.next_call_at).sort(byPri);   // かけられるナーチャリング＝架電予定が今日までのもの
+      const rest = live.filter((r) => !isNur(r));
+      const past = rest.filter((r) => frameOfSource(r.source || "") === "past").sort(byPri).slice(0, PAST_N);
+      const fresh = rest.filter((r) => frameOfSource(r.source || "") !== "past").sort(byPri)
+        .slice(0, Math.max(0, TOTAL - nurDue.length - past.length));
+      rows = [...nurDue, ...past, ...fresh];
+      todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 過去の目安: PAST_N };
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
@@ -10569,6 +10591,7 @@ app.get("/api/calls/targets", async (req, res) => {
     res.json({
       ok: true,
       pastLost: !!過去失注リストか,   // 過去失注のリスト：画面側で失注を「対象外」にしない等
+      todayPlan,   // 今日かけるリードの内訳（ナーチャリング・過去リスト・新規リスト）
       件数: rows.length,
       残り: rows.filter((r) => !r.done).length,
       結果の種類: CALL_RESULTS.map((x) => x.key),
@@ -22556,7 +22579,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05f リスト管理でメンバーを開いたとき、先頭に「今日かけるリード」のカードを出した（かける先の件数・リストごとの内訳・うちナーチャリング、中身を見るで編集表）。";
+const BUILD_TAG = "2026-10-05g 「今日かけるリード」を1日ぶんの組み立てにした（150件前後）：その日にかけられるナーチャリング（架電予定が今日まで）は全部、過去リスト30件ほど、残りを新規リストで埋める。選ぶ順は 架電予定が来たもの→まだかけていないもの→最後にかけたのが古いもの。件数は TODAY_TOTAL・TODAY_PAST で変えられる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

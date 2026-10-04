@@ -1296,3 +1296,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05e talkRender を作り直し：空行・見出し（■【#）で段落に分けて .kc-tk-block（2〜20段落なら番号）、質問っぽい行（？・ですか・ませんか・でしょうか で終わる）に「質問」、〜様→担当者名様（不明なら〇〇様）、〇〇/〜 を入れる所として色。段落クリックで .now（今ここ）。CSS は style.css 末尾。版20261005e。
 
 - 2026-10-05 BUILD_TAG=2026-10-05f nmRenderDetail（メンバー）に todayCard を先頭に：/api/calls/targets?list=today&member= を裏で取り !isDone 件数・リスト名ごとの内訳上位5・うちナーチャリング、中身を見る＝nmGoEditVirtual('today', …, member)（orgLoadEdit は list=today&edit=1&member= で取得）。版20261005f。
+
+- 2026-10-05 BUILD_TAG=2026-10-05g 今日かけるリード＝組み立て：live（従来の条件）から ①ナーチャリングで next_call_at が今日まで（全部）②過去の枠（frameOfSource=past）を TODAY_PAST（既定30）件 ③新規ほか で TODAY_TOTAL（既定150）まで。並び＝架電予定あり→未架電→最終架電が古い。予定なしのナーチャリングは入れない。レスポンス todayPlan、calls.js で一覧の上に内訳を表示。版20261005g。

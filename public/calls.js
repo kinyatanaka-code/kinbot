@@ -16,6 +16,7 @@ function rememberListId(v) {
   try { if (v || v === 0) localStorage.setItem("kincall_list", String(v)); } catch {}
 }
 let rows = [];
+let _todayPlan = null;   // 今日かけるリードの内訳
 let kinds = [];
 
 function say(id, t, ms) {
@@ -181,6 +182,7 @@ async function loadTable() {
     if (d.error) throw new Error(d.error);
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
+    _todayPlan = d.todayPlan || null;
     _pastLost = !!d.pastLost;   // 過去失注のリスト（DOC過去失注グループ）は見せ方を変える
     _sfDisconnected = !!d["SF未接続"];
     render();
@@ -934,6 +936,7 @@ function render() {
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
     (_sfDisconnected ? `<div class="kc-sfwarn">Salesforceに接続できていないため、履歴（SFの活動件数）が表示できません。履歴が消えたわけではありません。設定 → Salesforce連携で再連携してください。</div>` : "") +
+    (_todayPlan && listId === "today" ? `<div class="kc-today-plan">今日の組み立て：<b>${_todayPlan.合計}</b>件（目安${_todayPlan.目安}件）　<span class="kc-src-tag nur">ナーチャリング ${_todayPlan.ナーチャリング}</span> <span class="kc-src-tag past">過去リスト ${_todayPlan.過去リスト}</span> <span class="kc-src-tag new">新規リスト ${_todayPlan.新規リスト}</span><span class="kc-today-note">ナーチャリングは架電予定が今日までのもの全部、過去リストは${_todayPlan.過去の目安}件ほど、残りを新規リストで埋めています。</span></div>` : "") +
     (() => {   // 今日かけるリードのリストの数字は「かける先」の数（絞り込み前）にそろえる
       if (listId === "today") {
         const n = rows.filter((x) => !isDone(x)).length;
@@ -1942,6 +1945,8 @@ function renderDock() {
     .nm-nurcard .nm-lname-t{color:#185fa5;font-weight:800;}
     .nm-nur-parts{font-size:11px;color:#3d4f47;display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;}
     .nm-nur-parts div{display:flex;justify-content:space-between;gap:8px;} .nm-nur-parts span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .kc-today-plan{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:#1f3a30;background:#f0faf5;border:1px solid #cfe6da;border-radius:10px;padding:6px 10px;margin-bottom:8px;}
+    .kc-today-plan b{font-size:14px;} .kc-today-note{font-size:11px;color:#6b8a7d;margin-left:4px;}
     .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
     .kc-src-tag{font-size:10px;font-weight:700;padding:0 6px;border-radius:5px;white-space:nowrap;}
     .kc-src-tag.nur{background:#e6f1fb;color:#0c447c;}
