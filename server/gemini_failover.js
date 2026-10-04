@@ -31,8 +31,8 @@ export function geminiFailoverStatus() {
 // ───── 文章だけの処理をGroqで動かす（一時的な切り替え） ─────
 // Geminiへの generateContent のうち、本文が文字だけ（画像・PDF・音声・ファイル・Google検索なし）のものを、
 // Groq（OpenAI互換）に送って、Geminiと同じ形の返事に直して返す。呼び出し側のコードは変えない。
-// 既定ON（2026-10-02、Geminiの支払い停止のため）。setTextViaGroq(false) で戻す。
-let textViaGroq = true;
+// 2026-10-04 Geminiの支払いが戻ったので既定OFF（文章もGeminiで動かす）。必要なら /api/ai-text-groq で入れる。
+let textViaGroq = false;
 export function setTextViaGroq(on) { textViaGroq = !!on; }
 export function textViaGroqOn() { return textViaGroq && !!String(process.env.GROQ_API_KEY || "").trim(); }
 let groqCount = 0, groqFail = 0, groqSkipped = 0;

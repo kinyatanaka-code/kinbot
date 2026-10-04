@@ -1254,3 +1254,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04g 3つの大きな枠：db.LEAD_FRAMES（new＝インターン最新版/フロッグ/6月直販コールド/ベールズ/エキスポ/メルマガ、past＝DOC過去失注/MO過去失注/過去失注（〜2026/2）/クロス失注（2026/3〜）、nurture＝タグ）。scopeSql("src:名"|"frame:new|past|nurture") で候補・アポ率を共通化（nurture は LEAD_NURTURE_SQL AND LEAD_LIVE_SQL、new/past は source IN かつ非ナーチャリング）。leadSourceSummary が frames（件数＝非ナーチャリング分、nurture は全ソースのナーチャリング）と各ソースの 枠 を返す。ソースタブは枠ごとの箱＋「この枠からメンバーに配る」（frame:キーで /distribute）、ソース行は「このソースから配る」。版20261004g。
 
 - 2026-10-04 BUILD_TAG=2026-10-04h 実績「枠別アポ率」（data-period=frames）。GET /api/calls/apo-structure?months=1..12（直近Nか月の call_logs）。db.apoStructureRows：source・nurture（その架電より前に結果がジャッジ/営業フォローのログがある or 今ナーチャリングかつアポ獲得でない）・list・origin（extra.失注日の年月、無ければリスト作成月）・架電月・caller で calls/apos。サーバーで 枠→ソース→時期→リスト の木と、メンバー×枠 を組み立て。calls.js loadFrameStats（KPI4枚、行クリックで開閉する木の表、横に月ごとのアポ率、メンバー×枠表、期間ボタン1/3/6か月）。版20261004h。
+
+- 2026-10-04 BUILD_TAG=2026-10-04i 支払い完了。gemini_failover の textViaGroq 既定を false（settings.aiTextViaGroq=true のときだけON）。予備キーへの切替・混雑時の再送は残す。再デプロイで予備キー保持状態（useBackupUntil）はリセットされ、いつものキーから使う。places.js placesEnabled は PLACES_ENABLED=1 のときだけ true（既定停止）。版20261004i。

@@ -4,7 +4,9 @@
 
 const ENDPOINT = "https://places.googleapis.com/v1/places:searchText";
 
+// 2026-10-04 から停止（費用がかかるため）。使うときは環境変数 PLACES_ENABLED=1 を入れる。
 export function placesEnabled() {
+  if (process.env.PLACES_ENABLED !== "1") return false;
   return !!String(process.env.GOOGLE_PLACES_API_KEY || "").trim();
 }
 

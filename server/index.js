@@ -22433,7 +22433,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04h 実績に「枠別アポ率」を追加。全体と3つの枠（新規リスト・過去リスト・ナーチャリング）のアポ率、枠→ソース→時期（過去は失注月、新規はリストを作った月）→リストの掘り下げ（横に月ごとのアポ率）、メンバー×枠のアポ率を出す。";
+const BUILD_TAG = "2026-10-04i Google Cloudの支払いが戻ったので、AIを元に戻した：文章だけの処理をGroqに回すのをやめ、全部Geminiで動かす（いつものキーを優先。止まったら予備キーへ切り替える仕組みは残す）。Places API（New）は停止（PLACES_ENABLED=1 で戻せる）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -28085,7 +28085,7 @@ server.listen(PORT, async () => {
     .then(() => refreshForcedApoLabels())
     .catch(() => {});
   // 文章だけのAI処理をGroqにするか（設定があればそれに従う。無ければ既定ON）
-  getSettings().then((st) => { if (st && (st.aiTextViaGroq === false || st.aiTextViaGroq === "false")) setTextViaGroq(false); }).catch(() => {});
+  getSettings().then((st) => { if (st && (st.aiTextViaGroq === true || st.aiTextViaGroq === "true")) setTextViaGroq(true); }).catch(() => {});
   // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。
   cleanupPhysicalStageLists().then((r) => { if ((r.deleted || 0) + (r.moved || 0)) console.log(`[kincall] 旧アーカイブ/リサイクルリストを整理：${r.deleted}件削除・${r.moved}件を元の持ち主のリストへ`); }).catch(() => {});
   // プロセスシートの「最後の書き込み」を設定から戻す（再起動で未実行に見えないように）
