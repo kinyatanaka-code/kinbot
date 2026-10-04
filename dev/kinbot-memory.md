@@ -1292,3 +1292,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05b 会社名の見出し（#kcCoFlt）→ openTagFilter。rowTags(x)＝"種類|値"（印：ナーチャリング/使われていない番号/ユーザー/失注/アポ獲得済み/復活、ソース、リスト（元のリスト or リスト名）、不在A/B/C、営業中/営業時間外、架電予定あり/時刻が来た/なし）。filt.tags（localStorage kcFilt に保存）で visibleRows：種類内 OR・種類間 AND。窓に addSortBar(company)。版20261005b。
 
 - 2026-10-05 BUILD_TAG=2026-10-05d _clCounts.today：loadLists で /api/calls/targets?list=today を裏で取り !isDone を数える、render で listId=today のとき rows の !isDone 数に更新（絞り込み前のかける先）。版20261005d。
+
+- 2026-10-05 BUILD_TAG=2026-10-05e talkRender を作り直し：空行・見出し（■【#）で段落に分けて .kc-tk-block（2〜20段落なら番号）、質問っぽい行（？・ですか・ませんか・でしょうか で終わる）に「質問」、〜様→担当者名様（不明なら〇〇様）、〇〇/〜 を入れる所として色。段落クリックで .now（今ここ）。CSS は style.css 末尾。版20261005e。

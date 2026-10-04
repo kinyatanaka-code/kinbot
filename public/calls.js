@@ -2676,15 +2676,32 @@ function updateRowContact(x) {
 const TALK_TEMPLATE = "■ 受付\nお世話になっております。株式会社ネオキャリアの{自分}と申します。{担当者}様はいらっしゃいますでしょうか。\n\n■ 担当者\n{担当者}様、お忙しいところ恐れ入ります。{会社名}様の採用について…\n\n■ アポの打診\n一度15分ほど、オンラインでお時間いただけないでしょうか。\n\n■ 切り返し：予算がない\n費用のご検討は後で大丈夫です。まずは事例だけでも…";
 function talkRender(text, vals) {
   const v = vals || {};
-  const fill = (t) => String(t || "").replace(/\{会社名\}/g, v.company || "御社").replace(/\{担当者\}/g, v.person || "ご担当者").replace(/\{自分\}/g, v.me || "（自分）");
-  return fill(text).split(/\r?\n/).map((ln) => {
+  const person = v.person || "";
+  const fill = (t) => String(t || "").replace(/\{会社名\}/g, v.company || "御社").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{自分\}/g, v.me || "（自分）");
+  // 1行を読みやすく：「〜様」「～様」は相手の名前に、「〇〇」「〜」は入れる所として色を付ける。質問の行は目立たせる
+  const line = (raw) => {
+    let h = esc(raw);
+    h = h.replace(/[〜～]\s*様/g, () => person ? `<b class="kc-tk-v">${esc(person)}様</b>` : `<b class="kc-tk-slot">〇〇様</b>`);
+    h = h.replace(/[〇○]{2,}|[〜～](?![\d０-９])/g, (m) => `<b class="kc-tk-slot">${m.replace(/[〜～]/, "〇〇")}</b>`);
+    const q = /[？?]\s*$|ですか[。]?$|ませんか[。]?$|でしょうか[。]?$/.test(String(raw).trim());
+    return `<div class="kc-tk-line${q ? " q" : ""}">${q ? '<span class="kc-tk-q">質問</span>' : ""}${h}</div>`;
+  };
+  // 段落（空行か見出しで区切る）ごとにまとめる
+  const blocks = [];
+  let cur = null;
+  for (const ln of fill(text).split(/\r?\n/)) {
     const t = ln.trim();
-    if (!t) return '<div class="kc-talk-gap"></div>';
-    if (/^(■|【|#)/.test(t)) return `<div class="kc-talk-h">${esc(t.replace(/^#+\s*/, ""))}</div>`;
-    return `<div class="kc-talk-p">${esc(t)}</div>`;
-  }).join("");
-}
-async function kcMyShortName() {
+    if (!t) { cur = null; continue; }
+    if (/^(■|【|#)/.test(t)) { cur = { title: t.replace(/^#+\s*/, "").replace(/^■\s*/, ""), lines: [] }; blocks.push(cur); continue; }
+    if (!cur) { cur = { title: "", lines: [] }; blocks.push(cur); }
+    cur.lines.push(t);
+  }
+  const numbered = blocks.length >= 2 && blocks.length <= 20;
+  return blocks.map((b, k) => `<div class="kc-tk-block" data-k="${k}" title="押すと「今ここ」の印が付きます">
+      <div class="kc-tk-head">${numbered ? `<span class="kc-tk-no">${k + 1}</span>` : ""}${b.title ? `<span class="kc-tk-title">${esc(b.title)}</span>` : ""}</div>
+      ${b.lines.map(line).join("")}
+    </div>`).join("");
+}async function kcMyShortName() {
   if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null);
   const me = await _meP;
   const full = String((me && (me.name || me.displayName)) || "").trim() || String((me && me.username) || "").split("@")[0];
@@ -2705,6 +2722,12 @@ async function kcLoadTalk(box, x) {
       (d.script ? `<div class="kc-talk-body">${talkRender(d.script, { company: x && x["会社名"], person, me })}</div>`
         : `<div class="note">まだ台本がありません。「編集」から自分の台本を登録できます。</div>`);
     box.querySelector("#kcTalkEdit").addEventListener("click", edit);
+    // 段落を押すと「今ここ」の印（もう一度押すと外れる）。次の段落へは押した段落の下を押していく
+    box.querySelectorAll(".kc-tk-block").forEach((b) => b.addEventListener("click", () => {
+      const on = b.classList.contains("now");
+      box.querySelectorAll(".kc-tk-block.now").forEach((x2) => x2.classList.remove("now"));
+      if (!on) b.classList.add("now");
+    }));
   };
   // その場で編集 → 自分の台本（トークページと同じもの）に保存
   const edit = () => {
