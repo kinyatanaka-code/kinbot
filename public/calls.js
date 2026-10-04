@@ -17,6 +17,23 @@ function rememberListId(v) {
 }
 let rows = [];
 let _todayPlan = null;   // 今日かけるリードの内訳
+// 想定アポ率（リスト管理と同じ /api/calls/apo-rates）を一度だけ取って使い回す
+let _kcRatesP = null;
+function kcGetRates() { if (!_kcRatesP) _kcRatesP = fetch("/api/calls/apo-rates?months=3").then((r) => r.json()).catch(() => null); return _kcRatesP; }
+// リードの集まりの想定アポ率と想定アポ数：ナーチャリングはその人のナーチャリングの想定、それ以外はリストの想定
+function leadsExpected(items, rates, member) {
+  if (!rates || !rates.expected) return null;
+  const allR = rates.all && rates.all.calls ? rates.all.apos / rates.all.calls : 0;
+  const en = rates.expectedNurture || {};
+  const nurR = (en.byCaller && en.byCaller[String(member || "").toLowerCase()]) ? en.byCaller[String(member || "").toLowerCase()].rate : (en.rate ?? allR);
+  let sum = 0, n = 0;
+  for (const x of items || []) {
+    const isN = /ジャッジ|営業フォロー/.test(`${x["ステージ"] || ""} ${x["最終ステータス"] || ""}`);
+    const e = rates.expected[String(x.listId || x._listId || "")];
+    sum += isN ? nurR : (e ? e.rate : allR); n++;
+  }
+  return n ? { rate: sum / n, apos: sum, n } : null;
+}
 let kinds = [];
 
 function say(id, t, ms) {
@@ -183,6 +200,13 @@ async function loadTable() {
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
     _todayPlan = d.todayPlan || null;
+    if (listId === "today") kcGetRates().then(async (rt) => {
+      const el = $("kcTodayExp"); if (!el) return;
+      let meEmail = "";
+      try { if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null); const me = await _meP; meEmail = String((me && (me.username || me.email)) || ""); } catch {}
+      const ex = leadsExpected(rows.filter((x) => !isDone(x)), rt, callAsMember || meEmail);
+      el.textContent = ex ? `想定アポ率 ${(Math.round(ex.rate * 1000) / 10).toFixed(1)}%・想定アポ ${ex.apos.toFixed(1)}件` : "想定 —";
+    });
     _pastLost = !!d.pastLost;   // 過去失注のリスト（DOC過去失注グループ）は見せ方を変える
     _sfDisconnected = !!d["SF未接続"];
     render();
@@ -936,7 +960,7 @@ function render() {
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
     (_sfDisconnected ? `<div class="kc-sfwarn">Salesforceに接続できていないため、履歴（SFの活動件数）が表示できません。履歴が消えたわけではありません。設定 → Salesforce連携で再連携してください。</div>` : "") +
-    (_todayPlan && listId === "today" ? `<div class="kc-today-plan">今日の組み立て：<b>${_todayPlan.合計}</b>件（目安${_todayPlan.目安}件）　<span class="kc-src-tag nur">ナーチャリング ${_todayPlan.ナーチャリング}</span> <span class="kc-src-tag past">過去リスト ${_todayPlan.過去リスト}</span> <span class="kc-src-tag new">新規リスト ${_todayPlan.新規リスト}</span><span class="kc-today-note">ナーチャリングは架電予定が今日までのもの全部、過去リストは${_todayPlan.過去の目安}件ほど、残りを新規リストで埋めています。</span></div>` : "") +
+    (_todayPlan && listId === "today" ? `<div class="kc-today-plan">今日の組み立て：<b>${_todayPlan.合計}</b>件（目安${_todayPlan.目安}件）　<span class="nm-exp" id="kcTodayExp" title="想定アポ率：ナーチャリングはその人のナーチャリングの想定、それ以外は入っているリストの想定アポ率で見込んだ平均">想定 …</span>　<span class="kc-src-tag nur">ナーチャリング ${_todayPlan.ナーチャリング}</span> <span class="kc-src-tag past">過去リスト ${_todayPlan.過去リスト}</span> <span class="kc-src-tag new">新規リスト ${_todayPlan.新規リスト}</span><span class="kc-today-note">ナーチャリングは架電予定が今日までのもの全部、過去リストは${_todayPlan.過去の目安}件ほど、残りを新規リストで埋めています。</span></div>` : "") +
     (() => {   // 今日かけるリードのリストの数字は「かける先」の数（絞り込み前）にそろえる
       if (listId === "today") {
         const n = rows.filter((x) => !isDone(x)).length;
@@ -6822,7 +6846,7 @@ function nmRenderDetail() {
     parts.sort((a, b) => b.n - a.n);
     todayCard = `<div class="nm-lcard nm-todaycard">
       <div class="nm-lcard-name"><span class="nm-lname-t">今日かけるリード（${esc(_nmSel.name)}）</span></div>
-      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n" id="nmTodayN">…</span></div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n" id="nmTodayN">…</span><span class="nm-exp" id="nmTodayExp" hidden title="想定アポ率：ナーチャリングはその人のナーチャリングの想定、それ以外は入っているリストの想定アポ率で見込んだ平均"></span></div>
       <div class="nm-lcard-sub">表示中のリストの残り（ナーチャリング含む）のうち、架電予定が今日までのもの</div>
       <div class="nm-nur-parts" id="nmTodayParts"></div>
       <div class="nm-lcard-ops"><button type="button" class="btn ghost nm-today-open" style="padding:4px 12px">中身を見る</button></div>
@@ -6865,6 +6889,8 @@ function nmRenderDetail() {
       if (seq !== window._nmTodaySeq) return;
       const items = (d && d.items || []).filter((x) => !isDone(x));
       const nEl = $("nmTodayN"); if (nEl) nEl.textContent = items.length.toLocaleString();
+      const ex = leadsExpected(items, _nmRates, who);
+      const xEl = $("nmTodayExp"); if (xEl && ex) { xEl.hidden = false; xEl.textContent = `想定 ${(Math.round(ex.rate * 1000) / 10).toFixed(1)}%・アポ ${ex.apos.toFixed(1)}件`; }
       const by = {}; for (const x of items) { const k = x["リスト名"] || "（リスト不明）"; by[k] = (by[k] || 0) + 1; }
       const parts = Object.entries(by).sort((a, b) => b[1] - a[1]);
       const nur = items.filter((x) => /ジャッジ|営業フォロー/.test(`${x["ステージ"] || ""} ${x["最終ステータス"] || ""}`)).length;
