@@ -3056,8 +3056,7 @@ function openEdit(id) {
 let _dashData = null;
 let dashPeriod = "month";          // month（月次）/ week（週次）
 let dashWeekMonth = "";            // 見る月（YYYY-MM、空＝今月）。月次・週次で共通
-let dashMetric = "apo";            // apo（アポ）/ jisshi（実施）
-try { if (localStorage.getItem("kcDashMetric") === "jisshi") dashMetric = "jisshi"; } catch {}
+let dashMetric = "apo";            // apo（アポ）/ jisshi（実施）。開いたときはいつもアポから（前回の選択は覚えない）
 // 週次の月セレクタの選択肢（直近6か月）を用意する
 function fillDashMonths() {
   const sel = $("dashWeekMonth");
@@ -3107,7 +3106,6 @@ document.querySelectorAll("#dashMetricTabs .kc-ptab").forEach((b) => b.addEventL
   const m = b.dataset.m === "jisshi" ? "jisshi" : "apo";
   if (m === dashMetric) return;
   dashMetric = m;
-  try { localStorage.setItem("kcDashMetric", m); } catch {}
   loadDash();
 }));
 // 月次/週次の切替
