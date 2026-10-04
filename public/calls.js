@@ -1793,6 +1793,21 @@ function renderDock() {
     .sc-lc-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#eef3f0;}
     .sc-lc-w{font-size:11px;color:#6b8a7d;}
     .sc-lc-a{display:flex;gap:6px;flex-wrap:wrap;} .sc-lc-a .btn{padding:4px 10px;font-size:12px;}
+    .sc-st2{display:flex;align-items:center;gap:10px;}
+    .sc-seg{display:inline-flex;border:1px solid #cfe0d8;border-radius:999px;overflow:hidden;margin-left:auto;}
+    .sc-seg button{border:0;background:#fff;font:inherit;font-size:11px;padding:3px 12px;color:#5b7a6d;cursor:pointer;}
+    .sc-seg button.on{background:#0d5b47;color:#fff;font-weight:700;}
+    .sc-tagr{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;margin-right:4px;border-radius:5px;background:#faeeda;color:#633806;vertical-align:1px;}
+    .sc-mv{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;}
+    .sc-mv-card{border:1px solid #e3ece8;border-radius:12px;padding:10px 12px;background:#fff;}
+    .sc-mv-card.none{background:#f7f7f5;}
+    .sc-mv-h{display:flex;align-items:center;gap:8px;padding-bottom:6px;margin-bottom:4px;border-bottom:1px solid #eef3f0;}
+    .sc-mv-name{font-size:14px;font-weight:800;color:#1f3a30;} .sc-mv-t{font-size:11px;color:#6b8a7d;margin-left:auto;} .sc-mv-t b{font-size:14px;color:#1f2d28;}
+    .sc-mv-r{display:grid;grid-template-columns:minmax(0,1fr) 54px 50px auto;gap:6px;align-items:center;font-size:12px;padding:4px 0;}
+    .sc-mv-ln{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .sc-mv-c{text-align:right;color:#5b7a6d;}
+    .sc-mv-a{display:flex;gap:4px;}
+    .sc-mini{border:1px solid #cfe0d8;background:#fff;color:#0d5b47;border-radius:999px;padding:1px 8px;font:inherit;font-size:11px;cursor:pointer;}
+    .sc-mini:hover{background:#e3f4ed;}
     .sc-unk{margin-top:14px;background:#fff;border:1px solid #e3ece8;border-radius:12px;padding:8px 12px;} .sc-unk summary{cursor:pointer;font-size:13px;font-weight:700;color:#993c1d;}
     .hub-src-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 14px;}
     .hub-src-row{display:grid;grid-template-columns:150px minmax(0,1fr) 110px;grid-template-rows:auto auto;gap:2px 12px;align-items:center;padding:8px 12px;border:1px solid #e3ece8;border-radius:10px;background:#fff;}
@@ -5859,6 +5874,39 @@ async function openSourceDistribute(source, summary, label) {
 
 // --- ソース（どこから来たリードか）：ソースごとの件数（担当別・未割り当て）と、「要確認」のリストを選び直す
 let _srcSel = "frame:new";   // ソースタブで選んでいるもの（frame:キー か ソース名）
+let _srcListView = "member";  // ソースのリストの見せ方：member（メンバー別）／list（リスト別）
+try { if (localStorage.getItem("kcSrcLv") === "list") _srcListView = "list"; } catch {}
+// リスト名を短く見せる（ソース名と重なる前置き・「【復活】」は印にする）
+function srcListLabel(name) {
+  let n = String(name || "");
+  const revived = /【\s*復活\s*】/.test(n);
+  n = n.replace(/【\s*復活\s*】/g, "")
+    .replace(/^(インターン生最新用だよ|インターン最新だよ|インターン最新版リスト|DOC_フロッグリスト|フロッグリスト|DOC過去失注|過去リスト)\s*[-－]?\s*/, "")
+    .trim() || String(name || "");
+  return `${revived ? '<span class="sc-tagr">復活</span>' : ""}${esc(n)}`;
+}
+// メンバー別：人ごとに、このソースで持っているリード数・アポ率と、その人のリストを並べる
+function srcMemberView(ls, rt, R, rate, rcls) {
+  const by = new Map();
+  for (const l of ls) for (const [e, n] of Object.entries(l.担当別 || {})) {
+    const k = e || "";
+    if (!by.has(k)) by.set(k, { email: k, total: 0, lists: [] });
+    const o = by.get(k); o.total += n; o.lists.push({ ...l, mine: n });
+  }
+  const arr = [...by.values()].sort((a, b) => (a.email ? 0 : 1) - (b.email ? 0 : 1) || b.total - a.total);
+  return `<div class="sc-mv">` + arr.map((m) => {
+    const mr = m.email && rt && rt.mem ? rt.mem[m.email] : null;
+    const name = m.email ? hubNm(m.email) : "未割り当て";
+    const rowsH = m.lists.sort((a, b) => b.mine - a.mine).map((l) => {
+      const lr = (R.byList || {})[`${_srcSel}|${l.id}`];
+      return `<div class="sc-mv-r"><span class="sc-mv-ln" title="${esc(l.name)}">${srcListLabel(l.name)}</span><span class="sc-mv-c">${l.mine.toLocaleString()}件</span><span class="sc-r ${rcls(lr)}">${rate(lr)}</span>
+        <span class="sc-mv-a"><button type="button" class="sc-mini sc-lc-open" data-id="${l.id}" data-name="${esc(l.name)}" data-owner="${esc(l.owner || "")}">中身</button><button type="button" class="sc-mini sc-lc-give" data-id="${l.id}" data-name="${esc(l.name)}">配る</button></span></div>`;
+    }).join("");
+    return `<div class="sc-mv-card${m.email ? "" : " none"}">
+      <div class="sc-mv-h"><span class="sc-mv-name">${esc(name)}</span><span class="sc-mv-t"><b>${m.total.toLocaleString()}</b>件・${m.lists.length}リスト</span><span class="sc-r ${rcls(mr)}" title="このソースでのアポ率（直近3か月）">${rate(mr)}</span></div>
+      ${rowsH}</div>`;
+  }).join("") + `</div>`;
+}
 async function hubRenderSources() {
   const pane = $("hubPane"); if (!pane || _hubTab !== "src") return;
   try {
@@ -5925,7 +5973,9 @@ async function hubRenderSources() {
         ${isFrame ? "" : (() => {
           const ls = (d.lists || {})[_srcSel] || [];
           if (!ls.length) return "";
-          return `<div class="sc-st">このソースのリスト（${ls.length}本）</div><div class="sc-lc-grid">` + ls.map((l) => {
+          const seg = `<div class="sc-seg"><button type="button" data-lv="member" class="${_srcListView === "member" ? "on" : ""}">メンバー別</button><button type="button" data-lv="list" class="${_srcListView === "list" ? "on" : ""}">リスト別</button></div>`;
+          if (_srcListView === "member") return `<div class="sc-st sc-st2">このソースのリスト（${ls.length}本）${seg}</div>` + srcMemberView(ls, rt, R, rate, rcls);
+          return `<div class="sc-st sc-st2">このソースのリスト（${ls.length}本）${seg}</div><div class="sc-lc-grid">` + ls.map((l) => {
             const lr = (R.byList || {})[`${_srcSel}|${l.id}`];
             const ws = Object.entries(l.担当別 || {}).sort((a, b) => b[1] - a[1]);
             const tot = Math.max(1, l.件数);
@@ -5933,7 +5983,7 @@ async function hubRenderSources() {
             const bar = ws.map(([e, n], i) => `<span title="${esc(e ? hubNm(e) : "未割り当て")} ${n}件" style="width:${n / tot * 100}%;background:${e ? pal[i % pal.length] : "#d3d1c7"}"></span>`).join("");
             const who = ws.slice(0, 3).map(([e, n]) => `${esc(e ? hubNm(e) : "未割り当て")} ${n}`).join("・");
             return `<div class="sc-lc">
-              <div class="sc-lc-h"><span class="sc-lc-n" title="${esc(l.name)}">${esc(l.name)}</span><span class="sc-r ${rcls(lr)}">${rate(lr)}</span></div>
+              <div class="sc-lc-h"><span class="sc-lc-n" title="${esc(l.name)}">${srcListLabel(l.name)}</span><span class="sc-r ${rcls(lr)}">${rate(lr)}</span></div>
               <div class="sc-lc-k"><span><b>${l.件数.toLocaleString()}</b>件</span><span>未架電 ${l.未架電.toLocaleString()}</span><span>配れる ${l.配れる.toLocaleString()}</span>${l.ナーチャリング ? `<span class="hub-src-nur">ナーチャ ${l.ナーチャリング}</span>` : ""}</div>
               <div class="sc-lc-bar">${bar}</div>
               <div class="sc-lc-w">${who}${ws.length > 3 ? ` ほか${ws.length - 3}人` : ""}</div>
@@ -5956,6 +6006,7 @@ async function hubRenderSources() {
     pane.querySelectorAll("[data-sel]").forEach((b) => b.addEventListener("click", () => { _srcSel = b.dataset.sel; hubRenderSources(); }));
     const give = $("scGive");
     if (give) give.addEventListener("click", () => openSourceDistribute(_srcSel, d, isFrame && fobj ? fobj.label : _srcSel));
+    pane.querySelectorAll("[data-lv]").forEach((b) => b.addEventListener("click", () => { _srcListView = b.dataset.lv; try { localStorage.setItem("kcSrcLv", _srcListView); } catch {} hubRenderSources(); }));
     pane.querySelectorAll(".sc-lc-give").forEach((b) => b.addEventListener("click", () => openSourceDistribute("list:" + b.dataset.id, d, b.dataset.name)));
     pane.querySelectorAll(".sc-lc-open").forEach((b) => b.addEventListener("click", () => openListFromSource(b.dataset.id, b.dataset.name, b.dataset.owner)));
     pane.querySelectorAll(".hub-src-go").forEach((btn) => btn.addEventListener("click", async () => {

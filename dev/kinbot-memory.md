@@ -1260,3 +1260,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04j ソースタブを案C（マスター・ディテール）に：/api/calls/sources に rates（apoStructureRows 直近3か月：bySrc・byFrame（nurture は架電時ナーチャリング）・all、各 m（月）・mem（人））。calls.js hubRenderSources を左一覧（枠＋ソース、アポ率の色：2%以上緑/0.5〜2%黄/未満赤）＋右詳細（件数・アポ率・未架電・配れる、担当別の件数とアポ率、月ごとのアポ率の棒、メンバーに配る）に作り直し、選択は _srcSel。要確認は下の details に。版20261004j。
 
 - 2026-10-04 BUILD_TAG=2026-10-04k ソースタブ右下に「このソースのリスト」カード：db.leadSourceLists（source×list の件数・未架電・配れる・ナーチャ・担当別）、rates.byList（apoStructureRows の source|list_id）。カードの「中身を見る」＝openListFromSource（edShared を nmHostSlot に持ってきて orgLoadEdit([id])、戻る＝nmExitHost が _hubTab!==ls なら hubShow で元のタブへ）、「このリストから配る」＝openSourceDistribute("list:id")（scopeSql に list: を追加）。版20261004k。
+
+- 2026-10-04 BUILD_TAG=2026-10-04l ソース詳細のリスト表示に切替（_srcListView：member既定／list、localStorage kcSrcLv）。srcMemberView：d.lists[source] の担当別を人ごとに集計し、人カード（件数・リスト数・rates.bySrc[source].mem のアポ率）＋その人のリスト行（件数・rates.byList・中身/配るボタン）。未割り当ては最後。srcListLabel でリスト名の前置き（インターン生最新用だよ 等）を省き【復活】は印に。版20261004l。
