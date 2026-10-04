@@ -1266,3 +1266,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04m ダッシュボードの dashMetric を localStorage に保存しない（開くといつもアポ）。版20261004m。
 
 - 2026-10-04 BUILD_TAG=2026-10-04n 架電記録時のリサイクル復活の自動補充（3c：ensureRecycleRevivalList＋pickRecycleCandidateForGroup→moveCallTargets）を既定停止、AUTO_REVIVE=1 で復活。手動の復活（横断検索・リサイクルタブ）は残す。版20261004n。
+
+- 2026-10-04 BUILD_TAG=2026-10-04o nmRenderDetail（メンバー別）：【ナーチャリング】名 or グループ名ナーチャリングのリストは個別カードから外し、先頭に「ナーチャリング（〇〇のまとめ）」カード（各リストの ナーチャリング 数＋入れ物リストの残の合計、上位5リスト内訳、中身を見る＝nmGoEditVirtual('nurture-all', …, member)）。版20261004o。

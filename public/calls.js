@@ -1849,6 +1849,10 @@ function renderDock() {
     .fr-d0{background:#fbfdfc;} .fr-rate{font-weight:700;color:#1f2d28;}
     .fr-tg{display:inline-block;width:14px;color:#1d9e75;} .fr-tg0{color:transparent;}
     .fr-sub{display:block;font-size:10px;color:#8aa39a;}
+    .nm-nurcard{border-color:#b5d4f4 !important;background:#f4f8fc !important;}
+    .nm-nurcard .nm-lname-t{color:#185fa5;font-weight:800;}
+    .nm-nur-parts{font-size:11px;color:#3d4f47;display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;}
+    .nm-nur-parts div{display:flex;justify-content:space-between;gap:8px;} .nm-nur-parts span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -6597,6 +6601,29 @@ function nmRenderDetail() {
   const idset = new Set(ls.map((x) => String(x.id)));
   _nmChosen = new Set([..._nmChosen].filter((id) => idset.has(String(id))));
   const movable = _nmMembers.filter((m) => !NM_EX.includes(String(m.email || "").toLowerCase()));
+  // ナーチャリングは、その人の各リストでナーチャリング（ジャッジ・営業フォロー）になっているリードの集まりとして、1枚のカードにまとめる。
+  // 【ナーチャリング】〇〇 のような入れ物のリストは、このまとめのカードに含めて、個別のカードには出さない。
+  const isNurList = (x) => /【\s*ナーチャリング\s*】/.test(String(x.name || "")) || /ナーチャリング/.test(String(x.group_name || ""));
+  let nurCard = "";
+  if (_nmSel.type === "owner" && _nmSel.key !== "__other__") {
+    const parts = [];
+    let nurTotal = 0;
+    for (const x of ls) {
+      if (x.hidden) continue;
+      const n = isNurList(x) ? Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0) : Number(x.ナーチャリング || 0);
+      if (n > 0) parts.push({ name: x.name, n });
+      nurTotal += n;
+    }
+    ls = ls.filter((x) => !isNurList(x));
+    parts.sort((a, b) => b.n - a.n);
+    nurCard = `<div class="nm-lcard nm-nurcard">
+      <div class="nm-lcard-name"><span class="nm-lname-t">ナーチャリング（${esc(_nmSel.name)}のまとめ）</span></div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${nurTotal.toLocaleString()}</span></div>
+      <div class="nm-lcard-sub">ジャッジ・営業フォローのリードを、各リストから集めたもの</div>
+      <div class="nm-nur-parts">${parts.slice(0, 5).map((p) => `<div><span title="${esc(p.name)}">${esc(p.name)}</span><b>${p.n}</b></div>`).join("") || '<div style="color:#8aa39a">まだありません</div>'}${parts.length > 5 ? `<div style="color:#8aa39a">ほか${parts.length - 5}リスト</div>` : ""}</div>
+      <div class="nm-lcard-ops"><button type="button" class="btn ghost nm-nur-open" style="padding:4px 12px">中身を見る</button></div>
+    </div>`;
+  }
   const rows = ls.map((x) => {
     const nur = Number(x.ナーチャリング || 0), zan = Number(x.残ステータス || 0) + nur, all = Number(x.全部 || 0);
     const sub = _nmSel.type === "owner" ? (x.group_name ? ("グループ：" + x.group_name) : "") : ("担当：" + nmMemberName(x.owner));
@@ -6614,10 +6641,11 @@ function nmRenderDetail() {
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
   body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${visN} リスト${ls.length > visN ? `（非表示 ${ls.length - visN}）` : ""}</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
-    `<div class="nm-lgrid">${rows || '<div class="empty-state">リストがありません</div>'}</div><span class="rev-status" id="nmOpSt"></span>` +
+    `<div class="nm-lgrid">${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}</div><span class="rev-status" id="nmOpSt"></span>` +
     `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+  body.querySelectorAll(".nm-nur-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("nurture-all", `ナーチャリング - ${_nmSel.name}`, _nmSel.key)));
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-unhide").forEach((b) => b.addEventListener("click", () => nmUnhide(b.dataset.id, b.dataset.name)));
