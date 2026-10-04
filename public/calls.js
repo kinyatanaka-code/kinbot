@@ -118,6 +118,13 @@ async function loadLists() {
     if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
     _clCounts = { all: items.reduce((s, x) => s + Number(x.残り || 0), 0) };
     _clCounts.today = items.filter((x) => !x.hidden).reduce((s, x) => s + Number(x.残り || 0), 0);
+    // 今日かけるリードの数字は「かける先」の数にしたいので、裏で取って数え直す
+    (async () => {
+      try {
+        const d0 = await (await fetch("/api/calls/targets?list=today")).json();
+        if (d0 && Array.isArray(d0.items)) { _clCounts.today = d0.items.filter((x) => !isDone(x)).length; renderClPills(); }
+      } catch {}
+    })();
     for (const x of items) _clCounts[String(x.id)] = Number(x.残り || 0);
     renderClPills();
     {
@@ -927,6 +934,13 @@ function render() {
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
     (_sfDisconnected ? `<div class="kc-sfwarn">Salesforceに接続できていないため、履歴（SFの活動件数）が表示できません。履歴が消えたわけではありません。設定 → Salesforce連携で再連携してください。</div>` : "") +
+    (() => {   // 今日かけるリードのリストの数字は「かける先」の数（絞り込み前）にそろえる
+      if (listId === "today") {
+        const n = rows.filter((x) => !isDone(x)).length;
+        if (_clCounts.today !== n) { _clCounts.today = n; try { renderClPills(); } catch {} }
+      }
+      return "";
+    })() +
     `<div class="kc-summary">かける先 <b>${fullList.length - doneN}</b> 件` +
     (doneN
       ? `／${内訳}` +

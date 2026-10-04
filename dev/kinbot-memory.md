@@ -1290,3 +1290,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05a 今日かけるリードが表示されない：calls.js の listId の特別値の一覧（125・152行付近）に today が無く 0 扱いになっていた。today を追加、selectedIds.clear と リスト操作不可（全てのリードと同じ）にも追加。版20261005a。
 
 - 2026-10-05 BUILD_TAG=2026-10-05b 会社名の見出し（#kcCoFlt）→ openTagFilter。rowTags(x)＝"種類|値"（印：ナーチャリング/使われていない番号/ユーザー/失注/アポ獲得済み/復活、ソース、リスト（元のリスト or リスト名）、不在A/B/C、営業中/営業時間外、架電予定あり/時刻が来た/なし）。filt.tags（localStorage kcFilt に保存）で visibleRows：種類内 OR・種類間 AND。窓に addSortBar(company)。版20261005b。
+
+- 2026-10-05 BUILD_TAG=2026-10-05d _clCounts.today：loadLists で /api/calls/targets?list=today を裏で取り !isDone を数える、render で listId=today のとき rows の !isDone 数に更新（絞り込み前のかける先）。版20261005d。
