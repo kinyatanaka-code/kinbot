@@ -10387,36 +10387,49 @@ app.get("/api/calls/targets", async (req, res) => {
       const byPri = (a, b) => { const x = pri(a), y = pri(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
       const nurDue = live.filter((r) => isNur(r) && r.next_call_at).sort(byPri);   // かけられるナーチャリング＝架電予定が今日までのもの
       const rest = live.filter((r) => !isNur(r));
-      const past = rest.filter((r) => frameOfSource(r.source || "") === "past").sort(byPri).slice(0, PAST_N);
-      // 新規リストは、全体の想定アポ率が目標（TODAY_TARGET_RATE、既定3%）に近くなるように選ぶ。
-      // 想定アポ率の高いリストのリードを何件入れるかを変えながら、目標にいちばん近い組み合わせにする（足りないときは高い方から）。
+      // 想定アポ率が目標（TODAY_TARGET_RATE、既定3%）になるように組み立てる。
+      //   過去リストは上限なし：最初は30件（TODAY_PAST）ほどから、足りなければ3%に届くまで増やす。
+      //   新規リストは、想定の高いリストのリードを何件入れるかも調整して、残りの枠を埋める。
       const TARGET = Math.max(0, Number(process.env.TODAY_TARGET_RATE || "0.03")) || 0.03;
       const rates = await computeApoRates(3).catch(() => null);
       const allR = rates && rates.all && rates.all.calls ? rates.all.apos / rates.all.calls : 0;
       const nurR = rates ? ((rates.expectedNurture.byCaller[member] || {}).rate ?? rates.expectedNurture.rate ?? allR) : 0;
       const expOf = (r) => isNur(r) ? nurR : ((rates && rates.expected[String(r.list_id)]) || {}).rate ?? allR;
+      const pastAll = rest.filter((r) => frameOfSource(r.source || "") === "past").sort(byPri);
       const freshCand = rest.filter((r) => frameOfSource(r.source || "") !== "past");
-      const N = Math.max(0, Math.min(freshCand.length, TOTAL - nurDue.length - past.length));
-      const P = [...freshCand].sort(byPri);                                  // いつもの順
-      const H = [...freshCand].sort((a, b) => expOf(b) - expOf(a) || byPri(a, b));   // 想定の高い順
-      const base = [...nurDue, ...past].reduce((a, r) => a + expOf(r), 0);
-      const pickWith = (k) => {
-        const taken = new Set(H.slice(0, k).map((r) => r.id));
-        const sel = H.slice(0, k);
+      const P = [...freshCand].sort(byPri);
+      const H = [...freshCand].sort((a, b) => expOf(b) - expOf(a) || byPri(a, b));
+      const slots = Math.max(0, TOTAL - nurDue.length);
+      const nurSum = nurDue.reduce((a, r) => a + expOf(r), 0);
+      const freshPick = (k, N) => {
+        const taken = new Set(), sel = [];
+        for (const r of H.slice(0, k)) { sel.push(r); taken.add(r.id); }
         for (const r of P) { if (sel.length >= N) break; if (!taken.has(r.id)) { sel.push(r); taken.add(r.id); } }
         return sel;
       };
-      let best = pickWith(0), bestGap = Infinity, bestAvg = 0;
-      const total = nurDue.length + past.length + N;
-      const step = Math.max(1, Math.ceil(N / 60));
-      for (let k = 0; k <= N; k += step) {
-        const sel = pickWith(k);
-        const avg = total ? (base + sel.reduce((a, r) => a + expOf(r), 0)) / total : 0;
-        const gap = Math.abs(avg - TARGET) + (avg < TARGET ? 0.0001 : 0);   // 同じ近さなら目標以上を選ぶ
-        if (gap < bestGap) { bestGap = gap; best = sel; bestAvg = avg; }
-        if (avg >= TARGET && k > 0) break;   // 目標に届いたら、それ以上高い方へは寄せない
+      // 過去リストの件数 pc を、30件ほどから増やしながら試す（各 pc で新規の入れ方も試す）
+      let best = null;
+      const pcStart = Math.min(PAST_N, pastAll.length, slots);
+      const pcStep = Math.max(1, Math.ceil(Math.max(1, Math.min(pastAll.length, slots) - pcStart) / 40));
+      for (let pc = pcStart; pc <= Math.min(pastAll.length, slots); pc += pcStep) {
+        const past = pastAll.slice(0, pc);
+        const pastSum = past.reduce((a, r) => a + expOf(r), 0);
+        const N = Math.max(0, Math.min(freshCand.length, slots - pc));
+        const total = nurDue.length + pc + N;
+        const kStep = Math.max(1, Math.ceil(N / 40));
+        let hit = null;
+        for (let k = 0; k <= N; k += kStep) {
+          const fr = freshPick(k, N);
+          const avg = total ? (nurSum + pastSum + fr.reduce((a, r) => a + expOf(r), 0)) / total : 0;
+          const cand = { past, fresh: fr, avg, gap: Math.abs(avg - TARGET) };
+          if (!best || (avg >= TARGET && (best.avg < TARGET || cand.gap < best.gap)) || (best.avg < TARGET && avg > best.avg)) best = cand;
+          if (avg >= TARGET) { hit = cand; break; }   // この過去リストの件数で届いた
+        }
+        if (hit) break;   // 届いたら、過去リストをそれ以上は増やさない
+        if (pc === Math.min(pastAll.length, slots)) break;
       }
-      const fresh = best.sort(byPri);
+      if (!best) best = { past: [], fresh: [], avg: 0 };
+      const past = best.past, fresh = best.fresh.sort(byPri), bestAvg = best.avg;
       rows = [...nurDue, ...past, ...fresh];
       todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 過去の目安: PAST_N,
         目標アポ率: TARGET, 想定アポ率: Math.round(bestAvg * 10000) / 10000, 想定アポ数: Math.round(bestAvg * rows.length * 10) / 10 };
@@ -22616,7 +22629,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05j 今日かけるリードを、想定アポ率が3%に近くなるように組み立てるようにした。ナーチャリング全部・過去リスト30件ほどはそのままで、新規リストの中から想定アポ率の高いリストのリードを、全体が3%に近づくぶんだけ入れる（届かないときは高い方から）。目標は TODAY_TARGET_RATE で変えられる。";
+const BUILD_TAG = "2026-10-05k 今日かけるリードの過去リストの上限をなくし、想定アポ率が3%に届くまで過去リストを増やせるようにした（30件ほどから始めて足りなければ増やす）。かける画面からはアポ率の表示を外した（件数の内訳だけ）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

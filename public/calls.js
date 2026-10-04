@@ -200,13 +200,6 @@ async function loadTable() {
     kinds = d["結果の種類"] || [];
     rows = d.items || [];
     _todayPlan = d.todayPlan || null;
-    if (listId === "today") kcGetRates().then(async (rt) => {
-      const el = $("kcTodayExp"); if (!el) return;
-      let meEmail = "";
-      try { if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null); const me = await _meP; meEmail = String((me && (me.username || me.email)) || ""); } catch {}
-      const ex = leadsExpected(rows.filter((x) => !isDone(x)), rt, callAsMember || meEmail);
-      el.textContent = ex ? `想定アポ率 ${(Math.round(ex.rate * 1000) / 10).toFixed(1)}%・想定アポ ${ex.apos.toFixed(1)}件` : "想定 —";
-    });
     _pastLost = !!d.pastLost;   // 過去失注のリスト（DOC過去失注グループ）は見せ方を変える
     _sfDisconnected = !!d["SF未接続"];
     render();
@@ -960,7 +953,7 @@ function render() {
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
     (_sfDisconnected ? `<div class="kc-sfwarn">Salesforceに接続できていないため、履歴（SFの活動件数）が表示できません。履歴が消えたわけではありません。設定 → Salesforce連携で再連携してください。</div>` : "") +
-    (_todayPlan && listId === "today" ? `<div class="kc-today-plan">今日の組み立て：<b>${_todayPlan.合計}</b>件（目安${_todayPlan.目安}件）　${_todayPlan.目標アポ率 != null ? `<span class="kc-today-goal${_todayPlan.想定アポ率 >= _todayPlan.目標アポ率 ? " ok" : ""}">目標 ${(_todayPlan.目標アポ率 * 100).toFixed(1)}% → 組み立ての想定 ${(_todayPlan.想定アポ率 * 100).toFixed(1)}%（約${_todayPlan.想定アポ数}件）</span>　` : ""}<span class="nm-exp" id="kcTodayExp" title="想定アポ率：ナーチャリングはその人のナーチャリングの想定、それ以外は入っているリストの想定アポ率で見込んだ平均">想定 …</span>　<span class="kc-src-tag nur">ナーチャリング ${_todayPlan.ナーチャリング}</span> <span class="kc-src-tag past">過去リスト ${_todayPlan.過去リスト}</span> <span class="kc-src-tag new">新規リスト ${_todayPlan.新規リスト}</span><span class="kc-today-note">ナーチャリングは架電予定が今日までのもの全部、過去リストは${_todayPlan.過去の目安}件ほど、残りを新規リストで埋めています。</span></div>` : "") +
+    (_todayPlan && listId === "today" ? `<div class="kc-today-plan">今日の組み立て：<b>${_todayPlan.合計}</b>件（目安${_todayPlan.目安}件）　<span class="kc-src-tag nur">ナーチャリング ${_todayPlan.ナーチャリング}</span> <span class="kc-src-tag past">過去リスト ${_todayPlan.過去リスト}</span> <span class="kc-src-tag new">新規リスト ${_todayPlan.新規リスト}</span><span class="kc-today-note">ナーチャリングは架電予定が今日までのもの全部、過去リストと新規リストは見込みのよいリードを選んで埋めています。</span></div>` : "") +
     (() => {   // 今日かけるリードのリストの数字は「かける先」の数（絞り込み前）にそろえる
       if (listId === "today") {
         const n = rows.filter((x) => !isDone(x)).length;
