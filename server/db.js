@@ -4665,7 +4665,8 @@ export async function leadSourceSummary() {
               count(*)::int AS n,
               count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id))::int AS untouched,
               count(*) FILTER (WHERE ${LEAD_NURTURE_SQL})::int AS nurture,
-              count(*) FILTER (WHERE ${LEAD_DISTRIBUTABLE_SQL})::int AS distributable
+              count(*) FILTER (WHERE ${LEAD_DISTRIBUTABLE_SQL})::int AS distributable,
+              count(*) FILTER (WHERE ${LEAD_NURTURE_SQL} AND ${LEAD_LIVE_SQL})::int AS nurture_live
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE NOT COALESCE(l.closed, false)
         GROUP BY 1, 2`);
@@ -4674,7 +4675,7 @@ export async function leadSourceSummary() {
       if (!bySrc.has(r.source)) bySrc.set(r.source, { source: r.source, 件数: 0, 未架電: 0, 未割り当て: 0, ナーチャリング: 0, 配れる未割り当て: 0, 担当別: {} });
       const o = bySrc.get(r.source);
       o.件数 += r.n; o.未架電 += r.untouched; o.ナーチャリング += r.nurture;
-      if (!r.assigned) o.配れる未割り当て += r.distributable;
+      if (!r.assigned) { o.配れる未割り当て += r.distributable; o.配れるナーチャリング未割り当て = (o.配れるナーチャリング未割り当て || 0) + r.nurture_live; }
       if (!r.assigned) o.未割り当て += r.n; else o.担当別[r.assigned] = (o.担当別[r.assigned] || 0) + r.n;
     }
     const { rows: unk } = await pool.query(
@@ -4682,27 +4683,65 @@ export async function leadSourceSummary() {
          FROM call_lists l JOIN call_targets t ON t.list_id = l.id
         WHERE t.source = $1 AND NOT COALESCE(l.closed, false)
         GROUP BY l.id, l.name ORDER BY n DESC LIMIT 100`, [SOURCE_UNKNOWN]);
-    return { sources: [...bySrc.values()].sort((a, b) => b.件数 - a.件数), unknownLists: unk };
+    const sources = [...bySrc.values()].sort((a, b) => b.件数 - a.件数);
+    // 大きな枠ごとの合計（ナーチャリングはどのソースからも集める）
+    const frames = Object.entries(LEAD_FRAMES).map(([key, f]) => ({ key, label: f.label, 件数: 0, 配れる未割り当て: 0 }));
+    const fr = Object.fromEntries(frames.map((x) => [x.key, x]));
+    for (const x of sources) {
+      const k = frameOfSource(x.source);
+      if (fr[k]) { fr[k].件数 += x.件数 - x.ナーチャリング; fr[k].配れる未割り当て += x.配れる未割り当て; }
+      fr.nurture.件数 += x.ナーチャリング; fr.nurture.配れる未割り当て += x.配れるナーチャリング未割り当て || 0;
+      x.枠 = k;
+    }
+    return { sources, frames, unknownLists: unk };
   } catch (e) { console.error("[db] leadSourceSummary", e.message); return { sources: [], unknownLists: [], error: e.message }; }
 }
 // ナーチャリング＝ステージか最終ステータスが「ジャッジ」または「営業フォロー」のリード（タグとして数える）
 export const LEAD_NURTURE_SQL = `(COALESCE(t.stage,'') ILIKE '%ジャッジ%' OR COALESCE(t.status,'') ILIKE '%ジャッジ%' OR COALESCE(t.stage,'') ILIKE '%営業フォロー%' OR COALESCE(t.status,'') ILIKE '%営業フォロー%')`;
-// 配れるリード：ナーチャリングでなく、アポ・ユーザー・失注・アーカイブ・リサイクル・使われていない番号でないもの
-export const LEAD_DISTRIBUTABLE_SQL = `(NOT ${LEAD_NURTURE_SQL}
-  AND COALESCE(t.stage,'') !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
+// もう配らないリード：アポ・ユーザー・失注・アーカイブ・リサイクル・使われていない番号
+export const LEAD_LIVE_SQL = `(COALESCE(t.stage,'') !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
   AND COALESCE(t.status,'') !~ 'アポ獲得|ユーザー|失注|使われて|現在使わ|現アナ|欠番|不通')`;
+// 配れるリード（新規・過去の枠）：ナーチャリングでなく、まだ生きているもの
+export const LEAD_DISTRIBUTABLE_SQL = `(NOT ${LEAD_NURTURE_SQL} AND ${LEAD_LIVE_SQL})`;
+
+// ===== 大きな枠（新規リスト／過去リスト／ナーチャリング） =====
+// ナーチャリングはタグ：どのソースでも、ジャッジ・営業フォローならナーチャリングの枠に入り、新規・過去からは外す。
+export const LEAD_FRAMES = {
+  new: { label: "新規リスト", sources: ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"] },
+  past: { label: "過去リスト", sources: ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"] },
+  nurture: { label: "ナーチャリング", sources: [] },
+};
+export function frameOfSource(src) {
+  for (const [k, f] of Object.entries(LEAD_FRAMES)) if (f.sources.includes(src)) return k;
+  return "other";
+}
+// 「src:ソース名」か「frame:new|past|nurture」の範囲を、SQLの条件にする。forDistribute=true は配れるものだけ
+function scopeSql(key, p, forDistribute) {
+  const k = String(key || "");
+  if (k.startsWith("frame:")) {
+    const f = k.slice(6);
+    if (f === "nurture") return forDistribute ? `(${LEAD_NURTURE_SQL} AND ${LEAD_LIVE_SQL})` : LEAD_NURTURE_SQL;
+    const fr = LEAD_FRAMES[f]; if (!fr) return "false";
+    p.push(fr.sources);
+    return `(t.source = ANY($${p.length}) AND ${forDistribute ? LEAD_DISTRIBUTABLE_SQL : `NOT ${LEAD_NURTURE_SQL}`})`;
+  }
+  const src = k.startsWith("src:") ? k.slice(4) : k;
+  p.push(src);
+  return `(t.source = $${p.length}${forDistribute ? ` AND ${LEAD_DISTRIBUTABLE_SQL}` : ""})`;
+}
 
 // ソースから配るリードの候補（from：'' は未割り当て、メールならその人の担当分）。未架電を先に、古い順。
 export async function sourceDistributeCandidates(source, { from = "", limit = 5000 } = {}) {
   if (!pool || !source) return [];
-  const p = [source];
+  const p = [];
+  const scope = scopeSql(source, p, true);
   let who = `COALESCE(NULLIF(btrim(t.assigned_to),''),'') = ''`;
   if (from) { p.push(String(from).toLowerCase()); who = `lower(COALESCE(t.assigned_to,'')) = $${p.length}`; }
   p.push(Math.max(1, Math.min(20000, limit)));
   const { rows } = await pool.query(
     `SELECT t.id, EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id) AS called
        FROM call_targets t JOIN call_lists l ON l.id = t.list_id
-      WHERE t.source = $1 AND ${who} AND ${LEAD_DISTRIBUTABLE_SQL} AND NOT COALESCE(l.closed,false)
+      WHERE ${scope} AND ${who} AND NOT COALESCE(l.closed,false)
       ORDER BY called, t.id
       LIMIT $${p.length}`, p);
   return rows;
@@ -4710,12 +4749,16 @@ export async function sourceDistributeCandidates(source, { from = "", limit = 50
 // そのソースでの、人ごとのアポ率（直近 days 日の架電記録から：アポ獲得の数 ÷ かけた数）
 export async function sourceMemberRates(source, emails, days = 60) {
   if (!pool || !source || !emails || !emails.length) return {};
+  const p = [];
+  const scope = scopeSql(source, p, false);
+  p.push(emails.map((e) => String(e).toLowerCase())); const ie = p.length;
+  p.push(String(days)); const id = p.length;
   const { rows } = await pool.query(
     `SELECT lower(l.caller) AS caller, count(*)::int AS calls,
             count(*) FILTER (WHERE l.result ~ 'アポ獲得')::int AS apos
        FROM call_logs l JOIN call_targets t ON t.id = l.target_id
-      WHERE t.source = $1 AND lower(l.caller) = ANY($2) AND l.at >= now() - ($3 || ' days')::interval
-      GROUP BY 1`, [source, emails.map((e) => String(e).toLowerCase()), String(days)]);
+      WHERE ${scope} AND lower(l.caller) = ANY($${ie}) AND l.at >= now() - ($${id} || ' days')::interval
+      GROUP BY 1`, p);
   const out = {};
   for (const r of rows) out[r.caller] = { calls: r.calls, apos: r.apos, rate: r.calls ? r.apos / r.calls : 0 };
   return out;

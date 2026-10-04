@@ -1775,6 +1775,14 @@ function renderDock() {
     .hub-src-sub{grid-column:1 / -1;font-size:11px;color:#6b8a7d;}
     .hub-src-h{margin:10px 0 4px;font-size:13px;color:#0d5b47;}
     .hub-src-nur{color:#2f6c9e;}
+    .hub-frame{border:1px solid #d7e6df;border-radius:14px;padding:10px;background:#f8fbf9;display:flex;flex-direction:column;gap:6px;}
+    .hub-frame-past{background:#fcf7f4;border-color:#efd9cf;}
+    .hub-frame-nurture{background:#f4f8fc;border-color:#d3e2f0;}
+    .hub-frame-other{background:#fafafa;}
+    .hub-frame-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:2px 4px;}
+    .hub-frame-t{font-size:14px;font-weight:800;color:#0d5b47;}
+    .hub-frame-past .hub-frame-t{color:#993c1d;} .hub-frame-nurture .hub-frame-t{color:#185fa5;}
+    .hub-frame-n{font-size:12px;color:#5b7a6d;} .hub-frame-n b{font-size:15px;color:#1f3a30;}
     .hub-src-dist{margin-left:8px;border:1px solid #1d9e75;background:#fff;color:#0d5b47;border-radius:999px;padding:1px 10px;font:inherit;font-size:11px;font-weight:700;cursor:pointer;}
     .hub-src-dist:hover{background:#e3f4ed;}
     .sd-row{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:6px 0;font-size:13px;}
@@ -5681,22 +5689,26 @@ function hubShow(tab) {
 }
 
 // ソースからメンバーに配る（担当を書き換えるだけ）。均等／アポ率に応じて。先に配分を見てから実行する
-async function openSourceDistribute(source, summary) {
+async function openSourceDistribute(source, summary, label) {
   let mem = [];
   try { mem = ((await (await fetch("/api/calls/members")).json()).items || []).filter((m) => m.email); } catch {}
-  const s0 = (summary.sources || []).find((x) => x.source === source) || {};
-  const owners = Object.keys(s0.担当別 || {});
+  const isFrame = String(source).startsWith("frame:");
+  const s0 = isFrame ? ((summary.frames || []).find((f) => "frame:" + f.key === source) || {}) : ((summary.sources || []).find((x) => x.source === source) || {});
+  const owners = isFrame
+    ? [...new Set((summary.sources || []).filter((x) => source === "frame:nurture" || x.枠 === source.slice(6)).flatMap((x) => Object.keys(x.担当別 || {})))]
+    : Object.keys(s0.担当別 || {});
+  const title = label || source;
   const inside = mem.filter((m) => m.インサイド);
   const others = mem.filter((m) => !inside.includes(m));
   const box = (m, on) => `<label class="sd-m"><input type="checkbox" value="${esc(m.email)}"${on ? " checked" : ""} /> ${esc(m.name || m.email)}</label>`;
-  const m = openModal(`「${source}」をメンバーに配る`, `
+  const m = openModal(`「${title}」をメンバーに配る`, `
     <div class="note" style="margin-bottom:8px">配ったリードは担当が変わるだけで、リストは増えません。ナーチャリング（ジャッジ・営業フォロー）とアポ・失注・アーカイブなどは配りません。</div>
     <div class="sd-row"><label>どこから
       <select id="sdFrom" class="kc-input" style="max-width:220px"><option value="">未割り当て（配れる ${Number(s0.配れる未割り当て || 0).toLocaleString()}件）</option>
       ${owners.map((e) => `<option value="${esc(e)}">${esc(hubNm(e))} の担当分</option>`).join("")}</select></label>
       <label>何件 <input id="sdN" type="number" min="1" class="kc-input" style="width:90px" value="100" /></label></div>
     <div class="sd-row"><label><input type="radio" name="sdMode" value="equal" checked /> 均等に配る</label>
-      <label><input type="radio" name="sdMode" value="rate" /> そのソースでのアポ率に応じて配る（直近60日）</label></div>
+      <label><input type="radio" name="sdMode" value="rate" /> ${isFrame ? "この枠" : "このソース"}でのアポ率に応じて配る（直近60日）</label></div>
     <div style="font-size:12px;font-weight:700;margin:8px 0 4px">配る人</div>
     ${inside.length ? `<div class="sd-g">インサイド</div><div class="sd-ms">${inside.map((x) => box(x, true)).join("")}</div>` : ""}
     ${others.length ? `<div class="sd-g">セールス・ほか</div><div class="sd-ms">${others.map((x) => box(x, false)).join("")}</div>` : ""}
@@ -5717,7 +5729,7 @@ async function openSourceDistribute(source, summary) {
       const r = await fetch("/api/calls/sources/distribute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...b, dryRun: true }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || "計算できませんでした");
       prev.innerHTML = `<div class="note">配れるのは ${d.available.toLocaleString()}件 のうち ${d.total.toLocaleString()}件 です。</div>
-        <table class="sh-table" style="width:100%"><tr><th>メンバー</th><th style="text-align:right">このソースのアポ率</th><th style="text-align:right">配る件数</th></tr>
+        <table class="sh-table" style="width:100%"><tr><th>メンバー</th><th style="text-align:right">${isFrame ? "この枠" : "このソース"}のアポ率</th><th style="text-align:right">配る件数</th></tr>
         ${d.plan.map((p) => `<tr><td>${esc(hubNm(p.email))}</td><td style="text-align:right">${p.アポ率 == null ? "—" : p.アポ率 + "%"}<span style="color:#8aa39a;font-size:11px">${p.架電数 ? `（${p.アポ}/${p.架電数}）` : "（記録なし）"}</span></td><td style="text-align:right"><b>${p.件数}</b></td></tr>`).join("")}</table>`;
       go.disabled = !d.total;
     } catch (e) { prev.innerHTML = `<div class="note" style="color:#b0452f">${esc(e.message)}</div>`; }
@@ -5752,9 +5764,24 @@ async function hubRenderSources() {
         <div class="hub-src-bar"><i style="width:${Math.max(2, Math.round(x.件数 / max * 100))}%"></i></div>
         <div class="hub-src-n"><b>${x.件数.toLocaleString()}</b>件<span>${Math.round(x.件数 / total * 100)}%</span></div>
         <div class="hub-src-sub">未架電 ${x.未架電.toLocaleString()}・未割り当て ${x.未割り当て.toLocaleString()}（配れる ${Number(x.配れる未割り当て || 0).toLocaleString()}）・<span class="hub-src-nur">ナーチャリング ${Number(x.ナーチャリング || 0).toLocaleString()}</span>${top ? `　｜　${top}` : ""}
-          ${warn ? "" : `<button type="button" class="hub-src-dist" data-src="${esc(x.source)}">メンバーに配る</button>`}</div>
-      </div>`;
+          ${warn ? "" : `<button type="button" class="hub-src-dist" data-src="${esc(x.source)}">このソースから配る</button>`}</div>
+      </div><!--r-->`;
     }).join("");
+    // 3つの大きな枠（新規リスト／過去リスト／ナーチャリング）でまとめる
+    const srcRow = (x) => rows.split("<!--r-->").find((h) => h.includes(`data-src="${esc(x.source)}"`) || h.includes(`>${esc(x.source)}</div>`)) || "";
+    const frameIco = { new: "ti-sparkles", past: "ti-history", nurture: "ti-plant-2" };
+    const byFrame = (k) => (d.sources || []).filter((x) => x.枠 === k);
+    const frameHtml = (d.frames || []).map((f) => {
+      const inner = f.key === "nurture"
+        ? `<div class="note" style="margin:4px 0 0">ジャッジ・営業フォローのリードを、どのソースからも集めた枠です（ソースごとの内訳は各行の「ナーチャリング ○件」）。</div>`
+        : byFrame(f.key).map(srcRow).join("");
+      return `<div class="hub-frame hub-frame-${f.key}">
+        <div class="hub-frame-h"><span class="hub-frame-t">${esc(f.label)}</span>
+          <span class="hub-frame-n"><b>${f.件数.toLocaleString()}</b>件・配れる未割り当て ${f.配れる未割り当て.toLocaleString()}</span>
+          <button type="button" class="hub-src-dist" data-src="frame:${f.key}" data-label="${esc(f.label)}">この枠からメンバーに配る</button></div>
+        ${inner}</div>`;
+    }).join("");
+    const otherRows = (d.sources || []).filter((x) => x.枠 === "other").map(srcRow).join("");
     const opts = (d.choices || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
     const unkRows = (d.unknownLists || []).map((l) => `<tr data-id="${l.id}">
         <td>${esc(l.name)}</td><td style="text-align:right">${l.n.toLocaleString()}</td>
@@ -5762,11 +5789,12 @@ async function hubRenderSources() {
         <td><button type="button" class="btn ghost hub-src-go" style="padding:4px 12px">決める</button> <span class="hub-src-st"></span></td></tr>`).join("");
     pane.innerHTML = `
       <p class="note">リード1件ずつに付けた「ソース」（どこから来たリードか）の集計です。リストのグループの設定 → リスト名、の順で自動で付けています。リストを移ってもソースは変わりません。</p>
-      <div class="hub-src-list">${rows || '<div class="note">まだソースが付いていません。</div>'}</div>
+      <div class="hub-src-list">${frameHtml || rows || '<div class="note">まだソースが付いていません。</div>'}
+        ${otherRows ? `<div class="hub-frame hub-frame-other"><div class="hub-frame-h"><span class="hub-frame-t">その他・要確認</span></div>${otherRows}</div>` : ""}</div>
       <h4 class="hub-src-h">要確認のリスト（${(d.unknownLists || []).length}本）</h4>
       <p class="note">いろいろなソースが混ざっていて、自動で決められなかったリストです。リストごとにソースを選ぶと、そのリストのリードにまとめて付けます。</p>
       ${unkRows ? `<div style="overflow-x:auto"><table class="sh-table" style="width:100%"><tr><th>リスト</th><th style="text-align:right">件数</th><th>ソース</th><th></th></tr>${unkRows}</table></div>` : '<div class="note">要確認のリストはありません。</div>'}`;
-    pane.querySelectorAll(".hub-src-dist").forEach((btn) => btn.addEventListener("click", () => openSourceDistribute(btn.dataset.src, d)));
+    pane.querySelectorAll(".hub-src-dist").forEach((btn) => btn.addEventListener("click", () => openSourceDistribute(btn.dataset.src, d, btn.dataset.label)));
     pane.querySelectorAll(".hub-src-go").forEach((btn) => btn.addEventListener("click", async () => {
       const tr = btn.closest("tr"), sel = tr.querySelector(".hub-src-sel"), st = tr.querySelector(".hub-src-st");
       if (!sel.value) { st.textContent = "ソースを選んでください"; return; }

@@ -327,6 +327,7 @@ import {
   sourceDistributeCandidates,
   sourceMemberRates,
   LEAD_SOURCES,
+  LEAD_FRAMES,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -14082,7 +14083,7 @@ app.get("/api/calls/source-funnel", async (req, res) => {
 
 // リードの「ソース」（どこから来たか）の集計と、「要確認」になったリスト。PUT でリストごとにソースを決める。
 app.get("/api/calls/sources", async (req, res) => {
-  try { res.json({ ok: true, choices: LEAD_SOURCES, ...(await leadSourceSummary()) }); }
+  try { res.json({ ok: true, choices: LEAD_SOURCES, frameDefs: LEAD_FRAMES, ...(await leadSourceSummary()) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/calls/lists/:id/source", async (req, res) => {
@@ -14135,7 +14136,7 @@ app.post("/api/calls/sources/distribute", async (req, res) => {
       const ids = cands.slice(i, i + p.件数).map((c) => c.id); i += p.件数;
       done += await assignTargetsTo(ids, p.email);
     }
-    console.log(`[kincall] ソース「${source}」から${done}件を配りました（${mode === "rate" ? "アポ率" : "均等"}・元：${from || "未割り当て"}） by ${req.user}`);
+    console.log(`[kincall] 「${source}」から${done}件を配りました（${mode === "rate" ? "アポ率" : "均等"}・元：${from || "未割り当て"}） by ${req.user}`);
     res.json({ ok: true, done, plan, total, available });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -22381,7 +22382,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04f リスト管理 第2段：ソースからメンバーに配れるようにした（均等／そのソースでのアポ率に応じて）。担当を書き換えるだけでリストは増やさない。ナーチャリング（ステージ・最終ステータスがジャッジか営業フォロー）はタグとして数え、配る対象から外す。";
+const BUILD_TAG = "2026-10-04g リスト管理を「新規リスト／過去リスト／ナーチャリング」の3つの大きな枠にまとめた。ソースは枠の中の小分け、ナーチャリングはジャッジ・営業フォローのタグでどのソースからも入る。枠ごとにメンバーのアポ率（直近60日）に応じて配れる（ソース単位でも配れる）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
