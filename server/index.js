@@ -328,6 +328,8 @@ import {
   sourceMemberRates,
   LEAD_SOURCES,
   LEAD_FRAMES,
+  apoStructureRows,
+  frameOfSource,
   callAnalysis,
   callMemos,
   clearCallLogs,
@@ -14141,6 +14143,55 @@ app.post("/api/calls/sources/distribute", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// アポ率の構成：全体／3つの枠、枠→ソース→時期→リストの掘り下げ（横は月ごと）、メンバー×枠
+app.get("/api/calls/apo-structure", async (req, res) => {
+  try {
+    const months = Math.max(1, Math.min(12, parseInt(req.query.months, 10) || 3));
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const pad = (n) => String(n).padStart(2, "0");
+    const ymOf = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`;
+    const monthList = [];
+    for (let k = months - 1; k >= 0; k--) monthList.push(ymOf(new Date(Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth() - k, 1))));
+    const from = `${monthList[0]}-01`;
+    const to = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}-${pad(nowJ.getUTCDate())}`;
+    const rows = await apoStructureRows(from, to);
+    const FRAME_LABEL = { new: "新規リスト", past: "過去リスト", nurture: "ナーチャリング", other: "その他・要確認" };
+    const mk = (label, kind) => ({ label, kind, calls: 0, apos: 0, m: {}, kids: new Map() });
+    const add = (n, r) => { n.calls += r.calls; n.apos += r.apos; const x = n.m[r.ym] || (n.m[r.ym] = { calls: 0, apos: 0 }); x.calls += r.calls; x.apos += r.apos; };
+    const total = mk("全体", "all");
+    const frames = new Map();
+    const members = new Map();
+    for (const r of rows) {
+      const fk = r.nurture ? "nurture" : frameOfSource(r.source);
+      add(total, r);
+      if (!frames.has(fk)) frames.set(fk, mk(FRAME_LABEL[fk], "frame"));
+      const f = frames.get(fk); add(f, r);
+      if (!f.kids.has(r.source)) f.kids.set(r.source, mk(r.source, "source"));
+      const sn = f.kids.get(r.source); add(sn, r);
+      const pl = r.origin ? `${r.by_lost ? "失注 " : "作成 "}${String(r.origin).replace(/[年/]/, "-").replace(/-(\d)$/, "-0$1")}` : "時期不明";
+      if (!sn.kids.has(pl)) sn.kids.set(pl, mk(pl, "period"));
+      const pn = sn.kids.get(pl); add(pn, r);
+      const lk = String(r.list_id);
+      if (!pn.kids.has(lk)) pn.kids.set(lk, mk(r.list_name, "list"));
+      add(pn.kids.get(lk), r);
+      if (r.caller) {
+        if (!members.has(r.caller)) members.set(r.caller, { email: r.caller, all: { calls: 0, apos: 0 }, f: {} });
+        const mm = members.get(r.caller);
+        mm.all.calls += r.calls; mm.all.apos += r.apos;
+        const ff = mm.f[fk] || (mm.f[fk] = { calls: 0, apos: 0 }); ff.calls += r.calls; ff.apos += r.apos;
+      }
+    }
+    const out = (n) => ({ label: n.label, kind: n.kind, calls: n.calls, apos: n.apos, m: n.m,
+      kids: [...n.kids.values()].sort((a, b) => (n.kind === "source" ? String(b.label).localeCompare(String(a.label)) : b.calls - a.calls)).map(out) });
+    const order = ["new", "past", "nurture", "other"];
+    const names = new Map();
+    for (const e of members.keys()) names.set(e, await displayNameOf(e).catch(() => "") || e.split("@")[0]);
+    res.json({ ok: true, from, to, months: monthList, total: out(total),
+      frames: order.filter((k) => frames.has(k)).map((k) => ({ key: k, ...out(frames.get(k)) })),
+      members: [...members.values()].map((x) => ({ ...x, name: names.get(x.email) })).sort((a, b) => b.all.calls - a.all.calls) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リードソース別：アポが取れた会社の一覧（source= のリードソースだけ）
 app.get("/api/calls/source-apos", async (req, res) => {
   try {
@@ -22382,7 +22433,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04g リスト管理を「新規リスト／過去リスト／ナーチャリング」の3つの大きな枠にまとめた。ソースは枠の中の小分け、ナーチャリングはジャッジ・営業フォローのタグでどのソースからも入る。枠ごとにメンバーのアポ率（直近60日）に応じて配れる（ソース単位でも配れる）。";
+const BUILD_TAG = "2026-10-04h 実績に「枠別アポ率」を追加。全体と3つの枠（新規リスト・過去リスト・ナーチャリング）のアポ率、枠→ソース→時期（過去は失注月、新規はリストを作った月）→リストの掘り下げ（横に月ごとのアポ率）、メンバー×枠のアポ率を出す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

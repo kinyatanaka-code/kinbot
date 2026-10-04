@@ -4763,6 +4763,30 @@ export async function sourceMemberRates(source, emails, days = 60) {
   for (const r of rows) out[r.caller] = { calls: r.calls, apos: r.apos, rate: r.calls ? r.apos / r.calls : 0 };
   return out;
 }
+// アポ率の構成（枠→ソース→時期→リスト、メンバー×枠）の元データ。期間内の架電を、まとまりごとに数える。
+// 時期：過去リストは失注日の月、それ以外はリストを作った月。ナーチャリング：その架電の前にジャッジ・営業フォローの結果がある、
+// または今ジャッジ・営業フォローのリード（アポになったものは前の結果で判定）。
+export async function apoStructureRows(fromJst, toJst) {
+  if (!pool) return [];
+  const { rows } = await pool.query(
+    `SELECT COALESCE(t.source, '（未設定）') AS source,
+            ( EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー')
+              OR (${LEAD_NURTURE_SQL} AND COALESCE(t.status,'') !~ 'アポ獲得') ) AS nurture,
+            cl.id AS list_id, cl.name AS list_name,
+            COALESCE(substring(COALESCE(t.extra->>'失注日','') from '(\d{4}[-/年]\d{1,2})'), to_char(cl.created_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM')) AS origin,
+            (t.extra->>'失注日') IS NOT NULL AS by_lost,
+            to_char(l.at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM') AS ym,
+            lower(COALESCE(l.caller,'')) AS caller,
+            count(*)::int AS calls,
+            count(*) FILTER (WHERE l.result ~ 'アポ獲得')::int AS apos
+       FROM call_logs l
+       JOIN call_targets t ON t.id = l.target_id
+       JOIN call_lists cl ON cl.id = t.list_id
+      WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+      GROUP BY 1, 2, 3, 4, 5, 6, 7, 8`, [fromJst, toJst]);
+  return rows;
+}
+
 // リストのリードのソースを手で決める（「要確認」を直す）
 export async function setListLeadSource(listId, source) {
   if (!pool || !listId || !source) return 0;

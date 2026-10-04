@@ -1788,6 +1788,20 @@ function renderDock() {
     .sd-row{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:6px 0;font-size:13px;}
     .sd-g{font-size:11px;color:#6b8a7d;margin:6px 0 2px;}
     .sd-ms{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:4px 10px;font-size:13px;}
+    .fr-bar{display:flex;gap:6px;align-items:center;margin-bottom:10px;font-size:12px;color:#5b7a6d;}
+    .fr-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:6px;}
+    @media (max-width:760px){ .fr-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} }
+    .fr-kpi{background:#fff;border:1px solid #e3ece8;border-radius:12px;padding:10px 12px;}
+    .fr-kl{font-size:12px;color:#6b8a7d;font-weight:700;} .fr-kv{font-size:24px;font-weight:700;line-height:1.3;} .fr-ks{font-size:11px;color:#8aa39a;}
+    .fr-h{margin:16px 0 6px;font-size:13px;color:#0d5b47;} .fr-h span{font-weight:400;font-size:11px;color:#6b8a7d;margin-left:8px;}
+    .fr-t{width:100%;border-collapse:collapse;font-size:12px;background:#fff;border:1px solid #e3ece8;border-radius:10px;}
+    .fr-t th,.fr-t td{padding:6px 8px;border-bottom:1px solid #eef3f0;text-align:right;white-space:nowrap;}
+    .fr-t th{background:#f4f9f7;color:#5b7a6d;font-weight:700;}
+    .fr-t .fr-name{text-align:left;white-space:normal;min-width:180px;}
+    .fr-r{cursor:pointer;} .fr-r:hover{background:#f6fbf8;}
+    .fr-d0{background:#fbfdfc;} .fr-rate{font-weight:700;color:#1f2d28;}
+    .fr-tg{display:inline-block;width:14px;color:#1d9e75;} .fr-tg0{color:transparent;}
+    .fr-sub{display:block;font-size:10px;color:#8aa39a;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -3480,6 +3494,7 @@ async function loadStats(force) {
   if (statsPeriod === "analysis") return loadAnalysis();
   if (statsPeriod === "list") return loadListStats();
   if (statsPeriod === "source") return loadSourceStats();
+  if (statsPeriod === "frames") return loadFrameStats();
   try {
     if (force || !_statsCache[statsPeriod]) box.innerHTML = `<div class="note">読み込んでいます…</div>`;
     const d = await fetchStats(force);
@@ -4317,6 +4332,55 @@ async function loadListStats() {
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
+// ───────── 枠別アポ率（全体／新規・過去・ナーチャリング → ソース → 時期 → リスト、メンバー×枠） ─────────
+let FR_MONTHS = 3;
+async function loadFrameStats() {
+  const box = $("clStats"); if (!box) return;
+  box.innerHTML = `<div class="note">読み込んでいます…</div>`;
+  try {
+    const d = await (await fetch(`/api/calls/apo-structure?months=${FR_MONTHS}`)).json();
+    if (d.error) throw new Error(d.error);
+    if (statsPeriod !== "frames") return;
+    const rg = $("stRange"); if (rg) rg.textContent = `${d.from} 〜 ${d.to}`;
+    const rate = (a, c) => c ? (Math.round(a / c * 1000) / 10).toFixed(1) + "%" : "—";
+    const mlab = (ym) => `${Number(ym.slice(5))}月`;
+    const fcol = { new: "#0f6e56", past: "#993c1d", nurture: "#185fa5", other: "#5f5e5a" };
+    const kpi = (label, n, color) => `<div class="fr-kpi"><div class="fr-kl">${esc(label)}</div><div class="fr-kv" style="color:${color || "#1f2d28"}">${rate(n.apos, n.calls)}</div><div class="fr-ks">${n.apos.toLocaleString()} / ${n.calls.toLocaleString()}コール</div></div>`;
+    let rid = 0;
+    const rowsOf = (n, depth, parent, fk) => {
+      const id = "fr" + (++rid);
+      const has = n.kids && n.kids.length;
+      const cells = d.months.map((ym) => { const x = n.m[ym]; return `<td>${x ? rate(x.apos, x.calls) : "—"}</td>`; }).join("");
+      const tr = `<tr class="fr-r fr-d${depth}" data-id="${id}" data-p="${parent || ""}"${depth > 0 ? " hidden" : ""}>
+        <td class="fr-name" style="padding-left:${8 + depth * 18}px">${has ? `<span class="fr-tg">▸</span>` : `<span class="fr-tg fr-tg0"></span>`}${depth === 0 ? `<b style="color:${fcol[fk] || "#1f2d28"}">${esc(n.label)}</b>` : esc(n.label)}</td>
+        <td>${n.calls.toLocaleString()}</td><td>${n.apos.toLocaleString()}</td><td class="fr-rate">${rate(n.apos, n.calls)}</td>${cells}</tr>`;
+      return tr + (has ? n.kids.map((k) => rowsOf(k, depth + 1, id, fk)).join("") : "");
+    };
+    const tree = (d.frames || []).map((f) => rowsOf(f, 0, "", f.key)).join("");
+    const fk = (d.frames || []).map((f) => f.key);
+    const memRows = (d.members || []).filter((m) => m.all.calls >= 1).map((m) =>
+      `<tr><td class="fr-name">${esc(m.name)}</td>${fk.map((k) => { const x = m.f[k]; return `<td>${x ? rate(x.apos, x.calls) : "—"}<span class="fr-sub">${x ? `${x.apos}/${x.calls}` : ""}</span></td>`; }).join("")}<td class="fr-rate">${rate(m.all.apos, m.all.calls)}</td></tr>`).join("");
+    box.innerHTML = `
+      <div class="fr-bar"><span>期間</span>${[1, 3, 6].map((n) => `<button type="button" class="kc-ptab${n === FR_MONTHS ? " active" : ""}" data-frm="${n}">直近${n}か月</button>`).join("")}</div>
+      <div class="fr-kpis">${kpi("全体", d.total)}${(d.frames || []).filter((f) => f.key !== "other").map((f) => kpi(f.label, f, fcol[f.key])).join("")}</div>
+      <h4 class="fr-h">枠 → ソース → 時期 → リスト<span>行を押すと開きます。時期は、過去リストは失注した月、それ以外はリストを作った月です。右は、かけた月ごとのアポ率。</span></h4>
+      <div style="overflow-x:auto"><table class="fr-t"><tr><th class="fr-name">まとまり</th><th>コール</th><th>アポ</th><th>アポ率</th>${d.months.map((ym) => `<th>${mlab(ym)}</th>`).join("")}</tr>${tree}</table></div>
+      <h4 class="fr-h">メンバー × 枠<span>その枠でかけた数のうち、アポになった割合（右の小さい数字はアポ／コール）。</span></h4>
+      <div style="overflow-x:auto"><table class="fr-t"><tr><th class="fr-name">メンバー</th>${(d.frames || []).map((f) => `<th>${esc(f.label)}</th>`).join("")}<th>全体</th></tr>${memRows}</table></div>
+      <p class="note" style="margin-top:8px">ナーチャリング＝その架電の前にジャッジ・営業フォローになっていたリード（今ジャッジ・営業フォローのものも含む）。新規・過去の枠からは外して数えます。</p>`;
+    box.querySelectorAll("[data-frm]").forEach((b) => b.addEventListener("click", () => { FR_MONTHS = Number(b.dataset.frm); loadFrameStats(); }));
+    box.querySelectorAll(".fr-r").forEach((tr) => tr.addEventListener("click", () => {
+      const id = tr.dataset.id;
+      const kids = box.querySelectorAll(`.fr-r[data-p="${id}"]`);
+      if (!kids.length) return;
+      const open = kids[0].hidden;
+      const tg = tr.querySelector(".fr-tg"); if (tg) tg.textContent = open ? "▾" : "▸";
+      const closeAll = (pid) => box.querySelectorAll(`.fr-r[data-p="${pid}"]`).forEach((k) => { k.hidden = true; const t = k.querySelector(".fr-tg"); if (t && t.textContent) t.textContent = "▸"; closeAll(k.dataset.id); });
+      if (open) kids.forEach((k) => { k.hidden = false; }); else closeAll(id);
+    }));
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+
 // ───────── リードソース別の実績（リスト別と同じ見方。リードソース＝SFのLeadSourceだけ） ─────────
 let SRC_GROUP = "";
 try { SRC_GROUP = localStorage.getItem("kcSrcGroup") || ""; } catch {}
@@ -4600,7 +4664,7 @@ if ($("stPeriod")) {
       statsPeriod = b.dataset.period || "day";
       $("stPeriod").querySelectorAll(".kc-ptab").forEach((x) => x.classList.toggle("active", x === b));
       // リスト別・メンバー別の分析・設定管理のときは、全体/個別は効かない
-      const off = statsPeriod === "analysis" || statsPeriod === "list" || statsPeriod === "source" || statsPeriod === "admin";
+      const off = statsPeriod === "analysis" || statsPeriod === "list" || statsPeriod === "source" || statsPeriod === "frames" || statsPeriod === "admin";
       const sc = $("stScope"); if (sc) sc.style.opacity = off ? "0.4" : "1";
       loadStats();
     }));
