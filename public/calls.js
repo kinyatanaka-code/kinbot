@@ -6668,7 +6668,7 @@ function nmRenderDetail() {
     parts.sort((a, b) => b.n - a.n);
     nurCard = `<div class="nm-lcard nm-nurcard">
       <div class="nm-lcard-name"><span class="nm-lname-t">ナーチャリング（${esc(_nmSel.name)}のまとめ）</span></div>
-      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${nurTotal.toLocaleString()}</span>${nmRatePill(_nmRates && _nmRates.expectedNurture && _nmRates.expectedNurture.byCaller ? (() => { const en = _nmRates.expectedNurture.byCaller[String(_nmSel.key).toLowerCase()]; return en ? { calls: en.calls, apos: Math.round(en.calls * 0) } : null; })() : null, "") === "" ? "" : ""}${nmExpPill(nmNurExpected(_nmSel.key), `想定アポ率：${_nmSel.name}さんのナーチャリングでの実績を、ナーチャリング全体の実績に寄せてならした見込み`)}</div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${nurTotal.toLocaleString()}</span>${nmExpPill(nmNurExpected(_nmSel.key), `想定アポ率：${_nmSel.name}さんのナーチャリングでの実績を、ナーチャリング全体の実績に寄せてならした見込み`)}</div>
       <div class="nm-lcard-sub">ジャッジ・営業フォローのリードを、各リストから集めたもの</div>
       <div class="nm-nur-parts">${parts.slice(0, 5).map((p) => `<div><span title="${esc(p.name)}">${esc(p.name)}</span><b>${p.n}</b></div>`).join("") || '<div style="color:#8aa39a">まだありません</div>'}${parts.length > 5 ? `<div style="color:#8aa39a">ほか${parts.length - 5}リスト</div>` : ""}</div>
       <div class="nm-lcard-ops"><button type="button" class="btn ghost nm-nur-open" style="padding:4px 12px">中身を見る</button></div>
