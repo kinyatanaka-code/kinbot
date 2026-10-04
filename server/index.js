@@ -12260,9 +12260,10 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     // リサイクル復活の補充（3c）：アーカイブ/リサイクルに送ったら、
     // そのリードと同じグループの共有リサイクルから、優先順(A→B→C)で1件を、
     // 記録者(このメンバー)の「グループ×担当」の復活リストへ移す（即時・1:1）。
+    // 2026-10-04 から停止（リストが【復活】〇〇の形で増え続けるため）。戻すときは環境変数 AUTO_REVIVE=1。
     let 復活補充 = null;
     try {
-      if (自動ステージ === RECYCLE_STAGE || 自動ステージ === ARCHIVE_STAGE) {
+      if (process.env.AUTO_REVIVE === "1" && (自動ステージ === RECYCLE_STAGE || 自動ステージ === ARCHIVE_STAGE)) {
         const gid = await getListGroupId(t.list_id);
         if (gid) {
           const rev = await ensureRecycleRevivalList({ groupId: gid, owner: req.user, createdBy: req.user });
@@ -22456,7 +22457,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04m 実績のダッシュボードは、開いたときいつも「アポ」から表示するようにした（前回「実施」を見ていても覚えない）。";
+const BUILD_TAG = "2026-10-04n リストの自動復活を止めた（架電でリサイクル・アーカイブにしたとき、同じグループのリサイクルから1件を【復活】リストへ自動で補充していた処理）。AUTO_REVIVE=1 で戻せる。手で復活させる操作はそのまま。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

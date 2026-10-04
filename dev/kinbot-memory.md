@@ -1264,3 +1264,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04l ソース詳細のリスト表示に切替（_srcListView：member既定／list、localStorage kcSrcLv）。srcMemberView：d.lists[source] の担当別を人ごとに集計し、人カード（件数・リスト数・rates.bySrc[source].mem のアポ率）＋その人のリスト行（件数・rates.byList・中身/配るボタン）。未割り当ては最後。srcListLabel でリスト名の前置き（インターン生最新用だよ 等）を省き【復活】は印に。版20261004l。
 
 - 2026-10-04 BUILD_TAG=2026-10-04m ダッシュボードの dashMetric を localStorage に保存しない（開くといつもアポ）。版20261004m。
+
+- 2026-10-04 BUILD_TAG=2026-10-04n 架電記録時のリサイクル復活の自動補充（3c：ensureRecycleRevivalList＋pickRecycleCandidateForGroup→moveCallTargets）を既定停止、AUTO_REVIVE=1 で復活。手動の復活（横断検索・リサイクルタブ）は残す。版20261004n。
