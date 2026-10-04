@@ -4663,15 +4663,18 @@ export async function leadSourceSummary() {
       `SELECT COALESCE(t.source, '（未設定）') AS source,
               COALESCE(NULLIF(btrim(t.assigned_to),''), '') AS assigned,
               count(*)::int AS n,
-              count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id))::int AS untouched
+              count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id))::int AS untouched,
+              count(*) FILTER (WHERE ${LEAD_NURTURE_SQL})::int AS nurture,
+              count(*) FILTER (WHERE ${LEAD_DISTRIBUTABLE_SQL})::int AS distributable
          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
         WHERE NOT COALESCE(l.closed, false)
         GROUP BY 1, 2`);
     const bySrc = new Map();
     for (const r of rows) {
-      if (!bySrc.has(r.source)) bySrc.set(r.source, { source: r.source, 件数: 0, 未架電: 0, 未割り当て: 0, 担当別: {} });
+      if (!bySrc.has(r.source)) bySrc.set(r.source, { source: r.source, 件数: 0, 未架電: 0, 未割り当て: 0, ナーチャリング: 0, 配れる未割り当て: 0, 担当別: {} });
       const o = bySrc.get(r.source);
-      o.件数 += r.n; o.未架電 += r.untouched;
+      o.件数 += r.n; o.未架電 += r.untouched; o.ナーチャリング += r.nurture;
+      if (!r.assigned) o.配れる未割り当て += r.distributable;
       if (!r.assigned) o.未割り当て += r.n; else o.担当別[r.assigned] = (o.担当別[r.assigned] || 0) + r.n;
     }
     const { rows: unk } = await pool.query(
@@ -4681,6 +4684,41 @@ export async function leadSourceSummary() {
         GROUP BY l.id, l.name ORDER BY n DESC LIMIT 100`, [SOURCE_UNKNOWN]);
     return { sources: [...bySrc.values()].sort((a, b) => b.件数 - a.件数), unknownLists: unk };
   } catch (e) { console.error("[db] leadSourceSummary", e.message); return { sources: [], unknownLists: [], error: e.message }; }
+}
+// ナーチャリング＝ステージか最終ステータスが「ジャッジ」または「営業フォロー」のリード（タグとして数える）
+export const LEAD_NURTURE_SQL = `(COALESCE(t.stage,'') ILIKE '%ジャッジ%' OR COALESCE(t.status,'') ILIKE '%ジャッジ%' OR COALESCE(t.stage,'') ILIKE '%営業フォロー%' OR COALESCE(t.status,'') ILIKE '%営業フォロー%')`;
+// 配れるリード：ナーチャリングでなく、アポ・ユーザー・失注・アーカイブ・リサイクル・使われていない番号でないもの
+export const LEAD_DISTRIBUTABLE_SQL = `(NOT ${LEAD_NURTURE_SQL}
+  AND COALESCE(t.stage,'') !~ 'アポ|ユーザー|失注|アーカイブ|リサイクル'
+  AND COALESCE(t.status,'') !~ 'アポ獲得|ユーザー|失注|使われて|現在使わ|現アナ|欠番|不通')`;
+
+// ソースから配るリードの候補（from：'' は未割り当て、メールならその人の担当分）。未架電を先に、古い順。
+export async function sourceDistributeCandidates(source, { from = "", limit = 5000 } = {}) {
+  if (!pool || !source) return [];
+  const p = [source];
+  let who = `COALESCE(NULLIF(btrim(t.assigned_to),''),'') = ''`;
+  if (from) { p.push(String(from).toLowerCase()); who = `lower(COALESCE(t.assigned_to,'')) = $${p.length}`; }
+  p.push(Math.max(1, Math.min(20000, limit)));
+  const { rows } = await pool.query(
+    `SELECT t.id, EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id) AS called
+       FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+      WHERE t.source = $1 AND ${who} AND ${LEAD_DISTRIBUTABLE_SQL} AND NOT COALESCE(l.closed,false)
+      ORDER BY called, t.id
+      LIMIT $${p.length}`, p);
+  return rows;
+}
+// そのソースでの、人ごとのアポ率（直近 days 日の架電記録から：アポ獲得の数 ÷ かけた数）
+export async function sourceMemberRates(source, emails, days = 60) {
+  if (!pool || !source || !emails || !emails.length) return {};
+  const { rows } = await pool.query(
+    `SELECT lower(l.caller) AS caller, count(*)::int AS calls,
+            count(*) FILTER (WHERE l.result ~ 'アポ獲得')::int AS apos
+       FROM call_logs l JOIN call_targets t ON t.id = l.target_id
+      WHERE t.source = $1 AND lower(l.caller) = ANY($2) AND l.at >= now() - ($3 || ' days')::interval
+      GROUP BY 1`, [source, emails.map((e) => String(e).toLowerCase()), String(days)]);
+  const out = {};
+  for (const r of rows) out[r.caller] = { calls: r.calls, apos: r.apos, rate: r.calls ? r.apos / r.calls : 0 };
+  return out;
 }
 // リストのリードのソースを手で決める（「要確認」を直す）
 export async function setListLeadSource(listId, source) {

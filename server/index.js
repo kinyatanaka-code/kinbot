@@ -324,6 +324,8 @@ import {
   fillLeadSources,
   leadSourceSummary,
   setListLeadSource,
+  sourceDistributeCandidates,
+  sourceMemberRates,
   LEAD_SOURCES,
   callAnalysis,
   callMemos,
@@ -14094,6 +14096,50 @@ app.put("/api/calls/lists/:id/source", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ソースから、メンバーに配る（担当を書き換えるだけ。リストは増やさない）。
+// mode=equal：均等／rate：そのソースでのアポ率に応じて多く配る（直近60日。アポ率0の人や記録が少ない人にも最低限は配る）
+async function planSourceDistribute(source, members, n, mode, from) {
+  const cands = await sourceDistributeCandidates(source, { from, limit: Math.max(1, n) });
+  const emails = members.map((m) => String(m).toLowerCase()).filter(Boolean);
+  const rates = await sourceMemberRates(source, emails, 60);
+  const total = Math.min(n, cands.length);
+  let weights = emails.map(() => 1);
+  if (mode === "rate") {
+    const rs = emails.map((e) => (rates[e] && rates[e].calls >= 20) ? rates[e].rate : null);
+    const known = rs.filter((r) => r != null);
+    const avg = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 0;
+    // 記録が少ない人は平均として扱う。アポ率0でも平均の3割は配る
+    weights = rs.map((r) => Math.max(avg * 0.3, r == null ? avg : r) || 1);
+  }
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  const counts = weights.map((w) => Math.floor(total * w / sum));
+  let rest = total - counts.reduce((a, b) => a + b, 0);
+  const order = weights.map((w, i) => [w, i]).sort((a, b) => b[0] - a[0]).map((x) => x[1]);
+  for (let k = 0; rest > 0; k++, rest--) counts[order[k % order.length]]++;
+  const plan = emails.map((e, i) => ({ email: e, 件数: counts[i], アポ率: rates[e] ? Math.round(rates[e].rate * 1000) / 10 : null, 架電数: rates[e] ? rates[e].calls : 0, アポ: rates[e] ? rates[e].apos : 0 }));
+  return { cands, plan, total, available: cands.length };
+}
+app.post("/api/calls/sources/distribute", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const source = String(b.source || "").trim();
+    const members = Array.isArray(b.members) ? b.members.filter(Boolean) : [];
+    const n = Math.max(0, Math.min(5000, parseInt(b.n, 10) || 0));
+    const mode = b.mode === "rate" ? "rate" : "equal";
+    const from = String(b.from || "").trim();
+    if (!source || !members.length || !n) return res.status(400).json({ error: "ソース・メンバー・件数を選んでください" });
+    const { cands, plan, total, available } = await planSourceDistribute(source, members, n, mode, from);
+    if (b.dryRun) return res.json({ ok: true, dryRun: true, plan, total, available });
+    let i = 0, done = 0;
+    for (const p of plan) {
+      const ids = cands.slice(i, i + p.件数).map((c) => c.id); i += p.件数;
+      done += await assignTargetsTo(ids, p.email);
+    }
+    console.log(`[kincall] ソース「${source}」から${done}件を配りました（${mode === "rate" ? "アポ率" : "均等"}・元：${from || "未割り当て"}） by ${req.user}`);
+    res.json({ ok: true, done, plan, total, available });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // リードソース別：アポが取れた会社の一覧（source= のリードソースだけ）
 app.get("/api/calls/source-apos", async (req, res) => {
   try {
@@ -22335,7 +22381,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04d リスト管理に「ソース」タブを追加。ソースごとのリード数（未架電・未割り当て・担当の上位）と、「要確認」になったリストを一覧で出し、リストごとにソースを選んで付けられる。ソースはグループの設定を優先（今のまま）。";
+const BUILD_TAG = "2026-10-04e リスト管理 第2段：ソースからメンバーに配れるようにした（均等／そのソースでのアポ率に応じて）。担当を書き換えるだけでリストは増やさない。ナーチャリング（ステージ・最終ステータスがジャッジか営業フォロー）はタグとして数え、配る対象から外す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

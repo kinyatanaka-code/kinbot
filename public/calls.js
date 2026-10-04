@@ -1774,6 +1774,12 @@ function renderDock() {
     .hub-src-n span{margin-left:6px;}
     .hub-src-sub{grid-column:1 / -1;font-size:11px;color:#6b8a7d;}
     .hub-src-h{margin:10px 0 4px;font-size:13px;color:#0d5b47;}
+    .hub-src-nur{color:#2f6c9e;}
+    .hub-src-dist{margin-left:8px;border:1px solid #1d9e75;background:#fff;color:#0d5b47;border-radius:999px;padding:1px 10px;font:inherit;font-size:11px;font-weight:700;cursor:pointer;}
+    .hub-src-dist:hover{background:#e3f4ed;}
+    .sd-row{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:6px 0;font-size:13px;}
+    .sd-g{font-size:11px;color:#6b8a7d;margin:6px 0 2px;}
+    .sd-ms{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:4px 10px;font-size:13px;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -5674,6 +5680,58 @@ function hubShow(tab) {
   else if (tab === "src") hubRenderSources();
 }
 
+// ソースからメンバーに配る（担当を書き換えるだけ）。均等／アポ率に応じて。先に配分を見てから実行する
+async function openSourceDistribute(source, summary) {
+  let mem = [];
+  try { mem = ((await (await fetch("/api/calls/members")).json()).items || []).filter((m) => m.email); } catch {}
+  const s0 = (summary.sources || []).find((x) => x.source === source) || {};
+  const owners = Object.keys(s0.担当別 || {});
+  const inside = mem.filter((m) => m.role === "inside" || m.inside || (Array.isArray(m.roles) && m.roles.includes("inside")));
+  const others = mem.filter((m) => !inside.includes(m));
+  const box = (m, on) => `<label class="sd-m"><input type="checkbox" value="${esc(m.email)}"${on ? " checked" : ""} /> ${esc(m.name || m.email)}</label>`;
+  const m = openModal(`「${source}」をメンバーに配る`, `
+    <div class="note" style="margin-bottom:8px">配ったリードは担当が変わるだけで、リストは増えません。ナーチャリング（ジャッジ・営業フォロー）とアポ・失注・アーカイブなどは配りません。</div>
+    <div class="sd-row"><label>どこから
+      <select id="sdFrom" class="kc-input" style="max-width:220px"><option value="">未割り当て（配れる ${Number(s0.配れる未割り当て || 0).toLocaleString()}件）</option>
+      ${owners.map((e) => `<option value="${esc(e)}">${esc(hubNm(e))} の担当分</option>`).join("")}</select></label>
+      <label>何件 <input id="sdN" type="number" min="1" class="kc-input" style="width:90px" value="100" /></label></div>
+    <div class="sd-row"><label><input type="radio" name="sdMode" value="equal" checked /> 均等に配る</label>
+      <label><input type="radio" name="sdMode" value="rate" /> そのソースでのアポ率に応じて配る（直近60日）</label></div>
+    <div style="font-size:12px;font-weight:700;margin:8px 0 4px">配る人</div>
+    ${inside.length ? `<div class="sd-g">インサイド</div><div class="sd-ms">${inside.map((x) => box(x, true)).join("")}</div>` : ""}
+    ${others.length ? `<div class="sd-g">セールス・ほか</div><div class="sd-ms">${others.map((x) => box(x, false)).join("")}</div>` : ""}
+    <div id="sdPrev" style="margin-top:10px"></div>
+    <div class="modal-actions" style="margin-top:10px"><button type="button" class="btn ghost" id="sdCalc">配分を見る</button><button type="button" class="btn" id="sdGo" disabled>この配分で配る</button></div>`, { wide: true });
+  const body = () => ({
+    source, from: m.el.querySelector("#sdFrom").value, n: m.el.querySelector("#sdN").value,
+    mode: (m.el.querySelector('input[name="sdMode"]:checked') || {}).value || "equal",
+    members: [...m.el.querySelectorAll(".sd-m input:checked")].map((x) => x.value),
+  });
+  const go = m.el.querySelector("#sdGo"), prev = m.el.querySelector("#sdPrev");
+  m.el.querySelectorAll("input,select").forEach((el) => el.addEventListener("change", () => { go.disabled = true; prev.innerHTML = ""; }));
+  m.el.querySelector("#sdCalc").addEventListener("click", async () => {
+    const b = body();
+    if (!b.members.length) { prev.innerHTML = '<div class="note" style="color:#b0452f">配る人を選んでください</div>'; return; }
+    prev.innerHTML = '<div class="note">計算しています…</div>';
+    try {
+      const r = await fetch("/api/calls/sources/distribute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...b, dryRun: true }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "計算できませんでした");
+      prev.innerHTML = `<div class="note">配れるのは ${d.available.toLocaleString()}件 のうち ${d.total.toLocaleString()}件 です。</div>
+        <table class="sh-table" style="width:100%"><tr><th>メンバー</th><th style="text-align:right">このソースのアポ率</th><th style="text-align:right">配る件数</th></tr>
+        ${d.plan.map((p) => `<tr><td>${esc(hubNm(p.email))}</td><td style="text-align:right">${p.アポ率 == null ? "—" : p.アポ率 + "%"}<span style="color:#8aa39a;font-size:11px">${p.架電数 ? `（${p.アポ}/${p.架電数}）` : "（記録なし）"}</span></td><td style="text-align:right"><b>${p.件数}</b></td></tr>`).join("")}</table>`;
+      go.disabled = !d.total;
+    } catch (e) { prev.innerHTML = `<div class="note" style="color:#b0452f">${esc(e.message)}</div>`; }
+  });
+  go.addEventListener("click", async () => {
+    go.disabled = true; go.textContent = "配っています…";
+    try {
+      const r = await fetch("/api/calls/sources/distribute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "配れませんでした");
+      m.close(); alert(`${d.done.toLocaleString()}件を配りました`); hubRenderSources();
+    } catch (e) { alert(e.message); go.disabled = false; go.textContent = "この配分で配る"; }
+  });
+}
+
 // --- ソース（どこから来たリードか）：ソースごとの件数（担当別・未割り当て）と、「要確認」のリストを選び直す
 async function hubRenderSources() {
   const pane = $("hubPane"); if (!pane || _hubTab !== "src") return;
@@ -5693,7 +5751,8 @@ async function hubRenderSources() {
         <div class="hub-src-name">${esc(x.source)}</div>
         <div class="hub-src-bar"><i style="width:${Math.max(2, Math.round(x.件数 / max * 100))}%"></i></div>
         <div class="hub-src-n"><b>${x.件数.toLocaleString()}</b>件<span>${Math.round(x.件数 / total * 100)}%</span></div>
-        <div class="hub-src-sub">未架電 ${x.未架電.toLocaleString()}・未割り当て ${x.未割り当て.toLocaleString()}${top ? `　｜　${top}` : ""}</div>
+        <div class="hub-src-sub">未架電 ${x.未架電.toLocaleString()}・未割り当て ${x.未割り当て.toLocaleString()}（配れる ${Number(x.配れる未割り当て || 0).toLocaleString()}）・<span class="hub-src-nur">ナーチャリング ${Number(x.ナーチャリング || 0).toLocaleString()}</span>${top ? `　｜　${top}` : ""}
+          ${warn ? "" : `<button type="button" class="hub-src-dist" data-src="${esc(x.source)}">メンバーに配る</button>`}</div>
       </div>`;
     }).join("");
     const opts = (d.choices || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
@@ -5707,6 +5766,7 @@ async function hubRenderSources() {
       <h4 class="hub-src-h">要確認のリスト（${(d.unknownLists || []).length}本）</h4>
       <p class="note">いろいろなソースが混ざっていて、自動で決められなかったリストです。リストごとにソースを選ぶと、そのリストのリードにまとめて付けます。</p>
       ${unkRows ? `<div style="overflow-x:auto"><table class="sh-table" style="width:100%"><tr><th>リスト</th><th style="text-align:right">件数</th><th>ソース</th><th></th></tr>${unkRows}</table></div>` : '<div class="note">要確認のリストはありません。</div>'}`;
+    pane.querySelectorAll(".hub-src-dist").forEach((btn) => btn.addEventListener("click", () => openSourceDistribute(btn.dataset.src, d)));
     pane.querySelectorAll(".hub-src-go").forEach((btn) => btn.addEventListener("click", async () => {
       const tr = btn.closest("tr"), sel = tr.querySelector(".hub-src-sel"), st = tr.querySelector(".hub-src-st");
       if (!sel.value) { st.textContent = "ソースを選んでください"; return; }
