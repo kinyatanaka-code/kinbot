@@ -5781,6 +5781,12 @@ function nmMemberExpected(ls, email) {
   }
   return w ? sum / w : null;
 }
+// メンバーカードの想定：持っている（表示中の）リストの想定アポ率を、そのまま平均したもの。非表示のリストは入れない
+function nmMemberListAvg(ls) {
+  if (!_nmRates || !_nmRates.expected) return { rate: null, n: 0 };
+  const vals = (ls || []).filter((x) => !x.hidden).map((x) => _nmRates.expected[String(x.id)]).filter((e) => e && isFinite(e.rate)).map((e) => e.rate);
+  return { rate: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null, n: vals.length };
+}
 function nmSumRates(ls) {
   const o = { calls: 0, apos: 0 };
   for (const x of ls || []) { const r = _nmRates && _nmRates.byList && _nmRates.byList[String(x.id)]; if (r) { o.calls += r.calls; o.apos += r.apos; } }
@@ -6378,7 +6384,7 @@ function nmRenderCards() {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
     arr.sort((a, b) => nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
     html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}</div><div class="nm-grid">` +
-      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${nmExpPill(nmMemberExpected(ls, email), "想定アポ率：この人の残りのリードを全部かけたときの見込み（各リストの想定を残件数で重み付け。ナーチャリング分はナーチャリングの想定で）")}</div></button>`; }).join("") +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${(() => { const v = nmMemberListAvg(ls); return nmExpPill(v.rate, `想定アポ率：この人が持っている表示中のリスト（${v.n}本）の想定アポ率の平均`); })()}</div></button>`; }).join("") +
       `</div></div>`;
   }
   // その他：未割り当て／ナーチャリング／リサイクル／アーカイブ をそれぞれカードで出す
