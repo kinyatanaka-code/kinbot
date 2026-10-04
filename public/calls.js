@@ -168,7 +168,7 @@ async function loadTable() {
   }
   try {
     const q = $("clFind") && $("clFind").value.trim();
-    const who = (callAsMember && listId !== "all") ? ((listId === "nurture" || listId === "crosslost-now") ? "&member=" + encodeURIComponent(callAsMember) : "&assignedTo=" + encodeURIComponent(callAsMember)) : "";
+    const who = (callAsMember && listId !== "all" && listId !== "today") ? ((listId === "nurture" || listId === "crosslost-now") ? "&member=" + encodeURIComponent(callAsMember) : "&assignedTo=" + encodeURIComponent(callAsMember)) : "";
     const d = await (await fetch(`/api/calls/targets?list=${encodeURIComponent(listId)}${q ? "&q=" + encodeURIComponent(q) : ""}${who}`)).json();
     if (seq !== _loadSeq) return;   // 途中で別の読み込み（検索語の変更・リスト切替）が始まった
     if (d.error) throw new Error(d.error);
