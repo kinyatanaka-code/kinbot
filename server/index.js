@@ -14167,6 +14167,28 @@ app.post("/api/calls/sources/distribute", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リスト管理のカードに出すアポ率（直近3か月の架電）：リストごと・かけた人ごと・枠ごと
+app.get("/api/calls/apo-rates", async (req, res) => {
+  try {
+    const months = Math.max(1, Math.min(12, parseInt(req.query.months, 10) || 3));
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const pad = (n) => String(n).padStart(2, "0");
+    const f = new Date(Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth() - (months - 1), 1));
+    const from = `${f.getUTCFullYear()}-${pad(f.getUTCMonth() + 1)}-01`;
+    const to = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}-${pad(nowJ.getUTCDate())}`;
+    const rows = await apoStructureRows(from, to);
+    const byList = {}, byCaller = {}, byFrame = {}, all = { calls: 0, apos: 0 };
+    const add = (m, k, r) => { const o = m[k] || (m[k] = { calls: 0, apos: 0 }); o.calls += r.calls; o.apos += r.apos; };
+    for (const r of rows) {
+      add(byList, String(r.list_id), r);
+      if (r.caller) add(byCaller, r.caller, r);
+      add(byFrame, r.nurture ? "nurture" : frameOfSource(r.source), r);
+      all.calls += r.calls; all.apos += r.apos;
+    }
+    res.json({ ok: true, from, to, byList, byCaller, byFrame, all });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // アポ率の構成：全体／3つの枠、枠→ソース→時期→リストの掘り下げ（横は月ごと）、メンバー×枠
 app.get("/api/calls/apo-structure", async (req, res) => {
   try {
@@ -22457,7 +22479,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04o リスト管理のメンバーのリストで、ナーチャリングを「その人の各リストでナーチャリングになっているリードの集まり」として1枚のカードにまとめた（件数とリストごとの内訳、中身を見る）。【ナーチャリング】〇〇の入れ物のリストは個別のカードに出さない。";
+const BUILD_TAG = "2026-10-04p リスト管理の「リスト」タブのカードにアポ率（直近3か月）を出した：メンバーのカード＝その人がかけた分、グループのカード・リストのカード＝そのリストでかけた分、ナーチャリング＝ナーチャリングの枠、未割り当て＝そのリストの分。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

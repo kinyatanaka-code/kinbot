@@ -1850,6 +1850,10 @@ function renderDock() {
     .fr-tg{display:inline-block;width:14px;color:#1d9e75;} .fr-tg0{color:transparent;}
     .fr-sub{display:block;font-size:10px;color:#8aa39a;}
     .nm-nurcard{border-color:#b5d4f4 !important;background:#f4f8fc !important;}
+    .nm-rate{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-top:4px;white-space:nowrap;}
+    .nm-lcard-zan .nm-rate{margin:0 0 0 8px;vertical-align:4px;}
+    .nm-rate.g{background:#e1f5ee;color:#085041;} .nm-rate.y{background:#faeeda;color:#633806;} .nm-rate.r{background:#fcebeb;color:#791f1f;}
+    .nm-rate.none{background:#f1efe8;color:#888780;font-weight:400;}
     .nm-nurcard .nm-lname-t{color:#185fa5;font-weight:800;}
     .nm-nur-parts{font-size:11px;color:#3d4f47;display:flex;flex-direction:column;gap:2px;margin:4px 0 6px;}
     .nm-nur-parts div{display:flex;justify-content:space-between;gap:8px;} .nm-nur-parts span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -5743,8 +5747,28 @@ async function nmFetch() {
   _nmHiddenLists = _all.filter((x) => x.hidden);     // 非表示のリスト（詳細画面では薄く出して、表示に戻せる）
   if (mm && Array.isArray(mm.members)) { _nmMembers = mm.members.filter((m) => m.active !== false); _nmMemByEmail = new Map(_nmMembers.map((m) => [String(m.email || "").toLowerCase(), m])); }
 }
+// カードに出すアポ率（直近3か月）。先にカードを出して、届いたら描き直す
+let _nmRates = null;
+function nmRatePill(o, title) {
+  if (!o || !o.calls) return `<span class="nm-rate none" title="${esc(title || "アポ率（直近3か月）")}">アポ率 —</span>`;
+  const v = o.apos / o.calls * 100;
+  const cls = v >= 2 ? "g" : v >= 0.5 ? "y" : "r";
+  return `<span class="nm-rate ${cls}" title="${esc(title || "アポ率（直近3か月）")}：${o.apos}/${o.calls}コール">アポ率 ${(Math.round(v * 10) / 10).toFixed(1)}%</span>`;
+}
+function nmSumRates(ls) {
+  const o = { calls: 0, apos: 0 };
+  for (const x of ls || []) { const r = _nmRates && _nmRates.byList && _nmRates.byList[String(x.id)]; if (r) { o.calls += r.calls; o.apos += r.apos; } }
+  return o;
+}
+async function nmLoadRates() {
+  try {
+    const d = await (await fetch("/api/calls/apo-rates?months=3")).json();
+    if (d && d.ok) { _nmRates = d; if (_nmHostMode == null) { if (_nmSel) nmRenderDetail(); else nmRenderRoot(); } }
+  } catch {}
+}
 async function nmLoad() {
   const body = $("nmBody"); if (!body) return;
+  nmLoadRates();
   if (!_nmInit) { _nmInit = true;
     if ($("nmModeSeg")) $("nmModeSeg").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
       if (_nmMode === b.dataset.nmmode) return;
@@ -6328,7 +6352,7 @@ function nmRenderCards() {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
     arr.sort((a, b) => nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
     html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}</div><div class="nm-grid">` +
-      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div></button>`; }).join("") +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div>${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}</button>`; }).join("") +
       `</div></div>`;
   }
   // その他：未割り当て／ナーチャリング／リサイクル／アーカイブ をそれぞれカードで出す
@@ -6336,7 +6360,7 @@ function nmRenderCards() {
   const unZan = orphan.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
   const spCard = (key, name, n, sub) => `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`;
   html += `<div class="nm-sec"><div class="nm-sec-h">その他</div><div class="nm-grid">` +
-    `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div></button>` +
+    `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div>${nmRatePill(nmSumRates(orphan), "このリストでかけた分のアポ率（直近3か月）")}</button>` +
     spCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") +
     spCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") +
     `</div></div>`;
@@ -6345,7 +6369,7 @@ function nmRenderCards() {
     const nc = (key, ic, nm, n, ds, cc) =>
       `<button type="button" class="nm-card nm-clcard" data-nur="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big">${Number(n || 0).toLocaleString()}<small>件</small></div><div class="nm-card-sub">${ds}</div></button>`;
     html += `<div class="nm-sec"><div class="nm-sec-h">ナーチャリング</div><div class="nm-grid nm-cl3">` +
-      nc("all", hubIco("leaf"), "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75") +
+      nc("all", hubIco("leaf"), "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75").replace("</button>", `${nmRatePill(_nmRates && _nmRates.byFrame && _nmRates.byFrame.nurture, "ナーチャリングの枠のアポ率（直近3か月）")}</button>`) +
       nc("week", hubIco("cal"), "今週かける予定", _nmNur.week, "次回架電日が今週末まで（期限切れ含む）のリード。担当メンバーを移せます。", "#e0912b") +
       `</div></div>`;
   }
@@ -6544,7 +6568,7 @@ function nmRenderGroupCards(body) {
   const entries = [...byGroup.entries()].sort((a, b) => (a[0] === "__none__") - (b[0] === "__none__") || String(a[1].name).localeCompare(String(b[1].name), "ja"));
   if (!entries.length) { body.innerHTML = '<div class="empty-state">グループがありません</div>'; return; }
   body.innerHTML = `<div class="nm-sec"><div class="nm-sec-h">グループ</div><div class="nm-grid">` +
-    entries.map(([key, g]) => { const nm = key === "__none__" ? "（グループなし）" : (g.name || ("グループ " + key)); const zan = g.ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = g.ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-group="${esc(key)}" data-gname="${esc(nm)}"><div class="nm-card-name">${esc(nm)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${g.ls.length} リスト</div></button>`; }).join("") +
+    entries.map(([key, g]) => { const nm = key === "__none__" ? "（グループなし）" : (g.name || ("グループ " + key)); const zan = g.ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = g.ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-group="${esc(key)}" data-gname="${esc(nm)}"><div class="nm-card-name">${esc(nm)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${g.ls.length} リスト</div>${nmRatePill(nmSumRates(g.ls), "このグループのリストでかけた分のアポ率（直近3か月）")}</button>`; }).join("") +
     `</div></div>`;
   body.querySelectorAll(".nm-card").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
 }
@@ -6633,7 +6657,7 @@ function nmRenderDetail() {
     return `<div class="nm-lcard${on ? " sel" : ""}${hid ? " hid" : ""}" data-id="${x.id}">${hid ? '<span class="nm-hid-badge">非表示中</span>' : ""}
       <label class="nm-check"><input type="checkbox" class="nm-selchk" data-id="${x.id}"${on ? " checked" : ""}></label>
       <div class="nm-lcard-name"><span class="nm-lname-t" title="${esc(x.name)}">${esc(x.name)}</span><button type="button" class="nm-rename" data-id="${x.id}" data-name="${esc(x.name)}" title="名前を変える">✎</button></div>
-      <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span>${nmRatePill(_nmRates && _nmRates.byList && _nmRates.byList[String(x.id)], "このリストでかけた分のアポ率（直近3か月）")}</div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${_nmSel.type !== "owner" && sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
       <div class="nm-lcard-grp"><select class="nm-group" data-id="${x.id}" title="このリストのグループ">${nmGroupOpts(x.group_id)}</select></div>
       <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button>${hid ? `<button type="button" class="nm-mi nm-unhide" data-id="${x.id}" data-name="${esc(x.name)}">表示に戻す</button>` : `<button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button>`}<button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
