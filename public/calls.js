@@ -192,13 +192,14 @@ function kcIsTanaka() {
   if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null);
   return _meP.then((me) => !!(me && String(me.username || "").toLowerCase() === "kinya.tanaka@neo-career.co.jp"));
 }
-const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {}, range: {} };   // range: 日付の列の範囲 {列名: {from, to, empty}}
+const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {}, range: {}, tags: new Set() };   // range: 日付の列の範囲 {列名: {from, to, empty}}
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
   if (Array.isArray(_f.status)) filt.status = new Set(_f.status);
   if (typeof _f.hist === "string") filt.hist = _f.hist;
   if (_f.extra && typeof _f.extra === "object") { filt.extra = {}; for (const k in _f.extra) if (Array.isArray(_f.extra[k]) && _f.extra[k].length) filt.extra[k] = new Set(_f.extra[k]); }
   if (_f.range && typeof _f.range === "object") filt.range = _f.range;
+  if (Array.isArray(_f.tags)) filt.tags = new Set(_f.tags);
 } catch {}
 let hideApo = false;   // アポ獲得済みを隠しているか
 let _sfDisconnected = false;   // SFに接続できず履歴件数が数えられなかった
@@ -266,6 +267,12 @@ function visibleRows() {
     // 探しているときは、見出しの絞り込みに関係なく当てはまるものを全部出す（絞り込みで隠れて「見つからない」にならないように）
     list = list.filter((x) => [x["会社名"], x["担当者"], x["電話番号"], x["メール"]].some((f) => kcNormQ(f).includes(q)));
     return sortRows(list);
+  }
+  if (filt.tags && filt.tags.size) {
+    // 会社名のタグでしぼる：種類ごと（ソース・リスト・状態など）に、選んだどれかに当てはまるもの。種類どうしは「かつ」
+    const groups = {};
+    for (const t of filt.tags) { const g = t.split("|")[0]; (groups[g] || (groups[g] = new Set())).add(t); }
+    list = list.filter((x) => { const ts = new Set(rowTags(x)); return Object.values(groups).every((set) => [...set].some((t) => ts.has(t))); });
   }
   if (filt.stage.size) list = list.filter((x) => filt.stage.has((x["ステージ"] || "").trim()));
   if (filt.status.size) list = list.filter((x) => filt.status.has((x["最終ステータス"] || "").trim()));
@@ -385,6 +392,45 @@ function tempBadge(x) {
   return ` <span class="kc-temp-badge kc-temp-${t}" title="リサイクル復活の温度 ${t}">${t}</span>`;
 }
 // 担当者不在ランク（A/B/C）のタグ。ステータス/最終結果が担当者不在のときに出す。
+// 会社名の下に出している印を、絞り込み用の「種類|値」にする
+const TAG_GROUP_LABEL = { 印: "状態", ソース: "ソース", リスト: "リスト", 不在: "担当者不在", 営業: "営業時間", 予定: "架電予定" };
+function rowTags(x) {
+  const out = [];
+  const st = `${(x && x["ステージ"]) || ""} ${(x && x["最終ステータス"]) || ""}`;
+  if (/ジャッジ|営業フォロー/.test(st)) out.push("印|ナーチャリング");
+  if (isDeadNumber(x)) out.push("印|使われていない番号");
+  else if (isUser(x)) out.push("印|ユーザー");
+  else if (isLost(x)) out.push("印|失注");
+  else if (isApoDone(x)) out.push("印|アポ獲得済み");
+  const src = String((x && x["ソース"]) || "").trim(); if (src) out.push("ソース|" + src);
+  const ln = String((x && (x["元のリスト"] || x["リスト名"])) || "").trim(); if (ln) out.push("リスト|" + ln);
+  if (/【\s*復活\s*】/.test(ln)) out.push("印|復活");
+  const r = String((x && x["担当者不在ランク"]) || "").trim().toUpperCase();
+  if (["A", "B", "C"].includes(r) && /不在/.test(String((x && (x["最終結果"] || x["最終ステータス"])) || ""))) out.push("不在|不在" + r);
+  const b = bizState(x); if (b === "open") out.push("営業|営業中"); else if (b === "closed") out.push("営業|営業時間外");
+  if (x && x["次回予定"]) out.push(new Date(x["次回予定"]).getTime() <= Date.now() ? "予定|架電予定（時刻が来た）" : "予定|架電予定あり");
+  else out.push("予定|架電予定なし");
+  return out;
+}
+function openTagFilter() {
+  const count = new Map();
+  for (const x of rows) for (const t of rowTags(x)) count.set(t, (count.get(t) || 0) + 1);
+  const order = ["印", "ソース", "リスト", "不在", "営業", "予定"];
+  const byG = {};
+  for (const [t, n] of count) { const [g, v] = t.split("|"); (byG[g] || (byG[g] = [])).push({ t, v, n }); }
+  const cur = filt.tags || new Set();
+  const inner = `<div class="note" style="margin-bottom:6px">会社名の下に出ている印でしぼります。同じ種類の中は「どれか」、種類どうしは「かつ」です。何も選ばなければすべて出ます。</div>
+    <div class="kc-flt-list">` + order.filter((g) => byG[g]).map((g) => `<div class="kc-tagf-g">${esc(TAG_GROUP_LABEL[g] || g)}</div>` +
+      byG[g].sort((a, b) => b.n - a.n).map((o) => `<label class="kc-flt-row"><input type="checkbox" value="${esc(o.t)}"${cur.has(o.t) ? " checked" : ""} /><span>${esc(o.v)}</span><span class="kc-flt-n">${o.n}</span></label>`).join("")).join("") +
+    `</div><div class="kc-modal-foot"><button type="button" class="btn" id="tgOk">この条件で見る</button><button type="button" class="btn ghost" id="tgClear">しぼり込みを外す</button></div>`;
+  const m = openModal("会社名の印でしぼる", inner);
+  addSortBar(m, "company");
+  m.el.querySelector("#tgOk").addEventListener("click", () => {
+    filt.tags = new Set([...m.el.querySelectorAll(".kc-flt-list input:checked")].map((c) => c.value));
+    saveFilt(); m.close(); render();
+  });
+  m.el.querySelector("#tgClear").addEventListener("click", () => { filt.tags = new Set(); saveFilt(); m.close(); render(); });
+}
 function absentRankBadge(x) {
   const r = String((x && x["担当者不在ランク"]) || "").trim().toUpperCase();
   if (!["A", "B", "C"].includes(r)) return "";
@@ -581,6 +627,7 @@ function saveFilt() {
       stage: [...filt.stage], status: [...filt.status], hist: filt.hist || "",
       extra: Object.fromEntries(Object.entries(filt.extra || {}).map(([k, v]) => [k, [...v]])),
       range: filt.range || {},
+      tags: [...(filt.tags || [])],
     }));
   } catch {}
 }
@@ -900,7 +947,7 @@ function render() {
       <tr>
         <th class="kc-th-c kc-fx-check" style="width:28px"><input type="checkbox" id="kcSelAll" title="全部を選ぶ" /></th>
         <th class="kc-th-s kc-fx-stage"><button type="button" class="kc-th-b${on("stage")}" data-flt="stage">ステージ${arrow("stage")} ▾</button></th>
-        <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b" data-sort="company" title="押すたびに 昇順→降順→解除">会社名${arrow("company")}</button></th>
+        <th class="kc-co kc-fx-co"><button type="button" class="kc-th-b${filt.tags && filt.tags.size ? " on" : ""}" id="kcCoFlt" title="押すと、会社名の下の印（ソース・リスト・ナーチャリングなど）でしぼれます">会社名${arrow("company")} ▾</button></th>
         <th class="kc-th-p"><button type="button" class="kc-th-b" data-sort="person" title="押すたびに 昇順→降順→解除">担当者${arrow("person")}</button></th>
         <th class="kc-th-m"><button type="button" class="kc-th-b" data-sort="mail" title="押すたびに 昇順→降順→解除">メールアドレス${arrow("mail")}</button></th>
         <th class="kc-th-l"><button type="button" class="kc-th-b" data-sort="lastcall" title="押すたびに 昇順→降順→解除">最終架電日${arrow("lastcall")}</button></th>
@@ -1026,6 +1073,7 @@ function render() {
   box.querySelectorAll(".kc-next-edit").forEach((b) =>
     b.addEventListener("click", (ev) => { ev.stopPropagation(); openNextEdit(b, b.dataset.id); }));
 
+  const coF = $("kcCoFlt"); if (coF) coF.addEventListener("click", (e) => { e.stopPropagation(); openTagFilter(); });
   // 選択（チェック）の配線
   const updateSelBar = () => {
     const bar = $("kcSelBar"), cnt = $("kcSelCount");
@@ -1883,6 +1931,7 @@ function renderDock() {
     .kc-src-tag.nur{background:#e6f1fb;color:#0c447c;}
     .kc-src-tag.new{background:#e1f5ee;color:#085041;} .kc-src-tag.past{background:#faece7;color:#712b13;} .kc-src-tag.other{background:#f1efe8;color:#5f5e5a;}
     .kc-src-list{font-size:10px;color:#6b8a7d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;}
+    .kc-tagf-g{font-size:11px;font-weight:700;color:#0d5b47;margin:8px 0 2px;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}

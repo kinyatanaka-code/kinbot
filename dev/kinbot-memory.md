@@ -1288,3 +1288,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04z history.js：FBタブの pane-bar に #genBtn（/analyze＝要約＋FB）・#deepBtn（/deep-analyze＝AI評価）を復活（ハンドラはあったがボタンのHTMLが無かった）。カードの要約は listMeetings(light) の custom_head（custom_analysis の先頭400字）→ customHeadLine を優先、無ければ summary.overview。版20261004z。
 
 - 2026-10-05 BUILD_TAG=2026-10-05a 今日かけるリードが表示されない：calls.js の listId の特別値の一覧（125・152行付近）に today が無く 0 扱いになっていた。today を追加、selectedIds.clear と リスト操作不可（全てのリードと同じ）にも追加。版20261005a。
+
+- 2026-10-05 BUILD_TAG=2026-10-05b 会社名の見出し（#kcCoFlt）→ openTagFilter。rowTags(x)＝"種類|値"（印：ナーチャリング/使われていない番号/ユーザー/失注/アポ獲得済み/復活、ソース、リスト（元のリスト or リスト名）、不在A/B/C、営業中/営業時間外、架電予定あり/時刻が来た/なし）。filt.tags（localStorage kcFilt に保存）で visibleRows：種類内 OR・種類間 AND。窓に addSortBar(company)。版20261005b。
