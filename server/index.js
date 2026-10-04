@@ -323,6 +323,7 @@ import {
   callStatsByTarget,
   fillLeadSources,
   leadSourceSummary,
+  leadSourceLists,
   setListLeadSource,
   sourceDistributeCandidates,
   sourceMemberRates,
@@ -14098,13 +14099,16 @@ app.get("/api/calls/sources", async (req, res) => {
       const x = o.m[r.ym] || (o.m[r.ym] = { calls: 0, apos: 0 }); x.calls += r.calls; x.apos += r.apos;
       if (r.caller) { const y = o.mem[r.caller] || (o.mem[r.caller] = { calls: 0, apos: 0 }); y.calls += r.calls; y.apos += r.apos; }
     };
-    const bySrc = {}, byFrame = { new: mk(), past: mk(), nurture: mk(), other: mk() }, all = mk();
+    const bySrc = {}, byFrame = { new: mk(), past: mk(), nurture: mk(), other: mk() }, all = mk(), byList = {};
     for (const r of rows) {
       add(bySrc[r.source] || (bySrc[r.source] = mk()), r);
+      const lk = `${r.source}|${r.list_id}`;
+      const bl = byList[lk] || (byList[lk] = { calls: 0, apos: 0 }); bl.calls += r.calls; bl.apos += r.apos;
       add(byFrame[r.nurture ? "nurture" : frameOfSource(r.source)], r);
       add(all, r);
     }
-    res.json({ ok: true, choices: LEAD_SOURCES, frameDefs: LEAD_FRAMES, ...sum, rates: { months, bySrc, byFrame, all } });
+    const lists = await leadSourceLists().catch(() => ({}));
+    res.json({ ok: true, choices: LEAD_SOURCES, frameDefs: LEAD_FRAMES, ...sum, lists, rates: { months, bySrc, byFrame, all, byList } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/calls/lists/:id/source", async (req, res) => {
@@ -22452,7 +22456,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-04j リスト管理の「ソース」タブを、左で選んで右で詳しく見る形（案C）に作り直した。左は3つの枠とソースをアポ率つきで並べ、右に件数・アポ率・未架電・配れる件数、担当別の件数とアポ率、月ごとのアポ率、「メンバーに配る」を出す。アポ率は直近3か月の架電。";
+const BUILD_TAG = "2026-10-04k ソースタブの右側に、そのソースのリストをカードで並べた（件数・アポ率・未架電・配れる・担当）。カードから「中身を見る」でリストの編集表を開け、「このリストから配る」でそのリストだけをメンバーに配れる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

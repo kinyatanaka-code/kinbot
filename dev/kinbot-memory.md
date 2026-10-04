@@ -1258,3 +1258,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-04 BUILD_TAG=2026-10-04i 支払い完了。gemini_failover の textViaGroq 既定を false（settings.aiTextViaGroq=true のときだけON）。予備キーへの切替・混雑時の再送は残す。再デプロイで予備キー保持状態（useBackupUntil）はリセットされ、いつものキーから使う。places.js placesEnabled は PLACES_ENABLED=1 のときだけ true（既定停止）。版20261004i。
 
 - 2026-10-04 BUILD_TAG=2026-10-04j ソースタブを案C（マスター・ディテール）に：/api/calls/sources に rates（apoStructureRows 直近3か月：bySrc・byFrame（nurture は架電時ナーチャリング）・all、各 m（月）・mem（人））。calls.js hubRenderSources を左一覧（枠＋ソース、アポ率の色：2%以上緑/0.5〜2%黄/未満赤）＋右詳細（件数・アポ率・未架電・配れる、担当別の件数とアポ率、月ごとのアポ率の棒、メンバーに配る）に作り直し、選択は _srcSel。要確認は下の details に。版20261004j。
+
+- 2026-10-04 BUILD_TAG=2026-10-04k ソースタブ右下に「このソースのリスト」カード：db.leadSourceLists（source×list の件数・未架電・配れる・ナーチャ・担当別）、rates.byList（apoStructureRows の source|list_id）。カードの「中身を見る」＝openListFromSource（edShared を nmHostSlot に持ってきて orgLoadEdit([id])、戻る＝nmExitHost が _hubTab!==ls なら hubShow で元のタブへ）、「このリストから配る」＝openSourceDistribute("list:id")（scopeSql に list: を追加）。版20261004k。

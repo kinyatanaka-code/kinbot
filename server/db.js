@@ -4725,6 +4725,10 @@ function scopeSql(key, p, forDistribute) {
     p.push(fr.sources);
     return `(t.source = ANY($${p.length}) AND ${forDistribute ? LEAD_DISTRIBUTABLE_SQL : `NOT ${LEAD_NURTURE_SQL}`})`;
   }
+  if (k.startsWith("list:")) {   // 1つのリストの中だけ
+    p.push(parseInt(k.slice(5), 10) || 0);
+    return `(t.list_id = $${p.length}${forDistribute ? ` AND ${LEAD_DISTRIBUTABLE_SQL}` : ""})`;
+  }
   const src = k.startsWith("src:") ? k.slice(4) : k;
   p.push(src);
   return `(t.source = $${p.length}${forDistribute ? ` AND ${LEAD_DISTRIBUTABLE_SQL}` : ""})`;
@@ -4785,6 +4789,37 @@ export async function apoStructureRows(fromJst, toJst) {
       WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
       GROUP BY 1, 2, 3, 4, 5, 6, 7, 8`, [fromJst, toJst]);
   return rows;
+}
+
+// ソースごとのリスト（ソースの中で、そのリードが入っているリストと件数・担当）
+export async function leadSourceLists() {
+  if (!pool) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT COALESCE(t.source,'（未設定）') AS source, l.id, l.name, l.owner,
+              count(*)::int AS n,
+              count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM call_logs cl WHERE cl.target_id = t.id))::int AS untouched,
+              count(*) FILTER (WHERE COALESCE(NULLIF(btrim(t.assigned_to),''),'') = '' AND ${LEAD_DISTRIBUTABLE_SQL})::int AS dist,
+              count(*) FILTER (WHERE ${LEAD_NURTURE_SQL})::int AS nurture,
+              jsonb_object_agg(COALESCE(NULLIF(lower(btrim(t.assigned_to)),''),'__none__'), 1) AS who
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE NOT COALESCE(l.closed,false) AND NOT COALESCE(l.hidden,false)
+        GROUP BY 1, 2, 3, 4`);
+    // 担当ごとの件数（上の who は人の一覧だけなので、件数は別に数える）
+    const { rows: ws } = await pool.query(
+      `SELECT COALESCE(t.source,'（未設定）') AS source, t.list_id AS id, lower(COALESCE(NULLIF(btrim(t.assigned_to),''),'')) AS who, count(*)::int AS n
+         FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE NOT COALESCE(l.closed,false) AND NOT COALESCE(l.hidden,false)
+        GROUP BY 1, 2, 3`);
+    const wmap = new Map();
+    for (const w of ws) { const k = `${w.source}|${w.id}`; if (!wmap.has(k)) wmap.set(k, {}); wmap.get(k)[w.who || ""] = w.n; }
+    const out = {};
+    for (const r of rows) {
+      (out[r.source] || (out[r.source] = [])).push({ id: r.id, name: r.name, owner: r.owner, 件数: r.n, 未架電: r.untouched, 配れる: r.dist, ナーチャリング: r.nurture, 担当別: wmap.get(`${r.source}|${r.id}`) || {} });
+    }
+    for (const k of Object.keys(out)) out[k].sort((a, b) => b.件数 - a.件数);
+    return out;
+  } catch (e) { console.error("[db] leadSourceLists", e.message); return {}; }
 }
 
 // リストのリードのソースを手で決める（「要確認」を直す）

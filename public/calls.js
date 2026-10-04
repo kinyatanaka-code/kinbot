@@ -1785,6 +1785,14 @@ function renderDock() {
     .sc-mo{display:flex;align-items:flex-end;gap:14px;height:96px;padding-top:6px;}
     .sc-mc{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:#1f3a30;}
     .sc-mc small{font-size:10px;color:#8aa39a;} .sc-mb{width:100%;max-width:90px;background:#5dcaa5;border-radius:6px 6px 0 0;}
+    .sc-lc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;}
+    .sc-lc{border:1px solid #e3ece8;border-radius:12px;padding:10px 12px;background:#fbfdfc;display:flex;flex-direction:column;gap:6px;}
+    .sc-lc-h{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+    .sc-lc-n{font-size:13px;font-weight:700;color:#1f3a30;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .sc-lc-k{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:#5b7a6d;} .sc-lc-k b{font-size:15px;color:#1f2d28;}
+    .sc-lc-bar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#eef3f0;}
+    .sc-lc-w{font-size:11px;color:#6b8a7d;}
+    .sc-lc-a{display:flex;gap:6px;flex-wrap:wrap;} .sc-lc-a .btn{padding:4px 10px;font-size:12px;}
     .sc-unk{margin-top:14px;background:#fff;border:1px solid #e3ece8;border-radius:12px;padding:8px 12px;} .sc-unk summary{cursor:pointer;font-size:13px;font-weight:700;color:#993c1d;}
     .hub-src-list{display:flex;flex-direction:column;gap:6px;margin:8px 0 14px;}
     .hub-src-row{display:grid;grid-template-columns:150px minmax(0,1fr) 110px;grid-template-rows:auto auto;gap:2px 12px;align-items:center;padding:8px 12px;border:1px solid #e3ece8;border-radius:10px;background:#fff;}
@@ -5776,13 +5784,30 @@ function hubShow(tab) {
   else if (tab === "src") hubRenderSources();
 }
 
+// ソースタブのリストのカードから、そのリストの中身（編集表）を開く。戻るとソースタブに戻る
+function openListFromSource(id, name, owner) {
+  if (!_edInit) orgLoadLists();
+  _edVirtMember = ""; _edClMode = "";
+  _edChosen.clear(); _edChosen.set(String(id), { name, owner });
+  const shared = $("edShared"), slot = $("nmHostSlot");
+  if (shared && slot) slot.appendChild(shared);
+  _nmHostMode = "edit";
+  const pane = $("hubPane"); if (pane) pane.hidden = true;
+  nmHostShow(`${name}`);
+  orgLoadEdit([String(id)]);
+  if ($("edTableHead")) $("edTableHead").hidden = true;
+}
+
 // ソースからメンバーに配る（担当を書き換えるだけ）。均等／アポ率に応じて。先に配分を見てから実行する
 async function openSourceDistribute(source, summary, label) {
   let mem = [];
   try { mem = ((await (await fetch("/api/calls/members")).json()).items || []).filter((m) => m.email); } catch {}
   const isFrame = String(source).startsWith("frame:");
-  const s0 = isFrame ? ((summary.frames || []).find((f) => "frame:" + f.key === source) || {}) : ((summary.sources || []).find((x) => x.source === source) || {});
-  const owners = isFrame
+  const isList = String(source).startsWith("list:");
+  const lobj = isList ? Object.values(summary.lists || {}).flat().find((l) => "list:" + l.id === source) : null;
+  const s0 = isList ? { 配れる未割り当て: lobj ? lobj.配れる : 0, 担当別: lobj ? Object.fromEntries(Object.entries(lobj.担当別 || {}).filter(([e]) => e)) : {} }
+    : isFrame ? ((summary.frames || []).find((f) => "frame:" + f.key === source) || {}) : ((summary.sources || []).find((x) => x.source === source) || {});
+  const owners = isList ? Object.keys(s0.担当別 || {}) : isFrame
     ? [...new Set((summary.sources || []).filter((x) => source === "frame:nurture" || x.枠 === source.slice(6)).flatMap((x) => Object.keys(x.担当別 || {})))]
     : Object.keys(s0.担当別 || {});
   const title = label || source;
@@ -5796,7 +5821,7 @@ async function openSourceDistribute(source, summary, label) {
       ${owners.map((e) => `<option value="${esc(e)}">${esc(hubNm(e))} の担当分</option>`).join("")}</select></label>
       <label>何件 <input id="sdN" type="number" min="1" class="kc-input" style="width:90px" value="100" /></label></div>
     <div class="sd-row"><label><input type="radio" name="sdMode" value="equal" checked /> 均等に配る</label>
-      <label><input type="radio" name="sdMode" value="rate" /> ${isFrame ? "この枠" : "このソース"}でのアポ率に応じて配る（直近60日）</label></div>
+      <label><input type="radio" name="sdMode" value="rate" /> ${isFrame ? "この枠" : isList ? "このリスト" : "このソース"}でのアポ率に応じて配る（直近60日）</label></div>
     <div style="font-size:12px;font-weight:700;margin:8px 0 4px">配る人</div>
     ${inside.length ? `<div class="sd-g">インサイド</div><div class="sd-ms">${inside.map((x) => box(x, true)).join("")}</div>` : ""}
     ${others.length ? `<div class="sd-g">セールス・ほか</div><div class="sd-ms">${others.map((x) => box(x, false)).join("")}</div>` : ""}
@@ -5817,7 +5842,7 @@ async function openSourceDistribute(source, summary, label) {
       const r = await fetch("/api/calls/sources/distribute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...b, dryRun: true }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || "計算できませんでした");
       prev.innerHTML = `<div class="note">配れるのは ${d.available.toLocaleString()}件 のうち ${d.total.toLocaleString()}件 です。</div>
-        <table class="sh-table" style="width:100%"><tr><th>メンバー</th><th style="text-align:right">${isFrame ? "この枠" : "このソース"}のアポ率</th><th style="text-align:right">配る件数</th></tr>
+        <table class="sh-table" style="width:100%"><tr><th>メンバー</th><th style="text-align:right">${isFrame ? "この枠" : isList ? "このリスト" : "このソース"}のアポ率</th><th style="text-align:right">配る件数</th></tr>
         ${d.plan.map((p) => `<tr><td>${esc(hubNm(p.email))}</td><td style="text-align:right">${p.アポ率 == null ? "—" : p.アポ率 + "%"}<span style="color:#8aa39a;font-size:11px">${p.架電数 ? `（${p.アポ}/${p.架電数}）` : "（記録なし）"}</span></td><td style="text-align:right"><b>${p.件数}</b></td></tr>`).join("")}</table>`;
       go.disabled = !d.total;
     } catch (e) { prev.innerHTML = `<div class="note" style="color:#b0452f">${esc(e.message)}</div>`; }
@@ -5896,7 +5921,26 @@ async function hubRenderSources() {
         <div class="sc-st">担当別（担当しているリード数と、その人のアポ率）</div>
         ${hRows || '<div class="note">まだ担当がいません。</div>'}
         <div class="sc-st">月ごとのアポ率</div>
-        <div class="sc-mo">${mBars}</div>`;
+        <div class="sc-mo">${mBars}</div>
+        ${isFrame ? "" : (() => {
+          const ls = (d.lists || {})[_srcSel] || [];
+          if (!ls.length) return "";
+          return `<div class="sc-st">このソースのリスト（${ls.length}本）</div><div class="sc-lc-grid">` + ls.map((l) => {
+            const lr = (R.byList || {})[`${_srcSel}|${l.id}`];
+            const ws = Object.entries(l.担当別 || {}).sort((a, b) => b[1] - a[1]);
+            const tot = Math.max(1, l.件数);
+            const pal = ["#85b7eb", "#5dcaa5", "#afa9ec", "#f0997b", "#fac775", "#97c459"];
+            const bar = ws.map(([e, n], i) => `<span title="${esc(e ? hubNm(e) : "未割り当て")} ${n}件" style="width:${n / tot * 100}%;background:${e ? pal[i % pal.length] : "#d3d1c7"}"></span>`).join("");
+            const who = ws.slice(0, 3).map(([e, n]) => `${esc(e ? hubNm(e) : "未割り当て")} ${n}`).join("・");
+            return `<div class="sc-lc">
+              <div class="sc-lc-h"><span class="sc-lc-n" title="${esc(l.name)}">${esc(l.name)}</span><span class="sc-r ${rcls(lr)}">${rate(lr)}</span></div>
+              <div class="sc-lc-k"><span><b>${l.件数.toLocaleString()}</b>件</span><span>未架電 ${l.未架電.toLocaleString()}</span><span>配れる ${l.配れる.toLocaleString()}</span>${l.ナーチャリング ? `<span class="hub-src-nur">ナーチャ ${l.ナーチャリング}</span>` : ""}</div>
+              <div class="sc-lc-bar">${bar}</div>
+              <div class="sc-lc-w">${who}${ws.length > 3 ? ` ほか${ws.length - 3}人` : ""}</div>
+              <div class="sc-lc-a"><button type="button" class="btn ghost sc-lc-open" data-id="${l.id}" data-name="${esc(l.name)}" data-owner="${esc(l.owner || "")}">中身を見る</button><button type="button" class="btn ghost sc-lc-give" data-id="${l.id}" data-name="${esc(l.name)}">このリストから配る</button></div>
+            </div>`;
+          }).join("") + `</div>`;
+        })()}`;
     }
     // 要確認のリスト
     const opts = (d.choices || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
@@ -5912,6 +5956,8 @@ async function hubRenderSources() {
     pane.querySelectorAll("[data-sel]").forEach((b) => b.addEventListener("click", () => { _srcSel = b.dataset.sel; hubRenderSources(); }));
     const give = $("scGive");
     if (give) give.addEventListener("click", () => openSourceDistribute(_srcSel, d, isFrame && fobj ? fobj.label : _srcSel));
+    pane.querySelectorAll(".sc-lc-give").forEach((b) => b.addEventListener("click", () => openSourceDistribute("list:" + b.dataset.id, d, b.dataset.name)));
+    pane.querySelectorAll(".sc-lc-open").forEach((b) => b.addEventListener("click", () => openListFromSource(b.dataset.id, b.dataset.name, b.dataset.owner)));
     pane.querySelectorAll(".hub-src-go").forEach((btn) => btn.addEventListener("click", async () => {
       const tr = btn.closest("tr"), sel = tr.querySelector(".hub-src-sel"), st = tr.querySelector(".hub-src-st");
       if (!sel.value) { st.textContent = "ソースを選んでください"; return; }
@@ -6629,6 +6675,8 @@ function nmExitHost() {
   _edVirtMember = ""; _edClMode = "";
   if (_nmSel && _nmSel.type === "special") _nmSel = null;   // 特別（ナーチャ/リサイクル/アーカイブ/クロス失注）は詳細が再ホストになるのでカードへ戻す
   nmLoad();   // 編集/作成での変更を反映するため取り直す
+  // ソースタブなど、リスト以外のタブから開いていたときは、そのタブに戻る
+  if (typeof _hubTab !== "undefined" && _hubTab && _hubTab !== "ls") hubShow(_hubTab);
 }
 // 選んだリストを、管理（新）の中で編集テーブルとして開く（編集タブへは飛ばない）
 function nmGoEdit() {
