@@ -1310,3 +1310,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05l 出勤管理の編集をセールス・管理者だけに：canEditShifts(req)（isAdmin・actingCloser・isAlwaysCloser・isCloserUser、代理操作中は元の本人で判定）で POST /api/inside-shifts・/read-file・/import を403。GET /api/inside-shifts/can-edit。calls.js loadShiftCal で _scCanEdit、非許可なら scBulk/scPdf/scShiftLink を隠し .sc-readonly（＋追加を消し、日付クリックで編集を開かない）、「見るだけ」表示。/shift.html の本人提出はそのまま。版20261005l。
 
 - 2026-10-05 BUILD_TAG=2026-10-05m 記録の窓：dockRecordPanels(m) で .kc-copanel・.kc-modal・.kc-slotpanel を .kc-rec3（grid 1.05fr/1.6fr/.8fr、高さ100vh-32px、各列スクロール）にまとめ、back に .kc-rec3-back。左右の固定配置・余白の CSS を上書き。1050px 以下は縦並び（記録を先頭）。版20261005m。
+
+- 2026-10-05 BUILD_TAG=2026-10-05n 結果に「断り」を含む記録は次回日付（#kcNext／nextAction=YYYY-MM-DD）必須。calls.js #kcSave で止めて入力欄を赤枠、/api/calls/targets/:id/record でも400。版20261005n。

@@ -1975,6 +1975,7 @@ function renderDock() {
     .sc-readonly .sc-add{display:none !important;}
     .sc-readonly .sc-cell{cursor:default !important;}
     .sc-ro{font-size:11px;color:#8a938c;background:#f1efe8;border-radius:999px;padding:2px 10px;margin-left:8px;}
+    .kc-need{outline:2px solid #e24b4a !important;outline-offset:1px;border-radius:8px;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -2354,6 +2355,12 @@ async function openTarget(id, draft, opt) {
     if (!結果) { say("kcSaveSt", "結果を選んでください", 4000); return; }
     const absentRank = (m.el.querySelector("#kcAbsentRank") || {}).value || "";
     if (/不在/.test(結果) && !absentRank) { say("kcSaveSt", "担当者不在ランク（A・B・C）を選んでください", 4000); return; }
+    // 断られたときは、次にかける日を必ず入れる
+    if (/断り/.test(結果) && !((m.el.querySelector("#kcNext") || {}).value || "")) {
+      say("kcSaveSt", "お断りのときは「次回いつかける？」の日付を入れてください", 5000);
+      const nx = m.el.querySelector("#kcNext"); if (nx) { nx.focus(); nx.classList.add("kc-need"); setTimeout(() => nx.classList.remove("kc-need"), 2500); }
+      return;
+    }
     const btn = m.el.querySelector("#kcSave");
     btn.disabled = true;
     say("kcSaveSt", "記録しています…");

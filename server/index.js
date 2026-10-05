@@ -12181,6 +12181,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     // 結果はSalesforceの選択肢をそのまま使うので、決め打ちで弾かない。
     // （「担当者接触：アポ獲得」など、組織ごとに値が違うため）
     if (!result) return res.status(400).json({ error: "結果を選んでください" });
+    // 断られたときは、次にかける日が必須
+    if (/断り/.test(result) && !/^\d{4}-\d{2}-\d{2}/.test(String(b.nextAction || ""))) return res.status(400).json({ error: "お断りのときは、次にかける日を入れてください" });
 
     // kinbotに残す
     const log = await recordCall({
@@ -22643,7 +22645,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05m 記録の窓を、左（会社情報・トーク）・真ん中（記録）・右（おすすめの日程）の3列が1つにつながった大きな窓にした。それぞれの列の中だけスクロールし、トークは列の幅いっぱいで読める。狭い画面では縦に並ぶ。";
+const BUILD_TAG = "2026-10-05n kincallで結果が「お断り」のときは、次にかける日を必須にした（入れないと記録できない。画面とサーバーの両方で確認）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
