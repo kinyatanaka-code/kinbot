@@ -328,6 +328,7 @@ import {
   nurtureInflowDaily,
   nurtureInflowDetail,
   nurtureConversion,
+  listContentIds,
   setListLeadSource,
   sourceDistributeCandidates,
   sourceMemberRates,
@@ -10031,6 +10032,30 @@ app.post("/api/calls/targets/move", async (req, res) => {
     if (r.error) return res.status(400).json({ error: r.error });
     console.log(`[kincall] ${r.moved}件をリスト${toListId}へ移動 by ${req.user}`);
     res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 選んだリストの中身をまとめて移す。mode=member：その人の担当に付け替える（リストは増やさない）／mode=list：別のリストへ移す。
+// keepNurture=true ならジャッジ・営業フォローは元のまま残す。keepDone=true ならアポ・失注などの終わったリードも残す。dryRun で件数だけ。
+app.post("/api/calls/lists/move-contents", async (req, res) => {
+  try {
+    if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
+    const b = req.body || {};
+    const listIds = (Array.isArray(b.listIds) ? b.listIds : []).map((x) => parseInt(x, 10)).filter(Boolean);
+    if (!listIds.length) return res.status(400).json({ error: "リストを選んでください" });
+    const mode = b.mode === "list" ? "list" : "member";
+    const toMember = String(b.toMember || "").trim().toLowerCase();
+    const toListId = parseInt(b.toListId, 10) || 0;
+    if (mode === "member" && !toMember) return res.status(400).json({ error: "移す相手を選んでください" });
+    if (mode === "list" && !toListId) return res.status(400).json({ error: "移し先のリストを選んでください" });
+    const ids = await listContentIds(listIds, { keepNurture: b.keepNurture !== false, keepDone: b.keepDone !== false });
+    if (b.dryRun) return res.json({ ok: true, dryRun: true, count: ids.length });
+    let moved = 0;
+    if (mode === "member") moved = await assignTargetsTo(ids, toMember);
+    else { const r = await moveCallTargets(ids, toListId); if (r.error) return res.status(400).json({ error: r.error }); moved = r.moved || 0; }
+    hubClear && hubClear(); _clSummaryCache = null;
+    console.log(`[kincall] リスト${listIds.join(",")}の中身${moved}件を${mode === "member" ? toMember + "の担当に" : "リスト" + toListId + "へ"}（ジャッジ${b.keepNurture !== false ? "残す" : "も移す"}） by ${req.user}`);
+    res.json({ ok: true, moved });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -22679,7 +22704,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05r リスト管理のメンバー別で、インサイドの今日の出勤が分かるようにした（出勤管理のカレンダーから、各カードに「出勤中 10:00〜16:00」「これから」「終わり」「今日はお休み」の印、出勤する人を前に並べ、お休みの人は薄く、見出しに今日の出勤人数）。";
+const BUILD_TAG = "2026-10-05s リスト管理でリストにチェックを入れて、中身をまとめて移せるようにした（だれかの担当に付け替える／別のリストへ移す）。ジャッジ（営業フォロー）を残すか一緒に移すか、アポ・失注などの終わったリードを残すかを選べる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

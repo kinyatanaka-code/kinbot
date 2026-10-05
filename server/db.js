@@ -4862,6 +4862,16 @@ export async function nurtureConversion(months = 3) {
   return { all, byMember, bySource };
 }
 
+// 選んだリストの中身（リードのID）。keepNurture：ジャッジ・営業フォローは残す、keepDone：アポ・失注などの終わったものは残す
+export async function listContentIds(listIds, { keepNurture = true, keepDone = true } = {}) {
+  if (!pool || !listIds || !listIds.length) return [];
+  const conds = ["t.list_id = ANY($1)"];
+  if (keepNurture) conds.push(`NOT ${LEAD_NURTURE_SQL}`);
+  if (keepDone) conds.push(`(${LEAD_NURTURE_SQL} OR ${LEAD_LIVE_SQL})`);
+  const { rows } = await pool.query(`SELECT t.id FROM call_targets t WHERE ${conds.join(" AND ")} ORDER BY t.id`, [listIds]);
+  return rows.map((r) => r.id);
+}
+
 // リストごとの主なソース（いちばん件数が多いソース）
 export async function listMainSources() {
   if (!pool) return {};

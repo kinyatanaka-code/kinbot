@@ -1950,6 +1950,7 @@ function renderDock() {
     .ni-c.we .ni-b{background:#d3d1c7;}
     .ni-v{font-size:10px;color:#185fa5;font-weight:700;min-height:12px;} .ni-d{font-size:9px;color:#8aa39a;}
     .nm-nurcard{border-color:#b5d4f4 !important;background:#f4f8fc !important;}
+    .mv-row{margin:6px 0;font-size:13px;} .mv-opts{display:flex;flex-direction:column;gap:4px;margin-top:10px;padding:8px 10px;background:#f4f9f7;border-radius:10px;font-size:13px;}
     .nm-shift{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;border-radius:999px;padding:1px 9px;margin-bottom:5px;white-space:nowrap;}
     .nm-shift.on{background:#e1f5ee;color:#085041;} .nm-shift.on.now{background:#1d9e75;color:#fff;} .nm-shift.on.done{background:#f1efe8;color:#5f5e5a;}
     .nm-shift.off{background:#f1efe8;color:#888780;font-weight:400;}
@@ -6983,9 +6984,10 @@ function nmRenderDetail() {
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
   body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${visN} リスト${ls.length > visN ? `（非表示 ${ls.length - visN}）` : ""}</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
     `<div class="nm-lgrid">${todayCard}${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}</div><span class="rev-status" id="nmOpSt"></span>` +
-    `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button>` +
+    `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button><button type="button" class="btn ghost" id="nmMoveGo">中身をまとめて移す</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+  if ($("nmMoveGo")) $("nmMoveGo").addEventListener("click", () => nmOpenMoveContents());
   body.querySelectorAll(".nm-nur-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("nurture-all", `ナーチャリング - ${_nmSel.name}`, _nmSel.key)));
   body.querySelectorAll(".nm-today-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("today", `今日かけるリード - ${_nmSel.name}`, _nmSel.key)));
   // 今日かけるリードの件数（かける先の数）と、リストごとの内訳を裏で取る
@@ -7065,6 +7067,56 @@ async function nmSetGroup(ids, value) {
     await nmLoad();
     const st2 = $("nmOpSt"); if (st2) st2.textContent = gid ? `${ids.length}件を「${gname}」に入れました` : `${ids.length}件をグループから外しました`;
   } catch (e) { if (st) st.textContent = "失敗：" + (e.message || ""); nmRenderDetail(); }
+}
+// チェックしたリストの中身をまとめて移す（担当の付け替え／別のリストへ）。ジャッジを残すかを選べる
+function nmOpenMoveContents() {
+  const ids = [..._nmChosen];
+  if (!ids.length) return;
+  const names = ids.map((id) => ((_nmLists.find((x) => String(x.id) === String(id)) || {}).name || id));
+  const mem = (_nmMembers || []).filter((m) => m.email);
+  const lists = (_nmLists || []).filter((x) => !ids.includes(String(x.id)) && !x.hidden);
+  const m = openModal(`選んだ ${ids.length} リストの中身を移す`, `
+    <div class="note" style="margin-bottom:6px">${names.map((n) => esc(n)).join("、")}</div>
+    <div class="mv-row"><label><input type="radio" name="mvMode" value="member" checked /> だれかの担当に付け替える（リストは増えません）</label></div>
+    <div class="mv-row" style="padding-left:22px"><select id="mvMember" class="kc-input" style="max-width:260px"><option value="">（移す相手を選ぶ）</option>${mem.map((x) => `<option value="${esc(x.email)}">${esc(x.name || x.email)}</option>`).join("")}</select></div>
+    <div class="mv-row"><label><input type="radio" name="mvMode" value="list" /> 別のリストへ移す</label></div>
+    <div class="mv-row" style="padding-left:22px"><select id="mvList" class="kc-input" style="max-width:320px" disabled><option value="">（移し先のリストを選ぶ）</option>${lists.map((x) => `<option value="${x.id}">${esc(x.name)}（${esc(nmMemberName(x.owner || ""))}）</option>`).join("")}</select></div>
+    <div class="mv-opts">
+      <label><input type="checkbox" id="mvKeepNur" checked /> ジャッジ（営業フォロー）は元のまま残す</label>
+      <label><input type="checkbox" id="mvKeepDone" checked /> アポ獲得・失注・アーカイブなど終わったリードは残す</label>
+    </div>
+    <div class="note" id="mvCount" style="margin-top:6px">移す件数を数えています…</div>
+    <div class="modal-actions" style="margin-top:10px"><button type="button" class="btn" id="mvGo" disabled>移す</button></div>`);
+  const q = (sel) => m.el.querySelector(sel);
+  const body = () => ({
+    listIds: ids, mode: (q('input[name="mvMode"]:checked') || {}).value || "member",
+    toMember: q("#mvMember").value, toListId: q("#mvList").value,
+    keepNurture: q("#mvKeepNur").checked, keepDone: q("#mvKeepDone").checked,
+  });
+  const recount = async () => {
+    const b = body();
+    q("#mvMember").disabled = b.mode !== "member"; q("#mvList").disabled = b.mode !== "list";
+    try {
+      const r = await fetch("/api/calls/lists/move-contents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...b, dryRun: true, toMember: b.toMember || "x", toListId: b.toListId || 1 }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "");
+      q("#mvCount").innerHTML = `移すのは <b>${d.count.toLocaleString()}</b> 件です。${b.keepNurture ? "ジャッジ（営業フォロー）は元のリスト・担当のまま残ります。" : "ジャッジ（営業フォロー）も一緒に移します。"}`;
+      q("#mvGo").disabled = !d.count || !(b.mode === "member" ? b.toMember : b.toListId);
+    } catch (e) { q("#mvCount").textContent = "数えられませんでした：" + e.message; q("#mvGo").disabled = true; }
+  };
+  m.el.querySelectorAll("input,select").forEach((el) => el.addEventListener("change", recount));
+  recount();
+  q("#mvGo").addEventListener("click", async () => {
+    const b = body();
+    const who = b.mode === "member" ? (mem.find((x) => x.email === b.toMember) || {}).name || b.toMember : (lists.find((x) => String(x.id) === String(b.toListId)) || {}).name || "";
+    if (!confirm(`選んだ ${ids.length} リストの中身を、${b.mode === "member" ? `${who} さんの担当` : `リスト「${who}」`}へ移します。よろしいですか？`)) return;
+    q("#mvGo").disabled = true; q("#mvGo").textContent = "移しています…";
+    try {
+      const r = await fetch("/api/calls/lists/move-contents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "移せませんでした");
+      m.close(); _nmChosen = new Set(); await nmLoad();
+      const st = $("nmOpSt"); if (st) st.textContent = `${d.moved.toLocaleString()}件を移しました`;
+    } catch (e) { alert(e.message); q("#mvGo").disabled = false; q("#mvGo").textContent = "移す"; }
+  });
 }
 function nmUpdateEditBar() {
   const bar = $("nmEditBar"); if (!bar) return;
