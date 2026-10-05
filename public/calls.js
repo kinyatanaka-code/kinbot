@@ -2102,6 +2102,7 @@ async function openTarget(id, draft, opt) {
           <button type="button" class="kc-qchip" data-qd="tomorrow">明日</button>
           <button type="button" class="kc-qchip" data-qd="nextmon">週明け</button>
           <button type="button" class="kc-qchip" data-qd="nextmonth">来月</button>
+          <button type="button" class="kc-qchip" data-qd="nextyear" title="来年の正月休み明け（1月5日以降）の最初の平日">来年</button>
           <button type="button" class="kc-qchip kc-qclear" data-qd="clear" style="display:none">消す</button>
         </div>
         <div class="kc-lb" id="kcQuickTimeLb" style="display:none">何時ごろ？</div>
@@ -2987,7 +2988,7 @@ async function loadToday() {
   } catch {}
 }
 
-// 「次回いつかける？」のクイック入力（今日・明日・週明け・来月＋時間ボタン）を動かす
+// 「次回いつかける？」のクイック入力（今日・明日・週明け・来月・来年＋時間ボタン）を動かす
 function quickNextDate(kind) {
   const d = new Date(Date.now() + 9 * 3600 * 1000);   // 日本時間の「今」
   const y = d.getUTCFullYear(), mo = d.getUTCMonth(), day = d.getUTCDate(), dow = d.getUTCDay();
@@ -2996,6 +2997,10 @@ function quickNextDate(kind) {
   else if (kind === "tomorrow") t = new Date(Date.UTC(y, mo, day + 1));
   else if (kind === "nextmon") { const add = ((8 - dow) % 7) || 7; t = new Date(Date.UTC(y, mo, day + add)); }
   else if (kind === "nextmonth") t = new Date(Date.UTC(y, mo + 1, 1));
+  else if (kind === "nextyear") {   // 来年：正月休み明け（1月5日以降）の最初の平日
+    t = new Date(Date.UTC(y + 1, 0, 5));
+    while (t.getUTCDay() === 0 || t.getUTCDay() === 6) t = new Date(t.getTime() + 86400000);
+  }
   else return "";
   return t.toISOString().slice(0, 10);
 }

@@ -1312,3 +1312,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05m 記録の窓：dockRecordPanels(m) で .kc-copanel・.kc-modal・.kc-slotpanel を .kc-rec3（grid 1.05fr/1.6fr/.8fr、高さ100vh-32px、各列スクロール）にまとめ、back に .kc-rec3-back。左右の固定配置・余白の CSS を上書き。1050px 以下は縦並び（記録を先頭）。版20261005m。
 
 - 2026-10-05 BUILD_TAG=2026-10-05n 結果に「断り」を含む記録は次回日付（#kcNext／nextAction=YYYY-MM-DD）必須。calls.js #kcSave で止めて入力欄を赤枠、/api/calls/targets/:id/record でも400。版20261005n。
+
+- 2026-10-05 BUILD_TAG=2026-10-05o 次回のクイックに data-qd=nextyear「来年」（翌年1/5以降の最初の平日）。版20261005o。
