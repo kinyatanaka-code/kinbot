@@ -1976,6 +1976,14 @@ function renderDock() {
     .sc-readonly .sc-cell{cursor:default !important;}
     .sc-ro{font-size:11px;color:#8a938c;background:#f1efe8;border-radius:999px;padding:2px 10px;margin-left:8px;}
     .kc-need{outline:2px solid #e24b4a !important;outline-offset:1px;border-radius:8px;}
+    .dn-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#f4f8fc;border:1px solid #d3e2f0;border-radius:14px;padding:8px 12px;margin-bottom:10px;}
+    .dn-main{display:flex;align-items:baseline;gap:6px;border:0;background:none;font:inherit;cursor:pointer;color:#0c447c;padding:0;}
+    .dn-l{font-size:13px;font-weight:700;} .dn-n{font-size:24px;font-weight:800;color:#185fa5;} .dn-u{font-size:12px;}
+    .dn-avg{font-size:11px;color:#5f7f9c;margin-left:6px;} .dn-tg{font-size:12px;margin-left:4px;}
+    .dn-chips{display:flex;flex-wrap:wrap;gap:6px;} .dn-chip{font-size:12px;background:#fff;border:1px solid #d3e2f0;border-radius:999px;padding:1px 10px;color:#0c447c;} .dn-chip b{margin-left:2px;}
+    .dn-none{font-size:12px;color:#8a9bab;}
+    .dn-det{margin:-4px 0 12px;overflow-x:auto;}
+    .kc-today-it.nur b{color:#185fa5;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -2984,6 +2992,7 @@ async function loadToday() {
     set("kcTodayCall", d.コール || 0);
     set("kcTodayCt", d.接触 || 0);
     set("kcTodayApo", d.アポ || 0);
+    set("kcTodayNur", d.ナーチャ || 0);
     box.hidden = false;
   } catch {}
 }
@@ -3250,7 +3259,31 @@ function fillDashMonths() {
   if (!dashWeekMonth) dashWeekMonth = curKey;  // 既定は今月
   sel.value = dashWeekMonth;
 }
+// ダッシュボードの上：新規リストから今日ナーチャリングになった件数（メンバー別・押すと明細）
+let _dnOpen = false;
+async function loadDashNurToday() {
+  const box = $("dashNurToday"); if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/nurture-inflow?days=7")).json();
+    if (!d || !d.ok) { box.innerHTML = ""; return; }
+    const today = d.today || [];
+    const days = d.days || [];
+    const avg = (() => { const w = days.slice(0, -1).filter((x) => x.コール > 0); return w.length ? w.reduce((a, x) => a + x.ナーチャリング化, 0) / w.length : 0; })();
+    const chips = Object.entries(d.todayByMember || {}).sort((a, b) => b[1] - a[1]).map(([n, c]) => `<span class="dn-chip">${esc(n)} <b>${c}</b></span>`).join("");
+    const rows = today.map((x) => `<tr><td>${esc(x.時刻)}</td><td class="fr-name">${esc(x.会社)}${x.担当者 ? `<span class="fr-sub">${esc(x.担当者)}</span>` : ""}</td><td><span class="kc-src-tag new">${esc(x.ソース)}</span></td><td class="fr-name">${esc(x.リスト)}</td><td>${esc(x.かけた人)}</td></tr>`).join("");
+    box.innerHTML = `<div class="dn-bar">
+        <button type="button" class="dn-main" id="dnToggle" title="押すと今日の明細を出します">
+          <span class="dn-l">今日 新規リスト → ナーチャリング</span><b class="dn-n">${today.length}</b><span class="dn-u">件</span>
+          <span class="dn-avg">直近の平均 ${avg.toFixed(1)}件/日</span><span class="dn-tg">${_dnOpen ? "▾" : "▸"}</span>
+        </button>
+        <div class="dn-chips">${chips || '<span class="dn-none">まだありません</span>'}</div>
+      </div>
+      ${_dnOpen ? `<div class="dn-det">${rows ? `<table class="fr-t"><tr><th>時刻</th><th class="fr-name">会社</th><th>ソース</th><th class="fr-name">リスト</th><th>かけた人</th></tr>${rows}</table>` : '<div class="note">今日はまだありません。</div>'}</div>` : ""}`;
+    const t = $("dnToggle"); if (t) t.addEventListener("click", () => { _dnOpen = !_dnOpen; loadDashNurToday(); });
+  } catch { box.innerHTML = ""; }
+}
 async function loadDash() {
+  loadDashNurToday();
   const box = $("clDash");
   if (!box) return;
   fillDashMonths();

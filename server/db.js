@@ -4599,7 +4599,10 @@ export async function recentCallLogs({ from = "", to = "", caller = "", limit = 
     if (caller) { p.push(String(caller).toLowerCase()); where += ` AND lower(l.caller) = $${p.length}`; }
     p.push(Math.max(1, Math.min(2000, limit)));
     const { rows } = await pool.query(
-      `SELECT l.at, l.result, l.memo, l.caller, t.company, t.person, t.stage
+      `SELECT l.at, l.result, l.memo, l.caller, t.company, t.person, t.stage, t.source,
+              (SELECT cl.name FROM call_lists cl WHERE cl.id = t.list_id) AS list_name,
+              (l.result ~ 'ジャッジ|営業フォロー' AND NOT EXISTS (
+                 SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー')) AS first_nurture
          FROM call_logs l LEFT JOIN call_targets t ON t.id = l.target_id
         WHERE ${where}
         ORDER BY l.at DESC
@@ -4815,6 +4818,20 @@ export async function nurtureInflowDaily(fromJst, toJst, sources) {
         AND NOT EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー')
       GROUP BY 1, 2`, p);
   return { inflow, calls };
+}
+
+// ある日に「はじめて」ナーチャリング（ジャッジ・営業フォロー）になったリードの明細（新規リストのソースだけ）
+export async function nurtureInflowDetail(dayJst, sources) {
+  if (!pool) return [];
+  const { rows } = await pool.query(
+    `SELECT l.at, lower(COALESCE(l.caller,'')) AS caller, l.result, t.company, t.person, t.source,
+            (SELECT cl.name FROM call_lists cl WHERE cl.id = t.list_id) AS list_name
+       FROM call_logs l JOIN call_targets t ON t.id = l.target_id
+      WHERE (l.at AT TIME ZONE 'Asia/Tokyo')::date = $1::date
+        AND l.result ~ 'ジャッジ|営業フォロー' AND t.source = ANY($2)
+        AND NOT EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー')
+      ORDER BY l.at DESC`, [dayJst, sources]);
+  return rows;
 }
 
 // リストごとの主なソース（いちばん件数が多いソース）

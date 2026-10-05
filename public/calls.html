@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261005o" />
+    <link rel="stylesheet" href="style.css?v=20261005p" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -48,6 +48,7 @@
             <span class="kc-today-it"><b id="kcTodayCall">0</b><span>コール</span></span>
             <span class="kc-today-it"><b id="kcTodayCt">0</b><span>接触</span></span>
             <span class="kc-today-it apo"><b id="kcTodayApo">0</b><span>アポ</span></span>
+            <span class="kc-today-it nur" title="新規リストから今日はじめてナーチャリング（ジャッジ・営業フォロー）になった件数"><b id="kcTodayNur">0</b><span>ナーチャ</span></span>
           </div>
           <!-- かける画面のときだけ出す：探す・操作 -->
           <label class="kc-top-find" id="kcTopFind">探す <input type="text" id="clFind" placeholder="会社名・担当者・電話" /></label>
@@ -171,6 +172,7 @@
                 <select id="dashWeekMonth" style="display:none;font-size:13px;padding:6px 10px;border:1px solid #d7e0db;border-radius:8px;background:#fff"></select>
                 <span class="rev-status" id="dashRange"></span>
               </div>
+              <div id="dashNurToday"></div>
               <div id="clDash"></div>
             </div>
             <div id="clJissekiWrap" hidden>
@@ -460,9 +462,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261005o"></script>
-    <script src="calls.js?v=20261005o"></script>
-    <script src="nav.js?v=20261005o"></script>
+    <script src="sf-data.js?v=20261005p"></script>
+    <script src="calls.js?v=20261005p"></script>
+    <script src="nav.js?v=20261005p"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

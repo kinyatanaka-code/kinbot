@@ -157,7 +157,7 @@ const TOOLS = [
 // 架電（kincall）専用ツール。別コネクタ /kincall/mcp で出す（商談ツールと混ざらないように）。
 const CALL_TOOLS = [
   {
-    name: "list_call_logs",
+    name: "list_call_logs",   // 各記録に ソース・リスト・枠（新規リスト/過去リスト）・はじめてナーチャリング（その記録ではじめてジャッジ/営業フォローになったか）も付く
     description: "kincall（架電ツール）の架電記録を新しい順で取得する。1件ずつ、会社名・担当者・結果（お断り/担当者不在/アポ獲得 等）・メモ（架電時のトーク内容メモ）・かけた人・ステージ・日時を返す。架電の傾向分析（お断り理由、接触できない時間帯、アポにつながる会話の共通点、担当者ごとのメモの質など）に使う。",
     inputSchema: {
       type: "object",
@@ -239,6 +239,11 @@ async function sfOwnerFor(req) {
   const st = await getSettings().catch(() => ({}));
   return String(st.sfProxyUser || req.user || "").trim();
 }
+
+// ソース → 大きな枠（新規リスト／過去リスト）
+const _NEW_SRC = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"];
+const _PAST_SRC = ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"];
+function frameOfSourceMcp(src) { return _NEW_SRC.includes(src) ? "新規リスト" : _PAST_SRC.includes(src) ? "過去リスト" : (src ? "その他" : ""); }
 
 export async function callTool(name, args, req) {
   const isAdmin = !!req.isAdmin;
@@ -356,6 +361,8 @@ export async function callTool(name, args, req) {
       return rows.map((r) => ({
         日時: r.at, 会社: r.company || "", 担当者: r.person || "", ステージ: r.stage || "",
         結果: r.result || "", メモ: r.memo || "", かけた人: resolveDisplayName(r.caller, nameMap),
+        ソース: r.source || "", リスト: r.list_name || "",
+        枠: frameOfSourceMcp(r.source), はじめてナーチャリング: !!r.first_nurture,
       }));
     }
     case "list_call_stats": {

@@ -326,6 +326,7 @@ import {
   leadSourceLists,
   listMainSources,
   nurtureInflowDaily,
+  nurtureInflowDetail,
   setListLeadSource,
   sourceDistributeCandidates,
   sourceMemberRates,
@@ -11734,7 +11735,10 @@ app.get("/api/calls/my-today", async (req, res) => {
       if (isContacted(r.result)) 接触 += n;
       if (/アポ獲得/.test(String(r.result || ""))) アポ += n;
     }
-    res.json({ ok: true, 日: today, コール, 接触, アポ });
+    // 新規リストから、今日はじめてナーチャリングになった件数（この人の分）
+    let ナーチャ = 0;
+    try { ナーチャ = (await nurtureInflowDetail(today, LEAD_FRAMES.new.sources)).filter((r) => r.caller === 対象).length; } catch {}
+    res.json({ ok: true, 日: today, コール, 接触, アポ, ナーチャ });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14296,7 +14300,15 @@ app.get("/api/calls/nurture-inflow", async (req, res) => {
     const work = list.filter((x) => x.コール > 0);
     const sum = (k) => list.reduce((a, x) => a + x[k], 0);
     const tot = { コール: sum("コール"), 接触: sum("接触"), アポ: sum("アポ"), ナーチャリング化: sum("ナーチャリング化"), かけた日数: work.length };
-    res.json({ ok: true, from, to, days: list, total: tot });
+    // 今日の明細（だれが・どの会社を・どのソース／リストから）
+    const det = await nurtureInflowDetail(to, sources).catch(() => []);
+    const names = new Map();
+    for (const c of new Set(det.map((r) => r.caller).filter(Boolean))) names.set(c, await displayNameOf(c).catch(() => "") || c.split("@")[0]);
+    const today = det.map((r) => ({ 時刻: new Date(new Date(r.at).getTime() + 9 * 3600000).toISOString().slice(11, 16), 会社: r.company || "", 担当者: r.person || "",
+      ソース: r.source || "", リスト: r.list_name || "", かけた人: names.get(r.caller) || "", email: r.caller, 結果: r.result || "" }));
+    const byMember = {};
+    for (const x of today) { const k = x.かけた人 || "（不明）"; byMember[k] = (byMember[k] || 0) + 1; }
+    res.json({ ok: true, from, to, days: list, total: tot, today, todayByMember: byMember });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -22645,7 +22657,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05o 記録の「次回いつかける？」に「来年」ボタンを追加（来年の正月休み明け、1月5日以降の最初の平日を入れる）。";
+const BUILD_TAG = "2026-10-05p 「新規リストから今日ナーチャリングになった件数」を分かるようにした：実績のダッシュボードの上に今日の件数とメンバー別・明細（会社・ソース・リスト・時刻）を出し、かける画面の上の「今日」の欄にも自分の件数を出す。コネクタの架電記録にもソース・リスト・枠・はじめてナーチャリングを付けた。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

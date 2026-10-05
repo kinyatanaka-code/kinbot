@@ -1314,3 +1314,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05n 結果に「断り」を含む記録は次回日付（#kcNext／nextAction=YYYY-MM-DD）必須。calls.js #kcSave で止めて入力欄を赤枠、/api/calls/targets/:id/record でも400。版20261005n。
 
 - 2026-10-05 BUILD_TAG=2026-10-05o 次回のクイックに data-qd=nextyear「来年」（翌年1/5以降の最初の平日）。版20261005o。
+
+- 2026-10-05 BUILD_TAG=2026-10-05p 新規→ナーチャリングの今日の件数：db.nurtureInflowDetail(day, sources)（その日はじめてジャッジ/営業フォロー、新規の枠のソースのみ）、/api/calls/nurture-inflow に today（明細）・todayByMember。ダッシュボード上に帯（件数・メンバー別・押すと明細）、かける画面の今日の欄に自分の件数。MCP list_call_logs に ソース・リスト・枠・はじめてナーチャリング（recentCallLogs で計算）。版20261005p。
