@@ -819,6 +819,7 @@ export async function initDb() {
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS recall_at     TIMESTAMPTZ;`);   // この記録から決めた再架電予定
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS recall_reason TEXT;`);          // 再架電理由（戻り時間/週明け/◯月再検討 等）
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS reject_tag    TEXT;`);          // この架電の断り理由タグ
+  await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS stage_before  TEXT;`);          // かけた時点のステージ（掛け合わせのアポ率用）
   await sq(`ALTER TABLE call_logs ADD COLUMN IF NOT EXISTS time_bucket   TEXT;`);          // 架電した時間帯（時間帯サジェスト集計用）
 
   // ===== Salesforceの更新の記録 =====
@@ -4872,6 +4873,51 @@ export async function listContentIds(listIds, { keepNurture = true, keepDone = t
   return rows.map((r) => r.id);
 }
 
+// ステージの区分（掛け合わせのアポ率用）：NEW／なし／担当者未接触／ジャッジ／リサイクル／その他
+export const STAGE_BUCKET_SQL = (col) => `CASE WHEN ${col} ~ 'ジャッジ|営業フォロー' THEN 'ジャッジ'
+  WHEN ${col} ~ 'リサイクル' THEN 'リサイクル' WHEN ${col} ~ '未接触' THEN '担当者未接触'
+  WHEN btrim(COALESCE(${col},'')) = '' THEN 'なし' WHEN ${col} ~* '^\\s*new\\s*$' THEN 'NEW' ELSE 'その他' END`;
+export function stageBucket(stage) {
+  const st = String(stage || "").trim();
+  if (/ジャッジ|営業フォロー/.test(st)) return "ジャッジ";
+  if (/リサイクル/.test(st)) return "リサイクル";
+  if (/未接触/.test(st)) return "担当者未接触";
+  if (!st) return "なし";
+  if (/^new$/i.test(st)) return "NEW";
+  return "その他";
+}
+// ソース × かけた時点のステージ ごとの、コール数とアポ数（直近 months か月）。
+// かけた時点のステージは、記録に残っていればそれ（2026-10-05から記録）、無ければ前の結果から推し量る：
+//   前にジャッジ・営業フォロー → ジャッジ／前にかけたことがある → 担当者未接触／【復活】リスト → リサイクル／はじめて → 今のステージが空なら「なし」、ほかは NEW
+export async function segmentCallRates(months = 3) {
+  if (!pool) return [];
+  const since = new Date(Date.now() - Math.max(1, months) * 31 * 86400000).toISOString();
+  const { rows } = await pool.query(
+    `SELECT COALESCE(t.source,'（未設定）') AS source,
+            CASE WHEN COALESCE(l.stage_before,'') <> '' THEN ${STAGE_BUCKET_SQL("l.stage_before")}
+                 WHEN EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー') THEN 'ジャッジ'
+                 WHEN EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at) THEN '担当者未接触'
+                 WHEN cl.name ~ '【\s*復活\s*】' THEN 'リサイクル'
+                 WHEN btrim(COALESCE(t.stage,'')) = '' THEN 'なし'
+                 ELSE 'NEW' END AS bucket,
+            count(*)::int AS calls, count(*) FILTER (WHERE l.result ~ 'アポ獲得')::int AS apos
+       FROM call_logs l JOIN call_targets t ON t.id = l.target_id JOIN call_lists cl ON cl.id = t.list_id
+      WHERE l.at >= $1
+      GROUP BY 1, 2`, [since]);
+  return rows;
+}
+
+// 今かけられるリード（ナーチャリング以外は生きているもの）の、ソース × 今のステージ ごとの件数
+export async function segmentLiveCounts() {
+  if (!pool) return [];
+  const { rows } = await pool.query(
+    `SELECT COALESCE(t.source,'（未設定）') AS source, ${STAGE_BUCKET_SQL("t.stage")} AS bucket, count(*)::int AS n
+       FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+      WHERE NOT COALESCE(l.closed,false) AND NOT COALESCE(l.hidden,false) AND (${LEAD_NURTURE_SQL} OR ${LEAD_LIVE_SQL})
+      GROUP BY 1, 2`);
+  return rows;
+}
+
 // リストごとの主なソース（いちばん件数が多いソース）
 export async function listMainSources() {
   if (!pool) return {};
@@ -5420,8 +5466,8 @@ export async function recordCall({ targetId, leadId, company, result, memo, call
   if (!pool) return null;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO call_logs (target_id, lead_id, company, result, memo, caller)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      `INSERT INTO call_logs (target_id, lead_id, company, result, memo, caller, stage_before)
+       VALUES ($1,$2,$3,$4,$5,$6, (SELECT COALESCE(stage,'') FROM call_targets WHERE id = $1)) RETURNING *`,
       [targetId || null, leadId || null, company || "", result,
        String(memo || "").slice(0, 1000), caller || null]);
     // 記録しても「済み」にしない。

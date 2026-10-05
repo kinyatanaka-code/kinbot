@@ -329,6 +329,9 @@ import {
   nurtureInflowDetail,
   nurtureConversion,
   listContentIds,
+  segmentCallRates,
+  segmentLiveCounts,
+  stageBucket,
   setListLeadSource,
   sourceDistributeCandidates,
   sourceMemberRates,
@@ -10428,51 +10431,39 @@ app.get("/api/calls/targets", async (req, res) => {
       const byPri = (a, b) => { const x = pri(a), y = pri(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
       const nurDue = live.filter((r) => isNur(r) && r.next_call_at).sort(byPri);   // かけられるナーチャリング＝架電予定が今日までのもの
       const rest = live.filter((r) => !isNur(r));
-      // 想定アポ率が目標（TODAY_TARGET_RATE、既定3%）になるように組み立てる。
-      //   過去リストは上限なし：最初は30件（TODAY_PAST）ほどから、足りなければ3%に届くまで増やす。
-      //   新規リストは、想定の高いリストのリードを何件入れるかも調整して、残りの枠を埋める。
+      // 掛け合わせ（新規リスト・過去リスト × 今のステージ：NEW／なし／担当者未接触／ジャッジ／リサイクル）のアポ率で1件ずつ見込み、
+      // 全体の想定アポ率が目標（TODAY_TARGET_RATE、既定3%）に近くなるように選ぶ。
+      //   ナーチャリング（架電予定が今日まで）は全部入れる。残りは、見込みの高い掛け合わせのリードを何件入れるかを調整して埋める。
       const TARGET = Math.max(0, Number(process.env.TODAY_TARGET_RATE || "0.03")) || 0.03;
-      const rates = await computeApoRates(3).catch(() => null);
-      const allR = rates && rates.all && rates.all.calls ? rates.all.apos / rates.all.calls : 0;
-      const nurR = rates ? ((rates.expectedNurture.byCaller[member] || {}).rate ?? rates.expectedNurture.rate ?? allR) : 0;
-      const expOf = (r) => isNur(r) ? nurR : ((rates && rates.expected[String(r.list_id)]) || {}).rate ?? allR;
-      const pastAll = rest.filter((r) => frameOfSource(r.source || "") === "past").sort(byPri);
-      const freshCand = rest.filter((r) => frameOfSource(r.source || "") !== "past");
-      const P = [...freshCand].sort(byPri);
-      const H = [...freshCand].sort((a, b) => expOf(b) - expOf(a) || byPri(a, b));
-      const slots = Math.max(0, TOTAL - nurDue.length);
+      const seg = await computeSegmentRates().catch(() => null);
+      const segOf = (r) => `${frameOfSource(r.source || "") === "past" ? "past" : "new"}|${stageBucket(r.stage)}`;
+      const expOf = (r) => (seg && seg.expected[segOf(r)]) ?? 0;
+      const P = [...rest].sort(byPri);
+      const H = [...rest].sort((a, b) => expOf(b) - expOf(a) || byPri(a, b));
+      const N = Math.max(0, Math.min(rest.length, TOTAL - nurDue.length));
       const nurSum = nurDue.reduce((a, r) => a + expOf(r), 0);
-      const freshPick = (k, N) => {
+      const pick = (k) => {
         const taken = new Set(), sel = [];
         for (const r of H.slice(0, k)) { sel.push(r); taken.add(r.id); }
         for (const r of P) { if (sel.length >= N) break; if (!taken.has(r.id)) { sel.push(r); taken.add(r.id); } }
         return sel;
       };
-      // 過去リストの件数 pc を、30件ほどから増やしながら試す（各 pc で新規の入れ方も試す）
-      let best = null;
-      const pcStart = Math.min(PAST_N, pastAll.length, slots);
-      const pcStep = Math.max(1, Math.ceil(Math.max(1, Math.min(pastAll.length, slots) - pcStart) / 40));
-      for (let pc = pcStart; pc <= Math.min(pastAll.length, slots); pc += pcStep) {
-        const past = pastAll.slice(0, pc);
-        const pastSum = past.reduce((a, r) => a + expOf(r), 0);
-        const N = Math.max(0, Math.min(freshCand.length, slots - pc));
-        const total = nurDue.length + pc + N;
-        const kStep = Math.max(1, Math.ceil(N / 40));
-        let hit = null;
-        for (let k = 0; k <= N; k += kStep) {
-          const fr = freshPick(k, N);
-          const avg = total ? (nurSum + pastSum + fr.reduce((a, r) => a + expOf(r), 0)) / total : 0;
-          const cand = { past, fresh: fr, avg, gap: Math.abs(avg - TARGET) };
-          if (!best || (avg >= TARGET && (best.avg < TARGET || cand.gap < best.gap)) || (best.avg < TARGET && avg > best.avg)) best = cand;
-          if (avg >= TARGET) { hit = cand; break; }   // この過去リストの件数で届いた
-        }
-        if (hit) break;   // 届いたら、過去リストをそれ以上は増やさない
-        if (pc === Math.min(pastAll.length, slots)) break;
+      const total = nurDue.length + N;
+      let best = { sel: pick(0), avg: 0 };
+      const kStep = Math.max(1, Math.ceil(N / 75));
+      for (let k = 0; k <= N; k += kStep) {
+        const sel = pick(k);
+        const avg = total ? (nurSum + sel.reduce((a, r) => a + expOf(r), 0)) / total : 0;
+        if (avg >= TARGET) { best = { sel, avg }; break; }   // 届いたら、それ以上は高い方へ寄せない
+        if (avg > best.avg) best = { sel, avg };
       }
-      if (!best) best = { past: [], fresh: [], avg: 0 };
-      const past = best.past, fresh = best.fresh.sort(byPri), bestAvg = best.avg;
-      rows = [...nurDue, ...past, ...fresh];
-      todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 過去の目安: PAST_N,
+      const chosen = best.sel.sort(byPri), bestAvg = best.avg;
+      rows = [...nurDue, ...chosen];
+      const segCount = {};
+      for (const r of rows) { const k = segOf(r); segCount[k] = (segCount[k] || 0) + 1; }
+      const past = chosen.filter((r) => frameOfSource(r.source || "") === "past");
+      const fresh = chosen.filter((r) => frameOfSource(r.source || "") !== "past");
+      todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 掛け合わせ: segCount,
         目標アポ率: TARGET, 想定アポ率: Math.round(bestAvg * 10000) / 10000, 想定アポ数: Math.round(bestAvg * rows.length * 10) / 10 };
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
@@ -14344,6 +14335,43 @@ app.get("/api/calls/nurture-inflow", async (req, res) => {
 });
 
 // リスト管理のカードに出すアポ率（直近3か月の架電）：リストごと・かけた人ごと・枠ごと
+// 掛け合わせ（新規リスト・過去リスト × かけた時点のステージ）のアポ率。10分キャッシュ。
+// 1件ずつの見込みは、その掛け合わせの実績を枠全体の実績に寄せてならす（コールが少ない掛け合わせほど枠の値に近い。100コール分）。
+const SEG_BUCKETS = ["NEW", "なし", "担当者未接触", "ジャッジ", "リサイクル", "その他"];
+let _segCache = null;
+async function computeSegmentRates() {
+  if (_segCache && Date.now() - _segCache.at < 10 * 60 * 1000) return _segCache.v;
+  const rows = await segmentCallRates(3);
+  const cell = {}, frame = {}, all = { calls: 0, apos: 0 };
+  for (const r of rows) {
+    const fk = frameOfSource(r.source); const f = fk === "past" ? "past" : "new";   // その他のソースは新規リストとして扱う
+    const k = `${f}|${r.bucket}`;
+    const c = cell[k] || (cell[k] = { calls: 0, apos: 0 }); c.calls += r.calls; c.apos += r.apos;
+    const fr = frame[f] || (frame[f] = { calls: 0, apos: 0 }); fr.calls += r.calls; fr.apos += r.apos;
+    all.calls += r.calls; all.apos += r.apos;
+  }
+  const rt = (o) => (o && o.calls) ? o.apos / o.calls : null;
+  const allR = rt(all) || 0;
+  const K = 100;
+  const expected = {};
+  for (const f of ["new", "past"]) for (const b of SEG_BUCKETS) {
+    const base = rt(frame[f]) ?? allR; const c = cell[`${f}|${b}`] || { calls: 0, apos: 0 };
+    expected[`${f}|${b}`] = (c.apos + K * base) / (c.calls + K);
+  }
+  const v = { cell, frame, all, expected, buckets: SEG_BUCKETS };
+  _segCache = { at: Date.now(), v };
+  return v;
+}
+app.get("/api/calls/segment-rates", async (req, res) => {
+  try {
+    const v = await computeSegmentRates();
+    const live = await segmentLiveCounts().catch(() => []);
+    const remain = {};
+    for (const r of live) { const f = frameOfSource(r.source) === "past" ? "past" : "new"; const k = `${f}|${r.bucket}`; remain[k] = (remain[k] || 0) + r.n; }
+    res.json({ ok: true, ...v, remain });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 想定アポ率の計算（リスト管理のカード・今日かけるリードの組み立てで使う）。10分キャッシュ。
 const _apoRatesCache = new Map();
 async function computeApoRates(monthsIn = 3) {
@@ -22704,7 +22732,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05s リスト管理でリストにチェックを入れて、中身をまとめて移せるようにした（だれかの担当に付け替える／別のリストへ移す）。ジャッジ（営業フォロー）を残すか一緒に移すか、アポ・失注などの終わったリードを残すかを選べる。";
+const BUILD_TAG = "2026-10-05t 掛け合わせのアポ率（新規リスト・過去リスト × NEW／なし／担当者未接触／ジャッジ／リサイクル）を出し、今日かけるリードはその見込みで全体が3%に近くなるように選ぶようにした（過去リストの件数は決めない）。かけた時点のステージを記録に残すようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

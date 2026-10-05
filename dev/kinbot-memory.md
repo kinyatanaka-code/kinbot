@@ -1322,3 +1322,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05r リスト管理メンバー別：nmLoadShift（/api/inside-shifts の今日、email or 名前でつなぐ）。インサイドのカードに nmShiftBadge（出勤中=緑塗り/これから/終わり/今日はお休み）、出勤中→これから→終わり→休み の順に並べ、休みは .nm-off（薄く）、見出しに今日の出勤人数（祝日・休業日名）。版20261005r。
 
 - 2026-10-05 BUILD_TAG=2026-10-05s リスト管理：チェックしたリストの中身をまとめて移す。POST /api/calls/lists/move-contents {listIds, mode(member=assignTargetsTo で担当付け替え／list=moveCallTargets), toMember, toListId, keepNurture(既定true), keepDone(既定true), dryRun}（db.listContentIds）。calls.js 選択バーに「中身をまとめて移す」→ nmOpenMoveContents（件数を dryRun で表示）。版20261005s。
+
+- 2026-10-05 BUILD_TAG=2026-10-05t 掛け合わせのアポ率：call_logs.stage_before（recordCall でかけた時点の stage を保存）。db.segmentCallRates（stage_before があればそれ、無ければ前の結果から推定：前にジャッジ→ジャッジ／前に架電→担当者未接触／【復活】リスト→リサイクル／初回→空ならなし・他NEW）、STAGE_BUCKET_SQL/stageBucket、segmentLiveCounts。index.js computeSegmentRates（new/past × バケット、K=100で枠に寄せる、10分キャッシュ）、GET /api/calls/segment-rates（＋remain＝今の件数）。今日かけるリード：ナーチャ予定分全部＋残り（全ソース）を掛け合わせの見込みで H上位k＋P埋め、TARGET到達で停止。todayPlan に 掛け合わせ。版20261005t。

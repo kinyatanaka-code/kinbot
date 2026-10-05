@@ -1950,6 +1950,10 @@ function renderDock() {
     .ni-c.we .ni-b{background:#d3d1c7;}
     .ni-v{font-size:10px;color:#185fa5;font-weight:700;min-height:12px;} .ni-d{font-size:9px;color:#8aa39a;}
     .nm-nurcard{border-color:#b5d4f4 !important;background:#f4f8fc !important;}
+    .nm-seg-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;} .nm-seg{font-size:10px;border-radius:5px;padding:0 5px;}
+    .nm-seg.new{background:#e1f5ee;color:#085041;} .nm-seg.past{background:#faece7;color:#712b13;}
+    .nm-exp.ok{border-color:#1d9e75;color:#085041;background:#e1f5ee;}
+    .seg-t td{vertical-align:top;}
     .mv-row{margin:6px 0;font-size:13px;} .mv-opts{display:flex;flex-direction:column;gap:4px;margin-top:10px;padding:8px 10px;background:#f4f9f7;border-radius:10px;font-size:13px;}
     .nm-shift{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;border-radius:999px;padding:1px 9px;margin-bottom:5px;white-space:nowrap;}
     .nm-shift.on{background:#e1f5ee;color:#085041;} .nm-shift.on.now{background:#1d9e75;color:#fff;} .nm-shift.on.done{background:#f1efe8;color:#5f5e5a;}
@@ -4625,6 +4629,8 @@ async function loadFrameStats() {
     box.innerHTML = `
       <div class="fr-bar"><span>期間</span>${[1, 3, 6].map((n) => `<button type="button" class="kc-ptab${n === FR_MONTHS ? " active" : ""}" data-frm="${n}">直近${n}か月</button>`).join("")}</div>
       <div class="fr-kpis">${kpi("全体", d.total)}${(d.frames || []).filter((f) => f.key !== "other").map((f) => kpi(f.label, f, fcol[f.key])).join("")}</div>
+      <h4 class="fr-h">掛け合わせのアポ率<span>新規リスト・過去リスト × かけた時点のステージ（直近3か月）。今日かけるリードは、この見込みで全体が3%に近くなるように選んでいます。</span></h4>
+      <div id="frSeg"><div class="note">読み込んでいます…</div></div>
       <h4 class="fr-h">枠 → ソース → 時期 → リスト<span>行を押すと開きます。時期は、過去リストは失注した月、それ以外はリストを作った月です。右は、かけた月ごとのアポ率。</span></h4>
       <div style="overflow-x:auto"><table class="fr-t"><tr><th class="fr-name">まとまり</th><th>コール</th><th>アポ</th><th>アポ率</th>${d.months.map((ym) => `<th>${mlab(ym)}</th>`).join("")}</tr>${tree}</table></div>
       <h4 class="fr-h">メンバー × 枠<span>その枠でかけた数のうち、アポになった割合（右の小さい数字はアポ／コール）。</span></h4>
@@ -4634,6 +4640,7 @@ async function loadFrameStats() {
       <div id="frInflow"><div class="note">読み込んでいます…</div></div>`;
     box.querySelectorAll("[data-frm]").forEach((b) => b.addEventListener("click", () => { FR_MONTHS = Number(b.dataset.frm); loadFrameStats(); }));
     loadNurtureInflow();
+    loadSegRates();
     box.querySelectorAll(".fr-r").forEach((tr) => tr.addEventListener("click", () => {
       const id = tr.dataset.id;
       const kids = box.querySelectorAll(`.fr-r[data-p="${id}"]`);
@@ -4646,6 +4653,22 @@ async function loadFrameStats() {
   } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 
+// 掛け合わせのアポ率（新規・過去 × ステージ）
+async function loadSegRates() {
+  const box = $("frSeg"); if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/segment-rates")).json();
+    if (!d || !d.ok) throw new Error((d && d.error) || "");
+    const bs = (d.buckets || []).filter((b) => ["new", "past"].some((f) => (d.cell[`${f}|${b}`] || {}).calls || (d.remain || {})[`${f}|${b}`]));
+    const pct = (o) => (o && o.calls) ? (Math.round(o.apos / o.calls * 1000) / 10).toFixed(1) + "%" : "—";
+    const cls = (o) => { if (!o || !o.calls) return ""; const v = o.apos / o.calls * 100; return v >= 3 ? "g" : v >= 1 ? "y" : "r"; };
+    const row = (f, label) => `<tr><td class="fr-name"><b style="color:${f === "past" ? "#993c1d" : "#0f6e56"}">${label}</b><span class="fr-sub">全体 ${pct(d.frame[f])}</span></td>` +
+      bs.map((b) => { const o = d.cell[`${f}|${b}`]; const rem = (d.remain || {})[`${f}|${b}`] || 0; const ex = d.expected[`${f}|${b}`];
+        return `<td><span class="sc-r ${cls(o)}">${pct(o)}</span><span class="fr-sub">${o ? `${o.apos}/${o.calls}コール` : "記録なし"}</span><span class="fr-sub">見込み ${ex != null ? (Math.round(ex * 1000) / 10).toFixed(1) + "%" : "—"}・残り ${rem.toLocaleString()}</span></td>`; }).join("") + `</tr>`;
+    box.innerHTML = `<div style="overflow-x:auto"><table class="fr-t seg-t"><tr><th class="fr-name">枠 ＼ ステージ</th>${bs.map((b) => `<th>${esc(b)}</th>`).join("")}</tr>${row("new", "新規リスト")}${row("past", "過去リスト")}</table></div>
+      <p class="note" style="margin-top:6px">色：緑 3%以上・黄 1〜3%・赤 1%未満。見込み＝実績を枠全体の値に寄せてならしたもの（コールが少ない所ほど枠の値に近い）。残り＝今かけられるリードの数。かけた時点のステージは、10/5より前の記録は前の結果から推し量っています。</p>`;
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message || "")}</div>`; }
+}
 // 新規リストから毎日増えるナーチャリング（直近30日）
 async function loadNurtureInflow() {
   const box = $("frInflow"); if (!box) return;
@@ -6997,15 +7020,17 @@ function nmRenderDetail() {
       if (seq !== window._nmTodaySeq) return;
       const items = (d && d.items || []).filter((x) => !isDone(x));
       const nEl = $("nmTodayN"); if (nEl) nEl.textContent = items.length.toLocaleString();
-      const ex = leadsExpected(items, _nmRates, who);
-      const xEl = $("nmTodayExp"); if (xEl && ex) { xEl.hidden = false; xEl.textContent = `想定 ${(Math.round(ex.rate * 1000) / 10).toFixed(1)}%・アポ ${ex.apos.toFixed(1)}件`; }
+      const tp = d && d.todayPlan;
+      const xEl = $("nmTodayExp");
+      if (xEl && tp && tp.想定アポ率 != null) { xEl.hidden = false; xEl.textContent = `想定 ${(tp.想定アポ率 * 100).toFixed(1)}%・アポ ${tp.想定アポ数}件`; xEl.classList.toggle("ok", tp.想定アポ率 >= (tp.目標アポ率 || 0.03)); }
       const by = {}; for (const x of items) { const k = x["リスト名"] || "（リスト不明）"; by[k] = (by[k] || 0) + 1; }
       const parts = Object.entries(by).sort((a, b) => b[1] - a[1]);
       const nur = items.filter((x) => /ジャッジ|営業フォロー/.test(`${x["ステージ"] || ""} ${x["最終ステータス"] || ""}`)).length;
       const pEl = $("nmTodayParts");
       if (pEl) pEl.innerHTML = parts.slice(0, 5).map(([k, n]) => `<div><span title="${esc(k)}">${esc(k)}</span><b>${n}</b></div>`).join("") +
         (parts.length > 5 ? `<div style="color:#8aa39a">ほか${parts.length - 5}リスト</div>` : "") +
-        (nur ? `<div style="color:#185fa5">うちナーチャリング<b>${nur}</b></div>` : "");
+        (nur ? `<div style="color:#185fa5">うちナーチャリング<b>${nur}</b></div>` : "") +
+        (tp && tp.掛け合わせ ? `<div class="nm-seg-chips">${Object.entries(tp.掛け合わせ).sort((a, b) => b[1] - a[1]).map(([k, n]) => { const [f, b] = k.split("|"); return `<span class="nm-seg ${f}">${f === "past" ? "過去" : "新規"}×${esc(b)} ${n}</span>`; }).join("")}</div>` : "");
     }).catch(() => { const nEl = $("nmTodayN"); if (nEl) nEl.textContent = "—"; });
   }
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
