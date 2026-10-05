@@ -1950,6 +1950,13 @@ function renderDock() {
     .ni-c.we .ni-b{background:#d3d1c7;}
     .ni-v{font-size:10px;color:#185fa5;font-weight:700;min-height:12px;} .ni-d{font-size:9px;color:#8aa39a;}
     .nm-nurcard{border-color:#b5d4f4 !important;background:#f4f8fc !important;}
+    .nm-shift{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;border-radius:999px;padding:1px 9px;margin-bottom:5px;white-space:nowrap;}
+    .nm-shift.on{background:#e1f5ee;color:#085041;} .nm-shift.on.now{background:#1d9e75;color:#fff;} .nm-shift.on.done{background:#f1efe8;color:#5f5e5a;}
+    .nm-shift.off{background:#f1efe8;color:#888780;font-weight:400;}
+    .nm-shift-dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.8;}
+    .nm-card.nm-off{opacity:.55;background:#fafaf8 !important;}
+    .nm-card.nm-off:hover{opacity:.9;}
+    .nm-sec-shift{font-size:11px;font-weight:400;color:#5b7a6d;margin-left:10px;} .nm-sec-shift b{color:#0d5b47;font-size:13px;}
     .nm-todaycard{border-color:#9fe1cb !important;background:#f0faf5 !important;}
     .nm-todaycard .nm-lname-t{color:#0f6e56;font-weight:800;}
     .nm-rate{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-top:4px;white-space:nowrap;}
@@ -6604,6 +6611,37 @@ async function hubRenderPast() {
     </div>`;
 }
 function nmRenderRoot() { if (_nmSel) nmRenderDetail(); else nmRenderCards(); }
+// 今日の出勤（出勤管理のカレンダー）。メールか名前でカードとつなぐ
+let _nmShift = null, _nmShiftDay = "";
+function nmTodayStr() { const d = new Date(Date.now() + 9 * 3600000); return d.toISOString().slice(0, 10); }
+async function nmLoadShift() {
+  const day = nmTodayStr();
+  if (_nmShift && _nmShiftDay === day) return;
+  try {
+    const d = await (await fetch(`/api/inside-shifts?from=${day}&to=${day}`)).json();
+    const byEmail = new Map(), byName = new Map();
+    for (const x of (d && d.shifts) || []) {
+      const o = { start: x.start_min, end: x.end_min };
+      if (x.email) byEmail.set(String(x.email).toLowerCase(), o);
+      if (x.name) byName.set(String(x.name).replace(/[\s　]/g, ""), o);
+    }
+    _nmShift = { byEmail, byName, holiday: (d && d.holidays && d.holidays[day]) || "" }; _nmShiftDay = day;
+    if (_nmHostMode == null && !_nmSel) nmRenderCards();
+  } catch { _nmShift = { byEmail: new Map(), byName: new Map(), holiday: "" }; _nmShiftDay = day; }
+}
+function nmShiftOf(email) {
+  if (!_nmShift) return undefined;   // まだ読み込んでいない
+  return _nmShift.byEmail.get(String(email || "").toLowerCase()) || _nmShift.byName.get(String(nmMemberName(email) || "").replace(/[\s　]/g, "")) || null;
+}
+function nmHm(m) { m = Number(m); if (!isFinite(m)) return ""; return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`; }
+function nmShiftBadge(email) {
+  const sh = nmShiftOf(email);
+  if (sh === undefined) return "";
+  if (!sh) return `<div class="nm-shift off">今日はお休み</div>`;
+  const nowJ = new Date(Date.now() + 9 * 3600000), nowMin = nowJ.getUTCHours() * 60 + nowJ.getUTCMinutes();
+  const st = sh.start != null && sh.end != null ? (nowMin < sh.start ? "これから" : nowMin <= sh.end ? "出勤中" : "終わり") : "出勤";
+  return `<div class="nm-shift on ${st === "出勤中" ? "now" : st === "終わり" ? "done" : ""}"><span class="nm-shift-dot"></span>${st}${sh.start != null ? ` ${nmHm(sh.start)}〜${nmHm(sh.end)}` : ""}</div>`;
+}
 function nmRenderCards() {
   const body = $("nmBody"); if (!body) return;
   if (_nmMode === "group") return nmRenderGroupCards(body);
@@ -6615,11 +6653,16 @@ function nmRenderCards() {
   for (const [email, ls] of byOwner) buckets[nmTeamOf(email)].push({ email, ls });
   const secs = [["sales", "セールス"], ["inside", "インサイド"], ["other", "他"]];
   let html = "", any = false;
+  if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
   for (const [key, label] of secs) {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
-    arr.sort((a, b) => nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
-    html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}</div><div class="nm-grid">` +
-      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-owner="${esc(email)}"><div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${(() => { const v = nmMemberListAvg(ls); return nmExpPill(v.rate, `想定アポ率：この人が持っている表示中のリスト（${v.n}本）の想定アポ率の平均`); })()}</div></button>`; }).join("") +
+    const isIn = key === "inside";
+    // インサイドは、今日出勤する人を前に（出勤中 → これから → 終わり → お休み）
+    const rank = (e) => { const sh = nmShiftOf(e); if (!sh) return 9; const nowJ = new Date(Date.now() + 9 * 3600000), n = nowJ.getUTCHours() * 60 + nowJ.getUTCMinutes(); return sh.start == null ? 1 : n < sh.start ? 1 : n <= sh.end ? 0 : 2; };
+    arr.sort((a, b) => (isIn ? rank(a.email) - rank(b.email) : 0) || nmMemberName(a.email).localeCompare(nmMemberName(b.email), "ja"));
+    const workN = isIn && _nmShift ? arr.filter((a) => nmShiftOf(a.email)).length : null;
+    html += `<div class="nm-sec"><div class="nm-sec-h">${esc(label)}${workN != null ? `<span class="nm-sec-shift">今日の出勤 <b>${workN}</b>人${_nmShift.holiday ? `（${esc(_nmShift.holiday)}）` : ""}</span>` : ""}</div><div class="nm-grid">` +
+      arr.map(({ email, ls }) => { const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); const nur = ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0); const off = isIn && _nmShift && !nmShiftOf(email); return `<button type="button" class="nm-card${off ? " nm-off" : ""}" data-owner="${esc(email)}">${isIn ? nmShiftBadge(email) : ""}<div class="nm-card-name">${esc(nmMemberName(email))}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nur}・${ls.length} リスト</div><div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byCaller && _nmRates.byCaller[String(email).toLowerCase()], "この人がかけた分のアポ率（直近3か月）")}${(() => { const v = nmMemberListAvg(ls); return nmExpPill(v.rate, `想定アポ率：この人が持っている表示中のリスト（${v.n}本）の想定アポ率の平均`); })()}</div></button>`; }).join("") +
       `</div></div>`;
   }
   // その他：未割り当て／ナーチャリング／リサイクル／アーカイブ をそれぞれカードで出す
