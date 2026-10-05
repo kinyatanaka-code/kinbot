@@ -4834,6 +4834,34 @@ export async function nurtureInflowDetail(dayJst, sources) {
   return rows;
 }
 
+// ナーチャリングのアポ率＝ジャッジ・営業フォローにしたリードの数のうち、そのあとアポになった数（リード数で割る。コール数ではない）。
+// 対象：直近 months か月のうちにはじめてジャッジ・営業フォローの結果になったリード＋いまジャッジ・営業フォローのリード。
+// 人ごとは、そのリードの担当（担当が空ならリストの持ち主）で数える。
+export async function nurtureConversion(months = 3) {
+  if (!pool) return { all: { leads: 0, apos: 0 }, byMember: {}, bySource: {} };
+  const since = new Date(Date.now() - Math.max(1, months) * 31 * 86400000).toISOString();
+  const { rows } = await pool.query(
+    `WITH firstn AS (
+        SELECT target_id, min(at) AS t0 FROM call_logs WHERE result ~ 'ジャッジ|営業フォロー' GROUP BY target_id
+     ), base AS (
+        SELECT t.id, COALESCE(t.source,'（未設定）') AS source,
+               lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner, '')) AS who, f.t0
+          FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+          LEFT JOIN firstn f ON f.target_id = t.id
+         WHERE f.t0 >= $1 OR ${LEAD_NURTURE_SQL}
+     )
+     SELECT who, source, count(*)::int AS leads,
+            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM call_logs a WHERE a.target_id = base.id AND a.result ~ 'アポ獲得' AND (base.t0 IS NULL OR a.at > base.t0)))::int AS apos
+       FROM base GROUP BY 1, 2`, [since]);
+  const all = { leads: 0, apos: 0 }, byMember = {}, bySource = {};
+  for (const r of rows) {
+    all.leads += r.leads; all.apos += r.apos;
+    const m = byMember[r.who] || (byMember[r.who] = { leads: 0, apos: 0 }); m.leads += r.leads; m.apos += r.apos;
+    const so = bySource[r.source] || (bySource[r.source] = { leads: 0, apos: 0 }); so.leads += r.leads; so.apos += r.apos;
+  }
+  return { all, byMember, bySource };
+}
+
 // リストごとの主なソース（いちばん件数が多いソース）
 export async function listMainSources() {
   if (!pool) return {};

@@ -4621,7 +4621,7 @@ async function loadFrameStats() {
       <div style="overflow-x:auto"><table class="fr-t"><tr><th class="fr-name">まとまり</th><th>コール</th><th>アポ</th><th>アポ率</th>${d.months.map((ym) => `<th>${mlab(ym)}</th>`).join("")}</tr>${tree}</table></div>
       <h4 class="fr-h">メンバー × 枠<span>その枠でかけた数のうち、アポになった割合（右の小さい数字はアポ／コール）。</span></h4>
       <div style="overflow-x:auto"><table class="fr-t"><tr><th class="fr-name">メンバー</th>${(d.frames || []).map((f) => `<th>${esc(f.label)}</th>`).join("")}<th>全体</th></tr>${memRows}</table></div>
-      <p class="note" style="margin-top:8px">ナーチャリング＝その架電の前にジャッジ・営業フォローになっていたリード（今ジャッジ・営業フォローのものも含む）。新規・過去の枠からは外して数えます。</p>
+      <p class="note" style="margin-top:8px">ナーチャリングのアポ率＝ジャッジ・営業フォローにしたリードの数のうち、そのあとアポになった数の割合（コール数ではなくリード数で割ります）。新規・過去の枠は、ナーチャリングだった時の架電を外して数えます。</p>
       <h4 class="fr-h">新規リストから毎日増えるナーチャリング<span>その日に「はじめて」ジャッジ・営業フォローになったリードの数（新規リストのソースだけ）。</span></h4>
       <div id="frInflow"><div class="note">読み込んでいます…</div></div>`;
     box.querySelectorAll("[data-frm]").forEach((b) => b.addEventListener("click", () => { FR_MONTHS = Number(b.dataset.frm); loadFrameStats(); }));
@@ -6254,7 +6254,7 @@ async function hubRenderSources() {
       right = `<div class="sc-dh"><span class="sc-dt">${esc(title)}</span>${fk === "nurture" ? "" : ""}<button type="button" class="btn" id="scGive">メンバーに配る</button></div>
         <div class="sc-k4">
           <div class="sc-k"><span>件数</span><b>${Number(件数 || 0).toLocaleString()}</b></div>
-          <div class="sc-k"><span>アポ率（直近3か月）</span><b class="sc-r ${rcls(rt)}">${rate(rt)}</b><small>${rt ? `${rt.apos.toLocaleString()} / ${rt.calls.toLocaleString()}コール` : ""}</small></div>
+          <div class="sc-k"><span>アポ率（直近3か月）</span><b class="sc-r ${rcls(rt)}">${rate(rt)}</b><small>${rt ? (rt.byLeads ? `ジャッジにした ${rt.calls.toLocaleString()}件のうちアポ ${rt.apos.toLocaleString()}件` : `${rt.apos.toLocaleString()} / ${rt.calls.toLocaleString()}コール`) : ""}</small></div>
           <div class="sc-k"><span>未架電</span><b>${fk === "nurture" ? "—" : Number(未架電 || 0).toLocaleString()}</b></div>
           <div class="sc-k"><span>配れる未割り当て</span><b>${Number(配れる || 0).toLocaleString()}</b></div>
         </div>
@@ -6636,7 +6636,7 @@ function nmRenderCards() {
     const nc = (key, ic, nm, n, ds, cc) =>
       `<button type="button" class="nm-card nm-clcard" data-nur="${key}" style="--cc:${cc}"><div class="nm-cl-ic">${ic}</div><div class="nm-card-name">${nm}</div><div class="nm-cl-big">${Number(n || 0).toLocaleString()}<small>件</small></div><div class="nm-card-sub">${ds}</div></button>`;
     html += `<div class="nm-sec"><div class="nm-sec-h">ナーチャリング</div><div class="nm-grid nm-cl3">` +
-      nc("all", hubIco("leaf"), "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75").replace("</button>", `<div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byFrame && _nmRates.byFrame.nurture, "ナーチャリングの枠のアポ率（直近3か月）")}${nmExpPill(_nmRates && _nmRates.expectedNurture ? _nmRates.expectedNurture.rate : null, "想定アポ率：ナーチャリングの枠全体の実績（直近3か月）から見込んだ値")}</div></button>`) +
+      nc("all", hubIco("leaf"), "ナーチャリング（全体）", _nmNur.total || totalNur, "ジャッジ・営業フォローの全リード。担当メンバーを移せます。", "#1d9e75").replace("</button>", `<div class="nm-rates">${nmRatePill(_nmRates && _nmRates.byFrame && _nmRates.byFrame.nurture, "ナーチャリングのアポ率：ジャッジ・営業フォローにしたリードのうち、アポになった割合（直近3か月）")}${nmExpPill(_nmRates && _nmRates.expectedNurture ? _nmRates.expectedNurture.rate : null, "想定アポ率：ナーチャリングの枠全体の実績（直近3か月）から見込んだ値")}</div></button>`) +
       nc("week", hubIco("cal"), "今週かける予定", _nmNur.week, "次回架電日が今週末まで（期限切れ含む）のリード。担当メンバーを移せます。", "#e0912b") +
       `</div></div>`;
   }

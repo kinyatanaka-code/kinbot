@@ -327,6 +327,7 @@ import {
   listMainSources,
   nurtureInflowDaily,
   nurtureInflowDetail,
+  nurtureConversion,
   setListLeadSource,
   sourceDistributeCandidates,
   sourceMemberRates,
@@ -14212,6 +14213,11 @@ app.get("/api/calls/sources", async (req, res) => {
       add(all, r);
     }
     const lists = await leadSourceLists().catch(() => ({}));
+    // ナーチャリングの枠は「ジャッジにしたリードの数のうち、アポになった数」。人ごとも同じ数え方
+    try {
+      const nc = await nurtureConversion(3);
+      byFrame.nurture = { calls: nc.all.leads, apos: nc.all.apos, m: {}, mem: Object.fromEntries(Object.entries(nc.byMember).filter(([e]) => e).map(([e, o]) => [e, { calls: o.leads, apos: o.apos }])), byLeads: true };
+    } catch {}
     res.json({ ok: true, choices: LEAD_SOURCES, frameDefs: LEAD_FRAMES, ...sum, lists, rates: { months, bySrc, byFrame, all, byList } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -14353,10 +14359,13 @@ async function computeApoRates(monthsIn = 3) {
       const o = byList[id] || { calls: 0, apos: 0 };
       expected[id] = { rate: (o.apos + K * base) / (o.calls + K), basis, calls: o.calls };
     }
-    // ナーチャリングの想定：枠全体のアポ率と、人ごと（その人のナーチャリングでの実績を枠の値に寄せてならす）
+    // ナーチャリングのアポ率は「ジャッジにしたリードの数のうち、アポになった数」で出す（コール数ではない）
+    const nc = await nurtureConversion(months).catch(() => null);
+    if (nc) byFrame.nurture = { calls: nc.all.leads, apos: nc.all.apos, byLeads: true };
     const nurBase = rt(byFrame.nurture) ?? rt(all) ?? 0;
-    const expectedNurture = { rate: nurBase, calls: (byFrame.nurture || {}).calls || 0, byCaller: {} };
-    for (const [e, o] of Object.entries(byCallerNur)) expectedNurture.byCaller[e] = { rate: (o.apos + K * nurBase) / (o.calls + K), calls: o.calls };
+    const KN = 20;   // 人ごとの値は、ジャッジにしたリードが少ない人ほど全体の値に寄せる（20件分）
+    const expectedNurture = { rate: nurBase, calls: (byFrame.nurture || {}).calls || 0, byCaller: {}, byLeads: true };
+    for (const [e, o] of Object.entries((nc && nc.byMember) || {})) if (e) expectedNurture.byCaller[e] = { rate: (o.apos + KN * nurBase) / (o.leads + KN), calls: o.leads, apos: o.apos };
     const out = { ok: true, from, to, byList, byCaller, byFrame, bySrc, all, expected, expectedNurture, K };
     _apoRatesCache.set(months, { at: Date.now(), v: out });
     return out;
@@ -14407,6 +14416,19 @@ app.get("/api/calls/apo-structure", async (req, res) => {
     }
     const out = (n) => ({ label: n.label, kind: n.kind, calls: n.calls, apos: n.apos, m: n.m,
       kids: [...n.kids.values()].sort((a, b) => (n.kind === "source" ? String(b.label).localeCompare(String(a.label)) : b.calls - a.calls)).map(out) });
+    // ナーチャリングの枠は「ジャッジにしたリードの数のうち、アポになった数」に置きかえる（中はソースごと）
+    try {
+      const nc = await nurtureConversion(months);
+      const nf = frames.get("nurture") || mk(FRAME_LABEL.nurture, "frame");
+      nf.calls = nc.all.leads; nf.apos = nc.all.apos; nf.m = {}; nf.kids = new Map();
+      for (const [src, o] of Object.entries(nc.bySource)) { const k = mk(src, "source"); k.calls = o.leads; k.apos = o.apos; nf.kids.set(src, k); }
+      frames.set("nurture", nf);
+      for (const [e, o] of Object.entries(nc.byMember)) {
+        if (!e) continue;
+        if (!members.has(e)) members.set(e, { email: e, all: { calls: 0, apos: 0 }, f: {} });
+        members.get(e).f.nurture = { calls: o.leads, apos: o.apos };
+      }
+    } catch (e) { console.warn("[apo-structure] ナーチャリング", e.message); }
     const order = ["new", "past", "nurture", "other"];
     const names = new Map();
     for (const e of members.keys()) names.set(e, await displayNameOf(e).catch(() => "") || e.split("@")[0]);
@@ -22657,7 +22679,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05p 「新規リストから今日ナーチャリングになった件数」を分かるようにした：実績のダッシュボードの上に今日の件数とメンバー別・明細（会社・ソース・リスト・時刻）を出し、かける画面の上の「今日」の欄にも自分の件数を出す。コネクタの架電記録にもソース・リスト・枠・はじめてナーチャリングを付けた。";
+const BUILD_TAG = "2026-10-05q ナーチャリングのアポ率を「ジャッジ・営業フォローにしたリードの数のうち、そのあとアポになった数」で出すようにした（コール数で割らない）。ソースタブ・リスト管理のカード・枠別アポ率・今日かけるリードの見込みすべて同じ数え方。人ごとはそのリードの担当で数える。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

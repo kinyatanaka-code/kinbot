@@ -1316,3 +1316,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05o 次回のクイックに data-qd=nextyear「来年」（翌年1/5以降の最初の平日）。版20261005o。
 
 - 2026-10-05 BUILD_TAG=2026-10-05p 新規→ナーチャリングの今日の件数：db.nurtureInflowDetail(day, sources)（その日はじめてジャッジ/営業フォロー、新規の枠のソースのみ）、/api/calls/nurture-inflow に today（明細）・todayByMember。ダッシュボード上に帯（件数・メンバー別・押すと明細）、かける画面の今日の欄に自分の件数。MCP list_call_logs に ソース・リスト・枠・はじめてナーチャリング（recentCallLogs で計算）。版20261005p。
+
+- 2026-10-05 BUILD_TAG=2026-10-05q ナーチャリングのアポ率＝リード基準：db.nurtureConversion(months)（直近N×31日に初めてジャッジ/営業フォローになったリード＋今ナーチャリングのリード を分母、そのあと（初ナーチャ以降）アポ獲得のログがあるものを分子、人は assigned_to→list owner、ソース別も）。computeApoRates の byFrame.nurture と expectedNurture（K=20件で寄せる）、/api/calls/sources の rates.byFrame.nurture（mem 付き）、apo-structure の nurture 枠（中はソース別、月別なし）とメンバー×枠を置きかえ。表示は byLeads なら『ジャッジにした○件のうちアポ○件』。版20261005q。
