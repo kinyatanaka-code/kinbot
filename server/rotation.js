@@ -374,6 +374,24 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
   return { email: null, name: "", team: "", reason: "全員この時間帯に予定が入っています", skipped };
 }
 
+// ある人が、その時間に空いているか（割り振りと同じ見方：終日・参加拒否・リスケ・キャンセルは空き扱い）
+export async function isPersonFree(inviteOwner, email, startISO, endISO, bufferMin = 0) {
+  const em = String(email || "").toLowerCase(); if (!em || !startISO) return { free: false, reason: "時間が分かりません" };
+  const eISO = endISO || new Date(new Date(startISO).getTime() + 3600000).toISOString();
+  const buf = (bufferMin || 0) * 60000;
+  let evs;
+  try { evs = await listCalendarEvents(inviteOwner, em, { timeMin: new Date(Date.parse(startISO) - buf - 3600000).toISOString(), timeMax: new Date(Date.parse(eISO) + buf + 3600000).toISOString() }); }
+  catch { return { free: false, reason: "カレンダーを読めませんでした" }; }
+  const s = Date.parse(startISO) - buf, e = Date.parse(eISO) + buf;
+  for (const ev of evs || []) {
+    if (ev.allDay || ev.selfResponse === "declined") continue;
+    if (/リスケ|キャンセル/.test(String(ev.title || ""))) continue;
+    const bs = Date.parse(ev.start), be = Date.parse(ev.end);
+    if (!isNaN(bs) && !isNaN(be) && bs < e && be > s) return { free: false, reason: "この時間帯に別の予定が入っています" };
+  }
+  return { free: true };
+}
+
 // チームの状態と件数をまとめて読む（1件ごとに何度も引かないようにキャッシュして渡す）
 export async function loadTeamContext(cfg, business = "") {
   const conf = cfg || (await getRotationConfig());

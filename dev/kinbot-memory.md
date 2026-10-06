@@ -1334,3 +1334,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-06 BUILD_TAG=2026-10-06a デイリー目標：表のセールス行は想定コール・必要アポ率を「—」、見出し「稼働・架電時間」。dgGenText を【インサイド】（h/コール/率/目標＋小計）と【セールス】（架電h・目標＋小計）に分け、合計は目標件数のみ。版20261006a。
 
 - 2026-10-06 BUILD_TAG=2026-10-06b デイリー目標「セールスの架電時間を読み直す」（#dgReread）：POST /api/daily/reread {date}＝dailyWorkingMembers の sales 名で daily_hours を消す（db.clearDailyHours）→ 再表示でカレンダー計算値に戻る。版20261006b。
+
+- 2026-10-06 BUILD_TAG=2026-10-06c 割り振りの代わりの担当：autoAssignOne で pickCloser が誰も返さないとき、urabayashiMember（URA_EMAIL か users の名前に浦林）を rotation.isPersonFree で確認し、空いていれば担当に（reason『全員この時間帯に予定があったため浦林さんへ（本来の担当：…）』、本来＝pick.skipped の最初の人）。commitAssignment はしない（logAssign のみ）。createApoInvite で浦林さんの予定、本来の人のカレンダーに【浦林さん対応】予定（ゲストなし・通知なし）、確定メールは current_owner＝浦林さんのGmail。URA_FALLBACK=0 で止められる。版20261006c。

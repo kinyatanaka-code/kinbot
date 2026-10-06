@@ -18,7 +18,7 @@ process.on("unhandledRejection", (e) => {
   console.error("[unhandledRejection]", e && e.stack ? e.stack : e);
 });
 
-import { pickCloser, commitAssignment, rotationStatus, setNextCloser,
+import { pickCloser, isPersonFree, commitAssignment, rotationStatus, setNextCloser,
          getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
 import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
@@ -22790,7 +22790,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06b デイリー目標に「セールスの架電時間を読み直す」ボタンを追加。その日のセールスの手入力を消して、カレンダー（10-18の【】・ブロック以外、昼休憩・参加拒否を除く）から架電時間を計算し直す。";
+const BUILD_TAG = "2026-10-06c アポの割り振りで、全員その時間に予定があって誰にも割り振れなかったとき、浦林さんが空いていれば浦林さんを担当にするようにした。浦林さんのカレンダーに商談予定を作り、本来の担当だった人のカレンダーにも【浦林さん対応】の予定を作る。確定メールは浦林さんのGmailから。ローテーションの順番は動かさない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25963,6 +25963,15 @@ async function shouldNotifyAssignFail(slug) {
   } catch { return true; }   // 設定が読めなくても、黙って落とさず1回は出す
 }
 
+// 浦林さん（全員埋まっていたときの代わりの担当）。環境変数 URA_EMAIL があればそれ、無ければメンバーの名前で探す
+async function urabayashiMember() {
+  const forced = String(process.env.URA_EMAIL || "").trim().toLowerCase();
+  const users = await listUsers().catch(() => []);
+  const hit = forced ? (users || []).find((u) => String(u.email || "").toLowerCase() === forced)
+    : (users || []).find((u) => String(u.name || "").replace(/[\s　]/g, "").includes("浦林"));
+  if (hit) return { email: String(hit.email).toLowerCase(), name: hit.name || hit.email };
+  return forced ? { email: forced, name: "浦林" } : null;
+}
 async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto", noMail = false }) {
   // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
   const biz = String(link.business || "").trim();
@@ -25973,6 +25982,22 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   const pick = self
     ? { email: self.email, name: self.name || self.email, reason: "自分で獲得したアポ", self: true }
     : await pickCloser(link, { inviteOwner, closers, cfg, teamCtx, business: biz });
+  // 誰にも割り振れなかったとき：浦林さんがその時間に空いていれば、浦林さんを担当にする（代わりの担当）。
+  //   当初割り振られる予定だった人（最初に試した人）のカレンダーにも同じ予定を作り、確定メールは浦林さんのGmailから送る。
+  if (!pick.email && !self && process.env.URA_FALLBACK !== "0") {
+    const ura = await urabayashiMember().catch(() => null);
+    if (ura && ura.email) {
+      const endISO = link.end_time ? new Date(link.end_time).toISOString() : null;
+      const fr = await isPersonFree(inviteOwner, ura.email, new Date(link.start_time).toISOString(), endISO, (cfg && cfg.bufferMin) || 0).catch(() => ({ free: false }));
+      if (fr.free) {
+        const intended = (pick.skipped || []).find((x) => x.email && String(x.email).toLowerCase() !== String(ura.email).toLowerCase()) || null;
+        pick.email = ura.email; pick.name = ura.name || ura.email;
+        pick.reason = `全員この時間帯に予定があったため浦林さんへ${intended ? `（本来の担当：${intended.name || intended.email}さん）` : ""}`;
+        pick.uraFallback = true; pick.intended = intended;
+        console.log(`[apo-assign] ${link.slug}：全員埋まっていたので浦林さん（${ura.email}）へ。本来は ${intended ? intended.name || intended.email : "-"}`);
+      }
+    }
+  }
   if (!pick.email) {
     // 割り当てられなかった理由も残す（あとで画面から見て手動対応する）
     await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
@@ -26000,6 +26025,9 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     await markCloserAssigned(pick.email).catch(() => {});
     await logAssign({ slug: link.slug, assigned: pick.email, reason: "自分で獲得したアポ（割り振りなし）", actor });
     console.log(`[apo-assign] ${link.slug} → ${pick.name}（自分で獲得したアポ。件数は数え、順番は動かしません）`);
+  } else if (pick.uraFallback) {
+    // 浦林さんへの代わりの割り振り：ローテーションの順番は動かさない（本来の人の順番も変えない）
+    await logAssign({ slug: link.slug, assigned: pick.email, reason: pick.reason, skipped: pick.skipped, actor });
   } else {
     rotNext = await commitAssignment(updated, pick, { actor });
   }
@@ -26015,6 +26043,23 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
   } else if (s && s.apoAutoInvite !== false) {
     try { invite = await createApoInvite(updated, { actor }); }
     catch (e) { inviteError = e.message; console.warn("[apo-assign] 招待の作成に失敗", link.slug, e.message); }
+  }
+  // 浦林さんへの代わりの割り振りのときは、本来の担当だった人のカレンダーにも同じ商談の予定を作る（ゲストなし・通知なし）
+  if (pick.uraFallback && pick.intended && pick.intended.email) {
+    try {
+      const ie = String(pick.intended.email).toLowerCase();
+      if (await gcalConnected(ie).catch(() => false)) {
+        const st0 = new Date(updated.start_time);
+        let en0 = updated.end_time ? new Date(updated.end_time) : new Date(st0.getTime() + 3600000);
+        if (!(en0 > st0)) en0 = new Date(st0.getTime() + 3600000);
+        const ev2 = await createCalendarEvent(ie, {
+          summary: `【浦林さん対応】${updated.label || "商談"}`,
+          description: `この商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${pick.intended.name || ie}）。\n参加URL: ${joinUrl(updated.slug)}\nアポ獲得: ${updated.setter || "-"}`,
+          start: st0, end: en0, guests: [], calendarId: "primary", sendUpdates: "none",
+        });
+        console.log(`[apo-assign] ${link.slug}：本来の担当 ${ie} のカレンダーにも予定を作りました (${ev2 && ev2.id})`);
+      } else console.warn(`[apo-assign] ${link.slug}：本来の担当 ${ie} のGoogle連携が無いため、予定を作れませんでした`);
+    } catch (e) { console.warn("[apo-assign] 本来の担当の予定作成に失敗", link.slug, e.message); }
   }
 
   // アポ確定メール（担当セールス本人のGmailから）
