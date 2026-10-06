@@ -1336,3 +1336,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-06 BUILD_TAG=2026-10-06b デイリー目標「セールスの架電時間を読み直す」（#dgReread）：POST /api/daily/reread {date}＝dailyWorkingMembers の sales 名で daily_hours を消す（db.clearDailyHours）→ 再表示でカレンダー計算値に戻る。版20261006b。
 
 - 2026-10-06 BUILD_TAG=2026-10-06c 割り振りの代わりの担当：autoAssignOne で pickCloser が誰も返さないとき、urabayashiMember（URA_EMAIL か users の名前に浦林）を rotation.isPersonFree で確認し、空いていれば担当に（reason『全員この時間帯に予定があったため浦林さんへ（本来の担当：…）』、本来＝pick.skipped の最初の人）。commitAssignment はしない（logAssign のみ）。createApoInvite で浦林さんの予定、本来の人のカレンダーに【浦林さん対応】予定（ゲストなし・通知なし）、確定メールは current_owner＝浦林さんのGmail。URA_FALLBACK=0 で止められる。版20261006c。
+
+- 2026-10-06 BUILD_TAG=2026-10-06d 浦林さんの自動の代わり割り振りは既定OFF（URA_FALLBACK=1 のときだけ）。PUT /api/smart-links/:slug/owner で owner が浦林さん（urabayashiMember）になったら、本来の担当＝前の current_owner（浦林以外）か db.intendedCloserOf（最新の割り振れなかった記録の skipped 先頭）のカレンダーに【浦林さん対応】予定を作る（gcal連携ありのとき、ゲストなし・通知なし）。浦林さんの予定は createApoInvite、確定メールは浦林さんのGmail（既存の流れ）。レスポンスに uraIntendedEvent。版20261006d。

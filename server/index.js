@@ -480,6 +480,7 @@ import {
   markAutoAssigned,
   clearAutoAssigned,
   listAssignLog,
+  intendedCloserOf,
   clearCloserPriority,
   logAssign,
   listTeams,
@@ -22790,7 +22791,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06c アポの割り振りで、全員その時間に予定があって誰にも割り振れなかったとき、浦林さんが空いていれば浦林さんを担当にするようにした。浦林さんのカレンダーに商談予定を作り、本来の担当だった人のカレンダーにも【浦林さん対応】の予定を作る。確定メールは浦林さんのGmailから。ローテーションの順番は動かさない。";
+const BUILD_TAG = "2026-10-06d 浦林さんへの割り振りは自動にせず、田中さんが手で担当を浦林さんに変える形にした。浦林さんに変えたときは、浦林さんのカレンダーに商談予定を作り、本来の担当だった人（前の担当、または割り振れなかったときに最初に試した人）のカレンダーにも【浦林さん対応】の予定を作る。確定メールは浦林さんのGmailから。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25984,7 +25985,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     : await pickCloser(link, { inviteOwner, closers, cfg, teamCtx, business: biz });
   // 誰にも割り振れなかったとき：浦林さんがその時間に空いていれば、浦林さんを担当にする（代わりの担当）。
   //   当初割り振られる予定だった人（最初に試した人）のカレンダーにも同じ予定を作り、確定メールは浦林さんのGmailから送る。
-  if (!pick.email && !self && process.env.URA_FALLBACK !== "0") {
+  if (!pick.email && !self && process.env.URA_FALLBACK === "1") {   // 2026-10-06〜 既定は自動にしない（田中さんが手で浦林さんに変える）
     const ura = await urabayashiMember().catch(() => null);
     if (ura && ura.email) {
       const endISO = link.end_time ? new Date(link.end_time).toISOString() : null;
@@ -28096,6 +28097,15 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
       return res.json({ ok: true, link: only, quiet: true });
     }
 
+    // 浦林さんへの担当変更（全員埋まっていたときに田中さんが手で変える）：本来の担当だった人を先に控えておく
+    let uraIntended = null;
+    try {
+      const ura = owner ? await urabayashiMember() : null;
+      if (ura && String(owner).toLowerCase() === ura.email) {
+        const prev = String(existing.current_owner || "").toLowerCase();
+        uraIntended = prev && prev !== ura.email ? { email: prev, name: await repDisplayName(prev).catch(() => prev) } : await intendedCloserOf(req.params.slug);
+      }
+    } catch {}
     const link = await setSmartLinkOwner(req.params.slug, owner);
     // 担当が決まったら、商談予定を自動作成してクローザーを招待する（失敗しても割り当ては成功のまま返す）
     let invite = null, inviteError = null;
@@ -28110,6 +28120,24 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
       catch (e) { inviteError = e.message; console.warn("[apo-invite] 失敗", req.params.slug, e.message); }
     } else if (selfOwn) {
       console.log(`[apo-invite] ${req.params.slug} は本人の予定をそのまま使います`);
+    }
+    // 浦林さんに変えたときは、本来の担当だった人のカレンダーにも【浦林さん対応】の予定を作る（ゲストなし・通知なし）
+    let uraIntendedEvent = null;
+    if (uraIntended && uraIntended.email && link && link.start_time) {
+      try {
+        if (await gcalConnected(uraIntended.email).catch(() => false)) {
+          const st0 = new Date(link.start_time);
+          let en0 = link.end_time ? new Date(link.end_time) : new Date(st0.getTime() + 3600000);
+          if (!(en0 > st0)) en0 = new Date(st0.getTime() + 3600000);
+          const ev2 = await createCalendarEvent(uraIntended.email, {
+            summary: `【浦林さん対応】${link.label || "商談"}`,
+            description: `この商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${uraIntended.name || uraIntended.email}）。\n参加URL: ${joinUrl(link.slug)}\nアポ獲得: ${link.setter || "-"}\n担当を変えた人: ${req.user || "-"}`,
+            start: st0, end: en0, guests: [], calendarId: "primary", sendUpdates: "none",
+          });
+          uraIntendedEvent = { email: uraIntended.email, id: ev2 && ev2.id };
+          console.log(`[apo] ${req.params.slug}：浦林さんへ変更。本来の担当 ${uraIntended.email} のカレンダーにも予定を作りました by ${req.user}`);
+        } else uraIntendedEvent = { email: uraIntended.email, error: "Google連携が無いため作れませんでした" };
+      } catch (e) { uraIntendedEvent = { email: uraIntended.email, error: e.message }; }
     }
     // 続けてアポ確定メールを、担当セールス本人のGmailから自動送信する
     let mail = null;
@@ -28158,7 +28186,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
         }
       })().catch(() => {});
     }
-    res.json({ ok: true, link, invite, invite_error: inviteError, mail });
+    res.json({ ok: true, link, invite, invite_error: inviteError, mail, uraIntendedEvent });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

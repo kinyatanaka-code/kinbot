@@ -6646,6 +6646,18 @@ export async function logAssign({ slug, assigned, reason, skipped, actor, team }
   } catch (e) { console.error("[db] logAssign", e.message); return null; }
 }
 
+// そのアポの、いちばん新しい「割り振れなかった」記録の、最初に試した人（本来の担当になるはずだった人）
+export async function intendedCloserOf(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT skipped FROM assign_log WHERE slug = $1 AND COALESCE(assigned,'') = '' AND skipped IS NOT NULL ORDER BY created_at DESC LIMIT 1`, [slug]);
+    const sk = rows[0] && rows[0].skipped;
+    const arr = Array.isArray(sk) ? sk : [];
+    const hit = arr.find((x) => x && x.email);
+    return hit ? { email: String(hit.email).toLowerCase(), name: hit.name || hit.email } : null;
+  } catch { return null; }
+}
 export async function listAssignLog(limit = 50) {
   if (!pool) return [];
   try {
