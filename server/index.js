@@ -22791,7 +22791,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06e 【浦林さん対応】の予定に kinbot の目印を入れ、アポのスキャンが新しいアポとして拾わないようにした。浦林さんに変えたアポの件数は、本来の担当の人の件数として数える。割り振れなかったときのChatの文を「○○さんの商談カウントで、浦林さんに担当変更お願いします」にした。";
+const BUILD_TAG = "2026-10-06f 【浦林さん対応】の予定に kinbot の目印を入れ、アポのスキャンが新しいアポとして拾わないようにした。浦林さんに変えたアポの件数は、本来の担当の人の件数として数える。割り振れなかったときのChatの文を「○○さんの商談カウントで、浦林さんに担当変更お願いします」にした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -28124,6 +28124,8 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     }
     // 浦林さんに変えたときは、本来の担当だった人のカレンダーにも【浦林さん対応】の予定を作る（ゲストなし・通知なし）
     let uraIntendedEvent = null;
+    // 件数（割り振りの均等化・アポ通知の数）は本来の担当の人に付ける
+    if (uraIntended && uraIntended.email) await logAssign({ slug: req.params.slug, assigned: uraIntended.email, reason: `浦林さん対応（${uraIntended.name || uraIntended.email}さんの件数として数える）`, actor: req.user }).catch(() => {});
     if (uraIntended && uraIntended.email && link && link.start_time) {
       try {
         if (await gcalConnected(uraIntended.email).catch(() => false)) {
@@ -28137,8 +28139,6 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
             start: st0, end: en0, guests: [], calendarId: "primary", sendUpdates: "none",
           });
           uraIntendedEvent = { email: uraIntended.email, id: ev2 && ev2.id };
-          // 件数（割り振りの均等化・アポ通知の数）は本来の担当の人に付ける
-          await logAssign({ slug: req.params.slug, assigned: uraIntended.email, reason: `浦林さん対応（${uraIntended.name || uraIntended.email}さんの件数として数える）`, actor: req.user }).catch(() => {});
           console.log(`[apo] ${req.params.slug}：浦林さんへ変更。本来の担当 ${uraIntended.email} のカレンダーにも予定を作りました by ${req.user}`);
         } else uraIntendedEvent = { email: uraIntended.email, error: "Google連携が無いため作れませんでした" };
       } catch (e) { uraIntendedEvent = { email: uraIntended.email, error: e.message }; }
