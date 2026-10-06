@@ -2035,6 +2035,7 @@ function renderDock() {
     .dn-none{font-size:12px;color:#8a9bab;}
     .dn-det{margin:-4px 0 12px;overflow-x:auto;}
     .kc-today-it.nur b{color:#185fa5;}
+    .dg-na{color:#b4b2a9;}
     .kc-sortbar{display:flex;align-items:center;gap:6px;padding:0 0 10px;margin:0 0 10px;border-bottom:1px solid #e6ece9;}
     .kc-sortbar-l{font-size:12px;font-weight:700;color:#0d5b47;margin-right:4px;}
     .kc-sortbar-b{border:1px solid #cfe0d8;background:#fff;color:#1f3a30;border-radius:999px;padding:4px 14px;font:inherit;font-size:12px;cursor:pointer;}
@@ -5063,11 +5064,23 @@ let _dgShiftInit = false;
 function dgToday() { const j = new Date(Date.now() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`; }
 function dgFmtH(h) { const r = Math.round(h * 100) / 100; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace(/\.0$/, "")) + "h"; }
 function dgGenText() {
-  const lines = []; let tH = 0, tC = 0, tT = 0;
-  for (const m of _dgMembers) { const t = Math.max(0, parseInt(m.target, 10) || 0); const c = Math.round(m.hours * 20); const r = c > 0 ? (t / c * 100) : 0; lines.push(`${m.name}：${dgFmtH(m.hours)} / ${c}コール / ${r.toFixed(2)}% (目標${t}件)`); tH += m.hours; tC += c; tT += t; }
-  const tr = tC > 0 ? (tT / tC * 100) : 0;
+  // インサイド：稼働時間・想定コール・必要アポ率・目標／セールス：架電時間と目標だけ
+  const lines = [];
+  const ins = _dgMembers.filter((m) => m.role !== "sales"), sal = _dgMembers.filter((m) => m.role === "sales");
+  let iH = 0, iC = 0, iT = 0, sH = 0, sT = 0;
+  if (ins.length) {
+    lines.push("【インサイド】");
+    for (const m of ins) { const t = Math.max(0, parseInt(m.target, 10) || 0); const c = Math.round(m.hours * 20); const r = c > 0 ? (t / c * 100) : 0; lines.push(`${m.name}：${dgFmtH(m.hours)} / ${c}コール / ${r.toFixed(2)}%（目標${t}件）`); iH += m.hours; iC += c; iT += t; }
+    lines.push(`小計：${dgFmtH(iH)} / ${iC}コール / ${(iC > 0 ? iT / iC * 100 : 0).toFixed(2)}%（目標${iT}件）`);
+  }
+  if (sal.length) {
+    if (lines.length) lines.push("");
+    lines.push("【セールス】");
+    for (const m of sal) { const t = Math.max(0, parseInt(m.target, 10) || 0); lines.push(`${m.name}：架電${dgFmtH(m.hours)}（目標${t}件）`); sH += m.hours; sT += t; }
+    lines.push(`小計：架電${dgFmtH(sH)}（目標${sT}件）`);
+  }
   lines.push("------------------------------------");
-  lines.push(`合計：${dgFmtH(tH)} / ${tC}コール / ${tr.toFixed(2)}% (目標${tT}件)`);
+  lines.push(`合計：目標${iT + sT}件（インサイド${iT}件・セールス${sT}件）`);
   return lines.join("\n");
 }
 function dgRenderText() { const el = $("dgText"); if (el) el.textContent = dgGenText(); }
@@ -5080,13 +5093,14 @@ async function loadDailyGoal() {
   const rEl = $("dgRate"); if (rEl && d.rate != null && document.activeElement !== rEl) rEl.value = d.rate;
   if (!_dgMembers.length) { if (wrap) wrap.innerHTML = '<div class="note">この日の稼働メンバーがいません（インサイド＝出勤シフト、セールス＝カレンダーから算出）。</div>'; dgRenderText(); return; }
   const roleLbl = (r) => r === "sales" ? "セールス" : "インサイド";
-  let html = '<table class="kc-table"><thead><tr><th>メンバー</th><th>区分</th><th>稼働</th><th>アポ目標</th><th>想定コール</th><th>必要アポ率</th></tr></thead><tbody>';
+  let html = '<table class="kc-table"><thead><tr><th>メンバー</th><th>区分</th><th>稼働・架電時間</th><th>アポ目標</th><th>想定コール</th><th>必要アポ率</th></tr></thead><tbody>';
   _dgMembers.forEach((m, i) => {
     const c = Math.round(m.hours * 20); const r = c > 0 ? ((m.target || 0) / c * 100) : 0;
+    const sales = m.role === "sales";   // セールスは架電時間とアポ目標だけ（コール数・アポ率は出さない）
     html += `<tr><td>${esc(m.name)}</td><td>${roleLbl(m.role)}</td>` +
       `<td><input type="number" step="0.5" min="0" class="kc-input dg-h" data-i="${i}" value="${m.hours}" style="width:64px" />h</td>` +
       `<td><input type="number" min="0" class="kc-input dg-t" data-i="${i}" value="${m.target || 0}" style="width:72px" /></td>` +
-      `<td class="dg-calls">${c}</td><td class="dg-rate">${r.toFixed(2)}%</td></tr>`;
+      (sales ? `<td class="dg-na">—</td><td class="dg-na">—</td></tr>` : `<td class="dg-calls">${c}</td><td class="dg-rate">${r.toFixed(2)}%</td></tr>`);
   });
   html += "</tbody></table>";
   if (wrap) wrap.innerHTML = html;
