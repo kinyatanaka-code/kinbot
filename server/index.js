@@ -4084,6 +4084,21 @@ app.post("/api/daily/target", async (req, res) => {
 });
 // 平均アポ率（%）を保存（目標の自動記入に使う）
 // セールスの架電時間をカレンダーから読み直す（その日の手入力を消して、カレンダーの値に戻す）
+// デイリー目標をChatにもう一度送る（直したあとに送り直すとき）。その日の手入力の時間・目標をそのまま使う
+app.post("/api/daily/notify", async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.date || "")) ? String(req.body.date) : jstTodayStr();
+    const members = await dailyWorkingMembers(date);
+    applyHoursOverride(members, await getDailyHours(date).catch(() => ({})));
+    const targets = await getDailyTargets(date).catch(() => ({}));
+    const rate = await dailyAvgRate();
+    const label = date === jstTodayStr() ? "本日" : `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))}`;
+    const text = `${label}のデイリー目標（更新版）\n${genDailyTargetText(members, targets, rate)}`;
+    const r = await notifyAll(text, "daily").catch((e) => ({ ok: false, error: e.message }));
+    console.log(`[デイリー目標] ${date} を再通知 by ${req.user}`);
+    res.json({ ok: true, date, sent: r, text });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/daily/reread", async (req, res) => {
   try {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.date || "")) ? String(req.body.date) : jstTodayStr();
@@ -22803,7 +22818,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06g 毎朝Chatに送る「本日のデイリー目標」の文を、画面の生成テキストと同じ形（インサイド／セールスに分け、セールスは架電時間と目標だけ、合計は目標件数）にした。";
+const BUILD_TAG = "2026-10-06h デイリー目標に「Chatに再通知」ボタンを追加。直した時間・目標で「本日のデイリー目標（更新版）」をChatに送り直せる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

@@ -1342,3 +1342,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-06 BUILD_TAG=2026-10-06e 【浦林さん対応】予定の description 先頭に KINBOT_INVITE_MARK（スキャンが新規アポとして拾う恐れがあった）。手動で浦林さんへ変えたとき assign_log に本来の担当で reason『浦林さん対応（…さんの件数として数える）』、countDistributedBetween はこの reason を current_owner 一致でなくても数える。notifyAssignFailed の最後の行を『👉 ○○（skipped先頭）さんの商談カウントで、浦林さんに担当変更お願いします』に。版20261006e。
 
 - 2026-10-06 BUILD_TAG=2026-10-06g サーバーの genDailyTargetText（毎朝のChat・/api/daily/text）を画面の dgGenText と同じ形に。前回は画面だけ変えていて通知が古い形のままだった。版20261006g。
+
+- 2026-10-06 BUILD_TAG=2026-10-06h デイリー目標「Chatに再通知」（#dgNotify）：POST /api/daily/notify {date}＝その日の手入力を反映した genDailyTargetText を『本日のデイリー目標（更新版）』として notifyAll(daily)。版20261006h。

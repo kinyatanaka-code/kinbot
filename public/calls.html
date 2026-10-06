@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261006g" />
+    <link rel="stylesheet" href="style.css?v=20261006h" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -228,6 +228,7 @@
                 <label style="font-size:13px;color:#4a5a54">日付 <input type="date" id="dgDate" class="kc-input" style="max-width:170px" /></label>
                 <button type="button" class="btn ghost" id="dgReload">更新</button>
                 <button type="button" class="btn ghost" id="dgReread" title="その日のセールスの手入力を消して、カレンダーから架電時間を計算し直します">セールスの架電時間を読み直す</button>
+                <button type="button" class="btn" id="dgNotify" title="今の時間・目標で、Chatに「デイリー目標（更新版）」を送り直します">Chatに再通知</button>
                 <label style="font-size:13px;color:#4a5a54">平均アポ率 <input type="number" step="0.1" min="0" id="dgRate" class="kc-input" style="max-width:90px" />%</label>
                 <span class="note" style="margin:0">セールス＝10-18の「【】/ブロック」以外・昼休憩(12-13)/参加拒否は除外／インサイド＝出勤シフト。目標は平均アポ率で自動記入（手入力で上書き可）。</span>
               </div>
@@ -463,9 +464,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261006g"></script>
-    <script src="calls.js?v=20261006g"></script>
-    <script src="nav.js?v=20261006g"></script>
+    <script src="sf-data.js?v=20261006h"></script>
+    <script src="calls.js?v=20261006h"></script>
+    <script src="nav.js?v=20261006h"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
