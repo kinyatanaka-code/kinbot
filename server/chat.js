@@ -342,7 +342,10 @@ export async function notifyAssignFailed({ title, start, setter, reason, skipped
     setter ? `👤 獲得 ${setter}` : "",
     `理由：${reason || "割り当てできる人がいませんでした"}`,
     whoLine,
-    "kinbotの画面から手動で割り振ってください。",
+    // 最初に試した人（本来の担当）の件数として数え、浦林さんに担当を変えてもらう
+    (Array.isArray(skipped) && skipped.find((s) => s && (s.name || s.email)))
+      ? `👉 ${(skipped.find((s) => s && (s.name || s.email)).name || skipped.find((s) => s && (s.name || s.email)).email)}さんの商談カウントで、浦林さんに担当変更お願いします`
+      : "kinbotの画面から手動で割り振ってください。",
   ].filter(Boolean);
   return notifyAll(lines.join("\n"), "assign", {});
 }

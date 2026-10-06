@@ -6521,7 +6521,7 @@ export async function countDistributedBetween(fromISO, toISO) {
         WHERE COALESCE(a.assigned,'') <> '' AND NOT COALESCE(s.excluded, false)
           AND COALESCE(a.reason,'') NOT LIKE '%自分で獲得%'
           AND COALESCE(a.reason,'') NOT LIKE '%割り振りなし%'
-          AND lower(COALESCE(s.current_owner,'')) = lower(a.assigned)
+          AND (lower(COALESCE(s.current_owner,'')) = lower(a.assigned) OR COALESCE(a.reason,'') LIKE '%浦林さん対応%')   -- 浦林さん対応は本来の担当の件数
           ${where}
         GROUP BY 1`, params);
     const out = {};

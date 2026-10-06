@@ -22791,7 +22791,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06d 浦林さんへの割り振りは自動にせず、田中さんが手で担当を浦林さんに変える形にした。浦林さんに変えたときは、浦林さんのカレンダーに商談予定を作り、本来の担当だった人（前の担当、または割り振れなかったときに最初に試した人）のカレンダーにも【浦林さん対応】の予定を作る。確定メールは浦林さんのGmailから。";
+const BUILD_TAG = "2026-10-06e 【浦林さん対応】の予定に kinbot の目印を入れ、アポのスキャンが新しいアポとして拾わないようにした。浦林さんに変えたアポの件数は、本来の担当の人の件数として数える。割り振れなかったときのChatの文を「○○さんの商談カウントで、浦林さんに担当変更お願いします」にした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -26055,7 +26055,8 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
         if (!(en0 > st0)) en0 = new Date(st0.getTime() + 3600000);
         const ev2 = await createCalendarEvent(ie, {
           summary: `【浦林さん対応】${updated.label || "商談"}`,
-          description: `この商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${pick.intended.name || ie}）。\n参加URL: ${joinUrl(updated.slug)}\nアポ獲得: ${updated.setter || "-"}`,
+          // 先頭に「kinbotが自動作成した商談予定です」を入れる（アポのスキャンが新しいアポとして拾わないように）
+          description: `${KINBOT_INVITE_MARK}（浦林さん対応）。\nこの商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${pick.intended.name || ie}）。\n参加URL: ${joinUrl(updated.slug)}\nアポ獲得: ${updated.setter || "-"}`,
           start: st0, end: en0, guests: [], calendarId: "primary", sendUpdates: "none",
         });
         console.log(`[apo-assign] ${link.slug}：本来の担当 ${ie} のカレンダーにも予定を作りました (${ev2 && ev2.id})`);
@@ -28131,10 +28132,13 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           if (!(en0 > st0)) en0 = new Date(st0.getTime() + 3600000);
           const ev2 = await createCalendarEvent(uraIntended.email, {
             summary: `【浦林さん対応】${link.label || "商談"}`,
-            description: `この商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${uraIntended.name || uraIntended.email}）。\n参加URL: ${joinUrl(link.slug)}\nアポ獲得: ${link.setter || "-"}\n担当を変えた人: ${req.user || "-"}`,
+            // 先頭に「kinbotが自動作成した商談予定です」を入れる（アポのスキャンが新しいアポとして拾わないように）
+            description: `${KINBOT_INVITE_MARK}（浦林さん対応）。\nこの商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${uraIntended.name || uraIntended.email}）。\n参加URL: ${joinUrl(link.slug)}\nアポ獲得: ${link.setter || "-"}\n担当を変えた人: ${req.user || "-"}`,
             start: st0, end: en0, guests: [], calendarId: "primary", sendUpdates: "none",
           });
           uraIntendedEvent = { email: uraIntended.email, id: ev2 && ev2.id };
+          // 件数（割り振りの均等化・アポ通知の数）は本来の担当の人に付ける
+          await logAssign({ slug: req.params.slug, assigned: uraIntended.email, reason: `浦林さん対応（${uraIntended.name || uraIntended.email}さんの件数として数える）`, actor: req.user }).catch(() => {});
           console.log(`[apo] ${req.params.slug}：浦林さんへ変更。本来の担当 ${uraIntended.email} のカレンダーにも予定を作りました by ${req.user}`);
         } else uraIntendedEvent = { email: uraIntended.email, error: "Google連携が無いため作れませんでした" };
       } catch (e) { uraIntendedEvent = { email: uraIntended.email, error: e.message }; }
