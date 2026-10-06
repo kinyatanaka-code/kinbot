@@ -4037,16 +4037,28 @@ function applyHoursOverride(members, hoursMap) {
 }
 function fmtHoursJa(h) { const r = Math.round(h * 100) / 100; return (Number.isInteger(r) ? String(r) : r.toFixed(1).replace(/\.0$/, "")) + "h"; }
 function genDailyTargetText(members, targets, rate) {
+  // 画面の「生成テキスト」と同じ形：インサイドは 時間・コール・必要アポ率・目標、セールスは 架電時間と目標だけ
   const rows = resolveTargets(members, targets, rate);
-  const lines = []; let tH = 0, tC = 0, tT = 0;
-  for (const m of rows) {
-    const r = m.calls > 0 ? (m.target / m.calls * 100) : 0;
-    lines.push(`${m.name}：${fmtHoursJa(m.hours)} / ${m.calls}コール / ${r.toFixed(2)}% (目標${m.target}件)`);
-    tH += m.hours; tC += m.calls; tT += m.target;
+  const ins = rows.filter((m) => m.role !== "sales"), sal = rows.filter((m) => m.role === "sales");
+  const lines = [];
+  let iH = 0, iC = 0, iT = 0, sH = 0, sT = 0;
+  if (ins.length) {
+    lines.push("【インサイド】");
+    for (const m of ins) {
+      const r = m.calls > 0 ? (m.target / m.calls * 100) : 0;
+      lines.push(`${m.name}：${fmtHoursJa(m.hours)} / ${m.calls}コール / ${r.toFixed(2)}%（目標${m.target}件）`);
+      iH += m.hours; iC += m.calls; iT += m.target;
+    }
+    lines.push(`小計：${fmtHoursJa(iH)} / ${iC}コール / ${(iC > 0 ? iT / iC * 100 : 0).toFixed(2)}%（目標${iT}件）`);
   }
-  const tr = tC > 0 ? (tT / tC * 100) : 0;
+  if (sal.length) {
+    if (lines.length) lines.push("");
+    lines.push("【セールス】");
+    for (const m of sal) { lines.push(`${m.name}：架電${fmtHoursJa(m.hours)}（目標${m.target}件）`); sH += m.hours; sT += m.target; }
+    lines.push(`小計：架電${fmtHoursJa(sH)}（目標${sT}件）`);
+  }
   lines.push("------------------------------------");
-  lines.push(`合計：${fmtHoursJa(tH)} / ${tC}コール / ${tr.toFixed(2)}% (目標${tT}件)`);
+  lines.push(`合計：目標${iT + sT}件（インサイド${iT}件・セールス${sT}件）`);
   return lines.join("\n");
 }
 function jstTodayStr() { const j = new Date(Date.now() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}`; }
@@ -22791,7 +22803,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06f 【浦林さん対応】の予定に kinbot の目印を入れ、アポのスキャンが新しいアポとして拾わないようにした。浦林さんに変えたアポの件数は、本来の担当の人の件数として数える。割り振れなかったときのChatの文を「○○さんの商談カウントで、浦林さんに担当変更お願いします」にした。";
+const BUILD_TAG = "2026-10-06g 毎朝Chatに送る「本日のデイリー目標」の文を、画面の生成テキストと同じ形（インサイド／セールスに分け、セールスは架電時間と目標だけ、合計は目標件数）にした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
