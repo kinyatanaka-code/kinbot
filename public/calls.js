@@ -21,17 +21,17 @@ let _todayPlan = null;   // 今日かけるリードの内訳
 async function openTodayAdd(member, memberName, onDone) {
   let lists = [], cur = [];
   try {
-    const [dl, da] = await Promise.all([
-      fetch("/api/calls/lists/all").then((r) => r.json()),
-      fetch(`/api/calls/today-add${member ? "?member=" + encodeURIComponent(member) : ""}`).then((r) => r.json()),
-    ]);
+    const da = await fetch(`/api/calls/today-add${member ? "?member=" + encodeURIComponent(member) : ""}`).then((r) => r.json());
     const me = String(member || (da && da.member) || "").toLowerCase();
-    lists = ((dl && dl.items) || []).filter((l) => !l.closed && String(l["持ち主"] || l.owner || "").toLowerCase() === me);
+    // その人のリスト（残りの件数つき、非表示のものも）
+    const dl = await fetch(`/api/calls/lists?member=${encodeURIComponent(me)}`).then((r) => r.json());
+    lists = ((dl && dl.items) || []).filter((l) => !l.closed && /^\d+$/.test(String(l.id)) && !/【\s*ナーチャリング\s*】/.test(String(l.name || "")))
+      .sort((a, b) => Number(b.残り || 0) - Number(a.残り || 0));
     cur = ((da && da.lists) || []).map(String);
   } catch {}
   const m = openModal(`今日かけるリードにリストを足す${memberName ? `（${memberName}）` : ""}`, `
     <div class="note" style="margin-bottom:6px">選んだリストのかけられるリードを、今日の組み立て（150件前後）とは別に全部足します。今日だけの設定で、明日には元に戻ります。</div>
-    <div class="kc-flt-list">${lists.length ? lists.map((l) => `<label class="kc-flt-row"><input type="checkbox" value="${l.id}"${cur.includes(String(l.id)) ? " checked" : ""} /><span>${esc(l.name)}${l.hidden ? ' <span style="color:#8a938c">（非表示）</span>' : ""}</span><span class="kc-flt-n">${Number(l.残り || 0).toLocaleString()}</span></label>`).join("") : '<div class="note">足せるリストがありません。</div>'}</div>
+    <div class="kc-flt-list">${lists.length ? lists.map((l) => `<label class="kc-flt-row"><input type="checkbox" value="${l.id}"${cur.includes(String(l.id)) ? " checked" : ""} /><span>${esc(l.name)}${l.hidden ? ' <span style="color:#8a938c">（非表示）</span>' : ""}</span><span class="kc-flt-n">残り ${Number(l.残り || 0).toLocaleString()}</span></label>`).join("") : '<div class="note">足せるリストがありません。</div>'}</div>
     <div class="kc-modal-foot"><button type="button" class="btn" id="taOk">今日かけるリードに足す</button><button type="button" class="btn ghost" id="taClear">足したリストを外す</button></div>`);
   const save = async (ids) => {
     try {

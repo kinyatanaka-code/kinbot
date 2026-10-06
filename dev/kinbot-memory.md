@@ -1326,3 +1326,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-05 BUILD_TAG=2026-10-05t 掛け合わせのアポ率：call_logs.stage_before（recordCall でかけた時点の stage を保存）。db.segmentCallRates（stage_before があればそれ、無ければ前の結果から推定：前にジャッジ→ジャッジ／前に架電→担当者未接触／【復活】リスト→リサイクル／初回→空ならなし・他NEW）、STAGE_BUCKET_SQL/stageBucket、segmentLiveCounts。index.js computeSegmentRates（new/past × バケット、K=100で枠に寄せる、10分キャッシュ）、GET /api/calls/segment-rates（＋remain＝今の件数）。今日かけるリード：ナーチャ予定分全部＋残り（全ソース）を掛け合わせの見込みで H上位k＋P埋め、TARGET到達で停止。todayPlan に 掛け合わせ。版20261005t。
 
 - 2026-10-05 BUILD_TAG=2026-10-05u ①listAllLeadsForMember を『担当（空なら持ち主）＝この人』に変更（自分が持ち主で非表示のリストは除く、他人の非表示リストでも自分の担当なら出る）。付け替え（assigned_to だけ）が全てのリード・今日かけるリードに出なかった。②今日かけるリードの除外：アポ・ユーザー・アーカイブ・使われていない番号は全部、失注と done は新規だけ（過去リストは失注が普通）、リサイクルは含める。③settings.todayAdd[email]={day,lists}（GET/PUT /api/calls/today-add、本人か canRedistribute）。組み立て後に足したリストのかけられるリードを全部追加、todayPlan に 足したリスト/足した件数。版20261005u。
+
+- 2026-10-05 BUILD_TAG=2026-10-05v openTodayAdd のリスト一覧を /api/calls/lists?member= に（lists/all は 件数 だけで 残り が無く 0 表示だった）。【ナーチャリング】入れ物は除外、残りの多い順。版20261005v。
