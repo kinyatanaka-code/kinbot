@@ -17,6 +17,32 @@ function rememberListId(v) {
 }
 let rows = [];
 let _todayPlan = null;   // 今日かけるリードの内訳
+// 今日かけるリードに、あとからリストを足す（その日だけ）。member を省くと自分
+async function openTodayAdd(member, memberName, onDone) {
+  let lists = [], cur = [];
+  try {
+    const [dl, da] = await Promise.all([
+      fetch("/api/calls/lists/all").then((r) => r.json()),
+      fetch(`/api/calls/today-add${member ? "?member=" + encodeURIComponent(member) : ""}`).then((r) => r.json()),
+    ]);
+    const me = String(member || (da && da.member) || "").toLowerCase();
+    lists = ((dl && dl.items) || []).filter((l) => !l.closed && String(l["持ち主"] || l.owner || "").toLowerCase() === me);
+    cur = ((da && da.lists) || []).map(String);
+  } catch {}
+  const m = openModal(`今日かけるリードにリストを足す${memberName ? `（${memberName}）` : ""}`, `
+    <div class="note" style="margin-bottom:6px">選んだリストのかけられるリードを、今日の組み立て（150件前後）とは別に全部足します。今日だけの設定で、明日には元に戻ります。</div>
+    <div class="kc-flt-list">${lists.length ? lists.map((l) => `<label class="kc-flt-row"><input type="checkbox" value="${l.id}"${cur.includes(String(l.id)) ? " checked" : ""} /><span>${esc(l.name)}${l.hidden ? ' <span style="color:#8a938c">（非表示）</span>' : ""}</span><span class="kc-flt-n">${Number(l.残り || 0).toLocaleString()}</span></label>`).join("") : '<div class="note">足せるリストがありません。</div>'}</div>
+    <div class="kc-modal-foot"><button type="button" class="btn" id="taOk">今日かけるリードに足す</button><button type="button" class="btn ghost" id="taClear">足したリストを外す</button></div>`);
+  const save = async (ids) => {
+    try {
+      const r = await fetch("/api/calls/today-add", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ member: member || "", lists: ids }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "保存できませんでした");
+      m.close(); if (onDone) onDone();
+    } catch (e) { alert(e.message); }
+  };
+  m.el.querySelector("#taOk").addEventListener("click", () => save([...m.el.querySelectorAll(".kc-flt-list input:checked")].map((c) => c.value)));
+  m.el.querySelector("#taClear").addEventListener("click", () => save([]));
+}
 // 想定アポ率（リスト管理と同じ /api/calls/apo-rates）を一度だけ取って使い回す
 let _kcRatesP = null;
 function kcGetRates() { if (!_kcRatesP) _kcRatesP = fetch("/api/calls/apo-rates?months=3").then((r) => r.json()).catch(() => null); return _kcRatesP; }
@@ -953,7 +979,7 @@ function render() {
   const hasRecruit = rcols.length > 0;
   box.innerHTML =
     (_sfDisconnected ? `<div class="kc-sfwarn">Salesforceに接続できていないため、履歴（SFの活動件数）が表示できません。履歴が消えたわけではありません。設定 → Salesforce連携で再連携してください。</div>` : "") +
-    (_todayPlan && listId === "today" ? `<div class="kc-today-plan">今日の組み立て：<b>${_todayPlan.合計}</b>件（目安${_todayPlan.目安}件）　<span class="kc-src-tag nur">ナーチャリング ${_todayPlan.ナーチャリング}</span> <span class="kc-src-tag past">過去リスト ${_todayPlan.過去リスト}</span> <span class="kc-src-tag new">新規リスト ${_todayPlan.新規リスト}</span><span class="kc-today-note">ナーチャリングは架電予定が今日までのもの全部、過去リストと新規リストは見込みのよいリードを選んで埋めています。</span></div>` : "") +
+    (_todayPlan && listId === "today" ? `<div class="kc-today-plan">今日の組み立て：<b>${_todayPlan.合計}</b>件（目安${_todayPlan.目安}件）　<span class="kc-src-tag nur">ナーチャリング ${_todayPlan.ナーチャリング}</span> <span class="kc-src-tag past">過去リスト ${_todayPlan.過去リスト}</span> <span class="kc-src-tag new">新規リスト ${_todayPlan.新規リスト}</span><span class="kc-today-note">ナーチャリングは架電予定が今日までのもの全部、過去リストと新規リストは見込みのよいリードを選んで埋めています。${_todayPlan.足した件数 ? `足したリストから ${_todayPlan.足した件数}件。` : ""}</span><button type="button" class="kc-today-add" id="kcTodayAdd">＋リストを足す</button></div>` : "") +
     (() => {   // 今日かけるリードのリストの数字は「かける先」の数（絞り込み前）にそろえる
       if (listId === "today") {
         const n = rows.filter((x) => !isDone(x)).length;
@@ -1108,6 +1134,7 @@ function render() {
     b.addEventListener("click", (ev) => { ev.stopPropagation(); openNextEdit(b, b.dataset.id); }));
 
   const coF = $("kcCoFlt"); if (coF) coF.addEventListener("click", (e) => { e.stopPropagation(); openTagFilter(); });
+  const tAdd = $("kcTodayAdd"); if (tAdd) tAdd.addEventListener("click", () => openTodayAdd(callAsMember || "", "", () => loadTable()));
   // 選択（チェック）の配線
   const updateSelBar = () => {
     const bar = $("kcSelBar"), cnt = $("kcSelCount");
@@ -1976,6 +2003,8 @@ function renderDock() {
     .nm-nur-parts div{display:flex;justify-content:space-between;gap:8px;} .nm-nur-parts span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .kc-today-plan{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;color:#1f3a30;background:#f0faf5;border:1px solid #cfe6da;border-radius:10px;padding:6px 10px;margin-bottom:8px;}
     .kc-today-plan b{font-size:14px;}
+    .kc-today-add{margin-left:auto;border:1px solid #1d9e75;background:#fff;color:#0d5b47;border-radius:999px;padding:2px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+    .kc-today-add:hover{background:#e3f4ed;}
     .kc-today-goal{font-size:12px;font-weight:700;color:#993c1d;background:#faece7;border-radius:999px;padding:1px 10px;}
     .kc-today-goal.ok{color:#085041;background:#e1f5ee;} .kc-today-note{font-size:11px;color:#6b8a7d;margin-left:4px;}
     .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
@@ -6979,7 +7008,7 @@ function nmRenderDetail() {
       <div class="nm-lcard-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n" id="nmTodayN">…</span><span class="nm-exp" id="nmTodayExp" hidden title="想定アポ率：ナーチャリングはその人のナーチャリングの想定、それ以外は入っているリストの想定アポ率で見込んだ平均"></span></div>
       <div class="nm-lcard-sub">表示中のリストの残り（ナーチャリング含む）のうち、架電予定が今日までのもの</div>
       <div class="nm-nur-parts" id="nmTodayParts"></div>
-      <div class="nm-lcard-ops"><button type="button" class="btn ghost nm-today-open" style="padding:4px 12px">中身を見る</button></div>
+      <div class="nm-lcard-ops"><button type="button" class="btn ghost nm-today-open" style="padding:4px 12px">中身を見る</button><button type="button" class="btn ghost nm-today-add" style="padding:4px 12px">＋リストを足す</button></div>
     </div>`;
     nurCard = `<div class="nm-lcard nm-nurcard">
       <div class="nm-lcard-name"><span class="nm-lname-t">ナーチャリング（${esc(_nmSel.name)}のまとめ）</span></div>
@@ -7013,6 +7042,7 @@ function nmRenderDetail() {
   if ($("nmMoveGo")) $("nmMoveGo").addEventListener("click", () => nmOpenMoveContents());
   body.querySelectorAll(".nm-nur-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("nurture-all", `ナーチャリング - ${_nmSel.name}`, _nmSel.key)));
   body.querySelectorAll(".nm-today-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("today", `今日かけるリード - ${_nmSel.name}`, _nmSel.key)));
+  body.querySelectorAll(".nm-today-add").forEach((b) => b.addEventListener("click", () => openTodayAdd(_nmSel.key, _nmSel.name, () => nmRenderDetail())));
   // 今日かけるリードの件数（かける先の数）と、リストごとの内訳を裏で取る
   if (todayCard) {
     const who = _nmSel.key, seq = (window._nmTodaySeq = (window._nmTodaySeq || 0) + 1);

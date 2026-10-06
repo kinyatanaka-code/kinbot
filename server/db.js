@@ -5306,8 +5306,10 @@ export async function listAllLeadsForMember(member, { q = "", limit = 2000 } = {
     // そのメンバーが「持ち主のリスト」＋「自分に配られた（担当の）架電先」を対象にする。
     // これで、リストを所有していない人（配られただけの人）でもまとまって出る。
     // ☆全てのリード＝自分が持ち主のリスト。例外は、ナーチャリングで担当を自分へ移されたリードだけ。
-    let where = `(l.owner = $1 OR ((${NURTURE_WHERE}) AND COALESCE(l.owner,'') <> '' AND lower(coalesce(t.assigned_to,'')) = $1)) AND NOT l.closed AND NOT COALESCE(l.hidden, false)
-      AND NOT ((${NURTURE_WHERE}) AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner, '')) <> $1)`;   // ナーチャリングは担当メンバーに従う（移したら元の人には出さない）
+    // 2026-10-05〜：担当（空ならリストの持ち主）がこの人のリードを全部。付け替え（担当だけ変えて、リストは移さない）にも対応する。
+    //   自分のリストでも、ほかの人の担当にしたものは出さない。自分で非表示にしたリストは出さない。
+    let where = `NOT l.closed AND NOT (lower(COALESCE(l.owner,'')) = $1 AND COALESCE(l.hidden, false))
+      AND lower(COALESCE(NULLIF(btrim(t.assigned_to),''), l.owner, '')) = $1`;
     if (q) {
       const nq = normCallQuery(q);
       if (nq) { p.push(`%${nq}%`); where += ` AND ${callQueryWhere(p.length)}`; }

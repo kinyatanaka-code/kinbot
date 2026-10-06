@@ -10361,6 +10361,7 @@ app.get("/api/calls/targets", async (req, res) => {
     const rawEdit = req.query.edit === "1";   // 編集テーブル用：打ち切らず全件・ステージ除外なし
     let rows;
     let todayPlan = null;   // 今日かけるリードの内訳
+    let todayExtra = 0;     // あとから足したリストの件数
     let 復活リストか = false;
     let 過去失注リストか = false;
     // かける画面の「過去リスト（今月かける）」＝自分担当のクロス失注。次回アクション日での絞り込みは後段で行う。
@@ -10408,10 +10409,15 @@ app.get("/api/calls/targets", async (req, res) => {
       const nowJ = new Date(Date.now() + 9 * 3600000);
       const endToday = Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth(), nowJ.getUTCDate() + 1) - 9 * 3600000;
       const nur = /ジャッジ|営業フォロー/;
-      const dead = /アポ|ユーザー|失注|アーカイブ|リサイクル|使われて|現在使わ|現アナ|欠番|不通/;
+      // かけない：アポ・ユーザー・アーカイブ・使われていない番号。失注は新規リストだけ外す（過去リストはもともと失注のリードなので外さない）。
+      // リサイクルのステージは、掛け合わせの一つとしてかける対象に入れる。
+      const deadAll = /アポ|ユーザー|アーカイブ|使われて|現在使わ|現アナ|欠番|不通/;
       const live = all.filter((r) => {
         const st = `${r.stage || ""} ${r.status || ""}`;
-        if (r.done || (dead.test(st) && !nur.test(st))) return false;
+        const isPast = frameOfSource(r.source || "") === "past";
+        if (nur.test(st) && !/アポ獲得/.test(st)) { /* ナーチャリングは下で */ }
+        else if (deadAll.test(st) || (!isPast && /失注/.test(st))) return false;
+        if (r.done && !isPast) return false;
         if (r.next_call_at && new Date(r.next_call_at).getTime() >= endToday) return false;
         return true;
       });
@@ -10459,11 +10465,19 @@ app.get("/api/calls/targets", async (req, res) => {
       }
       const chosen = best.sel.sort(byPri), bestAvg = best.avg;
       rows = [...nurDue, ...chosen];
+      // あとから足したリスト（その日だけ）：上の組み立てとは別に、そのリストのかけられるリードを全部足す
+      const addSet = await todayAddLists(member);
+      if (addSet.length) {
+        const have = new Set(rows.map((r) => r.id));
+        const extra = live.filter((r) => addSet.includes(String(r.list_id)) && !have.has(r.id) && !(isNur(r) && r.next_call_at && new Date(r.next_call_at).getTime() >= endToday)).sort(byPri);
+        rows = [...rows, ...extra];
+        todayExtra = extra.length;
+      }
       const segCount = {};
       for (const r of rows) { const k = segOf(r); segCount[k] = (segCount[k] || 0) + 1; }
       const past = chosen.filter((r) => frameOfSource(r.source || "") === "past");
       const fresh = chosen.filter((r) => frameOfSource(r.source || "") !== "past");
-      todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 掛け合わせ: segCount,
+      todayPlan = { 合計: rows.length, ナーチャリング: nurDue.length, 過去リスト: past.length, 新規リスト: fresh.length, 目安: TOTAL, 掛け合わせ: segCount, 足したリスト: addSet, 足した件数: todayExtra,
         目標アポ率: TARGET, 想定アポ率: Math.round(bestAvg * 10000) / 10000, 想定アポ数: Math.round(bestAvg * rows.length * 10) / 10 };
     } else if (listParam === "all") {
       // 「全てのリード」：そのメンバーが持ち主の全リストをまとめた仮想リスト
@@ -14335,6 +14349,33 @@ app.get("/api/calls/nurture-inflow", async (req, res) => {
 });
 
 // リスト管理のカードに出すアポ率（直近3か月の架電）：リストごと・かけた人ごと・枠ごと
+// 今日かけるリードに「あとから足すリスト」（その人・その日だけ）。settings.todayAdd = { email: { day, lists:[id] } }
+function jstToday() { return new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
+async function todayAddLists(member) {
+  const st = await getSettings().catch(() => ({}));
+  const o = (st.todayAdd || {})[String(member || "").toLowerCase()];
+  return o && o.day === jstToday() ? (o.lists || []).map(String) : [];
+}
+app.get("/api/calls/today-add", async (req, res) => {
+  const member = String(req.query.member || req.user || "").toLowerCase();
+  res.json({ ok: true, member, lists: await todayAddLists(member) });
+});
+app.put("/api/calls/today-add", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const member = String(b.member || req.user || "").toLowerCase();
+    if (member !== String(req.user || "").toLowerCase() && !(await canRedistribute(req))) return res.status(403).json({ error: "ほかの人の今日かけるリードは変えられません" });
+    const lists = (Array.isArray(b.lists) ? b.lists : []).map((x) => String(parseInt(x, 10) || "")).filter(Boolean).slice(0, 50);
+    const st = await getSettings().catch(() => ({}));
+    const all = { ...(st.todayAdd || {}) };
+    // 古い日のものは消す
+    for (const [k, v] of Object.entries(all)) if (!v || v.day !== jstToday()) delete all[k];
+    if (lists.length) all[member] = { day: jstToday(), lists }; else delete all[member];
+    await saveSettings({ todayAdd: all });
+    res.json({ ok: true, member, lists });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // 掛け合わせ（新規リスト・過去リスト × かけた時点のステージ）のアポ率。10分キャッシュ。
 // 1件ずつの見込みは、その掛け合わせの実績を枠全体の実績に寄せてならす（コールが少ない掛け合わせほど枠の値に近い。100コール分）。
 const SEG_BUCKETS = ["NEW", "なし", "担当者未接触", "ジャッジ", "リサイクル", "その他"];
@@ -22732,7 +22773,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05t 掛け合わせのアポ率（新規リスト・過去リスト × NEW／なし／担当者未接触／ジャッジ／リサイクル）を出し、今日かけるリードはその見込みで全体が3%に近くなるように選ぶようにした（過去リストの件数は決めない）。かけた時点のステージを記録に残すようにした。";
+const BUILD_TAG = "2026-10-05u 今日かけるリードの直し：①担当だけ付け替えたリード（リストは元のまま）も、その人の全てのリード・今日かけるリードに入るようにした ②過去リストの失注のリードを外していたのを直した（失注は新規リストだけ外す）、リサイクルのステージも対象に ③あとからリストを足せるようにした（その日だけ、組み立ての150件とは別に、そのリストのかけられるリードを全部足す）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
