@@ -388,6 +388,16 @@ function sortRows(list) {
   const rank = (x) => isApoDone(x) ? 0 : isUser(x) ? 1 : 2;
   const 済 = list.filter(isDone).sort((a, b) => rank(a) - rank(b));
   const 未済 = list.filter((x) => !isDone(x));
+  if (listId === "today") {
+    // 今日かけるリード：架電予定のリード（予定の時刻順）→ アポ率の見込みが高いリード → まだかけていない新規のリード
+    const at = (x) => { const t = new Date(x["次回予定"] || 0).getTime(); return isNaN(t) ? 0 : t; };
+    const exp = (x) => Number(x["見込み"] || 0);
+    const 予定 = 未済.filter((x) => x["次回予定"]).sort((a, b) => at(a) - at(b));
+    const ほか = 未済.filter((x) => !x["次回予定"]);
+    const 見込み順 = ほか.filter((x) => かけた(x)).sort((a, b) => exp(b) - exp(a) || closedRank(a) - closedRank(b));
+    const 新規 = ほか.filter((x) => !かけた(x)).sort((a, b) => exp(b) - exp(a) || closedRank(a) - closedRank(b));
+    return [...予定, ...見込み順, ...新規, ...済];
+  }
   const 予定来た = 未済.filter((x) => due(x)).sort((a, b) => due(a) - due(b));
   const 残り = 未済.filter((x) => !due(x));
   const まだ = 残り.filter((x) => !かけた(x)).sort((a, b) => closedRank(a) - closedRank(b));

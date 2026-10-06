@@ -10465,11 +10465,13 @@ app.get("/api/calls/targets", async (req, res) => {
       }
       const chosen = best.sel.sort(byPri), bestAvg = best.avg;
       rows = [...nurDue, ...chosen];
+      for (const r of rows) r._exp = expOf(r);   // 画面で「アポ率が高い順」に並べるための見込み
       // あとから足したリスト（その日だけ）：上の組み立てとは別に、そのリストのかけられるリードを全部足す
       const addSet = await todayAddLists(member);
       if (addSet.length) {
         const have = new Set(rows.map((r) => r.id));
         const extra = live.filter((r) => addSet.includes(String(r.list_id)) && !have.has(r.id) && !(isNur(r) && r.next_call_at && new Date(r.next_call_at).getTime() >= endToday)).sort(byPri);
+        for (const r of extra) r._exp = expOf(r);
         rows = [...rows, ...extra];
         todayExtra = extra.length;
       }
@@ -10589,6 +10591,7 @@ app.get("/api/calls/targets", async (req, res) => {
         媒体掲載: r.media_tags || "",
         元のリスト: r.origin_list_name || r.nurture_from_name || "",
         ソース: r.source || "",
+        見込み: r._exp != null ? Math.round(r._exp * 10000) / 10000 : null,   // 今日かけるリード：掛け合わせのアポ率の見込み
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
         // SFへまだ送れていないkinbotの記録があれば、それも足す。
         // lead_id が15桁でも18桁でも合うよう、先頭15桁で引く。
@@ -22773,7 +22776,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-05v 「今日かけるリードにリストを足す」の件数がすべて0と出ていたのを直した（残りの件数を持たない一覧を使っていた）。その人のリストを残りの件数つきで、多い順に出す。【ナーチャリング】の入れ物リストは出さない。";
+const BUILD_TAG = "2026-10-05w 今日かけるリードの並びを「架電予定のリード（予定の時刻順）→ アポ率の見込みが高いリード → まだかけていない新規のリード」にした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
