@@ -2102,6 +2102,12 @@ export async function getDailyHours(day) {
     const out = {}; for (const r of rows) out[r.who] = Number(r.hours); return out;
   } catch { return {}; }
 }
+// 稼働時間の手入力を消す（カレンダーから読み直すとき）
+export async function clearDailyHours(day, whos) {
+  if (!pool || !day || !whos || !whos.length) return 0;
+  try { const r = await pool.query(`DELETE FROM daily_hours WHERE day=$1 AND who = ANY($2)`, [day, whos.map(String)]); return r.rowCount || 0; }
+  catch (e) { console.error("[db] clearDailyHours", e.message); return 0; }
+}
 export async function setDailyHours(who, day, hours) {
   if (!pool || !who || !day) return;
   const h = Math.max(0, Math.round((Number(hours) || 0) * 100) / 100);

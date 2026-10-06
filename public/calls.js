@@ -5084,6 +5084,20 @@ function dgGenText() {
   return lines.join("\n");
 }
 function dgRenderText() { const el = $("dgText"); if (el) el.textContent = dgGenText(); }
+// セールスの架電時間をカレンダーから読み直す
+document.addEventListener("click", async (e) => {
+  const b = e.target && e.target.closest && e.target.closest("#dgReread"); if (!b) return;
+  const date = ($("dgDate") && $("dgDate").value) || dgToday();
+  if (!confirm(`${date} のセールスの架電時間を、カレンダーから読み直します（手で直した時間は消えます）。よろしいですか？`)) return;
+  b.disabled = true; const t0 = b.textContent; b.textContent = "読み直しています…";
+  try {
+    const r = await fetch("/api/daily/reread", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ date }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || "読み直せませんでした");
+    await loadDailyGoal();
+    if (!(d.sales || []).length) alert("カレンダーからセールスの予定が読めませんでした。");
+  } catch (err) { alert(err.message); }
+  finally { b.disabled = false; b.textContent = t0; }
+});
 async function loadDailyGoal() {
   const dEl = $("dgDate"); if (dEl && !dEl.value) dEl.value = dgToday();
   const date = (dEl && dEl.value) || dgToday();

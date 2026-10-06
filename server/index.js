@@ -524,6 +524,7 @@ import {
   setDailyTarget,
   getDailyHours,
   setDailyHours,
+  clearDailyHours,
   callSpansByDay,
   upsertIntern,
   deleteIntern,
@@ -4069,6 +4070,19 @@ app.post("/api/daily/target", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 平均アポ率（%）を保存（目標の自動記入に使う）
+// セールスの架電時間をカレンダーから読み直す（その日の手入力を消して、カレンダーの値に戻す）
+app.post("/api/daily/reread", async (req, res) => {
+  try {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.date || "")) ? String(req.body.date) : jstTodayStr();
+    const reader = await dailyCalendarReader().catch(() => null);
+    if (!reader) return res.status(400).json({ error: "カレンダーを読める人がいません（設定 → Google連携を確認してください）" });
+    const members = await dailyWorkingMembers(date);
+    const sales = members.filter((m) => m.role === "sales");
+    const cleared = await clearDailyHours(date, sales.map((m) => m.name));
+    console.log(`[daily] ${date} セールスの架電時間を読み直し（手入力${cleared}件を消去） by ${req.user}：` + sales.map((m) => `${m.name}${m.hours}h`).join(" "));
+    res.json({ ok: true, date, cleared, sales: sales.map((m) => ({ name: m.name, hours: m.hours })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/daily/hours", async (req, res) => {
   try {
     const who = String(req.body?.who || "").trim();
@@ -22776,7 +22790,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06a デイリー目標：セールスは架電時間とアポ目標だけにした（想定コール・必要アポ率は「—」）。共有の文面もインサイドとセールスに分け、セールスは「架電○h（目標○件）」、合計は目標件数（インサイド・セールス別）にした。";
+const BUILD_TAG = "2026-10-06b デイリー目標に「セールスの架電時間を読み直す」ボタンを追加。その日のセールスの手入力を消して、カレンダー（10-18の【】・ブロック以外、昼休憩・参加拒否を除く）から架電時間を計算し直す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
