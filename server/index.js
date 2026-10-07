@@ -10459,6 +10459,8 @@ app.get("/api/calls/targets", async (req, res) => {
         const isPast = frameOfSource(r.source || "") === "past";
         if (nur.test(st) && !/アポ獲得/.test(st)) { /* ナーチャリングは下で */ }
         else if (deadAll.test(st) || (!isPast && /失注/.test(st))) return false;
+        // 新規リストのリサイクル（ステージがリサイクル）は今日かけるリードに入れない（過去リストのリサイクルは入れる）
+        if (!isPast && stageBucket(r.stage) === "リサイクル") return false;
         if (r.done && !isPast) return false;
         if (r.next_call_at && new Date(r.next_call_at).getTime() >= endToday) return false;
         return true;
@@ -22818,7 +22820,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06h デイリー目標に「Chatに再通知」ボタンを追加。直した時間・目標で「本日のデイリー目標（更新版）」をChatに送り直せる。";
+const BUILD_TAG = "2026-10-06i 今日かけるリードに、新規リストのリサイクル（ステージがリサイクルのもの）を入れないようにした。あとから足したリストからも入れない。過去リストのリサイクルはこれまでどおり入れる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

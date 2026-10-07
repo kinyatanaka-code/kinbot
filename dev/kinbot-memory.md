@@ -1344,3 +1344,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-06 BUILD_TAG=2026-10-06g サーバーの genDailyTargetText（毎朝のChat・/api/daily/text）を画面の dgGenText と同じ形に。前回は画面だけ変えていて通知が古い形のままだった。版20261006g。
 
 - 2026-10-06 BUILD_TAG=2026-10-06h デイリー目標「Chatに再通知」（#dgNotify）：POST /api/daily/notify {date}＝その日の手入力を反映した genDailyTargetText を『本日のデイリー目標（更新版）』として notifyAll(daily)。版20261006h。
+
+- 2026-10-06 BUILD_TAG=2026-10-06i 今日かけるリードの live から『新規の枠（past 以外）かつ stageBucket=リサイクル』を除外（足したリストにも効く）。過去×リサイクルは残す。版20261006i。
