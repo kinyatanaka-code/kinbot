@@ -1346,3 +1346,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-06 BUILD_TAG=2026-10-06h デイリー目標「Chatに再通知」（#dgNotify）：POST /api/daily/notify {date}＝その日の手入力を反映した genDailyTargetText を『本日のデイリー目標（更新版）』として notifyAll(daily)。版20261006h。
 
 - 2026-10-06 BUILD_TAG=2026-10-06i 今日かけるリードの live から『新規の枠（past 以外）かつ stageBucket=リサイクル』を除外（足したリストにも効く）。過去×リサイクルは残す。版20261006i。
+
+- 2026-10-07 BUILD_TAG=2026-10-07a 今日かけるリード：listAllLeadsForMember の結果から _list_owner === member のものだけ（表示中は listAllLeadsForMember 側で自分の非表示を除外済み）。他人のリストや持ち主なしリストに担当として入っているリードは入れない（全てのリードには出る）。版20261007a。

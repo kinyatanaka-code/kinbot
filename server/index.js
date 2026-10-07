@@ -10455,6 +10455,9 @@ app.get("/api/calls/targets", async (req, res) => {
       // リサイクルのステージは、掛け合わせの一つとしてかける対象に入れる。
       const deadAll = /アポ|ユーザー|アーカイブ|使われて|現在使わ|現アナ|欠番|不通/;
       const live = all.filter((r) => {
+        // リスト管理でその人のカードとして出ているリスト（その人が持ち主・表示中）のリードだけ。
+        // ほかの人のリスト・持ち主のいない（未割り当ての）リストのリードは、担当が付いていても入れない。
+        if (String(r._list_owner || "").toLowerCase() !== member) return false;
         const st = `${r.stage || ""} ${r.status || ""}`;
         const isPast = frameOfSource(r.source || "") === "past";
         if (nur.test(st) && !/アポ獲得/.test(st)) { /* ナーチャリングは下で */ }
@@ -22820,7 +22823,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-06i 今日かけるリードに、新規リストのリサイクル（ステージがリサイクルのもの）を入れないようにした。あとから足したリストからも入れない。過去リストのリサイクルはこれまでどおり入れる。";
+const BUILD_TAG = "2026-10-07a 今日かけるリードは、リスト管理でその人のカードとして出ているリスト（その人が持ち主・表示中）のリードだけにした。ほかの人のリストや、持ち主のいない（未割り当ての）リストのリードは、担当が付いていても入れない。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
