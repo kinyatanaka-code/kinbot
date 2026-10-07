@@ -22831,7 +22831,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-07d トークで、自分の台本を登録していない人を選んだときは、その人が架電のときに実際に見ている共通の台本（グループ用・全体）を出すようにした。選択肢の「台本なし」は「共通の台本」と表示。";
+const BUILD_TAG = "2026-10-07e アポの「カレンダー予定を作り直す」で、獲得者のカレンダーに加えて、振り分けられた担当（クローザー）の商談予定も作り直すようにした（古い商談予定を消してから新しく作る）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -28092,7 +28092,22 @@ app.post("/api/apo/:slug/recreate-event", async (req, res) => {
     } catch (e) { return res.status(502).json({ error: e.message }); }
     if (ev && ev.id) await setSmartLinkEventId(req.params.slug, ev.id);
     console.log(`[apo] ${req.params.slug} のカレンダー予定を作り直し（${owner}）by ${req.user}`);
-    res.json({ ok: true, owner, eventId: ev && ev.id });
+    // 担当（振り分けられたクローザー）がいれば、その人の商談予定も作り直す。
+    //   古い商談予定を消してから、新しく作る（担当が自分で消してしまっていても作り直せるように）
+    let closer = null;
+    if (link.current_owner) {
+      try {
+        if (link.invite_event_id && link.invite_event_owner) {
+          await deleteCalendarEvent(link.invite_event_owner, link.invite_event_id, "primary").catch(() => {});
+        }
+        await setSmartLinkInviteEvent(req.params.slug, null, null).catch(() => {});
+        const fresh = await getSmartLink(req.params.slug);
+        const inv = await createApoInvite(fresh, { actor: req.user });
+        closer = { ok: true, owner: link.current_owner, eventId: inv && inv.id };
+        console.log(`[apo] ${req.params.slug} の担当（${link.current_owner}）の商談予定も作り直し by ${req.user}`);
+      } catch (e) { closer = { ok: false, owner: link.current_owner, error: e.message }; console.warn("[apo] 担当の予定の作り直しに失敗", req.params.slug, e.message); }
+    }
+    res.json({ ok: true, owner, eventId: ev && ev.id, closer });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // アポの取得日を直す（取得日でカウントされるため、実際に取った日に合わせる）

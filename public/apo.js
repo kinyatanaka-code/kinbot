@@ -605,12 +605,16 @@ function bindCardEvents(card) {
 
   const recreate = q(".ap-recreate");
   if (recreate) recreate.addEventListener("click", async () => {
-    if (!confirm("消えたカレンダー予定を、獲得者のカレンダーに作り直します。よろしいですか。")) return;
+    if (!confirm("カレンダー予定を作り直します。獲得者のカレンダーと、担当（振り分けられた人）の商談予定の両方を作り直します。よろしいですか。")) return;
     try {
       const r = await fetch(`/api/apo/${encodeURIComponent(recreate.dataset.slug)}/recreate-event`, { method: "POST" });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "作れませんでした");
-      if (window.kbToast) kbToast(`カレンダーに予定を作り直しました（${d.owner || ""}）`);
+      const c = d.closer;
+      const msg = `獲得者（${d.owner || ""}）のカレンダーに作り直しました` +
+        (c ? (c.ok ? `。担当（${c.owner}）の商談予定も作り直しました` : `。担当（${c.owner}）の商談予定は作れませんでした：${c.error}`) : "（担当はまだいません）");
+      if (window.kbToast) kbToast(msg); else alert(msg);
+      if (c && !c.ok) alert(msg);
     } catch (e) { alert("作り直しに失敗: " + e.message); }
   });
 
