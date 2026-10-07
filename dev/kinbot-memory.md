@@ -1350,3 +1350,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-07 BUILD_TAG=2026-10-07a 今日かけるリード：listAllLeadsForMember の結果から _list_owner === member のものだけ（表示中は listAllLeadsForMember 側で自分の非表示を除外済み）。他人のリストや持ち主なしリストに担当として入っているリードは入れない（全てのリードには出る）。版20261007a。
 
 - 2026-10-07 BUILD_TAG=2026-10-07b 横断検索の「選んだリストへ移す」成功後、移し先に関係なく loadLists＋loadTable（以前は今のリストへ移したときだけ）。版20261007b。
+
+- 2026-10-07 BUILD_TAG=2026-10-07c トーク：#tkWho にメンバー全員（/api/calls/members、台本なしも）、kcGetRates の byCaller でアポ率の高い順・ラベルにアポ率と台本件数。#tkRate（tkShowRate）に選んだ人のアポ率と a/b。版20261007c。

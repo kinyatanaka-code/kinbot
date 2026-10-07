@@ -2008,6 +2008,8 @@ function renderDock() {
     .nm-lcard-zan .nm-rate{margin:0 0 0 8px;vertical-align:4px;}
     .nm-rate.g{background:#e1f5ee;color:#085041;} .nm-rate.y{background:#faeeda;color:#633806;} .nm-rate.r{background:#fcebeb;color:#791f1f;}
     .nm-rate.none{background:#f1efe8;color:#888780;font-weight:400;}
+    .tk-rate{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 8px;} .tk-rate .nm-rate{margin-top:0;font-size:12px;}
+    .tk-rate-sub{font-size:11px;color:#6b8a7d;}
     .nm-rates{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;} .nm-rates .nm-rate{margin-top:0;}
     .nm-exp{display:inline-block;font-size:11px;font-weight:700;padding:0 8px;border-radius:999px;border:1px dashed #85b7eb;color:#185fa5;background:#fff;white-space:nowrap;}
     .nm-lcard-zan .nm-exp{margin-left:4px;vertical-align:4px;}
@@ -2861,13 +2863,25 @@ let _tk = { scripts: [], mine: [], groups: [], owners: [], who: "", myEmail: "",
 async function loadTalkPane() {
   const list = $("tkList"); if (!list) return;
   try {
-    const [d, me] = await Promise.all([fetch("/api/calls/talk/mine?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()), kcMyShortName()]);
+    const [d, me, mem, rt] = await Promise.all([
+      fetch("/api/calls/talk/mine?_=" + Date.now(), { cache: "no-store" }).then((r) => r.json()), kcMyShortName(),
+      fetch("/api/calls/members").then((r) => r.json()).catch(() => ({ items: [] })),
+      kcGetRates(),
+    ]);
     if (!d.ok) throw new Error(d.error || "");
-    _tk.mine = d.scripts || []; _tk.groups = d.groups || []; _tk.me = me; _tk.owners = d.owners || []; _tk.myEmail = d.me || "";
+    _tk.mine = d.scripts || []; _tk.groups = d.groups || []; _tk.me = me; _tk.myEmail = d.me || "";
+    _tk.rates = (rt && rt.byCaller) || {};
+    // 台本のある人だけでなく、メンバー全員を選べるようにする（アポ率の高い順）
+    const byEmail = new Map((d.owners || []).map((o) => [String(o.email).toLowerCase(), o]));
+    for (const m of (mem && mem.items) || []) { const e = String(m.email || "").toLowerCase(); if (e && !byEmail.has(e)) byEmail.set(e, { email: e, name: m.name || e, n: 0 }); }
+    const rateOf = (e) => { const o = _tk.rates[String(e).toLowerCase()]; return o && o.calls ? o.apos / o.calls : -1; };
+    _tk.owners = [...byEmail.values()].sort((a, b) => rateOf(b.email) - rateOf(a.email) || (b.n - a.n));
     if (!_tk.who) _tk.scripts = _tk.mine;
+    const pctTxt = (e) => { const o = _tk.rates[String(e).toLowerCase()]; return o && o.calls ? `アポ率${(Math.round(o.apos / o.calls * 1000) / 10).toFixed(1)}%` : "アポ率—"; };
     const ws = $("tkWho");
-    ws.innerHTML = `<option value="">自分（編集できる）</option>` + _tk.owners.filter((o) => o.email !== _tk.myEmail)
-      .map((o) => `<option value="${esc(o.email)}"${_tk.who === o.email ? " selected" : ""}>${esc(o.name || o.email.split("@")[0])}（${o.n}件）</option>`).join("");
+    ws.innerHTML = `<option value="">自分（編集できる）・${pctTxt(_tk.myEmail)}</option>` + _tk.owners.filter((o) => o.email !== _tk.myEmail)
+      .map((o) => `<option value="${esc(o.email)}"${_tk.who === o.email ? " selected" : ""}>${esc(o.name || o.email.split("@")[0])}（${pctTxt(o.email)}・台本${o.n ? o.n + "件" : "なし"}）</option>`).join("");
+    tkShowRate();
   } catch (e) { list.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
   if (!$("tkText")._wired) {
     $("tkText")._wired = true;
@@ -2880,6 +2894,15 @@ async function loadTalkPane() {
   }
   tkRenderList();
   tkSelect(_tk.sel === null ? "" : _tk.sel);
+}
+// 見ている人のアポ率（直近3か月・その人がかけた分）
+function tkShowRate() {
+  const el = $("tkRate"); if (!el) return;
+  const e = String(_tk.who || _tk.myEmail || "").toLowerCase();
+  const o = (_tk.rates || {})[e];
+  if (!o || !o.calls) { el.innerHTML = `<span class="nm-rate none">アポ率 —（直近3か月の架電なし）</span>`; return; }
+  const v = o.apos / o.calls * 100;
+  el.innerHTML = `<span class="nm-rate ${v >= 2 ? "g" : v >= 0.5 ? "y" : "r"}">アポ率 ${(Math.round(v * 10) / 10).toFixed(1)}%</span><span class="tk-rate-sub">直近3か月 アポ${o.apos.toLocaleString()} / ${o.calls.toLocaleString()}コール</span>`;
 }
 // 見る台本を切り替える（自分＝編集できる／他の人＝見るだけ）
 async function tkSwitchWho() {
@@ -2895,6 +2918,7 @@ async function tkSwitchWho() {
   $("tkText").readOnly = other;
   $("tkText").classList.toggle("ro", other);
   $("tkActsMine").hidden = other; $("tkActsOther").hidden = !other;
+  tkShowRate();
   tkSelect(_tk.sel || "");
 }
 async function tkCopyToMine() {
