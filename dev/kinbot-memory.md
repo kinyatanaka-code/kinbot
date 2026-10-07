@@ -1356,3 +1356,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-07 BUILD_TAG=2026-10-07d /api/calls/talk/of：本人の台本が無い枠は settings.talkScripts（default・groups）を shared:true で返す。tkSelect の見出しに共通の台本の旨。選択肢は『自分の台本○件』か『共通の台本』。版20261007d。
 
 - 2026-10-07 BUILD_TAG=2026-10-07e POST /api/apo/:slug/recreate-event：獲得者側の予定のあと、current_owner がいれば invite_event を消して（deleteCalendarEvent・setSmartLinkInviteEvent(null)）createApoInvite で作り直し。結果は closer。版20261007e。
+
+- 2026-10-07 BUILD_TAG=2026-10-07f 浦林さん対応の予定が作られなかった：カードの担当selectは quiet:true で、quiet 分岐が先に return していた。uraHandover(link, intended, actor) に共通化（smart_links.ura_event='email|id' で前の予定を消して作り直し、本来の担当＝intended→前の ura_event の人→intendedCloserOf、assign_log の浦林さん対応は1回だけ）。quiet でも浦林さんなら createApoInvite＋uraHandover、通常の担当変更・recreate-event（担当が浦林さん）・自動（URA_FALLBACK=1）も uraHandover。版20261007f。

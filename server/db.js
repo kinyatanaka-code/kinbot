@@ -3730,6 +3730,27 @@ export async function createSmartLink({ slug, label, owner, createdBy, eventId, 
 }
 
 // 招待予定（kinbotが作成したGoogleカレンダー予定）のIDを保存
+// 浦林さん対応で、本来の担当のカレンダーに作った予定（"email|eventId"）
+export async function setSmartLinkUraEvent(slug, val) {
+  if (!pool || !slug) return;
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS ura_event TEXT;`).catch(() => {});
+    await pool.query(`UPDATE smart_links SET ura_event=$2 WHERE slug=$1`, [slug, val || null]);
+  } catch (e) { console.error("[db] setSmartLinkUraEvent", e.message); }
+}
+export async function getSmartLinkUraEvent(slug) {
+  if (!pool || !slug) return "";
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS ura_event TEXT;`).catch(() => {});
+    const { rows } = await pool.query(`SELECT ura_event FROM smart_links WHERE slug=$1`, [slug]);
+    return (rows[0] && rows[0].ura_event) || "";
+  } catch { return ""; }
+}
+export async function hasUraAssignLog(slug) {
+  if (!pool || !slug) return false;
+  try { const { rows } = await pool.query(`SELECT 1 FROM assign_log WHERE slug=$1 AND reason LIKE '%浦林さん対応%' LIMIT 1`, [slug]); return rows.length > 0; }
+  catch { return false; }
+}
 export async function setSmartLinkInviteEvent(slug, eventId, eventOwner = null) {
   if (!pool || !slug) return null;
   try {
