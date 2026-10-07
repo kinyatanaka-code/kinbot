@@ -2880,7 +2880,7 @@ async function loadTalkPane() {
     const pctTxt = (e) => { const o = _tk.rates[String(e).toLowerCase()]; return o && o.calls ? `アポ率${(Math.round(o.apos / o.calls * 1000) / 10).toFixed(1)}%` : "アポ率—"; };
     const ws = $("tkWho");
     ws.innerHTML = `<option value="">自分（編集できる）・${pctTxt(_tk.myEmail)}</option>` + _tk.owners.filter((o) => o.email !== _tk.myEmail)
-      .map((o) => `<option value="${esc(o.email)}"${_tk.who === o.email ? " selected" : ""}>${esc(o.name || o.email.split("@")[0])}（${pctTxt(o.email)}・台本${o.n ? o.n + "件" : "なし"}）</option>`).join("");
+      .map((o) => `<option value="${esc(o.email)}"${_tk.who === o.email ? " selected" : ""}>${esc(o.name || o.email.split("@")[0])}（${pctTxt(o.email)}・${o.n ? "自分の台本" + o.n + "件" : "共通の台本"}）</option>`).join("");
     tkShowRate();
   } catch (e) { list.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message || "")}</div>`; return; }
   if (!$("tkText")._wired) {
@@ -2945,7 +2945,8 @@ function tkRenderList() {
 function tkSelect(gid) {
   _tk.sel = gid || "";
   const g = _tk.groups.find((x) => String(x.id) === String(gid));
-  $("tkTitle").textContent = g ? `グループ「${g.name}」用の台本` : "基本の台本";
+  const ent = (_tk.scripts || []).find((x) => String(x.group_id ?? "") === String(gid || ""));
+  $("tkTitle").textContent = (g ? `グループ「${g.name}」用の台本` : "基本の台本") + (_tk.who && ent && ent.shared ? "（共通の台本：この人は自分の台本を登録していません）" : "");
   $("tkText").value = tkTextOf(gid);
   $("tkSt").textContent = "";
   tkRenderList(); tkPreview();

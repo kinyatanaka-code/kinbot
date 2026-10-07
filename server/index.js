@@ -9853,7 +9853,15 @@ app.get("/api/calls/talk/of", async (req, res) => {
   try {
     const email = String(req.query.email || "").trim().toLowerCase();
     if (!email.includes("@")) return res.status(400).json({ error: "メンバーを選んでください" });
-    res.json({ ok: true, scripts: await listTalkScripts(email) });
+    // その人が自分の台本を登録していない枠は、架電のときに実際に出る共通の台本（グループ用・全体）を見せる
+    const own = (await listTalkScripts(email).catch(() => [])).filter((x) => String(x.text || "").trim());
+    const st = await getSettings().catch(() => ({}));
+    const ts = (st.talkScripts && typeof st.talkScripts === "object") ? st.talkScripts : {};
+    const scripts = own.map((x) => ({ ...x, shared: false }));
+    const has = new Set(own.map((x) => String(x.group_id ?? "")));
+    if (!has.has("") && String(ts.default || "").trim()) scripts.push({ group_id: null, text: String(ts.default), shared: true });
+    for (const [gid, text] of Object.entries(ts.groups || {})) if (!has.has(String(gid)) && String(text || "").trim()) scripts.push({ group_id: Number(gid), text: String(text), shared: true });
+    res.json({ ok: true, scripts, ownCount: own.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/calls/talk/mine", async (req, res) => {
@@ -22823,7 +22831,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-07c トークの「見る台本」で、台本のある人だけでなくメンバー全員を選べるようにし、アポ率（直近3か月・その人がかけた分）の高い順に並べた。選んだ人のアポ率とアポ数／コール数を見出しの下に出す。";
+const BUILD_TAG = "2026-10-07d トークで、自分の台本を登録していない人を選んだときは、その人が架電のときに実際に見ている共通の台本（グループ用・全体）を出すようにした。選択肢の「台本なし」は「共通の台本」と表示。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

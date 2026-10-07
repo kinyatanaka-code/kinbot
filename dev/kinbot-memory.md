@@ -1352,3 +1352,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-07 BUILD_TAG=2026-10-07b 横断検索の「選んだリストへ移す」成功後、移し先に関係なく loadLists＋loadTable（以前は今のリストへ移したときだけ）。版20261007b。
 
 - 2026-10-07 BUILD_TAG=2026-10-07c トーク：#tkWho にメンバー全員（/api/calls/members、台本なしも）、kcGetRates の byCaller でアポ率の高い順・ラベルにアポ率と台本件数。#tkRate（tkShowRate）に選んだ人のアポ率と a/b。版20261007c。
+
+- 2026-10-07 BUILD_TAG=2026-10-07d /api/calls/talk/of：本人の台本が無い枠は settings.talkScripts（default・groups）を shared:true で返す。tkSelect の見出しに共通の台本の旨。選択肢は『自分の台本○件』か『共通の台本』。版20261007d。
