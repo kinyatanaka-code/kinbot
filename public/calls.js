@@ -946,7 +946,10 @@ async function findAcrossMembers() {
         if (b.dataset.ah === "revive") {
           st.textContent = `「${d.list}」に移しました`;
           const tdl = cell.parentElement.children[4]; if (tdl) tdl.innerHTML = `<b>${esc(d.list)}</b><div class="kc-ah-tag grn" style="display:inline-block">移した</div>`;
-          if (String(toList) === curListId) await loadTable();   // 今開いているリストに入れたときは読み直して出す
+          // 非表示のリストから表示のリストへ移したものも、すぐ見えるように読み直す
+          //（今開いているリスト・全てのリード・今日かけるリード・ナーチャリング（まとめ）など、どこを開いていても）
+          try { await loadLists(); } catch {}
+          await loadTable();
         } else {
           st.textContent = `ステージを「${stage}」にしました${d.sf && d.sf.ok ? "（SFにも反映）" : ""}`;
           const td = cell.parentElement.children[3]; if (td && td.firstChild) td.firstChild.textContent = stage;
