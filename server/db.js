@@ -979,6 +979,8 @@ export async function initDb() {
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email TEXT;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_name TEXT;`);
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_email_source TEXT;`);
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_cc TEXT;`);          // お客様側のCC（カンマ区切り）
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_cc_source TEXT;`);   // manual＝手で入れた（スキャンで上書きしない）
   // 送信ログ。status='sent' / 'draft' に一意制約をかけて、同じアポへの二重作成を防ぐ。
   await sq(`
     CREATE TABLE IF NOT EXISTS apo_mail_log (
@@ -3765,6 +3767,15 @@ export async function getSmartLinkByEvent(eventId) {
   if (!pool || !eventId) return null;
   const { rows } = await pool.query(`SELECT * FROM smart_links WHERE event_id=$1`, [eventId]);
   return rows[0] || null;
+}
+// お客様側のCCを入れる（source=manual は手入力。スキャンでは上書きしない）
+export async function setSmartLinkClientCc(slug, cc, source = "") {
+  if (!pool || !slug) return null;
+  const list = [...new Set(String(cc || "").split(/[,\s、;；]+/).map((x) => x.trim().toLowerCase()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)))].slice(0, 10);
+  try {
+    const { rows } = await pool.query(`UPDATE smart_links SET client_cc=$2, client_cc_source=$3, updated_at=now() WHERE slug=$1 RETURNING *`, [slug, list.join(", ") || null, source || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkClientCc", e.message); return null; }
 }
 // リマインドに足りないところを、その場で補う。
 //   宛先（メール）と、担当セールスを入れられる。

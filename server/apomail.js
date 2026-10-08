@@ -499,15 +499,17 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
   // 下書きのときは、自分で送る前に確認できるので付けない。
   const bcc = !asDraft && cfg.copyToSelf ? owner : "";
   try {
+    // お客様側のCC（説明欄の2つ目以降のアドレス、または手で入れたもの）
+    const cc = String(link.client_cc || "").split(/[,\s]+/).map((x) => x.trim()).filter((x) => x && x.toLowerCase() !== String(to).toLowerCase()).join(", ");
     const r = asDraft
-      ? await gmailCreateDraft(owner, { to, subject, bodyText })
-      : await gmailSend(owner, { to, subject, bodyText, bcc });
+      ? await gmailCreateDraft(owner, { to, subject, bodyText, cc })
+      : await gmailSend(owner, { to, subject, bodyText, bcc, cc });
     await logApoMail({
       slug: link.slug, kind, toEmail: to, fromOwner: owner,
       subject, status: asDraft ? "draft" : "sent",
       messageId: (r && (r.id || (r.message && r.message.id))) || null,
     });
-    console.log(`[apo-mail] ${kind} ${asDraft ? "下書き作成" : "送信"} ${link.slug} → ${to}（${owner} / ${actor}）`);
+    console.log(`[apo-mail] ${kind} ${asDraft ? "下書き作成" : "送信"} ${link.slug} → ${to}${cc ? `（CC: ${cc}）` : ""}（${owner} / ${actor}）`);
     return { ok: true, draft: asDraft, subject, to,
              messageId: (r && (r.id || (r.message && r.message.id))) || null, missing, noRoom };
   } catch (e) {

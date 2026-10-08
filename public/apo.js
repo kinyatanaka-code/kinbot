@@ -91,19 +91,22 @@ function bindMailButtons(scope) {
       const i = +b.dataset.i;
       const a = apState.appts[i];
       const cur = a.client_email || "";
-      const next = prompt("お客様のメールアドレスを入力してください。\n（空にすると宛先を削除します）", cur);
+      const next = prompt("お客様のメールアドレス（宛先）を入力してください。\n（空にすると宛先を削除します）", cur);
       if (next === null) return;
       const email = String(next).trim();
+      const ccNext = prompt("CCに入れるアドレスを入力してください（複数はカンマ区切り。空ならCCなし）", a.client_cc || "");
+      if (ccNext === null) return;
       b.disabled = true;
       try {
         const r = await fetch(`/api/smart-links/${encodeURIComponent(a.slug)}/client`, {
           method: "PUT", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email, name: a.client_name || "" }),
+          body: JSON.stringify({ email, name: a.client_name || "", cc: String(ccNext).trim() }),
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "保存に失敗しました");
         a.client_email = (d.link && d.link.client_email) || "";
         a.client_email_source = (d.link && d.link.client_email_source) || "";
+        a.client_cc = (d.link && d.link.client_cc) || "";
         refreshMailCell(i);
       } catch (e) {
         alert("宛先の保存に失敗しました: " + e.message);
@@ -237,7 +240,8 @@ function apoCard(a, i) {
   const srcChip = a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : "";
   const mailBody = a.client_email
     ? `<span class="ap-c2-addr">${esc(a.client_email)}</span>${srcChip}` +
-      `<button class="btn-ico ap-mailedit" data-i="${i}" title="宛先を変更" aria-label="宛先を変更">${AP_ICO.edit}</button>`
+      (a.client_cc ? `<span class="ap-c2-cc" title="CC：${esc(a.client_cc)}">CC ${esc(String(a.client_cc).split(/,\s*/).join("、"))}</span>` : "") +
+      `<button class="btn-ico ap-mailedit" data-i="${i}" title="宛先・CCを変更" aria-label="宛先・CCを変更">${AP_ICO.edit}</button>`
     : `<button class="btn ghost ap-mailedit ap-warn-btn" data-i="${i}">宛先を入力</button>`;
 
   const canSend = assigned && !!a.client_email;

@@ -6993,3 +6993,5 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
   .kc-rec3 > .kc-copanel, .kc-rec3 > .kc-slotpanel, .kc-rec3 > .kc-modal { height: auto !important; overflow: visible !important; border: 0 !important; }
   .kc-rec3 > .kc-modal { order: -1; }
 }
+
+.ap-c2-cc { font-size: 11.5px; color: #3d4f47; background: #eef5f2; border-radius: 6px; padding: 1px 8px; margin-left: 6px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }

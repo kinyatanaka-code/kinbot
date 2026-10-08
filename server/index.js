@@ -482,6 +482,7 @@ import {
   listAssignLog,
   intendedCloserOf,
   setSmartLinkUraEvent,
+  setSmartLinkClientCc,
   getSmartLinkUraEvent,
   hasUraAssignLog,
   clearCloserPriority,
@@ -22834,7 +22835,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08a アポ確定メール：ほかの人が取ったアポは、書き出しを「先ほどは弊社○○からのお電話にご対応いただき、」にし、お礼の段落のあとに「当日は、○○の上司をしております△△が担当させていただきます。」を入れるようにした（{{担当の紹介}}。本文に無くても自動で入る）。自分で取ったアポは今までどおり。";
+const BUILD_TAG = "2026-10-08b アポのメールにCCを入れられるようにした。予定の説明欄（またはゲスト）に社外のアドレスが2つ以上あれば、2つ目以降を自動でCCにする。鉛筆から宛先とCCを手で直せる（手で直したCCはスキャンで上書きしない）。確定メール・前日リマインドともCCに送る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25363,10 +25364,9 @@ async function pickClientContact({ description, attendees, setterEmail }) {
   const setter = String(setterEmail || "").toLowerCase();
   const isOurs = (e) => !e || e === setter || internal.has(e) || isInternalAddress(e);
 
-  // 1. 説明欄から
-  for (const e of extractEmails(description)) {
-    if (!isOurs(e)) return { email: e, name: "", source: "description" };
-  }
+  // 1. 説明欄から（2つ目以降の社外アドレスはCCにする）
+  const ext = extractEmails(description).filter((e) => !isOurs(e));
+  if (ext.length) return { email: ext[0], name: "", source: "description", cc: ext.slice(1) };
 
   // 2. カレンダーのゲストから
   const list = Array.isArray(attendees) ? attendees : [];
@@ -25374,7 +25374,8 @@ async function pickClientContact({ description, attendees, setterEmail }) {
     const em = String(a.email || "").toLowerCase();
     if (a.self || a.organizer || a.resource) continue;
     if (isOurs(em)) continue;
-    return { email: em, name: a.name || "", source: "calendar" };
+    const others = list.filter((b) => b !== a && !b.self && !b.organizer && !b.resource).map((b) => String(b.email || "").toLowerCase()).filter((x) => x && !isOurs(x));
+    return { email: em, name: a.name || "", source: "calendar", cc: others };
   }
   return null;
 }
@@ -25684,6 +25685,14 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         }
         // お客様のメールアドレスを決める。まず予定の説明欄、次にカレンダーのゲスト。
         // 手入力で直した宛先は守るが、社内の人が入っていたら間違いなので入れ替える。
+        // CC：説明欄（またはゲスト）に2つ目以降の社外アドレスがあればCCにする（手で入れたCCは守る）
+        if (link.client_cc_source !== "manual") {
+          try {
+            const hc = await pickClientContact({ description: ev.description, attendees: ev.attendees, setterEmail });
+            const ccNow = ((hc && hc.cc) || []).filter((x) => x !== String(link.client_email || "").toLowerCase()).join(", ");
+            if (ccNow !== String(link.client_cc || "")) { const u2 = await setSmartLinkClientCc(link.slug, ccNow, ""); if (u2) link = u2; }
+          } catch {}
+        }
         const cur = String(link.client_email || "").trim();
         const keepCurrent = cur && link.client_email_source === "manual";
         if (!keepCurrent && (!cur || (await isWrongClientEmail(cur)))) {
@@ -28286,7 +28295,12 @@ app.put("/api/smart-links/:slug/client", async (req, res) => {
     if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
       return res.status(400).json({ error: "メールアドレスの形式が正しくありません" });
     }
-    const updated = await setSmartLinkClient(req.params.slug, { email, name, source: "manual" }, true);
+    let updated = await setSmartLinkClient(req.params.slug, { email, name, source: "manual" }, true);
+    if (req.body && req.body.cc !== undefined) {
+      const bad = String(req.body.cc || "").split(/[,\s、;；]+/).map((x) => x.trim()).filter(Boolean).find((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+      if (bad) return res.status(400).json({ error: `CCのメールアドレスの形式が正しくありません：${bad}` });
+      updated = (await setSmartLinkClientCc(req.params.slug, req.body.cc, "manual")) || updated;
+    }
     res.json({ ok: true, link: updated });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
