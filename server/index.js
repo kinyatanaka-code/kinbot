@@ -22871,7 +22871,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08k アポ一覧にメルマガのアポのカードが出ていなかったのを直した（「メルマガ」の印つきで出す）。担当を選んで確定メールを送ることもできる。";
+const BUILD_TAG = "2026-10-08l メルマガのアポも自動で担当を決め、商談予定とメルマガ用の確定メール（メールでの日程調整のお礼の書き出し）まで送るようにした。お客様のメール・CCも予定から読む。実績はメルマガとして数え、セールスのメンバーには数えない。設定 mailmagaAutoAssign=false で止められる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25673,8 +25673,24 @@ async function collectApoAppointments(scanOwner, opts = {}) {
               mailmaga: true,
             });
           }
-          if (ml) seenMailmaga.push({ ev, setter: st.name, 新規 });
-          continue;   // クローザーへの割り振り・招待はしない（SF立ち上げは呼び出し側で行う）
+          // お客様のメール・CC・メモ・事業は、通常のアポと同じく予定から読む（メルマガ用の確定メールを送るため）
+          if (ml) {
+            try {
+              if (!String(ml.client_email || "").trim() || ml.client_email_source !== "manual") {
+                const hc = await pickClientContact({ description: ev.description, attendees: ev.attendees, setterEmail });
+                if (hc && hc.email && !String(ml.client_email || "").trim()) ml = (await setSmartLinkClient(ml.slug, { email: hc.email, name: hc.name || "", source: hc.source }, false)) || ml;
+                if (hc && ml.client_cc_source !== "manual") {
+                  const ccNow = (hc.cc || []).filter((x) => x !== String(ml.client_email || "").toLowerCase()).join(", ");
+                  if (ccNow !== String(ml.client_cc || "")) ml = (await setSmartLinkClientCc(ml.slug, ccNow, "")) || ml;
+                }
+              }
+              const memo = cleanSourceNote(ev.description);
+              if (memo && !String(ml.source_note || "").trim()) ml = (await setSmartLinkSourceNote(ml.slug, memo, false)) || ml;
+              if (!String(ml.business || "").trim()) { const biz = await businessOfSetter(st.name); if (biz) { await setSmartLinkBusiness(ml.slug, biz); ml = { ...ml, business: biz }; } }
+            } catch (e) { console.warn("[apo-scan] メルマガのアポの宛先", e.message); }
+          }
+          if (ml) seenMailmaga.push({ ev, setter: st.name, 新規, link: ml });
+          continue;   // ここでは割り振らない（呼び出し側の handleMailmaga で、メルマガ用の割り振り・確定メールを行う）
         }
 
         // 取得日・商談日の指定があれば、それぞれ完全一致で絞る
@@ -25864,6 +25880,21 @@ async function handleMailmaga(list, { actor = "" } = {}) {
         }
       }
     } catch (e) { console.warn("[apo-scan] メルマガ確定メール:", e.message); }
+  }
+  // メルマガのアポも、自動で担当を決めて、メルマガ用の確定メールまで送る（設定 mailmagaAutoAssign=false で止められる）。
+  //   実績はメルマガとして数え、セールスのメンバーには数えない（ダッシュボード側で分けている）。
+  if (st.mailmagaAutoAssign === false) return;
+  const inviteOwner = String(st.apoInviteOwner || st.apoScanOwner || "").trim() || null;
+  for (const x of list || []) {
+    try {
+      const link = x.link ? await getSmartLink(x.link.slug) : await getSmartLinkByEvent(x.ev.id);
+      if (!link || link.excluded || link.auto_assigned_at || link.current_owner) continue;
+      if (!link.start_time || new Date(link.start_time).getTime() < Date.now()) continue;   // 終わった商談は動かさない
+      const cfg = await getRotationConfig();
+      const teamCtx = await loadTeamContext(cfg, String(link.business || "")).catch(() => null);
+      const r = await autoAssignOne(link, { inviteOwner, closers: null, cfg, teamCtx, actor: actor || "auto-scan" });
+      console.log(`[apo-scan] メルマガのアポを割り振り：${String(link.label || "").slice(0, 40)} → ${r.ok ? "OK" : r.reason || "できませんでした"}`);
+    } catch (e) { console.warn("[apo-scan] メルマガの割り振り", e.message); }
   }
 }
 
