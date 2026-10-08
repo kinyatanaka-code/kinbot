@@ -1370,3 +1370,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-08 BUILD_TAG=2026-10-08f アポを手で追加：POST /api/apo/manual-create（クローザー・管理者）。createSmartLink（eventId なし、label＝【種類】会社/名前様、setter＝選んだ獲得者、owner＝獲得者がクローザーなら本人）→メモ・宛先・CC・事業→autoAssignOne（通知・商談予定・確定メール・SF立ち上げ。noAssign で登録だけ）。apo.html #apManualAdd、apo.js のモーダル。版20261008f。
 
 - 2026-10-08 BUILD_TAG=2026-10-08g /api/apo/pickup の DB 合流で excluded を除外していたため、手で追加→テスト語（テスト株式会社等）で自動除外されたアポが見えなかった。excluded も出す（excludedReason 付き）、event_id なしは manual:true で「手で追加」チップ。listApoSmartLinks に client_cc・excluded_reason。版20261008g。
+
+- 2026-10-08 BUILD_TAG=2026-10-08h listApoSmartLinks：excluded_reason/client_cc 列を先に ADD IF NOT EXISTS、失敗は throw に変更し、pickup の DB 合流失敗は errors に出す（以前は黙って [] で手動アポが見えなかった可能性）。版20261008h。

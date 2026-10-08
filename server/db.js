@@ -6243,6 +6243,9 @@ export async function setSmartLinkSetterEmail(slug, email) {
 export async function listApoSmartLinks({ from, to } = {}) {
   if (!pool) return [];
   try {
+    // 後から足した列が無い環境でも落ちないように、先に用意しておく
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`).catch(() => {});
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_cc TEXT;`).catch(() => {});
     const { rows } = await pool.query(
       `SELECT slug, label, setter, setter_email, current_owner, event_id,
               start_time, end_time, business, client_email, client_name, client_cc, excluded, excluded_reason,
@@ -6253,7 +6256,7 @@ export async function listApoSmartLinks({ from, to } = {}) {
           AND start_time >= $1 AND start_time <= $2
         ORDER BY start_time`, [from, to]);
     return rows;
-  } catch (e) { console.error("[db] listApoSmartLinks", e.message); return []; }
+  } catch (e) { console.error("[db] listApoSmartLinks", e.message); throw e; }
 }
 export async function setSmartLinkEventId(slug, eventId) {
   if (!pool || !slug) return null;

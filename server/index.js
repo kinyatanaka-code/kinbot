@@ -22851,7 +22851,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08g 手で追加したアポがアポ一覧に出ないことがあったのを直した（テスト用などで数から外したものを一覧から外していた）。外したものも「集計から除外」の印つきで出し、手で追加したアポには「手で追加」の印を付けた。";
+const BUILD_TAG = "2026-10-08h 手で追加したアポがアポ一覧に出ない件の続き：kinbotにだけあるアポを読む処理で失敗しても黙って空にしていたので、足りない列を先に用意し、失敗したときは一覧の下に理由を出すようにした。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -27994,7 +27994,7 @@ app.get("/api/apo/pickup", async (req, res) => {
       const have = new Set(items.map((it) => it.slug));
       const p2 = (n) => String(n).padStart(2, "0");
       const ymd = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())}`; };
-      for (const l of await listApoSmartLinks({ from, to }).catch(() => [])) {
+      for (const l of await listApoSmartLinks({ from, to })) {
         if (have.has(l.slug)) continue;   // 数から外したもの（テスト用など）も「集計から除外」の印つきで出す
         items.push({
           event_id: l.event_id || "", setter_name: l.setter || "", setter_email: l.setter_email || "",
@@ -28005,7 +28005,7 @@ app.get("/api/apo/pickup", async (req, res) => {
         });
       }
       items.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));
-    } catch (e) { console.warn("[apo/pickup] DB合流", e.message); }
+    } catch (e) { console.warn("[apo/pickup] DB合流", e.message); errors = [...(errors || []), { name: "kinbotのアポ", error: "kinbotにだけあるアポ（手で追加など）を読めませんでした：" + e.message }]; }
     // 事業タブで絞る。事業が未判定のアポはどのタブでも残す（取りこぼさないため）。
     if (biz) items = items.filter((it) => !it.business || it.business === biz);
     // アポメールの送信状況をまとめて引く（1件ずつ引くとN+1になるため）
