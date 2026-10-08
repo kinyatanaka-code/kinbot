@@ -10593,3 +10593,9 @@ export async function nurtureDateDiag(email = "") {
     return { 日ごと: byDay, 日付なし: (nul[0] || {}).日付なし || 0, 直近: ex };
   } catch (e) { return { error: e.message }; }
 }
+
+// index.js などから、そのままSQLを流すとき用（pool を外に出さない）
+export async function dbQuery(text, params) {
+  if (!pool) throw new Error("データベースに接続できません");
+  return pool.query(text, params);
+}

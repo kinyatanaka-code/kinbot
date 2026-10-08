@@ -1364,3 +1364,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-08 BUILD_TAG=2026-10-08b smart_links.client_cc/client_cc_source。pickClientContact が cc（説明欄の2つ目以降の社外アドレス／ゲストの他の社外）を返し、スキャンで client_cc を更新（manual は守る）。PUT /api/smart-links/:slug/client に cc（manual）。sendApoMail は gmailSend/gmailCreateDraft に cc。apo.js 鉛筆で宛先→CCの2段入力。版20261008b。
 
 - 2026-10-08 BUILD_TAG=2026-10-08d リスト編集「ほかのリストとの重複を省く」（#edDedupeAcross）：POST /api/calls/targets/dedupe-across {listIds, scope(past=過去の枠のソース同士|all), dryRun}＝db.dedupeAgainstOtherLists（normCompanyKey か電話下10桁で、開いている他リストに同じものがあれば削除。こちらにだけ架電記録があるものは残す。同じリスト内の重複も1件に）。件数と例を先に表示。版20261008d。
+
+- 2026-10-08 BUILD_TAG=2026-10-08e index.js で pool.query を使う所（/api/calls/targets/:id/revive、一括反映のグループ名・list_id 取得）があったが pool 未定義で ReferenceError。db.dbQuery を追加し index.js に const pool = { query: dbQuery } を置いた。版20261008e。

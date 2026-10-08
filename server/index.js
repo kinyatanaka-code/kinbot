@@ -210,6 +210,7 @@ import {
   deleteCallTargets,
   dedupeTargetsInLists,
   dedupeAgainstOtherLists,
+  dbQuery,
   stageSummaryCounts,
   crosslostCountsByMember,
   countCallTargets,
@@ -765,6 +766,8 @@ if (!PUBLIC_URL) {
   console.warn("[警告] PUBLIC_URL 未設定。Recall が Webhook を届けられません（ngrok等の公開URLを設定）。");
 }
 
+// index.js の中で直接SQLを流す所のための窓口（以前 pool が定義されておらず「pool is not defined」になっていた）
+const pool = { query: (text, params) => dbQuery(text, params) };
 const app = express();
 // Railwayのヘルスチェック用（ログイン不要・DB不要）。新しいデプロイがここに200を返してから切り替わるので、
 // 入れ替えの間に「Not Found」になる時間を無くす。
@@ -22848,7 +22851,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08d リストの編集に「ほかのリストとの重複を省く」を追加。開いているリストから、ほかの過去リスト（または、すべてのリスト）にもある会社（会社名か電話番号が同じ）を省く。先に件数と例を見てから省ける。こちらにだけ架電の記録があるものは残す。";
+const BUILD_TAG = "2026-10-08e 横断検索の「選んだリストへ移す」が「pool is not defined」で失敗していたのを直した（サーバーの中でデータベースへの窓口が定義されていなかった）。一括の列データ反映も同じ原因で一部が動いていなかったので直した。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
