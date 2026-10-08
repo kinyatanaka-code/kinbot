@@ -234,7 +234,8 @@ function apoCard(a, i) {
       ? `<span class="ap-c2-chip ap-c2-zoom"><span class="ap-c2-dot"></span>${esc(rep.name)}のZoomへ転送中</span>`
       : chipWarn(`${esc(rep ? rep.name : a.current_owner)}：Zoom未設定`);
   }
-  const exChip = a.excluded ? chipWarn("集計から除外") : "";
+  const exChip = (a.excluded ? chipWarn(`集計から除外${a.excludedReason ? "（" + a.excludedReason + "）" : ""}`) : "") +
+    (a.manual ? '<span class="ap-src-chip" title="カレンダーではなく、アポ一覧の「アポを手で追加」で登録したアポ">手で追加</span>' : "");
 
   // 宛先（クラス・data属性は既存のまま：ap-mailedit）
   const srcChip = a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : "";

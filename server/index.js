@@ -22851,7 +22851,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08f アポ一覧に「アポを手で追加」を追加。メールで日程が決まったときなど、カレンダーに予定が無くても、獲得者（インターンなど）が取ったアポとして登録でき、いつもと同じく割り振り・Chat通知・商談予定・確定メール・SF立ち上げまで流れる。";
+const BUILD_TAG = "2026-10-08g 手で追加したアポがアポ一覧に出ないことがあったのを直した（テスト用などで数から外したものを一覧から外していた）。外したものも「集計から除外」の印つきで出し、手で追加したアポには「手で追加」の印を付けた。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -27995,13 +27995,13 @@ app.get("/api/apo/pickup", async (req, res) => {
       const p2 = (n) => String(n).padStart(2, "0");
       const ymd = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}-${p2(j.getUTCMonth() + 1)}-${p2(j.getUTCDate())}`; };
       for (const l of await listApoSmartLinks({ from, to }).catch(() => [])) {
-        if (have.has(l.slug) || l.excluded) continue;
+        if (have.has(l.slug)) continue;   // 数から外したもの（テスト用など）も「集計から除外」の印つきで出す
         items.push({
           event_id: l.event_id || "", setter_name: l.setter || "", setter_email: l.setter_email || "",
           title: l.label || "", start: l.start_time, created: "", created_date: ymd(l.taken_at),
           original_url: "", slug: l.slug, smart_url: joinUrl(l.slug), current_owner: l.current_owner || null,
           client_email: l.client_email || "", client_name: l.client_name || "", client_email_source: "", client_cc: l.client_cc || "",
-          business: l.business || "", excluded: !!l.excluded, calendar_missing: true,
+          business: l.business || "", excluded: !!l.excluded, excludedReason: l.excluded_reason || "", calendar_missing: !!l.event_id, manual: !l.event_id,
         });
       }
       items.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));

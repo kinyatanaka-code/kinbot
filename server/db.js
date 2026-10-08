@@ -6245,7 +6245,7 @@ export async function listApoSmartLinks({ from, to } = {}) {
   try {
     const { rows } = await pool.query(
       `SELECT slug, label, setter, setter_email, current_owner, event_id,
-              start_time, end_time, business, client_email, client_name, excluded,
+              start_time, end_time, business, client_email, client_name, client_cc, excluded, excluded_reason,
               COALESCE(apo_at, created_at) AS taken_at
          FROM smart_links
         WHERE COALESCE(mailmaga,false) = false
