@@ -211,6 +211,7 @@ import {
   dedupeTargetsInLists,
   dedupeAgainstOtherLists,
   dbQuery,
+  mailmagaCompanyNames,
   stageSummaryCounts,
   crosslostCountsByMember,
   countCallTargets,
@@ -13057,7 +13058,19 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
       if (!wonByCompany.has(k)) wonByCompany.set(k, em);
     }
     const 数えた = new Set();   // 同じ予定（会社×商談日×計上先）は1回だけ数える
+    // メルマガ由来のアポは、人（セールス・インサイド）には数えず「メルマガ」として別に数える。
+    //   メルマガの印のアポ・予定名にメルマガ・kincallでメルマガのリード（ソース／リスト名）の会社
+    const mmKeys = new Set((await mailmagaCompanyNames().catch(() => [])).map((c) => normCompanyKey(c)).filter(Boolean));
+    const mailmagaCols = 区切り.map(() => 0);
+    const mmSeen = new Set();
     for (const a of apos) {
+      const coM = normCompanyKey(companyFromTitle(a.label || "") || "");
+      const isMM = a.mailmaga || /メルマガ/.test(String(a.label || "")) || (coM && mmKeys.has(coM));
+      if (isMM) {
+        const ukM = `${coM}|${ymdJst(a.start_time)}`;
+        if (!mmSeen.has(ukM)) { mmSeen.add(ukM); const iM = idxOf(属する(ymdJst(a.taken_at))); if (iM >= 0) mailmagaCols[iM]++; }
+        continue;
+      }
       if (!isApoCountableTitle(a.label)) continue;   // 【初回】【新/ヒ】のみ・メルマガ除外
       const co = companyFromTitle(a.label || "") || "";
       const cok = normCompanyKey(co);
@@ -13125,7 +13138,7 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
     const 今日key = ymd(nowJ);
     const 今バケット = 区切り.find((c) => c.from <= 今日key && 今日key <= c.to);
     const 今 = 今バケット ? 今バケット.key : (区切り.length ? 区切り[区切り.length - 1].key : "");
-    return { period, 区切り, 今, members: membersOut, totals, sfError, items, 合計 };
+    return { period, 区切り, 今, members: membersOut, totals, sfError, items, 合計, メルマガ: mailmagaCols };
 }
 
 // 【点検用・一時】接触が拾えているかを見る：kincallの結果ごとの件数と、接触判定の結果。
@@ -13344,10 +13357,17 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
     // チーム：目標はそのチーム自身の手入力（その月の月次目標）、実績はメンバー合計。
     const sumA = (arr) => arr.reduce((a, p) => a + p.actual, 0);
     const team = (key, label, arr) => { const actual = sumA(arr), goal = goalOf(key); return { key, label, role: "team", actual, goal, diff: actual - goal }; };
+    // メルマガ：人には数えず、ここで別に数える（グループ（全体）には足す）
+    const mmIdx = (g.区切り || []).findIndex((c) => c.key === g.今);
+    const mmActual = metric === "アポ" ? Number(((g.メルマガ || [])[mmIdx >= 0 ? mmIdx : 0]) || 0) : 0;
+    const mmTeam = { key: "mailmaga", label: "メルマガ", role: "team", actual: mmActual, goal: goalOf("mailmaga"), diff: mmActual - goalOf("mailmaga") };
+    const grp = team("group", "グループ（全体）", persons);
+    if (metric === "アポ") { grp.actual += mmActual; grp.diff = grp.actual - grp.goal; }
     const teams = [
-      team("group", "グループ（全体）", persons),
+      grp,
       team("sales", "セールス", salesP),
       team("inside", "インサイド", insideP),
+      ...(metric === "アポ" ? [mmTeam] : []),
     ];
 
     // インサイド（インターン生）のインセンティブ：9月からの3か月（9〜11月）の「実施」数 × 1,000円。
@@ -22851,7 +22871,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08h 手で追加したアポがアポ一覧に出ない件の続き：kinbotにだけあるアポを読む処理で失敗しても黙って空にしていたので、足りない列を先に用意し、失敗したときは一覧の下に理由を出すようにした。";
+const BUILD_TAG = "2026-10-08i ダッシュボード（アポ）に「メルマガ」のカードを追加。メルマガ由来のアポ（メルマガの印・予定名にメルマガ・kincallでメルマガのリードの会社）はセールス・インサイドのメンバーには数えず、メルマガとして数える（グループ全体には足す）。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

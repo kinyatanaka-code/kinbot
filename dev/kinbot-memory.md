@@ -1372,3 +1372,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-08 BUILD_TAG=2026-10-08g /api/apo/pickup の DB 合流で excluded を除外していたため、手で追加→テスト語（テスト株式会社等）で自動除外されたアポが見えなかった。excluded も出す（excludedReason 付き）、event_id なしは manual:true で「手で追加」チップ。listApoSmartLinks に client_cc・excluded_reason。版20261008g。
 
 - 2026-10-08 BUILD_TAG=2026-10-08h listApoSmartLinks：excluded_reason/client_cc 列を先に ADD IF NOT EXISTS、失敗は throw に変更し、pickup の DB 合流失敗は errors に出す（以前は黙って [] で手動アポが見えなかった可能性）。版20261008h。
+
+- 2026-10-08 BUILD_TAG=2026-10-08i computeStatsGrid：メルマガ由来アポ（smart_links.mailmaga・ラベルにメルマガ・db.mailmagaCompanyNames（source=メルマガ or リスト名にメルマガ）の会社）を人の集計から外し、メルマガ（区切りごと）に数える。apo-dashboard の teams に mailmaga カード（目標 subject=mailmaga）、グループ全体に加算。aposTakenInRange に mailmaga 列。版20261008i。

@@ -4956,6 +4956,17 @@ export async function segmentLiveCounts() {
   return rows;
 }
 
+// メルマガ由来の会社（kincallでソースがメルマガ、またはリスト名にメルマガが入るリードの会社名）
+export async function mailmagaCompanyNames() {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT t.company FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+        WHERE COALESCE(t.source,'') = 'メルマガ' OR l.name ~ 'メルマガ'`);
+    return rows.map((r) => r.company).filter(Boolean);
+  } catch { return []; }
+}
+
 // リストごとの主なソース（いちばん件数が多いソース）
 export async function listMainSources() {
   if (!pool) return {};
@@ -6181,7 +6192,7 @@ export async function aposTakenInRange({ from, to, business = "", limit = 1000 }
     if (business) { p.push(business); where += ` AND business = $${p.length}`; }
     p.push(Math.max(1, Math.min(2000, limit)));
     const { rows } = await pool.query(
-      `SELECT slug, label, setter, setter_email, current_owner, business, start_time,
+      `SELECT slug, label, setter, setter_email, current_owner, business, start_time, COALESCE(mailmaga,false) AS mailmaga,
               COALESCE(apo_at, created_at) AS taken_at
          FROM smart_links
         WHERE ${where}
