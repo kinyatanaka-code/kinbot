@@ -277,8 +277,7 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
       if (isMailmaga) return "";
       const setter = familyName(link.setter);
       if (!setter || selfAcquired(link, repName, repEmail)) return "";
-      const me = String(profile.shortName || "").trim() || familyName(repName);
-      return me ? `当日は、${setter}の上司をしております${me}が担当させていただきます。` : "";
+      return `当日は、${setter}に代わりまして私が担当させていただきます。`;
     })(),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",

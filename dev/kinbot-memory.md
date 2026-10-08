@@ -1374,3 +1374,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-08 BUILD_TAG=2026-10-08h listApoSmartLinks：excluded_reason/client_cc 列を先に ADD IF NOT EXISTS、失敗は throw に変更し、pickup の DB 合流失敗は errors に出す（以前は黙って [] で手動アポが見えなかった可能性）。版20261008h。
 
 - 2026-10-08 BUILD_TAG=2026-10-08i computeStatsGrid：メルマガ由来アポ（smart_links.mailmaga・ラベルにメルマガ・db.mailmagaCompanyNames（source=メルマガ or リスト名にメルマガ）の会社）を人の集計から外し、メルマガ（区切りごと）に数える。apo-dashboard の teams に mailmaga カード（目標 subject=mailmaga）、グループ全体に加算。aposTakenInRange に mailmaga 列。版20261008i。
+
+- 2026-10-08 BUILD_TAG=2026-10-08j {{担当の紹介}} を『当日は、{獲得者姓}に代わりまして私が担当させていただきます。』に変更。版20261008j。
