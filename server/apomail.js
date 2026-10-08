@@ -27,6 +27,8 @@ export const DEFAULT_CONFIRM_BODY = `{{会社名}}
 またお打ち合わせのお時間をいただき、
 誠にありがとうございました。
 
+{{担当の紹介}}
+
 それでは、お打ち合わせの日程につきまして、
 下記のとおりご案内いたします。
 
@@ -268,7 +270,15 @@ export function buildVars(link, { repName, repEmail, url, companyName, profile =
       if (!setter || selfAcquired(link, repName, repEmail)) {
         return "先ほどはお電話にご対応いただき、";
       }
-      return `先ほどは弊社${setter}のお電話にご対応いただき、`;
+      return `先ほどは弊社${setter}からのお電話にご対応いただき、`;
+    })(),
+    // ほかの人が取ったアポだけ：当日の担当の紹介（自分で取ったアポ・メルマガ由来は空＝行ごと消える）
+    "担当の紹介": (() => {
+      if (isMailmaga) return "";
+      const setter = familyName(link.setter);
+      if (!setter || selfAcquired(link, repName, repEmail)) return "";
+      const me = String(profile.shortName || "").trim() || familyName(repName);
+      return me ? `当日は、${setter}の上司をしております${me}が担当させていただきます。` : "";
     })(),
     "会社名": parts.company || "",
     "お客様名": String(link.client_name || "").trim() || parts.person || "ご担当者",
@@ -338,7 +348,12 @@ function tidyLines(lines) {
 }
 
 export function render(tpl, vars) {
-  const lines = String(tpl || "").split("\n").map((line) => {
+  // テンプレートに {{担当の紹介}} が無くても、ほかの人が取ったアポなら「誠にありがとうございました。」の段落のあとに入れる
+  let t0 = String(tpl || "");
+  if (vars && vars["担当の紹介"] && !/\{\{\s*担当の紹介\s*\}\}/.test(t0) && /誠にありがとうございました。/.test(t0)) {
+    t0 = t0.replace(/(誠にありがとうございました。[^\n]*)(\n|$)/, "$1\n\n{{担当の紹介}}$2");
+  }
+  const lines = t0.split("\n").map((line) => {
     let hadTag = false, filled = 0, tags = 0;
     const text = line.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (whole, key) => {
       if (!Object.prototype.hasOwnProperty.call(vars, key)) return whole;

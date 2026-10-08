@@ -1358,3 +1358,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-07 BUILD_TAG=2026-10-07e POST /api/apo/:slug/recreate-event：獲得者側の予定のあと、current_owner がいれば invite_event を消して（deleteCalendarEvent・setSmartLinkInviteEvent(null)）createApoInvite で作り直し。結果は closer。版20261007e。
 
 - 2026-10-07 BUILD_TAG=2026-10-07f 浦林さん対応の予定が作られなかった：カードの担当selectは quiet:true で、quiet 分岐が先に return していた。uraHandover(link, intended, actor) に共通化（smart_links.ura_event='email|id' で前の予定を消して作り直し、本来の担当＝intended→前の ura_event の人→intendedCloserOf、assign_log の浦林さん対応は1回だけ）。quiet でも浦林さんなら createApoInvite＋uraHandover、通常の担当変更・recreate-event（担当が浦林さん）・自動（URA_FALLBACK=1）も uraHandover。版20261007f。
+
+- 2026-10-08 BUILD_TAG=2026-10-08a apomail：お礼の書き出し（他人のアポ）を『弊社○○からのお電話に』、新しい差し込み {{担当の紹介}}＝『当日は、{獲得者姓}の上司をしております{担当姓}が担当させていただきます。』（自分で取った・メルマガ由来は空）。render でテンプレートに {{担当の紹介}} が無く値があれば『誠にありがとうございました。』の行のあとに自動挿入。既定テンプレにも追加、apo.html の説明・チップ。版20261008a。

@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261007f" />
+    <link rel="stylesheet" href="style.css?v=20261008a" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -252,7 +252,7 @@
               <div class="ap-tags">
                 <div><b>お客様・商談</b> <code>{{会社名}}</code> <code>{{お客様名}}</code> <code>{{商談日時}}</code> <code>{{商談日}}</code> <code>{{商談時刻}}</code></div>
                 <div><b>アポ獲得者</b> <code>{{アポ獲得者}}</code> <code>{{アポ獲得者姓}}</code>
-                  <code>{{お礼の書き出し}}</code></div>
+                  <code>{{お礼の書き出し}}</code><code>{{担当の紹介}}</code></div>
                 <div><b>担当セールス</b> <code>{{担当者名}}</code> <code>{{担当者姓}}</code>（自動）<code>{{担当者ローマ字}}</code> <code>{{担当者メール}}</code> <code>{{担当者電話}}</code> <code>{{部署}}</code> <code>{{ユニット}}</code></div>
                 <div><b>会議室</b> <code>{{ZoomURL}}</code>（スマートリンク）<code>{{担当者の会議室URL}}</code></div>
                 <div><b>自社</b> <code>{{自社名}}</code></div>
@@ -261,7 +261,8 @@
               <code>{{担当者姓}}</code>は名前から自動で入ります。<br>
               <code>{{お礼の書き出し}}</code>は、誰が取ったアポかで文が変わります。<br>
               　・自分で取ったアポ → 「先ほどはお電話にご対応いただき、」<br>
-              　・ほかの人が取ったアポ → 「先ほどは弊社○○のお電話にご対応いただき、」<br>
+              　・ほかの人が取ったアポ → 「先ほどは弊社○○からのお電話にご対応いただき、」<br>
+              <code>{{担当の紹介}}</code>は、ほかの人が取ったアポのときだけ「当日は、○○（獲得者）の上司をしております△△（担当）が担当させていただきます。」が入ります（自分で取ったアポでは行ごと消えます）。本文に書いていなくても、「誠にありがとうございました。」の段落のあとに自動で入ります。<br>
               <b><code>{{ZoomURL}}</code>はkinbotのスマートリンクです。</b>担当が変わっても行き先が自動で切り替わるので、送ったあとに担当が代わってもメールを送り直す必要がありません。転送先は<a href="settings.html">設定 → 登録リンク</a>で各自が登録した会議室URLです。<br>
               担当者のZoom URLをそのまま載せたい場合は <code>{{担当者の会議室URL}}</code> が使えますが、<b>担当が変わると古いURLのままになります</b>。未設定の項目はその行ごと本文から消えます。</p>
               <div class="ap-tpl">
@@ -493,9 +494,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20261007f"></script>
-    <script src="apo.js?v=20261007f"></script>
-    <script src="nav.js?v=20261007f"></script>
+    <script src="product.js?v=20261008a"></script>
+    <script src="apo.js?v=20261008a"></script>
+    <script src="nav.js?v=20261008a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
