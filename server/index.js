@@ -22835,7 +22835,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08b アポのメールにCCを入れられるようにした。予定の説明欄（またはゲスト）に社外のアドレスが2つ以上あれば、2つ目以降を自動でCCにする。鉛筆から宛先とCCを手で直せる（手で直したCCはスキャンで上書きしない）。確定メール・前日リマインドともCCに送る。";
+const BUILD_TAG = "2026-10-08c アポのメールにCCを入れられるようにした。予定の説明欄（またはゲスト）に社外のアドレスが2つ以上あれば、2つ目以降を自動でCCにする。鉛筆から宛先とCCを手で直せる（手で直したCCはスキャンで上書きしない）。確定メール・前日リマインドともCCに送る。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -25724,6 +25724,7 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           client_email: link.client_email || "",
           client_name: link.client_name || "",
           client_email_source: link.client_email_source || "",
+          client_cc: link.client_cc || "",
           business: link.business || "",
           auto_assigned_at: link.auto_assigned_at || null,
           excluded: !!link.excluded,
@@ -27936,7 +27937,7 @@ app.get("/api/apo/pickup", async (req, res) => {
           event_id: l.event_id || "", setter_name: l.setter || "", setter_email: l.setter_email || "",
           title: l.label || "", start: l.start_time, created: "", created_date: ymd(l.taken_at),
           original_url: "", slug: l.slug, smart_url: joinUrl(l.slug), current_owner: l.current_owner || null,
-          client_email: l.client_email || "", client_name: l.client_name || "", client_email_source: "",
+          client_email: l.client_email || "", client_name: l.client_name || "", client_email_source: "", client_cc: l.client_cc || "",
           business: l.business || "", excluded: !!l.excluded, calendar_missing: true,
         });
       }
