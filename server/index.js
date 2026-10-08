@@ -22851,7 +22851,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08e 横断検索の「選んだリストへ移す」が「pool is not defined」で失敗していたのを直した（サーバーの中でデータベースへの窓口が定義されていなかった）。一括の列データ反映も同じ原因で一部が動いていなかったので直した。";
+const BUILD_TAG = "2026-10-08f アポ一覧に「アポを手で追加」を追加。メールで日程が決まったときなど、カレンダーに予定が無くても、獲得者（インターンなど）が取ったアポとして登録でき、いつもと同じく割り振り・Chat通知・商談予定・確定メール・SF立ち上げまで流れる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -27044,6 +27044,53 @@ app.post("/api/apo/auto-scan", async (req, res) => {
   try {
     const r = await runApoAutoScan({ actor: req.user || "manual", force: req.body?.force === true });
     res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポを手で追加する（メールで日程が決まったなど、カレンダーに予定が無いとき）。
+// 獲得者（例：インターン）が取ったアポとして登録し、いつもと同じく割り振り・通知・商談予定・確定メールまで流す。
+app.post("/api/apo/manual-create", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)) return res.status(403).json({ error: "クローザー・管理者だけが追加できます" });
+    const b = req.body || {};
+    const company = String(b.company || "").trim(), person = String(b.person || "").trim();
+    const setterEmail = String(b.setterEmail || "").trim().toLowerCase();
+    if (!company) return res.status(400).json({ error: "会社名を入れてください" });
+    if (!setterEmail) return res.status(400).json({ error: "獲得者を選んでください" });
+    const start = new Date(String(b.start || ""));
+    if (isNaN(start.getTime())) return res.status(400).json({ error: "商談日時を入れてください" });
+    const mins = Math.max(15, Math.min(240, parseInt(b.minutes, 10) || 60));
+    const end = new Date(start.getTime() + mins * 60000);
+    const users = await listUsers().catch(() => []);
+    const su = (users || []).find((u) => String(u.email || "").toLowerCase() === setterEmail);
+    const setterName = (su && su.name) || setterEmail.split("@")[0];
+    const tag = String(b.tag || "初回").trim().replace(/[【】]/g, "") || "初回";
+    const label = `【${tag}】${company}${person ? `/${person.replace(/様$/, "")}様` : ""}`;
+    let slug;
+    for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
+    const selfCloser = await isCloserUser(setterEmail).catch(() => false);
+    let link = await createSmartLink({
+      slug, label, owner: selfCloser ? setterEmail : null, createdBy: req.user,
+      eventId: null, setter: setterName, setterEmail, startTime: start.toISOString(), endTime: end.toISOString(),
+      apoAt: new Date().toISOString(),
+    });
+    if (!link) return res.status(500).json({ error: "アポを作れませんでした" });
+    const memo = String(b.memo || "").trim();
+    if (memo) link = (await setSmartLinkSourceNote(link.slug, memo, true)) || link;
+    const ce = String(b.clientEmail || "").trim();
+    if (ce) link = (await setSmartLinkClient(link.slug, { email: ce, name: person, source: "manual" }, true)) || link;
+    if (String(b.cc || "").trim()) link = (await setSmartLinkClientCc(link.slug, b.cc, "manual")) || link;
+    const biz = ["DOC", "MOCHICA"].includes(String(b.business || "")) ? String(b.business) : await businessOfSetter(setterName).catch(() => "");
+    if (biz) { await setSmartLinkBusiness(link.slug, biz); link = { ...link, business: biz }; }
+    console.log(`[apo] 手で追加：${label}（獲得 ${setterName}） by ${req.user}`);
+    // いつもと同じく、割り振り・通知・商談予定・確定メール・SF立ち上げまで流す（「割り振りはあとで」のときは登録だけ）
+    if (b.noAssign) return res.json({ ok: true, link, assigned: false });
+    const cfg = await getRotationConfig();
+    const st = await getSettings().catch(() => ({}));
+    const inviteOwner = String(st.apoInviteOwner || st.apoScanOwner || "").trim() || null;
+    const teamCtx = await loadTeamContext(cfg, biz).catch(() => null);
+    const r = await autoAssignOne(await getSmartLink(link.slug), { inviteOwner, closers: null, cfg, teamCtx, actor: req.user || "manual" });
+    res.json({ ok: true, link: await getSmartLink(link.slug), assign: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -2738,3 +2738,57 @@ if ($("mlLoad")) {
   $("mlLoad").addEventListener("click", mlLoad);
   if ($("mlBounce")) $("mlBounce").addEventListener("click", mlCheckBounce);
 }
+
+
+// ───────── アポを手で追加（カレンダーに予定が無いとき） ─────────
+document.addEventListener("click", async (e) => {
+  const b = e.target && e.target.closest && e.target.closest("#apManualAdd"); if (!b) return;
+  let mem = [];
+  try { mem = ((await (await fetch("/api/calls/members")).json()).items || []).filter((m) => m.email); } catch {}
+  const pad = (n) => String(n).padStart(2, "0");
+  const t = new Date(Date.now() + 86400000); t.setMinutes(0, 0, 0);
+  const local = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}T${pad(t.getHours())}:00`;
+  const back = document.createElement("div");
+  back.className = "ap-lc-back";
+  back.innerHTML = `<div class="ap-lc">
+    <div class="ap-lc-h"><span>アポを手で追加</span><button type="button" class="ap-lc-x" aria-label="閉じる">×</button></div>
+    <div class="ap-lc-note">メールで日程が決まったときなど、カレンダーに予定が無いアポを追加します。選んだ獲得者が取ったアポとして、いつもと同じく割り振り・Chatの通知・担当の商談予定・確定メールまで流れます。</div>
+    <label class="ap-lc-f"><span>獲得者</span><select id="maSetter"><option value="">（選ぶ）</option>${mem.map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)}</option>`).join("")}</select></label>
+    <label class="ap-lc-f"><span>種類</span><select id="maTag"><option>初回</option><option>初回/過去失注</option><option>初回/フロッグ</option><option>初回/コールド</option><option>初回/MO失注</option></select></label>
+    <label class="ap-lc-f"><span>会社名</span><input id="maCo" type="text" placeholder="株式会社〇〇" /></label>
+    <label class="ap-lc-f"><span>お客様のお名前</span><input id="maPerson" type="text" placeholder="山田（「様」は自動で付きます）" /></label>
+    <label class="ap-lc-f"><span>商談日時</span><input id="maStart" type="datetime-local" value="${local}" /></label>
+    <label class="ap-lc-f"><span>時間</span><select id="maMin"><option value="30">30分</option><option value="45">45分</option><option value="60" selected>1時間</option><option value="90">1時間30分</option></select></label>
+    <label class="ap-lc-f"><span>お客様のメール</span><input id="maMail" type="email" placeholder="yamada@example.co.jp" /></label>
+    <label class="ap-lc-f"><span>CC（任意）</span><input id="maCc" type="text" placeholder="複数はカンマ区切り" /></label>
+    <label class="ap-lc-f"><span>事業</span><select id="maBiz"><option value="">獲得者の担当事業</option><option>DOC</option><option>MOCHICA</option></select></label>
+    <label class="ap-lc-f"><span>メモ（任意）</span><textarea id="maMemo" rows="3" placeholder="メールでのやり取りの要点など（担当の商談予定に入ります）"></textarea></label>
+    <label class="ap-lc-f" style="align-items:center"><span></span><span><input type="checkbox" id="maNoAssign" /> 登録だけして、割り振り・メールはあとで</span></label>
+    <div class="ap-lc-acts"><button type="button" class="btn ghost ap-lc-cancel">やめる</button><button type="button" class="btn" id="maGo">追加する</button></div>
+    <div id="maSt" class="ap-lc-note"></div>
+  </div>`;
+  document.body.appendChild(back);
+  const close = () => back.remove();
+  back.querySelector(".ap-lc-x").addEventListener("click", close);
+  back.querySelector(".ap-lc-cancel").addEventListener("click", close);
+  const v = (id) => (back.querySelector("#" + id).value || "").trim();
+  back.querySelector("#maGo").addEventListener("click", async () => {
+    const st = back.querySelector("#maSt");
+    if (!v("maSetter")) { st.textContent = "獲得者を選んでください"; return; }
+    if (!v("maCo")) { st.textContent = "会社名を入れてください"; return; }
+    if (!v("maStart")) { st.textContent = "商談日時を入れてください"; return; }
+    const go = back.querySelector("#maGo"); go.disabled = true; go.textContent = "追加しています…";
+    try {
+      const r = await fetch("/api/apo/manual-create", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        setterEmail: v("maSetter"), tag: v("maTag"), company: v("maCo"), person: v("maPerson"),
+        start: new Date(v("maStart")).toISOString(), minutes: v("maMin"), clientEmail: v("maMail"), cc: v("maCc"),
+        business: v("maBiz"), memo: v("maMemo"), noAssign: back.querySelector("#maNoAssign").checked,
+      }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "追加できませんでした");
+      const a = d.assign;
+      alert(a ? (a.ok ? `追加しました。${a.name || ""}さんに割り振りました。` : `追加しました。割り振り：${a.reason || "できませんでした"}`) : "追加しました（割り振りはあとで）。");
+      close();
+      if (typeof loadApo === "function") loadApo(); else location.reload();
+    } catch (err) { st.textContent = err.message; go.disabled = false; go.textContent = "追加する"; }
+  });
+});

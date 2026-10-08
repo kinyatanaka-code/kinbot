@@ -1366,3 +1366,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-08 BUILD_TAG=2026-10-08d リスト編集「ほかのリストとの重複を省く」（#edDedupeAcross）：POST /api/calls/targets/dedupe-across {listIds, scope(past=過去の枠のソース同士|all), dryRun}＝db.dedupeAgainstOtherLists（normCompanyKey か電話下10桁で、開いている他リストに同じものがあれば削除。こちらにだけ架電記録があるものは残す。同じリスト内の重複も1件に）。件数と例を先に表示。版20261008d。
 
 - 2026-10-08 BUILD_TAG=2026-10-08e index.js で pool.query を使う所（/api/calls/targets/:id/revive、一括反映のグループ名・list_id 取得）があったが pool 未定義で ReferenceError。db.dbQuery を追加し index.js に const pool = { query: dbQuery } を置いた。版20261008e。
+
+- 2026-10-08 BUILD_TAG=2026-10-08f アポを手で追加：POST /api/apo/manual-create（クローザー・管理者）。createSmartLink（eventId なし、label＝【種類】会社/名前様、setter＝選んだ獲得者、owner＝獲得者がクローザーなら本人）→メモ・宛先・CC・事業→autoAssignOne（通知・商談予定・確定メール・SF立ち上げ。noAssign で登録だけ）。apo.html #apManualAdd、apo.js のモーダル。版20261008f。
