@@ -209,6 +209,7 @@ import {
   assignCallTargets,
   deleteCallTargets,
   dedupeTargetsInLists,
+  dedupeAgainstOtherLists,
   stageSummaryCounts,
   crosslostCountsByMember,
   countCallTargets,
@@ -9328,6 +9329,18 @@ app.post("/api/calls/targets/count", async (req, res) => {
 
 // 条件に当てはまるものを消す
 // 指定リスト内の重複リードを削除（履歴の多い1件を残す）。クローザー・管理者のみ。
+// 選んだリストから、ほかのリスト（過去リスト同士／すべて）にもある会社を省く。dryRun で件数と例
+app.post("/api/calls/targets/dedupe-across", async (req, res) => {
+  try {
+    if (!(await canRedistribute(req))) return res.status(403).json({ error: "クローザー・インサイド・管理者だけが使えます" });
+    const b = req.body || {};
+    const listIds = (Array.isArray(b.listIds) ? b.listIds : []).map((x) => parseInt(x, 10)).filter(Boolean);
+    if (!listIds.length) return res.status(400).json({ error: "リストを選んでください" });
+    const r = await dedupeAgainstOtherLists(listIds, { scope: b.scope === "all" ? "all" : "past", dryRun: !!b.dryRun });
+    if (!b.dryRun) { console.log(`[kincall] リスト${listIds.join(",")}から、ほかのリストと重複する${r.removed}件を省きました（${b.scope === "all" ? "すべて" : "過去リスト同士"}） by ${req.user}`); _clSummaryCache = null; }
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/calls/targets/dedupe", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
@@ -22835,7 +22848,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08c アポのメールにCCを入れられるようにした。予定の説明欄（またはゲスト）に社外のアドレスが2つ以上あれば、2つ目以降を自動でCCにする。鉛筆から宛先とCCを手で直せる（手で直したCCはスキャンで上書きしない）。確定メール・前日リマインドともCCに送る。";
+const BUILD_TAG = "2026-10-08d リストの編集に「ほかのリストとの重複を省く」を追加。開いているリストから、ほかの過去リスト（または、すべてのリスト）にもある会社（会社名か電話番号が同じ）を省く。先に件数と例を見てから省ける。こちらにだけ架電の記録があるものは残す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

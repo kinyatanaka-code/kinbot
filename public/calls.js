@@ -7808,6 +7808,7 @@ async function orgLoadLists() {
     if ($("edCsvFile")) $("edCsvFile").addEventListener("change", edImportCsv);
     if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
     if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
+    if ($("edDedupeAcross")) $("edDedupeAcross").addEventListener("click", edDedupeAcross);
   }
   memBox.querySelector(".ed3-body").innerHTML = '<div class="note">読み込んでいます…</div>';
   try {
@@ -8204,6 +8205,44 @@ async function edDedupe() {
   } catch (e) {
     if (st) st.textContent = "できませんでした（" + (e.message || "権限がないか通信に失敗") + "）";
   } finally { const b = $("edDedupe"); if (b) b.disabled = false; }
+}
+// ほかのリストとの重複を省く（過去リスト同士／すべてのリスト）。先に件数と例を見せる
+async function edDedupeAcross() {
+  const ids = [..._edChosen.keys()].filter((x) => /^\d+$/.test(String(x)));
+  if (!ids.length) { alert("リストを選んでください。"); return; }
+  const m = openModal("ほかのリストとの重複を省く", `
+    <div class="note" style="margin-bottom:6px">開いているリストから、ほかのリストにも同じ会社（会社名か電話番号が同じ）があるリードを省きます。もとのSalesforceのデータは残ります。</div>
+    <div class="mv-row"><label><input type="radio" name="ddScope" value="past" checked /> 過去リスト（失注）同士で比べる</label></div>
+    <div class="mv-row"><label><input type="radio" name="ddScope" value="all" /> すべてのリスト（新規リストも）と比べる</label></div>
+    <div class="note" style="margin-top:6px">このリストの方にだけ架電の記録があるものは、記録を消さないために残します。このリストの中の重複も1件にまとめます。</div>
+    <div id="ddPrev" style="margin-top:8px"><div class="note">数えています…</div></div>
+    <div class="modal-actions" style="margin-top:10px"><button type="button" class="btn" id="ddGo" disabled>省く</button></div>`);
+  const q = (x) => m.el.querySelector(x);
+  const scope = () => (q('input[name="ddScope"]:checked') || {}).value || "past";
+  const preview = async () => {
+    q("#ddGo").disabled = true; q("#ddPrev").innerHTML = '<div class="note">数えています…</div>';
+    try {
+      const r = await fetch("/api/calls/targets/dedupe-across", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listIds: ids, scope: scope(), dryRun: true }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "");
+      q("#ddPrev").innerHTML = d.count ? `<div class="note">省くのは <b>${d.count}</b> 件です。</div>
+        <div style="max-height:220px;overflow:auto"><table class="sh-table" style="width:100%"><tr><th>会社</th><th>重複しているリスト</th></tr>${(d.examples || []).map((x) => `<tr><td>${esc(x.会社)}</td><td>${esc(x.重複先)}</td></tr>`).join("")}</table></div>${d.count > (d.examples || []).length ? `<div class="note">ほか${d.count - d.examples.length}件</div>` : ""}`
+        : '<div class="note">重複はありませんでした。</div>';
+      q("#ddGo").disabled = !d.count;
+    } catch (e) { q("#ddPrev").innerHTML = `<div class="note">数えられませんでした：${esc(e.message)}</div>`; }
+  };
+  m.el.querySelectorAll('input[name="ddScope"]').forEach((el) => el.addEventListener("change", preview));
+  preview();
+  q("#ddGo").addEventListener("click", async () => {
+    if (!confirm("このリストから重複を省きます。取り消せません。よろしいですか？")) return;
+    q("#ddGo").disabled = true; q("#ddGo").textContent = "省いています…";
+    try {
+      const r = await fetch("/api/calls/targets/dedupe-across", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listIds: ids, scope: scope() }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "");
+      m.close();
+      const st = $("edEnrichSt"); if (st) st.textContent = `ほかのリストと重複する ${d.removed} 件を省きました`;
+      orgLoadEdit([..._edChosen.keys()]);
+    } catch (e) { alert("できませんでした：" + e.message); q("#ddGo").disabled = false; q("#ddGo").textContent = "省く"; }
+  });
 }
 // 抜き出し先の所有者ドロップダウンをメンバーで埋める
 function edFillExtractOwner() {

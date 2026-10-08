@@ -5142,6 +5142,49 @@ export async function dedupeTargetsInLists(listIds) {
   } catch (e) { console.error("[db] dedupeTargetsInLists", e.message); return 0; }
 }
 
+// 選んだリストから、ほかのリストにもある会社（会社名が同じ、または電話番号が同じ）を省く。
+// scope=past：過去リスト（失注）のソース同士で比べる／all：すべての開いているリストと比べる。
+// 選んだリストの方にだけ架電の記録があって、ほかのリストの方には無いものは残す（記録を消さないため）。dryRun で件数と例だけ。
+export async function dedupeAgainstOtherLists(listIds, { scope = "past", dryRun = false } = {}) {
+  if (!pool || !Array.isArray(listIds) || !listIds.length) return { removed: 0, examples: [] };
+  const ids = [...new Set(listIds.map((x) => parseInt(x, 10)).filter(Number.isFinite))];
+  const pastSrc = LEAD_FRAMES.past.sources;
+  const tel = (v) => { const d = String(v || "").replace(/[^\d]/g, ""); return d.length >= 9 ? d.slice(-10) : ""; };
+  const { rows: mine } = await pool.query(
+    `SELECT t.id, t.company, t.phone, t.list_id, (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id)::int AS logs
+       FROM call_targets t WHERE t.list_id = ANY($1::int[])`, [ids]);
+  const otherWhere = scope === "all" ? "" : "AND t.source = ANY($2)";
+  const { rows: others } = await pool.query(
+    `SELECT t.id, t.company, t.phone, l.name AS list_name, (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id)::int AS logs
+       FROM call_targets t JOIN call_lists l ON l.id = t.list_id
+      WHERE NOT (t.list_id = ANY($1::int[])) AND NOT COALESCE(l.closed,false) ${otherWhere}`, scope === "all" ? [ids] : [ids, pastSrc]);
+  const byCo = new Map(), byTel = new Map();
+  for (const o of others) {
+    const k = normCompanyKey(o.company || ""); if (k && k.length >= 2) { if (!byCo.has(k)) byCo.set(k, []); byCo.get(k).push(o); }
+    const t = tel(o.phone); if (t) { if (!byTel.has(t)) byTel.set(t, []); byTel.get(t).push(o); }
+  }
+  // 選んだリストの中での重複も、ほかと同じく1件だけ残す（記録の多い方）
+  const seen = new Map();
+  const losers = [], examples = [];
+  const sorted = [...mine].sort((a, b) => (b.logs - a.logs) || (a.id - b.id));
+  for (const r of sorted) {
+    const k = normCompanyKey(r.company || ""), t = tel(r.phone);
+    const hits = [...((k && byCo.get(k)) || []), ...((t && byTel.get(t)) || [])];
+    const inSame = (k && seen.get("c:" + k)) || (t && seen.get("t:" + t));
+    if (hits.length) {
+      if (r.logs > 0 && !hits.some((h) => h.logs > 0)) { if (k) seen.set("c:" + k, true); if (t) seen.set("t:" + t, true); continue; }   // こちらにだけ記録がある
+      losers.push(r.id);
+      if (examples.length < 20) examples.push({ 会社: r.company || "", 重複先: [...new Set(hits.map((h) => h.list_name))].slice(0, 3).join("、") });
+      continue;
+    }
+    if (inSame) { losers.push(r.id); if (examples.length < 20) examples.push({ 会社: r.company || "", 重複先: "このリストの中" }); continue; }
+    if (k) seen.set("c:" + k, true); if (t) seen.set("t:" + t, true);
+  }
+  if (dryRun || !losers.length) return { removed: 0, count: losers.length, examples };
+  const del = await pool.query(`DELETE FROM call_targets WHERE id = ANY($1::int[])`, [losers]);
+  return { removed: del.rowCount || 0, count: losers.length, examples };
+}
+
 export async function deleteCallTargets(listId, { stages = [], statuses = [], hist = "" } = {}) {
   if (!pool || !listId) return 0;
   try {
