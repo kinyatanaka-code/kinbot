@@ -6995,3 +6995,5 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 }
 
 .ap-c2-cc { font-size: 11.5px; color: #3d4f47; background: #eef5f2; border-radius: 6px; padding: 1px 8px; margin-left: 6px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+
+.ap-mm-chip { background: #e6f1fb !important; color: #0c447c !important; }

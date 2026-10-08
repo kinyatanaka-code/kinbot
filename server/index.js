@@ -22871,7 +22871,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08j 確定メールの担当の紹介を「当日は、○○に代わりまして私が担当させていただきます。」にした（自分で上司と名乗る言い方をやめた）。";
+const BUILD_TAG = "2026-10-08k アポ一覧にメルマガのアポのカードが出ていなかったのを直した（「メルマガ」の印つきで出す）。担当を選んで確定メールを送ることもできる。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -28021,7 +28021,9 @@ app.get("/api/apo/pickup", async (req, res) => {
           title: l.label || "", start: l.start_time, created: "", created_date: ymd(l.taken_at),
           original_url: "", slug: l.slug, smart_url: joinUrl(l.slug), current_owner: l.current_owner || null,
           client_email: l.client_email || "", client_name: l.client_name || "", client_email_source: "", client_cc: l.client_cc || "",
-          business: l.business || "", excluded: !!l.excluded, excludedReason: l.excluded_reason || "", calendar_missing: !!l.event_id, manual: !l.event_id,
+          business: l.business || "", excluded: !!l.excluded, excludedReason: l.excluded_reason || "",
+          // メルマガのアポはカレンダーのスキャン結果には入れていないので、ここで出す（カレンダーにはある）
+          mailmaga: !!l.mailmaga, calendar_missing: !!l.event_id && !l.mailmaga, manual: !l.event_id,
         });
       }
       items.sort((a, b) => String(a.start || "").localeCompare(String(b.start || "")));
