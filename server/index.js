@@ -22880,7 +22880,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-09a Chatの「今週の目標・あと」を今月の件数で計算するように戻した（今週の目標は月初からの積み上げのため）。";
+const BUILD_TAG = "2026-10-09b アポ一覧で担当を変えたら、カレンダーの商談予定も付け替えるようにした（前の担当の予定を消して、新しい担当に作る）。通知・確定メールは送らない。担当を外したときは予定を消す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
@@ -28316,13 +28316,24 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
       }
       const only = await setSmartLinkOwner(req.params.slug, owner);
       console.log(`[apo] ${req.params.slug} の担当を差し替えました（知らせません）by ${req.user}`);
-      if (isUraQ && only) {
-        let invite = null, inviteError = null, uraIntendedEvent = null;
-        if (only.start_time) { try { invite = await createApoInvite(only, { actor: req.user }); } catch (e) { inviteError = e.message; } }
-        try { uraIntendedEvent = await uraHandover(only, intendedQ, req.user); } catch (e) { uraIntendedEvent = { error: e.message }; }
-        return res.json({ ok: true, link: await getSmartLink(req.params.slug), quiet: true, invite, invite_error: inviteError, uraIntendedEvent });
+      // 担当を変えたら、カレンダーの商談予定も付け替える（前の担当の予定は消して、新しい担当に作る）。
+      //   通知・確定メールは送らない（差し替えのまま）。商談が終わったアポ・担当を外したときは予定を消すだけ。
+      let invite = null, inviteError = null, uraIntendedEvent = null;
+      const changedOwner = String(existing.current_owner || "").toLowerCase() !== String(owner || "").toLowerCase();
+      if (only && changedOwner) {
+        const future = only.start_time && new Date(only.start_time).getTime() > Date.now() - 3600000;
+        if (owner && future) {
+          try { invite = await createApoInvite(only, { actor: req.user }); } catch (e) { inviteError = e.message; console.warn("[apo] 担当変更の予定付け替えに失敗", req.params.slug, e.message); }
+        } else if (!owner && existing.invite_event_id && existing.invite_event_owner) {
+          await deleteCalendarEvent(existing.invite_event_owner, existing.invite_event_id, "primary").catch(() => {});
+          await setSmartLinkInviteEvent(req.params.slug, null, null).catch(() => {});
+        }
       }
-      return res.json({ ok: true, link: only, quiet: true });
+      if (isUraQ && only) {
+        try { uraIntendedEvent = await uraHandover(only, intendedQ, req.user); } catch (e) { uraIntendedEvent = { error: e.message }; }
+      }
+      if (invite || inviteError || uraIntendedEvent) console.log(`[apo] ${req.params.slug} 担当変更でカレンダーを付け替え（${existing.current_owner || "-"} → ${owner || "-"}） by ${req.user}`);
+      return res.json({ ok: true, link: await getSmartLink(req.params.slug), quiet: true, invite, invite_error: inviteError, uraIntendedEvent });
     }
 
     // 浦林さんへの担当変更（全員埋まっていたときに田中さんが手で変える）：本来の担当だった人を先に控えておく
