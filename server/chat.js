@@ -317,9 +317,12 @@ export async function notifyAssigned({
     // 担当変更のときは件数を出さない（新規アポではないため）
     (!changed && counts)
       ? `📊 本日 ${counts.today} ／ 今週 ${counts.week} ／ 今月 ${counts.month}` +
+        (counts.mailmaga && counts.mailmaga.month
+          ? `\n　うちメルマガ：本日 ${counts.mailmaga.today} ／ 今週 ${counts.mailmaga.week} ／ 今月 ${counts.mailmaga.month}`
+          : "") +
         ((goal || goalMonth)
           ? `\n　（${[
-              goal ? `今週の目標 ${goal}・あと ${Math.max(0, goal - counts.month)}` : "",
+              goal ? `今週の目標 ${goal}・あと ${Math.max(0, goal - counts.week)}` : "",
               goalMonth ? `今月目標 ${goalMonth}・あと ${Math.max(0, goalMonth - counts.month)}` : "",
             ].filter(Boolean).join("、")}）`
           : "")

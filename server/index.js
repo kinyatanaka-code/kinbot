@@ -3403,7 +3403,16 @@ async function groupApoCountsRaw() {
         if (i === idxToday) tday += n;
       }
     }
-    return { today: tday, week: twk, month: tmn };
+    // メルマガも合計に含める（何件がメルマガかは別に返す）
+    let mday = 0, mwk = 0, mmn = 0;
+    const mmc = g.メルマガ || [];
+    for (let i = 0; i < mmc.length; i++) {
+      const n = Number(mmc[i] || 0);
+      mmn += n;
+      if (idxWeek >= 0 && i >= idxWeek) mwk += n;
+      if (i === idxToday) mday += n;
+    }
+    return { today: tday + mday, week: twk + mwk, month: tmn + mmn, mailmaga: { today: mday, week: mwk, month: mmn } };
   } catch (e) { console.warn("[groupApoCounts]", e.message); return { today: 0, week: 0, month: 0 }; }
 }
 
@@ -22871,7 +22880,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-08m メルマガのアポも自動で担当を決め、商談予定とメルマガ用の確定メール（メールでの日程調整のお礼の書き出し）まで送るようにした。お客様のメール・CCも予定から読む。実績はメルマガとして数え、セールスのメンバーには数えない。設定 mailmagaAutoAssign=false で止められる。";
+const BUILD_TAG = "2026-10-08n Chatの「本日／今週／今月」のアポ件数にメルマガも含め、うちメルマガ何件かも出すようにした。今週の目標の「あと」が今月の件数で計算されていたのを、今週の件数で計算するように直した。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

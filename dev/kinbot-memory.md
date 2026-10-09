@@ -1381,3 +1381,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 - 2026-10-08 BUILD_TAG=2026-10-08l メルマガのアポの自動送信：スキャンのメルマガ分岐で宛先・CC・メモ・事業を設定し seenMailmaga に link を渡す。handleMailmaga の最後で、未割り当て・未処理・これからの商談なら autoAssignOne（割り振り・商談予定・確定メール＝isMailmaga の書き出し・通知・SF）。settings.mailmagaAutoAssign=false で停止。ダッシュボードはメルマガとして別計上のまま。版20261008l。
 - 2026-10-08 BUILD_TAG=2026-10-08m メルマガの自動割り振りは MAILMAGA_AUTO_FROM（既定 2026-10-08 0:00 JST）以降に取ったものだけ（既存分に確定メールを今さら送らない）。版20261008m。
+
+- 2026-10-08 BUILD_TAG=2026-10-08n groupApoCountsRaw にメルマガ（computeStatsGrid の メルマガ 列）を合算し mailmaga:{today,week,month} を返す。chat の件数行に『うちメルマガ』、今週目標の『あと』を counts.week で計算（以前は month で誤り）。版20261008n。
