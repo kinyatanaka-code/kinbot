@@ -322,7 +322,8 @@ export async function notifyAssigned({
           : "") +
         ((goal || goalMonth)
           ? `\n　（${[
-              goal ? `今週の目標 ${goal}・あと ${Math.max(0, goal - counts.week)}` : "",
+              // 今週の目標は週ラップの積み上げ（月初からの累計）なので、今月の件数で「あと」を出す
+              goal ? `今週の目標 ${goal}・あと ${Math.max(0, goal - counts.month)}` : "",
               goalMonth ? `今月目標 ${goalMonth}・あと ${Math.max(0, goalMonth - counts.month)}` : "",
             ].filter(Boolean).join("、")}）`
           : "")

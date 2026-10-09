@@ -1383,3 +1383,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-08 BUILD_TAG=2026-10-08m メルマガの自動割り振りは MAILMAGA_AUTO_FROM（既定 2026-10-08 0:00 JST）以降に取ったものだけ（既存分に確定メールを今さら送らない）。版20261008m。
 
 - 2026-10-08 BUILD_TAG=2026-10-08n groupApoCountsRaw にメルマガ（computeStatsGrid の メルマガ 列）を合算し mailmaga:{today,week,month} を返す。chat の件数行に『うちメルマガ』、今週目標の『あと』を counts.week で計算（以前は month で誤り）。版20261008n。
+
+- 2026-10-09 BUILD_TAG=2026-10-09a 今週目標の『あと』は counts.month で正しかった（週ラップの目標は月初からの積み上げ）。10-08n の変更を戻した。版20261009a。
