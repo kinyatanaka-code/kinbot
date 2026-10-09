@@ -13475,18 +13475,21 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const lapJ = metric === "実施" ? await Promise.all(laps.map((l) => jisshiBetween(ymd(l.from), ymd(l.to)))) : null;
       const jIdx = (li, r) => memRolesD.filter((x) => r === "all" || x.role === r)
         .reduce((a, x) => a + (lapJ[li].get(normN(x.m.誰)) || 0), 0);
-      const cumAct = { group: 0, sales: 0, inside: 0 };
+      const cumAct = { group: 0, sales: 0, inside: 0, mailmaga: 0 };
       weeks = laps.map((l, li) => {
         const key = ymd(l.from);
         const rangeSum = (r) => lapJ ? jIdx(li, r) : actIdx(li, r);
-        const wAct = { group: rangeSum("all"), sales: rangeSum("sales"), inside: rangeSum("inside") };
-        cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside;
+        // メルマガは人に数えないので、アポのときだけグループ（全体）に足し、メルマガのカードにも出す
+        const mmW = !lapJ ? Number(((gd.メルマガ || [])[li]) || 0) : 0;
+        const wAct = { group: rangeSum("all") + mmW, sales: rangeSum("sales"), inside: rangeSum("inside"), mailmaga: mmW };
+        cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside; cumAct.mailmaga += wAct.mailmaga;
         // 差分＝その週までの積み上げ実績−その週に入れた目標（カード表示の 実績−目標 と一致させる）
         const mk = (subj, label, ca) => { const g = wGoal(subj, key, li); return { key: subj, label, role: "team", actual: ca, goal: g, diff: ca - g, periodKey: key }; };
         return {
           key, label: `${l.from.getUTCMonth() + 1}/${l.from.getUTCDate()}〜${l.to.getUTCMonth() + 1}/${l.to.getUTCDate()}`,
           from: ymd(l.from), to: ymd(l.to),
-          teams: [mk("group", "グループ（全体）", cumAct.group), mk("sales", "セールス", cumAct.sales), mk("inside", "インサイド", cumAct.inside)],
+          teams: [mk("group", "グループ（全体）", cumAct.group), mk("sales", "セールス", cumAct.sales), mk("inside", "インサイド", cumAct.inside),
+            ...(!lapJ ? [mk("mailmaga", "メルマガ", cumAct.mailmaga)] : [])],
         };
       });
     }
@@ -22880,7 +22883,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-09b アポ一覧で担当を変えたら、カレンダーの商談予定も付け替えるようにした（前の担当の予定を消して、新しい担当に作る）。通知・確定メールは送らない。担当を外したときは予定を消す。";
+const BUILD_TAG = "2026-10-09c ダッシュボードの週ラップ（アポ）にもメルマガを入れた。グループ（全体）にメルマガを足し、各週にメルマガのカード（月初からの積み上げ）を出す。";
 const BUILD_FEATURES = [
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

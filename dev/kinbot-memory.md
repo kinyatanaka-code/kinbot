@@ -1387,3 +1387,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-09 BUILD_TAG=2026-10-09a 今週目標の『あと』は counts.month で正しかった（週ラップの目標は月初からの積み上げ）。10-08n の変更を戻した。版20261009a。
 
 - 2026-10-09 BUILD_TAG=2026-10-09b PUT owner quiet（カードの担当select）でも、担当が変わり商談がこれから（1時間前以降）なら createApoInvite（前担当の予定は中で削除）、担当を外したら invite を削除。通知・メールは無し。浦林さんなら uraHandover も。版20261009b。
+
+- 2026-10-09 BUILD_TAG=2026-10-09c 週ラップ（apo-dashboard の weeks）：gd.メルマガ[li] をグループに加算、mailmaga チーム（積み上げ・週目標 subject=mailmaga）を追加。実施のときは出さない。版20261009c。
