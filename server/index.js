@@ -11840,6 +11840,66 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 「他の日程」タブ用：選んだ1日について、クローザー（おすすめの日程と同じ対象）の誰かが空いている時間を全部返す。
+// 30分きざみの開始時刻で、商談の長さ（既定60分）がまるごと空いている人を数える。営業時間は9:00〜19:00。
+// 空きの見方（終日・参加拒否・リスケ/キャンセルは空き扱い）は、おすすめの日程とそろえている。
+// 例：/api/calls/slot-day?date=2026-10-20&minutes=60
+app.get("/api/calls/slot-day", async (req, res) => {
+  try {
+    const date = String(req.query.date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "日付が正しくありません" });
+    const mins = Math.max(15, Math.min(240, parseInt(req.query.minutes, 10) || 60));
+    const closers = await listClosers({ activeOnly: true }).catch(() => []);
+    const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
+    const members = closers
+      .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")))
+      .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
+    if (!members.length) return res.json({ ok: true, date, 枠: [], 対象: [], reason: "対象のクローザーがいません" });
+    const emails = members.map((m) => m.email);
+    const dayStart = Date.parse(`${date}T00:00:00+09:00`);
+    const timeMin = new Date(dayStart).toISOString();
+    const timeMax = new Date(dayStart + 86400000).toISOString();
+    // 空きを読める人（Google連携済み）を、自分→対象メンバー→設定の順に探す
+    const st = await getSettings().catch(() => ({}));
+    const candOwners = [String(req.user || "").toLowerCase(), String(st.apoScanOwner || "").toLowerCase(), ...emails, String(st.calendarOwner || "").toLowerCase()].filter(Boolean);
+    let reader = "";
+    for (const o of [...new Set(candOwners)]) {
+      try { await listCalendarEvents(o, emails[0], { timeMin, timeMax }); reader = o; break; } catch { /* 次の人で試す */ }
+    }
+    if (!reader) return res.json({ ok: true, date, 枠: [], 対象: members.map((m) => m.name), reason: "カレンダーの空きを取得できませんでした（Google連携をご確認ください）" });
+    const busyByEmail = new Map();
+    await Promise.all(emails.map(async (em) => {
+      try {
+        const evs = await listCalendarEvents(reader, em, { timeMin, timeMax });
+        const arr = [];
+        for (const e of evs || []) {
+          if (e.allDay || e.selfResponse === "declined") continue;
+          if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;
+          const s0 = Date.parse(e.start), e0 = Date.parse(e.end);
+          if (!isNaN(s0) && !isNaN(e0) && e0 > s0) arr.push([s0, e0]);
+        }
+        busyByEmail.set(em, arr);
+      } catch { busyByEmail.set(em, null); }   // 読めなかった人は「空き」と数えない
+    }));
+    const 枠 = [];
+    const now = Date.now();
+    for (let t = dayStart + 9 * 3600000; t + mins * 60000 <= dayStart + 19 * 3600000; t += 30 * 60000) {
+      if (t < now + 30 * 60000) continue;   // もう過ぎた時間・30分以内は出さない
+      const e = t + mins * 60000;
+      const 空き = members.filter((m) => { const b = busyByEmail.get(m.email); return Array.isArray(b) && !b.some(([bs, be]) => bs < e && be > t); }).map((m) => m.name);
+      if (!空き.length) continue;
+      const j = new Date(t + 9 * 3600000);
+      枠.push({
+        time: `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`,
+        帯: j.getUTCHours() < 12 ? "午前" : "午後",
+        空き人数: 空き.length, 対象人数: members.length, 空いている人: 空き,
+      });
+    }
+    const unread = members.filter((m) => busyByEmail.get(m.email) === null).map((m) => m.name);
+    res.json({ ok: true, date, 枠, 対象: members.map((m) => m.name), 読めなかった人: unread });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // かける画面のヘッダー用：自分の今日の架電結果（コール・接触・アポ）。
 app.get("/api/calls/my-today", async (req, res) => {
   try {
@@ -22904,8 +22964,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12a kincallで「アポ獲得」を記録すると、獲得者のカレンダーに【初回】の予定を作り、kinbotのアポとして割り振り・商談予定・確定メールまで自動で流す。商談日時はおすすめの日程以外（日付・15分きざみの時間・長さ）も選べ、その時間に空いているクローザーを表示。";
+const BUILD_TAG = "2026-10-12b kincallの記録の窓の日程パネルを「おすすめ／他の日程」のタブに。他の日程はカレンダーで日を選ぶと、その日にクローザーの誰かが空いている時間（30分きざみ・9〜19時）をすべて表示。押すとアポの商談日時（または次回架電日）に入る。";
 const BUILD_FEATURES = [
+  "kincallの日程パネルに「他の日程」タブ（カレンダーで日を選ぶと、その日の空き時間をすべて表示）",
   "kincallのアポ獲得から、カレンダー登録とアポの割り振りまで自動（商談日時は自由に選べる・空いている担当を表示）",
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",

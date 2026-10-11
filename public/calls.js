@@ -1796,7 +1796,24 @@ function renderDock() {
     .kc-apo-free{font-size:12px;color:#5b7a6d;line-height:1.5;}
     .kc-apo-free.ok{color:#0d5b47;}
     .kc-apo-free.warn{color:#a35a0b;}
-    .kc-slot-other{font-size:11px;color:#5b7a6d;margin:-4px 0 10px;}
+    .kc-slot-other{font-size:11px;color:#5b7a6d;margin:6px 0 10px;}
+    .kc-slot-tabs{display:flex;gap:4px;background:#eef7f2;border-radius:10px;padding:3px;margin-bottom:12px;}
+    .kc-slot-tab{flex:1;border:0;background:transparent;border-radius:8px;padding:6px 0;font-size:13px;font-weight:600;color:#5b7a6d;cursor:pointer;}
+    .kc-slot-tab.on{background:#ffffff;color:#0d5b47;box-shadow:0 1px 2px rgba(20,40,30,.12);}
+    .kc-cal{border:1px solid #d5e3dd;border-radius:12px;padding:8px;margin-bottom:12px;}
+    .kc-cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+    .kc-cal-title{font-weight:700;color:#0d5b47;font-size:14px;}
+    .kc-cal-mv{border:1px solid #cfe0d9;background:#fff;border-radius:8px;width:28px;height:26px;cursor:pointer;color:#0d5b47;font-size:16px;line-height:1;}
+    .kc-cal-mv:disabled{opacity:.35;cursor:default;}
+    .kc-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;}
+    .kc-cal-wd{font-size:11px;color:#5b7a6d;padding:2px 0;}
+    .kc-cal-wd.sun,.kc-cal-d.sun{color:#c2483f;}
+    .kc-cal-wd.sat,.kc-cal-d.sat{color:#2f6fae;}
+    .kc-cal-d{border:0;background:transparent;border-radius:8px;height:30px;font-size:13px;color:#12241d;cursor:pointer;}
+    .kc-cal-d:hover:not(:disabled){background:#eaf7f1;}
+    .kc-cal-d.today{box-shadow:0 0 0 1.5px #5DCAA5 inset;}
+    .kc-cal-d.on{background:#1d9e75;color:#fff;font-weight:700;}
+    .kc-cal-d:disabled{color:#c4cdc9;cursor:default;}
     /* 獲得見込みインセンティブ（表彰状ふうの金色） */
     .kc-inc{margin:6px 0 8px;padding:8px 10px;border-radius:10px;text-align:center;cursor:pointer;
       background:linear-gradient(135deg,#fdf6e3 0%,#f7e7b6 45%,#fdf6e3 100%);
@@ -3192,42 +3209,150 @@ function openSlotPanel(m) {
   document.querySelectorAll(".kc-slotpanel").forEach((el) => el.remove());
   const panel = document.createElement("div");
   panel.className = "kc-slotpanel";
-  panel.innerHTML = `<div class="kc-slot-h">おすすめの日程<br><span class="kc-slot-sub">クローザーの空き（直近2週間・1時間枠）</span></div><div class="kc-slot-body"><div class="note">空きを調べています…</div></div>`;
+  // 「おすすめ」が最初。「他の日程」に切り替えると、カレンダーから日を選んで、その日の空き時間を全部見られる。
+  panel.innerHTML = `<div class="kc-slot-h">日程の候補<br><span class="kc-slot-sub">クローザーの空き（1時間枠）</span></div>
+    <div class="kc-slot-tabs" role="tablist">
+      <button type="button" class="kc-slot-tab on" data-tab="best" role="tab">おすすめ</button>
+      <button type="button" class="kc-slot-tab" data-tab="other" role="tab">他の日程</button>
+    </div>
+    <div class="kc-slot-body" data-pane="best"><div class="note">空きを調べています…</div></div>
+    <div class="kc-slot-body" data-pane="other" hidden></div>`;
   document.body.appendChild(panel);
-  const body = panel.querySelector(".kc-slot-body");
+  const body = panel.querySelector('[data-pane="best"]');
+  const other = panel.querySelector('[data-pane="other"]');
   // モーダルが閉じたらパネルも消す
   const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { panel.remove(); obs.disconnect(); } });
   obs.observe(document.body, { childList: true, subtree: true });
 
+  // 枠を押したとき：アポ獲得を選んでいればアポの商談日時へ、そうでなければ次回架電日へ入れる
+  const pickSlot = (b) => {
+    const dt = m.el.querySelector("#kcNext"); const tm = m.el.querySelector("#kcNextTime");
+    const toApo = typeof m._apoFill === "function" && m._apoFill(b.dataset.date, b.dataset.time);
+    if (!toApo && dt) { dt.value = b.dataset.date; dt.dispatchEvent(new Event("change", { bubbles: true })); }
+    if (!toApo && tm) { tm.value = b.dataset.time; tm.dispatchEvent(new Event("change", { bubbles: true })); }
+    panel.querySelectorAll(".kc-slot-item").forEach((x) => x.classList.remove("picked"));
+    b.classList.add("picked");
+  };
+  const freeLine = (c) => `<div class="kc-slot-free">${c.空き人数}/${c.対象人数}人 空き${c.空いている人 && c.空いている人.length ? "：" + esc(c.空いている人.join("・")) : ""}</div>`;
+
+  // タブの切り替え
+  let otherReady = false;
+  panel.querySelectorAll(".kc-slot-tab").forEach((t) => t.addEventListener("click", () => {
+    panel.querySelectorAll(".kc-slot-tab").forEach((x) => x.classList.toggle("on", x === t));
+    const tab = t.dataset.tab;
+    body.hidden = tab !== "best";
+    other.hidden = tab !== "other";
+    if (tab === "other" && !otherReady) { otherReady = true; drawOther(); }
+  }));
+
+  // ---- おすすめ（今までどおり） ----
   (async () => {
     try {
       const d = await (await fetch("/api/calls/slot-suggest")).json();
       if (!d.ok) throw new Error(d.error || "取得できませんでした");
       const cs = d.候補 || [];
-      if (!cs.length) { body.innerHTML = `<div class="note">${esc(d.reason || "空いている枠が見つかりませんでした")}</div>`; return; }
-      let html = `<div class="kc-slot-tgt">対象：${esc((d.対象 || []).join("・"))}</div><div class="kc-slot-other">ここにない日時は、記録欄の「商談日時」で選べます</div>`;
+      if (!cs.length) { body.innerHTML = `<div class="note">${esc(d.reason || "空いている枠が見つかりませんでした")}</div><div class="kc-slot-other">「他の日程」から、日を選んで探せます</div>`; return; }
+      let html = `<div class="kc-slot-tgt">対象：${esc((d.対象 || []).join("・"))}</div>`;
       let 前週 = 0, best = true;
       for (const c of cs) {
         if (c.週 !== 前週) { html += `<div class="kc-slot-wk">${c.週 === 1 ? "1週目" : "2週目"}</div>`; 前週 = c.週; }
         html += `
           <button type="button" class="kc-slot-item${best ? " best" : ""}" data-date="${esc(c.date)}" data-time="${esc(c.time)}">
             <div class="kc-slot-when">${esc(c.md)}（${esc(c.曜日)}） <span class="kc-slot-ampm">${esc(c.帯 || "")}</span> ${esc(c.time)}${best ? ' <span class="kc-slot-badge">おすすめ</span>' : ""}</div>
-            <div class="kc-slot-free">${c.空き人数}/${c.対象人数}人 空き${c.空いている人 && c.空いている人.length ? "：" + esc(c.空いている人.join("・")) : ""}</div>
+            ${freeLine(c)}
           </button>`;
         best = false;
       }
+      html += `<div class="kc-slot-other">ここにない日は「他の日程」から選べます</div>`;
       body.innerHTML = html;
-      body.querySelectorAll(".kc-slot-item").forEach((b) => b.addEventListener("click", () => {
-        const dt = m.el.querySelector("#kcNext"); const tm = m.el.querySelector("#kcNextTime");
-        // アポ獲得を選んでいるときは、アポの商談日時に入れる（次回架電日ではなく）
-        const toApo = typeof m._apoFill === "function" && m._apoFill(b.dataset.date, b.dataset.time);
-        if (!toApo && dt) { dt.value = b.dataset.date; dt.dispatchEvent(new Event("change", { bubbles: true })); }
-        if (!toApo && tm) { tm.value = b.dataset.time; tm.dispatchEvent(new Event("change", { bubbles: true })); }
-        body.querySelectorAll(".kc-slot-item").forEach((x) => x.classList.remove("picked"));
-        b.classList.add("picked");
-      }));
+      body.querySelectorAll(".kc-slot-item").forEach((b) => b.addEventListener("click", () => pickSlot(b)));
     } catch (e) { body.innerHTML = `<div class="note">空きを取得できませんでした：${esc(e.message)}</div>`; }
   })();
+
+  // ---- 他の日程：カレンダーで日を選ぶ → その日の空き時間を全部出す ----
+  const WD = ["日", "月", "火", "水", "木", "金", "土"];
+  const p2 = (n) => String(n).padStart(2, "0");
+  const todayStr = kcTodayJst();
+  const [ty, tmo] = todayStr.split("-").map(Number);
+  let viewY = ty, viewM = tmo;          // 表示している月（1〜12）
+  const MAX_AHEAD = 3;                   // 今月から3か月先まで
+  let picked = "";
+  const cache = new Map();               // 同じ日を何度も読みに行かない
+  function drawOther() {
+    const first = new Date(Date.UTC(viewY, viewM - 1, 1));
+    const days = new Date(Date.UTC(viewY, viewM, 0)).getUTCDate();
+    const lead = first.getUTCDay();
+    const monthsAhead = (viewY - ty) * 12 + (viewM - tmo);
+    let cells = WD.map((w, k) => `<div class="kc-cal-wd${k === 0 ? " sun" : k === 6 ? " sat" : ""}">${w}</div>`).join("");
+    for (let k = 0; k < lead; k++) cells += `<div></div>`;
+    for (let d = 1; d <= days; d++) {
+      const ds = `${viewY}-${p2(viewM)}-${p2(d)}`;
+      const wd = (lead + d - 1) % 7;
+      const past = ds < todayStr;
+      const cls = ["kc-cal-d", wd === 0 ? "sun" : wd === 6 ? "sat" : "", ds === todayStr ? "today" : "", ds === picked ? "on" : ""].filter(Boolean).join(" ");
+      cells += `<button type="button" class="${cls}" data-day="${ds}"${past ? " disabled" : ""}>${d}</button>`;
+    }
+    other.innerHTML = `
+      <div class="kc-cal">
+        <div class="kc-cal-nav">
+          <button type="button" class="kc-cal-mv" data-mv="-1"${monthsAhead <= 0 ? " disabled" : ""} aria-label="前の月">‹</button>
+          <span class="kc-cal-title">${viewY}年${viewM}月</span>
+          <button type="button" class="kc-cal-mv" data-mv="1"${monthsAhead >= MAX_AHEAD ? " disabled" : ""} aria-label="次の月">›</button>
+        </div>
+        <div class="kc-cal-grid">${cells}</div>
+      </div>
+      <div class="kc-day-slots">${picked ? "" : `<div class="note">日を選ぶと、その日の空いている時間がすべて出ます</div>`}</div>`;
+    other.querySelectorAll(".kc-cal-mv").forEach((b) => b.addEventListener("click", () => {
+      viewM += Number(b.dataset.mv);
+      if (viewM < 1) { viewM = 12; viewY--; } else if (viewM > 12) { viewM = 1; viewY++; }
+      drawOther();
+    }));
+    other.querySelectorAll(".kc-cal-d").forEach((b) => b.addEventListener("click", () => {
+      picked = b.dataset.day;
+      other.querySelectorAll(".kc-cal-d").forEach((x) => x.classList.toggle("on", x === b));
+      loadDay(picked);
+    }));
+    if (picked && picked.startsWith(`${viewY}-${p2(viewM)}-`)) loadDay(picked);
+  }
+  let daySeq = 0;
+  async function loadDay(ds) {
+    const box = other.querySelector(".kc-day-slots");
+    if (!box) return;
+    const minsSel = m.el.querySelector("#kcApoMins");
+    const apoOn = minsSel && !m.el.querySelector("#kcApoBox").hidden;
+    const mins = apoOn ? (minsSel.value || "60") : "60";
+    const key = `${ds}|${mins}`;
+    const [, mo, da] = ds.split("-").map(Number);
+    const wd = WD[new Date(Date.parse(`${ds}T12:00:00+09:00`)).getUTCDay()];   // 日本時間の昼で曜日を出す（日付がずれないように）
+    box.innerHTML = `<div class="kc-slot-wk">${mo}/${da}（${wd}）の空き</div><div class="note">空きを調べています…</div>`;
+    const my = ++daySeq;
+    try {
+      let d = cache.get(key);
+      if (!d) {
+        d = await (await fetch(`/api/calls/slot-day?date=${encodeURIComponent(ds)}&minutes=${encodeURIComponent(mins)}`)).json();
+        if (!d.ok) throw new Error(d.error || "取得できませんでした");
+        cache.set(key, d);
+      }
+      if (my !== daySeq) return;   // 別の日を選び直していたら、古い結果は出さない
+      const 枠 = d.枠 || [];
+      let html = `<div class="kc-slot-wk">${mo}/${da}（${wd}）の空き${mins !== "60" ? `（${esc(mins)}分）` : ""}</div>`;
+      if (d.reason) html += `<div class="note">${esc(d.reason)}</div>`;
+      else if (!枠.length) html += `<div class="note">この日は、空いているクローザーがいません</div>`;
+      for (const c of 枠) {
+        html += `
+          <button type="button" class="kc-slot-item" data-date="${esc(ds)}" data-time="${esc(c.time)}">
+            <div class="kc-slot-when"><span class="kc-slot-ampm">${esc(c.帯 || "")}</span> ${esc(c.time)}</div>
+            ${freeLine(c)}
+          </button>`;
+      }
+      if (d.読めなかった人 && d.読めなかった人.length) html += `<div class="kc-slot-other">※${esc(d.読めなかった人.join("・"))}さんのカレンダーは読めなかったため、空きに数えていません</div>`;
+      box.innerHTML = html;
+      box.querySelectorAll(".kc-slot-item").forEach((b) => b.addEventListener("click", () => pickSlot(b)));
+    } catch (e) {
+      if (my !== daySeq) return;
+      box.innerHTML = `<div class="note">空きを取得できませんでした：${esc(e.message)}</div>`;
+    }
+  }
 }
 // ヘッダーの「今日の架電結果」を読み込む（記録のあとにも呼ぶ）
 async function loadToday() {
