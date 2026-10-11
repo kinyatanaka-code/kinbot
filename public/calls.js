@@ -2203,6 +2203,8 @@ async function openTarget(id, draft, opt) {
             <input type="text" class="kc-input" id="kcApoPerson" value="${esc(String(x["担当者"] || "").replace(/\s*様$/, ""))}" placeholder="山田 太郎" />
             <label class="kc-apo-lb" for="kcApoEmail">メール</label>
             <input type="email" class="kc-input" id="kcApoEmail" value="${esc(x["メール"] || "")}" placeholder="yamada@example.co.jp" />
+            <label class="kc-apo-lb" for="kcApoPhone">電話</label>
+            <input type="tel" class="kc-input" id="kcApoPhone" value="${esc(x["電話番号"] || "")}" placeholder="つながる番号（直通・携帯など）" />
             <label class="kc-apo-lb" for="kcApoCc">CC（任意）</label>
             <input type="text" class="kc-input" id="kcApoCc" placeholder="複数あるときは , で区切る" />
             <label class="kc-apo-lb" for="kcApoBiz">事業</label>
@@ -2505,7 +2507,7 @@ async function openTarget(id, draft, opt) {
       if (!em && !confirm("先方のメールアドレスが空です。確定メールは送られません。このまま登録しますか？")) return;
       apoBody = {
         start: startIso, minutes: gv("#kcApoMins") || "60",
-        company: x["会社名"] || "", person: gv("#kcApoPerson"), email: em, cc: gv("#kcApoCc"),
+        company: x["会社名"] || "", person: gv("#kcApoPerson"), email: em, cc: gv("#kcApoCc"), phone: gv("#kcApoPhone"),
         business: gv("#kcApoBiz"), memo: gv("#kcMemo"),
       };
     }

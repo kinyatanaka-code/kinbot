@@ -6283,6 +6283,18 @@ export async function setSmartLinkEventId(slug, eventId) {
 async function ensureSmartLinkOriginCols() {
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS origin TEXT;`).catch(() => {});
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS origin_target_id INT;`).catch(() => {});
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_phone TEXT;`).catch(() => {});
+}
+// 先方につながる電話番号（kincallでかけてつながった番号など）。商談予定の説明欄に載せる。
+export async function setSmartLinkClientPhone(slug, phone) {
+  if (!pool || !slug) return null;
+  try {
+    await ensureSmartLinkOriginCols();
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET client_phone=$2, updated_at=now() WHERE slug=$1 RETURNING *`,
+      [slug, String(phone || "").trim() || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkClientPhone", e.message); return null; }
 }
 export async function setSmartLinkOrigin(slug, origin, targetId = null) {
   if (!pool || !slug) return null;

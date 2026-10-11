@@ -372,6 +372,7 @@ import {
   setSmartLinkEventId,
   setSmartLinkOrigin,
   findOriginApos,
+  setSmartLinkClientPhone,
   listApoSmartLinks,
   clearInviteEvent,
   linksWithInvite,
@@ -22964,8 +22965,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12b kincallの記録の窓の日程パネルを「おすすめ／他の日程」のタブに。他の日程はカレンダーで日を選ぶと、その日にクローザーの誰かが空いている時間（30分きざみ・9〜19時）をすべて表示。押すとアポの商談日時（または次回架電日）に入る。";
+const BUILD_TAG = "2026-10-12c カレンダーの説明欄に【先方の連絡先】（担当・メール・CC・つながる電話番号）を入れる。担当の商談予定・浦林さん対応の予定・kincallから作る獲得者の予定のすべて。kincallのアポの内容欄に電話（かけた番号を初期値・直せる）を追加。";
 const BUILD_FEATURES = [
+  "カレンダーの説明欄に先方のメールとつながる電話番号を表示",
   "kincallの日程パネルに「他の日程」タブ（カレンダーで日を選ぶと、その日の空き時間をすべて表示）",
   "kincallのアポ獲得から、カレンダー登録とアポの割り振りまで自動（商談日時は自由に選べる・空いている担当を表示）",
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
@@ -26147,7 +26149,11 @@ function cleanSourceNote(description) {
   // 「────」から下は、kinbotが引き継いだ前のメモ
   const cut = t.search(/[─―—-]{6,}/);
   if (cut >= 0) t = t.slice(0, cut);
+  // kinbotが入れた「【先方の連絡先】」のまとまり（次の空行まで）も落とす。
+  // 商談予定には毎回入れ直すので、メモに残すと二重になる。
+  t = t.replace(/【先方の連絡先】[^\n]*(\n(?!\s*\n)[^\n]*)*/g, "");
   const drop = [
+    /^（kincallのアポ獲得から登録しました）$/,
     new RegExp(KINBOT_INVITE_MARK),
     /^参加URL\s*[:：]/,
     /^アポ獲得\s*[:：]/,
@@ -26216,7 +26222,8 @@ async function uraHandover(link, intended, actor) {
   const ev = await createCalendarEvent(who.email, {
     summary: `【浦林さん対応】${link.label || "商談"}`,
     // 先頭に「kinbotが自動作成した商談予定です」を入れる（アポのスキャンが新しいアポとして拾わないように）
-    description: `${KINBOT_INVITE_MARK}（浦林さん対応）。\nこの商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${who.name || who.email}）。\n参加URL: ${joinUrl(link.slug)}\nアポ獲得: ${link.setter || "-"}\n担当を変えた人: ${actor || "-"}`,
+    description: `${KINBOT_INVITE_MARK}（浦林さん対応）。\nこの商談は、時間が埋まっていたため浦林さんが担当します（本来の担当：${who.name || who.email}）。\n参加URL: ${joinUrl(link.slug)}\nアポ獲得: ${link.setter || "-"}\n担当を変えた人: ${actor || "-"}` +
+      (await apoContactBlock(link).then((c) => (c ? `\n\n${c}` : "")).catch(() => "")),
     start: st0, end: en0, guests: [], calendarId: "primary", sendUpdates: "none",
   });
   if (ev && ev.id) await setSmartLinkUraEvent(link.slug, `${who.email}|${ev.id}`);
@@ -27216,7 +27223,7 @@ app.post("/api/apo/auto-scan", async (req, res) => {
 //   origin  … どこから来たアポか（"kincall" など）。手入力の予定と二重にしないための目印。
 async function createApoAndAssign({
   company, person = "", setterEmail, start, minutes = 60, tag = "初回", memo = "",
-  clientEmail = "", cc = "", business = "", eventId = null, origin = "", targetId = null,
+  clientEmail = "", cc = "", phone = "", business = "", eventId = null, origin = "", targetId = null,
   actor = "manual", noAssign = false, label: givenLabel = "",
 }) {
   const mins = Math.max(15, Math.min(240, parseInt(minutes, 10) || 60));
@@ -27240,6 +27247,7 @@ async function createApoAndAssign({
   const ce = String(clientEmail || "").trim();
   if (ce) link = (await setSmartLinkClient(link.slug, { email: ce, name: person, source: "manual" }, true)) || link;
   if (String(cc || "").trim()) link = (await setSmartLinkClientCc(link.slug, cc, "manual")) || link;
+  if (String(phone || "").trim()) link = (await setSmartLinkClientPhone(link.slug, phone)) || link;
   const biz = ["DOC", "MOCHICA"].includes(String(business || "")) ? String(business) : await businessOfSetter(setterName).catch(() => "");
   if (biz) { await setSmartLinkBusiness(link.slug, biz); link = { ...link, business: biz }; }
   console.log(`[apo] ${origin === "kincall" ? "kincallから登録" : "手で追加"}：${label}（獲得 ${setterName}） by ${actor}`);
@@ -27253,6 +27261,28 @@ async function createApoAndAssign({
   const teamCtx = await loadTeamContext(cfg, biz).catch(() => null);
   const r = await autoAssignOne(cur, { inviteOwner, closers: null, cfg, teamCtx, actor });
   return { link: await getSmartLink(link.slug), assign: r };
+}
+// カレンダーの説明欄に入れる「先方の連絡先」（担当者名・メール・CC・つながる電話番号）。
+// 商談の担当が、予定を開いただけで先方に連絡できるようにする。
+// 電話番号は、kincallで登録したときの番号 → 元の架電先 → 会社名・メールでkincallの架電先から探す、の順。
+async function apoContactBlock(link) {
+  if (!link) return "";
+  const parsed = parseLaunchTitle(link.label || "");
+  const person = String(link.client_name || parsed.person || "").trim().replace(/\s*様$/, "");
+  const email = String(link.client_email || "").trim();
+  const cc = String(link.client_cc || "").trim();
+  let phone = String(link.client_phone || "").trim();
+  if (!phone && link.origin_target_id) {
+    const t = await getCallTarget(link.origin_target_id).catch(() => null);
+    if (t && t.phone) phone = String(t.phone).trim();
+  }
+  if (!phone) phone = await findCallTargetPhone({ company: parsed.company || "", email }).catch(() => "") || "";
+  const lines = [];
+  if (person) lines.push(`担当：${person}様`);
+  lines.push(`メール：${email || "（未登録）"}`);
+  if (cc) lines.push(`CC：${cc}`);
+  lines.push(`電話：${phone || "（未登録）"}`);
+  return `【先方の連絡先】\n${lines.join("\n")}`;
 }
 // アポの予定名。いつもカレンダーに入れている形（【初回】会社名/○○様）に合わせる。
 function apoLabelOf(tag, company, person) {
@@ -27285,6 +27315,8 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
   const clientEmail = String(apo.email || "").trim();
   const cc = String(apo.cc || "").trim();
   const memo = String(apo.memo || "").trim();
+  // つながる電話番号（記録の窓で直せる。空なら、いまかけた番号）
+  const phone = String(apo.phone || target.phone || "").trim();
 
   // 二重押しや、同じアポをもう一度登録したときは、新しく作らない
   const same = (await findOriginApos({ setterEmail, startTime: start.toISOString() })).find((l) => apoSameCompany(l.label, company));
@@ -27292,10 +27324,11 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
 
   const label = apoLabelOf("初回", company, person);
   const desc = [
-    person ? `先方：${person.replace(/\s*様$/, "")}様` : "",
-    clientEmail ? `メール：${clientEmail}` : "",
+    "【先方の連絡先】",
+    person ? `担当：${person.replace(/\s*様$/, "")}様` : "",
+    `メール：${clientEmail || "（未登録）"}`,
     cc ? `CC：${cc}` : "",
-    target.phone ? `電話：${target.phone}` : "",
+    `電話：${phone || "（未登録）"}`,
     memo ? `\n${memo}` : "",
     "\n（kincallのアポ獲得から登録しました）",
   ].filter(Boolean).join("\n");
@@ -27327,7 +27360,7 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
 
   const r = await createApoAndAssign({
     company, person, setterEmail, start, minutes: mins, tag: "初回", memo,
-    clientEmail, cc, business: apo.business, eventId, origin: "kincall", targetId: target.id,
+    clientEmail, cc, phone, business: apo.business, eventId, origin: "kincall", targetId: target.id,
     actor, label,
   });
   return { ok: true, link: r.link, assign: r.assign, already: !!r.already, calendar };
@@ -28361,6 +28394,9 @@ async function createApoInvite(link, { actor } = {}) {
   const summary = link.label || "商談";
   let description = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\n` +
     `アポ獲得: ${link.setter || "-"}\n担当: ${link.current_owner}`;
+  // 先方の担当のメール・つながる電話番号（予定を開いてすぐ連絡できるように）
+  const contact = await apoContactBlock(link).catch(() => "");
+  if (contact) description += `\n\n${contact}`;
   // アポ獲得者が元の予定に書いたメモをそのまま引き継ぐ（先方の連絡先や資料希望などが入っている）
   const note = String(link.source_note || "").trim();
   if (note) {
