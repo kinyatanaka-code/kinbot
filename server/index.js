@@ -370,6 +370,8 @@ import {
   setSmartLinkSetter,
   setSmartLinkApoAt,
   setSmartLinkEventId,
+  setSmartLinkOrigin,
+  findOriginApos,
   listApoSmartLinks,
   clearInviteEvent,
   linksWithInvite,
@@ -12306,6 +12308,14 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (!result) return res.status(400).json({ error: "結果を選んでください" });
     // 断られたときは、次にかける日が必須
     if (/断り/.test(result) && !/^\d{4}-\d{2}-\d{2}/.test(String(b.nextAction || ""))) return res.status(400).json({ error: "お断りのときは、次にかける日を入れてください" });
+    // アポ獲得のときは、商談日時を確かめてから記録する（記録だけ残ってアポが作れない、を避けるため）。
+    // 古い画面（アポの内容欄が無い）から来たときは b.apo が無いので、今までどおり記録だけにする。
+    const アポ登録 = /アポ獲得/.test(result) && b.apo && typeof b.apo === "object";
+    if (アポ登録) {
+      const s0 = new Date(String(b.apo.start || ""));
+      if (isNaN(s0.getTime())) return res.status(400).json({ error: "アポの商談日時を入れてください" });
+      if (s0.getTime() < Date.now() - 10 * 60000) return res.status(400).json({ error: "商談日時が過去になっています。日時を確かめてください" });
+    }
 
     // kinbotに残す
     const log = await recordCall({
@@ -12501,7 +12511,18 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
 
     // ジャッジ・営業フォローになったら、その場でナーチャリングへ移す（返事は待たせない）
     setImmediate(() => { runNurtureAuto("記録直後").catch(() => {}); });
-    res.json({ ok: true, sf, 自動ステージ, 連続不在, 復活補充 });
+    // アポ獲得：獲得者のカレンダーに予定を作り、kinbotのアポとして割り振りまで流す。
+    // 失敗しても記録は残っているので、記録自体はエラーにしない（画面に理由を出す）。
+    let apo = null;
+    if (アポ登録) {
+      try {
+        apo = await createApoFromKincall({ target: t, apo: b.apo, setterEmail: String(req.user || "").toLowerCase(), actor: req.user || "kincall" });
+      } catch (e) {
+        console.warn("[kincall-apo] 登録に失敗:", e.message);
+        apo = { ok: false, error: e.message };
+      }
+    }
+    res.json({ ok: true, sf, 自動ステージ, 連続不在, 復活補充, apo });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -22883,8 +22904,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-09c ダッシュボードの週ラップ（アポ）にもメルマガを入れた。グループ（全体）にメルマガを足し、各週にメルマガのカード（月初からの積み上げ）を出す。";
+const BUILD_TAG = "2026-10-12a kincallで「アポ獲得」を記録すると、獲得者のカレンダーに【初回】の予定を作り、kinbotのアポとして割り振り・商談予定・確定メールまで自動で流す。商談日時はおすすめの日程以外（日付・15分きざみの時間・長さ）も選べ、その時間に空いているクローザーを表示。";
 const BUILD_FEATURES = [
+  "kincallのアポ獲得から、カレンダー登録とアポの割り振りまで自動（商談日時は自由に選べる・空いている担当を表示）",
   "名簿ファイル（CSV/Excel）から数千件の資料URLを一括発行（進み具合つき）",
   "メールは返信を既定にし、本文のリンクを押せるようにした",
   "SFはステージ変更・活動履歴の自動記録で「更新済み」と判定",
@@ -25712,6 +25734,19 @@ async function collectApoAppointments(scanOwner, opts = {}) {
         if (start && startDate !== start) continue;
         // このカレンダー予定にスマートリンクが無ければ自動発行（あれば使い回す）
         let link = await getSmartLinkByEvent(ev.id);
+        // kincallの「アポ獲得」で登録済みのアポを、獲得者が手でカレンダーにも入れたときは、新しく作らない。
+        // （同じ獲得者・同じ開始時刻・同じ会社なら同じアポとみなす）
+        if (!link && ev.start) {
+          const titleCo = String(ev.title || "").replace(/【[^】]*】/g, "").split("/")[0];
+          const dupK = (await findOriginApos({ setterEmail: st.email, startTime: new Date(ev.start).toISOString() }).catch(() => []))
+            .find((l) => apoSameCompany(l.label, titleCo));
+          if (dupK && !dupK.event_id) {
+            link = (await setSmartLinkEventId(dupK.slug, ev.id)) || dupK;   // カレンダーに作れていなかったアポに、この予定をつなぐ
+          } else if (dupK && dupK.event_id !== ev.id) {
+            console.log(`[apo-scan] kincallで登録済みのアポと同じなので取り込みません：${String(ev.title || "").slice(0, 40)}`);
+            continue;
+          }
+        }
         if (!link) {
           let slug;
           for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
@@ -27114,6 +27149,155 @@ app.post("/api/apo/auto-scan", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// アポを1件作り、いつもと同じく割り振り・通知・商談予定・確定メール・SF立ち上げまで流す。
+// 「＋アポを手で追加」と、kincallの「アポ獲得」の両方から使う（流れを1つにして、片方だけ直し忘れないように）。
+//   eventId … 獲得者のカレンダーに作った予定のID（あれば）。スキャンが同じ予定を拾っても二重にならない。
+//   origin  … どこから来たアポか（"kincall" など）。手入力の予定と二重にしないための目印。
+async function createApoAndAssign({
+  company, person = "", setterEmail, start, minutes = 60, tag = "初回", memo = "",
+  clientEmail = "", cc = "", business = "", eventId = null, origin = "", targetId = null,
+  actor = "manual", noAssign = false, label: givenLabel = "",
+}) {
+  const mins = Math.max(15, Math.min(240, parseInt(minutes, 10) || 60));
+  const end = new Date(start.getTime() + mins * 60000);
+  const users = await listUsers().catch(() => []);
+  const su = (users || []).find((u) => String(u.email || "").toLowerCase() === setterEmail);
+  const setterName = (su && su.name) || setterEmail.split("@")[0];
+  const label = givenLabel || apoLabelOf(tag, company, person);
+  let slug;
+  for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
+  const selfCloser = await isCloserUser(setterEmail).catch(() => false);
+  let link = await createSmartLink({
+    slug, label, owner: selfCloser ? setterEmail : null, createdBy: actor,
+    eventId: eventId || null, setter: setterName, setterEmail, startTime: start.toISOString(), endTime: end.toISOString(),
+    apoAt: new Date().toISOString(),
+  });
+  if (!link) throw new Error("アポを作れませんでした");
+  if (origin) link = (await setSmartLinkOrigin(link.slug, origin, targetId)) || link;
+  const m = String(memo || "").trim();
+  if (m) link = (await setSmartLinkSourceNote(link.slug, m, true)) || link;
+  const ce = String(clientEmail || "").trim();
+  if (ce) link = (await setSmartLinkClient(link.slug, { email: ce, name: person, source: "manual" }, true)) || link;
+  if (String(cc || "").trim()) link = (await setSmartLinkClientCc(link.slug, cc, "manual")) || link;
+  const biz = ["DOC", "MOCHICA"].includes(String(business || "")) ? String(business) : await businessOfSetter(setterName).catch(() => "");
+  if (biz) { await setSmartLinkBusiness(link.slug, biz); link = { ...link, business: biz }; }
+  console.log(`[apo] ${origin === "kincall" ? "kincallから登録" : "手で追加"}：${label}（獲得 ${setterName}） by ${actor}`);
+  // 「割り振りはあとで」のときは登録だけ。スキャンが先に割り振っていたら、二重にしない。
+  const cur = await getSmartLink(link.slug);
+  if (noAssign) return { link: cur, assigned: false };
+  if (cur && cur.auto_assigned_at) return { link: cur, assigned: true, already: true };
+  const cfg = await getRotationConfig();
+  const st = await getSettings().catch(() => ({}));
+  const inviteOwner = String(st.apoInviteOwner || st.apoScanOwner || "").trim() || null;
+  const teamCtx = await loadTeamContext(cfg, biz).catch(() => null);
+  const r = await autoAssignOne(cur, { inviteOwner, closers: null, cfg, teamCtx, actor });
+  return { link: await getSmartLink(link.slug), assign: r };
+}
+// アポの予定名。いつもカレンダーに入れている形（【初回】会社名/○○様）に合わせる。
+function apoLabelOf(tag, company, person) {
+  const tg = String(tag || "初回").trim().replace(/[【】]/g, "") || "初回";
+  const p = String(person || "").trim().replace(/\s*様$/, "");
+  return `【${tg}】${company}${p ? `/${p}様` : ""}`;
+}
+
+// 会社名を比べやすくする（株式会社・空白・全角半角の違いを落とす）
+function apoCoKey(s) {
+  return String(s || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|\(株\)|\(有\)/g, "")
+    .replace(/[\s　・\-‐ー]/g, "").toLowerCase();
+}
+function apoSameCompany(label, company) {
+  const a = apoCoKey(String(label || "").replace(/【[^】]*】/g, "").split("/")[0]);
+  const b = apoCoKey(company);
+  return !!a && !!b && (a.includes(b) || b.includes(a));
+}
+
+// kincall の「アポ獲得」から、アポを登録する。
+//   1) 獲得者のGoogleカレンダーに「【初回】会社名/○○様」の予定を作る（今までどおり、リスケ・キャンセルはこの予定で直せる）
+//   2) その予定とつないだアポを作り、いつもの割り振り・通知・商談予定・確定メールまで流す
+// カレンダーに作れなかったときも、アポの登録と割り振りは止めない（作れなかったことは画面に返す）。
+async function createApoFromKincall({ target, apo, setterEmail, actor }) {
+  const company = String(apo.company || target.company || "").trim();
+  const person = String(apo.person || target.person || "").trim();
+  const start = new Date(String(apo.start || ""));
+  const mins = Math.max(15, Math.min(240, parseInt(apo.minutes, 10) || 60));
+  const end = new Date(start.getTime() + mins * 60000);
+  const clientEmail = String(apo.email || "").trim();
+  const cc = String(apo.cc || "").trim();
+  const memo = String(apo.memo || "").trim();
+
+  // 二重押しや、同じアポをもう一度登録したときは、新しく作らない
+  const same = (await findOriginApos({ setterEmail, startTime: start.toISOString() })).find((l) => apoSameCompany(l.label, company));
+  if (same) return { ok: true, already: true, link: same, calendar: same.event_id ? "ok" : "" };
+
+  const label = apoLabelOf("初回", company, person);
+  const desc = [
+    person ? `先方：${person.replace(/\s*様$/, "")}様` : "",
+    clientEmail ? `メール：${clientEmail}` : "",
+    cc ? `CC：${cc}` : "",
+    target.phone ? `電話：${target.phone}` : "",
+    memo ? `\n${memo}` : "",
+    "\n（kincallのアポ獲得から登録しました）",
+  ].filter(Boolean).join("\n");
+
+  // 獲得者のカレンダーに予定を作る。本人がGoogle連携していれば本人の権限で、
+  // していなければ「予定作成の運用者」の権限で、獲得者のカレンダーに書く（共有で「変更」の権限が要る）。
+  let eventId = null, calendar = "";
+  const st = await getSettings().catch(() => ({}));
+  const opsOwner = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+  const tries = [];
+  if (await gcalConnected(setterEmail).catch(() => false)) tries.push({ owner: setterEmail, calendarId: "primary" });
+  if (opsOwner && opsOwner.toLowerCase() !== setterEmail) tries.push({ owner: opsOwner, calendarId: setterEmail });
+  let lastErr = "";
+  for (const tr of tries) {
+    try {
+      const ev = await createCalendarEvent(tr.owner, {
+        summary: label, description: desc, start: start.toISOString(), end: end.toISOString(),
+        guests: [], calendarId: tr.calendarId, sendUpdates: "none",
+      });
+      if (ev && ev.id) { eventId = ev.id; calendar = "ok"; break; }
+    } catch (e) { lastErr = String(e.message || e).slice(0, 160); }
+  }
+  if (!eventId) {
+    calendar = tries.length
+      ? `獲得者のカレンダーに予定を作れませんでした（${lastErr || "権限がありません"}）`
+      : "獲得者のカレンダーに予定を作れませんでした（Google連携がありません）";
+    console.warn(`[kincall-apo] ${label}：${calendar}`);
+  }
+
+  const r = await createApoAndAssign({
+    company, person, setterEmail, start, minutes: mins, tag: "初回", memo,
+    clientEmail, cc, business: apo.business, eventId, origin: "kincall", targetId: target.id,
+    actor, label,
+  });
+  return { ok: true, link: r.link, assign: r.assign, already: !!r.already, calendar };
+}
+
+// 記録の窓で選んだ商談日時に、どのクローザーが空いているかを返す（おすすめ以外の日時を選んだとき用）。
+// 例：/api/calls/apo-free?start=2026-10-15T14:00:00%2B09:00&minutes=60
+app.get("/api/calls/apo-free", async (req, res) => {
+  try {
+    const start = new Date(String(req.query.start || ""));
+    if (isNaN(start.getTime())) return res.status(400).json({ error: "日時が正しくありません" });
+    const mins = Math.max(15, Math.min(240, parseInt(req.query.minutes, 10) || 60));
+    const endISO = new Date(start.getTime() + mins * 60000).toISOString();
+    const closers = await listClosers({ activeOnly: true }).catch(() => []);
+    const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
+    const members = closers
+      .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")))
+      .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
+    if (!members.length) return res.json({ ok: true, 空き: [], 埋まり: [], 対象人数: 0 });
+    const st = await getSettings().catch(() => ({}));
+    const reader = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+    if (!reader) return res.json({ ok: true, 空き: [], 埋まり: [], 対象人数: members.length, reason: "予定作成の運用者が未設定です" });
+    const cfg = await getRotationConfig().catch(() => ({}));
+    const got = await Promise.all(members.map(async (m) => {
+      const fr = await isPersonFree(reader, m.email, start.toISOString(), endISO, (cfg && cfg.bufferMin) || 0).catch(() => ({ free: false }));
+      return { name: m.name, free: !!(fr && fr.free) };
+    }));
+    res.json({ ok: true, 空き: got.filter((g) => g.free).map((g) => g.name), 埋まり: got.filter((g) => !g.free).map((g) => g.name), 対象人数: members.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // アポを手で追加する（メールで日程が決まったなど、カレンダーに予定が無いとき）。
 // 獲得者（例：インターン）が取ったアポとして登録し、いつもと同じく割り振り・通知・商談予定・確定メールまで流す。
 app.post("/api/apo/manual-create", async (req, res) => {
@@ -27126,38 +27310,12 @@ app.post("/api/apo/manual-create", async (req, res) => {
     if (!setterEmail) return res.status(400).json({ error: "獲得者を選んでください" });
     const start = new Date(String(b.start || ""));
     if (isNaN(start.getTime())) return res.status(400).json({ error: "商談日時を入れてください" });
-    const mins = Math.max(15, Math.min(240, parseInt(b.minutes, 10) || 60));
-    const end = new Date(start.getTime() + mins * 60000);
-    const users = await listUsers().catch(() => []);
-    const su = (users || []).find((u) => String(u.email || "").toLowerCase() === setterEmail);
-    const setterName = (su && su.name) || setterEmail.split("@")[0];
-    const tag = String(b.tag || "初回").trim().replace(/[【】]/g, "") || "初回";
-    const label = `【${tag}】${company}${person ? `/${person.replace(/様$/, "")}様` : ""}`;
-    let slug;
-    for (let k = 0; k < 6; k++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
-    const selfCloser = await isCloserUser(setterEmail).catch(() => false);
-    let link = await createSmartLink({
-      slug, label, owner: selfCloser ? setterEmail : null, createdBy: req.user,
-      eventId: null, setter: setterName, setterEmail, startTime: start.toISOString(), endTime: end.toISOString(),
-      apoAt: new Date().toISOString(),
+    const r = await createApoAndAssign({
+      company, person, setterEmail, start, minutes: b.minutes, tag: b.tag, memo: b.memo,
+      clientEmail: b.clientEmail, cc: b.cc, business: b.business, actor: req.user || "manual", noAssign: !!b.noAssign,
     });
-    if (!link) return res.status(500).json({ error: "アポを作れませんでした" });
-    const memo = String(b.memo || "").trim();
-    if (memo) link = (await setSmartLinkSourceNote(link.slug, memo, true)) || link;
-    const ce = String(b.clientEmail || "").trim();
-    if (ce) link = (await setSmartLinkClient(link.slug, { email: ce, name: person, source: "manual" }, true)) || link;
-    if (String(b.cc || "").trim()) link = (await setSmartLinkClientCc(link.slug, b.cc, "manual")) || link;
-    const biz = ["DOC", "MOCHICA"].includes(String(b.business || "")) ? String(b.business) : await businessOfSetter(setterName).catch(() => "");
-    if (biz) { await setSmartLinkBusiness(link.slug, biz); link = { ...link, business: biz }; }
-    console.log(`[apo] 手で追加：${label}（獲得 ${setterName}） by ${req.user}`);
-    // いつもと同じく、割り振り・通知・商談予定・確定メール・SF立ち上げまで流す（「割り振りはあとで」のときは登録だけ）
-    if (b.noAssign) return res.json({ ok: true, link, assigned: false });
-    const cfg = await getRotationConfig();
-    const st = await getSettings().catch(() => ({}));
-    const inviteOwner = String(st.apoInviteOwner || st.apoScanOwner || "").trim() || null;
-    const teamCtx = await loadTeamContext(cfg, biz).catch(() => null);
-    const r = await autoAssignOne(await getSmartLink(link.slug), { inviteOwner, closers: null, cfg, teamCtx, actor: req.user || "manual" });
-    res.json({ ok: true, link: await getSmartLink(link.slug), assign: r });
+    if (b.noAssign) return res.json({ ok: true, link: r.link, assigned: false });
+    res.json({ ok: true, link: r.link, assign: r.assign });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

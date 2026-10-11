@@ -1785,6 +1785,18 @@ function renderDock() {
     .kc-slot-free{font-size:12px;color:#2c3a35;margin-top:5px;}
     .kc-slot-wk{font-size:11px;font-weight:700;color:#0d5b47;background:#eef7f2;border-radius:6px;padding:3px 8px;margin:4px 0 8px;display:inline-block;}
     .kc-slot-ampm{font-size:11px;font-weight:700;color:#1d9e75;}
+    .kc-apo{margin:10px 0 6px;padding:12px 14px;border:1.5px solid #1d9e75;border-radius:12px;background:#f6fbf9;}
+    .kc-apo-h{font-weight:700;color:#0d5b47;font-size:14px;margin-bottom:8px;}
+    .kc-apo-sub{display:block;font-weight:500;color:#5b7a6d;font-size:11px;margin-top:2px;}
+    .kc-apo-grid{display:grid;grid-template-columns:76px minmax(0,1fr);gap:7px 10px;align-items:center;}
+    .kc-apo-lb{font-size:12px;color:#5b7a6d;}
+    .kc-apo-when{display:flex;gap:6px;flex-wrap:wrap;}
+    .kc-apo-when input[type=date]{flex:1 1 140px;min-width:0;}
+    .kc-apo-when select{flex:0 0 auto;width:auto;}
+    .kc-apo-free{font-size:12px;color:#5b7a6d;line-height:1.5;}
+    .kc-apo-free.ok{color:#0d5b47;}
+    .kc-apo-free.warn{color:#a35a0b;}
+    .kc-slot-other{font-size:11px;color:#5b7a6d;margin:-4px 0 10px;}
     /* 獲得見込みインセンティブ（表彰状ふうの金色） */
     .kc-inc{margin:6px 0 8px;padding:8px 10px;border-radius:10px;text-align:center;cursor:pointer;
       background:linear-gradient(135deg,#fdf6e3 0%,#f7e7b6 45%,#fdf6e3 100%);
@@ -2157,10 +2169,38 @@ async function openTarget(id, draft, opt) {
           </select>
         </div>
 
+        <!-- アポ獲得を選んだときだけ出す。ここで入れた内容で、獲得者のカレンダーとkinbotのアポを作る -->
+        <div class="kc-apo" id="kcApoBox" hidden>
+          <div class="kc-apo-h">アポの内容 <span class="kc-apo-sub">記録すると、カレンダーに予定を作り、担当の割り振り・確定メールまで進みます</span></div>
+          <div class="kc-apo-grid">
+            <label class="kc-apo-lb" for="kcApoDate">商談日時</label>
+            <div class="kc-apo-when">
+              <input type="date" class="kc-input" id="kcApoDate" />
+              <select class="kc-input" id="kcApoTime">${kcApoTimeOptions()}</select>
+              <select class="kc-input" id="kcApoMins" title="商談の長さ">
+                <option value="30">30分</option><option value="45">45分</option><option value="60" selected>60分</option><option value="90">90分</option><option value="120">120分</option>
+              </select>
+            </div>
+            <span></span><div class="kc-apo-free" id="kcApoFree">右の「おすすめの日程」を押すか、日付と時間を選んでください</div>
+            <label class="kc-apo-lb" for="kcApoPerson">先方担当</label>
+            <input type="text" class="kc-input" id="kcApoPerson" value="${esc(String(x["担当者"] || "").replace(/\s*様$/, ""))}" placeholder="山田 太郎" />
+            <label class="kc-apo-lb" for="kcApoEmail">メール</label>
+            <input type="email" class="kc-input" id="kcApoEmail" value="${esc(x["メール"] || "")}" placeholder="yamada@example.co.jp" />
+            <label class="kc-apo-lb" for="kcApoCc">CC（任意）</label>
+            <input type="text" class="kc-input" id="kcApoCc" placeholder="複数あるときは , で区切る" />
+            <label class="kc-apo-lb" for="kcApoBiz">事業</label>
+            <select class="kc-input" id="kcApoBiz">
+              <option value="">いつもの事業（自動）</option><option value="DOC">DOC</option><option value="MOCHICA">MOCHICA</option>
+            </select>
+          </div>
+          <div class="note">説明（下の欄）に書いた内容は、そのまま担当に引き継がれます。</div>
+        </div>
+
         <div class="kc-lb">説明（任意）</div>
         <textarea class="kc-input" id="kcMemo" rows="3" placeholder="担当者は佐藤様・14時以降が良いとのこと"></textarea>
         <div class="kc-zsum" id="kcZsum" hidden></div>
 
+        <div id="kcNextWrap">
         <div class="kc-lb">次回いつかける？（任意）</div>
         <div class="kc-quick" id="kcQuickDate">
           <button type="button" class="kc-qchip" data-qd="today">今日</button>
@@ -2182,6 +2222,7 @@ async function openTarget(id, draft, opt) {
           <label class="kc-fine-lb">時間 <input type="time" class="kc-input kc-fine-in" id="kcNextTime" step="900" /></label>
         </div>
         <div class="note" id="kcNextSummary" style="margin-top:4px"></div>
+        </div>
 
         <div class="kc-modal-foot">
           <button type="button" class="btn" id="kcSave">記録する</button>
@@ -2409,6 +2450,7 @@ async function openTarget(id, draft, opt) {
   const resultSel = m.el.querySelector("#kcResult");
   if (resultSel) resultSel.addEventListener("change", drawReason);
   drawReason();
+  wireApoBox(m);
 
   wireQuickNext(m);
   if (!histOnly) wireZoomSummary(m, id);
@@ -2427,6 +2469,29 @@ async function openTarget(id, draft, opt) {
       const nx = m.el.querySelector("#kcNext"); if (nx) { nx.focus(); nx.classList.add("kc-need"); setTimeout(() => nx.classList.remove("kc-need"), 2500); }
       return;
     }
+    // アポ獲得：商談日時は必須。ここで入れた内容で、カレンダーの予定とkinbotのアポを作る
+    let apoBody = null;
+    const apoBox = m.el.querySelector("#kcApoBox");
+    if (/アポ獲得/.test(結果) && apoBox && !apoBox.hidden) {
+      const gv = (sel) => String((m.el.querySelector(sel) || {}).value || "").trim();
+      const need = (sel, msg) => {
+        say("kcSaveSt", msg, 5000);
+        const el = m.el.querySelector(sel); if (el) { el.focus(); el.classList.add("kc-need"); setTimeout(() => el.classList.remove("kc-need"), 2500); }
+      };
+      const ad = gv("#kcApoDate"), at = gv("#kcApoTime");
+      if (!ad) { need("#kcApoDate", "アポの商談日（日付）を入れてください"); return; }
+      if (!at) { need("#kcApoTime", "アポの商談時間を選んでください"); return; }
+      const startIso = `${ad}T${at}:00+09:00`;
+      if (Date.parse(startIso) < Date.now()) { need("#kcApoDate", "商談日時が過去になっています。日時を確かめてください"); return; }
+      const em = gv("#kcApoEmail");
+      if (em && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { need("#kcApoEmail", "メールアドレスの形が正しくありません"); return; }
+      if (!em && !confirm("先方のメールアドレスが空です。確定メールは送られません。このまま登録しますか？")) return;
+      apoBody = {
+        start: startIso, minutes: gv("#kcApoMins") || "60",
+        company: x["会社名"] || "", person: gv("#kcApoPerson"), email: em, cc: gv("#kcApoCc"),
+        business: gv("#kcApoBiz"), memo: gv("#kcMemo"),
+      };
+    }
     const btn = m.el.querySelector("#kcSave");
     btn.disabled = true;
     say("kcSaveSt", "記録しています…");
@@ -2443,9 +2508,12 @@ async function openTarget(id, draft, opt) {
           // Salesforceのリードの状態も、この値で書き換える
           leadStatus: m.el.querySelector("#kcStatus").value,
           // 次回架電日（ネクストアクション日）。SFのリード項目に書く。
-          nextAction: (m.el.querySelector("#kcNext") || {}).value || "",
+          // アポ獲得のときは次回架電日はいらない（おすすめの日程を押した日がここに残っていても送らない）
+          nextAction: apoBody ? "" : ((m.el.querySelector("#kcNext") || {}).value || ""),
           // 次回の架電時間（HH:MM）。kincallで予定日時として持ち、時刻が来たら上に出す。
-          nextTime: (m.el.querySelector("#kcNextTime") || {}).value || "",
+          nextTime: apoBody ? "" : ((m.el.querySelector("#kcNextTime") || {}).value || ""),
+          // アポ獲得のときだけ：アポの内容（サーバーでカレンダーの予定とkinbotのアポを作る）
+          apo: apoBody || undefined,
           // 断り理由タグ（リサイクル復活の温度に使う）
         }),
       });
@@ -2477,9 +2545,25 @@ async function openTarget(id, draft, opt) {
       const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
       const 次回 = d.sf && d.sf.nextAction ? `　次回架電日=${d.sf.nextAction} をSFに書きました` : "";
       const 次回注意 = d.sf && d.sf.nextActionNote ? `　※${d.sf.nextActionNote}` : "";
+      // アポを登録したときの結果（誰に割り振ったか・カレンダーに作れたか）
+      let アポ文 = "";
+      if (d.apo) {
+        if (d.apo.ok === false) {
+          アポ文 = `　※アポの登録に失敗しました：${d.apo.error || ""}`;
+          alert(`記録は残りましたが、アポの登録に失敗しました。\n${d.apo.error || ""}\n\nアポ一覧の「＋アポを手で追加」から登録してください。`);
+        } else if (d.apo.already) {
+          アポ文 = "　このアポはすでに登録されています";
+        } else {
+          const a = d.apo.assign;
+          アポ文 = a && a.ok && a.assigned
+            ? `　アポを登録し、${a.assigned.name || a.assigned.email}さんに割り振りました`
+            : `　アポを登録しました（担当はまだ決まっていません${a && a.reason ? `：${a.reason}` : ""}）`;
+          if (d.apo.calendar && d.apo.calendar !== "ok") アポ文 += `　※${d.apo.calendar}`;
+        }
+      }
       say("clStatus", (d.sf && d.sf.ok
         ? `記録しました${代理 || "（Salesforceにも残しました）"}`
-        : `記録しました${d.sf && d.sf.reason ? `（SFへは残せません：${d.sf.reason}）` : ""}`) + 次回 + 次回注意, 8000);
+        : `記録しました${d.sf && d.sf.reason ? `（SFへは残せません：${d.sf.reason}）` : ""}`) + 次回 + 次回注意 + アポ文, アポ文 ? 15000 : 8000);
       // 実績の数だけ、そっと更新する（一覧は読み直さない）
       loadStats();
       loadToday();   // ヘッダーの「今日の架電結果」も更新
@@ -2488,6 +2572,89 @@ async function openTarget(id, draft, opt) {
       btn.disabled = false;
     }
   });
+}
+
+// アポの商談時間の選択肢（8:00〜20:45、15分きざみ）。おすすめの日程にない時間も選べるように。
+function kcApoTimeOptions() {
+  let h = `<option value="">時間</option>`;
+  for (let hh = 8; hh <= 20; hh++) for (const mm of ["00", "15", "30", "45"]) {
+    const v = `${String(hh).padStart(2, "0")}:${mm}`;
+    h += `<option value="${v}">${v}</option>`;
+  }
+  return h;
+}
+// 日本時間の今日（YYYY-MM-DD）。過去の日を選べないようにするため。
+function kcTodayJst() {
+  const d = new Date(Date.now() + 9 * 3600000);
+  return d.toISOString().slice(0, 10);
+}
+// 結果で「アポ獲得」を選んだら、アポの内容欄を出す（次回架電の欄はいらないので隠す）。
+// 選んだ日時にクローザーが空いているかも、その場で見せる（割り振れない時間に入れてしまわないように）。
+function wireApoBox(m) {
+  const box = m.el.querySelector("#kcApoBox");
+  const sel = m.el.querySelector("#kcResult");
+  if (!box || !sel) return;
+  const nextWrap = m.el.querySelector("#kcNextWrap");
+  const saveBtn = m.el.querySelector("#kcSave");
+  const dt = box.querySelector("#kcApoDate"), tm = box.querySelector("#kcApoTime");
+  const mins = box.querySelector("#kcApoMins"), free = box.querySelector("#kcApoFree");
+  dt.min = kcTodayJst();
+  const setTime = (v) => {
+    const t = String(v || "").slice(0, 5);
+    if (!t) return;
+    if (![...tm.options].some((o) => o.value === t)) tm.add(new Option(t, t));
+    tm.value = t;
+  };
+  let timer = null, seq = 0;
+  const checkFree = () => {
+    clearTimeout(timer);
+    free.className = "kc-apo-free";
+    if (!dt.value || !tm.value) { free.textContent = "右の「おすすめの日程」を押すか、日付と時間を選んでください"; return; }
+    free.textContent = "この時間の空きを調べています…";
+    const my = ++seq;
+    timer = setTimeout(async () => {
+      try {
+        const start = `${dt.value}T${tm.value}:00+09:00`;
+        const d = await (await fetch(`/api/calls/apo-free?start=${encodeURIComponent(start)}&minutes=${encodeURIComponent(mins.value)}`)).json();
+        if (my !== seq) return;   // あとから選び直していたら、古い結果は出さない
+        if (!d.ok) throw new Error(d.error || "");
+        const n = (d.空き || []).length;
+        if (!d.対象人数) { free.textContent = d.reason || "空きを確かめられませんでした（登録はできます）"; return; }
+        if (n) {
+          free.className = "kc-apo-free ok";
+          free.textContent = `この時間に空いている担当：${n}/${d.対象人数}人（${d.空き.join("・")}）`;
+        } else {
+          free.className = "kc-apo-free warn";
+          free.textContent = "この時間はクローザー全員に予定があります。登録はできますが、自動では割り振れず、Chatに知らせが出ます。";
+        }
+      } catch (e) {
+        if (my !== seq) return;
+        free.textContent = "空きを確かめられませんでした（登録はできます）";
+      }
+    }, 350);
+  };
+  [dt, tm, mins].forEach((el) => el.addEventListener("change", checkFree));
+  const sync = () => {
+    const on = /アポ獲得/.test(sel.value || "");
+    box.hidden = !on;
+    if (nextWrap) nextWrap.hidden = on;
+    if (saveBtn) saveBtn.textContent = on ? "記録してアポを登録" : "記録する";
+    if (on && !dt.value) {
+      // 先に「おすすめの日程」を押していたら、その日時を使う
+      const nx = m.el.querySelector("#kcNext"), nt = m.el.querySelector("#kcNextTime");
+      if (nx && nx.value) dt.value = nx.value;
+      if (nt && nt.value) setTime(nt.value);
+    }
+    if (on) checkFree();
+  };
+  sel.addEventListener("change", sync);
+  // おすすめの日程を押したときに、アポの日時へ入れるための入口
+  m._apoFill = (date, time) => {
+    if (box.hidden) return false;
+    dt.value = date; setTime(time); checkFree();
+    return true;
+  };
+  sync();
 }
 
 // 過去リスト（クロス失注）のリードなら、記録の窓に失注の内容を出す（かける前に理由が分かるように）
@@ -3038,7 +3205,7 @@ function openSlotPanel(m) {
       if (!d.ok) throw new Error(d.error || "取得できませんでした");
       const cs = d.候補 || [];
       if (!cs.length) { body.innerHTML = `<div class="note">${esc(d.reason || "空いている枠が見つかりませんでした")}</div>`; return; }
-      let html = `<div class="kc-slot-tgt">対象：${esc((d.対象 || []).join("・"))}</div>`;
+      let html = `<div class="kc-slot-tgt">対象：${esc((d.対象 || []).join("・"))}</div><div class="kc-slot-other">ここにない日時は、記録欄の「商談日時」で選べます</div>`;
       let 前週 = 0, best = true;
       for (const c of cs) {
         if (c.週 !== 前週) { html += `<div class="kc-slot-wk">${c.週 === 1 ? "1週目" : "2週目"}</div>`; 前週 = c.週; }
@@ -3052,8 +3219,10 @@ function openSlotPanel(m) {
       body.innerHTML = html;
       body.querySelectorAll(".kc-slot-item").forEach((b) => b.addEventListener("click", () => {
         const dt = m.el.querySelector("#kcNext"); const tm = m.el.querySelector("#kcNextTime");
-        if (dt) { dt.value = b.dataset.date; dt.dispatchEvent(new Event("change", { bubbles: true })); }
-        if (tm) { tm.value = b.dataset.time; tm.dispatchEvent(new Event("change", { bubbles: true })); }
+        // アポ獲得を選んでいるときは、アポの商談日時に入れる（次回架電日ではなく）
+        const toApo = typeof m._apoFill === "function" && m._apoFill(b.dataset.date, b.dataset.time);
+        if (!toApo && dt) { dt.value = b.dataset.date; dt.dispatchEvent(new Event("change", { bubbles: true })); }
+        if (!toApo && tm) { tm.value = b.dataset.time; tm.dispatchEvent(new Event("change", { bubbles: true })); }
         body.querySelectorAll(".kc-slot-item").forEach((x) => x.classList.remove("picked"));
         b.classList.add("picked");
       }));

@@ -6278,6 +6278,35 @@ export async function setSmartLinkEventId(slug, eventId) {
     return rows[0] || null;
   } catch (e) { console.error("[db] setSmartLinkEventId", e.message); return null; }
 }
+// アポがどこから来たか（kincall の「アポ獲得」から作ったもの＝"kincall"）と、元の架電先を残す。
+// 獲得者が同じアポを手でカレンダーにも入れてしまったとき、二重に数えないための目印にする。
+async function ensureSmartLinkOriginCols() {
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS origin TEXT;`).catch(() => {});
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS origin_target_id INT;`).catch(() => {});
+}
+export async function setSmartLinkOrigin(slug, origin, targetId = null) {
+  if (!pool || !slug) return null;
+  try {
+    await ensureSmartLinkOriginCols();
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET origin=$2, origin_target_id=$3, updated_at=now() WHERE slug=$1 RETURNING *`,
+      [slug, origin || null, targetId || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkOrigin", e.message); return null; }
+}
+// 同じ獲得者・同じ開始時刻で、kincall から作ったアポを探す（二重押し・カレンダーへの手入力の重複よけ）
+export async function findOriginApos({ setterEmail, startTime, origin = "kincall" }) {
+  if (!pool || !setterEmail || !startTime) return [];
+  try {
+    await ensureSmartLinkOriginCols();
+    const { rows } = await pool.query(
+      `SELECT * FROM smart_links
+        WHERE origin = $1 AND lower(setter_email) = lower($2) AND start_time = $3
+          AND NOT COALESCE(excluded,false)
+        ORDER BY created_at ASC`, [origin, setterEmail, startTime]);
+    return rows;
+  } catch (e) { console.error("[db] findOriginApos", e.message); return []; }
+}
 // アポの取得日時（apo_at）を直す。取得日でカウントされるので、実際に取った日に合わせられる。
 export async function setSmartLinkApoAt(slug, iso) {
   if (!pool || !slug) return null;

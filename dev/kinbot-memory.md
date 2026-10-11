@@ -1389,3 +1389,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-09 BUILD_TAG=2026-10-09b PUT owner quiet（カードの担当select）でも、担当が変わり商談がこれから（1時間前以降）なら createApoInvite（前担当の予定は中で削除）、担当を外したら invite を削除。通知・メールは無し。浦林さんなら uraHandover も。版20261009b。
 
 - 2026-10-09 BUILD_TAG=2026-10-09c 週ラップ（apo-dashboard の weeks）：gd.メルマガ[li] をグループに加算、mailmaga チーム（積み上げ・週目標 subject=mailmaga）を追加。実施のときは出さない。版20261009c。
+
+- 2026-10-12 BUILD_TAG=2026-10-12a kincallのアポ獲得→kinbot連携：記録の窓で結果が「アポ獲得」なら「アポの内容」欄（商談日・15分きざみの時間・長さ・先方担当・メール・CC・事業）を出し、次回架電の欄は隠す。おすすめの日程を押すとアポの日時に入る。選んだ日時は /api/calls/apo-free で空いているクローザーを表示。record API に b.apo → createApoFromKincall：獲得者のカレンダーに【初回】会社/○○様（本人のGoogle連携→無ければ apoScanOwner で calendarId=獲得者、sendUpdates=none・ゲストなし）を作り、その event_id で createApoAndAssign（manual-create と共通化）→ autoAssignOne。smart_links に origin='kincall'・origin_target_id を追加。スキャンは同じ獲得者・同じ開始時刻・同じ会社の kincall アポがあれば、手入力の予定を新しいアポにしない（event_id 未設定ならつなぐ）。カレンダーに作れなくてもアポ登録・割り振りは続ける（画面に理由）。田中さんの指示：獲得者のカレンダーにも予定を作る。版20261012a。
