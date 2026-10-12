@@ -3903,20 +3903,84 @@ function kcLaurelSvg(uid) {
       <linearGradient id="kcAwS${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9a53a"/><stop offset="1" stop-color="#8a5a12"/></linearGradient>
     </defs>${stems}${leaves}</svg>`;
 }
-function kcAwardsHtml(insideList, data, animate = false) {
+// 1つのアワードの順位（同じ数は同じ順位。1位が2人なら次は3位）
+function kcAwRank(insideList, data, aw) {
   const normN = (x) => String(x || "").replace(/[\s　]/g, "");
   const people = (insideList || []).map((c) => ({ key: String(c.key || "").toLowerCase(), name: c.label || c.key || "" }));
+  const map = (data && data[aw.key]) || {};
+  const valOf = (p) => Number(map[p.key] ?? map["name:" + normN(p.name)] ?? 0) || 0;
+  const ranked = people.map((p) => ({ ...p, v: valOf(p) })).sort((a, b) => b.v - a.v || a.name.localeCompare(b.name, "ja"));
+  let prev = null, rank = 0;
+  ranked.forEach((p, i) => { if (p.v !== prev) { rank = i + 1; prev = p.v; } p.rank = rank; });
+  const tops = ranked.filter((p) => p.rank === 1 && p.v > 0);
+  const rest = ranked.filter((p) => !tops.includes(p));
+  const topName = tops.length > 2 ? `${esc(tops[0].name)}・${esc(tops[1].name)} ほか${tops.length - 2}人` : tops.map((p) => esc(p.name)).join("・");
+  return { ranked, tops, rest, topName };
+}
+// アワードを押したら、大きく見せる（左右の矢印でほかのアワードへ。✕・外側・Escで閉じる）
+let _awInside = [];   // いまダッシュボードに出ているインサイドの顔ぶれ
+function openAwardBig(idx) {
+  const data = _awardsCache[dashWeekMonth];
+  if (!data) return;
+  document.querySelectorAll(".kc-awm-back").forEach((el) => el.remove());
+  const back = document.createElement("div");
+  back.className = "kc-awm-back";
+  document.body.appendChild(back);
+  let cur = idx;
+  const [yy, mm] = String(data.month || "").split("-");
+  const period = yy ? `${Number(yy)}年${Number(mm)}月${data.to && data.to.slice(0, 7) === data.month ? `（${Number(data.to.slice(8))}日まで）` : ""}` : "";
+  const draw = () => {
+    const aw = KC_AWARDS[cur];
+    const { ranked, tops, topName } = kcAwRank(_awInside, data, aw);
+    const max = Math.max(1, ...ranked.map((p) => p.v));
+    const topV = tops.length ? tops[0].v : 0;
+    const unitS = aw.unit === "時間" ? "h" : aw.unit;
+    const rows = ranked.map((p, i) => {
+      const cls = p.v > 0 && p.rank <= 3 ? ` m${p.rank}` : "";
+      return `<div class="kc-awm-row${cls}" style="--d:${(0.25 + i * 0.05).toFixed(2)}s">
+        <i class="kc-aw-r${p.v > 0 && p.rank === 2 ? " r2" : p.v > 0 && p.rank === 3 ? " r3" : p.v > 0 && p.rank === 1 ? " r1" : ""}">${p.rank}</i>
+        <span class="nm">${esc(p.name)}</span>
+        <span class="bar"><i style="width:${Math.round((p.v / max) * 100)}%"></i></span>
+        <b>${esc(kcAwFmt(p.v, aw.dec))}${unitS}</b></div>`;
+    }).join("");
+    const sp = [[6, 18, 0], [92, 14, 0.6], [10, 70, 1.2], [90, 66, 1.8], [50, 4, 0.9], [26, 40, 2.2], [74, 40, 1.5]]
+      .map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${dl}s"></i>`).join("");
+    back.innerHTML = `<div class="kc-awm" role="dialog" aria-modal="true" aria-label="${esc(aw.jp)}アワード">
+      <button type="button" class="kc-awm-x" aria-label="閉じる">✕</button>
+      <button type="button" class="kc-awm-nav prev" aria-label="前のアワード">‹</button>
+      <button type="button" class="kc-awm-nav next" aria-label="次のアワード">›</button>
+      <div class="kc-awm-top"><i class="kc-aw-rays"></i><i class="kc-aw-shine"></i>${sp}
+        <div class="kc-aw-ttl"><b>${esc(aw.jp)}</b><span>AWARD</span></div>
+        <div class="kc-awm-per">${esc(period)}</div>
+        <div class="kc-aw-wr kc-awm-wr">${kcLaurelSvg("m" + cur)}<div class="kc-aw-c">${tops.length
+          ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1位</div><div class="kc-aw-n">${topName}</div><div class="kc-aw-v" data-v="${topV}" data-dec="${aw.dec}" data-unit="${esc(aw.unit)}">${esc(kcAwFmt(0, aw.dec))}${aw.unit}</div>`
+          : `<div class="kc-aw-st">★★★</div><div class="kc-aw-none">まだいません</div>`}</div></div>
+      </div>
+      <div class="kc-awm-list">${rows}</div>
+      <div class="kc-awm-dots">${KC_AWARDS.map((x, k) => `<button type="button" class="${k === cur ? "on" : ""}" data-k="${k}" aria-label="${esc(x.jp)}アワード"></button>`).join("")}</div>
+    </div>`;
+    const card = back.querySelector(".kc-awm");
+    card.classList.add("kc-aw-in");
+    kcAwCountUp(card);
+    back.querySelector(".kc-awm-x").addEventListener("click", close);
+    back.querySelector(".prev").addEventListener("click", () => { cur = (cur + KC_AWARDS.length - 1) % KC_AWARDS.length; draw(); });
+    back.querySelector(".next").addEventListener("click", () => { cur = (cur + 1) % KC_AWARDS.length; draw(); });
+    back.querySelectorAll(".kc-awm-dots button").forEach((b) => b.addEventListener("click", () => { cur = Number(b.dataset.k); draw(); }));
+  };
+  const onKey = (e) => {
+    if (e.key === "Escape") close();
+    else if (e.key === "ArrowLeft") { cur = (cur + KC_AWARDS.length - 1) % KC_AWARDS.length; draw(); }
+    else if (e.key === "ArrowRight") { cur = (cur + 1) % KC_AWARDS.length; draw(); }
+  };
+  function close() { back.remove(); document.removeEventListener("keydown", onKey); }
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  document.addEventListener("keydown", onKey);
+  draw();
+}
+function kcAwardsHtml(insideList, data, animate = false) {
   return KC_AWARDS.map((aw, idx) => {
-    const map = (data && data[aw.key]) || {};
-    const valOf = (p) => Number(map[p.key] ?? map["name:" + normN(p.name)] ?? 0) || 0;
-    const ranked = people.map((p) => ({ ...p, v: valOf(p) })).sort((a, b) => b.v - a.v || a.name.localeCompare(b.name, "ja"));
-    // 同じ数は同じ順位（1位が2人なら、次は3位）
-    let prev = null, rank = 0;
-    ranked.forEach((p, i) => { if (p.v !== prev) { rank = i + 1; prev = p.v; } p.rank = rank; });
+    const { ranked, tops, rest, topName } = kcAwRank(insideList, data, aw);
     const loaded = !!data;
-    const tops = ranked.filter((p) => p.rank === 1 && p.v > 0);
-    const rest = ranked.filter((p) => !tops.includes(p));
-    const topName = tops.length > 2 ? `${esc(tops[0].name)}・${esc(tops[1].name)} ほか${tops.length - 2}人` : tops.map((p) => esc(p.name)).join("・");
     const topV = tops.length ? tops[0].v : 0;
     const center = !loaded
       ? `<div class="kc-aw-none">読み込んでいます…</div>`
@@ -3928,7 +3992,7 @@ function kcAwardsHtml(insideList, data, animate = false) {
     // きらめき（4つの角の星。カードごとに少しずらして光らせる）
     const sp = [[8, 30, 0], [88, 26, 0.7], [14, 82, 1.4], [84, 80, 2.0], [50, 6, 1.0]]
       .map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${(dl + idx * 0.5).toFixed(1)}s"></i>`).join("");
-    return `<div class="kc-aw${animate && loaded ? " kc-aw-in" : ""}" title="${esc(aw.jp)}アワード">
+    return `<div class="kc-aw${animate && loaded ? " kc-aw-in" : ""}" data-aw="${idx}" role="button" tabindex="0" title="押すと大きく見られます">
       <div class="kc-aw-top"><i class="kc-aw-rays"></i><i class="kc-aw-shine" style="animation-delay:${idx * 0.9}s"></i>${sp}
         <div class="kc-aw-ttl"><b>${esc(aw.jp)}</b><span>AWARD</span></div>
         <div class="kc-aw-wr">${kcLaurelSvg(idx)}<div class="kc-aw-c">${center}</div></div>
@@ -3964,7 +4028,15 @@ function renderDash(d) {
       `</div>${showAwards ? `<div class="kc-awards" id="dashAwards">${kcAwardsHtml(d.inside, _awardsCache[dashWeekMonth])}</div>` : ""}</div>` +
       (inside ? `<div class="kc-dsub">インサイド</div><div class="kc-dgrid">${inside}</div>` : "") +
       note + assign;
-    if (showAwards) loadAwards(d.inside);
+    if (showAwards) {
+      _awInside = d.inside || [];
+      const awBox = $("dashAwards");
+      if (awBox) {
+        awBox.addEventListener("click", (e) => { const c = e.target.closest(".kc-aw[data-aw]"); if (c) openAwardBig(Number(c.dataset.aw)); });
+        awBox.addEventListener("keydown", (e) => { const c = e.target.closest(".kc-aw[data-aw]"); if (c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openAwardBig(Number(c.dataset.aw)); } });
+      }
+      loadAwards(d.inside);
+    }
     // ナーチャリング件数は、読めたらカードに出す（まだ読んでいなければ読んでから描き直す）
     if (!_nurtureByName) loadNurture(() => renderDash(d));
   }
