@@ -3839,9 +3839,9 @@ function renderJisshiDash(d) {
 // 1位を金の月桂樹の中に大きく、その下に2位以降のインサイド全員の今の数を小さく並べる。
 const _awardsCache = {};   // 月 → /api/calls/awards の結果（月を行き来しても読み直さない。記録のあとは読み直す）
 const KC_AWARDS = [
-  { key: "出勤時間", en: "ATTENDANCE", jp: "出勤時間", unit: "時間", dec: 1 },
-  { key: "受注数", en: "DEALS WON", jp: "受注数", unit: "件", dec: 0 },
-  { key: "新規アポ", en: "NEW LEADS", jp: "新規リード獲得", unit: "件", dec: 0 },
+  { key: "出勤時間", jp: "出勤時間", unit: "時間", dec: 1 },
+  { key: "受注数", jp: "受注数", unit: "件", dec: 0 },
+  { key: "新規アポ", jp: "新規リード獲得", unit: "件", dec: 0 },
 ];
 const kcAwFmt = (v, dec) => (dec ? (Math.round(v * 10) / 10).toString() : String(Math.round(v)));
 const _awardsShown = {};   // 月 → 一度アニメーションで出したか（描き直しのたびに動かさない）
@@ -3921,7 +3921,7 @@ function kcAwardsHtml(insideList, data, animate = false) {
     const center = !loaded
       ? `<div class="kc-aw-none">読み込んでいます…</div>`
       : tops.length
-        ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1st</div><div class="kc-aw-n">${topName}</div>` +
+        ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1位</div><div class="kc-aw-n">${topName}</div>` +
           `<div class="kc-aw-v" data-v="${topV}" data-dec="${aw.dec}" data-unit="${esc(aw.unit)}">${esc(kcAwFmt(animate ? 0 : topV, aw.dec))}${aw.unit}</div>`
         : `<div class="kc-aw-st">★★★</div><div class="kc-aw-none">まだいません</div>`;
     const list = loaded ? rest.map((p) => `<span><i class="kc-aw-r${p.rank === 2 ? " r2" : p.rank === 3 ? " r3" : ""}">${p.rank}</i><span class="nm">${esc(p.name)}</span><b>${esc(kcAwFmt(p.v, aw.dec))}${aw.unit === "時間" ? "h" : aw.unit}</b></span>`).join("") : "";
@@ -3930,8 +3930,7 @@ function kcAwardsHtml(insideList, data, animate = false) {
       .map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${(dl + idx * 0.5).toFixed(1)}s"></i>`).join("");
     return `<div class="kc-aw${animate && loaded ? " kc-aw-in" : ""}" title="${esc(aw.jp)}アワード">
       <div class="kc-aw-top"><i class="kc-aw-rays"></i><i class="kc-aw-shine" style="animation-delay:${idx * 0.9}s"></i>${sp}
-        <div class="kc-aw-ttl"><b>${esc(aw.en)}</b><span>AWARD</span></div>
-        <div class="kc-aw-jp">${esc(aw.jp)}</div>
+        <div class="kc-aw-ttl"><b>${esc(aw.jp)}</b><span>AWARD</span></div>
         <div class="kc-aw-wr">${kcLaurelSvg(idx)}<div class="kc-aw-c">${center}</div></div>
       </div>
       <div class="kc-aw-ls">${list}</div></div>`;

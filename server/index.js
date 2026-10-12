@@ -13338,7 +13338,7 @@ const DASH_APO_ADJUST_BASE = {
   "month:2026-09": { "田中欽也": 1 },   // 2026-09-30 依頼：田中欽也のアポ1件が反映されていない分
 };
 // ダッシュボード右上のアワード（インサイド向け）。その月の、人ごとの数を返す（今日までの実績）。
-//   出勤時間 … 出勤管理のシフト（開始〜終了）を、今日までの日について足した時間
+//   出勤時間 … 出勤管理の「実働時間（架電記録から推定）」と同じ（架電の最初〜最後を30分に丸め、昼休みを引く）
 //   受注数   … kinbotで受注になった案件（再商談の結果が受注・案件も受注。日付は再商談の日）を、その会社のアポを取った人に付ける
 //   新規リード獲得 … 新規リストのリードから取ったアポの数（ナーチャリング・過去リストは入れない）
 // 顔ぶれ（誰を並べるか）は画面側で、ダッシュボードのインサイドのカードと同じにする。
@@ -13358,15 +13358,24 @@ app.get("/api/calls/awards", async (req, res) => {
     const normN = (x) => String(x || "").replace(/[\s　]/g, "");
     const bump = (map, k, v) => { if (!k) return; map[k] = (map[k] || 0) + v; };
 
-    // 出勤時間（分 → 時間）。メールと名前の両方で引けるようにする
-    const 出勤分 = {};
-    for (const sh of await listInsideShifts(from, to).catch(() => [])) {
-      const st = Number(sh.start_min), en = Number(sh.end_min);
-      if (!isFinite(st) || !isFinite(en) || en <= st) continue;
-      bump(出勤分, String(sh.email || "").toLowerCase(), en - st);
-      if (sh.name) bump(出勤分, "name:" + normN(sh.name), en - st);
+    // 出勤時間：出勤管理の「今月の集計」の実働時間（架電記録から推定）と同じ計算にする。
+    //   その日の最初と最後の架電を30分単位に丸めて出退勤とし、12:00〜13:00は休憩として引く。1時間未満の日は0。
+    const hm2m = (v) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || "")); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+    const r30 = (m) => Math.round(m / 30) * 30;
+    const workH = (st, en) => {
+      if (st == null || en == null || en <= st) return 0;
+      const lunch = Math.max(0, Math.min(en, 780) - Math.max(st, 720));
+      const h = (en - st - lunch) / 60;
+      return h < 1 ? 0 : Math.round(h * 100) / 100;
+    };
+    const 出勤h = {};
+    for (const c of await callSpansByDay(from, to).catch(() => [])) {
+      if (!c.cnt || c.day < from || c.day > to) continue;
+      const fm = hm2m(c.first_hm), lm = hm2m(c.last_hm);
+      if (fm == null || lm == null) continue;
+      bump(出勤h, String(c.caller || "").toLowerCase(), workH(Math.max(0, r30(fm)), Math.min(1440, r30(lm))));
     }
-    const 出勤時間 = Object.fromEntries(Object.entries(出勤分).map(([k, v]) => [k, Math.round((v / 60) * 10) / 10]));
+    const 出勤時間 = Object.fromEntries(Object.entries(出勤h).map(([k, v]) => [k, Math.round(v * 10) / 10]));
 
     // 新規リストから取ったアポ（かけた人ごと）
     const 新規アポ = {};
@@ -23026,7 +23035,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12f アワードを英語表記（ATTENDANCE／DEALS WON／NEW LEADS AWARD）に。金の枠・二重の額縁・光の放射・きらめき・光の帯・月桂樹の輝き・1位の数の数え上げなど、豪華な飾りとアニメーション（白と金のトンマナはそのまま）。";
+const BUILD_TAG = "2026-10-12g アワードの見出しを漢字（出勤時間・受注数・新規リード獲得）＋AWARDに、1位表記に。出勤時間は出勤管理の「実働時間（架電記録から推定）」と同じ計算にそろえた（前はシフトの予定時間を足していた）。";
 const BUILD_FEATURES = [
   "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",
   "カレンダーの説明欄に先方のメールとつながる電話番号を表示",
