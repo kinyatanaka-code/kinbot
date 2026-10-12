@@ -3935,13 +3935,23 @@ function openAwardBig(idx) {
     const max = Math.max(1, ...ranked.map((p) => p.v));
     const topV = tops.length ? tops[0].v : 0;
     const unitS = aw.unit === "時間" ? "h" : aw.unit;
+    // 受注数は、どこの会社が受注したかも出す（受注になった日の順）
+    const normN = (x) => String(x || "").replace(/[\s　]/g, "");
+    const coOf = (p) => {
+      if (aw.key !== "受注数" || !data.受注明細) return [];
+      return data.受注明細[p.key] || data.受注明細["name:" + normN(p.name)] || [];
+    };
     const rows = ranked.map((p, i) => {
       const cls = p.v > 0 && p.rank <= 3 ? ` m${p.rank}` : "";
+      const cos = coOf(p);
+      const coHtml = cos.length
+        ? `<div class="kc-awm-cos">${cos.map((c) => `<span class="kc-awm-co"><i class="kc-awm-co-ic" aria-hidden="true"></i>${esc(c.会社 || "（会社名なし）")}${c.日 ? `<em>${Number(c.日.slice(5, 7))}/${Number(c.日.slice(8, 10))}</em>` : ""}</span>`).join("")}</div>`
+        : "";
       return `<div class="kc-awm-row${cls}" style="--d:${(0.25 + i * 0.05).toFixed(2)}s">
         <i class="kc-aw-r${p.v > 0 && p.rank === 2 ? " r2" : p.v > 0 && p.rank === 3 ? " r3" : p.v > 0 && p.rank === 1 ? " r1" : ""}">${p.rank}</i>
         <span class="nm">${esc(p.name)}</span>
         <span class="bar"><i style="width:${Math.round((p.v / max) * 100)}%"></i></span>
-        <b>${esc(kcAwFmt(p.v, aw.dec))}${unitS}</b></div>`;
+        <b>${esc(kcAwFmt(p.v, aw.dec))}${unitS}</b>${coHtml}</div>`;
     }).join("");
     const sp = [[6, 18, 0], [92, 14, 0.6], [10, 70, 1.2], [90, 66, 1.8], [50, 4, 0.9], [26, 40, 2.2], [74, 40, 1.5]]
       .map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${dl}s"></i>`).join("");

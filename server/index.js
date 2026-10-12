@@ -13386,23 +13386,29 @@ app.get("/api/calls/awards", async (req, res) => {
 
     // 受注数：受注した会社 → その会社のいちばん最初のアポを取った人
     const 受注数 = {};
+    const 受注明細 = {};   // 人 → [{ 会社, 日 }]（大きく見たときに、どこの会社かを出す）
     const evs = await listDealEvents({ from, to, kind: "再商談" }).catch(() => []);
-    const wonCo = new Map();   // deal_id → 会社名（同じ案件を二重に数えない）
-    for (const e of evs || []) if (e.result === "受注" && e.deal_status === "受注" && !wonCo.has(e.deal_id)) wonCo.set(e.deal_id, e.company_name);
+    const wonCo = new Map();   // deal_id → { 会社名, 日 }（同じ案件を二重に数えない）
+    const dayOf = (v) => { if (!v) return ""; if (v instanceof Date) return new Date(v.getTime() + 9 * 3600000).toISOString().slice(0, 10); return String(v).slice(0, 10); };
+    for (const e of evs || []) if (e.result === "受注" && e.deal_status === "受注" && !wonCo.has(e.deal_id)) wonCo.set(e.deal_id, { co: e.company_name, day: dayOf(e.event_date) });
     if (wonCo.size) {
       const setterOf = new Map();
       for (const l of await listApoSetters().catch(() => [])) {
         const k = normCompanyKey(parseLaunchTitle(l.label || "").company || "");
         if (k && !setterOf.has(k)) setterOf.set(k, { email: l.setter_email, name: l.setter });
       }
-      for (const co of wonCo.values()) {
+      for (const { co, day } of wonCo.values()) {
         const who = setterOf.get(normCompanyKey(co || ""));
         if (!who) continue;
         bump(受注数, who.email, 1);
         if (who.name) bump(受注数, "name:" + normN(who.name), 1);
+        const item = { 会社: co || "", 日: day };
+        (受注明細[who.email] = 受注明細[who.email] || []).push(item);
+        if (who.name) { const nk = "name:" + normN(who.name); (受注明細[nk] = 受注明細[nk] || []).push(item); }
       }
+      for (const arr of Object.values(受注明細)) arr.sort((a, b) => String(a.日).localeCompare(String(b.日)));
     }
-    res.json({ ok: true, month: ym, from, to, 出勤時間, 受注数, 新規アポ });
+    res.json({ ok: true, month: ym, from, to, 出勤時間, 受注数, 受注明細, 新規アポ });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -23035,7 +23041,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12h アワードを押すと大きく見られる窓（大きな月桂樹と1位、全員の順位を棒グラフで。左右の矢印・キーで3つを切り替え、✕・外側・Escで閉じる）。";
+const BUILD_TAG = "2026-10-12i 受注数アワードを大きく見たとき、人ごとに受注した会社名と受注日（再商談の日）を表示。";
 const BUILD_FEATURES = [
   "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",
   "カレンダーの説明欄に先方のメールとつながる電話番号を表示",
