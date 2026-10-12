@@ -3878,9 +3878,9 @@ function kcLaurelSvg(uid) {
   }
   stems += `<path d="M${cx - 11} ${cy + R + 7} Q${cx} ${cy + R - 4} ${cx + 11} ${cy + R + 7}" fill="none" stroke="url(#kcAwS${uid})" stroke-width="1.7" stroke-linecap="round"/>`;
   return `<svg viewBox="0 0 190 140" aria-hidden="true"><defs>
-      <linearGradient id="kcAwLa${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1b8"/><stop offset=".5" stop-color="#e3ac3c"/><stop offset="1" stop-color="#a8721b"/></linearGradient>
-      <linearGradient id="kcAwLb${uid}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe08a"/><stop offset=".6" stop-color="#c98d26"/><stop offset="1" stop-color="#8a5a12"/></linearGradient>
-      <linearGradient id="kcAwS${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f6d27a"/><stop offset="1" stop-color="#9c6a17"/></linearGradient>
+      <linearGradient id="kcAwLa${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f7d675"/><stop offset=".5" stop-color="#d49a2a"/><stop offset="1" stop-color="#9a6514"/></linearGradient>
+      <linearGradient id="kcAwLb${uid}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eec25a"/><stop offset=".6" stop-color="#b9801c"/><stop offset="1" stop-color="#7d500f"/></linearGradient>
+      <linearGradient id="kcAwS${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9a53a"/><stop offset="1" stop-color="#8a5a12"/></linearGradient>
     </defs>${stems}${leaves}</svg>`;
 }
 function kcAwardsHtml(insideList, data) {
@@ -3900,14 +3900,14 @@ function kcAwardsHtml(insideList, data) {
     const center = !loaded
       ? `<div class="kc-aw-none">読み込んでいます…</div>`
       : tops.length
-        ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1位</div><div class="kc-aw-n">${topName}</div><div class="kc-aw-v">${esc(aw.fmt(tops[0].v))} ${aw.unit}</div>`
+        ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1位</div><div class="kc-aw-n">${topName}</div><div class="kc-aw-v">${esc(aw.fmt(tops[0].v))}${aw.unit}</div>`
         : `<div class="kc-aw-st">★★★</div><div class="kc-aw-none">まだいません</div>`;
     const list = loaded ? rest.map((p) => `<span><i class="kc-aw-r${p.rank === 2 ? " r2" : p.rank === 3 ? " r3" : ""}">${p.rank}</i><span class="nm">${esc(p.name)}</span><b>${esc(aw.fmt(p.v))}${aw.unit === "時間" ? "h" : aw.unit}</b></span>`).join("") : "";
-    // きらめき（月桂樹のまわりに小さく。下のランキングの文字には重ねない）
-    const sp = [[12, 20, 0], [84, 12, 0.9], [80, 34, 1.7]].map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${dl + idx * 0.4}s"></i>`).join("");
-    return `<div class="kc-aw">${sp}<div class="kc-aw-h">${esc(aw.title)}</div>
-      <div class="kc-aw-wr">${kcLaurelSvg(idx)}<div class="kc-aw-c">${center}</div></div>
-      <div class="kc-aw-line"></div><div class="kc-aw-ls">${list}</div></div>`;
+    // きらめき（1位の金色の欄の中に小さく）
+    const sp = [[10, 18, 0], [86, 14, 0.9], [84, 70, 1.7]].map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${dl + idx * 0.4}s"></i>`).join("");
+    return `<div class="kc-aw"><div class="kc-aw-h">${esc(aw.title)}</div>
+      <div class="kc-aw-top">${sp}<div class="kc-aw-wr">${kcLaurelSvg(idx)}<div class="kc-aw-c">${center}</div></div></div>
+      <div class="kc-aw-ls">${list}</div></div>`;
   }).join("");
 }
 function renderDash(d) {
