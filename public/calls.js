@@ -3917,6 +3917,18 @@ function kcAwRank(insideList, data, aw) {
   const topName = tops.length > 2 ? `${esc(tops[0].name)}・${esc(tops[1].name)} ほか${tops.length - 2}人` : tops.map((p) => esc(p.name)).join("・");
   return { ranked, tops, rest, topName };
 }
+// 大きい窓の一番下の注記（何をどう数えたか。受注は獲得者が分からなかった分も出す）
+function kcAwNote(aw, data) {
+  let t = "";
+  if (aw.key === "出勤時間") t = "出勤管理の実働時間（架電記録から推定）と同じ数え方です。";
+  else if (aw.key === "新規アポ") t = "リスト管理で新規リストの枠に分けたリストで取ったアポの数です（同じリードは1回）。";
+  else if (aw.key === "受注数") {
+    t = `この期間の受注は全部で${Number(data.受注合計 || 0)}件。受注した日で数え、その会社のアポを最初に取った人に付けています。`;
+    const un = data.獲得者不明 || [];
+    if (un.length) t += `<br>アポの獲得者が見つからなかった受注（${un.length}件）：${un.map((x) => esc(x.会社)).join("、")}`;
+  }
+  return t ? `<div class="kc-awm-note">${t}</div>` : "";
+}
 // アワードを押したら、大きく見せる（左右の矢印でほかのアワードへ。✕・外側・Escで閉じる）
 let _awInside = [];   // いまダッシュボードに出ているインサイドの顔ぶれ
 function openAwardBig(idx) {
@@ -3941,17 +3953,23 @@ function openAwardBig(idx) {
       if (aw.key !== "受注数" || !data.受注明細) return [];
       return data.受注明細[p.key] || data.受注明細["name:" + normN(p.name)] || [];
     };
+    // 新規リード獲得は、どのリストで取ったアポかを出す
+    const listOf = (p) => (aw.key === "新規アポ" && data.新規明細 ? (data.新規明細[p.key] || []) : []);
     const rows = ranked.map((p, i) => {
       const cls = p.v > 0 && p.rank <= 3 ? ` m${p.rank}` : "";
       const cos = coOf(p);
       const coHtml = cos.length
         ? `<div class="kc-awm-cos">${cos.map((c) => `<span class="kc-awm-co"><i class="kc-awm-co-ic" aria-hidden="true"></i>${esc(c.会社 || "（会社名なし）")}${c.日 ? `<em>${Number(c.日.slice(5, 7))}/${Number(c.日.slice(8, 10))}</em>` : ""}</span>`).join("")}</div>`
         : "";
+      const ls = listOf(p);
+      const lsHtml = ls.length
+        ? `<div class="kc-awm-cos">${ls.map((x) => `<span class="kc-awm-co kc-awm-li" title="${esc(x.グループ ? `グループ：${x.グループ}` : "")}">${esc(x.リスト || "（リスト名なし）")}<em>${x.件数}件</em></span>`).join("")}</div>`
+        : "";
       return `<div class="kc-awm-row${cls}" style="--d:${(0.25 + i * 0.05).toFixed(2)}s">
         <i class="kc-aw-r${p.v > 0 && p.rank === 2 ? " r2" : p.v > 0 && p.rank === 3 ? " r3" : p.v > 0 && p.rank === 1 ? " r1" : ""}">${p.rank}</i>
         <span class="nm">${esc(p.name)}</span>
         <span class="bar"><i style="width:${Math.round((p.v / max) * 100)}%"></i></span>
-        <b>${esc(kcAwFmt(p.v, aw.dec))}${unitS}</b>${coHtml}</div>`;
+        <b>${esc(kcAwFmt(p.v, aw.dec))}${unitS}</b>${coHtml}${lsHtml}</div>`;
     }).join("");
     const sp = [[6, 18, 0], [92, 14, 0.6], [10, 70, 1.2], [90, 66, 1.8], [50, 4, 0.9], [26, 40, 2.2], [74, 40, 1.5]]
       .map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${dl}s"></i>`).join("");
@@ -3966,7 +3984,7 @@ function openAwardBig(idx) {
           ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1位</div><div class="kc-aw-n">${topName}</div><div class="kc-aw-v" data-v="${topV}" data-dec="${aw.dec}" data-unit="${esc(aw.unit)}">${esc(kcAwFmt(0, aw.dec))}${aw.unit}</div>`
           : `<div class="kc-aw-st">★★★</div><div class="kc-aw-none">まだいません</div>`}</div></div>
       </div>
-      <div class="kc-awm-list">${rows}</div>
+      <div class="kc-awm-list">${rows}</div>${kcAwNote(aw, data)}
       <div class="kc-awm-dots">${KC_AWARDS.map((x, k) => `<button type="button" class="${k === cur ? "on" : ""}" data-k="${k}" aria-label="${esc(x.jp)}アワード"></button>`).join("")}</div>
     </div>`;
     const card = back.querySelector(".kc-awm");

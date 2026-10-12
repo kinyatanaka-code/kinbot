@@ -3423,16 +3423,61 @@ export async function mergeDuplicateDeals() {
   return { merged };
 }
 
-// dealのステータス・更新日時を更新
+// 受注した日（won_at）。受注になったときに記録し、受注でなくなったら消す。
+// 前からある受注は、受注の再商談の日 → 無ければ案件の最終更新日 で一度だけ埋める。
+let _wonAtReady = false;
+async function ensureDealWonAt() {
+  if (!pool) return;
+  if (!_wonAtReady) { await sq(`ALTER TABLE deals ADD COLUMN IF NOT EXISTS won_at DATE;`).catch(() => {}); _wonAtReady = true; }
+  // 受注なのに受注日が無いもの（前からある受注・はじめから受注で作られた案件）を埋める
+  await pool.query(
+    `UPDATE deals d SET won_at = COALESCE(
+        (SELECT max(e.event_date) FROM deal_events e WHERE e.deal_id = d.deal_id AND e.result = '受注'),
+        (d.updated_at AT TIME ZONE 'Asia/Tokyo')::date)
+      WHERE d.status = '受注' AND d.won_at IS NULL`).catch((e) => console.error("[db] won_at の埋め直し", e.message));
+}
+// dealのステータス・更新日時を更新（受注になった日も残す）
 export async function updateDealStatus(dealId, status, autoLoseDeadline) {
   if (!pool || !dealId) return;
   try {
+    if (!_wonAtReady) await ensureDealWonAt();
+    const won = `won_at = CASE WHEN $2 = '受注' THEN COALESCE(CASE WHEN status = '受注' THEN won_at END, (now() AT TIME ZONE 'Asia/Tokyo')::date) ELSE NULL END`;
     if (autoLoseDeadline !== undefined) {
-      await pool.query(`UPDATE deals SET status=$2, auto_lose_deadline=$3, updated_at=now() WHERE deal_id=$1`, [dealId, status, autoLoseDeadline]);
+      await pool.query(`UPDATE deals SET ${won}, status=$2, auto_lose_deadline=$3, updated_at=now() WHERE deal_id=$1`, [dealId, status, autoLoseDeadline]);
     } else {
-      await pool.query(`UPDATE deals SET status=$2, updated_at=now() WHERE deal_id=$1`, [dealId, status]);
+      await pool.query(`UPDATE deals SET ${won}, status=$2, updated_at=now() WHERE deal_id=$1`, [dealId, status]);
     }
   } catch (e) { console.error("[db] updateDealStatus", e.message); }
+}
+// 期間内に受注した案件（受注した日で数える）
+export async function listWonDealsBetween(fromDay, toDay) {
+  if (!pool) return [];
+  try {
+    await ensureDealWonAt();
+    const { rows } = await pool.query(
+      `SELECT deal_id, company_name, owner, to_char(won_at,'YYYY-MM-DD') AS won_day
+         FROM deals WHERE status = '受注' AND won_at >= $1::date AND won_at <= $2::date
+        ORDER BY won_at`, [fromDay, toDay]);
+    return rows;
+  } catch (e) { console.error("[db] listWonDealsBetween", e.message); return []; }
+}
+// 期間内のアポ獲得を、リスト（とそのグループ）ごと・かけた人ごとに数える（同じリードは1回）。
+// 新規リスト（グループ名・リスト名から決まるソースが「新規リスト」の枠）のアポ数に使う。
+export async function apoByCallerAndList(fromDay, toDay) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT lower(COALESCE(l.caller,'')) AS caller, cl.id AS list_id, cl.name AS list_name,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name,
+              count(DISTINCT l.target_id)::int AS apos
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl ON cl.id = t.list_id
+        WHERE l.result ~ 'アポ獲得' AND COALESCE(l.caller,'') <> ''
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY 1,2,3,4`, [fromDay, toDay]);
+    return rows;
+  } catch (e) { console.error("[db] apoByCallerAndList", e.message); return []; }
 }
 
 // 案件名（company_name）を書き換える。会社名抽出ロジックを強化したときに、

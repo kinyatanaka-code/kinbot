@@ -374,6 +374,9 @@ import {
   findOriginApos,
   setSmartLinkClientPhone,
   listApoSetters,
+  listWonDealsBetween,
+  apoByCallerAndList,
+  classifyListSource,
   listApoSmartLinks,
   clearInviteEvent,
   linksWithInvite,
@@ -13339,8 +13342,8 @@ const DASH_APO_ADJUST_BASE = {
 };
 // ダッシュボード右上のアワード（インサイド向け）。その月の、人ごとの数を返す（今日までの実績）。
 //   出勤時間 … 出勤管理の「実働時間（架電記録から推定）」と同じ（架電の最初〜最後を30分に丸め、昼休みを引く）
-//   受注数   … kinbotで受注になった案件（再商談の結果が受注・案件も受注。日付は再商談の日）を、その会社のアポを取った人に付ける
-//   新規リード獲得 … 新規リストのリードから取ったアポの数（ナーチャリング・過去リストは入れない）
+//   受注数   … その月に受注した案件（受注した日＝won_at）を、その会社のいちばん最初のアポを取った人に付ける
+//   新規リード獲得 … リスト管理で新規リストの枠に分けたリスト（グループ→リスト名で決まるソース）で取ったアポの数
 // 顔ぶれ（誰を並べるか）は画面側で、ダッシュボードのインサイドのカードと同じにする。
 app.get("/api/calls/awards", async (req, res) => {
   try {
@@ -13377,38 +13380,54 @@ app.get("/api/calls/awards", async (req, res) => {
     }
     const 出勤時間 = Object.fromEntries(Object.entries(出勤h).map(([k, v]) => [k, Math.round(v * 10) / 10]));
 
-    // 新規リストから取ったアポ（かけた人ごと）
+    // 新規リード獲得：リスト管理で「新規リスト」の枠に分けられたリスト（グループ名 → リスト名の順でソースを決め、
+    // そのソースが新規リストの枠のもの）で取ったアポの数。かけた人ごと、同じリードは1回。
     const 新規アポ = {};
-    for (const r of await apoStructureRows(from, to).catch(() => [])) {
-      if (r.nurture || frameOfSource(r.source) !== "new") continue;
-      if (r.caller && r.apos) bump(新規アポ, String(r.caller).toLowerCase(), Number(r.apos) || 0);
+    const 新規明細 = {};   // 人 → [{ リスト, 件数 }]
+    for (const r of await apoByCallerAndList(from, to).catch(() => [])) {
+      if (frameOfSource(classifyListSource(r.list_name, r.group_name)) !== "new") continue;
+      const n = Number(r.apos) || 0;
+      if (!r.caller || !n) continue;
+      bump(新規アポ, r.caller, n);
+      (新規明細[r.caller] = 新規明細[r.caller] || []).push({ リスト: r.list_name || "", グループ: r.group_name || "", 件数: n });
     }
+    for (const arr of Object.values(新規明細)) arr.sort((a, b) => b.件数 - a.件数);
 
-    // 受注数：受注した会社 → その会社のいちばん最初のアポを取った人
+    // 受注数：その月に受注した案件（受注した日で数える）→ その会社のいちばん最初のアポを取った人に付ける
     const 受注数 = {};
-    const 受注明細 = {};   // 人 → [{ 会社, 日 }]（大きく見たときに、どこの会社かを出す）
-    const evs = await listDealEvents({ from, to, kind: "再商談" }).catch(() => []);
-    const wonCo = new Map();   // deal_id → { 会社名, 日 }（同じ案件を二重に数えない）
-    const dayOf = (v) => { if (!v) return ""; if (v instanceof Date) return new Date(v.getTime() + 9 * 3600000).toISOString().slice(0, 10); return String(v).slice(0, 10); };
-    for (const e of evs || []) if (e.result === "受注" && e.deal_status === "受注" && !wonCo.has(e.deal_id)) wonCo.set(e.deal_id, { co: e.company_name, day: dayOf(e.event_date) });
-    if (wonCo.size) {
-      const setterOf = new Map();
+    const 受注明細 = {};   // 人 → [{ 会社, 日 }]
+    const 獲得者不明 = []; // アポの獲得者が見つからなかった受注（会社名が違うなど）
+    const won = await listWonDealsBetween(from, to).catch(() => []);
+    if (won.length) {
+      // 会社名をそろえる（「ZOOM」「【再商談】」「/○○様」「○○様」などを落とす）
+      const coKey = (name) => {
+        let t = String(name || "").normalize("NFKC").replace(/【[^】]*】/g, "").replace(/^\s*(zoom|ZOOM|Zoom)\s*/, "");
+        t = t.split(/[\/／]/)[0].replace(/\s+\S+様$/, "").replace(/様$/, "").trim();
+        return normCompanyKey(parseLaunchTitle(t).company || t) || normCompanyKey(t);
+      };
+      const setters = [];
       for (const l of await listApoSetters().catch(() => [])) {
-        const k = normCompanyKey(parseLaunchTitle(l.label || "").company || "");
-        if (k && !setterOf.has(k)) setterOf.set(k, { email: l.setter_email, name: l.setter });
+        const k = coKey(parseLaunchTitle(l.label || "").company || "");
+        if (k) setters.push({ k, email: l.setter_email, name: l.setter });
       }
-      for (const { co, day } of wonCo.values()) {
-        const who = setterOf.get(normCompanyKey(co || ""));
-        if (!who) continue;
+      const exact = new Map();
+      for (const x of setters) if (!exact.has(x.k)) exact.set(x.k, x);
+      for (const d of won) {
+        const k = coKey(d.company_name);
+        let who = k ? exact.get(k) : null;
+        if (!who && k && k.length >= 3) who = setters.find((x) => x.k.length >= 3 && (x.k.includes(k) || k.includes(x.k))) || null;
+        const item = { 会社: d.company_name || "", 日: d.won_day || "" };
+        if (!who) { 獲得者不明.push(item); continue; }
         bump(受注数, who.email, 1);
-        if (who.name) bump(受注数, "name:" + normN(who.name), 1);
-        const item = { 会社: co || "", 日: day };
         (受注明細[who.email] = 受注明細[who.email] || []).push(item);
-        if (who.name) { const nk = "name:" + normN(who.name); (受注明細[nk] = 受注明細[nk] || []).push(item); }
+        if (who.name) {
+          const nk = "name:" + normN(who.name);
+          bump(受注数, nk, 1);
+          (受注明細[nk] = 受注明細[nk] || []).push(item);
+        }
       }
-      for (const arr of Object.values(受注明細)) arr.sort((a, b) => String(a.日).localeCompare(String(b.日)));
     }
-    res.json({ ok: true, month: ym, from, to, 出勤時間, 受注数, 受注明細, 新規アポ });
+    res.json({ ok: true, month: ym, from, to, 出勤時間, 受注数, 受注明細, 受注合計: won.length, 獲得者不明, 新規アポ, 新規明細 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -23041,7 +23060,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12i 受注数アワードを大きく見たとき、人ごとに受注した会社名と受注日（再商談の日）を表示。";
+const BUILD_TAG = "2026-10-12j アワードの数え方を直した：受注数＝その月に受注した案件（受注した日 won_at を記録）を最初のアポ獲得者に、新規リード獲得＝リスト管理で新規リストの枠に分けたリストで取ったアポ数。大きい窓に新規のリスト内訳・受注の合計と獲得者不明を表示。";
 const BUILD_FEATURES = [
   "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",
   "カレンダーの説明欄に先方のメールとつながる電話番号を表示",
