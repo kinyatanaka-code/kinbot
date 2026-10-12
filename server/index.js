@@ -23026,7 +23026,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12e アワードの見た目をkincallに合わせた（紺をやめ、白いカード＋1位の欄はインセンティブと同じ表彰状ふうの金色）。";
+const BUILD_TAG = "2026-10-12f アワードを英語表記（ATTENDANCE／DEALS WON／NEW LEADS AWARD）に。金の枠・二重の額縁・光の放射・きらめき・光の帯・月桂樹の輝き・1位の数の数え上げなど、豪華な飾りとアニメーション（白と金のトンマナはそのまま）。";
 const BUILD_FEATURES = [
   "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",
   "カレンダーの説明欄に先方のメールとつながる電話番号を表示",

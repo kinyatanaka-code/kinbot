@@ -3839,10 +3839,26 @@ function renderJisshiDash(d) {
 // 1位を金の月桂樹の中に大きく、その下に2位以降のインサイド全員の今の数を小さく並べる。
 const _awardsCache = {};   // 月 → /api/calls/awards の結果（月を行き来しても読み直さない。記録のあとは読み直す）
 const KC_AWARDS = [
-  { key: "出勤時間", title: "出勤時間アワード", unit: "時間", fmt: (v) => (Math.round(v * 10) / 10).toString() },
-  { key: "受注数", title: "受注数アワード", unit: "件", fmt: (v) => String(v) },
-  { key: "新規アポ", title: "新規リード獲得アワード", unit: "件", fmt: (v) => String(v) },
+  { key: "出勤時間", en: "ATTENDANCE", jp: "出勤時間", unit: "時間", dec: 1 },
+  { key: "受注数", en: "DEALS WON", jp: "受注数", unit: "件", dec: 0 },
+  { key: "新規アポ", en: "NEW LEADS", jp: "新規リード獲得", unit: "件", dec: 0 },
 ];
+const kcAwFmt = (v, dec) => (dec ? (Math.round(v * 10) / 10).toString() : String(Math.round(v)));
+const _awardsShown = {};   // 月 → 一度アニメーションで出したか（描き直しのたびに動かさない）
+// 1位の数を0から数え上げる（はじめて出したときだけ）
+function kcAwCountUp(root) {
+  if (!root || (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return;
+  root.querySelectorAll(".kc-aw-v[data-v]").forEach((el) => {
+    const to = Number(el.dataset.v) || 0, dec = Number(el.dataset.dec) || 0, unit = el.dataset.unit || "";
+    const t0 = performance.now(), dur = 900;
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = kcAwFmt(to * e, dec) + unit;
+      if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
 const _awardsAt = {};       // 月 → 最後に読んだ時刻（描き直しが続いたときに何度も読まないように）
 async function loadAwards(insideList) {
   const ym = dashWeekMonth;
@@ -3853,7 +3869,11 @@ async function loadAwards(insideList) {
     if (!d || !d.ok) return;
     _awardsCache[ym] = d;
     const box = $("dashAwards");
-    if (box && ym === dashWeekMonth) box.innerHTML = kcAwardsHtml(insideList, d);
+    if (box && ym === dashWeekMonth) {
+      const first = !_awardsShown[ym];
+      box.innerHTML = kcAwardsHtml(insideList, d, first);
+      if (first) { _awardsShown[ym] = true; kcAwCountUp(box); }
+    }
   } catch { /* 読めなくてもダッシュボードは止めない */ }
 }
 // 月桂樹（左右の枝に葉を並べる）。金属っぽく見えるよう、葉に濃淡を付ける。
@@ -3883,7 +3903,7 @@ function kcLaurelSvg(uid) {
       <linearGradient id="kcAwS${uid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9a53a"/><stop offset="1" stop-color="#8a5a12"/></linearGradient>
     </defs>${stems}${leaves}</svg>`;
 }
-function kcAwardsHtml(insideList, data) {
+function kcAwardsHtml(insideList, data, animate = false) {
   const normN = (x) => String(x || "").replace(/[\s　]/g, "");
   const people = (insideList || []).map((c) => ({ key: String(c.key || "").toLowerCase(), name: c.label || c.key || "" }));
   return KC_AWARDS.map((aw, idx) => {
@@ -3897,16 +3917,23 @@ function kcAwardsHtml(insideList, data) {
     const tops = ranked.filter((p) => p.rank === 1 && p.v > 0);
     const rest = ranked.filter((p) => !tops.includes(p));
     const topName = tops.length > 2 ? `${esc(tops[0].name)}・${esc(tops[1].name)} ほか${tops.length - 2}人` : tops.map((p) => esc(p.name)).join("・");
+    const topV = tops.length ? tops[0].v : 0;
     const center = !loaded
       ? `<div class="kc-aw-none">読み込んでいます…</div>`
       : tops.length
-        ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1位</div><div class="kc-aw-n">${topName}</div><div class="kc-aw-v">${esc(aw.fmt(tops[0].v))}${aw.unit}</div>`
+        ? `<div class="kc-aw-st">★★★</div><div class="kc-aw-rk">1st</div><div class="kc-aw-n">${topName}</div>` +
+          `<div class="kc-aw-v" data-v="${topV}" data-dec="${aw.dec}" data-unit="${esc(aw.unit)}">${esc(kcAwFmt(animate ? 0 : topV, aw.dec))}${aw.unit}</div>`
         : `<div class="kc-aw-st">★★★</div><div class="kc-aw-none">まだいません</div>`;
-    const list = loaded ? rest.map((p) => `<span><i class="kc-aw-r${p.rank === 2 ? " r2" : p.rank === 3 ? " r3" : ""}">${p.rank}</i><span class="nm">${esc(p.name)}</span><b>${esc(aw.fmt(p.v))}${aw.unit === "時間" ? "h" : aw.unit}</b></span>`).join("") : "";
-    // きらめき（1位の金色の欄の中に小さく）
-    const sp = [[10, 18, 0], [86, 14, 0.9], [84, 70, 1.7]].map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${dl + idx * 0.4}s"></i>`).join("");
-    return `<div class="kc-aw"><div class="kc-aw-h">${esc(aw.title)}</div>
-      <div class="kc-aw-top">${sp}<div class="kc-aw-wr">${kcLaurelSvg(idx)}<div class="kc-aw-c">${center}</div></div></div>
+    const list = loaded ? rest.map((p) => `<span><i class="kc-aw-r${p.rank === 2 ? " r2" : p.rank === 3 ? " r3" : ""}">${p.rank}</i><span class="nm">${esc(p.name)}</span><b>${esc(kcAwFmt(p.v, aw.dec))}${aw.unit === "時間" ? "h" : aw.unit}</b></span>`).join("") : "";
+    // きらめき（4つの角の星。カードごとに少しずらして光らせる）
+    const sp = [[8, 30, 0], [88, 26, 0.7], [14, 82, 1.4], [84, 80, 2.0], [50, 6, 1.0]]
+      .map(([l, t, dl]) => `<i class="kc-aw-sp" style="left:${l}%;top:${t}%;animation-delay:${(dl + idx * 0.5).toFixed(1)}s"></i>`).join("");
+    return `<div class="kc-aw${animate && loaded ? " kc-aw-in" : ""}" title="${esc(aw.jp)}アワード">
+      <div class="kc-aw-top"><i class="kc-aw-rays"></i><i class="kc-aw-shine" style="animation-delay:${idx * 0.9}s"></i>${sp}
+        <div class="kc-aw-ttl"><b>${esc(aw.en)}</b><span>AWARD</span></div>
+        <div class="kc-aw-jp">${esc(aw.jp)}</div>
+        <div class="kc-aw-wr">${kcLaurelSvg(idx)}<div class="kc-aw-c">${center}</div></div>
+      </div>
       <div class="kc-aw-ls">${list}</div></div>`;
   }).join("");
 }

@@ -10,7 +10,11 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261012e" />
+    <!-- アワードの英字（読めなくても Georgia などの明朝系で出る） -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
+    <link rel="stylesheet" href="style.css?v=20261012f" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -93,18 +97,36 @@
               .kc-awards{flex:1 1 470px;min-width:450px;max-width:620px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;}
               .kc-aw{container-type:inline-size;}
               @container (max-width:230px){.kc-aw .kc-aw-ls{grid-template-columns:1fr;gap:3px;}.kc-aw .kc-aw-h{font-size:12px;}}
-              .kc-aw{position:relative;overflow:hidden;background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:10px 10px 10px;color:#1f2a26;}
-              .kc-aw-h{font-size:12.5px;font-weight:700;color:#1f2a26;text-align:center;white-space:nowrap;margin-bottom:6px;}
-              /* 1位の欄：インセンティブと同じ表彰状ふうの金色 */
-              .kc-aw-top{position:relative;overflow:hidden;border-radius:10px;padding:2px 4px 4px;background:linear-gradient(135deg,#fdf6e3 0%,#f7e7b6 45%,#fdf6e3 100%);border:1.5px solid #e0c469;box-shadow:inset 0 0 0 1px #fffdf6;}
-              .kc-aw-wr{position:relative;width:100%;max-width:170px;margin:0 auto;aspect-ratio:190/140;}
-              .kc-aw-wr svg{position:absolute;inset:0;width:100%;height:100%;}
+              /* ===== アワード：白いカード＋金。豪華に見せる飾りとアニメーション ===== */
+              .kc-aw{position:relative;border-radius:12px;padding:8px 9px 10px;color:#1f2a26;border:1px solid transparent;
+                background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,#f6e3a0,#c9971f 30%,#fff3c8 50%,#b07d1a 75%,#f2d98a) border-box;
+                box-shadow:0 8px 20px -14px rgba(150,105,15,.55);transition:transform .2s,box-shadow .2s;}
+              .kc-aw:hover{transform:translateY(-2px);box-shadow:0 14px 26px -14px rgba(150,105,15,.65);}
+              .kc-aw-top{position:relative;overflow:hidden;border-radius:9px;padding:7px 4px 2px;text-align:center;
+                background:radial-gradient(120% 80% at 50% 45%,#fffaf0 0%,#fbefcc 45%,#f1d98f 100%);
+                box-shadow:inset 0 0 0 1px #fffdf6,inset 0 0 0 2.5px #e3c467,inset 0 0 0 3.5px #fff7df;}
+              .kc-aw-rays{position:absolute;left:50%;top:58%;width:230px;height:230px;margin:-115px 0 0 -115px;pointer-events:none;opacity:.55;
+                background:repeating-conic-gradient(from 0deg,rgba(255,255,255,.75) 0 6deg,rgba(255,255,255,0) 6deg 18deg);
+                -webkit-mask:radial-gradient(circle,#000 18%,transparent 66%);mask:radial-gradient(circle,#000 18%,transparent 66%);animation:kcAwSpin 26s linear infinite;}
+              .kc-aw-shine{position:absolute;top:-20%;bottom:-20%;left:-60%;width:38%;pointer-events:none;transform:skewX(-20deg);
+                background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.85),rgba(255,255,255,0));animation:kcAwShine 5.5s ease-in-out infinite;}
+              .kc-aw-ttl{position:relative;font-family:"Cinzel","Trajan Pro",Georgia,"Times New Roman",serif;line-height:1.05;}
+              .kc-aw-ttl b{display:block;font-size:13px;font-weight:800;letter-spacing:.08em;white-space:nowrap;
+                background:linear-gradient(180deg,#a8761a 0%,#7a520c 45%,#c9971f 70%,#6b450a 100%);-webkit-background-clip:text;background-clip:text;color:transparent;}
+              .kc-aw-ttl span{display:flex;align-items:center;justify-content:center;gap:5px;font-size:9.5px;font-weight:600;letter-spacing:.35em;color:#9a6d16;margin-top:2px;}
+              .kc-aw-ttl span::before,.kc-aw-ttl span::after{content:"";width:16px;height:1px;background:linear-gradient(90deg,transparent,#c9971f);}
+              .kc-aw-ttl span::after{transform:scaleX(-1);}
+              .kc-aw-jp{position:relative;font-size:9.5px;color:#9a7a33;margin-top:1px;}
+              .kc-aw-wr{position:relative;width:100%;max-width:168px;margin:-2px auto 0;aspect-ratio:190/140;}
+              .kc-aw-wr svg{position:absolute;inset:0;width:100%;height:100%;animation:kcAwGlow 3.2s ease-in-out infinite;}
               .kc-aw-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:10px;text-align:center;}
               .kc-aw-st{font-size:9px;letter-spacing:2px;color:#c9971f;line-height:1;margin-bottom:1px;}
-              .kc-aw-rk{font-size:9.5px;font-weight:700;color:#8a6d1f;letter-spacing:.1em;line-height:1.2;}
+              .kc-aw-rk{font-family:"Cinzel",Georgia,serif;font-size:10px;font-weight:800;color:#8a6d1f;letter-spacing:.12em;line-height:1.2;}
               .kc-aw-n{font-size:14px;font-weight:800;line-height:1.2;color:#4a3608;max-width:90px;word-break:keep-all;overflow-wrap:anywhere;}
-              .kc-aw-v{font-size:11.5px;font-weight:700;color:#8a6d1f;white-space:nowrap;line-height:1.3;}
+              .kc-aw-v{font-size:11.5px;font-weight:800;color:#8a6d1f;white-space:nowrap;line-height:1.3;padding-top:2px;margin-top:2px;border-top:1px solid #d9b45a;}
               .kc-aw-none{font-size:11px;color:#8a6d1f;}
+              .kc-aw-in .kc-aw-c > *{animation:kcAwIn .7s cubic-bezier(.2,.9,.3,1.3) both;}
+              .kc-aw-in .kc-aw-c > *:nth-child(2){animation-delay:.08s}.kc-aw-in .kc-aw-c > *:nth-child(3){animation-delay:.16s}.kc-aw-in .kc-aw-c > *:nth-child(4){animation-delay:.24s}
               .kc-aw-ls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 8px;font-size:11.5px;color:#5f6b64;margin-top:8px;}
               .kc-aw-ls span{display:flex;align-items:center;gap:5px;min-width:0;}
               .kc-aw-ls .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -112,8 +134,14 @@
               .kc-aw-r{flex:none;width:16px;height:16px;border-radius:50%;font-size:9.5px;font-style:normal;font-weight:700;display:inline-flex;align-items:center;justify-content:center;background:#eef3f0;color:#5f6b64;}
               .kc-aw-r.r2{background:linear-gradient(180deg,#fbfbfb,#b9bdc4);color:#2b2f36;box-shadow:inset 0 0 0 1px #d6d9de;}
               .kc-aw-r.r3{background:linear-gradient(180deg,#f6c39b,#c06a35);color:#3a1a08;}
-              .kc-aw-sp{position:absolute;width:10px;height:10px;pointer-events:none;background:radial-gradient(circle,#fff 0 1px,rgba(255,214,110,.9) 2px,transparent 6px);animation:kcAwTw 2.8s ease-in-out infinite;}
-              @keyframes kcAwTw{0%,100%{opacity:.2;transform:scale(.7)}50%{opacity:1;transform:scale(1.15)}}
+              .kc-aw-sp{position:absolute;width:9px;height:9px;pointer-events:none;background:#fff;
+                clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%);filter:drop-shadow(0 0 2px #f5c542);animation:kcAwTw 2.6s ease-in-out infinite;}
+              @keyframes kcAwTw{0%,100%{opacity:0;transform:scale(.4) rotate(0)}50%{opacity:1;transform:scale(1.2) rotate(45deg)}}
+              @keyframes kcAwSpin{to{transform:rotate(360deg)}}
+              @keyframes kcAwShine{0%,62%{left:-60%}100%{left:130%}}
+              @keyframes kcAwGlow{0%,100%{filter:drop-shadow(0 0 0 rgba(255,200,60,0))}50%{filter:drop-shadow(0 0 4px rgba(255,196,60,.75))}}
+              @keyframes kcAwIn{from{opacity:0;transform:translateY(6px) scale(.85)}to{opacity:1;transform:none}}
+              @media (prefers-reduced-motion:reduce){.kc-aw-rays,.kc-aw-shine,.kc-aw-sp,.kc-aw-wr svg,.kc-aw-in .kc-aw-c > *{animation:none}.kc-aw-shine{display:none}}
               .kc-dcard{flex:0 0 168px;width:168px;box-sizing:border-box;background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .12s,transform .1s;}
               .kc-dcard:hover{border-color:#5DCAA5;transform:translateY(-1px);}
               /* インセンティブ表示のあるカード（インサイド）は少し広めに */
@@ -493,9 +521,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261012e"></script>
-    <script src="calls.js?v=20261012e"></script>
-    <script src="nav.js?v=20261012e"></script>
+    <script src="sf-data.js?v=20261012f"></script>
+    <script src="calls.js?v=20261012f"></script>
+    <script src="nav.js?v=20261012f"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
