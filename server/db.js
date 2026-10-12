@@ -3465,6 +3465,43 @@ export async function listWonDealsBetween(fromDay, toDay) {
     return rows;
   } catch (e) { console.error("[db] listWonDealsBetween", e.message); return []; }
 }
+// リスト別の実績用：期間内の架電を、かけた人×リスト（とそのグループ）ごとに数える。
+//   コール＝架電記録の数、接触＝担当者接触の数、アポ＝アポ獲得になったリードの数（同じリードは1回）
+export async function callFrameStatsByCaller(fromDay, toDay) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT lower(COALESCE(l.caller,'')) AS caller, cl.id AS list_id, cl.name AS list_name,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name,
+              count(*)::int AS calls,
+              count(*) FILTER (WHERE l.result ~ '接触')::int AS contacts,
+              count(DISTINCT l.target_id) FILTER (WHERE l.result ~ 'アポ獲得')::int AS apos
+         FROM call_logs l
+         JOIN call_targets t ON t.id = l.target_id
+         JOIN call_lists cl ON cl.id = t.list_id
+        WHERE COALESCE(l.caller,'') <> ''
+          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
+        GROUP BY 1,2,3,4`, [fromDay, toDay]);
+    return rows;
+  } catch (e) { console.error("[db] callFrameStatsByCaller", e.message); return []; }
+}
+// 新規リストのリードが、はじめてナーチャリング（ジャッジ・営業フォロー）になった件数を、そのときかけた人ごとに数える
+export async function nurtureInflowByCaller(fromDay, toDay, sources) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT caller, count(*)::int AS n FROM (
+          SELECT DISTINCT ON (l.target_id) l.target_id, (l.at AT TIME ZONE 'Asia/Tokyo')::date AS d,
+                 lower(COALESCE(l.caller,'')) AS caller, t.source
+            FROM call_logs l JOIN call_targets t ON t.id = l.target_id
+           WHERE l.result ~ 'ジャッジ|営業フォロー'
+           ORDER BY l.target_id, l.at
+        ) f
+       WHERE d >= $1::date AND d <= $2::date AND source = ANY($3) AND caller <> ''
+       GROUP BY 1`, [fromDay, toDay, sources]);
+    return rows;
+  } catch (e) { console.error("[db] nurtureInflowByCaller", e.message); return []; }
+}
 // 期間内のアポ獲得を、リスト（とそのグループ）ごと・かけた人ごとに数える（同じリードは1回）。
 // 新規リスト（グループ名・リスト名から決まるソースが「新規リスト」の枠）のアポ数に使う。
 export async function apoByCallerAndList(fromDay, toDay) {

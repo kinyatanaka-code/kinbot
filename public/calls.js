@@ -3670,6 +3670,18 @@ async function loadDash() {
   box.innerHTML = `<div class="note">読み込んでいます…</div>`;
   try {
     const q = `period=${dashPeriod === "week" ? "week" : "month"}&month=${encodeURIComponent(dashWeekMonth)}&metric=${dashMetric}`;
+    if (dashMetric === "list") {
+      // リスト別：顔ぶれ（セールス・インサイド）はいつものダッシュボードと同じにする
+      const [dm, dl] = await Promise.all([
+        fetch(`/api/calls/apo-dashboard?period=month&month=${encodeURIComponent(dashWeekMonth)}&metric=apo`).then((r) => r.json()).catch(() => ({})),
+        fetch(`/api/calls/list-dashboard?month=${encodeURIComponent(dashWeekMonth)}`).then((r) => r.json()),
+      ]);
+      if (dl.error) throw new Error(dl.error);
+      const [yy, mo] = String(dl.month || "").split("-");
+      const rgl = $("dashRange"); if (rgl) rgl.textContent = `対象：${Number(mo)}月（${Number(dl.to.slice(8))}日まで・リスト別${dashPeriod === "week" ? "／リスト別は月ごとに出します" : ""}）`;
+      renderListDash(dm, dl);
+      return;
+    }
     if (dashMetric === "jisshi") {
       // 実施：全体／植野／江田／中澤／他 の 設定数・実施数
       const dj = await (await fetch(`/api/calls/jisshi-dashboard?${q}`)).json();
@@ -3688,7 +3700,7 @@ async function loadDash() {
 }
 // アポ／実施の切替
 document.querySelectorAll("#dashMetricTabs .kc-ptab").forEach((b) => b.addEventListener("click", () => {
-  const m = b.dataset.m === "jisshi" ? "jisshi" : "apo";
+  const m = b.dataset.m === "jisshi" ? "jisshi" : b.dataset.m === "list" ? "list" : "apo";
   if (m === dashMetric) return;
   dashMetric = m;
   loadDash();
@@ -4027,6 +4039,85 @@ function kcAwardsHtml(insideList, data, animate = false) {
       </div>
       <div class="kc-aw-ls">${list}</div></div>`;
   }).join("");
+}
+// ===== ダッシュボード「リスト別」 =====
+// 新規リスト・過去リストでの コール／アポ／アポ率 と、新規リスト→ナーチャリングの件数を、セールス・インサイドごとに並べる。
+let _ldSort = { key: "新規アポ", dir: -1 };
+let _ldOpen = new Set();
+function renderListDash(dm, dl) {
+  const box = $("clDash"); if (!box) return;
+  const normN = (x) => String(x || "").replace(/[\s　]/g, "");
+  const ppl = dl.people || [];
+  const byEmail = new Map(ppl.map((p) => [p.email, p]));
+  const byName = new Map(ppl.map((p) => [normN(p.name), p]));
+  const used = new Set();
+  const pick = (c) => {
+    const k = String(c.key || "").toLowerCase();
+    const p = byEmail.get(k) || byName.get(normN(c.label));
+    if (p) used.add(p.email);
+    return p || null;
+  };
+  const zero = { コール: 0, 接触: 0, アポ: 0 };
+  const rowOf = (label, p) => ({
+    label, email: p ? p.email : "", 新規: p ? p.新規 : zero, 過去: p ? p.過去 : zero,
+    ナーチャリング化: p ? p.ナーチャリング化 : 0, リスト別: p ? p.リスト別 : [],
+  });
+  const sales = (dm.sales || []).map((c) => rowOf(c.label, pick(c)));
+  const inside = (dm.inside || []).map((c) => rowOf(c.label, pick(c)));
+  // 顔ぶれにいないのに架電がある人（「その他」）
+  const others = ppl.filter((p) => !used.has(p.email) && (p.新規.コール + p.過去.コール + p.ナーチャリング化) > 0).map((p) => rowOf(p.name, p));
+  const rate = (a, c) => (c ? `${(Math.round((a / c) * 1000) / 10).toFixed(1)}%` : "-");
+  const T = dl.合計 || { 新規: zero, 過去: zero, ナーチャリング化: 0 };
+  const sumCard = (cls, title, b) => `<div class="ld-card"><h4><i class="ld-dot ${cls}"></i>${title}</h4>
+      <div class="ld-big">${b.アポ}<small>アポ</small></div>
+      <div class="ld-sub">コール ${b.コール.toLocaleString()} ・ アポ率 ${rate(b.アポ, b.コール)} ・ 接触 ${b.接触.toLocaleString()}</div></div>`;
+  const keyVal = (r, k) => ({ 名前: r.label, 新規アポ: r.新規.アポ, 新規コール: r.新規.コール, 新規率: r.新規.コール ? r.新規.アポ / r.新規.コール : -1,
+    過去アポ: r.過去.アポ, 過去コール: r.過去.コール, 過去率: r.過去.コール ? r.過去.アポ / r.過去.コール : -1, ナーチャリング: r.ナーチャリング化 }[k]);
+  const sortRows = (rows) => [...rows].sort((a, b) => {
+    const x = keyVal(a, _ldSort.key), y = keyVal(b, _ldSort.key);
+    if (typeof x === "string") return _ldSort.dir * String(x).localeCompare(String(y), "ja");
+    return _ldSort.dir * (x - y) || String(a.label).localeCompare(String(b.label), "ja");
+  });
+  const th = (k, label, cls = "") => `<th class="${cls}" data-k="${k}">${label}${_ldSort.key === k ? ` <span class="ar">${_ldSort.dir < 0 ? "▼" : "▲"}</span>` : ""}</th>`;
+  const table = (title, rows) => {
+    if (!rows.length) return "";
+    const tot = rows.reduce((a, r) => ({ 新規: { コール: a.新規.コール + r.新規.コール, アポ: a.新規.アポ + r.新規.アポ }, 過去: { コール: a.過去.コール + r.過去.コール, アポ: a.過去.アポ + r.過去.アポ }, n: a.n + r.ナーチャリング化 }),
+      { 新規: { コール: 0, アポ: 0 }, 過去: { コール: 0, アポ: 0 }, n: 0 });
+    const body = sortRows(rows).map((r) => {
+      const id = r.email || r.label;
+      const open = _ldOpen.has(id);
+      const chips = (r.リスト別 || []).map((x) => `<span class="ld-chip ${x.枠 === "新規" ? "new" : "past"}" title="${esc(x.グループ ? `グループ：${x.グループ}` : "")}"><i class="ld-dot ${x.枠 === "新規" ? "new" : "past"}"></i>${esc(x.リスト || "（リスト名なし）")}<em>アポ ${x.アポ} ／ コール ${x.コール}</em></span>`).join("");
+      return `<tr class="ld-row" data-id="${esc(id)}"><td>${open ? "▾" : "▸"} ${esc(r.label)}</td>
+          <td class="c-new"><b>${r.新規.アポ}</b></td><td class="c-new">${r.新規.コール}</td><td class="c-new ld-rate">${rate(r.新規.アポ, r.新規.コール)}</td>
+          <td class="c-past"><b>${r.過去.アポ}</b></td><td class="c-past">${r.過去.コール}</td><td class="c-past ld-rate">${rate(r.過去.アポ, r.過去.コール)}</td>
+          <td class="c-nur"><b>${r.ナーチャリング化}</b></td></tr>` +
+        (open ? `<tr class="ld-det"><td colspan="8">${chips || '<span class="ld-rate">この月は、新規・過去リストでの架電がありません</span>'}</td></tr>` : "");
+    }).join("");
+    return `<div class="ld-sec">${title}</div><div class="ld-wrap"><table class="ld-t">
+      <thead><tr>${th("名前", "メンバー")}${th("新規アポ", "新規 アポ", "g-new")}${th("新規コール", "新規 コール", "g-new")}${th("新規率", "新規 アポ率", "g-new")}
+        ${th("過去アポ", "過去 アポ", "g-past")}${th("過去コール", "過去 コール", "g-past")}${th("過去率", "過去 アポ率", "g-past")}${th("ナーチャリング", "新規→ナーチャリング", "g-nur")}</tr></thead>
+      <tbody>${body}<tr class="ld-tot"><td>合計</td><td>${tot.新規.アポ}</td><td>${tot.新規.コール}</td><td class="ld-rate">${rate(tot.新規.アポ, tot.新規.コール)}</td>
+        <td>${tot.過去.アポ}</td><td>${tot.過去.コール}</td><td class="ld-rate">${rate(tot.過去.アポ, tot.過去.コール)}</td><td>${tot.n}</td></tr></tbody></table></div>`;
+  };
+  box.innerHTML = `<div class="ld-sum">
+      ${sumCard("new", "新規リスト", T.新規)}
+      ${sumCard("past", "過去リスト", T.過去)}
+      <div class="ld-card"><h4><i class="ld-dot nur"></i>新規リスト → ナーチャリング</h4>
+        <div class="ld-big">${T.ナーチャリング化}<small>件</small></div>
+        <div class="ld-sub">新規リストのリードが、はじめてジャッジ・営業フォローになった数</div></div>
+    </div>
+    ${table("セールス", sales)}${table("インサイド", inside)}${table("その他", others)}
+    <p class="note" style="margin-top:10px">新規・過去は、リスト管理のグループ名 → リスト名 で決まるソースの枠で分けています（アワードの新規リード獲得と同じ）。アポはアポ獲得になったリードの数（同じリードは1回）、アポ率＝アポ÷コール。名前を押すと、どのリストで取ったかが出ます。見出しを押すと並べ替えます。</p>`;
+  box.querySelectorAll(".ld-t th[data-k]").forEach((h) => h.addEventListener("click", () => {
+    const k = h.dataset.k;
+    _ldSort = _ldSort.key === k ? { key: k, dir: -_ldSort.dir } : { key: k, dir: k === "名前" ? 1 : -1 };
+    renderListDash(dm, dl);
+  }));
+  box.querySelectorAll(".ld-row").forEach((tr) => tr.addEventListener("click", () => {
+    const id = tr.dataset.id;
+    if (_ldOpen.has(id)) _ldOpen.delete(id); else _ldOpen.add(id);
+    renderListDash(dm, dl);
+  }));
 }
 function renderDash(d) {
   const box = $("clDash");
