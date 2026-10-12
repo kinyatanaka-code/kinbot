@@ -374,6 +374,7 @@ import {
   findOriginApos,
   setSmartLinkClientPhone,
   listApoSetters,
+  linkReschedPairs,
   listWonDealsBetween,
   apoByCallerAndList,
   classifyListSource,
@@ -23060,8 +23061,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12j アワードの数え方を直した：受注数＝その月に受注した案件（受注した日 won_at を記録）を最初のアポ獲得者に、新規リード獲得＝リスト管理で新規リストの枠に分けたリストで取ったアポ数。大きい窓に新規のリスト内訳・受注の合計と獲得者不明を表示。";
+const BUILD_TAG = "2026-10-12k アポ実績の決まりを変更：あとでリスケ・キャンセルになったアポも取った月の実績に残す（テスト・キックオフ・手で外したものは数えない）。リスケで作り直したアポは元のアポにつないで二重に数えない。";
 const BUILD_FEATURES = [
+  "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
   "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",
   "カレンダーの説明欄に先方のメールとつながる電話番号を表示",
   "kincallの日程パネルに「他の日程」タブ（カレンダーで日を選ぶと、その日の空き時間をすべて表示）",
@@ -29099,6 +29101,10 @@ server.listen(PORT, async () => {
     .then((r) => { if (r && r.length) console.log(`[apo] キックオフ ${r.length}件をアポの数から外しました`); })
     .then(() => refreshForcedApoLabels())
     .catch(() => {});
+  // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
+  // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
+  linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  setInterval(() => linkReschedPairs().catch(() => {}), 10 * 60 * 1000).unref?.();
   // 文章だけのAI処理をGroqにするか（設定があればそれに従う。無ければ既定ON）
   getSettings().then((st) => { if (st && (st.aiTextViaGroq === true || st.aiTextViaGroq === "true")) setTextViaGroq(true); }).catch(() => {});
   // 既にステージがアーカイブ/リサイクルの架電先を、専用リストへ一度まとめて移す。

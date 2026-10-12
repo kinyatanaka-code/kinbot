@@ -1073,6 +1073,10 @@ export async function initDb() {
   // テストで作ったアポを、件数の集計から外すための印。
   // 予定や記録は残したまま、実績・均等化・通知の数から除く。
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT false;`);
+  // 理由（リスケ・キャンセル・テスト など）。数え方を理由で分けるので、はじめから用意しておく
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`);
+  // リスケで作り直したアポに、元のアポの slug を入れる（実績は元のアポの取った月で1件だけ数える）
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS resched_of TEXT;`);
 
   // 同じカレンダー予定を二度登録しないようにする。
   // スキャンが重なったときに、同じ予定が何件もできてしまうのを防ぐ。
@@ -5936,6 +5940,41 @@ export async function futureApos(fromJst, limit = 500) {
   } catch (e) { console.error("[db] futureApos", e.message); return []; }
 }
 
+// リスケで作り直したアポを、元のアポにつなぐ（resched_of に元の slug）。何度動かしても同じ結果。
+// 元のアポ＝「リスケ」で外れたアポ。そのあとに同じ獲得者が同じ会社で取ったアポのうち、いちばん早いものを作り直しとみなす。
+function apoCoKeyOfLabel(label) {
+  let t = String(label || "").normalize("NFKC").replace(/【[^】]*】/g, "").replace(/^\s*(初回|再商談)\s*/, "");
+  t = t.split(/[\/／]/)[0].replace(/[\s　]+[^\s　]*(様|さん)\s*$/, "").replace(/(様|さん)\s*$/, "").trim();
+  return normCompanyKey(t);
+}
+export async function linkReschedPairs({ days = 150 } = {}) {
+  if (!pool) return { linked: 0 };
+  try {
+    const { rows } = await pool.query(
+      `SELECT slug, label, lower(COALESCE(setter_email,'')) AS em, COALESCE(setter,'') AS setter,
+              COALESCE(excluded,false) AS excluded, COALESCE(excluded_reason,'') AS reason, resched_of,
+              COALESCE(apo_at, created_at) AS taken
+         FROM smart_links
+        WHERE COALESCE(setter,'') <> '' AND COALESCE(apo_at, created_at) >= now() - ($1 || ' days')::interval
+        ORDER BY COALESCE(apo_at, created_at) ASC`, [String(days)]);
+    const who = (r) => r.em || "name:" + String(r.setter).replace(/[\s　]/g, "");
+    const used = new Set(rows.filter((r) => r.resched_of).map((r) => r.resched_of));   // もうつないである元
+    const taken = new Set(rows.filter((r) => r.resched_of).map((r) => r.slug));        // もう作り直しとして使われたもの
+    let linked = 0;
+    for (const o of rows) {
+      if (!o.excluded || o.reason !== "リスケ" || used.has(o.slug)) continue;
+      const k = apoCoKeyOfLabel(o.label); if (!k) continue;
+      const n = rows.find((r) => r.slug !== o.slug && !taken.has(r.slug) && !r.resched_of && who(r) === who(o)
+        && new Date(r.taken) > new Date(o.taken) && new Date(r.taken) - new Date(o.taken) < 120 * 86400000
+        && apoCoKeyOfLabel(r.label) === k);
+      if (!n) continue;
+      await pool.query(`UPDATE smart_links SET resched_of = $2 WHERE slug = $1 AND resched_of IS NULL`, [n.slug, o.slug]);
+      n.resched_of = o.slug; taken.add(n.slug); used.add(o.slug); linked++;
+      console.log(`[apo] リスケの作り直しとしてつなぎました：${n.label}（元：${o.label}）`);
+    }
+    return { linked };
+  } catch (e) { console.error("[db] linkReschedPairs", e.message); return { linked: 0, error: e.message }; }
+}
 // アポを数から外す（テスト・リスケ・キャンセル・カレンダーから消えたとき）
 export async function excludeApo(slug, reason = "") {
   if (!pool || !slug) return null;
@@ -6110,7 +6149,7 @@ export async function listSmartLinks(createdBy) {
 // mailmaga（メルマガ）と集計除外(excluded)は外す。期間は取得日(apo_at)優先、無ければ商談日(start_time)。
 export async function listApoPerf({ from = null, to = null } = {}) {
   if (!pool) return [];
-  const cond = ["s.setter IS NOT NULL", "s.setter <> ''", "NOT COALESCE(s.mailmaga,false)", "NOT COALESCE(s.excluded,false)"];
+  const cond = ["s.setter IS NOT NULL", "s.setter <> ''", "NOT COALESCE(s.mailmaga,false)", apoCountedSql("s")];
   const vals = []; let i = 1;
   if (from) { cond.push(`COALESCE(s.apo_at, s.start_time) >= $${i++}`); vals.push(from); }
   if (to) { cond.push(`COALESCE(s.apo_at, s.start_time) < $${i++}`); vals.push(to); }
@@ -6228,17 +6267,27 @@ export async function aposInRange({ from, to, business = "", limit = 500 } = {})
 }
 
 // アポを「取った日」で集める（実績の質問に答えるため）
+// アポの実績として数えるか（取った月の実績として残す、の決まり）。
+//   ・外していないアポ → 数える
+//   ・あとでリスケ・キャンセルになったアポ → 取った月の実績として数える（excluded_reason が リスケ／キャンセル）
+//   ・テスト・キックオフ・人が手で外したもの → 数えない
+//   ・リスケで作り直したアポ（resched_of あり）→ 元のアポで数えているので数えない
+export function apoCountedSql(alias = "") {
+  const a = alias ? `${alias}.` : "";
+  return `((NOT COALESCE(${a}excluded,false)) OR COALESCE(${a}excluded_reason,'') IN ('リスケ','キャンセル')) AND ${a}resched_of IS NULL`;
+}
 export async function aposTakenInRange({ from, to, business = "", limit = 1000 } = {}) {
   if (!pool) return [];
   try {
     const p = [from, to || from];
     let where = `(COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date
-                 AND NOT COALESCE(excluded,false)`;
+                 AND ${apoCountedSql()}`;
     if (business) { p.push(business); where += ` AND business = $${p.length}`; }
     p.push(Math.max(1, Math.min(2000, limit)));
     const { rows } = await pool.query(
       `SELECT slug, label, setter, setter_email, current_owner, business, start_time, COALESCE(mailmaga,false) AS mailmaga,
-              COALESCE(apo_at, created_at) AS taken_at
+              COALESCE(apo_at, created_at) AS taken_at,
+              CASE WHEN COALESCE(excluded,false) THEN excluded_reason ELSE NULL END AS later_state
          FROM smart_links
         WHERE ${where}
         ORDER BY taken_at
@@ -7080,7 +7129,7 @@ export async function apoCountsBySetter({ termFrom, termTo, business = "", mode 
   if (!pool) return [];
   try {
     const p = [termFrom, termTo];
-    let where = "COALESCE(setter,'') <> '' AND NOT COALESCE(excluded,false)";
+    let where = `COALESCE(setter,'') <> '' AND ${apoCountedSql()}`;
     if (business) { p.push(business); where += ` AND business = $${p.length}`; }
     const inTerm = apoInTermSql(mode);
     // 日付は「アポを取った日」。分からないものだけ、kinbotが拾った日で代用する。
