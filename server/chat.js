@@ -293,13 +293,15 @@ function shortReason(reason) {
 // アポを割り振ったときの通知。
 // 担当が決まると下書きも自動でできるため、メールの状況も同じ1通にまとめる。
 export async function notifyAssigned({
-  title, start, repName, setter, business, reason, url, auto, mail, clientEmail, counts, goal, goalMonth, launch, changed,
+  title, start, repName, setter, business, reason, url, auto, mail, clientEmail, counts, goal, goalMonth, launch, changed, resched,
 }) {
   try { const st = await getSettings(); if (st && st.chatNotifyAssign === false) return { ok: false, skipped: true }; } catch {}
   // スマホで一目で分かることを優先し、4〜5行に収める。
   // 会議室のURLは長く折り返すので載せない（kinbotの画面から開ける）。
   const lines = [
-    changed
+    resched
+      ? `🔁 *リスケ（新しい日程）*　${jstLabel(start)}　※新しいアポとしては数えません`
+      : changed
       ? `🔄 *担当を変更しました*　${jstLabel(start)}`
       : reason === "自分で獲得したアポ"
         ? `✅ *自分で獲得したアポ*　${jstLabel(start)}`
@@ -314,8 +316,8 @@ export async function notifyAssigned({
       ? `{呼びかけ} 確定メールの下書きができています。中身を見て送ってください。`
       : "",
     launchLine(launch),
-    // 担当変更のときは件数を出さない（新規アポではないため）
-    (!changed && counts)
+    // 担当変更・リスケの作り直しのときは件数を出さない（新規アポではないため）
+    (!changed && !resched && counts)
       ? `📊 本日 ${counts.today} ／ 今週 ${counts.week} ／ 今月 ${counts.month}` +
         (counts.mailmaga && counts.mailmaga.month
           ? `\n　うちメルマガ：本日 ${counts.mailmaga.today} ／ 今週 ${counts.mailmaga.week} ／ 今月 ${counts.mailmaga.month}`

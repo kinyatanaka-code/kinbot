@@ -5947,6 +5947,39 @@ function apoCoKeyOfLabel(label) {
   t = t.split(/[\/／]/)[0].replace(/[\s　]+[^\s　]*(様|さん)\s*$/, "").replace(/(様|さん)\s*$/, "").trim();
   return normCompanyKey(t);
 }
+// 新しくできたアポが、リスケで作り直したものかをその場で見る（Chatで新しいアポとして数えないため）。
+// 同じ獲得者・同じ会社で、前に取ったアポがあり、それが
+//   ・「リスケ」で外れている、または
+//   ・まだ外れておらず、商談日がこれから（＝まだ商談していない）
+// なら作り直しとみなして resched_of に元の slug を入れる。元の slug を返す（違えば null）。
+export async function markReschedIfAny(slug) {
+  if (!pool || !slug) return null;
+  try {
+    const { rows: me } = await pool.query(
+      `SELECT slug, label, lower(COALESCE(setter_email,'')) AS em, COALESCE(setter,'') AS setter, resched_of,
+              COALESCE(apo_at, created_at) AS taken FROM smart_links WHERE slug = $1`, [slug]);
+    const n = me[0];
+    if (!n || n.resched_of) return n ? n.resched_of || null : null;
+    const k = apoCoKeyOfLabel(n.label); if (!k) return null;
+    const { rows } = await pool.query(
+      `SELECT slug, label, COALESCE(excluded,false) AS excluded, COALESCE(excluded_reason,'') AS reason, start_time,
+              COALESCE(apo_at, created_at) AS taken
+         FROM smart_links
+        WHERE slug <> $1 AND COALESCE(setter,'') <> ''
+          AND (lower(COALESCE(setter_email,'')) = $2 AND $2 <> '' OR ($2 = '' AND setter = $3))
+          AND COALESCE(apo_at, created_at) <= $4 AND COALESCE(apo_at, created_at) >= $4::timestamptz - interval '120 days'
+          AND resched_of IS DISTINCT FROM $1
+          AND NOT EXISTS (SELECT 1 FROM smart_links z WHERE z.resched_of = smart_links.slug)
+        ORDER BY COALESCE(apo_at, created_at) DESC`, [slug, n.em, n.setter, n.taken]);
+    const now = Date.now();
+    const old = rows.find((r) => apoCoKeyOfLabel(r.label) === k &&
+      ((r.excluded && r.reason === "リスケ") || (!r.excluded && r.start_time && new Date(r.start_time).getTime() > now)));
+    if (!old) return null;
+    await pool.query(`UPDATE smart_links SET resched_of = $2 WHERE slug = $1 AND resched_of IS NULL`, [slug, old.slug]);
+    console.log(`[apo] リスケの作り直しとみなしました：${n.label}（元：${old.label}）`);
+    return old.slug;
+  } catch (e) { console.error("[db] markReschedIfAny", e.message); return null; }
+}
 export async function linkReschedPairs({ days = 150 } = {}) {
   if (!pool) return { linked: 0 };
   try {

@@ -375,6 +375,7 @@ import {
   setSmartLinkClientPhone,
   listApoSetters,
   linkReschedPairs,
+  markReschedIfAny,
   listWonDealsBetween,
   apoByCallerAndList,
   classifyListSource,
@@ -3490,7 +3491,8 @@ app.post("/api/apo/:slug/renotify", async (req, res) => {
     const r = await notifyAssigned({
       title: link.label, start: link.start_time, repName,
       setter: link.setter, reason: "通知の再送", url: joinUrl(link.slug),
-      auto: false, mail: null, clientEmail: link.client_email, counts, goal, goalMonth, launch,
+      auto: false, mail: null, clientEmail: link.client_email, counts: link.resched_of ? null : counts, goal, goalMonth, launch,
+      resched: !!link.resched_of,
     });
     console.log(`[apo] ${link.slug} の割り振り通知だけ再送しました by ${req.user}`);
     res.json({ ok: true, ...(r || {}) });
@@ -23061,7 +23063,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12k アポ実績の決まりを変更：あとでリスケ・キャンセルになったアポも取った月の実績に残す（テスト・キックオフ・手で外したものは数えない）。リスケで作り直したアポは元のアポにつないで二重に数えない。";
+const BUILD_TAG = "2026-10-12l リスケで作り直したアポを、できたその場で元のアポにつなぐ（同じ獲得者・同じ会社で、元が「リスケ」で外れているか、まだ商談前）。Chatでは「リスケ（新しい日程）」として知らせ、本日・今週・今月の件数に数えない。ダッシュボードの実績は取った月のまま。";
 const BUILD_FEATURES = [
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
   "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",
@@ -25919,6 +25921,11 @@ async function collectApoAppointments(scanOwner, opts = {}) {
             // アポを取った日時＝予定を作った時刻。プロセスシートの日付はこれで決まる。
             apoAt: ev.created || null,
           });
+          // リスケで作り直した予定なら、元のアポにつなぐ（Chatで新しいアポとして数えない）
+          if (link && link.slug) {
+            const orig = await markReschedIfAny(link.slug).catch(() => null);
+            if (orig) link = (await getSmartLink(link.slug).catch(() => null)) || { ...link, resched_of: orig };
+          }
         } else if (!link.apo_at && ev.created) {
           // 前に拾ったぶんにも、アポを取った日時を後から入れる
           const up = await setApoAt(link.slug, ev.created);
@@ -26455,11 +26462,14 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
       : Promise.resolve({ ok: false, reason: "no_operator" }))
       .then((r) => ({ ok: r.ok, dryRun: !runIt, reasonText: r.ok ? "" : reasonText(r.reason, r.detail) }))
       .catch(() => null);
+    // リスケで作り直したアポは新しいアポではないので、件数は出さず「リスケ」として知らせる
+    const fresh = await getSmartLink(updated.slug).catch(() => null);
+    const resched = !!((fresh && fresh.resched_of) || updated.resched_of);
     await notifyAssigned({
       title: updated.label, start: updated.start_time, repName: pick.name,
       setter: updated.setter, reason: pick.reason,
       url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
-      mail, clientEmail: updated.client_email, counts, goal, goalMonth, launch,
+      mail, clientEmail: updated.client_email, counts: resched ? null : counts, goal, goalMonth, launch, resched,
     });
 
     // 下書きができたときは、担当者本人にも直接知らせる。
@@ -27349,6 +27359,8 @@ async function createApoAndAssign({
   const biz = ["DOC", "MOCHICA"].includes(String(business || "")) ? String(business) : await businessOfSetter(setterName).catch(() => "");
   if (biz) { await setSmartLinkBusiness(link.slug, biz); link = { ...link, business: biz }; }
   console.log(`[apo] ${origin === "kincall" ? "kincallから登録" : "手で追加"}：${label}（獲得 ${setterName}） by ${actor}`);
+  // リスケで作り直したアポなら、元のアポにつなぐ
+  await markReschedIfAny(link.slug).catch(() => null);
   // 「割り振りはあとで」のときは登録だけ。スキャンが先に割り振っていたら、二重にしない。
   const cur = await getSmartLink(link.slug);
   if (noAssign) return { link: cur, assigned: false };
@@ -28758,6 +28770,7 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
           mail, clientEmail: link.client_email,
           // すでに担当が付いていたアポの「変更」なら、件数に数えず「担当を変更しました」で知らせる
           changed: !!(existing.current_owner && String(existing.current_owner).toLowerCase() !== String(owner).toLowerCase()),
+          resched: !!link.resched_of,
           counts, goal: await groupWeeklyApoGoal().catch(() => 0), goalMonth: await groupMonthlyApoGoal().catch(() => 0), launch,
         });
         // テスト用のアポは、通知まで済ませたら数から外す

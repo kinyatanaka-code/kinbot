@@ -1413,3 +1413,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   新規リード獲得：前はリードのソース＋いまナーチャリングでないもの → apoByCallerAndList（アポ獲得のログをリード×リスト×グループで、同じリードは1回）を classifyListSource(リスト名, グループ名) → frameOfSource が new のものだけ数える。大きい窓にリスト別の内訳。版20261012j。
 
 - 2026-10-12 BUILD_TAG=2026-10-12k 田中さんの決定「取った月の実績として残す」（9月が月末215件→あとから208件に減っていた件）。実績の数え方 apoCountedSql()：外していない、または excluded_reason が リスケ／キャンセル のアポを数える。テスト・キックオフ・人が手で外したもの（人が操作）は数えない。smart_links.resched_of を追加し、linkReschedPairs（起動時＋10分ごと）で「リスケで外れたアポ」のあとに同じ獲得者・同じ会社で取ったいちばん早いアポ（120日以内）を作り直しとしてつなぎ、作り直し側は数えない。対象：aposTakenInRange（ダッシュボード・Chat・週ラップ・今日の件数など）、apoCountsBySetter、listApoPerf。aposTakenInRange は later_state（あとでリスケ／キャンセル）も返す。割り振り・均等化・メールなどは今までどおり excluded を見る。版20261012k。
+
+- 2026-10-12 BUILD_TAG=2026-10-12l 田中さん「リスケはChatの件数に数えたくない。ダッシュボードはそのまま」。markReschedIfAny(slug)：新しいアポができたとき（スキャンの新規作成・createApoAndAssign）に、同じ獲得者・同じ会社で120日以内に前のアポがあり、それが「リスケ」で外れている／まだ外れておらず商談日がこれから、なら resched_of をその場で付ける。割り振り通知（autoAssignOne・再送・手動）は resched なら「🔁 リスケ（新しい日程）※新しいアポとしては数えません」で件数を出さない。Chatの件数（groupApoCountsRaw→computeStatsGrid）・週ラップは apoCountedSql で resched_of を数えないので、作り直しは入らない。ダッシュボードは取った月のまま（元のアポで1件）。版20261012l。
