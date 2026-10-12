@@ -373,6 +373,7 @@ import {
   setSmartLinkOrigin,
   findOriginApos,
   setSmartLinkClientPhone,
+  listApoSetters,
   listApoSmartLinks,
   clearInviteEvent,
   linksWithInvite,
@@ -13336,6 +13337,66 @@ app.get("/api/calls/stats-grid", async (req, res) => {
 const DASH_APO_ADJUST_BASE = {
   "month:2026-09": { "田中欽也": 1 },   // 2026-09-30 依頼：田中欽也のアポ1件が反映されていない分
 };
+// ダッシュボード右上のアワード（インサイド向け）。その月の、人ごとの数を返す（今日までの実績）。
+//   出勤時間 … 出勤管理のシフト（開始〜終了）を、今日までの日について足した時間
+//   受注数   … kinbotで受注になった案件（再商談の結果が受注・案件も受注。日付は再商談の日）を、その会社のアポを取った人に付ける
+//   新規リード獲得 … 新規リストのリードから取ったアポの数（ナーチャリング・過去リストは入れない）
+// 顔ぶれ（誰を並べるか）は画面側で、ダッシュボードのインサイドのカードと同じにする。
+app.get("/api/calls/awards", async (req, res) => {
+  try {
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const pad = (n) => String(n).padStart(2, "0");
+    const thisYm = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
+    const ym = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : thisYm;
+    const [yy, mm] = ym.split("-").map(Number);
+    const from = `${ym}-01`;
+    const lastDay = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    const todayStr = `${thisYm}-${pad(nowJ.getUTCDate())}`;
+    const monthEnd = `${ym}-${pad(lastDay)}`;
+    const to = monthEnd < todayStr ? monthEnd : todayStr;   // 今月なら今日まで
+    if (to < from) return res.json({ ok: true, month: ym, 出勤時間: {}, 受注数: {}, 新規アポ: {} });
+    const normN = (x) => String(x || "").replace(/[\s　]/g, "");
+    const bump = (map, k, v) => { if (!k) return; map[k] = (map[k] || 0) + v; };
+
+    // 出勤時間（分 → 時間）。メールと名前の両方で引けるようにする
+    const 出勤分 = {};
+    for (const sh of await listInsideShifts(from, to).catch(() => [])) {
+      const st = Number(sh.start_min), en = Number(sh.end_min);
+      if (!isFinite(st) || !isFinite(en) || en <= st) continue;
+      bump(出勤分, String(sh.email || "").toLowerCase(), en - st);
+      if (sh.name) bump(出勤分, "name:" + normN(sh.name), en - st);
+    }
+    const 出勤時間 = Object.fromEntries(Object.entries(出勤分).map(([k, v]) => [k, Math.round((v / 60) * 10) / 10]));
+
+    // 新規リストから取ったアポ（かけた人ごと）
+    const 新規アポ = {};
+    for (const r of await apoStructureRows(from, to).catch(() => [])) {
+      if (r.nurture || frameOfSource(r.source) !== "new") continue;
+      if (r.caller && r.apos) bump(新規アポ, String(r.caller).toLowerCase(), Number(r.apos) || 0);
+    }
+
+    // 受注数：受注した会社 → その会社のいちばん最初のアポを取った人
+    const 受注数 = {};
+    const evs = await listDealEvents({ from, to, kind: "再商談" }).catch(() => []);
+    const wonCo = new Map();   // deal_id → 会社名（同じ案件を二重に数えない）
+    for (const e of evs || []) if (e.result === "受注" && e.deal_status === "受注" && !wonCo.has(e.deal_id)) wonCo.set(e.deal_id, e.company_name);
+    if (wonCo.size) {
+      const setterOf = new Map();
+      for (const l of await listApoSetters().catch(() => [])) {
+        const k = normCompanyKey(parseLaunchTitle(l.label || "").company || "");
+        if (k && !setterOf.has(k)) setterOf.set(k, { email: l.setter_email, name: l.setter });
+      }
+      for (const co of wonCo.values()) {
+        const who = setterOf.get(normCompanyKey(co || ""));
+        if (!who) continue;
+        bump(受注数, who.email, 1);
+        if (who.name) bump(受注数, "name:" + normN(who.name), 1);
+      }
+    }
+    res.json({ ok: true, month: ym, from, to, 出勤時間, 受注数, 新規アポ });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/api/calls/apo-dashboard", async (req, res) => {
   try {
     const period = req.query.period === "week" ? "week" : "month";   // ダッシュボードは月次/週次
@@ -22965,8 +23026,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12c カレンダーの説明欄に【先方の連絡先】（担当・メール・CC・つながる電話番号）を入れる。担当の商談予定・浦林さん対応の予定・kincallから作る獲得者の予定のすべて。kincallのアポの内容欄に電話（かけた番号を初期値・直せる）を追加。";
+const BUILD_TAG = "2026-10-12d 実績ダッシュボードの右上にインサイド向けアワード（出勤時間・受注数・新規リード獲得＝新規リストから取ったアポ）。金の月桂樹の中に1位、下に2位以降の全員の今の数。";
 const BUILD_FEATURES = [
+  "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",
   "カレンダーの説明欄に先方のメールとつながる電話番号を表示",
   "kincallの日程パネルに「他の日程」タブ（カレンダーで日を選ぶと、その日の空き時間をすべて表示）",
   "kincallのアポ獲得から、カレンダー登録とアポの割り振りまで自動（商談日時は自由に選べる・空いている担当を表示）",

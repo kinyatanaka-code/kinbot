@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261012c" />
+    <link rel="stylesheet" href="style.css?v=20261012d" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -87,6 +87,32 @@
             <style>
               .kc-dgrid{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px;}
               .kc-dteams{margin-bottom:14px;}
+              /* アワード：グループ・セールスの2段の右に置く（画面が狭いときは下に回る） */
+              .kc-dtop{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;}
+              .kc-dtop-l{flex:0 0 auto;max-width:100%;}
+              .kc-awards{flex:1 1 470px;min-width:450px;max-width:620px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;}
+              .kc-aw{container-type:inline-size;}
+              @container (max-width:230px){.kc-aw .kc-aw-ls{grid-template-columns:1fr;gap:2px;}.kc-aw .kc-aw-h{font-size:11px;letter-spacing:0;}}
+              .kc-aw{position:relative;overflow:hidden;background:radial-gradient(120% 90% at 50% 35%,#24365f 0%,#14213f 55%,#0c1428 100%);border-radius:14px;padding:10px 12px 10px;color:#eef1f7;}
+              .kc-aw-h{font-size:12px;font-weight:700;letter-spacing:.06em;white-space:nowrap;text-align:center;background:linear-gradient(180deg,#fff3c4,#e7b64a 55%,#b9821f);-webkit-background-clip:text;background-clip:text;color:transparent;}
+              .kc-aw-wr{position:relative;width:100%;max-width:178px;margin:2px auto 0;aspect-ratio:190/140;}
+              .kc-aw-wr svg{position:absolute;inset:0;width:100%;height:100%;}
+              .kc-aw-c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:6px;text-align:center;}
+              .kc-aw-st{font-size:10px;letter-spacing:3px;color:#f2c75c;line-height:1;}
+              .kc-aw-rk{font-size:10px;color:#d9b45a;letter-spacing:.1em;margin-top:2px;}
+              .kc-aw-n{font-size:14px;font-weight:800;line-height:1.25;color:#fff;max-width:90px;word-break:keep-all;overflow-wrap:anywhere;}
+              .kc-aw-v{font-size:12px;white-space:nowrap;font-weight:700;background:linear-gradient(180deg,#fff3c4,#e7b64a);-webkit-background-clip:text;background-clip:text;color:transparent;}
+              .kc-aw-none{font-size:11px;color:#aab4c8;}
+              .kc-aw-line{height:1px;background:linear-gradient(90deg,transparent,#b9821f,transparent);margin:4px 0 6px;}
+              .kc-aw-ls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 8px;font-size:11px;color:#c9d0de;}
+              .kc-aw-ls span{display:flex;align-items:center;gap:4px;min-width:0;}
+              .kc-aw-ls .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+              .kc-aw-ls b{font-weight:700;color:#f3f5fa;margin-left:auto;white-space:nowrap;}
+              .kc-aw-r{flex:none;width:15px;height:15px;border-radius:50%;font-size:9px;font-style:normal;font-weight:700;display:inline-flex;align-items:center;justify-content:center;background:#2a3b62;color:#aab4c8;}
+              .kc-aw-r.r2{background:linear-gradient(180deg,#f4f4f4,#a9adb4);color:#2b2f36;}
+              .kc-aw-r.r3{background:linear-gradient(180deg,#f3b58a,#b8622f);color:#3a1a08;}
+              .kc-aw-sp{position:absolute;width:10px;height:10px;pointer-events:none;background:radial-gradient(circle,#fff 0 1px,rgba(255,236,170,.85) 2px,transparent 6px);animation:kcAwTw 2.8s ease-in-out infinite;}
+              @keyframes kcAwTw{0%,100%{opacity:.25;transform:scale(.7)}50%{opacity:1;transform:scale(1.15)}}
               .kc-dcard{flex:0 0 168px;width:168px;box-sizing:border-box;background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .12s,transform .1s;}
               .kc-dcard:hover{border-color:#5DCAA5;transform:translateY(-1px);}
               /* インセンティブ表示のあるカード（インサイド）は少し広めに */
@@ -466,9 +492,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261012c"></script>
-    <script src="calls.js?v=20261012c"></script>
-    <script src="nav.js?v=20261012c"></script>
+    <script src="sf-data.js?v=20261012d"></script>
+    <script src="calls.js?v=20261012d"></script>
+    <script src="nav.js?v=20261012d"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

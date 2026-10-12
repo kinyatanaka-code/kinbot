@@ -6319,6 +6319,19 @@ export async function findOriginApos({ setterEmail, startTime, origin = "kincall
     return rows;
   } catch (e) { console.error("[db] findOriginApos", e.message); return []; }
 }
+// アワード（受注数）用：会社ごとに「誰がアポを取ったか」を引くための、アポの一覧（予定名・獲得者）。
+export async function listApoSetters({ sinceDays = 400 } = {}) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT label, setter, lower(setter_email) AS setter_email, start_time
+         FROM smart_links
+        WHERE NOT COALESCE(excluded,false) AND COALESCE(setter_email,'') <> ''
+          AND COALESCE(start_time, created_at) > now() - ($1 || ' days')::interval
+        ORDER BY COALESCE(start_time, created_at) ASC`, [String(sinceDays)]);
+    return rows;
+  } catch (e) { console.error("[db] listApoSetters", e.message); return []; }
+}
 // アポの取得日時（apo_at）を直す。取得日でカウントされるので、実際に取った日に合わせられる。
 export async function setSmartLinkApoAt(slug, iso) {
   if (!pool || !slug) return null;
