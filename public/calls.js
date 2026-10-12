@@ -3674,11 +3674,11 @@ async function loadDash() {
       // リスト別：顔ぶれ（セールス・インサイド）はいつものダッシュボードと同じにする
       const [dm, dl] = await Promise.all([
         fetch(`/api/calls/apo-dashboard?period=month&month=${encodeURIComponent(dashWeekMonth)}&metric=apo`).then((r) => r.json()).catch(() => ({})),
-        fetch(`/api/calls/list-dashboard?month=${encodeURIComponent(dashWeekMonth)}`).then((r) => r.json()),
+        fetch(`/api/calls/list-dashboard?month=${encodeURIComponent(dashWeekMonth)}${dashPeriod === "week" ? "&period=week" : ""}`).then((r) => r.json()),
       ]);
       if (dl.error) throw new Error(dl.error);
       const [yy, mo] = String(dl.month || "").split("-");
-      const rgl = $("dashRange"); if (rgl) rgl.textContent = `対象：${Number(mo)}月（${Number(dl.to.slice(8))}日まで・リスト別${dashPeriod === "week" ? "／リスト別は月ごとに出します" : ""}）`;
+      const rgl = $("dashRange"); if (rgl) rgl.textContent = `対象：${Number(mo)}月（${Number(dl.to.slice(8))}日まで・${dashPeriod === "week" ? "週次" : "月次"}・リスト別）`;
       renderListDash(dm, dl);
       return;
     }
@@ -4041,73 +4041,105 @@ function kcAwardsHtml(insideList, data, animate = false) {
   }).join("");
 }
 // ===== ダッシュボード「リスト別」 =====
-// 新規リスト・過去リストでの コール／アポ／アポ率 と、新規リスト→ナーチャリングの件数を、セールス・インサイドごとに並べる。
-let _ldSort = { key: "新規アポ", dir: -1 };
+// 新規リスト・過去リスト・ナーチャリング の コール／アポ／アポ率 と、新規リスト→ナーチャリングの件数を、セールス・インサイドごとに並べる。
+// 週次のときは、週ラップと同じ区切りで週ごとに出す（いちばん新しい週だけ開き、ほかは見出しを押すと開く）。
+let _ldSort = { key: "新規:アポ", dir: -1 };
 let _ldOpen = new Set();
-function renderListDash(dm, dl) {
-  const box = $("clDash"); if (!box) return;
+let _ldWeekOpen = null;   // 開いている週（from）。null＝いちばん新しい週
+const LD_FR = [
+  { k: "新規", cls: "new", label: "新規リスト" },
+  { k: "過去", cls: "past", label: "過去リスト" },
+  { k: "ナーチャリング", cls: "nur", label: "ナーチャリング" },
+];
+function ldRate(a, c) { return c ? `${(Math.round((a / c) * 1000) / 10).toFixed(1)}%` : "-"; }
+// 顔ぶれ（ダッシュボードのセールス・インサイド）に、集計を当てる
+function ldRows(dm, stats) {
   const normN = (x) => String(x || "").replace(/[\s　]/g, "");
-  const ppl = dl.people || [];
+  const ppl = (stats && stats.people) || [];
   const byEmail = new Map(ppl.map((p) => [p.email, p]));
   const byName = new Map(ppl.map((p) => [normN(p.name), p]));
   const used = new Set();
-  const pick = (c) => {
-    const k = String(c.key || "").toLowerCase();
-    const p = byEmail.get(k) || byName.get(normN(c.label));
-    if (p) used.add(p.email);
-    return p || null;
-  };
   const zero = { コール: 0, 接触: 0, アポ: 0 };
   const rowOf = (label, p) => ({
-    label, email: p ? p.email : "", 新規: p ? p.新規 : zero, 過去: p ? p.過去 : zero,
+    label, email: p ? p.email : "", 新規: p ? p.新規 : zero, 過去: p ? p.過去 : zero, ナーチャリング: p ? (p.ナーチャリング || zero) : zero,
     ナーチャリング化: p ? p.ナーチャリング化 : 0, リスト別: p ? p.リスト別 : [],
   });
+  const pick = (c) => { const p = byEmail.get(String(c.key || "").toLowerCase()) || byName.get(normN(c.label)); if (p) used.add(p.email); return p || null; };
   const sales = (dm.sales || []).map((c) => rowOf(c.label, pick(c)));
   const inside = (dm.inside || []).map((c) => rowOf(c.label, pick(c)));
-  // 顔ぶれにいないのに架電がある人（「その他」）
-  const others = ppl.filter((p) => !used.has(p.email) && (p.新規.コール + p.過去.コール + p.ナーチャリング化) > 0).map((p) => rowOf(p.name, p));
-  const rate = (a, c) => (c ? `${(Math.round((a / c) * 1000) / 10).toFixed(1)}%` : "-");
-  const T = dl.合計 || { 新規: zero, 過去: zero, ナーチャリング化: 0 };
-  const sumCard = (cls, title, b) => `<div class="ld-card"><h4><i class="ld-dot ${cls}"></i>${title}</h4>
-      <div class="ld-big">${b.アポ}<small>アポ</small></div>
-      <div class="ld-sub">コール ${b.コール.toLocaleString()} ・ アポ率 ${rate(b.アポ, b.コール)} ・ 接触 ${b.接触.toLocaleString()}</div></div>`;
-  const keyVal = (r, k) => ({ 名前: r.label, 新規アポ: r.新規.アポ, 新規コール: r.新規.コール, 新規率: r.新規.コール ? r.新規.アポ / r.新規.コール : -1,
-    過去アポ: r.過去.アポ, 過去コール: r.過去.コール, 過去率: r.過去.コール ? r.過去.アポ / r.過去.コール : -1, ナーチャリング: r.ナーチャリング化 }[k]);
-  const sortRows = (rows) => [...rows].sort((a, b) => {
+  const others = ppl.filter((p) => !used.has(p.email) && LD_FR.some((f) => (p[f.k] || zero).コール > 0) ).map((p) => rowOf(p.name, p));
+  return { sales, inside, others };
+}
+function ldSumCards(T, cum) {
+  const zero = { コール: 0, 接触: 0, アポ: 0 };
+  const card = (f) => {
+    const b = T[f.k] || zero, c = cum ? (cum[f.k] || zero) : null;
+    return `<div class="ld-card"><h4><i class="ld-dot ${f.cls}"></i>${f.label}</h4>
+      <div class="ld-big">${b.アポ}<small>アポ</small>${c ? `<span class="ld-cum">月初から ${c.アポ}</span>` : ""}</div>
+      <div class="ld-sub">コール ${b.コール.toLocaleString()} ・ アポ率 ${ldRate(b.アポ, b.コール)} ・ 接触 ${b.接触.toLocaleString()}</div></div>`;
+  };
+  return `<div class="ld-sum">${LD_FR.map(card).join("")}
+    <div class="ld-card"><h4><i class="ld-dot nur2"></i>新規リスト → ナーチャリング</h4>
+      <div class="ld-big">${T.ナーチャリング化 || 0}<small>件</small>${cum ? `<span class="ld-cum">月初から ${cum.ナーチャリング化 || 0}</span>` : ""}</div>
+      <div class="ld-sub">新規リストのリードが、はじめてジャッジ・営業フォローになった数</div></div></div>`;
+}
+function ldTable(title, rows, opts = {}) {
+  if (!rows.length) return "";
+  const keyVal = (r, k) => {
+    if (k === "名前") return r.label;
+    if (k === "新規→ナーチャ") return r.ナーチャリング化;
+    const [fk, f] = k.split(":");
+    const b = r[fk] || { コール: 0, アポ: 0 };
+    return f === "率" ? (b.コール ? b.アポ / b.コール : -1) : b[f];
+  };
+  const sorted = [...rows].sort((a, b) => {
     const x = keyVal(a, _ldSort.key), y = keyVal(b, _ldSort.key);
     if (typeof x === "string") return _ldSort.dir * String(x).localeCompare(String(y), "ja");
-    return _ldSort.dir * (x - y) || String(a.label).localeCompare(String(b.label), "ja");
+    return _ldSort.dir * ((x ?? 0) - (y ?? 0)) || String(a.label).localeCompare(String(b.label), "ja");
   });
   const th = (k, label, cls = "") => `<th class="${cls}" data-k="${k}">${label}${_ldSort.key === k ? ` <span class="ar">${_ldSort.dir < 0 ? "▼" : "▲"}</span>` : ""}</th>`;
-  const table = (title, rows) => {
-    if (!rows.length) return "";
-    const tot = rows.reduce((a, r) => ({ 新規: { コール: a.新規.コール + r.新規.コール, アポ: a.新規.アポ + r.新規.アポ }, 過去: { コール: a.過去.コール + r.過去.コール, アポ: a.過去.アポ + r.過去.アポ }, n: a.n + r.ナーチャリング化 }),
-      { 新規: { コール: 0, アポ: 0 }, 過去: { コール: 0, アポ: 0 }, n: 0 });
-    const body = sortRows(rows).map((r) => {
-      const id = r.email || r.label;
-      const open = _ldOpen.has(id);
-      const chips = (r.リスト別 || []).map((x) => `<span class="ld-chip ${x.枠 === "新規" ? "new" : "past"}" title="${esc(x.グループ ? `グループ：${x.グループ}` : "")}"><i class="ld-dot ${x.枠 === "新規" ? "new" : "past"}"></i>${esc(x.リスト || "（リスト名なし）")}<em>アポ ${x.アポ} ／ コール ${x.コール}</em></span>`).join("");
-      return `<tr class="ld-row" data-id="${esc(id)}"><td>${open ? "▾" : "▸"} ${esc(r.label)}</td>
-          <td class="c-new"><b>${r.新規.アポ}</b></td><td class="c-new">${r.新規.コール}</td><td class="c-new ld-rate">${rate(r.新規.アポ, r.新規.コール)}</td>
-          <td class="c-past"><b>${r.過去.アポ}</b></td><td class="c-past">${r.過去.コール}</td><td class="c-past ld-rate">${rate(r.過去.アポ, r.過去.コール)}</td>
-          <td class="c-nur"><b>${r.ナーチャリング化}</b></td></tr>` +
-        (open ? `<tr class="ld-det"><td colspan="8">${chips || '<span class="ld-rate">この月は、新規・過去リストでの架電がありません</span>'}</td></tr>` : "");
+  const tot = { n: 0 }; for (const f of LD_FR) tot[f.k] = { コール: 0, アポ: 0 };
+  for (const r of rows) { for (const f of LD_FR) { tot[f.k].コール += r[f.k].コール; tot[f.k].アポ += r[f.k].アポ; } tot.n += r.ナーチャリング化; }
+  const cols = (b, cls) => `<td class="c-${cls}"><b>${b.アポ}</b></td><td class="c-${cls}">${b.コール}</td><td class="c-${cls} ld-rate">${ldRate(b.アポ, b.コール)}</td>`;
+  const body = sorted.map((r) => {
+    const id = (opts.prefix || "") + (r.email || r.label);
+    const open = _ldOpen.has(id);
+    const chips = (r.リスト別 || []).map((x) => {
+      const c = x.枠 === "新規" ? "new" : x.枠 === "過去" ? "past" : "nur";
+      return `<span class="ld-chip ${c}" title="${esc(x.グループ ? `グループ：${x.グループ}` : "")}"><i class="ld-dot ${c}"></i>${x.枠 === "ナーチャリング" ? "ナーチャ：" : ""}${esc(x.リスト || "（リスト名なし）")}<em>アポ ${x.アポ} ／ コール ${x.コール}</em></span>`;
     }).join("");
-    return `<div class="ld-sec">${title}</div><div class="ld-wrap"><table class="ld-t">
-      <thead><tr>${th("名前", "メンバー")}${th("新規アポ", "新規 アポ", "g-new")}${th("新規コール", "新規 コール", "g-new")}${th("新規率", "新規 アポ率", "g-new")}
-        ${th("過去アポ", "過去 アポ", "g-past")}${th("過去コール", "過去 コール", "g-past")}${th("過去率", "過去 アポ率", "g-past")}${th("ナーチャリング", "新規→ナーチャリング", "g-nur")}</tr></thead>
-      <tbody>${body}<tr class="ld-tot"><td>合計</td><td>${tot.新規.アポ}</td><td>${tot.新規.コール}</td><td class="ld-rate">${rate(tot.新規.アポ, tot.新規.コール)}</td>
-        <td>${tot.過去.アポ}</td><td>${tot.過去.コール}</td><td class="ld-rate">${rate(tot.過去.アポ, tot.過去.コール)}</td><td>${tot.n}</td></tr></tbody></table></div>`;
-  };
-  box.innerHTML = `<div class="ld-sum">
-      ${sumCard("new", "新規リスト", T.新規)}
-      ${sumCard("past", "過去リスト", T.過去)}
-      <div class="ld-card"><h4><i class="ld-dot nur"></i>新規リスト → ナーチャリング</h4>
-        <div class="ld-big">${T.ナーチャリング化}<small>件</small></div>
-        <div class="ld-sub">新規リストのリードが、はじめてジャッジ・営業フォローになった数</div></div>
-    </div>
-    ${table("セールス", sales)}${table("インサイド", inside)}${table("その他", others)}
-    <p class="note" style="margin-top:10px">新規・過去は、リスト管理のグループ名 → リスト名 で決まるソースの枠で分けています（アワードの新規リード獲得と同じ）。アポはアポ獲得になったリードの数（同じリードは1回）、アポ率＝アポ÷コール。名前を押すと、どのリストで取ったかが出ます。見出しを押すと並べ替えます。</p>`;
+    return `<tr class="ld-row" data-id="${esc(id)}"><td>${open ? "▾" : "▸"} ${esc(r.label)}</td>${LD_FR.map((f) => cols(r[f.k], f.cls)).join("")}<td class="c-nur2"><b>${r.ナーチャリング化}</b></td></tr>` +
+      (open ? `<tr class="ld-det"><td colspan="11">${chips || '<span class="ld-rate">この期間は、新規・過去・ナーチャリングでの架電がありません</span>'}</td></tr>` : "");
+  }).join("");
+  return `<div class="ld-sec">${title}</div><div class="ld-wrap"><table class="ld-t">
+    <thead><tr>${th("名前", "メンバー")}${LD_FR.map((f) => th(`${f.k}:アポ`, `${f.k === "ナーチャリング" ? "ナーチャ" : f.k} アポ`, `g-${f.cls}`) + th(`${f.k}:コール`, "コール", `g-${f.cls}`) + th(`${f.k}:率`, "アポ率", `g-${f.cls}`)).join("")}${th("新規→ナーチャ", "新規→ナーチャ", "g-nur2")}</tr></thead>
+    <tbody>${body}<tr class="ld-tot"><td>合計</td>${LD_FR.map((f) => `<td>${tot[f.k].アポ}</td><td>${tot[f.k].コール}</td><td class="ld-rate">${ldRate(tot[f.k].アポ, tot[f.k].コール)}</td>`).join("")}<td>${tot.n}</td></tr></tbody></table></div>`;
+}
+function renderListDash(dm, dl) {
+  const box = $("clDash"); if (!box) return;
+  const note = `<p class="note" style="margin-top:10px">ナーチャリング＝その架電の前にジャッジ・営業フォローになっていたリード（どのリストにいても）。それ以外を、リスト管理のグループ名 → リスト名 で決まるソースの枠で新規・過去に分けています。アポはアポ獲得になったリードの数（同じリードは1回）、アポ率＝アポ÷コール。名前を押すと、どのリストで取ったかが出ます。見出しを押すと並べ替えます。${dl.weeks ? "　週は週ラップと同じ区切り（平日の月〜金）で、土日の架電はその前の週に入れています。" : ""}</p>`;
+  let html = "";
+  if (Array.isArray(dl.weeks)) {
+    // 週次：上に月の合計、下に週ごと（開いた週だけ表）
+    const live = dl.weeks.filter((w) => !w.future);
+    const openFrom = _ldWeekOpen || (live.length ? live[live.length - 1].from : "");
+    html += `<div class="ld-sec">月の合計（${Number(dl.month.slice(5))}月・${Number(dl.to.slice(8))}日まで）</div>${ldSumCards(dl.合計)}`;
+    html += dl.weeks.map((w) => {
+      if (w.future) return `<div class="ld-week future"><div class="ld-wh"><b>${esc(w.label)}</b><span class="ld-rate">これから</span></div></div>`;
+      const open = w.from === openFrom;
+      const T = w.合計, C = w.月初から;
+      const chip = (cls, label, v, c) => `<span class="ld-wchip"><i class="ld-dot ${cls}"></i>${label} <b>${v}</b><em>（月初から ${c}）</em></span>`;
+      const head = `<div class="ld-wh" data-from="${esc(w.from)}"><b>${open ? "▾" : "▸"} ${esc(w.label)}</b>
+        ${chip("new", "新規", T.新規.アポ, C.新規.アポ)}${chip("past", "過去", T.過去.アポ, C.過去.アポ)}${chip("nur", "ナーチャ", T.ナーチャリング.アポ, C.ナーチャリング.アポ)}${chip("nur2", "新規→ナーチャ", T.ナーチャリング化, C.ナーチャリング化)}</div>`;
+      if (!open) return `<div class="ld-week">${head}</div>`;
+      const g = ldRows(dm, w);
+      return `<div class="ld-week open">${head}${ldTable("セールス", g.sales, { prefix: w.from + "|" })}${ldTable("インサイド", g.inside, { prefix: w.from + "|" })}${ldTable("その他", g.others, { prefix: w.from + "|" })}</div>`;
+    }).join("");
+  } else {
+    const g = ldRows(dm, dl);
+    html += ldSumCards(dl.合計) + ldTable("セールス", g.sales) + ldTable("インサイド", g.inside) + ldTable("その他", g.others);
+  }
+  box.innerHTML = html + note;
   box.querySelectorAll(".ld-t th[data-k]").forEach((h) => h.addEventListener("click", () => {
     const k = h.dataset.k;
     _ldSort = _ldSort.key === k ? { key: k, dir: -_ldSort.dir } : { key: k, dir: k === "名前" ? 1 : -1 };
@@ -4116,6 +4148,12 @@ function renderListDash(dm, dl) {
   box.querySelectorAll(".ld-row").forEach((tr) => tr.addEventListener("click", () => {
     const id = tr.dataset.id;
     if (_ldOpen.has(id)) _ldOpen.delete(id); else _ldOpen.add(id);
+    renderListDash(dm, dl);
+  }));
+  box.querySelectorAll(".ld-wh[data-from]").forEach((h) => h.addEventListener("click", () => {
+    const live = (dl.weeks || []).filter((w) => !w.future);
+    const cur = _ldWeekOpen || (live.length ? live[live.length - 1].from : "");
+    _ldWeekOpen = cur === h.dataset.from ? "__none__" : h.dataset.from;
     renderListDash(dm, dl);
   }));
 }

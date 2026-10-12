@@ -13350,47 +13350,83 @@ const DASH_APO_ADJUST_BASE = {
 //   受注数   … その月に受注した案件（受注した日＝won_at）を、その会社のいちばん最初のアポを取った人に付ける
 //   新規リード獲得 … リスト管理で新規リストの枠に分けたリスト（グループ→リスト名で決まるソース）で取ったアポの数
 // 顔ぶれ（誰を並べるか）は画面側で、ダッシュボードのインサイドのカードと同じにする。
-// ダッシュボード「リスト別」：その月の、人ごとの 新規リスト／過去リスト の コール・接触・アポ と、新規リスト→ナーチャリングの件数。
-//   どのリストが新規・過去かは、リスト管理のグループ名 → リスト名 の順で決まるソースの枠で判断（アワードの新規リード獲得と同じ）。
-//   ナーチャリング化は、新規リストのソースのリードが はじめて ジャッジ・営業フォロー になった件数（そのときかけた人に付ける）。
-// 例：/api/calls/list-dashboard?month=2026-10
+// ダッシュボード「リスト別」：人ごとの 新規リスト／過去リスト／ナーチャリング の コール・接触・アポ と、新規リスト→ナーチャリングの件数。
+//   ナーチャリング … その架電の前に、そのリードがジャッジ・営業フォローになっていたもの（どのリストにいても）
+//   新規・過去   … それ以外を、リスト管理のグループ名 → リスト名 で決まるソースの枠で分ける（アワードの新規リード獲得と同じ）
+//   新規→ナーチャリング … 新規リストのソースのリードが はじめて ジャッジ・営業フォロー になった件数（そのときかけた人）
+async function listFrameStats(from, to) {
+  const blank = () => ({ コール: 0, 接触: 0, アポ: 0 });
+  const by = new Map();
+  const get = (em) => { if (!by.has(em)) by.set(em, { 新規: blank(), 過去: blank(), ナーチャリング: blank(), その他: blank(), ナーチャリング化: 0, リスト別: [] }); return by.get(em); };
+  const FR = { new: "新規", past: "過去" };
+  if (to >= from) {
+    for (const r of await callFrameStatsByCaller(from, to).catch(() => [])) {
+      if (!r.caller) continue;
+      const fk = FR[frameOfSource(classifyListSource(r.list_name, r.group_name))] || "その他";
+      const o = get(r.caller), b = o[fk];
+      b.コール += r.calls; b.接触 += r.contacts; b.アポ += r.apos;
+      o.ナーチャリング.コール += r.nur_calls; o.ナーチャリング.接触 += r.nur_contacts; o.ナーチャリング.アポ += r.nur_apos;
+      if (fk !== "その他" && (r.calls || r.apos)) o.リスト別.push({ 枠: fk, リスト: r.list_name || "", グループ: r.group_name || "", コール: r.calls, アポ: r.apos });
+      if (r.nur_calls || r.nur_apos) o.リスト別.push({ 枠: "ナーチャリング", リスト: r.list_name || "", グループ: r.group_name || "", コール: r.nur_calls, アポ: r.nur_apos });
+    }
+    for (const r of await nurtureInflowByCaller(from, to, LEAD_FRAMES.new.sources).catch(() => [])) get(r.caller).ナーチャリング化 += r.n;
+  }
+  const names = {};
+  for (const u of (await listUsers().catch(() => [])) || []) if (u.email) names[String(u.email).toLowerCase()] = u.name || "";
+  for (const x of await listInterns().catch(() => [])) if (x.email) names[String(x.email).toLowerCase()] = x.name || names[String(x.email).toLowerCase()] || "";
+  const people = [...by.entries()].map(([email, o]) => {
+    o.リスト別.sort((a, b) => b.アポ - a.アポ || b.コール - a.コール);
+    return { email, name: names[email] || email.split("@")[0], ...o };
+  });
+  const sum = (k) => people.reduce((a, p) => ({ コール: a.コール + p[k].コール, 接触: a.接触 + p[k].接触, アポ: a.アポ + p[k].アポ }), blank());
+  return { people, 合計: { 新規: sum("新規"), 過去: sum("過去"), ナーチャリング: sum("ナーチャリング"), ナーチャリング化: people.reduce((a, p) => a + p.ナーチャリング化, 0) } };
+}
+// 例：/api/calls/list-dashboard?month=2026-10（&period=week で週ラップごとも返す）
 app.get("/api/calls/list-dashboard", async (req, res) => {
   try {
     const nowJ = new Date(Date.now() + 9 * 3600000);
     const pad = (n) => String(n).padStart(2, "0");
+    const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const thisYm = `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
     const ym = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : thisYm;
     const [yy, mm] = ym.split("-").map(Number);
     const from = `${ym}-01`;
-    const monthEnd = `${ym}-${pad(new Date(Date.UTC(yy, mm, 0)).getUTCDate())}`;
-    const todayStr = `${thisYm}-${pad(nowJ.getUTCDate())}`;
+    const monthEnd = ymd(new Date(Date.UTC(yy, mm, 0)));
+    const todayStr = ymd(nowJ);
     const to = monthEnd < todayStr ? monthEnd : todayStr;
-    const blank = () => ({ コール: 0, 接触: 0, アポ: 0 });
-    const by = new Map();   // email → { 新規, 過去, その他, ナーチャリング化, リスト別 }
-    const get = (em) => { if (!by.has(em)) by.set(em, { 新規: blank(), 過去: blank(), その他: blank(), ナーチャリング化: 0, リスト別: [] }); return by.get(em); };
-    const FR = { new: "新規", past: "過去" };
-    if (to >= from) {
-      for (const r of await callFrameStatsByCaller(from, to).catch(() => [])) {
-        if (!r.caller) continue;
-        const fk = FR[frameOfSource(classifyListSource(r.list_name, r.group_name))] || "その他";
-        const o = get(r.caller), b = o[fk];
-        b.コール += r.calls; b.接触 += r.contacts; b.アポ += r.apos;
-        if (fk !== "その他") o.リスト別.push({ 枠: fk, リスト: r.list_name || "", グループ: r.group_name || "", コール: r.calls, アポ: r.apos });
+    const month = await listFrameStats(from, to);
+    const out = { ok: true, month: ym, from, to, ...month };
+    if (String(req.query.period) === "week") {
+      // 週ラップと同じ区切り（平日の月〜金。月をまたがない）。土日の架電は、その前の週に入れる（月初が土日なら最初の週）。
+      const laps = [];
+      let d = new Date(Date.UTC(yy, mm - 1, 1)); const end = new Date(Date.UTC(yy, mm, 0));
+      while (d <= end) {
+        const dow = d.getUTCDay();
+        if (dow === 0 || dow === 6) { d = new Date(d.getTime() + 86400000); continue; }
+        let lt = new Date(d.getTime() + (5 - dow) * 86400000); if (lt > end) lt = new Date(end);
+        laps.push({ from: ymd(d), to: ymd(lt), label: `${d.getUTCMonth() + 1}/${d.getUTCDate()}〜${lt.getUTCMonth() + 1}/${lt.getUTCDate()}` });
+        d = new Date(lt.getTime() + 86400000);
       }
-      for (const r of await nurtureInflowByCaller(from, to, LEAD_FRAMES.new.sources).catch(() => [])) get(r.caller).ナーチャリング化 += r.n;
+      out.weeks = [];
+      const run = { 新規: { コール: 0, 接触: 0, アポ: 0 }, 過去: { コール: 0, 接触: 0, アポ: 0 }, ナーチャリング: { コール: 0, 接触: 0, アポ: 0 }, ナーチャリング化: 0 };
+      const addRun = (t) => {
+        for (const k of ["新規", "過去", "ナーチャリング"]) for (const f of ["コール", "接触", "アポ"]) run[k][f] += t[k][f];
+        run.ナーチャリング化 += t.ナーチャリング化;
+        return JSON.parse(JSON.stringify(run));
+      };
+      for (let k = 0; k < laps.length; k++) {
+        const l = laps[k];
+        const cf = k === 0 ? from : l.from;
+        const nextFrom = laps[k + 1] ? laps[k + 1].from : null;
+        const ct0 = nextFrom ? ymd(new Date(new Date(nextFrom + "T00:00:00Z").getTime() - 86400000)) : monthEnd;
+        const ct = ct0 < to ? ct0 : to;
+        if (cf > to) { out.weeks.push({ ...l, future: true }); continue; }
+        const w = await listFrameStats(cf, ct);
+        // 月初からの積み上げ（週ラップと同じ見方）も合計だけ出す（週は月初から隙間なく区切っているので足し上げで出せる）
+        out.weeks.push({ ...l, countFrom: cf, countTo: ct, ...w, 月初から: addRun(w.合計) });
+      }
     }
-    // 名前（メールしか無いときのため）
-    const names = {};
-    const users = await listUsers().catch(() => []);
-    for (const u of users || []) if (u.email) names[String(u.email).toLowerCase()] = u.name || "";
-    for (const x of await listInterns().catch(() => [])) if (x.email) names[String(x.email).toLowerCase()] = x.name || names[String(x.email).toLowerCase()] || "";
-    const people = [...by.entries()].map(([email, o]) => {
-      o.リスト別.sort((a, b) => b.アポ - a.アポ || b.コール - a.コール);
-      return { email, name: names[email] || email.split("@")[0], ...o };
-    });
-    const sum = (k) => people.reduce((a, p) => ({ コール: a.コール + p[k].コール, 接触: a.接触 + p[k].接触, アポ: a.アポ + p[k].アポ }), blank());
-    res.json({ ok: true, month: ym, from, to, people,
-      合計: { 新規: sum("新規"), 過去: sum("過去"), ナーチャリング化: people.reduce((a, p) => a + p.ナーチャリング化, 0) } });
+    res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -23109,7 +23145,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12m 実績ダッシュボードに「リスト別」タブ（新規リスト・過去リストの アポ／コール／アポ率、新規リスト→ナーチャリングの件数を、セールス・インサイドごとに。名前を押すとリスト別の内訳、見出しで並べ替え）。";
+const BUILD_TAG = "2026-10-12n リスト別に「ナーチャリング」の枠（架電の前にジャッジ・営業フォローだったリード）を追加し、週次（週ラップと同じ区切り）でも見られるように。週ごとに 新規／過去／ナーチャ／新規→ナーチャ の今週と月初からの数、開いた週はメンバー別の表。";
 const BUILD_FEATURES = [
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",

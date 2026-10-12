@@ -3470,18 +3470,25 @@ export async function listWonDealsBetween(fromDay, toDay) {
 export async function callFrameStatsByCaller(fromDay, toDay) {
   if (!pool) return [];
   try {
+    // pj＝その架電より前に、そのリードがジャッジ・営業フォローになっていた（＝ナーチャリングの架電）
     const { rows } = await pool.query(
-      `SELECT lower(COALESCE(l.caller,'')) AS caller, cl.id AS list_id, cl.name AS list_name,
-              (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name,
-              count(*)::int AS calls,
-              count(*) FILTER (WHERE l.result ~ '接触')::int AS contacts,
-              count(DISTINCT l.target_id) FILTER (WHERE l.result ~ 'アポ獲得')::int AS apos
-         FROM call_logs l
-         JOIN call_targets t ON t.id = l.target_id
-         JOIN call_lists cl ON cl.id = t.list_id
-        WHERE COALESCE(l.caller,'') <> ''
-          AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date
-        GROUP BY 1,2,3,4`, [fromDay, toDay]);
+      `WITH x AS (
+         SELECT lower(COALESCE(l.caller,'')) AS caller, l.target_id, l.result, cl.id AS list_id, cl.name AS list_name,
+                (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name,
+                EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー') AS pj
+           FROM call_logs l
+           JOIN call_targets t ON t.id = l.target_id
+           JOIN call_lists cl ON cl.id = t.list_id
+          WHERE COALESCE(l.caller,'') <> ''
+            AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date)
+       SELECT caller, list_id, list_name, group_name,
+              count(*) FILTER (WHERE NOT pj)::int AS calls,
+              count(*) FILTER (WHERE NOT pj AND result ~ '接触')::int AS contacts,
+              count(DISTINCT target_id) FILTER (WHERE NOT pj AND result ~ 'アポ獲得')::int AS apos,
+              count(*) FILTER (WHERE pj)::int AS nur_calls,
+              count(*) FILTER (WHERE pj AND result ~ '接触')::int AS nur_contacts,
+              count(DISTINCT target_id) FILTER (WHERE pj AND result ~ 'アポ獲得')::int AS nur_apos
+         FROM x GROUP BY 1,2,3,4`, [fromDay, toDay]);
     return rows;
   } catch (e) { console.error("[db] callFrameStatsByCaller", e.message); return []; }
 }
