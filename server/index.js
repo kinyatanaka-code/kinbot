@@ -14204,11 +14204,19 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
     const pad = (n) => String(n).padStart(2, "0");
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const mFrom = `${sel}-01`, mTo = ymd(new Date(Date.UTC(y, m, 0)));
-    const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo, canEdit: jisshiEditorOk(req) };
+    const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo, canEdit: jisshiEditorOk(req), canGoal: await canRedistribute(req).catch(() => false) };
     const opps = await markJisshiByKinbot(await sfJisshiOpps(mFrom, mTo), mFrom);   // 設定＝SF、実施＝kinbot
     const adjs = ((await getSettings().catch(() => ({}))).jisshiAdjust) || [];
+    // 実施の目標（ダッシュボードで手入力）。subject＝「jisshi:全体」「jisshi:植野」…、metric＝実施
+    const withGoals = (cards, gmap, key) => (cards || []).map((c) => {
+      const g = Number((((gmap[`jisshi:${c.name}`] || {})[key] || {})["実施"]) || 0);
+      return { ...c, goal: g, goalKey: key, diff: (c.実施 || 0) - g };
+    });
     if (period === "month") {
       out.cards = jisshiCardsFrom(opps, mFrom, mTo, adjs, mTo);   // 月次で直した分は月末の日に足す
+      const mg = await getApoGoalsByKeys("month", [sel]).catch(() => ({}));
+      out.cards = withGoals(out.cards, mg, sel);
+      out.goalPeriod = "month";
     } else {
       // 週ラップ（平日の月〜金で区切る。月をまたがない）。
       const laps = [];
@@ -14221,8 +14229,10 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
         d = new Date(to.getTime() + 86400000);
       }
       out.weeks = [];
-      // 週ラップは月初からの積み上げ（その週の終わりまでの合計）
-      for (const l of laps) out.weeks.push({ ...l, cards: jisshiCardsFrom(opps, mFrom, l.to, adjs, l.to) });   // その週で直した分は週の最終日に足す
+      // 週ラップは月初からの積み上げ（その週の終わりまでの合計）。目標はその週に入れた数（積み上げの実施と比べる。アポの週ラップと同じ）
+      const wg = await getApoGoalsByKeys("week", laps.map((l) => l.from)).catch(() => ({}));
+      for (const l of laps) out.weeks.push({ ...l, cards: withGoals(jisshiCardsFrom(opps, mFrom, l.to, adjs, l.to), wg, l.from) });   // その週で直した分は週の最終日に足す
+      out.goalPeriod = "week";
     }
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -23411,7 +23421,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13a kincallにメルマガ（左メニュー）：リストを選び、除くもの（アポ獲得済み・ユーザー・直近の商談・失注・配信停止・同じメール）を外して、トラッキング資料を宛先ごとのURLでまとめて送る。自分にテスト送信、数秒に1通・1日上限、一時停止・再開・やめる、開いた人と見た時間、配信停止ページ（ワンクリック対応）。";
+const BUILD_TAG = "2026-10-13b ダッシュボードの「実施」に目標を入れられるように（全体・植野・江田・中澤・他のカードに 目標／差分。月次はその月、週次はその週の目標を、月初からの積み上げの実施数と比べる）。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
