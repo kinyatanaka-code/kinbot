@@ -572,6 +572,10 @@ function bindCardEvents(card) {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "できませんでした");
         st.textContent = "変更しました";
+        // カレンダーの予定を動かせなかったときは、手で動かしてもらえるよう知らせる
+        if (Array.isArray(d.動かせなかった予定) && d.動かせなかった予定.length) {
+          alert(`日程は変えました。\nただし、次のカレンダー予定は動かせませんでした（編集の権限が無い可能性があります）。\n・${d.動かせなかった予定.join("\n・")}\n\nお手数ですが、カレンダーで手で動かしてください。`);
+        }
         // カードの日時を瞬時に反映（時刻表示・商談日グループを即更新。ページ再読み込みしない）
         const card = resched.closest(".ap-card");
         const idx = card ? Number(card.dataset.i) : -1;
