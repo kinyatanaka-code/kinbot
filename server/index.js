@@ -23146,7 +23146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12q 浦林さん対応で、本来の担当（江田さんなど）ではなくアポ獲得者（田中さん）のカレンダーに【浦林さん対応】の予定ができていた不具合を修正。獲得者本人は本来の担当にしない（Chatの「○○さんの商談カウントで」の人にする）。これからの商談で付け間違えていたものは起動時に自動で付け直し、件数も直す。";
+const BUILD_TAG = "2026-10-12r kincallのアポの内容欄に「種別」（新規＝【初回】／過去失注＝【初回/過去失注】／フロッグ＝【初回/フロッグ】）。リードのソースから初期値を決め、カレンダーの予定名の見本を表示。";
 const BUILD_FEATURES = [
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
@@ -27622,7 +27622,9 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
   const same = (await findOriginApos({ setterEmail, startTime: start.toISOString() })).find((l) => apoSameCompany(l.label, company));
   if (same) return { ok: true, already: true, link: same, calendar: same.event_id ? "ok" : "" };
 
-  const label = apoLabelOf("初回", company, person);
+  // 予定名の種別（新規＝【初回】／過去失注＝【初回/過去失注】／フロッグ＝【初回/フロッグ】）
+  const tag = ["初回", "初回/過去失注", "初回/フロッグ"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回";
+  const label = apoLabelOf(tag, company, person);
   const desc = [
     "【先方の連絡先】",
     person ? `担当：${person.replace(/\s*様$/, "")}様` : "",
@@ -27659,7 +27661,7 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
   }
 
   const r = await createApoAndAssign({
-    company, person, setterEmail, start, minutes: mins, tag: "初回", memo,
+    company, person, setterEmail, start, minutes: mins, tag, memo,
     clientEmail, cc, phone, business: apo.business, eventId, origin: "kincall", targetId: target.id,
     actor, label,
   });

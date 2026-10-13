@@ -2187,7 +2187,7 @@ async function openTarget(id, draft, opt) {
         </div>
 
         <!-- アポ獲得を選んだときだけ出す。ここで入れた内容で、獲得者のカレンダーとkinbotのアポを作る -->
-        <div class="kc-apo" id="kcApoBox" hidden>
+        <div class="kc-apo" id="kcApoBox" data-company="${esc(x["会社名"] || "")}" hidden>
           <div class="kc-apo-h">アポの内容 <span class="kc-apo-sub">記録すると、カレンダーに予定を作り、担当の割り振り・確定メールまで進みます</span></div>
           <div class="kc-apo-grid">
             <label class="kc-apo-lb" for="kcApoDate">商談日時</label>
@@ -2207,6 +2207,15 @@ async function openTarget(id, draft, opt) {
             <input type="tel" class="kc-input" id="kcApoPhone" value="${esc(x["電話番号"] || "")}" placeholder="つながる番号（直通・携帯など）" />
             <label class="kc-apo-lb" for="kcApoCc">CC（任意）</label>
             <input type="text" class="kc-input" id="kcApoCc" placeholder="複数あるときは , で区切る" />
+            <label class="kc-apo-lb" for="kcApoTag">種別</label>
+            <div>
+              <select class="kc-input" id="kcApoTag">
+                <option value="初回"${kcApoTagOf(x) === "初回" ? " selected" : ""}>新規（【初回】）</option>
+                <option value="初回/過去失注"${kcApoTagOf(x) === "初回/過去失注" ? " selected" : ""}>過去失注（【初回/過去失注】）</option>
+                <option value="初回/フロッグ"${kcApoTagOf(x) === "初回/フロッグ" ? " selected" : ""}>フロッグ（【初回/フロッグ】）</option>
+              </select>
+              <div class="kc-apo-free" id="kcApoTitle"></div>
+            </div>
             <label class="kc-apo-lb" for="kcApoBiz">事業</label>
             <select class="kc-input" id="kcApoBiz">
               <option value="">いつもの事業（自動）</option><option value="DOC">DOC</option><option value="MOCHICA">MOCHICA</option>
@@ -2508,7 +2517,7 @@ async function openTarget(id, draft, opt) {
       apoBody = {
         start: startIso, minutes: gv("#kcApoMins") || "60",
         company: x["会社名"] || "", person: gv("#kcApoPerson"), email: em, cc: gv("#kcApoCc"), phone: gv("#kcApoPhone"),
-        business: gv("#kcApoBiz"), memo: gv("#kcMemo"),
+        business: gv("#kcApoBiz"), memo: gv("#kcMemo"), tag: gv("#kcApoTag") || "初回",
       };
     }
     const btn = m.el.querySelector("#kcSave");
@@ -2593,6 +2602,14 @@ async function openTarget(id, draft, opt) {
   });
 }
 
+// カレンダーの予定名の種別（【初回】／【初回/過去失注】／【初回/フロッグ】）の初期値を、リードのソースから決める
+function kcApoTagOf(x) {
+  const src = String((x && x["ソース"]) || "").trim();
+  const ln = String((x && (x["元のリスト"] || x["リスト名"])) || "");
+  if (/フロッグ/.test(src) || /フロッグ/.test(ln)) return "初回/フロッグ";
+  if (/過去失注|クロス失注/.test(src) || /過去失注|過去リスト|クロス失注/.test(ln)) return "初回/過去失注";
+  return "初回";
+}
 // アポの商談時間の選択肢（8:00〜20:45、15分きざみ）。おすすめの日程にない時間も選べるように。
 function kcApoTimeOptions() {
   let h = `<option value="">時間</option>`;
@@ -2653,6 +2670,17 @@ function wireApoBox(m) {
     }, 350);
   };
   [dt, tm, mins].forEach((el) => el.addEventListener("change", checkFree));
+  // カレンダーに入る予定名の見本（種別・先方担当を変えるとすぐ変わる）
+  const tagSel = box.querySelector("#kcApoTag"), personIn = box.querySelector("#kcApoPerson"), titleEl = box.querySelector("#kcApoTitle");
+  const company = String((m.el.querySelector(".kc-co-name, .kc-modal-title") || {}).textContent || "").trim();
+  const drawTitle = () => {
+    if (!titleEl || !tagSel) return;
+    const p = String((personIn && personIn.value) || "").trim().replace(/\s*様$/, "");
+    titleEl.textContent = `カレンダーの予定名：【${tagSel.value}】${box.dataset.company || company || "会社名"}${p ? `/${p}様` : ""}`;
+  };
+  if (tagSel) tagSel.addEventListener("change", drawTitle);
+  if (personIn) personIn.addEventListener("input", drawTitle);
+  drawTitle();
   const sync = () => {
     const on = /アポ獲得/.test(sel.value || "");
     box.hidden = !on;
