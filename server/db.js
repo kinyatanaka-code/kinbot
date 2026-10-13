@@ -10962,3 +10962,195 @@ export async function dbQuery(text, params) {
   if (!pool) throw new Error("データベースに接続できません");
   return pool.query(text, params);
 }
+
+// ===== kincall のメルマガ（トラッキング資料をまとめて送る） =====
+//   mailmaga_campaigns … 1回の配信（件名・本文・資料・送る人・状態）
+//   mailmaga_sends     … 宛先ごとの1通（資料URL・配信停止の合言葉・送れたか）
+//   mail_optout        … 配信停止したメールアドレス（どの配信からも送らない）
+let _mmReady = false;
+async function ensureMailmaga() {
+  if (_mmReady || !pool) return;
+  await sq(`CREATE TABLE IF NOT EXISTS mailmaga_campaigns (
+      id SERIAL PRIMARY KEY, name TEXT, subject TEXT, body TEXT, doc_id INT, sender TEXT, created_by TEXT,
+      status TEXT NOT NULL DEFAULT 'running', note TEXT, list_ids JSONB, filters JSONB, total INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT now(), started_at TIMESTAMPTZ DEFAULT now(), finished_at TIMESTAMPTZ)`);
+  await sq(`CREATE TABLE IF NOT EXISTS mailmaga_sends (
+      id SERIAL PRIMARY KEY, campaign_id INT REFERENCES mailmaga_campaigns(id) ON DELETE CASCADE,
+      target_id INT, email TEXT, company TEXT, person TEXT, link_slug TEXT, token TEXT UNIQUE,
+      status TEXT NOT NULL DEFAULT 'queued', error TEXT, sent_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT now())`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_mm_sends_c ON mailmaga_sends(campaign_id, status, id)`);
+  await sq(`CREATE INDEX IF NOT EXISTS ix_mm_sends_t ON mailmaga_sends(target_id)`);
+  await sq(`CREATE TABLE IF NOT EXISTS mail_optout (
+      email TEXT PRIMARY KEY, at TIMESTAMPTZ DEFAULT now(), campaign_id INT, how TEXT)`);
+  _mmReady = true;
+}
+// 宛先にできるリスト（アーカイブ以外）と、メールアドレスのあるリード数
+export async function mailmagaListOptions() {
+  if (!pool) return [];
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(
+      `SELECT cl.id, cl.name, (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name,
+              COALESCE(cl.hidden,false) AS hidden, count(t.id)::int AS total,
+              count(t.id) FILTER (WHERE COALESCE(t.email,'') ~ '^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$')::int AS with_email
+         FROM call_lists cl LEFT JOIN call_targets t ON t.list_id = cl.id
+        GROUP BY cl.id ORDER BY COALESCE(cl.hidden,false), cl.id DESC`);
+    return rows;
+  } catch (e) { console.error("[db] mailmagaListOptions", e.message); return []; }
+}
+// 選んだリストのリード（メールあり）。配信停止の印も付ける
+export async function mailmagaCandidates(listIds) {
+  if (!pool || !Array.isArray(listIds) || !listIds.length) return [];
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company, t.person, t.email, t.stage, t.status, t.source, t.list_id, cl.name AS list_name,
+              EXISTS (SELECT 1 FROM mail_optout o WHERE o.email = lower(trim(t.email))) AS optout
+         FROM call_targets t JOIN call_lists cl ON cl.id = t.list_id
+        WHERE t.list_id = ANY($1::int[]) AND COALESCE(t.email,'') <> ''
+        ORDER BY t.id`, [listIds.map((x) => parseInt(x, 10)).filter(Boolean)]);
+    return rows;
+  } catch (e) { console.error("[db] mailmagaCandidates", e.message); return []; }
+}
+export async function createMailmagaCampaign(c, recipients) {
+  if (!pool) return null;
+  await ensureMailmaga();
+  const cli = await pool.connect();
+  try {
+    await cli.query("BEGIN");
+    const { rows } = await cli.query(
+      `INSERT INTO mailmaga_campaigns (name, subject, body, doc_id, sender, created_by, status, list_ids, filters, total)
+       VALUES ($1,$2,$3,$4,$5,$6,'running',$7,$8,$9) RETURNING *`,
+      [c.name, c.subject, c.body, c.docId || null, c.sender, c.createdBy, JSON.stringify(c.listIds || []), JSON.stringify(c.filters || {}), recipients.length]);
+    const camp = rows[0];
+    for (const r of recipients) {
+      await cli.query(
+        `INSERT INTO mailmaga_sends (campaign_id, target_id, email, company, person, token) VALUES ($1,$2,$3,$4,$5,$6)`,
+        [camp.id, r.id, r.email, r.company || null, r.person || null, r.token]);
+    }
+    await cli.query("COMMIT");
+    return camp;
+  } catch (e) { await cli.query("ROLLBACK").catch(() => {}); throw e; }
+  finally { cli.release(); }
+}
+export async function listMailmagaCampaigns(limit = 50) {
+  if (!pool) return [];
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(
+      `SELECT c.*,
+              count(s.id) FILTER (WHERE s.status='sent')::int AS sent,
+              count(s.id) FILTER (WHERE s.status='queued')::int AS queued,
+              count(s.id) FILTER (WHERE s.status='failed')::int AS failed,
+              count(s.id) FILTER (WHERE s.status='skipped')::int AS skipped,
+              count(s.id) FILTER (WHERE EXISTS (SELECT 1 FROM doc_links l JOIN doc_views v ON v.link_id = l.id WHERE l.slug = s.link_slug))::int AS opened,
+              count(s.id) FILTER (WHERE EXISTS (SELECT 1 FROM mail_optout o WHERE o.campaign_id = c.id AND o.email = lower(s.email)))::int AS optouts
+         FROM mailmaga_campaigns c LEFT JOIN mailmaga_sends s ON s.campaign_id = c.id
+        GROUP BY c.id ORDER BY c.id DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] listMailmagaCampaigns", e.message); return []; }
+}
+export async function getMailmagaCampaign(id) {
+  if (!pool) return null;
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(`SELECT * FROM mailmaga_campaigns WHERE id=$1`, [id]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+// 1回の配信の宛先ごとの状態（開いたか・何秒見たか）
+export async function mailmagaSendsOf(id) {
+  if (!pool) return [];
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(
+      `SELECT s.*, l.id AS link_id,
+              (SELECT count(*)::int FROM doc_views v WHERE v.link_id = l.id) AS views,
+              (SELECT COALESCE(sum(v.seconds),0)::int FROM doc_views v WHERE v.link_id = l.id) AS seconds,
+              (SELECT max(v.started_at) FROM doc_views v WHERE v.link_id = l.id) AS last_view,
+              EXISTS (SELECT 1 FROM mail_optout o WHERE o.email = lower(s.email)) AS optout
+         FROM mailmaga_sends s LEFT JOIN doc_links l ON l.slug = s.link_slug
+        WHERE s.campaign_id = $1 ORDER BY s.id`, [id]);
+    return rows;
+  } catch (e) { console.error("[db] mailmagaSendsOf", e.message); return []; }
+}
+export async function setMailmagaStatus(id, status, note = null) {
+  if (!pool) return null;
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(
+      `UPDATE mailmaga_campaigns SET status=$2, note=$3, finished_at = CASE WHEN $2 IN ('done','stopped') THEN now() ELSE finished_at END
+        WHERE id=$1 RETURNING *`, [id, status, note]);
+    if (status === "stopped") await pool.query(`UPDATE mailmaga_sends SET status='skipped', error='止めたため送っていません' WHERE campaign_id=$1 AND status='queued'`, [id]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setMailmagaStatus", e.message); return null; }
+}
+// 送る順番が来た1通（動いている配信の、まだ送っていないもの）
+export async function nextMailmagaSends(limit = 20) {
+  if (!pool) return [];
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(
+      `SELECT s.*, c.subject, c.body, c.doc_id, c.sender, c.name AS campaign_name
+         FROM mailmaga_sends s JOIN mailmaga_campaigns c ON c.id = s.campaign_id
+        WHERE c.status = 'running' AND s.status = 'queued'
+        ORDER BY s.id LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] nextMailmagaSends", e.message); return []; }
+}
+export async function markMailmagaSend(id, status, { error = null, linkSlug = null } = {}) {
+  if (!pool) return;
+  try {
+    await pool.query(
+      `UPDATE mailmaga_sends SET status=$2, error=$3, link_slug=COALESCE($4, link_slug), sent_at = CASE WHEN $2='sent' THEN now() ELSE sent_at END WHERE id=$1`,
+      [id, status, error, linkSlug]);
+  } catch (e) { console.error("[db] markMailmagaSend", e.message); }
+}
+// 送る人ごとの、今日（日本時間）送った数
+export async function mailmagaSentToday(sender) {
+  if (!pool) return 0;
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(
+      `SELECT count(*)::int AS n FROM mailmaga_sends s JOIN mailmaga_campaigns c ON c.id = s.campaign_id
+        WHERE lower(c.sender) = lower($1) AND s.status = 'sent'
+          AND (s.sent_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date`, [sender]);
+    return rows[0] ? rows[0].n : 0;
+  } catch { return 0; }
+}
+// 配信が全部送り終わったら「終わり」にする
+export async function finishMailmagaIfDone() {
+  if (!pool) return;
+  try {
+    await ensureMailmaga();
+    await pool.query(
+      `UPDATE mailmaga_campaigns c SET status='done', finished_at=now()
+        WHERE c.status='running' AND NOT EXISTS (SELECT 1 FROM mailmaga_sends s WHERE s.campaign_id=c.id AND s.status='queued')`);
+  } catch (e) { console.error("[db] finishMailmagaIfDone", e.message); }
+}
+// 配信停止
+export async function mailmagaSendByToken(token) {
+  if (!pool || !token) return null;
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(`SELECT * FROM mailmaga_sends WHERE token=$1`, [token]);
+    return rows[0] || null;
+  } catch { return null; }
+}
+export async function addMailOptout(email, campaignId, how) {
+  if (!pool || !email) return;
+  try {
+    await ensureMailmaga();
+    await pool.query(
+      `INSERT INTO mail_optout (email, campaign_id, how) VALUES (lower(trim($1)), $2, $3) ON CONFLICT (email) DO NOTHING`,
+      [email, campaignId || null, how || null]);
+  } catch (e) { console.error("[db] addMailOptout", e.message); }
+}
+export async function isMailOptout(email) {
+  if (!pool || !email) return false;
+  try {
+    await ensureMailmaga();
+    const { rows } = await pool.query(`SELECT 1 FROM mail_optout WHERE email = lower(trim($1))`, [email]);
+    return !!rows[0];
+  } catch { return false; }
+}

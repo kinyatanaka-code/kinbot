@@ -2057,6 +2057,33 @@ function renderDock() {
     .kc-today-goal.ok{color:#085041;background:#e1f5ee;} .kc-today-note{font-size:11px;color:#6b8a7d;margin-left:4px;}
     .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
     .kc-src-tag{font-size:10px;font-weight:700;padding:0 6px;border-radius:5px;white-space:nowrap;}
+    .mm-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start;}
+    @media (max-width:1100px){.mm-grid{grid-template-columns:1fr;}}
+    .mm-card{background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;}
+    .mm-h{font-size:15px;font-weight:700;color:#1f2a26;display:flex;align-items:center;gap:8px;justify-content:space-between;}
+    .mm-step{margin-top:8px;font-size:13px;font-weight:700;color:#0d5b47;display:flex;align-items:center;gap:6px;}
+    .mm-step b{display:inline-flex;width:20px;height:20px;border-radius:50%;background:#1d9e75;color:#fff;font-size:11px;align-items:center;justify-content:center;}
+    .mm-lists{max-height:240px;overflow:auto;border:1px solid #e6ece9;border-radius:10px;padding:4px;}
+    .mm-li{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;font-size:12.5px;cursor:pointer;}
+    .mm-li:hover{background:#f4faf7;} .mm-li.hid{opacity:.6;}
+    .mm-li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .mm-li .nm em{font-style:normal;color:#5f6b64;font-size:11px;margin-left:6px;}
+    .mm-li .ct{font-size:11px;color:#5f6b64;white-space:nowrap;}
+    .mm-filters{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;}
+    .mm-vars{display:flex;flex-wrap:wrap;gap:4px;font-size:11.5px;color:#5f6b64;align-items:center;}
+    .mm-var{border:1px solid #cfe0d9;background:#f6fbf9;border-radius:99px;padding:1px 8px;font-size:11.5px;cursor:pointer;color:#0d5b47;}
+    .mm-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;}
+    .mm-mini{padding:3px 10px !important;font-size:12px !important;}
+    .mm-warn{background:#fdecea;border:1px solid #f3b8b2;color:#8c1d18;border-radius:10px;padding:7px 10px;font-size:12.5px;}
+    .mm-warn-i{color:#b3261e;}
+    .mm-prev{background:#f6fbf9;border:1px solid #cfe0d9;border-radius:10px;padding:8px 12px;}
+    .mm-big{font-size:26px;font-weight:800;color:#0d5b47;} .mm-big small{font-size:12px;margin-left:3px;color:#5f6b64;}
+    .mm-t{font-size:12px;} .mm-t tr.op td{background:#f6fbf9;}
+    .mm-camp{border:1px solid #e6ece9;border-radius:10px;padding:10px 12px;margin-bottom:8px;}
+    .mm-camp-h{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13.5px;}
+    .mm-st{font-size:11px;font-weight:700;padding:1px 8px;border-radius:99px;background:#eef3f0;color:#5f6b64;white-space:nowrap;}
+    .mm-st.running{background:#e1f5ee;color:#085041;} .mm-st.paused{background:#fff4dc;color:#7a5200;} .mm-st.stopped{background:#f1efe8;color:#5f5e5a;}
+    .mm-nums{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;margin:4px 0;} .mm-nums b{font-size:14px;} .mm-nums .ng{color:#b3261e;}
+    .mm-acts{display:flex;gap:6px;flex-wrap:wrap;}
     .kc-src-tag.mtg{background:#fdecea;color:#b3261e;border:1px solid #f3b8b2;}
     .kc-mtg-warn{margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#fdecea;border:1px solid #f3b8b2;color:#8c1d18;font-size:12.5px;font-weight:600;line-height:1.5;}
     .kc-src-tag.nur{background:#e6f1fb;color:#0c447c;}
@@ -6198,7 +6225,7 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   // ヘッダーの表示を、いま開いているページに合わせる
-  const 名前 = { talk: ["トーク", "自分のトークスクリプト"], call: ["架電リスト", ""], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
+  const 名前 = { mail: ["メルマガ", "トラッキング資料をまとめて送る"], talk: ["トーク", "自分のトークスクリプト"], call: ["架電リスト", ""], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
   const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
   const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
   if (p === "stats") { if (statsTop === "dash") loadDash(); else loadStats(); }
@@ -6206,6 +6233,7 @@ function showPane() {
   if (p === "shifts") loadShiftCal();
   if (p === "daily") loadDailyGoal();
   if (p === "talk") loadTalkPane();
+  if (p === "mail") loadMailPane();
 }
 
 // サイドメニューの「資料送付設定」→ モーダルを開く（ページ遷移はしない）
@@ -10990,3 +11018,170 @@ document.addEventListener("click", (ev) => {
     }
   });
 })();
+
+// ===== メルマガ（トラッキング資料をまとめて送る） =====
+// 宛先（リスト）→ 除くもの → 資料・件名・本文 → 自分にテスト → 配信を始める。下に、これまでの配信と開いた人。
+let _mm = { lists: [], docs: [], picked: new Set(), preview: null, open: null };
+const MM_DEF_SUBJECT = "【{会社名}様】採用のご担当者様へのご案内";
+const MM_DEF_BODY = "{会社名}\n{担当者}様\n\n突然のご連絡失礼いたします。\nネオキャリアの{差出人}です。\n\n採用活動に役立つ資料をご用意しましたので、ご案内いたします。\n下記のURLよりご覧ください。\n\n{URL}\n\nご不明な点がございましたら、お気軽にご返信ください。\n何卒よろしくお願いいたします。";
+async function loadMailPane() {
+  const box = document.getElementById("mmPane"); if (!box) return;
+  try {
+    const d = await (await fetch("/api/calls/mailmaga/lists")).json();
+    if (d.error) { box.innerHTML = `<div class="note">${esc(d.error)}</div>`; return; }
+    _mm.lists = d.lists || []; _mm.docs = d.docs || [];
+    const draft = (() => { try { return JSON.parse(localStorage.getItem("kcMailDraft") || "{}"); } catch { return {}; } })();
+    box.innerHTML = `
+      <div class="mm-grid">
+        <div class="mm-card">
+          <div class="mm-h">新しい配信</div>
+          ${d.gmail ? "" : `<div class="mm-warn">Google連携が必要です（設定 → 連携 → Google）。Gmailから1通ずつ送ります。</div>`}
+          <div class="mm-step"><b>1</b> 宛先のリスト</div>
+          <input class="kc-input" id="mmListQ" placeholder="リスト名で探す" />
+          <div class="mm-lists" id="mmLists"></div>
+          <div class="mm-filters">
+            <label><input type="checkbox" id="mmFApo" checked> アポ獲得済みを除く</label>
+            <label><input type="checkbox" id="mmFUser" checked> ユーザー（契約中）を除く</label>
+            <label><input type="checkbox" id="mmFMtg" checked> 直近に商談した会社を除く</label>
+            <label><input type="checkbox" id="mmFLost"> 失注を除く</label>
+          </div>
+          <div class="note">配信停止した人と、同じメールアドレスの2通目は、いつも除きます。</div>
+          <button type="button" class="btn ghost" id="mmPrev">宛先を確認する</button>
+          <div id="mmPrevBox"></div>
+
+          <div class="mm-step"><b>2</b> 送る資料（トラッキング）</div>
+          <select class="kc-input" id="mmDoc"><option value="">資料を付けない</option>${_mm.docs.map((x, i) => `<option value="${x.id}"${(draft.docId === undefined ? i === 0 : String(draft.docId || "") === String(x.id)) ? " selected" : ""}>${esc(x.name)}</option>`).join("")}</select>
+          <div class="note">宛先ごとに専用の資料URLを作るので、誰が・何秒見たかが分かります（資料トラッキングにも出ます）。</div>
+
+          <div class="mm-step"><b>3</b> 件名・本文</div>
+          <input class="kc-input" id="mmName" placeholder="配信の名前（あとで見分ける用。空なら件名）" value="${esc(draft.name || "")}" />
+          <input class="kc-input" id="mmSubject" placeholder="件名" value="${esc(draft.subject || MM_DEF_SUBJECT)}" />
+          <div class="mm-vars">差し込み：${["会社名", "担当者", "差出人", "資料名", "URL"].map((k) => `<button type="button" class="mm-var" data-v="{${k}}">{${k}}</button>`).join("")}</div>
+          <textarea class="kc-input" id="mmBody" rows="12">${esc(draft.body || MM_DEF_BODY)}</textarea>
+
+          <div class="mm-step"><b>4</b> 送り主の情報（本文の最後に入ります）</div>
+          <textarea class="kc-input" id="mmFooter" rows="4" placeholder="例）株式会社ネオキャリア　DOC事業部&#10;〒160-0023 東京都新宿区西新宿…&#10;TEL 03-xxxx-xxxx ／ doc@neo-career.co.jp">${esc(d.footer || "")}</textarea>
+          <div class="note">法律（特定電子メール法）で、送り主の名前・住所・連絡先と、配信停止の方法を入れることが決まっています。配信停止のURLは自動で入ります。<button type="button" class="btn ghost mm-mini" id="mmFooterSave">送り主の情報を保存</button> <span class="rev-status" id="mmFooterSt"></span></div>
+
+          <div class="mm-actions">
+            <button type="button" class="btn ghost" id="mmTest">自分にテスト送信</button>
+            <button type="button" class="btn" id="mmStart">配信を始める</button>
+            <span class="rev-status" id="mmSt"></span>
+          </div>
+          <div class="note">${Number(d.sentToday || 0)}／${Number(d.cap || 0)}通（今日あなたが送った数／1日の上限）。数秒に1通ずつ送り、上限を超えた分は翌日に続きを送ります。</div>
+        </div>
+        <div class="mm-card">
+          <div class="mm-h">これまでの配信 <button type="button" class="btn ghost mm-mini" id="mmReload">読み直す</button></div>
+          <div id="mmCamps"><div class="note">読み込んでいます…</div></div>
+        </div>
+      </div>`;
+    const drawLists = () => {
+      const q = String(document.getElementById("mmListQ").value || "").trim();
+      const rows = _mm.lists.filter((l) => !q || String(l.name || "").includes(q) || String(l.group_name || "").includes(q));
+      document.getElementById("mmLists").innerHTML = rows.slice(0, 300).map((l) => `
+        <label class="mm-li${l.hidden ? " hid" : ""}"><input type="checkbox" value="${l.id}"${_mm.picked.has(String(l.id)) ? " checked" : ""}>
+          <span class="nm">${esc(l.name || "")}${l.group_name ? `<em>${esc(l.group_name)}</em>` : ""}</span>
+          <span class="ct">メールあり ${l.with_email}／${l.total}</span></label>`).join("") || `<div class="note">リストが見つかりません</div>`;
+      document.querySelectorAll("#mmLists input").forEach((c) => c.addEventListener("change", () => { if (c.checked) _mm.picked.add(c.value); else _mm.picked.delete(c.value); _mm.preview = null; document.getElementById("mmPrevBox").innerHTML = ""; }));
+    };
+    drawLists();
+    document.getElementById("mmListQ").addEventListener("input", drawLists);
+    const filters = () => ({ skipApo: document.getElementById("mmFApo").checked, skipUser: document.getElementById("mmFUser").checked, skipRecentMeeting: document.getElementById("mmFMtg").checked, skipLost: document.getElementById("mmFLost").checked });
+    const form = () => ({ listIds: [..._mm.picked].map(Number), filters: filters(), docId: document.getElementById("mmDoc").value || null,
+      name: document.getElementById("mmName").value, subject: document.getElementById("mmSubject").value, body: document.getElementById("mmBody").value });
+    const saveDraft = () => { try { const f = form(); localStorage.setItem("kcMailDraft", JSON.stringify({ name: f.name, subject: f.subject, body: f.body, docId: f.docId })); } catch {} };
+    ["mmName", "mmSubject", "mmBody", "mmDoc"].forEach((id) => document.getElementById(id).addEventListener("change", saveDraft));
+    // 差し込みを、カーソルの場所に入れる
+    let lastField = document.getElementById("mmBody");
+    ["mmSubject", "mmBody"].forEach((id) => document.getElementById(id).addEventListener("focus", (e) => { lastField = e.target; }));
+    document.querySelectorAll(".mm-var").forEach((b) => b.addEventListener("click", () => {
+      const el = lastField, v = b.dataset.v, st0 = el.selectionStart ?? el.value.length, en0 = el.selectionEnd ?? el.value.length;
+      el.value = el.value.slice(0, st0) + v + el.value.slice(en0); el.focus(); el.selectionStart = el.selectionEnd = st0 + v.length; saveDraft();
+    }));
+    const say2 = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+    document.getElementById("mmPrev").addEventListener("click", async () => {
+      const pb = document.getElementById("mmPrevBox");
+      if (!_mm.picked.size) { pb.innerHTML = `<div class="mm-warn">リストを選んでください</div>`; return; }
+      pb.innerHTML = `<div class="note">数えています…</div>`;
+      const r = await (await fetch("/api/calls/mailmaga/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form()) })).json();
+      if (r.error) { pb.innerHTML = `<div class="mm-warn">${esc(r.error)}</div>`; return; }
+      _mm.preview = r;
+      pb.innerHTML = `<div class="mm-prev"><div class="mm-big">${r.count}<small>通</small></div>
+        <div class="note">リードのうちメールあり ${r.all}件から、${Object.entries(r.skipped || {}).map(([k, v]) => `${esc(k)} ${v}件`).join("・") || "除いたものはありません"}</div>
+        <details><summary class="note">宛先の一部を見る（${Math.min(30, r.count)}件）</summary><table class="kc-table mm-t"><tbody>${(r.sample || []).map((x) => `<tr><td>${esc(x.company)}</td><td>${esc(x.person)}</td><td>${esc(x.email)}</td><td class="note">${esc(x.list_name)}</td></tr>`).join("")}</tbody></table></details></div>`;
+    });
+    document.getElementById("mmFooterSave").addEventListener("click", async () => {
+      say2("mmFooterSt", "保存しています…");
+      const r = await (await fetch("/api/calls/mailmaga/footer", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ footer: document.getElementById("mmFooter").value }) })).json();
+      say2("mmFooterSt", r.error ? `失敗：${r.error}` : "保存しました");
+    });
+    document.getElementById("mmTest").addEventListener("click", async () => {
+      saveDraft(); say2("mmSt", "テストを送っています…");
+      const r = await (await fetch("/api/calls/mailmaga/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form()) })).json();
+      say2("mmSt", r.error ? `失敗：${r.error}` : `${r.to} にテストを送りました。届いた内容を確かめてください`);
+    });
+    document.getElementById("mmStart").addEventListener("click", async () => {
+      saveDraft();
+      if (!_mm.picked.size) return say2("mmSt", "リストを選んでください");
+      const f = form();
+      const r0 = await (await fetch("/api/calls/mailmaga/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) })).json();
+      if (r0.error) return say2("mmSt", `失敗：${r0.error}`);
+      if (!r0.count) return say2("mmSt", "送れる宛先がありません");
+      if (!confirm(`${r0.count}通のメルマガを送ります。\n件名：${f.subject}\n\nテスト送信で内容を確かめましたか？よろしければ「OK」を押してください。`)) return;
+      say2("mmSt", "配信を始めています…");
+      const r = await (await fetch("/api/calls/mailmaga/campaigns", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) })).json();
+      if (r.error) return say2("mmSt", `失敗：${r.error}`);
+      say2("mmSt", `配信を始めました（${r.count}通）。下の「これまでの配信」で進み具合が見られます`);
+      loadMailCamps();
+    });
+    document.getElementById("mmReload").addEventListener("click", loadMailCamps);
+    loadMailCamps();
+  } catch (e) { box.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+async function loadMailCamps() {
+  const box = document.getElementById("mmCamps"); if (!box) return;
+  const d = await (await fetch("/api/calls/mailmaga/campaigns")).json().catch(() => ({}));
+  if (d.error) { box.innerHTML = `<div class="note">${esc(d.error)}</div>`; return; }
+  const cs = d.campaigns || [];
+  if (!cs.length) { box.innerHTML = `<div class="note">まだ配信はありません</div>`; return; }
+  const ST = { running: "送っています", paused: "一時停止", done: "送り終わり", stopped: "止めました" };
+  const fmt = (v) => { const t = Date.parse(v || ""); if (!isFinite(t)) return ""; const j = new Date(t + 9 * 3600000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()} ${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`; };
+  box.innerHTML = cs.map((c) => {
+    const rate = c.sent ? `${Math.round((c.opened / c.sent) * 1000) / 10}%` : "-";
+    return `<div class="mm-camp" data-id="${c.id}">
+      <div class="mm-camp-h"><b>${esc(c.name || c.subject || "")}</b><span class="mm-st ${esc(c.status)}">${ST[c.status] || esc(c.status)}</span></div>
+      <div class="note">${esc(fmt(c.created_at))}　送る人：${esc(c.sender || "")}${c.note ? `　<span class="mm-warn-i">${esc(c.note)}</span>` : ""}</div>
+      <div class="mm-nums"><span>送った <b>${c.sent}</b>／${c.total}</span><span>開いた <b>${c.opened}</b>（${rate}）</span><span>配信停止 <b>${c.optouts}</b></span>${c.failed ? `<span class="ng">送れなかった ${c.failed}</span>` : ""}${c.queued ? `<span>残り ${c.queued}</span>` : ""}</div>
+      <div class="mm-acts">
+        ${c.status === "running" ? `<button type="button" class="btn ghost mm-mini" data-act="pause">一時停止</button>` : ""}
+        ${c.status === "paused" ? `<button type="button" class="btn ghost mm-mini" data-act="resume">再開</button>` : ""}
+        ${["running", "paused"].includes(c.status) ? `<button type="button" class="btn ghost mm-mini" data-act="stop">やめる</button>` : ""}
+        <button type="button" class="btn ghost mm-mini" data-act="detail">${_mm.open === c.id ? "閉じる" : "宛先と開いた人を見る"}</button>
+      </div>
+      <div class="mm-detail" id="mmDet${c.id}"></div></div>`;
+  }).join("");
+  box.querySelectorAll(".mm-camp").forEach((el) => el.querySelectorAll("[data-act]").forEach((b) => b.addEventListener("click", async () => {
+    const id = Number(el.dataset.id), act = b.dataset.act;
+    if (act === "detail") { _mm.open = _mm.open === id ? null : id; await loadMailCamps(); return; }
+    if (act === "stop" && !confirm("この配信をやめます。まだ送っていない分は送りません。よろしいですか？")) return;
+    await fetch(`/api/calls/mailmaga/campaigns/${id}/${act}`, { method: "POST" });
+    loadMailCamps();
+  })));
+  if (_mm.open) {
+    const det = document.getElementById(`mmDet${_mm.open}`);
+    if (det) {
+      det.innerHTML = `<div class="note">読み込んでいます…</div>`;
+      const r = await (await fetch(`/api/calls/mailmaga/campaigns/${_mm.open}`)).json().catch(() => ({}));
+      const rows = (r.sends || []).sort((a, b) => (b.views || 0) - (a.views || 0) || (b.seconds || 0) - (a.seconds || 0));
+      const SS = { sent: "送った", queued: "これから", failed: "送れなかった", skipped: "送らなかった" };
+      det.innerHTML = `<label class="note"><input type="checkbox" id="mmOnlyOpen"> 開いた人だけ</label>
+        <div style="overflow-x:auto"><table class="kc-table mm-t"><thead><tr><th>会社</th><th>担当</th><th>メール</th><th>状態</th><th>開いた</th><th>見た時間</th><th>最後に見た</th></tr></thead><tbody>
+        ${rows.map((x) => `<tr class="${x.views ? "op" : "no"}"><td>${esc(x.company || "")}</td><td>${esc(x.person || "")}</td><td>${esc(x.email || "")}</td>
+          <td>${esc(SS[x.status] || x.status)}${x.optout ? "・配信停止" : ""}${x.error && x.status !== "sent" ? `<div class="note">${esc(x.error)}</div>` : ""}</td>
+          <td>${x.views ? `<b>${x.views}回</b>` : "-"}</td><td>${x.seconds ? `${Math.floor(x.seconds / 60)}分${x.seconds % 60}秒` : "-"}</td><td>${esc(fmt(x.last_view))}</td></tr>`).join("")}
+        </tbody></table></div>`;
+      const only = document.getElementById("mmOnlyOpen");
+      if (only) only.addEventListener("change", () => det.querySelectorAll("tr.no").forEach((tr) => { tr.style.display = only.checked ? "none" : ""; }));
+    }
+  }
+}

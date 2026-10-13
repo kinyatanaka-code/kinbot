@@ -503,6 +503,20 @@ import {
   apoLeadCandidates,
   leadsByCompanyLike,
   recentMeetingCompanies,
+  mailmagaListOptions,
+  mailmagaCandidates,
+  createMailmagaCampaign,
+  listMailmagaCampaigns,
+  getMailmagaCampaign,
+  mailmagaSendsOf,
+  setMailmagaStatus,
+  nextMailmagaSends,
+  markMailmagaSend,
+  mailmagaSentToday,
+  finishMailmagaIfDone,
+  mailmagaSendByToken,
+  addMailOptout,
+  isMailOptout,
   upcomingUraApos,
   setSmartLinkUraEvent,
   setSmartLinkClientCc,
@@ -928,6 +942,8 @@ app.use(async (req, res, next) => {
   //   /c/xxx  … リンクのクリック計測
   //   /api/doc/xxx … ビューアーが呼ぶ処理（資料の中身・進捗の記録）
   if (/^\/(d|px|c)\//.test(req.path) || req.path.startsWith("/api/doc/")) return next();
+  //   /u/xxx  … メルマガの配信停止（受け取った人が開く）
+  if (/^\/u\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
   // APIトークンでの認証（Cookie不要。外部プログラム・Claude Code用）
   const tk = apiTokenUser(req);
   if (tk) {
@@ -11118,6 +11134,245 @@ app.post("/api/calls/targets/:id/doc/send", async (req, res) => {
     console.log(`[kincall] 資料を送付 target=${id} → ${to} by ${req.user}`);
     res.json({ ok: true, to });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== kincall：メルマガ（トラッキング資料をまとめて送る） =====
+// 流れ：リストを選ぶ → 除くものを選ぶ → 件名・本文・資料を決める → 自分あてにテスト → 配信を始める。
+// 1通ずつ「送る人のGmail」から送る（宛先ごとに専用の資料URLを発行するので、誰が開いたかが分かる）。
+// 送る速さ：MAILMAGA_INTERVAL_SEC 秒に1通（既定5秒）、1人1日 MAILMAGA_DAILY_CAP 通まで（既定400通。超えたら翌日に続き）。
+// 法律（特定電子メール法）のため、本文の最後に「送り主の情報」と「配信停止のURL」を必ず入れる。
+const MM_VARS = "{会社名} {担当者} {差出人} {資料名} {URL} {配信停止URL}";
+async function canMailmaga(req) {
+  return !!(req.isAdmin || req.actingCloser || (await isCloserUser(req.user).catch(() => false)) || isAlwaysCloser(req.user));
+}
+function mmBase() { return String(process.env.PUBLIC_URL || "").replace(/\/+$/, ""); }
+function mmToken() { return crypto.randomBytes(12).toString("base64url"); }
+async function mmFooterText() {
+  const st = await getSettings().catch(() => ({}));
+  return String(st.mailmagaFooter || "").trim();
+}
+// 本文の差し込みと、最後の「送り主・配信停止」の部分
+function mmFill(tpl, v) {
+  return String(tpl || "")
+    .replace(/\{会社名\}/g, v.company || "").replace(/\{担当者\}/g, v.person || "ご担当者")
+    .replace(/\{差出人\}/g, v.sender || "").replace(/\{資料名\}/g, v.docName || "ご案内資料")
+    .replace(/\{URL\}/g, v.url || "").replace(/\{配信停止URL\}/g, v.optoutUrl || "");
+}
+function mmCompose({ subject, body, footer }, v) {
+  let text = mmFill(body, v);
+  if (!/\{配信停止URL\}/.test(body)) {
+    text += `\n\n――――――――――――――――\n${footer}\n\n今後このようなご案内が不要な方は、こちらから配信を停止できます。\n${v.optoutUrl}`;
+  }
+  return { subject: mmFill(subject, v), text };
+}
+// 宛先を選ぶ：リストのリードから、除くものを外し、同じメールは1通にする
+async function mmPickRecipients(listIds, f = {}) {
+  const rows = await mailmagaCandidates(listIds);
+  const mtg = f.skipRecentMeeting !== false ? await recentMeetingMap().catch(() => new Map()) : new Map();
+  const seen = new Set();
+  const out = [], why = {};
+  const skip = (k) => { why[k] = (why[k] || 0) + 1; };
+  const okMail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+  for (const r of rows) {
+    const em = String(r.email || "").trim().toLowerCase();
+    const st = `${r.stage || ""} ${r.status || ""}`;
+    if (!okMail(em)) { skip("メールアドレスの形が正しくない"); continue; }
+    if (r.optout) { skip("配信停止している"); continue; }
+    if (seen.has(em)) { skip("同じメールアドレス（1通にまとめた）"); continue; }
+    if (f.skipApo !== false && /アポ/.test(st)) { skip("アポ獲得済み"); continue; }
+    if (f.skipUser !== false && /ユーザー/.test(st)) { skip("ユーザー（契約中）"); continue; }
+    if (f.skipLost && /失注/.test(st)) { skip("失注"); continue; }
+    if (f.skipRecentMeeting !== false && recentMeetingOf(mtg, r.company)) { skip("直近に商談した・これから商談がある"); continue; }
+    seen.add(em);
+    out.push({ id: r.id, email: em, company: r.company || "", person: String(r.person || "").replace(/\s*様$/, ""), list_name: r.list_name || "" });
+  }
+  return { recipients: out, skipped: why, all: rows.length };
+}
+// 宛先にできるリスト
+app.get("/api/calls/mailmaga/lists", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const docs = await listDocFiles({ owner: req.user }).catch(() => []);
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, lists: await mailmagaListOptions(), docs: (docs || []).map((d) => ({ id: d.id, name: fixMojibake(d.name || "") })),
+      footer: String(st.mailmagaFooter || ""), vars: MM_VARS, gmail: await gcalConnected(req.user).catch(() => false),
+      cap: Math.max(1, parseInt(process.env.MAILMAGA_DAILY_CAP || "400", 10) || 400), sentToday: await mailmagaSentToday(req.user) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 送り主の情報（本文の最後に入る）を保存
+app.put("/api/calls/mailmaga/footer", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    await saveSettings({ mailmagaFooter: String((req.body && req.body.footer) || "").slice(0, 1000) });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 宛先の確認（何通になるか・除いたもの）
+app.post("/api/calls/mailmaga/preview", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const b = req.body || {};
+    const r = await mmPickRecipients(b.listIds || [], b.filters || {});
+    res.json({ ok: true, count: r.recipients.length, all: r.all, skipped: r.skipped, sample: r.recipients.slice(0, 30) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 自分あてにテスト送信（1件目の宛先の内容で差し込む。資料URLもテスト用に発行）
+app.post("/api/calls/mailmaga/test", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const b = req.body || {};
+    if (!String(b.subject || "").trim() || !String(b.body || "").trim()) return res.status(400).json({ error: "件名と本文を入れてください" });
+    const footer = await mmFooterText();
+    if (!footer) return res.status(400).json({ error: "送り主の情報（会社名・住所・連絡先）を入れて保存してください（法律で入れることが決まっています）" });
+    if (!(await gcalConnected(req.user).catch(() => false))) return res.status(400).json({ error: "あなたのGoogle連携が必要です（設定→連携→Google）" });
+    const base = mmBase();
+    const r = await mmPickRecipients(b.listIds || [], b.filters || {});
+    const first = r.recipients[0] || { company: "株式会社サンプル", person: "山田 太郎" };
+    let url = "", docName = "";
+    if (b.docId) {
+      const docs = await listDocFiles({ owner: req.user }).catch(() => []);
+      const doc = docs.find((d) => d.id === parseInt(b.docId, 10));
+      if (doc) {
+        docName = fixMojibake(doc.name || "");
+        const made = await addDocLinks(doc.id, [{ company: `（テスト送信）${first.company}`, contact: first.person, email: req.user, note: "メルマガのテスト" }], req.user);
+        if (made && made[0]) url = `${base}/d/${made[0].slug}`;
+      }
+    }
+    const v = { company: first.company, person: first.person, sender: await displayNameOf(req.user).catch(() => ""), docName, url, optoutUrl: `${base}/u/test` };
+    const m = mmCompose({ subject: b.subject, body: b.body, footer }, v);
+    await gmailSend(req.user, { to: req.user, subject: `【テスト】${m.subject}`, bodyText: m.text });
+    res.json({ ok: true, to: req.user });
+  } catch (e) {
+    res.status(500).json({ error: e.needScope ? "Gmailの送信権限がありません。設定→連携→Google連携で、連携解除→再連携し、Gmailの項目を許可してください。" : e.message });
+  }
+});
+// 配信を始める（宛先をここで決めて、順番に送る）
+app.post("/api/calls/mailmaga/campaigns", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const b = req.body || {};
+    const subject = String(b.subject || "").trim(), body = String(b.body || "");
+    if (!subject || !body.trim()) return res.status(400).json({ error: "件名と本文を入れてください" });
+    if (!(await mmFooterText())) return res.status(400).json({ error: "送り主の情報（会社名・住所・連絡先）を入れて保存してください" });
+    if (!(await gcalConnected(req.user).catch(() => false))) return res.status(400).json({ error: "あなたのGoogle連携が必要です（設定→連携→Google）" });
+    if (/\{URL\}/.test(body) && !b.docId) return res.status(400).json({ error: "本文に {URL} がありますが、資料が選ばれていません" });
+    if (b.docId && !/\{URL\}/.test(body)) return res.status(400).json({ error: "資料を選んでいるので、本文に {URL}（資料のURL）を入れてください" });
+    const r = await mmPickRecipients(b.listIds || [], b.filters || {});
+    if (!r.recipients.length) return res.status(400).json({ error: "送れる宛先がありません" });
+    const max = Math.max(1, parseInt(process.env.MAILMAGA_MAX_PER_CAMPAIGN || "3000", 10) || 3000);
+    if (r.recipients.length > max) return res.status(400).json({ error: `1回の配信は${max}通までです（いま${r.recipients.length}通）。リストを分けてください` });
+    const camp = await createMailmagaCampaign({
+      name: String(b.name || subject).slice(0, 120), subject: subject.slice(0, 300), body: body.slice(0, 8000),
+      docId: b.docId ? parseInt(b.docId, 10) : null, sender: String(req.user).toLowerCase(), createdBy: req.user,
+      listIds: b.listIds || [], filters: b.filters || {},
+    }, r.recipients.map((x) => ({ ...x, token: mmToken() })));
+    console.log(`[mailmaga] 配信を始めました #${camp.id}「${camp.name}」${r.recipients.length}通 by ${req.user}`);
+    setImmediate(() => mmTick().catch(() => {}));
+    res.json({ ok: true, campaign: camp, count: r.recipients.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/mailmaga/campaigns", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    res.json({ ok: true, campaigns: await listMailmagaCampaigns(50) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/mailmaga/campaigns/:id", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const c = await getMailmagaCampaign(parseInt(req.params.id, 10));
+    if (!c) return res.status(404).json({ error: "見つかりません" });
+    res.json({ ok: true, campaign: c, sends: await mailmagaSendsOf(c.id) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/mailmaga/campaigns/:id/:act(pause|resume|stop)", async (req, res) => {
+  try {
+    if (!(await canMailmaga(req))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const id = parseInt(req.params.id, 10);
+    const st = { pause: "paused", resume: "running", stop: "stopped" }[req.params.act];
+    const c = await setMailmagaStatus(id, st, st === "paused" ? `止めた人：${req.user}` : null);
+    if (st === "running") setImmediate(() => mmTick().catch(() => {}));
+    res.json({ ok: true, campaign: c });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 送る係：数秒ごとに1通ずつ送る（送る人ごとに1日の上限まで）
+let _mmBusy = false, _mmLast = 0;
+const _mmDocCache = new Map();
+async function mmTick() {
+  if (_mmBusy) return;
+  const gap = Math.max(1, parseInt(process.env.MAILMAGA_INTERVAL_SEC || "5", 10) || 5) * 1000;
+  if (Date.now() - _mmLast < gap) return;
+  _mmBusy = true;
+  try {
+    const cap = Math.max(1, parseInt(process.env.MAILMAGA_DAILY_CAP || "400", 10) || 400);
+    const cands = await nextMailmagaSends(30);
+    if (!cands.length) { await finishMailmagaIfDone(); return; }
+    let s = null;
+    for (const c of cands) { if ((await mailmagaSentToday(c.sender)) < cap) { s = c; break; } }
+    if (!s) return;   // 今日はどの送り手も上限。あしたまた送る
+    _mmLast = Date.now();
+    if (await isMailOptout(s.email)) { await markMailmagaSend(s.id, "skipped", { error: "配信停止している" }); return; }
+    const base = mmBase();
+    let url = "", docName = "", slug = s.link_slug || null;
+    if (s.doc_id) {
+      const dk = `${s.sender}|${s.doc_id}`;
+      if (!_mmDocCache.has(dk)) {
+        const docs = await listDocFiles({ owner: s.sender, all: true }).catch(() => []);
+        _mmDocCache.set(dk, (docs || []).find((d) => d.id === s.doc_id) || null);
+      }
+      const doc = _mmDocCache.get(dk);
+      if (!doc) { await markMailmagaSend(s.id, "failed", { error: "資料が見つかりません（消された可能性）" }); return; }
+      docName = fixMojibake(doc.name || "");
+      if (!slug) {
+        const made = await addDocLinks(doc.id, [{ company: s.company, contact: s.person, email: s.email, note: `メルマガ：${s.campaign_name || ""}`.slice(0, 300) }], s.sender);
+        slug = made && made[0] ? made[0].slug : null;
+        if (!slug) { await markMailmagaSend(s.id, "failed", { error: "資料URLを発行できませんでした" }); return; }
+      }
+      url = `${base}/d/${slug}`;
+    }
+    const optoutUrl = `${base}/u/${s.token}`;
+    const v = { company: s.company, person: s.person, sender: await displayNameOf(s.sender).catch(() => ""), docName, url, optoutUrl };
+    const m = mmCompose({ subject: s.subject, body: s.body, footer: await mmFooterText() }, v);
+    try {
+      await gmailSend(s.sender, {
+        to: s.email, subject: m.subject, bodyText: m.text,
+        extraHeaders: { "List-Unsubscribe": `<${optoutUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" },
+      });
+      await markMailmagaSend(s.id, "sent", { linkSlug: slug });
+    } catch (e) {
+      const msg = String(e.message || e);
+      await markMailmagaSend(s.id, "queued", { error: msg.slice(0, 200), linkSlug: slug });
+      // 権限がない・上限に当たった・止められた → 配信を一旦止める（あとで「再開」）
+      if (e.needScope || /429|quota|rate|limit|Daily|403/i.test(msg)) {
+        await setMailmagaStatus(s.campaign_id, "paused", e.needScope ? "Gmailの送信権限がありません（再連携が必要）" : `Gmailに止められました：${msg.slice(0, 120)}`);
+        console.warn(`[mailmaga] #${s.campaign_id} を一旦止めました：${msg.slice(0, 160)}`);
+      } else {
+        await markMailmagaSend(s.id, "failed", { error: msg.slice(0, 200), linkSlug: slug });
+      }
+    }
+  } catch (e) { console.warn("[mailmaga] 送る係", e.message); }
+  finally { _mmBusy = false; }
+}
+setInterval(() => { mmTick().catch(() => {}); }, 2000).unref?.();
+// 配信停止のページ（メールの中のURL）。開いただけでは止めず、ボタンを押したら止める（自動で開く仕組みに誤って止められないように）
+const mmPage = (title, inner) => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
+<style>body{font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif;background:#f3f7f5;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;color:#1f2a26}
+.c{background:#fff;border:1px solid #e6ece9;border-radius:14px;padding:28px 26px;max-width:420px;width:90%;text-align:center}h1{font-size:18px;margin:0 0 10px}p{font-size:14px;color:#5f6b64;line-height:1.7}
+button{margin-top:12px;background:#1d9e75;color:#fff;border:0;border-radius:10px;padding:11px 22px;font-size:15px;font-weight:700;cursor:pointer}</style></head><body><div class="c">${inner}</div></body></html>`;
+app.get("/u/:token", async (req, res) => {
+  const s = req.params.token === "test" ? null : await mailmagaSendByToken(req.params.token).catch(() => null);
+  if (req.params.token === "test") return res.send(mmPage("配信停止（テスト）", `<h1>配信停止（テスト）</h1><p>テスト送信のため、ここでは何もしません。<br>実際の配信では、このページで配信を停止できます。</p>`));
+  if (!s) return res.status(404).send(mmPage("配信停止", `<h1>ページが見つかりません</h1><p>お手数ですが、メールの送り主へ直接ご連絡ください。</p>`));
+  if (await isMailOptout(s.email)) return res.send(mmPage("配信停止", `<h1>配信は停止しています</h1><p>${String(s.email).replace(/[<>&]/g, "")} への今後のご案内は送りません。</p>`));
+  res.send(mmPage("配信停止", `<h1>メールの配信停止</h1><p>${String(s.email).replace(/[<>&]/g, "")} への今後のご案内を停止します。</p>
+    <form method="post" action="/u/${encodeURIComponent(req.params.token)}"><button type="submit">配信を停止する</button></form>`));
+});
+app.post("/u/:token", express.urlencoded({ extended: false }), async (req, res) => {
+  const s = await mailmagaSendByToken(req.params.token).catch(() => null);
+  if (!s) return res.status(404).send(mmPage("配信停止", `<h1>ページが見つかりません</h1>`));
+  await addMailOptout(s.email, s.campaign_id, req.body && req.body["List-Unsubscribe"] ? "ワンクリック" : "停止ページ");
+  console.log(`[mailmaga] 配信停止：${s.email}（#${s.campaign_id}）`);
+  res.send(mmPage("配信停止", `<h1>配信を停止しました</h1><p>今後、このアドレスへのご案内はお送りしません。<br>ご迷惑をおかけしました。</p>`));
 });
 
 // ステージ（リード状況）だけを変える。記録はしない。
@@ -23156,8 +23411,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12u アワードの「新規リード獲得」を「新規アポ獲得数」に名前を変えた。";
+const BUILD_TAG = "2026-10-13a kincallにメルマガ（左メニュー）：リストを選び、除くもの（アポ獲得済み・ユーザー・直近の商談・失注・配信停止・同じメール）を外して、トラッキング資料を宛先ごとのURLでまとめて送る。自分にテスト送信、数秒に1通・1日上限、一時停止・再開・やめる、開いた人と見た時間、配信停止ページ（ワンクリック対応）。";
 const BUILD_FEATURES = [
+  "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
   "実績ダッシュボードにアワード（出勤時間・受注数・新規リード獲得）",

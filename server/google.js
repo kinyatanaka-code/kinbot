@@ -775,10 +775,10 @@ export function parseEmailAddr(s) {
 }
 
 // 返信を送信する。threadIdを渡すと同じスレッドにぶら下がる。
-export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc }) {
+export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc, extraHeaders }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc });
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc, extraHeaders });
   const payload = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
@@ -959,7 +959,7 @@ export async function gmailUntrashThread(owner, threadId) {
 }
 
 // RFC822形式のメッセージを組み立ててbase64url化（送信・下書きで共通）
-async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc }) {
+async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc, extraHeaders }) {
   const from = await getPrimaryEmail(owner);
   const enc = (s) => `=?UTF-8?B?${Buffer.from(String(s || "")).toString("base64")}?=`;
   const headers = [
@@ -974,6 +974,8 @@ async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, refere
     "Content-Transfer-Encoding: base64",
     inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
     references ? `References: ${references}` : "",
+    // メルマガの配信停止（List-Unsubscribe など）。改行が混ざらないものだけ入れる
+    ...Object.entries(extraHeaders || {}).filter(([k, v]) => /^[A-Za-z-]+$/.test(k) && v && !/[\r\n]/.test(String(v))).map(([k, v]) => `${k}: ${v}`),
   ].filter(Boolean);
   const bodyB64 = Buffer.from(String(bodyText || ""), "utf-8").toString("base64");
   return Buffer.from(headers.join("\r\n") + "\r\n\r\n" + bodyB64, "utf-8")
