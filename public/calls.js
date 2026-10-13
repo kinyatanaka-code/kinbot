@@ -2064,6 +2064,9 @@ function renderDock() {
     .kc-j-gdiff{font-size:14px;font-weight:800;margin-left:auto;white-space:nowrap;}
     .kc-j-gl{font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;white-space:nowrap;min-width:44px;text-align:center;}
     .kc-j-gl.mind{background:#eef2fc;color:#3c5fae;} .kc-j-gl.commit{background:#e1f5ee;color:#085041;}
+    .kc-j-goals{display:grid;grid-template-columns:1fr 1fr;column-gap:14px;margin-top:4px;}
+    .kc-jcard.has-goals{flex:0 0 360px !important;width:360px !important;}
+    .kc-j-goals .kc-j-ghead{font-size:11px;font-weight:700;color:#5f6b64;margin-top:4px;}
     .mm-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start;}
     @media (max-width:1100px){.mm-grid{grid-template-columns:1fr;}}
     .mm-card{background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;}
@@ -3881,23 +3884,25 @@ function jisshiCard(c, big, ctx = {}) {
   const sgn = (n) => `${n > 0 ? "+" : ""}${n}`;
   const adjParts = [c.設定手直し ? `設定${sgn(c.設定手直し)}` : "", c.手直し ? `実施${sgn(c.手直し)}` : ""].filter(Boolean);
   const adjNote = adjParts.length ? `<span class="kc-j-adj" title="手で直した分">（手直し ${adjParts.join("・")}）</span>` : "";
-  return `<div class="kc-dcard kc-jcard${big ? " kc-dcard-big" : ""}">
+  return `<div class="kc-dcard kc-jcard${big ? " kc-dcard-big" : ""}${c.goals ? " has-goals" : ""}">
     <div class="kc-dname">${esc(c.name)}</div>
     <div class="kc-drow">
       <div class="kc-dcol"><div class="kc-dlb">設定数</div>${setCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実施数</div>${doneCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実施率</div><div class="kc-d-diff kc-j-rate">${rate}</div></div>
     </div>
-    ${["マインド", "コミット"].map((lb) => {
-      const v = Number((lb === "マインド" ? c.mind : c.commit) || 0), df = Number((lb === "マインド" ? c.diffMind : c.diffCommit) || 0);
-      const cls = df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero";
-      return `<div class="kc-j-goal">
-        <span class="kc-j-gl ${lb === "マインド" ? "mind" : "commit"}">${lb}</span>${ctx.canGoal
-          ? `<input type="number" min="0" class="kc-goal kc-j-goalin" value="${v}" data-subj="jisshi:${esc(c.name)}" data-key="${esc(c.goalKey || "")}" data-metric="実施${lb}" data-act="${Number(c.実施 || 0)}" />`
-          : `<b>${v}</b>`}
-        <span class="kc-j-gdiff ${cls}" title="差分（実施数 − ${lb}）">${df > 0 ? "+" : ""}${df}</span>
-      </div>`;
-    }).join("")}
+    ${c.goals ? `<div class="kc-j-goals">${[["設定", "設定数", c.設定], ["実施", "実施数", c.実施]].map(([k, title, act]) => `<div class="kc-j-gcol">
+      <div class="kc-j-ghead">${title}</div>
+      ${["マインド", "コミット"].map((lb) => {
+        const v = Number(c.goals[k + lb] || 0), df = Number(act || 0) - v;
+        const cls = df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero";
+        return `<div class="kc-j-goal">
+          <span class="kc-j-gl ${lb === "マインド" ? "mind" : "commit"}">${lb}</span>${ctx.canGoal
+            ? `<input type="number" min="0" class="kc-goal kc-j-goalin" value="${v}" data-subj="jisshi:全体" data-key="${esc(c.goalKey || "")}" data-metric="${k}${lb}" data-act="${Number(act || 0)}" />`
+            : `<b>${v}</b>`}
+          <span class="kc-j-gdiff ${cls}" title="差分（${title} − ${lb}）">${df > 0 ? "+" : ""}${df}</span>
+        </div>`;
+      }).join("")}</div>`).join("")}</div>` : ""}
     <div class="kc-j-bar"><i style="width:${c.済み設定 ? Math.min(100, Math.round(c.実施 / c.済み設定 * 100)) : 0}%"></i></div>
     <div class="kc-j-sub">終わった商談 ${c.済み設定}件中 ${c.実施}件 実施${c.これから ? `　／　これから ${c.これから}件` : ""}${adjNote}</div>
   </div>`;
