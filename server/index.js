@@ -497,6 +497,8 @@ import {
   clearAutoAssigned,
   listAssignLog,
   intendedCloserOf,
+  fixUraAssignLog,
+  upcomingUraApos,
   setSmartLinkUraEvent,
   setSmartLinkClientCc,
   getSmartLinkUraEvent,
@@ -23144,7 +23146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12p 日程変更のとき、つながるカレンダー予定（担当の商談予定・アポ獲得者の予定・浦林さん対応の予定）もまとめて動かす。獲得者の予定は本人の連携→運用者→読み取り担当の順で獲得者のカレンダーに書く。商談の長さは保つ。動かせなかった予定は画面とChatに出す。";
+const BUILD_TAG = "2026-10-12q 浦林さん対応で、本来の担当（江田さんなど）ではなくアポ獲得者（田中さん）のカレンダーに【浦林さん対応】の予定ができていた不具合を修正。獲得者本人は本来の担当にしない（Chatの「○○さんの商談カウントで」の人にする）。これからの商談で付け間違えていたものは起動時に自動で付け直し、件数も直す。";
 const BUILD_FEATURES = [
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
@@ -26495,11 +26497,17 @@ async function uraHandover(link, intended, actor) {
   if (!link || !link.slug) return null;
   const prevRaw = await getSmartLinkUraEvent(link.slug);
   const [prevEmail, prevId] = String(prevRaw || "").split("|");
+  // 本来の担当＝（渡されたとき）その人 → 前に予定を作った人（ただしアポ獲得者本人は除く）→ 割り振れなかったときに最初に試した人
+  // （獲得者がクローザーのとき、獲得者＝前の担当として控えてしまい、獲得者のカレンダーに予定ができていた不具合の対策）
+  const setterEm = String(link.setter_email || "").toLowerCase();
   let who = intended && intended.email ? intended : null;
-  if (!who && prevEmail) who = { email: prevEmail, name: await repDisplayName(prevEmail).catch(() => prevEmail) };
+  if (!who && prevEmail && prevEmail.toLowerCase() !== setterEm) who = { email: prevEmail, name: await repDisplayName(prevEmail).catch(() => prevEmail) };
   if (!who) who = await intendedCloserOf(link.slug);
+  if (!who && prevEmail) who = { email: prevEmail, name: await repDisplayName(prevEmail).catch(() => prevEmail) };
   if (!who || !who.email) return { error: "本来の担当が分かりませんでした" };
-  if (!(await hasUraAssignLog(link.slug))) await logAssign({ slug: link.slug, assigned: who.email, reason: `浦林さん対応（${who.name || who.email}さんの件数として数える）`, actor }).catch(() => {});
+  const uraReason = `浦林さん対応（${who.name || who.email}さんの件数として数える）`;
+  if (!(await hasUraAssignLog(link.slug))) await logAssign({ slug: link.slug, assigned: who.email, reason: uraReason, actor }).catch(() => {});
+  else await fixUraAssignLog(link.slug, who.email, uraReason).catch(() => 0);   // 前に違う人で数えていたら直す
   if (!link.start_time) return { email: who.email, error: "商談日時が無いため予定を作れません" };
   if (!(await gcalConnected(who.email).catch(() => false))) return { email: who.email, error: "Google連携が無いため作れませんでした" };
   if (prevEmail && prevId) await deleteCalendarEvent(prevEmail, prevId, "primary").catch(() => {});
@@ -28891,8 +28899,14 @@ app.put("/api/smart-links/:slug/owner", async (req, res) => {
     try {
       const ura = owner ? await urabayashiMember() : null;
       if (ura && String(owner).toLowerCase() === ura.email) {
+        // 本来の担当＝前の担当（ただし浦林さん・アポ獲得者本人は除く）→ 割り振れなかったときに最初に試した人（Chatの「○○さんの商談カウントで」の人）
+        // 獲得者がクローザーのアポは、はじめから獲得者が担当欄に入っているので、それを本来の担当にしない
         const prev = String(existing.current_owner || "").toLowerCase();
-        uraIntended = prev && prev !== ura.email ? { email: prev, name: await repDisplayName(prev).catch(() => prev) } : await intendedCloserOf(req.params.slug);
+        const setterEm = String(existing.setter_email || "").toLowerCase();
+        const fromFail = await intendedCloserOf(req.params.slug).catch(() => null);
+        if (prev && prev !== ura.email && prev !== setterEm) uraIntended = { email: prev, name: await repDisplayName(prev).catch(() => prev) };
+        else if (fromFail) uraIntended = fromFail;
+        else if (prev && prev !== ura.email) uraIntended = { email: prev, name: await repDisplayName(prev).catch(() => prev) };
       }
     } catch {}
     const link = await setSmartLinkOwner(req.params.slug, owner);
@@ -29300,6 +29314,19 @@ server.listen(PORT, async () => {
   // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
   // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
   linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  // 浦林さん対応の予定が、アポ獲得者本人のカレンダーにできてしまっていたもの（これからの商談）を、本来の担当に付け直す
+  setTimeout(async () => {
+    try {
+      for (const l of await upcomingUraApos().catch(() => [])) {
+        const [em] = String(l.ura_event || "").split("|");
+        if (!em || em.toLowerCase() !== String(l.setter_email || "").toLowerCase()) continue;
+        const want = await intendedCloserOf(l.slug).catch(() => null);
+        if (!want || want.email === em.toLowerCase()) continue;
+        const r = await uraHandover(l, want, "自動修正（本来の担当の付け直し）").catch((e) => ({ error: e.message }));
+        console.log(`[apo] 浦林さん対応の予定を付け直し：${l.label}（${em} → ${want.email}）${r && r.error ? ` ※${r.error}` : ""}`);
+      }
+    } catch (e) { console.warn("[apo] 浦林さん対応の付け直し", e.message); }
+  }, 20000).unref?.();
   setInterval(() => linkReschedPairs().catch(() => {}), 10 * 60 * 1000).unref?.();
   // 文章だけのAI処理をGroqにするか（設定があればそれに従う。無ければ既定ON）
   getSettings().then((st) => { if (st && (st.aiTextViaGroq === true || st.aiTextViaGroq === "true")) setTextViaGroq(true); }).catch(() => {});

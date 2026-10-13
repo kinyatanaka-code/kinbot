@@ -3843,6 +3843,27 @@ export async function getSmartLinkUraEvent(slug) {
     return (rows[0] && rows[0].ura_event) || "";
   } catch { return ""; }
 }
+// 浦林さん対応の「件数を付ける人」を直す（本来の担当を間違えて記録していたとき）
+export async function fixUraAssignLog(slug, email, reason) {
+  if (!pool || !slug || !email) return 0;
+  try {
+    const r = await pool.query(
+      `UPDATE assign_log SET assigned = $2, reason = $3
+        WHERE slug = $1 AND reason LIKE '%浦林さん対応%' AND lower(COALESCE(assigned,'')) <> lower($2)`, [slug, email, reason]);
+    return r.rowCount || 0;
+  } catch (e) { console.error("[db] fixUraAssignLog", e.message); return 0; }
+}
+// これからの商談で、浦林さん対応の予定を作ってあるもの（本来の担当の付け間違いを直すのに使う）
+export async function upcomingUraApos(limit = 200) {
+  if (!pool) return [];
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS ura_event TEXT;`).catch(() => {});
+    const { rows } = await pool.query(
+      `SELECT * FROM smart_links WHERE COALESCE(ura_event,'') <> '' AND NOT COALESCE(excluded,false)
+          AND start_time > now() ORDER BY start_time LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] upcomingUraApos", e.message); return []; }
+}
 export async function hasUraAssignLog(slug) {
   if (!pool || !slug) return false;
   try { const { rows } = await pool.query(`SELECT 1 FROM assign_log WHERE slug=$1 AND reason LIKE '%浦林さん対応%' LIMIT 1`, [slug]); return rows.length > 0; }
