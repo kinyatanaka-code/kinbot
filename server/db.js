@@ -3900,6 +3900,28 @@ export async function leadsByCompanyLike(core, limit = 30) {
     return rows;
   } catch (e) { console.error("[db] leadsByCompanyLike", e.message); return []; }
 }
+// 直近に商談した（またはこれから商談がある）会社：アポ（テスト・キックオフ以外）と kinbot の商談記録から。
+// 返り値：[{ company, day, kind }]（day は商談日 YYYY-MM-DD）
+export async function recentMeetingCompanies(pastDays = 60, futureDays = 120) {
+  if (!pool) return [];
+  try {
+    const out = [];
+    const { rows: a } = await pool.query(
+      `SELECT label, to_char(start_time AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') AS day, start_time
+         FROM smart_links
+        WHERE start_time >= now() - ($1 || ' days')::interval AND start_time < now() + ($2 || ' days')::interval
+          AND (NOT COALESCE(excluded,false) OR COALESCE(excluded_reason,'') IN ('リスケ','キャンセル'))`,
+      [String(pastDays), String(futureDays)]);
+    for (const r of a) out.push({ company: r.label, day: r.day, kind: new Date(r.start_time) > new Date() ? "これから商談" : "商談済み", fromLabel: true });
+    const { rows: b } = await pool.query(
+      `SELECT d.company_name, to_char(max(e.event_date),'YYYY-MM-DD') AS day
+         FROM deal_events e JOIN deals d ON d.deal_id = e.deal_id
+        WHERE e.event_date >= (now() AT TIME ZONE 'Asia/Tokyo')::date - ($1 || ' days')::interval
+        GROUP BY d.company_name`, [String(pastDays)]).catch(() => ({ rows: [] }));
+    for (const r of b) out.push({ company: r.company_name, day: r.day, kind: "商談済み" });
+    return out;
+  } catch (e) { console.error("[db] recentMeetingCompanies", e.message); return []; }
+}
 export async function upcomingUraApos(limit = 200) {
   if (!pool) return [];
   try {

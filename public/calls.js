@@ -442,6 +442,9 @@ function fromBadge(x) {
   const PAST = ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"];
   const fr = NEW.includes(src) ? "new" : PAST.includes(src) ? "past" : "other";
   const parts = [];
+  // 直近に商談した・これから商談がある会社（同じ会社に重ねて電話しないよう、目立たせる）
+  const mtg = x && x["直近商談"];
+  if (mtg && mtg.day) parts.push(`<span class="kc-src-tag mtg" title="この会社は${mtg.kind === "これから商談" ? "これから商談があります" : "直近に商談しています"}（${esc(mtg.day)}）。今日かけるリードには入れていません">${mtg.kind === "これから商談" ? "商談予定" : "商談済み"} ${Number(String(mtg.day).slice(5, 7))}/${Number(String(mtg.day).slice(8, 10))}</span>`);
   if (/ジャッジ|営業フォロー/.test(`${(x && x["ステージ"]) || ""} ${(x && x["最終ステータス"]) || ""}`)) parts.push(`<span class="kc-src-tag nur" title="ジャッジ・営業フォローのリード">ナーチャリング</span>`);
   if (src && src !== "要確認") parts.push(`<span class="kc-src-tag ${fr}" title="どこから来たリードか（ソース）">${esc(src)}</span>`);
   const listShown = origin || (multi ? ln : "");
@@ -467,6 +470,7 @@ function rowTags(x) {
   const src = String((x && x["ソース"]) || "").trim(); if (src) out.push("ソース|" + src);
   const ln = String((x && (x["元のリスト"] || x["リスト名"])) || "").trim(); if (ln) out.push("リスト|" + ln);
   if (/【\s*復活\s*】/.test(ln)) out.push("印|復活");
+  if (x && x["直近商談"]) out.push("印|直近に商談あり");
   const r = String((x && x["担当者不在ランク"]) || "").trim().toUpperCase();
   if (["A", "B", "C"].includes(r) && /不在/.test(String((x && (x["最終結果"] || x["最終ステータス"])) || ""))) out.push("不在|不在" + r);
   const b = bizState(x); if (b === "open") out.push("営業|営業中"); else if (b === "closed") out.push("営業|営業時間外");
@@ -2053,6 +2057,8 @@ function renderDock() {
     .kc-today-goal.ok{color:#085041;background:#e1f5ee;} .kc-today-note{font-size:11px;color:#6b8a7d;margin-left:4px;}
     .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
     .kc-src-tag{font-size:10px;font-weight:700;padding:0 6px;border-radius:5px;white-space:nowrap;}
+    .kc-src-tag.mtg{background:#fdecea;color:#b3261e;border:1px solid #f3b8b2;}
+    .kc-mtg-warn{margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#fdecea;border:1px solid #f3b8b2;color:#8c1d18;font-size:12.5px;font-weight:600;line-height:1.5;}
     .kc-src-tag.nur{background:#e6f1fb;color:#0c447c;}
     .kc-src-tag.new{background:#e1f5ee;color:#085041;} .kc-src-tag.past{background:#faece7;color:#712b13;} .kc-src-tag.other{background:#f1efe8;color:#5f5e5a;}
     .kc-src-list{font-size:10px;color:#6b8a7d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px;}
@@ -2154,6 +2160,7 @@ async function openTarget(id, draft, opt) {
               <div class="kc-rec-edit-save"><button type="button" class="btn" id="kcEdSave">保存</button> <button type="button" class="btn ghost" id="kcEdCancel">やめる</button> <span class="rev-status" id="kcEdSt"></span></div>
             </div>
           </div>
+          ${x["直近商談"] && x["直近商談"].day ? `<div class="kc-mtg-warn">⚠️ この会社は${x["直近商談"].kind === "これから商談" ? `${esc(x["直近商談"].day)}に商談の予定があります` : `${esc(x["直近商談"].day)}に商談しています`}。重ねて電話しないよう、担当と確認してからかけてください。</div>` : ""}
           <!-- いまのステージと、変えるところ -->
           <div class="kc-rec-stage">
             <div class="kc-lb">いまのステージ</div>

@@ -502,6 +502,7 @@ import {
   aposTakenInMonthAll,
   apoLeadCandidates,
   leadsByCompanyLike,
+  recentMeetingCompanies,
   upcomingUraApos,
   setSmartLinkUraEvent,
   setSmartLinkClientCc,
@@ -10503,6 +10504,7 @@ app.get("/api/calls/targets", async (req, res) => {
       const member = String(req.query.member || req.user || "").trim().toLowerCase();
       if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
       const all = await listAllLeadsForMember(member, { q: String(req.query.q || "").trim(), limit: 5000 });
+      const mtgMap = await recentMeetingMap().catch(() => new Map());
       const nowJ = new Date(Date.now() + 9 * 3600000);
       const endToday = Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth(), nowJ.getUTCDate() + 1) - 9 * 3600000;
       const nur = /ジャッジ|営業フォロー/;
@@ -10521,6 +10523,8 @@ app.get("/api/calls/targets", async (req, res) => {
         if (!isPast && stageBucket(r.stage) === "リサイクル") return false;
         if (r.done && !isPast) return false;
         if (r.next_call_at && new Date(r.next_call_at).getTime() >= endToday) return false;
+        // 直近に商談した・これから商談がある会社のリードは入れない（同じ会社に重ねて電話しないため）
+        if (recentMeetingOf(mtgMap, r.company)) return false;
         return true;
       });
       // 1日ぶんの組み立て（既定 150件前後）：
@@ -10679,7 +10683,9 @@ app.get("/api/calls/targets", async (req, res) => {
       console.log(`[kincall] 架電の件数を数えました：${sfCount.size}件ぶん（対象 ${ids.length}）`);
       sf数えた = 失敗 < Math.ceil(ids.length / 80);   // 全部失敗でなければ数えられた扱い
     }
+    const mtgMapAll = await recentMeetingMap().catch(() => new Map());
     const items = rows.map((r) => ({
+        直近商談: recentMeetingOf(mtgMapAll, r.company),   // 直近に商談した・これから商談がある会社なら { day, kind }
         id: r.id, listId: r.list_id || null, listOwner: r._list_owner || "", listGroupId: r._list_group_id || null, listGroupName: r._list_group_name || "", leadId: r.lead_id || "",
         ステージ: r.stage || "",
         会社名: r.company || "", 担当者: r.person || "", ふりがな: r.person_kana || "",
@@ -23150,7 +23156,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12s 取ったアポの予定名に種別（過去失注・フロッグ）を入れ直す機能（AI画面）。月を選んで確認→選んで実行で、獲得者の予定・担当の商談予定・浦林さん対応の予定とアポの名前を直す。種別はアポ獲得の記録（無ければ会社名）から元のリードを探して決める。";
+const BUILD_TAG = "2026-10-12t 直近60日に商談した・これから商談がある会社のリードを、今日かけるリードから外す。ほかのリストでは「商談済み／商談予定 ○/○」の印、印での絞り込み、記録の窓に注意を出す（RECENT_MEETING_DAYS で日数を変えられる）。";
 const BUILD_FEATURES = [
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
@@ -26271,6 +26277,35 @@ async function moveApoCalendarEvents(link, startISO, endISO, { skip = [] } = {})
     await tryPatch("浦林さん対応の予定", [[uEmail, uId], [ops, uId, uEmail]]);
   }
   return { moved, failed };
+}
+
+// ===== 直近に商談した会社のリードを見分ける =====
+// 直近 RECENT_MEETING_DAYS 日（既定60日）に商談した会社、またはこれから商談がある会社 → 会社名のキー → { day, kind }
+// 今日かけるリードからは外し、ほかのリストでは印を付ける（同じ会社に重ねて電話しないため）。10分キャッシュ。
+let _recentMtg = { at: 0, map: new Map() };
+async function recentMeetingMap() {
+  if (Date.now() - _recentMtg.at < 10 * 60 * 1000) return _recentMtg.map;
+  const days = Math.max(0, parseInt(process.env.RECENT_MEETING_DAYS || "60", 10) || 60);
+  const map = new Map();
+  const keyOf = (name, fromLabel) => {
+    let t = String(name || "").normalize("NFKC");
+    if (fromLabel) t = parseLaunchTitle(t).company || t.replace(/【[^】]*】/g, "").split(/[\/／]/)[0];
+    t = t.replace(/^\s*(zoom|ZOOM|Zoom)\s*/, "").replace(/【[^】]*】/g, "").split(/[\/／]/)[0].replace(/[\s　]+[^\s　]*(様|さん)\s*$/, "").trim();
+    return normCompanyKey(t);
+  };
+  for (const r of await recentMeetingCompanies(days, 120).catch(() => [])) {
+    const k = keyOf(r.company, r.fromLabel);
+    if (!k || k.length < 2) continue;
+    const cur = map.get(k);
+    // これからの商談を優先、なければ新しい商談日
+    if (!cur || (r.kind === "これから商談" && cur.kind !== "これから商談") || (r.kind === cur.kind && String(r.day) > String(cur.day))) map.set(k, { day: r.day, kind: r.kind });
+  }
+  _recentMtg = { at: Date.now(), map };
+  return map;
+}
+function recentMeetingOf(map, company) {
+  const k = normCompanyKey(String(company || "").normalize("NFKC"));
+  return (k && map.get(k)) || null;
 }
 
 // ===== 予定名に種別（新規／過去失注／フロッグ）を入れ直す =====
