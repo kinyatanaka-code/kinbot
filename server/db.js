@@ -3854,6 +3854,52 @@ export async function fixUraAssignLog(slug, email, reason) {
   } catch (e) { console.error("[db] fixUraAssignLog", e.message); return 0; }
 }
 // これからの商談で、浦林さん対応の予定を作ってあるもの（本来の担当の付け間違いを直すのに使う）
+// アポの名前（予定名）を変える
+export async function setSmartLinkLabel(slug, label) {
+  if (!pool || !slug || !label) return null;
+  try {
+    const { rows } = await pool.query(`UPDATE smart_links SET label = $2, updated_at = now() WHERE slug = $1 RETURNING *`, [slug, label]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] setSmartLinkLabel", e.message); return null; }
+}
+// その月に取ったアポ（予定名の付け直し用）。外したものも含めて全部
+export async function aposTakenInMonthAll(fromDay, toDay) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM smart_links
+        WHERE (COALESCE(apo_at, created_at) AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date
+          AND COALESCE(setter,'') <> '' AND NOT COALESCE(mailmaga,false)
+        ORDER BY COALESCE(apo_at, created_at)`, [fromDay, toDay]);
+    return rows;
+  } catch (e) { console.error("[db] aposTakenInMonthAll", e.message); return []; }
+}
+// アポの元のリード（kincallのリード）を探す：獲得者がアポ獲得を記録したリードのうち、取った日の前後のもの
+export async function apoLeadCandidates({ setterEmail, takenAt }) {
+  if (!pool || !setterEmail || !takenAt) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company, t.source, cl.name AS list_name,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name, l.at
+         FROM call_logs l JOIN call_targets t ON t.id = l.target_id LEFT JOIN call_lists cl ON cl.id = t.list_id
+        WHERE lower(COALESCE(l.caller,'')) = lower($1) AND l.result ~ 'アポ獲得'
+          AND l.at BETWEEN $2::timestamptz - interval '4 days' AND $2::timestamptz + interval '2 days'
+        ORDER BY abs(extract(epoch FROM (l.at - $2::timestamptz)))`, [setterEmail, takenAt]);
+    return rows;
+  } catch (e) { console.error("[db] apoLeadCandidates", e.message); return []; }
+}
+// 会社名でリードを探す（記録から見つからないとき）
+export async function leadsByCompanyLike(core, limit = 30) {
+  if (!pool || !core) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT t.id, t.company, t.source, cl.name AS list_name,
+              (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name
+         FROM call_targets t LEFT JOIN call_lists cl ON cl.id = t.list_id
+        WHERE t.company ILIKE '%' || $1 || '%' ORDER BY t.id DESC LIMIT $2`, [core, limit]);
+    return rows;
+  } catch (e) { console.error("[db] leadsByCompanyLike", e.message); return []; }
+}
 export async function upcomingUraApos(limit = 200) {
   if (!pool) return [];
   try {

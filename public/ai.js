@@ -203,7 +203,15 @@ async function loadSfStatus() {
         <button class="pr-b" id="restoreApos" type="button">除外されたアポを戻す（テスト以外）</button>
         <span class="saved" id="sendCallMsg" hidden></span>
         <span class="ai-mini" id="restoreMsg"></span>
-      </div>`;
+      </div>
+      <div class="ai-subh" style="margin-top:14px;">予定名に種別（過去失注・フロッグ）を入れる</div>
+      <div class="ai-mini">その月に取ったアポの元のリードを探して、【初回】を【初回/過去失注】【初回/フロッグ】に直します（新規はそのまま）。まず「確認する」で一覧を出し、直すものを選んでから実行します。</div>
+      <div class="modal-actions" style="margin-top:6px;flex-wrap:wrap;gap:8px;align-items:center;">
+        <input type="month" id="retagMonth" value="${new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7)}" style="border:1px solid #e6ece9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit" />
+        <button class="pr-b" id="retagPreview" type="button">確認する</button>
+        <span class="ai-mini" id="retagMsg"></span>
+      </div>
+      <div id="retagBox"></div>`;
     // 送信先の一覧（選ばなければ、いつもの送信先へ）
     try {
       const tg = await (await fetch("/api/chat-targets")).json();
@@ -213,6 +221,48 @@ async function loadSfStatus() {
         ? list.map((x) => `<label class="cr-t"><input type="checkbox" class="cr-cb" value="${esc(String(x.id))}"> ${esc(x.name || x.space_id || ("#" + x.id))}</label>`).join("")
         : `<span class="ai-mini">（登録された送信先がありません。いつもの送信先へ送ります）</span>`;
     } catch { const box2 = $("crTargets"); if (box2) box2.innerHTML = `<span class="ai-mini">送信先を読み込めませんでした（いつもの送信先へ送ります）</span>`; }
+    // 予定名に種別を入れる：確認 → 選んで実行
+    const rp = $("retagPreview");
+    if (rp) rp.addEventListener("click", async () => {
+      const box3 = $("retagBox"), msg = $("retagMsg");
+      const month = ($("retagMonth") || {}).value || "";
+      rp.disabled = true; if (msg) msg.textContent = "アポの元のリードを探しています…（件数が多いと少しかかります）"; if (box3) box3.innerHTML = "";
+      try {
+        const d = await (await fetch(`/api/apo/retag-preview?month=${encodeURIComponent(month)}`)).json();
+        if (!d.ok) throw new Error(d.error || "読み込めませんでした");
+        const ch = d.rows.filter((r) => r.change), keep = d.rows.filter((r) => !r.change);
+        const fmt = (v) => { const t = Date.parse(v || ""); if (!isFinite(t)) return ""; const j = new Date(t + 9 * 3600000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}`; };
+        if (msg) msg.textContent = `${d.件数}件のうち、直すもの ${ch.length}件`;
+        const byReason = {};
+        for (const r of keep) byReason[r.reason || "-"] = (byReason[r.reason || "-"] || 0) + 1;
+        box3.innerHTML = (ch.length ? `
+          <div style="overflow-x:auto;margin-top:8px;"><table class="kc-table" style="width:100%;font-size:12.5px;"><thead><tr><th><input type="checkbox" id="retagAll" checked></th><th>商談日</th><th>獲得者</th><th>いまの予定名</th><th>直したあと</th><th>決めた理由</th></tr></thead><tbody>
+          ${ch.map((r) => `<tr><td><input type="checkbox" class="retag-cb" value="${esc(r.slug)}" checked></td><td>${esc(fmt(r.start_time))}</td><td>${esc(r.setter || "")}</td><td>${esc(r.label)}${r.excluded ? '<span class="ai-mini">（外したアポ）</span>' : ""}</td><td><b>${esc(r.newLabel)}</b></td><td class="ai-mini">${esc(r.why || "")}</td></tr>`).join("")}
+          </tbody></table></div>
+          <div class="modal-actions" style="margin-top:8px;gap:8px;"><button class="btn" id="retagRun" type="button">選んだものを直す</button><span class="ai-mini" id="retagRunMsg"></span></div>`
+          : `<div class="ai-mini" style="margin-top:8px;">直すものはありませんでした。</div>`) +
+          `<details style="margin-top:8px;"><summary class="ai-mini">そのままにするもの（${keep.length}件）</summary><ul class="ai-mini">${Object.entries(byReason).map(([k, v]) => `<li>${esc(k)}：${v}件</li>`).join("")}</ul>
+            <ul class="ai-mini">${keep.filter((r) => !/新規のリード|すでに種別/.test(r.reason || "")).map((r) => `<li>${esc(r.label)} … ${esc(r.reason || "")}</li>`).join("")}</ul></details>`;
+        const all = $("retagAll");
+        if (all) all.addEventListener("change", () => document.querySelectorAll(".retag-cb").forEach((c) => { c.checked = all.checked; }));
+        const run = $("retagRun");
+        if (run) run.addEventListener("click", async () => {
+          const slugs = [...document.querySelectorAll(".retag-cb:checked")].map((c) => c.value);
+          if (!slugs.length) return alert("直すアポを選んでください");
+          if (!confirm(`${slugs.length}件の予定名を直します（獲得者の予定・担当の商談予定・浦林さん対応の予定）。よろしいですか？`)) return;
+          run.disabled = true; const rm = $("retagRunMsg"); if (rm) rm.textContent = "直しています…";
+          try {
+            const r = await fetch("/api/apo/retag", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slugs }) });
+            const j = await r.json();
+            if (!r.ok) throw new Error(j.error || "直せませんでした");
+            const ng = j.results.filter((x) => x.ok && x.failed && x.failed.length);
+            if (rm) rm.textContent = `${j.直した}件を直しました${ng.length ? `（うち${ng.length}件は、カレンダーの予定を一部変えられませんでした：権限が無い可能性）` : ""}`;
+          } catch (e) { if (rm) rm.textContent = "失敗：" + e.message; }
+          finally { run.disabled = false; }
+        });
+      } catch (e) { if (msg) msg.textContent = "失敗：" + e.message; }
+      finally { rp.disabled = false; }
+    });
     const rb = $("restoreApos");
     if (rb) rb.addEventListener("click", async () => {
       if (!confirm("集計から外れているアポのうち、テスト以外を集計に戻します。よろしいですか？")) return;

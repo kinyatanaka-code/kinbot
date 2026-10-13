@@ -498,6 +498,10 @@ import {
   listAssignLog,
   intendedCloserOf,
   fixUraAssignLog,
+  setSmartLinkLabel,
+  aposTakenInMonthAll,
+  apoLeadCandidates,
+  leadsByCompanyLike,
   upcomingUraApos,
   setSmartLinkUraEvent,
   setSmartLinkClientCc,
@@ -23146,7 +23150,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12r kincallのアポの内容欄に「種別」（新規＝【初回】／過去失注＝【初回/過去失注】／フロッグ＝【初回/フロッグ】）。リードのソースから初期値を決め、カレンダーの予定名の見本を表示。";
+const BUILD_TAG = "2026-10-12s 取ったアポの予定名に種別（過去失注・フロッグ）を入れ直す機能（AI画面）。月を選んで確認→選んで実行で、獲得者の予定・担当の商談予定・浦林さん対応の予定とアポの名前を直す。種別はアポ獲得の記録（無ければ会社名）から元のリードを探して決める。";
 const BUILD_FEATURES = [
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
@@ -26268,6 +26272,107 @@ async function moveApoCalendarEvents(link, startISO, endISO, { skip = [] } = {})
   }
   return { moved, failed };
 }
+
+// ===== 予定名に種別（新規／過去失注／フロッグ）を入れ直す =====
+// アポの元のリードを探して種別を決め、【初回】→【初回/過去失注】【初回/フロッグ】に直す（新規はそのまま）。
+// 予定名の頭が【初回】【新】【ヒ】【新/ヒ】【初回/】のものだけ直す。すでに種別が入っているもの・形が違うものは触らない。
+function apoTypeFromLead(t) {
+  if (!t) return "";
+  const txt = `${t.source || ""} ${t.list_name || ""} ${t.group_name || ""}`;
+  if (/フロッグ/.test(txt)) return "フロッグ";
+  if (frameOfSource(t.source || "") === "past" || /過去失注|クロス失注|過去リスト/.test(txt)) return "過去失注";
+  return "新規";
+}
+async function apoRetagPlan(link) {
+  const label = String(link.label || "");
+  const m = /^\s*【([^】]*)】/.exec(label);
+  if (!m) return { change: false, reason: "予定名の頭に【】がありません" };
+  const tagN = m[1].normalize("NFKC").replace(/\s/g, "");
+  if (/過去失注|フロッグ|コールド|クロス/.test(tagN)) return { change: false, reason: "すでに種別が入っています", type: /フロッグ/.test(tagN) ? "フロッグ" : "過去失注" };
+  if (!/^(初回\/?|新|ヒ|新\/ヒ|新\/|初回\/新|初回\/ヒ)$/.test(tagN)) return { change: false, reason: `【${m[1]}】は対象外の形です` };
+  const company = parseLaunchTitle(label).company || label.replace(/^\s*【[^】]*】/, "").split(/[\/／]/)[0];
+  const key = normCompanyKey(company);
+  let lead = null, how = "";
+  if (link.setter_email) {
+    const cands = await apoLeadCandidates({ setterEmail: link.setter_email, takenAt: link.apo_at || link.created_at }).catch(() => []);
+    lead = cands.find((t) => key && normCompanyKey(t.company) === key) || cands.find((t) => { const k = normCompanyKey(t.company); return key && k && key.length >= 3 && (k.includes(key) || key.includes(k)); }) || null;
+    if (lead) how = "アポ獲得の記録";
+  }
+  if (!lead && key && key.length >= 2) {
+    const cands = await leadsByCompanyLike(key).catch(() => []);
+    const hits = cands.filter((t) => normCompanyKey(t.company) === key);
+    const types = [...new Set(hits.map(apoTypeFromLead))];
+    if (types.length === 1) { lead = hits[0]; how = "会社名"; }
+    else if (types.length > 1) return { change: false, reason: `同じ会社名のリードが複数の種別にあります（${types.join("・")}）。手で直してください` };
+  }
+  if (!lead) return { change: false, reason: "元のリードが見つかりませんでした" };
+  const type = apoTypeFromLead(lead);
+  const why = `${how}：${lead.source || "ソースなし"}${lead.list_name ? `／${lead.list_name}` : ""}`;
+  if (type === "新規") return { change: false, reason: "新規のリードなので、そのままです", type, why };
+  const newLabel = label.replace(/^\s*【[^】]*】/, `【初回/${type}】`);
+  return { change: newLabel !== label, type, newLabel, why };
+}
+// アポにつながる予定の名前をまとめて変える（獲得者の予定・担当の商談予定・浦林さん対応の予定）
+async function retitleApoCalendarEvents(link, newLabel) {
+  const moved = [], failed = [];
+  const st = await getSettings().catch(() => ({}));
+  const ops = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+  const reader = (await dailyCalendarReader().catch(() => "")) || "";
+  const tryPatch = async (name, summary, attempts) => {
+    let last = "";
+    for (const [owner, eventId, cal] of attempts) {
+      if (!owner || !eventId) continue;
+      try { await patchCalendarEvent(owner, eventId, { summary }, cal || "primary"); moved.push(name); return; }
+      catch (e) { last = String(e.message || e).slice(0, 120); }
+    }
+    if (attempts.some(([o, id]) => o && id)) { failed.push(name); console.warn(`[apo-retag] ${name}の名前を変えられませんでした：${last}`); }
+  };
+  if (link.event_id && link.setter_email) {
+    const se = String(link.setter_email).toLowerCase();
+    const own = (await gcalConnected(se).catch(() => false)) ? se : "";
+    await tryPatch("アポ獲得者の予定", newLabel, [[own, link.event_id], [ops, link.event_id, se], [reader, link.event_id, se]]);
+  }
+  if (link.invite_event_id) await tryPatch("担当の商談予定", newLabel, [[link.invite_event_owner || link.current_owner, link.invite_event_id], [ops, link.invite_event_id, link.invite_event_owner || link.current_owner]]);
+  const ura = await getSmartLinkUraEvent(link.slug).catch(() => "");
+  if (ura && ura.includes("|")) { const [uEmail, uId] = ura.split("|"); await tryPatch("浦林さん対応の予定", `【浦林さん対応】${newLabel}`, [[uEmail, uId], [ops, uId, uEmail]]); }
+  return { moved, failed };
+}
+// 確認：その月に取ったアポの、直す予定名の一覧（まだ何も変えない）
+app.get("/api/apo/retag-preview", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const pad = (n) => String(n).padStart(2, "0");
+    const ym = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? String(req.query.month) : `${nowJ.getUTCFullYear()}-${pad(nowJ.getUTCMonth() + 1)}`;
+    const [yy, mm] = ym.split("-").map(Number);
+    const links = await aposTakenInMonthAll(`${ym}-01`, `${ym}-${pad(new Date(Date.UTC(yy, mm, 0)).getUTCDate())}`);
+    const rows = [];
+    for (const l of links) {
+      const p = await apoRetagPlan(l).catch((e) => ({ change: false, reason: e.message }));
+      rows.push({ slug: l.slug, label: l.label, setter: l.setter, start_time: l.start_time, excluded: !!l.excluded, ...p });
+    }
+    res.json({ ok: true, month: ym, 件数: rows.length, 直すもの: rows.filter((r) => r.change).length, rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 実行：選んだアポの予定名を直す（カレンダーの予定とアポの名前の両方）
+app.post("/api/apo/retag", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const slugs = Array.isArray(req.body && req.body.slugs) ? req.body.slugs.slice(0, 500) : [];
+    const out = [];
+    for (const slug of slugs) {
+      const link = await getSmartLink(slug);
+      if (!link) { out.push({ slug, ok: false, reason: "アポが見つかりません" }); continue; }
+      const p = await apoRetagPlan(link).catch((e) => ({ change: false, reason: e.message }));
+      if (!p.change) { out.push({ slug, ok: false, reason: p.reason || "直すところがありません" }); continue; }
+      const cal = await retitleApoCalendarEvents(link, p.newLabel);
+      await setSmartLinkLabel(slug, p.newLabel);
+      out.push({ slug, ok: true, label: p.newLabel, moved: cal.moved, failed: cal.failed });
+      console.log(`[apo-retag] ${link.label} → ${p.newLabel}（${cal.moved.join("・") || "予定なし"}${cal.failed.length ? ` ／ 変えられなかった：${cal.failed.join("・")}` : ""}） by ${req.user}`);
+    }
+    res.json({ ok: true, 直した: out.filter((x) => x.ok).length, 一部できなかった: out.filter((x) => x.ok && x.failed.length).length, results: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // カレンダーで日程が動いていたら、アポを新しい日程に合わせる（獲得者の予定・担当の商談予定のどちらで動かしても）。
 //   ・アポの日時を新しい日程にする（リマインドは新しい日程の前日に送る。前の日程で送った分があっても送り直せる）
