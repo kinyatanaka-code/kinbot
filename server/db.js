@@ -962,6 +962,8 @@ export async function initDb() {
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time TIMESTAMPTZ;`);
   // kinbotの画面で日程変更したときの印（カレンダーのスキャンで元の日時に戻さないため）
   await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual TIMESTAMPTZ;`);
+  // 商談日時が最後に変わった時刻（手動・カレンダーどちらでも）。これより前に送ったリマインドは「前の日程の分」とみなす
+  await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_changed_at TIMESTAMPTZ;`);
   // アポを取った日時（カレンダー予定を作った時刻）。
   // created_at はkinbotが拾った時刻なので、実際にアポを取った日とずれる。
   // プロセスシートは「アポを取った日」の列に入れるため、こちらを使う。
@@ -3892,11 +3894,25 @@ export async function updateApoStartTime(slug, startISO) {
   try {
     await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual TIMESTAMPTZ;`).catch(() => {});
     const { rows } = await pool.query(
-      `UPDATE smart_links SET start_time = $2, start_time_manual = now(), updated_at = now() WHERE slug = $1
+      `UPDATE smart_links SET start_time = $2, start_time_manual = now(),
+              start_changed_at = CASE WHEN start_time IS DISTINCT FROM $2::timestamptz THEN now() ELSE start_changed_at END, updated_at = now() WHERE slug = $1
        RETURNING slug, label, start_time, client_email, current_owner, setter, setter_email, event_id, invite_event_id, invite_event_owner`,
       [slug, startISO]);
     return rows[0] || null;
   } catch (e) { console.error("[db] updateApoStartTime", e.message); return null; }
+}
+// カレンダー側で日程が動いていたときに、アポの日時を合わせる（手動で変えた印は付けない）。
+// 変わったら start_changed_at を入れるので、前の日程で送ったリマインドがあっても、新しい日程でもう一度送れる。
+export async function syncApoStartFromCalendar(slug, startISO, endISO = null) {
+  if (!pool || !slug || !startISO) return null;
+  try {
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET start_time = $2::timestamptz, end_time = COALESCE($3::timestamptz, end_time),
+              start_changed_at = now(), updated_at = now()
+        WHERE slug = $1 AND start_time IS DISTINCT FROM $2::timestamptz
+        RETURNING *`, [slug, startISO, endISO]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] syncApoStartFromCalendar", e.message); return null; }
 }
 
 // 前日リマインドを送る／送らないを切り替える
@@ -5969,6 +5985,18 @@ export async function noticeOnce(eventId, kind, title = "") {
 }
 
 // これから先のアポ（カレンダーと突き合わせて、消えたものを見つけるため）
+// これからの商談で、担当の商談予定（kinbotが作った予定）があるもの。担当側で日程を動かしたかを見るのに使う。
+export async function upcomingInviteApos(days = 21, limit = 400) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM smart_links
+        WHERE invite_event_id IS NOT NULL AND NOT COALESCE(excluded,false)
+          AND start_time >= now() - interval '2 hours' AND start_time < now() + ($1 || ' days')::interval
+        ORDER BY start_time LIMIT $2`, [String(days), limit]);
+    return rows;
+  } catch (e) { console.error("[db] upcomingInviteApos", e.message); return []; }
+}
 export async function futureApos(fromJst, limit = 500) {
   if (!pool) return [];
   try {
@@ -6589,8 +6617,13 @@ export async function aposMailPending(dateJst, limit = 200) {
 export async function apoMailSentRow(slug, kind) {
   if (!pool || !slug) return null;
   try {
+    // リマインドは「いまの日程」で送ったものだけ見る（日程が変わったら、新しい日程でもう一度送れる）
     const { rows } = await pool.query(
-      `SELECT * FROM apo_mail_log WHERE slug=$1 AND kind=$2 AND status='sent' LIMIT 1`, [slug, kind]
+      kind === "reminder"
+        ? `SELECT l.* FROM apo_mail_log l JOIN smart_links s ON s.slug = l.slug
+            WHERE l.slug=$1 AND l.kind=$2 AND l.status='sent'
+              AND l.created_at > COALESCE(s.start_changed_at, '-infinity'::timestamptz) LIMIT 1`
+        : `SELECT * FROM apo_mail_log WHERE slug=$1 AND kind=$2 AND status='sent' LIMIT 1`, [slug, kind]
     );
     return rows[0] || null;
   } catch { return null; }
@@ -8804,12 +8837,14 @@ export async function listApoReminderTargets(fromISO, toISO, { forList = false, 
                   AND c.created_at > now() - interval '1 hour' * ${gap})
          AND NOT EXISTS (
                SELECT 1 FROM apo_mail_log l
-                WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft'))`;
+                WHERE l.slug = s.slug AND l.kind = 'reminder' AND l.status IN ('sent','draft')
+                  AND l.created_at > COALESCE(s.start_changed_at, '-infinity'::timestamptz))`;
     const { rows } = await pool.query(
       `SELECT s.*,
               EXISTS (SELECT 1 FROM apo_mail_log l
                        WHERE l.slug = s.slug AND l.kind = 'reminder'
-                         AND l.status IN ('sent','draft')) AS reminded,
+                         AND l.status IN ('sent','draft')
+                         AND l.created_at > COALESCE(s.start_changed_at, '-infinity'::timestamptz)) AS reminded,
               EXISTS (SELECT 1 FROM apo_mail_log c
                        WHERE c.slug = s.slug AND c.kind = 'confirm'
                          AND c.status IN ('sent','draft')

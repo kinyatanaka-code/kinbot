@@ -255,6 +255,7 @@ export async function listCalendarEvents(owner, calendarId, { timeMin, timeMax, 
       const start = ev.start?.dateTime || ev.start?.date || null;
       const end = ev.end?.dateTime || ev.end?.date || null;
       out.push({ id: ev.id, title: ev.summary || "", start, end, allDay: !ev.start?.dateTime, url: findMeetingUrl(ev) || "", guests: (ev.attendees || []).length, organizer: (ev.organizer && ev.organizer.email) || "", creator: (ev.creator && ev.creator.email) || "", created: ev.created || "",
+        updated: ev.updated || "",   // 最後に変更された時刻（日程を動かしたのがいつかを見る）
         // このカレンダー本人の出欠（accepted / declined / tentative / needsAction）。参加拒否の判定に使う。
         selfResponse: ((ev.attendees || []).find((a) => a && a.self) || {}).responseStatus || "",
         // 予定の説明欄。アポ獲得者が書いたメモを商談担当の予定にも引き継ぐために使う。
@@ -1482,7 +1483,9 @@ export async function getCalendarEventState(owner, eventId, calendarId = "primar
   if (!res.ok) throw new Error(`予定の読み取り ${res.status}`);
   const d = await res.json();
   return { id: d.id, status: d.status || "", title: d.summary || "", description: d.description || "",
-           start: (d.start && (d.start.dateTime || d.start.date)) || "" };
+           start: (d.start && (d.start.dateTime || d.start.date)) || "",
+           end: (d.end && (d.end.dateTime || d.end.date)) || "",
+           allDay: !(d.start && d.start.dateTime), updated: d.updated || "" };
 }
 
 // 予定の一部（日時など）を書き換える。日程変更で使う。

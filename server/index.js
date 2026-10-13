@@ -373,6 +373,8 @@ import {
   setSmartLinkOrigin,
   findOriginApos,
   setSmartLinkClientPhone,
+  syncApoStartFromCalendar,
+  upcomingInviteApos,
   listApoSetters,
   linkReschedPairs,
   markReschedIfAny,
@@ -23145,7 +23147,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12n リスト別に「ナーチャリング」の枠（架電の前にジャッジ・営業フォローだったリード）を追加し、週次（週ラップと同じ区切り）でも見られるように。週ごとに 新規／過去／ナーチャ／新規→ナーチャ の今週と月初からの数、開いた週はメンバー別の表。";
+const BUILD_TAG = "2026-10-12o 日程変更したのにリマインドが前の日程で送られる不具合を修正：カレンダー（獲得者の予定・担当の商談予定）で動かした日程をアポに反映し、もう一方の予定も動かしてChatに知らせる。リマインドは新しい日程の前日に送り、前の日程で送った分があっても送り直せる。";
 const BUILD_FEATURES = [
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
@@ -26014,6 +26016,11 @@ async function collectApoAppointments(scanOwner, opts = {}) {
           const up = await setApoAt(link.slug, ev.created);
           if (up) link = { ...link, apo_at: up.apo_at };
         }
+        // 獲得者がカレンダーで予定を動かした（日程変更）なら、アポの日時・担当の商談予定・リマインドを新しい日程に合わせる
+        if (link && !link.excluded) {
+          const moved = await followCalendarDateChange(link, { start: ev.start, end: ev.end, allDay: ev.allDay, updated: ev.updated, from: "アポ獲得者の予定" }).catch(() => null);
+          if (moved) link = moved;
+        }
         // アポ獲得者が予定の説明欄に書いた内容を保存する（商談担当の予定に引き継ぐ）
         const memo = cleanSourceNote(ev.description);
         if (memo && !String(link.source_note || "").trim()) {
@@ -26227,6 +26234,73 @@ async function handleHeadStates(list) {
   }
 }
 
+// カレンダーで日程が動いていたら、アポを新しい日程に合わせる（獲得者の予定・担当の商談予定のどちらで動かしても）。
+//   ・アポの日時を新しい日程にする（リマインドは新しい日程の前日に送る。前の日程で送った分があっても送り直せる）
+//   ・もう一方のカレンダー予定も同じ日時に動かす
+//   ・担当と「日程変更の連絡」のChatに知らせる
+// kinbotの画面で手で日程を変えたあとに、カレンダー側が古いまま、のときは動かさない（手で変えた方が新しいため）。
+// 動かしたときは新しいアポを返す。動かさなかったら null。
+async function followCalendarDateChange(link, live) {
+  if (!link || !live || !live.start || live.allDay) return null;
+  const newMs = Date.parse(live.start), curMs = Date.parse(link.start_time || "");
+  if (!isFinite(newMs) || (isFinite(curMs) && Math.abs(newMs - curMs) < 60000)) return null;
+  if (isFinite(curMs) && curMs < Date.now() - 3600000 && newMs < Date.now()) return null;   // 終わった商談は触らない
+  const lastSet = Math.max(Date.parse(link.start_time_manual || "") || 0, Date.parse(link.start_changed_at || "") || 0);
+  const evUpd = Date.parse(live.updated || "") || 0;
+  if (lastSet && evUpd && evUpd <= lastSet) return null;   // kinbotで変えた日時の方が新しい
+  const startISO = new Date(newMs).toISOString();
+  const endISO = live.end && isFinite(Date.parse(live.end)) ? new Date(Date.parse(live.end)).toISOString() : new Date(newMs + 60 * 60000).toISOString();
+  const updated = await syncApoStartFromCalendar(link.slug, startISO, endISO);
+  if (!updated) return null;
+  // もう一方の予定も動かす
+  const patch = { start: { dateTime: startISO, timeZone: "Asia/Tokyo" }, end: { dateTime: endISO, timeZone: "Asia/Tokyo" } };
+  const moved = [];
+  if (live.from !== "担当の商談予定" && updated.invite_event_id) {
+    try { await patchCalendarEvent(updated.invite_event_owner || updated.current_owner, updated.invite_event_id, patch); moved.push("担当の商談予定"); }
+    catch (e) { console.warn("[apo] 担当の商談予定を動かせませんでした", e.message); }
+  }
+  if (live.from !== "アポ獲得者の予定" && updated.event_id && updated.setter_email) {
+    try { await patchCalendarEvent(updated.setter_email, updated.event_id, patch); moved.push("アポ獲得者の予定"); }
+    catch (e) {
+      const reader = (await dailyCalendarReader().catch(() => "")) || "";
+      try { if (reader) { await patchCalendarEvent(reader, updated.event_id, patch, updated.setter_email); moved.push("アポ獲得者の予定"); } }
+      catch (e2) { console.warn("[apo] アポ獲得者の予定を動かせませんでした", e2.message); }
+    }
+  }
+  const fmt = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return "-"; const j = new Date(d.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${"日月火水木金土"[j.getUTCDay()]}) ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`; };
+  const repName = updated.current_owner ? await repDisplayName(updated.current_owner).catch(() => updated.current_owner) : "";
+  const msg = [
+    "🗓 日程が変わりました（カレンダーから）",
+    `${updated.label || ""}`,
+    `${fmt(link.start_time)} → ${fmt(startISO)}`,
+    repName ? `担当：${repName}` : "",
+    `変えた予定：${live.from || "カレンダー"}${moved.length ? `　あわせて動かした予定：${moved.join("・")}` : ""}`,
+    "※リマインドは、変更後の日時で送ります。",
+  ].filter(Boolean).join("\n");
+  if (updated.current_owner) await notifyPerson(updated.current_owner, msg).catch(() => {});
+  await notifyAll(msg, "datechg").catch(() => {});
+  console.log(`[apo] カレンダーの日程変更に合わせました：${updated.label}（${link.start_time} → ${startISO}・${live.from}）`);
+  return updated;
+}
+
+// 担当が自分の商談予定（kinbotが作った予定）を動かしたときも、アポの日程を合わせる。
+// スキャンは獲得者の予定しか見ないので、これからの商談の担当側の予定をまとめて読み直す（リマインドの前と30分ごと）。
+let _inviteSyncAt = 0;
+async function syncUpcomingInviteDates({ force = false } = {}) {
+  if (!force && Date.now() - _inviteSyncAt < 10 * 60 * 1000) return 0;
+  _inviteSyncAt = Date.now();
+  let n = 0;
+  for (const link of await upcomingInviteApos(21).catch(() => [])) {
+    const owner = link.invite_event_owner || link.current_owner;
+    if (!owner || !(await gcalConnected(owner).catch(() => false))) continue;
+    const st = await getCalendarEventState(owner, link.invite_event_id).catch(() => null);
+    if (!st || st.status === "cancelled" || !st.start || st.allDay) continue;
+    const moved = await followCalendarDateChange(link, { start: st.start, end: st.end, allDay: st.allDay, updated: st.updated, from: "担当の商談予定" }).catch(() => null);
+    if (moved) n++;
+  }
+  if (n) console.log(`[apo] 担当の商談予定で日程が変わっていた ${n}件を合わせました`);
+  return n;
+}
 // リマインドを送る直前の確認：アポ獲得者の予定と、担当の商談予定（kinbotが作った予定）を読み直し、
 // 予定名に「リスケ」「キャンセル」等がある／本文の行頭にそう書いてある／予定が削除されている なら送らない。
 // リスケ・キャンセルと書かれていたら、スキャンと同じくアポの数からも外す。
@@ -26239,6 +26313,11 @@ async function reminderLiveCheck(link) {
     const st = await getCalendarEventState(c.owner, c.id).catch(() => null);
     if (!st) continue;   // 読めない（別カレンダー等）ときは判断しない
     if (st.status === "cancelled") return { skip: true, reason: `${c.who}が削除されています` };
+    // 予定の日時が動いていたら（カレンダーで日程変更）、アポを新しい日程に合わせる
+    if (st.start && !st.allDay) {
+      const moved = await followCalendarDateChange(link, { start: st.start, end: st.end, allDay: st.allDay, updated: st.updated, from: c.who }).catch(() => null);
+      if (moved) link = moved;
+    }
     let head = apoHeadState(st.title);
     if (!head) {
       // 本文は、行の先頭に「リスケ」「キャンセル」と書いたときだけ見る（「日程変更の可能性あり」等のメモで止めないため）
@@ -26251,7 +26330,7 @@ async function reminderLiveCheck(link) {
       return { skip: true, reason: `${c.who}に「${head}」と書かれています` };
     }
   }
-  return { skip: false };
+  return { skip: false, link };
 }
 
 // カレンダーから消された予定を、kinbotの数からも外す。
@@ -28982,6 +29061,7 @@ app.put("/api/apo-mail-config", async (req, res) => {
 // 前日リマインドを今すぐ流す（動作確認用）
 app.post("/api/apo-mail/run-reminders", async (req, res) => {
   try {
+    await syncUpcomingInviteDates({ force: true }).catch(() => {});
     const r = await runReminderSweep({ joinUrl, repNameOf: repDisplayName, liveCheck: reminderLiveCheck });
     res.json({ ok: true, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -29416,12 +29496,16 @@ server.listen(PORT, async () => {
       lastReminderRunDay = dateStr;
       reminderRunning = true;
       console.log(`[apo-mail] 前日リマインドの定時実行を開始（${cfg.reminderHour}:00 JST）: ${dateStr}`);
+      // 送る前に、担当側で動かした日程も拾っておく（新しく「明日」になったアポを取りこぼさないため）
+      await syncUpcomingInviteDates({ force: true }).catch(() => {});
       await runReminderSweep({ joinUrl, repNameOf: repDisplayName, liveCheck: reminderLiveCheck });
     } catch (e) {
       console.error("[apo-mail] 前日リマインド実行エラー:", e.message);
     } finally { reminderRunning = false; }
   };
   setInterval(() => { checkReminderSchedule().catch(() => {}); }, 60 * 1000);
+  // 担当の商談予定での日程変更を30分ごとに拾う
+  setInterval(() => { syncUpcomingInviteDates().catch(() => {}); }, 30 * 60 * 1000);
   // 送る1時間前に、対象を本人へ知らせる
   setInterval(() => { maybeNoticeBeforeReminder().catch(() => {}); }, 60 * 1000);
 

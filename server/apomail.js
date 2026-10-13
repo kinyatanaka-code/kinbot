@@ -606,6 +606,7 @@ export async function runReminderSweep({ joinUrl, repNameOf, liveCheck } = {}) {
     }
     // 送る直前に、カレンダーの予定（アポ獲得者の予定・担当の商談予定）を読み直す。
     // あとから予定名に「リスケ」「キャンセル」と書いた／予定を消した、を取りこぼさないため。
+    let L = link;
     if (liveCheck) {
       const lc = await liveCheck(link).catch(() => null);
       if (lc && lc.skip) {
@@ -613,14 +614,24 @@ export async function runReminderSweep({ joinUrl, repNameOf, liveCheck } = {}) {
         results.push({ slug: link.slug, ok: false, skipped: true, reason: lc.reason });
         continue;
       }
+      // カレンダーで日程が動いていたら、新しい日程で判断する（明日でなくなったら、新しい日程の前日に送る）
+      if (lc && lc.link) L = lc.link;
+      const ns = Date.parse(L.start_time || "");
+      if (isFinite(ns) && (ns < fromUtc.getTime() || ns >= toUtc.getTime())) {
+        const j = new Date(ns + 9 * 3600 * 1000);
+        const reason = `日程が${j.getUTCMonth() + 1}/${j.getUTCDate()}に変わっていたため、今回は送りません（新しい日程の前日に送ります）`;
+        console.log(`[apo-mail] リマインドを送りません：${L.label || L.slug}（${reason}）`);
+        results.push({ slug: L.slug, ok: false, skipped: true, reason });
+        continue;
+      }
     }
-    const repName = repNameOf ? await repNameOf(link.current_owner) : link.current_owner;
-    const r = await sendApoMail(link, "reminder", {
+    const repName = repNameOf ? await repNameOf(L.current_owner) : L.current_owner;
+    const r = await sendApoMail(L, "reminder", {
       url: joinUrl ? joinUrl(link.slug) : "",
       repName,
       actor: "reminder-sweep",
     });
-    results.push({ slug: link.slug, ...r });
+    results.push({ slug: L.slug, ...r });
     if (r.ok) sent++;
     await new Promise((res) => setTimeout(res, 800)); // Gmail側のレート対策
   }
