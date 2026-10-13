@@ -3530,28 +3530,23 @@ app.post("/api/apo/:slug/reschedule", async (req, res) => {
     const startISO = new Date(String(req.body?.start || "")).toISOString();
     if (isNaN(new Date(startISO).getTime())) return res.status(400).json({ error: "日時が正しくありません" });
 
-    const link = await updateApoStartTime(slug, startISO);
+    // 商談の長さは今のまま（わからなければ60分）
+    const lenMs = (() => { const a0 = Date.parse(before.start_time || ""), b0 = Date.parse(before.end_time || ""); return isFinite(a0) && isFinite(b0) && b0 > a0 && b0 - a0 <= 4 * 3600000 ? b0 - a0 : 60 * 60000; })();
+    const endISO = new Date(new Date(startISO).getTime() + lenMs).toISOString();
+    const link = await updateApoStartTime(slug, startISO, endISO);
     if (!link) return res.status(500).json({ error: "日時を変えられませんでした" });
 
-    // カレンダーの予定も動かす（できたときだけ・失敗しても記録は変わったまま）
+    // つながるカレンダー予定（担当の商談予定・アポ獲得者の予定・浦林さん対応の予定）も動かす
+    // （失敗しても記録は変わったまま。動かせなかった予定は画面とChatで分かるようにする）
     let カレンダー = "";
+    let calMoved = [], calFailed = [];
     try {
-      const 分 = 60;
-      const endISO = new Date(new Date(startISO).getTime() + 分 * 60000).toISOString();
-      const patch = { start: { dateTime: startISO, timeZone: "Asia/Tokyo" }, end: { dateTime: endISO, timeZone: "Asia/Tokyo" } };
-      const patched = [];
-      // 営業担当の招待予定（kinbotが作ったもの＝動かせる）
-      if (link.invite_event_id) {
-        try { await patchCalendarEvent(link.invite_event_owner || link.current_owner || req.user, link.invite_event_id, patch); patched.push("担当"); }
-        catch (e) { console.warn("[reschedule] 招待予定", e.message); }
-      }
-      // 獲得者の元の予定（読み取り代表者に編集権限があるときだけ）
-      if (link.event_id) {
-        const reader = (await dailyCalendarReader().catch(() => "")) || req.user;
-        try { await patchCalendarEvent(reader, link.event_id, patch); patched.push("獲得者"); }
-        catch (e) { console.warn("[reschedule] 元予定", e.message); }
-      }
-      カレンダー = patched.length ? `カレンダー（${patched.join("・")}）も動かしました` : "カレンダーは動かせませんでした（編集権限が無い可能性）";
+      const r = await moveApoCalendarEvents(link, startISO, endISO);
+      calMoved = r.moved; calFailed = r.failed;
+      カレンダー = [
+        calMoved.length ? `カレンダー（${calMoved.join("・")}）も動かしました` : "",
+        calFailed.length ? `動かせなかった予定：${calFailed.join("・")}（編集の権限が無い可能性があります。手で動かしてください）` : "",
+      ].filter(Boolean).join("　") || "動かすカレンダーの予定がありませんでした";
     } catch (e) { カレンダー = `カレンダーは動かせませんでした（${e.message}）`; }
 
     const fmt = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const j = new Date(d.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); const w = ["日", "月", "火", "水", "木", "金", "土"][j.getUTCDay()]; return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${w}) ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`; };
@@ -3561,6 +3556,8 @@ app.post("/api/apo/:slug/reschedule", async (req, res) => {
       `${link.label || ""}`,
       `${fmt(before.start_time)} → ${fmt(startISO)}`,
       repName ? `担当：${repName}` : "",
+      calMoved.length ? `カレンダー：${calMoved.join("・")}も動かしました` : "",
+      calFailed.length ? `⚠️ 動かせなかった予定：${calFailed.join("・")}（手で動かしてください）` : "",
       `※リマインドは、変更後の日時で送ります。`,
     ].filter(Boolean).join("\n");
     // 担当者へ直接 ＋ 「日程変更の連絡」をONにしたチャットへ
@@ -3568,7 +3565,7 @@ app.post("/api/apo/:slug/reschedule", async (req, res) => {
     await notifyAll(msg, "datechg").catch(() => {});
 
     console.log(`[apo] ${slug} の日程を変更：${before.start_time} → ${startISO} by ${req.user}`);
-    res.json({ ok: true, start: startISO, 前: before.start_time, カレンダー });
+    res.json({ ok: true, start: startISO, 前: before.start_time, カレンダー, 動かした予定: calMoved, 動かせなかった予定: calFailed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -23147,7 +23144,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-12o 日程変更したのにリマインドが前の日程で送られる不具合を修正：カレンダー（獲得者の予定・担当の商談予定）で動かした日程をアポに反映し、もう一方の予定も動かしてChatに知らせる。リマインドは新しい日程の前日に送り、前の日程で送った分があっても送り直せる。";
+const BUILD_TAG = "2026-10-12p 日程変更のとき、つながるカレンダー予定（担当の商談予定・アポ獲得者の予定・浦林さん対応の予定）もまとめて動かす。獲得者の予定は本人の連携→運用者→読み取り担当の順で獲得者のカレンダーに書く。商談の長さは保つ。動かせなかった予定は画面とChatに出す。";
 const BUILD_FEATURES = [
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",
@@ -26234,6 +26231,42 @@ async function handleHeadStates(list) {
   }
 }
 
+// アポにつながるカレンダー予定を、まとめて新しい日時に動かす（日程変更のとき）。
+//   担当の商談予定（kinbotが作った予定）／アポ獲得者の予定／浦林さん対応で本来の担当に作った予定
+// 獲得者の予定は、本人のGoogle連携 → 予定作成の運用者 → 日次の読み取り担当 の順に、獲得者のカレンダーを書き換えにいく。
+// skip には、動かさない予定の名前（もう動いている元の予定）を入れる。動かせた／動かせなかった予定の名前を返す。
+async function moveApoCalendarEvents(link, startISO, endISO, { skip = [] } = {}) {
+  const patch = { start: { dateTime: startISO, timeZone: "Asia/Tokyo" }, end: { dateTime: endISO, timeZone: "Asia/Tokyo" } };
+  const moved = [], failed = [];
+  const tryPatch = async (name, attempts) => {
+    if (skip.includes(name)) return;
+    let last = "";
+    for (const [owner, eventId, cal] of attempts) {
+      if (!owner || !eventId) continue;
+      try { await patchCalendarEvent(owner, eventId, patch, cal || "primary"); moved.push(name); return; }
+      catch (e) { last = String(e.message || e).slice(0, 120); }
+    }
+    if (attempts.some(([o, id]) => o && id)) { failed.push(name); console.warn(`[apo] ${name}を動かせませんでした：${last}`); }
+  };
+  const st = await getSettings().catch(() => ({}));
+  const ops = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+  const reader = (await dailyCalendarReader().catch(() => "")) || "";
+  if (link.invite_event_id) {
+    await tryPatch("担当の商談予定", [[link.invite_event_owner || link.current_owner, link.invite_event_id], [ops, link.invite_event_id, link.invite_event_owner || link.current_owner]]);
+  }
+  if (link.event_id && link.setter_email) {
+    const se = String(link.setter_email).toLowerCase();
+    const own = (await gcalConnected(se).catch(() => false)) ? se : "";
+    await tryPatch("アポ獲得者の予定", [[own, link.event_id], [ops, link.event_id, se], [reader, link.event_id, se]]);
+  }
+  const ura = await getSmartLinkUraEvent(link.slug).catch(() => "");
+  if (ura && ura.includes("|")) {
+    const [uEmail, uId] = ura.split("|");
+    await tryPatch("浦林さん対応の予定", [[uEmail, uId], [ops, uId, uEmail]]);
+  }
+  return { moved, failed };
+}
+
 // カレンダーで日程が動いていたら、アポを新しい日程に合わせる（獲得者の予定・担当の商談予定のどちらで動かしても）。
 //   ・アポの日時を新しい日程にする（リマインドは新しい日程の前日に送る。前の日程で送った分があっても送り直せる）
 //   ・もう一方のカレンダー予定も同じ日時に動かす
@@ -26252,21 +26285,8 @@ async function followCalendarDateChange(link, live) {
   const endISO = live.end && isFinite(Date.parse(live.end)) ? new Date(Date.parse(live.end)).toISOString() : new Date(newMs + 60 * 60000).toISOString();
   const updated = await syncApoStartFromCalendar(link.slug, startISO, endISO);
   if (!updated) return null;
-  // もう一方の予定も動かす
-  const patch = { start: { dateTime: startISO, timeZone: "Asia/Tokyo" }, end: { dateTime: endISO, timeZone: "Asia/Tokyo" } };
-  const moved = [];
-  if (live.from !== "担当の商談予定" && updated.invite_event_id) {
-    try { await patchCalendarEvent(updated.invite_event_owner || updated.current_owner, updated.invite_event_id, patch); moved.push("担当の商談予定"); }
-    catch (e) { console.warn("[apo] 担当の商談予定を動かせませんでした", e.message); }
-  }
-  if (live.from !== "アポ獲得者の予定" && updated.event_id && updated.setter_email) {
-    try { await patchCalendarEvent(updated.setter_email, updated.event_id, patch); moved.push("アポ獲得者の予定"); }
-    catch (e) {
-      const reader = (await dailyCalendarReader().catch(() => "")) || "";
-      try { if (reader) { await patchCalendarEvent(reader, updated.event_id, patch, updated.setter_email); moved.push("アポ獲得者の予定"); } }
-      catch (e2) { console.warn("[apo] アポ獲得者の予定を動かせませんでした", e2.message); }
-    }
-  }
+  // もう一方の予定（と浦林さん対応の予定）も動かす
+  const { moved } = await moveApoCalendarEvents(updated, startISO, endISO, { skip: [live.from] });
   const fmt = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return "-"; const j = new Date(d.getTime() + 9 * 3600000); const p2 = (n) => String(n).padStart(2, "0"); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${"日月火水木金土"[j.getUTCDay()]}) ${p2(j.getUTCHours())}:${p2(j.getUTCMinutes())}`; };
   const repName = updated.current_owner ? await repDisplayName(updated.current_owner).catch(() => updated.current_owner) : "";
   const msg = [

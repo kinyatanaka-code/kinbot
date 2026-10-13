@@ -3889,15 +3889,15 @@ export async function fixApoForReminder(slug, { email, owner } = {}) {
 }
 
 // アポ（商談）の日時を変える。リマインドは新しい日時を基準に送られる。
-export async function updateApoStartTime(slug, startISO) {
+export async function updateApoStartTime(slug, startISO, endISO = null) {
   if (!pool || !slug || !startISO) return null;
   try {
     await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS start_time_manual TIMESTAMPTZ;`).catch(() => {});
     const { rows } = await pool.query(
-      `UPDATE smart_links SET start_time = $2, start_time_manual = now(),
+      `UPDATE smart_links SET start_time = $2, start_time_manual = now(), end_time = COALESCE($3::timestamptz, end_time),
               start_changed_at = CASE WHEN start_time IS DISTINCT FROM $2::timestamptz THEN now() ELSE start_changed_at END, updated_at = now() WHERE slug = $1
-       RETURNING slug, label, start_time, client_email, current_owner, setter, setter_email, event_id, invite_event_id, invite_event_owner`,
-      [slug, startISO]);
+       RETURNING *`,
+      [slug, startISO, endISO]);
     return rows[0] || null;
   } catch (e) { console.error("[db] updateApoStartTime", e.message); return null; }
 }
