@@ -14078,6 +14078,23 @@ async function sfJisshiOpps(from, to) {
     return { id: o.Id, name: o.Name, owner: (o.Owner && o.Owner.Name) || "", company: (o.Account && o.Account.Name) || "", company2: nm, stage: st, day, done: false };
   }).filter((x) => x.day);
 }
+// 設定数を kinbot のアポ一覧から取る（2026-10-13〜）。Salesforceの「初回アポ設定日」はリスケなどで変わってしまうため。
+//   アポ一覧にあって集計の対象（外していない）のアポを、商談日（いまの日程）で数える。担当（クローザー）で 植野／江田／中澤／他 に分ける。
+//   担当が決まっていないアポは、どの人にも入らない（全体にも入れない。今までと同じ）。
+async function kinbotJisshiOpps(from, to) {
+  const rows = await aposInRange({ from, to, limit: 1000 }).catch(() => []);
+  const users = await listUsers().catch(() => []);
+  const nameOf = new Map((users || []).map((u) => [String(u.email || "").toLowerCase(), u.name || ""]));
+  const out = [];
+  for (const r of rows) {
+    const em = String(r.current_owner || "").toLowerCase();
+    if (!em) continue;
+    const owner = nameOf.get(em) || (await repDisplayName(em).catch(() => em));
+    const company = parseLaunchTitle(r.label || "").company || String(r.label || "").replace(/【[^】]*】/g, "").split(/[\/／]/)[0].trim();
+    out.push({ id: r.slug, name: r.label || "", owner, company, company2: "", stage: "", day: jstDateStr(r.start_time), done: false });
+  }
+  return out.filter((x) => x.day);
+}
 // 実施はkinbotの商談記録で見る：その会社の商談（種類＝商談）が、設定の日の3日前以降にkinbotに記録されていれば実施。
 async function markJisshiByKinbot(opps, from) {
   const pad = (n) => String(n).padStart(2, "0");
@@ -14205,7 +14222,7 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
     const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
     const mFrom = `${sel}-01`, mTo = ymd(new Date(Date.UTC(y, m, 0)));
     const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo, canEdit: jisshiEditorOk(req), canGoal: await canRedistribute(req).catch(() => false) };
-    const opps = await markJisshiByKinbot(await sfJisshiOpps(mFrom, mTo), mFrom);   // 設定＝SF、実施＝kinbot
+    const opps = await markJisshiByKinbot(await kinbotJisshiOpps(mFrom, mTo), mFrom);   // 設定＝kinbotのアポ一覧（商談日）、実施＝kinbotの商談記録
     const adjs = ((await getSettings().catch(() => ({}))).jisshiAdjust) || [];
     // 実施の目標（ダッシュボードで手入力）。全体のカードだけに、設定数・実施数それぞれの
     //   マインド（目指す数）とコミット（必ずやる数）を入れる。subject＝「jisshi:全体」
@@ -23428,7 +23445,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13d 実施のマインド・コミットは全体のカードだけに。設定数と実施数のそれぞれにマインド・コミットを入れられる（月次・週ラップ）。";
+const BUILD_TAG = "2026-10-13e ダッシュボード「実施」の設定数を、Salesforceの初回アポ設定日ではなく、kinbotのアポ一覧（集計の対象・商談日＝いまの日程・担当ごと）から数えるように。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
