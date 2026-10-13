@@ -14207,10 +14207,15 @@ app.get("/api/calls/jisshi-dashboard", async (req, res) => {
     const out = { ok: true, period, month: sel, periodLabel: `${y}年${m}月`, from: mFrom, to: mTo, canEdit: jisshiEditorOk(req), canGoal: await canRedistribute(req).catch(() => false) };
     const opps = await markJisshiByKinbot(await sfJisshiOpps(mFrom, mTo), mFrom);   // 設定＝SF、実施＝kinbot
     const adjs = ((await getSettings().catch(() => ({}))).jisshiAdjust) || [];
-    // 実施の目標（ダッシュボードで手入力）。subject＝「jisshi:全体」「jisshi:植野」…、metric＝実施
+    // 実施の目標（ダッシュボードで手入力）。subject＝「jisshi:全体」「jisshi:植野」…
+    //   マインド（metric＝実施マインド：目指す数）とコミット（metric＝実施コミット：必ずやる数）の2つ。
+    //   前に入れた「実施」の目標は、コミットが空のときにコミットとして使う。
     const withGoals = (cards, gmap, key) => (cards || []).map((c) => {
-      const g = Number((((gmap[`jisshi:${c.name}`] || {})[key] || {})["実施"]) || 0);
-      return { ...c, goal: g, goalKey: key, diff: (c.実施 || 0) - g };
+      const gs = (gmap[`jisshi:${c.name}`] || {})[key] || {};
+      const mind = Number(gs["実施マインド"] || 0);
+      const commit = Number(gs["実施コミット"] || gs["実施"] || 0);
+      const a0 = c.実施 || 0;
+      return { ...c, mind, commit, goalKey: key, diffMind: a0 - mind, diffCommit: a0 - commit };
     });
     if (period === "month") {
       out.cards = jisshiCardsFrom(opps, mFrom, mTo, adjs, mTo);   // 月次で直した分は月末の日に足す
@@ -14258,7 +14263,7 @@ app.put("/api/calls/apo-goals", async (req, res) => {
     const subject = String(b.subject || "").trim().toLowerCase();
     const period = ["day", "week", "month"].includes(String(b.period)) ? String(b.period) : "";
     const periodKey = String(b.periodKey || b.date || "").trim();
-    const metric = ["コール", "接触", "アポ", "実施"].includes(String(b.metric)) ? String(b.metric) : "アポ";
+    const metric = ["コール", "接触", "アポ", "実施", "実施マインド", "実施コミット"].includes(String(b.metric)) ? String(b.metric) : "アポ";
     if (!subject || !period || !periodKey) return res.status(400).json({ error: "subject / period / periodKey が必要です" });
     await setApoGoal(subject, period, periodKey, metric, b.value);
     res.json({ ok: true });
@@ -23421,7 +23426,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13b ダッシュボードの「実施」に目標を入れられるように（全体・植野・江田・中澤・他のカードに 目標／差分。月次はその月、週次はその週の目標を、月初からの積み上げの実施数と比べる）。";
+const BUILD_TAG = "2026-10-13c ダッシュボードの「実施」の目標を「マインド」と「コミット」の2つに（月次・週ラップとも）。それぞれ実施数との差分を出す。前に入れた目標はコミットとして引き継ぐ。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",

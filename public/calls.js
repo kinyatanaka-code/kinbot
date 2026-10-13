@@ -2057,11 +2057,13 @@ function renderDock() {
     .kc-today-goal.ok{color:#085041;background:#e1f5ee;} .kc-today-note{font-size:11px;color:#6b8a7d;margin-left:4px;}
     .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
     .kc-src-tag{font-size:10px;font-weight:700;padding:0 6px;border-radius:5px;white-space:nowrap;}
-    .kc-j-goal{display:flex;align-items:center;gap:6px;margin:6px 0 2px;font-size:12px;}
+    .kc-j-goal{display:flex;align-items:center;gap:5px;margin:5px 0 1px;font-size:12px;}
     .kc-j-goal .kc-dlb{margin:0;}
     .kc-j-goal b{font-size:15px;color:#1f2a26;}
-    .kc-j-goalin{width:58px !important;padding:3px 6px !important;font-size:14px !important;font-weight:700;}
-    .kc-j-gdiff{font-size:15px;font-weight:800;}
+    .kc-j-goalin{width:50px !important;padding:2px 5px !important;font-size:14px !important;font-weight:700;}
+    .kc-j-gdiff{font-size:14px;font-weight:800;margin-left:auto;white-space:nowrap;}
+    .kc-j-gl{font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;white-space:nowrap;min-width:44px;text-align:center;}
+    .kc-j-gl.mind{background:#eef2fc;color:#3c5fae;} .kc-j-gl.commit{background:#e1f5ee;color:#085041;}
     .mm-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start;}
     @media (max-width:1100px){.mm-grid{grid-template-columns:1fr;}}
     .mm-card{background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;}
@@ -3886,12 +3888,16 @@ function jisshiCard(c, big, ctx = {}) {
       <div class="kc-dcol"><div class="kc-dlb">実施数</div>${doneCell}</div>
       <div class="kc-dcol"><div class="kc-dlb">実施率</div><div class="kc-d-diff kc-j-rate">${rate}</div></div>
     </div>
-    <div class="kc-j-goal">
-      <span class="kc-dlb">目標</span>${ctx.canGoal
-        ? `<input type="number" min="0" class="kc-goal kc-j-goalin" value="${Number(c.goal || 0)}" data-subj="jisshi:${esc(c.name)}" data-key="${esc(c.goalKey || "")}" data-act="${Number(c.実施 || 0)}" />`
-        : `<b>${Number(c.goal || 0)}</b>`}
-      <span class="kc-dlb">差分</span><span class="kc-j-gdiff ${(c.diff || 0) > 0 ? "kc-d-plus" : (c.diff || 0) < 0 ? "kc-d-minus" : "kc-d-zero"}">${(c.diff || 0) > 0 ? "+" : ""}${Number(c.diff || 0)}</span>
-    </div>
+    ${["マインド", "コミット"].map((lb) => {
+      const v = Number((lb === "マインド" ? c.mind : c.commit) || 0), df = Number((lb === "マインド" ? c.diffMind : c.diffCommit) || 0);
+      const cls = df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero";
+      return `<div class="kc-j-goal">
+        <span class="kc-j-gl ${lb === "マインド" ? "mind" : "commit"}">${lb}</span>${ctx.canGoal
+          ? `<input type="number" min="0" class="kc-goal kc-j-goalin" value="${v}" data-subj="jisshi:${esc(c.name)}" data-key="${esc(c.goalKey || "")}" data-metric="実施${lb}" data-act="${Number(c.実施 || 0)}" />`
+          : `<b>${v}</b>`}
+        <span class="kc-j-gdiff ${cls}" title="差分（実施数 − ${lb}）">${df > 0 ? "+" : ""}${df}</span>
+      </div>`;
+    }).join("")}
     <div class="kc-j-bar"><i style="width:${c.済み設定 ? Math.min(100, Math.round(c.実施 / c.済み設定 * 100)) : 0}%"></i></div>
     <div class="kc-j-sub">終わった商談 ${c.済み設定}件中 ${c.実施}件 実施${c.これから ? `　／　これから ${c.これから}件` : ""}${adjNote}</div>
   </div>`;
@@ -3908,7 +3914,7 @@ function renderJisshiDash(d) {
   } else {
     box.innerHTML = editBar + row(d.cards, { canEdit: d.canEdit, canGoal: d.canGoal, date: d.to, from: d.from }) + note;
   }
-  // 実施の目標を入れる（その場で差分を出し直して保存）。週次はその週の目標（月初からの積み上げの実施と比べる）
+  // 実施のマインド・コミットを入れる（その場で差分を出し直して保存）。週次はその週の数（月初からの積み上げの実施と比べる）
   box.querySelectorAll(".kc-j-goalin").forEach((inp) => inp.addEventListener("change", async () => {
     const goal = Math.max(0, Number(inp.value) || 0);
     const df = Number(inp.dataset.act || 0) - goal;
@@ -3916,7 +3922,7 @@ function renderJisshiDash(d) {
     if (de) { de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "kc-j-gdiff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
     try {
       const r = await fetch("/api/calls/apo-goals", { method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ subject: inp.dataset.subj, period: d.goalPeriod || (d.period === "week" ? "week" : "month"), periodKey: inp.dataset.key, metric: "実施", value: goal }) });
+        body: JSON.stringify({ subject: inp.dataset.subj, period: d.goalPeriod || (d.period === "week" ? "week" : "month"), periodKey: inp.dataset.key, metric: inp.dataset.metric || "実施コミット", value: goal }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "保存できませんでした");
       inp.style.borderColor = "";
     } catch (e) { inp.style.borderColor = "#e24b4a"; alert(e.message); }
