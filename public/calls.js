@@ -3882,13 +3882,13 @@ function renderJisshiDash(d) {
     } catch (e) { alert(e.message); inp.disabled = false; inp.value = inp.dataset.shown; }
   }));
 }
-// ===== アワード（インサイド）：出勤時間・受注数・新規リード獲得（新規リストから取ったアポ） =====
+// ===== アワード（インサイド）：出勤時間・受注数・新規アポ獲得数（新規リストから取ったアポ） =====
 // 1位を金の月桂樹の中に大きく、その下に2位以降のインサイド全員の今の数を小さく並べる。
 const _awardsCache = {};   // 月 → /api/calls/awards の結果（月を行き来しても読み直さない。記録のあとは読み直す）
 const KC_AWARDS = [
   { key: "出勤時間", jp: "出勤時間", unit: "時間", dec: 1 },
   { key: "受注数", jp: "受注数", unit: "件", dec: 0 },
-  { key: "新規アポ", jp: "新規リード獲得", unit: "件", dec: 0 },
+  { key: "新規アポ", jp: "新規アポ獲得数", unit: "件", dec: 0 },
 ];
 const kcAwFmt = (v, dec) => (dec ? (Math.round(v * 10) / 10).toString() : String(Math.round(v)));
 const _awardsShown = {};   // 月 → 一度アニメーションで出したか（描き直しのたびに動かさない）
@@ -4000,7 +4000,7 @@ function openAwardBig(idx) {
       if (aw.key !== "受注数" || !data.受注明細) return [];
       return data.受注明細[p.key] || data.受注明細["name:" + normN(p.name)] || [];
     };
-    // 新規リード獲得は、どのリストで取ったアポかを出す
+    // 新規アポ獲得数は、どのリストで取ったアポかを出す
     const listOf = (p) => (aw.key === "新規アポ" && data.新規明細 ? (data.新規明細[p.key] || []) : []);
     const rows = ranked.map((p, i) => {
       const cls = p.v > 0 && p.rank <= 3 ? ` m${p.rank}` : "";
