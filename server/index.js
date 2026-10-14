@@ -19506,7 +19506,11 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
     // 照合：商談名 × 予定名（日付ウィンドウ内）
     const perIntern = {}; // email -> { name, email, matched:[], error }
     for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched, hosted: ie.hosted, skipped_samples: ie.skipped_samples };
-    let matchedCount = 0, multiCount = 0, matchedByDesc = 0;
+    let matchedCount = 0, multiCount = 0, matchedByDesc = 0, matchedByList = 0;
+    // kinbotのアポ一覧（商談日・予定名・獲得者）。テストで外したものは入らない（listApoSetters）
+    const apoListForMatch = (await listApoSetters({ sinceDays: 200 }).catch(() => []))
+      .map((l) => ({ label: l.label || "", setter: String(l.setter || "").trim(), date: l.start_time ? jstDateStr(l.start_time) : "", coKey: apoCompanyKey(apoNameParts(l.label || "").company) }))
+      .filter((l) => l.setter && l.date);
     const touchedSetters = new Set();
     const unmatched = [];
 
@@ -19546,6 +19550,27 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
           continue;
         }
       }
+      // 次に、kinbotのアポ一覧（獲得者が入っている）で照合する。カレンダーの共有が切れていても、ここで拾える。
+      {
+        const mCo = apoCompanyKey(mParts.company);
+        let hit = null;
+        for (const l of apoListForMatch) {
+          if (!l.date || dayDiff(l.date, mDate) > DATE_WINDOW) continue;
+          const ok = apoNameMatch(m.title, l.label) || (l.coKey && mCo && l.coKey === mCo);
+          if (!ok) continue;
+          const diff = dayDiff(l.date, mDate);
+          if (!hit || diff < hit.diff) hit = { diff, setter: l.setter };
+        }
+        if (hit && hit.setter) {
+          await setMeetingApoSetter(m.bot_id, hit.setter);
+          touchedSetters.add(hit.setter);
+          const norm = (s) => String(s || "").replace(/[\s　]/g, "");
+          const it = interns.find((x) => norm(x.name) === norm(hit.setter));
+          if (it && perIntern[it.email]) perIntern[it.email].matched.push({ bot_id: m.bot_id, title: m.title, date: mDate, owner: 担当名(m), アポ一覧: true });
+          matchedCount++; matchedByList++;
+          continue;
+        }
+      }
       // このミーティングに一致する（インターン, 予定日ズレ）候補を集める
       const cands = [];
       for (const ie of internEvents) {
@@ -19578,6 +19603,7 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
       meetings_total: meetings.length,
       matched: matchedCount,
       matched_by_description: matchedByDesc,
+      matched_by_apo_list: matchedByList,
       owner_calendars_read: descOwnersRead,
       owner_calendars_failed: descOwnersFail,
       desc_events_found: descEvents.length,
@@ -23515,7 +23541,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13k アポ一覧の「︙」から「リスケにする」「キャンセルにする」（と取り消し）。前日リマインドを送らず、カレンダーの予定名（獲得者・担当・浦林さん対応）の頭に「リスケ」「キャンセル」を付け、Chatに1回知らせる。実績は取った月に残る。";
+const BUILD_TAG = "2026-10-14a アポ獲得者の照合（インセンティブの実施数のもと）に、kinbotのアポ一覧での照合を追加。カレンダーの共有切れや予定名の変更で、実施した商談の獲得者が外れて実施数が減るのを防ぐ。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
