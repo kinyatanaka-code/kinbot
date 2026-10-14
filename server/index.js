@@ -19341,6 +19341,13 @@ function incentiveCheer(m) {
 }
 
 // 商談実施でインセンティブが節目（初実施＝¥1,000、以降5,000円ごと）を超えたら通知する。
+// 名前がクローザー（セールス）か
+async function isCloserName(name) {
+  const k = String(name || "").replace(/[\s　]/g, "");
+  if (!k) return false;
+  const cl = await listClosers({ activeOnly: false }).catch(() => []);
+  return (cl || []).some((x) => String(x.name || "").replace(/[\s　]/g, "") === k);
+}
 async function checkIncentiveMilestone(name) {
   try {
     if (!_incSeeded) return;                 // シード前は通知しない（過去分の誤通知防止）
@@ -19358,6 +19365,13 @@ async function checkIncentiveMilestone(name) {
       if (list.includes(_incNorm(nm))) return;
     }
     const key = _incNorm(nm);
+    // インセンティブはインサイド（インターン登録の人）だけ。セールス（クローザー）は通知しない。
+    // （アポ一覧での照合を足したので、クローザーが自分で取ったアポの商談にも獲得者が付くようになったため）
+    {
+      const interns = await listInterns().catch(() => []);
+      if (!interns.some((x) => _incNorm(x.name) === key)) return;
+      if (await isCloserName(nm).catch(() => false)) return;
+    }
     const { from, to } = incentiveWindow();
     const ms = await listMeetings({ isAdmin: true, from, to, limit: 5000, light: true }).catch(() => []);
     let jisshi = 0; for (const m of ms) if (_incNorm(m.apo_setter) === key) jisshi++;
@@ -23542,7 +23556,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14b アポ獲得者の照合（自動・手動）を、直近90日ではなく9月1日（INCENTIVE_FROM）から今日までに。アポ実施の集計も既定で9月1日から。";
+const BUILD_TAG = "2026-10-14c インセンティブの通知はインサイド（インターン登録の人）だけに。セールス（江田・植野・中澤・田中など、クローザー）には送らない。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
