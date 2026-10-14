@@ -364,11 +364,14 @@ function visibleRows() {
   }
   return sortRows(list);
 }
+// 直近に商談した・これから商談がある会社のリード（「商談済み」「商談予定」の印）は、かける対象の下にまとめる
+const hasMtgTag = (x) => !!(x && x["直近商談"] && x["直近商談"].day);
 function sortRows(list) {
   if (sortBy) {
-    // 見出しで並べ替えを選んだときは、その順を優先する（かける対象外だけは下にまとめる）
+    // 見出しで並べ替えを選んだときは、その順を優先する（商談済み・商談予定の印 → かける対象外 の順で下にまとめる）
     list.sort(compareSort);
-    return [...list.filter((x) => !isDone(x)), ...list.filter(isDone)];
+    const 未済 = list.filter((x) => !isDone(x));
+    return [...未済.filter((x) => !hasMtgTag(x)), ...未済.filter(hasMtgTag), ...list.filter(isDone)];
   }
   // 並びの優先度：
   //  1) 架電予定の時刻が来たもの（次回予定 <= 今）を、いちばん上に（予定が早い順）
@@ -396,14 +399,18 @@ function sortRows(list) {
     const ほか = 未済.filter((x) => !x["次回予定"]);
     const 見込み順 = ほか.filter((x) => かけた(x)).sort((a, b) => exp(b) - exp(a) || closedRank(a) - closedRank(b));
     const 新規 = ほか.filter((x) => !かけた(x)).sort((a, b) => exp(b) - exp(a) || closedRank(a) - closedRank(b));
-    return [...予定, ...見込み順, ...新規, ...済];
+    const 印なし = (arr) => arr.filter((x) => !hasMtgTag(x)), 印あり = [...予定, ...見込み順, ...新規].filter(hasMtgTag);
+    return [...印なし(予定), ...印なし(見込み順), ...印なし(新規), ...印あり, ...済];
   }
   const 予定来た = 未済.filter((x) => due(x)).sort((a, b) => due(a) - due(b));
   const 残り = 未済.filter((x) => !due(x));
   const まだ = 残り.filter((x) => !かけた(x)).sort((a, b) => closedRank(a) - closedRank(b));
   const かけ済み = 残り.filter((x) => かけた(x))
     .sort((a, b) => closedRank(a) - closedRank(b) || new Date(a["最終日時"]).getTime() - new Date(b["最終日時"]).getTime());
-  return [...予定来た, ...まだ, ...かけ済み, ...済];
+  // 商談済み・商談予定の印があるリードは、かける対象の下（対象外の上）にまとめる
+  const 印なし = (arr) => arr.filter((x) => !hasMtgTag(x));
+  const 印あり = [...予定来た, ...まだ, ...かけ済み].filter(hasMtgTag);
+  return [...印なし(予定来た), ...印なし(まだ), ...印なし(かけ済み), ...印あり, ...済];
 }
 
 // 最終ステータスの文字列
@@ -1052,10 +1059,14 @@ function render() {
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
         : "";
       // かけた（記録済み）グループの先頭に、区切りを出す（どこまでかけたか分かるように）
-      const かけ区切り = (!sortBy && かけた(x) && (i === 0 || !かけた(list[i - 1])))
-        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter(かけた).length}件）</td></tr>`
+      const かけ区切り = (!sortBy && !hasMtgTag(x) && かけた(x) && (i === 0 || !かけた(list[i - 1])))
+        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter((y) => かけた(y) && !hasMtgTag(y) && !isDone(y)).length}件）</td></tr>`
         : "";
-      return 区切り + かけ区切り + `
+      // 商談済み・商談予定の印があるリードの先頭に、区切りを出す
+      const 商談区切り = (!済 && hasMtgTag(x) && (i === 0 || !hasMtgTag(list[i - 1])))
+        ? `<tr class="kc-apo-sep kc-mtg-sep"><td colspan="${cols}">ここから下は、直近に商談した・これから商談がある会社（${list.filter((y) => hasMtgTag(y) && !isDone(y)).length}件）。かける前に担当と確認してください</td></tr>`
+        : "";
+      return 区切り + 商談区切り + かけ区切り + `
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
         <td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
@@ -2095,6 +2106,7 @@ function renderDock() {
     .mm-nums{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;margin:4px 0;} .mm-nums b{font-size:14px;} .mm-nums .ng{color:#b3261e;}
     .mm-acts{display:flex;gap:6px;flex-wrap:wrap;}
     .kc-src-tag.mtg{background:#fdecea;color:#b3261e;border:1px solid #f3b8b2;}
+    .kc-mtg-sep td{background:#fdf3f2 !important;color:#8c1d18 !important;}
     .kc-mtg-warn{margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#fdecea;border:1px solid #f3b8b2;color:#8c1d18;font-size:12.5px;font-weight:600;line-height:1.5;}
     .kc-src-tag.nur{background:#e6f1fb;color:#0c447c;}
     .kc-src-tag.new{background:#e1f5ee;color:#085041;} .kc-src-tag.past{background:#faece7;color:#712b13;} .kc-src-tag.other{background:#f1efe8;color:#5f5e5a;}
