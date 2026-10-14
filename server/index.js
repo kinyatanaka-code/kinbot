@@ -13272,7 +13272,7 @@ setInterval(refreshForcedApoLabels, 5 * 60 * 1000).unref?.();
 function isApoCountableTitle(title) {
   const t = String(title || "");
   if (_forcedApoLabels.has(t)) return true;
-  if (/メルマガ/.test(t)) return false;
+  if (/^\s*メルマガ/.test(t.normalize("NFKC"))) return false;   // 頭が「メルマガ」の予定＝メルマガからのアポ（【初回/メルマガ】は、メルマガリストに電話して取ったアポなので数える）
   // 【初回】【初回/フロッグ】【初回/コールド】【初回/過去失注】… と 【新/ヒ】系を、初回アポとして数える。
   return /【[^】]*初回[^】]*】/.test(t) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(t);
 }
@@ -13432,7 +13432,7 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
     const mmSeen = new Set();
     for (const a of apos) {
       const coM = normCompanyKey(companyFromTitle(a.label || "") || "");
-      const isMM = a.mailmaga || /メルマガ/.test(String(a.label || ""));
+      const isMM = a.mailmaga || /^\s*メルマガ/.test(String(a.label || "").normalize("NFKC"));   // 【初回/メルマガ】はかけた人のアポ
       if (isMM) {
         const ukM = `${coM}|${ymdJst(a.start_time)}`;
         if (!mmSeen.has(ukM)) { mmSeen.add(ukM); const iM = idxOf(属する(ymdJst(a.taken_at))); if (iM >= 0) mailmagaCols[iM]++; }
@@ -23446,7 +23446,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13g 架電リストで「商談済み」「商談予定」の印があるリードを、かける対象の下（対象外の上）にまとめ、区切りを出す。見出しで並べ替えたときも同じ。";
+const BUILD_TAG = "2026-10-13h kincallのアポ登録の種別に MO失注【初回/MO失注】・メルマガリスト【初回/メルマガ】を追加（新規・過去失注・MO失注・フロッグ・メルマガリスト）。【初回/メルマガ】はかけた人のアポとして数える（メルマガのカードは、頭が「メルマガ」の予定と印だけ）。予定名の付け直しも2つに対応。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
@@ -26606,6 +26606,8 @@ function apoTypeFromLead(t) {
   if (!t) return "";
   const txt = `${t.source || ""} ${t.list_name || ""} ${t.group_name || ""}`;
   if (/フロッグ/.test(txt)) return "フロッグ";
+  if (/メルマガ/.test(txt)) return "メルマガ";
+  if (/MO\s*失注/i.test(txt)) return "MO失注";
   if (frameOfSource(t.source || "") === "past" || /過去失注|クロス失注|過去リスト/.test(txt)) return "過去失注";
   return "新規";
 }
@@ -26614,7 +26616,7 @@ async function apoRetagPlan(link) {
   const m = /^\s*【([^】]*)】/.exec(label);
   if (!m) return { change: false, reason: "予定名の頭に【】がありません" };
   const tagN = m[1].normalize("NFKC").replace(/\s/g, "");
-  if (/過去失注|フロッグ|コールド|クロス/.test(tagN)) return { change: false, reason: "すでに種別が入っています", type: /フロッグ/.test(tagN) ? "フロッグ" : "過去失注" };
+  if (/過去失注|フロッグ|コールド|クロス|MO失注|メルマガ/i.test(tagN)) return { change: false, reason: "すでに種別が入っています" };
   if (!/^(初回\/?|新|ヒ|新\/ヒ|新\/|初回\/新|初回\/ヒ)$/.test(tagN)) return { change: false, reason: `【${m[1]}】は対象外の形です` };
   const company = parseLaunchTitle(label).company || label.replace(/^\s*【[^】]*】/, "").split(/[\/／]/)[0];
   const key = normCompanyKey(company);
@@ -28054,7 +28056,7 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
   if (same) return { ok: true, already: true, link: same, calendar: same.event_id ? "ok" : "" };
 
   // 予定名の種別（新規＝【初回】／過去失注＝【初回/過去失注】／フロッグ＝【初回/フロッグ】）
-  const tag = ["初回", "初回/過去失注", "初回/フロッグ"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回";
+  const tag = ["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回";
   const label = apoLabelOf(tag, company, person);
   const desc = [
     "【先方の連絡先】",

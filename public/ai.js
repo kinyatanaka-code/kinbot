@@ -204,8 +204,8 @@ async function loadSfStatus() {
         <span class="saved" id="sendCallMsg" hidden></span>
         <span class="ai-mini" id="restoreMsg"></span>
       </div>
-      <div class="ai-subh" style="margin-top:14px;">予定名に種別（過去失注・フロッグ）を入れる</div>
-      <div class="ai-mini">その月に取ったアポの元のリードを探して、【初回】を【初回/過去失注】【初回/フロッグ】に直します（新規はそのまま）。まず「確認する」で一覧を出し、直すものを選んでから実行します。</div>
+      <div class="ai-subh" style="margin-top:14px;">予定名に種別（過去失注・MO失注・フロッグ・メルマガリスト）を入れる</div>
+      <div class="ai-mini">その月に取ったアポの元のリードを探して、【初回】を【初回/過去失注】【初回/MO失注】【初回/フロッグ】【初回/メルマガ】に直します（新規はそのまま）。まず「確認する」で一覧を出し、直すものを選んでから実行します。</div>
       <div class="modal-actions" style="margin-top:6px;flex-wrap:wrap;gap:8px;align-items:center;">
         <input type="month" id="retagMonth" value="${new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7)}" style="border:1px solid #e6ece9;border-radius:8px;padding:5px 8px;font-size:13px;font-family:inherit" />
         <button class="pr-b" id="retagPreview" type="button">確認する</button>

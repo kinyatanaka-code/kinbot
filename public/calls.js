@@ -2266,9 +2266,8 @@ async function openTarget(id, draft, opt) {
             <label class="kc-apo-lb" for="kcApoTag">種別</label>
             <div>
               <select class="kc-input" id="kcApoTag">
-                <option value="初回"${kcApoTagOf(x) === "初回" ? " selected" : ""}>新規（【初回】）</option>
-                <option value="初回/過去失注"${kcApoTagOf(x) === "初回/過去失注" ? " selected" : ""}>過去失注（【初回/過去失注】）</option>
-                <option value="初回/フロッグ"${kcApoTagOf(x) === "初回/フロッグ" ? " selected" : ""}>フロッグ（【初回/フロッグ】）</option>
+                ${[["初回", "新規"], ["初回/過去失注", "過去失注"], ["初回/MO失注", "MO失注"], ["初回/フロッグ", "フロッグ"], ["初回/メルマガ", "メルマガリスト"]]
+                  .map(([v, lb]) => `<option value="${v}"${kcApoTagOf(x) === v ? " selected" : ""}>${lb}（【${v}】）</option>`).join("")}
               </select>
               <div class="kc-apo-free" id="kcApoTitle"></div>
             </div>
@@ -2663,6 +2662,8 @@ function kcApoTagOf(x) {
   const src = String((x && x["ソース"]) || "").trim();
   const ln = String((x && (x["元のリスト"] || x["リスト名"])) || "");
   if (/フロッグ/.test(src) || /フロッグ/.test(ln)) return "初回/フロッグ";
+  if (/メルマガ/.test(src) || /メルマガ/.test(ln)) return "初回/メルマガ";
+  if (/MO\s*失注/i.test(src) || /MO\s*失注/i.test(ln)) return "初回/MO失注";
   if (/過去失注|クロス失注/.test(src) || /過去失注|過去リスト|クロス失注/.test(ln)) return "初回/過去失注";
   return "初回";
 }
