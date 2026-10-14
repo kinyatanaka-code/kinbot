@@ -536,7 +536,7 @@ function sparkline(points) {
 // ===== インターンアポ ダッシュボード =====
 function iaDates() {
   const f = $("iaFrom"), t = $("iaTo");
-  if (f && !f.value) f.value = todayStr();
+  if (f && !f.value) f.value = "2026-09-01";   // 既定は9月1日から（インセンティブの始まり）
   if (t && !t.value) t.value = todayStr();
   return { from: f ? f.value : "", to: t ? t.value : "" };
 }

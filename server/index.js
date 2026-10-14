@@ -19389,7 +19389,7 @@ function apoTitleMatch(mNorm, eNorm) {
 
 // インターンのカレンダーと商談名を照合して、アポ獲得者を各商談に記録する
 // （ログインユーザーなら可。読むのは各自のGoogle連携で見えるカレンダーのみ）
-// body: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }（省略時は直近90日）
+// body: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }（省略時は9月1日〜今日）
 async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = {}) {
   try {
     // カレンダー照合は「代表者（設定で指定した人）のGoogle連携」を経由して実行する。
@@ -19413,10 +19413,11 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
     const interns = await listInterns();
     if (!interns.length) return { status: 400, error: "インターン生が登録されていません。先に名前とメールアドレスを追加してください。" };
 
-    // 期間（既定：直近90日）
+    // 期間（既定：9月1日（インセンティブの始まり INCENTIVE_FROM）から今日まで。90日より前になっても、その日から照合し直す）
     const today = new Date();
-    const defFrom = new Date(today.getTime() - 90 * 86400 * 1000);
-    const from = fromIn || defFrom.toISOString().slice(0, 10);
+    const incStart = String(process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
+    const d90 = new Date(today.getTime() - 90 * 86400 * 1000).toISOString().slice(0, 10);
+    const from = fromIn || (incStart < d90 ? incStart : d90);
     const to = toIn || today.toISOString().slice(0, 10);
     const DATE_WINDOW = 2; // 商談日と予定日のズレをこの日数まで許容
     // カレンダー取得範囲は前後1日の余裕をもたせる（JST境界対策）
@@ -19508,7 +19509,7 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
     for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched, hosted: ie.hosted, skipped_samples: ie.skipped_samples };
     let matchedCount = 0, multiCount = 0, matchedByDesc = 0, matchedByList = 0;
     // kinbotのアポ一覧（商談日・予定名・獲得者）。テストで外したものは入らない（listApoSetters）
-    const apoListForMatch = (await listApoSetters({ sinceDays: 200 }).catch(() => []))
+    const apoListForMatch = (await listApoSetters({ sinceDays: Math.max(200, Math.ceil((Date.now() - Date.parse(from + "T00:00:00+09:00")) / 86400000) + 30) }).catch(() => []))
       .map((l) => ({ label: l.label || "", setter: String(l.setter || "").trim(), date: l.start_time ? jstDateStr(l.start_time) : "", coKey: apoCompanyKey(apoNameParts(l.label || "").company) }))
       .filter((l) => l.setter && l.date);
     const touchedSetters = new Set();
@@ -19638,7 +19639,7 @@ async function autoInternMatchTick() {
     if (![12, 15, 18].includes(hh)) return;
     if (_lastInternMatchHour === hh) return;   // その時間帯で1回だけ
     _lastInternMatchHour = hh;
-    const r = await internMatchRun({});        // 代表者(apoCalendarOwner)の連携で実行・期間は既定(直近90日)
+    const r = await internMatchRun({});        // 代表者(apoCalendarOwner)の連携で実行・期間は既定（9月1日〜今日）
     if (r && r.error) { console.warn("[interns/match auto]", r.error); return; }
     console.log(`[interns/match auto] ${hh}時 照合：一致 ${r?.result?.matched ?? 0}／対象 ${r?.result?.meetings_total ?? 0}`);
   } catch (e) { console.warn("[interns/match auto]", e.message); }
@@ -19746,12 +19747,12 @@ app.get("/api/rep-products", async (req, res) => {
 });
 
 // ダッシュボード用：記録済みのアポ獲得者から、人ごとのアポ実施数を集計して返す（カレンダーには触れない・高速）
-// query: from, to（省略時は直近90日）
+// query: from, to（省略時は9月1日〜今日）
 app.get("/api/interns/stats", async (req, res) => {
   try {
     const today = new Date();
-    const defFrom = new Date(today.getTime() - 90 * 86400 * 1000);
-    const from = (req.query.from && String(req.query.from)) || defFrom.toISOString().slice(0, 10);
+    // 既定は9月1日（インセンティブの始まり INCENTIVE_FROM）から今日まで
+    const from = (req.query.from && String(req.query.from)) || String(process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
     const to = (req.query.to && String(req.query.to)) || today.toISOString().slice(0, 10);
 
     const interns = await listInterns();
@@ -23541,7 +23542,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14a アポ獲得者の照合（インセンティブの実施数のもと）に、kinbotのアポ一覧での照合を追加。カレンダーの共有切れや予定名の変更で、実施した商談の獲得者が外れて実施数が減るのを防ぐ。";
+const BUILD_TAG = "2026-10-14b アポ獲得者の照合（自動・手動）を、直近90日ではなく9月1日（INCENTIVE_FROM）から今日までに。アポ実施の集計も既定で9月1日から。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
