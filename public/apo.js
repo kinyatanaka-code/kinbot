@@ -280,6 +280,10 @@ function apoCard(a, i) {
               <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
               <button class="ap-more-item ap-renotify" data-slug="${esc(a.slug)}">割り振り通知だけ再送</button>
               <button class="ap-more-item ap-why" data-slug="${esc(a.slug)}">メール・SF・通知の状態を調べる</button>
+              ${/^(リスケ|キャンセル)$/.test(String(a.excludedReason || ""))
+                ? `<button class="ap-more-item ap-state" data-slug="${esc(a.slug)}" data-state="">${esc(a.excludedReason)}を取り消す</button>`
+                : `<button class="ap-more-item ap-state" data-slug="${esc(a.slug)}" data-state="リスケ">リスケにする</button>
+                   <button class="ap-more-item ap-state" data-slug="${esc(a.slug)}" data-state="キャンセル">キャンセルにする</button>`}
               <button class="ap-more-item ap-exclude" data-slug="${esc(a.slug)}" data-on="${a.excluded ? "1" : "0"}">${a.excluded ? "集計に戻す" : "テストとして外す"}</button>
             </div>
           </div>
@@ -479,6 +483,22 @@ function bindCardEvents(card) {
     } catch (e) { box.innerHTML = `<div class="ap-why-row ng">${esc(e.message)}</div>`; }
   });
 
+  // リスケ・キャンセルにする（リマインドを送らない・カレンダーの予定名の頭に印を付ける）／取り消す
+  card.querySelectorAll(".ap-state").forEach((b) => b.addEventListener("click", async () => {
+    const st = b.dataset.state;
+    const msg = st
+      ? `このアポを「${st}」にします。\n・前日リマインドは送りません\n・カレンダーの予定名の頭に「${st}」を付けます（獲得者・担当・浦林さん対応の予定）\n・Chatに「${st}が入りました」と知らせます\n・アポは取った月の実績に残ります\n\nよろしいですか？`
+      : "リスケ・キャンセルを取り消して、元のアポに戻します（予定名の頭の印も消します）。よろしいですか？";
+    if (!confirm(msg)) return;
+    b.disabled = true;
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(b.dataset.slug)}/state`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ state: st }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "変えられませんでした");
+      if (Array.isArray(d.変えられなかった予定) && d.変えられなかった予定.length) alert(`アポは${st || "元"}に${st ? "しました" : "戻しました"}。\nただし、次の予定の名前は変えられませんでした（編集の権限が無い可能性）。\n・${d.変えられなかった予定.join("\n・")}`);
+      load();
+    } catch (e) { alert(e.message); b.disabled = false; }
+  }));
   const ex = q(".ap-exclude");
   if (ex) ex.addEventListener("click", async () => {
     const on = ex.dataset.on !== "1";

@@ -4630,6 +4630,43 @@ app.put("/api/smart-links/excluded-many", async (req, res) => {
 
 // テストで作ったアポを、件数の集計から外す／戻す。
 // 予定もアポ自体も残したまま、実績・均等化・通知の数からだけ除く。
+// アポ一覧から「リスケ」「キャンセル」にする（リマインドを送らないため）。取り消しもできる。
+//   ・アポを「リスケ」「キャンセル」として集計の外へ（リマインド・割り振りの対象から外れる。実績は取った月に残る）
+//   ・つながるカレンダー予定（獲得者の予定・担当の商談予定・浦林さん対応の予定）の名前の頭に「リスケ」「キャンセル」を付ける
+//   ・いつもの「リスケが入りました／キャンセルが入りました」をChatに1回だけ知らせる（スキャンが同じ予定を拾っても重ねない）
+// state＝"リスケ" | "キャンセル" | ""（取り消し：外したのを戻し、予定名の頭の印を消す）
+const APO_HEAD_RE = /^\s*(リスケ|ﾘｽｹ|キャンセル|ｷｬﾝｾﾙ)\s*[:：\-－・]?\s*/;
+app.put("/api/apo/:slug/state", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)) {
+      // 獲得者本人も、自分のアポは変えられる
+      const l0 = await getSmartLink(String(req.params.slug || "")).catch(() => null);
+      if (!l0 || String(l0.setter_email || "").toLowerCase() !== String(req.user || "").toLowerCase()) return res.status(403).json({ error: "権限がありません" });
+    }
+    const slug = String(req.params.slug || "");
+    const state = ["リスケ", "キャンセル"].includes(String((req.body || {}).state || "")) ? String(req.body.state) : "";
+    const link = await getSmartLink(slug);
+    if (!link) return res.status(404).json({ error: "見つかりませんでした" });
+    const base = String(link.label || "").replace(APO_HEAD_RE, "");
+    const newTitle = state ? `${state}${base}` : base;
+    if (state) await setApoExcluded(slug, true, state);
+    else if (["リスケ", "キャンセル"].includes(String(link.excluded_reason || ""))) await setApoExcluded(slug, false);
+    const cal = await retitleApoCalendarEvents(link, newTitle).catch((e) => ({ moved: [], failed: [String(e.message || e)] }));
+    if (state) {
+      // スキャンが同じ予定を拾ったときに、もう一度知らせないよう先に記録しておく
+      for (const id of [link.event_id, link.invite_event_id].filter(Boolean)) await noticeOnce(id, state, newTitle).catch(() => false);
+      const when = link.start_time ? `${jstDateStr(link.start_time).slice(5)} ${jstTime(link.start_time)}` : "日時不明";
+      await notifyAll([
+        state === "リスケ" ? "📌 *リスケが入りました*（アポ一覧から）" : "🚫 *キャンセルが入りました*（アポ一覧から）",
+        `・${base}`,
+        `📅 ${when}　👤 ${link.setter || "-"}`,
+        "（前日リマインドは送りません。アポは取った月の実績に残ります）",
+      ].join("\n"), "resched").catch(() => {});
+    }
+    console.log(`[apo] ${state ? `${state}にしました` : "リスケ・キャンセルを取り消しました"}：${base}（予定名：${cal.moved.join("・") || "なし"}${cal.failed.length ? ` ／ 変えられなかった：${cal.failed.join("・")}` : ""}） by ${req.user}`);
+    res.json({ ok: true, state, title: newTitle, 変えた予定: cal.moved, 変えられなかった予定: cal.failed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.put("/api/smart-links/:slug/excluded", async (req, res) => {
   try {
     const slug = String(req.params.slug || "");
@@ -23478,7 +23515,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13j 二重登録の片方をテストで外したら1件ごと消えた不具合を修正：リスケの作り直しとみなしたアポは、元のアポが数えられているときだけ数えない（元をテスト・手で外したら、残った方を数える）。";
+const BUILD_TAG = "2026-10-13k アポ一覧の「︙」から「リスケにする」「キャンセルにする」（と取り消し）。前日リマインドを送らず、カレンダーの予定名（獲得者・担当・浦林さん対応）の頭に「リスケ」「キャンセル」を付け、Chatに1回知らせる。実績は取った月に残る。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
