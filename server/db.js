@@ -6467,8 +6467,13 @@ export async function aposInRange({ from, to, business = "", limit = 500 } = {})
 //   ・テスト・キックオフ・人が手で外したもの → 数えない
 //   ・リスケで作り直したアポ（resched_of あり）→ 元のアポで数えているので数えない
 export function apoCountedSql(alias = "") {
-  const a = alias ? `${alias}.` : "";
-  return `((NOT COALESCE(${a}excluded,false)) OR COALESCE(${a}excluded_reason,'') IN ('リスケ','キャンセル')) AND ${a}resched_of IS NULL`;
+  const a = `${alias || "smart_links"}.`;
+  // 作り直し（resched_of あり）は、元のアポが数えられているときだけ数えない。
+  // 元のアポをテスト・手で外した（＝二重登録の片方を外した）ときは、作り直し側を数える。
+  return `((NOT COALESCE(${a}excluded,false)) OR COALESCE(${a}excluded_reason,'') IN ('リスケ','キャンセル'))
+    AND (${a}resched_of IS NULL OR NOT EXISTS (
+          SELECT 1 FROM smart_links o WHERE o.slug = ${a}resched_of
+             AND ((NOT COALESCE(o.excluded,false)) OR COALESCE(o.excluded_reason,'') IN ('リスケ','キャンセル'))))`;
 }
 export async function aposTakenInRange({ from, to, business = "", limit = 1000 } = {}) {
   if (!pool) return [];
