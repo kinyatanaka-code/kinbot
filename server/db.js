@@ -3477,20 +3477,26 @@ export async function callFrameStatsByCaller(fromDay, toDay) {
       `WITH x AS (
          SELECT lower(COALESCE(l.caller,'')) AS caller, l.target_id, l.result, cl.id AS list_id, cl.name AS list_name, t.source AS lead_source,
                 (SELECT g.name FROM call_list_groups g WHERE g.id = cl.group_id) AS group_name,
-                EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー') AS pj
+                -- 元のリスト（ナーチャリングへ移す前にいたリスト）。ソースが「要確認」のとき、ここから新規・過去を決める
+                COALESCE(ofl.name, t.nurture_from_name, t.origin_list_name) AS origin_name,
+                (SELECT g.name FROM call_list_groups g WHERE g.id = ofl.group_id) AS origin_group,
+                -- ナーチャリング＝その架電の前にジャッジ・営業フォローになっていた、またはナーチャリングのリストに入っている
+                (EXISTS (SELECT 1 FROM call_logs p WHERE p.target_id = l.target_id AND p.at < l.at AND p.result ~ 'ジャッジ|営業フォロー')
+                  OR COALESCE(cl.kind,'') = 'nurture' OR cl.name LIKE '%ナーチャリング%') AS pj
            FROM call_logs l
            JOIN call_targets t ON t.id = l.target_id
            JOIN call_lists cl ON cl.id = t.list_id
+           LEFT JOIN call_lists ofl ON ofl.id = COALESCE(t.nurture_from_id, t.origin_list_id)
           WHERE COALESCE(l.caller,'') <> ''
             AND (l.at AT TIME ZONE 'Asia/Tokyo')::date >= $1::date AND (l.at AT TIME ZONE 'Asia/Tokyo')::date <= $2::date)
-       SELECT caller, list_id, list_name, group_name, lead_source,
+       SELECT caller, list_id, list_name, group_name, lead_source, origin_name, origin_group,
               count(*) FILTER (WHERE NOT pj)::int AS calls,
               count(*) FILTER (WHERE NOT pj AND result ~ '接触')::int AS contacts,
               count(DISTINCT target_id) FILTER (WHERE NOT pj AND result ~ 'アポ獲得')::int AS apos,
               count(*) FILTER (WHERE pj)::int AS nur_calls,
               count(*) FILTER (WHERE pj AND result ~ '接触')::int AS nur_contacts,
               count(DISTINCT target_id) FILTER (WHERE pj AND result ~ 'アポ獲得')::int AS nur_apos
-         FROM x GROUP BY 1,2,3,4,5`, [fromDay, toDay]);
+         FROM x GROUP BY 1,2,3,4,5,6,7`, [fromDay, toDay]);
     return rows;
   } catch (e) { console.error("[db] callFrameStatsByCaller", e.message); return []; }
 }

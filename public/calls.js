@@ -2110,6 +2110,8 @@ function renderDock() {
     .ld-nsplit{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:#5f6b64;margin-top:5px;}
     .ld-nsplit span{display:inline-flex;align-items:center;gap:4px;} .ld-nsplit b{color:#1f2a26;font-size:13px;}
     .ld-nmini{font-size:10.5px;font-weight:600;color:#5f6b64;}
+    .kc-awm-li{flex-wrap:wrap;row-gap:0;} .kc-awm-g{font-weight:800;color:#0d5b47;} .kc-awm-ln{font-weight:500;color:#5f6b64;font-size:10.5px;}
+    .kc-awm-nur{font-style:normal;font-size:10px;font-weight:700;background:#eef2fc;color:#3c5fae;border-radius:99px;padding:0 6px;}
     .zp-me{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px;}
     .zp-me > div{background:#f6fbf9;border:1px solid #cfe0d9;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;font-size:13px;}
     .zp-tips{margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7;color:#1f2a26;}
@@ -4128,7 +4130,12 @@ function openAwardBig(idx) {
         : "";
       const ls = listOf(p);
       const lsHtml = ls.length
-        ? `<div class="kc-awm-cos">${ls.map((x) => `<span class="kc-awm-co kc-awm-li" title="${esc(x.グループ ? `グループ：${x.グループ}` : "")}">${x.ナーチャ ? "ナーチャ（新規から）：" : ""}${esc(x.リスト || "（リスト名なし）")}<em>${x.件数}件</em></span>`).join("")}</div>`
+        ? `<div class="kc-awm-cos">${ls.map((x) => {
+            // グループ名を前に出す（ナーチャリングの分は、移す前にいたリストのグループ）
+            const g = x.ナーチャ ? (x.元のグループ || x.グループ) : x.グループ;
+            const ln = x.ナーチャ ? (x.元のリスト ? `${x.元のリスト} → ${x.リスト}` : x.リスト) : x.リスト;
+            return `<span class="kc-awm-co kc-awm-li" title="${esc(`リスト：${ln || "（リスト名なし）"}`)}">${x.ナーチャ ? '<i class="kc-awm-nur">ナーチャ</i>' : ""}<b class="kc-awm-g">${esc(g || "グループなし")}</b><span class="kc-awm-ln">${esc(ln || "")}</span><em>${x.件数}件</em></span>`;
+          }).join("")}</div>`
         : "";
       return `<div class="kc-awm-row${cls}" style="--d:${(0.25 + i * 0.05).toFixed(2)}s">
         <i class="kc-aw-r${p.v > 0 && p.rank === 2 ? " r2" : p.v > 0 && p.rank === 3 ? " r3" : p.v > 0 && p.rank === 1 ? " r1" : ""}">${p.rank}</i>

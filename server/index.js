@@ -13690,6 +13690,16 @@ const DASH_APO_ADJUST_BASE = {
 //   ナーチャリング … その架電の前に、そのリードがジャッジ・営業フォローになっていたもの（どのリストにいても）
 //   新規・過去   … それ以外を、リスト管理のグループ名 → リスト名 で決まるソースの枠で分ける（アワードの新規リード獲得と同じ）
 //   新規→ナーチャリング … 新規リストのソースのリードが はじめて ジャッジ・営業フォロー になった件数（そのときかけた人）
+// リードの元が新規リストか過去リストか：ソースで決まらない（要確認など）ときは、ナーチャリングへ移す前にいたリストから決める
+function leadOriginFrame(r) {
+  const f = frameOfSource(r.lead_source || "");
+  if (f === "new" || f === "past") return f;
+  if (r.origin_name || r.origin_group) {
+    const f2 = frameOfSource(classifyListSource(r.origin_name || "", r.origin_group || ""));
+    if (f2 === "new" || f2 === "past") return f2;
+  }
+  return f;
+}
 async function listFrameStats(from, to) {
   const blank = () => ({ コール: 0, 接触: 0, アポ: 0 });
   const by = new Map();
@@ -13704,7 +13714,7 @@ async function listFrameStats(from, to) {
       b.コール += r.calls; b.接触 += r.contacts; b.アポ += r.apos;
       o.ナーチャリング.コール += r.nur_calls; o.ナーチャリング.接触 += r.nur_contacts; o.ナーチャリング.アポ += r.nur_apos;
       {
-        const of = frameOfSource(r.lead_source || "");
+        const of = leadOriginFrame(r);
         const nb = of === "past" ? o.ナーチャ過去 : of === "new" ? o.ナーチャ新規 : null;
         if (nb) { nb.コール += r.nur_calls; nb.接触 += r.nur_contacts; nb.アポ += r.nur_apos; }
       }
@@ -13819,10 +13829,11 @@ app.get("/api/calls/awards", async (req, res) => {
       const add = (n, nur) => {
         if (!n) return;
         bump(新規アポ, r.caller, n);
-        (新規明細[r.caller] = 新規明細[r.caller] || []).push({ リスト: r.list_name || "", グループ: r.group_name || "", 件数: n, ナーチャ: nur });
+        (新規明細[r.caller] = 新規明細[r.caller] || []).push({ リスト: r.list_name || "", グループ: r.group_name || "", 件数: n, ナーチャ: nur,
+          元のリスト: nur ? (r.origin_name || "") : "", 元のグループ: nur ? (r.origin_group || "") : "" });
       };
       if (frameOfSource(classifyListSource(r.list_name, r.group_name)) === "new") add(Number(r.apos) || 0, false);
-      if (frameOfSource(r.lead_source || "") === "new") add(Number(r.nur_apos) || 0, true);
+      if (leadOriginFrame(r) === "new") add(Number(r.nur_apos) || 0, true);
     }
     for (const arr of Object.values(新規明細)) arr.sort((a, b) => b.件数 - a.件数);
 
@@ -23568,7 +23579,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14e アワードの新規アポ獲得数に、ナーチャリングから取ったアポのうちリードの元が新規リストのものも入れる（リスト別の「新規」＋「ナーチャ・新」と同じ数）。";
+const BUILD_TAG = "2026-10-14f アワード・リスト別：ナーチャリングのリードの元を、ソースが要確認のときは「ナーチャリングへ移す前にいたリスト」から決める（飯島さんの【ナーチャリング】リストからのアポが入らなかった件）。ナーチャリングのリストにいるリードへの架電もナーチャリングに。大きい窓の札にグループ名を表示。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
