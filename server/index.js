@@ -843,7 +843,7 @@ function isKincallSelfSettingPath(p) {
     p === "/api/calendar/status" || p === "/api/calendar/disconnect" ||
     p === "/api/my-zoom-link" || p === "/api/links" ||
     // Zoom Phone：接続の確認と、自分の発信者番号（かける画面のZoom発信・録音の要約で使う）。設定の変更・同期は管理者だけ
-    p === "/api/zoom-phone/status" || p === "/api/zoom-phone/caller-id";
+    p === "/api/zoom-phone/status" || p === "/api/zoom-phone/caller-id" || p === "/api/zoom-phone/check";
 }
 
 const OPEN_PATHS = new Set([
@@ -11732,6 +11732,38 @@ app.get("/api/zoom-phone/caller-id", async (req, res) => {
     _callerIdCache.set(me, { v, at: Date.now() });
     res.json({ ok: true, callerId: v });
   } catch (e) { res.json({ ok: true, callerId: "" }); }
+});
+
+// Zoom電話でかけられないときの確認：kincallのメールがZoom Phoneの利用者にいるか・電話番号があるか。
+// 管理者・クローザーには、メンバー全員（インサイド・クローザー）の状態も返す。
+let _zpUsersCache = { at: 0, v: null };
+app.get("/api/zoom-phone/check", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.json({ ok: true, 設定済み: false });
+    const st = await getSettings().catch(() => ({}));
+    if (!_zpUsersCache.v || Date.now() - _zpUsersCache.at > 10 * 60 * 1000 || req.query.fresh) {
+      _zpUsersCache = { at: Date.now(), v: await zoomPhoneUsers().catch(() => ({})) };
+    }
+    const users = _zpUsersCache.v || {};
+    const look = async (email) => {
+      const em = String(email || "").toLowerCase();
+      const u = users[em] || null;
+      const num = u ? await zoomPhoneUserNumber(em).catch(() => "") : "";
+      return { email: em, Zoom利用者: !!u, 名前: u ? u.name : "", 内線: u ? u.ext : "", 電話番号: num };
+    };
+    const me = String(req.impersonatorFrom && req.impersonatorFrom !== "admin" ? req.impersonatorFrom : req.user || "").toLowerCase();
+    const out = { ok: true, 設定済み: true, 埋め込み: st.zoomEmbed === true, Zoomで発信: st.zoomClickToCall !== false, 利用者数: Object.keys(users).length, 自分: await look(me) };
+    if (req.isAdmin || (await isCloserUser(req.user).catch(() => false))) {
+      const people = new Map();
+      for (const x of await listInterns().catch(() => [])) if (x.email) people.set(String(x.email).toLowerCase(), { name: x.name || "", role: "インサイド" });
+      for (const x of await listClosers({ activeOnly: true }).catch(() => [])) if (x.email) people.set(String(x.email).toLowerCase(), { name: x.name || "", role: "クローザー" });
+      const rows = [];
+      for (const [em, p] of people) rows.push({ ...(await look(em)), kincallの名前: p.name, 役割: p.role });
+      rows.sort((a, b) => Number(a.Zoom利用者 && !!a.電話番号) - Number(b.Zoom利用者 && !!b.電話番号));
+      out.メンバー = rows;
+    }
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Zoomの通話履歴を取り込んで、kincallの架電記録に紐づける（電話番号で照合）。
@@ -23446,7 +23478,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13h kincallのアポ登録の種別に MO失注【初回/MO失注】・メルマガリスト【初回/メルマガ】を追加（新規・過去失注・MO失注・フロッグ・メルマガリスト）。【初回/メルマガ】はかけた人のアポとして数える（メルマガのカードは、頭が「メルマガ」の予定と印だけ）。予定名の付け直しも2つに対応。";
+const BUILD_TAG = "2026-10-13i Zoom電話でかけられないときの確認（発信の確認の「かからないとき」・Zoom電話の窓）：自分がZoom Phoneの利用者か・電話番号があるか・いまのかけ方と直し方。管理者・クローザーにはメンバー全員の状態も。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",

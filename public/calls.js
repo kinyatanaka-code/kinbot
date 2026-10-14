@@ -2107,6 +2107,10 @@ function renderDock() {
     .mm-acts{display:flex;gap:6px;flex-wrap:wrap;}
     .kc-src-tag.mtg{background:#fdecea;color:#b3261e;border:1px solid #f3b8b2;}
     .kc-mtg-sep td{background:#fdf3f2 !important;color:#8c1d18 !important;}
+    .zp-me{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px;}
+    .zp-me > div{background:#f6fbf9;border:1px solid #cfe0d9;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;font-size:13px;}
+    .zp-tips{margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7;color:#1f2a26;}
+    .zp-t{font-size:12px;} .zp-t tr.ng td{background:#fdf3f2;} .zp-t b{color:#b3261e;}
     .kc-mtg-warn{margin:0 0 10px;padding:8px 10px;border-radius:10px;background:#fdecea;border:1px solid #f3b8b2;color:#8c1d18;font-size:12.5px;font-weight:600;line-height:1.5;}
     .kc-src-tag.nur{background:#e6f1fb;color:#0c447c;}
     .kc-src-tag.new{background:#e1f5ee;color:#085041;} .kc-src-tag.past{background:#faece7;color:#712b13;} .kc-src-tag.other{background:#f1efe8;color:#5f5e5a;}
@@ -2841,6 +2845,13 @@ async function zpDial(number) {
     alt.addEventListener("click", (e) => e.stopPropagation());
   }
   if (alt) { alt.href = `zoomphonecall://${telOf(number)}`; alt.textContent = "Zoomアプリでかける"; alt.title = "埋め込みの電話でかからないときは、Zoomアプリから発信します"; }
+  // かからないときの確認
+  if (el && !el.querySelector("#kcZpChk")) {
+    const chk = document.createElement("button");
+    chk.type = "button"; chk.id = "kcZpChk"; chk.className = "kc-zp-btn"; chk.textContent = "かからないとき"; chk.title = "Zoom電話でかけられないときの確認";
+    el.querySelector(".kc-zp-head").insertBefore(chk, el.querySelector("#kcZpMin"));
+    chk.addEventListener("click", (e) => { e.stopPropagation(); zpCheckModal(); });
+  }
   if (st) st.textContent = "発信しています…";
   const seq = ++_zpDialSeq, t0 = Date.now();
   send(true);
@@ -2865,6 +2876,33 @@ window.addEventListener("message", (e) => {
   if (/^zp-call-(ringing|connected|ended)/.test(ty)) _zpGotEvent = Date.now();
   if (/^zp-call-/.test(ty)) document.dispatchEvent(new CustomEvent("kc-zoom-event", { detail: { type: ty, data: e.data.data || {} } }));
 });
+// Zoom電話でかけられないときの確認（自分の状態と、直し方。管理者・クローザーにはメンバー全員の状態も）
+async function zpCheckModal() {
+  const m = openModal("Zoom電話でかけられないとき", `<div id="zpChk"><div class="note">確認しています…</div></div>`);
+  const box = m.el.querySelector("#zpChk");
+  try {
+    const d = await (await fetch("/api/zoom-phone/check?fresh=1")).json();
+    if (d.error) throw new Error(d.error);
+    if (!d.設定済み) { box.innerHTML = `<div class="mm-warn">kinbotにZoom Phoneの連携が設定されていません（管理者の設定）。</div>`; return; }
+    const me = d.自分 || {};
+    const how = _zoomEmbed ? "kincallの中のZoom電話" : _zoomCall ? "Zoomアプリ（デスクトップ）" : "この端末の電話アプリ";
+    const tips = [];
+    if (!me.Zoom利用者) tips.push(`あなたのkincallのメール（${esc(me.email)}）が、Zoom Phoneの利用者にいません。Zoomの管理者に「このメールのZoomアカウントにZoom Phoneのライセンスを付ける」か、kincallとZoomでメールアドレスをそろえるよう頼んでください。`);
+    else if (!me.電話番号) tips.push("Zoom Phoneの利用者にはいますが、電話番号（外線の番号）が付いていません。番号がないと会社の外へ発信できないことがあります。Zoomの管理者に電話番号の割り当てを頼んでください。");
+    if (_zoomEmbed) tips.push("右下の「Zoom電話」の窓で、あなたのZoomアカウントにサインインしているか確かめてください（別の人のアカウントだとかかりません）。サインインの画面が出ないときは、ブラウザをChromeにし、サードパーティのCookieを許可してください。");
+    else if (_zoomCall) tips.push("Zoomアプリ（デスクトップ）が入っていて、同じアカウントでサインインしているか確かめてください。アプリが無いと「Zoomでかける」を押しても何も起きません。");
+    if (window.innerWidth <= 760 && _zoomOn) tips.push("画面の幅が狭いため、kincallの中のZoom電話ではなくZoomアプリでかける形になっています。ブラウザの窓を広げると、kincallの中でかけられます。");
+    const rows = (d.メンバー || []).map((x) => `<tr class="${x.Zoom利用者 && x.電話番号 ? "" : "ng"}"><td>${esc(x.kincallの名前 || "")}<div class="note">${esc(x.役割 || "")}</div></td><td>${esc(x.email)}</td>
+      <td>${x.Zoom利用者 ? "○" : "<b>×</b>"}</td><td>${esc(x.内線 || "-")}</td><td>${x.電話番号 ? esc(x.電話番号) : (x.Zoom利用者 ? "<b>なし</b>" : "-")}</td></tr>`).join("");
+    box.innerHTML = `
+      <div class="zp-me"><div><span class="note">いまのかけ方</span><b>${esc(how)}</b></div>
+        <div><span class="note">Zoom Phoneの利用者</span><b>${me.Zoom利用者 ? `○（${esc(me.名前 || "")}${me.内線 ? `・内線 ${esc(me.内線)}` : ""}）` : "×（見つかりません）"}</b></div>
+        <div><span class="note">発信者番号</span><b>${me.電話番号 ? esc(me.電話番号) : "なし"}</b></div></div>
+      ${tips.length ? `<ol class="zp-tips">${tips.map((t) => `<li>${t}</li>`).join("")}</ol>` : `<div class="note">あなたの設定に問題は見つかりませんでした。つながらないときは、Zoom電話の窓の「Zoomアプリでかける」も試してください。</div>`}
+      ${rows ? `<div class="mm-step" style="margin-top:12px">メンバーの状態（×・なし の人はZoomの管理者の設定が必要です）</div>
+        <div style="overflow-x:auto"><table class="kc-table zp-t"><thead><tr><th>メンバー</th><th>kincallのメール</th><th>Zoom Phone</th><th>内線</th><th>電話番号</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}`;
+  } catch (e) { box.innerHTML = `<div class="mm-warn">確認できませんでした：${esc(e.message)}</div>`; }
+}
 function kcConfirmDial(number, who) {
   const num = String(number || "").trim();
   if (!num) return;
@@ -2873,7 +2911,7 @@ function kcConfirmDial(number, who) {
     <div class="kc-dial">
       ${who ? `<div class="kc-dial-who">${esc(who)}</div>` : ""}
       <div class="kc-dial-num">${esc(num)}</div>
-      <div class="note" style="text-align:center;margin:4px 0 14px">${esc(how)}でかけます</div>
+      <div class="note" style="text-align:center;margin:4px 0 14px">${esc(how)}でかけます${_zoomOn ? `　<a href="#" id="kcDialChk">かからないとき</a>` : ""}</div>
       <div class="kc-dial-acts">
         <button type="button" class="btn ghost" id="kcDialNo">やめる</button>
         <button type="button" class="btn kc-dial-go" id="kcDialGo">📞 発信する</button>
@@ -2882,6 +2920,8 @@ function kcConfirmDial(number, who) {
   const go = m.el.querySelector("#kcDialGo");
   if (go) go.focus();
   m.el.querySelector("#kcDialNo").addEventListener("click", () => m.close());
+  const chk = m.el.querySelector("#kcDialChk");
+  if (chk) chk.addEventListener("click", (e) => { e.preventDefault(); m.close(); zpCheckModal(); });
   go.addEventListener("click", () => {
     m.close();
     document.dispatchEvent(new CustomEvent("kc-dial", { detail: { number: num } }));
