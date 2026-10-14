@@ -19442,7 +19442,7 @@ app.get("/api/interns/missing", async (req, res) => {
     let reader = "";
     if (configured && (await gcalConnected(configured).catch(() => false))) reader = configured;
     else if (await gcalConnected(req.user).catch(() => false)) reader = req.user;
-    const all = await listMeetings({ isAdmin: true }).catch(() => []);
+    const all = await listMeetings({ isAdmin: true, from, to, limit: 20000 }).catch(() => []);
     const targets = all.filter((m) => {
       if (m.category && m.category !== "商談") return false;
       if (String(m.apo_setter || "").trim()) return false;
@@ -19541,7 +19541,8 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
     const timeMax = new Date(Date.parse(to + "T23:59:59+09:00") + 3 * 86400 * 1000).toISOString();
 
     // 対象商談：実施済み（商談カテゴリ）かつ「初回/新」の商談のみをカウント対象にする
-    const allMeetings = await listMeetings({ isAdmin: true });
+    // 期間の商談を全部取る（listMeetings は件数を指定しないと新しい300件だけになり、古い商談が照合から漏れていた）
+    const allMeetings = await listMeetings({ isAdmin: true, from, to, limit: 20000 });
     const meetings = allMeetings.filter((m) => {
       if (m.category && m.category !== "商談") return false;
       if (!isFirstMeetingTitle(m.title)) return false; // 【新/ヒ】【初回/…】のみ
@@ -23658,7 +23659,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14i レポート「インターンアポ」に「獲得者が入っていない商談を調べる」：期間内で獲得者が空の初回商談ごとに、アポ一覧（±14日）・インサイドのカレンダー（±7日、主催でなくても）・担当の予定の本文から候補を出し、押すとその人にする（候補が1人の分はまとめて）。";
+const BUILD_TAG = "2026-10-14j 9月初めの商談の獲得者が消えていた原因を修正：照合が「新しい300件」の商談しか見ていないのに、獲得者を消す範囲は90日だったため、300件より古い商談は消されたまま付け直されなかった。照合・獲得者の調べ直しとも期間の商談を全部見るように。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
