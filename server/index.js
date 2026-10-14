@@ -13693,7 +13693,8 @@ const DASH_APO_ADJUST_BASE = {
 async function listFrameStats(from, to) {
   const blank = () => ({ コール: 0, 接触: 0, アポ: 0 });
   const by = new Map();
-  const get = (em) => { if (!by.has(em)) by.set(em, { 新規: blank(), 過去: blank(), ナーチャリング: blank(), その他: blank(), ナーチャリング化: 0, リスト別: [] }); return by.get(em); };
+  // ナーチャリングは、リードの元（ソース）で「新規から」「過去から」にも分ける
+  const get = (em) => { if (!by.has(em)) by.set(em, { 新規: blank(), 過去: blank(), ナーチャリング: blank(), ナーチャ新規: blank(), ナーチャ過去: blank(), その他: blank(), ナーチャリング化: 0, リスト別: [] }); return by.get(em); };
   const FR = { new: "新規", past: "過去" };
   if (to >= from) {
     for (const r of await callFrameStatsByCaller(from, to).catch(() => [])) {
@@ -13702,6 +13703,11 @@ async function listFrameStats(from, to) {
       const o = get(r.caller), b = o[fk];
       b.コール += r.calls; b.接触 += r.contacts; b.アポ += r.apos;
       o.ナーチャリング.コール += r.nur_calls; o.ナーチャリング.接触 += r.nur_contacts; o.ナーチャリング.アポ += r.nur_apos;
+      {
+        const of = frameOfSource(r.lead_source || "");
+        const nb = of === "past" ? o.ナーチャ過去 : of === "new" ? o.ナーチャ新規 : null;
+        if (nb) { nb.コール += r.nur_calls; nb.接触 += r.nur_contacts; nb.アポ += r.nur_apos; }
+      }
       if (fk !== "その他" && (r.calls || r.apos)) o.リスト別.push({ 枠: fk, リスト: r.list_name || "", グループ: r.group_name || "", コール: r.calls, アポ: r.apos });
       if (r.nur_calls || r.nur_apos) o.リスト別.push({ 枠: "ナーチャリング", リスト: r.list_name || "", グループ: r.group_name || "", コール: r.nur_calls, アポ: r.nur_apos });
     }
@@ -13715,7 +13721,7 @@ async function listFrameStats(from, to) {
     return { email, name: names[email] || email.split("@")[0], ...o };
   });
   const sum = (k) => people.reduce((a, p) => ({ コール: a.コール + p[k].コール, 接触: a.接触 + p[k].接触, アポ: a.アポ + p[k].アポ }), blank());
-  return { people, 合計: { 新規: sum("新規"), 過去: sum("過去"), ナーチャリング: sum("ナーチャリング"), ナーチャリング化: people.reduce((a, p) => a + p.ナーチャリング化, 0) } };
+  return { people, 合計: { 新規: sum("新規"), 過去: sum("過去"), ナーチャリング: sum("ナーチャリング"), ナーチャ新規: sum("ナーチャ新規"), ナーチャ過去: sum("ナーチャ過去"), ナーチャリング化: people.reduce((a, p) => a + p.ナーチャリング化, 0) } };
 }
 // 例：/api/calls/list-dashboard?month=2026-10（&period=week で週ラップごとも返す）
 app.get("/api/calls/list-dashboard", async (req, res) => {
@@ -13744,9 +13750,9 @@ app.get("/api/calls/list-dashboard", async (req, res) => {
         d = new Date(lt.getTime() + 86400000);
       }
       out.weeks = [];
-      const run = { 新規: { コール: 0, 接触: 0, アポ: 0 }, 過去: { コール: 0, 接触: 0, アポ: 0 }, ナーチャリング: { コール: 0, 接触: 0, アポ: 0 }, ナーチャリング化: 0 };
+      const run = { 新規: { コール: 0, 接触: 0, アポ: 0 }, 過去: { コール: 0, 接触: 0, アポ: 0 }, ナーチャリング: { コール: 0, 接触: 0, アポ: 0 }, ナーチャ新規: { コール: 0, 接触: 0, アポ: 0 }, ナーチャ過去: { コール: 0, 接触: 0, アポ: 0 }, ナーチャリング化: 0 };
       const addRun = (t) => {
-        for (const k of ["新規", "過去", "ナーチャリング"]) for (const f of ["コール", "接触", "アポ"]) run[k][f] += t[k][f];
+        for (const k of ["新規", "過去", "ナーチャリング", "ナーチャ新規", "ナーチャ過去"]) for (const f of ["コール", "接触", "アポ"]) run[k][f] += (t[k] || {})[f] || 0;
         run.ナーチャリング化 += t.ナーチャリング化;
         return JSON.parse(JSON.stringify(run));
       };
@@ -23556,7 +23562,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14c インセンティブの通知はインサイド（インターン登録の人）だけに。セールス（江田・植野・中澤・田中など、クローザー）には送らない。";
+const BUILD_TAG = "2026-10-14d リスト別のナーチャリングを、リードの元（ソース）で「新規から」「過去から」に分けて表示（合計カード・表・週ラップ）。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
