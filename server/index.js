@@ -376,6 +376,7 @@ import {
   syncApoStartFromCalendar,
   upcomingInviteApos,
   listApoSetters,
+  listApoForMatch,
   linkReschedPairs,
   markReschedIfAny,
   listWonDealsBetween,
@@ -19510,8 +19511,9 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
       }
     }
 
-    // 再照合なので、まず対象期間のアポ獲得者をクリア
-    await clearApoSetters({ from, to });
+    // 2026-10-14〜：前は、まず対象期間のアポ獲得者を全部消してから付け直していた。
+    // そのため、カレンダーの共有が切れた・予定が消えた などで照合できなかった商談は、獲得者が外れて実施数が減っていた。
+    // いまは消さない：照合できた商談だけ付け直し、照合できなかった商談は前の獲得者のまま残す。
 
     // 予定本文の「アポ獲得: 〇〇」から獲得者を読む（kinbotが担当のカレンダーに作った商談予定）。
     // 担当（商談owner）のカレンダーを読む：本人のGoogle連携→なければ代表(gcalOwner)経由。
@@ -19546,7 +19548,7 @@ async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = 
     for (const ie of internEvents) perIntern[ie.intern.email] = { name: ie.intern.name, email: ie.intern.email, matched: [], error: ie.error, fetched: ie.fetched, hosted: ie.hosted, skipped_samples: ie.skipped_samples };
     let matchedCount = 0, multiCount = 0, matchedByDesc = 0, matchedByList = 0;
     // kinbotのアポ一覧（商談日・予定名・獲得者）。テストで外したものは入らない（listApoSetters）
-    const apoListForMatch = (await listApoSetters({ sinceDays: Math.max(200, Math.ceil((Date.now() - Date.parse(from + "T00:00:00+09:00")) / 86400000) + 30) }).catch(() => []))
+    const apoListForMatch = (await listApoForMatch(Math.max(200, Math.ceil((Date.now() - Date.parse(from + "T00:00:00+09:00")) / 86400000) + 30)).catch(() => []))
       .map((l) => ({ label: l.label || "", setter: String(l.setter || "").trim(), date: l.start_time ? jstDateStr(l.start_time) : "", coKey: apoCompanyKey(apoNameParts(l.label || "").company) }))
       .filter((l) => l.setter && l.date);
     const touchedSetters = new Set();
@@ -23579,7 +23581,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14g アワードの大きい窓の札を、リストのグループ名だけに（グループごとに件数をまとめる。リスト名は出さない）。";
+const BUILD_TAG = "2026-10-14h アポ獲得者の照合で、先に全部消してから付け直すのをやめた（照合できなかった商談は前の獲得者のまま残すので、実施数が減らない）。アポ一覧での照合を、獲得者のメールが無い古いアポにも広げた。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",

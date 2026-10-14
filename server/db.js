@@ -3860,6 +3860,19 @@ export async function fixUraAssignLog(slug, email, reason) {
   } catch (e) { console.error("[db] fixUraAssignLog", e.message); return 0; }
 }
 // これからの商談で、浦林さん対応の予定を作ってあるもの（本来の担当の付け間違いを直すのに使う）
+// アポ獲得者の照合用：アポ一覧（獲得者の名前があるもの）。獲得者のメールが無い古いアポも入れる。
+// テスト・キックオフ・人が手で外したものは入れない（リスケ・キャンセルで外れたものは入れる：その日に商談していることがあるため）
+export async function listApoForMatch(sinceDays = 200) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT label, setter, start_time FROM smart_links
+        WHERE COALESCE(setter,'') <> '' AND start_time IS NOT NULL
+          AND (NOT COALESCE(excluded,false) OR COALESCE(excluded_reason,'') IN ('リスケ','キャンセル'))
+          AND start_time > now() - ($1 || ' days')::interval`, [String(sinceDays)]);
+    return rows;
+  } catch (e) { console.error("[db] listApoForMatch", e.message); return []; }
+}
 // アポの名前（予定名）を変える
 export async function setSmartLinkLabel(slug, label) {
   if (!pool || !slug || !label) return null;
