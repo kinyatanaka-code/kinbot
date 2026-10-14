@@ -13425,13 +13425,14 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
     }
     const 数えた = new Set();   // 同じ予定（会社×商談日×計上先）は1回だけ数える
     // メルマガ由来のアポは、人（セールス・インサイド）には数えず「メルマガ」として別に数える。
-    //   メルマガの印のアポ・予定名にメルマガ・kincallでメルマガのリード（ソース／リスト名）の会社
-    const mmKeys = new Set((await mailmagaCompanyNames().catch(() => [])).map((c) => normCompanyKey(c)).filter(Boolean));
+    //   メルマガの印のアポ・予定名に「メルマガ」が入っているアポだけ（2026-10-13〜）。
+    //   メルマガ開封リストのリードに電話をかけて取ったアポは、かけた人のアポとして数える
+    //   （前は「メルマガのリードと同じ会社」もメルマガに入れていたため、メルマガが多く・かけた人が少なく出ていた）。
     const mailmagaCols = 区切り.map(() => 0);
     const mmSeen = new Set();
     for (const a of apos) {
       const coM = normCompanyKey(companyFromTitle(a.label || "") || "");
-      const isMM = a.mailmaga || /メルマガ/.test(String(a.label || "")) || (coM && mmKeys.has(coM));
+      const isMM = a.mailmaga || /メルマガ/.test(String(a.label || ""));
       if (isMM) {
         const ukM = `${coM}|${ymdJst(a.start_time)}`;
         if (!mmSeen.has(ukM)) { mmSeen.add(ukM); const iM = idxOf(属する(ymdJst(a.taken_at))); if (iM >= 0) mailmagaCols[iM]++; }
@@ -23445,7 +23446,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-13e ダッシュボード「実施」の設定数を、Salesforceの初回アポ設定日ではなく、kinbotのアポ一覧（集計の対象・商談日＝いまの日程・担当ごと）から数えるように。";
+const BUILD_TAG = "2026-10-13f ダッシュボードの「メルマガ」は、メルマガの印・予定名にメルマガのアポだけに。メルマガ開封リストのリードに電話して取ったアポは、かけた人のアポとして数える。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
