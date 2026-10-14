@@ -4130,12 +4130,17 @@ function openAwardBig(idx) {
         : "";
       const ls = listOf(p);
       const lsHtml = ls.length
-        ? `<div class="kc-awm-cos">${ls.map((x) => {
-            // グループ名を前に出す（ナーチャリングの分は、移す前にいたリストのグループ）
-            const g = x.ナーチャ ? (x.元のグループ || x.グループ) : x.グループ;
-            const ln = x.ナーチャ ? (x.元のリスト ? `${x.元のリスト} → ${x.リスト}` : x.リスト) : x.リスト;
-            return `<span class="kc-awm-co kc-awm-li" title="${esc(`リスト：${ln || "（リスト名なし）"}`)}">${x.ナーチャ ? '<i class="kc-awm-nur">ナーチャ</i>' : ""}<b class="kc-awm-g">${esc(g || "グループなし")}</b><span class="kc-awm-ln">${esc(ln || "")}</span><em>${x.件数}件</em></span>`;
-          }).join("")}</div>`
+        ? `<div class="kc-awm-cos">${(() => {
+            // グループごとにまとめる（リスト名は出さない）。ナーチャリングの分は、移す前にいたリストのグループ
+            const by = new Map();
+            for (const x of ls) {
+              const g = (x.ナーチャ ? (x.元のグループ || x.グループ) : x.グループ) || "グループなし";
+              const k = `${x.ナーチャ ? 1 : 0}|${g}`;
+              const cur = by.get(k) || { g, nur: !!x.ナーチャ, n: 0 };
+              cur.n += Number(x.件数) || 0; by.set(k, cur);
+            }
+            return [...by.values()].sort((a, b) => b.n - a.n).map((y) => `<span class="kc-awm-co kc-awm-li">${y.nur ? '<i class="kc-awm-nur">ナーチャ</i>' : ""}<b class="kc-awm-g">${esc(y.g)}</b><em>${y.n}件</em></span>`).join("");
+          })()}</div>`
         : "";
       return `<div class="kc-awm-row${cls}" style="--d:${(0.25 + i * 0.05).toFixed(2)}s">
         <i class="kc-aw-r${p.v > 0 && p.rank === 2 ? " r2" : p.v > 0 && p.rank === 3 ? " r3" : p.v > 0 && p.rank === 1 ? " r1" : ""}">${p.rank}</i>
