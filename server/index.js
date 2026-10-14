@@ -19428,6 +19428,83 @@ function apoTitleMatch(mNorm, eNorm) {
 // インターンのカレンダーと商談名を照合して、アポ獲得者を各商談に記録する
 // （ログインユーザーなら可。読むのは各自のGoogle連携で見えるカレンダーのみ）
 // body: { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }（省略時は9月1日〜今日）
+// アポ獲得者が入っていない商談について、カレンダーとアポ一覧から獲得者の候補を広めに探す（表示用。自動では付けない）。
+//   ① kinbotのアポ一覧：会社名が同じで、商談日が±14日（リスケで日がずれていても拾う）
+//   ② インサイドのカレンダー：予定名に同じ会社名があり、日付が±7日（本人が主催でない予定も拾う）
+//   ③ 担当の商談予定の本文「アポ獲得: ○○」：会社名が同じで±7日
+// 例：/api/interns/missing?from=2026-09-01&to=2026-09-07
+app.get("/api/interns/missing", async (req, res) => {
+  try {
+    const from = String(req.query.from || process.env.INCENTIVE_FROM || "2026-09-01").slice(0, 10);
+    const to = String(req.query.to || jstDateStr(new Date())).slice(0, 10);
+    const st = await getSettings().catch(() => ({}));
+    const configured = String(st.apoCalendarOwner || "").trim();
+    let reader = "";
+    if (configured && (await gcalConnected(configured).catch(() => false))) reader = configured;
+    else if (await gcalConnected(req.user).catch(() => false)) reader = req.user;
+    const all = await listMeetings({ isAdmin: true }).catch(() => []);
+    const targets = all.filter((m) => {
+      if (m.category && m.category !== "商談") return false;
+      if (String(m.apo_setter || "").trim()) return false;
+      if (!isFirstMeetingTitle(m.title)) return false;
+      const d = jstDateStr(m.created_at);
+      return d && d >= from && d <= to;
+    });
+    const dayDiff = (a, b) => Math.round(Math.abs(Date.parse(a + "T00:00:00Z") - Date.parse(b + "T00:00:00Z")) / 86400000);
+    const keyOf = (t) => apoCompanyKey(apoNameParts(t || "").company);
+    // ① アポ一覧
+    const apoList = (await listApoForMatch(400).catch(() => [])).map((l) => ({ label: l.label, setter: String(l.setter || "").trim(), date: jstDateStr(l.start_time), key: keyOf(l.label) })).filter((l) => l.setter && l.date && l.key);
+    // ② インサイドのカレンダー（期間の前後を広めに）
+    const interns = await listInterns().catch(() => []);
+    const timeMin = new Date(Date.parse(from + "T00:00:00+09:00") - 10 * 86400000).toISOString();
+    const timeMax = new Date(Date.parse(to + "T23:59:59+09:00") + 10 * 86400000).toISOString();
+    const calEv = [], calErr = [];
+    if (reader) {
+      for (const it of interns) {
+        try {
+          const evs = await listCalendarEvents(reader, it.email, { timeMin, timeMax });
+          for (const e of evs) { const k = keyOf(e.title); if (k) calEv.push({ setter: it.name, title: e.title, date: jstDateStr(e.start), key: k, host: String(e.organizer || "").toLowerCase() === String(it.email || "").toLowerCase() }); }
+        } catch (e) { calErr.push(`${it.name}：カレンダーを読めませんでした`); }
+      }
+    } else calErr.push("カレンダーを読める人がいません（照合の代表者のGoogle連携が必要）");
+    // ③ 担当の商談予定の本文
+    const descEv = [];
+    if (reader) {
+      const owners = [...new Set(targets.map((m) => String(m.owner || "").toLowerCase()).filter(Boolean))];
+      for (const ow of owners) {
+        try {
+          const own = (await gcalConnected(ow).catch(() => false)) ? ow : reader;
+          const evs = await listCalendarEvents(own, ow, { timeMin, timeMax });
+          for (const e of evs) {
+            const who = setterFromDescription(e.description || "");
+            const k = keyOf(e.title);
+            if (who && k) descEv.push({ setter: who, title: e.title, date: jstDateStr(e.start), key: k });
+          }
+        } catch { /* 読めない担当は飛ばす */ }
+      }
+    }
+    const rows = targets.map((m) => {
+      const mDate = jstDateStr(m.created_at), k = keyOf(m.title);
+      const cands = [];
+      const push = (setter, how, title, date) => {
+        if (!setter) return;
+        const diff = dayDiff(date, mDate);
+        const cur = cands.find((c) => c.setter.replace(/[\s　]/g, "") === setter.replace(/[\s　]/g, ""));
+        if (cur) { cur.hows.add(how); if (diff < cur.diff) { cur.diff = diff; cur.title = title; cur.date = date; } }
+        else cands.push({ setter, hows: new Set([how]), title, date, diff });
+      };
+      if (k) {
+        for (const l of apoList) if (l.key === k && dayDiff(l.date, mDate) <= 14) push(l.setter, "アポ一覧", l.label, l.date);
+        for (const e of calEv) if (e.key === k && dayDiff(e.date, mDate) <= 7) push(e.setter, e.host ? "カレンダー（本人主催）" : "カレンダー", e.title, e.date);
+        for (const e of descEv) if (e.key === k && dayDiff(e.date, mDate) <= 7) push(e.setter, "担当の予定の本文", e.title, e.date);
+      }
+      cands.sort((a, b) => b.hows.size - a.hows.size || a.diff - b.diff);
+      return { bot_id: m.bot_id, title: m.title, date: mDate, owner: m.owner_name || m.rep_name || m.owner || "", candidates: cands.map((c) => ({ ...c, hows: [...c.hows] })) };
+    });
+    res.json({ ok: true, from, to, 件数: rows.length, rows, errors: calErr });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 async function internMatchRun({ user = "", from: fromIn = "", to: toIn = "" } = {}) {
   try {
     // カレンダー照合は「代表者（設定で指定した人）のGoogle連携」を経由して実行する。
@@ -23581,7 +23658,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14h アポ獲得者の照合で、先に全部消してから付け直すのをやめた（照合できなかった商談は前の獲得者のまま残すので、実施数が減らない）。アポ一覧での照合を、獲得者のメールが無い古いアポにも広げた。";
+const BUILD_TAG = "2026-10-14i レポート「インターンアポ」に「獲得者が入っていない商談を調べる」：期間内で獲得者が空の初回商談ごとに、アポ一覧（±14日）・インサイドのカレンダー（±7日、主催でなくても）・担当の予定の本文から候補を出し、押すとその人にする（候補が1人の分はまとめて）。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",

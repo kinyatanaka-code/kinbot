@@ -530,6 +530,7 @@ function sparkline(points) {
   if (knApply) knApply.addEventListener("click", loadKind);
   if ($("iaReload")) $("iaReload").addEventListener("click", loadInternDash);
   if ($("iaMatch")) $("iaMatch").addEventListener("click", runInternMatch);
+  if ($("iaMissing")) $("iaMissing").addEventListener("click", loadMissingSetters);
   loadFunnel();
 })();
 
@@ -707,6 +708,43 @@ async function loadInternDash() {
   } catch {
     body.innerHTML = '<div class="empty-state">集計に失敗しました。</div>';
   }
+}
+// アポ獲得者が入っていない商談：カレンダーとアポ一覧から候補を出し、押すとその人を獲得者にする
+async function loadMissingSetters() {
+  const box = $("iaMissingBox"); if (!box) return;
+  const { from, to } = iaDates();
+  box.innerHTML = `<div class="ia-miss"><div class="note">カレンダーとアポ一覧から探しています…（インサイド全員のカレンダーを読むので、少しかかります）</div></div>`;
+  try {
+    const d = await (await fetch(`/api/interns/missing?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)).json();
+    if (d.error) throw new Error(d.error);
+    const one = d.rows.filter((r) => r.candidates.length === 1);
+    const head = `<div class="ia-miss-h"><b>獲得者が入っていない商談 ${d.件数}件</b>（${esc(d.from)}〜${esc(d.to)}）
+      ${one.length ? `<button class="btn" id="iaMissAll">候補が1人の${one.length}件を、まとめてその人にする</button>` : ""}
+      <button class="btn ghost" id="iaMissClose">閉じる</button></div>
+      ${(d.errors || []).length ? `<div class="note" style="color:#b3261e">${d.errors.map(esc).join("　")}</div>` : ""}`;
+    const rows = d.rows.map((r) => `<tr data-bot="${esc(r.bot_id)}">
+        <td>${esc(r.date)}</td><td>${esc(r.title)}</td><td>${esc(r.owner)}</td>
+        <td>${r.candidates.length ? r.candidates.map((c, i) => `<button class="btn ${i === 0 ? "" : "ghost"} ia-pick" data-name="${esc(c.setter)}" title="${esc(`${c.title}（${c.date}・${c.diff}日ずれ）`)}">${esc(c.setter)}<span class="ia-how">${esc(c.hows.join("・"))}${c.diff ? `・${c.diff}日ずれ` : ""}</span></button>`).join(" ") : '<span class="note">候補が見つかりません（手で選んでください）</span>'}
+          <span class="ia-done" hidden>✓</span></td></tr>`).join("");
+    box.innerHTML = `<div class="ia-miss">${head}${d.rows.length ? `<div style="overflow-x:auto"><table class="kc-table ia-miss-t"><thead><tr><th>商談日</th><th>商談</th><th>担当</th><th>獲得者の候補（押すとその人にします）</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="note">ありません。</div>`}</div>`;
+    const setOne = async (bot, name, tr) => {
+      const r = await fetch("/api/calls/set-apo-setter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ botId: bot, name }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "付けられませんでした");
+      if (tr) { tr.querySelectorAll(".ia-pick").forEach((b) => { b.disabled = true; b.classList.toggle("ghost", b.dataset.name !== name); }); const ok = tr.querySelector(".ia-done"); if (ok) { ok.hidden = false; ok.textContent = `✓ ${name}にしました`; } }
+    };
+    box.querySelectorAll(".ia-pick").forEach((b) => b.addEventListener("click", async () => {
+      const tr = b.closest("tr");
+      try { await setOne(tr.dataset.bot, b.dataset.name, tr); } catch (e) { alert(e.message); }
+    }));
+    const all = $("iaMissAll");
+    if (all) all.addEventListener("click", async () => {
+      if (!confirm(`候補が1人だけの${one.length}件を、その人を獲得者にします。よろしいですか？`)) return;
+      all.disabled = true;
+      for (const r of one) { const tr = box.querySelector(`tr[data-bot="${CSS.escape(r.bot_id)}"]`); try { await setOne(r.bot_id, r.candidates[0].setter, tr); } catch {} }
+      all.textContent = "付けました"; loadInternDash();
+    });
+    const cl = $("iaMissClose"); if (cl) cl.addEventListener("click", () => { box.innerHTML = ""; loadInternDash(); });
+  } catch (e) { box.innerHTML = `<div class="ia-miss"><div class="note">調べられませんでした：${esc(e.message)}</div></div>`; }
 }
 async function runInternMatch() {
   const st = $("iaStatus");
