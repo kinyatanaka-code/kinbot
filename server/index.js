@@ -13809,14 +13809,20 @@ app.get("/api/calls/awards", async (req, res) => {
 
     // 新規リード獲得：リスト管理で「新規リスト」の枠に分けられたリスト（グループ名 → リスト名の順でソースを決め、
     // そのソースが新規リストの枠のもの）で取ったアポの数。かけた人ごと、同じリードは1回。
+    // 2026-10-14〜：リスト別の画面とそろえて「新規リスト」＋「ナーチャリング（新規から）」のアポを数える。
+    //   新規リスト … ナーチャリングになる前の架電で取ったアポを、いま入っているリストのグループで新規と判断
+    //   ナーチャリング（新規から）… ジャッジ・営業フォローのあとに取ったアポで、リードの元（ソース）が新規リスト
     const 新規アポ = {};
-    const 新規明細 = {};   // 人 → [{ リスト, 件数 }]
-    for (const r of await apoByCallerAndList(from, to).catch(() => [])) {
-      if (frameOfSource(classifyListSource(r.list_name, r.group_name)) !== "new") continue;
-      const n = Number(r.apos) || 0;
-      if (!r.caller || !n) continue;
-      bump(新規アポ, r.caller, n);
-      (新規明細[r.caller] = 新規明細[r.caller] || []).push({ リスト: r.list_name || "", グループ: r.group_name || "", 件数: n });
+    const 新規明細 = {};   // 人 → [{ リスト, 件数, ナーチャ }]
+    for (const r of await callFrameStatsByCaller(from, to).catch(() => [])) {
+      if (!r.caller) continue;
+      const add = (n, nur) => {
+        if (!n) return;
+        bump(新規アポ, r.caller, n);
+        (新規明細[r.caller] = 新規明細[r.caller] || []).push({ リスト: r.list_name || "", グループ: r.group_name || "", 件数: n, ナーチャ: nur });
+      };
+      if (frameOfSource(classifyListSource(r.list_name, r.group_name)) === "new") add(Number(r.apos) || 0, false);
+      if (frameOfSource(r.lead_source || "") === "new") add(Number(r.nur_apos) || 0, true);
     }
     for (const arr of Object.values(新規明細)) arr.sort((a, b) => b.件数 - a.件数);
 
@@ -23562,7 +23568,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14d リスト別のナーチャリングを、リードの元（ソース）で「新規から」「過去から」に分けて表示（合計カード・表・週ラップ）。";
+const BUILD_TAG = "2026-10-14e アワードの新規アポ獲得数に、ナーチャリングから取ったアポのうちリードの元が新規リストのものも入れる（リスト別の「新規」＋「ナーチャ・新」と同じ数）。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",

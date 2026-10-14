@@ -4086,7 +4086,7 @@ function kcAwRank(insideList, data, aw) {
 function kcAwNote(aw, data) {
   let t = "";
   if (aw.key === "出勤時間") t = "出勤管理の実働時間（架電記録から推定）と同じ数え方です。";
-  else if (aw.key === "新規アポ") t = "リスト管理で新規リストの枠に分けたリストで取ったアポの数です（同じリードは1回）。";
+  else if (aw.key === "新規アポ") t = "新規リストで取ったアポ＋ナーチャリングから取ったアポのうちリードの元が新規リストのもの（リスト別の「新規」と「ナーチャ・新」の合計。同じリードは1回）。";
   else if (aw.key === "受注数") {
     t = `この期間の受注は全部で${Number(data.受注合計 || 0)}件。受注した日で数え、その会社のアポを最初に取った人に付けています。`;
     const un = data.獲得者不明 || [];
@@ -4128,7 +4128,7 @@ function openAwardBig(idx) {
         : "";
       const ls = listOf(p);
       const lsHtml = ls.length
-        ? `<div class="kc-awm-cos">${ls.map((x) => `<span class="kc-awm-co kc-awm-li" title="${esc(x.グループ ? `グループ：${x.グループ}` : "")}">${esc(x.リスト || "（リスト名なし）")}<em>${x.件数}件</em></span>`).join("")}</div>`
+        ? `<div class="kc-awm-cos">${ls.map((x) => `<span class="kc-awm-co kc-awm-li" title="${esc(x.グループ ? `グループ：${x.グループ}` : "")}">${x.ナーチャ ? "ナーチャ（新規から）：" : ""}${esc(x.リスト || "（リスト名なし）")}<em>${x.件数}件</em></span>`).join("")}</div>`
         : "";
       return `<div class="kc-awm-row${cls}" style="--d:${(0.25 + i * 0.05).toFixed(2)}s">
         <i class="kc-aw-r${p.v > 0 && p.rank === 2 ? " r2" : p.v > 0 && p.rank === 3 ? " r3" : p.v > 0 && p.rank === 1 ? " r1" : ""}">${p.rank}</i>
