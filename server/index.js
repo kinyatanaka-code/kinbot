@@ -11312,6 +11312,15 @@ const csBase = () => String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
 const csFmtDT = (iso) => { const t = Date.parse(iso || ""); if (!isFinite(t)) return ""; const j = new Date(t + 9 * 3600000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${"日月火水木金土"[j.getUTCDay()]}) ${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}〜`; };
 const csFmtD = (iso) => { const t = Date.parse(iso || ""); if (!isFinite(t)) return "未確認"; const j = new Date(t + 9 * 3600000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}`; };
 const csCoKey = (t) => apoCompanyKey(apoNameParts(String(t || "")).company || String(t || ""));
+// 先方ご担当者名は、カレンダーの予定名（＝商談の題名）から取る。議事録の文字起こしは名前を聞き違えやすいため。
+// 例：「【キックオフ】宅島建設株式会社 吉田様・大櫛様」→「吉田様・大櫛様」。予定名に「○○様」が無ければ空（議事録の読み取りを使う）
+function csPersonsFromTitle(title, company) {
+  let t = String(title || "").replace(/[\u{E0100}-\u{E01EF}\uFE00-\uFE0F]/gu, "").replace(/【[^】]*】/g, " ");
+  const co = String(company || "").replace(/[\u{E0100}-\u{E01EF}\uFE00-\uFE0F]/gu, "").trim();
+  if (co && t.includes(co)) t = t.slice(t.indexOf(co) + co.length);
+  const names = [...t.matchAll(/([^\s\/／・、,，【】：:＋+&＆]+?)\s*様/g)].map((m) => m[1].replace(/^(株式会社|有限会社)/, "").trim()).filter((x) => x && x.length <= 12);
+  return [...new Set(names)].map((x) => `${x}様`).join("・");
+}
 // 「11/5(水) 14:00」のような文字から日時を作る（キックオフの日より後のいちばん近い日）
 function csParseDT(text, afterIso) {
   const m = /(\d{1,2})\s*[\/月]\s*(\d{1,2})日?[^0-9]{0,8}(\d{1,2})\s*[:：時]\s*(\d{2})?/.exec(String(text || "").normalize("NFKC"));
@@ -11441,6 +11450,7 @@ async function csProcessKickoff(m0) {
   let fields;
   try { fields = await extractKickoff(m.transcript || [], { company, fsName, dateStr: jstDateStr(m.created_at), summaryText }); }
   catch (e) { await upsertCsKickoff(m.bot_id, { account: m.account || company, company, title: m.title, meeting_at: m.created_at, fs_email: fsEmail, fs_name: fsName, status: "error", error: `読み取りに失敗：${e.message}` }); return; }
+  { const tp = csPersonsFromTitle(m.title, company); if (tp) fields.先方ご担当者名 = tp; }
   const cal = await csFindConfirmMtg({ company, fsEmail, afterIso: m.created_at, members: cfg.members }).catch(() => null);
   const confirmStart = cal ? new Date(Date.parse(cal.start)).toISOString() : csParseDT(fields.次回MTGの日時, m.created_at);
   const contact = await clientContactByCompanyKey(csCoKey, company).catch(() => null);
@@ -11472,6 +11482,15 @@ async function csTick() {
   finally { _csBusy = false; }
 }
 setInterval(() => { csTick().catch(() => {}); }, 5 * 60 * 1000).unref?.();
+setTimeout(async () => {
+  try {
+    for (const k of await listCsKickoffs(200)) {
+      const tp = csPersonsFromTitle(k.title, k.company);
+      const f = k.fields || {};
+      if (tp && f.先方ご担当者名 !== tp && !f._personManual) await upsertCsKickoff(k.bot_id, { fields: { ...f, 先方ご担当者名: tp } });
+    }
+  } catch (e) { console.warn("[cs] 先方ご担当者名の付け直し", e.message); }
+}, 30 * 1000).unref?.();
 setTimeout(() => { csTick().catch(() => {}); }, 60 * 1000).unref?.();
 
 // CS画面の API
@@ -11497,7 +11516,10 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
     const b = req.body || {};
     const cfg = await csSettings();
     const v = {};
-    if (b.fields && typeof b.fields === "object") v.fields = { ...(k0.fields || {}), ...b.fields };
+    if (b.fields && typeof b.fields === "object") {
+      v.fields = { ...(k0.fields || {}), ...b.fields };
+      if (b.fields.先方ご担当者名 !== undefined && b.fields.先方ご担当者名 !== csPersonsFromTitle(k0.title, k0.company)) v.fields._personManual = true;
+    }
     if (b.csEmail !== undefined) { const c = cfg.members.find((x) => x.email === String(b.csEmail || "").toLowerCase()); v.cs_email = c ? c.email : null; v.cs_name = c ? c.name : null; }
     if (b.confirmStart !== undefined) { const t = Date.parse(b.confirmStart || ""); v.confirm_start = isFinite(t) ? new Date(t).toISOString() : null; v.confirm_from = isFinite(t) ? "手入力" : null; }
     if (b.clientEmail !== undefined) v.client_email = String(b.clientEmail || "").trim() || null;
@@ -11519,6 +11541,7 @@ app.post("/api/cs/kickoffs/:bot/:act(draft|repost|redo)", async (req, res) => {
     if (req.params.act === "redo") {   // 読み取りからやり直す（OBスレには修正版として返信）
       const m = await getMeeting(k.bot_id);
       const fields = await extractKickoff(m.transcript || [], { company: k.company, fsName: k.fs_name, dateStr: jstDateStr(k.meeting_at), summaryText: JSON.stringify(m.summary || {}).slice(0, 4000) });
+      { const tp = csPersonsFromTitle(k.title || m.title, k.company); if (tp) fields.先方ご担当者名 = tp; }
       k = await upsertCsKickoff(k.bot_id, { fields });
       k = await csPost(k, { edited: true });
       return res.json({ ok: true, kickoff: k });
@@ -24065,7 +24088,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-15f CS連携（回収MTG＝キックオフ）：議事録ができたら項目を読み取り、カレンダーから確認MTGとCS担当を探して、CSのOBスレに自動で投稿。CS担当と先方のメールが分かればFSのGmailに御礼メールの下書き。CS連携の画面（直す・修正版の投稿・下書き・設定）と、会社プロフィールにDOCのURL欄。";
+const BUILD_TAG = "2026-10-15g CS連携：先方ご担当者名をカレンダーの予定名（例：【キックオフ】宅島建設株式会社 吉田様・大櫛様）から取るように（文字起こしは名前を聞き違えるため）。取り込み済みのものも起動時に直す。画面で手で直した名前はそのまま。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
