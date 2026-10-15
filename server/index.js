@@ -3632,7 +3632,7 @@ app.post("/api/apo/:slug/redo", async (req, res) => {
     // 商談予定を作るアカウント。空だと予定の作成でつまずく。
     const inviteOwner = String(st.apoInviteOwner || st.apoScanOwner || "").trim() || null;
     const r = await autoAssignOne({ ...link, auto_assigned_at: null },
-      { inviteOwner, closers: null, cfg, actor: req.user || "manual" });
+      { inviteOwner, closers: null, cfg, actor: req.user || "manual", force: true });
     console.log(`[apo] ${link.slug} をやり直しました by ${req.user}（${r.ok ? "成功" : r.reason || "失敗"}）`);
     res.json({ ok: !!r.ok, ...r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -23721,7 +23721,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14m 会社名の欄に電話番号が入ってしまった架電先（MO失注202510-202603など）を、追加の列の「企業名」から会社名に戻し、電話番号は電話番号の欄へ。これからの取り込みでも同じように直して入れる。";
+const BUILD_TAG = "2026-10-15a 同じアポが同時に2人へ割り振られる不具合を修正（kincallの登録とカレンダーのスキャンが重なったとき）。アポごとに割り振りの鍵をかけ、割り振り済みなら重ねて割り振らない。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
@@ -27242,7 +27242,28 @@ async function urabayashiMember() {
   if (hit) return { email: String(hit.email).toLowerCase(), name: hit.name || hit.email };
   return forced ? { email: forced, name: "浦林" } : null;
 }
-async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto", noMail = false, auto: autoIn = null }) {
+// 同じアポを、同時に2か所から割り振らないための鍵（kincallの登録と、カレンダーのスキャンが重なったときなど）。
+// 2026-10-14：KNI北原国際病院が、江田さん・植野さんの2人に同時に割り振られ、確定メール・SF立ち上げもぶつかった。
+const _assignLocks = new Set();
+async function autoAssignOne(link, opts = {}) {
+  const slug = link && link.slug;
+  if (!slug) return _autoAssignOneInner(link, opts);
+  if (_assignLocks.has(slug)) {
+    console.log(`[assign] ほかで割り振り中のため、重ねて割り振りません：${link.label || slug}`);
+    return { ok: false, busy: true, reason: "ほかで割り振り中です" };
+  }
+  _assignLocks.add(slug);
+  try {
+    // 直前にほかで割り振り終わっていたら、もう一度は割り振らない
+    const fresh = (await getSmartLink(slug).catch(() => null)) || link;
+    if (fresh.auto_assigned_at && fresh.current_owner && !opts.force) {
+      console.log(`[assign] すでに割り振り済みのため、重ねて割り振りません：${fresh.label || slug}（${fresh.current_owner}）`);
+      return { ok: true, already: true, assigned: { email: fresh.current_owner, name: await repDisplayName(fresh.current_owner).catch(() => fresh.current_owner) } };
+    }
+    return await _autoAssignOneInner(fresh, opts);
+  } finally { _assignLocks.delete(slug); }
+}
+async function _autoAssignOneInner(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto", noMail = false, auto: autoIn = null }) {
   // 通知の「自動／手動」：渡されたらそれを使う（kincallのアポ獲得から登録＝自動）。無ければ、人が操作したら手動
   const isAuto = autoIn != null ? !!autoIn : (actor !== "manual" && !String(actor || "").includes("@"));
   // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
@@ -28434,7 +28455,7 @@ app.post("/api/smart-links/:slug/auto-assign", async (req, res) => {
     const inviteOwner = String(s.apoScanOwner || s.apoInviteOwner || "").trim();
     if (!inviteOwner) return res.status(400).json({ error: "予定作成の運用者が未設定です" });
     const r = await autoAssignOne(link, {
-      inviteOwner, closers: null, cfg: null, actor: req.user || "manual",
+      inviteOwner, closers: null, cfg: null, actor: req.user || "manual", force: true,   // 画面のボタン＝わざとやり直す
       noMail: req.body?.noMail === true,   // 「カレンダーだけ作る」＝メールを送らない
     });
     if (!r.ok) return res.status(409).json({ error: r.reason, ...r });
