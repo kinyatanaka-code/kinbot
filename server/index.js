@@ -23720,7 +23720,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14k MO失注のリードにも、過去失注と同じく記録の窓に「前回の失注」（失注日・理由・詳細・次回アクション日・商談所有者・商談の種類）を出す。SFのクロス以外の失注商談（MO_LOST_RECORD_TYPE で絞れる）から会社名で引く。";
+const BUILD_TAG = "2026-10-14l kincallのアポ獲得から登録したアポの割り振り通知（割り振りできなかったときも）を「自動」にした（前は記録した人のメールで動くので「手動」と出ていた）。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
@@ -27241,7 +27241,9 @@ async function urabayashiMember() {
   if (hit) return { email: String(hit.email).toLowerCase(), name: hit.name || hit.email };
   return forced ? { email: forced, name: "浦林" } : null;
 }
-async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto", noMail = false }) {
+async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx = null, actor = "auto", noMail = false, auto: autoIn = null }) {
+  // 通知の「自動／手動」：渡されたらそれを使う（kincallのアポ獲得から登録＝自動）。無ければ、人が操作したら手動
+  const isAuto = autoIn != null ? !!autoIn : (actor !== "manual" && !String(actor || "").includes("@"));
   // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
   const biz = String(link.business || "").trim();
 
@@ -27272,7 +27274,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     await logAssign({ slug: link.slug, assigned: null, reason: pick.reason, skipped: pick.skipped, actor });
     // 誰にも割り振れなかったことを、Google Chat にも知らせる（黙って落とさない）。
     // 同じアポは1回だけ（自動スキャンは繰り返し走るため）。通知失敗でも処理は止めない。
-    const auto = actor !== "manual" && !String(actor || "").includes("@");
+    const auto = isAuto;
     if (await shouldNotifyAssignFail(link.slug)) {
       notifyAssignFailed({
         title: link.label, start: link.start_time, setter: link.setter,
@@ -27365,7 +27367,7 @@ async function autoAssignOne(link, { inviteOwner, closers = null, cfg, teamCtx =
     await notifyAssigned({
       title: updated.label, start: updated.start_time, repName: pick.name,
       setter: updated.setter, reason: pick.reason,
-      url: joinUrl(updated.slug), auto: actor !== "manual" && !String(actor || "").includes("@"),
+      url: joinUrl(updated.slug), auto: isAuto,
       mail, clientEmail: updated.client_email, counts: resched ? null : counts, goal, goalMonth, launch, resched,
     });
 
@@ -28266,7 +28268,7 @@ async function createApoAndAssign({
   const st = await getSettings().catch(() => ({}));
   const inviteOwner = String(st.apoInviteOwner || st.apoScanOwner || "").trim() || null;
   const teamCtx = await loadTeamContext(cfg, biz).catch(() => null);
-  const r = await autoAssignOne(cur, { inviteOwner, closers: null, cfg, teamCtx, actor });
+  const r = await autoAssignOne(cur, { inviteOwner, closers: null, cfg, teamCtx, actor, auto: origin === "kincall" ? true : null });
   return { link: await getSmartLink(link.slug), assign: r };
 }
 // カレンダーの説明欄に入れる「先方の連絡先」（担当者名・メール・CC・つながる電話番号）。
