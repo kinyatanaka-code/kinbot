@@ -259,6 +259,7 @@ import {
   listActiveTargetCompanies,
   isPastLostList,
   isMoLostList,
+  repairPhoneAsCompany,
   listTalkScripts,
   listTalkScriptOwners,
   saveTalkScript,
@@ -23720,7 +23721,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14l kincallのアポ獲得から登録したアポの割り振り通知（割り振りできなかったときも）を「自動」にした（前は記録した人のメールで動くので「手動」と出ていた）。";
+const BUILD_TAG = "2026-10-14m 会社名の欄に電話番号が入ってしまった架電先（MO失注202510-202603など）を、追加の列の「企業名」から会社名に戻し、電話番号は電話番号の欄へ。これからの取り込みでも同じように直して入れる。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
@@ -30025,6 +30026,8 @@ server.listen(PORT, async () => {
   // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
   // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
   linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  // 会社名の欄に電話番号が入ってしまった架電先（取り込みで列がずれた）を、追加の列の企業名から直す
+  setTimeout(() => { repairPhoneAsCompany().then((n) => { if (n) console.log(`[calls] 会社名が電話番号になっていた ${n}件を直しました`); }).catch(() => {}); }, 15000).unref?.();
   // 浦林さん対応の予定が、アポ獲得者本人のカレンダーにできてしまっていたもの（これからの商談）を、本来の担当に付け直す
   setTimeout(async () => {
     try {

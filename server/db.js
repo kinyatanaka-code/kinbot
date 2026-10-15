@@ -4377,6 +4377,35 @@ function callDedupeKeys(leadId, phone, company) {
   return keys;
 }
 
+// 会社名の欄に電話番号が入ってしまったとき（取り込みで列がずれた）、追加の列の「企業名」などから会社名を戻す
+const PHONE_LIKE = /^[\s0-9０-９+＋\-－ー‐()（）]{9,}$/;
+const CO_KEYS = /^(企業名|会社名|取引先名|社名|法人名|取引先)$/;
+function fixPhoneAsCompany(x) {
+  if (!x || !PHONE_LIKE.test(String(x.company || "").trim())) return x;
+  const ex = (x.extra && typeof x.extra === "object") ? x.extra : {};
+  const k = Object.keys(ex).find((kk) => CO_KEYS.test(String(kk).normalize("NFKC").replace(/[\s　]/g, "")) && String(ex[kk] || "").trim() && !PHONE_LIKE.test(String(ex[kk]).trim()));
+  if (!k) return x;
+  const phoneWas = String(x.company).trim();
+  return { ...x, company: String(ex[k]).trim(), phone: String(x.phone || "").trim() || phoneWas };
+}
+// すでに入っている架電先も直す（会社名が電話番号の形で、追加の列に企業名などがあるもの）。何度動かしても同じ結果。
+export async function repairPhoneAsCompany() {
+  if (!pool) return 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, company, phone, extra FROM call_targets
+        WHERE company ~ '^[[:space:]0-9０-９+＋－ー‐()（）-]{9,}$' AND extra IS NOT NULL`);
+    let n = 0;
+    for (const r of rows) {
+      const ex = typeof r.extra === "string" ? (() => { try { return JSON.parse(r.extra); } catch { return {}; } })() : (r.extra || {});
+      const fx = fixPhoneAsCompany({ company: r.company, phone: r.phone, extra: ex });
+      if (fx.company === r.company) continue;
+      await pool.query(`UPDATE call_targets SET company = $2, phone = $3 WHERE id = $1`, [r.id, fx.company, fx.phone]);
+      n++;
+    }
+    return n;
+  } catch (e) { console.error("[db] repairPhoneAsCompany", e.message); return 0; }
+}
 export async function addCallTargets(listId, items = [], { dedupe = false } = {}) {
   if (!pool || !listId || !items.length) return 0;
   try {
@@ -4389,7 +4418,7 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
     }
     let n = 0, sort = 0;
     for (const x0 of items) {
-      const x = x0 || {};
+      const x = fixPhoneAsCompany(x0 || {});
       if (dedupe) {
         const keys = callDedupeKeys(x.leadId, x.phone, x.company);
         const hit = keys.map((k) => seen.get(k)).find(Boolean);

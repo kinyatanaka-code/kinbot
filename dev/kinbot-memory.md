@@ -1480,3 +1480,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-14 BUILD_TAG=2026-10-14k 田中さん「MO失注リストについても過去失注みたいに失注詳細を入れたい」。fetchMoLostOppData：SFの Opportunity で IsClosed かつ IsWon でないもの、レコードタイプが MO_LOST_RECORD_TYPE を含む（未設定ならクロス以外すべて）、CloseDate >= MO_LOST_FROM（既定2025-01-01）を会社名キーで直近1件。項目はクロス失注と同じ（crossOppFields）＋商談の種類（RecordType.Name）。/api/calls/targets で、MO失注のリスト（isMoLostList：リスト名かグループ名に MO失注）を開いたとき、またはリードのリスト名・元のリスト・ソースに MO失注 があるときに付ける。記録の窓の kcLossBox の見出しに商談の種類も。版20261014k。
 
 - 2026-10-14 BUILD_TAG=2026-10-14l 田中さん「アポ獲得後の通知で（手動）になっている。kincallから登録した際は自動で」。autoAssignOne の通知の自動／手動は actor にメールが入っていると手動だった（kincall からは記録した人のメールが actor）。autoAssignOne に auto を渡せるようにし、createApoAndAssign は origin=kincall のとき auto=true。割り振りできなかったときの通知も同じ。アポ一覧の「＋アポを手で追加」は今までどおり手動。版20261014l。
+
+- 2026-10-14 BUILD_TAG=2026-10-14m 田中さん「（MO失注202510-202603）電話番号と会社名が」→会社名の欄に電話番号、追加の列「企業名」に会社名が入っていた（取り込みで列がずれた）。db.js fixPhoneAsCompany：会社名が電話番号の形（数字・ハイフン・かっこ・空白で9文字以上）で、追加の列に 企業名／会社名／取引先名／社名／法人名／取引先 があれば、それを会社名にし、電話番号の欄が空なら元の会社名（電話番号）を入れる。addCallTargets で入れる前に通す（これからの取り込み）。repairPhoneAsCompany を起動15秒後に1回（すでにある架電先、何度動かしても同じ）。版20261014m。
