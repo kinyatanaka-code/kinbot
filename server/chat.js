@@ -24,6 +24,7 @@ export const NOTIFY_KINDS = [
   { key: "launch",  label: "SF商談の自動立ち上げ" },
   { key: "valid",   label: "有効商談になったお知らせ（インサイド獲得アポ）" },
   { key: "daily",   label: "デイリー目標（朝8時の通知）" },
+  { key: "cs",      label: "CS連携（回収MTGの完了・御礼メールの下書き）" },
   { key: "deploy",  label: "kinbotの更新（デプロイ）" },
   { key: "news",    label: "kinbotのお知らせ（新機能）" },
   { key: "dev",     label: "開発メモ（夜間開発）" },
@@ -133,6 +134,8 @@ export async function notifyAll(text, kind = "", { mentionName = "", mentionName
     valid: "on_valid",
     // デイリー目標（朝8時）
     daily: "on_daily",
+    // CS連携（回収MTG）
+    cs: "on_cs",
   }[kind];
   const list = col ? targets.filter((x) => x[col]) : targets;
   if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };

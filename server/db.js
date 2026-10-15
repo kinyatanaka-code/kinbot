@@ -939,6 +939,8 @@ export async function initDb() {
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_dev BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_valid BOOLEAN NOT NULL DEFAULT true;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_daily BOOLEAN NOT NULL DEFAULT true;`);
+  // CS連携（回収MTG＝キックオフの完了・御礼メールの下書き）。チェックした送り先（OBスレなど）にだけ送るので既定OFF
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_cs BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
@@ -7363,6 +7365,7 @@ export async function updateChatTarget(id, patch) {
     onApo: "on_apo",
     onValid: "on_valid",
     onDaily: "on_daily",
+    onCs: "on_cs",
     onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {

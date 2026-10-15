@@ -11408,11 +11408,18 @@ function csPostText(k, f, opts = {}) {
   ];
   return lines.filter(Boolean).join("\n");
 }
+// CS連携の送り先：設定→通知先で「CS連携（回収MTG）」にチェックした kinbot名義のスペース。無ければ CS連携の設定のスペース
+async function csSpace() {
+  try {
+    const tg = (await listChatTargets({ onlyActive: true }).catch(() => [])).find((x) => x.on_cs && x.space_id);
+    if (tg) return tg.space_id;
+  } catch {}
+  return (await csSettings()).space;
+}
 async function csPost(k, { edited = false } = {}) {
-  const cfg = await csSettings();
   const f = k.fields || {};
   try {
-    const msg = await postToSpaceThread(cfg.space, csPostText(k, f, { edited }), k.chat_thread || "");
+    const msg = await postToSpaceThread(await csSpace(), csPostText(k, f, { edited }), k.chat_thread || "");
     return await upsertCsKickoff(k.bot_id, { chat_thread: (msg.thread && msg.thread.name) || k.chat_thread || null, chat_message: msg.name || null, posted_at: new Date().toISOString(), error: null });
   } catch (e) {
     console.warn("[cs] OBスレへの投稿に失敗", e.message);
@@ -11522,7 +11529,7 @@ async function csProcessKickoff(m0) {
   if (k.cs_email) {
     k = await csEnsureConfirmLink(k);
     const d = await csMakeDraft(k);
-    if (d.ok) await postToSpaceThread(cfg.space, `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です。入れて送ってください）"}`, k.chat_thread || "").catch(() => {});
+    if (d.ok) await postToSpaceThread(await csSpace(), `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です。入れて送ってください）"}`, k.chat_thread || "").catch(() => {});
   }
   console.log(`[cs] キックオフを連携しました：${company}（FS ${fsName}・CS ${k.cs_name || "未定"}）`);
 }
@@ -11624,7 +11631,7 @@ app.post("/api/cs/kickoffs/:bot/:act(draft|repost|redo)", async (req, res) => {
     const d = await csMakeDraft(k);
     if (!d.ok) return res.status(400).json({ error: d.reason });
     const cfg = await csSettings();
-    await postToSpaceThread(cfg.space, `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です）"}`, k.chat_thread || "").catch(() => {});
+    await postToSpaceThread(await csSpace(), `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です）"}`, k.chat_thread || "").catch(() => {});
     res.json({ ok: true, ...d });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -18921,7 +18928,7 @@ app.get("/api/chat-targets", async (req, res) => {
       targets: rows.map((r) => ({
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
-        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily,
+        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily, onCs: !!r.on_cs,
         onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev, onIncentive: r.on_incentive,
         onResched: r.on_resched, onDatechg: r.on_datechg, onApo: r.on_apo,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
@@ -18953,7 +18960,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onDatechg", "onApo", "onValid", "onDaily", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onDatechg", "onApo", "onValid", "onDaily", "onCs", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -24160,7 +24167,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-15i CS連携に、紐づいているSFの商談のリンクを入れる（OBスレの投稿・CS連携の画面）。議事録に紐づけたSFのURL → SF立ち上げ・紐付けをしたアポの商談 → SFで取引先名が同じいちばん新しい商談 の順に探す。画面で直せる。";
+const BUILD_TAG = "2026-10-15j 通知先に「CS連携（回収MTG）」のチェックを追加（既定OFF）。CS連携の投稿（回収MTG完了・修正版・御礼メールの下書き）は、チェックした kinbot名義の送り先に送る（無ければCS連携の設定のスペース）。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",

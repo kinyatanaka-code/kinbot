@@ -2747,6 +2747,7 @@ const CT_KINDS = [
   ["onApo", "アポ獲得のお知らせ"],
   ["onValid", "有効商談になったお知らせ"],
   ["onDaily", "デイリー目標（朝8時）"],
+  ["onCs", "CS連携（回収MTG）"],
 ];
 
 function ctSay(id, t, ms) {
