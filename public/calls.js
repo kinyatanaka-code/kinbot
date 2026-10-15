@@ -2770,15 +2770,15 @@ function wireApoBox(m) {
   sync();
 }
 
-// 過去リスト（クロス失注）のリードなら、記録の窓に失注の内容を出す（かける前に理由が分かるように）
+// 過去リスト（クロス失注）・MO失注のリードなら、記録の窓に失注の内容を出す（かける前に理由が分かるように）
 function kcLossBox(x) {
   const g = (k) => String((x && (x[k] || (x.追加 && x.追加[k]))) || "").trim();
   const big = g("失注理由（大項目）"), mid = g("失注理由（中項目）"), det = g("失注理由詳細");
-  const lost = g("失注日"), next = g("失注後次回アクション日"), owner = g("商談所有者");
+  const lost = g("失注日"), next = g("失注後次回アクション日"), owner = g("商談所有者"), kind = g("商談の種類");
   if (!big && !mid && !det && !lost && !next) return "";
   const d = (v) => { const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${+m[2]}/${+m[3]}` : v; };
   return `<div class="kc-loss">
-    <div class="kc-loss-h">${hubIco("archive")}前回の失注${lost ? `（${esc(d(lost))}）` : ""}${owner ? `<span class="kc-loss-o">商談：${esc(owner)}</span>` : ""}</div>
+    <div class="kc-loss-h">${hubIco("archive")}前回の失注${lost ? `（${esc(d(lost))}）` : ""}${kind ? `<span class="kc-loss-o">${esc(kind)}</span>` : ""}${owner ? `<span class="kc-loss-o">商談：${esc(owner)}</span>` : ""}</div>
     ${big || mid ? `<div class="kc-loss-r"><b>${esc(big)}</b>${mid ? ` ／ ${esc(mid)}` : ""}</div>` : ""}
     ${det ? `<div class="kc-loss-d">${esc(det)}</div>` : ""}
     ${next ? `<div class="kc-loss-n">次回アクション日：${esc(d(next))}</div>` : ""}

@@ -4800,6 +4800,16 @@ export async function saveTalkScript(owner, groupId, text) {
 }
 
 // 「過去失注」グループのリストか（DOC過去失注など）。かけるの見せ方・自動移動を変える。
+// MO失注のリストか（リスト名かグループ名に「MO失注」）
+export async function isMoLostList(listId) {
+  if (!pool || !listId) return false;
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id
+        WHERE l.id = $1 AND (l.name ~* 'MO\s*失注' OR COALESCE(g.name,'') ~* 'MO\s*失注') LIMIT 1`, [listId]);
+    return !!rows.length;
+  } catch { return false; }
+}
 export async function isPastLostList(listId) {
   if (!pool || !listId) return false;
   try {

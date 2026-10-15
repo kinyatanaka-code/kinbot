@@ -258,6 +258,7 @@ import {
   nurtureSummary,
   listActiveTargetCompanies,
   isPastLostList,
+  isMoLostList,
   listTalkScripts,
   listTalkScriptOwners,
   saveTalkScript,
@@ -9593,6 +9594,43 @@ async function fetchCrosslostOppData(sfUser, crossFrom) {
   return out;
 }
 
+// MO失注：クロス以外の失注商談（レコードタイプ名に MO_LOST_RECORD_TYPE を含むもの。未設定ならクロス以外すべて）を会社名で引く。
+// 返すものはクロス失注と同じ形（失注日・失注理由・詳細・次回アクション日・商談所有者）＋ 商談の種類（レコードタイプ名）。5分キャッシュ。
+let _moOppDataCache = null, _moOppDataAt = 0;
+async function fetchMoLostOppData(sfUser, from) {
+  if (_moOppDataCache && Date.now() - _moOppDataAt < 5 * 60 * 1000) return _moOppDataCache;
+  const out = {};
+  try {
+    const f = await crossOppFields(sfUser);
+    const cols = [...new Set(["Account.Name", "Owner.Name", "RecordType.Name", f.lostDate, f.lossReason, f.lossReasonMid, f.lossReasonDetail, f.nextAction].filter(Boolean))];
+    if (!cols.includes("CloseDate")) cols.push("CloseDate");
+    const rt = String(process.env.MO_LOST_RECORD_TYPE || "").replace(/'/g, "").trim();
+    const rtCond = rt ? `RecordType.Name LIKE '%${rt}%'` : `(NOT RecordType.Name LIKE '%クロス%')`;
+    const d = await sfQuery(sfUser,
+      `SELECT ${cols.join(", ")}, LastModifiedDate FROM Opportunity
+        WHERE ${rtCond} AND IsClosed = true AND IsWon = false AND CloseDate >= ${from}
+        ORDER BY CloseDate DESC, LastModifiedDate DESC
+        LIMIT 5000`);
+    const rank = (o) => `${String(o[f.lostDate] || o.CloseDate || "").slice(0, 10)}|${String(o.LastModifiedDate || "")}`;
+    const best = {};
+    for (const o of d.records || []) {
+      const co = (o.Account && o.Account.Name) || ""; if (!co) continue;
+      const k = normCompanyKey(co);
+      if (!best[k] || rank(o) > rank(best[k])) best[k] = o;
+    }
+    for (const [k, o] of Object.entries(best)) {
+      const rec = { "失注日": o[f.lostDate] || o.CloseDate || "", "商談所有者": (o.Owner && o.Owner.Name) || "", "商談の種類": (o.RecordType && o.RecordType.Name) || "" };
+      if (f.lossReason) rec["失注理由（大項目）"] = o[f.lossReason] || "";
+      if (f.lossReasonMid) rec["失注理由（中項目）"] = o[f.lossReasonMid] || "";
+      if (f.lossReasonDetail) rec["失注理由詳細"] = o[f.lossReasonDetail] || "";
+      if (f.nextAction) rec["失注後次回アクション日"] = o[f.nextAction] || "";
+      out[k] = rec;
+    }
+    _moOppDataCache = out; _moOppDataAt = Date.now();
+  } catch (e) { console.warn("[molost] 商談項目の取得失敗", e.message); }
+  return out;
+}
+
 // SFのクロス失注商談と会社名が一致する架電先（どのリストに入っていても拾う）。5分キャッシュ。
 let _clIdsCache = null, _clIdsAt = 0;
 async function crosslostMatchedIds(sfUser) {
@@ -10516,6 +10554,7 @@ app.get("/api/calls/targets", async (req, res) => {
     let todayExtra = 0;     // あとから足したリストの件数
     let 復活リストか = false;
     let 過去失注リストか = false;
+    let MO失注リストか = false;
     // かける画面の「過去リスト（今月かける）」＝自分担当のクロス失注。次回アクション日での絞り込みは後段で行う。
     const clNow = listParam === "crosslost-now";
     if (clNow) listParam = "crosslost";
@@ -10657,6 +10696,7 @@ app.get("/api/calls/targets", async (req, res) => {
       if (!listId) return res.status(400).json({ error: "リストを選んでください" });
       復活リストか = await isRevivalList(listId).catch(() => false);
       過去失注リストか = await isPastLostList(listId).catch(() => false);
+      MO失注リストか = await isMoLostList(listId).catch(() => false);
       rows = await listCallTargets(listId, {
         q: String(req.query.q || ""),
         limit: Math.min(rawEdit ? 20000 : 2000, parseInt(req.query.limit, 10) || (rawEdit ? 20000 : 2000)),
@@ -10820,6 +10860,27 @@ app.get("/api/calls/targets", async (req, res) => {
         const kept = items.filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(na(x)) && na(x) <= nme).sort((a, b) => na(a).localeCompare(na(b)));
         items.length = 0; items.push(...kept);
       }
+    }
+
+    // MO失注のリード（MO失注のリストを開いたとき、またはリスト名・元のリスト・ソースに「MO失注」）：
+    // クロス以外の失注商談から、過去失注と同じ形で失注の内容を付ける（記録の窓の「前回の失注」に出る）
+    const isMoLead = (x) => MO失注リストか || /MO\s*失注/i.test(`${x.リスト名 || ""} ${x.元のリスト || ""} ${x.ソース || ""}`);
+    if (items.some(isMoLead)) {
+      try {
+        const sfUser = await pickSfUser(req.user, req).catch(() => "");
+        if (sfUser && salesforceConfigured() && (await sfConnected(sfUser).catch(() => false))) {
+          const moMap = await fetchMoLostOppData(sfUser, String(process.env.MO_LOST_FROM || "2025-01-01").slice(0, 10));
+          for (const x of items) {
+            if (!isMoLead(x)) continue;
+            const d = moMap[normCompanyKey(x.会社名)];
+            if (!d) continue;
+            x["失注日"] = d["失注日"] || ""; x["失注後次回アクション日"] = d["失注後次回アクション日"] || ""; x["商談所有者"] = d["商談所有者"] || "";
+            x["失注理由（大項目）"] = d["失注理由（大項目）"] || ""; x["失注理由（中項目）"] = d["失注理由（中項目）"] || ""; x["失注理由詳細"] = d["失注理由詳細"] || "";
+            x["商談の種類"] = d["商談の種類"] || "";
+            x.追加 = { ...(x.追加 || {}), ...d };
+          }
+        }
+      } catch (e) { console.warn("[calls/targets] MO失注の項目の付与に失敗", e.message); }
     }
 
     // 各社の営業時間（Googleキャッシュ）から、営業中/営業時間外を付ける。
@@ -23659,7 +23720,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-14j 9月初めの商談の獲得者が消えていた原因を修正：照合が「新しい300件」の商談しか見ていないのに、獲得者を消す範囲は90日だったため、300件より古い商談は消されたまま付け直されなかった。照合・獲得者の調べ直しとも期間の商談を全部見るように。";
+const BUILD_TAG = "2026-10-14k MO失注のリードにも、過去失注と同じく記録の窓に「前回の失注」（失注日・理由・詳細・次回アクション日・商談所有者・商談の種類）を出す。SFのクロス以外の失注商談（MO_LOST_RECORD_TYPE で絞れる）から会社名で引く。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
