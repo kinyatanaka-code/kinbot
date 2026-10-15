@@ -275,6 +275,7 @@ function apoCard(a, i) {
               <button class="ap-more-item ap-launch-detail" data-i="${i}">SF立ち上げ（細かく入力）</button>
               <button class="ap-more-item ap-sflink-menu" data-i="${i}">SF商談の紐付けを変更</button>
               <button class="ap-more-item ap-copy" data-url="${esc(a.smart_url)}">リンクをコピー</button>
+              <button class="ap-more-item ap-retitle" data-slug="${esc(a.slug)}" data-label="${esc(a.label || "")}">予定名（カレンダーのタイトル）を変える</button>
               <button class="ap-more-item ap-takenat" data-slug="${esc(a.slug)}" data-i="${i}">取得日を直す</button>
               <button class="ap-more-item ap-recreate" data-slug="${esc(a.slug)}">カレンダー予定を作り直す</button>
               <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
@@ -533,6 +534,46 @@ function bindCardEvents(card) {
     setTimeout(() => { renotify.textContent = before; renotify.disabled = false; }, 2500);
   });
 
+  // 予定名（カレンダーのタイトル）を変える：種別の印は押して付け替えられる
+  const retitle = q(".ap-retitle");
+  if (retitle) retitle.addEventListener("click", () => {
+    const cur = String(retitle.dataset.label || "");
+    const TAGS = ["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ"];
+    const back = document.createElement("div");
+    back.className = "ap-rs-back";
+    back.innerHTML = `
+      <div class="ap-rs-modal">
+        <div class="ap-rs-h">予定名（カレンダーのタイトル）を変える</div>
+        <div class="ap-rs-now">いまの予定名：${esc(cur)}</div>
+        <input type="text" id="apRtInput" value="${esc(cur)}" style="width:100%;box-sizing:border-box;margin:8px 0;padding:8px 10px;border:1px solid #d7e3dd;border-radius:8px;font:inherit;font-size:14px;" />
+        <div class="ap-rs-quick">${TAGS.map((t) => `<button type="button" class="btn ghost" data-tag="${esc(t)}">【${esc(t)}】</button>`).join("")}</div>
+        <p class="ap-rs-note">獲得者の予定・担当の商談予定・浦林さん対応の予定と、アポの名前をまとめて変えます。頭の【】の印は、割り振りと集計で使うので残してください。</p>
+        <div class="ap-rs-foot"><button type="button" class="btn" id="apRtSave">変える</button><button type="button" class="btn ghost" id="apRtCancel">やめる</button><span class="ap-rs-st" id="apRtSt"></span></div>
+      </div>`;
+    document.body.appendChild(back);
+    const inp = back.querySelector("#apRtInput"), st = back.querySelector("#apRtSt");
+    const close = () => back.remove();
+    back.addEventListener("click", (e) => { if (e.target === back) close(); });
+    back.querySelector("#apRtCancel").addEventListener("click", close);
+    back.querySelectorAll("[data-tag]").forEach((b) => b.addEventListener("click", () => {
+      const v = inp.value.trim();
+      inp.value = /^\s*【[^】]*】/.test(v) ? v.replace(/^\s*【[^】]*】/, `【${b.dataset.tag}】`) : `【${b.dataset.tag}】${v}`;
+      inp.focus();
+    }));
+    inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length);
+    back.querySelector("#apRtSave").addEventListener("click", async () => {
+      const v = inp.value.trim();
+      if (!v) { st.textContent = "予定名を入れてください"; return; }
+      st.textContent = "変えています…";
+      try {
+        const r = await fetch(`/api/apo/${encodeURIComponent(retitle.dataset.slug)}/title`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: v }) });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "変えられませんでした");
+        if (Array.isArray(d.変えられなかった予定) && d.変えられなかった予定.length) alert(`アポの名前は変えました。\nただし、次の予定の名前は変えられませんでした（編集の権限が無い可能性）。\n・${d.変えられなかった予定.join("\n・")}`);
+        close(); load();
+      } catch (e) { st.textContent = "失敗：" + e.message; }
+    });
+  });
   const resched = q(".ap-resched");
   if (resched) resched.addEventListener("click", () => {
     const cur = resched.dataset.start ? new Date(resched.dataset.start) : null;

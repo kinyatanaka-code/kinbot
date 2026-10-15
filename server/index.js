@@ -4636,6 +4636,29 @@ app.put("/api/smart-links/excluded-many", async (req, res) => {
 
 // テストで作ったアポを、件数の集計から外す／戻す。
 // 予定もアポ自体も残したまま、実績・均等化・通知の数からだけ除く。
+// アポ一覧から予定名（カレンダーのタイトル）を変える。
+//   アポの名前と、つながる予定（獲得者の予定・担当の商談予定・浦林さん対応の予定）の名前を、まとめて同じ名前にする。
+//   予定名の頭の「リスケ」「キャンセル」は、いまの状態に合わせて付け直す（印を消したいときは「取り消す」を使う）。
+app.put("/api/apo/:slug/title", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const link = await getSmartLink(slug);
+    if (!link) return res.status(404).json({ error: "見つかりませんでした" });
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)
+        && String(link.setter_email || "").toLowerCase() !== String(req.user || "").toLowerCase()) return res.status(403).json({ error: "権限がありません" });
+    let base = String((req.body || {}).title || "").replace(/[\r\n]+/g, " ").trim().replace(APO_HEAD_RE, "");
+    if (!base) return res.status(400).json({ error: "予定名を入れてください" });
+    if (base.length > 200) return res.status(400).json({ error: "予定名が長すぎます（200文字まで）" });
+    if (!/^\s*【[^】]+】/.test(base)) return res.status(400).json({ error: "予定名の頭に【初回】などの印を付けてください（割り振り・集計で使います）" });
+    const state = ["リスケ", "キャンセル"].includes(String(link.excluded_reason || "")) && link.excluded ? link.excluded_reason : "";
+    const newTitle = `${state}${base}`;
+    const cal = await retitleApoCalendarEvents(link, newTitle).catch((e) => ({ moved: [], failed: [String(e.message || e)] }));
+    await setSmartLinkLabel(slug, base);
+    console.log(`[apo] 予定名を変えました：${link.label} → ${base}（${cal.moved.join("・") || "予定なし"}${cal.failed.length ? ` ／ 変えられなかった：${cal.failed.join("・")}` : ""}） by ${req.user}`);
+    res.json({ ok: true, title: newTitle, label: base, 変えた予定: cal.moved, 変えられなかった予定: cal.failed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // アポ一覧から「リスケ」「キャンセル」にする（リマインドを送らないため）。取り消しもできる。
 //   ・アポを「リスケ」「キャンセル」として集計の外へ（リマインド・割り振りの対象から外れる。実績は取った月に残る）
 //   ・つながるカレンダー予定（獲得者の予定・担当の商談予定・浦林さん対応の予定）の名前の頭に「リスケ」「キャンセル」を付ける
@@ -23724,7 +23747,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-15c MO失注のリスト（MO失注 - ○○・MO失注202510-202603・MO失注リサイクル など）を新規リストの枠として数える。ソース「MO失注」を新規の枠に足し、いまある「要確認」のMO失注のリードも「MO失注」に。9月の「MO過去失注」は過去リストのまま。";
+const BUILD_TAG = "2026-10-15d アポ一覧の「︙」から予定名（カレンダーのタイトル）を変えられるように。獲得者の予定・担当の商談予定・浦林さん対応の予定とアポの名前をまとめて変える。種別の印（【初回】【初回/過去失注】【初回/MO失注】【初回/フロッグ】【初回/メルマガ】）は押して付け替え。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
