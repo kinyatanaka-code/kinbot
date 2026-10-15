@@ -2167,6 +2167,24 @@ export async function markMeetingImported(botId) {
 }
 
 // 商談にアポ獲得者（インターン名）を記録する。manual=true なら「手入力」の印を付け、照合で消えない。
+// 割り振りの「札」：同じアポを、別々のサーバー（デプロイ中の新旧など）から同時に割り振らないために、DBで1つだけ取れる札を使う。
+// 取れたら true。3分たった札は、落ちた処理のものとみなして取り直せる。
+export async function claimAssign(slug, { force = false } = {}) {
+  if (!pool || !slug) return true;
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS assign_claim_at TIMESTAMPTZ;`).catch(() => {});
+    const { rows } = await pool.query(
+      `UPDATE smart_links SET assign_claim_at = now()
+        WHERE slug = $1 AND (assign_claim_at IS NULL OR assign_claim_at < now() - interval '3 minutes')
+          AND ($2 OR auto_assigned_at IS NULL OR COALESCE(current_owner,'') = '')
+        RETURNING slug`, [slug, !!force]);
+    return rows.length > 0;
+  } catch (e) { console.error("[db] claimAssign", e.message); return true; }
+}
+export async function releaseAssign(slug) {
+  if (!pool || !slug) return;
+  try { await pool.query(`UPDATE smart_links SET assign_claim_at = NULL WHERE slug = $1`, [slug]); } catch {}
+}
 export async function setMeetingApoSetter(botId, name, manual = false) {
   if (!pool || !botId) return;
   const val = name == null || name === "" ? null : String(name);
