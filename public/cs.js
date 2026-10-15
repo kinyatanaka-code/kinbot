@@ -48,6 +48,7 @@ function render() {
         <label>貴社の宿題</label><textarea data-list="貴社の宿題" rows="2" placeholder="初期学習のほかにお願いしたこと（1行に1つ）">${esc((f.貴社の宿題 || []).join("\n"))}</textarea>
         <label>CS担当</label><select data-k="csEmail">${csOpts}</select>
         <label>確認MTGの日時</label><div><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}"><div class="cs-sub">${k.confirm_from ? `（${esc(k.confirm_from)}から）` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　参加URL：<a href="${esc(k.confirm_url)}" target="_blank" rel="noopener">${esc(k.confirm_url)}</a>` : ""}</div></div>
+        <label>SFの商談</label><div><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="SFの商談のURL（見つからなかったときは貼ってください）">${k.sf_url ? `<div class="cs-sub"><a href="${esc(k.sf_url)}" target="_blank" rel="noopener">SFで開く ↗</a></div>` : ""}</div>
         <label>先方のメール</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="御礼メールの宛先">
         <label>候補者用画面のURL</label><div><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `スプレッドシートの値を使います：${k.sheet_candidate_url}` : "スプレッドシートに見つかりません。ここに入れるとこちらを使います")}">
           <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? `スプレッドシートから：<a href="${esc(k.sheet_candidate_url)}" target="_blank" rel="noopener">${esc(k.sheet_candidate_url)}</a>` : (d.candidateSheetError ? `スプレッドシートを読めませんでした：${esc(d.candidateSheetError)}` : "スプレッドシート（C列＝会社名）に、この会社が見つかりません")}</div></div>
@@ -61,6 +62,7 @@ function render() {
         <button type="button" class="btn ghost" data-act="preview">御礼メールを見る</button>
         <button type="button" class="btn ghost" data-act="redo">議事録から読み取り直す</button>
         <a class="btn ghost" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">議事録を開く</a>
+        ${k.sf_url ? `<a class="btn ghost" href="${esc(k.sf_url)}" target="_blank" rel="noopener">SFの商談を開く</a>` : ""}
       </div>
       <div class="cs-mail" data-mail hidden></div>
     </div>`;

@@ -11268,6 +11268,7 @@ async function ensureCs() {
       confirm_start TIMESTAMPTZ, confirm_from TEXT, confirm_slug TEXT, client_email TEXT, client_name TEXT,
       chat_thread TEXT, chat_message TEXT, posted_at TIMESTAMPTZ, draft_id TEXT, draft_at TIMESTAMPTZ,
       status TEXT, error TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`);
+  await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS sf_url TEXT;`).catch(() => {});
   await sq(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS doc_admin_url TEXT;`).catch(() => {});
   await sq(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS doc_candidate_url TEXT;`).catch(() => {});
   _csReady = true;
@@ -11294,7 +11295,7 @@ export async function upsertCsKickoff(botId, v) {
   try {
     await ensureCs();
     const cols = ["account", "company", "title", "meeting_at", "fs_email", "fs_name", "fields", "cs_email", "cs_name", "confirm_start", "confirm_from",
-      "confirm_slug", "client_email", "client_name", "chat_thread", "chat_message", "posted_at", "draft_id", "draft_at", "status", "error"];
+      "confirm_slug", "client_email", "client_name", "chat_thread", "chat_message", "posted_at", "draft_id", "draft_at", "status", "error", "sf_url"];
     const keys = cols.filter((c) => v[c] !== undefined);
     const vals = keys.map((c) => (c === "fields" ? JSON.stringify(v[c] || {}) : v[c]));
     const ins = `INSERT INTO cs_kickoffs (bot_id${keys.map((k) => `, ${k}`).join("")}) VALUES ($1${keys.map((_, i) => `, $${i + 2}`).join("")})
@@ -11336,6 +11337,16 @@ export async function setDocUrls(key, { adminUrl, candidateUrl }) {
          updated_at = now()`, [key, adminUrl === undefined ? null : String(adminUrl || ""), candidateUrl === undefined ? null : String(candidateUrl || "")]);
     return await getDocUrls(key);
   } catch (e) { console.error("[db] setDocUrls", e.message); return null; }
+}
+// 会社名で、SF立ち上げ・紐付けをしたアポのSF商談ID（いちばん新しいもの）
+export async function sfOppIdByCompany(keyFn, company) {
+  if (!pool || !company) return "";
+  try {
+    const { rows } = await pool.query(`SELECT company, title, opp_id FROM sf_autolaunch WHERE COALESCE(opp_id,'') <> '' ORDER BY tried_at DESC LIMIT 3000`);
+    const k = keyFn(company);
+    const hit = rows.find((r) => k && (keyFn(r.company || "") === k || keyFn(r.title || "") === k));
+    return hit ? hit.opp_id : "";
+  } catch { return ""; }
 }
 // 会社名から、アポで分かっている先方のメール・担当者名（いちばん新しいもの）
 export async function clientContactByCompanyKey(keyFn, company) {

@@ -268,6 +268,7 @@ import {
   getDocUrls,
   setDocUrls,
   clientContactByCompanyKey,
+  sfOppIdByCompany,
   claimAssign,
   releaseAssign,
   listTalkScripts,
@@ -11402,6 +11403,7 @@ function csPostText(k, f, opts = {}) {
     `特記事項：${f.特記事項 || "未確認"}`,
     (f.弊社の宿題 || []).length ? `弊社の宿題：${f.弊社の宿題.join("／")}` : "",
     `議事録：${base}/history.html?id=${encodeURIComponent(k.bot_id)}`,
+    `SF商談：${k.sf_url || "未確認"}`,
     k.cs_email ? "" : `👉 CS担当を選んでください：${base}/cs.html?bot=${encodeURIComponent(k.bot_id)}`,
   ];
   return lines.filter(Boolean).join("\n");
@@ -11470,6 +11472,28 @@ async function csMakeDraft(k) {
     return { ok: false, reason: e.needScope ? "FSのGmailの権限がありません（Google連携を一度外してつなぎ直してください）" : e.message };
   }
 }
+// 紐づいているSFの商談のURL：①その商談（議事録）に紐づけたSFのURL ②SF立ち上げ・紐付けをしたアポの商談 ③SFで取引先名が同じいちばん新しい商談
+async function csSfOppUrl({ meeting, company, user }) {
+  const mu = String((meeting && meeting.sf_url) || "").trim();
+  if (/Opportunity|\/006[A-Za-z0-9]{12,15}/.test(mu)) return mu;
+  try {
+    const sfUser = await pickSfUser(user || (meeting && meeting.owner) || "").catch(() => "");
+    if (!sfUser || !salesforceConfigured() || !(await sfConnected(sfUser).catch(() => false))) return mu || "";
+    const info = await sfInfo(sfUser).catch(() => null);
+    const base = String((info && info.instanceUrl) || "").replace(/\/+$/, "");
+    const urlOf = (id) => (base && id ? `${base}/lightning/r/Opportunity/${id}/view` : "");
+    const opp = await sfOppIdByCompany(csCoKey, company).catch(() => "");
+    if (opp) return urlOf(opp);
+    const core = String(company || "").replace(/株式会社|有限会社|合同会社|医療法人(社団|財団)?|社会福祉法人|[（）()\s'"\\]/g, "").slice(0, 30);
+    if (core.length >= 2) {
+      const d = await sfQuery(sfUser, `SELECT Id, Name, Account.Name, CreatedDate FROM Opportunity WHERE Account.Name LIKE '%${core.replace(/'/g, "")}%' ORDER BY CreatedDate DESC LIMIT 10`).catch(() => null);
+      const k = csCoKey(company);
+      const hit = ((d && d.records) || []).find((o) => csCoKey((o.Account && o.Account.Name) || "") === k) || ((d && d.records) || [])[0];
+      if (hit) return urlOf(hit.Id);
+    }
+  } catch (e) { console.warn("[cs] SF商談の取得", e.message); }
+  return mu || "";
+}
 // 1件のキックオフを連携する（読み取り → 確認MTG・CS担当 → OBスレ → リンク・下書き）
 async function csProcessKickoff(m0) {
   const m = (await getMeeting(m0.bot_id).catch(() => null)) || m0;
@@ -11485,7 +11509,9 @@ async function csProcessKickoff(m0) {
   const cal = await csFindConfirmMtg({ company, fsEmail, afterIso: m.created_at, members: cfg.members }).catch(() => null);
   const confirmStart = cal ? new Date(Date.parse(cal.start)).toISOString() : csParseDT(fields.次回MTGの日時, m.created_at);
   const contact = await clientContactByCompanyKey(csCoKey, company).catch(() => null);
+  const sfUrl = await csSfOppUrl({ meeting: m, company, user: fsEmail }).catch(() => "");
   let k = await upsertCsKickoff(m.bot_id, {
+    sf_url: sfUrl || null,
     account: m.account || company, company, title: m.title, meeting_at: m.created_at, fs_email: fsEmail, fs_name: fsName, fields,
     cs_email: cal && cal.cs ? cal.cs.email : null, cs_name: cal && cal.cs ? cal.cs.name : null,
     confirm_start: confirmStart, confirm_from: cal ? "カレンダー" : (confirmStart ? "議事録" : null),
@@ -11536,7 +11562,15 @@ app.get("/api/cs/kickoffs", async (req, res) => {
     const cfg = await csSettings();
     const cand = await csCandidateRows([req.user]).catch(() => ({ rows: [], error: "" }));
     const rows = [];
-    for (const k of await listCsKickoffs(150)) {
+    let sfLook = 0;   // 開くたびに探しすぎないよう、1回に10件まで
+    for (const k0 of await listCsKickoffs(150)) {
+      let k = k0;
+      if (!k.sf_url && sfLook < 10 && Date.now() - Date.parse(k.meeting_at || k.created_at || 0) < 60 * 86400000) {
+        sfLook++;
+        const m = await getMeeting(k.bot_id).catch(() => null);
+        const u = await csSfOppUrl({ meeting: m, company: k.company, user: req.user }).catch(() => "");
+        if (u) k = (await upsertCsKickoff(k.bot_id, { sf_url: u })) || { ...k, sf_url: u };
+      }
       const f = k.fields || {};
       rows.push({ ...k, confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
         sheet_candidate_url: await csCandidateUrlFor((f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company), [req.user]).catch(() => "") });
@@ -11560,6 +11594,7 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
     if (b.csEmail !== undefined) { const c = cfg.members.find((x) => x.email === String(b.csEmail || "").toLowerCase()); v.cs_email = c ? c.email : null; v.cs_name = c ? c.name : null; }
     if (b.confirmStart !== undefined) { const t = Date.parse(b.confirmStart || ""); v.confirm_start = isFinite(t) ? new Date(t).toISOString() : null; v.confirm_from = isFinite(t) ? "手入力" : null; }
     if (b.clientEmail !== undefined) v.client_email = String(b.clientEmail || "").trim() || null;
+    if (b.sfUrl !== undefined) v.sf_url = String(b.sfUrl || "").trim() || null;
     if (b.candidateUrl !== undefined || b.adminUrl !== undefined) await setDocUrls(k0.account, { candidateUrl: b.candidateUrl, adminUrl: b.adminUrl });
     let k = await upsertCsKickoff(k0.bot_id, v);
     if (k.cs_email) k = await csEnsureConfirmLink(k);
@@ -24125,7 +24160,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-15h CS連携：管理画面のURLは全社共通（https://casual-interview-api.brainverse-ai.com/）に。候補者用画面のURLはスプレッドシート（C列＝会社名・K列＝URL）から会社名で引く（手で入れたURLがあればそちら）。";
+const BUILD_TAG = "2026-10-15i CS連携に、紐づいているSFの商談のリンクを入れる（OBスレの投稿・CS連携の画面）。議事録に紐づけたSFのURL → SF立ち上げ・紐付けをしたアポの商談 → SFで取引先名が同じいちばん新しい商談 の順に探す。画面で直せる。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
