@@ -260,6 +260,7 @@ import {
   isPastLostList,
   isMoLostList,
   repairPhoneAsCompany,
+  fillMoLostSource,
   claimAssign,
   releaseAssign,
   listTalkScripts,
@@ -23723,7 +23724,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-15b 二重割り振りの対策を強化：DBの「札」で、別のサーバー（デプロイ中の新旧）や画面の「自動で決める」と自動の割り振りが重ならないように。すでに割り振られたアポで「自動で決める」を押したら、重ねずに知らせる。";
+const BUILD_TAG = "2026-10-15c MO失注のリスト（MO失注 - ○○・MO失注202510-202603・MO失注リサイクル など）を新規リストの枠として数える。ソース「MO失注」を新規の枠に足し、いまある「要確認」のMO失注のリードも「MO失注」に。9月の「MO過去失注」は過去リストのまま。";
 const BUILD_FEATURES = [
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
@@ -30061,6 +30062,8 @@ server.listen(PORT, async () => {
   // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
   // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
   linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  // MO失注のリストのリードのソースを「MO失注」（新規リストの枠）にする
+  setTimeout(() => { fillMoLostSource().then((n) => { if (n) console.log(`[calls] MO失注のリード ${n}件のソースを「MO失注」にしました`); }).catch(() => {}); }, 12000).unref?.();
   // 会社名の欄に電話番号が入ってしまった架電先（取り込みで列がずれた）を、追加の列の企業名から直す
   setTimeout(() => { repairPhoneAsCompany().then((n) => { if (n) console.log(`[calls] 会社名が電話番号になっていた ${n}件を直しました`); }).catch(() => {}); }, 15000).unref?.();
   // 浦林さん対応の予定が、アポ獲得者本人のカレンダーにできてしまっていたもの（これからの商談）を、本来の担当に付け直す

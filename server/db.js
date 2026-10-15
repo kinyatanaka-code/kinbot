@@ -4931,10 +4931,29 @@ export async function recentCallLogs({ from = "", to = "", caller = "", limit = 
 // まずは今あるリードに、リストのグループ名 → リスト名 の順で自動で付ける。決められないものは「要確認」。
 export const LEAD_SOURCES = ["インターン最新版", "フロッグ", "DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"];
 export const SOURCE_UNKNOWN = "要確認";
+// MO失注のリストのリード（いまMO失注のリストにいる・ナーチャリングへ移す前にMO失注のリストにいた）で、ソースが「要確認」のものを「MO失注」にする。何度動かしても同じ。
+export async function fillMoLostSource() {
+  if (!pool) return 0;
+  try {
+    const r = await pool.query(
+      `UPDATE call_targets t SET source = 'MO失注'
+         FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id
+        WHERE COALESCE(t.source, '要確認') = '要確認'
+          AND l.id IN (t.list_id, COALESCE(t.nurture_from_id, -1), COALESCE(t.origin_list_id, -1))
+          AND (l.name ~* 'MO\s*失注' OR COALESCE(g.name,'') ~* 'MO\s*失注')
+          AND NOT (l.name ~* 'MO過去失注')`);
+    const r2 = await pool.query(
+      `UPDATE call_targets SET source = 'MO失注'
+        WHERE COALESCE(source, '要確認') = '要確認'
+          AND (COALESCE(nurture_from_name,'') ~* 'MO\s*失注' OR COALESCE(origin_list_name,'') ~* 'MO\s*失注')`);
+    return (r.rowCount || 0) + (r2.rowCount || 0);
+  } catch (e) { console.error("[db] fillMoLostSource", e.message); return 0; }
+}
 export function classifySourceName(raw) {
   const s = String(raw || "").normalize("NFKC").replace(/【\s*復活\s*】/g, "").replace(/\s+-\s+.*$/, "").trim();
   if (!s) return "";
   if (/MO過去失注/.test(s)) return "MO過去失注";
+  if (/MO\s*失注/i.test(s)) return "MO失注";   // 「MO失注 - ○○」「MO失注202510-202603」「MO失注リサイクル」など（新規リストの枠）
   if (/過去の失注|〜\s*2026\/2|~\s*2026\/2/.test(s)) return "過去失注（〜2026/2）";
   if (/クロス失注|過去リスト/.test(s)) return "クロス失注（2026/3〜）";
   if (/DOC過去失注|インターン用過去失注|過去失注/.test(s)) return "DOC過去失注";
@@ -5024,7 +5043,7 @@ export const LEAD_DISTRIBUTABLE_SQL = `(NOT ${LEAD_NURTURE_SQL} AND ${LEAD_LIVE_
 // ===== 大きな枠（新規リスト／過去リスト／ナーチャリング） =====
 // ナーチャリングはタグ：どのソースでも、ジャッジ・営業フォローならナーチャリングの枠に入り、新規・過去からは外す。
 export const LEAD_FRAMES = {
-  new: { label: "新規リスト", sources: ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"] },
+  new: { label: "新規リスト", sources: ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注"] },   // MO失注は新規リストとして数える（2026-10-15〜）
   past: { label: "過去リスト", sources: ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"] },
   nurture: { label: "ナーチャリング", sources: [] },
 };
