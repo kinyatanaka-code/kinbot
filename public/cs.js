@@ -49,8 +49,9 @@ function render() {
         <label>CS担当</label><select data-k="csEmail">${csOpts}</select>
         <label>確認MTGの日時</label><div><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}"><div class="cs-sub">${k.confirm_from ? `（${esc(k.confirm_from)}から）` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　参加URL：<a href="${esc(k.confirm_url)}" target="_blank" rel="noopener">${esc(k.confirm_url)}</a>` : ""}</div></div>
         <label>先方のメール</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="御礼メールの宛先">
-        <label>候補者用画面のURL</label><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="回収MTGで発行したアカウントのURL（会社プロフィールにも入ります）">
-        <label>管理画面のURL</label><input data-k="adminUrl" value="${esc(k.doc_admin_url || "")}" placeholder="空なら https://casual-interview-api.brainverse-ai.com/">
+        <label>候補者用画面のURL</label><div><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `スプレッドシートの値を使います：${k.sheet_candidate_url}` : "スプレッドシートに見つかりません。ここに入れるとこちらを使います")}">
+          <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? `スプレッドシートから：<a href="${esc(k.sheet_candidate_url)}" target="_blank" rel="noopener">${esc(k.sheet_candidate_url)}</a>` : (d.candidateSheetError ? `スプレッドシートを読めませんでした：${esc(d.candidateSheetError)}` : "スプレッドシート（C列＝会社名）に、この会社が見つかりません")}</div></div>
+        <label>管理画面のURL</label><div class="cs-sub" style="padding-top:7px;">${esc(d.adminUrl || "")}（全社共通）</div>
       </div>
       ${k.error ? `<div class="cs-err">${esc(k.error)}</div>` : ""}
       <div class="cs-act">

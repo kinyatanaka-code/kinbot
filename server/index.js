@@ -11299,6 +11299,36 @@ URL：{確認MTGのURL}
 引き続きよろしくお願いいたします。
 
 {差出人}`;
+// 候補者用画面のURL：スプレッドシート（C列＝会社名、K列＝候補者用画面のURL）から会社名で引く。10分キャッシュ。
+// 読む人は、照合の代表者・予定作成の運用者・FS・押した人 の順で、読めた人のGoogle連携を使う。
+const CS_CAND_SHEET = "1NeeZ155-6DOxITvoMPtYUkIqJdyFjD0w-_VPCgJqGTg";
+let _csCand = { at: 0, rows: [], error: "" };
+async function csCandidateRows(extraOwners = []) {
+  if (Date.now() - _csCand.at < 10 * 60 * 1000 && (_csCand.rows.length || _csCand.error)) return _csCand;
+  const st = await getSettings().catch(() => ({}));
+  const id = String(st.csCandidateSheet || CS_CAND_SHEET).replace(/^.*\/spreadsheets\/d\/([a-zA-Z0-9_-]+).*$/, "$1");
+  const owners = [...new Set([st.apoCalendarOwner, st.apoScanOwner, st.apoInviteOwner, ...extraOwners].map((x) => String(x || "").trim().toLowerCase()).filter(Boolean))];
+  let lastErr = "";
+  for (const ow of owners) {
+    if (!(await gcalConnected(ow).catch(() => false))) continue;
+    try {
+      const vals = await readSheet(ow, id, "C1:K5000");
+      const rows = vals.map((r) => ({ company: String(r[0] || "").trim(), url: String(r[8] || "").trim() })).filter((r) => r.company && /^https?:\/\//.test(r.url));
+      _csCand = { at: Date.now(), rows, error: "" };
+      return _csCand;
+    } catch (e) { lastErr = e.needScope ? `${ow}：スプレッドシートを読む権限がありません（Google連携のつなぎ直しが必要）` : e.notFound ? `${ow}：シートが見つからないか、共有されていません` : `${ow}：${e.message}`; }
+  }
+  _csCand = { at: Date.now(), rows: [], error: lastErr || "シートを読めるGoogle連携の人がいません" };
+  return _csCand;
+}
+async function csCandidateUrlFor(company, extraOwners = []) {
+  const { rows } = await csCandidateRows(extraOwners);
+  const k = normCompanyKey(String(company || "").normalize("NFKC"));
+  if (!k) return "";
+  const hit = rows.find((r) => normCompanyKey(r.company.normalize("NFKC")) === k)
+    || rows.find((r) => { const rk = normCompanyKey(r.company.normalize("NFKC")); return rk && rk.length >= 3 && (rk.includes(k) || k.includes(rk)); });
+  return hit ? hit.url : "";
+}
 async function csSettings() {
   const st = await getSettings().catch(() => ({}));
   return {
@@ -11409,6 +11439,7 @@ async function csBuildMail(k) {
   const cfg = await csSettings();
   const f = k.fields || {};
   const urls = await getDocUrls(k.account).catch(() => ({}));
+  const sheetUrl = urls.doc_candidate_url ? "" : await csCandidateUrlFor((f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company), [k.fs_email]).catch(() => "");
   const person = String(f.先方ご担当者名 && f.先方ご担当者名 !== "未確認" ? f.先方ご担当者名 : (k.client_name ? `${k.client_name}様` : "ご担当者様"));
   const ours = (f.弊社の宿題 || []), theirs = (f.貴社の宿題 || []);
   const vars = {
@@ -11416,8 +11447,8 @@ async function csBuildMail(k) {
     "{先方ご担当者名}": /様$/.test(person) ? person : `${person}様`,
     "{確認MTGの日時}": k.confirm_start ? csFmtDT(k.confirm_start) : (f.次回MTGの日時 && f.次回MTGの日時 !== "未確認" ? f.次回MTGの日時 : "（後ほどご連絡いたします）"),
     "{確認MTGのURL}": k.confirm_slug ? joinUrl(k.confirm_slug) : "（後ほどご連絡いたします）",
-    "{管理画面URL}": urls.doc_admin_url || DOC_ADMIN_URL,
-    "{候補者用画面URL}": urls.doc_candidate_url || "（後ほどご連絡いたします）",
+    "{管理画面URL}": DOC_ADMIN_URL,   // 管理画面は全社共通
+    "{候補者用画面URL}": urls.doc_candidate_url || sheetUrl || "（後ほどご連絡いたします）",
     "{貴社の宿題}": theirs.map((x) => `・${x}`).join("\n"),
     "{弊社の宿題}": ours.length ? `\n■ 弊社の宿題\n${ours.map((x) => `・${x}`).join("\n")}\n` : "",
     "{差出人}": k.fs_name || "",
@@ -11503,8 +11534,14 @@ app.get("/api/cs/kickoffs", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     const cfg = await csSettings();
-    const rows = (await listCsKickoffs(150)).map((k) => ({ ...k, confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}` }));
-    res.json({ ok: true, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, kickoffs: rows });
+    const cand = await csCandidateRows([req.user]).catch(() => ({ rows: [], error: "" }));
+    const rows = [];
+    for (const k of await listCsKickoffs(150)) {
+      const f = k.fields || {};
+      rows.push({ ...k, confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
+        sheet_candidate_url: await csCandidateUrlFor((f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company), [req.user]).catch(() => "") });
+    }
+    res.json({ ok: true, candidateSheetError: cand.error || "", adminUrl: DOC_ADMIN_URL, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, kickoffs: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 直す：項目・CS担当・確認MTG・宛先・候補者用URL（会社プロフィールにも入れる）
@@ -24088,7 +24125,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-15g CS連携：先方ご担当者名をカレンダーの予定名（例：【キックオフ】宅島建設株式会社 吉田様・大櫛様）から取るように（文字起こしは名前を聞き違えるため）。取り込み済みのものも起動時に直す。画面で手で直した名前はそのまま。";
+const BUILD_TAG = "2026-10-15h CS連携：管理画面のURLは全社共通（https://casual-interview-api.brainverse-ai.com/）に。候補者用画面のURLはスプレッドシート（C列＝会社名・K列＝URL）から会社名で引く（手で入れたURLがあればそちら）。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",

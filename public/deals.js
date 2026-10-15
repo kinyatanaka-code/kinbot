@@ -685,14 +685,13 @@ async function renderDocUrls(account, body) {
   wrap.style.cssText = "margin-top:12px;padding:10px 12px;border:1px solid #e6ece9;border-radius:10px;background:#fbfdfc;";
   wrap.innerHTML = `<div style="font-size:12px;font-weight:700;color:#0d5b47;margin-bottom:6px;">DOCのURL（CS連携・御礼メールで使います）</div>
     <div style="display:grid;grid-template-columns:120px minmax(0,1fr);gap:6px 8px;align-items:center;font-size:12.5px;">
-      <span style="color:#5b7a6d;">管理画面</span><input class="du-admin" placeholder="空なら https://casual-interview-api.brainverse-ai.com/" style="border:1px solid #d7e3dd;border-radius:8px;padding:5px 8px;font:inherit;">
-      <span style="color:#5b7a6d;">候補者用画面</span><input class="du-cand" placeholder="回収MTGで発行したアカウントのURL" style="border:1px solid #d7e3dd;border-radius:8px;padding:5px 8px;font:inherit;">
+      <span style="color:#5b7a6d;">管理画面</span><span style="color:#1f2a26;">https://casual-interview-api.brainverse-ai.com/（全社共通）</span>
+      <span style="color:#5b7a6d;">候補者用画面</span><input class="du-cand" placeholder="空ならスプレッドシート（C列＝会社名・K列＝URL）の値を使います" style="border:1px solid #d7e3dd;border-radius:8px;padding:5px 8px;font:inherit;">
     </div>
     <div style="margin-top:6px;display:flex;gap:8px;align-items:center;"><button type="button" class="btn ghost du-save" style="padding:4px 12px;font-size:12px;">保存</button><span class="du-st" style="font-size:12px;color:#5b7a6d;"></span></div>`;
   body.appendChild(wrap);
   try {
     const d = await (await fetch(`/api/accounts/${encodeURIComponent(pk)}/doc-urls`)).json();
-    wrap.querySelector(".du-admin").value = d.doc_admin_url || "";
     wrap.querySelector(".du-cand").value = d.doc_candidate_url || "";
   } catch {}
   wrap.querySelector(".du-save").addEventListener("click", async () => {
@@ -700,7 +699,7 @@ async function renderDocUrls(account, body) {
     st.textContent = "保存しています…";
     try {
       const r = await fetch(`/api/accounts/${encodeURIComponent(pk)}/doc-urls`, { method: "PUT", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ adminUrl: wrap.querySelector(".du-admin").value.trim(), candidateUrl: wrap.querySelector(".du-cand").value.trim() }) });
+        body: JSON.stringify({ candidateUrl: wrap.querySelector(".du-cand").value.trim() }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "保存できませんでした");
       st.textContent = "保存しました";
     } catch (e) { st.textContent = "失敗：" + e.message; }
