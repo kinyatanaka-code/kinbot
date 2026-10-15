@@ -497,7 +497,10 @@ function bindCardEvents(card) {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "変えられませんでした");
       if (Array.isArray(d.変えられなかった予定) && d.変えられなかった予定.length) alert(`アポは${st || "元"}に${st ? "しました" : "戻しました"}。\nただし、次の予定の名前は変えられませんでした（編集の権限が無い可能性）。\n・${d.変えられなかった予定.join("\n・")}`);
-      load();
+      // その場でカードを変える（予定名・リスケ／キャンセルの印）
+      const idx = Number(card.dataset.i);
+      if (idx >= 0 && apState.appts[idx]) Object.assign(apState.appts[idx], { title: d.title, excluded: !!st, excludedReason: st || "" });
+      renderApo();
     } catch (e) { alert(e.message); b.disabled = false; }
   }));
   const ex = q(".ap-exclude");
@@ -516,7 +519,9 @@ function bindCardEvents(card) {
       if (!r.ok) throw new Error(d.error || "変えられませんでした");
       // 予定を消せなかったときだけ知らせる（消せたときは黙って進む）
       if (d.calendar && !/消しました|ありませんでした/.test(d.calendar)) alert(d.calendar);
-      load();
+      const idx = Number(card.dataset.i);
+      if (idx >= 0 && apState.appts[idx]) Object.assign(apState.appts[idx], { excluded: on, excludedReason: on ? "人が操作" : "" });
+      renderApo();
     } catch (e) { alert(e.message); ex.disabled = false; }
   });
 
@@ -570,7 +575,11 @@ function bindCardEvents(card) {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "変えられませんでした");
         if (Array.isArray(d.変えられなかった予定) && d.変えられなかった予定.length) alert(`アポの名前は変えました。\nただし、次の予定の名前は変えられませんでした（編集の権限が無い可能性）。\n・${d.変えられなかった予定.join("\n・")}`);
-        close(); load();
+        close();
+        // その場でカードの予定名を変える（一覧の読み直しを待たない）
+        const idx = Number(card.dataset.i);
+        if (idx >= 0 && apState.appts[idx]) { apState.appts[idx].title = d.title; apState.appts[idx].label = d.label; }
+        renderApo();
       } catch (e) { st.textContent = "失敗：" + e.message; }
     });
   });
