@@ -212,3 +212,25 @@ export async function deleteChatMessage(name) {
   }
   return true;
 }
+
+// スペースに投稿する（スレッドを指定すると、そのスレッドへの返信にする）。投稿したメッセージ（name・thread.name を含む）を返す。
+export async function postToSpaceThread(space, text, threadName = "") {
+  const sp = normalizeSpace(space);
+  if (!sp) throw new Error("スペースIDが正しくありません（spaces/… の形で指定してください）");
+  const token = await accessToken();
+  const q = threadName ? "?messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD" : "";
+  const body = { text: String(text || "").slice(0, 3800) };
+  if (threadName) body.thread = { name: threadName };
+  const res = await fetch(`https://chat.googleapis.com/v1/${sp}/messages${q}`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=UTF-8" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    const err = new Error(`Chatアプリの投稿 ${res.status}: ${t.slice(0, 300)}`);
+    if (res.status === 403 || res.status === 404) err.hint = "kinbotがそのスペースに追加されていない可能性があります。スペースの「アプリと統合」から kinbot を追加してください。";
+    throw err;
+  }
+  return res.json().catch(() => ({}));
+}

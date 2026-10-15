@@ -2320,3 +2320,42 @@ export async function guessCallResult(summary, options = []) {
   const a = cleanCallSummary(out).replace(/^・/, "").trim();
   return opts.includes(a) ? a : (opts.find((x) => a && (a.includes(x) || x.includes(a))) || "");
 }
+
+// ===== DOC 回収MTG（キックオフ）の議事録から、CSへ渡す項目を読み取る =====
+// 読み取れない項目は「未確認」。弊社の宿題は配列（無ければ空）。
+export async function extractKickoff(transcript, { company = "", fsName = "", dateStr = "", summaryText = "" } = {}) {
+  const text = transcriptToText(transcript).slice(0, 45000);
+  const sys = "あなたは商談の議事録から決まった項目を正確に抜き出すアシスタントです。議事録に無いことは推測せず「未確認」と書きます。出力はJSONだけにします。";
+  const user = `次は、DOC（どこでもオープンカンパニー）の回収MTG（キックオフ）の文字起こしです。
+会社名の候補：${company || "不明"}／FS担当：${fsName || "不明"}／実施日：${dateStr || "不明"}
+
+次のキーを持つJSONを1つだけ返してください（値はすべて日本語の短い文。読み取れないものは「未確認」）。
+{
+  "企業名": "",
+  "先方ご担当者名": "（例：山田様。複数なら「山田様・佐藤様」）",
+  "活用場所": "（説明会前・選考前・採用サイト掲載 など、話に出た使い方）",
+  "公開予定時期": "（例：11月上旬）",
+  "納品月": "（例：11月）",
+  "次回MTGの日時": "（確認MTGの日時。例：11/5(水) 14:00〜）",
+  "請求書着日スケジュール": "（ご納品月の翌月5営業日以内に請求書が届くことについて、先方が了承したなら「問題なし」、懸念や確認が必要なら「要確認：理由」、話に出ていなければ「未確認」）",
+  "特記事項": "（イレギュラーな要望・注意点。無ければ「なし」）",
+  "弊社の宿題": ["弊社（ネオキャリア）が持ち帰ってやること。無ければ空の配列"],
+  "貴社の宿題": ["先方にお願いしたこと。無ければ空の配列"]
+}
+${summaryText ? `\n# 参考：要約\n"""\n${String(summaryText).slice(0, 4000)}\n"""\n` : ""}
+# 文字起こし
+"""
+${text}
+"""`;
+  const out = await callLLM(sys, user, 1500, { json: true });
+  let j = {};
+  try { j = typeof out === "string" ? JSON.parse(String(out).replace(/^```(json)?|```$/g, "").trim()) : (out || {}); } catch { j = {}; }
+  const s = (v) => { const t = String(v == null ? "" : v).trim(); return t || "未確認"; };
+  const arr = (v) => (Array.isArray(v) ? v : String(v || "").split(/\n|・/)).map((x) => String(x || "").trim()).filter((x) => x && x !== "未確認" && x !== "なし");
+  return {
+    企業名: s(j["企業名"] || company), 先方ご担当者名: s(j["先方ご担当者名"]), 活用場所: s(j["活用場所"]),
+    公開予定時期: s(j["公開予定時期"]), 納品月: s(j["納品月"]), 次回MTGの日時: s(j["次回MTGの日時"]),
+    請求書着日スケジュール: s(j["請求書着日スケジュール"]), 特記事項: s(j["特記事項"]),
+    弊社の宿題: arr(j["弊社の宿題"]), 貴社の宿題: arr(j["貴社の宿題"]),
+  };
+}

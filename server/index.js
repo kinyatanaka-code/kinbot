@@ -94,7 +94,7 @@ function readMemory() {
   }
   return _memCache;
 }
-import { normalizeSpace, deleteChatMessage } from "./chatapp.js";
+import { normalizeSpace, deleteChatMessage, postToSpaceThread } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
@@ -261,6 +261,13 @@ import {
   isMoLostList,
   repairPhoneAsCompany,
   fillMoLostSource,
+  pendingKickoffMeetings,
+  upsertCsKickoff,
+  getCsKickoff,
+  listCsKickoffs,
+  getDocUrls,
+  setDocUrls,
+  clientContactByCompanyKey,
   claimAssign,
   releaseAssign,
   listTalkScripts,
@@ -635,7 +642,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -11259,6 +11266,317 @@ app.post("/api/calls/targets/:id/doc/send", async (req, res) => {
     }
     console.log(`[kincall] 資料を送付 target=${id} → ${to} by ${req.user}`);
     res.json({ ok: true, to });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===== CS：DOC 回収MTG（キックオフ）→ CS（カスタマーサクセス）への連携 =====
+// 流れ：キックオフの議事録ができる → AIで項目を読み取る → カレンダーから確認MTGとCS担当を探す
+//       → CSのOBスレに自動で投稿 → CS担当が決まっていて先方のメールが分かれば、FSのGmailに御礼メールの下書きを作る
+// 設定（settings）：csMembers＝[{email,name}]（CS 3人）、csChatSpace（OBスレのスペース）、csMailSubject／csMailBody（御礼メールのひな形）
+const CS_DEFAULT_SPACE = "spaces/AAQAdSZjoMU";
+const DOC_ADMIN_URL = "https://casual-interview-api.brainverse-ai.com/";
+const CS_DEFAULT_SUBJECT = "【どこでもオープンカンパニー】本日のお打ち合わせの御礼";
+const CS_DEFAULT_BODY = `{企業名}
+{先方ご担当者名}
+
+本日はお忙しい中、お時間をいただきありがとうございました。
+お打ち合わせの内容と今後の流れをお送りいたします。
+
+■ 次回お打ち合わせ（確認MTG）
+日時：{確認MTGの日時}
+URL：{確認MTGのURL}
+
+■ 管理画面
+{管理画面URL}
+
+■ 貴社の候補者用画面
+{候補者用画面URL}
+
+■ 貴社にご対応いただくこと
+・次回お打ち合わせまでに、初期学習をお願いいたします
+{貴社の宿題}
+{弊社の宿題}
+引き続きよろしくお願いいたします。
+
+{差出人}`;
+async function csSettings() {
+  const st = await getSettings().catch(() => ({}));
+  return {
+    members: (Array.isArray(st.csMembers) ? st.csMembers : []).filter((x) => x && x.email).map((x) => ({ email: String(x.email).toLowerCase(), name: String(x.name || x.email) })),
+    space: String(st.csChatSpace || CS_DEFAULT_SPACE),
+    subject: String(st.csMailSubject || CS_DEFAULT_SUBJECT),
+    body: String(st.csMailBody || CS_DEFAULT_BODY),
+  };
+}
+const csBase = () => String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+const csFmtDT = (iso) => { const t = Date.parse(iso || ""); if (!isFinite(t)) return ""; const j = new Date(t + 9 * 3600000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}(${"日月火水木金土"[j.getUTCDay()]}) ${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}〜`; };
+const csFmtD = (iso) => { const t = Date.parse(iso || ""); if (!isFinite(t)) return "未確認"; const j = new Date(t + 9 * 3600000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}`; };
+const csCoKey = (t) => apoCompanyKey(apoNameParts(String(t || "")).company || String(t || ""));
+// 「11/5(水) 14:00」のような文字から日時を作る（キックオフの日より後のいちばん近い日）
+function csParseDT(text, afterIso) {
+  const m = /(\d{1,2})\s*[\/月]\s*(\d{1,2})日?[^0-9]{0,8}(\d{1,2})\s*[:：時]\s*(\d{2})?/.exec(String(text || "").normalize("NFKC"));
+  if (!m) return null;
+  const after = Date.parse(afterIso || "") || Date.now();
+  const y0 = new Date(after + 9 * 3600000).getUTCFullYear();
+  for (const y of [y0, y0 + 1]) {
+    const t = Date.parse(`${y}-${String(m[1]).padStart(2, "0")}-${String(m[2]).padStart(2, "0")}T${String(m[3]).padStart(2, "0")}:${m[4] || "00"}:00+09:00`);
+    if (isFinite(t) && t > after - 86400000) return new Date(t).toISOString();
+  }
+  return null;
+}
+// カレンダーから確認MTGを探す：FSとCS 3人のカレンダーで、キックオフの後60日以内・予定名に同じ会社名がある予定（キックオフ以外）
+async function csFindConfirmMtg({ company, fsEmail, afterIso, members }) {
+  const key = csCoKey(company);
+  if (!key) return null;
+  const st = await getSettings().catch(() => ({}));
+  const ops = String(st.apoScanOwner || st.apoInviteOwner || "").trim();
+  const timeMin = new Date(Math.max(Date.parse(afterIso || "") || Date.now(), Date.now() - 3 * 86400000)).toISOString();
+  const timeMax = new Date(Date.parse(timeMin) + 60 * 86400000).toISOString();
+  const cals = [fsEmail, ...members.map((x) => x.email)].filter(Boolean);
+  const hits = [];
+  for (const cal of [...new Set(cals)]) {
+    const reader = (await gcalConnected(cal).catch(() => false)) ? cal : ops;
+    if (!reader) continue;
+    try {
+      for (const e of await listCalendarEvents(reader, cal, { timeMin, timeMax })) {
+        if (e.allDay || /キックオフ|リスケ|キャンセル/.test(e.title || "")) continue;
+        if (csCoKey(e.title) !== key && !String(e.title || "").normalize("NFKC").includes(String(company).normalize("NFKC").replace(/株式会社|\s/g, ""))) continue;
+        const csHit = members.find((x) => x.email === cal || (e.attendees || []).some((a) => String(a.email || "").toLowerCase() === x.email));
+        hits.push({ start: e.start, end: e.end, title: e.title, cs: csHit || null, confirmLike: /確認|MTG|打ち?合わせ|お打合せ|定例/.test(e.title || "") });
+      }
+    } catch { /* 読めないカレンダーは飛ばす */ }
+  }
+  hits.sort((a, b) => Number(b.confirmLike) - Number(a.confirmLike) || Number(!!b.cs) - Number(!!a.cs) || Date.parse(a.start) - Date.parse(b.start));
+  return hits[0] || null;
+}
+function csPostText(k, f, opts = {}) {
+  const base = csBase();
+  const confirm = k.confirm_start ? csFmtDT(k.confirm_start) : (f.次回MTGの日時 || "未確認");
+  const lines = [
+    opts.edited ? "✏️ *修正版*" : "",
+    `【回収MTG完了】${f.企業名 || k.company || "未確認"}（FS：${k.fs_name || "未確認"}）`,
+    `実施日：${csFmtD(k.meeting_at)}　納品月：${f.納品月 || "未確認"}`,
+    `活用場所：${f.活用場所 || "未確認"}`,
+    `公開予定：${f.公開予定時期 || "未確認"}`,
+    `確認MTG：${confirm}　CS担当：${k.cs_name || "未定"}`,
+    `請求スケジュール：${f.請求書着日スケジュール || "未確認"}`,
+    `特記事項：${f.特記事項 || "未確認"}`,
+    (f.弊社の宿題 || []).length ? `弊社の宿題：${f.弊社の宿題.join("／")}` : "",
+    `議事録：${base}/history.html?id=${encodeURIComponent(k.bot_id)}`,
+    k.cs_email ? "" : `👉 CS担当を選んでください：${base}/cs.html?bot=${encodeURIComponent(k.bot_id)}`,
+  ];
+  return lines.filter(Boolean).join("\n");
+}
+async function csPost(k, { edited = false } = {}) {
+  const cfg = await csSettings();
+  const f = k.fields || {};
+  try {
+    const msg = await postToSpaceThread(cfg.space, csPostText(k, f, { edited }), k.chat_thread || "");
+    return await upsertCsKickoff(k.bot_id, { chat_thread: (msg.thread && msg.thread.name) || k.chat_thread || null, chat_message: msg.name || null, posted_at: new Date().toISOString(), error: null });
+  } catch (e) {
+    console.warn("[cs] OBスレへの投稿に失敗", e.message);
+    return await upsertCsKickoff(k.bot_id, { error: `OBスレに投稿できませんでした：${e.message}${e.hint ? `（${e.hint}）` : ""}` });
+  }
+}
+// CS担当の確認MTGの参加リンク（スマートリンク）。CS担当のZoomへつながる。アポではないので集計・一覧には出さない
+async function csEnsureConfirmLink(k) {
+  if (!k.cs_email) return k;
+  if (k.confirm_slug) {
+    const l = await getSmartLink(k.confirm_slug).catch(() => null);
+    if (l && String(l.current_owner || "").toLowerCase() === k.cs_email) return k;
+    if (l) { await setSmartLinkOwner(k.confirm_slug, k.cs_email).catch(() => {}); return k; }
+  }
+  let slug;
+  for (let i = 0; i < 6; i++) { slug = zoomLikeSlug(); if (!(await getSmartLink(slug))) break; }
+  const start = k.confirm_start ? new Date(k.confirm_start) : null;
+  const link = await createSmartLink({ slug, label: `【確認MTG】${(k.fields && k.fields.企業名) || k.company}`, owner: k.cs_email, createdBy: "cs-kickoff",
+    startTime: start ? start.toISOString() : null, endTime: start ? new Date(start.getTime() + 60 * 60000).toISOString() : null });
+  if (!link) return k;
+  await setSmartLinkOrigin(link.slug, "cs", null).catch(() => {});
+  return (await upsertCsKickoff(k.bot_id, { confirm_slug: link.slug })) || k;
+}
+// 御礼メールの本文（ひな形に差し込む。宿題が無ければその項目ごと消す）
+async function csBuildMail(k) {
+  const cfg = await csSettings();
+  const f = k.fields || {};
+  const urls = await getDocUrls(k.account).catch(() => ({}));
+  const person = String(f.先方ご担当者名 && f.先方ご担当者名 !== "未確認" ? f.先方ご担当者名 : (k.client_name ? `${k.client_name}様` : "ご担当者様"));
+  const ours = (f.弊社の宿題 || []), theirs = (f.貴社の宿題 || []);
+  const vars = {
+    "{企業名}": (f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company) || "",
+    "{先方ご担当者名}": /様$/.test(person) ? person : `${person}様`,
+    "{確認MTGの日時}": k.confirm_start ? csFmtDT(k.confirm_start) : (f.次回MTGの日時 && f.次回MTGの日時 !== "未確認" ? f.次回MTGの日時 : "（後ほどご連絡いたします）"),
+    "{確認MTGのURL}": k.confirm_slug ? joinUrl(k.confirm_slug) : "（後ほどご連絡いたします）",
+    "{管理画面URL}": urls.doc_admin_url || DOC_ADMIN_URL,
+    "{候補者用画面URL}": urls.doc_candidate_url || "（後ほどご連絡いたします）",
+    "{貴社の宿題}": theirs.map((x) => `・${x}`).join("\n"),
+    "{弊社の宿題}": ours.length ? `\n■ 弊社の宿題\n${ours.map((x) => `・${x}`).join("\n")}\n` : "",
+    "{差出人}": k.fs_name || "",
+  };
+  let body = cfg.body, subject = cfg.subject;
+  for (const [kk, v] of Object.entries(vars)) { body = body.split(kk).join(v); subject = subject.split(kk).join(v); }
+  body = body.replace(/\n{3,}/g, "\n\n");
+  return { subject, body };
+}
+async function csMakeDraft(k) {
+  if (!k.fs_email) return { ok: false, reason: "FS担当が分かりません" };
+  if (!(await gcalConnected(k.fs_email).catch(() => false))) return { ok: false, reason: "FSのGoogle連携が必要です" };
+  const m = await csBuildMail(k);
+  try {
+    const d = await gmailCreateDraft(k.fs_email, { to: k.client_email || "", subject: m.subject, bodyText: m.body });
+    await upsertCsKickoff(k.bot_id, { draft_id: (d && d.id) || null, draft_at: new Date().toISOString() });
+    return { ok: true, draftId: d && d.id, to: k.client_email || "" };
+  } catch (e) {
+    return { ok: false, reason: e.needScope ? "FSのGmailの権限がありません（Google連携を一度外してつなぎ直してください）" : e.message };
+  }
+}
+// 1件のキックオフを連携する（読み取り → 確認MTG・CS担当 → OBスレ → リンク・下書き）
+async function csProcessKickoff(m0) {
+  const m = (await getMeeting(m0.bot_id).catch(() => null)) || m0;
+  const cfg = await csSettings();
+  const company = String(m.account || apoNameParts(m.title || "").company || String(m.title || "").replace(/【[^】]*】/g, "")).trim();
+  const fsEmail = String(m.owner || "").toLowerCase();
+  const fsName = fsEmail ? await repDisplayName(fsEmail).catch(() => fsEmail) : "";
+  const summaryText = typeof m.summary === "string" ? m.summary : JSON.stringify(m.summary || {}).slice(0, 4000);
+  let fields;
+  try { fields = await extractKickoff(m.transcript || [], { company, fsName, dateStr: jstDateStr(m.created_at), summaryText }); }
+  catch (e) { await upsertCsKickoff(m.bot_id, { account: m.account || company, company, title: m.title, meeting_at: m.created_at, fs_email: fsEmail, fs_name: fsName, status: "error", error: `読み取りに失敗：${e.message}` }); return; }
+  const cal = await csFindConfirmMtg({ company, fsEmail, afterIso: m.created_at, members: cfg.members }).catch(() => null);
+  const confirmStart = cal ? new Date(Date.parse(cal.start)).toISOString() : csParseDT(fields.次回MTGの日時, m.created_at);
+  const contact = await clientContactByCompanyKey(csCoKey, company).catch(() => null);
+  let k = await upsertCsKickoff(m.bot_id, {
+    account: m.account || company, company, title: m.title, meeting_at: m.created_at, fs_email: fsEmail, fs_name: fsName, fields,
+    cs_email: cal && cal.cs ? cal.cs.email : null, cs_name: cal && cal.cs ? cal.cs.name : null,
+    confirm_start: confirmStart, confirm_from: cal ? "カレンダー" : (confirmStart ? "議事録" : null),
+    client_email: contact ? contact.client_email : null, client_name: contact ? contact.client_name : null, status: "posted",
+  });
+  if (!k) return;
+  k = (await csPost(k)) || k;
+  if (k.cs_email) {
+    k = await csEnsureConfirmLink(k);
+    const d = await csMakeDraft(k);
+    if (d.ok) await postToSpaceThread(cfg.space, `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です。入れて送ってください）"}`, k.chat_thread || "").catch(() => {});
+  }
+  console.log(`[cs] キックオフを連携しました：${company}（FS ${fsName}・CS ${k.cs_name || "未定"}）`);
+}
+let _csBusy = false;
+async function csTick() {
+  if (_csBusy) return; _csBusy = true;
+  try {
+    // 始めた日（はじめて動いた時刻の24時間前）より前のキックオフは、OBスレに一気に流さない
+    const st = await getSettings().catch(() => ({}));
+    let since = st.csStartAt;
+    if (!since) { since = new Date(Date.now() - 24 * 3600000).toISOString(); await saveSettings({ csStartAt: since }).catch(() => {}); }
+    for (const m of await pendingKickoffMeetings(7, since)) await csProcessKickoff(m).catch((e) => console.warn("[cs] 連携エラー", e.message));
+  }
+  finally { _csBusy = false; }
+}
+setInterval(() => { csTick().catch(() => {}); }, 5 * 60 * 1000).unref?.();
+setTimeout(() => { csTick().catch(() => {}); }, 60 * 1000).unref?.();
+
+// CS画面の API
+async function canCs(req) {
+  if (req.isAdmin || req.actingCloser || (await isCloserUser(req.user).catch(() => false)) || isAlwaysCloser(req.user)) return true;
+  const cfg = await csSettings();
+  return cfg.members.some((x) => x.email === String(req.user || "").toLowerCase());
+}
+app.get("/api/cs/kickoffs", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
+    const cfg = await csSettings();
+    const rows = (await listCsKickoffs(150)).map((k) => ({ ...k, confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}` }));
+    res.json({ ok: true, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, kickoffs: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 直す：項目・CS担当・確認MTG・宛先・候補者用URL（会社プロフィールにも入れる）
+app.put("/api/cs/kickoffs/:bot", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const k0 = await getCsKickoff(req.params.bot);
+    if (!k0) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const cfg = await csSettings();
+    const v = {};
+    if (b.fields && typeof b.fields === "object") v.fields = { ...(k0.fields || {}), ...b.fields };
+    if (b.csEmail !== undefined) { const c = cfg.members.find((x) => x.email === String(b.csEmail || "").toLowerCase()); v.cs_email = c ? c.email : null; v.cs_name = c ? c.name : null; }
+    if (b.confirmStart !== undefined) { const t = Date.parse(b.confirmStart || ""); v.confirm_start = isFinite(t) ? new Date(t).toISOString() : null; v.confirm_from = isFinite(t) ? "手入力" : null; }
+    if (b.clientEmail !== undefined) v.client_email = String(b.clientEmail || "").trim() || null;
+    if (b.candidateUrl !== undefined || b.adminUrl !== undefined) await setDocUrls(k0.account, { candidateUrl: b.candidateUrl, adminUrl: b.adminUrl });
+    let k = await upsertCsKickoff(k0.bot_id, v);
+    if (k.cs_email) k = await csEnsureConfirmLink(k);
+    if (k.confirm_slug && v.confirm_start !== undefined && k.confirm_start) {
+      const st = new Date(k.confirm_start);
+      await pool.query(`UPDATE smart_links SET start_time=$2, end_time=$3 WHERE slug=$1`, [k.confirm_slug, st.toISOString(), new Date(st.getTime() + 3600000).toISOString()]).catch(() => {});
+    }
+    res.json({ ok: true, kickoff: k });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/cs/kickoffs/:bot/:act(draft|repost|redo)", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    let k = await getCsKickoff(req.params.bot);
+    if (!k) return res.status(404).json({ error: "見つかりません" });
+    if (req.params.act === "redo") {   // 読み取りからやり直す（OBスレには修正版として返信）
+      const m = await getMeeting(k.bot_id);
+      const fields = await extractKickoff(m.transcript || [], { company: k.company, fsName: k.fs_name, dateStr: jstDateStr(k.meeting_at), summaryText: JSON.stringify(m.summary || {}).slice(0, 4000) });
+      k = await upsertCsKickoff(k.bot_id, { fields });
+      k = await csPost(k, { edited: true });
+      return res.json({ ok: true, kickoff: k });
+    }
+    if (req.params.act === "repost") { k = await csPost(k, { edited: true }); return res.json({ ok: true, kickoff: k }); }
+    if (!k.cs_email) return res.status(400).json({ error: "先にCS担当を選んでください（確認MTGのURLに使います）" });
+    k = await csEnsureConfirmLink(k);
+    const d = await csMakeDraft(k);
+    if (!d.ok) return res.status(400).json({ error: d.reason });
+    const cfg = await csSettings();
+    await postToSpaceThread(cfg.space, `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です）"}`, k.chat_thread || "").catch(() => {});
+    res.json({ ok: true, ...d });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 手で取り込む（予定名に「キックオフ」が無い・始めた日より前の回収MTGなど）。議事録のURLの id= を渡す
+app.post("/api/cs/import", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const id = String((req.body || {}).botId || "").trim().replace(/^.*[?&]id=/, "").replace(/[&#].*$/, "");
+    const m = id ? await getMeeting(id).catch(() => null) : null;
+    if (!m) return res.status(404).json({ error: "議事録が見つかりません（議事録のURLか、id= のあとの文字を入れてください）" });
+    if (!(m.transcript || []).length) return res.status(400).json({ error: "この商談には文字起こしがまだありません" });
+    if (await getCsKickoff(m.bot_id)) return res.status(409).json({ error: "すでに取り込んであります（一覧から開いてください）" });
+    await csProcessKickoff(m);
+    res.json({ ok: true, bot: m.bot_id });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const k = await getCsKickoff(req.params.bot);
+    if (!k) return res.status(404).json({ error: "見つかりません" });
+    res.json({ ok: true, ...(await csBuildMail(k)) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 設定（CS 3人・OBスレ・ひな形）。管理者・クローザー
+app.put("/api/cs/settings", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "管理者・クローザーだけが変えられます" });
+    const b = req.body || {};
+    const patch = {};
+    if (Array.isArray(b.members)) patch.csMembers = b.members.filter((x) => x && x.email).slice(0, 10).map((x) => ({ email: String(x.email).trim().toLowerCase(), name: String(x.name || "").trim() || String(x.email) }));
+    if (b.space !== undefined) patch.csChatSpace = normalizeSpace(b.space) || CS_DEFAULT_SPACE;
+    if (b.subject !== undefined) patch.csMailSubject = String(b.subject || "").slice(0, 300);
+    if (b.body !== undefined) patch.csMailBody = String(b.body || "").slice(0, 6000);
+    await saveSettings(patch);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 会社プロフィールのDOCのURL（管理画面・候補者用画面）
+app.get("/api/accounts/:key/doc-urls", async (req, res) => {
+  try { res.json({ ok: true, ...(await getDocUrls(decodeURIComponent(req.params.key))), defaultAdmin: DOC_ADMIN_URL }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/accounts/:key/doc-urls", async (req, res) => {
+  try {
+    const b = req.body || {};
+    res.json({ ok: true, ...(await setDocUrls(decodeURIComponent(req.params.key), { adminUrl: b.adminUrl, candidateUrl: b.candidateUrl })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -23747,8 +24065,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-15e アポ一覧で予定名を変えたら、その場でカードの名前が変わるように（リスケ・キャンセル・テストで外す も同じ）。前は読み直しの関数を呼べずに止まっていた。";
+const BUILD_TAG = "2026-10-15f CS連携（回収MTG＝キックオフ）：議事録ができたら項目を読み取り、カレンダーから確認MTGとCS担当を探して、CSのOBスレに自動で投稿。CS担当と先方のメールが分かればFSのGmailに御礼メールの下書き。CS連携の画面（直す・修正版の投稿・下書き・設定）と、会社プロフィールにDOCのURL欄。";
 const BUILD_FEATURES = [
+  "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
   "リスケ・キャンセルになったアポも、取った月の実績に残す（作り直しは二重に数えない）",

@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20261015e";
+    sc.src = "kbchat.js?v=20261015f";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -70,6 +70,7 @@ const KB_MENU = [
     ],
   },
   { href: "docs.html", label: "資料トラッキング", ico: "ico-doc" },
+  { href: "cs.html", label: "CS連携", ico: "ico-hist" },
 ];
 
 // AI社員の下（下段）に置く「ツール」。分析・開発系をまとめる。

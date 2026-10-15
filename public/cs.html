@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot CS連携</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20261015f" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
+    <style>
+    .cs-wrap{display:flex;flex-direction:column;gap:12px;}
+    .cs-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+    .cs-card{background:#fff;border:1px solid #e6ece9;border-radius:12px;padding:12px 14px;}
+    .cs-card.open{box-shadow:0 6px 18px -12px rgba(13,91,71,.4);}
+    .cs-h{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;cursor:pointer;}
+    .cs-h b{font-size:15px;color:#1f2a26;}
+    .cs-pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:#eef3f0;color:#5f6b64;white-space:nowrap;}
+    .cs-pill.ok{background:#e1f5ee;color:#085041;} .cs-pill.warn{background:#fff4dc;color:#7a5200;} .cs-pill.ng{background:#fdecea;color:#b3261e;}
+    .cs-sub{font-size:12px;color:#5f6b64;}
+    .cs-grid{display:grid;grid-template-columns:150px minmax(0,1fr);gap:6px 10px;margin-top:10px;align-items:start;font-size:13px;}
+    .cs-grid label{font-size:12px;color:#5b7a6d;padding-top:7px;}
+    .cs-grid input,.cs-grid select,.cs-grid textarea,.cs-set input,.cs-set textarea{width:100%;box-sizing:border-box;border:1px solid #d7e3dd;border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;background:#fff;}
+    .cs-grid .unk{border-color:#f0c37a;background:#fffaf0;}
+    .cs-act{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center;}
+    .cs-mail{white-space:pre-wrap;background:#f7faf8;border:1px solid #e6ece9;border-radius:10px;padding:10px 12px;font-size:12.5px;margin-top:10px;max-height:340px;overflow:auto;}
+    .cs-err{color:#b3261e;font-size:12px;margin-top:6px;}
+    .cs-set{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 10px;font-size:13px;}
+    .cs-set label{font-size:12px;color:#5b7a6d;padding-top:7px;}
+    </style>
+</head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <div class="side-wrap"><a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ履歴</span><span class="side-arrow">›</span></a>
+          <div class="side-sub">
+            <div class="side-sub-head">アポ履歴</div>
+            <a class="side-sub-item" href="apo.html?tab=list">アポ一覧</a>
+            <a class="side-sub-item" href="report.html?panel=interns">インターンアポ</a>
+            <a class="side-sub-item" href="apo.html?tab=rot">割り振り設定</a>
+            <a class="side-sub-item" href="apo.html?tab=team">チーム実績</a>
+            <a class="side-sub-item" href="apo.html?tab=mail">メール設定</a>
+          </div></div>
+        <a class="side-item" href="docs.html"><span class="side-ico ico-doc"></span><span class="side-label">資料トラッキング</span></a>
+        <div class="side-sep"></div>
+        <div class="side-wrap"><a class="side-item side-app" href="/kincall">
+          <img class="side-app-ico" src="/kincall.svg" alt="" /><span class="side-label">kincall</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="sf-launch.html">
+          <span class="side-ico ico-deal"></span><span class="side-label">Salesforce</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="ai.html">
+          <span class="side-ico ico-rec"></span><span class="side-label">AI社員</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="report.html">
+          <span class="side-ico ico-ana"></span><span class="side-label">その他ツール</span></a></div>
+        <div class="side-foot"><a href="settings.html" class="side-set" title="設定">設定</a><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">CS連携（回収MTG）</span></div></header>
+        <main class="report-page">
+          <div class="cs-wrap">
+            <p class="note" style="margin:0">予定名に「キックオフ」が入った商談の議事録ができると、項目を読み取って CS の OBスレに自動で投稿します。CS担当と先方のメールが分かれば、FS の Gmail に御礼メールの下書きを作ります。読み取れなかった項目は「未確認」になるので、ここで直してから「OBスレに修正版を投稿」できます。</p>
+            <div class="cs-bar">
+              <button type="button" class="btn ghost" id="csReload">読み直す</button>
+              <button type="button" class="btn ghost" id="csSetBtn">設定（CS 3人・OBスレ・御礼メール）</button>
+              <input id="csImport" placeholder="議事録のURLを貼って手で取り込む" style="min-width:280px;border:1px solid #d7e3dd;border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;">
+              <button type="button" class="btn ghost" id="csImportBtn">取り込む</button>
+              <span class="rev-status" id="csSt"></span>
+            </div>
+            <div class="cs-card" id="csSet" hidden></div>
+            <div id="csList"><div class="empty-state">読み込み中…</div></div>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script src="nav.js?v=20261015f"></script>
+    <script src="cs.js?v=20261015f"></script>
+  </body>
+</html>

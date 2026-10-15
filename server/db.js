@@ -6645,6 +6645,7 @@ export async function listApoSmartLinks({ from, to } = {}) {
     // 後から足した列が無い環境でも落ちないように、先に用意しておく
     await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT;`).catch(() => {});
     await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS client_cc TEXT;`).catch(() => {});
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS origin TEXT;`).catch(() => {});
     const { rows } = await pool.query(
       `SELECT slug, label, setter, setter_email, current_owner, event_id,
               start_time, end_time, business, client_email, client_name, client_cc, excluded, excluded_reason,
@@ -6653,6 +6654,7 @@ export async function listApoSmartLinks({ from, to } = {}) {
          FROM smart_links
         WHERE start_time IS NOT NULL
           AND start_time >= $1 AND start_time <= $2
+          AND COALESCE(origin,'') <> 'cs'   -- CSの確認MTGのリンクはアポではないので出さない
         ORDER BY start_time`, [from, to]);
     return rows;
   } catch (e) { console.error("[db] listApoSmartLinks", e.message); throw e; }
@@ -11253,4 +11255,95 @@ export async function isMailOptout(email) {
     const { rows } = await pool.query(`SELECT 1 FROM mail_optout WHERE email = lower(trim($1))`, [email]);
     return !!rows[0];
   } catch { return false; }
+}
+
+// ===== CS：DOC 回収MTG（キックオフ）→ CSへの連携 =====
+//   cs_kickoffs … キックオフの議事録1件ごとに、読み取った項目・CS担当・確認MTG・OBスレの投稿・御礼メールの下書き
+let _csReady = false;
+async function ensureCs() {
+  if (_csReady || !pool) return;
+  await sq(`CREATE TABLE IF NOT EXISTS cs_kickoffs (
+      bot_id TEXT PRIMARY KEY, account TEXT, company TEXT, title TEXT, meeting_at TIMESTAMPTZ,
+      fs_email TEXT, fs_name TEXT, fields JSONB, cs_email TEXT, cs_name TEXT,
+      confirm_start TIMESTAMPTZ, confirm_from TEXT, confirm_slug TEXT, client_email TEXT, client_name TEXT,
+      chat_thread TEXT, chat_message TEXT, posted_at TIMESTAMPTZ, draft_id TEXT, draft_at TIMESTAMPTZ,
+      status TEXT, error TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`);
+  await sq(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS doc_admin_url TEXT;`).catch(() => {});
+  await sq(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS doc_candidate_url TEXT;`).catch(() => {});
+  _csReady = true;
+}
+// まだ連携していない、議事録のできたキックオフ（直近 days 日）
+export async function pendingKickoffMeetings(days = 7, sinceIso = null) {
+  if (!pool) return [];
+  try {
+    await ensureCs();
+    const { rows } = await pool.query(
+      `SELECT m.bot_id, m.title, m.owner, m.account, m.created_at, m.summary
+         FROM meetings m
+        WHERE m.created_at > now() - ($1 || ' days')::interval
+          AND ($2::timestamptz IS NULL OR m.created_at >= $2::timestamptz)
+          AND COALESCE(m.title,'') ~ 'キックオフ'
+          AND m.summary IS NOT NULL AND jsonb_array_length(COALESCE(m.transcript,'[]'::jsonb)) > 0
+          AND NOT EXISTS (SELECT 1 FROM cs_kickoffs k WHERE k.bot_id = m.bot_id)
+        ORDER BY m.created_at`, [String(days), sinceIso]);
+    return rows;
+  } catch (e) { console.error("[db] pendingKickoffMeetings", e.message); return []; }
+}
+export async function upsertCsKickoff(botId, v) {
+  if (!pool || !botId) return null;
+  try {
+    await ensureCs();
+    const cols = ["account", "company", "title", "meeting_at", "fs_email", "fs_name", "fields", "cs_email", "cs_name", "confirm_start", "confirm_from",
+      "confirm_slug", "client_email", "client_name", "chat_thread", "chat_message", "posted_at", "draft_id", "draft_at", "status", "error"];
+    const keys = cols.filter((c) => v[c] !== undefined);
+    const vals = keys.map((c) => (c === "fields" ? JSON.stringify(v[c] || {}) : v[c]));
+    const ins = `INSERT INTO cs_kickoffs (bot_id${keys.map((k) => `, ${k}`).join("")}) VALUES ($1${keys.map((_, i) => `, $${i + 2}`).join("")})
+      ON CONFLICT (bot_id) DO UPDATE SET ${keys.length ? keys.map((k) => `${k} = EXCLUDED.${k}`).join(", ") + "," : ""} updated_at = now() RETURNING *`;
+    const { rows } = await pool.query(ins, [botId, ...vals]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] upsertCsKickoff", e.message); return null; }
+}
+export async function getCsKickoff(botId) {
+  if (!pool || !botId) return null;
+  try { await ensureCs(); const { rows } = await pool.query(`SELECT * FROM cs_kickoffs WHERE bot_id = $1`, [botId]); return rows[0] || null; }
+  catch { return null; }
+}
+export async function listCsKickoffs(limit = 100) {
+  if (!pool) return [];
+  try {
+    await ensureCs();
+    const { rows } = await pool.query(
+      `SELECT k.*, a.doc_admin_url, a.doc_candidate_url FROM cs_kickoffs k LEFT JOIN accounts a ON a.key = k.account
+        ORDER BY COALESCE(k.meeting_at, k.created_at) DESC LIMIT $1`, [limit]);
+    return rows;
+  } catch (e) { console.error("[db] listCsKickoffs", e.message); return []; }
+}
+// 会社ごとのDOCのURL（管理画面・候補者用画面）。会社プロフィールに入れる
+export async function getDocUrls(key) {
+  if (!pool || !key) return {};
+  try { await ensureCs(); const { rows } = await pool.query(`SELECT doc_admin_url, doc_candidate_url FROM accounts WHERE key = $1`, [key]); return rows[0] || {}; }
+  catch { return {}; }
+}
+export async function setDocUrls(key, { adminUrl, candidateUrl }) {
+  if (!pool || !key) return null;
+  try {
+    await ensureCs();
+    await pool.query(
+      `INSERT INTO accounts (key, doc_admin_url, doc_candidate_url, updated_at) VALUES ($1, $2, $3, now())
+       ON CONFLICT (key) DO UPDATE SET
+         doc_admin_url = CASE WHEN $2::text IS NULL THEN accounts.doc_admin_url ELSE NULLIF($2,'') END,
+         doc_candidate_url = CASE WHEN $3::text IS NULL THEN accounts.doc_candidate_url ELSE NULLIF($3,'') END,
+         updated_at = now()`, [key, adminUrl === undefined ? null : String(adminUrl || ""), candidateUrl === undefined ? null : String(candidateUrl || "")]);
+    return await getDocUrls(key);
+  } catch (e) { console.error("[db] setDocUrls", e.message); return null; }
+}
+// 会社名から、アポで分かっている先方のメール・担当者名（いちばん新しいもの）
+export async function clientContactByCompanyKey(keyFn, company) {
+  if (!pool || !company) return null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT label, client_email, client_name FROM smart_links WHERE COALESCE(client_email,'') <> '' ORDER BY COALESCE(start_time, created_at) DESC LIMIT 3000`);
+    const k = keyFn(company);
+    return rows.find((r) => k && keyFn(r.label) === k) || null;
+  } catch { return null; }
 }
