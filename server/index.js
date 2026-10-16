@@ -14351,6 +14351,25 @@ app.get("/api/calls/awards", async (req, res) => {
     const 受注明細 = {};   // 人 → [{ 会社, 日 }]
     const 獲得者不明 = []; // アポの獲得者が見つからなかった受注（会社名が違うなど）
     const won = await listWonDealsBetween(from, to).catch(() => []);
+    // 案件を「受注」にし忘れていても、キックオフ（お申込・回収MTG）をした会社は受注として数える（2026-10-16〜）。
+    //   その会社の最初のキックオフがこの月で、ほかの月に受注になった案件が無い会社だけ足す（二重に数えない）
+    try {
+      const ckey = (name) => normCompanyKey(parseLaunchTitle(String(name || "").normalize("NFKC").replace(/^\s*(zoom|ZOOM|Zoom)\s*/, "")).company || String(name || "").replace(/【[^】]*】/g, "").split(/[\/／]/)[0]);
+      const wonAll = new Set((await listWonDealsBetween("2025-01-01", to).catch(() => [])).map((d) => ckey(d.company_name)).filter(Boolean));
+      const first = new Map();
+      const ms = await listMeetings({ isAdmin: true, from: new Date(Date.parse(from + "T00:00:00Z") - 180 * 86400000).toISOString().slice(0, 10), to, limit: 20000, light: true }).catch(() => []);
+      for (const m of ms) {
+        if (!/キックオフ|お申込/.test(String(m.title || ""))) continue;
+        const k = ckey(apoNameParts(m.title || "").company || m.title);
+        const d = jstDateStr(m.created_at);
+        if (!k || !d) continue;
+        if (!first.has(k) || d < first.get(k).d) first.set(k, { d, name: apoNameParts(m.title || "").company || m.title });
+      }
+      for (const [k, v] of first) {
+        if (v.d < from || v.d > to || wonAll.has(k)) continue;
+        won.push({ company_name: v.name, won_day: v.d, byKickoff: true });
+      }
+    } catch (e) { console.warn("[awards] キックオフからの受注", e.message); }
     if (won.length) {
       // 会社名をそろえる（「ZOOM」「【再商談】」「/○○様」「○○様」などを落とす）
       const coKey = (name) => {
@@ -14358,10 +14377,13 @@ app.get("/api/calls/awards", async (req, res) => {
         t = t.split(/[\/／]/)[0].replace(/\s+\S+様$/, "").replace(/様$/, "").trim();
         return normCompanyKey(parseLaunchTitle(t).company || t) || normCompanyKey(t);
       };
+      // アポの獲得者：獲得者のメールが無い古いアポも入れる（名前で数える）。いちばん最初のアポを取った人に付ける
+      const emailByName = new Map((await listApoSetters().catch(() => [])).map((l) => [normN(l.setter), l.setter_email]));
       const setters = [];
-      for (const l of await listApoSetters().catch(() => [])) {
+      const apoRows = (await listApoForMatch(400).catch(() => [])).sort((a, b) => Date.parse(a.start_time || 0) - Date.parse(b.start_time || 0));
+      for (const l of apoRows) {
         const k = coKey(parseLaunchTitle(l.label || "").company || "");
-        if (k) setters.push({ k, email: l.setter_email, name: l.setter });
+        if (k) setters.push({ k, email: emailByName.get(normN(l.setter)) || "", name: l.setter });
       }
       const exact = new Map();
       for (const x of setters) if (!exact.has(x.k)) exact.set(x.k, x);
@@ -14369,10 +14391,12 @@ app.get("/api/calls/awards", async (req, res) => {
         const k = coKey(d.company_name);
         let who = k ? exact.get(k) : null;
         if (!who && k && k.length >= 3) who = setters.find((x) => x.k.length >= 3 && (x.k.includes(k) || k.includes(x.k))) || null;
-        const item = { 会社: d.company_name || "", 日: d.won_day || "" };
+        const item = { 会社: d.company_name || "", 日: d.won_day || "", キックオフで判定: !!d.byKickoff };
         if (!who) { 獲得者不明.push(item); continue; }
-        bump(受注数, who.email, 1);
-        (受注明細[who.email] = 受注明細[who.email] || []).push(item);
+        if (who.email) {
+          bump(受注数, who.email, 1);
+          (受注明細[who.email] = 受注明細[who.email] || []).push(item);
+        }
         if (who.name) {
           const nk = "name:" + normN(who.name);
           bump(受注数, nk, 1);
@@ -24167,7 +24191,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16a MO失注のリストから取ったアポが新規アポ獲得数に入っていなかったのを修正：リストのグループ（過去失注など）より先に、リスト名の「MO失注」を見て新規リストとして数える。MO失注のリストにいるリードのソースも「MO失注」に直す。";
+const BUILD_TAG = "2026-10-16b アワードの受注数：案件を受注にし忘れていても、その月に初めてキックオフ（お申込・回収MTG）をした会社は受注として数える（ほかの月に受注の案件がある会社は足さない）。獲得者は、メールの無い古いアポも名前で探す。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",

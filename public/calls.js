@@ -4126,7 +4126,7 @@ function openAwardBig(idx) {
       const cls = p.v > 0 && p.rank <= 3 ? ` m${p.rank}` : "";
       const cos = coOf(p);
       const coHtml = cos.length
-        ? `<div class="kc-awm-cos">${cos.map((c) => `<span class="kc-awm-co"><i class="kc-awm-co-ic" aria-hidden="true"></i>${esc(c.会社 || "（会社名なし）")}${c.日 ? `<em>${Number(c.日.slice(5, 7))}/${Number(c.日.slice(8, 10))}</em>` : ""}</span>`).join("")}</div>`
+        ? `<div class="kc-awm-cos">${cos.map((c) => `<span class="kc-awm-co"><i class="kc-awm-co-ic" aria-hidden="true"></i>${esc(c.会社 || "（会社名なし）")}${c.日 ? `<em>${Number(c.日.slice(5, 7))}/${Number(c.日.slice(8, 10))}${c.キックオフで判定 ? "・キックオフ" : ""}</em>` : ""}</span>`).join("")}</div>`
         : "";
       const ls = listOf(p);
       const lsHtml = ls.length
