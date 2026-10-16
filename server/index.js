@@ -14312,7 +14312,8 @@ async function sfWinsByCompany(user, req = null) {
   info.user = sfUser;
   if (!sfUser) { info.error = "Salesforceにつながっている人が見つかりません（設定のSF実行ユーザーを確認してください）"; _sfWinCache = { at: Date.now(), map: null, info }; return map; }
   const since = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
-  const stage = `(StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '09%' OR StageName LIKE '%受注%' OR StageName LIKE '%申込書回収%' OR IsWon = true)`;
+  // 06 : 申込書回収完了 と 08 : 受注処理完了（とその途中・受注の名前の段階）。「07 : 更新」はリピートの更新なので入れない
+  const stage = `(StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%受注%' OR StageName LIKE '%申込書回収%')`;
   const tries = [
     `SELECT Account.Name, StageName, IsClosed, IsWon, SS06__c, WinDate__c, CloseDate FROM Opportunity WHERE ${stage} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
     `SELECT Account.Name, StageName, IsClosed, IsWon, CloseDate FROM Opportunity WHERE ${stage} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
@@ -14324,14 +14325,19 @@ async function sfWinsByCompany(user, req = null) {
   }
   if (!recs) { info.error = `Salesforceを読めませんでした：${lastErr}`; _sfWinCache = { at: Date.now(), map: null, info }; return map; }
   for (const o of recs) {
-    if (o.IsClosed && !o.IsWon && !/^0[6-9]|受注|申込書回収/.test(String(o.StageName || ""))) continue;   // 失注で閉じたもの
+    if (o.IsClosed && !o.IsWon) continue;   // 失注で閉じたもの
+    if (/更新/.test(String(o.StageName || ""))) continue;
     const name = (o.Account && o.Account.Name) || "";
     const k = normCompanyKey(String(name).normalize("NFKC"));
     // 日付は SS06昇格日 → 受注日 → 完了予定日 の「順」で、最初にあるものを使う（完了予定日は予定なので、早くても優先しない）
     const okd = (x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x || "").slice(0, 10)) ? String(x).slice(0, 10) : "";
     const d0 = okd(o.SS06__c) || okd(o.WinDate__c) || okd(o.CloseDate);
     if (!k || !d0) continue;
-    if (!map.has(k) || d0 < map.get(k).d) map.set(k, { d: d0, name, stage: o.StageName || "" });
+    // 会社ごとに、受注になった日を全部持つ（前にも受注している会社＝既存のお客様の、新しい受注も数えるため）
+    const cur = map.get(k) || { d: d0, name, stage: o.StageName || "", days: [] };
+    cur.days.push(d0);
+    if (d0 < cur.d) { cur.d = d0; cur.stage = o.StageName || ""; }
+    map.set(k, cur);
   }
   info.ok = true; info.count = map.size;
   _sfWinCache = { at: Date.now(), map, info };
@@ -14413,8 +14419,8 @@ app.get("/api/calls/awards", async (req, res) => {
     const 受注数 = {};
     const 受注明細 = {};   // 人 → [{ 会社, 日 }]
     const 獲得者不明 = []; // アポの獲得者が見つからなかった受注（会社名が違うなど）
-    // 受注＝Salesforceの商談が「06 : 申込書回収完了」以降の段階になった会社（2026-10-16 田中さん）。
-    //   日付は SS06昇格日 → 受注日 → 完了予定日 の早い日で、その会社で初めてそうなった日がこの月なら数える。
+    // 受注＝Salesforceの商談が「06 : 申込書回収完了」「08 : 受注処理完了」になった会社（2026-10-16 田中さん）。「07 : 更新」は入れない。
+    //   日付は SS06昇格日 → 受注日 → 完了予定日 の順。前にも受注している会社でも、この月に受注した商談があれば数える（会社ごとに1件）。
     //   Salesforceに届かないときだけ、kinbotの案件の「受注」（受注にした日）で数える。
     let won = [];
     if (req.query.fresh) _sfWinCache = { at: 0, map: null, info: null };
@@ -14423,7 +14429,10 @@ app.get("/api/calls/awards", async (req, res) => {
       ? { 元: "Salesforce", 件数: _sfWinCache.info.count }
       : { 元: "kinbotの案件", 理由: (_sfWinCache.info && _sfWinCache.info.error) || "Salesforceを読めませんでした" };
     if (sfFirst && sfFirst.size) {
-      for (const [, v] of sfFirst) if (v.d >= from && v.d <= to) won.push({ company_name: v.name, won_day: v.d, bySf: true });
+      for (const [, v] of sfFirst) {
+        const inMonth = (v.days || [v.d]).filter((x) => x >= from && x <= to).sort();
+        if (inMonth.length) won.push({ company_name: v.name, won_day: inMonth[0], bySf: true });
+      }
     } else {
       won = await listWonDealsBetween(from, to).catch(() => []);
     }
@@ -14440,14 +14449,20 @@ app.get("/api/calls/awards", async (req, res) => {
       const apoRows = (await listApoForMatch(400).catch(() => [])).sort((a, b) => Date.parse(a.start_time || 0) - Date.parse(b.start_time || 0));
       for (const l of apoRows) {
         const k = coKey(parseLaunchTitle(l.label || "").company || "");
-        if (k) setters.push({ k, email: emailByName.get(normN(l.setter)) || "", name: l.setter });
+        if (k) setters.push({ k, email: emailByName.get(normN(l.setter)) || "", name: l.setter, at: Date.parse(l.start_time || 0) || 0 });
       }
-      const exact = new Map();
-      for (const x of setters) if (!exact.has(x.k)) exact.set(x.k, x);
+      // 付ける人：受注の日（＋7日）までに商談があったアポのうち、いちばん新しいもの。無ければ、その会社のいちばん最初のアポ
+      const pickFor = (k, dayStr, loose) => {
+        const lim = Date.parse(`${dayStr || "9999-12-31"}T23:59:59+09:00`) + 7 * 86400000;
+        const same = setters.filter((x) => (loose ? x.k.length >= 3 && (x.k.includes(k) || k.includes(x.k)) : x.k === k));
+        if (!same.length) return null;
+        const before = same.filter((x) => x.at && x.at <= lim);
+        return before.length ? before[before.length - 1] : same[0];
+      };
       for (const d of won) {
         const k = coKey(d.company_name);
-        let who = k ? exact.get(k) : null;
-        if (!who && k && k.length >= 3) who = setters.find((x) => x.k.length >= 3 && (x.k.includes(k) || k.includes(x.k))) || null;
+        let who = k ? pickFor(k, d.won_day, false) : null;
+        if (!who && k && k.length >= 3) who = pickFor(k, d.won_day, true);
         const item = { 会社: d.company_name || "", 日: d.won_day || "", SFで判定: !!d.bySf };
         if (!who) { 獲得者不明.push(item); continue; }
         if (who.email) {
@@ -24248,7 +24263,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16f アワードの受注数：SFの日付を「いちばん早い日」ではなく SS06昇格日→受注日→完了予定日 の順で使う（完了予定日が早いと先月に入ってしまうため）。確かめ用 /api/calls/awards/sf-check?company=会社名 を追加。";
+const BUILD_TAG = "2026-10-16g アワードの受注数：ホクレン油機サービス（08 : 受注処理完了 10/15）が入らなかったのを修正。「07 : 更新」を受注に数えない、前にも受注している会社でもその月の受注を数える、受注の日より前でいちばん新しいアポを取った人に付ける。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
