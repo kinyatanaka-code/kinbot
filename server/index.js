@@ -14332,6 +14332,13 @@ async function nbPlanField(sfUser) {
   _nbPlanField = { at: Date.now(), api, label };
   return _nbPlanField;
 }
+// シートのX列（プラン名）は「エントリー」「ライト」「スタンダード」の選択肢。SFの値・商品名からこの3つのどれかにする（無ければ空）
+function nbPlanName(planValue, productNames) {
+  const pick = (t) => { const m = /(スタンダード|ライト|エントリー)/.exec(String(t || "").normalize("NFKC")); return m ? m[1] : ""; };
+  for (const v of String(planValue || "").split(/[;・,、]/)) { const p = pick(v); if (p) return p; }
+  for (const n of productNames || []) { const p = pick(n); if (p) return p; }
+  return "";
+}
 let _nbBusy = false;
 async function nbSheetTick({ force = false } = {}) {
   if (_nbBusy) return { skipped: "busy" };
@@ -14376,9 +14383,8 @@ async function nbSheetTick({ force = false } = {}) {
       const onlyAchi = names.length > 0 && names.every((n) => /アチコチバース/.test(n));
       const hasEntry = names.some((n) => /DOC\s*エントリー/i.test(n));
       const initial = hasEntry ? "初期あり" : onlyAchi ? "初期なし" : "";
-      // X プラン名：SFの商談のプランの項目（エントリー・ライト・スタンダード）。空なら商品名から（エントリー／ライト／スタンダード）
-      let plan = pf.api ? String(o[pf.api] || "").split(";").map((x) => x.trim()).filter((x) => x && x !== "その他").join("・") : "";
-      if (!plan) { const m = names.map((n) => (/(エントリー|ライト|スタンダード)/.exec(n) || [])[1]).filter(Boolean); plan = [...new Set(m)].map((x) => `${x}プラン`).join("・"); }
+      // X プラン名：エントリー／ライト／スタンダード のどれか（SFの商談のプランの項目 → 商品名）
+      const plan = nbPlanName(pf.api ? o[pf.api] : "", names);
       let site = String((o.Account && o.Account.Website) || "").trim();
       if (!site) { try { const w = await lookupCompanyWebsite(name, sfUser); if (w && w.url) site = w.url; } catch {} }
       // 先方のご担当者：その会社のアポの予定名の「○○様」（いちばん新しいアポ）
@@ -14415,9 +14421,9 @@ async function nbSheetTick({ force = false } = {}) {
 }
 async function nbSheetRepair() {
   const st = await getSettings().catch(() => ({}));
-  if (st.nbRepair1) return;
+  if (st.nbRepair2) return;   // 2回目：プラン名を3つの選択肢にそろえる（1回目で書いた「アチコチバース（年間プラン）」なども直す）
   const log = (Array.isArray(st.nbSheetLog) ? st.nbSheetLog : []).filter((x) => x.row && x.company && !x.error);
-  if (!log.length) { await saveSettings({ nbRepair1: new Date().toISOString() }).catch(() => {}); return; }
+  if (!log.length) { await saveSettings({ nbRepair2: new Date().toISOString() }).catch(() => {}); return; }
   const sfUser = await pickSfUser(st.psOwner || "").catch(() => "");
   if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) return;
   const writer = await nbSheetWriter([sfUser]);
@@ -14444,13 +14450,18 @@ async function nbSheetRepair() {
       const onlyAchi = names.length > 0 && names.every((n) => /アチコチバース/.test(n));
       const hasEntry = names.some((n) => /DOC\s*エントリー/i.test(n));
       const initial = hasEntry ? "初期あり" : onlyAchi ? "初期なし" : "";
-      let plan = pf.api ? String(o[pf.api] || "").split(";").map((v) => v.trim()).filter((v) => v && v !== "その他").join("・") : "";
-      if (!plan) { const m = names.map((n) => (/(エントリー|ライト|スタンダード)/.exec(n) || [])[1]).filter(Boolean); plan = [...new Set(m)].map((v) => `${v}プラン`).join("・"); }
-      await updateSheetCells(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'`, [{ range: `X${x.row}`, value: plan }, { range: `AA${x.row}`, value: initial }]);
-      fixed.push(`${x.company}（${x.row}行目）：プラン「${plan || "空"}」・${initial || "初期は空"} に直しました`);
+      const plan = nbPlanName(pf.api ? o[pf.api] : "", names);
+      // 人が選び直した値（3つの選択肢・初期あり／なし）は、そのままにする
+      const curX = String(((await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!X${x.row}:X${x.row}`).catch(() => []))[0] || [])[0] || "").trim();
+      const curAA = String(((await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!AA${x.row}:AA${x.row}`).catch(() => []))[0] || [])[0] || "").trim();
+      const cells = [];
+      if (!["エントリー", "ライト", "スタンダード"].includes(curX)) cells.push({ range: `X${x.row}`, value: plan });
+      if (!["初期あり", "初期なし"].includes(curAA)) cells.push({ range: `AA${x.row}`, value: initial });
+      if (cells.length) await updateSheetCells(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'`, cells);
+      fixed.push(`${x.company}（${x.row}行目）：${cells.length ? `プラン「${plan || "空"}」・${initial || "初期は空"} に直しました` : "人が選んだ値のままにしました"}`);
     } catch (e) { fixed.push(`${x.company}：直せませんでした（${e.message}）`); }
   }
-  await saveSettings({ nbRepair1: new Date().toISOString(), nbRepairResult: fixed }).catch(() => {});
+  await saveSettings({ nbRepair1: st.nbRepair1 || new Date().toISOString(), nbRepair2: new Date().toISOString(), nbRepairResult: fixed }).catch(() => {});
   await nbSheetLog({ company: "（直し）", repair: fixed });
   console.log("[nb-sheet] 書いてしまった行を直しました", fixed);
 }
@@ -24440,7 +24451,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16k 管理シートへの記入はクロス（DOC）の商談だけに。プランの項目はMOCHICAのものを使わない。前の版で書いてしまったMOCHICAの行（トヨタカローラ富山・フロウエル・エスアイエヌ）は消し、クロスの行はプラン・初期を書き直す（起動1分後に1回）。";
+const BUILD_TAG = "2026-10-16l 管理シートのX列（プラン名）は「エントリー」「ライト」「スタンダード」のどれかだけを書く（SFのプランの項目→商品名から判断、無ければ空）。前に書いた「アチコチバース（年間プラン）」なども直す（人が選び直した値はそのまま）。";
 const BUILD_FEATURES = [
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
