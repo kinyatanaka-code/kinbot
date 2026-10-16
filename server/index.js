@@ -14327,14 +14327,33 @@ async function sfWinsByCompany(user, req = null) {
     if (o.IsClosed && !o.IsWon && !/^0[6-9]|受注|申込書回収/.test(String(o.StageName || ""))) continue;   // 失注で閉じたもの
     const name = (o.Account && o.Account.Name) || "";
     const k = normCompanyKey(String(name).normalize("NFKC"));
-    const ds = [o.SS06__c, o.WinDate__c, o.CloseDate].map((x) => String(x || "").slice(0, 10)).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
-    if (!k || !ds.length) continue;
-    if (!map.has(k) || ds[0] < map.get(k).d) map.set(k, { d: ds[0], name, stage: o.StageName || "" });
+    // 日付は SS06昇格日 → 受注日 → 完了予定日 の「順」で、最初にあるものを使う（完了予定日は予定なので、早くても優先しない）
+    const okd = (x) => /^\d{4}-\d{2}-\d{2}$/.test(String(x || "").slice(0, 10)) ? String(x).slice(0, 10) : "";
+    const d0 = okd(o.SS06__c) || okd(o.WinDate__c) || okd(o.CloseDate);
+    if (!k || !d0) continue;
+    if (!map.has(k) || d0 < map.get(k).d) map.set(k, { d: d0, name, stage: o.StageName || "" });
   }
   info.ok = true; info.count = map.size;
   _sfWinCache = { at: Date.now(), map, info };
   return map;
 }
+// 確かめ用：/api/calls/awards/sf-check?company=ホクレン …SFの商談（段階・日付）と、アワードの受注にどう数えるか
+app.get("/api/calls/awards/sf-check", async (req, res) => {
+  try {
+    const co = String(req.query.company || "").replace(/'/g, "").trim();
+    if (!co) return res.status(400).json({ error: "company を入れてください" });
+    const sfUser = await pickSfUser(req.user, req).catch(() => "");
+    if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) return res.json({ ok: false, error: "Salesforceにつながっている人がいません", sfUser });
+    let d;
+    try { d = await sfQuery(sfUser, `SELECT Id, Name, StageName, IsClosed, IsWon, SS06__c, WinDate__c, CloseDate, LastModifiedDate, Account.Name FROM Opportunity WHERE Account.Name LIKE '%${co}%' ORDER BY LastModifiedDate DESC LIMIT 20`); }
+    catch (e) { d = await sfQuery(sfUser, `SELECT Id, Name, StageName, IsClosed, IsWon, CloseDate, LastModifiedDate, Account.Name FROM Opportunity WHERE Account.Name LIKE '%${co}%' ORDER BY LastModifiedDate DESC LIMIT 20`); }
+    _sfWinCache = { at: 0, map: null, info: null };
+    const map = await sfWinsByCompany(req.user, req).catch(() => new Map());
+    const k = normCompanyKey(co.normalize("NFKC"));
+    const hits = [...map.entries()].filter(([kk]) => kk.includes(k) || k.includes(kk)).map(([kk, v]) => ({ key: kk, ...v }));
+    res.json({ ok: true, sfUser, 読み取り: _sfWinCache.info, 商談: (d.records || []).map((o) => ({ 商談名: o.Name, 取引先: o.Account && o.Account.Name, 段階: o.StageName, 受注: o.IsWon, 閉じた: o.IsClosed, SS06昇格日: o.SS06__c, 受注日: o.WinDate__c, 完了予定日: o.CloseDate, 最終更新: o.LastModifiedDate })), アワードでの扱い: hits });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/calls/awards", async (req, res) => {
   try {
     const nowJ = new Date(Date.now() + 9 * 3600000);
@@ -24229,7 +24248,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16e アワードの受注数：Salesforceから読めたかを大きい窓の説明に出す（読めないときは理由と「kinbotの案件で数えています」）。SFの読み取りを丈夫に（NOT を使わず、失注で閉じたものは読んだあとで除く）。";
+const BUILD_TAG = "2026-10-16f アワードの受注数：SFの日付を「いちばん早い日」ではなく SS06昇格日→受注日→完了予定日 の順で使う（完了予定日が早いと先月に入ってしまうため）。確かめ用 /api/calls/awards/sf-check?company=会社名 を追加。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
