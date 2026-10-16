@@ -14291,6 +14291,35 @@ app.get("/api/calls/list-dashboard", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Salesforceで申込・受注になった会社 → いちばん早い日（SS06昇格日・受注日・完了予定日）。10分キャッシュ
+let _sfWinCache = { at: 0, map: null };
+async function sfWinsByCompany(user) {
+  if (_sfWinCache.map && Date.now() - _sfWinCache.at < 10 * 60 * 1000) return _sfWinCache.map;
+  const map = new Map();
+  const st = await getSettings().catch(() => ({}));
+  const cand = [String(st.psOwner || "").trim(), await pickSfUser(user).catch(() => "")].filter(Boolean);
+  let sfUser = "";
+  for (const c of cand) if (await sfConnected(c).catch(() => false)) { sfUser = c; break; }
+  if (!sfUser || !salesforceConfigured()) return map;
+  const since = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
+  const where = `(StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '09%' OR StageName LIKE '%受注%' OR StageName LIKE '%申込書回収%' OR IsWon = true)
+      AND NOT (IsClosed = true AND IsWon = false) AND LastModifiedDate >= ${since}T00:00:00Z`;
+  let recs = [];
+  try {
+    recs = ((await sfQuery(sfUser, `SELECT Account.Name, StageName, SS06__c, WinDate__c, CloseDate FROM Opportunity WHERE ${where} LIMIT 3000`)) || {}).records || [];
+  } catch {
+    recs = ((await sfQuery(sfUser, `SELECT Account.Name, StageName, CloseDate FROM Opportunity WHERE ${where} LIMIT 3000`).catch(() => null)) || {}).records || [];
+  }
+  for (const o of recs) {
+    const name = (o.Account && o.Account.Name) || "";
+    const k = normCompanyKey(String(name).normalize("NFKC"));
+    const ds = [o.SS06__c, o.WinDate__c, o.CloseDate].map((x) => String(x || "").slice(0, 10)).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
+    if (!k || !ds.length) continue;
+    if (!map.has(k) || ds[0] < map.get(k).d) map.set(k, { d: ds[0], name });
+  }
+  _sfWinCache = { at: Date.now(), map };
+  return map;
+}
 app.get("/api/calls/awards", async (req, res) => {
   try {
     const nowJ = new Date(Date.now() + 9 * 3600000);
@@ -14350,26 +14379,16 @@ app.get("/api/calls/awards", async (req, res) => {
     const 受注数 = {};
     const 受注明細 = {};   // 人 → [{ 会社, 日 }]
     const 獲得者不明 = []; // アポの獲得者が見つからなかった受注（会社名が違うなど）
-    const won = await listWonDealsBetween(from, to).catch(() => []);
-    // 案件を「受注」にし忘れていても、キックオフ（お申込・回収MTG）をした会社は受注として数える（2026-10-16〜）。
-    //   その会社の最初のキックオフがこの月で、ほかの月に受注になった案件が無い会社だけ足す（二重に数えない）
-    try {
-      const ckey = (name) => normCompanyKey(parseLaunchTitle(String(name || "").normalize("NFKC").replace(/^\s*(zoom|ZOOM|Zoom)\s*/, "")).company || String(name || "").replace(/【[^】]*】/g, "").split(/[\/／]/)[0]);
-      const wonAll = new Set((await listWonDealsBetween("2025-01-01", to).catch(() => [])).map((d) => ckey(d.company_name)).filter(Boolean));
-      const first = new Map();
-      const ms = await listMeetings({ isAdmin: true, from: new Date(Date.parse(from + "T00:00:00Z") - 180 * 86400000).toISOString().slice(0, 10), to, limit: 20000, light: true }).catch(() => []);
-      for (const m of ms) {
-        if (!/キックオフ|お申込/.test(String(m.title || ""))) continue;
-        const k = ckey(apoNameParts(m.title || "").company || m.title);
-        const d = jstDateStr(m.created_at);
-        if (!k || !d) continue;
-        if (!first.has(k) || d < first.get(k).d) first.set(k, { d, name: apoNameParts(m.title || "").company || m.title });
-      }
-      for (const [k, v] of first) {
-        if (v.d < from || v.d > to || wonAll.has(k)) continue;
-        won.push({ company_name: v.name, won_day: v.d, byKickoff: true });
-      }
-    } catch (e) { console.warn("[awards] キックオフからの受注", e.message); }
+    // 受注＝Salesforceの商談が「06 : 申込書回収完了」以降の段階になった会社（2026-10-16 田中さん）。
+    //   日付は SS06昇格日 → 受注日 → 完了予定日 の早い日で、その会社で初めてそうなった日がこの月なら数える。
+    //   Salesforceに届かないときだけ、kinbotの案件の「受注」（受注にした日）で数える。
+    let won = [];
+    const sfFirst = await sfWinsByCompany(req.user).catch(() => null);
+    if (sfFirst && sfFirst.size) {
+      for (const [, v] of sfFirst) if (v.d >= from && v.d <= to) won.push({ company_name: v.name, won_day: v.d, bySf: true });
+    } else {
+      won = await listWonDealsBetween(from, to).catch(() => []);
+    }
     if (won.length) {
       // 会社名をそろえる（「ZOOM」「【再商談】」「/○○様」「○○様」などを落とす）
       const coKey = (name) => {
@@ -14391,7 +14410,7 @@ app.get("/api/calls/awards", async (req, res) => {
         const k = coKey(d.company_name);
         let who = k ? exact.get(k) : null;
         if (!who && k && k.length >= 3) who = setters.find((x) => x.k.length >= 3 && (x.k.includes(k) || k.includes(x.k))) || null;
-        const item = { 会社: d.company_name || "", 日: d.won_day || "", キックオフで判定: !!d.byKickoff };
+        const item = { 会社: d.company_name || "", 日: d.won_day || "", SFで判定: !!d.bySf };
         if (!who) { 獲得者不明.push(item); continue; }
         if (who.email) {
           bump(受注数, who.email, 1);
@@ -24191,7 +24210,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16b アワードの受注数：案件を受注にし忘れていても、その月に初めてキックオフ（お申込・回収MTG）をした会社は受注として数える（ほかの月に受注の案件がある会社は足さない）。獲得者は、メールの無い古いアポも名前で探す。";
+const BUILD_TAG = "2026-10-16c アワードの受注数を、Salesforceの商談が「06 : 申込書回収完了」以降の段階になった日（SS06昇格日→受注日→完了予定日）で数えるように。カレンダーのキックオフでの判断はやめた。SFに届かないときだけkinbotの案件の受注で数える。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
