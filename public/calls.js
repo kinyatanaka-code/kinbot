@@ -2078,6 +2078,8 @@ function renderDock() {
     .kc-j-goals{display:grid;grid-template-columns:1fr 1fr;column-gap:14px;margin-top:4px;}
     .kc-jcard.has-goals{flex:0 0 360px !important;width:360px !important;}
     .kc-j-goals .kc-j-ghead{font-size:11px;font-weight:700;color:#5f6b64;margin-top:4px;}
+    .kc-aw-many{display:inline-block;line-height:1.25;font-size:.82em;}
+    .kc-aw-many.n4{font-size:.74em;} .kc-aw-many.n5,.kc-aw-many.n6{font-size:.66em;}
     .mm-grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:14px;align-items:start;}
     @media (max-width:1100px){.mm-grid{grid-template-columns:1fr;}}
     .mm-card{background:#fff;border:0.5px solid #e6ece9;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;}
@@ -4081,7 +4083,11 @@ function kcAwRank(insideList, data, aw) {
   ranked.forEach((p, i) => { if (p.v !== prev) { rank = i + 1; prev = p.v; } p.rank = rank; });
   const tops = ranked.filter((p) => p.rank === 1 && p.v > 0);
   const rest = ranked.filter((p) => !tops.includes(p));
-  const topName = tops.length > 2 ? `${esc(tops[0].name)}・${esc(tops[1].name)} ほか${tops.length - 2}人` : tops.map((p) => esc(p.name)).join("・");
+  // 1位が何人いても、全員の名前を出す（2人ずつ改行。人数が多いほど字を小さく）
+  const names = tops.map((p) => esc(p.name));
+  const lines = [];
+  for (let i = 0; i < names.length; i += 2) lines.push(names.slice(i, i + 2).join("・"));
+  const topName = names.length > 2 ? `<span class="kc-aw-many n${Math.min(names.length, 6)}">${lines.join("<br>")}</span>` : names.join("・");
   return { ranked, tops, rest, topName };
 }
 // 大きい窓の一番下の注記（何をどう数えたか。受注は獲得者が分からなかった分も出す）
