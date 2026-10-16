@@ -14488,7 +14488,8 @@ app.get("/api/cs/nb-sheet/log", async (req, res) => {
     const st = await getSettings().catch(() => ({}));
     let planField = "";
     try { const su = await pickSfUser(req.user, req).catch(() => ""); if (su && (await sfConnected(su).catch(() => false))) { const pf = await nbPlanField(su); planField = pf.api ? `${pf.label}（${pf.api}）` : "見つかりません（商品名から判断します）"; } } catch {}
-    res.json({ ok: true, log: Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [], writer: await nbSheetWriter([req.user]), planField });
+    const log = (Array.isArray(st.nbSheetLog) ? st.nbSheetLog : []).filter((x) => !(x.repair && !x.repair.length) && !/MOCHI/i.test(`${x.plan || ""} ${x.products || ""} ${x.opp || ""}`));
+    res.json({ ok: true, log, writer: await nbSheetWriter([req.user]), planField });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -24458,7 +24459,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16m 管理シートへの記入（クロスの商談だけ）：プラン名を読む項目を、選択肢に「エントリー」「ライト」「スタンダード」がある項目から選ぶように（「プラン変更有無」を拾っていた）。書いてしまった行の直しをもう一度（会社名の比べ方をゆるく、触らなかった理由も記録に出す、消した行は記録から外す）。";
+const BUILD_TAG = "2026-10-16n CS連携の画面の「管理シートへの自動記入」の記録に、MOCHICAの商談の記録と、中身の無い「直し」を出さない。";
 const BUILD_FEATURES = [
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",

@@ -130,7 +130,8 @@ async function loadNb() {
     const d = await api("/api/cs/nb-sheet/log");
     box.innerHTML = (d.writer ? `書き込む人：${esc(d.writer)}<br>` : `<span style="color:#b3261e">シートに書けるGoogle連携の人がいません</span><br>`) +
       (d.planField ? `プラン名を読むSFの項目：${esc(d.planField)}<br>` : "") +
-      (d.log.length ? d.log.slice(0, 15).map((x) => x.repair ? `${esc(fmtDT(x.at))}　<b>直し</b>：${x.repair.map(esc).join("／")}` : `${esc(fmtDT(x.at))}　${x.error ? `<span style="color:#b3261e">${esc(x.company || "")}：${esc(x.error)}</span>` : `${esc(x.company)}（${x.row}行目）プラン：${esc(x.plan || "-")}${x.planField ? `（SFの「${esc(x.planField)}」）` : ""}・${esc(x.initial || "初期：書かず")}・担当：${esc(x.person || "-")}${x.products ? `・商品：${esc(x.products)}` : ""}`}`).join("<br>") : "まだ記入した会社はありません");
+      // MOCHICAの商談の記録（前の版で書いてしまったもの）と、中身の無い「直し」は出さない
+      ((d.log = (d.log || []).filter((x) => !(x.repair && !x.repair.length) && !/MOCHI/i.test(`${x.plan || ""} ${x.products || ""} ${x.opp || ""}`))).length ? d.log.slice(0, 15).map((x) => x.repair ? `${esc(fmtDT(x.at))}　<b>直し</b>：${x.repair.map(esc).join("／")}` : `${esc(fmtDT(x.at))}　${x.error ? `<span style="color:#b3261e">${esc(x.company || "")}：${esc(x.error)}</span>` : `${esc(x.company)}（${x.row}行目）プラン：${esc(x.plan || "-")}${x.planField ? `（SFの「${esc(x.planField)}」）` : ""}・${esc(x.initial || "初期：書かず")}・担当：${esc(x.person || "-")}${x.products ? `・商品：${esc(x.products)}` : ""}`}`).join("<br>") : "まだ記入した会社はありません");
   } catch (e) { box.textContent = e.message; }
 }
 loadNb();
