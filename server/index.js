@@ -14323,9 +14323,10 @@ async function nbPlanField(sfUser) {
   let api = null, label = "";
   try {
     const d = await describeObject(sfUser, "Opportunity");
-    const fs = (d.fields || []).filter((f) => /プラン/.test(String(f.label || "")) && !/MOCHICA|モチカ/i.test(`${f.label} ${f.name}`)
-      && /string|picklist|multipicklist|textarea/.test(String(f.type || "")));
-    const score = (f) => (/初回提案/.test(f.label) ? 0 : /DOC|クロス/i.test(`${f.label} ${f.name}`) ? 4 : /契約|受注|申込|プラン名/.test(f.label) ? 3 : 2);
+    // 選択肢に「エントリー」「ライト」「スタンダード」がある項目だけを候補にする（「プラン変更有無」やMOCHICAの項目を拾わないため）
+    const hasPlanValues = (f) => (f.picklistValues || []).some((v) => /エントリー|ライト|スタンダード/.test(String(v.value || v.label || "")));
+    const fs = (d.fields || []).filter((f) => !/MOCHICA|モチカ/i.test(`${f.label} ${f.name}`) && /picklist|multipicklist/.test(String(f.type || "")) && hasPlanValues(f));
+    const score = (f) => (/初回提案/.test(f.label) ? 0 : /DOC|クロス/i.test(`${f.label} ${f.name}`) ? 4 : /契約|受注|申込|プラン/.test(f.label) ? 3 : 1);
     fs.sort((a, b) => score(b) - score(a));
     if (fs[0]) { api = fs[0].name; label = fs[0].label; }
   } catch (e) { console.warn("[nb-sheet] プランの項目を探せませんでした", e.message); }
@@ -14421,9 +14422,9 @@ async function nbSheetTick({ force = false } = {}) {
 }
 async function nbSheetRepair() {
   const st = await getSettings().catch(() => ({}));
-  if (st.nbRepair2) return;   // 2回目：プラン名を3つの選択肢にそろえる（1回目で書いた「アチコチバース（年間プラン）」なども直す）
+  if (st.nbRepair3) return;   // 3回目：プランの項目を選び直し、会社名の比べ方をゆるくして、もう一度直す
   const log = (Array.isArray(st.nbSheetLog) ? st.nbSheetLog : []).filter((x) => x.row && x.company && !x.error);
-  if (!log.length) { await saveSettings({ nbRepair2: new Date().toISOString() }).catch(() => {}); return; }
+  if (!log.length) { await saveSettings({ nbRepair3: new Date().toISOString() }).catch(() => {}); return; }
   const sfUser = await pickSfUser(st.psOwner || "").catch(() => "");
   if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) return;
   const writer = await nbSheetWriter([sfUser]);
@@ -14438,7 +14439,9 @@ async function nbSheetRepair() {
       const o = q && q.records && q.records[0];
       // その行のC列が、kinbotが書いた会社のままかを確かめてから触る
       const cur = await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!C${x.row}:C${x.row}`).catch(() => []);
-      if (String((cur[0] || [])[0] || "").trim() !== String(x.company).trim()) continue;
+      const curC = String((cur[0] || [])[0] || "").trim();
+      if (!curC) { fixed.push(`${x.company}（${x.row}行目）：もう消してあったので、そのままにしました`); continue; }
+      if (normCompanyKey(curC.normalize("NFKC")) !== normCompanyKey(String(x.company).normalize("NFKC"))) { fixed.push(`${x.company}（${x.row}行目）：C列が「${curC}」に変わっていたので触りませんでした`); continue; }
       const isCross = o && /クロス/.test(String((o.RecordType && o.RecordType.Name) || ""));
       if (!isCross) {
         await updateSheetCells(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'`, ["C", "D", "H", "N", "X", "AA"].map((c) => ({ range: `${c}${x.row}`, value: "" })));
@@ -14461,7 +14464,11 @@ async function nbSheetRepair() {
       fixed.push(`${x.company}（${x.row}行目）：${cells.length ? `プラン「${plan || "空"}」・${initial || "初期は空"} に直しました` : "人が選んだ値のままにしました"}`);
     } catch (e) { fixed.push(`${x.company}：直せませんでした（${e.message}）`); }
   }
-  await saveSettings({ nbRepair1: st.nbRepair1 || new Date().toISOString(), nbRepair2: new Date().toISOString(), nbRepairResult: fixed }).catch(() => {});
+  // 記録から、クロスでなかった（消した）行を外す（画面に古い記入が残って見えないように）
+  const st2 = await getSettings().catch(() => ({}));
+  const goneRows = new Set(fixed.filter((t) => /クロスでないので消しました|もう消してあった/.test(t)).map((t) => (/（(\d+)行目）/.exec(t) || [])[1]).filter(Boolean).map(Number));
+  const keptLog = (Array.isArray(st2.nbSheetLog) ? st2.nbSheetLog : []).filter((e) => !(e.row && goneRows.has(Number(e.row))) && !(e.repair && !e.repair.length));
+  await saveSettings({ nbRepair3: new Date().toISOString(), nbRepairResult: fixed, nbSheetLog: keptLog }).catch(() => {});
   await nbSheetLog({ company: "（直し）", repair: fixed });
   console.log("[nb-sheet] 書いてしまった行を直しました", fixed);
 }
@@ -24451,7 +24458,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16l 管理シートのX列（プラン名）は「エントリー」「ライト」「スタンダード」のどれかだけを書く（SFのプランの項目→商品名から判断、無ければ空）。前に書いた「アチコチバース（年間プラン）」なども直す（人が選び直した値はそのまま）。";
+const BUILD_TAG = "2026-10-16m 管理シートへの記入（クロスの商談だけ）：プラン名を読む項目を、選択肢に「エントリー」「ライト」「スタンダード」がある項目から選ぶように（「プラン変更有無」を拾っていた）。書いてしまった行の直しをもう一度（会社名の比べ方をゆるく、触らなかった理由も記録に出す、消した行は記録から外す）。";
 const BUILD_FEATURES = [
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
