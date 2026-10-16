@@ -1534,3 +1534,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-16 BUILD_TAG=2026-10-16n 田中さん「ややこしいからMOCHICAのやつは表示させないで」。/api/cs/nb-sheet/log と cs.js で、記録のうち プラン・商品・商談名に MOCHI を含むもの（前の版で書いたMOCHICAの行）と、中身の無い「直し」を出さない（記録そのものは残る）。画面のプランの項目は「検討商材（Considered_products__c）」になった（選択肢にエントリー等があるため）＝申込のプランの項目か確認待ち。版20261016n。
 
 - 2026-10-16 BUILD_TAG=2026-10-16o 田中さん「ここの画面でもMOCHICAの商談の申し込み回収のやつは表示させないで。クロスの商談だけね」。アワードの受注数（sfWinsByCompany）の SOQL に RecordType.Name LIKE '%クロス%'、商談名に MOCHICA／MOCHI があるものも外す。大きい窓の説明も「クロスの商談…（MOCHICAは入れません）」。管理シートへの記入（nbSheetTick）は 16k からクロスだけ。版20261016o。
+
+- 2026-10-16 BUILD_TAG=2026-10-16p 田中さん「SFの取引先責任者が顧客（様）」。nbContactName(sfUser, 商談ID)：OpportunityContactRole（IsPrimary を先に）→ Opportunity.Contact の姓（LastName、無ければ Name、様は取る）。nbSheetTick の N 列はこれ → 取れなければアポの予定名の「○○様」。nbSheetRepair を4回目（settings.nbRepair4）：記録のクロスの行で N列が空なら取引先責任者を入れる（X・AA の直しも同じ回で）。記録の「直し」には直した列と値を出す。版20261016p。
