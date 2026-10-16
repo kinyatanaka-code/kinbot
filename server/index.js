@@ -14510,9 +14510,11 @@ async function sfWinsByCompany(user, req = null) {
   const since = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
   // 06 : 申込書回収完了 と 08 : 受注処理完了（とその途中・受注の名前の段階）。「07 : 更新」はリピートの更新なので入れない
   const stage = `(StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%受注%' OR StageName LIKE '%申込書回収%')`;
+  // クロス（DOC）の商談だけ。MOCHICAなどの申込は受注に数えない（2026-10-16 田中さん）
+  const cross = `RecordType.Name LIKE '%クロス%'`;
   const tries = [
-    `SELECT Account.Name, StageName, IsClosed, IsWon, SS06__c, WinDate__c, CloseDate FROM Opportunity WHERE ${stage} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
-    `SELECT Account.Name, StageName, IsClosed, IsWon, CloseDate FROM Opportunity WHERE ${stage} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
+    `SELECT Name, Account.Name, StageName, IsClosed, IsWon, SS06__c, WinDate__c, CloseDate FROM Opportunity WHERE ${stage} AND ${cross} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
+    `SELECT Name, Account.Name, StageName, IsClosed, IsWon, CloseDate FROM Opportunity WHERE ${stage} AND ${cross} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
   ];
   let recs = null, lastErr = "";
   for (const q of tries) {
@@ -14523,6 +14525,7 @@ async function sfWinsByCompany(user, req = null) {
   for (const o of recs) {
     if (o.IsClosed && !o.IsWon) continue;   // 失注で閉じたもの
     if (/更新/.test(String(o.StageName || ""))) continue;
+    if (/MOCHICA|MOCHI/i.test(String(o.Name || ""))) continue;   // 念のため、商談名にMOCHICAがあるものも外す
     const name = (o.Account && o.Account.Name) || "";
     const k = normCompanyKey(String(name).normalize("NFKC"));
     // 日付は SS06昇格日 → 受注日 → 完了予定日 の「順」で、最初にあるものを使う（完了予定日は予定なので、早くても優先しない）
@@ -24459,7 +24462,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16n CS連携の画面の「管理シートへの自動記入」の記録に、MOCHICAの商談の記録と、中身の無い「直し」を出さない。";
+const BUILD_TAG = "2026-10-16o アワードの受注数も、SFのクロスの商談だけで数える（MOCHICAの申込書回収は入れない・出さない）。";
 const BUILD_FEATURES = [
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",

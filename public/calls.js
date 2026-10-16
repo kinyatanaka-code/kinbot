@@ -4098,7 +4098,7 @@ function kcAwNote(aw, data) {
   else if (aw.key === "受注数") {
     const src = data.受注の元 || {};
     t = src.元 === "Salesforce"
-      ? `この期間の受注は全部で${Number(data.受注合計 || 0)}件。Salesforceの商談が「06 : 申込書回収完了」以降になった日（SS06昇格日）で数え、その会社のアポを最初に取った人に付けています。`
+      ? `この期間の受注は全部で${Number(data.受注合計 || 0)}件。Salesforceのクロスの商談が「06 : 申込書回収完了」「08 : 受注処理完了」になった日で数え（MOCHICAは入れません）、その会社のアポを最初に取った人に付けています。`
       : `この期間の受注は全部で${Number(data.受注合計 || 0)}件。<b>Salesforceを読めなかったため、kinbotの案件の「受注」で数えています</b>（${esc(src.理由 || "")}）。`;
     const un = data.獲得者不明 || [];
     if (un.length) t += `<br>アポの獲得者が見つからなかった受注（${un.length}件）：${un.map((x) => esc(x.会社)).join("、")}`;
