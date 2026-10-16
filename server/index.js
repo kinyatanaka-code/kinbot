@@ -14297,6 +14297,114 @@ app.get("/api/calls/list-dashboard", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== 申込書を回収したら、NB_Project_Management_Sheet（企業様情報）に自動で記入する =====
+// 対象：SFの商談が「06 : 申込書回収完了」「08 : 受注処理完了」になったもの（更新・MOCHICAは除く）。直近14日に更新された商談を30分ごとに見る。
+// すでにシートにある会社（C列 正式法人名・D列 顧客名が同じ）には何もしない。空いている行（C列が空の一番上）に書く。
+//   C 正式法人名・D 顧客名＝SFの取引先名、H サイト＝取引先のWebサイト（無ければ探す）、N 顧客（様）＝アポの先方担当者（様は付けない）、
+//   X プラン名＝商品のうち「初期」以外、AA＝商品がアチコチバースだけなら「初期なし」、ほかもあれば「初期あり」
+const NB_SHEET_ID = "1NeeZ155-6DOxITvoMPtYUkIqJdyFjD0w-_VPCgJqGTg";
+const NB_SHEET_TAB = "企業様情報";
+async function nbSheetWriter(extra = []) {
+  const st = await getSettings().catch(() => ({}));
+  const owners = [...new Set([st.nbSheetOwner, st.apoCalendarOwner, st.apoScanOwner, st.apoInviteOwner, ...extra].map((x) => String(x || "").trim().toLowerCase()).filter(Boolean))];
+  for (const ow of owners) if (await gcalConnected(ow).catch(() => false)) return ow;
+  return "";
+}
+async function nbSheetLog(entry) {
+  const st = await getSettings().catch(() => ({}));
+  const log = [{ at: new Date().toISOString(), ...entry }, ...(Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [])].slice(0, 40);
+  await saveSettings({ nbSheetLog: log }).catch(() => {});
+}
+let _nbBusy = false;
+async function nbSheetTick({ force = false } = {}) {
+  if (_nbBusy) return { skipped: "busy" };
+  _nbBusy = true;
+  const out = { written: [], skipped: [], errors: [] };
+  try {
+    const st = await getSettings().catch(() => ({}));
+    let since = st.nbSheetSince;
+    if (!since) { since = new Date(Date.now() - 3 * 86400000).toISOString(); await saveSettings({ nbSheetSince: since }).catch(() => {}); }
+    const done = new Set(Array.isArray(st.nbSheetDone) ? st.nbSheetDone : []);
+    const sfUser = await pickSfUser(st.psOwner || "").catch(() => "");
+    if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) { out.errors.push("Salesforceにつながっている人がいません"); return out; }
+    const writer = await nbSheetWriter([sfUser]);
+    if (!writer) { out.errors.push("シートに書けるGoogle連携の人がいません"); return out; }
+    const sinceSf = new Date(Math.max(Date.parse(since), Date.now() - 14 * 86400000)).toISOString().replace(/\.\d+Z$/, "Z");
+    const d = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, Account.Name, Account.Website FROM Opportunity
+      WHERE (StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND LastModifiedDate >= ${sinceSf} ORDER BY LastModifiedDate ASC LIMIT 200`);
+    const opps = (d.records || []).filter((o) => !done.has(o.Id) && !/更新|MOCHICA|リピート/i.test(`${o.Name || ""} ${o.StageName || ""}`));
+    if (!opps.length) return out;
+    // シートの今の中身（4行目から）
+    const rows = await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!B4:D3000`);
+    const have = new Set();
+    let firstEmpty = -1;
+    rows.forEach((r, i) => {
+      const c = String(r[1] || "").trim(), dd = String(r[2] || "").trim();
+      if (c) have.add(normCompanyKey(c.normalize("NFKC")));
+      if (dd) have.add(normCompanyKey(dd.normalize("NFKC")));
+      if (!c && !dd && firstEmpty < 0 && String(r[0] || "").trim()) firstEmpty = i;
+    });
+    let next = firstEmpty >= 0 ? firstEmpty + 4 : rows.length + 4;
+    for (const o of opps) {
+      const name = String((o.Account && o.Account.Name) || "").trim();
+      const key = normCompanyKey(name.normalize("NFKC"));
+      if (!name || !key) { done.add(o.Id); continue; }
+      if (have.has(key)) { out.skipped.push(`${name}（すでにシートにあります）`); done.add(o.Id); continue; }
+      const items = await listOpportunityLineItems(sfUser, o.Id).catch(() => []);
+      const names = items.map((x) => String(x.name || "").trim()).filter(Boolean);
+      const onlyAchi = names.length > 0 && names.every((n) => /アチコチバース/.test(n));
+      const plan = [...new Set(names.filter((n) => !/初期/.test(n)))].join("・");
+      let site = String((o.Account && o.Account.Website) || "").trim();
+      if (!site) { try { const w = await lookupCompanyWebsite(name, sfUser); if (w && w.url) site = w.url; } catch {} }
+      // 先方のご担当者：その会社のアポの予定名の「○○様」（いちばん新しいアポ）
+      let person = "";
+      try {
+        const ck = csCoKey(name);
+        const apos = (await listApoForMatch(400).catch(() => [])).filter((l) => csCoKey(l.label) === ck).sort((a, b) => Date.parse(b.start_time || 0) - Date.parse(a.start_time || 0));
+        if (apos[0]) person = csPersonsFromTitle(apos[0].label, apoNameParts(apos[0].label).company).replace(/様/g, "");
+      } catch {}
+      const cells = [
+        { range: `C${next}`, value: name }, { range: `D${next}`, value: name },
+        site ? { range: `H${next}`, value: site } : null,
+        person ? { range: `N${next}`, value: person } : null,
+        plan ? { range: `X${next}`, value: plan } : null,
+        names.length ? { range: `AA${next}`, value: onlyAchi ? "初期なし" : "初期あり" } : null,
+      ].filter(Boolean);
+      try {
+        await updateSheetCells(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'`, cells);
+        out.written.push(`${name}（${next}行目）`);
+        have.add(key); done.add(o.Id);
+        await nbSheetLog({ company: name, row: next, opp: o.Name, plan, initial: names.length ? (onlyAchi ? "初期なし" : "初期あり") : "", site, person });
+        console.log(`[nb-sheet] 管理シートに記入：${name}（${next}行目・${o.StageName}）`);
+        next++;
+      } catch (e) {
+        out.errors.push(`${name}：${e.needScope ? "シートに書く権限がありません（Google連携のつなぎ直しが必要）" : e.message}`);
+        await nbSheetLog({ company: name, error: String(e.message || e).slice(0, 200) });
+        break;
+      }
+    }
+    await saveSettings({ nbSheetDone: [...done].slice(-800) }).catch(() => {});
+  } catch (e) { out.errors.push(e.message); console.warn("[nb-sheet]", e.message); }
+  finally { _nbBusy = false; }
+  return out;
+}
+setInterval(() => { nbSheetTick().catch(() => {}); }, 30 * 60 * 1000).unref?.();
+setTimeout(() => { nbSheetTick().catch(() => {}); }, 2 * 60 * 1000).unref?.();
+// 画面から：いますぐ実行・記入の記録
+app.post("/api/cs/nb-sheet/run", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    res.json({ ok: true, ...(await nbSheetTick({ force: true })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/cs/nb-sheet/log", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, log: Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [], writer: await nbSheetWriter([req.user]) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Salesforceで申込・受注になった会社 → いちばん早い日（SS06昇格日・受注日・完了予定日）。10分キャッシュ
 let _sfWinCache = { at: 0, map: null, info: null };
 // 返り値：会社名キー → { d, name }。_sfWinCache.info に、読めたか・何件か・エラーを残す（画面に出す）
@@ -24263,8 +24371,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16h アワードの1位が3人以上のとき「ほか○人」ではなく全員の名前を出す（2人ずつ改行、人数が多いほど字を小さく）。";
+const BUILD_TAG = "2026-10-16i 申込書を回収したら（SFの商談が06 : 申込書回収完了・08 : 受注処理完了）、NB_Project_Management_Sheet（企業様情報）の空いている行に C正式法人名・D顧客名・Hサイト・N顧客（様）・Xプラン名・AA初期あり／なし を自動記入（すでにある会社は書かない）。30分ごと、CS連携の画面から手でも。";
 const BUILD_FEATURES = [
+  "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
   "実績ダッシュボードに「リスト別」タブ（新規・過去リストの獲得と、新規→ナーチャリング）",
