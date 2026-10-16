@@ -14298,32 +14298,41 @@ app.get("/api/calls/list-dashboard", async (req, res) => {
 });
 
 // Salesforceで申込・受注になった会社 → いちばん早い日（SS06昇格日・受注日・完了予定日）。10分キャッシュ
-let _sfWinCache = { at: 0, map: null };
-async function sfWinsByCompany(user) {
+let _sfWinCache = { at: 0, map: null, info: null };
+// 返り値：会社名キー → { d, name }。_sfWinCache.info に、読めたか・何件か・エラーを残す（画面に出す）
+async function sfWinsByCompany(user, req = null) {
   if (_sfWinCache.map && Date.now() - _sfWinCache.at < 10 * 60 * 1000) return _sfWinCache.map;
   const map = new Map();
+  const info = { ok: false, user: "", count: 0, error: "" };
   const st = await getSettings().catch(() => ({}));
-  const cand = [String(st.psOwner || "").trim(), await pickSfUser(user).catch(() => "")].filter(Boolean);
+  if (!salesforceConfigured()) { info.error = "Salesforceの連携が設定されていません"; _sfWinCache = { at: Date.now(), map: null, info }; return map; }
+  const cand = [String(st.psOwner || "").trim(), await pickSfUser(user, req).catch(() => "")].filter(Boolean);
   let sfUser = "";
   for (const c of cand) if (await sfConnected(c).catch(() => false)) { sfUser = c; break; }
-  if (!sfUser || !salesforceConfigured()) return map;
+  info.user = sfUser;
+  if (!sfUser) { info.error = "Salesforceにつながっている人が見つかりません（設定のSF実行ユーザーを確認してください）"; _sfWinCache = { at: Date.now(), map: null, info }; return map; }
   const since = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
-  const where = `(StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '09%' OR StageName LIKE '%受注%' OR StageName LIKE '%申込書回収%' OR IsWon = true)
-      AND NOT (IsClosed = true AND IsWon = false) AND LastModifiedDate >= ${since}T00:00:00Z`;
-  let recs = [];
-  try {
-    recs = ((await sfQuery(sfUser, `SELECT Account.Name, StageName, SS06__c, WinDate__c, CloseDate FROM Opportunity WHERE ${where} LIMIT 3000`)) || {}).records || [];
-  } catch {
-    recs = ((await sfQuery(sfUser, `SELECT Account.Name, StageName, CloseDate FROM Opportunity WHERE ${where} LIMIT 3000`).catch(() => null)) || {}).records || [];
+  const stage = `(StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '09%' OR StageName LIKE '%受注%' OR StageName LIKE '%申込書回収%' OR IsWon = true)`;
+  const tries = [
+    `SELECT Account.Name, StageName, IsClosed, IsWon, SS06__c, WinDate__c, CloseDate FROM Opportunity WHERE ${stage} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
+    `SELECT Account.Name, StageName, IsClosed, IsWon, CloseDate FROM Opportunity WHERE ${stage} AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`,
+  ];
+  let recs = null, lastErr = "";
+  for (const q of tries) {
+    try { recs = ((await sfQuery(sfUser, q)) || {}).records || []; break; }
+    catch (e) { lastErr = String(e.message || e).slice(0, 200); console.warn("[awards] SFの受注の読み取り", lastErr); }
   }
+  if (!recs) { info.error = `Salesforceを読めませんでした：${lastErr}`; _sfWinCache = { at: Date.now(), map: null, info }; return map; }
   for (const o of recs) {
+    if (o.IsClosed && !o.IsWon && !/^0[6-9]|受注|申込書回収/.test(String(o.StageName || ""))) continue;   // 失注で閉じたもの
     const name = (o.Account && o.Account.Name) || "";
     const k = normCompanyKey(String(name).normalize("NFKC"));
     const ds = [o.SS06__c, o.WinDate__c, o.CloseDate].map((x) => String(x || "").slice(0, 10)).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)).sort();
     if (!k || !ds.length) continue;
-    if (!map.has(k) || ds[0] < map.get(k).d) map.set(k, { d: ds[0], name });
+    if (!map.has(k) || ds[0] < map.get(k).d) map.set(k, { d: ds[0], name, stage: o.StageName || "" });
   }
-  _sfWinCache = { at: Date.now(), map };
+  info.ok = true; info.count = map.size;
+  _sfWinCache = { at: Date.now(), map, info };
   return map;
 }
 app.get("/api/calls/awards", async (req, res) => {
@@ -14389,7 +14398,11 @@ app.get("/api/calls/awards", async (req, res) => {
     //   日付は SS06昇格日 → 受注日 → 完了予定日 の早い日で、その会社で初めてそうなった日がこの月なら数える。
     //   Salesforceに届かないときだけ、kinbotの案件の「受注」（受注にした日）で数える。
     let won = [];
-    const sfFirst = await sfWinsByCompany(req.user).catch(() => null);
+    if (req.query.fresh) _sfWinCache = { at: 0, map: null, info: null };
+    const sfFirst = await sfWinsByCompany(req.user, req).catch(() => null);
+    const 受注の元 = (_sfWinCache.info && _sfWinCache.info.ok)
+      ? { 元: "Salesforce", 件数: _sfWinCache.info.count }
+      : { 元: "kinbotの案件", 理由: (_sfWinCache.info && _sfWinCache.info.error) || "Salesforceを読めませんでした" };
     if (sfFirst && sfFirst.size) {
       for (const [, v] of sfFirst) if (v.d >= from && v.d <= to) won.push({ company_name: v.name, won_day: v.d, bySf: true });
     } else {
@@ -14429,7 +14442,7 @@ app.get("/api/calls/awards", async (req, res) => {
         }
       }
     }
-    res.json({ ok: true, month: ym, from, to, 出勤時間, 受注数, 受注明細, 受注合計: won.length, 獲得者不明, 新規アポ, 新規明細 });
+    res.json({ ok: true, month: ym, from, to, 出勤時間, 受注数, 受注明細, 受注合計: won.length, 獲得者不明, 受注の元, 新規アポ, 新規明細 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -24216,7 +24229,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16d メンバー管理に役割「CS」を追加。CSを付けた在籍中の人が、CS連携（回収MTG）の担当の候補・確認MTGの予定の読み取り先になる（割り振り・均等化には入らない）。";
+const BUILD_TAG = "2026-10-16e アワードの受注数：Salesforceから読めたかを大きい窓の説明に出す（読めないときは理由と「kinbotの案件で数えています」）。SFの読み取りを丈夫に（NOT を使わず、失注で閉じたものは読んだあとで除く）。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
