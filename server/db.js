@@ -4940,7 +4940,8 @@ export async function fillMoLostSource() {
     const r = await pool.query(
       `UPDATE call_targets t SET source = 'MO失注'
          FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id
-        WHERE COALESCE(t.source, '要確認') = '要確認'
+        WHERE COALESCE(t.source, '要確認') <> 'MO失注'
+          AND (COALESCE(t.source, '要確認') = '要確認' OR (l.id = t.list_id AND l.name ~* 'MO\s*失注'))   -- いまMO失注のリストにいれば、グループから付いたソース（過去失注など）も直す
           AND l.id IN (t.list_id, COALESCE(t.nurture_from_id, -1), COALESCE(t.origin_list_id, -1))
           AND (l.name ~* 'MO\s*失注' OR COALESCE(g.name,'') ~* 'MO\s*失注')
           AND NOT (l.name ~* 'MO過去失注')`);
@@ -4970,6 +4971,8 @@ export function classifySourceName(raw) {
 // グループ名（ナーチャリング・リサイクル復活のような「状態」のグループは見ない）→ リスト名 → 要確認
 export function classifyListSource(listName, groupName) {
   const g = String(groupName || "");
+  // MO失注のリストは、どのグループに入っていても新規リスト（ソース「MO失注」）として数える（2026-10-15 田中さん）
+  { const ln = String(listName || ""); if (/MO\s*失注/i.test(ln) && !/MO過去失注/.test(ln)) return "MO失注"; }
   if (g && !/ナーチャリング|リサイクル|復活/.test(g)) { const v = classifySourceName(g); if (v) return v; }
   return classifySourceName(listName) || SOURCE_UNKNOWN;
 }
