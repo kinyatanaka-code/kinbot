@@ -14301,7 +14301,8 @@ app.get("/api/calls/list-dashboard", async (req, res) => {
 // 対象：SFの商談が「06 : 申込書回収完了」「08 : 受注処理完了」になったもの（更新・MOCHICAは除く）。直近14日に更新された商談を30分ごとに見る。
 // すでにシートにある会社（C列 正式法人名・D列 顧客名が同じ）には何もしない。空いている行（C列が空の一番上）に書く。
 //   C 正式法人名・D 顧客名＝SFの取引先名、H サイト＝取引先のWebサイト（無ければ探す）、N 顧客（様）＝アポの先方担当者（様は付けない）、
-//   X プラン名＝商品のうち「初期」以外、AA＝商品がアチコチバースだけなら「初期なし」、ほかもあれば「初期あり」
+//   X プラン名＝SFの商談のプランの項目（ラベルに「プラン」、初回提案は最後）→ 空なら商品名のエントリー／ライト／スタンダード、
+//   AA＝商品がアチコチバースだけなら「初期なし」、DOCエントリープランの商品があれば「初期あり」、それ以外は書かない
 const NB_SHEET_ID = "1NeeZ155-6DOxITvoMPtYUkIqJdyFjD0w-_VPCgJqGTg";
 const NB_SHEET_TAB = "企業様情報";
 async function nbSheetWriter(extra = []) {
@@ -14314,6 +14315,21 @@ async function nbSheetLog(entry) {
   const st = await getSettings().catch(() => ({}));
   const log = [{ at: new Date().toISOString(), ...entry }, ...(Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [])].slice(0, 40);
   await saveSettings({ nbSheetLog: log }).catch(() => {});
+}
+// 商談の「プラン」の項目（API名）を、項目のラベルから探す（契約・受注のプランを優先、初回提案のプランは最後）。1時間キャッシュ
+let _nbPlanField = { at: 0, api: null, label: "" };
+async function nbPlanField(sfUser) {
+  if (_nbPlanField.at && Date.now() - _nbPlanField.at < 3600000) return _nbPlanField;
+  let api = null, label = "";
+  try {
+    const d = await describeObject(sfUser, "Opportunity");
+    const fs = (d.fields || []).filter((f) => /プラン/.test(String(f.label || "")) && /string|picklist|multipicklist|textarea/.test(String(f.type || "")));
+    const score = (f) => (/初回提案/.test(f.label) ? 0 : /契約|受注|申込|プラン名/.test(f.label) ? 3 : 2);
+    fs.sort((a, b) => score(b) - score(a));
+    if (fs[0]) { api = fs[0].name; label = fs[0].label; }
+  } catch (e) { console.warn("[nb-sheet] プランの項目を探せませんでした", e.message); }
+  _nbPlanField = { at: Date.now(), api, label };
+  return _nbPlanField;
 }
 let _nbBusy = false;
 async function nbSheetTick({ force = false } = {}) {
@@ -14330,7 +14346,8 @@ async function nbSheetTick({ force = false } = {}) {
     const writer = await nbSheetWriter([sfUser]);
     if (!writer) { out.errors.push("シートに書けるGoogle連携の人がいません"); return out; }
     const sinceSf = new Date(Math.max(Date.parse(since), Date.now() - 14 * 86400000)).toISOString().replace(/\.\d+Z$/, "Z");
-    const d = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, Account.Name, Account.Website FROM Opportunity
+    const pf = await nbPlanField(sfUser);
+    const d = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, Account.Name, Account.Website${pf.api ? `, ${pf.api}` : ""} FROM Opportunity
       WHERE (StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND LastModifiedDate >= ${sinceSf} ORDER BY LastModifiedDate ASC LIMIT 200`);
     const opps = (d.records || []).filter((o) => !done.has(o.Id) && !/更新|MOCHICA|リピート/i.test(`${o.Name || ""} ${o.StageName || ""}`));
     if (!opps.length) return out;
@@ -14352,8 +14369,13 @@ async function nbSheetTick({ force = false } = {}) {
       if (have.has(key)) { out.skipped.push(`${name}（すでにシートにあります）`); done.add(o.Id); continue; }
       const items = await listOpportunityLineItems(sfUser, o.Id).catch(() => []);
       const names = items.map((x) => String(x.name || "").trim()).filter(Boolean);
+      // AA：商品が「アチコチバース」だけ → 初期なし／「DOCエントリープラン」の商品がある → 初期あり／それ以外 → 書かない
       const onlyAchi = names.length > 0 && names.every((n) => /アチコチバース/.test(n));
-      const plan = [...new Set(names.filter((n) => !/初期/.test(n)))].join("・");
+      const hasEntry = names.some((n) => /DOC\s*エントリー/i.test(n));
+      const initial = hasEntry ? "初期あり" : onlyAchi ? "初期なし" : "";
+      // X プラン名：SFの商談のプランの項目（エントリー・ライト・スタンダード）。空なら商品名から（エントリー／ライト／スタンダード）
+      let plan = pf.api ? String(o[pf.api] || "").split(";").map((x) => x.trim()).filter((x) => x && x !== "その他").join("・") : "";
+      if (!plan) { const m = names.map((n) => (/(エントリー|ライト|スタンダード)/.exec(n) || [])[1]).filter(Boolean); plan = [...new Set(m)].map((x) => `${x}プラン`).join("・"); }
       let site = String((o.Account && o.Account.Website) || "").trim();
       if (!site) { try { const w = await lookupCompanyWebsite(name, sfUser); if (w && w.url) site = w.url; } catch {} }
       // 先方のご担当者：その会社のアポの予定名の「○○様」（いちばん新しいアポ）
@@ -14368,13 +14390,13 @@ async function nbSheetTick({ force = false } = {}) {
         site ? { range: `H${next}`, value: site } : null,
         person ? { range: `N${next}`, value: person } : null,
         plan ? { range: `X${next}`, value: plan } : null,
-        names.length ? { range: `AA${next}`, value: onlyAchi ? "初期なし" : "初期あり" } : null,
+        initial ? { range: `AA${next}`, value: initial } : null,
       ].filter(Boolean);
       try {
         await updateSheetCells(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'`, cells);
         out.written.push(`${name}（${next}行目）`);
         have.add(key); done.add(o.Id);
-        await nbSheetLog({ company: name, row: next, opp: o.Name, plan, initial: names.length ? (onlyAchi ? "初期なし" : "初期あり") : "", site, person });
+        await nbSheetLog({ company: name, row: next, opp: o.Name, plan, planField: pf.label || "", initial, products: names.join("・"), site, person });
         console.log(`[nb-sheet] 管理シートに記入：${name}（${next}行目・${o.StageName}）`);
         next++;
       } catch (e) {
@@ -14401,7 +14423,9 @@ app.get("/api/cs/nb-sheet/log", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
     const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, log: Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [], writer: await nbSheetWriter([req.user]) });
+    let planField = "";
+    try { const su = await pickSfUser(req.user, req).catch(() => ""); if (su && (await sfConnected(su).catch(() => false))) { const pf = await nbPlanField(su); planField = pf.api ? `${pf.label}（${pf.api}）` : "見つかりません（商品名から判断します）"; } } catch {}
+    res.json({ ok: true, log: Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [], writer: await nbSheetWriter([req.user]), planField });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -24371,7 +24395,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16i 申込書を回収したら（SFの商談が06 : 申込書回収完了・08 : 受注処理完了）、NB_Project_Management_Sheet（企業様情報）の空いている行に C正式法人名・D顧客名・Hサイト・N顧客（様）・Xプラン名・AA初期あり／なし を自動記入（すでにある会社は書かない）。30分ごと、CS連携の画面から手でも。";
+const BUILD_TAG = "2026-10-16j 管理シートへの記入：X プラン名をSFの商談のプランの項目（エントリー・ライト・スタンダード）から。AAは、商品がアチコチバースだけ＝初期なし、DOCエントリープランの商品あり＝初期あり、それ以外は書かない。";
 const BUILD_FEATURES = [
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
