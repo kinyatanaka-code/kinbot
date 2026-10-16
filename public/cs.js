@@ -100,7 +100,7 @@ function render() {
 function renderSettings() {
   const d = csData; const box = $("csSet"); if (!d || !box) return;
   const mem = [0, 1, 2].map((i) => d.members[i] || { email: "", name: "" });
-  box.innerHTML = `<div class="cs-set">
+  box.innerHTML = `<p class="note" style="margin:0 0 8px;">CS担当の候補には、設定 → メンバー管理 で役割「CS」を付けた人が出ます（いま ${d.members.length}名）。下の欄は、メンバー管理にいない人を足したいときだけ使います。</p><div class="cs-set">
       ${mem.map((m, i) => `<label>CS ${i + 1}</label><div style="display:flex;gap:6px"><input data-ce="${i}" value="${esc(m.email)}" placeholder="メールアドレス"><input data-cn="${i}" value="${esc(m.name)}" placeholder="名前"></div>`).join("")}
       <label>OBスレ</label><div><input id="csSpace" value="${esc(d.space)}" placeholder="https://chat.google.com/room/… または spaces/…"><div class="cs-sub">設定 → 通知先 で「CS連携（回収MTG）」にチェックした送り先があれば、そちらに送ります（ここは予備）。</div></div>
       <label>御礼メールの件名</label><input id="csSubj" value="${esc(d.subject)}">

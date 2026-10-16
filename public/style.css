@@ -823,6 +823,7 @@ label.iv-row { cursor: pointer; }
 .mb-chk-closer { color: #0F6E56; font-weight: 700; }
 .mb-chk-inside { color: #8A6A1F; font-weight: 700; }
 .mb-chk-fallback { color: #3A5C9A; font-weight: 700; }
+.mb-chk-cs { color: #8A3A7A; font-weight: 700; }
 .mb-cap { width: 54px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
 .mb-del { margin-left: auto; }
 .mb-sigbox { margin-top: 10px; padding: 12px 14px; background: var(--panel-2); border-radius: 10px; }

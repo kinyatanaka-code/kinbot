@@ -907,7 +907,7 @@ async function loadRecallStatus() {
 
 // ===== メンバー管理 =====
 // ここが唯一の登録元。保存すると closer_rotation / interns / rep_team_mapping へ同期される。
-const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備",
+const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備", cs: "CS",
   kincall: "kincallだけ" };
 // 姓の自動判定（サーバー側と同じ規則）。表示用。
 const THREE_CHAR_SURNAMES = ["佐々木","長谷川","小野寺","久保田","佐久間","五十嵐","小早川","大河原",
@@ -1084,7 +1084,7 @@ function mbRender() {
   const sum = document.createElement("p");
   sum.className = "note mb-sum";
   sum.innerHTML = `在籍 <b>${mbState.members.filter((m) => m.active !== false).length}</b>名` +
-    `／クローザー <b>${count("closer")}</b>名・インサイド <b>${count("inside")}</b>名・予備 <b>${count("fallback")}</b>名` +
+    `／クローザー <b>${count("closer")}</b>名・インサイド <b>${count("inside")}</b>名・予備 <b>${count("fallback")}</b>名・CS <b>${count("cs")}</b>名` +
     `／チーム <b>${teamNames.length}</b>`;
   box.appendChild(sum);
 

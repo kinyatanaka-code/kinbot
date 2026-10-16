@@ -11332,8 +11332,14 @@ async function csCandidateUrlFor(company, extraOwners = []) {
 }
 async function csSettings() {
   const st = await getSettings().catch(() => ({}));
+  // CS担当の候補：メンバー管理で役割「CS」を付けた在籍中の人 ＋ CS連携の設定に入れた人
+  const fromMembers = (await listMembers().catch(() => [])).filter((m) => m.active !== false && (m.roles || []).includes("cs") && m.email)
+    .map((m) => ({ email: String(m.email).toLowerCase(), name: String(m.name || m.email) }));
+  const fromSetting = (Array.isArray(st.csMembers) ? st.csMembers : []).filter((x) => x && x.email).map((x) => ({ email: String(x.email).toLowerCase(), name: String(x.name || x.email) }));
+  const seen = new Set();
+  const members = [...fromMembers, ...fromSetting].filter((x) => (seen.has(x.email) ? false : (seen.add(x.email), true)));
   return {
-    members: (Array.isArray(st.csMembers) ? st.csMembers : []).filter((x) => x && x.email).map((x) => ({ email: String(x.email).toLowerCase(), name: String(x.name || x.email) })),
+    members,
     space: String(st.csChatSpace || CS_DEFAULT_SPACE),
     subject: String(st.csMailSubject || CS_DEFAULT_SUBJECT),
     body: String(st.csMailBody || CS_DEFAULT_BODY),
@@ -24210,7 +24216,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16c アワードの受注数を、Salesforceの商談が「06 : 申込書回収完了」以降の段階になった日（SS06昇格日→受注日→完了予定日）で数えるように。カレンダーのキックオフでの判断はやめた。SFに届かないときだけkinbotの案件の受注で数える。";
+const BUILD_TAG = "2026-10-16d メンバー管理に役割「CS」を追加。CSを付けた在籍中の人が、CS連携（回収MTG）の担当の候補・確認MTGの予定の読み取り先になる（割り振り・均等化には入らない）。";
 const BUILD_FEATURES = [
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
   "kincallからメルマガ（トラッキング資料のまとめ送り・開いた人の確認・配信停止）",
