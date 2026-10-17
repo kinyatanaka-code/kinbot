@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261018c" />
+    <link rel="stylesheet" href="style.css?v=20261018d" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -87,17 +87,23 @@
         <main class="report-page">
           <div class="cs-wrap">
             <p class="note" style="margin:0">予定名に「キックオフ」が入った商談の議事録ができると、項目を読み取って CS の OBスレに自動で投稿します。CS担当と先方のメールが分かれば、FS の Gmail に御礼メールの下書きを作ります。読み取れなかった項目は「未確認」になるので、ここで直してから「OBスレに修正版を投稿」できます。</p>
-            <div class="cs-tabs"><button type="button" class="cs-tab on" data-tab="cards">企業カード</button><button type="button" class="cs-tab" data-tab="sheet">管理シートへの自動記入</button></div>
+            <div class="cs-tabs"><button type="button" class="cs-tab on" data-tab="cards">企業カード</button><button type="button" class="cs-tab" data-tab="sheet">管理シートへの自動記入</button><button type="button" class="cs-tab" data-tab="set">設定</button></div>
             <div data-pane="cards">
             <div class="cs-bar">
-              <button type="button" class="btn ghost" id="csReload">読み直す</button>
-              <button type="button" class="btn ghost" id="csSetBtn">設定（CS 3人・OBスレ・御礼メール）</button>
-              <input id="csImport" placeholder="議事録のURLを貼って手で取り込む" style="min-width:280px;border:1px solid #d7e3dd;border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;">
-              <button type="button" class="btn ghost" id="csImportBtn">取り込む</button>
+              <input id="csQ" type="search" placeholder="企業名で探す" style="flex:1;min-width:220px;max-width:420px;border:1px solid #d7e3dd;border-radius:10px;padding:8px 12px;font:inherit;font-size:14px;">
+              <span class="cs-sub" id="csCount"></span>
               <span class="rev-status" id="csSt"></span>
             </div>
-            <div class="cs-card" id="csSet" hidden></div>
             <div id="csList"><div class="empty-state">読み込み中…</div></div>
+            </div>
+            <div data-pane="set" hidden>
+              <div class="cs-card">
+                <div class="cs-h" style="cursor:default"><b>議事録から手で取り込む</b></div>
+                <p class="note" style="margin:6px 0">予定名に「キックオフ」が入っていない回収MTGや、自動の取り込みより前の回収MTGは、議事録のURLを貼って取り込めます。</p>
+                <div class="cs-bar"><input id="csImport" placeholder="議事録のURLを貼る" style="flex:1;min-width:280px;border:1px solid #d7e3dd;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;">
+                  <button type="button" class="btn" id="csImportBtn">取り込む</button><span class="rev-status" id="csImpSt"></span></div>
+              </div>
+              <div class="cs-card" id="csSet"></div>
             </div>
             <div data-pane="sheet" hidden>
             <div class="cs-card">
@@ -111,13 +117,14 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261018c"></script>
+    <script src="nav.js?v=20261018d"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
         document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.tab; });
+        if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261018c"></script>
+    <script src="cs.js?v=20261018d"></script>
   </body>
 </html>

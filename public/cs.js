@@ -29,7 +29,10 @@ function render() {
   // 企業カード：1社1枚。押すと、直す画面（窓）が開く
   const coName = (k) => { const f = k.fields || {}; return f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company; };
   const v = (x) => (x && x !== "未確認" ? esc(x) : '<span class="cs-unk">未確認</span>');
-  const cards = d.kickoffs.map((k) => {
+  const q = String(($("csQ") && $("csQ").value) || "").normalize("NFKC").replace(/[\s　]|株式会社|有限会社|医療法人|社会福祉法人/g, "").toLowerCase();
+  const shown = d.kickoffs.filter((k) => !q || String(coName(k) || "").normalize("NFKC").replace(/[\s　]|株式会社|有限会社|医療法人|社会福祉法人/g, "").toLowerCase().includes(q));
+  if ($("csCount")) $("csCount").textContent = q ? `${shown.length}／${d.kickoffs.length}社` : `${d.kickoffs.length}社`;
+  const cards = shown.map((k) => {
     const f = k.fields || {};
     const unk = FIELDS.filter(([key]) => !f[key] || f[key] === "未確認").length;
     const confirm = k.confirm_start ? fmtDT(k.confirm_start) : (f.次回MTGの日時 && f.次回MTGの日時 !== "未確認" ? f.次回MTGの日時 : "");
@@ -56,7 +59,7 @@ function render() {
   // 直す窓は、画面のいちばん手前（メニューより上）に出すため body の直下に置く
   let host = document.getElementById("csModalHost");
   if (!host) { host = document.createElement("div"); host.id = "csModalHost"; document.body.appendChild(host); }
-  box.innerHTML = `<div class="cs-cards">${cards}</div>`;
+  box.innerHTML = shown.length ? `<div class="cs-cards">${cards}</div>` : `<div class="empty-state">「${esc(($("csQ") || {}).value || "")}」に合う企業はありません</div>`;
   host.innerHTML = (openK ? `<div class="cs-modal-back" id="csBack"><div class="cs-modal">${(() => {
     const k = openK, f = k.fields || {};
     const unk = FIELDS.filter(([key]) => !f[key] || f[key] === "未確認").length;
@@ -159,14 +162,19 @@ function renderSettings() {
     catch (e) { alert(e.message); }
   });
 }
-$("csReload").addEventListener("click", load);
+$("csQ").addEventListener("input", render);
+window.csRenderSettings = () => { if (csData) renderSettings(); };
 $("csImportBtn").addEventListener("click", async () => {
   const v = $("csImport").value.trim(); if (!v) return;
-  say("取り込んでいます…（議事録を読むので、少しかかります）");
-  try { const r = await api("/api/cs/import", { method: "POST", body: JSON.stringify({ botId: v }) }); csOpen = r.bot; $("csImport").value = ""; say("取り込んで、OBスレに投稿しました"); await load(); }
-  catch (e) { alert(e.message); say(""); }
+  const st = $("csImpSt"); st.textContent = "取り込んでいます…（議事録を読むので、少しかかります）";
+  try {
+    const r = await api("/api/cs/import", { method: "POST", body: JSON.stringify({ botId: v }) });
+    $("csImport").value = ""; st.textContent = "取り込んで、OBスレに投稿しました";
+    csOpen = r.bot; await load();
+    document.querySelector('.cs-tab[data-tab="cards"]').click();
+  } catch (e) { st.textContent = "失敗：" + e.message; }
 });
-$("csSetBtn").addEventListener("click", () => { const b = $("csSet"); b.hidden = !b.hidden; if (!b.hidden) renderSettings(); });
+
 load();
 // 管理シートの記録から、MOCHICAの商談の分を外す（全角の英字も見る）。直しの文の中のMOCHICAの会社の行も外す
 function nbCleanLog(log) {

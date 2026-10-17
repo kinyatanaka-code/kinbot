@@ -207,6 +207,7 @@ let histCatFilter = "sales"; // "sales" | "follow" | "internal"
 function meetingCategory(m) {
   const t = String(m.title || "");
   if (/【ユ[/／]フォ】|ユーザーフォロー/.test(t)) return "follow";
+  if (/キックオフ/.test(t)) return "follow";   // 回収MTG（キックオフ）は受注後のフォローなので、ユーザーフォローに入れる
   if (/【社内MTG】|社内ミーティング|社内打ち合わせ/.test(t)) return "internal";
   // 既存のcategoryフィールドも確認
   if (m.category && m.category !== "商談") {
