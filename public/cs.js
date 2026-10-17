@@ -26,9 +26,39 @@ function render() {
   const d = csData; if (!d) return;
   const box = $("csList");
   if (!d.kickoffs.length) { box.innerHTML = `<div class="empty-state">まだ連携したキックオフはありません。予定名に「キックオフ」が入った商談の議事録ができると、ここに出ます（5分ごとに確認）。</div>`; return; }
-  box.innerHTML = d.kickoffs.map((k) => {
+  // 企業カード：1社1枚。押すと、直す画面（窓）が開く
+  const coName = (k) => { const f = k.fields || {}; return f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company; };
+  const v = (x) => (x && x !== "未確認" ? esc(x) : '<span class="cs-unk">未確認</span>');
+  const cards = d.kickoffs.map((k) => {
     const f = k.fields || {};
-    const open = csOpen === k.bot_id;
+    const unk = FIELDS.filter(([key]) => !f[key] || f[key] === "未確認").length;
+    const confirm = k.confirm_start ? fmtDT(k.confirm_start) : (f.次回MTGの日時 && f.次回MTGの日時 !== "未確認" ? f.次回MTGの日時 : "");
+    const bill = String(f.請求書着日スケジュール || "");
+    return `<div class="cs-co" data-bot="${esc(k.bot_id)}" tabindex="0">
+      <div class="cs-co-top"><div class="cs-co-name">${esc(coName(k))}</div>${k.posted_at ? '<span class="cs-dot ok" title="OBスレ投稿済み"></span>' : '<span class="cs-dot ng" title="OBスレ未投稿"></span>'}</div>
+      <div class="cs-co-who"><span>FS ${esc(k.fs_name || "-")}</span>${k.cs_name ? `<span class="ok">CS ${esc(k.cs_name)}</span>` : '<span class="warn">CS 未定</span>'}</div>
+      <dl class="cs-co-dl">
+        <dt>回収MTG</dt><dd>${esc(fmtDT(k.meeting_at))}</dd>
+        <dt>確認MTG</dt><dd>${confirm ? `<b>${esc(confirm)}</b>` : '<span class="cs-unk">未確認</span>'}</dd>
+        <dt>納品月</dt><dd>${v(f.納品月)}</dd>
+        <dt>公開予定</dt><dd>${v(f.公開予定時期)}</dd>
+        <dt>活用場所</dt><dd class="cl">${v(f.活用場所)}</dd>
+        <dt>請求</dt><dd>${bill && bill !== "未確認" ? `<span class="${/問題なし/.test(bill) ? "okt" : "wt"}">${esc(bill)}</span>` : '<span class="cs-unk">未確認</span>'}</dd>
+      </dl>
+      <div class="cs-co-foot">
+        ${k.draft_at ? '<span class="cs-pill ok">御礼メール下書きあり</span>' : '<span class="cs-pill">御礼メール：まだ</span>'}
+        ${unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : ""}
+        ${k.error ? '<span class="cs-pill ng">エラー</span>' : ""}
+      </div>
+    </div>`;
+  }).join("");
+  const openK = d.kickoffs.find((k) => k.bot_id === csOpen);
+  // 直す窓は、画面のいちばん手前（メニューより上）に出すため body の直下に置く
+  let host = document.getElementById("csModalHost");
+  if (!host) { host = document.createElement("div"); host.id = "csModalHost"; document.body.appendChild(host); }
+  box.innerHTML = `<div class="cs-cards">${cards}</div>`;
+  host.innerHTML = (openK ? `<div class="cs-modal-back" id="csBack"><div class="cs-modal">${(() => {
+    const k = openK, f = k.fields || {};
     const unk = FIELDS.filter(([key]) => !f[key] || f[key] === "未確認").length;
     const pills = [
       k.posted_at ? `<span class="cs-pill ok">OBスレ投稿済み</span>` : `<span class="cs-pill ng">未投稿</span>`,
@@ -36,12 +66,11 @@ function render() {
       k.draft_at ? `<span class="cs-pill ok">御礼メール下書きあり</span>` : `<span class="cs-pill">御礼メール：まだ</span>`,
       unk ? `<span class="cs-pill warn">未確認 ${unk}項目</span>` : "",
     ].join("");
-    const head = `<div class="cs-h" data-bot="${esc(k.bot_id)}"><b>${open ? "▾" : "▸"} ${esc(f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company)}</b>
-      <span class="cs-sub">回収MTG ${esc(fmtDT(k.meeting_at))}・FS ${esc(k.fs_name || "")}</span>${pills}</div>`;
-    if (!open) return `<div class="cs-card">${head}</div>`;
+    const head = `<div class="cs-h" style="cursor:default"><b>${esc(coName(k))}</b>
+      <span class="cs-sub">回収MTG ${esc(fmtDT(k.meeting_at))}・FS ${esc(k.fs_name || "")}</span>${pills}<button type="button" class="cs-x" id="csClose" aria-label="閉じる">✕</button></div>`;
     const csOpts = `<option value="">未定</option>` + d.members.map((m) => `<option value="${esc(m.email)}"${m.email === k.cs_email ? " selected" : ""}>${esc(m.name)}</option>`).join("");
     const rows = FIELDS.map(([key, lb]) => `<label>${esc(lb)}</label><input data-f="${esc(key)}" value="${esc(f[key] || "")}" class="${!f[key] || f[key] === "未確認" ? "unk" : ""}">`).join("");
-    return `<div class="cs-card open">${head}
+    return `<div class="cs-card open" style="border:0;box-shadow:none;padding:0">${head}
       <div class="cs-grid">
         ${rows}
         <label>弊社の宿題</label><textarea data-list="弊社の宿題" rows="3" placeholder="1行に1つ。無ければ空（メールの項目ごと出しません）">${esc((f.弊社の宿題 || []).join("\n"))}</textarea>
@@ -66,9 +95,20 @@ function render() {
       </div>
       <div class="cs-mail" data-mail hidden></div>
     </div>`;
-  }).join("");
-  box.querySelectorAll(".cs-h").forEach((h) => h.addEventListener("click", () => { csOpen = csOpen === h.dataset.bot ? "" : h.dataset.bot; render(); }));
-  const card = box.querySelector(".cs-card.open");
+  })()}</div></div>` : "");
+  box.querySelectorAll(".cs-co").forEach((c) => {
+    const go = () => { csOpen = c.dataset.bot; render(); };
+    c.addEventListener("click", go);
+    c.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  });
+  const back = $("csBack");
+  if (back) {
+    const close = () => { csOpen = ""; render(); };
+    back.addEventListener("click", (e) => { if (e.target === back) close(); });
+    $("csClose").addEventListener("click", close);
+    document.onkeydown = (e) => { if (e.key === "Escape" && csOpen) close(); };
+  }
+  const card = host.querySelector(".cs-card.open");
   if (!card) return;
   const bot = csOpen;
   const collect = () => {
@@ -124,6 +164,13 @@ $("csImportBtn").addEventListener("click", async () => {
 });
 $("csSetBtn").addEventListener("click", () => { const b = $("csSet"); b.hidden = !b.hidden; if (!b.hidden) renderSettings(); });
 load();
+// 管理シートの記録から、MOCHICAの商談の分を外す（全角の英字も見る）。直しの文の中のMOCHICAの会社の行も外す
+function nbCleanLog(log) {
+  const isMo = (x) => /MOCHI/i.test(`${x.plan || ""} ${x.products || ""} ${x.opp || ""}`.normalize("NFKC"));
+  const moCos = new Set(log.filter(isMo).map((x) => String(x.company || "").normalize("NFKC").trim()).filter(Boolean));
+  return log.filter((x) => !isMo(x)).map((x) => x.repair ? { ...x, repair: x.repair.filter((t) => ![...moCos].some((c) => String(t).normalize("NFKC").includes(c))) } : x)
+    .filter((x) => !(x.repair && !x.repair.length));
+}
 async function loadNb() {
   const box = document.getElementById("nbLog"); if (!box) return;
   try {
@@ -131,7 +178,7 @@ async function loadNb() {
     box.innerHTML = (d.writer ? `書き込む人：${esc(d.writer)}<br>` : `<span style="color:#b3261e">シートに書けるGoogle連携の人がいません</span><br>`) +
       (d.planField ? `プラン名を読むSFの項目：${esc(d.planField)}<br>` : "") +
       // MOCHICAの商談の記録（前の版で書いてしまったもの）と、中身の無い「直し」は出さない
-      ((d.log = (d.log || []).filter((x) => !(x.repair && !x.repair.length) && !/MOCHI/i.test(`${x.plan || ""} ${x.products || ""} ${x.opp || ""}`))).length ? d.log.slice(0, 15).map((x) => x.repair ? `${esc(fmtDT(x.at))}　<b>直し</b>：${x.repair.map(esc).join("／")}` : `${esc(fmtDT(x.at))}　${x.error ? `<span style="color:#b3261e">${esc(x.company || "")}：${esc(x.error)}</span>` : `${esc(x.company)}（${x.row}行目）プラン：${esc(x.plan || "-")}${x.planField ? `（SFの「${esc(x.planField)}」）` : ""}・${esc(x.initial || "初期：書かず")}・担当：${esc(x.person || "-")}${x.products ? `・商品：${esc(x.products)}` : ""}`}`).join("<br>") : "まだ記入した会社はありません");
+      ((d.log = nbCleanLog(d.log || [])).length ? d.log.slice(0, 15).map((x) => x.repair ? `${esc(fmtDT(x.at))}　<b>直し</b>：${x.repair.map(esc).join("／")}` : `${esc(fmtDT(x.at))}　${x.error ? `<span style="color:#b3261e">${esc(x.company || "")}：${esc(x.error)}</span>` : `${esc(x.company)}（${x.row}行目）プラン：${esc(x.plan || "-")}${x.planField ? `（SFの「${esc(x.planField)}」）` : ""}・${esc(x.initial || "初期：書かず")}・担当：${esc(x.person || "-")}${x.products ? `・商品：${esc(x.products)}` : ""}`}`).join("<br>") : "まだ記入した会社はありません");
   } catch (e) { box.textContent = e.message; }
 }
 loadNb();

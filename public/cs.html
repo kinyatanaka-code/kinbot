@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261017e" />
+    <link rel="stylesheet" href="style.css?v=20261018a" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -31,6 +31,26 @@
     .cs-err{color:#b3261e;font-size:12px;margin-top:6px;}
     .cs-set{display:grid;grid-template-columns:140px minmax(0,1fr);gap:8px 10px;font-size:13px;}
     .cs-set label{font-size:12px;color:#5b7a6d;padding-top:7px;}
+    .cs-tabs{display:flex;gap:6px;border-bottom:1px solid #e6ece9;}
+    .cs-tab{border:0;background:none;padding:9px 14px;font:inherit;font-size:14px;font-weight:700;color:#5f6b64;border-bottom:3px solid transparent;cursor:pointer;}
+    .cs-tab.on{color:#0d5b47;border-bottom-color:#1d9e75;}
+    .cs-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px;margin-top:12px;}
+    .cs-co{background:#fff;border:1px solid #e6ece9;border-radius:14px;padding:14px 15px;cursor:pointer;transition:transform .12s, box-shadow .12s;display:flex;flex-direction:column;gap:8px;}
+    .cs-co:hover{transform:translateY(-2px);box-shadow:0 10px 24px -16px rgba(13,91,71,.55);}
+    .cs-co-top{display:flex;align-items:flex-start;gap:8px;}
+    .cs-co-name{font-size:15.5px;font-weight:800;color:#1f2a26;line-height:1.35;flex:1;}
+    .cs-dot{width:10px;height:10px;border-radius:50%;margin-top:6px;flex:none;} .cs-dot.ok{background:#1d9e75;} .cs-dot.ng{background:#e24b4a;}
+    .cs-co-who{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;}
+    .cs-co-who span{background:#f1f4f2;color:#3f4a45;border-radius:99px;padding:2px 9px;font-weight:600;}
+    .cs-co-who span.ok{background:#e1f5ee;color:#085041;} .cs-co-who span.warn{background:#fff4dc;color:#7a5200;}
+    .cs-co-dl{display:grid;grid-template-columns:62px minmax(0,1fr);gap:4px 8px;margin:0;font-size:12.5px;}
+    .cs-co-dl dt{color:#7a8a82;} .cs-co-dl dd{margin:0;color:#1f2a26;min-width:0;}
+    .cs-co-dl dd.cl{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+    .cs-unk{color:#b08a2e;} .okt{color:#0d5b47;font-weight:700;} .wt{color:#b3261e;font-weight:700;}
+    .cs-co-foot{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;}
+    .cs-modal-back{position:fixed;inset:0;background:rgba(20,40,30,.35);z-index:3000;display:flex;align-items:flex-start;justify-content:center;padding:4vh 16px;overflow:auto;}
+    .cs-modal{background:#fff;border-radius:16px;width:min(980px,100%);padding:16px 18px;box-shadow:0 24px 60px -20px rgba(0,0,0,.4);}
+    .cs-x{margin-left:auto;border:0;background:#f1f4f2;border-radius:10px;width:34px;height:34px;font-size:16px;cursor:pointer;}
     </style>
 </head>
   <body>
@@ -67,6 +87,8 @@
         <main class="report-page">
           <div class="cs-wrap">
             <p class="note" style="margin:0">予定名に「キックオフ」が入った商談の議事録ができると、項目を読み取って CS の OBスレに自動で投稿します。CS担当と先方のメールが分かれば、FS の Gmail に御礼メールの下書きを作ります。読み取れなかった項目は「未確認」になるので、ここで直してから「OBスレに修正版を投稿」できます。</p>
+            <div class="cs-tabs"><button type="button" class="cs-tab on" data-tab="cards">企業カード</button><button type="button" class="cs-tab" data-tab="sheet">管理シートへの自動記入</button></div>
+            <div data-pane="cards">
             <div class="cs-bar">
               <button type="button" class="btn ghost" id="csReload">読み直す</button>
               <button type="button" class="btn ghost" id="csSetBtn">設定（CS 3人・OBスレ・御礼メール）</button>
@@ -76,17 +98,26 @@
             </div>
             <div class="cs-card" id="csSet" hidden></div>
             <div id="csList"><div class="empty-state">読み込み中…</div></div>
+            </div>
+            <div data-pane="sheet" hidden>
             <div class="cs-card">
               <div class="cs-h" style="cursor:default"><b>NB_Project_Management_Sheet（企業様情報）への自動記入</b>
                 <button type="button" class="btn ghost" id="nbRun" style="padding:4px 12px;font-size:12px;">いま確認して記入する</button><span class="rev-status" id="nbSt"></span></div>
               <p class="note" style="margin:6px 0">SFのクロスの商談が「06 : 申込書回収完了」「08 : 受注処理完了」になったら、30分以内に空いている行へ C 正式法人名・D 顧客名・H サイト・N 顧客（様）（SFの取引先責任者）・X プラン名・AA 初期あり／初期なし を記入します。すでにある会社には書きません。</p>
               <div id="nbLog" class="cs-sub"></div>
             </div>
+            </div>
           </div>
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261017e"></script>
-    <script src="cs.js?v=20261017e"></script>
+    <script src="nav.js?v=20261018a"></script>
+    <script>
+      document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
+        document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
+        document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.tab; });
+      }));
+    </script>
+    <script src="cs.js?v=20261018a"></script>
   </body>
 </html>
