@@ -23112,15 +23112,19 @@ app.get("/api/switch/state", async (req, res) => {
   try {
     const user = String(req.user || "").toLowerCase();
     const active = await swActiveBots(user);
+    // 見る日：?date=YYYY-MM-DD（無ければ今日・日本時間）。その日の予定をすべて並べる
+    const today = jstDateStr(new Date());
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : today;
     let upcoming = [];
     try {
       const now = Date.now();
-      const evs = await listCalendarEvents(user, "primary", { timeMin: new Date(now - 90 * 60000).toISOString(), timeMax: new Date(now + 8 * 3600000).toISOString() });
-      upcoming = (evs || []).filter((e) => !e.allDay && e.start && Date.parse(e.end || e.start) > now - 10 * 60000)
-        .sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, 8)
-        .map((e) => ({ id: e.id, title: e.title || "（予定名なし）", start: e.start, end: e.end, now: Date.parse(e.start) <= now && Date.parse(e.end || e.start) > now }));
+      const evs = await listCalendarEvents(user, "primary", { timeMin: new Date(`${day}T00:00:00+09:00`).toISOString(), timeMax: new Date(`${day}T23:59:59+09:00`).toISOString() });
+      upcoming = (evs || []).filter((e) => !e.allDay && e.start)
+        .sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, 30)
+        .map((e) => ({ id: e.id, title: e.title || "（予定名なし）", start: e.start, end: e.end,
+          now: Date.parse(e.start) <= now && Date.parse(e.end || e.start) > now, past: Date.parse(e.end || e.start) <= now }));
     } catch {}
-    res.json({ ok: true, active, upcoming, room: await swRoomUrl(user, active[0] && active[0].url) });
+    res.json({ ok: true, day, today, active, upcoming, room: await swRoomUrl(user, active[0] && active[0].url) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 切り替える（botId があれば抜けさせる）→ 同じ部屋に、新しい商談として入れる
@@ -24552,7 +24556,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-17c 商談の切り替えをスマホのアプリのように（ホーム画面に追加・アイコン・全画面・経過時間・下に大きいボタン）。スマホ以外で開くと「スマホで開いてください」。PCのメニューからは外した。";
+const BUILD_TAG = "2026-10-17d 商談の切り替え：カレンダーは今日から始めて、‹ › で前後の日・日付を押してカレンダーで選べるように（その日の予定をすべて並べ、終わった予定は薄く）。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",

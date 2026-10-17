@@ -43,6 +43,12 @@
   .ev .t { font-weight:700; font-size:14.5px; line-height:1.4; }
   .ev .w { font-size:12px; color:var(--sub); margin-top:2px; }
   .now { font-size:10.5px; color:#fff; background:var(--g2); border-radius:99px; padding:1px 7px; margin-left:6px; vertical-align:2px; }
+  .day { display:flex; align-items:center; gap:8px; margin:2px 0 4px; }
+  .day button { border:1.5px solid var(--line); background:#fff; border-radius:12px; min-width:44px; height:44px; font-size:20px; color:var(--g); font-weight:700; }
+  .day .dt { font-size:13px; min-width:56px; }
+  .day .dl { flex:1; position:relative; height:44px; border-radius:12px; background:var(--pale); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:var(--g); }
+  .day .dl input { position:absolute; inset:0; opacity:0; margin:0; padding:0; border:0; width:100%; height:100%; }
+  .ev.past { opacity:.5; }
   input { width:100%; border:1.5px solid var(--line); border-radius:12px; padding:13px; font-size:16px; font-family:inherit; margin-top:10px; -webkit-user-select:text; user-select:text; }
   .foot { position:fixed; left:0; right:0; bottom:0; z-index:6; padding:10px 14px calc(12px + env(safe-area-inset-bottom,0px));
           background:linear-gradient(to top, var(--bg) 70%, rgba(243,247,245,0)); }
@@ -72,6 +78,9 @@
       <div class="card" id="nowCard"><div class="lb">いま録音中</div><div class="empty">読み込み中…</div></div>
       <div class="card">
         <div class="lb">次の商談</div>
+        <div class="day"><button type="button" id="dPrev" aria-label="前の日">‹</button>
+          <label class="dl"><span id="dLabel">今日</span><input type="date" id="dPick" /></label>
+          <button type="button" id="dNext" aria-label="次の日">›</button><button type="button" id="dToday" class="dt">今日</button></div>
         <div id="evs"><div class="empty">読み込み中…</div></div>
         <input id="title" placeholder="予定にない商談は、商談名を入れる" />
       </div>
@@ -106,6 +115,20 @@ else {
   setTimeout(showInstall, 800);
 }
 let st = null, sel = null, busy = false;
+let day = "";   // 見る日（空＝今日）
+const ymdJ = (d) => new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+function dayLabel(ds, today) {
+  if (!ds || ds === today) return "今日";
+  const d = new Date(`${ds}T00:00:00+09:00`), t = new Date(`${today}T00:00:00+09:00`);
+  const diff = Math.round((d - t) / 86400000);
+  const base = `${d.getMonth() + 1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`;
+  return diff === 1 ? `明日 ${base}` : diff === -1 ? `昨日 ${base}` : base;
+}
+function moveDay(n) {
+  const base = day || (st && st.today) || ymdJ(new Date());
+  const d = new Date(`${base}T12:00:00+09:00`); d.setDate(d.getDate() + n);
+  day = ymdJ(d); sel = null; if (navigator.vibrate) navigator.vibrate(10); load();
+}
 async function api(url, opts = {}) {
   const r = await fetch(url, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...opts });
   const ct = r.headers.get("content-type") || "";
@@ -129,10 +152,18 @@ function render() {
   $("go").textContent = a.length ? "次の商談に切り替える" : "この商談の録音を始める";
   const evs = (st && st.upcoming) || [];
   const curTitle = a[0] ? a[0].title : "";
-  if (sel === null) { const nx = evs.find((e) => e.title !== curTitle && Date.parse(e.start) > Date.now() - 20 * 60000) || evs.find((e) => e.title !== curTitle) || evs[0]; sel = nx ? nx.id : ""; }
-  $("evs").innerHTML = evs.length ? evs.map((e) => `<div class="ev ${e.id === sel ? "sel" : ""}" data-id="${esc(e.id)}"><span class="ck"></span>
+  const isToday = !st || !st.day || st.day === st.today;
+  $("dLabel").textContent = dayLabel(st && st.day, st && st.today);
+  $("dPick").value = (st && st.day) || "";
+  $("dToday").style.display = isToday ? "none" : "";
+  if (sel === null) {
+    const nx = isToday ? (evs.find((e) => e.title !== curTitle && Date.parse(e.start) > Date.now() - 20 * 60000) || evs.find((e) => e.title !== curTitle && !e.past) || evs[evs.length - 1])
+      : evs[0];
+    sel = nx ? nx.id : "";
+  }
+  $("evs").innerHTML = evs.length ? evs.map((e) => `<div class="ev ${e.id === sel ? "sel" : ""} ${e.past && !e.now ? "past" : ""}" data-id="${esc(e.id)}"><span class="ck"></span>
       <div style="flex:1;min-width:0"><div class="t">${esc(e.title)}${e.now ? '<span class="now">いま</span>' : ""}</div><div class="w">${esc(hm(e.start))}〜${esc(hm(e.end))}</div></div></div>`).join("")
-    : `<div class="empty">これからの予定がカレンダーにありません</div>`;
+    : `<div class="empty">この日の予定がカレンダーにありません</div>`;
   document.querySelectorAll(".ev").forEach((el) => el.addEventListener("click", () => { sel = el.dataset.id; $("title").value = ""; if (navigator.vibrate) navigator.vibrate(10); render(); }));
   document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("この録音を終えます。よろしいですか？")) return;
@@ -141,7 +172,7 @@ function render() {
     catch (e) { toast(e.message, false); b.disabled = false; }
   }));
 }
-async function load() { try { st = await api("/api/switch/state"); render(); } catch (e) { toast(e.message, false); } }
+async function load() { try { st = await api(`/api/switch/state${day ? `?date=${encodeURIComponent(day)}` : ""}`); render(); } catch (e) { toast(e.message, false); } }
 $("go").addEventListener("click", async () => {
   if (busy) return;
   const evs = (st && st.upcoming) || [];
@@ -160,6 +191,10 @@ $("go").addEventListener("click", async () => {
   finally { busy = false; $("go").disabled = false; render(); }
 });
 $("rf").addEventListener("click", () => { if (navigator.vibrate) navigator.vibrate(10); load(); });
+$("dPrev").addEventListener("click", () => moveDay(-1));
+$("dNext").addEventListener("click", () => moveDay(1));
+$("dToday").addEventListener("click", () => { day = ""; sel = null; load(); });
+$("dPick").addEventListener("change", (e) => { if (e.target.value) { day = e.target.value; sel = null; load(); } });
 setInterval(() => { $("clock").textContent = hm(new Date().toISOString()); document.querySelectorAll("[data-since]").forEach((el) => { el.textContent = elapsed(el.dataset.since); }); }, 1000);
 setInterval(() => { if (!busy && !document.hidden) load(); }, 20000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
