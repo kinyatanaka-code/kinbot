@@ -23080,6 +23080,32 @@ async function guessTitleFromCalendar(owner, meetingUrl, at = new Date()) {
   return e && String(e.title || "").trim() ? String(e.title).trim() : "";
 }
 
+// 連続の商談：新しいボットが会議に入ったら、同じ部屋（同じZoomのミーティングID）に残っている前のボットを抜けさせる。
+// 前の商談の録音はそこで締まり、要約・分析もいつもどおり動く。次の商談は新しいボットで、予定名どおりの商談として残る。
+const _handoverDone = new Set();
+async function handoverSameRoom(newBotId) {
+  if (_handoverDone.has(newBotId)) return;
+  _handoverDone.add(newBotId);
+  const me = await getMeeting(newBotId).catch(() => null);
+  const room = zoomMeetingId(me && me.meeting_url) || String((me && me.meeting_url) || "").split("?")[0];
+  if (!room) return;
+  const since = new Date(Date.now() - 6 * 3600000).toISOString().slice(0, 10);
+  const recent = await listMeetings({ isAdmin: true, from: since, limit: 200, light: true }).catch(() => []);
+  for (const m of recent) {
+    if (!m.bot_id || m.bot_id === newBotId) continue;
+    if (Date.now() - Date.parse(m.created_at || 0) > 6 * 3600000) continue;
+    const r2 = zoomMeetingId(m.meeting_url) || String(m.meeting_url || "").split("?")[0];
+    if (r2 !== room) continue;
+    try {
+      const b = await getBot(m.bot_id);
+      const codes = ((b && b.status_changes) || []).map((x) => x.code);
+      const last = codes[codes.length - 1] || "";
+      if (!/in_call|joining|waiting_room/.test(last)) continue;
+      await leaveBot(m.bot_id);
+      console.log(`[handover] 同じ部屋の前の商談のボットを抜けさせました：${m.title || m.bot_id} → 次：${(me && me.title) || newBotId}`);
+    } catch (e) { console.warn("[handover] 前のボットの確認", e.message); }
+  }
+}
 // ボットを会議へ送り、セッションを開始する共通処理（手動開始・Zoom自動入室で共用）
 async function startBotSession(owner, meetingUrl, { title = "", repName = "", languageCode = "", kasasagi = false } = {}) {
   const cfg = await resolveConfig(owner);
@@ -24083,6 +24109,10 @@ app.post("/api/recall/webhook", (req, res) => {
       }
       // 文字起こし以外＝完了/退出系イベントなら、セッションを締めて自動生成
       const name = String(req.body?.event || req.body?.type || "").toLowerCase();
+      if (/in_call_recording|in_call_not_recording/.test(name) || /in_call_recording|in_call_not_recording/.test(String(req.body?.data?.status?.code || req.body?.data?.data?.code || ""))) {
+        const nb = findBotId(req.body);
+        if (nb) handoverSameRoom(nb).catch((e) => console.warn("[handover]", e.message));
+      }
       if (/done|ended|finished|fatal|complete|left|leave/.test(name)) {
         const botId = findBotId(req.body);
         if (botId) {
@@ -24481,7 +24511,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-16p 管理シートのN列（顧客（様））を、SFの商談の取引先責任者（取引先責任者の役割→商談の項目）の姓で書く。無ければアポの先方担当者。書いた行でN列が空のものにも入れる（起動1分後に1回）。";
+const BUILD_TAG = "2026-10-17a 連続の商談：予定ごとにkinbotが自動で入るように（部屋ごとの30分の重複よけをやめ、kinbotの参加リンク（/j/…）の予定も照合）。新しいボットが入ったら、同じ部屋に残っている前の商談のボットは自動で抜けて、録音が商談ごとに分かれる。";
 const BUILD_FEATURES = [
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",
@@ -31228,17 +31258,35 @@ function startAutoJoinCalendarMonitor() {
             }
           }
         } else {
-          // 通常：予定のZoom URLが登録URLと同じミーティングIDのとき入室
-          if (r.last_joined_at && now - new Date(r.last_joined_at).getTime() <= DEDUP_MS) continue;
-          const match = timed.find((e) => e.url && zoomMeetingId(e.url) === r.meeting_id && inWindow(new Date(e.start).getTime(), now));
-          if (!match) continue;
-          try {
-            const meta = await autoJoinMeta(owner, match, r);
-            await startBotSession(owner, r.url, { title: meta.title, repName: meta.repName });
-            await touchAutoJoin(r.id);
-            console.log(`[auto-join(cal)] 予定開始で自動入室: ${r.meeting_id} → ${owner} / 担当:${meta.repName}`);
-          } catch (err) {
-            console.error("[auto-join(cal)] 入室失敗", err.message);
+          // 通常：予定のZoom URLが登録URLと同じミーティングIDのとき、または予定に kinbot の参加リンク（/j/…）があり
+          //       そのリンクの担当がこの部屋の持ち主のときに入室する。
+          // 2026-10-17：連続で商談があるとき、2件目以降に入らなかった（部屋ごとに30分の重複よけ、Zoomの開始の知らせは部屋を開いたときの1回だけ、
+          //             kinbotの参加リンクの予定は照合できていなかった）。予定ごとに1回入るようにし、前の商談のボットは入れ替えで抜ける。
+          const smartSlugOf = (e) => { const m = new RegExp(`${String(PUBLIC_URL || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/j/([A-Za-z0-9_-]+)`).exec(`${e.url || ""} ${e.description || ""} ${e.location || ""}`); return m ? m[1] : ""; };
+          for (const e of timed) {
+            if (!inWindow(new Date(e.start).getTime(), now)) continue;
+            let hit = !!(e.url && zoomMeetingId(e.url) === r.meeting_id);
+            if (!hit) {
+              const slug = smartSlugOf(e);
+              if (slug) {
+                const l = await getSmartLink(slug).catch(() => null);
+                hit = !!(l && String(l.current_owner || "").toLowerCase() === String(owner || "").toLowerCase());
+              }
+            }
+            if (!hit) continue;
+            const key = `${r.id}|${e.id}`;
+            if (joinedEventKeys.has(key)) continue;
+            // Zoomの開始の知らせで、たった今（3分以内）入ったばかりなら重ねない
+            if (r.last_joined_at && now - new Date(r.last_joined_at).getTime() <= 3 * 60 * 1000) { joinedEventKeys.add(key); continue; }
+            joinedEventKeys.add(key);
+            try {
+              const meta = await autoJoinMeta(owner, e, r);
+              await startBotSession(owner, r.url, { title: meta.title, repName: meta.repName });
+              await touchAutoJoin(r.id);
+              console.log(`[auto-join(cal)] 予定開始で自動入室: ${r.meeting_id}「${e.title || ""}」→ ${owner} / 担当:${meta.repName}`);
+            } catch (err) {
+              console.error("[auto-join(cal)] 入室失敗", err.message);
+            }
           }
         }
       }
