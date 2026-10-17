@@ -862,6 +862,8 @@ function isKincallSelfSettingPath(p) {
 
 const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
+  // 商談の切り替え（スマホのアプリ）：ホーム画面に追加するための設定・アイコン・サービスワーカー
+  "/switch.webmanifest", "/switch-sw.js", "/switch-icon-192.png", "/switch-icon-512.png", "/switch-icon-180.png",
   // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
   "/api/kasasagi/face", "/kasasagi-face.html",
   // 送った資料のビューアー（受け取った人が開くので認証なし）
@@ -24550,7 +24552,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-17b 連続の商談の自動入室・入れ替え（17a）は元に戻した。代わりにスマホ向けの「商談の切り替え」画面（/switch.html）：ボタン1つで、いまのkinbotを抜けさせて同じZoomの部屋に次の商談のkinbotを入れる。録音を終えるだけもできる。";
+const BUILD_TAG = "2026-10-17c 商談の切り替えをスマホのアプリのように（ホーム画面に追加・アイコン・全画面・経過時間・下に大きいボタン）。スマホ以外で開くと「スマホで開いてください」。PCのメニューからは外した。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",

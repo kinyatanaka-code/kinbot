@@ -2,108 +2,168 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="theme-color" content="#0E6B4E" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
-<title>kinbot 切り替え</title>
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="kinbot" />
+<link rel="manifest" href="/switch.webmanifest" />
+<link rel="apple-touch-icon" href="/switch-icon-180.png" />
+<link rel="icon" href="/switch-icon-192.png" />
+<title>kinbot</title>
 <style>
-  :root { --g:#0E6B4E; --g2:#1d9e75; --pale:#EAF4EF; --line:#dfe8e3; --tx:#1f2a26; --sub:#5f6b64; --red:#b3261e; }
-  * { box-sizing:border-box; }
-  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; background:#f3f7f5; color:var(--tx);
-         padding:calc(12px + env(safe-area-inset-top,0px)) 14px calc(24px + env(safe-area-inset-bottom,0px)); }
-  h1 { font-size:18px; margin:4px 0 12px; display:flex; align-items:center; gap:8px; }
-  h1 small { font-size:12px; color:var(--sub); font-weight:500; margin-left:auto; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:12px; }
-  .lb { font-size:12px; color:var(--sub); margin-bottom:6px; }
-  .rec { display:flex; align-items:center; gap:8px; font-weight:700; font-size:16px; }
-  .dot { width:10px; height:10px; border-radius:50%; background:var(--red); animation:b 1.4s infinite; flex:none; }
-  @keyframes b { 50% { opacity:.3; } }
-  .meta { font-size:12.5px; color:var(--sub); margin-top:4px; }
-  .btn { display:block; width:100%; border:0; border-radius:14px; padding:16px; font-size:16px; font-weight:700; margin-top:10px; cursor:pointer; }
-  .btn.main { background:var(--g2); color:#fff; }
-  .btn.ghost { background:#fff; color:var(--g); border:1.5px solid #cfe0d9; }
-  .btn.stop { background:#fff; color:var(--red); border:1.5px solid #f3c2bd; }
-  .btn:disabled { opacity:.5; }
-  .ev { display:flex; align-items:center; gap:10px; padding:12px; border:1.5px solid var(--line); border-radius:14px; margin-top:8px; background:#fff; cursor:pointer; }
+  :root { --g:#0E6B4E; --g2:#1d9e75; --pale:#EAF4EF; --line:#dfe8e3; --tx:#1f2a26; --sub:#5f6b64; --red:#c62828; --bg:#f3f7f5; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; }
+  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; background:var(--bg); color:var(--tx);
+         overscroll-behavior-y:contain; -webkit-user-select:none; user-select:none; }
+  .bar { position:sticky; top:0; z-index:5; background:linear-gradient(160deg,#1d9e75,#0E6B4E); color:#fff;
+         padding:calc(10px + env(safe-area-inset-top,0px)) 16px 12px; display:flex; align-items:center; gap:10px; }
+  .bar img { width:30px; height:30px; border-radius:8px; background:rgba(255,255,255,.15); }
+  .bar b { font-size:17px; letter-spacing:.02em; }
+  .bar .clk { margin-left:auto; font-size:15px; font-variant-numeric:tabular-nums; opacity:.95; }
+  .bar .rf { border:0; background:rgba(255,255,255,.18); color:#fff; border-radius:10px; width:36px; height:36px; font-size:18px; }
+  main { padding:14px 14px calc(110px + env(safe-area-inset-bottom,0px)); }
+  .card { background:#fff; border-radius:18px; padding:14px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,0,0,.04), 0 6px 18px -14px rgba(13,91,71,.45); }
+  .lb { font-size:12px; color:var(--sub); margin-bottom:8px; font-weight:600; letter-spacing:.04em; }
+  .rec { display:flex; align-items:flex-start; gap:10px; }
+  .dot { width:12px; height:12px; border-radius:50%; background:var(--red); margin-top:5px; flex:none; box-shadow:0 0 0 0 rgba(198,40,40,.5); animation:p 1.6s infinite; }
+  .dot.wait { background:#e0a100; animation:none; }
+  @keyframes p { 0% { box-shadow:0 0 0 0 rgba(198,40,40,.45); } 70% { box-shadow:0 0 0 10px rgba(198,40,40,0); } 100% { box-shadow:0 0 0 0 rgba(198,40,40,0); } }
+  .rt { font-weight:800; font-size:17px; line-height:1.4; }
+  .el { font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; margin:6px 0 0 22px; color:var(--g); }
+  .meta { font-size:12.5px; color:var(--sub); margin:2px 0 0 22px; }
+  .stop { display:block; width:100%; margin-top:12px; border:1.5px solid #f3c2bd; background:#fff; color:var(--red); border-radius:14px; padding:13px; font-size:15px; font-weight:700; }
+  .ev { display:flex; align-items:center; gap:12px; padding:13px 12px; border:2px solid transparent; border-radius:14px; margin-top:8px; background:#f7faf8; }
   .ev.sel { border-color:var(--g2); background:var(--pale); }
+  .ev .ck { width:22px; height:22px; border-radius:50%; border:2px solid #b9cbc3; flex:none; display:flex; align-items:center; justify-content:center; }
+  .ev.sel .ck { border-color:var(--g2); background:var(--g2); }
+  .ev.sel .ck::after { content:""; width:8px; height:8px; border-radius:50%; background:#fff; }
   .ev .t { font-weight:700; font-size:14.5px; line-height:1.4; }
-  .ev .w { font-size:12px; color:var(--sub); white-space:nowrap; }
-  .ev .now { font-size:11px; color:#fff; background:var(--g2); border-radius:99px; padding:1px 7px; margin-left:6px; }
-  input { width:100%; border:1.5px solid var(--line); border-radius:12px; padding:12px; font-size:15px; font-family:inherit; margin-top:8px; }
-  .msg { font-size:13px; margin-top:10px; min-height:18px; }
-  .ok { color:var(--g); } .ng { color:var(--red); }
-  .empty { font-size:13px; color:var(--sub); }
+  .ev .w { font-size:12px; color:var(--sub); margin-top:2px; }
+  .now { font-size:10.5px; color:#fff; background:var(--g2); border-radius:99px; padding:1px 7px; margin-left:6px; vertical-align:2px; }
+  input { width:100%; border:1.5px solid var(--line); border-radius:12px; padding:13px; font-size:16px; font-family:inherit; margin-top:10px; -webkit-user-select:text; user-select:text; }
+  .foot { position:fixed; left:0; right:0; bottom:0; z-index:6; padding:10px 14px calc(12px + env(safe-area-inset-bottom,0px));
+          background:linear-gradient(to top, var(--bg) 70%, rgba(243,247,245,0)); }
+  .go { display:block; width:100%; border:0; border-radius:18px; padding:18px; font-size:17px; font-weight:800; color:#fff;
+        background:linear-gradient(160deg,#22b083,#0E6B4E); box-shadow:0 10px 24px -12px rgba(13,91,71,.8); }
+  .go:active, .stop:active, .ev:active { transform:scale(.98); }
+  .go:disabled { opacity:.55; }
+  .empty { font-size:13.5px; color:var(--sub); line-height:1.6; }
+  .toast { position:fixed; left:14px; right:14px; bottom:calc(96px + env(safe-area-inset-bottom,0px)); z-index:7; background:#1f2a26; color:#fff;
+           border-radius:14px; padding:12px 14px; font-size:14px; line-height:1.5; opacity:0; transform:translateY(8px); transition:.25s; pointer-events:none; }
+  .toast.show { opacity:1; transform:none; } .toast.ng { background:var(--red); }
+  .install { background:#fff8e5; border:1px solid #f0d58a; color:#5a4300; border-radius:14px; padding:10px 12px; font-size:12.5px; line-height:1.6; margin-bottom:12px; display:none; }
+  .install button { border:0; background:var(--g2); color:#fff; border-radius:10px; padding:6px 12px; font-weight:700; margin-top:6px; }
+  .pc { display:none; min-height:100%; align-items:center; justify-content:center; text-align:center; padding:30px; }
+  .pc .box { background:#fff; border-radius:20px; padding:28px 26px; max-width:420px; box-shadow:0 10px 30px -18px rgba(13,91,71,.5); }
+  .pc img { width:72px; height:72px; border-radius:18px; } .pc h2 { font-size:18px; margin:14px 0 8px; } .pc p { font-size:14px; color:var(--sub); line-height:1.7; margin:0; }
+  .pc code { display:block; margin-top:12px; background:#f3f7f5; border-radius:10px; padding:10px; font-size:12.5px; word-break:break-all; -webkit-user-select:text; user-select:text; }
 </style>
 </head>
 <body>
-  <h1>kinbot 切り替え <small id="clock"></small></h1>
-  <div class="card" id="nowCard"><div class="lb">いま録音中</div><div class="empty">読み込み中…</div></div>
-  <div class="card">
-    <div class="lb">次の商談（押して選ぶ）</div>
-    <div id="evs"><div class="empty">読み込み中…</div></div>
-    <input id="title" placeholder="予定にない商談のときは、商談名を入れる" />
-    <button class="btn main" id="go" type="button">次の商談に切り替える</button>
-    <div class="msg" id="msg"></div>
+  <div class="pc" id="pc"><div class="box"><img src="/switch-icon-192.png" alt="" /><h2>スマホで開いてください</h2>
+    <p>商談の切り替えは、スマホ専用の画面です。スマホのブラウザで次のURLを開き、ホーム画面に追加するとアプリのように使えます。</p><code id="pcUrl"></code></div></div>
+  <div id="app" style="display:none">
+    <div class="bar"><img src="/switch-icon-192.png" alt="" /><b>商談の切り替え</b><span class="clk" id="clock"></span><button class="rf" id="rf" type="button" aria-label="読み直す">↻</button></div>
+    <main>
+      <div class="install" id="install"></div>
+      <div class="card" id="nowCard"><div class="lb">いま録音中</div><div class="empty">読み込み中…</div></div>
+      <div class="card">
+        <div class="lb">次の商談</div>
+        <div id="evs"><div class="empty">読み込み中…</div></div>
+        <input id="title" placeholder="予定にない商談は、商談名を入れる" />
+      </div>
+      <p class="empty" style="padding:0 6px">ボタンを押すと、いまのkinbotが抜けて前の商談の録音が終わり（要約・分析はいつもどおり）、同じZoomの部屋に新しいkinbotが入って次の商談を録音します。</p>
+    </main>
+    <div class="foot"><button class="go" id="go" type="button">次の商談に切り替える</button></div>
+    <div class="toast" id="toast"></div>
   </div>
-  <p class="empty" style="padding:0 4px">押すと、いま入っているkinbotが抜けて前の商談の録音が終わり（要約・分析はいつもどおり作られます）、同じZoomの部屋に新しいkinbotが入って次の商談として録音します。</p>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const hm = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`; };
+const ua = navigator.userAgent || "";
+const isPhone = /iPhone|iPod|Android.*Mobile|Mobile.*Firefox|Windows Phone/i.test(ua) || (/Android|iPad/i.test(ua) && Math.min(screen.width, screen.height) < 820) || (navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 600);
+const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+if (!isPhone) { $("pc").style.display = "flex"; $("pcUrl").textContent = location.origin + "/switch.html"; }
+else {
+  $("app").style.display = "block";
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/switch-sw.js", { scope: "/switch.html" }).catch(() => {});
+  // ホーム画面に追加の案内（追加済み＝アプリで開いているときは出さない）
+  let deferred = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; showInstall(); });
+  function showInstall() {
+    if (standalone || localStorage.getItem("kbSwInstallHide")) return;
+    const box = $("install"); box.style.display = "block";
+    const ios = /iPhone|iPad|iPod/i.test(ua);
+    box.innerHTML = deferred ? `ホーム画面に追加すると、アプリのように1タップで開けます。<br><button type="button" id="inst">ホーム画面に追加</button>`
+      : ios ? `ホーム画面に追加すると、アプリのように1タップで開けます。Safariの下の <b>共有ボタン</b> →「<b>ホーム画面に追加</b>」を押してください。` : `ブラウザのメニューから「ホーム画面に追加」を押すと、アプリのように使えます。`;
+    const b = $("inst"); if (b) b.addEventListener("click", async () => { deferred.prompt(); await deferred.userChoice.catch(() => {}); deferred = null; box.style.display = "none"; });
+    box.addEventListener("dblclick", () => { localStorage.setItem("kbSwInstallHide", "1"); box.style.display = "none"; });
+  }
+  setTimeout(showInstall, 800);
+}
 let st = null, sel = null, busy = false;
 async function api(url, opts = {}) {
   const r = await fetch(url, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...opts });
-  if (r.status === 401 || r.redirected) { location.href = "/login.html?next=" + encodeURIComponent("/switch.html"); throw new Error("ログインしてください"); }
+  const ct = r.headers.get("content-type") || "";
+  if (r.status === 401 || (!/json/.test(ct) && r.redirected)) { location.href = "/login.html?next=" + encodeURIComponent("/switch.html"); throw new Error("ログインしてください"); }
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || `エラー（${r.status}）`);
   return d;
 }
+let toastT = 0;
+function toast(t, ok = true) { const el = $("toast"); el.textContent = t; el.className = "toast show" + (ok ? "" : " ng"); clearTimeout(toastT); toastT = setTimeout(() => { el.className = "toast"; }, 3800); if (navigator.vibrate) navigator.vibrate(ok ? 30 : [60, 40, 60]); }
+function elapsed(iso) { const s = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return `${h ? `${h}:` : ""}${String(m).padStart(h ? 2 : 1, "0")}:${String(x).padStart(2, "0")}`; }
 function render() {
   const a = (st && st.active) || [];
-  $("nowCard").innerHTML = `<div class="lb">いま録音中</div>` + (a.length ? a.map((x) => `
-    <div class="rec"><span class="dot"></span>${esc(x.title || "（商談名なし）")}</div>
-    <div class="meta">${esc(hm(x.startedAt))}から ・ ${/waiting_room/.test(x.status) ? "待合室で待っています" : /joining/.test(x.status) ? "入っています…" : "録音中"}</div>
-    <button class="btn stop" data-stop="${esc(x.botId)}" type="button">この録音を終える</button>`).join("") : `<div class="empty">いま入っているkinbotはありません。下で商談を選んで押すと、録音を始めます。</div>`);
+  $("nowCard").innerHTML = `<div class="lb">いま録音中</div>` + (a.length ? a.map((x) => {
+    const wait = /waiting_room|joining/.test(x.status);
+    return `<div class="rec"><span class="dot ${wait ? "wait" : ""}"></span><div class="rt">${esc(x.title || "（商談名なし）")}</div></div>
+      <div class="el" data-since="${esc(x.startedAt)}">${esc(elapsed(x.startedAt))}</div>
+      <div class="meta">${esc(hm(x.startedAt))}から ・ ${/waiting_room/.test(x.status) ? "待合室で待っています" : /joining/.test(x.status) ? "入っています…" : "録音中"}</div>
+      <button class="stop" data-stop="${esc(x.botId)}" type="button">この録音を終える</button>`;
+  }).join("") : `<div class="empty">いま入っているkinbotはありません。下で商談を選んでボタンを押すと、録音を始めます。</div>`);
   $("go").textContent = a.length ? "次の商談に切り替える" : "この商談の録音を始める";
   const evs = (st && st.upcoming) || [];
   const curTitle = a[0] ? a[0].title : "";
   if (sel === null) { const nx = evs.find((e) => e.title !== curTitle && Date.parse(e.start) > Date.now() - 20 * 60000) || evs.find((e) => e.title !== curTitle) || evs[0]; sel = nx ? nx.id : ""; }
-  $("evs").innerHTML = evs.length ? evs.map((e) => `<div class="ev ${e.id === sel ? "sel" : ""}" data-id="${esc(e.id)}">
-      <div style="flex:1;min-width:0"><div class="t">${esc(e.title)}${e.now ? '<span class="now">いま</span>' : ""}</div></div>
-      <div class="w">${esc(hm(e.start))}〜${esc(hm(e.end))}</div></div>`).join("") : `<div class="empty">これからの予定がカレンダーにありません</div>`;
-  document.querySelectorAll(".ev").forEach((el) => el.addEventListener("click", () => { sel = el.dataset.id; $("title").value = ""; render(); }));
+  $("evs").innerHTML = evs.length ? evs.map((e) => `<div class="ev ${e.id === sel ? "sel" : ""}" data-id="${esc(e.id)}"><span class="ck"></span>
+      <div style="flex:1;min-width:0"><div class="t">${esc(e.title)}${e.now ? '<span class="now">いま</span>' : ""}</div><div class="w">${esc(hm(e.start))}〜${esc(hm(e.end))}</div></div></div>`).join("")
+    : `<div class="empty">これからの予定がカレンダーにありません</div>`;
+  document.querySelectorAll(".ev").forEach((el) => el.addEventListener("click", () => { sel = el.dataset.id; $("title").value = ""; if (navigator.vibrate) navigator.vibrate(10); render(); }));
   document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("この録音を終えます。よろしいですか？")) return;
     b.disabled = true;
-    try { const r = await api("/api/switch/stop", { method: "POST", body: JSON.stringify({ botId: b.dataset.stop }) }); say(`「${r.left}」の録音を終えました`, true); await load(); }
-    catch (e) { say(e.message, false); b.disabled = false; }
+    try { const r = await api("/api/switch/stop", { method: "POST", body: JSON.stringify({ botId: b.dataset.stop }) }); toast(`「${r.left}」の録音を終えました`); await load(); }
+    catch (e) { toast(e.message, false); b.disabled = false; }
   }));
 }
-function say(t, ok) { const m = $("msg"); m.textContent = t; m.className = "msg " + (ok ? "ok" : "ng"); }
-async function load() {
-  try { st = await api("/api/switch/state"); render(); }
-  catch (e) { say(e.message, false); }
-}
+async function load() { try { st = await api("/api/switch/state"); render(); } catch (e) { toast(e.message, false); } }
 $("go").addEventListener("click", async () => {
   if (busy) return;
   const evs = (st && st.upcoming) || [];
   const ev = evs.find((e) => e.id === sel);
   const title = $("title").value.trim() || (ev ? ev.title : "");
-  if (!title) { say("商談を選ぶか、商談名を入れてください", false); return; }
+  if (!title) { toast("商談を選ぶか、商談名を入れてください", false); return; }
   const cur = (st && st.active && st.active[0]) || null;
   if (!confirm(cur ? `「${cur.title}」の録音を終えて、\n「${title}」に切り替えます。` : `「${title}」の録音を始めます。`)) return;
-  busy = true; $("go").disabled = true; say("切り替えています…", true);
+  busy = true; $("go").disabled = true; $("go").textContent = "切り替えています…";
   try {
     const r = await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: cur ? cur.botId : "", title }) });
-    say(cur ? `切り替えました。kinbotが「${r.started}」に入ります（30秒ほどかかります）` : `kinbotが「${r.started}」に入ります（30秒ほどかかります）`, true);
+    toast(`kinbotが「${r.started}」に入ります（30秒ほど）`);
     sel = null; $("title").value = "";
-    setTimeout(load, 4000);
-  } catch (e) { say("失敗：" + e.message, false); }
-  finally { busy = false; $("go").disabled = false; }
+    setTimeout(load, 4000); setTimeout(load, 15000);
+  } catch (e) { toast("失敗：" + e.message, false); }
+  finally { busy = false; $("go").disabled = false; render(); }
 });
-setInterval(() => { $("clock").textContent = hm(new Date().toISOString()); }, 1000);
-setInterval(() => { if (!busy) load(); }, 20000);
-load();
+$("rf").addEventListener("click", () => { if (navigator.vibrate) navigator.vibrate(10); load(); });
+setInterval(() => { $("clock").textContent = hm(new Date().toISOString()); document.querySelectorAll("[data-since]").forEach((el) => { el.textContent = elapsed(el.dataset.since); }); }, 1000);
+setInterval(() => { if (!busy && !document.hidden) load(); }, 20000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+if (isPhone) load();
 </script>
 </body>
 </html>
