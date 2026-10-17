@@ -13004,7 +13004,8 @@ async function importFromRecall(req, res) {
       for (const bt of bots) {
         if (!bt.id || !/done|recording_done|call_ended/i.test(String(bt.status))) continue;
         const done = await getMeeting(bt.id).catch(() => null);
-        if (done && (done.title || done.transcript)) continue;
+        // 文字起こしが入っている・一度取り込みを試したものは飛ばす（題名だけあって文字起こしが空の商談は拾う：2026-10-17）
+        if (done && ((Array.isArray(done.transcript) && done.transcript.length) || done.imported_at)) continue;
         ids.push(bt.id);
       }
     }
@@ -13039,10 +13040,13 @@ async function importFromRecall(req, res) {
         }
         // 文字起こしが作れなくても、録画は残っているので商談としては履歴に出す
         const owner = String(b.owner || req.user || "").toLowerCase();
-        await createMeeting(botId, {
-          meetingUrl: String(bot?.meeting_url?.meeting_id || ""),
-          repName: "", title, owner, muxPlaybackId: null,
-        });
+        // すでに商談の行がある（題名・担当が入っている）ときは、作り直さずに文字起こしだけ入れる
+        if (!already) {
+          await createMeeting(botId, {
+            meetingUrl: String(bot?.meeting_url?.meeting_id || ""),
+            repName: "", title, owner, muxPlaybackId: null,
+          });
+        }
         if (tr.length) await saveMeeting(botId, { transcript: tr });
         await markMeetingImported(botId);
         const 確認 = await getMeeting(botId).catch(() => null);
@@ -23108,6 +23112,88 @@ async function swActiveBots(user) {
   }
   return out;
 }
+// 切り替え・終えたあと、前の商談がきちんと保存されたかを確かめ、足りなければ取り直す。
+//   ①録音中の文字起こしを、抜けさせる前にいったん保存（落ちても前半を失わない）
+//   ②抜けたあと 1分半・5分・15分 に確認：Recallの処理が終わっていて、kinbotの締め（要約・分析）が走っていなければ走らせる
+//   ③文字起こしが空なら、Recallの文字起こし → 音声からAIで作り直し の順に取り直して保存し、要約・分析を作る
+const _swGuard = new Map();   // botId → { title, at, state, note }
+async function swSaveNow(botId) {
+  try {
+    const sess = getSession(botId);
+    if (sess && Array.isArray(sess.utterances) && sess.utterances.length) await saveMeeting(botId, { transcript: sess.utterances });
+  } catch (e) { console.warn("[switch] 保存（抜ける前）", e.message); }
+}
+async function swEnsureSaved(botId) {
+  const g = _swGuard.get(botId) || { state: "確認中", note: "" };
+  try {
+    const b = await getBot(botId).catch(() => null);
+    const codes = ((b && b.status_changes) || []).map((x) => x.code);
+    const done = codes.some((c) => /done|call_ended|recording_done|fatal/.test(c));
+    // まだ会議から抜けきっていない
+    if (!done) { g.state = "抜けています…"; _swGuard.set(botId, g); return g; }
+    // kinbotの締め（保存・要約・分析）がまだなら走らせる（Recallの終わりの知らせを取りこぼしたとき）
+    if (getSession(botId)) { await repairMeetingMeta(botId).catch(() => {}); removeSession(botId); }
+    let m = await getMeeting(botId).catch(() => null);
+    let tr = (m && Array.isArray(m.transcript)) ? m.transcript : [];
+    if (!tr.length) {
+      tr = await getBotTranscript(botId).catch(() => []);
+      let how = "Recallの文字起こし";
+      if (!tr.length) {
+        const media = await getMediaForTranscript(botId).catch(() => null);
+        if (media && media.url) {
+          try {
+            if (deepgramReady()) { try { tr = await transcribeUrl(media.url); how = "Deepgram"; } catch {} }
+            if (!tr.length) { tr = await transcribeAudio(media.url, { mimeType: media.mimeType }); how = `${media.kind}からAI`; }
+          } catch (e) { g.note = `音声からの文字起こしに失敗：${e.message}`; }
+        }
+      }
+      if (tr.length) {
+        await saveMeeting(botId, { transcript: tr });
+        m = await getMeeting(botId).catch(() => m);
+        g.note = `文字起こしを取り直しました（${how}・${tr.length}件）`;
+        console.log(`[switch] 前の商談の文字起こしを取り直しました：${(m && m.title) || botId}（${how}・${tr.length}件）`);
+      }
+    }
+    if (!tr.length) { g.state = "文字起こしがありません"; _swGuard.set(botId, g); return g; }
+    // 要約が無ければ作る（締めが走らなかったとき）
+    if (m && !m.analysis) {
+      const text = tr.map((u) => `${u.speaker?.name || ""}: ${u.text}`).join("\n").slice(-12000);
+      const repName = m.rep_name || "";
+      const dateStr = new Date(m.created_at || Date.now()).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      const speakers = [...new Set(tr.map((u) => u.speaker?.name).filter(Boolean))];
+      try { const rev = await analyzeMeeting({ transcript: text, repName, dateStr, speakers }); await saveAnalysis(botId, rev); g.note = (g.note ? g.note + "・" : "") + "要約を作りました"; } catch (e) { console.warn("[switch] 要約", e.message); }
+      try { let ls = []; try { ls = (await getSettings()).lostSignals || []; } catch {} const deep = await analyzeDeep({ transcript: text, repName, lostSignals: ls }); await saveDeepAnalysis(botId, deep); } catch {}
+    }
+    g.state = "保存しました"; g.count = tr.length; _swGuard.set(botId, g);
+    return g;
+  } catch (e) { g.state = "確認できませんでした"; g.note = e.message; _swGuard.set(botId, g); return g; }
+}
+function swWatch(botId, title) {
+  _swGuard.set(botId, { title, at: Date.now(), state: "確認中", note: "" });
+  for (const ms of [90 * 1000, 5 * 60 * 1000, 15 * 60 * 1000]) {
+    setTimeout(async () => {
+      const g = _swGuard.get(botId);
+      if (g && g.state === "保存しました") return;
+      const r = await swEnsureSaved(botId).catch(() => null);
+      if (r && ms === 15 * 60 * 1000 && r.state !== "保存しました") {
+        console.warn(`[switch] 前の商談が保存できていません：${title}（${r.state}・${r.note || ""}）`);
+        const user = (await getMeeting(botId).catch(() => null))?.owner;
+        if (user) notifyPerson(user, `⚠️ 前の商談「${title}」の録音が保存できていないかもしれません（${r.state}${r.note ? `：${r.note}` : ""}）。kinbotの商談履歴で確かめてください。`).catch(() => {});
+      }
+    }, ms).unref?.();
+  }
+}
+// 画面から：前の商談の保存の様子（切り替え・終了のあと）
+app.get("/api/switch/saved", async (req, res) => {
+  try {
+    const id = String(req.query.botId || "");
+    const g = _swGuard.get(id);
+    if (!g) return res.json({ ok: true, state: "不明" });
+    if (g.state !== "保存しました" && Date.now() - g.at > 60 * 1000) await swEnsureSaved(id).catch(() => {});
+    const g2 = _swGuard.get(id) || g;
+    res.json({ ok: true, botId: id, title: g2.title, state: g2.state, note: g2.note || "", count: g2.count || 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/switch/state", async (req, res) => {
   try {
     const user = String(req.user || "").toLowerCase();
@@ -23137,10 +23223,14 @@ app.post("/api/switch/next", async (req, res) => {
     const url = String(b.url || "").trim() || (cur && cur.url) || (await swRoomUrl(user));
     if (!url) return res.status(400).json({ error: "入る部屋（Zoom）が分かりません。設定の「登録リンク」に自分のZoomの部屋を入れてください" });
     const title = String(b.title || "").trim();
-    if (cur) { await leaveBot(cur.botId).catch((e) => console.warn("[switch] 前のボット", e.message)); }
+    if (cur) {
+      await swSaveNow(cur.botId);
+      await leaveBot(cur.botId).catch((e) => console.warn("[switch] 前のボット", e.message));
+      swWatch(cur.botId, cur.title);
+    }
     const out = await startBotSession(user, url, { title, repName: await repDisplayName(user).catch(() => "") });
     console.log(`[switch] 切り替え：${cur ? `「${cur.title}」→ ` : ""}「${title || out.autoTitle || "（予定名から）"}」 by ${user}`);
-    res.json({ ok: true, left: cur ? cur.title : "", started: title || out.autoTitle || "", botId: out.sessionId });
+    res.json({ ok: true, left: cur ? cur.title : "", leftBotId: cur ? cur.botId : "", started: title || out.autoTitle || "", botId: out.sessionId });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 録音を終える（抜けさせるだけ）
@@ -23150,8 +23240,10 @@ app.post("/api/switch/stop", async (req, res) => {
     const active = await swActiveBots(user);
     const cur = active.find((x) => x.botId === (req.body || {}).botId) || active[0];
     if (!cur) return res.status(404).json({ error: "いま入っているkinbotはありません" });
+    await swSaveNow(cur.botId);
     await leaveBot(cur.botId);
-    res.json({ ok: true, left: cur.title });
+    swWatch(cur.botId, cur.title);
+    res.json({ ok: true, left: cur.title, leftBotId: cur.botId });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -24556,7 +24648,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-17d 商談の切り替え：カレンダーは今日から始めて、‹ › で前後の日・日付を押してカレンダーで選べるように（その日の予定をすべて並べ、終わった予定は薄く）。";
+const BUILD_TAG = "2026-10-17e 商談の切り替え：前の商談を確実に残す（抜ける前に文字起こしを保存、抜けたあと1分半・5分・15分に確認して、締めが走っていなければ走らせ、文字起こしが空ならRecall・音声から取り直して要約まで作る、だめならChatで知らせる）。画面に前の商談の保存の様子。30分ごとの取り直しも、題名だけで文字起こしが空の商談を拾う。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
