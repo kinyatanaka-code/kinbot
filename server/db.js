@@ -11311,6 +11311,17 @@ export async function upsertCsKickoff(botId, v) {
     return rows[0] || null;
   } catch (e) { console.error("[db] upsertCsKickoff", e.message); return null; }
 }
+// CS担当ごとの件数（直近 days 日の回収MTG）。担当を均等にするために使う
+export async function csAssignCounts(days = 90) {
+  if (!pool) return {};
+  try {
+    await ensureCs();
+    const { rows } = await pool.query(
+      `SELECT lower(cs_email) AS em, count(*)::int AS n FROM cs_kickoffs
+        WHERE COALESCE(cs_email,'') <> '' AND COALESCE(meeting_at, created_at) > now() - ($1 || ' days')::interval GROUP BY 1`, [String(days)]);
+    const out = {}; for (const r of rows) out[r.em] = r.n; return out;
+  } catch (e) { console.error("[db] csAssignCounts", e.message); return {}; }
+}
 export async function getCsKickoff(botId) {
   if (!pool || !botId) return null;
   try { await ensureCs(); const { rows } = await pool.query(`SELECT * FROM cs_kickoffs WHERE bot_id = $1`, [botId]); return rows[0] || null; }

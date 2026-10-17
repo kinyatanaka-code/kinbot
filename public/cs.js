@@ -75,7 +75,7 @@ function render() {
         ${rows}
         <label>弊社の宿題</label><textarea data-list="弊社の宿題" rows="3" placeholder="1行に1つ。無ければ空（メールの項目ごと出しません）">${esc((f.弊社の宿題 || []).join("\n"))}</textarea>
         <label>貴社の宿題</label><textarea data-list="貴社の宿題" rows="2" placeholder="初期学習のほかにお願いしたこと（1行に1つ）">${esc((f.貴社の宿題 || []).join("\n"))}</textarea>
-        <label>CS担当</label><select data-k="csEmail">${csOpts}</select>
+        <label>CS担当</label><div style="display:flex;gap:8px;align-items:center"><select data-k="csEmail" style="flex:1">${csOpts}</select><button type="button" class="btn ghost" data-act="autocs" style="white-space:nowrap">空いている人を自動で選ぶ</button></div>
         <label>確認MTGの日時</label><div><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}"><div class="cs-sub">${k.confirm_from ? `（${esc(k.confirm_from)}から）` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　参加URL：<a href="${esc(k.confirm_url)}" target="_blank" rel="noopener">${esc(k.confirm_url)}</a>` : ""}</div></div>
         <label>SFの商談</label><div><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="SFの商談のURL（見つからなかったときは貼ってください）">${k.sf_url ? `<div class="cs-sub"><a href="${esc(k.sf_url)}" target="_blank" rel="noopener">SFで開く ↗</a></div>` : ""}</div>
         <label>先方のメール</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="御礼メールの宛先">
@@ -124,7 +124,11 @@ function render() {
     const act = b.dataset.act;
     b.disabled = true;
     try {
-      if (act === "save") { await save(); say("保存しました"); await load(); }
+      if (act === "save") { const r = await save(); say(r && r.autoNote ? `保存しました。${r.autoNote}` : "保存しました"); await load(); }
+      else if (act === "autocs") {
+        const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/autocs`, { method: "POST", body: JSON.stringify({ exceptCurrent: !!card.querySelector('[data-k="csEmail"]').value }) });
+        say(`CS担当を ${r.picked} さんにしました（${r.reason}）`); await load();
+      }
       else if (act === "repost") { await save(); await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/repost`, { method: "POST" }); say("OBスレに修正版を投稿しました"); await load(); }
       else if (act === "draft") { await save(); const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/draft`, { method: "POST" }); say(`FSのGmailに下書きを作りました${r.to ? `（宛先：${r.to}）` : "（宛先が空です）"}`); await load(); }
       else if (act === "redo") { if (!confirm("議事録から項目を読み取り直します（いま直した内容は上書きされます）。よろしいですか？")) { b.disabled = false; return; } await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/redo`, { method: "POST" }); say("読み取り直して、OBスレに修正版を投稿しました"); await load(); }

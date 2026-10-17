@@ -269,6 +269,7 @@ import {
   setDocUrls,
   clientContactByCompanyKey,
   sfOppIdByCompany,
+  csAssignCounts,
   claimAssign,
   releaseAssign,
   listTalkScripts,
@@ -11406,7 +11407,7 @@ function csPostText(k, f, opts = {}) {
     `実施日：${csFmtD(k.meeting_at)}　納品月：${f.納品月 || "未確認"}`,
     `活用場所：${f.活用場所 || "未確認"}`,
     `公開予定：${f.公開予定時期 || "未確認"}`,
-    `確認MTG：${confirm}　CS担当：${k.cs_name || "未定"}`,
+    `確認MTG：${confirm}　CS担当：${k.cs_name || "未定"}${opts.csNote ? `（${opts.csNote}）` : ""}`,
     `請求スケジュール：${f.請求書着日スケジュール || "未確認"}`,
     `特記事項：${f.特記事項 || "未確認"}`,
     (f.弊社の宿題 || []).length ? `弊社の宿題：${f.弊社の宿題.join("／")}` : "",
@@ -11427,7 +11428,7 @@ async function csSpace() {
 async function csPost(k, { edited = false } = {}) {
   const f = k.fields || {};
   try {
-    const msg = await postToSpaceThread(await csSpace(), csPostText(k, f, { edited }), k.chat_thread || "");
+    const msg = await postToSpaceThread(await csSpace(), csPostText(k, f, { edited, csNote: k._csAuto ? "空いている人から自動で選びました" : k._csAutoNg || "" }), k.chat_thread || "");
     return await upsertCsKickoff(k.bot_id, { chat_thread: (msg.thread && msg.thread.name) || k.chat_thread || null, chat_message: msg.name || null, posted_at: new Date().toISOString(), error: null });
   } catch (e) {
     console.warn("[cs] OBスレへの投稿に失敗", e.message);
@@ -11509,6 +11510,27 @@ async function csSfOppUrl({ meeting, company, user }) {
   } catch (e) { console.warn("[cs] SF商談の取得", e.message); }
   return mu || "";
 }
+// CS担当を自動で選ぶ：確認MTGの時間（1時間）に、カレンダーが空いているCSのうち、担当の件数（直近90日）がいちばん少ない人。
+// 同じ件数ならランダム。カレンダーを読めないCSは選ばない。返り値 { email, name, reason } か null
+async function csAutoPickCs(confirmIso, members, { exclude = "" } = {}) {
+  const t = Date.parse(confirmIso || "");
+  if (!isFinite(t) || !members.length) return null;
+  const st = await getSettings().catch(() => ({}));
+  const readers = [st.apoCalendarOwner, st.apoScanOwner, st.apoInviteOwner, ...members.map((m) => m.email)].map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+  let reader = "";
+  for (const r of readers) if (await gcalConnected(r).catch(() => false)) { reader = r; break; }
+  if (!reader) return null;
+  const emails = members.map((m) => m.email).filter((e) => e !== exclude);
+  let fb = {};
+  try { fb = await freeBusy(reader, emails, new Date(t).toISOString(), new Date(t + 60 * 60000).toISOString()); } catch (e) { console.warn("[cs] 空き確認", e.message); return null; }
+  const counts = await csAssignCounts(90).catch(() => ({}));
+  const free = members.filter((m) => emails.includes(m.email)).filter((m) => { const c = fb[m.email]; return c && !(c.errors || []).length && !(c.busy || []).length; });
+  if (!free.length) return { email: "", name: "", reason: "確認MTGの時間に空いているCSがいません" };
+  const min = Math.min(...free.map((m) => counts[m.email] || 0));
+  const cand = free.filter((m) => (counts[m.email] || 0) === min);
+  const pick = cand[Math.floor(Math.random() * cand.length)];
+  return { email: pick.email, name: pick.name, reason: `確認MTGの時間に空いているCS（${free.map((m) => m.name).join("・")}）のうち、担当の件数が少ない人${cand.length > 1 ? "からランダム" : ""}` };
+}
 // 1件のキックオフを連携する（読み取り → 確認MTG・CS担当 → OBスレ → リンク・下書き）
 async function csProcessKickoff(m0) {
   const m = (await getMeeting(m0.bot_id).catch(() => null)) || m0;
@@ -11533,6 +11555,11 @@ async function csProcessKickoff(m0) {
     client_email: contact ? contact.client_email : null, client_name: contact ? contact.client_name : null, status: "posted",
   });
   if (!k) return;
+  if (!k.cs_email && k.confirm_start) {
+    const pk = await csAutoPickCs(k.confirm_start, cfg.members).catch(() => null);
+    if (pk && pk.email) { k = (await upsertCsKickoff(k.bot_id, { cs_email: pk.email, cs_name: pk.name })) || k; k._csAuto = pk.reason; }
+    else if (pk && pk.reason) k._csAutoNg = pk.reason;
+  }
   k = (await csPost(k)) || k;
   if (k.cs_email) {
     k = await csEnsureConfirmLink(k);
@@ -11554,6 +11581,22 @@ async function csTick() {
   finally { _csBusy = false; }
 }
 setInterval(() => { csTick().catch(() => {}); }, 5 * 60 * 1000).unref?.();
+// すでに取り込んだもので、確認MTGがこれからなのにCS担当が未定のものは、空いている人を自動で選ぶ（起動1分半後に1回。下書きは作らない）
+setTimeout(async () => {
+  try {
+    const cfg = await csSettings();
+    if (!cfg.members.length) return;
+    for (const k0 of await listCsKickoffs(100)) {
+      if (k0.cs_email || !k0.confirm_start || Date.parse(k0.confirm_start) < Date.now()) continue;
+      const pk = await csAutoPickCs(k0.confirm_start, cfg.members).catch(() => null);
+      if (!pk || !pk.email) continue;
+      let k = await upsertCsKickoff(k0.bot_id, { cs_email: pk.email, cs_name: pk.name });
+      k = await csEnsureConfirmLink(k);
+      await postToSpaceThread(await csSpace(), `👤 CS担当：${pk.name}（確認MTGの時間に空いている人から自動で選びました）`, k.chat_thread || "").catch(() => {});
+      console.log(`[cs] CS担当を自動で選びました：${k.company} → ${pk.name}`);
+    }
+  } catch (e) { console.warn("[cs] CS担当の自動選択", e.message); }
+}, 90 * 1000).unref?.();
 setTimeout(async () => {
   try {
     for (const k of await listCsKickoffs(200)) {
@@ -11612,12 +11655,33 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
     if (b.sfUrl !== undefined) v.sf_url = String(b.sfUrl || "").trim() || null;
     if (b.candidateUrl !== undefined || b.adminUrl !== undefined) await setDocUrls(k0.account, { candidateUrl: b.candidateUrl, adminUrl: b.adminUrl });
     let k = await upsertCsKickoff(k0.bot_id, v);
+    let autoNote = "";
+    if (!k.cs_email && k.confirm_start && b.csEmail === undefined) {
+      const pk = await csAutoPickCs(k.confirm_start, cfg.members).catch(() => null);
+      if (pk && pk.email) { k = (await upsertCsKickoff(k.bot_id, { cs_email: pk.email, cs_name: pk.name })) || k; autoNote = `CS担当を自動で選びました：${pk.name}`; }
+      else if (pk && pk.reason) autoNote = pk.reason;
+    }
     if (k.cs_email) k = await csEnsureConfirmLink(k);
     if (k.confirm_slug && v.confirm_start !== undefined && k.confirm_start) {
       const st = new Date(k.confirm_start);
       await pool.query(`UPDATE smart_links SET start_time=$2, end_time=$3 WHERE slug=$1`, [k.confirm_slug, st.toISOString(), new Date(st.getTime() + 3600000).toISOString()]).catch(() => {});
     }
-    res.json({ ok: true, kickoff: k });
+    res.json({ ok: true, kickoff: k, autoNote });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/cs/kickoffs/:bot/autocs", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const k0 = await getCsKickoff(req.params.bot);
+    if (!k0) return res.status(404).json({ error: "見つかりません" });
+    if (!k0.confirm_start) return res.status(400).json({ error: "先に確認MTGの日時を入れてください（空いている人を調べるのに使います）" });
+    const cfg = await csSettings();
+    const pk = await csAutoPickCs(k0.confirm_start, cfg.members, { exclude: (req.body || {}).exceptCurrent ? String(k0.cs_email || "") : "" });
+    if (!pk) return res.status(400).json({ error: "CSのカレンダーを読めませんでした（照合の代表者かCSのGoogle連携が必要です）" });
+    if (!pk.email) return res.status(409).json({ error: pk.reason });
+    let k = await upsertCsKickoff(k0.bot_id, { cs_email: pk.email, cs_name: pk.name });
+    k = await csEnsureConfirmLink(k);
+    res.json({ ok: true, kickoff: k, picked: pk.name, reason: pk.reason });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/cs/kickoffs/:bot/:act(draft|repost|redo)", async (req, res) => {
@@ -24648,7 +24712,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18a CS連携の画面を企業カードに（1社1枚：FS・CS・回収MTG・確認MTG・納品月・公開予定・活用場所・請求、押すと直す窓）。管理シートへの自動記入は別のタブに。記録のMOCHICAの分は全角の英字でも外す。";
+const BUILD_TAG = "2026-10-18b CS連携：CS担当を自動で指名（確認MTGの時間にカレンダーが空いているCSのうち、直近90日の担当件数がいちばん少ない人、同じならランダム）。取り込み時・確認MTGを入れたとき・「空いている人を自動で選ぶ」ボタン、すでにある未定の分も起動時に。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
