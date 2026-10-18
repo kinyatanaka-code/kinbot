@@ -270,6 +270,8 @@ import {
   clientContactByCompanyKey,
   sfOppIdByCompany,
   csAssignCounts,
+  getContactImpression,
+  saveContactImpression,
   claimAssign,
   releaseAssign,
   listTalkScripts,
@@ -12038,6 +12040,28 @@ app.post("/u/:token", express.urlencoded({ extended: false }), async (req, res) 
   await addMailOptout(s.email, s.campaign_id, req.body && req.body["List-Unsubscribe"] ? "ワンクリック" : "停止ページ");
   console.log(`[mailmaga] 配信停止：${s.email}（#${s.campaign_id}）`);
   res.send(mmPage("配信停止", `<h1>配信を停止しました</h1><p>今後、このアドレスへのご案内はお送りしません。<br>ご迷惑をおかけしました。</p>`));
+});
+
+// 担当者の印象（kincallの記録の窓）：前回の値を出す・記録と一緒に保存する
+const IMPRESSION_TAGS = ["丁寧", "フレンドリー", "前向き", "慎重", "忙しそう", "そっけない", "話が長い", "決裁者っぽい", "現場担当っぽい", "警戒している"];
+app.get("/api/calls/impression", async (req, res) => {
+  try {
+    const t = await getCallTarget(parseInt(req.query.targetId, 10)).catch(() => null);
+    const name = String(req.query.name || (t && t.person) || "");
+    const r = await getContactImpression(req.query.targetId, normCompanyKey(String((t && t.company) || "").normalize("NFKC")), name);
+    res.json({ ok: true, tags: IMPRESSION_TAGS, impression: r ? { name: r.contact_name, gender: r.gender, ageBand: r.age_band, impressions: r.impressions || [], updatedAt: r.updated_at, updatedBy: r.updated_by, sameLead: String(r.company_id) === String(req.query.targetId) } : null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/impression", async (req, res) => {
+  try {
+    const b = req.body || {};
+    const t = await getCallTarget(parseInt(b.targetId, 10)).catch(() => null);
+    if (!t) return res.status(404).json({ error: "架電先が見つかりません" });
+    const r = await saveContactImpression({ targetId: t.id, companyKey: normCompanyKey(String(t.company || "").normalize("NFKC")), contactName: b.name || t.person,
+      gender: b.gender, ageBand: b.ageBand, impressions: b.impressions, by: req.user });
+    if (!r) return res.status(400).json({ error: "担当者名を入れてください" });
+    res.json({ ok: true, impression: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ステージ（リード状況）だけを変える。記録はしない。
@@ -24759,7 +24783,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18g 出勤カレンダーのPDFを1ページ（A4横）に収める（字と行を詰め、ページの高さに合わせて自動で縮める・余れば少し大きく）。まとめ・人ごとの勤怠表は最初は外す。";
+const BUILD_TAG = "2026-10-18h kincallの記録の窓に「担当者の印象」：結果が担当者接触のときだけ開いて出る（性別・年代・印象2つまで、未入力／一部入力／入力済み）、前回の印象を入れた状態で開く、入力は任意で記録と一緒に保存。contact_impressions。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",

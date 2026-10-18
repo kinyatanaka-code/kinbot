@@ -2109,6 +2109,21 @@ function renderDock() {
     .mm-acts{display:flex;gap:6px;flex-wrap:wrap;}
     .kc-src-tag.mtg{background:#fdecea;color:#b3261e;border:1px solid #f3b8b2;}
     .kc-mtg-sep td{background:#fdf3f2 !important;color:#8c1d18 !important;}
+    .kc-imp{margin:10px 0;padding:10px 12px;border:1px solid #d7e6df;border-radius:12px;background:#f8fbf9;display:flex;flex-direction:column;gap:7px;}
+    .kc-imp[hidden]{display:none;}
+    .kc-imp-h{font-size:13px;font-weight:700;color:#0d5b47;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+    .kc-imp-st{margin-left:auto;font-size:11px;font-weight:700;padding:1px 9px;border-radius:99px;}
+    .kc-imp-st.none{background:#f1f4f2;color:#7a8a82;} .kc-imp-st.part{background:#fff4dc;color:#7a5200;} .kc-imp-st.done{background:#e1f5ee;color:#085041;}
+    .kc-imp-prev{flex-basis:100%;font-size:11px;font-weight:500;color:#5f6b64;}
+    .kc-imp-prev:empty{display:none;}
+    .kc-imp-row{display:flex;align-items:flex-start;gap:8px;}
+    .kc-imp-lb{width:52px;flex:none;font-size:12px;color:#5b7a6d;padding-top:5px;display:flex;flex-direction:column;}
+    .kc-imp-lb small{font-size:9.5px;color:#9aa8a1;}
+    .kc-imp-name{padding:5px 9px !important;font-size:13px !important;}
+    .kc-imp-chips{display:flex;flex-wrap:wrap;gap:5px;}
+    .kc-chip{border:1px solid #cfe0d9;background:#fff;color:#1f2a26;border-radius:99px;padding:4px 11px;font-size:12px;cursor:pointer;}
+    .kc-chip.on{background:#1d9e75;border-color:#1d9e75;color:#fff;font-weight:700;}
+    .kc-chip:disabled{opacity:.4;cursor:default;}
     .ld-nsplit{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:#5f6b64;margin-top:5px;}
     .ld-nsplit span{display:inline-flex;align-items:center;gap:4px;} .ld-nsplit b{color:#1f2a26;font-size:13px;}
     .ld-nmini{font-size:10.5px;font-weight:600;color:#5f6b64;}
@@ -2251,6 +2266,15 @@ async function openTarget(id, draft, opt) {
             <option value="B">B：探してくれる・確認してくれる</option>
             <option value="C">C：即不在</option>
           </select>
+        </div>
+
+        <!-- 担当者と話したとき（担当者接触：〜）だけ出す。担当者の性別・年代・印象（2つまで）。次にかける人のため。入力は任意 -->
+        <div class="kc-imp" id="kcImpBox" hidden>
+          <div class="kc-imp-h">担当者の印象 <span class="kc-imp-st" id="kcImpSt">未入力</span><span class="kc-imp-prev" id="kcImpPrev"></span></div>
+          <div class="kc-imp-row"><span class="kc-imp-lb">担当者</span><input class="kc-input kc-imp-name" id="kcImpName" value="${esc(String(x["担当者"] || "").replace(/様$/, ""))}" placeholder="担当者の名前（例：木村）" /></div>
+          <div class="kc-imp-row"><span class="kc-imp-lb">性別</span><div class="kc-imp-chips" data-imp="gender">${[["male", "男性"], ["female", "女性"]].map(([v, l]) => `<button type="button" class="kc-chip" data-v="${v}">${l}</button>`).join("")}</div></div>
+          <div class="kc-imp-row"><span class="kc-imp-lb">年代</span><div class="kc-imp-chips" data-imp="age">${[["20s", "20代"], ["30s", "30代"], ["40s", "40代"], ["50s+", "50代以上"]].map(([v, l]) => `<button type="button" class="kc-chip" data-v="${v}">${l}</button>`).join("")}</div></div>
+          <div class="kc-imp-row"><span class="kc-imp-lb">印象<small>2つまで</small></span><div class="kc-imp-chips" data-imp="tags"></div></div>
         </div>
 
         <!-- アポ獲得を選んだときだけ出す。ここで入れた内容で、獲得者のカレンダーとkinbotのアポを作る -->
@@ -2545,6 +2569,7 @@ async function openTarget(id, draft, opt) {
   if (resultSel) resultSel.addEventListener("change", drawReason);
   drawReason();
   wireApoBox(m);
+  wireImpBox(m, x);
 
   wireQuickNext(m);
   if (!histOnly) wireZoomSummary(m, id);
@@ -2613,6 +2638,10 @@ async function openTarget(id, draft, opt) {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "記録できませんでした");
+      // 担当者の印象（欄が出ていて、何か入っているときだけ）
+      if (m._imp && m._imp.visible() && m._imp.filled()) {
+        fetch("/api/calls/impression", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ targetId: id, ...m._imp.value() }) }).catch(() => {});
+      }
 
       // 読み込み直さず、その行だけを書き換える。
       // （毎回読み込むと、しぼり込みや見ている場所が消えてしまうため）
@@ -2694,6 +2723,59 @@ function kcTodayJst() {
 }
 // 結果で「アポ獲得」を選んだら、アポの内容欄を出す（次回架電の欄はいらないので隠す）。
 // 選んだ日時にクローザーが空いているかも、その場で見せる（割り振れない時間に入れてしまわないように）。
+// 担当者の印象の欄：結果が「担当者接触：〜」のときだけ開いて出す。前回の印象があれば入れた状態で開く。入力は任意
+function wireImpBox(m, x) {
+  const box = m.el.querySelector("#kcImpBox"), sel = m.el.querySelector("#kcResult");
+  if (!box || !sel) return;
+  const st = { gender: "", age: "", tags: [] };
+  const nameIn = box.querySelector("#kcImpName");
+  const draw = () => {
+    box.querySelectorAll('[data-imp="gender"] .kc-chip').forEach((b) => b.classList.toggle("on", b.dataset.v === st.gender));
+    box.querySelectorAll('[data-imp="age"] .kc-chip').forEach((b) => b.classList.toggle("on", b.dataset.v === st.age));
+    box.querySelectorAll('[data-imp="tags"] .kc-chip').forEach((b) => { const on = st.tags.includes(b.dataset.v); b.classList.toggle("on", on); b.disabled = !on && st.tags.length >= 2; });
+    const n = (st.gender ? 1 : 0) + (st.age ? 1 : 0) + (st.tags.length ? 1 : 0);
+    const lb = box.querySelector("#kcImpSt");
+    lb.textContent = n === 0 ? "未入力" : n === 3 ? "入力済み" : "一部入力";
+    lb.className = "kc-imp-st " + (n === 0 ? "none" : n === 3 ? "done" : "part");
+  };
+  const tagsBox = box.querySelector('[data-imp="tags"]');
+  const setTags = (tags) => {
+    tagsBox.innerHTML = tags.map((t) => `<button type="button" class="kc-chip" data-v="${esc(t)}">${esc(t)}</button>`).join("");
+    tagsBox.querySelectorAll(".kc-chip").forEach((b) => b.addEventListener("click", () => {
+      const v = b.dataset.v;
+      st.tags = st.tags.includes(v) ? st.tags.filter((t) => t !== v) : (st.tags.length < 2 ? [...st.tags, v] : st.tags);
+      draw();
+    }));
+  };
+  box.querySelectorAll('[data-imp="gender"] .kc-chip').forEach((b) => b.addEventListener("click", () => { st.gender = st.gender === b.dataset.v ? "" : b.dataset.v; draw(); }));
+  box.querySelectorAll('[data-imp="age"] .kc-chip').forEach((b) => b.addEventListener("click", () => { st.age = st.age === b.dataset.v ? "" : b.dataset.v; draw(); }));
+  setTags(["丁寧", "フレンドリー", "前向き", "慎重", "忙しそう", "そっけない", "話が長い", "決裁者っぽい", "現場担当っぽい", "警戒している"]);
+  draw();
+  // 前回の印象（同じ担当者）を入れた状態にする
+  const loadPrev = async () => {
+    try {
+      const d = await (await fetch(`/api/calls/impression?targetId=${encodeURIComponent(x.id)}&name=${encodeURIComponent(nameIn.value.trim())}`)).json();
+      if (Array.isArray(d.tags) && d.tags.length) setTags(d.tags);
+      const p = d.impression;
+      const pv = box.querySelector("#kcImpPrev");
+      if (p) {
+        st.gender = p.gender || ""; st.age = p.ageBand || ""; st.tags = (p.impressions || []).slice(0, 2);
+        const dt = p.updatedAt ? new Date(p.updatedAt) : null;
+        pv.textContent = `前回の印象を入れています${dt ? `（${dt.getMonth() + 1}/${dt.getDate()}${p.sameLead ? "" : "・別のリスト"}）` : ""}`;
+      } else pv.textContent = "";
+      draw();
+    } catch {}
+  };
+  loadPrev();
+  let nt = 0; nameIn.addEventListener("input", () => { clearTimeout(nt); nt = setTimeout(loadPrev, 500); });
+  const show = () => { box.hidden = !/^担当者接触/.test(sel.value || ""); };
+  sel.addEventListener("change", show); show();
+  m._imp = {
+    visible: () => !box.hidden,
+    filled: () => !!(st.gender || st.age || st.tags.length),
+    value: () => ({ name: nameIn.value.trim(), gender: st.gender, ageBand: st.age, impressions: st.tags }),
+  };
+}
 function wireApoBox(m) {
   const box = m.el.querySelector("#kcApoBox");
   const sel = m.el.querySelector("#kcResult");

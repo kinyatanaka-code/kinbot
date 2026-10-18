@@ -11380,3 +11380,49 @@ export async function clientContactByCompanyKey(keyFn, company) {
     return rows.find((r) => k && keyFn(r.label) === k) || null;
   } catch { return null; }
 }
+
+// ===== 担当者の印象（kincallの記録の窓）=====
+//   company_id … 架電先（call_targets.id）。company_key は同じ会社が別のリストにいても前回の印象を出すため
+let _impReady = false;
+async function ensureImpressions() {
+  if (_impReady || !pool) return;
+  await sq(`CREATE TABLE IF NOT EXISTS contact_impressions (
+      id SERIAL PRIMARY KEY, company_id INT NOT NULL, contact_name TEXT NOT NULL,
+      gender TEXT, age_band TEXT, impressions TEXT[] DEFAULT '{}',
+      updated_by TEXT, updated_at TIMESTAMPTZ DEFAULT now(), UNIQUE (company_id, contact_name))`);
+  await sq(`ALTER TABLE contact_impressions ADD COLUMN IF NOT EXISTS company_key TEXT;`).catch(() => {});
+  await sq(`CREATE INDEX IF NOT EXISTS ix_contact_imp_key ON contact_impressions(company_key, contact_name)`).catch(() => {});
+  _impReady = true;
+}
+const impName = (s) => String(s || "").normalize("NFKC").replace(/[\s　]/g, "").replace(/(様|さん)$/, "").slice(0, 60);
+// 前回の印象：同じ架電先・同じ担当者 → 同じ会社（別のリスト）・同じ担当者 の新しいもの
+export async function getContactImpression(targetId, companyKey, contactName) {
+  if (!pool) return null;
+  try {
+    await ensureImpressions();
+    const nm = impName(contactName);
+    if (!nm) return null;
+    const { rows } = await pool.query(
+      `SELECT * FROM contact_impressions WHERE contact_name = $3 AND (company_id = $1 OR ($2 <> '' AND company_key = $2))
+        ORDER BY (company_id = $1) DESC, updated_at DESC LIMIT 1`, [parseInt(targetId, 10) || 0, String(companyKey || ""), nm]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] getContactImpression", e.message); return null; }
+}
+export async function saveContactImpression({ targetId, companyKey, contactName, gender, ageBand, impressions, by }) {
+  if (!pool) return null;
+  try {
+    await ensureImpressions();
+    const nm = impName(contactName);
+    if (!nm || !parseInt(targetId, 10)) return null;
+    const g = ["male", "female"].includes(gender) ? gender : null;
+    const a = ["20s", "30s", "40s", "50s+"].includes(ageBand) ? ageBand : null;
+    const im = (Array.isArray(impressions) ? impressions : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 2);
+    const { rows } = await pool.query(
+      `INSERT INTO contact_impressions (company_id, company_key, contact_name, gender, age_band, impressions, updated_by, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+       ON CONFLICT (company_id, contact_name) DO UPDATE SET company_key = EXCLUDED.company_key, gender = EXCLUDED.gender,
+         age_band = EXCLUDED.age_band, impressions = EXCLUDED.impressions, updated_by = EXCLUDED.updated_by, updated_at = now()
+       RETURNING *`, [parseInt(targetId, 10), String(companyKey || ""), nm, g, a, im, by || null]);
+    return rows[0] || null;
+  } catch (e) { console.error("[db] saveContactImpression", e.message); return null; }
+}
