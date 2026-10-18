@@ -6281,14 +6281,15 @@ function scExportPdf() {
   w.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>勤怠表_${_scY}-${p(_scM + 1)}</title>
     <style>@page{size:A4;margin:14mm} body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;color:#1f2a26;margin:0}
     .pg{page-break-after:always;padding:4mm 0} .pg:last-child{page-break-after:auto}
+    .pg.land{padding:0} .pg.land:has(~ .pg:not(.hide)){page-break-after:always} .pg.land:not(:has(~ .pg:not(.hide))){page-break-after:auto}
     h1{font-size:17px;margin:0 0 4px;border-bottom:2px solid #0E6B4E;padding-bottom:6px} .sub{font-size:11px;color:#5f6b64;margin:4px 0 10px}
     table{width:100%;border-collapse:collapse;font-size:12px} th{background:#EAF4EF;color:#0d5b47;text-align:left;padding:6px 8px;border:1px solid #cfe0d9}
     td{padding:5px 8px;border:1px solid #dfe8e3} .n{text-align:right} tr.sun td:first-child{color:#c62828} tr.sat td:first-child{color:#1565c0}
     tr.ab td{background:#fdecea} tr.tot td{font-weight:700;background:#f7faf8} small{color:#b3261e;margin-left:6px;font-size:10px}
-    @page land{size:A4 landscape;margin:10mm} .land{page:land}
-    table.cal{table-layout:fixed} table.cal th{text-align:center;padding:4px} table.cal td{vertical-align:top;height:104px;padding:3px 4px}
+    @page land{size:A4 landscape;margin:7mm} .land{page:land;width:1080px;margin:0 auto;padding:0}
+    table.cal{table-layout:fixed} table.cal th{text-align:center;padding:2px;font-size:11px} table.cal td{vertical-align:top;padding:2px 3px}
     .cd{font-weight:700;font-size:12px;display:flex;align-items:baseline;gap:4px;margin-bottom:2px} .cd small{color:#b3261e;font-size:9px;font-weight:600} .cd em{margin-left:auto;font-style:normal;color:#5f6b64;font-size:9.5px}
-    .ci{font-size:9.5px;line-height:1.3;border-radius:4px;padding:1px 4px;margin-top:2px;display:flex;justify-content:space-between;gap:4px;white-space:nowrap;overflow:hidden}
+    .ci{font-size:9px;line-height:1.25;border-radius:3px;padding:0 3px;margin-top:1px;display:flex;justify-content:space-between;gap:3px;white-space:nowrap;overflow:hidden}
     .ci span{font-variant-numeric:tabular-nums} .ci.act{background:#e1f5ee;color:#085041} .ci.pl{background:#f1f4f2;color:#5f6b64} .ci.ab{background:#fdecea;color:#b3261e}
     th.csun,td.csun .cd{color:#c62828} th.csat,td.csat .cd{color:#1565c0} td.csun,td.csat,td.chol{background:#fafbfa} td.ce{background:#f7f9f8}
     .hide{display:none}
@@ -6296,10 +6297,16 @@ function scExportPdf() {
     .bar button{background:#1d9e75;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:700;font-size:14px;cursor:pointer}
     @media print{.bar{display:none}}</style></head><body>
     <div class="bar"><button onclick="print()">PDFに保存する</button>
-      <label style="font-size:13px"><input type="checkbox" checked onchange="document.querySelectorAll('.sumpg').forEach((e)=>e.classList.toggle('hide',!this.checked))"> まとめ</label>
+      <label style="font-size:13px"><input type="checkbox" onchange="document.querySelectorAll('.sumpg').forEach((e)=>e.classList.toggle('hide',!this.checked))"> まとめ</label>
       <label style="font-size:13px"><input type="checkbox" onchange="document.querySelectorAll('.perpg').forEach((e)=>e.classList.toggle('hide',!this.checked))"> 人ごとの勤怠表</label>
       <span style="font-size:12px;color:#5f6b64">印刷の画面で「送信先：PDFに保存」を選んでください</span></div>
-    ${calPage}${sum.replace('<section class="pg">', '<section class="pg sumpg">')}${pages.split('<section class="pg">').join('<section class="pg perpg hide">')}<script>setTimeout(() => print(), 500);<\/script></body></html>`);
+    ${calPage}${sum.replace('<section class="pg">', '<section class="pg sumpg hide">')}${pages.split('<section class="pg">').join('<section class="pg perpg hide">')}
+    <script>
+      // カレンダーをA4横の1ページ（高さ約190mm）に収まるよう縮める
+      function fit() { const el = document.querySelector(".land"); if (!el) return; el.style.zoom = 1; const h = el.scrollHeight; el.style.zoom = Math.min(1.25, 700 / h); }
+      fit(); window.addEventListener("beforeprint", fit);
+      setTimeout(() => print(), 500);
+    <\/script></body></html>`);
   w.document.close();
 }
 if ($("scExport")) $("scExport").addEventListener("click", scExportPdf);
