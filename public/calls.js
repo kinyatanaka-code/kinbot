@@ -6250,6 +6250,32 @@ function scExportPdf() {
     <div class="sub">出勤 ${x.days}日 ・ 実働 ${x.hours}h ・ 予定 ${x.planH}h${x.absent ? ` ・ 欠勤 ${x.absent}日` : ""}</div>
     <table><thead><tr><th>日付</th><th>予定</th><th>実績（架電記録から）</th><th class="n">架電</th><th class="n">実働時間</th></tr></thead><tbody>${x.rows.join("")}
     <tr class="tot"><td>合計</td><td>${x.planH}h</td><td>${x.days}日</td><td></td><td class="n">${x.hours}h</td></tr></tbody></table></section>`).join("");
+  // 月のカレンダー（出勤管理の画面と同じ並び）：日ごとに、出勤する人と時間（緑＝実績・灰＝予定・赤＝欠勤）
+  const startDow = new Date(Date.UTC(_scY, _scM, 1)).getUTCDay();
+  let calRows = "", dayN = 1 - startDow;
+  while (dayN <= last) {
+    calRows += "<tr>";
+    for (let c = 0; c < 7; c++, dayN++) {
+      if (dayN < 1 || dayN > last) { calRows += '<td class="ce"></td>'; continue; }
+      const ds = `${_scY}-${p(_scM + 1)}-${p(dayN)}`;
+      const hol = _scHol[ds];
+      const plans = {}; for (const sft of (_scShifts[ds] || [])) plans[String(sft.email).toLowerCase()] = sft;
+      const ems = new Set(Object.keys(plans));
+      for (const em of people.keys()) if (scActual(em, ds)) ems.add(em);
+      const items = [...ems].map((em) => {
+        const plan = plans[em], act = scActual(em, ds);
+        const nm = esc(people.get(em) || em);
+        if (act) return { k: 0, h: `<div class="ci act">${nm}<span>${scHM(act.start)}〜${scHM(act.end)}</span></div>` };
+        if (plan && ds <= today) return { k: 2, h: `<div class="ci ab">${nm}<span>欠勤</span></div>` };
+        if (plan) return { k: 1, h: `<div class="ci pl">${nm}<span>${scHM(plan.start_min)}〜${scHM(plan.end_min)}</span></div>` };
+        return null;
+      }).filter(Boolean).sort((a, b) => a.k - b.k);
+      calRows += `<td class="${c === 0 ? "csun" : c === 6 ? "csat" : ""}${hol && c !== 0 && c !== 6 ? " chol" : ""}"><div class="cd">${dayN}${hol && !/^(土|日)/.test(hol) ? `<small>${esc(hol)}</small>` : ""}<em>${items.length ? `${items.length}人` : ""}</em></div>${items.map((x) => x.h).join("")}</td>`;
+    }
+    calRows += "</tr>";
+  }
+  const calPage = `<section class="pg land"><h1>出勤カレンダー　${month}</h1><div class="sub">緑＝実績（架電記録から推定）／灰＝予定／赤＝欠勤（予定があって架電なし）　作成：${madeStr}</div>
+    <table class="cal"><thead><tr>${wd.map((x, i) => `<th class="${i === 0 ? "csun" : i === 6 ? "csat" : ""}">${x}</th>`).join("")}</tr></thead><tbody>${calRows}</tbody></table></section>`;
   const w = window.open("", "_blank");
   if (!w) { alert("新しい画面を開けませんでした（ポップアップを許可してください）"); return; }
   w.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>勤怠表_${_scY}-${p(_scM + 1)}</title>
@@ -6259,11 +6285,21 @@ function scExportPdf() {
     table{width:100%;border-collapse:collapse;font-size:12px} th{background:#EAF4EF;color:#0d5b47;text-align:left;padding:6px 8px;border:1px solid #cfe0d9}
     td{padding:5px 8px;border:1px solid #dfe8e3} .n{text-align:right} tr.sun td:first-child{color:#c62828} tr.sat td:first-child{color:#1565c0}
     tr.ab td{background:#fdecea} tr.tot td{font-weight:700;background:#f7faf8} small{color:#b3261e;margin-left:6px;font-size:10px}
+    @page land{size:A4 landscape;margin:10mm} .land{page:land}
+    table.cal{table-layout:fixed} table.cal th{text-align:center;padding:4px} table.cal td{vertical-align:top;height:104px;padding:3px 4px}
+    .cd{font-weight:700;font-size:12px;display:flex;align-items:baseline;gap:4px;margin-bottom:2px} .cd small{color:#b3261e;font-size:9px;font-weight:600} .cd em{margin-left:auto;font-style:normal;color:#5f6b64;font-size:9.5px}
+    .ci{font-size:9.5px;line-height:1.3;border-radius:4px;padding:1px 4px;margin-top:2px;display:flex;justify-content:space-between;gap:4px;white-space:nowrap;overflow:hidden}
+    .ci span{font-variant-numeric:tabular-nums} .ci.act{background:#e1f5ee;color:#085041} .ci.pl{background:#f1f4f2;color:#5f6b64} .ci.ab{background:#fdecea;color:#b3261e}
+    th.csun,td.csun .cd{color:#c62828} th.csat,td.csat .cd{color:#1565c0} td.csun,td.csat,td.chol{background:#fafbfa} td.ce{background:#f7f9f8}
+    .hide{display:none}
     .bar{position:sticky;top:0;background:#fff;padding:10px;border-bottom:1px solid #dfe8e3;display:flex;gap:10px;align-items:center}
     .bar button{background:#1d9e75;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:700;font-size:14px;cursor:pointer}
     @media print{.bar{display:none}}</style></head><body>
-    <div class="bar"><button onclick="print()">PDFに保存する</button><span style="font-size:12px;color:#5f6b64">印刷の画面で「送信先：PDFに保存」を選んでください</span></div>
-    ${sum}${pages}<script>setTimeout(() => print(), 400);<\/script></body></html>`);
+    <div class="bar"><button onclick="print()">PDFに保存する</button>
+      <label style="font-size:13px"><input type="checkbox" checked onchange="document.querySelectorAll('.sumpg').forEach((e)=>e.classList.toggle('hide',!this.checked))"> まとめ</label>
+      <label style="font-size:13px"><input type="checkbox" onchange="document.querySelectorAll('.perpg').forEach((e)=>e.classList.toggle('hide',!this.checked))"> 人ごとの勤怠表</label>
+      <span style="font-size:12px;color:#5f6b64">印刷の画面で「送信先：PDFに保存」を選んでください</span></div>
+    ${calPage}${sum.replace('<section class="pg">', '<section class="pg sumpg">')}${pages.split('<section class="pg">').join('<section class="pg perpg hide">')}<script>setTimeout(() => print(), 500);<\/script></body></html>`);
   w.document.close();
 }
 if ($("scExport")) $("scExport").addEventListener("click", scExportPdf);
