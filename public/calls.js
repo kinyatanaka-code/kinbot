@@ -6204,6 +6204,69 @@ if ($("scToday")) $("scToday").addEventListener("click", () => { scInit(); loadS
 if ($("scBulk")) $("scBulk").addEventListener("click", openBulkShift);
 // 出勤カレンダーのPDFから取り込む：読み取り → 一覧で確認・直す → 取り込む
 if ($("scPdf")) $("scPdf").addEventListener("click", () => { const f = $("scPdfFile"); if (f) { f.value = ""; f.click(); } });
+// 勤怠をPDFに書き出す：表示している月の、人ごとの勤怠表（日付・予定・実績（架電記録から推定）・実働時間・欠勤）と、全員のまとめ。
+// 印刷用の画面を開いて、そのまま「PDFに保存」できるようにする（日本語の字もそのまま出る）。
+function scExportPdf() {
+  const p = (n) => String(n).padStart(2, "0");
+  const last = new Date(Date.UTC(_scY, _scM + 1, 0)).getUTCDate();
+  const today = scTodayStr();
+  const wd = ["日", "月", "火", "水", "木", "金", "土"];
+  const people = new Map();   // email → name
+  for (const it of _scInterns) people.set(String(it.email).toLowerCase(), it.name || it.email);
+  for (const list of Object.values(_scShifts)) for (const sft of list) { const em = String(sft.email).toLowerCase(); if (!people.has(em)) people.set(em, sft.name || em); }
+  const rowsOf = (em) => {
+    const rows = []; let days = 0, hours = 0, planH = 0, absent = 0;
+    for (let d = 1; d <= last; d++) {
+      const ds = `${_scY}-${p(_scM + 1)}-${p(d)}`;
+      const dow = new Date(Date.UTC(_scY, _scM, d)).getUTCDay();
+      const plan = (_scShifts[ds] || []).find((x) => String(x.email).toLowerCase() === em) || null;
+      const act = scActual(em, ds);
+      const h = act ? scWorkH(act.start, act.end) : 0;
+      const ph = plan ? scWorkH(plan.start_min, plan.end_min) : 0;
+      const isAbsent = !!(plan && !act && ds <= today);
+      if (!plan && !act) continue;
+      if (act && h > 0) { days++; hours += h; }
+      planH += ph; if (isAbsent) absent++;
+      rows.push(`<tr class="${dow === 0 ? "sun" : dow === 6 ? "sat" : ""}${isAbsent ? " ab" : ""}"><td>${_scM + 1}/${d}（${wd[dow]}）${_scHol[ds] && !/土|日/.test(_scHol[ds]) ? `<small>${esc(_scHol[ds])}</small>` : ""}</td>
+        <td>${plan ? `${scHM(plan.start_min)}〜${scHM(plan.end_min)}` : "-"}</td>
+        <td>${act ? `${scHM(act.start)}〜${scHM(act.end)}` : (isAbsent ? "欠勤" : "-")}</td>
+        <td class="n">${act ? `${act.cnt}件` : "-"}</td>
+        <td class="n">${h ? `${h}h` : "-"}</td></tr>`);
+    }
+    return { rows, days, hours: Math.round(hours * 100) / 100, planH: Math.round(planH * 100) / 100, absent };
+  };
+  const list = [...people.entries()].map(([em, name]) => ({ em, name, ...rowsOf(em) })).filter((x) => x.rows.length)
+    .sort((a, b) => b.hours - a.hours || String(a.name).localeCompare(String(b.name), "ja"));
+  if (!list.length) { alert("この月の出勤の予定・記録がありません"); return; }
+  const month = `${_scY}年${_scM + 1}月`;
+  const made = new Date(Date.now() + 9 * 3600000);
+  const madeStr = `${made.getUTCFullYear()}/${made.getUTCMonth() + 1}/${made.getUTCDate()} ${p(made.getUTCHours())}:${p(made.getUTCMinutes())}`;
+  const sum = `<section class="pg"><h1>勤怠表（まとめ）　${month}</h1><div class="sub">作成：${madeStr}　実績は架電記録から推定（最初〜最後の架電を30分単位に丸め、昼休み12:00〜13:00を除く。1時間未満は0）</div>
+    <table><thead><tr><th>メンバー</th><th class="n">出勤日数</th><th class="n">実働時間</th><th class="n">予定の時間</th><th class="n">欠勤</th></tr></thead><tbody>
+    ${list.map((x) => `<tr><td>${esc(x.name)}</td><td class="n">${x.days}日</td><td class="n"><b>${x.hours}h</b></td><td class="n">${x.planH}h</td><td class="n">${x.absent ? `${x.absent}日` : "-"}</td></tr>`).join("")}
+    <tr class="tot"><td>合計</td><td class="n">${list.reduce((a, x) => a + x.days, 0)}日</td><td class="n">${Math.round(list.reduce((a, x) => a + x.hours, 0) * 100) / 100}h</td><td class="n">${Math.round(list.reduce((a, x) => a + x.planH, 0) * 100) / 100}h</td><td class="n">${list.reduce((a, x) => a + x.absent, 0)}日</td></tr>
+    </tbody></table></section>`;
+  const pages = list.map((x) => `<section class="pg"><h1>勤怠表　${esc(x.name)}　${month}</h1>
+    <div class="sub">出勤 ${x.days}日 ・ 実働 ${x.hours}h ・ 予定 ${x.planH}h${x.absent ? ` ・ 欠勤 ${x.absent}日` : ""}</div>
+    <table><thead><tr><th>日付</th><th>予定</th><th>実績（架電記録から）</th><th class="n">架電</th><th class="n">実働時間</th></tr></thead><tbody>${x.rows.join("")}
+    <tr class="tot"><td>合計</td><td>${x.planH}h</td><td>${x.days}日</td><td></td><td class="n">${x.hours}h</td></tr></tbody></table></section>`).join("");
+  const w = window.open("", "_blank");
+  if (!w) { alert("新しい画面を開けませんでした（ポップアップを許可してください）"); return; }
+  w.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>勤怠表_${_scY}-${p(_scM + 1)}</title>
+    <style>@page{size:A4;margin:14mm} body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Noto Sans JP",sans-serif;color:#1f2a26;margin:0}
+    .pg{page-break-after:always;padding:4mm 0} .pg:last-child{page-break-after:auto}
+    h1{font-size:17px;margin:0 0 4px;border-bottom:2px solid #0E6B4E;padding-bottom:6px} .sub{font-size:11px;color:#5f6b64;margin:4px 0 10px}
+    table{width:100%;border-collapse:collapse;font-size:12px} th{background:#EAF4EF;color:#0d5b47;text-align:left;padding:6px 8px;border:1px solid #cfe0d9}
+    td{padding:5px 8px;border:1px solid #dfe8e3} .n{text-align:right} tr.sun td:first-child{color:#c62828} tr.sat td:first-child{color:#1565c0}
+    tr.ab td{background:#fdecea} tr.tot td{font-weight:700;background:#f7faf8} small{color:#b3261e;margin-left:6px;font-size:10px}
+    .bar{position:sticky;top:0;background:#fff;padding:10px;border-bottom:1px solid #dfe8e3;display:flex;gap:10px;align-items:center}
+    .bar button{background:#1d9e75;color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:700;font-size:14px;cursor:pointer}
+    @media print{.bar{display:none}}</style></head><body>
+    <div class="bar"><button onclick="print()">PDFに保存する</button><span style="font-size:12px;color:#5f6b64">印刷の画面で「送信先：PDFに保存」を選んでください</span></div>
+    ${sum}${pages}<script>setTimeout(() => print(), 400);<\/script></body></html>`);
+  w.document.close();
+}
+if ($("scExport")) $("scExport").addEventListener("click", scExportPdf);
 if ($("scPdfFile")) $("scPdfFile").addEventListener("change", async (ev) => {
   const file = ev.target.files && ev.target.files[0];
   if (!file) return;

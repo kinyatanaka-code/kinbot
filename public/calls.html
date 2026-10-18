@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
-    <link rel="stylesheet" href="style.css?v=20261018d" />
+    <link rel="stylesheet" href="style.css?v=20261018e" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -405,6 +405,7 @@
               <button type="button" class="btn ghost" id="scPdf" title="出勤カレンダーのPDF（画像も可）を読み取って、まとめて入れます">PDFから取り込む</button>
               <input type="file" id="scPdfFile" accept="application/pdf,image/*" hidden />
               <button type="button" class="btn ghost" id="scShiftLink">🔗 シフト提出リンク</button>
+              <button type="button" class="btn ghost" id="scExport" title="この月の出勤（予定・実績・実働時間）をPDFにします">PDFに書き出す</button>
               <span class="note" style="margin:0">日付/タグをクリックで編集。緑＝架電記録から推定した出退勤、赤＝欠勤（出勤予定だが架電なし）、灰＝予定。</span>
             </div>
             <div id="scCal"><div class="note">読み込んでいます…</div></div>
@@ -615,9 +616,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261018d"></script>
-    <script src="calls.js?v=20261018d"></script>
-    <script src="nav.js?v=20261018d"></script>
+    <script src="sf-data.js?v=20261018e"></script>
+    <script src="calls.js?v=20261018e"></script>
+    <script src="nav.js?v=20261018e"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
