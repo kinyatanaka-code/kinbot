@@ -2749,7 +2749,7 @@ function wireImpBox(m, x) {
   };
   box.querySelectorAll('[data-imp="gender"] .kc-chip').forEach((b) => b.addEventListener("click", () => { st.gender = st.gender === b.dataset.v ? "" : b.dataset.v; draw(); }));
   box.querySelectorAll('[data-imp="age"] .kc-chip').forEach((b) => b.addEventListener("click", () => { st.age = st.age === b.dataset.v ? "" : b.dataset.v; draw(); }));
-  setTags(["丁寧", "フレンドリー", "前向き", "慎重", "忙しそう", "そっけない", "話が長い", "決裁者っぽい", "現場担当っぽい", "警戒している"]);
+  setTags(["優しい", "冷たい", "話聞いてくれた", "質問してくる", "そっけない"]);
   draw();
   // 前回の印象（同じ担当者）を入れた状態にする
   const loadPrev = async () => {

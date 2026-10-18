@@ -12043,7 +12043,7 @@ app.post("/u/:token", express.urlencoded({ extended: false }), async (req, res) 
 });
 
 // 担当者の印象（kincallの記録の窓）：前回の値を出す・記録と一緒に保存する
-const IMPRESSION_TAGS = ["丁寧", "フレンドリー", "前向き", "慎重", "忙しそう", "そっけない", "話が長い", "決裁者っぽい", "現場担当っぽい", "警戒している"];
+const IMPRESSION_TAGS = ["優しい", "冷たい", "話聞いてくれた", "質問してくる", "そっけない"];
 app.get("/api/calls/impression", async (req, res) => {
   try {
     const t = await getCallTarget(parseInt(req.query.targetId, 10)).catch(() => null);
@@ -24783,7 +24783,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18h kincallの記録の窓に「担当者の印象」：結果が担当者接触のときだけ開いて出る（性別・年代・印象2つまで、未入力／一部入力／入力済み）、前回の印象を入れた状態で開く、入力は任意で記録と一緒に保存。contact_impressions。";
+const BUILD_TAG = "2026-10-18i 担当者の印象の選択肢を「優しい・冷たい・話聞いてくれた・質問してくる・そっけない」の5つに。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
