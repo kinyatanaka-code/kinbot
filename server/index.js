@@ -12179,6 +12179,51 @@ function parseKenshuPrefill(url) {
   ids.slice(0, KENSHU_KEYS.length).forEach((x, i) => { entries[KENSHU_KEYS[i]] = x.id; });
   return { base, entries, count: ids.length };
 }
+// フォームのページのソース（回答する画面を「ページのソースを表示」したもの・保存したHTML）から、欄の番号を質問の名前で読む
+//   ソースの中の FB_PUBLIC_LOAD_DATA_ に、質問ごとに [質問ID, 質問名, 説明, 種類, [[欄の番号, 選択肢…]]] が入っている
+const KENSHU_FORM_BASE = "https://docs.google.com/forms/d/e/1FAIpQLSeZsKVtn3Xg1oImkG9PnO1zxICrYvTtKFn0GCzaxb8iSQmwGw/viewform";
+function parseKenshuSource(html) {
+  const t = String(html || "");
+  const i = t.indexOf("FB_PUBLIC_LOAD_DATA_");
+  if (i < 0) throw new Error("フォームのソースが読めませんでした（FB_PUBLIC_LOAD_DATA_ が見つかりません）");
+  const st = t.indexOf("[", i);
+  let depth = 0, end = -1, inStr = false, esc = false;
+  for (let k = st; k < t.length; k++) {
+    const ch = t[k];
+    if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true; else if (ch === "[") depth++; else if (ch === "]") { depth--; if (!depth) { end = k; break; } }
+  }
+  const data = JSON.parse(t.slice(st, end + 1));
+  const qs = (data[1] && data[1][1]) || [];
+  const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+  const entries = {};
+  const pick = (title) => {
+    const n = norm(title);
+    const num = (/商材名([①②③④1-4])/.exec(n) || [])[1];
+    const idx = num ? ("①②③④".indexOf(num) >= 0 ? "①②③④".indexOf(num) + 1 : Number(num)) : 0;
+    if (/弊社担当/.test(n)) return "tanto";
+    if (/^企業名/.test(n)) return "company";
+    if (idx && /追記/.test(n)) return `item${idx}note`;
+    if (idx) return `item${idx}`;
+    if (/サーカス/.test(n)) return "circus";
+    if (/SFURL|SF\.?URL/i.test(n)) return "sfurl";
+    if (/納品日/.test(n)) return "delivery";
+    if (/数量/.test(n)) return "qty";
+    if (/請求書着日/.test(n)) return "invoiceDate";
+    if (/検収書回収/.test(n)) return "kenshuDate";
+    return "";
+  };
+  for (const q of qs) {
+    const key = pick(q[1]);
+    const id = q[4] && q[4][0] && q[4][0][0];
+    if (key && id && !entries[key]) entries[key] = String(id);
+  }
+  const m = /https:\/\/docs\.google\.com\/forms\/d\/e\/([A-Za-z0-9_-]+)\//.exec(t);
+  const base = m ? `https://docs.google.com/forms/d/e/${m[1]}/viewform` : KENSHU_FORM_BASE;
+  const n = Object.keys(entries).length;
+  if (n < 8) throw new Error(`欄の番号が ${n} 個しか読めませんでした（検収書の依頼フォームのソースか確かめてください）`);
+  return { base, entries, count: n };
+}
 async function csCircusField(sfUser) {
   try {
     const d = await describeObject(sfUser, "Opportunity");
@@ -12277,7 +12322,8 @@ app.post("/api/cs/kickoffs/:bot/kenshu", async (req, res) => {
 app.put("/api/cs/kenshu-form", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
-    const f = parseKenshuPrefill((req.body || {}).url);
+    const raw = String((req.body || {}).url || (req.body || {}).source || "");
+    const f = /FB_PUBLIC_LOAD_DATA_/.test(raw) ? parseKenshuSource(raw) : parseKenshuPrefill(raw);
     await saveSettings({ kenshuForm: { ...f, at: new Date().toISOString() } });
     res.json({ ok: true, count: f.count });
   } catch (e) { res.status(400).json({ error: e.message }); }
@@ -25408,7 +25454,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19t 検収書の依頼を分かりやすく：企業カードに「📝 検収書を依頼する」（依頼済みなら印）、画面は手順の見出し・必須の欄を上に・商材の追加と着日指定はたたむ・大きい「この内容で依頼する」。フォームの設定がまだなら、はじめの1回の手順と設定タブへのボタン。";
+const BUILD_TAG = "2026-10-19u 検収書フォームの設定を、フォームを編集できない人でもできるように：回答する画面の「ページのソース」を貼るか、保存したHTMLを選べば、質問の名前から欄の番号を読む（事前入力したURLでもOK）。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

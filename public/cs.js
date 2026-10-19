@@ -224,6 +224,15 @@ if (document.getElementById("ksFormSave")) {
     try { const r = await api("/api/cs/kenshu-form", { method: "PUT", body: JSON.stringify({ url: document.getElementById("ksFormUrl").value }) }); st.textContent = `覚えました（欄 ${r.count}個）`; document.getElementById("ksFormUrl").value = ""; }
     catch (e) { st.textContent = "失敗：" + e.message; }
   });
+  // 保存したフォームのファイル（HTML）を選んだとき
+  const ff = document.getElementById("ksFormFile");
+  if (ff) ff.addEventListener("change", async () => {
+    const st = document.getElementById("ksFormSt");
+    const f = ff.files && ff.files[0]; if (!f) return;
+    try { const text = await f.text(); const r = await api("/api/cs/kenshu-form", { method: "PUT", body: JSON.stringify({ source: text }) }); st.textContent = `覚えました（欄 ${r.count}個）`; }
+    catch (e) { st.textContent = "失敗：" + e.message; }
+    ff.value = "";
+  });
 }
 $("csImportBtn").addEventListener("click", async () => {
   const v = $("csImport").value.trim(); if (!v) return;
@@ -305,10 +314,10 @@ async function openKenshu(bot) {
     <div class="cs-act"><button type="button" class="btn ks-go" data-go="send">この内容で依頼する</button><button type="button" class="btn ghost" data-x>やめる</button><span class="rev-status" data-st></span></div>
     <p class="ks-foot">送ると、あなたの会社のGoogleアカウントのまま検収書の依頼フォームに届きます。<a href="#" data-go="open">フォームの画面で見てから送りたいときはこちら</a></p>`
     : `<div class="ks-setup"><b>はじめに1回だけ、フォームの設定が必要です</b>
-      <p>kinbotが検収書の依頼フォームに中身を入れられるよう、フォームの欄の並びを覚えさせます（だれか1人が1回やれば、全員使えます）。</p>
-      <ol><li>検収書の依頼フォームを<b>編集できる人</b>が、フォームの編集画面の右上「︙」→「事前入力したURLを取得」を開く</li>
-      <li>すべての欄に何か入れる（文字は「テスト」、選択肢はどれか1つ、日付は適当な日）</li>
-      <li>「リンクを取得」→「リンクをコピー」</li>
+      <p>kinbotが検収書の依頼フォームに中身を入れられるよう、フォームの欄の番号を覚えさせます（だれか1人が1回やれば、全員使えます。フォームを編集できる人でなくてもできます）。</p>
+      <ol><li>検収書の依頼フォームを開く（回答する画面のままでOK）</li>
+      <li>右クリック →「ページのソースを表示」（<code>Ctrl</code>＋<code>U</code>）</li>
+      <li>全部選んでコピー（<code>Ctrl</code>＋<code>A</code> → <code>Ctrl</code>＋<code>C</code>）</li>
       <li>CS連携の「設定」タブの「検収書フォーム」に貼って「覚える」</li></ol>
       <div class="cs-act"><button type="button" class="btn" data-setup>設定タブを開く</button><button type="button" class="btn ghost" data-x>閉じる</button></div></div>`}
   </div>`;

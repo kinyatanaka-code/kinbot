@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261019t" />
+    <link rel="stylesheet" href="style.css?v=20261019u" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -64,6 +64,8 @@
     .ks-more{margin-top:10px;border-top:1px dashed #dfe8e3;padding-top:8px;} .ks-more summary{cursor:pointer;font-size:12.5px;color:#0d5b47;font-weight:700;}
     .ks-go{padding:10px 22px !important;font-size:14px !important;}
     .ks-foot{font-size:11.5px;color:#7a8a82;margin:8px 0 0;} .ks-foot a{color:#0d5b47;}
+    .ks-how{background:#f7faf8;border:1px solid #e6ece9;border-radius:10px;padding:8px 12px;margin:6px 0;font-size:12.5px;line-height:1.7;} .ks-how ol{margin:4px 0;padding-left:20px;}
+    .ks-how code{background:#fff;border:1px solid #dfe8e3;border-radius:4px;padding:0 4px;font-size:11.5px;}
     .ks-setup{margin-top:8px;font-size:13px;line-height:1.7;} .ks-setup ol{padding-left:20px;margin:6px 0;}
     .ks-grid{grid-template-columns:190px minmax(0,1fr);} .ks-grid select,.ks-grid input{width:100%;box-sizing:border-box;border:1px solid #d7e3dd;border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;background:#fff;} .ks-grid [data-kko]{margin-top:4px;}
     .cs-x{margin-left:auto;border:0;background:#f1f4f2;border-radius:10px;width:34px;height:34px;font-size:16px;cursor:pointer;}
@@ -122,9 +124,18 @@
               </div>
               <div class="cs-card">
                 <div class="cs-h" style="cursor:default"><b>検収書フォーム</b><span class="cs-sub" id="ksFormSt"></span></div>
-                <p class="note" style="margin:6px 0">検収書の依頼フォームの欄の番号を覚えるため、フォームの編集画面の「︙」→「事前入力したURLを取得」で、<b>16個の欄すべてに値を入れて</b>（文字の欄は「テスト」、選択肢はどれか1つ、日付は適当な日）作ったリンクを貼ってください。1回だけで大丈夫です。</p>
-                <div class="cs-bar"><input id="ksFormUrl" placeholder="https://docs.google.com/forms/d/e/…/viewform?usp=pp_url&entry.…" style="flex:1;min-width:280px;border:1px solid #d7e3dd;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;">
-                  <button type="button" class="btn" id="ksFormSave">覚える</button></div>
+                <p class="note" style="margin:6px 0">kinbotが検収書の依頼フォームに中身を入れられるよう、フォームの欄の番号を1回だけ覚えさせます。<b>だれでもできる方法</b>と、編集できる人の方法があります。どちらか1つでOKです。</p>
+                <div class="ks-how"><b>だれでもできる方法（おすすめ）</b>
+                  <ol><li><a href="https://docs.google.com/forms/d/e/1FAIpQLSeZsKVtn3Xg1oImkG9PnO1zxICrYvTtKFn0GCzaxb8iSQmwGw/viewform" target="_blank" rel="noopener">検収書の依頼フォーム</a>を開く（回答する画面のままでOK）</li>
+                  <li>フォームの何もないところで右クリック →「ページのソースを表示」（または <code>Ctrl</code>＋<code>U</code>、Macは <code>command</code>＋<code>option</code>＋<code>U</code>）</li>
+                  <li>開いた文字だらけの画面で <code>Ctrl</code>＋<code>A</code>（Macは <code>command</code>＋<code>A</code>）で全部選んでコピー</li>
+                  <li>下の欄に貼って「覚える」</li></ol>
+                  <div class="cs-sub">ソースが開けないときは、フォームの画面で <code>Ctrl</code>＋<code>S</code>（Macは <code>command</code>＋<code>S</code>）で保存したファイルを、下の「ファイルを選ぶ」から選んでもOKです。</div>
+                </div>
+                <div class="ks-how"><b>フォームを編集できる人の方法</b>：編集画面の「︙」→「事前入力したURLを取得」で、すべての欄に何か入れて作ったリンクを貼る</div>
+                <textarea id="ksFormUrl" rows="3" placeholder="ここに、ページのソースか、事前入力したURLを貼る" style="width:100%;box-sizing:border-box;border:1px solid #d7e3dd;border-radius:8px;padding:8px 10px;font:inherit;font-size:12.5px;margin-top:6px"></textarea>
+                <div class="cs-bar" style="margin-top:6px"><button type="button" class="btn" id="ksFormSave">覚える</button>
+                  <label class="btn ghost" style="cursor:pointer">ファイルを選ぶ<input type="file" id="ksFormFile" accept=".html,.htm,text/html" style="display:none"></label></div>
               </div>
               <div class="cs-card" id="csSet"></div>
             </div>
@@ -140,7 +151,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261019t"></script>
+    <script src="nav.js?v=20261019u"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -148,6 +159,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261019t"></script>
+    <script src="cs.js?v=20261019u"></script>
   </body>
 </html>
