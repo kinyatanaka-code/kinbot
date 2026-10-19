@@ -8388,7 +8388,7 @@ let _nmHideHist = new Set();
 async function nmFetchHideHist() { try { const d = await (await fetch("/api/calls/hide-history-lists")).json(); _nmHideHist = new Set((d.ids || []).map(Number)); } catch {} }
 nmFetchHideHist();
 async function nmHideHistory(listId, name, hide) {
-  if (hide && !confirm(`「${name}」の架電履歴を見せないようにします。\nかける画面では、このリストのリードは「履歴なし」として出ます（記録は今までどおり残ります）。よろしいですか？`)) return;
+  if (hide && !confirm(`「${name}」の架電履歴を見せないようにします。\nかける画面では、ほかの人の架電履歴を出さず、自分がかけた履歴だけを出します（最終架電日・最終ステータスは出します。記録は今までどおり残ります）。よろしいですか？`)) return;
   const st = $("nmOpSt"); if (st) st.textContent = "変えています…";
   try {
     const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/hide-history`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ hide }) });

@@ -271,6 +271,7 @@ import {
   sfOppIdByCompany,
   csAssignCounts,
   getContactImpression,
+  countMyCallLogs,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -10927,8 +10928,10 @@ app.get("/api/calls/targets", async (req, res) => {
     try {
       const hh = await hideHistorySet();
       const lid = parseInt(listParam, 10);
-      if (hh.size) for (const x of items) {
-        if (hh.has(Number(x.listId || lid))) { x.履歴数 = 0; x.最終日時 = null; x.最終コメント = ""; x.履歴なし = true; }
+      const hit = hh.size ? items.filter((x) => hh.has(Number(x.listId || lid))) : [];
+      if (hit.length) {
+        const mine = await countMyCallLogs(hit.map((x) => x.id), req.user).catch(() => ({}));
+        for (const x of hit) { x.履歴数 = Number(mine[x.id] || 0); x.最終コメント = ""; x.履歴なし = true; }   // 最終架電日・最終ステータスはそのまま出す
       }
     } catch {}
 
@@ -11009,7 +11012,7 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const t = await getCallTarget(id);
     if (!t) return res.status(404).json({ error: "見つかりません" });
-    if ((await hideHistorySet()).has(Number(t.list_id))) return res.json({ items: [], hidden: true, note: "履歴なし（このリストは、前の架電の記録を出さない設定です）" });
+    const 自分だけ = (await hideHistorySet()).has(Number(t.list_id));   // 履歴を見せないリスト：自分の架電履歴だけを出す
     // 履歴はSalesforceに残っているものだけを出す。
     // kinbot側の記録は、SFへ送れなかったものだけを出す（送れていれば同じものが二重になるため）。
     const rows = await callHistory(id, t.lead_id, 50);
@@ -11095,11 +11098,26 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     const ts = (v) => { const n = new Date(v || 0).getTime(); return Number.isFinite(n) ? n : 0; };
     uniq.sort((a, b) => ts(b.at) - ts(a.at));
 
+    // 履歴を見せないリスト：自分がかけた記録だけ（kincallの記録はかけた人、SFの活動は「記録した人：自分」か持ち主が自分）
+    let out = uniq, note = sfNote;
+    if (自分だけ) {
+      const me = String(req.user || "").toLowerCase();
+      const myName = String(await repDisplayName(me).catch(() => "") || "").replace(/[\s　]/g, "");
+      const isMine = (h) => {
+        if (h.元 === "kinbot") return String(h.誰 || "").toLowerCase() === me;
+        const memo = String(h.メモ || "").replace(/[\s　]/g, "");
+        const who = String(h.誰 || "").replace(/[\s　]/g, "");
+        if (/記録した人[:：]/.test(memo)) return !!myName && (memo.includes(`記録した人:${myName}`) || memo.includes(`記録した人：${myName}`));
+        return !!myName && who === myName;
+      };
+      out = uniq.filter(isMine);
+      note = out.length ? "このリストは、自分がかけた履歴だけを出します" : "履歴なし（このリストは、自分がかけた履歴だけを出します）";
+    }
     res.json({
       ok: true,
       相手: { 会社名: t.company || "", 担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || "" },
-      note: sfNote,
-      items: uniq,
+      note,
+      items: out,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -24821,7 +24839,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18k リスト管理の「⋯」に「架電履歴を見せない（履歴なしにする）」。そのリストのリードは、かける画面で履歴数0・最終架電日なし・最終コメントなし、記録の窓のやり取りも「履歴なし」。記録は今までどおり残る。";
+const BUILD_TAG = "2026-10-18l 架電履歴を見せないリスト：最終架電日・最終ステータスは出す。履歴は自分がかけた記録だけ見える（一覧の履歴数も自分の分、記録の窓のやり取りも自分の分だけ）。最後のコメントは出さない。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",

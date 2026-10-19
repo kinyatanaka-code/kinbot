@@ -11426,3 +11426,14 @@ export async function saveContactImpression({ targetId, companyKey, contactName,
     return rows[0] || null;
   } catch (e) { console.error("[db] saveContactImpression", e.message); return null; }
 }
+
+// 自分（caller）がかけた記録の数を、架電先ごとに（履歴を見せないリストで、自分の履歴の数だけ出すため）
+export async function countMyCallLogs(targetIds, caller) {
+  if (!pool || !targetIds || !targetIds.length || !caller) return {};
+  try {
+    const { rows } = await pool.query(
+      `SELECT target_id, count(*)::int AS n FROM call_logs WHERE target_id = ANY($1::int[]) AND lower(COALESCE(caller,'')) = lower($2) GROUP BY 1`,
+      [[...new Set(targetIds.map(Number).filter(Boolean))], String(caller)]);
+    const out = {}; for (const r of rows) out[r.target_id] = r.n; return out;
+  } catch (e) { console.error("[db] countMyCallLogs", e.message); return {}; }
+}
