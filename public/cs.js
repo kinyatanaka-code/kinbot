@@ -301,7 +301,7 @@ async function openKenshu(bot) {
       ${row("サーカスNo", txt("circus", v.circus, "SFの商談に入っている番号"), true)}
       ${row("SF URL", txt("sfurl", v.sfurl), true)}
       ${row("数量", txt("qty", v.qty || "1"), true)}
-      ${row("弊社担当者（商談した人）", sel("tanto", d.tantoOptions, v.tanto))}
+      ${row("弊社担当者（CS担当）", sel("tanto", d.tantoOptions, v.tanto))}
     </div>
     <details class="ks-more" ${hasMore ? "open" : ""}><summary>商材を追加する・請求書の着日指定がある（ある場合だけ）</summary>
       <div class="cs-grid ks-grid">

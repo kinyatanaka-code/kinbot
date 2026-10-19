@@ -12234,7 +12234,10 @@ async function csCircusField(sfUser) {
 // 検収書の依頼の中身を作る（モーダルに出して直してから送る）
 async function csKenshuDraft(k, user) {
   const f = k.fields || {};
-  const out = { tanto: k.fs_name || "", company: (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company, item1: "", item1note: "", item2: "", item2note: "",
+  // 弊社担当者は、基本はCS担当（いなければ商談したFS）。フォームの選択肢の書き方（姓と名のあいだの空白）にそろえる
+  const tn = String(k.cs_name || k.fs_name || "").trim();
+  const tanto = KENSHU_TANTO.find((t) => t.replace(/[\s　]/g, "") === tn.replace(/[\s　]/g, "")) || tn;
+  const out = { tanto, company: (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company, item1: "", item1note: "", item2: "", item2note: "",
     item3: "", item3note: "", item4: "", item4note: "", circus: "", sfurl: k.sf_url || "", delivery: "", qty: "1", invoiceDate: "", kenshuDate: "" };
   const notes = [];
   // 企業名（正式名称）とサーカスNo：SFの商談から
@@ -25454,7 +25457,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19u 検収書フォームの設定を、フォームを編集できない人でもできるように：回答する画面の「ページのソース」を貼るか、保存したHTMLを選べば、質問の名前から欄の番号を読む（事前入力したURLでもOK）。";
+const BUILD_TAG = "2026-10-19v 検収書の依頼の「弊社担当者」は、基本CS担当（いなければ商談したFS）。フォームの選択肢の書き方（鶴川 夏海）にそろえて選ぶ。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
