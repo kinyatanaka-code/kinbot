@@ -73,37 +73,57 @@ function render() {
     const head = `<div class="cs-h" style="cursor:default"><b>${esc(coName(k))}</b>
       <span class="cs-sub">回収MTG ${esc(fmtDT(k.meeting_at))}・FS ${esc(k.fs_name || "")}</span>${pills}<button type="button" class="cs-x" id="csClose" aria-label="閉じる">✕</button></div>`;
     const csOpts = `<option value="">未定</option>` + d.members.map((m) => `<option value="${esc(m.email)}"${m.email === k.cs_email ? " selected" : ""}>${esc(m.name)}</option>`).join("");
-    const rows = FIELDS.map(([key, lb]) => `<label>${esc(lb)}</label><input data-f="${esc(key)}" value="${esc(f[key] || "")}" class="${!f[key] || f[key] === "未確認" ? "unk" : ""}">`).join("");
-    return `<div class="cs-card open" style="border:0;box-shadow:none;padding:0">${head}
-      <div class="cs-grid">
-        ${rows}
-        <label>弊社の宿題</label><textarea data-list="弊社の宿題" rows="3" placeholder="1行に1つ。無ければ空（メールの項目ごと出しません）">${esc((f.弊社の宿題 || []).join("\n"))}</textarea>
-        <label>貴社の宿題</label><textarea data-list="貴社の宿題" rows="2" placeholder="初期学習のほかにお願いしたこと（1行に1つ）">${esc((f.貴社の宿題 || []).join("\n"))}</textarea>
-        <label>CS担当</label><div style="display:flex;gap:8px;align-items:center"><select data-k="csEmail" style="flex:1">${csOpts}</select><button type="button" class="btn ghost" data-act="autocs" style="white-space:nowrap">空いている人を自動で選ぶ</button></div>
-        <label>確認MTGの日時</label><div><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}"><div class="cs-sub">${k.confirm_from ? `（${esc(k.confirm_from)}から）` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　参加URL：<a href="${esc(k.confirm_url)}" target="_blank" rel="noopener">${esc(k.confirm_url)}</a>` : ""}</div></div>
-        <label>SFの商談</label><div><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="SFの商談のURL（見つからなかったときは貼ってください）">${k.sf_url ? `<div class="cs-sub"><a href="${esc(k.sf_url)}" target="_blank" rel="noopener">SFで開く ↗</a></div>` : ""}</div>
-        <label>先方のメール</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="御礼メールの宛先">
-        <label>候補者用画面のURL</label><div><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `スプレッドシートの値を使います：${k.sheet_candidate_url}` : "スプレッドシートに見つかりません。ここに入れるとこちらを使います")}">
-          <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? `スプレッドシートから：<a href="${esc(k.sheet_candidate_url)}" target="_blank" rel="noopener">${esc(k.sheet_candidate_url)}</a>` : (d.candidateSheetError ? `スプレッドシートを読めませんでした：${esc(d.candidateSheetError)}` : "スプレッドシート（C列＝会社名）に、この会社が見つかりません")}</div></div>
-        <label>管理画面のURL</label><div class="cs-sub" style="padding-top:7px;">${esc(d.adminUrl || "")}（全社共通）</div>
-        <label>ヘルプサイト</label><div>
-          ${k.portal_text ? `<div class="cs-sub">企業ID：<b>${esc(k.portal_id || "-")}</b>（${esc(fmtDT(k.portal_at))} に用意）・CS Platformの担当者：${esc(k.portal_cs || "未設定")}</div><pre class="cs-portal">${esc(k.portal_text)}</pre>` : `<div class="cs-sub">まだ用意していません</div>`}
-          ${k.portal_error ? `<div class="cs-err">用意できませんでした：${esc(k.portal_error)}${k.has_portal_shot ? `　<a href="/api/cs/kickoffs/${encodeURIComponent(k.bot_id)}/portal-shot" target="_blank" rel="noopener">そのときの画面</a>` : ""}</div>` : ""}
-          <button type="button" class="btn ghost" data-act="portal" style="margin-top:6px">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button>
-          <div class="cs-prog" data-portal-prog hidden></div></div>
-      </div>
-      ${k.error ? `<div class="cs-err">${esc(k.error)}</div>` : ""}
-      <div class="cs-act">
-        <button type="button" class="btn" data-act="save">保存</button>
-        <button type="button" class="btn ghost" data-act="repost">保存してOBスレに修正版を投稿</button>
-        <button type="button" class="btn ghost" data-act="draft">${k.draft_at ? "御礼メールの下書きを作り直す" : "御礼メールの下書きを作る"}</button>
-        <button type="button" class="btn ghost" data-act="preview">御礼メールを見る</button>
-        <button type="button" class="btn ghost" data-act="redo">議事録から読み取り直す</button>
-        <button type="button" class="btn ghost" data-act="kenshu">検収書の依頼</button>
-        <a class="btn ghost" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">議事録を開く</a>
-        ${k.sf_url ? `<a class="btn ghost" href="${esc(k.sf_url)}" target="_blank" rel="noopener">SFの商談を開く</a>` : ""}
-      </div>
+    // 見やすく：①ヒアリングの中身 ②宿題 ③CS・確認MTG ④連絡先・リンク ⑤ヘルプサイト のまとまりに分け、ボタンは下に固定
+    const fld = (key, lb, wide) => `<div class="cd-f${wide ? " wide" : ""}"><label>${esc(lb)}</label><input data-f="${esc(key)}" value="${esc(f[key] || "")}" class="${!f[key] || f[key] === "未確認" ? "unk" : ""}"></div>`;
+    const sec = (ico, title, body, sub = "") => `<section class="cd-sec"><div class="cd-sh"><span>${ico}</span><b>${esc(title)}</b>${sub}</div>${body}</section>`;
+    const link = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>` : "";
+    return `<div class="cs-card open cd-wrap">${head}
+      <div class="cd-body">
+      ${k.error ? `<div class="cs-err" style="margin:0 0 10px">${esc(k.error)}</div>` : ""}
+      ${sec("📋", "回収MTGのヒアリング", `<div class="cd-grid">
+        ${fld("企業名", "企業名")}${fld("先方ご担当者名", "先方ご担当者名")}
+        ${fld("納品月", "納品月")}${fld("公開予定時期", "公開予定")}
+        ${fld("請求書着日スケジュール", "請求スケジュール")}${fld("次回MTGの日時", "次回MTG（議事録から）")}
+        ${fld("活用場所", "活用場所・利用シーン", true)}${fld("特記事項", "イレギュラー・特記事項", true)}
+      </div>`, unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : `<span class="cs-pill ok">そろっています</span>`)}
+      ${sec("✅", "宿題", `<div class="cd-grid">
+        <div class="cd-f"><label>弊社の宿題（1行に1つ）</label><textarea data-list="弊社の宿題" rows="4" placeholder="無ければ空（メールの項目ごと出しません）">${esc((f.弊社の宿題 || []).join("\n"))}</textarea></div>
+        <div class="cd-f"><label>貴社の宿題（1行に1つ）</label><textarea data-list="貴社の宿題" rows="4" placeholder="初期学習のほかにお願いしたこと">${esc((f.貴社の宿題 || []).join("\n"))}</textarea></div>
+      </div>`)}
+      ${sec("👤", "CS担当・確認MTG", `<div class="cd-grid">
+        <div class="cd-f"><label>CS担当</label><div class="cd-row"><select data-k="csEmail">${csOpts}</select><button type="button" class="btn ghost cd-mini" data-act="autocs">空いている人を自動で選ぶ</button></div></div>
+        <div class="cd-f"><label>確認MTGの日時</label><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}">
+          <div class="cs-sub">${k.confirm_from ? `${esc(k.confirm_from)}から` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　・　${link(k.confirm_url, "確認MTGの参加URL")}` : ""}</div></div>
+      </div>`)}
+      ${sec("🔗", "連絡先・リンク", `<div class="cd-grid">
+        <div class="cd-f"><label>先方のメール（御礼メールの宛先）</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="例：yamada@example.co.jp"></div>
+        <div class="cd-f"><label>SFの商談 ${link(k.sf_url, "開く")}</label><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="見つからなかったときは貼ってください"></div>
+        <div class="cd-f"><label>候補者用画面のURL ${link(k.doc_candidate_url || k.sheet_candidate_url, "開く")}</label><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `管理シートの値：${k.sheet_candidate_url}` : "管理シートに無いときは、ここに入れる")}">
+          <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? "管理シートの値を使います" : (d.candidateSheetError ? `管理シートを読めませんでした：${esc(d.candidateSheetError)}` : "管理シートにこの会社がありません")}</div></div>
+        <div class="cd-f"><label>管理画面のURL（全社共通）</label><div class="cd-ro">${esc(d.adminUrl || "")}</div></div>
+      </div>`)}
+      ${sec("🔑", "ヘルプサイト（CS Platform）", `
+        ${k.portal_text ? `<div class="cd-kv"><span>企業ID</span><b>${esc(k.portal_id || "-")}</b><span>担当者</span><b>${esc(k.portal_cs || "未設定")}</b><span>用意した日</span><b>${esc(fmtDT(k.portal_at))}</b></div>
+          <details class="cd-det"><summary>案内文を見る（御礼メールに入ります）</summary><pre class="cs-portal">${esc(k.portal_text)}</pre></details>` : `<div class="cs-sub">まだ用意していません</div>`}
+        ${k.portal_error ? `<div class="cs-err">用意できませんでした：${esc(k.portal_error)}${k.has_portal_shot ? `　<a href="/api/cs/kickoffs/${encodeURIComponent(k.bot_id)}/portal-shot" target="_blank" rel="noopener">そのときの画面</a>` : ""}</div>` : ""}
+        <button type="button" class="btn ghost cd-mini" data-act="portal" style="margin-top:8px">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button>
+        <div class="cs-prog" data-portal-prog hidden></div>`, k.portal_text ? `<span class="cs-pill ok">用意済み</span>` : `<span class="cs-pill">まだ</span>`)}
       <div class="cs-mail" data-mail hidden></div>
+      </div>
+      <div class="cd-foot">
+        <div class="cd-foot-main">
+          <button type="button" class="btn" data-act="save">保存</button>
+          <button type="button" class="btn ghost" data-act="repost">保存してOBスレに修正版を投稿</button>
+          <span class="cs-sub" id="csSt2"></span>
+        </div>
+        <div class="cd-foot-sub">
+          <button type="button" class="cd-lnk" data-act="draft">✉️ ${k.draft_at ? "御礼メールの下書きを作り直す" : "御礼メールの下書きを作る"}</button>
+          <button type="button" class="cd-lnk" data-act="preview">👀 御礼メールを見る</button>
+          <button type="button" class="cd-lnk" data-act="kenshu">📝 検収書を依頼する</button>
+          <button type="button" class="cd-lnk" data-act="redo">🔄 議事録から読み取り直す</button>
+          <a class="cd-lnk" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">🎙 議事録を開く</a>
+        </div>
+      </div>
     </div>`;
   })()}</div></div>` : "");
   box.querySelectorAll("[data-ks]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); openKenshu(b.dataset.ks); }));
