@@ -115,9 +115,25 @@ async function issueOnce({ companyName, companyId = "", onStep = null }) {
     let curId = await idOf();
     say(`企業を開きました（いまの企業ID：${curId || "なし"}）`);
 
-    // 5) 企業IDを合わせる（指定があって違うとき）
+    // 5) まだアカウントが無い（企業ID：未発行）とき：企業IDを入れて「アカウント発行」
     const want = String(companyId || "").trim();
-    if (want && curId !== want) {
+    const unissued = /企業ID[：:]\s*未発行/.test(await page.locator("body").innerText());
+    const idInput = page.locator('input[placeholder*="企業ID"]').first();
+    if (unissued || ((await idInput.count()) && !(await page.locator('button:has-text("案内文をコピー")').count()))) {
+      if (!want) throw new Error("企業IDが決められませんでした（会社のサイトが分かりません。管理シートのH列にサイトを入れてください）");
+      say(`企業ID「${want}」でアカウントを発行しています`);
+      await idInput.click(); await idInput.fill(""); await idInput.pressSequentially(want, { delay: 15 });
+      await page.waitForTimeout(300);
+      await page.locator('button:has-text("アカウント発行")').first().click();
+      await page.waitForTimeout(2500);
+      const after = await page.locator("body").innerText();
+      const errLine = after.split("\n").map((x) => x.trim()).find((x) => /すでに|使われて|重複|使えません|無効|エラー/.test(x));
+      if (errLine && !/案内文をコピー/.test(after)) throw new Error(`アカウントを発行できませんでした（画面の表示：${errLine}）`);
+      curId = await idOf();
+      say(`アカウントを発行しました（企業ID：${curId || want}）`);
+    }
+    // 企業IDを合わせる（すでに発行されていて、指定と違うとき）
+    if (want && curId && curId !== want && (await page.locator('button:has-text("ID変更")').count())) {
       say(`企業IDを ${want} に変えています`);
       dialogAnswer = want;
       await page.locator('button:has-text("ID変更")').first().click();
@@ -140,11 +156,11 @@ async function issueOnce({ companyName, companyId = "", onStep = null }) {
     }
 
     // 6) アカウントが未発行なら発行する
-    const issue = page.locator('button:has-text("アカウント発行"), button:has-text("アカウントを発行"), button:has-text("発行する")').first();
-    if (await issue.count()) { await issue.click(); await page.waitForTimeout(1500); say("アカウントを発行しました"); }
+    // （発行は上で済ませている）
 
     // 7) 案内文をコピー
     say("案内文をコピーしています");
+    await page.waitForSelector('button:has-text("案内文をコピー")', { timeout: 15000 });
     await page.locator('button:has-text("案内文をコピー")').first().click();
     await page.waitForTimeout(1200);
     let text = await page.evaluate(() => window.__kbCopied || "").catch(() => "");
