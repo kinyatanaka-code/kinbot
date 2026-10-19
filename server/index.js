@@ -94,7 +94,7 @@ function readMemory() {
   }
   return _memCache;
 }
-import { normalizeSpace, deleteChatMessage, postToSpaceThread } from "./chatapp.js";
+import { normalizeSpace, deleteChatMessage, postToSpaceThread, mentionFor } from "./chatapp.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
@@ -11336,11 +11336,7 @@ const CS_DEFAULT_BODY = `{企業名}
 {先方ご担当者名}
 
 本日はお忙しい中、お時間をいただきありがとうございました。
-お打ち合わせの内容と今後の流れをお送りいたします。
-
-■ 次回お打ち合わせ（確認MTG）
-日時：{確認MTGの日時}
-URL：{確認MTGのURL}
+どこでもオープンカンパニーについて各種リンクを下記にお送りいたします。
 
 ■ 管理画面
 {管理画面URL}
@@ -11348,11 +11344,24 @@ URL：{確認MTGのURL}
 ■ 貴社の候補者用画面
 {候補者用画面URL}
 
-■ 貴社にご対応いただくこと
+また、下記にお打ち合わせの内容と今後の流れをお送りいたします。
+お手数ですがご確認いただけますと幸いです。
+
+■ 貴社ご対応事項
 ・次回お打ち合わせまでに、初期学習をお願いいたします
 {貴社の宿題}
+
+■ 弊社対応事項
 {弊社の宿題}
-引き続きよろしくお願いいたします。
+
+次回のお打ち合わせについて、下記に詳細をお送りいたします。
+
+■ 次回お打ち合わせ（確認MTG）
+日時：{確認MTGの日時}
+URL：{確認MTGのURL}
+
+ご不明な点等ございましたらお気軽にお申し付けくださいませ。
+引き続き何卒よろしくお願いいたします。
 
 {差出人}`;
 // 候補者用画面のURL：スプレッドシート（C列＝会社名、K列＝候補者用画面のURL）から会社名で引く。10分キャッシュ。
@@ -11567,10 +11576,21 @@ async function csBuildMail(k) {
     "{管理画面URL}": DOC_ADMIN_URL,   // 管理画面は全社共通
     "{候補者用画面URL}": urls.doc_candidate_url || sheetUrl || "（後ほどご連絡いたします）",
     "{貴社の宿題}": theirs.map((x) => `・${x}`).join("\n"),
-    "{弊社の宿題}": ours.length ? `\n■ 弊社の宿題\n${ours.map((x) => `・${x}`).join("\n")}\n` : "",
+    "{弊社の宿題}": ours.map((x) => `・${x}`).join("\n"),
     "{差出人}": k.fs_name || "",
   };
   let body = cfg.body, subject = cfg.subject;
+  // 宿題が無いとき：{弊社の宿題} の行と、そのすぐ上の見出し（■ の行）を消す。{貴社の宿題} は行だけ消す
+  const dropLine = (txt, ph, withHead) => {
+    const L = txt.split("\n"); const out = [];
+    for (let i = 0; i < L.length; i++) {
+      if (L[i].trim() === ph) { if (withHead && out.length && /^\s*■/.test(out[out.length - 1])) out.pop(); continue; }
+      out.push(L[i]);
+    }
+    return out.join("\n");
+  };
+  if (!ours.length) body = dropLine(body, "{弊社の宿題}", true);
+  if (!theirs.length) body = dropLine(body, "{貴社の宿題}", false);
   for (const [kk, v] of Object.entries(vars)) { body = body.split(kk).join(v); subject = subject.split(kk).join(v); }
   body = body.replace(/\n{3,}/g, "\n\n");
   return { subject, body };
@@ -11630,6 +11650,98 @@ async function csAutoPickCs(confirmIso, members, { exclude = "" } = {}) {
   const pick = cand[Math.floor(Math.random() * cand.length)];
   return { email: pick.email, name: pick.name, reason: `確認MTGの時間に空いているCS（${free.map((m) => m.name).join("・")}）のうち、担当の件数が少ない人${cand.length > 1 ? "からランダム" : ""}` };
 }
+// 情報が足りない回収MTG：OBスレのそのスレッドで、FSにメンションして知らせる（見つからなければ @all）
+const CS_KEY_FIELDS = ["納品月", "公開予定時期", "活用場所", "請求書着日スケジュール"];
+function csMissing(k) {
+  const f = k.fields || {};
+  const miss = CS_KEY_FIELDS.filter((x) => !f[x] || f[x] === "未確認").map((x) => (x === "請求書着日スケジュール" ? "請求スケジュール" : x === "公開予定時期" ? "公開予定" : x));
+  if (!k.confirm_start && (!f.次回MTGの日時 || f.次回MTGの日時 === "未確認")) miss.push("確認MTGの日時");
+  return miss;
+}
+async function csMentionFs(space, fsName) {
+  const m = fsName ? await mentionFor(space, fsName).catch(() => "") : "";
+  return m || "<users/all>";
+}
+async function csAlertMissing(k, { reminder = false } = {}) {
+  const miss = csMissing(k);
+  if (!miss.length && !k.error) return false;
+  const space = await csSpace();
+  const who = await csMentionFs(space, k.fs_name);
+  const co = (k.fields && k.fields.企業名 && k.fields.企業名 !== "未確認") ? k.fields.企業名 : k.company;
+  const text = `⚠️ ${who} ${reminder ? "（再送）" : ""}${co} の回収MTGの情報が足りていません。\n足りない項目：${miss.join("・") || "読み取りに失敗"}\nCS連携の画面で入れてください：${csBase()}/cs.html?bot=${encodeURIComponent(k.bot_id)}`;
+  try {
+    await postToSpaceThread(space, text, k.chat_thread || "");
+    const st = await getSettings().catch(() => ({}));
+    const al = { ...(st.csMissAlert || {}) }; al[k.bot_id] = { at: new Date().toISOString(), n: ((al[k.bot_id] || {}).n || 0) + 1 };
+    await saveSettings({ csMissAlert: al }).catch(() => {});
+    return true;
+  } catch (e) { console.warn("[cs] 足りない情報の知らせ", e.message); return false; }
+}
+// キックオフをしたはずなのに、kinbotに議事録が無い：FS（クローザー）のカレンダーで「キックオフ」の予定が終わって2時間たっても、
+// その会社の商談の記録が無ければ、OBスレでFSにメンションして知らせる（1つの予定につき1回）
+async function csCheckUnrecordedKickoffs() {
+  const st = await getSettings().catch(() => ({}));
+  const done = new Set(Array.isArray(st.csNoRecAlerted) ? st.csNoRecAlerted : []);
+  const ops = [st.apoScanOwner, st.apoInviteOwner, st.apoCalendarOwner].map((x) => String(x || "").trim()).find(Boolean) || "";
+  const closers = await listClosers({ activeOnly: true }).catch(() => []);
+  const since = st.csStartAt || new Date(Date.now() - 86400000).toISOString();
+  const timeMin = new Date(Math.max(Date.parse(since), Date.now() - 3 * 86400000)).toISOString();
+  const timeMax = new Date(Date.now() - 2 * 3600000).toISOString();
+  if (Date.parse(timeMax) <= Date.parse(timeMin)) return;
+  const recent = await listMeetings({ isAdmin: true, from: timeMin.slice(0, 10), limit: 2000, light: true }).catch(() => []);
+  const space = await csSpace();
+  for (const c of closers) {
+    const em = String(c.email || "").toLowerCase(); if (!em) continue;
+    const reader = (await gcalConnected(em).catch(() => false)) ? em : ops;
+    if (!reader) continue;
+    let evs = [];
+    try { evs = await listCalendarEvents(reader, em, { timeMin, timeMax: new Date().toISOString() }); } catch { continue; }
+    for (const e of evs) {
+      if (!/キックオフ/.test(e.title || "") || /キャンセル|リスケ/.test(e.title || "")) continue;
+      if (!e.end || Date.parse(e.end) > Date.parse(timeMax)) continue;
+      const key = `${em}|${e.id}`;
+      if (done.has(key)) continue;
+      const ck = csCoKey(e.title);
+      const hit = recent.some((m) => /キックオフ/.test(m.title || "") && ck && csCoKey(m.title) === ck && Math.abs(Date.parse(m.created_at) - Date.parse(e.start)) < 36 * 3600000);
+      done.add(key);
+      if (hit) continue;
+      const who = await csMentionFs(space, c.name);
+      const co = apoNameParts(e.title || "").company || String(e.title || "").replace(/【[^】]*】/g, "");
+      await postToSpaceThread(space, `⚠️ ${who} ${co} のキックオフ（${csFmtDT(e.start)}）の議事録がkinbotにありません。\n録音できていないかもしれません。議事録があれば「CS連携 → 設定 → 議事録から手で取り込む」で取り込み、無ければCS連携の画面に情報を入れてください：${csBase()}/cs.html`, "").catch((er) => console.warn("[cs] 議事録なしの知らせ", er.message));
+      console.log(`[cs] キックオフの議事録がありません：${co}（${c.name}）`);
+    }
+  }
+  await saveSettings({ csNoRecAlerted: [...done].slice(-500) }).catch(() => {});
+}
+// 毎日10時台：直近14日の回収MTGで、まだ情報が足りないものをFSにもう一度知らせる（1件につき最大3回）
+let _csRemindDay = "";
+setInterval(async () => {
+  try {
+    const j = new Date(Date.now() + 9 * 3600000);
+    if (j.getUTCHours() !== 10) return;
+    const day = j.toISOString().slice(0, 10);
+    if (_csRemindDay === day) return; _csRemindDay = day;
+    const st = await getSettings().catch(() => ({}));
+    const al = st.csMissAlert || {};
+    for (const k of await listCsKickoffs(150)) {
+      if (Date.now() - Date.parse(k.meeting_at || k.created_at || 0) > 14 * 86400000) continue;
+      if (((al[k.bot_id] || {}).n || 0) >= 3) continue;
+      if (csMissing(k).length || k.error) await csAlertMissing(k, { reminder: true });
+    }
+  } catch (e) { console.warn("[cs] 足りない情報の再送", e.message); }
+}, 10 * 60 * 1000).unref?.();
+// 御礼メールの本文を、2026-10-19 に久野さんからもらった文に入れ替える（設定に前の文が保存されていても1回だけ置きかえる）
+setTimeout(async () => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.csMailBodyV2) return;
+    await saveSettings({ csMailBody: CS_DEFAULT_BODY, csMailBodyV2: new Date().toISOString() });
+    console.log("[cs] 御礼メールの本文を新しいひな形にしました");
+  } catch {}
+}, 20 * 1000).unref?.();
+// 1時間ごと：キックオフの議事録が無いものを探す
+setInterval(() => { csCheckUnrecordedKickoffs().catch((e) => console.warn("[cs] 議事録なしの確認", e.message)); }, 60 * 60 * 1000).unref?.();
+setTimeout(() => { csCheckUnrecordedKickoffs().catch(() => {}); }, 3 * 60 * 1000).unref?.();
 // 1件のキックオフを連携する（読み取り → 確認MTG・CS担当 → OBスレ → リンク・下書き）
 async function csProcessKickoff(m0) {
   const m = (await getMeeting(m0.bot_id).catch(() => null)) || m0;
@@ -11665,6 +11777,7 @@ async function csProcessKickoff(m0) {
     const d = await csMakeDraft(k);
     if (d.ok) await postToSpaceThread(await csSpace(), `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です。入れて送ってください）"}`, k.chat_thread || "").catch(() => {});
   }
+  if (csMissing(k).length || k.error) await csAlertMissing(k).catch(() => {});
   console.log(`[cs] キックオフを連携しました：${company}（FS ${fsName}・CS ${k.cs_name || "未定"}）`);
 }
 let _csBusy = false;
@@ -24885,7 +24998,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19d 開発メモ対応：SF更新（ステージ・項目更新／不足項目の入力）の日時の項目（次回お打合せ日時など）をカレンダーで日付と時間を選べるように（文字の欄で更新できなかった）。CS連携の企業カードを「CSV（Excel）で書き出す」。";
+const BUILD_TAG = "2026-10-19e CS連携：回収MTGの情報が足りない（納品月・公開予定・活用場所・請求・確認MTG）ときは、OBスレのスレッドでFSにメンション（見つからなければ@all）、毎朝10時に最大3回まで再送。FSのカレンダーでキックオフが終わって2時間たっても議事録が無ければ知らせる。御礼メールの本文を久野さんの文に。";
 const BUILD_FEATURES = [
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
