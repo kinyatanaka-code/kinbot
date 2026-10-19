@@ -85,6 +85,10 @@ function render() {
         <label>候補者用画面のURL</label><div><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `スプレッドシートの値を使います：${k.sheet_candidate_url}` : "スプレッドシートに見つかりません。ここに入れるとこちらを使います")}">
           <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? `スプレッドシートから：<a href="${esc(k.sheet_candidate_url)}" target="_blank" rel="noopener">${esc(k.sheet_candidate_url)}</a>` : (d.candidateSheetError ? `スプレッドシートを読めませんでした：${esc(d.candidateSheetError)}` : "スプレッドシート（C列＝会社名）に、この会社が見つかりません")}</div></div>
         <label>管理画面のURL</label><div class="cs-sub" style="padding-top:7px;">${esc(d.adminUrl || "")}（全社共通）</div>
+        <label>ヘルプサイト</label><div>
+          ${k.portal_text ? `<div class="cs-sub">企業ID：<b>${esc(k.portal_id || "-")}</b>（${esc(fmtDT(k.portal_at))} に用意）</div><pre class="cs-portal">${esc(k.portal_text)}</pre>` : `<div class="cs-sub">まだ用意していません</div>`}
+          ${k.portal_error ? `<div class="cs-err">用意できませんでした：${esc(k.portal_error)}${k.has_portal_shot ? `　<a href="/api/cs/kickoffs/${encodeURIComponent(k.bot_id)}/portal-shot" target="_blank" rel="noopener">そのときの画面</a>` : ""}</div>` : ""}
+          <button type="button" class="btn ghost" data-act="portal" style="margin-top:6px">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button></div>
       </div>
       ${k.error ? `<div class="cs-err">${esc(k.error)}</div>` : ""}
       <div class="cs-act">
@@ -128,6 +132,12 @@ function render() {
     b.disabled = true;
     try {
       if (act === "save") { const r = await save(); say(r && r.autoNote ? `保存しました。${r.autoNote}` : "保存しました"); await load(); }
+      else if (act === "portal") {
+        say("CS Platformで用意しています…（ブラウザを動かすので30秒ほどかかります）");
+        try { await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/portal`, { method: "POST" }); say("ヘルプサイトのアカウントを用意しました（御礼メールに入ります）"); }
+        catch (e) { say(""); alert(e.message); }
+        await load();
+      }
       else if (act === "autocs") {
         const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/autocs`, { method: "POST", body: JSON.stringify({ exceptCurrent: !!card.querySelector('[data-k="csEmail"]').value }) });
         say(`CS担当を ${r.picked} さんにしました（${r.reason}）`); await load();

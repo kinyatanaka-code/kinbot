@@ -95,6 +95,7 @@ function readMemory() {
   return _memCache;
 }
 import { normalizeSpace, deleteChatMessage, postToSpaceThread, mentionFor } from "./chatapp.js";
+import { cspIssueAccount, cspConfigured } from "./csplatform.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
@@ -11344,6 +11345,41 @@ const CS_DEFAULT_BODY = `{企業名}
 ■ 貴社の候補者用画面
 {候補者用画面URL}
 
+■ ヘルプサイト（お問い合わせ・対応履歴）
+{ヘルプサイトの案内}
+
+また、下記にお打ち合わせの内容と今後の流れをお送りいたします。
+お手数ですがご確認いただけますと幸いです。
+
+■ 貴社ご対応事項
+・次回お打ち合わせまでに、初期学習をお願いいたします
+{貴社の宿題}
+
+■ 弊社対応事項
+{弊社の宿題}
+
+次回のお打ち合わせについて、下記に詳細をお送りいたします。
+
+■ 次回お打ち合わせ（確認MTG）
+日時：{確認MTGの日時}
+URL：{確認MTGのURL}
+
+ご不明な点等ございましたらお気軽にお申し付けくださいませ。
+引き続き何卒よろしくお願いいたします。
+
+{差出人}`;
+const CS_DEFAULT_BODY_V3 = `{企業名}
+{先方ご担当者名}
+
+本日はお忙しい中、お時間をいただきありがとうございました。
+どこでもオープンカンパニーについて各種リンクを下記にお送りいたします。
+
+■ 管理画面
+{管理画面URL}
+
+■ 貴社の候補者用画面
+{候補者用画面URL}
+
 また、下記にお打ち合わせの内容と今後の流れをお送りいたします。
 お手数ですがご確認いただけますと幸いです。
 
@@ -11579,6 +11615,7 @@ async function csBuildMail(k) {
     "{貴社の宿題}": theirs.map((x) => `・${x}`).join("\n"),
     "{弊社の宿題}": ours.map((x) => `・${x}`).join("\n"),
     "{差出人}": k.fs_name || "",
+    "{ヘルプサイトの案内}": String(k.portal_text || "").trim(),
   };
   let body = cfg.body, subject = cfg.subject;
   // 宿題が無いとき：{弊社の宿題} の行と、そのすぐ上の見出し（■ の行）を消す。{貴社の宿題} は行だけ消す
@@ -11590,6 +11627,7 @@ async function csBuildMail(k) {
     }
     return out.join("\n");
   };
+  if (!String(k.portal_text || "").trim()) body = dropLine(body, "{ヘルプサイトの案内}", true);
   if (!ours.length) body = dropLine(body, "{弊社の宿題}", true);
   if (!theirs.length) body = dropLine(body, "{貴社の宿題}", false);
   for (const [kk, v] of Object.entries(vars)) { body = body.split(kk).join(v); subject = subject.split(kk).join(v); }
@@ -11651,6 +11689,40 @@ async function csAutoPickCs(confirmIso, members, { exclude = "" } = {}) {
   const pick = cand[Math.floor(Math.random() * cand.length)];
   return { email: pick.email, name: pick.name, reason: `確認MTGの時間に空いているCS（${free.map((m) => m.name).join("・")}）のうち、担当の件数が少ない人${cand.length > 1 ? "からランダム" : ""}` };
 }
+// ヘルプサイト（CS Platform）のアカウント：企業名で企業を追加し、企業IDをそろえ、案内文（URL・ID・パスワード）を受け取る
+//   企業ID：候補者用画面のURLの最後（…/kacnet → kacnet）→ 会社のサイトのドメインの頭（kacnet.co.jp → kacnet）
+async function csPortalIdFor(k) {
+  const f = k.fields || {};
+  const co = (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company;
+  const clean = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/^-+|-+$/g, "").slice(0, 40);
+  const urls = await getDocUrls(k.account).catch(() => ({}));
+  const cand = urls.doc_candidate_url || await csCandidateUrlFor(co, [k.fs_email]).catch(() => "");
+  const m = /brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(String(cand || ""));
+  if (m && clean(m[1])) return clean(m[1]);
+  try {
+    const w = await lookupCompanyWebsite(co, k.fs_email);
+    const host = w && w.url ? new URL(w.url).hostname.replace(/^www\./, "") : "";
+    if (host && clean(host.split(".")[0])) return clean(host.split(".")[0]);
+  } catch {}
+  return "";
+}
+async function csIssuePortal(k, { force = false } = {}) {
+  if (!k) return k;
+  if (k.portal_text && !force) return k;
+  if (!cspConfigured()) return (await upsertCsKickoff(k.bot_id, { portal_error: "CS Platformのログイン情報（CSP_EMAIL・CSP_PASSWORD）がRailwayに入っていません" })) || k;
+  const f = k.fields || {};
+  const co = (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company;
+  const wantId = await csPortalIdFor(k).catch(() => "");
+  const r = await cspIssueAccount({ companyName: co, companyId: wantId });
+  if (!r.ok) {
+    console.warn("[cs] ヘルプサイトのアカウント", r.error, r.log);
+    return (await upsertCsKickoff(k.bot_id, { portal_error: `${r.error}${r.log && r.log.length ? `（${r.log.join(" → ")}）` : ""}`, portal_shot: r.screenshot || null })) || k;
+  }
+  k = (await upsertCsKickoff(k.bot_id, { portal_id: r.companyId || wantId || null, portal_text: r.text, portal_at: new Date().toISOString(), portal_error: null, portal_shot: null })) || k;
+  await postToSpaceThread(await csSpace(), `🔑 ヘルプサイトのアカウントを用意しました（企業ID：${r.companyId || wantId || "-"}）。御礼メールに案内文を入れます。`, k.chat_thread || "").catch(() => {});
+  return k;
+}
+
 // 情報が足りない回収MTG：OBスレのそのスレッドで、FSにメンションして知らせる（見つからなければ @all）
 const CS_KEY_FIELDS = ["納品月", "公開予定時期", "活用場所", "請求書着日スケジュール"];
 function csMissing(k) {
@@ -11736,7 +11808,10 @@ setInterval(async () => {
 setTimeout(async () => {
   try {
     const st = await getSettings().catch(() => ({}));
-    if (st.csMailBodyV3) return;
+    if (st.csMailBodyV3) {
+      if (!st.csMailBodyV4 && String(st.csMailBody || "").trim() === CS_DEFAULT_BODY_V3.trim()) await saveSettings({ csMailBody: CS_DEFAULT_BODY, csMailBodyV4: new Date().toISOString() });
+      return;
+    }
     await saveSettings({ csMailBody: CS_DEFAULT_BODY, csMailBodyV2: st.csMailBodyV2 || new Date().toISOString(), csMailBodyV3: new Date().toISOString() });
     console.log("[cs] 御礼メールの本文を新しいひな形にしました");
   } catch {}
@@ -11801,6 +11876,7 @@ async function csProcessKickoff(m0) {
     else if (pk && pk.reason) k._csAutoNg = pk.reason;
   }
   k = (await csPost(k)) || k;
+  k = await csIssuePortal(k).catch(() => k);
   if (k.cs_email) {
     k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
     const d = await csMakeDraft(k);
@@ -11876,6 +11952,7 @@ app.get("/api/cs/kickoffs", async (req, res) => {
         if (u) k = (await upsertCsKickoff(k.bot_id, { sf_url: u })) || { ...k, sf_url: u };
       }
       const f = k.fields || {};
+      const { portal_shot, ...kk } = k; k = { ...kk, has_portal_shot: !!portal_shot };
       rows.push({ ...k, confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
         sheet_candidate_url: await csCandidateUrlFor((f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company), [req.user]).catch(() => "") });
     }
@@ -11913,6 +11990,25 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
       await pool.query(`UPDATE smart_links SET start_time=$2, end_time=$3 WHERE slug=$1`, [k.confirm_slug, st.toISOString(), new Date(st.getTime() + 3600000).toISOString()]).catch(() => {});
     }
     res.json({ ok: true, kickoff: k, autoNote });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// うまくいかなかったときの画面（確かめ用）
+app.get("/api/cs/kickoffs/:bot/portal-shot", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).end();
+    const k = await getCsKickoff(req.params.bot);
+    if (!k || !k.portal_shot) return res.status(404).end();
+    res.setHeader("Content-Type", "image/png"); res.send(Buffer.from(k.portal_shot, "base64"));
+  } catch { res.status(500).end(); }
+});
+app.post("/api/cs/kickoffs/:bot/portal", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const k0 = await getCsKickoff(req.params.bot);
+    if (!k0) return res.status(404).json({ error: "見つかりません" });
+    const k = await csIssuePortal(k0, { force: true });
+    if (!k.portal_text || k.portal_error) return res.status(400).json({ error: k.portal_error || "発行できませんでした", shot: k.portal_shot || "" });
+    res.json({ ok: true, kickoff: k });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/cs/kickoffs/:bot/autocs", async (req, res) => {
@@ -25096,8 +25192,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19h CS連携：先方のメールをアポ一覧・SFの取引先責任者から自動で入れる。管理シート：すでにある会社（キックオフ・申込をした会社）の空いている欄（Hサイト・N顧客（様）・Xプラン名・AA初期）を埋める（入っている欄は書きかえない）。";
+const BUILD_TAG = "2026-10-19i CS連携：回収MTGを取り込んだら、kinbotがCS Platformにログインして企業を追加・企業IDをそろえ・案内文（URL・ID・パスワード）を受け取り、御礼メールの「■ ヘルプサイト」に入れる（見えないブラウザで操作。ログイン情報は CSP_EMAIL・CSP_PASSWORD）。企業カードから用意し直せる。";
 const BUILD_FEATURES = [
+  "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",

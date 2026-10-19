@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261019h" />
+    <link rel="stylesheet" href="style.css?v=20261019i" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -50,6 +50,7 @@
     .cs-co-foot{display:flex;flex-wrap:wrap;gap:6px;margin-top:auto;}
     .cs-modal-back{position:fixed;inset:0;background:rgba(20,40,30,.35);z-index:3000;display:flex;align-items:flex-start;justify-content:center;padding:4vh 16px;overflow:auto;}
     .cs-modal{background:#fff;border-radius:16px;width:min(980px,100%);padding:16px 18px;box-shadow:0 24px 60px -20px rgba(0,0,0,.4);}
+    .cs-portal{white-space:pre-wrap;background:#f7faf8;border:1px solid #e6ece9;border-radius:8px;padding:8px 10px;font-size:12px;margin:4px 0 0;font-family:inherit;}
     .cs-x{margin-left:auto;border:0;background:#f1f4f2;border-radius:10px;width:34px;height:34px;font-size:16px;cursor:pointer;}
     </style>
 </head>
@@ -118,7 +119,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261019h"></script>
+    <script src="nav.js?v=20261019i"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -126,6 +127,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261019h"></script>
+    <script src="cs.js?v=20261019i"></script>
   </body>
 </html>
