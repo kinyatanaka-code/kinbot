@@ -1260,13 +1260,25 @@ async function withRetry(fn, tries = 4) {
 async function callOnce(provider, system, user, maxTokens, json = true, schema = null, cachePrefix = null, model = null) {
   if (provider === "anthropic") return callAnthropic(system, user, maxTokens, json, schema, cachePrefix, model);
   if (provider === "ollama") return callOllama(system, user, json);
-  if (provider === "groq")
-    return callOpenAICompat(system, user, maxTokens, {
-      base: "https://api.groq.com/openai/v1",
-      key: process.env.GROQ_API_KEY,
-      model: await resolveGroqModel(model),
-      name: "Groq",
-    }, json);
+  if (provider === "groq") {
+    const gm = await resolveGroqModel(model);
+    try {
+      return await callOpenAICompat(system, user, maxTokens, { base: "https://api.groq.com/openai/v1", key: process.env.GROQ_API_KEY, model: gm, name: "Groq" }, json);
+    } catch (e) {
+      // 1日（TPD）・1分（TPM）の上限はモデルごと。上限に当たったら、別のモデルでもう一度
+      if (!/429/.test(String(e.message || "")) || !/tokens per (day|minute)|TPD|TPM|rate limit/i.test(String(e.message || ""))) throw e;
+      const alts = String(process.env.GROQ_FALLBACK_MODELS || "llama-3.3-70b-versatile,openai/gpt-oss-20b,meta-llama/llama-4-scout-17b-16e-instruct")
+        .split(",").map((x) => x.trim()).filter((x) => x && x !== gm);
+      let last = e;
+      for (const alt of alts) {
+        try {
+          console.warn(`[analyzer] Groq ${gm} が上限に当たったので ${alt} で頼み直します`);
+          return await callOpenAICompat(system, user, maxTokens, { base: "https://api.groq.com/openai/v1", key: process.env.GROQ_API_KEY, model: alt, name: `Groq(${alt})` }, json);
+        } catch (e2) { last = e2; if (!/429|rate limit/i.test(String(e2.message || ""))) break; }
+      }
+      throw last;
+    }
+  }
   if (provider === "openai")
     return callOpenAICompat(system, user, maxTokens, {
       base: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
@@ -1328,6 +1340,16 @@ function toGeminiSchema(node) {
 }
 
 async function callGemini(system, user, maxTokens, json = true, schema = null, modelOverride = null) {
+  // 出力の上限で途中で切れた（MAX_TOKENS）ときは、上限を広げてもう一度だけ頼む（長い商談・項目の多いJSONで起きる）
+  try { return await callGeminiOnce(system, user, maxTokens, json, schema, modelOverride); }
+  catch (e) {
+    if (!/MAX_TOKENS/.test(String(e.message || ""))) throw e;
+    const bigger = Math.min(32768, Math.max(8192, Math.round((Number(maxTokens) || 2000) * 3)));
+    console.warn(`[analyzer] Geminiの出力が上限（${maxTokens}）で切れたので、${bigger} に広げてやり直します`);
+    return await callGeminiOnce(system, user, bigger, json, schema, modelOverride);
+  }
+}
+async function callGeminiOnce(system, user, maxTokens, json = true, schema = null, modelOverride = null) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY が未設定です（Google AI Studio で発行）");
   const model = modelOverride || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";

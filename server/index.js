@@ -24885,7 +24885,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19a kincallに「アポの録音」：アポが取れた通話の録音を一覧で（期間・人・会社名で絞る）、その場で再生・ダウンロード（日付_会社_かけた人.mp3）。インサイドは自分の分だけ。";
+const BUILD_TAG = "2026-10-19b AIの止まりにくさ：Geminiが出力上限（MAX_TOKENS）で切れたら上限を広げて1回やり直す。Groqが1日・1分の上限（429）に当たったら、別のモデル（GROQ_FALLBACK_MODELS）で頼み直す。";
 const BUILD_FEATURES = [
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
