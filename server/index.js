@@ -13368,7 +13368,9 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     // （「担当者接触：アポ獲得」など、組織ごとに値が違うため）
     if (!result) return res.status(400).json({ error: "結果を選んでください" });
     // 断られたときは、次にかける日が必須
-    if (/断り/.test(result) && !/^\d{4}-\d{2}-\d{2}/.test(String(b.nextAction || ""))) return res.status(400).json({ error: "お断りのときは、次にかける日を入れてください" });
+    // 「当分架電しない」を選んだときは、日付はいらない（約半年は今日かけるリードに出さない）
+    const 当分 = b.hold === true;
+    if (/断り/.test(result) && !当分 && !/^\d{4}-\d{2}-\d{2}/.test(String(b.nextAction || ""))) return res.status(400).json({ error: "お断りのときは、次にかける日を入れるか「当分架電しない」を選んでください" });
     // アポ獲得のときは、商談日時を確かめてから記録する（記録だけ残ってアポが作れない、を避けるため）。
     // 古い画面（アポの内容欄が無い）から来たときは b.apo が無いので、今までどおり記録だけにする。
     const アポ登録 = /アポ獲得/.test(result) && b.apo && typeof b.apo === "object";
@@ -13530,7 +13532,13 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     // kincall側にも「次回の架電予定日時」を残す。かける一覧で、その時刻が来たら上に出す。
     // 日付（nextAction）＋時間（nextTime "HH:MM"）から、日本時間の日時を作る。
     let 予定 = null;
-    if (naDate && /^\d{4}-\d{2}-\d{2}$/.test(naDate)) {
+    if (当分) {
+      // 当分架電しない：次回の予定を、半年後（NO_CALL_DAYS、既定180日）の朝にしておく。今日かけるリードには、その日まで出ない
+      const days = Math.max(30, parseInt(process.env.NO_CALL_DAYS || "180", 10) || 180);
+      const dd = new Date(Date.now() + 9 * 3600000 + days * 86400000).toISOString().slice(0, 10);
+      予定 = `${dd}T09:00:00+09:00`;
+      sf.hold = dd;
+    } else if (naDate && /^\d{4}-\d{2}-\d{2}$/.test(naDate)) {
       const hm = String(b.nextTime || "").trim();
       const t2 = /^\d{1,2}:\d{2}$/.test(hm) ? (hm.length === 4 ? "0" + hm : hm) : "09:00";
       予定 = `${naDate}T${t2}:00+09:00`;
@@ -24783,7 +24791,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18i 担当者の印象の選択肢を「優しい・冷たい・話聞いてくれた・質問してくる・そっけない」の5つに。";
+const BUILD_TAG = "2026-10-18j kincallの記録の窓：「次回いつかける？」の来年の隣に「当分架電しない」。選ぶとお断りでも日付なしで記録でき、次回の予定を約半年後（NO_CALL_DAYS、既定180日）にして今日かけるリードに出さない。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",

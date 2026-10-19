@@ -2109,6 +2109,7 @@ function renderDock() {
     .mm-acts{display:flex;gap:6px;flex-wrap:wrap;}
     .kc-src-tag.mtg{background:#fdecea;color:#b3261e;border:1px solid #f3b8b2;}
     .kc-mtg-sep td{background:#fdf3f2 !important;color:#8c1d18 !important;}
+    .kc-qhold{border-style:dashed !important;} .kc-qhold.on{background:#5f6b64 !important;border-color:#5f6b64 !important;color:#fff !important;border-style:solid !important;}
     .kc-imp{margin:10px 0;padding:10px 12px;border:1px solid #d7e6df;border-radius:12px;background:#f8fbf9;display:flex;flex-direction:column;gap:7px;}
     .kc-imp[hidden]{display:none;}
     .kc-imp-h{font-size:13px;font-weight:700;color:#0d5b47;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -2326,6 +2327,7 @@ async function openTarget(id, draft, opt) {
           <button type="button" class="kc-qchip" data-qd="nextmon">週明け</button>
           <button type="button" class="kc-qchip" data-qd="nextmonth">来月</button>
           <button type="button" class="kc-qchip" data-qd="nextyear" title="来年の正月休み明け（1月5日以降）の最初の平日">来年</button>
+          <button type="button" class="kc-qchip kc-qhold" data-qd="hold" title="日付を入れずに記録します。約半年は今日かけるリードに出しません">当分架電しない</button>
           <button type="button" class="kc-qchip kc-qclear" data-qd="clear" style="display:none">消す</button>
         </div>
         <div class="kc-lb" id="kcQuickTimeLb" style="display:none">何時ごろ？</div>
@@ -2583,8 +2585,8 @@ async function openTarget(id, draft, opt) {
     const absentRank = (m.el.querySelector("#kcAbsentRank") || {}).value || "";
     if (/不在/.test(結果) && !absentRank) { say("kcSaveSt", "担当者不在ランク（A・B・C）を選んでください", 4000); return; }
     // 断られたときは、次にかける日を必ず入れる
-    if (/断り/.test(結果) && !((m.el.querySelector("#kcNext") || {}).value || "")) {
-      say("kcSaveSt", "お断りのときは「次回いつかける？」の日付を入れてください", 5000);
+    if (/断り/.test(結果) && !m._hold && !((m.el.querySelector("#kcNext") || {}).value || "")) {
+      say("kcSaveSt", "お断りのときは「次回いつかける？」の日付を入れるか、「当分架電しない」を押してください", 5000);
       const nx = m.el.querySelector("#kcNext"); if (nx) { nx.focus(); nx.classList.add("kc-need"); setTimeout(() => nx.classList.remove("kc-need"), 2500); }
       return;
     }
@@ -2631,6 +2633,8 @@ async function openTarget(id, draft, opt) {
           nextAction: apoBody ? "" : ((m.el.querySelector("#kcNext") || {}).value || ""),
           // 次回の架電時間（HH:MM）。kincallで予定日時として持ち、時刻が来たら上に出す。
           nextTime: apoBody ? "" : ((m.el.querySelector("#kcNextTime") || {}).value || ""),
+          // 当分架電しない（日付なし。サーバーで約半年先にしておく）
+          hold: !apoBody && !!m._hold,
           // アポ獲得のときだけ：アポの内容（サーバーでカレンダーの予定とkinbotのアポを作る）
           apo: apoBody || undefined,
           // 断り理由タグ（リサイクル復活の温度に使う）
@@ -2666,7 +2670,8 @@ async function openTarget(id, draft, opt) {
       renderDock();
       m.close();
       const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
-      const 次回 = d.sf && d.sf.nextAction ? `　次回架電日=${d.sf.nextAction} をSFに書きました` : "";
+      const 次回 = d.sf && d.sf.hold ? `　当分架電しない（${Number(d.sf.hold.slice(5, 7))}/${Number(d.sf.hold.slice(8, 10))}まで今日かけるリードに出しません）`
+        : d.sf && d.sf.nextAction ? `　次回架電日=${d.sf.nextAction} をSFに書きました` : "";
       const 次回注意 = d.sf && d.sf.nextActionNote ? `　※${d.sf.nextActionNote}` : "";
       // アポを登録したときの結果（誰に割り振ったか・カレンダーに作れたか）
       let アポ文 = "";
@@ -3633,11 +3638,23 @@ function wireQuickNext(m) {
 
   dateBox.querySelectorAll("[data-qd]").forEach((b) => b.addEventListener("click", () => {
     const k = b.dataset.qd;
-    if (k === "clear") { dateInput.value = ""; if (timeInput) timeInput.value = ""; light(dateBox, null); light(timeBox, null); refresh(); return; }
+    if (k === "clear") { m._hold = false; dateInput.value = ""; if (timeInput) timeInput.value = ""; light(dateBox, null); light(timeBox, null); refresh(); return; }
+    if (k === "hold") {
+      // 当分架電しない：日付・時間は入れない（もう一度押すと取り消し）
+      m._hold = !m._hold;
+      dateInput.value = ""; if (timeInput) timeInput.value = "";
+      light(dateBox, m._hold ? b : null); light(timeBox, null); refresh();
+      if (m._hold && summary) summary.textContent = "当分かけません（日付は入れずに記録し、約半年は今日かけるリードに出しません）";
+      if (m._hold && clearBtn) clearBtn.style.display = "";
+      return;
+    }
+    m._hold = false;
     dateInput.value = quickNextDate(k);
     light(dateBox, b);
     refresh();
   }));
+  // 日付を手で入れたら「当分架電しない」は取り消す
+  dateInput.addEventListener("input", () => { if (dateInput.value && m._hold) { m._hold = false; light(dateBox, null); refresh(); } });
   dateInput.addEventListener("change", () => { light(dateBox, null); refresh(); });
 
   m.el.querySelectorAll('#kcQuickTime [data-qt]').forEach((b) => b.addEventListener("click", () => {
