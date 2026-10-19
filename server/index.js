@@ -11406,7 +11406,8 @@ async function csSettings() {
     members,
     space: String(st.csChatSpace || CS_DEFAULT_SPACE),
     subject: String(st.csMailSubject || CS_DEFAULT_SUBJECT),
-    body: String(st.csMailBody || CS_DEFAULT_BODY),
+    // 前のひな形（「■ 貴社にご対応いただくこと」「■ 弊社の宿題」など）が設定に残っていたら、新しいひな形を使う
+    body: (!st.csMailBody || /貴社にご対応いただくこと|■\s*弊社の宿題|お打ち合わせの内容と今後の流れをお送りいたします。\n\n■ 次回/.test(String(st.csMailBody))) ? CS_DEFAULT_BODY : String(st.csMailBody),
   };
 }
 const csBase = () => String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
@@ -11735,8 +11736,8 @@ setInterval(async () => {
 setTimeout(async () => {
   try {
     const st = await getSettings().catch(() => ({}));
-    if (st.csMailBodyV2) return;
-    await saveSettings({ csMailBody: CS_DEFAULT_BODY, csMailBodyV2: new Date().toISOString() });
+    if (st.csMailBodyV3) return;
+    await saveSettings({ csMailBody: CS_DEFAULT_BODY, csMailBodyV2: st.csMailBodyV2 || new Date().toISOString(), csMailBodyV3: new Date().toISOString() });
     console.log("[cs] 御礼メールの本文を新しいひな形にしました");
   } catch {}
 }, 20 * 1000).unref?.();
@@ -24999,7 +25000,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19f CS連携のアラート（情報が足りない・議事録がない）は基本 @all でメンション。FSがスペースにいれば、その人のメンションも添える。";
+const BUILD_TAG = "2026-10-19g 御礼メール：設定に前のひな形（貴社にご対応いただくこと・弊社の宿題）が残っていても、新しいひな形（貴社ご対応事項・弊社対応事項）で作るように。保存済みの本文ももう一度置きかえ。";
 const BUILD_FEATURES = [
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
