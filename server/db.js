@@ -4738,7 +4738,7 @@ export async function moveToWeeklyRevival({ email, name, ids, createdBy, groupId
       `UPDATE call_targets t SET
           origin_list_id   = COALESCE(t.origin_list_id, t.list_id),
           origin_list_name = COALESCE(t.origin_list_name, (SELECT name FROM call_lists WHERE id = t.list_id)),
-          list_id = $2, assigned_to = $3, done = false
+          list_id = $2, assigned_to = $3, done = false, stage = 'NEW'   -- 復活させたらステージは全部 NEW
         WHERE t.id = ANY($1::int[])`, [nums, listId, String(email).toLowerCase()]);
     return r.rowCount;
   } catch (e) { console.error("[db] moveToWeeklyRevival", e.message); return 0; }
@@ -5408,11 +5408,13 @@ export async function moveCallTargets(ids = [], toListId) {
   const idList = [...new Set((ids || []).map((x) => parseInt(x, 10)).filter(Boolean))];
   if (!idList.length) return { moved: 0 };
   try {
-    const { rows: lr } = await pool.query(`SELECT owner FROM call_lists WHERE id = $1`, [toListId]);
+    const { rows: lr } = await pool.query(`SELECT owner, kind, name FROM call_lists WHERE id = $1`, [toListId]);
     if (!lr[0]) return { moved: 0, error: "移行先のリストが見つかりません" };
     const owner = String(lr[0].owner || "").toLowerCase() || null;
+    // 復活のリストへ移したときは、ステージを全部 NEW にする（2026-10-18 田中さん）
+    const toRevival = lr[0].kind === "recycle_revival" || /【\s*復活\s*】/.test(String(lr[0].name || ""));
     const { rowCount } = await pool.query(
-      `UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`,
+      `UPDATE call_targets SET list_id = $2, assigned_to = $3${toRevival ? ", stage = 'NEW', done = false" : ""} WHERE id = ANY($1::int[])`,
       [idList, toListId, owner]);
     return { moved: rowCount || 0 };
   } catch (e) { console.error("[db] moveCallTargets", e.message); return { moved: 0, error: e.message }; }
@@ -11436,4 +11438,19 @@ export async function countMyCallLogs(targetIds, caller) {
       [[...new Set(targetIds.map(Number).filter(Boolean))], String(caller)]);
     const out = {}; for (const r of rows) out[r.target_id] = r.n; return out;
   } catch (e) { console.error("[db] countMyCallLogs", e.message); return {}; }
+}
+
+// いま復活のリストにいて、まだかけていない（復活させたあとに記録が無い）リードのステージを NEW にそろえる。何度動かしても同じ
+export async function resetRevivalStagesToNew() {
+  if (!pool) return 0;
+  try {
+    const r = await pool.query(
+      `UPDATE call_targets t SET stage = 'NEW'
+         FROM call_lists l
+        WHERE l.id = t.list_id AND (l.kind = 'recycle_revival' OR l.name ~ '【\\s*復活\\s*】')
+          AND NOT COALESCE(l.closed,false)
+          AND COALESCE(t.stage,'') ~ 'リサイクル|アーカイブ'
+          AND NOT EXISTS (SELECT 1 FROM call_logs g WHERE g.target_id = t.id AND g.at > COALESCE(l.created_at, now() - interval '30 days'))`);
+    return r.rowCount || 0;
+  } catch (e) { console.error("[db] resetRevivalStagesToNew", e.message); return 0; }
 }

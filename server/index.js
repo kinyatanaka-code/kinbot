@@ -272,6 +272,7 @@ import {
   csAssignCounts,
   getContactImpression,
   countMyCallLogs,
+  resetRevivalStagesToNew,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -24839,7 +24840,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18l 架電履歴を見せないリスト：最終架電日・最終ステータスは出す。履歴は自分がかけた記録だけ見える（一覧の履歴数も自分の分、記録の窓のやり取りも自分の分だけ）。最後のコメントは出さない。";
+const BUILD_TAG = "2026-10-18m 復活させたリードのステージを全部 NEW に（週の復活の配布・復活のリストへ移したとき・自動の補充）。いま復活のリストにいて、まだかけていないリサイクル・アーカイブのリードも NEW にそろえる。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
@@ -31180,6 +31181,8 @@ server.listen(PORT, async () => {
   // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
   // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
   linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  // 復活のリストにいて、まだかけていないリードのステージを NEW にそろえる
+  setTimeout(() => { resetRevivalStagesToNew().then((n) => { if (n) console.log(`[calls] 復活のリードのステージを NEW にしました：${n}件`); }).catch(() => {}); }, 14000).unref?.();
   // MO失注のリストのリードのソースを「MO失注」（新規リストの枠）にする
   setTimeout(() => { fillMoLostSource().then((n) => { if (n) console.log(`[calls] MO失注のリード ${n}件のソースを「MO失注」にしました`); }).catch(() => {}); }, 12000).unref?.();
   // 会社名の欄に電話番号が入ってしまった架電先（取り込みで列がずれた）を、追加の列の企業名から直す
