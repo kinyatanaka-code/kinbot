@@ -2112,6 +2112,8 @@ function renderDock() {
     .kc-qhold{border-style:dashed !important;} .kc-qhold.on{background:#5f6b64 !important;border-color:#5f6b64 !important;color:#fff !important;border-style:solid !important;}
     .kc-imp{margin:10px 0;padding:10px 12px;border:1px solid #d7e6df;border-radius:12px;background:#f8fbf9;display:flex;flex-direction:column;gap:7px;}
     .kc-imp[hidden]{display:none;}
+    .ar-t td{vertical-align:middle;} .ar-list{font-size:11.5px;color:#5f6b64;max-width:180px;}
+    .ar-rec{display:flex;align-items:center;gap:8px;flex-wrap:wrap;} .ar-rec audio{height:34px;max-width:260px;} .ar-dl{padding:5px 10px !important;font-size:12px !important;white-space:nowrap;}
     .kc-imp-h{font-size:13px;font-weight:700;color:#0d5b47;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
     .kc-imp-st{margin-left:auto;font-size:11px;font-weight:700;padding:1px 9px;border-radius:99px;}
     .kc-imp-st.none{background:#f1f4f2;color:#7a8a82;} .kc-imp-st.part{background:#fff4dc;color:#7a5200;} .kc-imp-st.done{background:#e1f5ee;color:#085041;}
@@ -6544,7 +6546,7 @@ function showPane() {
     a.classList.toggle("active", mine);
   });
   // ヘッダーの表示を、いま開いているページに合わせる
-  const 名前 = { mail: ["メルマガ", "トラッキング資料をまとめて送る"], talk: ["トーク", "自分のトークスクリプト"], call: ["架電リスト", ""], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
+  const 名前 = { recs: ["アポの録音", "アポが取れた通話の録音を聞く・ダウンロードする"], mail: ["メルマガ", "トラッキング資料をまとめて送る"], talk: ["トーク", "自分のトークスクリプト"], call: ["架電リスト", ""], stats: ["実績", ""], lists: ["リスト管理", ""], shifts: ["出勤管理", "インサイドの稼働カレンダー"], daily: ["デイリー目標", "その日の稼働・目標"] }[p] || ["kincall", ""];
   const nm = document.querySelector(".kc-name"); if (nm) nm.textContent = 名前[0];
   const sub = document.querySelector(".kc-sub"); if (sub) { sub.textContent = 名前[1]; sub.style.display = 名前[1] ? "" : "none"; }
   if (p === "stats") { if (statsTop === "dash") loadDash(); else loadStats(); }
@@ -6553,7 +6555,53 @@ function showPane() {
   if (p === "daily") loadDailyGoal();
   if (p === "talk") loadTalkPane();
   if (p === "mail") loadMailPane();
+  if (p === "recs") loadApoRecs();
 }
+// ===== アポの録音（アポが取れた通話の録音の一覧・再生・ダウンロード） =====
+let _arData = null;
+async function loadApoRecs() {
+  const body = $("arBody"); if (!body) return;
+  const f = $("arFrom"), t = $("arTo");
+  if (!f.value) { const d = new Date(Date.now() + 9 * 3600000); f.value = `${d.toISOString().slice(0, 7)}-01`; t.value = d.toISOString().slice(0, 10); }
+  body.innerHTML = `<div class="empty-state">録音を探しています…（Zoomの録音を読むので少しかかります）</div>`;
+  try {
+    const q = new URLSearchParams({ from: f.value, to: t.value });
+    if ($("arWho").value) q.set("caller", $("arWho").value);
+    const d = await (await fetch(`/api/calls/apo-recordings?${q}`)).json();
+    if (d.error) throw new Error(d.error);
+    _arData = d;
+    // 人の選択肢（全員を見られる人だけ）
+    const sel = $("arWho");
+    if (d.mineOnly) sel.style.display = "none";
+    else if (sel.options.length <= 1) {
+      const ppl = [...new Map(d.items.map((x) => [x.caller, x.caller])).keys()].filter(Boolean).sort((a, b) => a.localeCompare(b, "ja"));
+      ppl.forEach((n) => { const o = document.createElement("option"); o.value = ""; o.textContent = n; o.dataset.name = n; sel.appendChild(o); });
+    }
+    renderApoRecs();
+  } catch (e) { body.innerHTML = `<div class="empty-state">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+function renderApoRecs() {
+  const d = _arData, body = $("arBody"); if (!d || !body) return;
+  const q = String($("arQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
+  const who = ($("arWho").selectedOptions[0] || {}).dataset ? $("arWho").selectedOptions[0].dataset.name || "" : "";
+  const rows = d.items.filter((x) => (!q || String(x.company).normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!who || x.caller === who));
+  $("arSt").textContent = `アポ ${rows.length}件・録音あり ${rows.filter((x) => x.recId).length}件`;
+  if (d.note) { body.innerHTML = `<div class="empty-state">${esc(d.note)}</div>`; return; }
+  if (!rows.length) { body.innerHTML = `<div class="empty-state">この期間のアポはありません</div>`; return; }
+  const fmt = (iso) => { const x = new Date(iso); return `${x.getMonth() + 1}/${x.getDate()}(${"日月火水木金土"[x.getDay()]}) ${x.getHours()}:${String(x.getMinutes()).padStart(2, "0")}`; };
+  const dur = (s) => s ? `${Math.floor(s / 60)}:${String(Math.round(s) % 60).padStart(2, "0")}` : "";
+  const fileName = (x) => { const dt = new Date(x.at); return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}_${x.company}_${x.caller}`; };
+  body.innerHTML = `<div class="kc-tablewrap"><table class="kc-table ar-t"><thead><tr><th>日時</th><th>会社</th><th>担当者</th><th>かけた人</th><th>リスト</th><th>録音</th></tr></thead><tbody>
+    ${rows.map((x) => `<tr><td style="white-space:nowrap">${esc(fmt(x.at))}</td><td><b>${esc(x.company)}</b></td><td>${esc(x.person || "")}</td><td style="white-space:nowrap">${esc(x.caller)}</td><td class="ar-list">${esc(x.list || "")}</td>
+      <td>${x.recId ? `<div class="ar-rec"><audio controls preload="none" src="/api/calls/zoom-rec/${encodeURIComponent(x.recId)}/audio"></audio>
+        <a class="btn ghost ar-dl" href="/api/calls/zoom-rec/${encodeURIComponent(x.recId)}/audio?download=1&name=${encodeURIComponent(fileName(x))}" download>⬇ ダウンロード${x.duration ? `（${dur(x.duration)}）` : ""}</a></div>`
+        : `<span class="note">録音が見つかりません</span>`}</td></tr>`).join("")}
+  </tbody></table></div>
+  <p class="note" style="margin-top:8px">録音は、記録に結び付けた通話録音か、同じ電話番号でアポの記録の前後（前60分〜後10分）にあるZoom Phoneの録音です。Zoomの録音は、だいたい30日より前のものは出てこないことがあります。</p>`;
+}
+if ($("arLoad")) $("arLoad").addEventListener("click", loadApoRecs);
+if ($("arQ")) $("arQ").addEventListener("input", renderApoRecs);
+if ($("arWho")) $("arWho").addEventListener("change", renderApoRecs);
 
 // サイドメニューの「資料送付設定」→ モーダルを開く（ページ遷移はしない）
 (function wireSideDoc() {

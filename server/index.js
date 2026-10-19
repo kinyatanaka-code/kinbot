@@ -273,6 +273,7 @@ import {
   getContactImpression,
   countMyCallLogs,
   resetRevivalStagesToNew,
+  listApoCallLogs,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -12592,6 +12593,11 @@ app.get("/api/calls/zoom-rec/:recId/audio", async (req, res) => {
     }
     const buf = au.buf, total = buf.length;
     res.setHeader("Content-Type", /mp4|m4a/i.test(au.contentType) ? "audio/mp4" : (/wav/i.test(au.contentType) ? "audio/wav" : "audio/mpeg"));
+    if (req.query.download === "1") {
+      const ext = /mp4|m4a/i.test(au.contentType) ? "m4a" : (/wav/i.test(au.contentType) ? "wav" : "mp3");
+      const nm = String(req.query.name || `録音_${recId}`).replace(/[\\/:*?"<>|\r\n]+/g, "_").slice(0, 120);
+      res.setHeader("Content-Disposition", `attachment; filename="recording.${ext}"; filename*=UTF-8''${encodeURIComponent(`${nm}.${ext}`)}`);
+    }
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, max-age=3600");
     // ブラウザの再生は「途中から」を Range で取りに来る。応えないと長さ0や早送り不可になる。
@@ -12607,6 +12613,45 @@ app.get("/api/calls/zoom-rec/:recId/audio", async (req, res) => {
     }
     res.setHeader("Content-Length", String(total));
     res.end(buf);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// アポが取れた通話の録音の一覧（kincall「アポの録音」）。?from=&to=（既定：今月）&caller=
+//   記録に録音が結び付いていれば（通話録音の要約を取り込んだもの）それ、無ければ同じ電話番号でアポの記録の前60分〜後10分の、いちばん近い録音
+app.get("/api/calls/apo-recordings", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.json({ ok: true, items: [], note: "Zoom Phoneの連携が設定されていません" });
+    const today = jstDateStr(new Date());
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "")) ? String(req.query.from) : `${today.slice(0, 7)}-01`;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to || "")) ? String(req.query.to) : today;
+    // インサイド（kincallだけ）の人は自分の分だけ
+    const mineOnly = req.kincallOnly || (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false)));
+    const caller = mineOnly ? String(req.user || "") : String(req.query.caller || "");
+    const logs = await listApoCallLogs(from, to, caller);
+    // Zoomの録音（期間の前後1日）。Zoomの録音は30日より前は取れないことがある
+    const f0 = new Date(Date.parse(`${from}T00:00:00+09:00`) - 86400000).toISOString().slice(0, 10);
+    const t0 = new Date(Date.parse(`${to}T23:59:59+09:00`) + 86400000).toISOString().slice(0, 10);
+    const recs = await zoomPhoneRecordings({ from: f0, to: t0, max: 3000 }).catch(() => []);
+    const byNum = new Map();
+    for (const r of recs) { const k = zoomLast9(r.number); if (!k || !r.at) continue; if (!byNum.has(k)) byNum.set(k, []); byNum.get(k).push(r); }
+    const names = {};
+    const items = [];
+    for (const l of logs) {
+      let rec = null;
+      if (l.zoom_rec_id) rec = recs.find((x) => x.id === l.zoom_rec_id) || { id: l.zoom_rec_id };
+      if (!rec) {
+        const t = Date.parse(l.at);
+        const cand = (byNum.get(zoomLast9(l.phone)) || []).filter((x) => { const d = Date.parse(x.at) - t; return d > -60 * 60000 && d < 10 * 60000; });
+        cand.sort((a, b) => Math.abs(Date.parse(a.at) - t) - Math.abs(Date.parse(b.at) - t));
+        rec = cand[0] || null;
+      }
+      const em = String(l.caller || "").toLowerCase();
+      if (!(em in names)) names[em] = await repDisplayName(em).catch(() => em);
+      if (rec && rec.downloadUrl) await saveZoomRecSummary({ recId: rec.id, at: rec.at, duration: rec.duration, downloadUrl: rec.downloadUrl, summary: ((await getZoomRecSummary(rec.id).catch(() => null)) || {}).summary || "" }).catch(() => {});
+      items.push({ logId: l.id, at: l.at, company: l.company || "", person: l.person || "", list: l.list_name || "", caller: names[em] || em, result: l.result,
+        recId: rec ? rec.id : "", duration: rec && rec.duration ? Number(rec.duration) : 0, recAt: rec && rec.at ? rec.at : "" });
+    }
+    res.json({ ok: true, from, to, mineOnly, items, 録音あり: items.filter((x) => x.recId).length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -24840,8 +24885,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18m 復活させたリードのステージを全部 NEW に（週の復活の配布・復活のリストへ移したとき・自動の補充）。いま復活のリストにいて、まだかけていないリサイクル・アーカイブのリードも NEW にそろえる。";
+const BUILD_TAG = "2026-10-19a kincallに「アポの録音」：アポが取れた通話の録音を一覧で（期間・人・会社名で絞る）、その場で再生・ダウンロード（日付_会社_かけた人.mp3）。インサイドは自分の分だけ。";
 const BUILD_FEATURES = [
+  "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
   "CS連携：回収MTG（キックオフ）の議事録からOBスレへ自動投稿・御礼メールの下書き",

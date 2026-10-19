@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
-    <link rel="stylesheet" href="style.css?v=20261018m" />
+    <link rel="stylesheet" href="style.css?v=20261019a" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -33,6 +33,8 @@
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm-1 3v6l5 3 .8-1.3-4.3-2.6V7z"/></svg></span><span class="side-label">デイリー目標</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=shifts">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2zm12 7v10H5V9zM7 11v2h2v-2zm4 0v2h2v-2zm4 0v2h2v-2z"/></svg></span><span class="side-label">出勤管理</span></a></div>
+        <div class="side-wrap"><a class="side-item" href="/kincall?p=recs">
+          <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zm-7 9h2a5 5 0 0 0 10 0h2a7 7 0 0 1-6 6.9V21h-2v-2.1A7 7 0 0 1 5 12z"/></svg></span><span class="side-label">アポの録音</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=talk">
           <span class="kc-side-ico"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 5v2h10V8zm0 4v2h7v-2z"/></svg></span><span class="side-label">トーク</span></a></div>
         <div class="side-wrap"><a class="side-item" href="/kincall?p=mail">
@@ -394,6 +396,18 @@
             </div>
           </section>
 
+          <!-- アポの録音（アポが取れた通話の録音を聞く・ダウンロードする） -->
+          <section class="card kc-pane" data-p="recs" hidden>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <input type="date" id="arFrom" class="kc-input" style="width:auto" /> 〜 <input type="date" id="arTo" class="kc-input" style="width:auto" />
+              <select id="arWho" class="kc-input" style="width:auto"><option value="">全員</option></select>
+              <input type="search" id="arQ" class="kc-input" placeholder="会社名で探す" style="width:200px" />
+              <button type="button" class="btn ghost" id="arLoad">表示</button>
+              <span class="note" id="arSt"></span>
+            </div>
+            <div id="arBody"><div class="empty-state">読み込み中…</div></div>
+          </section>
+
           <!-- 出勤管理（インサイドの稼働カレンダー） -->
           <section class="card kc-pane" data-p="shifts" hidden>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
@@ -616,9 +630,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261018m"></script>
-    <script src="calls.js?v=20261018m"></script>
-    <script src="nav.js?v=20261018m"></script>
+    <script src="sf-data.js?v=20261019a"></script>
+    <script src="calls.js?v=20261019a"></script>
+    <script src="nav.js?v=20261019a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

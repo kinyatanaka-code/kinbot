@@ -11454,3 +11454,17 @@ export async function resetRevivalStagesToNew() {
     return r.rowCount || 0;
   } catch (e) { console.error("[db] resetRevivalStagesToNew", e.message); return 0; }
 }
+
+// アポ獲得の記録（録音の一覧用）：期間内の アポ獲得 の架電記録と、架電先の会社・担当者・電話・リスト
+export async function listApoCallLogs(fromDay, toDay, caller = "") {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.id, l.at, l.caller, l.result, l.zoom_rec_id, l.target_id, t.company, t.person, t.phone, cl.name AS list_name
+         FROM call_logs l JOIN call_targets t ON t.id = l.target_id LEFT JOIN call_lists cl ON cl.id = t.list_id
+        WHERE l.result ~ 'アポ獲得' AND (l.at AT TIME ZONE 'Asia/Tokyo')::date BETWEEN $1::date AND $2::date
+          AND ($3 = '' OR lower(COALESCE(l.caller,'')) = lower($3))
+        ORDER BY l.at DESC LIMIT 1000`, [fromDay, toDay, String(caller || "")]);
+    return rows;
+  } catch (e) { console.error("[db] listApoCallLogs", e.message); return []; }
+}
