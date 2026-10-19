@@ -58,12 +58,27 @@ async function issueOnce({ companyName, companyId = "", onStep = null }) {
 
     // 1) ログイン
     say("CS Platformを開いて、ログインしています");
-    await page.goto(`${BASE()}/login`, { waitUntil: "domcontentloaded" });
-    await page.locator('input[type="email"], input[name*="mail" i], input[autocomplete="username"]').first().fill(process.env.CSP_EMAIL);
-    await page.locator('input[type="password"]').first().fill(process.env.CSP_PASSWORD);
-    await page.locator('button:has-text("ログイン")').first().click();
+    const EMAIL = String(process.env.CSP_EMAIL || "").trim(), PASS = String(process.env.CSP_PASSWORD || "").trim();
+    // 画面の読み込み（Next.js の組み立て）が終わる前に入れると、入れた文字が消えてしまうので、落ち着くまで待つ
+    await page.goto(`${BASE()}/login`, { waitUntil: "networkidle" }).catch(() => page.goto(`${BASE()}/login`, { waitUntil: "load" }));
+    await page.waitForTimeout(1500);
+    const emailIn = page.locator('input[type="email"], input[name*="mail" i], input[autocomplete="username"], input[placeholder*="メール"]').first();
+    const passIn = page.locator('input[type="password"]').first();
+    for (let t = 0; t < 3; t++) {
+      await emailIn.click(); await emailIn.fill(""); await emailIn.pressSequentially(EMAIL, { delay: 15 });
+      await passIn.click(); await passIn.fill(""); await passIn.pressSequentially(PASS, { delay: 15 });
+      await page.waitForTimeout(300);
+      if ((await emailIn.inputValue()) === EMAIL && (await passIn.inputValue()) === PASS) break;
+      await page.waitForTimeout(1000);
+    }
+    const btn = page.locator('button:has-text("ログイン"), button[type="submit"], input[type="submit"]').first();
+    if (await btn.count()) await btn.click(); else await passIn.press("Enter");
     await page.waitForURL((u) => !/\/login/.test(String(u)), { timeout: 20000 }).catch(() => {});
-    if (/\/login/.test(page.url())) throw new Error("CS Platformにログインできませんでした（メールアドレスかパスワードが違う可能性）");
+    if (/\/login/.test(page.url())) {
+      // 画面に出たエラーの文を拾って返す（パスワード違い・アカウント停止など）
+      const msg = await page.evaluate(() => { const t = document.body.innerText || ""; const m = t.split("\n").map((x) => x.trim()).filter((x) => /違|誤|失敗|できません|無効|error|invalid/i.test(x)); return m.slice(0, 2).join(" ／ "); }).catch(() => "");
+      throw new Error(`CS Platformにログインできませんでした${msg ? `（画面の表示：${msg}）` : "（画面にエラーの表示はありません。ボタンを押しても進みませんでした）"}`);
+    }
     say("ログインしました");
 
     // 2) 企業管理
