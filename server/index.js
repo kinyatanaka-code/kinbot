@@ -11845,6 +11845,24 @@ async function csFindClientEmail({ company, sfUrl, user }) {
   } catch (e) { console.warn("[cs] 先方のメールを探す", e.message); }
   return null;
 }
+// 確認MTGの日時が決まったら（議事録の「次回MTGの日時」の文からも）、CSのカレンダーを見て空いている人を自動で割り振る
+async function csEnsureConfirmAndCs(k, { announce = true } = {}) {
+  if (!k) return k;
+  const f = k.fields || {};
+  if (!k.confirm_start && f.次回MTGの日時 && f.次回MTGの日時 !== "未確認") {
+    const iso = csParseDT(f.次回MTGの日時, k.meeting_at);
+    if (iso) k = (await upsertCsKickoff(k.bot_id, { confirm_start: iso, confirm_from: k.confirm_from || "議事録" })) || k;
+  }
+  if (k.cs_email || !k.confirm_start) return k;
+  const cfg = await csSettings();
+  const pk = await csAutoPickCs(k.confirm_start, cfg.members).catch(() => null);
+  if (!pk || !pk.email) return k;
+  k = (await upsertCsKickoff(k.bot_id, { cs_email: pk.email, cs_name: pk.name })) || k;
+  k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
+  if (announce) await postToSpaceThread(await csSpace(), `👤 CS担当：${pk.name}（確認MTG ${csFmtDT(k.confirm_start)} に空いている人から自動で選びました）`, k.chat_thread || "").catch(() => {});
+  console.log(`[cs] CS担当を自動で選びました：${k.company} → ${pk.name}`);
+  return k;
+}
 // 1件のキックオフを連携する（読み取り → 確認MTG・CS担当 → OBスレ → リンク・下書き）
 async function csProcessKickoff(m0) {
   const m = (await getMeeting(m0.bot_id).catch(() => null)) || m0;
@@ -11875,6 +11893,7 @@ async function csProcessKickoff(m0) {
     if (pk && pk.email) { k = (await upsertCsKickoff(k.bot_id, { cs_email: pk.email, cs_name: pk.name })) || k; k._csAuto = pk.reason; }
     else if (pk && pk.reason) k._csAutoNg = pk.reason;
   }
+  if (!k.cs_email) k = await csEnsureConfirmAndCs(k, { announce: false }).catch(() => k);
   k = (await csPost(k)) || k;
   k = await csIssuePortal(k).catch(() => k);
   if (k.cs_email) {
@@ -11894,6 +11913,11 @@ async function csTick() {
     let since = st.csStartAt;
     if (!since) { since = new Date(Date.now() - 24 * 3600000).toISOString(); await saveSettings({ csStartAt: since }).catch(() => {}); }
     for (const m of await pendingKickoffMeetings(7, since)) await csProcessKickoff(m).catch((e) => console.warn("[cs] 連携エラー", e.message));
+    for (const k0 of await listCsKickoffs(60)) {
+      if (k0.cs_email || Date.now() - Date.parse(k0.meeting_at || k0.created_at || 0) > 30 * 86400000) continue;
+      if (k0.confirm_start && Date.parse(k0.confirm_start) < Date.now()) continue;
+      await csEnsureConfirmAndCs(k0).catch(() => {});
+    }
   }
   finally { _csBusy = false; }
 }
@@ -11904,13 +11928,9 @@ setTimeout(async () => {
     const cfg = await csSettings();
     if (!cfg.members.length) return;
     for (const k0 of await listCsKickoffs(100)) {
-      if (k0.cs_email || !k0.confirm_start || Date.parse(k0.confirm_start) < Date.now()) continue;
-      const pk = await csAutoPickCs(k0.confirm_start, cfg.members).catch(() => null);
-      if (!pk || !pk.email) continue;
-      let k = await upsertCsKickoff(k0.bot_id, { cs_email: pk.email, cs_name: pk.name });
-      k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
-      await postToSpaceThread(await csSpace(), `👤 CS担当：${pk.name}（確認MTGの時間に空いている人から自動で選びました）`, k.chat_thread || "").catch(() => {});
-      console.log(`[cs] CS担当を自動で選びました：${k.company} → ${pk.name}`);
+      if (k0.cs_email) continue;
+      if (k0.confirm_start && Date.parse(k0.confirm_start) < Date.now()) continue;
+      await csEnsureConfirmAndCs(k0).catch(() => {});
     }
   } catch (e) { console.warn("[cs] CS担当の自動選択", e.message); }
 }, 90 * 1000).unref?.();
@@ -11978,7 +11998,8 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
     if (b.sfUrl !== undefined) v.sf_url = String(b.sfUrl || "").trim() || null;
     if (b.candidateUrl !== undefined || b.adminUrl !== undefined) await setDocUrls(k0.account, { candidateUrl: b.candidateUrl, adminUrl: b.adminUrl });
     let k = await upsertCsKickoff(k0.bot_id, v);
-    let autoNote = "";
+    if (b.confirmStart === undefined || !k.confirm_start) k = await csEnsureConfirmAndCs(k, { announce: false });
+    let autoNote = k.cs_email && !k0.cs_email && b.csEmail === undefined ? `CS担当を自動で選びました：${k.cs_name}` : "";
     if (!k.cs_email && k.confirm_start && b.csEmail === undefined) {
       const pk = await csAutoPickCs(k.confirm_start, cfg.members).catch(() => null);
       if (pk && pk.email) { k = (await upsertCsKickoff(k.bot_id, { cs_email: pk.email, cs_name: pk.name })) || k; autoNote = `CS担当を自動で選びました：${pk.name}`; }
@@ -12036,10 +12057,11 @@ app.post("/api/cs/kickoffs/:bot/:act(draft|repost|redo)", async (req, res) => {
       const fields = await extractKickoff(m.transcript || [], { company: k.company, fsName: k.fs_name, dateStr: jstDateStr(k.meeting_at), summaryText: JSON.stringify(m.summary || {}).slice(0, 4000) });
       { const tp = csPersonsFromTitle(k.title || m.title, k.company); if (tp) fields.先方ご担当者名 = tp; }
       k = await upsertCsKickoff(k.bot_id, { fields });
+      k = await csEnsureConfirmAndCs(k, { announce: false });
       k = await csPost(k, { edited: true });
       return res.json({ ok: true, kickoff: k });
     }
-    if (req.params.act === "repost") { k = await csPost(k, { edited: true }); if (k.confirm_event_id) k = await csSyncConfirmEvent(k); return res.json({ ok: true, kickoff: k }); }
+    if (req.params.act === "repost") { k = await csEnsureConfirmAndCs(k, { announce: false }); k = await csPost(k, { edited: true }); if (k.confirm_event_id) k = await csSyncConfirmEvent(k); return res.json({ ok: true, kickoff: k }); }
     if (!k.cs_email) return res.status(400).json({ error: "先にCS担当を選んでください（確認MTGのURLに使います）" });
     k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
     const d = await csMakeDraft(k);
@@ -25192,7 +25214,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19i CS連携：回収MTGを取り込んだら、kinbotがCS Platformにログインして企業を追加・企業IDをそろえ・案内文（URL・ID・パスワード）を受け取り、御礼メールの「■ ヘルプサイト」に入れる（見えないブラウザで操作。ログイン情報は CSP_EMAIL・CSP_PASSWORD）。企業カードから用意し直せる。";
+const BUILD_TAG = "2026-10-19j CS連携：確認MTG（次回MTG）の日時が決まったら、議事録の文の日時でも確認MTGの日時に入れて、CSのカレンダーで空いている人を自動で割り振る（読み取り直す・修正版・保存・5分ごと）。";
 const BUILD_FEATURES = [
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
