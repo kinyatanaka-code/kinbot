@@ -11874,27 +11874,33 @@ setTimeout(async () => {
 // 1時間ごと：キックオフの議事録が無いものを探す
 setInterval(() => { csCheckUnrecordedKickoffs().catch((e) => console.warn("[cs] 議事録なしの確認", e.message)); }, 60 * 60 * 1000).unref?.();
 setTimeout(() => { csCheckUnrecordedKickoffs().catch(() => {}); }, 3 * 60 * 1000).unref?.();
+const _csContactTried = new Set();
 // 先方のメール：①kinbotのアポ一覧（同じ会社のアポの宛先）②SFの商談の取引先責任者 ③SFの取引先の取引先責任者（いちばん新しい人）
-async function csFindClientEmail({ company, sfUrl, user }) {
-  try {
+//   電話番号はSFの取引先責任者（Phone → 携帯）から。noApo=true ならアポ一覧を飛ばして、SFだけを見る
+async function csFindClientEmail({ company, sfUrl, user, noApo = false }) {
+  if (!noApo) try {
     const c = await clientContactByCompanyKey(csCoKey, company).catch(() => null);
-    if (c && c.client_email) return { email: c.client_email, name: c.client_name || "", from: "アポ一覧" };
+    if (c && c.client_email) {
+      const sf = sfUrl ? await csFindClientEmail({ company, sfUrl, user, noApo: true }).catch(() => null) : null;
+      return { email: c.client_email, name: c.client_name || "", phone: (sf && sf.phone) || "", from: "アポ一覧" };
+    }
   } catch {}
   try {
     const sfUser = await pickSfUser(user || "").catch(() => "");
     if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) return null;
     const opp = (/\/(006[A-Za-z0-9]{12,15})/.exec(String(sfUrl || "")) || [])[1] || "";
     if (opp) {
-      const r = await sfQuery(sfUser, `SELECT Contact.Email, Contact.LastName, IsPrimary FROM OpportunityContactRole WHERE OpportunityId = '${opp}' ORDER BY IsPrimary DESC, CreatedDate ASC LIMIT 5`).catch(() => null);
-      const hit = ((r && r.records) || []).find((x) => x.Contact && x.Contact.Email);
-      if (hit) return { email: hit.Contact.Email, name: hit.Contact.LastName || "", from: "SFの商談の取引先責任者" };
-      const r2 = await sfQuery(sfUser, `SELECT Contact.Email, Contact.LastName, AccountId FROM Opportunity WHERE Id = '${opp}' LIMIT 1`).catch(() => null);
+      const ph = (c) => String((c && (c.Phone || c.MobilePhone)) || "").trim();
+      const r = await sfQuery(sfUser, `SELECT Contact.Email, Contact.LastName, Contact.Phone, Contact.MobilePhone, IsPrimary FROM OpportunityContactRole WHERE OpportunityId = '${opp}' ORDER BY IsPrimary DESC, CreatedDate ASC LIMIT 5`).catch(() => null);
+      const hit = ((r && r.records) || []).find((x) => x.Contact && (x.Contact.Email || ph(x.Contact)));
+      if (hit) return { email: hit.Contact.Email || "", phone: ph(hit.Contact), name: hit.Contact.LastName || "", from: "SFの商談の取引先責任者" };
+      const r2 = await sfQuery(sfUser, `SELECT Contact.Email, Contact.LastName, Contact.Phone, Contact.MobilePhone, AccountId FROM Opportunity WHERE Id = '${opp}' LIMIT 1`).catch(() => null);
       const o = r2 && r2.records && r2.records[0];
-      if (o && o.Contact && o.Contact.Email) return { email: o.Contact.Email, name: o.Contact.LastName || "", from: "SFの商談の取引先責任者" };
+      if (o && o.Contact && (o.Contact.Email || ph(o.Contact))) return { email: o.Contact.Email || "", phone: ph(o.Contact), name: o.Contact.LastName || "", from: "SFの商談の取引先責任者" };
       if (o && o.AccountId) {
-        const r3 = await sfQuery(sfUser, `SELECT Email, LastName FROM Contact WHERE AccountId = '${o.AccountId}' AND Email != null ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
+        const r3 = await sfQuery(sfUser, `SELECT Email, LastName, Phone, MobilePhone FROM Contact WHERE AccountId = '${o.AccountId}' AND (Email != null OR Phone != null OR MobilePhone != null) ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
         const ct = r3 && r3.records && r3.records[0];
-        if (ct && ct.Email) return { email: ct.Email, name: ct.LastName || "", from: "SFの取引先責任者" };
+        if (ct) return { email: ct.Email || "", phone: ph(ct), name: ct.LastName || "", from: "SFの取引先責任者" };
       }
     }
   } catch (e) { console.warn("[cs] 先方のメールを探す", e.message); }
@@ -11935,13 +11941,13 @@ async function csProcessKickoff(m0) {
   const confirmStart = cal ? new Date(Date.parse(cal.start)).toISOString() : csParseDT(fields.次回MTGの日時, m.created_at);
   const sfUrl = await csSfOppUrl({ meeting: m, company, user: fsEmail }).catch(() => "");
   const ce = await csFindClientEmail({ company, sfUrl, user: fsEmail }).catch(() => null);
-  const contact = ce ? { client_email: ce.email, client_name: ce.name } : null;
+  const contact = ce ? { client_email: ce.email || null, client_name: ce.name, client_phone: ce.phone || null } : null;
   let k = await upsertCsKickoff(m.bot_id, {
     sf_url: sfUrl || null,
     account: m.account || company, company, title: m.title, meeting_at: m.created_at, fs_email: fsEmail, fs_name: fsName, fields,
     cs_email: cal && cal.cs ? cal.cs.email : null, cs_name: cal && cal.cs ? cal.cs.name : null,
     confirm_start: confirmStart, confirm_from: cal ? "カレンダー" : (confirmStart ? "議事録" : null),
-    client_email: contact ? contact.client_email : null, client_name: contact ? contact.client_name : null, status: "posted",
+    client_email: contact ? contact.client_email : null, client_name: contact ? contact.client_name : null, client_phone: contact ? contact.client_phone : null, status: "posted",
   });
   if (!k) return;
   if (!k.cs_email && k.confirm_start) {
@@ -12018,10 +12024,14 @@ app.get("/api/cs/kickoffs", async (req, res) => {
     let sfLook = 0;   // 開くたびに探しすぎないよう、1回に10件まで
     for (const k0 of await listCsKickoffs(150)) {
       let k = k0;
-      if (!k.client_email && sfLook < 10 && Date.now() - Date.parse(k.meeting_at || k.created_at || 0) < 60 * 86400000) {
+      if ((!k.client_email || (!k.client_phone && k.sf_url)) && !_csContactTried.has(k.bot_id) && sfLook < 10 && Date.now() - Date.parse(k.meeting_at || k.created_at || 0) < 60 * 86400000) {
         sfLook++;
-        const ce = await csFindClientEmail({ company: k.company, sfUrl: k.sf_url, user: req.user }).catch(() => null);
-        if (ce && ce.email) k = (await upsertCsKickoff(k.bot_id, { client_email: ce.email, client_name: k.client_name || ce.name || null })) || { ...k, client_email: ce.email };
+        _csContactTried.add(k.bot_id);   // 見つからなくても、同じ起動の間は何度も探さない
+        const ce = await csFindClientEmail({ company: k.company, sfUrl: k.sf_url, user: req.user, noApo: !!k.client_email }).catch(() => null);
+        const v = {};
+        if (ce && ce.email && !k.client_email) { v.client_email = ce.email; v.client_name = k.client_name || ce.name || null; }
+        if (ce && ce.phone && !k.client_phone) v.client_phone = ce.phone;
+        if (Object.keys(v).length) k = (await upsertCsKickoff(k.bot_id, v)) || { ...k, ...v };
       }
       if (!k.sf_url && sfLook < 10 && Date.now() - Date.parse(k.meeting_at || k.created_at || 0) < 60 * 86400000) {
         sfLook++;
@@ -12055,6 +12065,7 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
     if (b.csEmail !== undefined) { const c = cfg.members.find((x) => x.email === String(b.csEmail || "").toLowerCase()); v.cs_email = c ? c.email : null; v.cs_name = c ? c.name : null; }
     if (b.confirmStart !== undefined) { const t = Date.parse(b.confirmStart || ""); v.confirm_start = isFinite(t) ? new Date(t).toISOString() : null; v.confirm_from = isFinite(t) ? "手入力" : null; }
     if (b.clientEmail !== undefined) v.client_email = String(b.clientEmail || "").trim() || null;
+    if (b.clientPhone !== undefined) v.client_phone = String(b.clientPhone || "").trim() || null;
     if (b.sfUrl !== undefined) v.sf_url = String(b.sfUrl || "").trim() || null;
     if (b.candidateUrl !== undefined || b.adminUrl !== undefined) await setDocUrls(k0.account, { candidateUrl: b.candidateUrl, adminUrl: b.adminUrl });
     let k = await upsertCsKickoff(k0.bot_id, v);
@@ -25457,7 +25468,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19w CS連携の企業カードの窓を見やすく：回収MTGのヒアリング・宿題・CS担当と確認MTG・連絡先とリンク・ヘルプサイトのまとまりに分け、2列に。保存のボタンと御礼メール・検収書などは下に固定。";
+const BUILD_TAG = "2026-10-19x CS連携の企業カードの窓：いちばん上に「先方」（企業名・ご担当者名・メールアドレス・電話番号）をまとめた。電話番号はSFの取引先責任者（電話 → 携帯）から自動で入れる。CSVにも電話番号。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

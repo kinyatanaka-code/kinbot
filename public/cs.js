@@ -80,8 +80,12 @@ function render() {
     return `<div class="cs-card open cd-wrap">${head}
       <div class="cd-body">
       ${k.error ? `<div class="cs-err" style="margin:0 0 10px">${esc(k.error)}</div>` : ""}
+      ${sec("🏢", "先方", `<div class="cd-grid">
+        ${fld("企業名", "企業名")}${fld("先方ご担当者名", "ご担当者名")}
+        <div class="cd-f"><label>メールアドレス（御礼メールの宛先）</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="例：yamada@example.co.jp"></div>
+        <div class="cd-f"><label>電話番号 ${k.client_phone ? `<a href="tel:${esc(String(k.client_phone).replace(/[^0-9+]/g, ""))}">かける</a>` : ""}</label><input data-k="clientPhone" value="${esc(k.client_phone || "")}" placeholder="SFの取引先責任者から自動で入ります"></div>
+      </div>`)}
       ${sec("📋", "回収MTGのヒアリング", `<div class="cd-grid">
-        ${fld("企業名", "企業名")}${fld("先方ご担当者名", "先方ご担当者名")}
         ${fld("納品月", "納品月")}${fld("公開予定時期", "公開予定")}
         ${fld("請求書着日スケジュール", "請求スケジュール")}${fld("次回MTGの日時", "次回MTG（議事録から）")}
         ${fld("活用場所", "活用場所・利用シーン", true)}${fld("特記事項", "イレギュラー・特記事項", true)}
@@ -95,8 +99,7 @@ function render() {
         <div class="cd-f"><label>確認MTGの日時</label><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}">
           <div class="cs-sub">${k.confirm_from ? `${esc(k.confirm_from)}から` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　・　${link(k.confirm_url, "確認MTGの参加URL")}` : ""}</div></div>
       </div>`)}
-      ${sec("🔗", "連絡先・リンク", `<div class="cd-grid">
-        <div class="cd-f"><label>先方のメール（御礼メールの宛先）</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="例：yamada@example.co.jp"></div>
+      ${sec("🔗", "リンク", `<div class="cd-grid">
         <div class="cd-f"><label>SFの商談 ${link(k.sf_url, "開く")}</label><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="見つからなかったときは貼ってください"></div>
         <div class="cd-f"><label>候補者用画面のURL ${link(k.doc_candidate_url || k.sheet_candidate_url, "開く")}</label><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `管理シートの値：${k.sheet_candidate_url}` : "管理シートに無いときは、ここに入れる")}">
           <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? "管理シートの値を使います" : (d.candidateSheetError ? `管理シートを読めませんでした：${esc(d.candidateSheetError)}` : "管理シートにこの会社がありません")}</div></div>
@@ -216,11 +219,11 @@ $("csCsv").addEventListener("click", () => {
   const nm = (k) => { const f = k.fields || {}; return f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company; };
   const rows = d.kickoffs.filter((k) => !q || String(nm(k) || "").normalize("NFKC").replace(/[\s　]|株式会社|有限会社|医療法人|社会福祉法人/g, "").toLowerCase().includes(q));
   const dt = (iso) => { const t = Date.parse(iso || ""); if (!isFinite(t)) return ""; const j = new Date(t + 9 * 3600000); return `${j.getUTCFullYear()}/${j.getUTCMonth() + 1}/${j.getUTCDate()} ${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`; };
-  const head = ["企業名", "回収MTG", "FS", "CS担当", "確認MTG", "先方ご担当者名", "活用場所・利用シーン", "公開予定時期", "納品月", "請求スケジュール", "特記事項", "弊社の宿題", "貴社の宿題", "先方のメール", "候補者用画面URL", "SFの商談", "議事録", "OBスレ投稿", "御礼メールの下書き"];
+  const head = ["企業名", "回収MTG", "FS", "CS担当", "確認MTG", "先方ご担当者名", "活用場所・利用シーン", "公開予定時期", "納品月", "請求スケジュール", "特記事項", "弊社の宿題", "貴社の宿題", "先方のメール", "先方の電話番号", "候補者用画面URL", "SFの商談", "議事録", "OBスレ投稿", "御礼メールの下書き"];
   const body = rows.map((k) => { const f = k.fields || {}; return [
     nm(k), dt(k.meeting_at), k.fs_name || "", k.cs_name || "", k.confirm_start ? dt(k.confirm_start) : (f.次回MTGの日時 || ""),
     f.先方ご担当者名 || "", f.活用場所 || "", f.公開予定時期 || "", f.納品月 || "", f.請求書着日スケジュール || "", f.特記事項 || "",
-    (f.弊社の宿題 || []).join("／"), (f.貴社の宿題 || []).join("／"), k.client_email || "", k.doc_candidate_url || k.sheet_candidate_url || "",
+    (f.弊社の宿題 || []).join("／"), (f.貴社の宿題 || []).join("／"), k.client_email || "", k.client_phone || "", k.doc_candidate_url || k.sheet_candidate_url || "",
     k.sf_url || "", k.meeting_url || "", k.posted_at ? dt(k.posted_at) : "", k.draft_at ? dt(k.draft_at) : "",
   ]; });
   const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
