@@ -1152,6 +1152,19 @@ async function fetchWithTimeout(url, options = {}, label = "LLM") {
 }
 
 // 一次プロバイダが落ちた時の切替先（明示指定 → Groq → Gemini の順で使えるものを選ぶ）
+// 予備の順番（2026-10-19）：上から順に試し、1つでも返れば成功。Groq は無料の段だと1日の上限があるので最後。
+function fallbackChain(current = PROVIDER) {
+  const cur = (current || PROVIDER).toLowerCase();
+  const out = [];
+  const explicit = (process.env.FALLBACK_PROVIDER || "").toLowerCase();
+  if (explicit && explicit !== cur) out.push(explicit);
+  if (cur === "gemini") out.push("gemini-alt");                                  // 予備のキー・別のモデルのGemini
+  if (cur !== "anthropic" && process.env.ANTHROPIC_API_KEY) out.push("anthropic");
+  if (cur !== "openai" && process.env.OPENAI_API_KEY) out.push("openai");
+  if (cur !== "gemini" && process.env.GEMINI_API_KEY) out.push("gemini");
+  if (cur !== "groq" && process.env.GROQ_API_KEY) out.push("groq");
+  return [...new Set(out)];
+}
 function fallbackProvider(current = PROVIDER) {
   // 明示指定（FALLBACK_PROVIDER）があれば最優先。無ければ Gemini → Groq の順で、使えるものを選ぶ。
   const cur = (current || PROVIDER).toLowerCase();
@@ -1201,25 +1214,24 @@ async function callLLM(system, user, maxTokens = 1400, opts = {}) {
   } catch (e) {
     // opts.fallback で明示指定があればそれを最優先（例：抽出はClaude→必ずGemini）。
     // ただし現プロバイダと同じ指定は無意味なので、その場合は通常の自動選択にフォールスルー。
-    let fb = (opts.fallback || "").toLowerCase();
-    if (!fb || fb === provider) fb = fallbackProvider(provider);
-    // JSON構造化出力が必要な呼び出し（フェーズ判定・各種分析など）は、キー未設定・課金未設定・
-    // モデル名誤り・出力上限での途中切れ・空応答など「一時的でない」理由でも丸ごと失敗しうるため、
-    // フォールバック先があれば理由を問わず必ず切り替える（自由記述の生成のみ、従来どおり一時的な混雑時に限定）。
-    const shouldFallback = fb && (json || provider === "anthropic" || isTransient(e.message));
-    if (shouldFallback) {
-      console.warn(`[llm] ${provider} が失敗（${e.message}）→ ${fb} に自動フォールバック`);
+    let chain = fallbackChain(provider);
+    const fb0 = (opts.fallback || "").toLowerCase();
+    if (fb0 && fb0 !== provider) chain = [fb0, ...chain.filter((x) => x !== fb0)];
+    // JSON構造化出力が必要な呼び出しは、理由を問わず予備に切り替える（自由記述の生成は、一時的な混雑のときだけ）
+    const shouldFallback = chain.length && (json || provider === "anthropic" || isTransient(e.message) || /MAX_TOKENS|429|quota|rate limit/i.test(e.message));
+    if (!shouldFallback) throw e;
+    const errs = [`${provider}: ${e.message}`];
+    for (const fb of chain) {
+      console.warn(`[llm] ${errs.length === 1 ? provider : "予備"} が失敗 → ${fb} に切り替え`);
       try {
-        // フォールバック時はモデル指定を持ち越さない（別プロバイダのモデル名は無効なため）
+        // 予備ではモデル指定を持ち越さない（別のプロバイダのモデル名は無効なため）
         return await withRetry(() => callOnce(fb, system, user, maxTokens, json, schema, cachePrefix, null), 2);
       } catch (e2) {
-        // フォールバックも失敗した場合、フォールバック側のエラーだけを表示すると本来の原因（最初のプロバイダの失敗理由）が
-        // 隠れてしまうため、両方のエラーをまとめて投げる。
-        console.error(`[llm] フォールバック(${fb})も失敗（${e2.message}）`);
-        throw new Error(`${provider}: ${e.message} ／ フォールバック(${fb}): ${e2.message}`);
+        console.error(`[llm] 予備(${fb})も失敗（${e2.message}）`);
+        errs.push(`予備(${fb}): ${e2.message}`);
       }
     }
-    throw e;
+    throw new Error(errs.join(" ／ "));
   }
 }
 
@@ -1286,6 +1298,11 @@ async function callOnce(provider, system, user, maxTokens, json = true, schema =
       model: model || process.env.OPENAI_MODEL || "gpt-4o-mini",
       name: "OpenAI互換",
     }, json);
+  if (provider === "gemini-alt") {
+    const base = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
+    const alt = process.env.GEMINI_FALLBACK_MODEL || (/flash-lite/.test(base) ? "gemini-2.5-flash" : "gemini-2.5-flash-lite");
+    return callGemini(system, user, maxTokens, json, schema, alt, process.env.GEMINI_API_KEY_BACKUP || null);
+  }
   return callGemini(system, user, maxTokens, json, schema, model);
 }
 
@@ -1339,18 +1356,18 @@ function toGeminiSchema(node) {
   return node;
 }
 
-async function callGemini(system, user, maxTokens, json = true, schema = null, modelOverride = null) {
+async function callGemini(system, user, maxTokens, json = true, schema = null, modelOverride = null, keyOverride = null) {
   // 出力の上限で途中で切れた（MAX_TOKENS）ときは、上限を広げてもう一度だけ頼む（長い商談・項目の多いJSONで起きる）
-  try { return await callGeminiOnce(system, user, maxTokens, json, schema, modelOverride); }
+  try { return await callGeminiOnce(system, user, maxTokens, json, schema, modelOverride, keyOverride); }
   catch (e) {
     if (!/MAX_TOKENS/.test(String(e.message || ""))) throw e;
     const bigger = Math.min(32768, Math.max(8192, Math.round((Number(maxTokens) || 2000) * 3)));
     console.warn(`[analyzer] Geminiの出力が上限（${maxTokens}）で切れたので、${bigger} に広げてやり直します`);
-    return await callGeminiOnce(system, user, bigger, json, schema, modelOverride);
+    return await callGeminiOnce(system, user, bigger, json, schema, modelOverride, keyOverride);
   }
 }
-async function callGeminiOnce(system, user, maxTokens, json = true, schema = null, modelOverride = null) {
-  const key = process.env.GEMINI_API_KEY;
+async function callGeminiOnce(system, user, maxTokens, json = true, schema = null, modelOverride = null, keyOverride = null) {
+  const key = keyOverride || process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY が未設定です（Google AI Studio で発行）");
   const model = modelOverride || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
