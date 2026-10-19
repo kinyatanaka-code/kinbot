@@ -11744,6 +11744,32 @@ setTimeout(async () => {
 // 1時間ごと：キックオフの議事録が無いものを探す
 setInterval(() => { csCheckUnrecordedKickoffs().catch((e) => console.warn("[cs] 議事録なしの確認", e.message)); }, 60 * 60 * 1000).unref?.();
 setTimeout(() => { csCheckUnrecordedKickoffs().catch(() => {}); }, 3 * 60 * 1000).unref?.();
+// 先方のメール：①kinbotのアポ一覧（同じ会社のアポの宛先）②SFの商談の取引先責任者 ③SFの取引先の取引先責任者（いちばん新しい人）
+async function csFindClientEmail({ company, sfUrl, user }) {
+  try {
+    const c = await clientContactByCompanyKey(csCoKey, company).catch(() => null);
+    if (c && c.client_email) return { email: c.client_email, name: c.client_name || "", from: "アポ一覧" };
+  } catch {}
+  try {
+    const sfUser = await pickSfUser(user || "").catch(() => "");
+    if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) return null;
+    const opp = (/\/(006[A-Za-z0-9]{12,15})/.exec(String(sfUrl || "")) || [])[1] || "";
+    if (opp) {
+      const r = await sfQuery(sfUser, `SELECT Contact.Email, Contact.LastName, IsPrimary FROM OpportunityContactRole WHERE OpportunityId = '${opp}' ORDER BY IsPrimary DESC, CreatedDate ASC LIMIT 5`).catch(() => null);
+      const hit = ((r && r.records) || []).find((x) => x.Contact && x.Contact.Email);
+      if (hit) return { email: hit.Contact.Email, name: hit.Contact.LastName || "", from: "SFの商談の取引先責任者" };
+      const r2 = await sfQuery(sfUser, `SELECT Contact.Email, Contact.LastName, AccountId FROM Opportunity WHERE Id = '${opp}' LIMIT 1`).catch(() => null);
+      const o = r2 && r2.records && r2.records[0];
+      if (o && o.Contact && o.Contact.Email) return { email: o.Contact.Email, name: o.Contact.LastName || "", from: "SFの商談の取引先責任者" };
+      if (o && o.AccountId) {
+        const r3 = await sfQuery(sfUser, `SELECT Email, LastName FROM Contact WHERE AccountId = '${o.AccountId}' AND Email != null ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
+        const ct = r3 && r3.records && r3.records[0];
+        if (ct && ct.Email) return { email: ct.Email, name: ct.LastName || "", from: "SFの取引先責任者" };
+      }
+    }
+  } catch (e) { console.warn("[cs] 先方のメールを探す", e.message); }
+  return null;
+}
 // 1件のキックオフを連携する（読み取り → 確認MTG・CS担当 → OBスレ → リンク・下書き）
 async function csProcessKickoff(m0) {
   const m = (await getMeeting(m0.bot_id).catch(() => null)) || m0;
@@ -11758,8 +11784,9 @@ async function csProcessKickoff(m0) {
   { const tp = csPersonsFromTitle(m.title, company); if (tp) fields.先方ご担当者名 = tp; }
   const cal = await csFindConfirmMtg({ company, fsEmail, afterIso: m.created_at, members: cfg.members }).catch(() => null);
   const confirmStart = cal ? new Date(Date.parse(cal.start)).toISOString() : csParseDT(fields.次回MTGの日時, m.created_at);
-  const contact = await clientContactByCompanyKey(csCoKey, company).catch(() => null);
   const sfUrl = await csSfOppUrl({ meeting: m, company, user: fsEmail }).catch(() => "");
+  const ce = await csFindClientEmail({ company, sfUrl, user: fsEmail }).catch(() => null);
+  const contact = ce ? { client_email: ce.email, client_name: ce.name } : null;
   let k = await upsertCsKickoff(m.bot_id, {
     sf_url: sfUrl || null,
     account: m.account || company, company, title: m.title, meeting_at: m.created_at, fs_email: fsEmail, fs_name: fsName, fields,
@@ -11837,6 +11864,11 @@ app.get("/api/cs/kickoffs", async (req, res) => {
     let sfLook = 0;   // 開くたびに探しすぎないよう、1回に10件まで
     for (const k0 of await listCsKickoffs(150)) {
       let k = k0;
+      if (!k.client_email && sfLook < 10 && Date.now() - Date.parse(k.meeting_at || k.created_at || 0) < 60 * 86400000) {
+        sfLook++;
+        const ce = await csFindClientEmail({ company: k.company, sfUrl: k.sf_url, user: req.user }).catch(() => null);
+        if (ce && ce.email) k = (await upsertCsKickoff(k.bot_id, { client_email: ce.email, client_name: k.client_name || ce.name || null })) || { ...k, client_email: ce.email };
+      }
       if (!k.sf_url && sfLook < 10 && Date.now() - Date.parse(k.meeting_at || k.created_at || 0) < 60 * 86400000) {
         sfLook++;
         const m = await getMeeting(k.bot_id).catch(() => null);
@@ -14715,6 +14747,69 @@ function nbPlanName(planValue, productNames) {
   for (const n of productNames || []) { const p = pick(n); if (p) return p; }
   return "";
 }
+// すでにシートにある会社（C列・D列に名前がある行）で、キックオフ・申込をしている会社の、空いている欄を埋める（入っている欄は書きかえない）
+//   H サイト・N 顧客（様）・X プラン名・AA 初期あり／なし。1回に40行まで
+async function nbFillBlanks(sfUser, writer, pf, { max = 40 } = {}) {
+  const filled = [];
+  const rows = await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!B4:AA3000`).catch(() => []);
+  if (!rows.length) return filled;
+  // SFのクロスの申込・受注の商談（会社ごとにいちばん新しいもの）
+  const since = new Date(Date.now() - 800 * 86400000).toISOString().slice(0, 10);
+  const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, LastModifiedDate, Account.Name, Account.Website${pf.api ? `, ${pf.api}` : ""} FROM Opportunity
+    WHERE (StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
+      AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`).catch(() => null);
+  const oppBy = new Map();
+  for (const o of ((q && q.records) || [])) {
+    if (/更新|MOCHICA|リピート/i.test(`${o.Name || ""} ${o.StageName || ""}`)) continue;
+    const k = normCompanyKey(String((o.Account && o.Account.Name) || "").normalize("NFKC"));
+    if (k && !oppBy.has(k)) oppBy.set(k, o);
+  }
+  // キックオフをした会社（CS連携）
+  const kick = new Map();
+  for (const k0 of await listCsKickoffs(500).catch(() => [])) {
+    const nm = (k0.fields && k0.fields.企業名 && k0.fields.企業名 !== "未確認") ? k0.fields.企業名 : k0.company;
+    const k = normCompanyKey(String(nm || "").normalize("NFKC"));
+    if (k && !kick.has(k)) kick.set(k, k0);
+  }
+  let done = 0;
+  for (let i = 0; i < rows.length && done < max; i++) {
+    const r = rows[i] || [];
+    const c = String(r[1] || "").trim(), d = String(r[2] || "").trim();
+    if (!c && !d) continue;
+    const key = normCompanyKey((c || d).normalize("NFKC"));
+    const opp = oppBy.get(key), kk = kick.get(key);
+    if (!opp && !kk) continue;
+    const H = String(r[6] || "").trim(), N = String(r[12] || "").trim(), X = String(r[22] || "").trim(), AA = String(r[25] || "").trim();
+    if (H && N && X && AA) continue;
+    const row = i + 4, cells = [];
+    let items = null;
+    const itemNames = async () => { if (items) return items; items = opp ? (await listOpportunityLineItems(sfUser, opp.Id).catch(() => [])).map((x) => String(x.name || "").trim()).filter(Boolean) : []; return items; };
+    if (!H) {
+      let site = String((opp && opp.Account && opp.Account.Website) || "").trim();
+      if (!site) { try { const w = await lookupCompanyWebsite(c || d, sfUser); if (w && w.url) site = w.url; } catch {} }
+      if (site) cells.push({ range: `H${row}`, value: site });
+    }
+    if (!N) {
+      let pn = opp ? await nbContactName(sfUser, opp.Id).catch(() => "") : "";
+      if (!pn && kk && kk.fields && kk.fields.先方ご担当者名 && kk.fields.先方ご担当者名 !== "未確認") pn = String(kk.fields.先方ご担当者名).replace(/様/g, "");
+      if (pn) cells.push({ range: `N${row}`, value: pn });
+    }
+    if (!X && opp) { const pl = nbPlanName(pf.api ? opp[pf.api] : "", await itemNames()); if (pl) cells.push({ range: `X${row}`, value: pl }); }
+    if (!AA && opp) {
+      const names = await itemNames();
+      const ini = names.some((n) => /DOC\s*エントリー/i.test(n)) ? "初期あり" : (names.length && names.every((n) => /アチコチバース/.test(n))) ? "初期なし" : "";
+      if (ini) cells.push({ range: `AA${row}`, value: ini });
+    }
+    if (!cells.length) continue;
+    try {
+      await updateSheetCells(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'`, cells);
+      filled.push(`${c || d}（${row}行目）：${cells.map((x) => x.range.replace(/\d+$/, "")).join("・")}列`);
+      done++;
+    } catch (e) { filled.push(`${c || d}（${row}行目）：書けませんでした（${e.message}）`); break; }
+  }
+  if (filled.length) { await nbSheetLog({ company: "（空欄を埋めました）", repair: filled }); console.log("[nb-sheet] 空欄を埋めました", filled); }
+  return filled;
+}
 let _nbBusy = false;
 async function nbSheetTick({ force = false } = {}) {
   if (_nbBusy) return { skipped: "busy" };
@@ -14736,7 +14831,7 @@ async function nbSheetTick({ force = false } = {}) {
       WHERE (StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
         AND LastModifiedDate >= ${sinceSf} ORDER BY LastModifiedDate ASC LIMIT 200`);
     const opps = (d.records || []).filter((o) => !done.has(o.Id) && !/更新|MOCHICA|リピート/i.test(`${o.Name || ""} ${o.StageName || ""}`));
-    if (!opps.length) return out;
+    if (!opps.length) { out.filled = await nbFillBlanks(sfUser, writer, pf).catch(() => []); return out; }
     // シートの今の中身（4行目から）
     const rows = await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!B4:D3000`);
     const have = new Set();
@@ -14791,6 +14886,7 @@ async function nbSheetTick({ force = false } = {}) {
       }
     }
     await saveSettings({ nbSheetDone: [...done].slice(-800) }).catch(() => {});
+    out.filled = await nbFillBlanks(sfUser, writer, pf).catch(() => []);
   } catch (e) { out.errors.push(e.message); console.warn("[nb-sheet]", e.message); }
   finally { _nbBusy = false; }
   return out;
@@ -25000,7 +25096,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19g 御礼メール：設定に前のひな形（貴社にご対応いただくこと・弊社の宿題）が残っていても、新しいひな形（貴社ご対応事項・弊社対応事項）で作るように。保存済みの本文ももう一度置きかえ。";
+const BUILD_TAG = "2026-10-19h CS連携：先方のメールをアポ一覧・SFの取引先責任者から自動で入れる。管理シート：すでにある会社（キックオフ・申込をした会社）の空いている欄（Hサイト・N顧客（様）・Xプラン名・AA初期）を埋める（入っている欄は書きかえない）。";
 const BUILD_FEATURES = [
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
