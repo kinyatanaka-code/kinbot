@@ -12157,6 +12157,128 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 設定（CS 3人・OBスレ・ひな形）。管理者・クローザー
+// ===== 検収書の依頼（Googleフォーム）=====
+// フォームはネオキャリアの中の人しか送れないので、kinbotは中身を入れたフォームのURL（事前入力）を作り、開いた人が「送信」を押す。
+// 欄の番号（entry）は、設定タブで「事前入力したURL」を貼ってもらって覚える（settings.kenshuForm）。
+const KENSHU_KEYS = ["tanto", "company", "item1", "item1note", "item2", "item2note", "item3", "item3note", "item4", "item4note", "circus", "sfurl", "delivery", "qty", "invoiceDate", "kenshuDate"];
+const KENSHU_TANTO = ["久野 沙織", "皆葉 優ブラッド", "中澤 良太", "浦林 鷹也", "佐藤 龍義", "鶴川 夏海"];
+const KENSHU_ITEMS = ["空間デザイン制作_Business(3D)", "空間デザイン制作_Business(3D)※CP", "空間デザイン制作_Base(3D)", "空間デザイン制作_First(3D)", "オリジナルイベント企画・運営",
+  "オリジナルイベント企画・運営（機材の設置・構築）", "企画・運営（メタバース空間調整）", "【ＤＯＣ】エントリープラン", "【ＤＯＣ】ライトプラン", "【ＤＯＣ】スタンダードプラン"];
+// 貼られた「事前入力したURL」から、欄の番号を順に読む（16個の欄を全部入れたURLが前提。日付の3つは YYYY-MM-DD の値で見分ける）
+function parseKenshuPrefill(url) {
+  const u = new URL(String(url || "").trim());
+  const base = `${u.origin}${u.pathname.replace(/\/(viewform|formResponse)$/, "")}/viewform`;
+  const ids = [];
+  for (const [k, v] of u.searchParams) { const m = /^entry\.(\d+)$/.exec(k); if (m && !ids.some((x) => x.id === m[1])) ids.push({ id: m[1], v }); }
+  if (ids.length < 14) throw new Error(`欄の番号が ${ids.length} 個しか読めませんでした。事前入力のときに、全部の欄（16個）に値を入れてからリンクを作ってください`);
+  const entries = {};
+  ids.slice(0, KENSHU_KEYS.length).forEach((x, i) => { entries[KENSHU_KEYS[i]] = x.id; });
+  return { base, entries, count: ids.length };
+}
+async function csCircusField(sfUser) {
+  try {
+    const d = await describeObject(sfUser, "Opportunity");
+    const f = (d.fields || []).find((x) => /サーカス/.test(String(x.label || ""))) || (d.fields || []).find((x) => /circus/i.test(String(x.name || "")));
+    return f ? { api: f.name, label: f.label } : null;
+  } catch { return null; }
+}
+// 検収書の依頼の中身を作る（モーダルに出して直してから送る）
+async function csKenshuDraft(k, user) {
+  const f = k.fields || {};
+  const out = { tanto: k.fs_name || "", company: (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company, item1: "", item1note: "", item2: "", item2note: "",
+    item3: "", item3note: "", item4: "", item4note: "", circus: "", sfurl: k.sf_url || "", delivery: "", qty: "1", invoiceDate: "", kenshuDate: "" };
+  const notes = [];
+  // 企業名（正式名称）とサーカスNo：SFの商談から
+  try {
+    const opp = (/\/(006[A-Za-z0-9]{12,15})/.exec(String(k.sf_url || "")) || [])[1] || "";
+    const sfUser = await pickSfUser(user || k.fs_email || "").catch(() => "");
+    if (opp && sfUser && (await sfConnected(sfUser).catch(() => false))) {
+      const cf = await csCircusField(sfUser);
+      const r = await sfQuery(sfUser, `SELECT Account.Name${cf ? `, ${cf.api}` : ""} FROM Opportunity WHERE Id = '${opp}' LIMIT 1`).catch(() => null);
+      const o = r && r.records && r.records[0];
+      if (o && o.Account && o.Account.Name) out.company = o.Account.Name;
+      if (o && cf && o[cf.api]) out.circus = String(o[cf.api]);
+      if (!cf) notes.push("SFの商談に「サーカス」の項目が見つかりませんでした");
+      else if (!out.circus) notes.push(`SFの「${cf.label}」が空です`);
+    } else notes.push("SFの商談がつながっていないので、企業名とサーカスNoはSFから取れませんでした");
+  } catch {}
+  // 商材名①：管理シートのX列（エントリー → 【ＤＯＣ】エントリープラン）
+  try {
+    const writer = await nbSheetWriter([]);
+    if (writer) {
+      const rows = await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!C4:X3000`).catch(() => []);
+      const key = normCompanyKey(String(out.company || "").normalize("NFKC"));
+      const hit = rows.find((r) => key && [r[0], r[1]].some((v) => normCompanyKey(String(v || "").normalize("NFKC")) === key));
+      const plan = hit ? String(hit[21] || "").trim() : "";
+      const m = /(エントリー|ライト|スタンダード)/.exec(plan);
+      if (m) out.item1 = `【ＤＯＣ】${m[1]}プラン`;
+      else notes.push("管理シートのX列（プラン名）が空です");
+    }
+  } catch {}
+  // 納品日：納品月の1日（11月 → 回収MTGの日から見て次の11月の1日）
+  const mm = /(\d{1,2})\s*月/.exec(String(f.納品月 || "").normalize("NFKC"));
+  if (mm) {
+    const base = new Date(Date.parse(k.meeting_at || Date.now()) + 9 * 3600000);
+    let y = base.getUTCFullYear(); const mon = Number(mm[1]);
+    if (mon < base.getUTCMonth() + 1) y += 1;   // 回収MTGの月より前の月なら来年（10月の回収MTGで納品1月 → 来年1月）
+    out.delivery = `${y}-${String(mon).padStart(2, "0")}-01`;
+  } else notes.push("納品月が分からないので、納品日を入れてください");
+  return { values: out, notes, tantoOptions: KENSHU_TANTO, itemOptions: KENSHU_ITEMS };
+}
+function kenshuPrefillUrl(form, v) {
+  const q = new URLSearchParams();
+  q.set("usp", "pp_url");
+  const put = (key, val, opts) => {
+    const id = form.entries[key]; if (!id || !String(val || "").trim()) return;
+    if (opts && !opts.includes(val)) { q.append(`entry.${id}`, "__other_option__"); q.append(`entry.${id}.other_option_response`, val); }
+    else q.append(`entry.${id}`, val);
+  };
+  const norm = (x) => String(x || "").replace(/[\s　]/g, "");
+  const tanto = KENSHU_TANTO.find((t) => norm(t) === norm(v.tanto)) || v.tanto;
+  put("tanto", tanto, KENSHU_TANTO);
+  put("company", v.company);
+  for (const n of [1, 2, 3, 4]) { put(`item${n}`, v[`item${n}`], KENSHU_ITEMS); put(`item${n}note`, v[`item${n}note`]); }
+  put("circus", v.circus); put("sfurl", v.sfurl); put("delivery", v.delivery);
+  put("qty", String(v.qty || "1"), ["1", "2", "3", "4"]);
+  put("invoiceDate", v.invoiceDate); put("kenshuDate", v.kenshuDate);
+  return `${form.base}?${q.toString()}`;
+}
+app.get("/api/cs/kickoffs/:bot/kenshu", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const k = await getCsKickoff(req.params.bot);
+    if (!k) return res.status(404).json({ error: "見つかりません" });
+    const st = await getSettings().catch(() => ({}));
+    const d = await csKenshuDraft(k, req.user);
+    res.json({ ok: true, ...d, formReady: !!(st.kenshuForm && st.kenshuForm.entries), sentAt: (st.kenshuSent || {})[k.bot_id] || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 確かめた中身で、入った状態のフォームのURLを作る（開いた人が「送信」を押す）
+app.post("/api/cs/kickoffs/:bot/kenshu", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const st = await getSettings().catch(() => ({}));
+    if (!st.kenshuForm || !st.kenshuForm.entries) return res.status(400).json({ error: "検収書フォームの設定がまだです（設定タブで「事前入力したURL」を貼ってください）" });
+    const url = kenshuPrefillUrl(st.kenshuForm, (req.body || {}).values || {});
+    const sent = { ...(st.kenshuSent || {}) }; sent[req.params.bot] = new Date().toISOString();
+    await saveSettings({ kenshuSent: sent }).catch(() => {});
+    res.json({ ok: true, url });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 設定：検収書フォームの「事前入力したURL」を貼って、欄の番号を覚える
+app.put("/api/cs/kenshu-form", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const f = parseKenshuPrefill((req.body || {}).url);
+    await saveSettings({ kenshuForm: { ...f, at: new Date().toISOString() } });
+    res.json({ ok: true, count: f.count });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get("/api/cs/kenshu-form", async (req, res) => {
+  const st = await getSettings().catch(() => ({}));
+  res.json({ ok: true, ready: !!(st.kenshuForm && st.kenshuForm.entries), at: st.kenshuForm && st.kenshuForm.at, count: st.kenshuForm && st.kenshuForm.count });
+});
+
 app.put("/api/cs/settings", async (req, res) => {
   try {
     if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "管理者・クローザーだけが変えられます" });
@@ -25278,8 +25400,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19q ヘルプサイト（CS Platform）の「CS担当者」も、kinbotのCS担当で自動で入れる（アカウントを用意したとき、あとでCS担当が決まった・変わったとき）。";
+const BUILD_TAG = "2026-10-19r CS連携の企業カードに「検収書の依頼」：モーダルで送る内容（弊社担当者・企業名（SFの正式名称）・商材名（管理シートのX列）・サーカスNo（SF）・SF URL・納品日（納品月の1日）・数量1 など）を確かめて直し、入った状態の検収書フォームを開いて送信。フォームの欄は設定タブで事前入力したURLから覚える。";
 const BUILD_FEATURES = [
+  "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",

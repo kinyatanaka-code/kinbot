@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261019q" />
+    <link rel="stylesheet" href="style.css?v=20261019r" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -55,6 +55,7 @@
     .cs-prog-row{display:flex;align-items:center;gap:6px;color:#5f6b64;} .cs-prog-row em{margin-left:auto;font-style:normal;font-size:11px;color:#9aa8a1;}
     .cs-prog-row.now{color:#0d5b47;font-weight:700;} .cs-prog-row.ng{color:#b3261e;font-weight:700;} .cs-prog-ic{width:18px;text-align:center;}
     .cs-portal{white-space:pre-wrap;background:#f7faf8;border:1px solid #e6ece9;border-radius:8px;padding:8px 10px;font-size:12px;margin:4px 0 0;font-family:inherit;}
+    .ks-grid{grid-template-columns:190px minmax(0,1fr);} .ks-grid select,.ks-grid input{width:100%;box-sizing:border-box;border:1px solid #d7e3dd;border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;background:#fff;} .ks-grid [data-kko]{margin-top:4px;}
     .cs-x{margin-left:auto;border:0;background:#f1f4f2;border-radius:10px;width:34px;height:34px;font-size:16px;cursor:pointer;}
     </style>
 </head>
@@ -109,6 +110,12 @@
                 <div class="cs-bar"><input id="csImport" placeholder="議事録のURLを貼る" style="flex:1;min-width:280px;border:1px solid #d7e3dd;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;">
                   <button type="button" class="btn" id="csImportBtn">取り込む</button><span class="rev-status" id="csImpSt"></span></div>
               </div>
+              <div class="cs-card">
+                <div class="cs-h" style="cursor:default"><b>検収書フォーム</b><span class="cs-sub" id="ksFormSt"></span></div>
+                <p class="note" style="margin:6px 0">検収書の依頼フォームの欄の番号を覚えるため、フォームの編集画面の「︙」→「事前入力したURLを取得」で、<b>16個の欄すべてに値を入れて</b>（文字の欄は「テスト」、選択肢はどれか1つ、日付は適当な日）作ったリンクを貼ってください。1回だけで大丈夫です。</p>
+                <div class="cs-bar"><input id="ksFormUrl" placeholder="https://docs.google.com/forms/d/e/…/viewform?usp=pp_url&entry.…" style="flex:1;min-width:280px;border:1px solid #d7e3dd;border-radius:8px;padding:8px 10px;font:inherit;font-size:13px;">
+                  <button type="button" class="btn" id="ksFormSave">覚える</button></div>
+              </div>
               <div class="cs-card" id="csSet"></div>
             </div>
             <div data-pane="sheet" hidden>
@@ -123,7 +130,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261019q"></script>
+    <script src="nav.js?v=20261019r"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -131,6 +138,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261019q"></script>
+    <script src="cs.js?v=20261019r"></script>
   </body>
 </html>
