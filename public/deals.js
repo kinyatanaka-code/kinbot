@@ -2415,6 +2415,7 @@ async function showRequiredFieldsPrompt(container, errMsg, retry, rawDetail = ""
     }
     if (f.type === "textarea") return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><textarea class="sf-textarea" data-req-field="${f.name}" rows="2">${esc(cur)}</textarea></div>`;
     if (f.type === "date") return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><input type="date" class="sf-input" data-req-field="${f.name}" value="${esc(cur.slice(0, 10))}"/></div>`;
+    if (f.type === "datetime") return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><input type="datetime-local" step="900" class="sf-input" data-req-field="${f.name}" data-req-type="datetime" value="${esc(sfDtLocal(cur))}"/></div>`;
     if (["double", "currency", "int", "percent"].includes(f.type)) return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><input type="text" class="sf-input" data-req-field="${f.name}" data-req-type="num" value="${esc(cur)}"/></div>`;
     return `<div class="sf-field" data-req-row="${f.name}"><label>${label}${req}</label><input type="text" class="sf-input" data-req-field="${f.name}" value="${esc(cur)}"/></div>`;
   };
@@ -2467,6 +2468,7 @@ async function showRequiredFieldsPrompt(container, errMsg, retry, rawDetail = ""
       const v = (el.value ?? "").trim();
       if (v === "") return;
       if (el.dataset.reqType === "num") { const n = Number(v.replace(/[,¥￥\s]/g, "")); if (!isNaN(n)) patch[api] = n; }
+      else if (el.dataset.reqType === "datetime") { const t = Date.parse(`${v}:00+09:00`); patch[api] = isFinite(t) ? new Date(t).toISOString() : v; }
       else patch[api] = v;
     });
     const reqMsg = box.querySelector("#reqMsg");
@@ -2966,9 +2968,9 @@ async function initSfTab(account) {
             return;
           }
           if (t === "datetime") {
-            // datetime-local（YYYY-MM-DDTHH:MM・端末のローカル＝日本時間）を、SFが受け取れるISO(UTC)に変換
-            const dd = new Date(val);
-            fields[api] = isNaN(dd.getTime()) ? val : dd.toISOString();
+            // datetime-local（YYYY-MM-DDTHH:MM・日本時間）を、SFが受け取れるISO(UTC)に変換
+            const tt = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(val) ? Date.parse(`${val}:00+09:00`) : Date.parse(val);
+            fields[api] = isFinite(tt) ? new Date(tt).toISOString() : val;
             return;
           }
           if (t === "date") { fields[api] = val.slice(0, 10); return; }
@@ -3263,9 +3265,19 @@ document.addEventListener("click", (ev) => {
     }
     if (t === "textarea") return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><textarea class="sf-textarea" data-sf-field="${api}"${orig} rows="2">${esc(cur)}</textarea></div>`;
     if (t === "date") return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><input type="date" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
+    // 日時（次回お打合せ日時など）：カレンダーで日付と時間を選ぶ（文字では入れられず、SFに弾かれていた）
+    if (t === "datetime") return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><input type="datetime-local" step="900" class="sf-input" data-sf-field="${api}"${orig} value="${esc(sfDtLocal(cur))}"/></div>`;
     return `<div class="sf-field"><label>${label}<span class="sf-api">${esc(api)}</span></label><input type="text" class="sf-input" data-sf-field="${api}"${orig} value="${esc(cur)}"/></div>`;
   };
 
+// SFの日時（ISO・UTC）を、datetime-local の値（日本時間 YYYY-MM-DDTHH:MM）にする
+function sfDtLocal(v) {
+  const s = String(v || "").trim();
+  if (!s) return "";
+  const t = Date.parse(s);
+  if (!isFinite(t)) return s.replace(" ", "T").slice(0, 16);
+  return new Date(t + 9 * 3600000).toISOString().slice(0, 16);
+}
   // 段階（SS01〜SS06）ごとの項目。画像の項目リストを基準に、describeのラベル→API名で解決する。
   const SS_STAGE_LABELS = [
     { key: "01：アポ獲得", labels: ["SS01昇格日", "担当領域", "アポ獲得日", "初回アポ設定日", "顧客の現状"] },

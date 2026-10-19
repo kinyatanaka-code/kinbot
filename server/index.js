@@ -24885,7 +24885,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19c AIの予備を順に全部試すように：Gemini（予備のキー GEMINI_API_KEY_BACKUP・別のモデル）→ Claude（ANTHROPIC_API_KEY があれば）→ OpenAI互換 → Groq（無料の段は1日の上限があるので最後）。1つでも返れば成功。";
+const BUILD_TAG = "2026-10-19d 開発メモ対応：SF更新（ステージ・項目更新／不足項目の入力）の日時の項目（次回お打合せ日時など）をカレンダーで日付と時間を選べるように（文字の欄で更新できなかった）。CS連携の企業カードを「CSV（Excel）で書き出す」。";
 const BUILD_FEATURES = [
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",

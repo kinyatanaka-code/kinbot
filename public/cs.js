@@ -163,6 +163,29 @@ function renderSettings() {
   });
 }
 $("csQ").addEventListener("input", render);
+// 企業カードの中身をCSV（Excelで開ける・UTF-8のBOMつき）で書き出す。検索で絞っているときは、その分だけ
+$("csCsv").addEventListener("click", () => {
+  const d = csData; if (!d) return;
+  const q = String(($("csQ") && $("csQ").value) || "").normalize("NFKC").replace(/[\s　]|株式会社|有限会社|医療法人|社会福祉法人/g, "").toLowerCase();
+  const nm = (k) => { const f = k.fields || {}; return f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company; };
+  const rows = d.kickoffs.filter((k) => !q || String(nm(k) || "").normalize("NFKC").replace(/[\s　]|株式会社|有限会社|医療法人|社会福祉法人/g, "").toLowerCase().includes(q));
+  const dt = (iso) => { const t = Date.parse(iso || ""); if (!isFinite(t)) return ""; const j = new Date(t + 9 * 3600000); return `${j.getUTCFullYear()}/${j.getUTCMonth() + 1}/${j.getUTCDate()} ${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`; };
+  const head = ["企業名", "回収MTG", "FS", "CS担当", "確認MTG", "先方ご担当者名", "活用場所・利用シーン", "公開予定時期", "納品月", "請求スケジュール", "特記事項", "弊社の宿題", "貴社の宿題", "先方のメール", "候補者用画面URL", "SFの商談", "議事録", "OBスレ投稿", "御礼メールの下書き"];
+  const body = rows.map((k) => { const f = k.fields || {}; return [
+    nm(k), dt(k.meeting_at), k.fs_name || "", k.cs_name || "", k.confirm_start ? dt(k.confirm_start) : (f.次回MTGの日時 || ""),
+    f.先方ご担当者名 || "", f.活用場所 || "", f.公開予定時期 || "", f.納品月 || "", f.請求書着日スケジュール || "", f.特記事項 || "",
+    (f.弊社の宿題 || []).join("／"), (f.貴社の宿題 || []).join("／"), k.client_email || "", k.doc_candidate_url || k.sheet_candidate_url || "",
+    k.sf_url || "", k.meeting_url || "", k.posted_at ? dt(k.posted_at) : "", k.draft_at ? dt(k.draft_at) : "",
+  ]; });
+  const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const csv = "\uFEFF" + [head, ...body].map((r) => r.map(cell).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const j = new Date(Date.now() + 9 * 3600000);
+  a.download = `CS連携_企業一覧_${j.toISOString().slice(0, 10).replace(/-/g, "")}.csv`;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  say(`${rows.length}社をCSVで書き出しました`);
+});
 window.csRenderSettings = () => { if (csData) renderSettings(); };
 $("csImportBtn").addEventListener("click", async () => {
   const v = $("csImport").value.trim(); if (!v) return;

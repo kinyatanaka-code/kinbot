@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261019c" />
+    <link rel="stylesheet" href="style.css?v=20261019d" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -92,6 +92,7 @@
             <div class="cs-bar">
               <input id="csQ" type="search" placeholder="企業名で探す" style="flex:1;min-width:220px;max-width:420px;border:1px solid #d7e3dd;border-radius:10px;padding:8px 12px;font:inherit;font-size:14px;">
               <span class="cs-sub" id="csCount"></span>
+              <button type="button" class="btn ghost" id="csCsv" title="企業カードの中身を、Excelで開けるCSVにします（検索で絞っているときは、絞った分だけ）">CSV（Excel）で書き出す</button>
               <span class="rev-status" id="csSt"></span>
             </div>
             <div id="csList"><div class="empty-state">読み込み中…</div></div>
@@ -117,7 +118,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261019c"></script>
+    <script src="nav.js?v=20261019d"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -125,6 +126,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261019c"></script>
+    <script src="cs.js?v=20261019d"></script>
   </body>
 </html>
