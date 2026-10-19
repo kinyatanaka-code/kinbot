@@ -8122,7 +8122,7 @@ function nmRenderDetail() {
       <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span>${nmRatePill(_nmRates && _nmRates.byList && _nmRates.byList[String(x.id)], "このリストでかけた分のアポ率（直近3か月）")}${(() => { const e = _nmRates && _nmRates.expected && _nmRates.expected[String(x.id)]; return e ? nmExpPill(e.rate, `想定アポ率：このリストの実績（${e.calls}コール）を${e.basis}の実績に寄せてならした見込み`) : ""; })()}</div>
       <div class="nm-lcard-sub">ナーチャリング ${nur}・全 ${all}${_nmSel.type !== "owner" && sub ? "・" + esc(sub) : ""}</div>${nmBar(zan, all)}
       <div class="nm-lcard-grp"><select class="nm-group" data-id="${x.id}" title="このリストのグループ">${nmGroupOpts(x.group_id)}</select></div>
-      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button>${hid ? `<button type="button" class="nm-mi nm-unhide" data-id="${x.id}" data-name="${esc(x.name)}">表示に戻す</button>` : `<button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button>`}<button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
+      <div class="nm-lcard-ops"><select class="nm-move" data-id="${x.id}"><option value="">別の人へ割り振り…</option><option value="__unassign__">その他（未割り当て）へ</option>${opts}</select><div class="nm-kebab-wrap"><button type="button" class="nm-kebab" title="その他の操作">⋯</button><div class="nm-kmenu" hidden><button type="button" class="nm-mi nm-redist" data-id="${x.id}" data-name="${esc(x.name)}">複数人に分ける</button>${hid ? `<button type="button" class="nm-mi nm-unhide" data-id="${x.id}" data-name="${esc(x.name)}">表示に戻す</button>` : `<button type="button" class="nm-mi nm-hide" data-id="${x.id}" data-name="${esc(x.name)}">非表示にする</button>`}<button type="button" class="nm-mi nm-hh" data-id="${x.id}" data-name="${esc(x.name)}" data-on="${_nmHideHist.has(Number(x.id)) ? 1 : 0}">${_nmHideHist.has(Number(x.id)) ? "架電履歴を見せる" : "架電履歴を見せない（履歴なしにする）"}</button><button type="button" class="nm-mi nm-del" data-id="${x.id}" data-name="${esc(x.name)}">削除する</button></div></div></div>
     </div>`;
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
@@ -8157,6 +8157,7 @@ function nmRenderDetail() {
   }
   body.querySelectorAll(".nm-move").forEach((sel) => sel.addEventListener("change", () => nmMove(sel.dataset.id, sel.value)));
   body.querySelectorAll(".nm-hide").forEach((b) => b.addEventListener("click", () => nmHide(b.dataset.id, b.dataset.name)));
+  body.querySelectorAll(".nm-hh").forEach((b) => b.addEventListener("click", () => nmHideHistory(b.dataset.id, b.dataset.name, b.dataset.on !== "1")));
   body.querySelectorAll(".nm-unhide").forEach((b) => b.addEventListener("click", () => nmUnhide(b.dataset.id, b.dataset.name)));
   body.querySelectorAll(".nm-redist").forEach((b) => b.addEventListener("click", () => openRedistribute(b.dataset.id, b.dataset.name, null, null, nmLoad)));
   body.querySelectorAll(".nm-del").forEach((b) => b.addEventListener("click", () => nmDelete(b.dataset.id, b.dataset.name)));
@@ -8381,6 +8382,21 @@ async function nmUnhide(listId, name) {
     if (!r.ok) throw new Error();
     await nmFetch(); nmRenderRoot(); const s2 = $("nmOpSt"); if (s2) s2.textContent = `「${name}」を表示に戻しました（かける画面にも出ます）`;
   } catch { const s2 = $("nmOpSt"); if (s2) s2.textContent = "できませんでした（権限がないか、通信に失敗しました）"; }
+}
+// 架電履歴を見せない（履歴なしにする）リスト
+let _nmHideHist = new Set();
+async function nmFetchHideHist() { try { const d = await (await fetch("/api/calls/hide-history-lists")).json(); _nmHideHist = new Set((d.ids || []).map(Number)); } catch {} }
+nmFetchHideHist();
+async function nmHideHistory(listId, name, hide) {
+  if (hide && !confirm(`「${name}」の架電履歴を見せないようにします。\nかける画面では、このリストのリードは「履歴なし」として出ます（記録は今までどおり残ります）。よろしいですか？`)) return;
+  const st = $("nmOpSt"); if (st) st.textContent = "変えています…";
+  try {
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/hide-history`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ hide }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "");
+    await nmFetchHideHist(); nmRenderRoot();
+    const s2 = $("nmOpSt"); if (s2) s2.textContent = hide ? `「${name}」は架電履歴を見せない（履歴なし）にしました` : `「${name}」の架電履歴を見せるようにしました`;
+  } catch (e) { const s2 = $("nmOpSt"); if (s2) s2.textContent = "できませんでした（" + (e.message || "権限がないか通信に失敗") + "）"; }
 }
 async function nmHide(listId, name) {
   if (!confirm(`「${name}」を非表示にします。よろしいですか？\n（もとのSalesforceのリードは残ります）`)) return;

@@ -10923,6 +10923,15 @@ app.get("/api/calls/targets", async (req, res) => {
       } catch (e) { console.warn("[calls/targets] MO失注の項目の付与に失敗", e.message); }
     }
 
+    // 履歴を見せないリストのリードは、履歴なしに見せる（架電の数・最後にかけた日・最後のコメントを出さない）
+    try {
+      const hh = await hideHistorySet();
+      const lid = parseInt(listParam, 10);
+      if (hh.size) for (const x of items) {
+        if (hh.has(Number(x.listId || lid))) { x.履歴数 = 0; x.最終日時 = null; x.最終コメント = ""; x.履歴なし = true; }
+      }
+    } catch {}
+
     // 各社の営業時間（Googleキャッシュ）から、営業中/営業時間外を付ける。
     if (placesEnabled()) {
       try {
@@ -10975,11 +10984,32 @@ app.get("/api/calls/recruit/status", async (req, res) => {
 });
 
 // 1件の履歴（モーダルで出す）
+// 履歴を見せないリスト：架電の履歴を出さず「履歴なし」にする（前の記録を気にせず回すため）。settings.hideHistoryLists＝リストIDの一覧
+async function hideHistorySet() {
+  const st = await getSettings().catch(() => ({}));
+  return new Set((Array.isArray(st.hideHistoryLists) ? st.hideHistoryLists : []).map((x) => Number(x)).filter(Boolean));
+}
+app.get("/api/calls/hide-history-lists", async (req, res) => {
+  try { res.json({ ok: true, ids: [...(await hideHistorySet())] }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/calls/lists/:id/hide-history", async (req, res) => {
+  try {
+    if (!req.isAdmin && !(await isCloserUser(req.user).catch(() => false)) && !canHideLists(req)) return res.status(403).json({ error: "変えられるのは管理者・クローザーだけです" });
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: "リストがわかりません" });
+    const set = await hideHistorySet();
+    if (req.body?.hide === true) set.add(id); else set.delete(id);
+    await saveSettings({ hideHistoryLists: [...set] });
+    console.log(`[kincall] リスト${id}の履歴を${req.body?.hide === true ? "見せない" : "見せる"}ようにしました by ${req.user}`);
+    res.json({ ok: true, hide: set.has(id) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/calls/targets/:id/history", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const t = await getCallTarget(id);
     if (!t) return res.status(404).json({ error: "見つかりません" });
+    if ((await hideHistorySet()).has(Number(t.list_id))) return res.json({ items: [], hidden: true, note: "履歴なし（このリストは、前の架電の記録を出さない設定です）" });
     // 履歴はSalesforceに残っているものだけを出す。
     // kinbot側の記録は、SFへ送れなかったものだけを出す（送れていれば同じものが二重になるため）。
     const rows = await callHistory(id, t.lead_id, 50);
@@ -24791,7 +24821,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-18j kincallの記録の窓：「次回いつかける？」の来年の隣に「当分架電しない」。選ぶとお断りでも日付なしで記録でき、次回の予定を約半年後（NO_CALL_DAYS、既定180日）にして今日かけるリードに出さない。";
+const BUILD_TAG = "2026-10-18k リスト管理の「⋯」に「架電履歴を見せない（履歴なしにする）」。そのリストのリードは、かける画面で履歴数0・最終架電日なし・最終コメントなし、記録の窓のやり取りも「履歴なし」。記録は今までどおり残る。";
 const BUILD_FEATURES = [
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
   "申込書回収で、NB_Project_Management_Sheet（企業様情報）に自動記入",
