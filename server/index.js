@@ -11658,9 +11658,10 @@ function csMissing(k) {
   if (!k.confirm_start && (!f.次回MTGの日時 || f.次回MTGの日時 === "未確認")) miss.push("確認MTGの日時");
   return miss;
 }
+// アラートは基本 @all で知らせる（2026-10-19 田中さん）。FSがスペースにいれば、名前も添える
 async function csMentionFs(space, fsName) {
   const m = fsName ? await mentionFor(space, fsName).catch(() => "") : "";
-  return m || "<users/all>";
+  return m ? `<users/all> ${m}` : `<users/all>${fsName ? `（FS：${fsName}）` : ""}`;
 }
 async function csAlertMissing(k, { reminder = false } = {}) {
   const miss = csMissing(k);
@@ -24998,7 +24999,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19e CS連携：回収MTGの情報が足りない（納品月・公開予定・活用場所・請求・確認MTG）ときは、OBスレのスレッドでFSにメンション（見つからなければ@all）、毎朝10時に最大3回まで再送。FSのカレンダーでキックオフが終わって2時間たっても議事録が無ければ知らせる。御礼メールの本文を久野さんの文に。";
+const BUILD_TAG = "2026-10-19f CS連携のアラート（情報が足りない・議事録がない）は基本 @all でメンション。FSがスペースにいれば、その人のメンションも添える。";
 const BUILD_FEATURES = [
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
   "スマホからボタン1つで次の商談に切り替える画面（商談の切り替え）",
