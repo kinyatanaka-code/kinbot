@@ -1594,3 +1594,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-19 BUILD_TAG=2026-10-19k 田中さん「企業IDは、その企業のサイトのドメイン。https://www.seifuso.com/ なら seifuso」。csDomainId（www・www2 を除いた先頭のラベル、英数字とハイフン）。csPortalIdFor のサイトの順：①管理シート（企業様情報）の C／D が同じ会社の H列（csSheetSiteFor）②紐づいたSF商談の Account.Website ③lookupCompanyWebsite、どれも無いときだけ候補者用画面のURLの最後。版20261019k。
 
 - 2026-10-19 BUILD_TAG=2026-10-19l 田中さん「回収MTGをした人とCS全員をメンションするようにチャットに通知してほしい」。csMentionFs：FS＋csSettings().members（役割CSの在籍中の人＋設定の人）の名前を mentionFor でメンション、スペースにいない人は「@名前」と書くだけ、だれも分からないときだけ @all。【回収MTG完了】の投稿・修正版（csPost の先頭行）、情報が足りない・議事録がないのアラート、CS担当を自動で選んだ知らせで使う。版20261019l。
+
+- 2026-10-19 BUILD_TAG=2026-10-19m ヘルプサイトの用意が「browserType.launch … /tmp/chromium: error while loading shared libraries: libnss3.so」で失敗（Railwayのサーバーに Chromium 用のライブラリが無い）。@sparticuz/chromium は AWS Lambda のときだけ同梱のライブラリ（al2023.tar.br：libnss3・libnspr4・libexpat など）を /tmp/al2023/lib に出して LD_LIBRARY_PATH に足すので、csplatform.js の launch で読み込む前に AWS_LAMBDA_JS_RUNTIME=nodejs22.x（Lambda のふり）を入れる（どちらの環境変数も無いときだけ）。手元で /tmp/al2023/lib/libnss3.so が出て起動できるのを確認。版20261019m。

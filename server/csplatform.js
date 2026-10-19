@@ -19,6 +19,9 @@ export function cspIssueAccount(opts) {
 async function launch() {
   let chromium, pw;
   try { pw = await import("playwright-core"); } catch { throw new Error("ブラウザの部品（playwright-core）が入っていません"); }
+  // Railway のサーバーには Chromium が要るライブラリ（libnss3 など）が無い。@sparticuz/chromium は AWS Lambda のときだけ
+  // 同梱のライブラリを /tmp/al2023/lib に出して LD_LIBRARY_PATH に足すので、読み込む前に Lambda（Node 22）のふりをさせる
+  if (!process.env.AWS_LAMBDA_JS_RUNTIME && !process.env.AWS_EXECUTION_ENV) process.env.AWS_LAMBDA_JS_RUNTIME = "nodejs22.x";
   try { chromium = (await import("@sparticuz/chromium")).default; } catch { throw new Error("ブラウザの部品（@sparticuz/chromium）が入っていません"); }
   const executablePath = process.env.CSP_CHROME_PATH || await chromium.executablePath();
   return pw.chromium.launch({ executablePath, args: chromium.args, headless: true });

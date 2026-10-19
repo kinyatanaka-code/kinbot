@@ -25249,7 +25249,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19l CS連携のChatの知らせ（回収MTG完了・修正版・情報が足りない・議事録がない・CS担当を自動で選んだ）は、回収MTGをした人（FS）とCS全員をメンションする（@allはやめた）。";
+const BUILD_TAG = "2026-10-19m ヘルプサイトの自動操作：Railwayのサーバーに無いChromium用のライブラリ（libnss3など）を、@sparticuz/chromium に同梱のものを出して使うように（ブラウザが起動できなかった）。";
 const BUILD_FEATURES = [
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
