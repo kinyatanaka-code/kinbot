@@ -1592,3 +1592,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-19 BUILD_TAG=2026-10-19j 田中さん「確認MTG・次回MTGの日時が確定したら、その時間をCSのカレンダーを見て自動で割り振ってほしい」（サトウプロダクトの修正版：確認MTG 11/20 13:00〜 なのに CS担当：未定）。原因：確認MTGの日時（confirm_start）が空で、議事録の「次回MTGの日時」の文だけだったので、自動で選ぶ処理が動かなかった（取り込み時しか文から日時を作っていなかった）。csEnsureConfirmAndCs：confirm_start が空で次回MTGの日時の文から csParseDT で日時が作れれば入れ（confirm_from＝議事録）、CS担当が未定なら csAutoPickCs → リンク・CSのカレンダーの予定 → スレッドに「👤 CS担当：○○（確認MTG ○○ に空いている人から自動で選びました）」。読み取り直す・修正版の投稿（このときは投稿の中にCS担当が入るので知らせは出さない）・保存・取り込み・起動時・5分ごと（直近30日、確認MTGがこれから・CS未定）で呼ぶ。版20261019j。
 
 - 2026-10-19 BUILD_TAG=2026-10-19k 田中さん「企業IDは、その企業のサイトのドメイン。https://www.seifuso.com/ なら seifuso」。csDomainId（www・www2 を除いた先頭のラベル、英数字とハイフン）。csPortalIdFor のサイトの順：①管理シート（企業様情報）の C／D が同じ会社の H列（csSheetSiteFor）②紐づいたSF商談の Account.Website ③lookupCompanyWebsite、どれも無いときだけ候補者用画面のURLの最後。版20261019k。
+
+- 2026-10-19 BUILD_TAG=2026-10-19l 田中さん「回収MTGをした人とCS全員をメンションするようにチャットに通知してほしい」。csMentionFs：FS＋csSettings().members（役割CSの在籍中の人＋設定の人）の名前を mentionFor でメンション、スペースにいない人は「@名前」と書くだけ、だれも分からないときだけ @all。【回収MTG完了】の投稿・修正版（csPost の先頭行）、情報が足りない・議事録がないのアラート、CS担当を自動で選んだ知らせで使う。版20261019l。

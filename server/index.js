@@ -11526,7 +11526,9 @@ async function csSpace() {
 async function csPost(k, { edited = false } = {}) {
   const f = k.fields || {};
   try {
-    const msg = await postToSpaceThread(await csSpace(), csPostText(k, f, { edited, csNote: k._csAuto ? "空いている人から自動で選びました" : k._csAutoNg || "" }), k.chat_thread || "");
+    const space = await csSpace();
+    const who = await csMentionFs(space, k.fs_name).catch(() => "");
+    const msg = await postToSpaceThread(space, `${who ? `${who}\n` : ""}${csPostText(k, f, { edited, csNote: k._csAuto ? "空いている人から自動で選びました" : k._csAutoNg || "" })}`, k.chat_thread || "");
     return await upsertCsKickoff(k.bot_id, { chat_thread: (msg.thread && msg.thread.name) || k.chat_thread || null, chat_message: msg.name || null, posted_at: new Date().toISOString(), error: null });
   } catch (e) {
     console.warn("[cs] OBスレへの投稿に失敗", e.message);
@@ -11759,10 +11761,15 @@ function csMissing(k) {
   if (!k.confirm_start && (!f.次回MTGの日時 || f.次回MTGの日時 === "未確認")) miss.push("確認MTGの日時");
   return miss;
 }
-// アラートは基本 @all で知らせる（2026-10-19 田中さん）。FSがスペースにいれば、名前も添える
+// CS連携の知らせは、回収MTGをした人（FS）とCS全員をメンションする（2026-10-19 田中さん）。
+// スペースにいない人は名前だけ書く。だれも分からないときだけ @all
 async function csMentionFs(space, fsName) {
-  const m = fsName ? await mentionFor(space, fsName).catch(() => "") : "";
-  return m ? `<users/all> ${m}` : `<users/all>${fsName ? `（FS：${fsName}）` : ""}`;
+  const cfg = await csSettings().catch(() => ({ members: [] }));
+  const names = [...new Set([fsName, ...(cfg.members || []).map((m) => m.name)].map((x) => String(x || "").trim()).filter(Boolean))];
+  if (!names.length) return "<users/all>";
+  const parts = [];
+  for (const n of names) { const m = await mentionFor(space, n).catch(() => ""); parts.push(m || `@${n}`); }
+  return parts.join(" ");
 }
 async function csAlertMissing(k, { reminder = false } = {}) {
   const miss = csMissing(k);
@@ -11887,7 +11894,7 @@ async function csEnsureConfirmAndCs(k, { announce = true } = {}) {
   if (!pk || !pk.email) return k;
   k = (await upsertCsKickoff(k.bot_id, { cs_email: pk.email, cs_name: pk.name })) || k;
   k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
-  if (announce) await postToSpaceThread(await csSpace(), `👤 CS担当：${pk.name}（確認MTG ${csFmtDT(k.confirm_start)} に空いている人から自動で選びました）`, k.chat_thread || "").catch(() => {});
+  if (announce) { const sp = await csSpace(); const who = await csMentionFs(sp, k.fs_name).catch(() => ""); await postToSpaceThread(sp, `${who} 👤 CS担当：${pk.name}（確認MTG ${csFmtDT(k.confirm_start)} に空いている人から自動で選びました）`, k.chat_thread || "").catch(() => {}); }
   console.log(`[cs] CS担当を自動で選びました：${k.company} → ${pk.name}`);
   return k;
 }
@@ -25242,7 +25249,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19k ヘルプサイトの企業IDを、その会社のサイトのドメインの頭で作る（https://www.seifuso.com/ → seifuso）。サイトは管理シートのH列 → SFの取引先のWebサイト → 探す の順。";
+const BUILD_TAG = "2026-10-19l CS連携のChatの知らせ（回収MTG完了・修正版・情報が足りない・議事録がない・CS担当を自動で選んだ）は、回収MTGをした人（FS）とCS全員をメンションする（@allはやめた）。";
 const BUILD_FEATURES = [
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
