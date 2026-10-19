@@ -11691,20 +11691,48 @@ async function csAutoPickCs(confirmIso, members, { exclude = "" } = {}) {
 }
 // ヘルプサイト（CS Platform）のアカウント：企業名で企業を追加し、企業IDをそろえ、案内文（URL・ID・パスワード）を受け取る
 //   企業ID：候補者用画面のURLの最後（…/kacnet → kacnet）→ 会社のサイトのドメインの頭（kacnet.co.jp → kacnet）
+// 企業ID＝その会社のサイトのドメインの頭（https://www.seifuso.com/ → seifuso、https://www.rc-aikoh.or.jp/ → rc-aikoh）（2026-10-19 田中さん）
+//   サイトは ①管理シート（企業様情報）のH列 ②SFの取引先のWebサイト ③探す。どれも無いときだけ、候補者用画面のURLの最後
+function csDomainId(url) {
+  try {
+    const host = new URL(/^https?:\/\//.test(String(url || "")) ? String(url) : `https://${url}`).hostname.toLowerCase().replace(/^www\d*\./, "");
+    const head = host.split(".")[0] || "";
+    return head.replace(/[^a-z0-9-]/g, "").replace(/^-+|-+$/g, "").slice(0, 40);
+  } catch { return ""; }
+}
+async function csSheetSiteFor(company) {
+  try {
+    const writer = await nbSheetWriter([]);
+    if (!writer) return "";
+    const rows = await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!C4:H3000`).catch(() => []);
+    const key = normCompanyKey(String(company || "").normalize("NFKC"));
+    const hit = rows.find((r) => key && [r[0], r[1]].some((v) => normCompanyKey(String(v || "").normalize("NFKC")) === key) && /^https?:\/\//.test(String(r[5] || "").trim()));
+    return hit ? String(hit[5]).trim() : "";
+  } catch { return ""; }
+}
 async function csPortalIdFor(k) {
   const f = k.fields || {};
   const co = (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company;
-  const clean = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9-]/g, "").replace(/^-+|-+$/g, "").slice(0, 40);
+  // ① 管理シートのH列（サイト）
+  const s1 = await csSheetSiteFor(co);
+  if (csDomainId(s1)) return csDomainId(s1);
+  // ② SFの取引先のWebサイト（紐づいている商談から）
+  try {
+    const opp = (/\/(006[A-Za-z0-9]{12,15})/.exec(String(k.sf_url || "")) || [])[1] || "";
+    const sfUser = opp ? await pickSfUser(k.fs_email || "").catch(() => "") : "";
+    if (opp && sfUser && (await sfConnected(sfUser).catch(() => false))) {
+      const r = await sfQuery(sfUser, `SELECT Account.Website FROM Opportunity WHERE Id = '${opp}' LIMIT 1`).catch(() => null);
+      const w = r && r.records && r.records[0] && r.records[0].Account && r.records[0].Account.Website;
+      if (csDomainId(w)) return csDomainId(w);
+    }
+  } catch {}
+  // ③ 探す
+  try { const w = await lookupCompanyWebsite(co, k.fs_email); if (w && csDomainId(w.url)) return csDomainId(w.url); } catch {}
+  // どれも無いとき：候補者用画面のURLの最後
   const urls = await getDocUrls(k.account).catch(() => ({}));
   const cand = urls.doc_candidate_url || await csCandidateUrlFor(co, [k.fs_email]).catch(() => "");
   const m = /brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(String(cand || ""));
-  if (m && clean(m[1])) return clean(m[1]);
-  try {
-    const w = await lookupCompanyWebsite(co, k.fs_email);
-    const host = w && w.url ? new URL(w.url).hostname.replace(/^www\./, "") : "";
-    if (host && clean(host.split(".")[0])) return clean(host.split(".")[0]);
-  } catch {}
-  return "";
+  return m ? m[1].toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40) : "";
 }
 async function csIssuePortal(k, { force = false } = {}) {
   if (!k) return k;
@@ -25214,7 +25242,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19j CS連携：確認MTG（次回MTG）の日時が決まったら、議事録の文の日時でも確認MTGの日時に入れて、CSのカレンダーで空いている人を自動で割り振る（読み取り直す・修正版・保存・5分ごと）。";
+const BUILD_TAG = "2026-10-19k ヘルプサイトの企業IDを、その会社のサイトのドメインの頭で作る（https://www.seifuso.com/ → seifuso）。サイトは管理シートのH列 → SFの取引先のWebサイト → 探す の順。";
 const BUILD_FEATURES = [
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
