@@ -10,6 +10,7 @@ const BASE = () => String(process.env.CSP_BASE_URL || "https://cs-platform-a4bx7
 
 let _busy = Promise.resolve();
 // 同時に2つ動かさない（ブラウザは重いので1つずつ）
+export function cspSetOwner(opts) { return cspIssueAccount({ ...opts, ownerOnly: true }); }
 export function cspIssueAccount(opts) {
   const run = _busy.then(() => issueOnce(opts));
   _busy = run.catch(() => {});
@@ -27,7 +28,26 @@ async function launch() {
   return pw.chromium.launch({ executablePath, args: chromium.args, headless: true });
 }
 
-async function issueOnce({ companyName, companyId = "", onStep = null }) {
+// CS担当者を選ぶ（「CS担当者」の選択欄。選ぶとそのまま保存される作り。保存のボタンがあれば押す）
+async function setCsOwner(page, csName, say) {
+  const want = String(csName || "").replace(/[\s　]/g, "");
+  if (!want) return "";
+  const sel = page.locator('xpath=//*[normalize-space(text())="CS担当者"]/following::select[1]').first();
+  if (!(await sel.count())) { say("CS担当者の欄が見つかりませんでした"); return ""; }
+  const opts = await sel.locator("option").evaluateAll((os) => os.map((o) => ({ v: o.value, t: (o.textContent || "").trim() })));
+  const hit = opts.find((o) => o.t.replace(/[\s　]/g, "") === want) || opts.find((o) => { const t = o.t.replace(/[\s　]/g, ""); return t && (t.includes(want) || want.includes(t)) && !/未設定/.test(t); });
+  if (!hit) { say(`CS担当者に「${csName}」がいませんでした（CS Platformの設定でCS担当者を足してください）`); return ""; }
+  const cur = await sel.inputValue().catch(() => "");
+  if (cur === hit.v) { say(`CS担当者はすでに「${hit.t}」です`); return hit.t; }
+  await sel.selectOption(hit.v);
+  await page.waitForTimeout(1200);
+  const save = page.locator('xpath=//*[normalize-space(text())="CS担当者"]/following::button[1]').first();
+  if (await save.count()) { const tx = (await save.innerText().catch(() => "")).trim(); if (/保存|更新|変更/.test(tx)) { await save.click(); await page.waitForTimeout(1000); } }
+  say(`CS担当者を「${hit.t}」にしました`);
+  return hit.t;
+}
+
+async function issueOnce({ companyName, companyId = "", csName = "", ownerOnly = false, onStep = null }) {
   const log = [];
   const say = (t) => { log.push(t); console.log(`[csp] ${t}`); try { if (onStep) onStep(t); } catch {} };
   say("ブラウザを起動しています");
@@ -114,6 +134,10 @@ async function issueOnce({ companyName, companyId = "", onStep = null }) {
     const idOf = async () => { const t = await page.locator("body").innerText(); return ((/企業ID[：:]\s*([A-Za-z0-9_.-]+)/.exec(t) || [])[1]) || ""; };
     let curId = await idOf();
     say(`企業を開きました（いまの企業ID：${curId || "なし"}）`);
+    if (ownerOnly) {
+      const set = await setCsOwner(page, csName, say);
+      return { ok: !!set, companyId: curId, csOwner: set, error: set ? "" : "CS担当者を入れられませんでした", log };
+    }
 
     // 5) まだアカウントが無い（企業ID：未発行）とき：企業IDを入れて「アカウント発行」
     const want = String(companyId || "").trim();
@@ -168,7 +192,9 @@ async function issueOnce({ companyName, companyId = "", onStep = null }) {
     const loginUrl = ((/ログインURL[：:]\s*(https?:\/\/\S+)/.exec(await page.locator("body").innerText()) || [])[1]) || `${BASE()}/portal/login`;
     if (!text) throw new Error("案内文を受け取れませんでした（コピーのしくみが想定と違う可能性）");
     say("案内文をコピーしました");
-    return { ok: true, companyId: curId, text: text.trim(), loginUrl, log };
+    let csOwner = "";
+    if (csName) { say(`CS担当者に「${csName}」を入れています`); csOwner = await setCsOwner(page, csName, say).catch(() => ""); }
+    return { ok: true, companyId: curId, text: text.trim(), loginUrl, csOwner, log };
   } catch (e) {
     let shot = "";
     try { if (page) shot = (await page.screenshot({ type: "png", fullPage: false })).toString("base64"); } catch {}

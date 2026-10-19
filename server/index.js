@@ -95,7 +95,7 @@ function readMemory() {
   return _memCache;
 }
 import { normalizeSpace, deleteChatMessage, postToSpaceThread, mentionFor } from "./chatapp.js";
-import { cspIssueAccount, cspConfigured } from "./csplatform.js";
+import { cspIssueAccount, cspSetOwner, cspConfigured } from "./csplatform.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
 import { openDocView, beatDocViewAndNotify, recordOpen, recordClick, recordDownload, sweepStaleViews,
@@ -11736,6 +11736,17 @@ async function csPortalIdFor(k) {
   const m = /brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(String(cand || ""));
   return m ? m[1].toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40) : "";
 }
+// CS担当が決まった・変わったら、CS Platformの「CS担当者」もそろえる（アカウントを用意したあとだけ・裏で動かす）
+function csSyncPortalOwner(k) {
+  if (!k || !k.portal_text || !k.cs_name || !cspConfigured()) return;
+  if (String(k.portal_cs || "").replace(/[\s　]/g, "") === String(k.cs_name).replace(/[\s　]/g, "")) return;
+  const f = k.fields || {};
+  const co = (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company;
+  cspSetOwner({ companyName: co, csName: k.cs_name }).then(async (r) => {
+    if (r && r.ok) await upsertCsKickoff(k.bot_id, { portal_cs: r.csOwner || k.cs_name });
+    else console.warn("[cs] CS Platformの担当者", r && r.error, r && r.log);
+  }).catch(() => {});
+}
 // ヘルプサイトを用意している進み具合（画面に出す）：bot_id → { running, steps:[{t,at}], startedAt, done, ok }
 const _portalProgress = new Map();
 async function csIssuePortal(k, { force = false } = {}) {
@@ -11750,14 +11761,14 @@ async function csIssuePortal(k, { force = false } = {}) {
   const wantId = await csPortalIdFor(k).catch(() => "");
   step(wantId ? `企業IDは「${wantId}」にします` : "企業IDが決められませんでした（CS Platformで付いたIDのままにします）");
   step("ほかの会社の用意が終わるのを待っています（1社ずつ動かします）");
-  const r = await cspIssueAccount({ companyName: co, companyId: wantId, onStep: step });
+  const r = await cspIssueAccount({ companyName: co, companyId: wantId, csName: k.cs_name || "", onStep: step });
   prog.running = false; prog.done = true; prog.ok = !!r.ok;
   step(r.ok ? "用意できました" : `止まりました：${r.error}`);
   if (!r.ok) {
     console.warn("[cs] ヘルプサイトのアカウント", r.error, r.log);
     return (await upsertCsKickoff(k.bot_id, { portal_error: `${r.error}${r.log && r.log.length ? `（${r.log.join(" → ")}）` : ""}`, portal_shot: r.screenshot || null })) || k;
   }
-  k = (await upsertCsKickoff(k.bot_id, { portal_id: r.companyId || wantId || null, portal_text: r.text, portal_at: new Date().toISOString(), portal_error: null, portal_shot: null })) || k;
+  k = (await upsertCsKickoff(k.bot_id, { portal_id: r.companyId || wantId || null, portal_text: r.text, portal_at: new Date().toISOString(), portal_error: null, portal_shot: null, portal_cs: r.csOwner || null })) || k;
   await postToSpaceThread(await csSpace(), `🔑 ヘルプサイトのアカウントを用意しました（企業ID：${r.companyId || wantId || "-"}）。御礼メールに案内文を入れます。`, k.chat_thread || "").catch(() => {});
   return k;
 }
@@ -11903,6 +11914,7 @@ async function csEnsureConfirmAndCs(k, { announce = true } = {}) {
   if (!pk || !pk.email) return k;
   k = (await upsertCsKickoff(k.bot_id, { cs_email: pk.email, cs_name: pk.name })) || k;
   k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
+  csSyncPortalOwner(k);
   if (announce) { const sp = await csSpace(); const who = await csMentionFs(sp, k.fs_name).catch(() => ""); await postToSpaceThread(sp, `${who} 👤 CS担当：${pk.name}（確認MTG ${csFmtDT(k.confirm_start)} に空いている人から自動で選びました）`, k.chat_thread || "").catch(() => {}); }
   console.log(`[cs] CS担当を自動で選びました：${k.company} → ${pk.name}`);
   return k;
@@ -12054,6 +12066,7 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
       const st = new Date(k.confirm_start);
       await pool.query(`UPDATE smart_links SET start_time=$2, end_time=$3 WHERE slug=$1`, [k.confirm_slug, st.toISOString(), new Date(st.getTime() + 3600000).toISOString()]).catch(() => {});
     }
+    if (k.cs_email !== k0.cs_email) csSyncPortalOwner(k);
     res.json({ ok: true, kickoff: k, autoNote });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12094,6 +12107,7 @@ app.post("/api/cs/kickoffs/:bot/autocs", async (req, res) => {
     if (!pk.email) return res.status(409).json({ error: pk.reason });
     let k = await upsertCsKickoff(k0.bot_id, { cs_email: pk.email, cs_name: pk.name });
     k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
+    csSyncPortalOwner(k);
     res.json({ ok: true, kickoff: k, picked: pk.name, reason: pk.reason });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -25264,7 +25278,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19p ヘルプサイトの自動操作：企業ID「未発行」の会社は、ポータルアカウントの欄に企業ID（サイトのドメイン）を入れて「アカウント発行」を押してから、案内文をコピーするように。";
+const BUILD_TAG = "2026-10-19q ヘルプサイト（CS Platform）の「CS担当者」も、kinbotのCS担当で自動で入れる（アカウントを用意したとき、あとでCS担当が決まった・変わったとき）。";
 const BUILD_FEATURES = [
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",
