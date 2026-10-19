@@ -1,5 +1,25 @@
 // CS連携（DOC 回収MTG＝キックオフ → CS）
 const $ = (id) => document.getElementById(id);
+// ===== アイコン（kinbotオリジナルの線画。絵文字は使わない）=====
+const CSI = {
+  co: '<path d="M4 20V6.5L11 3l7 3.5V20"/><path d="M8 9h2M12 9h2M8 13h2M12 13h2M10 20v-3h2v3"/><path d="M2.5 20h19"/>',
+  hear: '<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4.5V3h6v1.5"/><path d="M8.5 10h7M8.5 13.5h7M8.5 17h4"/>',
+  todo: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 2.6 2.6L16 9.4"/>',
+  cs: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.6 3.6-5.5 7-5.5s6.2 1.9 7 5.5"/>',
+  cal: '<rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66L11.5 6.8"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.5-1.46"/>',
+  key: '<circle cx="8" cy="15" r="4"/><path d="m11 12 8-8M16 7l2.5 2.5M14 9l2 2"/>',
+  mail: '<rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m4 7.5 8 6 8-6"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/>',
+  doc: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 15.5h6M9 19h3"/>',
+  redo: '<path d="M20 12a8 8 0 1 1-2.35-5.66"/><path d="M20 4v4.5h-4.5"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+  save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/>',
+  send: '<path d="M3.5 11.5 20.5 4l-6 16.5-3.2-7z"/><path d="m11.3 13.5 9.2-9.5"/>',
+  sf: '<path d="M7.5 18a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 17.3 8 4.5 4.5 0 0 1 17 18z"/>',
+};
+const ci = (name, size = 16) => `<svg class="csi" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${CSI[name] || ""}</svg>`;
+
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let csData = null;
 let csOpen = new URLSearchParams(location.search).get("bot") || "";
@@ -50,7 +70,7 @@ function render() {
       </dl>
       <div class="cs-co-foot">
         ${k.draft_at ? '<span class="cs-pill ok">御礼メール下書きあり</span>' : '<span class="cs-pill">御礼メール：まだ</span>'}
-        ${k.kenshu_at && k.kenshu_mode === "send" ? `<span class="cs-pill ok">検収書：依頼済み ${esc(fmtDT(k.kenshu_at).split(" ")[0])}</span>` : `<button type="button" class="cs-ks-btn" data-ks="${esc(k.bot_id)}">📝 検収書を依頼する</button>`}
+        ${k.kenshu_at && k.kenshu_mode === "send" ? `<span class="cs-pill ok">検収書：依頼済み ${esc(fmtDT(k.kenshu_at).split(" ")[0])}</span>` : `<button type="button" class="cs-ks-btn" data-ks="${esc(k.bot_id)}">${ci("doc", 13)}検収書を依頼する</button>`}
         ${unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : ""}
         ${k.error ? '<span class="cs-pill ng">エラー</span>' : ""}
       </div>
@@ -75,37 +95,37 @@ function render() {
     const csOpts = `<option value="">未定</option>` + d.members.map((m) => `<option value="${esc(m.email)}"${m.email === k.cs_email ? " selected" : ""}>${esc(m.name)}</option>`).join("");
     // 見やすく：①ヒアリングの中身 ②宿題 ③CS・確認MTG ④連絡先・リンク ⑤ヘルプサイト のまとまりに分け、ボタンは下に固定
     const fld = (key, lb, wide) => `<div class="cd-f${wide ? " wide" : ""}"><label>${esc(lb)}</label><input data-f="${esc(key)}" value="${esc(f[key] || "")}" class="${!f[key] || f[key] === "未確認" ? "unk" : ""}"></div>`;
-    const sec = (ico, title, body, sub = "") => `<section class="cd-sec"><div class="cd-sh"><span>${ico}</span><b>${esc(title)}</b>${sub}</div>${body}</section>`;
+    const sec = (ico, title, body, sub = "") => `<section class="cd-sec"><div class="cd-sh"><span class="cd-ic">${ci(ico, 15)}</span><b>${esc(title)}</b>${sub}</div>${body}</section>`;
     const link = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>` : "";
     return `<div class="cs-card open cd-wrap">${head}
       <div class="cd-body">
       ${k.error ? `<div class="cs-err" style="margin:0 0 10px">${esc(k.error)}</div>` : ""}
-      ${sec("🏢", "先方", `<div class="cd-grid">
+      ${sec("co", "先方", `<div class="cd-grid">
         ${fld("企業名", "企業名")}${fld("先方ご担当者名", "ご担当者名")}
         <div class="cd-f"><label>メールアドレス（御礼メールの宛先）</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="例：yamada@example.co.jp"></div>
         <div class="cd-f"><label>電話番号 ${k.client_phone ? `<a href="tel:${esc(String(k.client_phone).replace(/[^0-9+]/g, ""))}">かける</a>` : ""}</label><input data-k="clientPhone" value="${esc(k.client_phone || "")}" placeholder="SFの取引先責任者から自動で入ります"></div>
       </div>`)}
-      ${sec("📋", "回収MTGのヒアリング", `<div class="cd-grid">
+      ${sec("hear", "回収MTGのヒアリング", `<div class="cd-grid">
         ${fld("納品月", "納品月")}${fld("公開予定時期", "公開予定")}
         ${fld("請求書着日スケジュール", "請求スケジュール")}${fld("次回MTGの日時", "次回MTG（議事録から）")}
         ${fld("活用場所", "活用場所・利用シーン", true)}${fld("特記事項", "イレギュラー・特記事項", true)}
       </div>`, unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : `<span class="cs-pill ok">そろっています</span>`)}
-      ${sec("✅", "宿題", `<div class="cd-grid">
+      ${sec("todo", "宿題", `<div class="cd-grid">
         <div class="cd-f"><label>弊社の宿題（1行に1つ）</label><textarea data-list="弊社の宿題" rows="4" placeholder="無ければ空（メールの項目ごと出しません）">${esc((f.弊社の宿題 || []).join("\n"))}</textarea></div>
         <div class="cd-f"><label>貴社の宿題（1行に1つ）</label><textarea data-list="貴社の宿題" rows="4" placeholder="初期学習のほかにお願いしたこと">${esc((f.貴社の宿題 || []).join("\n"))}</textarea></div>
       </div>`)}
-      ${sec("👤", "CS担当・確認MTG", `<div class="cd-grid">
+      ${sec("cs", "CS担当・確認MTG", `<div class="cd-grid">
         <div class="cd-f"><label>CS担当</label><div class="cd-row"><select data-k="csEmail">${csOpts}</select><button type="button" class="btn ghost cd-mini" data-act="autocs">空いている人を自動で選ぶ</button></div></div>
         <div class="cd-f"><label>確認MTGの日時</label><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}">
           <div class="cs-sub">${k.confirm_from ? `${esc(k.confirm_from)}から` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　・　${link(k.confirm_url, "確認MTGの参加URL")}` : ""}</div></div>
       </div>`)}
-      ${sec("🔗", "リンク", `<div class="cd-grid">
+      ${sec("link", "リンク", `<div class="cd-grid">
         <div class="cd-f"><label>SFの商談 ${link(k.sf_url, "開く")}</label><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="見つからなかったときは貼ってください"></div>
         <div class="cd-f"><label>候補者用画面のURL ${link(k.doc_candidate_url || k.sheet_candidate_url, "開く")}</label><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `管理シートの値：${k.sheet_candidate_url}` : "管理シートに無いときは、ここに入れる")}">
           <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? "管理シートの値を使います" : (d.candidateSheetError ? `管理シートを読めませんでした：${esc(d.candidateSheetError)}` : "管理シートにこの会社がありません")}</div></div>
         <div class="cd-f"><label>管理画面のURL（全社共通）</label><div class="cd-ro">${esc(d.adminUrl || "")}</div></div>
       </div>`)}
-      ${sec("🔑", "ヘルプサイト（CS Platform）", `
+      ${sec("key", "ヘルプサイト（CS Platform）", `
         ${k.portal_text ? `<div class="cd-kv"><span>企業ID</span><b>${esc(k.portal_id || "-")}</b><span>担当者</span><b>${esc(k.portal_cs || "未設定")}</b><span>用意した日</span><b>${esc(fmtDT(k.portal_at))}</b></div>
           <details class="cd-det"><summary>案内文を見る（御礼メールに入ります）</summary><pre class="cs-portal">${esc(k.portal_text)}</pre></details>` : `<div class="cs-sub">まだ用意していません</div>`}
         ${k.portal_error ? `<div class="cs-err">用意できませんでした：${esc(k.portal_error)}${k.has_portal_shot ? `　<a href="/api/cs/kickoffs/${encodeURIComponent(k.bot_id)}/portal-shot" target="_blank" rel="noopener">そのときの画面</a>` : ""}</div>` : ""}
@@ -115,16 +135,17 @@ function render() {
       </div>
       <div class="cd-foot">
         <div class="cd-foot-main">
-          <button type="button" class="btn" data-act="save">保存</button>
-          <button type="button" class="btn ghost" data-act="repost">保存してOBスレに修正版を投稿</button>
+          <button type="button" class="btn cd-btn" data-act="save">${ci("save")}保存</button>
+          <button type="button" class="btn ghost cd-btn" data-act="repost">${ci("send")}保存してOBスレに修正版を投稿</button>
           <span class="cs-sub" id="csSt2"></span>
         </div>
-        <div class="cd-foot-sub">
-          <button type="button" class="cd-lnk" data-act="draft">✉️ ${k.draft_at ? "御礼メールの下書きを作り直す" : "御礼メールの下書きを作る"}</button>
-          <button type="button" class="cd-lnk" data-act="preview">👀 御礼メールを見る</button>
-          <button type="button" class="cd-lnk" data-act="kenshu">📝 検収書を依頼する</button>
-          <button type="button" class="cd-lnk" data-act="redo">🔄 議事録から読み取り直す</button>
-          <a class="cd-lnk" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">🎙 議事録を開く</a>
+        <div class="cd-acts">
+          <button type="button" class="cd-act" data-act="draft">${ci("mail", 18)}<span>${k.draft_at ? "御礼メールの<br>下書きを作り直す" : "御礼メールの<br>下書きを作る"}</span></button>
+          <button type="button" class="cd-act" data-act="preview">${ci("eye", 18)}<span>御礼メールを<br>見る</span></button>
+          <button type="button" class="cd-act" data-act="kenshu">${ci("doc", 18)}<span>検収書を<br>依頼する</span></button>
+          <button type="button" class="cd-act" data-act="redo">${ci("redo", 18)}<span>議事録から<br>読み取り直す</span></button>
+          <a class="cd-act" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">${ci("mic", 18)}<span>議事録を<br>開く</span></a>
+          ${k.sf_url ? `<a class="cd-act" href="${esc(k.sf_url)}" target="_blank" rel="noopener">${ci("sf", 18)}<span>SFの商談を<br>開く</span></a>` : ""}
         </div>
       </div>
     </div>`;
@@ -313,10 +334,10 @@ async function openKenshu(bot) {
   const date = (key, val) => `<input type="date" data-kk="${key}" value="${esc(val || "")}">`;
   const hasMore = [2, 3, 4].some((n) => v[`item${n}`]) || v.invoiceDate || v.kenshuDate;
   back.innerHTML = `<div class="cs-modal ks-modal" style="width:min(720px,100%)">
-    <div class="cs-h" style="cursor:default"><b>📝 検収書を依頼する</b><span class="cs-sub">${esc(v.company || "")}</span>${d.sentAt ? `<span class="cs-pill ok">${d.sentMode === "send" ? "依頼済み" : "前に開いた"}：${esc(fmtDT(d.sentAt))}</span>` : ""}<button type="button" class="cs-x" data-x aria-label="閉じる">✕</button></div>
+    <div class="cs-h" style="cursor:default"><b class="ks-title">${ci("doc", 18)}検収書を依頼する</b><span class="cs-sub">${esc(v.company || "")}</span>${d.sentAt ? `<span class="cs-pill ok">${d.sentMode === "send" ? "依頼済み" : "前に開いた"}：${esc(fmtDT(d.sentAt))}</span>` : ""}<button type="button" class="cs-x" data-x aria-label="閉じる">✕</button></div>
     ${d.formReady ? `
     <div class="ks-steps"><span class="on">① 内容を確かめる</span><span>›</span><span>② 「この内容で依頼する」を押す</span><span>›</span><span>③ 新しいタブに「回答を記録しました」が出たら完了</span></div>
-    ${d.notes && d.notes.length ? `<div class="ks-warn">⚠️ ${d.notes.map(esc).join("<br>⚠️ ")}</div>` : `<div class="ks-ok">✓ kinbotが中身を入れました。違うところだけ直してください。</div>`}
+    ${d.notes && d.notes.length ? `<div class="ks-warn">${d.notes.map(esc).join("<br>")}</div>` : `<div class="ks-ok">${ci("todo", 14)} kinbotが中身を入れました。違うところだけ直してください。</div>`}
     <div class="cs-grid ks-grid">
       ${row("企業名（正式名称）", txt("company", v.company), true)}
       ${row("商材名", sel("item1", d.itemOptions, v.item1), true)}
