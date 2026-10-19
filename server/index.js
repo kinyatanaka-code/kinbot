@@ -11736,14 +11736,23 @@ async function csPortalIdFor(k) {
   const m = /brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(String(cand || ""));
   return m ? m[1].toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40) : "";
 }
+// ヘルプサイトを用意している進み具合（画面に出す）：bot_id → { running, steps:[{t,at}], startedAt, done, ok }
+const _portalProgress = new Map();
 async function csIssuePortal(k, { force = false } = {}) {
   if (!k) return k;
   if (k.portal_text && !force) return k;
   if (!cspConfigured()) return (await upsertCsKickoff(k.bot_id, { portal_error: "CS Platformのログイン情報（CSP_EMAIL・CSP_PASSWORD）がRailwayに入っていません" })) || k;
   const f = k.fields || {};
   const co = (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k.company;
+  const prog = { running: true, steps: [{ t: "企業IDを決めています（会社のサイトのドメインから）", at: Date.now() }], startedAt: Date.now(), done: false, ok: false };
+  _portalProgress.set(k.bot_id, prog);
+  const step = (t) => prog.steps.push({ t, at: Date.now() });
   const wantId = await csPortalIdFor(k).catch(() => "");
-  const r = await cspIssueAccount({ companyName: co, companyId: wantId });
+  step(wantId ? `企業IDは「${wantId}」にします` : "企業IDが決められませんでした（CS Platformで付いたIDのままにします）");
+  step("ほかの会社の用意が終わるのを待っています（1社ずつ動かします）");
+  const r = await cspIssueAccount({ companyName: co, companyId: wantId, onStep: step });
+  prog.running = false; prog.done = true; prog.ok = !!r.ok;
+  step(r.ok ? "用意できました" : `止まりました：${r.error}`);
   if (!r.ok) {
     console.warn("[cs] ヘルプサイトのアカウント", r.error, r.log);
     return (await upsertCsKickoff(k.bot_id, { portal_error: `${r.error}${r.log && r.log.length ? `（${r.log.join(" → ")}）` : ""}`, portal_shot: r.screenshot || null })) || k;
@@ -12047,6 +12056,12 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
     }
     res.json({ ok: true, kickoff: k, autoNote });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ヘルプサイトを用意している進み具合
+app.get("/api/cs/kickoffs/:bot/portal-progress", async (req, res) => {
+  if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+  const p = _portalProgress.get(req.params.bot);
+  res.json({ ok: true, progress: p ? { ...p, steps: p.steps.map((x) => ({ t: x.t, sec: Math.round((x.at - p.startedAt) / 1000) })) } : null });
 });
 // うまくいかなかったときの画面（確かめ用）
 app.get("/api/cs/kickoffs/:bot/portal-shot", async (req, res) => {
@@ -25249,7 +25264,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19m ヘルプサイトの自動操作：Railwayのサーバーに無いChromium用のライブラリ（libnss3など）を、@sparticuz/chromium に同梱のものを出して使うように（ブラウザが起動できなかった）。";
+const BUILD_TAG = "2026-10-19n ヘルプサイトのアカウントを用意している進み具合を、企業カードの窓に1つずつ出す（企業IDを決める→ブラウザ起動→ログイン→企業管理→探す・追加→設定画面→ID変更→案内文をコピー、かかった秒数つき）。";
 const BUILD_FEATURES = [
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",

@@ -88,7 +88,8 @@ function render() {
         <label>ヘルプサイト</label><div>
           ${k.portal_text ? `<div class="cs-sub">企業ID：<b>${esc(k.portal_id || "-")}</b>（${esc(fmtDT(k.portal_at))} に用意）</div><pre class="cs-portal">${esc(k.portal_text)}</pre>` : `<div class="cs-sub">まだ用意していません</div>`}
           ${k.portal_error ? `<div class="cs-err">用意できませんでした：${esc(k.portal_error)}${k.has_portal_shot ? `　<a href="/api/cs/kickoffs/${encodeURIComponent(k.bot_id)}/portal-shot" target="_blank" rel="noopener">そのときの画面</a>` : ""}</div>` : ""}
-          <button type="button" class="btn ghost" data-act="portal" style="margin-top:6px">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button></div>
+          <button type="button" class="btn ghost" data-act="portal" style="margin-top:6px">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button>
+          <div class="cs-prog" data-portal-prog hidden></div></div>
       </div>
       ${k.error ? `<div class="cs-err">${esc(k.error)}</div>` : ""}
       <div class="cs-act">
@@ -133,10 +134,21 @@ function render() {
     try {
       if (act === "save") { const r = await save(); say(r && r.autoNote ? `保存しました。${r.autoNote}` : "保存しました"); await load(); }
       else if (act === "portal") {
-        say("CS Platformで用意しています…（ブラウザを動かすので30秒ほどかかります）");
+        // 進み具合を1秒ごとに出す
+        const box = card.querySelector("[data-portal-prog]");
+        box.hidden = false; box.innerHTML = `<div class="cs-prog-row now">始めています…</div>`;
+        const draw = (p) => {
+          if (!p) return;
+          const last = p.steps.length - 1;
+          box.innerHTML = p.steps.map((x, i) => `<div class="cs-prog-row ${i === last && p.running ? "now" : (i === last && p.done && !p.ok ? "ng" : "ok")}"><span class="cs-prog-ic">${i === last && p.running ? "⏳" : (i === last && p.done && !p.ok ? "⚠️" : "✓")}</span>${esc(x.t)}<em>${x.sec}秒</em></div>`).join("");
+        };
+        const timer = setInterval(async () => { try { const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/portal-progress`); draw(r.progress); } catch {} }, 1000);
         try { await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/portal`, { method: "POST" }); say("ヘルプサイトのアカウントを用意しました（御礼メールに入ります）"); }
-        catch (e) { say(""); alert(e.message); }
-        await load();
+        catch (e) { say(""); }
+        clearInterval(timer);
+        try { const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/portal-progress`); draw(r.progress); } catch {}
+        setTimeout(load, 2500);
+        b.disabled = false; return;
       }
       else if (act === "autocs") {
         const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/autocs`, { method: "POST", body: JSON.stringify({ exceptCurrent: !!card.querySelector('[data-k="csEmail"]').value }) });

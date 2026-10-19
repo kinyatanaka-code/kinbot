@@ -1596,3 +1596,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-19 BUILD_TAG=2026-10-19l 田中さん「回収MTGをした人とCS全員をメンションするようにチャットに通知してほしい」。csMentionFs：FS＋csSettings().members（役割CSの在籍中の人＋設定の人）の名前を mentionFor でメンション、スペースにいない人は「@名前」と書くだけ、だれも分からないときだけ @all。【回収MTG完了】の投稿・修正版（csPost の先頭行）、情報が足りない・議事録がないのアラート、CS担当を自動で選んだ知らせで使う。版20261019l。
 
 - 2026-10-19 BUILD_TAG=2026-10-19m ヘルプサイトの用意が「browserType.launch … /tmp/chromium: error while loading shared libraries: libnss3.so」で失敗（Railwayのサーバーに Chromium 用のライブラリが無い）。@sparticuz/chromium は AWS Lambda のときだけ同梱のライブラリ（al2023.tar.br：libnss3・libnspr4・libexpat など）を /tmp/al2023/lib に出して LD_LIBRARY_PATH に足すので、csplatform.js の launch で読み込む前に AWS_LAMBDA_JS_RUNTIME=nodejs22.x（Lambda のふり）を入れる（どちらの環境変数も無いときだけ）。手元で /tmp/al2023/lib/libnss3.so が出て起動できるのを確認。版20261019m。
+
+- 2026-10-19 BUILD_TAG=2026-10-19n 田中さん「ヘルプサイトのアカウントを用意している進捗が見えるように」。csplatform.js の issueOnce に onStep（say のたびに呼ぶ）と段階ごとの say（ブラウザ起動・ログイン・企業管理・探す・追加・設定画面・ID変更・案内文をコピー）。index.js の _portalProgress（bot_id → running・steps・startedAt・done・ok）を csIssuePortal で更新（企業IDを決める・待ち・結果も）、GET /api/cs/kickoffs/:bot/portal-progress。cs.js：ボタンを押すと窓の中に進み具合の箱（⏳いまの段階・✓済み・⚠️止まった、秒数）を1秒ごとに描き、終わったら2.5秒後に読み直す。版20261019n。

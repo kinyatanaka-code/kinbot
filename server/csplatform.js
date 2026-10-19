@@ -27,9 +27,10 @@ async function launch() {
   return pw.chromium.launch({ executablePath, args: chromium.args, headless: true });
 }
 
-async function issueOnce({ companyName, companyId = "" }) {
+async function issueOnce({ companyName, companyId = "", onStep = null }) {
   const log = [];
-  const say = (t) => { log.push(t); console.log(`[csp] ${t}`); };
+  const say = (t) => { log.push(t); console.log(`[csp] ${t}`); try { if (onStep) onStep(t); } catch {} };
+  say("ブラウザを起動しています");
   if (!cspConfigured()) return { ok: false, error: "CS Platformのログイン情報（CSP_EMAIL・CSP_PASSWORD）がRailwayに入っていません", log };
   const name = String(companyName || "").trim();
   if (!name) return { ok: false, error: "企業名がありません", log };
@@ -56,6 +57,7 @@ async function issueOnce({ companyName, companyId = "" }) {
     page.on("dialog", async (d) => { try { if (d.type() === "prompt") await d.accept(dialogAnswer || d.defaultValue()); else await d.accept(); } catch {} });
 
     // 1) ログイン
+    say("CS Platformを開いて、ログインしています");
     await page.goto(`${BASE()}/login`, { waitUntil: "domcontentloaded" });
     await page.locator('input[type="email"], input[name*="mail" i], input[autocomplete="username"]').first().fill(process.env.CSP_EMAIL);
     await page.locator('input[type="password"]').first().fill(process.env.CSP_PASSWORD);
@@ -65,6 +67,7 @@ async function issueOnce({ companyName, companyId = "" }) {
     say("ログインしました");
 
     // 2) 企業管理
+    say("企業管理を開いています");
     await page.goto(`${BASE()}/dashboard`, { waitUntil: "domcontentloaded" });
     await page.locator('button:has-text("企業管理"), a:has-text("企業管理")').first().click();
     await page.waitForTimeout(800);
@@ -75,8 +78,10 @@ async function issueOnce({ companyName, companyId = "" }) {
       const cands = page.locator(`table >> text="${name.replace(/"/g, '\\"')}"`);
       return (await cands.count()) ? cands.first() : null;
     };
+    say(`「${name}」を探しています`);
     let row = await findRow();
     if (!row) {
+      say("見つからないので、企業を追加しています");
       // 3) 無ければ企業を追加
       await search.fill("");
       await page.locator('input[placeholder*="企業名（例"], input[placeholder*="株式会社サンプル"]').first().fill(name);
@@ -88,6 +93,7 @@ async function issueOnce({ companyName, companyId = "" }) {
     if (!row) throw new Error("企業を追加したあと、一覧で見つけられませんでした");
 
     // 4) 企業を開く
+    say("企業の設定画面を開いています");
     await row.click();
     await page.waitForSelector('text=ポータルアカウント', { timeout: 20000 });
     const idOf = async () => { const t = await page.locator("body").innerText(); return ((/企業ID[：:]\s*([A-Za-z0-9_.-]+)/.exec(t) || [])[1]) || ""; };
@@ -97,6 +103,7 @@ async function issueOnce({ companyName, companyId = "" }) {
     // 5) 企業IDを合わせる（指定があって違うとき）
     const want = String(companyId || "").trim();
     if (want && curId !== want) {
+      say(`企業IDを ${want} に変えています`);
       dialogAnswer = want;
       await page.locator('button:has-text("ID変更")').first().click();
       await page.waitForTimeout(800);
@@ -122,6 +129,7 @@ async function issueOnce({ companyName, companyId = "" }) {
     if (await issue.count()) { await issue.click(); await page.waitForTimeout(1500); say("アカウントを発行しました"); }
 
     // 7) 案内文をコピー
+    say("案内文をコピーしています");
     await page.locator('button:has-text("案内文をコピー")').first().click();
     await page.waitForTimeout(1200);
     let text = await page.evaluate(() => window.__kbCopied || "").catch(() => "");
