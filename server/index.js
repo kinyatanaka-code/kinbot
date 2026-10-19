@@ -11639,7 +11639,9 @@ async function csBuildMail(k) {
 async function csMakeDraft(k) {
   if (!k.fs_email) return { ok: false, reason: "FS担当が分かりません" };
   if (!(await gcalConnected(k.fs_email).catch(() => false))) return { ok: false, reason: "FSのGoogle連携が必要です" };
-  const m = await csBuildMail(k);
+  // 画面で直した件名・本文があれば、それを使う（無ければひな形から作る）
+  const auto = await csBuildMail(k);
+  const m = { subject: String(k.mail_subject || "").trim() || auto.subject, body: String(k.mail_body || "").trim() ? k.mail_body : auto.body };
   try {
     const d = await gmailCreateDraft(k.fs_email, { to: k.client_email || "", subject: m.subject, bodyText: m.body });
     await upsertCsKickoff(k.bot_id, { draft_id: (d && d.id) || null, draft_at: new Date().toISOString() });
@@ -12150,6 +12152,18 @@ app.post("/api/cs/kickoffs/:bot/:act(draft|repost|redo)", async (req, res) => {
     res.json({ ok: true, ...d });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 御礼メールの件名・本文を直して保存する（空にすると、ひな形から作る自動の文に戻る）
+app.put("/api/cs/kickoffs/:bot/mail", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {};
+    const v = { mail_subject: b.reset ? null : (String(b.subject || "").trim() || null), mail_body: b.reset ? null : (String(b.body || "").trim() ? String(b.body) : null) };
+    if (b.to !== undefined) v.client_email = String(b.to || "").trim() || null;
+    const k = await upsertCsKickoff(req.params.bot, v);
+    if (!k) return res.status(404).json({ error: "見つかりません" });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // 手で取り込む（予定名に「キックオフ」が無い・始めた日より前の回収MTGなど）。議事録のURLの id= を渡す
 app.post("/api/cs/import", async (req, res) => {
   try {
@@ -12168,7 +12182,10 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
     const k = await getCsKickoff(req.params.bot);
     if (!k) return res.status(404).json({ error: "見つかりません" });
-    res.json({ ok: true, ...(await csBuildMail(k)) });
+    const auto = await csBuildMail(k);
+    const edited = !!(String(k.mail_subject || "").trim() || String(k.mail_body || "").trim());
+    res.json({ ok: true, subject: String(k.mail_subject || "").trim() || auto.subject, body: String(k.mail_body || "").trim() ? k.mail_body : auto.body,
+      to: k.client_email || "", edited, auto, draftAt: k.draft_at || null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 設定（CS 3人・OBスレ・ひな形）。管理者・クローザー
@@ -25468,7 +25485,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19y CS連携の企業カードの窓：絵文字のアイコンを、kinbotオリジナルの線のアイコン（緑の四角に入れる）に。下の操作（御礼メールの下書き・見る・検収書・読み取り直す・議事録・SF）をアイコンつきのボタンに並べた。";
+const BUILD_TAG = "2026-10-19z CS連携：「御礼メールを見る」で、企業カードの窓の上に御礼メールのプレビュー（宛先・件名・本文）を開き、その場で直せるように。直した文は会社ごとに残り、下書きにも使う。ひな形の文に戻すこともできる。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

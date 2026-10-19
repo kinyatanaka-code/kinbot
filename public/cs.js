@@ -205,11 +205,7 @@ function render() {
       else if (act === "repost") { await save(); await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/repost`, { method: "POST" }); say("OBスレに修正版を投稿しました"); await load(); }
       else if (act === "draft") { await save(); const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/draft`, { method: "POST" }); say(`FSのGmailに下書きを作りました${r.to ? `（宛先：${r.to}）` : "（宛先が空です）"}`); await load(); }
       else if (act === "redo") { if (!confirm("議事録から項目を読み取り直します（いま直した内容は上書きされます）。よろしいですか？")) { b.disabled = false; return; } await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/redo`, { method: "POST" }); say("読み取り直して、OBスレに修正版を投稿しました"); await load(); }
-      else if (act === "preview") {
-        await save();
-        const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/mail-preview`);
-        const m = card.querySelector("[data-mail]"); m.hidden = false; m.textContent = `件名：${r.subject}\n\n${r.body}`;
-      }
+      else if (act === "preview") { await save(); b.disabled = false; openMailPreview(bot); return; }
     } catch (e) { alert(e.message); }
     b.disabled = false;
   }));
@@ -396,5 +392,60 @@ async function openKenshu(bot) {
       back.querySelector("[data-st]").textContent = "送りました。新しいタブに「回答を記録しました」が出ていれば完了です";
       setTimeout(() => { close(); load(); }, 2500);
     } catch (e) { alert(e.message); }
+  }));
+}
+
+// ===== 御礼メールのプレビュー：この画面の上に開いて、そのまま直せる =====
+async function openMailPreview(bot) {
+  let d;
+  try { d = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/mail-preview`); } catch (e) { alert(e.message); return; }
+  const back = document.createElement("div");
+  back.className = "cs-modal-back"; back.style.zIndex = "3100";
+  back.innerHTML = `<div class="cs-modal mp-modal">
+    <div class="cs-h" style="cursor:default"><b class="ks-title">${ci("mail", 18)}御礼メール</b>
+      <span class="cs-pill ${d.edited ? "warn" : "ok"}" data-mp-state>${d.edited ? "手で直した文" : "ひな形から作った文"}</span>
+      ${d.draftAt ? `<span class="cs-pill">下書き：${esc(fmtDT(d.draftAt))}</span>` : ""}
+      <button type="button" class="cs-x" data-x aria-label="閉じる">✕</button></div>
+    <div class="mp-mail">
+      <div class="mp-row"><span>宛先</span><input data-mp="to" value="${esc(d.to || "")}" placeholder="先方のメールアドレス"></div>
+      <div class="mp-row"><span>件名</span><input data-mp="subject" value="${esc(d.subject || "")}"></div>
+      <textarea data-mp="body" spellcheck="false">${esc(d.body || "")}</textarea>
+    </div>
+    <p class="mp-note">ここで直した文は、この会社の御礼メールとして残ります（下書きを作るときにも使います）。ヒアリングの中身を直したあとに、ひな形から作り直したいときは「ひな形の文に戻す」を押してください。</p>
+    <div class="cs-act">
+      <button type="button" class="btn cd-btn" data-mp-act="draft">${ci("mail")}この文で下書きを作る</button>
+      <button type="button" class="btn ghost cd-btn" data-mp-act="save">${ci("save")}直した文を保存</button>
+      <button type="button" class="btn ghost cd-btn" data-mp-act="reset">${ci("redo")}ひな形の文に戻す</button>
+      <button type="button" class="btn ghost" data-x>閉じる</button>
+      <span class="rev-status" data-mp-st></span>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  const q = (sel) => back.querySelector(sel);
+  const st = (t) => { q("[data-mp-st]").textContent = t; };
+  const close = () => { back.remove(); load(); };
+  back.querySelectorAll("[data-x]").forEach((x) => x.addEventListener("click", close));
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  const ta = q('[data-mp="body"]');
+  const fit = () => { ta.style.height = "auto"; ta.style.height = Math.min(window.innerHeight * 0.55, ta.scrollHeight + 4) + "px"; };
+  ta.addEventListener("input", fit); setTimeout(fit, 0);
+  const saveMail = async () => api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/mail`, { method: "PUT", body: JSON.stringify({ to: q('[data-mp="to"]').value, subject: q('[data-mp="subject"]').value, body: ta.value }) });
+  back.querySelectorAll("[data-mp-act]").forEach((b) => b.addEventListener("click", async () => {
+    const act = b.dataset.mpAct; b.disabled = true;
+    try {
+      if (act === "save") { await saveMail(); st("保存しました"); const p = q("[data-mp-state]"); p.textContent = "手で直した文"; p.className = "cs-pill warn"; }
+      else if (act === "reset") {
+        if (!confirm("手で直した文を消して、ひな形から作った文に戻します。よろしいですか？")) { b.disabled = false; return; }
+        await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/mail`, { method: "PUT", body: JSON.stringify({ reset: true }) });
+        const d2 = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/mail-preview`);
+        q('[data-mp="subject"]').value = d2.subject; ta.value = d2.body; fit(); st("ひな形の文に戻しました");
+        const p = q("[data-mp-state]"); p.textContent = "ひな形から作った文"; p.className = "cs-pill ok";
+      } else if (act === "draft") {
+        await saveMail();
+        const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/draft`, { method: "POST" });
+        st(`FSのGmailに下書きを作りました${r.to ? `（宛先：${r.to}）` : "（宛先が空です）"}`);
+      }
+    } catch (e) { st("失敗：" + e.message); }
+    b.disabled = false;
   }));
 }
