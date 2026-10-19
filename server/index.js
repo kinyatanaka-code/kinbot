@@ -12012,6 +12012,8 @@ app.get("/api/cs/kickoffs", async (req, res) => {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     const cfg = await csSettings();
     const cand = await csCandidateRows([req.user]).catch(() => ({ rows: [], error: "" }));
+    const stK = await getSettings().catch(() => ({}));
+    const ksSent = stK.kenshuSent || {};
     const rows = [];
     let sfLook = 0;   // 開くたびに探しすぎないよう、1回に10件まで
     for (const k0 of await listCsKickoffs(150)) {
@@ -12029,10 +12031,12 @@ app.get("/api/cs/kickoffs", async (req, res) => {
       }
       const f = k.fields || {};
       const { portal_shot, ...kk } = k; k = { ...kk, has_portal_shot: !!portal_shot };
-      rows.push({ ...k, confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
+      const ks = ksSent[k.bot_id];
+      rows.push({ ...k, kenshu_at: ks ? (typeof ks === "string" ? ks : ks.at) : null, kenshu_mode: ks && ks.mode || "",
+        confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
         sheet_candidate_url: await csCandidateUrlFor((f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company), [req.user]).catch(() => "") });
     }
-    res.json({ ok: true, candidateSheetError: cand.error || "", adminUrl: DOC_ADMIN_URL, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, kickoffs: rows });
+    res.json({ ok: true, kenshuReady: !!(stK.kenshuForm && stK.kenshuForm.entries), candidateSheetError: cand.error || "", adminUrl: DOC_ADMIN_URL, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, kickoffs: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 直す：項目・CS担当・確認MTG・宛先・候補者用URL（会社プロフィールにも入れる）
@@ -25404,7 +25408,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19s 検収書の依頼：「この内容で送信」で、押した人のネオキャリアのGoogleアカウント（ブラウザのログイン）のまま、フォームに直接送るように。「フォームで確かめる」で、入った状態のフォームを開くこともできる。";
+const BUILD_TAG = "2026-10-19t 検収書の依頼を分かりやすく：企業カードに「📝 検収書を依頼する」（依頼済みなら印）、画面は手順の見出し・必須の欄を上に・商材の追加と着日指定はたたむ・大きい「この内容で依頼する」。フォームの設定がまだなら、はじめの1回の手順と設定タブへのボタン。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

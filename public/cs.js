@@ -50,6 +50,7 @@ function render() {
       </dl>
       <div class="cs-co-foot">
         ${k.draft_at ? '<span class="cs-pill ok">御礼メール下書きあり</span>' : '<span class="cs-pill">御礼メール：まだ</span>'}
+        ${k.kenshu_at && k.kenshu_mode === "send" ? `<span class="cs-pill ok">検収書：依頼済み ${esc(fmtDT(k.kenshu_at).split(" ")[0])}</span>` : `<button type="button" class="cs-ks-btn" data-ks="${esc(k.bot_id)}">📝 検収書を依頼する</button>`}
         ${unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : ""}
         ${k.error ? '<span class="cs-pill ng">エラー</span>' : ""}
       </div>
@@ -105,6 +106,7 @@ function render() {
       <div class="cs-mail" data-mail hidden></div>
     </div>`;
   })()}</div></div>` : "");
+  box.querySelectorAll("[data-ks]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); openKenshu(b.dataset.ks); }));
   box.querySelectorAll(".cs-co").forEach((c) => {
     const go = () => { csOpen = c.dataset.bot; render(); };
     c.addEventListener("click", go);
@@ -277,30 +279,48 @@ async function openKenshu(bot) {
   const row = (label, html, req) => `<label>${esc(label)}${req ? '<b style="color:#b3261e"> *</b>' : ""}</label><div>${html}</div>`;
   const txt = (key, val, ph = "") => `<input data-kk="${key}" value="${esc(val || "")}" placeholder="${esc(ph)}">`;
   const date = (key, val) => `<input type="date" data-kk="${key}" value="${esc(val || "")}">`;
-  back.innerHTML = `<div class="cs-modal" style="width:min(760px,100%)">
-    <div class="cs-h" style="cursor:default"><b>検収書の依頼（送る内容の確認）</b>${d.sentAt ? `<span class="cs-pill ok">${d.sentMode === "send" ? "送信済み" : "前に開いた"}：${esc(fmtDT(d.sentAt))}</span>` : ""}<button type="button" class="cs-x" data-x aria-label="閉じる">✕</button></div>
-    ${d.notes && d.notes.length ? `<div class="cs-err" style="margin-top:6px">${d.notes.map(esc).join("<br>")}</div>` : ""}
-    ${d.formReady ? "" : `<div class="cs-err" style="margin-top:6px">検収書フォームの設定がまだです。設定タブの「検収書フォーム」で、事前入力したURLを貼ってください。</div>`}
+  const hasMore = [2, 3, 4].some((n) => v[`item${n}`]) || v.invoiceDate || v.kenshuDate;
+  back.innerHTML = `<div class="cs-modal ks-modal" style="width:min(720px,100%)">
+    <div class="cs-h" style="cursor:default"><b>📝 検収書を依頼する</b><span class="cs-sub">${esc(v.company || "")}</span>${d.sentAt ? `<span class="cs-pill ok">${d.sentMode === "send" ? "依頼済み" : "前に開いた"}：${esc(fmtDT(d.sentAt))}</span>` : ""}<button type="button" class="cs-x" data-x aria-label="閉じる">✕</button></div>
+    ${d.formReady ? `
+    <div class="ks-steps"><span class="on">① 内容を確かめる</span><span>›</span><span>② 「この内容で依頼する」を押す</span><span>›</span><span>③ 新しいタブに「回答を記録しました」が出たら完了</span></div>
+    ${d.notes && d.notes.length ? `<div class="ks-warn">⚠️ ${d.notes.map(esc).join("<br>⚠️ ")}</div>` : `<div class="ks-ok">✓ kinbotが中身を入れました。違うところだけ直してください。</div>`}
     <div class="cs-grid ks-grid">
-      ${row("弊社担当者（商談した人）", sel("tanto", d.tantoOptions, v.tanto))}
       ${row("企業名（正式名称）", txt("company", v.company), true)}
-      ${[1, 2, 3, 4].map((n) => row(`商材名${"①②③④"[n - 1]}`, sel(`item${n}`, d.itemOptions, v[`item${n}`]), n === 1) + row(`商材名${"①②③④"[n - 1]}　追記必要な事項`, txt(`item${n}note`, v[`item${n}note`]))).join("")}
-      ${row("サーカスNo", txt("circus", v.circus, "SFの商談から"), true)}
-      ${row("SF URL", txt("sfurl", v.sfurl), true)}
+      ${row("商材名", sel("item1", d.itemOptions, v.item1), true)}
       ${row("納品日（予定）", date("delivery", v.delivery), true)}
+      ${row("サーカスNo", txt("circus", v.circus, "SFの商談に入っている番号"), true)}
+      ${row("SF URL", txt("sfurl", v.sfurl), true)}
       ${row("数量", txt("qty", v.qty || "1"), true)}
-      ${row("請求書着日指定日（ある場合）", date("invoiceDate", v.invoiceDate))}
-      ${row("検収書回収予定日（着日指定がある場合）", date("kenshuDate", v.kenshuDate))}
+      ${row("弊社担当者（商談した人）", sel("tanto", d.tantoOptions, v.tanto))}
     </div>
-    <p class="note">「この内容で送信」を押すと、あなたのネオキャリアのGoogleアカウント（ブラウザでログインしているもの）のまま、検収書の依頼フォームに送ります。送れたら、新しいタブにGoogleフォームの「回答を記録しました」が出ます。フォームの画面で確かめてから送りたいときは「フォームで確かめる」を押してください。</p>
-    <div class="cs-act"><button type="button" class="btn" data-go="send" ${d.formReady ? "" : "disabled"}>この内容で送信</button><button type="button" class="btn ghost" data-go="open" ${d.formReady ? "" : "disabled"}>フォームで確かめる</button><button type="button" class="btn ghost" data-x>閉じる</button><span class="rev-status" data-st></span></div>
+    <details class="ks-more" ${hasMore ? "open" : ""}><summary>商材を追加する・請求書の着日指定がある（ある場合だけ）</summary>
+      <div class="cs-grid ks-grid">
+        ${row("商材名①　追記必要な事項", txt("item1note", v.item1note))}
+        ${[2, 3, 4].map((n) => row(`商材名${"①②③④"[n - 1]}`, sel(`item${n}`, d.itemOptions, v[`item${n}`])) + row(`商材名${"①②③④"[n - 1]}　追記必要な事項`, txt(`item${n}note`, v[`item${n}note`]))).join("")}
+        ${row("請求書着日指定日", date("invoiceDate", v.invoiceDate))}
+        ${row("検収書回収予定日", date("kenshuDate", v.kenshuDate))}
+      </div>
+    </details>
+    <div class="cs-act"><button type="button" class="btn ks-go" data-go="send">この内容で依頼する</button><button type="button" class="btn ghost" data-x>やめる</button><span class="rev-status" data-st></span></div>
+    <p class="ks-foot">送ると、あなたの会社のGoogleアカウントのまま検収書の依頼フォームに届きます。<a href="#" data-go="open">フォームの画面で見てから送りたいときはこちら</a></p>`
+    : `<div class="ks-setup"><b>はじめに1回だけ、フォームの設定が必要です</b>
+      <p>kinbotが検収書の依頼フォームに中身を入れられるよう、フォームの欄の並びを覚えさせます（だれか1人が1回やれば、全員使えます）。</p>
+      <ol><li>検収書の依頼フォームを<b>編集できる人</b>が、フォームの編集画面の右上「︙」→「事前入力したURLを取得」を開く</li>
+      <li>すべての欄に何か入れる（文字は「テスト」、選択肢はどれか1つ、日付は適当な日）</li>
+      <li>「リンクを取得」→「リンクをコピー」</li>
+      <li>CS連携の「設定」タブの「検収書フォーム」に貼って「覚える」</li></ol>
+      <div class="cs-act"><button type="button" class="btn" data-setup>設定タブを開く</button><button type="button" class="btn ghost" data-x>閉じる</button></div></div>`}
   </div>`;
   document.body.appendChild(back);
   const close = () => back.remove();
   back.querySelectorAll("[data-x]").forEach((x) => x.addEventListener("click", close));
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   back.querySelectorAll("select.ks-sel").forEach((sl) => sl.addEventListener("change", () => { const o = back.querySelector(`[data-kko="${sl.dataset.kk}"]`); if (o) o.style.display = sl.value === "__other" ? "" : "none"; }));
-  back.querySelectorAll("[data-go]").forEach((goBtn) => goBtn.addEventListener("click", async () => {
+  const su = back.querySelector("[data-setup]");
+  if (su) su.addEventListener("click", () => { close(); csOpen = ""; render(); const t = document.querySelector('.cs-tab[data-tab="set"]'); if (t) t.click(); setTimeout(() => { const u = document.getElementById("ksFormUrl"); if (u) { u.scrollIntoView({ block: "center" }); u.focus(); } }, 200); });
+  back.querySelectorAll("[data-go]").forEach((goBtn) => goBtn.addEventListener("click", async (ev) => {
+    ev.preventDefault();
     const mode = goBtn.dataset.go;
     const values = {};
     back.querySelectorAll("[data-kk]").forEach((el) => {
@@ -311,7 +331,7 @@ async function openKenshu(bot) {
     const miss = [["company", "企業名"], ["item1", "商材名①"], ["circus", "サーカスNo"], ["sfurl", "SF URL"], ["delivery", "納品日"], ["qty", "数量"]].filter(([k]) => !values[k]).map(([, l]) => l);
     if (mode === "send" && miss.length) { alert(`必須の欄が空です：${miss.join("・")}\n入れてから送信してください（フォームで確かめて入れることもできます）`); return; }
     if (mode === "open" && miss.length && !confirm(`必須の欄が空です：${miss.join("・")}\nこのままフォームを開きますか？（フォームで入れられます）`)) return;
-    if (mode === "send" && !confirm(`「${values.company}」の検収書の依頼を送信します。よろしいですか？`)) return;
+    if (mode === "send" && !confirm(`「${values.company}」の検収書を依頼します。よろしいですか？`)) return;
     try {
       const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/kenshu`, { method: "POST", body: JSON.stringify({ values, mode }) });
       if (mode === "open") { window.open(r.url, "_blank"); back.querySelector("[data-st]").textContent = "フォームを開きました。内容を確かめて「送信」を押してください"; return; }
@@ -320,7 +340,8 @@ async function openKenshu(bot) {
       f.method = "POST"; f.action = r.action; f.target = "_blank"; f.acceptCharset = "UTF-8"; f.style.display = "none";
       for (const [k, v] of r.fields) { const i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = v; f.appendChild(i); }
       document.body.appendChild(f); f.submit(); setTimeout(() => f.remove(), 1000);
-      back.querySelector("[data-st]").textContent = "送信しました。新しいタブに「回答を記録しました」が出ていれば完了です";
+      back.querySelector("[data-st]").textContent = "送りました。新しいタブに「回答を記録しました」が出ていれば完了です";
+      setTimeout(() => { close(); load(); }, 2500);
     } catch (e) { alert(e.message); }
   }));
 }

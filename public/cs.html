@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261019s" />
+    <link rel="stylesheet" href="style.css?v=20261019t" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -55,6 +55,16 @@
     .cs-prog-row{display:flex;align-items:center;gap:6px;color:#5f6b64;} .cs-prog-row em{margin-left:auto;font-style:normal;font-size:11px;color:#9aa8a1;}
     .cs-prog-row.now{color:#0d5b47;font-weight:700;} .cs-prog-row.ng{color:#b3261e;font-weight:700;} .cs-prog-ic{width:18px;text-align:center;}
     .cs-portal{white-space:pre-wrap;background:#f7faf8;border:1px solid #e6ece9;border-radius:8px;padding:8px 10px;font-size:12px;margin:4px 0 0;font-family:inherit;}
+    .cs-ks-btn{border:1px solid #1d9e75;background:#fff;color:#0d5b47;border-radius:99px;padding:2px 10px;font-size:11px;font-weight:700;cursor:pointer;}
+    .cs-ks-btn:hover{background:#e1f5ee;}
+    .ks-steps{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:#7a8a82;margin:8px 0 4px;}
+    .ks-steps .on{color:#0d5b47;font-weight:700;}
+    .ks-ok{background:#e1f5ee;color:#085041;border-radius:10px;padding:8px 10px;font-size:12.5px;margin:6px 0;}
+    .ks-warn{background:#fff4dc;color:#7a5200;border-radius:10px;padding:8px 10px;font-size:12.5px;margin:6px 0;line-height:1.7;}
+    .ks-more{margin-top:10px;border-top:1px dashed #dfe8e3;padding-top:8px;} .ks-more summary{cursor:pointer;font-size:12.5px;color:#0d5b47;font-weight:700;}
+    .ks-go{padding:10px 22px !important;font-size:14px !important;}
+    .ks-foot{font-size:11.5px;color:#7a8a82;margin:8px 0 0;} .ks-foot a{color:#0d5b47;}
+    .ks-setup{margin-top:8px;font-size:13px;line-height:1.7;} .ks-setup ol{padding-left:20px;margin:6px 0;}
     .ks-grid{grid-template-columns:190px minmax(0,1fr);} .ks-grid select,.ks-grid input{width:100%;box-sizing:border-box;border:1px solid #d7e3dd;border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;background:#fff;} .ks-grid [data-kko]{margin-top:4px;}
     .cs-x{margin-left:auto;border:0;background:#f1f4f2;border-radius:10px;width:34px;height:34px;font-size:16px;cursor:pointer;}
     </style>
@@ -130,7 +140,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261019s"></script>
+    <script src="nav.js?v=20261019t"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -138,6 +148,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261019s"></script>
+    <script src="cs.js?v=20261019t"></script>
   </body>
 </html>
