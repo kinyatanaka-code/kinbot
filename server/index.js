@@ -12225,7 +12225,8 @@ async function csKenshuDraft(k, user) {
   } else notes.push("納品月が分からないので、納品日を入れてください");
   return { values: out, notes, tantoOptions: KENSHU_TANTO, itemOptions: KENSHU_ITEMS };
 }
-function kenshuPrefillUrl(form, v) {
+function kenshuPrefillUrl(form, v) { return kenshuBuild(form, v).url; }
+function kenshuBuild(form, v) {
   const q = new URLSearchParams();
   q.set("usp", "pp_url");
   const put = (key, val, opts) => {
@@ -12241,7 +12242,8 @@ function kenshuPrefillUrl(form, v) {
   put("circus", v.circus); put("sfurl", v.sfurl); put("delivery", v.delivery);
   put("qty", String(v.qty || "1"), ["1", "2", "3", "4"]);
   put("invoiceDate", v.invoiceDate); put("kenshuDate", v.kenshuDate);
-  return `${form.base}?${q.toString()}`;
+  const fields = [...q.entries()].filter(([k]) => k !== "usp");
+  return { url: `${form.base}?${q.toString()}`, action: form.base.replace(/\/viewform$/, "/formResponse"), fields };
 }
 app.get("/api/cs/kickoffs/:bot/kenshu", async (req, res) => {
   try {
@@ -12250,7 +12252,8 @@ app.get("/api/cs/kickoffs/:bot/kenshu", async (req, res) => {
     if (!k) return res.status(404).json({ error: "見つかりません" });
     const st = await getSettings().catch(() => ({}));
     const d = await csKenshuDraft(k, req.user);
-    res.json({ ok: true, ...d, formReady: !!(st.kenshuForm && st.kenshuForm.entries), sentAt: (st.kenshuSent || {})[k.bot_id] || null });
+    const sv = (st.kenshuSent || {})[k.bot_id];
+    res.json({ ok: true, ...d, formReady: !!(st.kenshuForm && st.kenshuForm.entries), sentAt: sv ? (typeof sv === "string" ? sv : sv.at) : null, sentMode: sv && sv.mode || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 確かめた中身で、入った状態のフォームのURLを作る（開いた人が「送信」を押す）
@@ -12259,10 +12262,11 @@ app.post("/api/cs/kickoffs/:bot/kenshu", async (req, res) => {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
     const st = await getSettings().catch(() => ({}));
     if (!st.kenshuForm || !st.kenshuForm.entries) return res.status(400).json({ error: "検収書フォームの設定がまだです（設定タブで「事前入力したURL」を貼ってください）" });
-    const url = kenshuPrefillUrl(st.kenshuForm, (req.body || {}).values || {});
-    const sent = { ...(st.kenshuSent || {}) }; sent[req.params.bot] = new Date().toISOString();
+    const b = kenshuBuild(st.kenshuForm, (req.body || {}).values || {});
+    const sent = { ...(st.kenshuSent || {}) }; sent[req.params.bot] = { at: new Date().toISOString(), by: req.user, mode: (req.body || {}).mode || "open" };
     await saveSettings({ kenshuSent: sent }).catch(() => {});
-    res.json({ ok: true, url });
+    if ((req.body || {}).mode === "send") console.log(`[cs] 検収書の依頼を送信：${(req.body.values || {}).company || req.params.bot} by ${req.user}`);
+    res.json({ ok: true, ...b });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 設定：検収書フォームの「事前入力したURL」を貼って、欄の番号を覚える
@@ -25400,7 +25404,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19r CS連携の企業カードに「検収書の依頼」：モーダルで送る内容（弊社担当者・企業名（SFの正式名称）・商材名（管理シートのX列）・サーカスNo（SF）・SF URL・納品日（納品月の1日）・数量1 など）を確かめて直し、入った状態の検収書フォームを開いて送信。フォームの欄は設定タブで事前入力したURLから覚える。";
+const BUILD_TAG = "2026-10-19s 検収書の依頼：「この内容で送信」で、押した人のネオキャリアのGoogleアカウント（ブラウザのログイン）のまま、フォームに直接送るように。「フォームで確かめる」で、入った状態のフォームを開くこともできる。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

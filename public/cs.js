@@ -278,7 +278,7 @@ async function openKenshu(bot) {
   const txt = (key, val, ph = "") => `<input data-kk="${key}" value="${esc(val || "")}" placeholder="${esc(ph)}">`;
   const date = (key, val) => `<input type="date" data-kk="${key}" value="${esc(val || "")}">`;
   back.innerHTML = `<div class="cs-modal" style="width:min(760px,100%)">
-    <div class="cs-h" style="cursor:default"><b>検収書の依頼（送る内容の確認）</b>${d.sentAt ? `<span class="cs-pill ok">前に開いた：${esc(fmtDT(d.sentAt))}</span>` : ""}<button type="button" class="cs-x" data-x aria-label="閉じる">✕</button></div>
+    <div class="cs-h" style="cursor:default"><b>検収書の依頼（送る内容の確認）</b>${d.sentAt ? `<span class="cs-pill ok">${d.sentMode === "send" ? "送信済み" : "前に開いた"}：${esc(fmtDT(d.sentAt))}</span>` : ""}<button type="button" class="cs-x" data-x aria-label="閉じる">✕</button></div>
     ${d.notes && d.notes.length ? `<div class="cs-err" style="margin-top:6px">${d.notes.map(esc).join("<br>")}</div>` : ""}
     ${d.formReady ? "" : `<div class="cs-err" style="margin-top:6px">検収書フォームの設定がまだです。設定タブの「検収書フォーム」で、事前入力したURLを貼ってください。</div>`}
     <div class="cs-grid ks-grid">
@@ -292,15 +292,16 @@ async function openKenshu(bot) {
       ${row("請求書着日指定日（ある場合）", date("invoiceDate", v.invoiceDate))}
       ${row("検収書回収予定日（着日指定がある場合）", date("kenshuDate", v.kenshuDate))}
     </div>
-    <p class="note">「フォームを開いて送信」を押すと、この内容が入った検収書の依頼フォームが新しいタブで開きます。フォームで内容を確かめて「送信」を押してください（フォームはネオキャリアのアカウントでログインしている人だけが送れます）。</p>
-    <div class="cs-act"><button type="button" class="btn" data-go ${d.formReady ? "" : "disabled"}>フォームを開いて送信</button><button type="button" class="btn ghost" data-x>閉じる</button><span class="rev-status" data-st></span></div>
+    <p class="note">「この内容で送信」を押すと、あなたのネオキャリアのGoogleアカウント（ブラウザでログインしているもの）のまま、検収書の依頼フォームに送ります。送れたら、新しいタブにGoogleフォームの「回答を記録しました」が出ます。フォームの画面で確かめてから送りたいときは「フォームで確かめる」を押してください。</p>
+    <div class="cs-act"><button type="button" class="btn" data-go="send" ${d.formReady ? "" : "disabled"}>この内容で送信</button><button type="button" class="btn ghost" data-go="open" ${d.formReady ? "" : "disabled"}>フォームで確かめる</button><button type="button" class="btn ghost" data-x>閉じる</button><span class="rev-status" data-st></span></div>
   </div>`;
   document.body.appendChild(back);
   const close = () => back.remove();
   back.querySelectorAll("[data-x]").forEach((x) => x.addEventListener("click", close));
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   back.querySelectorAll("select.ks-sel").forEach((sl) => sl.addEventListener("change", () => { const o = back.querySelector(`[data-kko="${sl.dataset.kk}"]`); if (o) o.style.display = sl.value === "__other" ? "" : "none"; }));
-  back.querySelector("[data-go]").addEventListener("click", async () => {
+  back.querySelectorAll("[data-go]").forEach((goBtn) => goBtn.addEventListener("click", async () => {
+    const mode = goBtn.dataset.go;
     const values = {};
     back.querySelectorAll("[data-kk]").forEach((el) => {
       const k = el.dataset.kk;
@@ -308,13 +309,18 @@ async function openKenshu(bot) {
       else values[k] = el.value.trim();
     });
     const miss = [["company", "企業名"], ["item1", "商材名①"], ["circus", "サーカスNo"], ["sfurl", "SF URL"], ["delivery", "納品日"], ["qty", "数量"]].filter(([k]) => !values[k]).map(([, l]) => l);
-    if (miss.length && !confirm(`必須の欄が空です：${miss.join("・")}\nこのままフォームを開きますか？（フォームで入れることもできます）`)) return;
-    // 先にタブを開いておく（あとから開くとポップアップを止められるため）
-    const w = window.open("about:blank", "_blank");
+    if (mode === "send" && miss.length) { alert(`必須の欄が空です：${miss.join("・")}\n入れてから送信してください（フォームで確かめて入れることもできます）`); return; }
+    if (mode === "open" && miss.length && !confirm(`必須の欄が空です：${miss.join("・")}\nこのままフォームを開きますか？（フォームで入れられます）`)) return;
+    if (mode === "send" && !confirm(`「${values.company}」の検収書の依頼を送信します。よろしいですか？`)) return;
     try {
-      const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/kenshu`, { method: "POST", body: JSON.stringify({ values }) });
-      if (w) w.location.href = r.url; else window.open(r.url, "_blank");
-      back.querySelector("[data-st]").textContent = "フォームを開きました。内容を確かめて「送信」を押してください";
-    } catch (e) { if (w) w.close(); alert(e.message); }
-  });
+      const r = await api(`/api/cs/kickoffs/${encodeURIComponent(bot)}/kenshu`, { method: "POST", body: JSON.stringify({ values, mode }) });
+      if (mode === "open") { window.open(r.url, "_blank"); back.querySelector("[data-st]").textContent = "フォームを開きました。内容を確かめて「送信」を押してください"; return; }
+      // ブラウザから、その人のGoogleのログインのまま送る（新しいタブに「回答を記録しました」が出る）
+      const f = document.createElement("form");
+      f.method = "POST"; f.action = r.action; f.target = "_blank"; f.acceptCharset = "UTF-8"; f.style.display = "none";
+      for (const [k, v] of r.fields) { const i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = v; f.appendChild(i); }
+      document.body.appendChild(f); f.submit(); setTimeout(() => f.remove(), 1000);
+      back.querySelector("[data-st]").textContent = "送信しました。新しいタブに「回答を記録しました」が出ていれば完了です";
+    } catch (e) { alert(e.message); }
+  }));
 }
