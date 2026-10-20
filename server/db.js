@@ -11498,11 +11498,22 @@ export async function renameListPrefixes(map, { dryRun = false } = {}) {
 export async function docViewSummary() {
   if (!pool) return { byEmail: new Map(), byCompany: new Map() };
   try {
+    // 人が本当に見た閲覧だけを数える（2026-10-20：メルマガを送った直後に、メールの安全チェックの機械が全員分のリンクを開き、
+    //   みんな「10/10 07:00に閲覧」になっていた）。
+    //   ・ロボットの名前が入ったブラウザは外す
+    //   ・5秒未満でページもめくっていないものは外す
+    //   ・同じ資料が同じ1分に10回以上開かれたもの（一斉に開く機械）は外す
     const { rows } = await pool.query(
-      `SELECT lower(COALESCE(NULLIF(v.viewer_email,''), l.email, '')) AS email, COALESCE(l.company,'') AS company,
+      `WITH v0 AS (
+         SELECT v.*, l.doc_id, count(*) OVER (PARTITION BY l.doc_id, date_trunc('minute', v.started_at)) AS burst
+           FROM doc_views v JOIN doc_links l ON l.id = v.link_id
+       )
+       SELECT lower(COALESCE(NULLIF(v.viewer_email,''), l.email, '')) AS email, COALESCE(l.company,'') AS company,
               count(*)::int AS n, COALESCE(sum(v.seconds),0)::int AS sec, max(v.last_at) AS last_at, max(d.name) AS doc
-         FROM doc_views v JOIN doc_links l ON l.id = v.link_id LEFT JOIN doc_files d ON d.id = l.doc_id
-        WHERE v.seconds > 0 OR v.max_page > 0
+         FROM v0 v JOIN doc_links l ON l.id = v.link_id LEFT JOIN doc_files d ON d.id = l.doc_id
+        WHERE (v.seconds >= 5 OR v.max_page > 1)
+          AND v.burst < 10
+          AND COALESCE(v.ua,'') !~* '(bot|crawl|spider|scan|preview|proofpoint|mimecast|barracuda|safelinks|microsoft office|headless|python|curl|wget|java/|go-http|okhttp|axios|node-fetch|facebookexternalhit|slack|google-safety|googleimageproxy)'
         GROUP BY 1, 2`);
     const byEmail = new Map(), byCompany = new Map();
     const add = (m, k, r) => { if (!k) return; const c = m.get(k) || { n: 0, sec: 0, last: null, docs: new Set() }; c.n += r.n; c.sec += r.sec; if (!c.last || r.last_at > c.last) c.last = r.last_at; if (r.doc) c.docs.add(r.doc); m.set(k, c); };
