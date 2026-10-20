@@ -11505,7 +11505,12 @@ export async function docViewSummary() {
     //   ・同じ資料が同じ1分に10回以上開かれたもの（一斉に開く機械）は外す
     const { rows } = await pool.query(
       `WITH v0 AS (
-         SELECT v.*, l.doc_id, count(*) OVER (PARTITION BY l.doc_id, date_trunc('minute', v.started_at)) AS burst
+         SELECT v.*, l.doc_id,
+                count(*) OVER (PARTITION BY l.doc_id, date_trunc('minute', v.started_at)) AS burst,
+                -- 同じリンクが10分のあいだに何回開かれたか（安全チェックの機械は、1通のリンクを短い間に何度も開く）
+                count(*) OVER (PARTITION BY v.link_id, to_timestamp(floor(extract(epoch FROM v.started_at) / 600) * 600)) AS link_burst,
+                -- メルマガで送ったリンクなら、送った時刻
+                (SELECT max(ms.sent_at) FROM mailmaga_sends ms WHERE ms.link_slug = l.slug) AS mm_sent_at
            FROM doc_views v JOIN doc_links l ON l.id = v.link_id
        )
        SELECT lower(COALESCE(NULLIF(v.viewer_email,''), l.email, '')) AS email, COALESCE(l.company,'') AS company,
@@ -11513,6 +11518,9 @@ export async function docViewSummary() {
          FROM v0 v JOIN doc_links l ON l.id = v.link_id LEFT JOIN doc_files d ON d.id = l.doc_id
         WHERE (v.seconds >= 5 OR v.max_page > 1)
           AND v.burst < 10
+          AND v.link_burst < 5
+          -- メルマガを送ってから15分のあいだの閲覧は、安全チェックの機械とみなして数えない
+          AND (v.mm_sent_at IS NULL OR v.started_at > v.mm_sent_at + interval '15 minutes')
           AND COALESCE(v.ua,'') !~* '(bot|crawl|spider|scan|preview|proofpoint|mimecast|barracuda|safelinks|microsoft office|headless|python|curl|wget|java/|go-http|okhttp|axios|node-fetch|facebookexternalhit|slack|google-safety|googleimageproxy)'
         GROUP BY 1, 2`);
     const byEmail = new Map(), byCompany = new Map();
@@ -11520,4 +11528,12 @@ export async function docViewSummary() {
     for (const r of rows) { add(byEmail, r.email, r); add(byCompany, normCompanyKey(String(r.company || "").normalize("NFKC")), r); }
     return { byEmail, byCompany };
   } catch (e) { console.error("[db] docViewSummary", e.message); return { byEmail: new Map(), byCompany: new Map() }; }
+}
+// 確かめ用：ある会社あての資料のリンクの閲覧（目のマークがどの閲覧で付いているか見る）
+export async function docViewCheck(company) {
+  if (!pool) return [];
+  const { rows } = await pool.query(`SELECT l.slug, l.company, l.email, l.shared_link, v.viewer_email, v.started_at, v.last_at, v.seconds, v.max_page, left(v.ua, 120) AS ua,
+      (SELECT max(ms.sent_at) FROM mailmaga_sends ms WHERE ms.link_slug = l.slug) AS mm_sent_at
+    FROM doc_views v JOIN doc_links l ON l.id = v.link_id WHERE l.company ILIKE $1 ORDER BY v.started_at DESC LIMIT 60`, [`%${company}%`]);
+  return rows;
 }

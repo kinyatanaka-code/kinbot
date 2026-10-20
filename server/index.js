@@ -277,6 +277,7 @@ import {
   listApoCallLogs,
   renameListPrefixes,
   docViewSummary,
+  docViewCheck,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -9954,6 +9955,13 @@ app.get("/api/calls/sf-lead-field", async (req, res) => {
     const f = (d.fields || []).find((x) => x.name === name);
     if (!f) return res.status(404).json({ error: "項目が見つかりません" });
     res.json({ ok: true, name: f.name, label: f.label, type: f.type, options: (f.picklistValues || []).filter((v) => v.active !== false).map((v) => ({ value: v.value, label: v.label || v.value })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/doc-view-check", async (req, res) => {
+  try {
+    const co = String(req.query.company || "").trim();
+    if (!co) return res.status(400).json({ error: "company を入れてください" });
+    res.json({ ok: true, rows: await docViewCheck(co) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/calls/sf-lead-to-cross", async (req, res) => {
@@ -25612,7 +25620,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20k 管理シートへの自動記入で見る商談を、先月の1日以降に受注（完了予定日）したものにしぼる（空欄を埋める方も同じ）。NB_SHEET_FROM で始まりの日を決められる。";
+const BUILD_TAG = "2026-10-20l 資料を見ている印：メルマガを送ってから15分のあいだの閲覧と、同じリンクが10分のあいだに5回以上開かれたもの（安全チェックの機械）も数えないように（まだ10/10 7:57・13回が残っていた）。確かめ用 /api/calls/doc-view-check?company=。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
