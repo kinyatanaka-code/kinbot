@@ -410,6 +410,10 @@ function visibleRows() {
 }
 // 直近に商談した・これから商談がある会社のリード（「商談済み」「商談予定」の印）は、かける対象の下にまとめる
 const hasMtgTag = (x) => !!(x && x["直近商談"] && x["直近商談"].day);
+// 送った資料を最近（30日以内）見ているリード：かける対象のいちばん上に、見た日が新しい順で出す
+const VIEW_DAYS = 30;
+const viewedAt = (x) => { const v = x && x["資料閲覧"]; if (!v || !v.回数 || !v.最後) return 0; const t = new Date(v.最後).getTime(); return isFinite(t) && Date.now() - t < VIEW_DAYS * 86400000 ? t : 0; };
+const isViewed = (x) => !!viewedAt(x) && !isDone(x) && !hasMtgTag(x);
 function sortRows(list) {
   if (sortBy) {
     // 見出しで並べ替えを選んだときは、その順を優先する（商談済み・商談予定の印 → かける対象外 の順で下にまとめる）
@@ -432,6 +436,27 @@ function sortRows(list) {
   // 営業時間外は下に沈める（営業中・不明→営業時間外の順）。
   const closedRank = (x) => (bizState(x) === "closed" ? 1 : 0);
   // 済み（対象外）＝アポ獲得・ユーザー・失注。最下部にまとめる（アポ→ユーザー→失注の順）。
+  const rank = (x) => isApoDone(x) ? 0 : isUser(x) ? 1 : 2;
+  const 済 = list.filter(isDone).sort((a, b) => rank(a) - rank(b));
+  const 未済 = list.filter((x) => !isDone(x));
+  // 資料を見ているリードは、かける対象のいちばん上（見た日が新しい順）。そのあとは今までの並び
+  const 見ている = 未済.filter(isViewed).sort((a, b) => viewedAt(b) - viewedAt(a));
+  if (見ている.length) {
+    const ids = new Set(見ている.map((x) => x.id));
+    const others = list.filter((x) => !ids.has(x.id));
+    return [...見ている, ...sortRowsBase(others)];
+  }
+  return sortRowsBase(list);
+}
+function sortRowsBase(list) {
+  const now = Date.now();
+  const due = (x) => {
+    const v = x["次回予定"]; if (!v) return 0;
+    const t = new Date(v).getTime();
+    return (!isNaN(t) && t <= now) ? t : 0;
+  };
+  const かけた = (x) => !!x["最終日時"];
+  const closedRank = (x) => (bizState(x) === "closed" ? 1 : 0);
   const rank = (x) => isApoDone(x) ? 0 : isUser(x) ? 1 : 2;
   const 済 = list.filter(isDone).sort((a, b) => rank(a) - rank(b));
   const 未済 = list.filter((x) => !isDone(x));
@@ -500,7 +525,7 @@ function fromBadge(x) {
     const lastS = lt ? `${lt.getMonth() + 1}/${lt.getDate()} ${lt.getHours()}:${String(lt.getMinutes()).padStart(2, "0")}` : "";
     const min = Math.max(1, Math.round(Number(dvw.秒 || 0) / 60));
     const recent = lt && Date.now() - lt.getTime() < 3 * 86400000;
-    parts.push(`<span class="kc-src-tag view${recent ? " hot" : ""}" title="送った資料を見ています：${dvw.回数}回・合計${min}分${lastS ? `・最後 ${lastS}` : ""}${(dvw.資料 || []).length ? `\n資料：${dvw.資料.join("、")}` : ""}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>${dvw.回数}${lastS ? ` ${lastS.split(" ")[0]}` : ""}</span>`);
+    parts.push(`<span class="kc-view-badge${recent ? " hot" : ""}" title="送った資料を見ています：${dvw.回数}回・合計${min}分${lastS ? `・最後 ${lastS}` : ""}${(dvw.資料 || []).length ? `\n資料：${dvw.資料.join("、")}` : ""}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>資料を見ています<b>${dvw.回数}回</b>${lastS ? `<em>最後 ${esc(lastS)}</em>` : ""}</span>`);
   }
   // 直近に商談した・これから商談がある会社（同じ会社に重ねて電話しないよう、目立たせる）
   const mtg = x && x["直近商談"];
@@ -1112,15 +1137,17 @@ function render() {
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
         : "";
       // かけた（記録済み）グループの先頭に、区切りを出す（どこまでかけたか分かるように）
-      const かけ区切り = (!sortBy && !hasMtgTag(x) && かけた(x) && (i === 0 || !かけた(list[i - 1])))
-        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter((y) => かけた(y) && !hasMtgTag(y) && !isDone(y)).length}件）</td></tr>`
+      const かけ区切り = (!sortBy && !hasMtgTag(x) && !isViewed(x) && かけた(x) && (i === 0 || !かけた(list[i - 1]) || isViewed(list[i - 1])))
+        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter((y) => かけた(y) && !hasMtgTag(y) && !isDone(y) && !isViewed(y)).length}件）</td></tr>`
         : "";
       // 商談済み・商談予定の印があるリードの先頭に、区切りを出す
       const 商談区切り = (!済 && hasMtgTag(x) && (i === 0 || !hasMtgTag(list[i - 1])))
         ? `<tr class="kc-apo-sep kc-mtg-sep"><td colspan="${cols}">ここから下は、直近に商談した・これから商談がある会社（${list.filter((y) => hasMtgTag(y) && !isDone(y)).length}件）。かける前に担当と確認してください</td></tr>`
         : "";
       return 区切り + 商談区切り + かけ区切り + `
-      <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}">
+      ${!sortBy && isViewed(x) && (i === 0 || !isViewed(list[i - 1])) ? `<tr class="kc-apo-sep kc-view-sep"><td colspan="${cols}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg> 送った資料を見ている会社（${list.filter(isViewed).length}件）。資料の話から入るとつながりやすいです</td></tr>` : ""}
+      ${!sortBy && i > 0 && isViewed(list[i - 1]) && !isViewed(x) && !isDone(x) && !hasMtgTag(x) && !かけた(x) ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、いつもの並び</td></tr>` : ""}
+      <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}${isViewed(x) ? " kc-row-viewed" : ""}">
         <td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
         <td class="kc-co kc-fx-co">${esc(x["会社名"] || "")}${tempBadge(x)}${absentRankBadge(x)}${doneBadge(x)}${bizBadge(x)}${fromBadge(x)}${
@@ -2121,8 +2148,11 @@ function renderDock() {
     .kc-today-goal.ok{color:#085041;background:#e1f5ee;} .kc-today-note{font-size:11px;color:#6b8a7d;margin-left:4px;}
     .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
     .kc-src-tag{font-size:10px;font-weight:700;padding:0 6px;border-radius:5px;white-space:nowrap;}
-    .kc-src-tag.view{display:inline-flex;align-items:center;gap:3px;background:#e8f0fe;color:#1a56b0;}
-    .kc-src-tag.view.hot{background:#1a56b0;color:#fff;}
+    .kc-view-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#1a56b0;background:#e8f0fe;border:1px solid #c9dafc;border-radius:7px;padding:2px 8px;white-space:nowrap;}
+    .kc-view-badge b{font-weight:800;} .kc-view-badge em{font-style:normal;font-weight:600;color:#4a6aa8;}
+    .kc-view-badge.hot{background:#1a56b0;border-color:#1a56b0;color:#fff;} .kc-view-badge.hot em{color:#dbe7ff;}
+    tr.kc-row-viewed td{background:#f4f8ff !important;} tr.kc-row-viewed td:first-child{box-shadow:inset 3px 0 0 #1a56b0;}
+    .kc-view-sep td{background:#e8f0fe !important;color:#1a56b0 !important;font-weight:700;} .kc-view-sep svg{vertical-align:-2px;margin-right:4px;}
     .kc-j-goal{display:flex;align-items:center;gap:5px;margin:5px 0 1px;font-size:12px;}
     .kc-j-goal .kc-dlb{margin:0;}
     .kc-j-goal b{font-size:15px;color:#1f2a26;}
