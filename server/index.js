@@ -9924,19 +9924,51 @@ app.post("/api/calls/lists/:id/to-cross", async (req, res) => {
         失敗++;
         // SFのエラーの文から、分かりやすい理由にする
         const raw = String(e.message || e);
-        const why = /INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST|bad value for restricted picklist/i.test(raw) ? `選択リストの値がクロスリードで使えません（${(/fields?:?\s*\[?([A-Za-z0-9_]+)/.exec(raw) || [])[1] || "項目"}）`
+        const sfMsg = (/"message"\s*:\s*"([^"]+)"/.exec(raw) || [])[1] || "";
+        const sfFields = (((/"fields"\s*:\s*\[([^\]]*)\]/.exec(raw) || [])[1]) || "").replace(/"/g, "").split(",").map((x) => x.trim()).filter(Boolean);
+        const why = /FIELD_CUSTOM_VALIDATION_EXCEPTION/i.test(raw) && sfMsg ? `SFの入力規則：${sfMsg}${sfFields.length ? `（項目：${sfFields.join("・")}）` : ""}`
+          : /INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST|bad value for restricted picklist/i.test(raw) ? `選択リストの値がクロスリードで使えません（${(/fields?:?\s*\[?([A-Za-z0-9_]+)/.exec(raw) || [])[1] || "項目"}）`
           : /FIELD_CUSTOM_VALIDATION_EXCEPTION/i.test(raw) ? `SFの入力規則に引っかかりました：${raw.replace(/^.*FIELD_CUSTOM_VALIDATION_EXCEPTION[":, ]*/i, "").slice(0, 120)}`
           : /REQUIRED_FIELD_MISSING/i.test(raw) ? `クロスリードで必須の項目が空です：${(/fields?:?\s*\[?([A-Za-z0-9_, ]+)/.exec(raw) || [])[1] || ""}`
           : /INVALID_CROSS_REFERENCE_KEY|ENTITY_IS_DELETED|NOT_FOUND/i.test(raw) ? "SFでリードが見つかりません（削除・統合された可能性）"
           : /INSUFFICIENT_ACCESS|INVALID_FIELD_FOR_INSERT_UPDATE|CANNOT_/i.test(raw) ? "変える権限がありません（SFの権限）"
           : raw.slice(0, 160);
-        failed.push({ id: lid, company: nameOf.get(lid) || "", why });
+        failed.push({ id: lid, company: nameOf.get(lid) || "", why, fields: sfFields });
         console.warn("[to-cross]", lid, raw);
       }
     }
     const 残り = rest.length - 変更 - failed.length;
     res.json({ ok: true, done: 残り <= 0, 対象: leadIds.length, クロス以外: 非クロス.length, 変更, 失敗, 残り, failed });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// クロスリードに変えられなかったリード：止まった項目（入力規則）に値を入れて、もう一度変える
+app.get("/api/calls/sf-lead-field", async (req, res) => {
+  try {
+    const sfUser = await pickSfUser(req.user, req);
+    const name = String(req.query.field || "").replace(/[^A-Za-z0-9_]/g, "");
+    const d = await describeObject(sfUser, "Lead");
+    const f = (d.fields || []).find((x) => x.name === name);
+    if (!f) return res.status(404).json({ error: "項目が見つかりません" });
+    res.json({ ok: true, name: f.name, label: f.label, type: f.type, options: (f.picklistValues || []).filter((v) => v.active !== false).map((v) => ({ value: v.value, label: v.label || v.value })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/sf-lead-to-cross", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const sfUser = await pickSfUser(req.user, req);
+    const rtId = await crossLeadRecordTypeId(sfUser).catch(() => "");
+    if (!rtId) return res.status(400).json({ error: "Cross_leadのレコードタイプが見つかりません" });
+    const id = String(req.body?.leadId || "").replace(/[^A-Za-z0-9]/g, "");
+    const fields = {};
+    for (const [k, v] of Object.entries(req.body?.fields || {})) { const kk = String(k).replace(/[^A-Za-z0-9_]/g, ""); if (kk && v !== "") fields[kk] = v; }
+    await updateLead(sfUser, id, { ...fields, RecordTypeId: rtId });
+    console.log(`[to-cross] 項目を入れてクロスリードに変えました：${id} ${JSON.stringify(fields)} by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) {
+    const raw = String(e.message || e);
+    res.status(400).json({ error: (/"message"\s*:\s*"([^"]+)"/.exec(raw) || [])[1] || raw.slice(0, 200) });
+  }
 });
 
 // 今あるリストの、SF未連携（lead_idなし）の架電先を、Salesforceに反映する。
@@ -25514,7 +25546,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20b SFと連携：一度失敗した架電先は同じ実行で試し直さない（同じ数件の失敗を、20件ずつの回ごとに数え続けていた＝失敗193のほとんどは重複）。終わったら、結びつけられなかった架電先を理由ごと（SFの重複ルール・入力規則・必須の項目・メールの形など）に窓で出す。";
+const BUILD_TAG = "2026-10-20c クロスリードに変えられなかった窓：SFの入力規則の文をそのまま出し、止まった項目（pending_reason__c など）に、その場で値（選択リスト）を入れて「入れてクロスに変える」ができるように。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

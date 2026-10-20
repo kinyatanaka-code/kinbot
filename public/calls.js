@@ -6920,13 +6920,7 @@ document.addEventListener("click", (ev) => {
           if (d.done || 回 > 200 || (!d["変更"] && !(d.failed || []).length)) break;
         }
         say("clStatus", `クロスリードに変更しました：${変更}件${fails.length ? `（失敗${fails.length}件。理由は下の窓）` : ""}`, 12000);
-        if (fails.length) {
-          // 失敗の理由をまとめて見せる（多い順）
-          const by = new Map(); for (const f of fails) { if (!by.has(f.why)) by.set(f.why, []); by.get(f.why).push(f.company || f.id); }
-          const html = [...by.entries()].sort((a, b) => b[1].length - a[1].length)
-            .map(([why, cos]) => `<div style="margin:8px 0"><b>${esc(why)}</b>（${cos.length}件）<div class="note" style="margin-top:2px">${cos.slice(0, 12).map(esc).join("、")}${cos.length > 12 ? ` ほか${cos.length - 12}件` : ""}</div></div>`).join("");
-          openModal(`クロスリードに変えられなかったリード（${fails.length}件）`, `<div style="font-size:13px;line-height:1.6">${html}<p class="note" style="margin-top:10px">理由ごとにまとめています。Salesforceの側で直す必要があるもの（入力規則・必須の項目・選択リストの値）は、この画面を送ってもらえれば、kinbotで一緒に直せるか見ます。</p></div>`);
-        }
+        if (fails.length) showCrossFails(fails);
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
@@ -8542,6 +8536,40 @@ async function asLoad() {
   }
 }
 
+// クロスリードに変えられなかったリードの窓：入力規則で止まった項目は、その場で値を入れて直せる
+function showCrossFails(fails) {
+  const by = new Map(); for (const f of fails) { if (!by.has(f.why)) by.set(f.why, []); by.get(f.why).push(f); }
+  const groups = [...by.entries()].sort((a, b) => b[1].length - a[1].length);
+  const m = openModal(`クロスリードに変えられなかったリード（${fails.length}件）`, `<div style="font-size:13px;line-height:1.6">
+    ${groups.map(([why, list], gi) => `<div style="margin:10px 0;padding-bottom:8px;border-bottom:1px dashed #e6ece9"><b>${esc(why)}</b>（${list.length}件）
+      <div class="note" style="margin-top:2px">${list.slice(0, 15).map((f) => esc(f.company || f.id)).join("、")}${list.length > 15 ? ` ほか${list.length - 15}件` : ""}</div>
+      ${(list[0].fields || []).length ? `<div data-fix="${gi}" style="margin-top:6px"><span class="note">項目の値を読み込んでいます…</span></div>` : ""}</div>`).join("")}
+    <p class="note" style="margin-top:10px">入力規則で止まったものは、止まった項目に値を入れて「入れてクロスに変える」を押すと、その値をSalesforceに入れてからクロスリードに変えます。</p></div>`);
+  groups.forEach(async ([why, list], gi) => {
+    const box = m.el.querySelector(`[data-fix="${gi}"]`); if (!box) return;
+    const fs = list[0].fields || [];
+    const defs = [];
+    for (const name of fs) { try { const d = await (await fetch(`/api/calls/sf-lead-field?field=${encodeURIComponent(name)}`)).json(); if (d.ok) defs.push(d); } catch {} }
+    if (!defs.length) { box.innerHTML = `<span class="note">この項目はkinbotからは入れられません。Salesforceで直してください。</span>`; return; }
+    box.innerHTML = defs.map((d) => `<label style="display:flex;gap:8px;align-items:center;margin:4px 0"><span style="min-width:110px">${esc(d.label)}</span>${d.options.length
+      ? `<select data-ff="${esc(d.name)}" class="kc-input" style="width:auto"><option value="">選んでください</option>${d.options.map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("")}</select>`
+      : `<input data-ff="${esc(d.name)}" class="kc-input" style="width:220px">`}</label>`).join("")
+      + `<button type="button" class="btn" data-go style="margin-top:6px">入れてクロスに変える（${list.length}件）</button><span class="note" data-st style="margin-left:8px"></span>`;
+    box.querySelector("[data-go]").addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget; const st = box.querySelector("[data-st]");
+      const fields = {}; box.querySelectorAll("[data-ff]").forEach((el) => { if (el.value) fields[el.dataset.ff] = el.value; });
+      if (!Object.keys(fields).length) { st.textContent = "値を入れてください"; return; }
+      btn.disabled = true; let ok = 0; const ng = [];
+      for (const f of list) {
+        st.textContent = `直しています… ${ok + ng.length + 1}/${list.length}`;
+        try { const r = await fetch("/api/calls/sf-lead-to-cross", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ leadId: f.id, fields }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error); ok++; }
+        catch (e) { ng.push(`${f.company || f.id}：${e.message}`); }
+      }
+      st.textContent = `クロスに変えました：${ok}件${ng.length ? `／できなかった：${ng.join("　")}` : ""}`;
+      btn.disabled = false;
+    });
+  });
+}
 // SFと連携（未連携の架電先をSFのリードに結びつける）を少しずつくり返す。一度失敗した架電先は飛ばし、最後に理由を窓で出す
 async function runToSfLoop(listId, onProgress) {
   let 見 = 0, 作 = 0, 回 = 0;
