@@ -11471,3 +11471,25 @@ export async function listApoCallLogs(fromDay, toDay, caller = "") {
     return rows;
   } catch (e) { console.error("[db] listApoCallLogs", e.message); return []; }
 }
+
+// リストの名前の頭を、決めた対応で一括で変える（「 - 担当者名」から後ろはそのまま）。dryRun で変わる一覧だけ返す
+export async function renameListPrefixes(map, { dryRun = false } = {}) {
+  if (!pool) return [];
+  const keys = Object.keys(map).sort((a, b) => b.length - a.length);   // 長いものから当てる（MO失注1000名以下 を MO失注 より先に）
+  const { rows } = await pool.query(`SELECT id, name FROM call_lists`);
+  const changes = [];
+  for (const r of rows) {
+    const name = String(r.name || "");
+    for (const k of keys) {
+      if (!name.startsWith(k)) continue;
+      const rest = name.slice(k.length);
+      // 頭のあとが「空」か「 - 」で始まるときだけ（MO失注リサイクル などは変えない）
+      if (rest && !/^\s*[-－−]\s*/.test(rest)) continue;
+      const nn = map[k] + rest;
+      if (nn !== name) changes.push({ id: r.id, from: name, to: nn });
+      break;
+    }
+  }
+  if (!dryRun) for (const c of changes) await pool.query(`UPDATE call_lists SET name = $2 WHERE id = $1`, [c.id, c.to]);
+  return changes;
+}

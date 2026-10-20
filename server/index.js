@@ -275,6 +275,7 @@ import {
   countMyCallLogs,
   resetRevivalStagesToNew,
   listApoCallLogs,
+  renameListPrefixes,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -25546,7 +25547,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20c クロスリードに変えられなかった窓：SFの入力規則の文をそのまま出し、止まった項目（pending_reason__c など）に、その場で値（選択リスト）を入れて「入れてクロスに変える」ができるように。";
+const BUILD_TAG = "2026-10-20d MO失注のリストの名前を一括で変更（MO失注→MO失注1、MO失注1000名以下→MO失注1.5、MO失注202510-202603→MO失注2、MO失注202503-10→MO失注3。「 - 担当者名」から後ろはそのまま）。起動時に1回。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
@@ -31890,6 +31891,16 @@ server.listen(PORT, async () => {
   // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
   // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
   linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  // 2026-10-20 田中さん：MO失注のリストの名前を一括で変える（「 - 担当者名」から後ろはそのまま。1回だけ）
+  setTimeout(async () => {
+    try {
+      const st = await getSettings().catch(() => ({}));
+      if (st.renameMo20261020) return;
+      const ch = await renameListPrefixes({ "MO失注": "MO失注1", "MO失注1000名以下": "MO失注1.5", "MO失注202510-202603": "MO失注2", "MO失注202503-10": "MO失注3" });
+      await saveSettings({ renameMo20261020: { at: new Date().toISOString(), changes: ch } });
+      console.log(`[calls] MO失注のリストの名前を変えました：${ch.length}件`, ch.map((c) => `${c.from} → ${c.to}`).join(" ／ "));
+    } catch (e) { console.warn("[calls] リスト名の一括変更", e.message); }
+  }, 16000).unref?.();
   // 復活のリストにいて、まだかけていないリードのステージを NEW にそろえる
   setTimeout(() => { resetRevivalStagesToNew().then((n) => { if (n) console.log(`[calls] 復活のリードのステージを NEW にしました：${n}件`); }).catch(() => {}); }, 14000).unref?.();
   // MO失注のリストのリードのソースを「MO失注」（新規リストの枠）にする
