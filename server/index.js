@@ -9910,15 +9910,32 @@ app.post("/api/calls/lists/:id/to-cross", async (req, res) => {
       return res.json({ ok: true, done: true, 対象: leadIds.length, クロス以外: 非クロス.length, 変更: 0, 残り: 非クロス.length, dryRun: true });
     }
 
-    // この1回で処理するぶん（先頭 limit 件）だけ Cross_lead に変える
-    const batch = 非クロス.slice(0, limit);
+    // この1回で処理するぶん（先頭 limit 件）だけ Cross_lead に変える。
+    // 一度失敗したリードは、同じ実行のあいだは飛ばす（前は失敗したものを毎回先頭から試し直して、同じ失敗を数え続けていた）
+    const skip = new Set((Array.isArray(req.body?.skip) ? req.body.skip : []).map((x) => id15(String(x))));
+    const rest = 非クロス.filter((x) => !skip.has(x));
+    const batch = rest.slice(0, limit);
     let 変更 = 0, 失敗 = 0;
+    const failed = [];
+    const nameOf = new Map(targets.map((t) => [id15(t.lead_id || ""), t.company || ""]));
     for (const lid of batch) {
       try { await updateLead(sfUser, lid, { RecordTypeId: rtId }); 変更++; }
-      catch (e) { 失敗++; console.warn("[to-cross]", lid, e.message); }
+      catch (e) {
+        失敗++;
+        // SFのエラーの文から、分かりやすい理由にする
+        const raw = String(e.message || e);
+        const why = /INVALID_OR_NULL_FOR_RESTRICTED_PICKLIST|bad value for restricted picklist/i.test(raw) ? `選択リストの値がクロスリードで使えません（${(/fields?:?\s*\[?([A-Za-z0-9_]+)/.exec(raw) || [])[1] || "項目"}）`
+          : /FIELD_CUSTOM_VALIDATION_EXCEPTION/i.test(raw) ? `SFの入力規則に引っかかりました：${raw.replace(/^.*FIELD_CUSTOM_VALIDATION_EXCEPTION[":, ]*/i, "").slice(0, 120)}`
+          : /REQUIRED_FIELD_MISSING/i.test(raw) ? `クロスリードで必須の項目が空です：${(/fields?:?\s*\[?([A-Za-z0-9_, ]+)/.exec(raw) || [])[1] || ""}`
+          : /INVALID_CROSS_REFERENCE_KEY|ENTITY_IS_DELETED|NOT_FOUND/i.test(raw) ? "SFでリードが見つかりません（削除・統合された可能性）"
+          : /INSUFFICIENT_ACCESS|INVALID_FIELD_FOR_INSERT_UPDATE|CANNOT_/i.test(raw) ? "変える権限がありません（SFの権限）"
+          : raw.slice(0, 160);
+        failed.push({ id: lid, company: nameOf.get(lid) || "", why });
+        console.warn("[to-cross]", lid, raw);
+      }
     }
-    const 残り = 非クロス.length - 変更;
-    res.json({ ok: true, done: 残り <= 0, 対象: leadIds.length, クロス以外: 非クロス.length, 変更, 失敗, 残り });
+    const 残り = rest.length - 変更 - failed.length;
+    res.json({ ok: true, done: 残り <= 0, 対象: leadIds.length, クロス以外: 非クロス.length, 変更, 失敗, 残り, failed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -25485,7 +25502,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-19z CS連携：「御礼メールを見る」で、企業カードの窓の上に御礼メールのプレビュー（宛先・件名・本文）を開き、その場で直せるように。直した文は会社ごとに残り、下書きにも使う。ひな形の文に戻すこともできる。";
+const BUILD_TAG = "2026-10-20a クロスリードに変更：一度失敗したリードは同じ実行で試し直さない（同じ失敗を数え続けていた）。終わったら、変えられなかったリードを理由ごと（入力規則・必須の項目・選択リストの値・権限・削除済み）に窓で出す。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

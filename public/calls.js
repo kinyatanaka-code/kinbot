@@ -6905,20 +6905,28 @@ document.addEventListener("click", (ev) => {
       } catch (e) { say("clStatus", "調べられませんでした：" + e.message, 8000); return; }
       if (!対象) { say("clStatus", "変更が必要なリードはありません（すべてクロス、またはSF未連携）", 6000); return; }
       if (!confirm(`このリストのSF連携済みリードのうち、クロス以外の ${対象}件 を Salesforce で Cross_lead（クロスリード）に変更します。\n既にクロスのものは変更しません。\nこの操作はSFのデータを書き換えます（自動では元に戻せません）。\nよろしいですか？`)) { say("clStatus", ""); return; }
-      let 変更 = 0, 失敗 = 0, 回 = 0;
+      let 変更 = 0, 回 = 0;
+      const fails = [];   // 失敗したリード（同じ実行では飛ばす）
       try {
         while (true) {
           回++;
           const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-cross`, {
-            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20, skip: fails.map((x) => x.id) }),
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error || "変更できませんでした");
-          変更 += d["変更"] || 0; 失敗 += d["失敗"] || 0;
-          say("clStatus", `クロスリードに変更中… ${変更}/${対象}件${失敗 ? `（失敗${失敗}）` : ""}`);
-          if (d.done || 回 > 500) break;
+          変更 += d["変更"] || 0; fails.push(...(d.failed || []));
+          say("clStatus", `クロスリードに変更中… ${変更 + fails.length}/${対象}件${fails.length ? `（失敗${fails.length}）` : ""}`);
+          if (d.done || 回 > 200 || (!d["変更"] && !(d.failed || []).length)) break;
         }
-        say("clStatus", `クロスリードに変更しました：${変更}件${失敗 ? `（失敗${失敗}）` : ""}`, 12000);
+        say("clStatus", `クロスリードに変更しました：${変更}件${fails.length ? `（失敗${fails.length}件。理由は下の窓）` : ""}`, 12000);
+        if (fails.length) {
+          // 失敗の理由をまとめて見せる（多い順）
+          const by = new Map(); for (const f of fails) { if (!by.has(f.why)) by.set(f.why, []); by.get(f.why).push(f.company || f.id); }
+          const html = [...by.entries()].sort((a, b) => b[1].length - a[1].length)
+            .map(([why, cos]) => `<div style="margin:8px 0"><b>${esc(why)}</b>（${cos.length}件）<div class="note" style="margin-top:2px">${cos.slice(0, 12).map(esc).join("、")}${cos.length > 12 ? ` ほか${cos.length - 12}件` : ""}</div></div>`).join("");
+          openModal(`クロスリードに変えられなかったリード（${fails.length}件）`, `<div style="font-size:13px;line-height:1.6">${html}<p class="note" style="margin-top:10px">理由ごとにまとめています。Salesforceの側で直す必要があるもの（入力規則・必須の項目・選択リストの値）は、この画面を送ってもらえれば、kinbotで一緒に直せるか見ます。</p></div>`);
+        }
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
   }
