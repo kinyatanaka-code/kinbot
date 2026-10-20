@@ -11493,3 +11493,20 @@ export async function renameListPrefixes(map, { dryRun = false } = {}) {
   if (!dryRun) for (const c of changes) await pool.query(`UPDATE call_lists SET name = $2 WHERE id = $1`, [c.id, c.to]);
   return changes;
 }
+
+// 資料を送った相手の閲覧：メールアドレスごと・会社名ごとに、閲覧の回数・合計の秒数・最後に見た日時（かける画面の目のマーク用）
+export async function docViewSummary() {
+  if (!pool) return { byEmail: new Map(), byCompany: new Map() };
+  try {
+    const { rows } = await pool.query(
+      `SELECT lower(COALESCE(NULLIF(v.viewer_email,''), l.email, '')) AS email, COALESCE(l.company,'') AS company,
+              count(*)::int AS n, COALESCE(sum(v.seconds),0)::int AS sec, max(v.last_at) AS last_at, max(d.name) AS doc
+         FROM doc_views v JOIN doc_links l ON l.id = v.link_id LEFT JOIN doc_files d ON d.id = l.doc_id
+        WHERE v.seconds > 0 OR v.max_page > 0
+        GROUP BY 1, 2`);
+    const byEmail = new Map(), byCompany = new Map();
+    const add = (m, k, r) => { if (!k) return; const c = m.get(k) || { n: 0, sec: 0, last: null, docs: new Set() }; c.n += r.n; c.sec += r.sec; if (!c.last || r.last_at > c.last) c.last = r.last_at; if (r.doc) c.docs.add(r.doc); m.set(k, c); };
+    for (const r of rows) { add(byEmail, r.email, r); add(byCompany, normCompanyKey(String(r.company || "").normalize("NFKC")), r); }
+    return { byEmail, byCompany };
+  } catch (e) { console.error("[db] docViewSummary", e.message); return { byEmail: new Map(), byCompany: new Map() }; }
+}

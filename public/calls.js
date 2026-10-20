@@ -493,6 +493,15 @@ function fromBadge(x) {
   const PAST = ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"];
   const fr = NEW.includes(src) ? "new" : PAST.includes(src) ? "past" : "other";
   const parts = [];
+  // 送った資料を見ている会社：目のマーク（何回・合計の時間・最後に見た日時）
+  const dvw = x && x["資料閲覧"];
+  if (dvw && dvw.回数) {
+    const lt = dvw.最後 ? new Date(dvw.最後) : null;
+    const lastS = lt ? `${lt.getMonth() + 1}/${lt.getDate()} ${lt.getHours()}:${String(lt.getMinutes()).padStart(2, "0")}` : "";
+    const min = Math.max(1, Math.round(Number(dvw.秒 || 0) / 60));
+    const recent = lt && Date.now() - lt.getTime() < 3 * 86400000;
+    parts.push(`<span class="kc-src-tag view${recent ? " hot" : ""}" title="送った資料を見ています：${dvw.回数}回・合計${min}分${lastS ? `・最後 ${lastS}` : ""}${(dvw.資料 || []).length ? `\n資料：${dvw.資料.join("、")}` : ""}"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>${dvw.回数}${lastS ? ` ${lastS.split(" ")[0]}` : ""}</span>`);
+  }
   // 直近に商談した・これから商談がある会社（同じ会社に重ねて電話しないよう、目立たせる）
   const mtg = x && x["直近商談"];
   if (mtg && mtg.day) parts.push(`<span class="kc-src-tag mtg" title="この会社は${mtg.kind === "これから商談" ? "これから商談があります" : "直近に商談しています"}（${esc(mtg.day)}）。今日かけるリードには入れていません">${mtg.kind === "これから商談" ? "商談予定" : "商談済み"} ${Number(String(mtg.day).slice(5, 7))}/${Number(String(mtg.day).slice(8, 10))}</span>`);
@@ -2112,6 +2121,8 @@ function renderDock() {
     .kc-today-goal.ok{color:#085041;background:#e1f5ee;} .kc-today-note{font-size:11px;color:#6b8a7d;margin-left:4px;}
     .kc-src-line{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:3px;max-width:240px;}
     .kc-src-tag{font-size:10px;font-weight:700;padding:0 6px;border-radius:5px;white-space:nowrap;}
+    .kc-src-tag.view{display:inline-flex;align-items:center;gap:3px;background:#e8f0fe;color:#1a56b0;}
+    .kc-src-tag.view.hot{background:#1a56b0;color:#fff;}
     .kc-j-goal{display:flex;align-items:center;gap:5px;margin:5px 0 1px;font-size:12px;}
     .kc-j-goal .kc-dlb{margin:0;}
     .kc-j-goal b{font-size:15px;color:#1f2a26;}

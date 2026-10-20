@@ -276,6 +276,7 @@ import {
   resetRevivalStagesToNew,
   listApoCallLogs,
   renameListPrefixes,
+  docViewSummary,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -10885,8 +10886,15 @@ app.get("/api/calls/targets", async (req, res) => {
       sf数えた = 失敗 < Math.ceil(ids.length / 80);   // 全部失敗でなければ数えられた扱い
     }
     const mtgMapAll = await recentMeetingMap().catch(() => new Map());
+    // 資料を送った相手が見ているか（メールアドレス → 会社名で照らす）
+    const dv = await docViewSummary().catch(() => ({ byEmail: new Map(), byCompany: new Map() }));
+    const viewOf = (r) => {
+      const v = (r.email && dv.byEmail.get(String(r.email).toLowerCase())) || dv.byCompany.get(normCompanyKey(String(r.company || "").normalize("NFKC")));
+      return v ? { 回数: v.n, 秒: v.sec, 最後: v.last, 資料: [...v.docs].slice(0, 3) } : null;
+    };
     const items = rows.map((r) => ({
-        直近商談: recentMeetingOf(mtgMapAll, r.company),   // 直近に商談した・これから商談がある会社なら { day, kind }
+        直近商談: recentMeetingOf(mtgMapAll, r.company),
+        資料閲覧: viewOf(r),   // 直近に商談した・これから商談がある会社なら { day, kind }
         id: r.id, listId: r.list_id || null, listOwner: r._list_owner || "", listGroupId: r._list_group_id || null, listGroupName: r._list_group_name || "", leadId: r.lead_id || "",
         ステージ: r.stage || "",
         会社名: r.company || "", 担当者: r.person || "", ふりがな: r.person_kana || "",
@@ -25548,7 +25556,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20e かける画面のリストの選び方：上に「今日かける・ナーチャリング・新規リスト・過去リスト・その他」の切り替え、新規・過去・その他を選んだときだけ、下に小さなタブでリストを1行に並べる（上を広く使わないように）。分け方ごとに前に選んだリストを覚える。";
+const BUILD_TAG = "2026-10-20f kincallのかける画面：資料を送って、相手が見ている会社に目のマーク（見た回数・最後に見た日、3日以内は濃い青）。マークに合わせると、合計の時間と資料の名前も出る。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
