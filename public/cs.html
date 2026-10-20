@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261020i" />
+    <link rel="stylesheet" href="style.css?v=20261020j" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -180,7 +180,7 @@
             <div class="cs-card">
               <div class="cs-h" style="cursor:default"><b>NB_Project_Management_Sheet（企業様情報）への自動記入</b>
                 <button type="button" class="btn ghost" id="nbRun" style="padding:4px 12px;font-size:12px;">いま確認して記入する</button><span class="rev-status" id="nbSt"></span></div>
-              <p class="note" style="margin:6px 0">SFのクロスの商談が「06 : 申込書回収完了」「08 : 受注処理完了」になったら、30分以内に空いている行へ C 正式法人名・D 顧客名・H サイト・N 顧客（様）（SFの取引先責任者）・X プラン名・AA 初期あり／初期なし を記入します。すでにある会社（キックオフ・申込をした会社）は、空いている欄だけを埋めます（入っている欄は書きかえません）。</p>
+              <p class="note" style="margin:6px 0">SFのクロスの商談で「06 : 申込書回収完了」「08 : 受注処理完了」になっているもの（前からのものも全部）を、30分ごとに見て空いている行へ C 正式法人名・D 顧客名・H サイト・N 顧客（様）（SFの取引先責任者）・X プラン名・AA 初期あり／初期なし を記入します。すでにある会社（キックオフ・申込をした会社）は、空いている欄だけを埋めます（入っている欄は書きかえません）。</p>
               <div id="nbLog" class="cs-sub"></div>
             </div>
             </div>
@@ -188,7 +188,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261020i"></script>
+    <script src="nav.js?v=20261020j"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -196,6 +196,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261020i"></script>
+    <script src="cs.js?v=20261020j"></script>
   </body>
 </html>

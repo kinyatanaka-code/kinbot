@@ -331,7 +331,7 @@ document.getElementById("nbRun").addEventListener("click", async () => {
   const st = document.getElementById("nbSt"); st.textContent = "確認しています…";
   try {
     const r = await api("/api/cs/nb-sheet/run", { method: "POST" });
-    st.textContent = r.skipped === "busy" ? "いま動いています。少し待ってください" : `記入 ${(r.written || []).length}件${(r.filled || []).length ? `・空欄を埋めた ${(r.filled || []).length}社` : ""}${(r.skipped || []).length ? `・すでにある ${(r.skipped || []).length}件` : ""}${(r.errors || []).length ? `・エラー：${r.errors.join("／")}` : ""}`;
+    st.textContent = r.skipped === "busy" ? "いま動いています。少し待ってください" : `記入 ${(r.written || []).length}件${r.more ? "（続きは次の回）" : ""}${(r.filled || []).length ? `・空欄を埋めた ${(r.filled || []).length}社` : ""}${(r.skipped || []).length ? `・すでにある ${(r.skipped || []).length}件` : ""}${(r.errors || []).length ? `・エラー：${r.errors.join("／")}` : ""}`;
     loadNb();
   } catch (e) { st.textContent = "失敗：" + e.message; }
 });

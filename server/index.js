@@ -15326,12 +15326,14 @@ async function nbSheetTick({ force = false } = {}) {
     if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) { out.errors.push("Salesforceにつながっている人がいません"); return out; }
     const writer = await nbSheetWriter([sfUser]);
     if (!writer) { out.errors.push("シートに書けるGoogle連携の人がいません"); return out; }
-    const sinceSf = new Date(Math.max(Date.parse(since), Date.now() - 14 * 86400000)).toISOString().replace(/\.\d+Z$/, "Z");
     const pf = await nbPlanField(sfUser);
-    // クロス（DOC）の商談だけ（レコードタイプがクロス）。MOCHICAなどは書かない
+    // 「申込・受注に“なったら”」ではなく「“なっている”商談は全部」（2026-10-20 田中さん）：
+    //   クロス（DOC）の商談で、いま 06 : 申込書回収完了・08 : 受注処理完了 の段階のものを、いつ変わったかに関係なく全部見る。
+    //   シートに無い会社は空いている行に書き、ある会社は空欄だけ埋める（nbFillBlanks）。1回に書く新しい行は NB_SHEET_MAX_NEW（既定20）まで
     const d = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, RecordType.Name, Account.Name, Account.Website${pf.api ? `, ${pf.api}` : ""} FROM Opportunity
       WHERE (StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
-        AND LastModifiedDate >= ${sinceSf} ORDER BY LastModifiedDate ASC LIMIT 200`);
+      ORDER BY CloseDate ASC NULLS LAST LIMIT 2000`);
+    const maxNew = Math.max(1, parseInt(process.env.NB_SHEET_MAX_NEW || "20", 10) || 20);
     const opps = (d.records || []).filter((o) => !done.has(o.Id) && !/更新|MOCHICA|リピート/i.test(`${o.Name || ""} ${o.StageName || ""}`));
     if (!opps.length) { out.filled = await nbFillBlanks(sfUser, writer, pf).catch(() => []); return out; }
     // シートの今の中身（4行目から）
@@ -15346,6 +15348,7 @@ async function nbSheetTick({ force = false } = {}) {
     });
     let next = firstEmpty >= 0 ? firstEmpty + 4 : rows.length + 4;
     for (const o of opps) {
+      if (out.written.length >= maxNew) { out.more = true; break; }   // 残りは次の回（30分後）に
       const name = String((o.Account && o.Account.Name) || "").trim();
       const key = normCompanyKey(name.normalize("NFKC"));
       if (!name || !key) { done.add(o.Id); continue; }
@@ -25598,7 +25601,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20i 資料を見ている会社の印：メールの安全チェックの機械がメルマガのリンクを一斉に開いた分（みんな10/10 07:00に閲覧）を数えないように。ロボットのブラウザ・5秒未満でページもめくらない・同じ資料が同じ1分に10回以上開かれたものを外す。";
+const BUILD_TAG = "2026-10-20j 管理シートへの自動記入：SFのクロスの商談が申込・受注に「なったら」ではなく「なっている」もの（前からのものも全部）を見るように。シートに無い会社は空いている行に書き（1回20社まで、続きは次の回）、ある会社は空欄だけ埋める。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
