@@ -15256,10 +15256,9 @@ async function nbFillBlanks(sfUser, writer, pf, { max = 40 } = {}) {
   const rows = await readSheet(writer, NB_SHEET_ID, `'${NB_SHEET_TAB}'!B4:AA3000`).catch(() => []);
   if (!rows.length) return filled;
   // SFのクロスの申込・受注の商談（会社ごとにいちばん新しいもの）
-  const since = new Date(Date.now() - 800 * 86400000).toISOString().slice(0, 10);
   const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, LastModifiedDate, Account.Name, Account.Website${pf.api ? `, ${pf.api}` : ""} FROM Opportunity
     WHERE (StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
-      AND LastModifiedDate >= ${since}T00:00:00Z ORDER BY LastModifiedDate DESC LIMIT 2000`).catch(() => null);
+      AND CloseDate >= ${nbSheetFromDay()} ORDER BY LastModifiedDate DESC LIMIT 2000`).catch(() => null);
   const oppBy = new Map();
   for (const o of ((q && q.records) || [])) {
     if (/更新|MOCHICA|リピート/i.test(`${o.Name || ""} ${o.StageName || ""}`)) continue;
@@ -15312,6 +15311,15 @@ async function nbFillBlanks(sfUser, writer, pf, { max = 40 } = {}) {
   if (filled.length) { await nbSheetLog({ company: "（空欄を埋めました）", repair: filled }); console.log("[nb-sheet] 空欄を埋めました", filled); }
   return filled;
 }
+// 管理シートへの自動記入で見る範囲の始まり：先月の1日（日本時間）。NB_SHEET_FROM（YYYY-MM-DD）があればそれ
+function nbSheetFromDay() {
+  const env = String(process.env.NB_SHEET_FROM || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(env)) return env;
+  const j = new Date(Date.now() + 9 * 3600000);
+  const y = j.getUTCMonth() === 0 ? j.getUTCFullYear() - 1 : j.getUTCFullYear();
+  const m = j.getUTCMonth() === 0 ? 12 : j.getUTCMonth();
+  return `${y}-${String(m).padStart(2, "0")}-01`;
+}
 let _nbBusy = false;
 async function nbSheetTick({ force = false } = {}) {
   if (_nbBusy) return { skipped: "busy" };
@@ -15330,8 +15338,11 @@ async function nbSheetTick({ force = false } = {}) {
     // 「申込・受注に“なったら”」ではなく「“なっている”商談は全部」（2026-10-20 田中さん）：
     //   クロス（DOC）の商談で、いま 06 : 申込書回収完了・08 : 受注処理完了 の段階のものを、いつ変わったかに関係なく全部見る。
     //   シートに無い会社は空いている行に書き、ある会社は空欄だけ埋める（nbFillBlanks）。1回に書く新しい行は NB_SHEET_MAX_NEW（既定20）まで
+    //   見る範囲：先月の1日以降に申込・受注になった（完了予定日＝受注の日）商談（2026-10-20 田中さん「先月くらい」）。NB_SHEET_FROM で日付を決めることもできる
+    const fromDay = nbSheetFromDay();
     const d = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, RecordType.Name, Account.Name, Account.Website${pf.api ? `, ${pf.api}` : ""} FROM Opportunity
       WHERE (StageName LIKE '06%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
+        AND CloseDate >= ${fromDay}
       ORDER BY CloseDate ASC NULLS LAST LIMIT 2000`);
     const maxNew = Math.max(1, parseInt(process.env.NB_SHEET_MAX_NEW || "20", 10) || 20);
     const opps = (d.records || []).filter((o) => !done.has(o.Id) && !/更新|MOCHICA|リピート/i.test(`${o.Name || ""} ${o.StageName || ""}`));
@@ -25601,7 +25612,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20j 管理シートへの自動記入：SFのクロスの商談が申込・受注に「なったら」ではなく「なっている」もの（前からのものも全部）を見るように。シートに無い会社は空いている行に書き（1回20社まで、続きは次の回）、ある会社は空欄だけ埋める。";
+const BUILD_TAG = "2026-10-20k 管理シートへの自動記入で見る商談を、先月の1日以降に受注（完了予定日）したものにしぼる（空欄を埋める方も同じ）。NB_SHEET_FROM で始まりの日を決められる。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
