@@ -7006,3 +7006,19 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .ia-pick { margin: 2px 4px 2px 0; padding: 4px 10px; font-size: 12.5px; display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.3; }
 .ia-how { font-size: 10.5px; font-weight: 500; opacity: .8; }
 .ia-done { color: #0d5b47; font-weight: 700; font-size: 12px; margin-left: 4px; }
+
+/* かける画面のリストの選び方：上に分け方、下に小さなタブ（2026-10-20） */
+#clPills.cl-pills { flex-direction:column; gap:6px; overflow:visible; padding:0; scroll-snap-type:none; }
+.cl-cats { display:inline-flex; gap:2px; padding:3px; background:#eef5f1; border:1px solid #e0ece6; border-radius:12px; align-self:flex-start; max-width:100%; overflow-x:auto; }
+.cl-cat { border:0; background:transparent; color:#3f5a50; font:inherit; font-size:12.5px; font-weight:700; padding:6px 12px; border-radius:9px; cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; transition:background .12s, color .12s; }
+.cl-cat:hover { background:#e2efe8; }
+.cl-cat.active { background:#fff; color:#0d5b47; box-shadow:0 1px 2px rgba(13,91,71,.12), 0 4px 10px -6px rgba(13,91,71,.35); }
+.cl-ccnt { font-size:10.5px; font-weight:700; color:#6b857b; background:rgba(13,91,71,.08); border-radius:8px; padding:1px 6px; }
+.cl-cat.active .cl-ccnt { color:#0d5b47; background:#e1f5ee; }
+.cl-subs { display:flex; gap:5px; overflow-x:auto; padding:1px 2px 5px; scroll-snap-type:x proximity; }
+.cl-subs::-webkit-scrollbar { height:5px; } .cl-subs::-webkit-scrollbar-thumb { background:#cfe6da; border-radius:20px; }
+.cl-pill.cl-sub { padding:4px 10px; gap:6px; font-size:12px; font-weight:600; border-radius:8px; box-shadow:none; background:#fff; border:1px solid #e2efe8; }
+.cl-pill.cl-sub:hover { transform:none; border-color:#5DCAA5; }
+.cl-pill.cl-sub.active { background:#1d9e75; color:#fff; border-color:#1d9e75; box-shadow:none; }
+.cl-pill.cl-sub .cl-pcnt { font-size:10.5px; padding:0 6px; }
+.cl-pills-row:has(.cl-cats) { align-items:flex-start; margin-bottom:8px; } .cl-pills-row:has(.cl-cats) .cl-pills-lbl { padding-top:9px; }

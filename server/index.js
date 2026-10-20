@@ -8001,6 +8001,7 @@ app.get("/api/calls/lists", async (req, res) => {
         作った人: r.owner || "",
         closed: !!r.closed,
         hidden: !!r.hidden,
+        frame: frameOfSource(classifyListSource(r.name, r.group_name)),   // new＝新規リスト／past＝過去リスト／other（かける画面のタブ分け）
       })),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -25547,7 +25548,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20d MO失注のリストの名前を一括で変更（MO失注→MO失注1、MO失注1000名以下→MO失注1.5、MO失注202510-202603→MO失注2、MO失注202503-10→MO失注3。「 - 担当者名」から後ろはそのまま）。起動時に1回。";
+const BUILD_TAG = "2026-10-20e かける画面のリストの選び方：上に「今日かける・ナーチャリング・新規リスト・過去リスト・その他」の切り替え、新規・過去・その他を選んだときだけ、下に小さなタブでリストを1行に並べる（上を広く使わないように）。分け方ごとに前に選んだリストを覚える。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

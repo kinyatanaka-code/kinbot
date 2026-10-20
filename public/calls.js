@@ -113,18 +113,56 @@ function clSortOptions(opts) {
     return pa - pb;
   }).map((x) => x.o);
 }
+// かける画面のリストの選び方：上に大きな分け方（今日かける・ナーチャリング・新規リスト・過去リスト・その他）、
+// 新規・過去・その他を選んだときだけ、その下に小さなタブでリストを並べる（上を広く使わないよう、1行ずつにぎゅっと）
+let _clFrames = {};   // リストID → new / past / other
+const CL_CATS = [
+  { key: "today", label: "今日かける" },
+  { key: "nurture", label: "ナーチャリング" },
+  { key: "new", label: "新規リスト" },
+  { key: "past", label: "過去リスト" },
+  { key: "other", label: "その他" },
+];
+function clCatOf(v) {
+  if (v === "today") return "today";
+  if (v === "nurture") return "nurture";
+  if (["crosslost-now", "archive", "recycle"].includes(v)) return "past";
+  if (v === "all") return "other";
+  const f = _clFrames[String(v)];
+  return f === "new" ? "new" : f === "past" ? "past" : "other";
+}
+function clCatLast(cat, v) {
+  try {
+    const m = JSON.parse(localStorage.getItem("kcCatLast") || "{}");
+    if (v === undefined) return m[cat] || "";
+    m[cat] = v; localStorage.setItem("kcCatLast", JSON.stringify(m));
+  } catch {}
+  return "";
+}
 function renderClPills() {
   const sel = $("clList"), box = $("clPills"); if (!sel || !box) return;
   const cur = String(sel.value || "");
-  const short = (v, t) => v === "all" ? "☆ 全てのリード" : v === "today" ? "今日かけるリード" : String(t);
-  box.innerHTML = clSortOptions([...sel.options]).map((o) => {
-    const on = o.value === cur;
-    const star = o.value === "all" || o.value === "today";
-    const n = _clCounts[o.value];
-    const cnt = (n != null) ? `<span class="cl-pcnt">${Number(n).toLocaleString()}</span>` : "";
-    return `<button type="button" class="cl-pill${on ? " active" : ""}${star ? " star" : ""}" draggable="true" data-v="${esc(o.value)}" title="ドラッグで並び順を変えられます"><span class="cl-pdot"></span>${esc(short(o.value, o.textContent))}${cnt}</button>`;
+  const curCat = clCatOf(cur);
+  const opts = clSortOptions([...sel.options]);
+  const inCat = (cat) => opts.filter((o) => clCatOf(o.value) === cat);
+  const short = (v, t) => v === "all" ? "全てのリード" : String(t);
+  const cnt = (v) => { const n = _clCounts[v]; return n != null ? `<span class="cl-ccnt">${Number(n).toLocaleString()}</span>` : ""; };
+  const cats = CL_CATS.filter((c) => c.key === "today" || inCat(c.key).length);
+  const catHtml = cats.map((c) => {
+    const lists = inCat(c.key);
+    const single = c.key === "today" || c.key === "nurture";
+    const badge = single ? cnt(c.key) : `<span class="cl-ccnt">${lists.length}</span>`;
+    return `<button type="button" class="cl-cat${c.key === curCat ? " active" : ""}" data-cat="${c.key}">${esc(c.label)}${badge}</button>`;
   }).join("");
-  clWirePillDrag(box);
+  const showSubs = !["today", "nurture"].includes(curCat);
+  const subs = showSubs ? inCat(curCat) : [];
+  const subHtml = subs.map((o) => `<button type="button" class="cl-pill cl-sub${o.value === cur ? " active" : ""}" draggable="true" data-v="${esc(o.value)}" title="${esc(o.textContent)}（ドラッグで並び順を変えられます）">${esc(short(o.value, o.textContent))}${_clCounts[o.value] != null ? `<span class="cl-pcnt">${Number(_clCounts[o.value]).toLocaleString()}</span>` : ""}</button>`).join("");
+  box.innerHTML = `<div class="cl-cats">${catHtml}</div>${showSubs && subs.length ? `<div class="cl-subs">${subHtml}</div>` : ""}`;
+  const subBox = box.querySelector(".cl-subs");
+  if (subBox) {
+    clWirePillDrag(subBox);
+    const a = subBox.querySelector(".cl-sub.active"); if (a) a.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 function clWirePillDrag(box) {
   if (box._dragWired) return; box._dragWired = true;
@@ -169,7 +207,13 @@ async function loadLists() {
         if (d0 && Array.isArray(d0.items)) { _clCounts.today = d0.items.filter((x) => !isDone(x)).length; renderClPills(); }
       } catch {}
     })();
-    for (const x of items) _clCounts[String(x.id)] = Number(x.残り || 0);
+    (async () => {
+      try {
+        const d1 = await (await fetch("/api/calls/targets?list=nurture")).json();
+        if (d1 && Array.isArray(d1.items)) { _clCounts.nurture = d1.items.filter((x) => !isDone(x)).length; renderClPills(); }
+      } catch {}
+    })();
+    for (const x of items) { _clCounts[String(x.id)] = Number(x.残り || 0); _clFrames[String(x.id)] = x.frame || "other"; }
     renderClPills();
     {
       const v = sel.value;
@@ -5944,10 +5988,19 @@ if ($("clList")) {
   });
 }
 if ($("clPills")) $("clPills").addEventListener("click", (e) => {
-  const b = e.target.closest(".cl-pill"); if (!b) return;
   const sel = $("clList"); if (!sel) return;
-  if (sel.value !== b.dataset.v) { sel.value = b.dataset.v; sel.dispatchEvent(new Event("change")); }
-  renderClPills();
+  const pick = (v) => { if (!v) return; clCatLast(clCatOf(v), v); if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event("change")); } renderClPills(); };
+  const c = e.target.closest(".cl-cat");
+  if (c) {
+    const cat = c.dataset.cat;
+    if (cat === "today" || cat === "nurture") return pick(cat);
+    // その分け方で前に選んだリスト → 無ければいちばん上のリスト
+    const lists = clSortOptions([...sel.options]).filter((o) => clCatOf(o.value) === cat);
+    const last = clCatLast(cat);
+    return pick((lists.find((o) => o.value === last) || lists[0] || {}).value);
+  }
+  const b = e.target.closest(".cl-pill"); if (!b) return;
+  pick(b.dataset.v);
 });
 if ($("clMine")) $("clMine").addEventListener("change", loadStats);
 // 日・週・月の切り替え
