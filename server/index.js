@@ -11582,6 +11582,7 @@ function csPostText(k, f, opts = {}) {
     (f.弊社の宿題 || []).length ? `弊社の宿題：${f.弊社の宿題.join("／")}` : "",
     `議事録：${base}/history.html?id=${encodeURIComponent(k.bot_id)}`,
     `SF商談：${k.sf_url || "未確認"}`,
+    `AIアカウント：${k.ai_login_id || k.ai_pass_enc ? "登録済み（ログイン情報はCS連携の企業カードで見られます）" : "未登録（CS連携の企業カードで入れてください）"}`,
     k.cs_email ? "" : `👉 CS担当を選んでください：${base}/cs.html?bot=${encodeURIComponent(k.bot_id)}`,
   ];
   return lines.filter(Boolean).join("\n");
@@ -12086,6 +12087,47 @@ async function canCs(req) {
   const cfg = await csSettings();
   return cfg.members.some((x) => x.email === String(req.user || "").toLowerCase());
 }
+// ===== AIアカウント（どこでもオープンカンパニーの管理画面）のログイン情報 =====
+// パスワードは暗号にして保存（AES-256-GCM。鍵は CS_SECRET_KEY → SESSION_SECRET から作る）。一覧には出さず、見るときだけ取りに行き、だれが見たかを残す
+function csAiKey() { return crypto.createHash("sha256").update(String(process.env.CS_SECRET_KEY || process.env.SESSION_SECRET || "kinbot") + "|cs-ai-account").digest(); }
+function csEnc(text) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", csAiKey(), iv);
+  const enc = Buffer.concat([c.update(String(text), "utf8"), c.final()]);
+  return `v1:${iv.toString("base64")}:${c.getAuthTag().toString("base64")}:${enc.toString("base64")}`;
+}
+function csDec(blob) {
+  const [v, iv, tag, enc] = String(blob || "").split(":");
+  if (v !== "v1" || !enc) return "";
+  const d = crypto.createDecipheriv("aes-256-gcm", csAiKey(), Buffer.from(iv, "base64"));
+  d.setAuthTag(Buffer.from(tag, "base64"));
+  return Buffer.concat([d.update(Buffer.from(enc, "base64")), d.final()]).toString("utf8");
+}
+app.put("/api/cs/kickoffs/:bot/ai-account", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが入れられます" });
+    const b = req.body || {};
+    const v = { ai_login_id: String(b.loginId || "").trim() || null, ai_set_by: req.user, ai_set_at: new Date().toISOString() };
+    if (b.password !== undefined) v.ai_pass_enc = String(b.password || "") ? csEnc(String(b.password)) : null;
+    const k = await upsertCsKickoff(req.params.bot, v);
+    if (!k) return res.status(404).json({ error: "見つかりません" });
+    console.log(`[cs] AIアカウントを入れました：${k.company} by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/cs/kickoffs/:bot/ai-account", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
+    const k = await getCsKickoff(req.params.bot);
+    if (!k) return res.status(404).json({ error: "見つかりません" });
+    let password = "";
+    try { password = k.ai_pass_enc ? csDec(k.ai_pass_enc) : ""; } catch { return res.status(500).json({ error: "パスワードを読めませんでした（鍵が変わった可能性。入れ直してください）" }); }
+    const views = [...(Array.isArray(k.ai_views) ? k.ai_views : []), { by: req.user, at: new Date().toISOString() }].slice(-50);
+    await upsertCsKickoff(k.bot_id, { ai_views: JSON.stringify(views) }).catch(() => {});
+    console.log(`[cs] AIアカウントのパスワードを見ました：${k.company} by ${req.user}`);
+    res.json({ ok: true, loginId: k.ai_login_id || "", password });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/cs/kickoffs", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
@@ -12113,7 +12155,7 @@ app.get("/api/cs/kickoffs", async (req, res) => {
         if (u) k = (await upsertCsKickoff(k.bot_id, { sf_url: u })) || { ...k, sf_url: u };
       }
       const f = k.fields || {};
-      const { portal_shot, ...kk } = k; k = { ...kk, has_portal_shot: !!portal_shot };
+      const { portal_shot, ai_pass_enc, ai_views, ...kk } = k; k = { ...kk, has_portal_shot: !!portal_shot, has_ai_pass: !!ai_pass_enc, ai_view_count: Array.isArray(ai_views) ? ai_views.length : 0 };
       const ks = ksSent[k.bot_id];
       rows.push({ ...k, kenshu_at: ks ? (typeof ks === "string" ? ks : ks.at) : null, kenshu_mode: ks && ks.mode || "",
         confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
@@ -25556,7 +25598,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20g かける画面：資料を見ている会社を見やすく（「資料を見ています ○回 最後 M/D HH:MM」の印、行を淡い青に、左に青い線）。30日以内に見ている会社は、かける対象のいちばん上に、見た日が新しい順で出す（区切りつき）。";
+const BUILD_TAG = "2026-10-20h CS連携の企業カードに「AIアカウント（管理画面のログイン情報）」：ログインID・パスワードを入れて保存（パスワードは暗号にして保存、見る・コピーはCS・FS・管理者だけ、だれが見たか残す）。OBスレには「登録済み／未登録」だけ出す。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

@@ -105,6 +105,13 @@ function render() {
         <div class="cd-f"><label>メールアドレス（御礼メールの宛先）</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="例：yamada@example.co.jp"></div>
         <div class="cd-f"><label>電話番号 ${k.client_phone ? `<a href="tel:${esc(String(k.client_phone).replace(/[^0-9+]/g, ""))}">かける</a>` : ""}</label><input data-k="clientPhone" value="${esc(k.client_phone || "")}" placeholder="SFの取引先責任者から自動で入ります"></div>
       </div>`)}
+      ${sec("key", "AIアカウント（管理画面のログイン情報）", `<div class="cd-grid">
+        <div class="cd-f"><label>ログインID</label><input data-ai="id" value="${esc(k.ai_login_id || "")}" placeholder="管理画面のログインID" autocomplete="off"></div>
+        <div class="cd-f"><label>パスワード</label><div class="cd-row"><input data-ai="pw" type="password" value="" placeholder="${k.has_ai_pass ? "●●●●●●（入っています）" : "パスワード"}" autocomplete="new-password">
+          ${k.has_ai_pass ? `<button type="button" class="btn ghost cd-mini" data-ai-act="show">${ci("eye", 14)}見る</button><button type="button" class="btn ghost cd-mini" data-ai-act="copy">コピー</button>` : ""}</div></div>
+      </div>
+      <div class="cd-row" style="margin-top:8px"><button type="button" class="btn ghost cd-mini" data-ai-act="save">${ci("save", 14)}ログイン情報を保存</button>
+        <span class="cs-sub" data-ai-st>${k.ai_set_at ? `${esc(fmtDT(k.ai_set_at))} に ${esc(k.ai_set_by || "")} が入れました${k.ai_view_count ? `・見た回数 ${k.ai_view_count}` : ""}` : "パスワードは暗号にして保存し、見られるのはCS・FS・管理者だけです（だれが見たか残ります）。Chatには流しません。"}</span></div>`, k.ai_login_id || k.has_ai_pass ? `<span class="cs-pill ok">登録済み</span>` : `<span class="cs-pill warn">未登録</span>`)}
       ${sec("hear", "回収MTGのヒアリング", `<div class="cd-grid">
         ${fld("納品月", "納品月")}${fld("公開予定時期", "公開予定")}
         ${fld("請求書着日スケジュール", "請求スケジュール")}${fld("次回MTGの日時", "次回MTG（議事録から）")}
@@ -164,6 +171,22 @@ function render() {
     document.onkeydown = (e) => { if (e.key === "Escape" && csOpen) close(); };
   }
   const card = host.querySelector(".cs-card.open");
+  if (card) card.querySelectorAll("[data-ai-act]").forEach((b) => b.addEventListener("click", async () => {
+    const act = b.dataset.aiAct, botId = csOpen, st = card.querySelector("[data-ai-st]");
+    const idIn = card.querySelector('[data-ai="id"]'), pwIn = card.querySelector('[data-ai="pw"]');
+    try {
+      if (act === "save") {
+        const body = { loginId: idIn.value };
+        if (pwIn.value) body.password = pwIn.value;
+        await api(`/api/cs/kickoffs/${encodeURIComponent(botId)}/ai-account`, { method: "PUT", body: JSON.stringify(body) });
+        st.textContent = "保存しました"; setTimeout(load, 800);
+      } else {
+        const r = await api(`/api/cs/kickoffs/${encodeURIComponent(botId)}/ai-account`);
+        if (act === "show") { pwIn.type = "text"; pwIn.value = r.password; st.textContent = "パスワードを出しました（見たことは残ります）"; }
+        else { await navigator.clipboard.writeText(r.password); st.textContent = "パスワードをコピーしました（見たことは残ります）"; }
+      }
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  }));
   if (!card) return;
   const bot = csOpen;
   const collect = () => {
@@ -236,11 +259,11 @@ $("csCsv").addEventListener("click", () => {
   const nm = (k) => { const f = k.fields || {}; return f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company; };
   const rows = d.kickoffs.filter((k) => !q || String(nm(k) || "").normalize("NFKC").replace(/[\s　]|株式会社|有限会社|医療法人|社会福祉法人/g, "").toLowerCase().includes(q));
   const dt = (iso) => { const t = Date.parse(iso || ""); if (!isFinite(t)) return ""; const j = new Date(t + 9 * 3600000); return `${j.getUTCFullYear()}/${j.getUTCMonth() + 1}/${j.getUTCDate()} ${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`; };
-  const head = ["企業名", "回収MTG", "FS", "CS担当", "確認MTG", "先方ご担当者名", "活用場所・利用シーン", "公開予定時期", "納品月", "請求スケジュール", "特記事項", "弊社の宿題", "貴社の宿題", "先方のメール", "先方の電話番号", "候補者用画面URL", "SFの商談", "議事録", "OBスレ投稿", "御礼メールの下書き"];
+  const head = ["企業名", "回収MTG", "FS", "CS担当", "確認MTG", "先方ご担当者名", "活用場所・利用シーン", "公開予定時期", "納品月", "請求スケジュール", "特記事項", "弊社の宿題", "貴社の宿題", "先方のメール", "先方の電話番号", "AIアカウントのログインID", "候補者用画面URL", "SFの商談", "議事録", "OBスレ投稿", "御礼メールの下書き"];
   const body = rows.map((k) => { const f = k.fields || {}; return [
     nm(k), dt(k.meeting_at), k.fs_name || "", k.cs_name || "", k.confirm_start ? dt(k.confirm_start) : (f.次回MTGの日時 || ""),
     f.先方ご担当者名 || "", f.活用場所 || "", f.公開予定時期 || "", f.納品月 || "", f.請求書着日スケジュール || "", f.特記事項 || "",
-    (f.弊社の宿題 || []).join("／"), (f.貴社の宿題 || []).join("／"), k.client_email || "", k.client_phone || "", k.doc_candidate_url || k.sheet_candidate_url || "",
+    (f.弊社の宿題 || []).join("／"), (f.貴社の宿題 || []).join("／"), k.client_email || "", k.client_phone || "", k.ai_login_id || "", k.doc_candidate_url || k.sheet_candidate_url || "",
     k.sf_url || "", k.meeting_url || "", k.posted_at ? dt(k.posted_at) : "", k.draft_at ? dt(k.draft_at) : "",
   ]; });
   const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
