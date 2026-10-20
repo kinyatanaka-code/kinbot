@@ -1647,3 +1647,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-20 BUILD_TAG=2026-10-20k 田中さん「（いつ以降の受注にするか）先月くらい」。nbSheetFromDay＝先月の1日（日本時間、毎月動く）か NB_SHEET_FROM（YYYY-MM-DD）。nbSheetTick と nbFillBlanks の SOQL を CloseDate >= その日に（前の LastModifiedDate 800日はやめた）。画面の説明も「先月の1日以降に受注したもの」。版20261020k。
 
 - 2026-10-20 BUILD_TAG=2026-10-20l 田中さんのスクリーンショット：大明化学工業・日本ガスなどに「資料を見ています 13回 最後 10/10 7:57」がまだ出ている（20i の外し方では足りなかった）。メルマガは宛先ごとにリンクを作る（mailmaga_sends.link_slug・sent_at）ので、docViewSummary にさらに：メルマガのリンクで送った時刻から15分以内の閲覧は外す、同じリンクが同じ10分に5回以上開かれた分（link_burst）は外す。確かめ用 GET /api/calls/doc-view-check?company=（docViewCheck：その会社あてのリンクの閲覧の一覧、UA・秒・ページ・送った時刻）。版20261020l。
+
+- 2026-10-20 BUILD_TAG=2026-10-20m 原因が分かった：doc-view-check で「日本ガス」あての閲覧は0件＝会社名ではなくメールアドレスでつながっていた。メールアドレスが「-」（空の代わりの文字）のリードと、「-」あての資料のリンクの閲覧（13回・10/10 7:57）が、全部同じキー「-」でつながっていた（20i・20l の機械の外し方は関係なかった）。docViewSummary の byEmail と /api/calls/targets の照らし方を、@ が入ったメールアドレス（x@y.z の形）だけに。doc-view-check に、会社名で見つかった閲覧も出す。版20261020m。

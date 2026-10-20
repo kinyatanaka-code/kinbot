@@ -11525,7 +11525,9 @@ export async function docViewSummary() {
         GROUP BY 1, 2`);
     const byEmail = new Map(), byCompany = new Map();
     const add = (m, k, r) => { if (!k) return; const c = m.get(k) || { n: 0, sec: 0, last: null, docs: new Set() }; c.n += r.n; c.sec += r.sec; if (!c.last || r.last_at > c.last) c.last = r.last_at; if (r.doc) c.docs.add(r.doc); m.set(k, c); };
-    for (const r of rows) { add(byEmail, r.email, r); add(byCompany, normCompanyKey(String(r.company || "").normalize("NFKC")), r); }
+    // メールアドレスは「@」が入っているものだけ（「-」などの空の代わりの文字で、関係ない会社どうしがつながっていた：2026-10-20）
+    const okMail = (m) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(m || "").trim());
+    for (const r of rows) { if (okMail(r.email)) add(byEmail, String(r.email).trim(), r); add(byCompany, normCompanyKey(String(r.company || "").normalize("NFKC")), r); }
     return { byEmail, byCompany };
   } catch (e) { console.error("[db] docViewSummary", e.message); return { byEmail: new Map(), byCompany: new Map() }; }
 }

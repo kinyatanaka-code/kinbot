@@ -9961,7 +9961,10 @@ app.get("/api/calls/doc-view-check", async (req, res) => {
   try {
     const co = String(req.query.company || "").trim();
     if (!co) return res.status(400).json({ error: "company を入れてください" });
-    res.json({ ok: true, rows: await docViewCheck(co) });
+    const dv = await docViewSummary().catch(() => ({ byEmail: new Map(), byCompany: new Map() }));
+    const k = normCompanyKey(co.normalize("NFKC"));
+    const hit = dv.byCompany.get(k);
+    res.json({ ok: true, 会社名で見つかった閲覧: hit ? { 回数: hit.n, 最後: hit.last } : null, rows: await docViewCheck(co) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/calls/sf-lead-to-cross", async (req, res) => {
@@ -10897,7 +10900,8 @@ app.get("/api/calls/targets", async (req, res) => {
     // 資料を送った相手が見ているか（メールアドレス → 会社名で照らす）
     const dv = await docViewSummary().catch(() => ({ byEmail: new Map(), byCompany: new Map() }));
     const viewOf = (r) => {
-      const v = (r.email && dv.byEmail.get(String(r.email).toLowerCase())) || dv.byCompany.get(normCompanyKey(String(r.company || "").normalize("NFKC")));
+      const em = String(r.email || "").trim().toLowerCase();
+      const v = (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) && dv.byEmail.get(em)) || dv.byCompany.get(normCompanyKey(String(r.company || "").normalize("NFKC")));
       return v ? { 回数: v.n, 秒: v.sec, 最後: v.last, 資料: [...v.docs].slice(0, 3) } : null;
     };
     const items = rows.map((r) => ({
@@ -25620,7 +25624,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20l 資料を見ている印：メルマガを送ってから15分のあいだの閲覧と、同じリンクが10分のあいだに5回以上開かれたもの（安全チェックの機械）も数えないように（まだ10/10 7:57・13回が残っていた）。確かめ用 /api/calls/doc-view-check?company=。";
+const BUILD_TAG = "2026-10-20m 資料を見ている印のバグを直した：メールアドレスが「-」などの、空の代わりの文字のリード同士が、同じ閲覧（13回・10/10 7:57）でつながっていた。メールアドレスは@が入っているものだけで照らす。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
