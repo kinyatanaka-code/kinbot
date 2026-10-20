@@ -5755,15 +5755,17 @@ export async function getCallTarget(id) {
 }
 
 // SFにまだ結びついていない（lead_id が無い）架電先を、少しずつ取り出す
-export async function listTargetsNeedingSf(listId, { limit = 20 } = {}) {
+export async function listTargetsNeedingSf(listId, { limit = 20, exclude = [] } = {}) {
   if (!pool || !listId) return [];
   try {
+    // exclude：同じ実行で一度失敗した架電先（毎回先頭で試し直して、同じ失敗を数え続けないように）
+    const ex = (Array.isArray(exclude) ? exclude : []).map((x) => parseInt(x, 10)).filter(Number.isFinite);
     const { rows } = await pool.query(
       `SELECT id, company, person, phone, email, status, stage
          FROM call_targets
-        WHERE list_id = $1 AND (lead_id IS NULL OR lead_id = '')
+        WHERE list_id = $1 AND (lead_id IS NULL OR lead_id = '') AND NOT (id = ANY($3::int[]))
         ORDER BY id LIMIT $2`,
-      [listId, Math.max(1, parseInt(limit, 10) || 20)]);
+      [listId, Math.max(1, parseInt(limit, 10) || 20), ex]);
     return rows;
   } catch (e) { console.error("[db] listTargetsNeedingSf", e.message); return []; }
 }

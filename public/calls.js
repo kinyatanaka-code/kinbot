@@ -7020,18 +7020,10 @@ document.addEventListener("click", (ev) => {
         if (!r.ok) throw new Error(r.error || "外せませんでした");
         // 続けて会社名で正しく付け直す
         say("clStatus", `外しました（${r["リセット"]}件）。会社名で付け直しています…`);
-        let 見 = 0, 作 = 0, 失 = 0, 回 = 0;
-        while (true) {
-          回++;
-          const d = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-sf`, {
-            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
-          })).json();
-          if (!d || d.error) throw new Error((d && d.error) || "付け直せませんでした");
-          見 += d["見つかった"] || 0; 作 += d["新しく作った"] || 0; 失 += d["失敗"] || 0;
-          say("clStatus", `付け直し中… 残り${d["残り"]}件（結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`);
-          if (d.done || 回 > 2000) break;
-        }
+        const { 見, 作, fails } = await runToSfLoop(listId, (p) => say("clStatus", `付け直し中… 残り${p.残り}件（結びつけ${p.見}／新規作成${p.作}${p.失 ? `／失敗${p.失}` : ""}）`));
+        const 失 = fails.length;
         say("clStatus", `修復しました（外した${r["リセット"]}件→結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`, 12000);
+        showSfFails(fails);
         loadTable();
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
@@ -7041,19 +7033,9 @@ document.addEventListener("click", (ev) => {
     (async () => {
       if (!listId) { say("clStatus", "リストを選んでください", 4000); return; }
       if (!confirm("このリストで、まだSalesforceに結びついていない（作成時にSFを読み込まなかった）架電先を、会社名でSFのリードに結びつけます。\n続けてSFの最新状態も反映します。よろしいですか？")) return;
-      let 見 = 0, 作 = 0, 失 = 0, 回 = 0;
       try {
-        while (true) {
-          回++;
-          const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-sf`, {
-            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
-          });
-          const d = await r.json();
-          if (!r.ok) throw new Error(d.error || "連携できませんでした");
-          見 += d["見つかった"] || 0; 作 += d["新しく作った"] || 0; 失 += d["失敗"] || 0;
-          say("clStatus", `SFと連携中… 残り${d["残り"]}件（結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`);
-          if (d.done || 回 > 2000) break;
-        }
+        const { 見, 作, fails } = await runToSfLoop(listId, (p) => say("clStatus", `SFと連携中… 残り${p.残り}件（結びつけ${p.見}／新規作成${p.作}${p.失 ? `／失敗${p.失}` : ""}）`));
+        const 失 = fails.length;
         // 続けてSFの最新状態も反映
         say("clStatus", "SFの状態を反映しています…");
         const rf = await (await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/refresh-sf`, {
@@ -7061,6 +7043,7 @@ document.addEventListener("click", (ev) => {
         })).json();
         say("clStatus", `SFと連携しました（結びつけ${見}／新規作成${作}${失 ? `／失敗${失}` : ""}）`
           + (rf && rf["反映"] ? `／状態を反映 ${rf["反映"]}件` : ""), 12000);
+        showSfFails(fails);
         loadTable();
       } catch (e) { say("clStatus", "できませんでした：" + e.message, 8000); }
     })();
@@ -8559,27 +8542,41 @@ async function asLoad() {
   }
 }
 
+// SFと連携（未連携の架電先をSFのリードに結びつける）を少しずつくり返す。一度失敗した架電先は飛ばし、最後に理由を窓で出す
+async function runToSfLoop(listId, onProgress) {
+  let 見 = 0, 作 = 0, 回 = 0;
+  const fails = [];
+  while (true) {
+    回++;
+    const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-sf`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20, skip: fails.map((x) => x.id) }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || "連携できませんでした");
+    見 += d["見つかった"] || 0; 作 += d["新しく作った"] || 0; fails.push(...(d.failed || []));
+    if (onProgress) onProgress({ 見, 作, 失: fails.length, 残り: d["残り"] });
+    if (d.done || 回 > 2000 || (!(d["見つかった"] || 0) && !(d["新しく作った"] || 0) && !(d.failed || []).length)) break;
+  }
+  return { 見, 作, fails };
+}
+function showSfFails(fails, title = "SFに結びつけられなかった架電先") {
+  if (!fails || !fails.length) return;
+  const by = new Map(); for (const f of fails) { if (!by.has(f.why)) by.set(f.why, []); by.get(f.why).push(f.company || `#${f.id}`); }
+  const html = [...by.entries()].sort((a, b) => b[1].length - a[1].length)
+    .map(([why, cos]) => `<div style="margin:8px 0"><b>${esc(why)}</b>（${cos.length}件）<div class="note" style="margin-top:2px">${cos.slice(0, 15).map(esc).join("、")}${cos.length > 15 ? ` ほか${cos.length - 15}件` : ""}</div></div>`).join("");
+  openModal(`${title}（${fails.length}件）`, `<div style="font-size:13px;line-height:1.6">${html}<p class="note" style="margin-top:10px">ここに出た架電先は、まだSFに結びついていません。理由を見て、SFで直すか、会社名を直してからもう一度「SFと連携」を押してください。</p></div>`);
+}
 // 第2階層：あるメンバーのリスト一覧（今までのカード表示）
 // 今あるリストを、少しずつSalesforceに反映する（大量でも止まらないよう繰り返し呼ぶ）
 async function runToSf(listId, listName, btn) {
   if (!confirm(`「${listName}」の中で、まだSalesforceに載っていない架電先を、SFに反映します。\n（会社名でクロスリードを探し、無ければ作って結びつけます）\nよろしいですか？`)) return;
   const orig = btn.textContent;
   btn.disabled = true;
-  let 見 = 0, 作 = 0, 失 = 0, 回 = 0;
   try {
-    while (true) {
-      回++;
-      const r = await fetch(`/api/calls/lists/${encodeURIComponent(listId)}/to-sf`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 20 }),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "反映できませんでした");
-      見 += d["見つかった"] || 0; 作 += d["新しく作った"] || 0; 失 += d["失敗"] || 0;
-      btn.textContent = `反映中… 残り${d["残り"]}件（見つかった${見}／作成${作}${失 ? `／失敗${失}` : ""}）`;
-      if (d.done || (d["残り前"] !== undefined && d["残り"] >= d["残り前"] && 回 > 1)) break;   // 進まなくなったら止める
-      if (回 > 2000) break;   // 念のための上限
-    }
+    const { 見, 作, fails } = await runToSfLoop(listId, (p) => { btn.textContent = `反映中… 残り${p.残り}件（見つかった${p.見}／作成${p.作}${p.失 ? `／失敗${p.失}` : ""}）`; });
+    const 失 = fails.length;
     btn.textContent = `SFに反映しました（見つかった${見}／作成${作}${失 ? `／失敗${失}` : ""}）`;
+    showSfFails(fails);
   } catch (e) {
     btn.textContent = "失敗：" + e.message;
   } finally {

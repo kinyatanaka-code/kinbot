@@ -9952,9 +9952,21 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
       return res.status(400).json({ error: "Salesforceに接続できません" });
     }
     const limit = Math.min(30, Math.max(1, parseInt(req.body?.limit, 10) || 20));
-    const 残り前 = await countTargetsNeedingSf(id);
-    const targets = await listTargetsNeedingSf(id, { limit });
-    if (!targets.length) return res.json({ ok: true, done: true, 見つかった: 0, 新しく作った: 0, クロス商談あり: 0, 残り: 0 });
+    const skip = (Array.isArray(req.body?.skip) ? req.body.skip : []).map((x) => parseInt(x, 10)).filter(Number.isFinite);
+    const 残り前 = Math.max(0, (await countTargetsNeedingSf(id)) - skip.length);
+    const targets = await listTargetsNeedingSf(id, { limit, exclude: skip });
+    if (!targets.length) return res.json({ ok: true, done: true, 見つかった: 0, 新しく作った: 0, クロス商談あり: 0, 残り: 0, failed: [] });
+    const failed = [];
+    const why = (raw) => {
+      const t = String(raw || "");
+      if (/DUPLICATES_DETECTED|DUPLICATE_VALUE|重複/.test(t)) return "SFの重複ルールで止められました（同じ会社・メール・電話のリードが別にある）";
+      if (/FIELD_CUSTOM_VALIDATION_EXCEPTION/.test(t)) return `SFの入力規則に引っかかりました：${t.replace(/^.*FIELD_CUSTOM_VALIDATION_EXCEPTION[":, ]*/i, "").slice(0, 100)}`;
+      if (/REQUIRED_FIELD_MISSING/.test(t)) return `SFで必須の項目が空です：${(/fields?:?\s*\[?([A-Za-z0-9_, ]+)/.exec(t) || [])[1] || ""}`;
+      if (/INVALID_EMAIL_ADDRESS|Email/i.test(t) && /invalid/i.test(t)) return "メールアドレスの形がSFで使えません";
+      if (/STRING_TOO_LONG/.test(t)) return "文字が長すぎる項目があります";
+      if (/INSUFFICIENT_ACCESS|CANNOT_/.test(t)) return "SFでリードを作る権限がありません";
+      return t.slice(0, 140) || "理由が分かりません";
+    };
 
     const rtId = await crossLeadRecordTypeId(sfUser).catch(() => "");
 
@@ -9970,7 +9982,7 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
         const found = await searchLeads(sfUser, { company, limit: 1 }).catch(() => []);
         if (found && found.length) { leadId = found[0].Id || found[0].id; 見つかった++; }
         else {
-          if (!rtId) { 失敗++; continue; }   // Cross_leadのレコードタイプが無ければ作らない
+          if (!rtId) { 失敗++; failed.push({ id: t.id, company, why: "Cross_leadのレコードタイプが見つかりません" }); continue; }   // Cross_leadのレコードタイプが無ければ作らない
           const made = await createLead(sfUser, {
             Company: company, LastName: String(t.person || "").trim() || "担当者",
             Phone: String(t.phone || "").trim(), Email: String(t.email || "").trim(),
@@ -9981,16 +9993,16 @@ app.post("/api/calls/lists/:id/to-sf", async (req, res) => {
           if (leadId) { 作った++; 新規リードIds.push(leadId); }
         }
         if (leadId) await setCallTargetLead(t.id, leadId);
-        else 失敗++;
-      } catch (e) { 失敗++; console.warn("[to-sf]", company, e.message); }
+        else { 失敗++; failed.push({ id: t.id, company, why: "SFにリードを作れませんでした（返事にIDがありません）" }); }
+      } catch (e) { 失敗++; failed.push({ id: t.id, company, why: why(e.message) }); console.warn("[to-sf]", company, e.message); }
     }
     // クローザー所有リードを中澤さんへ（ジャッジ除く）
     try {
       if (新規リードIds.length) await reassignCloserLeadsToProxy(sfUser, 新規リードIds);
     } catch {}
 
-    const 残り = await countTargetsNeedingSf(id);
-    res.json({ ok: true, done: 残り === 0, 見つかった, 新しく作った: 作った, 失敗, 残り, 残り前 });
+    const 残り = Math.max(0, (await countTargetsNeedingSf(id)) - skip.length - failed.length);
+    res.json({ ok: true, done: 残り === 0, 見つかった, 新しく作った: 作った, 失敗, 残り, 残り前, failed });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -25502,7 +25514,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20a クロスリードに変更：一度失敗したリードは同じ実行で試し直さない（同じ失敗を数え続けていた）。終わったら、変えられなかったリードを理由ごと（入力規則・必須の項目・選択リストの値・権限・削除済み）に窓で出す。";
+const BUILD_TAG = "2026-10-20b SFと連携：一度失敗した架電先は同じ実行で試し直さない（同じ数件の失敗を、20件ずつの回ごとに数え続けていた＝失敗193のほとんどは重複）。終わったら、結びつけられなかった架電先を理由ごと（SFの重複ルール・入力規則・必須の項目・メールの形など）に窓で出す。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
