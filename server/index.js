@@ -278,6 +278,8 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
+  listApoForCallConversation,
+  markApoCallConversation,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -13370,6 +13372,84 @@ app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ===== アポの通話の会話を、商談予定（カレンダー）に入れる =====
+// kincallからアポを取ったら、その通話の録音（同じ電話番号・アポを取った時刻の前90分〜後20分で、いちばん長い通話）を文字にして、
+// 要約（話したこと・先方の関心・気にしていること）と会話（文字起こし）を、担当の商談予定とアポ獲得者の予定の説明に足す。
+// 録音がZoomに出るまで少しかかるので、10分ごとに見て、アポを取ってから3日のあいだ探す。入れたら同じアポには二度入れない。
+const APO_CONV_MARK = "【アポの通話の内容（録音から）】";
+async function apoCallConversationText(r) {
+  // ①Zoomの文字起こし → ②録音を文字にする（Deepgram／Groq）
+  let lines = [];
+  if (r.transcriptUrl) {
+    try {
+      const tr = await zoomDownload(r.transcriptUrl);
+      let text = tr.buf.toString("utf8");
+      try { const j = JSON.parse(text); const tl = j.timeline || j.recording_transcript || []; if (Array.isArray(tl) && tl.length) lines = tl.map((x) => `${(x.users && x.users[0] && x.users[0].username) || x.speaker || ""}：${x.text || ""}`); } catch { lines = text.split(/\n+/); }
+    } catch {}
+  }
+  if (!lines.length && r.downloadUrl && transcriberAvailable && transcriberAvailable()) {
+    const au = await zoomDownload(r.downloadUrl);
+    const ext = /mp4|m4a/i.test(au.contentType) ? "m4a" : (/wav/i.test(au.contentType) ? "wav" : "mp3");
+    const tmp = `/tmp/apo-call-${r.id}.${ext}`;
+    fs.writeFileSync(tmp, au.buf);
+    try {
+      const us = await transcribeFile(tmp, /m4a/.test(ext) ? "audio/mp4" : ext === "wav" ? "audio/wav" : "audio/mpeg");
+      lines = (us || []).map((u) => `${u.speaker?.name || "話者"}：${u.text}`);
+    } finally { try { fs.unlinkSync(tmp); } catch {} }
+  }
+  return lines.map((x) => String(x || "").trim()).filter(Boolean);
+}
+async function apoCallConversationTick() {
+  if (!zoomPhoneConfigured()) return;
+  const links = await listApoForCallConversation(3);
+  if (!links.length) return;
+  const now = new Date(Date.now() + 9 * 3600000);
+  const recs = await zoomPhoneRecordings({ from: new Date(now.getTime() - 4 * 86400000).toISOString().slice(0, 10), to: now.toISOString().slice(0, 10), max: 1000 }).catch(() => []);
+  for (const l of links) {
+    try {
+      const l9 = zoomLast9(l.target_phone || l.client_phone || "");
+      const t0 = Date.parse(l.apo_at || l.created_at);
+      if (l9.length < 6 || !isFinite(t0)) continue;
+      const cand = recs.filter((x) => zoomLast9(x.number) === l9 && x.at && (x.downloadUrl || x.transcriptUrl))
+        .filter((x) => { const d = Date.parse(x.at) - t0; return d > -90 * 60000 && d < 20 * 60000; })
+        .sort((a, b) => (Number(b.duration) || 0) - (Number(a.duration) || 0));
+      const r = cand[0];
+      if (!r) { if (Date.now() - t0 > 3 * 86400000 - 15 * 60000) await markApoCallConversation(l.slug, "録音が見つかりませんでした"); continue; }
+      if ((Number(r.duration) || 0) < 20) { await markApoCallConversation(l.slug, "通話が短く、会話がありませんでした"); continue; }
+      const lines = await apoCallConversationText(r).catch((e) => { console.warn("[apo-conv] 文字起こし", e.message); return []; });
+      const text = lines.join("\n");
+      let summary = "";
+      try { summary = cleanCallSummary((await summarizeCallRecording({ transcriptText: text })).summary || ""); } catch {}
+      if (!summary) { const o = await zoomRecSummaryCached(r, l.origin_target_id, l.setter_email || "", []).catch(() => ({})); summary = (o && o.summary) || ""; }
+      if (!text && !summary) continue;   // まだ文字にできない（次の回にもう一度）
+      const at = new Date(Date.parse(r.at) + 9 * 3600000);
+      const when = `${at.getUTCMonth() + 1}/${at.getUTCDate()} ${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")}`;
+      const dur = Math.round((Number(r.duration) || 0) / 60);
+      const conv = text.length > 3200 ? text.slice(0, 3200) + "\n…（続きは録音で）" : text;
+      const block = `────────────────\n${APO_CONV_MARK}\n通話：${when}・約${dur || 1}分　録音：${PUBLIC_URL}/kincall?p=recs\n` +
+        (summary ? `\n■ 要約\n${summary}\n` : "") + (conv ? `\n■ 会話（文字起こし）\n${conv}\n` : "");
+      // 担当の商談予定・アポ獲得者の予定の説明に足す（前に入れた分・「会話なし」の要約があれば入れかえる）
+      const targets = [[l.invite_event_owner, l.invite_event_id], [l.setter_email || l.owner, l.event_id]].filter(([o, id]) => o && id);
+      let ok = 0;
+      for (const [owner, id] of targets) {
+        try {
+          const ev = await getCalendarEvent(owner, id).catch(() => null);
+          let desc = String((ev && ev.description) || "");
+          const i = desc.indexOf(APO_CONV_MARK);
+          if (i >= 0) desc = desc.slice(0, Math.max(0, desc.lastIndexOf("────────────────", i))).trimEnd();
+          desc = desc.replace(/【通話録音の要約】\n・?会話なし[^\n]*\n?/g, "").trimEnd();
+          await patchCalendarEvent(owner, id, { description: `${desc}\n\n${block}`.slice(0, 7900) }, "primary");
+          ok++;
+        } catch (e) { console.warn("[apo-conv] 予定に入れられませんでした", owner, e.message); }
+      }
+      await markApoCallConversation(l.slug, ok ? `${summary}\n\n${conv}` : "予定に入れられませんでした");
+      console.log(`[apo-conv] アポの通話の内容を予定に入れました：${l.label || l.slug}（${ok}件・${dur}分）`);
+    } catch (e) { console.warn("[apo-conv]", e.message); }
+  }
+}
+setInterval(() => { apoCallConversationTick().catch(() => {}); }, 10 * 60 * 1000).unref?.();
+setTimeout(() => { apoCallConversationTick().catch(() => {}); }, 4 * 60 * 1000).unref?.();
+
 // 15分ごと：録音を先に要約しておく（窓を開いたときにすぐ出せるように）。
 // 本人が要約なしで先に記録していた場合は、その記録の説明に追記する。記録を勝手に作ることはしない。
 let _zoomRecRunning = false;
@@ -25653,8 +25733,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20n kincallの「今日の架電結果」のコール数を、田中欽也さんだけ押して直せるように（その人のその日の足し引きとして残し、記録の実数と手直しの数を見られる）。";
+const BUILD_TAG = "2026-10-21a kincallで取ったアポの通話の録音を文字にして、要約と会話（文字起こし）を担当の商談予定とアポ獲得者の予定の説明に入れる（10分ごと・アポから3日のあいだ探す。いちばん長い通話を使い、「会話なし」の要約は入れかえる）。";
 const BUILD_FEATURES = [
+  "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",
   "kincall：アポが取れた通話の録音の一覧・再生・ダウンロード",

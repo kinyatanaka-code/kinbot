@@ -11539,3 +11539,23 @@ export async function docViewCheck(company) {
     FROM doc_views v JOIN doc_links l ON l.id = v.link_id WHERE l.company ILIKE $1 ORDER BY v.started_at DESC LIMIT 60`, [`%${company}%`]);
   return rows;
 }
+
+// アポの通話の会話をカレンダーに入れる対象：kincallから作ったアポ（架電先がわかる）で、直近 days 日・まだ入れていないもの
+export async function listApoForCallConversation(days = 3) {
+  if (!pool) return [];
+  try {
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS call_conv_at TIMESTAMPTZ;`).catch(() => {});
+    await sq(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS call_conv_note TEXT;`).catch(() => {});
+    const { rows } = await pool.query(
+      `SELECT s.*, t.phone AS target_phone, t.company AS target_company
+         FROM smart_links s JOIN call_targets t ON t.id = s.origin_target_id
+        WHERE s.origin_target_id IS NOT NULL AND s.call_conv_at IS NULL AND NOT COALESCE(s.excluded, false)
+          AND COALESCE(s.apo_at, s.created_at) > now() - ($1 || ' days')::interval
+        ORDER BY COALESCE(s.apo_at, s.created_at) DESC LIMIT 30`, [String(days)]);
+    return rows;
+  } catch (e) { console.error("[db] listApoForCallConversation", e.message); return []; }
+}
+export async function markApoCallConversation(slug, note) {
+  if (!pool) return;
+  await pool.query(`UPDATE smart_links SET call_conv_at = now(), call_conv_note = $2 WHERE slug = $1`, [slug, String(note || "").slice(0, 4000)]).catch(() => {});
+}
