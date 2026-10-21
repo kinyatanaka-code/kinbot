@@ -13671,7 +13671,36 @@ app.get("/api/calls/my-today", async (req, res) => {
     // 新規リストから、今日はじめてナーチャリングになった件数（この人の分）
     let ナーチャ = 0;
     try { ナーチャ = (await nurtureInflowDetail(today, LEAD_FRAMES.new.sources)).filter((r) => r.caller === 対象).length; } catch {}
-    res.json({ ok: true, 日: today, コール, 接触, アポ, ナーチャ });
+    // 田中さんが手で直したコール数（その人・その日の足し引き）
+    const st = await getSettings().catch(() => ({}));
+    const adj = Number(((st.callCountAdjust || {})[`${対象}|${today}`] || {}).delta || 0);
+    const 実数 = コール;
+    コール = Math.max(0, コール + adj);
+    res.json({ ok: true, 日: today, コール, 実数, 手直し: adj, 接触, アポ, ナーチャ, canEdit: jisshiEditorOk(req), member: 対象 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 今日のコール数を手で直す（田中欽也さんだけ）。body: { member, value }＝出したいコール数。差分を、その人のその日の手直しにする
+app.put("/api/calls/my-today/calls", async (req, res) => {
+  try {
+    if (!jisshiEditorOk(req)) return res.status(403).json({ error: "コール数を直せるのは田中欽也さんだけです" });
+    const b = req.body || {};
+    const member = String(b.member || req.user || "").toLowerCase();
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(b.date || "")) ? String(b.date) : nowJ.toISOString().slice(0, 10);
+    const want = Math.max(0, parseInt(b.value, 10) || 0);
+    const rows = await callStatsByDay(day, day).catch(() => []);
+    const real = rows.filter((r) => String(r.caller || "").toLowerCase() === member).reduce((a, r) => a + (Number(r.n) || 0), 0);
+    const st = await getSettings().catch(() => ({}));
+    const all = { ...(st.callCountAdjust || {}) };
+    const key = `${member}|${day}`;
+    if (want === real) delete all[key];
+    else all[key] = { delta: want - real, by: req.user, at: new Date().toISOString() };
+    // 古い手直し（60日より前）は片付ける
+    const cut = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+    for (const k of Object.keys(all)) if ((k.split("|")[1] || "") < cut) delete all[k];
+    await saveSettings({ callCountAdjust: all });
+    console.log(`[kincall] コール数を手直し ${member} ${day}：実数${real} → ${want}（${want - real >= 0 ? "+" : ""}${want - real}） by ${req.user}`);
+    res.json({ ok: true, コール: want, 実数: real, 手直し: want - real });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -25624,7 +25653,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-20m 資料を見ている印のバグを直した：メールアドレスが「-」などの、空の代わりの文字のリード同士が、同じ閲覧（13回・10/10 7:57）でつながっていた。メールアドレスは@が入っているものだけで照らす。";
+const BUILD_TAG = "2026-10-20n kincallの「今日の架電結果」のコール数を、田中欽也さんだけ押して直せるように（その人のその日の足し引きとして残し、記録の実数と手直しの数を見られる）。";
 const BUILD_FEATURES = [
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

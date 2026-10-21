@@ -2197,6 +2197,8 @@ function renderDock() {
     .kc-qhold{border-style:dashed !important;} .kc-qhold.on{background:#5f6b64 !important;border-color:#5f6b64 !important;color:#fff !important;border-style:solid !important;}
     .kc-imp{margin:10px 0;padding:10px 12px;border:1px solid #d7e6df;border-radius:12px;background:#f8fbf9;display:flex;flex-direction:column;gap:7px;}
     .kc-imp[hidden]{display:none;}
+    .kc-call-edit{cursor:pointer;border-bottom:1.5px dashed currentColor;} .kc-call-edit:hover{opacity:.75;}
+    .kc-call-adj{font-size:10px;font-weight:700;color:#b06a00;background:#fff4dc;border-radius:6px;padding:0 5px;margin-left:4px;vertical-align:2px;}
     .ar-t td{vertical-align:middle;} .ar-list{font-size:11.5px;color:#5f6b64;max-width:180px;}
     .ar-rec{display:flex;align-items:center;gap:8px;flex-wrap:wrap;} .ar-rec audio{height:34px;max-width:260px;} .ar-dl{padding:5px 10px !important;font-size:12px !important;white-space:nowrap;}
     .kc-imp-h{font-size:13px;font-weight:700;color:#0d5b47;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
@@ -3672,6 +3674,31 @@ async function loadToday() {
     if (!d.ok) return;
     const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
     set("kcTodayCall", d.コール || 0);
+    // 田中さんだけ：コール数を押して直せる（直しているときは小さく印）
+    const cEl = $("kcTodayCall");
+    if (cEl) {
+      cEl.classList.toggle("kc-call-edit", !!d.canEdit);
+      cEl.title = d.canEdit ? `押してコール数を直す（記録の実数 ${d.実数 ?? d.コール}${d.手直し ? `・手直し ${d.手直し > 0 ? "+" : ""}${d.手直し}` : ""}）` : "";
+      cEl.dataset.member = d.member || "";
+      cEl.dataset.real = String(d.実数 ?? d.コール ?? 0);
+      let mk = cEl.parentElement && cEl.parentElement.querySelector(".kc-call-adj");
+      if (d.canEdit && d.手直し) { if (!mk) { mk = document.createElement("span"); mk.className = "kc-call-adj"; cEl.after(mk); } mk.textContent = `直し${d.手直し > 0 ? "+" : ""}${d.手直し}`; }
+      else if (mk) mk.remove();
+      if (d.canEdit && !cEl.dataset.wired) {
+        cEl.dataset.wired = "1";
+        cEl.addEventListener("click", async () => {
+          if (!cEl.classList.contains("kc-call-edit")) return;
+          const v = prompt(`今日のコール数を何件にしますか？（記録の実数：${cEl.dataset.real}件。実数と同じにすると手直しを消します）`, cEl.textContent.trim());
+          if (v === null) return;
+          if (!/^\d+$/.test(v.trim())) { alert("数字で入れてください"); return; }
+          try {
+            const r = await fetch("/api/calls/my-today/calls", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ member: cEl.dataset.member, value: Number(v.trim()) }) });
+            const j = await r.json(); if (!r.ok) throw new Error(j.error || "");
+            loadToday();
+          } catch (e) { alert("直せませんでした：" + e.message); }
+        });
+      }
+    }
     set("kcTodayCt", d.接触 || 0);
     set("kcTodayApo", d.アポ || 0);
     set("kcTodayNur", d.ナーチャ || 0);
