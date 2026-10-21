@@ -13433,8 +13433,10 @@ async function apoCallConversationTick() {
       let ok = 0;
       for (const [owner, id] of targets) {
         try {
-          const ev = await getCalendarEvent(owner, id).catch(() => null);
-          let desc = String((ev && ev.description) || "");
+          // 本文まで読める getCalendarEventState を使う（読めない・消された予定には書かない＝前の説明を消さないため）
+          const ev = await getCalendarEventState(owner, id).catch(() => null);
+          if (!ev || ev.status === "cancelled") continue;
+          let desc = String(ev.description || "");
           const i = desc.indexOf(APO_CONV_MARK);
           if (i >= 0) desc = desc.slice(0, Math.max(0, desc.lastIndexOf("────────────────", i))).trimEnd();
           desc = desc.replace(/【通話録音の要約】\n・?会話なし[^\n]*\n?/g, "").trimEnd();
@@ -25733,7 +25735,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-21a kincallで取ったアポの通話の録音を文字にして、要約と会話（文字起こし）を担当の商談予定とアポ獲得者の予定の説明に入れる（10分ごと・アポから3日のあいだ探す。いちばん長い通話を使い、「会話なし」の要約は入れかえる）。";
+const BUILD_TAG = "2026-10-21a アポの通話の録音の要約と会話を、商談予定（担当）とアポ獲得者の予定の説明に入れる（10分ごと・アポから3日・いちばん長い通話・「会話なし」の要約は入れかえ）。予定の本文を読んでから足すので、前の説明は消さない。";
 const BUILD_FEATURES = [
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
