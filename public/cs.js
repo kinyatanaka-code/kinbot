@@ -133,8 +133,20 @@ function render() {
         <div class="cd-f"><label>管理画面のURL（全社共通）</label><div class="cd-ro">${esc(d.adminUrl || "")}</div></div>
       </div>`)}
       ${sec("key", "ヘルプサイト（CS Platform）", `
-        ${k.portal_text ? `<div class="cd-kv"><span>企業ID</span><b>${esc(k.portal_id || "-")}</b><span>担当者</span><b>${esc(k.portal_cs || "未設定")}</b><span>用意した日</span><b>${esc(fmtDT(k.portal_at))}</b></div>
-          <details class="cd-det"><summary>案内文を見る（御礼メールに入ります）</summary><pre class="cs-portal">${esc(k.portal_text)}</pre></details>` : `<div class="cs-sub">まだ用意していません</div>`}
+        ${k.portal_text ? (() => {
+          // 案内文から、ログインURL・企業ID・パスワードを取り出して、そのまま見られる・コピーできるようにする
+          const t = String(k.portal_text || "");
+          const pick = (re) => ((re.exec(t) || [])[1] || "").trim();
+          const pUrl = pick(/(?:ログイン)?URL\s*[:：]\s*(https?:\/\/\S+)/i) || pick(/(https?:\/\/\S*portal\S*)/i);
+          const pId = pick(/企業\s*ID\s*[:：]\s*(\S+)/) || k.portal_id || "";
+          const pPw = pick(/パスワード\s*[:：]\s*(\S+)/) || pick(/password\s*[:：]\s*(\S+)/i);
+          const row = (lb, val, opts = {}) => `<div class="hp-row"><span class="hp-lb">${esc(lb)}</span>
+            <span class="hp-v${opts.pw ? " hp-pw" : ""}" ${opts.pw ? `data-pw="${esc(val)}"` : ""}>${opts.pw ? "●●●●●●●●" : opts.link ? `<a href="${esc(val)}" target="_blank" rel="noopener">${esc(val)}</a>` : esc(val || "-")}</span>
+            ${opts.pw ? `<button type="button" class="hp-b" data-hp="show">見る</button>` : ""}${val ? `<button type="button" class="hp-b" data-hp-copy="${esc(val)}">コピー</button>` : ""}</div>`;
+          return `<div class="hp-box">${pUrl ? row("ログインURL", pUrl, { link: true }) : ""}${row("企業ID", pId)}${pPw ? row("パスワード", pPw, { pw: true }) : `<div class="hp-row"><span class="hp-lb">パスワード</span><span class="hp-v cs-unk">案内文にありません</span></div>`}</div>
+            <div class="cd-kv" style="margin-top:8px"><span>担当者</span><b>${esc(k.portal_cs || "未設定")}</b><span>用意した日</span><b>${esc(fmtDT(k.portal_at))}</b></div>
+            <details class="cd-det"><summary>案内文を見る（御礼メールに入ります）</summary><pre class="cs-portal">${esc(t)}</pre><button type="button" class="hp-b" data-hp-copy="${esc(t)}" style="margin-top:6px">案内文をコピー</button></details>`;
+        })() : `<div class="cs-sub">まだ用意していません</div>`}
         ${k.portal_error ? `<div class="cs-err">用意できませんでした：${esc(k.portal_error)}${k.has_portal_shot ? `　<a href="/api/cs/kickoffs/${encodeURIComponent(k.bot_id)}/portal-shot" target="_blank" rel="noopener">そのときの画面</a>` : ""}</div>` : ""}
         <button type="button" class="btn ghost cd-mini" data-act="portal" style="margin-top:8px">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button>
         <div class="cs-prog" data-portal-prog hidden></div>`, k.portal_text ? `<span class="cs-pill ok">用意済み</span>` : `<span class="cs-pill">まだ</span>`)}
@@ -171,6 +183,17 @@ function render() {
     document.onkeydown = (e) => { if (e.key === "Escape" && csOpen) close(); };
   }
   const card = host.querySelector(".cs-card.open");
+  if (card) {
+    card.querySelectorAll('[data-hp="show"]').forEach((b) => b.addEventListener("click", () => {
+      const v = b.parentElement.querySelector("[data-pw]"); if (!v) return;
+      const shown = v.textContent !== "●●●●●●●●";
+      v.textContent = shown ? "●●●●●●●●" : v.dataset.pw; b.textContent = shown ? "見る" : "隠す";
+    }));
+    card.querySelectorAll("[data-hp-copy]").forEach((b) => b.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(b.dataset.hpCopy); const o = b.textContent; b.textContent = "コピーしました"; setTimeout(() => { b.textContent = o; }, 1500); }
+      catch { prompt("コピーしてください", b.dataset.hpCopy); }
+    }));
+  }
   if (card) card.querySelectorAll("[data-ai-act]").forEach((b) => b.addEventListener("click", async () => {
     const act = b.dataset.aiAct, botId = csOpen, st = card.querySelector("[data-ai-st]");
     const idIn = card.querySelector('[data-ai="id"]'), pwIn = card.querySelector('[data-ai="pw"]');
