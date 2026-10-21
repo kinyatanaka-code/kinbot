@@ -1,7 +1,7 @@
 {
-  "name": "kinbot 商談の切り替え",
+  "name": "kinbot 入退室",
   "short_name": "kinbot",
-  "description": "ボタン1つで、kinbotの録音を次の商談に切り替える",
+  "description": "kinbotを商談に入室・退室させる",
   "start_url": "/switch.html",
   "scope": "/switch.html",
   "display": "standalone",

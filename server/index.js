@@ -24220,10 +24220,16 @@ async function swActiveBots(user) {
   for (const m of mine.slice(0, 12)) {
     try {
       const b = await getBot(m.bot_id);
-      const codes = ((b && b.status_changes) || []).map((x) => x.code);
+      const sc = (b && b.status_changes) || [];
+      const codes = sc.map((x) => x.code);
       const last = codes[codes.length - 1] || "";
       if (!/in_call|joining|waiting_room/.test(last)) continue;
-      out.push({ botId: m.bot_id, title: m.title || "", startedAt: m.created_at, status: last, url: m.meeting_url || "" });
+      // 待合室に入った時刻から、自動で退出するまでの残り（RECALL_WAIT_ROOM_SEC、既定7分）
+      const since = Date.parse((sc[sc.length - 1] || {}).created_at || "") || Date.parse(m.created_at || 0);
+      const waitSec = Math.max(30, Number(process.env.RECALL_WAIT_ROOM_SEC || 420));
+      const waitLeftSec = /waiting_room/.test(last) && since ? Math.max(0, Math.round(waitSec - (Date.now() - since) / 1000)) : null;
+      const url = typeof b.meeting_url === "string" ? b.meeting_url : (m.meeting_url || "");
+      out.push({ botId: m.bot_id, title: m.title || "", startedAt: m.created_at, status: last, statusSince: since ? new Date(since).toISOString() : null, waitSec, waitLeftSec, url });
     } catch {}
   }
   return out;
@@ -24323,10 +24329,24 @@ app.get("/api/switch/state", async (req, res) => {
       const evs = await listCalendarEvents(user, "primary", { timeMin: new Date(`${day}T00:00:00+09:00`).toISOString(), timeMax: new Date(`${day}T23:59:59+09:00`).toISOString() });
       upcoming = (evs || []).filter((e) => !e.allDay && e.start)
         .sort((a, b) => Date.parse(a.start) - Date.parse(b.start)).slice(0, 30)
-        .map((e) => ({ id: e.id, title: e.title || "（予定名なし）", start: e.start, end: e.end,
-          now: Date.parse(e.start) <= now && Date.parse(e.end || e.start) > now, past: Date.parse(e.end || e.start) <= now }));
+        .map((e) => {
+          // 予定に入っている会議のURL（Zoom・Meet・Teams）。kinbotの参加リンク（/j/…）なら、担当のZoomに飛ぶのでそのまま使う
+          const txt = `${e.url || ""} ${e.description || ""} ${e.location || ""}`;
+          const mu = (/https?:\/\/[\w.-]*(?:zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com)\/[^\s"'<>)\]]+/i.exec(txt) || [])[0]
+            || (new RegExp(`${String(PUBLIC_URL || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/j/[A-Za-z0-9_-]+[^\s"'<>)]*`).exec(txt) || [])[0] || "";
+          return { id: e.id, title: e.title || "（予定名なし）", start: e.start, end: e.end, url: mu,
+            now: Date.parse(e.start) <= now && Date.parse(e.end || e.start) > now, past: Date.parse(e.end || e.start) <= now };
+        });
     } catch {}
-    res.json({ ok: true, day, today, active, upcoming, room: await swRoomUrl(user, active[0] && active[0].url) });
+    const rooms = [];
+    try {
+      const us = await getUserSettings(user).catch(() => ({}));
+      if (us && us.myZoomLink) rooms.push({ key: "my", label: "自分のZoom（登録リンク）", url: us.myZoomLink });
+      for (const r of (await listAutoJoin(user).catch(() => [])) || []) {
+        if (r.url && !rooms.some((x) => x.url === r.url)) rooms.push({ key: `aj${r.id}`, label: r.label || `登録した部屋（${r.meeting_id || ""}）`, url: r.url });
+      }
+    } catch {}
+    res.json({ ok: true, day, today, active, upcoming, rooms, room: await swRoomUrl(user, active[0] && active[0].url) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 切り替える（botId があれば抜けさせる）→ 同じ部屋に、新しい商談として入れる
@@ -24336,7 +24356,14 @@ app.post("/api/switch/next", async (req, res) => {
     const b = req.body || {};
     const active = await swActiveBots(user);
     const cur = active.find((x) => x.botId === b.botId) || (b.botId ? null : active[0]) || null;
-    const url = String(b.url || "").trim() || (cur && cur.url) || (await swRoomUrl(user));
+    let url = String(b.url || "").trim() || (cur && cur.url) || (await swRoomUrl(user));
+    // kinbotの参加リンク（/j/…）は、そのアポの担当のZoomの部屋に置きかえる（Recallは転送をたどらないため）
+    const sm = new RegExp(`${String(PUBLIC_URL || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/j/([A-Za-z0-9_-]+)`).exec(url);
+    if (sm) {
+      const l = await getSmartLink(sm[1]).catch(() => null);
+      const us = l && l.current_owner ? await getUserSettings(l.current_owner).catch(() => ({})) : {};
+      if (us && us.myZoomLink) url = us.myZoomLink;
+    }
     if (!url) return res.status(400).json({ error: "入る部屋（Zoom）が分かりません。設定の「登録リンク」に自分のZoomの部屋を入れてください" });
     const title = String(b.title || "").trim();
     if (cur) {
@@ -25764,7 +25791,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-21b アポの通話の内容：直す前の版で予定の説明が通話の内容だけになっていた場合に、参加URL・アポ獲得者・担当・先方の連絡先・アポ獲得時のメモを足して元に戻す（起動時に1回）。";
+const BUILD_TAG = "2026-10-21c スマホの画面を「kinbot 入退室」に：商談と入る部屋（予定の会議・自分のZoom・登録した部屋・貼ったURL）を選んで入室させる、退室させる。待合室にいるときは、自動で退出するまでの残り時間を数えて出し、「入り直す」で待ち時間を最初に戻せる。";
 const BUILD_FEATURES = [
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",

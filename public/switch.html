@@ -11,7 +11,7 @@
 <link rel="manifest" href="/switch.webmanifest" />
 <link rel="apple-touch-icon" href="/switch-icon-180.png" />
 <link rel="icon" href="/switch-icon-192.png" />
-<title>kinbot</title>
+<title>kinbot 入退室</title>
 <style>
   :root { --g:#0E6B4E; --g2:#1d9e75; --pale:#EAF4EF; --line:#dfe8e3; --tx:#1f2a26; --sub:#5f6b64; --red:#c62828; --bg:#f3f7f5; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -29,7 +29,8 @@
   .lb { font-size:12px; color:var(--sub); margin-bottom:8px; font-weight:600; letter-spacing:.04em; }
   .rec { display:flex; align-items:flex-start; gap:10px; }
   .dot { width:12px; height:12px; border-radius:50%; background:var(--red); margin-top:5px; flex:none; box-shadow:0 0 0 0 rgba(198,40,40,.5); animation:p 1.6s infinite; }
-  .dot.wait { background:#e0a100; animation:none; }
+  .dot.wait { background:#e0a100; animation:none; box-shadow:none; }
+  .rec .dot { width:12px !important; height:12px !important; min-width:12px; max-height:12px; }
   @keyframes p { 0% { box-shadow:0 0 0 0 rgba(198,40,40,.45); } 70% { box-shadow:0 0 0 10px rgba(198,40,40,0); } 100% { box-shadow:0 0 0 0 rgba(198,40,40,0); } }
   .rt { font-weight:800; font-size:17px; line-height:1.4; }
   .el { font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; margin:6px 0 0 22px; color:var(--g); }
@@ -57,6 +58,16 @@
   .go:active, .stop:active, .ev:active { transform:scale(.98); }
   .go:disabled { opacity:.55; }
   .empty { font-size:13.5px; color:var(--sub); line-height:1.6; }
+  .room { display:flex; align-items:center; gap:10px; padding:11px 12px; border:2px solid transparent; border-radius:12px; margin-top:6px; background:#f7faf8; }
+  .room.sel { border-color:var(--g2); background:var(--pale); }
+  .room .ck { width:20px; height:20px; border-radius:50%; border:2px solid #b9cbc3; flex:none; display:flex; align-items:center; justify-content:center; }
+  .room.sel .ck { border-color:var(--g2); background:var(--g2); } .room.sel .ck::after { content:""; width:7px; height:7px; border-radius:50%; background:#fff; }
+  .room .rl { font-weight:700; font-size:14px; } .room .ru { font-size:11px; color:var(--sub); word-break:break-all; margin-top:2px; }
+  .wait { margin:10px 0 0; padding:10px 12px; border-radius:12px; background:#fff7e6; border:1px solid #f3d79a; }
+  .wait .wt { font-size:13px; font-weight:700; color:#7a5200; } .wait .wc { font-size:26px; font-weight:800; color:#b26b00; font-variant-numeric:tabular-nums; }
+  .wait .wb { height:6px; border-radius:6px; background:#f3e2bb; margin-top:6px; overflow:hidden; } .wait .wb i { display:block; height:100%; background:#e0a100; }
+  .wait.low { background:#fdecea; border-color:#f3b9b3; } .wait.low .wc { color:var(--red); } .wait.low .wb i { background:var(--red); }
+  .rejoin { display:block; width:100%; margin-top:8px; border:1.5px solid #f0c46a; background:#fff; color:#8a5a00; border-radius:14px; padding:12px; font-size:14px; font-weight:700; }
   .toast { position:fixed; left:14px; right:14px; bottom:calc(96px + env(safe-area-inset-bottom,0px)); z-index:7; background:#1f2a26; color:#fff;
            border-radius:14px; padding:12px 14px; font-size:14px; line-height:1.5; opacity:0; transform:translateY(8px); transition:.25s; pointer-events:none; }
   .toast.show { opacity:1; transform:none; } .toast.ng { background:var(--red); }
@@ -72,10 +83,10 @@
   <div class="pc" id="pc"><div class="box"><img src="/switch-icon-192.png" alt="" /><h2>スマホで開いてください</h2>
     <p>商談の切り替えは、スマホ専用の画面です。スマホのブラウザで次のURLを開き、ホーム画面に追加するとアプリのように使えます。</p><code id="pcUrl"></code></div></div>
   <div id="app" style="display:none">
-    <div class="bar"><img src="/switch-icon-192.png" alt="" /><b>商談の切り替え</b><span class="clk" id="clock"></span><button class="rf" id="rf" type="button" aria-label="読み直す">↻</button></div>
+    <div class="bar"><img src="/switch-icon-192.png" alt="" /><b>kinbot 入退室</b><span class="clk" id="clock"></span><button class="rf" id="rf" type="button" aria-label="読み直す">↻</button></div>
     <main>
       <div class="install" id="install"></div>
-      <div class="card" id="nowCard"><div class="lb">いま録音中</div><div class="empty">読み込み中…</div></div>
+      <div class="card" id="nowCard"><div class="lb">いま入っているkinbot</div><div class="empty">読み込み中…</div></div>
       <div class="card" id="saveCard" style="display:none"></div>
       <div class="card">
         <div class="lb">次の商談</div>
@@ -85,9 +96,14 @@
         <div id="evs"><div class="empty">読み込み中…</div></div>
         <input id="title" placeholder="予定にない商談は、商談名を入れる" />
       </div>
-      <p class="empty" style="padding:0 6px">ボタンを押すと、いまのkinbotが抜けて前の商談の録音が終わり（要約・分析はいつもどおり）、同じZoomの部屋に新しいkinbotが入って次の商談を録音します。</p>
+      <div class="card">
+        <div class="lb">入る部屋</div>
+        <div id="rooms"><div class="empty">読み込み中…</div></div>
+        <input id="roomUrl" placeholder="ほかの会議のURLを貼る（Zoom・Meet・Teams）" />
+      </div>
+      <p class="empty" style="padding:0 6px">商談と入る部屋を選んで、下のボタンでkinbotを入室させます。入っているkinbotは「退室させる」で抜けます（録音はそこで終わり、要約・分析はいつもどおり作られます）。</p>
     </main>
-    <div class="foot"><button class="go" id="go" type="button">次の商談に切り替える</button></div>
+    <div class="foot"><button class="go" id="go" type="button">この商談に入室させる</button></div>
     <div class="toast" id="toast"></div>
   </div>
 <script>
@@ -115,7 +131,7 @@ else {
   }
   setTimeout(showInstall, 800);
 }
-let st = null, sel = null, busy = false;
+let st = null, sel = null, busy = false, roomSel = null;
 let watching = [];   // 保存を見守っている前の商談 [{botId, title}]
 async function checkSaved() {
   const box = $("saveCard");
@@ -159,14 +175,19 @@ function toast(t, ok = true) { const el = $("toast"); el.textContent = t; el.cla
 function elapsed(iso) { const s = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return `${h ? `${h}:` : ""}${String(m).padStart(h ? 2 : 1, "0")}:${String(x).padStart(2, "0")}`; }
 function render() {
   const a = (st && st.active) || [];
-  $("nowCard").innerHTML = `<div class="lb">いま録音中</div>` + (a.length ? a.map((x) => {
+  $("nowCard").innerHTML = `<div class="lb">いま入っているkinbot</div>` + (a.length ? a.map((x) => {
     const wait = /waiting_room|joining/.test(x.status);
+    const inWait = /waiting_room/.test(x.status) && x.waitLeftSec != null;
+    const leftAt = inWait ? Date.now() + x.waitLeftSec * 1000 : 0;
     return `<div class="rec"><span class="dot ${wait ? "wait" : ""}"></span><div class="rt">${esc(x.title || "（商談名なし）")}</div></div>
       <div class="el" data-since="${esc(x.startedAt)}">${esc(elapsed(x.startedAt))}</div>
       <div class="meta">${esc(hm(x.startedAt))}から ・ ${/waiting_room/.test(x.status) ? "待合室で待っています" : /joining/.test(x.status) ? "入っています…" : "録音中"}</div>
-      <button class="stop" data-stop="${esc(x.botId)}" type="button">この録音を終える</button>`;
+      ${inWait ? `<div class="wait" data-left-at="${leftAt}" data-total="${x.waitSec}"><div class="wt">待合室で待っています。入れてもらえないと、あと</div>
+        <div class="wc" data-left>-:--</div><div class="wt">で自動で退出します</div><div class="wb"><i data-bar></i></div></div>
+        <button class="rejoin" data-rejoin="${esc(x.botId)}" data-url="${esc(x.url || "")}" data-title="${esc(x.title || "")}" type="button">入り直す（待ち時間を最初に戻す）</button>` : ""}
+      <button class="stop" data-stop="${esc(x.botId)}" type="button">退室させる</button>`;
   }).join("") : `<div class="empty">いま入っているkinbotはありません。下で商談を選んでボタンを押すと、録音を始めます。</div>`);
-  $("go").textContent = a.length ? "次の商談に切り替える" : "この商談の録音を始める";
+  $("go").textContent = a.length ? "いまのkinbotを退室させて、この商談に入室" : "この商談に入室させる";
   const evs = (st && st.upcoming) || [];
   const curTitle = a[0] ? a[0].title : "";
   const isToday = !st || !st.day || st.day === st.today;
@@ -181,9 +202,25 @@ function render() {
   $("evs").innerHTML = evs.length ? evs.map((e) => `<div class="ev ${e.id === sel ? "sel" : ""} ${e.past && !e.now ? "past" : ""}" data-id="${esc(e.id)}"><span class="ck"></span>
       <div style="flex:1;min-width:0"><div class="t">${esc(e.title)}${e.now ? '<span class="now">いま</span>' : ""}</div><div class="w">${esc(hm(e.start))}〜${esc(hm(e.end))}</div></div></div>`).join("")
     : `<div class="empty">この日の予定がカレンダーにありません</div>`;
-  document.querySelectorAll(".ev").forEach((el) => el.addEventListener("click", () => { sel = el.dataset.id; $("title").value = ""; if (navigator.vibrate) navigator.vibrate(10); render(); }));
+  document.querySelectorAll(".ev").forEach((el) => el.addEventListener("click", () => { sel = el.dataset.id; roomSel = null; $("title").value = ""; if (navigator.vibrate) navigator.vibrate(10); render(); }));
+  // 入る部屋
+  const evSel = evs.find((e) => e.id === sel);
+  const rooms = [];
+  if (evSel && evSel.url) rooms.push({ key: "ev", label: "この予定の会議", url: evSel.url });
+  for (const r of (st && st.rooms) || []) if (!rooms.some((x) => x.url === r.url)) rooms.push(r);
+  if (roomSel === null || !rooms.some((r) => r.key === roomSel)) roomSel = rooms[0] ? rooms[0].key : "";
+  $("rooms").innerHTML = rooms.length ? rooms.map((r) => `<div class="room ${r.key === roomSel && !$("roomUrl").value.trim() ? "sel" : ""}" data-room="${esc(r.key)}"><span class="ck"></span><div style="min-width:0"><div class="rl">${esc(r.label)}</div><div class="ru">${esc(r.url)}</div></div></div>`).join("")
+    : `<div class="empty">登録した部屋がありません。会議のURLを下に貼ってください（kinbotの設定の「登録リンク」に自分のZoomを入れておくと、ここに出ます）</div>`;
+  document.querySelectorAll(".room").forEach((el) => el.addEventListener("click", () => { roomSel = el.dataset.room; $("roomUrl").value = ""; if (navigator.vibrate) navigator.vibrate(10); render(); }));
+  window.__rooms = rooms;
+  document.querySelectorAll("[data-rejoin]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("いったん退室して、同じ会議にもう一度入ります（待ち時間が最初に戻ります）。")) return;
+    b.disabled = true;
+    try { await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: b.dataset.rejoin, title: b.dataset.title, url: b.dataset.url }) }); toast("入り直しています（30秒ほど）"); setTimeout(load, 5000); }
+    catch (e) { toast(e.message, false); b.disabled = false; }
+  }));
   document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", async () => {
-    if (!confirm("この録音を終えます。よろしいですか？")) return;
+    if (!confirm("kinbotを退室させます（録音はここで終わります）。よろしいですか？")) return;
     b.disabled = true;
     try { const r = await api("/api/switch/stop", { method: "POST", body: JSON.stringify({ botId: b.dataset.stop }) }); toast(`「${r.left}」の録音を終えました`);
       if (r.leftBotId) { watching.unshift({ botId: r.leftBotId, title: r.left, state: "確認中" }); watching = watching.slice(0, 3); setTimeout(checkSaved, 1500); }
@@ -199,10 +236,14 @@ $("go").addEventListener("click", async () => {
   const title = $("title").value.trim() || (ev ? ev.title : "");
   if (!title) { toast("商談を選ぶか、商談名を入れてください", false); return; }
   const cur = (st && st.active && st.active[0]) || null;
-  if (!confirm(cur ? `「${cur.title}」の録音を終えて、\n「${title}」に切り替えます。` : `「${title}」の録音を始めます。`)) return;
+  if (!confirm(cur ? `「${cur.title}」のkinbotを退室させて、\n「${title}」に入室させます。` : `「${title}」にkinbotを入室させます。`)) return;
   busy = true; $("go").disabled = true; $("go").textContent = "切り替えています…";
   try {
-    const r = await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: cur ? cur.botId : "", title }) });
+    const pasted = $("roomUrl").value.trim();
+    const room = (window.__rooms || []).find((x) => x.key === roomSel);
+    const url = pasted || (room ? room.url : "");
+    if (!url) { toast("入る部屋を選ぶか、会議のURLを貼ってください", false); busy = false; $("go").disabled = false; render(); return; }
+    const r = await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: cur ? cur.botId : "", title, url }) });
     toast(`kinbotが「${r.started}」に入ります（30秒ほど）`);
     if (r.leftBotId) { watching.unshift({ botId: r.leftBotId, title: r.left, state: "確認中" }); watching = watching.slice(0, 3); setTimeout(checkSaved, 1500); }
     sel = null; $("title").value = "";
@@ -215,7 +256,19 @@ $("dPrev").addEventListener("click", () => moveDay(-1));
 $("dNext").addEventListener("click", () => moveDay(1));
 $("dToday").addEventListener("click", () => { day = ""; sel = null; load(); });
 $("dPick").addEventListener("change", (e) => { if (e.target.value) { day = e.target.value; sel = null; load(); } });
-setInterval(() => { $("clock").textContent = hm(new Date().toISOString()); document.querySelectorAll("[data-since]").forEach((el) => { el.textContent = elapsed(el.dataset.since); }); }, 1000);
+setInterval(() => {
+  $("clock").textContent = hm(new Date().toISOString());
+  document.querySelectorAll("[data-since]").forEach((el) => { el.textContent = elapsed(el.dataset.since); });
+  // 待合室の残り時間
+  document.querySelectorAll("[data-left-at]").forEach((w) => {
+    const left = Math.max(0, Math.round((Number(w.dataset.leftAt) - Date.now()) / 1000));
+    const tot = Math.max(1, Number(w.dataset.total) || 420);
+    const c = w.querySelector("[data-left]"); if (c) c.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+    const bar = w.querySelector("[data-bar]"); if (bar) bar.style.width = `${Math.round((left / tot) * 100)}%`;
+    w.classList.toggle("low", left <= 90);
+    if (left === 60 && navigator.vibrate) navigator.vibrate([80, 60, 80]);
+  });
+}, 1000);
 setInterval(() => { if (!busy && !document.hidden) load(); }, 20000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 if (isPhone) load();
