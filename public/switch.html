@@ -13,97 +13,96 @@
 <link rel="icon" href="/switch-icon-192.png" />
 <title>kinbot 入退室</title>
 <style>
-  :root { --g:#0E6B4E; --g2:#1d9e75; --pale:#EAF4EF; --line:#dfe8e3; --tx:#1f2a26; --sub:#5f6b64; --red:#c62828; --bg:#f3f7f5; }
+  :root { --g:#0E6B4E; --g2:#1d9e75; --pale:#EAF4EF; --line:#dfe8e3; --tx:#1f2a26; --sub:#5f6b64; --red:#c62828; --bg:#f3f7f5; --amber:#b26b00; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { height:100%; }
-  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; background:var(--bg); color:var(--tx);
-         overscroll-behavior-y:contain; -webkit-user-select:none; user-select:none; }
-  .bar { position:sticky; top:0; z-index:5; background:linear-gradient(160deg,#1d9e75,#0E6B4E); color:#fff;
-         padding:calc(10px + env(safe-area-inset-top,0px)) 16px 12px; display:flex; align-items:center; gap:10px; }
+  body { margin:0; font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif; background:var(--bg); color:var(--tx); overscroll-behavior-y:contain; -webkit-user-select:none; user-select:none; }
+  button { font-family:inherit; }
+  .bar { position:sticky; top:0; z-index:5; background:linear-gradient(160deg,#1d9e75,#0E6B4E); color:#fff; padding:calc(10px + env(safe-area-inset-top,0px)) 16px 12px; display:flex; align-items:center; gap:10px; }
   .bar img { width:30px; height:30px; border-radius:8px; background:rgba(255,255,255,.15); }
-  .bar b { font-size:17px; letter-spacing:.02em; }
-  .bar .clk { margin-left:auto; font-size:15px; font-variant-numeric:tabular-nums; opacity:.95; }
-  .bar .rf { border:0; background:rgba(255,255,255,.18); color:#fff; border-radius:10px; width:36px; height:36px; font-size:18px; }
-  main { padding:14px 14px calc(110px + env(safe-area-inset-bottom,0px)); }
+  .bar b { font-size:17px; } .bar .clk { margin-left:auto; font-size:15px; font-variant-numeric:tabular-nums; }
+  .bar .rf { border:0; background:rgba(255,255,255,.18); color:#fff; border-radius:10px; width:38px; height:38px; font-size:18px; }
+  main { padding:12px 12px calc(28px + env(safe-area-inset-bottom,0px)); }
   .card { background:#fff; border-radius:18px; padding:14px; margin-bottom:12px; box-shadow:0 1px 2px rgba(0,0,0,.04), 0 6px 18px -14px rgba(13,91,71,.45); }
-  .lb { font-size:12px; color:var(--sub); margin-bottom:8px; font-weight:600; letter-spacing:.04em; }
-  .rec { display:flex; align-items:flex-start; gap:10px; }
-  .dot { width:12px; height:12px; border-radius:50%; background:var(--red); margin-top:5px; flex:none; box-shadow:0 0 0 0 rgba(198,40,40,.5); animation:p 1.6s infinite; }
-  .dot.wait { background:#e0a100; animation:none; box-shadow:none; }
-  .rec .dot { width:12px !important; height:12px !important; min-width:12px; max-height:12px; }
-  @keyframes p { 0% { box-shadow:0 0 0 0 rgba(198,40,40,.45); } 70% { box-shadow:0 0 0 10px rgba(198,40,40,0); } 100% { box-shadow:0 0 0 0 rgba(198,40,40,0); } }
-  .rt { font-weight:800; font-size:17px; line-height:1.4; }
-  .el { font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; margin:6px 0 0 22px; color:var(--g); }
-  .meta { font-size:12.5px; color:var(--sub); margin:2px 0 0 22px; }
-  .stop { display:block; width:100%; margin-top:12px; border:1.5px solid #f3c2bd; background:#fff; color:var(--red); border-radius:14px; padding:13px; font-size:15px; font-weight:700; }
-  .ev { display:flex; align-items:center; gap:12px; padding:13px 12px; border:2px solid transparent; border-radius:14px; margin-top:8px; background:#f7faf8; }
-  .ev.sel { border-color:var(--g2); background:var(--pale); }
-  .ev .ck { width:22px; height:22px; border-radius:50%; border:2px solid #b9cbc3; flex:none; display:flex; align-items:center; justify-content:center; }
-  .ev.sel .ck { border-color:var(--g2); background:var(--g2); }
-  .ev.sel .ck::after { content:""; width:8px; height:8px; border-radius:50%; background:#fff; }
-  .ev .t { font-weight:700; font-size:14.5px; line-height:1.4; }
-  .ev .w { font-size:12px; color:var(--sub); margin-top:2px; }
-  .now { font-size:10.5px; color:#fff; background:var(--g2); border-radius:99px; padding:1px 7px; margin-left:6px; vertical-align:2px; }
-  .day { display:flex; align-items:center; gap:8px; margin:2px 0 4px; }
-  .day button { border:1.5px solid var(--line); background:#fff; border-radius:12px; min-width:44px; height:44px; font-size:20px; color:var(--g); font-weight:700; }
-  .day .dt { font-size:13px; min-width:56px; }
-  .day .dl { flex:1; position:relative; height:44px; border-radius:12px; background:var(--pale); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:var(--g); }
-  .day .dl input { position:absolute; inset:0; opacity:0; margin:0; padding:0; border:0; width:100%; height:100%; }
-  .ev.past { opacity:.5; }
-  input { width:100%; border:1.5px solid var(--line); border-radius:12px; padding:13px; font-size:16px; font-family:inherit; margin-top:10px; -webkit-user-select:text; user-select:text; }
-  .foot { position:fixed; left:0; right:0; bottom:0; z-index:6; padding:10px 14px calc(12px + env(safe-area-inset-bottom,0px));
-          background:linear-gradient(to top, var(--bg) 70%, rgba(243,247,245,0)); }
-  .go { display:block; width:100%; border:0; border-radius:18px; padding:18px; font-size:17px; font-weight:800; color:#fff;
-        background:linear-gradient(160deg,#22b083,#0E6B4E); box-shadow:0 10px 24px -12px rgba(13,91,71,.8); }
-  .go:active, .stop:active, .ev:active { transform:scale(.98); }
-  .go:disabled { opacity:.55; }
+  .lb { font-size:12px; color:var(--sub); font-weight:700; letter-spacing:.04em; margin-bottom:8px; display:flex; align-items:center; gap:8px; }
   .empty { font-size:13.5px; color:var(--sub); line-height:1.6; }
-  .room { display:flex; align-items:center; gap:10px; padding:11px 12px; border:2px solid transparent; border-radius:12px; margin-top:6px; background:#f7faf8; }
-  .room.sel { border-color:var(--g2); background:var(--pale); }
-  .room .ck { width:20px; height:20px; border-radius:50%; border:2px solid #b9cbc3; flex:none; display:flex; align-items:center; justify-content:center; }
-  .room.sel .ck { border-color:var(--g2); background:var(--g2); } .room.sel .ck::after { content:""; width:7px; height:7px; border-radius:50%; background:#fff; }
-  .room .rl { font-weight:700; font-size:14px; } .room .ru { font-size:11px; color:var(--sub); word-break:break-all; margin-top:2px; }
-  .wait { margin:10px 0 0; padding:10px 12px; border-radius:12px; background:#fff7e6; border:1px solid #f3d79a; }
-  .wait .wt { font-size:13px; font-weight:700; color:#7a5200; } .wait .wc { font-size:26px; font-weight:800; color:#b26b00; font-variant-numeric:tabular-nums; }
-  .wait .wb { height:6px; border-radius:6px; background:#f3e2bb; margin-top:6px; overflow:hidden; } .wait .wb i { display:block; height:100%; background:#e0a100; }
-  .wait.low { background:#fdecea; border-color:#f3b9b3; } .wait.low .wc { color:var(--red); } .wait.low .wb i { background:var(--red); }
-  .rejoin { display:block; width:100%; margin-top:8px; border:1.5px solid #f0c46a; background:#fff; color:#8a5a00; border-radius:14px; padding:12px; font-size:14px; font-weight:700; }
-  .toast { position:fixed; left:14px; right:14px; bottom:calc(96px + env(safe-area-inset-bottom,0px)); z-index:7; background:#1f2a26; color:#fff;
-           border-radius:14px; padding:12px 14px; font-size:14px; line-height:1.5; opacity:0; transform:translateY(8px); transition:.25s; pointer-events:none; }
+  /* いま入っているkinbot */
+  .now { border:2px solid var(--g2); }
+  .now.waiting { border-color:#e0a100; }
+  .now .t { font-weight:800; font-size:16px; line-height:1.4; }
+  .now .s { display:flex; align-items:center; gap:8px; margin-top:4px; font-size:13px; color:var(--sub); }
+  .pulse { width:10px; height:10px; border-radius:50%; background:var(--red); flex:none; animation:p 1.6s infinite; }
+  .pulse.w { background:#e0a100; animation:none; }
+  @keyframes p { 0%{box-shadow:0 0 0 0 rgba(198,40,40,.45)} 70%{box-shadow:0 0 0 9px rgba(198,40,40,0)} 100%{box-shadow:0 0 0 0 rgba(198,40,40,0)} }
+  .el { margin-left:auto; font-size:22px; font-weight:800; color:var(--g); font-variant-numeric:tabular-nums; }
+  .wait { margin-top:10px; border-radius:12px; background:#fff7e6; padding:10px 12px; display:flex; align-items:center; gap:12px; }
+  .wait .wc { font-size:30px; font-weight:800; color:var(--amber); font-variant-numeric:tabular-nums; min-width:84px; }
+  .wait .wt { font-size:12.5px; color:#7a5200; line-height:1.5; }
+  .wait .wb { height:5px; border-radius:5px; background:#f3e2bb; margin-top:6px; overflow:hidden; } .wait .wb i { display:block; height:100%; background:#e0a100; }
+  .wait.low { background:#fdecea; } .wait.low .wc { color:var(--red); } .wait.low .wb i { background:var(--red); } .wait.low .wt { color:#8c1d18; }
+  .acts { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+  .acts.one { grid-template-columns:1fr; }
+  .big { border:0; border-radius:14px; padding:15px 10px; font-size:15.5px; font-weight:800; }
+  .big:active { transform:scale(.98); }
+  .b-leave { background:#fdecea; color:var(--red); }
+  .b-rejoin { background:#fff4dc; color:#8a5a00; }
+  /* 予定の一覧 */
+  .day { display:flex; align-items:center; gap:6px; margin:0 0 8px; }
+  .day button { border:0; background:var(--pale); color:var(--g); border-radius:10px; min-width:40px; height:38px; font-size:20px; font-weight:800; }
+  .day .dl { flex:1; position:relative; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; color:var(--g); }
+  .day .dl input { position:absolute; inset:0; opacity:0; width:100%; height:100%; }
+  .day .tdy { font-size:12.5px; min-width:52px; }
+  .ev { display:flex; align-items:center; gap:10px; padding:11px 10px 11px 12px; border-radius:14px; background:#f7faf8; margin-top:8px; }
+  .ev.past { opacity:.45; }
+  .ev.cur { background:var(--pale); box-shadow:inset 0 0 0 2px var(--g2); }
+  .ev .tm { width:46px; flex:none; text-align:center; font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; color:var(--g); line-height:1.15; }
+  .ev .tm small { display:block; font-size:10.5px; font-weight:600; color:var(--sub); }
+  .ev .bd { flex:1; min-width:0; }
+  .ev .ti { font-weight:700; font-size:14px; line-height:1.35; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .ev .rm { font-size:11px; color:var(--sub); margin-top:3px; display:flex; align-items:center; gap:4px; }
+  .ev .rm.no { color:var(--amber); }
+  .ev .go { flex:none; border:0; border-radius:12px; padding:12px 14px; font-size:14px; font-weight:800; background:linear-gradient(160deg,#22b083,#0E6B4E); color:#fff; box-shadow:0 6px 14px -8px rgba(13,91,71,.8); }
+  .ev .go:active { transform:scale(.96); } .ev .go:disabled { opacity:.5; }
+  .ev .inn { flex:none; font-size:12px; font-weight:800; color:var(--g2); padding:6px 10px; border-radius:10px; background:#fff; }
+  .chip-now { font-size:10px; color:#fff; background:var(--g2); border-radius:99px; padding:1px 7px; margin-left:4px; vertical-align:1px; }
+  .more { display:flex; gap:8px; margin-top:10px; }
+  .more button { flex:1; border:1.5px dashed #c9dcd3; background:#fff; color:var(--g); border-radius:12px; padding:11px 8px; font-size:13px; font-weight:700; }
+  /* 下から出る窓 */
+  .sheet-bg { position:fixed; inset:0; background:rgba(15,30,25,.38); z-index:20; display:flex; align-items:flex-end; }
+  .sheet { width:100%; background:#fff; border-radius:20px 20px 0 0; padding:16px 14px calc(18px + env(safe-area-inset-bottom,0px)); max-height:80vh; overflow:auto; }
+  .sheet h3 { margin:0 0 10px; font-size:16px; }
+  .opt { display:flex; align-items:center; gap:10px; padding:13px 12px; border-radius:12px; background:#f7faf8; margin-top:8px; }
+  .opt.sel { background:var(--pale); box-shadow:inset 0 0 0 2px var(--g2); }
+  .opt .ol { font-weight:700; font-size:14px; } .opt .ou { font-size:11px; color:var(--sub); word-break:break-all; margin-top:2px; }
+  .sheet input { width:100%; border:1.5px solid var(--line); border-radius:12px; padding:13px; font-size:16px; margin-top:10px; -webkit-user-select:text; user-select:text; }
+  .sheet .big { width:100%; margin-top:12px; background:linear-gradient(160deg,#22b083,#0E6B4E); color:#fff; }
+  .sheet .cancel { width:100%; margin-top:8px; border:0; background:none; color:var(--sub); font-size:14px; padding:10px; }
+  .toast { position:fixed; left:14px; right:14px; bottom:calc(18px + env(safe-area-inset-bottom,0px)); z-index:30; background:#1f2a26; color:#fff; border-radius:14px; padding:12px 14px; font-size:14px; line-height:1.5; opacity:0; transform:translateY(8px); transition:.25s; pointer-events:none; }
   .toast.show { opacity:1; transform:none; } .toast.ng { background:var(--red); }
   .install { background:#fff8e5; border:1px solid #f0d58a; color:#5a4300; border-radius:14px; padding:10px 12px; font-size:12.5px; line-height:1.6; margin-bottom:12px; display:none; }
   .install button { border:0; background:var(--g2); color:#fff; border-radius:10px; padding:6px 12px; font-weight:700; margin-top:6px; }
   .pc { display:none; min-height:100%; align-items:center; justify-content:center; text-align:center; padding:30px; }
-  .pc .box { background:#fff; border-radius:20px; padding:28px 26px; max-width:420px; box-shadow:0 10px 30px -18px rgba(13,91,71,.5); }
+  .pc .box { background:#fff; border-radius:20px; padding:28px 26px; max-width:420px; }
   .pc img { width:72px; height:72px; border-radius:18px; } .pc h2 { font-size:18px; margin:14px 0 8px; } .pc p { font-size:14px; color:var(--sub); line-height:1.7; margin:0; }
   .pc code { display:block; margin-top:12px; background:#f3f7f5; border-radius:10px; padding:10px; font-size:12.5px; word-break:break-all; -webkit-user-select:text; user-select:text; }
 </style>
 </head>
 <body>
   <div class="pc" id="pc"><div class="box"><img src="/switch-icon-192.png" alt="" /><h2>スマホで開いてください</h2>
-    <p>商談の切り替えは、スマホ専用の画面です。スマホのブラウザで次のURLを開き、ホーム画面に追加するとアプリのように使えます。</p><code id="pcUrl"></code></div></div>
+    <p>kinbotの入退室は、スマホ専用の画面です。スマホのブラウザで次のURLを開き、ホーム画面に追加するとアプリのように使えます。</p><code id="pcUrl"></code></div></div>
   <div id="app" style="display:none">
     <div class="bar"><img src="/switch-icon-192.png" alt="" /><b>kinbot 入退室</b><span class="clk" id="clock"></span><button class="rf" id="rf" type="button" aria-label="読み直す">↻</button></div>
     <main>
       <div class="install" id="install"></div>
-      <div class="card" id="nowCard"><div class="lb">いま入っているkinbot</div><div class="empty">読み込み中…</div></div>
-      <div class="card" id="saveCard" style="display:none"></div>
+      <div id="nowBox"></div>
       <div class="card">
-        <div class="lb">次の商談</div>
         <div class="day"><button type="button" id="dPrev" aria-label="前の日">‹</button>
           <label class="dl"><span id="dLabel">今日</span><input type="date" id="dPick" /></label>
-          <button type="button" id="dNext" aria-label="次の日">›</button><button type="button" id="dToday" class="dt">今日</button></div>
+          <button type="button" id="dNext" aria-label="次の日">›</button><button type="button" id="dToday" class="tdy">今日</button></div>
         <div id="evs"><div class="empty">読み込み中…</div></div>
-        <input id="title" placeholder="予定にない商談は、商談名を入れる" />
+        <div class="more"><button type="button" id="other">＋ 予定にない商談に入れる</button></div>
       </div>
-      <div class="card">
-        <div class="lb">入る部屋</div>
-        <div id="rooms"><div class="empty">読み込み中…</div></div>
-        <input id="roomUrl" placeholder="ほかの会議のURLを貼る（Zoom・Meet・Teams）" />
-      </div>
-      <p class="empty" style="padding:0 6px">商談と入る部屋を選んで、下のボタンでkinbotを入室させます。入っているkinbotは「退室させる」で抜けます（録音はそこで終わり、要約・分析はいつもどおり作られます）。</p>
     </main>
-    <div class="foot"><button class="go" id="go" type="button">この商談に入室させる</button></div>
     <div class="toast" id="toast"></div>
   </div>
 <script>
@@ -117,51 +116,22 @@ if (!isPhone) { $("pc").style.display = "flex"; $("pcUrl").textContent = locatio
 else {
   $("app").style.display = "block";
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("/switch-sw.js", { scope: "/switch.html" }).catch(() => {});
-  // ホーム画面に追加の案内（追加済み＝アプリで開いているときは出さない）
   let deferred = null;
   window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; showInstall(); });
   function showInstall() {
     if (standalone || localStorage.getItem("kbSwInstallHide")) return;
     const box = $("install"); box.style.display = "block";
-    const ios = /iPhone|iPad|iPod/i.test(ua);
     box.innerHTML = deferred ? `ホーム画面に追加すると、アプリのように1タップで開けます。<br><button type="button" id="inst">ホーム画面に追加</button>`
-      : ios ? `ホーム画面に追加すると、アプリのように1タップで開けます。Safariの下の <b>共有ボタン</b> →「<b>ホーム画面に追加</b>」を押してください。` : `ブラウザのメニューから「ホーム画面に追加」を押すと、アプリのように使えます。`;
+      : /iPhone|iPad|iPod/i.test(ua) ? `ホーム画面に追加すると、アプリのように開けます。Safariの<b>共有ボタン</b>→「<b>ホーム画面に追加</b>」` : `ブラウザのメニューから「ホーム画面に追加」を押すと、アプリのように使えます。`;
     const b = $("inst"); if (b) b.addEventListener("click", async () => { deferred.prompt(); await deferred.userChoice.catch(() => {}); deferred = null; box.style.display = "none"; });
     box.addEventListener("dblclick", () => { localStorage.setItem("kbSwInstallHide", "1"); box.style.display = "none"; });
   }
   setTimeout(showInstall, 800);
 }
-let st = null, sel = null, busy = false, roomSel = null;
-let watching = [];   // 保存を見守っている前の商談 [{botId, title}]
-async function checkSaved() {
-  const box = $("saveCard");
-  if (!watching.length) { box.style.display = "none"; return; }
-  const rows = [];
-  for (const w of watching) {
-    try { const r = await api(`/api/switch/saved?botId=${encodeURIComponent(w.botId)}`); w.state = r.state; w.note = r.note; w.count = r.count; } catch {}
-    const ok = w.state === "保存しました";
-    rows.push(`<div style="display:flex;gap:10px;align-items:flex-start;margin-top:6px"><span style="font-size:18px">${ok ? "✅" : /ありません|できません/.test(w.state || "") ? "⚠️" : "⏳"}</span>
-      <div><div style="font-weight:700;font-size:14px">${esc(w.title)}</div><div class="meta" style="margin:2px 0 0">${esc(ok ? `保存しました（発言 ${w.count}件）${w.note ? `・${w.note}` : ""}` : (w.state || "確認中") + (w.note ? `・${w.note}` : "") + (/ありません|できません/.test(w.state || "") ? "（kinbotが取り直しを続けます。15分たってもだめなときはChatで知らせます）" : ""))}</div></div></div>`);
-  }
-  box.style.display = "block";
-  box.innerHTML = `<div class="lb">前の商談の保存</div>${rows.join("")}`;
-  watching = watching.filter((w) => !(w.state === "保存しました" && Date.now() - (w.okAt || (w.okAt = Date.now())) > 10 * 60 * 1000));
-}
-setInterval(() => { if (watching.length && !document.hidden) checkSaved(); }, 15000);
-let day = "";   // 見る日（空＝今日）
+let st = null, busy = false, day = "";
+// 入る部屋：「予定の会議があればそれ」がいつもの動き。部屋を選び直したら、その部屋を覚える（kbRoomPref）
+let roomPref = (() => { try { return JSON.parse(localStorage.getItem("kbRoomPref") || "null"); } catch { return null; } })();
 const ymdJ = (d) => new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
-function dayLabel(ds, today) {
-  if (!ds || ds === today) return "今日";
-  const d = new Date(`${ds}T00:00:00+09:00`), t = new Date(`${today}T00:00:00+09:00`);
-  const diff = Math.round((d - t) / 86400000);
-  const base = `${d.getMonth() + 1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`;
-  return diff === 1 ? `明日 ${base}` : diff === -1 ? `昨日 ${base}` : base;
-}
-function moveDay(n) {
-  const base = day || (st && st.today) || ymdJ(new Date());
-  const d = new Date(`${base}T12:00:00+09:00`); d.setDate(d.getDate() + n);
-  day = ymdJ(d); sel = null; if (navigator.vibrate) navigator.vibrate(10); load();
-}
 async function api(url, opts = {}) {
   const r = await fetch(url, { headers: { "content-type": "application/json" }, credentials: "same-origin", ...opts });
   const ct = r.headers.get("content-type") || "";
@@ -173,93 +143,137 @@ async function api(url, opts = {}) {
 let toastT = 0;
 function toast(t, ok = true) { const el = $("toast"); el.textContent = t; el.className = "toast show" + (ok ? "" : " ng"); clearTimeout(toastT); toastT = setTimeout(() => { el.className = "toast"; }, 3800); if (navigator.vibrate) navigator.vibrate(ok ? 30 : [60, 40, 60]); }
 function elapsed(iso) { const s = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 1000)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60; return `${h ? `${h}:` : ""}${String(m).padStart(h ? 2 : 1, "0")}:${String(x).padStart(2, "0")}`; }
+function dayLabel(ds, today) {
+  if (!ds || ds === today) return "今日";
+  const d = new Date(`${ds}T00:00:00+09:00`), t = new Date(`${today}T00:00:00+09:00`);
+  const diff = Math.round((d - t) / 86400000), base = `${d.getMonth() + 1}/${d.getDate()}(${"日月火水木金土"[d.getDay()]})`;
+  return diff === 1 ? `明日 ${base}` : diff === -1 ? `昨日 ${base}` : base;
+}
+// その予定で入る部屋
+function roomFor(ev) {
+  const rooms = (st && st.rooms) || [];
+  if (roomPref && roomPref.url && !(ev && ev.url && roomPref.key === "ev")) return roomPref;
+  if (ev && ev.url) return { key: "ev", label: "この予定の会議", url: ev.url };
+  return rooms[0] || null;
+}
 function render() {
   const a = (st && st.active) || [];
-  $("nowCard").innerHTML = `<div class="lb">いま入っているkinbot</div>` + (a.length ? a.map((x) => {
-    const wait = /waiting_room|joining/.test(x.status);
+  // ① いま入っているkinbot
+  $("nowBox").innerHTML = a.map((x) => {
     const inWait = /waiting_room/.test(x.status) && x.waitLeftSec != null;
     const leftAt = inWait ? Date.now() + x.waitLeftSec * 1000 : 0;
-    return `<div class="rec"><span class="dot ${wait ? "wait" : ""}"></span><div class="rt">${esc(x.title || "（商談名なし）")}</div></div>
-      <div class="el" data-since="${esc(x.startedAt)}">${esc(elapsed(x.startedAt))}</div>
-      <div class="meta">${esc(hm(x.startedAt))}から ・ ${/waiting_room/.test(x.status) ? "待合室で待っています" : /joining/.test(x.status) ? "入っています…" : "録音中"}</div>
-      ${inWait ? `<div class="wait" data-left-at="${leftAt}" data-total="${x.waitSec}"><div class="wt">待合室で待っています。入れてもらえないと、あと</div>
-        <div class="wc" data-left>-:--</div><div class="wt">で自動で退出します</div><div class="wb"><i data-bar></i></div></div>
-        <button class="rejoin" data-rejoin="${esc(x.botId)}" data-url="${esc(x.url || "")}" data-title="${esc(x.title || "")}" type="button">入り直す（待ち時間を最初に戻す）</button>` : ""}
-      <button class="stop" data-stop="${esc(x.botId)}" type="button">退室させる</button>`;
-  }).join("") : `<div class="empty">いま入っているkinbotはありません。下で商談を選んでボタンを押すと、録音を始めます。</div>`);
-  $("go").textContent = a.length ? "いまのkinbotを退室させて、この商談に入室" : "この商談に入室させる";
+    const stTxt = inWait ? "待合室で待っています" : /joining/.test(x.status) ? "入っています…" : "録音中";
+    return `<div class="card now ${inWait ? "waiting" : ""}">
+      <div class="lb">いま入っているkinbot</div>
+      <div class="t">${esc(x.title || "（商談名なし）")}</div>
+      <div class="s"><span class="pulse ${inWait || /joining/.test(x.status) ? "w" : ""}"></span>${esc(stTxt)}・${esc(hm(x.startedAt))}から<span class="el" data-since="${esc(x.startedAt)}">${esc(elapsed(x.startedAt))}</span></div>
+      ${inWait ? `<div class="wait" data-left-at="${leftAt}" data-total="${x.waitSec}"><div class="wc" data-left>-:--</div>
+        <div style="flex:1"><div class="wt">入れてもらえないと、この時間で自動で退出します。先方に入室を許可してもらってください。</div><div class="wb"><i data-bar></i></div></div></div>` : ""}
+      <div class="acts ${inWait ? "" : "one"}">
+        ${inWait ? `<button class="big b-rejoin" data-rejoin="${esc(x.botId)}" data-url="${esc(x.url || "")}" data-title="${esc(x.title || "")}" type="button">入り直す<br><small style="font-weight:600;font-size:11px">待ち時間を最初に戻す</small></button>` : ""}
+        <button class="big b-leave" data-stop="${esc(x.botId)}" type="button">退室させる</button>
+      </div></div>`;
+  }).join("");
+  // ② 予定の一覧（1つずつ「入室」ボタン）
   const evs = (st && st.upcoming) || [];
   const curTitle = a[0] ? a[0].title : "";
-  const isToday = !st || !st.day || st.day === st.today;
   $("dLabel").textContent = dayLabel(st && st.day, st && st.today);
   $("dPick").value = (st && st.day) || "";
-  $("dToday").style.display = isToday ? "none" : "";
-  if (sel === null) {
-    const nx = isToday ? (evs.find((e) => e.title !== curTitle && Date.parse(e.start) > Date.now() - 20 * 60000) || evs.find((e) => e.title !== curTitle && !e.past) || evs[evs.length - 1])
-      : evs[0];
-    sel = nx ? nx.id : "";
-  }
-  $("evs").innerHTML = evs.length ? evs.map((e) => `<div class="ev ${e.id === sel ? "sel" : ""} ${e.past && !e.now ? "past" : ""}" data-id="${esc(e.id)}"><span class="ck"></span>
-      <div style="flex:1;min-width:0"><div class="t">${esc(e.title)}${e.now ? '<span class="now">いま</span>' : ""}</div><div class="w">${esc(hm(e.start))}〜${esc(hm(e.end))}</div></div></div>`).join("")
-    : `<div class="empty">この日の予定がカレンダーにありません</div>`;
-  document.querySelectorAll(".ev").forEach((el) => el.addEventListener("click", () => { sel = el.dataset.id; roomSel = null; $("title").value = ""; if (navigator.vibrate) navigator.vibrate(10); render(); }));
-  // 入る部屋
-  const evSel = evs.find((e) => e.id === sel);
-  const rooms = [];
-  if (evSel && evSel.url) rooms.push({ key: "ev", label: "この予定の会議", url: evSel.url });
-  for (const r of (st && st.rooms) || []) if (!rooms.some((x) => x.url === r.url)) rooms.push(r);
-  if (roomSel === null || !rooms.some((r) => r.key === roomSel)) roomSel = rooms[0] ? rooms[0].key : "";
-  $("rooms").innerHTML = rooms.length ? rooms.map((r) => `<div class="room ${r.key === roomSel && !$("roomUrl").value.trim() ? "sel" : ""}" data-room="${esc(r.key)}"><span class="ck"></span><div style="min-width:0"><div class="rl">${esc(r.label)}</div><div class="ru">${esc(r.url)}</div></div></div>`).join("")
-    : `<div class="empty">登録した部屋がありません。会議のURLを下に貼ってください（kinbotの設定の「登録リンク」に自分のZoomを入れておくと、ここに出ます）</div>`;
-  document.querySelectorAll(".room").forEach((el) => el.addEventListener("click", () => { roomSel = el.dataset.room; $("roomUrl").value = ""; if (navigator.vibrate) navigator.vibrate(10); render(); }));
-  window.__rooms = rooms;
+  $("dToday").style.display = !st || st.day === st.today ? "none" : "";
+  $("evs").innerHTML = evs.length ? evs.map((e) => {
+    const inThis = a.length && e.title === curTitle;
+    const room = roomFor(e);
+    return `<div class="ev ${inThis ? "cur" : ""} ${e.past && !e.now && !inThis ? "past" : ""}">
+      <div class="tm">${esc(hm(e.start))}<small>〜${esc(hm(e.end))}</small></div>
+      <div class="bd"><div class="ti">${esc(e.title)}${e.now ? '<span class="chip-now">いま</span>' : ""}</div>
+        <div class="rm ${room ? "" : "no"}" data-room-of="${esc(e.id)}">${room ? `部屋：${esc(room.label)} ▾` : "部屋を選んでください ▾"}</div></div>
+      ${inThis ? `<span class="inn">入室中</span>` : `<button class="go" type="button" data-go="${esc(e.id)}">入室</button>`}
+    </div>`;
+  }).join("") : `<div class="empty">この日の予定がカレンダーにありません</div>`;
+  wire();
+}
+function wire() {
+  document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => {
+    const ev = ((st && st.upcoming) || []).find((e) => e.id === b.dataset.go);
+    if (ev) join(ev.title, roomFor(ev), b);
+  }));
+  document.querySelectorAll("[data-room-of]").forEach((el) => el.addEventListener("click", () => {
+    const ev = ((st && st.upcoming) || []).find((e) => e.id === el.dataset.roomOf);
+    pickRoom(ev);
+  }));
+  document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("kinbotを退室させます（録音はここで終わります）。")) return;
+    b.disabled = true;
+    try { const r = await api("/api/switch/stop", { method: "POST", body: JSON.stringify({ botId: b.dataset.stop }) }); toast(`「${r.left}」から退室しました`); await load(); }
+    catch (e) { toast(e.message, false); b.disabled = false; }
+  }));
   document.querySelectorAll("[data-rejoin]").forEach((b) => b.addEventListener("click", async () => {
-    if (!confirm("いったん退室して、同じ会議にもう一度入ります（待ち時間が最初に戻ります）。")) return;
     b.disabled = true;
     try { await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: b.dataset.rejoin, title: b.dataset.title, url: b.dataset.url }) }); toast("入り直しています（30秒ほど）"); setTimeout(load, 5000); }
     catch (e) { toast(e.message, false); b.disabled = false; }
   }));
-  document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", async () => {
-    if (!confirm("kinbotを退室させます（録音はここで終わります）。よろしいですか？")) return;
-    b.disabled = true;
-    try { const r = await api("/api/switch/stop", { method: "POST", body: JSON.stringify({ botId: b.dataset.stop }) }); toast(`「${r.left}」の録音を終えました`);
-      if (r.leftBotId) { watching.unshift({ botId: r.leftBotId, title: r.left, state: "確認中" }); watching = watching.slice(0, 3); setTimeout(checkSaved, 1500); }
-      await load(); }
-    catch (e) { toast(e.message, false); b.disabled = false; }
-  }));
+}
+// 入室（入っているkinbotがあれば、退室させてから）
+async function join(title, room, btn) {
+  if (busy) return;
+  if (!room || !room.url) { toast("入る部屋を選んでください", false); return; }
+  const cur = (st && st.active && st.active[0]) || null;
+  if (cur && !confirm(`いま入っている「${cur.title}」から退室して、\n「${title}」に入室させます。`)) return;
+  busy = true; if (btn) { btn.disabled = true; btn.textContent = "入室中…"; }
+  try {
+    const r = await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: cur ? cur.botId : "", title, url: room.url }) });
+    toast(`kinbotが「${r.started || title}」に入ります（30秒ほど）`);
+    setTimeout(load, 4000); setTimeout(load, 15000);
+  } catch (e) { toast("入室できませんでした：" + e.message, false); if (btn) { btn.disabled = false; btn.textContent = "入室"; } }
+  finally { busy = false; }
+}
+// 部屋を選ぶ窓（予定の会議・自分のZoom・登録した部屋・URLを貼る）
+function pickRoom(ev, onPick) {
+  const rooms = [];
+  if (ev && ev.url) rooms.push({ key: "ev", label: "この予定の会議", url: ev.url });
+  for (const r of (st && st.rooms) || []) if (!rooms.some((x) => x.url === r.url)) rooms.push(r);
+  const cur = roomFor(ev);
+  const bg = document.createElement("div"); bg.className = "sheet-bg";
+  bg.innerHTML = `<div class="sheet"><h3>入る部屋</h3>
+    ${rooms.map((r) => `<div class="opt ${cur && cur.url === r.url ? "sel" : ""}" data-k="${esc(r.key)}"><div style="min-width:0"><div class="ol">${esc(r.label)}</div><div class="ou">${esc(r.url)}</div></div></div>`).join("") || `<div class="empty">登録した部屋がありません。設定の「登録リンク」に自分のZoomを入れておくと、ここに出ます。</div>`}
+    <input id="shUrl" placeholder="ほかの会議のURLを貼る（Zoom・Meet・Teams）" />
+    <button class="big" type="button" id="shOk">${onPick ? "この部屋で入室" : "決める"}</button><button class="cancel" type="button" id="shNo">やめる</button></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  let chosen = cur;
+  bg.querySelectorAll(".opt").forEach((o) => o.addEventListener("click", () => { chosen = rooms.find((r) => r.key === o.dataset.k); bg.querySelectorAll(".opt").forEach((x) => x.classList.toggle("sel", x === o)); bg.querySelector("#shUrl").value = ""; }));
+  bg.querySelector("#shNo").addEventListener("click", close);
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("#shOk").addEventListener("click", () => {
+    const pasted = bg.querySelector("#shUrl").value.trim();
+    const pick = pasted ? { key: "url", label: "貼った会議のURL", url: pasted } : chosen;
+    if (!pick) { toast("部屋を選ぶか、URLを貼ってください", false); return; }
+    // 予定の会議をえらんだら「いつもの動き（予定の会議があればそれ）」に戻す。ほかを選んだら、その部屋を覚える
+    roomPref = pick.key === "ev" ? null : pick;
+    try { localStorage.setItem("kbRoomPref", JSON.stringify(roomPref)); } catch {}
+    close();
+    if (onPick) onPick(pick); else render();
+  });
+}
+$("other").addEventListener("click", () => {
+  const t = prompt("商談名を入れてください（例：【初回】株式会社○○/○○様）");
+  if (!t || !t.trim()) return;
+  pickRoom(null, (room) => join(t.trim(), room, null));
+});
+function moveDay(n) {
+  const base = day || (st && st.today) || ymdJ(new Date());
+  const d = new Date(`${base}T12:00:00+09:00`); d.setDate(d.getDate() + n);
+  day = ymdJ(d); load();
 }
 async function load() { try { st = await api(`/api/switch/state${day ? `?date=${encodeURIComponent(day)}` : ""}`); render(); } catch (e) { toast(e.message, false); } }
-$("go").addEventListener("click", async () => {
-  if (busy) return;
-  const evs = (st && st.upcoming) || [];
-  const ev = evs.find((e) => e.id === sel);
-  const title = $("title").value.trim() || (ev ? ev.title : "");
-  if (!title) { toast("商談を選ぶか、商談名を入れてください", false); return; }
-  const cur = (st && st.active && st.active[0]) || null;
-  if (!confirm(cur ? `「${cur.title}」のkinbotを退室させて、\n「${title}」に入室させます。` : `「${title}」にkinbotを入室させます。`)) return;
-  busy = true; $("go").disabled = true; $("go").textContent = "切り替えています…";
-  try {
-    const pasted = $("roomUrl").value.trim();
-    const room = (window.__rooms || []).find((x) => x.key === roomSel);
-    const url = pasted || (room ? room.url : "");
-    if (!url) { toast("入る部屋を選ぶか、会議のURLを貼ってください", false); busy = false; $("go").disabled = false; render(); return; }
-    const r = await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: cur ? cur.botId : "", title, url }) });
-    toast(`kinbotが「${r.started}」に入ります（30秒ほど）`);
-    if (r.leftBotId) { watching.unshift({ botId: r.leftBotId, title: r.left, state: "確認中" }); watching = watching.slice(0, 3); setTimeout(checkSaved, 1500); }
-    sel = null; $("title").value = "";
-    setTimeout(load, 4000); setTimeout(load, 15000);
-  } catch (e) { toast("失敗：" + e.message, false); }
-  finally { busy = false; $("go").disabled = false; render(); }
-});
 $("rf").addEventListener("click", () => { if (navigator.vibrate) navigator.vibrate(10); load(); });
 $("dPrev").addEventListener("click", () => moveDay(-1));
 $("dNext").addEventListener("click", () => moveDay(1));
-$("dToday").addEventListener("click", () => { day = ""; sel = null; load(); });
-$("dPick").addEventListener("change", (e) => { if (e.target.value) { day = e.target.value; sel = null; load(); } });
+$("dToday").addEventListener("click", () => { day = ""; load(); });
+$("dPick").addEventListener("change", (e) => { if (e.target.value) { day = e.target.value; load(); } });
 setInterval(() => {
   $("clock").textContent = hm(new Date().toISOString());
   document.querySelectorAll("[data-since]").forEach((el) => { el.textContent = elapsed(el.dataset.since); });
-  // 待合室の残り時間
   document.querySelectorAll("[data-left-at]").forEach((w) => {
     const left = Math.max(0, Math.round((Number(w.dataset.leftAt) - Date.now()) / 1000));
     const tot = Math.max(1, Number(w.dataset.total) || 420);
