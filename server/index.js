@@ -280,6 +280,7 @@ import {
   docViewCheck,
   listApoForCallConversation,
   markApoCallConversation,
+  listApoConvDoneSince,
   saveContactImpression,
   claimAssign,
   releaseAssign,
@@ -13449,6 +13450,34 @@ async function apoCallConversationTick() {
     } catch (e) { console.warn("[apo-conv]", e.message); }
   }
 }
+// 直す前の版（10/21 の数分）で、予定の説明が通話の内容だけになってしまったものを元に戻す（起動時に1回）
+setTimeout(async () => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    if (st.apoConvRepair1) return;
+    const done = await listApoConvDoneSince(new Date(Date.now() - 6 * 3600000).toISOString());
+    let fixed = 0;
+    for (const l of done) {
+      for (const [owner, id] of [[l.invite_event_owner, l.invite_event_id], [l.setter_email || l.owner, l.event_id]].filter(([o, i]) => o && i)) {
+        try {
+          const ev = await getCalendarEventState(owner, id).catch(() => null);
+          if (!ev || ev.status === "cancelled") continue;
+          const d0 = String(ev.description || "");
+          if (!d0.trimStart().startsWith("────────────────") || !d0.includes(APO_CONV_MARK)) continue;   // 説明が通話の内容だけになっているものだけ
+          let base = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(l.slug)}\nアポ獲得: ${l.setter || "-"}\n担当: ${l.current_owner || "-"}`;
+          const contact = await apoContactBlock(l).catch(() => "");
+          if (contact) base += `\n\n${contact}`;
+          const note = String(l.source_note || "").trim();
+          if (note) base += `\n\n────────────────\n【アポ獲得時のメモ（${l.setter || "アポ獲得者"}）】\n${note}`;
+          await patchCalendarEvent(owner, id, { description: `${base}\n\n${d0.trim()}`.slice(0, 7900) }, "primary");
+          fixed++;
+        } catch {}
+      }
+    }
+    await saveSettings({ apoConvRepair1: { at: new Date().toISOString(), fixed } });
+    if (fixed) console.log(`[apo-conv] 説明が通話の内容だけになっていた予定を元に戻しました：${fixed}件`);
+  } catch (e) { console.warn("[apo-conv] 元に戻す", e.message); }
+}, 2 * 60 * 1000).unref?.();
 setInterval(() => { apoCallConversationTick().catch(() => {}); }, 10 * 60 * 1000).unref?.();
 setTimeout(() => { apoCallConversationTick().catch(() => {}); }, 4 * 60 * 1000).unref?.();
 
@@ -25735,7 +25764,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-21a アポの通話の録音の要約と会話を、商談予定（担当）とアポ獲得者の予定の説明に入れる（10分ごと・アポから3日・いちばん長い通話・「会話なし」の要約は入れかえ）。予定の本文を読んでから足すので、前の説明は消さない。";
+const BUILD_TAG = "2026-10-21b アポの通話の内容：直す前の版で予定の説明が通話の内容だけになっていた場合に、参加URL・アポ獲得者・担当・先方の連絡先・アポ獲得時のメモを足して元に戻す（起動時に1回）。";
 const BUILD_FEATURES = [
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",

@@ -1654,3 +1654,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 - 2026-10-21 BUILD_TAG=2026-10-21a 田中さん「カレンダーに録音の会話データも入れられるようにしたい」（宮脇鋼管の商談予定の説明に【通話録音の要約】・会話なし（留守電/不在など）とだけ入っていた＝記録のときに別の不在の通話の要約を取っていた）。apoCallConversationTick（10分ごと・起動4分後）：listApoForCallConversation（smart_links の origin_target_id があるkincallのアポで、直近3日・call_conv_at が空）→ zoomPhoneRecordings（直近4日）で同じ電話番号の下9桁・apo_at の前90分〜後20分のうち、いちばん長い通話。20秒未満は会話なしで済み。apoCallConversationText：Zoom の文字起こし → 無ければ録音を transcribeFile（Deepgram／Groq）。要約は summarizeCallRecording（文字起こしから）→ 無ければ zoomRecSummaryCached。予定の説明（担当の invite_event、アポ獲得者の event_id）に「────」＋【アポの通話の内容（録音から）】（通話の日時・長さ・録音のページ）＋■要約＋■会話（3200字まで）を足す。前に入れた分と「会話なし」の要約は入れかえ。入れたら call_conv_at／call_conv_note。3日たっても録音が無ければ「見つかりません」で済み。版20261021a。
   （同じ版で直し）予定の本文は getCalendarEventState で読む（getCalendarEvent は description を返さないので、そのままだと説明を上書きしてしまうところだった。読めない・消された予定には書かない）。
+
+- 2026-10-21 BUILD_TAG=2026-10-21b 念のための後始末：21a の最初の版（0d7010d、getCalendarEvent で説明を読んでいた）が数分でも動いていたら、予定の説明が通話の内容だけになっている。起動2分後に1回（settings.apoConvRepair1）、直近6時間に call_conv_at が付いたアポの予定で、説明が「────」で始まり【アポの通話の内容】を含むものだけ、元の説明（参加URL・アポ獲得・担当・apoContactBlock・アポ獲得時のメモ）を前に足して戻す。

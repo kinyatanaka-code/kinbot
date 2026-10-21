@@ -11559,3 +11559,10 @@ export async function markApoCallConversation(slug, note) {
   if (!pool) return;
   await pool.query(`UPDATE smart_links SET call_conv_at = now(), call_conv_note = $2 WHERE slug = $1`, [slug, String(note || "").slice(0, 4000)]).catch(() => {});
 }
+export async function listApoConvDoneSince(sinceIso) {
+  if (!pool) return [];
+  try {
+    const { rows } = await pool.query(`SELECT * FROM smart_links WHERE call_conv_at IS NOT NULL AND call_conv_at > $1 ORDER BY call_conv_at DESC LIMIT 50`, [sinceIso]);
+    return rows;
+  } catch { return []; }
+}
