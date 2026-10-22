@@ -24447,9 +24447,16 @@ async function swRoomUrl(user, fallback = "") {
   return fallback || "";
 }
 async function swActiveBots(user) {
+  const me = String(user || "").toLowerCase();
+  // ①いま動いている録音（入ったばかり・待合室にいる商談は、文字起こしが無いので履歴の一覧には出てこない）
+  const live = listActiveSessions().filter((x) => String(x.owner || "").toLowerCase() === me)
+    .map((x) => ({ bot_id: x.botId, title: x.title || "", created_at: x.startedAt ? new Date(x.startedAt).toISOString() : new Date().toISOString(), meeting_url: "" }));
+  // ②履歴の一覧（再起動のあとなど、①に無いもの）
   const since = new Date(Date.now() - 8 * 3600000).toISOString().slice(0, 10);
   const ms = await listMeetings({ isAdmin: true, from: since, limit: 200, light: true }).catch(() => []);
-  const mine = ms.filter((m) => String(m.owner || "").toLowerCase() === String(user || "").toLowerCase() && Date.now() - Date.parse(m.created_at || 0) < 8 * 3600000);
+  const fromDb = ms.filter((m) => String(m.owner || "").toLowerCase() === me && Date.now() - Date.parse(m.created_at || 0) < 8 * 3600000);
+  const seen = new Set(); const mine = [];
+  for (const m of [...live, ...fromDb]) { if (!m.bot_id || seen.has(m.bot_id)) continue; seen.add(m.bot_id); mine.push(m); }
   const out = [];
   for (const m of mine.slice(0, 12)) {
     try {
@@ -24600,10 +24607,11 @@ app.post("/api/switch/next", async (req, res) => {
     }
     if (!url) return res.status(400).json({ error: "入る部屋（Zoom）が分かりません。設定の「登録リンク」に自分のZoomの部屋を入れてください" });
     const title = String(b.title || "").trim();
-    if (cur) {
-      await swSaveNow(cur.botId);
-      await leaveBot(cur.botId).catch((e) => console.warn("[switch] 前のボット", e.message));
-      swWatch(cur.botId, cur.title);
+    // kinbotは1つだけ：入っている自分のkinbotは全部退室させてから入る
+    for (const x of active) {
+      await swSaveNow(x.botId);
+      await leaveBot(x.botId).catch((e) => console.warn("[switch] 前のボット", e.message));
+      swWatch(x.botId, x.title);
     }
     const out = await startBotSession(user, url, { title, repName: await repDisplayName(user).catch(() => "") });
     console.log(`[switch] 切り替え：${cur ? `「${cur.title}」→ ` : ""}「${title || out.autoTitle || "（予定名から）"}」 by ${user}`);
@@ -24615,7 +24623,13 @@ app.post("/api/switch/stop", async (req, res) => {
   try {
     const user = String(req.user || "").toLowerCase();
     const active = await swActiveBots(user);
-    const cur = active.find((x) => x.botId === (req.body || {}).botId) || active[0];
+    let cur = active.find((x) => x.botId === (req.body || {}).botId) || active[0];
+    // 見つからなくても、画面が知っているボット（自分のもの）なら退室させる
+    if (!cur && (req.body || {}).botId) {
+      const id = String(req.body.botId);
+      const sess = listActiveSessions().find((x) => x.botId === id);
+      if (sess && String(sess.owner || "").toLowerCase() === user) cur = { botId: id, title: sess.title || "" };
+    }
     if (!cur) return res.status(404).json({ error: "いま入っているkinbotはありません" });
     await swSaveNow(cur.botId);
     await leaveBot(cur.botId);
@@ -26025,7 +26039,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-22g CS連携の設定タブに「テスト用の企業カードを作る」：中身の入ったkinbotテスト株式会社を作る（先方のメールは本人）。OBスレへの投稿・CS担当の自動の割り振り・アラート・CSのカレンダーの予定の対象にしない。窓から消せる。";
+const BUILD_TAG = "2026-10-23a スマホの入退室を直した：入ったばかり・待合室のkinbotが見つからず「いま入っているkinbot」が出ない・退室できなかった（文字起こしが無い商談は一覧に出ないため）。動いている録音から探す。kinbotは1つだけ（入る前に自分のkinbotを全部退室）、入室したらすぐ画面に出し、ほかの予定のボタンは「入れかえ」。";
 const BUILD_FEATURES = [
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",

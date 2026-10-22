@@ -63,6 +63,7 @@
   .ev .rm.no { color:var(--amber); }
   .ev .go { flex:none; border:0; border-radius:12px; padding:12px 14px; font-size:14px; font-weight:800; background:linear-gradient(160deg,#22b083,#0E6B4E); color:#fff; box-shadow:0 6px 14px -8px rgba(13,91,71,.8); }
   .ev .go:active { transform:scale(.96); } .ev .go:disabled { opacity:.5; }
+  .ev .go.swap { background:#fff; color:var(--g); box-shadow:inset 0 0 0 2px var(--g2); }
   .ev .inn { flex:none; font-size:12px; font-weight:800; color:var(--g2); padding:6px 10px; border-radius:10px; background:#fff; }
   .chip-now { font-size:10px; color:#fff; background:var(--g2); border-radius:99px; padding:1px 7px; margin-left:4px; vertical-align:1px; }
   .more { display:flex; gap:8px; margin-top:10px; }
@@ -187,7 +188,7 @@ function render() {
       <div class="tm">${esc(hm(e.start))}<small>〜${esc(hm(e.end))}</small></div>
       <div class="bd"><div class="ti">${esc(e.title)}${e.now ? '<span class="chip-now">いま</span>' : ""}</div>
         <div class="rm ${room ? "" : "no"}" data-room-of="${esc(e.id)}">${room ? `部屋：${esc(room.label)} ▾` : "部屋を選んでください ▾"}</div></div>
-      ${inThis ? `<span class="inn">入室中</span>` : `<button class="go" type="button" data-go="${esc(e.id)}">入室</button>`}
+      ${inThis ? `<span class="inn">入室中</span>` : `<button class="go${a.length ? " swap" : ""}" type="button" data-go="${esc(e.id)}"${busy ? " disabled" : ""}>${a.length ? "入れかえ" : "入室"}</button>`}
     </div>`;
   }).join("") : `<div class="empty">この日の予定がカレンダーにありません</div>`;
   wire();
@@ -204,7 +205,12 @@ function wire() {
   document.querySelectorAll("[data-stop]").forEach((b) => b.addEventListener("click", async () => {
     if (!confirm("kinbotを退室させます（録音はここで終わります）。")) return;
     b.disabled = true;
-    try { const r = await api("/api/switch/stop", { method: "POST", body: JSON.stringify({ botId: b.dataset.stop }) }); toast(`「${r.left}」から退室しました`); await load(); }
+    try {
+      const r = await api("/api/switch/stop", { method: "POST", body: JSON.stringify({ botId: b.dataset.stop }) });
+      toast(`「${r.left}」から退室しました`);
+      if (st) st.active = (st.active || []).filter((x) => x.botId !== b.dataset.stop);
+      render(); setTimeout(load, 3000);
+    }
     catch (e) { toast(e.message, false); b.disabled = false; }
   }));
   document.querySelectorAll("[data-rejoin]").forEach((b) => b.addEventListener("click", async () => {
@@ -223,7 +229,10 @@ async function join(title, room, btn) {
   try {
     const r = await api("/api/switch/next", { method: "POST", body: JSON.stringify({ botId: cur ? cur.botId : "", title, url: room.url }) });
     toast(`kinbotが「${r.started || title}」に入ります（30秒ほど）`);
-    setTimeout(load, 4000); setTimeout(load, 15000);
+    st = st || {};
+    st.active = [{ botId: r.botId, title: r.started || title, status: "joining_call", startedAt: new Date().toISOString(), url: room.url, waitLeftSec: null }];
+    render();
+    [3000, 8000, 15000, 30000].forEach((ms) => setTimeout(load, ms));
   } catch (e) { toast("入室できませんでした：" + e.message, false); if (btn) { btn.disabled = false; btn.textContent = "入室"; } }
   finally { busy = false; }
 }
