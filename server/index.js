@@ -6014,7 +6014,22 @@ app.get("/api/docs", async (req, res) => {
       filename: fixMojibake(d.filename),
       mine: String(d.uploaded_by || "").toLowerCase() === String(req.user || "").toLowerCase(),
     }));
+    // 人ごとに決めた並び順（ドラッグで並べ替えた順）。順番を決めていない資料は、そのあとに今までの順で
+    const us = await getUserSettings(req.user).catch(() => ({}));
+    const order = Array.isArray(us && us.docOrder) ? us.docOrder.map(Number) : [];
+    if (order.length) {
+      const pos = new Map(order.map((id, i) => [id, i]));
+      docs.sort((a, b) => (Number(b.active) - Number(a.active)) || ((pos.has(a.id) ? pos.get(a.id) : 1e9) - (pos.has(b.id) ? pos.get(b.id) : 1e9)));
+    }
     res.json({ docs, base: PUBLIC_URL, me: req.user || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 資料の並び順を保存する（その人の画面だけの順番。ほかの人の並びは変わらない）
+app.put("/api/docs/order", async (req, res) => {
+  try {
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map((x) => parseInt(x, 10)).filter(Number.isFinite).slice(0, 500);
+    await saveUserSettings(req.user, { docOrder: ids });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -25791,7 +25806,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-21e CS連携の企業カード：ヘルプサイトの欄に、ログインURL・企業ID・パスワード（●で隠し「見る」で表示）をそのまま出し、それぞれコピーできるように（案内文から読み取る）。";
+const BUILD_TAG = "2026-10-22a 資料トラッキングの資料一覧を、ドラッグで並び替えられるように（人ごとの順番として保存。資料を送るときの選択肢もこの順）。";
 const BUILD_FEATURES = [
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
