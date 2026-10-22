@@ -803,10 +803,10 @@ export async function gmailSend(owner, { to, subject, bodyText, threadId, inRepl
 }
 
 // 返信を「下書き」としてGmailに保存する（送信はしない）。threadIdで同じスレッドにぶら下がる。
-export async function gmailCreateDraft(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc }) {
+export async function gmailCreateDraft(owner, { to, subject, bodyText, bodyHtml, threadId, inReplyTo, references, bcc, cc }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc });
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, bodyHtml, inReplyTo, references, bcc, cc });
   const message = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
     method: "POST",
@@ -959,7 +959,7 @@ export async function gmailUntrashThread(owner, threadId) {
 }
 
 // RFC822形式のメッセージを組み立ててbase64url化（送信・下書きで共通）
-async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc, extraHeaders }) {
+async function buildRawMessage(owner, { to, subject, bodyText, bodyHtml, inReplyTo, references, bcc, cc, extraHeaders }) {
   const from = await getPrimaryEmail(owner);
   const enc = (s) => `=?UTF-8?B?${Buffer.from(String(s || "")).toString("base64")}?=`;
   const headers = [
@@ -970,14 +970,20 @@ async function buildRawMessage(owner, { to, subject, bodyText, inReplyTo, refere
     bcc ? `Bcc: ${bcc}` : "",
     `Subject: ${enc(subject)}`,
     "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: base64",
+    // HTMLの本文があるときは、文字だけの本文とHTMLの本文を両方入れる（multipart/alternative）
+    bodyHtml ? `Content-Type: multipart/alternative; boundary="kinbot_alt_boundary"` : 'Content-Type: text/plain; charset="UTF-8"',
+    bodyHtml ? "" : "Content-Transfer-Encoding: base64",
     inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
     references ? `References: ${references}` : "",
     // メルマガの配信停止（List-Unsubscribe など）。改行が混ざらないものだけ入れる
     ...Object.entries(extraHeaders || {}).filter(([k, v]) => /^[A-Za-z-]+$/.test(k) && v && !/[\r\n]/.test(String(v))).map(([k, v]) => `${k}: ${v}`),
   ].filter(Boolean);
-  const bodyB64 = Buffer.from(String(bodyText || ""), "utf-8").toString("base64");
+  const b64 = (x) => Buffer.from(String(x || ""), "utf-8").toString("base64").replace(/.{76}/g, "$&\r\n");
+  const bodyB64 = bodyHtml
+    ? ["--kinbot_alt_boundary", 'Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", b64(bodyText),
+       "--kinbot_alt_boundary", 'Content-Type: text/html; charset="UTF-8"', "Content-Transfer-Encoding: base64", "", b64(bodyHtml),
+       "--kinbot_alt_boundary--", ""].join("\r\n")
+    : Buffer.from(String(bodyText || ""), "utf-8").toString("base64");
   return Buffer.from(headers.join("\r\n") + "\r\n\r\n" + bodyB64, "utf-8")
     .toString("base64")
     .replace(/\+/g, "-")
@@ -1672,4 +1678,16 @@ export async function checkSheet(owner, spreadsheetId) {
     title: d?.properties?.title || "",
     sheets: (d.sheets || []).map((x) => x?.properties?.title).filter(Boolean),
   };
+}
+
+// 下書きがまだ残っているか（送ったら下書きは消える）。分からないときは null
+export async function gmailDraftExists(owner, draftId) {
+  try {
+    const token = await accessToken(owner);
+    if (!token || !draftId) return null;
+    const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}?format=minimal`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.status === 404) return false;
+    if (r.ok) return true;
+    return null;
+  } catch { return null; }
 }

@@ -11608,3 +11608,31 @@ export async function kinxsHistory(accountId, limit = 30) {
   const { rows } = await pool.query(`SELECT * FROM kinxs_history WHERE account_id=$1 ORDER BY at DESC LIMIT $2`, [accountId, limit]);
   return rows;
 }
+
+// 御礼メールのトラッキング：リンク（token→飛び先）と、開いた・押した記録
+export async function csTrackInit() {
+  if (!pool) return;
+  await sq(`CREATE TABLE IF NOT EXISTS cs_mail_links (token TEXT PRIMARY KEY, bot_id TEXT, key TEXT, label TEXT, url TEXT, created_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+  await sq(`CREATE TABLE IF NOT EXISTS cs_mail_hits (id SERIAL PRIMARY KEY, token TEXT, bot_id TEXT, kind TEXT, key TEXT, label TEXT, ua TEXT, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+  await sq(`CREATE INDEX IF NOT EXISTS cs_mail_hits_bot ON cs_mail_hits (bot_id, at)`).catch(() => {});
+}
+export async function csTrackLink(token, botId, key, label, url) {
+  if (!pool) return;
+  await pool.query(`INSERT INTO cs_mail_links (token, bot_id, key, label, url) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (token) DO UPDATE SET url=$5, label=$4`, [token, botId, key, label, url]);
+}
+export async function csTrackGet(token) {
+  if (!pool) return null;
+  const { rows } = await pool.query(`SELECT * FROM cs_mail_links WHERE token=$1`, [token]);
+  return rows[0] || null;
+}
+export async function csTrackHit(l, kind, ua) {
+  if (!pool || !l) return;
+  await pool.query(`INSERT INTO cs_mail_hits (token, bot_id, kind, key, label, ua) VALUES ($1,$2,$3,$4,$5,$6)`, [l.token, l.bot_id, kind, l.key, l.label, String(ua || "").slice(0, 300)]);
+}
+export async function csTrackSummary(botIds) {
+  if (!pool || !botIds || !botIds.length) return {};
+  const { rows } = await pool.query(`SELECT bot_id, kind, key, label, ua, at FROM cs_mail_hits WHERE bot_id = ANY($1::text[]) ORDER BY at ASC`, [botIds]);
+  const out = {};
+  for (const r of rows) (out[r.bot_id] = out[r.bot_id] || []).push(r);
+  return out;
+}

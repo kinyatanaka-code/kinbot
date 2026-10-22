@@ -279,6 +279,7 @@ import {
   docViewSummary,
   docViewCheck,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory,
+  csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary,
   listApoForCallConversation,
   markApoCallConversation,
   listApoConvDoneSince,
@@ -693,7 +694,7 @@ import {
   gmailTrashThread,
   gmailUntrashThread,
   gmailSetRead,
-  gmailCreateDraft,
+  gmailCreateDraft, gmailDraftExists,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
@@ -971,7 +972,7 @@ app.use(async (req, res, next) => {
   //   /px/xxx … 開封計測の画像
   //   /c/xxx  … リンクのクリック計測
   //   /api/doc/xxx … ビューアーが呼ぶ処理（資料の中身・進捗の記録）
-  if (/^\/(d|px|c)\//.test(req.path) || req.path.startsWith("/api/doc/")) return next();
+  if (/^\/(d|px|c|m)\//.test(req.path) || req.path.startsWith("/api/doc/")) return next();
   //   /u/xxx  … メルマガの配信停止（受け取った人が開く）
   if (/^\/u\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
   // APIトークンでの認証（Cookie不要。外部プログラム・Claude Code用）
@@ -11744,6 +11745,77 @@ async function csBuildMail(k) {
   body = body.replace(/\n{3,}/g, "\n\n");
   return { subject, body };
 }
+// ===== 御礼メールのトラッキング（開いた・リンクを押した）=====
+// リンクは /m/<token> を通して記録してから本来のページへ。開封は /m/<token>.gif（見えない1pxの画像）。
+// 送ってすぐの機械の開封・ロボットのブラウザは数えない（資料の閲覧と同じ考え方）
+const CS_BOT_UA = /(bot|crawl|spider|scan|preview|proofpoint|mimecast|barracuda|safelinks|headless|python|curl|wget|java\/|go-http|okhttp|axios|node-fetch|facebookexternalhit|slack|google-safety)/i;
+function csLinkLabel(k, url) {
+  const u = String(url || "");
+  if (/casual-interview-api\.brainverse-ai\.com/.test(u)) return ["admin", "管理画面"];
+  if (/cs-platform|portal\/login/.test(u)) return ["help", "ヘルプサイト"];
+  if (/\/j\/|zoom\.us|meet\.google/.test(u)) return ["confirm", "確認MTGのURL"];
+  if (/brainverse-ai\.com\/|casual-interview\.brainverse-ai/.test(u)) return ["candidate", "候補者用画面"];
+  return ["other", "リンク"];
+}
+async function csTrackedHtml(k, text) {
+  await csTrackInit();
+  const base = csBase();
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const urls = [...new Set(String(text || "").match(/https?:\/\/[^\s"'<>）」]+/g) || [])];
+  const map = new Map();
+  for (const u of urls) {
+    const [key, label] = csLinkLabel(k, u);
+    const token = crypto.randomBytes(9).toString("base64url");
+    await csTrackLink(token, k.bot_id, key, label, u);
+    map.set(u, `${base}/m/${token}`);
+  }
+  const pix = crypto.randomBytes(9).toString("base64url");
+  await csTrackLink(pix, k.bot_id, "open", "開封", "");
+  let html = esc(text);
+  // 長いURLから置きかえる（短いURLが長いURLの一部のときに崩れないように）
+  for (const u of [...map.keys()].sort((a, b) => b.length - a.length)) {
+    html = html.split(esc(u)).join(`<a href="${map.get(u)}">${esc(u)}</a>`);
+  }
+  html = html.replace(/\n/g, "<br>\n");
+  return `<div style="font-family:Arial,'Hiragino Kaku Gothic ProN',Meiryo,sans-serif;font-size:14px;line-height:1.7;color:#222">${html}</div><img src="${base}/m/${pix}.gif" width="1" height="1" alt="" style="border:0;width:1px;height:1px">`;
+}
+const CS_PIXEL = Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "base64");
+app.get("/m/:token", async (req, res) => {
+  const raw = String(req.params.token || "");
+  const isGif = raw.endsWith(".gif");
+  const token = raw.replace(/\.gif$/, "");
+  try {
+    const l = await csTrackGet(token);
+    const ua = String(req.headers["user-agent"] || "");
+    if (l && !CS_BOT_UA.test(ua)) {
+      // 下書きがまだ残っている＝FSが下書きを見ているだけ（送る前）。先方の反応としては数えない
+      let kind = isGif ? "open" : "click";
+      try {
+        const k = await getCsKickoff(l.bot_id);
+        if (k && k.draft_id && k.fs_email && (await gmailDraftExists(k.fs_email, k.draft_id)) === true) kind = "preview";
+      } catch {}
+      await csTrackHit(l, kind, ua).catch(() => {});
+    }
+    if (isGif || (l && l.key === "open")) { res.set({ "Content-Type": "image/gif", "Cache-Control": "no-store, no-cache, must-revalidate, private", Pragma: "no-cache" }); return res.end(CS_PIXEL); }
+    if (l && /^https?:\/\//.test(l.url)) return res.redirect(302, l.url);
+    res.status(404).send("リンクが見つかりません");
+  } catch { if (isGif) { res.set("Content-Type", "image/gif"); return res.end(CS_PIXEL); } res.status(500).send("エラー"); }
+});
+// 1件の会社のトラッキングのまとめ（送ってから60秒以内の機械の開封と、同じ時刻にまとめて開いたものを外す）
+function csTrackDigest(hits, draftAt) {
+  const t0 = Date.parse(draftAt || 0) || 0;
+  const ok = (hits || []).filter((h) => !CS_BOT_UA.test(h.ua || ""));
+  const opens = ok.filter((h) => h.kind === "open");
+  const clicks = ok.filter((h) => h.kind === "click");
+  // 同じリンクを同じ分に3回以上＝機械の確認とみなす
+  const burst = new Map(); for (const c of clicks) { const k = `${c.key}|${String(c.at).slice(0, 16)}`; burst.set(k, (burst.get(k) || 0) + 1); }
+  const realClicks = clicks.filter((c) => (burst.get(`${c.key}|${String(c.at).slice(0, 16)}`) || 0) < 3);
+  const firstOpen = opens.find((o) => Date.parse(o.at) - t0 > 60 * 1000) || null;
+  const byKey = {};
+  for (const c of realClicks) { const b = byKey[c.key] || (byKey[c.key] = { key: c.key, label: c.label, n: 0, first: c.at, last: c.at }); b.n++; b.last = c.at; }
+  return { opened: !!firstOpen, openedAt: firstOpen ? firstOpen.at : null, openCount: opens.length, gmail: opens.some((o) => /GoogleImageProxy/i.test(o.ua || "")), clicks: Object.values(byKey) };
+}
+
 async function csMakeDraft(k) {
   if (!k.fs_email) return { ok: false, reason: "FS担当が分かりません" };
   if (!(await gcalConnected(k.fs_email).catch(() => false))) return { ok: false, reason: "FSのGoogle連携が必要です" };
@@ -11751,7 +11823,9 @@ async function csMakeDraft(k) {
   const auto = await csBuildMail(k);
   const m = { subject: String(k.mail_subject || "").trim() || auto.subject, body: String(k.mail_body || "").trim() ? k.mail_body : auto.body };
   try {
-    const d = await gmailCreateDraft(k.fs_email, { to: k.client_email || "", subject: m.subject, bodyText: m.body });
+    // 開いたか・リンクを押したかを見られるよう、HTMLの本文（kinbotを通るリンク＋見えない画像）も付ける。文字だけの本文は元のまま
+    const bodyHtml = await csTrackedHtml(k, m.body).catch((e) => { console.warn("[cs] トラッキングの本文", e.message); return ""; });
+    const d = await gmailCreateDraft(k.fs_email, { to: k.client_email || "", subject: m.subject, bodyText: m.body, bodyHtml: bodyHtml || undefined });
     await upsertCsKickoff(k.bot_id, { draft_id: (d && d.id) || null, draft_at: new Date().toISOString() });
     return { ok: true, draftId: d && d.id, to: k.client_email || "" };
   } catch (e) {
@@ -12171,9 +12245,12 @@ app.get("/api/cs/kickoffs", async (req, res) => {
     const cand = await csCandidateRows([req.user]).catch(() => ({ rows: [], error: "" }));
     const stK = await getSettings().catch(() => ({}));
     const ksSent = stK.kenshuSent || {};
+    await csTrackInit().catch(() => {});
+    const kickList = await listCsKickoffs(150);
+    const trackAll = await csTrackSummary(kickList.map((x) => x.bot_id)).catch(() => ({}));
     const rows = [];
     let sfLook = 0;   // 開くたびに探しすぎないよう、1回に10件まで
-    for (const k0 of await listCsKickoffs(150)) {
+    for (const k0 of kickList) {
       let k = k0;
       if ((!k.client_email || (!k.client_phone && k.sf_url)) && !_csContactTried.has(k.bot_id) && sfLook < 10 && Date.now() - Date.parse(k.meeting_at || k.created_at || 0) < 60 * 86400000) {
         sfLook++;
@@ -12192,6 +12269,7 @@ app.get("/api/cs/kickoffs", async (req, res) => {
       }
       const f = k.fields || {};
       const { portal_shot, ai_pass_enc, ai_views, ...kk } = k; k = { ...kk, has_portal_shot: !!portal_shot, has_ai_pass: !!ai_pass_enc, ai_view_count: Array.isArray(ai_views) ? ai_views.length : 0 };
+      k.mail_track = csTrackDigest(trackAll[k.bot_id] || [], k.draft_at);
       const ks = ksSent[k.bot_id];
       rows.push({ ...k, kenshu_at: ks ? (typeof ks === "string" ? ks : ks.at) : null, kenshu_mode: ks && ks.mode || "",
         confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
@@ -25915,7 +25993,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-22e kinXsを独自の画面（/kinxs）に：kinbotの左のメニューのkincallの下に「kinXs」のボタン（グリフォンのアイコン）、kinXs専用のサイドバー（更新管理・準備中の項目・kinbotへ戻る）、タブのアイコンもグリフォンに。";
+const BUILD_TAG = "2026-10-22f 御礼メールのトラッキング：下書きにHTMLの本文（kinbotを通るリンク・見えない画像）を付け、先方がメールを開いたか・どのリンク（管理画面・候補者用画面・ヘルプサイト・確認MTG）を押したかを企業カードに出す。送る前の下書きを見ただけ・機械の開封は数えない。";
 const BUILD_FEATURES = [
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",

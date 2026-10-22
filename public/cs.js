@@ -70,6 +70,8 @@ function render() {
       </dl>
       <div class="cs-co-foot">
         ${k.draft_at ? '<span class="cs-pill ok">御礼メール下書きあり</span>' : '<span class="cs-pill">御礼メール：まだ</span>'}
+        ${(() => { const t = k.mail_track || {}; const c = (t.clicks || []).length;
+          return !k.draft_at ? "" : c ? `<span class="cs-pill ok" title="${esc((t.clicks || []).map((x) => `${x.label}：${fmtDT(x.first)}`).join("\n"))}">リンクを押した ${c}</span>` : t.opened ? `<span class="cs-pill ok" title="${esc(fmtDT(t.openedAt))}">メールを開いた</span>` : '<span class="cs-pill">まだ開いていない</span>'; })()}
         ${k.kenshu_at && k.kenshu_mode === "send" ? `<span class="cs-pill ok">検収書：依頼済み ${esc(fmtDT(k.kenshu_at).split(" ")[0])}</span>` : `<button type="button" class="cs-ks-btn" data-ks="${esc(k.bot_id)}">${ci("doc", 13)}検収書を依頼する</button>`}
         ${unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : ""}
         ${k.error ? '<span class="cs-pill ng">エラー</span>' : ""}
@@ -132,6 +134,16 @@ function render() {
           <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? "管理シートの値を使います" : (d.candidateSheetError ? `管理シートを読めませんでした：${esc(d.candidateSheetError)}` : "管理シートにこの会社がありません")}</div></div>
         <div class="cd-f"><label>管理画面のURL（全社共通）</label><div class="cd-ro">${esc(d.adminUrl || "")}</div></div>
       </div>`)}
+      ${sec("mail", "御礼メールの反応", (() => {
+        const t = k.mail_track || {};
+        if (!k.draft_at) return `<div class="cs-sub">御礼メールの下書きを作ると、先方が開いたか・どのリンクを押したかがここに出ます</div>`;
+        const rows = [["admin", "管理画面"], ["candidate", "候補者用画面"], ["help", "ヘルプサイト"], ["confirm", "確認MTGのURL"]].map(([key, label]) => {
+          const c = (t.clicks || []).find((x) => x.key === key);
+          return `<div class="hp-row"><span class="hp-lb">${esc(label)}</span><span class="hp-v">${c ? `押した　${esc(fmtDT(c.first))}${c.n > 1 ? `（${c.n}回）` : ""}` : `<span class="cs-unk">まだ</span>`}</span></div>`;
+        }).join("");
+        return `<div class="hp-box"><div class="hp-row"><span class="hp-lb">メール</span><span class="hp-v">${t.opened ? `開いた　${esc(fmtDT(t.openedAt))}${t.gmail ? "（Gmail）" : ""}` : `<span class="cs-unk">まだ開いていない</span>`}</span></div>${rows}</div>
+          <div class="cs-sub" style="margin-top:6px">「開いた」は目安です（画像を表示しない設定だと出ません。iPhoneのメールなどは、読む前に開いたことになることがあります）。リンクを押したかどうかの方が確かです。kinbotで作った下書きから送ったメールだけが対象です。</div>`;
+      })(), (k.mail_track || {}).clicks && k.mail_track.clicks.length ? `<span class="cs-pill ok">リンクを押した</span>` : (k.mail_track || {}).opened ? `<span class="cs-pill ok">開いた</span>` : (k.draft_at ? `<span class="cs-pill">まだ</span>` : ""))}
       ${sec("key", "ヘルプサイト（CS Platform）", `
         ${k.portal_text ? (() => {
           // 案内文から、ログインURL・企業ID・パスワードを取り出して、そのまま見られる・コピーできるようにする
