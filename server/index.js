@@ -278,6 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory,
   listApoForCallConversation,
   markApoCallConversation,
   listApoConvDoneSince,
@@ -12332,6 +12333,109 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 設定（CS 3人・OBスレ・ひな形）。管理者・クローザー
+// ===== kinXs（DOC導入企業のCS一元管理）：まずは「更新管理（更新月×確度）」から =====
+// SFのクロスの商談が「06 申込書回収」以降になった会社を、取引先ごとに1件にまとめて持つ。対象は要件定義書の5商品だけ。
+// 契約終了日：商談の項目でラベルに「契約終了」「利用終了」を含むもの → 無ければ計上日から1年（推定の印つき）。更新月＝契約終了日の前月
+const KINXS_PRODUCTS = [/取材費（全日）|取材費\(全日\)/, /アチコチバース（年間プラン）|アチコチバース\(年間プラン\)/, /エントリープラン/, /ライトプラン/, /スタンダードプラン/];
+const kinxsIsTarget = (n) => KINXS_PRODUCTS.some((re) => re.test(String(n || "").normalize("NFKC").replace(/\(/g, "（").replace(/\)/g, "）")) || re.test(String(n || "")));
+let _kinxsBusy = false, _kinxsLast = null;
+async function kinxsSync() {
+  if (_kinxsBusy) return _kinxsLast;
+  _kinxsBusy = true;
+  const out = { at: new Date().toISOString(), added: 0, updated: 0, skipped: 0, errors: [] };
+  try {
+    await kinxsInit();
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = await pickSfUser(st.psOwner || "").catch(() => "");
+    if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) { out.errors.push("Salesforceにつながっている人がいません"); return out; }
+    // 契約開始・終了の項目を、ラベルで探す
+    const d0 = await describeObject(sfUser, "Opportunity").catch(() => ({ fields: [] }));
+    const fld = (re) => ((d0.fields || []).find((f) => /date/i.test(f.type) && re.test(String(f.label || ""))) || {}).name || "";
+    const fStart = fld(/契約開始|利用開始|サービス開始/), fEnd = fld(/契約終了|利用終了|サービス終了|契約満了/);
+    const extra = [fStart, fEnd].filter(Boolean).map((x) => `, ${x}`).join("");
+    const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name${extra} FROM Opportunity
+      WHERE (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
+      ORDER BY CloseDate DESC LIMIT 1500`);
+    const cache = { ...(st.kinxsItemCache || {}) };   // 商談ID → 商品名（取り直さない）
+    const byAcc = new Map();
+    let fetched = 0;
+    for (const o of (q.records || [])) {
+      if (!o.AccountId || /MOCHICA/i.test(`${o.Name || ""}`)) continue;
+      let names = cache[o.Id];
+      if (!names && fetched < 120) { names = (await listOpportunityLineItems(sfUser, o.Id).catch(() => [])).map((x) => String(x.name || x.Product2?.Name || x.PricebookEntry?.Name || "").trim()).filter(Boolean); cache[o.Id] = names; fetched++; }
+      if (!names) continue;   // まだ商品を見ていない（次の回で）
+      const target = names.filter(kinxsIsTarget);
+      if (!target.length) { out.skipped++; continue; }
+      const a = byAcc.get(o.AccountId) || { account_id: o.AccountId, name: (o.Account && o.Account.Name) || "", products: [], opp_ids: [], fs_name: (o.Owner && o.Owner.Name) || "" };
+      const booked = o.SS06__c || o.CloseDate || null;
+      for (const n of target) a.products.push({ name: n, opp: o.Id, booked, start: fStart ? o[fStart] || null : null, end: fEnd ? o[fEnd] || null : null, stage: o.StageName });
+      a.opp_ids.push(o.Id);
+      byAcc.set(o.AccountId, a);
+    }
+    await saveSettings({ kinxsItemCache: cache, kinxsFields: { start: fStart, end: fEnd } }).catch(() => {});
+    const kicks = await listCsKickoffs(500).catch(() => []);
+    for (const a of byAcc.values()) {
+      // 会社の契約：いちばん新しい計上の商品から。終了日が無ければ計上日の1年後（推定）
+      const ps = a.products.sort((x, y) => String(y.booked || "").localeCompare(String(x.booked || "")));
+      const top = ps[0] || {};
+      a.booked_on = top.booked || null; a.start_on = top.start || null;
+      let end = ps.map((p) => p.end).filter(Boolean).sort().pop() || null;
+      a.end_estimated = false;
+      if (!end && a.booked_on) { const t = new Date(`${a.booked_on}T00:00:00Z`); t.setUTCFullYear(t.getUTCFullYear() + 1); t.setUTCDate(t.getUTCDate() - 1); end = t.toISOString().slice(0, 10); a.end_estimated = true; }
+      a.end_on = end;
+      if (end) { const t = new Date(`${end.slice(0, 7)}-01T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() - 1); a.renew_month = t.toISOString().slice(0, 7); }
+      a.error = !a.name ? "取引先名が空です" : !end ? "契約終了日・計上日が空です" : null;
+      const k = kicks.find((x) => csCoKey(x.company) && csCoKey(x.company) === csCoKey(a.name));
+      a.cs_name = k && k.cs_name ? k.cs_name : null;
+      const r = await kinxsUpsertFromSf(a).catch((e) => { out.errors.push(`${a.name}：${e.message}`); return null; });
+      if (r) { if (r.inserted) out.added++; else out.updated++; }
+    }
+  } catch (e) { out.errors.push(e.message); console.warn("[kinxs]", e.message); }
+  finally { _kinxsBusy = false; _kinxsLast = out; }
+  if (out.added) console.log(`[kinxs] SFから ${out.added}社を新しく足しました（更新 ${out.updated}社）`);
+  return out;
+}
+setTimeout(() => { kinxsSync().catch(() => {}); }, 90 * 1000).unref?.();
+setInterval(() => { kinxsSync().catch(() => {}); }, 30 * 60 * 1000).unref?.();
+// 更新管理：更新月（今月の前の月〜12か月先）× 更新確度
+app.get("/api/kinxs/renewals", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
+    await kinxsInit();
+    const rows = await kinxsList();
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const thisMonth = nowJ.toISOString().slice(0, 7);
+    const st = await getSettings().catch(() => ({}));
+    const warnDays = Math.max(1, Number((st.kinxsRules || {}).renewDays || 90));
+    const daysTo = (ym) => Math.round((Date.parse(`${ym}-01T00:00:00+09:00`) - Date.now()) / 86400000);
+    const items = rows.map((r) => {
+      const left = r.renew_month ? daysTo(r.renew_month) : null;
+      const warn = left != null && left <= warnDays && ["B", "C", "Z"].includes(r.rank || "Z") && r.rank !== "F";
+      return { id: r.account_id, name: r.name, rank: r.rank || "Z", renew: r.renew_month, left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
+        cs: r.cs_name || "", fs: r.fs_name || "", products: (r.products || []).map((p) => p.name), error: r.error || "", rankAt: r.rank_at, rankBy: r.rank_by || "" };
+    });
+    res.json({ ok: true, thisMonth, warnDays, items, sync: _kinxsLast, fields: st.kinxsFields || {} });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
+    const rank = String(req.body?.rank || "").toUpperCase();
+    if (!["S", "A", "B", "C", "Z", "F"].includes(rank)) return res.status(400).json({ error: "更新確度は S・A・B・C・Z・F のどれかです" });
+    const r = await kinxsSetRank(req.params.id, rank, req.user);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/kinxs/accounts/:id/history", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, items: await kinxsHistory(req.params.id) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/sync", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, result: await kinxsSync() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ===== 検収書の依頼（Googleフォーム）=====
 // フォームはネオキャリアの中の人しか送れないので、kinbotは中身を入れたフォームのURL（事前入力）を作り、開いた人が「送信」を押す。
 // 欄の番号（entry）は、設定タブで「事前入力したURL」を貼ってもらって覚える（settings.kenshuForm）。
@@ -25806,8 +25910,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-22c kincallのかける画面のリストのタブ：★を付けたリストをいつも先頭に（開いているリストの☆で付け外し）。残りが0件のリストは「終わったリスト（n）」にしまう（押すと出る）。";
+const BUILD_TAG = "2026-10-22d kinXs（DOC導入企業のCS一元管理）を作り始めた：まず案C「更新管理（更新月×更新確度）」。SFの06申込書回収以降のクロスの商談（対象5商品）から会社ごとに自動で取り込み、更新確度を付けて変更履歴を残す。";
 const BUILD_FEATURES = [
+  "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",
   "CS連携：ヘルプサイト（CS Platform）のアカウントを自動で用意して御礼メールに入れる",

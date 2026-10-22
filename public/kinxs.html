@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinXs 更新管理</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#0d5b47" />
+    <meta name="apple-mobile-web-app-title" content="kinbot" />
+    <link rel="stylesheet" href="style.css?v=20261022d" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
+    
+<style>
+  .kx-wrap{display:flex;flex-direction:column;gap:14px;padding:4px 0 40px;}
+  .kx-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .kx-logo{width:38px;height:38px;border-radius:11px;background:#0E6B4E;display:flex;align-items:center;justify-content:center;flex:none;}
+  .kx-title{font-size:21px;font-weight:800;margin:0;}
+  .kx-sub{font-size:12.5px;color:#4F6158;}
+  .kx-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+  .kx-kpi{background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:13px 16px;}
+  .kx-kpi .l{font-size:12px;font-weight:700;color:#4F6158;} .kx-kpi .v{font-size:26px;font-weight:800;margin-top:2px;} .kx-kpi .s{font-size:11.5px;color:#4F6158;}
+  .kx-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .kx-bar input,.kx-bar select{height:36px;border:1px solid #D5E2DB;border-radius:9px;padding:0 10px;font:inherit;font-size:13px;background:#fff;}
+  .kx-btn{height:36px;padding:0 13px;border-radius:9px;border:1px solid #D5E2DB;background:#fff;font:inherit;font-size:12.5px;font-weight:700;color:#0D5B47;cursor:pointer;}
+  .kx-btn:hover{border-color:#1D9E75;background:#F2FAF6;}
+  .kx-tablebox{background:#fff;border:1px solid #E1E9E5;border-radius:16px;overflow-x:auto;}
+  .kx-grid{display:grid;grid-template-columns:118px repeat(6,minmax(150px,1fr));min-width:1100px;}
+  .kx-h{padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;background:#F8FAF9;border-bottom:1px solid #E8EEEB;position:sticky;top:0;}
+  .kx-rank{display:inline-flex;width:24px;height:24px;border-radius:7px;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex:none;}
+  .r-S{background:#0E6B4E;color:#fff;} .r-A{background:#178A66;color:#fff;} .r-B{background:#FFF1DC;color:#7A3F00;} .r-C{background:#FBE4E4;color:#8C1F1F;} .r-Z{background:#EEF1F5;color:#33445E;} .r-F{background:#3A3F3D;color:#fff;}
+  .kx-m{padding:12px 14px;border-bottom:1px solid #F0F3F1;border-right:1px solid #F0F3F1;}
+  .kx-m b{font-size:15px;font-variant-numeric:tabular-nums;} .kx-m .d{font-size:11.5px;margin-top:2px;color:#4F6158;}
+  .kx-m.warn{background:#FFFCF6;} .kx-m.warn .d{color:#7A3300;font-weight:700;} .kx-m.past{background:#FDF3F2;} .kx-m.past .d{color:#8C1F1F;font-weight:700;}
+  .kx-c{padding:9px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid #F0F3F1;border-right:1px solid #F5F7F6;}
+  .kx-c.hot{background:#FFF4E2;}
+  .kx-co{display:block;text-align:left;border-radius:9px;padding:7px 9px;font:inherit;font-size:12px;font-weight:700;color:#1F2A26;background:#fff;border:1px solid #DDE7E2;cursor:pointer;width:100%;}
+  .kx-co:hover{border-color:#1D9E75;}
+  .kx-co.warn{box-shadow:0 0 0 2px #F0C27A;} .kx-co small{display:block;font-size:11px;font-weight:500;color:#4F6158;margin-top:1px;}
+  .kx-co .est{color:#7A3F00;}
+  .kx-note{font-size:11.5px;color:#4F6158;}
+  .kx-empty{padding:40px;text-align:center;color:#4F6158;font-size:13px;}
+  .kx-drawer-bg{position:fixed;inset:0;background:rgba(15,30,25,.32);z-index:50;display:flex;justify-content:flex-end;}
+  .kx-drawer{width:min(440px,100%);height:100%;background:#fff;box-shadow:-12px 0 30px -18px rgba(0,0,0,.4);padding:20px 20px 28px;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;}
+  .kx-drawer h2{margin:0;font-size:18px;} .kx-sec{border:1px solid #E8ECEA;border-radius:12px;padding:12px 14px;}
+  .kx-sec .lb{font-size:11.5px;font-weight:700;color:#4F6158;margin-bottom:6px;}
+  .kx-ranks{display:flex;gap:6px;flex-wrap:wrap;}
+  .kx-ranks button{min-width:44px;height:44px;border-radius:10px;border:1px solid #D5E2DB;background:#fff;font:inherit;font-weight:800;font-size:14px;cursor:pointer;}
+  .kx-ranks button.on{outline:3px solid #1D9E75;outline-offset:1px;}
+  .kx-kv{display:grid;grid-template-columns:96px minmax(0,1fr);gap:6px 10px;font-size:13px;} .kx-kv span:nth-child(odd){color:#4F6158;font-size:12px;}
+  .kx-hist{font-size:12px;color:#4F6158;display:flex;flex-direction:column;gap:4px;}
+  @media (max-width:760px){ .kx-kpis{grid-template-columns:repeat(2,minmax(0,1fr));} }
+</style>
+</head>
+  <body>
+    <div class="app">
+      <nav class="sidebar">
+        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
+        <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
+        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
+        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
+        <div class="side-wrap"><a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ履歴</span><span class="side-arrow">›</span></a>
+          <div class="side-sub">
+            <div class="side-sub-head">アポ履歴</div>
+            <a class="side-sub-item" href="apo.html?tab=list">アポ一覧</a>
+            <a class="side-sub-item" href="report.html?panel=interns">インターンアポ</a>
+            <a class="side-sub-item" href="apo.html?tab=rot">割り振り設定</a>
+            <a class="side-sub-item" href="apo.html?tab=team">チーム実績</a>
+            <a class="side-sub-item" href="apo.html?tab=mail">メール設定</a>
+          </div></div>
+        <a class="side-item" href="docs.html"><span class="side-ico ico-doc"></span><span class="side-label">資料トラッキング</span></a>
+        <div class="side-sep"></div>
+        <div class="side-wrap"><a class="side-item side-app" href="/kincall">
+          <img class="side-app-ico" src="/kincall.svg" alt="" /><span class="side-label">kincall</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="sf-launch.html">
+          <span class="side-ico ico-deal"></span><span class="side-label">Salesforce</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="ai.html">
+          <span class="side-ico ico-rec"></span><span class="side-label">AI社員</span></a></div>
+        <div class="side-wrap"><a class="side-item side-app" href="report.html">
+          <span class="side-ico ico-ana"></span><span class="side-label">その他ツール</span></a></div>
+        <div class="side-foot"><a href="settings.html" class="side-set" title="設定">設定</a><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+      </nav>
+
+      <div class="main">
+        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">kinXs　更新管理</span></div></header>
+        <main class="report-page">
+          <div class="kx-wrap">
+            <div class="kx-head">
+              <div class="kx-logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.2 7.5 9.5 4.4-1.3 7.5-4.9 7.5-9.5V6z"/><path d="m8.8 12.2 2.3 2.3 4.3-4.6"/></svg></div>
+              <div><h1 class="kx-title">更新管理</h1><div class="kx-sub">更新月＝契約終了日の前月。更新月まで<span id="kxDays">90</span>日以内で確度がB以下の会社は、オレンジの枠で目立たせます</div></div>
+              <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" class="kx-btn" id="kxSync">SFから取り込み直す</button>
+              </div>
+            </div>
+            <div class="kx-kpis" id="kxKpis"></div>
+            <div class="kx-bar">
+              <input type="search" id="kxQ" placeholder="企業名で探す" style="min-width:220px" />
+              <select id="kxCs" aria-label="CS担当"><option value="">CS担当：全員</option></select>
+              <label class="kx-note"><input type="checkbox" id="kxPast" /> 更新月を過ぎた会社も出す</label>
+              <span class="kx-note" id="kxSt" style="margin-left:auto"></span>
+            </div>
+            <div class="kx-tablebox"><div id="kxTable"><div class="kx-empty">読み込み中…</div></div></div>
+            <p class="kx-note" id="kxFoot"></p>
+          </div>
+        </main>
+      </div>
+    </div>
+    <script src="nav.js?v=20261022d"></script>
+    <script src="kinxs.js?v=20261022d"></script>
+  </body>
+</html>

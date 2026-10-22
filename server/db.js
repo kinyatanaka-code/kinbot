@@ -11566,3 +11566,45 @@ export async function listApoConvDoneSince(sinceIso) {
     return rows;
   } catch { return []; }
 }
+
+// ===== kinXs（DOC導入企業のCS一元管理）=====
+// 1企業＝1レコード（SFの取引先ID）。契約商品は子データ（products）。更新確度は手で付ける（S/A/B/C/Z/F）。変更は履歴に残す
+export async function kinxsInit() {
+  if (!pool) return;
+  await sq(`CREATE TABLE IF NOT EXISTS kinxs_accounts (
+    account_id TEXT PRIMARY KEY, name TEXT, products JSONB DEFAULT '[]'::jsonb, booked_on DATE, start_on DATE, end_on DATE,
+    end_estimated BOOLEAN DEFAULT false, renew_month TEXT, fs_name TEXT, cs_name TEXT, rank TEXT DEFAULT 'Z', rank_by TEXT, rank_at TIMESTAMPTZ,
+    main_label TEXT, label_locked BOOLEAN DEFAULT false, error TEXT, memo TEXT, opp_ids JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+  await sq(`CREATE TABLE IF NOT EXISTS kinxs_history (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, from_v TEXT, to_v TEXT, by_user TEXT, auto BOOLEAN DEFAULT false, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+}
+export async function kinxsUpsertFromSf(a) {
+  if (!pool) return null;
+  const { rows } = await pool.query(
+    `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, start_on, end_on, end_estimated, renew_month, fs_name, cs_name, error, opp_ids, updated_at)
+     VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb, now())
+     ON CONFLICT (account_id) DO UPDATE SET name=$2, products=$3::jsonb, booked_on=$4, start_on=$5, end_on=$6, end_estimated=$7, renew_month=$8, fs_name=$9,
+       cs_name=COALESCE(kinxs_accounts.cs_name, $10), error=$11, opp_ids=$12::jsonb, updated_at=now()
+     RETURNING (xmax = 0) AS inserted`,
+    [a.account_id, a.name, JSON.stringify(a.products || []), a.booked_on || null, a.start_on || null, a.end_on || null, !!a.end_estimated, a.renew_month || null,
+     a.fs_name || null, a.cs_name || null, a.error || null, JSON.stringify(a.opp_ids || [])]);
+  return rows[0] || null;
+}
+export async function kinxsList() {
+  if (!pool) return [];
+  const { rows } = await pool.query(`SELECT * FROM kinxs_accounts ORDER BY renew_month NULLS LAST, name`);
+  return rows;
+}
+export async function kinxsSetRank(accountId, rank, by) {
+  if (!pool) return null;
+  const { rows: cur } = await pool.query(`SELECT rank FROM kinxs_accounts WHERE account_id=$1`, [accountId]);
+  if (!cur[0]) return null;
+  await pool.query(`UPDATE kinxs_accounts SET rank=$2, rank_by=$3, rank_at=now(), updated_at=now() WHERE account_id=$1`, [accountId, rank, by]);
+  await pool.query(`INSERT INTO kinxs_history (account_id, kind, from_v, to_v, by_user, auto) VALUES ($1,'rank',$2,$3,$4,false)`, [accountId, cur[0].rank || "", rank, by]);
+  return { from: cur[0].rank, to: rank };
+}
+export async function kinxsHistory(accountId, limit = 30) {
+  if (!pool) return [];
+  const { rows } = await pool.query(`SELECT * FROM kinxs_history WHERE account_id=$1 ORDER BY at DESC LIMIT $2`, [accountId, limit]);
+  return rows;
+}
