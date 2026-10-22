@@ -5807,6 +5807,11 @@ app.get("/kincall", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "calls.html"));
 });
 
+// kinXs（DOC導入企業のCS一元管理）。kinbotとは別の道具として、独自の画面で開く
+app.get("/kinxs", (req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "kinxs.html"));
+});
+
 // 日程調整ページ（お客様が開くURL）
 app.get("/b/:slug", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "book.html"));
@@ -25910,7 +25915,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-22d kinXs（DOC導入企業のCS一元管理）を作り始めた：まず案C「更新管理（更新月×更新確度）」。SFの06申込書回収以降のクロスの商談（対象5商品）から会社ごとに自動で取り込み、更新確度を付けて変更履歴を残す。";
+const BUILD_TAG = "2026-10-22e kinXsを独自の画面（/kinxs）に：kinbotの左のメニューのkincallの下に「kinXs」のボタン（グリフォンのアイコン）、kinXs専用のサイドバー（更新管理・準備中の項目・kinbotへ戻る）、タブのアイコンもグリフォンに。";
 const BUILD_FEATURES = [
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",

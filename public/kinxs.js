@@ -43,8 +43,9 @@ function render() {
   const coBtn = (x) => `<button type="button" class="kx-co ${x.warn ? "warn" : ""}" data-id="${esc(x.id)}">${esc(x.name)}<small>${x.cs ? `CS ${esc(x.cs)}` : "CS 未定"}${x.estimated ? `・<span class="est">終了日は推定</span>` : ""}${x.error ? `・<span class="est">${esc(x.error)}</span>` : ""}</small></button>`;
   const body = rows.map((r) => {
     const left = Math.round((Date.parse(`${r.m}-01T00:00:00+09:00`) - Date.now()) / 86400000);
-    const cls = left < 0 ? "past" : left <= d.warnDays ? "warn" : "";
-    const dl = left < 0 ? `${-left}日過ぎています` : `あと${left}日`;
+    const isNow = r.m === d.thisMonth;
+    const cls = isNow ? "warn" : left < 0 ? "past" : left <= d.warnDays ? "warn" : "";
+    const dl = isNow ? "今月" : left < 0 ? `${-left}日過ぎています` : `あと${left}日`;
     return `<div class="kx-m ${cls}"><b>${esc(ymLabel(r.m))}</b><div class="d">${esc(dl)}</div></div>` + RANKS.map(([k]) => {
       const cos = r.list.filter((x) => x.rank === k);
       const hot = cls && ["B", "C", "Z"].includes(k) && cos.length;

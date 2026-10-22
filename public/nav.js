@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20261022d";
+    sc.src = "kbchat.js?v=20261022e";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -71,7 +71,6 @@ const KB_MENU = [
   },
   { href: "docs.html", label: "資料トラッキング", ico: "ico-doc" },
   { href: "cs.html", label: "CS連携", ico: "ico-hist" },
-  { href: "kinxs.html", label: "kinXs（更新管理）", ico: "ico-hist" },
 ];
 
 // AI社員の下（下段）に置く「ツール」。分析・開発系をまとめる。
@@ -126,6 +125,7 @@ function kbBuildSidebar() {
   // 設定の下に、kincall（架電ツール）の入り口を置く。
   // kinbotの機能とは別の道具なので、線で区切って分ける。
   const kcOn = /^\/kincall/.test(location.pathname) ? " active" : "";
+  const kxOn = /^\/kinxs/.test(location.pathname) ? " active" : "";
   const aiOn = /ai\.html/.test(here) ? " active" : "";
   const sfOn = /sf-launch\.html/.test(here) ? " active" : "";
   const apps =
@@ -133,6 +133,9 @@ function kbBuildSidebar() {
     `<a class="side-item side-app side-hi${kcOn}" href="/kincall">` +
     `<img class="side-app-ico" src="/kincall.svg" alt="" />` +
     `<span class="side-label">kincall</span></a>` +
+    `<a class="side-item side-app side-hi${kxOn}" href="/kinxs">` +
+    `<img class="side-app-ico" src="/kinxs-ico.svg" alt="" />` +
+    `<span class="side-label">kinXs</span></a>` +
     `<a class="side-item side-hi${sfOn}" href="sf-launch.html">` +
     `<span class="side-ico ico-sf"></span>` +
     `<span class="side-label">Salesforce</span></a>` +

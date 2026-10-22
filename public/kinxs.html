@@ -4,16 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinXs 更新管理</title>
-    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" href="/kinxs.svg" type="image/svg+xml" />
+        <link rel="apple-touch-icon" href="/kinxs.svg" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261022d" />
+    <link rel="stylesheet" href="style.css?v=20261022e" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
+  .kx-app{display:flex;min-height:100vh;background:#F3F6F4;}
+  .kx-side{flex:none;width:244px;background:#0B3B2E;color:#DCEBE4;padding:20px 14px;display:flex;flex-direction:column;gap:4px;box-sizing:border-box;position:sticky;top:0;height:100vh;}
+  .kx-brand{display:flex;align-items:center;gap:10px;padding:2px 8px 18px;color:#fff;text-decoration:none;font-weight:800;font-size:19px;letter-spacing:.01em;}
+  .kx-brand img{border-radius:11px;}
+  .kx-nav{display:flex;align-items:center;gap:10px;padding:11px 12px;white-space:nowrap;border-radius:10px;color:#DCEBE4;text-decoration:none;font-size:14px;}
+  .kx-nav.on{background:rgba(182,226,92,.16);color:#fff;font-weight:700;box-shadow:inset 3px 0 0 #B6E25C;}
+  .kx-nav.off{opacity:.55;cursor:default;} .kx-nav em{margin-left:auto;font-style:normal;font-size:10.5px;border:1px solid rgba(255,255,255,.3);border-radius:99px;padding:0 6px;}
+  .kx-nav:not(.off):hover{background:rgba(255,255,255,.08);}
+  .kx-back{margin-top:auto;}
+  .kx-main{flex:1;min-width:0;padding:26px 30px 40px;box-sizing:border-box;}
+  @media (max-width:860px){ .kx-app{flex-direction:column;} .kx-side{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;} .kx-back{margin-top:0;margin-left:auto;} .kx-brand{padding:2px 8px;} }
+
   .kx-wrap{display:flex;flex-direction:column;gap:14px;padding:4px 0 40px;}
   .kx-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
   .kx-logo{width:38px;height:38px;border-radius:11px;background:#0E6B4E;display:flex;align-items:center;justify-content:center;flex:none;}
@@ -55,40 +66,21 @@
 </style>
 </head>
   <body>
-    <div class="app">
-      <nav class="sidebar">
-        <div class="side-brand"><span class="brand-mark"></span><span>kinbot</span></div>
-        <a class="side-item" href="home.html"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
-        <a class="side-item" href="index.html"><span class="side-ico ico-rec"></span><span class="side-label">レコーディング</span></a>
-        <a class="side-item" href="history.html"><span class="side-ico ico-hist"></span><span class="side-label">商談履歴</span></a>
-        <div class="side-wrap"><a class="side-item" href="apo.html"><span class="side-ico ico-apo"></span><span class="side-label">アポ履歴</span><span class="side-arrow">›</span></a>
-          <div class="side-sub">
-            <div class="side-sub-head">アポ履歴</div>
-            <a class="side-sub-item" href="apo.html?tab=list">アポ一覧</a>
-            <a class="side-sub-item" href="report.html?panel=interns">インターンアポ</a>
-            <a class="side-sub-item" href="apo.html?tab=rot">割り振り設定</a>
-            <a class="side-sub-item" href="apo.html?tab=team">チーム実績</a>
-            <a class="side-sub-item" href="apo.html?tab=mail">メール設定</a>
-          </div></div>
-        <a class="side-item" href="docs.html"><span class="side-ico ico-doc"></span><span class="side-label">資料トラッキング</span></a>
-        <div class="side-sep"></div>
-        <div class="side-wrap"><a class="side-item side-app" href="/kincall">
-          <img class="side-app-ico" src="/kincall.svg" alt="" /><span class="side-label">kincall</span></a></div>
-        <div class="side-wrap"><a class="side-item side-app" href="sf-launch.html">
-          <span class="side-ico ico-deal"></span><span class="side-label">Salesforce</span></a></div>
-        <div class="side-wrap"><a class="side-item side-app" href="ai.html">
-          <span class="side-ico ico-rec"></span><span class="side-label">AI社員</span></a></div>
-        <div class="side-wrap"><a class="side-item side-app" href="report.html">
-          <span class="side-ico ico-ana"></span><span class="side-label">その他ツール</span></a></div>
-        <div class="side-foot"><a href="settings.html" class="side-set" title="設定">設定</a><span id="who" class="who"></span><a href="#" id="logout" class="side-logout">ログアウト</a></div>
+    <div class="kx-app">
+      <nav class="kx-side" aria-label="kinXsのメニュー">
+        <a class="kx-brand" href="/kinxs"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
+        <a class="kx-nav on" href="/kinxs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>更新管理</a>
+        <span class="kx-nav off" title="準備中"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>ユーザー一覧<em>準備中</em></span>
+        <span class="kx-nav off" title="準備中"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>ラベル別ボード<em>準備中</em></span>
+        <span class="kx-nav off" title="準備中"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/></svg>未紐づけ議事録<em>準備中</em></span>
+        <a class="kx-nav kx-back" href="/home.html"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>kinbotへ戻る</a>
       </nav>
 
-      <div class="main">
-        <header class="topbar"><div class="brand"><img class="topbar-bot" src="kinbot.svg" alt="" /><span class="brand-name">kinXs　更新管理</span></div></header>
-        <main class="report-page">
+      <div class="kx-main">
+        <main>
           <div class="kx-wrap">
             <div class="kx-head">
-              <div class="kx-logo" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.2 7.5 9.5 4.4-1.3 7.5-4.9 7.5-9.5V6z"/><path d="m8.8 12.2 2.3 2.3 4.3-4.6"/></svg></div>
+              
               <div><h1 class="kx-title">更新管理</h1><div class="kx-sub">更新月＝契約終了日の前月。更新月まで<span id="kxDays">90</span>日以内で確度がB以下の会社は、オレンジの枠で目立たせます</div></div>
               <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
                 <button type="button" class="kx-btn" id="kxSync">SFから取り込み直す</button>
@@ -107,7 +99,6 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261022d"></script>
-    <script src="kinxs.js?v=20261022d"></script>
+    <script src="kinxs.js?v=20261022e"></script>
   </body>
 </html>
