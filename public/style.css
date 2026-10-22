@@ -7022,3 +7022,12 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .cl-pill.cl-sub.active { background:#1d9e75; color:#fff; border-color:#1d9e75; box-shadow:none; }
 .cl-pill.cl-sub .cl-pcnt { font-size:10.5px; padding:0 6px; }
 .cl-pills-row:has(.cl-cats) { align-items:flex-start; margin-bottom:8px; } .cl-pills-row:has(.cl-cats) .cl-pills-lbl { padding-top:9px; }
+
+/* ★と終わったリスト（2026-10-22） */
+.cl-pill.cl-sub .cl-star { color:#e0a100; font-size:11px; margin-right:-2px; }
+.cl-pill.cl-sub.active .cl-star { color:#ffe08a; }
+.cl-pill.cl-sub .cl-pin { margin-left:2px; font-size:13px; line-height:1; padding:0 2px; border-radius:4px; color:#fff; opacity:.85; }
+.cl-pill.cl-sub .cl-pin:hover { opacity:1; background:rgba(255,255,255,.18); }
+.cl-pill.cl-sub.done { opacity:.55; border-style:dashed; }
+.cl-done-toggle { border:1px dashed #c9dcd3; background:transparent; color:#5f6b64; font:inherit; font-size:11.5px; font-weight:600; border-radius:8px; padding:4px 10px; cursor:pointer; white-space:nowrap; }
+.cl-done-toggle:hover { color:#0d5b47; border-color:#5DCAA5; }

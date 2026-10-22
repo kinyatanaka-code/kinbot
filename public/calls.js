@@ -103,6 +103,9 @@ function when(v) {
 let _clCounts = {};   // value(リストid / "all") -> 残り件数
 // リストのピルの並び順（この端末に保存。ドラッグで入れ替え）
 function clPillOrder() { try { const a = JSON.parse(localStorage.getItem("kcPillOrder") || "[]"); return Array.isArray(a) ? a.map(String) : []; } catch { return []; } }
+// ★を付けたリスト（その人のこのブラウザで覚える）
+function clPins() { try { return new Set(JSON.parse(localStorage.getItem("kcPins") || "[]").map(String)); } catch { return new Set(); } }
+function clSavePins(set) { try { localStorage.setItem("kcPins", JSON.stringify([...set])); } catch {} }
 function clSortOptions(opts) {
   const order = clPillOrder();
   if (!order.length) return opts;
@@ -155,9 +158,22 @@ function renderClPills() {
     return `<button type="button" class="cl-cat${c.key === curCat ? " active" : ""}" data-cat="${c.key}">${esc(c.label)}${badge}</button>`;
   }).join("");
   const showSubs = !["today", "nurture"].includes(curCat);
-  const subs = showSubs ? inCat(curCat) : [];
-  const subHtml = subs.map((o) => `<button type="button" class="cl-pill cl-sub${o.value === cur ? " active" : ""}" draggable="true" data-v="${esc(o.value)}" title="${esc(o.textContent)}（ドラッグで並び順を変えられます）">${esc(short(o.value, o.textContent))}${_clCounts[o.value] != null ? `<span class="cl-pcnt">${Number(_clCounts[o.value]).toLocaleString()}</span>` : ""}</button>`).join("");
-  box.innerHTML = `<div class="cl-cats">${catHtml}</div>${showSubs && subs.length ? `<div class="cl-subs">${subHtml}</div>` : ""}`;
+  const all = showSubs ? inCat(curCat) : [];
+  // ★を付けたリストを先頭に。残りが0件のリスト（かけ終わったリスト）は「終わったリスト」にしまう（開いているリストは出したまま）
+  const pins = clPins();
+  const isDoneList = (o) => o.value !== cur && o.value !== "all" && /^\d+$/.test(o.value) && _clCounts[o.value] === 0;
+  const live = all.filter((o) => !isDoneList(o));
+  const done = all.filter(isDoneList);
+  const subs = [...live.filter((o) => pins.has(o.value)), ...live.filter((o) => !pins.has(o.value))];
+  const pill = (o, extra = "") => {
+    const pinned = pins.has(o.value), active = o.value === cur;
+    return `<button type="button" class="cl-pill cl-sub${active ? " active" : ""}${pinned ? " pinned" : ""}${extra}" draggable="true" data-v="${esc(o.value)}" title="${esc(o.textContent)}（ドラッグで並び順を変えられます）">${pinned ? '<span class="cl-star on">★</span>' : ""}${esc(short(o.value, o.textContent))}${_clCounts[o.value] != null ? `<span class="cl-pcnt">${Number(_clCounts[o.value]).toLocaleString()}</span>` : ""}${active && o.value !== "all" ? `<span class="cl-pin" data-pin="${esc(o.value)}" title="${pinned ? "★を外す" : "★を付けて、いつも先頭に出す"}">${pinned ? "★" : "☆"}</span>` : ""}</button>`;
+  };
+  const openDone = !!box._showDone;
+  const subHtml = subs.map((o) => pill(o)).join("")
+    + (done.length ? `<button type="button" class="cl-done-toggle" data-done-toggle>${openDone ? "終わったリストをしまう" : `終わったリスト（${done.length}）`}</button>` : "")
+    + (openDone ? done.map((o) => pill(o, " done")).join("") : "");
+  box.innerHTML = `<div class="cl-cats">${catHtml}</div>${showSubs && all.length ? `<div class="cl-subs">${subHtml}</div>` : ""}`;
   const subBox = box.querySelector(".cl-subs");
   if (subBox) {
     clWirePillDrag(subBox);
@@ -6057,6 +6073,9 @@ if ($("clList")) {
 }
 if ($("clPills")) $("clPills").addEventListener("click", (e) => {
   const sel = $("clList"); if (!sel) return;
+  const pinEl = e.target.closest("[data-pin]");
+  if (pinEl) { e.stopPropagation(); const v = pinEl.dataset.pin; const p = clPins(); if (p.has(v)) p.delete(v); else p.add(v); clSavePins(p); renderClPills(); return; }
+  if (e.target.closest("[data-done-toggle]")) { const box = $("clPills"); box._showDone = !box._showDone; renderClPills(); return; }
   const pick = (v) => { if (!v) return; clCatLast(clCatOf(v), v); if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event("change")); } renderClPills(); };
   const c = e.target.closest(".cl-cat");
   if (c) {
