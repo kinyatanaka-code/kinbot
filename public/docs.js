@@ -94,8 +94,7 @@ async function loadDocs() {
       : "";
 
     const 資料行 = (f) => `
-      <div class="dk-row${f.active ? "" : " dk-off"}" data-id="${f.id}" ${f.active ? 'draggable="true"' : ""}>
-        ${f.active ? `<span class="dk-grip" title="ドラッグで並び替え" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>` : ""}
+      <div class="dk-row${f.active ? " dk-sortable" : " dk-off"}" data-id="${f.id}">
         <div class="dk-main">
           <div class="dk-t">
             ${f.mine
@@ -131,7 +130,7 @@ async function loadDocs() {
     box.innerHTML = html;
     if (表示分.length > 1) {
       const hint = document.createElement("div"); hint.className = "dk-order-hint";
-      hint.textContent = "左の ⋮⋮ をつかんでドラッグすると、資料の順番を並び替えられます（自分の画面の順番です。送るときの選択肢もこの順になります）";
+      hint.textContent = "資料のカードを上下にドラッグすると、順番を並び替えられます（自分の画面の順番です。送るときの選択肢もこの順になります）";
       box.prepend(hint);
     }
     wireDocDrag(box.querySelector(".dk-list"));
@@ -1169,44 +1168,78 @@ if (document.getElementById("dsRows")) {
   });
 }
 
-// 資料の並び替え（ドラッグ）。落としたら、その人の並び順として保存する
+// 資料の並び替え：カードそのものを上下にドラッグする（マウスでもスマホの指でも）。離したら、その人の並び順として保存する
 function wireDocDrag(list) {
   if (!list) return;
-  let dragEl = null;
-  list.querySelectorAll('.dk-row[draggable="true"]').forEach((row) => {
-    row.addEventListener("dragstart", (e) => {
-      // メニューのボタンなどからは始めない
-      if (e.target.closest && e.target.closest("button, .dk-menu")) { e.preventDefault(); return; }
-      dragEl = row; row.classList.add("dk-dragging");
-      try { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", row.dataset.id); } catch {}
-    });
-    row.addEventListener("dragend", async () => {
-      row.classList.remove("dk-dragging");
-      list.querySelectorAll(".dk-drop").forEach((x) => x.classList.remove("dk-drop"));
-      if (!dragEl) return; dragEl = null;
-      const ids = [...list.querySelectorAll(".dk-row")].map((r) => Number(r.dataset.id));
-      try {
-        const r = await fetch("/api/docs/order", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) });
-        if (!r.ok) throw new Error();
-        // 送る側の選択欄もこの順にそろえる
-        const pos = new Map(ids.map((id, i) => [id, i]));
-        docsCache.sort((a, b) => (Number(b.active) - Number(a.active)) || ((pos.has(a.id) ? pos.get(a.id) : 1e9) - (pos.has(b.id) ? pos.get(b.id) : 1e9)));
-        for (const id of ["dkDoc", "dsDoc", "blDoc", "shDoc"]) {
-          const sel = $(id); if (!sel) continue;
-          const cur = sel.value; const opts = [...sel.options];
-          const head = opts.filter((o) => !o.value); const rest = opts.filter((o) => o.value).sort((a, b) => (pos.has(Number(a.value)) ? pos.get(Number(a.value)) : 1e9) - (pos.has(Number(b.value)) ? pos.get(Number(b.value)) : 1e9));
-          sel.innerHTML = ""; [...head, ...rest].forEach((o) => sel.add(o)); sel.value = cur;
-        }
-      } catch { alert("並び順を保存できませんでした"); }
-    });
-    row.addEventListener("dragover", (e) => {
-      if (!dragEl || dragEl === row) return;
-      e.preventDefault();
-      const r = row.getBoundingClientRect();
-      const after = e.clientY > r.top + r.height / 2;
-      list.querySelectorAll(".dk-drop").forEach((x) => x.classList.remove("dk-drop"));
-      row.classList.add("dk-drop");
-      if (after) row.after(dragEl); else row.before(dragEl);
+  const rows = () => [...list.querySelectorAll(".dk-row.dk-sortable")];
+  let st = null;   // { row, startY, startTop, moved, ph }
+  const save = async () => {
+    const ids = [...list.querySelectorAll(".dk-row")].map((r) => Number(r.dataset.id));
+    try {
+      const r = await fetch("/api/docs/order", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids }) });
+      if (!r.ok) throw new Error();
+      const pos = new Map(ids.map((id, i) => [id, i]));
+      docsCache.sort((a, b) => (Number(b.active) - Number(a.active)) || ((pos.has(a.id) ? pos.get(a.id) : 1e9) - (pos.has(b.id) ? pos.get(b.id) : 1e9)));
+      for (const id of ["dkDoc", "dsDoc", "blDoc", "shDoc"]) {
+        const sel = $(id); if (!sel) continue;
+        const cur = sel.value; const opts = [...sel.options];
+        const head = opts.filter((o) => !o.value);
+        const rest = opts.filter((o) => o.value).sort((a, b) => (pos.has(Number(a.value)) ? pos.get(Number(a.value)) : 1e9) - (pos.has(Number(b.value)) ? pos.get(Number(b.value)) : 1e9));
+        sel.innerHTML = ""; [...head, ...rest].forEach((o) => sel.add(o)); sel.value = cur;
+      }
+    } catch { alert("並び順を保存できませんでした"); }
+  };
+  rows().forEach((row) => {
+    row.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || (e.target.closest && e.target.closest("button, a, input, select, textarea, .dk-menu"))) return;
+      st = { row, startY: e.clientY, moved: false, pid: e.pointerId, timer: null, ready: e.pointerType === "mouse" };
+      // 指のときは少し長押ししてから動かす（ふつうのスクロールと分けるため）
+      if (!st.ready) st.timer = setTimeout(() => { if (st && !st.moved) { st.ready = true; row.classList.add("dk-lift"); if (navigator.vibrate) navigator.vibrate(15); } }, 280);
     });
   });
+  const onMove = (e) => {
+    if (!st || e.pointerId !== st.pid) return;
+    const dy = e.clientY - st.startY;
+    if (!st.moved) {
+      if (!st.ready) { if (Math.abs(dy) > 8) { clearTimeout(st.timer); st = null; } return; }   // 長押し前に動いたらスクロール
+      if (Math.abs(dy) < 5) return;
+      st.moved = true;
+      const r = st.row.getBoundingClientRect();
+      st.ph = document.createElement("div"); st.ph.className = "dk-ph"; st.ph.style.height = `${r.height}px`;
+      st.row.after(st.ph);
+      st.row.classList.add("dk-dragging", "dk-lift");
+      st.row.style.width = `${r.width}px`; st.row.style.left = `${r.left}px`; st.row.style.top = `${r.top}px`;
+      st.offY = e.clientY - r.top;
+      document.body.classList.add("dk-sorting");
+    }
+    e.preventDefault();
+    st.row.style.top = `${e.clientY - st.offY}px`;
+    // 置き場所（いちばん近いカードの上か下）
+    const others = rows().filter((x) => x !== st.row);
+    let placed = false;
+    for (const o of others) {
+      const r = o.getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { if (st.ph.nextElementSibling !== o) o.before(st.ph); placed = true; break; }
+    }
+    if (!placed && others.length) { const last = others[others.length - 1]; if (last.nextElementSibling !== st.ph) last.after(st.ph); }
+  };
+  const onUp = (e) => {
+    if (!st || e.pointerId !== st.pid) return;
+    clearTimeout(st.timer);
+    const s0 = st; st = null;
+    s0.row.classList.remove("dk-lift");
+    if (!s0.moved) return;
+    s0.ph.replaceWith(s0.row);
+    s0.row.classList.remove("dk-dragging");
+    s0.row.style.width = s0.row.style.left = s0.row.style.top = "";
+    document.body.classList.remove("dk-sorting");
+    // 並び替えたあとのクリックで、メニューなどが開かないように
+    const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    s0.row.addEventListener("click", stop, { capture: true, once: true });
+    setTimeout(() => s0.row.removeEventListener("click", stop, { capture: true }), 50);
+    save();
+  };
+  window.addEventListener("pointermove", onMove, { passive: false });
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }

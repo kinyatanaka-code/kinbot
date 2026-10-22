@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261022a" />
+    <link rel="stylesheet" href="style.css?v=20261022b" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     /* URL発行の設定と、発行ボタン（右端） */
@@ -91,8 +91,12 @@
     .dk-menu button:hover{background:#f4f7f5;}
     .dk-menu button.danger{color:#c0392b;}
     .dk-menu button.danger:hover{background:#fbeceb;}
-    .dk-row[draggable="true"]{cursor:grab;} .dk-row.dk-dragging{opacity:.45;}
-  .dk-grip{display:flex;align-items:center;color:#a8b8b0;padding:0 6px 0 2px;cursor:grab;flex:none;} .dk-row:hover .dk-grip{color:#1d9e75;}
+    .dk-row.dk-sortable{cursor:grab;touch-action:pan-y;transition:box-shadow .15s, transform .15s;-webkit-user-select:none;user-select:none;}
+  .dk-row.dk-sortable:hover{box-shadow:0 2px 10px -6px rgba(13,91,71,.45);}
+  .dk-row.dk-lift{transform:scale(1.015);box-shadow:0 14px 30px -14px rgba(13,91,71,.55);background:#fff;}
+  .dk-row.dk-dragging{position:fixed;z-index:50;cursor:grabbing;pointer-events:none;opacity:.96;}
+  .dk-ph{border:2px dashed #9fd4bf;border-radius:12px;background:#f1faf6;margin:6px 0;box-sizing:border-box;}
+  body.dk-sorting, body.dk-sorting *{cursor:grabbing !important;}
   .dk-order-hint{font-size:11.5px;color:#7a8a82;margin:0 0 6px;}
 </style>
 </head>
@@ -317,7 +321,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261022a"></script>
-    <script src="docs.js?v=20261022a"></script>
+    <script src="nav.js?v=20261022b"></script>
+    <script src="docs.js?v=20261022b"></script>
   </body>
 </html>
