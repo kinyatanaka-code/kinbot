@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261022f" />
+    <link rel="stylesheet" href="style.css?v=20261022g" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -165,6 +165,11 @@
                   <button type="button" class="btn" id="csImportBtn">取り込む</button><span class="rev-status" id="csImpSt"></span></div>
               </div>
               <div class="cs-card">
+                <div class="cs-h" style="cursor:default"><b>テスト用の企業カード</b><span class="cs-sub" id="csTestSt"></span></div>
+                <p class="note" style="margin:6px 0">中身の入った「kinbotテスト株式会社」の企業カードを作ります。先方のメールは作った本人になるので、御礼メールの下書き・トラッキングを自分あてに試せます。OBスレには投稿せず、CS担当の自動の割り振りやアラートの対象にもしません。いらなくなったら、カードの窓の「このテストのカードを消す」で消せます。</p>
+                <div class="cs-bar"><button type="button" class="btn" id="csMakeTest">テスト用の企業カードを作る</button></div>
+              </div>
+              <div class="cs-card">
                 <div class="cs-h" style="cursor:default"><b>検収書フォーム</b><span class="cs-sub" id="ksFormSt"></span></div>
                 <p class="note" style="margin:6px 0">kinbotが検収書の依頼フォームに中身を入れられるよう、フォームの欄の番号を1回だけ覚えさせます。<b>だれでもできる方法</b>と、編集できる人の方法があります。どちらか1つでOKです。</p>
                 <div class="ks-how"><b>だれでもできる方法（おすすめ）</b>
@@ -193,7 +198,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261022f"></script>
+    <script src="nav.js?v=20261022g"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -201,6 +206,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261022f"></script>
+    <script src="cs.js?v=20261022g"></script>
   </body>
 </html>

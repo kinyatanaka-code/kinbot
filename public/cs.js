@@ -69,6 +69,7 @@ function render() {
         <dt>請求</dt><dd>${bill && bill !== "未確認" ? `<span class="${/問題なし/.test(bill) ? "okt" : "wt"}">${esc(bill)}</span>` : '<span class="cs-unk">未確認</span>'}</dd>
       </dl>
       <div class="cs-co-foot">
+        ${k.is_test ? '<span class="cs-pill warn">テスト</span>' : ""}
         ${k.draft_at ? '<span class="cs-pill ok">御礼メール下書きあり</span>' : '<span class="cs-pill">御礼メール：まだ</span>'}
         ${(() => { const t = k.mail_track || {}; const c = (t.clicks || []).length;
           return !k.draft_at ? "" : c ? `<span class="cs-pill ok" title="${esc((t.clicks || []).map((x) => `${x.label}：${fmtDT(x.first)}`).join("\n"))}">リンクを押した ${c}</span>` : t.opened ? `<span class="cs-pill ok" title="${esc(fmtDT(t.openedAt))}">メールを開いた</span>` : '<span class="cs-pill">まだ開いていない</span>'; })()}
@@ -101,6 +102,7 @@ function render() {
     const link = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)} ↗</a>` : "";
     return `<div class="cs-card open cd-wrap">${head}
       <div class="cd-body">
+      ${k.is_test ? `<div class="ks-warn" style="margin:0 0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">テスト用の企業カードです。OBスレには投稿しません。ヘルプサイトのアカウントを用意する・検収書を依頼するは本物が動くので、試すときは気をつけてください。<button type="button" class="btn ghost cd-mini" data-del-test style="margin-left:auto">このテストのカードを消す</button></div>` : ""}
       ${k.error ? `<div class="cs-err" style="margin:0 0 10px">${esc(k.error)}</div>` : ""}
       ${sec("co", "先方", `<div class="cd-grid">
         ${fld("企業名", "企業名")}${fld("先方ご担当者名", "ご担当者名")}
@@ -195,6 +197,12 @@ function render() {
     document.onkeydown = (e) => { if (e.key === "Escape" && csOpen) close(); };
   }
   const card = host.querySelector(".cs-card.open");
+  const delT = card && card.querySelector("[data-del-test]");
+  if (delT) delT.addEventListener("click", async () => {
+    if (!confirm("このテスト用の企業カードを消します。よろしいですか？")) return;
+    try { await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}`, { method: "DELETE" }); csOpen = ""; await load(); }
+    catch (e) { alert(e.message); }
+  });
   if (card) {
     card.querySelectorAll('[data-hp="show"]').forEach((b) => b.addEventListener("click", () => {
       const v = b.parentElement.querySelector("[data-pw]"); if (!v) return;
@@ -507,3 +515,15 @@ async function openMailPreview(bot) {
     b.disabled = false;
   }));
 }
+
+// テスト用の企業カードを作る
+if (document.getElementById("csMakeTest")) document.getElementById("csMakeTest").addEventListener("click", async () => {
+  const st = document.getElementById("csTestSt");
+  try {
+    const r = await api("/api/cs/kickoffs/test", { method: "POST" });
+    st.textContent = "作りました。企業カードのタブを開きます";
+    await load();
+    const t = document.querySelector('.cs-tab[data-tab="cards"]'); if (t) t.click();
+    csOpen = r.kickoff && r.kickoff.bot_id || ""; render();
+  } catch (e) { st.textContent = "作れませんでした：" + e.message; }
+});

@@ -11281,7 +11281,7 @@ async function ensureCs() {
       status TEXT, error TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`);
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS sf_url TEXT;`).catch(() => {});
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS confirm_event_id TEXT;`).catch(() => {});
-  for (const c of ["portal_id TEXT", "portal_text TEXT", "portal_at TIMESTAMPTZ", "portal_error TEXT", "portal_shot TEXT", "portal_cs TEXT", "client_phone TEXT", "mail_subject TEXT", "mail_body TEXT", "ai_login_id TEXT", "ai_pass_enc TEXT", "ai_set_by TEXT", "ai_set_at TIMESTAMPTZ", "ai_views JSONB"]) await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS ${c};`).catch(() => {});
+  for (const c of ["portal_id TEXT", "portal_text TEXT", "portal_at TIMESTAMPTZ", "portal_error TEXT", "portal_shot TEXT", "portal_cs TEXT", "client_phone TEXT", "mail_subject TEXT", "mail_body TEXT", "ai_login_id TEXT", "ai_pass_enc TEXT", "ai_set_by TEXT", "ai_set_at TIMESTAMPTZ", "ai_views JSONB", "is_test BOOLEAN DEFAULT false"]) await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS ${c};`).catch(() => {});
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS confirm_event_owner TEXT;`).catch(() => {});
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS confirm_event_cal TEXT;`).catch(() => {});
   await sq(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS doc_admin_url TEXT;`).catch(() => {});
@@ -11311,7 +11311,7 @@ export async function upsertCsKickoff(botId, v) {
     await ensureCs();
     const cols = ["account", "company", "title", "meeting_at", "fs_email", "fs_name", "fields", "cs_email", "cs_name", "confirm_start", "confirm_from",
       "confirm_slug", "client_email", "client_name", "chat_thread", "chat_message", "posted_at", "draft_id", "draft_at", "status", "error", "sf_url",
-      "confirm_event_id", "confirm_event_owner", "confirm_event_cal", "portal_id", "portal_text", "portal_at", "portal_error", "portal_shot", "portal_cs", "client_phone", "mail_subject", "mail_body", "ai_login_id", "ai_pass_enc", "ai_set_by", "ai_set_at", "ai_views"];
+      "confirm_event_id", "confirm_event_owner", "confirm_event_cal", "portal_id", "portal_text", "portal_at", "portal_error", "portal_shot", "portal_cs", "client_phone", "mail_subject", "mail_body", "ai_login_id", "ai_pass_enc", "ai_set_by", "ai_set_at", "ai_views", "is_test"];
     const keys = cols.filter((c) => v[c] !== undefined);
     const vals = keys.map((c) => (c === "fields" ? JSON.stringify(v[c] || {}) : v[c]));
     const ins = `INSERT INTO cs_kickoffs (bot_id${keys.map((k) => `, ${k}`).join("")}) VALUES ($1${keys.map((_, i) => `, $${i + 2}`).join("")})
@@ -11635,4 +11635,13 @@ export async function csTrackSummary(botIds) {
   const out = {};
   for (const r of rows) (out[r.bot_id] = out[r.bot_id] || []).push(r);
   return out;
+}
+
+// テスト用の企業カードを消す（テスト用だけ）
+export async function deleteTestCsKickoff(botId) {
+  if (!pool || !botId) return 0;
+  const r = await pool.query(`DELETE FROM cs_kickoffs WHERE bot_id=$1 AND COALESCE(is_test,false)=true`, [botId]);
+  await pool.query(`DELETE FROM cs_mail_links WHERE bot_id=$1`, [botId]).catch(() => {});
+  await pool.query(`DELETE FROM cs_mail_hits WHERE bot_id=$1`, [botId]).catch(() => {});
+  return r.rowCount || 0;
 }

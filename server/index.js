@@ -279,7 +279,7 @@ import {
   docViewSummary,
   docViewCheck,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory,
-  csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary,
+  csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
   listApoConvDoneSince,
@@ -11633,6 +11633,7 @@ async function csSpace() {
   return (await csSettings()).space;
 }
 async function csPost(k, { edited = false } = {}) {
+  if (k && k.is_test) return k;   // テスト用の企業カードは、OBスレに投稿しない
   const f = k.fields || {};
   try {
     const space = await csSpace();
@@ -11665,6 +11666,7 @@ async function csEnsureConfirmLink(k) {
 //   予定名：【確認MTG】○○株式会社/○○様　説明：OBスレに流した内容（ヒアリングの中身）＋参加URL・議事録・SF
 //   カレンダーの予定から確認MTGを見つけた（confirm_from＝カレンダー）ときは、すでに予定があるので作らない。
 async function csSyncConfirmEvent(k) {
+  if (k && k.is_test) return k;   // テスト用の企業カードは、CSのカレンダーに確認MTGの予定を作らない
   try {
     if (!k || !k.cs_email || !k.confirm_start) return k;
     if (k.confirm_from === "カレンダー" && !k.confirm_event_id) return k;
@@ -11976,6 +11978,7 @@ async function csMentionFs(space, fsName) {
   return parts.join(" ");
 }
 async function csAlertMissing(k, { reminder = false } = {}) {
+  if (k && k.is_test) return false;
   const miss = csMissing(k);
   if (!miss.length && !k.error) return false;
   const space = await csSpace();
@@ -12092,7 +12095,7 @@ async function csFindClientEmail({ company, sfUrl, user, noApo = false }) {
 }
 // 確認MTGの日時が決まったら（議事録の「次回MTGの日時」の文からも）、CSのカレンダーを見て空いている人を自動で割り振る
 async function csEnsureConfirmAndCs(k, { announce = true } = {}) {
-  if (!k) return k;
+  if (!k || k.is_test) return k;
   const f = k.fields || {};
   if (!k.confirm_start && f.次回MTGの日時 && f.次回MTGの日時 !== "未確認") {
     const iso = csParseDT(f.次回MTGの日時, k.meeting_at);
@@ -12328,6 +12331,35 @@ app.get("/api/cs/kickoffs/:bot/portal-shot", async (req, res) => {
     if (!k || !k.portal_shot) return res.status(404).end();
     res.setHeader("Content-Type", "image/png"); res.send(Buffer.from(k.portal_shot, "base64"));
   } catch { res.status(500).end(); }
+});
+// テスト用の企業カード：OBスレには投稿せず、自動の割り振り・アラートの対象にもしない。先方のメールは作った本人にして、御礼メールのテストができるように
+app.post("/api/cs/kickoffs/test", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const me = String(req.user || "").toLowerCase();
+    const name = await repDisplayName(me).catch(() => me);
+    const botId = `test-${Date.now()}`;
+    const now = new Date();
+    const confirm = new Date(now.getTime() + 14 * 86400000); confirm.setUTCHours(5, 0, 0, 0);   // 2週間後の14:00（日本時間）
+    const k = await upsertCsKickoff(botId, {
+      company: "kinbotテスト株式会社", title: "【キックオフ】kinbotテスト株式会社/テスト様", meeting_at: now.toISOString(),
+      fs_email: me, fs_name: name, client_email: me, client_name: "テスト", client_phone: "03-0000-0000", is_test: true, status: "posted",
+      confirm_start: confirm.toISOString(), confirm_from: "テスト",
+      fields: { 企業名: "kinbotテスト株式会社", 先方ご担当者名: "テスト様", 活用場所: "採用サイト掲載・カジュアル面談（テスト）", 公開予定時期: "来月上旬", 納品月: `${((now.getMonth() + 1) % 12) + 1}月`,
+        次回MTGの日時: `${confirm.getMonth() + 1}/${confirm.getDate()} 14:00〜`, 請求書着日スケジュール: "月末締め・翌月末払い（テスト）", 特記事項: "テスト用のカードです。先方には届きません（宛先は作った本人）",
+        弊社の宿題: ["AIの回答の直し方の動画マニュアルを送る（テスト）", "検収書を先方へ送る（テスト）"], 貴社の宿題: ["初期学習の資料をまとめて送る（テスト）"] },
+    });
+    console.log(`[cs] テスト用の企業カードを作りました：${botId} by ${me}`);
+    res.json({ ok: true, kickoff: k });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/cs/kickoffs/:bot", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const n = await deleteTestCsKickoff(req.params.bot);
+    if (!n) return res.status(400).json({ error: "消せるのはテスト用の企業カードだけです" });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/cs/kickoffs/:bot/portal", async (req, res) => {
   try {
@@ -25993,7 +26025,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-22f 御礼メールのトラッキング：下書きにHTMLの本文（kinbotを通るリンク・見えない画像）を付け、先方がメールを開いたか・どのリンク（管理画面・候補者用画面・ヘルプサイト・確認MTG）を押したかを企業カードに出す。送る前の下書きを見ただけ・機械の開封は数えない。";
+const BUILD_TAG = "2026-10-22g CS連携の設定タブに「テスト用の企業カードを作る」：中身の入ったkinbotテスト株式会社を作る（先方のメールは本人）。OBスレへの投稿・CS担当の自動の割り振り・アラート・CSのカレンダーの予定の対象にしない。窓から消せる。";
 const BUILD_FEATURES = [
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
