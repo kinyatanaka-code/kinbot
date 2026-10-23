@@ -118,7 +118,18 @@ function kxFitRows() {
   el.style.overflowY = "auto";
   document.documentElement.style.overflow = "hidden";   // ページ全体はスクロールしない
 }
-window.addEventListener("resize", () => kxFitRows());
+// ユーザー一覧：画面は止めて、カードのところだけスクロールする
+function kxFitCards() {
+  const el = $("lsTable");
+  if (!el || VIEW !== "list") return;
+  const top = el.getBoundingClientRect().top;
+  el.style.maxHeight = `${Math.max(220, window.innerHeight - top - 16)}px`;
+  el.style.overflowY = "auto";
+  el.style.overscrollBehavior = "contain";
+  el.style.paddingRight = "4px";
+  document.documentElement.style.overflow = "hidden";
+}
+window.addEventListener("resize", () => { kxFitRows(); kxFitCards(); });
 async function kxSetRank(id, rank) {
   const x = data && data.items.find((i) => i.id === id);
   if (!x || x.rank === rank) return;
@@ -241,6 +252,7 @@ function renderList() {
   // 会社名だけのカード（詳細は押すと開くモーダルで）
   const card = (x) => `<div class="kx-uc kx-uc-min" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(x.name)}"><div class="nm"><span>${esc(x.name)}</span></div></div>`;
   $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
+  kxFitCards();
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
   document.querySelectorAll("#vList [data-dis]").forEach((b) => b.addEventListener("click", async (e) => {
     e.stopPropagation();
