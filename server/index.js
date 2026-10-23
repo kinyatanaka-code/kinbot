@@ -12799,8 +12799,11 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
     try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const q = await sfQuery(sfU, `SELECT Email FROM Contact WHERE AccountId='${String(accountId).replace(/'/g, "")}' AND Email != null LIMIT 8`); (q.records || []).forEach((c) => addMail(c.Email)); } } catch {}
   }
   // 読むGmail：CS担当 → FS → メールワイズのコピーが届く共有のGoogleアカウント（kinXsの設定）
+  // 読むGmail：CS担当 → FS → CSのメンバー全員（Google連携している人。メールワイズのコピーがだれのGmailに届いていても拾える）
+  //   → 設定で足した共有のアカウント（あれば）。登録はいらない（2026-10-23 田中さん）
   const stMb = await getSettings().catch(() => ({}));
-  const owners = [...new Set([k && k.cs_email, k && k.fs_email, ...((stMb.kinxsMailboxes || []).map((x) => String(x || "").toLowerCase()))].filter(Boolean))];
+  const csMembers = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => String(m.email || "").toLowerCase());
+  const owners = [...new Set([k && k.cs_email, k && k.fs_email, ...csMembers, ...((stMb.kinxsMailboxes || []).map((x) => String(x || "").toLowerCase()))].filter(Boolean))].slice(0, 8);
   const mails = []; let usedOwner = "";
   for (const o of owners) {
     if (!doms.size) break;
@@ -12811,7 +12814,8 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
         const th = await gmailGetThread(o, t.threadId || t.id).catch(() => null);
         for (const mm of ((th && th.messages) || []).slice(-3)) mails.push(`【メール ${mm.date}】件名：${mm.subject}\n差出人：${mm.from}\n宛先：${mm.to}\n${String(mm.body || "").replace(/\n>.*$/gm, "").slice(0, 1800)}`);
       }
-      usedOwner = o; if (mails.length) break;
+      if (mails.length && !usedOwner) usedOwner = o;
+      if (mails.length >= 6) break;
     } catch {}
   }
   // 直近30日の議事録の「やること」
@@ -26455,7 +26459,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23x kinXsに「設定」：メールワイズのメールのコピーが届く共有のGoogleアカウントを登録すると、次回アクションの自動の読み取りでそのGmailも読む（CS担当・FSのあとに）。つながっているかの表示と、つなぎ方の手順つき。";
+const BUILD_TAG = "2026-10-23y kinXsの次回アクションの自動の読み取り：共有のアカウントを登録しなくても、CS担当・FS・CSのメンバー全員（Google連携している人）のGmailを読むように。メニューの「設定」は外した。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
