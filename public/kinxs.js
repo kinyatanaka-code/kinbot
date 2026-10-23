@@ -222,6 +222,7 @@ function renderList() {
   const base = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // ラベルの絞り込み
   const counts = {}; for (const x of base) counts[x.label] = (counts[x.label] || 0) + 1;
+  $("lsChips").hidden = true;
   $("lsChips").innerHTML = [["", `すべて ${base.length}`], ...d.labels.filter((l) => counts[l]).map((l) => [l, `${l} ${counts[l]}`])]
     .map(([v, t]) => `<button type="button" class="kx-chip ${lsLabel === v ? "on" : ""}" data-lab="${esc(v)}">${esc(t)}</button>`).join("");
   $("lsChips").querySelectorAll("[data-lab]").forEach((b) => b.addEventListener("click", () => { lsLabel = b.dataset.lab; renderList(); }));
@@ -237,12 +238,8 @@ function renderList() {
     </div>`).join("")}</div>${al.length > 12 ? `<div class="kx-note" style="margin-top:8px">ほか ${al.length - 12}社</div>` : ""}` : `<div class="kx-note">いま要注意の会社はありません</div>`);
   // 会社のカード（シンプルに：会社名・ラベル・確度・CS・更新月・次回アクション）
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-  const card = (x) => `<div class="kx-uc ${x.alerts.length ? "warn" : ""}" data-open="${esc(x.id)}" role="button" tabindex="0">
-      <div class="nm"><span>${esc(x.name)}</span><span class="kx-rank r-${x.rank}" style="flex:none">${x.rank}</span></div>
-      <div class="row"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span>${x.alerts.length ? x.alerts.map((a) => `<span class="kx-rule">${esc(a.rule)}</span>`).join("") : ""}${x.manual ? '<span class="kx-note" style="font-size:10.5px;border:1px solid #D5E2DB;border-radius:6px;padding:0 5px">手入力</span>' : ""}</div>
-      <div class="kv"><span>CS担当</span><span>${esc(kxSurname(x.cs) || "未定")}</span><span>更新月</span><span>${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</span><span>最終接触</span><span>${x.lastTouch ? `${esc(fmtD(x.lastTouch))}（${x.sinceTouch}日前）` : "—"}</span></div>
-      <div class="na">${x.na ? `${x.naType ? `<span class="kx-natag">${esc(x.naType)}</span>` : ""}${esc(x.na)}${x.naDue ? ` <span class="${x.naDue < today ? "ng-t" : "kx-note"}">${esc(x.naDue.slice(5).replace("-", "/"))}</span>` : ""}` : '<span class="kx-note">次回アクション：まだありません</span>'}</div>
-    </div>`;
+  // 会社名だけのカード（詳細は押すと開くモーダルで）
+  const card = (x) => `<div class="kx-uc kx-uc-min" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(x.name)}"><div class="nm"><span>${esc(x.name)}</span></div></div>`;
   $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
   document.querySelectorAll("#vList [data-dis]").forEach((b) => b.addEventListener("click", async (e) => {
