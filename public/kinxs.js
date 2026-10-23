@@ -250,7 +250,7 @@ function renderList() {
       `<div class="ls-r" data-open="${esc(x.id)}">${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</div>` +
       `<div class="ls-r" data-open="${esc(x.id)}">${esc(kxSurname(x.cs) || "未定")}</div>` +
       `<div class="ls-r ${touchCls}" data-open="${esc(x.id)}">${x.lastTouch ? `${fmtD(x.lastTouch)}（${x.sinceTouch}日前）` : "—"}</div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.na || "—")}</div><div class="${dueCls}" style="font-size:11.5px">${x.naDue ? `期日 ${esc(x.naDue.slice(5).replace("-", "/"))}${x.naDue < today ? "・過ぎています" : ""}` : ""}</div></div>`;
+      `<div class="ls-r" data-open="${esc(x.id)}"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x.naType ? `<span class="kx-natag">${esc(x.naType)}</span>` : ""}${esc(x.na || "—")}${x.naSuggest ? ' <span class="kx-auto">提案あり</span>' : ""}</div><div class="${dueCls}" style="font-size:11.5px">${x.naDue ? `期日 ${esc(x.naDue.slice(5).replace("-", "/"))}${x.naDue < today ? "・過ぎています" : ""}` : ""}</div></div>`;
   }).join("");
   $("lsTable").innerHTML = items.length ? `<div class="ls-grid">${head}${body}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「更新管理」の「SFから取り込み直す」で取り込めます。"}</div>`;
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
@@ -287,9 +287,11 @@ async function openDetail(id, reuse) {
         <span class="kx-note">納品メール</span>${tog("mail_done", x.mailDone === true ? true : x.mailDone === false ? false : "", [["true", "送付済み"], ["false", "未送付"]])}
         <span class="kx-note">掲載</span>${tog("published", x.published, [["true", "確認した（利用中）"], ["false", "まだ"]])}
       </div>
-      <div class="kx-sec"><div class="lb">次回アクション</div>
-        <input class="kx-in" data-na value="${esc(x.na)}" placeholder="例：更新の打診（料金の比較資料を送る）" />
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center"><span class="kx-note">期日</span><input type="date" class="kx-in" data-due value="${esc(x.naDue)}" style="max-width:180px" /><button type="button" class="kx-btn" data-save-na style="margin-left:auto">保存</button></div></div>
+      <div class="kx-sec"><div class="lb" style="display:flex;align-items:center;gap:8px">次回アクション${x.naSource && x.naSource.startsWith("auto") ? `<span class="kx-auto">${esc(x.naSource.replace("auto:", ""))}から自動で入れました</span>` : ""}<button type="button" class="kx-btn" data-read-na style="margin-left:auto;height:28px;font-size:11.5px">Gmail・議事録から読む</button></div>
+        ${x.naSuggest ? `<div class="kx-sug"><div><b>提案</b>（${esc(x.naSuggest.source)}より）${esc(x.naSuggest.type)}・${esc(x.naSuggest.at ? new Date(x.naSuggest.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "日時なし")}<div style="margin-top:2px">${esc(x.naSuggest.content)}</div>${x.naSuggest.basis ? `<div class="kx-note">根拠：${esc(x.naSuggest.basis)}</div>` : ""}</div><div style="display:flex;gap:6px;flex:none"><button type="button" class="kx-btn" data-adopt>採用する</button><button type="button" class="kx-btn" data-dismiss-sug>使わない</button></div></div>` : ""}
+        <div style="display:flex;gap:8px;align-items:center"><select class="kx-in" data-natype style="max-width:120px">${["", "電話", "メール", "MTG", "資料送付", "その他"].map((t) => `<option value="${t}" ${x.naType === t ? "selected" : ""}>${t || "種別"}</option>`).join("")}</select>
+          <input class="kx-in" data-na value="${esc(x.na)}" placeholder="例：更新の打診（料金の比較資料を送る）" /></div>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center"><span class="kx-note">日時</span><input type="datetime-local" class="kx-in" data-due value="${esc(x.naAt ? new Date(new Date(x.naAt).getTime() + 9 * 3600000).toISOString().slice(0, 16) : (x.naDue ? `${x.naDue}T09:00` : ""))}" style="max-width:220px" /><span class="kx-note" data-na-st></span><button type="button" class="kx-btn" data-save-na style="margin-left:auto">保存</button></div></div>
       <div class="kx-sec"><div class="lb">メモ</div><textarea class="kx-in" data-memo rows="3">${esc(x.memo)}</textarea><div style="display:flex;margin-top:8px"><button type="button" class="kx-btn" data-save-memo style="margin-left:auto">メモを保存</button></div></div>
       <div class="kx-sec kx-kv"><span>CS担当</span><span>${esc(x.cs || "未定")}</span><span>FS担当</span><span>${esc(x.fs || "—")}</span><span>最終接触</span><span>${x.lastTouch ? `${esc(fmtD(x.lastTouch))}（${x.sinceTouch}日前）` : "—"}</span><span>議事録</span><span>${x.meetings}件</span></div>
       ${x.kickBot ? `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="/kinxs?p=cs&bot=${encodeURIComponent(x.kickBot)}">CS連携の企業カードを開く</a>` : ""}
@@ -336,7 +338,18 @@ async function openDetail(id, reuse) {
   }));
   bg.querySelector("[data-label]").addEventListener("change", (e) => put({ main_label: e.target.value || "" }));
   bg.querySelectorAll("[data-tog]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => put({ [g.dataset.tog]: b.dataset.v === "true" }))));
-  bg.querySelector("[data-save-na]").addEventListener("click", () => put({ na_text: bg.querySelector("[data-na]").value, na_due: bg.querySelector("[data-due]").value }));
+  bg.querySelector("[data-save-na]").addEventListener("click", () => put({ na_text: bg.querySelector("[data-na]").value, na_type: bg.querySelector("[data-natype]").value, na_at: bg.querySelector("[data-due]").value }));
+  const rd = bg.querySelector("[data-read-na]");
+  if (rd) rd.addEventListener("click", async () => {
+    const st = bg.querySelector("[data-na-st]"); rd.disabled = true; st.textContent = "Gmail・議事録を読んでいます…（30秒ほど）";
+    try {
+      const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/read-na`, { method: "POST" });
+      if (!r.ok) { st.textContent = r.reason || "読み取れませんでした"; rd.disabled = false; return; }
+      refresh().catch(() => {}); await again(r.applied ? "次回アクションを入れました" : "提案を出しました（手で入れた次回アクションはそのまま）");
+    } catch (e) { st.textContent = "読めませんでした：" + e.message; rd.disabled = false; }
+  });
+  const ad = bg.querySelector("[data-adopt]"); if (ad) ad.addEventListener("click", () => put({ adopt_suggest: true }));
+  const ds = bg.querySelector("[data-dismiss-sug]"); if (ds) ds.addEventListener("click", () => put({ dismiss_suggest: true }));
   bg.querySelector("[data-save-memo]").addEventListener("click", () => put({ memo: bg.querySelector("[data-memo]").value }));
   bg.querySelectorAll("[data-mt]").forEach((el) => {
     el.addEventListener("click", () => openMeeting(el.dataset.mt));

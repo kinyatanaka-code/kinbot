@@ -11576,7 +11576,7 @@ export async function kinxsInit() {
     end_estimated BOOLEAN DEFAULT false, renew_month TEXT, fs_name TEXT, cs_name TEXT, rank TEXT DEFAULT 'Z', rank_by TEXT, rank_at TIMESTAMPTZ,
     main_label TEXT, label_locked BOOLEAN DEFAULT false, error TEXT, memo TEXT, opp_ids JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
-  for (const c of ["renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
+  for (const c of ["na_type TEXT", "na_at TIMESTAMPTZ", "na_source TEXT", "na_suggest JSONB", "na_scan_at TIMESTAMPTZ", "renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
     await sq(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
   await sq(`CREATE TABLE IF NOT EXISTS kinxs_history (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, from_v TEXT, to_v TEXT, by_user TEXT, auto BOOLEAN DEFAULT false, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
 }
@@ -11654,15 +11654,15 @@ export async function kinxsUpdate(accountId, patch, by) {
   if (!pool) return null;
   const { rows: cur } = await pool.query(`SELECT * FROM kinxs_accounts WHERE account_id=$1`, [accountId]);
   if (!cur[0]) return null;
-  const allow = ["na_text", "na_due", "memo", "kenshu_done", "mail_done", "published", "main_label", "label_locked", "cs_name", "alert_dismiss", "contacts", "renew_month", "renew_locked"];
+  const allow = ["na_type", "na_at", "na_source", "na_suggest", "na_scan_at", "na_text", "na_due", "memo", "kenshu_done", "mail_done", "published", "main_label", "label_locked", "cs_name", "alert_dismiss", "contacts", "renew_month", "renew_locked"];
   const sets = [], vals = [accountId];
   for (const k of allow) {
     if (!(k in patch)) continue;
     let v = patch[k];
-    if (k === "alert_dismiss" || k === "contacts") v = JSON.stringify(v || (k === "contacts" ? [] : {}));
+    if (k === "alert_dismiss" || k === "contacts" || k === "na_suggest") v = v == null ? null : JSON.stringify(v);
     vals.push(v === "" ? null : v);
-    sets.push(`${k}=$${vals.length}${k === "alert_dismiss" || k === "contacts" ? "::jsonb" : ""}`);
-    if (!["alert_dismiss", "contacts"].includes(k) && String(cur[0][k] ?? "") !== String(patch[k] ?? "")) {
+    sets.push(`${k}=$${vals.length}${k === "alert_dismiss" || k === "contacts" || k === "na_suggest" ? "::jsonb" : ""}`);
+    if (!["alert_dismiss", "contacts", "na_suggest", "na_scan_at", "na_source", "na_at"].includes(k) && String(cur[0][k] ?? "") !== String(patch[k] ?? "")) {
       await pool.query(`INSERT INTO kinxs_history (account_id, kind, from_v, to_v, by_user, auto) VALUES ($1,$2,$3,$4,$5,false)`,
         [accountId, k, cur[0][k] == null ? "" : String(cur[0][k]).slice(0, 200), patch[k] == null ? "" : String(patch[k]).slice(0, 200), by]).catch(() => {});
     }

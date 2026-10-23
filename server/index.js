@@ -12610,7 +12610,7 @@ async function kinxsBuild() {
     if (sinceUpd != null && sinceUpd >= rules.staleDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "情報更新なし", score: 15, detail: `記録と議事録が${sinceUpd}日更新されていません` });
     const shown = alerts.filter((a) => !hidden(a.rule));
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
-      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "",
+      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual" };
   });
@@ -12779,6 +12779,89 @@ app.get("/api/kinxs/meetings/:id", async (req, res) => {
       summary: m.summary || {}, transcript: tr.slice(0, 2000).map((u) => ({ who: (u.speaker && u.speaker.name) || u.speaker || "", text: u.text || "" })), more: Math.max(0, tr.length - 2000) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== kinXs：Gmail・議事録から、次回アクション（日時・種別・内容）を自動で読む =====
+// 会社の先方のメールのドメインで、CS担当（無ければFS）のGmailの直近21日のやり取りと、直近30日の議事録の「やること」をAIに読ませる。
+// 次回アクションが空か、前に自動で入れたものなら書きかえる。手で入れてあれば「提案」として残す（モーダルで採用できる）
+const KX_FREE_MAIL = /^(gmail|yahoo|ymail|hotmail|outlook|icloud|me|docomo|ezweb|au|softbank|i\.softbank|nifty|biglobe|ocn|so-net)\./i;
+const KX_NA_TYPES = ["電話", "メール", "MTG", "資料送付", "その他"];
+async function kinxsReadNextAction(accountId, { force = false } = {}) {
+  const { items, mtBy, kickBy } = await kinxsBuild();
+  const x = items.find((i) => i.id === accountId);
+  if (!x) return { ok: false, reason: "会社が見つかりません" };
+  const rows = await kinxsList(); const r = rows.find((y) => y.account_id === accountId) || {};
+  if (!force && r.na_scan_at && Date.now() - Date.parse(r.na_scan_at) < 20 * 3600000) return { ok: false, reason: "最近読んだばかりです" };
+  const key = csCoKey(x.name); const k = kickBy.get(key) || null;
+  // 先方のメールのドメイン（CS連携の先方のメール・SFの取引先責任者）
+  const doms = new Set();
+  const addMail = (e) => { const d = String(e || "").toLowerCase().split("@")[1]; if (d && !KX_FREE_MAIL.test(d)) doms.add(d); };
+  if (k) { addMail(k.client_email); String(k.client_cc || "").split(/[,\s;]+/).forEach(addMail); }
+  if (!/^manual-/.test(accountId)) {
+    try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const q = await sfQuery(sfU, `SELECT Email FROM Contact WHERE AccountId='${String(accountId).replace(/'/g, "")}' AND Email != null LIMIT 8`); (q.records || []).forEach((c) => addMail(c.Email)); } } catch {}
+  }
+  // 読むGmail：CS担当 → FS
+  const owners = [k && k.cs_email, k && k.fs_email].filter(Boolean);
+  const mails = []; let usedOwner = "";
+  for (const o of owners) {
+    if (!doms.size) break;
+    try {
+      const q = `(${[...doms].map((d) => `from:@${d} OR to:@${d}`).join(" OR ")}) newer_than:21d`;
+      const ths = await gmailSearchThreads(o, q, 3);
+      for (const t of ths.slice(0, 3)) {
+        const th = await gmailGetThread(o, t.threadId || t.id).catch(() => null);
+        for (const mm of ((th && th.messages) || []).slice(-3)) mails.push(`【メール ${mm.date}】件名：${mm.subject}\n差出人：${mm.from}\n宛先：${mm.to}\n${String(mm.body || "").replace(/\n>.*$/gm, "").slice(0, 1800)}`);
+      }
+      usedOwner = o; if (mails.length) break;
+    } catch {}
+  }
+  // 直近30日の議事録の「やること」
+  const mts = (mtBy.get(key) || []).filter((m) => Date.now() - Date.parse(m.created_at) < 30 * 86400000).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 2);
+  const minutes = [];
+  for (const m0 of mts) {
+    const m = await getMeeting(m0.bot_id).catch(() => null); const sm = (m && m.summary) || {};
+    const acts = (Array.isArray(sm.action_items) ? sm.action_items : []).map((a) => typeof a === "string" ? a : [a.task || a.item || a.text || "", a.owner ? `（${a.owner}）` : "", a.due ? `〜${a.due}` : ""].join(""));
+    minutes.push(`【議事録 ${new Date(m0.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}】${m0.title || ""}\n概要：${sm.overview || ""}\nやること：${acts.join("／")}`);
+  }
+  await kinxsUpdate(accountId, { na_scan_at: new Date().toISOString() }, "kinXs").catch(() => {});
+  if (!mails.length && !minutes.length) return { ok: false, reason: doms.size ? "直近のメール・議事録が見つかりません" : "先方のメールアドレスが分かりません（CS連携の先方のメールか、SFの取引先責任者）" };
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ");
+  const sys = `あなたはカスタマーサクセスの担当者のアシスタントです。顧客企業とのメールと議事録を読み、弊社（ネオキャリア）側が次にやるべきことを1つだけ決めます。必ずJSONだけを返します。`;
+  const user = `今は ${today}（日本時間）です。会社：${x.name}\n\n${[...mails, ...minutes].join("\n\n").slice(0, 12000)}\n\n次のJSONを返してください：
+{"found": true/false（弊社が次にやることが読み取れたか）, "type": "${KX_NA_TYPES.join("|")}", "at": "YYYY-MM-DDTHH:MM（日時が書いてあれば。日だけなら09:00。書いていなければ文脈から妥当な期日）", "content": "やることを40字以内で（例：打ち合わせの日程候補を3つ送る）", "basis": "根拠を30字以内で（どのメール・議事録か）"}
+先方がやること・もう終わったこと・挨拶だけのメールは次回アクションにしません。`;
+  let ans = null;
+  try { const raw = await callLLMPublic(sys, user, 600, { json: true }); ans = JSON.parse(String(raw).replace(/```json|```/g, "").trim()); } catch (e) { return { ok: false, reason: `AIで読めませんでした：${e.message}` }; }
+  if (!ans || !ans.found || !ans.content) return { ok: false, reason: "次にやることは読み取れませんでした" };
+  const type = KX_NA_TYPES.includes(ans.type) ? ans.type : "その他";
+  const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(ans.at || "")) ? `${String(ans.at).slice(0, 16)}:00+09:00` : null;
+  const src = mails.length ? "Gmail" : "議事録";
+  const sug = { type, at, content: String(ans.content).slice(0, 120), basis: String(ans.basis || "").slice(0, 80), source: src, mailbox: usedOwner, read_at: new Date().toISOString() };
+  const manual = r.na_text && !String(r.na_source || "").startsWith("auto");
+  if (manual) { await kinxsUpdate(accountId, { na_suggest: sug }, "kinXs"); return { ok: true, applied: false, suggest: sug }; }
+  await kinxsUpdate(accountId, { na_text: sug.content, na_type: type, na_at: at, na_due: at ? at.slice(0, 10) : null, na_source: `auto:${src}`, na_suggest: null }, "kinXs（自動）");
+  await kinxsLogAuto(accountId, "na_text", r.na_text || "", `${sug.content}（${src}から自動）`);
+  return { ok: true, applied: true, suggest: sug };
+}
+app.post("/api/kinxs/accounts/:id/read-na", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsReadNextAction(req.params.id, { force: true })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 平日の9〜19時、1時間ごとに、読むのが古い順に8社ずつ（解約済み・キャンセルは読まない）
+let _kxNaBusy = false;
+async function kinxsNaTick() {
+  if (_kxNaBusy) return; _kxNaBusy = true;
+  try {
+    const j = new Date(Date.now() + 9 * 3600000); const h = j.getUTCHours(), dow = j.getUTCDay();
+    if (dow === 0 || dow === 6 || h < 9 || h >= 19) return;
+    const { items } = await kinxsBuild();
+    const rows = await kinxsList(); const at = new Map(rows.map((r) => [r.account_id, Date.parse(r.na_scan_at || 0) || 0]));
+    const cand = items.filter((x) => !["解約済み", "キャンセル"].includes(x.label)).sort((a, b) => (at.get(a.id) || 0) - (at.get(b.id) || 0)).slice(0, 8);
+    let n = 0; for (const x of cand) { const r = await kinxsReadNextAction(x.id).catch(() => null); if (r && r.ok) n++; }
+    if (n) console.log(`[kinxs] Gmail・議事録から次回アクションを読みました：${n}社`);
+  } catch (e) { console.warn("[kinxs] 次回アクションの自動", e.message); }
+  finally { _kxNaBusy = false; }
+}
+setInterval(() => { kinxsNaTick().catch(() => {}); }, 60 * 60 * 1000).unref?.();
+setTimeout(() => { kinxsNaTick().catch(() => {}); }, 6 * 60 * 1000).unref?.();
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -12816,6 +12899,12 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     const b = req.body || {};
     const patch = {};
     for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
+    if ("na_type" in b) patch.na_type = KX_NA_TYPES.includes(b.na_type) ? b.na_type : null;
+    if ("na_at" in b) { const t = String(b.na_at || ""); patch.na_at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t) ? `${t.slice(0, 16)}:00+09:00` : null; patch.na_due = patch.na_at ? t.slice(0, 10) : (patch.na_due || null); }
+    if ("na_text" in b || "na_at" in b || "na_type" in b) patch.na_source = "manual";
+    if (b.adopt_suggest) { const rows0 = await kinxsList(); const r0 = rows0.find((y) => y.account_id === req.params.id) || {}; const g = r0.na_suggest;
+      if (g) { patch.na_text = g.content; patch.na_type = g.type; patch.na_at = g.at; patch.na_due = g.at ? String(g.at).slice(0, 10) : null; patch.na_source = `auto:${g.source}`; patch.na_suggest = null; } }
+    if (b.dismiss_suggest) patch.na_suggest = null;
     for (const k of ["kenshu_done", "mail_done", "published", "label_locked"]) if (k in b) patch[k] = b[k] === null ? null : !!b[k];
     if ("renew_month" in b) { if (!/^\d{4}-\d{2}$/.test(String(b.renew_month || ""))) return res.status(400).json({ error: "更新月は YYYY-MM で入れてください" }); patch.renew_month = b.renew_month; patch.renew_locked = true; }
     if ("main_label" in b) { if (b.main_label && !KX_LABELS.includes(b.main_label)) return res.status(400).json({ error: "メインラベルが正しくありません" }); patch.main_label = b.main_label || null; patch.label_locked = !!b.main_label; }
@@ -26341,7 +26430,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23v kinXsのフォロー履歴を見やすく：議事録・接触はカード（要約は3行まで）、変更の履歴は下にたたんで1行ずつ・言葉で（true→送付済みなど）。名前はメールアドレスではなく登録名。「情報更新なし」が直したあとも出ていた日付の比べ方の誤りも直した。";
+const BUILD_TAG = "2026-10-23w kinXs：Gmail（CS担当→FSのメールで先方のドメインとのやり取り直近21日）と議事録（直近30日のやること）をAIで読み、次回アクションの日時・種別・内容を自動で入れる（平日1時間ごと＋モーダルの「Gmail・議事録から読む」）。手で入れてあれば提案として出し、採用できる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
