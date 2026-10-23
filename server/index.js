@@ -12493,7 +12493,9 @@ const kinxsIsSpace = (n) => /空間デザイン制作/.test(kxNorm(n)) && !kinxs
 const kinxsIsTarget = (n) => kinxsIsAchi(n) || /空間デザイン制作/.test(kxNorm(n));
 // 会社ごとの判定（2026-10-24 田中さん）：「空間デザイン制作(2D)だけ」「アチコチバースだけ」の会社はカードにしない
 //   → 空間デザイン制作（2D以外）がある会社、または アチコチバースと2Dの両方がある会社だけ
-const kinxsAccountOk = (names) => { const ns = names || []; return ns.some(kinxsIsSpace) || (ns.some(kinxsIsAchi) && ns.some(kinxsIs2D)); };
+//   （2026-10-24 追加：アチコチバース（年間）の会社は、アチコチバースだけでも残す）
+const kinxsIsAchiAnnual = (n) => kinxsIsAchi(n) && /年間/.test(kxNorm(n));
+const kinxsAccountOk = (names) => { const ns = names || []; return ns.some(kinxsIsSpace) || ns.some(kinxsIsAchiAnnual) || (ns.some(kinxsIsAchi) && ns.some(kinxsIs2D)); };
 let _kinxsBusy = false, _kinxsLast = null;
 async function kinxsSync() {
   if (_kinxsBusy) return _kinxsLast;
@@ -26476,7 +26478,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24l kinXs：「アチコチバースだけ」の会社もカードにしない。空間デザイン制作（2D以外）がある会社か、アチコチバースと空間デザイン制作(2D)の両方がある会社だけ。";
+const BUILD_TAG = "2026-10-24m kinXs：アチコチバース（年間）の会社は、アチコチバースだけでもカードに残す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
