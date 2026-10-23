@@ -12798,8 +12798,9 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   if (!/^manual-/.test(accountId)) {
     try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const q = await sfQuery(sfU, `SELECT Email FROM Contact WHERE AccountId='${String(accountId).replace(/'/g, "")}' AND Email != null LIMIT 8`); (q.records || []).forEach((c) => addMail(c.Email)); } } catch {}
   }
-  // 読むGmail：CS担当 → FS
-  const owners = [k && k.cs_email, k && k.fs_email].filter(Boolean);
+  // 読むGmail：CS担当 → FS → メールワイズのコピーが届く共有のGoogleアカウント（kinXsの設定）
+  const stMb = await getSettings().catch(() => ({}));
+  const owners = [...new Set([k && k.cs_email, k && k.fs_email, ...((stMb.kinxsMailboxes || []).map((x) => String(x || "").toLowerCase()))].filter(Boolean))];
   const mails = []; let usedOwner = "";
   for (const o of owners) {
     if (!doms.size) break;
@@ -12841,6 +12842,30 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   await kinxsLogAuto(accountId, "na_text", r.na_text || "", `${sug.content}（${src}から自動）`);
   return { ok: true, applied: true, suggest: sug };
 }
+// kinXsの設定：メールワイズのメールのコピーが届く、共有のGoogleアカウント
+app.get("/api/kinxs/settings", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const st = await getSettings().catch(() => ({}));
+    const list = st.kinxsMailboxes || [];
+    const users = await listUsers().catch(() => []);
+    const boxes = [];
+    for (const e of list) {
+      const u = users.find((y) => String(y.email || "").toLowerCase() === e);
+      let ready = false; try { const g = await gmailReady(e); ready = !!(g && g.ok); } catch {}
+      boxes.push({ email: e, member: !!u, ready });
+    }
+    res.json({ ok: true, mailboxes: boxes });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/kinxs/settings", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const list = [...new Set((Array.isArray(req.body?.mailboxes) ? req.body.mailboxes : []).map((x) => String(x || "").trim().toLowerCase()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)))].slice(0, 10);
+    await saveSettings({ kinxsMailboxes: list });
+    res.json({ ok: true, mailboxes: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/kinxs/accounts/:id/read-na", async (req, res) => {
   try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsReadNextAction(req.params.id, { force: true })); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -26430,7 +26455,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23w kinXs：Gmail（CS担当→FSのメールで先方のドメインとのやり取り直近21日）と議事録（直近30日のやること）をAIで読み、次回アクションの日時・種別・内容を自動で入れる（平日1時間ごと＋モーダルの「Gmail・議事録から読む」）。手で入れてあれば提案として出し、採用できる。";
+const BUILD_TAG = "2026-10-23x kinXsに「設定」：メールワイズのメールのコピーが届く共有のGoogleアカウントを登録すると、次回アクションの自動の読み取りでそのGmailも読む（CS担当・FSのあとに）。つながっているかの表示と、つなぎ方の手順つき。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -177,13 +177,13 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ list: "list", import: "import", cs: "cs", board: "board" })[new URLSearchParams(location.search).get("p")] || "renew";
+const VIEW = ({ list: "list", import: "import", cs: "cs", board: "board", settings: "settings" })[new URLSearchParams(location.search).get("p")] || "renew";
 document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board";
+$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSettings").hidden = VIEW !== "settings";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ board: "ラベル別ボード", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
+$("kxPageName").textContent = ({ settings: "設定", board: "ラベル別ボード", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = VIEW !== "renew";
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
@@ -536,4 +536,20 @@ function renderBoard() {
 }
 if ($("bdQ")) { $("bdQ").addEventListener("input", renderBoard); $("bdCs").addEventListener("change", renderBoard); $("bdEnd").addEventListener("change", renderBoard); }
 api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); }).catch(() => {});
-if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
+// ===== 設定（メールワイズのコピーが届く共有のGoogleアカウント）=====
+let mbList = [];
+async function loadSettings() {
+  try {
+    const r = await api("/api/kinxs/settings"); mbList = r.mailboxes || [];
+    $("mbList").innerHTML = mbList.length ? mbList.map((b) => `<div class="hp-row" style="border:1px solid #E6ECE9;border-radius:10px;margin-bottom:6px"><span class="hp-v">${esc(b.email)}</span>
+      <span class="${b.ready ? "ok-t" : "ng-t"}" style="font-size:12px">${b.ready ? "Gmailを読めます" : b.member ? "Google連携がまだです" : "kinbotのメンバーに追加されていません"}</span>
+      <button type="button" class="hp-b" data-mb-del="${esc(b.email)}">外す</button></div>`).join("") : `<div class="kx-note">まだありません</div>`;
+    document.querySelectorAll("[data-mb-del]").forEach((b) => b.addEventListener("click", () => saveMb(mbList.map((x) => x.email).filter((e) => e !== b.dataset.mbDel))));
+  } catch (e) { $("mbSt").textContent = "読み込めませんでした：" + e.message; }
+}
+async function saveMb(list) {
+  try { await api("/api/kinxs/settings", { method: "PUT", body: JSON.stringify({ mailboxes: list }) }); $("mbSt").textContent = "保存しました"; await loadSettings(); }
+  catch (e) { $("mbSt").textContent = "保存できませんでした：" + e.message; }
+}
+if ($("mbAdd")) $("mbAdd").addEventListener("click", () => { const v = $("mbNew").value.trim(); if (!v) return; $("mbNew").value = ""; saveMb([...mbList.map((x) => x.email), v]); });
+if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard(); else if (VIEW === "settings") loadSettings();

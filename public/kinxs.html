@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023w" />
+    <link rel="stylesheet" href="style.css?v=20261023x" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -202,6 +202,7 @@
         <span class="kx-nav off" title="準備中"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/></svg>未紐づけ議事録<em>準備中</em></span>
         <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携（回収MTG）</a>
         <a class="kx-nav" data-view="import" href="/kinxs?p=import"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>CS管理ボードから取り込む</a>
+        <a class="kx-nav" data-view="settings" href="/kinxs?p=settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>設定</a>
         <a class="kx-nav kx-back" href="/home.html"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>kinbotへ戻る</a>
       </nav>
 
@@ -240,6 +241,23 @@
             <div class="kx-board-wrap"><div class="kx-board" id="bdCols"><div class="kx-empty">読み込み中…</div></div></div>
           </div>
           <div id="vCs" hidden style="height:calc(100vh - 66px)"><iframe id="kxCsFrame" title="CS連携" style="width:100%;height:100%;border:0;border-radius:16px;background:#F3F6F4"></iframe></div>
+          <div class="kx-wrap" id="vSettings" hidden>
+            <div class="kx-sec" style="background:#fff;display:flex;flex-direction:column;gap:10px">
+              <div class="lb" style="font-size:14px">メールワイズのメールを読む（共有のGoogleアカウント）</div>
+              <div class="kx-note" style="line-height:1.8">メールワイズが受け取っているアドレス（例：cs@…）のメールを、Googleのアカウントにもコピーで届くようにしておくと、kinXsがそのGmailを読み、先方とのやり取りから次回アクションを自動で入れます。CS担当・FSのGmailで見つからなかったときに、ここのアカウントを読みます。</div>
+              <div id="mbList"></div>
+              <div style="display:flex;gap:8px"><input class="kx-in" id="mbNew" placeholder="共有のGoogleアカウントのメールアドレス（例：kinxs-mail@neo-career.co.jp）" /><button type="button" class="kx-btn" id="mbAdd" style="white-space:nowrap">追加する</button></div>
+              <span class="kx-note" id="mbSt"></span>
+              <details><summary class="kx-note" style="cursor:pointer;font-weight:700">つなぎ方の手順</summary>
+                <ol class="kx-note" style="line-height:1.9;margin:8px 0 0;padding-left:20px">
+                  <li>共有のGoogleアカウントを1つ用意します（会社のGoogle Workspaceのアカウント）。</li>
+                  <li>メールワイズが受け取っているアドレスに届くメールを、そのアカウントにもコピーで届くようにします（メールサーバーの転送の設定か、Google Workspaceの管理画面の「ルーティング」で、受信者を追加します）。メールワイズの方には、今までどおり届きます。</li>
+                  <li>そのアカウントを、kinbotのメンバーに追加してもらい、そのアカウントで1回kinbotにログインして、設定から「Google連携」をします。</li>
+                  <li>ここにそのアカウントのメールアドレスを追加します。「Gmailを読めます」と出れば完了です。</li>
+                </ol>
+              </details>
+            </div>
+          </div>
           <div class="kx-wrap" id="vImport" hidden>
             <div class="kx-head"><div><h1 class="kx-title">CS管理ボードから取り込む</h1><div class="kx-sub">今のCS管理ボード（スプレッドシート）の更新月・確度・CS担当などを、kinXsの会社に反映します。会社名で照らし合わせます</div></div></div>
             <div class="kx-sec" style="background:#fff;display:flex;flex-direction:column;gap:10px">
@@ -279,6 +297,6 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261023w"></script>
+    <script src="kinxs.js?v=20261023x"></script>
   </body>
 </html>
