@@ -6896,7 +6896,7 @@ export async function listApoMailStatus(slugs) {
     );
     for (const r of rows) {
       out[r.slug] = out[r.slug] || {};
-      out[r.slug][r.kind] = { status: r.status, at: r.created_at, to: r.to_email, error: r.error };
+      out[r.slug][r.kind] = { status: r.status, at: r.created_at, to: r.to_email, error: r.error, bounced: !!r.bounced, bounceNote: r.bounce_note || "" };
     }
   } catch (e) { console.error("[db] listApoMailStatus", e.message); }
   return out;

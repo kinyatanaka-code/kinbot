@@ -199,9 +199,11 @@ function apoCard(a, i) {
   // メール状態チップ
   const mchip = (label, s) => {
     if (!s) return chipMuted(label + "：未");
+    // 送ったけれど、届かずに戻ってきた（Gmailに不達の知らせが来た）
+    if (s.status === "sent" && s.bounced) return `<span class="ap-c2-chip ap-c2-warn ap-c2-bounce" title="${esc(`届きませんでした：${s.to || ""}${s.bounceNote ? `\n${s.bounceNote}` : ""}\n宛先を直して送り直してください`)}">⚠ ${esc(label)}：不達</span>`;
     if (s.status === "sent") return chipOk(label);
     if (s.status === "draft") return `<span class="ap-c2-chip ap-c2-draft">${esc(label)}：下書き</span>`;
-    return chipWarn(label + "：失敗");
+    return `<span class="ap-c2-chip ap-c2-warn" title="${esc(`送れませんでした${s.error ? `：${s.error}` : ""}`)}">${esc(label)}：失敗</span>`;
   };
 
   // 商談ステージ（Salesforceから）
@@ -240,8 +242,9 @@ function apoCard(a, i) {
 
   // 宛先（クラス・data属性は既存のまま：ap-mailedit）
   const srcChip = a.client_email_source === "description" ? '<span class="ap-src-chip">説明欄</span>' : "";
+  const bounced = Object.values(m).some((x) => x && x.bounced && String(x.to || "").toLowerCase() === String(a.client_email || "").toLowerCase());
   const mailBody = a.client_email
-    ? `<span class="ap-c2-addr">${esc(a.client_email)}</span>${srcChip}` +
+    ? `<span class="ap-c2-addr${bounced ? " ap-c2-addr-ng" : ""}" ${bounced ? 'title="このアドレスにはメールが届きませんでした。宛先を確かめて直してください"' : ""}>${esc(a.client_email)}${bounced ? " ⚠ 不達" : ""}</span>${srcChip}` +
       (a.client_cc ? `<span class="ap-c2-cc" title="CC：${esc(a.client_cc)}">CC ${esc(String(a.client_cc).split(/,\s*/).join("、"))}</span>` : "") +
       `<button class="btn-ico ap-mailedit" data-i="${i}" title="宛先・CCを変更" aria-label="宛先・CCを変更">${AP_ICO.edit}</button>`
     : `<button class="btn ghost ap-mailedit ap-warn-btn" data-i="${i}">宛先を入力</button>`;
