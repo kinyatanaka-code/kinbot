@@ -150,14 +150,14 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ list: "list", import: "import", cs: "cs" })[new URLSearchParams(location.search).get("p")] || "renew";
+const VIEW = ({ list: "list", import: "import", cs: "cs", board: "board" })[new URLSearchParams(location.search).get("p")] || "renew";
 document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs";
+$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
-document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list"].includes(VIEW); });
+$("kxPageName").textContent = ({ board: "ラベル別ボード", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
+document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = VIEW !== "renew";
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
 api("/api/me").then((me) => {
@@ -274,7 +274,7 @@ async function openDetail(id) {
   </aside>`;
   document.body.appendChild(bg);
   const close = () => bg.remove();
-  const refresh = async () => { if (VIEW === "list") await loadList(); else await load(); };
+  const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else await load(); };
   const put = async (body, again = true) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); await refresh(); if (again) { close(); openDetail(id); } } catch (e) { alert(e.message); } };
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   bg.querySelector("[data-x]").addEventListener("click", close);
@@ -368,7 +368,7 @@ function openAddUser() {
     try {
       const r = await api("/api/kinxs/accounts", { method: "POST", body: JSON.stringify(body) });
       close();
-      if (VIEW === "list") await loadList(); else await load();
+      if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else await load();
       if (r.item && r.item.account_id) openDetail(r.item.account_id);
     } catch (e) { st.textContent = "追加できませんでした：" + e.message; }
   });
@@ -411,5 +411,66 @@ if ($("imLoad")) {
   $("imPreview").addEventListener("click", () => imRun(true));
   $("imApply").addEventListener("click", () => imRun(false));
 }
+// ===== ラベル別ボード =====
+const BD_COLS = [
+  ["計上予定", "リストに入った直後。キックオフMTGがまだ", "#7C8AA5"],
+  ["フォローMTG設定中", "キックオフ済み、フォローMTGが未設定", "#E0A100"],
+  ["フォローMTG設定済", "フォローMTGを設定済み、まだ実施前", "#3F72C9"],
+  ["オンボーディング中", "フォローMTG済み、まだ掲載できていない", "#7A55C7"],
+  ["利用中", "掲載状況を確認したあと", "#1D9E75"],
+  ["更新検討時期", "更新月の2か月前から", "#E07A1F"],
+  ["解約予定", "解約の意向あり（確度C）", "#C43D3D"],
+  ["解約済み", "契約が終わった（確度F）", "#3A3F3D"],
+  ["キャンセル", "SFで計上を取り消した", "#9AA5A0"],
+  ["エラー", "SFの取り込みで必要な項目が無い", "#A51F16"],
+];
+let bdData = null;
+async function loadBoard() {
+  try { bdData = await api("/api/kinxs/users"); renderBoard(); }
+  catch (e) { $("bdCols").innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+function renderBoard() {
+  const d = bdData; if (!d) return;
+  const sel = $("bdCs"), cur = sel.value;
+  const css = [...new Set(d.items.map((x) => x.cs).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+  sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
+  const q = String($("bdQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
+  const items = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : x.cs === sel.value)));
+  const showEnd = $("bdEnd").checked;
+  const cols = BD_COLS.filter(([l]) => showEnd || !["解約済み", "キャンセル"].includes(l)).filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
+  const good = "background:#E1F5EE;color:#0A5440", bad = "background:#FBE4E4;color:#8C1F1F", mid = "background:#FFF1DC;color:#7A3F00";
+  const card = (x) => `<div class="kx-card ${x.alerts.length ? "warn" : ""}" draggable="true" data-card="${esc(x.id)}" role="button" tabindex="0" title="押すと詳細／別の列にドラッグでラベルを変える">
+      <div class="t"><span>${esc(x.name)}</span>${x.alerts.length ? '<span class="kx-rule" style="flex:none;font-size:10.5px">要注意</span>' : ""}</div>
+      <div class="p">${esc(x.products.join("・"))}</div>
+      <div class="bd"><span class="kx-rank r-${x.rank}" style="width:22px;height:22px;font-size:11.5px">${x.rank}</span>
+        <span class="s" style="${x.kenshu === "回収済み" ? good : x.kenshu === "依頼済み" ? mid : bad}">検収 ${x.kenshu === "回収済み" ? "済" : x.kenshu === "依頼済み" ? "依頼済" : "未"}</span>
+        <span class="s" style="${x.mail === "送付済み" ? good : x.mail === "下書きあり" ? mid : bad}">納品メール ${x.mail === "送付済み" ? "済" : x.mail === "下書きあり" ? "下書き" : "未"}</span>
+        ${x.locked ? '<span class="lock" title="手で決めたラベル">🔒</span>' : ""}</div>
+      <div class="f"><span class="av">${esc((x.cs || "？").slice(0, 1))}</span>${esc(x.cs || "CS未定")}<span style="margin-left:auto;${x.naDue && x.naDue < new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) ? "color:#8C1F1F;font-weight:700" : ""}">${x.naDue ? `NA ${esc(x.naDue.slice(5).replace("-", "/"))}` : x.renew ? `更新 ${esc(x.renew.replace("-", "/"))}` : ""}</span></div>
+    </div>`;
+  $("bdCols").innerHTML = cols.map(([l, rule, color]) => {
+    const list = items.filter((x) => x.label === l).sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name, "ja"));
+    return `<section class="kx-col" data-col="${esc(l)}"><div class="kx-col-h"><span style="width:10px;height:10px;border-radius:3px;background:${color}"></span><b>${esc(l)}</b><span class="n">${list.length}</span></div><div class="kx-col-r">${esc(rule)}</div>${list.map(card).join("")}</section>`;
+  }).join("");
+  $("bdSt").textContent = `全${items.length}社`;
+  document.querySelectorAll("#bdCols [data-card]").forEach((c) => {
+    c.addEventListener("click", () => openDetail(c.dataset.card));
+    c.addEventListener("keydown", (e) => { if (e.key === "Enter") openDetail(c.dataset.card); });
+    c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.dataset.card); c.classList.add("dragging"); });
+    c.addEventListener("dragend", () => { c.classList.remove("dragging"); document.querySelectorAll(".kx-col.over").forEach((x) => x.classList.remove("over")); });
+  });
+  document.querySelectorAll("#bdCols [data-col]").forEach((col) => {
+    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
+    col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("over"); });
+    col.addEventListener("drop", async (e) => {
+      e.preventDefault(); col.classList.remove("over");
+      const id = e.dataTransfer.getData("text/plain"); const x = d.items.find((i) => i.id === id);
+      if (!x || x.label === col.dataset.col) return;
+      try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ main_label: col.dataset.col }) }); x.label = col.dataset.col; x.locked = true; renderBoard(); }
+      catch (er) { alert(er.message); }
+    });
+  });
+}
+if ($("bdQ")) { $("bdQ").addEventListener("input", renderBoard); $("bdCs").addEventListener("change", renderBoard); $("bdEnd").addEventListener("change", renderBoard); }
 api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); }).catch(() => {});
-if (VIEW === "list") loadList(); else if (VIEW === "renew") load();
+if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
