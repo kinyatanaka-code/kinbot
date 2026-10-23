@@ -78,7 +78,7 @@ function render() {
     + (rsel.size ? `<button type="button" class="kx-chip" data-rank-clear style="height:28px">確度の絞り込みを外す</button>` : "");
   $("kxTable").innerHTML = d.items.length ? `<div class="kx-legend">${legend}<span class="kx-note" style="color:#7A3300;font-weight:700"><i class="dot"></i> 要注意</span></div>
     <div class="kx-fbar">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}${fbtn("Z", "未アプローチ")}</div>
-    <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のアチコチバースの商談から取り込みます。</div>`;
+    <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降の、空間デザイン制作かアチコチバースの商談から取り込みます。</div>`;
   const box = $("kxTable");
   kxFitRows();
   box.querySelectorAll("[data-flt]").forEach((b) => b.addEventListener("click", () => { window.__kxFilter = b.dataset.flt; render(); }));

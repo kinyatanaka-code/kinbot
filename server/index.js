@@ -12482,7 +12482,8 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
 // SFのクロスの商談が「06 申込書回収」以降になった会社を、取引先ごとに1件にまとめて持つ。対象は要件定義書の5商品だけ。
 // 契約終了日：商談の項目でラベルに「契約終了」「利用終了」を含むもの → 無ければ計上日から1年（推定の印つき）。更新月＝契約終了日の前月
 // 対象：商談の商品に「アチコチバース」が入っているものだけ（2026-10-23 田中さん。前は要件定義書の5商品）
-const KINXS_PRODUCTS = [/アチコチバース/];
+// （2026-10-24 田中さん：商品に「空間デザイン制作」か「アチコチバース」が入っている会社だけ。ほかは手で追加する）
+const KINXS_PRODUCTS = [/アチコチバース/, /空間デザイン制作/];
 const kinxsIsTarget = (n) => KINXS_PRODUCTS.some((re) => re.test(String(n || "").normalize("NFKC").replace(/\(/g, "（").replace(/\)/g, "）")) || re.test(String(n || "")));
 let _kinxsBusy = false, _kinxsLast = null;
 async function kinxsSync() {
@@ -12540,6 +12541,7 @@ async function kinxsSync() {
       // 会社の契約：いちばん新しい計上の商品から。終了日が無ければ計上日の1年後（推定）
       const ps = a.products.sort((x, y) => String(y.booked || "").localeCompare(String(x.booked || "")));
       const top = ps[0] || {};
+      a.first_booked_on = ps.map((p) => p.booked).filter(Boolean).sort()[0] || null;   // 最初の受注日（いちばん古い計上日）
       a.booked_on = top.booked || null; a.start_on = top.start || null;
       let end = ps.map((p) => p.end).filter(Boolean).sort().pop() || null;
       a.end_estimated = false;
@@ -12644,7 +12646,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", booked: r.booked_on ? String(r.booked_on instanceof Date ? r.booked_on.toISOString() : r.booked_on).slice(0, 10) : "" };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy };
 }
@@ -26464,7 +26466,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24h kinXsのユーザー一覧：受注日（計上日）が新しい順に並べ、カードの右下に受注日を出す。";
+const BUILD_TAG = "2026-10-24i kinXs：SFからは、商品に「空間デザイン制作」か「アチコチバース」が入っている会社だけをカードにする（ほかは手で追加）。会社ごとに最初の受注日（いちばん古い計上日）を持ち、ユーザー一覧はその新しい順・カードにも最初の受注日。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
