@@ -43,9 +43,9 @@ function render() {
   const near = items.filter((x) => x.left != null && x.left >= -31 && x.left <= d.warnDays && x.rank !== "F");
   const warn = near.filter((x) => x.warn);
   const kpis = [
-    { l: `${d.warnDays}日以内に更新`, v: `${near.length}社`, s: `うち確度B以下 ${warn.length}社` },
-    { l: "要注意（更新月接近）", v: `${warn.length}社`, s: `未アプローチ（Z）が ${warn.filter((x) => x.rank === "Z").length}社`, st: "color:#7A3300" },
-    { l: "更新確定・予定（S・A）", v: `${near.filter((x) => ["S", "A"].includes(x.rank)).length}社`, s: `${d.warnDays}日以内の ${near.length}社のうち`, st: "color:#0A5440" },
+    { l: "3か月以内に更新月", v: `${near.length}社`, s: `今日から${d.warnDays}日以内に更新月が来る会社（解約企業を除く）。うち確度B以下 ${warn.length}社` },
+    { l: "うち要注意（確度B以下）", v: `${warn.length}社`, s: `未アプローチ（Z）が ${warn.filter((x) => x.rank === "Z").length}社`, st: "color:#7A3300" },
+    { l: "うち更新確定・予定（S・A）", v: `${near.filter((x) => ["S", "A"].includes(x.rank)).length}社`, s: `3か月以内に更新月が来る ${near.length}社のうち、確度がSかA`, st: "color:#0A5440" },
     { l: "解約検討（C）", v: `${items.filter((x) => x.rank === "C").length}社`, s: items.filter((x) => x.rank === "C").slice(0, 2).map((x) => x.name).join("・") || "—", st: "color:#8C1F1F" },
   ];
   $("kxKpis").innerHTML = kpis.map((k) => `<div class="kx-kpi" title="${esc(k.s)}"><div class="l">${esc(k.l)}</div><div class="v" style="${k.st || ""}">${esc(k.v)}</div><div class="s">${esc(k.s)}</div></div>`).join("");
@@ -241,8 +241,8 @@ function renderList() {
   const body = items.map((x) => {
     const touchCls = x.sinceTouch != null && x.sinceTouch >= (d.rules.contactDays || 30) ? "ng-t" : "";
     const dueCls = x.naDue && x.naDue < today ? "ng-t" : "kx-note";
-    const kc = x.kenshu === "回収済み" ? "ok-t" : x.kenshu === "依頼済み" ? "mid-t" : "ng-t";
-    const mc = x.mail === "送付済み" ? "ok-t" : x.mail === "下書きあり" ? "mid-t" : "ng-t";
+    const kc = x.kenshu.startsWith("回収済み") ? "ok-t" : x.kenshu === "依頼済み" ? "mid-t" : "ng-t";
+    const mc = x.mail.startsWith("送付済み") ? "ok-t" : x.mail === "下書きあり" ? "mid-t" : "ng-t";
     return `<div class="ls-r" data-open="${esc(x.id)}"><div class="co">${esc(x.name)}${x.manual ? ' <span class="kx-note" style="font-size:10.5px;border:1px solid #D5E2DB;border-radius:6px;padding:0 5px">手入力</span>' : ""}${x.alerts.length ? ' <span class="kx-rule" style="font-size:10.5px">要注意</span>' : ""}</div><div class="sub">${esc(x.products.join("・"))}</div></div>` +
       `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span>${x.locked ? ' <span class="kx-note" title="手で決めたラベル">🔒</span>' : ""}</div>` +
       `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-rank r-${x.rank}">${x.rank}</span></div>` +
@@ -283,8 +283,8 @@ async function openDetail(id, reuse) {
         <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "フォローMTG設定中", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
         <div class="kx-note" style="margin-top:6px">手で決めると、自動では戻しません（自動に任せるに戻すと、また自動で付きます）</div></div>
       <div class="kx-sec" style="display:grid;grid-template-columns:96px 1fr;gap:8px 10px;align-items:center">
-        <span class="kx-note">検収書</span>${tog("kenshu_done", x.kenshuDone === true, [["true", "回収済み"], ["false", "未回収"]])}
-        <span class="kx-note">納品メール</span>${tog("mail_done", x.mailDone === true ? true : x.mailDone === false ? false : "", [["true", "送付済み"], ["false", "未送付"]])}
+        <span class="kx-note">検収書</span><div>${tog("kenshu_done", x.kenshuDone === true ? true : x.kenshuDone === false ? false : "", [["true", "回収済み"], ["false", "未回収"]])}${x.kenshuDone == null ? `<div class="kx-note" style="margin-top:3px">いま：${esc(x.kenshu)}${x.kenshu.includes("自動") ? "（もう使っている会社なので、完了あつかい）" : ""}</div>` : ""}</div>
+        <span class="kx-note">納品メール</span><div>${tog("mail_done", x.mailDone === true ? true : x.mailDone === false ? false : "", [["true", "送付済み"], ["false", "未送付"]])}${x.mailDone == null ? `<div class="kx-note" style="margin-top:3px">いま：${esc(x.mail)}${x.mail.includes("自動") ? "（もう使っている会社なので、完了あつかい）" : ""}</div>` : ""}</div>
         <span class="kx-note">掲載</span>${tog("published", x.published, [["true", "確認した（利用中）"], ["false", "まだ"]])}
       </div>
       <div class="kx-sec"><div class="lb" style="display:flex;align-items:center;gap:8px">次回アクション${x.naSource && x.naSource.startsWith("auto") ? `<span class="kx-auto">${esc(x.naSource.replace("auto:", ""))}から自動で入れました</span>` : ""}<button type="button" class="kx-btn" data-read-na style="margin-left:auto;height:28px;font-size:11.5px">Gmail・議事録から読む</button></div>
@@ -506,8 +506,8 @@ function renderBoard() {
       <div class="t"><span>${esc(x.name)}</span>${x.alerts.length ? '<span class="kx-rule" style="flex:none;font-size:10.5px">要注意</span>' : ""}</div>
       <div class="p">${esc(x.products.join("・"))}</div>
       <div class="bd"><span class="kx-rank r-${x.rank}" style="width:22px;height:22px;font-size:11.5px">${x.rank}</span>
-        <span class="s" style="${x.kenshu === "回収済み" ? good : x.kenshu === "依頼済み" ? mid : bad}">検収 ${x.kenshu === "回収済み" ? "済" : x.kenshu === "依頼済み" ? "依頼済" : "未"}</span>
-        <span class="s" style="${x.mail === "送付済み" ? good : x.mail === "下書きあり" ? mid : bad}">納品メール ${x.mail === "送付済み" ? "済" : x.mail === "下書きあり" ? "下書き" : "未"}</span>
+        <span class="s" style="${x.kenshu.startsWith("回収済み") ? good : x.kenshu === "依頼済み" ? mid : bad}">検収 ${x.kenshu.startsWith("回収済み") ? "済" : x.kenshu === "依頼済み" ? "依頼済" : "未"}</span>
+        <span class="s" style="${x.mail.startsWith("送付済み") ? good : x.mail === "下書きあり" ? mid : bad}">納品メール ${x.mail.startsWith("送付済み") ? "済" : x.mail === "下書きあり" ? "下書き" : "未"}</span>
         ${x.locked ? '<span class="lock" title="手で決めたラベル">🔒</span>' : ""}</div>
       <div class="f"><span class="av">${esc((kxSurname(x.cs) || "？").slice(0, 1))}</span>${esc(kxSurname(x.cs) || "CS未定")}<span style="margin-left:auto;${x.naDue && x.naDue < new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) ? "color:#8C1F1F;font-weight:700" : ""}">${x.naDue ? `NA ${esc(x.naDue.slice(5).replace("-", "/"))}` : x.renew ? `更新 ${esc(x.renew.replace("-", "/"))}` : ""}</span></div>
     </div>`;

@@ -12611,8 +12611,11 @@ async function kinxsBuild() {
     const left = r.renew_month ? Math.round((Date.parse(`${r.renew_month}-01T00:00:00+09:00`) - now) / 86400000) : null;
     const rank = r.rank || "Z";
     const tr = k ? csTrackDigest(track[k.bot_id] || [], k.draft_at) : null;
-    const kenshu = r.kenshu_done === true ? "回収済み" : (k && ksSent[k.bot_id] ? "依頼済み" : "未回収");
-    const mail = r.mail_done === true || (tr && (tr.opened || (tr.clicks || []).length)) ? "送付済み" : (r.mail_done === false ? "未送付" : (k && k.draft_at ? "下書きあり" : "未送付"));
+    // 納品（検収書・納品メール）：手で決めたらそれ。決めていなければ、もう使っている会社（掲載を確認した・計上から90日たった）は「完了（自動）」、最近受注した会社は今の状況
+    const bookedDays = r.booked_on ? Math.floor((now - Date.parse(String(r.booked_on).slice(0, 10) + "T00:00:00+09:00")) / 86400000) : null;
+    const matured = !!r.published || (bookedDays != null && bookedDays >= (rules.deliveredDays || 90));
+    const kenshu = r.kenshu_done === true ? "回収済み" : r.kenshu_done === false ? "未回収" : matured ? "回収済み（自動）" : (k && ksSent[k.bot_id] ? "依頼済み" : "未回収");
+    const mail = r.mail_done === true || (tr && (tr.opened || (tr.clicks || []).length)) ? "送付済み" : r.mail_done === false ? "未送付" : matured ? "送付済み（自動）" : (k && k.draft_at ? "下書きあり" : "未送付");
     // メインラベル（自動）。手で決めて鍵をかけたら、そのまま
     let auto = "計上予定";
     if (r.error) auto = "エラー";
@@ -12630,7 +12633,7 @@ async function kinxsBuild() {
     const alerts = [];
     if (left != null && left <= rules.renewDays && ["B", "C", "Z"].includes(rank) && label !== "解約済み") alerts.push({ rule: "更新月接近", score: 40, detail: `更新月 ${r.renew_month.replace("-", "/")}（${left < 0 ? `${-left}日過ぎ` : `あと${left}日`}）・確度${rank}` });
     if (r.na_due && String(r.na_due).slice(0, 10) < today) alerts.push({ rule: "NA期限切れ", score: 30, detail: `次回アクションの期日 ${String(r.na_due).slice(5, 10).replace("-", "/")} を ${days(String(r.na_due).slice(0, 10) + "T00:00:00+09:00")}日過ぎています` });
-    const undelivered = kenshu !== "回収済み" || mail !== "送付済み";
+    const undelivered = !kenshu.startsWith("回収済み") || !mail.startsWith("送付済み");
     const sinceTouch = days(lastTouch || r.booked_on || r.created_at);
     if (undelivered && sinceTouch != null && sinceTouch >= rules.contactDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "接触途絶", score: 25, detail: `${kenshu !== "回収済み" ? "検収書が未回収" : "納品メールが未送付"}のまま、最後の接触から${sinceTouch}日` });
     const updMs = Math.max(0, ...[r.manual_updated_at, r.rank_at, lastTouch, r.booked_on, r.created_at].map(toMs));
@@ -26461,7 +26464,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24b アポ一覧のカード：案内メール（確定・リマインド）がGmailに不達で戻ってきたら「⚠ 確定メール：不達」の印と、宛先に「⚠ 不達」。送れなかったときは理由をマウスを乗せると出す。";
+const BUILD_TAG = "2026-10-24c kinXs：もう使っている会社（掲載を確認した・計上から90日たった）は、検収書・納品メールを手で決めていなければ「完了（自動）」あつかい（接触途絶の要注意にも入らない）。最近受注した会社は今までどおり。更新管理の上の数字の名前を「3か月以内に更新月」「うち要注意」「うち更新確定・予定」に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
