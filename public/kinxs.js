@@ -9,6 +9,20 @@ async function api(url, opts = {}) {
   if (!r.ok) throw new Error(d.error || `エラー（${r.status}）`);
   return d;
 }
+// CS担当は苗字だけにそろえる（「鶴川」「鶴川 夏海」「久野沙織」などが混ざっていても、同じ人は1つに）
+function kxSurnameMap(names) {
+  const base = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+  const bases = [...new Set(names.map(base).filter(Boolean))].sort((a, b) => a.length - b.length);
+  const map = new Map();
+  for (const n of names) {
+    const b = base(n); if (!b) continue;
+    const shorter = bases.find((x) => x !== b && x.length >= 2 && b.startsWith(x));
+    map.set(n, shorter || (b.length >= 4 && /^[\p{Script=Han}]{2}/u.test(b) && !/[\s　]/.test(String(n).trim()) ? b.slice(0, 2) : b));
+  }
+  return map;
+}
+let kxSur = new Map();
+const kxSurname = (n) => (n ? (kxSur.get(n) || String(n).normalize("NFKC").trim().split(/[\s　]+/)[0]) : "");
 const ymLabel = (ym) => ym ? `${ym.slice(0, 4)}/${ym.slice(5, 7)}` : "未定";
 function addMonths(ym, n) { const d = new Date(`${ym}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 7); }
 async function load() {
@@ -20,10 +34,11 @@ function render() {
   if ($("kxDays")) $("kxDays").textContent = d.warnDays;
   // CS担当の選択肢
   const sel = $("kxCs"), cur = sel.value;
-  const css = [...new Set(d.items.map((x) => x.cs).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+  kxSur = kxSurnameMap(d.items.map((x) => x.cs).filter(Boolean));
+  const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = String($("kxQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
-  const items = d.items.filter((x) => (!q || String(x.name).normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : x.cs === sel.value)));
+  const items = d.items.filter((x) => (!q || String(x.name).normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // KPI（90日以内）
   const near = items.filter((x) => x.left != null && x.left >= -31 && x.left <= d.warnDays && x.rank !== "F");
   const warn = near.filter((x) => x.warn);
@@ -46,7 +61,7 @@ function render() {
   const noMonth = shown.filter((x) => !x.renew);
   const rows = months.map((m) => ({ m, list: shown.filter((x) => x.renew === m) })).filter((r) => r.list.length || (r.m >= d.thisMonth && r.m <= addMonths(d.thisMonth, 3)));
   const rankOrder = { S: 0, A: 1, B: 2, C: 3, Z: 4, F: 5 };
-  const chip = (x) => `<button type="button" class="kx-chipco ${x.warn ? "warn" : ""}" draggable="true" data-id="${esc(x.id)}" title="${esc(`${x.name}\nCS ${x.cs || "未定"}${x.estimated ? "・終了日は推定" : ""}\n押すと詳細／ドラッグで確度・更新月を変える／右クリックで確度を選ぶ`)}"><span class="kx-rank r-${x.rank}">${x.rank}</span>${esc(x.name)}${x.warn ? '<i class="dot" aria-label="要注意"></i>' : ""}</button>`;
+  const chip = (x) => `<button type="button" class="kx-chipco ${x.warn ? "warn" : ""}" draggable="true" data-id="${esc(x.id)}" title="${esc(`${x.name}\nCS ${kxSurname(x.cs) || "未定"}${x.estimated ? "・終了日は推定" : ""}\n押すと詳細／ドラッグで確度・更新月を変える／右クリックで確度を選ぶ`)}"><span class="kx-rank r-${x.rank}">${x.rank}</span>${esc(x.name)}${x.warn ? '<i class="dot" aria-label="要注意"></i>' : ""}</button>`;
   const rowHtml = (m, list, label, dl, cls) => `<div class="kx-mrow ${cls}" data-month="${esc(m || "")}">
       <div class="kx-mhead"><b>${esc(label)}</b><div class="d">${esc(dl)}</div><div class="n">${list.length}社</div></div>
       <div class="kx-chips2">${list.sort((a, b) => (rankOrder[a.rank] - rankOrder[b.rank]) || a.name.localeCompare(b.name, "ja")).map(chip).join("") || '<span class="kx-note">この月の会社はありません</span>'}</div></div>`;
@@ -200,10 +215,11 @@ async function loadList() {
 function renderList() {
   const d = lsData; if (!d) return;
   const sel = $("lsCs"), cur = sel.value;
-  const css = [...new Set(d.items.map((x) => x.cs).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+  kxSur = kxSurnameMap(d.items.map((x) => x.cs).filter(Boolean));
+  const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = String($("lsQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
-  const base = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : x.cs === sel.value)));
+  const base = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // ラベルの絞り込み
   const counts = {}; for (const x of base) counts[x.label] = (counts[x.label] || 0) + 1;
   $("lsChips").innerHTML = [["", `すべて ${base.length}`], ...d.labels.filter((l) => counts[l]).map((l) => [l, `${l} ${counts[l]}`])]
@@ -217,7 +233,7 @@ function renderList() {
       <div style="display:flex;align-items:center;gap:8px"><button type="button" class="n" data-open="${esc(x.id)}">${esc(x.name)}</button><span class="kx-rank r-${x.rank}" style="margin-left:auto">${x.rank}</span></div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${x.alerts.map((a) => `<span class="kx-rule">${esc(a.rule)}</span>`).join("")}</div>
       <div class="kx-note">${x.alerts.map((a) => esc(a.detail)).join("／")}</div>
-      <div style="display:flex;align-items:center;gap:8px" class="kx-note">CS ${esc(x.cs || "未定")}<button type="button" class="kx-btn" style="height:30px;font-size:11.5px;margin-left:auto" data-dis="${esc(x.id)}" data-rule="${esc(x.alerts.map((a) => a.rule).join(","))}">対応済みにする</button></div>
+      <div style="display:flex;align-items:center;gap:8px" class="kx-note">CS ${esc(kxSurname(x.cs) || "未定")}<button type="button" class="kx-btn" style="height:30px;font-size:11.5px;margin-left:auto" data-dis="${esc(x.id)}" data-rule="${esc(x.alerts.map((a) => a.rule).join(","))}">対応済みにする</button></div>
     </div>`).join("")}</div>${al.length > 12 ? `<div class="kx-note" style="margin-top:8px">ほか ${al.length - 12}社</div>` : ""}` : `<div class="kx-note">いま要注意の会社はありません</div>`);
   // 表
   const head = ["企業名・契約商品", "メインラベル", "更新確度", "納品", "更新月", "CS担当", "最終接触", "次回アクション・期日"].map((h) => `<div class="ls-h">${h}</div>`).join("");
@@ -232,7 +248,7 @@ function renderList() {
       `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-rank r-${x.rank}">${x.rank}</span></div>` +
       `<div class="ls-r" data-open="${esc(x.id)}" style="font-size:11.5px"><div class="${kc}">検収書 ${esc(x.kenshu)}</div><div class="${mc}">納品メール ${esc(x.mail)}</div></div>` +
       `<div class="ls-r" data-open="${esc(x.id)}">${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}">${esc(x.cs || "未定")}</div>` +
+      `<div class="ls-r" data-open="${esc(x.id)}">${esc(kxSurname(x.cs) || "未定")}</div>` +
       `<div class="ls-r ${touchCls}" data-open="${esc(x.id)}">${x.lastTouch ? `${fmtD(x.lastTouch)}（${x.sinceTouch}日前）` : "—"}</div>` +
       `<div class="ls-r" data-open="${esc(x.id)}"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.na || "—")}</div><div class="${dueCls}" style="font-size:11.5px">${x.naDue ? `期日 ${esc(x.naDue.slice(5).replace("-", "/"))}${x.naDue < today ? "・過ぎています" : ""}` : ""}</div></div>`;
   }).join("");
@@ -444,10 +460,11 @@ async function loadBoard() {
 function renderBoard() {
   const d = bdData; if (!d) return;
   const sel = $("bdCs"), cur = sel.value;
-  const css = [...new Set(d.items.map((x) => x.cs).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+  kxSur = kxSurnameMap(d.items.map((x) => x.cs).filter(Boolean));
+  const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = String($("bdQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
-  const items = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : x.cs === sel.value)));
+  const items = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   const showEnd = $("bdEnd").checked;
   const cols = BD_COLS.filter(([l]) => showEnd || !["解約済み", "キャンセル"].includes(l)).filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
   const good = "background:#E1F5EE;color:#0A5440", bad = "background:#FBE4E4;color:#8C1F1F", mid = "background:#FFF1DC;color:#7A3F00";
@@ -458,7 +475,7 @@ function renderBoard() {
         <span class="s" style="${x.kenshu === "回収済み" ? good : x.kenshu === "依頼済み" ? mid : bad}">検収 ${x.kenshu === "回収済み" ? "済" : x.kenshu === "依頼済み" ? "依頼済" : "未"}</span>
         <span class="s" style="${x.mail === "送付済み" ? good : x.mail === "下書きあり" ? mid : bad}">納品メール ${x.mail === "送付済み" ? "済" : x.mail === "下書きあり" ? "下書き" : "未"}</span>
         ${x.locked ? '<span class="lock" title="手で決めたラベル">🔒</span>' : ""}</div>
-      <div class="f"><span class="av">${esc((x.cs || "？").slice(0, 1))}</span>${esc(x.cs || "CS未定")}<span style="margin-left:auto;${x.naDue && x.naDue < new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) ? "color:#8C1F1F;font-weight:700" : ""}">${x.naDue ? `NA ${esc(x.naDue.slice(5).replace("-", "/"))}` : x.renew ? `更新 ${esc(x.renew.replace("-", "/"))}` : ""}</span></div>
+      <div class="f"><span class="av">${esc((kxSurname(x.cs) || "？").slice(0, 1))}</span>${esc(kxSurname(x.cs) || "CS未定")}<span style="margin-left:auto;${x.naDue && x.naDue < new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) ? "color:#8C1F1F;font-weight:700" : ""}">${x.naDue ? `NA ${esc(x.naDue.slice(5).replace("-", "/"))}` : x.renew ? `更新 ${esc(x.renew.replace("-", "/"))}` : ""}</span></div>
     </div>`;
   $("bdCols").innerHTML = cols.map(([l, rule, color]) => {
     const list = items.filter((x) => x.label === l).sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name, "ja"));
