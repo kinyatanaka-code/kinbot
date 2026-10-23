@@ -26040,7 +26040,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23c kinXsのアイコンを、グリフォンから翼のスフィンクス（ライオンの体・翼・ファラオの頭巾の頭）に変えた（メニューのボタン・kinXsの画面・タブ）。";
+const BUILD_TAG = "2026-10-23d kinXsのアイコン：スフィンクスの翼をなくした（背中をつなぎ、体を大きく真ん中に）。";
 const BUILD_FEATURES = [
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
