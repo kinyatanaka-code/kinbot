@@ -4,13 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot CS連携</title>
+    <script>if (new URLSearchParams(location.search).get("embed")) document.documentElement.classList.add("kb-embed");</script>
+    <style>
+      html.kb-embed .sidebar, html.kb-embed .topbar, html.kb-embed .side-backdrop, html.kb-embed .kb-menu-btn, html.kb-embed .kb-menu, html.kb-embed .kb-sheet-back, html.kb-embed .kb-ver, html.kb-embed .live-banner { display: none !important; }
+      html.kb-embed .main { margin-left: 0 !important; padding-left: 0 !important; }
+      html.kb-embed body { background: transparent; }
+    </style>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023k" />
+    <link rel="stylesheet" href="style.css?v=20261023l" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -198,7 +204,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261023k"></script>
+    <script src="nav.js?v=20261023l"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -206,6 +212,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261023k"></script>
+    <script src="cs.js?v=20261023l"></script>
   </body>
 </html>

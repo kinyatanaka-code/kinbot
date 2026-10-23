@@ -141,10 +141,17 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ list: "list", import: "import" })[new URLSearchParams(location.search).get("p")] || "renew";
+const VIEW = ({ list: "list", import: "import", cs: "cs" })[new URLSearchParams(location.search).get("p")] || "renew";
 document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import";
-document.title = ({ list: "kinXs ユーザー一覧", import: "kinXs 取り込み" })[VIEW] || "kinXs 更新管理";
+$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs";
+// ブラウザのタブは、どの画面でも「kinXs」だけ
+document.title = "kinXs";
+if (VIEW === "cs") {
+  // CS連携は、kinXsの中に埋め込んで開く（kinbotのメニューは出さない）。企業カードを指定されたらそのまま開く
+  const bot = new URLSearchParams(location.search).get("bot");
+  $("kxCsFrame").src = `/cs.html?embed=1${bot ? `&bot=${encodeURIComponent(bot)}` : ""}`;
+  document.querySelector(".kx-main").style.padding = "14px 16px 0";
+}
 
 // ===== ユーザー一覧 =====
 let lsData = null, lsLabel = "";
@@ -231,7 +238,7 @@ async function openDetail(id) {
         <div style="display:flex;gap:8px;margin-top:8px;align-items:center"><span class="kx-note">期日</span><input type="date" class="kx-in" data-due value="${esc(x.naDue)}" style="max-width:180px" /><button type="button" class="kx-btn" data-save-na style="margin-left:auto">保存</button></div></div>
       <div class="kx-sec"><div class="lb">メモ</div><textarea class="kx-in" data-memo rows="3">${esc(x.memo)}</textarea><div style="display:flex;margin-top:8px"><button type="button" class="kx-btn" data-save-memo style="margin-left:auto">メモを保存</button></div></div>
       <div class="kx-sec kx-kv"><span>CS担当</span><span>${esc(x.cs || "未定")}</span><span>FS担当</span><span>${esc(x.fs || "—")}</span><span>最終接触</span><span>${x.lastTouch ? `${esc(fmtD(x.lastTouch))}（${x.sinceTouch}日前）` : "—"}</span><span>議事録</span><span>${x.meetings}件</span></div>
-      ${x.kickBot ? `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="/cs.html?bot=${encodeURIComponent(x.kickBot)}">CS連携の企業カードを開く</a>` : ""}
+      ${x.kickBot ? `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="/kinxs?p=cs&bot=${encodeURIComponent(x.kickBot)}">CS連携の企業カードを開く</a>` : ""}
       ${x.manual ? `<button type="button" class="kx-btn" data-del-user style="color:#8C1F1F;border-color:#F0C2BE">このユーザーを消す（手で追加したもの）</button>` : `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="https://neo-media.my.salesforce.com/lightning/r/Account/${encodeURIComponent(x.id)}/view" target="_blank" rel="noopener">SFの取引先を開く ↗</a>`}
     </div>
     <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
