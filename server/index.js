@@ -12484,10 +12484,16 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
 // 対象：商談の商品に「アチコチバース」が入っているものだけ（2026-10-23 田中さん。前は要件定義書の5商品）
 // （2026-10-24 田中さん：商品に「空間デザイン制作」か「アチコチバース」が入っている会社だけ。ほかは手で追加する）
 const KINXS_PRODUCTS = [/アチコチバース/, /空間デザイン制作/];
-// 「空間デザイン制作(2D)」は対象にしない（2Dだけの会社はカードにしない。ほかの対象の商品もあれば、その商品で入る）
-const kinxsIs2D = (n) => /空間デザイン制作/.test(String(n || "").normalize("NFKC")) && /[（(]\s*2D\s*[)）]/i.test(String(n || "").normalize("NFKC"));
-const kinxsIsTargetBase = (n) => KINXS_PRODUCTS.some((re) => re.test(String(n || "").normalize("NFKC").replace(/\(/g, "（").replace(/\)/g, "）")) || re.test(String(n || "")));
-const kinxsIsTarget = (n) => !kinxsIs2D(n) && kinxsIsTargetBase(n);
+// 商品の見分け：「空間デザイン制作(2D)」「アチコチバース」「空間デザイン制作（2D以外）」
+const kxNorm = (n) => String(n || "").normalize("NFKC");
+const kinxsIs2D = (n) => /空間デザイン制作/.test(kxNorm(n)) && /[(（]\s*2D\s*[)）]/i.test(kxNorm(n));
+const kinxsIsAchi = (n) => /アチコチバース/.test(kxNorm(n));
+const kinxsIsSpace = (n) => /空間デザイン制作/.test(kxNorm(n)) && !kinxsIs2D(n);
+// 商品名を集める対象（会社ごとの判定に使うので、2Dもいったん集める）
+const kinxsIsTarget = (n) => kinxsIsAchi(n) || /空間デザイン制作/.test(kxNorm(n));
+// 会社ごとの判定（2026-10-24 田中さん）：「空間デザイン制作(2D)だけ」「アチコチバースだけ」の会社はカードにしない
+//   → 空間デザイン制作（2D以外）がある会社、または アチコチバースと2Dの両方がある会社だけ
+const kinxsAccountOk = (names) => { const ns = names || []; return ns.some(kinxsIsSpace) || (ns.some(kinxsIsAchi) && ns.some(kinxsIs2D)); };
 let _kinxsBusy = false, _kinxsLast = null;
 async function kinxsSync() {
   if (_kinxsBusy) return _kinxsLast;
@@ -12537,6 +12543,7 @@ async function kinxsSync() {
     const usedStart = startF.find((f) => (q.records || []).some((o) => ymd(o[f]))) || "";
     const lab = (n) => ((d0.fields || []).find((f) => f.name === n) || {}).label || n;
     await saveSettings({ kinxsItemCache: cache, kinxsFields: { start: usedStart ? `${lab(usedStart)}（${usedStart}）` : "", end: usedEnd ? `${lab(usedEnd)}（${usedEnd}）` : "", candidates: endF } }).catch(() => {});
+    for (const [id, acc] of [...byAcc.entries()]) { if (!kinxsAccountOk(acc.products.map((p) => p.name))) { byAcc.delete(id); out.skipped++; } }
     // アチコチバースの無い会社（商品を確かめ終わったもの）は、ユーザーから外す
     try { out.removed = await kinxsPruneSf([...byAcc.keys()], Object.keys(cache)); } catch (e) { out.errors.push(`外す処理：${e.message}`); }
     const kicks = await listCsKickoffs(500).catch(() => []);
@@ -26469,7 +26476,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24k kinXsのユーザー一覧：会社のカードに、契約商品の名前を小さなタグで出す（同じ商品は1つに、2行まで、マウスで全部）。";
+const BUILD_TAG = "2026-10-24l kinXs：「アチコチバースだけ」の会社もカードにしない。空間デザイン制作（2D以外）がある会社か、アチコチバースと空間デザイン制作(2D)の両方がある会社だけ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
