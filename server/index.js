@@ -12484,7 +12484,10 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
 // 対象：商談の商品に「アチコチバース」が入っているものだけ（2026-10-23 田中さん。前は要件定義書の5商品）
 // （2026-10-24 田中さん：商品に「空間デザイン制作」か「アチコチバース」が入っている会社だけ。ほかは手で追加する）
 const KINXS_PRODUCTS = [/アチコチバース/, /空間デザイン制作/];
-const kinxsIsTarget = (n) => KINXS_PRODUCTS.some((re) => re.test(String(n || "").normalize("NFKC").replace(/\(/g, "（").replace(/\)/g, "）")) || re.test(String(n || "")));
+// 「空間デザイン制作(2D)」は対象にしない（2Dだけの会社はカードにしない。ほかの対象の商品もあれば、その商品で入る）
+const kinxsIs2D = (n) => /空間デザイン制作/.test(String(n || "").normalize("NFKC")) && /[（(]\s*2D\s*[)）]/i.test(String(n || "").normalize("NFKC"));
+const kinxsIsTargetBase = (n) => KINXS_PRODUCTS.some((re) => re.test(String(n || "").normalize("NFKC").replace(/\(/g, "（").replace(/\)/g, "）")) || re.test(String(n || "")));
+const kinxsIsTarget = (n) => !kinxsIs2D(n) && kinxsIsTargetBase(n);
 let _kinxsBusy = false, _kinxsLast = null;
 async function kinxsSync() {
   if (_kinxsBusy) return _kinxsLast;
@@ -26466,7 +26469,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24i kinXs：SFからは、商品に「空間デザイン制作」か「アチコチバース」が入っている会社だけをカードにする（ほかは手で追加）。会社ごとに最初の受注日（いちばん古い計上日）を持ち、ユーザー一覧はその新しい順・カードにも最初の受注日。";
+const BUILD_TAG = "2026-10-24j kinXs：「空間デザイン制作(2D)」は対象の商品から外す（2Dだけの会社はカードにしない。アチコチバースなどほかの対象の商品もあれば入る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
