@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023u" />
+    <link rel="stylesheet" href="style.css?v=20261023v" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -174,6 +174,19 @@
   #vRenew .kx-tablebox{overflow:hidden;}
   .kx-drawer{position:relative;}
   .kx-saved{position:sticky;bottom:6px;align-self:center;background:#0E6B4E;color:#fff;font-size:12.5px;font-weight:700;padding:7px 14px;border-radius:99px;box-shadow:0 8px 20px -10px rgba(0,0,0,.5);}
+  /* フォロー履歴を見やすく：議事録・接触はカード、変更の履歴は下にたたむ */
+  .kx-tl{gap:8px;}
+  .kx-tl .it{border:1px solid #E6EDE9;border-left:4px solid #DDE7E2;border-radius:10px;padding:10px 12px;background:#fff;}
+  .kx-tl .it.mtg{border-left-color:#1D9E75;} .kx-tl .it.touch{border-left-color:#3F72C9;}
+  .kx-tl .t{font-size:13.5px;line-height:1.45;} .kx-tl .m{margin-top:2px;}
+  .kx-tl .b{font-size:12.5px;line-height:1.7;color:#33463E;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin-top:4px;}
+  .kx-open{font-size:11.5px;font-weight:700;color:#0E6B4E;background:#E1F5EE;border-radius:99px;padding:1px 8px;margin-left:4px;white-space:nowrap;}
+  .kx-chg{margin-top:4px;border-top:1px dashed #DDE7E2;padding-top:8px;}
+  .kx-chg summary{cursor:pointer;font-size:12px;font-weight:700;color:#4F6158;}
+  .kx-chg-list{display:flex;flex-direction:column;gap:2px;margin-top:6px;}
+  .kx-chg-list .c{display:grid;grid-template-columns:118px 110px 1fr auto;gap:8px;font-size:12px;padding:5px 6px;border-radius:6px;align-items:baseline;}
+  .kx-chg-list .c:nth-child(odd){background:#F7FAF8;}
+  .kx-chg-list .w{color:#6A7A72;font-variant-numeric:tabular-nums;} .kx-chg-list .who{color:#6A7A72;white-space:nowrap;}
 </style>
 </head>
   <body>
@@ -263,6 +276,6 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261023u"></script>
+    <script src="kinxs.js?v=20261023v"></script>
   </body>
 </html>

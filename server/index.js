@@ -12576,8 +12576,9 @@ async function kinxsBuild() {
     const k = key ? kickBy.get(key) : null;
     const mts = key ? (mtBy.get(key) || []) : [];
     const contacts = Array.isArray(r.contacts) ? r.contacts : [];
-    const touches = [...mts.map((m) => m.created_at), ...contacts.map((c) => c.at)].filter(Boolean).sort();
-    const lastTouch = touches[touches.length - 1] || null;
+    const toMs = (v) => { const t = v instanceof Date ? v.getTime() : Date.parse(v || ""); return isFinite(t) ? t : 0; };
+    const touchMs = Math.max(0, ...[...mts.map((m) => m.created_at), ...contacts.map((c) => c.at)].map(toMs));
+    const lastTouch = touchMs ? new Date(touchMs).toISOString() : null;
     const left = r.renew_month ? Math.round((Date.parse(`${r.renew_month}-01T00:00:00+09:00`) - now) / 86400000) : null;
     const rank = r.rank || "Z";
     const tr = k ? csTrackDigest(track[k.bot_id] || [], k.draft_at) : null;
@@ -12603,7 +12604,8 @@ async function kinxsBuild() {
     const undelivered = kenshu !== "回収済み" || mail !== "送付済み";
     const sinceTouch = days(lastTouch || r.booked_on || r.created_at);
     if (undelivered && sinceTouch != null && sinceTouch >= rules.contactDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "接触途絶", score: 25, detail: `${kenshu !== "回収済み" ? "検収書が未回収" : "納品メールが未送付"}のまま、最後の接触から${sinceTouch}日` });
-    const lastUpd = [r.manual_updated_at, lastTouch, r.booked_on].filter(Boolean).sort().pop();
+    const updMs = Math.max(0, ...[r.manual_updated_at, r.rank_at, lastTouch, r.booked_on, r.created_at].map(toMs));
+    const lastUpd = updMs ? new Date(updMs).toISOString() : null;
     const sinceUpd = days(lastUpd);
     if (sinceUpd != null && sinceUpd >= rules.staleDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "情報更新なし", score: 15, detail: `記録と議事録が${sinceUpd}日更新されていません` });
     const shown = alerts.filter((a) => !hidden(a.rule));
@@ -12789,7 +12791,21 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
     const rows = await kinxsList();
     const r = rows.find((y) => y.account_id === x.id) || {};
     const contacts = (Array.isArray(r.contacts) ? r.contacts : []).map((c) => ({ kind: "touch", at: c.at, title: c.type || "接触", summary: c.text || "", owner: c.by || "" }));
-    const hist = (await kinxsHistory(x.id, 60)).map((h) => ({ kind: "label", at: h.at, title: ({ rank: "更新確度", main_label: "メインラベル", label_locked: "ラベルの鍵", na_text: "次回アクション", na_due: "次回アクションの期日", kenshu_done: "検収書", mail_done: "納品メール", published: "掲載", memo: "メモ", cs_name: "CS担当" }[h.kind] || h.kind), summary: `${h.from_v || "—"} → ${h.to_v || "—"}`, owner: `${h.by_user || ""}${h.auto ? "（自動）" : ""}` }));
+    const users = await listUsers().catch(() => []);
+    const nameOf = (e) => { const k = String(e || "").toLowerCase(); const u = users.find((y) => String(y.email || "").toLowerCase() === k); return (u && u.name) || (k.includes("@") ? k.split("@")[0] : e || ""); };
+    const BOOL = { kenshu_done: ["回収済み", "未回収"], mail_done: ["送付済み", "未送付"], published: ["確認した（利用中）", "まだ"], label_locked: ["手で決めた", "自動"], renew_locked: ["手で決めた", "自動"] };
+    const word = (kind, v) => {
+      if (v == null || v === "") return "—";
+      if (BOOL[kind]) return v === "true" ? BOOL[kind][0] : v === "false" ? BOOL[kind][1] : v;
+      if (kind === "na_due") return String(v).slice(0, 10).replace(/-/g, "/");
+      if (kind === "renew_month") return String(v).replace("-", "/");
+      return String(v);
+    };
+    const KIND = { rank: "更新確度", main_label: "メインラベル", label_locked: "ラベル", na_text: "次回アクション", na_due: "次回アクションの期日", kenshu_done: "検収書", mail_done: "納品メール", published: "掲載", memo: "メモ", cs_name: "CS担当", renew_month: "更新月", renew_locked: "更新月", add: "ユーザー", alert: "要注意" };
+    const hist = (await kinxsHistory(x.id, 60)).filter((h) => h.kind !== "renew_locked").map((h) => ({ kind: "label", at: h.at, title: KIND[h.kind] || h.kind,
+      summary: h.kind === "alert" || h.kind === "add" ? String(h.to_v || "").replace(/（[^）]*@[^）]*）/, "") : h.kind === "memo" ? "メモを直しました" : `${word(h.kind, h.from_v)} → ${word(h.kind, h.to_v)}`,
+      owner: `${h.auto ? "自動" : nameOf(h.by_user)}` }));
+    for (const c of contacts) c.owner = nameOf(c.owner);
     const timeline = [...mts, ...contacts, ...hist].sort((a, b) => String(b.at).localeCompare(String(a.at)));
     res.json({ ok: true, item: x, timeline });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -26325,7 +26341,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23u kinXsの企業のモーダル：保存（確度・ラベル・納品・次回アクション・メモ・接触の記録）のたびに閉じて開き直していたのをやめ、開いたまま中身だけ描き直す（タブ・スクロールの位置はそのまま、「保存しました」を出す）。";
+const BUILD_TAG = "2026-10-23v kinXsのフォロー履歴を見やすく：議事録・接触はカード（要約は3行まで）、変更の履歴は下にたたんで1行ずつ・言葉で（true→送付済みなど）。名前はメールアドレスではなく登録名。「情報更新なし」が直したあとも出ていた日付の比べ方の誤りも直した。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

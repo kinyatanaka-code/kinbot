@@ -298,7 +298,17 @@ async function openDetail(id, reuse) {
     <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
       <div class="kx-sec"><div class="lb">電話・メールなど（議事録のない接触）を記録する</div>
         <div style="display:flex;gap:8px"><select class="kx-in" data-ctype style="max-width:110px"><option>電話</option><option>メール</option><option>Chat</option><option>その他</option></select><input class="kx-in" data-ctext placeholder="話した内容を短く" /><button type="button" class="kx-btn" data-add-contact style="white-space:nowrap">記録する</button></div></div>
-      <div class="kx-tl">${d.timeline.length ? d.timeline.map((t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}><div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-note">議事録を開く ›</span>' : ""}</div><div class="m">${esc(new Date(t.at).toLocaleString("ja-JP"))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`).join("") : `<div class="kx-note">まだありません。会社名が予定名に入った商談の議事録が、ここに自動で並びます</div>`}</div>
+      ${(() => {
+        const fmt = (t) => { const d0 = new Date(t); return isNaN(d0) ? "" : `${d0.getFullYear()}/${d0.getMonth() + 1}/${d0.getDate()} ${String(d0.getHours()).padStart(2, "0")}:${String(d0.getMinutes()).padStart(2, "0")}`; };
+        const main = d.timeline.filter((t) => t.kind !== "label");
+        const chg = d.timeline.filter((t) => t.kind === "label");
+        const mainHtml = main.length ? main.map((t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}>
+            <div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-open">議事録を開く ›</span>' : ""}</div>
+            <div class="m">${esc(fmt(t.at))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`).join("")
+          : `<div class="kx-note">まだありません。会社名が予定名に入った商談の議事録が、ここに自動で並びます</div>`;
+        const chgHtml = chg.length ? `<details class="kx-chg"><summary>変更の履歴（${chg.length}件）</summary><div class="kx-chg-list">${chg.map((t) => `<div class="c"><span class="w">${esc(fmt(t.at))}</span><b>${esc(t.title)}</b><span>${esc(t.summary)}</span><span class="who">${esc(t.owner || "")}</span></div>`).join("")}</div></details>` : "";
+        return `<div class="kx-tl">${mainHtml}</div>${chgHtml}`;
+      })()}
     </div>
   </aside>`;
   if (!bg.isConnected) document.body.appendChild(bg);
