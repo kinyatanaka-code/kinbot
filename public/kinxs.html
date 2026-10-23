@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023j" />
+    <link rel="stylesheet" href="style.css?v=20261023k" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -103,6 +103,27 @@
   .kx-tr b{color:#0E6B4E;font-weight:700;margin-right:6px;}
   .kx-tl .it.mtg{cursor:pointer;border-radius:0 10px 10px 0;} .kx-tl .it.mtg:hover{background:#F3FAF6;}
   .kx-video video{width:100%;max-height:42vh;border-radius:12px;background:#000;display:block;}
+  /* 案2：月ごとの行＋会社のチップ */
+  #kxTable{padding:0;}
+  .kx-legend{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid #EEF2F0;}
+  .kx-drop{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:4px 10px 4px 4px;border-radius:99px;border:1px dashed transparent;}
+  body.kx-dragging .kx-drop{border-color:#9FD4BF;background:#F4FBF7;}
+  .kx-drop.over{background:#DDF3E8 !important;border-color:#1D9E75 !important;}
+  .kx-fbar{display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid #EEF2F0;}
+  .kx-mrow{display:flex;gap:14px;padding:12px 16px;border-bottom:1px solid #F0F3F1;}
+  .kx-mrow.past{background:#FDF3F2;} .kx-mrow.now,.kx-mrow.warn{background:#FFFCF6;}
+  .kx-mrow.over{background:#E8F6EF !important;box-shadow:inset 0 0 0 2px #1D9E75;}
+  .kx-mhead{width:104px;flex:none;} .kx-mhead b{font-size:15px;font-variant-numeric:tabular-nums;} .kx-mhead .d{font-size:11.5px;font-weight:700;color:#4F6158;} .kx-mrow.past .d{color:#8C1F1F;} .kx-mrow.now .d,.kx-mrow.warn .d{color:#7A3300;} .kx-mhead .n{font-size:11px;color:#4F6158;margin-top:4px;}
+  .kx-chips2{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;min-height:30px;flex:1;}
+  .kx-chipco{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 4px;border-radius:99px;background:#fff;border:1px solid #DDE7E2;font:inherit;font-size:12.5px;font-weight:700;color:#1F2A26;cursor:pointer;}
+  .kx-chipco:hover{border-color:#1D9E75;box-shadow:0 2px 8px -4px rgba(13,91,71,.4);}
+  .kx-chipco.warn{border-color:#F0C27A;box-shadow:0 0 0 1px #F0C27A;}
+  .kx-chipco.dragging{opacity:.4;}
+  .kx-chipco .kx-rank{width:20px;height:20px;font-size:11px;border-radius:6px;}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#E0A100;}
+  .kx-ctx{position:fixed;z-index:80;background:#fff;border:1px solid #DDE7E2;border-radius:12px;box-shadow:0 14px 34px -16px rgba(0,0,0,.4);padding:6px;display:flex;flex-direction:column;min-width:180px;}
+  .kx-ctx button{display:flex;align-items:center;gap:8px;border:0;background:none;font:inherit;font-size:13px;padding:7px 8px;border-radius:8px;cursor:pointer;text-align:left;}
+  .kx-ctx button:hover{background:#F0F7F3;}
 </style>
 </head>
   <body>
@@ -173,6 +194,6 @@
         </main>
       </div>
     </div>
-    <script src="kinxs.js?v=20261023j"></script>
+    <script src="kinxs.js?v=20261023k"></script>
   </body>
 </html>

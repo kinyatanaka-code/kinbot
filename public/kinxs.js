@@ -34,29 +34,71 @@ function render() {
     { l: "解約検討（C）", v: `${items.filter((x) => x.rank === "C").length}社`, s: items.filter((x) => x.rank === "C").slice(0, 2).map((x) => x.name).join("・") || "—", st: "color:#8C1F1F" },
   ];
   $("kxKpis").innerHTML = kpis.map((k) => `<div class="kx-kpi"><div class="l">${esc(k.l)}</div><div class="v" style="${k.st || ""}">${esc(k.v)}</div><div class="s">${esc(k.s)}</div></div>`).join("");
-  // 行：今月の前の月から12か月先まで（過ぎた会社を出すときは、もっと前も）
+  // ===== 案2：月ごとの行に、会社をチップで並べる =====
+  const flt = window.__kxFilter || "all";
+  const myName = window.__kxMe || "";
+  const shown = items.filter((x) => flt === "all" ? true : flt === "warn" ? x.warn : flt === "mine" ? (myName && String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))) : flt === "Z" ? x.rank === "Z" : true);
   const start = $("kxPast").checked ? items.map((x) => x.renew).filter(Boolean).sort()[0] || addMonths(d.thisMonth, -1) : addMonths(d.thisMonth, -1);
   const months = []; for (let m = start; m <= addMonths(d.thisMonth, 12); m = addMonths(m, 1)) months.push(m);
-  const noMonth = items.filter((x) => !x.renew);
-  const rows = months.map((m) => ({ m, list: items.filter((x) => x.renew === m) })).filter((r) => r.list.length || r.m >= d.thisMonth);
-  const head = `<div class="kx-h">更新月</div>` + RANKS.map(([k, l]) => `<div class="kx-h"><span class="kx-rank r-${k}">${k}</span>${esc(l)}</div>`).join("");
-  const coBtn = (x) => `<button type="button" class="kx-co ${x.warn ? "warn" : ""}" data-id="${esc(x.id)}">${esc(x.name)}<small>${x.cs ? `CS ${esc(x.cs)}` : "CS 未定"}${x.estimated ? `・<span class="est">終了日は推定</span>` : ""}${x.error ? `・<span class="est">${esc(x.error)}</span>` : ""}</small></button>`;
+  const noMonth = shown.filter((x) => !x.renew);
+  const rows = months.map((m) => ({ m, list: shown.filter((x) => x.renew === m) })).filter((r) => r.list.length || (r.m >= d.thisMonth && r.m <= addMonths(d.thisMonth, 3)));
+  const rankOrder = { S: 0, A: 1, B: 2, C: 3, Z: 4, F: 5 };
+  const chip = (x) => `<button type="button" class="kx-chipco ${x.warn ? "warn" : ""}" draggable="true" data-id="${esc(x.id)}" title="${esc(`${x.name}\nCS ${x.cs || "未定"}${x.estimated ? "・終了日は推定" : ""}\n押すと詳細／ドラッグで確度・更新月を変える／右クリックで確度を選ぶ`)}"><span class="kx-rank r-${x.rank}">${x.rank}</span>${esc(x.name)}${x.warn ? '<i class="dot" aria-label="要注意"></i>' : ""}</button>`;
+  const rowHtml = (m, list, label, dl, cls) => `<div class="kx-mrow ${cls}" data-month="${esc(m || "")}">
+      <div class="kx-mhead"><b>${esc(label)}</b><div class="d">${esc(dl)}</div><div class="n">${list.length}社</div></div>
+      <div class="kx-chips2">${list.sort((a, b) => (rankOrder[a.rank] - rankOrder[b.rank]) || a.name.localeCompare(b.name, "ja")).map(chip).join("") || '<span class="kx-note">この月の会社はありません</span>'}</div></div>`;
   const body = rows.map((r) => {
     const left = Math.round((Date.parse(`${r.m}-01T00:00:00+09:00`) - Date.now()) / 86400000);
     const isNow = r.m === d.thisMonth;
-    const cls = isNow ? "warn" : left < 0 ? "past" : left <= d.warnDays ? "warn" : "";
-    const dl = isNow ? "今月" : left < 0 ? `${-left}日過ぎています` : `あと${left}日`;
-    return `<div class="kx-m ${cls}"><b>${esc(ymLabel(r.m))}</b><div class="d">${esc(dl)}</div></div>` + RANKS.map(([k]) => {
-      const cos = r.list.filter((x) => x.rank === k);
-      const hot = cls && ["B", "C", "Z"].includes(k) && cos.length;
-      return `<div class="kx-c ${hot ? "hot" : ""}">${cos.map(coBtn).join("")}</div>`;
-    }).join("");
-  }).join("");
-  const none = noMonth.length ? `<div class="kx-m past"><b>未定</b><div class="d">契約終了日が無い</div></div>` + RANKS.map(([k]) => `<div class="kx-c">${noMonth.filter((x) => x.rank === k).map(coBtn).join("")}</div>`).join("") : "";
-  $("kxTable").innerHTML = d.items.length ? `<div class="kx-grid">${head}${body}${none}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のクロスの商談から取り込みます。</div>`;
-  $("kxTable").querySelectorAll(".kx-co").forEach((b) => b.addEventListener("click", () => openDetail(b.dataset.id)));
+    const cls = isNow ? "now" : left < 0 ? "past" : left <= d.warnDays ? "warn" : "";
+    return rowHtml(r.m, r.list, ymLabel(r.m), isNow ? "今月" : left < 0 ? `${-left}日過ぎ` : `あと${left}日`, cls);
+  }).join("") + (noMonth.length ? rowHtml("", noMonth, "未定", "契約終了日が無い", "past") : "");
+  const fcount = { warn: items.filter((x) => x.warn).length, all: items.length, Z: items.filter((x) => x.rank === "Z").length, mine: myName ? items.filter((x) => String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))).length : 0 };
+  const fbtn = (k, t) => `<button type="button" class="kx-chip ${flt === k ? "on" : ""}" data-flt="${k}">${t} ${fcount[k]}</button>`;
+  const legend = RANKS.map(([k, l]) => `<span class="kx-drop" data-rank-drop="${k}" title="ここにドラッグすると確度${k}になります"><span class="kx-rank r-${k}">${k}</span>${esc(l)}</span>`).join("");
+  $("kxTable").innerHTML = d.items.length ? `<div class="kx-legend">${legend}<span class="kx-note" style="color:#7A3300;font-weight:700"><i class="dot"></i> 要注意</span><span class="kx-note" style="margin-left:auto">会社を確度の印や別の月にドラッグして直せます・右クリックで確度を選ぶ</span></div>
+    <div class="kx-fbar">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}${fbtn("Z", "未アプローチ")}</div>
+    <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のアチコチバースの商談から取り込みます。</div>`;
+  const box = $("kxTable");
+  box.querySelectorAll("[data-flt]").forEach((b) => b.addEventListener("click", () => { window.__kxFilter = b.dataset.flt; render(); }));
+  box.querySelectorAll(".kx-chipco").forEach((b) => {
+    b.addEventListener("click", () => openDetail(b.dataset.id));
+    b.addEventListener("contextmenu", (e) => { e.preventDefault(); kxRankMenu(b.dataset.id, e.clientX, e.clientY); });
+    b.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", b.dataset.id); e.dataTransfer.effectAllowed = "move"; b.classList.add("dragging"); document.body.classList.add("kx-dragging"); });
+    b.addEventListener("dragend", () => { b.classList.remove("dragging"); document.body.classList.remove("kx-dragging"); box.querySelectorAll(".over").forEach((x) => x.classList.remove("over")); });
+  });
+  const dropOn = (el, fn) => {
+    el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("over"); });
+    el.addEventListener("dragleave", () => el.classList.remove("over"));
+    el.addEventListener("drop", async (e) => { e.preventDefault(); el.classList.remove("over"); const id = e.dataTransfer.getData("text/plain"); if (id) await fn(id); });
+  };
+  box.querySelectorAll("[data-rank-drop]").forEach((el) => dropOn(el, (id) => kxSetRank(id, el.dataset.rankDrop)));
+  box.querySelectorAll(".kx-mrow[data-month]").forEach((el) => dropOn(el, async (id) => {
+    const m = el.dataset.month; const x = d.items.find((i2) => i2.id === id);
+    if (!m || !x || x.renew === m) return;
+    if (!confirm(`「${x.name}」の更新月を ${ymLabel(m)} にしますか？（手で決めた更新月になり、SFの取り込みで上書きしません）`)) return;
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ renew_month: m, renew_locked: true }) }); await load(); } catch (er) { alert(er.message); }
+  }));
+
   const f = d.fields || {};
   $("kxFoot").textContent = `全${d.items.length}社。契約終了日は${f.end ? `SFの「${f.end}」から取っています。` : "SFの商談に値の入った項目が見つからないので、計上日から1年で推定しています（カードに「終了日は推定」と出ます）。"}${d.sync ? `　最後に取り込んだ時刻：${new Date(d.sync.at).toLocaleString("ja-JP")}` : ""}`;
+}
+async function kxSetRank(id, rank) {
+  const x = data && data.items.find((i) => i.id === id);
+  if (!x || x.rank === rank) return;
+  try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/rank`, { method: "PUT", body: JSON.stringify({ rank }) }); x.rank = rank; await load(); }
+  catch (e) { alert(e.message); }
+}
+function kxRankMenu(id, x, y) {
+  document.querySelectorAll(".kx-ctx").forEach((m) => m.remove());
+  const m = document.createElement("div"); m.className = "kx-ctx";
+  m.style.left = `${Math.min(x, innerWidth - 200)}px`; m.style.top = `${Math.min(y, innerHeight - 260)}px`;
+  m.innerHTML = `<div class="kx-note" style="padding:4px 8px">確度を変える</div>` + RANKS.map(([k, l]) => `<button type="button" data-r="${k}"><span class="kx-rank r-${k}">${k}</span>${esc(l)}</button>`).join("") + `<button type="button" data-open>詳細を開く</button>`;
+  document.body.appendChild(m);
+  const off = (e) => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener("mousedown", off); } };
+  setTimeout(() => document.addEventListener("mousedown", off), 0);
+  m.querySelectorAll("[data-r]").forEach((b) => b.addEventListener("click", () => { m.remove(); kxSetRank(id, b.dataset.r); }));
+  m.querySelector("[data-open]").addEventListener("click", () => { m.remove(); openDetail(id); });
 }
 async function openCo(id) {
   const x = data.items.find((i) => i.id === id); if (!x) return;
@@ -337,4 +379,5 @@ if ($("imLoad")) {
   $("imPreview").addEventListener("click", () => imRun(true));
   $("imApply").addEventListener("click", () => imRun(false));
 }
+api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); }).catch(() => {});
 if (VIEW === "list") loadList(); else if (VIEW === "renew") load();

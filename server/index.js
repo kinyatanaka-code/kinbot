@@ -12801,6 +12801,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     const patch = {};
     for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
     for (const k of ["kenshu_done", "mail_done", "published", "label_locked"]) if (k in b) patch[k] = b[k] === null ? null : !!b[k];
+    if ("renew_month" in b) { if (!/^\d{4}-\d{2}$/.test(String(b.renew_month || ""))) return res.status(400).json({ error: "更新月は YYYY-MM で入れてください" }); patch.renew_month = b.renew_month; patch.renew_locked = true; }
     if ("main_label" in b) { if (b.main_label && !KX_LABELS.includes(b.main_label)) return res.status(400).json({ error: "メインラベルが正しくありません" }); patch.main_label = b.main_label || null; patch.label_locked = !!b.main_label; }
     if (b.dismiss) {
       const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id) || {};
@@ -26324,7 +26325,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23j kinXsの議事録のモーダルに、商談の録画も出す（ドライブに保存済みならそこから、無ければRecallの録画）。CS・FSは自分の商談でなくても見られる。";
+const BUILD_TAG = "2026-10-23k kinXsの更新管理を案2に：月ごとの行に会社を小さなチップ（確度の印＋会社名、要注意は●）で並べる。すべて／要注意だけ／自分の担当／未アプローチで絞る。チップを確度の印にドラッグで確度、別の月にドラッグで更新月を変える。右クリックで確度を選ぶ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
