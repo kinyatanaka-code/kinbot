@@ -1725,3 +1725,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-23 BUILD_TAG=2026-10-23x 田中さん（メールワイズは公開のAPIが無さそう）「Googleのアカウントにもコピーで届くようにする仕様で」。settings.kinxsMailboxes（10件まで）。kinxsReadNextAction の読むGmailを CS担当→FS→共有のアカウント（重ねない、見つかったところで止める）に。GET/PUT /api/kinxs/settings（canCs、各アカウントが kinbot のメンバーか・gmailReady で Gmail を読めるか）。画面：kinXs のメニューに「設定」（/kinxs?p=settings）、共有のアカウントの追加・外す・状態（Gmailを読めます／Google連携がまだです／kinbotのメンバーに追加されていません）、手順（共有のGoogleアカウント→メールワイズの受信アドレスからコピーで届くように＝メールサーバーの転送か Google Workspace のルーティング→そのアカウントを kinbot のメンバーにしてログインしGoogle連携→ここに追加）。版20261023x。
 
 - 2026-10-23 BUILD_TAG=2026-10-23y 田中さん「Google連携しているから、別にいちいち登録させなくてもいいか」。kinxsReadNextAction の読むGmailを、CS担当→FS→CS連携の設定のメンバー全員（csSettings().members）→設定の共有のアカウント（あれば）、最大8人に。1人目で止めず、メールが6通集まるまで順に見る（Google連携していない人は自然に飛ばす）。メールワイズのコピーがだれのGmailに届いていても拾える。kinXs のメニューから「設定」を外した（/kinxs?p=settings の画面は残す）。版20261023y。
+
+- 2026-10-23 BUILD_TAG=2026-10-23y 田中さん「Google連携しているから、いちいち登録させなくてもいいか。設定はいらないや」。kinXs の「設定」（メニュー・画面・/api/kinxs/settings・settings.kinxsMailboxes）を外した。次回アクションの読み取りは CS担当→FS の Gmail だけ（kinbot で Google 連携しているアカウント）。版20261023y。

@@ -26459,7 +26459,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23y kinXsの次回アクションの自動の読み取り：共有のアカウントを登録しなくても、CS担当・FS・CSのメンバー全員（Google連携している人）のGmailを読むように。メニューの「設定」は外した。";
+const BUILD_TAG = "2026-10-23y kinXsの「設定」（共有のGoogleアカウントの登録）をやめた。次回アクションは、Google連携しているCS担当・FSのGmailから読む。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
