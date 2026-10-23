@@ -112,6 +112,26 @@ function render() {
       ${sec("key", "AIアカウント（管理画面のログイン情報）", `<div data-ai-rows>${((k.ai_list || []).length ? k.ai_list : [{ id: "", label: "", login: "", has_pass: false }]).map((a) => aiRow(a)).join("")}</div>
       <div class="cd-row" style="margin-top:8px;gap:8px"><button type="button" class="btn ghost cd-mini" data-ai-add>＋ アカウントを追加</button><button type="button" class="btn ghost cd-mini" data-ai-act="save">${ci("save", 14)}ログイン情報を保存</button>
         <span class="cs-sub" data-ai-st>パスワードは暗号にして保存し、見られるのはCS・FS・管理者だけです（だれが見たか残ります）。Chatには流しません。</span></div>`, (k.ai_list || []).length ? `<span class="cs-pill ok">登録済み${k.ai_list.length > 1 ? ` ${k.ai_list.length}件` : ""}</span>` : `<span class="cs-pill warn">未登録</span>`)}
+      ${sec("hear", "回収MTGのヒアリング", `<div class="cd-grid">
+        ${fld("納品月", "納品月")}${fld("公開予定時期", "公開予定")}
+        ${fld("請求書着日スケジュール", "請求スケジュール")}${fld("次回MTGの日時", "次回MTG（議事録から）")}
+        ${fld("活用場所", "活用場所・利用シーン", true)}${fld("特記事項", "イレギュラー・特記事項", true)}
+      </div>`, unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : `<span class="cs-pill ok">そろっています</span>`)}
+      ${sec("todo", "宿題", `<div class="cd-grid">
+        <div class="cd-f"><label>弊社の宿題（1行に1つ）</label><textarea data-list="弊社の宿題" rows="4" placeholder="無ければ空（メールの項目ごと出しません）">${esc((f.弊社の宿題 || []).join("\n"))}</textarea></div>
+        <div class="cd-f"><label>貴社の宿題（1行に1つ）</label><textarea data-list="貴社の宿題" rows="4" placeholder="初期学習のほかにお願いしたこと">${esc((f.貴社の宿題 || []).join("\n"))}</textarea></div>
+      </div>`)}
+      ${sec("cs", "CS担当・確認MTG", `<div class="cd-grid">
+        <div class="cd-f"><label>CS担当</label><div class="cd-row"><select data-k="csEmail">${csOpts}</select><button type="button" class="btn ghost cd-mini" data-act="autocs">空いている人を自動で選ぶ</button></div></div>
+        <div class="cd-f"><label>確認MTGの日時</label><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}">
+          <div class="cs-sub">${k.confirm_from ? `${esc(k.confirm_from)}から` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　・　${link(k.confirm_url, "確認MTGの参加URL")}` : ""}</div></div>
+      </div>`)}
+      ${sec("link", "リンク", `<div class="cd-grid">
+        <div class="cd-f"><label>SFの商談 ${link(k.sf_url, "開く")}</label><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="見つからなかったときは貼ってください"></div>
+        <div class="cd-f"><label>候補者用画面のURL ${link(k.doc_candidate_url || k.sheet_candidate_url, "開く")}</label><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `管理シートの値：${k.sheet_candidate_url}` : "管理シートに無いときは、ここに入れる")}">
+          <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? "管理シートの値を使います" : (d.candidateSheetError ? `管理シートを読めませんでした：${esc(d.candidateSheetError)}` : "管理シートにこの会社がありません")}</div></div>
+        <div class="cd-f"><label>管理画面のURL（全社共通）</label><div class="cd-ro">${esc(d.adminUrl || "")}</div></div>
+      </div>`)}
       ${sec("mail", "御礼メールの反応", (() => {
         const t = k.mail_track || {};
         if (!k.draft_at) return `<div class="cs-sub">御礼メールの下書きを作ると、先方が開いたか・どのリンクを押したかがここに出ます</div>`;
