@@ -93,7 +93,7 @@ $("kxCs").addEventListener("change", render);
 $("kxPast").addEventListener("change", render);
 $("kxSync").addEventListener("click", async () => {
   const b = $("kxSync"); b.disabled = true; $("kxSt").textContent = "SFから取り込んでいます…（1〜2分かかることがあります）";
-  try { const r = (await api("/api/kinxs/sync", { method: "POST" })).result || {}; $("kxSt").textContent = `取り込みました：新しく ${r.added || 0}社・更新 ${r.updated || 0}社${(r.errors || []).length ? `・エラー ${r.errors.join("／")}` : ""}`; await load(); }
+  try { const r = (await api("/api/kinxs/sync", { method: "POST" })).result || {}; $("kxSt").textContent = `取り込みました：新しく ${r.added || 0}社・更新 ${r.updated || 0}社${r.removed ? `・対象外で外した ${r.removed}社` : ""}${(r.errors || []).length ? `・エラー ${r.errors.join("／")}` : ""}`; await load(); }
   catch (e) { $("kxSt").textContent = "取り込めませんでした：" + e.message; }
   b.disabled = false;
 });
@@ -141,7 +141,7 @@ function renderList() {
     const dueCls = x.naDue && x.naDue < today ? "ng-t" : "kx-note";
     const kc = x.kenshu === "回収済み" ? "ok-t" : x.kenshu === "依頼済み" ? "mid-t" : "ng-t";
     const mc = x.mail === "送付済み" ? "ok-t" : x.mail === "下書きあり" ? "mid-t" : "ng-t";
-    return `<div class="ls-r" data-open="${esc(x.id)}"><div class="co">${esc(x.name)}${x.alerts.length ? ' <span class="kx-rule" style="font-size:10.5px">要注意</span>' : ""}</div><div class="sub">${esc(x.products.join("・"))}</div></div>` +
+    return `<div class="ls-r" data-open="${esc(x.id)}"><div class="co">${esc(x.name)}${x.manual ? ' <span class="kx-note" style="font-size:10.5px;border:1px solid #D5E2DB;border-radius:6px;padding:0 5px">手入力</span>' : ""}${x.alerts.length ? ' <span class="kx-rule" style="font-size:10.5px">要注意</span>' : ""}</div><div class="sub">${esc(x.products.join("・"))}</div></div>` +
       `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span>${x.locked ? ' <span class="kx-note" title="手で決めたラベル">🔒</span>' : ""}</div>` +
       `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-rank r-${x.rank}">${x.rank}</span></div>` +
       `<div class="ls-r" data-open="${esc(x.id)}" style="font-size:11.5px"><div class="${kc}">検収書 ${esc(x.kenshu)}</div><div class="${mc}">納品メール ${esc(x.mail)}</div></div>` +
@@ -190,7 +190,7 @@ async function openDetail(id) {
       <div class="kx-sec"><div class="lb">メモ</div><textarea class="kx-in" data-memo rows="3">${esc(x.memo)}</textarea><div style="display:flex;margin-top:8px"><button type="button" class="kx-btn" data-save-memo style="margin-left:auto">メモを保存</button></div></div>
       <div class="kx-sec kx-kv"><span>CS担当</span><span>${esc(x.cs || "未定")}</span><span>FS担当</span><span>${esc(x.fs || "—")}</span><span>最終接触</span><span>${x.lastTouch ? `${esc(fmtD(x.lastTouch))}（${x.sinceTouch}日前）` : "—"}</span><span>議事録</span><span>${x.meetings}件</span></div>
       ${x.kickBot ? `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="/cs.html?bot=${encodeURIComponent(x.kickBot)}">CS連携の企業カードを開く</a>` : ""}
-      <a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="https://neo-media.my.salesforce.com/lightning/r/Account/${encodeURIComponent(x.id)}/view" target="_blank" rel="noopener">SFの取引先を開く ↗</a>
+      ${x.manual ? `<button type="button" class="kx-btn" data-del-user style="color:#8C1F1F;border-color:#F0C2BE">このユーザーを消す（手で追加したもの）</button>` : `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="https://neo-media.my.salesforce.com/lightning/r/Account/${encodeURIComponent(x.id)}/view" target="_blank" rel="noopener">SFの取引先を開く ↗</a>`}
     </div>
     <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
       <div class="kx-sec"><div class="lb">電話・メールなど（議事録のない接触）を記録する</div>
@@ -215,6 +215,47 @@ async function openDetail(id) {
   bg.querySelectorAll("[data-tog]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => put({ [g.dataset.tog]: b.dataset.v === "true" }))));
   bg.querySelector("[data-save-na]").addEventListener("click", () => put({ na_text: bg.querySelector("[data-na]").value, na_due: bg.querySelector("[data-due]").value }));
   bg.querySelector("[data-save-memo]").addEventListener("click", () => put({ memo: bg.querySelector("[data-memo]").value }));
+  const delU = bg.querySelector("[data-del-user]");
+  if (delU) delU.addEventListener("click", async () => {
+    if (!confirm(`「${x.name}」をユーザーから消します。よろしいですか？`)) return;
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }); close(); await refresh(); } catch (e) { alert(e.message); }
+  });
   bg.querySelector("[data-add-contact]").addEventListener("click", () => { const t = bg.querySelector("[data-ctext]").value.trim(); if (!t) return; put({ contact: { type: bg.querySelector("[data-ctype]").value, text: t } }); });
 }
+// ユーザーを手で追加する
+function openAddUser() {
+  const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
+  bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="ユーザーを追加">
+    <div style="display:flex;align-items:center;gap:10px"><h2>ユーザーを追加</h2><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div class="kx-note">SFに無い会社や、取り込みに出てこない会社を手で足します。あとから企業詳細で、ラベル・確度・次回アクションなどを入れられます。</div>
+    <div class="kx-sec" style="display:grid;grid-template-columns:110px 1fr;gap:10px;align-items:center">
+      <label class="kx-note" for="auName">企業名 *</label><input class="kx-in" id="auName" placeholder="株式会社〇〇" />
+      <label class="kx-note" for="auProd">契約商品</label><input class="kx-in" id="auProd" value="アチコチバース（年間プラン）" />
+      <label class="kx-note" for="auBooked">計上日</label><input class="kx-in" id="auBooked" type="date" />
+      <label class="kx-note" for="auEnd">契約終了日</label><div><input class="kx-in" id="auEnd" type="date" /><div class="kx-note" style="margin-top:4px">空のときは、計上日から1年で推定します</div></div>
+      <label class="kx-note" for="auCs">CS担当</label><input class="kx-in" id="auCs" placeholder="例：鶴川 夏海" />
+      <label class="kx-note" for="auFs">FS担当</label><input class="kx-in" id="auFs" placeholder="例：植野ひかり" />
+      <label class="kx-note" for="auMemo">メモ</label><textarea class="kx-in" id="auMemo" rows="3"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center"><span class="kx-note" data-st></span><button type="button" class="kx-btn" data-save style="margin-left:auto;background:#0E6B4E;color:#fff;border-color:#0E6B4E">追加する</button></div>
+  </aside>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  bg.querySelector("#auName").focus();
+  bg.querySelector("[data-save]").addEventListener("click", async () => {
+    const st = bg.querySelector("[data-st]");
+    const body = { name: bg.querySelector("#auName").value, product: bg.querySelector("#auProd").value, booked_on: bg.querySelector("#auBooked").value, end_on: bg.querySelector("#auEnd").value,
+      cs_name: bg.querySelector("#auCs").value, fs_name: bg.querySelector("#auFs").value, memo: bg.querySelector("#auMemo").value };
+    if (!body.name.trim()) { st.textContent = "企業名を入れてください"; return; }
+    try {
+      const r = await api("/api/kinxs/accounts", { method: "POST", body: JSON.stringify(body) });
+      close();
+      if (VIEW === "list") await loadList(); else await load();
+      if (r.item && r.item.account_id) openDetail(r.item.account_id);
+    } catch (e) { st.textContent = "追加できませんでした：" + e.message; }
+  });
+}
+document.querySelectorAll(".kx-add-user").forEach((b) => b.addEventListener("click", openAddUser));
 if (VIEW === "list") loadList(); else load();

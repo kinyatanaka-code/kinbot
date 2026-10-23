@@ -11576,7 +11576,7 @@ export async function kinxsInit() {
     end_estimated BOOLEAN DEFAULT false, renew_month TEXT, fs_name TEXT, cs_name TEXT, rank TEXT DEFAULT 'Z', rank_by TEXT, rank_at TIMESTAMPTZ,
     main_label TEXT, label_locked BOOLEAN DEFAULT false, error TEXT, memo TEXT, opp_ids JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
-  for (const c of ["na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
+  for (const c of ["source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
     await sq(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
   await sq(`CREATE TABLE IF NOT EXISTS kinxs_history (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, from_v TEXT, to_v TEXT, by_user TEXT, auto BOOLEAN DEFAULT false, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
 }
@@ -11674,4 +11674,31 @@ export async function kinxsUpdate(accountId, patch, by) {
 export async function kinxsLogAuto(accountId, kind, from, to) {
   if (!pool) return;
   await pool.query(`INSERT INTO kinxs_history (account_id, kind, from_v, to_v, by_user, auto) VALUES ($1,$2,$3,$4,'kinXs',true)`, [accountId, kind, from || "", to || ""]).catch(() => {});
+}
+
+// kinXs：手で入れたユーザー（SFに無い会社など）
+export async function kinxsAddManual(a, by) {
+  if (!pool) return null;
+  const id = `manual-${Date.now()}`;
+  const { rows } = await pool.query(
+    `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, end_on, end_estimated, renew_month, fs_name, cs_name, source, rank, rank_by, rank_at, memo)
+     VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,'manual','Z',$10,now(),$11) RETURNING *`,
+    [id, a.name, JSON.stringify(a.products || []), a.booked_on || null, a.end_on || null, !!a.end_estimated, a.renew_month || null, a.fs_name || null, a.cs_name || null, by, a.memo || null]);
+  await pool.query(`INSERT INTO kinxs_history (account_id, kind, from_v, to_v, by_user, auto) VALUES ($1,'add','','手で追加',$2,false)`, [id, by]).catch(() => {});
+  return rows[0];
+}
+export async function kinxsDeleteManual(accountId) {
+  if (!pool) return 0;
+  const r = await pool.query(`DELETE FROM kinxs_accounts WHERE account_id=$1 AND source='manual'`, [accountId]);
+  return r.rowCount || 0;
+}
+// SFから取り込んだ会社のうち、もう対象でないもの（商品を確かめ終わって、アチコチバースが無かった会社）を消す
+export async function kinxsPruneSf(keepIds, checkedOppIds) {
+  if (!pool) return 0;
+  const { rows } = await pool.query(`SELECT account_id, opp_ids FROM kinxs_accounts WHERE COALESCE(source,'sf') <> 'manual'`);
+  const keep = new Set(keepIds), checked = new Set(checkedOppIds);
+  const del = rows.filter((r) => !keep.has(r.account_id) && (Array.isArray(r.opp_ids) ? r.opp_ids : []).every((o) => checked.has(o))).map((r) => r.account_id);
+  if (!del.length) return 0;
+  await pool.query(`DELETE FROM kinxs_accounts WHERE account_id = ANY($1::text[]) AND COALESCE(source,'sf') <> 'manual'`, [del]);
+  return del.length;
 }

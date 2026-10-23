@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023f" />
+    <link rel="stylesheet" href="style.css?v=20261023g" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -109,7 +109,8 @@
         <main>
           <div class="kx-wrap" id="vList" hidden>
             <div class="kx-head">
-              <div><h1 class="kx-title">ユーザー一覧</h1><div class="kx-sub">SFで申込書回収（06）になった会社が自動で入ります。要注意企業は上にまとめ、表も急ぎの順に並べます</div></div>
+              <div><h1 class="kx-title">ユーザー一覧</h1><div class="kx-sub">SFで申込書回収（06）になった、アチコチバースの商談の会社が自動で入ります。手で追加することもできます。要注意企業は上にまとめ、表も急ぎの順に並べます</div></div>
+              <div style="margin-left:auto"><button type="button" class="kx-btn kx-add-user" style="background:#0E6B4E;color:#fff;border-color:#0E6B4E">＋ ユーザーを追加</button></div>
             </div>
             <section class="kx-alert-box" id="lsAlerts"></section>
             <div class="kx-bar">
@@ -125,6 +126,7 @@
               
               <div><h1 class="kx-title">更新管理</h1><div class="kx-sub">更新月＝契約終了日の前月。更新月まで<span id="kxDays">90</span>日以内で確度がB以下の会社は、オレンジの枠で目立たせます</div></div>
               <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" class="kx-btn kx-add-user">＋ ユーザーを追加</button>
                 <button type="button" class="kx-btn" id="kxSync">SFから取り込み直す</button>
               </div>
             </div>
@@ -141,6 +143,6 @@
         </main>
       </div>
     </div>
-    <script src="kinxs.js?v=20261023f"></script>
+    <script src="kinxs.js?v=20261023g"></script>
   </body>
 </html>

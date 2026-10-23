@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
@@ -12451,7 +12451,8 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
 // ===== kinXs（DOC導入企業のCS一元管理）：まずは「更新管理（更新月×確度）」から =====
 // SFのクロスの商談が「06 申込書回収」以降になった会社を、取引先ごとに1件にまとめて持つ。対象は要件定義書の5商品だけ。
 // 契約終了日：商談の項目でラベルに「契約終了」「利用終了」を含むもの → 無ければ計上日から1年（推定の印つき）。更新月＝契約終了日の前月
-const KINXS_PRODUCTS = [/取材費（全日）|取材費\(全日\)/, /アチコチバース（年間プラン）|アチコチバース\(年間プラン\)/, /エントリープラン/, /ライトプラン/, /スタンダードプラン/];
+// 対象：商談の商品に「アチコチバース」が入っているものだけ（2026-10-23 田中さん。前は要件定義書の5商品）
+const KINXS_PRODUCTS = [/アチコチバース/];
 const kinxsIsTarget = (n) => KINXS_PRODUCTS.some((re) => re.test(String(n || "").normalize("NFKC").replace(/\(/g, "（").replace(/\)/g, "）")) || re.test(String(n || "")));
 let _kinxsBusy = false, _kinxsLast = null;
 async function kinxsSync() {
@@ -12502,6 +12503,8 @@ async function kinxsSync() {
     const usedStart = startF.find((f) => (q.records || []).some((o) => ymd(o[f]))) || "";
     const lab = (n) => ((d0.fields || []).find((f) => f.name === n) || {}).label || n;
     await saveSettings({ kinxsItemCache: cache, kinxsFields: { start: usedStart ? `${lab(usedStart)}（${usedStart}）` : "", end: usedEnd ? `${lab(usedEnd)}（${usedEnd}）` : "", candidates: endF } }).catch(() => {});
+    // アチコチバースの無い会社（商品を確かめ終わったもの）は、ユーザーから外す
+    try { out.removed = await kinxsPruneSf([...byAcc.keys()], Object.keys(cache)); } catch (e) { out.errors.push(`外す処理：${e.message}`); }
     const kicks = await listCsKickoffs(500).catch(() => []);
     for (const a of byAcc.values()) {
       // 会社の契約：いちばん新しい計上の商品から。終了日が無ければ計上日の1年後（推定）
@@ -12543,7 +12546,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
       const left = r.renew_month ? daysTo(r.renew_month) : null;
       const warn = left != null && left <= warnDays && ["B", "C", "Z"].includes(r.rank || "Z") && r.rank !== "F";
       return { id: r.account_id, name: r.name, rank: r.rank || "Z", renew: r.renew_month, left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
-        cs: r.cs_name || "", fs: r.fs_name || "", products: (r.products || []).map((p) => p.name), error: r.error || "", rankAt: r.rank_at, rankBy: r.rank_by || "" };
+        cs: r.cs_name || "", fs: r.fs_name || "", products: (r.products || []).map((p) => p.name), error: r.error || "", rankAt: r.rank_at, rankBy: r.rank_by || "", manual: r.source === "manual" };
     });
     res.json({ ok: true, thisMonth, warnDays, items, sync: _kinxsLast, fields: st.kinxsFields || {} });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -12606,7 +12609,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "",
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual" };
   });
   return { items, rules, mtBy, kickBy };
 }
@@ -12616,6 +12619,34 @@ app.get("/api/kinxs/users", async (req, res) => {
     const { items, rules } = await kinxsBuild();
     items.sort((a, b) => (b.score - a.score) || String(a.renew || "9").localeCompare(String(b.renew || "9")));
     res.json({ ok: true, items, rules, labels: KX_LABELS });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/accounts", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが追加できます" });
+    await kinxsInit();
+    const b = req.body || {};
+    const name = String(b.name || "").trim();
+    if (!name) return res.status(400).json({ error: "企業名を入れてください" });
+    const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : null; };
+    const booked = ymd(b.booked_on), endIn = ymd(b.end_on);
+    let end = endIn, est = false;
+    if (!end && booked) { const t = new Date(`${booked}T00:00:00Z`); t.setUTCFullYear(t.getUTCFullYear() + 1); t.setUTCDate(t.getUTCDate() - 1); end = t.toISOString().slice(0, 10); est = true; }
+    let renew = null;
+    if (end) { const t = new Date(`${end.slice(0, 7)}-01T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() - 1); renew = t.toISOString().slice(0, 7); }
+    const product = String(b.product || "アチコチバース").trim();
+    const r = await kinxsAddManual({ name, products: [{ name: product, opp: null, booked, start: null, end: endIn, stage: "手入力" }], booked_on: booked, end_on: end, end_estimated: est, renew_month: renew,
+      fs_name: String(b.fs_name || "").trim() || null, cs_name: String(b.cs_name || "").trim() || null, memo: String(b.memo || "").trim() || null }, req.user);
+    console.log(`[kinxs] ユーザーを手で追加：${name} by ${req.user}`);
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/kinxs/accounts/:id", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const n = await kinxsDeleteManual(req.params.id);
+    if (!n) return res.status(400).json({ error: "消せるのは手で追加したユーザーだけです" });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
@@ -26165,7 +26196,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23f kinXsのSFの取り込みが「Invalid time value」で止まっていたのを直した：ラベルに「契約終了」を含むテスト用の項目（aaaaaaaa__c）を拾い、日時の形の値で日付の計算が失敗していた。ぴったりの名前の項目を先に、値の入った項目を使い、日付はYYYY-MM-DDにそろえる。";
+const BUILD_TAG = "2026-10-23g kinXs：SFからは、商談の商品にアチコチバースがある会社だけをユーザーとして取り込む（対象でなくなった会社は外す）。ユーザーを手で追加・消せるように。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
