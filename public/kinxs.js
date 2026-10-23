@@ -177,15 +177,15 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ list: "list", import: "import", cs: "cs", board: "board" })[new URLSearchParams(location.search).get("p")] || "renew";
+const VIEW = ({ renew: "renew", list: "list", import: "import", cs: "cs", board: "board" })[new URLSearchParams(location.search).get("p")] || "list";
 document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
 $("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ board: "ラベル別ボード", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
+$("kxPageName").textContent = ({ board: "ラベル別ボード", renew: "更新管理", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
-if ($("kxSyncTop")) $("kxSyncTop").hidden = VIEW !== "renew";
+if ($("kxSyncTop")) $("kxSyncTop").hidden = !["renew", "list"].includes(VIEW);
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
 api("/api/me").then((me) => {
   const n = (me && (me.name || me.email)) || "";
@@ -235,24 +235,15 @@ function renderList() {
       <div class="kx-note">${x.alerts.map((a) => esc(a.detail)).join("／")}</div>
       <div style="display:flex;align-items:center;gap:8px" class="kx-note">CS ${esc(kxSurname(x.cs) || "未定")}<button type="button" class="kx-btn" style="height:30px;font-size:11.5px;margin-left:auto" data-dis="${esc(x.id)}" data-rule="${esc(x.alerts.map((a) => a.rule).join(","))}">対応済みにする</button></div>
     </div>`).join("")}</div>${al.length > 12 ? `<div class="kx-note" style="margin-top:8px">ほか ${al.length - 12}社</div>` : ""}` : `<div class="kx-note">いま要注意の会社はありません</div>`);
-  // 表
-  const head = ["企業名・契約商品", "メインラベル", "更新確度", "納品", "更新月", "CS担当", "最終接触", "次回アクション・期日"].map((h) => `<div class="ls-h">${h}</div>`).join("");
+  // 会社のカード（シンプルに：会社名・ラベル・確度・CS・更新月・次回アクション）
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-  const body = items.map((x) => {
-    const touchCls = x.sinceTouch != null && x.sinceTouch >= (d.rules.contactDays || 30) ? "ng-t" : "";
-    const dueCls = x.naDue && x.naDue < today ? "ng-t" : "kx-note";
-    const kc = x.kenshu.startsWith("回収済み") ? "ok-t" : x.kenshu === "依頼済み" ? "mid-t" : "ng-t";
-    const mc = x.mail.startsWith("送付済み") ? "ok-t" : x.mail === "下書きあり" ? "mid-t" : "ng-t";
-    return `<div class="ls-r" data-open="${esc(x.id)}"><div class="co">${esc(x.name)}${x.manual ? ' <span class="kx-note" style="font-size:10.5px;border:1px solid #D5E2DB;border-radius:6px;padding:0 5px">手入力</span>' : ""}${x.alerts.length ? ' <span class="kx-rule" style="font-size:10.5px">要注意</span>' : ""}</div><div class="sub">${esc(x.products.join("・"))}</div></div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span>${x.locked ? ' <span class="kx-note" title="手で決めたラベル">🔒</span>' : ""}</div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-rank r-${x.rank}">${x.rank}</span></div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}" style="font-size:11.5px"><div class="${kc}">検収書 ${esc(x.kenshu)}</div><div class="${mc}">納品メール ${esc(x.mail)}</div></div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}">${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}">${esc(kxSurname(x.cs) || "未定")}</div>` +
-      `<div class="ls-r ${touchCls}" data-open="${esc(x.id)}">${x.lastTouch ? `${fmtD(x.lastTouch)}（${x.sinceTouch}日前）` : "—"}</div>` +
-      `<div class="ls-r" data-open="${esc(x.id)}"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x.naType ? `<span class="kx-natag">${esc(x.naType)}</span>` : ""}${esc(x.na || "—")}${x.naSuggest ? ' <span class="kx-auto">提案あり</span>' : ""}</div><div class="${dueCls}" style="font-size:11.5px">${x.naDue ? `期日 ${esc(x.naDue.slice(5).replace("-", "/"))}${x.naDue < today ? "・過ぎています" : ""}` : ""}</div></div>`;
-  }).join("");
-  $("lsTable").innerHTML = items.length ? `<div class="ls-grid">${head}${body}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「更新管理」の「SFから取り込み直す」で取り込めます。"}</div>`;
+  const card = (x) => `<div class="kx-uc ${x.alerts.length ? "warn" : ""}" data-open="${esc(x.id)}" role="button" tabindex="0">
+      <div class="nm"><span>${esc(x.name)}</span><span class="kx-rank r-${x.rank}" style="flex:none">${x.rank}</span></div>
+      <div class="row"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span>${x.alerts.length ? x.alerts.map((a) => `<span class="kx-rule">${esc(a.rule)}</span>`).join("") : ""}${x.manual ? '<span class="kx-note" style="font-size:10.5px;border:1px solid #D5E2DB;border-radius:6px;padding:0 5px">手入力</span>' : ""}</div>
+      <div class="kv"><span>CS担当</span><span>${esc(kxSurname(x.cs) || "未定")}</span><span>更新月</span><span>${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</span><span>最終接触</span><span>${x.lastTouch ? `${esc(fmtD(x.lastTouch))}（${x.sinceTouch}日前）` : "—"}</span></div>
+      <div class="na">${x.na ? `${x.naType ? `<span class="kx-natag">${esc(x.naType)}</span>` : ""}${esc(x.na)}${x.naDue ? ` <span class="${x.naDue < today ? "ng-t" : "kx-note"}">${esc(x.naDue.slice(5).replace("-", "/"))}</span>` : ""}` : '<span class="kx-note">次回アクション：まだありません</span>'}</div>
+    </div>`;
+  $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
   document.querySelectorAll("#vList [data-dis]").forEach((b) => b.addEventListener("click", async (e) => {
     e.stopPropagation();
