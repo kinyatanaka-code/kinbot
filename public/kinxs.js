@@ -265,11 +265,12 @@ $("lsQ").addEventListener("input", renderList);
 $("lsCs").addEventListener("change", renderList);
 
 // ===== 企業詳細（どちらの画面からも開く）=====
-async function openDetail(id) {
+async function openDetail(id, reuse) {
   let d;
   try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail`); } catch (e) { alert(e.message); return; }
   const x = d.item;
-  const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
+  // 保存したあとは、モーダルを閉じずに中身だけ描き直す（開いていたタブ・スクロールの位置もそのまま）
+  const bg = (reuse && reuse.bg) || document.createElement("div"); bg.className = "kx-drawer-bg";
   const tog = (key, val, opts) => `<div class="kx-tog" data-tog="${key}">${opts.map(([v, t]) => `<button type="button" data-v="${v}" class="${String(val) === String(v) ? "on" : ""}">${t}</button>`).join("")}</div>`;
   bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="${esc(x.name)}" style="width:min(560px,100%)">
     <div style="display:flex;align-items:flex-start;gap:10px"><div><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
@@ -300,18 +301,28 @@ async function openDetail(id) {
       <div class="kx-tl">${d.timeline.length ? d.timeline.map((t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}><div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-note">議事録を開く ›</span>' : ""}</div><div class="m">${esc(new Date(t.at).toLocaleString("ja-JP"))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`).join("") : `<div class="kx-note">まだありません。会社名が予定名に入った商談の議事録が、ここに自動で並びます</div>`}</div>
     </div>
   </aside>`;
-  document.body.appendChild(bg);
+  if (!bg.isConnected) document.body.appendChild(bg);
+  if (reuse) {
+    if (reuse.tab) { bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2.dataset.tab === reuse.tab)); bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== reuse.tab; }); }
+    const dr = bg.querySelector(".kx-drawer"); if (dr && reuse.scroll) dr.scrollTop = reuse.scroll;
+    if (reuse.msg) { const t = document.createElement("div"); t.className = "kx-saved"; t.textContent = reuse.msg; bg.querySelector(".kx-drawer").appendChild(t); setTimeout(() => t.remove(), 1600); }
+  }
   const close = () => bg.remove();
+  const again = async (msg = "保存しました") => {
+    const tab = (bg.querySelector("[data-tab].on") || {}).dataset?.tab || "info";
+    const scroll = (bg.querySelector(".kx-drawer") || {}).scrollTop || 0;
+    await openDetail(id, { bg, tab, scroll, msg });
+  };
   const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else await load(); };
-  const put = async (body, again = true) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); await refresh(); if (again) { close(); openDetail(id); } } catch (e) { alert(e.message); } };
-  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  const put = async (body, redraw = true) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {}); if (redraw) await again(); } catch (e) { alert(e.message); } };
+  if (!bg.dataset.wired) { bg.dataset.wired = "1"; bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); }); }
   bg.querySelector("[data-x]").addEventListener("click", close);
   bg.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
     bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2 === b));
     bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== b.dataset.tab; });
   }));
   bg.querySelectorAll("[data-rank]").forEach((b) => b.addEventListener("click", async () => {
-    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/rank`, { method: "PUT", body: JSON.stringify({ rank: b.dataset.rank }) }); await refresh(); close(); openDetail(id); } catch (e) { alert(e.message); }
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/rank`, { method: "PUT", body: JSON.stringify({ rank: b.dataset.rank }) }); refresh().catch(() => {}); await again(`更新確度を ${b.dataset.rank} にしました`); } catch (e) { alert(e.message); }
   }));
   bg.querySelector("[data-label]").addEventListener("change", (e) => put({ main_label: e.target.value || "" }));
   bg.querySelectorAll("[data-tog]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => put({ [g.dataset.tog]: b.dataset.v === "true" }))));
