@@ -17,7 +17,7 @@ async function load() {
 }
 function render() {
   const d = data; if (!d) return;
-  $("kxDays").textContent = d.warnDays;
+  if ($("kxDays")) $("kxDays").textContent = d.warnDays;
   // CS担当の選択肢
   const sel = $("kxCs"), cur = sel.value;
   const css = [...new Set(d.items.map((x) => x.cs).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
@@ -40,7 +40,8 @@ function render() {
   // 確度で絞る（凡例の S〜F を押す。複数選べる、もう一度押すと外す）
   const rsel = window.__kxRanks || new Set();
   const shown = items.filter((x) => (flt === "all" ? true : flt === "warn" ? x.warn : flt === "mine" ? (myName && String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))) : flt === "Z" ? x.rank === "Z" : true) && (!rsel.size || rsel.has(x.rank)));
-  const start = $("kxPast").checked ? items.map((x) => x.renew).filter(Boolean).sort()[0] || addMonths(d.thisMonth, -1) : addMonths(d.thisMonth, -1);
+  // 更新月を過ぎた会社も、いつも出す（いちばん古い更新月から）
+  const start = [items.map((x) => x.renew).filter(Boolean).sort()[0], addMonths(d.thisMonth, -1)].filter(Boolean).sort()[0];
   const months = []; for (let m = start; m <= addMonths(d.thisMonth, 12); m = addMonths(m, 1)) months.push(m);
   const noMonth = shown.filter((x) => !x.renew);
   const rows = months.map((m) => ({ m, list: shown.filter((x) => x.renew === m) })).filter((r) => r.list.length || (r.m >= d.thisMonth && r.m <= addMonths(d.thisMonth, 3)));
@@ -60,7 +61,7 @@ function render() {
   const rcount = {}; for (const x of items) rcount[x.rank] = (rcount[x.rank] || 0) + 1;
   const legend = RANKS.map(([k, l]) => `<button type="button" class="kx-drop ${rsel.has(k) ? "on" : ""} ${rsel.size && !rsel.has(k) ? "dim" : ""}" data-rank-drop="${k}" data-rank-pick="${k}" aria-pressed="${rsel.has(k)}" title="押すと確度${k}の会社だけを出します（もう一度押すと外す）。会社をここにドラッグすると確度${k}になります"><span class="kx-rank r-${k}">${k}</span>${esc(l)}<span class="kx-rc">${rcount[k] || 0}</span></button>`).join("")
     + (rsel.size ? `<button type="button" class="kx-chip" data-rank-clear style="height:28px">確度の絞り込みを外す</button>` : "");
-  $("kxTable").innerHTML = d.items.length ? `<div class="kx-legend">${legend}<span class="kx-note" style="color:#7A3300;font-weight:700"><i class="dot"></i> 要注意</span><span class="kx-note" style="margin-left:auto">確度を押すとその会社だけ出します・会社を確度や別の月にドラッグして直せます・右クリックで確度を選ぶ</span></div>
+  $("kxTable").innerHTML = d.items.length ? `<div class="kx-legend">${legend}<span class="kx-note" style="color:#7A3300;font-weight:700"><i class="dot"></i> 要注意</span></div>
     <div class="kx-fbar">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}${fbtn("Z", "未アプローチ")}</div>
     <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のアチコチバースの商談から取り込みます。</div>`;
   const box = $("kxTable");
@@ -141,7 +142,7 @@ async function openCo(id) {
 }
 $("kxQ").addEventListener("input", render);
 $("kxCs").addEventListener("change", render);
-$("kxPast").addEventListener("change", render);
+if ($("kxPast")) $("kxPast").addEventListener("change", render);
 $("kxSync").addEventListener("click", async () => {
   const b = $("kxSync"); b.disabled = true; $("kxSt").textContent = "SFから取り込んでいます…（1〜2分かかることがあります）";
   try { const r = (await api("/api/kinxs/sync", { method: "POST" })).result || {}; $("kxSt").textContent = `取り込みました：新しく ${r.added || 0}社・更新 ${r.updated || 0}社${r.removed ? `・対象外で外した ${r.removed}社` : ""}${(r.errors || []).length ? `・エラー ${r.errors.join("／")}` : ""}`; await load(); }
