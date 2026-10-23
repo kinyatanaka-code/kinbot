@@ -33,7 +33,7 @@ function render() {
     { l: "更新確定・予定（S・A）", v: `${near.filter((x) => ["S", "A"].includes(x.rank)).length}社`, s: `${d.warnDays}日以内の ${near.length}社のうち`, st: "color:#0A5440" },
     { l: "解約検討（C）", v: `${items.filter((x) => x.rank === "C").length}社`, s: items.filter((x) => x.rank === "C").slice(0, 2).map((x) => x.name).join("・") || "—", st: "color:#8C1F1F" },
   ];
-  $("kxKpis").innerHTML = kpis.map((k) => `<div class="kx-kpi"><div class="l">${esc(k.l)}</div><div class="v" style="${k.st || ""}">${esc(k.v)}</div><div class="s">${esc(k.s)}</div></div>`).join("");
+  $("kxKpis").innerHTML = kpis.map((k) => `<div class="kx-kpi" title="${esc(k.s)}"><div class="l">${esc(k.l)}</div><div class="v" style="${k.st || ""}">${esc(k.v)}</div><div class="s">${esc(k.s)}</div></div>`).join("");
   // ===== 案2：月ごとの行に、会社をチップで並べる =====
   const flt = window.__kxFilter || "all";
   const myName = window.__kxMe || "";

@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023q" />
+    <link rel="stylesheet" href="style.css?v=20261023r" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -160,6 +160,16 @@
   .kx-card .f{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#4F6158;border-top:1px solid #EEF2F0;padding-top:6px;}
   .kx-card .f .av{width:20px;height:20px;border-radius:50%;background:#DDEFE7;color:#0A5440;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;}
   .kx-card .lock{font-size:10.5px;color:#4F6158;}
+  /* 更新管理の上の数字と絞り込みを、小さく1行に */
+  #vRenew{gap:10px;}
+  #vRenew .kx-head{display:none;}
+  #vRenew .kx-kpis{gap:8px;}
+  #vRenew .kx-kpi{padding:7px 12px;border-radius:11px;display:flex;align-items:baseline;gap:8px;min-width:0;}
+  #vRenew .kx-kpi .l{font-size:11.5px;white-space:nowrap;}
+  #vRenew .kx-kpi .v{font-size:19px;margin:0 0 0 auto;line-height:1.2;white-space:nowrap;}
+  #vRenew .kx-kpi .s{display:none;}
+  #vRenew .kx-bar input,#vRenew .kx-bar select{height:32px;font-size:12.5px;}
+  #vRenew .kx-bar{gap:6px;}
 </style>
 </head>
   <body>
@@ -249,6 +259,6 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261023q"></script>
+    <script src="kinxs.js?v=20261023r"></script>
   </body>
 </html>
