@@ -65,6 +65,7 @@ function render() {
     <div class="kx-fbar">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}${fbtn("Z", "未アプローチ")}</div>
     <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のアチコチバースの商談から取り込みます。</div>`;
   const box = $("kxTable");
+  kxFitRows();
   box.querySelectorAll("[data-flt]").forEach((b) => b.addEventListener("click", () => { window.__kxFilter = b.dataset.flt; render(); }));
   box.querySelectorAll("[data-rank-pick]").forEach((b) => b.addEventListener("click", () => {
     const set = window.__kxRanks || (window.__kxRanks = new Set());
@@ -93,6 +94,16 @@ function render() {
   const f = d.fields || {};
   $("kxFoot").textContent = `全${d.items.length}社。契約終了日は${f.end ? `SFの「${f.end}」から取っています。` : "SFの商談に値の入った項目が見つからないので、計上日から1年で推定しています（カードに「終了日は推定」と出ます）。"}${d.sync ? `　最後に取り込んだ時刻：${new Date(d.sync.at).toLocaleString("ja-JP")}` : ""}`;
 }
+// 更新管理：画面は止めて、月ごとの行（会社のチップ）のところだけをスクロールする
+function kxFitRows() {
+  const el = document.querySelector("#kxTable .kx-mrows");
+  if (!el || VIEW !== "renew") return;
+  const top = el.getBoundingClientRect().top;
+  el.style.maxHeight = `${Math.max(220, window.innerHeight - top - 18)}px`;
+  el.style.overflowY = "auto";
+  document.documentElement.style.overflow = "hidden";   // ページ全体はスクロールしない
+}
+window.addEventListener("resize", () => kxFitRows());
 async function kxSetRank(id, rank) {
   const x = data && data.items.find((i) => i.id === id);
   if (!x || x.rank === rank) return;
