@@ -2618,7 +2618,8 @@ app.post("/api/meetings/:id/share-link", async (req, res) => {
 app.get("/api/meetings/:id/drive-video", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
-    if (!m || !canAccess(m, req) || !m.drive_file_id) return res.status(404).end();
+    // kinXs（CS・FS）からも見られるように：自分の商談でなくても、CS連携を使える人なら流す
+    if (!m || !m.drive_file_id || !(canAccess(m, req) || (await canCs(req).catch(() => false)))) return res.status(404).end();
     // まず自分の権限で読み、だめなら商談の担当者の権限で読む（共有ドライブなら誰でも見られる）
     let up = null;
     for (const who of [req.user, m.owner].filter(Boolean)) {
@@ -12751,6 +12752,19 @@ app.delete("/api/kinxs/accounts/:id", async (req, res) => {
     if (!n) return res.status(400).json({ error: "消せるのは手で追加したユーザーだけです" });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// kinXsの議事録のモーダルで流す録画：ドライブに保存済みならそこから、無ければRecallの録画
+app.get("/api/kinxs/meetings/:id/recording", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const m = await getMeeting(req.params.id);
+    if (!m) return res.json({ url: null });
+    if (m.drive_file_id) return res.json({ url: `/api/meetings/${encodeURIComponent(req.params.id)}/drive-video`, source: "drive" });
+    let url = null;
+    try { url = await getRecordingUrl(req.params.id); } catch {}
+    if (url) { archiveRecordingSafe(req.params.id).catch(() => {}); return res.json({ url, source: "recall" }); }
+    res.json({ url: null });
+  } catch (e) { res.json({ url: null, error: e.message }); }
 });
 // kinXsの中で開く議事録（CS・FSは、自分の商談でなくても見られる）
 app.get("/api/kinxs/meetings/:id", async (req, res) => {
@@ -26310,7 +26324,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23i kinXs：企業を押すとまんなかにモーダルが出て、議事録・フォロー履歴のタブに会社の商談の議事録が並ぶ。議事録を押すと、その商談の議事録（概要・話したこと・決まったこと・先方の気にしていること・やること・文字起こし）がモーダルで重なって出る。";
+const BUILD_TAG = "2026-10-23j kinXsの議事録のモーダルに、商談の録画も出す（ドライブに保存済みならそこから、無ければRecallの録画）。CS・FSは自分の商談でなくても見られる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

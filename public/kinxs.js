@@ -246,6 +246,7 @@ async function openMeeting(botId) {
   bg.querySelector(".kx-mt").innerHTML = `
     <div style="display:flex;align-items:flex-start;gap:10px"><div><h3>${esc(m.title || "（題名なし）")}</h3><div class="kx-note">${esc(new Date(m.at).toLocaleString("ja-JP"))}${m.owner ? `・${esc(m.owner)}` : ""}</div></div>
       <button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div data-video class="kx-video"><div class="kx-note">録画を探しています…</div></div>
     ${sm.overview ? `<h4>概要</h4><p>${esc(sm.overview)}</p>` : ""}
     ${sec("話したこと", sm.key_points)}${sec("決まったこと", sm.agreements)}${sec("先方の気にしていること", sm.customer_concerns)}${sec("やること", sm.action_items)}
     ${extra.map(([k, v]) => sec(k, v)).join("")}
@@ -254,6 +255,13 @@ async function openMeeting(botId) {
       <div class="kx-tr" style="margin-top:8px">${m.transcript.length ? m.transcript.map((u) => `<div><b>${esc(u.who || "話者")}</b>${esc(u.text)}</div>`).join("") : "文字起こしはありません"}${m.more ? `<div class="kx-note">ほか ${m.more}発言（議事録のページで見られます）</div>` : ""}</div></details>
     <a class="kx-btn" style="align-self:flex-start;display:inline-flex;align-items:center;text-decoration:none" href="/history.html?bot=${encodeURIComponent(m.botId)}" target="_blank" rel="noopener">議事録のページで開く（録画・分析など）↗</a>`;
   bg.querySelector("[data-x]").addEventListener("click", close);
+  // 録画（あれば）
+  try {
+    const r = await api(`/api/kinxs/meetings/${encodeURIComponent(botId)}/recording`);
+    const box = bg.querySelector("[data-video]");
+    if (!box) return;
+    box.innerHTML = r.url ? `<video controls preload="metadata" playsinline src="${esc(r.url)}"></video>${r.source === "recall" ? `<div class="kx-note" style="margin-top:4px">録画はRecallから流しています（保存期限があります）</div>` : ""}` : `<div class="kx-note">この商談の録画はありません</div>`;
+  } catch { const box = bg.querySelector("[data-video]"); if (box) box.innerHTML = `<div class="kx-note">録画を読み込めませんでした</div>`; }
 }
 
 // ユーザーを手で追加する
