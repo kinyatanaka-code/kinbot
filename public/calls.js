@@ -430,6 +430,10 @@ const hasMtgTag = (x) => !!(x && x["直近商談"] && x["直近商談"].day);
 const VIEW_DAYS = 30;
 const viewedAt = (x) => { const v = x && x["資料閲覧"]; if (!v || !v.回数 || !v.最後) return 0; const t = new Date(v.最後).getTime(); return isFinite(t) && Date.now() - t < VIEW_DAYS * 86400000 ? t : 0; };
 const isViewed = (x) => !!viewedAt(x) && !isDone(x) && !hasMtgTag(x);
+// 架電予定の時刻が来た（過ぎた）リード。いつも、かける対象のいちばん上（資料を見ている会社よりも上）
+const dueNow = (x) => { const v = x && x["次回予定"]; if (!v) return 0; const t = new Date(v).getTime(); return !isNaN(t) && t <= Date.now() ? t : 0; };
+// 「送った資料を見ている会社」のまとまりに入るリード（時刻の来た予定のリードは、予定のまとまりの方に出す）
+const inViewSec = (x) => isViewed(x) && !dueNow(x);
 function sortRows(list) {
   if (sortBy) {
     // 見出しで並べ替えを選んだときは、その順を優先する（商談済み・商談予定の印 → かける対象外 の順で下にまとめる）
@@ -455,14 +459,13 @@ function sortRows(list) {
   const rank = (x) => isApoDone(x) ? 0 : isUser(x) ? 1 : 2;
   const 済 = list.filter(isDone).sort((a, b) => rank(a) - rank(b));
   const 未済 = list.filter((x) => !isDone(x));
-  // 資料を見ているリードは、かける対象のいちばん上（見た日が新しい順）。そのあとは今までの並び
-  const 見ている = 未済.filter(isViewed).sort((a, b) => viewedAt(b) - viewedAt(a));
-  if (見ている.length) {
-    const ids = new Set(見ている.map((x) => x.id));
-    const others = list.filter((x) => !ids.has(x.id));
-    return [...見ている, ...sortRowsBase(others)];
-  }
-  return sortRowsBase(list);
+  // ①架電予定の時刻が来た（過ぎた）リード（予定の早い順）→ ②資料を見ているリード（見た日が新しい順）→ ③今までの並び
+  //   （2026-10-23：資料を見ているリードを①より上にしていたため、時刻の過ぎた予定が上に来なくなっていた）
+  const 予定来た = 未済.filter((x) => dueNow(x) && !hasMtgTag(x)).sort((a, b) => dueNow(a) - dueNow(b));
+  const 見ている = 未済.filter(inViewSec).sort((a, b) => viewedAt(b) - viewedAt(a));
+  const ids = new Set([...予定来た, ...見ている].map((x) => x.id));
+  const others = list.filter((x) => !ids.has(x.id));
+  return [...予定来た, ...見ている, ...sortRowsBase(others)];
 }
 function sortRowsBase(list) {
   const now = Date.now();
@@ -1153,16 +1156,16 @@ function render() {
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
         : "";
       // かけた（記録済み）グループの先頭に、区切りを出す（どこまでかけたか分かるように）
-      const かけ区切り = (!sortBy && !hasMtgTag(x) && !isViewed(x) && かけた(x) && (i === 0 || !かけた(list[i - 1]) || isViewed(list[i - 1])))
-        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter((y) => かけた(y) && !hasMtgTag(y) && !isDone(y) && !isViewed(y)).length}件）</td></tr>`
+      const かけ区切り = (!sortBy && !hasMtgTag(x) && !inViewSec(x) && !dueNow(x) && かけた(x) && (i === 0 || !かけた(list[i - 1]) || inViewSec(list[i - 1]) || dueNow(list[i - 1])))
+        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かけ済み（${list.filter((y) => かけた(y) && !hasMtgTag(y) && !isDone(y) && !inViewSec(y) && !dueNow(y)).length}件）</td></tr>`
         : "";
       // 商談済み・商談予定の印があるリードの先頭に、区切りを出す
       const 商談区切り = (!済 && hasMtgTag(x) && (i === 0 || !hasMtgTag(list[i - 1])))
         ? `<tr class="kc-apo-sep kc-mtg-sep"><td colspan="${cols}">ここから下は、直近に商談した・これから商談がある会社（${list.filter((y) => hasMtgTag(y) && !isDone(y)).length}件）。かける前に担当と確認してください</td></tr>`
         : "";
       return 区切り + 商談区切り + かけ区切り + `
-      ${!sortBy && isViewed(x) && (i === 0 || !isViewed(list[i - 1])) ? `<tr class="kc-apo-sep kc-view-sep"><td colspan="${cols}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg> 送った資料を見ている会社（${list.filter(isViewed).length}件）。資料の話から入るとつながりやすいです</td></tr>` : ""}
-      ${!sortBy && i > 0 && isViewed(list[i - 1]) && !isViewed(x) && !isDone(x) && !hasMtgTag(x) && !かけた(x) ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、いつもの並び</td></tr>` : ""}
+      ${!sortBy && inViewSec(x) && (i === 0 || !inViewSec(list[i - 1])) ? `<tr class="kc-apo-sep kc-view-sep"><td colspan="${cols}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg> 送った資料を見ている会社（${list.filter(inViewSec).length}件）。資料の話から入るとつながりやすいです</td></tr>` : ""}
+      ${!sortBy && i > 0 && inViewSec(list[i - 1]) && !inViewSec(x) && !isDone(x) && !hasMtgTag(x) && !かけた(x) ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、いつもの並び</td></tr>` : ""}
       <tr data-id="${x.id}" class="${済 ? "kc-apo-done" : ""}${isViewed(x) ? " kc-row-viewed" : ""}">
         <td class="kc-fx-check"><input type="checkbox" class="kc-sel" data-id="${x.id}"${selectedIds.has(String(x.id)) ? " checked" : ""} /></td>
         <td class="kc-stage kc-fx-stage">${esc(x["ステージ"] || "-")}</td>
