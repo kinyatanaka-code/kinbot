@@ -56,7 +56,7 @@ function render() {
   $("kxTable").innerHTML = d.items.length ? `<div class="kx-grid">${head}${body}${none}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のクロスの商談から取り込みます。</div>`;
   $("kxTable").querySelectorAll(".kx-co").forEach((b) => b.addEventListener("click", () => openDetail(b.dataset.id)));
   const f = d.fields || {};
-  $("kxFoot").textContent = `全${d.items.length}社。契約終了日はSFの「${f.end || "（見つかりません）"}」から取っています。${f.end ? "" : "見つからないときは、計上日から1年で推定しています（カードに「終了日は推定」と出ます）。"}${d.sync ? `　最後に取り込んだ時刻：${new Date(d.sync.at).toLocaleString("ja-JP")}` : ""}`;
+  $("kxFoot").textContent = `全${d.items.length}社。契約終了日は${f.end ? `SFの「${f.end}」から取っています。` : "SFの商談に値の入った項目が見つからないので、計上日から1年で推定しています（カードに「終了日は推定」と出ます）。"}${d.sync ? `　最後に取り込んだ時刻：${new Date(d.sync.at).toLocaleString("ja-JP")}` : ""}`;
 }
 async function openCo(id) {
   const x = data.items.find((i) => i.id === id); if (!x) return;

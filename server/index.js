@@ -12465,9 +12465,20 @@ async function kinxsSync() {
     if (!sfUser || !(await sfConnected(sfUser).catch(() => false))) { out.errors.push("Salesforceにつながっている人がいません"); return out; }
     // 契約開始・終了の項目を、ラベルで探す
     const d0 = await describeObject(sfUser, "Opportunity").catch(() => ({ fields: [] }));
-    const fld = (re) => ((d0.fields || []).find((f) => /date/i.test(f.type) && re.test(String(f.label || ""))) || {}).name || "";
-    const fStart = fld(/契約開始|利用開始|サービス開始/), fEnd = fld(/契約終了|利用終了|サービス終了|契約満了/);
-    const extra = [fStart, fEnd].filter(Boolean).map((x) => `, ${x}`).join("");
+    // 日付の項目を、ラベルで探す。ぴったりの名前（契約終了日など）を先に、ラベルに含むものはあとに。いくつかを候補にして、値が入っているものを使う
+    //   （2026-10-23：ラベルに「契約終了」を含むテスト用の項目 aaaaaaaa__c を拾って、値が空・形が違い「Invalid time value」で止まっていた）
+    const cands = (exact, re) => {
+      const fs = (d0.fields || []).filter((f) => /^(date|datetime)$/i.test(String(f.type || "")) && re.test(String(f.label || "")) && !/^a+__c$/i.test(String(f.name || "")));
+      fs.sort((x, y) => (exact.includes(String(y.label || "").trim()) ? 1 : 0) - (exact.includes(String(x.label || "").trim()) ? 1 : 0) || (/__c$/.test(x.name) ? 1 : 0) - (/__c$/.test(y.name) ? 1 : 0));
+      return fs.slice(0, 4).map((f) => f.name);
+    };
+    const startF = cands(["契約開始日", "利用開始日", "サービス開始日", "契約期間（開始）"], /契約開始|利用開始|サービス開始|開始日/);
+    const endF = cands(["契約終了日", "契約満了日", "利用終了日", "サービス終了日", "契約期間（終了）"], /契約終了|利用終了|サービス終了|契約満了|終了日/);
+    const fStart = startF[0] || "", fEnd = endF[0] || "";
+    const extra = [...new Set([...startF, ...endF])].map((x) => `, ${x}`).join("");
+    // 日付を「YYYY-MM-DD」にそろえる（日時の項目・形の違う値は捨てる）
+    const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) && !isNaN(Date.parse(`${t}T00:00:00Z`)) ? t : null; };
+    const firstOf = (o, list) => { for (const f of list) { const v = ymd(o[f]); if (v) return v; } return null; };
     const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name${extra} FROM Opportunity
       WHERE (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
       ORDER BY CloseDate DESC LIMIT 1500`);
@@ -12482,12 +12493,15 @@ async function kinxsSync() {
       const target = names.filter(kinxsIsTarget);
       if (!target.length) { out.skipped++; continue; }
       const a = byAcc.get(o.AccountId) || { account_id: o.AccountId, name: (o.Account && o.Account.Name) || "", products: [], opp_ids: [], fs_name: (o.Owner && o.Owner.Name) || "" };
-      const booked = o.SS06__c || o.CloseDate || null;
-      for (const n of target) a.products.push({ name: n, opp: o.Id, booked, start: fStart ? o[fStart] || null : null, end: fEnd ? o[fEnd] || null : null, stage: o.StageName });
+      const booked = ymd(o.SS06__c) || ymd(o.CloseDate) || null;
+      for (const n of target) a.products.push({ name: n, opp: o.Id, booked, start: firstOf(o, startF), end: firstOf(o, endF), stage: o.StageName });
       a.opp_ids.push(o.Id);
       byAcc.set(o.AccountId, a);
     }
-    await saveSettings({ kinxsItemCache: cache, kinxsFields: { start: fStart, end: fEnd } }).catch(() => {});
+    const usedEnd = endF.find((f) => (q.records || []).some((o) => ymd(o[f]))) || "";
+    const usedStart = startF.find((f) => (q.records || []).some((o) => ymd(o[f]))) || "";
+    const lab = (n) => ((d0.fields || []).find((f) => f.name === n) || {}).label || n;
+    await saveSettings({ kinxsItemCache: cache, kinxsFields: { start: usedStart ? `${lab(usedStart)}（${usedStart}）` : "", end: usedEnd ? `${lab(usedEnd)}（${usedEnd}）` : "", candidates: endF } }).catch(() => {});
     const kicks = await listCsKickoffs(500).catch(() => []);
     for (const a of byAcc.values()) {
       // 会社の契約：いちばん新しい計上の商品から。終了日が無ければ計上日の1年後（推定）
@@ -12496,9 +12510,11 @@ async function kinxsSync() {
       a.booked_on = top.booked || null; a.start_on = top.start || null;
       let end = ps.map((p) => p.end).filter(Boolean).sort().pop() || null;
       a.end_estimated = false;
-      if (!end && a.booked_on) { const t = new Date(`${a.booked_on}T00:00:00Z`); t.setUTCFullYear(t.getUTCFullYear() + 1); t.setUTCDate(t.getUTCDate() - 1); end = t.toISOString().slice(0, 10); a.end_estimated = true; }
-      a.end_on = end;
-      if (end) { const t = new Date(`${end.slice(0, 7)}-01T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() - 1); a.renew_month = t.toISOString().slice(0, 7); }
+      try {
+        if (!end && a.booked_on) { const t = new Date(`${a.booked_on}T00:00:00Z`); t.setUTCFullYear(t.getUTCFullYear() + 1); t.setUTCDate(t.getUTCDate() - 1); end = t.toISOString().slice(0, 10); a.end_estimated = true; }
+        a.end_on = end;
+        if (end) { const t = new Date(`${end.slice(0, 7)}-01T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() - 1); a.renew_month = t.toISOString().slice(0, 7); }
+      } catch { a.end_on = null; a.renew_month = null; }
       a.error = !a.name ? "取引先名が空です" : !end ? "契約終了日・計上日が空です" : null;
       const k = kicks.find((x) => csCoKey(x.company) && csCoKey(x.company) === csCoKey(a.name));
       a.cs_name = k && k.cs_name ? k.cs_name : null;
@@ -26149,7 +26165,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23e kinXs：ユーザー一覧（要注意企業を上に固定・メインラベルで絞る・急ぎの順の表）と企業詳細（更新確度・メインラベル・検収書・納品メール・掲載・次回アクション・メモ・フォロー履歴＝議事録と手で入れた接触と変更の履歴）。メインラベルは自動、要注意は4つのルール。";
+const BUILD_TAG = "2026-10-23f kinXsのSFの取り込みが「Invalid time value」で止まっていたのを直した：ラベルに「契約終了」を含むテスト用の項目（aaaaaaaa__c）を拾い、日時の形の値で日付の計算が失敗していた。ぴったりの名前の項目を先に、値の入った項目を使い、日付はYYYY-MM-DDにそろえる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
