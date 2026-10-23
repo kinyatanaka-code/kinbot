@@ -1699,3 +1699,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-23 BUILD_TAG=2026-10-23k 田中さん（更新管理の見やすさ）→ 3案（案1 数字の表＋右に一覧／案2 月ごとのチップ／案3 打診のやることリスト、デザインのキャンバスに RenewA〜C）から「案2かな」。kinxs.js の更新管理の表を作り替え：上に確度の凡例（ドロップ先 data-rank-drop）と●要注意、絞り込み（すべて＝既定・要注意だけ・自分の担当＝/api/me の名前とCS担当・未アプローチ）、月ごとの行（.kx-mrow、先月〜3か月先は空でも出す・それ以降は会社のある月だけ、未定の行）に会社のチップ（.kx-chipco、確度順→名前順）。チップ：押すと企業詳細、右クリックで確度のメニュー（kxRankMenu）、ドラッグで確度の印へ＝確度を変える（kxSetRank）、別の月の行へ＝更新月を変える（確認つき、PUT renew_month→renew_locked）。PUT /api/kinxs/accounts/:id に renew_month（YYYY-MM）を足した。版20261023k。
 
 - 2026-10-23 BUILD_TAG=2026-10-23l 田中さん「kinXsの画面にもCS連携をメニューに入れたい」「ブラウザタブはkinXsだけで」。kinxs.html：メニューに「CS連携（回収MTG）」（/kinxs?p=cs）、#vCs に iframe（/cs.html?embed=1、bot= があれば渡す）。cs.html：embed=1 のとき html.kb-embed で kinbot のサイドバー・上の帯・メニューのボタン・版の印などを隠す。タブの名前は kinxs.html の <title> も document.title も「kinXs」だけ。企業詳細の「CS連携の企業カードを開く」も /kinxs?p=cs&bot=… に。版20261023l。
+
+- 2026-10-23 BUILD_TAG=2026-10-23m 田中さん「S、Aなどを選択したらそれが表示されるようにしたい」。更新管理の凡例の確度をボタンに（data-rank-pick、window.__kxRanks の Set で複数選べる、もう一度押すと外す、選んでいないものは薄く、社数 .kx-rc、「確度の絞り込みを外す」）。上の絞り込み（すべて・要注意だけ…）と重ねて効く。ドロップ先（data-rank-drop）はそのまま。版20261023m。

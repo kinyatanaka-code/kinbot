@@ -37,7 +37,9 @@ function render() {
   // ===== 案2：月ごとの行に、会社をチップで並べる =====
   const flt = window.__kxFilter || "all";
   const myName = window.__kxMe || "";
-  const shown = items.filter((x) => flt === "all" ? true : flt === "warn" ? x.warn : flt === "mine" ? (myName && String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))) : flt === "Z" ? x.rank === "Z" : true);
+  // 確度で絞る（凡例の S〜F を押す。複数選べる、もう一度押すと外す）
+  const rsel = window.__kxRanks || new Set();
+  const shown = items.filter((x) => (flt === "all" ? true : flt === "warn" ? x.warn : flt === "mine" ? (myName && String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))) : flt === "Z" ? x.rank === "Z" : true) && (!rsel.size || rsel.has(x.rank)));
   const start = $("kxPast").checked ? items.map((x) => x.renew).filter(Boolean).sort()[0] || addMonths(d.thisMonth, -1) : addMonths(d.thisMonth, -1);
   const months = []; for (let m = start; m <= addMonths(d.thisMonth, 12); m = addMonths(m, 1)) months.push(m);
   const noMonth = shown.filter((x) => !x.renew);
@@ -55,12 +57,19 @@ function render() {
   }).join("") + (noMonth.length ? rowHtml("", noMonth, "未定", "契約終了日が無い", "past") : "");
   const fcount = { warn: items.filter((x) => x.warn).length, all: items.length, Z: items.filter((x) => x.rank === "Z").length, mine: myName ? items.filter((x) => String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))).length : 0 };
   const fbtn = (k, t) => `<button type="button" class="kx-chip ${flt === k ? "on" : ""}" data-flt="${k}">${t} ${fcount[k]}</button>`;
-  const legend = RANKS.map(([k, l]) => `<span class="kx-drop" data-rank-drop="${k}" title="ここにドラッグすると確度${k}になります"><span class="kx-rank r-${k}">${k}</span>${esc(l)}</span>`).join("");
-  $("kxTable").innerHTML = d.items.length ? `<div class="kx-legend">${legend}<span class="kx-note" style="color:#7A3300;font-weight:700"><i class="dot"></i> 要注意</span><span class="kx-note" style="margin-left:auto">会社を確度の印や別の月にドラッグして直せます・右クリックで確度を選ぶ</span></div>
+  const rcount = {}; for (const x of items) rcount[x.rank] = (rcount[x.rank] || 0) + 1;
+  const legend = RANKS.map(([k, l]) => `<button type="button" class="kx-drop ${rsel.has(k) ? "on" : ""} ${rsel.size && !rsel.has(k) ? "dim" : ""}" data-rank-drop="${k}" data-rank-pick="${k}" aria-pressed="${rsel.has(k)}" title="押すと確度${k}の会社だけを出します（もう一度押すと外す）。会社をここにドラッグすると確度${k}になります"><span class="kx-rank r-${k}">${k}</span>${esc(l)}<span class="kx-rc">${rcount[k] || 0}</span></button>`).join("")
+    + (rsel.size ? `<button type="button" class="kx-chip" data-rank-clear style="height:28px">確度の絞り込みを外す</button>` : "");
+  $("kxTable").innerHTML = d.items.length ? `<div class="kx-legend">${legend}<span class="kx-note" style="color:#7A3300;font-weight:700"><i class="dot"></i> 要注意</span><span class="kx-note" style="margin-left:auto">確度を押すとその会社だけ出します・会社を確度や別の月にドラッグして直せます・右クリックで確度を選ぶ</span></div>
     <div class="kx-fbar">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}${fbtn("Z", "未アプローチ")}</div>
     <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のアチコチバースの商談から取り込みます。</div>`;
   const box = $("kxTable");
   box.querySelectorAll("[data-flt]").forEach((b) => b.addEventListener("click", () => { window.__kxFilter = b.dataset.flt; render(); }));
+  box.querySelectorAll("[data-rank-pick]").forEach((b) => b.addEventListener("click", () => {
+    const set = window.__kxRanks || (window.__kxRanks = new Set());
+    const k = b.dataset.rankPick; if (set.has(k)) set.delete(k); else set.add(k); render();
+  }));
+  const rc = box.querySelector("[data-rank-clear]"); if (rc) rc.addEventListener("click", () => { window.__kxRanks = new Set(); render(); });
   box.querySelectorAll(".kx-chipco").forEach((b) => {
     b.addEventListener("click", () => openDetail(b.dataset.id));
     b.addEventListener("contextmenu", (e) => { e.preventDefault(); kxRankMenu(b.dataset.id, e.clientX, e.clientY); });
