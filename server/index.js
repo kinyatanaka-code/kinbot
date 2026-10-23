@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
@@ -12530,6 +12530,115 @@ app.get("/api/kinxs/renewals", async (req, res) => {
         cs: r.cs_name || "", fs: r.fs_name || "", products: (r.products || []).map((p) => p.name), error: r.error || "", rankAt: r.rank_at, rankBy: r.rank_by || "" };
     });
     res.json({ ok: true, thisMonth, warnDays, items, sync: _kinxsLast, fields: st.kinxsFields || {} });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ===== kinXs：ユーザー一覧（メインラベル・納品・最終接触・次回アクション・要注意）=====
+const KX_LABELS = ["計上予定", "フォローMTG設定中", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"];
+async function kinxsBuild() {
+  await kinxsInit();
+  const st = await getSettings().catch(() => ({}));
+  const rules = { renewDays: 90, contactDays: 30, staleDays: 90, ...(st.kinxsRules || {}) };
+  const rows = await kinxsList();
+  const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
+  const kickBy = new Map(); for (const k of kicks) { const key = csCoKey(k.company); if (key && !kickBy.has(key)) kickBy.set(key, k); }
+  const ksSent = st.kenshuSent || {};
+  const track = await csTrackSummary(kicks.map((k) => k.bot_id)).catch(() => ({}));
+  // 商談（議事録）を会社のキーでまとめる（最終接触・フォロー履歴）
+  const since = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
+  const ms = await listMeetings({ isAdmin: true, from: since, limit: 8000, light: true }).catch(() => []);
+  const mtBy = new Map();
+  for (const m of ms) { const key = csCoKey(m.title || ""); if (!key || key.length < 2) continue; (mtBy.get(key) || mtBy.set(key, []).get(key)).push(m); }
+  const now = Date.now();
+  const days = (t) => (t ? Math.floor((now - Date.parse(t)) / 86400000) : null);
+  const today = new Date(now + 9 * 3600000).toISOString().slice(0, 10);
+  const items = rows.map((r) => {
+    const key = csCoKey(r.name || "");
+    const k = key ? kickBy.get(key) : null;
+    const mts = key ? (mtBy.get(key) || []) : [];
+    const contacts = Array.isArray(r.contacts) ? r.contacts : [];
+    const touches = [...mts.map((m) => m.created_at), ...contacts.map((c) => c.at)].filter(Boolean).sort();
+    const lastTouch = touches[touches.length - 1] || null;
+    const left = r.renew_month ? Math.round((Date.parse(`${r.renew_month}-01T00:00:00+09:00`) - now) / 86400000) : null;
+    const rank = r.rank || "Z";
+    const tr = k ? csTrackDigest(track[k.bot_id] || [], k.draft_at) : null;
+    const kenshu = r.kenshu_done === true ? "回収済み" : (k && ksSent[k.bot_id] ? "依頼済み" : "未回収");
+    const mail = r.mail_done === true || (tr && (tr.opened || (tr.clicks || []).length)) ? "送付済み" : (r.mail_done === false ? "未送付" : (k && k.draft_at ? "下書きあり" : "未送付"));
+    // メインラベル（自動）。手で決めて鍵をかけたら、そのまま
+    let auto = "計上予定";
+    if (r.error) auto = "エラー";
+    else if (rank === "F" || (r.end_on && String(r.end_on).slice(0, 10) < today)) auto = "解約済み";
+    else if (rank === "C") auto = "解約予定";
+    else if (left != null && left <= 61 && left >= -31) auto = "更新検討時期";
+    else if (r.published) auto = "利用中";
+    else if (k && k.confirm_start && Date.parse(k.confirm_start) < now) auto = "オンボーディング中";
+    else if (k && k.confirm_start) auto = "フォローMTG設定済";
+    else if (k) auto = "フォローMTG設定中";
+    const label = r.label_locked && r.main_label ? r.main_label : auto;
+    // 要注意（4つのルール）。「対応済み」にしたものは14日のあいだ出さない
+    const dis = r.alert_dismiss || {};
+    const hidden = (rule) => dis[rule] && now - Date.parse(dis[rule]) < 14 * 86400000;
+    const alerts = [];
+    if (left != null && left <= rules.renewDays && ["B", "C", "Z"].includes(rank) && label !== "解約済み") alerts.push({ rule: "更新月接近", score: 40, detail: `更新月 ${r.renew_month.replace("-", "/")}（${left < 0 ? `${-left}日過ぎ` : `あと${left}日`}）・確度${rank}` });
+    if (r.na_due && String(r.na_due).slice(0, 10) < today) alerts.push({ rule: "NA期限切れ", score: 30, detail: `次回アクションの期日 ${String(r.na_due).slice(5, 10).replace("-", "/")} を ${days(String(r.na_due).slice(0, 10) + "T00:00:00+09:00")}日過ぎています` });
+    const undelivered = kenshu !== "回収済み" || mail !== "送付済み";
+    const sinceTouch = days(lastTouch || r.booked_on || r.created_at);
+    if (undelivered && sinceTouch != null && sinceTouch >= rules.contactDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "接触途絶", score: 25, detail: `${kenshu !== "回収済み" ? "検収書が未回収" : "納品メールが未送付"}のまま、最後の接触から${sinceTouch}日` });
+    const lastUpd = [r.manual_updated_at, lastTouch, r.booked_on].filter(Boolean).sort().pop();
+    const sinceUpd = days(lastUpd);
+    if (sinceUpd != null && sinceUpd >= rules.staleDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "情報更新なし", score: 15, detail: `記録と議事録が${sinceUpd}日更新されていません` });
+    const shown = alerts.filter((a) => !hidden(a.rule));
+    return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
+      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "",
+      memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated };
+  });
+  return { items, rules, mtBy, kickBy };
+}
+app.get("/api/kinxs/users", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
+    const { items, rules } = await kinxsBuild();
+    items.sort((a, b) => (b.score - a.score) || String(a.renew || "9").localeCompare(String(b.renew || "9")));
+    res.json({ ok: true, items, rules, labels: KX_LABELS });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const { items, mtBy } = await kinxsBuild();
+    const x = items.find((i) => i.id === req.params.id);
+    if (!x) return res.status(404).json({ error: "見つかりません" });
+    const key = csCoKey(x.name);
+    const mts = (mtBy.get(key) || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 40)
+      .map((m) => ({ kind: "mtg", at: m.created_at, title: m.title || "", summary: (m.summary && m.summary.overview) || "", botId: m.bot_id, url: `/history.html?bot=${encodeURIComponent(m.bot_id)}`, owner: m.owner_name || m.rep_name || "" }));
+    const rows = await kinxsList();
+    const r = rows.find((y) => y.account_id === x.id) || {};
+    const contacts = (Array.isArray(r.contacts) ? r.contacts : []).map((c) => ({ kind: "touch", at: c.at, title: c.type || "接触", summary: c.text || "", owner: c.by || "" }));
+    const hist = (await kinxsHistory(x.id, 60)).map((h) => ({ kind: "label", at: h.at, title: ({ rank: "更新確度", main_label: "メインラベル", label_locked: "ラベルの鍵", na_text: "次回アクション", na_due: "次回アクションの期日", kenshu_done: "検収書", mail_done: "納品メール", published: "掲載", memo: "メモ", cs_name: "CS担当" }[h.kind] || h.kind), summary: `${h.from_v || "—"} → ${h.to_v || "—"}`, owner: `${h.by_user || ""}${h.auto ? "（自動）" : ""}` }));
+    const timeline = [...mts, ...contacts, ...hist].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    res.json({ ok: true, item: x, timeline });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/kinxs/accounts/:id", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
+    const b = req.body || {};
+    const patch = {};
+    for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
+    for (const k of ["kenshu_done", "mail_done", "published", "label_locked"]) if (k in b) patch[k] = b[k] === null ? null : !!b[k];
+    if ("main_label" in b) { if (b.main_label && !KX_LABELS.includes(b.main_label)) return res.status(400).json({ error: "メインラベルが正しくありません" }); patch.main_label = b.main_label || null; patch.label_locked = !!b.main_label; }
+    if (b.dismiss) {
+      const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id) || {};
+      patch.alert_dismiss = { ...(r.alert_dismiss || {}), [String(b.dismiss)]: new Date().toISOString() };
+      await kinxsLogAuto(req.params.id, "alert", "", `${b.dismiss}を対応済みに（${req.user}）`);
+    }
+    if (b.contact && b.contact.text) {
+      const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id) || {};
+      patch.contacts = [...(Array.isArray(r.contacts) ? r.contacts : []), { at: b.contact.at || new Date().toISOString(), type: String(b.contact.type || "電話").slice(0, 20), text: String(b.contact.text).slice(0, 2000), by: req.user }].slice(-200);
+    }
+    const r = await kinxsUpdate(req.params.id, patch, req.user);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
@@ -26040,8 +26149,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23d kinXsのアイコン：スフィンクスの翼をなくした（背中をつなぎ、体を大きく真ん中に）。";
+const BUILD_TAG = "2026-10-23e kinXs：ユーザー一覧（要注意企業を上に固定・メインラベルで絞る・急ぎの順の表）と企業詳細（更新確度・メインラベル・検収書・納品メール・掲載・次回アクション・メモ・フォロー履歴＝議事録と手で入れた接触と変更の履歴）。メインラベルは自動、要注意は4つのルール。";
 const BUILD_FEATURES = [
+  "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
   "CS連携：検収書の依頼フォームを、中身を入れた状態で開く（内容を確かめて送信）",

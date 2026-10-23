@@ -54,7 +54,7 @@ function render() {
   }).join("");
   const none = noMonth.length ? `<div class="kx-m past"><b>未定</b><div class="d">契約終了日が無い</div></div>` + RANKS.map(([k]) => `<div class="kx-c">${noMonth.filter((x) => x.rank === k).map(coBtn).join("")}</div>`).join("") : "";
   $("kxTable").innerHTML = d.items.length ? `<div class="kx-grid">${head}${body}${none}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降のクロスの商談から取り込みます。</div>`;
-  $("kxTable").querySelectorAll(".kx-co").forEach((b) => b.addEventListener("click", () => openCo(b.dataset.id)));
+  $("kxTable").querySelectorAll(".kx-co").forEach((b) => b.addEventListener("click", () => openDetail(b.dataset.id)));
   const f = d.fields || {};
   $("kxFoot").textContent = `全${d.items.length}社。契約終了日はSFの「${f.end || "（見つかりません）"}」から取っています。${f.end ? "" : "見つからないときは、計上日から1年で推定しています（カードに「終了日は推定」と出ます）。"}${d.sync ? `　最後に取り込んだ時刻：${new Date(d.sync.at).toLocaleString("ja-JP")}` : ""}`;
 }
@@ -97,4 +97,124 @@ $("kxSync").addEventListener("click", async () => {
   catch (e) { $("kxSt").textContent = "取り込めませんでした：" + e.message; }
   b.disabled = false;
 });
-load();
+
+// ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
+const VIEW = new URLSearchParams(location.search).get("p") === "list" ? "list" : "renew";
+document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
+$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew";
+document.title = VIEW === "list" ? "kinXs ユーザー一覧" : "kinXs 更新管理";
+
+// ===== ユーザー一覧 =====
+let lsData = null, lsLabel = "";
+const fmtD = (t) => { if (!t) return "—"; const d = new Date(t); return isNaN(d) ? "—" : `${d.getMonth() + 1}/${d.getDate()}`; };
+async function loadList() {
+  try { lsData = await api("/api/kinxs/users"); renderList(); }
+  catch (e) { $("lsTable").innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+function renderList() {
+  const d = lsData; if (!d) return;
+  const sel = $("lsCs"), cur = sel.value;
+  const css = [...new Set(d.items.map((x) => x.cs).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+  sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
+  const q = String($("lsQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
+  const base = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : x.cs === sel.value)));
+  // ラベルの絞り込み
+  const counts = {}; for (const x of base) counts[x.label] = (counts[x.label] || 0) + 1;
+  $("lsChips").innerHTML = [["", `すべて ${base.length}`], ...d.labels.filter((l) => counts[l]).map((l) => [l, `${l} ${counts[l]}`])]
+    .map(([v, t]) => `<button type="button" class="kx-chip ${lsLabel === v ? "on" : ""}" data-lab="${esc(v)}">${esc(t)}</button>`).join("");
+  $("lsChips").querySelectorAll("[data-lab]").forEach((b) => b.addEventListener("click", () => { lsLabel = b.dataset.lab; renderList(); }));
+  const items = base.filter((x) => !lsLabel || x.label === lsLabel);
+  // 要注意企業（上に固定）
+  const al = base.filter((x) => x.alerts.length).sort((a, b) => b.score - a.score);
+  $("lsAlerts").innerHTML = `<h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A5B00" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>要注意企業 <span class="kx-note">${al.length}社・上ほど急ぎ</span></h2>` +
+    (al.length ? `<div class="kx-alerts">${al.slice(0, 12).map((x) => `<div class="kx-al">
+      <div style="display:flex;align-items:center;gap:8px"><button type="button" class="n" data-open="${esc(x.id)}">${esc(x.name)}</button><span class="kx-rank r-${x.rank}" style="margin-left:auto">${x.rank}</span></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${x.alerts.map((a) => `<span class="kx-rule">${esc(a.rule)}</span>`).join("")}</div>
+      <div class="kx-note">${x.alerts.map((a) => esc(a.detail)).join("／")}</div>
+      <div style="display:flex;align-items:center;gap:8px" class="kx-note">CS ${esc(x.cs || "未定")}<button type="button" class="kx-btn" style="height:30px;font-size:11.5px;margin-left:auto" data-dis="${esc(x.id)}" data-rule="${esc(x.alerts.map((a) => a.rule).join(","))}">対応済みにする</button></div>
+    </div>`).join("")}</div>${al.length > 12 ? `<div class="kx-note" style="margin-top:8px">ほか ${al.length - 12}社</div>` : ""}` : `<div class="kx-note">いま要注意の会社はありません</div>`);
+  // 表
+  const head = ["企業名・契約商品", "メインラベル", "更新確度", "納品", "更新月", "CS担当", "最終接触", "次回アクション・期日"].map((h) => `<div class="ls-h">${h}</div>`).join("");
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const body = items.map((x) => {
+    const touchCls = x.sinceTouch != null && x.sinceTouch >= (d.rules.contactDays || 30) ? "ng-t" : "";
+    const dueCls = x.naDue && x.naDue < today ? "ng-t" : "kx-note";
+    const kc = x.kenshu === "回収済み" ? "ok-t" : x.kenshu === "依頼済み" ? "mid-t" : "ng-t";
+    const mc = x.mail === "送付済み" ? "ok-t" : x.mail === "下書きあり" ? "mid-t" : "ng-t";
+    return `<div class="ls-r" data-open="${esc(x.id)}"><div class="co">${esc(x.name)}${x.alerts.length ? ' <span class="kx-rule" style="font-size:10.5px">要注意</span>' : ""}</div><div class="sub">${esc(x.products.join("・"))}</div></div>` +
+      `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span>${x.locked ? ' <span class="kx-note" title="手で決めたラベル">🔒</span>' : ""}</div>` +
+      `<div class="ls-r" data-open="${esc(x.id)}"><span class="kx-rank r-${x.rank}">${x.rank}</span></div>` +
+      `<div class="ls-r" data-open="${esc(x.id)}" style="font-size:11.5px"><div class="${kc}">検収書 ${esc(x.kenshu)}</div><div class="${mc}">納品メール ${esc(x.mail)}</div></div>` +
+      `<div class="ls-r" data-open="${esc(x.id)}">${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</div>` +
+      `<div class="ls-r" data-open="${esc(x.id)}">${esc(x.cs || "未定")}</div>` +
+      `<div class="ls-r ${touchCls}" data-open="${esc(x.id)}">${x.lastTouch ? `${fmtD(x.lastTouch)}（${x.sinceTouch}日前）` : "—"}</div>` +
+      `<div class="ls-r" data-open="${esc(x.id)}"><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.na || "—")}</div><div class="${dueCls}" style="font-size:11.5px">${x.naDue ? `期日 ${esc(x.naDue.slice(5).replace("-", "/"))}${x.naDue < today ? "・過ぎています" : ""}` : ""}</div></div>`;
+  }).join("");
+  $("lsTable").innerHTML = items.length ? `<div class="ls-grid">${head}${body}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「更新管理」の「SFから取り込み直す」で取り込めます。"}</div>`;
+  document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
+  document.querySelectorAll("#vList [data-dis]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try { for (const rule of b.dataset.rule.split(",")) await api(`/api/kinxs/accounts/${encodeURIComponent(b.dataset.dis)}`, { method: "PUT", body: JSON.stringify({ dismiss: rule }) }); await loadList(); }
+    catch (er) { alert(er.message); }
+  }));
+  $("lsSt").textContent = `全${d.items.length}社`;
+}
+$("lsQ").addEventListener("input", renderList);
+$("lsCs").addEventListener("change", renderList);
+
+// ===== 企業詳細（どちらの画面からも開く）=====
+async function openDetail(id) {
+  let d;
+  try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail`); } catch (e) { alert(e.message); return; }
+  const x = d.item;
+  const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
+  const tog = (key, val, opts) => `<div class="kx-tog" data-tog="${key}">${opts.map(([v, t]) => `<button type="button" data-v="${v}" class="${String(val) === String(v) ? "on" : ""}">${t}</button>`).join("")}</div>`;
+  bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="${esc(x.name)}" style="width:min(560px,100%)">
+    <div style="display:flex;align-items:flex-start;gap:10px"><div><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><span class="kx-rank r-${x.rank}">${x.rank}</span><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}</span></div>
+    ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
+    <div class="kx-tabs"><button type="button" class="on" data-tab="info">基本・状態</button><button type="button" data-tab="tl">フォロー履歴（${d.timeline.filter((t) => t.kind !== "label").length}）</button></div>
+    <div data-pane="info" style="display:flex;flex-direction:column;gap:12px">
+      <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
+      <div class="kx-sec"><div class="lb">メインラベル${x.locked ? "（手で決めています）" : "（自動）"}</div>
+        <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "フォローMTG設定中", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <div class="kx-note" style="margin-top:6px">手で決めると、自動では戻しません（自動に任せるに戻すと、また自動で付きます）</div></div>
+      <div class="kx-sec" style="display:grid;grid-template-columns:96px 1fr;gap:8px 10px;align-items:center">
+        <span class="kx-note">検収書</span>${tog("kenshu_done", x.kenshuDone === true, [["true", "回収済み"], ["false", "未回収"]])}
+        <span class="kx-note">納品メール</span>${tog("mail_done", x.mailDone === true ? true : x.mailDone === false ? false : "", [["true", "送付済み"], ["false", "未送付"]])}
+        <span class="kx-note">掲載</span>${tog("published", x.published, [["true", "確認した（利用中）"], ["false", "まだ"]])}
+      </div>
+      <div class="kx-sec"><div class="lb">次回アクション</div>
+        <input class="kx-in" data-na value="${esc(x.na)}" placeholder="例：更新の打診（料金の比較資料を送る）" />
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center"><span class="kx-note">期日</span><input type="date" class="kx-in" data-due value="${esc(x.naDue)}" style="max-width:180px" /><button type="button" class="kx-btn" data-save-na style="margin-left:auto">保存</button></div></div>
+      <div class="kx-sec"><div class="lb">メモ</div><textarea class="kx-in" data-memo rows="3">${esc(x.memo)}</textarea><div style="display:flex;margin-top:8px"><button type="button" class="kx-btn" data-save-memo style="margin-left:auto">メモを保存</button></div></div>
+      <div class="kx-sec kx-kv"><span>CS担当</span><span>${esc(x.cs || "未定")}</span><span>FS担当</span><span>${esc(x.fs || "—")}</span><span>最終接触</span><span>${x.lastTouch ? `${esc(fmtD(x.lastTouch))}（${x.sinceTouch}日前）` : "—"}</span><span>議事録</span><span>${x.meetings}件</span></div>
+      ${x.kickBot ? `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="/cs.html?bot=${encodeURIComponent(x.kickBot)}">CS連携の企業カードを開く</a>` : ""}
+      <a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="https://neo-media.my.salesforce.com/lightning/r/Account/${encodeURIComponent(x.id)}/view" target="_blank" rel="noopener">SFの取引先を開く ↗</a>
+    </div>
+    <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
+      <div class="kx-sec"><div class="lb">電話・メールなど（議事録のない接触）を記録する</div>
+        <div style="display:flex;gap:8px"><select class="kx-in" data-ctype style="max-width:110px"><option>電話</option><option>メール</option><option>Chat</option><option>その他</option></select><input class="kx-in" data-ctext placeholder="話した内容を短く" /><button type="button" class="kx-btn" data-add-contact>記録</button></div></div>
+      <div class="kx-tl">${d.timeline.length ? d.timeline.map((t) => `<div class="it ${t.kind}"><div class="t">${esc(t.title)}</div><div class="m">${esc(new Date(t.at).toLocaleString("ja-JP"))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}${t.url ? `<a class="kx-note" href="${esc(t.url)}" target="_blank" rel="noopener">議事録の原文を開く ↗</a>` : ""}</div>`).join("") : `<div class="kx-note">まだありません。会社名が予定名に入った商談の議事録が、ここに自動で並びます</div>`}</div>
+    </div>
+  </aside>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  const refresh = async () => { if (VIEW === "list") await loadList(); else await load(); };
+  const put = async (body, again = true) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); await refresh(); if (again) { close(); openDetail(id); } } catch (e) { alert(e.message); } };
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  bg.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
+    bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2 === b));
+    bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== b.dataset.tab; });
+  }));
+  bg.querySelectorAll("[data-rank]").forEach((b) => b.addEventListener("click", async () => {
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/rank`, { method: "PUT", body: JSON.stringify({ rank: b.dataset.rank }) }); await refresh(); close(); openDetail(id); } catch (e) { alert(e.message); }
+  }));
+  bg.querySelector("[data-label]").addEventListener("change", (e) => put({ main_label: e.target.value || "" }));
+  bg.querySelectorAll("[data-tog]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => put({ [g.dataset.tog]: b.dataset.v === "true" }))));
+  bg.querySelector("[data-save-na]").addEventListener("click", () => put({ na_text: bg.querySelector("[data-na]").value, na_due: bg.querySelector("[data-due]").value }));
+  bg.querySelector("[data-save-memo]").addEventListener("click", () => put({ memo: bg.querySelector("[data-memo]").value }));
+  bg.querySelector("[data-add-contact]").addEventListener("click", () => { const t = bg.querySelector("[data-ctext]").value.trim(); if (!t) return; put({ contact: { type: bg.querySelector("[data-ctype]").value, text: t } }); });
+}
+if (VIEW === "list") loadList(); else load();
