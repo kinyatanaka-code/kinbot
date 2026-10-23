@@ -1727,3 +1727,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-23 BUILD_TAG=2026-10-23y 田中さん「Google連携しているから、別にいちいち登録させなくてもいいか」。kinxsReadNextAction の読むGmailを、CS担当→FS→CS連携の設定のメンバー全員（csSettings().members）→設定の共有のアカウント（あれば）、最大8人に。1人目で止めず、メールが6通集まるまで順に見る（Google連携していない人は自然に飛ばす）。メールワイズのコピーがだれのGmailに届いていても拾える。kinXs のメニューから「設定」を外した（/kinxs?p=settings の画面は残す）。版20261023y。
 
 - 2026-10-23 BUILD_TAG=2026-10-23y 田中さん「Google連携しているから、いちいち登録させなくてもいいか。設定はいらないや」。kinXs の「設定」（メニュー・画面・/api/kinxs/settings・settings.kinxsMailboxes）を外した。次回アクションの読み取りは CS担当→FS の Gmail だけ（kinbot で Google 連携しているアカウント）。版20261023y。
+
+  （2026-10-23y の続き）別の作業（528c6ff）で、読むGmailに CSのメンバー全員（csSettings().members、Google連携している人）が足されていたので、それは残し、共有のアカウント（kinxsMailboxes）と /api/kinxs/settings は外した。読む順：CS担当→FS→CSのメンバー全員（8人まで）。
