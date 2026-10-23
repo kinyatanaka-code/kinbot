@@ -99,10 +99,10 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = new URLSearchParams(location.search).get("p") === "list" ? "list" : "renew";
+const VIEW = ({ list: "list", import: "import" })[new URLSearchParams(location.search).get("p")] || "renew";
 document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew";
-document.title = VIEW === "list" ? "kinXs ユーザー一覧" : "kinXs 更新管理";
+$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import";
+document.title = ({ list: "kinXs ユーザー一覧", import: "kinXs 取り込み" })[VIEW] || "kinXs 更新管理";
 
 // ===== ユーザー一覧 =====
 let lsData = null, lsLabel = "";
@@ -258,4 +258,41 @@ function openAddUser() {
   });
 }
 document.querySelectorAll(".kx-add-user").forEach((b) => b.addEventListener("click", openAddUser));
-if (VIEW === "list") loadList(); else load();
+// ===== CS管理ボードから取り込む =====
+const IM_FIELDS = [["name", "企業名（必須）"], ["renew", "更新月"], ["rank", "確度（S/A/B/C/Z/F）"], ["cs", "CS担当"], ["product", "契約商品"], ["start", "契約開始日"], ["end", "契約終了日"], ["memo", "メモ"]];
+let imData = null;
+async function imLoad(sheet) {
+  const st = $("imSt"); st.textContent = "読み込んでいます…";
+  try {
+    const body = $("imCsv").value.trim() ? { csv: $("imCsv").value } : { url: $("imUrl").value.trim(), sheet: sheet || "" };
+    imData = await api("/api/kinxs/import/preview", { method: "POST", body: JSON.stringify(body) });
+    st.textContent = `${imData.book ? `「${imData.book}」の` : ""}${imData.sheet ? `「${imData.sheet}」` : ""} ${imData.rows.length}行を読みました（見出しは${imData.headerRow}行目）`;
+    const tab = $("imTab");
+    if (imData.tabs && imData.tabs.length > 1) { tab.hidden = false; tab.innerHTML = imData.tabs.map((t) => `<option ${t === imData.sheet ? "selected" : ""}>${esc(t)}</option>`).join(""); } else tab.hidden = true;
+    $("imMap").innerHTML = IM_FIELDS.map(([k, l]) => `<label class="kx-note" style="display:flex;flex-direction:column;gap:4px">${esc(l)}<select class="kx-in" data-map="${k}"><option value="">（使わない）</option>${imData.headers.map((h, i) => `<option value="${i}" ${imData.guess[k] === i ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></label>`).join("");
+    $("imMapBox").style.display = "flex"; $("imApply").disabled = true; $("imPrevBox").style.display = "none";
+  } catch (e) { st.textContent = "読み込めませんでした：" + e.message; }
+}
+function imMapping() { const m = {}; document.querySelectorAll("[data-map]").forEach((s2) => { m[s2.dataset.map] = s2.value === "" ? "" : Number(s2.value); }); return m; }
+async function imRun(dryRun) {
+  const st = $("imSt2"); const mapping = imMapping();
+  if (mapping.name === "") { st.textContent = "企業名の列を選んでください"; return; }
+  if (!dryRun && !confirm("この内容で反映します。よろしいですか？")) return;
+  st.textContent = dryRun ? "照らし合わせています…" : "反映しています…";
+  try {
+    const r = await api("/api/kinxs/import/apply", { method: "POST", body: JSON.stringify({ rows: imData.rows, mapping, createMissing: $("imCreate").checked, dryRun }) });
+    st.textContent = `${dryRun ? "プレビュー：" : "反映しました："}一致 ${r.matched}社・${$("imCreate").checked ? `新しく追加 ${r.created}社・` : ""}スキップ ${r.skipped}件`;
+    $("imPrevBox").style.display = "block";
+    $("imPrev").innerHTML = `<div class="ls-grid" style="grid-template-columns:minmax(200px,1.6fr) minmax(200px,1.6fr) minmax(140px,1fr) 100px 70px minmax(120px,1fr);min-width:900px">${["CS管理ボードの企業名", "kinXsの会社", "結果", "更新月", "確度", "CS担当"].map((h) => `<div class="ls-h">${h}</div>`).join("")}` +
+      r.items.map((x) => `<div class="ls-r" style="cursor:default">${esc(x.name)}</div><div class="ls-r" style="cursor:default">${esc(x.match || "—")}</div><div class="ls-r ${x.status === "一致" ? "ok-t" : x.status.startsWith("新しく") ? "mid-t" : "ng-t"}" style="cursor:default">${esc(x.status)}</div><div class="ls-r" style="cursor:default">${esc(x.renew ? x.renew.replace("-", "/") : "—")}</div><div class="ls-r" style="cursor:default">${x.rank ? `<span class="kx-rank r-${x.rank}">${x.rank}</span>` : "—"}</div><div class="ls-r" style="cursor:default">${esc(x.cs || "—")}</div>`).join("") + `</div>`;
+    $("imApply").disabled = !dryRun;
+    if (!dryRun) $("imApply").disabled = true;
+  } catch (e) { st.textContent = "できませんでした：" + e.message; }
+}
+if ($("imLoad")) {
+  $("imLoad").addEventListener("click", () => imLoad());
+  $("imTab").addEventListener("change", (e) => imLoad(e.target.value));
+  $("imPreview").addEventListener("click", () => imRun(true));
+  $("imApply").addEventListener("click", () => imRun(false));
+}
+if (VIEW === "list") loadList(); else if (VIEW === "renew") load();

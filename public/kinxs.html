@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023g" />
+    <link rel="stylesheet" href="style.css?v=20261023h" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -102,6 +102,7 @@
         <a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>ユーザー一覧</a>
         <span class="kx-nav off" title="準備中"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>ラベル別ボード<em>準備中</em></span>
         <span class="kx-nav off" title="準備中"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/></svg>未紐づけ議事録<em>準備中</em></span>
+        <a class="kx-nav" data-view="import" href="/kinxs?p=import"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>CS管理ボードから取り込む</a>
         <a class="kx-nav kx-back" href="/home.html"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>kinbotへ戻る</a>
       </nav>
 
@@ -120,6 +121,24 @@
               <span class="kx-note" id="lsSt" style="margin-left:auto"></span>
             </div>
             <div class="kx-tablebox"><div id="lsTable"><div class="kx-empty">読み込み中…</div></div></div>
+          </div>
+          <div class="kx-wrap" id="vImport" hidden>
+            <div class="kx-head"><div><h1 class="kx-title">CS管理ボードから取り込む</h1><div class="kx-sub">今のCS管理ボード（スプレッドシート）の更新月・確度・CS担当などを、kinXsの会社に反映します。会社名で照らし合わせます</div></div></div>
+            <div class="kx-sec" style="background:#fff;display:flex;flex-direction:column;gap:10px">
+              <div class="lb" style="font-size:13px">① CS管理ボードのスプレッドシートを読む</div>
+              <input class="kx-in" id="imUrl" placeholder="https://docs.google.com/spreadsheets/d/…（企業一覧のシートを開いた状態のURL）" />
+              <details><summary class="kx-note" style="cursor:pointer">URLが使えないとき：シートの中身をコピーして貼る（CSV・タブ区切り）</summary><textarea class="kx-in" id="imCsv" rows="5" placeholder="見出しの行ごと貼ってください" style="margin-top:6px"></textarea></details>
+              <div style="display:flex;gap:8px;align-items:center"><select class="kx-in" id="imTab" style="max-width:260px" hidden></select><button type="button" class="kx-btn" id="imLoad">読み込む</button><span class="kx-note" id="imSt"></span></div>
+              <div class="kx-note">kinbotにログインしている自分のGoogleアカウントで読みます。開けないときは、シートを自分に閲覧で共有してもらってください。アプリ（script.google.com）のURLではなく、アプリが使っているスプレッドシートのURLを貼ってください。</div>
+            </div>
+            <div class="kx-sec" style="background:#fff;display:none;flex-direction:column;gap:10px" id="imMapBox">
+              <div class="lb" style="font-size:13px">② どの列を使うか（見出しから自動で当てています）</div>
+              <div id="imMap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px"></div>
+              <label class="kx-note"><input type="checkbox" id="imCreate" /> kinXsに無い会社は、新しくユーザーとして追加する（オフなら、一致した会社だけを直します）</label>
+              <div style="display:flex;gap:8px;align-items:center"><button type="button" class="kx-btn" id="imPreview">プレビュー</button><button type="button" class="kx-btn" id="imApply" style="background:#0E6B4E;color:#fff;border-color:#0E6B4E" disabled>この内容で反映する</button><span class="kx-note" id="imSt2"></span></div>
+              <div class="kx-note">反映した更新月は「手で決めた更新月」になり、SFの取り込みで上書きしません。確度は変えた履歴が残ります。</div>
+            </div>
+            <div class="kx-tablebox" id="imPrevBox" style="display:none"><div id="imPrev"></div></div>
           </div>
           <div class="kx-wrap" id="vRenew">
             <div class="kx-head">
@@ -143,6 +162,6 @@
         </main>
       </div>
     </div>
-    <script src="kinxs.js?v=20261023g"></script>
+    <script src="kinxs.js?v=20261023h"></script>
   </body>
 </html>

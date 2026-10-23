@@ -1691,3 +1691,12 @@ export async function gmailDraftExists(owner, draftId) {
     return null;
   } catch { return null; }
 }
+
+// スプレッドシートのシート（タブ）の名前とgidの一覧
+export async function sheetTabs(owner, spreadsheetId) {
+  const token = await accessToken(owner);
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=properties(title),sheets(properties(title,sheetId))`, { headers: { authorization: `Bearer ${token}` } });
+  if (!r.ok) { const t = await r.text(); const e = new Error(`シートの読み取り ${r.status}: ${t.slice(0, 200)}`); if (r.status === 404) e.notFound = true; if (r.status === 403) e.noAccess = true; throw e; }
+  const d = await r.json();
+  return { title: d.properties?.title || "", tabs: (d.sheets || []).map((x) => ({ title: x.properties?.title || "", gid: x.properties?.sheetId })) };
+}

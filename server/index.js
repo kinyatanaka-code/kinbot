@@ -694,7 +694,7 @@ import {
   gmailTrashThread,
   gmailUntrashThread,
   gmailSetRead,
-  gmailCreateDraft, gmailDraftExists,
+  gmailCreateDraft, gmailDraftExists, sheetTabs,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
@@ -12621,6 +12621,109 @@ app.get("/api/kinxs/users", async (req, res) => {
     res.json({ ok: true, items, rules, labels: KX_LABELS });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== kinXs：今のCS管理ボード（スプレッドシート）から取り込む =====
+// ①URLを貼る（またはCSVを貼る）→ 見出しから列を当てる → ②プレビュー（どの会社と一致するか）→ ③反映（更新月・確度・CS担当など）
+const KX_IMPORT_GUESS = {
+  name: /企業名|会社名|取引先|顧客名|法人名/, renew: /更新月/, rank: /確度|更新ラベル|更新確度|ランク/, cs: /CS担当|CS|担当CS/,
+  product: /商品|プラン|契約内容/, start: /契約開始|開始日|利用開始/, end: /契約終了|終了日|満了|利用終了/, memo: /メモ|備考|特記/,
+};
+function kxParseCsv(text) {
+  const rows = []; let row = [], cur = "", q = false;
+  const t = String(text || "").replace(/\r\n?/g, "\n");
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === "," || c === "\t") { row.push(cur); cur = ""; }
+    else if (c === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; }
+    else cur += c;
+  }
+  if (cur || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+function kxRenewMonth(v) {
+  const t = String(v || "").normalize("NFKC").trim();
+  let m = t.match(/(20\d{2})\s*[年/\-.]\s*(\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}`;
+  m = t.match(/^(\d{1,2})[/\-.](20\d{2})$/);
+  if (m) return `${m[2]}-${String(m[1]).padStart(2, "0")}`;
+  return null;
+}
+const kxYmd = (v) => { const t = String(v || "").normalize("NFKC").trim(); const m = t.match(/(20\d{2})[年/\-.](\d{1,2})[月/\-.](\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : null; };
+const kxRank = (v) => { const t = String(v || "").normalize("NFKC").trim().toUpperCase(); const m = t.match(/^[SABCZF]/); return m ? m[0] : null; };
+app.post("/api/kinxs/import/preview", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {};
+    let values = [], tabs = [], sheetTitle = "", book = "";
+    if (b.csv) values = kxParseCsv(b.csv);
+    else {
+      const url = String(b.url || "");
+      const id = (url.match(/\/spreadsheets\/d\/([A-Za-z0-9_-]+)/) || [])[1];
+      if (!id) return res.status(400).json({ error: /script\.google\.com/.test(url) ? "これはアプリ（Apps Script）のURLです。アプリが使っているスプレッドシートのURL（docs.google.com/spreadsheets/d/…）を貼ってください" : "スプレッドシートのURLを貼ってください" });
+      const gid = (url.match(/[#&?]gid=(\d+)/) || [])[1];
+      const info = await sheetTabs(req.user, id).catch((e) => { throw new Error(e.notFound || e.noAccess ? "このスプレッドシートを開けません。kinbotにログインしている自分のGoogleアカウントに、閲覧の共有をしてもらってください" : e.message); });
+      tabs = info.tabs; book = info.title;
+      const tab = tabs.find((x) => b.sheet && x.title === b.sheet) || tabs.find((x) => gid && String(x.gid) === gid) || tabs[0];
+      sheetTitle = tab ? tab.title : "";
+      values = await readSheet(req.user, id, `'${sheetTitle.replace(/'/g, "''")}'`);
+    }
+    // 見出しの行（上の15行のうち、企業名らしい見出しがある行）
+    let hi = values.slice(0, 15).findIndex((r) => (r || []).some((c) => KX_IMPORT_GUESS.name.test(String(c || ""))));
+    if (hi < 0) hi = 0;
+    const headers = (values[hi] || []).map((c, i) => String(c || "").trim() || `列${i + 1}`);
+    const guess = {};
+    for (const [k, re] of Object.entries(KX_IMPORT_GUESS)) {
+      const cand = headers.map((h, i) => ({ h, i })).filter((x) => re.test(x.h));
+      // 更新月は「更新月②」があればそちらを優先（今のボードで使っている列）
+      const pick = k === "renew" ? (cand.find((x) => /②|2/.test(x.h)) || cand[0]) : cand[0];
+      if (pick) guess[k] = pick.i;
+    }
+    const rows = values.slice(hi + 1).filter((r) => (r || []).some((c) => String(c || "").trim())).slice(0, 3000);
+    res.json({ ok: true, book, sheet: sheetTitle, tabs: tabs.map((t) => t.title), headers, guess, rows, headerRow: hi + 1 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/import/apply", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    await kinxsInit();
+    const b = req.body || {};
+    const map = b.mapping || {}, rows = Array.isArray(b.rows) ? b.rows : [];
+    const dry = !!b.dryRun, create = !!b.createMissing;
+    const accs = await kinxsList();
+    const byKey = new Map(); for (const a of accs) { const k = csCoKey(a.name || ""); if (k && !byKey.has(k)) byKey.set(k, a); }
+    const cell = (r, k) => (map[k] == null || map[k] === "" ? "" : String((r || [])[Number(map[k])] ?? "").trim());
+    const out = { matched: 0, created: 0, skipped: 0, items: [] };
+    for (const r of rows) {
+      const name = cell(r, "name"); if (!name) { out.skipped++; continue; }
+      const key = csCoKey(name);
+      const acc = key ? byKey.get(key) : null;
+      const renew = kxRenewMonth(cell(r, "renew")), rank = kxRank(cell(r, "rank")), cs = cell(r, "cs"), memo = cell(r, "memo");
+      const item = { name, match: acc ? acc.name : "", status: acc ? "一致" : (create ? "新しく追加" : "見つからない（スキップ）"), renew, rank, cs };
+      out.items.push(item);
+      if (dry) { if (acc) out.matched++; else if (create) out.created++; else out.skipped++; continue; }
+      if (acc) {
+        const patch = {};
+        if (renew) { patch.renew_month = renew; patch.renew_locked = true; }
+        if (cs) patch.cs_name = cs;
+        if (memo && !String(acc.memo || "").includes(memo)) patch.memo = [acc.memo, `【CS管理ボードより】${memo}`].filter(Boolean).join("\n");
+        if (Object.keys(patch).length) await kinxsUpdate(acc.account_id, patch, req.user);
+        if (rank && rank !== (acc.rank || "Z")) await kinxsSetRank(acc.account_id, rank, req.user);
+        out.matched++;
+      } else if (create) {
+        const end = kxYmd(cell(r, "end")), start = kxYmd(cell(r, "start"));
+        const a = await kinxsAddManual({ name, products: [{ name: cell(r, "product") || "アチコチバース", opp: null, booked: start, start, end, stage: "CS管理ボード" }],
+          booked_on: start, end_on: end, end_estimated: false, renew_month: renew, cs_name: cs || null, memo: memo ? `【CS管理ボードより】${memo}` : null }, req.user);
+        if (a && renew) await kinxsUpdate(a.account_id, { renew_locked: true }, req.user);
+        if (a && rank) await kinxsSetRank(a.account_id, rank, req.user);
+        out.created++;
+      } else out.skipped++;
+    }
+    if (!dry) console.log(`[kinxs] CS管理ボードから取り込み：一致 ${out.matched}・追加 ${out.created}・スキップ ${out.skipped} by ${req.user}`);
+    res.json({ ok: true, ...out, items: out.items.slice(0, 500) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/kinxs/accounts", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが追加できます" });
@@ -26196,7 +26299,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23g kinXs：SFからは、商談の商品にアチコチバースがある会社だけをユーザーとして取り込む（対象でなくなった会社は外す）。ユーザーを手で追加・消せるように。";
+const BUILD_TAG = "2026-10-23h kinXs：今のCS管理ボード（スプレッドシート）から、更新月・確度・CS担当などを取り込む画面（URLかCSVを読む→列を当てる→プレビュー→反映）。反映した更新月はSFの取り込みで上書きしない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
