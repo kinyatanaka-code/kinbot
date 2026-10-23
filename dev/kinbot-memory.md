@@ -1729,3 +1729,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-23 BUILD_TAG=2026-10-23y 田中さん「Google連携しているから、いちいち登録させなくてもいいか。設定はいらないや」。kinXs の「設定」（メニュー・画面・/api/kinxs/settings・settings.kinxsMailboxes）を外した。次回アクションの読み取りは CS担当→FS の Gmail だけ（kinbot で Google 連携しているアカウント）。版20261023y。
 
   （2026-10-23y の続き）別の作業（528c6ff）で、読むGmailに CSのメンバー全員（csSettings().members、Google連携している人）が足されていたので、それは残し、共有のアカウント（kinxsMailboxes）と /api/kinxs/settings は外した。読む順：CS担当→FS→CSのメンバー全員（8人まで）。
+
+- 2026-10-23 BUILD_TAG=2026-10-23z 開発メモ（植野さん）「CS連携のAIアカウントの入力欄を複数に増やせるようにしたい（複数アカウント発行することがある）」。cs_kickoffs.ai_accounts（[{id,label,login,pass_enc,by,at}]、20件まで）。csAiList：ai_accounts が無ければ前の1件（ai_login_id/ai_pass_enc）を1件目として読む。PUT /api/cs/kickoffs/:bot/ai-accounts（パスワード空の行は前のまま、1件目を ai_login_id/ai_pass_enc にも入れて前の作りと合わせる）。GET …/ai-account?i=<id> で行ごとに復号（見た記録は前どおり）。一覧は ai_list（パスワードは有無だけ）。OBスレの1行は件数つき。画面：用途（例：管理者用）・ログインID・パスワード（●・見る・コピー）・消す・入れた人と日時の行、「＋ アカウントを追加」「ログイン情報を保存」。CSV はすべての「用途：ID」を / でつなぐ。版20261023z。

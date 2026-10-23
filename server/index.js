@@ -11620,7 +11620,7 @@ function csPostText(k, f, opts = {}) {
     (f.弊社の宿題 || []).length ? `弊社の宿題：${f.弊社の宿題.join("／")}` : "",
     `議事録：${base}/history.html?id=${encodeURIComponent(k.bot_id)}`,
     `SF商談：${k.sf_url || "未確認"}`,
-    `AIアカウント：${k.ai_login_id || k.ai_pass_enc ? "登録済み（ログイン情報はCS連携の企業カードで見られます）" : "未登録（CS連携の企業カードで入れてください）"}`,
+    `AIアカウント：${csAiList(k).length ? `登録済み${csAiList(k).length > 1 ? `（${csAiList(k).length}件）` : ""}（ログイン情報はCS連携の企業カードで見られます）` : "未登録（CS連携の企業カードで入れてください）"}`,
     k.cs_email ? "" : `👉 CS担当を選んでください：${base}/cs.html?bot=${encodeURIComponent(k.bot_id)}`,
   ];
   return lines.filter(Boolean).join("\n");
@@ -12217,6 +12217,33 @@ function csDec(blob) {
   d.setAuthTag(Buffer.from(tag, "base64"));
   return Buffer.concat([d.update(Buffer.from(enc, "base64")), d.final()]).toString("utf8");
 }
+function csAiList(k) {
+  if (Array.isArray(k && k.ai_accounts) && k.ai_accounts.length) return k.ai_accounts;
+  if (k && (k.ai_login_id || k.ai_pass_enc)) return [{ id: "a1", label: "", login: k.ai_login_id || "", pass_enc: k.ai_pass_enc || null, by: k.ai_set_by || "", at: k.ai_set_at || null }];
+  return [];
+}
+// 複数のAIアカウントをまとめて保存（パスワードを空で送った行は、前のパスワードのまま）
+app.put("/api/cs/kickoffs/:bot/ai-accounts", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが入れられます" });
+    const k = await getCsKickoff(req.params.bot);
+    if (!k) return res.status(404).json({ error: "見つかりません" });
+    const prev = new Map(csAiList(k).map((x) => [x.id, x]));
+    const now = new Date().toISOString();
+    const list = (Array.isArray(req.body?.accounts) ? req.body.accounts : []).slice(0, 20).map((a, i) => {
+      const id = String(a.id || "") && prev.has(String(a.id)) ? String(a.id) : `a${Date.now().toString(36)}${i}`;
+      const old = prev.get(id) || {};
+      const login = String(a.loginId || "").trim();
+      const pass_enc = a.password ? csEnc(String(a.password)) : (old.pass_enc || null);
+      const changed = !old.id || old.login !== login || !!a.password || String(old.label || "") !== String(a.label || "").trim();
+      return { id, label: String(a.label || "").trim().slice(0, 40), login, pass_enc, by: changed ? req.user : (old.by || req.user), at: changed ? now : (old.at || now) };
+    }).filter((x) => x.login || x.pass_enc);
+    const first = list[0] || {};
+    await upsertCsKickoff(k.bot_id, { ai_accounts: JSON.stringify(list), ai_login_id: first.login || null, ai_pass_enc: first.pass_enc || null, ai_set_by: req.user, ai_set_at: now });
+    console.log(`[cs] AIアカウントを保存（${list.length}件）：${k.company} by ${req.user}`);
+    res.json({ ok: true, count: list.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.put("/api/cs/kickoffs/:bot/ai-account", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが入れられます" });
@@ -12235,11 +12262,12 @@ app.get("/api/cs/kickoffs/:bot/ai-account", async (req, res) => {
     const k = await getCsKickoff(req.params.bot);
     if (!k) return res.status(404).json({ error: "見つかりません" });
     let password = "";
-    try { password = k.ai_pass_enc ? csDec(k.ai_pass_enc) : ""; } catch { return res.status(500).json({ error: "パスワードを読めませんでした（鍵が変わった可能性。入れ直してください）" }); }
+    const row = csAiList(k).find((x) => x.id === String(req.query.i || "")) || csAiList(k)[0] || {};
+    try { password = row.pass_enc ? csDec(row.pass_enc) : ""; } catch { return res.status(500).json({ error: "パスワードを読めませんでした（鍵が変わった可能性。入れ直してください）" }); }
     const views = [...(Array.isArray(k.ai_views) ? k.ai_views : []), { by: req.user, at: new Date().toISOString() }].slice(-50);
     await upsertCsKickoff(k.bot_id, { ai_views: JSON.stringify(views) }).catch(() => {});
     console.log(`[cs] AIアカウントのパスワードを見ました：${k.company} by ${req.user}`);
-    res.json({ ok: true, loginId: k.ai_login_id || "", password });
+    res.json({ ok: true, loginId: row.login || "", password });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/cs/kickoffs", async (req, res) => {
@@ -12272,7 +12300,8 @@ app.get("/api/cs/kickoffs", async (req, res) => {
         if (u) k = (await upsertCsKickoff(k.bot_id, { sf_url: u })) || { ...k, sf_url: u };
       }
       const f = k.fields || {};
-      const { portal_shot, ai_pass_enc, ai_views, ...kk } = k; k = { ...kk, has_portal_shot: !!portal_shot, has_ai_pass: !!ai_pass_enc, ai_view_count: Array.isArray(ai_views) ? ai_views.length : 0 };
+      const aiList = csAiList(k).map((x) => ({ id: x.id, label: x.label || "", login: x.login || "", has_pass: !!x.pass_enc, by: x.by || "", at: x.at || null }));
+      const { portal_shot, ai_pass_enc, ai_views, ai_accounts, ...kk } = k; k = { ...kk, has_portal_shot: !!portal_shot, has_ai_pass: !!ai_pass_enc, ai_view_count: Array.isArray(ai_views) ? ai_views.length : 0, ai_list: aiList };
       k.mail_track = csTrackDigest(trackAll[k.bot_id] || [], k.draft_at);
       const ks = ksSent[k.bot_id];
       rows.push({ ...k, kenshu_at: ks ? (typeof ks === "string" ? ks : ks.at) : null, kenshu_mode: ks && ks.mode || "",
@@ -26432,7 +26461,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-23y kinXsの「設定」（共有のGoogleアカウントの登録）をやめた。次回アクションは、Google連携しているCS担当・FSのGmailから読む。";
+const BUILD_TAG = "2026-10-23z CS連携の企業カード：AIアカウント（管理画面のログイン情報）を複数入れられるように（用途・ID・パスワードの行を足す・消す、行ごとに見る・コピー）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

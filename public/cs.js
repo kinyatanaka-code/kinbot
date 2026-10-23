@@ -109,33 +109,9 @@ function render() {
         <div class="cd-f"><label>メールアドレス（御礼メールの宛先）</label><input data-k="clientEmail" value="${esc(k.client_email || "")}" placeholder="例：yamada@example.co.jp"></div>
         <div class="cd-f"><label>電話番号 ${k.client_phone ? `<a href="tel:${esc(String(k.client_phone).replace(/[^0-9+]/g, ""))}">かける</a>` : ""}</label><input data-k="clientPhone" value="${esc(k.client_phone || "")}" placeholder="SFの取引先責任者から自動で入ります"></div>
       </div>`)}
-      ${sec("key", "AIアカウント（管理画面のログイン情報）", `<div class="cd-grid">
-        <div class="cd-f"><label>ログインID</label><input data-ai="id" value="${esc(k.ai_login_id || "")}" placeholder="管理画面のログインID" autocomplete="off"></div>
-        <div class="cd-f"><label>パスワード</label><div class="cd-row"><input data-ai="pw" type="password" value="" placeholder="${k.has_ai_pass ? "●●●●●●（入っています）" : "パスワード"}" autocomplete="new-password">
-          ${k.has_ai_pass ? `<button type="button" class="btn ghost cd-mini" data-ai-act="show">${ci("eye", 14)}見る</button><button type="button" class="btn ghost cd-mini" data-ai-act="copy">コピー</button>` : ""}</div></div>
-      </div>
-      <div class="cd-row" style="margin-top:8px"><button type="button" class="btn ghost cd-mini" data-ai-act="save">${ci("save", 14)}ログイン情報を保存</button>
-        <span class="cs-sub" data-ai-st>${k.ai_set_at ? `${esc(fmtDT(k.ai_set_at))} に ${esc(k.ai_set_by || "")} が入れました${k.ai_view_count ? `・見た回数 ${k.ai_view_count}` : ""}` : "パスワードは暗号にして保存し、見られるのはCS・FS・管理者だけです（だれが見たか残ります）。Chatには流しません。"}</span></div>`, k.ai_login_id || k.has_ai_pass ? `<span class="cs-pill ok">登録済み</span>` : `<span class="cs-pill warn">未登録</span>`)}
-      ${sec("hear", "回収MTGのヒアリング", `<div class="cd-grid">
-        ${fld("納品月", "納品月")}${fld("公開予定時期", "公開予定")}
-        ${fld("請求書着日スケジュール", "請求スケジュール")}${fld("次回MTGの日時", "次回MTG（議事録から）")}
-        ${fld("活用場所", "活用場所・利用シーン", true)}${fld("特記事項", "イレギュラー・特記事項", true)}
-      </div>`, unk ? `<span class="cs-pill warn">未確認 ${unk}</span>` : `<span class="cs-pill ok">そろっています</span>`)}
-      ${sec("todo", "宿題", `<div class="cd-grid">
-        <div class="cd-f"><label>弊社の宿題（1行に1つ）</label><textarea data-list="弊社の宿題" rows="4" placeholder="無ければ空（メールの項目ごと出しません）">${esc((f.弊社の宿題 || []).join("\n"))}</textarea></div>
-        <div class="cd-f"><label>貴社の宿題（1行に1つ）</label><textarea data-list="貴社の宿題" rows="4" placeholder="初期学習のほかにお願いしたこと">${esc((f.貴社の宿題 || []).join("\n"))}</textarea></div>
-      </div>`)}
-      ${sec("cs", "CS担当・確認MTG", `<div class="cd-grid">
-        <div class="cd-f"><label>CS担当</label><div class="cd-row"><select data-k="csEmail">${csOpts}</select><button type="button" class="btn ghost cd-mini" data-act="autocs">空いている人を自動で選ぶ</button></div></div>
-        <div class="cd-f"><label>確認MTGの日時</label><input type="datetime-local" data-k="confirmStart" value="${esc(toLocal(k.confirm_start))}">
-          <div class="cs-sub">${k.confirm_from ? `${esc(k.confirm_from)}から` : "カレンダー・議事録から見つかりませんでした"}${k.confirm_url ? `　・　${link(k.confirm_url, "確認MTGの参加URL")}` : ""}</div></div>
-      </div>`)}
-      ${sec("link", "リンク", `<div class="cd-grid">
-        <div class="cd-f"><label>SFの商談 ${link(k.sf_url, "開く")}</label><input data-k="sfUrl" value="${esc(k.sf_url || "")}" placeholder="見つからなかったときは貼ってください"></div>
-        <div class="cd-f"><label>候補者用画面のURL ${link(k.doc_candidate_url || k.sheet_candidate_url, "開く")}</label><input data-k="candidateUrl" value="${esc(k.doc_candidate_url || "")}" placeholder="${esc(k.sheet_candidate_url ? `管理シートの値：${k.sheet_candidate_url}` : "管理シートに無いときは、ここに入れる")}">
-          <div class="cs-sub">${k.doc_candidate_url ? "手で入れたURLを使います" : k.sheet_candidate_url ? "管理シートの値を使います" : (d.candidateSheetError ? `管理シートを読めませんでした：${esc(d.candidateSheetError)}` : "管理シートにこの会社がありません")}</div></div>
-        <div class="cd-f"><label>管理画面のURL（全社共通）</label><div class="cd-ro">${esc(d.adminUrl || "")}</div></div>
-      </div>`)}
+      ${sec("key", "AIアカウント（管理画面のログイン情報）", `<div data-ai-rows>${((k.ai_list || []).length ? k.ai_list : [{ id: "", label: "", login: "", has_pass: false }]).map((a) => aiRow(a)).join("")}</div>
+      <div class="cd-row" style="margin-top:8px;gap:8px"><button type="button" class="btn ghost cd-mini" data-ai-add>＋ アカウントを追加</button><button type="button" class="btn ghost cd-mini" data-ai-act="save">${ci("save", 14)}ログイン情報を保存</button>
+        <span class="cs-sub" data-ai-st>パスワードは暗号にして保存し、見られるのはCS・FS・管理者だけです（だれが見たか残ります）。Chatには流しません。</span></div>`, (k.ai_list || []).length ? `<span class="cs-pill ok">登録済み${k.ai_list.length > 1 ? ` ${k.ai_list.length}件` : ""}</span>` : `<span class="cs-pill warn">未登録</span>`)}
       ${sec("mail", "御礼メールの反応", (() => {
         const t = k.mail_track || {};
         if (!k.draft_at) return `<div class="cs-sub">御礼メールの下書きを作ると、先方が開いたか・どのリンクを押したかがここに出ます</div>`;
@@ -214,22 +190,33 @@ function render() {
       catch { prompt("コピーしてください", b.dataset.hpCopy); }
     }));
   }
-  if (card) card.querySelectorAll("[data-ai-act]").forEach((b) => b.addEventListener("click", async () => {
-    const act = b.dataset.aiAct, botId = csOpen, st = card.querySelector("[data-ai-st]");
-    const idIn = card.querySelector('[data-ai="id"]'), pwIn = card.querySelector('[data-ai="pw"]');
-    try {
-      if (act === "save") {
-        const body = { loginId: idIn.value };
-        if (pwIn.value) body.password = pwIn.value;
-        await api(`/api/cs/kickoffs/${encodeURIComponent(botId)}/ai-account`, { method: "PUT", body: JSON.stringify(body) });
-        st.textContent = "保存しました"; setTimeout(load, 800);
-      } else {
-        const r = await api(`/api/cs/kickoffs/${encodeURIComponent(botId)}/ai-account`);
-        if (act === "show") { pwIn.type = "text"; pwIn.value = r.password; st.textContent = "パスワードを出しました（見たことは残ります）"; }
-        else { await navigator.clipboard.writeText(r.password); st.textContent = "パスワードをコピーしました（見たことは残ります）"; }
-      }
-    } catch (e) { st.textContent = "失敗：" + e.message; }
-  }));
+  if (card) {
+    const rowsBox = card.querySelector("[data-ai-rows]");
+    const wireRow = (row) => {
+      const del = row.querySelector("[data-ai-del]"); if (del) del.addEventListener("click", () => { row.remove(); if (!rowsBox.querySelector(".ai-row")) rowsBox.insertAdjacentHTML("beforeend", aiRow({})); });
+      row.querySelectorAll('[data-ai-act="show"],[data-ai-act="copy"]').forEach((b) => b.addEventListener("click", async () => {
+        const st = card.querySelector("[data-ai-st]"); const pw = row.querySelector('[data-ai="pw"]');
+        try {
+          const r = await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}/ai-account?i=${encodeURIComponent(row.dataset.aiRow || "")}`);
+          if (b.dataset.aiAct === "show") { pw.type = "text"; pw.value = r.password; st.textContent = "パスワードを出しました（見たことは残ります）"; }
+          else { await navigator.clipboard.writeText(r.password); st.textContent = "パスワードをコピーしました（見たことは残ります）"; }
+        } catch (e) { st.textContent = "失敗：" + e.message; }
+      }));
+    };
+    if (rowsBox) rowsBox.querySelectorAll(".ai-row").forEach(wireRow);
+    const add = card.querySelector("[data-ai-add]");
+    if (add) add.addEventListener("click", () => { rowsBox.insertAdjacentHTML("beforeend", aiRow({})); wireRow(rowsBox.lastElementChild); rowsBox.lastElementChild.querySelector('[data-ai="label"]').focus(); });
+    const save = card.querySelector('[data-ai-act="save"]');
+    if (save) save.addEventListener("click", async () => {
+      const st = card.querySelector("[data-ai-st]");
+      const accounts = [...rowsBox.querySelectorAll(".ai-row")].map((row) => {
+        const pwIn = row.querySelector('[data-ai="pw"]');
+        return { id: row.dataset.aiRow || "", label: row.querySelector('[data-ai="label"]').value, loginId: row.querySelector('[data-ai="id"]').value, password: pwIn.type === "password" ? pwIn.value : "" };
+      });
+      try { const r = await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}/ai-accounts`, { method: "PUT", body: JSON.stringify({ accounts }) }); st.textContent = `保存しました（${r.count}件）`; setTimeout(load, 600); }
+      catch (e) { st.textContent = "保存できませんでした：" + e.message; }
+    });
+  }
   if (!card) return;
   const bot = csOpen;
   const collect = () => {
@@ -276,6 +263,17 @@ function render() {
     b.disabled = false;
   }));
 }
+// AIアカウントの1行（名前・ID・パスワード・見る・コピー・消す）
+function aiRow(a) {
+  return `<div class="ai-row" data-ai-row="${esc(a.id || "")}">
+    <input class="ai-lb" data-ai="label" value="${esc(a.label || "")}" placeholder="用途（例：管理者用・人事部用）" autocomplete="off">
+    <input data-ai="id" value="${esc(a.login || "")}" placeholder="ログインID" autocomplete="off">
+    <div class="cd-row" style="gap:4px;flex:1;min-width:200px"><input data-ai="pw" type="password" value="" placeholder="${a.has_pass ? "●●●●●●（入っています）" : "パスワード"}" autocomplete="new-password" style="flex:1">
+      ${a.has_pass ? `<button type="button" class="btn ghost cd-mini" data-ai-act="show">${ci("eye", 14)}見る</button><button type="button" class="btn ghost cd-mini" data-ai-act="copy">コピー</button>` : ""}
+      <button type="button" class="btn ghost cd-mini" data-ai-del title="この行を消す（保存で反映）">消す</button></div>
+    ${a.at ? `<div class="cs-sub ai-meta">${esc(fmtDT(a.at))} に ${esc(a.by || "")} が入れました</div>` : ""}
+  </div>`;
+}
 function renderSettings() {
   const d = csData; const box = $("csSet"); if (!d || !box) return;
   const mem = [0, 1, 2].map((i) => d.members[i] || { email: "", name: "" });
@@ -306,7 +304,7 @@ $("csCsv").addEventListener("click", () => {
   const body = rows.map((k) => { const f = k.fields || {}; return [
     nm(k), dt(k.meeting_at), k.fs_name || "", k.cs_name || "", k.confirm_start ? dt(k.confirm_start) : (f.次回MTGの日時 || ""),
     f.先方ご担当者名 || "", f.活用場所 || "", f.公開予定時期 || "", f.納品月 || "", f.請求書着日スケジュール || "", f.特記事項 || "",
-    (f.弊社の宿題 || []).join("／"), (f.貴社の宿題 || []).join("／"), k.client_email || "", k.client_phone || "", k.ai_login_id || "", k.doc_candidate_url || k.sheet_candidate_url || "",
+    (f.弊社の宿題 || []).join("／"), (f.貴社の宿題 || []).join("／"), k.client_email || "", k.client_phone || "", (k.ai_list || []).map((a) => `${a.label ? `${a.label}：` : ""}${a.login}`).join(" / ") || k.ai_login_id || "", k.doc_candidate_url || k.sheet_candidate_url || "",
     k.sf_url || "", k.meeting_url || "", k.posted_at ? dt(k.posted_at) : "", k.draft_at ? dt(k.draft_at) : "",
   ]; });
   const cell = (v) => { const t = String(v == null ? "" : v); return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };

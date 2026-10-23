@@ -9,14 +9,18 @@
       html.kb-embed .sidebar, html.kb-embed .topbar, html.kb-embed .side-backdrop, html.kb-embed .kb-menu-btn, html.kb-embed .kb-menu, html.kb-embed .kb-sheet-back, html.kb-embed .kb-ver, html.kb-embed .live-banner { display: none !important; }
       html.kb-embed .main { margin-left: 0 !important; padding-left: 0 !important; }
       html.kb-embed body { background: transparent; }
-    </style>
+        .ai-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px;border:1px solid #E6ECE9;border-radius:10px;margin-bottom:6px;background:#fff;}
+    .ai-row input{border:1px solid #d6e2dc;border-radius:8px;padding:7px 9px;font:inherit;font-size:13px;min-width:0;}
+    .ai-row .ai-lb{width:170px;} .ai-row input[data-ai="id"]{width:200px;}
+    .ai-row .ai-meta{flex-basis:100%;font-size:11px;}
+</style>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023y" />
+    <link rel="stylesheet" href="style.css?v=20261023z" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -204,7 +208,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261023y"></script>
+    <script src="nav.js?v=20261023z"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -212,6 +216,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261023y"></script>
+    <script src="cs.js?v=20261023z"></script>
   </body>
 </html>
