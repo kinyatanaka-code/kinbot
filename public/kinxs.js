@@ -155,6 +155,22 @@ document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggl
 $("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
+// ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
+$("kxPageName").textContent = ({ list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
+document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list"].includes(VIEW); });
+if ($("kxSyncTop")) $("kxSyncTop").hidden = VIEW !== "renew";
+if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
+api("/api/me").then((me) => {
+  const n = (me && (me.name || me.email)) || "";
+  $("kxMeName").textContent = n; $("kxMeAv").textContent = n ? n.slice(0, 1) : "・"; $("kxMe").title = (me && me.email) || "";
+}).catch(() => {});
+// 要注意の社数をヘッダーに（押すと、ユーザー一覧の要注意企業へ）
+api("/api/kinxs/users").then((u) => {
+  const n = ((u && u.items) || []).filter((x) => (x.alerts || []).length).length;
+  const c = $("kxTopChip"); if (!c || !n) return;
+  c.hidden = false; c.textContent = `要注意 ${n}社`;
+  c.addEventListener("click", () => { location.href = "/kinxs?p=list"; });
+}).catch(() => {});
 if (VIEW === "cs") {
   // CS連携は、kinXsの中に埋め込んで開く（kinbotのメニューは出さない）。企業カードを指定されたらそのまま開く
   const bot = new URLSearchParams(location.search).get("bot");

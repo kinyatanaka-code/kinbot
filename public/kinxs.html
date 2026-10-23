@@ -9,10 +9,25 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261023m" />
+    <link rel="stylesheet" href="style.css?v=20261023n" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
+  /* kinbotと同じ形のヘッダー */
+  .kx-main{padding:0 !important;display:flex;flex-direction:column;}
+  .kx-topbar{position:sticky;top:0;z-index:20;background:#fff;border-bottom:1px solid #E1E9E5;padding:10px 24px;gap:14px;}
+  .kx-top-ico{border-radius:11px;}
+  .kx-topbar .brand{align-items:center;}
+  .kx-topbar .brand-name{font-size:18px;font-weight:800;letter-spacing:.02em;}
+  .kx-topbar .brand-sub{text-transform:none;letter-spacing:.04em;font-size:11px;}
+  .kx-top-chip{font-size:12px;font-weight:700;color:#7A3300;background:#FFF1DC;border:1px solid #F0D5B0;border-radius:99px;padding:4px 11px;cursor:pointer;}
+  .kx-top-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .kx-me{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:#33463E;padding-left:8px;border-left:1px solid #E1E9E5;margin-left:4px;}
+  .kx-me .av{width:30px;height:30px;border-radius:50%;background:#0E6B4E;color:#B6E25C;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;}
+  .kx-body{padding:22px 28px 40px;box-sizing:border-box;}
+  .kx-wrap > .kx-head .kx-title{display:none;}
+  @media (max-width:860px){ .kx-me #kxMeName{display:none;} .kx-topbar{padding:10px 14px;} .kx-body{padding:16px 14px 30px;} }
+
   .kx-app{display:flex;min-height:100vh;background:#F3F6F4;}
   .kx-side{flex:none;width:244px;background:#0B3B2E;color:#DCEBE4;padding:20px 14px;display:flex;flex-direction:column;gap:4px;box-sizing:border-box;position:sticky;top:0;height:100vh;}
   .kx-brand{display:flex;align-items:center;gap:10px;padding:2px 8px 18px;color:#fff;text-decoration:none;font-weight:800;font-size:19px;letter-spacing:.01em;}
@@ -144,11 +159,20 @@
       </nav>
 
       <div class="kx-main">
+        <header class="topbar kx-topbar">
+          <div class="brand"><img class="kx-top-ico" src="/kinxs.svg" alt="" width="40" height="40" /><span class="brand-name" id="kxPageName">更新管理</span><span class="brand-sub">kinXs</span></div>
+          <span class="kx-top-chip" id="kxTopChip" hidden></span>
+          <div class="kx-top-right">
+            <button type="button" class="kx-btn kx-add-user" data-top-act>＋ ユーザーを追加</button>
+            <button type="button" class="kx-btn" id="kxSyncTop" data-top-act>SFから取り込み直す</button>
+            <span class="kx-me" id="kxMe" title=""><span class="av" id="kxMeAv">・</span><span id="kxMeName"></span></span>
+          </div>
+        </header>
+        <div class="kx-body">
         <main>
           <div class="kx-wrap" id="vList" hidden>
             <div class="kx-head">
               <div><h1 class="kx-title">ユーザー一覧</h1><div class="kx-sub">SFで申込書回収（06）になった、アチコチバースの商談の会社が自動で入ります。手で追加することもできます。要注意企業は上にまとめ、表も急ぎの順に並べます</div></div>
-              <div style="margin-left:auto"><button type="button" class="kx-btn kx-add-user" style="background:#0E6B4E;color:#fff;border-color:#0E6B4E">＋ ユーザーを追加</button></div>
             </div>
             <section class="kx-alert-box" id="lsAlerts"></section>
             <div class="kx-bar">
@@ -183,8 +207,7 @@
               
               <div><h1 class="kx-title">更新管理</h1><div class="kx-sub">更新月＝契約終了日の前月。更新月まで<span id="kxDays">90</span>日以内で確度がB以下の会社は、オレンジの枠で目立たせます</div></div>
               <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
-                <button type="button" class="kx-btn kx-add-user">＋ ユーザーを追加</button>
-                <button type="button" class="kx-btn" id="kxSync">SFから取り込み直す</button>
+                <button type="button" class="kx-btn" id="kxSync" hidden>SFから取り込み直す</button>
               </div>
             </div>
             <div class="kx-kpis" id="kxKpis"></div>
@@ -198,8 +221,9 @@
             <p class="kx-note" id="kxFoot"></p>
           </div>
         </main>
+        </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261023m"></script>
+    <script src="kinxs.js?v=20261023n"></script>
   </body>
 </html>

@@ -1701,3 +1701,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-23 BUILD_TAG=2026-10-23l 田中さん「kinXsの画面にもCS連携をメニューに入れたい」「ブラウザタブはkinXsだけで」。kinxs.html：メニューに「CS連携（回収MTG）」（/kinxs?p=cs）、#vCs に iframe（/cs.html?embed=1、bot= があれば渡す）。cs.html：embed=1 のとき html.kb-embed で kinbot のサイドバー・上の帯・メニューのボタン・版の印などを隠す。タブの名前は kinxs.html の <title> も document.title も「kinXs」だけ。企業詳細の「CS連携の企業カードを開く」も /kinxs?p=cs&bot=… に。版20261023l。
 
 - 2026-10-23 BUILD_TAG=2026-10-23m 田中さん「S、Aなどを選択したらそれが表示されるようにしたい」。更新管理の凡例の確度をボタンに（data-rank-pick、window.__kxRanks の Set で複数選べる、もう一度押すと外す、選んでいないものは薄く、社数 .kx-rc、「確度の絞り込みを外す」）。上の絞り込み（すべて・要注意だけ…）と重ねて効く。ドロップ先（data-rank-drop）はそのまま。版20261023m。
+
+- 2026-10-23 BUILD_TAG=2026-10-23n 田中さん「kinbotみたいにヘッダーを作ってほしい」。kinxs.html：.kx-main の上に header.topbar.kx-topbar（上に貼りつく、白地に下線）＝左にスフィンクスのアイコン・画面名（#kxPageName：更新管理／ユーザー一覧／CS管理ボードから取り込む／CS連携（回収MTG））・brand-sub「kinXs」、要注意の社数のチップ（/api/kinxs/users の alerts があるもの、押すと ?p=list）、右に「＋ ユーザーを追加」「SFから取り込み直す」（更新管理・ユーザー一覧だけ、取り込みは元のボタンを押す）・ログインしている人（/api/me、頭文字の丸）。中身は .kx-body で余白。画面の中の大きな見出しは隠し、説明の文だけ残す。版20261023n。
