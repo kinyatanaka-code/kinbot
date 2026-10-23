@@ -173,7 +173,7 @@ async function openDetail(id) {
     <div style="display:flex;align-items:flex-start;gap:10px"><div><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><span class="kx-rank r-${x.rank}">${x.rank}</span><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}</span></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
-    <div class="kx-tabs"><button type="button" class="on" data-tab="info">基本・状態</button><button type="button" data-tab="tl">フォロー履歴（${d.timeline.filter((t) => t.kind !== "label").length}）</button></div>
+    <div class="kx-tabs"><button type="button" class="on" data-tab="info">基本・状態</button><button type="button" data-tab="tl">議事録・フォロー履歴（${d.timeline.filter((t) => t.kind !== "label").length}）</button></div>
     <div data-pane="info" style="display:flex;flex-direction:column;gap:12px">
       <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
       <div class="kx-sec"><div class="lb">メインラベル${x.locked ? "（手で決めています）" : "（自動）"}</div>
@@ -194,8 +194,8 @@ async function openDetail(id) {
     </div>
     <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
       <div class="kx-sec"><div class="lb">電話・メールなど（議事録のない接触）を記録する</div>
-        <div style="display:flex;gap:8px"><select class="kx-in" data-ctype style="max-width:110px"><option>電話</option><option>メール</option><option>Chat</option><option>その他</option></select><input class="kx-in" data-ctext placeholder="話した内容を短く" /><button type="button" class="kx-btn" data-add-contact>記録</button></div></div>
-      <div class="kx-tl">${d.timeline.length ? d.timeline.map((t) => `<div class="it ${t.kind}"><div class="t">${esc(t.title)}</div><div class="m">${esc(new Date(t.at).toLocaleString("ja-JP"))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}${t.url ? `<a class="kx-note" href="${esc(t.url)}" target="_blank" rel="noopener">議事録の原文を開く ↗</a>` : ""}</div>`).join("") : `<div class="kx-note">まだありません。会社名が予定名に入った商談の議事録が、ここに自動で並びます</div>`}</div>
+        <div style="display:flex;gap:8px"><select class="kx-in" data-ctype style="max-width:110px"><option>電話</option><option>メール</option><option>Chat</option><option>その他</option></select><input class="kx-in" data-ctext placeholder="話した内容を短く" /><button type="button" class="kx-btn" data-add-contact style="white-space:nowrap">記録する</button></div></div>
+      <div class="kx-tl">${d.timeline.length ? d.timeline.map((t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}><div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-note">議事録を開く ›</span>' : ""}</div><div class="m">${esc(new Date(t.at).toLocaleString("ja-JP"))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`).join("") : `<div class="kx-note">まだありません。会社名が予定名に入った商談の議事録が、ここに自動で並びます</div>`}</div>
     </div>
   </aside>`;
   document.body.appendChild(bg);
@@ -215,6 +215,10 @@ async function openDetail(id) {
   bg.querySelectorAll("[data-tog]").forEach((g) => g.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => put({ [g.dataset.tog]: b.dataset.v === "true" }))));
   bg.querySelector("[data-save-na]").addEventListener("click", () => put({ na_text: bg.querySelector("[data-na]").value, na_due: bg.querySelector("[data-due]").value }));
   bg.querySelector("[data-save-memo]").addEventListener("click", () => put({ memo: bg.querySelector("[data-memo]").value }));
+  bg.querySelectorAll("[data-mt]").forEach((el) => {
+    el.addEventListener("click", () => openMeeting(el.dataset.mt));
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") openMeeting(el.dataset.mt); });
+  });
   const delU = bg.querySelector("[data-del-user]");
   if (delU) delU.addEventListener("click", async () => {
     if (!confirm(`「${x.name}」をユーザーから消します。よろしいですか？`)) return;
@@ -222,6 +226,36 @@ async function openDetail(id) {
   });
   bg.querySelector("[data-add-contact]").addEventListener("click", () => { const t = bg.querySelector("[data-ctext]").value.trim(); if (!t) return; put({ contact: { type: bg.querySelector("[data-ctype]").value, text: t } }); });
 }
+// 議事録のモーダル（企業詳細の上に重ねて出す）
+async function openMeeting(botId) {
+  const bg = document.createElement("div"); bg.className = "kx-mt-bg";
+  bg.innerHTML = `<div class="kx-mt" role="dialog" aria-label="議事録"><div class="kx-note">読み込み中…</div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  document.addEventListener("keydown", onKey);
+  let m;
+  try { m = await api(`/api/kinxs/meetings/${encodeURIComponent(botId)}`); }
+  catch (e) { bg.querySelector(".kx-mt").innerHTML = `<div class="kx-note">開けませんでした：${esc(e.message)}</div><button type="button" class="kx-btn" data-x>閉じる</button>`; bg.querySelector("[data-x]").addEventListener("click", close); return; }
+  const sm = m.summary || {};
+  const list = (v) => (Array.isArray(v) ? v : []).map((x) => typeof x === "string" ? x : [x.task || x.item || x.text || x.content || x.title || "", x.owner || x.who ? `（${x.owner || x.who}）` : "", x.due ? `〜${x.due}` : ""].join("")).filter(Boolean);
+  const sec = (title, v) => { const l = list(v); return l.length ? `<h4>${esc(title)}</h4><ul>${l.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""; };
+  const known = ["overview", "key_points", "agreements", "customer_concerns", "action_items"];
+  const extra = Object.entries(sm).filter(([k, v]) => !known.includes(k) && Array.isArray(v) && v.length && v.every((x) => typeof x === "string")).slice(0, 4);
+  bg.querySelector(".kx-mt").innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:10px"><div><h3>${esc(m.title || "（題名なし）")}</h3><div class="kx-note">${esc(new Date(m.at).toLocaleString("ja-JP"))}${m.owner ? `・${esc(m.owner)}` : ""}</div></div>
+      <button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    ${sm.overview ? `<h4>概要</h4><p>${esc(sm.overview)}</p>` : ""}
+    ${sec("話したこと", sm.key_points)}${sec("決まったこと", sm.agreements)}${sec("先方の気にしていること", sm.customer_concerns)}${sec("やること", sm.action_items)}
+    ${extra.map(([k, v]) => sec(k, v)).join("")}
+    ${!sm.overview && !list(sm.key_points).length ? `<div class="kx-note">要約はまだありません</div>` : ""}
+    <details ${m.transcript.length && !sm.overview ? "open" : ""}><summary class="kx-note" style="cursor:pointer;font-weight:700">文字起こし（${m.transcript.length + (m.more || 0)}発言）</summary>
+      <div class="kx-tr" style="margin-top:8px">${m.transcript.length ? m.transcript.map((u) => `<div><b>${esc(u.who || "話者")}</b>${esc(u.text)}</div>`).join("") : "文字起こしはありません"}${m.more ? `<div class="kx-note">ほか ${m.more}発言（議事録のページで見られます）</div>` : ""}</div></details>
+    <a class="kx-btn" style="align-self:flex-start;display:inline-flex;align-items:center;text-decoration:none" href="/history.html?bot=${encodeURIComponent(m.botId)}" target="_blank" rel="noopener">議事録のページで開く（録画・分析など）↗</a>`;
+  bg.querySelector("[data-x]").addEventListener("click", close);
+}
+
 // ユーザーを手で追加する
 function openAddUser() {
   const bg = document.createElement("div"); bg.className = "kx-drawer-bg";
