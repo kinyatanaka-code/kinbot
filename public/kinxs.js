@@ -250,7 +250,7 @@ function renderList() {
   // 会社のカード（シンプルに：会社名・ラベル・確度・CS・更新月・次回アクション）
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   // 会社名だけのカード（詳細は押すと開くモーダルで）
-  const card = (x) => `<div class="kx-uc kx-uc-min" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(x.name)}"><div class="nm"><span>${esc(x.name)}</span></div></div>`;
+  const card = (x) => { const cs = kxSurname(x.cs); return `<div class="kx-uc kx-uc-min" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(x.name)}"><div class="nm"><span>${esc(x.name)}</span></div><div><span class="kx-cstag${cs ? "" : " none"}">${cs ? `CS ${esc(cs)}` : "CS 未定"}</span></div></div>`; };
   $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
   kxFitCards();
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
