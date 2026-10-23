@@ -237,7 +237,8 @@ function renderList() {
   $("lsChips").innerHTML = [["", `すべて ${base.length}`], ...d.labels.filter((l) => counts[l]).map((l) => [l, `${l} ${counts[l]}`])]
     .map(([v, t]) => `<button type="button" class="kx-chip ${lsLabel === v ? "on" : ""}" data-lab="${esc(v)}">${esc(t)}</button>`).join("");
   $("lsChips").querySelectorAll("[data-lab]").forEach((b) => b.addEventListener("click", () => { lsLabel = b.dataset.lab; renderList(); }));
-  const items = base.filter((x) => !lsLabel || x.label === lsLabel);
+  // 受注日（計上日）が新しい順。日付が無い会社は最後
+  const items = base.filter((x) => !lsLabel || x.label === lsLabel).slice().sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")) || a.name.localeCompare(b.name, "ja"));
   // 要注意企業（上に固定）
   const al = base.filter((x) => x.alerts.length).sort((a, b) => b.score - a.score);
   $("lsAlerts").innerHTML = `<h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A5B00" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>要注意企業 <span class="kx-note">${al.length}社・上ほど急ぎ</span></h2>` +
@@ -250,7 +251,7 @@ function renderList() {
   // 会社のカード（シンプルに：会社名・ラベル・確度・CS・更新月・次回アクション）
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   // 会社名だけのカード（詳細は押すと開くモーダルで）
-  const card = (x) => { const cs = kxSurname(x.cs); return `<div class="kx-uc kx-uc-min" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(x.name)}"><div class="nm"><span>${esc(x.name)}</span></div><div><span class="kx-cstag${cs ? "" : " none"}">${cs ? `CS ${esc(cs)}` : "CS 未定"}</span></div></div>`; };
+  const card = (x) => { const cs = kxSurname(x.cs); return `<div class="kx-uc kx-uc-min" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(x.name)}"><div class="nm"><span>${esc(x.name)}</span></div><div style="display:flex;align-items:center;gap:6px"><span class="kx-cstag${cs ? "" : " none"}">${cs ? `CS ${esc(cs)}` : "CS 未定"}</span><span class="kx-note" style="margin-left:auto;font-size:11px">${x.booked ? `受注 ${esc(x.booked.replace(/-/g, "/"))}` : ""}</span></div></div>`; };
   $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
   kxFitCards();
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));

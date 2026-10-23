@@ -12644,7 +12644,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual" };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", booked: r.booked_on ? String(r.booked_on instanceof Date ? r.booked_on.toISOString() : r.booked_on).slice(0, 10) : "" };
   });
   return { items, rules, mtBy, kickBy };
 }
@@ -26464,7 +26464,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24g kinXsのユーザー一覧：会社のカードに、CS担当のタグ（苗字、未定ならオレンジの「CS 未定」）。";
+const BUILD_TAG = "2026-10-24h kinXsのユーザー一覧：受注日（計上日）が新しい順に並べ、カードの右下に受注日を出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
