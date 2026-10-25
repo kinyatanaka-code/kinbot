@@ -12308,6 +12308,12 @@ app.get("/api/cs/kickoffs", async (req, res) => {
         confirm_url: k.confirm_slug ? joinUrl(k.confirm_slug) : "", meeting_url: `${csBase()}/history.html?id=${encodeURIComponent(k.bot_id)}`,
         sheet_candidate_url: await csCandidateUrlFor((f.企業名 && f.企業名 !== "未確認" ? f.企業名 : k.company), [req.user]).catch(() => "") });
     }
+    // 会社のロゴ：kinXsの会社（社名・旧社名で照らす）のロゴ
+    try {
+      const kxRows = (await kinxsList()).filter((r) => !r.merged_into && r.logo_url);
+      const byKey = new Map(); for (const r of kxRows) for (const n of [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])]) { const kk = csCoKey(n || ""); if (kk && !byKey.has(kk)) byKey.set(kk, r); }
+      for (const k of rows) { const hit = byKey.get(csCoKey(k.company || "")) || (k.fields && byKey.get(csCoKey(k.fields.企業名 || ""))); if (hit) k.logo = `/api/kinxs/logo/${encodeURIComponent(hit.account_id)}?v=${encodeURIComponent(String(hit.logo_at ? Date.parse(hit.logo_at) : ""))}`; }
+    } catch {}
     res.json({ ok: true, kenshuReady: !!(stK.kenshuForm && stK.kenshuForm.entries), candidateSheetError: cand.error || "", adminUrl: DOC_ADMIN_URL, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, kickoffs: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12344,6 +12350,7 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
       await pool.query(`UPDATE smart_links SET start_time=$2, end_time=$3 WHERE slug=$1`, [k.confirm_slug, st.toISOString(), new Date(st.getTime() + 3600000).toISOString()]).catch(() => {});
     }
     if (k.cs_email !== k0.cs_email) csSyncPortalOwner(k);
+    kxFromKickoff(k, req.user).catch(() => {});
     res.json({ ok: true, kickoff: k, autoNote });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12750,6 +12757,52 @@ app.get("/api/kinxs/logo/:id", async (req, res) => {
     res.set({ "Content-Type": type, "Cache-Control": "private, max-age=86400" }); res.end(buf);
   } catch { res.status(404).end(); }
 });
+// ===== CS連携 ⇄ kinXs：どちらで直しても、もう一方にも入る =====
+// 会社は会社名のキー（csCoKey、kinXsの旧社名も）で照らす
+async function kxFindAccountForKickoff(k) {
+  const names = [k.company, k.fields && k.fields.企業名].filter((n) => n && n !== "未確認");
+  const keys = new Set(names.map((n) => csCoKey(n)).filter(Boolean));
+  if (!keys.size) return null;
+  const rows = (await kinxsList().catch(() => [])).filter((r) => !r.merged_into);
+  return rows.find((r) => [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])].some((n) => keys.has(csCoKey(n || "")))) || null;
+}
+async function kxFindKickoffForAccount(r) {
+  const keys = new Set([r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])].map((n) => csCoKey(n || "")).filter(Boolean));
+  const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
+  return kicks.find((k) => keys.has(csCoKey(k.company)) || (k.fields && keys.has(csCoKey(k.fields.企業名 || "")))) || null;
+}
+// CS連携で直した → kinXs（CS担当・利用目的）
+async function kxFromKickoff(k, by) {
+  try {
+    const r = await kxFindAccountForKickoff(k); if (!r) return;
+    const patch = {};
+    if ((k.cs_name || "") !== (r.cs_name || "")) patch.cs_name = k.cs_name || "";
+    const place = k.fields && k.fields.活用場所;
+    if (place && place !== "未確認" && (!r.purpose || (r.info && r.info.auto && r.info.auto.purpose === "CS連携"))) { patch.purpose = place; patch.info = { ...(r.info || {}), auto: { ...((r.info && r.info.auto) || {}), purpose: "CS連携" } }; }
+    if (Object.keys(patch).length) await kinxsUpdate(r.account_id, patch, by || "CS連携");
+  } catch (e) { console.warn("[kinxs] CS連携から", e.message); }
+}
+// kinXsで直した → CS連携（CS担当・活用場所・先方のメールと電話）
+async function kxToKickoff(accountId, b, by) {
+  try {
+    const r = ((await kinxsList().catch(() => [])).find((y) => y.account_id === accountId)); if (!r) return;
+    const k0 = await kxFindKickoffForAccount(r); if (!k0) return;
+    const v = {};
+    if ("cs_name" in b) {
+      const cfg = await csSettings();
+      const nm = String(b.cs_name || "").trim(); const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+      const c = nm ? (cfg.members.find((m) => m.name === nm) || cfg.members.find((m) => sur(m.name) === sur(nm))) : null;
+      if ((c ? c.email : null) !== (k0.cs_email || null)) { v.cs_email = c ? c.email : null; v.cs_name = c ? c.name : (nm || null); }
+    }
+    if ("purpose" in b && String(b.purpose || "").trim()) v.fields = { ...(k0.fields || {}), 活用場所: String(b.purpose).trim() };
+    const c0 = b.info && Array.isArray(b.info.contacts) && b.info.contacts[0];
+    if (c0) { if (c0.email && c0.email !== k0.client_email) v.client_email = c0.email; if (c0.phone && c0.phone !== k0.client_phone) v.client_phone = c0.phone; }
+    if (!Object.keys(v).length) return;
+    let k = await upsertCsKickoff(k0.bot_id, v);
+    if ("cs_email" in v) { if (k.cs_email) k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k); if (k.cs_email !== k0.cs_email) csSyncPortalOwner(k); }
+    console.log(`[kinxs] kinXsで直した内容を CS連携 にも：${k0.company}（${Object.keys(v).join("・")}）by ${by}`);
+  } catch (e) { console.warn("[kinxs] CS連携へ", e.message); }
+}
 app.post("/api/kinxs/accounts/:id/rename", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -13295,6 +13348,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     }
     const r = await kinxsUpdate(req.params.id, patch, req.user);
     if (!r) return res.status(404).json({ error: "見つかりません" });
+    if ("cs_name" in b || "purpose" in b || (b.info && Array.isArray(b.info.contacts))) kxToKickoff(req.params.id, b, req.user).catch(() => {});
     let logoRefetched = false;
     if (b.info && typeof b.info === "object" && "website" in b.info && String(b.info.website || "").trim() && !r.logo_manual) {
       try { const logo = await kxFindLogo(String(b.info.website).trim()); _kxLogoImg.delete(r.logo_url || ""); await kinxsSetLogo(req.params.id, logo); logoRefetched = true; } catch {}
@@ -26810,7 +26864,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26f kinXsのフェーズ別：Shift＋クリック・右クリックでカードをまとめて選び、選んだどれかをつかんで別のフェーズの列に動かすと、まとめてフェーズが変わる（ユーザー一覧の担当別と同じ）。";
+const BUILD_TAG = "2026-10-26g CS連携の企業カードに会社のロゴ（kinXsで取ったロゴ、kinbotとkinXsの両方）。CS連携とkinXsのどちらで直しても、もう一方にも入る（CS担当・利用目的＝活用場所・先方のメールと電話）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -13,6 +13,10 @@
     .ai-row input{border:1px solid #d6e2dc;border-radius:8px;padding:7px 9px;font:inherit;font-size:13px;min-width:0;}
     .ai-row .ai-lb{width:170px;} .ai-row input[data-ai="id"]{width:200px;}
     .ai-row .ai-meta{flex-basis:100%;font-size:11px;}
+    .cs-logo{flex:none;border-radius:8px;background:#fff;border:1px solid #E1E9E5;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;margin-right:8px;}
+    .cs-logo img{max-width:86%;max-height:86%;object-fit:contain;}
+    .cs-logo.mono{background:linear-gradient(150deg,#0E6B4E,#0B3B2E);color:#B6E25C;font-weight:800;font-size:13px;border:0;}
+    .cs-co-top{display:flex;align-items:center;}
 </style>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
@@ -20,7 +24,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261026f" />
+    <link rel="stylesheet" href="style.css?v=20261026g" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     <style>
     .cs-wrap{display:flex;flex-direction:column;gap:12px;}
@@ -208,7 +212,7 @@
         </main>
       </div>
     </div>
-    <script src="nav.js?v=20261026f"></script>
+    <script src="nav.js?v=20261026g"></script>
     <script>
       document.querySelectorAll(".cs-tab").forEach((b) => b.addEventListener("click", () => {
         document.querySelectorAll(".cs-tab").forEach((x) => x.classList.toggle("on", x === b));
@@ -216,6 +220,6 @@
         if (b.dataset.tab === "set" && window.csRenderSettings) window.csRenderSettings();
       }));
     </script>
-    <script src="cs.js?v=20261026f"></script>
+    <script src="cs.js?v=20261026g"></script>
   </body>
 </html>

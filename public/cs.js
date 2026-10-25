@@ -58,7 +58,7 @@ function render() {
     const confirm = k.confirm_start ? fmtDT(k.confirm_start) : (f.次回MTGの日時 && f.次回MTGの日時 !== "未確認" ? f.次回MTGの日時 : "");
     const bill = String(f.請求書着日スケジュール || "");
     return `<div class="cs-co" data-bot="${esc(k.bot_id)}" tabindex="0">
-      <div class="cs-co-top"><div class="cs-co-name">${esc(coName(k))}</div>${k.posted_at ? '<span class="cs-dot ok" title="OBスレ投稿済み"></span>' : '<span class="cs-dot ng" title="OBスレ未投稿"></span>'}</div>
+      <div class="cs-co-top">${csLogo(k, 30)}<div class="cs-co-name">${esc(coName(k))}</div>${k.posted_at ? '<span class="cs-dot ok" title="OBスレ投稿済み"></span>' : '<span class="cs-dot ng" title="OBスレ未投稿"></span>'}</div>
       <div class="cs-co-who"><span>FS ${esc(k.fs_name || "-")}</span>${k.cs_name ? `<span class="ok">CS ${esc(k.cs_name)}</span>` : '<span class="warn">CS 未定</span>'}</div>
       <dl class="cs-co-dl">
         <dt>回収MTG</dt><dd>${esc(fmtDT(k.meeting_at))}</dd>
@@ -93,7 +93,7 @@ function render() {
       k.draft_at ? `<span class="cs-pill ok">御礼メール下書きあり</span>` : `<span class="cs-pill">御礼メール：まだ</span>`,
       unk ? `<span class="cs-pill warn">未確認 ${unk}項目</span>` : "",
     ].join("");
-    const head = `<div class="cs-h" style="cursor:default"><b>${esc(coName(k))}</b>
+    const head = `<div class="cs-h" style="cursor:default">${csLogo(k, 36)}<b>${esc(coName(k))}</b>
       <span class="cs-sub">回収MTG ${esc(fmtDT(k.meeting_at))}・FS ${esc(k.fs_name || "")}</span>${pills}<button type="button" class="cs-x" id="csClose" aria-label="閉じる">✕</button></div>`;
     const csOpts = `<option value="">未定</option>` + d.members.map((m) => `<option value="${esc(m.email)}"${m.email === k.cs_email ? " selected" : ""}>${esc(m.name)}</option>`).join("");
     // 見やすく：①ヒアリングの中身 ②宿題 ③CS・確認MTG ④連絡先・リンク ⑤ヘルプサイト のまとまりに分け、ボタンは下に固定
@@ -293,6 +293,12 @@ function aiRow(a) {
       <button type="button" class="btn ghost cd-mini" data-ai-del title="この行を消す（保存で反映）">消す</button></div>
     ${a.at ? `<div class="cs-sub ai-meta">${esc(fmtDT(a.at))} に ${esc(a.by || "")} が入れました</div>` : ""}
   </div>`;
+}
+// 会社のロゴ（kinXsで取ったロゴ。無ければ頭文字）
+function csLogo(k, size) {
+  const n = String(coName(k) || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").trim().slice(0, 1) || "？";
+  return k.logo ? `<span class="cs-logo" style="width:${size}px;height:${size}px"><img src="${esc(k.logo)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('mono');this.parentNode.textContent=this.dataset.m" data-m="${esc(n)}"></span>`
+    : `<span class="cs-logo mono" style="width:${size}px;height:${size}px">${esc(n)}</span>`;
 }
 function renderSettings() {
   const d = csData; const box = $("csSet"); if (!d || !box) return;
