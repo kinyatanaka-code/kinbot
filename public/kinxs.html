@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261024s" />
+    <link rel="stylesheet" href="style.css?v=20261025a" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -228,6 +228,29 @@
   .kx-uc-lux .nm{position:relative;z-index:1;font-size:15px !important;font-weight:800;line-height:1.45;color:#16231E;}
   .kx-uc-lux .mono.logo{background:#fff;box-shadow:inset 0 0 0 1px #E1ECE6;padding:6px;box-sizing:border-box;}
   .kx-uc-lux .mono.logo img{width:100%;height:100%;object-fit:contain;display:block;}
+  /* 企業のモーダル：企業情報・ステータス・議事録 */
+  [data-pane][hidden]{display:none !important;}
+  .kx-form{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px 12px;align-items:center;}
+  .kx-form .lb{grid-column:1 / -1;font-size:12.5px;font-weight:800;color:#0E6B4E;margin:0 0 2px;}
+  .kx-form > label{font-size:12px;color:#4F6158;font-weight:700;}
+  .kx-form > div:not(.lb){min-width:0;}
+  .kx-fr{display:flex;gap:6px;align-items:center;}
+  .kx-ct{display:grid;grid-template-columns:1fr 1fr 1fr 1.4fr auto;gap:6px;margin-bottom:6px;}
+  [data-ct-rows]{grid-column:1 / -1;}
+  .kx-src{font-size:10.5px;font-weight:700;color:#1B4789;background:#E6EEFB;border-radius:99px;padding:1px 8px;white-space:nowrap;}
+  .kx-lnk{font-size:12px;font-weight:700;white-space:nowrap;}
+  .kx-usage{display:flex;flex-wrap:wrap;gap:6px;}
+  .kx-us{border:1px solid #D5E2DB;background:#fff;border-radius:10px;padding:7px 11px;font:inherit;font-size:12.5px;font-weight:700;color:#33463E;cursor:pointer;}
+  .kx-us.on{background:#0E6B4E;color:#fff;border-color:#0E6B4E;}
+  .kx-mgrp{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+  .kx-mgrp > .h{font-size:13px;font-weight:800;color:#0E6B4E;display:flex;gap:8px;align-items:center;border-bottom:1px solid #E6EDE9;padding-bottom:4px;}
+  .kx-mgrp > .h span{font-size:11.5px;color:#4F6158;font-weight:700;}
+  .kx-pw{font-family:ui-monospace,Menlo,monospace;letter-spacing:.04em;margin-right:4px;}
+  .hp-box{border:1px solid #e6ece9;border-radius:10px;overflow:hidden;}
+  .hp-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #eef2f0;font-size:13px;flex-wrap:wrap;} .hp-row:last-child{border-bottom:0;}
+  .hp-lb{width:96px;flex:none;font-size:11.5px;color:#7a8a82;} .hp-v{flex:1;min-width:120px;font-weight:700;word-break:break-all;}
+  .hp-b{border:1px solid #cfe0d9;background:#fff;color:#0d5b47;border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;}
+  .kx-other-h{font-size:12px;font-weight:800;color:#4F6158;margin:6px 2px -4px;}
 </style>
 </head>
   <body>
@@ -322,6 +345,6 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261024s"></script>
+    <script src="kinxs.js?v=20261025a"></script>
   </body>
 </html>

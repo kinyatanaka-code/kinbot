@@ -290,6 +290,49 @@ $("lsQ").addEventListener("input", renderList);
 $("lsCs").addEventListener("change", renderList);
 
 // ===== 企業詳細（どちらの画面からも開く）=====
+// ① 企業情報（HP・住所・電話・担当者／受注日・受注者／ヘルプサイト／DOCのURL：VR・AI）
+function kxCoPane(d) {
+  const f = d.info || {}; const src = f.source || {};
+  const tag = (k) => (src[k] ? `<span class="kx-src">${esc(src[k])}から</span>` : "");
+  const link = (u) => (u ? `<a href="${esc(/^https?:/.test(u) ? u : `https://${u}`)}" target="_blank" rel="noopener" class="kx-lnk">開く ↗</a>` : "");
+  const contacts = (f.contacts && f.contacts.length ? f.contacts : [{ name: "", title: "", phone: "", email: "" }]);
+  const pw = (v) => `<span class="kx-pw" data-pw="${esc(v || "")}">●●●●●●</span><button type="button" class="hp-b" data-pw-show>見る</button><button type="button" class="hp-b" data-copy="${esc(v || "")}">コピー</button>`;
+  return `
+    <div class="kx-sec kx-form">
+      <div class="lb">企業情報</div>
+      <label>HP</label><div class="kx-fr"><input class="kx-in" data-info="website" value="${esc(f.website || "")}" placeholder="https://" />${link(f.website)}${tag("website")}</div>
+      <label>住所</label><div class="kx-fr"><input class="kx-in" data-info="address" value="${esc(f.address || "")}" />${tag("address")}</div>
+      <label>電話番号</label><div class="kx-fr"><input class="kx-in" data-info="phone" value="${esc(f.phone || "")}" />${tag("phone")}</div>
+      <label style="grid-column:1 / -1">先方の担当者 ${tag("contacts")}</label>
+      <div data-ct-rows>${contacts.map((c) => `<div class="kx-ct"><input class="kx-in" data-ct="name" value="${esc(c.name || "")}" placeholder="お名前" /><input class="kx-in" data-ct="title" value="${esc(c.title || "")}" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" value="${esc(c.phone || "")}" placeholder="電話番号" /><input class="kx-in" data-ct="email" value="${esc(c.email || "")}" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`).join("")}</div>
+      <div style="grid-column:1 / -1;display:flex;gap:8px;margin-top:6px"><button type="button" class="hp-b" data-ct-add>＋ 担当者を追加</button><button type="button" class="kx-btn" data-save-info style="margin-left:auto">企業情報を保存</button></div>
+    </div>
+    <div class="kx-sec kx-kv"><span>受注日</span><span>${f.booked ? esc(f.booked.replace(/-/g, "/")) : "—"}</span><span>受注者</span><span>${esc(f.bookedBy || "—")}</span></div>
+    <div class="kx-sec"><div class="lb">ヘルプサイトのログイン情報</div>
+      ${f.portal ? `<div class="hp-box">${f.portal.url ? `<div class="hp-row"><span class="hp-lb">ログインURL</span><span class="hp-v"><a href="${esc(f.portal.url)}" target="_blank" rel="noopener">${esc(f.portal.url)}</a></span><button type="button" class="hp-b" data-copy="${esc(f.portal.url)}">コピー</button></div>` : ""}
+        <div class="hp-row"><span class="hp-lb">企業ID</span><span class="hp-v">${esc(f.portal.id || "—")}</span>${f.portal.id ? `<button type="button" class="hp-b" data-copy="${esc(f.portal.id)}">コピー</button>` : ""}</div>
+        <div class="hp-row"><span class="hp-lb">パスワード</span><span class="hp-v">${f.portal.pw ? pw(f.portal.pw) : '<span class="kx-note">案内文にありません</span>'}</span></div></div>`
+        : `<div class="kx-note">まだ用意していません（CS連携の企業カードの「ヘルプサイト」で用意できます）</div>`}</div>
+    <div class="kx-sec kx-form"><div class="lb">DOC</div>
+      <label>VR（URL）</label><div class="kx-fr"><input class="kx-in" data-info="vr_url" value="${esc(f.vrUrl || "")}" placeholder="https://" />${link(f.vrUrl)}${tag("vrUrl")}</div>
+      <label>AI（URL）</label><div class="kx-fr"><input class="kx-in" data-info="ai_url" value="${esc(f.aiUrl || "")}" placeholder="https://" />${link(f.aiUrl)}</div>
+      <label style="grid-column:1 / -1">AIの管理者のログイン情報</label>
+      <div style="grid-column:1 / -1">${(f.ai || []).length ? `<div class="hp-box">${f.ai.map((a) => `<div class="hp-row" data-ai-i="${esc(a.id)}"><span class="hp-lb">${esc(a.label || "アカウント")}</span><span class="hp-v">${esc(a.login || "—")}</span>${a.login ? `<button type="button" class="hp-b" data-copy="${esc(a.login)}">IDをコピー</button>` : ""}${a.has_pass ? `<span class="kx-pw" data-ai-pw>●●●●●●</span><button type="button" class="hp-b" data-ai-show>見る</button><button type="button" class="hp-b" data-ai-copy>コピー</button>` : ""}</div>`).join("")}</div>`
+        : `<div class="kx-note">まだありません（CS連携の企業カードの「AIアカウント」で入れられます）</div>`}</div>
+      <div style="grid-column:1 / -1;display:flex;margin-top:6px"><button type="button" class="kx-btn" data-save-info style="margin-left:auto">URLを保存</button></div>
+    </div>`;
+}
+// ② ステータス（CS担当・利用目的・活用）。フェーズ・次回アクションは下に続く
+function kxStatusPane(d) {
+  const st = d.status || {};
+  const usages = (lsData && lsData.usages) || ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
+  return `<div class="kx-sec kx-form"><div class="lb">ステータス</div>
+      <label>CS担当</label><input class="kx-in" data-st="cs_name" value="${esc(st.cs || "")}" placeholder="例：鶴川" />
+      <label>利用目的</label><input class="kx-in" data-st="purpose" value="${esc(st.purpose || "")}" placeholder="例：採用サイト掲載・カジュアル面談" />
+      <label>活用</label><div class="kx-usage">${usages.map((u) => `<button type="button" class="kx-us ${st.usage === u ? "on" : ""}" data-usage="${esc(u)}">${esc(u)}</button>`).join("")}</div>
+      <div style="grid-column:1 / -1;display:flex;margin-top:6px"><button type="button" class="kx-btn" data-save-status style="margin-left:auto">保存</button></div>
+    </div>`;
+}
 async function openDetail(id, reuse) {
   let d;
   try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/detail`); } catch (e) { alert(e.message); return; }
@@ -301,10 +344,12 @@ async function openDetail(id, reuse) {
     <div style="display:flex;align-items:flex-start;gap:10px"><div><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><span class="kx-rank r-${x.rank}">${x.rank}</span><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}</span></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
-    <div class="kx-tabs"><button type="button" class="on" data-tab="info">基本・状態</button><button type="button" data-tab="tl">議事録・フォロー履歴（${d.timeline.filter((t) => t.kind !== "label").length}）</button></div>
-    <div data-pane="info" style="display:flex;flex-direction:column;gap:12px">
+    <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
+    <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}</div>
+    <div data-pane="info" hidden style="display:flex;flex-direction:column;gap:12px">
+      ${kxStatusPane(d)}
       <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
-      <div class="kx-sec"><div class="lb">メインラベル${x.locked ? "（手で決めています）" : "（自動）"}</div>
+      <div class="kx-sec"><div class="lb">フェーズ${x.locked ? "（手で決めています）" : "（自動）"}</div>
         <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "フォローMTG設定中", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
         <div class="kx-note" style="margin-top:6px">手で決めると、自動では戻しません（自動に任せるに戻すと、また自動で付きます）</div></div>
       <div class="kx-sec" style="display:grid;grid-template-columns:96px 1fr;gap:8px 10px;align-items:center">
@@ -329,15 +374,29 @@ async function openDetail(id, reuse) {
         const fmt = (t) => { const d0 = new Date(t); return isNaN(d0) ? "" : `${d0.getFullYear()}/${d0.getMonth() + 1}/${d0.getDate()} ${String(d0.getHours()).padStart(2, "0")}:${String(d0.getMinutes()).padStart(2, "0")}`; };
         const main = d.timeline.filter((t) => t.kind !== "label");
         const chg = d.timeline.filter((t) => t.kind === "label");
-        const mainHtml = main.length ? main.map((t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}>
+        const item = (t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}>
             <div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-open">議事録を開く ›</span>' : ""}</div>
-            <div class="m">${esc(fmt(t.at))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`).join("")
+            <div class="m">${esc(fmt(t.at))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`;
+        const follow = main.filter((t) => t.kind !== "mtg" || t.phase === "フォロー");
+        const pre = main.filter((t) => t.kind === "mtg" && t.phase !== "フォロー");
+        const mainHtml = main.length ? `<div class="kx-mgrp"><div class="h">フォロー（キックオフ含めそれ以降）<span>${follow.filter((t) => t.kind === "mtg").length}件</span></div>${follow.length ? follow.map(item).join("") : '<div class="kx-note">まだありません</div>'}</div>
+          <div class="kx-mgrp"><div class="h">商談（キックオフより前）<span>${pre.length}件</span></div>${pre.length ? pre.map(item).join("") : '<div class="kx-note">ありません</div>'}</div>`
           : `<div class="kx-note">まだありません。会社名が予定名に入った商談の議事録が、ここに自動で並びます</div>`;
         const chgHtml = chg.length ? `<details class="kx-chg"><summary>変更の履歴（${chg.length}件）</summary><div class="kx-chg-list">${chg.map((t) => `<div class="c"><span class="w">${esc(fmt(t.at))}</span><b>${esc(t.title)}</b><span>${esc(t.summary)}</span><span class="who">${esc(t.owner || "")}</span></div>`).join("")}</div></details>` : "";
         return `<div class="kx-tl">${mainHtml}</div>${chgHtml}`;
       })()}
     </div>
   </aside>`;
+  // ステータスのタブの並び：CS担当・利用目的・活用 → フェーズ → 次回アクション → メモ → そのほか（更新確度・納品）
+  (() => {
+    const pane = bg.querySelector('[data-pane="info"]'); if (!pane) return;
+    const top = pane.firstElementChild;
+    const lbl = (pane.querySelector("[data-label]") || {}).closest?.(".kx-sec");
+    const rk = (pane.querySelector(".kx-ranks") || {}).closest?.(".kx-sec");
+    const dl = (pane.querySelector('[data-tog="kenshu_done"]') || {}).closest?.(".kx-sec");
+    if (lbl && top) top.after(lbl);
+    if (rk || dl) { const h = document.createElement("div"); h.className = "kx-other-h"; h.textContent = "そのほか（更新確度・納品）"; pane.appendChild(h); if (rk) pane.appendChild(rk); if (dl) pane.appendChild(dl); }
+  })();
   if (!bg.isConnected) document.body.appendChild(bg);
   if (reuse) {
     if (reuse.tab) { bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2.dataset.tab === reuse.tab)); bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== reuse.tab; }); }
@@ -346,7 +405,7 @@ async function openDetail(id, reuse) {
   }
   const close = () => bg.remove();
   const again = async (msg = "保存しました") => {
-    const tab = (bg.querySelector("[data-tab].on") || {}).dataset?.tab || "info";
+    const tab = (bg.querySelector("[data-tab].on") || {}).dataset?.tab || "co";
     const scroll = (bg.querySelector(".kx-drawer") || {}).scrollTop || 0;
     await openDetail(id, { bg, tab, scroll, msg });
   };
@@ -380,6 +439,31 @@ async function openDetail(id, reuse) {
     el.addEventListener("click", () => openMeeting(el.dataset.mt));
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") openMeeting(el.dataset.mt); });
   });
+  // 企業情報：担当者の行・保存・パスワード
+  const ctBox = bg.querySelector("[data-ct-rows]");
+  const ctRow = () => `<div class="kx-ct"><input class="kx-in" data-ct="name" placeholder="お名前" /><input class="kx-in" data-ct="title" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" placeholder="電話番号" /><input class="kx-in" data-ct="email" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`;
+  const wireCt = () => bg.querySelectorAll("[data-ct-del]").forEach((b) => { b.onclick = () => { b.closest(".kx-ct").remove(); if (!ctBox.querySelector(".kx-ct")) { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); } }; });
+  if (ctBox) { wireCt(); bg.querySelector("[data-ct-add]").addEventListener("click", () => { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); }); }
+  bg.querySelectorAll("[data-save-info]").forEach((b) => b.addEventListener("click", () => {
+    const info = {}; bg.querySelectorAll("[data-info]").forEach((el) => { info[el.dataset.info] = el.value; });
+    info.contacts = [...bg.querySelectorAll(".kx-ct")].map((r) => ({ name: r.querySelector('[data-ct="name"]').value, title: r.querySelector('[data-ct="title"]').value, phone: r.querySelector('[data-ct="phone"]').value, email: r.querySelector('[data-ct="email"]').value }));
+    put({ info });
+  }));
+  bg.querySelectorAll("[data-pw-show]").forEach((b) => b.addEventListener("click", () => { const v = b.previousElementSibling; const sh = v.textContent !== "●●●●●●"; v.textContent = sh ? "●●●●●●" : v.dataset.pw; b.textContent = sh ? "見る" : "隠す"; }));
+  bg.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", async () => { try { await navigator.clipboard.writeText(b.dataset.copy); const o = b.textContent; b.textContent = "コピーしました"; setTimeout(() => { b.textContent = o; }, 1400); } catch { prompt("コピーしてください", b.dataset.copy); } }));
+  const kb = (d.info || {}).kickBot;
+  bg.querySelectorAll("[data-ai-show],[data-ai-copy]").forEach((b) => b.addEventListener("click", async () => {
+    const row = b.closest("[data-ai-i]");
+    try {
+      const r = await api(`/api/cs/kickoffs/${encodeURIComponent(kb)}/ai-account?i=${encodeURIComponent(row.dataset.aiI)}`);
+      if (b.hasAttribute("data-ai-show")) { row.querySelector("[data-ai-pw]").textContent = r.password || "（空）"; } else { await navigator.clipboard.writeText(r.password || ""); const o = b.textContent; b.textContent = "コピーしました"; setTimeout(() => { b.textContent = o; }, 1400); }
+    } catch (e) { alert(e.message); }
+  }));
+  // ステータス：CS担当・利用目的・活用
+  let usagePick = (d.status || {}).usage || "";
+  bg.querySelectorAll("[data-usage]").forEach((b) => b.addEventListener("click", () => { usagePick = usagePick === b.dataset.usage ? "" : b.dataset.usage; bg.querySelectorAll("[data-usage]").forEach((x2) => x2.classList.toggle("on", x2.dataset.usage === usagePick)); }));
+  const ss = bg.querySelector("[data-save-status]");
+  if (ss) ss.addEventListener("click", () => put({ cs_name: bg.querySelector('[data-st="cs_name"]').value, purpose: bg.querySelector('[data-st="purpose"]').value, usage_status: usagePick }));
   const delU = bg.querySelector("[data-del-user]");
   if (delU) delU.addEventListener("click", async () => {
     if (!confirm(`「${x.name}」をユーザーから消します。よろしいですか？`)) return;

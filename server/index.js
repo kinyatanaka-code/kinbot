@@ -12596,6 +12596,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ===== kinXs：ユーザー一覧（メインラベル・納品・最終接触・次回アクション・要注意）=====
+const KX_USAGE = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
 const KX_LABELS = ["計上予定", "フォローMTG設定中", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"];
 async function kinxsBuild() {
   await kinxsInit();
@@ -12656,7 +12657,7 @@ async function kinxsBuild() {
     if (sinceUpd != null && sinceUpd >= rules.staleDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "情報更新なし", score: 15, detail: `記録と議事録が${sinceUpd}日更新されていません` });
     const shown = alerts.filter((a) => !hidden(a.rule));
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
-      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
+      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
@@ -12759,7 +12760,7 @@ app.get("/api/kinxs/users", async (req, res) => {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     const { items, rules } = await kinxsBuild();
     items.sort((a, b) => (b.score - a.score) || String(a.renew || "9").localeCompare(String(b.renew || "9")));
-    res.json({ ok: true, items, rules, labels: KX_LABELS });
+    res.json({ ok: true, items, rules, labels: KX_LABELS, usages: KX_USAGE });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ===== kinXs：今のCS管理ボード（スプレッドシート）から取り込む =====
@@ -13005,7 +13006,7 @@ setTimeout(() => { kinxsNaTick().catch(() => {}); }, 6 * 60 * 1000).unref?.();
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
-    const { items, mtBy } = await kinxsBuild();
+    const { items, mtBy, kickBy } = await kinxsBuild();
     const x = items.find((i) => i.id === req.params.id);
     if (!x) return res.status(404).json({ error: "見つかりません" });
     const key = csCoKey(x.name);
@@ -13029,8 +13030,51 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
       summary: h.kind === "alert" || h.kind === "add" ? String(h.to_v || "").replace(/（[^）]*@[^）]*）/, "") : h.kind === "memo" ? "メモを直しました" : `${word(h.kind, h.from_v)} → ${word(h.kind, h.to_v)}`,
       owner: `${h.auto ? "自動" : nameOf(h.by_user)}` }));
     for (const c of contacts) c.owner = nameOf(c.owner);
-    const timeline = [...mts, ...contacts, ...hist].sort((a, b) => String(b.at).localeCompare(String(a.at)));
-    res.json({ ok: true, item: x, timeline });
+    // 議事録を「商談（キックオフより前）」と「フォロー（キックオフ含めそれ以降）」に分ける
+    const kk = kickBy.get(key) || null;
+    const isoOf = (v) => (v instanceof Date ? v.toISOString() : String(v || ""));
+    const koMt = mts.filter((m) => /キックオフ|回収MTG|kick ?off/i.test(m.title)).sort((a, b) => isoOf(a.at).localeCompare(isoOf(b.at)))[0];
+    const koAt = koMt ? isoOf(koMt.at) : (kk && kk.meeting_at ? isoOf(kk.meeting_at) : null);
+    for (const m of mts) m.phase = koAt && isoOf(m.at) >= koAt ? "フォロー" : /フォロー|ユ\/フォ|定例/.test(m.title) ? "フォロー" : "商談";
+    const timeline = [...mts, ...contacts, ...hist].sort((a, b) => isoOf(b.at).localeCompare(isoOf(a.at)));
+    // ① 企業情報：手で入れた分（info）→ SFの取引先・取引先責任者 → CS連携（回収MTG）の順で埋める
+    const info = { ...(r.info || {}) };
+    const out = { website: info.website || r.website || "", address: info.address || "", phone: info.phone || "", contacts: Array.isArray(info.contacts) ? info.contacts : [],
+      booked: x.booked || "", bookedBy: x.fs || "", vrUrl: info.vr_url || "", aiUrl: info.ai_url || "", portal: null, ai: [], kickBot: kk ? kk.bot_id : "", source: {} };
+    if (!/^manual-/.test(x.id)) {
+      try {
+        const st0 = await getSettings(); const sfU = await pickSfUser(st0.psOwner || "");
+        if (sfU) {
+          const id = String(x.id).replace(/'/g, "");
+          const a = ((await sfQuery(sfU, `SELECT Website, Phone, BillingPostalCode, BillingState, BillingCity, BillingStreet FROM Account WHERE Id='${id}' LIMIT 1`)).records || [])[0];
+          if (a) {
+            if (!out.website && a.Website) { out.website = a.Website; out.source.website = "SF"; }
+            if (!out.phone && a.Phone) { out.phone = a.Phone; out.source.phone = "SF"; }
+            const addr = [a.BillingPostalCode ? `〒${a.BillingPostalCode}` : "", a.BillingState, a.BillingCity, a.BillingStreet].filter(Boolean).join(" ");
+            if (!out.address && addr) { out.address = addr; out.source.address = "SF"; }
+          }
+          if (!out.contacts.length) {
+            const cs = (await sfQuery(sfU, `SELECT Name, Title, Phone, MobilePhone, Email FROM Contact WHERE AccountId='${id}' ORDER BY CreatedDate DESC LIMIT 5`)).records || [];
+            out.contacts = cs.map((c) => ({ name: c.Name || "", title: c.Title || "", phone: c.Phone || c.MobilePhone || "", email: c.Email || "" }));
+            if (cs.length) out.source.contacts = "SF";
+          }
+        }
+      } catch {}
+    }
+    if (kk) {
+      if (!out.contacts.length && (kk.client_name || kk.client_email)) { out.contacts = [{ name: kk.client_name || "", title: "", phone: kk.client_phone || "", email: kk.client_email || "" }]; out.source.contacts = "CS連携"; }
+      if (kk.portal_text) {
+        const t = String(kk.portal_text); const pick = (re) => ((re.exec(t) || [])[1] || "").trim();
+        out.portal = { url: pick(/(?:ログイン)?URL\s*[:：]\s*(https?:\/\/\S+)/i) || pick(/(https?:\/\/\S*portal\S*)/i), id: pick(/企業\s*ID\s*[:：]\s*(\S+)/) || kk.portal_id || "", pw: pick(/パスワード\s*[:：]\s*(\S+)/) };
+      }
+      out.ai = csAiList(kk).map((a) => ({ id: a.id, label: a.label || "", login: a.login || "", has_pass: !!a.pass_enc }));
+      if (!out.vrUrl && kk.doc_candidate_url) { out.vrUrl = kk.doc_candidate_url; out.source.vrUrl = "CS連携"; }
+    }
+    if (!out.aiUrl) out.aiUrl = "https://casual-interview-api.brainverse-ai.com/";
+    // ② ステータス
+    const fl = (kk && kk.fields) || {};
+    const status = { cs: x.cs || "", phase: x.label, autoPhase: x.autoLabel, locked: x.locked, purpose: r.purpose || fl["活用場所"] || "", usage: r.usage_status || "" };
+    res.json({ ok: true, item: x, timeline, info: out, status, kickoffAt: koAt });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/accounts/:id", async (req, res) => {
@@ -13039,6 +13083,15 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     const b = req.body || {};
     const patch = {};
     for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
+    if ("purpose" in b) patch.purpose = String(b.purpose || "").slice(0, 500);
+    if ("usage_status" in b) patch.usage_status = KX_USAGE.includes(b.usage_status) ? b.usage_status : null;
+    if (b.info && typeof b.info === "object") {
+      const rows1 = await kinxsList(); const r1 = rows1.find((y) => y.account_id === req.params.id) || {};
+      const cur = { ...(r1.info || {}) };
+      for (const k2 of ["website", "address", "phone", "vr_url", "ai_url"]) if (k2 in b.info) cur[k2] = String(b.info[k2] || "").slice(0, 500);
+      if (Array.isArray(b.info.contacts)) cur.contacts = b.info.contacts.slice(0, 10).map((c) => ({ name: String(c.name || "").slice(0, 60), title: String(c.title || "").slice(0, 60), phone: String(c.phone || "").slice(0, 40), email: String(c.email || "").slice(0, 120) })).filter((c) => c.name || c.email || c.phone);
+      patch.info = cur;
+    }
     if ("na_type" in b) patch.na_type = KX_NA_TYPES.includes(b.na_type) ? b.na_type : null;
     if ("na_at" in b) { const t = String(b.na_at || ""); patch.na_at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t) ? `${t.slice(0, 16)}:00+09:00` : null; patch.na_due = patch.na_at ? t.slice(0, 10) : (patch.na_due || null); }
     if ("na_text" in b || "na_at" in b || "na_type" in b) patch.na_source = "manual";
@@ -26570,7 +26623,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24s 版の印を戻した（24r のあとに、誤って 24i に戻していた分）。中身は 24r と同じ：kinXsの検索は入れた文字を含む会社を全部出す。";
+const BUILD_TAG = "2026-10-25a kinXsの企業のモーダルを3つのタブに：①企業情報（HP・住所・電話・先方の担当者＝SF・CS連携から／受注日・受注者／ヘルプサイトのログイン情報／DOCのVR・AIのURLとAIの管理者のログイン情報）②ステータス（CS担当・フェーズ・利用目的・活用・次回アクション）③議事録（キックオフ含めそれ以降はフォロー、それより前は商談に分ける）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
