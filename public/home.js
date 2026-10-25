@@ -277,27 +277,48 @@ async function loadInsideToday() {
   try { d = await (await fetch("/api/home/inside-today?date=" + encodeURIComponent(selDate))).json(); } catch { bar.hidden = true; return; }
   const groups = (d && d.groups) || [];
   const total = (d && d.total) || 0;
+  // 営業担当（実施した人）ごとにまとめ直す。1件ずつに、獲得したインサイドの名前を付ける
+  const all = []; for (const g of groups) for (const it of (g.items || [])) all.push({ ...it, setter: g.setter || "" });
+  const byOwner = new Map(); for (const it of all) { const k = it.owner || "担当なし"; (byOwner.get(k) || byOwner.set(k, []).get(k)).push(it); }
+  const owners = [...byOwner.entries()].map(([name, list]) => ({ name, list: list.sort((a, b) => String(a.time).localeCompare(String(b.time))) })).sort((a, b) => b.list.length - a.list.length || a.name.localeCompare(b.name, "ja"));
+  window.__insData = { title, total, owners, setters: groups.map((g) => ({ name: g.setter || "", n: g.count })) };
   let html =
     `<div class="ins-h"><span class="ins-title">${escH(title)}</span>` +
     `<span class="ins-count">${total}件</span><span class="ins-note">全員分</span></div>` +
     `<div class="ins-sub">インサイドが獲得して実施した商談</div>`;
-  if (!groups.length) {
+  if (!all.length) {
     html += `<div class="ins-empty">この日はまだありません。</div>`;
   } else {
-    for (const g of groups) {
-      html += `<div class="ins-grp"><div class="ins-grp-h"><span class="ins-setter">${escH(g.setter || "")}</span><span class="ins-grp-n">${g.count}件</span></div>`;
-      for (const it of (g.items || [])) {
-        html +=
-          `<div class="ins-item"><span class="ins-time">${escH(it.time || "")}</span>` +
-          `<div class="ins-ibody"><div class="ins-co">${escH(it.company || "")}</div>` +
-          `<div class="ins-owner">担当 ${escH(it.owner || "-")}</div></div></div>`;
-      }
-      html += `</div>`;
-    }
+    // ホームでは、営業担当ごとの件数だけを見やすく。押すと、担当ごとの列で全部を見られる
+    html += `<div class="ins-owners">${owners.map((o) => `<button type="button" class="ins-ochip" data-ins-open="${escH(o.name)}"><span class="av">${escH(o.name.slice(0, 1))}</span><span class="nm">${escH(o.name)}</span><b>${o.list.length}</b></button>`).join("")}</div>`
+      + `<button type="button" class="ins-more" data-ins-open="">営業担当ごとの列で見る ›</button>`;
   }
   bar.innerHTML = html;
   bar.hidden = false;
+  bar.querySelectorAll("[data-ins-open]").forEach((b) => b.addEventListener("click", () => openInsideModal(b.dataset.insOpen)));
 }
+// インサイド実施の一覧：営業担当ごとの列（モーダル）
+function openInsideModal(focus) {
+  const d = window.__insData; if (!d) return;
+  document.querySelectorAll(".ins-mbg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "ins-mbg";
+  const setterColor = (n) => { let h = 0; for (const c of String(n)) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 45% 40%)`; };
+  bg.innerHTML = `<div class="ins-modal" role="dialog" aria-label="${escH(d.title)}">
+    <div class="ins-mh"><b>${escH(d.title)}</b><span class="ins-count">${d.total}件</span><span class="ins-note">営業担当ごと（その人が実施した商談・カッコは獲得したインサイド）</span><button type="button" class="ins-x" aria-label="閉じる">✕</button></div>
+    <div class="ins-setters">${d.setters.map((s) => `<span class="ins-st" style="--sc:${setterColor(s.name)}">${escH(s.name)} ${s.n}件</span>`).join("")}</div>
+    <div class="ins-cols">${d.owners.map((o) => `<section class="ins-col${focus && focus === o.name ? " focus" : ""}" data-owner="${escH(o.name)}">
+      <div class="ins-col-h"><span class="av">${escH(o.name.slice(0, 1))}</span><b>${escH(o.name)}</b><span class="n">${o.list.length}</span></div>
+      <div class="ins-col-b">${o.list.map((it) => `<div class="ins-card" style="--sc:${setterColor(it.setter)}"><div class="t">${escH(it.time || "")}</div><div class="co">${escH(it.company || "")}</div><div class="by">獲得 ${escH(it.setter || "-")}</div></div>`).join("")}</div>
+    </section>`).join("")}</div>
+  </div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector(".ins-x").addEventListener("click", close);
+  document.addEventListener("keydown", function esc(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", esc); } });
+  const f = focus && bg.querySelector(".ins-col.focus"); if (f) f.scrollIntoView({ inline: "center", block: "nearest" });
+}
+
 
 async function loadAidemo(refresh) {
   try {
