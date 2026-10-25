@@ -17101,6 +17101,17 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
       const jIdx = (li, r) => memRolesD.filter((x) => r === "all" || x.role === r)
         .reduce((a, x) => a + (lapJ[li].get(normN(x.m.誰)) || 0), 0);
       const cumAct = { group: 0, sales: 0, inside: 0, mailmaga: 0 };
+      // 月の手補正（記録に残らなかったアポを足す分）も、週次の積み上げに入れる（月次と合うように）。
+      //   いつのアポか分からないので、今日をふくむ週（月が終わっていれば最後の週）から足す
+      const adjM = metric === "アポ" ? (adjAll[`month:${selMonth}`] || {}) : {};
+      const adjRole = { group: 0, sales: 0, inside: 0 };
+      for (const x of memRolesD) {
+        const n = Number(adjM[String(x.m.email || "").toLowerCase()] || 0) + Number(adjM[String(x.m.誰 || "").replace(/[\s　]/g, "")] || 0);
+        if (!n) continue; adjRole.group += n; if (x.role === "sales") adjRole.sales += n; else if (x.role === "inside") adjRole.inside += n;
+      }
+      const uptoKey = ymd(upto);
+      let adjLap = laps.findIndex((l) => ymd(l.from) <= uptoKey && uptoKey <= ymd(l.to));
+      if (adjLap < 0) adjLap = laps.reduce((a2, l, k2) => (ymd(l.from) <= uptoKey ? k2 : a2), laps.length - 1);
       weeks = laps.map((l, li) => {
         const key = ymd(l.from);
         const rangeSum = (r) => lapJ ? jIdx(li, r) : actIdx(li, r);
@@ -17108,6 +17119,7 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
         const mmW = !lapJ ? Number(((gd.メルマガ || [])[li]) || 0) : 0;
         const wAct = { group: rangeSum("all") + mmW, sales: rangeSum("sales"), inside: rangeSum("inside"), mailmaga: mmW };
         cumAct.group += wAct.group; cumAct.sales += wAct.sales; cumAct.inside += wAct.inside; cumAct.mailmaga += wAct.mailmaga;
+        if (li === adjLap) { cumAct.group += adjRole.group; cumAct.sales += adjRole.sales; cumAct.inside += adjRole.inside; }
         // 差分＝その週までの積み上げ実績−その週に入れた目標（カード表示の 実績−目標 と一致させる）
         const mk = (subj, label, ca) => { const g = wGoal(subj, key, li); return { key: subj, label, role: "team", actual: ca, goal: g, diff: ca - g, periodKey: key }; };
         return {
@@ -26864,7 +26876,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26k ホームのインサイド実施を見やすく：営業担当ごとの件数だけを並べ、押すと営業担当ごとの列のモーダル（時刻・会社・獲得したインサイド、インサイドごとの色）で全部を見られる。";
+const BUILD_TAG = "2026-10-26l kincallの実績ダッシュボード：週次の積み上げにも、月の手補正（記録に残らなかったアポを足した分）を入れて、月次と同じ数（例：256→257）になるように。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
