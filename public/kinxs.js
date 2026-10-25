@@ -121,6 +121,26 @@ function render() {
   const f = d.fields || {};
   $("kxFoot").textContent = `全${d.items.length}社。契約終了日は${f.end ? `SFの「${f.end}」から取っています。` : "SFの商談に値の入った項目が見つからないので、計上日から1年で推定しています（カードに「終了日は推定」と出ます）。"}${d.sync ? `　最後に取り込んだ時刻：${new Date(d.sync.at).toLocaleString("ja-JP")}` : ""}`;
 }
+// フェーズ別：画面は止めて、列ごとに縦スクロール（列の並びは横スクロール）。ユーザー一覧の担当別と同じ動き
+function kxFitBoard() {
+  const wrap = document.querySelector("#vBoard .kx-board-wrap");
+  if (!wrap || VIEW !== "board") return;
+  wrap.scrollTop = 0;
+  wrap.style.height = `${Math.max(260, window.innerHeight - wrap.getBoundingClientRect().top - 16)}px`;
+  document.documentElement.style.overflow = "hidden";
+  if (!wrap._wired) {
+    wrap._wired = true;
+    wrap.addEventListener("wheel", (e) => {
+      const inCol = !!e.target.closest(".kx-col-b");
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { wrap.scrollLeft += e.deltaX; e.preventDefault(); return; }
+      if (e.shiftKey) { wrap.scrollLeft += e.deltaY; e.preventDefault(); return; }
+      if (inCol) return;
+      wrap.scrollLeft += e.deltaY; e.preventDefault();
+    }, { passive: false });
+    wrap.addEventListener("dragover", (e) => { const r0 = wrap.getBoundingClientRect(); if (e.clientX > r0.right - 70) wrap.scrollLeft += 18; else if (e.clientX < r0.left + 70) wrap.scrollLeft -= 18; });
+  }
+}
+window.addEventListener("resize", () => kxFitBoard());
 // 更新管理：画面は止めて、月ごとの行（会社のチップ）のところだけをスクロールする
 function kxFitRows() {
   const el = document.querySelector("#kxTable .kx-mrows");
@@ -882,9 +902,10 @@ function renderBoard() {
     </div>`;
   $("bdCols").innerHTML = cols.map(([l, rule, color]) => {
     const list = items.filter((x) => x.label === l).sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name, "ja"));
-    return `<section class="kx-col" data-col="${esc(l)}"><div class="kx-col-h"><span style="width:10px;height:10px;border-radius:3px;background:${color}"></span><b>${esc(l)}</b><span class="n">${list.length}</span></div><div class="kx-col-r">${esc(rule)}</div>${list.map(card).join("")}</section>`;
+    return `<section class="kx-col" data-col="${esc(l)}"><div class="kx-col-h"><span style="width:10px;height:10px;border-radius:3px;background:${color}"></span><b>${esc(l)}</b><span class="n">${list.length}</span></div><div class="kx-col-r">${esc(rule)}</div><div class="kx-col-b">${list.map(card).join("") || '<div class="kx-note" style="padding:4px 2px">ありません</div>'}</div></section>`;
   }).join("");
   $("bdSt").textContent = `全${items.length}社`;
+  kxFitBoard();
   document.querySelectorAll("#bdCols [data-card]").forEach((c) => {
     c.addEventListener("click", () => openDetail(c.dataset.card));
     c.addEventListener("keydown", (e) => { if (e.key === "Enter") openDetail(c.dataset.card); });

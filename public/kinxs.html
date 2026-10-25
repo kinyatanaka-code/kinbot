@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261026a" />
+    <link rel="stylesheet" href="style.css?v=20261026b" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -353,6 +353,15 @@
   .kx-former-h{font-size:13px;font-weight:700;color:#6A7A72;margin-left:4px;}
   .kx-ren{border:1px solid #D5E2DB;background:#fff;color:#4F6158;border-radius:7px;padding:2px 8px;font:inherit;font-size:11px;font-weight:700;cursor:pointer;vertical-align:3px;margin-left:6px;}
   .kx-ren:hover{color:#0E6B4E;border-color:#1D9E75;}
+  /* フェーズ別：列ごとに縦スクロール、列の並びは横スクロール */
+  #vBoard .kx-board-wrap{overflow-x:auto;overflow-y:hidden;padding-bottom:6px;min-width:0;max-width:100%;}
+  #vBoard .kx-board-wrap::-webkit-scrollbar{height:12px;} #vBoard .kx-board-wrap::-webkit-scrollbar-thumb{background:#B9CBC3;border-radius:99px;} #vBoard .kx-board-wrap::-webkit-scrollbar-track{background:#E7EEEA;border-radius:99px;}
+  #vBoard .kx-board{height:100%;align-items:stretch;}
+  #vBoard .kx-col{max-height:100%;min-height:0;overflow:hidden;}
+  #vBoard .kx-col-h,#vBoard .kx-col-r{flex:none;}
+  #vBoard .kx-col-b{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;display:flex;flex-direction:column;gap:8px;padding-bottom:4px;}
+  #vBoard .kx-col-b > *{flex:none;}
+  #vBoard,#vBoard .kx-wrap{min-width:0;}
 </style>
 </head>
   <body>
@@ -448,7 +457,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261026a" defer></script>
-    <script src="kinxs.js?v=20261026a"></script>
+    <script src="kbchat.js?v=20261026b" defer></script>
+    <script src="kinxs.js?v=20261026b"></script>
   </body>
 </html>
