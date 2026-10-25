@@ -880,6 +880,11 @@ async function loadBoard() {
   try { bdData = await api("/api/kinxs/users"); renderBoard(); }
   catch (e) { $("bdCols").innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
+// フェーズ別のカードの、会社名の隣のロゴ（無い・読めないときは頭文字）
+function bdMono(n) { return String(n || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").replace(/(株式会社|有限会社)$/, "").trim().slice(0, 1) || "？"; }
+function bdLogo(x) {
+  return x.logo ? `<span class="bd-logo"><img src="${esc(x.logo)}" alt="" loading="lazy" data-bd-mono="${esc(bdMono(x.name))}" /></span>` : `<span class="bd-logo mono">${esc(bdMono(x.name))}</span>`;
+}
 function renderBoard() {
   const d = bdData; if (!d) return;
   const sel = $("bdCs"), cur = sel.value;
@@ -892,7 +897,7 @@ function renderBoard() {
   const cols = BD_COLS.filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
   const good = "background:#E1F5EE;color:#0A5440", bad = "background:#FBE4E4;color:#8C1F1F", mid = "background:#FFF1DC;color:#7A3F00";
   const card = (x) => `<div class="kx-card ${x.alerts.length ? "warn" : ""}" draggable="true" data-card="${esc(x.id)}" role="button" tabindex="0" title="押すと詳細／別の列にドラッグでラベルを変える">
-      <div class="t"><span>${esc(x.name)}</span>${x.alerts.length ? '<span class="kx-rule" style="flex:none;font-size:10.5px">要注意</span>' : ""}</div>
+      <div class="t">${bdLogo(x)}<span>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}</span>${x.alerts.length ? '<span class="kx-rule" style="flex:none;font-size:10.5px">要注意</span>' : ""}</div>
       <div class="p">${esc(x.products.join("・"))}</div>
       <div class="bd"><span class="kx-rank r-${x.rank}" style="width:22px;height:22px;font-size:11.5px">${x.rank}</span>
         <span class="s" style="${x.kenshu.startsWith("回収済み") ? good : x.kenshu === "依頼済み" ? mid : bad}">検収 ${x.kenshu.startsWith("回収済み") ? "済" : x.kenshu === "依頼済み" ? "依頼済" : "未"}</span>
@@ -906,6 +911,7 @@ function renderBoard() {
   }).join("");
   $("bdSt").textContent = `全${items.length}社`;
   kxFitBoard();
+  document.querySelectorAll("#bdCols img[data-bd-mono]").forEach((im) => im.addEventListener("error", () => { const p0 = im.parentNode; p0.classList.add("mono"); p0.textContent = im.dataset.bdMono; }));
   document.querySelectorAll("#bdCols [data-card]").forEach((c) => {
     c.addEventListener("click", () => openDetail(c.dataset.card));
     c.addEventListener("keydown", (e) => { if (e.key === "Enter") openDetail(c.dataset.card); });
