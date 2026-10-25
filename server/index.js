@@ -12899,14 +12899,23 @@ async function kinxsHomeInboxRead(user) {
     try {
       const names = mine.map((x) => x.name).slice(0, 80).join("、");
       const sys = "あなたはカスタマーサクセスの担当者のアシスタントです。メールやチャットを読み、この担当者がやるべきことを1行にします。必ずJSONだけを返します。";
-      const userP = `担当している会社：${names}\n今日：${today}\n\n${raw.map((t, i) => `#${i} [${t.src}] 送った人：${t.from || ""}\n${t.body}`).join("\n\n")}\n\n次の形のJSONの配列を返してください：[{"i":番号,"task":"やることを40字以内（不要なら空）","due":"YYYY-MM-DD（書いてあれば）","company":"担当している会社のどれか（分からなければ空）"}]。お礼や連絡だけで、やることが無いものは task を空にします。`;
+      const userP = `担当している会社：${names}\n今日：${today}\n\n${raw.map((t, i) => `#${i} [${t.src}] 送った人：${t.from || ""}\n${t.body}`).join("\n\n")}\n\n次の形のJSONの配列を返してください：[{"i":番号,"task":"やることを40字以内（不要なら空）","due":"YYYY-MM-DD（書いてあれば）","company":"本文・送った人に、担当している会社の名前（か、その会社の人の名前）がはっきり書かれているときだけ、その会社名。書かれていなければ必ず空"}]。お礼や連絡だけで、やることが無いものは task を空にします。社内の話（kinbotの仕様・アポの数え方など）は会社を空にします。`;
       const out = JSON.parse(String(await callLLMPublic(sys, userP, 1500, { json: true })).replace(/```json|```/g, "").trim());
       const arr = Array.isArray(out) ? out : (out.items || out.tasks || []);
       for (const o of arr) {
         const t = raw[Number(o.i)]; if (!t) continue;
         if (!String(o.task || "").trim()) { t.drop = true; continue; }
         t.title = String(o.task).slice(0, 80); if (/^\d{4}-\d{2}-\d{2}$/.test(String(o.due || ""))) t.due = o.due;
-        if (!t.account && o.company) { const x = mine.find((y) => y.name === o.company || csCoKey(y.name) === csCoKey(o.company)); if (x) { t.account = x.name; t.accountId = x.id; } }
+        if (!t.account && o.company) {
+          // AIが会社を当てても、本文・送った人・件名にその会社の名前（短い名前・旧社名）が本当に出てくるときだけ付ける
+          const x = mine.find((y) => y.name === o.company || csCoKey(y.name) === csCoKey(o.company));
+          if (x) {
+            const hay = `${t.body || ""} ${t.from || ""} ${t.title || ""}`.normalize("NFKC");
+            const shortOf = (n) => String(n || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()\s]/g, "").normalize("NFKC");
+            const ok = [x.name, ...(x.formerNames || [])].map(shortOf).some((n) => n.length >= 2 && (hay.includes(n) || (n.length >= 4 && hay.includes(n.slice(0, 4)))));
+            if (ok) { t.account = x.name; t.accountId = x.id; }
+          }
+        }
       }
     } catch (e) { notes.push(`AIでの読み取りに失敗：${e.message}`); }
   }
@@ -12916,7 +12925,7 @@ async function kinxsHomeInboxRead(user) {
 const _kxInbox = new Map();   // user → { at, data, p }
 // デプロイ（再起動）で消えないように、読んだ結果をDBにも残し、起動したら読み戻す
 async function kxInboxSave() { try { const o = {}; for (const [k, v] of _kxInbox) if (v.data) o[k] = { at: v.at, data: v.data }; await saveSettings({ kxInboxCache: o }); } catch {} }
-setTimeout(async () => { try { const st = await getSettings(); for (const [k, v] of Object.entries(st.kxInboxCache || {})) if (v && v.data && !_kxInbox.has(k)) _kxInbox.set(k, { at: v.at || 0, data: v.data }); } catch {} }, 5000).unref?.();
+setTimeout(async () => { try { const st = await getSettings(); if ((st.kxInboxCacheV || 0) < 2) { await saveSettings({ kxInboxCache: {}, kxInboxCacheV: 2 }); return; } for (const [k, v] of Object.entries(st.kxInboxCache || {})) if (v && v.data && !_kxInbox.has(k)) _kxInbox.set(k, { at: v.at || 0, data: v.data }); } catch {} }, 5000).unref?.();
 async function kinxsHomeInbox(user, { fresh = false, wait = false } = {}) {
   const me = String(user || "").toLowerCase();
   const c = _kxInbox.get(me) || {};
@@ -27083,7 +27092,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26s kinXsのホームをさらに速く：CSのメンバー全員の分を裏で先に読んでおく（平日8〜20時・9分ごと）、読んだ結果をDBにも残して再起動のあともすぐ出す、起動したら会社の一覧を先に作っておく、チャットは最近3日に動いたスペースだけ読む。";
+const BUILD_TAG = "2026-10-26t kinXsのホーム：チャット・メールのやることに、関係のない会社（担当ユーザーが1社だけだと全部その会社）が付いていたのを直した。本文などにその会社の名前が本当に出てくるときだけ付ける。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
