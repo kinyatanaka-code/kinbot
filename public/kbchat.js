@@ -41,8 +41,32 @@
     // 小さくする／元に戻す。小さくしている間は、ほかの画面をそのまま触れる。
     const miniBtn = panel.querySelector(".kb-chat-mini-btn");
     miniBtn.addEventListener("click", (e) => { e.stopPropagation(); setMini(!panel.classList.contains("mini")); });
+    // 見出しをつかんで、窓を好きな場所に動かせる（場所はこのブラウザに覚える）
+    const head = panel.querySelector(".kb-chat-head");
+    let drag = null, justDragged = false;
+    head.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest("button")) return;
+      const r = panel.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top, sx: e.clientX, sy: e.clientY, moved: false };
+      head.setPointerCapture(e.pointerId);
+    });
+    head.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      if (!drag.moved && Math.abs(e.clientX - drag.sx) + Math.abs(e.clientY - drag.sy) < 5) return;
+      drag.moved = true; panel.classList.add("dragging");
+      placeAt(e.clientX - drag.dx, e.clientY - drag.dy);
+    });
+    const endDrag = () => {
+      if (!drag) return;
+      if (drag.moved) { justDragged = true; setTimeout(() => { justDragged = false; }, 50); savePos(); }
+      drag = null; panel.classList.remove("dragging");
+    };
+    head.addEventListener("pointerup", endDrag);
+    head.addEventListener("pointercancel", endDrag);
+    head.addEventListener("dblclick", (e) => { if (e.target.closest("button")) return; resetPos(); });
     // 小さくなっているときは、見出しをどこでも押せば開く
     panel.querySelector(".kb-chat-head").addEventListener("click", (e) => {
+      if (justDragged) return;
       if (!panel.classList.contains("mini")) return;
       if (e.target.closest(".kb-chat-x")) return;
       setMini(false);
@@ -139,11 +163,23 @@
     }
   }
 
+  // 窓の場所：動かしたらその場所に。画面の外に出ないようにおさめる。見出しをダブルクリックで右下に戻す
+  function placeAt(x, y) {
+    const w = panel.offsetWidth || 360, h = panel.offsetHeight || 420;
+    const nx = Math.max(6, Math.min(window.innerWidth - w - 6, x));
+    const ny = Math.max(6, Math.min(window.innerHeight - Math.min(h, 120) - 6, y));
+    panel.style.left = `${nx}px`; panel.style.top = `${ny}px`; panel.style.right = "auto"; panel.style.bottom = "auto";
+  }
+  function savePos() { try { const r = panel.getBoundingClientRect(); localStorage.setItem("kbChatPos", JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top) })); } catch {} }
+  function loadPos() { try { const p = JSON.parse(localStorage.getItem("kbChatPos") || "null"); if (p && isFinite(p.x) && isFinite(p.y)) placeAt(p.x, p.y); } catch {} }
+  function resetPos() { try { localStorage.removeItem("kbChatPos"); } catch {} panel.style.left = ""; panel.style.top = ""; panel.style.right = ""; panel.style.bottom = ""; }
+  window.addEventListener("resize", () => { if (panel && !panel.hidden && panel.style.left) { const r = panel.getBoundingClientRect(); placeAt(r.left, r.top); } });
   function open() {
     build();
     markUsed();
     panel.hidden = false;
     setMini(false);
+    loadPos();
     greet();
     // スマホでは、開いた瞬間に文字を打つ欄へ飛ばさない（画面が動いて驚くため）
     if (window.innerWidth > 620) {

@@ -7035,3 +7035,8 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 /* アポ一覧：案内メールが届かなかった（不達）の印（2026-10-24） */
 .ap-c2-bounce{background:#FDECEA !important;color:#A51F16 !important;border-color:#F0B5AE !important;font-weight:700;}
 .ap-c2-addr-ng{color:#A51F16;font-weight:700;text-decoration:underline wavy #E0796F;}
+
+/* kinbotに聞く：見出しをつかんで動かせる（2026-10-26） */
+.kb-chat-head { cursor: grab; user-select: none; touch-action: none; }
+.kb-chat.dragging .kb-chat-head { cursor: grabbing; }
+.kb-chat.dragging { box-shadow: 0 24px 60px -20px rgba(0,0,0,.45); opacity: .96; }
