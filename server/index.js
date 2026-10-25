@@ -12760,7 +12760,8 @@ app.get("/api/kinxs/users", async (req, res) => {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     const { items, rules } = await kinxsBuild();
     items.sort((a, b) => (b.score - a.score) || String(a.renew || "9").localeCompare(String(b.renew || "9")));
-    res.json({ ok: true, items, rules, labels: KX_LABELS, usages: KX_USAGE });
+    const csOptions = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => m.name).filter(Boolean);
+    res.json({ ok: true, items, rules, labels: KX_LABELS, usages: KX_USAGE, csOptions });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ===== kinXs：今のCS管理ボード（スプレッドシート）から取り込む =====
@@ -26626,7 +26627,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25d kinXsのステータス：CS担当をプルダウンで選ぶ（メンバー管理で役割CSの人＋CS連携の設定の人）。";
+const BUILD_TAG = "2026-10-25e kinXsのユーザー一覧に「一覧／担当別」のタブ。担当別はCS担当ごとの列（未定・CSのメンバー）に会社のカードを並べ、別の列にドラッグするとその人の担当になる。列ごとにスクロール。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

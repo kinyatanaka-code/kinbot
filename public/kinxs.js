@@ -276,8 +276,49 @@ function renderList() {
   const card = (x) => `<div class="kx-uc kx-uc-lux" style="--accent:${PH[x.label] || "#1D9E75"}" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(`${x.name}（${x.label}）`)}">${x.logo
       ? `<span class="mono logo" aria-hidden="true"><img src="${esc(x.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('logo');this.parentNode.textContent='${esc(mono(x.name)).replace(/'/g, "")}'"></span>`
       : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm">${esc(x.name)}</div></div>`;
-  $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
-  kxFitCards();
+  const lsTab = window.__lsTab || "all";
+  document.querySelectorAll("[data-lstab]").forEach((b) => b.classList.toggle("on", b.dataset.lstab === lsTab));
+  if (lsTab === "cs") {
+    // 担当別：CS担当ごとの列。カードを別の列にドラッグすると、その人の担当になる
+    const sur = (n) => kxSurname(n);
+    const opts = [...new Set((d.csOptions || []).filter(Boolean))];
+    const cols = opts.map((o) => ({ name: o, key: sur(o), list: [] }));
+    const none = { name: "", key: "", list: [] };
+    for (const x of items) {
+      const k = sur(x.cs);
+      if (!k) { none.list.push(x); continue; }
+      let c = cols.find((c2) => c2.key === k);
+      if (!c) { c = { name: x.cs, key: k, list: [] }; cols.push(c); }
+      c.list.push(x);
+    }
+    const colHtml = (c, isNone) => `<section class="kx-cscol${isNone ? " none" : ""}" data-cscol="${esc(c.name)}"><div class="kx-cscol-h"><span class="av">${isNone ? "？" : esc(c.key.slice(0, 1))}</span><b>${isNone ? "未定" : esc(c.key)}</b><span class="n">${c.list.length}</span></div><div class="kx-cscol-b">${c.list.map((x) => card(x).replace('<div class="kx-uc ', '<div draggable="true" class="kx-uc ')).join("") || '<div class="kx-note" style="padding:6px 2px">ここにカードを動かすと、この人の担当になります</div>'}</div></section>`;
+    $("lsTable").innerHTML = `<div class="kx-csboard">${colHtml(none, true)}${cols.map((c) => colHtml(c, false)).join("")}</div>`;
+    kxFitCards();
+    const board = $("lsTable").querySelector(".kx-csboard");
+    // 画面は止めて、列ごとにスクロール
+    $("lsTable").style.overflowY = "hidden";
+    board.style.height = `${Math.max(260, window.innerHeight - board.getBoundingClientRect().top - 16)}px`;
+    board.querySelectorAll("[data-open]").forEach((c) => {
+      c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.dataset.open); c.classList.add("dragging"); });
+      c.addEventListener("dragend", () => { c.classList.remove("dragging"); board.querySelectorAll(".over").forEach((x) => x.classList.remove("over")); });
+    });
+    board.querySelectorAll("[data-cscol]").forEach((col) => {
+      col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
+      col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("over"); });
+      col.addEventListener("drop", async (e) => {
+        e.preventDefault(); col.classList.remove("over");
+        const id = e.dataTransfer.getData("text/plain"); const x = d.items.find((i2) => i2.id === id);
+        const to = col.dataset.cscol;
+        if (!x || sur(x.cs) === sur(to)) return;
+        try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ cs_name: to }) }); x.cs = to; renderList(); }
+        catch (er) { alert(er.message); }
+      });
+    });
+  } else {
+    $("lsTable").style.overflowY = "";
+    $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
+    kxFitCards();
+  }
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
   document.querySelectorAll("#vList [data-dis]").forEach((b) => b.addEventListener("click", async (e) => {
     e.stopPropagation();
@@ -287,6 +328,7 @@ function renderList() {
   $("lsSt").textContent = `全${d.items.length}社`;
 }
 $("lsQ").addEventListener("input", renderList);
+document.querySelectorAll("[data-lstab]").forEach((b) => b.addEventListener("click", () => { window.__lsTab = b.dataset.lstab; renderList(); }));
 $("lsCs").addEventListener("change", renderList);
 
 // ===== 企業詳細（どちらの画面からも開く）=====
