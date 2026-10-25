@@ -719,7 +719,27 @@ async function openDetail(id, reuse) {
   { const rbx = bg.querySelector("[data-renew-box]"), rop = bg.querySelector("[data-renew-open]");
     if (rop) rop.addEventListener("click", () => { rbx.hidden = false; rop.hidden = true; rbx.querySelector("[data-renew-in]").focus(); });
     const rcn = bg.querySelector("[data-renew-cancel]"); if (rcn) rcn.addEventListener("click", () => { rbx.hidden = true; rop.hidden = false; });
-    const rsv = bg.querySelector("[data-renew-save]"); if (rsv) rsv.addEventListener("click", async () => { const v = rbx.querySelector("[data-renew-in]").value; if (!/^\d{4}-\d{2}$/.test(v)) { alert("更新月を選んでください"); return; } try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ renew_month: v }) }); refresh().catch(() => {}); await again(`更新月を ${v.replace("-", "/")} にしました`); } catch (e) { alert(e.message); } });
+    // 保存したら、待たずにその場で表示を変える（モーダルの上・後ろの画面）。サーバーで読み直した内容はあとから入れ直す
+    const applyRenewLocal = (v) => {
+      const left = v ? Math.round((Date.parse(`${v}-01T00:00:00+09:00`) - Date.now()) / 86400000) : null;
+      const note = rop && rop.previousElementSibling;
+      if (note) note.textContent = `更新月 ${v ? v.replace("-", "/") : "—"}${left != null ? `（${left < 0 ? `${-left}日過ぎ` : `あと${left}日`}）` : ""}・手で決めた`;
+      rbx.hidden = true; rop.hidden = false;
+      const fix = (arr) => { for (const it of (arr || [])) if (it.id === id) { it.renew = v; it.left = left; it.renewLocked = true; } };
+      try { if (typeof data !== "undefined" && data && data.items) { fix(data.items); if (VIEW === "renew") render(); } } catch {}
+      try { if (typeof lsData !== "undefined" && lsData && lsData.items) { fix(lsData.items); if (VIEW === "list") renderList(); } } catch {}
+      try { if (typeof bdData !== "undefined" && bdData && bdData.items) { fix(bdData.items); if (VIEW === "board") renderBoard(); } } catch {}
+    };
+    const rsv = bg.querySelector("[data-renew-save]"); if (rsv) rsv.addEventListener("click", async () => {
+      const v = rbx.querySelector("[data-renew-in]").value; if (!/^\d{4}-\d{2}$/.test(v)) { alert("更新月を選んでください"); return; }
+      rsv.disabled = true;
+      try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ renew_month: v }) }); }
+      catch (e) { rsv.disabled = false; alert(e.message); return; }
+      applyRenewLocal(v);
+      let toast = bg.querySelector(".kx-saved"); if (!toast) { toast = document.createElement("div"); toast.className = "kx-saved"; bg.querySelector(".kx-drawer").prepend(toast); }
+      toast.textContent = `更新月を ${v.replace("-", "/")} にしました`; setTimeout(() => toast.remove(), 1800);
+      refresh().catch(() => {}); again(`更新月を ${v.replace("-", "/")} にしました`).catch(() => {});
+    });
     const rau = bg.querySelector("[data-renew-auto]"); if (rau) rau.addEventListener("click", async () => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ renew_auto: true }) }); refresh().catch(() => {}); await again("更新月を自動（契約終了日の前月）に戻しました"); } catch (e) { alert(e.message); } }); }
   // 社名を変える
   const rbox = bg.querySelector("[data-ren-box]");
