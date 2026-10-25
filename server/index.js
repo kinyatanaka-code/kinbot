@@ -13074,7 +13074,9 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
     out.adminUrl = "https://casual-interview-api.brainverse-ai.com/";
     // ② ステータス
     const fl = (kk && kk.fields) || {};
-    const status = { cs: x.cs || "", phase: x.label, autoPhase: x.autoLabel, locked: x.locked, purpose: r.purpose || fl["活用場所"] || "", usage: r.usage_status || "" };
+    // CS担当の選択肢：メンバー管理で役割「CS」の人＋CS連携の設定に入れた人
+    const csOptions = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => m.name).filter(Boolean);
+    const status = { cs: x.cs || "", csOptions, phase: x.label, autoPhase: x.autoLabel, locked: x.locked, purpose: r.purpose || fl["活用場所"] || "", usage: r.usage_status || "" };
     res.json({ ok: true, item: x, timeline, info: out, status, kickoffAt: koAt });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -26624,7 +26626,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25c kinXsの企業情報のDOC：AIのURLはその会社の候補者画面のURL（CS連携の候補者用画面URLから）、管理画面は全社共通として別の行に。VRのURLには候補者画面を入れない。";
+const BUILD_TAG = "2026-10-25d kinXsのステータス：CS担当をプルダウンで選ぶ（メンバー管理で役割CSの人＋CS連携の設定の人）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

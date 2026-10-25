@@ -354,7 +354,14 @@ function kxStatusPane(d) {
   const st = d.status || {};
   const usages = (lsData && lsData.usages) || ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
   return `<div class="kx-sec kx-form"><div class="lb">ステータス</div>
-      <label>CS担当</label><input class="kx-in" data-st="cs_name" value="${esc(st.cs || "")}" placeholder="例：鶴川" />
+      <label>CS担当</label>${(() => {
+        // 選択肢は CSのメンバー。今の担当が選択肢に無い書き方（「鶴川」と「鶴川 夏海」など）なら、苗字が同じ人を選んだ状態に
+        const opts = [...new Set((st.csOptions || []).filter(Boolean))];
+        const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+        let cur = st.cs || "";
+        if (cur && !opts.includes(cur)) { const hit = opts.find((o) => sur(o) === sur(cur) || o.startsWith(sur(cur)) || sur(cur).startsWith(sur(o))); if (hit) cur = hit; else opts.push(cur); }
+        return `<select class="kx-in" data-st="cs_name"><option value="">（未定）</option>${opts.map((o) => `<option ${o === cur ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+      })()}
       <label>利用目的</label><input class="kx-in" data-st="purpose" value="${esc(st.purpose || "")}" placeholder="例：採用サイト掲載・カジュアル面談" />
       <label>活用</label><div class="kx-usage">${usages.map((u) => `<button type="button" class="kx-us ${st.usage === u ? "on" : ""}" data-usage="${esc(u)}">${esc(u)}</button>`).join("")}</div>
       <div style="grid-column:1 / -1;display:flex;margin-top:6px"><button type="button" class="kx-btn" data-save-status style="margin-left:auto">保存</button></div>
