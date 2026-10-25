@@ -13068,9 +13068,10 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
         out.portal = { url: pick(/(?:ログイン)?URL\s*[:：]\s*(https?:\/\/\S+)/i) || pick(/(https?:\/\/\S*portal\S*)/i), id: pick(/企業\s*ID\s*[:：]\s*(\S+)/) || kk.portal_id || "", pw: pick(/パスワード\s*[:：]\s*(\S+)/) };
       }
       out.ai = csAiList(kk).map((a) => ({ id: a.id, label: a.label || "", login: a.login || "", has_pass: !!a.pass_enc }));
-      if (!out.vrUrl && kk.doc_candidate_url) { out.vrUrl = kk.doc_candidate_url; out.source.vrUrl = "CS連携"; }
+      // AIのURL＝その会社の候補者画面のURL（管理画面は全社共通なので別に出す）
+      if (!out.aiUrl && kk.doc_candidate_url) { out.aiUrl = kk.doc_candidate_url; out.source.aiUrl = "CS連携"; }
     }
-    if (!out.aiUrl) out.aiUrl = "https://casual-interview-api.brainverse-ai.com/";
+    out.adminUrl = "https://casual-interview-api.brainverse-ai.com/";
     // ② ステータス
     const fl = (kk && kk.fields) || {};
     const status = { cs: x.cs || "", phase: x.label, autoPhase: x.autoLabel, locked: x.locked, purpose: r.purpose || fl["活用場所"] || "", usage: r.usage_status || "" };
@@ -26623,7 +26624,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25b kinXsの企業情報を見やすく：2列のカード（左＝企業情報・先方の担当者、右＝受注・ヘルプサイト・DOC）、ふだんは文字（リンク・電話・メールは押せる）で出し、「編集」を押したときだけ入力欄。直した欄だけを保存。";
+const BUILD_TAG = "2026-10-25c kinXsの企業情報のDOC：AIのURLはその会社の候補者画面のURL（CS連携の候補者用画面URLから）、管理画面は全社共通として別の行に。VRのURLには候補者画面を入れない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
