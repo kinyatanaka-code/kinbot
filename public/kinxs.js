@@ -525,7 +525,7 @@ async function openDetail(id, reuse) {
       <div class="kx-dlogo" data-logo-btn role="button" tabindex="0" title="押すと、ロゴを取り直す・手で入れる">${x.logo ? `<img src="${esc(x.logo)}" alt="" data-logo-img" />` : `<span class="mono">${esc((x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1))}</span>`}<span class="ed">ロゴ</span></div>
       <div style="min-width:0"><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
     <div class="kx-logo-menu" data-logo-menu hidden>
-      <div class="h"><b>ロゴ</b>${x.logoManual ? '<span class="kx-src">手で決めたロゴ</span>' : '<span class="kx-src">自動（HPから）</span>'}</div>
+      <div class="h" style="width:100%"><b>ロゴ</b>${x.logoManual ? '<span class="kx-src">手で決めたロゴ</span>' : '<span class="kx-src">自動（HPから）</span>'}<button type="button" class="hp-b" data-logo-close style="margin-left:auto">しまう ▲</button></div>
       <button type="button" class="hp-b" data-logo="refetch">HPから取り直す</button>
       <div class="row"><input class="kx-in" data-logo-url placeholder="画像のURLを貼る（https://…）" /><button type="button" class="hp-b" data-logo="url">使う</button></div>
       <div class="row"><label class="hp-b" style="cursor:pointer">画像ファイルを選ぶ<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" data-logo-file hidden /></label><span class="kx-note">1MBまで。画面のスクリーンショットの切り抜きでも大丈夫です</span></div>
@@ -674,7 +674,12 @@ async function openDetail(id, reuse) {
   // ロゴ：取り直す・URL・ファイル・なし
   const lmenu = bg.querySelector("[data-logo-menu]");
   const lbtn = bg.querySelector("[data-logo-btn]");
-  if (lbtn) lbtn.addEventListener("click", () => { lmenu.hidden = !lmenu.hidden; });
+  // ふだんはしまっておく。ロゴを押すと開き、「しまう」・外を押す・Esc で閉じる
+  if (lmenu) lmenu.hidden = true;
+  if (lbtn) lbtn.addEventListener("click", (e) => { e.stopPropagation(); lmenu.hidden = !lmenu.hidden; });
+  const lclose = bg.querySelector("[data-logo-close]"); if (lclose) lclose.addEventListener("click", () => { lmenu.hidden = true; });
+  bg.addEventListener("click", (e) => { if (lmenu && !lmenu.hidden && !lmenu.contains(e.target) && !(lbtn && lbtn.contains(e.target))) lmenu.hidden = true; });
+  bg.addEventListener("keydown", (e) => { if (e.key === "Escape" && lmenu && !lmenu.hidden) { e.stopPropagation(); lmenu.hidden = true; } });
   const lst = bg.querySelector("[data-logo-st]");
   const logoDo = async (body, msg) => {
     lst.textContent = "反映しています…";
