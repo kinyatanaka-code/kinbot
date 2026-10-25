@@ -296,7 +296,9 @@ function aiRow(a) {
 }
 // 会社のロゴ（kinXsで取ったロゴ。無ければ頭文字）
 function csLogo(k, size) {
-  const n = String(coName(k) || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").trim().slice(0, 1) || "？";
+  // 会社名（coName は描く関数の中だけにあるので、ここで同じように求める）
+  const f0 = k.fields || {}; const nm0 = f0.企業名 && f0.企業名 !== "未確認" ? f0.企業名 : k.company;
+  const n = String(nm0 || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").trim().slice(0, 1) || "？";
   return k.logo ? `<span class="cs-logo" style="width:${size}px;height:${size}px"><img src="${esc(k.logo)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('mono');this.parentNode.textContent=this.dataset.m" data-m="${esc(n)}"></span>`
     : `<span class="cs-logo mono" style="width:${size}px;height:${size}px">${esc(n)}</span>`;
 }

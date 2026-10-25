@@ -1841,3 +1841,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-26 BUILD_TAG=2026-10-26h 田中さん「右上のkinbotロボじゃなくって、kinXsのアイコンをクリックするとkinbotロボのチャットができるようにしたい」。kinxs.html：ヘッダー右の img.topbar-bot.kx-bot を外し、ヘッダー左のスフィンクス（img.kx-top-ico）に topbar-bot を付けた（kbchat.js が .topbar-bot に自動でつなぐ：押すと「kinbotに聞く」が開く、連打で文句、ヒント）。版20261026h。
 
 - 2026-10-26 BUILD_TAG=2026-10-26i 田中さん「kinbotロボのチャットはドロップで移動できるようにしたい」。kbchat.js：見出し（.kb-chat-head）を pointerdown／move／up でつかんで動かす（ボタンの上は除く、5px動くまでは押しただけ、動かした直後の click は小さくした窓を開く動きにしない）。placeAt で画面の外に出ないように left/top に置き、right/bottom を外す。localStorage の kbChatPos に覚えて、開くとき（open）にその場所に。画面の大きさが変わったら収め直す。見出しをダブルクリックで元の右下に戻す。style.css に grab のカーソル・動かしている間の影。kinbot と kinXs の両方（同じ kbchat.js）。手元で見出しをつかんで動かし、場所が覚えられるのを確かめた。版20261026i。
+
+- 2026-10-26 BUILD_TAG=2026-10-26j 田中さん（CS連携の企業カードが「coName is not defined」で1枚も出ない）。原因：26g で足した csLogo（いちばん外の関数）が、render の中だけの const coName を呼んでいた。csLogo の中で同じように会社名（fields.企業名→company）を求めるように直した。手元で csLogo を単体で呼んで、頭文字とロゴの両方が出るのを確かめた。教訓：画面の関数を足すときは、使う関数がその場所から見えるか（同じ範囲にあるか）を確かめる。版20261026j。
