@@ -277,6 +277,7 @@ function renderList() {
       ? `<span class="mono logo" aria-hidden="true"><img src="${esc(x.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('logo');this.parentNode.textContent='${esc(mono(x.name)).replace(/'/g, "")}'"></span>`
       : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm${(x.formerNames || []).length ? " has-former" : ""}"><span class="t">${esc(x.name)}</span>${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}</div></div>`;
   const lsTab = window.__lsTab || "all";
+  const lsTabPrevSeen = window.__lsTabSeen; window.__lsTabPrev = lsTabPrevSeen; window.__lsTabSeen = lsTab;
   document.querySelectorAll("[data-lstab]").forEach((b) => b.classList.toggle("on", b.dataset.lstab === lsTab));
   if (lsTab === "cs") {
     // 担当別：CS担当ごとの列。カードを別の列にドラッグすると、その人の担当になる
@@ -299,8 +300,9 @@ function renderList() {
     $("lsTable").innerHTML = `<div class="kx-cswrap"><button type="button" class="kx-csnav l" data-csnav="-1" aria-label="左の担当へ" hidden>‹</button><div class="kx-csboard">${allCols.map((c) => colHtml(c, c.isNone)).join("")}</div><button type="button" class="kx-csnav r" data-csnav="1" aria-label="右の担当へ" hidden>›</button></div>`;
     kxFitCards();
     const board = $("lsTable").querySelector(".kx-csboard");
-    // 画面は止めて、列ごとにスクロール
+    // 画面は止めて、列ごとにスクロール。一覧で下までスクロールしていた位置が残ると、列の見出しが上に隠れるので戻す
     $("lsTable").style.overflowY = "hidden";
+    $("lsTable").scrollTop = 0; board.scrollTop = 0;
     board.style.height = `${Math.max(260, window.innerHeight - board.getBoundingClientRect().top - 16)}px`;
     // まとめて選ぶ：Shiftを押しながらクリック、または右クリックで選ぶ／外す。選んだカードのどれかをつかむと、まとめて動く
     const sel = window.__csSel || (window.__csSel = new Set());
@@ -398,6 +400,7 @@ function renderList() {
     });
   } else {
     $("lsTable").style.overflowY = "";
+    if (window.__lsTabPrev && window.__lsTabPrev !== "all") $("lsTable").scrollTop = 0;
     $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
     kxFitCards();
   }
