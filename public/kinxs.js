@@ -23,6 +23,18 @@ function kxSurnameMap(names) {
 }
 let kxSur = new Map();
 const kxSurname = (n) => (n ? (kxSur.get(n) || String(n).normalize("NFKC").trim().split(/[\s　]+/)[0]) : "");
+// 検索：入れた文字を含む会社を全部出す（大文字・小文字、カタカナ・ひらがな、全角・半角、空白・記号の違いは気にしない。空白で区切ると全部を含むもの）
+function kxNormQ(t) {
+  return String(t || "").normalize("NFKC").toLowerCase()
+    .replace(/[\u30a1-\u30f6]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
+    .replace(/[\s・\-ー‐－_.,，、。()（）「」『』【】\[\]'"’”&＆/／]/g, "");
+}
+function kxMatch(qRaw, ...fields) {
+  const terms = String(qRaw || "").normalize("NFKC").split(/[\s　]+/).map(kxNormQ).filter(Boolean);
+  if (!terms.length) return true;
+  const hay = kxNormQ(fields.flat().filter(Boolean).join(" "));
+  return terms.every((t) => hay.includes(t));
+}
 const ymLabel = (ym) => ym ? `${ym.slice(0, 4)}/${ym.slice(5, 7)}` : "未定";
 function addMonths(ym, n) { const d = new Date(`${ym}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 7); }
 async function load() {
@@ -37,8 +49,8 @@ function render() {
   kxSur = kxSurnameMap(d.items.map((x) => x.cs).filter(Boolean));
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
-  const q = String($("kxQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
-  const items = d.items.filter((x) => (!q || String(x.name).normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const q = $("kxQ").value || "";
+  const items = d.items.filter((x) => kxMatch(q, x.name, x.cs, x.fs, x.products) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // KPI（90日以内）
   const near = items.filter((x) => x.left != null && x.left >= -31 && x.left <= d.warnDays && x.rank !== "F");
   const warn = near.filter((x) => x.warn);
@@ -235,8 +247,8 @@ function renderList() {
   kxSur = kxSurnameMap(d.items.map((x) => x.cs).filter(Boolean));
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
-  const q = String($("lsQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
-  const base = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const q = $("lsQ").value || "";
+  const base = d.items.filter((x) => kxMatch(q, x.name, x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // ラベルの絞り込み
   const counts = {}; for (const x of base) counts[x.label] = (counts[x.label] || 0) + 1;
   $("lsChips").hidden = true;
@@ -510,8 +522,8 @@ function renderBoard() {
   kxSur = kxSurnameMap(d.items.map((x) => x.cs).filter(Boolean));
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
-  const q = String($("bdQ").value || "").normalize("NFKC").replace(/[\s　]|株式会社/g, "");
-  const items = d.items.filter((x) => (!q || `${x.name}${x.cs}${x.fs}`.normalize("NFKC").replace(/[\s　]|株式会社/g, "").includes(q)) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const q = $("bdQ").value || "";
+  const items = d.items.filter((x) => kxMatch(q, x.name, x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   const showEnd = $("bdEnd").checked;
   const cols = BD_COLS.filter(([l]) => showEnd || !["解約済み", "キャンセル"].includes(l)).filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
   const good = "background:#E1F5EE;color:#0A5440", bad = "background:#FBE4E4;color:#8C1F1F", mid = "background:#FFF1DC;color:#7A3F00";
