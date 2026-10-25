@@ -12856,7 +12856,7 @@ app.get("/api/kinxs/users", async (req, res) => {
 const KX_IMPORT_GUESS = {
   name: /企業名|会社名|取引先|顧客名|法人名/, renew: /更新月/, rank: /確度|更新ラベル|更新確度|ランク/, cs: /CS担当|CS|担当CS/,
   product: /商品|プラン|契約内容/, start: /契約開始|開始日|利用開始/, end: /契約終了|終了日|満了|利用終了/, memo: /メモ|備考|特記/,
-  prod: /本番サイト|本番URL|本番環境/, site: /^(?!.*本番).*(サイト|サイトURL)/,
+  prod: /本番サイト|本番URL|本番環境/,
 };
 function kxParseCsv(text) {
   const rows = []; let row = [], cur = "", q = false;
@@ -12907,7 +12907,7 @@ app.post("/api/kinxs/import/preview", async (req, res) => {
     for (const [k, re] of Object.entries(KX_IMPORT_GUESS)) {
       const cand = headers.map((h, i) => ({ h, i })).filter((x) => re.test(x.h));
       // 更新月は「更新月②」があればそちらを優先（今のボードで使っている列）
-      const pick = k === "renew" ? (cand.find((x) => /②|2/.test(x.h)) || cand[0]) : k === "site" ? (cand.find((x) => /^サイト$/.test(x.h.trim())) || cand[0]) : cand[0];
+      const pick = k === "renew" ? (cand.find((x) => /②|2/.test(x.h)) || cand[0]) : cand[0];
       if (pick) guess[k] = pick.i;
     }
     const rows = values.slice(hi + 1).filter((r) => (r || []).some((c) => String(c || "").trim())).slice(0, 3000);
@@ -12931,8 +12931,10 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
       const acc = key ? byKey.get(key) : null;
       const renew = kxRenewMonth(cell(r, "renew")), rank = kxRank(cell(r, "rank")), cs = cell(r, "cs"), memo = cell(r, "memo");
       const urlOf = (v) => { const t = String(v || "").trim(); const m = t.match(/https?:\/\/[^\s"'<>）」]+/); return m ? m[0] : (/^[\w.-]+\.[a-z]{2,}(\/\S*)?$/i.test(t) ? `https://${t}` : ""); };
-      const siteUrl = urlOf(cell(r, "site")), prodUrl = urlOf(cell(r, "prod"));
-      const item = { name, match: acc ? acc.name : "", status: acc ? "一致" : (create ? "新しく追加" : "見つからない（スキップ）"), renew, rank, cs, site: siteUrl, prod: prodUrl };
+      // 本番サイト：aticoti のドメインなら VR、それ以外は AI（その会社の候補者画面）
+      const prodUrl = urlOf(cell(r, "prod"));
+      const docInfo = prodUrl ? (/aticoti/i.test(prodUrl) ? { vr_url: prodUrl } : { ai_url: prodUrl }) : null;
+      const item = { name, match: acc ? acc.name : "", status: acc ? "一致" : (create ? "新しく追加" : "見つからない（スキップ）"), renew, rank, cs, prod: prodUrl ? (/aticoti/i.test(prodUrl) ? "VR" : "AI") : "" };
       out.items.push(item);
       if (dry) { if (acc) out.matched++; else if (create) out.created++; else out.skipped++; continue; }
       if (acc) {
@@ -12940,7 +12942,7 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
         if (renew) { patch.renew_month = renew; patch.renew_locked = true; }
         if (cs) patch.cs_name = cs;
         if (memo && !String(acc.memo || "").includes(memo)) patch.memo = [acc.memo, `【CS管理ボードより】${memo}`].filter(Boolean).join("\n");
-        if (siteUrl || prodUrl) patch.info = { ...(acc.info || {}), ...(siteUrl ? { site_url: siteUrl } : {}), ...(prodUrl ? { prod_url: prodUrl } : {}) };
+        if (docInfo) patch.info = { ...(acc.info || {}), ...docInfo };
         if (Object.keys(patch).length) await kinxsUpdate(acc.account_id, patch, req.user);
         if (rank && rank !== (acc.rank || "Z")) await kinxsSetRank(acc.account_id, rank, req.user);
         out.matched++;
@@ -12949,7 +12951,7 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
         const a = await kinxsAddManual({ name, products: [{ name: cell(r, "product") || "アチコチバース", opp: null, booked: start, start, end, stage: "CS管理ボード" }],
           booked_on: start, end_on: end, end_estimated: false, renew_month: renew, cs_name: cs || null, memo: memo ? `【CS管理ボードより】${memo}` : null }, req.user);
         if (a && renew) await kinxsUpdate(a.account_id, { renew_locked: true }, req.user);
-        if (a && (siteUrl || prodUrl)) await kinxsUpdate(a.account_id, { info: { ...(siteUrl ? { site_url: siteUrl } : {}), ...(prodUrl ? { prod_url: prodUrl } : {}) } }, req.user);
+        if (a && docInfo) await kinxsUpdate(a.account_id, { info: docInfo }, req.user);
         if (a && rank) await kinxsSetRank(a.account_id, rank, req.user);
         out.created++;
       } else out.skipped++;
@@ -13159,7 +13161,8 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
     // ① 企業情報：手で入れた分（info）→ SFの取引先・取引先責任者 → CS連携（回収MTG）の順で埋める
     const info = { ...(r.info || {}) };
     const out = { website: info.website || r.website || "", address: info.address || "", phone: info.phone || "", contacts: Array.isArray(info.contacts) ? info.contacts : [],
-      booked: x.booked || "", bookedBy: x.fs || "", vrUrl: info.vr_url || "", aiUrl: info.ai_url || "", siteUrl: info.site_url || "", prodUrl: info.prod_url || "", portal: null, ai: [], kickBot: kk ? kk.bot_id : "", source: {} };
+      booked: x.booked || "", bookedBy: x.fs || "",
+      vrUrl: info.vr_url || (info.prod_url && /aticoti/i.test(info.prod_url) ? info.prod_url : ""), aiUrl: info.ai_url || (info.prod_url && !/aticoti/i.test(info.prod_url) ? info.prod_url : ""), portal: null, ai: [], kickBot: kk ? kk.bot_id : "", source: {} };
     // SFの取引先：SFから取り込んだ会社はそのID、手で入れた会社（CS管理ボードからの取り込みなど）は会社名でSFの取引先を探す
     try {
       const st0 = await getSettings(); const sfU = await pickSfUser(st0.psOwner || "").catch(() => "");
@@ -26767,7 +26770,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25u kinXsのCS管理ボードからの取り込み：「サイト」「本番サイト」の列も読み、企業情報のDOCのカードに出す（手で直せる）。";
+const BUILD_TAG = "2026-10-25v kinXs：DOCのカードの「サイト」「本番サイト」をやめた。スプレッドシートの本番サイトは、aticotiのドメインならVR、それ以外はAI（候補者画面）に入れる（前に取り込んだ分も同じように振り分けて出す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -461,10 +461,8 @@ function kxCoPane(d) {
       </section>
       <section class="kx-c2" data-sec>
         ${head("DOC", true)}
-        <div class="kx-view"><div class="kx-dl"><span>サイト</span><div>${val(f.siteUrl, "url")}</div><span>本番サイト</span><div>${val(f.prodUrl, "url")}</div><span>VR</span><div>${val(f.vrUrl, "url")} ${tag("vrUrl")}</div><span>AI<br><small>候補者画面</small></span><div>${val(f.aiUrl, "url")} ${tag("aiUrl")}</div><span>AI<br><small>管理画面</small></span><div>${val(f.adminUrl || "https://casual-interview-api.brainverse-ai.com/", "url")} <span class="kx-none">（全社共通）</span></div></div></div>
+        <div class="kx-view"><div class="kx-dl"><span>VR</span><div>${val(f.vrUrl, "url")} ${tag("vrUrl")}</div><span>AI<br><small>候補者画面</small></span><div>${val(f.aiUrl, "url")} ${tag("aiUrl")}</div><span>AI<br><small>管理画面</small></span><div>${val(f.adminUrl || "https://casual-interview-api.brainverse-ai.com/", "url")} <span class="kx-none">（全社共通）</span></div></div></div>
         <div class="kx-editbox kx-form">
-          <label>サイト</label><input class="kx-in" data-info="site_url" value="${esc(f.siteUrl || "")}" placeholder="https://" />
-          <label>本番サイト</label><input class="kx-in" data-info="prod_url" value="${esc(f.prodUrl || "")}" placeholder="https://" />
           <label>VR（URL）</label><input class="kx-in" data-info="vr_url" value="${esc(f.vrUrl || "")}" placeholder="https://" />
           <label>AI（候補者画面のURL）</label><input class="kx-in" data-info="ai_url" value="${esc(f.aiUrl || "")}" placeholder="https://" />
           <div class="kx-edact"><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
@@ -786,7 +784,7 @@ function openAddUser() {
 }
 document.querySelectorAll(".kx-add-user").forEach((b) => b.addEventListener("click", openAddUser));
 // ===== CS管理ボードから取り込む =====
-const IM_FIELDS = [["name", "企業名（必須）"], ["renew", "更新月"], ["rank", "確度（S/A/B/C/Z/F）"], ["cs", "CS担当"], ["site", "サイト"], ["prod", "本番サイト"], ["product", "契約商品"], ["start", "契約開始日"], ["end", "契約終了日"], ["memo", "メモ"]];
+const IM_FIELDS = [["name", "企業名（必須）"], ["renew", "更新月"], ["rank", "確度（S/A/B/C/Z/F）"], ["cs", "CS担当"], ["prod", "本番サイト（aticotiならVR、ほかはAI）"], ["product", "契約商品"], ["start", "契約開始日"], ["end", "契約終了日"], ["memo", "メモ"]];
 let imData = null;
 async function imLoad(sheet) {
   const st = $("imSt"); st.textContent = "読み込んでいます…";
@@ -810,8 +808,8 @@ async function imRun(dryRun) {
     const r = await api("/api/kinxs/import/apply", { method: "POST", body: JSON.stringify({ rows: imData.rows, mapping, createMissing: $("imCreate").checked, dryRun }) });
     st.textContent = `${dryRun ? "プレビュー：" : "反映しました："}一致 ${r.matched}社・${$("imCreate").checked ? `新しく追加 ${r.created}社・` : ""}スキップ ${r.skipped}件`;
     $("imPrevBox").style.display = "block";
-    $("imPrev").innerHTML = `<div class="ls-grid" style="grid-template-columns:minmax(200px,1.6fr) minmax(200px,1.6fr) minmax(140px,1fr) 100px 70px minmax(110px,1fr) 130px;min-width:1000px">${["CS管理ボードの企業名", "kinXsの会社", "結果", "更新月", "確度", "CS担当", "サイト・本番サイト"].map((h) => `<div class="ls-h">${h}</div>`).join("")}` +
-      r.items.map((x) => `<div class="ls-r" style="cursor:default">${esc(x.name)}</div><div class="ls-r" style="cursor:default">${esc(x.match || "—")}</div><div class="ls-r ${x.status === "一致" ? "ok-t" : x.status.startsWith("新しく") ? "mid-t" : "ng-t"}" style="cursor:default">${esc(x.status)}</div><div class="ls-r" style="cursor:default">${esc(x.renew ? x.renew.replace("-", "/") : "—")}</div><div class="ls-r" style="cursor:default">${x.rank ? `<span class="kx-rank r-${x.rank}">${x.rank}</span>` : "—"}</div><div class="ls-r" style="cursor:default">${esc(x.cs || "—")}</div><div class="ls-r" style="cursor:default;font-size:11.5px">${x.site ? "サイト ✓" : ""}${x.site && x.prod ? "・" : ""}${x.prod ? "本番 ✓" : ""}${!x.site && !x.prod ? "—" : ""}</div>`).join("") + `</div>`;
+    $("imPrev").innerHTML = `<div class="ls-grid" style="grid-template-columns:minmax(200px,1.6fr) minmax(200px,1.6fr) minmax(140px,1fr) 100px 70px minmax(110px,1fr) 130px;min-width:1000px">${["CS管理ボードの企業名", "kinXsの会社", "結果", "更新月", "確度", "CS担当", "本番サイト"].map((h) => `<div class="ls-h">${h}</div>`).join("")}` +
+      r.items.map((x) => `<div class="ls-r" style="cursor:default">${esc(x.name)}</div><div class="ls-r" style="cursor:default">${esc(x.match || "—")}</div><div class="ls-r ${x.status === "一致" ? "ok-t" : x.status.startsWith("新しく") ? "mid-t" : "ng-t"}" style="cursor:default">${esc(x.status)}</div><div class="ls-r" style="cursor:default">${esc(x.renew ? x.renew.replace("-", "/") : "—")}</div><div class="ls-r" style="cursor:default">${x.rank ? `<span class="kx-rank r-${x.rank}">${x.rank}</span>` : "—"}</div><div class="ls-r" style="cursor:default">${esc(x.cs || "—")}</div><div class="ls-r" style="cursor:default;font-size:11.5px">${x.prod ? `${esc(x.prod)}へ` : "—"}</div>`).join("") + `</div>`;
     $("imApply").disabled = !dryRun;
     if (!dryRun) $("imApply").disabled = true;
   } catch (e) { st.textContent = "できませんでした：" + e.message; }
