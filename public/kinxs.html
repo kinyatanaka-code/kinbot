@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261024m" />
+    <link rel="stylesheet" href="style.css?v=20261024n" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -209,19 +209,40 @@
   .kx-uc-min{gap:7px;}
   .kx-uc-pd{display:flex;flex-wrap:wrap;gap:4px;max-height:44px;overflow:hidden;}
   .kx-uc-pd span{font-size:11px;color:#33463E;background:#F1F5F3;border:1px solid #E1E9E5;border-radius:6px;padding:1px 7px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;}
+  /* kinbotへ戻る（kincallと同じく、メニューのすぐ下）と、下の自分・設定 */
+  .kx-back{margin-top:10px !important;border-top:1px solid rgba(255,255,255,.12);padding-top:14px !important;border-radius:0 !important;}
+  .kx-back-tag{margin-left:auto;font-size:10.5px;border:1px solid rgba(255,255,255,.35);border-radius:99px;padding:0 7px;}
+  .kx-side-foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding:12px 8px 2px;border-top:1px solid rgba(255,255,255,.12);}
+  .kx-side-me{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#DCEBE4;min-width:0;flex:1;} .kx-side-me #kxSideName{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .kx-side-me .av{width:26px;height:26px;border-radius:50%;background:#B6E25C;color:#0B3B2E;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex:none;}
+  .kx-side-set{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#DCEBE4;text-decoration:none;border:1px solid rgba(255,255,255,.25);border-radius:8px;padding:5px 9px;}
+  .kx-side-set:hover,.kx-side-set.on{background:rgba(255,255,255,.1);color:#fff;}
+  /* ユーザー一覧の豪華なカード（会社名だけ） */
+  .kx-ucards{grid-template-columns:repeat(auto-fill,minmax(240px,1fr)) !important;gap:14px !important;}
+  .kx-uc-lux{position:relative;overflow:hidden;border:0 !important;border-radius:16px !important;padding:18px 18px 16px !important;min-height:96px;display:flex !important;flex-direction:row !important;align-items:center;gap:14px !important;
+    background:linear-gradient(150deg,#ffffff 0%,#F4FAF6 100%) !important;box-shadow:0 1px 0 rgba(13,91,71,.06),0 10px 24px -18px rgba(13,91,71,.55),inset 0 0 0 1px #E1ECE6 !important;transition:transform .15s, box-shadow .15s;}
+  .kx-uc-lux:hover{transform:translateY(-2px);box-shadow:0 18px 34px -20px rgba(13,91,71,.6),inset 0 0 0 1.5px #1D9E75 !important;}
+  .kx-uc-lux::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:var(--accent,#1D9E75);}
+  .kx-uc-lux::after{content:"";position:absolute;right:-30px;top:-30px;width:110px;height:110px;border-radius:50%;background:radial-gradient(circle,rgba(182,226,92,.28),rgba(182,226,92,0) 70%);}
+  .kx-uc-lux .mono{width:48px;height:48px;flex:none;border-radius:14px;background:linear-gradient(150deg,#0E6B4E,#0B3B2E);color:#B6E25C;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;letter-spacing:.02em;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);}
+  .kx-uc-lux .nm{position:relative;z-index:1;font-size:15px !important;font-weight:800;line-height:1.45;color:#16231E;}
 </style>
 </head>
   <body>
     <div class="kx-app">
       <nav class="kx-side" aria-label="kinXsのメニュー">
-        <a class="kx-brand" href="/kinxs?p=list"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
-        <a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>ユーザー一覧</a>
+        <a class="kx-brand" href="/kinxs"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
+      
         <a class="kx-nav" data-view="renew" href="/kinxs?p=renew"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>更新管理</a>
-        <a class="kx-nav" data-view="board" href="/kinxs?p=board"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>ラベル別ボード</a>
-        <span class="kx-nav off" title="準備中"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/></svg>未紐づけ議事録<em>準備中</em></span>
+        <a class="kx-nav" data-view="board" href="/kinxs?p=board"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>フェーズ別</a>
+        <a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>ユーザー一覧</a>
         <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携（回収MTG）</a>
         <a class="kx-nav" data-view="import" href="/kinxs?p=import"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>CS管理ボードから取り込む</a>
-        <a class="kx-nav kx-back" href="/home.html"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>kinbotへ戻る</a>
+        <a class="kx-nav kx-back" href="/home.html"><img src="/kinbot.svg" alt="" width="18" height="18" style="border-radius:5px" />kinbot<span class="kx-back-tag">戻る</span></a>
+        <div class="kx-side-foot">
+          <span class="kx-side-me"><span class="av" id="kxSideAv">・</span><span id="kxSideName"></span></span>
+          <a class="kx-side-set" href="/kinxs?p=settings" data-view="settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>設定</a>
+        </div>
       </nav>
 
       <div class="kx-main">
@@ -258,6 +279,7 @@
             </div>
             <div class="kx-board-wrap"><div class="kx-board" id="bdCols"><div class="kx-empty">読み込み中…</div></div></div>
           </div>
+          <div id="vSet" hidden style="height:calc(100vh - 66px)"><iframe id="kxSetFrame" title="設定" style="width:100%;height:100%;border:0;border-radius:16px;background:#F3F6F4"></iframe></div>
           <div id="vCs" hidden style="height:calc(100vh - 66px)"><iframe id="kxCsFrame" title="CS連携" style="width:100%;height:100%;border:0;border-radius:16px;background:#F3F6F4"></iframe></div>
           <div class="kx-wrap" id="vImport" hidden>
             <div class="kx-head"><div><h1 class="kx-title">CS管理ボードから取り込む</h1><div class="kx-sub">今のCS管理ボード（スプレッドシート）の更新月・確度・CS担当などを、kinXsの会社に反映します。会社名で照らし合わせます</div></div></div>
@@ -298,6 +320,6 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261024m"></script>
+    <script src="kinxs.js?v=20261024n"></script>
   </body>
 </html>

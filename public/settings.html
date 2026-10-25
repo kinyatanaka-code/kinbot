@@ -4,13 +4,19 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot 設定</title>
+    <script>if (new URLSearchParams(location.search).get("embed")) document.documentElement.classList.add("kb-embed");</script>
+    <style>
+      html.kb-embed .sidebar, html.kb-embed .topbar, html.kb-embed .side-backdrop, html.kb-embed .kb-menu-btn, html.kb-embed .kb-menu, html.kb-embed .kb-sheet-back, html.kb-embed .kb-ver, html.kb-embed .live-banner { display: none !important; }
+      html.kb-embed .main { margin-left: 0 !important; padding-left: 0 !important; }
+      html.kb-embed body { background: transparent; }
+    </style>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261024m" />
+    <link rel="stylesheet" href="style.css?v=20261024n" />
   </head>
   <body>
     <div class="app">
@@ -832,8 +838,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261024m"></script>
-      <script src="nav.js?v=20261024m"></script>
+    <script src="settings.js?v=20261024n"></script>
+      <script src="nav.js?v=20261024n"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

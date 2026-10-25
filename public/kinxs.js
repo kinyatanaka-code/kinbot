@@ -188,19 +188,20 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ renew: "renew", list: "list", import: "import", cs: "cs", board: "board" })[new URLSearchParams(location.search).get("p")] || "list";
-document.querySelectorAll(".kx-nav[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board";
+const VIEW = ({ renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings" })[new URLSearchParams(location.search).get("p")] || "renew";
+document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
+$("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ board: "ラベル別ボード", renew: "更新管理", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
+$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "更新管理", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = !["renew", "list"].includes(VIEW);
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
 api("/api/me").then((me) => {
   const n = (me && (me.name || me.email)) || "";
   $("kxMeName").textContent = n; $("kxMeAv").textContent = n ? n.slice(0, 1) : "・"; $("kxMe").title = (me && me.email) || "";
+  if ($("kxSideName")) { $("kxSideName").textContent = n; $("kxSideAv").textContent = n ? n.slice(0, 1) : "・"; }
 }).catch(() => {});
 // 要注意の社数をヘッダーに（押すと、ユーザー一覧の要注意企業へ）
 api("/api/kinxs/users").then((u) => {
@@ -209,6 +210,11 @@ api("/api/kinxs/users").then((u) => {
   c.hidden = false; c.textContent = `要注意 ${n}社`;
   c.addEventListener("click", () => { location.href = "/kinxs?p=list"; });
 }).catch(() => {});
+if (VIEW === "settings") {
+  // kinbotの設定（Google連携・アカウントなど）を、kinXsの中に埋め込んで開く
+  $("kxSetFrame").src = "/settings.html?embed=1";
+  document.querySelector(".kx-main").style.padding = "14px 16px 0";
+}
 if (VIEW === "cs") {
   // CS連携は、kinXsの中に埋め込んで開く（kinbotのメニューは出さない）。企業カードを指定されたらそのまま開く
   const bot = new URLSearchParams(location.search).get("bot");
@@ -251,7 +257,10 @@ function renderList() {
   // 会社のカード（シンプルに：会社名・ラベル・確度・CS・更新月・次回アクション）
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   // 会社名だけのカード（詳細は押すと開くモーダルで）
-  const card = (x) => { const cs = kxSurname(x.cs); return `<div class="kx-uc kx-uc-min" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(x.name)}"><div class="nm"><span>${esc(x.name)}</span></div>${(() => { const ps = [...new Set((x.products || []).map((p) => String(p || "").trim()).filter(Boolean))]; return ps.length ? `<div class="kx-uc-pd" title="${esc(ps.join("\n"))}">${ps.map((p) => `<span>${esc(p)}</span>`).join("")}</div>` : ""; })()}<div style="display:flex;align-items:center;gap:6px"><span class="kx-cstag${cs ? "" : " none"}">${cs ? `CS ${esc(cs)}` : "CS 未定"}</span><span class="kx-note" style="margin-left:auto;font-size:11px">${x.booked ? `受注 ${esc(x.booked.replace(/-/g, "/"))}` : ""}</span></div></div>`; };
+  // 会社名だけのカード（左の色はフェーズ、頭文字のマーク）
+  const PH = { "計上予定": "#7C8AA5", "フォローMTG設定中": "#E0A100", "フォローMTG設定済": "#3F72C9", "オンボーディング中": "#7A55C7", "利用中": "#1D9E75", "更新検討時期": "#E07A1F", "解約予定": "#C43D3D", "解約済み": "#3A3F3D", "キャンセル": "#9AA5A0", "エラー": "#A51F16" };
+  const mono = (n) => { const t = String(n || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|社会福祉法人|医療法人社団|医療法人|学校法人|\(株\)|（株）|[\s　]/g, ""); return t.slice(0, 1) || "・"; };
+  const card = (x) => `<div class="kx-uc kx-uc-lux" style="--accent:${PH[x.label] || "#1D9E75"}" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(`${x.name}（${x.label}）`)}"><span class="mono" aria-hidden="true">${esc(mono(x.name))}</span><div class="nm">${esc(x.name)}</div></div>`;
   $("lsTable").innerHTML = items.length ? `<div class="kx-ucards">${items.map(card).join("")}</div>` : `<div class="kx-empty">${d.items.length ? "当てはまる会社がありません" : "まだ会社がありません。「SFから取り込み直す」か「＋ ユーザーを追加」で入れられます。"}</div>`;
   kxFitCards();
   document.querySelectorAll("#vList [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));

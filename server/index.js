@@ -26478,7 +26478,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24m kinXs：アチコチバース（年間）の会社は、アチコチバースだけでもカードに残す。";
+const BUILD_TAG = "2026-10-24n kinXs：メニューを 更新管理→フェーズ別→ユーザー一覧→CS連携→取り込み の順に（開いたときは更新管理）、kinbotへ戻るはkincallと同じくメニューのすぐ下、左下に自分と「設定」（kinbotの設定をkinXsの中で開く）。ユーザー一覧のカードは会社名だけの豪華な形（フェーズの色の帯・頭文字のマーク）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
