@@ -292,7 +292,7 @@ function renderList() {
       c.list.push(x);
     }
     const colHtml = (c, isNone) => `<section class="kx-cscol${isNone ? " none" : ""}" data-cscol="${esc(c.name)}"><div class="kx-cscol-h"><span class="av">${isNone ? "？" : esc(c.key.slice(0, 1))}</span><b>${isNone ? "未定" : esc(c.key)}</b><span class="n">${c.list.length}</span></div><div class="kx-cscol-b">${c.list.map((x) => card(x).replace('<div class="kx-uc ', '<div draggable="true" class="kx-uc ')).join("") || '<div class="kx-note" style="padding:6px 2px">ここにカードを動かすと、この人の担当になります</div>'}</div></section>`;
-    $("lsTable").innerHTML = `<div class="kx-csboard">${colHtml(none, true)}${cols.map((c) => colHtml(c, false)).join("")}</div>`;
+    $("lsTable").innerHTML = `<div class="kx-cswrap"><button type="button" class="kx-csnav l" data-csnav="-1" aria-label="左の担当へ" hidden>‹</button><div class="kx-csboard">${colHtml(none, true)}${cols.map((c) => colHtml(c, false)).join("")}</div><button type="button" class="kx-csnav r" data-csnav="1" aria-label="右の担当へ" hidden>›</button></div>`;
     kxFitCards();
     const board = $("lsTable").querySelector(".kx-csboard");
     // 画面は止めて、列ごとにスクロール
@@ -324,6 +324,14 @@ function renderList() {
       c.addEventListener("dragend", () => { board.querySelectorAll(".dragging").forEach((x) => x.classList.remove("dragging")); board.querySelectorAll(".over").forEach((x) => x.classList.remove("over")); });
     });
     paintSel();
+    // 横にスクロール：左右のボタン・Shift＋ホイール・カードを運びながら端に近づけると流れる
+    const navs = $("lsTable").querySelectorAll("[data-csnav]");
+    const paintNav = () => { const max = board.scrollWidth - board.clientWidth - 2; navs[0].hidden = board.scrollLeft <= 2; navs[1].hidden = board.scrollLeft >= max; };
+    navs.forEach((b) => b.addEventListener("click", () => { board.scrollBy({ left: Number(b.dataset.csnav) * 540, behavior: "smooth" }); setTimeout(paintNav, 400); }));
+    board.addEventListener("scroll", paintNav);
+    board.addEventListener("wheel", (e) => { if (e.shiftKey || (Math.abs(e.deltaX) > Math.abs(e.deltaY))) return; if (e.target.closest(".kx-cscol-b")) return; board.scrollLeft += e.deltaY; e.preventDefault(); }, { passive: false });
+    board.addEventListener("dragover", (e) => { const r0 = board.getBoundingClientRect(); if (e.clientX > r0.right - 70) board.scrollLeft += 18; else if (e.clientX < r0.left + 70) board.scrollLeft -= 18; });
+    setTimeout(paintNav, 0);
     board.querySelectorAll("[data-cscol]").forEach((col) => {
       col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
       col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("over"); });
