@@ -50,7 +50,7 @@ function render() {
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = $("kxQ").value || "";
-  const items = d.items.filter((x) => kxMatch(q, x.name, x.cs, x.fs, x.products) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const items = d.items.filter((x) => kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // KPI（90日以内）
   const near = items.filter((x) => x.left != null && x.left >= -31 && x.left <= d.warnDays && x.rank !== "F");
   const warn = near.filter((x) => x.warn);
@@ -248,7 +248,7 @@ function renderList() {
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = $("lsQ").value || "";
-  const base = d.items.filter((x) => kxMatch(q, x.name, x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const base = d.items.filter((x) => kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // ラベルの絞り込み
   const counts = {}; for (const x of base) counts[x.label] = (counts[x.label] || 0) + 1;
   $("lsChips").hidden = true;
@@ -275,7 +275,7 @@ function renderList() {
   // ロゴ（会社のHPから）があれば白い四角に、読めなければ頭文字
   const card = (x) => `<div class="kx-uc kx-uc-lux" style="--accent:${PH[x.label] || "#1D9E75"}" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(`${x.name}（${x.label}）`)}">${x.logo
       ? `<span class="mono logo" aria-hidden="true"><img src="${esc(x.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('logo');this.parentNode.textContent='${esc(mono(x.name)).replace(/'/g, "")}'"></span>`
-      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm">${esc(x.name)}</div></div>`;
+      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm">${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former">（旧：${esc(x.formerNames[x.formerNames.length - 1])}）</span>` : ""}</div></div>`;
   const lsTab = window.__lsTab || "all";
   document.querySelectorAll("[data-lstab]").forEach((b) => b.classList.toggle("on", b.dataset.lstab === lsTab));
   if (lsTab === "cs") {
@@ -524,7 +524,12 @@ async function openDetail(id, reuse) {
   bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="${esc(x.name)}" style="width:min(560px,100%)">
     <div style="display:flex;align-items:center;gap:14px">
       <div class="kx-dlogo" data-logo-btn role="button" tabindex="0" title="押すと、ロゴを取り直す・手で入れる">${x.logo ? `<img src="${esc(x.logo)}" alt="" data-logo-img" />` : `<span class="mono">${esc((x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1))}</span>`}<span class="ed">ロゴ</span></div>
-      <div style="min-width:0"><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+      <div style="min-width:0"><h2>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former-h">（旧：${esc(x.formerNames.slice().reverse().join("・旧："))}）</span>` : ""} <button type="button" class="kx-ren" data-ren-open title="社名が変わったとき">社名を変える</button></h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div class="kx-logo-menu" data-ren-box hidden>
+      <div class="h" style="width:100%"><b>社名を変える</b><span class="kx-note">今の名前は「旧社名」として残り、「新しい社名（旧：今の社名）」と出ます</span><button type="button" class="hp-b" data-ren-close style="margin-left:auto">しまう ▲</button></div>
+      <div class="row"><input class="kx-in" data-ren-name placeholder="新しい社名（例：株式会社ASCare）" /><button type="button" class="hp-b" data-ren-save>変える</button></div>
+      <div class="row"><input class="kx-in" data-ren-former value="${esc((x.formerNames || []).join("、"))}" placeholder="旧社名（、で区切る）" /><button type="button" class="hp-b" data-ren-former-save>旧社名を直す</button><span class="kx-note" data-ren-st></span></div>
+    </div>
     <div class="kx-logo-menu" data-logo-menu hidden>
       <div class="h" style="width:100%"><b>ロゴ</b>${x.logoManual ? '<span class="kx-src">手で決めたロゴ</span>' : '<span class="kx-src">自動（HPから）</span>'}<button type="button" class="hp-b" data-logo-close style="margin-left:auto">しまう ▲</button></div>
       <button type="button" class="hp-b" data-logo="refetch">HPから取り直す</button>
@@ -672,6 +677,21 @@ async function openDetail(id, reuse) {
   const ss = bg.querySelector("[data-save-status]");
   if (ss) ss.addEventListener("click", () => put({ cs_name: bg.querySelector('[data-st="cs_name"]').value, purpose: bg.querySelector('[data-st="purpose"]').value, usage_status: usagePick }));
   { const li = bg.querySelector("[data-logo-img]"); if (li) li.addEventListener("error", () => { const sp = document.createElement("span"); sp.className = "mono"; sp.textContent = (x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1); li.replaceWith(sp); }); }
+  // 社名を変える
+  const rbox = bg.querySelector("[data-ren-box]");
+  const ro = bg.querySelector("[data-ren-open]"); if (ro) ro.addEventListener("click", (e) => { e.stopPropagation(); rbox.hidden = !rbox.hidden; if (!rbox.hidden) rbox.querySelector("[data-ren-name]").focus(); });
+  const rc = bg.querySelector("[data-ren-close]"); if (rc) rc.addEventListener("click", () => { rbox.hidden = true; });
+  const rst = bg.querySelector("[data-ren-st]");
+  const rs = bg.querySelector("[data-ren-save]");
+  if (rs) rs.addEventListener("click", async () => {
+    const nn = bg.querySelector("[data-ren-name]").value.trim(); if (!nn) { rst.textContent = "新しい社名を入れてください"; return; }
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/rename`, { method: "POST", body: JSON.stringify({ name: nn }) }); refresh().catch(() => {}); await again(`社名を「${nn}」にしました（旧：${x.name}）`); } catch (e) { rst.textContent = e.message; }
+  });
+  const rfs = bg.querySelector("[data-ren-former-save]");
+  if (rfs) rfs.addEventListener("click", async () => {
+    const list = bg.querySelector("[data-ren-former]").value.split(/[、,，\n]/).map((v) => v.trim()).filter(Boolean);
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/rename`, { method: "POST", body: JSON.stringify({ former: list }) }); refresh().catch(() => {}); await again("旧社名を直しました"); } catch (e) { rst.textContent = e.message; }
+  });
   // ロゴ：取り直す・URL・ファイル・なし
   const lmenu = bg.querySelector("[data-logo-menu]");
   const lbtn = bg.querySelector("[data-logo-btn]");
@@ -844,7 +864,7 @@ function renderBoard() {
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = $("bdQ").value || "";
-  const items = d.items.filter((x) => kxMatch(q, x.name, x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const items = d.items.filter((x) => kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // 解約済み・キャンセルの列もいつも出す
   const cols = BD_COLS.filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
   const good = "background:#E1F5EE;color:#0A5440", bad = "background:#FBE4E4;color:#8C1F1F", mid = "background:#FFF1DC;color:#7A3F00";

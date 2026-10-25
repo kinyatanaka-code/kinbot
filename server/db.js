@@ -11576,7 +11576,7 @@ export async function kinxsInit() {
     end_estimated BOOLEAN DEFAULT false, renew_month TEXT, fs_name TEXT, cs_name TEXT, rank TEXT DEFAULT 'Z', rank_by TEXT, rank_at TIMESTAMPTZ,
     main_label TEXT, label_locked BOOLEAN DEFAULT false, error TEXT, memo TEXT, opp_ids JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
-  for (const c of ["merged_into TEXT", "logo_manual BOOLEAN DEFAULT false", "logo_data TEXT", "logo_type TEXT", "info JSONB", "usage_status TEXT", "purpose TEXT", "website TEXT", "logo_url TEXT", "logo_at TIMESTAMPTZ", "first_booked_on DATE", "na_type TEXT", "na_at TIMESTAMPTZ", "na_source TEXT", "na_suggest JSONB", "na_scan_at TIMESTAMPTZ", "renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
+  for (const c of ["former_names JSONB DEFAULT '[]'::jsonb", "name_override TEXT", "merged_into TEXT", "logo_manual BOOLEAN DEFAULT false", "logo_data TEXT", "logo_type TEXT", "info JSONB", "usage_status TEXT", "purpose TEXT", "website TEXT", "logo_url TEXT", "logo_at TIMESTAMPTZ", "first_booked_on DATE", "na_type TEXT", "na_at TIMESTAMPTZ", "na_source TEXT", "na_suggest JSONB", "na_scan_at TIMESTAMPTZ", "renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
     await sq(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
   await sq(`CREATE TABLE IF NOT EXISTS kinxs_history (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, from_v TEXT, to_v TEXT, by_user TEXT, auto BOOLEAN DEFAULT false, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
 }
@@ -11585,7 +11585,10 @@ export async function kinxsUpsertFromSf(a) {
   const { rows } = await pool.query(
     `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, start_on, end_on, end_estimated, renew_month, fs_name, cs_name, error, opp_ids, first_booked_on, website, updated_at)
      VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14, now())
-     ON CONFLICT (account_id) DO UPDATE SET name=$2, products=$3::jsonb, booked_on=$4, start_on=$5, end_on=$6, end_estimated=$7, first_booked_on=$13, website=COALESCE($14, kinxs_accounts.website),
+     ON CONFLICT (account_id) DO UPDATE SET name=$2,
+       former_names=CASE WHEN COALESCE(kinxs_accounts.name,'') <> '' AND kinxs_accounts.name IS DISTINCT FROM $2 AND NOT (COALESCE(kinxs_accounts.former_names,'[]'::jsonb) ? kinxs_accounts.name)
+         THEN COALESCE(kinxs_accounts.former_names,'[]'::jsonb) || to_jsonb(kinxs_accounts.name) ELSE COALESCE(kinxs_accounts.former_names,'[]'::jsonb) END,
+       products=$3::jsonb, booked_on=$4, start_on=$5, end_on=$6, end_estimated=$7, first_booked_on=$13, website=COALESCE($14, kinxs_accounts.website),
        renew_month=CASE WHEN COALESCE(kinxs_accounts.renew_locked,false) THEN kinxs_accounts.renew_month ELSE $8 END, fs_name=$9,
        cs_name=COALESCE(kinxs_accounts.cs_name, $10), error=$11, opp_ids=$12::jsonb, updated_at=now()
      RETURNING (xmax = 0) AS inserted`,
@@ -11715,4 +11718,23 @@ export async function kinxsSetLogoManual(accountId, { url = null, data = null, t
   if (mode === "auto") { await pool.query(`UPDATE kinxs_accounts SET logo_manual=false, logo_data=NULL, logo_type=NULL, logo_at=NULL WHERE account_id=$1`, [accountId]); return; }
   if (mode === "clear") { await pool.query(`UPDATE kinxs_accounts SET logo_manual=true, logo_url=NULL, logo_data=NULL, logo_type=NULL, logo_at=now() WHERE account_id=$1`, [accountId]); return; }
   await pool.query(`UPDATE kinxs_accounts SET logo_manual=true, logo_url=$2, logo_data=$3, logo_type=$4, logo_at=now() WHERE account_id=$1`, [accountId, url || (data ? `upload:${accountId}` : null), data, type]);
+}
+
+// 社名を変える（手で）：今の名前を旧社名に足す。SFから取り込んだ会社は、SFの名前を上書きしないように name_override に入れる
+export async function kinxsRename(accountId, newName, by) {
+  if (!pool) return null;
+  const { rows: cur } = await pool.query(`SELECT * FROM kinxs_accounts WHERE account_id=$1`, [accountId]);
+  const r = cur[0]; if (!r) return null;
+  const nowName = r.name_override || r.name || "";
+  const nn = String(newName || "").trim();
+  if (!nn || nn === nowName) return r;
+  const former = [...new Set([...(Array.isArray(r.former_names) ? r.former_names : []), nowName].filter((x) => x && x !== nn))];
+  const manual = r.source === "manual";
+  const { rows } = await pool.query(`UPDATE kinxs_accounts SET ${manual ? "name=$2, name_override=NULL" : "name_override=$2"}, former_names=$3::jsonb, updated_at=now() WHERE account_id=$1 RETURNING *`, [accountId, nn, JSON.stringify(former)]);
+  await pool.query(`INSERT INTO kinxs_history (account_id, kind, from_v, to_v, by_user, auto) VALUES ($1,'name',$2,$3,$4,false)`, [accountId, nowName, nn, by]).catch(() => {});
+  return rows[0];
+}
+export async function kinxsSetFormer(accountId, list) {
+  if (!pool) return;
+  await pool.query(`UPDATE kinxs_accounts SET former_names=$2::jsonb WHERE account_id=$1`, [accountId, JSON.stringify((list || []).filter(Boolean).slice(0, 5))]);
 }

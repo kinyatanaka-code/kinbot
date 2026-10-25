@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsSetLogoManual, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
@@ -12616,10 +12616,13 @@ async function kinxsBuild() {
   const now = Date.now();
   const days = (t) => (t ? Math.floor((now - Date.parse(t)) / 86400000) : null);
   const today = new Date(now + 9 * 3600000).toISOString().slice(0, 10);
-  const items = rows.map((r) => {
+  const items = rows.map((r0) => {
+    let r = r0; r = { ...r, name: r.name_override || r.name };
+    const formerNames = (Array.isArray(r.former_names) ? r.former_names : []).filter((f) => f && f !== r.name);
     const key = csCoKey(r.name || "");
-    const k = key ? kickBy.get(key) : null;
-    const mts = key ? (mtBy.get(key) || []) : [];
+    const k = key ? (kickBy.get(key) || formerNames.map((f) => kickBy.get(csCoKey(f))).find(Boolean) || null) : null;
+    const fkeys = formerNames.map((f) => csCoKey(f)).filter((f2) => f2 && f2 !== key);
+    const mts = key ? [...new Map([...(mtBy.get(key) || []), ...fkeys.flatMap((f2) => mtBy.get(f2) || [])].map((m) => [m.bot_id, m])).values()] : [];
     const contacts = Array.isArray(r.contacts) ? r.contacts : [];
     const toMs = (v) => { const t = v instanceof Date ? v.getTime() : Date.parse(v || ""); return isFinite(t) ? t : 0; };
     const touchMs = Math.max(0, ...[...mts.map((m) => m.created_at), ...contacts.map((c) => c.at)].map(toMs));
@@ -12660,7 +12663,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy, allMeetings: ms };
 }
@@ -12746,6 +12749,17 @@ app.get("/api/kinxs/logo/:id", async (req, res) => {
     if (_kxLogoImg.size > 500) _kxLogoImg.delete(_kxLogoImg.keys().next().value);
     res.set({ "Content-Type": type, "Cache-Control": "private, max-age=86400" }); res.end(buf);
   } catch { res.status(404).end(); }
+});
+app.post("/api/kinxs/accounts/:id/rename", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {};
+    if (Array.isArray(b.former)) { await kinxsSetFormer(req.params.id, b.former.map((x) => String(x || "").trim()).filter(Boolean)); return res.json({ ok: true }); }
+    const nn = String(b.name || "").trim(); if (!nn) return res.status(400).json({ error: "新しい社名を入れてください" });
+    const r = await kinxsRename(req.params.id, nn, req.user);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
   try {
@@ -13024,7 +13038,7 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   if (!x) return { ok: false, reason: "会社が見つかりません" };
   const rows = await kinxsList(); const r = rows.find((y) => y.account_id === accountId) || {};
   if (!force && r.na_scan_at && Date.now() - Date.parse(r.na_scan_at) < 20 * 3600000) return { ok: false, reason: "最近読んだばかりです" };
-  const key = csCoKey(x.name); const k = kickBy.get(key) || null;
+  const key = csCoKey(x.name); const k = kickBy.get(key) || (x.formerNames || []).map((f) => kickBy.get(csCoKey(f))).find(Boolean) || null;
   // 先方を探す手がかり：会社名・担当者のメールアドレス・担当者の名前（CS連携の先方・SFの取引先責任者・企業情報で手で入れた担当者）
   const doms = new Set(), emails = new Set(), names = new Set();
   const addMail = (e) => { const m = String(e || "").toLowerCase().trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)) return; emails.add(m); const d = m.split("@")[1]; if (d && !KX_FREE_MAIL.test(d)) doms.add(d); };
@@ -13034,9 +13048,10 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   if (!/^manual-/.test(accountId)) {
     try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const q = await sfQuery(sfU, `SELECT Name, Email FROM Contact WHERE AccountId='${String(accountId).replace(/'/g, "")}' LIMIT 10`); (q.records || []).forEach((c) => { addMail(c.Email); addName(c.Name); }); } } catch {}
   }
+  const coShortsOld = (x.formerNames || []).map((f) => String(f).replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim()).filter((f) => f.length >= 2);
   const coShort = String(x.name || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
   // Gmail の検索：メールアドレス・ドメイン（from/to）、会社名・担当者の名前（本文や件名）
-  const terms = [...[...emails].slice(0, 6).map((m) => `from:${m} OR to:${m}`), ...[...doms].slice(0, 3).map((d) => `from:@${d} OR to:@${d}`), ...(coShort.length >= 2 ? [`"${coShort}"`] : []), ...[...names].slice(0, 4).map((n) => `"${n}"`)];
+  const terms = [...[...emails].slice(0, 6).map((m) => `from:${m} OR to:${m}`), ...[...doms].slice(0, 3).map((d) => `from:@${d} OR to:@${d}`), ...(coShort.length >= 2 ? [`"${coShort}"`] : []), ...coShortsOld.slice(0, 2).map((f) => `"${f}"`), ...[...names].slice(0, 4).map((n) => `"${n}"`)];
   // 読むGmail：CS担当 → FS → CSのメンバー全員（kinbotでGoogle連携している人。メールワイズのコピーがだれのGmailに届いていても拾える）。登録はいらない
   const csMembers = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => String(m.email || "").toLowerCase());
   const owners = [...new Set([k && k.cs_email, k && k.fs_email, ...csMembers].filter(Boolean))].slice(0, 8);
@@ -13059,7 +13074,7 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   }
   // 議事録：会社名で照らしたもの＋題名に担当者の名前が入っているもの。いちばん新しい2件（180日まで）
   const byName = names.size ? (allMeetings || []).filter((m) => { const t = String(m.title || "").normalize("NFKC"); return [...names].some((n) => n.length >= 2 && t.includes(n)) && (!coShort || t.includes(coShort.slice(0, 2)) || [...names].some((n) => n.length >= 3 && t.includes(n))); }) : [];
-  const mtPool = [...new Map([...(mtBy.get(key) || []), ...byName].map((m) => [m.bot_id, m])).values()];
+  const mtPool = [...new Map([...(mtBy.get(key) || []), ...(x.formerNames || []).flatMap((f) => mtBy.get(csCoKey(f)) || []), ...byName].map((m) => [m.bot_id, m])).values()];
   const mts = mtPool.filter((m) => Date.now() - Date.parse(m.created_at) < 180 * 86400000).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 2);
   const minutes = [];
   for (const m0 of mts) {
@@ -13131,7 +13146,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
     const x = items.find((i) => i.id === req.params.id);
     if (!x) return res.status(404).json({ error: "見つかりません" });
     const key = csCoKey(x.name);
-    const mts = (mtBy.get(key) || []).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 40)
+    const mts = [...new Map([...(mtBy.get(key) || []), ...(x.formerNames || []).flatMap((f) => mtBy.get(csCoKey(f)) || [])].map((m) => [m.bot_id, m])).values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 40)
       .map((m) => ({ kind: "mtg", at: m.created_at, title: m.title || "", summary: (m.summary && m.summary.overview) || "", botId: m.bot_id, url: `/history.html?bot=${encodeURIComponent(m.bot_id)}`, owner: m.owner_name || m.rep_name || "" }));
     const rows = await kinxsList();
     const r = rows.find((y) => y.account_id === x.id) || {};
@@ -13152,7 +13167,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
       owner: `${h.auto ? "自動" : nameOf(h.by_user)}` }));
     for (const c of contacts) c.owner = nameOf(c.owner);
     // 議事録を「商談（キックオフより前）」と「フォロー（キックオフ含めそれ以降）」に分ける
-    const kk = kickBy.get(key) || null;
+    const kk = kickBy.get(key) || (x.formerNames || []).map((f) => kickBy.get(csCoKey(f))).find(Boolean) || null;
     const isoOf = (v) => (v instanceof Date ? v.toISOString() : String(v || ""));
     const koMt = mts.filter((m) => /キックオフ|回収MTG|kick ?off/i.test(m.title)).sort((a, b) => isoOf(a.at).localeCompare(isoOf(b.at)))[0];
     const koAt = koMt ? isoOf(koMt.at) : (kk && kk.meeting_at ? isoOf(kk.meeting_at) : null);
@@ -26774,7 +26789,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25w kinXs：企業情報でHPを直して保存したら、その場で新しいHPからロゴを取り直す（手で決めたロゴは除く）。ロゴの取り直し・見回りは、手で入れたHPを先に使う。";
+const BUILD_TAG = "2026-10-25x kinXs：社名が変わったら「新しい社名（旧：前の社名）」と出す。SFの取引先名が変わったら自動で旧社名を残し、モーダルの「社名を変える」で手でも変えられる。旧社名でも検索・議事録・回収MTG・メールを探す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
