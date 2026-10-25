@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261025e" />
+    <link rel="stylesheet" href="style.css?v=20261025f" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -292,9 +292,11 @@
   .kx-cscol-h b{font-size:13.5px;} .kx-cscol-h .n{margin-left:auto;font-size:12px;font-weight:700;color:#4F6158;background:#fff;border-radius:99px;padding:1px 9px;}
   .kx-cscol-b{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 10px 10px;display:flex;flex-direction:column;gap:8px;}
   .kx-cscol .kx-uc{cursor:grab;} .kx-cscol .kx-uc.dragging{opacity:.4;}
-  .kx-cscol .kx-uc-lux{padding:9px 11px !important;min-height:0 !important;gap:10px !important;}
-  .kx-cscol .kx-uc-lux .mono{width:30px !important;height:30px !important;font-size:13px !important;border-radius:9px !important;}
-  .kx-cscol .kx-uc-lux .nm{font-size:13px !important;}
+  /* 担当別の列のカード：つぶれないように（列の中で縮ませない）、厚めに */
+  .kx-cscol-b > *{flex:none !important;}
+  .kx-cscol .kx-uc-lux{padding:14px 14px !important;min-height:64px !important;gap:12px !important;align-items:center !important;}
+  .kx-cscol .kx-uc-lux .mono{width:38px !important;height:38px !important;font-size:15px !important;border-radius:11px !important;flex:none !important;}
+  .kx-cscol .kx-uc-lux .nm{font-size:13.5px !important;line-height:1.4 !important;white-space:normal !important;}
 </style>
 </head>
   <body>
@@ -390,6 +392,6 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261025e"></script>
+    <script src="kinxs.js?v=20261025f"></script>
   </body>
 </html>
