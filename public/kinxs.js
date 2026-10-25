@@ -252,6 +252,7 @@ api("/api/me").then((me) => {
 api("/api/kinxs/users").then((u) => {
   const n = ((u && u.items) || []).filter((x) => (x.alerts || []).length).length;
   const c = $("kxTopChip"); if (!c || !n) return;
+  if (!window.KX_SHOW_TOP_ALERT) return;   // ヘッダーの「要注意 ○社」は、いまは出さない（2026-10-26）
   c.hidden = false; c.textContent = `要注意 ${n}社`;
   c.addEventListener("click", () => { location.href = "/kinxs?p=list"; });
 }).catch(() => {});
