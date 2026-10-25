@@ -275,7 +275,7 @@ function renderList() {
   // ロゴ（会社のHPから）があれば白い四角に、読めなければ頭文字
   const card = (x) => `<div class="kx-uc kx-uc-lux" style="--accent:${PH[x.label] || "#1D9E75"}" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(`${x.name}（${x.label}）`)}">${x.logo
       ? `<span class="mono logo" aria-hidden="true"><img src="${esc(x.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('logo');this.parentNode.textContent='${esc(mono(x.name)).replace(/'/g, "")}'"></span>`
-      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm">${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former">（旧：${esc(x.formerNames[x.formerNames.length - 1])}）</span>` : ""}</div></div>`;
+      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm${(x.formerNames || []).length ? " has-former" : ""}"><span class="t">${esc(x.name)}</span>${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}</div></div>`;
   const lsTab = window.__lsTab || "all";
   document.querySelectorAll("[data-lstab]").forEach((b) => b.classList.toggle("on", b.dataset.lstab === lsTab));
   if (lsTab === "cs") {
