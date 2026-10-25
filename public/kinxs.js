@@ -295,7 +295,7 @@ function renderList() {
     let colOrder = []; try { colOrder = JSON.parse(localStorage.getItem("kxCsColOrder") || "[]"); } catch {}
     const allCols = [{ ...none, key: "__none", isNone: true }, ...cols.map((c) => ({ ...c, isNone: false }))];
     allCols.sort((a2, b2) => { const ia = colOrder.indexOf(a2.key), ib = colOrder.indexOf(b2.key); return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib); });
-    const colHtml = (c, isNone) => `<section class="kx-cscol${isNone ? " none" : ""}" data-cscol="${esc(c.name)}" data-colkey="${esc(isNone ? "__none" : c.key)}"><div class="kx-cscol-h" draggable="true" title="見出しをつかむと、列を動かせます"><span class="kx-grip" aria-hidden="true">⋮⋮</span><span class="av">${isNone ? "？" : esc(c.key.slice(0, 1))}</span><b>${isNone ? "未定" : esc(c.key)}</b><span class="n">${c.list.length}</span></div><div class="kx-cscol-b">${c.list.map((x) => card(x).replace('<div class="kx-uc ', '<div draggable="true" class="kx-uc ')).join("") || '<div class="kx-note" style="padding:6px 2px">ここにカードを動かすと、この人の担当になります</div>'}</div></section>`;
+    const colHtml = (c, isNone) => `<section class="kx-cscol${isNone ? " none" : ""}" data-cscol="${esc(c.name)}" data-colkey="${esc(isNone ? "__none" : c.key)}" draggable="true" title="列のどこでもつかむと、列を動かせます（会社のカードをつかむと、その会社が動きます）"><div class="kx-cscol-h"><span class="kx-grip" aria-hidden="true">⋮⋮</span><span class="av">${isNone ? "？" : esc(c.key.slice(0, 1))}</span><b>${isNone ? "未定" : esc(c.key)}</b><span class="n">${c.list.length}</span></div><div class="kx-cscol-b">${c.list.map((x) => card(x).replace('<div class="kx-uc ', '<div draggable="true" class="kx-uc ')).join("") || '<div class="kx-note" style="padding:6px 2px">ここにカードを動かすと、この人の担当になります</div>'}</div></section>`;
     $("lsTable").innerHTML = `<div class="kx-cswrap"><button type="button" class="kx-csnav l" data-csnav="-1" aria-label="左の担当へ" hidden>‹</button><div class="kx-csboard">${allCols.map((c) => colHtml(c, c.isNone)).join("")}</div><button type="button" class="kx-csnav r" data-csnav="1" aria-label="右の担当へ" hidden>›</button></div>`;
     kxFitCards();
     const board = $("lsTable").querySelector(".kx-csboard");
@@ -337,9 +337,13 @@ function renderList() {
     board.addEventListener("dragover", (e) => { const r0 = board.getBoundingClientRect(); if (e.clientX > r0.right - 70) board.scrollLeft += 18; else if (e.clientX < r0.left + 70) board.scrollLeft -= 18; });
     setTimeout(paintNav, 0);
     const COLT = "application/x-kx-col";
-    board.querySelectorAll(".kx-cscol-h[draggable]").forEach((h) => {
-      h.addEventListener("dragstart", (e) => { e.stopPropagation(); e.dataTransfer.setData(COLT, h.parentNode.dataset.colkey); e.dataTransfer.effectAllowed = "move"; h.parentNode.classList.add("col-dragging"); });
-      h.addEventListener("dragend", () => { board.querySelectorAll(".col-dragging,.col-over-l,.col-over-r").forEach((x) => x.classList.remove("col-dragging", "col-over-l", "col-over-r")); });
+    // 列そのもの（どこでも）をつかむと列が動く。会社のカードをつかんだときは、カードの方
+    board.querySelectorAll(".kx-cscol[draggable]").forEach((col0) => {
+      col0.addEventListener("dragstart", (e) => {
+        if (e.target.closest && e.target.closest("[data-open]")) return;
+        e.dataTransfer.setData(COLT, col0.dataset.colkey); e.dataTransfer.effectAllowed = "move"; col0.classList.add("col-dragging");
+      });
+      col0.addEventListener("dragend", () => { board.querySelectorAll(".col-dragging,.col-over-l,.col-over-r").forEach((x) => x.classList.remove("col-dragging", "col-over-l", "col-over-r")); });
     });
     const isColDrag = (e) => [...(e.dataTransfer.types || [])].includes(COLT);
     board.querySelectorAll("[data-cscol]").forEach((col) => {
