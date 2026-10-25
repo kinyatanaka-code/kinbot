@@ -12546,6 +12546,7 @@ async function kinxsSync() {
     const lab = (n) => ((d0.fields || []).find((f) => f.name === n) || {}).label || n;
     await saveSettings({ kinxsItemCache: cache, kinxsFields: { start: usedStart ? `${lab(usedStart)}（${usedStart}）` : "", end: usedEnd ? `${lab(usedEnd)}（${usedEnd}）` : "", candidates: endF } }).catch(() => {});
     for (const [id, acc] of [...byAcc.entries()]) { if (!kinxsAccountOk(acc.products.map((p) => p.name))) { byAcc.delete(id); out.skipped++; } }
+    try { out.merged = await kinxsDedupe(); } catch {}
     // アチコチバースの無い会社（商品を確かめ終わったもの）は、ユーザーから外す
     try { out.removed = await kinxsPruneSf([...byAcc.keys()], Object.keys(cache)); } catch (e) { out.errors.push(`外す処理：${e.message}`); }
     const kicks = await listCsKickoffs(500).catch(() => []);
@@ -12602,7 +12603,7 @@ async function kinxsBuild() {
   await kinxsInit();
   const st = await getSettings().catch(() => ({}));
   const rules = { renewDays: 90, contactDays: 30, staleDays: 90, ...(st.kinxsRules || {}) };
-  const rows = await kinxsList();
+  const rows = (await kinxsList()).filter((r) => !r.merged_into);
   const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
   const kickBy = new Map(); for (const k of kicks) { const key = csCoKey(k.company); if (key && !kickBy.has(key)) kickBy.set(key, k); }
   const ksSent = st.kenshuSent || {};
@@ -12774,6 +12775,51 @@ app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
     res.status(400).json({ error: "mode が正しくありません" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== kinXs：同じ会社が2つ以上あるとき、1つにまとめる =====
+// 会社名のキー（csCoKey）が同じものをまとめる。残すのは、SFから取り込んだもの（商品・商談が多い方）→ 古い方。
+// 残す方が空の項目は、まとめる方から引き継ぐ（CS担当・次回アクション・利用目的・活用・メモ・企業情報・確度・更新月）。
+// 手で追加した方は消す。SFの方（SFに同じ名前の取引先が2つあるとき）は merged_into の印を付けて出さない（次の取り込みでも出てこない）
+async function kinxsDedupe() {
+  await kinxsInit();
+  const rows = (await kinxsList()).filter((r) => !r.merged_into);
+  const groups = new Map();
+  for (const r of rows) { const k = csCoKey(r.name || ""); if (!k || k.length < 2) continue; (groups.get(k) || groups.set(k, []).get(k)).push(r); }
+  let merged = 0;
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const score = (r) => (r.source === "manual" ? 0 : 1000) + ((r.products || []).length * 10) + ((r.opp_ids || []).length);
+    list.sort((a, b) => score(b) - score(a) || String(a.created_at).localeCompare(String(b.created_at)));
+    const keep = list[0];
+    const patch = {};
+    for (const o of list.slice(1)) {
+      if (!keep.cs_name && o.cs_name && !patch.cs_name) patch.cs_name = o.cs_name;
+      if (!keep.na_text && o.na_text && !patch.na_text) { patch.na_text = o.na_text; patch.na_type = o.na_type || null; patch.na_at = o.na_at || null; patch.na_due = o.na_due || null; patch.na_source = o.na_source || null; }
+      if (!keep.purpose && o.purpose && !patch.purpose) patch.purpose = o.purpose;
+      if (!keep.usage_status && o.usage_status && !patch.usage_status) patch.usage_status = o.usage_status;
+      if (o.memo && !String(keep.memo || "").includes(o.memo)) patch.memo = [patch.memo || keep.memo, o.memo].filter(Boolean).join("\n");
+      if ((!keep.rank || keep.rank === "Z") && o.rank && o.rank !== "Z" && !patch._rank) patch._rank = o.rank;
+      if (o.renew_locked && !keep.renew_locked && !patch.renew_month) { patch.renew_month = o.renew_month; patch.renew_locked = true; }
+      if (o.info && Object.keys(o.info).length) patch.info = { ...(o.info || {}), ...(patch.info || {}), ...(keep.info || {}) };
+      if (Array.isArray(o.contacts) && o.contacts.length) patch.contacts = [...(keep.contacts || []), ...(patch.contacts || []), ...o.contacts].slice(-200);
+    }
+    const rk = patch._rank; delete patch._rank;
+    if (Object.keys(patch).length) await kinxsUpdate(keep.account_id, patch, "kinXs（重複をまとめた）").catch(() => {});
+    if (rk) await kinxsSetRank(keep.account_id, rk, "kinXs（重複をまとめた）").catch(() => {});
+    for (const o of list.slice(1)) {
+      if (o.source === "manual") await kinxsDeleteManual(o.account_id).catch(() => {});
+      else await pool.query(`UPDATE kinxs_accounts SET merged_into=$2 WHERE account_id=$1`, [o.account_id, keep.account_id]).catch(() => {});
+      await kinxsLogAuto(keep.account_id, "merge", o.name, `重複していた「${o.name}」をまとめました（${o.source === "manual" ? "手入力" : `SF ${o.account_id}`}）`);
+      merged++;
+    }
+  }
+  if (merged) console.log(`[kinxs] 重複していた会社をまとめました：${merged}件`);
+  return merged;
+}
+app.post("/api/kinxs/dedupe", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, merged: await kinxsDedupe() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+setTimeout(() => { kinxsDedupe().catch((e) => console.warn("[kinxs] 重複", e.message)); }, 4 * 60 * 1000).unref?.();
 let _kxLogoBusy = false;
 async function kinxsLogoTick(limit = 15) {
   if (_kxLogoBusy) return; _kxLogoBusy = true;
@@ -26702,7 +26748,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25r kinXsの読み取り：メールと議事録を、会社名だけでなく先方の担当者のメールアドレス・名前でも探す（CS連携・SFの取引先責任者・企業情報の担当者から）。メールは45日、議事録はいちばん新しい2件（180日まで）。";
+const BUILD_TAG = "2026-10-25s kinXs：同じ会社が2つ以上あるとき、1つにまとめる（SFから取り込んだ方を残し、手で入れた中身は引き継ぐ。手入力の方は消し、SFに同じ名前が2つある方は出さない）。起動4分後と、SFからの取り込みのたびに。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
