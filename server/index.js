@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
@@ -12522,7 +12522,7 @@ async function kinxsSync() {
     // 日付を「YYYY-MM-DD」にそろえる（日時の項目・形の違う値は捨てる）
     const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) && !isNaN(Date.parse(`${t}T00:00:00Z`)) ? t : null; };
     const firstOf = (o, list) => { for (const f of list) { const v = ymd(o[f]); if (v) return v; } return null; };
-    const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name${extra} FROM Opportunity
+    const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name, Account.Website${extra} FROM Opportunity
       WHERE (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
       ORDER BY CloseDate DESC LIMIT 1500`);
     const cache = { ...(st.kinxsItemCache || {}) };   // 商談ID → 商品名（取り直さない）
@@ -12535,7 +12535,7 @@ async function kinxsSync() {
       if (!names) continue;   // まだ商品を見ていない（次の回で）
       const target = names.filter(kinxsIsTarget);
       if (!target.length) { out.skipped++; continue; }
-      const a = byAcc.get(o.AccountId) || { account_id: o.AccountId, name: (o.Account && o.Account.Name) || "", products: [], opp_ids: [], fs_name: (o.Owner && o.Owner.Name) || "" };
+      const a = byAcc.get(o.AccountId) || { account_id: o.AccountId, name: (o.Account && o.Account.Name) || "", website: (o.Account && o.Account.Website) || "", products: [], opp_ids: [], fs_name: (o.Owner && o.Owner.Name) || "" };
       const booked = ymd(o.SS06__c) || ymd(o.CloseDate) || null;
       for (const n of target) a.products.push({ name: n, opp: o.Id, booked, start: firstOf(o, startF), end: firstOf(o, endF), stage: o.StageName });
       a.opp_ids.push(o.Id);
@@ -12658,10 +12658,56 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logo: r.logo_url || "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy };
 }
+// ===== kinXs：会社のHPからロゴ（アイコン）を探す =====
+// HPのトップを読んで apple-touch-icon → 大きい icon の順に。見つからなければ Google のファビコン（128px）。30日に1回読み直す
+async function kxFindLogo(site) {
+  let u = String(site || "").trim(); if (!u) return null;
+  if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+  let host = ""; try { host = new URL(u).hostname; } catch { return null; }
+  const fallback = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
+  try {
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 7000);
+    const r = await fetch(u, { signal: ctl.signal, redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (kinXs logo)" } }).finally(() => clearTimeout(tm));
+    if (!r.ok) return fallback;
+    const html = (await r.text()).slice(0, 300000);
+    const base = r.url || u;
+    const links = [...html.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]);
+    const attr = (tag, n) => ((tag.match(new RegExp(`${n}\\s*=\\s*["']([^"']+)["']`, "i")) || [])[1] || "");
+    const cands = [];
+    for (const t of links) {
+      const rel = attr(t, "rel").toLowerCase(); const href = attr(t, "href"); if (!href) continue;
+      if (!/icon/.test(rel) || /mask-icon/.test(rel)) continue;   // mask-icon（1色のシルエット）は使わない
+      const sz = parseInt((attr(t, "sizes").match(/(\d+)/) || [])[1] || (rel.includes("apple") ? "180" : "32"), 10) || 32;
+      cands.push({ href, score: (rel.includes("apple-touch") ? 1000 : 0) + sz + (/\.svg($|\?)/i.test(href) ? 150 : 0) });
+    }
+    cands.sort((a, b) => b.score - a.score);
+    for (const c of cands) { try { return new URL(c.href, base).href; } catch {} }
+    return fallback;
+  } catch { return fallback; }
+}
+let _kxLogoBusy = false;
+async function kinxsLogoTick(limit = 15) {
+  if (_kxLogoBusy) return; _kxLogoBusy = true;
+  try {
+    const rows = await kinxsList();
+    const kicks = await listCsKickoffs(500).catch(() => []);
+    const need = rows.filter((r) => !r.logo_at || Date.now() - Date.parse(r.logo_at) > 30 * 86400000).slice(0, limit);
+    for (const r of need) {
+      let site = r.website || "";
+      if (!site) { const k = kicks.find((x) => csCoKey(x.company) && csCoKey(x.company) === csCoKey(r.name)); site = (k && k.client_email && !KX_FREE_MAIL.test(String(k.client_email).split("@")[1] || "")) ? String(k.client_email).split("@")[1] : ""; }
+      const logo = site ? await kxFindLogo(site) : null;
+      await kinxsSetLogo(r.account_id, logo);
+    }
+    if (need.length) console.log(`[kinxs] 会社のロゴを探しました：${need.length}社`);
+  } catch (e) { console.warn("[kinxs] ロゴ", e.message); }
+  finally { _kxLogoBusy = false; }
+}
+setTimeout(() => { kinxsLogoTick(40).catch(() => {}); }, 3 * 60 * 1000).unref?.();
+setInterval(() => { kinxsLogoTick(15).catch(() => {}); }, 20 * 60 * 1000).unref?.();
 app.get("/api/kinxs/users", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
@@ -26478,7 +26524,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24n kinXs：メニューを 更新管理→フェーズ別→ユーザー一覧→CS連携→取り込み の順に（開いたときは更新管理）、kinbotへ戻るはkincallと同じくメニューのすぐ下、左下に自分と「設定」（kinbotの設定をkinXsの中で開く）。ユーザー一覧のカードは会社名だけの豪華な形（フェーズの色の帯・頭文字のマーク）。";
+const BUILD_TAG = "2026-10-24o kinXsのユーザー一覧：カードの右上の光をやめた。会社のHP（SFの取引先のWebサイト、無ければ先方のメールのドメイン）からロゴを探してアイコンに（apple-touch-icon→大きいicon→Googleのファビコン、読めなければ頭文字）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

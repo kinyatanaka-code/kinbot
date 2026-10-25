@@ -11576,21 +11576,21 @@ export async function kinxsInit() {
     end_estimated BOOLEAN DEFAULT false, renew_month TEXT, fs_name TEXT, cs_name TEXT, rank TEXT DEFAULT 'Z', rank_by TEXT, rank_at TIMESTAMPTZ,
     main_label TEXT, label_locked BOOLEAN DEFAULT false, error TEXT, memo TEXT, opp_ids JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
-  for (const c of ["first_booked_on DATE", "na_type TEXT", "na_at TIMESTAMPTZ", "na_source TEXT", "na_suggest JSONB", "na_scan_at TIMESTAMPTZ", "renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
+  for (const c of ["website TEXT", "logo_url TEXT", "logo_at TIMESTAMPTZ", "first_booked_on DATE", "na_type TEXT", "na_at TIMESTAMPTZ", "na_source TEXT", "na_suggest JSONB", "na_scan_at TIMESTAMPTZ", "renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
     await sq(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
   await sq(`CREATE TABLE IF NOT EXISTS kinxs_history (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, from_v TEXT, to_v TEXT, by_user TEXT, auto BOOLEAN DEFAULT false, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
 }
 export async function kinxsUpsertFromSf(a) {
   if (!pool) return null;
   const { rows } = await pool.query(
-    `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, start_on, end_on, end_estimated, renew_month, fs_name, cs_name, error, opp_ids, first_booked_on, updated_at)
-     VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13, now())
-     ON CONFLICT (account_id) DO UPDATE SET name=$2, products=$3::jsonb, booked_on=$4, start_on=$5, end_on=$6, end_estimated=$7, first_booked_on=$13,
+    `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, start_on, end_on, end_estimated, renew_month, fs_name, cs_name, error, opp_ids, first_booked_on, website, updated_at)
+     VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14, now())
+     ON CONFLICT (account_id) DO UPDATE SET name=$2, products=$3::jsonb, booked_on=$4, start_on=$5, end_on=$6, end_estimated=$7, first_booked_on=$13, website=COALESCE($14, kinxs_accounts.website),
        renew_month=CASE WHEN COALESCE(kinxs_accounts.renew_locked,false) THEN kinxs_accounts.renew_month ELSE $8 END, fs_name=$9,
        cs_name=COALESCE(kinxs_accounts.cs_name, $10), error=$11, opp_ids=$12::jsonb, updated_at=now()
      RETURNING (xmax = 0) AS inserted`,
     [a.account_id, a.name, JSON.stringify(a.products || []), a.booked_on || null, a.start_on || null, a.end_on || null, !!a.end_estimated, a.renew_month || null,
-     a.fs_name || null, a.cs_name || null, a.error || null, JSON.stringify(a.opp_ids || []), a.first_booked_on || null]);
+     a.fs_name || null, a.cs_name || null, a.error || null, JSON.stringify(a.opp_ids || []), a.first_booked_on || null, a.website || null]);
   return rows[0] || null;
 }
 export async function kinxsList() {
@@ -11702,4 +11702,9 @@ export async function kinxsPruneSf(keepIds, checkedOppIds) {
   if (!del.length) return 0;
   await pool.query(`DELETE FROM kinxs_accounts WHERE account_id = ANY($1::text[]) AND COALESCE(source,'sf') <> 'manual'`, [del]);
   return del.length;
+}
+
+export async function kinxsSetLogo(accountId, logoUrl) {
+  if (!pool) return;
+  await pool.query(`UPDATE kinxs_accounts SET logo_url=$2, logo_at=now() WHERE account_id=$1`, [accountId, logoUrl || null]).catch(() => {});
 }
