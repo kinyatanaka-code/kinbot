@@ -26692,7 +26692,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25p kinXsの企業のモーダル：ロゴの箱は、ふだんはしまっておく（ロゴを押すと開き、「しまう」・外を押す・Escで閉じる。保存のあとも閉じたまま）。";
+const BUILD_TAG = "2026-10-25q kinXs：メニューのいちばん上をユーザー一覧に（開いたときに最初に出る画面も）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -200,7 +200,7 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings" })[new URLSearchParams(location.search).get("p")] || "renew";
+const VIEW = ({ renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings" })[new URLSearchParams(location.search).get("p")] || "list";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
 $("vList").hidden = VIEW !== "list"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
