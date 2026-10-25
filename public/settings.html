@@ -9,14 +9,16 @@
       html.kb-embed .sidebar, html.kb-embed .topbar, html.kb-embed .side-backdrop, html.kb-embed .kb-menu-btn, html.kb-embed .kb-menu, html.kb-embed .kb-sheet-back, html.kb-embed .kb-ver, html.kb-embed .live-banner { display: none !important; }
       html.kb-embed .main { margin-left: 0 !important; padding-left: 0 !important; }
       html.kb-embed body { background: transparent; }
-    </style>
+      .cc-conn{margin-top:12px;padding-top:10px;border-top:1px dashed #CFE3D9;} .cc-conn:first-of-type{border-top:0;}
+  .cc-conn-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;} .cc-conn-h b{font-size:14px;} .cc-conn-h span{font-size:12px;color:#5A6B63;}
+</style>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261026n" />
+    <link rel="stylesheet" href="style.css?v=20261026o" />
   </head>
   <body>
     <div class="app">
@@ -438,17 +440,24 @@
               <div class="cc-admin-box">
                 <div class="cc-admin-head">
                   <span class="cc-admin-badge">全員用・管理者権限</span>
-                  <span class="cc-admin-title">このURLでつなげば、そのまま全社員の実績を横断で見られます</span>
+                  <span class="cc-admin-title">kinbot・kincall・kinXs の3つのコネクタ。使いたいものを、それぞれ追加してください</span>
                 </div>
                 <div class="apidoc-h">登録手順</div>
                 <ol class="cc-steps">
                   <li>下のURLを「コピー」する</li>
                   <li>Claude.aiの設定 →「コネクタ」→「カスタムコネクタを追加」を開く</li>
-                  <li>コピーしたURLをそのまま貼り付けて接続する（ログイン画面は出ません）</li>
-                  <li>接続後、チャットで「kinbotの今月の実績を教えて」のように話しかける</li>
+                  <li>コピーしたURLをそのまま貼り付けて接続する（ログイン画面は出ません）。3つとも使うときは、3回追加します</li>
+                  <li>接続後、チャットで「kinbotの今月の実績を教えて」「kincallの今週のコール数は？」「kinXsで更新月が近い会社は？」のように話しかける</li>
                 </ol>
+                <div class="cc-conn"><div class="cc-conn-h"><b>kinbot</b><span>商談・案件・議事録・Salesforce</span></div>
                 <pre class="apidoc-code"><code id="mcpUrlAdmin">https://kinbot-production-225f.up.railway.app/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
-                <button class="btn" id="mcpUrlAdminCopy" type="button">URLをコピー</button>
+                <button class="btn" id="mcpUrlAdminCopy" type="button">URLをコピー</button></div>
+                <div class="cc-conn"><div class="cc-conn-h"><b>kincall</b><span>架電の記録・実績・アポ・リスト</span></div>
+                <pre class="apidoc-code"><code id="mcpUrlKincall">https://kinbot-production-225f.up.railway.app/kincall/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <button class="btn" data-mcp-copy="mcpUrlKincall" type="button">URLをコピー</button></div>
+                <div class="cc-conn"><div class="cc-conn-h"><b>kinXs</b><span>ユーザー（導入企業）・更新管理・ホームのやること・ステータスの書きかえ</span></div>
+                <pre class="apidoc-code"><code id="mcpUrlKinxs">https://kinbot-production-225f.up.railway.app/kinxs/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <button class="btn" data-mcp-copy="mcpUrlKinxs" type="button">URLをコピー</button></div>
                 <p class="note cc-warn">⚠️ このURLには全社員分のデータを読める管理者トークンが含まれています。社内の関係者以外には共有しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
               </div>
             </div>
@@ -838,8 +847,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261026n"></script>
-      <script src="nav.js?v=20261026n"></script>
+    <script src="settings.js?v=20261026o"></script>
+      <script src="nav.js?v=20261026o"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

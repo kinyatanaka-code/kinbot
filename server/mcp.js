@@ -445,7 +445,7 @@ async function handleRpc(body, req, opts = {}) {
       const name = params && params.name;
       const args = (params && params.arguments) || {};
       try {
-        const data = await callTool(name, args, req);
+        const data = await (opts.call ? opts.call(name, args, req) : callTool(name, args, req));
         return ok({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
       } catch (e) {
         // ツール実行エラーはプロトコルエラーではなく、isError付きの結果として返すのがMCP流
@@ -461,6 +461,25 @@ async function handleRpc(body, req, opts = {}) {
   }
 }
 
+// ほかのファイルで作った道具（kinXs など）を、別のコネクタとして出す
+export function mountMcpEndpoint(app, path, { tools, serverInfo, call }) {
+  const opts = { tools, serverInfo, call };
+  app.post(path, async (req, res) => {
+    const body = req.body;
+    try {
+      if (Array.isArray(body)) {
+        const results = [];
+        for (const item of body) { const r = await handleRpc(item, req, opts); if (r) results.push(r); }
+        if (!results.length) return res.status(202).end();
+        return res.json(results.length === 1 ? results[0] : results);
+      }
+      const result = await handleRpc(body, req, opts);
+      if (!result) return res.status(202).end();
+      res.json(result);
+    } catch (e) { res.status(500).json({ jsonrpc: "2.0", id: body && body.id, error: { code: -32603, message: e.message } }); }
+  });
+  app.get(path, (req, res) => res.status(200).json({ name: serverInfo.name, protocol: "mcp", transport: "streamable-http" }));
+}
 // Expressにマウントする関数
 export function mountMcpServer(app) {
   const KINCALL_INFO = { name: "kincall", version: "1.0.0" };

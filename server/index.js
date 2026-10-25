@@ -706,7 +706,7 @@ import { notionConfigured, notionStatus, createMeetingPage, createReportPage } f
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
 import { readDocument, readerAvailable, readWhiteboard, readShiftCalendar } from "./ai_read.js";
-import { mountMcpServer } from "./mcp.js";
+import { mountMcpServer, mountMcpEndpoint } from "./mcp.js";
 import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
@@ -995,7 +995,7 @@ app.use(async (req, res, next) => {
     }
     // OAuthトークン形式なのに無効 → MCP等のAPIパスなら401を返し、それ以外はログイン画面へ
 
-  if (req.path.startsWith("/api/") || req.path === "/mcp" || req.path === "/kincall/mcp") {
+  if (req.path.startsWith("/api/") || req.path === "/mcp" || req.path === "/kincall/mcp" || req.path === "/kinxs/mcp") {
       return res.status(401).json({ error: "認証に失敗しました（トークンが無効です）" });
     }
   }
@@ -1040,7 +1040,7 @@ app.use(async (req, res, next) => {
     }
     return next();
   }
-  if (req.path.startsWith("/api/") || req.path === "/mcp" || req.path === "/kincall/mcp") {
+  if (req.path.startsWith("/api/") || req.path === "/mcp" || req.path === "/kincall/mcp" || req.path === "/kinxs/mcp") {
     // なぜ通らなかったのかを添える（トークンそのものは出さない）。
     // 「ログインが必要です」だけだと、原因が分からず切り分けができないため。
     const raw = String(req.headers.authorization || "").trim();
@@ -12895,6 +12895,55 @@ app.get("/api/kinxs/home", async (req, res) => {
   try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsHome(req.user, { fresh: req.query.fresh === "1" })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== kinXs のコネクタ（Claude.ai から kinXs を読む・直す）/kinxs/mcp =====
+const KINXS_TOOLS = [
+  { name: "list_users", description: "kinXs（DOC導入企業のCS一元管理）のユーザー（導入企業）の一覧。会社名・旧社名・契約商品・フェーズ・更新確度（S/A/B/C/Z/F）・更新月・CS担当・FS（受注者）・初回の受注日・次回アクションと期日・要注意（更新月接近／NA期限切れ／接触途絶／情報更新なし）を返す。CS担当・フェーズ・確度・会社名の一部で絞れる。", inputSchema: { type: "object", properties: { cs: { type: "string", description: "CS担当（苗字でよい）" }, phase: { type: "string", description: "フェーズ（計上予定・フォローMTG設定済・オンボーディング中・利用中・更新検討時期・解約予定・解約済み・キャンセル）" }, rank: { type: "string", description: "更新確度 S/A/B/C/Z/F" }, q: { type: "string", description: "会社名の一部" }, alertsOnly: { type: "boolean", description: "要注意の会社だけ" } } } },
+  { name: "get_user_detail", description: "kinXsの1社の詳細。企業情報（HP・住所・電話・先方の担当者・受注日・受注者・ヘルプサイト・DOCのURL）、ステータス（CS担当・フェーズ・利用目的・活用・次回アクション）、議事録・フォロー履歴（キックオフ以降はフォロー、それより前は商談、要約つき）と変更の履歴を返す。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社名（一部でよい）か kinXs のID" } }, required: ["company"] } },
+  { name: "list_renewals", description: "kinXsの更新管理。会社ごとの更新月（契約終了日の前月）・残り日数・確度・要注意（更新月まで90日以内で確度B以下）を返す。", inputSchema: { type: "object", properties: { from: { type: "string", description: "更新月の始め YYYY-MM（任意）" }, to: { type: "string", description: "更新月の終わり YYYY-MM（任意）" } } } },
+  { name: "get_home_tasks", description: "kinXsのホームのやること。担当ユーザーの次回アクション・要注意、先方から来てまだ返していないメール、チャットの自分あてのメッセージを、期限切れ・今日・返事・依頼・今週… に分けて返す。", inputSchema: { type: "object", properties: { user: { type: "string", description: "だれのやることか（メールアドレス。省略すると、つないでいる人）" }, fresh: { type: "boolean", description: "読み直す" } } } },
+  { name: "update_user", description: "kinXsの1社を直す（書き込み）。CS担当・利用目的・活用・次回アクション（内容・種別・日時）・メモ・更新確度・フェーズを変えられる。CS担当と利用目的はCS連携にも入る。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社名（一部でよい）か ID" }, cs_name: { type: "string" }, purpose: { type: "string", description: "利用目的" }, usage_status: { type: "string", description: "活用（活用：公開掲載／活用：限定公開／活用予定／活用検討中／不明／発生済み未納品／解約企業）" }, na_text: { type: "string", description: "次回アクションの内容" }, na_type: { type: "string", description: "電話・メール・MTG・資料送付・その他" }, na_at: { type: "string", description: "次回アクションの日時 YYYY-MM-DDTHH:MM" }, memo: { type: "string" }, rank: { type: "string", description: "S/A/B/C/Z/F" }, phase: { type: "string", description: "フェーズ（手で決める）" } }, required: ["company"] } },
+];
+async function kxSelf(method, path, req, body) {
+  // 同じサーバーの kinXs の API を、つないでいる人のまま呼ぶ
+  const port = process.env.PORT || 3000;
+  const tok = (req.query && req.query.token) || String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  const r = await fetch(`http://127.0.0.1:${port}${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(tok)}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${tok}` }, body: body ? JSON.stringify(body) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `kinXs ${r.status}`);
+  return d;
+}
+async function kxFindId(company) {
+  const q = String(company || "").trim(); if (!q) throw new Error("company（会社名）を入れてください");
+  const { items } = await kinxsBuild();
+  const hit = items.find((x) => x.id === q) || items.find((x) => x.name === q) || items.find((x) => csCoKey(x.name) === csCoKey(q))
+    || items.find((x) => (x.formerNames || []).some((f) => csCoKey(f) === csCoKey(q))) || items.find((x) => x.name.includes(q) || (x.formerNames || []).some((f) => f.includes(q)));
+  if (!hit) throw new Error(`「${q}」に当たる会社がkinXsにありません`);
+  return hit;
+}
+async function kinxsMcpCall(name, args, req) {
+  if (!(await canCs(req))) throw new Error("CS・FS・管理者だけが使えます");
+  const a = args || {};
+  if (name === "list_users") {
+    const { items } = await kinxsBuild();
+    const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+    return items.filter((x) => (!a.cs || sur(x.cs) === sur(a.cs) || String(a.cs).startsWith(sur(x.cs) || "\u0000")) && (!a.phase || x.label === a.phase) && (!a.rank || x.rank === String(a.rank).toUpperCase()) && (!a.q || `${x.name} ${(x.formerNames || []).join(" ")}`.includes(a.q)) && (!a.alertsOnly || (x.alerts || []).length))
+      .map((x) => ({ id: x.id, name: x.name, formerNames: x.formerNames || [], products: x.products, phase: x.label, rank: x.rank, renewMonth: x.renew, daysToRenew: x.left, cs: x.cs, fs: x.fs, firstBooked: x.booked, nextAction: x.na, nextActionType: x.naType, nextActionDue: x.naDue, alerts: (x.alerts || []).map((y) => `${y.rule}：${y.detail}`), lastTouch: x.lastTouch, usage: x.usage || "" }));
+  }
+  if (name === "get_user_detail") { const x = await kxFindId(a.company); const d = await kxSelf("GET", `/api/kinxs/accounts/${encodeURIComponent(x.id)}/detail`, req); return { company: x.name, info: d.info, status: d.status, kickoffAt: d.kickoffAt, timeline: (d.timeline || []).slice(0, 40) }; }
+  if (name === "list_renewals") { const d = await kxSelf("GET", "/api/kinxs/renewals", req); return (d.items || []).filter((x) => (!a.from || (x.renew && x.renew >= a.from)) && (!a.to || (x.renew && x.renew <= a.to))).map((x) => ({ name: x.name, renewMonth: x.renew, daysToRenew: x.left, rank: x.rank, warn: x.warn, cs: x.cs, estimated: x.estimated })); }
+  if (name === "get_home_tasks") { const u = a.user && req.isAdmin ? a.user : req.user; return await kinxsHome(u, { fresh: !!a.fresh }); }
+  if (name === "update_user") {
+    const x = await kxFindId(a.company);
+    const body = {}; for (const k of ["cs_name", "purpose", "usage_status", "na_text", "na_type", "na_at", "memo"]) if (a[k] !== undefined) body[k] = a[k];
+    if (a.phase !== undefined) body.main_label = a.phase;
+    const done = [];
+    if (Object.keys(body).length) { await kxSelf("PUT", `/api/kinxs/accounts/${encodeURIComponent(x.id)}`, req, body); done.push(...Object.keys(body)); }
+    if (a.rank) { await kxSelf("PUT", `/api/kinxs/accounts/${encodeURIComponent(x.id)}/rank`, req, { rank: String(a.rank).toUpperCase() }); done.push("rank"); }
+    return { ok: true, company: x.name, updated: done };
+  }
+  throw new Error(`知らない道具です：${name}`);
+}
+mountMcpEndpoint(app, "/kinxs/mcp", { tools: KINXS_TOOLS, serverInfo: { name: "kinXs", version: "1.0.0" }, call: kinxsMcpCall });
 app.post("/api/kinxs/accounts/:id/rename", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -26968,7 +27017,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26n kinXsのホーム：あいさつは「お疲れ様です、〇〇さん」（苗字）に。CS担当が苗字だけ（「田中」）で入っていても、自分の担当ユーザーとして出す。";
+const BUILD_TAG = "2026-10-26o kinXsのコネクタ（Claude.ai 用）/kinxs/mcp：ユーザーの一覧・1社の詳細・更新管理・ホームのやること・1社を直す の5つの道具。設定の外部連携に、kinbot・kincall・kinXs の3つのURLを並べた。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

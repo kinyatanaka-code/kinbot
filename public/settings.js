@@ -730,6 +730,15 @@ function initCcToken() {
       setTimeout(() => (mcpAdminCopyBtn.textContent = "URLをコピー"), 1500);
     });
   }
+  // kincall・kinXs のコネクタURLのコピー
+  document.querySelectorAll("[data-mcp-copy]").forEach((b) => {
+    if (b._wired) return; b._wired = true;
+    b.addEventListener("click", async () => {
+      const el = document.getElementById(b.dataset.mcpCopy);
+      try { await navigator.clipboard.writeText(el.textContent.trim()); b.textContent = "コピーしました"; } catch { b.textContent = "コピーに失敗しました"; }
+      setTimeout(() => (b.textContent = "URLをコピー"), 1500);
+    });
+  });
   const input = document.getElementById("ccToken");
   if (!input) return;
   let saved = "";
