@@ -12658,37 +12658,80 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logo: r.logo_url || "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy };
 }
 // ===== kinXs：会社のHPからロゴ（アイコン）を探す =====
 // HPのトップを読んで apple-touch-icon → 大きい icon の順に。見つからなければ Google のファビコン（128px）。30日に1回読み直す
 async function kxFindLogo(site) {
+  // 会社のロゴを、HPのトップから探す（2026-10-24 直し：ファビコンばかりで会社のロゴにならなかった）
+  //   ① ページの上の方（header・ナビ）の <img>／<svg> で、src・alt・class・id に logo／ロゴ が入っているもの
+  //   ② apple-touch-icon・大きい icon（ロゴの代わり）
+  //   ③ Google のファビコン
   let u = String(site || "").trim(); if (!u) return null;
   if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
   let host = ""; try { host = new URL(u).hostname; } catch { return null; }
   const fallback = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
-  try {
-    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 7000);
-    const r = await fetch(u, { signal: ctl.signal, redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (kinXs logo)" } }).finally(() => clearTimeout(tm));
-    if (!r.ok) return fallback;
-    const html = (await r.text()).slice(0, 300000);
-    const base = r.url || u;
-    const links = [...html.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]);
-    const attr = (tag, n) => ((tag.match(new RegExp(`${n}\\s*=\\s*["']([^"']+)["']`, "i")) || [])[1] || "");
-    const cands = [];
-    for (const t of links) {
-      const rel = attr(t, "rel").toLowerCase(); const href = attr(t, "href"); if (!href) continue;
-      if (!/icon/.test(rel) || /mask-icon/.test(rel)) continue;   // mask-icon（1色のシルエット）は使わない
-      const sz = parseInt((attr(t, "sizes").match(/(\d+)/) || [])[1] || (rel.includes("apple") ? "180" : "32"), 10) || 32;
-      cands.push({ href, score: (rel.includes("apple-touch") ? 1000 : 0) + sz + (/\.svg($|\?)/i.test(href) ? 150 : 0) });
-    }
-    cands.sort((a, b) => b.score - a.score);
-    for (const c of cands) { try { return new URL(c.href, base).href; } catch {} }
-    return fallback;
-  } catch { return fallback; }
+  let html = "", base = u;
+  for (const tryUrl of [u, u.replace(/^https:/i, "http:")]) {
+    try {
+      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(tryUrl, { signal: ctl.signal, redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36", "accept-language": "ja" } }).finally(() => clearTimeout(tm));
+      if (!r.ok) continue;
+      html = (await r.text()).slice(0, 600000); base = r.url || tryUrl; break;
+    } catch {}
+  }
+  if (!html) return fallback;
+  const abs = (h) => { try { const x = new URL(h.replace(/&amp;/g, "&"), base).href; return /^https?:/i.test(x) ? x : null; } catch { return null; } };
+  const attr = (tag, n) => ((tag.match(new RegExp(`\\s${n}\\s*=\\s*["']([^"']+)["']`, "i")) || [])[1] || "");
+  // ① ロゴの画像
+  const headEnd = (() => { const m = html.search(/<\/header>/i); return m > 0 ? m : Math.min(html.length, 60000); })();
+  const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => ({ tag: m[0], pos: m.index }));
+  const logoImgs = [];
+  for (const im of imgs) {
+    const src = attr(im.tag, "src") || attr(im.tag, "data-src") || attr(im.tag, "data-lazy-src") || (attr(im.tag, "srcset").split(/\s+/)[0] || "");
+    if (!src || /^data:image\/(gif|png);base64,R0lGOD/i.test(src)) continue;
+    const hint = `${src} ${attr(im.tag, "alt")} ${attr(im.tag, "class")} ${attr(im.tag, "id")}`.toLowerCase();
+    if (!/logo|ロゴ|site-?title|brand|header-?title|corporate/.test(hint)) continue;
+    if (/footer|banner|bnr|sns|twitter|facebook|instagram|line_|youtube|icon_|arrow|btn|recruit|partner|client/.test(hint) && !/logo/.test(src.toLowerCase())) continue;
+    const url = abs(src); if (!url) continue;
+    logoImgs.push({ url, score: (im.pos < headEnd ? 100 : 0) + (/logo/.test(src.toLowerCase()) ? 40 : 0) + (/\.svg($|\?)/i.test(src) ? 15 : 0) - im.pos / 20000 });
+  }
+  logoImgs.sort((a, b) => b.score - a.score);
+  if (logoImgs.length) return logoImgs[0].url;
+  // ② アイコン
+  const cands = [];
+  for (const t of [...html.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0])) {
+    const rel = attr(t, "rel").toLowerCase(); const href = attr(t, "href"); if (!href) continue;
+    if (!/icon/.test(rel) || /mask-icon/.test(rel)) continue;
+    const sz = parseInt((attr(t, "sizes").match(/(\d+)/) || [])[1] || (rel.includes("apple") ? "180" : "32"), 10) || 32;
+    const url = abs(href); if (url) cands.push({ url, score: (rel.includes("apple-touch") ? 1000 : 0) + sz });
+  }
+  cands.sort((a, b) => b.score - a.score);
+  if (cands.length && cands[0].score >= 64) return cands[0].url;
+  return cands[0] ? cands[0].url : fallback;
 }
+// ロゴの画像は kinbot を通して出す（相手のサイトの「よそからの読み込み禁止」や http の画像でも出るように）。1日とっておく
+const _kxLogoImg = new Map();
+app.get("/api/kinxs/logo/:id", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).end();
+    const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id);
+    if (!r || !r.logo_url) return res.status(404).end();
+    const c = _kxLogoImg.get(r.logo_url);
+    if (c && Date.now() - c.at < 86400000) { res.set({ "Content-Type": c.type, "Cache-Control": "private, max-age=86400" }); return res.end(c.buf); }
+    const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000);
+    const g = await fetch(r.logo_url, { signal: ctl.signal, headers: { "user-agent": "Mozilla/5.0 (kinXs logo)", referer: r.website || "" } }).finally(() => clearTimeout(tm));
+    const type = g.headers.get("content-type") || "";
+    if (!g.ok || !/^image\//i.test(type)) return res.status(404).end();
+    const buf = Buffer.from(await g.arrayBuffer());
+    if (buf.length > 2 * 1024 * 1024) return res.status(404).end();
+    _kxLogoImg.set(r.logo_url, { buf, type, at: Date.now() });
+    if (_kxLogoImg.size > 500) _kxLogoImg.delete(_kxLogoImg.keys().next().value);
+    res.set({ "Content-Type": type, "Cache-Control": "private, max-age=86400" }); res.end(buf);
+  } catch { res.status(404).end(); }
+});
 let _kxLogoBusy = false;
 async function kinxsLogoTick(limit = 15) {
   if (_kxLogoBusy) return; _kxLogoBusy = true;
@@ -12706,7 +12749,10 @@ async function kinxsLogoTick(limit = 15) {
   } catch (e) { console.warn("[kinxs] ロゴ", e.message); }
   finally { _kxLogoBusy = false; }
 }
-setTimeout(() => { kinxsLogoTick(40).catch(() => {}); }, 3 * 60 * 1000).unref?.();
+setTimeout(async () => {
+  try { const st = await getSettings(); if (!st.kxLogoV2) { await pool.query(`UPDATE kinxs_accounts SET logo_at=NULL`).catch(() => {}); await saveSettings({ kxLogoV2: new Date().toISOString() }); } } catch {}
+  kinxsLogoTick(40).catch(() => {});
+}, 3 * 60 * 1000).unref?.();
 setInterval(() => { kinxsLogoTick(15).catch(() => {}); }, 20 * 60 * 1000).unref?.();
 app.get("/api/kinxs/users", async (req, res) => {
   try {
@@ -26524,7 +26570,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-24p kinXs：ヘッダーの右上の自分のアイコンと名前をやめた（左下にあるため）。";
+const BUILD_TAG = "2026-10-24q kinXsのロゴ：会社のロゴにならなかったのを直した。HPの上の方（ヘッダー）の「logo」と付いた画像を最優先にし、無いときだけアイコン。画像はkinbotを通して出す（よそからの読み込み禁止・httpの画像でも出る）。直した探し方で全社を読み直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
