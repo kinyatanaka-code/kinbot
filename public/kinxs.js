@@ -603,7 +603,7 @@ async function openDetail(id, reuse) {
     await openDetail(id, { bg, tab, scroll, msg });
   };
   const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else await load(); };
-  const put = async (body, redraw = true) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {}); if (redraw) await again(); } catch (e) { alert(e.message); } };
+  const put = async (body, redraw = true) => { try { const r0 = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {}); if (redraw) await again(r0 && r0.logoRefetched ? "保存して、新しいHPからロゴを取り直しました" : undefined); } catch (e) { alert(e.message); } };
   if (!bg.dataset.wired) { bg.dataset.wired = "1"; bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); }); }
   bg.querySelector("[data-x]").addEventListener("click", close);
   bg.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {

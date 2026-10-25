@@ -12756,7 +12756,7 @@ app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
     _kxLogoImg.delete(r.logo_url || "");
     if (b.mode === "refetch") {
       await kinxsSetLogoManual(id, { mode: "auto" });
-      const site = b.site || r.website || (r.info && r.info.website) || "";
+      const site = b.site || (r.info && r.info.website) || r.website || "";
       const logo = site ? await kxFindLogo(site) : null;
       await kinxsSetLogo(id, logo);
       return res.json({ ok: true, found: !!logo, url: logo });
@@ -12828,7 +12828,7 @@ async function kinxsLogoTick(limit = 15) {
     const kicks = await listCsKickoffs(500).catch(() => []);
     const need = rows.filter((r) => !r.logo_manual && (!r.logo_at || Date.now() - Date.parse(r.logo_at) > 30 * 86400000)).slice(0, limit);
     for (const r of need) {
-      let site = r.website || "";
+      let site = (r.info && r.info.website) || r.website || "";
       if (!site) { const k = kicks.find((x) => csCoKey(x.company) && csCoKey(x.company) === csCoKey(r.name)); site = (k && k.client_email && !KX_FREE_MAIL.test(String(k.client_email).split("@")[1] || "")) ? String(k.client_email).split("@")[1] : ""; }
       const logo = site ? await kxFindLogo(site) : null;
       await kinxsSetLogo(r.account_id, logo);
@@ -13259,7 +13259,11 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     }
     const r = await kinxsUpdate(req.params.id, patch, req.user);
     if (!r) return res.status(404).json({ error: "見つかりません" });
-    res.json({ ok: true });
+    let logoRefetched = false;
+    if (b.info && typeof b.info === "object" && "website" in b.info && String(b.info.website || "").trim() && !r.logo_manual) {
+      try { const logo = await kxFindLogo(String(b.info.website).trim()); _kxLogoImg.delete(r.logo_url || ""); await kinxsSetLogo(req.params.id, logo); logoRefetched = true; } catch {}
+    }
+    res.json({ ok: true, logoRefetched });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
@@ -26770,7 +26774,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25v kinXs：DOCのカードの「サイト」「本番サイト」をやめた。スプレッドシートの本番サイトは、aticotiのドメインならVR、それ以外はAI（候補者画面）に入れる（前に取り込んだ分も同じように振り分けて出す）。";
+const BUILD_TAG = "2026-10-25w kinXs：企業情報でHPを直して保存したら、その場で新しいHPからロゴを取り直す（手で決めたロゴは除く）。ロゴの取り直し・見回りは、手で入れたHPを先に使う。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
