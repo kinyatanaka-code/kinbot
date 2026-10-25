@@ -13155,26 +13155,36 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
     const info = { ...(r.info || {}) };
     const out = { website: info.website || r.website || "", address: info.address || "", phone: info.phone || "", contacts: Array.isArray(info.contacts) ? info.contacts : [],
       booked: x.booked || "", bookedBy: x.fs || "", vrUrl: info.vr_url || "", aiUrl: info.ai_url || "", portal: null, ai: [], kickBot: kk ? kk.bot_id : "", source: {} };
-    if (!/^manual-/.test(x.id)) {
-      try {
-        const st0 = await getSettings(); const sfU = await pickSfUser(st0.psOwner || "");
-        if (sfU) {
-          const id = String(x.id).replace(/'/g, "");
+    // SFの取引先：SFから取り込んだ会社はそのID、手で入れた会社（CS管理ボードからの取り込みなど）は会社名でSFの取引先を探す
+    try {
+      const st0 = await getSettings(); const sfU = await pickSfUser(st0.psOwner || "").catch(() => "");
+      if (sfU) {
+        const esc1 = (v) => String(v || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+        let accId = /^manual-/.test(x.id) ? (info.sf_account_id || "") : x.id;
+        if (!accId) {
+          const coShort = String(x.name || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
+          const hits = (await sfQuery(sfU, `SELECT Id, Name FROM Account WHERE Name = '${esc1(x.name)}' OR Name LIKE '%${esc1(coShort)}%' LIMIT 5`).catch(() => ({ records: [] }))).records || [];
+          const hit = hits.find((h) => h.Name === x.name) || hits.find((h) => csCoKey(h.Name) === csCoKey(x.name)) || null;
+          if (hit) { accId = hit.Id; out.sfMatched = hit.Name; kinxsUpdate(x.id, { info: { ...info, sf_account_id: hit.Id } }, "kinXs").catch(() => {}); }
+        }
+        if (accId) {
+          const id = String(accId).replace(/'/g, "");
           const a = ((await sfQuery(sfU, `SELECT Website, Phone, BillingPostalCode, BillingState, BillingCity, BillingStreet FROM Account WHERE Id='${id}' LIMIT 1`)).records || [])[0];
+          const tagSf = out.sfMatched ? "SF（会社名で照合）" : "SF";
           if (a) {
-            if (!out.website && a.Website) { out.website = a.Website; out.source.website = "SF"; }
-            if (!out.phone && a.Phone) { out.phone = a.Phone; out.source.phone = "SF"; }
+            if (!out.website && a.Website) { out.website = a.Website; out.source.website = tagSf; }
+            if (!out.phone && a.Phone) { out.phone = a.Phone; out.source.phone = tagSf; }
             const addr = [a.BillingPostalCode ? `〒${a.BillingPostalCode}` : "", a.BillingState, a.BillingCity, a.BillingStreet].filter(Boolean).join(" ");
-            if (!out.address && addr) { out.address = addr; out.source.address = "SF"; }
+            if (!out.address && addr) { out.address = addr; out.source.address = tagSf; }
           }
           if (!out.contacts.length) {
             const cs = (await sfQuery(sfU, `SELECT Name, Title, Phone, MobilePhone, Email FROM Contact WHERE AccountId='${id}' ORDER BY CreatedDate DESC LIMIT 5`)).records || [];
             out.contacts = cs.map((c) => ({ name: c.Name || "", title: c.Title || "", phone: c.Phone || c.MobilePhone || "", email: c.Email || "" }));
-            if (cs.length) out.source.contacts = "SF";
+            if (cs.length) out.source.contacts = tagSf;
           }
-        }
-      } catch {}
-    }
+        } else out.sfNote = "SFに同じ名前の取引先が見つかりませんでした";
+      } else out.sfNote = "Salesforceにつながっている人がいません";
+    } catch (e) { out.sfNote = `SFを読めませんでした：${e.message}`; }
     if (kk) {
       if (!out.contacts.length && (kk.client_name || kk.client_email)) { out.contacts = [{ name: kk.client_name || "", title: "", phone: kk.client_phone || "", email: kk.client_email || "" }]; out.source.contacts = "CS連携"; }
       if (kk.portal_text) {
@@ -13186,6 +13196,10 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
       if (!out.aiUrl && kk.doc_candidate_url) { out.aiUrl = kk.doc_candidate_url; out.source.aiUrl = "CS連携"; }
     }
     out.adminUrl = "https://casual-interview-api.brainverse-ai.com/";
+    if (!out.website) {
+      const d = (out.contacts || []).map((c) => String(c.email || "").toLowerCase().split("@")[1]).find((d0) => d0 && !KX_FREE_MAIL.test(d0));
+      if (d) { out.website = `https://${d.replace(/^mail\./, "")}`; out.source.website = "メールのドメイン"; }
+    }
     // ② ステータス
     const fl = (kk && kk.fields) || {};
     // CS担当の選択肢：メンバー管理で役割「CS」の人＋CS連携の設定に入れた人
@@ -26748,7 +26762,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25s kinXs：同じ会社が2つ以上あるとき、1つにまとめる（SFから取り込んだ方を残し、手で入れた中身は引き継ぐ。手入力の方は消し、SFに同じ名前が2つある方は出さない）。起動4分後と、SFからの取り込みのたびに。";
+const BUILD_TAG = "2026-10-25t kinXsの企業情報：手で入れた会社（CS管理ボードからの取り込みなど）も、会社名でSFの取引先を探してHP・住所・電話・担当者を入れる。HPが空なら先方のメールのドメインから。SFを読めないときは理由を出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

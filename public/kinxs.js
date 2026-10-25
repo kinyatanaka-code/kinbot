@@ -429,6 +429,7 @@ function kxCoPane(d) {
         ${head("企業情報", true)}
         <div class="kx-view">
           <div class="kx-dl"><span>HP</span><div>${val(f.website, "url")} ${tag("website")}</div><span>住所</span><div>${val(f.address)} ${tag("address")}</div><span>電話番号</span><div>${val(f.phone, "tel")} ${tag("phone")}</div></div>
+          ${f.sfNote && (!f.website || !f.address || !f.phone) ? `<div class="kx-note" style="margin-top:8px">${esc(f.sfNote)}${/見つかりません/.test(f.sfNote) ? "。「編集」で入れられます" : ""}</div>` : ""}
         </div>
         <div class="kx-editbox kx-form">
           <label>HP</label><input class="kx-in" data-info="website" value="${esc(f.website || "")}" placeholder="https://" />
