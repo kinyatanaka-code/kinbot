@@ -291,8 +291,12 @@ function renderList() {
       if (!c) { c = { name: x.cs, key: k, list: [] }; cols.push(c); }
       c.list.push(x);
     }
-    const colHtml = (c, isNone) => `<section class="kx-cscol${isNone ? " none" : ""}" data-cscol="${esc(c.name)}"><div class="kx-cscol-h"><span class="av">${isNone ? "？" : esc(c.key.slice(0, 1))}</span><b>${isNone ? "未定" : esc(c.key)}</b><span class="n">${c.list.length}</span></div><div class="kx-cscol-b">${c.list.map((x) => card(x).replace('<div class="kx-uc ', '<div draggable="true" class="kx-uc ')).join("") || '<div class="kx-note" style="padding:6px 2px">ここにカードを動かすと、この人の担当になります</div>'}</div></section>`;
-    $("lsTable").innerHTML = `<div class="kx-cswrap"><button type="button" class="kx-csnav l" data-csnav="-1" aria-label="左の担当へ" hidden>‹</button><div class="kx-csboard">${colHtml(none, true)}${cols.map((c) => colHtml(c, false)).join("")}</div><button type="button" class="kx-csnav r" data-csnav="1" aria-label="右の担当へ" hidden>›</button></div>`;
+    // 列の並び：見出しをつかんで動かせる（このブラウザに覚える）
+    let colOrder = []; try { colOrder = JSON.parse(localStorage.getItem("kxCsColOrder") || "[]"); } catch {}
+    const allCols = [{ ...none, key: "__none", isNone: true }, ...cols.map((c) => ({ ...c, isNone: false }))];
+    allCols.sort((a2, b2) => { const ia = colOrder.indexOf(a2.key), ib = colOrder.indexOf(b2.key); return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib); });
+    const colHtml = (c, isNone) => `<section class="kx-cscol${isNone ? " none" : ""}" data-cscol="${esc(c.name)}" data-colkey="${esc(isNone ? "__none" : c.key)}"><div class="kx-cscol-h" draggable="true" title="見出しをつかむと、列を動かせます"><span class="kx-grip" aria-hidden="true">⋮⋮</span><span class="av">${isNone ? "？" : esc(c.key.slice(0, 1))}</span><b>${isNone ? "未定" : esc(c.key)}</b><span class="n">${c.list.length}</span></div><div class="kx-cscol-b">${c.list.map((x) => card(x).replace('<div class="kx-uc ', '<div draggable="true" class="kx-uc ')).join("") || '<div class="kx-note" style="padding:6px 2px">ここにカードを動かすと、この人の担当になります</div>'}</div></section>`;
+    $("lsTable").innerHTML = `<div class="kx-cswrap"><button type="button" class="kx-csnav l" data-csnav="-1" aria-label="左の担当へ" hidden>‹</button><div class="kx-csboard">${allCols.map((c) => colHtml(c, c.isNone)).join("")}</div><button type="button" class="kx-csnav r" data-csnav="1" aria-label="右の担当へ" hidden>›</button></div>`;
     kxFitCards();
     const board = $("lsTable").querySelector(".kx-csboard");
     // 画面は止めて、列ごとにスクロール
@@ -332,6 +336,34 @@ function renderList() {
     board.addEventListener("wheel", (e) => { if (e.shiftKey || (Math.abs(e.deltaX) > Math.abs(e.deltaY))) return; if (e.target.closest(".kx-cscol-b")) return; board.scrollLeft += e.deltaY; e.preventDefault(); }, { passive: false });
     board.addEventListener("dragover", (e) => { const r0 = board.getBoundingClientRect(); if (e.clientX > r0.right - 70) board.scrollLeft += 18; else if (e.clientX < r0.left + 70) board.scrollLeft -= 18; });
     setTimeout(paintNav, 0);
+    const COLT = "application/x-kx-col";
+    board.querySelectorAll(".kx-cscol-h[draggable]").forEach((h) => {
+      h.addEventListener("dragstart", (e) => { e.stopPropagation(); e.dataTransfer.setData(COLT, h.parentNode.dataset.colkey); e.dataTransfer.effectAllowed = "move"; h.parentNode.classList.add("col-dragging"); });
+      h.addEventListener("dragend", () => { board.querySelectorAll(".col-dragging,.col-over-l,.col-over-r").forEach((x) => x.classList.remove("col-dragging", "col-over-l", "col-over-r")); });
+    });
+    const isColDrag = (e) => [...(e.dataTransfer.types || [])].includes(COLT);
+    board.querySelectorAll("[data-cscol]").forEach((col) => {
+      col.addEventListener("dragover", (e) => {
+        if (!isColDrag(e)) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        const r0 = col.getBoundingClientRect(); const left = e.clientX < r0.left + r0.width / 2;
+        col.classList.toggle("col-over-l", left); col.classList.toggle("col-over-r", !left);
+      }, true);
+      col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("col-over-l", "col-over-r"); }, true);
+      col.addEventListener("drop", (e) => {
+        if (!isColDrag(e)) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        const from = e.dataTransfer.getData(COLT); const to = col.dataset.colkey;
+        const left = col.classList.contains("col-over-l");
+        col.classList.remove("col-over-l", "col-over-r");
+        if (!from || from === to) return;
+        const keys = [...board.querySelectorAll("[data-colkey]")].map((x) => x.dataset.colkey).filter((k2) => k2 !== from);
+        const at = keys.indexOf(to) + (left ? 0 : 1);
+        keys.splice(at, 0, from);
+        try { localStorage.setItem("kxCsColOrder", JSON.stringify(keys)); } catch {}
+        const sl = board.scrollLeft; renderList(); const nb = $("lsTable").querySelector(".kx-csboard"); if (nb) nb.scrollLeft = sl;
+      }, true);
+    });
     board.querySelectorAll("[data-cscol]").forEach((col) => {
       col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
       col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("over"); });
