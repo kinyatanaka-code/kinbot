@@ -12813,7 +12813,10 @@ async function kinxsHome(user, { fresh = false } = {}) {
   const meName = ((users.find((u) => String(u.email || "").toLowerCase() === me) || {}).name) || "";
   const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
   const { items } = await kinxsBuild();
-  const mine = items.filter((x) => meName && x.cs && (sur(x.cs) === sur(meName) || String(x.cs).replace(/\s/g, "") === meName.replace(/\s/g, "")));
+  // CS担当は苗字だけで入っていることが多い（「田中」）。自分の名前（「田中欽也」「田中 欽也」）の頭と合えば自分の担当
+  const meFlat = meName.normalize("NFKC").replace(/[\s　]/g, "");
+  const isMine = (cs) => { const c = String(cs || "").normalize("NFKC").trim(); if (!c || !meFlat) return false; const cf = c.replace(/[\s　]/g, ""); const cs1 = sur(c); return cf === meFlat || (cs1.length >= 2 && meFlat.startsWith(cs1)) || (sur(meName).length >= 2 && cs1 === sur(meName)); };
+  const mine = items.filter((x) => meName && isMine(x.cs));
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const tasks = [];
   // ① kinXs：次回アクション・要注意
@@ -12883,7 +12886,8 @@ async function kinxsHome(user, { fresh = false } = {}) {
   const list = tasks.filter((t) => !t.drop).map(({ body, ...t }) => t);
   const bucket = (t) => (t.due && t.due < today ? "期限切れ" : t.due === today ? "今日" : t.due && t.due <= new Date(Date.now() + 9 * 3600000 + 6 * 86400000).toISOString().slice(0, 10) ? "今週" : (t.src !== "kinXs" ? "返事・依頼" : t.due ? "これから" : "期日なし"));
   for (const t of list) t.bucket = bucket(t);
-  const data = { ok: true, me: meName, at: new Date().toISOString(), mine: mine.map((x) => ({ id: x.id, name: x.name, logo: x.logo, label: x.label, rank: x.rank, renew: x.renew, alerts: (x.alerts || []).length, na: x.na, naDue: x.naDue })), tasks: list, chatNeed, notes };
+  const meSur = (() => { const t = sur(meName); if (t !== meName.trim()) return t; const hit = items.map((x) => sur(x.cs)).find((c) => c && c.length >= 2 && meFlat.startsWith(c)); return hit || meName; })();
+  const data = { ok: true, me: meName, meSur, at: new Date().toISOString(), mine: mine.map((x) => ({ id: x.id, name: x.name, logo: x.logo, label: x.label, rank: x.rank, renew: x.renew, alerts: (x.alerts || []).length, na: x.na, naDue: x.naDue })), tasks: list, chatNeed, notes };
   _kxHomeCache.set(me, { at: Date.now(), data });
   return data;
 }
@@ -26964,7 +26968,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26m kinXsにホーム：自分の担当ユーザーと、やること（kinXsの次回アクション・要注意／担当ユーザーの先方から来てまだ返していないメール／チャットの自分あてのメッセージ をAIで1行に）を期限切れ・今日・返事・依頼・今週…に分けて出す。チャットを読むため、Google連携の許可にChatの読み取りを足した（連携のやり直しが要る）。";
+const BUILD_TAG = "2026-10-26n kinXsのホーム：あいさつは「お疲れ様です、〇〇さん」（苗字）に。CS担当が苗字だけ（「田中」）で入っていても、自分の担当ユーザーとして出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

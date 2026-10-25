@@ -978,8 +978,7 @@ async function loadHome(fresh) {
   const box = $("khTasks"); if (!box) return;
   if (fresh) box.innerHTML = '<div class="kx-empty">読み直しています…（メールとチャットも読むので、少しかかります）</div>';
   let d; try { d = await api(`/api/kinxs/home${fresh ? "?fresh=1" : ""}`); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
-  const h = new Date().getHours();
-  $("khHi").textContent = `${h < 11 ? "おはようございます" : h < 18 ? "おつかれさまです" : "おつかれさまでした"}${d.me ? `、${d.me}さん` : ""}`;
+  $("khHi").textContent = `お疲れ様です${d.meSur || d.me ? `、${d.meSur || d.me}さん` : ""}`;
   $("khAt").textContent = `${new Date(d.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に読みました（10分ごとに新しくします）`;
   $("khNote").innerHTML = (d.chatNeed ? `<div class="kh-warn">チャットを読むには、Google連携をやり直してください（チャットを読む許可を足しました）。<a href="/settings.html" target="_blank" rel="noopener">設定を開く ↗</a></div>` : "") + (d.notes || []).map((n) => `<div class="kh-warn">${esc(n)}</div>`).join("");
   const order = ["期限切れ", "今日", "返事・依頼", "今週", "これから", "期日なし"];
