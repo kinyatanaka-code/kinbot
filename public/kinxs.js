@@ -900,8 +900,6 @@ function renderBoard() {
       <div class="t">${bdLogo(x)}<span>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}</span>${x.alerts.length ? '<span class="kx-rule" style="flex:none;font-size:10.5px">要注意</span>' : ""}</div>
       <div class="p">${esc(x.products.join("・"))}</div>
       <div class="bd"><span class="kx-rank r-${x.rank}" style="width:22px;height:22px;font-size:11.5px">${x.rank}</span>
-        <span class="s" style="${x.kenshu.startsWith("回収済み") ? good : x.kenshu === "依頼済み" ? mid : bad}">検収 ${x.kenshu.startsWith("回収済み") ? "済" : x.kenshu === "依頼済み" ? "依頼済" : "未"}</span>
-        <span class="s" style="${x.mail.startsWith("送付済み") ? good : x.mail === "下書きあり" ? mid : bad}">納品メール ${x.mail.startsWith("送付済み") ? "済" : x.mail === "下書きあり" ? "下書き" : "未"}</span>
         ${x.locked ? '<span class="lock" title="手で決めたラベル">🔒</span>' : ""}</div>
       <div class="f"><span class="av">${esc((kxSurname(x.cs) || "？").slice(0, 1))}</span>${esc(kxSurname(x.cs) || "CS未定")}<span style="margin-left:auto;${x.naDue && x.naDue < new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) ? "color:#8C1F1F;font-weight:700" : ""}">${x.naDue ? `NA ${esc(x.naDue.slice(5).replace("-", "/"))}` : x.renew ? `更新 ${esc(x.renew.replace("-", "/"))}` : ""}</span></div>
     </div>`;
