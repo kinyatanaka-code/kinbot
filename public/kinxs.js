@@ -923,23 +923,52 @@ function renderBoard() {
   $("bdSt").textContent = `全${items.length}社`;
   kxFitBoard();
   document.querySelectorAll("#bdCols img[data-bd-mono]").forEach((im) => im.addEventListener("error", () => { const p0 = im.parentNode; p0.classList.add("mono"); p0.textContent = im.dataset.bdMono; }));
+  // まとめて選ぶ：Shift＋クリック、または右クリックで選ぶ／外す。選んだカードのどれかをつかむと、まとめて動く（ユーザー一覧の担当別と同じ）
+  const bsel = window.__bdSel || (window.__bdSel = new Set());
+  for (const id0 of [...bsel]) if (!d.items.some((i) => i.id === id0)) bsel.delete(id0);
+  const wrap = document.querySelector("#vBoard .kx-board-wrap");
+  const paintB = () => {
+    document.querySelectorAll("#bdCols [data-card]").forEach((c) => c.classList.toggle("kx-picked", bsel.has(c.dataset.card)));
+    let bar = document.querySelector("#vBoard .kx-selbar");
+    if (!bsel.size) { if (bar) { bar.remove(); kxFitBoard(); } return; }
+    if (!bar) { bar = document.createElement("div"); bar.className = "kx-selbar"; wrap.parentNode.insertBefore(bar, wrap); }
+    bar.innerHTML = `<b>${bsel.size}社を選んでいます</b><span class="kx-note">選んだカードのどれかをつかんで、別のフェーズの列に動かすと、まとめてフェーズが変わります</span><button type="button" class="hp-b" data-bsel-clear>選ぶのをやめる</button>`;
+    bar.querySelector("[data-bsel-clear]").onclick = () => { bsel.clear(); paintB(); };
+    kxFitBoard();
+  };
+  const toggleB = (id0) => { if (bsel.has(id0)) bsel.delete(id0); else bsel.add(id0); paintB(); };
   document.querySelectorAll("#bdCols [data-card]").forEach((c) => {
-    c.addEventListener("click", () => openDetail(c.dataset.card));
+    c.addEventListener("click", (e) => { if (e.shiftKey) { e.preventDefault(); toggleB(c.dataset.card); return; } openDetail(c.dataset.card); });
+    c.addEventListener("contextmenu", (e) => { e.preventDefault(); toggleB(c.dataset.card); });
     c.addEventListener("keydown", (e) => { if (e.key === "Enter") openDetail(c.dataset.card); });
-    c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.dataset.card); c.classList.add("dragging"); });
-    c.addEventListener("dragend", () => { c.classList.remove("dragging"); document.querySelectorAll(".kx-col.over").forEach((x) => x.classList.remove("over")); });
+    c.addEventListener("dragstart", (e) => {
+      const ids = bsel.has(c.dataset.card) ? [...bsel] : [c.dataset.card];
+      e.dataTransfer.setData("text/plain", ids.join(","));
+      document.querySelectorAll("#bdCols [data-card]").forEach((x) => { if (ids.includes(x.dataset.card)) x.classList.add("dragging"); });
+      if (ids.length > 1) { const g = document.createElement("div"); g.className = "kx-dragghost"; g.textContent = `${ids.length}社`; document.body.appendChild(g); e.dataTransfer.setDragImage(g, 20, 20); setTimeout(() => g.remove(), 0); }
+    });
+    c.addEventListener("dragend", () => { document.querySelectorAll("#bdCols .dragging").forEach((x) => x.classList.remove("dragging")); document.querySelectorAll(".kx-col.over").forEach((x) => x.classList.remove("over")); });
   });
   document.querySelectorAll("#bdCols [data-col]").forEach((col) => {
     col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
     col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("over"); });
     col.addEventListener("drop", async (e) => {
       e.preventDefault(); col.classList.remove("over");
-      const id = e.dataTransfer.getData("text/plain"); const x = d.items.find((i) => i.id === id);
-      if (!x || x.label === col.dataset.col) return;
-      try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ main_label: col.dataset.col }) }); x.label = col.dataset.col; x.locked = true; renderBoard(); }
-      catch (er) { alert(er.message); }
+      const ids = String(e.dataTransfer.getData("text/plain") || "").split(",").filter(Boolean);
+      const to = col.dataset.col;
+      const moving = ids.map((id0) => d.items.find((i) => i.id === id0)).filter((x) => x && x.label !== to);
+      if (!moving.length) return;
+      if (moving.length > 1 && !confirm(`${moving.length}社のフェーズを「${to}」にします。よろしいですか？（手で決めたフェーズになります）`)) return;
+      let ng = 0;
+      for (const x of moving) {
+        try { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ main_label: to }) }); x.label = to; x.locked = true; }
+        catch { ng++; }
+      }
+      bsel.clear(); renderBoard();
+      if (ng) alert(`${ng}社は変えられませんでした。もう一度ためしてください`);
     });
   });
+  paintB();
 }
 if ($("bdQ")) { $("bdQ").addEventListener("input", renderBoard); $("bdCs").addEventListener("change", renderBoard); }
 api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); }).catch(() => {});
