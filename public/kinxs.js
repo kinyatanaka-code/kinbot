@@ -298,20 +298,50 @@ function renderList() {
     // 画面は止めて、列ごとにスクロール
     $("lsTable").style.overflowY = "hidden";
     board.style.height = `${Math.max(260, window.innerHeight - board.getBoundingClientRect().top - 16)}px`;
+    // まとめて選ぶ：Shiftを押しながらクリック、または右クリックで選ぶ／外す。選んだカードのどれかをつかむと、まとめて動く
+    const sel = window.__csSel || (window.__csSel = new Set());
+    for (const id of [...sel]) if (!d.items.some((i2) => i2.id === id)) sel.delete(id);
+    const paintSel = () => {
+      board.querySelectorAll("[data-open]").forEach((c) => c.classList.toggle("kx-picked", sel.has(c.dataset.open)));
+      let bar = $("lsTable").querySelector(".kx-selbar");
+      if (!sel.size) { if (bar) { bar.remove(); board.style.height = `${Math.max(260, window.innerHeight - board.getBoundingClientRect().top - 16)}px`; } return; }
+      if (!bar) { bar = document.createElement("div"); bar.className = "kx-selbar"; $("lsTable").prepend(bar); }
+      bar.innerHTML = `<b>${sel.size}社を選んでいます</b><span class="kx-note">選んだカードのどれかをつかんで、別の担当の列に動かすと、まとめて担当が変わります</span><button type="button" class="hp-b" data-sel-clear>選ぶのをやめる</button>`;
+      bar.querySelector("[data-sel-clear]").onclick = () => { sel.clear(); paintSel(); };
+      board.style.height = `${Math.max(260, window.innerHeight - board.getBoundingClientRect().top - 16)}px`;
+    };
+    const toggle = (id) => { if (sel.has(id)) sel.delete(id); else sel.add(id); paintSel(); };
     board.querySelectorAll("[data-open]").forEach((c) => {
-      c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", c.dataset.open); c.classList.add("dragging"); });
-      c.addEventListener("dragend", () => { c.classList.remove("dragging"); board.querySelectorAll(".over").forEach((x) => x.classList.remove("over")); });
+      // Shift＋クリックは選ぶ（詳細は開かない）
+      c.addEventListener("click", (e) => { if (e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); toggle(c.dataset.open); } }, true);
+      c.addEventListener("contextmenu", (e) => { e.preventDefault(); toggle(c.dataset.open); });
+      c.addEventListener("dragstart", (e) => {
+        const ids = sel.has(c.dataset.open) ? [...sel] : [c.dataset.open];
+        e.dataTransfer.setData("text/plain", ids.join(","));
+        board.querySelectorAll("[data-open]").forEach((x) => { if (ids.includes(x.dataset.open)) x.classList.add("dragging"); });
+        if (ids.length > 1) { const g = document.createElement("div"); g.className = "kx-dragghost"; g.textContent = `${ids.length}社`; document.body.appendChild(g); e.dataTransfer.setDragImage(g, 20, 20); setTimeout(() => g.remove(), 0); }
+      });
+      c.addEventListener("dragend", () => { board.querySelectorAll(".dragging").forEach((x) => x.classList.remove("dragging")); board.querySelectorAll(".over").forEach((x) => x.classList.remove("over")); });
     });
+    paintSel();
     board.querySelectorAll("[data-cscol]").forEach((col) => {
       col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
       col.addEventListener("dragleave", (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove("over"); });
       col.addEventListener("drop", async (e) => {
         e.preventDefault(); col.classList.remove("over");
-        const id = e.dataTransfer.getData("text/plain"); const x = d.items.find((i2) => i2.id === id);
+        const ids = String(e.dataTransfer.getData("text/plain") || "").split(",").filter(Boolean);
         const to = col.dataset.cscol;
-        if (!x || sur(x.cs) === sur(to)) return;
-        try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ cs_name: to }) }); x.cs = to; renderList(); }
-        catch (er) { alert(er.message); }
+        const moving = ids.map((id2) => d.items.find((i2) => i2.id === id2)).filter((x) => x && sur(x.cs) !== sur(to));
+        if (!moving.length) return;
+        if (moving.length > 1 && !confirm(`${moving.length}社の担当を「${to ? sur(to) : "未定"}」にします。よろしいですか？`)) return;
+        let ng = 0;
+        for (const x of moving) {
+          try { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ cs_name: to }) }); x.cs = to; }
+          catch { ng++; }
+        }
+        sel.clear();
+        renderList();
+        if (ng) alert(`${ng}社は変えられませんでした。もう一度ためしてください`);
       });
     });
   } else {

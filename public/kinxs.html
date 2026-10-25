@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261025g" />
+    <link rel="stylesheet" href="style.css?v=20261025h" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -312,6 +312,13 @@
   .kx-nabox .h{display:flex;gap:8px;align-items:center;font-size:11.5px;color:#6A7A72;font-weight:700;}
   .kx-nabox .t{font-size:15px;font-weight:800;margin-top:4px;line-height:1.5;}
   .kx-nabox .w{font-size:12.5px;color:#33463E;margin-top:2px;} .kx-nabox.late .w{color:#A51F16;font-weight:700;}
+  /* 担当別：まとめて選ぶ */
+  .kx-cscol .kx-uc.kx-picked{box-shadow:0 0 0 3px #1D9E75 !important;background:#EEF9F3 !important;}
+  .kx-cscol .kx-uc.kx-picked::after{content:"✓";position:absolute;top:6px;right:8px;width:20px;height:20px;border-radius:50%;background:#0E6B4E;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+  .kx-cscol .kx-uc{position:relative;}
+  .kx-selbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#E1F5EE;border:1px solid #B5E0CC;border-radius:12px;padding:9px 12px;margin-bottom:10px;font-size:13px;}
+  .kx-selbar b{color:#0A5440;}
+  .kx-dragghost{position:fixed;top:-100px;left:-100px;background:#0E6B4E;color:#fff;font-weight:800;font-size:14px;padding:8px 14px;border-radius:10px;}
 </style>
 </head>
   <body>
@@ -407,6 +414,6 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261025g"></script>
+    <script src="kinxs.js?v=20261025h"></script>
   </body>
 </html>
