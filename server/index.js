@@ -12672,7 +12672,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, renewLocked: !!r.renew_locked, logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy, allMeetings: ms };
 }
@@ -13552,6 +13552,11 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     if (b.dismiss_suggest) patch.na_suggest = null;
     for (const k of ["kenshu_done", "mail_done", "published", "label_locked"]) if (k in b) patch[k] = b[k] === null ? null : !!b[k];
     if ("renew_month" in b) { if (!/^\d{4}-\d{2}$/.test(String(b.renew_month || ""))) return res.status(400).json({ error: "更新月は YYYY-MM で入れてください" }); patch.renew_month = b.renew_month; patch.renew_locked = true; }
+    // 「自動に戻す」：手で決めた更新月をやめて、契約終了日から求め直す（次のSFからの取り込みで入る）
+    if (b.renew_auto === true) {
+      patch.renew_locked = false;
+      try { const rows0 = await kinxsList(); const r0 = rows0.find((y) => y.account_id === req.params.id); const e0 = r0 && r0.end_on; if (e0) { const d0 = e0 instanceof Date ? new Date(e0.getTime() + 9 * 3600000) : new Date(`${String(e0).slice(0, 10)}T00:00:00Z`); if (!isNaN(d0)) { d0.setUTCDate(1); d0.setUTCMonth(d0.getUTCMonth() - 1); patch.renew_month = d0.toISOString().slice(0, 7); } } } catch {}
+    }
     if ("main_label" in b) { if (b.main_label && !KX_LABELS.includes(b.main_label)) return res.status(400).json({ error: "メインラベルが正しくありません" }); patch.main_label = b.main_label || null; patch.label_locked = !!b.main_label; }
     if (b.dismiss) {
       const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id) || {};
@@ -27092,7 +27097,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26t kinXsのホーム：チャット・メールのやることに、関係のない会社（担当ユーザーが1社だけだと全部その会社）が付いていたのを直した。本文などにその会社の名前が本当に出てくるときだけ付ける。";
+const BUILD_TAG = "2026-10-26u kinXsの企業のモーダル：更新月の横の「更新月を変える」で月を選んで変えられる（手で決めた更新月はSFからの取り込みでも上書きしない）。「自動に戻す」で契約終了日の前月に戻せる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

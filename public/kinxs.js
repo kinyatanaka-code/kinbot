@@ -573,7 +573,9 @@ async function openDetail(id, reuse) {
       <div class="row"><label class="hp-b" style="cursor:pointer">画像ファイルを選ぶ<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" data-logo-file hidden /></label><span class="kx-note">1MBまで。画面のスクリーンショットの切り抜きでも大丈夫です</span></div>
       <div class="row"><button type="button" class="hp-b" data-logo="clear">ロゴなし（頭文字）にする</button><span class="kx-note" data-logo-st style="margin-left:auto"></span></div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><span class="kx-rank r-${x.rank}">${x.rank}</span><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><span class="kx-rank r-${x.rank}">${x.rank}</span><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}${x.renewLocked ? "・手で決めた" : ""}</span>
+      <button type="button" class="kx-ren" data-renew-open>更新月を変える</button>
+      <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
     <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
     <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}</div>
@@ -713,6 +715,12 @@ async function openDetail(id, reuse) {
   const ss = bg.querySelector("[data-save-status]");
   if (ss) ss.addEventListener("click", () => put({ cs_name: bg.querySelector('[data-st="cs_name"]').value, purpose: bg.querySelector('[data-st="purpose"]').value, usage_status: usagePick }));
   { const li = bg.querySelector("[data-logo-img]"); if (li) li.addEventListener("error", () => { const sp = document.createElement("span"); sp.className = "mono"; sp.textContent = (x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1); li.replaceWith(sp); }); }
+  // 更新月を変える（手で決めた更新月は、SFからの取り込みでも上書きしない）
+  { const rbx = bg.querySelector("[data-renew-box]"), rop = bg.querySelector("[data-renew-open]");
+    if (rop) rop.addEventListener("click", () => { rbx.hidden = false; rop.hidden = true; rbx.querySelector("[data-renew-in]").focus(); });
+    const rcn = bg.querySelector("[data-renew-cancel]"); if (rcn) rcn.addEventListener("click", () => { rbx.hidden = true; rop.hidden = false; });
+    const rsv = bg.querySelector("[data-renew-save]"); if (rsv) rsv.addEventListener("click", async () => { const v = rbx.querySelector("[data-renew-in]").value; if (!/^\d{4}-\d{2}$/.test(v)) { alert("更新月を選んでください"); return; } try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ renew_month: v }) }); refresh().catch(() => {}); await again(`更新月を ${v.replace("-", "/")} にしました`); } catch (e) { alert(e.message); } });
+    const rau = bg.querySelector("[data-renew-auto]"); if (rau) rau.addEventListener("click", async () => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ renew_auto: true }) }); refresh().catch(() => {}); await again("更新月を自動（契約終了日の前月）に戻しました"); } catch (e) { alert(e.message); } }); }
   // 社名を変える
   const rbox = bg.querySelector("[data-ren-box]");
   const ro = bg.querySelector("[data-ren-open]"); if (ro) ro.addEventListener("click", (e) => { e.stopPropagation(); rbox.hidden = !rbox.hidden; if (!rbox.hidden) rbox.querySelector("[data-ren-name]").focus(); });
