@@ -1014,3 +1014,45 @@ function renderHome() {
 if ($("khReload")) $("khReload").addEventListener("click", () => loadHome(true));
 if (VIEW === "home") { if ($("kxPageName")) $("kxPageName").textContent = "ホーム"; loadHome(false); }
 if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
+
+// ===== 他のメンバーとして見る（田中欽也さんだけ。kinbotの「他メンバーとして操作」と同じ仕組み）=====
+(async function kxImpersonation() {
+  let me; try { me = await (await fetch("/api/me")).json(); } catch { return; }
+  if (!me || !me.username) return;
+  const H = (x) => String(x || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  if (me.impersonating) {
+    const bar = document.createElement("div"); bar.className = "kx-imp-bar";
+    bar.innerHTML = `<span aria-hidden="true">👤</span><span><b>${H(me.impersonator_name || me.impersonator_email || "元のアカウント")}</b> として、<b>${H(me.name || me.username)}</b> の kinXs を見ています（直した内容は、あなたの操作として残ります）</span><button type="button" class="kx-imp-back">← 元のアカウントに戻る</button>`;
+    document.body.prepend(bar); document.body.classList.add("kx-imp-on");
+    bar.querySelector(".kx-imp-back").addEventListener("click", async () => { try { const r = await fetch("/api/impersonate/stop", { method: "POST" }); if (!r.ok) throw new Error("戻れませんでした"); location.href = "/kinxs?p=home"; } catch (e) { alert(e.message); } });
+  }
+  if (!me.can_impersonate) return;
+  const side = document.querySelector(".kx-side"); if (!side) return;
+  const btn = document.createElement("button"); btn.type = "button"; btn.className = "kx-imp-btn";
+  btn.innerHTML = `<span aria-hidden="true">🔀</span><span>${me.impersonating ? "ほかのメンバーに切りかえる" : "他メンバーとして見る"}</span>`;
+  const back = side.querySelector(".kx-back") || side.lastElementChild;
+  side.insertBefore(btn, back && back.nextSibling ? back.nextSibling : null);
+  btn.addEventListener("click", async () => {
+    const old = document.getElementById("kxImpPicker"); if (old) { old.remove(); return; }
+    let users = []; try { users = (await (await fetch("/api/impersonate/users")).json()).users || []; } catch { alert("メンバーの一覧を読めませんでした"); return; }
+    const mine = String(me.impersonator_email || me.username).toLowerCase();
+    users = users.filter((u) => String(u.email || "").toLowerCase() !== mine);
+    const m = document.createElement("div"); m.id = "kxImpPicker"; m.className = "imp-modal";
+    m.innerHTML = `<div class="imp-modal-panel"><div class="imp-modal-h"><span>他のメンバーとして kinXs を見る</span><button type="button" class="imp-modal-x" aria-label="閉じる">×</button></div>
+      <div class="imp-modal-note">選んだメンバーのホーム（担当ユーザー・やること）や画面を、その人として見られます。<b>直した内容は、あなたの操作として記録に残ります。</b></div>
+      <input type="search" class="imp-modal-filter" placeholder="名前・メールで絞り込み" autocomplete="off" /><div class="imp-modal-list"></div></div>`;
+    document.body.appendChild(m);
+    const list = m.querySelector(".imp-modal-list");
+    const render = (q) => { const qq = String(q || "").trim().toLowerCase(); const sh = users.filter((u) => !qq || String(u.name || "").toLowerCase().includes(qq) || String(u.email || "").toLowerCase().includes(qq));
+      list.innerHTML = sh.length ? sh.map((u) => `<button type="button" class="imp-user" data-email="${H(u.email)}"><span class="imp-user-name">${H(u.name || u.email)}</span><span class="imp-user-email">${H(u.email)}</span></button>`).join("") : '<div class="imp-empty">該当するメンバーがいません</div>';
+      list.querySelectorAll(".imp-user").forEach((el) => el.addEventListener("click", async () => {
+        const nm = el.querySelector(".imp-user-name").textContent;
+        if (!confirm(`${nm} として kinXs を見ます。よろしいですか？（記録に残ります）`)) return;
+        try { const r = await fetch("/api/impersonate/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: el.dataset.email }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "切りかえられませんでした"); location.href = "/kinxs?p=home"; } catch (e) { alert(e.message); }
+      })); };
+    m.querySelector(".imp-modal-filter").addEventListener("input", (e) => render(e.target.value));
+    m.querySelector(".imp-modal-x").addEventListener("click", () => m.remove());
+    m.addEventListener("click", (e) => { if (e.target === m) m.remove(); });
+    render(""); setTimeout(() => m.querySelector(".imp-modal-filter").focus(), 30);
+  });
+})();
