@@ -293,34 +293,61 @@ $("lsCs").addEventListener("change", renderList);
 // ① 企業情報（HP・住所・電話・担当者／受注日・受注者／ヘルプサイト／DOCのURL：VR・AI）
 function kxCoPane(d) {
   const f = d.info || {}; const src = f.source || {};
-  const tag = (k) => (src[k] ? `<span class="kx-src">${esc(src[k])}から</span>` : "");
-  const link = (u) => (u ? `<a href="${esc(/^https?:/.test(u) ? u : `https://${u}`)}" target="_blank" rel="noopener" class="kx-lnk">開く ↗</a>` : "");
-  const contacts = (f.contacts && f.contacts.length ? f.contacts : [{ name: "", title: "", phone: "", email: "" }]);
-  const pw = (v) => `<span class="kx-pw" data-pw="${esc(v || "")}">●●●●●●</span><button type="button" class="hp-b" data-pw-show>見る</button><button type="button" class="hp-b" data-copy="${esc(v || "")}">コピー</button>`;
-  return `
-    <div class="kx-sec kx-form">
-      <div class="lb">企業情報</div>
-      <label>HP</label><div class="kx-fr"><input class="kx-in" data-info="website" value="${esc(f.website || "")}" placeholder="https://" />${link(f.website)}${tag("website")}</div>
-      <label>住所</label><div class="kx-fr"><input class="kx-in" data-info="address" value="${esc(f.address || "")}" />${tag("address")}</div>
-      <label>電話番号</label><div class="kx-fr"><input class="kx-in" data-info="phone" value="${esc(f.phone || "")}" />${tag("phone")}</div>
-      <label style="grid-column:1 / -1">先方の担当者 ${tag("contacts")}</label>
-      <div data-ct-rows>${contacts.map((c) => `<div class="kx-ct"><input class="kx-in" data-ct="name" value="${esc(c.name || "")}" placeholder="お名前" /><input class="kx-in" data-ct="title" value="${esc(c.title || "")}" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" value="${esc(c.phone || "")}" placeholder="電話番号" /><input class="kx-in" data-ct="email" value="${esc(c.email || "")}" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`).join("")}</div>
-      <div style="grid-column:1 / -1;display:flex;gap:8px;margin-top:6px"><button type="button" class="hp-b" data-ct-add>＋ 担当者を追加</button><button type="button" class="kx-btn" data-save-info style="margin-left:auto">企業情報を保存</button></div>
+  const tag = (k) => (src[k] ? `<span class="kx-src">${esc(src[k])}</span>` : "");
+  const href = (u) => (/^https?:/.test(u) ? u : `https://${u}`);
+  const val = (v, kind) => !v ? '<span class="kx-none">未登録</span>' : kind === "url" ? `<a href="${esc(href(v))}" target="_blank" rel="noopener">${esc(String(v).replace(/^https?:\/\//, "").replace(/\/$/, ""))} ↗</a>` : kind === "tel" ? `<a href="tel:${esc(v)}">${esc(v)}</a>` : kind === "mail" ? `<a href="mailto:${esc(v)}">${esc(v)}</a>` : esc(v);
+  const contacts = f.contacts || [];
+  const pw = (v) => `<span class="kx-pw" data-pw="${esc(v || "")}">••••••••</span><button type="button" class="hp-b" data-pw-show>見る</button><button type="button" class="hp-b" data-copy="${esc(v || "")}">コピー</button>`;
+  const head = (t, edit) => `<div class="kx-c2h"><b>${t}</b>${edit ? '<button type="button" class="kx-ed" data-edit>編集</button>' : ""}</div>`;
+  return `<div class="kx-co-grid">
+    <div class="kx-co-col">
+      <section class="kx-c2" data-sec>
+        ${head("企業情報", true)}
+        <div class="kx-view">
+          <div class="kx-dl"><span>HP</span><div>${val(f.website, "url")} ${tag("website")}</div><span>住所</span><div>${val(f.address)} ${tag("address")}</div><span>電話番号</span><div>${val(f.phone, "tel")} ${tag("phone")}</div></div>
+        </div>
+        <div class="kx-editbox kx-form">
+          <label>HP</label><input class="kx-in" data-info="website" value="${esc(f.website || "")}" placeholder="https://" />
+          <label>住所</label><input class="kx-in" data-info="address" value="${esc(f.address || "")}" />
+          <label>電話番号</label><input class="kx-in" data-info="phone" value="${esc(f.phone || "")}" />
+          <div class="kx-edact"><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
+        </div>
+      </section>
+      <section class="kx-c2" data-sec>
+        ${head(`先方の担当者 ${tag("contacts")}`, true)}
+        <div class="kx-view">${contacts.length ? contacts.map((c) => `<div class="kx-person"><div class="av">${esc((c.name || "？").slice(0, 1))}</div><div style="min-width:0"><div class="nm">${esc(c.name || "（お名前なし）")}${c.title ? `<span>${esc(c.title)}</span>` : ""}</div><div class="ct">${c.phone ? `📞 ${val(c.phone, "tel")}` : ""}${c.email ? `　✉ ${val(c.email, "mail")}` : ""}</div></div></div>`).join("") : '<span class="kx-none">未登録</span>'}</div>
+        <div class="kx-editbox">
+          <div data-ct-rows>${(contacts.length ? contacts : [{}]).map((c) => `<div class="kx-ct"><input class="kx-in" data-ct="name" value="${esc(c.name || "")}" placeholder="お名前" /><input class="kx-in" data-ct="title" value="${esc(c.title || "")}" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" value="${esc(c.phone || "")}" placeholder="電話番号" /><input class="kx-in" data-ct="email" value="${esc(c.email || "")}" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`).join("")}</div>
+          <div class="kx-edact"><button type="button" class="hp-b" data-ct-add style="margin-right:auto">＋ 担当者を追加</button><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
+        </div>
+      </section>
     </div>
-    <div class="kx-sec kx-kv"><span>受注日</span><span>${f.booked ? esc(f.booked.replace(/-/g, "/")) : "—"}</span><span>受注者</span><span>${esc(f.bookedBy || "—")}</span></div>
-    <div class="kx-sec"><div class="lb">ヘルプサイトのログイン情報</div>
-      ${f.portal ? `<div class="hp-box">${f.portal.url ? `<div class="hp-row"><span class="hp-lb">ログインURL</span><span class="hp-v"><a href="${esc(f.portal.url)}" target="_blank" rel="noopener">${esc(f.portal.url)}</a></span><button type="button" class="hp-b" data-copy="${esc(f.portal.url)}">コピー</button></div>` : ""}
-        <div class="hp-row"><span class="hp-lb">企業ID</span><span class="hp-v">${esc(f.portal.id || "—")}</span>${f.portal.id ? `<button type="button" class="hp-b" data-copy="${esc(f.portal.id)}">コピー</button>` : ""}</div>
-        <div class="hp-row"><span class="hp-lb">パスワード</span><span class="hp-v">${f.portal.pw ? pw(f.portal.pw) : '<span class="kx-note">案内文にありません</span>'}</span></div></div>`
-        : `<div class="kx-note">まだ用意していません（CS連携の企業カードの「ヘルプサイト」で用意できます）</div>`}</div>
-    <div class="kx-sec kx-form"><div class="lb">DOC</div>
-      <label>VR（URL）</label><div class="kx-fr"><input class="kx-in" data-info="vr_url" value="${esc(f.vrUrl || "")}" placeholder="https://" />${link(f.vrUrl)}${tag("vrUrl")}</div>
-      <label>AI（URL）</label><div class="kx-fr"><input class="kx-in" data-info="ai_url" value="${esc(f.aiUrl || "")}" placeholder="https://" />${link(f.aiUrl)}</div>
-      <label style="grid-column:1 / -1">AIの管理者のログイン情報</label>
-      <div style="grid-column:1 / -1">${(f.ai || []).length ? `<div class="hp-box">${f.ai.map((a) => `<div class="hp-row" data-ai-i="${esc(a.id)}"><span class="hp-lb">${esc(a.label || "アカウント")}</span><span class="hp-v">${esc(a.login || "—")}</span>${a.login ? `<button type="button" class="hp-b" data-copy="${esc(a.login)}">IDをコピー</button>` : ""}${a.has_pass ? `<span class="kx-pw" data-ai-pw>●●●●●●</span><button type="button" class="hp-b" data-ai-show>見る</button><button type="button" class="hp-b" data-ai-copy>コピー</button>` : ""}</div>`).join("")}</div>`
-        : `<div class="kx-note">まだありません（CS連携の企業カードの「AIアカウント」で入れられます）</div>`}</div>
-      <div style="grid-column:1 / -1;display:flex;margin-top:6px"><button type="button" class="kx-btn" data-save-info style="margin-left:auto">URLを保存</button></div>
-    </div>`;
+    <div class="kx-co-col">
+      <section class="kx-c2">
+        ${head("受注")}
+        <div class="kx-kpi2"><div><span>受注日</span><b>${f.booked ? esc(f.booked.replace(/-/g, "/")) : "—"}</b></div><div><span>受注者</span><b>${esc(f.bookedBy || "—")}</b></div></div>
+      </section>
+      <section class="kx-c2">
+        ${head("ヘルプサイト")}
+        ${f.portal ? `<div class="kx-dl"><span>URL</span><div>${f.portal.url ? `${val(f.portal.url, "url")} <button type="button" class="hp-b" data-copy="${esc(f.portal.url)}">コピー</button>` : '<span class="kx-none">—</span>'}</div>
+          <span>企業ID</span><div><b>${esc(f.portal.id || "—")}</b>${f.portal.id ? ` <button type="button" class="hp-b" data-copy="${esc(f.portal.id)}">コピー</button>` : ""}</div>
+          <span>パスワード</span><div>${f.portal.pw ? pw(f.portal.pw) : '<span class="kx-none">案内文にありません</span>'}</div></div>`
+          : `<span class="kx-none">まだ用意していません（CS連携の企業カードで用意できます）</span>`}
+      </section>
+      <section class="kx-c2" data-sec>
+        ${head("DOC", true)}
+        <div class="kx-view"><div class="kx-dl"><span>VR</span><div>${val(f.vrUrl, "url")} ${tag("vrUrl")}</div><span>AI</span><div>${val(f.aiUrl, "url")}</div></div></div>
+        <div class="kx-editbox kx-form">
+          <label>VR（URL）</label><input class="kx-in" data-info="vr_url" value="${esc(f.vrUrl || "")}" placeholder="https://" />
+          <label>AI（URL）</label><input class="kx-in" data-info="ai_url" value="${esc(f.aiUrl || "")}" placeholder="https://" />
+          <div class="kx-edact"><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
+        </div>
+        <div class="kx-sub2">AIの管理者のログイン情報</div>
+        ${(f.ai || []).length ? f.ai.map((a) => `<div class="kx-acc" data-ai-i="${esc(a.id)}"><div class="lb2">${esc(a.label || "アカウント")}</div><div class="v"><span class="id">${esc(a.login || "—")}</span>${a.login ? `<button type="button" class="hp-b" data-copy="${esc(a.login)}">IDコピー</button>` : ""}</div>${a.has_pass ? `<div class="v"><span class="kx-pw" data-ai-pw>••••••••</span><button type="button" class="hp-b" data-ai-show>見る</button><button type="button" class="hp-b" data-ai-copy>コピー</button></div>` : ""}</div>`).join("")
+          : `<span class="kx-none">まだありません（CS連携の企業カードの「AIアカウント」で入れられます）</span>`}
+      </section>
+    </div>
+  </div>`;
 }
 // ② ステータス（CS担当・利用目的・活用）。フェーズ・次回アクションは下に続く
 function kxStatusPane(d) {
@@ -439,14 +466,19 @@ async function openDetail(id, reuse) {
     el.addEventListener("click", () => openMeeting(el.dataset.mt));
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") openMeeting(el.dataset.mt); });
   });
+  bg.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => { const sec = b.closest("[data-sec]"); sec.classList.add("editing"); const first = sec.querySelector(".kx-editbox input"); if (first) first.focus(); }));
+  bg.querySelectorAll("[data-cancel]").forEach((b) => b.addEventListener("click", () => b.closest("[data-sec]").classList.remove("editing")));
   // 企業情報：担当者の行・保存・パスワード
   const ctBox = bg.querySelector("[data-ct-rows]");
   const ctRow = () => `<div class="kx-ct"><input class="kx-in" data-ct="name" placeholder="お名前" /><input class="kx-in" data-ct="title" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" placeholder="電話番号" /><input class="kx-in" data-ct="email" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`;
   const wireCt = () => bg.querySelectorAll("[data-ct-del]").forEach((b) => { b.onclick = () => { b.closest(".kx-ct").remove(); if (!ctBox.querySelector(".kx-ct")) { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); } }; });
   if (ctBox) { wireCt(); bg.querySelector("[data-ct-add]").addEventListener("click", () => { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); }); }
   bg.querySelectorAll("[data-save-info]").forEach((b) => b.addEventListener("click", () => {
-    const info = {}; bg.querySelectorAll("[data-info]").forEach((el) => { info[el.dataset.info] = el.value; });
-    info.contacts = [...bg.querySelectorAll(".kx-ct")].map((r) => ({ name: r.querySelector('[data-ct="name"]').value, title: r.querySelector('[data-ct="title"]').value, phone: r.querySelector('[data-ct="phone"]').value, email: r.querySelector('[data-ct="email"]').value }));
+    // 直した欄だけを保存する（SFから来た値をそのまま手入力として残さないため）
+    const info = {}; bg.querySelectorAll("[data-info]").forEach((el) => { if (el.value !== el.defaultValue) info[el.dataset.info] = el.value; });
+    const ctSec = bg.querySelector("[data-ct-rows]") && bg.querySelector("[data-ct-rows]").closest("[data-sec]");
+    if (ctSec && ctSec.classList.contains("editing")) info.contacts = [...bg.querySelectorAll(".kx-ct")].map((r) => ({ name: r.querySelector('[data-ct="name"]').value, title: r.querySelector('[data-ct="title"]').value, phone: r.querySelector('[data-ct="phone"]').value, email: r.querySelector('[data-ct="email"]').value }));
+    if (!Object.keys(info).length) { b.closest("[data-sec]")?.classList.remove("editing"); return; }
     put({ info });
   }));
   bg.querySelectorAll("[data-pw-show]").forEach((b) => b.addEventListener("click", () => { const v = b.previousElementSibling; const sh = v.textContent !== "●●●●●●"; v.textContent = sh ? "●●●●●●" : v.dataset.pw; b.textContent = sh ? "見る" : "隠す"; }));
