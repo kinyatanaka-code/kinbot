@@ -6,7 +6,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 // calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
 // 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/spreadsheets";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/chat.messages.readonly https://www.googleapis.com/auth/chat.spaces.readonly";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -1699,4 +1699,23 @@ export async function sheetTabs(owner, spreadsheetId) {
   if (!r.ok) { const t = await r.text(); const e = new Error(`シートの読み取り ${r.status}: ${t.slice(0, 200)}`); if (r.status === 404) e.notFound = true; if (r.status === 403) e.noAccess = true; throw e; }
   const d = await r.json();
   return { title: d.properties?.title || "", tabs: (d.sheets || []).map((x) => ({ title: x.properties?.title || "", gid: x.properties?.sheetId })) };
+}
+
+// ===== Google Chat（自分のスペース・メッセージを読む）。Google連携で chat.messages.readonly・chat.spaces.readonly の許可が要る =====
+export async function chatMySpaces(owner) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const r = await fetch(`https://chat.googleapis.com/v1/spaces?pageSize=100`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) { const t = await r.text(); const e = new Error(`Chatのスペース ${r.status}: ${t.slice(0, 160)}`); if (r.status === 403 || r.status === 401) e.needScope = true; throw e; }
+  const d = await r.json();
+  return (d.spaces || []).map((s) => ({ name: s.name, title: s.displayName || "", type: s.spaceType || s.type || "" }));
+}
+export async function chatRecentMessages(owner, space, sinceIso, max = 40) {
+  const token = await accessToken(owner);
+  const q = new URLSearchParams({ pageSize: String(max), orderBy: "createTime desc", filter: `createTime > "${sinceIso}"` });
+  const r = await fetch(`https://chat.googleapis.com/v1/${space}/messages?${q}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) { const t = await r.text(); const e = new Error(`Chatのメッセージ ${r.status}: ${t.slice(0, 160)}`); if (r.status === 403 || r.status === 401) e.needScope = true; throw e; }
+  const d = await r.json();
+  return (d.messages || []).map((m) => ({ name: m.name, text: m.text || m.formattedText || "", at: m.createTime, sender: (m.sender && (m.sender.displayName || m.sender.name)) || "", senderType: (m.sender && m.sender.type) || "", thread: (m.thread && m.thread.name) || "",
+    mentions: (m.annotations || []).filter((a) => a.type === "USER_MENTION").map((a) => (a.userMention && a.userMention.user && (a.userMention.user.displayName || a.userMention.user.name)) || "") }));
 }

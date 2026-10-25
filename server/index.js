@@ -694,7 +694,7 @@ import {
   gmailTrashThread,
   gmailUntrashThread,
   gmailSetRead,
-  gmailCreateDraft, gmailDraftExists, sheetTabs,
+  gmailCreateDraft, gmailDraftExists, chatMySpaces, chatRecentMessages, sheetTabs,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
@@ -12803,6 +12803,94 @@ async function kxToKickoff(accountId, b, by) {
     console.log(`[kinxs] kinXsで直した内容を CS連携 にも：${k0.company}（${Object.keys(v).join("・")}）by ${by}`);
   } catch (e) { console.warn("[kinxs] CS連携へ", e.message); }
 }
+// ===== kinXs のホーム：自分の担当ユーザーと、やること（kinXs・メール・チャットから読み取る）=====
+const _kxHomeCache = new Map();   // user → { at, data }
+async function kinxsHome(user, { fresh = false } = {}) {
+  const me = String(user || "").toLowerCase();
+  const c0 = _kxHomeCache.get(me);
+  if (!fresh && c0 && Date.now() - c0.at < 10 * 60 * 1000) return c0.data;
+  const users = await listUsers().catch(() => []);
+  const meName = ((users.find((u) => String(u.email || "").toLowerCase() === me) || {}).name) || "";
+  const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+  const { items } = await kinxsBuild();
+  const mine = items.filter((x) => meName && x.cs && (sur(x.cs) === sur(meName) || String(x.cs).replace(/\s/g, "") === meName.replace(/\s/g, "")));
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const tasks = [];
+  // ① kinXs：次回アクション・要注意
+  for (const x of mine) {
+    if (x.na) tasks.push({ src: "kinXs", kind: "次回アクション", title: `${x.naType ? `【${x.naType}】` : ""}${x.na}`, account: x.name, accountId: x.id, due: x.naDue || "", at: x.naAt || "" });
+    for (const a of x.alerts || []) tasks.push({ src: "kinXs", kind: a.rule, title: a.detail, account: x.name, accountId: x.id, due: a.rule === "NA期限切れ" ? x.naDue : "" });
+    if (!x.na && !(x.alerts || []).length && !["解約済み", "キャンセル"].includes(x.label)) tasks.push({ src: "kinXs", kind: "次回アクション未定", title: "次回アクションを決める", account: x.name, accountId: x.id, due: "" });
+  }
+  // ② メール：担当ユーザーの先方から来て、まだ返していないメール（14日）
+  const notes = [];
+  const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
+  const doms = new Map();   // ドメイン → 会社
+  const addDom = (e, x) => { const d = String(e || "").toLowerCase().split("@")[1]; if (d && !KX_FREE_MAIL.test(d) && !/neo-career|neocareer/.test(d)) doms.set(d, x); };
+  for (const x of mine) {
+    const k = kicks.find((k2) => csCoKey(k2.company) === csCoKey(x.name) || (x.formerNames || []).some((f) => csCoKey(f) === csCoKey(k2.company)));
+    if (k) { addDom(k.client_email, x); String(k.client_cc || "").split(/[,\s;]+/).forEach((e) => addDom(e, x)); }
+    const rows = await kinxsList().catch(() => []); const r = rows.find((y) => y.account_id === x.id) || {};
+    for (const c of ((r.info && r.info.contacts) || [])) addDom(c.email, x);
+  }
+  if (doms.size) {
+    try {
+      const q = `(${[...doms.keys()].slice(0, 25).map((d) => `from:@${d}`).join(" OR ")}) newer_than:14d -in:sent`;
+      const ths = await gmailSearchThreads(me, q, 12);
+      for (const t of ths) {
+        const th = await gmailGetThread(me, t.threadId || t.id).catch(() => null);
+        const msgs = (th && th.messages) || []; const last = msgs[msgs.length - 1]; if (!last) continue;
+        const fromMe = String(last.from || "").toLowerCase().includes(me);
+        if (fromMe) continue;   // 最後がこちらの返信なら、やることなし
+        const d = String(last.from || "").toLowerCase().match(/@([\w.-]+)/); const x = d && doms.get(d[1]);
+        tasks.push({ src: "メール", kind: "返信", title: `返信する：${String(last.subject || "（件名なし）").slice(0, 60)}`, account: x ? x.name : "", accountId: x ? x.id : "", due: "", at: last.date ? new Date(last.date).toISOString() : "", from: last.from, body: String(last.body || "").replace(/\n>.*$/gm, "").slice(0, 600), link: `https://mail.google.com/mail/u/0/#all/${t.threadId || t.id}` });
+      }
+    } catch (e) { notes.push(`メールを読めませんでした：${e.message}`); }
+  }
+  // ③ チャット：最近3日、自分あてのメッセージ（メンション・自分の名前・1対1のチャット）
+  let chatNeed = false;
+  try {
+    const spaces = (await chatMySpaces(me)).slice(0, 25);
+    const since = new Date(Date.now() - 3 * 86400000).toISOString();
+    const s0 = sur(meName);
+    for (const sp of spaces) {
+      const msgs = await chatRecentMessages(me, sp.name, since, 30).catch(() => []);
+      for (const m of msgs) {
+        if (m.senderType === "BOT") continue;
+        const toMe = sp.type === "DIRECT_MESSAGE" ? !String(m.sender).includes(s0) : (m.mentions.some((n) => n && s0 && String(n).includes(s0)) || (s0 && String(m.text).includes(`@${s0}`)));
+        if (!toMe || !m.text.trim()) continue;
+        tasks.push({ src: "チャット", kind: sp.type === "DIRECT_MESSAGE" ? "1対1" : "メンション", title: m.text.replace(/\s+/g, " ").slice(0, 80), account: "", accountId: "", due: "", at: m.at, from: m.sender, space: sp.title || "1対1のチャット", body: m.text.slice(0, 600), link: `https://chat.google.com/` });
+      }
+    }
+  } catch (e) { if (e.needScope) chatNeed = true; else notes.push(`チャットを読めませんでした：${e.message}`); }
+  // メール・チャットは、AIで「やること」の1行に直す（会社名も当てる）
+  const raw = tasks.filter((t) => (t.src === "メール" || t.src === "チャット") && t.body).slice(0, 25);
+  if (raw.length) {
+    try {
+      const names = mine.map((x) => x.name).slice(0, 80).join("、");
+      const sys = "あなたはカスタマーサクセスの担当者のアシスタントです。メールやチャットを読み、この担当者がやるべきことを1行にします。必ずJSONだけを返します。";
+      const userP = `担当している会社：${names}\n今日：${today}\n\n${raw.map((t, i) => `#${i} [${t.src}] 送った人：${t.from || ""}\n${t.body}`).join("\n\n")}\n\n次の形のJSONの配列を返してください：[{"i":番号,"task":"やることを40字以内（不要なら空）","due":"YYYY-MM-DD（書いてあれば）","company":"担当している会社のどれか（分からなければ空）"}]。お礼や連絡だけで、やることが無いものは task を空にします。`;
+      const out = JSON.parse(String(await callLLMPublic(sys, userP, 1500, { json: true })).replace(/```json|```/g, "").trim());
+      const arr = Array.isArray(out) ? out : (out.items || out.tasks || []);
+      for (const o of arr) {
+        const t = raw[Number(o.i)]; if (!t) continue;
+        if (!String(o.task || "").trim()) { t.drop = true; continue; }
+        t.title = String(o.task).slice(0, 80); if (/^\d{4}-\d{2}-\d{2}$/.test(String(o.due || ""))) t.due = o.due;
+        if (!t.account && o.company) { const x = mine.find((y) => y.name === o.company || csCoKey(y.name) === csCoKey(o.company)); if (x) { t.account = x.name; t.accountId = x.id; } }
+      }
+    } catch (e) { notes.push(`AIでの読み取りに失敗：${e.message}`); }
+  }
+  const list = tasks.filter((t) => !t.drop).map(({ body, ...t }) => t);
+  const bucket = (t) => (t.due && t.due < today ? "期限切れ" : t.due === today ? "今日" : t.due && t.due <= new Date(Date.now() + 9 * 3600000 + 6 * 86400000).toISOString().slice(0, 10) ? "今週" : (t.src !== "kinXs" ? "返事・依頼" : t.due ? "これから" : "期日なし"));
+  for (const t of list) t.bucket = bucket(t);
+  const data = { ok: true, me: meName, at: new Date().toISOString(), mine: mine.map((x) => ({ id: x.id, name: x.name, logo: x.logo, label: x.label, rank: x.rank, renew: x.renew, alerts: (x.alerts || []).length, na: x.na, naDue: x.naDue })), tasks: list, chatNeed, notes };
+  _kxHomeCache.set(me, { at: Date.now(), data });
+  return data;
+}
+app.get("/api/kinxs/home", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsHome(req.user, { fresh: req.query.fresh === "1" })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/kinxs/accounts/:id/rename", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -26876,7 +26964,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26l kincallの実績ダッシュボード：週次の積み上げにも、月の手補正（記録に残らなかったアポを足した分）を入れて、月次と同じ数（例：256→257）になるように。";
+const BUILD_TAG = "2026-10-26m kinXsにホーム：自分の担当ユーザーと、やること（kinXsの次回アクション・要注意／担当ユーザーの先方から来てまだ返していないメール／チャットの自分あてのメッセージ をAIで1行に）を期限切れ・今日・返事・依頼・今週…に分けて出す。チャットを読むため、Google連携の許可にChatの読み取りを足した（連携のやり直しが要る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

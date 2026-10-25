@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261026l" />
+    <link rel="stylesheet" href="style.css?v=20261026m" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -395,12 +395,33 @@
   #vBoard .kx-card{position:relative;}
   .kx-top-ico.topbar-bot{cursor:pointer;transition:transform .15s;}
   .kx-top-ico.topbar-bot:hover{transform:translateY(-1px) rotate(-4deg);}
+  /* kinXs のホーム */
+  .kh-top{display:flex;align-items:center;gap:12px;margin-bottom:6px;} .kh-hi{font-size:20px;font-weight:800;}
+  .kh-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr);gap:14px;align-items:start;}
+  @media (max-width:980px){ .kh-grid{grid-template-columns:1fr;} }
+  .kh-tasks,.kh-mine{background:#fff;border:1px solid #E1E9E5;border-radius:16px;padding:14px 16px;min-width:0;}
+  .kh-h{display:flex;align-items:center;gap:8px;font-size:14.5px;font-weight:800;margin-bottom:8px;}
+  .kh-srcs{margin-left:auto;display:flex;gap:4px;}
+  .kh-src{font-size:10.5px;font-weight:800;border-radius:6px;padding:1px 7px;} .kh-src.kx{background:#E1F5EE;color:#0A5440;} .kh-src.ml{background:#E6EEFB;color:#1B4789;} .kh-src.ch{background:#F0EAFB;color:#523490;}
+  .kh-g{margin-top:10px;} .kh-gh{font-size:12px;font-weight:800;color:#4F6158;margin:0 0 6px;display:flex;gap:6px;align-items:center;}
+  .kh-gh.late{color:#A51F16;} .kh-gh.today{color:#0E6B4E;}
+  .kh-t{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border:1px solid #EEF2F0;border-radius:10px;margin-bottom:6px;background:#FCFDFC;}
+  .kh-t:hover{border-color:#CFE3D9;background:#fff;}
+  .kh-t .kh-main{flex:1;min-width:0;} .kh-t .tt{font-size:13.5px;font-weight:700;line-height:1.5;} .kh-t .mt{font-size:11.5px;color:#6A7A72;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .kh-t .co{color:#0D5B47;font-weight:700;cursor:pointer;text-decoration:underline dotted;} .kh-t .due{font-weight:700;} .kh-t .due.late{color:#A51F16;}
+  .kh-t a.op{font-size:11.5px;font-weight:700;color:#1B4789;text-decoration:none;white-space:nowrap;}
+  .kh-m{display:flex;gap:9px;align-items:center;padding:7px 4px;border-bottom:1px solid #F0F3F1;cursor:pointer;} .kh-m:hover{background:#F7FBF9;}
+  .kh-m .lg{width:30px;height:30px;border-radius:8px;border:1px solid #E1E9E5;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none;font-weight:800;font-size:12px;color:#0E6B4E;} .kh-m .lg img{max-width:86%;max-height:86%;object-fit:contain;}
+  .kh-m .nm{flex:1;min-width:0;font-size:13px;font-weight:700;} .kh-m .nm small{display:block;font-weight:600;font-size:11px;color:#6A7A72;}
+  .kh-m .al{font-size:10.5px;font-weight:800;color:#7A3300;background:#FFF1DC;border-radius:6px;padding:0 6px;}
+  .kh-warn{background:#FFF7EA;border:1px solid #F0D5B0;color:#6B3700;border-radius:12px;padding:9px 12px;font-size:12.5px;margin-bottom:10px;}
 </style>
 </head>
   <body>
     <div class="kx-app">
       <nav class="kx-side" aria-label="kinXsのメニュー">
-        <a class="kx-brand" href="/kinxs?p=list"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
+        <a class="kx-brand" href="/kinxs?p=home"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
+        <a class="kx-nav" data-view="home" href="/kinxs?p=home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>ホーム</a>
         <a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>ユーザー一覧</a>
       
         <a class="kx-nav" data-view="renew" href="/kinxs?p=renew"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>更新管理</a>
@@ -468,6 +489,14 @@
             </div>
             <div class="kx-tablebox" id="imPrevBox" style="display:none"><div id="imPrev"></div></div>
           </div>
+          <div class="kx-wrap" id="vHome" hidden>
+            <div class="kh-top"><div><div class="kh-hi" id="khHi">ホーム</div><div class="kx-note" id="khAt"></div></div><button type="button" class="kx-btn" id="khReload" style="margin-left:auto">読み直す</button></div>
+            <div id="khNote"></div>
+            <div class="kh-grid">
+              <section class="kh-tasks"><div class="kh-h">やること <span class="kx-note" id="khCount"></span><span class="kh-srcs"><span class="kh-src kx">kinXs</span><span class="kh-src ml">メール</span><span class="kh-src ch">チャット</span></span></div><div id="khTasks"><div class="kx-empty">読み込み中…（メールとチャットも読むので、少しかかります）</div></div></section>
+              <section class="kh-mine"><div class="kh-h">自分の担当ユーザー <span class="kx-note" id="khMineN"></span></div><div id="khMine"></div></section>
+            </div>
+          </div>
           <div class="kx-wrap" id="vRenew">
             <div class="kx-head">
               
@@ -489,7 +518,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261026l" defer></script>
-    <script src="kinxs.js?v=20261026l"></script>
+    <script src="kbchat.js?v=20261026m" defer></script>
+    <script src="kinxs.js?v=20261026m"></script>
   </body>
 </html>
