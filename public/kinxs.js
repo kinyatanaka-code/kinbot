@@ -73,24 +73,37 @@ function render() {
   const noMonth = shown.filter((x) => !x.renew);
   const rows = months.map((m) => ({ m, list: shown.filter((x) => x.renew === m) })).filter((r) => r.list.length || (r.m >= d.thisMonth && r.m <= addMonths(d.thisMonth, 3)));
   const rankOrder = { S: 0, A: 1, B: 2, C: 3, Z: 4, F: 5 };
-  const chip = (x) => `<button type="button" class="kx-chipco ${x.warn ? "warn" : ""}" draggable="true" data-id="${esc(x.id)}" title="${esc(`${x.name}\nCS ${kxSurname(x.cs) || "未定"}${x.estimated ? "・終了日は推定" : ""}\n押すと詳細／ドラッグで確度・更新月を変える／右クリックで確度を選ぶ`)}"><span class="kx-rank r-${x.rank}">${x.rank}</span>${esc(x.name)}${x.warn ? '<i class="dot" aria-label="要注意"></i>' : ""}</button>`;
-  const rowHtml = (m, list, label, dl, cls) => `<div class="kx-mrow ${cls}" data-month="${esc(m || "")}">
-      <div class="kx-mhead"><b>${esc(label)}</b><div class="d">${esc(dl)}</div><div class="n">${list.length}社</div></div>
+  const RC = { S: "#0E6B4E", A: "#178A66", B: "#E0A100", C: "#C43D3D", Z: "#9AA8B8", F: "#3A3F3D" };
+  const mono1 = (n) => String(n || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").trim().slice(0, 1) || "？";
+  // 会社のチップ：左の色の帯＝確度、ロゴ、会社名。要注意は小さな橙の点だけ（枠で光らせない）
+  const chip = (x) => `<button type="button" class="kx-chipco v2" style="--rc:${RC[x.rank] || "#9AA8B8"}" draggable="true" data-id="${esc(x.id)}" title="${esc(`${x.name}${(x.formerNames || []).length ? `（旧：${x.formerNames.join("・")}）` : ""}\n確度 ${x.rank}・CS ${kxSurname(x.cs) || "未定"}${x.estimated ? "・終了日は推定" : ""}${x.warn ? "\n要注意（更新月が近いのに確度がB以下）" : ""}\n押すと詳細／ドラッグで確度・更新月を変える／右クリックで確度を選ぶ`)}">`
+    + `<span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" data-mono="${esc(mono1(x.name))}" />` : esc(mono1(x.name))}</span>`
+    + `<span class="nm">${esc(x.name)}</span><span class="rk">${x.rank}</span>${x.warn ? '<i class="dot" aria-label="要注意"></i>' : ""}</button>`;
+  const rowHtml = (m, list, label, dl, cls) => `<div class="kx-mrow v2 ${cls}" data-month="${esc(m || "")}">
+      <div class="kx-mhead"><b>${esc(label)}</b><span class="pill">${esc(dl)}</span><div class="n">${list.length}社</div></div>
       <div class="kx-chips2">${list.sort((a, b) => (rankOrder[a.rank] - rankOrder[b.rank]) || a.name.localeCompare(b.name, "ja")).map(chip).join("") || '<span class="kx-note">この月の会社はありません</span>'}</div></div>`;
-  const body = rows.map((r) => {
+  const rowsInfo = rows.map((r) => {
     const left = Math.round((Date.parse(`${r.m}-01T00:00:00+09:00`) - Date.now()) / 86400000);
     const isNow = r.m === d.thisMonth;
     const cls = isNow ? "now" : left < 0 ? "past" : left <= d.warnDays ? "warn" : "";
-    return rowHtml(r.m, r.list, ymLabel(r.m), isNow ? "今月" : left < 0 ? `${-left}日過ぎ` : `あと${left}日`, cls);
-  }).join("") + (noMonth.length ? rowHtml("", noMonth, "未定", "契約終了日が無い", "past") : "");
+    return { ...r, html: rowHtml(r.m, r.list, ymLabel(r.m), isNow ? "今月" : left < 0 ? `${-left}日過ぎ` : `あと${left}日`, cls), past: !isNow && left < 0 };
+  });
+  const pastRows = rowsInfo.filter((r) => r.past), nextRows = rowsInfo.filter((r) => !r.past);
+  const pastN = pastRows.reduce((a, r) => a + r.list.length, 0), nextN = nextRows.reduce((a, r) => a + r.list.length, 0);
+  const pastOpen = window.__kxPastOpen !== false;
+  const body = (pastRows.length ? `<div class="kx-sec-h past" data-past-toggle role="button" tabindex="0"><span>${pastOpen ? "▾" : "▸"}</span>更新月を過ぎた会社<em>${pastN}社</em><small>押すとたたむ／開く</small></div>${pastOpen ? pastRows.map((r) => r.html).join("") : ""}` : "")
+    + `<div class="kx-sec-h">これからの更新<em>${nextN}社</em></div>${nextRows.map((r) => r.html).join("")}`
+    + (noMonth.length ? `<div class="kx-sec-h">更新月が未定<em>${noMonth.length}社</em></div>${rowHtml("", noMonth, "未定", "契約終了日が無い", "past")}` : "");
   const fcount = { warn: items.filter((x) => x.warn).length, all: items.length, Z: items.filter((x) => x.rank === "Z").length, mine: myName ? items.filter((x) => String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))).length : 0 };
   const fbtn = (k, t) => `<button type="button" class="kx-chip ${flt === k ? "on" : ""}" data-flt="${k}">${t} ${fcount[k]}</button>`;
   const rcount = {}; for (const x of items) rcount[x.rank] = (rcount[x.rank] || 0) + 1;
-  const legend = RANKS.map(([k, l]) => `<button type="button" class="kx-drop ${rsel.has(k) ? "on" : ""} ${rsel.size && !rsel.has(k) ? "dim" : ""}" data-rank-drop="${k}" data-rank-pick="${k}" aria-pressed="${rsel.has(k)}" title="押すと確度${k}の会社だけを出します（もう一度押すと外す）。会社をここにドラッグすると確度${k}になります"><span class="kx-rank r-${k}">${k}</span>${esc(l)}<span class="kx-rc">${rcount[k] || 0}</span></button>`).join("")
-    + (rsel.size ? `<button type="button" class="kx-chip" data-rank-clear style="height:28px">確度の絞り込みを外す</button>` : "");
-  $("kxTable").innerHTML = d.items.length ? `<div class="kx-legend">${legend}<span class="kx-note" style="color:#7A3300;font-weight:700"><i class="dot"></i> 要注意</span></div>
-    <div class="kx-fbar">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}${fbtn("Z", "未アプローチ")}</div>
+  const legend = RANKS.map(([k, l]) => `<button type="button" class="kx-drop v2 ${rsel.has(k) ? "on" : ""} ${rsel.size && !rsel.has(k) ? "dim" : ""}" style="--rc:${RC[k]}" data-rank-drop="${k}" data-rank-pick="${k}" aria-pressed="${rsel.has(k)}" title="押すと確度${k}（${esc(l)}）の会社だけを出します（もう一度押すと外す）。会社をここにドラッグすると確度${k}になります"><span class="kx-rank r-${k}">${k}</span>${esc(l)}<span class="kx-rc">${rcount[k] || 0}</span></button>`).join("")
+    + (rsel.size ? `<button type="button" class="kx-chip" data-rank-clear style="height:28px">外す</button>` : "");
+  $("kxTable").innerHTML = d.items.length ? `<div class="kx-tools"><div class="f">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}</div><div class="r">${legend}</div></div>
     <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降の、空間デザイン制作かアチコチバースの商談から取り込みます。</div>`;
+  document.querySelectorAll("#kxTable img[data-mono]").forEach((im) => im.addEventListener("error", () => { const p0 = im.parentNode; p0.textContent = im.dataset.mono; }));
+  const pt = document.querySelector("#kxTable [data-past-toggle]"); if (pt) pt.addEventListener("click", () => { window.__kxPastOpen = !(window.__kxPastOpen !== false); render(); });
+
   const box = $("kxTable");
   kxFitRows();
   box.querySelectorAll("[data-flt]").forEach((b) => b.addEventListener("click", () => { window.__kxFilter = b.dataset.flt; render(); }));

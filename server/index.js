@@ -12581,7 +12581,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     await kinxsInit();
-    const rows = await kinxsList();
+    const rows = (await kinxsList()).filter((r) => !r.merged_into);
     const nowJ = new Date(Date.now() + 9 * 3600000);
     const thisMonth = nowJ.toISOString().slice(0, 7);
     const st = await getSettings().catch(() => ({}));
@@ -12590,7 +12590,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
     const items = rows.map((r) => {
       const left = r.renew_month ? daysTo(r.renew_month) : null;
       const warn = left != null && left <= warnDays && ["B", "C", "Z"].includes(r.rank || "Z") && r.rank !== "F";
-      return { id: r.account_id, name: r.name, rank: r.rank || "Z", renew: r.renew_month, left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
+      return { id: r.account_id, name: r.name_override || r.name, formerNames: (Array.isArray(r.former_names) ? r.former_names : []), logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", rank: r.rank || "Z", renew: r.renew_month, left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
         cs: r.cs_name || "", fs: r.fs_name || "", products: (r.products || []).map((p) => p.name), error: r.error || "", rankAt: r.rank_at, rankBy: r.rank_by || "", manual: r.source === "manual" };
     });
     res.json({ ok: true, thisMonth, warnDays, items, sync: _kinxsLast, fields: st.kinxsFields || {} });
@@ -26810,7 +26810,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26d kinXsのフェーズ別：カードの「検収 未」「納品メール 未」などのタグをやめた（確度の印は残す）。";
+const BUILD_TAG = "2026-10-26e kinXsの更新管理を見やすく：「更新月を過ぎた会社」（たためる）と「これからの更新」に分け、今月の行を緑で目立たせる。会社のチップはロゴ入り、確度は左の色の帯と小さな印、要注意は橙の点だけ。絞り込みと確度を1つの帯に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
