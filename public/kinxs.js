@@ -333,7 +333,15 @@ function renderList() {
     const paintNav = () => { const max = board.scrollWidth - board.clientWidth - 2; navs[0].hidden = board.scrollLeft <= 2; navs[1].hidden = board.scrollLeft >= max; };
     navs.forEach((b) => b.addEventListener("click", () => { board.scrollBy({ left: Number(b.dataset.csnav) * 540, behavior: "smooth" }); setTimeout(paintNav, 400); }));
     board.addEventListener("scroll", paintNav);
-    board.addEventListener("wheel", (e) => { if (e.shiftKey || (Math.abs(e.deltaX) > Math.abs(e.deltaY))) return; if (e.target.closest(".kx-cscol-b")) return; board.scrollLeft += e.deltaY; e.preventDefault(); }, { passive: false });
+    // 横に動かす：列の中でも、横向きのスワイプ（トラックパッド）・Shift＋ホイールなら横に。列の外ではふつうのホイールも横に
+    board.addEventListener("wheel", (e) => {
+      const inCol = !!e.target.closest(".kx-cscol-b");
+      const horiz = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      if (horiz) { board.scrollLeft += e.deltaX; e.preventDefault(); return; }
+      if (e.shiftKey) { board.scrollLeft += e.deltaY; e.preventDefault(); return; }
+      if (inCol) return;   // 列の中のふつうのホイールは、その列を縦に
+      board.scrollLeft += e.deltaY; e.preventDefault();
+    }, { passive: false });
     board.addEventListener("dragover", (e) => { const r0 = board.getBoundingClientRect(); if (e.clientX > r0.right - 70) board.scrollLeft += 18; else if (e.clientX < r0.left + 70) board.scrollLeft -= 18; });
     setTimeout(paintNav, 0);
     const COLT = "application/x-kx-col";
