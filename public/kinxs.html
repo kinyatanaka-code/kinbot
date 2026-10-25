@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261026g" />
+    <link rel="stylesheet" href="style.css?v=20261026h" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -393,6 +393,8 @@
   #vBoard .kx-card.kx-picked{box-shadow:0 0 0 3px #1D9E75 !important;background:#EEF9F3 !important;position:relative;}
   #vBoard .kx-card.kx-picked::after{content:"✓";position:absolute;top:6px;right:8px;width:20px;height:20px;border-radius:50%;background:#0E6B4E;color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;}
   #vBoard .kx-card{position:relative;}
+  .kx-top-ico.topbar-bot{cursor:pointer;transition:transform .15s;}
+  .kx-top-ico.topbar-bot:hover{transform:translateY(-1px) rotate(-4deg);}
 </style>
 </head>
   <body>
@@ -414,10 +416,9 @@
 
       <div class="kx-main">
         <header class="topbar kx-topbar">
-          <div class="brand"><img class="kx-top-ico" src="/kinxs.svg" alt="" width="40" height="40" /><span class="brand-name" id="kxPageName">更新管理</span><span class="brand-sub">kinXs</span></div>
+          <div class="brand"><img class="kx-top-ico topbar-bot" src="/kinxs.svg" alt="kinbotに聞く" width="40" height="40"  title="押すとkinbotに相談できます" /><span class="brand-name" id="kxPageName">更新管理</span><span class="brand-sub">kinXs</span></div>
           <span class="kx-top-chip" id="kxTopChip" hidden></span>
           <div class="kx-top-right">
-            <img class="topbar-bot kx-bot" src="/kinbot.svg" alt="kinbotに聞く" width="34" height="34" title="押すとkinbotに相談できます" />
             <button type="button" class="kx-btn kx-add-user" data-top-act>＋ ユーザーを追加</button>
             <button type="button" class="kx-btn" id="kxSyncTop" data-top-act>SFから取り込み直す</button>
             <span id="kxMe" hidden><span id="kxMeAv"></span><span id="kxMeName"></span></span>
@@ -488,7 +489,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261026g" defer></script>
-    <script src="kinxs.js?v=20261026g"></script>
+    <script src="kbchat.js?v=20261026h" defer></script>
+    <script src="kinxs.js?v=20261026h"></script>
   </body>
 </html>
