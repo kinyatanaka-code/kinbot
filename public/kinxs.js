@@ -987,6 +987,18 @@ async function loadHome(fresh) {
   // 前に読んだ結果を出したときは、裏で読み直しているので、少ししてもう一度
   if (_khInbox && _khInbox.stale) setTimeout(async () => { try { _khInbox = await api("/api/kinxs/home/inbox"); renderHome(); } catch {} }, 20000);
 }
+// ホーム：画面全体は止めて、「やること」と「自分の担当ユーザー」をそれぞれスクロールする
+function kxFitHome() {
+  if (VIEW !== "home") return;
+  document.documentElement.style.overflow = "hidden";
+  for (const id of ["khTasks", "khMine"]) {
+    const el = $(id); if (!el) continue;
+    const top = el.getBoundingClientRect().top;
+    el.style.maxHeight = `${Math.max(200, window.innerHeight - top - 30)}px`;
+    el.style.overflowY = "auto"; el.style.overscrollBehavior = "contain"; el.style.paddingRight = "4px";
+  }
+}
+window.addEventListener("resize", () => kxFitHome());
 function renderHome() {
   const d = _khBase; if (!d) return;
   const ib = _khInbox || { tasks: [], notes: [] };
@@ -1010,6 +1022,7 @@ function renderHome() {
   $("khMine").innerHTML = d.mine.length ? d.mine.map((x) => `<div class="kh-m" data-kh-open="${esc(x.id)}"><span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" />` : esc(mono(x.name))}</span><span class="nm">${esc(x.name)}<small>${esc(x.label)}・更新 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</small></span>${x.alerts ? `<span class="al">要注意</span>` : ""}<span class="kx-rank r-${x.rank}">${x.rank}</span></div>`).join("") : `<div class="kx-note">担当している会社がまだありません（ユーザー一覧の「担当別」で割り振れます）</div>`;
   document.querySelectorAll("#vHome [data-kh-open]").forEach((el) => el.addEventListener("click", () => el.dataset.khOpen && openDetail(el.dataset.khOpen)));
   document.querySelectorAll("#khMine img").forEach((im) => im.addEventListener("error", () => { im.parentNode.textContent = "・"; }));
+  kxFitHome();
 }
 if ($("khReload")) $("khReload").addEventListener("click", () => loadHome(true));
 if (VIEW === "home") { if ($("kxPageName")) $("kxPageName").textContent = "ホーム"; loadHome(false); }

@@ -12623,6 +12623,8 @@ async function kinxsBuild() {
   const now = Date.now();
   const days = (t) => (t ? Math.floor((now - Date.parse(t)) / 86400000) : null);
   const today = new Date(now + 9 * 3600000).toISOString().slice(0, 10);
+  // DATE の項目（na_due・booked_on など）は Date で来るので、日本時間の YYYY-MM-DD にそろえる
+  const kxYmdOf = (v) => { if (!v) return ""; if (v instanceof Date) { const d = new Date(v.getTime() + 9 * 3600000); return isNaN(d) ? "" : d.toISOString().slice(0, 10); } const t = String(v); return /^\d{4}-\d{2}-\d{2}/.test(t) ? t.slice(0, 10) : (isNaN(Date.parse(t)) ? "" : new Date(Date.parse(t) + 9 * 3600000).toISOString().slice(0, 10)); };
   const items = rows.map((r0) => {
     let r = r0; r = { ...r, name: r.name_override || r.name };
     const formerNames = (Array.isArray(r.former_names) ? r.former_names : []).filter((f) => f && f !== r.name);
@@ -12658,7 +12660,7 @@ async function kinxsBuild() {
     const hidden = (rule) => dis[rule] && now - Date.parse(dis[rule]) < 14 * 86400000;
     const alerts = [];
     if (left != null && left <= rules.renewDays && ["B", "C", "Z"].includes(rank) && label !== "解約済み") alerts.push({ rule: "更新月接近", score: 40, detail: `更新月 ${r.renew_month.replace("-", "/")}（${left < 0 ? `${-left}日過ぎ` : `あと${left}日`}）・確度${rank}` });
-    if (r.na_due && String(r.na_due).slice(0, 10) < today) alerts.push({ rule: "NA期限切れ", score: 30, detail: `次回アクションの期日 ${String(r.na_due).slice(5, 10).replace("-", "/")} を ${days(String(r.na_due).slice(0, 10) + "T00:00:00+09:00")}日過ぎています` });
+    if (r.na_due && kxYmdOf(r.na_due) < today) alerts.push({ rule: "NA期限切れ", score: 30, detail: `次回アクションの期日 ${kxYmdOf(r.na_due).slice(5).replace("-", "/")} を ${days(kxYmdOf(r.na_due) + "T00:00:00+09:00")}日過ぎています` });
     const undelivered = !kenshu.startsWith("回収済み") || !mail.startsWith("送付済み");
     const sinceTouch = days(lastTouch || r.booked_on || r.created_at);
     if (undelivered && sinceTouch != null && sinceTouch >= rules.contactDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "接触途絶", score: 25, detail: `${kenshu !== "回収済み" ? "検収書が未回収" : "納品メールが未送付"}のまま、最後の接触から${sinceTouch}日` });
@@ -12668,7 +12670,7 @@ async function kinxsBuild() {
     if (sinceUpd != null && sinceUpd >= rules.staleDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "情報更新なし", score: 15, detail: `記録と議事録が${sinceUpd}日更新されていません` });
     const shown = alerts.filter((a) => !hidden(a.rule));
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
-      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
+      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
@@ -27063,7 +27065,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26q kinXsにも「他メンバーとして見る」（田中欽也さんだけ）：左のメニューから選ぶと、その人のホーム・担当ユーザー・画面をその人として見られる。見ているあいだは上に帯と「元のアカウントに戻る」。";
+const BUILD_TAG = "2026-10-26r kinXsのホーム：画面全体は止めて、「やること」と「自分の担当ユーザー」をそれぞれスクロール。次回アクションの期日が「ct 26」のように出ていたのを直した（期限切れの判定も正しく）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
