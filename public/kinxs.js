@@ -530,7 +530,7 @@ async function openDetail(id, reuse) {
       ${kxStatusPane(d)}
       <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
       <div class="kx-sec"><div class="lb">フェーズ${x.locked ? "（手で決めています）" : "（自動）"}</div>
-        <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "フォローMTG設定中", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
         <div class="kx-note" style="margin-top:6px">手で決めると、自動では戻しません（自動に任せるに戻すと、また自動で付きます）</div></div>
       <div class="kx-sec" style="display:grid;grid-template-columns:96px 1fr;gap:8px 10px;align-items:center">
         <span class="kx-note">検収書</span><div>${tog("kenshu_done", x.kenshuDone === true ? true : x.kenshuDone === false ? false : "", [["true", "回収済み"], ["false", "未回収"]])}${x.kenshuDone == null ? `<div class="kx-note" style="margin-top:3px">いま：${esc(x.kenshu)}${x.kenshu.includes("自動") ? "（もう使っている会社なので、完了あつかい）" : ""}</div>` : ""}</div>
@@ -782,7 +782,6 @@ if ($("imLoad")) {
 // ===== ラベル別ボード =====
 const BD_COLS = [
   ["計上予定", "リストに入った直後。キックオフMTGがまだ", "#7C8AA5"],
-  ["フォローMTG設定中", "キックオフ済み、フォローMTGが未設定", "#E0A100"],
   ["フォローMTG設定済", "フォローMTGを設定済み、まだ実施前", "#3F72C9"],
   ["オンボーディング中", "フォローMTG済み、まだ掲載できていない", "#7A55C7"],
   ["利用中", "掲載状況を確認したあと", "#1D9E75"],
@@ -805,8 +804,8 @@ function renderBoard() {
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = $("bdQ").value || "";
   const items = d.items.filter((x) => kxMatch(q, x.name, x.cs, x.fs, x.products, x.label) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
-  const showEnd = $("bdEnd").checked;
-  const cols = BD_COLS.filter(([l]) => showEnd || !["解約済み", "キャンセル"].includes(l)).filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
+  // 解約済み・キャンセルの列もいつも出す
+  const cols = BD_COLS.filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
   const good = "background:#E1F5EE;color:#0A5440", bad = "background:#FBE4E4;color:#8C1F1F", mid = "background:#FFF1DC;color:#7A3F00";
   const card = (x) => `<div class="kx-card ${x.alerts.length ? "warn" : ""}" draggable="true" data-card="${esc(x.id)}" role="button" tabindex="0" title="押すと詳細／別の列にドラッグでラベルを変える">
       <div class="t"><span>${esc(x.name)}</span>${x.alerts.length ? '<span class="kx-rule" style="flex:none;font-size:10.5px">要注意</span>' : ""}</div>
@@ -840,6 +839,6 @@ function renderBoard() {
     });
   });
 }
-if ($("bdQ")) { $("bdQ").addEventListener("input", renderBoard); $("bdCs").addEventListener("change", renderBoard); $("bdEnd").addEventListener("change", renderBoard); }
+if ($("bdQ")) { $("bdQ").addEventListener("input", renderBoard); $("bdCs").addEventListener("change", renderBoard); }
 api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); }).catch(() => {});
 if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
