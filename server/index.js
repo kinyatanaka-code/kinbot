@@ -12661,7 +12661,7 @@ async function kinxsBuild() {
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
-  return { items, rules, mtBy, kickBy };
+  return { items, rules, mtBy, kickBy, allMeetings: ms };
 }
 // ===== kinXs：会社のHPからロゴ（アイコン）を探す =====
 // HPのトップを読んで apple-touch-icon → 大きい icon の順に。見つからなければ Google のファビコン（128px）。30日に1回読み直す
@@ -12966,38 +12966,48 @@ app.get("/api/kinxs/meetings/:id", async (req, res) => {
 const KX_FREE_MAIL = /^(gmail|yahoo|ymail|hotmail|outlook|icloud|me|docomo|ezweb|au|softbank|i\.softbank|nifty|biglobe|ocn|so-net)\./i;
 const KX_NA_TYPES = ["電話", "メール", "MTG", "資料送付", "その他"];
 async function kinxsReadNextAction(accountId, { force = false } = {}) {
-  const { items, mtBy, kickBy } = await kinxsBuild();
+  const { items, mtBy, kickBy, allMeetings } = await kinxsBuild();
   const x = items.find((i) => i.id === accountId);
   if (!x) return { ok: false, reason: "会社が見つかりません" };
   const rows = await kinxsList(); const r = rows.find((y) => y.account_id === accountId) || {};
   if (!force && r.na_scan_at && Date.now() - Date.parse(r.na_scan_at) < 20 * 3600000) return { ok: false, reason: "最近読んだばかりです" };
   const key = csCoKey(x.name); const k = kickBy.get(key) || null;
-  // 先方のメールのドメイン（CS連携の先方のメール・SFの取引先責任者）
-  const doms = new Set();
-  const addMail = (e) => { const d = String(e || "").toLowerCase().split("@")[1]; if (d && !KX_FREE_MAIL.test(d)) doms.add(d); };
-  if (k) { addMail(k.client_email); String(k.client_cc || "").split(/[,\s;]+/).forEach(addMail); }
+  // 先方を探す手がかり：会社名・担当者のメールアドレス・担当者の名前（CS連携の先方・SFの取引先責任者・企業情報で手で入れた担当者）
+  const doms = new Set(), emails = new Set(), names = new Set();
+  const addMail = (e) => { const m = String(e || "").toLowerCase().trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)) return; emails.add(m); const d = m.split("@")[1]; if (d && !KX_FREE_MAIL.test(d)) doms.add(d); };
+  const addName = (n) => { const v = String(n || "").replace(/様|さん|殿/g, "").normalize("NFKC").trim(); if (v.length >= 2) { names.add(v); const fam = v.split(/[\s　]+/)[0]; if (fam && fam.length >= 2 && fam !== v) names.add(fam); } };
+  if (k) { addMail(k.client_email); String(k.client_cc || "").split(/[,\s;]+/).forEach(addMail); addName(k.client_name); }
+  for (const c of ((r.info && r.info.contacts) || [])) { addMail(c.email); addName(c.name); }
   if (!/^manual-/.test(accountId)) {
-    try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const q = await sfQuery(sfU, `SELECT Email FROM Contact WHERE AccountId='${String(accountId).replace(/'/g, "")}' AND Email != null LIMIT 8`); (q.records || []).forEach((c) => addMail(c.Email)); } } catch {}
+    try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const q = await sfQuery(sfU, `SELECT Name, Email FROM Contact WHERE AccountId='${String(accountId).replace(/'/g, "")}' LIMIT 10`); (q.records || []).forEach((c) => { addMail(c.Email); addName(c.Name); }); } } catch {}
   }
+  const coShort = String(x.name || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
+  // Gmail の検索：メールアドレス・ドメイン（from/to）、会社名・担当者の名前（本文や件名）
+  const terms = [...[...emails].slice(0, 6).map((m) => `from:${m} OR to:${m}`), ...[...doms].slice(0, 3).map((d) => `from:@${d} OR to:@${d}`), ...(coShort.length >= 2 ? [`"${coShort}"`] : []), ...[...names].slice(0, 4).map((n) => `"${n}"`)];
   // 読むGmail：CS担当 → FS → CSのメンバー全員（kinbotでGoogle連携している人。メールワイズのコピーがだれのGmailに届いていても拾える）。登録はいらない
   const csMembers = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => String(m.email || "").toLowerCase());
   const owners = [...new Set([k && k.cs_email, k && k.fs_email, ...csMembers].filter(Boolean))].slice(0, 8);
-  const mails = []; let usedOwner = "";
+  const mails = []; let usedOwner = ""; const seenTh = new Set();
   for (const o of owners) {
-    if (!doms.size) break;
+    if (!terms.length) break;
     try {
-      const q = `(${[...doms].map((d) => `from:@${d} OR to:@${d}`).join(" OR ")}) newer_than:21d`;
-      const ths = await gmailSearchThreads(o, q, 3);
+      const q = `(${terms.join(" OR ")}) newer_than:45d -from:me`;
+      const q2 = `(${terms.join(" OR ")}) newer_than:45d`;
+      let ths = await gmailSearchThreads(o, q, 3).catch(() => []);
+      if (!ths.length) ths = await gmailSearchThreads(o, q2, 3).catch(() => []);
       for (const t of ths.slice(0, 3)) {
-        const th = await gmailGetThread(o, t.threadId || t.id).catch(() => null);
+        const tid = t.threadId || t.id; if (seenTh.has(tid)) continue; seenTh.add(tid);
+        const th = await gmailGetThread(o, tid).catch(() => null);
         for (const mm of ((th && th.messages) || []).slice(-3)) mails.push(`【メール ${mm.date}】件名：${mm.subject}\n差出人：${mm.from}\n宛先：${mm.to}\n${String(mm.body || "").replace(/\n>.*$/gm, "").slice(0, 1800)}`);
       }
       if (mails.length && !usedOwner) usedOwner = o;
       if (mails.length >= 6) break;
     } catch {}
   }
-  // 直近30日の議事録の「やること」
-  const mts = (mtBy.get(key) || []).filter((m) => Date.now() - Date.parse(m.created_at) < 30 * 86400000).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 2);
+  // 議事録：会社名で照らしたもの＋題名に担当者の名前が入っているもの。いちばん新しい2件（180日まで）
+  const byName = names.size ? (allMeetings || []).filter((m) => { const t = String(m.title || "").normalize("NFKC"); return [...names].some((n) => n.length >= 2 && t.includes(n)) && (!coShort || t.includes(coShort.slice(0, 2)) || [...names].some((n) => n.length >= 3 && t.includes(n))); }) : [];
+  const mtPool = [...new Map([...(mtBy.get(key) || []), ...byName].map((m) => [m.bot_id, m])).values()];
+  const mts = mtPool.filter((m) => Date.now() - Date.parse(m.created_at) < 180 * 86400000).sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 2);
   const minutes = [];
   for (const m0 of mts) {
     const m = await getMeeting(m0.bot_id).catch(() => null); const sm = (m && m.summary) || {};
@@ -13005,7 +13015,7 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
     minutes.push(`【議事録 ${new Date(m0.created_at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}】${m0.title || ""}\n概要：${sm.overview || ""}\nやること：${acts.join("／")}`);
   }
   await kinxsUpdate(accountId, { na_scan_at: new Date().toISOString() }, "kinXs").catch(() => {});
-  if (!mails.length && !minutes.length) return { ok: false, reason: doms.size ? "直近のメール・議事録が見つかりません" : "先方のメールアドレスが分かりません（CS連携の先方のメールか、SFの取引先責任者）" };
+  if (!mails.length && !minutes.length) return { ok: false, reason: `直近のメール・議事録が見つかりません（会社名・担当者のメール${emails.size}件・名前${names.size}件で探しました）` };
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ");
   const sys = `あなたはカスタマーサクセスの担当者のアシスタントです。顧客企業とのメールと議事録を読み、その会社のいまの状況（利用目的・活用の状況）と、弊社（ネオキャリア）側が次にやるべきことを1つ決めます。必ずJSONだけを返します。`;
   const user = `今は ${today}（日本時間）です。会社：${x.name}\n\n${[...mails, ...minutes].join("\n\n").slice(0, 12000)}\n\n次のJSONを返してください：
@@ -26692,7 +26702,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25q kinXs：メニューのいちばん上をユーザー一覧に（開いたときに最初に出る画面も）。";
+const BUILD_TAG = "2026-10-25r kinXsの読み取り：メールと議事録を、会社名だけでなく先方の担当者のメールアドレス・名前でも探す（CS連携・SFの取引先責任者・企業情報の担当者から）。メールは45日、議事録はいちばん新しい2件（180日まで）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
