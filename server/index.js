@@ -12796,12 +12796,23 @@ app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
 async function kinxsDedupe() {
   await kinxsInit();
   const rows = (await kinxsList()).filter((r) => !r.merged_into);
+  // 今の社名・旧社名のキーでつなぐ（つながったものを1つのまとまりに）
+  const par = new Map(); const find = (x) => { while (par.get(x) !== x) { par.set(x, par.get(par.get(x))); x = par.get(x); } return x; };
+  const unite = (a1, b1) => { const ra = find(a1), rb = find(b1); if (ra !== rb) par.set(ra, rb); };
+  const keyOwner = new Map();
+  for (const r of rows) {
+    par.set(r.account_id, r.account_id);
+    const ks = [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])].map((n) => csCoKey(n || "")).filter((k2) => k2 && k2.length >= 2);
+    for (const k2 of ks) { if (keyOwner.has(k2)) unite(r.account_id, keyOwner.get(k2)); else keyOwner.set(k2, r.account_id); }
+  }
   const groups = new Map();
-  for (const r of rows) { const k = csCoKey(r.name || ""); if (!k || k.length < 2) continue; (groups.get(k) || groups.set(k, []).get(k)).push(r); }
+  for (const r of rows) { const g = find(r.account_id); (groups.get(g) || groups.set(g, []).get(g)).push(r); }
   let merged = 0;
   for (const list of groups.values()) {
     if (list.length < 2) continue;
-    const score = (r) => (r.source === "manual" ? 0 : 1000) + ((r.products || []).length * 10) + ((r.opp_ids || []).length);
+    // 残す方：SFから取り込んだもの → 社名が新しい方（ほかの会社の旧社名になっていない方）→ 商品・商談が多い方
+    const formerKeys = new Set(list.flatMap((r) => (Array.isArray(r.former_names) ? r.former_names : []).map((n) => csCoKey(n || ""))));
+    const score = (r) => (r.source === "manual" ? 0 : 1000) + (formerKeys.has(csCoKey(r.name_override || r.name || "")) ? 0 : 500) + ((r.products || []).length * 10) + ((r.opp_ids || []).length);
     list.sort((a, b) => score(b) - score(a) || String(a.created_at).localeCompare(String(b.created_at)));
     const keep = list[0];
     const patch = {};
@@ -12816,6 +12827,9 @@ async function kinxsDedupe() {
       if (o.info && Object.keys(o.info).length) patch.info = { ...(o.info || {}), ...(patch.info || {}), ...(keep.info || {}) };
       if (Array.isArray(o.contacts) && o.contacts.length) patch.contacts = [...(keep.contacts || []), ...(patch.contacts || []), ...o.contacts].slice(-200);
     }
+    const keepName = keep.name_override || keep.name || "";
+    const formers = [...new Set([...(Array.isArray(keep.former_names) ? keep.former_names : []), ...list.slice(1).flatMap((o) => [o.name_override || o.name, ...(Array.isArray(o.former_names) ? o.former_names : [])])].filter((n) => n && csCoKey(n) !== csCoKey(keepName)))];
+    if (formers.length) await kinxsSetFormer(keep.account_id, formers).catch(() => {});
     const rk = patch._rank; delete patch._rank;
     if (Object.keys(patch).length) await kinxsUpdate(keep.account_id, patch, "kinXs（重複をまとめた）").catch(() => {});
     if (rk) await kinxsSetRank(keep.account_id, rk, "kinXs（重複をまとめた）").catch(() => {});
@@ -13046,7 +13060,7 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   if (k) { addMail(k.client_email); String(k.client_cc || "").split(/[,\s;]+/).forEach(addMail); addName(k.client_name); }
   for (const c of ((r.info && r.info.contacts) || [])) { addMail(c.email); addName(c.name); }
   if (!/^manual-/.test(accountId)) {
-    try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const q = await sfQuery(sfU, `SELECT Name, Email FROM Contact WHERE AccountId='${String(accountId).replace(/'/g, "")}' LIMIT 10`); (q.records || []).forEach((c) => { addMail(c.Email); addName(c.Name); }); } } catch {}
+    try { const st = await getSettings(); const sfU = await pickSfUser(st.psOwner || ""); if (sfU) { const mIds = (await kinxsList().catch(() => [])).filter((y) => y.merged_into === accountId).map((y) => String(y.account_id)).filter((y) => /^[0-9a-zA-Z]{15,18}$/.test(y)); const ids2 = [String(accountId).replace(/'/g, ""), ...mIds].map((y) => `'${y}'`).join(","); const q = await sfQuery(sfU, `SELECT Name, Email FROM Contact WHERE AccountId IN (${ids2}) LIMIT 15`); (q.records || []).forEach((c) => { addMail(c.Email); addName(c.Name); }); } } catch {}
   }
   const coShortsOld = (x.formerNames || []).map((f) => String(f).replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim()).filter((f) => f.length >= 2);
   const coShort = String(x.name || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
@@ -13186,8 +13200,12 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
         let accId = /^manual-/.test(x.id) ? (info.sf_account_id || "") : x.id;
         if (!accId) {
           const coShort = String(x.name || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
-          const hits = (await sfQuery(sfU, `SELECT Id, Name FROM Account WHERE Name = '${esc1(x.name)}' OR Name LIKE '%${esc1(coShort)}%' LIMIT 5`).catch(() => ({ records: [] }))).records || [];
-          const hit = hits.find((h) => h.Name === x.name) || hits.find((h) => csCoKey(h.Name) === csCoKey(x.name)) || null;
+          const allNames = [x.name, ...(x.formerNames || [])];
+          const shortOf = (n) => String(n || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
+          const cond = allNames.flatMap((n) => [`Name = '${esc1(n)}'`, shortOf(n).length >= 2 ? `Name LIKE '%${esc1(shortOf(n))}%'` : ""]).filter(Boolean).join(" OR ");
+          const hits = (await sfQuery(sfU, `SELECT Id, Name FROM Account WHERE ${cond} LIMIT 8`).catch(() => ({ records: [] }))).records || [];
+          const keysAll = new Set(allNames.map((n) => csCoKey(n)));
+          const hit = hits.find((h) => h.Name === x.name) || hits.find((h) => csCoKey(h.Name) === csCoKey(x.name)) || hits.find((h) => keysAll.has(csCoKey(h.Name))) || null;
           if (hit) { accId = hit.Id; out.sfMatched = hit.Name; kinxsUpdate(x.id, { info: { ...info, sf_account_id: hit.Id } }, "kinXs").catch(() => {}); }
         }
         if (accId) {
@@ -13201,7 +13219,10 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
             if (!out.address && addr) { out.address = addr; out.source.address = tagSf; }
           }
           if (!out.contacts.length) {
-            const cs = (await sfQuery(sfU, `SELECT Name, Title, Phone, MobilePhone, Email FROM Contact WHERE AccountId='${id}' ORDER BY CreatedDate DESC LIMIT 5`)).records || [];
+            // まとめた（旧社名の）取引先の担当者もいっしょに
+            const mergedIds = (await kinxsList().catch(() => [])).filter((y) => y.merged_into === x.id).map((y) => String(y.account_id).replace(/'/g, "")).filter((y) => /^[0-9a-zA-Z]{15,18}$/.test(y));
+            const idList = [id, ...mergedIds].map((y) => `'${y}'`).join(",");
+            const cs = (await sfQuery(sfU, `SELECT Name, Title, Phone, MobilePhone, Email FROM Contact WHERE AccountId IN (${idList}) ORDER BY CreatedDate DESC LIMIT 8`)).records || [];
             out.contacts = cs.map((c) => ({ name: c.Name || "", title: c.Title || "", phone: c.Phone || c.MobilePhone || "", email: c.Email || "" }));
             if (cs.length) out.source.contacts = tagSf;
           }
@@ -26789,7 +26810,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25x kinXs：社名が変わったら「新しい社名（旧：前の社名）」と出す。SFの取引先名が変わったら自動で旧社名を残し、モーダルの「社名を変える」で手でも変えられる。旧社名でも検索・議事録・回収MTG・メールを探す。";
+const BUILD_TAG = "2026-10-25y kinXs：SFや議事録（カレンダーの予定名）を読み直すとき、新社名と旧社名の両方で探す。旧社名の取引先と新社名の取引先が別々にあっても1つにまとめ、担当者も両方から取る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
