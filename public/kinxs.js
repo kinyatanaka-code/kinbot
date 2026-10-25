@@ -393,11 +393,32 @@ function kxCoPane(d) {
 }
 // ② ステータス（CS担当・利用目的・活用）。フェーズ・次回アクションは下に続く
 function kxStatusPane(d) {
-  const st = d.status || {};
+  const st = d.status || {}; const x = d.item || {}; const au = st.auto || {};
   const usages = (lsData && lsData.usages) || ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
-  return `<div class="kx-sec kx-form"><div class="lb">ステータス</div>
+  const autoTag = (k) => (au[k] ? `<span class="kx-src">自動（${esc(au[k])}）</span>` : "");
+  const none = '<span class="kx-none">未入力</span>';
+  const naWhen = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : x.naDue ? x.naDue.slice(5).replace("-", "/") : "";
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const late = x.naDue && x.naDue < today;
+  // ふだんの表示（文字で見やすく）
+  const view = `<section class="kx-c2 kx-view kx-stsum">
+      <div class="kx-c2h"><b>ステータス</b><button type="button" class="kx-ed" data-read-all style="margin-left:auto">議事録・メールから読み取る</button><button type="button" class="kx-ed" data-edit style="margin-left:6px">編集</button></div>
+      <div class="kx-stgrid">
+        <div class="cell"><span>CS担当</span><b>${st.cs ? esc(st.cs) : none}</b>${autoTag("cs")}</div>
+        <div class="cell"><span>フェーズ</span><b><span class="kx-lab l-${esc(st.phase || "")}">${esc(st.phase || "—")}</span></b>${st.locked ? '<span class="kx-src">手で決めた</span>' : '<span class="kx-src">自動</span>'}</div>
+        <div class="cell wide"><span>利用目的</span><b>${st.purpose ? esc(st.purpose) : none}</b>${autoTag("purpose")}</div>
+        <div class="cell wide"><span>活用</span><b>${st.usage ? `<span class="kx-usage-v">${esc(st.usage)}</span>` : none}</b>${autoTag("usage")}</div>
+      </div>
+      <div class="kx-nabox${late ? " late" : ""}">
+        <div class="h"><span>次回アクション</span>${String(st.naSource || "").startsWith("auto") ? `<span class="kx-src">自動（${esc(String(st.naSource).replace("auto:", ""))}）</span>` : ""}</div>
+        ${x.na ? `<div class="t">${x.naType ? `<span class="kx-natag">${esc(x.naType)}</span>` : ""}${esc(x.na)}</div><div class="w">${naWhen ? `${late ? "⚠ 期日を過ぎています　" : ""}${esc(naWhen)}` : "日時：未定"}</div>` : '<div class="kx-none">まだありません（「議事録・メールから読み取る」で自動で入れられます）</div>'}
+        ${x.naSuggest ? `<div class="kx-note" style="margin-top:6px">提案があります（編集で確認できます）：${esc(x.naSuggest.content)}</div>` : ""}
+      </div>
+      <span class="kx-note" data-read-st></span>
+    </section>`;
+  // 編集（今までの入力欄）
+  const edit = `<div class="kx-sec kx-form kx-editbox"><div class="lb">ステータスを編集</div>
       <label>CS担当</label>${(() => {
-        // 選択肢は CSのメンバー。今の担当が選択肢に無い書き方（「鶴川」と「鶴川 夏海」など）なら、苗字が同じ人を選んだ状態に
         const opts = [...new Set((st.csOptions || []).filter(Boolean))];
         const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
         let cur = st.cs || "";
@@ -406,8 +427,9 @@ function kxStatusPane(d) {
       })()}
       <label>利用目的</label><input class="kx-in" data-st="purpose" value="${esc(st.purpose || "")}" placeholder="例：採用サイト掲載・カジュアル面談" />
       <label>活用</label><div class="kx-usage">${usages.map((u) => `<button type="button" class="kx-us ${st.usage === u ? "on" : ""}" data-usage="${esc(u)}">${esc(u)}</button>`).join("")}</div>
-      <div style="grid-column:1 / -1;display:flex;margin-top:6px"><button type="button" class="kx-btn" data-save-status style="margin-left:auto">保存</button></div>
+      <div class="kx-edact"><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-status>保存</button></div>
     </div>`;
+  return view + edit;
 }
 async function openDetail(id, reuse) {
   let d;
@@ -466,11 +488,14 @@ async function openDetail(id, reuse) {
   // ステータスのタブの並び：CS担当・利用目的・活用 → フェーズ → 次回アクション → メモ → そのほか（更新確度・納品）
   (() => {
     const pane = bg.querySelector('[data-pane="info"]'); if (!pane) return;
-    const top = pane.firstElementChild;
+    pane.setAttribute("data-sec", "");
+    const top = pane.querySelector(".kx-editbox") || pane.firstElementChild;
     const lbl = (pane.querySelector("[data-label]") || {}).closest?.(".kx-sec");
     const rk = (pane.querySelector(".kx-ranks") || {}).closest?.(".kx-sec");
     const dl = (pane.querySelector('[data-tog="kenshu_done"]') || {}).closest?.(".kx-sec");
-    if (lbl && top) top.after(lbl);
+    if (lbl && top) { top.after(lbl); lbl.classList.add("kx-editbox"); }
+    const naSec = (pane.querySelector("[data-na]") || {}).closest?.(".kx-sec");
+    if (naSec) { naSec.classList.add("kx-editbox"); (lbl || top).after(naSec); }
     if (rk || dl) { const h = document.createElement("div"); h.className = "kx-other-h"; h.textContent = "そのほか（更新確度・納品）"; pane.appendChild(h); if (rk) pane.appendChild(rk); if (dl) pane.appendChild(dl); }
   })();
   if (!bg.isConnected) document.body.appendChild(bg);
@@ -507,6 +532,15 @@ async function openDetail(id, reuse) {
       if (!r.ok) { st.textContent = r.reason || "読み取れませんでした"; rd.disabled = false; return; }
       refresh().catch(() => {}); await again(r.applied ? "次回アクションを入れました" : "提案を出しました（手で入れた次回アクションはそのまま）");
     } catch (e) { st.textContent = "読めませんでした：" + e.message; rd.disabled = false; }
+  });
+  const ra = bg.querySelector("[data-read-all]");
+  if (ra) ra.addEventListener("click", async () => {
+    const st2 = bg.querySelector("[data-read-st]"); ra.disabled = true; st2.textContent = "議事録・メールを読んでいます…（30秒ほど）";
+    try {
+      const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/read-na`, { method: "POST" });
+      if (!r.ok) { st2.textContent = r.reason || "読み取れませんでした"; ra.disabled = false; return; }
+      refresh().catch(() => {}); await again((r.filled || []).length ? `${r.filled.join("・")}を入れました` : r.suggest ? "次回アクションの提案を出しました" : "読み取りました");
+    } catch (e) { st2.textContent = "読めませんでした：" + e.message; ra.disabled = false; }
   });
   const ad = bg.querySelector("[data-adopt]"); if (ad) ad.addEventListener("click", () => put({ adopt_suggest: true }));
   const ds = bg.querySelector("[data-dismiss-sug]"); if (ds) ds.addEventListener("click", () => put({ dismiss_suggest: true }));

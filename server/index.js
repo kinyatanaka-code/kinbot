@@ -12966,22 +12966,38 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   await kinxsUpdate(accountId, { na_scan_at: new Date().toISOString() }, "kinXs").catch(() => {});
   if (!mails.length && !minutes.length) return { ok: false, reason: doms.size ? "直近のメール・議事録が見つかりません" : "先方のメールアドレスが分かりません（CS連携の先方のメールか、SFの取引先責任者）" };
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ");
-  const sys = `あなたはカスタマーサクセスの担当者のアシスタントです。顧客企業とのメールと議事録を読み、弊社（ネオキャリア）側が次にやるべきことを1つだけ決めます。必ずJSONだけを返します。`;
+  const sys = `あなたはカスタマーサクセスの担当者のアシスタントです。顧客企業とのメールと議事録を読み、その会社のいまの状況（利用目的・活用の状況）と、弊社（ネオキャリア）側が次にやるべきことを1つ決めます。必ずJSONだけを返します。`;
   const user = `今は ${today}（日本時間）です。会社：${x.name}\n\n${[...mails, ...minutes].join("\n\n").slice(0, 12000)}\n\n次のJSONを返してください：
-{"found": true/false（弊社が次にやることが読み取れたか）, "type": "${KX_NA_TYPES.join("|")}", "at": "YYYY-MM-DDTHH:MM（日時が書いてあれば。日だけなら09:00。書いていなければ文脈から妥当な期日）", "content": "やることを40字以内で（例：打ち合わせの日程候補を3つ送る）", "basis": "根拠を30字以内で（どのメール・議事録か）"}
+{"purpose": "この会社がDOC（どこでもオープンカンパニー）を使う目的を30字以内で（例：採用サイト掲載・カジュアル面談）。分からなければ空", "usage": "${KX_USAGE.join("|")} のどれか1つ（公開して使っている＝活用：公開掲載、一部だけ公開＝活用：限定公開、公開の予定がある＝活用予定、使うか考えている＝活用検討中、納品したのに未完了のもの＝発生済み未納品、解約の話＝解約企業、読み取れない＝不明）",
+ "found": true/false（弊社が次にやることが読み取れたか）, "type": "${KX_NA_TYPES.join("|")}", "at": "YYYY-MM-DDTHH:MM（日時が書いてあれば。日だけなら09:00。書いていなければ文脈から妥当な期日）", "content": "やることを40字以内で（例：打ち合わせの日程候補を3つ送る）", "basis": "根拠を30字以内で（どのメール・議事録か）"}
 先方がやること・もう終わったこと・挨拶だけのメールは次回アクションにしません。`;
   let ans = null;
-  try { const raw = await callLLMPublic(sys, user, 600, { json: true }); ans = JSON.parse(String(raw).replace(/```json|```/g, "").trim()); } catch (e) { return { ok: false, reason: `AIで読めませんでした：${e.message}` }; }
-  if (!ans || !ans.found || !ans.content) return { ok: false, reason: "次にやることは読み取れませんでした" };
+  try { const raw = await callLLMPublic(sys, user, 800, { json: true }); ans = JSON.parse(String(raw).replace(/```json|```/g, "").trim()); } catch (e) { return { ok: false, reason: `AIで読めませんでした：${e.message}` }; }
+  if (!ans) return { ok: false, reason: "読み取れませんでした" };
+  const src = mails.length ? "Gmail" : "議事録";
+  // ステータス（CS担当・利用目的・活用）：空か、前に自動で入れたものだけ書きかえる（手で入れたものは触らない）
+  const info0 = { ...(r.info || {}) }; const auto0 = { ...(info0.auto || {}) };
+  const stPatch = {}; const filled = [];
+  const purpose = String(ans.purpose || "").trim().slice(0, 120);
+  if (purpose && (!r.purpose || auto0.purpose)) { stPatch.purpose = purpose; auto0.purpose = src; filled.push("利用目的"); }
+  if (KX_USAGE.includes(ans.usage) && (!r.usage_status || auto0.usage)) { stPatch.usage_status = ans.usage; auto0.usage = src; filled.push("活用"); }
+  if (!r.cs_name || auto0.cs) {
+    // いちばん新しいフォローの議事録をとったCSのメンバーを、CS担当に
+    const csm = (((await csSettings().catch(() => ({ members: [] }))).members) || []);
+    const lastMt = (mtBy.get(key) || []).slice().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).find((m) => csm.some((c) => c.email === String(m.owner || "").toLowerCase()));
+    const who = lastMt && csm.find((c) => c.email === String(lastMt.owner || "").toLowerCase());
+    if (who && who.name && who.name !== r.cs_name) { stPatch.cs_name = who.name; auto0.cs = "議事録"; filled.push("CS担当"); }
+  }
+  if (Object.keys(stPatch).length) { stPatch.info = { ...info0, auto: auto0 }; await kinxsUpdate(accountId, stPatch, "kinXs（自動）"); }
+  if (!ans.found || !ans.content) return filled.length ? { ok: true, applied: false, filled } : { ok: false, reason: "次にやることは読み取れませんでした" };
   const type = KX_NA_TYPES.includes(ans.type) ? ans.type : "その他";
   const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(ans.at || "")) ? `${String(ans.at).slice(0, 16)}:00+09:00` : null;
-  const src = mails.length ? "Gmail" : "議事録";
   const sug = { type, at, content: String(ans.content).slice(0, 120), basis: String(ans.basis || "").slice(0, 80), source: src, mailbox: usedOwner, read_at: new Date().toISOString() };
   const manual = r.na_text && !String(r.na_source || "").startsWith("auto");
-  if (manual) { await kinxsUpdate(accountId, { na_suggest: sug }, "kinXs"); return { ok: true, applied: false, suggest: sug }; }
+  if (manual) { await kinxsUpdate(accountId, { na_suggest: sug }, "kinXs"); return { ok: true, applied: false, suggest: sug, filled }; }
   await kinxsUpdate(accountId, { na_text: sug.content, na_type: type, na_at: at, na_due: at ? at.slice(0, 10) : null, na_source: `auto:${src}`, na_suggest: null }, "kinXs（自動）");
   await kinxsLogAuto(accountId, "na_text", r.na_text || "", `${sug.content}（${src}から自動）`);
-  return { ok: true, applied: true, suggest: sug };
+  return { ok: true, applied: true, suggest: sug, filled: [...filled, "次回アクション"] };
 }
 app.post("/api/kinxs/accounts/:id/read-na", async (req, res) => {
   try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsReadNextAction(req.params.id, { force: true })); }
@@ -13077,7 +13093,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
     const fl = (kk && kk.fields) || {};
     // CS担当の選択肢：メンバー管理で役割「CS」の人＋CS連携の設定に入れた人
     const csOptions = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => m.name).filter(Boolean);
-    const status = { cs: x.cs || "", csOptions, phase: x.label, autoPhase: x.autoLabel, locked: x.locked, purpose: r.purpose || fl["活用場所"] || "", usage: r.usage_status || "" };
+    const status = { auto: (r.info && r.info.auto) || {}, naSource: r.na_source || "", cs: x.cs || "", csOptions, phase: x.label, autoPhase: x.autoLabel, locked: x.locked, purpose: r.purpose || fl["活用場所"] || "", usage: r.usage_status || "" };
     res.json({ ok: true, item: x, timeline, info: out, status, kickoffAt: koAt });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -13087,6 +13103,14 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     const b = req.body || {};
     const patch = {};
     for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
+    if ("purpose" in b || "usage_status" in b || "cs_name" in b) {
+      const rows2 = await kinxsList(); const r2 = rows2.find((y) => y.account_id === req.params.id) || {};
+      const inf = { ...(r2.info || {}) }; const au = { ...(inf.auto || {}) };
+      if ("purpose" in b && String(b.purpose || "") !== String(r2.purpose || "")) delete au.purpose;
+      if ("usage_status" in b && String(b.usage_status || "") !== String(r2.usage_status || "")) delete au.usage;
+      if ("cs_name" in b && String(b.cs_name || "") !== String(r2.cs_name || "")) delete au.cs;
+      patch.info = { ...inf, ...(patch.info || {}), auto: au };
+    }
     if ("purpose" in b) patch.purpose = String(b.purpose || "").slice(0, 500);
     if ("usage_status" in b) patch.usage_status = KX_USAGE.includes(b.usage_status) ? b.usage_status : null;
     if (b.info && typeof b.info === "object") {
@@ -13094,7 +13118,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
       const cur = { ...(r1.info || {}) };
       for (const k2 of ["website", "address", "phone", "vr_url", "ai_url"]) if (k2 in b.info) cur[k2] = String(b.info[k2] || "").slice(0, 500);
       if (Array.isArray(b.info.contacts)) cur.contacts = b.info.contacts.slice(0, 10).map((c) => ({ name: String(c.name || "").slice(0, 60), title: String(c.title || "").slice(0, 60), phone: String(c.phone || "").slice(0, 40), email: String(c.email || "").slice(0, 120) })).filter((c) => c.name || c.email || c.phone);
-      patch.info = cur;
+      patch.info = { ...cur, auto: (patch.info && patch.info.auto) || cur.auto };
     }
     if ("na_type" in b) patch.na_type = KX_NA_TYPES.includes(b.na_type) ? b.na_type : null;
     if ("na_at" in b) { const t = String(b.na_at || ""); patch.na_at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t) ? `${t.slice(0, 16)}:00+09:00` : null; patch.na_due = patch.na_at ? t.slice(0, 10) : (patch.na_due || null); }
@@ -26627,7 +26651,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25f kinXsの担当別：列のカードがつぶれていたのを直し、厚めに（高さ64px以上・ロゴ38px・会社名は折り返して全部出す）。";
+const BUILD_TAG = "2026-10-25g kinXsのステータス：ふだんは見やすい表示（CS担当・フェーズ・利用目的・活用・次回アクション、自動で入れたものは印）、「編集」で入力欄。最新の議事録・メールから、利用目的・活用・CS担当・次回アクションを自動で入れる（手で入れた項目は触らない、1時間ごと＋「議事録・メールから読み取る」）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
