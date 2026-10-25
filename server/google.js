@@ -1708,7 +1708,7 @@ export async function chatMySpaces(owner) {
   const r = await fetch(`https://chat.googleapis.com/v1/spaces?pageSize=100`, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) { const t = await r.text(); const e = new Error(`Chatのスペース ${r.status}: ${t.slice(0, 160)}`); if (r.status === 403 || r.status === 401) e.needScope = true; throw e; }
   const d = await r.json();
-  return (d.spaces || []).map((s) => ({ name: s.name, title: s.displayName || "", type: s.spaceType || s.type || "" }));
+  return (d.spaces || []).map((s) => ({ name: s.name, title: s.displayName || "", type: s.spaceType || s.type || "", lastActive: s.lastActiveTime || "" }));
 }
 export async function chatRecentMessages(owner, space, sinceIso, max = 40) {
   const token = await accessToken(owner);

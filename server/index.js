@@ -12878,8 +12878,9 @@ async function kinxsHomeInboxRead(user) {
   let chatNeed = false;
   const chatJob = (async () => {
     try {
-      const spaces = (await chatMySpaces(me)).slice(0, 25);
       const since = new Date(Date.now() - 3 * 86400000).toISOString();
+      // 最近3日に動いたスペースだけ（lastActiveTime が分からないものは読む）。新しく動いた順に20まで
+      const spaces = (await chatMySpaces(me)).filter((sp) => !sp.lastActive || sp.lastActive > since).sort((a2, b2) => String(b2.lastActive).localeCompare(String(a2.lastActive))).slice(0, 20);
       const s0 = kxSur(meName);
       const lists = await pmap(spaces, 8, (sp) => chatRecentMessages(me, sp.name, since, 30));
       spaces.forEach((sp, k) => {
@@ -12913,10 +12914,13 @@ async function kinxsHomeInboxRead(user) {
   return { ok: true, at: new Date().toISOString(), tasks: list, chatNeed, notes };
 }
 const _kxInbox = new Map();   // user → { at, data, p }
+// デプロイ（再起動）で消えないように、読んだ結果をDBにも残し、起動したら読み戻す
+async function kxInboxSave() { try { const o = {}; for (const [k, v] of _kxInbox) if (v.data) o[k] = { at: v.at, data: v.data }; await saveSettings({ kxInboxCache: o }); } catch {} }
+setTimeout(async () => { try { const st = await getSettings(); for (const [k, v] of Object.entries(st.kxInboxCache || {})) if (v && v.data && !_kxInbox.has(k)) _kxInbox.set(k, { at: v.at || 0, data: v.data }); } catch {} }, 5000).unref?.();
 async function kinxsHomeInbox(user, { fresh = false, wait = false } = {}) {
   const me = String(user || "").toLowerCase();
   const c = _kxInbox.get(me) || {};
-  const start = () => { if (!c.p) { c.p = kinxsHomeInboxRead(user).then((d) => { c.data = d; c.at = Date.now(); return d; }).finally(() => { c.p = null; }); _kxInbox.set(me, c); } return c.p; };
+  const start = () => { if (!c.p) { c.p = kinxsHomeInboxRead(user).then((d) => { c.data = d; c.at = Date.now(); kxInboxSave(); return d; }).finally(() => { c.p = null; }); _kxInbox.set(me, c); } return c.p; };
   if (fresh || !c.data) return start();
   if (Date.now() - (c.at || 0) > 10 * 60 * 1000) { start().catch(() => {}); if (wait) return c.p || c.data; }
   return { ...c.data, stale: Date.now() - (c.at || 0) > 10 * 60 * 1000 };
@@ -12927,6 +12931,20 @@ async function kinxsHome(user, { fresh = false } = {}) {
   const { _mine, ...base } = b;
   return { ...base, tasks: [...base.tasks, ...(ib.tasks || [])], chatNeed: !!ib.chatNeed, notes: ib.notes || [], inboxAt: ib.at };
 }
+// 起動して少ししたら会社の一覧を作っておく（最初にホームを開いた人を待たせない）
+setTimeout(() => { kinxsBuildMemo().catch(() => {}); }, 60 * 1000).unref?.();
+// CSのメンバー全員の分を、ホームを開く前から裏で順に読んでおく（平日の8〜20時、9分ごと）
+let _kxPrewarm = false;
+setInterval(async () => {
+  if (_kxPrewarm) return; _kxPrewarm = true;
+  try {
+    const h = new Date(Date.now() + 9 * 3600000); const hr = h.getUTCHours(); const dow = h.getUTCDay();
+    if (dow === 0 || dow === 6 || hr < 8 || hr >= 20) return;
+    const cfg = await csSettings().catch(() => ({ members: [] }));
+    const list = [...new Set([...(cfg.members || []).map((m) => String(m.email || "").toLowerCase()), ...[..._kxInbox.keys()]].filter(Boolean))];
+    for (const em of list) { const c = _kxInbox.get(em); if (c && (c.p || (c.at && Date.now() - c.at < 8 * 60 * 1000))) continue; await kinxsHomeInbox(em, { fresh: true }).catch(() => {}); }
+  } catch {} finally { _kxPrewarm = false; }
+}, 9 * 60 * 1000).unref?.();
 // ログインしたら（ホームを開く前から）、メール・チャットを裏で読み始めておく
 setInterval(async () => {
   try { for (const me of [..._kxInbox.keys()]) { const c = _kxInbox.get(me); if (c && c.at && Date.now() - c.at > 9 * 60 * 1000 && !c.p) kinxsHomeInbox(me).catch(() => {}); } } catch {}
@@ -27065,7 +27083,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26r kinXsのホーム：画面全体は止めて、「やること」と「自分の担当ユーザー」をそれぞれスクロール。次回アクションの期日が「ct 26」のように出ていたのを直した（期限切れの判定も正しく）。";
+const BUILD_TAG = "2026-10-26s kinXsのホームをさらに速く：CSのメンバー全員の分を裏で先に読んでおく（平日8〜20時・9分ごと）、読んだ結果をDBにも残して再起動のあともすぐ出す、起動したら会社の一覧を先に作っておく、チャットは最近3日に動いたスペースだけ読む。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
