@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261025i" />
+    <link rel="stylesheet" href="style.css?v=20261025j" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -326,6 +326,8 @@
   .kx-cswrap{position:relative;}
   .kx-csnav{position:absolute;top:50%;transform:translateY(-50%);z-index:5;width:40px;height:40px;border-radius:50%;border:1px solid #CFE0D8;background:#fff;color:#0E6B4E;font-size:20px;font-weight:800;cursor:pointer;box-shadow:0 6px 16px -8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;}
   .kx-csnav.l{left:-6px;} .kx-csnav.r{right:-6px;} .kx-csnav[hidden]{display:none;}
+  .kx-bot{width:34px;height:34px;cursor:pointer;border-radius:10px;transition:transform .15s;margin-right:4px;}
+  .kx-bot:hover{transform:translateY(-1px) rotate(-4deg);}
 </style>
 </head>
   <body>
@@ -350,6 +352,7 @@
           <div class="brand"><img class="kx-top-ico" src="/kinxs.svg" alt="" width="40" height="40" /><span class="brand-name" id="kxPageName">更新管理</span><span class="brand-sub">kinXs</span></div>
           <span class="kx-top-chip" id="kxTopChip" hidden></span>
           <div class="kx-top-right">
+            <img class="topbar-bot kx-bot" src="/kinbot.svg" alt="kinbotに聞く" width="34" height="34" title="押すとkinbotに相談できます" />
             <button type="button" class="kx-btn kx-add-user" data-top-act>＋ ユーザーを追加</button>
             <button type="button" class="kx-btn" id="kxSyncTop" data-top-act>SFから取り込み直す</button>
             <span id="kxMe" hidden><span id="kxMeAv"></span><span id="kxMeName"></span></span>
@@ -421,6 +424,7 @@
         </div>
       </div>
     </div>
-    <script src="kinxs.js?v=20261025i"></script>
+    <script src="kbchat.js?v=20261025j" defer></script>
+    <script src="kinxs.js?v=20261025j"></script>
   </body>
 </html>

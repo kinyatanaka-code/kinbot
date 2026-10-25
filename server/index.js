@@ -26651,7 +26651,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25i kinXsの担当別：列が画面の横からはみ出して見えなかったのを直し、横にスクロールできるように（下のスクロールバー・左右の‹ ›ボタン・列の見出しの上でホイール・カードを運びながら端に近づけると流れる）。";
+const BUILD_TAG = "2026-10-25j kinXsにも、kinbotのロボに聞くチャット：ヘッダーの右上のロボを押すと「kinbotに聞く」の窓が開く（kinbotと同じ窓・同じ答え・開発メモに回す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
