@@ -12804,70 +12804,94 @@ async function kxToKickoff(accountId, b, by) {
   } catch (e) { console.warn("[kinxs] CS連携へ", e.message); }
 }
 // ===== kinXs のホーム：自分の担当ユーザーと、やること（kinXs・メール・チャットから読み取る）=====
-const _kxHomeCache = new Map();   // user → { at, data }
-async function kinxsHome(user, { fresh = false } = {}) {
+// 速くするための工夫（2026-10-26）：
+//  ① kinXsのやること（すぐ出る）と、メール・チャット（時間がかかる）を分けて返す。画面は先に①を出し、あとから②を足す
+//  ② メールのスレッド・チャットのスペースは、まとめて同時に読む（1つずつ待たない）
+//  ③ 前に読んだ結果があれば、それをすぐ返し、古ければ裏で読み直す（10分）
+//  ④ 会社の一覧（kinxsBuild）は1分とっておく
+let _kxBuildMemo = { at: 0, p: null };
+function kinxsBuildMemo() { if (!_kxBuildMemo.p || Date.now() - _kxBuildMemo.at > 60 * 1000) { _kxBuildMemo = { at: Date.now(), p: kinxsBuild().catch((e) => { _kxBuildMemo = { at: 0, p: null }; throw e; }) }; } return _kxBuildMemo.p; }
+async function pmap(list, n, fn) { const out = new Array(list.length); let i = 0; await Promise.all(Array.from({ length: Math.min(n, list.length) }, async () => { while (i < list.length) { const k = i++; try { out[k] = await fn(list[k], k); } catch { out[k] = null; } } })); return out; }
+const kxSur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+async function kxMe(user) {
   const me = String(user || "").toLowerCase();
-  const c0 = _kxHomeCache.get(me);
-  if (!fresh && c0 && Date.now() - c0.at < 10 * 60 * 1000) return c0.data;
   const users = await listUsers().catch(() => []);
   const meName = ((users.find((u) => String(u.email || "").toLowerCase() === me) || {}).name) || "";
-  const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
-  const { items } = await kinxsBuild();
-  // CS担当は苗字だけで入っていることが多い（「田中」）。自分の名前（「田中欽也」「田中 欽也」）の頭と合えば自分の担当
   const meFlat = meName.normalize("NFKC").replace(/[\s　]/g, "");
-  const isMine = (cs) => { const c = String(cs || "").normalize("NFKC").trim(); if (!c || !meFlat) return false; const cf = c.replace(/[\s　]/g, ""); const cs1 = sur(c); return cf === meFlat || (cs1.length >= 2 && meFlat.startsWith(cs1)) || (sur(meName).length >= 2 && cs1 === sur(meName)); };
+  const isMine = (cs) => { const c = String(cs || "").normalize("NFKC").trim(); if (!c || !meFlat) return false; const cf = c.replace(/[\s　]/g, ""); const cs1 = kxSur(c); return cf === meFlat || (cs1.length >= 2 && meFlat.startsWith(cs1)) || (kxSur(meName).length >= 2 && cs1 === kxSur(meName)); };
+  return { me, meName, meFlat, isMine };
+}
+const kxToday = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+function kxBucket(t, today) {
+  const wk = new Date(Date.now() + 9 * 3600000 + 6 * 86400000).toISOString().slice(0, 10);
+  return t.due && t.due < today ? "期限切れ" : t.due === today ? "今日" : t.due && t.due <= wk ? "今週" : (t.src !== "kinXs" ? "返事・依頼" : t.due ? "これから" : "期日なし");
+}
+// ① すぐ出る分：自分の担当ユーザーと kinXs のやること
+async function kinxsHomeBase(user) {
+  const { me, meName, meFlat, isMine } = await kxMe(user);
+  const { items } = await kinxsBuildMemo();
   const mine = items.filter((x) => meName && isMine(x.cs));
-  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const today = kxToday();
   const tasks = [];
-  // ① kinXs：次回アクション・要注意
   for (const x of mine) {
     if (x.na) tasks.push({ src: "kinXs", kind: "次回アクション", title: `${x.naType ? `【${x.naType}】` : ""}${x.na}`, account: x.name, accountId: x.id, due: x.naDue || "", at: x.naAt || "" });
     for (const a of x.alerts || []) tasks.push({ src: "kinXs", kind: a.rule, title: a.detail, account: x.name, accountId: x.id, due: a.rule === "NA期限切れ" ? x.naDue : "" });
     if (!x.na && !(x.alerts || []).length && !["解約済み", "キャンセル"].includes(x.label)) tasks.push({ src: "kinXs", kind: "次回アクション未定", title: "次回アクションを決める", account: x.name, accountId: x.id, due: "" });
   }
-  // ② メール：担当ユーザーの先方から来て、まだ返していないメール（14日）
-  const notes = [];
+  for (const t of tasks) t.bucket = kxBucket(t, today);
+  const meSur = (() => { const t = kxSur(meName); if (t !== meName.trim()) return t; const hit = items.map((x) => kxSur(x.cs)).find((c) => c && c.length >= 2 && meFlat.startsWith(c)); return hit || meName; })();
+  return { ok: true, me: meName, meSur, at: new Date().toISOString(), mine: mine.map((x) => ({ id: x.id, name: x.name, logo: x.logo, label: x.label, rank: x.rank, renew: x.renew, alerts: (x.alerts || []).length, na: x.na, naDue: x.naDue, formerNames: x.formerNames || [] })), tasks, _mine: mine };
+}
+// ② 時間がかかる分：メールとチャット（AIで1行に）
+async function kinxsHomeInboxRead(user) {
+  const base = await kinxsHomeBase(user);
+  const { me, meName } = await kxMe(user);
+  const mine = base._mine; const today = kxToday();
+  const tasks = []; const notes = [];
   const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
-  const doms = new Map();   // ドメイン → 会社
+  const rows = await kinxsList().catch(() => []);
+  const rowBy = new Map(rows.map((r) => [r.account_id, r]));
+  const doms = new Map();
   const addDom = (e, x) => { const d = String(e || "").toLowerCase().split("@")[1]; if (d && !KX_FREE_MAIL.test(d) && !/neo-career|neocareer/.test(d)) doms.set(d, x); };
   for (const x of mine) {
     const k = kicks.find((k2) => csCoKey(k2.company) === csCoKey(x.name) || (x.formerNames || []).some((f) => csCoKey(f) === csCoKey(k2.company)));
     if (k) { addDom(k.client_email, x); String(k.client_cc || "").split(/[,\s;]+/).forEach((e) => addDom(e, x)); }
-    const rows = await kinxsList().catch(() => []); const r = rows.find((y) => y.account_id === x.id) || {};
+    const r = rowBy.get(x.id) || {};
     for (const c of ((r.info && r.info.contacts) || [])) addDom(c.email, x);
   }
-  if (doms.size) {
+  const mailJob = (async () => {
+    if (!doms.size) return;
     try {
       const q = `(${[...doms.keys()].slice(0, 25).map((d) => `from:@${d}`).join(" OR ")}) newer_than:14d -in:sent`;
       const ths = await gmailSearchThreads(me, q, 12);
-      for (const t of ths) {
-        const th = await gmailGetThread(me, t.threadId || t.id).catch(() => null);
-        const msgs = (th && th.messages) || []; const last = msgs[msgs.length - 1]; if (!last) continue;
-        const fromMe = String(last.from || "").toLowerCase().includes(me);
-        if (fromMe) continue;   // 最後がこちらの返信なら、やることなし
+      const got = await pmap(ths, 6, (t) => gmailGetThread(me, t.threadId || t.id));
+      ths.forEach((t, k) => {
+        const msgs = (got[k] && got[k].messages) || []; const last = msgs[msgs.length - 1]; if (!last) return;
+        if (String(last.from || "").toLowerCase().includes(me)) return;
         const d = String(last.from || "").toLowerCase().match(/@([\w.-]+)/); const x = d && doms.get(d[1]);
         tasks.push({ src: "メール", kind: "返信", title: `返信する：${String(last.subject || "（件名なし）").slice(0, 60)}`, account: x ? x.name : "", accountId: x ? x.id : "", due: "", at: last.date ? new Date(last.date).toISOString() : "", from: last.from, body: String(last.body || "").replace(/\n>.*$/gm, "").slice(0, 600), link: `https://mail.google.com/mail/u/0/#all/${t.threadId || t.id}` });
-      }
+      });
     } catch (e) { notes.push(`メールを読めませんでした：${e.message}`); }
-  }
-  // ③ チャット：最近3日、自分あてのメッセージ（メンション・自分の名前・1対1のチャット）
+  })();
   let chatNeed = false;
-  try {
-    const spaces = (await chatMySpaces(me)).slice(0, 25);
-    const since = new Date(Date.now() - 3 * 86400000).toISOString();
-    const s0 = sur(meName);
-    for (const sp of spaces) {
-      const msgs = await chatRecentMessages(me, sp.name, since, 30).catch(() => []);
-      for (const m of msgs) {
-        if (m.senderType === "BOT") continue;
-        const toMe = sp.type === "DIRECT_MESSAGE" ? !String(m.sender).includes(s0) : (m.mentions.some((n) => n && s0 && String(n).includes(s0)) || (s0 && String(m.text).includes(`@${s0}`)));
-        if (!toMe || !m.text.trim()) continue;
-        tasks.push({ src: "チャット", kind: sp.type === "DIRECT_MESSAGE" ? "1対1" : "メンション", title: m.text.replace(/\s+/g, " ").slice(0, 80), account: "", accountId: "", due: "", at: m.at, from: m.sender, space: sp.title || "1対1のチャット", body: m.text.slice(0, 600), link: `https://chat.google.com/` });
-      }
-    }
-  } catch (e) { if (e.needScope) chatNeed = true; else notes.push(`チャットを読めませんでした：${e.message}`); }
-  // メール・チャットは、AIで「やること」の1行に直す（会社名も当てる）
-  const raw = tasks.filter((t) => (t.src === "メール" || t.src === "チャット") && t.body).slice(0, 25);
+  const chatJob = (async () => {
+    try {
+      const spaces = (await chatMySpaces(me)).slice(0, 25);
+      const since = new Date(Date.now() - 3 * 86400000).toISOString();
+      const s0 = kxSur(meName);
+      const lists = await pmap(spaces, 8, (sp) => chatRecentMessages(me, sp.name, since, 30));
+      spaces.forEach((sp, k) => {
+        for (const m of (lists[k] || [])) {
+          if (m.senderType === "BOT") continue;
+          const toMe = sp.type === "DIRECT_MESSAGE" ? !String(m.sender).includes(s0) : (m.mentions.some((n) => n && s0 && String(n).includes(s0)) || (s0 && String(m.text).includes(`@${s0}`)));
+          if (!toMe || !m.text.trim()) continue;
+          tasks.push({ src: "チャット", kind: sp.type === "DIRECT_MESSAGE" ? "1対1" : "メンション", title: m.text.replace(/\s+/g, " ").slice(0, 80), account: "", accountId: "", due: "", at: m.at, from: m.sender, space: sp.title || "1対1のチャット", body: m.text.slice(0, 600), link: "https://chat.google.com/" });
+        }
+      });
+    } catch (e) { if (e.needScope) chatNeed = true; else notes.push(`チャットを読めませんでした：${e.message}`); }
+  })();
+  await Promise.all([mailJob, chatJob]);
+  const raw = tasks.filter((t) => t.body).slice(0, 25);
   if (raw.length) {
     try {
       const names = mine.map((x) => x.name).slice(0, 80).join("、");
@@ -12883,16 +12907,38 @@ async function kinxsHome(user, { fresh = false } = {}) {
       }
     } catch (e) { notes.push(`AIでの読み取りに失敗：${e.message}`); }
   }
-  const list = tasks.filter((t) => !t.drop).map(({ body, ...t }) => t);
-  const bucket = (t) => (t.due && t.due < today ? "期限切れ" : t.due === today ? "今日" : t.due && t.due <= new Date(Date.now() + 9 * 3600000 + 6 * 86400000).toISOString().slice(0, 10) ? "今週" : (t.src !== "kinXs" ? "返事・依頼" : t.due ? "これから" : "期日なし"));
-  for (const t of list) t.bucket = bucket(t);
-  const meSur = (() => { const t = sur(meName); if (t !== meName.trim()) return t; const hit = items.map((x) => sur(x.cs)).find((c) => c && c.length >= 2 && meFlat.startsWith(c)); return hit || meName; })();
-  const data = { ok: true, me: meName, meSur, at: new Date().toISOString(), mine: mine.map((x) => ({ id: x.id, name: x.name, logo: x.logo, label: x.label, rank: x.rank, renew: x.renew, alerts: (x.alerts || []).length, na: x.na, naDue: x.naDue })), tasks: list, chatNeed, notes };
-  _kxHomeCache.set(me, { at: Date.now(), data });
-  return data;
+  const list = tasks.filter((t) => !t.drop).map(({ body, ...t }) => ({ ...t, bucket: kxBucket(t, today) }));
+  return { ok: true, at: new Date().toISOString(), tasks: list, chatNeed, notes };
 }
+const _kxInbox = new Map();   // user → { at, data, p }
+async function kinxsHomeInbox(user, { fresh = false, wait = false } = {}) {
+  const me = String(user || "").toLowerCase();
+  const c = _kxInbox.get(me) || {};
+  const start = () => { if (!c.p) { c.p = kinxsHomeInboxRead(user).then((d) => { c.data = d; c.at = Date.now(); return d; }).finally(() => { c.p = null; }); _kxInbox.set(me, c); } return c.p; };
+  if (fresh || !c.data) return start();
+  if (Date.now() - (c.at || 0) > 10 * 60 * 1000) { start().catch(() => {}); if (wait) return c.p || c.data; }
+  return { ...c.data, stale: Date.now() - (c.at || 0) > 10 * 60 * 1000 };
+}
+// まとめ（コネクタなど、両方いっぺんに欲しいとき）
+async function kinxsHome(user, { fresh = false } = {}) {
+  const [b, ib] = await Promise.all([kinxsHomeBase(user), kinxsHomeInbox(user, { fresh })]);
+  const { _mine, ...base } = b;
+  return { ...base, tasks: [...base.tasks, ...(ib.tasks || [])], chatNeed: !!ib.chatNeed, notes: ib.notes || [], inboxAt: ib.at };
+}
+// ログインしたら（ホームを開く前から）、メール・チャットを裏で読み始めておく
+setInterval(async () => {
+  try { for (const me of [..._kxInbox.keys()]) { const c = _kxInbox.get(me); if (c && c.at && Date.now() - c.at > 9 * 60 * 1000 && !c.p) kinxsHomeInbox(me).catch(() => {}); } } catch {}
+}, 3 * 60 * 1000).unref?.();
 app.get("/api/kinxs/home", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsHome(req.user, { fresh: req.query.fresh === "1" })); }
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const { _mine, ...b } = await kinxsHomeBase(req.user);
+    kinxsHomeInbox(req.user).catch(() => {});   // 裏で、メール・チャットを読み始める
+    res.json(b);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/kinxs/home/inbox", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsHomeInbox(req.user, { fresh: req.query.fresh === "1" })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ===== kinXs のコネクタ（Claude.ai から kinXs を読む・直す）/kinxs/mcp =====
@@ -27017,7 +27063,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26o kinXsのコネクタ（Claude.ai 用）/kinxs/mcp：ユーザーの一覧・1社の詳細・更新管理・ホームのやること・1社を直す の5つの道具。設定の外部連携に、kinbot・kincall・kinXs の3つのURLを並べた。";
+const BUILD_TAG = "2026-10-26p kinXsのホームを速く：kinXsのやることと担当ユーザーを先にすぐ出し、メール・チャットはあとから足す（同時にまとめて読む、前の結果をすぐ返して古ければ裏で読み直す、会社の一覧は1分とっておく）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

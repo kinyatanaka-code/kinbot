@@ -974,22 +974,37 @@ if ($("bdQ")) { $("bdQ").addEventListener("input", renderBoard); $("bdCs").addEv
 api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); }).catch(() => {});
 
 // ===== ホーム：自分の担当ユーザーと、やること（kinXs・メール・チャット）=====
+let _khBase = null, _khInbox = null, _khBusy = false;
 async function loadHome(fresh) {
   const box = $("khTasks"); if (!box) return;
-  if (fresh) box.innerHTML = '<div class="kx-empty">読み直しています…（メールとチャットも読むので、少しかかります）</div>';
-  let d; try { d = await api(`/api/kinxs/home${fresh ? "?fresh=1" : ""}`); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  if (fresh) { _khInbox = null; }
+  try { _khBase = await api("/api/kinxs/home"); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  renderHome();
+  // メール・チャットは、あとから足す（時間がかかるので、先に kinXs のやることを出しておく）
+  _khBusy = true; renderHome();
+  try { _khInbox = await api(`/api/kinxs/home/inbox${fresh ? "?fresh=1" : ""}`); } catch (e) { _khInbox = { tasks: [], notes: [`メール・チャットを読めませんでした：${e.message}`] }; }
+  _khBusy = false; renderHome();
+  // 前に読んだ結果を出したときは、裏で読み直しているので、少ししてもう一度
+  if (_khInbox && _khInbox.stale) setTimeout(async () => { try { _khInbox = await api("/api/kinxs/home/inbox"); renderHome(); } catch {} }, 20000);
+}
+function renderHome() {
+  const d = _khBase; if (!d) return;
+  const ib = _khInbox || { tasks: [], notes: [] };
+  const tasks = [...d.tasks, ...(ib.tasks || [])];
+  const box = $("khTasks");
   $("khHi").textContent = `お疲れ様です${d.meSur || d.me ? `、${d.meSur || d.me}さん` : ""}`;
-  $("khAt").textContent = `${new Date(d.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に読みました（10分ごとに新しくします）`;
-  $("khNote").innerHTML = (d.chatNeed ? `<div class="kh-warn">チャットを読むには、Google連携をやり直してください（チャットを読む許可を足しました）。<a href="/settings.html" target="_blank" rel="noopener">設定を開く ↗</a></div>` : "") + (d.notes || []).map((n) => `<div class="kh-warn">${esc(n)}</div>`).join("");
+  $("khAt").textContent = `${_khBusy ? "メール・チャットを読んでいます…　" : ""}${ib.at ? `メール・チャットは ${new Date(ib.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に読みました（10分ごとに新しくします）` : ""}`;
+  $("khNote").innerHTML = (ib.chatNeed ? `<div class="kh-warn">チャットを読むには、Google連携をやり直してください（チャットを読む許可を足しました）。<a href="/settings.html" target="_blank" rel="noopener">設定を開く ↗</a></div>` : "") + (ib.notes || []).map((n) => `<div class="kh-warn">${esc(n)}</div>`).join("");
   const order = ["期限切れ", "今日", "返事・依頼", "今週", "これから", "期日なし"];
   const cls = { "期限切れ": "late", "今日": "today" };
   const srcCls = { "kinXs": "kx", "メール": "ml", "チャット": "ch" };
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const row = (t) => `<div class="kh-t"><span class="kh-src ${srcCls[t.src] || "kx"}">${esc(t.src)}</span><div class="kh-main"><div class="tt">${esc(t.title)}</div>
       <div class="mt"><span>${esc(t.kind)}</span>${t.account ? `<span class="co" data-kh-open="${esc(t.accountId)}">${esc(t.account)}</span>` : ""}${t.due ? `<span class="due ${t.due < today ? "late" : ""}">期日 ${esc(t.due.slice(5).replace("-", "/"))}</span>` : ""}${t.from ? `<span>${esc(String(t.from).replace(/<.*>/, "").trim())}</span>` : ""}${t.space ? `<span>${esc(t.space)}</span>` : ""}${t.link ? `<a class="op" href="${esc(t.link)}" target="_blank" rel="noopener">${t.src === "メール" ? "Gmailで開く" : "チャットで開く"} ↗</a>` : ""}</div></div></div>`;
-  const groups = order.map((g) => ({ g, list: d.tasks.filter((t) => t.bucket === g) })).filter((x) => x.list.length);
-  $("khCount").textContent = `${d.tasks.length}件`;
-  box.innerHTML = groups.length ? groups.map((x) => `<div class="kh-g"><div class="kh-gh ${cls[x.g] || ""}">${esc(x.g)}<span class="kx-rc">${x.list.length}</span></div>${x.list.map(row).join("")}</div>`).join("") : '<div class="kx-empty">いまのところ、やることはありません</div>';
+  const groups = order.map((g) => ({ g, list: tasks.filter((t) => t.bucket === g) })).filter((x) => x.list.length);
+  $("khCount").textContent = `${tasks.length}件`;
+  box.innerHTML = (groups.length ? groups.map((x) => `<div class="kh-g"><div class="kh-gh ${cls[x.g] || ""}">${esc(x.g)}<span class="kx-rc">${x.list.length}</span></div>${x.list.map(row).join("")}</div>`).join("") : (_khBusy ? "" : '<div class="kx-empty">いまのところ、やることはありません</div>'))
+    + (_khBusy ? '<div class="kh-loading"><span class="sp"></span>メールとチャットを読んでいます…（kinXsのやることは先に出しています）</div>' : "");
   const mono = (n) => String(n || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1);
   $("khMineN").textContent = `${d.mine.length}社`;
   $("khMine").innerHTML = d.mine.length ? d.mine.map((x) => `<div class="kh-m" data-kh-open="${esc(x.id)}"><span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" />` : esc(mono(x.name))}</span><span class="nm">${esc(x.name)}<small>${esc(x.label)}・更新 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</small></span>${x.alerts ? `<span class="al">要注意</span>` : ""}<span class="kx-rank r-${x.rank}">${x.rank}</span></div>`).join("") : `<div class="kx-note">担当している会社がまだありません（ユーザー一覧の「担当別」で割り振れます）</div>`;
