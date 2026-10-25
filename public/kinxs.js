@@ -521,7 +521,16 @@ async function openDetail(id, reuse) {
   const bg = (reuse && reuse.bg) || document.createElement("div"); bg.className = "kx-drawer-bg";
   const tog = (key, val, opts) => `<div class="kx-tog" data-tog="${key}">${opts.map(([v, t]) => `<button type="button" data-v="${v}" class="${String(val) === String(v) ? "on" : ""}">${t}</button>`).join("")}</div>`;
   bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="${esc(x.name)}" style="width:min(560px,100%)">
-    <div style="display:flex;align-items:flex-start;gap:10px"><div><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div class="kx-dlogo" data-logo-btn role="button" tabindex="0" title="押すと、ロゴを取り直す・手で入れる">${x.logo ? `<img src="${esc(x.logo)}" alt="" data-logo-img" />` : `<span class="mono">${esc((x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1))}</span>`}<span class="ed">ロゴ</span></div>
+      <div style="min-width:0"><h2>${esc(x.name)}</h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div class="kx-logo-menu" data-logo-menu hidden>
+      <div class="h"><b>ロゴ</b>${x.logoManual ? '<span class="kx-src">手で決めたロゴ</span>' : '<span class="kx-src">自動（HPから）</span>'}</div>
+      <button type="button" class="hp-b" data-logo="refetch">HPから取り直す</button>
+      <div class="row"><input class="kx-in" data-logo-url placeholder="画像のURLを貼る（https://…）" /><button type="button" class="hp-b" data-logo="url">使う</button></div>
+      <div class="row"><label class="hp-b" style="cursor:pointer">画像ファイルを選ぶ<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" data-logo-file hidden /></label><span class="kx-note">1MBまで。画面のスクリーンショットの切り抜きでも大丈夫です</span></div>
+      <div class="row"><button type="button" class="hp-b" data-logo="clear">ロゴなし（頭文字）にする</button><span class="kx-note" data-logo-st style="margin-left:auto"></span></div>
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><span class="kx-rank r-${x.rank}">${x.rank}</span><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}</span></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
     <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
@@ -661,6 +670,32 @@ async function openDetail(id, reuse) {
   bg.querySelectorAll("[data-usage]").forEach((b) => b.addEventListener("click", () => { usagePick = usagePick === b.dataset.usage ? "" : b.dataset.usage; bg.querySelectorAll("[data-usage]").forEach((x2) => x2.classList.toggle("on", x2.dataset.usage === usagePick)); }));
   const ss = bg.querySelector("[data-save-status]");
   if (ss) ss.addEventListener("click", () => put({ cs_name: bg.querySelector('[data-st="cs_name"]').value, purpose: bg.querySelector('[data-st="purpose"]').value, usage_status: usagePick }));
+  { const li = bg.querySelector("[data-logo-img]"); if (li) li.addEventListener("error", () => { const sp = document.createElement("span"); sp.className = "mono"; sp.textContent = (x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1); li.replaceWith(sp); }); }
+  // ロゴ：取り直す・URL・ファイル・なし
+  const lmenu = bg.querySelector("[data-logo-menu]");
+  const lbtn = bg.querySelector("[data-logo-btn]");
+  if (lbtn) lbtn.addEventListener("click", () => { lmenu.hidden = !lmenu.hidden; });
+  const lst = bg.querySelector("[data-logo-st]");
+  const logoDo = async (body, msg) => {
+    lst.textContent = "反映しています…";
+    try {
+      const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/logo`, { method: "POST", body: JSON.stringify(body) });
+      refresh().catch(() => {});
+      await again(body.mode === "refetch" ? (r.found ? "ロゴを取り直しました" : "HPからロゴが見つかりませんでした（URLかファイルで入れられます）") : msg);
+    } catch (e) { lst.textContent = "できませんでした：" + e.message; }
+  };
+  bg.querySelectorAll("[data-logo]").forEach((b) => b.addEventListener("click", () => {
+    const m = b.dataset.logo;
+    if (m === "url") { const u = bg.querySelector("[data-logo-url]").value.trim(); if (!u) { lst.textContent = "画像のURLを入れてください"; return; } return logoDo({ mode: "url", url: u }, "ロゴを入れました"); }
+    if (m === "clear") return logoDo({ mode: "clear" }, "ロゴなしにしました");
+    return logoDo({ mode: "refetch" });
+  }));
+  const lf = bg.querySelector("[data-logo-file]");
+  if (lf) lf.addEventListener("change", () => {
+    const f = lf.files && lf.files[0]; if (!f) return;
+    if (f.size > 1024 * 1024) { lst.textContent = "画像は1MBまでにしてください"; return; }
+    const rd = new FileReader(); rd.onload = () => logoDo({ mode: "upload", data: rd.result }, "ロゴを入れました"); rd.readAsDataURL(f);
+  });
   const delU = bg.querySelector("[data-del-user]");
   if (delU) delU.addEventListener("click", async () => {
     if (!confirm(`「${x.name}」をユーザーから消します。よろしいですか？`)) return;

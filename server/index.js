@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsSetLogoManual, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
@@ -12659,7 +12659,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: r.na_due ? String(r.na_due).slice(0, 10) : "", naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy };
 }
@@ -12686,6 +12686,18 @@ async function kxFindLogo(site) {
   if (!html) return fallback;
   const abs = (h) => { try { const x = new URL(h.replace(/&amp;/g, "&"), base).href; return /^https?:/i.test(x) ? x : null; } catch { return null; } };
   const attr = (tag, n) => ((tag.match(new RegExp(`\\s${n}\\s*=\\s*["']([^"']+)["']`, "i")) || [])[1] || "");
+  // ⓪ 構造化データ（schema.org）の "logo"・ロゴの入れ物（class/id に logo）の中の <img>
+  try {
+    for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+      const t = m[1]; const lm = t.match(/"logo"\s*:\s*(?:"([^"]+)"|\{[^}]*"url"\s*:\s*"([^"]+)")/i);
+      const lu = lm && abs(lm[1] || lm[2]); if (lu && /\.(png|jpe?g|svg|webp|gif)(\?|$)/i.test(lu)) return lu;
+    }
+  } catch {}
+  {
+    const box = html.match(/<(?:a|div|h1|p|span|figure)\b[^>]*(?:class|id)\s*=\s*["'][^"']*(?:logo|site-title|brand)[^"']*["'][^>]*>([\s\S]{0,1500}?)<\/(?:a|div|h1|p|span|figure)>/i);
+    const im = box && box[1].match(/<img\b[^>]*>/i);
+    if (im) { const src = attr(im[0], "src") || attr(im[0], "data-src") || (attr(im[0], "srcset").split(/\s+/)[0] || ""); const u2 = src && !/^data:/i.test(src) && abs(src); if (u2) return u2; }
+  }
   // ① ロゴの画像
   const headEnd = (() => { const m = html.search(/<\/header>/i); return m > 0 ? m : Math.min(html.length, 60000); })();
   const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => ({ tag: m[0], pos: m.index }));
@@ -12720,6 +12732,7 @@ app.get("/api/kinxs/logo/:id", async (req, res) => {
     if (!(await canCs(req))) return res.status(403).end();
     const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id);
     if (!r || !r.logo_url) return res.status(404).end();
+    if (r.logo_data) { const buf = Buffer.from(String(r.logo_data), "base64"); res.set({ "Content-Type": r.logo_type || "image/png", "Cache-Control": "private, max-age=86400" }); return res.end(buf); }
     const c = _kxLogoImg.get(r.logo_url);
     if (c && Date.now() - c.at < 86400000) { res.set({ "Content-Type": c.type, "Cache-Control": "private, max-age=86400" }); return res.end(c.buf); }
     const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000);
@@ -12733,13 +12746,41 @@ app.get("/api/kinxs/logo/:id", async (req, res) => {
     res.set({ "Content-Type": type, "Cache-Control": "private, max-age=86400" }); res.end(buf);
   } catch { res.status(404).end(); }
 });
+app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; const id = req.params.id;
+    const rows = await kinxsList(); const r = rows.find((y) => y.account_id === id);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    _kxLogoImg.delete(r.logo_url || "");
+    if (b.mode === "refetch") {
+      await kinxsSetLogoManual(id, { mode: "auto" });
+      const site = b.site || r.website || (r.info && r.info.website) || "";
+      const logo = site ? await kxFindLogo(site) : null;
+      await kinxsSetLogo(id, logo);
+      return res.json({ ok: true, found: !!logo, url: logo });
+    }
+    if (b.mode === "url") {
+      const u = String(b.url || "").trim(); if (!/^https?:\/\//i.test(u)) return res.status(400).json({ error: "画像のURL（https://…）を入れてください" });
+      await kinxsSetLogoManual(id, { url: u }); return res.json({ ok: true });
+    }
+    if (b.mode === "upload") {
+      const m = String(b.data || "").match(/^data:(image\/(png|jpe?g|gif|webp|svg\+xml));base64,(.+)$/i);
+      if (!m) return res.status(400).json({ error: "画像（png・jpg・gif・webp・svg）を選んでください" });
+      if (m[3].length > 1.4 * 1024 * 1024) return res.status(400).json({ error: "画像は1MBまでにしてください" });
+      await kinxsSetLogoManual(id, { data: m[3], type: m[1] }); return res.json({ ok: true });
+    }
+    if (b.mode === "clear") { await kinxsSetLogoManual(id, { mode: "clear" }); return res.json({ ok: true }); }
+    res.status(400).json({ error: "mode が正しくありません" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 let _kxLogoBusy = false;
 async function kinxsLogoTick(limit = 15) {
   if (_kxLogoBusy) return; _kxLogoBusy = true;
   try {
     const rows = await kinxsList();
     const kicks = await listCsKickoffs(500).catch(() => []);
-    const need = rows.filter((r) => !r.logo_at || Date.now() - Date.parse(r.logo_at) > 30 * 86400000).slice(0, limit);
+    const need = rows.filter((r) => !r.logo_manual && (!r.logo_at || Date.now() - Date.parse(r.logo_at) > 30 * 86400000)).slice(0, limit);
     for (const r of need) {
       let site = r.website || "";
       if (!site) { const k = kicks.find((x) => csCoKey(x.company) && csCoKey(x.company) === csCoKey(r.name)); site = (k && k.client_email && !KX_FREE_MAIL.test(String(k.client_email).split("@")[1] || "")) ? String(k.client_email).split("@")[1] : ""; }
@@ -12751,7 +12792,7 @@ async function kinxsLogoTick(limit = 15) {
   finally { _kxLogoBusy = false; }
 }
 setTimeout(async () => {
-  try { const st = await getSettings(); if (!st.kxLogoV2) { await pool.query(`UPDATE kinxs_accounts SET logo_at=NULL`).catch(() => {}); await saveSettings({ kxLogoV2: new Date().toISOString() }); } } catch {}
+  try { const st = await getSettings(); if (!st.kxLogoV3) { await pool.query(`UPDATE kinxs_accounts SET logo_at=NULL WHERE COALESCE(logo_manual,false)=false`).catch(() => {}); await saveSettings({ kxLogoV3: new Date().toISOString() }); } } catch {}
   kinxsLogoTick(40).catch(() => {});
 }, 3 * 60 * 1000).unref?.();
 setInterval(() => { kinxsLogoTick(15).catch(() => {}); }, 20 * 60 * 1000).unref?.();
@@ -26651,7 +26692,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-25n kinXsのフェーズ別：「フォローMTG設定中」の列とフェーズをやめた（その会社は計上予定に）。解約済み・キャンセルの列はいつも出す（チェックをなくした）。";
+const BUILD_TAG = "2026-10-25o kinXs：企業のモーダルの会社名の横にロゴ。押すと「HPから取り直す・画像のURL・画像ファイル・ロゴなし」を選べる（手で決めたロゴは自動で上書きしない）。ロゴの探し方を強くして（schema.orgのlogo・ロゴの入れ物の中の画像）、手で決めたもの以外は全部取り直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

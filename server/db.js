@@ -11576,7 +11576,7 @@ export async function kinxsInit() {
     end_estimated BOOLEAN DEFAULT false, renew_month TEXT, fs_name TEXT, cs_name TEXT, rank TEXT DEFAULT 'Z', rank_by TEXT, rank_at TIMESTAMPTZ,
     main_label TEXT, label_locked BOOLEAN DEFAULT false, error TEXT, memo TEXT, opp_ids JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
-  for (const c of ["info JSONB", "usage_status TEXT", "purpose TEXT", "website TEXT", "logo_url TEXT", "logo_at TIMESTAMPTZ", "first_booked_on DATE", "na_type TEXT", "na_at TIMESTAMPTZ", "na_source TEXT", "na_suggest JSONB", "na_scan_at TIMESTAMPTZ", "renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
+  for (const c of ["logo_manual BOOLEAN DEFAULT false", "logo_data TEXT", "logo_type TEXT", "info JSONB", "usage_status TEXT", "purpose TEXT", "website TEXT", "logo_url TEXT", "logo_at TIMESTAMPTZ", "first_booked_on DATE", "na_type TEXT", "na_at TIMESTAMPTZ", "na_source TEXT", "na_suggest JSONB", "na_scan_at TIMESTAMPTZ", "renew_locked BOOLEAN DEFAULT false", "source TEXT DEFAULT 'sf'", "na_text TEXT", "na_due DATE", "kenshu_done BOOLEAN", "mail_done BOOLEAN", "published BOOLEAN", "manual_updated_at TIMESTAMPTZ", "alert_dismiss JSONB DEFAULT '{}'::jsonb", "contacts JSONB DEFAULT '[]'::jsonb"])
     await sq(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
   await sq(`CREATE TABLE IF NOT EXISTS kinxs_history (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, from_v TEXT, to_v TEXT, by_user TEXT, auto BOOLEAN DEFAULT false, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
 }
@@ -11706,5 +11706,13 @@ export async function kinxsPruneSf(keepIds, checkedOppIds) {
 
 export async function kinxsSetLogo(accountId, logoUrl) {
   if (!pool) return;
-  await pool.query(`UPDATE kinxs_accounts SET logo_url=$2, logo_at=now() WHERE account_id=$1`, [accountId, logoUrl || null]).catch(() => {});
+  // 手で決めたロゴは、自動の取り直しで上書きしない
+  await pool.query(`UPDATE kinxs_accounts SET logo_url=$2, logo_at=now() WHERE account_id=$1 AND COALESCE(logo_manual,false)=false`, [accountId, logoUrl || null]).catch(() => {});
+}
+// 手でロゴを決める：画像のURL か、アップロードした画像（base64）。clear で「ロゴなし」、auto で自動に戻す
+export async function kinxsSetLogoManual(accountId, { url = null, data = null, type = null, mode = "set" } = {}) {
+  if (!pool) return;
+  if (mode === "auto") { await pool.query(`UPDATE kinxs_accounts SET logo_manual=false, logo_data=NULL, logo_type=NULL, logo_at=NULL WHERE account_id=$1`, [accountId]); return; }
+  if (mode === "clear") { await pool.query(`UPDATE kinxs_accounts SET logo_manual=true, logo_url=NULL, logo_data=NULL, logo_type=NULL, logo_at=now() WHERE account_id=$1`, [accountId]); return; }
+  await pool.query(`UPDATE kinxs_accounts SET logo_manual=true, logo_url=$2, logo_data=$3, logo_type=$4, logo_at=now() WHERE account_id=$1`, [accountId, url || (data ? `upload:${accountId}` : null), data, type]);
 }

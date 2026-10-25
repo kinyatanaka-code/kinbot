@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261025n" />
+    <link rel="stylesheet" href="style.css?v=20261025o" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -335,6 +335,16 @@
   .kx-grip{color:#9AB0A6;font-size:12px;letter-spacing:-2px;margin-right:-2px;}
   .kx-cscol.col-dragging{opacity:.45;}
   .kx-cscol.col-over-l{box-shadow:inset 4px 0 0 #1D9E75;} .kx-cscol.col-over-r{box-shadow:inset -4px 0 0 #1D9E75;}
+  /* 企業のモーダル：会社名の横のロゴ */
+  .kx-dlogo{position:relative;width:56px;height:56px;border-radius:14px;background:#fff;border:1px solid #E1E9E5;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none;cursor:pointer;}
+  .kx-dlogo img{max-width:86%;max-height:86%;object-fit:contain;}
+  .kx-dlogo .mono{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:linear-gradient(150deg,#0E6B4E,#0B3B2E);color:#B6E25C;font-weight:800;font-size:22px;}
+  .kx-dlogo .ed{position:absolute;left:0;right:0;bottom:0;background:rgba(11,59,46,.82);color:#fff;font-size:10px;font-weight:700;text-align:center;padding:1px 0;opacity:0;transition:opacity .15s;}
+  .kx-dlogo:hover .ed{opacity:1;}
+  .kx-logo-menu{border:1px solid #CFE3D9;background:#F7FBF9;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;align-items:flex-start;}
+  .kx-logo-menu .row{width:100%;} .kx-logo-menu .row .kx-in{flex:1;min-width:220px;}
+  .kx-logo-menu .h{display:flex;gap:8px;align-items:center;} .kx-logo-menu .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .kx-logo-menu[hidden]{display:none;}
 </style>
 </head>
   <body>
@@ -430,7 +440,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261025n" defer></script>
-    <script src="kinxs.js?v=20261025n"></script>
+    <script src="kbchat.js?v=20261025o" defer></script>
+    <script src="kinxs.js?v=20261025o"></script>
   </body>
 </html>
