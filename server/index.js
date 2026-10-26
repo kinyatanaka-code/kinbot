@@ -15066,10 +15066,37 @@ app.get("/api/calls/my-today", async (req, res) => {
     const adj = Number(((st.callCountAdjust || {})[`${対象}|${today}`] || {}).delta || 0);
     const 実数 = コール;
     コール = Math.max(0, コール + adj);
-    res.json({ ok: true, 日: today, コール, 実数, 手直し: adj, 接触, アポ, ナーチャ, canEdit: jisshiEditorOk(req), member: 対象 });
+    // 接触数も、田中さんが手で直した分を足し引き
+    const cadj = Number(((st.contactCountAdjust || {})[`${対象}|${today}`] || {}).delta || 0);
+    const 接触実数 = 接触;
+    接触 = Math.max(0, 接触 + cadj);
+    res.json({ ok: true, 日: today, コール, 実数, 手直し: adj, 接触, 接触実数, 接触手直し: cadj, アポ, ナーチャ, canEdit: jisshiEditorOk(req), member: 対象 });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 今日のコール数を手で直す（田中欽也さんだけ）。body: { member, value }＝出したいコール数。差分を、その人のその日の手直しにする
+app.put("/api/calls/my-today/contacts", async (req, res) => {
+  try {
+    if (!jisshiEditorOk(req)) return res.status(403).json({ error: "接触数を直せるのは田中欽也さんだけです" });
+    const b = req.body || {};
+    const member = String(b.member || req.user || "").toLowerCase();
+    const nowJ = new Date(Date.now() + 9 * 3600000);
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(b.date || "")) ? String(b.date) : nowJ.toISOString().slice(0, 10);
+    const want = Math.max(0, parseInt(b.value, 10) || 0);
+    const rows = await callStatsByDay(day, day).catch(() => []);
+    const real = rows.filter((r) => String(r.caller || "").toLowerCase() === member && isContacted(r.result)).reduce((a, r) => a + (Number(r.n) || 0), 0);
+    const st = await getSettings().catch(() => ({}));
+    const all = { ...(st.contactCountAdjust || {}) };
+    const key = `${member}|${day}`;
+    if (want === real) delete all[key];
+    else all[key] = { delta: want - real, by: req.user, at: new Date().toISOString() };
+    const cut = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+    for (const k of Object.keys(all)) if ((k.split("|")[1] || "") < cut) delete all[k];
+    await saveSettings({ contactCountAdjust: all });
+    console.log(`[kincall] 接触数を手直し ${member} ${day}：実数${real} → ${want}（${want - real >= 0 ? "+" : ""}${want - real}） by ${req.user}`);
+    res.json({ ok: true, 接触: want, 実数: real, 手直し: want - real });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.put("/api/calls/my-today/calls", async (req, res) => {
   try {
     if (!jisshiEditorOk(req)) return res.status(403).json({ error: "コール数を直せるのは田中欽也さんだけです" });
@@ -27097,7 +27124,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26w kinXs：ヘッダーの「要注意 ○社」を、いまは出さないように。";
+const BUILD_TAG = "2026-10-26x kincallのかける画面：今日の接触数も、田中欽也さんだけ押して直せる（コール数と同じ。記録の実数と手直しの数を残す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

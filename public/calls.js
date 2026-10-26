@@ -3719,6 +3719,31 @@ async function loadToday() {
       }
     }
     set("kcTodayCt", d.接触 || 0);
+    // 田中さんだけ：接触数も押して直せる（コール数と同じ）
+    const tEl = $("kcTodayCt");
+    if (tEl) {
+      tEl.classList.toggle("kc-call-edit", !!d.canEdit);
+      tEl.title = d.canEdit ? `押して接触数を直す（記録の実数 ${d.接触実数 ?? d.接触}${d.接触手直し ? `・手直し ${d.接触手直し > 0 ? "+" : ""}${d.接触手直し}` : ""}）` : "";
+      tEl.dataset.member = d.member || "";
+      tEl.dataset.real = String(d.接触実数 ?? d.接触 ?? 0);
+      let mk2 = tEl.parentElement && tEl.parentElement.querySelector(".kc-call-adj");
+      if (d.canEdit && d.接触手直し) { if (!mk2) { mk2 = document.createElement("span"); mk2.className = "kc-call-adj"; tEl.after(mk2); } mk2.textContent = `直し${d.接触手直し > 0 ? "+" : ""}${d.接触手直し}`; }
+      else if (mk2) mk2.remove();
+      if (d.canEdit && !tEl.dataset.wired) {
+        tEl.dataset.wired = "1";
+        tEl.addEventListener("click", async () => {
+          if (!tEl.classList.contains("kc-call-edit")) return;
+          const v = prompt(`今日の接触数を何件にしますか？（記録の実数：${tEl.dataset.real}件。実数と同じにすると手直しを消します）`, tEl.textContent.trim());
+          if (v === null) return;
+          if (!/^\d+$/.test(v.trim())) { alert("数字で入れてください"); return; }
+          try {
+            const r = await fetch("/api/calls/my-today/contacts", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ member: tEl.dataset.member, value: Number(v.trim()) }) });
+            const jj = await r.json(); if (!r.ok) throw new Error(jj.error || "");
+            loadToday();
+          } catch (e) { alert("直せませんでした：" + e.message); }
+        });
+      }
+    }
     set("kcTodayApo", d.アポ || 0);
     set("kcTodayNur", d.ナーチャ || 0);
     box.hidden = false;
