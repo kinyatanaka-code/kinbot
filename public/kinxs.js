@@ -292,7 +292,7 @@ async function loadList() {
 }
 // 商品ラベルの小さな札（DOC＝緑、SNS＝紫）
 const KX_DOC_L = ["空間", "AI"], KX_SNS_L = ["SNS", "インスタ", "配信代行", "動画制作"];
-function kxPlTags(x) { const l = x.prodLabels || []; return (l.length || x.manual) ? `<span class="kx-pltags">${l.map((t) => `<span class="kx-pl ${KX_SNS_L.includes(t) ? "sns" : "doc"}">${esc(t)}</span>`).join("")}${x.manual ? '<span class="kx-pl nosf" title="SFの取引先に紐づいていません（モーダルの企業情報で紐づけられます）">SF未連携</span>' : ""}</span>` : ""; }
+function kxPlTags(x) { const l = x.prodLabels || []; return (l.length || x.manual) ? `<span class="kx-pltags">${l.map((t) => `<span class="kx-pl ${KX_SNS_L.includes(t) ? "sns" : "doc"}">${esc(t)}</span>`).join("")}${x.manual ? '<span class="kx-pl nosf" title="SFの商談に紐づいていません（モーダルの企業情報で紐づけられます）">SF未連携</span>' : ""}</span>` : ""; }
 const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 const kxHasDoc = (x) => (x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length;
 function renderList() {
@@ -316,12 +316,12 @@ function renderList() {
   if (kb) {
     // 数はヘッダーに出す。ここは、絞り込み中の表示と、アーカイブを見る入口だけ
     const nm = { won: "今月受注", last: "先月受注", del: "今月納品予定", arc: "アーカイブ" }[kp];
-    kb.innerHTML = `${kp ? `<span class="kx-chip on" style="cursor:default">${esc(nm)}の会社だけ</span><button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>` : ""}${(() => { const n0 = d.items.filter((x) => x.manual && !x.archived).length; return n0 ? `<button type="button" class="kx-chip" data-link-auto title="SFの取引先と名前がぴったり同じで、クロスの商談で受注している会社を、まとめて紐づけます">SF未連携 ${n0}社を自動で紐づける</button>` : ""; })()}<button type="button" class="kx-chip" data-kpi="arc">${kp === "arc" ? "アーカイブを閉じる" : `アーカイブを見る${arcN ? `（${arcN}）` : ""}`}</button>`;
+    kb.innerHTML = `${kp ? `<span class="kx-chip on" style="cursor:default">${esc(nm)}の会社だけ</span><button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>` : ""}${(() => { const n0 = d.items.filter((x) => x.manual && !x.archived).length; return n0 ? `<button type="button" class="kx-chip" data-link-auto title="取引先名がぴったり同じで、クロスの商談で受注している商談に、まとめて紐づけます">SF未連携 ${n0}社を自動で紐づける</button>` : ""; })()}<button type="button" class="kx-chip" data-kpi="arc">${kp === "arc" ? "アーカイブを閉じる" : `アーカイブを見る${arcN ? `（${arcN}）` : ""}`}</button>`;
     const la = kb.querySelector("[data-link-auto]");
     if (la) la.addEventListener("click", async () => {
-      if (!confirm("SFの取引先と名前がぴったり同じで、クロスの商談で受注している会社を、まとめてSFに紐づけます。よろしいですか？（手で入れた中身は、SFの会社に引き継ぎます）")) return;
+      if (!confirm("取引先名がぴったり同じで、クロスの商談で受注している商談に、まとめて紐づけます。よろしいですか？（手で入れた中身は、SFの会社に引き継ぎます）")) return;
       la.disabled = true; la.textContent = "SFを探しています…";
-      try { const r = await api("/api/kinxs/link-sf-auto", { method: "POST" }); alert(`紐づけました：${r.linked.length}社${r.linked.some((n) => n.includes("取引先")) ? `（${r.linked.filter((n) => n.includes("取引先")).join("、")}）` : ""}\n${r.notFound.length ? `SFで見つからない・クロスの受注の商談が無い：${r.notFound.join("、")}（モーダルの企業情報で、名前を変えて探せます）` : ""}`); await loadList(); }
+      try { const r = await api("/api/kinxs/link-sf-auto", { method: "POST" }); alert(`紐づけました：${r.linked.length}社${r.linked.some((n) => n.includes("商談")) ? `（${r.linked.filter((n) => n.includes("商談")).join("、")}）` : ""}\n${r.notFound.length ? `SFで見つからない・クロスの受注の商談が無い：${r.notFound.join("、")}（モーダルの企業情報で、名前を変えて探せます）` : ""}`); await loadList(); }
       catch (e) { alert(e.message); la.disabled = false; }
     });
     kb.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { window.__lsKpi = window.__lsKpi === b.dataset.kpi ? "" : b.dataset.kpi; document.querySelectorAll("#kxTopKpis [data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); renderList(); }));
@@ -500,10 +500,10 @@ $("lsCs").addEventListener("change", renderList);
 function kxLinkBox(d) {
   const x = d.item || {};
   if (!x.manual) return "";
-  return `<section class="kx-c2 kx-linkbox"><div class="kx-c2h"><b>SFの取引先に紐づいていません</b><span class="kx-note">紐づけると、商談・商品・受注日・契約終了日・HPなどがSFから入ります（手で入れた中身は引き継ぎます）</span></div>
-    <div class="row"><input class="kx-in" data-lk-q value="${esc(x.name)}" placeholder="SFの取引先名で探す" /><button type="button" class="hp-b" data-lk-search>探す</button></div>
+  return `<section class="kx-c2 kx-linkbox"><div class="kx-c2h"><b>SFの商談に紐づいていません</b><span class="kx-note">クロスの商談で受注しているもの（申込書回収（06）以降）を選ぶと、その商談の商品・受注日・契約終了日、取引先のHPなどがSFから入ります（手で入れた中身は引き継ぎます）</span></div>
+    <div class="row"><input class="kx-in" data-lk-q value="${esc(x.name)}" placeholder="会社名・商談名で探す" /><button type="button" class="hp-b" data-lk-search>探す</button></div>
     <div data-lk-list class="kx-lk-list"><span class="kx-note">探しています…</span></div>
-    <div class="row"><input class="kx-in" data-lk-id placeholder="または、SFの取引先のURL・ID（001…）を貼る" /><button type="button" class="hp-b" data-lk-id-go>このIDで紐づける</button></div>
+    <div class="row"><input class="kx-in" data-lk-id placeholder="または、SFの商談のURL・ID（006…）を貼る（いくつでも、空白で区切る）" /><button type="button" class="hp-b" data-lk-id-go>この商談と紐づける</button></div>
   </section>`;
 }
 function kxCoPane(d) {
@@ -822,32 +822,30 @@ async function openDetail(id, reuse) {
       refresh().catch(() => {}); again(`更新月を ${v.replace("-", "/")} にしました`).catch(() => {});
     });
     const rau = bg.querySelector("[data-renew-auto]"); if (rau) rau.addEventListener("click", async () => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ renew_auto: true }) }); refresh().catch(() => {}); await again("更新月を自動（契約終了日の前月）に戻しました"); } catch (e) { alert(e.message); } }); }
-  // SFと紐づける（手で入れた会社）
+  // SFの商談と紐づける（手で入れた会社）
   const lkList = bg.querySelector("[data-lk-list]");
   if (lkList) {
-    const doLink = async (sfId, nm) => {
-      if (!confirm(`「${x.name}」を、SFの取引先「${nm || sfId}」に紐づけます。よろしいですか？`)) return;
+    const doLink = async (oppIds, label) => {
+      if (!oppIds.length) return;
+      if (!confirm(`「${x.name}」を、SFの${label}に紐づけます。よろしいですか？`)) return;
       lkList.innerHTML = '<span class="kx-note">紐づけています…（SFの商談・商品を読むので、少しかかります）</span>';
-      try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/link-sf`, { method: "POST", body: JSON.stringify({ sfId, more: window.__lkMore || [] }) }); window.__lkMore = []; close(); refresh().catch(() => {}); setTimeout(() => openDetail(r.id).catch(() => {}), 400); }
+      try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/link-opps`, { method: "POST", body: JSON.stringify({ oppIds }) }); close(); refresh().catch(() => {}); setTimeout(() => openDetail(r.id).catch(() => {}), 400); }
       catch (e) { lkList.innerHTML = `<span class="kx-note">紐づけられませんでした：${esc(e.message)}</span>`; }
     };
     const search = async (q) => {
       lkList.innerHTML = '<span class="kx-note">探しています…</span>';
       try {
-        const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/sf-candidates${q ? `?q=${encodeURIComponent(q)}` : ""}`);
-        lkList.innerHTML = (r.items || []).length ? r.items.map((c) => `<div class="kx-lk"><div class="nm">${esc(c.name)}${c.same ? '<span class="kx-src">名前が同じ</span>' : ""}<small>${esc([c.pref, c.website].filter(Boolean).join("・"))}${c.opps ? `・クロスの受注 ${c.opps}件` : "・クロスの受注なし"}</small></div><button type="button" class="hp-b" data-lk-go="${esc(c.id)}" data-lk-nm="${esc(c.name)}">この取引先と紐づける</button></div>`).join("") : '<span class="kx-note">SFで見つかりませんでした。名前を短くして探すか、取引先のURLを貼ってください</span>';
-        lkList.querySelectorAll("[data-lk-go]").forEach((b) => b.addEventListener("click", () => doLink(b.dataset.lkGo, b.dataset.lkNm)));
-        // 名前が同じで、クロスの受注がある取引先が2つ以上 → 全部まとめて紐づけるボタン
-        const sameWon = (r.items || []).filter((c) => c.same && c.opps > 0);
-        if (sameWon.length > 1) {
-          lkList.insertAdjacentHTML("afterbegin", `<div class="kx-lk" style="border-color:#B5E0CC;background:#F2FAF6"><div class="nm">名前が同じで、クロスの受注がある取引先が ${sameWon.length} つあります<small>全部を紐づけて、1つの会社にまとめます（商品・商談は全部の取引先の分を出します）</small></div><button type="button" class="kx-btn kx-pri" data-lk-all>${sameWon.length}つとも紐づける</button></div>`);
-          lkList.querySelector("[data-lk-all]").addEventListener("click", () => { window.__lkMore = sameWon.slice(1).map((c) => c.id); doLink(sameWon[0].id, `${sameWon[0].name} ほか${sameWon.length - 1}つ`); });
-        }
+        const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/sf-opps${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+        const its = r.items || [];
+        if (!its.length) { lkList.innerHTML = '<span class="kx-note">クロスの受注の商談が見つかりませんでした。名前を短くして探すか、商談のURLを貼ってください</span>'; return; }
+        lkList.innerHTML = its.map((c) => `<label class="kx-lk"><input type="checkbox" data-lk-cb="${esc(c.id)}" ${c.same ? "checked" : ""} /><div class="nm">${esc(c.name)}${c.same ? '<span class="kx-src">取引先名が同じ</span>' : ""}<small>${esc(c.account)}・${esc(c.stage)}${c.booked ? `・受注 ${esc(c.booked.replace(/-/g, "/"))}` : ""}${c.owner ? `・FS ${esc(c.owner)}` : ""}</small></div></label>`).join("")
+          + `<div style="display:flex;justify-content:flex-end"><button type="button" class="kx-btn kx-pri" data-lk-sel>選んだ商談と紐づける</button></div>`;
+        lkList.querySelector("[data-lk-sel]").addEventListener("click", () => { const ids = [...lkList.querySelectorAll("[data-lk-cb]:checked")].map((cb) => cb.dataset.lkCb); if (!ids.length) { alert("商談を選んでください"); return; } doLink(ids, `商談${ids.length}件`); });
       } catch (e) { lkList.innerHTML = `<span class="kx-note">探せませんでした：${esc(e.message)}</span>`; }
     };
     search("");
     bg.querySelector("[data-lk-search]").addEventListener("click", () => search(bg.querySelector("[data-lk-q]").value.trim()));
-    bg.querySelector("[data-lk-id-go]").addEventListener("click", () => { const v = bg.querySelector("[data-lk-id]").value.trim(); if (v) doLink(v, ""); });
+    bg.querySelector("[data-lk-id-go]").addEventListener("click", () => { const ids = (bg.querySelector("[data-lk-id]").value.match(/006[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?/g) || []); if (!ids.length) { alert("商談のURLかID（006…）を貼ってください"); return; } doLink(ids, `商談${ids.length}件`); });
   }
   // アーカイブ
   const arcB = bg.querySelector("[data-archive]");

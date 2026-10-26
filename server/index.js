@@ -13596,7 +13596,7 @@ async function kxOppFields(sfUser) {
   return { startF, endF, extra: [...new Set([...startF, ...endF])].map((x) => `, ${x}`).join("") };
 }
 // SFの1社だけを取り込む（取り込みの対象外でも）。sf_linked の印を付ける
-async function kinxsSyncOneAccount(sfAccountId) {
+async function kinxsSyncOneAccount(sfAccountId, { oppIds = null } = {}) {
   const st = await getSettings().catch(() => ({}));
   const sfUser = await pickSfUser(st.psOwner || "").catch(() => "");
   if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
@@ -13607,7 +13607,7 @@ async function kinxsSyncOneAccount(sfAccountId) {
   const { startF, endF, extra } = await kxOppFields(sfUser);
   const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) && !isNaN(Date.parse(`${t}T00:00:00Z`)) ? t : null; };
   const firstOf = (o, list) => { for (const f of list) { const v = ymd(o[f]); if (v) return v; } return null; };
-  let opps = ((await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name${extra} FROM Opportunity WHERE AccountId='${id}' AND RecordType.Name LIKE '%クロス%' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') ORDER BY CloseDate DESC LIMIT 30`)).records || []);
+  let opps = ((await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name${extra} FROM Opportunity WHERE AccountId='${id}' AND RecordType.Name LIKE '%クロス%' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%')${Array.isArray(oppIds) && oppIds.length ? ` AND Id IN (${oppIds.map((o) => `'${String(o).replace(/[^0-9a-zA-Z]/g, "")}'`).join(",")})` : ""} ORDER BY CloseDate DESC LIMIT 30`)).records || []);
   const a = { account_id: acc.Id, name: acc.Name || "", website: acc.Website || "", products: [], opp_ids: [], fs_name: "" };
   for (const o of opps) {
     const names = (await listOpportunityLineItems(sfUser, o.Id).catch(() => [])).map((x) => String(x.name || x.Product2?.Name || x.PricebookEntry?.Name || "").trim()).filter(Boolean);
@@ -13627,7 +13627,8 @@ async function kinxsSyncOneAccount(sfAccountId) {
   a.cs_name = null;
   await kinxsUpsertFromSf(a);
   const row = (await kinxsList()).find((y) => y.account_id === acc.Id) || {};
-  await kinxsUpdate(acc.Id, { info: { ...(row.info || {}), sf_linked: true } }, "kinXs（SFと紐づけ）");
+  const prevOpps = Array.isArray(row.info && row.info.sf_opps) ? row.info.sf_opps : [];
+  await kinxsUpdate(acc.Id, { info: { ...(row.info || {}), sf_linked: true, ...(Array.isArray(oppIds) && oppIds.length ? { sf_opps: [...new Set([...prevOpps, ...oppIds])] } : {}) } }, "kinXs（SFと紐づけ）");
   return { id: acc.Id, name: acc.Name, opps: opps.length };
 }
 // 手で入れた会社を、SFの取引先に紐づける：SFの会社として取り込み、手で入れた中身はそちらにまとめる（重複のまとめと同じ）
@@ -13662,6 +13663,45 @@ async function kinxsLinkManualToSfMany(manualId, sfIds, by) {
   _kxBuildMemo = { at: 0, p: null };
   return first;
 }
+// ===== 商談と紐づける（2026-10-27）：クロスの商談で受注しているもの。選んだ商談の取引先を取り込み、その商談だけを使う =====
+async function kxSfOppCandidates(name, formers = []) {
+  const st = await getSettings().catch(() => ({}));
+  const sfUser = await pickSfUser(st.psOwner || "").catch(() => ""); if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
+  const esc1 = (v) => String(v || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const shortOf = (n) => String(n || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
+  const names = [name, ...formers].filter(Boolean);
+  const cond = names.flatMap((n) => [`Account.Name = '${esc1(n)}'`, shortOf(n).length >= 2 ? `Account.Name LIKE '%${esc1(shortOf(n))}%'` : "", shortOf(n).length >= 2 ? `Name LIKE '%${esc1(shortOf(n))}%'` : ""]).filter(Boolean).join(" OR ");
+  if (!cond) return [];
+  const recs = (await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND (${cond}) ORDER BY CloseDate DESC LIMIT 25`)).records || [];
+  const keys = new Set(names.map((n) => csCoKey(n)));
+  return recs.map((o) => ({ id: o.Id, name: o.Name || "", account: (o.Account && o.Account.Name) || "", accountId: o.AccountId, stage: o.StageName || "", booked: String(o.SS06__c || o.CloseDate || "").slice(0, 10), owner: (o.Owner && o.Owner.Name) || "", same: keys.has(csCoKey((o.Account && o.Account.Name) || "")) }))
+    .sort((x, y) => (y.same ? 1 : 0) - (x.same ? 1 : 0) || String(y.booked).localeCompare(String(x.booked)));
+}
+// 手で入れた会社を、商談（いくつでも）に紐づける：商談ごとの取引先を取り込み（その商談だけ）、1つの会社にまとめる
+async function kinxsLinkManualToOpps(manualId, oppIds, by) {
+  const st = await getSettings().catch(() => ({}));
+  const sfUser = await pickSfUser(st.psOwner || "").catch(() => ""); if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
+  const ids = [...new Set(oppIds.map((o) => String(o).replace(/[^0-9a-zA-Z]/g, "")).filter((o) => /^006[0-9a-zA-Z]{12,15}$/.test(o)))];
+  if (!ids.length) throw new Error("商談（006から始まるID、または商談のURL）を選んでください");
+  const opps = (await sfQuery(sfUser, `SELECT Id, AccountId, Account.Name FROM Opportunity WHERE Id IN (${ids.map((o) => `'${o}'`).join(",")})`)).records || [];
+  if (!opps.length) throw new Error("SFにその商談がありません");
+  const byAcc = new Map(); for (const o of opps) { if (!o.AccountId) continue; (byAcc.get(o.AccountId) || byAcc.set(o.AccountId, []).get(o.AccountId)).push(o.Id); }
+  const rows = await kinxsList(); const m = rows.find((y) => y.account_id === manualId);
+  if (!m) throw new Error("会社が見つかりません");
+  if (m.source !== "manual") throw new Error("この会社は、もうSFに紐づいています");
+  const mName = m.name_override || m.name || "";
+  let first = null;
+  for (const [accId, oids] of byAcc) {
+    const r = await kinxsSyncOneAccount(accId, { oppIds: oids });
+    if (!first) first = r;
+    const row = (await kinxsList()).find((y) => y.account_id === r.id) || {};
+    if (mName && csCoKey(mName) !== csCoKey(row.name || "")) await kinxsSetFormer(r.id, [...new Set([...(Array.isArray(row.former_names) ? row.former_names : []), mName])]);
+  }
+  await kinxsDedupe();
+  if (first) await kinxsLogAuto(first.id, "sf_link", mName, `手で入れた「${mName}」を、SFの商談${ids.length}件に紐づけました（${by || ""}）`).catch(() => {});
+  _kxBuildMemo = { at: 0, p: null };
+  return first;
+}
 async function kxSfAccountCandidates(name, formers = []) {
   const st = await getSettings().catch(() => ({}));
   const sfUser = await pickSfUser(st.psOwner || "").catch(() => ""); if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
@@ -13676,6 +13716,23 @@ async function kxSfAccountCandidates(name, formers = []) {
   return recs.map((a) => ({ id: a.Id, name: a.Name, website: a.Website || "", pref: a.BillingState || "", opps: ((a.Opportunities && a.Opportunities.records) || []).length, same: keys.has(csCoKey(a.Name)) }))
     .sort((x, y) => (y.same ? 1 : 0) - (x.same ? 1 : 0) || y.opps - x.opps);
 }
+app.get("/api/kinxs/accounts/:id/sf-opps", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const rows = await kinxsList(); const m = rows.find((y) => y.account_id === req.params.id); if (!m) return res.status(404).json({ error: "見つかりません" });
+    const q = String(req.query.q || "").trim();
+    res.json({ ok: true, items: await kxSfOppCandidates(q || m.name_override || m.name, q ? [] : (Array.isArray(m.former_names) ? m.former_names : [])) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/accounts/:id/link-opps", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const raw = Array.isArray(req.body && req.body.oppIds) ? req.body.oppIds : [];
+    const ids = raw.map((v) => (String(v).match(/(006[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?)/) || [])[1]).filter(Boolean);
+    const r = await kinxsLinkManualToOpps(req.params.id, ids, req.user);
+    res.json({ ok: true, id: r.id, name: r.name, opps: ids.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/accounts/:id/sf-candidates", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -13702,8 +13759,9 @@ app.post("/api/kinxs/link-sf-auto", async (req, res) => {
     const linked = [], notFound = [], many = [];
     for (const m of rows) {
       try {
-        const c = (await kxSfAccountCandidates(m.name_override || m.name, Array.isArray(m.former_names) ? m.former_names : [])).filter((x) => x.same && x.opps > 0);
-        if (c.length >= 1) { await kinxsLinkManualToSfMany(m.account_id, c.map((x) => x.id), req.user); linked.push(c.length > 1 ? `${m.name}（SFの取引先${c.length}つ）` : m.name); }
+        // 取引先名がぴったり同じで、クロスの商談で受注している商談を、全部紐づける
+        const c = (await kxSfOppCandidates(m.name_override || m.name, Array.isArray(m.former_names) ? m.former_names : [])).filter((x) => x.same);
+        if (c.length >= 1) { await kinxsLinkManualToOpps(m.account_id, c.map((x) => x.id), req.user); linked.push(c.length > 1 ? `${m.name}（商談${c.length}件）` : m.name); }
         else notFound.push(m.name);
       } catch { notFound.push(m.name); }
     }
@@ -13713,7 +13771,7 @@ app.post("/api/kinxs/link-sf-auto", async (req, res) => {
 // 取り込みのたびに、手で紐づけたSFの会社も新しくする
 async function kinxsRefreshLinked() {
   const rows = (await kinxsList()).filter((r) => r.info && r.info.sf_linked && !r.merged_into);
-  for (const r of rows) await kinxsSyncOneAccount(r.account_id).catch(() => {});
+  for (const r of rows) await kinxsSyncOneAccount(r.account_id, { oppIds: Array.isArray(r.info.sf_opps) && r.info.sf_opps.length ? r.info.sf_opps : null }).catch(() => {});
   return rows.length;
 }
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
@@ -27421,7 +27479,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27h kinXsの情報不足：FSに頼むのは2026年9月以降に受注（SS06昇格日）した会社だけ。それより前の会社は「CSが入力」に分けて、CS担当ごとに出す。";
+const BUILD_TAG = "2026-10-27i kinXsのSFへの紐づけを、取引先ではなく商談（クロスの商談で受注しているもの）で：候補の商談を選んで紐づける（いくつでも、URL・IDでも）、自動は取引先名が同じ商談を全部。紐づけた会社は、その商談だけを使う。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
