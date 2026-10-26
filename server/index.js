@@ -12625,8 +12625,11 @@ const KX_PROD_LABELS = { DOC: ["空間", "AI"], SNS: ["SNS", "インスタ", "�
 const KX_SNS_PHASES = ["計上", "コンテンツfix", "素材回収済", "制作指示出し済み", "初稿チェック前", "お客様初稿確認", "修正中", "修正チェック", "お客様修正案確認", "投稿依頼", "契約終了"];
 // 手で決めていなければ、SFの商品名から当てる
 // 商品ごとの区別（2026-10-27）：空間デザイン制作・スタンダード・ライト → 空間／エントリー・アチコチバース（だけ） → AI／それ以外 → SNS（インスタ・配信・動画は、その名前のラベル）
+// 区別しない商品（費用など）。商品ラベルには入れない（2026-10-27：取材費はSNSにしない）
+const KX_CLASS_SKIP = /取材費/;
 function kxClassOf(name) {
   const t = String(name || "");
+  if (KX_CLASS_SKIP.test(t)) return "";
   if (/空間デザイン制作|スタンダード|ライト/.test(t)) return "空間";
   if (/エントリー|アチコチバース/.test(t)) return "AI";
   if (/インスタ|Instagram/i.test(t)) return "インスタ";
@@ -12636,7 +12639,7 @@ function kxClassOf(name) {
 }
 function kxGuessLabels(products) {
   const out = [];
-  for (const p of products || []) { const n = typeof p === "string" ? p : p && p.name; if (!n) continue; const c = kxClassOf(n); if (!out.includes(c)) out.push(c); }
+  for (const p of products || []) { const n = typeof p === "string" ? p : p && p.name; if (!n) continue; const c = kxClassOf(n); if (c && !out.includes(c)) out.push(c); }
   return out;
 }
 // DOCのフェーズの順番（スケジュールの遅れを見るため）
@@ -27479,7 +27482,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27i kinXsのSFへの紐づけを、取引先ではなく商談（クロスの商談で受注しているもの）で：候補の商談を選んで紐づける（いくつでも、URL・IDでも）、自動は取引先名が同じ商談を全部。紐づけた会社は、その商談だけを使う。";
+const BUILD_TAG = "2026-10-27j kinXsの商品の区別：取材費はSNSにしない（対象外として、商品ラベルに入れない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

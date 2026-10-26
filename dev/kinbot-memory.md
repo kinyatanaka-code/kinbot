@@ -1893,3 +1893,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-27 BUILD_TAG=2026-10-27h 田中さん（情報不足が153社）「9月以降に受注した企業でいいかな。それより前はCSに入力してもらう」。kinxsMissing：items に lastBooked と who（いちばん新しい受注日（SS06）が settings.kinxsMissingFrom（既定 2026-09-01）以降なら FS、前なら CS）、data.from。画面：上に「FSに頼む（2026年09月以降の受注）n／CSが入力（それより前）n」の切りかえ（window.__msWho、既定FS）、まとめの数・項目ごとの数はその側だけで、CSのときは CS担当（苗字）ごとのまとまりと「CSに送る文をコピー」。版20261027h。
 
 - 2026-10-27 BUILD_TAG=2026-10-27i 田中さん「取引先と紐づけるよりは商談と紐づける」。kxSfOppCandidates：クロス・06/07/08/申込書回収 の Opportunity を Account.Name の一致・短い名前の LIKE・商談名の LIKE で探す（取引先名が同じもの→新しい受注の順）。kinxsLinkManualToOpps：選んだ商談の取引先ごとに kinxsSyncOneAccount(accId, {oppIds})（その商談だけ取り込み、info.sf_opps に覚える）→名前が違えば旧社名に足す→kinxsDedupe で1つに。kinxsRefreshLinked も sf_opps の商談だけ。API：GET …/sf-opps?q=、POST …/link-opps {oppIds（006… のID か URL）}。link-sf-auto は 取引先名が同じ クロスの受注の商談を全部紐づける（結果に「（商談n件）」）。画面：「SFの商談に紐づいていません」の箱に、候補の商談（チェック、取引先名が同じものは最初からチェック、取引先・フェーズ・受注日・FS）と「選んだ商談と紐づける」、商談のURL・IDを貼る欄（いくつでも）。版20261027i。
+
+- 2026-10-27 BUILD_TAG=2026-10-27j 田中さん「取材費はSNSにしない」。kxClassOf：KX_CLASS_SKIP（/取材費/）に当たる商品は区別なし（空）、kxGuessLabels は空を入れない。モーダルの「SFの商談の商品」の表では「対象外」の札、説明に「取材費→対象外」。ほかにも外したい商品が出たら KX_CLASS_SKIP に足す。版20261027j。
