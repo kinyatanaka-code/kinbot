@@ -316,12 +316,12 @@ function renderList() {
   if (kb) {
     // 数はヘッダーに出す。ここは、絞り込み中の表示と、アーカイブを見る入口だけ
     const nm = { won: "今月受注", last: "先月受注", del: "今月納品予定", arc: "アーカイブ" }[kp];
-    kb.innerHTML = `${kp ? `<span class="kx-chip on" style="cursor:default">${esc(nm)}の会社だけ</span><button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>` : ""}${(() => { const n0 = d.items.filter((x) => x.manual && !x.archived).length; return n0 ? `<button type="button" class="kx-chip" data-link-auto title="SFの取引先と名前がぴったり同じ会社を、まとめて紐づけます">SF未連携 ${n0}社を自動で紐づける</button>` : ""; })()}<button type="button" class="kx-chip" data-kpi="arc">${kp === "arc" ? "アーカイブを閉じる" : `アーカイブを見る${arcN ? `（${arcN}）` : ""}`}</button>`;
+    kb.innerHTML = `${kp ? `<span class="kx-chip on" style="cursor:default">${esc(nm)}の会社だけ</span><button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>` : ""}${(() => { const n0 = d.items.filter((x) => x.manual && !x.archived).length; return n0 ? `<button type="button" class="kx-chip" data-link-auto title="SFの取引先と名前がぴったり同じで、クロスの商談で受注している会社を、まとめて紐づけます">SF未連携 ${n0}社を自動で紐づける</button>` : ""; })()}<button type="button" class="kx-chip" data-kpi="arc">${kp === "arc" ? "アーカイブを閉じる" : `アーカイブを見る${arcN ? `（${arcN}）` : ""}`}</button>`;
     const la = kb.querySelector("[data-link-auto]");
     if (la) la.addEventListener("click", async () => {
-      if (!confirm("SFの取引先と名前がぴったり同じ会社を、まとめてSFに紐づけます。よろしいですか？（手で入れた中身は、SFの会社に引き継ぎます）")) return;
+      if (!confirm("SFの取引先と名前がぴったり同じで、クロスの商談で受注している会社を、まとめてSFに紐づけます。よろしいですか？（手で入れた中身は、SFの会社に引き継ぎます）")) return;
       la.disabled = true; la.textContent = "SFを探しています…";
-      try { const r = await api("/api/kinxs/link-sf-auto", { method: "POST" }); alert(`紐づけました：${r.linked.length}社\n${r.many.length ? `同じ名前の取引先が2つ以上（手で選んでください）：${r.many.join("、")}\n` : ""}${r.notFound.length ? `SFで見つからなかった：${r.notFound.join("、")}（モーダルの企業情報で、名前を変えて探せます）` : ""}`); await loadList(); }
+      try { const r = await api("/api/kinxs/link-sf-auto", { method: "POST" }); alert(`紐づけました：${r.linked.length}社\n${r.many.length ? `同じ名前の取引先が2つ以上（手で選んでください）：${r.many.join("、")}\n` : ""}${r.notFound.length ? `SFで見つからない・クロスの受注の商談が無い：${r.notFound.join("、")}（モーダルの企業情報で、名前を変えて探せます）` : ""}`); await loadList(); }
       catch (e) { alert(e.message); la.disabled = false; }
     });
     kb.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { window.__lsKpi = window.__lsKpi === b.dataset.kpi ? "" : b.dataset.kpi; document.querySelectorAll("#kxTopKpis [data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); renderList(); }));
@@ -835,7 +835,7 @@ async function openDetail(id, reuse) {
       lkList.innerHTML = '<span class="kx-note">探しています…</span>';
       try {
         const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/sf-candidates${q ? `?q=${encodeURIComponent(q)}` : ""}`);
-        lkList.innerHTML = (r.items || []).length ? r.items.map((c) => `<div class="kx-lk"><div class="nm">${esc(c.name)}${c.same ? '<span class="kx-src">名前が同じ</span>' : ""}<small>${esc([c.pref, c.website].filter(Boolean).join("・"))}${c.opps ? `・商談 ${c.opps}件` : "・商談なし"}</small></div><button type="button" class="hp-b" data-lk-go="${esc(c.id)}" data-lk-nm="${esc(c.name)}">この取引先と紐づける</button></div>`).join("") : '<span class="kx-note">SFで見つかりませんでした。名前を短くして探すか、取引先のURLを貼ってください</span>';
+        lkList.innerHTML = (r.items || []).length ? r.items.map((c) => `<div class="kx-lk"><div class="nm">${esc(c.name)}${c.same ? '<span class="kx-src">名前が同じ</span>' : ""}<small>${esc([c.pref, c.website].filter(Boolean).join("・"))}${c.opps ? `・クロスの受注 ${c.opps}件` : "・クロスの受注なし"}</small></div><button type="button" class="hp-b" data-lk-go="${esc(c.id)}" data-lk-nm="${esc(c.name)}">この取引先と紐づける</button></div>`).join("") : '<span class="kx-note">SFで見つかりませんでした。名前を短くして探すか、取引先のURLを貼ってください</span>';
         lkList.querySelectorAll("[data-lk-go]").forEach((b) => b.addEventListener("click", () => doLink(b.dataset.lkGo, b.dataset.lkNm)));
       } catch (e) { lkList.innerHTML = `<span class="kx-note">探せませんでした：${esc(e.message)}</span>`; }
     };

@@ -13600,7 +13600,7 @@ async function kinxsSyncOneAccount(sfAccountId) {
   const { startF, endF, extra } = await kxOppFields(sfUser);
   const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) && !isNaN(Date.parse(`${t}T00:00:00Z`)) ? t : null; };
   const firstOf = (o, list) => { for (const f of list) { const v = ymd(o[f]); if (v) return v; } return null; };
-  let opps = ((await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name${extra} FROM Opportunity WHERE AccountId='${id}' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') ORDER BY CloseDate DESC LIMIT 30`)).records || []);
+  let opps = ((await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name${extra} FROM Opportunity WHERE AccountId='${id}' AND RecordType.Name LIKE '%クロス%' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') ORDER BY CloseDate DESC LIMIT 30`)).records || []);
   const a = { account_id: acc.Id, name: acc.Name || "", website: acc.Website || "", products: [], opp_ids: [], fs_name: "" };
   for (const o of opps) {
     const names = (await listOpportunityLineItems(sfUser, o.Id).catch(() => [])).map((x) => String(x.name || x.Product2?.Name || x.PricebookEntry?.Name || "").trim()).filter(Boolean);
@@ -13616,7 +13616,7 @@ async function kinxsSyncOneAccount(sfAccountId) {
   if (!end && a.booked_on) { const t = new Date(`${a.booked_on}T00:00:00Z`); t.setUTCFullYear(t.getUTCFullYear() + 1); t.setUTCDate(t.getUTCDate() - 1); end = t.toISOString().slice(0, 10); a.end_estimated = true; }
   a.end_on = end;
   if (end) { const t = new Date(`${end.slice(0, 7)}-01T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() - 1); a.renew_month = t.toISOString().slice(0, 7); } else a.renew_month = null;
-  a.error = !opps.length ? "SFに申込書回収（06）以降の商談がありません" : !end ? "契約終了日・計上日が空です" : null;
+  a.error = !opps.length ? "SFにクロスの受注の商談（申込書回収（06）以降）がありません" : !end ? "契約終了日・計上日が空です" : null;
   a.cs_name = null;
   await kinxsUpsertFromSf(a);
   const row = (await kinxsList()).find((y) => y.account_id === acc.Id) || {};
@@ -13646,7 +13646,8 @@ async function kxSfAccountCandidates(name, formers = []) {
   const names = [name, ...formers].filter(Boolean);
   const cond = names.flatMap((n) => [`Name = '${esc1(n)}'`, shortOf(n).length >= 2 ? `Name LIKE '%${esc1(shortOf(n))}%'` : ""]).filter(Boolean).join(" OR ");
   if (!cond) return [];
-  const recs = (await sfQuery(sfUser, `SELECT Id, Name, Website, BillingState, (SELECT Id FROM Opportunities LIMIT 50) FROM Account WHERE ${cond} LIMIT 15`)).records || [];
+  // 商談は、クロスの商談で受注しているもの（申込書回収（06）以降）だけを数える
+  const recs = (await sfQuery(sfUser, `SELECT Id, Name, Website, BillingState, (SELECT Id FROM Opportunities WHERE RecordType.Name LIKE '%クロス%' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') LIMIT 50) FROM Account WHERE ${cond} LIMIT 15`)).records || [];
   const keys = new Set(names.map((n) => csCoKey(n)));
   return recs.map((a) => ({ id: a.Id, name: a.Name, website: a.Website || "", pref: a.BillingState || "", opps: ((a.Opportunities && a.Opportunities.records) || []).length, same: keys.has(csCoKey(a.Name)) }))
     .sort((x, y) => (y.same ? 1 : 0) - (x.same ? 1 : 0) || y.opps - x.opps);
@@ -13676,7 +13677,7 @@ app.post("/api/kinxs/link-sf-auto", async (req, res) => {
     const linked = [], notFound = [], many = [];
     for (const m of rows) {
       try {
-        const c = (await kxSfAccountCandidates(m.name_override || m.name, Array.isArray(m.former_names) ? m.former_names : [])).filter((x) => x.same);
+        const c = (await kxSfAccountCandidates(m.name_override || m.name, Array.isArray(m.former_names) ? m.former_names : [])).filter((x) => x.same && x.opps > 0);
         if (c.length === 1) { await kinxsLinkManualToSf(m.account_id, c[0].id, req.user); linked.push(m.name); }
         else if (c.length > 1) many.push(m.name); else notFound.push(m.name);
       } catch { notFound.push(m.name); }
@@ -27395,7 +27396,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27e kinXs：SFに紐づいていない会社（手で入れた会社）に「SF未連携」の札。企業情報で候補の取引先を探して紐づけ（URL・IDでも）、一覧の「自動で紐づける」で名前が同じ取引先にまとめて紐づける。紐づけた会社はSFの会社として商談・商品・受注日・契約終了日が入り、取り込みのたびに新しくなる。";
+const BUILD_TAG = "2026-10-27f kinXsのSFへの紐づけ：自動で紐づけるのは、名前が同じで、クロスの商談で受注（申込書回収（06）以降）している取引先だけ。候補にもクロスの受注の件数を出し、紐づけた会社が取り込むのもクロスの受注の商談だけ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
