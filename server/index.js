@@ -12618,7 +12618,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
 });
 // ===== kinXs：ユーザー一覧（メインラベル・納品・最終接触・次回アクション・要注意）=====
 const KX_USAGE = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
-const KX_LABELS = ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"];
+const KX_LABELS = ["計上予定", "キックオフMTG済", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"];
 async function kinxsBuild() {
   await kinxsInit();
   const st = await getSettings().catch(() => ({}));
@@ -12665,8 +12665,9 @@ async function kinxsBuild() {
     else if (left != null && left <= 61 && left >= -31) auto = "更新検討時期";
     else if (r.published) auto = "利用中";
     else if (k && k.confirm_start && Date.parse(k.confirm_start) < now) auto = "オンボーディング中";
-    else if (k && k.confirm_start) auto = "フォローMTG設定済";
-    // 「フォローMTG設定中」はやめた（2026-10-25）。キックオフ済みで確認MTGがまだの会社も「計上予定」のまま
+    else if (k && (k.confirm_start || (r.na_type === "MTG" && r.na_at && toMs(r.na_at) > now))) auto = "フォローMTG設定済";
+    // CS連携に入った（キックオフMTGの議事録ができた）時点で「キックオフMTG済」。次回日程（確認MTG、または次回アクションのMTGの日時）が決まれば「フォローMTG設定済」（2026-10-26）
+    else if (k) auto = "キックオフMTG済";
     const label = r.label_locked && r.main_label && r.main_label !== "フォローMTG設定中" ? r.main_label : auto;
     // 要注意（4つのルール）。「対応済み」にしたものは14日のあいだ出さない
     const dis = r.alert_dismiss || {};
@@ -27137,7 +27138,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26y チャットのコール進捗：コール・接触は、kincallの「かける」に出ている数（記録＋田中さんの手直し）だけで数える。手直しのことは通知に書かない。SFレポートの数は足さない（設定 callReportUseSf を true にしたときだけ）。";
+const BUILD_TAG = "2026-10-26z kinXsのフェーズ：CS連携に入った（キックオフMTGの議事録ができた）時点で「キックオフMTG済」。次回日程（確認MTG、または次回アクションのMTGの日時）が決まれば「フォローMTG設定済」。フェーズ別に「キックオフMTG済」の列。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

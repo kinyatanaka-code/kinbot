@@ -304,7 +304,7 @@ function renderList() {
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   // 会社名だけのカード（詳細は押すと開くモーダルで）
   // 会社名だけのカード（左の色はフェーズ、頭文字のマーク）
-  const PH = { "計上予定": "#7C8AA5", "フォローMTG設定中": "#E0A100", "フォローMTG設定済": "#3F72C9", "オンボーディング中": "#7A55C7", "利用中": "#1D9E75", "更新検討時期": "#E07A1F", "解約予定": "#C43D3D", "解約済み": "#3A3F3D", "キャンセル": "#9AA5A0", "エラー": "#A51F16" };
+  const PH = { "計上予定": "#7C8AA5", "キックオフMTG済": "#D9822B", "フォローMTG設定済": "#3F72C9", "オンボーディング中": "#7A55C7", "利用中": "#1D9E75", "更新検討時期": "#E07A1F", "解約予定": "#C43D3D", "解約済み": "#3A3F3D", "キャンセル": "#9AA5A0", "エラー": "#A51F16" };
   const mono = (n) => { const t = String(n || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|社会福祉法人|医療法人社団|医療法人|学校法人|\(株\)|（株）|[\s　]/g, ""); return t.slice(0, 1) || "・"; };
   // ロゴ（会社のHPから）があれば白い四角に、読めなければ頭文字
   const card = (x) => `<div class="kx-uc kx-uc-lux" style="--accent:${PH[x.label] || "#1D9E75"}" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(`${x.name}（${x.label}）`)}">${x.logo
@@ -584,7 +584,7 @@ async function openDetail(id, reuse) {
       ${kxStatusPane(d)}
       <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
       <div class="kx-sec"><div class="lb">フェーズ${x.locked ? "（手で決めています）" : "（自動）"}</div>
-        <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+        <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "キックオフMTG済", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
         <div class="kx-note" style="margin-top:6px">手で決めると、自動では戻しません（自動に任せるに戻すと、また自動で付きます）</div></div>
       <div class="kx-sec" style="display:grid;grid-template-columns:96px 1fr;gap:8px 10px;align-items:center">
         <span class="kx-note">検収書</span><div>${tog("kenshu_done", x.kenshuDone === true ? true : x.kenshuDone === false ? false : "", [["true", "回収済み"], ["false", "未回収"]])}${x.kenshuDone == null ? `<div class="kx-note" style="margin-top:3px">いま：${esc(x.kenshu)}${x.kenshu.includes("自動") ? "（もう使っている会社なので、完了あつかい）" : ""}</div>` : ""}</div>
@@ -908,6 +908,7 @@ if ($("imLoad")) {
 // ===== ラベル別ボード =====
 const BD_COLS = [
   ["計上予定", "リストに入った直後。キックオフMTGがまだ", "#7C8AA5"],
+  ["キックオフMTG済", "CS連携に入った（キックオフMTG済み）、次回日程がまだ", "#D9822B"],
   ["フォローMTG設定済", "フォローMTGを設定済み、まだ実施前", "#3F72C9"],
   ["オンボーディング中", "フォローMTG済み、まだ掲載できていない", "#7A55C7"],
   ["利用中", "掲載状況を確認したあと", "#1D9E75"],
