@@ -1211,24 +1211,32 @@ async function loadMissing(fresh) {
 function renderMissing() {
   if (!msData) return;
   const q = ($("msQ").value || "").trim(); const fsSel = $("msFs"); const cur = fsSel.value;
-  const fss = [...new Set(msData.items.map((x) => x.fs || "（FS不明）"))].sort((a, b) => a.localeCompare(b, "ja"));
+  const who0 = window.__msWho || "FS";
+  const fss = [...new Set(msData.items.filter((x) => (x.who || "FS") === who0).map((x) => x.fs || "（FS不明）"))].sort((a, b) => a.localeCompare(b, "ja"));
   fsSel.innerHTML = `<option value="">FS：全員</option>` + fss.map((f) => `<option ${f === cur ? "selected" : ""}>${esc(f)}</option>`).join("");
   const fk = window.__msField || "";
-  const list = msData.items.filter((x) => (!q || kxMatch(q, x.name, [], x.fs, x.cs)) && (!fsSel.value || (x.fs || "（FS不明）") === fsSel.value) && (!fk || (x.missKeys || []).includes(fk)));
+  // FSに頼む（9月以降に受注）／CSが入力（それより前）
+  const who = window.__msWho || "FS";
+  const pool = msData.items.filter((x) => (x.who || "FS") === who);
+  const fromL = String(msData.from || "2026-09-01").slice(0, 7).replace("-", "年") + "月";
+  const nFS = msData.items.filter((x) => (x.who || "FS") === "FS").length, nCS = msData.items.length - nFS;
+  const list = pool.filter((x) => (!q || kxMatch(q, x.name, [], x.fs, x.cs)) && (!fsSel.value || (x.fs || "（FS不明）") === fsSel.value) && (!fk || (x.missKeys || []).includes(fk)));
   const req = msData.required;
   // まとめ：足りない会社の数、項目ごとの数（押すとその項目が足りない会社だけ）
-  const perField = Object.fromEntries(req.map((r) => [r.key, msData.items.filter((x) => (x.missKeys || []).includes(r.key)).length]));
+  const perField = Object.fromEntries(req.map((r) => [r.key, pool.filter((x) => (x.missKeys || []).includes(r.key)).length]));
   const sum = $("msSum");
-  if (sum) sum.innerHTML = `<div class="kx-ms-big"><span>情報が足りない会社</span><b>${msData.items.length}<small>社</small></b><em>対象 ${msData.total || "—"}社のうち</em></div>
+  if (sum) sum.innerHTML = `<div class="kx-seg kx-ms-who" role="tablist"><button type="button" class="${who === "FS" ? "on" : ""}" data-mswho="FS">FSに頼む（${esc(fromL)}以降の受注）${nFS}</button><button type="button" class="${who === "CS" ? "on" : ""}" data-mswho="CS">CSが入力（それより前）${nCS}</button></div>
+    <div class="kx-ms-big"><span>情報が足りない会社</span><b>${pool.length}<small>社</small></b><em>${who === "FS" ? `${esc(fromL)}以降に受注した会社` : `${esc(fromL)}より前に受注した会社`}</em></div>
     <div class="kx-ms-fields">${req.map((r) => `<button type="button" class="kx-ms-f ${fk === r.key ? "on" : ""} ${perField[r.key] ? "" : "zero"}" data-msf="${esc(r.key)}" title="${esc(r.name)}"><span>${esc(r.short || r.name)}</span><b>${perField[r.key]}</b></button>`).join("")}${fk ? '<button type="button" class="kx-chip" data-msf="">項目の絞り込みを外す</button>' : ""}</div>`;
   if (sum) sum.querySelectorAll("[data-msf]").forEach((b) => b.addEventListener("click", () => { window.__msField = window.__msField === b.dataset.msf ? "" : b.dataset.msf; renderMissing(); }));
+  if (sum) sum.querySelectorAll("[data-mswho]").forEach((b) => b.addEventListener("click", () => { window.__msWho = b.dataset.mswho; renderMissing(); }));
   // 表：FSごとのまとまり。行＝会社、列＝必須の項目（×＝足りない）
-  const by = new Map(); for (const x of list) { const k2 = x.fs || "（FS不明）"; (by.get(k2) || by.set(k2, []).get(k2)).push(x); }
+  const by = new Map(); for (const x of list) { const k2 = who === "CS" ? (x.cs ? kxSurname(x.cs) : "（CS未定）") : (x.fs || "（FS不明）"); (by.get(k2) || by.set(k2, []).get(k2)).push(x); }
   const cols = `minmax(220px,1.8fr) 84px ${req.map(() => "minmax(54px,.6fr)").join(" ")}`;
   const head = `<div class="kx-msx-h" style="grid-template-columns:${cols}"><span>会社</span><span>受注</span>${req.map((r) => `<span title="${esc(r.name)}">${esc(r.short || r.name)}</span>`).join("")}</div>`;
   const mono = (n) => String(n || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1);
   $("msList").innerHTML = list.length ? [...by.entries()].sort((a, b) => b[1].length - a[1].length).map(([fs, xs]) => `<section class="kx-msx">
-      <div class="kx-msx-g"><span class="av">${esc(fs.slice(0, 1))}</span><b>${esc(fs)}</b><span class="kx-rc">${xs.length}社</span><button type="button" class="hp-b" data-ms-copy="${esc(fs)}" style="margin-left:auto">FSに送る文をコピー</button></div>
+      <div class="kx-msx-g"><span class="av">${esc(fs.slice(0, 1))}</span><b>${esc(fs)}</b><span class="kx-rc">${xs.length}社</span><button type="button" class="hp-b" data-ms-copy="${esc(fs)}" style="margin-left:auto">${who === "CS" ? "CSに送る文をコピー" : "FSに送る文をコピー"}</button></div>
       <div class="kx-msx-tbl">${head}${xs.map((x) => `<div class="kx-msx-r" style="grid-template-columns:${cols}" data-ms-open="${esc(x.id)}" role="button" tabindex="0"><span class="co"><span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" />` : esc(mono(x.name))}</span>${esc(x.name)}</span><span class="kx-note">${x.booked ? esc(x.booked.slice(2).replace(/-/g, "/")) : "—"}</span>${req.map((r) => (x.missKeys || []).includes(r.key) ? '<span class="c ng" title="足りない">×</span>' : '<span class="c ok">✓</span>').join("")}</div>`).join("")}</div>
     </section>`).join("") : '<div class="kx-empty">足りない会社はありません</div>';
   $("msList").querySelectorAll("[data-ms-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.msOpen)));
@@ -1237,7 +1245,8 @@ function renderMissing() {
     e.stopPropagation();
     const xs = by.get(b.dataset.msCopy) || [];
     const text = `${b.dataset.msCopy}さん\nお疲れ様です。kinXsで、Salesforceに入っていない情報がある会社をまとめました。お手数ですが、入力をお願いします。\n\n${xs.map((x) => `■${x.name}\n　${x.missing.join("・")}`).join("\n")}`;
-    try { await navigator.clipboard.writeText(text); b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "FSに送る文をコピー"), 1500); } catch { prompt("コピーしてください", text); }
+    const lab0 = b.textContent;
+    try { await navigator.clipboard.writeText(text); b.textContent = "コピーしました"; setTimeout(() => (b.textContent = lab0), 1500); } catch { prompt("コピーしてください", text); }
   }));
 }
 if ($("msQ")) { $("msQ").addEventListener("input", renderMissing); $("msFs").addEventListener("change", renderMissing); $("msReload").addEventListener("click", () => loadMissing(true)); }

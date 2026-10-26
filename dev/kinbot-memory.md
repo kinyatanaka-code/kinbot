@@ -1889,3 +1889,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-27 BUILD_TAG=2026-10-27f 田中さん「自動でSFに紐づける場合は、クロスの商談で受注している商談ね」。kxSfAccountCandidates の子の問い合わせを RecordType.Name LIKE '%クロス%' かつ 06/07/08/申込書回収 の商談だけに（opps＝クロスの受注の件数）。link-sf-auto は 名前がぴったり同じ かつ opps>0 が1つだけのとき。kinxsSyncOneAccount の商談もクロスの受注だけ（無ければ error「SFにクロスの受注の商談がありません」）。画面の候補は「クロスの受注 n件／クロスの受注なし」、自動の確認文と結果の文も合わせた。版20261027f。
 
 - 2026-10-27 BUILD_TAG=2026-10-27g 田中さん「（名前が同じでクロスの受注がある取引先が）2つ以上ある場合はすべて紐づけて」。kinxsLinkManualToSfMany：1つ目に kinxsLinkManualToSf、残りも kinxsSyncOneAccount で取り込み、名前が違えば残す会社の名前を旧社名に足して kinxsDedupe で1つにまとめる（残りは merged_into）。link-sf-auto は 名前が同じ・クロスの受注あり が1つ以上なら全部（結果に「（SFの取引先nつ）」）。POST link-sf に more（ほかのID）。kinxsBuild：merged_into の取引先の products を、残した会社の products に足して出す（商品の一覧・商品ラベル・今月の受注に効く）。モーダルの候補の上に「名前が同じで、クロスの受注がある取引先が n つ」と「n つとも紐づける」。版20261027g。
+
+- 2026-10-27 BUILD_TAG=2026-10-27h 田中さん（情報不足が153社）「9月以降に受注した企業でいいかな。それより前はCSに入力してもらう」。kinxsMissing：items に lastBooked と who（いちばん新しい受注日（SS06）が settings.kinxsMissingFrom（既定 2026-09-01）以降なら FS、前なら CS）、data.from。画面：上に「FSに頼む（2026年09月以降の受注）n／CSが入力（それより前）n」の切りかえ（window.__msWho、既定FS）、まとめの数・項目ごとの数はその側だけで、CSのときは CS担当（苗字）ごとのまとまりと「CSに送る文をコピー」。版20261027h。

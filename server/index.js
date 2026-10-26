@@ -13564,11 +13564,14 @@ async function kinxsMissing({ fresh = false } = {}) {
       start: !!r.start_on, end: !!r.end_on && !r.end_estimated, prod_labels: (x.prodLabels || []).length > 0,
     };
     const miss = req0.filter((k2) => k2 in has && !has[k2] && (sf || ["prod_labels"].includes(k2)));
-    if (miss.length) out.push({ id: x.id, name: x.name, fs: x.fs || "", cs: x.cs || "", booked: x.booked || "", missing: miss.map((k2) => KX_REQUIRED_NAMES[k2] || k2), missKeys: miss, manual: !sf, logo: x.logo || "" });
+    if (miss.length) out.push({ id: x.id, name: x.name, fs: x.fs || "", cs: x.cs || "", booked: x.booked || "", lastBooked: x.lastBooked || x.booked || "", missing: miss.map((k2) => KX_REQUIRED_NAMES[k2] || k2), missKeys: miss, manual: !sf, logo: x.logo || "" });
   }
-  out.sort((a, b) => String(b.booked).localeCompare(String(a.booked)));
+  out.sort((a, b) => String(b.lastBooked || b.booked).localeCompare(String(a.lastBooked || a.booked)));
+  // 受注がこの日より前の会社は、CSが入力する（FSに頼むのは、この日以降に受注した会社だけ）
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(String(st.kinxsMissingFrom || "")) ? st.kinxsMissingFrom : "2026-09-01";
+  for (const it of out) it.who = String(it.lastBooked || it.booked || "") >= from ? "FS" : "CS";
   const KX_REQ_SHORT = { website: "HP", phone: "電話", address: "住所", contact: "担当者", contact_email: "担当メール", start: "開始日", end: "終了日", prod_labels: "商品" };
-  const data = { ok: true, at: new Date().toISOString(), total: target.length, required: req0.map((k2) => ({ key: k2, name: KX_REQUIRED_NAMES[k2] || k2, short: KX_REQ_SHORT[k2] || k2 })), allRequired: Object.entries(KX_REQUIRED_NAMES).map(([key, name]) => ({ key, name })), items: out, sfNote };
+  const data = { ok: true, at: new Date().toISOString(), from, total: target.length, required: req0.map((k2) => ({ key: k2, name: KX_REQUIRED_NAMES[k2] || k2, short: KX_REQ_SHORT[k2] || k2 })), allRequired: Object.entries(KX_REQUIRED_NAMES).map(([key, name]) => ({ key, name })), items: out, sfNote };
   _kxMissing = { at: Date.now(), data };
   return data;
 }
@@ -27418,7 +27421,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27g kinXsのSFへの紐づけ：名前が同じでクロスの受注がある取引先が2つ以上あるときは、全部紐づけて1つの会社にまとめる（自動でも、モーダルの「○つとも紐づける」でも）。商品・商談は全部の取引先の分を出す。";
+const BUILD_TAG = "2026-10-27h kinXsの情報不足：FSに頼むのは2026年9月以降に受注（SS06昇格日）した会社だけ。それより前の会社は「CSが入力」に分けて、CS担当ごとに出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
