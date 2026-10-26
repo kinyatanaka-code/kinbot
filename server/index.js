@@ -12601,7 +12601,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     await kinxsInit();
-    const rows = (await kinxsList()).filter((r) => !r.merged_into);
+    const rows = (await kinxsList()).filter((r) => !r.merged_into && !r.archived);
     const nowJ = new Date(Date.now() + 9 * 3600000);
     const thisMonth = nowJ.toISOString().slice(0, 7);
     const st = await getSettings().catch(() => ({}));
@@ -12618,6 +12618,34 @@ app.get("/api/kinxs/renewals", async (req, res) => {
 });
 // ===== kinXs：ユーザー一覧（メインラベル・納品・最終接触・次回アクション・要注意）=====
 const KX_USAGE = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
+// ===== 商品ラベル（DOC：空間・AI／SNS：インスタ・配信代行・動画制作）と SNS のフェーズ（2026-10-27）=====
+const KX_PROD_LABELS = { DOC: ["空間", "AI"], SNS: ["インスタ", "配信代行", "動画制作"] };
+const KX_SNS_PHASES = ["計上", "コンテンツfix", "素材回収済", "制作指示出し済み", "初稿チェック前", "お客様初稿確認", "修正中", "修正チェック", "お客様修正案確認", "投稿依頼", "契約終了"];
+// 手で決めていなければ、SFの商品名から当てる
+function kxGuessLabels(products) {
+  const t = (products || []).map((p) => (typeof p === "string" ? p : p && p.name) || "").join(" ");
+  const out = [];
+  if (/アチコチ|空間|メタバース|VR|バーチャル/i.test(t)) out.push("空間");
+  if (/AI|面談|カジュアル|インタビュー/i.test(t)) out.push("AI");
+  if (/インスタ|Instagram/i.test(t)) out.push("インスタ");
+  if (/配信|運用代行/.test(t)) out.push("配信代行");
+  if (/動画|ムービー|映像/.test(t)) out.push("動画制作");
+  return out;
+}
+// DOCのフェーズの順番（スケジュールの遅れを見るため）
+const KX_DOC_ORDER = ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中"];
+// 納品月（回収MTGの「納品月」：「11月」「2026/11」など）を YYYY-MM に
+function kxDeliveryMonth(k) {
+  const v = String((k && k.fields && k.fields.納品月) || "").normalize("NFKC");
+  if (!v || v === "未確認") return "";
+  let m = v.match(/(\d{4})\s*[\/年-]\s*(\d{1,2})/);
+  if (m) return `${m[1]}-${String(m[2]).padStart(2, "0")}`;
+  m = v.match(/(\d{1,2})\s*月/); if (!m) return "";
+  const mon = Number(m[1]); const base = new Date(Date.now() + 9 * 3600000);
+  let y = base.getUTCFullYear(); const bm = base.getUTCMonth() + 1;
+  if (mon < bm - 3) y += 1;   // 例：今が11月で「2月」なら来年
+  return `${y}-${String(mon).padStart(2, "0")}`;
+}
 const KX_LABELS = ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"];
 async function kinxsBuild() {
   await kinxsInit();
@@ -12668,11 +12696,21 @@ async function kinxsBuild() {
     // CS連携に入った（キックオフMTGが済んだ）会社は、フォローMTG設定済み以降（2026-10-26 田中さん。「キックオフMTG済」の段はやめた）
     else if (k) auto = "フォローMTG設定済";
     const label = r.label_locked && r.main_label && !["フォローMTG設定中", "キックオフMTG済"].includes(r.main_label) ? r.main_label : auto;
+    // DOCのスケジュール（議事録から作った予定）より、フェーズが進んでいなければ要注意
+    let schedLate = null;
+    if (r.doc_schedule && Array.isArray(r.doc_schedule.steps)) {
+      const cur = KX_DOC_ORDER.indexOf(label);
+      for (const st0 of r.doc_schedule.steps) {
+        const pi = KX_DOC_ORDER.indexOf(st0.phase); if (pi < 0 || !st0.due) continue;
+        if (st0.due < today && cur >= 0 && cur < pi) { schedLate = st0; break; }
+      }
+    }
     // 要注意（4つのルール）。「対応済み」にしたものは14日のあいだ出さない
     const dis = r.alert_dismiss || {};
     const hidden = (rule) => dis[rule] && now - Date.parse(dis[rule]) < 14 * 86400000;
     const alerts = [];
     if (left != null && left <= rules.renewDays && ["B", "C", "Z"].includes(rank) && label !== "解約済み") alerts.push({ rule: "更新月接近", score: 40, detail: `更新月 ${r.renew_month.replace("-", "/")}（${left < 0 ? `${-left}日過ぎ` : `あと${left}日`}）・確度${rank}` });
+    if (schedLate && !r.archived) alerts.push({ rule: "スケジュール遅れ", score: 35, detail: `予定では ${schedLate.due.slice(5).replace("-", "/")} までに「${schedLate.name}」（${schedLate.phase}）。いまは${label}` });
     if (r.na_due && kxYmdOf(r.na_due) < today) alerts.push({ rule: "NA期限切れ", score: 30, detail: `次回アクションの期日 ${kxYmdOf(r.na_due).slice(5).replace("-", "/")} を ${days(kxYmdOf(r.na_due) + "T00:00:00+09:00")}日過ぎています` });
     const undelivered = !kenshu.startsWith("回収済み") || !mail.startsWith("送付済み");
     const sinceTouch = days(lastTouch || r.booked_on || r.created_at);
@@ -12685,7 +12723,10 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, renewLocked: !!r.renew_locked, logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, renewLocked: !!r.renew_locked,
+      prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
+      archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
+      lastBooked: (r.products || []).map((p) => String(p && p.booked || "").slice(0, 10)).filter(Boolean).sort().pop() || "", deliveryMonth: kxDeliveryMonth(k), logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy, allMeetings: ms };
 }
@@ -12845,7 +12886,7 @@ function kxBucket(t, today) {
 async function kinxsHomeBase(user) {
   const { me, meName, meFlat, isMine } = await kxMe(user);
   const { items } = await kinxsBuildMemo();
-  const mine = items.filter((x) => meName && isMine(x.cs));
+  const mine = items.filter((x) => meName && !x.archived && isMine(x.cs));
   const today = kxToday();
   const tasks = [];
   for (const x of mine) {
@@ -13014,7 +13055,7 @@ async function kinxsMcpCall(name, args, req) {
   if (name === "list_users") {
     const { items } = await kinxsBuild();
     const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
-    return items.filter((x) => (!a.cs || sur(x.cs) === sur(a.cs) || String(a.cs).startsWith(sur(x.cs) || "\u0000")) && (!a.phase || x.label === a.phase) && (!a.rank || x.rank === String(a.rank).toUpperCase()) && (!a.q || `${x.name} ${(x.formerNames || []).join(" ")}`.includes(a.q)) && (!a.alertsOnly || (x.alerts || []).length))
+    return items.filter((x) => !x.archived).filter((x) => (!a.cs || sur(x.cs) === sur(a.cs) || String(a.cs).startsWith(sur(x.cs) || "\u0000")) && (!a.phase || x.label === a.phase) && (!a.rank || x.rank === String(a.rank).toUpperCase()) && (!a.q || `${x.name} ${(x.formerNames || []).join(" ")}`.includes(a.q)) && (!a.alertsOnly || (x.alerts || []).length))
       .map((x) => ({ id: x.id, name: x.name, formerNames: x.formerNames || [], products: x.products, phase: x.label, rank: x.rank, renewMonth: x.renew, daysToRenew: x.left, cs: x.cs, fs: x.fs, firstBooked: x.booked, nextAction: x.na, nextActionType: x.naType, nextActionDue: x.naDue, alerts: (x.alerts || []).map((y) => `${y.rule}：${y.detail}`), lastTouch: x.lastTouch, usage: x.usage || "" }));
   }
   if (name === "get_user_detail") { const x = await kxFindId(a.company); const d = await kxSelf("GET", `/api/kinxs/accounts/${encodeURIComponent(x.id)}/detail`, req); return { company: x.name, info: d.info, status: d.status, kickoffAt: d.kickoffAt, timeline: (d.timeline || []).slice(0, 40) }; }
@@ -13158,7 +13199,7 @@ app.get("/api/kinxs/users", async (req, res) => {
     const { items, rules } = await kinxsBuild();
     items.sort((a, b) => (b.score - a.score) || String(a.renew || "9").localeCompare(String(b.renew || "9")));
     const csOptions = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => m.name).filter(Boolean);
-    res.json({ ok: true, items, rules, labels: KX_LABELS, usages: KX_USAGE, csOptions });
+    res.json({ ok: true, items, rules, labels: KX_LABELS, usages: KX_USAGE, csOptions, prodLabels: KX_PROD_LABELS, snsPhases: KX_SNS_PHASES });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ===== kinXs：今のCS管理ボード（スプレッドシート）から取り込む =====
@@ -13435,6 +13476,101 @@ async function kinxsNaTick() {
 }
 setInterval(() => { kinxsNaTick().catch(() => {}); }, 60 * 60 * 1000).unref?.();
 setTimeout(() => { kinxsNaTick().catch(() => {}); }, 6 * 60 * 1000).unref?.();
+// ===== DOC：キックオフ・フォローの議事録から、掲載までのスケジュールを作る（2026-10-27）=====
+async function kinxsMakeSchedule(accountId) {
+  const { items, mtBy, kickBy } = await kinxsBuild();
+  const x = items.find((i) => i.id === accountId); if (!x) return { ok: false, reason: "会社が見つかりません" };
+  const keys = [x.name, ...(x.formerNames || [])].map((n) => csCoKey(n));
+  const k = keys.map((kk) => kickBy.get(kk)).find(Boolean) || null;
+  const mts = [...new Map(keys.flatMap((kk) => mtBy.get(kk) || []).map((m) => [m.bot_id, m])).values()]
+    .filter((m) => /キックオフ|フォロー|回収|ユ\/フォ|定例|確認/.test(m.title || "") || (k && Date.parse(m.created_at) >= Date.parse(k.meeting_at || 0)))
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).slice(-6);
+  if (!k && !mts.length) return { ok: false, reason: "キックオフ・フォローの議事録がまだありません" };
+  const f = (k && k.fields) || {};
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const parts = [];
+  if (k) parts.push(`【回収MTGで読み取った項目】\n${Object.entries(f).filter(([, v]) => v && v !== "未確認").map(([kk, v]) => `${kk}：${v}`).join("\n")}\n確認MTG：${k.confirm_start || "未定"}`);
+  for (const m of mts) { const sm = m.summary || {}; parts.push(`【議事録 ${String(m.created_at).slice(0, 10)}】${m.title || ""}\n${[sm.overview, ...(sm.decisions || []), ...(sm.next_actions || sm.todos || [])].filter(Boolean).join("\n").slice(0, 1800)}`); }
+  const sys = "あなたはDOC（どこでもオープンカンパニー）の導入を支えるカスタマーサクセスです。議事録から、掲載（公開）までのスケジュールを作ります。必ずJSONだけを返します。";
+  const user = `今日：${today}\n会社：${x.name}\n\n${parts.join("\n\n").slice(0, 12000)}\n\n掲載までの段取りを、日付の早い順に並べて返してください。日付が議事録に無いものは、話の流れから妥当な日付を入れ、estimated を true にします。
+{"steps":[{"name":"段取りの名前（例：キックオフMTG／素材の提出／フォローMTG（確認MTG）／初期学習・制作／初稿の確認／公開（掲載））","due":"YYYY-MM-DD","phase":"その段取りが終わったときになっているはずのフェーズ（フォローMTG設定済／オンボーディング中／利用中 のどれか）","estimated":true/false,"note":"根拠を20字以内"}]}`;
+  let ans = null;
+  try { ans = JSON.parse(String(await callLLMPublic(sys, user, 1500, { json: true })).replace(/```json|```/g, "").trim()); } catch (e) { return { ok: false, reason: `AIで作れませんでした：${e.message}` }; }
+  const steps = ((ans && ans.steps) || []).filter((s0) => s0 && s0.name && /^\d{4}-\d{2}-\d{2}$/.test(String(s0.due || ""))).slice(0, 12)
+    .map((s0) => ({ name: String(s0.name).slice(0, 40), due: s0.due, phase: KX_DOC_ORDER.includes(s0.phase) ? s0.phase : "オンボーディング中", estimated: !!s0.estimated, note: String(s0.note || "").slice(0, 40) }));
+  if (!steps.length) return { ok: false, reason: "スケジュールを読み取れませんでした" };
+  const sched = { at: new Date().toISOString(), steps, from: mts.map((m) => m.bot_id) };
+  await kinxsUpdate(accountId, { doc_schedule: sched }, "kinXs（自動）");
+  return { ok: true, schedule: sched };
+}
+app.post("/api/kinxs/accounts/:id/schedule", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSchedule(req.params.id)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// スケジュールがまだの DOC の会社（CS連携に入った・利用中より前）は、1時間に3社ずつ作っておく
+let _kxSchedBusy = false;
+setInterval(async () => {
+  if (_kxSchedBusy) return; _kxSchedBusy = true;
+  try {
+    const j = new Date(Date.now() + 9 * 3600000); const h = j.getUTCHours(), dow = j.getUTCDay();
+    if (dow === 0 || dow === 6 || h < 9 || h >= 19) return;
+    const { items } = await kinxsBuild();
+    const cand = items.filter((x) => !x.archived && !x.schedule && ["フォローMTG設定済", "オンボーディング中"].includes(x.label) && (x.prodLabels || []).some((l) => KX_PROD_LABELS.DOC.includes(l))).slice(0, 3);
+    for (const x of cand) await kinxsMakeSchedule(x.id).catch(() => {});
+  } catch {} finally { _kxSchedBusy = false; }
+}, 60 * 60 * 1000).unref?.();
+
+// ===== 情報不足：FSにSFへ入れてもらう必須情報が足りない会社（2026-10-27）=====
+const KX_REQUIRED_DEFAULT = ["website", "phone", "address", "contact", "contact_email", "start", "end", "prod_labels"];
+const KX_REQUIRED_NAMES = { website: "HP（取引先のWebサイト）", phone: "電話番号（取引先）", address: "住所（取引先の請求先住所）", contact: "先方の担当者（取引先責任者）", contact_email: "先方の担当者のメールアドレス", start: "契約開始日（商談）", end: "契約終了日（商談）", prod_labels: "商品（商談の商品）" };
+let _kxMissing = { at: 0, data: null };
+async function kinxsMissing({ fresh = false } = {}) {
+  if (!fresh && _kxMissing.data && Date.now() - _kxMissing.at < 10 * 60 * 1000) return _kxMissing.data;
+  const st = await getSettings().catch(() => ({}));
+  const req0 = Array.isArray(st.kinxsRequired) && st.kinxsRequired.length ? st.kinxsRequired : KX_REQUIRED_DEFAULT;
+  const { items } = await kinxsBuild();
+  const rows = await kinxsList().catch(() => []); const rowBy = new Map(rows.map((r) => [r.account_id, r]));
+  const target = items.filter((x) => !x.archived && !["解約済み", "キャンセル", "エラー"].includes(x.label));
+  const sfIds = target.map((x) => x.id).filter((id) => /^[0-9a-zA-Z]{15,18}$/.test(id));
+  const acc = new Map(), ctN = new Map(), ctMail = new Map();
+  let sfNote = "";
+  try {
+    const sfU = await pickSfUser(st.psOwner || "");
+    if (!sfU) sfNote = "Salesforceにつながっている人がいません";
+    else for (let i = 0; i < sfIds.length; i += 100) {
+      const ids = sfIds.slice(i, i + 100).map((id) => `'${id}'`).join(",");
+      for (const a of ((await sfQuery(sfU, `SELECT Id, Website, Phone, BillingState, BillingCity, BillingStreet FROM Account WHERE Id IN (${ids})`)).records || [])) acc.set(a.Id.slice(0, 15), a);
+      for (const c of ((await sfQuery(sfU, `SELECT AccountId, Email FROM Contact WHERE AccountId IN (${ids}) LIMIT 2000`)).records || [])) { const k2 = String(c.AccountId || "").slice(0, 15); ctN.set(k2, (ctN.get(k2) || 0) + 1); if (c.Email) ctMail.set(k2, true); }
+    }
+  } catch (e) { sfNote = `SFを読めませんでした：${e.message}`; }
+  const out = [];
+  for (const x of target) {
+    const r = rowBy.get(x.id) || {}; const a = acc.get(String(x.id).slice(0, 15)) || {}; const sf = /^[0-9a-zA-Z]{15,18}$/.test(x.id);
+    const has = {
+      website: !!(a.Website || r.website), phone: !!a.Phone, address: !!(a.BillingState || a.BillingCity || a.BillingStreet),
+      contact: (ctN.get(String(x.id).slice(0, 15)) || 0) > 0, contact_email: !!ctMail.get(String(x.id).slice(0, 15)),
+      start: !!r.start_on, end: !!r.end_on && !r.end_estimated, prod_labels: (x.prodLabels || []).length > 0,
+    };
+    const miss = req0.filter((k2) => k2 in has && !has[k2] && (sf || ["prod_labels"].includes(k2)));
+    if (miss.length) out.push({ id: x.id, name: x.name, fs: x.fs || "", cs: x.cs || "", booked: x.booked || "", missing: miss.map((k2) => KX_REQUIRED_NAMES[k2] || k2), manual: !sf });
+  }
+  out.sort((a, b) => String(b.booked).localeCompare(String(a.booked)));
+  const data = { ok: true, at: new Date().toISOString(), required: req0.map((k2) => ({ key: k2, name: KX_REQUIRED_NAMES[k2] || k2 })), allRequired: Object.entries(KX_REQUIRED_NAMES).map(([key, name]) => ({ key, name })), items: out, sfNote };
+  _kxMissing = { at: Date.now(), data };
+  return data;
+}
+app.get("/api/kinxs/missing", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMissing({ fresh: req.query.fresh === "1" })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/kinxs/missing/required", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const list = (Array.isArray(req.body?.required) ? req.body.required : []).filter((k2) => KX_REQUIRED_NAMES[k2]);
+    await saveSettings({ kinxsRequired: list }); _kxMissing = { at: 0, data: null };
+    res.json({ ok: true, required: list });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -13548,6 +13684,9 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
       if ("cs_name" in b && String(b.cs_name || "") !== String(r2.cs_name || "")) delete au.cs;
       patch.info = { ...inf, ...(patch.info || {}), auto: au };
     }
+    if ("prod_labels" in b) patch.prod_labels = b.prod_labels === null ? null : (Array.isArray(b.prod_labels) ? b.prod_labels.filter((x) => [...KX_PROD_LABELS.DOC, ...KX_PROD_LABELS.SNS].includes(x)) : []);
+    if ("archived" in b) { patch.archived = !!b.archived; patch.archived_at = b.archived ? new Date().toISOString() : null; }
+    if ("sns_phase" in b) { if (!KX_SNS_PHASES.includes(b.sns_phase)) return res.status(400).json({ error: "SNSのフェーズが正しくありません" }); patch.sns_phase = b.sns_phase; }
     if ("purpose" in b) patch.purpose = String(b.purpose || "").slice(0, 500);
     if ("usage_status" in b) patch.usage_status = KX_USAGE.includes(b.usage_status) ? b.usage_status : null;
     if (b.info && typeof b.info === "object") {
@@ -27137,7 +27276,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27a kinXsのフェーズ：「キックオフMTG済」をやめた。CS連携に入った会社は、フォローMTG設定済み以降（確認MTGが過ぎたらオンボーディング中）。";
+const BUILD_TAG = "2026-10-27b kinXsのアップデート：商品ラベル（DOC：空間・AI／SNS：インスタ・配信代行・動画制作、SFの商品名から自動・手で直せる）、情報不足（SFの必須情報が空の会社をFSごとに、FSに送る文のコピー）、今月の受注・納品予定の数、アーカイブ、フェーズ別をDOC／SNSに分ける（SNSは11のフェーズ）、DOCは議事録から掲載までのスケジュールを作って、遅れたら要注意。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261027a" />
+    <link rel="stylesheet" href="style.css?v=20261027b" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -425,6 +425,25 @@
   .kx-imp-bar .kx-imp-back{margin-left:auto;border:1px solid #E0B98A;background:#fff;color:#7A3F00;border-radius:8px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;}
   .kx-renew-ed{display:inline-flex;gap:6px;align-items:center;} .kx-renew-ed[hidden]{display:none;}
   .kx-lab.l-キックオフMTG済{background:#FDEBD8;color:#8A4A0B;}
+  /* 今月の受注・納品予定・アーカイブ */
+  .kx-kpis3{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
+  .kx-kpi3{display:flex;align-items:baseline;gap:10px;border:1px solid #E1E9E5;background:#fff;border-radius:12px;padding:8px 14px;font:inherit;cursor:pointer;}
+  .kx-kpi3 span{font-size:12px;font-weight:700;color:#4F6158;} .kx-kpi3 b{font-size:20px;color:#0E6B4E;} .kx-kpi3 b small{font-size:11px;margin-left:2px;color:#6A7A72;}
+  .kx-kpi3.on{border-color:#1D9E75;box-shadow:0 0 0 2px #CFEBDD;} .kx-kpi3.arc b{color:#6A7A72;}
+  /* 商品ラベル */
+  .kx-pltags{display:flex;gap:3px;flex-wrap:wrap;margin-top:3px;max-width:100%;} .kx-pl{font-size:10px;font-weight:800;border-radius:5px;padding:0 6px;line-height:1.7;white-space:nowrap;flex:none;}
+  .kx-pl.doc{background:#E1F5EE;color:#0A5440;} .kx-pl.sns{background:#F0EAFB;color:#523490;}
+  .kx-other-ph{font-size:10.5px;font-weight:700;border-radius:6px;padding:1px 7px;display:inline-block;margin-top:4px;} .kx-other-ph.sns{background:#F0EAFB;color:#523490;} .kx-other-ph.doc{background:#E1F5EE;color:#0A5440;}
+  /* 情報不足 */
+  .kx-msreq{display:flex;gap:6px;flex-wrap:wrap;} .kx-msreq label{display:inline-flex;gap:5px;align-items:center;border:1px solid #DDE7E2;border-radius:8px;padding:4px 9px;font-size:12.5px;cursor:pointer;background:#fff;}
+  .kx-msg{background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:12px 14px;margin-bottom:10px;}
+  .kx-msg-h{display:flex;align-items:center;gap:8px;margin-bottom:8px;} .kx-msg-h b{font-size:14px;}
+  .kx-msr{display:flex;gap:10px;align-items:flex-start;padding:7px 4px;border-top:1px solid #F0F3F1;} .kx-msr .nm{min-width:220px;font-weight:700;font-size:13px;cursor:pointer;color:#0D5B47;}
+  .kx-msr .ms{display:flex;gap:4px;flex-wrap:wrap;} .kx-msr .ms span{font-size:11px;font-weight:700;background:#FBE4E4;color:#8C1F1F;border-radius:6px;padding:1px 7px;}
+  /* スケジュール */
+  .kx-sch{display:flex;flex-direction:column;gap:6px;} .kx-sch-r{display:flex;gap:10px;align-items:center;padding:7px 10px;border:1px solid #EEF2F0;border-radius:10px;font-size:13px;}
+  .kx-sch-r .d{font-weight:800;width:70px;} .kx-sch-r .n{flex:1;font-weight:700;} .kx-sch-r .st{font-size:11px;font-weight:800;border-radius:6px;padding:1px 8px;}
+  .kx-sch-r.done .st{background:#E1F5EE;color:#0A5440;} .kx-sch-r.late{border-color:#F0B5AE;background:#FFF8F7;} .kx-sch-r.late .st{background:#FBE4E4;color:#8C1F1F;} .kx-sch-r.todo .st{background:#EEF3F0;color:#4F6158;}
 </style>
 </head>
   <body>
@@ -436,6 +455,7 @@
       
         <a class="kx-nav" data-view="renew" href="/kinxs?p=renew"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>更新管理</a>
         <a class="kx-nav" data-view="board" href="/kinxs?p=board"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>フェーズ別</a>
+        <a class="kx-nav" data-view="missing" href="/kinxs?p=missing"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>情報不足</a>
         <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携（回収MTG）</a>
         <a class="kx-nav" data-view="import" href="/kinxs?p=import"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>CS管理ボードから取り込む</a>
         <a class="kx-nav kx-back" href="/home.html"><img src="/kinbot.svg" alt="" width="18" height="18" style="border-radius:5px" />kinbot<span class="kx-back-tag">戻る</span></a>
@@ -462,6 +482,7 @@
               <div><h1 class="kx-title">ユーザー一覧</h1></div>
             </div>
             <section class="kx-alert-box" id="lsAlerts" hidden></section>
+            <div class="kx-kpis3" id="lsKpi"></div>
             <div class="kx-bar">
               <div class="kx-seg" role="tablist"><button type="button" class="on" data-lstab="all">一覧</button><button type="button" data-lstab="cs">担当別</button></div>
               <input type="search" id="lsQ" placeholder="企業名・担当で探す" style="min-width:220px" />
@@ -473,6 +494,7 @@
           </div>
           <div class="kx-wrap" id="vBoard" hidden>
             <div class="kx-bar">
+              <div class="kx-seg" role="tablist"><button type="button" class="on" data-bdtrack="DOC">DOC</button><button type="button" data-bdtrack="SNS">SNS</button></div>
               <input type="search" id="bdQ" placeholder="企業名・担当で探す" style="min-width:220px" />
               <select id="bdCs" aria-label="CS担当"><option value="">CS担当：全員</option></select>
               <span class="kx-note" id="bdSt" style="margin-left:auto"></span>
@@ -507,6 +529,14 @@
               <section class="kh-mine"><div class="kh-h">自分の担当ユーザー <span class="kx-note" id="khMineN"></span></div><div id="khMine"></div></section>
             </div>
           </div>
+          <div class="kx-wrap" id="vMissing" hidden>
+            <div class="kx-sec" style="background:#fff;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font-size:14px">FSにSFへ入れてもらう必須情報</b><span class="kx-note">チェックした項目が、SFで空の会社を出します</span><button type="button" class="kx-btn" id="msReload" style="margin-left:auto">読み直す</button></div>
+              <div id="msReq" class="kx-msreq"></div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="search" id="msQ" placeholder="企業名・FSで探す" style="min-width:220px" /><select id="msFs"></select><span class="kx-note" id="msSt" style="margin-left:auto"></span></div>
+            <div id="msList"><div class="kx-empty">読み込み中…（SFを読むので、少しかかります）</div></div>
+          </div>
           <div class="kx-wrap" id="vRenew">
             <div class="kx-head">
               
@@ -528,7 +558,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261027a" defer></script>
-    <script src="kinxs.js?v=20261027a"></script>
+    <script src="kbchat.js?v=20261027b" defer></script>
+    <script src="kinxs.js?v=20261027b"></script>
   </body>
 </html>
