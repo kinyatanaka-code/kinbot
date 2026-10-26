@@ -1871,3 +1871,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-26 BUILD_TAG=2026-10-26w 田中さん「ヘッダーの要注意は今は消していい」。kinxs.js のヘッダーの #kxTopChip（要注意 ○社、押すとユーザー一覧）を出さないように（window.KX_SHOW_TOP_ALERT が true のときだけ出す。戻すときはそこを外す）。要注意そのもの（カードの印・ホームのやること・更新管理の点・企業のモーダルの帯）はそのまま。版20261026w。
 
 - 2026-10-26 BUILD_TAG=2026-10-26x 田中さん「接触数も俺だけ数を編集できるように」（kincall のかける画面のヘッダー「今日の架電結果」の接触）。コール数の手直し（settings.callCountAdjust、jisshiEditorOk＝田中さんだけ）と同じ形で、settings.contactCountAdjust（member|日 → delta・by・at、60日より前は片付け）。GET /api/calls/my-today に 接触（手直し込み）・接触実数・接触手直し。PUT /api/calls/my-today/contacts（実数＝その人のその日の isContacted の件数、実数と同じにすると手直しを消す）。calls.js：#kcTodayCt を押すと「今日の接触数を何件にしますか？」、直しているときは横に「直し+n」。※コンテナが消えていたので GitHub から取り直した（clone→npm ci）。版20261026x。
+
+- 2026-10-26 BUILD_TAG=2026-10-26y 田中さん「チャットで通知するのは、手直しとかの情報は入れない。kincallのかけるのところを入力した数だけ」。buildCallReport（毎時のコール進捗の通知）：コール・接触を、kincall の記録（callStats）に田中さんの手直し（callCountAdjust・contactCountAdjust の その人|今日）を足した数＝かける画面に出ている数で数える。SFレポートのコール・接触は足さない（st.callReportUseSf===true のときだけ前のように足す、SFのレポートの設定が無くても止まらない）。通知の文は「合計：○コール／接触○／アポ○」「・名前　実績 ○c / ○アポ」のままで、手直しのことは書かない。アポは今までどおり獲得者で数える。版20261026y。

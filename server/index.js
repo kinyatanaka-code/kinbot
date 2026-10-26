@@ -6912,17 +6912,21 @@ let lastCallReportKey = "";
 
 async function buildCallReport(sfUser) {
   const st = await getSettings();
+  // コール・接触は、kincall の「かける」に出ている数（記録＋田中さんの手直し）だけで数える（2026-10-26）。
+  //   SFのレポートの数は、設定 callReportUseSf を true にしたときだけ足す
+  const useSf = st.callReportUseSf === true;
   const reportId = String(st.psReportId || "").trim();
-  if (!reportId) return { skipped: true, reason: "SFのレポートが設定されていません" };
-
-  let saved = null;
-  try { saved = JSON.parse(st.psFilters || "null"); } catch {}
-  const report = await runReport(sfUser, reportId, saved);
-  const records = toRecords(report);
+  let records = [];
+  if (useSf && reportId) {
+    let saved = null;
+    try { saved = JSON.parse(st.psFilters || "null"); } catch {}
+    const report = await runReport(sfUser, reportId, saved);
+    records = toRecords(report);
+  }
 
   const today = jstDate(0);
   const md = `${Number(today.slice(5, 7))}/${Number(today.slice(8, 10))}`;
-  const tallied = tally(records, {});
+  const tallied = useSf ? tally(records, {}) : {};
 
   // その日に取ったアポ（kinbotの記録）
   const apos = await aposTakenInRange({ from: today, to: today }).catch(() => []);
@@ -7009,7 +7013,16 @@ async function buildCallReport(sfUser) {
       o.calls += s.n; if (接触判定(s.result)) o.contacts += s.n;
       kc.set(em, o);
     }
-    for (const [em, o] of kc) addRow(nameByEmail.get(em) || em, o.calls, o.contacts, 0);
+    // 「かける」で田中さんが手で直した数も入れる（通知には、手直しのことは書かない。出ている数だけ）
+    const cAdj = st.callCountAdjust || {}, tAdj = st.contactCountAdjust || {};
+    const ems = new Set([...kc.keys(), ...Object.keys(cAdj).concat(Object.keys(tAdj)).filter((k) => k.endsWith(`|${today}`)).map((k) => k.split("|")[0])]);
+    for (const em of ems) {
+      const o = kc.get(em) || { calls: 0, contacts: 0 };
+      const calls = Math.max(0, o.calls + Number((cAdj[`${em}|${today}`] || {}).delta || 0));
+      const contacts = Math.max(0, o.contacts + Number((tAdj[`${em}|${today}`] || {}).delta || 0));
+      if (!calls && !contacts) continue;
+      addRow(nameByEmail.get(em) || em, calls, contacts, 0);
+    }
   } catch (e) { console.warn("[call-report] kincall分の合算に失敗:", e.message); }
 
   // 3) アポは「実際に獲得した人」で数える（担当は後から変わるので使わない）。
@@ -27124,7 +27137,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-26x kincallのかける画面：今日の接触数も、田中欽也さんだけ押して直せる（コール数と同じ。記録の実数と手直しの数を残す）。";
+const BUILD_TAG = "2026-10-26y チャットのコール進捗：コール・接触は、kincallの「かける」に出ている数（記録＋田中さんの手直し）だけで数える。手直しのことは通知に書かない。SFレポートの数は足さない（設定 callReportUseSf を true にしたときだけ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
