@@ -12568,6 +12568,7 @@ async function kinxsSync() {
     await saveSettings({ kinxsItemCache: cache, kinxsFields: { start: usedStart ? `${lab(usedStart)}（${usedStart}）` : "", end: usedEnd ? `${lab(usedEnd)}（${usedEnd}）` : "", candidates: endF } }).catch(() => {});
     for (const [id, acc] of [...byAcc.entries()]) { if (!kinxsAccountOk(acc.products.map((p) => p.name))) { byAcc.delete(id); out.skipped++; } }
     try { out.merged = await kinxsDedupe(); } catch {}
+    try { out.linkedRefreshed = await kinxsRefreshLinked(); } catch {}
     // アチコチバースの無い会社（商品を確かめ終わったもの）は、ユーザーから外す
     try { out.removed = await kinxsPruneSf([...byAcc.keys()], Object.keys(cache)); } catch (e) { out.errors.push(`外す処理：${e.message}`); }
     const kicks = await listCsKickoffs(500).catch(() => []);
@@ -12729,7 +12730,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, renewLocked: !!r.renew_locked,
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", sfLinked: !!(r.info && r.info.sf_linked), formerNames, renewLocked: !!r.renew_locked,
       productItems: (r.products || []).map((p) => (typeof p === "string" ? { name: p } : p)).map((p) => ({ name: p.name, cls: kxClassOf(p.name), booked: p.booked || "", stage: p.stage || "", opp: p.opp || "", oppName: p.oppName || "" })),
       prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
@@ -13579,6 +13580,116 @@ app.put("/api/kinxs/missing/required", async (req, res) => {
     res.json({ ok: true, required: list });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== SFに紐づいていない会社（手で入れた会社）を、SFの取引先に紐づける（2026-10-27）=====
+async function kxOppFields(sfUser) {
+  const d0 = await describeObject(sfUser, "Opportunity").catch(() => ({ fields: [] }));
+  const cands = (exact, re) => { const fs = (d0.fields || []).filter((f) => /^(date|datetime)$/i.test(String(f.type || "")) && re.test(String(f.label || "")) && !/^a+__c$/i.test(String(f.name || ""))); fs.sort((x, y) => (exact.includes(String(y.label || "").trim()) ? 1 : 0) - (exact.includes(String(x.label || "").trim()) ? 1 : 0) || (/__c$/.test(x.name) ? 1 : 0) - (/__c$/.test(y.name) ? 1 : 0)); return fs.slice(0, 4).map((f) => f.name); };
+  const startF = cands(["契約開始日", "利用開始日", "サービス開始日", "契約期間（開始）"], /契約開始|利用開始|サービス開始|開始日/);
+  const endF = cands(["契約終了日", "契約満了日", "利用終了日", "サービス終了日", "契約期間（終了）"], /契約終了|利用終了|サービス終了|契約満了|終了日/);
+  return { startF, endF, extra: [...new Set([...startF, ...endF])].map((x) => `, ${x}`).join("") };
+}
+// SFの1社だけを取り込む（取り込みの対象外でも）。sf_linked の印を付ける
+async function kinxsSyncOneAccount(sfAccountId) {
+  const st = await getSettings().catch(() => ({}));
+  const sfUser = await pickSfUser(st.psOwner || "").catch(() => "");
+  if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
+  const id = String(sfAccountId || "").replace(/[^0-9a-zA-Z]/g, "");
+  if (!/^[0-9a-zA-Z]{15,18}$/.test(id)) throw new Error("SFの取引先IDが正しくありません");
+  const acc = ((await sfQuery(sfUser, `SELECT Id, Name, Website FROM Account WHERE Id='${id}' LIMIT 1`)).records || [])[0];
+  if (!acc) throw new Error("SFにその取引先がありません");
+  const { startF, endF, extra } = await kxOppFields(sfUser);
+  const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) && !isNaN(Date.parse(`${t}T00:00:00Z`)) ? t : null; };
+  const firstOf = (o, list) => { for (const f of list) { const v = ymd(o[f]); if (v) return v; } return null; };
+  let opps = ((await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name${extra} FROM Opportunity WHERE AccountId='${id}' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') ORDER BY CloseDate DESC LIMIT 30`)).records || []);
+  const a = { account_id: acc.Id, name: acc.Name || "", website: acc.Website || "", products: [], opp_ids: [], fs_name: "" };
+  for (const o of opps) {
+    const names = (await listOpportunityLineItems(sfUser, o.Id).catch(() => [])).map((x) => String(x.name || x.Product2?.Name || x.PricebookEntry?.Name || "").trim()).filter(Boolean);
+    const booked = ymd(o.SS06__c) || ymd(o.CloseDate) || null;
+    for (const n of names) a.products.push({ name: n, opp: o.Id, oppName: o.Name || "", booked, start: firstOf(o, startF), end: firstOf(o, endF), stage: o.StageName, target: kinxsIsTarget(n) });
+    a.opp_ids.push(o.Id); if (!a.fs_name && o.Owner && o.Owner.Name) a.fs_name = o.Owner.Name;
+  }
+  const ps = a.products.slice().sort((x, y) => String(y.booked || "").localeCompare(String(x.booked || "")));
+  const top = ps[0] || {};
+  a.first_booked_on = ps.map((p) => p.booked).filter(Boolean).sort()[0] || null;
+  a.booked_on = top.booked || null; a.start_on = top.start || null;
+  let end = ps.map((p) => p.end).filter(Boolean).sort().pop() || null; a.end_estimated = false;
+  if (!end && a.booked_on) { const t = new Date(`${a.booked_on}T00:00:00Z`); t.setUTCFullYear(t.getUTCFullYear() + 1); t.setUTCDate(t.getUTCDate() - 1); end = t.toISOString().slice(0, 10); a.end_estimated = true; }
+  a.end_on = end;
+  if (end) { const t = new Date(`${end.slice(0, 7)}-01T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() - 1); a.renew_month = t.toISOString().slice(0, 7); } else a.renew_month = null;
+  a.error = !opps.length ? "SFに申込書回収（06）以降の商談がありません" : !end ? "契約終了日・計上日が空です" : null;
+  a.cs_name = null;
+  await kinxsUpsertFromSf(a);
+  const row = (await kinxsList()).find((y) => y.account_id === acc.Id) || {};
+  await kinxsUpdate(acc.Id, { info: { ...(row.info || {}), sf_linked: true } }, "kinXs（SFと紐づけ）");
+  return { id: acc.Id, name: acc.Name, opps: opps.length };
+}
+// 手で入れた会社を、SFの取引先に紐づける：SFの会社として取り込み、手で入れた中身はそちらにまとめる（重複のまとめと同じ）
+async function kinxsLinkManualToSf(manualId, sfAccountId, by) {
+  const rows = await kinxsList(); const m = rows.find((y) => y.account_id === manualId);
+  if (!m) throw new Error("会社が見つかりません");
+  if (m.source !== "manual") throw new Error("この会社は、もうSFに紐づいています");
+  const r = await kinxsSyncOneAccount(sfAccountId);
+  // 名前が違っても、まとめられるように：SFの会社の旧社名に、手で入れた名前を足す
+  const sfRow = (await kinxsList()).find((y) => y.account_id === r.id) || {};
+  const mName = m.name_override || m.name || "";
+  if (mName && csCoKey(mName) !== csCoKey(sfRow.name || "")) await kinxsSetFormer(r.id, [...new Set([...(Array.isArray(sfRow.former_names) ? sfRow.former_names : []), mName])]);
+  await kinxsDedupe();
+  await kinxsLogAuto(r.id, "sf_link", mName, `手で入れた「${mName}」をSFの取引先「${r.name}」に紐づけました（${by || ""}）`).catch(() => {});
+  _kxBuildMemo = { at: 0, p: null };
+  return r;
+}
+async function kxSfAccountCandidates(name, formers = []) {
+  const st = await getSettings().catch(() => ({}));
+  const sfUser = await pickSfUser(st.psOwner || "").catch(() => ""); if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
+  const esc1 = (v) => String(v || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const shortOf = (n) => String(n || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()]/g, "").trim();
+  const names = [name, ...formers].filter(Boolean);
+  const cond = names.flatMap((n) => [`Name = '${esc1(n)}'`, shortOf(n).length >= 2 ? `Name LIKE '%${esc1(shortOf(n))}%'` : ""]).filter(Boolean).join(" OR ");
+  if (!cond) return [];
+  const recs = (await sfQuery(sfUser, `SELECT Id, Name, Website, BillingState, (SELECT Id FROM Opportunities LIMIT 50) FROM Account WHERE ${cond} LIMIT 15`)).records || [];
+  const keys = new Set(names.map((n) => csCoKey(n)));
+  return recs.map((a) => ({ id: a.Id, name: a.Name, website: a.Website || "", pref: a.BillingState || "", opps: ((a.Opportunities && a.Opportunities.records) || []).length, same: keys.has(csCoKey(a.Name)) }))
+    .sort((x, y) => (y.same ? 1 : 0) - (x.same ? 1 : 0) || y.opps - x.opps);
+}
+app.get("/api/kinxs/accounts/:id/sf-candidates", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const rows = await kinxsList(); const m = rows.find((y) => y.account_id === req.params.id); if (!m) return res.status(404).json({ error: "見つかりません" });
+    const q = String(req.query.q || "").trim();
+    res.json({ ok: true, items: await kxSfAccountCandidates(q || m.name_override || m.name, q ? [] : (Array.isArray(m.former_names) ? m.former_names : [])) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/accounts/:id/link-sf", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const sfId = String((req.body && req.body.sfId) || "").match(/(001[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?)/);
+    if (!sfId) return res.status(400).json({ error: "SFの取引先（001から始まるID、または取引先のURL）を入れてください" });
+    const r = await kinxsLinkManualToSf(req.params.id, sfId[1], req.user);
+    res.json({ ok: true, id: r.id, name: r.name, opps: r.opps });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// まとめて：名前がぴったり同じ取引先が1つだけ見つかった会社を、自動で紐づける
+app.post("/api/kinxs/link-sf-auto", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const rows = (await kinxsList()).filter((r) => r.source === "manual" && !r.merged_into);
+    const linked = [], notFound = [], many = [];
+    for (const m of rows) {
+      try {
+        const c = (await kxSfAccountCandidates(m.name_override || m.name, Array.isArray(m.former_names) ? m.former_names : [])).filter((x) => x.same);
+        if (c.length === 1) { await kinxsLinkManualToSf(m.account_id, c[0].id, req.user); linked.push(m.name); }
+        else if (c.length > 1) many.push(m.name); else notFound.push(m.name);
+      } catch { notFound.push(m.name); }
+    }
+    res.json({ ok: true, linked, notFound, many });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 取り込みのたびに、手で紐づけたSFの会社も新しくする
+async function kinxsRefreshLinked() {
+  const rows = (await kinxsList()).filter((r) => r.info && r.info.sf_linked && !r.merged_into);
+  for (const r of rows) await kinxsSyncOneAccount(r.account_id).catch(() => {});
+  return rows.length;
+}
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -27284,7 +27395,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27d kinXs：ステータスにSFの商談の商品の一覧（区別つき）。商品ラベルの自動の区別を「空間デザイン制作・スタンダード・ライト→空間／エントリー・アチコチバース→AI／それ以外→SNS」に。情報不足を、まとめ（足りない会社の数・項目ごとの数）とFSごとの会社×項目の表（×＝足りない）の見やすい形に。";
+const BUILD_TAG = "2026-10-27e kinXs：SFに紐づいていない会社（手で入れた会社）に「SF未連携」の札。企業情報で候補の取引先を探して紐づけ（URL・IDでも）、一覧の「自動で紐づける」で名前が同じ取引先にまとめて紐づける。紐づけた会社はSFの会社として商談・商品・受注日・契約終了日が入り、取り込みのたびに新しくなる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

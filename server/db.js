@@ -11699,7 +11699,8 @@ export async function kinxsDeleteManual(accountId) {
 // SFから取り込んだ会社のうち、もう対象でないもの（商品を確かめ終わって、アチコチバースが無かった会社）を消す
 export async function kinxsPruneSf(keepIds, checkedOppIds) {
   if (!pool) return 0;
-  const { rows } = await pool.query(`SELECT account_id, opp_ids FROM kinxs_accounts WHERE COALESCE(source,'sf') <> 'manual'`);
+  // 手で紐づけたSFの会社（info.sf_linked）は、取り込みの対象に入っていなくても消さない
+  const { rows } = await pool.query(`SELECT account_id, opp_ids FROM kinxs_accounts WHERE COALESCE(source,'sf') <> 'manual' AND COALESCE(info->>'sf_linked','') <> 'true'`);
   const keep = new Set(keepIds), checked = new Set(checkedOppIds);
   const del = rows.filter((r) => !keep.has(r.account_id) && (Array.isArray(r.opp_ids) ? r.opp_ids : []).every((o) => checked.has(o))).map((r) => r.account_id);
   if (!del.length) return 0;
