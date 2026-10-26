@@ -19260,6 +19260,18 @@ async function notifyNewDevNote(note) {
     const who = note.created_by ? `（${note.created_by}）` : "";
     const detail = note.detail ? `\n${String(note.detail).slice(0, 300)}` : "";
     await notifyChat(`📝 開発メモに${kindLabel}が追加されました${who}\n・${note.title}${detail}`);
+    // 要望・不具合が来たら、その場で自動改善（Claude Code）を起動して直す（2026-10-27）。
+    //   自動改善がONで、「要望が来たらすぐ直す」（autoFixOnNote）を止めていないときだけ。危ういものはPRにして止まる
+    if (["request", "bug"].includes(note.kind)) {
+      const st = await getSettings().catch(() => ({}));
+      if (st.autoFixOnNote !== false && st.autoImprove === true) {
+        const focus = `${note.title}${note.detail ? `\n${String(note.detail).slice(0, 600)}` : ""}`.slice(0, 900);
+        const r = await dispatchGithubWorkflow("kinbot-hourly.yml", { max_items: "1", force_pr: "no", focus }).catch((e) => ({ ok: false, error: e.message }));
+        if (r && r.ok) await notifyChat(`🤖 この${kindLabel}を、自動で直し始めました（できたらお知らせします。危ういものはPRにして止めます）\n・${note.title}`).catch(() => {});
+        else if (r && r.needsToken) console.warn("[開発メモ] すぐ直すには GH_DISPATCH_TOKEN が要ります");
+        else console.warn("[開発メモ] 自動で直す起動に失敗", r && r.error);
+      }
+    }
   } catch (e) { console.warn("[開発メモ] 追加通知に失敗", e.message); }
 }
 
@@ -20737,6 +20749,7 @@ app.get("/api/ai/status", async (req, res) => {
       namedByUser: !persona.isDefaultName(st),
       control: {
         autoImprove: st.autoImprove === true,
+        autoFixOnNote: st.autoFixOnNote !== false,
         autoApply: st.autoApply === true,
         from, to, nowHour: h, inHours,
         runFrom: run.from, runTo: run.to, runEvery: run.every, runHours: run.hours, inRun: run.hours.includes(h),
@@ -20812,6 +20825,7 @@ app.put("/api/auto-apply", async (req, res) => {
     const patch = {};
     if (b.enabled !== undefined) patch.autoImprove = b.enabled === true;
     if (b.autoApply !== undefined) patch.autoApply = b.autoApply === true;
+    if (b.autoFixOnNote !== undefined) patch.autoFixOnNote = b.autoFixOnNote === true;
     const clampH = (v, lo, hi) => Math.max(lo, Math.min(hi, parseInt(v, 10)));
     if (b.runFrom !== undefined && Number.isInteger(parseInt(b.runFrom, 10))) patch.runFrom = clampH(b.runFrom, 0, 23);
     if (b.runTo !== undefined && Number.isInteger(parseInt(b.runTo, 10))) patch.runTo = clampH(b.runTo, 0, 24);
@@ -27482,7 +27496,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27j kinXsの商品の区別：取材費はSNSにしない（対象外として、商品ラベルに入れない）。";
+const BUILD_TAG = "2026-10-27k 開発メモに要望・不具合が入ったら（kinbotに聞く・開発メモの画面）、その場で自動改善（Claude Code）を起動して直す。AI社員の「要望が来たらすぐ直す」で止められる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

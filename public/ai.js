@@ -391,6 +391,8 @@ function render(d) {
   const devSwitches =
     `<div class="ai-jrow"><span class="ai-jn">コードを自動で直す<span class="ai-jt">動かす時間帯 ${c.runFrom ?? 0}〜${c.runTo ?? 24}時</span></span>` +
     `<button class="ai-sw ${c.autoImprove ? "on" : ""}" id="swImprove" aria-label="コードを自動で直す"></button></div>` +
+    `<div class="ai-jrow"><span class="ai-jn">要望が来たらすぐ直す<span class="ai-jt">開発メモに要望・不具合が入ったら、その場で着手（「コードを自動で直す」がONのとき）</span></span>` +
+    `<button class="ai-sw ${c.autoFixOnNote !== false ? "on" : ""}" id="swFixNote" aria-label="要望が来たらすぐ直す"></button></div>` +
     `<div class="ai-jrow"><span class="ai-jn">本番へ自動反映<span class="ai-jt">OFFならPRにする</span></span>` +
     `<button class="ai-sw ${c.autoApply ? "on" : ""}" id="swApply" aria-label="本番へ自動反映"></button></div>`;
   const devRest = dev.jobs.filter((j) => !/コードを自動で直す|本番へ自動反映/.test(j.name)).map((j) => jobRow(j)).join("");
@@ -560,6 +562,10 @@ function wire() {
   if (swI) swI.addEventListener("click", () =>
     putAuto({ enabled: !STATE.control.autoImprove },
       STATE.control.autoImprove ? "AIを止めました（自動では動きません）。" : "AIを動かしました。"));
+  const swF = $("swFixNote");
+  if (swF) swF.addEventListener("click", () =>
+    putAuto({ autoFixOnNote: STATE.control.autoFixOnNote === false },
+      STATE.control.autoFixOnNote === false ? "要望が来たら、すぐ直すようにしました。" : "要望が来ても、すぐには直さないようにしました（決めた時刻の自動改善で直します）。"));
   const swA = $("swApply");
   if (swA) swA.addEventListener("click", () =>
     putAuto({ autoApply: !STATE.control.autoApply },
