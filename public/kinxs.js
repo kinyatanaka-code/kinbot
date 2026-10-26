@@ -250,6 +250,21 @@ api("/api/me").then((me) => {
 }).catch(() => {});
 // 要注意の社数をヘッダーに（押すと、ユーザー一覧の要注意企業へ）
 api("/api/kinxs/users").then((u) => {
+  // 今月の受注・先月の受注（SS06昇格日）・今月の納品予定。押すと、ユーザー一覧でその会社だけ
+  const items0 = ((u && u.items) || []).filter((x) => !x.archived);
+  const nowJ = new Date(Date.now() + 9 * 3600000); const ym = nowJ.toISOString().slice(0, 7);
+  const pm = new Date(Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const bm = (x) => String(x.lastBooked || x.booked || "").slice(0, 7);
+  const cnt = { won: items0.filter((x) => bm(x) === ym).length, last: items0.filter((x) => bm(x) === pm).length, del: items0.filter((x) => x.deliveryMonth === ym).length };
+  const tk = $("kxTopKpis");
+  if (tk) {
+    const cur = VIEW === "list" ? (window.__lsKpi || "") : "";
+    tk.innerHTML = [["won", "今月受注"], ["last", "先月受注"], ["del", "今月納品予定"]].map(([k, t]) => `<button type="button" class="kx-tk ${cur === k ? "on" : ""}" data-tk="${k}">${t}<b>${cnt[k]}</b>社</button>`).join("");
+    tk.querySelectorAll("[data-tk]").forEach((b) => b.addEventListener("click", () => {
+      if (VIEW === "list") { window.__lsKpi = window.__lsKpi === b.dataset.tk ? "" : b.dataset.tk; tk.querySelectorAll("[data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); window.__lsTab = "all"; renderList(); }
+      else location.href = `/kinxs?p=list&kpi=${b.dataset.tk}`;
+    }));
+  }
   const n = ((u && u.items) || []).filter((x) => (x.alerts || []).length).length;
   const c = $("kxTopChip"); if (!c || !n) return;
   if (!window.KX_SHOW_TOP_ALERT) return;   // ヘッダーの「要注意 ○社」は、いまは出さない（2026-10-26）
@@ -291,18 +306,20 @@ function renderList() {
   const ym = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
   const live = d.items.filter((x) => !x.archived);
   const wonM = live.filter((x) => String(x.lastBooked || x.booked || "").slice(0, 7) === ym);
+  const pmK = (() => { const n0 = new Date(Date.now() + 9 * 3600000); return new Date(Date.UTC(n0.getUTCFullYear(), n0.getUTCMonth() - 1, 1)).toISOString().slice(0, 7); })();
+  const lastM = live.filter((x) => String(x.lastBooked || x.booked || "").slice(0, 7) === pmK);
   const delM = live.filter((x) => x.deliveryMonth === ym);
   const arcN = d.items.filter((x) => x.archived).length;
+  if (window.__lsKpi === undefined) { const qk = new URLSearchParams(location.search).get("kpi"); window.__lsKpi = ["won", "last", "del", "arc"].includes(qk) ? qk : ""; }
   const kp = window.__lsKpi || "";
   const kb = $("lsKpi");
   if (kb) {
-    kb.innerHTML = `<button type="button" class="kx-kpi3 ${kp === "won" ? "on" : ""}" data-kpi="won"><span>今月の受注</span><b>${wonM.length}<small>社</small></b></button>
-      <button type="button" class="kx-kpi3 ${kp === "del" ? "on" : ""}" data-kpi="del"><span>今月の納品予定</span><b>${delM.length}<small>社</small></b></button>
-      <button type="button" class="kx-kpi3 arc ${kp === "arc" ? "on" : ""}" data-kpi="arc"><span>アーカイブ</span><b>${arcN}<small>社</small></b></button>
-      ${kp ? '<button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>' : ""}`;
-    kb.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { window.__lsKpi = window.__lsKpi === b.dataset.kpi ? "" : b.dataset.kpi; renderList(); }));
+    // 数はヘッダーに出す。ここは、絞り込み中の表示と、アーカイブを見る入口だけ
+    const nm = { won: "今月受注", last: "先月受注", del: "今月納品予定", arc: "アーカイブ" }[kp];
+    kb.innerHTML = `${kp ? `<span class="kx-chip on" style="cursor:default">${esc(nm)}の会社だけ</span><button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>` : ""}<button type="button" class="kx-chip" data-kpi="arc">${kp === "arc" ? "アーカイブを閉じる" : `アーカイブを見る${arcN ? `（${arcN}）` : ""}`}</button>`;
+    kb.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { window.__lsKpi = window.__lsKpi === b.dataset.kpi ? "" : b.dataset.kpi; document.querySelectorAll("#kxTopKpis [data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); renderList(); }));
   }
-  const pool0 = kp === "arc" ? d.items.filter((x) => x.archived) : kp === "won" ? wonM : kp === "del" ? delM : live;
+  const pool0 = kp === "arc" ? d.items.filter((x) => x.archived) : kp === "won" ? wonM : kp === "last" ? lastM : kp === "del" ? delM : live;
   const base = pool0.filter((x) => kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products, x.label, (x.prodLabels || []).join(" ")) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // ラベルの絞り込み
   const counts = {}; for (const x of base) counts[x.label] = (counts[x.label] || 0) + 1;

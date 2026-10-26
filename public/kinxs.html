@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261027b" />
+    <link rel="stylesheet" href="style.css?v=20261027c" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -426,7 +426,7 @@
   .kx-renew-ed{display:inline-flex;gap:6px;align-items:center;} .kx-renew-ed[hidden]{display:none;}
   .kx-lab.l-キックオフMTG済{background:#FDEBD8;color:#8A4A0B;}
   /* 今月の受注・納品予定・アーカイブ */
-  .kx-kpis3{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
+  .kx-kpis3{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-left:auto;} .kx-kpis3:empty{display:none;}
   .kx-kpi3{display:flex;align-items:baseline;gap:10px;border:1px solid #E1E9E5;background:#fff;border-radius:12px;padding:8px 14px;font:inherit;cursor:pointer;}
   .kx-kpi3 span{font-size:12px;font-weight:700;color:#4F6158;} .kx-kpi3 b{font-size:20px;color:#0E6B4E;} .kx-kpi3 b small{font-size:11px;margin-left:2px;color:#6A7A72;}
   .kx-kpi3.on{border-color:#1D9E75;box-shadow:0 0 0 2px #CFEBDD;} .kx-kpi3.arc b{color:#6A7A72;}
@@ -444,6 +444,11 @@
   .kx-sch{display:flex;flex-direction:column;gap:6px;} .kx-sch-r{display:flex;gap:10px;align-items:center;padding:7px 10px;border:1px solid #EEF2F0;border-radius:10px;font-size:13px;}
   .kx-sch-r .d{font-weight:800;width:70px;} .kx-sch-r .n{flex:1;font-weight:700;} .kx-sch-r .st{font-size:11px;font-weight:800;border-radius:6px;padding:1px 8px;}
   .kx-sch-r.done .st{background:#E1F5EE;color:#0A5440;} .kx-sch-r.late{border-color:#F0B5AE;background:#FFF8F7;} .kx-sch-r.late .st{background:#FBE4E4;color:#8C1F1F;} .kx-sch-r.todo .st{background:#EEF3F0;color:#4F6158;}
+  /* ヘッダー：今月受注・先月受注・今月納品予定（全メニュー） */
+  .kx-top-kpis{display:inline-flex;gap:6px;margin-left:10px;flex-wrap:wrap;}
+  .kx-tk{display:inline-flex;align-items:baseline;gap:6px;border:1px solid #DDE7E2;background:#F7FBF9;border-radius:99px;padding:3px 11px;font:inherit;font-size:11.5px;font-weight:700;color:#4F6158;cursor:pointer;}
+  .kx-tk b{font-size:15px;color:#0E6B4E;} .kx-tk:hover{border-color:#1D9E75;background:#fff;} .kx-tk.on{border-color:#1D9E75;box-shadow:0 0 0 2px #CFEBDD;}
+  @media (max-width:980px){ .kx-top-kpis{display:none;} }
 </style>
 </head>
   <body>
@@ -469,6 +474,7 @@
         <header class="topbar kx-topbar">
           <div class="brand"><img class="kx-top-ico topbar-bot" src="/kinxs.svg" alt="kinbotに聞く" width="40" height="40"  title="押すとkinbotに相談できます" /><span class="brand-name" id="kxPageName">更新管理</span><span class="brand-sub">kinXs</span></div>
           <span class="kx-top-chip" id="kxTopChip" hidden></span>
+          <span class="kx-top-kpis" id="kxTopKpis"></span>
           <div class="kx-top-right">
             <button type="button" class="kx-btn kx-add-user" data-top-act>＋ ユーザーを追加</button>
             <button type="button" class="kx-btn" id="kxSyncTop" data-top-act>SFから取り込み直す</button>
@@ -482,13 +488,12 @@
               <div><h1 class="kx-title">ユーザー一覧</h1></div>
             </div>
             <section class="kx-alert-box" id="lsAlerts" hidden></section>
-            <div class="kx-kpis3" id="lsKpi"></div>
             <div class="kx-bar">
               <div class="kx-seg" role="tablist"><button type="button" class="on" data-lstab="all">一覧</button><button type="button" data-lstab="cs">担当別</button></div>
               <input type="search" id="lsQ" placeholder="企業名・担当で探す" style="min-width:220px" />
               <div class="kx-chips" id="lsChips"></div>
               <select id="lsCs" aria-label="CS担当"><option value="">CS担当：全員</option></select>
-              <span class="kx-note" id="lsSt" style="margin-left:auto"></span>
+              <div class="kx-kpis3" id="lsKpi"></div><span class="kx-note" id="lsSt" style="margin-left:auto"></span>
             </div>
             <div id="lsTable"><div class="kx-empty">読み込み中…</div></div>
           </div>
@@ -558,7 +563,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261027b" defer></script>
-    <script src="kinxs.js?v=20261027b"></script>
+    <script src="kbchat.js?v=20261027c" defer></script>
+    <script src="kinxs.js?v=20261027c"></script>
   </body>
 </html>
