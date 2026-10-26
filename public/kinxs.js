@@ -321,7 +321,7 @@ function renderList() {
     if (la) la.addEventListener("click", async () => {
       if (!confirm("SFの取引先と名前がぴったり同じで、クロスの商談で受注している会社を、まとめてSFに紐づけます。よろしいですか？（手で入れた中身は、SFの会社に引き継ぎます）")) return;
       la.disabled = true; la.textContent = "SFを探しています…";
-      try { const r = await api("/api/kinxs/link-sf-auto", { method: "POST" }); alert(`紐づけました：${r.linked.length}社\n${r.many.length ? `同じ名前の取引先が2つ以上（手で選んでください）：${r.many.join("、")}\n` : ""}${r.notFound.length ? `SFで見つからない・クロスの受注の商談が無い：${r.notFound.join("、")}（モーダルの企業情報で、名前を変えて探せます）` : ""}`); await loadList(); }
+      try { const r = await api("/api/kinxs/link-sf-auto", { method: "POST" }); alert(`紐づけました：${r.linked.length}社${r.linked.some((n) => n.includes("取引先")) ? `（${r.linked.filter((n) => n.includes("取引先")).join("、")}）` : ""}\n${r.notFound.length ? `SFで見つからない・クロスの受注の商談が無い：${r.notFound.join("、")}（モーダルの企業情報で、名前を変えて探せます）` : ""}`); await loadList(); }
       catch (e) { alert(e.message); la.disabled = false; }
     });
     kb.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { window.__lsKpi = window.__lsKpi === b.dataset.kpi ? "" : b.dataset.kpi; document.querySelectorAll("#kxTopKpis [data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); renderList(); }));
@@ -828,7 +828,7 @@ async function openDetail(id, reuse) {
     const doLink = async (sfId, nm) => {
       if (!confirm(`「${x.name}」を、SFの取引先「${nm || sfId}」に紐づけます。よろしいですか？`)) return;
       lkList.innerHTML = '<span class="kx-note">紐づけています…（SFの商談・商品を読むので、少しかかります）</span>';
-      try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/link-sf`, { method: "POST", body: JSON.stringify({ sfId }) }); close(); refresh().catch(() => {}); setTimeout(() => openDetail(r.id).catch(() => {}), 400); }
+      try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/link-sf`, { method: "POST", body: JSON.stringify({ sfId, more: window.__lkMore || [] }) }); window.__lkMore = []; close(); refresh().catch(() => {}); setTimeout(() => openDetail(r.id).catch(() => {}), 400); }
       catch (e) { lkList.innerHTML = `<span class="kx-note">紐づけられませんでした：${esc(e.message)}</span>`; }
     };
     const search = async (q) => {
@@ -837,6 +837,12 @@ async function openDetail(id, reuse) {
         const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/sf-candidates${q ? `?q=${encodeURIComponent(q)}` : ""}`);
         lkList.innerHTML = (r.items || []).length ? r.items.map((c) => `<div class="kx-lk"><div class="nm">${esc(c.name)}${c.same ? '<span class="kx-src">名前が同じ</span>' : ""}<small>${esc([c.pref, c.website].filter(Boolean).join("・"))}${c.opps ? `・クロスの受注 ${c.opps}件` : "・クロスの受注なし"}</small></div><button type="button" class="hp-b" data-lk-go="${esc(c.id)}" data-lk-nm="${esc(c.name)}">この取引先と紐づける</button></div>`).join("") : '<span class="kx-note">SFで見つかりませんでした。名前を短くして探すか、取引先のURLを貼ってください</span>';
         lkList.querySelectorAll("[data-lk-go]").forEach((b) => b.addEventListener("click", () => doLink(b.dataset.lkGo, b.dataset.lkNm)));
+        // 名前が同じで、クロスの受注がある取引先が2つ以上 → 全部まとめて紐づけるボタン
+        const sameWon = (r.items || []).filter((c) => c.same && c.opps > 0);
+        if (sameWon.length > 1) {
+          lkList.insertAdjacentHTML("afterbegin", `<div class="kx-lk" style="border-color:#B5E0CC;background:#F2FAF6"><div class="nm">名前が同じで、クロスの受注がある取引先が ${sameWon.length} つあります<small>全部を紐づけて、1つの会社にまとめます（商品・商談は全部の取引先の分を出します）</small></div><button type="button" class="kx-btn kx-pri" data-lk-all>${sameWon.length}つとも紐づける</button></div>`);
+          lkList.querySelector("[data-lk-all]").addEventListener("click", () => { window.__lkMore = sameWon.slice(1).map((c) => c.id); doLink(sameWon[0].id, `${sameWon[0].name} ほか${sameWon.length - 1}つ`); });
+        }
       } catch (e) { lkList.innerHTML = `<span class="kx-note">探せませんでした：${esc(e.message)}</span>`; }
     };
     search("");

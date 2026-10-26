@@ -12658,7 +12658,11 @@ async function kinxsBuild() {
   await kinxsInit();
   const st = await getSettings().catch(() => ({}));
   const rules = { renewDays: 90, contactDays: 30, staleDays: 90, ...(st.kinxsRules || {}) };
-  const rows = (await kinxsList()).filter((r) => !r.merged_into);
+  const rowsAll = await kinxsList();
+  // 同じ会社としてまとめたSFの取引先（merged_into）の商品は、残した会社の商品に合わせる
+  const mergedProducts = new Map();
+  for (const r of rowsAll) if (r.merged_into && Array.isArray(r.products) && r.products.length) mergedProducts.set(r.merged_into, [...(mergedProducts.get(r.merged_into) || []), ...r.products]);
+  const rows = rowsAll.filter((r) => !r.merged_into).map((r) => (mergedProducts.has(r.account_id) ? { ...r, products: [...(r.products || []), ...mergedProducts.get(r.account_id)] } : r));
   const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
   const kickBy = new Map(); for (const k of kicks) { const key = csCoKey(k.company); if (key && !kickBy.has(key)) kickBy.set(key, k); }
   const ksSent = st.kenshuSent || {};
@@ -13638,6 +13642,23 @@ async function kinxsLinkManualToSf(manualId, sfAccountId, by) {
   _kxBuildMemo = { at: 0, p: null };
   return r;
 }
+// 1社を、SFの取引先いくつかに紐づける（同じ会社がSFに2つ以上あるとき）。全部を取り込んで、1つの会社にまとめる
+async function kinxsLinkManualToSfMany(manualId, sfIds, by) {
+  const ids = [...new Set(sfIds)].filter(Boolean);
+  if (!ids.length) throw new Error("SFの取引先がありません");
+  const first = await kinxsLinkManualToSf(manualId, ids[0], by);
+  const rows0 = await kinxsList(); const keepRow = rows0.find((y) => y.account_id === first.id) || {};
+  for (const id2 of ids.slice(1)) {
+    const r2 = await kinxsSyncOneAccount(id2).catch(() => null); if (!r2) continue;
+    const row2 = (await kinxsList()).find((y) => y.account_id === r2.id) || {};
+    // 名前が違っても1つにまとまるように、おたがいの名前を旧社名に足す
+    const kn = keepRow.name_override || keepRow.name || "";
+    if (kn && csCoKey(kn) !== csCoKey(row2.name || "")) await kinxsSetFormer(r2.id, [...new Set([...(Array.isArray(row2.former_names) ? row2.former_names : []), kn])]);
+  }
+  await kinxsDedupe();
+  _kxBuildMemo = { at: 0, p: null };
+  return first;
+}
 async function kxSfAccountCandidates(name, formers = []) {
   const st = await getSettings().catch(() => ({}));
   const sfUser = await pickSfUser(st.psOwner || "").catch(() => ""); if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
@@ -13665,7 +13686,8 @@ app.post("/api/kinxs/accounts/:id/link-sf", async (req, res) => {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
     const sfId = String((req.body && req.body.sfId) || "").match(/(001[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?)/);
     if (!sfId) return res.status(400).json({ error: "SFの取引先（001から始まるID、または取引先のURL）を入れてください" });
-    const r = await kinxsLinkManualToSf(req.params.id, sfId[1], req.user);
+    const extra = Array.isArray(req.body && req.body.more) ? req.body.more.map((v) => (String(v).match(/(001[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?)/) || [])[1]).filter(Boolean) : [];
+    const r = extra.length ? await kinxsLinkManualToSfMany(req.params.id, [sfId[1], ...extra], req.user) : await kinxsLinkManualToSf(req.params.id, sfId[1], req.user);
     res.json({ ok: true, id: r.id, name: r.name, opps: r.opps });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -13678,8 +13700,8 @@ app.post("/api/kinxs/link-sf-auto", async (req, res) => {
     for (const m of rows) {
       try {
         const c = (await kxSfAccountCandidates(m.name_override || m.name, Array.isArray(m.former_names) ? m.former_names : [])).filter((x) => x.same && x.opps > 0);
-        if (c.length === 1) { await kinxsLinkManualToSf(m.account_id, c[0].id, req.user); linked.push(m.name); }
-        else if (c.length > 1) many.push(m.name); else notFound.push(m.name);
+        if (c.length >= 1) { await kinxsLinkManualToSfMany(m.account_id, c.map((x) => x.id), req.user); linked.push(c.length > 1 ? `${m.name}（SFの取引先${c.length}つ）` : m.name); }
+        else notFound.push(m.name);
       } catch { notFound.push(m.name); }
     }
     res.json({ ok: true, linked, notFound, many });
@@ -27396,7 +27418,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27f kinXsのSFへの紐づけ：自動で紐づけるのは、名前が同じで、クロスの商談で受注（申込書回収（06）以降）している取引先だけ。候補にもクロスの受注の件数を出し、紐づけた会社が取り込むのもクロスの受注の商談だけ。";
+const BUILD_TAG = "2026-10-27g kinXsのSFへの紐づけ：名前が同じでクロスの受注がある取引先が2つ以上あるときは、全部紐づけて1つの会社にまとめる（自動でも、モーダルの「○つとも紐づける」でも）。商品・商談は全部の取引先の分を出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
