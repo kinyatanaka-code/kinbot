@@ -291,7 +291,7 @@ async function loadList() {
   catch (e) { $("lsTable").innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 // 商品ラベルの小さな札（DOC＝緑、SNS＝紫）
-const KX_DOC_L = ["空間", "AI"], KX_SNS_L = ["インスタ", "配信代行", "動画制作"];
+const KX_DOC_L = ["空間", "AI"], KX_SNS_L = ["SNS", "インスタ", "配信代行", "動画制作"];
 function kxPlTags(x) { const l = x.prodLabels || []; return l.length ? `<span class="kx-pltags">${l.map((t) => `<span class="kx-pl ${KX_SNS_L.includes(t) ? "sns" : "doc"}">${esc(t)}</span>`).join("")}</span>` : ""; }
 const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 const kxHasDoc = (x) => (x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length;
@@ -560,7 +560,12 @@ function kxLabelSchedPane(d) {
   const order = ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中"]; const cur = order.indexOf(x.label);
   const sc = x.schedule;
   const schRows = sc && Array.isArray(sc.steps) ? sc.steps.map((st0) => { const pi = order.indexOf(st0.phase); const done = cur >= 0 && pi >= 0 && cur >= pi; const late = !done && st0.due < today; return `<div class="kx-sch-r ${done ? "done" : late ? "late" : "todo"}"><span class="d">${esc(st0.due.slice(5).replace("-", "/"))}${st0.estimated ? '<small class="kx-note">（目安）</small>' : ""}</span><span class="n">${esc(st0.name)}</span><span class="kx-note">${esc(st0.note || "")}</span><span class="st">${done ? "済" : late ? "遅れ" : "予定"}</span></div>`; }).join("") : "";
-  return `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品名から）</span>' : ""}</div>
+  const pis = x.productItems || [];
+  const clsTag = (c) => `<span class="kx-pl ${KX_SNS_L.includes(c) ? "sns" : "doc"}">${esc(c)}</span>`;
+  const prodTbl = `<div class="kx-sec"><div class="lb">SFの商談の商品<span class="kx-note" style="margin-left:8px">空間デザイン制作・スタンダード・ライト→空間／エントリー・アチコチバース→AI／それ以外→SNS</span></div>
+      ${pis.length ? `<div class="kx-ptbl"><div class="h"><span>商品</span><span>区別</span><span>計上日</span><span>商談</span></div>${pis.map((p0) => `<div class="r"><span class="nm">${esc(p0.name)}</span><span>${clsTag(p0.cls)}</span><span>${esc(String(p0.booked || "").replace(/-/g, "/") || "—")}</span><span class="kx-note">${esc(p0.oppName || p0.stage || "")}</span></div>`).join("")}</div>` : '<div class="kx-note">SFの商談の商品がありません（手で追加した会社か、まだ取り込んでいません）</div>'}
+    </div>`;
+  return prodTbl + `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品から）</span>' : ""}</div>
       <label>DOC</label><div class="kx-usage">${KX_DOC_L.map((t) => chip(t, "DOC")).join("")}</div>
       <label>SNS</label><div class="kx-usage">${KX_SNS_L.map((t) => chip(t, "SNS")).join("")}</div>
       <div class="kx-edact">${!x.prodLabelsAuto ? '<button type="button" class="hp-b" data-pl-auto>自動に戻す</button>' : ""}<button type="button" class="kx-btn kx-pri" data-pl-save>ラベルを保存</button></div>
@@ -1165,13 +1170,28 @@ function renderMissing() {
   const q = ($("msQ").value || "").trim(); const fsSel = $("msFs"); const cur = fsSel.value;
   const fss = [...new Set(msData.items.map((x) => x.fs || "（FS不明）"))].sort((a, b) => a.localeCompare(b, "ja"));
   fsSel.innerHTML = `<option value="">FS：全員</option>` + fss.map((f) => `<option ${f === cur ? "selected" : ""}>${esc(f)}</option>`).join("");
-  const list = msData.items.filter((x) => (!q || kxMatch(q, x.name, [], x.fs, x.cs)) && (!fsSel.value || (x.fs || "（FS不明）") === fsSel.value));
-  const by = new Map(); for (const x of list) { const k = x.fs || "（FS不明）"; (by.get(k) || by.set(k, []).get(k)).push(x); }
-  $("msList").innerHTML = list.length ? [...by.entries()].sort((a, b) => b[1].length - a[1].length).map(([fs, xs]) => `<div class="kx-msg"><div class="kx-msg-h"><b>${esc(fs)}</b><span class="kx-rc">${xs.length}社</span><button type="button" class="hp-b" data-ms-copy="${esc(fs)}" style="margin-left:auto">FSに送る文をコピー</button></div>
-      ${xs.map((x) => `<div class="kx-msr"><span class="nm" data-ms-open="${esc(x.id)}">${esc(x.name)}</span><span class="kx-note" style="width:86px">${x.booked ? `受注 ${esc(x.booked.slice(2).replace(/-/g, "/"))}` : ""}</span><span class="ms">${x.missing.map((m) => `<span>${esc(m)}</span>`).join("")}</span></div>`).join("")}</div>`).join("")
-    : '<div class="kx-empty">足りない会社はありません</div>';
+  const fk = window.__msField || "";
+  const list = msData.items.filter((x) => (!q || kxMatch(q, x.name, [], x.fs, x.cs)) && (!fsSel.value || (x.fs || "（FS不明）") === fsSel.value) && (!fk || (x.missKeys || []).includes(fk)));
+  const req = msData.required;
+  // まとめ：足りない会社の数、項目ごとの数（押すとその項目が足りない会社だけ）
+  const perField = Object.fromEntries(req.map((r) => [r.key, msData.items.filter((x) => (x.missKeys || []).includes(r.key)).length]));
+  const sum = $("msSum");
+  if (sum) sum.innerHTML = `<div class="kx-ms-big"><span>情報が足りない会社</span><b>${msData.items.length}<small>社</small></b><em>対象 ${msData.total || "—"}社のうち</em></div>
+    <div class="kx-ms-fields">${req.map((r) => `<button type="button" class="kx-ms-f ${fk === r.key ? "on" : ""} ${perField[r.key] ? "" : "zero"}" data-msf="${esc(r.key)}" title="${esc(r.name)}"><span>${esc(r.short || r.name)}</span><b>${perField[r.key]}</b></button>`).join("")}${fk ? '<button type="button" class="kx-chip" data-msf="">項目の絞り込みを外す</button>' : ""}</div>`;
+  if (sum) sum.querySelectorAll("[data-msf]").forEach((b) => b.addEventListener("click", () => { window.__msField = window.__msField === b.dataset.msf ? "" : b.dataset.msf; renderMissing(); }));
+  // 表：FSごとのまとまり。行＝会社、列＝必須の項目（×＝足りない）
+  const by = new Map(); for (const x of list) { const k2 = x.fs || "（FS不明）"; (by.get(k2) || by.set(k2, []).get(k2)).push(x); }
+  const cols = `minmax(220px,1.8fr) 84px ${req.map(() => "minmax(54px,.6fr)").join(" ")}`;
+  const head = `<div class="kx-msx-h" style="grid-template-columns:${cols}"><span>会社</span><span>受注</span>${req.map((r) => `<span title="${esc(r.name)}">${esc(r.short || r.name)}</span>`).join("")}</div>`;
+  const mono = (n) => String(n || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1);
+  $("msList").innerHTML = list.length ? [...by.entries()].sort((a, b) => b[1].length - a[1].length).map(([fs, xs]) => `<section class="kx-msx">
+      <div class="kx-msx-g"><span class="av">${esc(fs.slice(0, 1))}</span><b>${esc(fs)}</b><span class="kx-rc">${xs.length}社</span><button type="button" class="hp-b" data-ms-copy="${esc(fs)}" style="margin-left:auto">FSに送る文をコピー</button></div>
+      <div class="kx-msx-tbl">${head}${xs.map((x) => `<div class="kx-msx-r" style="grid-template-columns:${cols}" data-ms-open="${esc(x.id)}" role="button" tabindex="0"><span class="co"><span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" />` : esc(mono(x.name))}</span>${esc(x.name)}</span><span class="kx-note">${x.booked ? esc(x.booked.slice(2).replace(/-/g, "/")) : "—"}</span>${req.map((r) => (x.missKeys || []).includes(r.key) ? '<span class="c ng" title="足りない">×</span>' : '<span class="c ok">✓</span>').join("")}</div>`).join("")}</div>
+    </section>`).join("") : '<div class="kx-empty">足りない会社はありません</div>';
   $("msList").querySelectorAll("[data-ms-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.msOpen)));
-  $("msList").querySelectorAll("[data-ms-copy]").forEach((b) => b.addEventListener("click", async () => {
+  $("msList").querySelectorAll(".kx-msx-r img").forEach((im) => im.addEventListener("error", () => { im.parentNode.textContent = "・"; }));
+  $("msList").querySelectorAll("[data-ms-copy]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
     const xs = by.get(b.dataset.msCopy) || [];
     const text = `${b.dataset.msCopy}さん\nお疲れ様です。kinXsで、Salesforceに入っていない情報がある会社をまとめました。お手数ですが、入力をお願いします。\n\n${xs.map((x) => `■${x.name}\n　${x.missing.join("・")}`).join("\n")}`;
     try { await navigator.clipboard.writeText(text); b.textContent = "コピーしました"; setTimeout(() => (b.textContent = "FSに送る文をコピー"), 1500); } catch { prompt("コピーしてください", text); }

@@ -12557,7 +12557,8 @@ async function kinxsSync() {
       if (!target.length) { out.skipped++; continue; }
       const a = byAcc.get(o.AccountId) || { account_id: o.AccountId, name: (o.Account && o.Account.Name) || "", website: (o.Account && o.Account.Website) || "", products: [], opp_ids: [], fs_name: (o.Owner && o.Owner.Name) || "" };
       const booked = ymd(o.SS06__c) || ymd(o.CloseDate) || null;
-      for (const n of target) a.products.push({ name: n, opp: o.Id, booked, start: firstOf(o, startF), end: firstOf(o, endF), stage: o.StageName });
+      // 商談の商品は全部残す（商品ラベルの自動の区別に使う。取り込むかどうかは target で決めたまま）
+      for (const n of names) a.products.push({ name: n, opp: o.Id, oppName: o.Name || "", booked, start: firstOf(o, startF), end: firstOf(o, endF), stage: o.StageName, target: kinxsIsTarget(n) });
       a.opp_ids.push(o.Id);
       byAcc.set(o.AccountId, a);
     }
@@ -12619,17 +12620,22 @@ app.get("/api/kinxs/renewals", async (req, res) => {
 // ===== kinXs：ユーザー一覧（メインラベル・納品・最終接触・次回アクション・要注意）=====
 const KX_USAGE = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
 // ===== 商品ラベル（DOC：空間・AI／SNS：インスタ・配信代行・動画制作）と SNS のフェーズ（2026-10-27）=====
-const KX_PROD_LABELS = { DOC: ["空間", "AI"], SNS: ["インスタ", "配信代行", "動画制作"] };
+const KX_PROD_LABELS = { DOC: ["空間", "AI"], SNS: ["SNS", "インスタ", "配信代行", "動画制作"] };
 const KX_SNS_PHASES = ["計上", "コンテンツfix", "素材回収済", "制作指示出し済み", "初稿チェック前", "お客様初稿確認", "修正中", "修正チェック", "お客様修正案確認", "投稿依頼", "契約終了"];
 // 手で決めていなければ、SFの商品名から当てる
+// 商品ごとの区別（2026-10-27）：空間デザイン制作・スタンダード・ライト → 空間／エントリー・アチコチバース（だけ） → AI／それ以外 → SNS（インスタ・配信・動画は、その名前のラベル）
+function kxClassOf(name) {
+  const t = String(name || "");
+  if (/空間デザイン制作|スタンダード|ライト/.test(t)) return "空間";
+  if (/エントリー|アチコチバース/.test(t)) return "AI";
+  if (/インスタ|Instagram/i.test(t)) return "インスタ";
+  if (/配信|運用代行/.test(t)) return "配信代行";
+  if (/動画|ムービー|映像/.test(t)) return "動画制作";
+  return "SNS";
+}
 function kxGuessLabels(products) {
-  const t = (products || []).map((p) => (typeof p === "string" ? p : p && p.name) || "").join(" ");
   const out = [];
-  if (/アチコチ|空間|メタバース|VR|バーチャル/i.test(t)) out.push("空間");
-  if (/AI|面談|カジュアル|インタビュー/i.test(t)) out.push("AI");
-  if (/インスタ|Instagram/i.test(t)) out.push("インスタ");
-  if (/配信|運用代行/.test(t)) out.push("配信代行");
-  if (/動画|ムービー|映像/.test(t)) out.push("動画制作");
+  for (const p of products || []) { const n = typeof p === "string" ? p : p && p.name; if (!n) continue; const c = kxClassOf(n); if (!out.includes(c)) out.push(c); }
   return out;
 }
 // DOCのフェーズの順番（スケジュールの遅れを見るため）
@@ -12724,6 +12730,7 @@ async function kinxsBuild() {
       kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", formerNames, renewLocked: !!r.renew_locked,
+      productItems: (r.products || []).map((p) => (typeof p === "string" ? { name: p } : p)).map((p) => ({ name: p.name, cls: kxClassOf(p.name), booked: p.booked || "", stage: p.stage || "", opp: p.opp || "", oppName: p.oppName || "" })),
       prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       lastBooked: (r.products || []).map((p) => String(p && p.booked || "").slice(0, 10)).filter(Boolean).sort().pop() || "", deliveryMonth: kxDeliveryMonth(k), logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
@@ -13552,10 +13559,11 @@ async function kinxsMissing({ fresh = false } = {}) {
       start: !!r.start_on, end: !!r.end_on && !r.end_estimated, prod_labels: (x.prodLabels || []).length > 0,
     };
     const miss = req0.filter((k2) => k2 in has && !has[k2] && (sf || ["prod_labels"].includes(k2)));
-    if (miss.length) out.push({ id: x.id, name: x.name, fs: x.fs || "", cs: x.cs || "", booked: x.booked || "", missing: miss.map((k2) => KX_REQUIRED_NAMES[k2] || k2), manual: !sf });
+    if (miss.length) out.push({ id: x.id, name: x.name, fs: x.fs || "", cs: x.cs || "", booked: x.booked || "", missing: miss.map((k2) => KX_REQUIRED_NAMES[k2] || k2), missKeys: miss, manual: !sf, logo: x.logo || "" });
   }
   out.sort((a, b) => String(b.booked).localeCompare(String(a.booked)));
-  const data = { ok: true, at: new Date().toISOString(), required: req0.map((k2) => ({ key: k2, name: KX_REQUIRED_NAMES[k2] || k2 })), allRequired: Object.entries(KX_REQUIRED_NAMES).map(([key, name]) => ({ key, name })), items: out, sfNote };
+  const KX_REQ_SHORT = { website: "HP", phone: "電話", address: "住所", contact: "担当者", contact_email: "担当メール", start: "開始日", end: "終了日", prod_labels: "商品" };
+  const data = { ok: true, at: new Date().toISOString(), total: target.length, required: req0.map((k2) => ({ key: k2, name: KX_REQUIRED_NAMES[k2] || k2, short: KX_REQ_SHORT[k2] || k2 })), allRequired: Object.entries(KX_REQUIRED_NAMES).map(([key, name]) => ({ key, name })), items: out, sfNote };
   _kxMissing = { at: Date.now(), data };
   return data;
 }
@@ -27276,7 +27284,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27c kinXs：ヘッダーに「今月受注・先月受注（SS06昇格日）・今月納品予定」の社数を、どのメニューでも出す（押すとユーザー一覧でその会社だけ）。アーカイブの社数はやめ、ユーザー一覧の「アーカイブを見る」だけに。";
+const BUILD_TAG = "2026-10-27d kinXs：ステータスにSFの商談の商品の一覧（区別つき）。商品ラベルの自動の区別を「空間デザイン制作・スタンダード・ライト→空間／エントリー・アチコチバース→AI／それ以外→SNS」に。情報不足を、まとめ（足りない会社の数・項目ごとの数）とFSごとの会社×項目の表（×＝足りない）の見やすい形に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
