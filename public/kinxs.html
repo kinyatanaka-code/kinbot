@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261028a" />
+    <link rel="stylesheet" href="style.css?v=20261028b" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -501,6 +501,35 @@
   .kx-pastbox{background:#FFFBFA !important;} .kx-pastbox .kx-chips2{gap:6px;}
   .kx-chipco.v2 .mo{font-size:10px;font-weight:800;color:#8C1F1F;background:#FBE4E4;border-radius:5px;padding:0 5px;line-height:1.6;flex:none;}
   .kx-chips2{display:flex;flex-wrap:wrap;gap:6px;min-width:0;flex:1;}
+  /* 更新管理：白すぎないように色で区切る（2026-10-28） */
+  #vRenew .kx-sec,#vRenew #kxTable{background:#EEF3F0 !important;}
+  #vRenew .kx-tools{background:#fff;border-radius:12px;margin:8px 8px 0;border:1px solid #DDE7E2;}
+  #vRenew .kx-mrows{padding:8px;}
+  #vRenew .kx-sec-h.kx-band{position:sticky;top:0;z-index:2;margin:8px 0 0;border-radius:10px 10px 0 0;padding:9px 16px;font-size:13.5px;border:0;}
+  #vRenew .kx-sec-h.kx-band:first-child{margin-top:0;}
+  #vRenew .kx-sec-h.kx-band.past{background:#FBE4E4;color:#8C1F1F;} #vRenew .kx-sec-h.kx-band.past em{color:#A54A44;}
+  #vRenew .kx-sec-h.kx-band.next{background:#DDF1E7;color:#0A5440;} #vRenew .kx-sec-h.kx-band.next em{color:#2F7A5C;}
+  #vRenew .kx-sec-h.kx-band small{color:inherit;opacity:.75;}
+  #vRenew .kx-mrow.v2{background:#fff !important;border-bottom:1px solid #E8EEEB !important;}
+  #vRenew .kx-mrow.v2.warn{box-shadow:inset 4px 0 0 #E0A100;}
+  #vRenew .kx-mrow.v2.now{background:#F2FAF6 !important;box-shadow:inset 4px 0 0 #1D9E75;}
+  #vRenew .kx-mrow.v2.past .kx-mhead b{color:#33463E;}
+  #vRenew .kx-mrow.v2 .kx-mhead b{font-size:15px !important;}
+  #vRenew .kx-mrow.v2 .pill{font-size:11px;padding:2px 9px;}
+  /* チップを確度の色で塗る */
+  #vRenew .kx-chipco.v2{border:0 !important;border-left:0 !important;padding:5px 10px 5px 6px !important;font-weight:700;}
+  #vRenew .kx-chipco.v2[data-rk="S"],#vRenew .kx-chipco.v2[data-rk="A"]{background:#E1F5EE !important;color:#0A5440;}
+  #vRenew .kx-chipco.v2[data-rk="B"]{background:#FFF1DC !important;color:#7A3F00;}
+  #vRenew .kx-chipco.v2[data-rk="C"]{background:#FBE4E4 !important;color:#8C1F1F;}
+  #vRenew .kx-chipco.v2[data-rk="Z"]{background:#EEF0F2 !important;color:#3F4A55;}
+  #vRenew .kx-chipco.v2[data-rk="F"]{background:#E4E6E5 !important;color:#2F3532;}
+  #vRenew .kx-chipco.v2 .nm{color:inherit;}
+  #vRenew .kx-chipco.v2 .rk{background:var(--rc);color:#fff !important;border:0 !important;border-radius:5px;padding:1px 6px;font-size:10.5px;}
+  #vRenew .kx-chipco.v2[data-rk="Z"] .rk{background:#6B7682;}
+  #vRenew .kx-chipco.v2 .lg{background:#fff;}
+  #vRenew .kx-chipco.v2:hover{filter:brightness(.97);box-shadow:0 0 0 2px rgba(29,158,117,.45) !important;}
+  #vRenew .kx-pastbox{background:#fff !important;}
+  #vRenew .kx-chipco.v2 .mo{background:#fff;}
 </style>
 </head>
   <body>
@@ -615,7 +644,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261028a" defer></script>
-    <script src="kinxs.js?v=20261028a"></script>
+    <script src="kbchat.js?v=20261028b" defer></script>
+    <script src="kinxs.js?v=20261028b"></script>
   </body>
 </html>

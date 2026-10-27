@@ -76,7 +76,7 @@ function render() {
   const RC = { S: "#0E6B4E", A: "#178A66", B: "#E0A100", C: "#C43D3D", Z: "#9AA8B8", F: "#3A3F3D" };
   const mono1 = (n) => String(n || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").trim().slice(0, 1) || "？";
   // 会社のチップ：左の色の帯＝確度、ロゴ、会社名。要注意は小さな橙の点だけ（枠で光らせない）
-  const chip = (x) => `<button type="button" class="kx-chipco v2" style="--rc:${RC[x.rank] || "#9AA8B8"}" draggable="true" data-id="${esc(x.id)}" title="${esc(`${x.name}${(x.formerNames || []).length ? `（旧：${x.formerNames.join("・")}）` : ""}\n確度 ${x.rank}・CS ${kxSurname(x.cs) || "未定"}${x.estimated ? "・終了日は推定" : ""}${x.warn ? "\n要注意（更新月が近いのに確度がB以下）" : ""}\n押すと詳細／ドラッグで確度・更新月を変える／右クリックで確度を選ぶ`)}">`
+  const chip = (x) => `<button type="button" class="kx-chipco v2" data-rk="${esc(x.rank)}" style="--rc:${RC[x.rank] || "#9AA8B8"}" draggable="true" data-id="${esc(x.id)}" title="${esc(`${x.name}${(x.formerNames || []).length ? `（旧：${x.formerNames.join("・")}）` : ""}\n確度 ${x.rank}・CS ${kxSurname(x.cs) || "未定"}${x.estimated ? "・終了日は推定" : ""}${x.warn ? "\n要注意（更新月が近いのに確度がB以下）" : ""}\n押すと詳細／ドラッグで確度・更新月を変える／右クリックで確度を選ぶ`)}">`
     + `<span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" data-mono="${esc(mono1(x.name))}" />` : esc(mono1(x.name))}</span>`
     + `<span class="nm">${esc(x.name)}</span><span class="rk">${x.rank}</span>${x.warn ? '<i class="dot" aria-label="要注意"></i>' : ""}</button>`;
   const rowHtml = (m, list, label, dl, cls) => `<div class="kx-mrow v2 ${cls}" data-month="${esc(m || "")}">
@@ -93,8 +93,8 @@ function render() {
   const pastOpen = window.__kxPastOpen !== false;
   // 更新月を過ぎた会社は、月ごとの行にせず、1つの箱にまとめて並べる（チップに月を小さく付ける）。行が長くなって見づらかったので（2026-10-27）
   const pastChips = pastRows.slice().sort((a2, b2) => String(a2.m).localeCompare(String(b2.m))).flatMap((r) => r.list.slice().sort((a3, b3) => (rankOrder[a3.rank] - rankOrder[b3.rank]) || a3.name.localeCompare(b3.name, "ja")).map((x) => chip(x).replace('<span class="nm">', `<span class="mo">${esc(String(r.m).slice(2).replace("-", "/"))}</span><span class="nm">`)));
-  const body = (pastRows.length ? `<div class="kx-sec-h past" data-past-toggle role="button" tabindex="0"><span>${pastOpen ? "▾" : "▸"}</span>更新月を過ぎた会社<em>${pastN}社</em><small>古い月から・チップの左が更新月／押すとたたむ・開く</small></div>${pastOpen ? `<div class="kx-mrow v2 past kx-pastbox" data-month=""><div class="kx-chips2">${pastChips.join("")}</div></div>` : ""}` : "")
-    + `<div class="kx-sec-h">これからの更新<em>${nextN}社</em></div>${nextRows.map((r) => r.html).join("")}`
+  const body = (pastRows.length ? `<div class="kx-sec-h past kx-band" data-past-toggle role="button" tabindex="0"><span>${pastOpen ? "▾" : "▸"}</span>更新月を過ぎた会社<em>${pastN}社</em><small>古い月から・チップの左が更新月／押すとたたむ・開く</small></div>${pastOpen ? `<div class="kx-mrow v2 past kx-pastbox" data-month=""><div class="kx-chips2">${pastChips.join("")}</div></div>` : ""}` : "")
+    + `<div class="kx-sec-h kx-band next">これからの更新<em>${nextN}社</em></div>${nextRows.map((r) => r.html).join("")}`
     + (noMonth.length ? `<div class="kx-sec-h">更新月が未定<em>${noMonth.length}社</em></div>${rowHtml("", noMonth, "未定", "契約終了日が無い", "past")}` : "");
   const fcount = { warn: items.filter((x) => x.warn).length, all: items.length, Z: items.filter((x) => x.rank === "Z").length, mine: myName ? items.filter((x) => String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))).length : 0 };
   const fbtn = (k, t) => `<button type="button" class="kx-chip ${flt === k ? "on" : ""}" data-flt="${k}">${t} ${fcount[k]}</button>`;
