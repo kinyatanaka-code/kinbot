@@ -7090,3 +7090,8 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 /* 出勤管理：前もって欠勤にする（2026-10-27） */
 .sc-absw { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; font-size: 12px; font-weight: 700; color: #A51F16; white-space: nowrap; }
 .sc-absw input { accent-color: #C43D3D; }
+
+/* 出勤管理の集計：これからの予定・見込み・合計（2026-10-27） */
+.sc-tot td.fut { color: #6A7A72; }
+.sc-tot td.tot { font-weight: 800; color: #0E6B4E; }
+.sc-tot tr.sum td { background: #EEF6F1; font-weight: 800; border-top: 2px solid #CFE3D9; }

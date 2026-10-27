@@ -6331,7 +6331,7 @@ function renderShiftCal() {
       for (const em of emails) {
         const act = scActual(em, ds); const plan = plans[em]; const nm = (plan && plan.name) || nameOf(em);
         if (String(nm).replace(/[\s　]/g, "") === "田中欽也") continue;   // セールスは出勤管理から除外
-        totals[em] = totals[em] || { name: nm, actualH: 0, planH: 0, days: 0 };
+        totals[em] = totals[em] || { name: nm, actualH: 0, planH: 0, days: 0, futureH: 0 };
         if (plan && plan.start_min != null && !plan.absent) totals[em].planH += scWorkH(plan.start_min, plan.end_min);
         if (plan && plan.absent && !act) {
           tags += `<span class="sc-tag sc-tag-abs" title="手で欠勤にしました">${esc(nm)} 欠勤</span>`;
@@ -6340,8 +6340,9 @@ function renderShiftCal() {
           totals[em].actualH += scWorkH(act.start, act.end); totals[em].days += 1;
         } else if (plan && ds < today) {
           tags += `<span class="sc-tag sc-tag-abs">${esc(nm)} 欠勤</span>`;
-        } else if (plan) {
+        } else if (plan && plan.start_min != null) {
           tags += `<span class="sc-tag sc-tag-plan">${esc(nm)} ${scHM(plan.start_min)}-${scHM(plan.end_min)}</span>`;
+          totals[em].futureH += scWorkH(plan.start_min, plan.end_min);   // これから稼働する（灰色）の時間
         }
       }
       const cellCls = ["sc-cell", c === 0 ? "sc-sun" : "", c === 6 ? "sc-sat" : "", (hol || isWeekend) ? "sc-holiday" : ""].filter(Boolean).join(" ");
@@ -6356,8 +6357,14 @@ function renderShiftCal() {
   const tw = $("scTotals");
   if (tw) {
     const rows = Object.values(totals).sort((a, b) => (b.planH - a.planH) || (b.actualH - a.actualH));
+    // これから稼働する時間（灰色）と、実働＋これから（今月の見込み）。いちばん下に全員の合計
+    const h1 = (v) => `${Math.round(v * 10) / 10}h`;
+    const sum = rows.reduce((t, r) => ({ planH: t.planH + r.planH, actualH: t.actualH + r.actualH, futureH: t.futureH + (r.futureH || 0), days: t.days + r.days }), { planH: 0, actualH: 0, futureH: 0, days: 0 });
     tw.innerHTML = rows.length
-      ? '<div class="sc-tot-h">今月の集計</div><table class="kc-table"><thead><tr><th>メンバー</th><th>稼働予定時間</th><th>実働時間（架電記録から推定）</th><th>出勤日数</th></tr></thead><tbody>' + rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${Math.round(r.planH * 10) / 10}h</td><td>${Math.round(r.actualH * 10) / 10}h</td><td>${r.days}日</td></tr>`).join("") + "</tbody></table>"
+      ? '<div class="sc-tot-h">今月の集計</div><table class="kc-table sc-tot"><thead><tr><th>メンバー</th><th>稼働予定時間</th><th>実働時間（架電記録から推定）</th><th>これからの予定（灰色）</th><th>実働＋これから（今月の見込み）</th><th>出勤日数</th></tr></thead><tbody>'
+        + rows.map((r) => `<tr><td>${esc(r.name)}</td><td>${h1(r.planH)}</td><td>${h1(r.actualH)}</td><td class="fut">${h1(r.futureH || 0)}</td><td class="tot">${h1(r.actualH + (r.futureH || 0))}</td><td>${r.days}日</td></tr>`).join("")
+        + `<tr class="sum"><td>インターン生の合計（${rows.length}人）</td><td>${h1(sum.planH)}</td><td>${h1(sum.actualH)}</td><td class="fut">${h1(sum.futureH)}</td><td class="tot">${h1(sum.actualH + sum.futureH)}</td><td>${sum.days}日</td></tr>`
+        + "</tbody></table>"
       : '<div class="note">この月の出勤（予定・実働）はまだありません。</div>';
   }
 }
