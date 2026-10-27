@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -5912,6 +5912,9 @@ app.post("/api/doc/:slug/open", async (req, res) => {
         ? (viewer && (viewer.name || viewer.email)) || ""
         : [r.link.company, r.link.contact].filter(Boolean).join(" "),
       共通URL: !!r.link.shared_link,
+      bundle: Array.isArray(r.link.bundle_slugs) && r.link.bundle_slugs.length > 1
+        ? (await getDocBundleInfo(r.link.bundle_slugs).catch(() => [])).map((x) => ({ slug: x.slug, name: fixMojibake(x.name), filename: fixMojibake(x.filename || "") }))
+        : null,
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -6588,7 +6591,8 @@ app.post("/api/doc-links/lookup", async (req, res) => {
 
 app.post("/api/doc-links", async (req, res) => {
   try {
-    const docId = parseInt(req.body?.docId, 10);
+    const docIds = (Array.isArray(req.body?.docIds) ? req.body.docIds : []).map((v) => parseInt(v, 10)).filter(Boolean);
+    const docId = docIds[0] || parseInt(req.body?.docId, 10);
     if (!docId) return res.status(400).json({ error: "資料を選んでください" });
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (!rows.length) return res.status(400).json({ error: "宛先がありません" });
@@ -6599,11 +6603,20 @@ app.post("/api/doc-links", async (req, res) => {
     const ex = String(b.expiry || "0");
     if (/^\d{1,3}$/.test(ex) && ex !== "0") expiresAt = new Date(Date.now() + Number(ex) * 86400000);
     else if (/^\d{4}-\d{2}-\d{2}/.test(ex)) expiresAt = new Date(ex);
-    const made = await addDocLinks(docId, rows, req.user, {
-      expiresAt,
-      pass: String(b.pass || "").trim() || null,
-      askName: !!b.askName,
-    });
+    const opt = { expiresAt, pass: String(b.pass || "").trim() || null, askName: !!b.askName };
+    const made = await addDocLinks(docId, rows, req.user, opt);
+    // いくつかの資料をまとめる：2つ目からの資料も同じ宛先でリンクを作り、1つ目のリンク（送るリンク）にまとめる
+    const ids2 = [...new Set(docIds)].filter((d) => d !== docId).slice(0, 9);
+    if (ids2.length) {
+      const extra = [];
+      for (const d2 of ids2) extra.push(await addDocLinks(d2, rows, req.user, opt));
+      for (let i = 0; i < made.length; i++) {
+        const slugs = [made[i].slug, ...extra.map((e) => e[i] && e[i].slug).filter(Boolean)];
+        await setDocBundle(made[i].slug, slugs).catch(() => {});
+        made[i].bundle_count = slugs.length;
+      }
+      console.log(`[doc] まとめたリンク：資料${1 + ids2.length}点 × ${made.length}件 by ${req.user}`);
+    }
     console.log(`[doc] リンクを${made.length}件発行 by ${req.user}`);
     res.json({
       ok: true,
@@ -6708,10 +6721,15 @@ app.get("/api/doc-links", async (req, res) => {
       docId: parseInt(req.query.docId, 10) || 0,
       onlyViewed: req.query.viewed === "1",
     });
+    // まとめたリンク：子（bundle_parent あり）は一覧に出さず、親に資料ごとの記録を付ける
+    const hasBundle = rows.some((r) => Array.isArray(r.bundle_slugs) && r.bundle_slugs.length > 1);
+    const allRows = hasBundle ? await listDocLinks({ limit: 3000 }).catch(() => rows) : rows;
+    const bySlug = new Map(allRows.map((r) => [r.slug, r]));
     res.json({
       base: PUBLIC_URL,
-      links: rows.map((r) => ({
+      links: rows.filter((r) => !r.bundle_parent).map((r) => ({
         ...r,
+        bundle: Array.isArray(r.bundle_slugs) && r.bundle_slugs.length > 1 ? r.bundle_slugs.map((sl) => bySlug.get(sl)).filter(Boolean).map((c) => ({ slug: c.slug, name: fixMojibake(c.doc_name), views: Number(c.view_count || 0), seconds: Number(c.total_seconds || 0), label: fmtSeconds(c.total_seconds), maxPage: Number(c.max_page || 0), downloads: Number(c.downloads || 0) })) : null,
         doc_name: fixMojibake(r.doc_name),
         url: docUrl(PUBLIC_URL, r.slug),
         pixel: pixelUrl(PUBLIC_URL, r.slug),
@@ -27691,7 +27709,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-28g kinXsの商品ラベル：「インスタ」を「Instagram」に変えた（手で付けていたラベルも直す）。";
+const BUILD_TAG = "2026-10-28h 資料トラッキング：いくつかの資料を1つのリンクにまとめられるように（作るときに「ほかの資料もいっしょに送る」でチェック）。お客様の画面は上のタブで切りかえ・「次の資料を見る」、資料ごとにダウンロードでき、記録・知らせも資料ごと。一覧には資料ごとの見た・時間・DLを出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

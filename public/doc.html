@@ -45,6 +45,13 @@
     font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;}
   .gate-b:hover{background:#178a65;}
   .gate-e{color:#c2603f;font-size:13px;min-height:18px;margin-bottom:6px;}
+  /* いくつかの資料をまとめたリンク：上のタブで切りかえる */
+  .tabs{position:sticky;top:0;z-index:4;display:flex;gap:6px;overflow-x:auto;padding:8px 16px;background:#f4f7f5;border-bottom:1px solid #e3ebe7;}
+  .tabs button{flex:none;border:1px solid #d5e2db;background:#fff;color:#33463e;border-radius:99px;padding:7px 14px;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap;}
+  .tabs button.on{background:#1d9e75;border-color:#1d9e75;color:#fff;}
+  .tabs .n{font-size:11px;opacity:.75;margin-right:4px;}
+  .nextdoc{text-align:center;margin:18px 0 6px;}
+  .nextdoc button{border:0;background:#1d9e75;color:#fff;border-radius:12px;padding:12px 20px;font:inherit;font-size:14.5px;font-weight:700;cursor:pointer;}
 </style>
 </head>
 <body>
@@ -59,8 +66,10 @@
     </div>
   </div>
 
+  <div class="tabs" id="tabs" hidden></div>
   <div class="wrap">
     <div id="body"><div class="msg">資料を読み込んでいます…</div></div>
+    <div class="nextdoc" id="nextdoc" hidden></div>
     <p class="note" id="foot"></p>
   </div>
 
@@ -69,6 +78,7 @@
 (function () {
   // URLの /d/xxxx から鍵を取り出す
   const slug = (location.pathname.match(/\/d\/([A-Za-z0-9_-]+)/) || [])[1] || "";
+  let curSlug = slug;   // まとめたリンクでは、タブで見ている資料のリンク
   const $ = (id) => document.getElementById(id);
   const body = $("body");
 
@@ -76,12 +86,12 @@
   let total = 0;
 
   // ページごとの滞在秒数。画面に映っているページに毎秒足していく。
-  const pageSec = {};
+  let pageSec = {};
   let visible = new Set();
   let seconds = 0;
   let active = true;
 
-  const fileUrl = `/api/doc/${encodeURIComponent(slug)}/file`;
+  let fileUrl = `/api/doc/${encodeURIComponent(slug)}/file`;
 
   function setFoot(t) { $("foot").textContent = t || ""; }
 
@@ -93,7 +103,7 @@
   }
   function beat(final) {
     if (!viewId) return;
-    const url = `/api/doc/${encodeURIComponent(slug)}/beat`;
+    const url = `/api/doc/${encodeURIComponent(curSlug)}/beat`;
     const data = payload(final);
     if (final && navigator.sendBeacon) {
       try { navigator.sendBeacon(url, new Blob([data], { type: "application/json" })); return; } catch {}
@@ -156,6 +166,35 @@
     $("pageno").textContent = `1 / ${total}`;
   }
 
+  // ===== いくつかの資料をまとめたリンク（2026-10-28）=====
+  let bundle = null, bundleIdx = 0, 開くfn = null;
+  function drawTabs(idx) {
+    const t = $("tabs"); t.hidden = false;
+    t.innerHTML = bundle.map((b, i) => `<button type="button" class="${i === idx ? "on" : ""}" data-i="${i}"><span class="n">${i + 1}</span>${String(b.name || "資料").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]))}</button>`).join("");
+    t.querySelectorAll("[data-i]").forEach((b) => b.addEventListener("click", () => switchDoc(Number(b.dataset.i))));
+    const nx = $("nextdoc");
+    if (idx < bundle.length - 1) { nx.hidden = false; nx.innerHTML = `<button type="button">次の資料「${String(bundle[idx + 1].name || "").replace(/[&<>"]/g, "")}」を見る ›</button>`; nx.querySelector("button").onclick = () => switchDoc(idx + 1); }
+    else nx.hidden = true;
+  }
+  async function switchDoc(i) {
+    if (!bundle || i === bundleIdx || i < 0 || i >= bundle.length) return;
+    beat(true);   // 今の資料の記録を締める
+    bundleIdx = i; curSlug = bundle[i].slug;
+    pageSec = {}; seconds = 0; visible = new Set(); total = 0; viewId = null;
+    fileUrl = `/api/doc/${encodeURIComponent(curSlug)}/file`;
+    body.innerHTML = '<div class="msg">資料を読み込んでいます…</div>';
+    drawTabs(i); window.scrollTo({ top: 0 });
+    try {
+      const r = await 開くfn(curSlug); const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "");
+      viewId = d.viewId;
+      $("title").textContent = bundle[i].name || d.name || "資料";
+      $("dl").href = fileUrl + "?dl=1"; $("dl").setAttribute("download", d.filename || bundle[i].filename || "document.pdf");
+    } catch { body.innerHTML = '<div class="msg">この資料を開けませんでした。</div>'; return; }
+    try { await render(); } catch { fallback(); }
+    beat(false);
+  }
+
   // pdf.jsが使えないときは、ブラウザ標準の表示に切り替える（ページ単位の記録はできない）
   function fallback() {
     body.innerHTML = `<iframe class="fallback" src="${fileUrl}" title="資料"></iframe>`;
@@ -186,7 +225,7 @@
       // メルマガの差し込み（?m=… など）を、そのままサーバーへ渡す。
       // 誰が開いたかを記録するために使う。
       const qs = location.search || "";
-      const 開く = () => fetch(`/api/doc/${encodeURIComponent(slug)}/open${qs}`, {
+      const 開く = (sl = slug) => fetch(`/api/doc/${encodeURIComponent(sl)}/open${qs}`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ pass: 合言葉, viewerName: お名前, viewerEmail: メール }),
       });
@@ -237,6 +276,12 @@
       // ダウンロードは ?dl=1 を付けて、送り主に知らせる
       $("dl").href = fileUrl + "?dl=1";
       $("dl").setAttribute("download", d.filename || "document.pdf");
+      if (Array.isArray(d.bundle) && d.bundle.length > 1) {
+        bundle = d.bundle; 開くfn = 開く;
+        $("sub").textContent = `${d.to ? `${d.to} 様　` : ""}ご案内資料（${bundle.length}点）`;
+        $("title").textContent = bundle[0].name || d.name || "資料";
+        drawTabs(0);
+      }
     } catch (e) {
       body.innerHTML = `<div class="msg">この資料は見つかりませんでした。<br>お手数ですが、送り主にご確認ください。</div>`;
       $("dl").style.display = "none";

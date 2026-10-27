@@ -79,6 +79,7 @@ async function loadDocs() {
       for (const f of docsCache) if (f.active && (!mineOnly || (f.is_template !== false && (f.mine || f.shared !== false)))) sel.add(new Option(f.name, f.id));
       if (cur) sel.value = cur;
     }
+    { const bx = document.getElementById("dsBundle"); if (bx) bx.innerHTML = bundleBoxHtml(); }
 
     const box = $("dfList");
     if (!docsCache.length) {
@@ -258,7 +259,7 @@ $("dsMake").addEventListener("click", async () => {
     const r = await fetch("/api/doc-links", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        docId, rows,
+        docId, docIds: [docId, ...bundleIdsOrdered(document.getElementById("dsBundle") || document, docId)], rows,
         expiry: ($("dsExpiry") && $("dsExpiry").value) || "0",
         pass: ($("dsPass") && $("dsPass").value.trim()) || "",
         askName: !!($("dsAskName") && $("dsAskName").checked),
@@ -330,7 +331,8 @@ async function loadLinks() {
         <div class="dk-main">
           <div class="dk-t">${esc(l.company || "(会社名なし)")}${l.contact ? " ｜ " + esc(l.contact) : ""}
             ${hot ? '<span class="dk-hot">よく見ています</span>' : ""}</div>
-          <div class="dk-s">${esc(l.email || "")}　資料：${esc(l.doc_name || "")}</div>
+          <div class="dk-s">${esc(l.email || "")}　資料：${l.bundle ? `<span class="dk-bun">まとめ ${l.bundle.length}点</span>${esc(l.bundle.map((b) => b.name).join("・"))}` : esc(l.doc_name || "")}</div>
+          ${l.bundle ? `<div class="dk-bundle">${l.bundle.map((b) => { const mx = Math.max(1, ...l.bundle.map((y) => y.seconds)); return `<div class="r"><span class="nm">${esc(b.name)}</span><span class="${b.views ? "ok" : "no"}">${b.views ? "見た" : "まだ"}</span><span>${b.views ? esc(b.label) : "—"}</span><span class="bar"><i style="width:${Math.round((b.seconds / mx) * 100)}%"></i></span><span class="${b.downloads ? "dl" : "no"}">DL ${b.downloads}</span></div>`; }).join("")}</div>` : ""}
           <div class="dk-stats">
             <span class="dk-st"><b>${l.view_count}</b>回</span>
             <span class="dk-st">滞在 <b>${esc(l.total_label)}</b></span>
@@ -517,6 +519,22 @@ async function loadDeals() {
   }
 }
 
+// いっしょに送る資料（2026-10-28）：チェックした資料を、1つのリンクにまとめる（お客様の画面ではタブで切りかえ）
+function bundleBoxHtml() {
+  const opts = docsCache.filter((f) => f.active && f.is_template !== false && (f.mine || f.shared !== false));
+  return `<details class="dp-bundle"><summary>＋ ほかの資料もいっしょに送る（1つのリンクにまとめる）</summary>
+    <div class="dp-bl">${opts.map((f) => `<label><input type="checkbox" data-bundle="${f.id}" /> ${esc(f.name)}</label>`).join("") || '<span class="note">テンプレ資料がありません</span>'}</div>
+    <div class="note">選んだ順に、お客様の画面の上にタブで並びます。資料ごとに、見たか・時間・ダウンロードが記録されます。</div></details>`;
+}
+function bundleIdsIn(root, mainId) {
+  return [...root.querySelectorAll("[data-bundle]:checked")].map((cb) => parseInt(cb.dataset.bundle, 10)).filter((v) => v && v !== mainId);
+}
+// チェックした順を覚える（選んだ順＝タブの順）
+document.addEventListener("change", (e) => { const cb = e.target.closest && e.target.closest("[data-bundle]"); if (!cb) return; if (cb.checked) cb.dataset.at = String(Date.now()); });
+function bundleIdsOrdered(root, mainId) {
+  return [...root.querySelectorAll("[data-bundle]:checked")].sort((a, b) => Number(a.dataset.at || 0) - Number(b.dataset.at || 0)).map((cb) => parseInt(cb.dataset.bundle, 10)).filter((v) => v && v !== mainId);
+}
+
 // ＋送付：その場で資料を選ぶ（新規登録も可）→ 担当者・メールを入れて発行する
 function deOpenPicker(btn) {
   const company = btn.dataset.company || "";
@@ -536,6 +554,7 @@ function deOpenPicker(btn) {
        <input type="text" class="dp-name" placeholder="資料の名前（例：DOCサービス紹介）" />
        <input type="file" class="dp-file" accept="application/pdf" />
      </div>
+     ${bundleBoxHtml()}
      <div class="dp-line">
        <input type="text" class="dp-contact" placeholder="担当者名（任意）" />
        <input type="text" class="dp-email" placeholder="メール（任意）" />
@@ -608,7 +627,7 @@ async function deIssue(btn) {
     setSt("URLを発行中…");
     const r = await fetch("/api/doc-links", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ docId, rows: [{ company, contact, email }], expiry: "0" }),
+      body: JSON.stringify({ docId, docIds: [docId, ...bundleIdsOrdered(wrap, docId)], rows: [{ company, contact, email }], expiry: "0" }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "発行できませんでした");

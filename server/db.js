@@ -1338,6 +1338,9 @@ export async function initDb() {
   await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;`);
   await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS pass_hash TEXT;`);
   await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS ask_name BOOLEAN NOT NULL DEFAULT false;`);
+  // いくつかの資料を1つのリンクにまとめる（2026-10-28）：親（送るリンク）に、まとめた資料のリンクの slug を順に持つ。子は親の slug を持つ
+  await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS bundle_slugs JSONB;`);
+  await sq(`ALTER TABLE doc_links ADD COLUMN IF NOT EXISTS bundle_parent TEXT;`);
   // 見た人が名乗ってくれた内容
   await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_name TEXT;`);
   await sq(`ALTER TABLE doc_views ADD COLUMN IF NOT EXISTS viewer_email TEXT;`);
@@ -11790,4 +11793,15 @@ export async function setInsideShiftAbsent(email, name, day, absent) {
   await pool.query(`INSERT INTO inside_shifts (email, name, day, start_min, end_min, absent, updated_at) VALUES ($1,$2,$3,NULL,NULL,$4,now())
     ON CONFLICT (email, day) DO UPDATE SET absent=$4, name=COALESCE(NULLIF($2,''), inside_shifts.name), updated_at=now()`, [em, String(name || "").trim(), day, !!absent]);
   if (!absent) await pool.query(`DELETE FROM inside_shifts WHERE email=$1 AND day=$2 AND start_min IS NULL AND COALESCE(absent,false)=false`, [em, day]).catch(() => {});
+}
+
+export async function setDocBundle(parentSlug, slugs) {
+  if (!pool) return;
+  await pool.query(`UPDATE doc_links SET bundle_slugs=$2::jsonb WHERE slug=$1`, [parentSlug, JSON.stringify(slugs)]);
+  await pool.query(`UPDATE doc_links SET bundle_parent=$1 WHERE slug = ANY($2::text[]) AND slug <> $1`, [parentSlug, slugs]);
+}
+export async function getDocBundleInfo(slugs) {
+  if (!pool || !Array.isArray(slugs) || !slugs.length) return [];
+  const { rows } = await pool.query(`SELECT l.slug, l.doc_id, f.name, f.filename FROM doc_links l JOIN doc_files f ON f.id=l.doc_id WHERE l.slug = ANY($1::text[])`, [slugs]);
+  return slugs.map((sl) => rows.find((r) => r.slug === sl)).filter(Boolean);
 }
