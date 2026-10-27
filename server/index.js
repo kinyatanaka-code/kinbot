@@ -12645,7 +12645,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
 // ===== kinXs：ユーザー一覧（メインラベル・納品・最終接触・次回アクション・要注意）=====
 const KX_USAGE = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
 // ===== 商品ラベル（DOC：空間・AI／SNS：インスタ・配信代行・動画制作）と SNS のフェーズ（2026-10-27）=====
-const KX_PROD_LABELS = { DOC: ["空間", "AI"], SNS: ["SNS", "インスタ", "配信代行", "動画制作"] };
+const KX_PROD_LABELS = { DOC: ["空間", "AI"], SNS: ["SNS", "Instagram", "配信代行", "動画制作"] };
 const KX_SNS_PHASES = ["計上", "コンテンツfix", "素材回収済", "制作指示出し済み", "初稿チェック前", "お客様初稿確認", "修正中", "修正チェック", "お客様修正案確認", "投稿依頼", "契約終了"];
 // 手で決めていなければ、SFの商品名から当てる
 // 商品ごとの区別（2026-10-27）：空間デザイン制作・スタンダード・ライト → 空間／エントリー・アチコチバース（だけ） → AI／それ以外 → SNS（インスタ・配信・動画は、その名前のラベル）
@@ -12656,7 +12656,7 @@ function kxClassOf(name) {
   if (KX_CLASS_SKIP.test(t)) return "";
   if (/空間デザイン制作|スタンダード|ライト/.test(t)) return "空間";
   if (/エントリー|アチコチバース/.test(t)) return "AI";
-  if (/インスタ|Instagram/i.test(t)) return "インスタ";
+  if (/インスタ|Instagram/i.test(t)) return "Instagram";
   if (/配信|運用代行/.test(t)) return "配信代行";
   if (/動画|ムービー|映像/.test(t)) return "動画制作";
   return "SNS";
@@ -13297,6 +13297,9 @@ app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
     res.status(400).json({ error: "mode が正しくありません" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+setTimeout(async () => {
+  try { const st = await getSettings(); if (!st.kxLabelInstagram) { await pool.query(`UPDATE kinxs_accounts SET prod_labels = (SELECT jsonb_agg(CASE WHEN v = '"インスタ"'::jsonb THEN '"Instagram"'::jsonb ELSE v END) FROM jsonb_array_elements(prod_labels) v) WHERE prod_labels IS NOT NULL AND prod_labels @> '["インスタ"]'::jsonb`).catch((e) => console.warn("[kinxs] ラベル", e.message)); await saveSettings({ kxLabelInstagram: new Date().toISOString() }); } } catch {}
+}, 20 * 1000).unref?.();
 // ===== kinXs：同じ会社が2つ以上あるとき、1つにまとめる =====
 // 会社名のキー（csCoKey）が同じものをまとめる。残すのは、SFから取り込んだもの（商品・商談が多い方）→ 古い方。
 // 残す方が空の項目は、まとめる方から引き継ぐ（CS担当・次回アクション・利用目的・活用・メモ・企業情報・確度・更新月）。
@@ -27688,7 +27691,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-28f kinbotに聞く：窓の左の端（と右・上・下の端、4つの角）のどこをつかんでも、大きさを変えられるように。";
+const BUILD_TAG = "2026-10-28g kinXsの商品ラベル：「インスタ」を「Instagram」に変えた（手で付けていたラベルも直す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

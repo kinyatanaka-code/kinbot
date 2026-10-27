@@ -295,8 +295,8 @@ async function loadList() {
   catch (e) { $("lsTable").innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 // 商品ラベルの小さな札（DOC＝緑、SNS＝紫）
-const KX_DOC_L = ["空間", "AI"], KX_SNS_L = ["SNS", "インスタ", "配信代行", "動画制作"];
-function kxPlTags(x) { const l = x.prodLabels || []; return (l.length || x.manual) ? `<span class="kx-pltags">${l.map((t) => `<span class="kx-pl ${KX_SNS_L.includes(t) ? "sns" : "doc"}">${esc(t)}</span>`).join("")}${x.manual ? '<span class="kx-pl nosf" title="SFの商談に紐づいていません（モーダルの企業情報で紐づけられます）">SF未連携</span>' : ""}</span>` : ""; }
+const KX_DOC_L = ["空間", "AI"], KX_SNS_L = ["SNS", "Instagram", "配信代行", "動画制作"];
+function kxPlTags(x) { const l = (x.prodLabels || []).map((t) => (t === "インスタ" ? "Instagram" : t)); return (l.length || x.manual) ? `<span class="kx-pltags">${l.map((t) => `<span class="kx-pl ${KX_SNS_L.includes(t) ? "sns" : "doc"}">${esc(t)}</span>`).join("")}${x.manual ? '<span class="kx-pl nosf" title="SFの商談に紐づいていません（モーダルの企業情報で紐づけられます）">SF未連携</span>' : ""}</span>` : ""; }
 // ユーザー一覧・更新管理の「すべて／DOC／SNS」（2026-10-27）
 function kxTrackGet() { try { return localStorage.getItem("kxTrack") || "all"; } catch { return "all"; } }
 function kxTrackSet(v) { try { localStorage.setItem("kxTrack", v); } catch {} }
