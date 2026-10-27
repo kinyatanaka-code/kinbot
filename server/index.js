@@ -12744,7 +12744,7 @@ async function kinxsBuild() {
     if (sinceUpd != null && sinceUpd >= rules.staleDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "情報更新なし", score: 15, detail: `記録と議事録が${sinceUpd}日更新されていません` });
     const shown = alerts.filter((a) => !hidden(a.rule));
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
-      kenshu, mail, cs: r.cs_name || (k && k.cs_name) || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
+      kenshu, mail, cs: (k && k.cs_name) || r.cs_name || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", sfLinked: !!(r.info && r.info.sf_linked), formerNames, renewLocked: !!r.renew_locked,
       productItems: (r.products || []).map((p) => (typeof p === "string" ? { name: p } : p)).map((p) => ({ name: p.name, cls: kxClassOf(p.name), booked: p.booked || "", stage: p.stage || "", opp: p.opp || "", oppName: p.oppName || "" })),
@@ -12851,6 +12851,22 @@ async function kxFindKickoffForAccount(r) {
   const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
   return kicks.find((k) => keys.has(csCoKey(k.company)) || (k.fields && keys.has(csCoKey(k.fields.企業名 || "")))) || null;
 }
+// CS連携で決めたCS担当（自動の割り振り・Chatのボタン・企業カード、どこで決めても）を、kinXs の担当にそろえる（2026-10-27）
+async function kxSyncCsFromKickoffs() {
+  const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test && k.cs_name);
+  const rows = (await kinxsList().catch(() => [])).filter((r) => !r.merged_into);
+  const byKey = new Map(); for (const r of rows) for (const n of [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])]) { const kk = csCoKey(n || ""); if (kk && !byKey.has(kk)) byKey.set(kk, r); }
+  let n = 0;
+  for (const k of kicks) {
+    const r = byKey.get(csCoKey(k.company || "")) || (k.fields && byKey.get(csCoKey(k.fields.企業名 || "")));
+    if (!r || (r.cs_name || "") === k.cs_name) continue;
+    await kinxsUpdate(r.account_id, { cs_name: k.cs_name }, "CS連携").catch(() => {}); n++;
+  }
+  if (n) console.log(`[kinxs] CS連携のCS担当を kinXs にそろえました：${n}社`);
+  return n;
+}
+setTimeout(() => { kxSyncCsFromKickoffs().catch(() => {}); }, 3 * 60 * 1000).unref?.();
+setInterval(() => { kxSyncCsFromKickoffs().catch(() => {}); }, 10 * 60 * 1000).unref?.();
 // CS連携で直した → kinXs（CS担当・利用目的）
 async function kxFromKickoff(k, by) {
   try {
@@ -27625,7 +27641,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27u kinXsのフェーズ別：確度（S・A・B・C・Z）の印は「更新検討時期」の列のカードだけに出す。";
+const BUILD_TAG = "2026-10-27v kinXs：CS連携でCS担当を決めた会社（自動の割り振り・Chatのボタン・企業カード、どこで決めても）は、kinXsのCS担当にもすぐ出す（担当別の列にも移る）。10分ごとにkinXsの記録もそろえる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

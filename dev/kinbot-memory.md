@@ -1919,3 +1919,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-10-27 BUILD_TAG=2026-10-27t 開発メモ（久野さん）「ユーザー一覧・更新管理をDOC・SNS別で見られるようにしてほしい（フェーズ別と同様に）」。kinxs.js：kxTrackGet/Set（localStorage kxTrack：all／DOC／SNS）、kxTrackOk（DOC＝商品ラベルに空間・AI、または無し／SNS＝SNS・インスタ・配信代行・動画制作）、kxTrackSeg。ユーザー一覧（一覧・担当別とも）は検索の行の「一覧｜担当別」の右に「すべて｜DOC｜SNS」、更新管理は上の帯の左に同じ切りかえ。/api/kinxs/renewals の items に prodLabels。フェーズ別は今までどおり DOC／SNS（列が違うので すべて は無し）。版20261027t。
 
 - 2026-10-27 BUILD_TAG=2026-10-27u 田中さん（フェーズ別）「更新検討時期のものだけ ABCD とかの確度が出るように」。renderBoard のカードの確度の印を、DOC の「更新検討時期」の列のカードだけに出す（ほかの列・SNSでは出さない）。手で決めたフェーズの🔒はそのまま。版20261027u。
+
+- 2026-10-27 BUILD_TAG=2026-10-27v 田中さん（CS連携の企業カードとユーザー一覧の担当別）「CS連携でCS担当を選んだものも、自動で異動させてほしい」。原因：kinXs の CS担当は kinXs の cs_name を先に使い、CS連携（回収MTG）の担当は空のときだけ使っていた。26g の同期は企業カードの保存のときだけで、自動の割り振り・Chatのボタンで決めた担当は入っていなかった。直したこと：kinxsBuild の cs を CS連携の担当（k.cs_name）→ kinXs の cs_name の順に（CS連携の会社は CS連携が正）。kxSyncCsFromKickoffs で起動3分後と10分ごとに kinXs の cs_name も書きそろえる（履歴は「CS連携」）。kinXs で担当を変えると kxToKickoff で CS連携にも入るので、両方そろう。版20261027v。
