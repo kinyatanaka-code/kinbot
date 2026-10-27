@@ -7078,3 +7078,11 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kb-msg-files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .kb-msg-files img { max-width: 120px; max-height: 90px; border-radius: 8px; border: 1px solid rgba(0,0,0,.08); object-fit: cover; }
 .kb-chat.kb-drop { box-shadow: 0 0 0 3px #1D9E75, 0 24px 60px -20px rgba(0,0,0,.45); }
+
+/* kinbotに聞く：角をつかんで大きさを変える（2026-10-27） */
+.kb-grip { position: absolute; width: 16px; height: 16px; z-index: 3; touch-action: none; }
+.kb-grip.tl { left: 0; top: 0; cursor: nwse-resize; }
+.kb-grip.br { right: 0; bottom: 0; cursor: nwse-resize; }
+.kb-grip.br::after { content: ""; position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; border-right: 2px solid #B9CBC3; border-bottom: 2px solid #B9CBC3; border-radius: 0 0 3px 0; }
+.kb-chat.resizing { user-select: none; box-shadow: 0 24px 60px -20px rgba(0,0,0,.45); }
+.kb-chat.mini .kb-grip { display: none; }

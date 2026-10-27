@@ -28,6 +28,7 @@
           <button type="button" class="kb-chat-x" aria-label="閉じる" title="閉じる">✕</button>
         </div>
       </div>
+      <div class="kb-grip tl" data-grip="tl" title="ドラッグで大きさを変える（ダブルクリックで元の大きさ）"></div><div class="kb-grip br" data-grip="br" title="ドラッグで大きさを変える（ダブルクリックで元の大きさ）"></div>
       <div class="kb-chat-body" id="kbChatBody"></div>
       <div class="kb-chat-tips" id="kbChatTips"></div>
       <div class="kb-chat-files" id="kbChatFiles" hidden></div>
@@ -52,6 +53,29 @@
     // 小さくする／元に戻す。小さくしている間は、ほかの画面をそのまま触れる。
     const miniBtn = panel.querySelector(".kb-chat-mini-btn");
     miniBtn.addEventListener("click", (e) => { e.stopPropagation(); setMini(!panel.classList.contains("mini")); });
+    // 角（左上・右下）をつかんで、窓の大きさを変えられる（大きさはこのブラウザに覚える）
+    panel.querySelectorAll("[data-grip]").forEach((g) => {
+      let st0 = null;
+      g.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return; e.preventDefault(); e.stopPropagation();
+        const r = panel.getBoundingClientRect();
+        panel.style.left = `${r.left}px`; panel.style.top = `${r.top}px`; panel.style.right = "auto"; panel.style.bottom = "auto";
+        st0 = { x: e.clientX, y: e.clientY, l: r.left, t: r.top, w: r.width, h: r.height, c: g.dataset.grip };
+        g.setPointerCapture(e.pointerId); panel.classList.add("resizing");
+      });
+      g.addEventListener("pointermove", (e) => {
+        if (!st0) return;
+        const dx = e.clientX - st0.x, dy = e.clientY - st0.y;
+        const minW = 300, minH = 320, maxW = window.innerWidth - 12, maxH = window.innerHeight - 12;
+        let w = st0.c === "tl" ? st0.w - dx : st0.w + dx; let h = st0.c === "tl" ? st0.h - dy : st0.h + dy;
+        w = Math.max(minW, Math.min(maxW, w)); h = Math.max(minH, Math.min(maxH, h));
+        const l = st0.c === "tl" ? st0.l + (st0.w - w) : st0.l; const t = st0.c === "tl" ? st0.t + (st0.h - h) : st0.t;
+        applySize(w, h); panel.style.left = `${Math.max(6, l)}px`; panel.style.top = `${Math.max(6, t)}px`;
+      });
+      const end = () => { if (!st0) return; st0 = null; panel.classList.remove("resizing"); saveSize(); savePos(); };
+      g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end);
+      g.addEventListener("dblclick", () => { try { localStorage.removeItem("kbChatSize"); } catch {} panel.style.width = ""; panel.style.height = ""; panel.style.maxHeight = ""; });
+    });
     // 見出しをつかんで、窓を好きな場所に動かせる（場所はこのブラウザに覚える）
     const head = panel.querySelector(".kb-chat-head");
     let drag = null, justDragged = false;
@@ -203,6 +227,9 @@
     const ny = Math.max(6, Math.min(window.innerHeight - Math.min(h, 120) - 6, y));
     panel.style.left = `${nx}px`; panel.style.top = `${ny}px`; panel.style.right = "auto"; panel.style.bottom = "auto";
   }
+  function applySize(w, h) { panel.style.width = `${Math.round(w)}px`; panel.style.height = `${Math.round(h)}px`; panel.style.maxHeight = "none"; }
+  function saveSize() { try { const r = panel.getBoundingClientRect(); localStorage.setItem("kbChatSize", JSON.stringify({ w: Math.round(r.width), h: Math.round(r.height) })); } catch {} }
+  function loadSize() { try { const z = JSON.parse(localStorage.getItem("kbChatSize") || "null"); if (z && z.w && z.h) applySize(Math.min(z.w, window.innerWidth - 12), Math.min(z.h, window.innerHeight - 12)); } catch {} }
   function savePos() { try { const r = panel.getBoundingClientRect(); localStorage.setItem("kbChatPos", JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top) })); } catch {} }
   function loadPos() { try { const p = JSON.parse(localStorage.getItem("kbChatPos") || "null"); if (p && isFinite(p.x) && isFinite(p.y)) placeAt(p.x, p.y); } catch {} }
   function resetPos() { try { localStorage.removeItem("kbChatPos"); } catch {} panel.style.left = ""; panel.style.top = ""; panel.style.right = ""; panel.style.bottom = ""; }
@@ -212,6 +239,7 @@
     markUsed();
     panel.hidden = false;
     setMini(false);
+    loadSize();
     loadPos();
     greet();
     // スマホでは、開いた瞬間に文字を打つ欄へ飛ばさない（画面が動いて驚くため）
