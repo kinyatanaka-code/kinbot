@@ -12621,7 +12621,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
     const items = rows.map((r) => {
       const left = r.renew_month ? daysTo(r.renew_month) : null;
       const warn = left != null && left <= warnDays && ["B", "C", "Z"].includes(r.rank || "Z") && r.rank !== "F";
-      return { id: r.account_id, name: r.name_override || r.name, formerNames: (Array.isArray(r.former_names) ? r.former_names : []), logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", rank: r.rank || "Z", renew: r.renew_month, left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
+      return { id: r.account_id, prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), name: r.name_override || r.name, formerNames: (Array.isArray(r.former_names) ? r.former_names : []), logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", rank: r.rank || "Z", renew: r.renew_month, left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
         cs: r.cs_name || "", fs: r.fs_name || "", products: (r.products || []).map((p) => p.name), error: r.error || "", rankAt: r.rank_at, rankBy: r.rank_by || "", manual: r.source === "manual" };
     });
     res.json({ ok: true, thisMonth, warnDays, items, sync: _kinxsLast, fields: st.kinxsFields || {} });
@@ -27625,7 +27625,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27s kincallの出勤管理の集計：「これからの予定（灰色）」と「実働＋これから（今月の見込み）」の時間を足し、いちばん下にインターン生の合計の行。";
+const BUILD_TAG = "2026-10-27t kinXs：ユーザー一覧・更新管理も「すべて／DOC／SNS」で切りかえて見られるように（商品ラベルで分ける、選んだものはこのブラウザに覚える）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261027s" />
+    <link rel="stylesheet" href="style.css?v=20261027t" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -491,6 +491,7 @@
   .kh-due[hidden],.kh-pen[hidden],.kh-duev[hidden]{display:none !important;}
   .kh-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#0E6B4E;color:#fff;font-size:13px;font-weight:700;padding:9px 16px;border-radius:99px;opacity:0;transition:.2s;z-index:9999;pointer-events:none;}
   .kh-toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
+  .kx-trackseg{margin-right:4px;} .kx-trackseg button{font-size:12px;padding:5px 11px;}
 </style>
 </head>
   <body>
@@ -532,6 +533,7 @@
             <section class="kx-alert-box" id="lsAlerts" hidden></section>
             <div class="kx-bar">
               <div class="kx-seg" role="tablist"><button type="button" class="on" data-lstab="all">一覧</button><button type="button" data-lstab="cs">担当別</button></div>
+              <span id="lsTrack"></span>
               <input type="search" id="lsQ" placeholder="企業名・担当で探す" style="min-width:220px" />
               <div class="kx-chips" id="lsChips"></div>
               <select id="lsCs" aria-label="CS担当"><option value="">CS担当：全員</option></select>
@@ -604,7 +606,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261027s" defer></script>
-    <script src="kinxs.js?v=20261027s"></script>
+    <script src="kbchat.js?v=20261027t" defer></script>
+    <script src="kinxs.js?v=20261027t"></script>
   </body>
 </html>

@@ -50,7 +50,7 @@ function render() {
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = $("kxQ").value || "";
-  const items = d.items.filter((x) => kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const items = d.items.filter((x) => kxTrackOk(x) && kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // KPI（90日以内）
   const near = items.filter((x) => x.left != null && x.left >= -31 && x.left <= d.warnDays && x.rank !== "F");
   const warn = near.filter((x) => x.warn);
@@ -99,8 +99,10 @@ function render() {
   const rcount = {}; for (const x of items) rcount[x.rank] = (rcount[x.rank] || 0) + 1;
   const legend = RANKS.map(([k, l]) => `<button type="button" class="kx-drop v2 ${rsel.has(k) ? "on" : ""} ${rsel.size && !rsel.has(k) ? "dim" : ""}" style="--rc:${RC[k]}" data-rank-drop="${k}" data-rank-pick="${k}" aria-pressed="${rsel.has(k)}" title="押すと確度${k}（${esc(l)}）の会社だけを出します（もう一度押すと外す）。会社をここにドラッグすると確度${k}になります"><span class="kx-rank r-${k}">${k}</span>${esc(l)}<span class="kx-rc">${rcount[k] || 0}</span></button>`).join("")
     + (rsel.size ? `<button type="button" class="kx-chip" data-rank-clear style="height:28px">外す</button>` : "");
-  $("kxTable").innerHTML = d.items.length ? `<div class="kx-tools"><div class="f">${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}</div><div class="r">${legend}</div></div>
+  const trk = kxTrackSeg(() => render());
+  $("kxTable").innerHTML = d.items.length ? `<div class="kx-tools"><div class="f">${trk.html}${fbtn("all", "すべて")}${fbtn("warn", "要注意だけ")}${myName ? fbtn("mine", "自分の担当") : ""}</div><div class="r">${legend}</div></div>
     <div class="kx-mrows">${body || '<div class="kx-empty">当てはまる会社がありません</div>'}</div>` : `<div class="kx-empty">まだ会社がありません。「SFから取り込み直す」を押すと、申込書回収（06）以降の、空間デザイン制作かアチコチバースの商談から取り込みます。</div>`;
+  trk.wire($("kxTable"));
   document.querySelectorAll("#kxTable img[data-mono]").forEach((im) => im.addEventListener("error", () => { const p0 = im.parentNode; p0.textContent = im.dataset.mono; }));
   const pt = document.querySelector("#kxTable [data-past-toggle]"); if (pt) pt.addEventListener("click", () => { window.__kxPastOpen = !(window.__kxPastOpen !== false); render(); });
 
@@ -293,6 +295,15 @@ async function loadList() {
 // 商品ラベルの小さな札（DOC＝緑、SNS＝紫）
 const KX_DOC_L = ["空間", "AI"], KX_SNS_L = ["SNS", "インスタ", "配信代行", "動画制作"];
 function kxPlTags(x) { const l = x.prodLabels || []; return (l.length || x.manual) ? `<span class="kx-pltags">${l.map((t) => `<span class="kx-pl ${KX_SNS_L.includes(t) ? "sns" : "doc"}">${esc(t)}</span>`).join("")}${x.manual ? '<span class="kx-pl nosf" title="SFの商談に紐づいていません（モーダルの企業情報で紐づけられます）">SF未連携</span>' : ""}</span>` : ""; }
+// ユーザー一覧・更新管理の「すべて／DOC／SNS」（2026-10-27）
+function kxTrackGet() { try { return localStorage.getItem("kxTrack") || "all"; } catch { return "all"; } }
+function kxTrackSet(v) { try { localStorage.setItem("kxTrack", v); } catch {} }
+function kxTrackOk(x) { const t = kxTrackGet(); return t === "DOC" ? kxHasDoc(x) : t === "SNS" ? kxHasSns(x) : true; }
+function kxTrackSeg(onChange) {
+  const t = kxTrackGet();
+  const html = `<div class="kx-seg kx-trackseg" role="tablist">${[["all", "すべて"], ["DOC", "DOC"], ["SNS", "SNS"]].map(([k, l]) => `<button type="button" class="${t === k ? "on" : ""}" data-kxtrack="${k}">${l}</button>`).join("")}</div>`;
+  return { html, wire: (root) => root.querySelectorAll("[data-kxtrack]").forEach((b) => b.addEventListener("click", () => { kxTrackSet(b.dataset.kxtrack); onChange(); })) };
+}
 const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 const kxHasDoc = (x) => (x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length;
 function renderList() {
@@ -310,6 +321,7 @@ function renderList() {
   const lastM = live.filter((x) => String(x.lastBooked || x.booked || "").slice(0, 7) === pmK);
   const delM = live.filter((x) => x.deliveryMonth === ym);
   const arcN = d.items.filter((x) => x.archived).length;
+  { const holder = $("lsTrack"); if (holder) { const sg = kxTrackSeg(() => renderList()); holder.innerHTML = sg.html; sg.wire(holder); } }
   if (window.__lsKpi === undefined) { const qk = new URLSearchParams(location.search).get("kpi"); window.__lsKpi = ["won", "last", "del", "arc"].includes(qk) ? qk : ""; }
   const kp = window.__lsKpi || "";
   const kb = $("lsKpi");
@@ -327,7 +339,7 @@ function renderList() {
     kb.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { window.__lsKpi = window.__lsKpi === b.dataset.kpi ? "" : b.dataset.kpi; document.querySelectorAll("#kxTopKpis [data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); renderList(); }));
   }
   const pool0 = kp === "arc" ? d.items.filter((x) => x.archived) : kp === "won" ? wonM : kp === "last" ? lastM : kp === "del" ? delM : live;
-  const base = pool0.filter((x) => kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products, x.label, (x.prodLabels || []).join(" ")) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  const base = pool0.filter((x) => kxTrackOk(x)).filter((x) => kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products, x.label, (x.prodLabels || []).join(" ")) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // ラベルの絞り込み
   const counts = {}; for (const x of base) counts[x.label] = (counts[x.label] || 0) + 1;
   $("lsChips").hidden = true;
