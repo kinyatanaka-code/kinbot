@@ -28,7 +28,7 @@
           <button type="button" class="kb-chat-x" aria-label="閉じる" title="閉じる">✕</button>
         </div>
       </div>
-      <div class="kb-grip tl" data-grip="tl" title="ドラッグで大きさを変える（ダブルクリックで元の大きさ）"></div><div class="kb-grip br" data-grip="br" title="ドラッグで大きさを変える（ダブルクリックで元の大きさ）"></div>
+      ${["tl", "t", "tr", "l", "r", "bl", "b", "br"].map((g) => `<div class="kb-grip ${g}" data-grip="${g}" title="ドラッグで大きさを変える（ダブルクリックで元の大きさ）"></div>`).join("")}
       <div class="kb-chat-body" id="kbChatBody"></div>
       <div class="kb-chat-tips" id="kbChatTips"></div>
       <div class="kb-chat-files" id="kbChatFiles" hidden></div>
@@ -67,9 +67,12 @@
         if (!st0) return;
         const dx = e.clientX - st0.x, dy = e.clientY - st0.y;
         const minW = 300, minH = 320, maxW = window.innerWidth - 12, maxH = window.innerHeight - 12;
-        let w = st0.c === "tl" ? st0.w - dx : st0.w + dx; let h = st0.c === "tl" ? st0.h - dy : st0.h + dy;
+        // 角・辺のどこからでも：l＝左へ広げる／r＝右へ／t＝上へ／b＝下へ
+        const c0 = st0.c;
+        let w = c0.includes("l") ? st0.w - dx : c0.includes("r") ? st0.w + dx : st0.w;
+        let h = c0.includes("t") ? st0.h - dy : c0.includes("b") ? st0.h + dy : st0.h;
         w = Math.max(minW, Math.min(maxW, w)); h = Math.max(minH, Math.min(maxH, h));
-        const l = st0.c === "tl" ? st0.l + (st0.w - w) : st0.l; const t = st0.c === "tl" ? st0.t + (st0.h - h) : st0.t;
+        const l = c0.includes("l") ? st0.l + (st0.w - w) : st0.l; const t = c0.includes("t") ? st0.t + (st0.h - h) : st0.t;
         applySize(w, h); panel.style.left = `${Math.max(6, l)}px`; panel.style.top = `${Math.max(6, t)}px`;
       });
       const end = () => { if (!st0) return; st0 = null; panel.classList.remove("resizing"); saveSize(); savePos(); };

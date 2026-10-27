@@ -7083,6 +7083,14 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kb-grip { position: absolute; width: 16px; height: 16px; z-index: 3; touch-action: none; }
 .kb-grip.tl { left: 0; top: 0; cursor: nwse-resize; }
 .kb-grip.br { right: 0; bottom: 0; cursor: nwse-resize; }
+.kb-grip.tr { right: 0; top: 0; cursor: nesw-resize; }
+.kb-grip.bl { left: 0; bottom: 0; cursor: nesw-resize; }
+/* 辺（左・右・上・下）：角の間を細長くつかめる */
+.kb-grip.l { left: 0; top: 16px; bottom: 16px; width: 7px; height: auto; cursor: ew-resize; }
+.kb-grip.r { right: 0; top: 16px; bottom: 16px; width: 7px; height: auto; cursor: ew-resize; }
+.kb-grip.t { top: 0; left: 16px; right: 16px; height: 6px; width: auto; cursor: ns-resize; }
+.kb-grip.b { bottom: 0; left: 16px; right: 16px; height: 6px; width: auto; cursor: ns-resize; }
+.kb-grip.l:hover, .kb-grip.r:hover { background: linear-gradient(90deg, transparent 2px, rgba(29,158,117,.35) 2px, rgba(29,158,117,.35) 4px, transparent 4px); }
 .kb-grip.br::after { content: ""; position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; border-right: 2px solid #B9CBC3; border-bottom: 2px solid #B9CBC3; border-radius: 0 0 3px 0; }
 .kb-chat.resizing { user-select: none; box-shadow: 0 24px 60px -20px rgba(0,0,0,.45); }
 .kb-chat.mini .kb-grip { display: none; }
