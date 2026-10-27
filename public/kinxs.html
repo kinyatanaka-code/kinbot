@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261028b" />
+    <link rel="stylesheet" href="style.css?v=20261028c" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -504,8 +504,9 @@
   /* 更新管理：白すぎないように色で区切る（2026-10-28） */
   #vRenew .kx-sec,#vRenew #kxTable{background:#EEF3F0 !important;}
   #vRenew .kx-tools{background:#fff;border-radius:12px;margin:8px 8px 0;border:1px solid #DDE7E2;}
-  #vRenew .kx-mrows{padding:8px;}
-  #vRenew .kx-sec-h.kx-band{position:sticky;top:0;z-index:2;margin:8px 0 0;border-radius:10px 10px 0 0;padding:9px 16px;font-size:13.5px;border:0;}
+  /* 帯は上に貼りつく。上のすき間から下の行が透けて見えないように、すき間を作らない・帯の上を地の色でふさぐ */
+  #vRenew .kx-mrows{padding:0 8px 8px;}
+  #vRenew .kx-sec-h.kx-band{position:sticky;top:0;z-index:3;margin:10px 0 0;border-radius:0;padding:9px 16px;font-size:13.5px;border:0;box-shadow:0 -10px 0 0 #EEF3F0;}
   #vRenew .kx-sec-h.kx-band:first-child{margin-top:0;}
   #vRenew .kx-sec-h.kx-band.past{background:#FBE4E4;color:#8C1F1F;} #vRenew .kx-sec-h.kx-band.past em{color:#A54A44;}
   #vRenew .kx-sec-h.kx-band.next{background:#DDF1E7;color:#0A5440;} #vRenew .kx-sec-h.kx-band.next em{color:#2F7A5C;}
@@ -644,7 +645,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261028b" defer></script>
-    <script src="kinxs.js?v=20261028b"></script>
+    <script src="kbchat.js?v=20261028c" defer></script>
+    <script src="kinxs.js?v=20261028c"></script>
   </body>
 </html>
