@@ -1139,11 +1139,11 @@ document.querySelectorAll("[data-bdtrack]").forEach((b) => b.addEventListener("c
 api("/api/me").then((me) => { window.__kxMe = (me && me.name) || ""; if (VIEW === "renew" && data) render(); }).catch(() => {});
 
 // ===== ホーム：自分の担当ユーザーと、やること（kinXs・メール・チャット）=====
-let _khBase = null, _khInbox = null, _khBusy = false;
+let _khBase = null, _khInbox = null, _khBusy = false, _khOwn = [];
 async function loadHome(fresh) {
   const box = $("khTasks"); if (!box) return;
   if (fresh) { _khInbox = null; }
-  try { _khBase = await api("/api/kinxs/home"); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  try { [_khBase, _khOwn] = await Promise.all([api("/api/kinxs/home"), api("/api/kinxs/tasks").then((r) => r.items || []).catch(() => [])]); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
   renderHome();
   // メール・チャットは、あとから足す（時間がかかるので、先に kinXs のやることを出しておく）
   _khBusy = true; renderHome();
@@ -1167,7 +1167,15 @@ window.addEventListener("resize", () => kxFitHome());
 function renderHome() {
   const d = _khBase; if (!d) return;
   const ib = _khInbox || { tasks: [], notes: [] };
-  const tasks = [...d.tasks, ...(ib.tasks || [])];
+  const today0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const ownBy = new Map((_khOwn || []).map((o) => [o.key, o]));
+  const auto = [...d.tasks, ...(ib.tasks || [])].map((t) => { const o = ownBy.get(t.key); return o && o.deleted ? null : { ...t, id: o ? o.id : null, status: (o && o.status) || "未着手", due: (o && o.due) || t.due || "" }; }).filter(Boolean);
+  const manual = (_khOwn || []).filter((o) => !o.deleted && String(o.key).startsWith("m:")).map((o) => ({ key: o.key, id: o.id, src: o.src || "手入力", kind: "タスク", title: o.title || "", account: o.account_name || "", accountId: o.account_id || "", due: o.due || "", status: o.status || "未着手", note: o.note || "" }));
+  const bucketOf = (t) => (t.due && t.due < today0 ? "期限切れ" : t.due === today0 ? "今日" : t.due && t.due <= new Date(Date.now() + 9 * 3600000 + 6 * 86400000).toISOString().slice(0, 10) ? "今週" : (t.src !== "kinXs" ? "返事・依頼" : t.due ? "これから" : "期日なし"));
+  const all = [...manual, ...auto].map((t) => ({ ...t, bucket: bucketOf(t) }));
+  const tab = window.__khTab || "open";
+  const cnt = { open: all.filter((t) => t.status !== "完了").length, doing: all.filter((t) => t.status === "進行中").length, done: all.filter((t) => t.status === "完了").length };
+  const tasks = all.filter((t) => (tab === "done" ? t.status === "完了" : tab === "doing" ? t.status === "進行中" : t.status !== "完了"));
   const box = $("khTasks");
   $("khHi").textContent = `お疲れ様です${d.meSur || d.me ? `、${d.meSur || d.me}さん` : ""}`;
   $("khAt").textContent = `${_khBusy ? "メール・チャットを読んでいます…　" : ""}${ib.at ? `メール・チャットは ${new Date(ib.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} に読みました（10分ごとに新しくします）` : ""}`;
@@ -1176,12 +1184,32 @@ function renderHome() {
   const cls = { "期限切れ": "late", "今日": "today" };
   const srcCls = { "kinXs": "kx", "メール": "ml", "チャット": "ch" };
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-  const row = (t) => `<div class="kh-t"><span class="kh-src ${srcCls[t.src] || "kx"}">${esc(t.src)}</span><div class="kh-main"><div class="tt">${esc(t.title)}</div>
-      <div class="mt"><span>${esc(t.kind)}</span>${t.account ? `<span class="co" data-kh-open="${esc(t.accountId)}">${esc(t.account)}</span>` : ""}${t.due ? `<span class="due ${t.due < today ? "late" : ""}">期日 ${esc(t.due.slice(5).replace("-", "/"))}</span>` : ""}${t.from ? `<span>${esc(String(t.from).replace(/<.*>/, "").trim())}</span>` : ""}${t.space ? `<span>${esc(t.space)}</span>` : ""}${t.link ? `<a class="op" href="${esc(t.link)}" target="_blank" rel="noopener">${t.src === "メール" ? "Gmailで開く" : "チャットで開く"} ↗</a>` : ""}</div></div></div>`;
-  const groups = order.map((g) => ({ g, list: tasks.filter((t) => t.bucket === g) })).filter((x) => x.list.length);
+  const row = (t) => `<div class="kh-t ${t.status === "完了" ? "done" : t.status === "進行中" ? "doing" : ""}" data-kh-key="${esc(t.key)}"><input type="checkbox" class="kh-cb" data-kh-done ${t.status === "完了" ? "checked" : ""} title="完了にする" /><span class="kh-src ${srcCls[t.src] || (t.src === "Claude" ? "cl" : "kx")}">${esc(t.src)}</span><div class="kh-main"><div class="tt">${esc(t.title)}</div>
+      <div class="mt"><span>${esc(t.kind)}</span>${t.account ? `<span class="co" data-kh-open="${esc(t.accountId)}">${esc(t.account)}</span>` : ""}${t.due ? `<span class="due ${t.due < today ? "late" : ""}">期日 ${esc(t.due.slice(5).replace("-", "/"))}</span>` : ""}${t.from ? `<span>${esc(String(t.from).replace(/<.*>/, "").trim())}</span>` : ""}${t.space ? `<span>${esc(t.space)}</span>` : ""}${t.link ? `<a class="op" href="${esc(t.link)}" target="_blank" rel="noopener">${t.src === "メール" ? "Gmailで開く" : "チャットで開く"} ↗</a>` : ""}</div></div>
+      <div class="kh-ctl"><select class="kh-st" data-kh-st>${["未着手", "進行中", "完了"].map((v) => `<option ${v === t.status ? "selected" : ""}>${v}</option>`).join("")}</select><input type="date" class="kh-due" data-kh-due value="${esc(t.due || "")}" title="期日" /><button type="button" class="kh-x" data-kh-del title="消す">×</button></div></div>`;
+  const groups = tab === "done" ? (tasks.length ? [{ g: "完了", list: tasks }] : []) : order.map((g) => ({ g, list: tasks.filter((t) => t.bucket === g) })).filter((x) => x.list.length);
+  const tb = $("khTabs");
+  if (tb) {
+    tb.innerHTML = [["open", "未完了", cnt.open], ["doing", "進行中", cnt.doing], ["done", "完了", cnt.done]].map(([k, l, n]) => `<button type="button" class="${tab === k ? "on" : ""}" data-kh-tab="${k}">${l} ${n}</button>`).join("");
+    tb.querySelectorAll("[data-kh-tab]").forEach((b) => b.addEventListener("click", () => { window.__khTab = b.dataset.khTab; renderHome(); }));
+  }
+  const addSel = $("khAddCo");
+  if (addSel && !addSel.dataset.filled) { addSel.innerHTML = '<option value="">会社（任意）</option>' + d.mine.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join(""); addSel.dataset.filled = "1"; }
   $("khCount").textContent = `${tasks.length}件`;
   box.innerHTML = (groups.length ? groups.map((x) => `<div class="kh-g"><div class="kh-gh ${cls[x.g] || ""}">${esc(x.g)}<span class="kx-rc">${x.list.length}</span></div>${x.list.map(row).join("")}</div>`).join("") : (_khBusy ? "" : '<div class="kx-empty">いまのところ、やることはありません</div>'))
     + (_khBusy ? '<div class="kh-loading"><span class="sp"></span>メールとチャットを読んでいます…（kinXsのやることは先に出しています）</div>' : "");
+  const findT = (el) => all.find((t) => t.key === el.closest("[data-kh-key]").dataset.khKey);
+  const setState = async (t, patch) => {
+    try {
+      if (t.id && !String(t.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t.id}`, { method: "PUT", body: JSON.stringify(patch) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t.key, title: t.title, accountId: t.accountId, account: t.account, src: t.src, status: patch.status || t.status, ...(patch.due !== undefined ? { due: patch.due } : {}), ...(patch.deleted ? { deleted: true } : {}) }) });
+      _khOwn = await api("/api/kinxs/tasks").then((r) => r.items || []).catch(() => _khOwn); renderHome();
+    } catch (e) { alert(e.message); }
+  };
+  box.querySelectorAll("[data-kh-done]").forEach((cb) => cb.addEventListener("change", () => { const t = findT(cb); if (t) setState(t, { status: cb.checked ? "完了" : "未着手" }); }));
+  box.querySelectorAll("[data-kh-st]").forEach((sl) => sl.addEventListener("change", () => { const t = findT(sl); if (t) setState(t, { status: sl.value }); }));
+  box.querySelectorAll("[data-kh-due]").forEach((di) => di.addEventListener("change", () => { const t = findT(di); if (t) setState(t, { due: di.value || null }); }));
+  box.querySelectorAll("[data-kh-del]").forEach((b) => b.addEventListener("click", () => { const t = findT(b); if (t && confirm(`「${t.title}」を消しますか？`)) setState(t, { deleted: true }); }));
   const mono = (n) => String(n || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1);
   $("khMineN").textContent = `${d.mine.length}社`;
   $("khMine").innerHTML = d.mine.length ? d.mine.map((x) => `<div class="kh-m" data-kh-open="${esc(x.id)}"><span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" />` : esc(mono(x.name))}</span><span class="nm">${esc(x.name)}<small>${esc(x.label)}・更新 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</small></span>${x.alerts ? `<span class="al">要注意</span>` : ""}<span class="kx-rank r-${x.rank}">${x.rank}</span></div>`).join("") : `<div class="kx-note">担当している会社がまだありません（ユーザー一覧の「担当別」で割り振れます）</div>`;
@@ -1190,6 +1218,13 @@ function renderHome() {
   kxFitHome();
 }
 if ($("khReload")) $("khReload").addEventListener("click", () => loadHome(true));
+if ($("khAddGo")) $("khAddGo").addEventListener("click", async () => {
+  const title = $("khAddT").value.trim(); if (!title) { $("khAddT").focus(); return; }
+  const sel = $("khAddCo"); const accId = sel.value; const accName = accId ? sel.options[sel.selectedIndex].text : "";
+  try { await api("/api/kinxs/tasks", { method: "POST", body: JSON.stringify({ title, accountId: accId, accountName: accName, due: $("khAddD").value || null }) }); $("khAddT").value = ""; $("khAddD").value = ""; _khOwn = await api("/api/kinxs/tasks").then((r) => r.items || []); window.__khTab = "open"; renderHome(); }
+  catch (e) { alert(e.message); }
+});
+if ($("khAddT")) $("khAddT").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) $("khAddGo").click(); });
 
 // ===== 情報不足：FSにSFへ入れてもらう必須情報が足りない会社 =====
 let msData = null;

@@ -11739,3 +11739,41 @@ export async function kinxsSetFormer(accountId, list) {
   if (!pool) return;
   await pool.query(`UPDATE kinxs_accounts SET former_names=$2::jsonb WHERE account_id=$1`, [accountId, JSON.stringify((list || []).filter(Boolean).slice(0, 5))]);
 }
+
+// ===== kinXs のタスク（ホームのやること）：手で足したタスクと、自動のタスクの状態（2026-10-27）=====
+let _kxTaskReady = false;
+async function kxTaskInit() {
+  if (!pool || _kxTaskReady) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_tasks (
+    id SERIAL PRIMARY KEY, owner TEXT NOT NULL, key TEXT NOT NULL, title TEXT, account_id TEXT, account_name TEXT,
+    due TEXT, status TEXT DEFAULT '未着手', src TEXT DEFAULT '手入力', note TEXT, created_by TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), done_at TIMESTAMPTZ, deleted BOOLEAN DEFAULT false,
+    UNIQUE (owner, key))`);
+  _kxTaskReady = true;
+}
+export async function kxTaskList(owner) {
+  if (!pool) return [];
+  await kxTaskInit();
+  const { rows } = await pool.query(`SELECT * FROM kinxs_tasks WHERE owner=$1 AND (done_at IS NULL OR done_at > now() - interval '30 days' OR status <> '完了') ORDER BY created_at DESC LIMIT 500`, [String(owner || "").toLowerCase()]);
+  return rows;
+}
+export async function kxTaskAdd(owner, t) {
+  if (!pool) return null;
+  await kxTaskInit();
+  const key = t.key || `m:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const { rows } = await pool.query(`INSERT INTO kinxs_tasks (owner, key, title, account_id, account_name, due, status, src, note, created_by)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    ON CONFLICT (owner, key) DO UPDATE SET title=COALESCE(EXCLUDED.title, kinxs_tasks.title), status=EXCLUDED.status, deleted=false, updated_at=now()
+    RETURNING *`, [String(owner || "").toLowerCase(), key, t.title || null, t.account_id || null, t.account_name || null, t.due || null, t.status || "未着手", t.src || "手入力", t.note || null, t.created_by || null]);
+  return rows[0];
+}
+export async function kxTaskUpdate(owner, id, patch) {
+  if (!pool) return null;
+  await kxTaskInit();
+  const sets = [], vals = [String(owner || "").toLowerCase(), Number(id)];
+  for (const k of ["title", "account_id", "account_name", "due", "status", "note", "deleted"]) if (k in patch) { vals.push(patch[k]); sets.push(`${k}=$${vals.length}`); }
+  if ("status" in patch) sets.push(patch.status === "完了" ? "done_at=now()" : "done_at=NULL");
+  if (!sets.length) return null;
+  const { rows } = await pool.query(`UPDATE kinxs_tasks SET ${sets.join(", ")}, updated_at=now() WHERE owner=$1 AND id=$2 RETURNING *`, vals);
+  return rows[0] || null;
+}

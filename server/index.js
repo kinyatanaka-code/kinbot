@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
@@ -12909,7 +12909,7 @@ async function kinxsHomeBase(user) {
     for (const a of x.alerts || []) tasks.push({ src: "kinXs", kind: a.rule, title: a.detail, account: x.name, accountId: x.id, due: a.rule === "NA期限切れ" ? x.naDue : "" });
     if (!x.na && !(x.alerts || []).length && !["解約済み", "キャンセル"].includes(x.label)) tasks.push({ src: "kinXs", kind: "次回アクション未定", title: "次回アクションを決める", account: x.name, accountId: x.id, due: "" });
   }
-  for (const t of tasks) t.bucket = kxBucket(t, today);
+  for (const t of tasks) { t.bucket = kxBucket(t, today); t.key = kxTaskKey(t); }
   const meSur = (() => { const t = kxSur(meName); if (t !== meName.trim()) return t; const hit = items.map((x) => kxSur(x.cs)).find((c) => c && c.length >= 2 && meFlat.startsWith(c)); return hit || meName; })();
   return { ok: true, me: meName, meSur, at: new Date().toISOString(), mine: mine.map((x) => ({ id: x.id, name: x.name, logo: x.logo, label: x.label, rank: x.rank, renew: x.renew, alerts: (x.alerts || []).length, na: x.na, naDue: x.naDue, formerNames: x.formerNames || [] })), tasks, _mine: mine };
 }
@@ -12988,7 +12988,7 @@ async function kinxsHomeInboxRead(user) {
       }
     } catch (e) { notes.push(`AIでの読み取りに失敗：${e.message}`); }
   }
-  const list = tasks.filter((t) => !t.drop).map(({ body, ...t }) => ({ ...t, bucket: kxBucket(t, today) }));
+  const list = tasks.filter((t) => !t.drop).map(({ body, ...t }) => ({ ...t, bucket: kxBucket(t, today), key: kxTaskKey(t) }));
   return { ok: true, at: new Date().toISOString(), tasks: list, chatNeed, notes };
 }
 const _kxInbox = new Map();   // user → { at, data, p }
@@ -13027,6 +13027,78 @@ setInterval(async () => {
 setInterval(async () => {
   try { for (const me of [..._kxInbox.keys()]) { const c = _kxInbox.get(me); if (c && c.at && Date.now() - c.at > 9 * 60 * 1000 && !c.p) kinxsHomeInbox(me).catch(() => {}); } } catch {}
 }, 3 * 60 * 1000).unref?.();
+// ===== kinXs のタスク管理（ホームのやること）：状態（未着手・進行中・完了）・削除・手で足す・Claudeのコネクタから作る（2026-10-27）=====
+const KX_TASK_STATUS = ["未着手", "進行中", "完了"];
+const kxTaskKey = (t) => `auto:${crypto.createHash("sha1").update([t.src, t.accountId, t.kind, t.link || "", t.link ? "" : t.title].join("|")).digest("hex").slice(0, 16)}`;
+// 自動のやること（kinXs・メール・チャット）と、手で足したタスクを合わせて、状態を当てる
+async function kinxsTasksMerged(user, { fresh = false } = {}) {
+  const h = await kinxsHome(user, { fresh });
+  const own = await kxTaskList(user).catch(() => []);
+  const byKey = new Map(own.map((r) => [r.key, r]));
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const out = [];
+  for (const t of h.tasks || []) {
+    const key = t.key || kxTaskKey(t); const o = byKey.get(key);
+    if (o && o.deleted) continue;
+    out.push({ ...t, key, id: o ? o.id : null, status: (o && o.status) || "未着手", due: (o && o.due) || t.due || "", auto: true });
+  }
+  for (const o of own) {
+    if (o.deleted || !String(o.key).startsWith("m:")) continue;
+    const t = { src: o.src || "手入力", kind: "タスク", title: o.title || "", account: o.account_name || "", accountId: o.account_id || "", due: o.due || "", note: o.note || "" };
+    out.push({ ...t, key: o.key, id: o.id, status: o.status || "未着手", auto: false, createdAt: o.created_at, bucket: kxBucket(t, today) });
+  }
+  for (const t of out) t.bucket = t.status === "完了" ? "完了" : kxBucket(t, today);
+  return { ...h, tasks: out };
+}
+async function kxTaskResolveAccount(user, company) {
+  if (!company) return { id: "", name: "" };
+  const { items } = await kinxsBuildMemo();
+  const q = String(company).trim();
+  const x = items.find((i) => i.id === q) || items.find((i) => i.name === q) || items.find((i) => csCoKey(i.name) === csCoKey(q)) || items.find((i) => i.name.includes(q) || (i.formerNames || []).some((f) => f.includes(q)));
+  return x ? { id: x.id, name: x.name } : { id: "", name: q };
+}
+app.get("/api/kinxs/tasks", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, items: await kxTaskList(req.user), statuses: KX_TASK_STATUS }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/tasks", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; const title = String(b.title || "").trim().slice(0, 200);
+    if (!title) return res.status(400).json({ error: "タスクの内容を入れてください" });
+    const acc = b.accountId ? { id: b.accountId, name: b.accountName || "" } : await kxTaskResolveAccount(req.user, b.company);
+    const due = /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null;
+    const r = await kxTaskAdd(req.user, { title, account_id: acc.id || null, account_name: acc.name || null, due, status: KX_TASK_STATUS.includes(b.status) ? b.status : "未着手", src: b.src || "手入力", note: b.note ? String(b.note).slice(0, 1000) : null, created_by: req.user });
+    _kxInbox.delete(String(req.user || "").toLowerCase()) ; res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 自動のやること（kinXs・メール・チャット）の状態を変える・消す：その時点の中身ごと覚える
+app.post("/api/kinxs/tasks/state", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; const key = String(b.key || "");
+    if (!/^(auto|m):/.test(key)) return res.status(400).json({ error: "タスクが分かりません" });
+    const del = b.deleted === true;
+    const st0 = KX_TASK_STATUS.includes(b.status) ? b.status : "未着手";
+    let r = await kxTaskAdd(req.user, { key, title: String(b.title || "").slice(0, 200) || null, account_id: b.accountId || null, account_name: b.account || null, due: b.due || null, status: st0, src: b.src || "kinXs" });
+    if (del || st0 === "完了" || b.due !== undefined) r = await kxTaskUpdate(req.user, r.id, { ...(del ? { deleted: true } : {}), status: st0, ...(b.due !== undefined ? { due: /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null } : {}) });
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/kinxs/tasks/:id", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; const patch = {};
+    if (b.title !== undefined) patch.title = String(b.title || "").slice(0, 200);
+    if (b.due !== undefined) patch.due = /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null;
+    if (b.status !== undefined) { if (!KX_TASK_STATUS.includes(b.status)) return res.status(400).json({ error: "状態が正しくありません" }); patch.status = b.status; }
+    if (b.deleted !== undefined) patch.deleted = b.deleted === true;
+    if (b.note !== undefined) patch.note = String(b.note || "").slice(0, 1000);
+    const r = await kxTaskUpdate(req.user, req.params.id, patch);
+    if (!r) return res.status(404).json({ error: "見つかりません" });
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/home", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -13045,6 +13117,9 @@ const KINXS_TOOLS = [
   { name: "get_user_detail", description: "kinXsの1社の詳細。企業情報（HP・住所・電話・先方の担当者・受注日・受注者・ヘルプサイト・DOCのURL）、ステータス（CS担当・フェーズ・利用目的・活用・次回アクション）、議事録・フォロー履歴（キックオフ以降はフォロー、それより前は商談、要約つき）と変更の履歴を返す。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社名（一部でよい）か kinXs のID" } }, required: ["company"] } },
   { name: "list_renewals", description: "kinXsの更新管理。会社ごとの更新月（契約終了日の前月）・残り日数・確度・要注意（更新月まで90日以内で確度B以下）を返す。", inputSchema: { type: "object", properties: { from: { type: "string", description: "更新月の始め YYYY-MM（任意）" }, to: { type: "string", description: "更新月の終わり YYYY-MM（任意）" } } } },
   { name: "get_home_tasks", description: "kinXsのホームのやること。担当ユーザーの次回アクション・要注意、先方から来てまだ返していないメール、チャットの自分あてのメッセージを、期限切れ・今日・返事・依頼・今週… に分けて返す。", inputSchema: { type: "object", properties: { user: { type: "string", description: "だれのやることか（メールアドレス。省略すると、つないでいる人）" }, fresh: { type: "boolean", description: "読み直す" } } } },
+  { name: "list_tasks", description: "kinXsのホームのタスク一覧（自動のやること＋手で足したタスク）。それぞれに状態（未着手・進行中・完了）・期日・会社・出どころ（kinXs・メール・チャット・手入力・Claude）と、直すときに使う key・id が付く。status で絞れる。", inputSchema: { type: "object", properties: { status: { type: "string", description: "未着手・進行中・完了（省略で完了以外）" }, user: { type: "string", description: "だれのタスクか（管理者だけ。省略でつないでいる人）" } } } },
+  { name: "add_task", description: "kinXsのホームにタスクを足す（書き込み）。会社名を入れると、その会社に結びつける。", inputSchema: { type: "object", properties: { title: { type: "string", description: "タスクの内容" }, company: { type: "string", description: "会社名（一部でよい・任意）" }, due: { type: "string", description: "期日 YYYY-MM-DD（任意）" }, status: { type: "string", description: "未着手・進行中・完了（省略で未着手）" }, note: { type: "string", description: "メモ（任意）" } }, required: ["title"] } },
+  { name: "update_task", description: "kinXsのタスクの状態・期日・内容を変える、または消す（書き込み）。list_tasks で得た key（自動のやることも可）か id を使う。", inputSchema: { type: "object", properties: { key: { type: "string" }, id: { type: "number" }, status: { type: "string", description: "未着手・進行中・完了" }, due: { type: "string", description: "期日 YYYY-MM-DD" }, title: { type: "string" }, delete: { type: "boolean", description: "消す" } } } },
   { name: "update_user", description: "kinXsの1社を直す（書き込み）。CS担当・利用目的・活用・次回アクション（内容・種別・日時）・メモ・更新確度・フェーズを変えられる。CS担当と利用目的はCS連携にも入る。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社名（一部でよい）か ID" }, cs_name: { type: "string" }, purpose: { type: "string", description: "利用目的" }, usage_status: { type: "string", description: "活用（活用：公開掲載／活用：限定公開／活用予定／活用検討中／不明／発生済み未納品／解約企業）" }, na_text: { type: "string", description: "次回アクションの内容" }, na_type: { type: "string", description: "電話・メール・MTG・資料送付・その他" }, na_at: { type: "string", description: "次回アクションの日時 YYYY-MM-DDTHH:MM" }, memo: { type: "string" }, rank: { type: "string", description: "S/A/B/C/Z/F" }, phase: { type: "string", description: "フェーズ（手で決める）" } }, required: ["company"] } },
 ];
 async function kxSelf(method, path, req, body) {
@@ -13076,6 +13151,33 @@ async function kinxsMcpCall(name, args, req) {
   if (name === "get_user_detail") { const x = await kxFindId(a.company); const d = await kxSelf("GET", `/api/kinxs/accounts/${encodeURIComponent(x.id)}/detail`, req); return { company: x.name, info: d.info, status: d.status, kickoffAt: d.kickoffAt, timeline: (d.timeline || []).slice(0, 40) }; }
   if (name === "list_renewals") { const d = await kxSelf("GET", "/api/kinxs/renewals", req); return (d.items || []).filter((x) => (!a.from || (x.renew && x.renew >= a.from)) && (!a.to || (x.renew && x.renew <= a.to))).map((x) => ({ name: x.name, renewMonth: x.renew, daysToRenew: x.left, rank: x.rank, warn: x.warn, cs: x.cs, estimated: x.estimated })); }
   if (name === "get_home_tasks") { const u = a.user && req.isAdmin ? a.user : req.user; return await kinxsHome(u, { fresh: !!a.fresh }); }
+  if (name === "list_tasks") {
+    const u = a.user && req.isAdmin ? a.user : req.user;
+    const d = await kinxsTasksMerged(u);
+    return d.tasks.filter((t) => (a.status ? t.status === a.status : t.status !== "完了")).map((t) => ({ key: t.key, id: t.id, status: t.status, title: t.title, company: t.account || "", due: t.due || "", source: t.src, kind: t.kind, bucket: t.bucket }));
+  }
+  if (name === "add_task") {
+    const acc = await kxTaskResolveAccount(req.user, a.company);
+    const r = await kxTaskAdd(req.user, { title: String(a.title || "").slice(0, 200), account_id: acc.id || null, account_name: acc.name || null, due: /^\d{4}-\d{2}-\d{2}$/.test(String(a.due || "")) ? a.due : null, status: KX_TASK_STATUS.includes(a.status) ? a.status : "未着手", src: "Claude", note: a.note || null, created_by: req.user });
+    return { ok: true, id: r.id, key: r.key, title: r.title, company: r.account_name || "" };
+  }
+  if (name === "update_task") {
+    let id = a.id;
+    if (!id && a.key) {
+      const d = await kinxsTasksMerged(req.user); const t = d.tasks.find((x) => x.key === a.key);
+      if (!t) throw new Error("そのタスクが見つかりません");
+      const r0 = await kxTaskAdd(req.user, { key: t.key, title: t.title, account_id: t.accountId || null, account_name: t.account || null, due: t.due || null, status: t.status || "未着手", src: t.src });
+      id = r0.id;
+    }
+    if (!id) throw new Error("key か id を入れてください");
+    const patch = {};
+    if (a.status) { if (!KX_TASK_STATUS.includes(a.status)) throw new Error("状態は 未着手・進行中・完了 のどれか"); patch.status = a.status; }
+    if (a.due !== undefined) patch.due = /^\d{4}-\d{2}-\d{2}$/.test(String(a.due || "")) ? a.due : null;
+    if (a.title) patch.title = String(a.title).slice(0, 200);
+    if (a.delete) patch.deleted = true;
+    const r = await kxTaskUpdate(req.user, id, patch);
+    return { ok: !!r, id, status: r && r.status, deleted: !!(r && r.deleted) };
+  }
   if (name === "update_user") {
     const x = await kxFindId(a.company);
     const body = {}; for (const k of ["cs_name", "purpose", "usage_status", "na_text", "na_type", "na_at", "memo"]) if (a[k] !== undefined) body[k] = a[k];
@@ -27496,7 +27598,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27k 開発メモに要望・不具合が入ったら（kinbotに聞く・開発メモの画面）、その場で自動改善（Claude Code）を起動して直す。AI社員の「要望が来たらすぐ直す」で止められる。";
+const BUILD_TAG = "2026-10-27l kinXsのホームをタスク管理に：未完了・進行中・完了のタブ、チェックで完了、状態・期日を変える、消す、タスクを手で足す。Claudeのコネクタ（kinXs）からも、タスクの一覧・追加・状態の変更・削除ができる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
