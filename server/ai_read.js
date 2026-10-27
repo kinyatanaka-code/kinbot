@@ -204,3 +204,14 @@ export async function readShiftCalendar({ buffer, mimeType = "application/pdf", 
     })).filter((x) => x.day >= 1 && x.day <= 31 && x.start && x.end),
   };
 }
+
+// kinbotに聞く：添えられたファイル（画面の写真・PDF・資料）の中身を書き出す（2026-10-27）
+export async function describeForChat({ buffer, mimeType, name = "" }) {
+  if (!GEMINI_KEY) throw new Error("ファイルを読む設定（GEMINI_API_KEY）がありません");
+  const instr = `これは、社内の営業支援ツール kinbot（kinXs・kincall も含む）の使い方の質問や、不具合・要望の報告に添えられたファイル「${name}」です。
+中身を日本語で、あとで開発の人が読んで分かるように書き出してください。
+・画面のスクリーンショットなら：どの画面か、写っている文字（エラーの文・数字・ボタンや項目の名前・会社名）をそのまま、気になる点（表示のずれ・空欄・おかしな数字など）
+・資料・表なら：何の資料か、要点、数字
+推測は書かず、見えることだけを書く。前置きは不要。`;
+  return generate([{ text: instr }, { inline_data: { mime_type: mimeType, data: buffer.toString("base64") } }]);
+}

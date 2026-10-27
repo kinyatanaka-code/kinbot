@@ -705,7 +705,7 @@ import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as liv
 import { notionConfigured, notionStatus, createMeetingPage, createReportPage } from "./notion.js";
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
-import { readDocument, readerAvailable, readWhiteboard, readShiftCalendar } from "./ai_read.js";
+import { readDocument, describeForChat, readerAvailable, readWhiteboard, readShiftCalendar } from "./ai_read.js";
 import { mountMcpServer, mountMcpEndpoint } from "./mcp.js";
 import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
@@ -1085,6 +1085,8 @@ app.use(
 );
 // まとめて送る操作（重複予定の削除・URLの一括発行など）があるので、
 // 既定の100kbだと足りずに「Payload Too Large」のHTMLが返ってしまう。
+// kinbotに聞く：ファイル（画面の写真・PDFなど）を添えられるので、ここだけ大きめ
+app.use("/api/ask-bot", express.json({ limit: "30mb" }));
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true })); // OAuth承認画面の<form>送信（application/x-www-form-urlencoded）用
 
@@ -19322,9 +19324,24 @@ app.get("/api/calls/stats", async (req, res) => {
 // ───────────────────────────────────────────────────────────
 app.post("/api/ask-bot", async (req, res) => {
   try {
-    const message = String(req.body?.message || "").slice(0, 1000);
+    let message = String(req.body?.message || "").slice(0, 2000);
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
-    const r = await askBot({ message, history, callLLM: callLLMPublic });
+    // 添えられたファイル（4つまで・1つ10MBまで）：画像・PDFはAIで中身を書き出し、テキストはそのまま読む
+    const files = (Array.isArray(req.body?.files) ? req.body.files : []).slice(0, 4);
+    const attach = [];
+    for (const f of files) {
+      try {
+        const name = String(f.name || "ファイル").slice(0, 120); const type = String(f.type || "");
+        const buf = Buffer.from(String(f.data || "").replace(/^data:[^,]*,/, ""), "base64");
+        if (!buf.length || buf.length > 10 * 1024 * 1024) { attach.push({ name, text: "（大きすぎるか空なので読めませんでした）" }); continue; }
+        if (/^text\/|json|csv/.test(type) || /\.(txt|csv|md|json|log)$/i.test(name)) attach.push({ name, text: buf.toString("utf8").slice(0, 8000) });
+        else if (/^image\/|application\/pdf/.test(type)) attach.push({ name, text: await describeForChat({ buffer: buf, mimeType: type, name }).catch((e) => `（読めませんでした：${e.message}）`) });
+        else attach.push({ name, text: "（この種類のファイルは読めません。画像・PDF・テキストを添えてください）" });
+      } catch (e) { attach.push({ name: String(f.name || "ファイル"), text: `（読めませんでした：${e.message}）` }); }
+    }
+    const attachText = attach.length ? `\n\n【添えられたファイル】\n${attach.map((a) => `■${a.name}\n${a.text}`).join("\n\n")}` : "";
+    if (!message.trim() && attach.length) message = "（添えたファイルを見てください）";
+    const r = await askBot({ message: `${message}${attachText}`.slice(0, 12000), history, callLLM: callLLMPublic });
 
     let saved = null;
     if (r.note) {
@@ -19341,7 +19358,7 @@ app.post("/api/ask-bot", async (req, res) => {
           key: `bot:${Date.now()}:${r.note.title}`.slice(0, 200),
           kind: r.note.kind,
           title: r.note.title,
-          detail: `聞かれたこと：${message}`,
+          detail: `聞かれたこと：${message}${attach.length ? `\n\n【添えられたファイル】\n${attach.map((a) => `■${a.name}\n${String(a.text).slice(0, 1500)}`).join("\n\n")}` : ""}`.slice(0, 6000),
           source: "ロボに相談",
           createdBy: req.user || "",
         }).catch(() => null);
@@ -27607,7 +27624,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27o アポ割り振りの知らせの「今週・今月・あと○」を、実績ダッシュボードと同じ数に（月の手補正の分を足す。例：今月264→265、あと26→25）。";
+const BUILD_TAG = "2026-10-27p kinbotに聞く：入力欄の例の文をやめ、ファイル（画面の写真・PDF・テキスト）を添えられるように（📎・貼り付け・ドラッグ、4つまで）。添えたファイルはAIが中身を読んで答え、開発メモにも残す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

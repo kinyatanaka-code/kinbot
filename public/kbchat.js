@@ -30,13 +30,24 @@
       </div>
       <div class="kb-chat-body" id="kbChatBody"></div>
       <div class="kb-chat-tips" id="kbChatTips"></div>
+      <div class="kb-chat-files" id="kbChatFiles" hidden></div>
       <div class="kb-chat-foot">
-        <textarea id="kbChatInput" rows="1" placeholder="例：御礼メールの宛先はどこから入るの？"></textarea>
+        <button type="button" class="kb-chat-attach" id="kbChatAttach" title="ファイルを添える（画面の写真・PDF・テキスト。貼り付け・ドラッグでも）" aria-label="ファイルを添える">📎</button>
+        <input type="file" id="kbChatFile" multiple accept="image/*,application/pdf,.txt,.csv,.md,.json,.log" hidden />
+        <textarea id="kbChatInput" rows="1" placeholder=""></textarea>
         <button type="button" class="kb-chat-send" id="kbChatSend">送る</button>
       </div>`;
     document.body.appendChild(panel);
 
     panel.querySelector(".kb-chat-x").addEventListener("click", close);
+    const fileIn = panel.querySelector("#kbChatFile");
+    panel.querySelector("#kbChatAttach").addEventListener("click", () => fileIn.click());
+    fileIn.addEventListener("change", () => { addFiles([...fileIn.files]); fileIn.value = ""; });
+    const inp0 = panel.querySelector("#kbChatInput");
+    inp0.addEventListener("paste", (e) => { const fs = [...((e.clipboardData && e.clipboardData.files) || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); } });
+    panel.addEventListener("dragover", (e) => { if ([...(e.dataTransfer.types || [])].includes("Files")) { e.preventDefault(); panel.classList.add("kb-drop"); } });
+    panel.addEventListener("dragleave", (e) => { if (!panel.contains(e.relatedTarget)) panel.classList.remove("kb-drop"); });
+    panel.addEventListener("drop", (e) => { if (!e.dataTransfer.files.length) return; e.preventDefault(); panel.classList.remove("kb-drop"); addFiles([...e.dataTransfer.files]); });
 
     // 小さくする／元に戻す。小さくしている間は、ほかの画面をそのまま触れる。
     const miniBtn = panel.querySelector(".kb-chat-mini-btn");
@@ -102,6 +113,25 @@
       b.addEventListener("click", () => ask(b.textContent)));
   }
 
+  // 添えるファイル（送るまで、ここにためる）
+  let pending = [];
+  function addFiles(list) {
+    for (const f of list) {
+      if (pending.length >= 4) { alert("ファイルは4つまでです"); break; }
+      if (f.size > 10 * 1024 * 1024) { alert(`「${f.name}」は大きすぎます（10MBまで）`); continue; }
+      if (!/^image\/|application\/pdf|^text\/|json|csv/.test(f.type) && !/\.(txt|csv|md|json|log|pdf)$/i.test(f.name)) { alert(`「${f.name}」は添えられません（画像・PDF・テキスト）`); continue; }
+      const it = { name: f.name || (f.type.startsWith("image/") ? "貼り付けた画像.png" : "ファイル"), type: f.type || "", size: f.size, data: "", url: f.type.startsWith("image/") ? URL.createObjectURL(f) : "" };
+      pending.push(it);
+      const rd = new FileReader(); rd.onload = () => { it.data = String(rd.result || ""); }; rd.readAsDataURL(f);
+    }
+    paintFiles();
+  }
+  function paintFiles() {
+    const box = panel.querySelector("#kbChatFiles");
+    box.hidden = !pending.length;
+    box.innerHTML = pending.map((f, i) => `<span class="kb-file">${f.url ? `<img src="${f.url}" alt="" />` : `<span class="ic">${/pdf/i.test(f.type + f.name) ? "PDF" : "TXT"}</span>`}<span class="nm">${esc(f.name)}</span><button type="button" data-rm="${i}" aria-label="外す">×</button></span>`).join("");
+    box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { pending.splice(Number(b.dataset.rm), 1); paintFiles(); }));
+  }
   function say(role, text, opts = {}) {
     const body = panel.querySelector("#kbChatBody");
     const row = document.createElement("div");
@@ -116,20 +146,23 @@
 
   async function ask(raw) {
     const text = String(raw || "").trim();
-    if (!text || busy) return;
+    if ((!text && !pending.length) || busy) return;
+    for (let i = 0; i < 30 && pending.some((f) => !f.data); i++) await new Promise((r) => setTimeout(r, 100));
+    const files = pending.slice(); pending = []; paintFiles();
     busy = true;
     const input = panel.querySelector("#kbChatInput");
     input.value = "";
     input.style.height = "auto";
     const tips = panel.querySelector("#kbChatTips");
     if (tips) tips.innerHTML = "";
-    say("me", text);
-    const waiting = say("wait", "考えています…");
+    const meRow = say("me", text || "（ファイルを添えました）");
+    if (files.length) meRow.insertAdjacentHTML("beforeend", `<div class="kb-msg-files">${files.map((f) => f.url ? `<img src="${f.url}" alt="${esc(f.name)}" title="${esc(f.name)}" />` : `<span class="kb-file sm"><span class="ic">${/pdf/i.test(f.type + f.name) ? "PDF" : "TXT"}</span><span class="nm">${esc(f.name)}</span></span>`).join("")}</div>`);
+    const waiting = say("wait", files.length ? "ファイルを読んで、考えています…" : "考えています…");
 
     try {
       const r = await fetch("/api/ask-bot", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: text, history: history.slice(-6) }),
+        body: JSON.stringify({ message: text, history: history.slice(-6), files: files.map((f) => ({ name: f.name, type: f.type, data: f.data })) }),
       });
       const d = await r.json();
       waiting.remove();
