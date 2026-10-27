@@ -13819,11 +13819,13 @@ async function kxSfOppCandidates(name, formers = []) {
   const cond = names.flatMap((n) => [`Account.Name = '${esc1(n)}'`, shortOf(n).length >= 2 ? `Account.Name LIKE '%${esc1(shortOf(n))}%'` : "", shortOf(n).length >= 2 ? `Name LIKE '%${esc1(shortOf(n))}%'` : ""]).filter(Boolean).join(" OR ");
   if (!cond) return [];
   const WON = "(StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%')";
-  const recs = (await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name, RecordType.Name FROM Opportunity WHERE ((RecordType.Name LIKE '%クロス%' AND ${WON}) OR RecordType.Name LIKE '%X追加%' OR Name LIKE '%X追加%') AND (${cond}) ORDER BY CloseDate DESC LIMIT 30`)).records || [];
+  const recs = (await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name, RecordType.Name FROM Opportunity WHERE ((RecordType.Name LIKE '%クロス%' AND ${WON}) OR RecordType.Name LIKE '%追加商談%' OR Name LIKE '%追加商談%') AND (${cond}) ORDER BY CloseDate DESC LIMIT 30`)).records || [];
   const keys = new Set(names.map((n) => csCoKey(n)));
   return recs.map((o) => {
-    const xadd = /X追加/.test(`${(o.RecordType && o.RecordType.Name) || ""} ${o.Name || ""}`);
-    return { id: o.Id, name: o.Name || "", account: (o.Account && o.Account.Name) || "", accountId: o.AccountId, stage: o.StageName || "", booked: String(o.SS06__c || o.CloseDate || "").slice(0, 10), owner: (o.Owner && o.Owner.Name) || "", kind: xadd ? "X追加" : "クロス", same: keys.has(csCoKey((o.Account && o.Account.Name) || "")) };
+    // 追加商談（商談名・レコードタイプが「追加商談_X_…」のもの）は、手で選ぶだけ（2026-10-27：X追加ではなく 追加商談_X_）
+    const xadd = /追加商談/.test(`${(o.RecordType && o.RecordType.Name) || ""} ${o.Name || ""}`);
+    const isCross = /クロス/.test((o.RecordType && o.RecordType.Name) || "");
+    return { id: o.Id, name: o.Name || "", account: (o.Account && o.Account.Name) || "", accountId: o.AccountId, stage: o.StageName || "", booked: String(o.SS06__c || o.CloseDate || "").slice(0, 10), owner: (o.Owner && o.Owner.Name) || "", kind: xadd && !(isCross && !/追加商談/.test(o.Name || "")) ? "追加商談" : "クロス", same: keys.has(csCoKey((o.Account && o.Account.Name) || "")) };
   }).sort((x, y) => (x.kind === "クロス" ? 0 : 1) - (y.kind === "クロス" ? 0 : 1) || (y.same ? 1 : 0) - (x.same ? 1 : 0) || String(y.booked).localeCompare(String(x.booked)));
 }
 // 手で入れた会社を、商談（いくつでも）に紐づける：商談ごとの取引先を取り込み（その商談だけ）、1つの会社にまとめる
@@ -27659,7 +27661,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27x kinXsのSFへの紐づけ：X追加の商談も、候補に出して手で選んで紐づけられるように（自動の紐づけはクロスの受注だけのまま）。";
+const BUILD_TAG = "2026-10-27y kinXsのSFへの紐づけ：手で選ぶ候補は「X追加」ではなく「追加商談（追加商談_X_）」の商談に直した。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -512,7 +512,7 @@ $("lsCs").addEventListener("change", renderList);
 function kxLinkBox(d) {
   const x = d.item || {};
   if (!x.manual) return "";
-  return `<section class="kx-c2 kx-linkbox"><div class="kx-c2h"><b>SFの商談に紐づいていません</b><span class="kx-note">クロスの商談で受注しているもの（申込書回収（06）以降）か、X追加の商談を選ぶと、その商談の商品・受注日・契約終了日、取引先のHPなどがSFから入ります（手で入れた中身は引き継ぎます）</span></div>
+  return `<section class="kx-c2 kx-linkbox"><div class="kx-c2h"><b>SFの商談に紐づいていません</b><span class="kx-note">クロスの商談で受注しているもの（申込書回収（06）以降）か、追加商談（追加商談_X_）を選ぶと、その商談の商品・受注日・契約終了日、取引先のHPなどがSFから入ります（手で入れた中身は引き継ぎます）</span></div>
     <div class="row"><input class="kx-in" data-lk-q value="${esc(x.name)}" placeholder="会社名・商談名で探す" /><button type="button" class="hp-b" data-lk-search>探す</button></div>
     <div data-lk-list class="kx-lk-list"><span class="kx-note">探しています…</span></div>
     <div class="row"><input class="kx-in" data-lk-id placeholder="または、SFの商談のURL・ID（006…）を貼る（いくつでも、空白で区切る）" /><button type="button" class="hp-b" data-lk-id-go>この商談と紐づける</button></div>
@@ -849,8 +849,8 @@ async function openDetail(id, reuse) {
       try {
         const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/sf-opps${q ? `?q=${encodeURIComponent(q)}` : ""}`);
         const its = r.items || [];
-        if (!its.length) { lkList.innerHTML = '<span class="kx-note">クロスの受注・X追加の商談が見つかりませんでした。名前を短くして探すか、商談のURLを貼ってください</span>'; return; }
-        lkList.innerHTML = its.map((c) => `<label class="kx-lk${c.kind === "X追加" ? " xadd" : ""}"><input type="checkbox" data-lk-cb="${esc(c.id)}" ${c.same && c.kind !== "X追加" ? "checked" : ""} /><div class="nm">${esc(c.name)}<span class="kx-src" style="${c.kind === "X追加" ? "background:#F0EAFB;color:#523490" : ""}">${esc(c.kind || "クロス")}</span>${c.same ? '<span class="kx-src">取引先名が同じ</span>' : ""}<small>${esc(c.account)}・${esc(c.stage)}${c.booked ? `・受注 ${esc(c.booked.replace(/-/g, "/"))}` : ""}${c.owner ? `・FS ${esc(c.owner)}` : ""}</small></div></label>`).join("")
+        if (!its.length) { lkList.innerHTML = '<span class="kx-note">クロスの受注・追加商談が見つかりませんでした。名前を短くして探すか、商談のURLを貼ってください</span>'; return; }
+        lkList.innerHTML = its.map((c) => `<label class="kx-lk${c.kind === "追加商談" ? " xadd" : ""}"><input type="checkbox" data-lk-cb="${esc(c.id)}" ${c.same && c.kind !== "追加商談" ? "checked" : ""} /><div class="nm">${esc(c.name)}<span class="kx-src" style="${c.kind === "追加商談" ? "background:#F0EAFB;color:#523490" : ""}">${esc(c.kind || "クロス")}</span>${c.same ? '<span class="kx-src">取引先名が同じ</span>' : ""}<small>${esc(c.account)}・${esc(c.stage)}${c.booked ? `・受注 ${esc(c.booked.replace(/-/g, "/"))}` : ""}${c.owner ? `・FS ${esc(c.owner)}` : ""}</small></div></label>`).join("")
           + `<div style="display:flex;justify-content:flex-end"><button type="button" class="kx-btn kx-pri" data-lk-sel>選んだ商談と紐づける</button></div>`;
         lkList.querySelector("[data-lk-sel]").addEventListener("click", () => { const ids = [...lkList.querySelectorAll("[data-lk-cb]:checked")].map((cb) => cb.dataset.lkCb); if (!ids.length) { alert("商談を選んでください"); return; } doLink(ids, `商談${ids.length}件`); });
       } catch (e) { lkList.innerHTML = `<span class="kx-note">探せませんでした：${esc(e.message)}</span>`; }
