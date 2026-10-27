@@ -3480,7 +3480,13 @@ async function groupApoCountsRaw() {
       if (idxWeek >= 0 && i >= idxWeek) mwk += n;
       if (i === idxToday) mday += n;
     }
-    return { today: tday + mday, week: twk + mwk, month: tmn + mmn, mailmaga: { today: mday, week: mwk, month: mmn } };
+    // ダッシュボードと同じ数にする：月の手補正（記録に残らなかったアポを足した分）を、今月と今週に足す（26l の週次と同じく今の週へ）
+    let adj = 0;
+    try {
+      const all = { ...DASH_APO_ADJUST_BASE }; const stA = await getSettings(); for (const [k, v] of Object.entries(stA.dashApoAdjust || {})) all[k] = { ...(all[k] || {}), ...v };
+      for (const v of Object.values(all[`month:${today.slice(0, 7)}`] || {})) adj += Number(v) || 0;
+    } catch {}
+    return { today: tday + mday, week: twk + mwk + adj, month: tmn + mmn + adj, mailmaga: { today: mday, week: mwk, month: mmn } };
   } catch (e) { console.warn("[groupApoCounts]", e.message); return { today: 0, week: 0, month: 0 }; }
 }
 
@@ -27601,7 +27607,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27n kinXsのホームのタスク：日付の欄をやめて「期日 10/29 ✏️」（鉛筆で期日を直す）。完了にしたら完了のタブへ移す。前に読んだメール・チャットのタスクに目印が無く、状態を変えても別のタスクに当たって完了にならなかったのを直した。";
+const BUILD_TAG = "2026-10-27o アポ割り振りの知らせの「今週・今月・あと○」を、実績ダッシュボードと同じ数に（月の手補正の分を足す。例：今月264→265、あと26→25）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
