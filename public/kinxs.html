@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261027m" />
+    <link rel="stylesheet" href="style.css?v=20261027n" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -486,6 +486,11 @@
   .kh-ctl{display:flex;gap:4px;align-items:center;flex:none;} .kh-st{border:1px solid #D5E2DB;border-radius:7px;padding:3px 5px;font:inherit;font-size:11.5px;background:#fff;}
   .kh-due{border:1px solid #D5E2DB;border-radius:7px;padding:2px 4px;font:inherit;font-size:11px;width:118px;color:#33463E;} .kh-x{border:0;background:none;color:#9AA8A1;font-size:16px;cursor:pointer;padding:0 4px;} .kh-x:hover{color:#A51F16;}
   .kh-src.cl{background:#FFF1DC;color:#7A3F00;}
+  .kh-duev{font-size:11.5px;font-weight:700;color:#4F6158;white-space:nowrap;} .kh-duev.late{color:#A51F16;}
+  .kh-pen{border:0;background:none;cursor:pointer;font-size:12px;padding:0 2px;opacity:.65;} .kh-pen:hover{opacity:1;}
+  .kh-due[hidden],.kh-pen[hidden],.kh-duev[hidden]{display:none !important;}
+  .kh-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#0E6B4E;color:#fff;font-size:13px;font-weight:700;padding:9px 16px;border-radius:99px;opacity:0;transition:.2s;z-index:9999;pointer-events:none;}
+  .kh-toast.on{opacity:1;transform:translateX(-50%) translateY(0);}
 </style>
 </head>
   <body>
@@ -599,7 +604,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261027m" defer></script>
-    <script src="kinxs.js?v=20261027m"></script>
+    <script src="kbchat.js?v=20261027n" defer></script>
+    <script src="kinxs.js?v=20261027n"></script>
   </body>
 </html>

@@ -12998,10 +12998,11 @@ setTimeout(async () => { try { const st = await getSettings(); if ((st.kxInboxCa
 async function kinxsHomeInbox(user, { fresh = false, wait = false } = {}) {
   const me = String(user || "").toLowerCase();
   const c = _kxInbox.get(me) || {};
-  const start = () => { if (!c.p) { c.p = kinxsHomeInboxRead(user).then((d) => { c.data = d; c.at = Date.now(); kxInboxSave(); return d; }).finally(() => { c.p = null; }); _kxInbox.set(me, c); } return c.p; };
+  const start = () => { if (!c.p) { c.p = kinxsHomeInboxRead(user).then((d) => { d.tasks = (d.tasks || []).map((t) => (t.key ? t : { ...t, key: kxTaskKey(t) })); c.data = d; c.at = Date.now(); kxInboxSave(); return d; }).finally(() => { c.p = null; }); _kxInbox.set(me, c); } return c.p; };
   if (fresh || !c.data) return start();
   if (Date.now() - (c.at || 0) > 10 * 60 * 1000) { start().catch(() => {}); if (wait) return c.p || c.data; }
-  return { ...c.data, stale: Date.now() - (c.at || 0) > 10 * 60 * 1000 };
+  const d0 = c.data || {};
+  return { ...d0, tasks: (d0.tasks || []).map((t) => (t.key ? t : { ...t, key: kxTaskKey(t) })), stale: Date.now() - (c.at || 0) > 10 * 60 * 1000 };
 }
 // まとめ（コネクタなど、両方いっぺんに欲しいとき）
 async function kinxsHome(user, { fresh = false } = {}) {
@@ -27600,7 +27601,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27m チャットの送り先に「開発依頼（kinbotチャット）」のチェック：kinbotに聞く・開発メモに要望が入ったときの知らせ（と、自動で直し始めた知らせ）を、チェックしたチャットへ送る（どこもチェックしていなければ今までどおり）。";
+const BUILD_TAG = "2026-10-27n kinXsのホームのタスク：日付の欄をやめて「期日 10/29 ✏️」（鉛筆で期日を直す）。完了にしたら完了のタブへ移す。前に読んだメール・チャットのタスクに目印が無く、状態を変えても別のタスクに当たって完了にならなかったのを直した。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
