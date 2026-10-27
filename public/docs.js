@@ -79,7 +79,7 @@ async function loadDocs() {
       for (const f of docsCache) if (f.active && (!mineOnly || (f.is_template !== false && (f.mine || f.shared !== false)))) sel.add(new Option(f.name, f.id));
       if (cur) sel.value = cur;
     }
-    { const bx = document.getElementById("dsBundle"); if (bx) bx.innerHTML = bundleBoxHtml(); }
+    { const bx = document.getElementById("dsPicker"); if (bx) { const keep = bx._items; bx.innerHTML = dpPickerInner(); bx._items = keep || []; dpPaint(bx); if (!bx.dataset.wired) { bx.dataset.wired = "1"; bx.addEventListener("change", dpOnChange); } } }
 
     const box = $("dfList");
     if (!docsCache.length) {
@@ -241,18 +241,20 @@ function parseRows(text) {
 }
 
 $("dsMake").addEventListener("click", async () => {
-  const docId = parseInt($("dsDoc").value, 10);
-  if (!docId) { say("dsStatus", "資料を選んでください", 4000); return; }
+  const pk = document.getElementById("dsPicker");
+  if (!dpItems(pk).length) { say("dsStatus", "送る資料を選んでください（テンプレから足すか、別の資料を足してください）", 5000); return; }
   const rows = parseRows($("dsRows").value);
   if (!rows.length) { say("dsStatus", "宛先を貼り付けてください", 4000); return; }
-  if (!confirm(`${rows.length}件のURLを発行します。よろしいですか？`)) return;
+  if (!confirm(`${rows.length}件のURLを発行します${dpItems(pk).length > 1 ? `（資料${dpItems(pk).length}点を1つのリンクにまとめます）` : ""}。よろしいですか？`)) return;
   $("dsMake").disabled = true;
   say("dsStatus", "発行しています…");
   try {
+    const ids = await dpUploadAll(pk, (m) => say("dsStatus", m));
+    const docId = ids[0];
     const r = await fetch("/api/doc-links", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        docId, docIds: [docId, ...bundleIdsOrdered(document.getElementById("dsBundle") || document, docId)], rows,
+        docId, docIds: ids, rows,
         expiry: ($("dsExpiry") && $("dsExpiry").value) || "0",
         pass: ($("dsPass") && $("dsPass").value.trim()) || "",
         askName: !!($("dsAskName") && $("dsAskName").checked),
@@ -569,6 +571,52 @@ function docPreview(name, src, note) {
   bg.querySelector(".dk-pv-x").addEventListener("click", close);
   document.addEventListener("keydown", function k(ev) { if (ev.key === "Escape") { close(); document.removeEventListener("keydown", k); } });
 }
+function dpPickerInner() {
+  const opts = docsCache.filter((f) => f.active && f.is_template !== false && (f.mine || f.shared !== false));
+  return `<div class="dp-lab">送る資料<span class="note">上から順に、お客様の画面のタブになります（2つ以上なら1つのリンクにまとめます）</span></div>
+     <div class="dp-items"><div class="note dp-empty">まだ選んでいません</div></div>
+     <div class="dp-line">
+       <select class="de-sel">
+         <option value="">＋ テンプレ資料から足す</option>
+         ${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}
+       </select>
+       <label class="btn ghost dp-upbtn">＋ 別の資料を足す（PDF）<input type="file" class="dp-file" accept="application/pdf" multiple hidden /></label>
+     </div>`;
+}
+// 選ぶ欄・ファイル：選んだら一覧に足す（「＋送付」の窓と「URLを発行する」で同じ）
+function dpOnChange(ev) {
+  const sel = ev.target.closest && ev.target.closest(".de-sel");
+  if (sel) {
+    const wrap = sel.closest(".de-picker"); const id = parseInt(sel.value, 10);
+    if (id && !dpItems(wrap).some((x) => x.id === id)) { const f = docsCache.find((x) => x.id === id); dpItems(wrap).push({ id, name: (f && f.name) || "資料" }); dpPaint(wrap); }
+    sel.value = ""; return true;
+  }
+  const fi = ev.target.closest && ev.target.closest(".dp-file");
+  if (fi) {
+    const wrap = fi.closest(".de-picker");
+    for (const f of [...(fi.files || [])]) { if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) { alert(`「${f.name}」はPDFではありません`); continue; } dpItems(wrap).push({ file: f, name: f.name.replace(/\.pdf$/i, "") }); }
+    fi.value = ""; dpPaint(wrap); return true;
+  }
+  return false;
+}
+// 一覧の資料を登録して、順の id を返す（別の資料はここで登録する）
+async function dpUploadAll(wrap, setSt) {
+  const items = dpItems(wrap); const ids = [];
+  for (const it of items) {
+    if (it.id) { ids.push(it.id); continue; }
+    const fd = new FormData();
+    fd.append("name", String(it.name || "").trim() || it.file.name.replace(/\.pdf$/i, ""));
+    fd.append("file", it.file);
+    fd.append("template", "false");
+    if (setSt) setSt(`「${it.name}」を登録中…`);
+    const up = await fetch("/api/docs", { method: "POST", body: fd });
+    const ud = await up.json();
+    if (!up.ok) throw new Error(ud.error || "資料を登録できませんでした");
+    it.id = ud.doc && ud.doc.id; if (it.id) ids.push(it.id);
+  }
+  if (items.some((it) => it.file)) await loadDocs();
+  return ids;
+}
 // 送る資料の一覧（テンプレ＝id、別の資料＝まだ登録していないファイル）
 function dpItems(wrap) { return wrap._items || (wrap._items = []); }
 function dpPaint(wrap) {
@@ -714,7 +762,8 @@ if ($("deList")) {
   });
   // 「＋新しい資料を登録」を選んだらファイル欄を出す
   $("deList").addEventListener("change", (ev) => {
-    const sel = ev.target.closest(".de-sel");
+    if (dpOnChange(ev)) return;
+    const sel = null;
     if (sel) {
       const wrap = sel.closest(".de-picker"); const id = parseInt(sel.value, 10);
       if (id && !dpItems(wrap).some((x) => x.id === id)) { const f = docsCache.find((x) => x.id === id); dpItems(wrap).push({ id, name: (f && f.name) || "資料" }); dpPaint(wrap); }

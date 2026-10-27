@@ -7136,3 +7136,6 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .dp-it .nm[data-pv] { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; } .dp-it .nm[data-pv]:hover { color: #0E6B4E; }
 .dp-pv { flex: none; border: 1px solid #D5E2DB; background: #fff; color: #0E6B4E; border-radius: 7px; padding: 2px 8px; font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; }
 .dp-pv:hover { background: #F2FAF6; border-color: #1D9E75; }
+/* 「URLを発行する」の送る資料の一覧（2026-10-28） */
+.ds-picker { background: #F7FAF8; border: 1px solid #E1E9E5; border-radius: 12px; padding: 10px 12px; margin: 6px 0 12px; }
+.ds-picker .dp-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .ds-picker .de-sel { min-width: 280px; }
