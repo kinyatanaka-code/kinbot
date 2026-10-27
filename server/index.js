@@ -6041,6 +6041,21 @@ app.get("/api/docs", async (req, res) => {
     res.json({ docs, base: PUBLIC_URL, me: req.user || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// テンプレ資料の中身を、社内の人が確かめるために開く（閲覧の記録・Chatの知らせはしない）（2026-10-27）
+app.get("/api/docs/:id/preview", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    // 見られるのは、一覧に出る資料（チームに共有した資料と、自分の資料）だけ
+    const rows = await listDocFiles({ owner: req.user, all: true });
+    if (!rows.some((d) => Number(d.id) === id)) return res.status(404).send("見つかりません");
+    const f = await getDocBytes(id);
+    if (!f || !f.bytes) return res.status(404).send("資料がありません");
+    res.setHeader("content-type", f.mime || "application/pdf");
+    res.setHeader("cache-control", "private, max-age=300");
+    res.setHeader("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(fixMojibake(f.filename) || "document.pdf")}`);
+    res.send(f.bytes);
+  } catch (e) { res.status(500).send("読み込めませんでした"); }
+});
 // 資料の並び順を保存する（その人の画面だけの順番。ほかの人の並びは変わらない）
 app.put("/api/docs/order", async (req, res) => {
   try {
@@ -27641,7 +27656,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27v kinXs：CS連携でCS担当を決めた会社（自動の割り振り・Chatのボタン・企業カード、どこで決めても）は、kinXsのCS担当にもすぐ出す（担当別の列にも移る）。10分ごとにkinXsの記録もそろえる。";
+const BUILD_TAG = "2026-10-27w 資料トラッキングのテンプレ資料に「中身を見る」：窓の中でPDFを開いて確かめられる（別のタブでも）。閲覧の記録やChatの知らせには入らない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

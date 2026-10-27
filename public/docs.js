@@ -108,6 +108,7 @@ async function loadDocs() {
             発行 ${f.links}件／閲覧 ${f.views}件　${esc(fmtWhen(f.created_at))}</div>
         </div>
         <div class="dk-act">
+          <button type="button" class="btn ghost dk-preview" data-preview="${f.id}" title="中身を確かめる（閲覧の記録には入りません）">中身を見る</button>
           ${f.mine ? `<button type="button" class="dk-menu-btn" aria-label="操作メニュー"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
           <div class="dk-menu" hidden>
             <button type="button" class="df-share">${f.shared === false ? "チームに共有する" : "自分だけにする"}</button>
@@ -134,6 +135,20 @@ async function loadDocs() {
       box.prepend(hint);
     }
     wireDocDrag(box.querySelector(".dk-list"));
+
+    // テンプレ資料の中身を見る（窓の中でPDFを開く。閲覧の記録・知らせはしない）
+    box.querySelectorAll("[data-preview]").forEach((b) => b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const f = docsCache.find((x) => String(x.id) === b.dataset.preview); if (!f) return;
+      document.querySelectorAll(".dk-pv-bg").forEach((x) => x.remove());
+      const bg = document.createElement("div"); bg.className = "dk-pv-bg";
+      bg.innerHTML = `<div class="dk-pv" role="dialog" aria-label="${esc(f.name)}"><div class="dk-pv-h"><b>${esc(f.name)}</b><span class="note">${esc(f.filename || "")}・閲覧の記録には入りません</span><a class="btn ghost" href="/api/docs/${f.id}/preview" target="_blank" rel="noopener">別のタブで開く ↗</a><button type="button" class="btn ghost dk-pv-x">閉じる</button></div><iframe src="/api/docs/${f.id}/preview#view=FitH" title="${esc(f.name)}"></iframe></div>`;
+      document.body.appendChild(bg);
+      const close = () => bg.remove();
+      bg.addEventListener("click", (ev) => { if (ev.target === bg) close(); });
+      bg.querySelector(".dk-pv-x").addEventListener("click", close);
+      document.addEventListener("keydown", function k(ev) { if (ev.key === "Escape") { close(); document.removeEventListener("keydown", k); } });
+    }));
 
     // 「使わない資料も見る／隠す」
     const tg = $("dfToggleUnused");
