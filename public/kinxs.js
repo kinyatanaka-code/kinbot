@@ -91,7 +91,9 @@ function render() {
   const pastRows = rowsInfo.filter((r) => r.past), nextRows = rowsInfo.filter((r) => !r.past);
   const pastN = pastRows.reduce((a, r) => a + r.list.length, 0), nextN = nextRows.reduce((a, r) => a + r.list.length, 0);
   const pastOpen = window.__kxPastOpen !== false;
-  const body = (pastRows.length ? `<div class="kx-sec-h past" data-past-toggle role="button" tabindex="0"><span>${pastOpen ? "▾" : "▸"}</span>更新月を過ぎた会社<em>${pastN}社</em><small>押すとたたむ／開く</small></div>${pastOpen ? pastRows.map((r) => r.html).join("") : ""}` : "")
+  // 更新月を過ぎた会社は、月ごとの行にせず、1つの箱にまとめて並べる（チップに月を小さく付ける）。行が長くなって見づらかったので（2026-10-27）
+  const pastChips = pastRows.slice().sort((a2, b2) => String(a2.m).localeCompare(String(b2.m))).flatMap((r) => r.list.slice().sort((a3, b3) => (rankOrder[a3.rank] - rankOrder[b3.rank]) || a3.name.localeCompare(b3.name, "ja")).map((x) => chip(x).replace('<span class="nm">', `<span class="mo">${esc(String(r.m).slice(2).replace("-", "/"))}</span><span class="nm">`)));
+  const body = (pastRows.length ? `<div class="kx-sec-h past" data-past-toggle role="button" tabindex="0"><span>${pastOpen ? "▾" : "▸"}</span>更新月を過ぎた会社<em>${pastN}社</em><small>古い月から・チップの左が更新月／押すとたたむ・開く</small></div>${pastOpen ? `<div class="kx-mrow v2 past kx-pastbox" data-month=""><div class="kx-chips2">${pastChips.join("")}</div></div>` : ""}` : "")
     + `<div class="kx-sec-h">これからの更新<em>${nextN}社</em></div>${nextRows.map((r) => r.html).join("")}`
     + (noMonth.length ? `<div class="kx-sec-h">更新月が未定<em>${noMonth.length}社</em></div>${rowHtml("", noMonth, "未定", "契約終了日が無い", "past")}` : "");
   const fcount = { warn: items.filter((x) => x.warn).length, all: items.length, Z: items.filter((x) => x.rank === "Z").length, mine: myName ? items.filter((x) => String(x.cs || "").replace(/\s/g, "").includes(myName.replace(/\s/g, ""))).length : 0 };
