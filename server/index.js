@@ -12771,65 +12771,92 @@ async function kinxsBuild() {
 }
 // ===== kinXs：会社のHPからロゴ（アイコン）を探す =====
 // HPのトップを読んで apple-touch-icon → 大きい icon の順に。見つからなければ Google のファビコン（128px）。30日に1回読み直す
-async function kxFindLogo(site) {
-  // 会社のロゴを、HPのトップから探す（2026-10-24 直し：ファビコンばかりで会社のロゴにならなかった）
-  //   ① ページの上の方（header・ナビ）の <img>／<svg> で、src・alt・class・id に logo／ロゴ が入っているもの
-  //   ② apple-touch-icon・大きい icon（ロゴの代わり）
-  //   ③ Google のファビコン
+async function kxFindLogo(site, coName = "") {
+  // 会社のロゴを、HPから探す（2026-10-27 作り直し：候補をたくさん集めて点数を付け、実際に画像として読めるものを選ぶ）
+  //   集める候補：schema.org の logo／ロゴの入れ物（class・id に logo・brand…）の中の画像・SVG／src・alt・class に logo・ロゴ・会社名が入る画像
+  //   ／og:image（logo を含むものを高く）／apple-touch-icon・大きい icon／/apple-touch-icon.png・/favicon.ico／Google のファビコン
+  //   トップの下のページ（会社概要など）をHPにしているときは、そのサイトのトップも見る
   let u = String(site || "").trim(); if (!u) return null;
   if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
-  let host = ""; try { host = new URL(u).hostname; } catch { return null; }
+  let host = "", origin = ""; try { const uu = new URL(u); host = uu.hostname; origin = uu.origin; } catch { return null; }
   const fallback = `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
-  let html = "", base = u;
-  for (const tryUrl of [u, u.replace(/^https:/i, "http:")]) {
+  const UA = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36", "accept-language": "ja" };
+  const getHtml = async (url) => {
+    for (const tryUrl of [url, url.replace(/^https:/i, "http:")]) {
+      try {
+        const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000);
+        const r = await fetch(tryUrl, { signal: ctl.signal, redirect: "follow", headers: UA }).finally(() => clearTimeout(tm));
+        if (!r.ok) continue;
+        const ct = String(r.headers.get("content-type") || ""); if (ct && !/html|xml|text/i.test(ct)) continue;
+        return { html: (await r.text()).slice(0, 800000), base: r.url || tryUrl };
+      } catch {}
+    }
+    return null;
+  };
+  const short = String(coName || "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|公益社団法人|公益財団法人|学校法人|[（）()\s　]/g, "").toLowerCase();
+  const cands = [];
+  const add = (url, score, why) => { if (url && !cands.some((c) => c.url === url)) cands.push({ url, score, why }); else if (url) { const c = cands.find((x) => x.url === url); if (c && c.score < score) c.score = score; } };
+  const pages = [u]; if (new URL(u).pathname.replace(/\/+$/, "") !== "") pages.push(`${origin}/`);
+  for (const pg of pages) {
+    const got = await getHtml(pg); if (!got) continue;
+    const { html, base } = got; const bonus = pg === u ? 0 : -15;
+    const abs = (h) => { try { const x = new URL(String(h).replace(/&amp;/g, "&").trim(), base).href; return /^https?:/i.test(x) ? x : null; } catch { return null; } };
+    const attr = (tag, n) => ((tag.match(new RegExp(`\\s${n}\\s*=\\s*["']([^"']+)["']`, "i")) || [])[1] || "");
+    const srcOf = (tag) => attr(tag, "src") || attr(tag, "data-src") || attr(tag, "data-lazy-src") || attr(tag, "data-original") || (attr(tag, "srcset").split(/\s+/)[0] || "") || (attr(tag, "data-srcset").split(/\s+/)[0] || "");
+    // ⓪ 構造化データの logo
+    for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+      for (const lm of m[1].matchAll(/"logo"\s*:\s*(?:"([^"]+)"|\{[^}]*"url"\s*:\s*"([^"]+)")/gi)) add(abs(lm[1] || lm[2]), 300 + bonus, "schema");
+    }
+    const headEnd = (() => { const m = html.search(/<\/header>/i); return m > 0 ? m : Math.min(html.length, 60000); })();
+    // ① ロゴの入れ物（class・id に logo・brand・site-title…）の中の画像・SVG
+    for (const box of html.matchAll(/<(a|div|h1|p|span|figure|header|strong)\b[^>]*(?:class|id)\s*=\s*["'][^"']*(?:logo|site-?title|brand|site-?name|header-?title)[^"']*["'][^>]*>([\s\S]{0,3000}?)<\/\1>/gi)) {
+      const inner = box[2]; const pos = box.index;
+      const im = inner.match(/<img\b[^>]*>/i);
+      if (im) { const src = srcOf(im[0]); if (src && !/^data:image\/(gif|png);base64,R0lGOD/i.test(src)) add(src.startsWith("data:") ? src : abs(src), 260 + (pos < headEnd ? 30 : 0) + bonus, "logo-box"); }
+      const sv = inner.match(/<svg\b[\s\S]*?<\/svg>/i);
+      if (sv && sv[0].length < 120000) { let svg = sv[0]; if (!/xmlns=/.test(svg)) svg = svg.replace(/<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"'); add(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`, 240 + (pos < headEnd ? 30 : 0) + bonus, "logo-svg"); }
+      const bg = (box[0].match(/background(?:-image)?\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)/i) || [])[1]; if (bg) add(abs(bg), 200 + bonus, "logo-bg");
+    }
+    // ② src・alt・class・id に logo・ロゴ・会社名が入る画像
+    for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+      const tag = m[0]; const src = srcOf(tag); if (!src || /^data:image\/(gif|png);base64,R0lGOD/i.test(src)) continue;
+      const alt = attr(tag, "alt"); const hint = `${src} ${alt} ${attr(tag, "class")} ${attr(tag, "id")}`.toLowerCase();
+      const nameHit = short.length >= 2 && alt.replace(/[（）()\s　]/g, "").toLowerCase().includes(short);
+      if (!/logo|ロゴ|site-?title|brand|corporate|ci[_-]/.test(hint) && !nameHit) continue;
+      if (/footer|banner|bnr|sns|twitter|facebook|instagram|line_|youtube|icon_|arrow|btn|recruit|partner|client|award|pmark|privacy|iso/.test(hint) && !/logo/.test(src.toLowerCase())) continue;
+      add(src.startsWith("data:") ? src : abs(src), 200 + (m.index < headEnd ? 60 : 0) + (/logo/.test(src.toLowerCase()) ? 30 : 0) + (nameHit ? 25 : 0) + (/\.svg($|\?)/i.test(src) ? 10 : 0) - m.index / 40000 + bonus, "logo-img");
+    }
+    // ③ og:image・twitter:image（logo を含むものを高く）
+    for (const t of html.matchAll(/<meta\b[^>]*>/gi)) {
+      const tag = t[0]; const p = (attr(tag, "property") || attr(tag, "name")).toLowerCase(); const c = attr(tag, "content");
+      if (!c || !/og:image|twitter:image/.test(p)) continue;
+      add(abs(c), (/logo/i.test(c) ? 190 : 45) + bonus, p);
+    }
+    // ④ アイコン（apple-touch-icon・大きい icon）
+    for (const t of html.matchAll(/<link\b[^>]*>/gi)) {
+      const tag = t[0]; const rel = attr(tag, "rel").toLowerCase(); const href = attr(tag, "href"); if (!href || !/icon/.test(rel) || /mask-icon/.test(rel)) continue;
+      const sz = parseInt((attr(tag, "sizes").match(/(\d+)/) || [])[1] || (rel.includes("apple") ? "180" : "32"), 10) || 32;
+      add(abs(href), (rel.includes("apple-touch") ? 120 : 40) + Math.min(sz, 512) / 8 + bonus, rel);
+    }
+  }
+  add(`${origin}/apple-touch-icon.png`, 60, "apple-touch-guess");
+  add(`${origin}/favicon.ico`, 20, "favicon");
+  cands.sort((a, b) => b.score - a.score);
+  // 実際に画像として読めるか確かめて、点数の高いものから使う（上から8つまで）
+  for (const c of cands.slice(0, 8)) {
+    if (c.url.startsWith("data:image/")) return c.url;
     try {
-      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 8000);
-      const r = await fetch(tryUrl, { signal: ctl.signal, redirect: "follow", headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36", "accept-language": "ja" } }).finally(() => clearTimeout(tm));
+      const ctl = new AbortController(); const tm = setTimeout(() => ctl.abort(), 6000);
+      const r = await fetch(c.url, { signal: ctl.signal, redirect: "follow", headers: { ...UA, accept: "image/*,*/*;q=0.5" } }).finally(() => clearTimeout(tm));
       if (!r.ok) continue;
-      html = (await r.text()).slice(0, 600000); base = r.url || tryUrl; break;
+      const ct = String(r.headers.get("content-type") || "").toLowerCase();
+      const buf = Buffer.from(await r.arrayBuffer());
+      const looksImg = /^image\//.test(ct) || /\.(png|jpe?g|svg|webp|gif|ico)(\?|$)/i.test(c.url) || buf.slice(0, 5).toString("latin1").startsWith("<svg") || buf[0] === 0x89 || (buf[0] === 0xff && buf[1] === 0xd8);
+      if (!looksImg || /html/.test(ct) || buf.length < 120 || buf.length > 4 * 1024 * 1024) continue;
+      return r.url || c.url;
     } catch {}
   }
-  if (!html) return fallback;
-  const abs = (h) => { try { const x = new URL(h.replace(/&amp;/g, "&"), base).href; return /^https?:/i.test(x) ? x : null; } catch { return null; } };
-  const attr = (tag, n) => ((tag.match(new RegExp(`\\s${n}\\s*=\\s*["']([^"']+)["']`, "i")) || [])[1] || "");
-  // ⓪ 構造化データ（schema.org）の "logo"・ロゴの入れ物（class/id に logo）の中の <img>
-  try {
-    for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
-      const t = m[1]; const lm = t.match(/"logo"\s*:\s*(?:"([^"]+)"|\{[^}]*"url"\s*:\s*"([^"]+)")/i);
-      const lu = lm && abs(lm[1] || lm[2]); if (lu && /\.(png|jpe?g|svg|webp|gif)(\?|$)/i.test(lu)) return lu;
-    }
-  } catch {}
-  {
-    const box = html.match(/<(?:a|div|h1|p|span|figure)\b[^>]*(?:class|id)\s*=\s*["'][^"']*(?:logo|site-title|brand)[^"']*["'][^>]*>([\s\S]{0,1500}?)<\/(?:a|div|h1|p|span|figure)>/i);
-    const im = box && box[1].match(/<img\b[^>]*>/i);
-    if (im) { const src = attr(im[0], "src") || attr(im[0], "data-src") || (attr(im[0], "srcset").split(/\s+/)[0] || ""); const u2 = src && !/^data:/i.test(src) && abs(src); if (u2) return u2; }
-  }
-  // ① ロゴの画像
-  const headEnd = (() => { const m = html.search(/<\/header>/i); return m > 0 ? m : Math.min(html.length, 60000); })();
-  const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => ({ tag: m[0], pos: m.index }));
-  const logoImgs = [];
-  for (const im of imgs) {
-    const src = attr(im.tag, "src") || attr(im.tag, "data-src") || attr(im.tag, "data-lazy-src") || (attr(im.tag, "srcset").split(/\s+/)[0] || "");
-    if (!src || /^data:image\/(gif|png);base64,R0lGOD/i.test(src)) continue;
-    const hint = `${src} ${attr(im.tag, "alt")} ${attr(im.tag, "class")} ${attr(im.tag, "id")}`.toLowerCase();
-    if (!/logo|ロゴ|site-?title|brand|header-?title|corporate/.test(hint)) continue;
-    if (/footer|banner|bnr|sns|twitter|facebook|instagram|line_|youtube|icon_|arrow|btn|recruit|partner|client/.test(hint) && !/logo/.test(src.toLowerCase())) continue;
-    const url = abs(src); if (!url) continue;
-    logoImgs.push({ url, score: (im.pos < headEnd ? 100 : 0) + (/logo/.test(src.toLowerCase()) ? 40 : 0) + (/\.svg($|\?)/i.test(src) ? 15 : 0) - im.pos / 20000 });
-  }
-  logoImgs.sort((a, b) => b.score - a.score);
-  if (logoImgs.length) return logoImgs[0].url;
-  // ② アイコン
-  const cands = [];
-  for (const t of [...html.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0])) {
-    const rel = attr(t, "rel").toLowerCase(); const href = attr(t, "href"); if (!href) continue;
-    if (!/icon/.test(rel) || /mask-icon/.test(rel)) continue;
-    const sz = parseInt((attr(t, "sizes").match(/(\d+)/) || [])[1] || (rel.includes("apple") ? "180" : "32"), 10) || 32;
-    const url = abs(href); if (url) cands.push({ url, score: (rel.includes("apple-touch") ? 1000 : 0) + sz });
-  }
-  cands.sort((a, b) => b.score - a.score);
-  if (cands.length && cands[0].score >= 64) return cands[0].url;
-  return cands[0] ? cands[0].url : fallback;
+  return fallback;
 }
 // ロゴの画像は kinbot を通して出す（相手のサイトの「よそからの読み込み禁止」や http の画像でも出るように）。1日とっておく
 const _kxLogoImg = new Map();
@@ -13252,7 +13279,7 @@ app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
     if (b.mode === "refetch") {
       await kinxsSetLogoManual(id, { mode: "auto" });
       const site = b.site || (r.info && r.info.website) || r.website || "";
-      const logo = site ? await kxFindLogo(site) : null;
+      const logo = site ? await kxFindLogo(site, r.name_override || r.name) : null;
       await kinxsSetLogo(id, logo);
       return res.json({ ok: true, found: !!logo, url: logo });
     }
@@ -13339,7 +13366,7 @@ async function kinxsLogoTick(limit = 15) {
     for (const r of need) {
       let site = (r.info && r.info.website) || r.website || "";
       if (!site) { const k = kicks.find((x) => csCoKey(x.company) && csCoKey(x.company) === csCoKey(r.name)); site = (k && k.client_email && !KX_FREE_MAIL.test(String(k.client_email).split("@")[1] || "")) ? String(k.client_email).split("@")[1] : ""; }
-      const logo = site ? await kxFindLogo(site) : null;
+      const logo = site ? await kxFindLogo(site, r.name_override || r.name) : null;
       await kinxsSetLogo(r.account_id, logo);
     }
     if (need.length) console.log(`[kinxs] 会社のロゴを探しました：${need.length}社`);
@@ -13347,7 +13374,7 @@ async function kinxsLogoTick(limit = 15) {
   finally { _kxLogoBusy = false; }
 }
 setTimeout(async () => {
-  try { const st = await getSettings(); if (!st.kxLogoV3) { await pool.query(`UPDATE kinxs_accounts SET logo_at=NULL WHERE COALESCE(logo_manual,false)=false`).catch(() => {}); await saveSettings({ kxLogoV3: new Date().toISOString() }); } } catch {}
+  try { const st = await getSettings(); if (!st.kxLogoV3) { await pool.query(`UPDATE kinxs_accounts SET logo_at=NULL WHERE COALESCE(logo_manual,false)=false`).catch(() => {}); await saveSettings({ kxLogoV3: new Date().toISOString() }); } if (!st.kxLogoV4) { await pool.query(`UPDATE kinxs_accounts SET logo_at=NULL WHERE COALESCE(logo_manual,false)=false AND (logo_url IS NULL OR logo_url LIKE '%google.com/s2/favicons%' OR logo_url LIKE '%favicon%')`).catch(() => {}); await saveSettings({ kxLogoV4: new Date().toISOString() }); } } catch {}
   kinxsLogoTick(40).catch(() => {});
 }, 3 * 60 * 1000).unref?.();
 setInterval(() => { kinxsLogoTick(15).catch(() => {}); }, 20 * 60 * 1000).unref?.();
@@ -14078,7 +14105,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     if ("cs_name" in b || "purpose" in b || (b.info && Array.isArray(b.info.contacts))) kxToKickoff(req.params.id, b, req.user).catch(() => {});
     let logoRefetched = false;
     if (b.info && typeof b.info === "object" && "website" in b.info && String(b.info.website || "").trim() && !r.logo_manual) {
-      try { const logo = await kxFindLogo(String(b.info.website).trim()); _kxLogoImg.delete(r.logo_url || ""); await kinxsSetLogo(req.params.id, logo); logoRefetched = true; } catch {}
+      try { const logo = await kxFindLogo(String(b.info.website).trim(), r.name_override || r.name); _kxLogoImg.delete(r.logo_url || ""); await kinxsSetLogo(req.params.id, logo); logoRefetched = true; } catch {}
     }
     res.json({ ok: true, logoRefetched });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -27661,7 +27688,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27y kinXsのSFへの紐づけ：手で選ぶ候補は「X追加」ではなく「追加商談（追加商談_X_）」の商談に直した。";
+const BUILD_TAG = "2026-10-27z kinXsのロゴ：HPからの探し方を作り直して、取れる率を上げた（候補をたくさん集めて点数を付け、実際に画像として読めるものを選ぶ・ロゴの入れ物の中のSVGも拾う・会社名の入った画像・og:image・会社のトップも見る）。ロゴが取れていなかった会社は取り直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
