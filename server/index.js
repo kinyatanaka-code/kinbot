@@ -19361,7 +19361,9 @@ async function notifyNewDevNote(note) {
     const kindLabel = { request: "要望", bug: "不具合", idea: "アイデア" }[note.kind] || note.kind || "メモ";
     const who = note.created_by ? `（${note.created_by}）` : "";
     const detail = note.detail ? `\n${String(note.detail).slice(0, 300)}` : "";
-    await notifyChat(`📝 開発メモに${kindLabel}が追加されました${who}\n・${note.title}${detail}`);
+    // 送り先の「開発依頼（kinbotチャット）」にチェックしたチャットへ。どこもチェックしていなければ、今までどおりのチャットへ
+    const devSay = async (msg) => { const r0 = await notifyAll(msg, "devreq").catch(() => ({ ok: false })); if (!r0 || (!r0.ok && r0.skipped)) await notifyChat(msg); };
+    await devSay(`📝 開発メモに${kindLabel}が追加されました${who}\n・${note.title}${detail}`);
     // 要望・不具合が来たら、その場で自動改善（Claude Code）を起動して直す（2026-10-27）。
     //   自動改善がONで、「要望が来たらすぐ直す」（autoFixOnNote）を止めていないときだけ。危ういものはPRにして止まる
     if (["request", "bug"].includes(note.kind)) {
@@ -19369,7 +19371,7 @@ async function notifyNewDevNote(note) {
       if (st.autoFixOnNote !== false && st.autoImprove === true) {
         const focus = `${note.title}${note.detail ? `\n${String(note.detail).slice(0, 600)}` : ""}`.slice(0, 900);
         const r = await dispatchGithubWorkflow("kinbot-hourly.yml", { max_items: "1", force_pr: "no", focus }).catch((e) => ({ ok: false, error: e.message }));
-        if (r && r.ok) await notifyChat(`🤖 この${kindLabel}を、自動で直し始めました（できたらお知らせします。危ういものはPRにして止めます）\n・${note.title}`).catch(() => {});
+        if (r && r.ok) await devSay(`🤖 この${kindLabel}を、自動で直し始めました（できたらお知らせします。危ういものはPRにして止めます）\n・${note.title}`).catch(() => {});
         else if (r && r.needsToken) console.warn("[開発メモ] すぐ直すには GH_DISPATCH_TOKEN が要ります");
         else console.warn("[開発メモ] 自動で直す起動に失敗", r && r.error);
       }
@@ -22157,7 +22159,7 @@ app.get("/api/chat-targets", async (req, res) => {
       targets: rows.map((r) => ({
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
-        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily, onCs: !!r.on_cs,
+        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily, onCs: !!r.on_cs, onDevReq: !!r.on_devreq,
         onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev, onIncentive: r.on_incentive,
         onResched: r.on_resched, onDatechg: r.on_datechg, onApo: r.on_apo,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
@@ -22189,7 +22191,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onDatechg", "onApo", "onValid", "onDaily", "onCs", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onDatechg", "onApo", "onValid", "onDaily", "onCs", "onDevReq", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -27598,7 +27600,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-27l kinXsのホームをタスク管理に：未完了・進行中・完了のタブ、チェックで完了、状態・期日を変える、消す、タスクを手で足す。Claudeのコネクタ（kinXs）からも、タスクの一覧・追加・状態の変更・削除ができる。";
+const BUILD_TAG = "2026-10-27m チャットの送り先に「開発依頼（kinbotチャット）」のチェック：kinbotに聞く・開発メモに要望が入ったときの知らせ（と、自動で直し始めた知らせ）を、チェックしたチャットへ送る（どこもチェックしていなければ今までどおり）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

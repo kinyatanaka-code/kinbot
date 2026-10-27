@@ -2757,6 +2757,7 @@ const CT_KINDS = [
   ["onValid", "有効商談になったお知らせ"],
   ["onDaily", "デイリー目標（朝8時）"],
   ["onCs", "CS連携（回収MTG）"],
+  ["onDevReq", "開発依頼（kinbotチャット）"],
 ];
 
 function ctSay(id, t, ms) {

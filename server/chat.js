@@ -28,6 +28,7 @@ export const NOTIFY_KINDS = [
   { key: "deploy",  label: "kinbotの更新（デプロイ）" },
   { key: "news",    label: "kinbotのお知らせ（新機能）" },
   { key: "dev",     label: "開発メモ（夜間開発）" },
+  { key: "devreq",  label: "開発依頼（kinbotに聞く・開発メモに要望が入ったとき）" },
 ];
 
 // 全体でオフにした種類の集合を、設定から読む（既定は空＝すべてオン）。
@@ -136,6 +137,8 @@ export async function notifyAll(text, kind = "", { mentionName = "", mentionName
     daily: "on_daily",
     // CS連携（回収MTG）
     cs: "on_cs",
+    // 開発依頼（kinbotに聞く・開発メモに要望・不具合が入ったとき）
+    devreq: "on_devreq",
   }[kind];
   const list = col ? targets.filter((x) => x[col]) : targets;
   if (!list.length) return { ok: false, skipped: true, reason: "この種類の通知はどこもONになっていません" };
