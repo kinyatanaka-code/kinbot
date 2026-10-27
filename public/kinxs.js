@@ -1263,6 +1263,15 @@ async function loadMissing(fresh) {
   }));
   renderMissing();
 }
+// 情報不足：画面全体は止めて、会社の表のところだけスクロールする（2026-10-28）
+function kxFitMissing() {
+  if (VIEW !== "missing") return;
+  const el = $("msList"); if (!el) return;
+  document.documentElement.style.overflow = "hidden";
+  el.style.maxHeight = `${Math.max(220, window.innerHeight - el.getBoundingClientRect().top - 16)}px`;
+  el.style.overflowY = "auto"; el.style.overscrollBehavior = "contain"; el.style.paddingRight = "4px";
+}
+window.addEventListener("resize", () => kxFitMissing());
 function renderMissing() {
   if (!msData) return;
   const q = ($("msQ").value || "").trim(); const fsSel = $("msFs"); const cur = fsSel.value;
@@ -1294,6 +1303,7 @@ function renderMissing() {
       <div class="kx-msx-g"><span class="av">${esc(fs.slice(0, 1))}</span><b>${esc(fs)}</b><span class="kx-rc">${xs.length}社</span><button type="button" class="hp-b" data-ms-copy="${esc(fs)}" style="margin-left:auto">${who === "CS" ? "CSに送る文をコピー" : "FSに送る文をコピー"}</button></div>
       <div class="kx-msx-tbl">${head}${xs.map((x) => `<div class="kx-msx-r" style="grid-template-columns:${cols}" data-ms-open="${esc(x.id)}" role="button" tabindex="0"><span class="co"><span class="lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" />` : esc(mono(x.name))}</span>${esc(x.name)}</span><span class="kx-note">${x.booked ? esc(x.booked.slice(2).replace(/-/g, "/")) : "—"}</span>${req.map((r) => (x.missKeys || []).includes(r.key) ? '<span class="c ng" title="足りない">×</span>' : '<span class="c ok">✓</span>').join("")}</div>`).join("")}</div>
     </section>`).join("") : '<div class="kx-empty">足りない会社はありません</div>';
+  kxFitMissing();
   $("msList").querySelectorAll("[data-ms-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.msOpen)));
   $("msList").querySelectorAll(".kx-msx-r img").forEach((im) => im.addEventListener("error", () => { im.parentNode.textContent = "・"; }));
   $("msList").querySelectorAll("[data-ms-copy]").forEach((b) => b.addEventListener("click", async (e) => {
@@ -1304,7 +1314,7 @@ function renderMissing() {
     try { await navigator.clipboard.writeText(text); b.textContent = "コピーしました"; setTimeout(() => (b.textContent = lab0), 1500); } catch { prompt("コピーしてください", text); }
   }));
 }
-if ($("msQ")) { $("msQ").addEventListener("input", renderMissing); $("msFs").addEventListener("change", renderMissing); $("msReload").addEventListener("click", () => loadMissing(true)); }
+if ($("msQ")) { const st0 = document.querySelector(".kx-ms-set"); if (st0) st0.addEventListener("toggle", () => kxFitMissing()); $("msQ").addEventListener("input", renderMissing); $("msFs").addEventListener("change", renderMissing); $("msReload").addEventListener("click", () => loadMissing(true)); }
 if (VIEW === "missing") loadMissing(false);
 if (VIEW === "home") { if ($("kxPageName")) $("kxPageName").textContent = "ホーム"; loadHome(false); }
 if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
