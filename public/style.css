@@ -7121,3 +7121,15 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .dk-bundle .r:first-child { border-top: 0; } .dk-bundle .nm { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dk-bundle .ok { color: #0E6B4E; font-weight: 700; } .dk-bundle .no { color: #9AA8A1; } .dk-bundle .dl { color: #A05A00; font-weight: 700; }
 .dk-bundle .bar { height: 7px; background: #EEF3F0; border-radius: 4px; overflow: hidden; } .dk-bundle .bar i { display: block; height: 100%; background: #1D9E75; border-radius: 4px; }
+
+/* 商談ごとの「＋送付」：送る資料の一覧（テンプレ／別の資料）（2026-10-28） */
+.dp-lab { font-size: 12.5px; font-weight: 700; color: #1F2A26; margin: 2px 0 4px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; } .dp-lab .note { font-weight: 500; }
+.dp-items { display: flex; flex-direction: column; gap: 5px; margin: 0 0 8px; }
+.dp-items .dp-empty { padding: 8px 10px; border: 1px dashed #CFE3D9; border-radius: 10px; background: #fff; }
+.dp-it { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #DDE7E2; border-radius: 10px; padding: 6px 8px; font-size: 13px; }
+.dp-it .no { width: 20px; height: 20px; border-radius: 50%; background: #0E6B4E; color: #fff; font-size: 11px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.dp-it .tg { font-size: 10.5px; font-weight: 800; border-radius: 6px; padding: 1px 7px; flex: none; } .dp-it .tg.tp { background: #E1F5EE; color: #0A5440; } .dp-it .tg.up { background: #E6EEFB; color: #1B4789; }
+.dp-it .nm { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dp-it .dp-itname { flex: 1; min-width: 0; border: 1px solid #D5E2DB; border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 13px; }
+.dp-it .mv { display: flex; gap: 2px; flex: none; } .dp-it .mv button { border: 0; background: none; cursor: pointer; color: #6A7A72; font-size: 14px; padding: 0 5px; } .dp-it .mv button:hover { color: #0E6B4E; }
+.dp-upbtn { cursor: pointer; white-space: nowrap; }

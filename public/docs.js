@@ -543,18 +543,15 @@ function deOpenPicker(btn) {
   wrap.className = "de-picker";
   wrap.dataset.company = company;
   wrap.innerHTML =
-    `<div class="dp-line">
+    `<div class="dp-lab">送る資料<span class="note">上から順に、お客様の画面のタブになります（2つ以上なら1つのリンクにまとめます）</span></div>
+     <div class="dp-items"><div class="note dp-empty">まだ選んでいません</div></div>
+     <div class="dp-line">
        <select class="de-sel">
-         <option value="">— テンプレ資料から選ぶ —</option>
+         <option value="">＋ テンプレ資料から足す</option>
          ${opts.map((f) => `<option value="${f.id}">${esc(f.name)}</option>`).join("")}
-         <option value="__new__">＋ この商談だけの資料を登録（PDF）</option>
        </select>
+       <label class="btn ghost dp-upbtn">＋ 別の資料を足す（PDF）<input type="file" class="dp-file" accept="application/pdf" multiple hidden /></label>
      </div>
-     <div class="dp-new" hidden>
-       <input type="text" class="dp-name" placeholder="資料の名前（例：DOCサービス紹介）" />
-       <input type="file" class="dp-file" accept="application/pdf" />
-     </div>
-     ${bundleBoxHtml()}
      <div class="dp-line">
        <input type="text" class="dp-contact" placeholder="担当者名（任意）" />
        <input type="text" class="dp-email" placeholder="メール（任意）" />
@@ -566,6 +563,17 @@ function deOpenPicker(btn) {
        <span class="dp-st rev-status"></span>
      </div>`;
   btn.replaceWith(wrap);
+}
+
+// 送る資料の一覧（テンプレ＝id、別の資料＝まだ登録していないファイル）
+function dpItems(wrap) { return wrap._items || (wrap._items = []); }
+function dpPaint(wrap) {
+  const items = dpItems(wrap); const box = wrap.querySelector(".dp-items");
+  box.innerHTML = items.length ? items.map((it, i) => `<div class="dp-it"><span class="no">${i + 1}</span><span class="tg ${it.file ? "up" : "tp"}">${it.file ? "別の資料" : "テンプレ"}</span>${it.file ? `<input type="text" class="dp-itname" data-i="${i}" value="${esc(it.name)}" title="資料の名前（お客様のタブに出ます）" />` : `<span class="nm">${esc(it.name)}</span>`}<span class="mv">${i > 0 ? `<button type="button" data-up="${i}" title="上へ">↑</button>` : ""}${i < items.length - 1 ? `<button type="button" data-down="${i}" title="下へ">↓</button>` : ""}<button type="button" data-rm="${i}" title="外す">×</button></span></div>`).join("") : '<div class="note dp-empty">まだ選んでいません</div>';
+  box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { items.splice(+b.dataset.rm, 1); dpPaint(wrap); }));
+  box.querySelectorAll("[data-up]").forEach((b) => b.addEventListener("click", () => { const k = +b.dataset.up; [items[k - 1], items[k]] = [items[k], items[k - 1]]; dpPaint(wrap); }));
+  box.querySelectorAll("[data-down]").forEach((b) => b.addEventListener("click", () => { const k = +b.dataset.down; [items[k + 1], items[k]] = [items[k], items[k + 1]]; dpPaint(wrap); }));
+  box.querySelectorAll(".dp-itname").forEach((inp) => inp.addEventListener("input", () => { items[+inp.dataset.i].name = inp.value; }));
 }
 
 // SalesforceからＬ担当者・メールを補完
@@ -603,36 +611,32 @@ async function deIssue(btn) {
   const setSt = (m) => { if (st) st.textContent = m || ""; };
   btn.disabled = true; setSt("発行中…");
   try {
-    let docId = 0;
-    if (sel.value === "__new__") {
-      // 新しい資料をこの場で登録する
-      const nameEl = wrap.querySelector(".dp-name");
-      const fileEl = wrap.querySelector(".dp-file");
-      const file = fileEl && fileEl.files && fileEl.files[0];
-      if (!file) throw new Error("PDFファイルを選んでください");
+    const items = dpItems(wrap);
+    if (!items.length) throw new Error("送る資料を選んでください（テンプレから足すか、別の資料を足してください）");
+    const ids = [];
+    for (const it of items) {
+      if (it.id) { ids.push(it.id); continue; }
       const fd = new FormData();
-      fd.append("name", (nameEl.value || "").trim() || file.name.replace(/\.pdf$/i, ""));
-      fd.append("file", file);
+      fd.append("name", String(it.name || "").trim() || it.file.name.replace(/\.pdf$/i, ""));
+      fd.append("file", it.file);
       fd.append("template", "false");   // この商談だけの資料（テンプレ一覧・選択欄には出さない）
-      setSt("資料を登録中…");
+      setSt(`「${it.name}」を登録中…`);
       const up = await fetch("/api/docs", { method: "POST", body: fd });
       const ud = await up.json();
       if (!up.ok) throw new Error(ud.error || "資料を登録できませんでした");
-      docId = ud.doc && ud.doc.id;
-      await loadDocs();   // docsCache を更新（次回のピッカーに反映）
-    } else {
-      docId = parseInt(sel.value, 10);
-      if (!docId) throw new Error("資料を選んでください");
+      it.id = ud.doc && ud.doc.id; if (it.id) ids.push(it.id);
     }
+    if (items.some((it) => it.file)) await loadDocs();
+    const docId = ids[0];
     setSt("URLを発行中…");
     const r = await fetch("/api/doc-links", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ docId, docIds: [docId, ...bundleIdsOrdered(wrap, docId)], rows: [{ company, contact, email }], expiry: "0" }),
+      body: JSON.stringify({ docId, docIds: ids, rows: [{ company, contact, email }], expiry: "0" }),
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || "発行できませんでした");
     const newUrl = (d.links && d.links[0] && d.links[0].url) || "";
-    say("deStatus", `「${company}」にURLを発行しました`, 4000);
+    say("deStatus", `「${company}」にURLを発行しました${ids.length > 1 ? `（資料${ids.length}点を1つのリンクに）` : ""}`, 4000);
     // その場でURLをコピーできるように表示する
     wrap.innerHTML =
       `<div class="dp-line"><span class="dp-done">URLを発行しました</span></div>
@@ -702,9 +706,17 @@ if ($("deList")) {
   // 「＋新しい資料を登録」を選んだらファイル欄を出す
   $("deList").addEventListener("change", (ev) => {
     const sel = ev.target.closest(".de-sel");
-    if (!sel) return;
-    const nb = sel.closest(".de-picker").querySelector(".dp-new");
-    if (nb) nb.hidden = sel.value !== "__new__";
+    if (sel) {
+      const wrap = sel.closest(".de-picker"); const id = parseInt(sel.value, 10);
+      if (id && !dpItems(wrap).some((x) => x.id === id)) { const f = docsCache.find((x) => x.id === id); dpItems(wrap).push({ id, name: (f && f.name) || "資料" }); dpPaint(wrap); }
+      sel.value = ""; return;
+    }
+    const fi = ev.target.closest(".dp-file");
+    if (fi) {
+      const wrap = fi.closest(".de-picker");
+      for (const f of [...(fi.files || [])]) { if (!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)) { alert(`「${f.name}」はPDFではありません`); continue; } dpItems(wrap).push({ file: f, name: f.name.replace(/\.pdf$/i, "") }); }
+      fi.value = ""; dpPaint(wrap);
+    }
   });
 }
 if ($("deReload")) $("deReload").addEventListener("click", loadDeals);
