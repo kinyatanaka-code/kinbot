@@ -6300,7 +6300,7 @@ async function loadShiftCal() {
   _scShifts = {}; _scCalls = {}; _scHol = {};
   try {
     const d = await (await fetch(`/api/inside-shifts?from=${from}&to=${to}`)).json();
-    for (const s of (d.shifts || [])) { if (s.start_min == null) continue; (_scShifts[s.day] = _scShifts[s.day] || []).push(s); }
+    for (const s of (d.shifts || [])) { if (s.start_min == null && !s.absent) continue; (_scShifts[s.day] = _scShifts[s.day] || []).push(s); }
     for (const c of (d.calls || [])) { _scCalls[`${String(c.caller).toLowerCase()}|${c.day}`] = { first_min: scHm2m(c.first_hm), last_min: scHm2m(c.last_hm), cnt: c.cnt }; }
     _scHol = d.holidays || {};
   } catch {}
@@ -6332,8 +6332,10 @@ function renderShiftCal() {
         const act = scActual(em, ds); const plan = plans[em]; const nm = (plan && plan.name) || nameOf(em);
         if (String(nm).replace(/[\s　]/g, "") === "田中欽也") continue;   // セールスは出勤管理から除外
         totals[em] = totals[em] || { name: nm, actualH: 0, planH: 0, days: 0 };
-        if (plan) totals[em].planH += scWorkH(plan.start_min, plan.end_min);
-        if (act) {
+        if (plan && plan.start_min != null && !plan.absent) totals[em].planH += scWorkH(plan.start_min, plan.end_min);
+        if (plan && plan.absent && !act) {
+          tags += `<span class="sc-tag sc-tag-abs" title="手で欠勤にしました">${esc(nm)} 欠勤</span>`;
+        } else if (act) {
           tags += `<span class="sc-tag sc-tag-act">${esc(nm)} ${scHM(act.start)}-${scHM(act.end)}</span>`;
           totals[em].actualH += scWorkH(act.start, act.end); totals[em].days += 1;
         } else if (plan && ds < today) {
@@ -6442,14 +6444,15 @@ function openBulkShift() {
 }
 function openShiftDay(ds) {
   if (document.querySelector(".sc-back")) return;
-  const cur = {}; for (const s of (_scShifts[ds] || [])) cur[String(s.email).toLowerCase()] = { s: s.start_min, e: s.end_min };
+  const cur = {}, absMap = {}; for (const s of (_scShifts[ds] || [])) { const k0 = String(s.email).toLowerCase(); if (s.start_min != null) cur[k0] = { s: s.start_min, e: s.end_min }; if (s.absent) absMap[k0] = true; }
   const back = document.createElement("div"); back.className = "sc-back";
   const rows = _scInterns.map((it) => {
     const em = String(it.email).toLowerCase(); const on = cur[em] != null;
     const st = on ? scHM(cur[em].s) : "10:00", en = on ? scHM(cur[em].e) : "18:00";
     const act = scActual(em, ds);
     const actLbl = act ? `<span class="sc-act">実績 ${scHM(act.start)}-${scHM(act.end)}（${act.cnt}件）</span>` : "";
-    return `<label class="sc-mrow"><input type="checkbox" class="sc-on" data-em="${esc(em)}" data-name="${esc(it.name || "")}" ${on ? "checked" : ""}/> <span class="sc-mname">${esc(it.name || em)}</span><span class="sc-times"><input type="time" class="sc-s" value="${st}"/> 〜 <input type="time" class="sc-e" value="${en}"/></span>${actLbl}</label>`;
+    const ab = !!(absMap[em]);
+    return `<label class="sc-mrow"><input type="checkbox" class="sc-on" data-em="${esc(em)}" data-name="${esc(it.name || "")}" ${on ? "checked" : ""}/> <span class="sc-mname">${esc(it.name || em)}</span><span class="sc-times"><input type="time" class="sc-s" value="${st}"/> 〜 <input type="time" class="sc-e" value="${en}"/></span><span class="sc-absw" title="休むと分かったら、その日が来る前でも欠勤にできます"><input type="checkbox" class="sc-abs" ${ab ? "checked" : ""}/>欠勤</span>${actLbl}</label>`;
   }).join("");
   back.innerHTML = `<div class="sc-modal"><div class="sc-mh"><span>${ds} の出勤（予定）</span><button type="button" class="sc-x" aria-label="閉じる">×</button></div><div class="sc-mbody">${rows || '<div class="note">インサイドが登録されていません（設定→メンバー管理で役割インサイドに）。</div>'}</div><div class="sc-mact"><button type="button" class="btn ghost sc-cancel">閉じる</button><button type="button" class="btn sc-save">保存</button></div></div>`;
   document.body.appendChild(back);
@@ -6461,7 +6464,7 @@ function openShiftDay(ds) {
     const shifts = [...back.querySelectorAll(".sc-mrow")].map((r) => {
       const on = r.querySelector(".sc-on").checked; const em = r.querySelector(".sc-on").dataset.em; const nm = r.querySelector(".sc-on").dataset.name;
       const s = scHm2m(r.querySelector(".sc-s").value), e = scHm2m(r.querySelector(".sc-e").value);
-      return { email: em, name: nm, day: ds, start_min: on ? s : null, end_min: on ? e : null };
+      return { email: em, name: nm, day: ds, start_min: on ? s : null, end_min: on ? e : null, absent: r.querySelector(".sc-abs").checked };
     });
     try { await fetch("/api/inside-shifts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ shifts }) }); } catch {}
     close(); loadShiftCal();
@@ -6492,7 +6495,7 @@ function scExportPdf() {
       const act = scActual(em, ds);
       const h = act ? scWorkH(act.start, act.end) : 0;
       const ph = plan ? scWorkH(plan.start_min, plan.end_min) : 0;
-      const isAbsent = !!(plan && !act && ds <= today);
+      const isAbsent = !!(plan && !act && (plan.absent || ds <= today));
       if (!plan && !act) continue;
       if (act && h > 0) { days++; hours += h; }
       planH += ph; if (isAbsent) absent++;
@@ -6535,7 +6538,7 @@ function scExportPdf() {
         const plan = plans[em], act = scActual(em, ds);
         const nm = esc(people.get(em) || em);
         if (act) return { k: 0, h: `<div class="ci act">${nm}<span>${scHM(act.start)}〜${scHM(act.end)}</span></div>` };
-        if (plan && ds <= today) return { k: 2, h: `<div class="ci ab">${nm}<span>欠勤</span></div>` };
+        if (plan && (plan.absent || ds <= today)) return { k: 2, h: `<div class="ci ab">${nm}<span>欠勤</span></div>` };
         if (plan) return { k: 1, h: `<div class="ci pl">${nm}<span>${scHM(plan.start_min)}〜${scHM(plan.end_min)}</span></div>` };
         return null;
       }).filter(Boolean).sort((a, b) => a.k - b.k);

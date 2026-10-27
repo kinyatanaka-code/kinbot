@@ -227,6 +227,8 @@ export async function initDb() {
       PRIMARY KEY (email, day)
     );
   `);
+  // 欠勤を前もって付けられるように（2026-10-27）。今までは日付を過ぎて架電が無いときだけ欠勤あつかいだった
+  await sq(`ALTER TABLE inside_shifts ADD COLUMN IF NOT EXISTS absent BOOLEAN NOT NULL DEFAULT false;`);
   // シフト提出のロック状態（人×月。提出したら本人は編集不可）
   await sq(`
     CREATE TABLE IF NOT EXISTS shift_submissions (
@@ -2005,7 +2007,7 @@ export async function listInsideShifts(fromDay, toDay) {
   if (!pool) return [];
   try {
     const { rows } = await pool.query(
-      `SELECT email, name, to_char(day,'YYYY-MM-DD') AS day, start_min, end_min
+      `SELECT email, name, to_char(day,'YYYY-MM-DD') AS day, start_min, end_min, COALESCE(absent,false) AS absent
          FROM inside_shifts WHERE day >= $1 AND day <= $2 ORDER BY day, name`,
       [fromDay, toDay]);
     return rows;
@@ -2068,7 +2070,8 @@ export async function upsertInsideShift(email, name, day, startMin, endMin) {
   const em = String(email).trim().toLowerCase();
   try {
     if (startMin == null || endMin == null) {
-      await pool.query(`DELETE FROM inside_shifts WHERE email=$1 AND day=$2`, [em, day]);
+      await pool.query(`DELETE FROM inside_shifts WHERE email=$1 AND day=$2 AND COALESCE(absent,false)=false`, [em, day]);
+      await pool.query(`UPDATE inside_shifts SET start_min=NULL, end_min=NULL, updated_at=now() WHERE email=$1 AND day=$2`, [em, day]).catch(() => {});
     } else {
       await pool.query(
         `INSERT INTO inside_shifts (email, name, day, start_min, end_min, updated_at)
@@ -11778,4 +11781,13 @@ export async function kxTaskUpdate(owner, id, patch) {
   if (!sets.length) return null;
   const { rows } = await pool.query(`UPDATE kinxs_tasks SET ${sets.join(", ")}, updated_at=now() WHERE owner=$1 AND id=$2 RETURNING *`, vals);
   return rows[0] || null;
+}
+
+// 欠勤を付ける・外す（予定が無い日でも付けられる。外したとき、時間も無ければ行を消す）
+export async function setInsideShiftAbsent(email, name, day, absent) {
+  if (!pool || !email || !day) return;
+  const em = String(email).trim().toLowerCase();
+  await pool.query(`INSERT INTO inside_shifts (email, name, day, start_min, end_min, absent, updated_at) VALUES ($1,$2,$3,NULL,NULL,$4,now())
+    ON CONFLICT (email, day) DO UPDATE SET absent=$4, name=COALESCE(NULLIF($2,''), inside_shifts.name), updated_at=now()`, [em, String(name || "").trim(), day, !!absent]);
+  if (!absent) await pool.query(`DELETE FROM inside_shifts WHERE email=$1 AND day=$2 AND start_min IS NULL AND COALESCE(absent,false)=false`, [em, day]).catch(() => {});
 }
