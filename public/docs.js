@@ -141,14 +141,7 @@ async function loadDocs() {
     box.querySelectorAll("[data-preview]").forEach((b) => b.addEventListener("click", (e) => {
       e.stopPropagation();
       const f = docsCache.find((x) => String(x.id) === b.dataset.preview); if (!f) return;
-      document.querySelectorAll(".dk-pv-bg").forEach((x) => x.remove());
-      const bg = document.createElement("div"); bg.className = "dk-pv-bg";
-      bg.innerHTML = `<div class="dk-pv" role="dialog" aria-label="${esc(f.name)}"><div class="dk-pv-h"><b>${esc(f.name)}</b><span class="note">${esc(f.filename || "")}・閲覧の記録には入りません</span><a class="btn ghost" href="/api/docs/${f.id}/preview" target="_blank" rel="noopener">別のタブで開く ↗</a><button type="button" class="btn ghost dk-pv-x">閉じる</button></div><iframe src="/api/docs/${f.id}/preview#view=FitH" title="${esc(f.name)}"></iframe></div>`;
-      document.body.appendChild(bg);
-      const close = () => bg.remove();
-      bg.addEventListener("click", (ev) => { if (ev.target === bg) close(); });
-      bg.querySelector(".dk-pv-x").addEventListener("click", close);
-      document.addEventListener("keydown", function k(ev) { if (ev.key === "Escape") { close(); document.removeEventListener("keydown", k); } });
+      docPreview(f.name, `/api/docs/${f.id}/preview`, `${f.filename || ""}・閲覧の記録には入りません`);
     }));
 
     // 「使わない資料も見る／隠す」
@@ -565,15 +558,31 @@ function deOpenPicker(btn) {
   btn.replaceWith(wrap);
 }
 
+// 資料の中身を窓で見る（テンプレ＝/api/docs/:id/preview、まだ登録していないPDF＝その場のファイル）。閲覧の記録には入らない
+function docPreview(name, src, note) {
+  document.querySelectorAll(".dk-pv-bg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "dk-pv-bg";
+  bg.innerHTML = `<div class="dk-pv" role="dialog" aria-label="${esc(name)}"><div class="dk-pv-h"><b>${esc(name)}</b><span class="note">${esc(note || "閲覧の記録には入りません")}</span><a class="btn ghost" href="${esc(src)}" target="_blank" rel="noopener">別のタブで開く ↗</a><button type="button" class="btn ghost dk-pv-x">閉じる</button></div><iframe src="${esc(src)}#view=FitH" title="${esc(name)}"></iframe></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (ev) => { if (ev.target === bg) close(); });
+  bg.querySelector(".dk-pv-x").addEventListener("click", close);
+  document.addEventListener("keydown", function k(ev) { if (ev.key === "Escape") { close(); document.removeEventListener("keydown", k); } });
+}
 // 送る資料の一覧（テンプレ＝id、別の資料＝まだ登録していないファイル）
 function dpItems(wrap) { return wrap._items || (wrap._items = []); }
 function dpPaint(wrap) {
   const items = dpItems(wrap); const box = wrap.querySelector(".dp-items");
-  box.innerHTML = items.length ? items.map((it, i) => `<div class="dp-it"><span class="no">${i + 1}</span><span class="tg ${it.file ? "up" : "tp"}">${it.file ? "別の資料" : "テンプレ"}</span>${it.file ? `<input type="text" class="dp-itname" data-i="${i}" value="${esc(it.name)}" title="資料の名前（お客様のタブに出ます）" />` : `<span class="nm">${esc(it.name)}</span>`}<span class="mv">${i > 0 ? `<button type="button" data-up="${i}" title="上へ">↑</button>` : ""}${i < items.length - 1 ? `<button type="button" data-down="${i}" title="下へ">↓</button>` : ""}<button type="button" data-rm="${i}" title="外す">×</button></span></div>`).join("") : '<div class="note dp-empty">まだ選んでいません</div>';
+  box.innerHTML = items.length ? items.map((it, i) => `<div class="dp-it"><span class="no">${i + 1}</span><span class="tg ${it.file ? "up" : "tp"}">${it.file ? "別の資料" : "テンプレ"}</span>${it.file ? `<input type="text" class="dp-itname" data-i="${i}" value="${esc(it.name)}" title="資料の名前（お客様のタブに出ます）" />` : `<span class="nm" data-pv="${i}" role="button" tabindex="0" title="押すと中身を見られます">${esc(it.name)}</span>`}<button type="button" class="dp-pv" data-pv="${i}" title="中身を見る">👁 見る</button><span class="mv">${i > 0 ? `<button type="button" data-up="${i}" title="上へ">↑</button>` : ""}${i < items.length - 1 ? `<button type="button" data-down="${i}" title="下へ">↓</button>` : ""}<button type="button" data-rm="${i}" title="外す">×</button></span></div>`).join("") : '<div class="note dp-empty">まだ選んでいません</div>';
   box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { items.splice(+b.dataset.rm, 1); dpPaint(wrap); }));
   box.querySelectorAll("[data-up]").forEach((b) => b.addEventListener("click", () => { const k = +b.dataset.up; [items[k - 1], items[k]] = [items[k], items[k - 1]]; dpPaint(wrap); }));
   box.querySelectorAll("[data-down]").forEach((b) => b.addEventListener("click", () => { const k = +b.dataset.down; [items[k + 1], items[k]] = [items[k], items[k + 1]]; dpPaint(wrap); }));
   box.querySelectorAll(".dp-itname").forEach((inp) => inp.addEventListener("input", () => { items[+inp.dataset.i].name = inp.value; }));
+  box.querySelectorAll("[data-pv]").forEach((el) => el.addEventListener("click", () => {
+    const it = items[+el.dataset.pv]; if (!it) return;
+    if (it.file) { if (!it.url) it.url = URL.createObjectURL(it.file); docPreview(it.name || it.file.name, it.url, "まだ登録していない資料（発行すると登録されます）"); }
+    else docPreview(it.name, `/api/docs/${it.id}/preview`);
+  }));
 }
 
 // SalesforceからＬ担当者・メールを補完

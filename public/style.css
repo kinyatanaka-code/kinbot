@@ -7133,3 +7133,6 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .dp-it .dp-itname { flex: 1; min-width: 0; border: 1px solid #D5E2DB; border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 13px; }
 .dp-it .mv { display: flex; gap: 2px; flex: none; } .dp-it .mv button { border: 0; background: none; cursor: pointer; color: #6A7A72; font-size: 14px; padding: 0 5px; } .dp-it .mv button:hover { color: #0E6B4E; }
 .dp-upbtn { cursor: pointer; white-space: nowrap; }
+.dp-it .nm[data-pv] { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; } .dp-it .nm[data-pv]:hover { color: #0E6B4E; }
+.dp-pv { flex: none; border: 1px solid #D5E2DB; background: #fff; color: #0E6B4E; border-radius: 7px; padding: 2px 8px; font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+.dp-pv:hover { background: #F2FAF6; border-color: #1D9E75; }
