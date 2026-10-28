@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 // ===== アイコン（kinbotオリジナルの線画。絵文字は使わない）=====
 const CSI = {
+  trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4h6v3"/>',
   co: '<path d="M4 20V6.5L11 3l7 3.5V20"/><path d="M8 9h2M12 9h2M8 13h2M12 13h2M10 20v-3h2v3"/><path d="M2.5 20h19"/>',
   hear: '<rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4.5V3h6v1.5"/><path d="M8.5 10h7M8.5 13.5h7M8.5 17h4"/>',
   todo: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 2.6 2.6L16 9.4"/>',
@@ -175,6 +176,7 @@ function render() {
           <button type="button" class="cd-act" data-act="redo">${ci("redo", 18)}<span>議事録から<br>読み取り直す</span></button>
           <a class="cd-act" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">${ci("mic", 18)}<span>議事録を<br>開く</span></a>
           ${k.sf_url ? `<a class="cd-act" href="${esc(k.sf_url)}" target="_blank" rel="noopener">${ci("sf", 18)}<span>SFの商談を<br>開く</span></a>` : ""}
+          ${k.is_test ? "" : `<button type="button" class="cd-act cd-act-del" data-dismiss title="間違って立ち上がった企業カードを消す">${ci("trash", 18)}<span>このカードを<br>消す</span></button>`}
         </div>
       </div>
     </div>`;
@@ -194,11 +196,7 @@ function render() {
   }
   const card = host.querySelector(".cs-card.open");
   // 間違って立ち上がった企業カードを消す（テスト以外。見えなくするだけで、同じ議事録からはもう立ち上がらない）
-  if (card && !card.querySelector("[data-dismiss]")) {
-    const k1 = (d.kickoffs || []).find((x) => x.bot_id === csOpen);
-    if (k1 && !k1.is_test) card.insertAdjacentHTML("beforeend", `<div class="cs-dismiss"><button type="button" class="btn ghost cd-mini" data-dismiss>この企業カードを消す（間違って立ち上がったとき）</button></div>`);
-  }
-  const dis = card && card.querySelector("[data-dismiss]");
+  const dis = host.querySelector("[data-dismiss]");
   if (dis) dis.addEventListener("click", async () => {
     if (!confirm("この企業カードを消します。CS連携・kinXsのフェーズの読み取りに使わなくなり、同じ議事録からもう一度立ち上がることもありません。よろしいですか？（OBスレや送ったメールは消えません）")) return;
     try { await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}/dismiss`, { method: "POST", body: JSON.stringify({}) }); csOpen = ""; await load(); }

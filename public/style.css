@@ -7146,3 +7146,5 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .mc-day-h .mc-del { margin-left: auto; }
 .cs-dismiss { display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1px dashed #E1E9E5; }
 .cs-dismiss [data-dismiss] { color: #A51F16; border-color: #F0C9C4; }
+.cd-act.cd-act-del { color: #A51F16; border-color: #F0C9C4 !important; background: #FFF8F7 !important; }
+.cd-act.cd-act-del:hover { background: #FBE4E4 !important; }
