@@ -11289,7 +11289,7 @@ async function ensureCs() {
       status TEXT, error TEXT, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now())`);
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS sf_url TEXT;`).catch(() => {});
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS confirm_event_id TEXT;`).catch(() => {});
-  for (const c of ["portal_id TEXT", "portal_text TEXT", "portal_at TIMESTAMPTZ", "portal_error TEXT", "portal_shot TEXT", "portal_cs TEXT", "client_phone TEXT", "mail_subject TEXT", "mail_body TEXT", "ai_login_id TEXT", "ai_pass_enc TEXT", "ai_set_by TEXT", "ai_set_at TIMESTAMPTZ", "ai_views JSONB", "is_test BOOLEAN DEFAULT false", "ai_accounts JSONB"]) await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS ${c};`).catch(() => {});
+  for (const c of ["portal_id TEXT", "portal_text TEXT", "portal_at TIMESTAMPTZ", "portal_error TEXT", "portal_shot TEXT", "portal_cs TEXT", "client_phone TEXT", "mail_subject TEXT", "mail_body TEXT", "ai_login_id TEXT", "ai_pass_enc TEXT", "ai_set_by TEXT", "ai_set_at TIMESTAMPTZ", "ai_views JSONB", "is_test BOOLEAN DEFAULT false", "ai_accounts JSONB", "dismissed BOOLEAN DEFAULT false", "dismissed_by TEXT", "dismissed_at TIMESTAMPTZ"]) await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS ${c};`).catch(() => {});
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS confirm_event_owner TEXT;`).catch(() => {});
   await sq(`ALTER TABLE cs_kickoffs ADD COLUMN IF NOT EXISTS confirm_event_cal TEXT;`).catch(() => {});
   await sq(`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS doc_admin_url TEXT;`).catch(() => {});
@@ -11319,7 +11319,7 @@ export async function upsertCsKickoff(botId, v) {
     await ensureCs();
     const cols = ["account", "company", "title", "meeting_at", "fs_email", "fs_name", "fields", "cs_email", "cs_name", "confirm_start", "confirm_from",
       "confirm_slug", "client_email", "client_name", "chat_thread", "chat_message", "posted_at", "draft_id", "draft_at", "status", "error", "sf_url",
-      "confirm_event_id", "confirm_event_owner", "confirm_event_cal", "portal_id", "portal_text", "portal_at", "portal_error", "portal_shot", "portal_cs", "client_phone", "mail_subject", "mail_body", "ai_login_id", "ai_pass_enc", "ai_set_by", "ai_set_at", "ai_views", "is_test", "ai_accounts"];
+      "confirm_event_id", "confirm_event_owner", "confirm_event_cal", "portal_id", "portal_text", "portal_at", "portal_error", "portal_shot", "portal_cs", "client_phone", "mail_subject", "mail_body", "ai_login_id", "ai_pass_enc", "ai_set_by", "ai_set_at", "ai_views", "is_test", "ai_accounts", "dismissed", "dismissed_by", "dismissed_at"];
     const keys = cols.filter((c) => v[c] !== undefined);
     const vals = keys.map((c) => (c === "fields" ? JSON.stringify(v[c] || {}) : v[c]));
     const ins = `INSERT INTO cs_kickoffs (bot_id${keys.map((k) => `, ${k}`).join("")}) VALUES ($1${keys.map((_, i) => `, $${i + 2}`).join("")})
@@ -11350,6 +11350,7 @@ export async function listCsKickoffs(limit = 100) {
     await ensureCs();
     const { rows } = await pool.query(
       `SELECT k.*, a.doc_admin_url, a.doc_candidate_url FROM cs_kickoffs k LEFT JOIN accounts a ON a.key = k.account
+        WHERE COALESCE(k.dismissed,false)=false
         ORDER BY COALESCE(k.meeting_at, k.created_at) DESC LIMIT $1`, [limit]);
     return rows;
   } catch (e) { console.error("[db] listCsKickoffs", e.message); return []; }

@@ -193,6 +193,17 @@ function render() {
     document.onkeydown = (e) => { if (e.key === "Escape" && csOpen) close(); };
   }
   const card = host.querySelector(".cs-card.open");
+  // 間違って立ち上がった企業カードを消す（テスト以外。見えなくするだけで、同じ議事録からはもう立ち上がらない）
+  if (card && !card.querySelector("[data-dismiss]")) {
+    const k1 = (d.kickoffs || []).find((x) => x.bot_id === csOpen);
+    if (k1 && !k1.is_test) card.insertAdjacentHTML("beforeend", `<div class="cs-dismiss"><button type="button" class="btn ghost cd-mini" data-dismiss>この企業カードを消す（間違って立ち上がったとき）</button></div>`);
+  }
+  const dis = card && card.querySelector("[data-dismiss]");
+  if (dis) dis.addEventListener("click", async () => {
+    if (!confirm("この企業カードを消します。CS連携・kinXsのフェーズの読み取りに使わなくなり、同じ議事録からもう一度立ち上がることもありません。よろしいですか？（OBスレや送ったメールは消えません）")) return;
+    try { await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}/dismiss`, { method: "POST", body: JSON.stringify({}) }); csOpen = ""; await load(); }
+    catch (e) { alert(e.message); }
+  });
   const delT = card && card.querySelector("[data-del-test]");
   if (delT) delT.addEventListener("click", async () => {
     if (!confirm("このテスト用の企業カードを消します。よろしいですか？")) return;

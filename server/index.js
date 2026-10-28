@@ -12453,6 +12453,18 @@ app.delete("/api/cs/kickoffs/:bot", async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 間違って立ち上がった企業カードを消す（2026-10-28）。記録は残して見えなくする（同じ議事録からもう一度立ち上がらないように）
+app.post("/api/cs/kickoffs/:bot/dismiss", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const k0 = await getCsKickoff(req.params.bot);
+    if (!k0) return res.status(404).json({ error: "見つかりません" });
+    const restore = req.body && req.body.restore === true;
+    await upsertCsKickoff(k0.bot_id, restore ? { dismissed: false, dismissed_by: null, dismissed_at: null } : { dismissed: true, dismissed_by: req.user, dismissed_at: new Date().toISOString() });
+    console.log(`[cs] 企業カードを${restore ? "戻しました" : "消しました"}：${k0.company || k0.bot_id} by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/cs/kickoffs/:bot/portal", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -27709,7 +27721,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-28l アポメールの設定：特定の日だけ前日リマインドの文面を変えられるように（商談の日ごとに件名・本文、空ならいつもの文面）。";
+const BUILD_TAG = "2026-10-28m CS連携：間違って立ち上がった企業カードを消せるように（企業カードの窓のいちばん下「この企業カードを消す」）。見えなくするだけで、同じ議事録からもう一度立ち上がらない。kinXsのフェーズの読み取りにも使わない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

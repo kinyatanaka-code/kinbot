@@ -7144,3 +7144,5 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .mc-days .mc-day { border: 1px solid #DDE7E2; border-radius: 12px; padding: 10px 12px; margin: 8px 0; background: #FBFDFC; }
 .mc-day-h { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; } .mc-day-h label { font-weight: 700; }
 .mc-day-h .mc-del { margin-left: auto; }
+.cs-dismiss { display: flex; justify-content: flex-end; margin-top: 14px; padding-top: 10px; border-top: 1px dashed #E1E9E5; }
+.cs-dismiss [data-dismiss] { color: #A51F16; border-color: #F0C9C4; }
