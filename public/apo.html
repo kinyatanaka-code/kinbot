@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261028k" />
+    <link rel="stylesheet" href="style.css?v=20261028l" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
   </head>
   <body>
@@ -276,6 +276,12 @@
                 <label>件名<input type="text" id="mcRSubject" /></label>
                 <label>本文<textarea id="mcRBody" rows="14"></textarea></label>
               </div>
+              <div class="ap-tpl mc-days">
+                <h4>特定の日だけリマインドの文面を変える</h4>
+                <p class="note">その日に商談がある人へ送るリマインドだけ、ここの文面にします（例：10/29 の商談だけ「当日は会場が変わります」と入れる）。件名・本文を空にした項目は、いつもの文面のままです。差し込み（{{会社名}} など）も使えます。</p>
+                <div id="mcRDates"></div>
+                <button class="btn ghost" id="mcRDateAdd" type="button">＋ 日を足す</button>
+              </div>
               <div class="ap-cfg-actions">
                 <button class="btn" id="mcSave">保存</button>
                 <button class="btn ghost" id="mcReset">本文を初期文面に戻す</button>
@@ -495,9 +501,9 @@
         </main>
       </div>
     </div>
-    <script src="product.js?v=20261028k"></script>
-    <script src="apo.js?v=20261028k"></script>
-    <script src="nav.js?v=20261028k"></script>
+    <script src="product.js?v=20261028l"></script>
+    <script src="apo.js?v=20261028l"></script>
+    <script src="nav.js?v=20261028l"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

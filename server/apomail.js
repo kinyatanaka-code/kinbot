@@ -126,6 +126,8 @@ export async function getApoMailConfig() {
     confirmBody: stripRetiredLines(String(s.apoMailConfirmBody || "").trim() || DEFAULT_CONFIRM_BODY),
     reminderSubject: String(s.apoMailReminderSubject || "").trim() || DEFAULT_REMINDER_SUBJECT,
     reminderBody: stripRetiredLines(String(s.apoMailReminderBody || "").trim() || DEFAULT_REMINDER_BODY),
+    // 特定の日だけリマインドの文面を変える（2026-10-28）：商談の日（日本時間）→ { subject, body }。空の項目はふだんの文面
+    reminderByDate: (s.apoMailReminderByDate && typeof s.apoMailReminderByDate === "object") ? s.apoMailReminderByDate : {},
     // 1回の自動実行で送る上限（暴走したときの保険）
     maxPerRun: Number.isFinite(+s.apoMailMaxPerRun) ? Math.max(1, +s.apoMailMaxPerRun) : 50,
   };
@@ -417,8 +419,9 @@ export async function sendTestApoMail({ kind = "confirm", to, owner, draft = fal
     zoomLink,
   });
 
-  const subjectTpl = kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject;
-  const bodyTpl = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
+  const rt0 = kind === "reminder" ? reminderTplFor(cfg, start) : null;
+  const subjectTpl = kind === "reminder" ? rt0.subject : cfg.confirmSubject;
+  const bodyTpl = kind === "reminder" ? rt0.body : cfg.confirmBody;
   const subject = "[テスト] " + render(subjectTpl, vars);
   const bodyText = render(bodyTpl, vars);
 
@@ -467,8 +470,11 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
     zoomLink,
   });
 
+  // 特定の日のリマインドの文面（商談の日で選ぶ）
+  const rt = kind === "reminder" ? reminderTplFor(cfg, link.start_time) : null;
+  if (rt && rt.special) console.log(`[apo-mail] ${rt.day} の商談なので、その日だけのリマインドの文面を使います`);
   // 差し込みが埋まらない項目があれば、送る前に気づけるようログに出す
-  const body = kind === "reminder" ? cfg.reminderBody : cfg.confirmBody;
+  const body = kind === "reminder" ? rt.body : cfg.confirmBody;
   const missing = ["ZoomURL", "担当者の会議室URL", "担当者電話", "担当者メール", "部署", "ユニット", "担当者ローマ字"]
     .filter((k) => body.includes(`{{${k}}}`) && !vars[k]);
   if (missing.length) {
@@ -481,8 +487,8 @@ export async function sendApoMail(link, kind, { url, repName, force = false, act
     console.warn(`[apo-mail] ${owner} が「設定→登録リンク」に会議室URLを登録していません。` +
       `このままだとスマートリンクを開いてもお客様が入室できません。`);
   }
-  let subject = render(kind === "reminder" ? cfg.reminderSubject : cfg.confirmSubject, vars);
-  let bodyText = render(kind === "reminder" ? cfg.reminderBody : cfg.confirmBody, vars);
+  let subject = render(kind === "reminder" ? rt.subject : cfg.confirmSubject, vars);
+  let bodyText = render(kind === "reminder" ? rt.body : cfg.confirmBody, vars);
   // リマインドで、実際は「明日」ではないのにテンプレートに「明日」が直書きされている場合は、正しい表記に直す。
   // （金曜に月曜のリマインドを送ると件名が「明日」になってしまう不具合の保険）
   if (kind === "reminder") {
@@ -637,4 +643,11 @@ export async function runReminderSweep({ joinUrl, repNameOf, liveCheck } = {}) {
   }
   if (targets.length) console.log(`[apo-mail] 前日リマインド: 対象${targets.length}件 / 送信${sent}件`);
   return { total: targets.length, sent, results };
+}
+
+// 商談の日（日本時間）に合わせて、その日だけのリマインドの文面があればそれを使う
+export function reminderTplFor(cfg, startTime) {
+  const d = new Date(new Date(startTime).getTime() + 9 * 3600000).toISOString().slice(0, 10);
+  const o = (cfg.reminderByDate || {})[d] || {};
+  return { subject: String(o.subject || "").trim() || cfg.reminderSubject, body: stripRetiredLines(String(o.body || "").trim() || cfg.reminderBody), special: !!(o.subject || o.body), day: d };
 }

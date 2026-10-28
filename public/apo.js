@@ -2366,10 +2366,34 @@ async function loadMailCfg() {
     if ($("mcCBody")) $("mcCBody").value = c.confirmBody;
     if ($("mcRSubject")) $("mcRSubject").value = c.reminderSubject;
     if ($("mcRBody")) $("mcRBody").value = c.reminderBody;
+    mcDays = Object.entries(c.reminderByDate || {}).map(([day, v]) => ({ day, subject: v.subject || "", body: v.body || "" })).sort((a2, b2) => a2.day.localeCompare(b2.day));
+    mcPaintDays();
   } catch (e) {
     if ($("mcStatus")) $("mcStatus").textContent = "設定を読めませんでした";
   }
 }
+// 特定の日だけのリマインドの文面（商談の日 → 件名・本文）
+let mcDays = [];
+function mcPaintDays() {
+  const box = $("mcRDates"); if (!box) return;
+  const e2 = (v) => String(v || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  box.innerHTML = mcDays.length ? mcDays.map((d, i) => `<div class="mc-day" data-i="${i}">
+      <div class="mc-day-h"><label>商談の日 <input type="date" class="mc-d" value="${e2(d.day)}" /></label><button type="button" class="btn ghost mc-copy">いつもの文面を写す</button><button type="button" class="btn ghost mc-del">この日をやめる</button></div>
+      <label>件名<input type="text" class="mc-s" value="${e2(d.subject)}" placeholder="空ならいつもの件名" /></label>
+      <label>本文<textarea class="mc-b" rows="10" placeholder="空ならいつもの本文">${e2(d.body)}</textarea></label></div>`).join("") : '<div class="note">まだありません。「＋ 日を足す」で、その日だけの文面を作れます。</div>';
+  box.querySelectorAll(".mc-day").forEach((row) => {
+    const i = +row.dataset.i;
+    row.querySelector(".mc-d").addEventListener("change", (ev) => { mcDays[i].day = ev.target.value; });
+    row.querySelector(".mc-s").addEventListener("input", (ev) => { mcDays[i].subject = ev.target.value; });
+    row.querySelector(".mc-b").addEventListener("input", (ev) => { mcDays[i].body = ev.target.value; });
+    row.querySelector(".mc-del").addEventListener("click", () => { mcDays.splice(i, 1); mcPaintDays(); });
+    row.querySelector(".mc-copy").addEventListener("click", () => { mcDays[i].subject = $("mcRSubject").value; mcDays[i].body = $("mcRBody").value; mcPaintDays(); });
+  });
+}
+if ($("mcRDateAdd")) $("mcRDateAdd").addEventListener("click", () => {
+  const t = new Date(Date.now() + 9 * 3600000 + 86400000).toISOString().slice(0, 10);
+  mcDays.push({ day: t, subject: $("mcRSubject").value, body: $("mcRBody").value }); mcPaintDays();
+});
 function mcSay(msg, ms) {
   const el = $("mcStatus");
   if (!el) return;
@@ -2394,6 +2418,7 @@ async function saveMailCfg() {
       confirmBody: $("mcCBody").value,
       reminderSubject: $("mcRSubject").value,
       reminderBody: $("mcRBody").value,
+      reminderByDate: Object.fromEntries(mcDays.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.day)).map((d) => [d.day, { subject: d.subject, body: d.body }])),
     };
     const r = await fetch("/api/apo-mail-config", {
       method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),

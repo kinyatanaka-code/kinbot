@@ -7139,3 +7139,8 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 /* 「URLを発行する」の送る資料の一覧（2026-10-28） */
 .ds-picker { background: #F7FAF8; border: 1px solid #E1E9E5; border-radius: 12px; padding: 10px 12px; margin: 6px 0 12px; }
 .ds-picker .dp-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .ds-picker .de-sel { min-width: 280px; }
+
+/* 特定の日だけリマインドの文面を変える（2026-10-28） */
+.mc-days .mc-day { border: 1px solid #DDE7E2; border-radius: 12px; padding: 10px 12px; margin: 8px 0; background: #FBFDFC; }
+.mc-day-h { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; } .mc-day-h label { font-weight: 700; }
+.mc-day-h .mc-del { margin-left: auto; }

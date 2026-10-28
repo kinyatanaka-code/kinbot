@@ -27709,7 +27709,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-28k 資料トラッキングの「URLを発行する」も、送る資料の一覧に、テンプレ資料からも別の資料（PDF）からも足せるように（並べかえ・外す・名前を直す・プレビュー）。2つ以上なら1つのリンクにまとめる。";
+const BUILD_TAG = "2026-10-28l アポメールの設定：特定の日だけ前日リマインドの文面を変えられるように（商談の日ごとに件名・本文、空ならいつもの文面）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -33827,6 +33827,16 @@ app.put("/api/apo-mail-config", async (req, res) => {
     if (b.confirmBody !== undefined) patch.apoMailConfirmBody = stripRetiredLines(String(b.confirmBody || "")).slice(0, 8000);
     if (b.reminderSubject !== undefined) patch.apoMailReminderSubject = String(b.reminderSubject || "").slice(0, 300);
     if (b.reminderBody !== undefined) patch.apoMailReminderBody = stripRetiredLines(String(b.reminderBody || "")).slice(0, 8000);
+    // 特定の日だけのリマインドの文面：{ "YYYY-MM-DD": { subject, body } }（中身が空の日は消す・過ぎた日は片付ける）
+    if (b.reminderByDate !== undefined && b.reminderByDate && typeof b.reminderByDate === "object") {
+      const out = {}; const cut = new Date(Date.now() + 9 * 3600000 - 30 * 86400000).toISOString().slice(0, 10);
+      for (const [d, v] of Object.entries(b.reminderByDate)) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < cut || !v) continue;
+        const subject = String(v.subject || "").slice(0, 300), body = stripRetiredLines(String(v.body || "")).slice(0, 8000);
+        if (subject.trim() || body.trim()) out[d] = { subject, body };
+      }
+      patch.apoMailReminderByDate = out;
+    }
     if (b.maxPerRun !== undefined) patch.apoMailMaxPerRun = Math.max(1, parseInt(b.maxPerRun, 10) || 50);
     await saveSettings(patch);
     console.log(`[apo-mail] 設定を更新 by ${req.user}`);
