@@ -168,6 +168,7 @@ function render() {
           <button type="button" class="btn cd-btn" data-act="save">${ci("save")}保存</button>
           <button type="button" class="btn ghost cd-btn" data-act="repost">${ci("send")}保存してOBスレに修正版を投稿</button>
           <span class="cs-sub" id="csSt2"></span>
+          ${k.is_test ? "" : `<button type="button" class="btn ghost cd-btn cd-del" data-dismiss title="申込書を回収していない・間違って立ち上がった企業カードを消す">${ci("trash")}このカードを消す</button>`}
         </div>
         <div class="cd-acts">
           <button type="button" class="cd-act" data-act="draft">${ci("mail", 18)}<span>${k.draft_at ? "御礼メールの<br>下書きを作り直す" : "御礼メールの<br>下書きを作る"}</span></button>
@@ -176,7 +177,6 @@ function render() {
           <button type="button" class="cd-act" data-act="redo">${ci("redo", 18)}<span>議事録から<br>読み取り直す</span></button>
           <a class="cd-act" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">${ci("mic", 18)}<span>議事録を<br>開く</span></a>
           ${k.sf_url ? `<a class="cd-act" href="${esc(k.sf_url)}" target="_blank" rel="noopener">${ci("sf", 18)}<span>SFの商談を<br>開く</span></a>` : ""}
-          ${k.is_test ? "" : `<button type="button" class="cd-act cd-act-del" data-dismiss title="間違って立ち上がった企業カードを消す">${ci("trash", 18)}<span>このカードを<br>消す</span></button>`}
         </div>
       </div>
     </div>`;
