@@ -17210,6 +17210,15 @@ app.get("/api/calls/list-dashboard", async (req, res) => {
         out.weeks.push({ ...l, countFrom: cf, countTo: ct, ...w, 月初から: addRun(w.合計) });
       }
     }
+    // リスト別の目標（2026-10-29）：list:新規・list:過去 はアポ、list:ナーチャ化 は件。月はその月、週は週の初日をキーに
+    const pickG = (m0, key) => { const o = {}; for (const sj of ["新規", "過去", "ナーチャ化"]) { const v = (((m0 || {})[`list:${sj}`] || {})[key] || {})[sj === "ナーチャ化" ? "ナーチャ化" : "アポ"]; o[sj] = v == null ? null : v; } return o; };
+    const gm = await getApoGoalsByKeys("month", [ym]).catch(() => ({}));
+    out.goals = { month: pickG(gm, ym), weeks: {} };
+    if (Array.isArray(out.weeks) && out.weeks.length) {
+      const keys = out.weeks.map((w) => w.from);
+      const gw = await getApoGoalsByKeys("week", keys).catch(() => ({}));
+      for (const k of keys) out.goals.weeks[k] = pickG(gw, k);
+    }
     res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -18205,7 +18214,7 @@ app.put("/api/calls/apo-goals", async (req, res) => {
     const subject = String(b.subject || "").trim().toLowerCase();
     const period = ["day", "week", "month"].includes(String(b.period)) ? String(b.period) : "";
     const periodKey = String(b.periodKey || b.date || "").trim();
-    const metric = ["コール", "接触", "アポ", "実施", "実施マインド", "実施コミット", "設定マインド", "設定コミット"].includes(String(b.metric)) ? String(b.metric) : "アポ";
+    const metric = ["コール", "接触", "アポ", "実施", "実施マインド", "実施コミット", "設定マインド", "設定コミット", "ナーチャ化"].includes(String(b.metric)) ? String(b.metric) : "アポ";
     if (!subject || !period || !periodKey) return res.status(400).json({ error: "subject / period / periodKey が必要です" });
     await setApoGoal(subject, period, periodKey, metric, b.value);
     res.json({ ok: true });
@@ -27721,7 +27730,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-28o CS連携：「このカードを消す」を、窓の下の「保存」の行の右端（赤）に移した（ボタンの並びの2行目は窓の下で切れて見えなかった）。";
+const BUILD_TAG = "2026-10-29a kincallのリスト別：新規リスト・過去リスト・新規リスト→ナーチャリングの目標を入れられるように（月次・週次、差分つき）。ナーチャリングで取ったアポは、リードの元の新規リスト・過去リストの方にも足して数える。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

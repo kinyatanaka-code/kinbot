@@ -4502,22 +4502,44 @@ function ldRows(dm, stats) {
   const others = ppl.filter((p) => !used.has(p.email) && LD_FR.some((f) => (p[f.k] || zero).コール > 0) ).map((p) => rowOf(p.name, p));
   return { sales, inside, others };
 }
-function ldSumCards(T, cum) {
+// ナーチャリングで取ったアポは、リードの元（新規・過去）の方にも足して数える（2026-10-29）
+function ldWithNur(T) {
+  const z = { コール: 0, 接触: 0, アポ: 0 };
+  const n0 = (T && T.ナーチャ新規) || z, p0 = (T && T.ナーチャ過去) || z;
+  const a = (T && T.新規) || z, b = (T && T.過去) || z;
+  return { 新規: { ...a, アポ: a.アポ + (n0.アポ || 0), 自分: a.アポ, ナーチャから: n0.アポ || 0 }, 過去: { ...b, アポ: b.アポ + (p0.アポ || 0), 自分: b.アポ, ナーチャから: p0.アポ || 0 } };
+}
+// 目標の入力と差分。g＝{ period: "month"|"week", key, goals: {新規, 過去, ナーチャ化} }
+function ldGoalRow(g, subj, act) {
+  if (!g) return "";
+  const v = g.goals && g.goals[subj]; const has = v != null && v !== "";
+  const df = has ? act - Number(v) : null;
+  return `<div class="ld-goal"><span>目標${g.period === "week" ? "（月初から）" : ""}</span><input type="number" min="0" class="kc-goal ld-gin" data-subj="${subj}" data-period="${g.period}" data-key="${esc(g.key)}" data-act="${act}" value="${has ? Number(v) : ""}" placeholder="—" /><span>差分</span><b class="ld-gdiff ${df == null ? "" : df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"}">${df == null ? "—" : df > 0 ? `+${df}` : df}</b></div>`;
+}
+function ldSumCards(T, cum, g) {
   const zero = { コール: 0, 接触: 0, アポ: 0 };
+  const W = ldWithNur(T), WC = cum ? ldWithNur(cum) : null;
   const card = (f) => {
-    const b = T[f.k] || zero, c = cum ? (cum[f.k] || zero) : null;
+    const b = f.k === "新規" || f.k === "過去" ? W[f.k] : (T[f.k] || zero);
+    const c = cum ? (f.k === "新規" || f.k === "過去" ? WC[f.k] : (cum[f.k] || zero)) : null;
+    const goalAct = c ? c.アポ : b.アポ;
     return `<div class="ld-card"><h4><i class="ld-dot ${f.cls}"></i>${f.label}</h4>
       <div class="ld-big">${b.アポ}<small>アポ</small>${c ? `<span class="ld-cum">月初から ${c.アポ}</span>` : ""}</div>
       <div class="ld-sub">コール ${b.コール.toLocaleString()} ・ アポ率 ${ldRate(b.アポ, b.コール)} ・ 接触 ${b.接触.toLocaleString()}</div>
-      ${f.k === "ナーチャリング" && T.ナーチャ新規 ? `<div class="ld-nsplit"><span><i class="ld-dot new"></i>新規から <b>${T.ナーチャ新規.アポ}</b>アポ（${ldRate(T.ナーチャ新規.アポ, T.ナーチャ新規.コール)}）</span><span><i class="ld-dot past"></i>過去から <b>${T.ナーチャ過去.アポ}</b>アポ（${ldRate(T.ナーチャ過去.アポ, T.ナーチャ過去.コール)}）</span></div>` : ""}</div>`;
+      ${(f.k === "新規" || f.k === "過去") && b.ナーチャから ? `<div class="ld-nsplit"><span>リストで ${b.自分} ＋ ナーチャリングから ${b.ナーチャから}</span></div>` : ""}
+      ${f.k === "ナーチャリング" && T.ナーチャ新規 ? `<div class="ld-nsplit"><span><i class="ld-dot new"></i>新規から <b>${T.ナーチャ新規.アポ}</b>アポ（${ldRate(T.ナーチャ新規.アポ, T.ナーチャ新規.コール)}）</span><span><i class="ld-dot past"></i>過去から <b>${T.ナーチャ過去.アポ}</b>アポ（${ldRate(T.ナーチャ過去.アポ, T.ナーチャ過去.コール)}）</span></div>` : ""}
+      ${f.k === "新規" || f.k === "過去" ? ldGoalRow(g, f.k, goalAct) : ""}</div>`;
   };
+  const nAct = cum ? (cum.ナーチャリング化 || 0) : (T.ナーチャリング化 || 0);
   return `<div class="ld-sum">${LD_FR.map(card).join("")}
     <div class="ld-card"><h4><i class="ld-dot nur2"></i>新規リスト → ナーチャリング</h4>
       <div class="ld-big">${T.ナーチャリング化 || 0}<small>件</small>${cum ? `<span class="ld-cum">月初から ${cum.ナーチャリング化 || 0}</span>` : ""}</div>
-      <div class="ld-sub">新規リストのリードが、はじめてジャッジ・営業フォローになった数</div></div></div>`;
+      <div class="ld-sub">新規リストのリードが、はじめてジャッジ・営業フォローになった数</div>
+      ${ldGoalRow(g, "ナーチャ化", nAct)}</div></div>`;
 }
-function ldTable(title, rows, opts = {}) {
-  if (!rows.length) return "";
+function ldTable(title, rows0, opts = {}) {
+  if (!rows0.length) return "";
+  const rows = rows0.map((r) => { const w = ldWithNur(r); return { ...r, 新規: w.新規, 過去: w.過去 }; });
   const keyVal = (r, k) => {
     if (k === "名前") return r.label;
     if (k === "新規→ナーチャ") return r.ナーチャリング化;
@@ -4533,7 +4555,7 @@ function ldTable(title, rows, opts = {}) {
   const th = (k, label, cls = "") => `<th class="${cls}" data-k="${k}">${label}${_ldSort.key === k ? ` <span class="ar">${_ldSort.dir < 0 ? "▼" : "▲"}</span>` : ""}</th>`;
   const tot = { n: 0 }; for (const f of LD_FR) tot[f.k] = { コール: 0, アポ: 0 };
   for (const r of rows) { for (const f of LD_FR) { tot[f.k].コール += r[f.k].コール; tot[f.k].アポ += r[f.k].アポ; } tot.n += r.ナーチャリング化; }
-  const cols = (b, cls, r) => `<td class="c-${cls}"><b>${b.アポ}</b>${cls === "nur" && r && r.ナーチャ新規 && (r.ナーチャ新規.アポ || r.ナーチャ過去.アポ) ? `<div class="ld-nmini">新${r.ナーチャ新規.アポ}・過${r.ナーチャ過去.アポ}</div>` : ""}</td><td class="c-${cls}">${b.コール}</td><td class="c-${cls} ld-rate">${ldRate(b.アポ, b.コール)}</td>`;
+  const cols = (b, cls, r) => `<td class="c-${cls}"><b>${b.アポ}</b>${cls === "nur" && r && r.ナーチャ新規 && (r.ナーチャ新規.アポ || r.ナーチャ過去.アポ) ? `<div class="ld-nmini">新${r.ナーチャ新規.アポ}・過${r.ナーチャ過去.アポ}</div>` : ""}${(cls === "new" || cls === "past") && b.ナーチャから ? `<div class="ld-nmini">うちナーチャ ${b.ナーチャから}</div>` : ""}</td><td class="c-${cls}">${b.コール}</td><td class="c-${cls} ld-rate">${ldRate(b.アポ, b.コール)}</td>`;
   const body = sorted.map((r) => {
     const id = (opts.prefix || "") + (r.email || r.label);
     const open = _ldOpen.has(id);
@@ -4556,23 +4578,37 @@ function renderListDash(dm, dl) {
     // 週次：上に月の合計、下に週ごと（開いた週だけ表）
     const live = dl.weeks.filter((w) => !w.future);
     const openFrom = _ldWeekOpen || (live.length ? live[live.length - 1].from : "");
-    html += `<div class="ld-sec">月の合計（${Number(dl.month.slice(5))}月・${Number(dl.to.slice(8))}日まで）</div>${ldSumCards(dl.合計)}`;
+    html += `<div class="ld-sec">月の合計（${Number(dl.month.slice(5))}月・${Number(dl.to.slice(8))}日まで）</div>${ldSumCards(dl.合計, null, { period: "month", key: dl.month, goals: (dl.goals || {}).month || {} })}`;
     html += dl.weeks.map((w) => {
       if (w.future) return `<div class="ld-week future"><div class="ld-wh"><b>${esc(w.label)}</b><span class="ld-rate">これから</span></div></div>`;
       const open = w.from === openFrom;
       const T = w.合計, C = w.月初から;
       const chip = (cls, label, v, c) => `<span class="ld-wchip"><i class="ld-dot ${cls}"></i>${label} <b>${v}</b><em>（月初から ${c}）</em></span>`;
       const head = `<div class="ld-wh" data-from="${esc(w.from)}"><b>${open ? "▾" : "▸"} ${esc(w.label)}</b>
-        ${chip("new", "新規", T.新規.アポ, C.新規.アポ)}${chip("past", "過去", T.過去.アポ, C.過去.アポ)}${chip("nur", `ナーチャ（新${(T.ナーチャ新規 || {}).アポ || 0}・過${(T.ナーチャ過去 || {}).アポ || 0}）`, T.ナーチャリング.アポ, C.ナーチャリング.アポ)}${chip("nur2", "新規→ナーチャ", T.ナーチャリング化, C.ナーチャリング化)}</div>`;
+        ${chip("new", "新規", ldWithNur(T).新規.アポ, ldWithNur(C).新規.アポ)}${chip("past", "過去", ldWithNur(T).過去.アポ, ldWithNur(C).過去.アポ)}${chip("nur", `ナーチャ（新${(T.ナーチャ新規 || {}).アポ || 0}・過${(T.ナーチャ過去 || {}).アポ || 0}）`, T.ナーチャリング.アポ, C.ナーチャリング.アポ)}${chip("nur2", "新規→ナーチャ", T.ナーチャリング化, C.ナーチャリング化)}</div>`;
       if (!open) return `<div class="ld-week">${head}</div>`;
       const g = ldRows(dm, w);
-      return `<div class="ld-week open">${head}${ldTable("セールス", g.sales, { prefix: w.from + "|" })}${ldTable("インサイド", g.inside, { prefix: w.from + "|" })}${ldTable("その他", g.others, { prefix: w.from + "|" })}</div>`;
+      return `<div class="ld-week open">${head}${ldSumCards(T, C, { period: "week", key: w.from, goals: ((dl.goals || {}).weeks || {})[w.from] || {} })}${ldTable("セールス", g.sales, { prefix: w.from + "|" })}${ldTable("インサイド", g.inside, { prefix: w.from + "|" })}${ldTable("その他", g.others, { prefix: w.from + "|" })}</div>`;
     }).join("");
   } else {
     const g = ldRows(dm, dl);
-    html += ldSumCards(dl.合計) + ldTable("セールス", g.sales) + ldTable("インサイド", g.inside) + ldTable("その他", g.others);
+    html += ldSumCards(dl.合計, null, { period: "month", key: dl.month, goals: (dl.goals || {}).month || {} }) + ldTable("セールス", g.sales) + ldTable("インサイド", g.inside) + ldTable("その他", g.others);
   }
   box.innerHTML = html + note;
+  box.querySelectorAll(".ld-gin").forEach((inp) => {
+    inp.addEventListener("click", (e) => e.stopPropagation());
+    inp.addEventListener("change", async () => {
+      const goal = Math.max(0, Number(inp.value) || 0); const act = Number(inp.dataset.act || 0); const df = act - goal;
+      const de = inp.parentElement.querySelector(".ld-gdiff"); if (de) { de.textContent = df > 0 ? `+${df}` : `${df}`; de.className = "ld-gdiff " + (df > 0 ? "kc-d-plus" : df < 0 ? "kc-d-minus" : "kc-d-zero"); }
+      try {
+        const r = await fetch("/api/calls/apo-goals", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ subject: `list:${inp.dataset.subj}`, period: inp.dataset.period, periodKey: inp.dataset.key, metric: inp.dataset.subj === "ナーチャ化" ? "ナーチャ化" : "アポ", value: goal }) });
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "保存できませんでした");
+        const gs = dl.goals = dl.goals || { month: {}, weeks: {} };
+        if (inp.dataset.period === "month") (gs.month = gs.month || {})[inp.dataset.subj] = goal; else ((gs.weeks = gs.weeks || {})[inp.dataset.key] = gs.weeks[inp.dataset.key] || {})[inp.dataset.subj] = goal;
+        inp.style.borderColor = "";
+      } catch (e) { inp.style.borderColor = "#e24b4a"; alert(e.message); }
+    });
+  });
   box.querySelectorAll(".ld-t th[data-k]").forEach((h) => h.addEventListener("click", () => {
     const k = h.dataset.k;
     _ldSort = _ldSort.key === k ? { key: k, dir: -_ldSort.dir } : { key: k, dir: k === "名前" ? 1 : -1 };

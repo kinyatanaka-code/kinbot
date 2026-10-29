@@ -7148,3 +7148,9 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .cs-dismiss [data-dismiss] { color: #A51F16; border-color: #F0C9C4; }
 .cd-act.cd-act-del { color: #A51F16; border-color: #F0C9C4 !important; background: #FFF8F7 !important; }
 .cd-act.cd-act-del:hover { background: #FBE4E4 !important; }
+
+/* kincall のリスト別：目標と差分（2026-10-29） */
+.ld-goal { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #E1E9E5; font-size: 11.5px; color: #4F6158; }
+.ld-goal .ld-gin { width: 64px; height: 28px; padding: 2px 6px; font-size: 13px; }
+.ld-goal b { font-size: 14px; min-width: 28px; }
+.ld-week.open > .ld-sum { margin: 8px 0 10px; }
