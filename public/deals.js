@@ -3416,10 +3416,21 @@ function sfDtLocal(v) {
       const note = document.getElementById("ssAutofillNote");
       const botId = window._sfReadBotId || window._sfCurrentBotId;
       if (!botId) { if (note) note.textContent = "対象の商談が見つかりません"; return; }
+      // 大・中・小のような親子の選択肢は、「親の値ごとに選べる子」をAIに渡す（ちぐはぐな組み合わせを選ばないように）（2026-10-29）
       const fList = sec.fields.map((api) => {
         const mm = meta[api] || {};
-        const options = (mm.picklistValues || []).map((o) => o.label || o.value);
-        return { api, label: mm.label || api, type: mm.type || "string", options };
+        const options = (mm.picklistValues || []).filter((o) => o.active !== false).map((o) => o.label || o.value);
+        const f = { api, label: mm.label || api, type: mm.type || "string", options };
+        if (mm.dependentPicklist && mm.controllerName && meta[mm.controllerName] && mm.controllerName !== "StageName") {
+          const ctrl = meta[mm.controllerName];
+          f.parent = mm.controllerName;
+          f.byParent = {};
+          for (const po of (ctrl.picklistValues || [])) {
+            const kids = depValidOptions(mm, ctrl, po.value).map((o) => o.label || o.value);
+            if (kids.length) f.byParent[po.label || po.value] = kids;
+          }
+        }
+        return f;
       });
       if (btn) { btn.disabled = true; btn.textContent = "商談から読み取り中…"; }
       if (note) note.textContent = "商談の内容を読み取っています…";
@@ -3437,8 +3448,17 @@ function sfDtLocal(v) {
         const selects = inputs.filter((el) => el.tagName === "SELECT");
         const others = inputs.filter((el) => el.tagName !== "SELECT");
         const setSelect = (el, v) => {
-          const opt = [...el.options].find((o) => o.value === v || o.textContent === v) ||
-                      [...el.options].find((o) => o.textContent && v && o.textContent.includes(v));
+          const nz = (x) => String(x || "").normalize("NFKC").replace(/[\s　（）()「」【】・\/／,、。:：\-ー]/g, "").toLowerCase();
+          const nv = nz(v);
+          const all = [...el.options].filter((o) => o.value);
+          const opt = all.find((o) => o.value === v || o.textContent === v) ||
+                      all.find((o) => nz(o.textContent) === nv || nz(o.value) === nv) ||
+                      all.find((o) => nv.length >= 2 && (nz(o.textContent).includes(nv) || nv.includes(nz(o.textContent)))) ||
+                      (() => {   // 文字の重なりがいちばん多いもの（半分以上重なるときだけ）
+                        let best = null, sc = 0;
+                        for (const o of all) { const t = nz(o.textContent); if (!t) continue; let hit = 0; for (const ch of new Set(t)) if (nv.includes(ch)) hit++; const r = hit / Math.max(new Set(t).size, 1); if (r > sc) { sc = r; best = o; } }
+                        return sc >= 0.6 ? best : null;
+                      })();
           if (opt && !el.value) {
             el.value = opt.value;
             el.dispatchEvent(new Event("change", { bubbles: true })); // 従属の選択肢を作り直す

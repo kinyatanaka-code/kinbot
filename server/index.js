@@ -27730,7 +27730,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-29b kinXsの企業のモーダル（議事録）：「電話・メールなど（議事録のない接触）を記録する」の種類に「商談」を足した。";
+const BUILD_TAG = "2026-10-29c SFのフェーズの項目の「商談から読み取る」の精度を上げた：大・中・小の選択肢の親子をAIに渡す、断りの理由を先に決めてから大→中→小をそろえる、顧客の発言を優先、長い文字起こしは終わりも見る、選択肢の当て方を表記ゆれに強く。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -29946,12 +29946,15 @@ app.post("/api/salesforce/field-suggest", async (req, res) => {
       `【商談実施日】${ymdOf(mDate)}\n【今日】${ymdOf(new Date())}\n\n` +
       (summary ? "【要約】\n" + summary + "\n\n" : "") +
       (m.note ? "【商談メモ】\n" + m.note + "\n\n" : "") +
-      "【文字起こし】\n" + trText;
+      "【文字起こし】\n" + (trText.length > 30000 ? `${trText.slice(0, 12000)}\n…（中略）…\n${trText.slice(-18000)}` : trText);
     if (!trText.trim() && !summary) return res.json({ values: {} });
     const fieldLines = fields.map((f) => {
       let line = `- ${f.label}（キー:${f.api}`;
       if (f.type === "date" || f.type === "datetime") line += "・日付 YYYY-MM-DD";
-      if (Array.isArray(f.options) && f.options.length) {
+      if (f.byParent && typeof f.byParent === "object" && Object.keys(f.byParent).length) {
+        const parentLabel = (fields.find((x) => x.api === f.parent) || {}).label || f.parent;
+        line += `・「${parentLabel}」で選んだ値によって選べるものが変わる。親の値ごとの選択肢：` + Object.entries(f.byParent).map(([pv, kids]) => `${pv}→[${kids.join(" / ")}]`).join("、") + "。必ず、親で選んだ値の中から選ぶ";
+      } else if (Array.isArray(f.options) && f.options.length) {
         line += "・選択肢:[" + f.options.join(" / ") + "] から選ぶ";
         // 複数選べる項目は、当てはまるものを全部返してもらう
         if (f.type === "multipicklist") line += "・当てはまるものを全て、セミコロン( ; )で区切って返す";
@@ -29967,6 +29970,10 @@ app.post("/api/salesforce/field-suggest", async (req, res) => {
       "・次回アクション日は、次回の打ち合わせ日や、宿題の期限として話に出た日付を入れる。\n" +
       "・次回アクション種別は、次に何をするか（再商談・電話・メールなど）を選択肢から選ぶ。\n" +
       "・失注理由や受失注理由は、顧客が断った理由・保留した理由に最も近い選択肢を選ぶ。\n" +
+      "・受失注理由（大項目・中項目・小項目）は、まず商談の中で顧客が言った断り・保留の理由を1つに決め（いちばん強い理由。予算・時期・社内の都合・他社・効果が見えない など）、\n" +
+      "  その理由に合う大項目を選び、次にその大項目で選べる中項目、その中項目で選べる小項目、の順にそろえて選ぶ。大・中・小がちぐはぐにならないようにする。\n" +
+      "・受失注理由詳細は、顧客が言った理由を、商談の言葉をなるべく使って1〜2文で書く（誰が・何を理由に・いつ頃なら など）。\n" +
+      "・理由は、要約よりも文字起こしの中の顧客の発言を優先して判断する。営業側の推測ではなく、顧客が実際に言ったことに基づく。\n" +
       "・選択肢がある項目は、必ず選択肢の中から最も近いものを選ぶ。選択肢の文字列をそのまま返す。\n" +
       "・「当てはまるものを全て」と書かれた項目は、該当する選択肢を全てセミコロン( ; )でつないで返す。\n" +
       "  例：新卒とアルバイトの話が出ていれば「新卒;アルバイト」。話に出ていないものは入れない。\n" +
