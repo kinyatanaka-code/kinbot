@@ -12596,7 +12596,7 @@ async function kinxsSync() {
     // 日付を「YYYY-MM-DD」にそろえる（日時の項目・形の違う値は捨てる）
     const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) && !isNaN(Date.parse(`${t}T00:00:00Z`)) ? t : null; };
     const firstOf = (o, list) => { for (const f of list) { const v = ymd(o[f]); if (v) return v; } return null; };
-    const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name, Account.Website${extra} FROM Opportunity
+    const q = await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, order_date__c, Owner.Name, AccountId, Account.Name, Account.Website${extra} FROM Opportunity
       WHERE (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%') AND RecordType.Name LIKE '%クロス%'
       ORDER BY CloseDate DESC LIMIT 1500`);
     const cache = { ...(st.kinxsItemCache || {}) };   // 商談ID → 商品名（取り直さない）
@@ -12610,7 +12610,8 @@ async function kinxsSync() {
       const target = names.filter(kinxsIsTarget);
       if (!target.length) { out.skipped++; continue; }
       const a = byAcc.get(o.AccountId) || { account_id: o.AccountId, name: (o.Account && o.Account.Name) || "", website: (o.Account && o.Account.Website) || "", products: [], opp_ids: [], fs_name: (o.Owner && o.Owner.Name) || "" };
-      const booked = ymd(o.SS06__c) || ymd(o.CloseDate) || null;
+      // 受注日：☆受失注日（order_date__c、手で入れる日）→ SS06昇格日 → 受注想定日 の順（2026-10-30）
+      const booked = ymd(o.order_date__c) || ymd(o.SS06__c) || ymd(o.CloseDate) || null;
       // 商談の商品は全部残す（商品ラベルの自動の区別に使う。取り込むかどうかは target で決めたまま）
       for (const n of names) a.products.push({ name: n, opp: o.Id, oppName: o.Name || "", booked, start: firstOf(o, startF), end: firstOf(o, endF), stage: o.StageName, target: kinxsIsTarget(n) });
       a.opp_ids.push(o.Id);
@@ -13813,11 +13814,11 @@ async function kinxsSyncOneAccount(sfAccountId, { oppIds = null } = {}) {
   const { startF, endF, extra } = await kxOppFields(sfUser);
   const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) && !isNaN(Date.parse(`${t}T00:00:00Z`)) ? t : null; };
   const firstOf = (o, list) => { for (const f of list) { const v = ymd(o[f]); if (v) return v; } return null; };
-  let opps = ((await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name${extra} FROM Opportunity WHERE AccountId='${id}' AND ${Array.isArray(oppIds) && oppIds.length ? `Id IN (${oppIds.map((o) => `'${String(o).replace(/[^0-9a-zA-Z]/g, "")}'`).join(",")})` : `RecordType.Name LIKE '%クロス%' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%')`} ORDER BY CloseDate DESC LIMIT 30`)).records || []);
+  let opps = ((await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, order_date__c, Owner.Name${extra} FROM Opportunity WHERE AccountId='${id}' AND ${Array.isArray(oppIds) && oppIds.length ? `Id IN (${oppIds.map((o) => `'${String(o).replace(/[^0-9a-zA-Z]/g, "")}'`).join(",")})` : `RecordType.Name LIKE '%クロス%' AND (StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%')`} ORDER BY CloseDate DESC LIMIT 30`)).records || []);
   const a = { account_id: acc.Id, name: acc.Name || "", website: acc.Website || "", products: [], opp_ids: [], fs_name: "" };
   for (const o of opps) {
     const names = (await listOpportunityLineItems(sfUser, o.Id).catch(() => [])).map((x) => String(x.name || x.Product2?.Name || x.PricebookEntry?.Name || "").trim()).filter(Boolean);
-    const booked = ymd(o.SS06__c) || ymd(o.CloseDate) || null;
+    const booked = ymd(o.order_date__c) || ymd(o.SS06__c) || ymd(o.CloseDate) || null;
     for (const n of names) a.products.push({ name: n, opp: o.Id, oppName: o.Name || "", booked, start: firstOf(o, startF), end: firstOf(o, endF), stage: o.StageName, target: kinxsIsTarget(n) });
     a.opp_ids.push(o.Id); if (!a.fs_name && o.Owner && o.Owner.Name) a.fs_name = o.Owner.Name;
   }
@@ -13879,13 +13880,13 @@ async function kxSfOppCandidates(name, formers = []) {
   const cond = names.flatMap((n) => [`Account.Name = '${esc1(n)}'`, shortOf(n).length >= 2 ? `Account.Name LIKE '%${esc1(shortOf(n))}%'` : "", shortOf(n).length >= 2 ? `Name LIKE '%${esc1(shortOf(n))}%'` : ""]).filter(Boolean).join(" OR ");
   if (!cond) return [];
   const WON = "(StageName LIKE '06%' OR StageName LIKE '07%' OR StageName LIKE '08%' OR StageName LIKE '%申込書回収%')";
-  const recs = (await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, Owner.Name, AccountId, Account.Name, RecordType.Name FROM Opportunity WHERE ((RecordType.Name LIKE '%クロス%' AND ${WON}) OR RecordType.Name LIKE '%追加商談%' OR Name LIKE '%追加商談%') AND (${cond}) ORDER BY CloseDate DESC LIMIT 30`)).records || [];
+  const recs = (await sfQuery(sfUser, `SELECT Id, Name, StageName, CloseDate, SS06__c, order_date__c, Owner.Name, AccountId, Account.Name, RecordType.Name FROM Opportunity WHERE ((RecordType.Name LIKE '%クロス%' AND ${WON}) OR RecordType.Name LIKE '%追加商談%' OR Name LIKE '%追加商談%') AND (${cond}) ORDER BY CloseDate DESC LIMIT 30`)).records || [];
   const keys = new Set(names.map((n) => csCoKey(n)));
   return recs.map((o) => {
     // 追加商談（商談名・レコードタイプが「追加商談_X_…」のもの）は、手で選ぶだけ（2026-10-27：X追加ではなく 追加商談_X_）
     const xadd = /追加商談/.test(`${(o.RecordType && o.RecordType.Name) || ""} ${o.Name || ""}`);
     const isCross = /クロス/.test((o.RecordType && o.RecordType.Name) || "");
-    return { id: o.Id, name: o.Name || "", account: (o.Account && o.Account.Name) || "", accountId: o.AccountId, stage: o.StageName || "", booked: String(o.SS06__c || o.CloseDate || "").slice(0, 10), owner: (o.Owner && o.Owner.Name) || "", kind: xadd && !(isCross && !/追加商談/.test(o.Name || "")) ? "追加商談" : "クロス", same: keys.has(csCoKey((o.Account && o.Account.Name) || "")) };
+    return { id: o.Id, name: o.Name || "", account: (o.Account && o.Account.Name) || "", accountId: o.AccountId, stage: o.StageName || "", booked: String(o.order_date__c || o.SS06__c || o.CloseDate || "").slice(0, 10), owner: (o.Owner && o.Owner.Name) || "", kind: xadd && !(isCross && !/追加商談/.test(o.Name || "")) ? "追加商談" : "クロス", same: keys.has(csCoKey((o.Account && o.Account.Name) || "")) };
   }).sort((x, y) => (x.kind === "クロス" ? 0 : 1) - (y.kind === "クロス" ? 0 : 1) || (y.same ? 1 : 0) - (x.same ? 1 : 0) || String(y.booked).localeCompare(String(x.booked)));
 }
 // 手で入れた会社を、商談（いくつでも）に紐づける：商談ごとの取引先を取り込み（その商談だけ）、1つの会社にまとめる
@@ -27730,7 +27731,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-29c SFのフェーズの項目の「商談から読み取る」の精度を上げた：大・中・小の選択肢の親子をAIに渡す、断りの理由を先に決めてから大→中→小をそろえる、顧客の発言を優先、長い文字起こしは終わりも見る、選択肢の当て方を表記ゆれに強く。";
+const BUILD_TAG = "2026-10-30a kinXsの受注日：SFの「☆受失注日」を先に使う（無ければSS06昇格日→受注想定日）。今月・先月の受注の数にも効く。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
