@@ -7489,6 +7489,7 @@ function hubShow(tab) {
   else if (tab === "nu") hubRenderNurture();
   else if (tab === "pl") hubRenderPast();
   else if (tab === "src") hubRenderSources();
+  else if (tab === "sh") hubRenderSheet();
 }
 
 // ソースタブのリストのカードから、そのリストの中身（編集表）を開く。戻るとソースタブに戻る
@@ -11814,4 +11815,144 @@ async function loadMailCamps() {
       if (only) only.addEventListener("change", () => det.querySelectorAll("tr.no").forEach((tr) => { tr.style.display = only.checked ? "none" : ""; }));
     }
   }
+}
+
+
+// ===== リスト管理「シート」：全部のリードをスプレッドシートのように見て、1件ずつ（まとめても）行き先を決める（2026-10-30）=====
+const SH = { q: "", state: "open", list: "", assigned: "", stage: "", absent: "", idle: false, sort: "last", dir: "desc", offset: 0, limit: 200, sel: new Set(), lastIdx: -1, rows: [], total: 0, facets: null, members: [] };
+async function hubRenderSheet() {
+  const pane = $("hubPane"); if (!pane) return;
+  if (!SH.facets) {
+    try {
+      const [f, m] = await Promise.all([fetch("/api/calls/sheet/facets").then((r) => r.json()), fetch("/api/calls/members").then((r) => r.json())]);
+      if (f.error) throw new Error(f.error);
+      SH.facets = f; SH.members = (m.items || []).filter((x) => x.email);
+    } catch (e) { pane.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  }
+  const F = SH.facets;
+  const opt = (v, l, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? "selected" : ""}>${esc(l)}</option>`;
+  const memOpts = (cur, withAll) => (withAll ? opt("", "担当：全員", cur) : "") + opt("none", "未割り当て", cur) + SH.members.map((m) => opt(m.email.toLowerCase(), m.name || m.email, cur)).join("");
+  const listOpts = (cur, withAll) => (withAll ? opt("", "リスト：すべて", cur) : opt("", "（リストを選ぶ）", cur)) + F.lists.map((l) => opt(l.id, `${l.name}${withAll ? `（${l.open}）` : ""}`, cur)).join("");
+  const stageOpts = (cur, withAll) => (withAll ? opt("", "ステージ：すべて", cur) + opt("__none", "ステージなし", cur) : opt("", "（ステージを選ぶ）", cur)) + F.stages.map((x) => opt(x.stage, withAll ? `${x.stage}（${x.n}）` : x.stage, cur)).join("");
+  pane.innerHTML = `<div class="sh-wrap">
+    <div class="sh-tools">
+      <input type="search" class="sh-in" id="shQ" placeholder="会社名・担当者・電話・地域・業種で探す" value="${esc(SH.q)}" />
+      <span class="ed3-seg" id="shState">${[["open", "架電中"], ["done", "終わった"], ["all", "すべて"]].map(([k, l]) => `<button type="button" data-st="${k}" class="${SH.state === k ? "active" : ""}">${l}</button>`).join("")}</span>
+      <select class="sh-in" id="shList">${listOpts(SH.list, true)}</select>
+      <select class="sh-in" id="shAsg">${memOpts(SH.assigned, true)}</select>
+      <select class="sh-in" id="shStage">${stageOpts(SH.stage, true)}</select>
+      <select class="sh-in" id="shAbs">${opt("", "不在：すべて", SH.absent)}${[2, 3, 5].map((n) => opt(n, `不在 ${n}回以上`, SH.absent)).join("")}</select>
+      <label class="sh-chk"><input type="checkbox" id="shIdle" ${SH.idle ? "checked" : ""}/> 30日かけていない</label>
+      <span class="sh-total" id="shTotal"></span>
+    </div>
+    <div class="sh-bulk" id="shBulk" hidden>
+      <b id="shSelN"></b>
+      <select class="sh-in" id="shBAsg"><option value="">担当を変える…</option>${memOpts("__", false)}</select>
+      <select class="sh-in" id="shBList">${listOpts("", false).replace("（リストを選ぶ）", "リストへ移す…")}</select>
+      <select class="sh-in" id="shBStage">${stageOpts("", false).replace("（ステージを選ぶ）", "ステージを変える…")}</select>
+      <button type="button" class="btn ghost" id="shBDone">終わったにする</button>
+      <button type="button" class="btn ghost" id="shBOpen">架電中に戻す</button>
+      <button type="button" class="btn ghost" id="shBClear">選ぶのをやめる</button>
+    </div>
+    <div class="sh-grid" id="shGrid"><div class="note">読み込んでいます…</div></div>
+    <div class="sh-pager" id="shPager"></div>
+  </div>
+  <div class="sh-drawer" id="shDrawer" hidden></div>`;
+  const reload = () => { SH.offset = 0; SH.sel.clear(); shLoad(); };
+  let tq = 0; $("shQ").addEventListener("input", (e) => { SH.q = e.target.value; clearTimeout(tq); tq = setTimeout(reload, 350); });
+  $("shState").querySelectorAll("[data-st]").forEach((b) => b.addEventListener("click", () => { SH.state = b.dataset.st; $("shState").querySelectorAll("button").forEach((x) => x.classList.toggle("active", x === b)); reload(); }));
+  $("shList").addEventListener("change", (e) => { SH.list = e.target.value; reload(); });
+  $("shAsg").addEventListener("change", (e) => { SH.assigned = e.target.value; reload(); });
+  $("shStage").addEventListener("change", (e) => { SH.stage = e.target.value; reload(); });
+  $("shAbs").addEventListener("change", (e) => { SH.absent = e.target.value; reload(); });
+  $("shIdle").addEventListener("change", (e) => { SH.idle = e.target.checked; reload(); });
+  const bulk = async (patch, label) => {
+    const ids = [...SH.sel]; if (!ids.length) return;
+    if (!confirm(`選んだ ${ids.length}件を「${label}」にします。よろしいですか？`)) return;
+    await shUpdate(ids, patch);
+  };
+  $("shBAsg").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (!v) return; const m = SH.members.find((x) => x.email.toLowerCase() === v); bulk({ assigned_to: v === "none" ? "" : v }, v === "none" ? "未割り当て" : `担当：${m ? m.name : v}`); });
+  $("shBList").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (!v) return; const l = SH.facets.lists.find((x) => String(x.id) === v); bulk({ list_id: v }, `リスト：${l ? l.name : v}`); });
+  $("shBStage").addEventListener("change", (e) => { const v = e.target.value; e.target.value = ""; if (!v) return; bulk({ stage: v }, `ステージ：${v}`); });
+  $("shBDone").addEventListener("click", () => bulk({ done: true }, "終わった"));
+  $("shBOpen").addEventListener("click", () => bulk({ done: false }, "架電中"));
+  $("shBClear").addEventListener("click", () => { SH.sel.clear(); shPaint(); });
+  shLoad();
+}
+async function shLoad() {
+  const g = $("shGrid"); if (!g) return;
+  const qs = new URLSearchParams({ q: SH.q, state: SH.state, list: SH.list, assigned: SH.assigned, stage: SH.stage, absent: SH.absent, sort: SH.sort, dir: SH.dir, offset: SH.offset, limit: SH.limit, ...(SH.idle ? { idle: "30" } : {}) });
+  try { const d = await (await fetch(`/api/calls/sheet?${qs}`)).json(); if (d.error) throw new Error(d.error); SH.rows = d.rows || []; SH.total = d.total || 0; }
+  catch (e) { g.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  shPaint();
+}
+const SH_COLS = [["company", "会社名"], ["person", "担当者", 0], ["phone", "電話", 0], ["area", "地域"], ["industry", "業種"], ["list", "リスト"], ["assigned", "担当"], ["stage", "ステージ"], ["calls", "架電"], ["last_result", "最後の結果", 0], ["last", "最終架電"], ["absent", "不在連続"], ["next", "次回予定"]];
+function shPaint() {
+  const g = $("shGrid"); if (!g) return;
+  const F = SH.facets; const mem = SH.members;
+  const nameOf = (em) => { const m = mem.find((x) => x.email.toLowerCase() === String(em || "").toLowerCase()); return m ? m.name : (em || ""); };
+  const dt = (v, withTime) => { if (!v) return ""; const d = new Date(v); if (isNaN(d)) return ""; const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}${withTime ? ` ${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}` : ""}`; };
+  $("shTotal").textContent = `${SH.total.toLocaleString()}件${SH.total > SH.limit ? `（${SH.offset + 1}〜${Math.min(SH.offset + SH.limit, SH.total)}）` : ""}`;
+  const head = `<tr><th class="ck"><input type="checkbox" id="shAll" ${SH.rows.length && SH.rows.every((r) => SH.sel.has(r.id)) ? "checked" : ""} title="このページを全部選ぶ"/></th>${SH_COLS.map(([k, l, sortable]) => `<th ${sortable === 0 ? "" : `data-sort="${k}"`} class="${SH.sort === k ? "on" : ""}">${l}${SH.sort === k ? (SH.dir === "asc" ? " ▲" : " ▼") : ""}</th>`).join("")}<th></th></tr>`;
+  const sel = (cls, opts, cur, id) => `<select class="sh-cell ${cls}" data-id="${id}">${opts}</select>`;
+  const listOpts = (cur) => F.lists.map((l) => `<option value="${l.id}" ${String(l.id) === String(cur) ? "selected" : ""}>${esc(l.name)}</option>`).join("");
+  const memOpts = (cur) => `<option value="" ${!cur ? "selected" : ""}>未割り当て</option>` + mem.map((m) => `<option value="${esc(m.email.toLowerCase())}" ${m.email.toLowerCase() === String(cur || "").toLowerCase() ? "selected" : ""}>${esc(m.name || m.email)}</option>`).join("") + (cur && !mem.some((m) => m.email.toLowerCase() === String(cur).toLowerCase()) ? `<option value="${esc(cur)}" selected>${esc(cur)}</option>` : "");
+  const stOpts = (cur) => `<option value="" ${!cur ? "selected" : ""}></option>` + F.stages.map((x) => `<option ${x.stage === cur ? "selected" : ""}>${esc(x.stage)}</option>`).join("") + (cur && !F.stages.some((x) => x.stage === cur) ? `<option selected>${esc(cur)}</option>` : "");
+  const body = SH.rows.map((r, i) => `<tr class="${SH.sel.has(r.id) ? "sel" : ""} ${r.done || r.excluded ? "dn" : ""}" data-i="${i}">
+    <td class="ck"><input type="checkbox" data-ck="${i}" ${SH.sel.has(r.id) ? "checked" : ""}/></td>
+    <td class="co" title="${esc(r.company || "")}">${esc(r.company || "")}</td><td>${esc(r.person || "")}</td><td class="mono">${esc(r.phone || "")}</td><td>${esc(r.area || "")}</td><td>${esc(r.industry || "")}</td>
+    <td>${sel("sh-list", listOpts(r.list_id), r.list_id, r.id)}</td><td>${sel("sh-asg", memOpts(r.assigned_to), r.assigned_to, r.id)}</td><td>${sel("sh-stage", stOpts(r.stage), r.stage, r.id)}</td>
+    <td class="num">${r.calls || 0}</td><td>${esc(r.last_result || "")}</td><td>${dt(r.last_at)}</td><td class="num ${r.absent >= 3 ? "warn" : ""}">${r.absent || 0}</td><td>${dt(r.next_call_at, true)}</td>
+    <td><button type="button" class="sh-hist" data-h="${i}" title="架電の履歴を見る">履歴</button></td></tr>`).join("");
+  g.innerHTML = `<table class="sh-t"><thead>${head}</thead><tbody>${body || `<tr><td colspan="${SH_COLS.length + 2}" class="note" style="padding:14px">当てはまるリードがありません</td></tr>`}</tbody></table>`;
+  // 選ぶ（Shift で範囲）
+  g.querySelectorAll("[data-ck]").forEach((cb) => cb.addEventListener("click", (e) => {
+    const i = +cb.dataset.ck; const r = SH.rows[i];
+    if (e.shiftKey && SH.lastIdx >= 0) { const [a, b] = [Math.min(SH.lastIdx, i), Math.max(SH.lastIdx, i)]; for (let k = a; k <= b; k++) { if (cb.checked) SH.sel.add(SH.rows[k].id); else SH.sel.delete(SH.rows[k].id); } }
+    else if (cb.checked) SH.sel.add(r.id); else SH.sel.delete(r.id);
+    SH.lastIdx = i; shPaint();
+  }));
+  const all = $("shAll"); if (all) all.addEventListener("click", () => { const on = all.checked; for (const r of SH.rows) on ? SH.sel.add(r.id) : SH.sel.delete(r.id); shPaint(); });
+  // 並べ替え
+  g.querySelectorAll("th[data-sort]").forEach((th) => th.addEventListener("click", () => { const k = th.dataset.sort; if (SH.sort === k) SH.dir = SH.dir === "asc" ? "desc" : "asc"; else { SH.sort = k; SH.dir = ["company", "list", "assigned", "stage", "area", "industry"].includes(k) ? "asc" : "desc"; } SH.offset = 0; shLoad(); }));
+  // 1件ずつ直す（選んでいる行で変えたら、選んでいる全部に）
+  const one = (cls, key, label) => g.querySelectorAll(`.${cls}`).forEach((s0) => s0.addEventListener("change", async () => {
+    const id = +s0.dataset.id; const v = s0.value;
+    const ids = SH.sel.has(id) && SH.sel.size > 1 && confirm(`選んでいる ${SH.sel.size}件ぜんぶを同じにしますか？（キャンセルでこの1件だけ）`) ? [...SH.sel] : [id];
+    await shUpdate(ids, { [key]: v }, true);
+  }));
+  one("sh-list", "list_id"); one("sh-asg", "assigned_to"); one("sh-stage", "stage");
+  // 履歴
+  g.querySelectorAll("[data-h]").forEach((b) => b.addEventListener("click", () => shHistory(SH.rows[+b.dataset.h])));
+  // まとめての帯
+  const bk = $("shBulk"); if (bk) { bk.hidden = !SH.sel.size; $("shSelN").textContent = `${SH.sel.size}件を選んでいます`; }
+  // ページ
+  const pg = $("shPager");
+  if (pg) {
+    pg.innerHTML = SH.total > SH.limit ? `<button type="button" class="btn ghost" id="shPrev" ${SH.offset <= 0 ? "disabled" : ""}>‹ 前の${SH.limit}件</button><span>${Math.floor(SH.offset / SH.limit) + 1} / ${Math.ceil(SH.total / SH.limit)}ページ</span><button type="button" class="btn ghost" id="shNext" ${SH.offset + SH.limit >= SH.total ? "disabled" : ""}>次の${SH.limit}件 ›</button>` : "";
+    const pv = $("shPrev"), nx = $("shNext");
+    if (pv) pv.addEventListener("click", () => { SH.offset = Math.max(0, SH.offset - SH.limit); shLoad(); });
+    if (nx) nx.addEventListener("click", () => { SH.offset += SH.limit; shLoad(); });
+  }
+}
+async function shUpdate(ids, patch, quiet) {
+  try {
+    const r = await fetch("/api/calls/sheet/update", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, ...patch }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || "直せませんでした");
+    if (patch.stage && d.stage && !d.stage.sfSkipped && d.stage.sfNg) alert(`ステージを変えました。Salesforceへの反映で ${d.stage.sfNg}件うまくいきませんでした`);
+    if (!quiet) SH.sel.clear();
+    if (patch.stage && SH.facets && !SH.facets.stages.some((x) => x.stage === patch.stage)) SH.facets = null;
+    await shLoad();
+  } catch (e) { alert(e.message); shLoad(); }
+}
+async function shHistory(r) {
+  const dw = $("shDrawer"); if (!dw || !r) return;
+  dw.hidden = false;
+  dw.innerHTML = `<div class="sh-dw-h"><b>${esc(r.company || "")}</b><button type="button" class="btn ghost" id="shDwX">閉じる</button></div><div class="sh-dw-s">${esc([r.person, r.phone, r.list_name].filter(Boolean).join("・"))}</div><div id="shDwB" class="note">履歴を読んでいます…</div>`;
+  $("shDwX").addEventListener("click", () => { dw.hidden = true; });
+  try {
+    const d = await (await fetch(`/api/calls/targets/${r.id}/history`)).json();
+    const items = d.items || [];
+    $("shDwB").outerHTML = items.length ? `<div class="sh-dw-list">${items.slice(0, 60).map((h) => `<div class="sh-dw-it"><div class="t">${esc(h.日時 || h.at || "")}　<b>${esc(h.結果 || h.result || "")}</b>　<span>${esc(h.誰名 || h.誰 || h.caller || "")}</span></div>${h.メモ || h.memo ? `<div class="m">${esc(h.メモ || h.memo)}</div>` : ""}</div>`).join("")}</div>` : `<div class="note">${esc(d.note || "履歴はまだありません")}</div>`;
+  } catch (e) { const b = $("shDwB"); if (b) b.textContent = "履歴を読めませんでした"; }
 }

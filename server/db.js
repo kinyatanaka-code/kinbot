@@ -11806,3 +11806,51 @@ export async function getDocBundleInfo(slugs) {
   const { rows } = await pool.query(`SELECT l.slug, l.doc_id, f.name, f.filename FROM doc_links l JOIN doc_files f ON f.id=l.doc_id WHERE l.slug = ANY($1::text[])`, [slugs]);
   return slugs.map((sl) => rows.find((r) => r.slug === sl)).filter(Boolean);
 }
+
+// ===== kincall のリード表（スプレッドシートのように全部のリードを見て、1件ずつ行き先を決める）（2026-10-30）=====
+export async function callSheet(p = {}) {
+  if (!pool) return { total: 0, rows: [], lists: [], stages: [] };
+  const where = [], vals = [];
+  const add = (sql, v) => { vals.push(v); where.push(sql.replace("?", `$${vals.length}`)); };
+  const st = String(p.state || "open");
+  if (st === "open") where.push("t.done = false AND COALESCE(t.excluded,false) = false");
+  else if (st === "done") where.push("(t.done = true OR COALESCE(t.excluded,false) = true)");
+  if (p.q) { const q = `%${String(p.q).trim()}%`; vals.push(q); const k = `$${vals.length}`; where.push(`(t.company ILIKE ${k} OR t.person ILIKE ${k} OR t.phone ILIKE ${k} OR t.area ILIKE ${k} OR t.industry ILIKE ${k})`); }
+  if (p.list) add("t.list_id = ?", parseInt(p.list, 10) || 0);
+  if (p.assigned === "none") where.push("COALESCE(t.assigned_to,'') = ''");
+  else if (p.assigned) add("LOWER(t.assigned_to) = ?", String(p.assigned).toLowerCase());
+  if (p.stage === "__none") where.push("COALESCE(t.stage,'') = ''");
+  else if (p.stage) add("t.stage = ?", String(p.stage));
+  if (p.absent) add("COALESCE(t.consecutive_absent,0) >= ?", parseInt(p.absent, 10) || 0);
+  if (p.idle) where.push(`NOT EXISTS (SELECT 1 FROM call_logs c2 WHERE c2.target_id=t.id AND c2.at > now() - (${Math.max(1, parseInt(p.idle, 10) || 30)} || ' days')::interval)`);
+  const W = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const SORT = { company: "t.company", list: "l.name", assigned: "t.assigned_to", stage: "t.stage", status: "t.status", last: "lg.last_at", calls: "lg.n", next: "t.next_call_at", absent: "t.consecutive_absent", area: "t.area", industry: "t.industry", score: "t.score" };
+  const sortCol = SORT[p.sort] || "t.id";
+  const dir = String(p.dir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+  const limit = Math.max(1, Math.min(500, parseInt(p.limit, 10) || 200));
+  const offset = Math.max(0, parseInt(p.offset, 10) || 0);
+  const lat = `LEFT JOIN LATERAL (SELECT count(*)::int AS n, max(c.at) AS last_at, (array_agg(c.result ORDER BY c.at DESC))[1] AS last_result FROM call_logs c WHERE c.target_id = t.id) lg ON true`;
+  const totalQ = await pool.query(`SELECT count(*)::int AS n FROM call_targets t JOIN call_lists l ON l.id = t.list_id ${W}`, vals);
+  const { rows } = await pool.query(
+    `SELECT t.id, t.company, t.person, t.phone, t.area, t.industry, t.list_id, l.name AS list_name, t.assigned_to, t.stage, t.status, t.done, COALESCE(t.excluded,false) AS excluded,
+            t.next_call_at, t.score, COALESCE(t.consecutive_absent,0) AS absent, t.temperature, t.lead_id, lg.n AS calls, lg.last_at, lg.last_result
+       FROM call_targets t JOIN call_lists l ON l.id = t.list_id ${lat} ${W}
+      ORDER BY ${sortCol} ${dir} NULLS LAST, t.id DESC LIMIT ${limit} OFFSET ${offset}`, vals);
+  return { total: totalQ.rows[0].n, rows };
+}
+export async function callSheetFacets() {
+  if (!pool) return { lists: [], stages: [] };
+  const lists = (await pool.query(`SELECT l.id, l.name, l.owner, COALESCE(l.hidden,false) AS hidden, (SELECT count(*)::int FROM call_targets t WHERE t.list_id=l.id AND t.done=false) AS open FROM call_lists l WHERE COALESCE(l.closed,false)=false ORDER BY l.name`)).rows;
+  const stages = (await pool.query(`SELECT stage, count(*)::int AS n FROM call_targets WHERE COALESCE(stage,'') <> '' GROUP BY stage ORDER BY n DESC LIMIT 40`)).rows;
+  return { lists, stages };
+}
+export async function callSheetSetAssigned(ids, email) {
+  if (!pool || !ids.length) return 0;
+  const r = await pool.query(`UPDATE call_targets SET assigned_to = $2 WHERE id = ANY($1::int[])`, [ids, email || null]);
+  return r.rowCount;
+}
+export async function callSheetSetDone(ids, done) {
+  if (!pool || !ids.length) return 0;
+  const r = await pool.query(`UPDATE call_targets SET done = $2 WHERE id = ANY($1::int[])`, [ids, !!done]);
+  return r.rowCount;
+}

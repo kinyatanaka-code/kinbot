@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -10398,6 +10398,58 @@ app.get("/api/calls/nurture-summary", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 架電先の担当を別のメンバーへ移す（リストはそのまま。ナーチャリングの振り分け用）
+// ===== kincall のリード表（スプレッドシートの形）（2026-10-30）=====
+app.get("/api/calls/sheet", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const d = await callSheet(req.query || {});
+    res.json({ ok: true, ...d });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/sheet/facets", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    res.json({ ok: true, ...(await callSheetFacets()) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// まとめて（または1件）直す：担当（"" で未割り当て）・リスト・ステージ（SFのリードにも）・終わった／戻す
+app.post("/api/calls/sheet/update", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const b = req.body || {};
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 5000);
+    if (!ids.length) return res.status(400).json({ error: "リードを選んでください" });
+    const out = {};
+    if (b.assigned_to !== undefined) {
+      const to = String(b.assigned_to || "").trim().toLowerCase();
+      if (to && !to.includes("@")) return res.status(400).json({ error: "担当が正しくありません" });
+      out.assigned = to ? await assignTargetsTo(ids, to) : await callSheetSetAssigned(ids, null);
+    }
+    if (b.list_id !== undefined && parseInt(b.list_id, 10)) {
+      const r = await moveCallTargets(ids, parseInt(b.list_id, 10));
+      if (r.error) return res.status(400).json({ error: r.error });
+      out.moved = r.moved;
+    }
+    if (b.done !== undefined) out.done = await callSheetSetDone(ids, !!b.done);
+    if (b.stage) {
+      const stage = String(b.stage).trim().slice(0, 60);
+      let sfOk = 0, sfNg = 0;
+      const sfUser = salesforceConfigured() ? await pickSfUser(req.user, req).catch(() => "") : "";
+      const sfOn = sfUser ? await sfConnected(sfUser).catch(() => false) : false;
+      for (const id of ids) {
+        await setCallTargetStatus(id, { stage }).catch(() => {});
+        if (sfOn && ids.length <= 300) {
+          const t = await getCallTarget(id).catch(() => null);
+          if (t && t.lead_id) { try { await updateLead(sfUser, t.lead_id, { Status: stage }); sfOk++; } catch { sfNg++; } }
+        }
+      }
+      out.stage = { n: ids.length, sfOk, sfNg, sfSkipped: !sfOn || ids.length > 300 };
+    }
+    hubClear();
+    console.log(`[kincall] リード表で ${ids.length}件を直しました ${JSON.stringify(out)} by ${req.user}`);
+    res.json({ ok: true, ...out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/calls/targets/assign", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
@@ -27731,7 +27783,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-30a kinXsの受注日：SFの「☆受失注日」を先に使う（無ければSS06昇格日→受注想定日）。今月・先月の受注の数にも効く。";
+const BUILD_TAG = "2026-10-30b kincallのリスト管理に「シート」のタブ：全部のリードをスプレッドシートのように1行ずつ見て、リスト・担当・ステージをその場で選んで直す（まとめても）。しぼり込み・並べ替え・Shiftで範囲を選ぶ・履歴の引き出し。今までのタブはそのまま。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -7154,3 +7154,29 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .ld-goal .ld-gin { width: 64px; height: 28px; padding: 2px 6px; font-size: 13px; }
 .ld-goal b { font-size: 14px; min-width: 28px; }
 .ld-week.open > .ld-sum { margin: 8px 0 10px; }
+
+/* kincall リスト管理「シート」（2026-10-30） */
+.sh-wrap { display: flex; flex-direction: column; gap: 8px; }
+.sh-tools, .sh-bulk { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.sh-in { border: 1px solid #D5E2DB; border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; background: #fff; }
+#shQ { min-width: 260px; }
+.sh-chk { font-size: 12.5px; display: inline-flex; gap: 4px; align-items: center; }
+.sh-total { margin-left: auto; font-size: 12.5px; font-weight: 700; color: #33463E; }
+.sh-bulk { background: #EAF6F0; border: 1px solid #BFE2D2; border-radius: 10px; padding: 7px 10px; position: sticky; top: 0; z-index: 3; }
+.sh-bulk b { font-size: 13px; color: #0A5440; margin-right: 6px; }
+.sh-grid { overflow: auto; max-height: calc(100vh - 300px); border: 1px solid #DCE6E1; border-radius: 10px; background: #fff; }
+.sh-t { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 12.5px; }
+.sh-t th { position: sticky; top: 0; z-index: 2; background: #F1F6F3; color: #33463E; font-weight: 700; text-align: left; padding: 7px 8px; border-bottom: 1px solid #D5E2DB; border-right: 1px solid #E6EDE9; white-space: nowrap; cursor: default; }
+.sh-t th[data-sort] { cursor: pointer; } .sh-t th[data-sort]:hover { background: #E6F1EB; } .sh-t th.on { color: #0E6B4E; }
+.sh-t td { padding: 3px 8px; border-bottom: 1px solid #EEF2F0; border-right: 1px solid #F1F4F2; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; height: 30px; }
+.sh-t tr:hover td { background: #F7FBF9; } .sh-t tr.sel td { background: #E8F5EE; } .sh-t tr.dn td { color: #8FA39A; }
+.sh-t td.ck, .sh-t th.ck { position: sticky; left: 0; z-index: 1; background: inherit; width: 28px; text-align: center; } .sh-t th.ck { z-index: 3; background: #F1F6F3; }
+.sh-t tr td.ck { background: #fff; } .sh-t tr.sel td.ck { background: #E8F5EE; }
+.sh-t td.co { font-weight: 700; min-width: 180px; } .sh-t td.num { text-align: right; } .sh-t td.warn { color: #A51F16; font-weight: 700; } .sh-t td.mono { font-variant-numeric: tabular-nums; }
+.sh-cell { border: 1px solid transparent; background: transparent; border-radius: 6px; padding: 3px 4px; font: inherit; font-size: 12.5px; max-width: 190px; cursor: pointer; }
+.sh-cell:hover, .sh-cell:focus { border-color: #BFD8CC; background: #fff; }
+.sh-hist { border: 1px solid #D5E2DB; background: #fff; border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 11.5px; cursor: pointer; color: #0E6B4E; }
+.sh-pager { display: flex; gap: 10px; align-items: center; justify-content: center; font-size: 12.5px; }
+.sh-drawer { position: fixed; right: 16px; top: 80px; bottom: 16px; width: min(420px, 92vw); background: #fff; border: 1px solid #DCE6E1; border-radius: 14px; box-shadow: 0 24px 60px -24px rgba(0,0,0,.4); padding: 12px 14px; overflow: auto; z-index: 50; }
+.sh-dw-h { display: flex; align-items: center; gap: 8px; } .sh-dw-h b { font-size: 15px; flex: 1; } .sh-dw-s { font-size: 12px; color: #6A7A72; margin: 2px 0 10px; }
+.sh-dw-it { border-top: 1px solid #EEF2F0; padding: 7px 2px; font-size: 12.5px; } .sh-dw-it .t span { color: #6A7A72; } .sh-dw-it .m { color: #33463E; margin-top: 2px; white-space: pre-wrap; }
