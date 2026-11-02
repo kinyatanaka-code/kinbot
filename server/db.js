@@ -8226,7 +8226,7 @@ export async function listDealDocTracking({ owner = "", isAdmin = false, q = "",
         LIMIT ${lim}`, vals);
     if (!mtgs.length) return [];
     const lp = [];
-    let lwhere = "NOT l.revoked AND f.active";
+    let lwhere = "NOT l.revoked";   // 「使わない」にした資料でも、送った記録・閲覧の記録は商談ごとに出す（2026-11-02）
     if (owner && !isAdmin) {
       lp.push(String(owner).toLowerCase());
       lwhere += ` AND (lower(COALESCE(f.uploaded_by,'')) = $${lp.length} OR COALESCE(f.shared,true) = true)`;
@@ -8274,7 +8274,7 @@ export async function getDocLink(slug) {
     const { rows } = await pool.query(
       `SELECT l.*, f.name AS doc_name, f.mime, f.filename
          FROM doc_links l JOIN doc_files f ON f.id = l.doc_id
-        WHERE l.slug = $1 AND NOT l.revoked AND f.active`, [slug]);
+        WHERE l.slug = $1 AND NOT l.revoked`, [slug]);   // 「使わない」にした資料も、発行済みのURLからは開ける（一覧から隠すだけ）（2026-11-02）
     return rows[0] || null;
   } catch { return null; }
 }
