@@ -11916,7 +11916,8 @@ async function csBuildMail(k) {
     "{貴社の宿題}": theirs.map((x) => `・${x}`).join("\n"),
     "{弊社の宿題}": ours.map((x) => `・${x}`).join("\n"),
     "{差出人}": k.fs_name || "",
-    "{ヘルプサイトの案内}": String(k.portal_text || "").trim(),
+    // ヘルプサイトの案内文の「○○ 様」の行（宛名）は、御礼メールの頭に宛名があるので外す（2026-11-02）
+    "{ヘルプサイトの案内}": String(k.portal_text || "").trim().split("\n").filter((ln, i) => !(i < 3 && /^\s*\S.{0,60}\s*様\s*$/.test(ln))).join("\n").replace(/^\s*\n+/, "").trim(),
   };
   let body = cfg.body, subject = cfg.subject;
   // 宿題が無いとき：{弊社の宿題} の行と、そのすぐ上の見出し（■ の行）を消す。{貴社の宿題} は行だけ消す
@@ -27914,7 +27915,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02m 資料トラッキングの閲覧状況：「企業名・担当者・メールで探す」の欄（打つとすぐ絞る。全角・半角・空白・株式会社のちがいは気にしない）。";
+const BUILD_TAG = "2026-11-02n 御礼メール：ヘルプサイトの案内文の「○○ 様」の行（宛名）を外して差し込む。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
