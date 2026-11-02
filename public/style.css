@@ -7183,3 +7183,11 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 /* リスト編集：失注回数（2026-10-31） */
 .ed-lostn { white-space: nowrap; } .ed-lostn b { font-size: 12.5px; color: #8C1F1F; } .ed-lostn b.ed-lost2 { background: #FBE4E4; border-radius: 5px; padding: 0 5px; }
 .ed-lostn small { display: block; font-size: 10.5px; color: #6A7A72; }
+/* リスト編集：業界ごとにリストへ分ける（2026-10-31） */
+.ed-ind-bg { position: fixed; inset: 0; background: rgba(15,30,25,.42); z-index: 8000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.ed-ind { background: #fff; border-radius: 16px; width: min(720px, 96vw); padding: 18px 20px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 30px 80px -30px rgba(0,0,0,.5); }
+.ed-ind-h { display: flex; flex-direction: column; gap: 2px; } .ed-ind-h b { font-size: 16px; }
+.ed-ind-r { display: grid; grid-template-columns: 22px 90px 70px 1fr; gap: 4px 8px; align-items: center; border: 1px solid #DDE7E2; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.ed-ind-r .nm { font-weight: 800; } .ed-ind-r b { color: #0E6B4E; } .ed-ind-r .to { font-size: 12.5px; color: #33463E; }
+.ed-ind-r .ex { grid-column: 2 / -1; font-size: 11.5px; color: #6A7A72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-ind-a { display: flex; gap: 8px; justify-content: flex-end; }

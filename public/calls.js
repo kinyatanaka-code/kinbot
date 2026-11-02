@@ -9133,6 +9133,7 @@ async function orgLoadLists() {
     if ($("edCsvFile")) $("edCsvFile").addEventListener("change", edImportCsv);
     if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
     if ($("edMoveBtn")) $("edMoveBtn").addEventListener("click", edMoveFiltered);
+    if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
     if ($("edMoveTo")) $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true });
     if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
     if ($("edDedupeAcross")) $("edDedupeAcross").addEventListener("click", edDedupeAcross);
@@ -9604,6 +9605,64 @@ function edFillExtractOwner() {
   if (cur) sel.value = cur;
 }
 // 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持 or 選んだメンバーへ）
+// 業界ごとにリストへ分ける（2026-10-31）：業種（無ければ会社名）から ディーラー・不動産・飲食・ホテル に分け、同じ名前のリストへ移す（無ければ作る）
+const ED_INDUSTRIES = [
+  { name: "ディーラー", ind: /ディーラー|自動車.{0,4}(販売|小売|ディーラ)|新車|中古車|カーディーラー|自動車整備|車両販売|輸入車/, co: /ディーラー|トヨペット|トヨタ.{0,6}(販売|モビリティ|カローラ)|カローラ|ネッツ|日産.{0,6}(販売|プリンス)|日産プリンス|ホンダカーズ|ホンダ.{0,4}販売|マツダ.{0,6}販売|スバル.{0,6}(販売|自動車)|ダイハツ.{0,6}販売|スズキ.{0,6}販売|三菱自動車.{0,6}販売|自動車販売|モータース|オートモービル|カーセンター/ },
+  { name: "不動産", ind: /不動産|宅地建物|住宅販売|分譲|賃貸|マンション.{0,4}(販売|管理)|建物売買|不動産仲介/, co: /不動産|エステート|リアルティ|プロパティ|住宅販売|地所|リアルエステート/ },
+  { name: "飲食", ind: /飲食|外食|レストラン|フードサービス|居酒屋|カフェ|喫茶|ラーメン|焼肉|寿司|ファストフード|給食|ケータリング/, co: /レストラン|ダイニング|フードサービス|外食|居酒屋|カフェ|珈琲|コーヒー|ラーメン|焼肉|寿司|食堂|キッチン|ビストロ|酒場/ },
+  { name: "ホテル", ind: /ホテル|旅館|宿泊|リゾート|民宿|簡易宿所/, co: /ホテル|旅館|リゾート|ホステル|ゲストハウス|温泉|INN\b/i },
+];
+function edIndustryOf(r) {
+  const ind = String(_edg(r, "業種", "industry") || "").normalize("NFKC");
+  const co = String(_edg(r, "会社名", "company") || "").normalize("NFKC");
+  for (const x of ED_INDUSTRIES) if (ind && x.ind.test(ind)) return x.name;
+  for (const x of ED_INDUSTRIES) if (x.co.test(co)) return x.name;
+  return "";
+}
+async function edIndustrySplit() {
+  const rows = edFiltered();
+  if (!rows.length) { alert("分ける行がありません（絞り込み結果が0件です）"); return; }
+  const groups = new Map(ED_INDUSTRIES.map((x) => [x.name, []]));
+  for (const r of rows) { const k = edIndustryOf(r); if (k) groups.get(k).push(r); }
+  const total = [...groups.values()].reduce((a, b) => a + b.length, 0);
+  let lists = [];
+  try { const d = await (await fetch("/api/calls/sheet/facets")).json(); lists = d.lists || []; } catch {}
+  const listOf = (nm) => lists.find((l) => String(l.name).trim() === nm);
+  document.querySelectorAll(".ed-ind-bg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "ed-ind-bg";
+  bg.innerHTML = `<div class="ed-ind" role="dialog" aria-label="業界ごとにリストへ分ける">
+    <div class="ed-ind-h"><b>業界ごとにリストへ分ける</b><span class="note">絞り込んだ ${rows.length.toLocaleString()} 件のうち、${total.toLocaleString()} 件が当てはまりました（業種、無ければ会社名で判断）</span></div>
+    ${ED_INDUSTRIES.map((x) => { const g0 = groups.get(x.name); const l = listOf(x.name); return `<label class="ed-ind-r"><input type="checkbox" data-ind="${esc(x.name)}" ${g0.length ? "checked" : "disabled"} />
+      <span class="nm">${esc(x.name)}</span><b>${g0.length.toLocaleString()}件</b><span class="to">→ ${l ? `リスト「${esc(l.name)}」（今 ${l.open}件）へ移す` : `新しいリスト「${esc(x.name)}」を作って移す`}</span>
+      <span class="ex">${g0.slice(0, 4).map((r) => esc(_edg(r, "会社名", "company"))).join("・")}${g0.length > 4 ? " ほか" : ""}</span></label>`; }).join("")}
+    <div class="note">当てはまらなかった ${(rows.length - total).toLocaleString()} 件は、そのままです。担当はそのままです。</div>
+    <div class="ed-ind-a"><button type="button" class="btn ghost" data-x>やめる</button><button type="button" class="btn" data-go ${total ? "" : "disabled"}>チェックした業界を移す</button></div><div class="note" data-st></div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  bg.querySelector("[data-go]").addEventListener("click", async () => {
+    const go = bg.querySelector("[data-go]"); const stEl = bg.querySelector("[data-st]"); go.disabled = true;
+    const done = [];
+    try {
+      for (const cb of bg.querySelectorAll("[data-ind]:checked")) {
+        const nm = cb.dataset.ind; const ids = groups.get(nm).map((r) => r.id).filter(Boolean); if (!ids.length) continue;
+        stEl.textContent = `「${nm}」を移しています…`;
+        const l = listOf(nm);
+        const r = l
+          ? await fetch("/api/calls/targets/move", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, toListId: l.id }) })
+          : await fetch("/api/calls/lists/extract", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nm, ids, owner: "" }) });
+        const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(`${nm}：${d.error || "移せませんでした"}`);
+        const moved = new Set(ids.map(String)); _edRows = _edRows.filter((x) => !moved.has(String(x.id)));
+        done.push(`${nm} ${(d.moved || ids.length).toLocaleString()}件`);
+      }
+      close();
+      const st = $("edEnrichSt"); if (st) st.textContent = `業界ごとに移しました：${done.join("・")}`;
+      if ($("edMoveTo")) $("edMoveTo").dataset.filled = "";
+    } catch (e) { stEl.textContent = `${done.length ? `${done.join("・")} は移しました。` : ""}${e.message}`; go.disabled = false; }
+    finally { edRender(); }
+  });
+}
 // 絞り込んだ分を、ほかの（今あるの）リストへ移す（2026-10-30）
 async function edFillMoveTo() {
   const sel = $("edMoveTo"); if (!sel || sel.dataset.filled) return;
