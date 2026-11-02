@@ -9233,6 +9233,12 @@ async function orgLoadEdit(listIds) {
   } catch (e) { tbl.innerHTML = '<div class="empty-state">読み込めませんでした</div>'; }
 }
 function _edg(r, ...keys) { for (const k of keys) if (r[k] !== undefined && r[k] !== null && r[k] !== "") return String(r[k]); return ""; }
+// 含むかどうか（NFKC で全角・半角をそろえ、空白・中黒を外して比べる。空白で区切った言葉は全部含むとき）
+function edHas(text, q) {
+  const nz = (x) => String(x || "").normalize("NFKC").toLowerCase().replace(/[\s　・]/g, "");
+  const t = nz(text);
+  return String(q || "").normalize("NFKC").toLowerCase().split(/[\s　]+/).filter(Boolean).every((w) => t.includes(nz(w)));
+}
 function edFiltered() {
   const g = _edg;
   const v = (id) => { const el = $(id); return el ? String(el.value || "").trim().toLowerCase() : ""; };
@@ -9249,9 +9255,10 @@ function edFiltered() {
     if (sts.size && !sts.has(g(r, "最終ステータス", "最終結果", "status") || "（なし）")) return false;
     if (_edPastLost) { const pr = edMselVals("edPlReason"); if (pr.size && !pr.has(edLossBig(r) || "（なし）")) return false; }
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
-    if (qCo && !g(r, "会社名", "company").toLowerCase().includes(qCo)) return false;
-    if (qPe && !g(r, "担当者", "person").toLowerCase().includes(qPe)) return false;
-    if (qPh && !g(r, "電話", "電話番号", "phone").toLowerCase().includes(qPh)) return false;
+    // 文字列を含むもので絞る（全角・半角・大文字小文字・空白のちがいは気にしない。空白で区切ると、全部を含むもの）（2026-10-30）
+    if (qCo && !edHas(g(r, "会社名", "company"), qCo)) return false;
+    if (qPe && !edHas(g(r, "担当者", "person"), qPe)) return false;
+    if (qPh && !String(g(r, "電話", "電話番号", "phone")).replace(/\D/g, "").includes(qPh.replace(/\D/g, "")) && !edHas(g(r, "電話", "電話番号", "phone"), qPh)) return false;
     if (qEm && !g(r, "メール", "メールアドレス", "email").toLowerCase().includes(qEm)) return false;
     if (_edNurture) {
       { const nd = r["次回予定"] ? new Date(r["次回予定"]) : null; const ymd = nd && !isNaN(nd) ? `${nd.getFullYear()}-${String(nd.getMonth() + 1).padStart(2, "0")}-${String(nd.getDate()).padStart(2, "0")}` : ""; if (!edInRange(ymd, "edDNext")) return false; }
