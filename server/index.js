@@ -27828,7 +27828,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-31a kincallのリスト編集：「失注回数」の列（SFで失注になった商談の数。新規・クロスの内訳と最後の失注日）と、「○回以上」の絞り込み。";
+const BUILD_TAG = "2026-10-31b kincallのリスト編集：失注回数の絞り込みを「下限〜上限」の数で絞る形に（空白＝失注なしは0回として数える）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

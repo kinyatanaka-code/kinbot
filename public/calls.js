@@ -9268,7 +9268,9 @@ function edFiltered() {
   return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
     if (sts.size && !sts.has(g(r, "最終ステータス", "最終結果", "status") || "（なし）")) return false;
-    { const ln = ($("edLostN") && $("edLostN").value) || ""; if (ln !== "" && _edLost) { const n0 = ((_edLost[r.id] || {}).total) || 0; if (ln === "0" ? n0 !== 0 : n0 < Number(ln)) return false; } }
+    // 失注回数：下限〜上限（どちらかだけでもよい）。SFに失注が無い（空白の）会社は0回として数える
+    { const lo = parseInt(($("edLostMin") && $("edLostMin").value) || "", 10), hi = parseInt(($("edLostMax") && $("edLostMax").value) || "", 10);
+      if ((Number.isFinite(lo) || Number.isFinite(hi)) && _edLost) { const n0 = ((_edLost[r.id] || {}).total) || 0; if (Number.isFinite(lo) && n0 < lo) return false; if (Number.isFinite(hi) && n0 > hi) return false; } }
     if (_edPastLost) { const pr = edMselVals("edPlReason"); if (pr.size && !pr.has(edLossBig(r) || "（なし）")) return false; }
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
     // 文字列を含むもので絞る（全角・半角・大文字小文字・空白のちがいは気にしない。空白で区切ると、全部を含むもの）（2026-10-30）
@@ -9683,7 +9685,7 @@ function edBuildTable() {
     th("電話", txt("edQPhone")) +
     th("メール", txt("edQEmail")) +
     th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
-    th("失注回数", `<select id="edLostN" class="ed-cf"><option value="">すべて</option><option value="0">0回</option><option value="1">1回以上</option><option value="2">2回以上</option><option value="3">3回以上</option></select>`) +
+    th("失注回数", `<div class="ed-empf"><input type="number" id="edLostMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostMax" class="ed-emp-in" placeholder="上限" min="0" /></div>`) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
     th("従業員数", empF) +
     (_edNurture
@@ -9693,7 +9695,7 @@ function edBuildTable() {
       : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者")))) + th("担当（かける人）", msel("edClWho", uniq((r) => (r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）")))) + th("リスト", msel("edClList", uniq((r) => edListName(r) || "（不明）")))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edLostN", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edLostMin", "edLostMax", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
   document.querySelectorAll("#edTable .ed-msel").forEach(edWireMsel);
 }
