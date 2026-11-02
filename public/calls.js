@@ -2983,7 +2983,8 @@ function kcLossBox(x) {
   const big = g("失注理由（大項目）"), mid = g("失注理由（中項目）"), det = g("失注理由詳細");
   const lost = g("失注日"), next = g("失注後次回アクション日"), owner = g("商談所有者"), kind = g("商談の種類");
   if (!big && !mid && !det && !lost && !next) return "";
-  const d = (v) => { const m = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${+m[2]}/${+m[3]}` : v; };
+  // 失注日・次回アクション日は西暦まで出す（2026-11-02）。2026-10-14 / 2026/10/14 / 2026年10月14日 のどれでも
+  const d = (v) => { const m = String(v).normalize("NFKC").match(/(\d{4})\s*[-\/年.]\s*(\d{1,2})\s*[-\/月.]\s*(\d{1,2})/); return m ? `${m[1]}/${+m[2]}/${+m[3]}` : v; };
   return `<div class="kc-loss">
     <div class="kc-loss-h">${hubIco("archive")}前回の失注${lost ? `（${esc(d(lost))}）` : ""}${kind ? `<span class="kc-loss-o">${esc(kind)}</span>` : ""}${owner ? `<span class="kc-loss-o">商談：${esc(owner)}</span>` : ""}</div>
     ${big || mid ? `<div class="kc-loss-r"><b>${esc(big)}</b>${mid ? ` ／ ${esc(mid)}` : ""}</div>` : ""}

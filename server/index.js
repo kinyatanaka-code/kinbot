@@ -27877,7 +27877,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02e CS連携の企業カード：ヘルプサイトの企業ID・パスワードを手で直せるように（カードと御礼メールに入る案内文の両方を書きかえる）。";
+const BUILD_TAG = "2026-11-02f kincallの記録：「前回の失注」の失注日・次回アクション日を西暦まで出す（例：2025/7/31）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
