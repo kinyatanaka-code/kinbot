@@ -4433,14 +4433,17 @@ export async function repairPhoneAsCompany() {
     return n;
   } catch (e) { console.error("[db] repairPhoneAsCompany", e.message); return 0; }
 }
-export async function addCallTargets(listId, items = [], { dedupe = false } = {}) {
+// 直前の addCallTargets で、ほかのリストから移した数（takeOver のとき）
+export const lastAddStats = { moved: 0 };
+export async function addCallTargets(listId, items = [], { dedupe = false, takeOver = false } = {}) {
+  lastAddStats.moved = 0;
   if (!pool || !listId || !items.length) return 0;
   try {
     // 重複を外す場合、これまで作ったkincallの全リスト（済み・未済みを問わず）の
     // 架電先をカギにして持っておく。過去に一度でもどこかのリストに入れた先とは重複させない。
     const seen = new Map();   // カギ → 既存の架電先（無い＝バッチ内で新規に見たもの）
     if (dedupe) {
-      const { rows } = await pool.query(`SELECT id, lead_id, phone, company, email, person FROM call_targets`);
+      const { rows } = await pool.query(`SELECT id, list_id, lead_id, phone, company, email, person FROM call_targets`);
       for (const r of rows) for (const k of callDedupeKeys(r.lead_id, r.phone, r.company)) { if (!seen.has(k)) seen.set(k, r); }
     }
     let n = 0, sort = 0;
@@ -4449,6 +4452,25 @@ export async function addCallTargets(listId, items = [], { dedupe = false } = {}
       if (dedupe) {
         const keys = callDedupeKeys(x.leadId, x.phone, x.company);
         const hit = keys.map((k) => seen.get(k)).find(Boolean);
+        if (hit && hit.id && takeOver && Number(hit.list_id) !== Number(listId)) {
+          // 指定があれば（2026-11-02）：すでにほかのリストにあるリードを、このリストへ移す。
+          //   CSVの情報で空の項目を埋め、列データ（extra）は足し合わせる。担当はCSVの割り振りがあればそれ、無ければそのまま。もう一度かけられるように「済み」を外す
+          await pool.query(
+            `UPDATE call_targets SET list_id = $2,
+                person = CASE WHEN COALESCE(person,'') = '' THEN $3 ELSE person END,
+                phone = CASE WHEN COALESCE(phone,'') = '' THEN $4 ELSE phone END,
+                email = CASE WHEN COALESCE(email,'') = '' THEN $5 ELSE email END,
+                industry = CASE WHEN COALESCE(industry,'') = '' THEN $6 ELSE industry END,
+                area = CASE WHEN COALESCE(area,'') = '' THEN $7 ELSE area END,
+                extra = COALESCE(extra, '{}'::jsonb) || COALESCE($8::jsonb, '{}'::jsonb),
+                assigned_to = COALESCE($9, assigned_to), done = false
+              WHERE id = $1`,
+            [hit.id, listId, String(x.person || "").trim() || null, String(x.phone || "").trim() || null, String(x.email || "").trim() || null,
+             String(x.industry || "").trim() || null, String(x.area || "").trim() || null, x.extra && typeof x.extra === "object" ? JSON.stringify(x.extra) : null,
+             x.assignedTo ? String(x.assignedTo).toLowerCase() : null]);
+          hit.list_id = listId; lastAddStats.moved++;
+          continue;
+        }
         if (hit) {
           // 既にある＝重複なので入れない。ただし、既存側で空のメール・担当者があれば補う
           // （同じCSVを入れ直したときに、メールだけ後から入る）。

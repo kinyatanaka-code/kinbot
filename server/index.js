@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -8724,11 +8724,12 @@ app.post("/api/calls/from-csv", async (req, res) => {
         extra: x._extra || null,
         ...(分ける人2.length ? { assignedTo: 分ける人2[(開始2 + i) % 分ける人2.length] } : {}),
       }));
-      const n2 = await addCallTargets(list2.id, 入れるリスト2, { dedupe: true });
-      const 重複除外2 = 入れるリスト2.length - n2;
+      const n2 = await addCallTargets(list2.id, 入れるリスト2, { dedupe: true, takeOver: !!b.takeOver });
+      const 移した2 = lastAddStats.moved;
+      const 重複除外2 = 入れるリスト2.length - n2 - 移した2;
       console.log(`[kincall] CSVからリストだけ作りました（SF更新なし）「${name}」（${n2}件${重複除外2 ? `／重複除外 ${重複除外2}件` : ""}） by ${req.user}`);
       return res.json({
-        ok: true, listOnly: true, id: list2.id, name: list2.name, 件数: n2, 重複除外: 重複除外2,
+        ok: true, listOnly: true, id: list2.id, name: list2.name, 件数: n2, 重複除外: 重複除外2, 移した: 移した2,
         見つかった: 0, 新しく作った: 0, とばした: 結果.filter((x) => x.状態 === "とばした").length,
         履歴を残した: 0, 分けた人数: 分ける人2.length, 明細: 結果.slice(0, 200),
       });
@@ -9088,12 +9089,14 @@ app.post("/api/calls/from-csv", async (req, res) => {
       byList.get(lid).push(x);
     }
     let n = 0;
-    for (const [lid, arr] of byList) n += await addCallTargets(lid, arr, { dedupe: true });
-    const 重複除外 = 入れるリスト.length - n;
+    let 移した = 0;
+    for (const [lid, arr] of byList) { n += await addCallTargets(lid, arr, { dedupe: true, takeOver: !!b.takeOver }); 移した += lastAddStats.moved; }
+    const 重複除外 = 入れるリスト.length - n - 移した;
 
+    console.log(`[kincall] CSVからリスト「${name}」を作りました（ほかのリストから移した ${移した}件）`);
     console.log(`[kincall] CSVからリスト「${name}」を作りました（${n}件／新規リード${結果.filter((x)=>x.状態==="新しく作った").length}件${重複除外 ? `／重複除外 ${重複除外}件` : ""}${所有者変更 ? `／所有者変更 ${所有者変更}件` : ""}） by ${req.user}`);
     res.json({
-      ok: true, id: list.id, name: list.name, 件数: n, 重複除外, 所有者変更, 所有者メモ,
+      ok: true, id: list.id, name: list.name, 件数: n, 重複除外, 移した, 所有者変更, 所有者メモ,
       見つかった: 結果.filter((x) => String(x.状態).startsWith("見つかった")).length,
       新しく作った: 結果.filter((x) => x.状態 === "新しく作った").length,
       クロス商談あり: 結果.filter((x) => String(x.状態 || "").includes("クロス商談あり")).length,
@@ -27911,7 +27914,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02j kincallのかける一覧：最終ステータスの右に「最終フェーズ」の列（これまでの架電のうちいちばん進んだ結果：アポ獲得＞お断り＞営業フォロー＞担当者不在＞コールのみ＞受付ブロック＞問い合わせ＞現アナ）。並べ替え・しぼり込みつき。";
+const BUILD_TAG = "2026-11-02k kincallのCSVから作る：「kincallのほかのリストにすでにあるリードも、このリストへ移す」を選ぶと、重なったリードを外さずに新しいリストへ移す（CSVの情報で空の項目を埋め、列の情報を足し、もともとのリストからは抜ける）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

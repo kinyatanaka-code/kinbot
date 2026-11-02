@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
-    <link rel="stylesheet" href="style.css?v=20261102j" />
+    <link rel="stylesheet" href="style.css?v=20261102k" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -560,6 +560,8 @@
                   <div class="kc-filter-row"><span class="kc-filter-lb">ステージ</span><div class="kc-share" id="csvStages"></div></div>
                   <div class="kc-filter-row"><span class="kc-filter-lb">ステータス</span><div class="kc-share" id="csvStatuses"></div></div>
                 </div>
+                <label class="ks-check" style="margin:8px 0 2px"><input type="checkbox" id="csvTakeOver" /> <b>kincallのほかのリストにすでにあるリードも、このリストへ移す</b></label>
+                <p class="note">オフ（いつも）：すでにkincallのリストにある会社は外します。オンにすると、外さずにこのリストへ移します。CSVの情報で空の項目を埋め、列の情報を足し、もともといたリストからは抜けます（架電の記録はそのまま残ります）。</p>
                 <label class="ks-check" style="margin:8px 0 2px"><input type="checkbox" id="csvListOnly" /> <b>Salesforceは更新せず、リストだけ作る（CSVのまま）</b></label>
                 <p class="note">メールが無いなどでSalesforceを触りたくないときに使います。オンにすると、リードの検索・作成も、活動履歴も、所有者の付け替えもせず、CSVの中身だけで架電リストに追加します（同じ架電先の重複除外はそのまま効きます）。</p>
                 <label class="ks-check" style="margin:8px 0 2px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -635,9 +637,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261102j"></script>
-    <script src="calls.js?v=20261102j"></script>
-    <script src="nav.js?v=20261102j"></script>
+    <script src="sf-data.js?v=20261102k"></script>
+    <script src="calls.js?v=20261102k"></script>
+    <script src="nav.js?v=20261102k"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

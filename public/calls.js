@@ -10863,7 +10863,7 @@ async function csvSend(dryRun) {
 
   // 件数が多いと途中で切れるので、少しずつ送る。進み具合も出す。
   const CHUNK = 20;
-  const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0, 重複除外: 0, 所有者変更: 0, 履歴済み: 0, 作れなかった: 0, 探せなかった: 0, 履歴失敗: 0 };
+  const 合計 = { 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 履歴: 0, 重複除外: 0, 移した: 0, 所有者変更: 0, 履歴済み: 0, 作れなかった: 0, 探せなかった: 0, 履歴失敗: 0 };
   const 失敗理由 = new Set();
   let listId = (csvAddMode ? ((plan.find((p) => p.listId) || {}).listId || 0) : 0) || (appendTarget && appendTarget.id) || 0, listName = (appendTarget && appendTarget.name) || "";
   const meisai = [];
@@ -10887,6 +10887,7 @@ async function csvSend(dryRun) {
           ...(csvAddMode ? { addMode: true } : {}),
           ...(($("csvCrossFrom") && $("csvCrossFrom").value) ? { crossFrom: $("csvCrossFrom").value } : {}),
           ...(($("csvListOnly") && $("csvListOnly").checked) ? { listOnly: true } : {}),
+          ...(($("csvTakeOver") && $("csvTakeOver").checked) ? { takeOver: true } : {}),
           ...(listId ? { listId } : {}),
         }),
       });
@@ -10901,6 +10902,7 @@ async function csvSend(dryRun) {
       合計.履歴 += Number(d["履歴を残した"] || 0);
       合計.履歴済み = (合計.履歴済み || 0) + Number(d["履歴済み"] || 0);
       合計.重複除外 += Number(d["重複除外"] || 0);
+      合計.移した += Number(d["移した"] || 0);
       合計.所有者変更 += Number(d["所有者変更"] || 0);
       合計.クロス商談あり = (合計.クロス商談あり || 0) + Number(d["クロス商談あり"] || 0);
       合計.作れなかった += Number(d["作れなかった"] || 0);
@@ -10932,7 +10934,7 @@ async function csvSend(dryRun) {
       const listOnly = $("csvListOnly") && $("csvListOnly").checked;
       say(listOnly
         ? `「${listName}」を作りました：${合計.件数}件（SFは更新していません` +
-          (合計.重複除外 ? `／重複を${合計.重複除外}件外した` : "") + "）" +
+          (合計.重複除外 ? `／重複を${合計.重複除外}件外した` : "") + (合計.移した ? `／ほかのリストから${合計.移した}件を移した` : "") + (合計.移した ? `／ほかのリストから${合計.移した}件を移した` : "") + "）" +
           (csvShareSelected().length ? `　${csvShareSelected().length}人に分けました` : "")
         : `「${listName}」を作りました：${合計.件数}件` +
           `（見つかった ${合計.見つかった}／新しく作った ${合計.新しく作った}／とばした ${合計.とばした}` +
