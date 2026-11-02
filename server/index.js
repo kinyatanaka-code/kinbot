@@ -10398,6 +10398,51 @@ app.get("/api/calls/nurture-summary", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 架電先の担当を別のメンバーへ移す（リストはそのまま。ナーチャリングの振り分け用）
+// ===== 失注の回数（SFの商談で「失注」になったもの。新規・クロスとも）（2026-10-31）=====
+//   SFの失注の商談を全部読んで（30分とっておく）、取引先の名前（表記をそろえて）と電話番号で、リードの会社に当てる
+let _lostIdx = { at: 0, p: null, byName: new Map(), byPhone: new Map() };
+async function lostOppIndex() {
+  if (_lostIdx.p) return _lostIdx.p;
+  if (Date.now() - _lostIdx.at < 30 * 60 * 1000 && _lostIdx.byName.size) return _lostIdx;
+  _lostIdx.p = (async () => {
+    const st = await getSettings().catch(() => ({}));
+    const sfUser = await pickSfUser(st.psOwner || "").catch(() => "");
+    if (!sfUser) throw new Error("Salesforceにつながっている人がいません");
+    const byName = new Map(), byPhone = new Map();
+    let last = "", pages = 0;
+    while (pages++ < 40) {
+      const recs = (await sfQuery(sfUser, `SELECT Id, Account.Name, Account.Phone, RecordType.Name, CloseDate, StageName FROM Opportunity WHERE StageName LIKE '%失注%'${last ? ` AND Id > '${last}'` : ""} ORDER BY Id LIMIT 2000`)).records || [];
+      for (const o of recs) {
+        const rt = String((o.RecordType && o.RecordType.Name) || "");
+        const it = { id: o.Id, kind: /クロス/.test(rt) ? "クロス" : /新規/.test(rt) ? "新規" : "その他", at: String(o.CloseDate || "").slice(0, 10) };
+        const k = csCoKey((o.Account && o.Account.Name) || ""); if (k) (byName.get(k) || byName.set(k, []).get(k)).push(it);
+        const ph = String((o.Account && o.Account.Phone) || "").replace(/\D/g, ""); if (ph.length >= 10) (byPhone.get(ph) || byPhone.set(ph, []).get(ph)).push(it);
+      }
+      if (recs.length < 2000) break;
+      last = recs[recs.length - 1].Id;
+    }
+    _lostIdx = { at: Date.now(), p: null, byName, byPhone };
+    console.log(`[calls] SFの失注の商談を読みました：会社 ${byName.size}社`);
+    return _lostIdx;
+  })().catch((e) => { _lostIdx.p = null; throw e; });
+  return _lostIdx.p;
+}
+app.post("/api/calls/lost-counts", async (req, res) => {
+  try {
+    const items = (Array.isArray(req.body && req.body.items) ? req.body.items : []).slice(0, 25000);
+    const idx = await lostOppIndex();
+    const out = {};
+    for (const x of items) {
+      const seen = new Map();
+      for (const it of (idx.byName.get(csCoKey(x.company || "")) || [])) seen.set(it.id, it);
+      const ph = String(x.phone || "").replace(/\D/g, ""); if (ph.length >= 10) for (const it of (idx.byPhone.get(ph) || [])) seen.set(it.id, it);
+      if (!seen.size) continue;
+      const list = [...seen.values()];
+      out[x.id] = { total: list.length, 新規: list.filter((i) => i.kind === "新規").length, クロス: list.filter((i) => i.kind === "クロス").length, last: list.map((i) => i.at).filter(Boolean).sort().pop() || "" };
+    }
+    res.json({ ok: true, counts: out, at: new Date(idx.at).toISOString() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // ===== kincall のリード表（スプレッドシートの形）（2026-10-30）=====
 app.get("/api/calls/sheet", async (req, res) => {
   try {
@@ -27783,7 +27828,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-30d kincallのリスト編集：「絞り込んだ ○件をほかのリストへ移す」（移す先のリストを選んで、今あるリストへ移す。担当はそのまま）。";
+const BUILD_TAG = "2026-10-31a kincallのリスト編集：「失注回数」の列（SFで失注になった商談の数。新規・クロスの内訳と最後の失注日）と、「○回以上」の絞り込み。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

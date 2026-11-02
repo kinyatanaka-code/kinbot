@@ -7180,3 +7180,6 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .sh-drawer { position: fixed; right: 16px; top: 80px; bottom: 16px; width: min(420px, 92vw); background: #fff; border: 1px solid #DCE6E1; border-radius: 14px; box-shadow: 0 24px 60px -24px rgba(0,0,0,.4); padding: 12px 14px; overflow: auto; z-index: 50; }
 .sh-dw-h { display: flex; align-items: center; gap: 8px; } .sh-dw-h b { font-size: 15px; flex: 1; } .sh-dw-s { font-size: 12px; color: #6A7A72; margin: 2px 0 10px; }
 .sh-dw-it { border-top: 1px solid #EEF2F0; padding: 7px 2px; font-size: 12.5px; } .sh-dw-it .t span { color: #6A7A72; } .sh-dw-it .m { color: #33463E; margin-top: 2px; white-space: pre-wrap; }
+/* リスト編集：失注回数（2026-10-31） */
+.ed-lostn { white-space: nowrap; } .ed-lostn b { font-size: 12.5px; color: #8C1F1F; } .ed-lostn b.ed-lost2 { background: #FBE4E4; border-radius: 5px; padding: 0 5px; }
+.ed-lostn small { display: block; font-size: 10.5px; color: #6A7A72; }

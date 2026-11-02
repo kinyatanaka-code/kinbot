@@ -9211,6 +9211,18 @@ function edRenderChosen() {
 let _edCrosslost = false;   // クロス失注ビューか（失注日/失注理由/失注後次回アクション日の列を出す）
 let _edPastLost = false;
 let _edIsOldLost = false;   // 〜2026/2 の失注（CSV）の表を開いているか（表の「CSV取り込み」を新規取り込みにする）    // 過去失注グループ（DOC過去失注など）のリストの編集か（失注理由（大項目）の列を出す）
+// 失注の回数（SFの失注の商談：新規・クロスとも）。null＝読んでいる途中
+let _edLost = undefined;
+async function edLoadLost() {
+  _edLost = null;
+  try {
+    const items = _edRows.map((r) => ({ id: r.id, company: _edg(r, "会社名", "company"), phone: _edg(r, "電話", "電話番号", "phone") }));
+    const d = await (await fetch("/api/calls/lost-counts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) })).json();
+    if (d.error) throw new Error(d.error);
+    _edLost = d.counts || {};
+  } catch (e) { _edLost = {}; console.warn("失注の回数を読めませんでした", e.message); }
+  if (typeof edRenderBody === "function") edRenderBody();
+}
 async function orgLoadEdit(listIds) {
   const tbl = $("edTable"); if (!tbl) return;
   _edCrosslost = (listIds || []).map(String).some((v) => v === "crosslost" || v === "pastlost-old");
@@ -9229,6 +9241,7 @@ async function orgLoadEdit(listIds) {
       for (const r of (d.items || [])) { r._listId = r.listId || id; r._listName = meta.name || ""; r._owner = meta.owner || r.listOwner || ""; r._group = meta.group_name || r.listGroupName || ""; r._groupId = (meta.group_id != null && meta.group_id !== "") ? meta.group_id : (r.listGroupId || ""); all.push(r); }
     }
     _edRows = all;
+    edLoadLost();
     if ($("edFilterBar")) $("edFilterBar").hidden = false;
     edFillExtractOwner();
     edRender();
@@ -9255,6 +9268,7 @@ function edFiltered() {
   return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
     if (sts.size && !sts.has(g(r, "最終ステータス", "最終結果", "status") || "（なし）")) return false;
+    { const ln = ($("edLostN") && $("edLostN").value) || ""; if (ln !== "" && _edLost) { const n0 = ((_edLost[r.id] || {}).total) || 0; if (ln === "0" ? n0 !== 0 : n0 < Number(ln)) return false; } }
     if (_edPastLost) { const pr = edMselVals("edPlReason"); if (pr.size && !pr.has(edLossBig(r) || "（なし）")) return false; }
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
     // 文字列を含むもので絞る（全角・半角・大文字小文字・空白のちがいは気にしない。空白で区切ると、全部を含むもの）（2026-10-30）
@@ -9669,6 +9683,7 @@ function edBuildTable() {
     th("電話", txt("edQPhone")) +
     th("メール", txt("edQEmail")) +
     th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
+    th("失注回数", `<select id="edLostN" class="ed-cf"><option value="">すべて</option><option value="0">0回</option><option value="1">1回以上</option><option value="2">2回以上</option><option value="3">3回以上</option></select>`) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
     th("従業員数", empF) +
     (_edNurture
@@ -9678,7 +9693,7 @@ function edBuildTable() {
       : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者")))) + th("担当（かける人）", msel("edClWho", uniq((r) => (r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）")))) + th("リスト", msel("edClList", uniq((r) => edListName(r) || "（不明）")))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edLostN", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
   document.querySelectorAll("#edTable .ed-msel").forEach(edWireMsel);
 }
@@ -9796,6 +9811,7 @@ function edRenderBody() {
         <td>${esc(g(r, "電話", "電話番号", "phone"))}</td>
         <td>${esc(g(r, "メール", "メールアドレス", "email"))}</td>
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
+        <td class="ed-lostn">${(() => { const c = _edLost && _edLost[r.id]; if (_edLost === null) return '<span class="kc-none">…</span>'; if (!c) return '<span class="kc-none">0</span>'; return `<b class="${c.total >= 2 ? "ed-lost2" : ""}">${c.total}回</b><small>${[c.新規 ? `新規${c.新規}` : "", c.クロス ? `クロス${c.クロス}` : "", c.total - c.新規 - c.クロス ? `他${c.total - c.新規 - c.クロス}` : ""].filter(Boolean).join("・")}${c.last ? `　最後 ${esc(c.last.slice(2).replace(/-/g, "/"))}` : ""}</small>`; })()}</td>
         ${_edPastLost ? `<td>${esc(edLossBig(r) || "—")}</td>` : ""}
         <td><input type="text" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
         ${editCells}
