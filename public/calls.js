@@ -9681,19 +9681,21 @@ async function edIndustrySplit() {
       }
       close();
       const st = $("edEnrichSt"); if (st) st.textContent = `業界ごとに移しました：${done.join("・")}`;
-      if ($("edMoveTo")) $("edMoveTo").dataset.filled = "";
+      edFillMoveTo(true);
     } catch (e) { stEl.textContent = `${done.length ? `${done.join("・")} は移しました。` : ""}${e.message}`; go.disabled = false; }
     finally { edRender(); }
   });
 }
 // 絞り込んだ分を、ほかの（今あるの）リストへ移す（2026-10-30）
-async function edFillMoveTo() {
-  const sel = $("edMoveTo"); if (!sel || sel.dataset.filled) return;
+async function edFillMoveTo(force) {
+  const sel = $("edMoveTo"); if (!sel || (sel.dataset.filled && !force)) return;
+  const cur = sel.value;   // 選んでいた移す先は、読み直しても残す（続けて移せるように）
   try {
     const d = await (await fetch("/api/calls/sheet/facets")).json();
     if (d.error) throw new Error(d.error);
     const here = new Set([..._edChosen.keys()].map(String));
     sel.innerHTML = '<option value="">移す先のリストを選ぶ…</option>' + (d.lists || []).filter((l) => !here.has(String(l.id))).map((l) => `<option value="${l.id}">${esc(l.name)}（${l.open}件）</option>`).join("");
+    if (cur && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
     sel.dataset.filled = "1";
   } catch (e) { sel.innerHTML = '<option value="">リストを読めませんでした</option>'; }
 }
@@ -9713,7 +9715,7 @@ async function edMoveFiltered() {
     const moved = new Set(ids.map(String));
     _edRows = _edRows.filter((x) => !moved.has(String(x.id)));   // 移したので、この一覧からは外す
     if (st) st.textContent = `${d.moved} 件をリスト「${toName}」へ移しました`;
-    sel.dataset.filled = ""; 
+    edFillMoveTo(true);   // 件数を新しくする（選んでいる移す先はそのまま）
   } catch (e) { if (st) st.textContent = "移せませんでした（" + (e.message || "権限がないか、通信に失敗しました") + "）"; }
   finally { edRender(); }
 }
