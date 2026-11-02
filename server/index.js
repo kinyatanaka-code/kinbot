@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -11102,6 +11102,10 @@ app.get("/api/calls/targets", async (req, res) => {
       sf数えた = 失敗 < Math.ceil(ids.length / 80);   // 全部失敗でなければ数えられた扱い
     }
     const mtgMapAll = await recentMeetingMap().catch(() => new Map());
+    // 最終フェーズ：これまでの架電の結果と今のステータスのうち、いちばん進んだもの（担当者接触が先）（2026-11-02）
+    const resMap = await callLogResultsByTargets(rows.map((r) => r.id)).catch(() => new Map());
+    const PHASES = [["アポ獲得", /アポ獲得/], ["お断り", /お断り/], ["営業フォロー", /営業フォロー/], ["担当者不在", /担当者不在|不在/], ["コールのみ", /コールのみ/], ["受付ブロック", /受付ブロック/], ["問い合わせ", /問い?合わ?せ/], ["現アナ", /現アナ|使われて|欠番|不通/]];
+    const phaseOf = (r) => { const all = [...(resMap.get(Number(r.id)) || []), r.status || "", r["最終結果"] || ""].map(String).join("\n"); for (const [lb, re] of PHASES) if (re.test(all)) return lb; return ""; };
     // 資料を送った相手が見ているか（メールアドレス → 会社名で照らす）
     const dv = await docViewSummary().catch(() => ({ byEmail: new Map(), byCompany: new Map() }));
     const viewOf = (r) => {
@@ -11118,6 +11122,7 @@ app.get("/api/calls/targets", async (req, res) => {
         電話番号: r.phone || "", メール: r.email || "",
         所有者: r.owner_name || "",
         最終ステータス: r.status || "",
+        最終フェーズ: phaseOf(r),
         温度: r.temperature || "",
         担当者不在ランク: r.absent_rank || "",
         従業員数: r.employees == null ? "" : r.employees,
@@ -27906,7 +27911,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02i CS連携の企業カード：企業名を直して保存すると、カードの会社名そのもの（一覧・見出し・CSV・kinXsとのつながり）も変わるように。kinXsとは前の名前でもつながったまま。";
+const BUILD_TAG = "2026-11-02j kincallのかける一覧：最終ステータスの右に「最終フェーズ」の列（これまでの架電のうちいちばん進んだ結果：アポ獲得＞お断り＞営業フォロー＞担当者不在＞コールのみ＞受付ブロック＞問い合わせ＞現アナ）。並べ替え・しぼり込みつき。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -11855,3 +11855,12 @@ export async function callSheetSetDone(ids, done) {
   const r = await pool.query(`UPDATE call_targets SET done = $2 WHERE id = ANY($1::int[])`, [ids, !!done]);
   return r.rowCount;
 }
+
+// リードごとに、これまでの架電の結果（重ならないように）（2026-11-02：最終フェーズのため）
+export async function callLogResultsByTargets(ids) {
+  const out = new Map();
+  if (!pool || !Array.isArray(ids) || !ids.length) return out;
+  const { rows } = await pool.query(`SELECT target_id, array_agg(DISTINCT result) AS rs FROM call_logs WHERE target_id = ANY($1::int[]) AND COALESCE(result,'') <> '' GROUP BY target_id`, [ids.map((x) => parseInt(x, 10)).filter(Boolean)]);
+  for (const r of rows) out.set(Number(r.target_id), r.rs || []);
+  return out;
+}

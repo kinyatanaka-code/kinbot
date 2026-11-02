@@ -304,7 +304,7 @@ function kcIsTanaka() {
   if (!_meP) _meP = fetch("/api/me").then((r) => r.json()).catch(() => null);
   return _meP.then((me) => !!(me && String(me.username || "").toLowerCase() === "kinya.tanaka@neo-career.co.jp"));
 }
-const filt = { stage: new Set(), status: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {}, range: {}, tags: new Set() };   // range: 日付の列の範囲 {列名: {from, to, empty}}
+const filt = { stage: new Set(), status: new Set(), phase: new Set(), hist: "", post: "", hireMin: "", hireMax: "", extra: {}, range: {}, tags: new Set() };   // range: 日付の列の範囲 {列名: {from, to, empty}}
 try { const _f = JSON.parse(localStorage.getItem("kcFilt") || "{}");
   if (Array.isArray(_f.stage)) filt.stage = new Set(_f.stage);
   if (Array.isArray(_f.status)) filt.status = new Set(_f.status);
@@ -328,6 +328,7 @@ function sortVal(x, by) {
   else if (by === "person") v = x["ふりがな"] || x["担当者"];
   else if (by === "mail") v = x["メール"];
   else if (by === "status") v = x["最終ステータス"];
+  else if (by === "phase") v = (KC_PHASES.indexOf(x["最終フェーズ"]) + 1) || 99;
   else if (by === "hist") return Number(x["履歴数"] || 0);
   else if (by === "lastcall") { const t = x["最終日時"] ? new Date(x["最終日時"]).getTime() : NaN; return isNaN(t) ? null : t; }
   else if (by.startsWith("x:")) {
@@ -388,6 +389,7 @@ function visibleRows() {
   }
   if (filt.stage.size) list = list.filter((x) => filt.stage.has((x["ステージ"] || "").trim()));
   if (filt.status.size) list = list.filter((x) => filt.status.has((x["最終ステータス"] || "").trim()));
+  if (filt.phase && filt.phase.size) list = list.filter((x) => filt.phase.has(x["最終フェーズ"] || "（なし）"));
   for (const k in (filt.extra || {})) {
     const set = filt.extra[k];
     if (set && set.size) list = list.filter((x) => set.has(cleanRecruitVal((rowExtra(x) || {})[k])));
@@ -506,6 +508,8 @@ function sortRowsBase(list) {
 }
 
 // 最終ステータスの文字列
+// 最終フェーズ：これまでの架電のうち、いちばん進んだ結果（担当者接触が先。上ほど進んでいる）（2026-11-02）
+const KC_PHASES = ["アポ獲得", "お断り", "営業フォロー", "担当者不在", "コールのみ", "受付ブロック", "問い合わせ", "現アナ"];
 function 状況(x) { return String((x && x["最終ステータス"]) || ""); }
 // ユーザー（クロス受注＝既存顧客）。かける対象から外す。
 function isUser(x) { return /ユーザー/.test(状況(x)); }
@@ -1143,6 +1147,7 @@ function render() {
         <th class="kc-th-m"><button type="button" class="kc-th-b" data-sort="mail" title="押すたびに 昇順→降順→解除">メールアドレス${arrow("mail")}</button></th>
         <th class="kc-th-l"><button type="button" class="kc-th-b" data-sort="lastcall" title="押すたびに 昇順→降順→解除">最終架電日${arrow("lastcall")}</button></th>
         <th class="kc-th-s"><button type="button" class="kc-th-b${on("status")}" data-flt="status">最終ステータス${arrow("status")} ▾</button></th>
+        <th class="kc-th-s"><button type="button" class="kc-th-b${filt.phase && filt.phase.size ? " on" : ""}" id="kcPhaseFlt" title="これまでの架電のうち、いちばん進んだ結果（担当者接触が先）。押すと並べ替え・しぼり込み">最終フェーズ${arrow("phase")} ▾</button></th>
         <th class="kc-th-h kc-th-histc"><button type="button" class="kc-th-b${filt.hist ? " on" : ""}" data-hist="1">履歴${arrow("hist")}</button></th>
         <th class="kc-th-r">記録</th>
         <th class="kc-th-d">資料送付</th>
@@ -1160,7 +1165,7 @@ function render() {
       const 済 = isDone(x);
       const 予定 = nextDueLabel(x);
       const かけた = (r) => !!(r && r["最終日時"]) && !isDone(r) && !(r["次回予定"] && new Date(r["次回予定"]).getTime() <= Date.now());
-      const cols = (listId !== "all" ? 11 : 10) + rcols.length;
+      const cols = (listId !== "all" ? 12 : 11) + rcols.length;   // 最終フェーズの列を足した（2026-11-02）
       const 直前未済 = i > 0 && !isDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
         ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注日のある失注）（${list.filter(isDone).length}件）</td></tr>`
@@ -1185,6 +1190,7 @@ function render() {
         <td class="kc-mail">${esc(x["メール"] || "")}</td>
         <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
+        <td class="kc-phase">${x["最終フェーズ"] ? `<span class="kc-ph kc-ph-${KC_PHASES.indexOf(x["最終フェーズ"])}">${esc(x["最終フェーズ"])}</span>` : "-"}</td>
         <td class="kc-histc">${x["最終コメント"] ? `<div class="kc-lastmemo" title="${esc(x["最終コメント"])}">${esc(x["最終コメント"])}</div>` : ""}<button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
@@ -1271,6 +1277,25 @@ function render() {
     b.addEventListener("click", (ev) => { ev.stopPropagation(); openNextEdit(b, b.dataset.id); }));
 
   const coF = $("kcCoFlt"); if (coF) coF.addEventListener("click", (e) => { e.stopPropagation(); openTagFilter(); });
+  // 最終フェーズ：並べ替え（進んだ順）と、フェーズでしぼる
+  const phF = $("kcPhaseFlt");
+  if (phF) phF.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".kc-ph-pop").forEach((x) => x.remove());
+    filt.phase = filt.phase || new Set();
+    const pop = document.createElement("div"); pop.className = "kc-ph-pop";
+    const r = phF.getBoundingClientRect(); pop.style.left = `${Math.max(8, Math.min(window.innerWidth - 230, r.left))}px`; pop.style.top = `${r.bottom + 4}px`;
+    const n = (lb) => rows.filter((x) => (x["最終フェーズ"] || "（なし）") === lb).length;
+    pop.innerHTML = `<div class="kc-ph-sort"><button type="button" data-ps="asc">進んだ順</button><button type="button" data-ps="desc">進んでいない順</button><button type="button" data-ps="">並べ替えなし</button></div>
+      ${[...KC_PHASES, "（なし）"].map((lb) => `<label><input type="checkbox" value="${esc(lb)}" ${filt.phase.has(lb) ? "checked" : ""}/> ${esc(lb)} <small>${n(lb)}</small></label>`).join("")}
+      <button type="button" class="kc-ph-clr">しぼり込みを外す</button>`;
+    document.body.appendChild(pop);
+    pop.querySelectorAll("[data-ps]").forEach((b) => b.addEventListener("click", () => { const v = b.dataset.ps; setSort(v ? "phase" : "", v === "desc"); pop.remove(); }));
+    pop.querySelectorAll("input[type=checkbox]").forEach((cb) => cb.addEventListener("change", () => { if (cb.checked) filt.phase.add(cb.value); else filt.phase.delete(cb.value); render(); }));
+    pop.querySelector(".kc-ph-clr").addEventListener("click", () => { filt.phase.clear(); pop.remove(); render(); });
+    const close = (ev) => { if (!pop.contains(ev.target)) { pop.remove(); document.removeEventListener("mousedown", close); } };
+    setTimeout(() => document.addEventListener("mousedown", close), 0);
+  });
   const tAdd = $("kcTodayAdd"); if (tAdd) tAdd.addEventListener("click", () => openTodayAdd(callAsMember || "", "", () => loadTable()));
   // 選択（チェック）の配線
   const updateSelBar = () => {
