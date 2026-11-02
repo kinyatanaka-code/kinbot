@@ -303,17 +303,25 @@ $("dsMake").addEventListener("click", async () => {
 });
 
 // ───────── 閲覧状況 ─────────
-async function loadLinks() {
+// 企業名・担当者・メールで探す（読み込んだ一覧の中から。全角・半角・空白のちがいは気にしない）（2026-11-02）
+let _dkCache = null;
+const dkNz = (x) => String(x || "").normalize("NFKC").toLowerCase().replace(/[\s　・]|株式会社|有限会社|合同会社|\(株\)|（株）/g, "");
+async function loadLinks(useCache) {
   const box = $("dkList");
-  say("dkStatus", "読み込み中…");
+  if (!useCache || !_dkCache) say("dkStatus", "読み込み中…");
   try {
-    const q = new URLSearchParams();
-    if ($("dkDoc").value) q.set("docId", $("dkDoc").value);
-    if ($("dkViewed").checked) q.set("viewed", "1");
-    const d = await (await fetch("/api/doc-links?" + q.toString())).json();
-    if (d.error) throw new Error(d.error);
-    const links = d.links || [];
-    say("dkStatus", `${links.length}件`);
+    let all = _dkCache;
+    if (!useCache || !all) {
+      const q = new URLSearchParams();
+      if ($("dkDoc").value) q.set("docId", $("dkDoc").value);
+      if ($("dkViewed").checked) q.set("viewed", "1");
+      const d = await (await fetch("/api/doc-links?" + q.toString())).json();
+      if (d.error) throw new Error(d.error);
+      all = _dkCache = d.links || [];
+    }
+    const words = String(($("dkQ") && $("dkQ").value) || "").normalize("NFKC").toLowerCase().split(/[\s　]+/).filter(Boolean).map(dkNz).filter(Boolean);
+    const links = words.length ? all.filter((l) => { const t = dkNz(`${l.company || ""} ${l.contact || ""} ${l.email || ""} ${l.doc_name || ""}`); return words.every((w) => t.includes(w)); }) : all;
+    say("dkStatus", words.length ? `${links.length}件／${all.length}件` : `${links.length}件`);
     if (!links.length) {
       box.innerHTML = '<div class="empty-state">該当がありません。「URLを発行する」から作ってください。</div>';
       return;
@@ -446,9 +454,10 @@ async function showDetail(row) {
   }
 }
 
-$("dkReload").addEventListener("click", loadLinks);
-$("dkDoc").addEventListener("change", loadLinks);
-$("dkViewed").addEventListener("change", loadLinks);
+$("dkReload").addEventListener("click", () => loadLinks());
+$("dkDoc").addEventListener("change", () => loadLinks());
+$("dkViewed").addEventListener("change", () => loadLinks());
+if ($("dkQ")) { let t0 = 0; $("dkQ").addEventListener("input", () => { clearTimeout(t0); t0 = setTimeout(() => loadLinks(true), 200); }); }
 
 // ───────── 商談ごとの資料トラッキング（案B・商談カード） ─────────
 let dealsCache = [];
