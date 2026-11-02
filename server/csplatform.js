@@ -47,7 +47,7 @@ async function setCsOwner(page, csName, say) {
   return hit.t;
 }
 
-async function issueOnce({ companyName, companyId = "", csName = "", ownerOnly = false, onStep = null, newPass = "" }) {
+async function issueOnce({ companyName, companyId = "", csName = "", ownerOnly = false, onStep = null, reissuePass = false }) {
   const log = [];
   const say = (t) => { log.push(t); console.log(`[csp] ${t}`); try { if (onStep) onStep(t); } catch {} };
   say("ブラウザを起動しています");
@@ -179,30 +179,24 @@ async function issueOnce({ companyName, companyId = "", csName = "", ownerOnly =
       say(curId === want ? `企業IDを ${want} にしました` : `企業IDを ${want} にできませんでした（いま：${curId}）`);
     }
 
-    // 6) パスワードを変える（kinbot の「IDとパスワードを直す」から。2026-11-02）
-    //   画面の作りが分からないので、「パスワード変更／再設定／リセット／再発行」のボタンを押し、出てきた入力欄（か prompt）に入れて保存する
-    let passResult = "";
-    const np = String(newPass || "").trim();
-    if (np) {
-      const pb = page.locator('button:has-text("パスワード変更"), button:has-text("パスワードを変更"), button:has-text("パスワード再設定"), button:has-text("パスワードを再設定"), button:has-text("パスワードリセット"), button:has-text("パスワード再発行"), button:has-text("パスワードを再発行")').first();
-      if (!(await pb.count())) { passResult = "ボタンが見つかりません"; say("パスワードを変えるボタンが見つかりませんでした（ヘルプサイトのパスワードは変えていません）"); }
+    // 6) パスワードを再発行する（kinbot の「IDとパスワードを直す」から。2026-11-02）
+    //   CS Platform はパスワードを決めて入れることはできず、「パスワード再発行」で新しいパスワードが1回だけ表示される
+    let passResult = "", newPassword = "";
+    if (reissuePass) {
+      const pb = page.locator('button:has-text("パスワード再発行")').first();
+      if (!(await pb.count())) { passResult = "「パスワード再発行」のボタンが見つかりません"; say(passResult); }
       else {
-        const label = (await pb.innerText().catch(() => "")).trim();
-        say(`「${label}」を押しています`);
-        dialogAnswer = np;
+        say("「パスワード再発行」を押しています");
         await pb.click();
-        await page.waitForTimeout(1000);
-        const pins = page.locator('input[type="password"]:visible, input[placeholder*="パスワード"]:visible, input[name*="pass" i]:visible');
-        const n = await pins.count();
-        for (let i = 0; i < n; i++) { const el = pins.nth(i); await el.click(); await el.fill(""); await el.pressSequentially(np, { delay: 10 }); }
-        if (n) {
-          const sb = page.locator('button:visible:has-text("保存"), button:visible:has-text("変更する"), button:visible:has-text("更新"), button:visible:has-text("設定する"), button:visible:has-text("OK"), button:visible:has-text("決定")').last();
-          if (await sb.count()) await sb.click(); else await pins.nth(n - 1).press("Enter");
-        }
-        await page.waitForTimeout(1800);
-        const after = await page.locator("body").innerText();
-        const err = after.split("\n").map((x) => x.trim()).find((x) => /失敗|できません|無効|エラー|短すぎ|文字以上/.test(x));
-        passResult = err ? `変えられませんでした（画面の表示：${err}）` : (n ? "変えました" : (/再発行|リセット/.test(label) ? "再発行しました（パスワードはヘルプサイトが決めた値になります）" : "押しました"));
+        await page.waitForTimeout(800);
+        // 確かめの窓（「再発行しますか？」）が画面の中に出る作りなら、そのボタンも押す
+        const ok = page.locator('button:visible:has-text("再発行する"), button:visible:has-text("OK"), button:visible:has-text("はい")').last();
+        if (await ok.count()) { await ok.click().catch(() => {}); await page.waitForTimeout(800); }
+        await page.waitForSelector("text=パスワードはこの1回だけ表示されます", { timeout: 15000 }).catch(() => {});
+        const body = await page.locator("body").innerText();
+        const m = /パスワードはこの1回だけ表示されます\s*\n\s*([^\s]+)/.exec(body);
+        newPassword = m ? m[1].trim() : "";
+        passResult = newPassword ? "再発行しました" : "再発行のあと、新しいパスワードを読めませんでした";
         say(`パスワード：${passResult}`);
       }
     }
@@ -222,7 +216,7 @@ async function issueOnce({ companyName, companyId = "", csName = "", ownerOnly =
     say("案内文をコピーしました");
     let csOwner = "";
     if (csName) { say(`CS担当者に「${csName}」を入れています`); csOwner = await setCsOwner(page, csName, say).catch(() => ""); }
-    return { ok: true, companyId: curId, text: text.trim(), loginUrl, csOwner, passResult, log };
+    return { ok: true, companyId: curId, text: text.trim(), loginUrl, csOwner, passResult, newPassword, log };
   } catch (e) {
     let shot = "";
     try { if (page) shot = (await page.screenshot({ type: "png", fullPage: false })).toString("base64"); } catch {}

@@ -165,7 +165,8 @@ function render() {
           <div class="cd-grid"><div class="cd-f"><label>企業ID</label><input data-pe-id value="${esc(k.portal_id || ((/企業\s*ID\s*[:：]\s*(\S+)/.exec(k.portal_text || "") || [])[1]) || "")}" /></div>
           <div class="cd-f"><label>パスワード</label><input data-pe-pass value="${esc((((/パスワード\s*[:：]\s*([^\n]+)/.exec(k.portal_text || "") || [])[1]) || "").replace(/^（.*）$/, ""))}" placeholder="空のままなら、パスワードは変えない" /></div></div>
           <label class="cs-sub" style="display:flex;gap:6px;align-items:center;margin-top:4px"><input type="checkbox" data-pe-apply checked /> ヘルプサイト（CS Platform）の中でも変える（1分ほどかかります）</label>
-          <div class="cs-sub">カードと案内文（御礼メールに入る文）も書きかえます。チェックを外すと、kinbotの表示だけを直します（向こうで変えた値を入れるとき）。</div>
+          <label class="cs-sub" data-pe-reissue-wrap style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-pe-reissue /> パスワードを再発行する（ヘルプサイトが新しいパスワードを決めて、カードと案内文に入れます）</label>
+          <div class="cs-sub">ヘルプサイトでは、企業IDは「ID変更」、パスワードは「パスワード再発行」になります（パスワードは決めた値を入れられません）。チェックを外すと、kinbotの表示だけを直します（向こうで変えた値を入れるとき）。</div>
           <div style="display:flex;gap:6px;margin-top:6px"><button type="button" class="btn cd-mini" data-pe-save>保存</button><button type="button" class="btn ghost cd-mini" data-pe-cancel>やめる</button><span class="cs-sub" data-pe-st></span></div>
         </div>
         <div class="cs-prog" data-portal-prog hidden></div>`, k.portal_text ? `<span class="cs-pill ok">用意済み</span>` : `<span class="cs-pill">まだ</span>`)}
@@ -207,6 +208,8 @@ function render() {
   // ヘルプサイトの企業ID・パスワードを手で直す
   const peBtn = host.querySelector("[data-portal-edit]"), peBox = host.querySelector("[data-portal-ed]");
   if (peBtn && peBox) {
+    const syncPe = () => { const ap = peBox.querySelector("[data-pe-apply]").checked; const pin = peBox.querySelector("[data-pe-pass]"); pin.disabled = ap; pin.placeholder = ap ? "ヘルプサイトでは決めた値を入れられません（下の「再発行」を使う）" : "空のままなら、パスワードは変えない"; peBox.querySelector("[data-pe-reissue-wrap]").style.display = ap ? "flex" : "none"; };
+    peBox.querySelector("[data-pe-apply]").addEventListener("change", syncPe); syncPe();
     peBtn.addEventListener("click", () => { peBox.hidden = !peBox.hidden; if (!peBox.hidden) peBox.querySelector("[data-pe-id]").focus(); });
     peBox.querySelector("[data-pe-cancel]").addEventListener("click", () => { peBox.hidden = true; });
     peBox.querySelector("[data-pe-save]").addEventListener("click", async () => {
@@ -214,9 +217,11 @@ function render() {
       const sv = peBox.querySelector("[data-pe-save]"); sv.disabled = true;
       st.textContent = apply ? "ヘルプサイトで変えています…（1分ほど）" : "保存しています…";
       try {
-        const r = await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}/portal-edit`, { method: "POST", body: JSON.stringify({ id: peBox.querySelector("[data-pe-id]").value, pass: peBox.querySelector("[data-pe-pass]").value, apply }) });
+        const reissue = apply && peBox.querySelector("[data-pe-reissue]").checked;
+        if (reissue && !confirm("ヘルプサイトでパスワードを再発行します。今のパスワードは使えなくなります（お客様に伝えていた場合は、伝え直しが要ります）。よろしいですか？")) { sv.disabled = false; st.textContent = ""; return; }
+        const r = await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}/portal-edit`, { method: "POST", body: JSON.stringify({ id: peBox.querySelector("[data-pe-id]").value, pass: apply ? "" : peBox.querySelector("[data-pe-pass]").value, apply, reissue }) });
         const a2 = r.applied;
-        if (a2) alert(`ヘルプサイトでも変えました。\n企業ID：${a2.idNote || `「${a2.companyId}」`}\nパスワード：${a2.passResult || "変えていません（空欄）"}`);
+        if (a2) alert(`ヘルプサイトでも変えました。\n企業ID：${a2.idNote || `「${a2.companyId}」`}\nパスワード：${reissue ? (a2.passResult || "") + "（新しいパスワードをカードと案内文に入れました）" : "変えていません"}`);
         await load();
       } catch (e) { st.textContent = e.message; sv.disabled = false; }
     });
