@@ -9298,10 +9298,9 @@ function edFiltered() {
       const qF = v("edQFrom"); if (qF && !edListName(r).toLowerCase().includes(qF)) return false;
     }
     if (_edCrosslost) {
-      const lr = ($("edLostReason") && $("edLostReason").value) || "";
-      if (lr && g(r, "失注理由（大項目）") !== lr) return false;
-      const lrm = ($("edLostReasonMid") && $("edLostReasonMid").value) || "";
-      if (lrm && g(r, "失注理由（中項目）") !== lrm) return false;
+      // 失注理由（大項目・中項目）は、いくつでも選んで絞れる（2026-11-02）
+      const lr = edMselVals("edLostReason"); if (lr.size && !lr.has(g(r, "失注理由（大項目）") || "（なし）")) return false;
+      const lrm = edMselVals("edLostReasonMid"); if (lrm.size && !lrm.has(g(r, "失注理由（中項目）") || "（なし）")) return false;
       const qDt = v("edQLostDetail"); if (qDt && !String(g(r, "失注理由詳細")).toLowerCase().includes(qDt)) return false;
       if (!edInRange(normDateLoose(g(r, "失注後次回アクション日")), "edDNextAct")) return false;
       if (!edInRange(normDateLoose(g(r, "失注日")), "edDLost")) return false;
@@ -9804,7 +9803,7 @@ function edBuildTable() {
       ? th("次回架電日", drange("edDNext")) + th("担当メンバー", sel("edNurWho", uniq((r) => nmMemberName(r["担当メール"] || "")), "すべて")) + th("元のリスト", txt("edQFrom"))
     : !_edCrosslost
       ? th("採用人数", "") + th("媒体掲載", sel("edMedia", uniq((r) => g(r, "媒体掲載", "media_tags")), "すべて")) + th("グループ", "") + th("所有者", "")
-      : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者")))) + th("担当（かける人）", msel("edClWho", uniq((r) => (r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）")))) + th("リスト", msel("edClList", uniq((r) => edListName(r) || "（不明）")))
+      : th("失注理由（大項目）", msel("edLostReason", uniq((r) => g(r, "失注理由（大項目）") || "（なし）"))) + th("失注理由（中項目）", msel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）") || "（なし）"))) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者")))) + th("担当（かける人）", msel("edClWho", uniq((r) => (r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）")))) + th("リスト", msel("edClList", uniq((r) => edListName(r) || "（不明）")))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
   ["edQInd", "edLostMin", "edLostMax", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
@@ -9831,7 +9830,7 @@ function edWireMsel(box) {
   const btn = box.querySelector(".ed-msel-btn"), pop = box.querySelector(".ed-msel-pop");
   const label = () => {
     const v = [...edMselVals(box.id)];
-    const unit = box.id === "edStatus" || box.id === "edPlReason" || box.id === "edClList" ? "件" : "人";
+    const unit = ["edStatus", "edPlReason", "edClList", "edLostReason", "edLostReasonMid", "edInd"].includes(box.id) ? "件" : "人";
     btn.textContent = (v.length === 0 ? "すべて" : v.length === 1 ? v[0] : `${v.length}${unit}を選択中`) + " ▾";
     btn.classList.toggle("on", v.length > 0);
   };
