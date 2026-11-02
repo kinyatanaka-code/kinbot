@@ -660,7 +660,7 @@ import {
 import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
-import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave } from "./companyenrich.js";
+import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave, lookupIndustry } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import { readLayout, readGoals, tally, buildUpdates, buildClearUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
@@ -8179,6 +8179,26 @@ app.post("/api/calls/enrich-media", async (req, res) => {
       if (company) { try { const m = await withTimeout(lookupJobMedia(company), 25000, null); if (m && Array.isArray(m.media)) tags = m.media.join(", "); } catch {} }
       if (id) await setCallTargetFields(id, { media_tags: tags }).catch(() => {});
       return { id, media_tags: tags };
+    }));
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 編集画面：業種を自動取得（gBiz・公式サイト・Web検索・求人媒体から）（2026-10-31）
+app.post("/api/calls/enrich-industry", async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items.slice(0, Math.max(1, Math.min(12, parseInt(req.body?.max, 10) || 8))) : [];
+    if (!items.length) return res.json({ ok: true, results: [] });
+    const results = await Promise.all(items.map(async (it) => {
+      const id = it.id, company = String(it.company || "").trim();
+      let gbizText = "", website = String(it.website || "");
+      if (company && gbizConfigured()) {
+        try { const hits = await withTimeout(searchCompanies(company, 1), 10000, []); if (hits[0]) { gbizText = `${hits[0].industry || ""}`; const dd = await withTimeout(getCompanyDetail(hits[0].corporate_number), 10000, null); if (dd) { gbizText += ` ${dd.industry || ""} ${dd.business || ""}`; if (!website) website = dd.company_url || ""; } } } catch {}
+      }
+      let r = { industry: "", source: "" };
+      if (company) { try { r = await withTimeout(lookupIndustry(company, { website, gbizText }), 40000, r); } catch {} }
+      if (r.industry && id) await setCallTargetFields(id, { industry: r.industry }).catch(() => {});
+      return { id, industry: r.industry || "", source: r.source || "" };
     }));
     res.json({ ok: true, results });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -27828,7 +27848,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-31c kincallのリスト編集：「業界ごとにリストへ分ける」で、絞り込んだ分を業種（無ければ会社名）から ディーラー・不動産・飲食・ホテル に分けて、それぞれのリストへ移す（無ければ作る。移す前に件数と例を確かめられる）。";
+const BUILD_TAG = "2026-10-31d kincallのリスト編集：業界ごとに分ける前に、業種が空の会社をgBiz・公式サイト・Web検索・求人媒体から調べて入れる（ディーラー・不動産・飲食・ホテルは言葉で、それ以外はAIで短い業種名）。フロッグなどどのリストでも同じ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

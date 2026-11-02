@@ -9610,7 +9610,7 @@ const ED_INDUSTRIES = [
   { name: "ディーラー", ind: /ディーラー|自動車.{0,4}(販売|小売|ディーラ)|新車|中古車|カーディーラー|自動車整備|車両販売|輸入車/, co: /ディーラー|トヨペット|トヨタ.{0,6}(販売|モビリティ|カローラ)|カローラ|ネッツ|日産.{0,6}(販売|プリンス)|日産プリンス|ホンダカーズ|ホンダ.{0,4}販売|マツダ.{0,6}販売|スバル.{0,6}(販売|自動車)|ダイハツ.{0,6}販売|スズキ.{0,6}販売|三菱自動車.{0,6}販売|自動車販売|モータース|オートモービル|カーセンター/ },
   { name: "不動産", ind: /不動産|宅地建物|住宅販売|分譲|賃貸|マンション.{0,4}(販売|管理)|建物売買|不動産仲介/, co: /不動産|エステート|リアルティ|プロパティ|住宅販売|地所|リアルエステート/ },
   { name: "飲食", ind: /飲食|外食|レストラン|フードサービス|居酒屋|カフェ|喫茶|ラーメン|焼肉|寿司|ファストフード|給食|ケータリング/, co: /レストラン|ダイニング|フードサービス|外食|居酒屋|カフェ|珈琲|コーヒー|ラーメン|焼肉|寿司|食堂|キッチン|ビストロ|酒場/ },
-  { name: "ホテル", ind: /ホテル|旅館|宿泊|リゾート|民宿|簡易宿所/, co: /ホテル|旅館|リゾート|ホステル|ゲストハウス|温泉|INN\b/i },
+  { name: "ホテル", ind: /ホテル|旅館|宿泊|リゾート|民宿|簡易宿所|温泉/, co: /ホテル|旅館|リゾート|ホステル|ゲストハウス|温泉|INN\b/i },
 ];
 function edIndustryOf(r) {
   const ind = String(_edg(r, "業種", "industry") || "").normalize("NFKC");
@@ -9619,9 +9619,32 @@ function edIndustryOf(r) {
   for (const x of ED_INDUSTRIES) if (x.co.test(co)) return x.name;
   return "";
 }
+// 業種が空のリードを、gBiz・公式サイト・Web検索・求人媒体から調べて入れる（8社ずつ）
+async function edEnrichIndustry(targets, onStep) {
+  let done = 0, got = 0;
+  for (let i = 0; i < targets.length; i += 8) {
+    if (_edIndStop) break;
+    const batch = targets.slice(i, i + 8);
+    const r = await fetch("/api/calls/enrich-industry", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: batch.map((x) => ({ id: x.id, company: _edg(x, "会社名", "company") })), max: 8 }) });
+    const d = await r.json().catch(() => ({}));
+    for (const res of (d.results || [])) { done++; if (res.industry) { got++; const row = _edRows.find((x) => String(x.id) === String(res.id)); if (row) { row["業種"] = res.industry; row.industry = res.industry; } } }
+    if (onStep) onStep(done, got);
+  }
+  return { done, got };
+}
+let _edIndStop = false, _edIndRunning = false;
 async function edIndustrySplit() {
+  if (_edIndRunning) { _edIndStop = true; return; }   // 調べている途中にもう一度押したら止める
   const rows = edFiltered();
   if (!rows.length) { alert("分ける行がありません（絞り込み結果が0件です）"); return; }
+  // 業種が空の会社は、先にWebサイト・求人媒体から業種を調べる（会社名だけで分けるより正確）
+  const blank = rows.filter((r) => !String(_edg(r, "業種", "industry") || "").trim());
+  if (blank.length && confirm(`業種が空の会社が ${blank.length.toLocaleString()} 社あります。先にWebサイト・求人媒体から業種を調べてから分けますか？\n（1社ずつ調べるので、${Math.ceil(blank.length / 8 * 0.4)}分ほどかかります。「キャンセル」なら、会社名だけで分けます）`)) {
+    const st = $("edEnrichSt"); _edIndStop = false; _edIndRunning = true;
+    const b = $("edIndSplit"); if (b) b.textContent = "調べるのを止める";
+    try { const r = await edEnrichIndustry(blank, (d, g) => { if (st) st.textContent = `業種を調べています… ${d}/${blank.length}（${g}社わかりました）`; }); if (st) st.textContent = `業種を調べました：${r.got}/${blank.length}社${_edIndStop ? "（途中で止めました）" : ""}`; }
+    finally { _edIndRunning = false; if (b) b.textContent = "業界ごとにリストへ分ける"; edRender(); }
+  }
   const groups = new Map(ED_INDUSTRIES.map((x) => [x.name, []]));
   for (const r of rows) { const k = edIndustryOf(r); if (k) groups.get(k).push(r); }
   const total = [...groups.values()].reduce((a, b) => a + b.length, 0);

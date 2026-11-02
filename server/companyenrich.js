@@ -198,3 +198,37 @@ export async function enrichCompanyFromWeb(company) {
 }
 
 function hostOf(u) { try { return new URL(u).host; } catch { return ""; } }
+
+// ===== 業種を調べる（2026-10-31）：公式サイト・求人媒体（Web検索の結果）から。決めた4業界（ディーラー・不動産・飲食・ホテル）は言葉で先に当て、それ以外はAIで短い業種名に =====
+const IND4 = [
+  ["自動車ディーラー", /ディーラー|自動車.{0,4}(販売|ディーラ)|新車|中古車|カーディーラー|正規販売店|トヨペット|カローラ|ネッツ|日産プリンス|ホンダカーズ|自動車整備/],
+  ["不動産", /不動産|宅地建物|賃貸仲介|売買仲介|分譲(住宅|マンション)|不動産管理|プロパティマネジメント/],
+  ["飲食", /飲食店|飲食業|外食|レストラン|居酒屋|カフェ|ラーメン|焼肉|寿司|フードサービス|ダイニング/],
+  ["ホテル・旅館", /ホテル|旅館|宿泊業|宿泊施設|リゾート|温泉/],
+];
+export async function lookupIndustry(company, { website = "", gbizText = "" } = {}) {
+  const name = String(company || "").trim(); if (!name) return { industry: "", source: "" };
+  let text = String(gbizText || "");
+  let site = String(website || "").trim();
+  // ① Web検索（会社の事業内容・求人媒体の会社紹介が上に出やすい言葉で）
+  const res = await braveSearch(`${name} 事業内容 会社概要`, 8).catch(() => []);
+  const media = await braveSearch(`${name} 求人 仕事内容 業種`, 6).catch(() => []);
+  const snip = [...(res || []), ...(media || [])].map((r) => `${r.title} ${r.desc}`).join("\n").slice(0, 6000);
+  if (!site) { const off = pickOfficial(res || [], name); if (off) site = off.url; }
+  // ② 公式サイトのトップ（事業内容が書いてあることが多い）
+  let siteText = "";
+  if (site) siteText = String(await fetchPageText(site).catch(() => "") || "").slice(0, 5000);
+  const all = `${text}\n${siteText}\n${snip}`;
+  // ③ 決めた4業界は、言葉で当てる（安い・速い）。社名の部分と事業の説明の両方を見る
+  for (const [label, re] of IND4) if (re.test(`${name} ${text} ${siteText}`)) return { industry: label, source: siteText ? "公式サイト" : text ? "gBiz" : "社名" };
+  for (const [label, re] of IND4) if (re.test(snip)) return { industry: label, source: "Web・求人媒体" };
+  // ④ それ以外は、AIで短い業種名にする（材料が無ければ空）
+  if (all.replace(/\s/g, "").length < 80) return { industry: "", source: "" };
+  try {
+    const out = String(await callLLMPublic("会社の業種を判定します。必ずJSONだけを返します。",
+      `会社名：${name}\n以下は、この会社の公式サイト・会社概要・求人媒体の検索結果です。\n${all.slice(0, 9000)}\n\nこの会社の主な業種を、次の形で返してください：{"industry":"短い業種名（例：自動車ディーラー／不動産／飲食／ホテル・旅館／製造業／建設業／IT・ソフトウェア／医療・介護・福祉／人材サービス／小売／卸売／運輸・物流／教育／士業・コンサル など）","sure":true/false}。分からなければ industry を空にします。`, 200, { json: true })).replace(/```json|```/g, "").trim();
+    const o = JSON.parse(out);
+    const ind = String(o.industry || "").trim().slice(0, 30);
+    return ind ? { industry: ind, source: "AI（Web・求人媒体）", sure: !!o.sure } : { industry: "", source: "" };
+  } catch { return { industry: "", source: "" }; }
+}

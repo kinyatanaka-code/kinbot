@@ -9696,7 +9696,7 @@ export async function setCallTargetAbsent(id, n) {
 }
 // 編集画面から、kincall内だけの項目を保存する。SFには書き戻さない。
 // 従業員数・採用人数・媒体掲載に加え、会社名(company)・担当(assigned_to)もCSV取り込みで更新する。
-export async function setCallTargetFields(id, { employees, hires, media_tags, company, assigned_to, person } = {}) {
+export async function setCallTargetFields(id, { employees, hires, media_tags, company, assigned_to, person, industry } = {}) {
   if (!pool || !id) return;
   const sets = [], vals = [id]; let i = 2;
   const num = (v) => { if (v === "" || v == null) return null; const n = parseInt(v, 10); return isFinite(n) ? n : null; };
@@ -9704,6 +9704,7 @@ export async function setCallTargetFields(id, { employees, hires, media_tags, co
   if (employees !== undefined) { const ev = (employees === "" || employees == null) ? null : String(employees).trim(); sets.push(`employees = $${i++}`); vals.push(ev); }
   if (hires !== undefined) { sets.push(`hires = $${i++}`); vals.push(num(hires)); }
   if (media_tags !== undefined) { sets.push(`media_tags = $${i++}`); vals.push(media_tags == null ? null : String(media_tags)); }
+  if (industry !== undefined && industry) { sets.push(`industry = $${i++}`); vals.push(String(industry).slice(0, 60)); }
   if (company !== undefined && company !== "" && company != null) { sets.push(`company = $${i++}`); vals.push(String(company)); }
   if (assigned_to !== undefined && assigned_to !== "" && assigned_to != null) { sets.push(`assigned_to = $${i++}`); vals.push(String(assigned_to).toLowerCase()); }
   if (person !== undefined && person != null && String(person).trim() !== "") { sets.push(`person = $${i++}`); vals.push(String(person).trim().slice(0, 200)); }
