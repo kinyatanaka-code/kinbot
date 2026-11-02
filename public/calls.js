@@ -461,8 +461,12 @@ function sortRows(list) {
   const 未済 = list.filter((x) => !isDone(x));
   // ①架電予定の時刻が来た（過ぎた）リード（予定の早い順）→ ②資料を見ているリード（見た日が新しい順）→ ③今までの並び
   //   （2026-10-23：資料を見ているリードを①より上にしていたため、時刻の過ぎた予定が上に来なくなっていた）
-  const 予定来た = 未済.filter((x) => dueNow(x) && !hasMtgTag(x)).sort((a, b) => dueNow(a) - dueNow(b));
-  const 見ている = 未済.filter(inViewSec).sort((a, b) => viewedAt(b) - viewedAt(a));
+  // 今日かけるリードは、どのリスト（MO失注・フロッグ・新規…）かに関係なく、架電予定のあるリードを予定の時刻の早い順にいちばん上へ（2026-11-02）
+  const atOf = (x) => { const t = new Date(x["次回予定"] || 0).getTime(); return isNaN(t) ? 0 : t; };
+  const 予定来た = listId === "today"
+    ? 未済.filter((x) => x["次回予定"] && atOf(x) && !hasMtgTag(x)).sort((a, b) => atOf(a) - atOf(b))
+    : 未済.filter((x) => dueNow(x) && !hasMtgTag(x)).sort((a, b) => dueNow(a) - dueNow(b));
+  const 見ている = 未済.filter((x) => inViewSec(x) && !予定来た.includes(x)).sort((a, b) => viewedAt(b) - viewedAt(a));
   const ids = new Set([...予定来た, ...見ている].map((x) => x.id));
   const others = list.filter((x) => !ids.has(x.id));
   return [...予定来た, ...見ている, ...sortRowsBase(others)];
