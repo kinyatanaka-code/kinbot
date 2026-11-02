@@ -159,7 +159,14 @@ function render() {
             <details class="cd-det"><summary>案内文を見る（御礼メールに入ります）</summary><pre class="cs-portal">${esc(t)}</pre><button type="button" class="hp-b" data-hp-copy="${esc(t)}" style="margin-top:6px">案内文をコピー</button></details>`;
         })() : `<div class="cs-sub">まだ用意していません</div>`}
         ${k.portal_error ? `<div class="cs-err">用意できませんでした：${esc(k.portal_error)}${k.has_portal_shot ? `　<a href="/api/cs/kickoffs/${encodeURIComponent(k.bot_id)}/portal-shot" target="_blank" rel="noopener">そのときの画面</a>` : ""}</div>` : ""}
-        <button type="button" class="btn ghost cd-mini" data-act="portal" style="margin-top:8px">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button>
+        <div class="cd-portal-acts"><button type="button" class="btn ghost cd-mini" data-act="portal">${k.portal_text ? "アカウントを用意し直す" : "ヘルプサイトのアカウントを用意する"}</button>
+        <button type="button" class="btn ghost cd-mini" data-portal-edit>IDとパスワードを直す</button></div>
+        <div class="cd-portal-ed" data-portal-ed hidden>
+          <div class="cd-grid"><div class="cd-f"><label>企業ID</label><input data-pe-id value="${esc(k.portal_id || ((/企業\s*ID\s*[:：]\s*(\S+)/.exec(k.portal_text || "") || [])[1]) || "")}" /></div>
+          <div class="cd-f"><label>パスワード</label><input data-pe-pass value="${esc((((/パスワード\s*[:：]\s*([^\n]+)/.exec(k.portal_text || "") || [])[1]) || "").replace(/^（.*）$/, ""))}" placeholder="空のままなら、パスワードは変えない" /></div></div>
+          <div class="cs-sub">カードと案内文（御礼メールに入る文）を書きかえます。ヘルプサイト（CS Platform）の中の設定は変わらないので、向こうで変えた値を入れてください。</div>
+          <div style="display:flex;gap:6px;margin-top:6px"><button type="button" class="btn cd-mini" data-pe-save>保存</button><button type="button" class="btn ghost cd-mini" data-pe-cancel>やめる</button><span class="cs-sub" data-pe-st></span></div>
+        </div>
         <div class="cs-prog" data-portal-prog hidden></div>`, k.portal_text ? `<span class="cs-pill ok">用意済み</span>` : `<span class="cs-pill">まだ</span>`)}
       <div class="cs-mail" data-mail hidden></div>
       </div>
@@ -196,6 +203,17 @@ function render() {
   }
   const card = host.querySelector(".cs-card.open");
   // 間違って立ち上がった企業カードを消す（テスト以外。見えなくするだけで、同じ議事録からはもう立ち上がらない）
+  // ヘルプサイトの企業ID・パスワードを手で直す
+  const peBtn = host.querySelector("[data-portal-edit]"), peBox = host.querySelector("[data-portal-ed]");
+  if (peBtn && peBox) {
+    peBtn.addEventListener("click", () => { peBox.hidden = !peBox.hidden; if (!peBox.hidden) peBox.querySelector("[data-pe-id]").focus(); });
+    peBox.querySelector("[data-pe-cancel]").addEventListener("click", () => { peBox.hidden = true; });
+    peBox.querySelector("[data-pe-save]").addEventListener("click", async () => {
+      const st = peBox.querySelector("[data-pe-st]"); st.textContent = "保存しています…";
+      try { await api(`/api/cs/kickoffs/${encodeURIComponent(csOpen)}/portal-edit`, { method: "POST", body: JSON.stringify({ id: peBox.querySelector("[data-pe-id]").value, pass: peBox.querySelector("[data-pe-pass]").value }) }); await load(); }
+      catch (e) { st.textContent = e.message; }
+    });
+  }
   const dis = host.querySelector("[data-dismiss]");
   if (dis) dis.addEventListener("click", async () => {
     if (!confirm("この企業カードを消します。CS連携・kinXsのフェーズの読み取りに使わなくなり、同じ議事録からもう一度立ち上がることもありません。よろしいですか？（OBスレや送ったメールは消えません）")) return;

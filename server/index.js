@@ -12599,6 +12599,28 @@ app.post("/api/cs/kickoffs/:bot/portal", async (req, res) => {
     res.json({ ok: true, kickoff: k });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ヘルプサイトの企業ID・パスワードを手で直す（2026-11-02）。カードと案内文（御礼メールに入る文）の両方を書きかえる。
+//   ※CS Platform の中の設定は変わらないので、向こうで変えた値をここに入れる使い方
+app.post("/api/cs/kickoffs/:bot/portal-edit", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const k0 = await getCsKickoff(req.params.bot);
+    if (!k0) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const id = String(b.id || "").trim().slice(0, 80), pass = String(b.pass || "").trim().slice(0, 120);
+    if (!id) return res.status(400).json({ error: "企業IDを入れてください" });
+    let t = String(k0.portal_text || "").trim();
+    const url = ((/(?:ログイン)?URL\s*[:：]\s*(https?:\/\/\S+)/i.exec(t) || [])[1]) || "";
+    if (!t) t = `${k0.company || ""} 様\n\nサポートポータルのご案内です。${url ? `\nURL: ${url}` : ""}\n企業ID: ${id}\nパスワード: ${pass || "（担当者よりお伝えします）"}`;
+    else {
+      t = /企業\s*ID\s*[:：]/.test(t) ? t.replace(/(企業\s*ID\s*[:：]\s*)\S+/, `$1${id}`) : `${t}\n企業ID: ${id}`;
+      if (pass) t = /パスワード\s*[:：]/.test(t) ? t.replace(/(パスワード\s*[:：]\s*)[^\n]+/, `$1${pass}`) : `${t}\nパスワード: ${pass}`;
+    }
+    const k = await upsertCsKickoff(k0.bot_id, { portal_text: t, portal_id: id, portal_error: null });
+    console.log(`[cs] ヘルプサイトの企業ID・パスワードを手で直しました：${k0.company || k0.bot_id} by ${req.user}`);
+    res.json({ ok: true, kickoff: k });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/cs/kickoffs/:bot/autocs", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -27855,7 +27877,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02d kincallのリスト編集（クロス失注）：失注理由（大項目・中項目）の絞り込みを、いくつでも選べる形に。";
+const BUILD_TAG = "2026-11-02e CS連携の企業カード：ヘルプサイトの企業ID・パスワードを手で直せるように（カードと御礼メールに入る案内文の両方を書きかえる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
