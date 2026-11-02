@@ -509,7 +509,13 @@ function isUser(x) { return /ユーザー/.test(状況(x)); }
 // 過去失注のリストでは、失注は「かける対象」（対象外にしない）
 let _pastLost = false;
 // ナーチャリング（まとめ）は、ジャッジ・営業フォローを追うための一覧なので、失注の記録があっても対象外にしない
-function isLost(x) { return !_pastLost && !/^nurture/.test(String(listId || "")) && /失注/.test(状況(x)); }
+// 失注で「かける対象外」にするのは、商談の日付（失注日・商談日）があるものだけ（2026-10-31）。
+//   ステータスが「失注」でも日付が無いものは、本当に商談して失注したか分からないので、かける対象に残す
+function lostHasDate(x) {
+  const raw = (x && (x["失注日"] || x["受失注日"] || x["初回商談日"])) || recruitVal(x, /受?失注日/) || recruitVal(x, /初回商談日|商談日/) || "";
+  return !!normDateLoose(raw);
+}
+function isLost(x) { return !_pastLost && !/^nurture/.test(String(listId || "")) && /失注/.test(状況(x)) && lostHasDate(x); }
 // 初回商談日（なければ初回アポ設定日）が今日以降か＝これから商談がある
 function hasUpcomingMeeting(x) {
   const raw = recruitVal(x, /初回商談日|初回商談予定日/) || recruitVal(x, /初回アポ設定日|初回アポ日/) || (x && (x["初回商談日"] || x["初回アポ設定日"])) || "";
@@ -1153,7 +1159,7 @@ function render() {
       const cols = (listId !== "all" ? 11 : 10) + rcols.length;
       const 直前未済 = i > 0 && !isDone(list[i - 1]);
       const 区切り = (済 && (i === 0 || 直前未済))
-        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注）（${list.filter(isDone).length}件）</td></tr>`
+        ? `<tr class="kc-apo-sep"><td colspan="${cols}">ここから下は、かける対象外（アポ獲得・ユーザー・失注日のある失注）（${list.filter(isDone).length}件）</td></tr>`
         : "";
       // かけた（記録済み）グループの先頭に、区切りを出す（どこまでかけたか分かるように）
       const かけ区切り = (!sortBy && !hasMtgTag(x) && !inViewSec(x) && !dueNow(x) && かけた(x) && (i === 0 || !かけた(list[i - 1]) || inViewSec(list[i - 1]) || dueNow(list[i - 1])))

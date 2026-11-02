@@ -8435,6 +8435,12 @@ setInterval(async () => {
 const OLD_LOST_LIST = "過去の失注（〜2026/2）";
 const OLD_LOST_GROUP = "過去失注（〜2026/2）";   // 名前に「過去失注」を含む＝かけるで全ステージ表示・ナーチャ/リサイクルへ回さない
 const OLD_LOST_STATUS = "失注（〜2026/2）";
+// 失注のリードに、商談の日付（失注日・受失注日・初回商談日など）があるか。無ければ「かける対象外」にしない（2026-10-31）
+function lostHasDateSrv(r) {
+  const ex = (r && r.extra && typeof r.extra === "object") ? r.extra : {};
+  const vals = [ex["失注日"], ex["受失注日"], ex["初回商談日"], ...Object.entries(ex).filter(([k]) => /受?失注日|商談日/.test(k)).map(([, v]) => v)];
+  return vals.some((v) => /\d{4}\s*[-\/年.]\s*\d{1,2}\s*[-\/月.]\s*\d{1,2}/.test(String(v || "")));
+}
 const OLD_LOST_KEYS = ["失注日", "失注理由（大項目）", "失注理由（中項目）", "失注理由詳細", "失注後次回アクション日", "商談所有者"];
 async function oldLostListId(create = false, by = null) {
   const gs = await listGroups().catch(() => []);
@@ -10928,7 +10934,7 @@ app.get("/api/calls/targets", async (req, res) => {
         const st = `${r.stage || ""} ${r.status || ""}`;
         const isPast = frameOfSource(r.source || "") === "past";
         if (nur.test(st) && !/アポ獲得/.test(st)) { /* ナーチャリングは下で */ }
-        else if (deadAll.test(st) || (!isPast && /失注/.test(st))) return false;
+        else if (deadAll.test(st) || (!isPast && /失注/.test(st) && lostHasDateSrv(r))) return false;   // 失注でも、商談の日付（失注日・商談日）が無ければかける（2026-10-31）
         // 新規リストのリサイクル（ステージがリサイクル）は今日かけるリードに入れない（過去リストのリサイクルは入れる）
         if (!isPast && stageBucket(r.stage) === "リサイクル") return false;
         if (r.done && !isPast) return false;
@@ -27848,7 +27854,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-10-31e kincallのリスト編集：ほかのリストへ移したあと、続けて絞り込んで移そうとすると「移す先のリストを選んでください」と出ていたのを直した（移す先は選んだまま残し、件数だけ新しくする）。";
+const BUILD_TAG = "2026-10-31f kincallのかける：ステータスが「失注」でも、商談の日付（失注日・受失注日・商談日）が無いリードは「かける対象外」に入れず、今日かけるリードにも残す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
