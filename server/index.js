@@ -8600,6 +8600,7 @@ app.post("/api/calls/targets/:id/fields", async (req, res) => {
     if ("employees" in b) patch.employees = b.employees;
     if ("hires" in b) patch.hires = b.hires;
     if ("media_tags" in b) patch.media_tags = b.media_tags;
+    if ("industry" in b) patch.industry = String(b.industry || "").trim();
     await setCallTargetFields(id, patch);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -27854,7 +27855,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02a kincallの今日かけるリード：どのリスト（MO失注・フロッグ・新規…）かに関係なく、架電予定のあるリードを予定の時刻の早い順にいちばん上に（資料を見ているリードはその下）。";
+const BUILD_TAG = "2026-11-02b kincallのリスト編集：「業種」の列（選んで絞る・その場で直せる）と「業種を自動取得」（gBiz・公式サイト・Web検索・求人媒体から、業種が空の会社を調べる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

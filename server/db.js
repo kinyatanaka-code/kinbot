@@ -9704,7 +9704,7 @@ export async function setCallTargetFields(id, { employees, hires, media_tags, co
   if (employees !== undefined) { const ev = (employees === "" || employees == null) ? null : String(employees).trim(); sets.push(`employees = $${i++}`); vals.push(ev); }
   if (hires !== undefined) { sets.push(`hires = $${i++}`); vals.push(num(hires)); }
   if (media_tags !== undefined) { sets.push(`media_tags = $${i++}`); vals.push(media_tags == null ? null : String(media_tags)); }
-  if (industry !== undefined && industry) { sets.push(`industry = $${i++}`); vals.push(String(industry).slice(0, 60)); }
+  if (industry !== undefined) { sets.push(`industry = $${i++}`); vals.push(industry ? String(industry).slice(0, 60) : null); }
   if (company !== undefined && company !== "" && company != null) { sets.push(`company = $${i++}`); vals.push(String(company)); }
   if (assigned_to !== undefined && assigned_to !== "" && assigned_to != null) { sets.push(`assigned_to = $${i++}`); vals.push(String(assigned_to).toLowerCase()); }
   if (person !== undefined && person != null && String(person).trim() !== "") { sets.push(`person = $${i++}`); vals.push(String(person).trim().slice(0, 200)); }

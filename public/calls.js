@@ -9144,6 +9144,18 @@ async function orgLoadLists() {
     if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
     if ($("edMoveBtn")) $("edMoveBtn").addEventListener("click", edMoveFiltered);
     if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
+    if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", async () => {
+      const b = $("edEnrichInd"); const st = $("edEnrichSt");
+      if (_edIndRunning) { _edIndStop = true; if (b) b.textContent = "止めています…"; return; }
+      const blank = edFiltered().filter((r) => !String(_edg(r, "業種", "industry") || "").trim());
+      if (!blank.length) { if (st) st.textContent = "業種が空の会社はありません"; return; }
+      if (!confirm(`表示中で業種が空の ${blank.length.toLocaleString()} 社を、gBiz・公式サイト・Web検索・求人媒体から調べます。1社ずつ調べるので、${Math.max(1, Math.ceil(blank.length / 8 * 0.4))}分ほどかかります。続けますか？（途中でもう一度押すと止まります）`)) return;
+      _edIndStop = false; _edIndRunning = true; if (b) b.textContent = "業種を調べるのを止める";
+      try { const r = await edEnrichIndustry(blank, (d, g2) => { if (st) st.textContent = `業種を調べています… ${d}/${blank.length}（${g2}社わかりました）`; edRenderBody(); }); if (st) st.textContent = `業種を調べました：${r.got}/${blank.length}社${_edIndStop ? "（途中で止めました）" : ""}`; }
+      catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+      finally { _edIndRunning = false; if (b) b.textContent = "業種を自動取得"; edBuildTable(); edRenderBody(); }
+    });
+    if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", edEnrichIndustryBtn);
     if ($("edMoveTo")) $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true });
     if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
     if ($("edDedupeAcross")) $("edDedupeAcross").addEventListener("click", edDedupeAcross);
@@ -9279,6 +9291,7 @@ function edFiltered() {
   return _edRows.filter((r) => {
     if (stg && g(r, "ステージ", "stage") !== stg) return false;
     if (sts.size && !sts.has(g(r, "最終ステータス", "最終結果", "status") || "（なし）")) return false;
+    { const iv = $("edInd") ? edMselVals("edInd") : new Set(); if (iv.size && !iv.has(String(g(r, "業種", "industry") || "").trim() || "（空）")) return false; }
     // 失注回数：下限〜上限（どちらかだけでもよい）。SFに失注が無い（空白の）会社は0回として数える
     { const lo = parseInt(($("edLostMin") && $("edLostMin").value) || "", 10), hi = parseInt(($("edLostMax") && $("edLostMax").value) || "", 10);
       if ((Number.isFinite(lo) || Number.isFinite(hi)) && _edLost) { const n0 = ((_edLost[r.id] || {}).total) || 0; if (Number.isFinite(lo) && n0 < lo) return false; if (Number.isFinite(hi) && n0 > hi) return false; } }
@@ -9286,6 +9299,7 @@ function edFiltered() {
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
     // 文字列を含むもので絞る（全角・半角・大文字小文字・空白のちがいは気にしない。空白で区切ると、全部を含むもの）（2026-10-30）
     if (qCo && !edHas(g(r, "会社名", "company"), qCo)) return false;
+    { const qi = v("edQInd"); if (qi && !edHas(g(r, "業種", "industry"), qi)) return false; }
     if (qPe && !edHas(g(r, "担当者", "person"), qPe)) return false;
     if (qPh && !String(g(r, "電話", "電話番号", "phone")).replace(/\D/g, "").includes(qPh.replace(/\D/g, "")) && !edHas(g(r, "電話", "電話番号", "phone"), qPh)) return false;
     if (qEm && !g(r, "メール", "メールアドレス", "email").toLowerCase().includes(qEm)) return false;
@@ -9643,6 +9657,20 @@ async function edEnrichIndustry(targets, onStep) {
   return { done, got };
 }
 let _edIndStop = false, _edIndRunning = false;
+// 「業種を自動取得」：表示中で業種が空の会社を調べる（押している間にもう一度押すと止める）
+async function edEnrichIndustryBtn() {
+  if (_edIndRunning) { _edIndStop = true; return; }
+  const targets = edFiltered().filter((r) => !String(_edg(r, "業種", "industry") || "").trim());
+  const st = $("edEnrichSt"); const btn = $("edEnrichInd");
+  if (!targets.length) { if (st) st.textContent = "業種が空の会社はありません"; return; }
+  if (!confirm(`表示中で業種が空の ${targets.length.toLocaleString()} 社を、Webサイト・求人媒体から調べます（${Math.ceil(targets.length / 8 * 0.4)}分ほど）。続けますか？\n途中でもう一度ボタンを押すと止まります。`)) return;
+  _edIndStop = false; _edIndRunning = true; if (btn) btn.textContent = "業種の取得を止める";
+  try {
+    const r = await edEnrichIndustry(targets, (d, g) => { if (st) st.textContent = `業種を調べています… ${d}/${targets.length}（${g}社わかりました）`; if (d % 24 === 0) edRender(); });
+    if (st) st.textContent = `業種を調べました：${r.got}/${targets.length}社${_edIndStop ? "（途中で止めました）" : ""}`;
+  } catch (e) { if (st) st.textContent = "業種を調べられませんでした：" + e.message; }
+  finally { _edIndRunning = false; if (btn) btn.textContent = "業種を自動取得"; edRender(); }
+}
 async function edIndustrySplit() {
   if (_edIndRunning) { _edIndStop = true; return; }   // 調べている途中にもう一度押したら止める
   const rows = edFiltered();
@@ -9780,6 +9808,8 @@ function edBuildTable() {
     th("メール", txt("edQEmail")) +
     th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
     th("失注回数", `<div class="ed-empf"><input type="number" id="edLostMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostMax" class="ed-emp-in" placeholder="上限" min="0" /></div>`) +
+    th("業種", msel("edInd", uniq((r) => String(g(r, "業種", "industry") || "").trim() || "（空）"))) +
+    th("業種", txt("edQInd")) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
     th("従業員数", empF) +
     (_edNurture
@@ -9789,7 +9819,7 @@ function edBuildTable() {
       : th("失注理由（大項目）", sel("edLostReason", uniq((r) => g(r, "失注理由（大項目）")), "すべて")) + th("失注理由（中項目）", sel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）")), "すべて")) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者")))) + th("担当（かける人）", msel("edClWho", uniq((r) => (r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）")))) + th("リスト", msel("edClList", uniq((r) => edListName(r) || "（不明）")))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edLostMin", "edLostMax", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edQInd", "edLostMin", "edLostMax", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
   document.querySelectorAll("#edTable .ed-msel").forEach(edWireMsel);
 }
@@ -9908,6 +9938,8 @@ function edRenderBody() {
         <td>${esc(g(r, "メール", "メールアドレス", "email"))}</td>
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
         <td class="ed-lostn">${(() => { const c = _edLost && _edLost[r.id]; if (_edLost === null) return '<span class="kc-none">…</span>'; if (!c) return '<span class="kc-none">0</span>'; return `<b class="${c.total >= 2 ? "ed-lost2" : ""}">${c.total}回</b><small>${[c.新規 ? `新規${c.新規}` : "", c.クロス ? `クロス${c.クロス}` : "", c.total - c.新規 - c.クロス ? `他${c.total - c.新規 - c.クロス}` : ""].filter(Boolean).join("・")}${c.last ? `　最後 ${esc(c.last.slice(2).replace(/-/g, "/"))}` : ""}</small>`; })()}</td>
+        <td><input type="text" class="ed-f" data-f="industry" value="${esc(g(r, "業種", "industry"))}" placeholder="業種" style="width:130px" /></td>
+        <td class="ed-ind-c">${esc(g(r, "業種", "industry")) || '<span class="kc-none">—</span>'}</td>
         ${_edPastLost ? `<td>${esc(edLossBig(r) || "—")}</td>` : ""}
         <td><input type="text" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
         ${editCells}
@@ -9945,7 +9977,7 @@ function edRenderBody() {
     const tr = inp.closest("tr"); const id = tr && tr.dataset.id; if (!id) return;
     const body = {}; body[inp.dataset.f] = inp.value;
     const row = _edRows.find((x) => String(x.id) === String(id));
-    if (row) { const map = { employees: "従業員数", hires: "採用人数", media_tags: "媒体掲載" }; row[map[inp.dataset.f]] = inp.value; }
+    if (row) { const map = { employees: "従業員数", hires: "採用人数", media_tags: "媒体掲載", industry: "業種" }; row[map[inp.dataset.f]] = inp.value; if (inp.dataset.f === "industry") row.industry = inp.value; }
     inp.style.outline = "2px solid #f0b429";
     try { const rr = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/fields`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); if (!rr.ok) throw new Error(); inp.style.outline = "2px solid #1d9e75"; setTimeout(() => (inp.style.outline = ""), 800); }
     catch { inp.style.outline = "2px solid #e06b5e"; }

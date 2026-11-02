@@ -7191,3 +7191,4 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .ed-ind-r .nm { font-weight: 800; } .ed-ind-r b { color: #0E6B4E; } .ed-ind-r .to { font-size: 12.5px; color: #33463E; }
 .ed-ind-r .ex { grid-column: 2 / -1; font-size: 11.5px; color: #6A7A72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-ind-a { display: flex; gap: 8px; justify-content: flex-end; }
+.ed-ind-c { white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
