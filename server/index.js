@@ -12508,6 +12508,23 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
     if (b.fields && typeof b.fields === "object") {
       v.fields = { ...(k0.fields || {}), ...b.fields };
       if (b.fields.先方ご担当者名 !== undefined && b.fields.先方ご担当者名 !== csPersonsFromTitle(k0.title, k0.company)) v.fields._personManual = true;
+      // 企業名を直したら、カードの会社名（company）も変える（2026-11-02）。kinXs の会社とつながったままになるよう、前の名前・新しい名前を kinXs の旧社名にも足す
+      const nn = String(b.fields.企業名 || "").trim();
+      const oldName = (k0.fields && k0.fields.企業名 && k0.fields.企業名 !== "未確認") ? k0.fields.企業名 : k0.company;
+      if (nn && nn !== "未確認" && nn !== oldName) {
+        v.company = nn;
+        try {
+          const rows = (await kinxsList()).filter((r) => !r.merged_into);
+          const keys = [oldName, k0.company].filter(Boolean).map((x) => csCoKey(x));
+          const acc = rows.find((r) => [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])].some((x) => keys.includes(csCoKey(x || ""))));
+          if (acc) {
+            const cur = acc.name_override || acc.name || "";
+            const add = [oldName, k0.company, nn].filter((x) => x && csCoKey(x) !== csCoKey(cur));
+            const fm = [...new Set([...(Array.isArray(acc.former_names) ? acc.former_names : []), ...add])];
+            await kinxsSetFormer(acc.account_id, fm);
+          }
+        } catch (e) { console.warn("[cs] 企業名の変更を kinXs に合わせられませんでした", e.message); }
+      }
     }
     if (b.csEmail !== undefined) { const c = cfg.members.find((x) => x.email === String(b.csEmail || "").toLowerCase()); v.cs_email = c ? c.email : null; v.cs_name = c ? c.name : null; }
     if (b.confirmStart !== undefined) { const t = Date.parse(b.confirmStart || ""); v.confirm_start = isFinite(t) ? new Date(t).toISOString() : null; v.confirm_from = isFinite(t) ? "手入力" : null; }
@@ -27889,7 +27906,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02h CS連携：ヘルプサイトのパスワードは「変更」ではなく「再発行」として扱う（ヘルプサイトの「パスワード再発行」を押して、1回だけ出る新しいパスワードを読み取り、カードと案内文に入れる）。企業IDは「ID変更」。";
+const BUILD_TAG = "2026-11-02i CS連携の企業カード：企業名を直して保存すると、カードの会社名そのもの（一覧・見出し・CSV・kinXsとのつながり）も変わるように。kinXsとは前の名前でもつながったまま。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
