@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
-    <link rel="stylesheet" href="style.css?v=20261030c" />
+    <link rel="stylesheet" href="style.css?v=20261030d" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -474,6 +474,8 @@
                 <button type="button" class="btn ghost" id="edDedupeAcross" title="ほかのリストにも同じ会社（会社名か電話番号が同じ）がある場合、このリストから省きます">ほかのリストとの重複を省く</button>
                 <select id="edExtractOwner" class="kc-input" style="max-width:220px" title="抜き出した新リストの所有者。メンバーを選ぶと担当もそのメンバーにそろえます"><option value="">抜き出し先：自分の所有（担当はそのまま）</option></select>
                 <button type="button" class="btn" id="edExtract" title="いま絞り込んで表示している行を、元のリストから移して、新しい1つのリストにまとめます（担当はそのまま）">絞り込んだ分を新リストに抜き出す</button>
+                <select id="edMoveTo" class="kc-input" style="max-width:240px" title="絞り込んだ分を移す先のリスト"><option value="">移す先のリストを選ぶ…</option></select>
+                <button type="button" class="btn ghost" id="edMoveBtn" title="いま絞り込んで表示している行を、元のリストから選んだリストへ移します（担当はそのまま）">絞り込んだ分をほかのリストへ移す</button>
                 <input type="file" id="edCsvFile" accept=".csv,text/csv" hidden />
                 <span class="note" id="edCount" style="margin:0"></span>
                 <span class="rev-status" id="edEnrichSt" style="margin:0"></span>
@@ -631,9 +633,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261030c"></script>
-    <script src="calls.js?v=20261030c"></script>
-    <script src="nav.js?v=20261030c"></script>
+    <script src="sf-data.js?v=20261030d"></script>
+    <script src="calls.js?v=20261030d"></script>
+    <script src="nav.js?v=20261030d"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

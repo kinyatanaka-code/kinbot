@@ -9132,6 +9132,8 @@ async function orgLoadLists() {
     if ($("edCsvIn")) $("edCsvIn").addEventListener("click", () => $("edCsvFile") && $("edCsvFile").click());
     if ($("edCsvFile")) $("edCsvFile").addEventListener("change", edImportCsv);
     if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
+    if ($("edMoveBtn")) $("edMoveBtn").addEventListener("click", edMoveFiltered);
+    if ($("edMoveTo")) $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true });
     if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
     if ($("edDedupeAcross")) $("edDedupeAcross").addEventListener("click", edDedupeAcross);
   }
@@ -9586,6 +9588,37 @@ function edFillExtractOwner() {
   if (cur) sel.value = cur;
 }
 // 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持 or 選んだメンバーへ）
+// 絞り込んだ分を、ほかの（今あるの）リストへ移す（2026-10-30）
+async function edFillMoveTo() {
+  const sel = $("edMoveTo"); if (!sel || sel.dataset.filled) return;
+  try {
+    const d = await (await fetch("/api/calls/sheet/facets")).json();
+    if (d.error) throw new Error(d.error);
+    const here = new Set([..._edChosen.keys()].map(String));
+    sel.innerHTML = '<option value="">移す先のリストを選ぶ…</option>' + (d.lists || []).filter((l) => !here.has(String(l.id))).map((l) => `<option value="${l.id}">${esc(l.name)}（${l.open}件）</option>`).join("");
+    sel.dataset.filled = "1";
+  } catch (e) { sel.innerHTML = '<option value="">リストを読めませんでした</option>'; }
+}
+async function edMoveFiltered() {
+  const sel = $("edMoveTo"); if (!sel) return;
+  if (!sel.dataset.filled) { await edFillMoveTo(); sel.focus(); }
+  const to = sel.value; if (!to) { alert("移す先のリストを選んでください"); sel.focus(); return; }
+  const rows = edFiltered(); const ids = rows.map((r) => r.id).filter(Boolean);
+  if (!ids.length) { alert("移す行がありません（絞り込み結果が0件です）"); return; }
+  const toName = sel.options[sel.selectedIndex].textContent.replace(/（\d+件）$/, "");
+  if (!confirm(`絞り込んだ ${ids.length.toLocaleString()} 件を、リスト「${toName}」へ移します（担当はそのまま）。よろしいですか？`)) return;
+  const st = $("edEnrichSt");
+  try {
+    const r = await fetch("/api/calls/targets/move", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, toListId: to }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok) throw new Error(d.error || "");
+    const moved = new Set(ids.map(String));
+    _edRows = _edRows.filter((x) => !moved.has(String(x.id)));   // 移したので、この一覧からは外す
+    if (st) st.textContent = `${d.moved} 件をリスト「${toName}」へ移しました`;
+    sel.dataset.filled = ""; 
+  } catch (e) { if (st) st.textContent = "移せませんでした（" + (e.message || "権限がないか、通信に失敗しました") + "）"; }
+  finally { edRender(); }
+}
 async function edExtract() {
   const rows = edFiltered();
   const ids = rows.map((r) => r.id).filter(Boolean);
@@ -9742,6 +9775,7 @@ function edRenderBody() {
   if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
   if ($("edNurN")) $("edNurN").textContent = rows.length.toLocaleString();
   if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
+  if ($("edMoveBtn")) { $("edMoveBtn").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件をほかのリストへ移す`; $("edMoveBtn").disabled = rows.length === 0; }
   const tb = $("edTbody"); if (!tb) return;
   tb.innerHTML = rows.length
     ? rows.map((r) => {
