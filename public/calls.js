@@ -9144,17 +9144,6 @@ async function orgLoadLists() {
     if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
     if ($("edMoveBtn")) $("edMoveBtn").addEventListener("click", edMoveFiltered);
     if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
-    if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", async () => {
-      const b = $("edEnrichInd"); const st = $("edEnrichSt");
-      if (_edIndRunning) { _edIndStop = true; if (b) b.textContent = "止めています…"; return; }
-      const blank = edFiltered().filter((r) => !String(_edg(r, "業種", "industry") || "").trim());
-      if (!blank.length) { if (st) st.textContent = "業種が空の会社はありません"; return; }
-      if (!confirm(`表示中で業種が空の ${blank.length.toLocaleString()} 社を、gBiz・公式サイト・Web検索・求人媒体から調べます。1社ずつ調べるので、${Math.max(1, Math.ceil(blank.length / 8 * 0.4))}分ほどかかります。続けますか？（途中でもう一度押すと止まります）`)) return;
-      _edIndStop = false; _edIndRunning = true; if (b) b.textContent = "業種を調べるのを止める";
-      try { const r = await edEnrichIndustry(blank, (d, g2) => { if (st) st.textContent = `業種を調べています… ${d}/${blank.length}（${g2}社わかりました）`; edRenderBody(); }); if (st) st.textContent = `業種を調べました：${r.got}/${blank.length}社${_edIndStop ? "（途中で止めました）" : ""}`; }
-      catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-      finally { _edIndRunning = false; if (b) b.textContent = "業種を自動取得"; edBuildTable(); edRenderBody(); }
-    });
     if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", edEnrichIndustryBtn);
     if ($("edMoveTo")) $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true });
     if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
@@ -9669,7 +9658,7 @@ async function edEnrichIndustryBtn() {
     const r = await edEnrichIndustry(targets, (d, g) => { if (st) st.textContent = `業種を調べています… ${d}/${targets.length}（${g}社わかりました）`; if (d % 24 === 0) edRender(); });
     if (st) st.textContent = `業種を調べました：${r.got}/${targets.length}社${_edIndStop ? "（途中で止めました）" : ""}`;
   } catch (e) { if (st) st.textContent = "業種を調べられませんでした：" + e.message; }
-  finally { _edIndRunning = false; if (btn) btn.textContent = "業種を自動取得"; edRender(); }
+  finally { _edIndRunning = false; if (btn) btn.textContent = "業種を自動取得"; edBuildTable(); edRender(); }
 }
 async function edIndustrySplit() {
   if (_edIndRunning) { _edIndStop = true; return; }   // 調べている途中にもう一度押したら止める
@@ -9809,7 +9798,6 @@ function edBuildTable() {
     th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
     th("失注回数", `<div class="ed-empf"><input type="number" id="edLostMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostMax" class="ed-emp-in" placeholder="上限" min="0" /></div>`) +
     th("業種", msel("edInd", uniq((r) => String(g(r, "業種", "industry") || "").trim() || "（空）"))) +
-    th("業種", txt("edQInd")) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
     th("従業員数", empF) +
     (_edNurture
@@ -9939,7 +9927,6 @@ function edRenderBody() {
         <td>${esc(g(r, "最終ステータス", "最終結果", "status"))}</td>
         <td class="ed-lostn">${(() => { const c = _edLost && _edLost[r.id]; if (_edLost === null) return '<span class="kc-none">…</span>'; if (!c) return '<span class="kc-none">0</span>'; return `<b class="${c.total >= 2 ? "ed-lost2" : ""}">${c.total}回</b><small>${[c.新規 ? `新規${c.新規}` : "", c.クロス ? `クロス${c.クロス}` : "", c.total - c.新規 - c.クロス ? `他${c.total - c.新規 - c.クロス}` : ""].filter(Boolean).join("・")}${c.last ? `　最後 ${esc(c.last.slice(2).replace(/-/g, "/"))}` : ""}</small>`; })()}</td>
         <td><input type="text" class="ed-f" data-f="industry" value="${esc(g(r, "業種", "industry"))}" placeholder="業種" style="width:130px" /></td>
-        <td class="ed-ind-c">${esc(g(r, "業種", "industry")) || '<span class="kc-none">—</span>'}</td>
         ${_edPastLost ? `<td>${esc(edLossBig(r) || "—")}</td>` : ""}
         <td><input type="text" class="ed-f" data-f="employees" value="${esc(g(r, "従業員数", "employees"))}" style="width:70px" /></td>
         ${editCells}
