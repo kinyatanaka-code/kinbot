@@ -12607,8 +12607,21 @@ app.post("/api/cs/kickoffs/:bot/portal-edit", async (req, res) => {
     const k0 = await getCsKickoff(req.params.bot);
     if (!k0) return res.status(404).json({ error: "見つかりません" });
     const b = req.body || {};
-    const id = String(b.id || "").trim().slice(0, 80), pass = String(b.pass || "").trim().slice(0, 120);
+    const id = String(b.id || "").trim().slice(0, 80); let pass = String(b.pass || "").trim().slice(0, 120);
     if (!id) return res.status(400).json({ error: "企業IDを入れてください" });
+    // ヘルプサイト（CS Platform）の中でも変える（企業ID：ID変更、パスワード：変更／再設定のボタン）
+    let applied = null;
+    if (b.apply) {
+      if (!cspConfigured()) return res.status(400).json({ error: "CS Platformのログイン情報（CSP_EMAIL・CSP_PASSWORD）がRailwayに入っていません" });
+      const f = k0.fields || {}; const co = (f.企業名 && f.企業名 !== "未確認") ? f.企業名 : k0.company;
+      const r = await cspIssueAccount({ companyName: co, companyId: id, csName: k0.cs_name || "", newPass: pass });
+      if (!r.ok) return res.status(400).json({ error: `ヘルプサイトで変えられませんでした：${r.error}`, log: r.log || [] });
+      applied = { companyId: r.companyId, passResult: r.passResult || "", log: r.log || [] };
+      // ヘルプサイトがパスワードを決めた（再発行）ときは、案内文のパスワードを使う
+      const gen = ((/パスワード\s*[:：]\s*([^\s（(]+)/.exec(r.text || "") || [])[1]) || "";
+      if (gen && /再発行/.test(applied.passResult)) pass = gen;
+      if (r.companyId && r.companyId !== id) applied.idNote = `ヘルプサイトの企業IDは「${r.companyId}」のままです`;
+    }
     let t = String(k0.portal_text || "").trim();
     const url = ((/(?:ログイン)?URL\s*[:：]\s*(https?:\/\/\S+)/i.exec(t) || [])[1]) || "";
     if (!t) t = `${k0.company || ""} 様\n\nサポートポータルのご案内です。${url ? `\nURL: ${url}` : ""}\n企業ID: ${id}\nパスワード: ${pass || "（担当者よりお伝えします）"}`;
@@ -12616,9 +12629,9 @@ app.post("/api/cs/kickoffs/:bot/portal-edit", async (req, res) => {
       t = /企業\s*ID\s*[:：]/.test(t) ? t.replace(/(企業\s*ID\s*[:：]\s*)\S+/, `$1${id}`) : `${t}\n企業ID: ${id}`;
       if (pass) t = /パスワード\s*[:：]/.test(t) ? t.replace(/(パスワード\s*[:：]\s*)[^\n]+/, `$1${pass}`) : `${t}\nパスワード: ${pass}`;
     }
-    const k = await upsertCsKickoff(k0.bot_id, { portal_text: t, portal_id: id, portal_error: null });
-    console.log(`[cs] ヘルプサイトの企業ID・パスワードを手で直しました：${k0.company || k0.bot_id} by ${req.user}`);
-    res.json({ ok: true, kickoff: k });
+    const k = await upsertCsKickoff(k0.bot_id, { portal_text: applied && applied.idNote ? t.replace(/(企業\s*ID\s*[:：]\s*)\S+/, `$1${applied.companyId}`) : t, portal_id: applied && applied.idNote ? applied.companyId : id, portal_error: null });
+    console.log(`[cs] ヘルプサイトの企業ID・パスワードを手で直しました：${k0.company || k0.bot_id}${applied ? `（ヘルプサイトでも：ID ${applied.companyId}・パスワード ${applied.passResult || "変えていない"}）` : ""} by ${req.user}`);
+    res.json({ ok: true, kickoff: k, applied });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/cs/kickoffs/:bot/autocs", async (req, res) => {
@@ -27877,7 +27890,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02f kincallの記録：「前回の失注」の失注日・次回アクション日を西暦まで出す（例：2025/7/31）。";
+const BUILD_TAG = "2026-11-02g CS連携：「IDとパスワードを直す」で、ヘルプサイト（CS Platform）の中でも企業ID・パスワードを変えられるように（チェックで選ぶ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
