@@ -2099,3 +2099,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-05 BUILD_TAG=2026-11-05h 田中さん（kinbot のサイドバーの kincall・kinXs・Salesforce・AI社員・ツール の枠つきボタンのスクショ）「kinbotみたいに、他のツールはこんな感じでまとめて。kinbotに戻る時など」。kinXs のサイドバーのメニューの下に .kx-tools（※ .kx-app はページ全体の入れ物の名前なので使わない）：kinbot（/home.html・戻る の札）・kincall（/kincall）・Salesforce（/sf-launch.html）・AI社員（/ai.html）・ツール（/report.html）。薄い緑の枠＋うっすら光る影の角丸ボタン、乗せると光が強くなる。足の小さな「kinbot」ボタンはやめた。版20261105h。
 
 - 2026-11-05 BUILD_TAG=2026-11-05i 田中さん「もっと余白あるから、他のツールのボタンは上に詰めて欲しい」。.kx-tools の margin-top を auto → 14px（メニューのすぐ下）、余白は足（.kx-side-foot の margin-top:auto）へ。版20261105i。
+
+- 2026-11-05 BUILD_TAG=2026-11-05j 田中さん「AI社員はいらない。あと、他のツールの下の太い線はいらない、上に太い線が欲しい」。AI社員のボタンを外し、ほかのツールの上の線を 2px・白28%、足（.kx-side-foot）の上の線を消した。※05h・05i で付けた .kx-tools・.kx-tool の名前が、更新管理などの上の道具の帯（.kx-tools）とかぶっていて、帯が縦並び・白い線になっていた（下の白い線もこれ）。サイドバーの方を .kx-stools・.kx-stool に変えて直した。CSS の名前を新しく付けるときは、kinxs.html／kinxs.js で使われていないか先に grep する。版20261105j。
