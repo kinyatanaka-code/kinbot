@@ -1387,11 +1387,13 @@ function kxCoListPopup(title, list) {
 // 更新表：行＝更新月（3月〜翌2月）、列＝S・A・B・C・Z・他・計。B・Cは社数があるセルに色、表示中の月の行をハイライト
 function kxRenewTableHtml(items, period, hlYm) {
   const months = kxPeriodMonths(period); const R = ["S", "A", "B", "C", "Z"];
+  const hasOther = items.some((x) => months.includes(x.renew) && !R.includes(x.rank));
+  const COLS = [...R, ...(hasOther ? ["他"] : []), "計"];
   const cell = (ym, r) => items.filter((x) => x.renew === ym && (r === "他" ? !R.includes(x.rank) : r === "計" ? true : x.rank === r));
   const tot = { S: 0, A: 0, B: 0, C: 0, Z: 0, 他: 0, 計: 0 };
-  const rows = months.map((ym) => `<tr class="${ym === hlYm ? "hl" : ""}"><th>${Number(ym.slice(5))}月<small>${ym.slice(0, 4)}</small></th>${[...R, "他", "計"].map((r) => { const n = cell(ym, r).length; tot[r] += n; return `<td class="${n && r === "B" ? "cb" : ""}${n && r === "C" ? " cc" : ""}${r === "計" ? " ct" : ""}">${n ? `<button type="button" data-rt="${ym}|${r}">${n}</button>` : '<span class="z">0</span>'}</td>`; }).join("")}</tr>`).join("");
-  return `<div class="v2-rt-wrap"><table class="v2-rt"><thead><tr><th>更新月</th>${["S", "A", "B", "C", "Z", "他", "計"].map((r) => `<th>${KX_RC2[r] ? kxRankBadge(r) : r}</th>`).join("")}</tr></thead><tbody>${rows}</tbody>
-    <tfoot><tr><th>合計</th>${["S", "A", "B", "C", "Z", "他", "計"].map((r) => `<td>${tot[r]}</td>`).join("")}</tr></tfoot></table></div>
+  const rows = months.map((ym) => `<tr class="${ym === hlYm ? "hl" : ""}"><th>${Number(ym.slice(5))}月<small>${ym.slice(0, 4)}</small></th>${COLS.map((r) => { const n = cell(ym, r).length; tot[r] += n; return `<td class="${n && r === "B" ? "cb" : ""}${n && r === "C" ? " cc" : ""}${r === "計" ? " ct" : ""}">${n ? `<button type="button" data-rt="${ym}|${r}">${n}</button>` : '<span class="z">0</span>'}</td>`; }).join("")}</tr>`).join("");
+  return `<div class="v2-rt-wrap"><table class="v2-rt"><thead><tr><th>更新月</th>${COLS.map((r) => `<th class="${r === "計" ? "ct" : ""}">${KX_RC2[r] ? kxRankBadge(r) : r}</th>`).join("")}</tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><th>合計</th>${COLS.map((r) => `<td class="${r === "計" ? "ct" : ""}">${tot[r]}</td>`).join("")}</tr></tfoot></table></div>
     <div class="kx-note" style="margin-top:4px">C：解約／B：継続か解約か未決定。数字を押すと会社の一覧</div>`;
 }
 function kxWireRenewTable(root, items) {
@@ -1465,7 +1467,7 @@ function renderHomeV2() {
       <div class="h2-list">${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="pin ${a.left < 0 ? "over" : a.left <= 3 ? "soon" : ""}">${a.left == null ? "" : a.left < 0 ? `${-a.left}日過ぎ` : `あと${a.left}日`}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
       </section>
     <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
-      ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="n">${r.l.length}<small>社</small></span><span class="st">${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span></button>`).join("")}
+      ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="st">${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span><span class="n">${r.l.length}<small>社</small></span></button>`).join("")}
       </section>
   <section class="h2-box h2-miss"><div class="h2-h"><h2>情報不足の企業</h2>${ms ? `<span class="h2-big">${msItems.length}<small>社</small></span>` : ""}<a class="h2-link" href="/kinxs?p=missing">情報不足へ ›</a></div>
     ${ms ? `<div class="h2-bars">${reqN.filter(([, n]) => n).map(([r, n]) => `<button type="button" class="h2-bar" data-miss="${esc(r.key)}"><span class="k">${esc(r.short || r.name)}</span><span class="b"><i style="width:${(n / maxReq) * 100}%"></i></span><span class="n">${n}</span></button>`).join("") || '<div class="h2-note">足りない情報はありません</div>'}</div>` : '<div class="h2-note">SFを読んでいます…</div>'}</section></div>
