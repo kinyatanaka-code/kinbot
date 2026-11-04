@@ -2718,7 +2718,7 @@ async function openTarget(id, draft, opt) {
 
   wireQuickNext(m);
   if (!histOnly) wireZoomSummary(m, id);
-  openSlotPanel(m);
+  openSlotPanel(m, x);
   openCompanyPanel(m, x["会社名"] || "", x);
   dockRecordPanels(m);
 
@@ -3570,7 +3570,10 @@ function dockRecordPanels(m) {
   if (right) wrap.appendChild(right);
   m.el.classList.add("kc-rec3-back");
 }
-function openSlotPanel(m) {
+function openSlotPanel(m, x) {
+  // リードのリスト名（ディーラーのリストなら、日程の候補は浦林さんの空き）（2026-11-02）
+  const slotList = String((x && (x["リスト名"] || x["元のリスト"])) || "");
+  const slotQ = slotList ? `list=${encodeURIComponent(slotList)}` : "";
   document.querySelectorAll(".kc-slotpanel").forEach((el) => el.remove());
   const panel = document.createElement("div");
   panel.className = "kc-slotpanel";
@@ -3613,7 +3616,7 @@ function openSlotPanel(m) {
   // ---- おすすめ（今までどおり） ----
   (async () => {
     try {
-      const d = await (await fetch("/api/calls/slot-suggest")).json();
+      const d = await (await fetch(`/api/calls/slot-suggest${slotQ ? `?${slotQ}` : ""}`)).json();
       if (!d.ok) throw new Error(d.error || "取得できませんでした");
       const cs = d.候補 || [];
       if (!cs.length) { body.innerHTML = `<div class="note">${esc(d.reason || "空いている枠が見つかりませんでした")}</div><div class="kc-slot-other">「他の日程」から、日を選んで探せます</div>`; return; }
@@ -3694,7 +3697,7 @@ function openSlotPanel(m) {
     try {
       let d = cache.get(key);
       if (!d) {
-        d = await (await fetch(`/api/calls/slot-day?date=${encodeURIComponent(ds)}&minutes=${encodeURIComponent(mins)}`)).json();
+        d = await (await fetch(`/api/calls/slot-day?date=${encodeURIComponent(ds)}&minutes=${encodeURIComponent(mins)}${slotQ ? `&${slotQ}` : ""}`)).json();
         if (!d.ok) throw new Error(d.error || "取得できませんでした");
         cache.set(key, d);
       }

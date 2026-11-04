@@ -15631,11 +15631,24 @@ app.post("/api/calls/chat", async (req, res) => {
 
 // 記録モーダル用：これから2週間で、クローザー（田中欽也除く）が空いている枠を提案する。
 // 1枠1時間・平日10-18時・空いている人数が多い順→直近順で最大6件。
+// リストによって、日程の候補に出す人を決める（2026-11-02：ディーラーのリストは浦林さん）。settings.slotRepsByList で足せる {リスト名の一部: [名前の一部…]}
+async function slotMembersForList(listName) {
+  const ln = String(listName || "");
+  if (!ln) return null;
+  const st = await getSettings().catch(() => ({}));
+  const map = { ディーラー: ["浦林"], ...(st.slotRepsByList || {}) };
+  const key = Object.keys(map).find((k) => k && ln.includes(k));
+  if (!key) return null;
+  const users = await listUsers().catch(() => []);
+  const out = [];
+  for (const nm of map[key]) { const u = users.find((x) => String(x.name || "").replace(/[\s　]/g, "").includes(String(nm).replace(/[\s　]/g, ""))); if (u && u.email) out.push({ email: String(u.email).toLowerCase(), name: u.name || u.email }); }
+  return out.length ? out : null;
+}
 app.get("/api/calls/slot-suggest", async (req, res) => {
   try {
     const closers = await listClosers({ activeOnly: true }).catch(() => []);
     const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
-    const members = closers
+    const members = (await slotMembersForList(req.query.list).catch(() => null)) || closers
       .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")))
       .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
     if (!members.length) return res.json({ ok: true, 候補: [], reason: "対象のクローザーがいません" });
@@ -15744,7 +15757,7 @@ app.get("/api/calls/slot-day", async (req, res) => {
     const mins = Math.max(15, Math.min(240, parseInt(req.query.minutes, 10) || 60));
     const closers = await listClosers({ activeOnly: true }).catch(() => []);
     const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
-    const members = closers
+    const members = (await slotMembersForList(req.query.list).catch(() => null)) || closers
       .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")))
       .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
     if (!members.length) return res.json({ ok: true, date, 枠: [], 対象: [], reason: "対象のクローザーがいません" });
@@ -27915,7 +27928,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-02n 御礼メール：ヘルプサイトの案内文の「○○ 様」の行（宛名）を外して差し込む。";
+const BUILD_TAG = "2026-11-04a kincallの記録の日程の候補：ディーラーのリストのリードは、浦林さんの空きで候補日を出す（おすすめ・他の日程とも）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
