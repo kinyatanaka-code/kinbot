@@ -12945,7 +12945,9 @@ async function kinxsBuild() {
     //   納品前（検収書を回収していない）：キックオフ前＝計上予定／キックオフ済み・フォローMTG（確認MTG）前＝フォローMTG設定済／フォローMTG後＝検収書回収待ち
     //   納品後（検収書を回収済み）：掲載日なし＝オンボーディング中／掲載日から1か月以内＝掲載・活用開始／それ以降＝利用中（更新月の2か月前からは更新検討時期）
     const ymd0 = (v) => { if (!v) return ""; if (v instanceof Date) return new Date(v.getTime() + 9 * 3600000).toISOString().slice(0, 10); return String(v).slice(0, 10); };
-    const kickOn = ymd0(r.kickoff_on) || (k ? ymd0(k.meeting_at || k.created_at) : "");
+    // キックオフ実施日：手で入れた日 → CS連携（回収MTG）→ kinbot の議事録で予定名に「キックオフ」「回収MTG」が入った商談の日（2026-11-05：CS連携に入っていない会社も拾う）
+    const koMtg = mts.filter((m) => /キックオフ|回収MTG|kick ?off/i.test(String(m.title || ""))).map((m) => ymd0(m.created_at || m.started_at)).filter(Boolean).sort()[0] || "";
+    const kickOn = ymd0(r.kickoff_on) || (k ? ymd0(k.meeting_at || k.created_at) : "") || koMtg;
     const pubOn = ymd0(r.published_on);
     const kenshuOn = ymd0(r.kenshu_on);
     // 2026年10月より前に受注した会社は、ぜんぶ稼働中（納品後）とみなす（2026-11-04 田中さん。settings.kxDeliveredBefore で変えられる）
@@ -28376,7 +28378,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05b kinXsのメニュー：ユーザー一覧のアイコンを、企業（ビル）のマークに。";
+const BUILD_TAG = "2026-11-05c kinXs：kinbotにキックオフ（回収MTG）の商談が入っている会社は、CS連携に無くてもキックオフ済みとみなす（キックオフ未実施のアラートが出なくなり、フェーズもフォローMTG設定済へ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
