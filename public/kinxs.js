@@ -1418,6 +1418,13 @@ function kxDocCounts(items, ym) {
   const mo = docs.filter((x) => !kai.includes(x) && !ka.includes(x));
   return { all: docs, ka, mo, kai };
 }
+// ホームは1画面に収める（ページ全体はスクロールせず、要アクションの一覧だけが中で動く）（2026-11-04）
+function kxFitHome2() {
+  const box = $("kh2"); if (!box || VIEW !== "home") return;
+  document.documentElement.style.overflow = "hidden";
+  box.style.height = `${Math.max(480, window.innerHeight - box.getBoundingClientRect().top - 14)}px`;
+}
+window.addEventListener("resize", () => kxFitHome2());
 // ヘッダーの月の切りかえ（ホーム・年間施策で使う）
 function kxHeadMonth(ym, onMove) {
   const hm = $("kxHeadMonth"); if (!hm) return;
@@ -1455,15 +1462,15 @@ function renderHomeV2() {
   <div class="h2-row">
     <section class="h2-box h2-act"><div class="h2-h"><h2>要アクション</h2><span class="h2-big">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span></div>
       <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b>${actRows.filter((r) => f(r.a)).length}</b><span>${l}</span></button>`).join("")}</div>
-      <div class="h2-list">${shown.slice(0, kh2.open.act ? 200 : 6).map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="pin ${a.left < 0 ? "over" : a.left <= 3 ? "soon" : ""}">${a.left == null ? "" : a.left < 0 ? `${-a.left}日過ぎ` : `あと${a.left}日`}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
-      ${shown.length > 6 ? `<button type="button" class="h2-more" data-open-sec="act">${kh2.open.act ? "たたむ" : `すべて見る（${shown.length}件）`}</button>` : ""}</section>
-    <section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
+      <div class="h2-list">${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="pin ${a.left < 0 ? "over" : a.left <= 3 ? "soon" : ""}">${a.left == null ? "" : a.left < 0 ? `${-a.left}日過ぎ` : `あと${a.left}日`}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
+      </section>
+    <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
       ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="n">${r.l.length}<small>社</small></span><span class="st">${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span></button>`).join("")}
-      <div class="h2-note">B＝継続か解約か未決定・C＝解約の意向。月を押すと会社の一覧</div></section>
-  </div>
-  <section class="h2-box h2-miss"><div class="h2-h"><h2>情報不足の企業</h2>${ms ? `<span class="h2-big">${msItems.length}<small>社</small></span>` : ""}<a class="h2-link" href="/kinxs?p=missing">情報不足ページへ ›</a></div>
-    ${ms ? `<div class="h2-bars">${reqN.map(([r, n]) => `<button type="button" class="h2-bar" data-miss="${esc(r.key)}"><span class="k">${esc(r.short || r.name)}</span><span class="b"><i style="width:${(n / maxReq) * 100}%"></i></span><span class="n">${n}</span></button>`).join("")}</div>` : '<div class="h2-note">SFを読んでいます…</div>'}</section>
-  <div class="h2-go"><a href="/kinxs?p=plan"><b>年間施策</b><span>今月の施策の進み具合・一斉配信 ›</span></a><a href="/kinxs?p=call"><b>電話フォロー</b><span>月別進捗表・企業ごとの進捗 ›</span></a><a href="/kinxs?p=trend"><b>傾向分析</b><span>業界・地域・規模ごとの受注と更新 ›</span></a></div>`;
+      </section>
+  <section class="h2-box h2-miss"><div class="h2-h"><h2>情報不足の企業</h2>${ms ? `<span class="h2-big">${msItems.length}<small>社</small></span>` : ""}<a class="h2-link" href="/kinxs?p=missing">情報不足へ ›</a></div>
+    ${ms ? `<div class="h2-bars">${reqN.filter(([, n]) => n).map(([r, n]) => `<button type="button" class="h2-bar" data-miss="${esc(r.key)}"><span class="k">${esc(r.short || r.name)}</span><span class="b"><i style="width:${(n / maxReq) * 100}%"></i></span><span class="n">${n}</span></button>`).join("") || '<div class="h2-note">足りない情報はありません</div>'}</div>` : '<div class="h2-note">SFを読んでいます…</div>'}</section></div>
+  </div>`;
+  kxFitHome2();
   box.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.kpi; kxCoListPopup({ all: "DOC受注社数", ka: "稼働社数（納品後）", mo: "申し込み社数（納品待ち）", kai: "解約社数" }[k] + `（${kxYmLabel(ym)}）`, c[k]); }));
   box.querySelectorAll("[data-kf]").forEach((b) => b.addEventListener("click", () => { kh2.kf = kh2.kf === b.dataset.kf ? "" : b.dataset.kf; renderHomeV2(); }));
   box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
