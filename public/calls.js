@@ -547,7 +547,7 @@ function fromBadge(x) {
   const origin = String((x && x["元のリスト"]) || "").trim();
   const ln = String((x && x["リスト名"]) || "").trim();
   const multi = !/^\d+$/.test(String(listId || ""));   // 全てのリード・ナーチャリング（まとめ）など、複数のリストをまとめて見ているとき
-  const NEW = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注", "ディーラー", "LINE"];
+  const NEW = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注", "ディーラー", "LINE", "ホテル"];
   const PAST = ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"];
   const fr = NEW.includes(src) ? "new" : PAST.includes(src) ? "past" : "other";
   const parts = [];
@@ -2853,7 +2853,7 @@ function kcApoTagOf(x) {
   const src = String((x && x["ソース"]) || "").trim();
   const ln = String((x && (x["元のリスト"] || x["リスト名"])) || "");
   // ディーラーのリストは新規リストの扱い（もとがフロッグ・MO失注などでも【初回】）（2026-11-04）
-  if (src === "ディーラー" || src === "LINE" || /ディーラー|(^|[^A-Za-z])LINE/i.test(String((x && x["リスト名"]) || "").normalize("NFKC"))) return "初回";
+  if (["ディーラー", "LINE", "ホテル"].includes(src) || /ディーラー|ホテル|(^|[^A-Za-z])LINE/i.test(String((x && x["リスト名"]) || "").normalize("NFKC"))) return "初回";
   if (/フロッグ/.test(src) || /フロッグ/.test(ln)) return "初回/フロッグ";
   if (/メルマガ/.test(src) || /メルマガ/.test(ln)) return "初回/メルマガ";
   if (/MO\s*失注/i.test(src) || /MO\s*失注/i.test(ln)) return "初回/MO失注";

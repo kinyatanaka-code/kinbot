@@ -15634,7 +15634,7 @@ app.post("/api/calls/chat", async (req, res) => {
 // 1枠1時間・平日10-18時・空いている人数が多い順→直近順で最大6件。
 // リストによって、日程の候補に出す人を決める（2026-11-02：ディーラーのリストは浦林さん）。settings.slotRepsByList で足せる {リスト名の一部: [名前の一部…]}
 // リスト名・グループ名の一部 → 担当（名前の一部）。日程の候補はこの人だけ、割り振りも assignRepsByList に当たればこの人だけ
-const SLOT_REPS_DEFAULT = { ディーラー: ["浦林"], LINE: ["中澤良太"] };
+const SLOT_REPS_DEFAULT = { ディーラー: ["浦林"], ホテル: ["浦林"], LINE: ["中澤良太"] };
 const ASSIGN_REPS_DEFAULT = { LINE: ["中澤良太"] };   // LINEリストのグループのアポは中澤良太さんだけに割り振る（2026-11-04）
 async function repsForList(listName, { kind = "slot", listId = null } = {}) {
   const info = await callListAndGroup({ id: listId, name: listName }).catch(() => ({ name: listName, group: "" }));
@@ -27942,7 +27942,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04i kincall：LINEリストからアポを取ったときは、カレンダーの予定のメモに【利用中ATS】（リストの「利用中ATS」の列）も載せる。";
+const BUILD_TAG = "2026-11-04j kincall：ホテルのリストも新規リストの扱いに（ソース「ホテル」）。日程の候補は浦林さんの空きで出す（ディーラーと同じ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
