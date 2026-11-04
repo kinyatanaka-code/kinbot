@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261105f" />
+    <link rel="stylesheet" href="style.css?v=20261105g" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -715,6 +715,39 @@
   .v2-alp-list{flex:1;min-height:0;overflow-y:auto;margin-right:-6px;padding-right:4px;}
   .kx-board.v2-board .v2-ph{flex:1;min-height:0;overflow-y:auto;}
   .kx-board.v2-board .v2-ph-g{position:sticky;top:0;z-index:1;}
+  /* 年間施策を1画面に作り直し（2026-11-05） */
+  .p3{display:grid;grid-template-rows:auto minmax(0,1fr);gap:12px;}
+  .p3-top{display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px;}
+  .p3-hero{display:flex;flex-direction:column;gap:5px;border-radius:18px;padding:14px 18px;color:#fff;background:radial-gradient(120% 140% at 100% 0%,#2FB487 0%,#0E6B4E 45%,#0A4A37 100%);box-shadow:0 18px 40px -22px rgba(10,74,55,.8);}
+  .p3-hero .l{font-size:12.5px;font-weight:700;color:#CDEBDD;} .p3-hero .v{font-size:38px;font-weight:800;line-height:1;} .p3-hero .v small{font-size:13px;margin-left:6px;font-weight:700;color:#DDF1E7;}
+  .p3-hero .bar{height:8px;border-radius:99px;background:rgba(255,255,255,.18);overflow:hidden;display:block;} .p3-hero .bar i{display:block;height:100%;background:#B6E25C;border-radius:99px;} .p3-hero .sub{font-size:11px;color:#CDEBDD;}
+  .p3-cal{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:6px;}
+  .p3-mo{display:flex;flex-direction:column;align-items:flex-start;gap:3px;border:1px solid #E1E9E5;background:#fff;border-radius:12px;padding:8px 8px;font:inherit;cursor:pointer;text-align:left;min-width:0;transition:transform .15s, box-shadow .15s, border-color .15s;}
+  .p3-mo:hover{transform:translateY(-2px);box-shadow:0 10px 20px -14px rgba(10,40,30,.45);} .p3-mo b{font-size:13px;} .p3-mo small{font-size:10px;color:#6A7A72;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+  .p3-mo .dots{display:flex;gap:3px;} .p3-mo .dots i{width:8px;height:8px;border-radius:50%;} .p3-mo .dots .t{background:#3F72C9;} .p3-mo .dots .l{background:#E0A100;}
+  .p3-mo.on{background:linear-gradient(135deg,#1AA884,#0F6E62);border-color:#0F6E62;color:#fff;box-shadow:0 10px 22px -12px rgba(15,110,98,.7);} .p3-mo.on small{color:#D7EFE4;}
+  .p3-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.05fr);gap:12px;min-height:0;}
+  .p3-col,.p3-side{display:flex;flex-direction:column;min-height:0;background:#fff;border:1px solid #E1E9E5;border-radius:18px;padding:12px 14px;}
+  .p3-ch{display:flex;align-items:center;gap:8px;margin-bottom:8px;} .p3-ch > b{font-size:14.5px;} .p3-ch .dot{width:10px;height:10px;border-radius:50%;} .p3-col.tech .dot{background:#3F72C9;} .p3-col.low .dot{background:#E0A100;}
+  .p3-ch .sm{font-size:12px;color:#6A7A72;margin-left:auto;} .p3-ch .sm b{font-size:16px;color:#14231D;}
+  .ring{--p:0;width:40px;height:40px;border-radius:50%;background:conic-gradient(#1D9E75 calc(var(--p)*1%),#E7EFEB 0);display:inline-flex;align-items:center;justify-content:center;flex:none;} .ring i{width:30px;height:30px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:10px;font-weight:800;color:#0E6B4E;}
+  .p3-list{flex:1;min-height:0;overflow-y:auto;margin-right:-8px;padding-right:6px;display:flex;flex-direction:column;gap:8px;}
+  .p3-m{border:1px solid #E6EDE9;border-radius:12px;padding:9px 11px;display:flex;flex-direction:column;gap:6px;transition:transform .15s, box-shadow .15s, border-color .15s;} .p3-m:hover{border-color:#B8DACB;box-shadow:0 10px 22px -18px rgba(10,40,30,.5);}
+  .p3-m.empty{opacity:.6;}
+  .p3-mh{display:flex;align-items:center;gap:7px;border:0;background:none;padding:0;font:inherit;cursor:pointer;text-align:left;width:100%;} .p3-mh .ch{width:24px;height:24px;border-radius:8px;background:#F1F6F3;display:inline-flex;align-items:center;justify-content:center;font-size:13px;flex:none;}
+  .p3-mh .nm{font-weight:800;font-size:12.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .p3-mh .tg{font-size:10.5px;font-weight:800;background:#E1F5EE;color:#0A5440;border-radius:5px;padding:1px 6px;white-space:nowrap;}
+  .p3-mb{display:flex;align-items:center;gap:6px;font-size:12px;} .p3-mb .bar{flex:1;height:7px;border-radius:99px;background:#EEF3F0;overflow:hidden;display:block;} .p3-mb .bar i{display:block;height:100%;background:linear-gradient(90deg,#5DBB2E,#1D9E75);border-radius:99px;} .p3-mb b{font-size:15px;} .p3-mb small{color:#6A7A72;} .p3-mb em{font-style:normal;font-weight:800;color:#0E6B4E;min-width:36px;text-align:right;}
+  .p3-ms{display:flex;gap:4px;flex-wrap:wrap;} .p3-ms .s{border:0;border-radius:99px;font:inherit;font-size:11px;font-weight:700;padding:2px 9px;cursor:pointer;background:#EEF0F2;color:#3F4A55;} .p3-ms .s0{background:#FBE4E4;color:#8C1F1F;} .p3-ms .s1{background:#FFF1DC;color:#7A3F00;} .p3-ms .s2{background:#E6EEFB;color:#1B4789;} .p3-ms .s3{background:#E1F5EE;color:#0A5440;} .p3-ms .none{font-size:11px;color:#A9B5AF;}
+  .p3-emp summary{cursor:pointer;font-size:12px;font-weight:700;color:#6A7A72;padding:4px 2px;} .p3-emp .p3-m{margin-top:6px;}
+  .p3-live{display:flex;align-items:center;gap:8px;border-radius:12px;padding:9px 12px;margin-bottom:8px;background:linear-gradient(135deg,#14231D,#0E3B2F);color:#fff;text-decoration:none;font-size:12.5px;} .p3-live b{font-size:20px;} .p3-live small{color:#BFD9CD;} .p3-live .lv{font-size:10.5px;font-weight:800;color:#B6E25C;animation:fxBlink 1.6s ease-in-out infinite;} .p3-live .go{margin-left:auto;font-weight:800;color:#B6E25C;}
+  @keyframes fxBlink{50%{opacity:.35;}}
+  .p3-tabs{display:flex;gap:4px;background:#F1F6F3;border-radius:12px;padding:3px;margin-bottom:10px;} .p3-tabs button{flex:1;border:0;background:none;border-radius:9px;padding:7px 6px;font:inherit;font-size:12.5px;font-weight:800;color:#4F6158;cursor:pointer;} .p3-tabs button.on{background:#fff;color:#0E6B4E;box-shadow:0 2px 6px rgba(0,0,0,.08);}
+  .p3-mo{justify-content:flex-start !important;} .p3-mo .dots{flex:none !important;height:auto !important;} .p3-mo small{margin-top:2px !important;}
+  .p3-tb .v2-pick{flex-direction:column;} .p3-tb .v2-pick button{width:100%;} .p3-tb .v2-pick b{font-size:12.5px;} .p3-tb .v2-pick small{font-size:10.5px;}
+  .p3-tb{flex:1;min-height:0;overflow-y:auto;margin-right:-8px;padding-right:6px;}
+  .p3-tb .v2-tr.dl2{grid-template-columns:22px minmax(0,1.5fr) 1fr 1fr;} .p3-tb .v2-tr.dl2 > span:nth-child(n+5):not(:last-child){display:none;}
+  @media (max-width:1200px){ .p3-main{grid-template-columns:1fr 1fr;} .p3-side{grid-column:1/-1;} .p3-top{grid-template-columns:1fr;} .p3{height:auto !important;} }
+  @media (prefers-reduced-motion: reduce){ .p3-live .lv{animation:none;} }
 </style>
 </head>
   <body>
@@ -828,7 +861,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261105f" defer></script>
-    <script src="kinxs.js?v=20261105f"></script>
+    <script src="kbchat.js?v=20261105g" defer></script>
+    <script src="kinxs.js?v=20261105g"></script>
   </body>
 </html>
