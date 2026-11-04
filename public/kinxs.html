@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261104x" />
+    <link rel="stylesheet" href="style.css?v=20261104y" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -700,6 +700,13 @@
   .fx-ck{width:26px;height:26px;border-radius:50%;background:#1D9E75;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;transform:scale(0);} .fx-toast.on .fx-ck{animation:fxPop .45s .08s cubic-bezier(.3,1.7,.5,1) forwards;}
   @keyframes fxPop{to{transform:scale(1);}}
   @media (prefers-reduced-motion: reduce){ .h2-li .pin.over,.v2-tr .al.over,.fx-sk{animation:none;} .h2-card:hover,.h2-hero:hover,.v2-card:hover,.v2-kpi:hover{transform:none;} }
+  /* メニューをボタンに（2026-11-04 田中さん「メニュータブをもっとボタンに」）*/
+  .kx-side nav, .kx-side .kx-navs{display:flex;flex-direction:column;gap:7px;}
+  .kx-side .kx-nav{margin:0 0 7px;padding:11px 14px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);color:#E6F2EC;font-weight:700;font-size:13.5px;box-shadow:0 2px 0 rgba(0,0,0,.18);transition:background .15s, transform .15s, box-shadow .15s, border-color .15s;}
+  .kx-side .kx-nav:hover{background:rgba(255,255,255,.12);border-color:rgba(182,226,92,.45);transform:translateX(3px);}
+  .kx-side .kx-nav:active{transform:translateY(1px);box-shadow:none;}
+  .kx-side .kx-nav.on{background:linear-gradient(135deg,#C8EE6E,#9FD24A);border-color:#C8EE6E;color:#0B2A22;box-shadow:0 8px 18px -10px rgba(182,226,92,.8), 0 2px 0 rgba(0,0,0,.2);}
+  .kx-side .kx-nav.on:hover{transform:none;}
 </style>
 </head>
   <body>
@@ -814,7 +821,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261104x" defer></script>
-    <script src="kinxs.js?v=20261104x"></script>
+    <script src="kbchat.js?v=20261104y" defer></script>
+    <script src="kinxs.js?v=20261104y"></script>
   </body>
 </html>
