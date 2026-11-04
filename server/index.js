@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -15633,12 +15633,25 @@ app.post("/api/calls/chat", async (req, res) => {
 // 記録モーダル用：これから2週間で、クローザー（田中欽也除く）が空いている枠を提案する。
 // 1枠1時間・平日10-18時・空いている人数が多い順→直近順で最大6件。
 // リストによって、日程の候補に出す人を決める（2026-11-02：ディーラーのリストは浦林さん）。settings.slotRepsByList で足せる {リスト名の一部: [名前の一部…]}
+// リスト名・グループ名の一部 → 担当（名前の一部）。日程の候補はこの人だけ、割り振りも assignRepsByList に当たればこの人だけ
+const SLOT_REPS_DEFAULT = { ディーラー: ["浦林"], LINE: ["中澤良太"] };
+const ASSIGN_REPS_DEFAULT = { LINE: ["中澤良太"] };   // LINEリストのグループのアポは中澤良太さんだけに割り振る（2026-11-04）
+async function repsForList(listName, { kind = "slot", listId = null } = {}) {
+  const info = await callListAndGroup({ id: listId, name: listName }).catch(() => ({ name: listName, group: "" }));
+  const hay = [String(info.name || listName || ""), String(info.group || "")].map((x) => x.normalize("NFKC"));
+  if (!hay.some(Boolean)) return null;
+  const st = await getSettings().catch(() => ({}));
+  const map = kind === "assign" ? { ...ASSIGN_REPS_DEFAULT, ...(st.assignRepsByList || {}) } : { ...SLOT_REPS_DEFAULT, ...(st.slotRepsByList || {}) };
+  const key = Object.keys(map).find((k) => k && hay.some((h) => h.toUpperCase().includes(String(k).normalize("NFKC").toUpperCase())));
+  if (!key) return null;
+  return map[key];
+}
 async function slotMembersForList(listName) {
   const ln = String(listName || "");
   if (!ln) return null;
-  const st = await getSettings().catch(() => ({}));
-  const map = { ディーラー: ["浦林"], ...(st.slotRepsByList || {}) };
-  const key = Object.keys(map).find((k) => k && ln.includes(k));
+  const names = await repsForList(ln, { kind: "slot" });
+  const map = names ? { _: names } : {};
+  const key = names ? "_" : null;
   if (!key) return null;
   const users = await listUsers().catch(() => []);
   const out = [];
@@ -27929,7 +27942,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04f kincall：リードをほかのリストへ移すとき（CSVで移す・移す・抜き出す・割り振る）、元のリストとリストの移り変わり（どこから・どこへ・いつ）を残す。架電の記録はリードについたまま。かける画面の「元：」の札に乗せると移り変わりが出る。";
+const BUILD_TAG = "2026-11-04g kincall：LINEリストのグループのリードは、日程の候補を中澤良太さんの空きで出し、アポが取れたら中澤良太さんだけに割り振る（リスト名・グループ名で決める。ディーラーの日程の候補は浦林さんのまま）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -31506,6 +31519,19 @@ async function _autoAssignOneInner(link, { inviteOwner, closers = null, cfg, tea
   // クローザーが自分で取ったアポは、割り振らずに本人を担当にする。
   // ローテーションの順番も動かさない（他の人の順番を飛ばさないため）。
   const self = await selfAcquired(link, biz);
+  // kincallのアポで、リスト（グループ）に決まりがあれば、その人だけを候補にする（LINEリスト→中澤良太さん）（2026-11-04）
+  if (!self && !closers && link.origin === "kincall" && link.origin_target_id) {
+    try {
+      const t0 = await getCallTarget(link.origin_target_id).catch(() => null);
+      const names = t0 && t0.list_id ? await repsForList("", { kind: "assign", listId: t0.list_id }) : null;
+      if (names && names.length) {
+        const all = await listClosers({ business: biz }).catch(() => []);
+        const only = all.filter((c) => names.some((nm) => String(c.name || "").replace(/[\s　]/g, "").includes(String(nm).replace(/[\s　]/g, ""))));
+        if (only.length) { closers = only; console.log(`[assign] リストの決まりで、候補は ${only.map((c) => c.name).join("・")} だけ：${link.label || link.slug}`); }
+        else console.warn(`[assign] リストの決まり（${names.join("・")}）に当たるクローザーがいません：${link.label || link.slug}`);
+      }
+    } catch {}
+  }
   const pick = self
     ? { email: self.email, name: self.name || self.email, reason: "自分で獲得したアポ", self: true }
     : await pickCloser(link, { inviteOwner, closers, cfg, teamCtx, business: biz });

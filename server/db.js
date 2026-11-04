@@ -11902,3 +11902,14 @@ export async function callLogResultsByTargets(ids) {
   return out;
 }
 
+
+// リストの名前とグループ名（IDか名前で）。日程の候補・割り振りの決まりに使う（2026-11-04）
+export async function callListAndGroup({ id = null, name = "" } = {}) {
+  if (!pool || (!id && !name)) return { name: String(name || ""), group: "" };
+  try {
+    const { rows } = id
+      ? await pool.query(`SELECT l.name, g.name AS group_name FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id WHERE l.id = $1`, [id])
+      : await pool.query(`SELECT l.name, g.name AS group_name FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id WHERE l.name = $1 ORDER BY COALESCE(l.closed,false), l.id DESC LIMIT 1`, [String(name)]);
+    return rows[0] ? { name: String(rows[0].name || ""), group: String(rows[0].group_name || "") } : { name: String(name || ""), group: "" };
+  } catch { return { name: String(name || ""), group: "" }; }
+}
