@@ -12948,7 +12948,10 @@ async function kinxsBuild() {
     const kickOn = ymd0(r.kickoff_on) || (k ? ymd0(k.meeting_at || k.created_at) : "");
     const pubOn = ymd0(r.published_on);
     const kenshuOn = ymd0(r.kenshu_on);
-    const delivered = !!kenshuOn || String(kenshu || "").startsWith("回収済み");
+    // 2026年10月より前に受注した会社は、ぜんぶ稼働中（納品後）とみなす（2026-11-04 田中さん。settings.kxDeliveredBefore で変えられる）
+    const bookedYmd0 = ymd0(r.first_booked_on || r.booked_on);
+    const oldDeal = !!bookedYmd0 && bookedYmd0 < String(rules.deliveredBefore || "2026-10-01");
+    const delivered = !!kenshuOn || String(kenshu || "").startsWith("回収済み") || oldDeal;
     let auto = "計上予定";
     if (r.error) auto = "エラー";
     else if (rank === "F" || (r.end_on && String(r.end_on).slice(0, 10) < today)) auto = "解約済み";
@@ -12956,7 +12959,7 @@ async function kinxsBuild() {
     else if (left != null && left <= 61 && left >= -31) auto = "更新検討時期";
     else if (delivered) {
       if (pubOn) auto = (now - Date.parse(pubOn + "T00:00:00+09:00")) < 31 * 86400000 ? "掲載・活用開始" : "利用中";
-      else auto = r.published ? "利用中" : "オンボーディング中";
+      else auto = (r.published || oldDeal) ? "利用中" : "オンボーディング中";
     }
     else if (k && k.confirm_start && Date.parse(k.confirm_start) < now) auto = "検収書回収待ち";
     else if (kickOn) auto = "フォローMTG設定済";
@@ -27986,7 +27989,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04n kinXs UI刷新（第1弾・久野さんの要望書）：サイドバーに年間施策・傾向分析、上の受注チップをやめた、ホームを4ブロック（DOC受注社数・要アクション・更新表・情報不足、表示月の切りかえ）に、更新管理を今月・来月・再来月のカード＋解約企業＋更新表の窓に、フェーズ別を縦の表（開閉）＋納品前・納品後の要アクションに、フェーズの定義を変更（検収書回収待ち・掲載・活用開始、キャンセルをやめた）、企業詳細にキックオフ実施日・検収書・掲載日・請求の欄、ヘルプサイトのカードを外した。";
+const BUILD_TAG = "2026-11-04o kinXs：2026年10月より前に受注した会社は、ぜんぶ稼働中（納品後）とみなす（掲載日が無ければ利用中。更新検討時期・解約予定・解約済みは今までどおり）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
