@@ -2017,3 +2017,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-04 BUILD_TAG=2026-11-04a 田中さん（kincallのリスト「ディーラー」のカード）「ディーラーリストだけ、おすすめの候補日に浦林の名前を出してほしい」。slotMembersForList(リスト名)：settings.slotRepsByList（既定 {ディーラー: [浦林]}、リスト名の一部 → 名前の一部）に当たれば、listUsers から名前で探した人だけを対象にする。/api/calls/slot-suggest と /api/calls/slot-day に list を渡す。calls.js：openSlotPanel(m, x) でリードのリスト名（リスト名・元のリスト）を送る。対象の行は「対象：浦林 ○○」になる。浦林さんが Google 連携していないと空きは取れない（カレンダーの読み手は今までどおり 自分→対象→設定）。版20261104a。
 
 - 2026-11-04 BUILD_TAG=2026-11-04b 田中さん「カレンダーの予定にもリスト名入るようになってる？」→入っていなかった。createApoFromKincall の予定の説明のいちばん上に「【リスト】〇〇」（db.getCallListName(target.list_id)）。件名（【初回/…】会社/様）は割り振りの読み取りに使うので変えない。※index.js では pool を直接使えない（db.js が export していない）ので、db.js に関数を足して使う。版20261104b。
+
+- 2026-11-04 BUILD_TAG=2026-11-04c 04b の押し込みで、getCallListName がもう db.js にあった（5395行）のに同じ名前で足して読み込んだため、index.js が「すでに宣言されている」で起動できない形になっていた（node --check が失敗したのに、続きのコマンドを ; でつないでいたので push まで進んだ）。重なった関数と読み込みを外し、前からある getCallListName を使う。※これからは「node --check → smoke が すべて動きました」を && でつなぎ、どれかが失敗したら push しない。版20261104c。

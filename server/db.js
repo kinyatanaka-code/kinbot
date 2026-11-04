@@ -11887,8 +11887,3 @@ export async function callLogResultsByTargets(ids) {
   return out;
 }
 
-// リストの名前（アポの予定の説明に入れる）（2026-11-04）
-export async function getCallListName(id) {
-  if (!pool || !id) return "";
-  try { const { rows } = await pool.query(`SELECT name FROM call_lists WHERE id=$1`, [id]); return (rows[0] && rows[0].name) || ""; } catch { return ""; }
-}
