@@ -1413,11 +1413,15 @@ async function loadHomeV2() {
   renderHomeV2();
   api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
 }
+// その月の月末の時点で数える（2026-11-04 直し：前は今の状態で数えていたので、前月比がいつも±0だった）
+//   受注＝DOCを最初に受注した日（無ければ最初の受注日）が月末まで／稼働＝納品した日が月末まで／解約＝解約済みで、契約終了日（無ければ更新月）が月末まで
 function kxDocCounts(items, ym) {
   const E = kxYmEnd(ym);
-  const docs = items.filter((x) => !x.archived && kxHasDoc(x) && x.booked && x.booked <= E);
-  const kai = docs.filter((x) => x.label === "解約済み" && (!x.endOn || x.endOn <= E));
-  const ka = docs.filter((x) => !kai.includes(x) && x.delivered && (!x.kenshuOn || x.kenshuOn <= E));
+  const bk = (x) => x.docBooked || x.booked;
+  const docs = items.filter((x) => !x.archived && kxHasDoc(x) && bk(x) && bk(x) <= E);
+  const churnOn = (x) => x.endOn || (x.renew ? `${x.renew}-01` : "");
+  const kai = docs.filter((x) => (x.label === "解約済み" || x.rank === "F") && (!churnOn(x) || churnOn(x) <= E));
+  const ka = docs.filter((x) => !kai.includes(x) && x.delivered && (!x.deliveredOn || x.deliveredOn <= E));
   const mo = docs.filter((x) => !kai.includes(x) && !ka.includes(x));
   return { all: docs, ka, mo, kai };
 }

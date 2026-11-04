@@ -13019,6 +13019,9 @@ async function kinxsBuild() {
       prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", kenshuOn, delivered, endOn: ymd0(r.end_on),
+      // 前月比のための日付（2026-11-04）：納品した日（検収書の回収日 → 10月より前の受注は受注日 → 自動で回収済みにしたものは受注日＋90日）・DOCを最初に受注した日
+      deliveredOn: delivered ? (kenshuOn || (oldDeal ? bookedYmd0 : "") || (bookedYmd0 ? new Date(Date.parse(bookedYmd0 + "T00:00:00+09:00") + 90 * 86400000 + 9 * 3600000).toISOString().slice(0, 10) : "")) : "",
+      docBooked: (r.products || []).filter((p0) => p0 && typeof p0 === "object" && p0.booked && ["空間", "AI"].includes(kxClassOf(p0.name))).map((p0) => String(p0.booked).slice(0, 10)).sort()[0] || "",
       invoiceNeed: r.invoice_need == null ? null : !!r.invoice_need, invoiceState: r.invoice_state || "", invoiceDate: ymd0(r.invoice_date),
       mtgSummary: r.mtg_summary || null, naDetail: r.na_detail || null,
       lastBooked: (r.products || []).map((p) => String(p && p.booked || "").slice(0, 10)).filter(Boolean).sort().pop() || "", deliveryMonth: kxDeliveryMonth(k), logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
@@ -28373,7 +28376,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04w kinXsの動きの仕上げ：数字のカウントアップと帯が伸びる（ホーム）、カードが浮く、期限を過ぎたアラートが脈打つ、読み込み中は光る仮の形、完了にしたらチェックが弾む知らせ。";
+const BUILD_TAG = "2026-11-04x kinXsのホーム：前月比がいつも±0だったのを直した（その月の月末の時点で数える：受注＝DOCを最初に受注した日、稼働＝納品した日、解約＝契約終了日か更新月）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
