@@ -61,6 +61,7 @@ function render() {
     { l: "解約検討（C）", v: `${items.filter((x) => x.rank === "C").length}社`, s: items.filter((x) => x.rank === "C").slice(0, 2).map((x) => x.name).join("・") || "—", st: "color:#8C1F1F" },
   ];
   $("kxKpis").innerHTML = kpis.map((k) => `<div class="kx-kpi" title="${esc(k.s)}"><div class="l">${esc(k.l)}</div><div class="v" style="${k.st || ""}">${esc(k.v)}</div><div class="s">${esc(k.s)}</div></div>`).join("");
+  if (kxRenewV2(items)) return;   // UI刷新（第1弾）：今月・来月・再来月のカード＋解約企業＋更新表の窓
   // ===== 案2：月ごとの行に、会社をチップで並べる =====
   const flt = window.__kxFilter || "all";
   const myName = window.__kxMe || "";
@@ -148,6 +149,7 @@ function kxFitBoard() {
   if (!wrap._wired) {
     wrap._wired = true;
     wrap.addEventListener("wheel", (e) => {
+      if (wrap.querySelector(".v2-board")) return;   // UI刷新：縦の表は、ふつうに縦へスクロール
       const inCol = !!e.target.closest(".kx-col-b");
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { wrap.scrollLeft += e.deltaX; e.preventDefault(); return; }
       if (e.shiftKey) { wrap.scrollLeft += e.deltaY; e.preventDefault(); return; }
@@ -237,9 +239,9 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings" })[new URLSearchParams(location.search).get("p")] || "home";
+const VIEW = ({ missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings";
+$("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
@@ -557,13 +559,7 @@ function kxCoPane(d) {
         ${head("受注")}
         <div class="kx-kpi2"><div><span>受注日</span><b>${f.booked ? esc(f.booked.replace(/-/g, "/")) : "—"}</b></div><div><span>受注者</span><b>${esc(f.bookedBy || "—")}</b></div></div>
       </section>
-      <section class="kx-c2">
-        ${head("ヘルプサイト")}
-        ${f.portal ? `<div class="kx-dl"><span>URL</span><div>${f.portal.url ? `${val(f.portal.url, "url")} <button type="button" class="hp-b" data-copy="${esc(f.portal.url)}">コピー</button>` : '<span class="kx-none">—</span>'}</div>
-          <span>企業ID</span><div><b>${esc(f.portal.id || "—")}</b>${f.portal.id ? ` <button type="button" class="hp-b" data-copy="${esc(f.portal.id)}">コピー</button>` : ""}</div>
-          <span>パスワード</span><div>${f.portal.pw ? pw(f.portal.pw) : '<span class="kx-none">案内文にありません</span>'}</div></div>`
-          : `<span class="kx-none">まだ用意していません（CS連携の企業カードで用意できます）</span>`}
-      </section>
+      <!-- ヘルプサイトのカードは、UI刷新（2026-11-04 久野さんの要望書）で外した -->
       <section class="kx-c2" data-sec>
         ${head("DOC", true)}
         <div class="kx-view"><div class="kx-dl"><span>VR</span><div>${val(f.vrUrl, "url")} ${tag("vrUrl")}</div><span>AI<br><small>候補者画面</small></span><div>${val(f.aiUrl, "url")} ${tag("aiUrl")}</div><span>AI<br><small>管理画面</small></span><div>${val(f.adminUrl || "https://casual-interview-api.brainverse-ai.com/", "url")} <span class="kx-none">（全社共通）</span></div></div></div>
@@ -674,6 +670,7 @@ async function openDetail(id, reuse) {
     <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
     <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}</div>
     <div data-pane="info" hidden style="display:flex;flex-direction:column;gap:12px">
+      ${kxOpsSection(x)}
       ${kxStatusPane(d)}
       ${kxLabelSchedPane(d)}
       <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
@@ -1084,6 +1081,7 @@ function renderBoard() {
   // SNSは、SNSのフェーズの列（DOCとSNSの両方をやっている会社は、カードにもう一方のフェーズを出す）
   const SNS_C = ["#7C8AA5", "#9B6BD6", "#3F72C9", "#2E8FB0", "#1D9E75", "#C9A227", "#E07A1F", "#D25F5F", "#B54F8E", "#5A63C7", "#3A3F3D"];
   if (bdTrack === "SNS") for (const x of items) x._ph = x.snsPhase || "計上"; else for (const x of items) x._ph = x.label;
+  if (kxBoardV2(items, bdTrack, d)) return;   // UI刷新（第1弾）：横スクロールをやめて縦の表に
   // 解約済み・キャンセルの列もいつも出す
   const cols = bdTrack === "SNS" ? (d.snsPhases || ["計上"]).map((l, i) => [l, "", SNS_C[i % SNS_C.length]]) : BD_COLS.filter(([l]) => l !== "エラー" || items.some((x) => x.label === "エラー"));
   const good = "background:#E1F5EE;color:#0A5440", bad = "background:#FBE4E4;color:#8C1F1F", mid = "background:#FFF1DC;color:#7A3F00";
@@ -1316,7 +1314,7 @@ function renderMissing() {
 }
 if ($("msQ")) { const st0 = document.querySelector(".kx-ms-set"); if (st0) st0.addEventListener("toggle", () => kxFitMissing()); $("msQ").addEventListener("input", renderMissing); $("msFs").addEventListener("change", renderMissing); $("msReload").addEventListener("click", () => loadMissing(true)); }
 if (VIEW === "missing") loadMissing(false);
-if (VIEW === "home") { if ($("kxPageName")) $("kxPageName").textContent = "ホーム"; loadHome(false); }
+if (VIEW === "home") { if ($("kxPageName")) $("kxPageName").textContent = "ホーム"; }   // ホームは UI刷新（第1弾）の loadHomeV2 で描く
 if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
 
 // ===== 他のメンバーとして見る（田中欽也さんだけ。kinbotの「他メンバーとして操作」と同じ仕組み）=====
@@ -1360,3 +1358,218 @@ if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIE
     render(""); setTimeout(() => m.querySelector(".imp-modal-filter").focus(), 30);
   });
 })();
+
+// ===================== kinXs UI刷新（第1弾）2026-11-04 久野さんの要望書 =====================
+// ホーム（DOC受注社数・要アクション・更新表・情報不足）／更新管理（3か月分のカード・解約企業・更新表の窓）／フェーズ別（縦の表＋開閉）／年間施策・傾向分析（準備中）
+const KX_RC2 = { S: "#0E6B4E", A: "#1D9E75", B: "#C99700", C: "#C43D3D", Z: "#8A949C", F: "#2F3532" };
+const kxNowYm = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+const kxYmAdd = (ym, n) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+const kxYmEnd = (ym) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
+const kxYmLabel = (ym) => `${ym.slice(0, 4)}年${Number(ym.slice(5))}月`;
+function kxPeriodOf(ym) { const [y, m] = ym.split("-").map(Number); return (m >= 3 ? y : y - 1) - 1999; }   // 27期＝2026年3月〜2027年2月
+function kxPeriodMonths(p) { const y0 = p + 1999; return Array.from({ length: 12 }, (_, i) => kxYmAdd(`${y0}-03`, i)); }
+function kxRankBadge(r) { return `<span class="v2-rk" style="background:${KX_RC2[r] || "#8A949C"}">${esc(r || "Z")}</span>`; }
+function kxLogoMini(x) { return `<span class="v2-lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" onerror="this.parentNode.textContent='・'" />` : esc(bdMono(x.name))}</span>`; }
+// 会社の一覧を窓で出す（数字やカードを押したとき）。会社を押すと企業詳細
+function kxCoListPopup(title, list) {
+  document.querySelectorAll(".v2-pop-bg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "v2-pop-bg";
+  bg.innerHTML = `<div class="v2-pop" role="dialog" aria-label="${esc(title)}"><div class="v2-pop-h"><b>${esc(title)}</b><span class="kx-note">${list.length}社</span><button type="button" class="kx-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div class="v2-pop-b">${list.length ? list.map((x) => `<div class="v2-row" data-open="${esc(x.id)}" role="button" tabindex="0">${kxLogoMini(x)}<span class="nm">${esc(x.name)}</span>${kxRankBadge(x.rank)}<span class="kx-note">${esc(x.label || "")}</span><span class="kx-note">${esc(kxSurname(x.cs) || "CS未定")}</span><span class="kx-note">${x.renew ? `更新 ${esc(x.renew.replace("-", "/"))}` : ""}</span></div>`).join("") : '<div class="kx-empty">ありません</div>'}</div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  bg.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => { close(); openDetail(el.dataset.open); }));
+}
+// 更新表：行＝更新月（3月〜翌2月）、列＝S・A・B・C・Z・他・計。B・Cは社数があるセルに色、表示中の月の行をハイライト
+function kxRenewTableHtml(items, period, hlYm) {
+  const months = kxPeriodMonths(period); const R = ["S", "A", "B", "C", "Z"];
+  const cell = (ym, r) => items.filter((x) => x.renew === ym && (r === "他" ? !R.includes(x.rank) : r === "計" ? true : x.rank === r));
+  const tot = { S: 0, A: 0, B: 0, C: 0, Z: 0, 他: 0, 計: 0 };
+  const rows = months.map((ym) => `<tr class="${ym === hlYm ? "hl" : ""}"><th>${Number(ym.slice(5))}月<small>${ym.slice(0, 4)}</small></th>${[...R, "他", "計"].map((r) => { const n = cell(ym, r).length; tot[r] += n; return `<td class="${n && r === "B" ? "cb" : ""}${n && r === "C" ? " cc" : ""}${r === "計" ? " ct" : ""}">${n ? `<button type="button" data-rt="${ym}|${r}">${n}</button>` : '<span class="z">0</span>'}</td>`; }).join("")}</tr>`).join("");
+  return `<div class="v2-rt-wrap"><table class="v2-rt"><thead><tr><th>更新月</th>${["S", "A", "B", "C", "Z", "他", "計"].map((r) => `<th>${KX_RC2[r] ? kxRankBadge(r) : r}</th>`).join("")}</tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr><th>合計</th>${["S", "A", "B", "C", "Z", "他", "計"].map((r) => `<td>${tot[r]}</td>`).join("")}</tr></tfoot></table></div>
+    <div class="kx-note" style="margin-top:4px">C：解約／B：継続か解約か未決定。数字を押すと会社の一覧</div>`;
+}
+function kxWireRenewTable(root, items) {
+  root.querySelectorAll("[data-rt]").forEach((b) => b.addEventListener("click", () => {
+    const [ym, r] = b.dataset.rt.split("|"); const R = ["S", "A", "B", "C", "Z"];
+    kxCoListPopup(`${kxYmLabel(ym)} 更新・${r}`, items.filter((x) => x.renew === ym && (r === "他" ? !R.includes(x.rank) : r === "計" ? true : x.rank === r)));
+  }));
+}
+function kxPeriodsOf(items) { const ps = [...new Set(items.map((x) => x.renew).filter(Boolean).map(kxPeriodOf))].sort((a, b) => b - a); const cur = kxPeriodOf(kxNowYm()); if (!ps.includes(cur)) ps.unshift(cur); return ps.sort((a, b) => b - a); }
+
+// ---------- ホーム ----------
+let kh2 = { ym: kxNowYm(), open: {}, period: null, miss: null };
+async function loadHomeV2() {
+  const box = $("kh2"); if (!box) return;
+  try { if (!lsData) lsData = await api("/api/kinxs/users"); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  renderHomeV2();
+  api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
+}
+function kxDocCounts(items, ym) {
+  const E = kxYmEnd(ym);
+  const docs = items.filter((x) => !x.archived && kxHasDoc(x) && x.booked && x.booked <= E);
+  const kai = docs.filter((x) => x.label === "解約済み" && (!x.endOn || x.endOn <= E));
+  const ka = docs.filter((x) => !kai.includes(x) && x.delivered && (!x.kenshuOn || x.kenshuOn <= E));
+  const mo = docs.filter((x) => !kai.includes(x) && !ka.includes(x));
+  return { all: docs, ka, mo, kai };
+}
+function renderHomeV2() {
+  const box = $("kh2"); if (!box || !lsData) return;
+  const items = (lsData.items || []).filter((x) => !x.archived);
+  const ym = kh2.ym; const c = kxDocCounts(items, ym), p = kxDocCounts(items, kxYmAdd(ym, -1));
+  const diff = (a, b) => { const d = a - b; return `<span class="v2-diff ${d > 0 ? "up" : d < 0 ? "dn" : ""}">前月比 ${d > 0 ? "+" : ""}${d}</span>`; };
+  const kpi = (k, label, def, list, prev, strong) => `<button type="button" class="v2-kpi${strong ? " strong" : ""}" data-kpi="${k}"><span class="l">${label}</span><span class="v">${list.length}<small>社</small></span><span class="d">${esc(def)}</span>${diff(list.length, prev.length)}</button>`;
+  // 要アクション
+  const act = items.filter((x) => (x.actions || []).length && kxHasDoc(x));
+  const kinds = [["キックオフ未実施", (a) => a.kind === "キックオフ未実施"], ["検収書 未回収", (a) => a.kind === "検収書 未回収"], ["施策・次回アクション", (a) => a.group === "納品後"]];
+  const actRows = act.flatMap((x) => x.actions.map((a) => ({ x, a }))).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
+  // 更新表
+  const periods = kxPeriodsOf(items); const period = kh2.period || kxPeriodOf(ym);
+  // 情報不足
+  const ms = kh2.miss; const msItems = ms ? ms.items || [] : []; const req = ms ? ms.required || [] : [];
+  box.innerHTML = `
+    <div class="v2-month"><button type="button" class="kx-btn" data-ym="-1">◀</button><b>${kxYmLabel(ym)}</b><button type="button" class="kx-btn" data-ym="1">▶</button>${ym !== kxNowYm() ? '<button type="button" class="kx-btn" data-ym="0">今月へ</button>' : ""}<span class="kx-note">表示月に合わせて、下の数字が変わります</span></div>
+    <section class="v2-sec"><h2>1. DOC受注社数</h2>
+      <div class="v2-kpis">${kpi("all", "DOC受注社数", "①＋②＋③", c.all, p.all, true)}${kpi("ka", "① 稼働社数", "納品後", c.ka, p.ka)}${kpi("mo", "② 申し込み社数", "申し込み済み・納品待ち", c.mo, p.mo)}${kpi("kai", "③ 解約社数", "解約済み", c.kai, p.kai)}</div></section>
+    <section class="v2-sec"><h2>2. 要アクションリスト</h2>
+      <div class="v2-big"><span class="v">${act.length}<small>社</small></span>${kinds.map(([l, f]) => `<span class="v2-chip">${esc(l)} <b>${actRows.filter((r) => f(r.a)).length}</b></span>`).join("")}<button type="button" class="kx-btn" data-open-sec="act" style="margin-left:auto">企業を見る ${kh2.open.act ? "▲" : "▼"}</button></div>
+      ${kh2.open.act ? `<div class="v2-tbl"><div class="v2-tr h"><span>企業名</span><span>フェーズ</span><span>アラート内容</span><span>期限</span><span>担当</span></div>${actRows.map(({ x, a }) => `<div class="v2-tr" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="co">${kxLogoMini(x)}${esc(x.name)}</span><span>${esc(x.label)}</span><span class="al ${a.left < 0 ? "over" : ""}">${esc(a.detail)}</span><span>${esc((a.due || "").slice(5).replace("-", "/"))}${a.left != null ? `（${a.left >= 0 ? `あと${a.left}日` : `${-a.left}日過ぎ`}）` : ""}</span><span>${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("") || '<div class="kx-empty">ありません</div>'}</div>` : ""}
+      <div class="kx-note">条件：受注から2週間たってもキックオフ未実施／検収書の回収予定月の1週間前で未回収／納品後で次回アクションの期日まで1週間以内</div></section>
+    <section class="v2-sec"><h2>3. DOC更新表 <span class="kx-note">${period}期（${period + 1999}年3月〜${period + 2000}年2月）</span></h2>
+      <div class="v2-big"><select class="kx-in" data-period style="max-width:160px">${periods.map((pp) => `<option value="${pp}" ${pp === period ? "selected" : ""}>${pp}期</option>`).join("")}</select><button type="button" class="kx-btn" data-open-sec="rt" style="margin-left:auto">更新表を見る ${kh2.open.rt ? "▲" : "▼"}</button></div>
+      ${kh2.open.rt ? kxRenewTableHtml(items.filter((x) => kxHasDoc(x)), period, ym) : ""}</section>
+    <section class="v2-sec"><h2>4. 情報不足の企業 <a class="kx-note" href="/kinxs?p=missing" style="margin-left:8px">情報不足ページへ →</a></h2>
+      ${ms ? `<div class="v2-big"><span class="l">対応が必要な企業</span><span class="v">${msItems.length}<small>社</small></span>${req.map((r) => `<span class="v2-chip">${esc(r.short || r.name)} <b>${msItems.filter((x) => (x.missKeys || []).includes(r.key)).length}</b></span>`).join("")}<button type="button" class="kx-btn" data-open-sec="ms" style="margin-left:auto">対象の企業を見る ${kh2.open.ms ? "▲" : "▼"}</button></div>
+      ${kh2.open.ms ? `<div class="v2-tbl">${msItems.map((x) => `<div class="v2-tr ms" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="co">${esc(x.name)}</span><span>${(x.missing || []).map((m) => `<span class="v2-miss">${esc(m)}なし</span>`).join("")}</span><span>FS：${esc(x.fs || "不明")}</span></div>`).join("") || '<div class="kx-empty">ありません</div>'}</div>` : ""}` : '<div class="kx-note">SFを読んでいます…</div>'}</section>
+    <div class="v2-links"><a class="kx-btn" href="/kinxs?p=plan">年間施策へ →</a><a class="kx-btn" href="/kinxs?p=trend">傾向分析へ →</a></div>`;
+  box.querySelectorAll("[data-ym]").forEach((b) => b.addEventListener("click", () => { const n = Number(b.dataset.ym); kh2.ym = n === 0 ? kxNowYm() : kxYmAdd(kh2.ym, n); kh2.period = null; renderHomeV2(); }));
+  box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
+  box.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.kpi; kxCoListPopup({ all: "DOC受注社数", ka: "稼働社数（納品後）", mo: "申し込み社数（納品待ち）", kai: "解約社数" }[k] + `（${kxYmLabel(ym)}）`, c[k]); }));
+  box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
+  const ps = box.querySelector("[data-period]"); if (ps) ps.addEventListener("change", () => { kh2.period = Number(ps.value); kh2.open.rt = true; renderHomeV2(); });
+  kxWireRenewTable(box, items.filter((x) => kxHasDoc(x)));
+}
+
+// ---------- 更新管理：今月・来月・再来月の会社カード、期の区切り、解約企業、更新表の窓 ----------
+function kxRenewV2(itemsR) {
+  const host = $("kxTable"); if (!host) return false;
+  const ranks = window.__rnRanks || new Set();
+  const all = (lsData && lsData.items) ? lsData.items.filter((x) => !x.archived) : null;
+  if (!all) { api("/api/kinxs/users").then((d) => { lsData = d; render(); }).catch(() => {}); host.innerHTML = '<div class="kx-empty">読み込み中…</div>'; return true; }
+  const okIds = new Set(itemsR.map((x) => x.id));
+  const items = all.filter((x) => okIds.has(x.id) && (!ranks.size || ranks.has(x.rank)));
+  const ym0 = kxNowYm(); const months = [0, 1, 2].map((n) => kxYmAdd(ym0, n));
+  const card = (x) => `<button type="button" class="v2-card" data-open="${esc(x.id)}">${kxLogoMini(x)}<span class="nm">${esc(x.name)}</span><span class="kx-note">担当：${esc(kxSurname(x.cs) || "未定")}</span>${kxRankBadge(x.rank)}</button>`;
+  const past = items.filter((x) => x.renew && x.renew < ym0 && x.label !== "解約済み" && x.rank !== "F");
+  let html = `<div class="v2-rn-bar"><span class="kx-note">ランク：</span>${["S", "A", "B", "C", "Z"].map((r) => `<button type="button" class="v2-rkb ${ranks.has(r) ? "on" : ""}" data-rk="${r}" style="--c:${KX_RC2[r]}">${r}</button>`).join("")}<button type="button" class="kx-btn kx-pri" data-rt-open style="margin-left:auto">更新表を見る</button></div>`;
+  if (past.length) html += `<details class="v2-past"><summary>更新月を過ぎた会社（${past.length}社）</summary><div class="v2-cards">${past.sort((a, b) => a.renew.localeCompare(b.renew)).map(card).join("")}</div></details>`;
+  months.forEach((ym, i) => {
+    if (i > 0 && ym.slice(5) === "03") { const p = kxPeriodOf(ym); html += `<div class="v2-cut"><span>${p - 1}期 ここまで ／ ここから${p}期</span></div>`; }
+    const list = items.filter((x) => x.renew === ym && x.label !== "解約済み" && x.rank !== "F");
+    html += `<section class="v2-sec"><h2>${["今月更新", "来月更新", "再来月更新"][i]} <span class="kx-note">${kxYmLabel(ym)}・${list.length}社</span></h2><div class="v2-cards">${list.map(card).join("") || '<div class="kx-empty">ありません</div>'}</div></section>`;
+  });
+  const kai = items.filter((x) => x.label === "解約済み" || x.rank === "F").sort((a, b) => String(b.endOn || b.renew || "").localeCompare(String(a.endOn || a.renew || "")));
+  const showAll = window.__rnKaiAll;
+  html += `<section class="v2-sec"><h2>解約企業 <span class="kx-note">これまでの解約企業すべて・${kai.length}社</span></h2><div class="v2-cards">${(showAll ? kai : kai.slice(0, 12)).map((x) => `<button type="button" class="v2-card" data-open="${esc(x.id)}">${kxLogoMini(x)}<span class="nm">${esc(x.name)}</span><span class="kx-note">解約月：${esc(((x.endOn || x.renew || "").slice(0, 7)).replace("-", "年") + ((x.endOn || x.renew) ? "月" : "—"))}</span>${kxRankBadge("C")}</button>`).join("") || '<div class="kx-empty">ありません</div>'}</div>${kai.length > 12 ? `<button type="button" class="kx-btn" data-kai-all>${showAll ? "たたむ" : `すべて見る（${kai.length}社）`}</button>` : ""}</section>`;
+  host.innerHTML = html;
+  host.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
+  host.querySelectorAll("[data-rk]").forEach((b) => b.addEventListener("click", () => { const s = window.__rnRanks = window.__rnRanks || new Set(); s.has(b.dataset.rk) ? s.delete(b.dataset.rk) : s.add(b.dataset.rk); render(); }));
+  const ka = host.querySelector("[data-kai-all]"); if (ka) ka.addEventListener("click", () => { window.__rnKaiAll = !window.__rnKaiAll; render(); });
+  host.querySelector("[data-rt-open]").addEventListener("click", () => kxRenewTableModal(all.filter((x) => kxHasDoc(x))));
+  return true;
+}
+function kxRenewTableModal(items) {
+  document.querySelectorAll(".v2-pop-bg").forEach((x) => x.remove());
+  let period = kxPeriodOf(kxNowYm()); const periods = kxPeriodsOf(items);
+  const bg = document.createElement("div"); bg.className = "v2-pop-bg v2-main-only";
+  const paint = () => {
+    bg.innerHTML = `<div class="v2-pop wide" role="dialog" aria-label="DOC更新表"><div class="v2-pop-h"><b>DOC更新表</b><select class="kx-in" data-period style="max-width:140px">${periods.map((p) => `<option value="${p}" ${p === period ? "selected" : ""}>${p}期</option>`).join("")}</select><span class="kx-note">${period}期（${period + 1999}年3月〜${period + 2000}年2月）</span><button type="button" class="kx-btn" data-x style="margin-left:auto">×</button></div><div class="v2-pop-b">${kxRenewTableHtml(items, period, kxNowYm())}</div></div>`;
+    bg.querySelector("[data-x]").addEventListener("click", () => bg.remove());
+    bg.querySelector("[data-period]").addEventListener("change", (e) => { period = Number(e.target.value); paint(); });
+    kxWireRenewTable(bg, items);
+  };
+  paint(); document.body.appendChild(bg);
+  bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); });
+}
+
+// ---------- フェーズ別：縦の表（行を押すと会社の一覧が開く）＋ 納品前・納品後の要アクション ----------
+const KX_PH2 = [
+  ["納品前（計上〜検収書回収）", [["計上予定", "FS", "リストに入った直後。キックオフMTGがまだ"], ["フォローMTG設定済", "FS", "キックオフMTG済み、フォローMTGの前"], ["検収書回収待ち", "CS", "検収書の回収待ち"]]],
+  ["納品後（検収書回収後）", [["オンボーディング中", "CS", "掲載・活用ができていない"], ["掲載・活用開始", "CS", "掲載日から1か月以内"], ["利用中", "CS", "掲載日から1か月〜更新月の3か月前まで"], ["更新検討時期", "CS", "更新月の2か月前から"], ["解約予定", "CS", "解約の意向あり（確度C）"]]],
+  ["解約済み", [["解約済み", "—", "契約が終了した企業（アラート対象外）"]]],
+];
+function kxBoardV2(items, track, d) {
+  const host = $("bdCols"); if (!host) return false;
+  const open = window.__bdOpen = window.__bdOpen || new Set();
+  const groups = track === "SNS" ? [["SNS", (d.snsPhases || ["計上"]).map((l) => [l, "CS", ""])]] : KX_PH2;
+  const actRows = track === "SNS" ? [] : items.flatMap((x) => (x.actions || []).map((a) => ({ x, a })));
+  const panel = (g) => { const rs = actRows.filter((r) => r.a.group === g).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0)); const rules = g === "納品前" ? ["受注から2週間以内にキックオフ未実施", "検収書の回収予定月の1週間前で未回収"] : ["次回アクション（施策）の期日まで1週間以内"];
+    return `<div class="v2-alp"><div class="h"><b>${g}：要アクション</b><span class="v2-chip red">アラート ${new Set(rs.map((r) => r.x.id)).size}社</span></div><div class="kx-note">${rules.map((r) => `・${r}`).join("　")}</div>${rs.slice(0, 6).map(({ x, a }) => `<div class="v2-tr al" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="co">${esc(x.name)}</span><span class="al ${a.left < 0 ? "over" : ""}">${esc(a.detail)}</span><span>${esc(x.label)}</span><span>担当 ${esc(kxSurname(x.cs) || "未定")}</span><span>期限 ${esc((a.due || "").slice(5).replace("-", "/"))}</span></div>`).join("") || '<div class="kx-empty" style="padding:8px">ありません</div>'}${rs.length > 6 ? `<button type="button" class="kx-btn" data-act-all="${g}">すべて見る（${rs.length}件）</button>` : ""}</div>`; };
+  let html = track === "SNS" ? "" : `<div class="v2-alps">${panel("納品前")}${panel("納品後")}</div>`;
+  html += `<div class="v2-ph">`;
+  for (const [gname, phs] of groups) {
+    html += `<div class="v2-ph-g">${esc(gname)}</div>`;
+    for (const [ph, ball, desc] of phs) {
+      const list = items.filter((x) => (track === "SNS" ? x._ph : x.label) === ph);
+      const al = list.filter((x) => (x.actions || []).length).length;
+      const isOpen = open.has(ph);
+      html += `<div class="v2-ph-r ${isOpen ? "open" : ""}" data-ph="${esc(ph)}" role="button" tabindex="0"><span class="nm">${esc(ph)}</span><span class="ball ${ball === "FS" ? "fs" : ball === "CS" ? "cs" : ""}">${esc(ball)}</span><span class="desc">${esc(desc)}</span><span class="al">${al ? `アラート ${al}` : ""}</span><span class="n">${list.length}<small>社</small></span><span class="chev">${isOpen ? "▲" : "▼"}</span></div>`;
+      if (isOpen) html += `<div class="v2-ph-list"><div class="v2-tr h ph"><span>企業名</span><span>ランク</span><span>タグ</span><span>担当</span><span>NA日</span><span>更新月</span></div>${list.map((x) => `<div class="v2-tr ph" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="co">${kxLogoMini(x)}${esc(x.name)}</span><span>${kxRankBadge(x.rank)}</span><span>${(x.prodLabels || []).map((l) => `<span class="v2-tag">${esc(l)}</span>`).join("")}</span><span>${esc(kxSurname(x.cs) || "未定")}</span><span>${x.naDue ? esc(x.naDue.slice(5).replace("-", "/")) : "—"}</span><span>${x.renew ? esc(x.renew.replace("-", "/")) : "—"}</span></div>`).join("") || '<div class="kx-empty" style="padding:8px">ありません</div>'}</div>`;
+    }
+  }
+  html += `</div>`;
+  host.innerHTML = html; host.classList.add("v2-board");
+  host.querySelectorAll("[data-ph]").forEach((el) => el.addEventListener("click", () => { const p = el.dataset.ph; open.has(p) ? open.delete(p) : open.add(p); renderBoard(); }));
+  host.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); openDetail(el.dataset.open); }));
+  host.querySelectorAll("[data-act-all]").forEach((b) => b.addEventListener("click", () => { const g = b.dataset.actAll; kxCoListPopup(`${g}：要アクション`, [...new Map(actRows.filter((r) => r.a.group === g).map((r) => [r.x.id, r.x])).values()]); }));
+  const st = $("bdSt"); if (st) st.textContent = `全${items.length}社`;
+  return true;
+}
+
+// ---------- 年間施策・傾向分析（第3弾・第4弾で作る。年間カレンダーだけ先に出す）----------
+const KX_PLAN_CAL = [["1月", "ウェビナー", "ロー"], ["2月", "お役立ち情報メール（＋1月ウェビナーのアーカイブ）", "テック"], ["3月", "レイヤー別メール①（AIを活用した採用計画）", "テック"], ["4月", "お手紙（ポニー）入社おめでとう／年度初めのご挨拶", "ロー"], ["5月", "お役立ち情報メール", "テック"], ["6月", "ウェビナー", "ロー"], ["7月", "レイヤー別メール②（他社事例）＋2か月連続0件企業へ電話", "テック＋ロー"], ["8月", "暑中見舞い", "ロー"], ["9月", "お役立ち情報メール", "テック"], ["10月", "レイヤー別メール③（選考中・フォロー中の活用）", "テック"], ["11月", "お手紙（ポニー）＋1月ウェビナー告知", "ロー"], ["12月", "年賀状送付", "ロー"]];
+function renderPlanV2() {
+  const box = $("vPlanBody"); if (!box) return;
+  const cm = Number(kxNowYm().slice(5));
+  box.innerHTML = `<section class="v2-sec"><h2>年間カレンダー（全社一斉施策）</h2><div class="v2-cal">${KX_PLAN_CAL.map(([m, n, t]) => `<div class="v2-cal-m ${Number(m.replace("月", "")) === cm ? "now" : ""}"><b>${m}</b><span class="t ${/テック/.test(t) ? "tech" : ""}${/ロー/.test(t) ? " low" : ""}">${t}</span><span class="n">${esc(n)}</span></div>`).join("")}</div></section>
+    <section class="v2-sec"><h2>今月の施策の進み具合・一斉配信</h2><div class="kx-empty">施策の進み具合（ロータッチ／テックタッチ）、来月に向けた準備、一斉配信（対象の判定・スプレッドシートへの書き出し・配信）は、第3弾で作ります。</div></section>`;
+}
+function renderTrendV2() {
+  const box = $("vTrendBody"); if (!box) return;
+  box.innerHTML = `<section class="v2-sec"><h2>受注・更新の傾向</h2><div class="kx-empty">期間（27期／26期／全期間）と切り口（業界・地域・企業規模）ごとの受注社数・更新率・解約率と、傾向のまとめは、第4弾で作ります。</div></section>`;
+}
+
+// 起動（UI刷新の画面）
+if (VIEW === "home") loadHomeV2();
+if (VIEW === "plan") { if ($("kxPageName")) $("kxPageName").textContent = "年間施策"; renderPlanV2(); }
+if (VIEW === "trend") { if ($("kxPageName")) $("kxPageName").textContent = "傾向分析"; renderTrendV2(); }
+
+// ---------- 企業詳細：請求・納品（掲載日・キックオフ実施日・検収書・請求書）。フェーズと要アクションの判定に使う（UI刷新 第1弾）----------
+function kxOpsSection(x) {
+  const v = (s) => esc(s || "");
+  const sel = (k, opts, cur) => `<select class="kx-in" data-ops="${k}">${opts.map(([val, lab]) => `<option value="${val}" ${String(cur) === String(val) ? "selected" : ""}>${lab}</option>`).join("")}</select>`;
+  return `<section class="kx-sec v2-ops" data-ops-box="${esc(x.id)}"><div class="lb" style="display:flex;align-items:center;gap:8px">請求・納品<span class="kx-note">フェーズ（納品前・納品後）と要アクションの判定に使います</span><button type="button" class="kx-btn kx-pri" data-ops-save style="margin-left:auto">保存</button></div>
+    <div class="v2-ops-g">
+      <label>キックオフ実施日<input type="date" class="kx-in" data-ops="kickoff_on" value="${v(x.kickoffManual ? x.kickoffOn : "")}" /><small>${x.kickoffOn && !x.kickoffManual ? `CS連携から：${v(x.kickoffOn)}` : "空ならCS連携の回収MTGの日"}</small></label>
+      <label>検収書の回収予定月<input type="month" class="kx-in" data-ops="kenshu_month" value="${v(x.kenshuMonth)}" /><small>この月の1週間前で未回収ならアラート</small></label>
+      <label>検収書の回収日<input type="date" class="kx-in" data-ops="kenshu_on" value="${v(x.kenshuOn)}" /><small>${v(x.kenshu || "")}${x.kenshuOn ? "" : "（入れると納品後になります）"}</small></label>
+      <label>掲載日<input type="date" class="kx-in" data-ops="published_on" value="${v(x.publishedOn)}" /><small>掲載日から1か月は「掲載・活用開始」</small></label>
+      <label>請求書の発行${sel("invoice_need", [["", "未定"], ["true", "必要"], ["false", "不要"]], x.invoiceNeed == null ? "" : String(x.invoiceNeed))}</label>
+      <label>請求書の状態${sel("invoice_state", [["", "—"], ["未発行", "未発行"], ["発行済み", "発行済み"]], x.invoiceState || "")}</label>
+      <label>請求予定日<input type="date" class="kx-in" data-ops="invoice_date" value="${v(x.invoiceDate)}" /></label>
+      <label>納品メール<span class="kx-note" style="display:block;padding:6px 0">${v(x.mail || "—")}</span></label>
+    </div><span class="kx-note" data-ops-st></span></section>`;
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest && e.target.closest("[data-ops-save]"); if (!b) return;
+  const box = b.closest("[data-ops-box]"); if (!box) return;
+  const body = {};
+  box.querySelectorAll("[data-ops]").forEach((el) => { const k = el.dataset.ops; let val = el.value; if (k === "invoice_need") val = val === "" ? null : val === "true"; body[k] = val; });
+  const st = box.querySelector("[data-ops-st]"); if (st) st.textContent = "保存しています…"; b.disabled = true;
+  try { await api(`/api/kinxs/accounts/${encodeURIComponent(box.dataset.opsBox)}`, { method: "PUT", body: JSON.stringify(body) }); if (st) st.textContent = "保存しました（フェーズは読み直すと変わります）"; lsData = null; bdData && (bdData = null); }
+  catch (er) { if (st) st.textContent = er.message; }
+  finally { b.disabled = false; }
+});

@@ -12883,7 +12883,8 @@ function kxGuessLabels(products) {
   return out;
 }
 // DOCのフェーズの順番（スケジュールの遅れを見るため）
-const KX_DOC_ORDER = ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中"];
+// DOCのフェーズの順（2026-11-04 久野さんの要望で定義を変更：納品前＝計上予定→フォローMTG設定済→検収書回収待ち／納品後＝オンボーディング中→掲載・活用開始→利用中→更新検討時期）
+const KX_DOC_ORDER = ["計上予定", "フォローMTG設定済", "検収書回収待ち", "オンボーディング中", "掲載・活用開始", "利用中"];
 // 納品月（回収MTGの「納品月」：「11月」「2026/11」など）を YYYY-MM に
 function kxDeliveryMonth(k) {
   const v = String((k && k.fields && k.fields.納品月) || "").normalize("NFKC");
@@ -12896,7 +12897,7 @@ function kxDeliveryMonth(k) {
   if (mon < bm - 3) y += 1;   // 例：今が11月で「2月」なら来年
   return `${y}-${String(mon).padStart(2, "0")}`;
 }
-const KX_LABELS = ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"];
+const KX_LABELS = ["計上予定", "フォローMTG設定済", "検収書回収待ち", "オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定", "解約済み", "エラー"];   // 「キャンセル」はやめた（2026-11-04）
 async function kinxsBuild() {
   await kinxsInit();
   const st = await getSettings().catch(() => ({}));
@@ -12940,16 +12941,49 @@ async function kinxsBuild() {
     const kenshu = r.kenshu_done === true ? "回収済み" : r.kenshu_done === false ? "未回収" : matured ? "回収済み（自動）" : (k && ksSent[k.bot_id] ? "依頼済み" : "未回収");
     const mail = r.mail_done === true || (tr && (tr.opened || (tr.clicks || []).length)) ? "送付済み" : r.mail_done === false ? "未送付" : matured ? "送付済み（自動）" : (k && k.draft_at ? "下書きあり" : "未送付");
     // メインラベル（自動）。手で決めて鍵をかけたら、そのまま
+    // 2026-11-04（久野さんの要望書）：納品前／納品後でフェーズを決める
+    //   納品前（検収書を回収していない）：キックオフ前＝計上予定／キックオフ済み・フォローMTG（確認MTG）前＝フォローMTG設定済／フォローMTG後＝検収書回収待ち
+    //   納品後（検収書を回収済み）：掲載日なし＝オンボーディング中／掲載日から1か月以内＝掲載・活用開始／それ以降＝利用中（更新月の2か月前からは更新検討時期）
+    const ymd0 = (v) => { if (!v) return ""; if (v instanceof Date) return new Date(v.getTime() + 9 * 3600000).toISOString().slice(0, 10); return String(v).slice(0, 10); };
+    const kickOn = ymd0(r.kickoff_on) || (k ? ymd0(k.meeting_at || k.created_at) : "");
+    const pubOn = ymd0(r.published_on);
+    const kenshuOn = ymd0(r.kenshu_on);
+    const delivered = !!kenshuOn || String(kenshu || "").startsWith("回収済み");
     let auto = "計上予定";
     if (r.error) auto = "エラー";
     else if (rank === "F" || (r.end_on && String(r.end_on).slice(0, 10) < today)) auto = "解約済み";
     else if (rank === "C") auto = "解約予定";
     else if (left != null && left <= 61 && left >= -31) auto = "更新検討時期";
-    else if (r.published) auto = "利用中";
-    else if (k && k.confirm_start && Date.parse(k.confirm_start) < now) auto = "オンボーディング中";
-    // CS連携に入った（キックオフMTGが済んだ）会社は、フォローMTG設定済み以降（2026-10-26 田中さん。「キックオフMTG済」の段はやめた）
-    else if (k) auto = "フォローMTG設定済";
-    const label = r.label_locked && r.main_label && !["フォローMTG設定中", "キックオフMTG済"].includes(r.main_label) ? r.main_label : auto;
+    else if (delivered) {
+      if (pubOn) auto = (now - Date.parse(pubOn + "T00:00:00+09:00")) < 31 * 86400000 ? "掲載・活用開始" : "利用中";
+      else auto = r.published ? "利用中" : "オンボーディング中";
+    }
+    else if (k && k.confirm_start && Date.parse(k.confirm_start) < now) auto = "検収書回収待ち";
+    else if (kickOn) auto = "フォローMTG設定済";
+    const label0 = r.label_locked && r.main_label && !["フォローMTG設定中", "キックオフMTG済"].includes(r.main_label) ? r.main_label : auto;
+    const label = label0 === "キャンセル" ? "解約済み" : label0;
+    // 要アクション（事前アラート）（2026-11-04 久野さんの要望書 4-3。ホームとフェーズ別で共通）
+    const actions = [];
+    const PRE = ["計上予定", "フォローMTG設定済", "検収書回収待ち"], POST = ["オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定"];
+    const bookedYmd = ymd0(r.first_booked_on || r.booked_on);
+    if (!r.archived && PRE.includes(label)) {
+      if (!kickOn && bookedYmd) {
+        const d = Math.floor((now - Date.parse(bookedYmd + "T00:00:00+09:00")) / 86400000);
+        if (d >= 14) actions.push({ group: "納品前", kind: "キックオフ未実施", detail: `キックオフ未実施（受注から${d}日）`, due: new Date(Date.parse(bookedYmd + "T00:00:00+09:00") + 14 * 86400000 + 9 * 3600000).toISOString().slice(0, 10), left: 14 - d });
+      }
+      if (r.kenshu_month && !delivered) {
+        const ms = Date.parse(`${r.kenshu_month}-01T00:00:00+09:00`);
+        if (isFinite(ms) && now >= ms - 7 * 86400000) {
+          const end = new Date(ms); end.setUTCMonth(end.getUTCMonth() + 1); const endYmd = new Date(end.getTime() - 86400000 + 9 * 3600000).toISOString().slice(0, 10);
+          const l = Math.ceil((Date.parse(endYmd + "T23:59:59+09:00") - now) / 86400000);
+          actions.push({ group: "納品前", kind: "検収書 未回収", detail: l >= 0 ? `検収書 未回収（あと${l}日）` : `検収書 未回収（${-l}日過ぎ）`, due: endYmd, left: l });
+        }
+      }
+    }
+    if (!r.archived && POST.includes(label) && r.na_due) {
+      const nd = kxYmdOf(r.na_due); const l = Math.ceil((Date.parse(nd + "T23:59:59+09:00") - now) / 86400000);
+      if (l <= 7) actions.push({ group: "納品後", kind: r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション", detail: l >= 0 ? `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（あと${l}日）` : `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（${-l}日過ぎ）`, due: nd, left: l });
+    }
     // DOCのスケジュール（議事録から作った予定）より、フェーズが進んでいなければ要注意
     let schedLate = null;
     if (r.doc_schedule && Array.isArray(r.doc_schedule.steps)) {
@@ -12981,6 +13015,8 @@ async function kinxsBuild() {
       productItems: (r.products || []).map((p) => (typeof p === "string" ? { name: p } : p)).map((p) => ({ name: p.name, cls: kxClassOf(p.name), booked: p.booked || "", stage: p.stage || "", opp: p.opp || "", oppName: p.oppName || "" })),
       prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
+      actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", kenshuOn, delivered, endOn: ymd0(r.end_on),
+      invoiceNeed: r.invoice_need == null ? null : !!r.invoice_need, invoiceState: r.invoice_state || "", invoiceDate: ymd0(r.invoice_date),
       lastBooked: (r.products || []).map((p) => String(p && p.booked || "").slice(0, 10)).filter(Boolean).sort().pop() || "", deliveryMonth: kxDeliveryMonth(k), logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy, allMeetings: ms };
@@ -14286,6 +14322,14 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     }
     if ("prod_labels" in b) patch.prod_labels = b.prod_labels === null ? null : (Array.isArray(b.prod_labels) ? b.prod_labels.filter((x) => [...KX_PROD_LABELS.DOC, ...KX_PROD_LABELS.SNS].includes(x)) : []);
     if ("archived" in b) { patch.archived = !!b.archived; patch.archived_at = b.archived ? new Date().toISOString() : null; }
+    // 掲載日・キックオフ実施日・検収書（回収予定月・回収日）・請求（要否・状態・予定日）（2026-11-04 久野さんの要望書）
+    const dOk = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : null;
+    for (const k2 of ["published_on", "kickoff_on", "kenshu_on", "invoice_date"]) if (k2 in b) patch[k2] = dOk(b[k2]);
+    if ("kenshu_month" in b) patch.kenshu_month = /^\d{4}-\d{2}$/.test(String(b.kenshu_month || "")) ? String(b.kenshu_month) : null;
+    if ("invoice_need" in b) patch.invoice_need = b.invoice_need === null ? null : !!b.invoice_need;
+    if ("invoice_state" in b) patch.invoice_state = ["発行済み", "未発行"].includes(b.invoice_state) ? b.invoice_state : null;
+    if ("kenshu_on" in b && dOk(b.kenshu_on)) patch.kenshu_done = true;
+    if ("published_on" in b && dOk(b.published_on)) patch.published = true;
     if ("sns_phase" in b) { if (!KX_SNS_PHASES.includes(b.sns_phase)) return res.status(400).json({ error: "SNSのフェーズが正しくありません" }); patch.sns_phase = b.sns_phase; }
     if ("purpose" in b) patch.purpose = String(b.purpose || "").slice(0, 500);
     if ("usage_status" in b) patch.usage_status = KX_USAGE.includes(b.usage_status) ? b.usage_status : null;
@@ -27942,7 +27986,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04m kincallの重複：電話番号でも見る（リストの中の「重複を削除」は電話番号だけ同じでもまとめる）。全角・+81・ハイフン・かっこのちがいはそろえて比べる（取り込み・ほかのリストとの重複も同じ）。";
+const BUILD_TAG = "2026-11-04n kinXs UI刷新（第1弾・久野さんの要望書）：サイドバーに年間施策・傾向分析、上の受注チップをやめた、ホームを4ブロック（DOC受注社数・要アクション・更新表・情報不足、表示月の切りかえ）に、更新管理を今月・来月・再来月のカード＋解約企業＋更新表の窓に、フェーズ別を縦の表（開閉）＋納品前・納品後の要アクションに、フェーズの定義を変更（検収書回収待ち・掲載・活用開始、キャンセルをやめた）、企業詳細にキックオフ実施日・検収書・掲載日・請求の欄、ヘルプサイトのカードを外した。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

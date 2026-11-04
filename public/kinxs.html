@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261104m" />
+    <link rel="stylesheet" href="style.css?v=20261104n" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -532,6 +532,58 @@
   #vRenew .kx-pastbox{background:#fff !important;}
   #vRenew .kx-chipco.v2 .mo{background:#fff;}
   #vMissing .kx-msx-h{position:sticky;top:0;z-index:2;}
+  #kxTopKpis{display:none !important;}
+  /* ===== UI刷新（第1弾）2026-11-04 ===== */
+  .v2-month{display:flex;align-items:center;gap:10px;margin:2px 0 14px;} .v2-month b{font-size:18px;}
+  .v2-sec{background:#fff;border:1px solid #E1E9E5;border-radius:16px;padding:16px 18px;margin:0 0 14px;}
+  .v2-sec h2{font-size:15px;margin:0 0 10px;display:flex;align-items:baseline;gap:8px;color:#14231D;}
+  .v2-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;}
+  .v2-kpi{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:1px solid #E1E9E5;background:#FAFCFB;border-radius:14px;padding:12px 14px;cursor:pointer;font:inherit;text-align:left;}
+  .v2-kpi:hover{border-color:#1D9E75;} .v2-kpi.strong{background:#0E6B4E;border-color:#0E6B4E;color:#fff;} .v2-kpi.strong .d,.v2-kpi.strong .l{color:#D7EFE4;}
+  .v2-kpi .l{font-size:12.5px;font-weight:700;color:#4F6158;} .v2-kpi .v{font-size:30px;font-weight:800;line-height:1.1;} .v2-kpi .v small{font-size:13px;margin-left:2px;} .v2-kpi .d{font-size:11px;color:#8FA39A;}
+  .v2-diff{font-size:11.5px;font-weight:700;color:#6A7A72;} .v2-diff.up{color:#1D9E75;} .v2-diff.dn{color:#C43D3D;} .v2-kpi.strong .v2-diff{color:#fff;}
+  .v2-big{display:flex;align-items:center;gap:10px;flex-wrap:wrap;} .v2-big .v{font-size:30px;font-weight:800;color:#14231D;} .v2-big .v small{font-size:13px;margin-left:2px;} .v2-big .l{font-size:13px;font-weight:700;color:#4F6158;}
+  .v2-chip{display:inline-flex;gap:5px;align-items:baseline;font-size:12px;font-weight:700;background:#F1F5F3;border-radius:99px;padding:3px 10px;color:#33463E;} .v2-chip b{font-size:14px;} .v2-chip.red{background:#FBE4E4;color:#8C1F1F;}
+  .v2-tbl{margin-top:10px;border:1px solid #E6EDE9;border-radius:12px;overflow:hidden;max-height:420px;overflow-y:auto;}
+  .v2-tr{display:grid;grid-template-columns:minmax(0,2fr) 1.2fr 2fr 1.3fr 1fr;gap:8px;align-items:center;padding:8px 12px;border-top:1px solid #F0F3F1;font-size:12.5px;cursor:pointer;}
+  .v2-tr.h{background:#F4F8F6;font-weight:700;color:#4F6158;cursor:default;border-top:0;position:sticky;top:0;} .v2-tr:hover:not(.h){background:#F7FBF9;}
+  .v2-tr.ms{grid-template-columns:minmax(0,1.5fr) 3fr 1fr;} .v2-tr.ph{grid-template-columns:minmax(0,2.2fr) .6fr 1.4fr 1fr .8fr .9fr;} .v2-tr.al{grid-template-columns:minmax(0,1.6fr) 1.8fr 1fr 1fr 1fr;}
+  .v2-tr .co{display:flex;align-items:center;gap:8px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .v2-tr .al{color:#A51F16;font-weight:700;} .v2-tr .al.over{background:#FBE4E4;border-radius:6px;padding:1px 6px;}
+  .v2-miss{display:inline-block;font-size:11px;font-weight:700;background:#FBE4E4;color:#8C1F1F;border-radius:6px;padding:1px 6px;margin:1px 3px 1px 0;}
+  .v2-lg{width:22px;height:22px;border-radius:6px;background:#EEF3F0;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#0E6B4E;overflow:hidden;flex:none;} .v2-lg img{width:100%;height:100%;object-fit:contain;background:#fff;}
+  .v2-rk{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;border-radius:5px;color:#fff;font-size:11px;font-weight:800;padding:0 4px;}
+  .v2-tag{display:inline-block;font-size:10.5px;font-weight:700;background:#E1F5EE;color:#0A5440;border-radius:5px;padding:0 5px;margin-right:3px;}
+  .v2-rt-wrap{overflow-x:auto;margin-top:10px;} .v2-rt{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;}
+  .v2-rt th,.v2-rt td{padding:6px 10px;text-align:center;border-bottom:1px solid #EEF2F0;} .v2-rt thead th{background:#F4F8F6;} .v2-rt tbody th{text-align:left;font-weight:700;white-space:nowrap;} .v2-rt tbody th small{color:#9AA8A1;font-weight:500;margin-left:4px;font-size:10.5px;}
+  .v2-rt tr.hl th,.v2-rt tr.hl td{background:#EAF6F0;} .v2-rt td.cb{background:#FFF1DC;} .v2-rt td.cc{background:#FBE4E4;} .v2-rt td.ct{font-weight:800;} .v2-rt tfoot td,.v2-rt tfoot th{font-weight:800;background:#F4F8F6;}
+  .v2-rt button{border:0;background:none;font:inherit;font-weight:800;color:#0E6B4E;cursor:pointer;text-decoration:underline;} .v2-rt .z{color:#C7D0CB;}
+  .v2-links{display:flex;gap:10px;margin:4px 0 20px;}
+  .v2-pop-bg{position:fixed;inset:0;background:rgba(15,30,25,.42);z-index:7000;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .v2-pop-bg.v2-main-only{left:var(--kx-side-w, 210px);}
+  .v2-pop{background:#fff;border-radius:16px;width:min(720px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.5);} .v2-pop.wide{width:min(980px,96vw);}
+  .v2-pop-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #E6EDE9;} .v2-pop-h b{font-size:15px;} .v2-pop-b{overflow:auto;padding:8px 12px 14px;}
+  .v2-row{display:grid;grid-template-columns:24px minmax(0,2fr) auto 1fr .8fr 1fr;gap:8px;align-items:center;padding:7px 6px;border-bottom:1px solid #F0F3F1;font-size:12.5px;cursor:pointer;} .v2-row:hover{background:#F7FBF9;} .v2-row .nm{font-weight:700;}
+  .v2-rn-bar{display:flex;align-items:center;gap:6px;margin:0 0 12px;} .v2-rkb{border:1px solid #D5E2DB;background:#fff;border-radius:7px;width:30px;height:28px;font:inherit;font-weight:800;cursor:pointer;color:var(--c);} .v2-rkb.on{background:var(--c);color:#fff;border-color:var(--c);}
+  .v2-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;}
+  .v2-card{display:grid;grid-template-columns:24px 1fr auto;grid-template-rows:auto auto;gap:2px 8px;align-items:center;border:1px solid #E1E9E5;background:#fff;border-radius:12px;padding:9px 11px;cursor:pointer;font:inherit;text-align:left;}
+  .v2-card:hover{border-color:#1D9E75;} .v2-card .v2-lg{grid-row:1/3;} .v2-card .nm{font-weight:800;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .v2-card .kx-note{grid-column:2;} .v2-card .v2-rk{grid-column:3;grid-row:1/3;}
+  .v2-cut{display:flex;align-items:center;gap:10px;margin:4px 0 14px;color:#8C1F1F;font-weight:800;font-size:12.5px;} .v2-cut::before,.v2-cut::after{content:"";flex:1;border-top:2px dashed #E6B3AE;}
+  .v2-past{background:#FFF8F7;border:1px solid #F3D3CF;border-radius:14px;padding:10px 14px;margin:0 0 14px;} .v2-past summary{cursor:pointer;font-weight:800;color:#8C1F1F;} .v2-past .v2-cards{margin-top:10px;}
+  .kx-board.v2-board{display:block !important;overflow:visible !important;min-width:0 !important;height:auto !important;width:100%;}
+  #vBoard .kx-board-wrap:has(.v2-board){overflow-x:hidden;overflow-y:auto;padding-right:4px;}
+  .v2-alps{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+  .v2-alp{background:#fff;border:1px solid #F0C9C4;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;} .v2-alp .h{display:flex;align-items:center;gap:8px;} .v2-alp .h b{font-size:14px;color:#8C1F1F;}
+  .v2-ph{background:#fff;border:1px solid #E1E9E5;border-radius:16px;overflow:hidden;}
+  .v2-ph-g{background:#F4F8F6;font-size:12px;font-weight:800;color:#4F6158;padding:7px 14px;border-top:1px solid #E6EDE9;}
+  .v2-ph-r{display:grid;grid-template-columns:170px 46px minmax(0,1fr) 90px 70px 24px;gap:10px;align-items:center;padding:11px 14px;border-top:1px solid #EEF2F0;cursor:pointer;} .v2-ph-r:hover{background:#F7FBF9;} .v2-ph-r.open{background:#EAF6F0;}
+  .v2-ph-r .nm{font-weight:800;} .v2-ph-r .desc{font-size:12px;color:#6A7A72;} .v2-ph-r .n{font-size:20px;font-weight:800;text-align:right;} .v2-ph-r .n small{font-size:11px;margin-left:2px;} .v2-ph-r .al{font-size:11.5px;font-weight:800;color:#A51F16;}
+  .v2-ph-r .ball{font-size:11px;font-weight:800;border-radius:6px;padding:1px 6px;text-align:center;background:#EEF0F2;color:#4F5A66;} .v2-ph-r .ball.fs{background:#E6EEFB;color:#1B4789;} .v2-ph-r .ball.cs{background:#E1F5EE;color:#0A5440;}
+  .v2-ph-list{background:#FBFDFC;border-top:1px solid #E6EDE9;padding:4px 14px 10px;}
+  .v2-cal{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;} .v2-cal-m{border:1px solid #E1E9E5;border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;font-size:12.5px;} .v2-cal-m.now{border-color:#1D9E75;background:#EAF6F0;box-shadow:0 0 0 2px #CFEBDD;}
+  .v2-cal-m .t{font-size:10.5px;font-weight:800;border-radius:5px;padding:0 6px;align-self:flex-start;background:#EEF0F2;} .v2-cal-m .t.tech{background:#E6EEFB;color:#1B4789;} .v2-cal-m .t.low{background:#FFF1DC;color:#7A3F00;} .v2-cal-m .t.tech.low{background:#F0EAFB;color:#523490;}
+  .v2-ops-g{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px;margin-top:6px;} .v2-ops-g label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700;color:#4F6158;} .v2-ops-g small{font-weight:500;color:#8FA39A;font-size:10.5px;}
+  @media (max-width:900px){ .v2-kpis,.v2-ops-g{grid-template-columns:1fr 1fr;} .v2-alps{grid-template-columns:1fr;} .v2-cal{grid-template-columns:repeat(3,1fr);} }
 </style>
 </head>
   <body>
@@ -544,6 +596,8 @@
         <a class="kx-nav" data-view="renew" href="/kinxs?p=renew"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>更新管理</a>
         <a class="kx-nav" data-view="board" href="/kinxs?p=board"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>フェーズ別</a>
         <a class="kx-nav" data-view="missing" href="/kinxs?p=missing"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 18a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>情報不足</a>
+        <a class="kx-nav" data-view="plan" href="/kinxs?p=plan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 14h3M13 14h3M8 17h3"/></svg>年間施策</a>
+        <a class="kx-nav" data-view="trend" href="/kinxs?p=trend"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>傾向分析</a>
         <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携（回収MTG）</a>
         <a class="kx-nav" data-view="import" href="/kinxs?p=import"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>CS管理ボードから取り込む</a>
         <a class="kx-nav kx-back" href="/home.html"><img src="/kinbot.svg" alt="" width="18" height="18" style="border-radius:5px" />kinbot<span class="kx-back-tag">戻る</span></a>
@@ -610,15 +664,9 @@
             </div>
             <div class="kx-tablebox" id="imPrevBox" style="display:none"><div id="imPrev"></div></div>
           </div>
-          <div class="kx-wrap" id="vHome" hidden>
-            <div class="kh-top"><div><div class="kh-hi" id="khHi">ホーム</div><div class="kx-note" id="khAt"></div></div><button type="button" class="kx-btn" id="khReload" style="margin-left:auto">読み直す</button></div>
-            <div id="khNote"></div>
-            <div class="kh-grid">
-              <section class="kh-tasks"><div class="kh-h">やること <span class="kx-note" id="khCount"></span><div class="kx-seg kh-tabs" id="khTabs"></div><span class="kh-srcs"><span class="kh-src kx">kinXs</span><span class="kh-src ml">メール</span><span class="kh-src ch">チャット</span><span class="kh-src cl">Claude</span></span></div>
-                <div class="kh-add"><input class="kx-in" id="khAddT" placeholder="＋ タスクを足す（Enterで追加）" /><select class="kx-in" id="khAddCo"></select><input type="date" class="kx-in" id="khAddD" title="期日（任意）" /><button type="button" class="kx-btn kx-pri" id="khAddGo">追加</button></div><div id="khTasks"><div class="kx-empty">読み込み中…（メールとチャットも読むので、少しかかります）</div></div></section>
-              <section class="kh-mine"><div class="kh-h">自分の担当ユーザー <span class="kx-note" id="khMineN"></span></div><div id="khMine"></div></section>
-            </div>
-          </div>
+          <div class="kx-wrap" id="vHome" hidden><div id="kh2"><div class="kx-empty">読み込み中…</div></div></div>
+          <div class="kx-wrap" id="vPlan" hidden><div class="kx-head"><div><h1 class="kx-title">年間施策</h1></div></div><div id="vPlanBody"></div></div>
+          <div class="kx-wrap" id="vTrend" hidden><div class="kx-head"><div><h1 class="kx-title">傾向分析</h1></div></div><div id="vTrendBody"></div></div>
           <div class="kx-wrap" id="vMissing" hidden>
             <div class="kx-ms-top"><div id="msSum" class="kx-ms-sum"></div><button type="button" class="kx-btn" id="msReload">読み直す</button></div>
             <details class="kx-ms-set"><summary>必須の項目を変える（FSにSFへ入れてもらう情報）</summary><div id="msReq" class="kx-msreq"></div></details>
@@ -646,7 +694,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261104m" defer></script>
-    <script src="kinxs.js?v=20261104m"></script>
+    <script src="kbchat.js?v=20261104n" defer></script>
+    <script src="kinxs.js?v=20261104n"></script>
   </body>
 </html>
