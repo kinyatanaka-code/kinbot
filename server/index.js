@@ -27942,7 +27942,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04h kincall：LINEのリストも新規リストの扱いに（ソース「LINE」＝新規の枠。ほかのリストから移ってきたリードもそろえる。アポの予定名は【初回】）。ディーラーは04dで新規の扱い。";
+const BUILD_TAG = "2026-11-04i kincall：LINEリストからアポを取ったときは、カレンダーの予定のメモに【利用中ATS】（リストの「利用中ATS」の列）も載せる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -32619,8 +32619,21 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
   // リスト名も予定の説明に入れる（どのリストで取ったアポか、カレンダーで分かるように）（2026-11-04）
   let listName = "";
   try { if (target && target.list_id) listName = await getCallListName(target.list_id); } catch {}
+  // LINEリストのアポは、リストの「利用中ATS」の列も予定のメモに載せる（2026-11-04）
+  let atsLine = "";
+  try {
+    const lg = target && target.list_id ? await callListAndGroup({ id: target.list_id }) : { name: listName, group: "" };
+    const isLine = String(target && target.source || "") === "LINE" || /(^|[^A-Za-z])LINE/i.test(`${lg.name || ""} ${lg.group || ""}`.normalize("NFKC"));
+    if (isLine) {
+      const ex = (target && target.extra && typeof target.extra === "object") ? target.extra : {};
+      const k = Object.keys(ex).find((x) => /利用中\s*ATS/i.test(x)) || Object.keys(ex).find((x) => /ATS/i.test(x));
+      const v = k ? String(ex[k] || "").trim() : "";
+      atsLine = `【利用中ATS】${v || "（リストに記載なし）"}\n`;
+    }
+  } catch {}
   const desc = [
     listName ? `【リスト】${listName}\n` : "",
+    atsLine,
     "【先方の連絡先】",
     person ? `担当：${person.replace(/\s*様$/, "")}様` : "",
     `メール：${clientEmail || "（未登録）"}`,
