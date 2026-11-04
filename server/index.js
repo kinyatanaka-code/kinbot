@@ -11132,6 +11132,7 @@ app.get("/api/calls/targets", async (req, res) => {
         採用人数: r.hires == null ? "" : r.hires,
         媒体掲載: r.media_tags || "",
         元のリスト: r.origin_list_name || r.nurture_from_name || "",
+        リストの移り変わり: Array.isArray(r.list_trail) ? r.list_trail.slice(-10) : [],
         ソース: r.source || "",
         見込み: r._exp != null ? Math.round(r._exp * 10000) / 10000 : null,   // 今日かけるリード：掛け合わせのアポ率の見込み
         // 履歴はSFのものを出すので、件数もSFの数に合わせる。
@@ -27928,7 +27929,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04e kincall：ディーラーのリストのアポは、もとのリストがフロッグ・MO失注などでも、予定名を【初回】（新規）にする。";
+const BUILD_TAG = "2026-11-04f kincall：リードをほかのリストへ移すとき（CSVで移す・移す・抜き出す・割り振る）、元のリストとリストの移り変わり（どこから・どこへ・いつ）を残す。架電の記録はリードについたまま。かける画面の「元：」の札に乗せると移り変わりが出る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

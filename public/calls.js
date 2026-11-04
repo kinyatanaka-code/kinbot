@@ -566,7 +566,10 @@ function fromBadge(x) {
   if (/ジャッジ|営業フォロー/.test(`${(x && x["ステージ"]) || ""} ${(x && x["最終ステータス"]) || ""}`)) parts.push(`<span class="kc-src-tag nur" title="ジャッジ・営業フォローのリード">ナーチャリング</span>`);
   if (src && src !== "要確認") parts.push(`<span class="kc-src-tag ${fr}" title="どこから来たリードか（ソース）">${esc(src)}</span>`);
   const listShown = origin || (multi ? ln : "");
-  if (listShown) parts.push(`<span class="kc-src-list" title="${origin ? "元のリスト" : "入っているリスト"}：${esc(listShown)}">${origin ? "元：" : ""}${esc(listShown.replace(/^【\s*復活\s*】/, "復活・"))}</span>`);
+  // リストの移り変わり（どこからどこへ・いつ）。札に乗せると全部出る（2026-11-04）
+  const trail = (x && Array.isArray(x["リストの移り変わり"])) ? x["リストの移り変わり"] : [];
+  const trailTxt = trail.length ? "\n\nリストの移り変わり：\n" + trail.map((t) => { const d = t.at ? new Date(t.at) : null; const dd = d && !isNaN(d) ? `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}` : ""; return `${dd}　${t.from || "？"} → ${t.to || "？"}`; }).join("\n") : "";
+  if (listShown) parts.push(`<span class="kc-src-list" title="${origin ? "元のリスト" : "入っているリスト"}：${esc(listShown)}${esc(trailTxt)}">${origin ? "元：" : ""}${esc(listShown.replace(/^【\s*復活\s*】/, "復活・"))}${trail.length > 1 ? `<small>（${trail.length}回移動）</small>` : ""}</span>`);
   return parts.length ? `<div class="kc-src-line">${parts.join("")}</div>` : "";
 }
 function tempBadge(x) {

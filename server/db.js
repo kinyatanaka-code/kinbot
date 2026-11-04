@@ -746,6 +746,8 @@ export async function initDb() {
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_from_name TEXT;`);
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS origin_list_id INT;`);     // 復活などで移す前にいたリスト
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS origin_list_name TEXT;`);
+  // リストの移り変わり（どこからどこへ・いつ）を残す（2026-11-04）。架電の記録（call_logs）はリードについているので、移しても残る
+  await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS list_trail JSONB;`);
   await sq(`ALTER TABLE call_targets ADD COLUMN IF NOT EXISTS nurture_moved_at TIMESTAMPTZ;`); // ナーチャリングへ入れた日時（日次・週次の集計用） // 担当ルート/既存取引＝社内連携
   await sq(`CREATE INDEX IF NOT EXISTS ix_call_targets_score ON call_targets(list_id, score DESC);`);
   // 求人情報（会社名で架電先に紐づける外部データ）
@@ -4343,7 +4345,7 @@ export async function redistributeListTargets(listId, plan, { onlyPending = true
       先id = nl.id; 先name = nl.name;
     }
     // 別のリストへ移す（list_id を変え、担当もそのメンバーにする）
-    await pool.query(`UPDATE call_targets SET list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`, [arr, 先id, em]);
+    await pool.query(`UPDATE call_targets SET ${trailSql("$2")}, list_id = $2, assigned_to = $3 WHERE id = ANY($1::int[])`, [arr, 先id, em]);
     lists.push({ email: em, listId: 先id, name: 先name, count: arr.length });
   }
   return { total: ids.length, 割り振った: pos, 残した: 残す, ジャッジ除外: judgeKept, byMember, lists, dryRun: !!dryRun };
@@ -4377,8 +4379,8 @@ export async function extractTargetsToNewList({ name, ids, owner = null, created
     const listId = rows[0].id;
     // reassign=true のときは、リストの持ち主に合わせて担当(assigned_to)もそろえる
     const upd = (reassign && own)
-      ? await client.query(`UPDATE call_targets SET list_id = $1, assigned_to = $3 WHERE id = ANY($2::int[])`, [listId, nums, own])
-      : await client.query(`UPDATE call_targets SET list_id = $1 WHERE id = ANY($2::int[])`, [listId, nums]);
+      ? await client.query(`UPDATE call_targets SET ${trailSql("$1")}, list_id = $1, assigned_to = $3 WHERE id = ANY($2::int[])`, [listId, nums, own])
+      : await client.query(`UPDATE call_targets SET ${trailSql("$1")}, list_id = $1 WHERE id = ANY($2::int[])`, [listId, nums]);
     await client.query("COMMIT");
     return { listId, name: rows[0].name, moved: upd.rowCount };
   } catch (e) {
@@ -4456,7 +4458,7 @@ export async function addCallTargets(listId, items = [], { dedupe = false, takeO
           // 指定があれば（2026-11-02）：すでにほかのリストにあるリードを、このリストへ移す。
           //   CSVの情報で空の項目を埋め、列データ（extra）は足し合わせる。担当はCSVの割り振りがあればそれ、無ければそのまま。もう一度かけられるように「済み」を外す
           await pool.query(
-            `UPDATE call_targets SET list_id = $2,
+            `UPDATE call_targets SET ${trailSql("$2")}, list_id = $2,
                 person = CASE WHEN COALESCE(person,'') = '' THEN $3 ELSE person END,
                 phone = CASE WHEN COALESCE(phone,'') = '' THEN $4 ELSE phone END,
                 email = CASE WHEN COALESCE(email,'') = '' THEN $5 ELSE email END,
@@ -5439,6 +5441,12 @@ export async function assignCallTargets(listId, emails = [], { onlyUnassigned = 
 //   ステージ・最終ステータス・履歴の有無で選べる。
 // 選んだ架電先を、別のリストへそのまま移す（コピーではなく移動）。
 // 担当（assigned_to）は、移行先リストの持ち主に付け替える。
+// リストを移すときに、元のリスト（最初のもの）と移り変わりを残す SQL の部品。toExpr＝移す先のリストIDを表す式（$2 など）
+export function trailSql(toExpr) {
+  return `origin_list_id = COALESCE(call_targets.origin_list_id, call_targets.list_id),
+    origin_list_name = COALESCE(call_targets.origin_list_name, (SELECT name FROM call_lists WHERE id = call_targets.list_id)),
+    list_trail = COALESCE(call_targets.list_trail, '[]'::jsonb) || jsonb_build_array(jsonb_build_object('from', (SELECT name FROM call_lists WHERE id = call_targets.list_id), 'to', (SELECT name FROM call_lists WHERE id = (${toExpr})::int), 'at', now()))`;
+}
 export async function moveCallTargets(ids = [], toListId) {
   if (!pool || !toListId) return { moved: 0 };
   const idList = [...new Set((ids || []).map((x) => parseInt(x, 10)).filter(Boolean))];
@@ -5450,7 +5458,7 @@ export async function moveCallTargets(ids = [], toListId) {
     // 復活のリストへ移したときは、ステージを全部 NEW にする（2026-10-18 田中さん）
     const toRevival = lr[0].kind === "recycle_revival" || /【\s*復活\s*】/.test(String(lr[0].name || ""));
     const { rowCount } = await pool.query(
-      `UPDATE call_targets SET list_id = $2, assigned_to = $3${toRevival ? ", stage = 'NEW', done = false" : ""} WHERE id = ANY($1::int[])`,
+      `UPDATE call_targets SET ${trailSql("$2")}, list_id = $2, assigned_to = $3${toRevival ? ", stage = 'NEW', done = false" : ""} WHERE id = ANY($1::int[]) AND list_id <> $2`,
       [idList, toListId, owner]);
     return { moved: rowCount || 0 };
   } catch (e) { console.error("[db] moveCallTargets", e.message); return { moved: 0, error: e.message }; }
