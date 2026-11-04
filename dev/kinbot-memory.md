@@ -2035,3 +2035,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-04 BUILD_TAG=2026-11-04j 田中さん「ホテルリストも新規で、浦林がおすすめ日程が出てくるように」。classifySourceName に /ホテル/ → ソース「ホテル」（LINE の次）、LEAD_FRAMES.new・mcp・calls.js の NEW、fillLeadSources のそろえ方（名前・グループにホテル）、kcApoTagOf（【初回】）、SLOT_REPS_DEFAULT に ホテル: 浦林（日程の候補だけ。割り振りは今までどおり）。版20261104j。
 
 - 2026-11-04 BUILD_TAG=2026-11-04k 田中さん「ディーラー・販売・接客・不動産・ホテルは新規リスト扱いで、浦林の日程が出るようにしたい」。classifySourceName に「販売・接客」（販売・接客／販売接客／接客）と「不動産」を足し（ホテルの次）、LEAD_FRAMES.new・mcp・calls.js の NEW・fillLeadSources のそろえ方・kcApoTagOf にも。SLOT_REPS_DEFAULT＝{ディーラー・ホテル・接客・不動産: 浦林, LINE: 中澤良太}。割り振りの決まりは LINE だけ。版20261104k。
+
+- 2026-11-04 BUILD_TAG=2026-11-04l 田中さん（リスト編集のステージの選ぶ欄）「これも選択できるようにするのと、ステージも特定のStageに一気に変更できるようにしたい」。edStage を msel（いくつでも、（なし）も、単位は件）に、絞り込みは edMselVals。上の帯に「ステージを選ぶ…」（edStageTo：/api/calls/sheet/facets のステージ＋表にあるステージ、最初に開いたとき読む）と「絞り込んだ n件のステージを変える」（edStageFiltered：500件ずつ POST /api/calls/sheet/update {stage}、合計300件まではSFのリードの Status にも入れる、表の値も直して見出しの選択肢を作り直す）。版20261104l。

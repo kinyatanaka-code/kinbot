@@ -9177,6 +9177,8 @@ async function orgLoadLists() {
     if ($("edCsvFile")) $("edCsvFile").addEventListener("change", edImportCsv);
     if ($("edExtract")) $("edExtract").addEventListener("click", edExtract);
     if ($("edMoveBtn")) $("edMoveBtn").addEventListener("click", edMoveFiltered);
+    if ($("edStageTo")) $("edStageTo").addEventListener("focus", edFillStageTo);
+    if ($("edStageBtn")) $("edStageBtn").addEventListener("click", edStageFiltered);
     if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
     if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", edEnrichIndustryBtn);
     if ($("edMoveTo")) $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true });
@@ -9303,7 +9305,7 @@ function edHas(text, q) {
 function edFiltered() {
   const g = _edg;
   const v = (id) => { const el = $(id); return el ? String(el.value || "").trim().toLowerCase() : ""; };
-  const stg = ($("edStage") && $("edStage").value) || "";
+  const stg = edMselVals("edStage");   // いくつでも選べる（2026-11-04）
   const sts = $("edStatus") ? edMselVals("edStatus") : new Set();   // 架電状態は複数選べる（何も選ばなければすべて）
   const med = ($("edMedia") && $("edMedia").value) || "";
   const qCo = v("edQCompany"), qPe = v("edQPerson"), qPh = v("edQPhone"), qEm = v("edQEmail");
@@ -9312,7 +9314,7 @@ function edFiltered() {
   const hasMin = Number.isFinite(empMin), hasMax = Number.isFinite(empMax);
   const dashOnly = !!($("edEmpDash") && $("edEmpDash").checked);
   return _edRows.filter((r) => {
-    if (stg && g(r, "ステージ", "stage") !== stg) return false;
+    if (stg.size && !stg.has(g(r, "ステージ", "stage") || "（なし）")) return false;
     if (sts.size && !sts.has(g(r, "最終ステータス", "最終結果", "status") || "（なし）")) return false;
     { const iv = $("edInd") ? edMselVals("edInd") : new Set(); if (iv.size && !iv.has(String(g(r, "業種", "industry") || "").trim() || "（空）")) return false; }
     // 失注回数：下限〜上限（どちらかだけでもよい）。SFに失注が無い（空白の）会社は0回として数える
@@ -9746,6 +9748,39 @@ async function edIndustrySplit() {
     finally { edRender(); }
   });
 }
+// 絞り込んだ分のステージを、まとめて1つのステージに変える（2026-11-04）。SFのリードの状況にも入れる（300件まで）
+async function edFillStageTo() {
+  const sel = $("edStageTo"); if (!sel || sel.dataset.filled) return;
+  const cur = sel.value;
+  let st = [];
+  try { const d = await (await fetch("/api/calls/sheet/facets")).json(); st = (d.stages || []).map((x) => x.stage); } catch {}
+  for (const r of _edRows) { const v = String(_edg(r, "ステージ", "stage") || "").trim(); if (v && !st.includes(v)) st.push(v); }
+  sel.innerHTML = '<option value="">ステージを選ぶ…</option>' + st.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  if (cur) sel.value = cur;
+  sel.dataset.filled = "1";
+}
+async function edStageFiltered() {
+  const sel = $("edStageTo"); if (!sel) return;
+  if (!sel.dataset.filled) { await edFillStageTo(); sel.focus(); }
+  const to = sel.value; if (!to) { alert("変えるステージを選んでください"); sel.focus(); return; }
+  const rows = edFiltered(); const ids = rows.map((r) => r.id).filter(Boolean);
+  if (!ids.length) { alert("変える行がありません（絞り込み結果が0件です）"); return; }
+  if (!confirm(`絞り込んだ ${ids.length.toLocaleString()} 件のステージを「${to}」にします。${ids.length > 300 ? "（Salesforceのリードの状況には、300件を超えるので入れません）" : "Salesforceのリードの状況にも入れます。"}よろしいですか？`)) return;
+  const stEl = $("edEnrichSt"); const btn = $("edStageBtn"); if (btn) btn.disabled = true;
+  try {
+    let done = 0, sfNg = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const part = ids.slice(i, i + 500);
+      if (stEl) stEl.textContent = `ステージを変えています… ${done}/${ids.length}`;
+      const r = await fetch("/api/calls/sheet/update", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: part, stage: to }) });
+      const d = await r.json().catch(() => ({})); if (!r.ok || !d.ok) throw new Error(d.error || "変えられませんでした");
+      sfNg += (d.stage && d.stage.sfNg) || 0; done += part.length;
+      const set = new Set(part.map(String)); for (const row of _edRows) if (set.has(String(row.id))) { row["ステージ"] = to; row.stage = to; }
+    }
+    if (stEl) stEl.textContent = `${done.toLocaleString()} 件のステージを「${to}」にしました${sfNg ? `（Salesforceへの反映で ${sfNg}件うまくいきませんでした）` : ""}`;
+  } catch (e) { if (stEl) stEl.textContent = "ステージを変えられませんでした：" + e.message; }
+  finally { if (btn) btn.disabled = false; edBuildTable(); edRender(); }
+}
 // 絞り込んだ分を、ほかの（今あるの）リストへ移す（2026-10-30）
 async function edFillMoveTo(force) {
   const sel = $("edMoveTo"); if (!sel || (sel.dataset.filled && !force)) return;
@@ -9823,7 +9858,7 @@ function edBuildTable() {
   const th = (name, filter) => `<th><div class="ed-th-name">${name}</div>${filter ? `<div class="ed-th-f">${filter}</div>` : ""}</th>`;
   const empF = `<div class="ed-empf"><input type="number" id="edEmpMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edEmpMax" class="ed-emp-in" placeholder="上限" min="0" /><label class="ed-dash"><input type="checkbox" id="edEmpDash" />「-」のみ</label></div>`;
   const head = "<tr>" +
-    th("ステージ", sel("edStage", uniq((r) => g(r, "ステージ", "stage")), "すべて")) +
+    th("ステージ", msel("edStage", uniq((r) => g(r, "ステージ", "stage") || "（なし）"))) +
     th("企業名", txt("edQCompany")) +
     th("担当者", txt("edQPerson")) +
     th("電話", txt("edQPhone")) +
@@ -9864,7 +9899,7 @@ function edWireMsel(box) {
   const btn = box.querySelector(".ed-msel-btn"), pop = box.querySelector(".ed-msel-pop");
   const label = () => {
     const v = [...edMselVals(box.id)];
-    const unit = ["edStatus", "edPlReason", "edClList", "edLostReason", "edLostReasonMid", "edInd"].includes(box.id) ? "件" : "人";
+    const unit = ["edStatus", "edPlReason", "edClList", "edLostReason", "edLostReasonMid", "edInd", "edStage"].includes(box.id) ? "件" : "人";
     btn.textContent = (v.length === 0 ? "すべて" : v.length === 1 ? v[0] : `${v.length}${unit}を選択中`) + " ▾";
     btn.classList.toggle("on", v.length > 0);
   };
@@ -9938,6 +9973,7 @@ function edRenderBody() {
   if ($("edNurN")) $("edNurN").textContent = rows.length.toLocaleString();
   if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
   if ($("edMoveBtn")) { $("edMoveBtn").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件をほかのリストへ移す`; $("edMoveBtn").disabled = rows.length === 0; }
+  if ($("edStageBtn")) { $("edStageBtn").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件のステージを変える`; $("edStageBtn").disabled = rows.length === 0; }
   const tb = $("edTbody"); if (!tb) return;
   tb.innerHTML = rows.length
     ? rows.map((r) => {

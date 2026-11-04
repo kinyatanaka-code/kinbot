@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
-    <link rel="stylesheet" href="style.css?v=20261104k" />
+    <link rel="stylesheet" href="style.css?v=20261104l" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -476,6 +476,8 @@
                 <select id="edExtractOwner" class="kc-input" style="max-width:220px" title="抜き出した新リストの所有者。メンバーを選ぶと担当もそのメンバーにそろえます"><option value="">抜き出し先：自分の所有（担当はそのまま）</option></select>
                 <button type="button" class="btn" id="edExtract" title="いま絞り込んで表示している行を、元のリストから移して、新しい1つのリストにまとめます（担当はそのまま）">絞り込んだ分を新リストに抜き出す</button>
                 <button type="button" class="btn ghost" id="edIndSplit" title="絞り込んだ分を、業種・会社名から ディーラー・不動産・飲食・ホテル に分けて、それぞれのリストへ移します（移す前に件数を確かめられます）">業界ごとにリストへ分ける</button>
+                <select id="edStageTo" class="kc-input" style="max-width:200px" title="絞り込んだ分のステージを、まとめてこのステージにする"><option value="">ステージを選ぶ…</option></select>
+                <button type="button" class="btn ghost" id="edStageBtn" title="いま絞り込んで表示している行のステージを、選んだステージにまとめて変えます（Salesforceのリードの状況にも入れます）">絞り込んだ分のステージを変える</button>
                 <select id="edMoveTo" class="kc-input" style="max-width:240px" title="絞り込んだ分を移す先のリスト"><option value="">移す先のリストを選ぶ…</option></select>
                 <button type="button" class="btn ghost" id="edMoveBtn" title="いま絞り込んで表示している行を、元のリストから選んだリストへ移します（担当はそのまま）">絞り込んだ分をほかのリストへ移す</button>
                 <input type="file" id="edCsvFile" accept=".csv,text/csv" hidden />
@@ -637,9 +639,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261104k"></script>
-    <script src="calls.js?v=20261104k"></script>
-    <script src="nav.js?v=20261104k"></script>
+    <script src="sf-data.js?v=20261104l"></script>
+    <script src="calls.js?v=20261104l"></script>
+    <script src="nav.js?v=20261104l"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
