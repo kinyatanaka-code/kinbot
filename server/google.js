@@ -1719,3 +1719,19 @@ export async function chatRecentMessages(owner, space, sinceIso, max = 40) {
   return (d.messages || []).map((m) => ({ name: m.name, text: m.text || m.formattedText || "", at: m.createTime, sender: (m.sender && (m.sender.displayName || m.sender.name)) || "", senderType: (m.sender && m.sender.type) || "", thread: (m.thread && m.thread.name) || "",
     mentions: (m.annotations || []).filter((a) => a.type === "USER_MENTION").map((a) => (a.userMention && a.userMention.user && (a.userMention.user.displayName || a.userMention.user.name)) || "") }));
 }
+
+// スプレッドシートに新しいタブを作って、表を書き込む（kinXs の一斉配信の書き出し。2026-11-04）。同じ名前のタブがあれば「(2)」を付ける
+export async function writeSheetNewTab(owner, spreadsheetId, title, rows) {
+  if (!spreadsheetId) throw new Error("スプレッドシートのIDが設定されていません");
+  const token = await accessToken(owner);
+  const base = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}`;
+  const meta = await fetch(`${base}?fields=sheets.properties.title`, { headers: { authorization: `Bearer ${token}` } });
+  if (!meta.ok) { const t = await meta.text(); const e = new Error(`スプレッドシートを開けません ${meta.status}: ${t.slice(0, 200)}`); if (meta.status === 403) e.needScope = true; throw e; }
+  const titles = new Set(((await meta.json()).sheets || []).map((s) => s.properties.title));
+  let name = String(title || "書き出し").slice(0, 90); for (let i = 2; titles.has(name); i++) name = `${String(title).slice(0, 85)}(${i})`;
+  const add = await fetch(`${base}:batchUpdate`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ requests: [{ addSheet: { properties: { title: name } } }] }) });
+  if (!add.ok) { const t = await add.text(); throw new Error(`タブを作れません ${add.status}: ${t.slice(0, 200)}`); }
+  const put = await fetch(`${base}/values/${encodeURIComponent(name)}!A1?valueInputOption=RAW`, { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ values: rows }) });
+  if (!put.ok) { const t = await put.text(); throw new Error(`書き込めません ${put.status}: ${t.slice(0, 200)}`); }
+  return { tab: name, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit` };
+}

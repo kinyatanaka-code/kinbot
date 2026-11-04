@@ -1698,11 +1698,7 @@ function renderPlanV2() {
     <section class="v2-sec"><h2>来月に向けて今月やる準備</h2><div data-prep>${(d.prep || []).map((p0) => `<label class="v2-ag"><input type="checkbox" ${p0.done ? "checked" : ""} /><input class="kx-in" value="${esc(p0.t)}" /></label>`).join("")}<label class="v2-ag"><input type="checkbox" /><input class="kx-in" placeholder="＋ 準備することを足す（例：1月ウェビナーのテーマを決める）" /></label></div><button type="button" class="kx-btn" data-prep-save style="margin-top:6px">準備を保存</button></section>
     <section class="v2-sec"><h2>一斉配信</h2>
       <div class="kx-note">① 施策を選ぶ</div><div class="v2-pick">${d.measures.map((x) => `<button type="button" class="${kp.sel === x.key ? "on" : ""}" data-pick="${esc(x.key)}"><b>${esc(x.name)}</b><small>${esc(x.kind === "tech" ? "テック" : "ロー")}・${esc(x.ch)}・${esc(x.when)}・対象${x.rows.length}社</small></button>`).join("") || '<span class="kx-note">今月の施策はありません</span>'}</div>
-      ${selMe ? `<div class="kx-note" style="margin-top:10px">② 対象企業を確認する　対象 ${selMe.rows.length}社 ／ 選択中 ${kp.chk.size}社 ／ 対象外 ${selMe.counts["対象外"] || 0}社</div>
-        <div class="v2-tbl"><div class="v2-tr h dl"><span><input type="checkbox" data-chk-all /></span><span>取引先名</span><span>プラン</span><span>CS担当</span><span>ステータス</span><span>判定</span></div>
-        ${selMe.rows.map((r) => `<div class="v2-tr dl"><span><input type="checkbox" data-chk="${esc(r.id)}" ${kp.chk.has(r.id) ? "checked" : ""}/></span><span class="co">${esc(r.name)}</span><span class="kx-note">${esc((r.products || []).slice(0, 2).join("・"))}</span><span>${esc(kxSurname(r.cs) || "未定")}</span><span>${esc(r.status)}</span><span>${r.status === "対象外" ? '<span class="v2-miss">対象外</span>' : '<span class="v2-tag">対象</span>'}</span></div>`).join("")}</div>
-        <div class="v2-dl-acts"><button type="button" class="kx-btn" data-dl-csv>スプレッドシート用に書き出す（CSV）</button>${selMe.ch === "郵送" ? '<button type="button" class="kx-btn kx-pri" data-dl-done>選んだ企業を「発送済み」にする</button>' : '<button type="button" class="kx-btn kx-pri" data-dl-done>選んだ企業を「完了」にする</button>'}<button type="button" class="kx-btn" data-dl-out>選んだ企業を「対象外」にする</button></div>
-        <div class="kx-note">③ メールの一斉配信（テンプレート・差し込み・予約・開封の数）と、送付先の住所・郵便番号（SFの請求先）は、このあと足します。</div>` : ""}
+      ${selMe ? kpTargetsHtml(selMe) : ""}
     </section>
     <section class="v2-sec"><h2>月間アクセス数の取り込み <span class="kx-note">レイヤー（A：5件以上／B：0〜4件）と0件の判定に使います</span></h2><textarea class="kx-in" data-acc rows="3" placeholder="会社名,月（2026-10）,アクセス数　を1行ずつ（CSVを貼り付け）" style="width:100%"></textarea><button type="button" class="kx-btn" data-acc-save style="margin-top:6px">取り込む</button><span class="kx-note" data-acc-st></span></section>`;
   box.querySelectorAll("[data-ym]").forEach((b) => b.addEventListener("click", () => { const n = Number(b.dataset.ym); kp.ym = n === 0 ? kxNowYm() : kxYmAdd(kp.ym, n); kp.data = null; kp.sel = ""; kp.chk.clear(); renderPlanV2(); }));
@@ -1713,18 +1709,13 @@ function renderPlanV2() {
     try { await api("/api/kinxs/plan/prep", { method: "PUT", body: JSON.stringify({ ym: kp.ym, items }) }); kpLoad(true); } catch (e) { alert(e.message); }
   });
   box.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { kp.sel = kp.sel === b.dataset.pick ? "" : b.dataset.pick; kp.chk.clear(); renderPlanV2(); }));
-  box.querySelectorAll("[data-chk]").forEach((c) => c.addEventListener("change", () => { c.checked ? kp.chk.add(c.dataset.chk) : kp.chk.delete(c.dataset.chk); }));
-  const ca = box.querySelector("[data-chk-all]"); if (ca) ca.addEventListener("change", () => { for (const r of selMe.rows) ca.checked ? kp.chk.add(r.id) : kp.chk.delete(r.id); renderPlanV2(); });
-  const csvB = box.querySelector("[data-dl-csv]"); if (csvB) csvB.addEventListener("click", () => { const rows = selMe.rows.filter((r) => !kp.chk.size || kp.chk.has(r.id)); kpCsv(`${kp.ym}_${selMe.name}対象.csv`, ["プラン", "取引先名", "CS担当", "ステータス", "判定・理由"], rows.map((r) => [(r.products || []).join("・"), r.name, r.cs, r.status, r.status === "対象外" ? "対象外" : "対象"])); });
-  const bulk = async (status) => { if (!kp.chk.size) { alert("企業を選んでください"); return; } try { await api("/api/kinxs/actions", { method: "PUT", body: JSON.stringify({ mkey: selMe.key, ym: kp.ym, ids: [...kp.chk], status }) }); kp.chk.clear(); kpLoad(true); } catch (e) { alert(e.message); } };
-  const dn = box.querySelector("[data-dl-done]"); if (dn) dn.addEventListener("click", () => bulk("完了"));
-  const ot = box.querySelector("[data-dl-out]"); if (ot) ot.addEventListener("click", () => bulk("対象外"));
+  if (selMe) kpWireTargets(box, selMe);
   box.querySelector("[data-acc-save]").addEventListener("click", async () => {
     const rows = box.querySelector("[data-acc]").value.split(/\r?\n/).map((l) => l.split(/[,\t]/).map((c) => c.trim().replace(/^"|"$/g, ""))).filter((c) => c.length >= 3 && /\d/.test(c[2])).map((c) => ({ name: c[0], ym: c[1], count: c[2] }));
     const st = box.querySelector("[data-acc-st]");
     try { const r = await api("/api/kinxs/access", { method: "POST", body: JSON.stringify({ rows }) }); st.textContent = `　${r.saved}件を取り込みました${r.unmatchedCount ? `（会社が見つからない ${r.unmatchedCount}件：${r.unmatched.slice(0, 5).join("・")}…）` : ""}`; kpLoad(true); } catch (e) { st.textContent = "　" + e.message; }
   });
-  if (!kp.timer) kp.timer = setInterval(() => { if (!document.querySelector(".v2-pop-bg")) kpLoad(true); }, 30000);
+  if (!kp.timer) kp.timer = setInterval(() => { const ae = document.activeElement; if (!document.querySelector(".v2-pop-bg") && !(ae && ae.closest && ae.closest("#vPlanBody") && /INPUT|SELECT|TEXTAREA/.test(ae.tagName))) kpLoad(true); }, 30000);
 }
 
 // ---------- 電話フォロー ----------
@@ -1755,13 +1746,15 @@ function renderCallV2() {
     const rows = rows0.filter((r) => (!kc.f.reason || r.reason === kc.f.reason) && (!kc.f.cs || kxSurname(r.cs) === kc.f.cs) && (!kc.f.st || r.status === kc.f.st));
     const eff = rows0.filter((r) => r.status !== "対象外"); const dn = eff.filter((r) => r.status === "完了").length; const pct = eff.length ? Math.round((dn / eff.length) * 100) : 0;
     const ST = ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"];
+    const needIds = rows0.map((r) => r.id).filter((id) => !(kc.inf && kc.inf[id]));
+    if (needIds.length && !kc.infBusy) { kc.infBusy = true; api("/api/kinxs/sfinfo", { method: "POST", body: JSON.stringify({ ids: needIds }) }).then((d2) => { kc.inf = { ...(kc.inf || {}), ...(d2.info || {}) }; kc.infBusy = false; renderCallV2(); }).catch(() => { kc.infBusy = false; }); }
     body = `<div class="v2-month"><button type="button" class="kx-btn" data-kc-m="-1">◀</button><b>${kxYmLabel(kc.ym)}</b><button type="button" class="kx-btn" data-kc-m="1">▶</button><button type="button" class="kx-btn" data-kc-csv2 style="margin-left:auto">スプレッドシート用に書き出す（CSV）</button></div>
       <div class="v2-strip">${d.months.map((m) => `<button type="button" class="${m.ym === kc.ym ? "on" : ""}" data-kc-ym="${m.ym}"><b>${Number(m.ym.slice(5))}月</b><small>${esc(m.reasons.join("・") || "—")}</small><span>${m.future ? "予定" : `完了 ${m.done}`}</span></button>`).join("")}</div>
       <section class="v2-sec"><div class="v2-big"><span class="l">今月のサマリ</span><span class="v">完了 ${dn}<small>/ ${eff.length}社</small></span><span class="pct" style="font-weight:800;color:#0E6B4E">${pct}%</span><div class="bar" style="flex:1;min-width:120px"><i style="width:${pct}%"></i></div></div>
         <div class="v2-big" style="margin-top:6px">${ST.map((s) => `<button type="button" class="v2-chip ${kc.f.st === s ? "red" : ""}" data-kc-st="${esc(s)}">${esc(s)} <b>${rows0.filter((r) => r.status === s).length}</b></button>`).join("")}</div></section>
       <div class="v2-month"><select class="kx-in" data-kc-f="reason" style="max-width:180px"><option value="">電話の理由：すべて</option>${[...new Set(rows0.map((r) => r.reason))].map((x) => `<option ${kc.f.reason === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select><select class="kx-in" data-kc-f="cs" style="max-width:160px"><option value="">担当：全員</option>${[...new Set(rows0.map((r) => kxSurname(r.cs)).filter(Boolean))].map((x) => `<option ${kc.f.cs === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
-      <div class="v2-tbl" style="max-height:none"><div class="v2-act h call co2"><span>企業名</span><span>電話の理由</span><span>担当</span><span>ステータス</span><span>架電</span><span>結果</span><span>メモ・次のアクション</span><span>NA日</span></div>
-      ${rows.map((r) => `<div class="v2-act call co2" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}"><span class="co" data-open="${esc(r.id)}" role="button" tabindex="0">${kxLogoMini(r)}${esc(r.name)}</span><span><span class="v2-tag">${esc(r.reason)}</span></span><span>${esc(kxSurname(r.cs) || "未定")}</span>
+      <div class="v2-tbl" style="max-height:none"><div class="v2-act h call co2"><span>企業名</span><span>電話の理由</span><span>担当</span><span>電話番号（SF）</span><span>ステータス</span><span>架電</span><span>結果</span><span>メモ・次のアクション</span><span>NA日</span></div>
+      ${rows.map((r) => `<div class="v2-act call co2" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}"><span class="co" data-open="${esc(r.id)}" role="button" tabindex="0">${kxLogoMini(r)}${esc(r.name)}</span><span><span class="v2-tag">${esc(r.reason)}</span></span><span>${esc(kxSurname(r.cs) || "未定")}</span><span class="tel">${kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? `<a href="tel:${esc(kc.inf[r.id].phone)}">${esc(kc.inf[r.id].phone)}</a>` : "—") : "…"}</span>
         <select class="kx-in" data-f="status">${ST.map((s) => `<option ${s === r.status ? "selected" : ""}>${s}</option>`).join("")}</select>
         <span class="calls"><b>${r.calls}</b>回 <button type="button" class="hp-b" data-call>＋架電</button><small>${esc(r.lastCall ? r.lastCall.slice(5).replace("-", "/") : "")}</small></span>
         <select class="kx-in" data-f="result">${["", "良好", "普通", "懸念あり", "未接続"].map((s) => `<option value="${s}" ${s === r.result ? "selected" : ""}>${s || "—"}</option>`).join("")}</select>
@@ -1782,9 +1775,53 @@ function renderCallV2() {
     const cb = row.querySelector("[data-call]"); if (cb) cb.addEventListener("click", async () => { const stEl = row.querySelector('[data-f="status"]'); const st0 = stEl.value === "未対応" ? "架電済み（不在）" : stEl.value; try { await kpSave(mkey, kc.ym, { account_id: id, call: true, status: st0 }); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`); renderCallV2(); } catch (e) { alert(e.message); } });
   });
   const c1 = box.querySelector("[data-kc-csv]"); if (c1) c1.addEventListener("click", () => kpCsv(`電話フォロー_${d.period}期_月別.csv`, ["月", "電話の理由", "対象", "未対応", "架電済み（不在）", "対応中", "完了", "完了率", "良好", "普通", "懸念あり"], d.months.map((m) => [m.ym, m.reasons.join("・"), m.total, m.counts["未対応"] || 0, m.counts["架電済み（不在）"] || 0, m.counts["対応中"] || 0, m.done, m.total ? Math.round((m.done / m.total) * 100) + "%" : "", m.results["良好"] || 0, m.results["普通"] || 0, m.results["懸念あり"] || 0])));
-  const c2 = box.querySelector("[data-kc-csv2]"); if (c2) c2.addEventListener("click", () => { const ms = ((kc.plan && kc.plan.measures) || []).filter((x) => x.call); kpCsv(`電話フォロー_${kc.ym}.csv`, ["企業名", "電話の理由", "担当", "ステータス", "架電回数", "最終架電日", "結果", "メモ・次のアクション", "NA日"], ms.flatMap((x) => x.rows.map((r) => [r.name, x.reason, r.cs, r.status, r.calls, r.lastCall, r.result, r.memo, r.naDate]))); });
+  const c2 = box.querySelector("[data-kc-csv2]"); if (c2) c2.addEventListener("click", () => { const ms = ((kc.plan && kc.plan.measures) || []).filter((x) => x.call); kpCsv(`電話フォロー_${kc.ym}.csv`, ["企業名", "電話の理由", "担当", "電話番号", "ステータス", "架電回数", "最終架電日", "結果", "メモ・次のアクション", "NA日"], ms.flatMap((x) => x.rows.map((r) => [r.name, x.reason, r.cs, ((kc.inf || {})[r.id] || {}).phone || "", r.status, r.calls, r.lastCall, r.result, r.memo, r.naDate]))); });
 }
 
 // 起動（年間施策・電話フォロー）。let の変数を使うので、いちばん最後で呼ぶ
 if (VIEW === "plan") { if ($("kxPageName")) $("kxPageName").textContent = "年間施策"; renderPlanV2(); }
 if (VIEW === "call") { if ($("kxPageName")) $("kxPageName").textContent = "電話フォロー"; renderCallV2(); }
+
+// ---------- 一斉配信：② 対象企業を確認する（SFの担当者・メール・電話・住所・商談所有者と判定）＋ 書き出し・発送済み ----------
+kp.tg = null; kp.tgKey = ""; kp.jf = "";
+function kpTargetsHtml(me) {
+  if (kp.tgKey !== `${kp.ym}|${me.key}`) { kp.tgKey = `${kp.ym}|${me.key}`; kp.tg = null; api(`/api/kinxs/plan/targets?ym=${kp.ym}&mkey=${me.key}`).then((d) => { kp.tg = d; renderPlanV2(); }).catch((e) => { kp.tg = { error: e.message }; renderPlanV2(); }); }
+  if (!kp.tg) return '<div class="kx-note" style="margin-top:10px">SFから担当者・住所などを読んでいます…</div>';
+  if (kp.tg.error) return `<div class="kx-empty">読めませんでした：${esc(kp.tg.error)}</div>`;
+  const rows = kp.tg.rows.filter((r) => !kp.jf || r.j === kp.jf);
+  const J = { 対象: "ok", 要確認: "warn", 送れない: "ng", 対象外: "out" };
+  const nJ = (s) => kp.tg.rows.filter((r) => r.j === s).length;
+  return `<div class="kx-note" style="margin-top:10px">送る前に直したい情報</div>
+    <div class="v2-big">${Object.entries(kp.tg.fix).map(([k, n]) => `<span class="v2-chip ${n ? "red" : ""}">${esc(k)} <b>${n}</b></span>`).join("")}</div>
+    <div class="kx-note" style="margin-top:8px">② 対象企業を確認する　対象 ${nJ("対象")}社 ／ 要確認 ${nJ("要確認")}社 ／ 送れない ${nJ("送れない")}社 ／ 対象外 ${nJ("対象外")}社 ／ 選択中 ${kp.chk.size}社</div>
+    <div class="v2-big" style="margin-top:4px">${["", "対象", "要確認", "送れない", "対象外"].map((s) => `<button type="button" class="v2-chip ${kp.jf === s ? "red" : ""}" data-jf="${s}">${s || "すべて"}</button>`).join("")}</div>
+    <div class="v2-tbl" style="max-height:520px"><div class="v2-tr h dl2"><span><input type="checkbox" data-chk-all /></span><span>取引先名</span><span>プラン</span><span>担当者</span><span>メール</span><span>電話</span><span>郵便番号</span><span>住所</span><span>商談所有者</span><span>確認</span><span>判定</span></div>
+    ${rows.map((r) => `<div class="v2-tr dl2" data-sid="${esc(r.id)}"><span><input type="checkbox" data-chk="${esc(r.id)}" ${kp.chk.has(r.id) ? "checked" : ""}/></span><span class="co" data-open="${esc(r.id)}" role="button" tabindex="0">${esc(r.name)}</span><span class="kx-note">${esc((r.products || []).slice(0, 1).join(""))}</span><span>${esc(r.contact || "—")}</span><span class="sm">${esc(r.email || "—")}</span><span class="sm">${esc(r.phone || "—")}</span>
+      <span><input class="kx-in sm" data-sd="postal" value="${esc(r.postal || "")}" placeholder="〒" /></span><span><input class="kx-in sm" data-sd="address" value="${esc(r.address || "")}" placeholder="住所" title="${r.sendEdited ? "kinXsで直した送付先（SFの取り込みで消えません）" : "SFの請求先"}" /></span><span>${esc(r.owner || "—")}</span>
+      <span><select class="kx-in sm" data-sd="check">${["", "確認OK", "修正必要", "対象外"].map((s) => `<option value="${s}" ${s === (r.check || "") ? "selected" : ""}>${s || "未確認"}</option>`).join("")}</select></span><span><span class="v2-j ${J[r.j]}">${esc(r.j)}</span>${r.why ? `<small>${esc(r.why)}</small>` : ""}</span></div>`).join("") || '<div class="kx-empty">ありません</div>'}</div>
+    <div class="v2-dl-acts"><input class="kx-in" data-sheet placeholder="DOCユーザーリストのURL（一度入れれば覚えます）" style="min-width:280px" /><button type="button" class="kx-btn kx-pri" data-dl-sheet>スプレッドシートに書き出す（新しいタブ）</button><button type="button" class="kx-btn" data-dl-csv>CSVで書き出す</button>${me.ch === "郵送" ? '<button type="button" class="kx-btn" data-dl-done>選んだ企業を「発送済み」にする</button>' : '<button type="button" class="kx-btn" data-dl-done>選んだ企業を「完了」にする</button>'}<button type="button" class="kx-btn" data-dl-out>選んだ企業を「対象外」にする</button><span class="kx-note" data-dl-st></span></div>
+    <div class="kx-note">郵便番号・住所はSFの請求先です。ここで直すと kinXs の送付先として残り、SFの取り込みで消えません（SFには書き戻しません）。③ メールの一斉配信（テンプレート・差し込み・予約・開封の数）は、このあと足します。</div>`;
+}
+function kpWireTargets(box, me) {
+  if (!kp.tg || kp.tg.error) return;
+  box.querySelectorAll(".v2-tr.dl2 [data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
+  box.querySelectorAll("[data-jf]").forEach((b) => b.addEventListener("click", () => { kp.jf = b.dataset.jf; renderPlanV2(); }));
+  box.querySelectorAll("[data-chk]").forEach((c) => c.addEventListener("change", () => { c.checked ? kp.chk.add(c.dataset.chk) : kp.chk.delete(c.dataset.chk); }));
+  const ca = box.querySelector("[data-chk-all]"); if (ca) ca.addEventListener("change", () => { for (const r of kp.tg.rows.filter((x) => !kp.jf || x.j === kp.jf)) ca.checked ? kp.chk.add(r.id) : kp.chk.delete(r.id); renderPlanV2(); });
+  box.querySelectorAll("[data-sd]").forEach((el) => el.addEventListener("change", async () => {
+    const id = el.closest("[data-sid]").dataset.sid;
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/send`, { method: "PUT", body: JSON.stringify({ [el.dataset.sd]: el.value }) }); el.style.borderColor = "#1D9E75"; kp.tgKey = ""; renderPlanV2(); }
+    catch (e) { el.style.borderColor = "#C43D3D"; alert(e.message); }
+  }));
+  const sel = () => kp.tg.rows.filter((r) => kp.chk.size ? kp.chk.has(r.id) : (!kp.jf || r.j === kp.jf));
+  const table = () => [["プラン", "取引先名", "担当者", "メール", "電話", "郵便番号", "住所", "商談所有者", "判定", "理由"], ...sel().map((r) => [(r.products || []).join("・"), r.name, r.contact || "", r.email || "", r.phone || "", r.postal || "", r.address || "", r.owner || "", r.j, r.why || ""])];
+  const csvB = box.querySelector("[data-dl-csv]"); if (csvB) csvB.addEventListener("click", () => { const t = table(); kpCsv(`${kp.ym}_${me.name}対象.csv`, t[0], t.slice(1)); });
+  const shB = box.querySelector("[data-dl-sheet]"); if (shB) shB.addEventListener("click", async () => {
+    const st = box.querySelector("[data-dl-st]"); st.textContent = "　書き出しています…";
+    try { const r = await api("/api/kinxs/plan/sheet", { method: "POST", body: JSON.stringify({ sheetId: box.querySelector("[data-sheet]").value.trim() || undefined, title: `${kp.ym}_${me.name.replace(/[（(].*$/, "")}対象`, rows: table() }) }); st.innerHTML = `　タブ「${esc(r.tab)}」に書き出しました　<a href="${esc(r.url)}" target="_blank" rel="noopener">開く ↗</a>`; }
+    catch (e) { st.textContent = "　" + e.message; }
+  });
+  const bulk = async (status) => { if (!kp.chk.size) { alert("企業を選んでください"); return; } try { await api("/api/kinxs/actions", { method: "PUT", body: JSON.stringify({ mkey: me.key, ym: kp.ym, ids: [...kp.chk], status }) }); kp.chk.clear(); kp.tgKey = ""; kpLoad(true); } catch (e) { alert(e.message); } };
+  const dn = box.querySelector("[data-dl-done]"); if (dn) dn.addEventListener("click", () => bulk("完了"));
+  const ot = box.querySelector("[data-dl-out]"); if (ot) ot.addEventListener("click", () => bulk("対象外"));
+}

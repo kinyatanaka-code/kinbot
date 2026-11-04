@@ -697,7 +697,7 @@ import {
   gmailCreateDraft, gmailDraftExists, chatMySpaces, chatRecentMessages, sheetTabs,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
+  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
   writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
@@ -13641,6 +13641,19 @@ app.get("/api/kinxs/users", async (req, res) => {
   try {
     if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     const { items, rules } = await kinxsBuild();
+    // 施策（年間施策・電話フォロー）の NA日の1週間前で未完了なら、要アクション（納品後）に足す（2026-11-04 要望書 4-3・修正点 3）
+    try {
+      const nowYm = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+      const acts = await kxActionsList({ yms: [kxYmShift(nowYm, -1), nowYm, kxYmShift(nowYm, 1)] });
+      const byId = new Map(items.map((x) => [x.id, x]));
+      for (const a of acts) {
+        if (!a.na_date || ["完了", "対象外"].includes(a.status)) continue;
+        const nd = new Date(new Date(a.na_date).getTime() + 9 * 3600000).toISOString().slice(0, 10);
+        const l = Math.ceil((Date.parse(nd + "T23:59:59+09:00") - Date.now()) / 86400000); if (l > 7) continue;
+        const x = byId.get(a.account_id); if (!x) continue; const me = KX_MEASURES.find((m) => m.key === a.mkey) || { name: a.mkey };
+        (x.actions = x.actions || []).push({ group: "納品後", kind: me.name, detail: l >= 0 ? `${me.name}（あと${l}日）` : `${me.name}（${-l}日過ぎ）`, due: nd, left: l, measure: a.mkey });
+      }
+    } catch {}
     items.sort((a, b) => (b.score - a.score) || String(a.renew || "9").localeCompare(String(b.renew || "9")));
     const csOptions = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => m.name).filter(Boolean);
     res.json({ ok: true, items, rules, labels: KX_LABELS, usages: KX_USAGE, csOptions, prodLabels: KX_PROD_LABELS, snsPhases: KX_SNS_PHASES });
@@ -14128,6 +14141,90 @@ app.put("/api/kinxs/plan/prep", async (req, res) => {
     const st = await getSettings().catch(() => ({})); await saveSettings({ kxPrep: { ...(st.kxPrep || {}), [ym]: items } });
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ===== kinXs 一斉配信の対象の詳しい情報（SFの取引先・取引先責任者・商談所有者）と判定（UI刷新 第3弾の残り・2026-11-04）=====
+const _kxSfInfoCache = new Map();   // account_id → { at, v }
+async function kxSfInfo(ids) {
+  const out = {}; const need = [];
+  for (const id of ids) { const c = _kxSfInfoCache.get(id); if (c && Date.now() - c.at < 30 * 60 * 1000) out[id] = c.v; else need.push(id); }
+  if (!need.length) return out;
+  const rows = await kinxsList().catch(() => []); const byId = new Map(rows.map((r) => [r.account_id, r]));
+  const sfIdOf = (id) => { const r = byId.get(id) || {}; const v = /^manual-/.test(id) ? ((r.info || {}).sf_account_id || "") : id; return /^[0-9a-zA-Z]{15,18}$/.test(v) ? v : ""; };
+  const st0 = await getSettings().catch(() => ({})); const sfU = await pickSfUser(st0.psOwner || "").catch(() => "");
+  const map = new Map(need.map((id) => [sfIdOf(id), id]).filter(([s]) => s));
+  if (sfU && map.size) {
+    const sids = [...map.keys()];
+    for (let i = 0; i < sids.length; i += 150) {
+      const part = sids.slice(i, i + 150).map((s) => `'${s}'`).join(",");
+      const accs = (await sfQuery(sfU, `SELECT Id, Phone, BillingPostalCode, BillingState, BillingCity, BillingStreet, (SELECT Name, Email, Phone, Title FROM Contacts ORDER BY CreatedDate DESC LIMIT 1), (SELECT Owner.Name FROM Opportunities ORDER BY CloseDate DESC LIMIT 1) FROM Account WHERE Id IN (${part})`).catch(() => ({ records: [] }))).records || [];
+      for (const a of accs) {
+        const id = map.get(a.Id) || map.get(String(a.Id).slice(0, 15)) || [...map.entries()].find(([s]) => String(a.Id).startsWith(s))?.[1]; if (!id) continue;
+        const ct = ((a.Contacts && a.Contacts.records) || [])[0] || {}; const op = ((a.Opportunities && a.Opportunities.records) || [])[0] || {};
+        out[id] = { phone: a.Phone || ct.Phone || "", postal: a.BillingPostalCode || "", address: [a.BillingState, a.BillingCity, a.BillingStreet].filter(Boolean).join(""), contact: ct.Name || "", title: ct.Title || "", email: ct.Email || "", owner: (op.Owner && op.Owner.Name) || "" };
+      }
+    }
+  }
+  for (const id of need) { if (!out[id]) out[id] = { phone: "", postal: "", address: "", contact: "", email: "", owner: "" }; _kxSfInfoCache.set(id, { at: Date.now(), v: out[id] }); }
+  // kinXs で手で直した送付先（info.send）で上書き
+  for (const id of ids) { const sd = ((byId.get(id) || {}).info || {}).send || {}; out[id] = { ...out[id], ...(sd.postal ? { postal: sd.postal } : {}), ...(sd.address ? { address: sd.address } : {}), ...(sd.name ? { contact: sd.name } : {}), ...(sd.dept ? { dept: sd.dept } : {}), check: sd.check || "", ng: !!sd.ng, sendEdited: !!(sd.postal || sd.address || sd.name) }; }
+  return out;
+}
+// 企業×施策の判定：対象外 → 送れない（メールなし・郵便番号なし・住所の修正が必要）→ 要確認（郵送で住所の確認がまだ）→ 対象
+function kxJudge(me, row, inf) {
+  if (row.status === "対象外" || inf.ng || inf.check === "対象外") return { j: "対象外", why: inf.ng ? "送付・配信NG" : "対象外にした" };
+  if (me.ch === "メール" && !inf.email) return { j: "送れない", why: "メールなし" };
+  if (me.ch === "郵送") {
+    if (!inf.postal) return { j: "送れない", why: "郵便番号なし" };
+    if (!inf.address) return { j: "送れない", why: "住所なし" };
+    if (inf.check === "修正必要") return { j: "送れない", why: "住所の修正が必要" };
+    if (inf.check !== "確認OK") return { j: "要確認", why: "住所の確認がまだ" };
+  }
+  if (me.ch === "電話" && !inf.phone) return { j: "要確認", why: "電話番号なし" };
+  return { j: "対象", why: "" };
+}
+app.get("/api/kinxs/plan/targets", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const ym = String(req.query.ym || ""); const mkey = String(req.query.mkey || "");
+    const me0 = (await kxPlanFor(ym)).find((x) => x.key === mkey); if (!me0) return res.status(404).json({ error: "その月の施策が見つかりません" });
+    const inf = await kxSfInfo(me0.rows.map((r) => r.id));
+    const rows = me0.rows.map((r) => ({ ...r, ...inf[r.id], ...kxJudge(me0, r, inf[r.id] || {}) }));
+    const fix = { "住所の修正が必要": rows.filter((r) => r.why === "住所の修正が必要").length, "郵便番号なし": rows.filter((r) => r.why === "郵便番号なし").length, "メールなし": rows.filter((r) => r.why === "メールなし").length, "対象外": rows.filter((r) => r.j === "対象外").length };
+    res.json({ ok: true, measure: { ...me0, rows: undefined }, rows, fix });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 電話番号など（電話フォローの表に使う）
+app.post("/api/kinxs/sfinfo", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(String).slice(0, 500); res.json({ ok: true, info: await kxSfInfo(ids) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 送付先（kinXs だけで持つ上書き：郵便番号・住所・宛名・部署）と確認状態（確認OK／修正必要／対象外）・送付NG
+app.put("/api/kinxs/accounts/:id/send", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {}; const cur = ((r.info || {}).send) || {};
+    const send = { ...cur };
+    for (const k of ["postal", "address", "name", "dept"]) if (k in b) send[k] = String(b[k] || "").slice(0, 200);
+    if ("check" in b) send.check = ["確認OK", "修正必要", "対象外", ""].includes(b.check) ? b.check : "";
+    if ("ng" in b) send.ng = !!b.ng;
+    await kinxsUpdate(req.params.id, { info: { ...(r.info || {}), send } }, req.user);
+    _kxSfInfoCache.delete(req.params.id);
+    res.json({ ok: true, send });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 一斉配信の対象を、スプレッドシート（DOCユーザーリスト）の新しいタブに書き出す。シートは settings.kxSheetId（無ければ受け取った id）
+app.post("/api/kinxs/plan/sheet", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; const st = await getSettings().catch(() => ({}));
+    const sid = String(b.sheetId || st.kxSheetId || "").replace(/^.*\/d\/([^/]+).*$/, "$1").trim();
+    if (!sid) return res.status(400).json({ error: "書き出すスプレッドシート（DOCユーザーリスト）のURLを入れてください" });
+    if (b.sheetId && b.sheetId !== st.kxSheetId) await saveSettings({ kxSheetId: sid });
+    const rows = Array.isArray(b.rows) ? b.rows.slice(0, 3000) : [];
+    const r = await writeSheetNewTab(req.user, sid, String(b.title || "書き出し"), rows);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(e.needScope ? 403 : 500).json({ error: e.needScope ? "Googleのスプレッドシートへの書き込みの許可がありません。設定でGoogle連携をやり直してください" : e.message }); }
 });
 // 電話フォロー：期の月別進捗表
 app.get("/api/kinxs/calls", async (req, res) => {
@@ -28207,7 +28304,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04q kinXs UI刷新 第3弾：年間施策（今月の施策の進み具合・テック／ロー、電話フォローのリアルタイムの帯、来月の準備、一斉配信（対象の確認・CSV書き出し・発送済み／対象外）、月間アクセス数の取り込み）と電話フォロー（月別進捗表・企業ごとの進捗、架電の回数・結果・メモは議事録タブにも残す）。サイドバーは項目だけに。";
+const BUILD_TAG = "2026-11-04r kinXs 第3弾の残り：一斉配信の対象にSFの担当者・メール・電話・住所（請求先）・商談所有者と判定（対象／要確認／送れない／対象外＋理由）、送る前に直したい情報の数、送付先の上書き・確認状態、スプレッドシートの新しいタブへの書き出し。電話フォローに電話番号（SF）。施策のNA日の1週間前アラートをホームの要アクションに。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
