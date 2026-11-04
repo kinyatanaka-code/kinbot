@@ -9592,7 +9592,7 @@ async function edImportCsv(ev) {
 async function edDedupe() {
   const ids = [..._edChosen.keys()];
   if (!ids.length) { alert("リストが選ばれていません。"); return; }
-  if (!confirm("同じリード（リードIDが同じ、または 会社・担当・電話 が同じ）が重複している場合、履歴の多い1件だけ残して他を削除します。\n（もとのSalesforceのリードは残ります）\n取り消せません。よろしいですか？")) return;
+  if (!confirm("同じリード（リードIDが同じ、電話番号が同じ、または 会社・担当 が同じ）が重複している場合、履歴の多い1件だけ残して他を削除します。\n（もとのSalesforceのリードは残ります）\n取り消せません。よろしいですか？")) return;
   const btn = $("edDedupe"); if (btn) btn.disabled = true;
   const st = $("edEnrichSt"); if (st) st.textContent = "重複を削除しています…";
   try {

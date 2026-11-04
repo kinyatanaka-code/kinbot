@@ -4392,12 +4392,19 @@ export async function extractTargetsToNewList({ name, ids, owner = null, created
 
 // リストに宛先を足す（何件でもまとめて）
 // 架電先が同じかどうかを見分けるためのカギ（リードID・電話・会社名）
+// 重複を見るための電話番号（全角→半角、+81 → 0、数字だけ。9けた未満は使わない）（2026-11-04）
+export function dedupeTel(v) {
+  let d = String(v || "").normalize("NFKC").replace(/[^\d+]/g, "");
+  if (d.startsWith("+81")) d = "0" + d.slice(3); else if (d.startsWith("81") && d.length >= 11) d = "0" + d.slice(2);
+  d = d.replace(/\D/g, "");
+  return d.length >= 9 ? d.slice(-10) : "";
+}
 function callDedupeKeys(leadId, phone, company) {
   const keys = [];
   const lid = String(leadId || "").trim();
   if (lid) keys.push("lead:" + lid);
-  const tel = String(phone || "").replace(/[^\d]/g, "");
-  if (tel.length >= 9) keys.push("tel:" + tel);
+  const tel = dedupeTel(phone);
+  if (tel) keys.push("tel:" + tel);
   const co = String(company || "")
     .replace(/[\s　]/g, "")
     .replace(/(株式会社|（株）|\(株\)|㈱|有限会社|合同会社|一般社団法人|社会福祉法人|学校法人)/g, "")
@@ -5485,15 +5492,20 @@ export async function dedupeTargetsInLists(listIds) {
       `SELECT t.id, t.lead_id, t.company, t.person, t.phone,
               (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id)::int AS logs
          FROM call_targets t WHERE t.list_id = ANY($1::int[])`, [ids]);
-    const groups = new Map();
+    // 2026-11-04：電話番号が同じものも重複とみなす（リードID・電話番号・会社＋担当 のどれかでつながれば1つのまとまり）
+    const parent = new Map(rows.map((r) => [r.id, r.id]));
+    const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+    const unite = (a2, b2) => { const ra = find(a2), rb = find(b2); if (ra !== rb) parent.set(rb, ra); };
+    const firstOf = new Map();
     for (const r of rows) {
-      const lid = String(r.lead_id || "").trim();
-      const tel = String(r.phone || "").replace(/[^\d]/g, "");
-      const key = lid ? ("lead:" + lid) : ("cpt:" + norm(r.company) + "|" + String(r.person || "").replace(/[\s　]/g, "") + "|" + tel);
-      if (key === "cpt:||") continue;   // 会社・担当・電話が全部空はスキップ
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(r);
+      const keys = [];
+      const lid = String(r.lead_id || "").trim(); if (lid) keys.push("lead:" + lid);
+      const t = dedupeTel(r.phone); if (t) keys.push("tel:" + t);
+      const cp = norm(r.company) + "|" + String(r.person || "").replace(/[\s　]/g, ""); if (norm(r.company)) keys.push("cp:" + cp);
+      for (const k of keys) { if (firstOf.has(k)) unite(firstOf.get(k), r.id); else firstOf.set(k, r.id); }
     }
+    const groups = new Map();
+    for (const r of rows) { const g = find(r.id); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(r); }
     const losers = [];
     for (const arr of groups.values()) {
       if (arr.length < 2) continue;
@@ -5513,7 +5525,7 @@ export async function dedupeAgainstOtherLists(listIds, { scope = "past", dryRun 
   if (!pool || !Array.isArray(listIds) || !listIds.length) return { removed: 0, examples: [] };
   const ids = [...new Set(listIds.map((x) => parseInt(x, 10)).filter(Number.isFinite))];
   const pastSrc = LEAD_FRAMES.past.sources;
-  const tel = (v) => { const d = String(v || "").replace(/[^\d]/g, ""); return d.length >= 9 ? d.slice(-10) : ""; };
+  const tel = (v) => dedupeTel(v);
   const { rows: mine } = await pool.query(
     `SELECT t.id, t.company, t.phone, t.list_id, (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id)::int AS logs
        FROM call_targets t WHERE t.list_id = ANY($1::int[])`, [ids]);
