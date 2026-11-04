@@ -1563,6 +1563,7 @@ function kxBoardV2(items, track, d) {
   host.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); openDetail(el.dataset.open); }));
   host.querySelectorAll("[data-act-all]").forEach((b) => b.addEventListener("click", () => { const g = b.dataset.actAll; kxCoListPopup(`${g}：要アクション`, [...new Map(actRows.filter((r) => r.a.group === g).map((r) => [r.x.id, r.x])).values()]); }));
   const st = $("bdSt"); if (st) st.textContent = `全${items.length}社`;
+  kxFitBoard();   // 画面の高さに合わせる（前は描いたあとに呼ばれず、ページ全体がスクロールしていた）
   return true;
 }
 
