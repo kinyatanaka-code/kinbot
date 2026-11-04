@@ -2033,3 +2033,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-04 BUILD_TAG=2026-11-04i 田中さん「LINEリストからアポ取った場合は、カレンダーメモに利用中ATS列のものも載せる」。createApoFromKincall：リードのソースが LINE か、リスト名・グループ名に LINE があれば、予定の説明の【リスト】の下に「【利用中ATS】〇〇」（extra の列名が 利用中ATS、無ければ ATS を含む列。空なら（リストに記載なし））。版20261104i。
 
 - 2026-11-04 BUILD_TAG=2026-11-04j 田中さん「ホテルリストも新規で、浦林がおすすめ日程が出てくるように」。classifySourceName に /ホテル/ → ソース「ホテル」（LINE の次）、LEAD_FRAMES.new・mcp・calls.js の NEW、fillLeadSources のそろえ方（名前・グループにホテル）、kcApoTagOf（【初回】）、SLOT_REPS_DEFAULT に ホテル: 浦林（日程の候補だけ。割り振りは今までどおり）。版20261104j。
+
+- 2026-11-04 BUILD_TAG=2026-11-04k 田中さん「ディーラー・販売・接客・不動産・ホテルは新規リスト扱いで、浦林の日程が出るようにしたい」。classifySourceName に「販売・接客」（販売・接客／販売接客／接客）と「不動産」を足し（ホテルの次）、LEAD_FRAMES.new・mcp・calls.js の NEW・fillLeadSources のそろえ方・kcApoTagOf にも。SLOT_REPS_DEFAULT＝{ディーラー・ホテル・接客・不動産: 浦林, LINE: 中澤良太}。割り振りの決まりは LINE だけ。版20261104k。

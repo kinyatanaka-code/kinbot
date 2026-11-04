@@ -4993,7 +4993,9 @@ export function classifySourceName(raw) {
   if (/DOC過去失注|インターン用過去失注|過去失注/.test(s)) return "DOC過去失注";
   if (/ディーラー/.test(s)) return "ディーラー";   // 業界ごとに分けたディーラーのリストは、新規リストの扱い（2026-11-04 田中さん）
   if (/(^|[^A-Za-z])LINE/i.test(s)) return "LINE";
-  if (/ホテル/.test(s)) return "ホテル";   // 業界ごとに分けたホテルのリストも新規リストの扱い（2026-11-04 田中さん）   // LINEリストも新規リストの扱い（2026-11-04 田中さん。ONLINE などには当てない）
+  if (/ホテル/.test(s)) return "ホテル";
+  if (/販売\s*[・･/／]?\s*接客|接客/.test(s)) return "販売・接客";   // 新規リストの扱い（2026-11-04 田中さん）
+  if (/不動産/.test(s)) return "不動産";   // 業界ごとに分けたホテルのリストも新規リストの扱い（2026-11-04 田中さん）   // LINEリストも新規リストの扱い（2026-11-04 田中さん。ONLINE などには当てない）
   if (/フロッグ/.test(s)) return "フロッグ";
   if (/インターン/.test(s)) return "インターン最新版";
   if (/直販新規コールド|6月直販/.test(s)) return "6月直販コールド";
@@ -5029,8 +5031,8 @@ export async function fillLeadSources() {
     // ディーラーのリスト（名前かグループに「ディーラー」）にいるリードは、ほかのリストから移ってきたものも新規リスト（ソース「ディーラー」）にそろえる
     try {
       // ディーラー・LINE のリストにいるリードは、ほかのリストから移ってきたものも、そのソース（新規リスト）にそろえる
-      const { rows: dl } = await pool.query(`SELECT l.id, l.name, g.name AS group_name FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id WHERE l.name LIKE '%ディーラー%' OR g.name LIKE '%ディーラー%' OR l.name ILIKE '%LINE%' OR g.name ILIKE '%LINE%' OR l.name LIKE '%ホテル%' OR g.name LIKE '%ホテル%'`);
-      for (const src of ["ディーラー", "LINE", "ホテル"]) {
+      const { rows: dl } = await pool.query(`SELECT l.id, l.name, g.name AS group_name FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id WHERE l.name LIKE '%ディーラー%' OR g.name LIKE '%ディーラー%' OR l.name ILIKE '%LINE%' OR g.name ILIKE '%LINE%' OR l.name LIKE '%ホテル%' OR g.name LIKE '%ホテル%' OR l.name LIKE '%接客%' OR g.name LIKE '%接客%' OR l.name LIKE '%不動産%' OR g.name LIKE '%不動産%'`);
+      for (const src of ["ディーラー", "LINE", "ホテル", "販売・接客", "不動産"]) {
         const ids = dl.filter((r) => classifyListSource(r.name, r.group_name) === src).map((r) => r.id);
         if (!ids.length) continue;
         const u = await pool.query(`UPDATE call_targets SET source = $2 WHERE list_id = ANY($1::int[]) AND COALESCE(source,'') <> $2`, [ids, src]);
@@ -5093,7 +5095,7 @@ export const LEAD_DISTRIBUTABLE_SQL = `(NOT ${LEAD_NURTURE_SQL} AND ${LEAD_LIVE_
 // ===== 大きな枠（新規リスト／過去リスト／ナーチャリング） =====
 // ナーチャリングはタグ：どのソースでも、ジャッジ・営業フォローならナーチャリングの枠に入り、新規・過去からは外す。
 export const LEAD_FRAMES = {
-  new: { label: "新規リスト", sources: ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注", "ディーラー", "LINE", "ホテル"] },   // MO失注は新規リストとして数える（2026-10-15〜）
+  new: { label: "新規リスト", sources: ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注", "ディーラー", "LINE", "ホテル", "販売・接客", "不動産"] },   // MO失注は新規リストとして数える（2026-10-15〜）
   past: { label: "過去リスト", sources: ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"] },
   nurture: { label: "ナーチャリング", sources: [] },
 };
