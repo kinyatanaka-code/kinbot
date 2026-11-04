@@ -239,9 +239,9 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend" })[new URLSearchParams(location.search).get("p")] || "home";
+const VIEW = ({ missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend";
+$("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
@@ -670,6 +670,7 @@ async function openDetail(id, reuse) {
     <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
     <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}</div>
     <div data-pane="info" hidden style="display:flex;flex-direction:column;gap:12px">
+      ${kxNextActSection(x)}
       ${kxOpsSection(x)}
       ${kxStatusPane(d)}
       ${kxLabelSchedPane(d)}
@@ -693,6 +694,7 @@ async function openDetail(id, reuse) {
       ${x.manual ? `<button type="button" class="kx-btn" data-del-user style="color:#8C1F1F;border-color:#F0C2BE">このユーザーを消す（手で追加したもの）</button>` : `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="https://neo-media.my.salesforce.com/lightning/r/Account/${encodeURIComponent(x.id)}/view" target="_blank" rel="noopener">SFの取引先を開く ↗</a>`}
     </div>
     <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
+      ${kxSummarySection(x)}
       <div class="kx-sec"><div class="lb">電話・メールなど（議事録のない接触）を記録する</div>
         <div style="display:flex;gap:8px"><select class="kx-in" data-ctype style="max-width:110px"><option>電話</option><option>メール</option><option>Chat</option><option>商談</option><option>その他</option></select><input class="kx-in" data-ctext placeholder="話した内容を短く" /><button type="button" class="kx-btn" data-add-contact style="white-space:nowrap">記録する</button></div></div>
       ${(() => {
@@ -701,7 +703,7 @@ async function openDetail(id, reuse) {
         const chg = d.timeline.filter((t) => t.kind === "label");
         const item = (t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}>
             <div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-open">議事録を開く ›</span>' : ""}</div>
-            <div class="m">${esc(fmt(t.at))}${t.owner ? `・${esc(t.owner)}` : ""}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`;
+            <div class="m">${esc(fmt(t.at))}${t.owner ? `・${esc(t.owner)}` : ""}${(() => { const pm = t.botId && x.mtgSummary && x.mtgSummary.perMeeting && x.mtgSummary.perMeeting[t.botId]; return pm ? `<span class="v2-hwc">この回で決まった宿題：先方${pm.theirs}件／当社${pm.ours}件</span>` : ""; })()}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`;
         const follow = main.filter((t) => t.kind !== "mtg" || t.phase === "フォロー");
         const pre = main.filter((t) => t.kind === "mtg" && t.phase !== "フォロー");
         const mainHtml = main.length ? `<div class="kx-mgrp"><div class="h">フォロー（キックオフ含めそれ以降）<span>${follow.filter((t) => t.kind === "mtg").length}件</span></div>${follow.length ? follow.map(item).join("") : '<div class="kx-note">まだありません</div>'}</div>
@@ -1530,7 +1532,7 @@ function kxBoardV2(items, track, d) {
 }
 
 // ---------- 年間施策・傾向分析（第3弾・第4弾で作る。年間カレンダーだけ先に出す）----------
-const KX_PLAN_CAL = [["1月", "ウェビナー", "ロー"], ["2月", "お役立ち情報メール（＋1月ウェビナーのアーカイブ）", "テック"], ["3月", "レイヤー別メール①（AIを活用した採用計画）", "テック"], ["4月", "お手紙（ポニー）入社おめでとう／年度初めのご挨拶", "ロー"], ["5月", "お役立ち情報メール", "テック"], ["6月", "ウェビナー", "ロー"], ["7月", "レイヤー別メール②（他社事例）＋2か月連続0件企業へ電話", "テック＋ロー"], ["8月", "暑中見舞い", "ロー"], ["9月", "お役立ち情報メール", "テック"], ["10月", "レイヤー別メール③（選考中・フォロー中の活用）", "テック"], ["11月", "お手紙（ポニー）＋1月ウェビナー告知", "ロー"], ["12月", "年賀状送付", "ロー"]];
+const KX_PLAN_CAL = [["1月", "ウェビナー", "ロー"], ["2月", "お役立ち情報メール（＋1月ウェビナーのアーカイブ）", "テック"], ["3月", "レイヤー別メール①（AIを活用した採用計画）", "テック"], ["4月", "お手紙（ポニー）入社おめでとう／年度初めのご挨拶 ＋ 電話フォロー", "テック＋ロー"], ["5月", "お役立ち情報メール", "テック"], ["6月", "ウェビナー", "ロー"], ["7月", "レイヤー別メール②（他社事例）＋2か月連続0件企業へ電話", "テック＋ロー"], ["8月", "暑中見舞い", "ロー"], ["9月", "お役立ち情報メール", "テック"], ["10月", "レイヤー別メール③（選考中・フォロー中の活用）", "テック"], ["11月", "お手紙（ポニー）＋1月ウェビナー告知 ＋ 電話フォロー", "テック＋ロー"], ["12月", "年賀状送付", "ロー"]];
 function renderPlanV2() {
   const box = $("vPlanBody"); if (!box) return;
   const cm = Number(kxNowYm().slice(5));
@@ -1573,3 +1575,66 @@ document.addEventListener("click", async (e) => {
   catch (er) { if (st) st.textContent = er.message; }
   finally { b.disabled = false; }
 });
+
+// ---------- 議事録タブ：これまでのサマリ（UI刷新 第2弾）----------
+function kxSummarySection(x) {
+  const sm = x.mtgSummary;
+  const head = `<div class="lb" style="display:flex;align-items:center;gap:8px">これまでのサマリ<span class="kx-src">自動（議事録から作成）</span>${sm ? `<span class="kx-note">最終更新 ${esc(new Date(sm.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</span>` : ""}<button type="button" class="hp-b" data-sum-make="${esc(x.id)}" style="margin-left:auto">${sm ? "議事録から作り直す" : "議事録から作る"}</button></div>`;
+  if (!sm) return `<section class="kx-sec v2-sum">${head}<div class="kx-note">まだ作っていません。議事録が入った会社は、1時間ごとに自動で作ります（すぐ見たいときは「議事録から作る」）。</div><span class="kx-note" data-sum-st></span></section>`;
+  const st = (s) => (s === "済" ? "done" : s === "次" ? "next" : "plan");
+  const d = (v) => (v ? v.slice(5).replace("-", "/") : "");
+  const n = sm.next || {};
+  return `<section class="kx-sec v2-sum">${head}
+    <div class="v2-sum-h">全体のスケジュール</div>
+    <div class="v2-tl">${(sm.schedule || []).map((s0) => `<div class="v2-tl-i ${st(s0.state)}"><span class="dot"></span><b>${esc(s0.name)}</b><small>${esc(d(s0.date) || "—")}</small><em>${esc(s0.state)}</em></div>`).join("")}</div>
+    <div class="v2-sum-g">
+      <div><div class="v2-sum-h">前回の宿題</div>${(sm.homework || []).length ? `<div class="v2-hw">${sm.homework.map((h) => `<div class="r"><span class="who ${h.who === "当社" ? "ours" : ""}">${esc(h.who)}</span><span class="t">${esc(h.task)}</span><span class="kx-note">${esc(d(h.due))}</span><span class="s s-${esc(h.state)}">${esc(h.state)}</span></div>`).join("")}</div>` : '<div class="kx-note">ありません</div>'}</div>
+      <div><div class="v2-sum-h">次のMTG・次のアクション</div>${n.title || n.date ? `<div class="v2-next"><b>${esc(n.title || "次のMTG")}</b><div class="kx-note">日時：${esc(n.date ? `${n.date.replace(/-/g, "/")}${n.time ? ` ${n.time}` : ""}` : "未定")}${n.place ? `／${esc(n.place)}` : ""}${n.purpose ? `／目的：${esc(n.purpose)}` : ""}</div>${(n.talk || []).length ? `<ul>${n.talk.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}<div class="kx-note">ステータスタブの次回アクションと同じ内容です</div></div>` : '<div class="kx-note">議事録にありません</div>'}</div>
+    </div>
+    <div class="v2-sum-h">これまでの経緯</div><div class="v2-story">${esc(sm.story || "—")}</div>
+    <span class="kx-note" data-sum-st></span></section>`;
+}
+// ---------- ステータスタブ：次回アクション（詳しく）----------
+function kxNextActSection(x) {
+  const nd = x.naDetail || {}; const sm = x.mtgSummary || {}; const n = sm.next || {};
+  const agenda = Array.isArray(nd.agenda) ? nd.agenda : [];
+  const hw = Array.isArray(nd.homework) ? nd.homework : (sm.homework || []).filter((h) => h.state !== "完了");
+  const when = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : (x.naDue ? x.naDue.replace(/-/g, "/") : "未定");
+  const alertTxt = x.naDue ? (() => { const l = Math.ceil((Date.parse(x.naDue + "T23:59:59+09:00") - Date.now()) / 86400000); return l < 0 ? `<span class="v2-miss">${-l}日過ぎ</span>` : l <= 7 ? `<span class="v2-miss">あと${l}日（アラート）</span>` : `<span class="kx-note">あと${l}日（期限の1週間前にアラート）</span>`; })() : "";
+  return `<section class="kx-sec v2-na" data-na-box="${esc(x.id)}"><div class="lb" style="display:flex;align-items:center;gap:8px">次回アクション<span class="kx-src">${nd.manual ? "手で直した" : nd.auto ? "自動（議事録から）" : "—"}</span>${alertTxt}<button type="button" class="kx-btn kx-pri" data-na-save style="margin-left:auto">保存</button></div>
+    <div class="v2-na-g">
+      <label>種別・タイトル<input class="kx-in" data-nad="title" value="${esc(nd.title || x.na || n.title || "")}" placeholder="例：運用開始前の最終確認ミーティング" /></label>
+      <label>日時<span class="kx-note" style="padding:6px 0">${esc(when)}</span></label>
+      <label>場所<input class="kx-in" data-nad="place" value="${esc(nd.place || n.place || "")}" placeholder="オンライン など" /></label>
+      <label>参加者<input class="kx-in" data-nad="participants" value="${esc(nd.participants || "")}" placeholder="先方：○○様／当社：○○" /></label>
+      <label style="grid-column:1/-1">目的<input class="kx-in" data-nad="purpose" value="${esc(nd.purpose || n.purpose || "")}" /></label>
+    </div>
+    <div class="v2-sum-h">当日に確認すること</div>
+    <div data-na-agenda>${(agenda.length ? agenda : (n.talk || []).map((t) => ({ t, done: false }))).map((a) => `<label class="v2-ag"><input type="checkbox" ${a.done ? "checked" : ""} /><input class="kx-in" value="${esc(a.t)}" /></label>`).join("")}<label class="v2-ag"><input type="checkbox" /><input class="kx-in" placeholder="＋ 確認することを足す" /></label></div>
+    <div class="v2-sum-h">前回の宿題（この日までに）</div>
+    <div data-na-hw>${hw.map((h) => `<div class="v2-hw-ed"><select class="kx-in" data-k="who"><option ${h.who !== "当社" ? "selected" : ""}>先方</option><option ${h.who === "当社" ? "selected" : ""}>当社</option></select><input class="kx-in" data-k="task" value="${esc(h.task)}" /><input type="date" class="kx-in" data-k="due" value="${esc(h.due || "")}" /><select class="kx-in" data-k="state">${["未完了", "確認中", "完了"].map((s0) => `<option ${h.state === s0 ? "selected" : ""}>${s0}</option>`).join("")}</select></div>`).join("")}<div class="v2-hw-ed"><select class="kx-in" data-k="who"><option>先方</option><option>当社</option></select><input class="kx-in" data-k="task" placeholder="＋ 宿題を足す" /><input type="date" class="kx-in" data-k="due" /><select class="kx-in" data-k="state"><option>未完了</option><option>確認中</option><option>完了</option></select></div></div>
+    ${nd.source ? `<div class="kx-note">元になった議事録を開く → 議事録タブ</div>` : ""}
+    <div class="kx-note">日時・期限（NA日）は、下の「次回アクション」の欄で直せます。<span data-na-st></span></div></section>`;
+}
+document.addEventListener("click", async (e) => {
+  const mk = e.target.closest && e.target.closest("[data-sum-make]");
+  if (mk) {
+    const box = mk.closest(".v2-sum"); const st = box && box.querySelector("[data-sum-st]"); if (st) st.textContent = "議事録を読んでいます…（30秒ほど）"; mk.disabled = true;
+    try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(mk.dataset.sumMake)}/summary`, { method: "POST" }); if (!r.ok) throw new Error(r.reason || "作れませんでした"); lsData = null; const bg0 = mk.closest(".kx-drawer-bg"); openDetail(mk.dataset.sumMake, { bg: bg0, tab: "tl", msg: "まとめを作りました" }); }
+    catch (er) { if (st) st.textContent = er.message; mk.disabled = false; }
+    return;
+  }
+  const sv = e.target.closest && e.target.closest("[data-na-save]");
+  if (sv) {
+    const box = sv.closest("[data-na-box]"); const st = box.querySelector("[data-na-st]");
+    const body = { title: box.querySelector('[data-nad="title"]').value, place: box.querySelector('[data-nad="place"]').value, participants: box.querySelector('[data-nad="participants"]').value, purpose: box.querySelector('[data-nad="purpose"]').value,
+      agenda: [...box.querySelectorAll("[data-na-agenda] .v2-ag")].map((l) => ({ done: l.querySelector("input[type=checkbox]").checked, t: l.querySelector("input.kx-in").value.trim() })).filter((a) => a.t),
+      homework: [...box.querySelectorAll("[data-na-hw] .v2-hw-ed")].map((r) => ({ who: r.querySelector('[data-k="who"]').value, task: r.querySelector('[data-k="task"]').value.trim(), due: r.querySelector('[data-k="due"]').value, state: r.querySelector('[data-k="state"]').value })).filter((h) => h.task) };
+    if (st) st.textContent = "　保存しています…"; sv.disabled = true;
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(box.dataset.naBox)}/na-detail`, { method: "PUT", body: JSON.stringify(body) }); if (st) st.textContent = "　保存しました"; lsData = null; }
+    catch (er) { if (st) st.textContent = "　" + er.message; }
+    finally { sv.disabled = false; }
+  }
+});
+
+if (VIEW === "call") { if ($("kxPageName")) $("kxPageName").textContent = "電話フォロー"; const b0 = $("vCallBody"); if (b0) b0.innerHTML = `<section class="v2-sec"><h2>月別進捗表・企業ごとの進捗</h2><div class="kx-empty">お手紙フォロー（4月・11月）・2か月連続0件（7月）・掲載1か月0件（毎月）の電話の対象と、月別進捗表・企業ごとの進捗は、第3弾（年間施策）で一緒に作ります。</div></section>`; }

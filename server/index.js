@@ -13020,6 +13020,7 @@ async function kinxsBuild() {
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", kenshuOn, delivered, endOn: ymd0(r.end_on),
       invoiceNeed: r.invoice_need == null ? null : !!r.invoice_need, invoiceState: r.invoice_state || "", invoiceDate: ymd0(r.invoice_date),
+      mtgSummary: r.mtg_summary || null, naDetail: r.na_detail || null,
       lastBooked: (r.products || []).map((p) => String(p && p.booked || "").slice(0, 10)).filter(Boolean).sort().pop() || "", deliveryMonth: kxDeliveryMonth(k), logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy, allMeetings: ms };
@@ -13946,6 +13947,81 @@ async function kinxsMakeSchedule(accountId) {
   await kinxsUpdate(accountId, { doc_schedule: sched }, "kinXs（自動）");
   return { ok: true, schedule: sched };
 }
+// ===== kinXs 議事録のまとめ（UI刷新 第2弾・2026-11-04 久野さんの要望書 3-3・7-5）=====
+//   議事録（キックオフ・フォロー・定例…）と回収MTGの項目から、AIで「全体のスケジュール・前回の宿題・次のMTG・これまでの経緯・回ごとの宿題の数」を作る。
+//   次のMTGは、次回アクションの詳しい中身（na_detail）にも入れる（手で直した次回アクションは上書きしない）
+const KX_MILESTONES = ["受注", "キックオフ", "フォローMTG", "最終確認MTG", "公開（目標）", "検収書の提出", "請求"];
+async function kinxsMakeSummary(accountId) {
+  const { items, mtBy, kickBy } = await kinxsBuild();
+  const x = items.find((i) => i.id === accountId); if (!x) return { ok: false, reason: "会社が見つかりません" };
+  const keys = [x.name, ...(x.formerNames || [])].map((n) => csCoKey(n));
+  const k = keys.map((kk) => kickBy.get(kk)).find(Boolean) || null;
+  const mts = [...new Map(keys.flatMap((kk) => mtBy.get(kk) || []).map((m) => [m.bot_id, m])).values()]
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).slice(-8);
+  if (!k && !mts.length) return { ok: false, reason: "議事録がまだありません" };
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const parts = [`【会社の情報】受注日：${x.booked || "不明"}／フェーズ：${x.label}／キックオフ実施日：${x.kickoffOn || "不明"}／掲載日：${x.publishedOn || "未定"}／検収書：${x.kenshuOn ? `回収済み（${x.kenshuOn}）` : x.kenshuMonth ? `${x.kenshuMonth}に回収予定` : "未回収"}／請求予定日：${x.invoiceDate || "未定"}`];
+  if (k) parts.push(`【回収MTGで読み取った項目】\n${Object.entries(k.fields || {}).filter(([, v]) => v && v !== "未確認" && typeof v === "string").map(([kk, v]) => `${kk}：${v}`).join("\n").slice(0, 1500)}\n確認MTG：${k.confirm_start || "未定"}`);
+  for (const m of mts) { const sm = m.summary || {}; parts.push(`【議事録 id=${m.bot_id} ${String(m.created_at).slice(0, 10)}】${m.title || ""}\n${[sm.overview, ...(sm.decisions || []), ...(sm.next_actions || sm.todos || []), ...(sm.concerns || [])].filter(Boolean).map((t) => typeof t === "string" ? t : JSON.stringify(t)).join("\n").slice(0, 1800)}`); }
+  const sys = "あなたはDOC（どこでもオープンカンパニー）の導入を支えるカスタマーサクセスです。議事録から、この会社の今の状況のまとめを作ります。推測で作らず、議事録にあることだけを使います。必ずJSONだけを返します。";
+  const user = `今日：${today}\n会社：${x.name}\n\n${parts.join("\n\n").slice(0, 14000)}\n\n次の形で返してください。
+{"schedule":[{"name":"${KX_MILESTONES.join("／")} のどれか（この順で全部）","date":"YYYY-MM-DD か 空","state":"済（もう終わった）／次（いちばん近くこれから）／予定"}],
+ "homework":[{"who":"先方 か 当社","task":"宿題の内容（40字まで）","due":"YYYY-MM-DD か 空","state":"完了／確認中／未完了","mtg":"その宿題が決まった議事録の id"}],
+ "next":{"title":"次のMTG・次のアクションの名前","date":"YYYY-MM-DD か 空","time":"HH:MM か 空","place":"場所（オンライン等）か 空","purpose":"目的（40字まで）","talk":["話すこと・当日に確認すること（3〜6個）"]},
+ "story":"これまでの経緯（3〜4文。受注から今までに何があり、今どこまで進んでいて、次に何をするか）"}
+宿題は、いちばん新しい議事録で決まったものを中心に、まだ終わっていないものを入れます（6個まで）。`;
+  let ans;
+  try { ans = JSON.parse(String(await callLLMPublic(sys, user, 2200, { json: true })).replace(/```json|```/g, "").trim()); } catch (e) { return { ok: false, reason: `AIで作れませんでした：${e.message}` }; }
+  const d0 = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : "");
+  const sched = KX_MILESTONES.map((nm) => { const s0 = (ans.schedule || []).find((y) => String(y.name || "").includes(nm.replace("（目標）", ""))) || {}; return { name: nm, date: d0(s0.date), state: ["済", "次", "予定"].includes(s0.state) ? s0.state : "予定" }; });
+  const hw = (ans.homework || []).slice(0, 8).map((h) => ({ who: h.who === "当社" ? "当社" : "先方", task: String(h.task || "").slice(0, 60), due: d0(h.due), state: ["完了", "確認中", "未完了"].includes(h.state) ? h.state : "未完了", mtg: String(h.mtg || "") })).filter((h) => h.task);
+  const nx = ans.next || {};
+  const next = { title: String(nx.title || "").slice(0, 60), date: d0(nx.date), time: /^\d{1,2}:\d{2}$/.test(String(nx.time || "")) ? nx.time : "", place: String(nx.place || "").slice(0, 40), purpose: String(nx.purpose || "").slice(0, 80), talk: (Array.isArray(nx.talk) ? nx.talk : []).map((t) => String(t).slice(0, 80)).filter(Boolean).slice(0, 8) };
+  const perMeeting = {}; for (const h of hw) if (h.mtg) { const pm = perMeeting[h.mtg] = perMeeting[h.mtg] || { theirs: 0, ours: 0 }; if (h.who === "当社") pm.ours++; else pm.theirs++; }
+  const summary = { at: new Date().toISOString(), schedule: sched, homework: hw, next, story: String(ans.story || "").slice(0, 600), perMeeting, from: mts.map((m) => m.bot_id), lastMtg: mts.length ? String(mts[mts.length - 1].created_at) : "" };
+  const patch = { mtg_summary: summary };
+  // 次回アクションの詳しい中身：手で直していなければ、次のMTGで入れる
+  const rows = await kinxsList().catch(() => []); const r = rows.find((y) => y.account_id === accountId) || {};
+  const nd = r.na_detail || {};
+  if (!nd.manual && (next.title || next.date)) {
+    patch.na_detail = { ...nd, auto: true, title: next.title, place: next.place, purpose: next.purpose, agenda: next.talk.map((t) => ({ t, done: false })), homework: hw.filter((h) => h.state !== "完了"), source: mts.length ? mts[mts.length - 1].bot_id : "", at: summary.at };
+    if (!r.na_text || r.na_source !== "manual") { if (next.title) patch.na_text = next.title; if (next.date) { patch.na_due = next.date; patch.na_at = next.time ? new Date(`${next.date}T${next.time.padStart(5, "0")}:00+09:00`).toISOString() : null; } patch.na_type = "MTG"; patch.na_source = "議事録まとめ"; }
+  }
+  await kinxsUpdate(accountId, patch, "kinXs（自動）");
+  return { ok: true, summary };
+}
+app.post("/api/kinxs/accounts/:id/summary", async (req, res) => {
+  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSummary(req.params.id)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 次回アクションの詳しい中身を手で直す（当日に確認することのチェック・宿題の状態など）
+app.put("/api/kinxs/accounts/:id/na-detail", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {};
+    const nd = { manual: true, at: new Date().toISOString(), title: String(b.title || "").slice(0, 60), place: String(b.place || "").slice(0, 60), participants: String(b.participants || "").slice(0, 120), purpose: String(b.purpose || "").slice(0, 120),
+      agenda: (Array.isArray(b.agenda) ? b.agenda : []).slice(0, 12).map((a) => ({ t: String(a.t || "").slice(0, 100), done: !!a.done })).filter((a) => a.t),
+      homework: (Array.isArray(b.homework) ? b.homework : []).slice(0, 12).map((h) => ({ who: h.who === "当社" ? "当社" : "先方", task: String(h.task || "").slice(0, 80), due: /^\d{4}-\d{2}-\d{2}$/.test(String(h.due || "")) ? h.due : "", state: ["完了", "確認中", "未完了"].includes(h.state) ? h.state : "未完了" })).filter((h) => h.task),
+      source: String(b.source || "") };
+    await kinxsUpdate(req.params.id, { na_detail: nd }, req.user);
+    res.json({ ok: true, naDetail: nd });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// まとめがまだの会社・新しい議事録が入った会社を、1時間に4社ずつ作っておく（DOC・アーカイブ以外）
+setInterval(async () => {
+  try {
+    const hJ = new Date(Date.now() + 9 * 3600000).getUTCHours(); if (hJ < 8 || hJ > 20) return;   // 夜はやめておく
+    const { items, mtBy } = await kinxsBuild();
+    const rows = await kinxsList().catch(() => []); const byId = new Map(rows.map((r) => [r.account_id, r]));
+    const cand = items.filter((x) => !x.archived && (x.prodLabels || []).some((l) => KX_PROD_LABELS.DOC.includes(l)) && x.label !== "解約済み").filter((x) => {
+      const ms = [x.name, ...(x.formerNames || [])].flatMap((n) => mtBy.get(csCoKey(n)) || []); if (!ms.length) return false;
+      const last = ms.map((m) => String(m.created_at)).sort().pop();
+      const sm = (byId.get(x.id) || {}).mtg_summary; return !sm || String(sm.lastMtg || "") < last;
+    }).slice(0, 4);
+    for (const x of cand) await kinxsMakeSummary(x.id).catch(() => {});
+    if (cand.length) console.log(`[kinxs] 議事録のまとめを作りました：${cand.map((x) => x.name).join("・")}`);
+  } catch {}
+}, 60 * 60 * 1000).unref?.();
 app.post("/api/kinxs/accounts/:id/schedule", async (req, res) => {
   try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSchedule(req.params.id)); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -27989,7 +28065,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04o kinXs：2026年10月より前に受注した会社は、ぜんぶ稼働中（納品後）とみなす（掲載日が無ければ利用中。更新検討時期・解約予定・解約済みは今までどおり）。";
+const BUILD_TAG = "2026-11-04p kinXs UI刷新 第2弾：議事録タブの上に「これまでのサマリ」（全体のスケジュール・前回の宿題・次のMTG・これまでの経緯、議事録からAIで作る・1時間ごとに自動）、回ごとの宿題の数、ステータスタブに次回アクション（詳しく：場所・参加者・目的・当日に確認すること・前回の宿題）。修正点：サイドバーに電話フォロー（第3弾で作る）、年間カレンダーの4月・11月を テック＋ロー（お手紙＋電話フォロー）に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
