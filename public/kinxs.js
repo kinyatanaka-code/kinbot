@@ -1474,12 +1474,13 @@ function renderHomeV2() {
     <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
       ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="st" data-grow>${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span><span class="n">${r.l.length}<small>社</small></span></button>`).join("")}
       </section>
-  <section class="h2-box h2-miss"><div class="h2-h"><h2>情報不足の企業</h2>${ms ? `<span class="h2-big">${msItems.length}<small>社</small></span>` : ""}<a class="h2-link" href="/kinxs?p=missing">情報不足へ ›</a></div>
+  <section class="h2-box h2-miss"><div class="h2-h"><h2>情報不足の企業</h2>${ms ? `<span class="h2-big" data-cu="${msItems.length}">${msItems.length}<small>社</small></span>` : ""}<a class="h2-link" href="/kinxs?p=missing">情報不足へ ›</a></div>
     ${ms ? `<div class="h2-bars">${reqN.filter(([, n]) => n).map(([r, n]) => `<button type="button" class="h2-bar" data-miss="${esc(r.key)}"><span class="k">${esc(r.short || r.name)}</span><span class="b" data-grow><i style="width:${(n / maxReq) * 100}%"></i></span><span class="n">${n}</span></button>`).join("") || '<div class="h2-note">足りない情報はありません</div>'}</div>` : '<div class="h2-note">SFを読んでいます…</div>'}</section></div>
   </div>`;
   kxFitHome2();
-  const animKey = `${ym}|${!!ms}`;
-  if (kh2.animKey !== animKey) { kh2.animKey = animKey; kxCountUp(box); }
+  // 動きは1回だけ：月を開いた（変えた）ときに全体を1回。情報不足は、あとから読めたときにその枠だけ1回（2026-11-04 「2回読み込まれるのやめてほしい」）
+  if (kh2.animKey !== ym) { kh2.animKey = ym; kh2.missAnim = !!ms; kxCountUp(box); }
+  else if (ms && !kh2.missAnim) { kh2.missAnim = true; kxCountUp(box.querySelector(".h2-miss")); }
   box.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.kpi; kxCoListPopup({ all: "DOC受注社数", ka: "稼働社数（納品後）", mo: "申し込み社数（納品待ち）", kai: "解約社数" }[k] + `（${kxYmLabel(ym)}）`, c[k]); }));
   box.querySelectorAll("[data-kf]").forEach((b) => b.addEventListener("click", () => { kh2.kf = kh2.kf === b.dataset.kf ? "" : b.dataset.kf; renderHomeV2(); }));
   box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
