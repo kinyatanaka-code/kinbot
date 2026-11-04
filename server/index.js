@@ -14226,6 +14226,75 @@ app.post("/api/kinxs/plan/sheet", async (req, res) => {
     res.json({ ok: true, ...r });
   } catch (e) { res.status(e.needScope ? 403 : 500).json({ error: e.needScope ? "Googleのスプレッドシートへの書き込みの許可がありません。設定でGoogle連携をやり直してください" : e.message }); }
 });
+// ===== kinXs 傾向分析（UI刷新 第4弾・2026-11-04 久野さんの要望書 6章）=====
+//   切り口：業界（SFの取引先の業種）／地域（請求先の都道府県→地方）／企業規模（SFの従業員数）。期間：期（3月〜翌2月）か全期間
+//   受注社数＝その期間に受注した DOC の会社／更新率・解約率＝その期間に更新月が来た（今日まで）会社のうち、続けた／解約した割合
+const _kxProf = new Map();
+async function kxSfProfile(ids) {
+  const out = {}; const need = ids.filter((id) => { const c = _kxProf.get(id); if (c && Date.now() - c.at < 6 * 3600 * 1000) { out[id] = c.v; return false; } return true; });
+  if (need.length) {
+    const rows = await kinxsList().catch(() => []); const byId = new Map(rows.map((r) => [r.account_id, r]));
+    const sfIdOf = (id) => { const r = byId.get(id) || {}; const v = /^manual-/.test(id) ? ((r.info || {}).sf_account_id || "") : id; return /^[0-9a-zA-Z]{15,18}$/.test(v) ? v : ""; };
+    const st0 = await getSettings().catch(() => ({})); const sfU = await pickSfUser(st0.psOwner || "").catch(() => "");
+    const map = new Map(need.map((id) => [sfIdOf(id), id]).filter(([s]) => s));
+    if (sfU && map.size) {
+      const sids = [...map.keys()];
+      for (let i = 0; i < sids.length; i += 150) {
+        const part = sids.slice(i, i + 150).map((s) => `'${s}'`).join(",");
+        const recs = (await sfQuery(sfU, `SELECT Id, Industry, BillingState, NumberOfEmployees FROM Account WHERE Id IN (${part})`).catch(() => ({ records: [] }))).records || [];
+        for (const a of recs) { const id = map.get(a.Id) || [...map.entries()].find(([s]) => String(a.Id).startsWith(s))?.[1]; if (id) out[id] = { industry: a.Industry || "", pref: a.BillingState || "", emp: a.NumberOfEmployees == null ? null : Number(a.NumberOfEmployees) }; }
+      }
+    }
+    for (const id of need) { if (!out[id]) out[id] = { industry: "", pref: "", emp: null }; _kxProf.set(id, { at: Date.now(), v: out[id] }); }
+  }
+  return out;
+}
+const KX_REGION = [["北海道・東北", /北海道|青森|岩手|宮城|秋田|山形|福島/], ["関東", /茨城|栃木|群馬|埼玉|千葉|東京|神奈川/], ["中部", /新潟|富山|石川|福井|山梨|長野|岐阜|静岡|愛知/], ["近畿", /三重|滋賀|京都|大阪|兵庫|奈良|和歌山/], ["中国・四国", /鳥取|島根|岡山|広島|山口|徳島|香川|愛媛|高知/], ["九州・沖縄", /福岡|佐賀|長崎|熊本|大分|宮崎|鹿児島|沖縄/]];
+const kxRegionOf = (pref) => (KX_REGION.find(([, re]) => re.test(String(pref || ""))) || ["不明"])[0];
+const kxSizeOf = (n) => (n == null || !isFinite(n) || n <= 0 ? "不明" : n < 50 ? "〜49名" : n < 100 ? "50〜99名" : n < 300 ? "100〜299名" : n < 1000 ? "300〜999名" : "1000名〜");
+const KX_SIZE_ORDER = ["〜49名", "50〜99名", "100〜299名", "300〜999名", "1000名〜", "不明"];
+async function kxTrendData(period) {
+  const { items } = await kinxsBuild();
+  const docs = items.filter((x) => !x.archived && (x.prodLabels || []).some((l) => KX_PROD_LABELS.DOC.includes(l)) && x.booked);
+  const prof = await kxSfProfile(docs.map((x) => x.id));
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), nowYm = today.slice(0, 7);
+  const inP = (ymd) => { if (!ymd) return false; if (period === "all") return true; const p = Number(period); const from = `${p + 1999}-03`, to = `${p + 2000}-02`; const ym = String(ymd).slice(0, 7); return ym >= from && ym <= to; };
+  const rows = docs.map((x) => { const pf = prof[x.id] || {}; const churned = x.label === "解約済み" || x.rank === "F"; return { id: x.id, name: x.name, industry: pf.industry || "（SFに業種なし）", region: kxRegionOf(pf.pref), size: kxSizeOf(pf.emp), won: inP(x.booked), due: !!x.renew && inP(`${x.renew}-01`) && x.renew <= nowYm, churned }; });
+  const agg = (key, order) => {
+    const m = new Map();
+    for (const r of rows) { const k = r[key]; const o = m.get(k) || { k, won: 0, due: 0, renewed: 0, churned: 0 }; if (r.won) o.won++; if (r.due) { o.due++; r.churned ? o.churned++ : o.renewed++; } m.set(k, o); }
+    let arr = [...m.values()].filter((o) => o.won || o.due).map((o) => ({ ...o, renewRate: o.due ? Math.round((o.renewed / o.due) * 100) : null, churnRate: o.due ? Math.round((o.churned / o.due) * 100) : null }));
+    arr.sort(order ? (a, b) => order.indexOf(a.k) - order.indexOf(b.k) : (a, b) => b.won - a.won || b.due - a.due);
+    return arr;
+  };
+  const tot = rows.reduce((a, r) => ({ won: a.won + (r.won ? 1 : 0), due: a.due + (r.due ? 1 : 0), churned: a.churned + (r.due && r.churned ? 1 : 0) }), { won: 0, due: 0, churned: 0 });
+  return { period, axes: { industry: agg("industry"), region: agg("region", [...KX_REGION.map(([n]) => n), "不明"]), size: agg("size", KX_SIZE_ORDER) }, total: { ...tot, renewRate: tot.due ? Math.round(((tot.due - tot.churned) / tot.due) * 100) : null, churnRate: tot.due ? Math.round((tot.churned / tot.due) * 100) : null }, sfMissing: rows.filter((r) => r.industry === "（SFに業種なし）").length, n: rows.length };
+}
+app.get("/api/kinxs/trend", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const period = req.query.period === "all" ? "all" : String(parseInt(req.query.period, 10) || (() => { const [y, m] = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7).split("-").map(Number); return (m >= 3 ? y : y - 1) - 1999; })());
+    const d = await kxTrendData(period);
+    const st = await getSettings().catch(() => ({})); const sm = (st.kxTrendSummary || {})[period] || null;
+    res.json({ ok: true, ...d, summary: sm });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 傾向のまとめ（3〜4文）を AI で作る（数字だけを渡す。推測で書かない）
+app.post("/api/kinxs/trend/summary", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const period = req.body?.period === "all" ? "all" : String(parseInt(req.body?.period, 10) || "");
+    if (!period) return res.status(400).json({ error: "期間を選んでください" });
+    const d = await kxTrendData(period);
+    const fmt = (arr) => arr.slice(0, 12).map((o) => `${o.k}：受注${o.won}社・更新月が来た${o.due}社（更新率${o.renewRate ?? "—"}%・解約率${o.churnRate ?? "—"}%）`).join("\n");
+    const sys = "あなたはDOC（どこでもオープンカンパニー）のカスタマーサクセスの分析担当です。数字から読み取れることだけを、やさしい日本語で書きます。";
+    const user = `期間：${period === "all" ? "全期間" : `${period}期（${Number(period) + 1999}年3月〜${Number(period) + 2000}年2月）`}\n全体：受注${d.total.won}社・更新月が来た${d.total.due}社（更新率${d.total.renewRate ?? "—"}%・解約率${d.total.churnRate ?? "—"}%）\n\n【業界】\n${fmt(d.axes.industry)}\n\n【地域】\n${fmt(d.axes.region)}\n\n【企業規模（社員数）】\n${fmt(d.axes.size)}\n\n傾向のまとめを3〜4文で書いてください。1文目：受注が多い業界・地域。2文目：更新率が高い層。3文目：解約が集中している層（数が少なければ「まだ少なく判断できない」と書く）。4文目：次に注力すべき層の示唆。社数が3社未満の層は、言い切らずに「件数が少ない」と添える。前置きなし、文章だけ。`;
+    const text = String(await callLLMPublic(sys, user, 600)).trim().slice(0, 800);
+    const st = await getSettings().catch(() => ({})); const sm = { text, at: new Date().toISOString() };
+    await saveSettings({ kxTrendSummary: { ...(st.kxTrendSummary || {}), [period]: sm } });
+    res.json({ ok: true, summary: sm });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // 電話フォロー：期の月別進捗表
 app.get("/api/kinxs/calls", async (req, res) => {
   try {
@@ -28304,7 +28373,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04r kinXs 第3弾の残り：一斉配信の対象にSFの担当者・メール・電話・住所（請求先）・商談所有者と判定（対象／要確認／送れない／対象外＋理由）、送る前に直したい情報の数、送付先の上書き・確認状態、スプレッドシートの新しいタブへの書き出し。電話フォローに電話番号（SF）。施策のNA日の1週間前アラートをホームの要アクションに。";
+const BUILD_TAG = "2026-11-04s kinXs UI刷新 第4弾：傾向分析（期間：今期・前期・全期間、切り口：業界・地域・企業規模、受注社数・更新率・解約率の横棒、AIの傾向サマリ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

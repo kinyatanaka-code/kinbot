@@ -1533,14 +1533,39 @@ function kxBoardV2(items, track, d) {
 
 // ---------- 年間施策・傾向分析（第3弾・第4弾で作る。年間カレンダーだけ先に出す）----------
 const KX_PLAN_CAL = [["1月", "ウェビナー", "ロー"], ["2月", "お役立ち情報メール（＋1月ウェビナーのアーカイブ）", "テック"], ["3月", "レイヤー別メール①（AIを活用した採用計画）", "テック"], ["4月", "お手紙（ポニー）入社おめでとう／年度初めのご挨拶 ＋ 電話フォロー", "テック＋ロー"], ["5月", "お役立ち情報メール", "テック"], ["6月", "ウェビナー", "ロー"], ["7月", "レイヤー別メール②（他社事例）＋2か月連続0件企業へ電話", "テック＋ロー"], ["8月", "暑中見舞い", "ロー"], ["9月", "お役立ち情報メール", "テック"], ["10月", "レイヤー別メール③（選考中・フォロー中の活用）", "テック"], ["11月", "お手紙（ポニー）＋1月ウェビナー告知 ＋ 電話フォロー", "テック＋ロー"], ["12月", "年賀状送付", "ロー"]];
-function renderTrendV2() {
+let kt = { period: null, axis: "industry", data: null, busy: false };
+async function renderTrendV2() {
   const box = $("vTrendBody"); if (!box) return;
-  box.innerHTML = `<section class="v2-sec"><h2>受注・更新の傾向</h2><div class="kx-empty">期間（27期／26期／全期間）と切り口（業界・地域・企業規模）ごとの受注社数・更新率・解約率と、傾向のまとめは、第4弾で作ります。</div></section>`;
+  if (!kt.data) {
+    box.innerHTML = '<div class="kx-empty">SFから業種・地域・社員数を読んでいます…</div>';
+    try { kt.data = await api(`/api/kinxs/trend${kt.period ? `?period=${kt.period}` : ""}`); kt.period = kt.data.period; } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  }
+  const d = kt.data; const curP = kxPeriodOf(kxNowYm());
+  const arr = d.axes[kt.axis] || [];
+  const maxWon = Math.max(1, ...arr.map((o) => o.won));
+  const bars = (title, val, max, color, unit, fmt) => `<div class="v2-tc"><h3>${title}</h3>${arr.map((o) => { const v = val(o); return `<div class="v2-hb"><span class="k" title="${esc(o.k)}">${esc(o.k)}</span><span class="b"><i style="width:${v == null ? 0 : Math.max(2, Math.round((v / max) * 100))}%;background:${color}"></i></span><span class="v">${v == null ? "—" : `${v}${unit}`}<small>${fmt ? fmt(o) : ""}</small></span></div>`; }).join("") || '<div class="kx-empty">ありません</div>'}</div>`;
+  box.innerHTML = `
+    <div class="v2-month"><div class="kx-seg">${[[String(curP), `${curP}期`], [String(curP - 1), `${curP - 1}期`], ["all", "全期間"]].map(([v, l]) => `<button type="button" class="${String(kt.period) === v ? "on" : ""}" data-tp="${v}">${l}</button>`).join("")}</div>
+      <div class="kx-seg">${[["industry", "業界"], ["region", "地域"], ["size", "企業規模（社員数）"]].map(([v, l]) => `<button type="button" class="${kt.axis === v ? "on" : ""}" data-ta="${v}">${l}</button>`).join("")}</div>
+      <span class="kx-note">${d.period === "all" ? "全期間" : `${d.period}期（${Number(d.period) + 1999}年3月〜${Number(d.period) + 2000}年2月）`}・DOC ${d.n}社</span></div>
+    <div class="v2-kpis">${[["受注社数", `${d.total.won}社`, "この期間に受注"], ["更新月が来た会社", `${d.total.due}社`, "今日までに更新月が来た"], ["更新率", d.total.renewRate == null ? "—" : `${d.total.renewRate}%`, "続けた／更新月が来た"], ["解約率", d.total.churnRate == null ? "—" : `${d.total.churnRate}%`, "解約した／更新月が来た"]].map(([l, v, s0], i) => `<div class="v2-kpi ${i === 0 ? "strong" : ""}"><span class="l">${l}</span><span class="v" style="font-size:26px">${v}</span><span class="d">${s0}</span></div>`).join("")}</div>
+    <section class="v2-sec" style="margin-top:14px"><h2>傾向サマリ <span class="kx-src">自動（数字から作成）</span>${d.summary ? `<span class="kx-note">${esc(new Date(d.summary.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}</span>` : ""}<button type="button" class="hp-b" data-tsum style="margin-left:auto">${d.summary ? "作り直す" : "作る"}</button></h2>
+      <div class="v2-story">${d.summary ? esc(d.summary.text) : "まだ作っていません。「作る」を押すと、下の数字から3〜4文のまとめを作ります。"}</div></section>
+    <section class="v2-sec"><h2>${{ industry: "業界", region: "地域", size: "企業規模（社員数）" }[kt.axis]}ごと</h2><div class="v2-tcs">
+      ${bars("受注社数", (o) => o.won, maxWon, "#1D9E75", "社")}
+      ${bars("更新率", (o) => o.renewRate, 100, "#3F72C9", "%", (o) => (o.due ? `（${o.renewed}/${o.due}）` : ""))}
+      ${bars("解約率", (o) => o.churnRate, 100, "#C43D3D", "%", (o) => (o.due ? `（${o.churned}/${o.due}）` : ""))}
+    </div>${kt.axis === "industry" && d.sfMissing ? `<div class="kx-note">SFの取引先に業種が入っていない会社が ${d.sfMissing}社あります（「（SFに業種なし）」にまとめています）。</div>` : ""}<div class="kx-note">更新率・解約率は、その期間に更新月が来た（今日まで）会社で数えます。解約＝フェーズが解約済みか確度F。</div></section>`;
+  box.querySelectorAll("[data-tp]").forEach((b) => b.addEventListener("click", () => { kt.period = b.dataset.tp; kt.data = null; renderTrendV2(); }));
+  box.querySelectorAll("[data-ta]").forEach((b) => b.addEventListener("click", () => { kt.axis = b.dataset.ta; renderTrendV2(); }));
+  box.querySelector("[data-tsum]").addEventListener("click", async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = "作っています…";
+    try { const r = await api("/api/kinxs/trend/summary", { method: "POST", body: JSON.stringify({ period: kt.period }) }); kt.data.summary = r.summary; renderTrendV2(); } catch (er) { alert(er.message); b.disabled = false; b.textContent = "作る"; }
+  });
 }
 
 // 起動（UI刷新の画面）
 if (VIEW === "home") loadHomeV2();
-if (VIEW === "trend") { if ($("kxPageName")) $("kxPageName").textContent = "傾向分析"; renderTrendV2(); }
 
 // ---------- 企業詳細：請求・納品（掲載日・キックオフ実施日・検収書・請求書）。フェーズと要アクションの判定に使う（UI刷新 第1弾）----------
 function kxOpsSection(x) {
@@ -1825,3 +1850,4 @@ function kpWireTargets(box, me) {
   const dn = box.querySelector("[data-dl-done]"); if (dn) dn.addEventListener("click", () => bulk("完了"));
   const ot = box.querySelector("[data-dl-out]"); if (ot) ot.addEventListener("click", () => bulk("対象外"));
 }
+if (VIEW === "trend") { if ($("kxPageName")) $("kxPageName").textContent = "傾向分析"; renderTrendV2(); }
