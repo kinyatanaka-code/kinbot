@@ -241,7 +241,7 @@ async function sfOwnerFor(req) {
 }
 
 // ソース → 大きな枠（新規リスト／過去リスト）
-const _NEW_SRC = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"];
+const _NEW_SRC = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "ディーラー"];
 const _PAST_SRC = ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"];
 function frameOfSourceMcp(src) { return _NEW_SRC.includes(src) ? "新規リスト" : _PAST_SRC.includes(src) ? "過去リスト" : (src ? "その他" : ""); }
 

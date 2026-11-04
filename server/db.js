@@ -4989,6 +4989,7 @@ export function classifySourceName(raw) {
   if (/過去の失注|〜\s*2026\/2|~\s*2026\/2/.test(s)) return "過去失注（〜2026/2）";
   if (/クロス失注|過去リスト/.test(s)) return "クロス失注（2026/3〜）";
   if (/DOC過去失注|インターン用過去失注|過去失注/.test(s)) return "DOC過去失注";
+  if (/ディーラー/.test(s)) return "ディーラー";   // 業界ごとに分けたディーラーのリストは、新規リストの扱い（2026-11-04 田中さん）
   if (/フロッグ/.test(s)) return "フロッグ";
   if (/インターン/.test(s)) return "インターン最新版";
   if (/直販新規コールド|6月直販/.test(s)) return "6月直販コールド";
@@ -5021,6 +5022,12 @@ export async function fillLeadSources() {
       const u = await pool.query(`UPDATE call_targets SET source = $1 WHERE list_id = $2 AND source IS NULL`, [src, r.id]);
       updated += u.rowCount || 0;
     }
+    // ディーラーのリスト（名前かグループに「ディーラー」）にいるリードは、ほかのリストから移ってきたものも新規リスト（ソース「ディーラー」）にそろえる
+    try {
+      const { rows: dl } = await pool.query(`SELECT l.id, l.name, g.name AS group_name FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id WHERE l.name LIKE '%ディーラー%' OR g.name LIKE '%ディーラー%'`);
+      const ids = dl.filter((r) => classifyListSource(r.name, r.group_name) === "ディーラー").map((r) => r.id);
+      if (ids.length) { const u = await pool.query(`UPDATE call_targets SET source = 'ディーラー' WHERE list_id = ANY($1::int[]) AND COALESCE(source,'') <> 'ディーラー'`, [ids]); if (u.rowCount) { updated += u.rowCount; console.log(`[kincall] ディーラーのリストのリードを新規リスト（ディーラー）にそろえました：${u.rowCount}件`); } }
+    } catch {}
     if (updated) console.log(`[kincall] リードにソースを付けました：${updated}件`);
     return { updated };
   } catch (e) { console.error("[db] fillLeadSources", e.message); return { updated: 0, error: e.message }; }
@@ -5077,7 +5084,7 @@ export const LEAD_DISTRIBUTABLE_SQL = `(NOT ${LEAD_NURTURE_SQL} AND ${LEAD_LIVE_
 // ===== 大きな枠（新規リスト／過去リスト／ナーチャリング） =====
 // ナーチャリングはタグ：どのソースでも、ジャッジ・営業フォローならナーチャリングの枠に入り、新規・過去からは外す。
 export const LEAD_FRAMES = {
-  new: { label: "新規リスト", sources: ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注"] },   // MO失注は新規リストとして数える（2026-10-15〜）
+  new: { label: "新規リスト", sources: ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注", "ディーラー"] },   // MO失注は新規リストとして数える（2026-10-15〜）
   past: { label: "過去リスト", sources: ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"] },
   nurture: { label: "ナーチャリング", sources: [] },
 };

@@ -547,7 +547,7 @@ function fromBadge(x) {
   const origin = String((x && x["元のリスト"]) || "").trim();
   const ln = String((x && x["リスト名"]) || "").trim();
   const multi = !/^\d+$/.test(String(listId || ""));   // 全てのリード・ナーチャリング（まとめ）など、複数のリストをまとめて見ているとき
-  const NEW = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ"];
+  const NEW = ["インターン最新版", "フロッグ", "6月直販コールド", "ベールズ", "エキスポ", "メルマガ", "MO失注", "ディーラー"];
   const PAST = ["DOC過去失注", "MO過去失注", "過去失注（〜2026/2）", "クロス失注（2026/3〜）"];
   const fr = NEW.includes(src) ? "new" : PAST.includes(src) ? "past" : "other";
   const parts = [];
