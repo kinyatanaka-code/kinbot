@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261104y" />
+    <link rel="stylesheet" href="style.css?v=20261104z" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -600,7 +600,7 @@
   .v2-ag{display:flex;gap:6px;align-items:center;margin:2px 0;} .v2-ag .kx-in{flex:1;}
   .v2-hw-ed{display:grid;grid-template-columns:70px 1fr 140px 86px;gap:6px;margin:2px 0;}
   /* サイドバーは項目だけにする（2026-11-04 田中さん「サイドバーこれだけでいいんじゃない？」）：アイコン・kinbotに戻る（下の小さなボタンへ）・他メンバーとして見る（下へ小さく）*/
-  .kx-side .kx-nav svg{display:none;} .kx-side .kx-nav.kx-back{display:none;} .kx-side hr,.kx-side .kx-sep{display:none;}
+  .kx-side .kx-nav.kx-back{display:none;} .kx-side hr,.kx-side .kx-sep{display:none;}
   .kx-side .kx-imp-btn{order:99;margin:6px 8px 0;padding:4px 8px;font-size:11px;border:0;background:none;color:#A9C4B8;text-align:left;text-decoration:underline;cursor:pointer;}
   /* UI刷新 第3弾：年間施策・電話フォロー（2026-11-04） */
   .v2-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;} @media (max-width:900px){ .v2-cols{grid-template-columns:1fr;} }
@@ -700,13 +700,12 @@
   .fx-ck{width:26px;height:26px;border-radius:50%;background:#1D9E75;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;transform:scale(0);} .fx-toast.on .fx-ck{animation:fxPop .45s .08s cubic-bezier(.3,1.7,.5,1) forwards;}
   @keyframes fxPop{to{transform:scale(1);}}
   @media (prefers-reduced-motion: reduce){ .h2-li .pin.over,.v2-tr .al.over,.fx-sk{animation:none;} .h2-card:hover,.h2-hero:hover,.v2-card:hover,.v2-kpi:hover{transform:none;} }
-  /* メニューをボタンに（2026-11-04 田中さん「メニュータブをもっとボタンに」）*/
-  .kx-side nav, .kx-side .kx-navs{display:flex;flex-direction:column;gap:7px;}
-  .kx-side .kx-nav{margin:0 0 7px;padding:11px 14px;border-radius:12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.10);color:#E6F2EC;font-weight:700;font-size:13.5px;box-shadow:0 2px 0 rgba(0,0,0,.18);transition:background .15s, transform .15s, box-shadow .15s, border-color .15s;}
-  .kx-side .kx-nav:hover{background:rgba(255,255,255,.12);border-color:rgba(182,226,92,.45);transform:translateX(3px);}
-  .kx-side .kx-nav:active{transform:translateY(1px);box-shadow:none;}
-  .kx-side .kx-nav.on{background:linear-gradient(135deg,#C8EE6E,#9FD24A);border-color:#C8EE6E;color:#0B2A22;box-shadow:0 8px 18px -10px rgba(182,226,92,.8), 0 2px 0 rgba(0,0,0,.2);}
-  .kx-side .kx-nav.on:hover{transform:none;}
+  /* メニューを kinbot と同じ形に（アイコン＋文字、今の画面は緑のグラデーションの帯）（2026-11-04 田中さん）*/
+  .kx-side .kx-nav{display:flex;align-items:center;gap:10px;margin:0 0 2px;padding:10px 12px;border-radius:10px;border:0;background:transparent;color:#C9D8D1;font-size:13.5px;font-weight:600;letter-spacing:.03em;box-shadow:none;transition:background .15s, color .15s;}
+  .kx-side .kx-nav svg{flex:none;width:18px;height:18px;opacity:.85;}
+  .kx-side .kx-nav:hover{background:rgba(255,255,255,.07);color:#fff;transform:none;}
+  .kx-side .kx-nav.on{background:linear-gradient(135deg,#1AA884,#0F6E62);color:#fff;font-weight:700;box-shadow:0 6px 16px rgba(15,110,98,.45);}
+  .kx-side .kx-nav.on svg{opacity:1;}
 </style>
 </head>
   <body>
@@ -821,7 +820,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261104y" defer></script>
-    <script src="kinxs.js?v=20261104y"></script>
+    <script src="kbchat.js?v=20261104z" defer></script>
+    <script src="kinxs.js?v=20261104z"></script>
   </body>
 </html>
