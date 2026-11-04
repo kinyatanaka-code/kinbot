@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, getCallListName,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -27928,7 +27928,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04a kincallの記録の日程の候補：ディーラーのリストのリードは、浦林さんの空きで候補日を出す（おすすめ・他の日程とも）。";
+const BUILD_TAG = "2026-11-04b kincallのアポ獲得で作るカレンダーの予定：説明のいちばん上に【リスト】（そのリードのリスト名）を入れる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -32589,7 +32589,11 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
   // 予定名の種別（新規＝【初回】／過去失注＝【初回/過去失注】／フロッグ＝【初回/フロッグ】）
   const tag = ["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回";
   const label = apoLabelOf(tag, company, person);
+  // リスト名も予定の説明に入れる（どのリストで取ったアポか、カレンダーで分かるように）（2026-11-04）
+  let listName = "";
+  try { if (target && target.list_id) listName = await getCallListName(target.list_id); } catch {}
   const desc = [
+    listName ? `【リスト】${listName}\n` : "",
     "【先方の連絡先】",
     person ? `担当：${person.replace(/\s*様$/, "")}様` : "",
     `メール：${clientEmail || "（未登録）"}`,
