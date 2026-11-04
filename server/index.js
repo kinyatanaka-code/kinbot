@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -14022,6 +14022,148 @@ setInterval(async () => {
     if (cand.length) console.log(`[kinxs] 議事録のまとめを作りました：${cand.map((x) => x.name).join("・")}`);
   } catch {}
 }, 60 * 60 * 1000).unref?.();
+// ===== kinXs 年間施策・電話フォロー（UI刷新 第3弾・2026-11-04 久野さんの要望書 5章・修正点）=====
+const KX_LAYER_TITLE = { 3: "レイヤー別メール①（AIを活用した採用計画）", 7: "レイヤー別メール②（他社事例）", 10: "レイヤー別メール③（選考中・フォロー中の活用）" };
+const KX_MEASURES = [
+  // 全社施策（月固定）
+  { key: "webinar", name: "ウェビナー", kind: "low", ch: "ウェビナー", months: [1, 6], target: "all" },
+  { key: "tips", name: "お役立ち情報メール", kind: "tech", ch: "メール", months: [2, 5, 9], target: "all" },
+  { key: "layer", name: "レイヤー別メール", kind: "tech", ch: "メール", months: [3, 7, 10], target: "all" },
+  { key: "letter", name: "お手紙（ポニー）", kind: "tech", ch: "郵送", months: [4, 11], target: "all", nameBy: { 4: "お手紙（ポニー）入社おめでとう／年度初めのご挨拶", 11: "お手紙（ポニー）＋1月ウェビナー告知" } },
+  { key: "call_letter", name: "電話フォロー（お手紙の送付先へ）", kind: "low", ch: "電話", months: [4, 11], target: "letter", call: true, reason: "お手紙フォロー" },
+  { key: "call_zero2", name: "2か月連続0件企業へ電話", kind: "low", ch: "電話", months: [7], target: "zero2", call: true, reason: "2か月連続0件" },
+  { key: "summer", name: "暑中見舞い", kind: "low", ch: "郵送", months: [8], target: "all" },
+  { key: "nenga", name: "年賀状送付", kind: "low", ch: "郵送", months: [12], target: "all" },
+  // 顧客ごとのタイミング（掲載日・更新月から）
+  { key: "step1w", name: "ステップメール（まずはこれだけ）", kind: "tech", ch: "メール", from: "pub", days: 7, label: "掲載後1週間" },
+  { key: "step2w", name: "ステップメール（使いこなしのコツ）", kind: "tech", ch: "メール", from: "pub", days: 14, label: "掲載後2週間" },
+  { key: "step1m", name: "ステップメール（初月の振り返り）", kind: "tech", ch: "メール", from: "pub", days: 30, label: "掲載後1か月" },
+  { key: "mtg1m", name: "打ち合わせ", kind: "low", ch: "打ち合わせ", from: "pub", days: 30, label: "掲載後1か月" },
+  { key: "call_pub1m", name: "0件企業へ電話", kind: "low", ch: "電話", from: "pub", days: 30, label: "掲載後1か月", target: "zero_last", call: true, reason: "掲載1か月0件" },
+  { key: "report3m", name: "サマリレポート送付", kind: "tech", ch: "メール", from: "pub", days: 90, label: "掲載後3か月" },
+  { key: "mtg3m", name: "打ち合わせ", kind: "low", ch: "打ち合わせ", from: "pub", days: 90, label: "掲載後3か月" },
+  { key: "report_r2", name: "サマリレポート送付", kind: "tech", ch: "メール", from: "renew", before: 2, label: "更新2か月前" },
+  { key: "mtg_r2", name: "打ち合わせ（更新提案）", kind: "low", ch: "打ち合わせ", from: "renew", before: 2, label: "更新2か月前" },
+];
+const KX_ACT_ST = ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"];
+const kxYmShift = (ym, n) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); };
+// その月の施策ごとに、対象の会社と実施記録をまとめる
+async function kxPlanFor(ym, ctx = null) {
+  const c = ctx || {};
+  const items = c.items || (await kinxsBuild()).items;
+  const acts = c.acts || await kxActionsList({ yms: [ym] });
+  const access = c.access || await kxAccessList().catch(() => []);
+  const acc = new Map(access.map((a) => [`${a.account_id}|${a.ym}`, Number(a.count)]));
+  const m = Number(ym.slice(5));
+  const base = items.filter((x) => !x.archived && (x.prodLabels || []).some((l) => KX_PROD_LABELS.DOC.includes(l)) && !["解約済み", "エラー"].includes(x.label));
+  const live = base.filter((x) => x.delivered);
+  const actBy = new Map(acts.map((a) => [`${a.account_id}|${a.mkey}`, a]));
+  const inMonth = (d) => d && String(d).slice(0, 7) === ym;
+  const addDays = (ymd, n) => new Date(Date.parse(ymd + "T00:00:00+09:00") + n * 86400000 + 9 * 3600000).toISOString().slice(0, 10);
+  const out = [];
+  for (const me of KX_MEASURES) {
+    let targets = [], when = "";
+    if (me.months) {
+      if (!me.months.includes(m)) continue;
+      when = `${m}月・全社`;
+      if (me.target === "all") targets = live;
+      else if (me.target === "letter") targets = live.filter((x) => (actBy.get(`${x.id}|letter`) || {}).status === "完了");
+      else if (me.target === "zero2") targets = live.filter((x) => acc.get(`${x.id}|${kxYmShift(ym, -1)}`) === 0 && acc.get(`${x.id}|${kxYmShift(ym, -2)}`) === 0);
+    } else if (me.from === "pub") {
+      when = me.label;
+      targets = live.filter((x) => x.publishedOn && inMonth(addDays(x.publishedOn, me.days)));
+      if (me.target === "zero_last") targets = targets.filter((x) => acc.get(`${x.id}|${kxYmShift(ym, -1)}`) === 0);
+    } else if (me.from === "renew") {
+      when = me.label;
+      targets = live.filter((x) => x.renew === kxYmShift(ym, me.before));
+    }
+    const rows = targets.map((x) => { const a = actBy.get(`${x.id}|${me.key}`) || {}; return { id: x.id, name: x.name, cs: x.cs || "", logo: x.logo || "", rank: x.rank, label: x.label, status: a.status || "未対応", result: a.result || "", memo: a.memo || "", naDate: a.na_date ? new Date(new Date(a.na_date).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "", calls: a.call_count || 0, lastCall: a.last_call_on ? new Date(new Date(a.last_call_on).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "", products: x.products || [] }; });
+    const counts = Object.fromEntries(KX_ACT_ST.map((s) => [s, rows.filter((r) => r.status === s).length]));
+    const eff = rows.filter((r) => r.status !== "対象外");
+    out.push({ key: me.key, name: (me.nameBy && me.nameBy[m]) || (me.key === "layer" ? KX_LAYER_TITLE[m] : "") || me.name, kind: me.kind, ch: me.ch, when, call: !!me.call, reason: me.reason || "", rows, counts, total: eff.length, done: eff.filter((r) => r.status === "完了").length });
+  }
+  return out;
+}
+app.get("/api/kinxs/plan", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const ym = /^\d{4}-\d{2}$/.test(String(req.query.ym || "")) ? String(req.query.ym) : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+    const measures = await kxPlanFor(ym);
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, ym, measures, prep: ((st.kxPrep || {})[ym]) || [], statuses: KX_ACT_ST });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 実施記録を直す（1社）。電話の施策で結果・メモを入れたら、企業詳細の議事録タブ（電話・メールなどの記録）にも同じ記録を残す
+app.put("/api/kinxs/actions", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {};
+    const me = KX_MEASURES.find((x) => x.key === b.mkey); if (!me) return res.status(400).json({ error: "施策が正しくありません" });
+    if (!/^\d{4}-\d{2}$/.test(String(b.ym || ""))) return res.status(400).json({ error: "月が正しくありません" });
+    const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 500) : [String(b.account_id || "")];
+    const patch = {};
+    if ("status" in b) { if (!KX_ACT_ST.includes(b.status)) return res.status(400).json({ error: "ステータスが正しくありません" }); patch.status = b.status; if (b.status === "完了") patch.done_on = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
+    if ("result" in b) patch.result = ["良好", "普通", "懸念あり", "未接続", ""].includes(b.result) ? b.result : "";
+    if ("memo" in b) patch.memo = String(b.memo || "").slice(0, 1000);
+    if ("na_date" in b) patch.na_date = /^\d{4}-\d{2}-\d{2}$/.test(String(b.na_date || "")) ? b.na_date : null;
+    if (b.call) patch.call = true;
+    const rows = [];
+    for (const id of ids.filter(Boolean)) {
+      rows.push(await kxActionUpsert(id, me.key, b.ym, patch, req.user));
+      if (me.call && ids.length === 1 && (b.call || b.result || b.memo)) {
+        try {
+          const all = await kinxsList(); const r = all.find((y) => y.account_id === id);
+          if (r) { const txt = `電話フォロー（${me.reason}）：${patch.status || ""}${b.result ? `・${b.result}` : ""}${b.memo ? `／${String(b.memo).slice(0, 300)}` : ""}`; await kinxsUpdate(id, { contacts: [...(Array.isArray(r.contacts) ? r.contacts : []), { at: new Date().toISOString(), type: "電話", text: txt, by: req.user }].slice(-200) }, req.user); }
+        } catch {}
+      }
+    }
+    res.json({ ok: true, n: rows.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/kinxs/plan/prep", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const ym = String(req.body?.ym || ""); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月が正しくありません" });
+    const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 30).map((x) => ({ t: String(x.t || "").slice(0, 100), done: !!x.done })).filter((x) => x.t);
+    const st = await getSettings().catch(() => ({})); await saveSettings({ kxPrep: { ...(st.kxPrep || {}), [ym]: items } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 電話フォロー：期の月別進捗表
+app.get("/api/kinxs/calls", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const nowYm = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+    const [y0, m0] = nowYm.split("-").map(Number); const curP = (m0 >= 3 ? y0 : y0 - 1) - 1999;
+    const p = parseInt(req.query.period, 10) || curP;
+    const yms = Array.from({ length: 12 }, (_, i) => kxYmShift(`${p + 1999}-03`, i));
+    const { items } = await kinxsBuild(); const acts = await kxActionsList({ yms }); const access = await kxAccessList().catch(() => []);
+    const months = [];
+    for (const ym of yms) {
+      const ms = (await kxPlanFor(ym, { items, acts: acts.filter((a) => a.ym === ym), access })).filter((x) => x.call);
+      const rows = ms.flatMap((x) => x.rows.map((r) => ({ ...r, reason: x.reason, mkey: x.key })));
+      const eff = rows.filter((r) => r.status !== "対象外");
+      months.push({ ym, future: ym > nowYm, reasons: [...new Set(ms.filter((x) => x.rows.length || x.key === "call_letter" || x.key === "call_zero2").map((x) => x.reason))], total: eff.length, counts: Object.fromEntries(KX_ACT_ST.map((s) => [s, rows.filter((r) => r.status === s).length])), results: Object.fromEntries(["良好", "普通", "懸念あり"].map((s) => [s, rows.filter((r) => r.result === s).length])), done: eff.filter((r) => r.status === "完了").length });
+    }
+    res.json({ ok: true, period: p, nowYm, months });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 月間アクセス数の取り込み（CSV：会社名・月（YYYY-MM）・アクセス数）
+app.post("/api/kinxs/access", async (req, res) => {
+  try {
+    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    const rows0 = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 5000) : [];
+    const accs = (await kinxsList()).filter((r) => !r.merged_into);
+    const byKey = new Map(); for (const r of accs) for (const n of [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])]) { const k = csCoKey(n || ""); if (k && !byKey.has(k)) byKey.set(k, r.account_id); }
+    const ok = [], miss = [];
+    for (const x of rows0) {
+      const id = byKey.get(csCoKey(String(x.name || ""))); const ym = String(x.ym || "").replace(/\//g, "-").slice(0, 7); const n = parseInt(String(x.count || "").replace(/[^\d]/g, ""), 10);
+      if (id && /^\d{4}-\d{2}$/.test(ym) && Number.isFinite(n)) ok.push({ account_id: id, ym, count: n }); else miss.push(x.name);
+    }
+    const n = await kxAccessSet(ok);
+    res.json({ ok: true, saved: n, unmatched: miss.slice(0, 50), unmatchedCount: miss.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.post("/api/kinxs/accounts/:id/schedule", async (req, res) => {
   try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSchedule(req.params.id)); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -28065,7 +28207,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-04p kinXs UI刷新 第2弾：議事録タブの上に「これまでのサマリ」（全体のスケジュール・前回の宿題・次のMTG・これまでの経緯、議事録からAIで作る・1時間ごとに自動）、回ごとの宿題の数、ステータスタブに次回アクション（詳しく：場所・参加者・目的・当日に確認すること・前回の宿題）。修正点：サイドバーに電話フォロー（第3弾で作る）、年間カレンダーの4月・11月を テック＋ロー（お手紙＋電話フォロー）に。";
+const BUILD_TAG = "2026-11-04q kinXs UI刷新 第3弾：年間施策（今月の施策の進み具合・テック／ロー、電話フォローのリアルタイムの帯、来月の準備、一斉配信（対象の確認・CSV書き出し・発送済み／対象外）、月間アクセス数の取り込み）と電話フォロー（月別進捗表・企業ごとの進捗、架電の回数・結果・メモは議事録タブにも残す）。サイドバーは項目だけに。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

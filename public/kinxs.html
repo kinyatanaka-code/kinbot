@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261104p" />
+    <link rel="stylesheet" href="style.css?v=20261104q" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -599,6 +599,29 @@
   .v2-na-g{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;} .v2-na-g label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:700;color:#4F6158;}
   .v2-ag{display:flex;gap:6px;align-items:center;margin:2px 0;} .v2-ag .kx-in{flex:1;}
   .v2-hw-ed{display:grid;grid-template-columns:70px 1fr 140px 86px;gap:6px;margin:2px 0;}
+  /* サイドバーは項目だけにする（2026-11-04 田中さん「サイドバーこれだけでいいんじゃない？」）：アイコン・kinbotに戻る（下の小さなボタンへ）・他メンバーとして見る（下へ小さく）*/
+  .kx-side .kx-nav svg{display:none;} .kx-side .kx-nav.kx-back{display:none;} .kx-side hr,.kx-side .kx-sep{display:none;}
+  .kx-side .kx-imp-btn{order:99;margin:6px 8px 0;padding:4px 8px;font-size:11px;border:0;background:none;color:#A9C4B8;text-align:left;text-decoration:underline;cursor:pointer;}
+  /* UI刷新 第3弾：年間施策・電話フォロー（2026-11-04） */
+  .v2-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;} @media (max-width:900px){ .v2-cols{grid-template-columns:1fr;} }
+  .v2-col-h{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;} .v2-col-h > b{font-size:14px;} .v2-col-h span{font-size:12.5px;color:#4F6158;} .v2-col-h span b{font-size:20px;color:#0E6B4E;}
+  .v2-mc{border:1px solid #E1E9E5;border-radius:12px;padding:10px 12px;margin-bottom:8px;display:flex;flex-direction:column;gap:5px;} .v2-mc .t{display:flex;align-items:center;gap:6px;flex-wrap:wrap;} .v2-mc .t b{font-size:13px;}
+  .v2-mc .lnk{align-self:flex-start;border:0;background:none;color:#0E6B4E;font:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:0;text-decoration:underline;}
+  .v2-mc .big{font-size:12.5px;color:#4F6158;} .v2-mc .big b{font-size:22px;color:#14231D;} .v2-mc .pct{font-weight:800;color:#0E6B4E;margin-left:6px;}
+  .bar{height:7px;background:#EEF3F0;border-radius:4px;overflow:hidden;} .bar i{display:block;height:100%;background:#1D9E75;border-radius:4px;}
+  .v2-mc .sts{display:flex;gap:4px;flex-wrap:wrap;} .v2-mc .sts button{border:1px solid #E1E9E5;background:#fff;border-radius:7px;font:inherit;font-size:11.5px;padding:2px 7px;cursor:pointer;} .v2-mc .sts .st-0 b{color:#A51F16;} .v2-mc .sts .st-3 b{color:#0E6B4E;}
+  .v2-rt-band{display:flex;align-items:center;gap:8px;background:#0E6B4E;color:#fff;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;} .v2-rt-band b{font-size:18px;} .v2-rt-band a{color:#D7EFE4;font-weight:700;}
+  .v2-rt-band .live{font-size:11px;font-weight:800;color:#B6E25C;}
+  .v2-pick{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;} .v2-pick button{display:flex;flex-direction:column;align-items:flex-start;border:1px solid #E1E9E5;background:#fff;border-radius:10px;padding:7px 10px;font:inherit;cursor:pointer;text-align:left;} .v2-pick button.on{border-color:#1D9E75;background:#EAF6F0;} .v2-pick small{color:#6A7A72;font-size:11px;}
+  .v2-tr.dl{grid-template-columns:30px minmax(0,2fr) 1.6fr 1fr 1fr .8fr;}
+  .v2-dl-acts{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 6px;}
+  .v2-act{display:grid;grid-template-columns:minmax(0,1.8fr) .8fr 1.1fr minmax(0,1.6fr) 130px;gap:6px;align-items:center;padding:6px 4px;border-bottom:1px solid #F0F3F1;font-size:12.5px;}
+  .v2-act.call{grid-template-columns:minmax(0,1.6fr) .7fr 1.1fr 1fr .9fr minmax(0,1.5fr) 130px;} .v2-act.co2{grid-template-columns:minmax(0,1.6fr) 1fr .7fr 1.1fr 1fr .9fr minmax(0,1.5fr) 130px;}
+  .v2-act.h{font-weight:800;color:#4F6158;background:#F4F8F6;} .v2-act .co{display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .v2-act .calls{display:flex;align-items:center;gap:4px;white-space:nowrap;} .v2-act .calls small{color:#8FA39A;}
+  .v2-kct td.rs{text-align:left;font-size:12px;} .v2-kct tr.now td.cc{background:#FBE4E4 !important;color:#8C1F1F;font-weight:800;} .v2-kct tr.now th,.v2-kct tr.now td{border-top:2px solid #1D9E75;border-bottom:2px solid #1D9E75;} .v2-kct tr.fut th,.v2-kct tr.fut td{color:#A9B5AF;background:#FAFBFA;}
+  .v2-kct .bar{width:80px;display:inline-block;vertical-align:middle;margin-right:4px;} .v2-kct th button{border:0;background:none;font:inherit;font-weight:800;color:#0E6B4E;cursor:pointer;text-decoration:underline;}
+  .v2-strip{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:4px;margin:0 0 12px;} .v2-strip button{display:flex;flex-direction:column;gap:2px;border:1px solid #E1E9E5;background:#fff;border-radius:8px;padding:5px;font:inherit;font-size:11px;cursor:pointer;text-align:left;} .v2-strip button.on{border-color:#1D9E75;background:#EAF6F0;} .v2-strip small{color:#6A7A72;min-height:14px;} .v2-strip span{font-weight:800;color:#0E6B4E;}
 </style>
 </head>
   <body>
@@ -619,6 +642,7 @@
         <a class="kx-nav kx-back" href="/home.html"><img src="/kinbot.svg" alt="" width="18" height="18" style="border-radius:5px" />kinbot<span class="kx-back-tag">戻る</span></a>
         <div class="kx-side-foot">
           <span class="kx-side-me"><span class="av" id="kxSideAv">・</span><span id="kxSideName"></span></span>
+          <a class="kx-side-set" href="/home.html" title="kinbotに戻る">kinbot</a>
           <a class="kx-side-set" href="/kinxs?p=settings" data-view="settings"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>設定</a>
         </div>
       </nav>
@@ -711,7 +735,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261104p" defer></script>
-    <script src="kinxs.js?v=20261104p"></script>
+    <script src="kbchat.js?v=20261104q" defer></script>
+    <script src="kinxs.js?v=20261104q"></script>
   </body>
 </html>

@@ -11934,3 +11934,50 @@ export async function callListAndGroup({ id = null, name = "" } = {}) {
     return rows[0] ? { name: String(rows[0].name || ""), group: String(rows[0].group_name || "") } : { name: String(name || ""), group: "" };
   } catch { return { name: String(name || ""), group: "" }; }
 }
+
+// ===== kinXs 年間施策・電話フォロー（UI刷新 第3弾・2026-11-04）=====
+//   kinxs_actions：会社×施策×月 の実施記録（未対応／架電済み（不在）／対応中／完了／対象外、結果、架電回数、最終架電日、メモ・次のアクション、NA日）
+//   kinxs_access：会社×月 の月間アクセス数（CSVで取り込む。レイヤーA/B・0件の判定）
+let _kxActReady = false;
+async function ensureKxActions() {
+  if (_kxActReady || !pool) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_actions (
+    account_id TEXT NOT NULL, mkey TEXT NOT NULL, ym TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT '未対応', result TEXT, memo TEXT, na_date DATE, call_count INT NOT NULL DEFAULT 0, last_call_on DATE,
+    owner TEXT, done_on DATE, updated_by TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (account_id, mkey, ym))`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_access (account_id TEXT NOT NULL, ym TEXT NOT NULL, count INT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (account_id, ym))`);
+  _kxActReady = true;
+}
+export async function kxActionsList({ yms = [] } = {}) {
+  if (!pool) return [];
+  await ensureKxActions();
+  const { rows } = yms.length ? await pool.query(`SELECT * FROM kinxs_actions WHERE ym = ANY($1::text[])`, [yms]) : await pool.query(`SELECT * FROM kinxs_actions`);
+  return rows;
+}
+export async function kxActionUpsert(accountId, mkey, ym, patch = {}, by = "") {
+  if (!pool) return null;
+  await ensureKxActions();
+  const cols = ["status", "result", "memo", "na_date", "owner", "done_on"];
+  // 値の位置を確実にするため、INSERT の値は列ごとに並べ直す
+  const insVals = [accountId, mkey, ym, by, ...cols.filter((c) => c in patch).map((c) => (patch[c] === "" ? null : patch[c]))];
+  const insSql = `INSERT INTO kinxs_actions (account_id, mkey, ym, updated_by${cols.filter((c) => c in patch).map((c) => `, ${c}`).join("")}${patch.call ? ", call_count, last_call_on" : ""})
+     VALUES (${insVals.map((_, i) => `$${i + 1}`).join(",")}${patch.call ? ", 1, (now() AT TIME ZONE 'Asia/Tokyo')::date" : ""})
+     ON CONFLICT (account_id, mkey, ym) DO UPDATE SET updated_by = $4, updated_at = now()${cols.filter((c) => c in patch).map((c, i) => `, ${c} = $${5 + i}`).join("")}${patch.call ? ", call_count = kinxs_actions.call_count + 1, last_call_on = (now() AT TIME ZONE 'Asia/Tokyo')::date" : ""}
+     RETURNING *`;
+  const { rows } = await pool.query(insSql, insVals);
+  return rows[0] || null;
+}
+export async function kxAccessList() {
+  if (!pool) return [];
+  await ensureKxActions();
+  const { rows } = await pool.query(`SELECT account_id, ym, count FROM kinxs_access`);
+  return rows;
+}
+export async function kxAccessSet(rows = []) {
+  if (!pool || !rows.length) return 0;
+  await ensureKxActions();
+  let n = 0;
+  for (const r of rows) { await pool.query(`INSERT INTO kinxs_access (account_id, ym, count) VALUES ($1,$2,$3) ON CONFLICT (account_id, ym) DO UPDATE SET count = $3, updated_at = now()`, [r.account_id, r.ym, r.count]); n++; }
+  return n;
+}
