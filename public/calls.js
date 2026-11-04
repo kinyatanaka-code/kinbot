@@ -2849,6 +2849,8 @@ async function openTarget(id, draft, opt) {
 function kcApoTagOf(x) {
   const src = String((x && x["ソース"]) || "").trim();
   const ln = String((x && (x["元のリスト"] || x["リスト名"])) || "");
+  // ディーラーのリストは新規リストの扱い（もとがフロッグ・MO失注などでも【初回】）（2026-11-04）
+  if (src === "ディーラー" || /ディーラー/.test(String((x && x["リスト名"]) || ""))) return "初回";
   if (/フロッグ/.test(src) || /フロッグ/.test(ln)) return "初回/フロッグ";
   if (/メルマガ/.test(src) || /メルマガ/.test(ln)) return "初回/メルマガ";
   if (/MO\s*失注/i.test(src) || /MO\s*失注/i.test(ln)) return "初回/MO失注";
