@@ -120,6 +120,7 @@ function clSortOptions(opts) {
 // 新規・過去・その他を選んだときだけ、その下に小さなタブでリストを並べる（上を広く使わないよう、1行ずつにぎゅっと）
 let _clFrames = {};   // リストID → new / past / other
 const CL_CATS = [
+  { key: "box", label: "今日の箱" },   // リーダーが配った、今日だけのリスト（2026-11-05）
   { key: "today", label: "今日かける" },
   { key: "nurture", label: "ナーチャリング" },
   { key: "new", label: "新規リスト" },
@@ -127,6 +128,7 @@ const CL_CATS = [
   { key: "other", label: "その他" },
 ];
 function clCatOf(v) {
+  if (v === "box") return "box";
   if (v === "today") return "today";
   if (v === "nurture") return "nurture";
   if (["crosslost-now", "archive", "recycle"].includes(v)) return "past";
@@ -153,11 +155,11 @@ function renderClPills() {
   const cats = CL_CATS.filter((c) => c.key === "today" || inCat(c.key).length);
   const catHtml = cats.map((c) => {
     const lists = inCat(c.key);
-    const single = c.key === "today" || c.key === "nurture";
+    const single = c.key === "today" || c.key === "nurture" || c.key === "box";
     const badge = single ? cnt(c.key) : `<span class="cl-ccnt">${lists.length}</span>`;
     return `<button type="button" class="cl-cat${c.key === curCat ? " active" : ""}" data-cat="${c.key}">${esc(c.label)}${badge}</button>`;
   }).join("");
-  const showSubs = !["today", "nurture"].includes(curCat);
+  const showSubs = !["today", "nurture", "box"].includes(curCat);
   const all = showSubs ? inCat(curCat) : [];
   // ★を付けたリストを先頭に。残りが0件のリスト（かけ終わったリスト）は「終わったリスト」にしまう（開いているリストは出したまま）
   const pins = clPins();
@@ -209,12 +211,16 @@ async function loadLists() {
     const tanaka = await kcIsTanaka();
     const nurOpt = `<option value="nurture">ナーチャリング（まとめ）</option>`;   // 全てのリードの隣
     const specialOpt = tanaka ? `<option value="crosslost-now">過去リスト（今月かける）</option><option value="archive">アーカイブ（まとめ）</option><option value="recycle">リサイクル（まとめ）</option>` : "";
-    sel.innerHTML = allOpt + nurOpt + (items.length
+    let boxN = 0; try { boxN = ((await (await fetch("/api/calls/box/mine")).json()) || {}).n || 0; } catch {}
+    const boxOpt = boxN ? `<option value="box">今日の箱（リーダーが配った今日のリスト）</option>` : "";
+    sel.innerHTML = boxOpt + allOpt + nurOpt + (items.length
       ? items.filter((x) => { const n = String(x.name || "").trim(); return n !== "アーカイブ" && n !== "リサイクル" && !n.startsWith("【ナーチャリング】") && !x.hidden; })
           .map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")
       : "") + specialOpt;
     if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
     _clCounts = { all: items.reduce((s, x) => s + Number(x.残り || 0), 0) };
+    _clCounts.box = boxN;
+    if (boxN && !keep) sel.value = "box";   // 箱があれば、最初は箱を開く
     _clCounts.today = items.filter((x) => !x.hidden).reduce((s, x) => s + Number(x.残り || 0), 0);
     // 今日かけるリードの数字は「かける先」の数にしたいので、裏で取って数え直す
     (async () => {
@@ -6202,7 +6208,7 @@ if ($("clPills")) $("clPills").addEventListener("click", (e) => {
   const c = e.target.closest(".cl-cat");
   if (c) {
     const cat = c.dataset.cat;
-    if (cat === "today" || cat === "nurture") return pick(cat);
+    if (cat === "today" || cat === "nurture" || cat === "box") return pick(cat);
     // その分け方で前に選んだリスト → 無ければいちばん上のリスト
     const lists = clSortOptions([...sel.options]).filter((o) => clCatOf(o.value) === cat);
     const last = clCatLast(cat);
@@ -7548,6 +7554,7 @@ function hubShow(tab) {
   else if (tab === "pl") hubRenderPast();
   else if (tab === "src") hubRenderSources();
   else if (tab === "sh") hubRenderSheet();
+  else if (tab === "bx") hubRenderBox();
 }
 
 // ソースタブのリストのカードから、そのリストの中身（編集表）を開く。戻るとソースタブに戻る
@@ -12212,4 +12219,85 @@ async function shHistory(r) {
     const items = d.items || [];
     $("shDwB").outerHTML = items.length ? `<div class="sh-dw-list">${items.slice(0, 60).map((h) => `<div class="sh-dw-it"><div class="t">${esc(h.日時 || h.at || "")}　<b>${esc(h.結果 || h.result || "")}</b>　<span>${esc(h.誰名 || h.誰 || h.caller || "")}</span></div>${h.メモ || h.memo ? `<div class="m">${esc(h.メモ || h.memo)}</div>` : ""}</div>`).join("")}</div>` : `<div class="note">${esc(d.note || "履歴はまだありません")}</div>`;
   } catch (e) { const b = $("shDwB"); if (b) b.textContent = "履歴を読めませんでした"; }
+}
+
+// ===================== 振り分け（今日の箱）2026-11-05 田中さん =====================
+// 全部のリードを「かける」画面のように見て、選んだリードを、メンバーごとの今日の箱に入れる（その日だけ。リードは元のリストのまま）
+const BX = { rows: [], total: 0, sel: new Set(), boxes: [], members: null, f: { q: "", list: "", stage: "", idle: "", notBoxed: "1" }, offset: 0, busy: false, lists: [] };
+async function bxLoad(more) {
+  const q = new URLSearchParams({ state: "open", limit: "200", offset: String(more ? BX.offset : 0), sort: "last", dir: "asc" });
+  for (const [k, v] of Object.entries(BX.f)) if (v) q.set(k, v);
+  const d = await (await fetch(`/api/calls/sheet?${q}`)).json(); if (d.error) throw new Error(d.error);
+  BX.rows = more ? [...BX.rows, ...(d.rows || [])] : (d.rows || []); BX.total = d.total || 0; BX.offset = BX.rows.length;
+  if (d.lists) BX.lists = d.lists;
+}
+async function bxLoadBoxes() { const d = await (await fetch("/api/calls/boxes")).json(); BX.boxes = d.boxes || []; }
+async function hubRenderBox() {
+  const pane = $("hubPane"); if (!pane) return;
+  try {
+    if (!BX.members) { const m = await (await fetch("/api/calls/members")).json(); BX.members = (m.items || []).filter((x) => x.email && x.active !== false); }
+    if (!BX.lists.length) { const f = await (await fetch("/api/calls/sheet/facets")).json(); BX.lists = f.lists || []; BX.stages = f.stages || []; }
+    await Promise.all([bxLoad(false), bxLoadBoxes()]);
+  } catch (e) { pane.innerHTML = `<div class="note">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  bxRender();
+}
+function bxRender() {
+  const pane = $("hubPane"); if (!pane) return;
+  const d = (v) => { if (!v) return "—"; const t = new Date(v); return isNaN(t) ? "—" : `${t.getMonth() + 1}/${t.getDate()}`; };
+  const byM = new Map(BX.boxes.map((b) => [String(b.member).toLowerCase(), b]));
+  const nm = (em) => { const m = (BX.members || []).find((x) => String(x.email).toLowerCase() === String(em || "").toLowerCase()); return m ? (m.name || m.email) : String(em || "").split("@")[0]; };
+  pane.innerHTML = `<div class="bx">
+    <div class="bx-main">
+      <div class="bx-bar"><input class="kc-input" id="bxQ" placeholder="会社名・担当者・電話で探す" value="${esc(BX.f.q)}" style="max-width:240px" />
+        <select class="kc-input" id="bxList" style="max-width:220px"><option value="">リスト：すべて</option>${BX.lists.map((l) => `<option value="${l.id}" ${String(BX.f.list) === String(l.id) ? "selected" : ""}>${esc(l.name)}（${l.open}）</option>`).join("")}</select>
+        <select class="kc-input" id="bxStage" style="max-width:170px"><option value="">ステージ：すべて</option>${(BX.stages || []).map((s) => `<option ${BX.f.stage === s.stage ? "selected" : ""}>${esc(s.stage)}</option>`).join("")}</select>
+        <select class="kc-input" id="bxIdle" style="max-width:190px"><option value="">最後にかけてから：すべて</option>${[[3, "3日以上"], [7, "7日以上"], [14, "14日以上"], [30, "30日以上"]].map(([v, l]) => `<option value="${v}" ${String(BX.f.idle) === String(v) ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <label class="bx-chk"><input type="checkbox" id="bxNot" ${BX.f.notBoxed ? "checked" : ""}/> 今日もう箱に入れたリードは出さない</label></div>
+      <div class="bx-bar"><span class="bx-info">${BX.sel.size ? `<b>${BX.sel.size}件</b>を選んでいます → 右の箱を押すと入ります` : `リードを押して選ぶ（何件でも・Shift で範囲）→ 右の箱を押すと入る`}</span><span class="note" style="margin-left:auto">${BX.total.toLocaleString()}件のうち ${BX.rows.length.toLocaleString()}件を表示</span>${BX.sel.size ? '<button type="button" class="btn ghost" id="bxClr">選ぶのをやめる</button>' : ""}</div>
+      <div class="bx-tbl"><div class="bx-tr h"><span><input type="checkbox" id="bxAll" /></span><span>ステージ</span><span>会社名・担当者</span><span>リスト</span><span>最終架電日</span><span>最終結果</span><span>最後の履歴のメモ</span><span>箱</span></div>
+      ${BX.rows.map((r, i) => `<div class="bx-tr${BX.sel.has(r.id) ? " sel" : ""}${r.box_member ? " boxed" : ""}" data-i="${i}" data-id="${r.id}"><span><input type="checkbox" ${BX.sel.has(r.id) ? "checked" : ""} ${r.box_member ? "disabled" : ""}/></span><span class="st">${esc(r.stage || "—")}</span><span class="co"><b>${esc(r.company || "")}</b><small>${esc(r.person || "")}${r.calls ? `・${r.calls}件の記録` : ""}</small></span><span class="st">${esc(r.list_name || "")}</span><span>${d(r.last_at)}</span><span class="st">${esc(r.last_result || "—")}</span><span class="memo" title="${esc(r.last_memo || "")}">${esc(r.last_memo || "")}</span><span>${r.box_member ? `<span class="own">${esc(nm(r.box_member))}</span>` : ""}</span></div>`).join("") || '<div class="note" style="padding:14px">リードがありません</div>'}
+      </div>
+      ${BX.rows.length < BX.total ? '<button type="button" class="btn ghost" id="bxMore" style="margin-top:8px;width:100%">もっと見る（200件）</button>' : ""}
+    </div>
+    <div class="bx-side"><div class="bx-sh">今日の箱 <small>${new Date(Date.now() + 9 * 3600000).toISOString().slice(5, 10).replace("-", "/")}だけ</small></div>
+      ${(BX.members || []).map((m) => { const b = byM.get(String(m.email).toLowerCase()) || { n: 0, byList: {} }; return `<div class="bx-box${b.n ? " has" : ""}" data-em="${esc(m.email)}" role="button" tabindex="0"><div class="hd"><span class="av">${esc((m.name || m.email).slice(0, 1))}</span><b>${esc(m.name || m.email)}</b><span class="n">${b.n}</span></div><div class="g"><i style="width:${Math.min(100, (b.n / 60) * 100)}%"></i></div><div class="ls">${b.n ? Object.entries(b.byList).map(([a, c]) => `${esc(a)} ${c}`).join("・") : "空の箱"}</div>${b.n ? `<button type="button" class="bx-out" data-out="${esc(m.email)}">中身を外す</button>` : ""}</div>`; }).join("")}
+      <div class="note" style="margin-top:6px">目安 60件／人。明日になると空に戻ります（リードは元のリストに入ったまま）。メンバーの「かける」画面のいちばん上に「今日の箱」が出ます。</div>
+    </div></div>`;
+  const reload = async () => { BX.sel.clear(); try { await bxLoad(false); } catch (e) { alert(e.message); } bxRender(); };
+  let t0 = 0; $("bxQ").addEventListener("input", (e) => { clearTimeout(t0); t0 = setTimeout(() => { BX.f.q = e.target.value.trim(); reload(); }, 300); });
+  $("bxList").addEventListener("change", (e) => { BX.f.list = e.target.value; reload(); });
+  $("bxStage").addEventListener("change", (e) => { BX.f.stage = e.target.value; reload(); });
+  $("bxIdle").addEventListener("change", (e) => { BX.f.idle = e.target.value; reload(); });
+  $("bxNot").addEventListener("change", (e) => { BX.f.notBoxed = e.target.checked ? "1" : ""; reload(); });
+  const clr = $("bxClr"); if (clr) clr.addEventListener("click", () => { BX.sel.clear(); bxRender(); });
+  $("bxAll").addEventListener("change", (e) => { for (const r of BX.rows) if (!r.box_member) e.target.checked ? BX.sel.add(r.id) : BX.sel.delete(r.id); bxRender(); });
+  let lastI = -1;
+  pane.querySelectorAll(".bx-tr[data-id]").forEach((row) => row.addEventListener("click", (e) => {
+    const i = Number(row.dataset.i), r = BX.rows[i]; if (!r || r.box_member) return;
+    if (e.shiftKey && lastI >= 0) { const [a, b] = [Math.min(lastI, i), Math.max(lastI, i)]; for (let k = a; k <= b; k++) if (!BX.rows[k].box_member) BX.sel.add(BX.rows[k].id); }
+    else BX.sel.has(r.id) ? BX.sel.delete(r.id) : BX.sel.add(r.id);
+    lastI = i; bxRender();
+  }));
+  const more = $("bxMore"); if (more) more.addEventListener("click", async () => { more.disabled = true; try { await bxLoad(true); } catch (er) { alert(er.message); } bxRender(); });
+  pane.querySelectorAll(".bx-box").forEach((b) => b.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-out]")) return;
+    if (!BX.sel.size) { alert("先に左のリードを選んでください"); return; }
+    const n = BX.sel.size;
+    try { const r = await (await fetch("/api/calls/boxes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ member: b.dataset.em, ids: [...BX.sel] }) })).json(); if (r.error) throw new Error(r.error); BX.boxes = r.boxes || BX.boxes; }
+    catch (er) { alert(er.message); return; }
+    const who = nm(b.dataset.em); BX.sel.clear();
+    try { await bxLoad(false); } catch {}
+    bxRender();
+    if (typeof say === "function") say("ldSt", `${n}件を ${who} の箱に入れました`, 3000);
+  }));
+  pane.querySelectorAll("[data-out]").forEach((b) => b.addEventListener("click", async () => {
+    const em = b.dataset.out; if (!confirm(`${nm(em)} の今日の箱を空にします。よろしいですか？`)) return;
+    try {
+      const d0 = await (await fetch(`/api/calls/targets?list=box&member=${encodeURIComponent(em)}`)).json();
+      const ids = (d0.items || []).map((x) => x.id).filter(Boolean);
+      if (ids.length) { const r = await (await fetch("/api/calls/boxes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ remove: true, ids }) })).json(); BX.boxes = r.boxes || BX.boxes; }
+      await bxLoad(false);
+    } catch (er) { alert(er.message); }
+    bxRender();
+  }));
 }

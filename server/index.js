@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -10481,6 +10481,26 @@ app.get("/api/calls/sheet", async (req, res) => {
     res.json({ ok: true, ...d });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 今日の箱（リーダーが全部のリードから選んで、メンバーごとの箱に入れる。その日だけ）（2026-11-05）
+app.get("/api/calls/box/mine", async (req, res) => {
+  try { const me = String(req.query.member || req.user || "").toLowerCase(); res.json({ ok: true, n: me ? (await boxIdsOf(me)).length : 0 }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/calls/boxes", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    res.json({ ok: true, boxes: await boxSummary() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/calls/boxes", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
+    const b = req.body || {}; const ids = (Array.isArray(b.ids) ? b.ids : []).map((x) => parseInt(x, 10)).filter(Boolean).slice(0, 2000);
+    if (!ids.length) return res.status(400).json({ error: "リードを選んでください" });
+    const n = b.remove ? await boxRemove(ids) : await boxAdd(String(b.member || "").toLowerCase(), ids, req.user);
+    res.json({ ok: true, n, boxes: await boxSummary() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/calls/sheet/facets", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
@@ -10918,6 +10938,11 @@ app.get("/api/calls/targets", async (req, res) => {
         limit: Math.min(20000, parseInt(req.query.limit, 10) || 3000),
         until: listParam === "nurture-week" ? jstWeekEndIso() : "",
       });
+    } else if (listParam === "box") {
+      // 「今日の箱」：リーダーが今日その人の箱に入れたリード（入れた順）（2026-11-05）
+      const member = String(req.query.member || req.user || "").trim().toLowerCase();
+      if (!member) return res.status(400).json({ error: "メンバーを指定してください" });
+      rows = await listBoxTargetsForMember(member);
     } else if (listParam === "today") {
       // 「今日かけるリード」：表示しているリストで、まだかける先として残っているものだけをまとめる。
       // ナーチャリング（ジャッジ・営業フォロー）も入れる（画面で「ナーチャリング」の印を付ける）。架電予定が明日以降のものは入れない。
@@ -28392,7 +28417,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05q kincallのアワード（新規アポ獲得数）：熱そうリストのような、新規・過去のどちらでもないリストで取ったアポも、リードのソース（フロッグなど）か元のリストが新規なら数える。";
+const BUILD_TAG = "2026-11-05r kincall：リスト管理に「振り分け」（全部のリードを、かける画面のように最終架電日・最終結果・最後のメモつきで見て、選んだリードをメンバーごとの今日の箱に入れる。その日だけ）。メンバーのかける画面のいちばん上に「今日の箱」。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

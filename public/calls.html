@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
-    <link rel="stylesheet" href="style.css?v=20261105q" />
+    <link rel="stylesheet" href="style.css?v=20261105r" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -292,7 +292,21 @@
                       background:#fff;border:1.5px solid #e6ece9;border-radius:10px;cursor:pointer;transition:border-color .15s,background .15s,transform .1s;}
               .cl-ico:hover{background:#eef7f2;border-color:#5DCAA5;transform:translateY(-1px);}
               .cl-ico:active{transform:translateY(0);}
-            </style>
+              /* 振り分け（今日の箱）2026-11-05 */
+  .bx{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:12px;}
+  .bx-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;} .bx-chk{display:flex;gap:6px;align-items:center;font-size:12.5px;color:#4F6158;} .bx-info{font-size:12.5px;color:#4F6158;} .bx-info b{color:#0E6B4E;}
+  .bx-tbl{border:1px solid #E1E9E5;border-radius:12px;overflow:auto;max-height:calc(100vh - 330px);background:#fff;}
+  .bx-tr{display:grid;grid-template-columns:28px 96px minmax(0,1.6fr) minmax(0,1fr) 70px 120px minmax(0,1.5fr) 80px;gap:8px;align-items:center;padding:8px 10px;border-top:1px solid #F0F3F1;font-size:12.5px;cursor:pointer;}
+  .bx-tr.h{position:sticky;top:0;z-index:1;background:#F4F8F6;font-weight:700;color:#4F6158;border-top:0;cursor:default;} .bx-tr:hover:not(.h){background:#F7FBF9;} .bx-tr.sel{background:#E6F1FB;} .bx-tr.boxed{opacity:.5;cursor:default;}
+  .bx-tr .co b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .bx-tr .co small{color:#8FA39A;font-size:11px;} .bx-tr .st{font-size:11px;background:#F1F5F3;border-radius:6px;padding:2px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .bx-tr .memo{color:#6A7A72;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .bx-tr .own{font-size:11px;font-weight:800;background:#E1F5EE;color:#0A5440;border-radius:6px;padding:2px 6px;}
+  .bx-side{display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 250px);overflow-y:auto;} .bx-sh{font-weight:800;font-size:13px;} .bx-sh small{font-weight:600;color:#8FA39A;margin-left:4px;}
+  .bx-box{border:1.5px dashed #C9D8D1;border-radius:12px;padding:9px 11px;background:#fff;cursor:pointer;transition:border-color .15s, background .15s, transform .15s;} .bx-box:hover{border-color:#1D9E75;background:#F2FBF7;transform:translateY(-1px);} .bx-box.has{border-style:solid;border-color:#9FD3BE;}
+  .bx-box .hd{display:flex;align-items:center;gap:7px;} .bx-box .av{width:24px;height:24px;border-radius:50%;background:#E1F5EE;color:#0A5440;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;} .bx-box .hd b{font-size:13px;} .bx-box .n{margin-left:auto;font-size:18px;font-weight:800;color:#0E6B4E;}
+  .bx-box .g{height:5px;background:#EEF3F0;border-radius:99px;overflow:hidden;margin-top:6px;} .bx-box .g i{display:block;height:100%;background:#1D9E75;} .bx-box .ls{font-size:11px;color:#6A7A72;margin-top:5px;line-height:1.5;}
+  .bx-out{margin-top:6px;border:0;background:none;font:inherit;font-size:11px;color:#A51F16;cursor:pointer;padding:0;text-decoration:underline;}
+  @media (max-width:1000px){ .bx{grid-template-columns:1fr;} }
+</style>
 
             <div id="clTable"><div class="empty-state">リストを選んでください。</div></div>
           </section>
@@ -502,6 +516,7 @@
                 <button type="button" class="hub-tab" data-hub="rc"><svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 0 1 7.3 4.8H22l-3.6 4.4-3.6-4.4h2.3A6 6 0 0 0 6.4 10L4.6 9.1A8 8 0 0 1 12 4zM5.6 10.8l3.6 4.4H6.9a6 6 0 0 0 10.7 1.2l1.8.9A8 8 0 0 1 4.7 15.2H2z"/></svg>リサイクル <span class="hub-b" id="hubBRc"></span></button>
                 <button type="button" class="hub-tab" data-hub="nu"><svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 4C12.5 4 7 7.8 7 14.2c0 1.3.3 2.5.8 3.5L5 20.5 6.4 22l2.8-2.8c1 .5 2.1.8 3.3.8C18.6 20 20 13 20 4zm-8.3 13.9c-.5 0-1.1-.1-1.6-.3 2-3 4.5-5.6 7.4-7.6-2.9 1.2-5.6 3.6-7.8 6.4-.3-.7-.4-1.4-.4-2.2 0-4.8 3.6-7.6 8.6-8.1-.3 7-2.4 11.8-6.2 11.8z"/></svg>ナーチャリング <span class="hub-b warn" id="hubBNu"></span></button>
                 <button type="button" class="hub-tab" data-hub="src"><svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 2 7l10 5 10-5zm-8 9.2V16l8 4 8-4v-4.8l-8 4z"/></svg>ソース <span class="hub-b warn" id="hubBSrc"></span></button>
+                <button type="button" class="hub-tab" data-hub="bx"><svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7l9-4 9 4v10l-9 4-9-4zm9 2L5.2 6 12 9l6.8-3zm-7 1.4v5.3l6 2.7v-5.3zm8 8 6-2.7v-5.3l-6 2.7z"/></svg>振り分け</button>
                 <button type="button" class="hub-tab" data-hub="sh"><svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3zm2 2v3h4V6zm6 0v3h8V6zM5 11v3h4v-3zm6 0v3h8v-3zM5 16v2h4v-2zm6 0v2h8v-2z"/></svg>シート</button>
                 <button type="button" class="hub-tab" data-hub="pl"><svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v4H3zm1 5h16v11H4zm5 3v2h6v-2z"/></svg>過去リスト <span class="hub-b" id="hubBPl"></span></button>
               </div>
@@ -639,9 +654,9 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261105q"></script>
-    <script src="calls.js?v=20261105q"></script>
-    <script src="nav.js?v=20261105q"></script>
+    <script src="sf-data.js?v=20261105r"></script>
+    <script src="calls.js?v=20261105r"></script>
+    <script src="nav.js?v=20261105r"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

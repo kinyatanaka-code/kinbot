@@ -11882,17 +11882,20 @@ export async function callSheet(p = {}) {
   else if (p.stage) add("t.stage = ?", String(p.stage));
   if (p.absent) add("COALESCE(t.consecutive_absent,0) >= ?", parseInt(p.absent, 10) || 0);
   if (p.idle) where.push(`NOT EXISTS (SELECT 1 FROM call_logs c2 WHERE c2.target_id=t.id AND c2.at > now() - (${Math.max(1, parseInt(p.idle, 10) || 30)} || ' days')::interval)`);
+  if (p.notBoxed) where.push(`NOT EXISTS (SELECT 1 FROM call_boxes b2 WHERE b2.target_id = t.id AND b2.day = (now() AT TIME ZONE 'Asia/Tokyo')::date)`);
   const W = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const SORT = { company: "t.company", list: "l.name", assigned: "t.assigned_to", stage: "t.stage", status: "t.status", last: "lg.last_at", calls: "lg.n", next: "t.next_call_at", absent: "t.consecutive_absent", area: "t.area", industry: "t.industry", score: "t.score" };
   const sortCol = SORT[p.sort] || "t.id";
   const dir = String(p.dir || "").toLowerCase() === "asc" ? "ASC" : "DESC";
   const limit = Math.max(1, Math.min(500, parseInt(p.limit, 10) || 200));
   const offset = Math.max(0, parseInt(p.offset, 10) || 0);
-  const lat = `LEFT JOIN LATERAL (SELECT count(*)::int AS n, max(c.at) AS last_at, (array_agg(c.result ORDER BY c.at DESC))[1] AS last_result FROM call_logs c WHERE c.target_id = t.id) lg ON true`;
+  const lat = `LEFT JOIN LATERAL (SELECT count(*)::int AS n, max(c.at) AS last_at, (array_agg(c.result ORDER BY c.at DESC))[1] AS last_result, (array_agg(c.memo ORDER BY c.at DESC) FILTER (WHERE coalesce(btrim(c.memo),'') <> ''))[1] AS last_memo FROM call_logs c WHERE c.target_id = t.id) lg ON true
+    LEFT JOIN call_boxes bx ON bx.target_id = t.id AND bx.day = (now() AT TIME ZONE 'Asia/Tokyo')::date`;
+  await ensureBoxes();
   const totalQ = await pool.query(`SELECT count(*)::int AS n FROM call_targets t JOIN call_lists l ON l.id = t.list_id ${W}`, vals);
   const { rows } = await pool.query(
     `SELECT t.id, t.company, t.person, t.phone, t.area, t.industry, t.list_id, l.name AS list_name, t.assigned_to, t.stage, t.status, t.done, COALESCE(t.excluded,false) AS excluded,
-            t.next_call_at, t.score, COALESCE(t.consecutive_absent,0) AS absent, t.temperature, t.lead_id, lg.n AS calls, lg.last_at, lg.last_result
+            t.next_call_at, t.score, COALESCE(t.consecutive_absent,0) AS absent, t.temperature, t.lead_id, lg.n AS calls, lg.last_at, lg.last_result, lg.last_memo, bx.member AS box_member
        FROM call_targets t JOIN call_lists l ON l.id = t.list_id ${lat} ${W}
       ORDER BY ${sortCol} ${dir} NULLS LAST, t.id DESC LIMIT ${limit} OFFSET ${offset}`, vals);
   return { total: totalQ.rows[0].n, rows };
@@ -11980,4 +11983,60 @@ export async function kxAccessSet(rows = []) {
   let n = 0;
   for (const r of rows) { await pool.query(`INSERT INTO kinxs_access (account_id, ym, count) VALUES ($1,$2,$3) ON CONFLICT (account_id, ym) DO UPDATE SET count = $3, updated_at = now()`, [r.account_id, r.ym, r.count]); n++; }
   return n;
+}
+
+// ===== kincall 今日の箱（2026-11-05 田中さん）：リーダーが全部のリードを見て、メンバーごとの「今日の箱」に入れる。その日だけ（リードは元のリストに残したまま）=====
+let _boxReady = false;
+async function ensureBoxes() {
+  if (_boxReady || !pool) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS call_boxes (day DATE NOT NULL, target_id INT NOT NULL, member TEXT NOT NULL, pos INT NOT NULL DEFAULT 0, by_user TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (day, target_id))`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS call_boxes_member ON call_boxes (day, member)`);
+  _boxReady = true;
+}
+const jstToday = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+export async function boxSummary(day = jstToday()) {
+  if (!pool) return [];
+  await ensureBoxes();
+  const { rows } = await pool.query(
+    `SELECT b.member, count(*)::int AS n, json_agg(json_build_object('list', l.name) ) AS lists
+       FROM call_boxes b JOIN call_targets t ON t.id = b.target_id JOIN call_lists l ON l.id = t.list_id
+      WHERE b.day = $1 GROUP BY b.member`, [day]);
+  return rows.map((r) => { const by = {}; for (const x of r.lists || []) by[x.list] = (by[x.list] || 0) + 1; return { member: r.member, n: r.n, byList: by }; });
+}
+export async function boxAdd(member, ids = [], by = "", day = jstToday()) {
+  if (!pool || !member || !ids.length) return 0;
+  await ensureBoxes();
+  const { rows: mx } = await pool.query(`SELECT COALESCE(max(pos),0)::int AS p FROM call_boxes WHERE day=$1 AND member=$2`, [day, member]);
+  let pos = mx[0].p, n = 0;
+  for (const id of ids) { pos++; const r = await pool.query(`INSERT INTO call_boxes (day, target_id, member, pos, by_user) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (day, target_id) DO UPDATE SET member=$3, pos=$4, by_user=$5`, [day, parseInt(id, 10), String(member).toLowerCase(), pos, by]); n += r.rowCount; }
+  return n;
+}
+export async function boxRemove(ids = [], day = jstToday()) {
+  if (!pool || !ids.length) return 0;
+  await ensureBoxes();
+  const r = await pool.query(`DELETE FROM call_boxes WHERE day=$1 AND target_id = ANY($2::int[])`, [day, ids.map((x) => parseInt(x, 10))]);
+  return r.rowCount;
+}
+export async function boxIdsOf(member, day = jstToday()) {
+  if (!pool) return [];
+  await ensureBoxes();
+  const { rows } = await pool.query(`SELECT target_id FROM call_boxes WHERE day=$1 AND member=$2 ORDER BY pos`, [day, String(member).toLowerCase()]);
+  return rows.map((r) => r.target_id);
+}
+// かける画面の「今日の箱」：その人の今日の箱のリード（並べた順）
+export async function listBoxTargetsForMember(member, day = jstToday()) {
+  if (!pool || !member) return [];
+  await ensureBoxes();
+  const { rows } = await pool.query(
+    `SELECT t.*,
+            l.owner AS _list_owner, l.group_id AS _list_group_id, l.name AS _list_name,
+            (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS _list_group_name,
+            (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id) AS 履歴数,
+            (SELECT count(*) FROM call_logs cl WHERE cl.target_id = t.id AND cl.sf_task_id IS NULL) AS 未送信数,
+            (SELECT cl.result FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終結果,
+            (SELECT cl.at FROM call_logs cl WHERE cl.target_id = t.id ORDER BY cl.at DESC LIMIT 1) AS 最終日時,
+            (SELECT cl.memo FROM call_logs cl WHERE cl.target_id = t.id AND coalesce(btrim(cl.memo),'') <> '' ORDER BY cl.at DESC LIMIT 1) AS 最終メモ
+       FROM call_boxes b JOIN call_targets t ON t.id = b.target_id JOIN call_lists l ON l.id = t.list_id
+      WHERE b.day = $1 AND b.member = $2 ORDER BY b.pos`, [day, String(member).toLowerCase()]);
+  return rows;
 }
