@@ -28388,7 +28388,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05o kinXsを、ログインしているメンバー全員が見られる・使えるように（CS連携の一覧も見られる。AIアカウントのパスワード・CS連携の直し・投稿は今までどおりCS・FS・クローザー・管理者）。";
+const BUILD_TAG = "2026-11-05p kincallのリスト管理：上の「管理」の札を出さないようにした。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
