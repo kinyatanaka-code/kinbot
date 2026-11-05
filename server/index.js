@@ -28383,7 +28383,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05k CS連携：キックオフMTGのあとのOBスレへの自動投稿を止めた（情報が足りない・議事録が無いときのメンションも）。設定の「OBスレへの自動投稿」で戻せる。企業カードの「保存してOBスレに修正版を投稿」は押したときだけ投稿。";
+const BUILD_TAG = "2026-11-05l kincall：LINEリストから獲得したアポは、カレンダーの予定名を【初回/LINE】に、説明に【LINE】LINEリストから獲得したアポ と【利用中ATS】を残す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -33055,21 +33055,24 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
   if (same) return { ok: true, already: true, link: same, calendar: same.event_id ? "ok" : "" };
 
   // 予定名の種別（新規＝【初回】／過去失注＝【初回/過去失注】／フロッグ＝【初回/フロッグ】）
-  const tag = ["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回";
+  // リスト名（予定の説明に入れる）と、LINEリストかどうか（2026-11-04・11-05）
+  let listName = "", isLine = false;
+  try {
+    if (target && target.list_id) listName = await getCallListName(target.list_id);
+    const lg = target && target.list_id ? await callListAndGroup({ id: target.list_id }) : { name: listName, group: "" };
+    isLine = String(target && target.source || "") === "LINE" || /(^|[^A-Za-z])LINE/i.test(`${lg.name || ""} ${lg.group || ""}`.normalize("NFKC"));
+  } catch {}
+  // LINEリストから取ったアポは、予定名を【初回/LINE】に（2026-11-05 田中さん）
+  const tag = isLine ? "初回/LINE" : (["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ", "初回/LINE"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回");
   const label = apoLabelOf(tag, company, person);
-  // リスト名も予定の説明に入れる（どのリストで取ったアポか、カレンダーで分かるように）（2026-11-04）
-  let listName = "";
-  try { if (target && target.list_id) listName = await getCallListName(target.list_id); } catch {}
-  // LINEリストのアポは、リストの「利用中ATS」の列も予定のメモに載せる（2026-11-04）
+  // LINEリストのアポは、説明に「LINE」と、リストの「利用中ATS」の列を載せる
   let atsLine = "";
   try {
-    const lg = target && target.list_id ? await callListAndGroup({ id: target.list_id }) : { name: listName, group: "" };
-    const isLine = String(target && target.source || "") === "LINE" || /(^|[^A-Za-z])LINE/i.test(`${lg.name || ""} ${lg.group || ""}`.normalize("NFKC"));
     if (isLine) {
       const ex = (target && target.extra && typeof target.extra === "object") ? target.extra : {};
       const k = Object.keys(ex).find((x) => /利用中\s*ATS/i.test(x)) || Object.keys(ex).find((x) => /ATS/i.test(x));
       const v = k ? String(ex[k] || "").trim() : "";
-      atsLine = `【利用中ATS】${v || "（リストに記載なし）"}\n`;
+      atsLine = `【LINE】LINEリストから獲得したアポ\n【利用中ATS】${v || "（リストに記載なし）"}\n`;
     }
   } catch {}
   const desc = [

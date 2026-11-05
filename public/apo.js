@@ -546,7 +546,7 @@ function bindCardEvents(card) {
   const retitle = q(".ap-retitle");
   if (retitle) retitle.addEventListener("click", () => {
     const cur = String(retitle.dataset.label || "");
-    const TAGS = ["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ"];
+    const TAGS = ["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ", "初回/LINE"];
     const back = document.createElement("div");
     back.className = "ap-rs-back";
     back.innerHTML = `

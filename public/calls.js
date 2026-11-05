@@ -2448,7 +2448,7 @@ async function openTarget(id, draft, opt) {
             <label class="kc-apo-lb" for="kcApoTag">種別</label>
             <div>
               <select class="kc-input" id="kcApoTag">
-                ${[["初回", "新規"], ["初回/過去失注", "過去失注"], ["初回/MO失注", "MO失注"], ["初回/フロッグ", "フロッグ"], ["初回/メルマガ", "メルマガリスト"]]
+                ${[["初回", "新規"], ["初回/過去失注", "過去失注"], ["初回/MO失注", "MO失注"], ["初回/フロッグ", "フロッグ"], ["初回/メルマガ", "メルマガリスト"], ["初回/LINE", "LINEリスト"]]
                   .map(([v, lb]) => `<option value="${v}"${kcApoTagOf(x) === v ? " selected" : ""}>${lb}（【${v}】）</option>`).join("")}
               </select>
               <div class="kc-apo-free" id="kcApoTitle"></div>
@@ -2853,7 +2853,8 @@ function kcApoTagOf(x) {
   const src = String((x && x["ソース"]) || "").trim();
   const ln = String((x && (x["元のリスト"] || x["リスト名"])) || "");
   // ディーラーのリストは新規リストの扱い（もとがフロッグ・MO失注などでも【初回】）（2026-11-04）
-  if (["ディーラー", "LINE", "ホテル", "販売・接客", "不動産"].includes(src) || /ディーラー|ホテル|接客|不動産|(^|[^A-Za-z])LINE/i.test(String((x && x["リスト名"]) || "").normalize("NFKC"))) return "初回";
+  if (src === "LINE" || /(^|[^A-Za-z])LINE/i.test(String((x && x["リスト名"]) || "").normalize("NFKC"))) return "初回/LINE";   // LINEリスト（2026-11-05）
+  if (["ディーラー", "ホテル", "販売・接客", "不動産"].includes(src) || /ディーラー|ホテル|接客|不動産/.test(String((x && x["リスト名"]) || "").normalize("NFKC"))) return "初回";
   if (/フロッグ/.test(src) || /フロッグ/.test(ln)) return "初回/フロッグ";
   if (/メルマガ/.test(src) || /メルマガ/.test(ln)) return "初回/メルマガ";
   if (/MO\s*失注/i.test(src) || /MO\s*失注/i.test(ln)) return "初回/MO失注";
