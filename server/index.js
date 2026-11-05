@@ -16075,7 +16075,9 @@ app.post("/api/calls/chat", async (req, res) => {
 // 1枠1時間・平日10-18時・空いている人数が多い順→直近順で最大6件。
 // リストによって、日程の候補に出す人を決める（2026-11-02：ディーラーのリストは浦林さん）。settings.slotRepsByList で足せる {リスト名の一部: [名前の一部…]}
 // リスト名・グループ名の一部 → 担当（名前の一部）。日程の候補はこの人だけ、割り振りも assignRepsByList に当たればこの人だけ
-const SLOT_REPS_DEFAULT = { ディーラー: ["浦林"], ホテル: ["浦林"], 接客: ["浦林"], 不動産: ["浦林"], LINE: ["中澤良太"] };   // 販売・接客は「接客」で当てる
+// 2026-11-05 田中さん：浦林さんの候補日は「検証リスト」のグループのときだけ（ディーラー・ホテル・販売・接客・不動産はやめた）。ほかのリストの候補日には浦林さんを出さない
+const SLOT_REPS_DEFAULT = { 検証: ["浦林"], LINE: ["中澤良太"] };
+const kxIsUra = (x) => /浦林/.test(String((x && (x.name || x.email)) || ""));
 const ASSIGN_REPS_DEFAULT = { LINE: ["中澤良太"] };   // LINEリストのグループのアポは中澤良太さんだけに割り振る（2026-11-04）
 async function repsForList(listName, { kind = "slot", listId = null } = {}) {
   const info = await callListAndGroup({ id: listId, name: listName }).catch(() => ({ name: listName, group: "" }));
@@ -16104,7 +16106,7 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
     const closers = await listClosers({ activeOnly: true }).catch(() => []);
     const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
     const members = (await slotMembersForList(req.query.list).catch(() => null)) || closers
-      .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")))
+      .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")) && !kxIsUra(x))
       .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
     if (!members.length) return res.json({ ok: true, 候補: [], reason: "対象のクローザーがいません" });
     const emails = members.map((m) => m.email);
@@ -16213,7 +16215,7 @@ app.get("/api/calls/slot-day", async (req, res) => {
     const closers = await listClosers({ activeOnly: true }).catch(() => []);
     const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
     const members = (await slotMembersForList(req.query.list).catch(() => null)) || closers
-      .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")))
+      .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")) && !kxIsUra(x))
       .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
     if (!members.length) return res.json({ ok: true, date, 枠: [], 対象: [], reason: "対象のクローザーがいません" });
     const emails = members.map((m) => m.email);
@@ -28383,7 +28385,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05m kincallの記録の窓：LINEリストのリードは、トークの上に「利用中ATS」を出す。";
+const BUILD_TAG = "2026-11-05n kincall：浦林さんの候補日は「検証リスト」のグループのときだけ出す（ディーラー・ホテル・販売・接客・不動産はやめた。ほかでは出さない）。自動の割り振りでは、浦林さんが空いていても割り振らない（誰も空いていない扱い）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -31973,6 +31975,8 @@ async function _autoAssignOneInner(link, { inviteOwner, closers = null, cfg, tea
       }
     } catch {}
   }
+  // 浦林さんは、空いていても自動では割り振らない（2026-11-05 田中さん：いったん「誰も空いていない」にする）
+  if (!self) { const base = closers || (await listClosers({ business: biz }).catch(() => [])); const noUra = base.filter((c) => !kxIsUra(c)); if (noUra.length !== base.length) closers = noUra; }
   const pick = self
     ? { email: self.email, name: self.name || self.email, reason: "自分で獲得したアポ", self: true }
     : await pickCloser(link, { inviteOwner, closers, cfg, teamCtx, business: biz });
