@@ -18290,7 +18290,11 @@ app.get("/api/calls/awards", async (req, res) => {
         (新規明細[r.caller] = 新規明細[r.caller] || []).push({ リスト: r.list_name || "", グループ: r.group_name || "", 件数: n, ナーチャ: nur,
           元のリスト: nur ? (r.origin_name || "") : "", 元のグループ: nur ? (r.origin_group || "") : "" });
       };
-      if (frameOfSource(classifyListSource(r.list_name, r.group_name)) === "new") add(Number(r.apos) || 0, false);
+      // いま入っているリストで新規か決める。「熱そうリスト」のように新規・過去のどちらでもないリストなら、
+      //   リードのソース → 元のリスト の順で決める（2026-11-05：飯島さんの明電テクノシステムズ（フロッグのリード、熱そうリストでアポ）が数えられていなかった）
+      const lf = frameOfSource(classifyListSource(r.list_name, r.group_name));
+      const isNew = lf === "new" || (lf !== "past" && (frameOfSource(r.lead_source || "") === "new" || (r.origin_name && frameOfSource(classifyListSource(r.origin_name, r.origin_group)) === "new")));
+      if (isNew) add(Number(r.apos) || 0, false);
       if (leadOriginFrame(r) === "new") add(Number(r.nur_apos) || 0, true);
     }
     for (const arr of Object.values(新規明細)) arr.sort((a, b) => b.件数 - a.件数);
@@ -28388,7 +28392,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05p kincallのリスト管理：上の「管理」の札を出さないようにした。";
+const BUILD_TAG = "2026-11-05q kincallのアワード（新規アポ獲得数）：熱そうリストのような、新規・過去のどちらでもないリストで取ったアポも、リードのソース（フロッグなど）か元のリストが新規なら数える。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
