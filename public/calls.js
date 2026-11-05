@@ -6602,7 +6602,8 @@ function scExportPdf() {
       const act = scActual(em, ds);
       const h = act ? scWorkH(act.start, act.end) : 0;
       const ph = plan ? scWorkH(plan.start_min, plan.end_min) : 0;
-      const isAbsent = !!(plan && !act && (plan.absent || ds <= today));
+      // 欠勤＝前もって欠勤にした日か、もう終わった日（昨日まで）に予定があって架電が無い日。今日はまだ出勤してくるかもしれないので予定のまま（2026-11-06 田中さん）
+      const isAbsent = !!(plan && !act && (plan.absent || ds < today));
       if (!plan && !act) continue;
       if (act && h > 0) { days++; hours += h; }
       planH += ph; if (isAbsent) absent++;
@@ -6644,8 +6645,10 @@ function scExportPdf() {
       const items = [...ems].map((em) => {
         const plan = plans[em], act = scActual(em, ds);
         const nm = esc(people.get(em) || em);
+        // 書き出す当日は、もう出勤した人もまだの人も、全部 灰色で出勤予定の時間を出す（その日はまだ終わっていないので）（2026-11-06 田中さん）
+        if (ds === today && plan && !plan.absent) return { k: 1, h: `<div class="ci pl">${nm}<span>${scHM(plan.start_min)}〜${scHM(plan.end_min)}</span></div>` };
         if (act) return { k: 0, h: `<div class="ci act">${nm}<span>${scHM(act.start)}〜${scHM(act.end)}</span></div>` };
-        if (plan && (plan.absent || ds <= today)) return { k: 2, h: `<div class="ci ab">${nm}<span>欠勤</span></div>` };
+        if (plan && (plan.absent || ds < today)) return { k: 2, h: `<div class="ci ab">${nm}<span>欠勤</span></div>` };
         if (plan) return { k: 1, h: `<div class="ci pl">${nm}<span>${scHM(plan.start_min)}〜${scHM(plan.end_min)}</span></div>` };
         return null;
       }).filter(Boolean).sort((a, b) => a.k - b.k);
@@ -6653,7 +6656,7 @@ function scExportPdf() {
     }
     calRows += "</tr>";
   }
-  const calPage = `<section class="pg land"><h1>出勤カレンダー　${month}</h1><div class="sub">緑＝実績（架電記録から推定）／灰＝予定／赤＝欠勤（予定があって架電なし）　作成：${madeStr}</div>
+  const calPage = `<section class="pg land"><h1>出勤カレンダー　${month}</h1><div class="sub">緑＝実績（架電記録から推定）／灰＝予定（書き出した当日は全員予定）／赤＝欠勤（前日までに予定があって架電なし）　作成：${madeStr}</div>
     <table class="cal"><thead><tr>${wd.map((x, i) => `<th class="${i === 0 ? "csun" : i === 6 ? "csat" : ""}">${x}</th>`).join("")}</tr></thead><tbody>${calRows}</tbody></table></section>`;
   const w = window.open("", "_blank");
   if (!w) { alert("新しい画面を開けませんでした（ポップアップを許可してください）"); return; }
