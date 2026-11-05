@@ -2101,3 +2101,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-05 BUILD_TAG=2026-11-05i 田中さん「もっと余白あるから、他のツールのボタンは上に詰めて欲しい」。.kx-tools の margin-top を auto → 14px（メニューのすぐ下）、余白は足（.kx-side-foot の margin-top:auto）へ。版20261105i。
 
 - 2026-11-05 BUILD_TAG=2026-11-05j 田中さん「AI社員はいらない。あと、他のツールの下の太い線はいらない、上に太い線が欲しい」。AI社員のボタンを外し、ほかのツールの上の線を 2px・白28%、足（.kx-side-foot）の上の線を消した。※05h・05i で付けた .kx-tools・.kx-tool の名前が、更新管理などの上の道具の帯（.kx-tools）とかぶっていて、帯が縦並び・白い線になっていた（下の白い線もこれ）。サイドバーの方を .kx-stools・.kx-stool に変えて直した。CSS の名前を新しく付けるときは、kinxs.html／kinxs.js で使われていないか先に grep する。版20261105j。
+
+- 2026-11-05 BUILD_TAG=2026-11-05k 開発メモ（久野さん）「OBスレにキックオフMTG後投稿されるのをストップしてほしい」。settings.csObAuto（いつもは false）：csProcess の csPost（キックオフのあとの自動投稿）、csAlertMissing（情報が足りないときのOBスレのメンション：連携のときと思い出し）、csCheckUnrecordedKickoffs（議事録が無いときのメンション）を、true のときだけ動かす。読み取り・確認MTG・CS担当・リンク・御礼メールの下書きは今までどおり。企業カードの「保存してOBスレに修正版を投稿」（csPost を直接）は押したときだけ投稿。CS連携の設定に「OBスレへの自動投稿」のチェック（/api/cs/settings の obAuto）。版20261105k。

@@ -11821,6 +11821,9 @@ async function csSpace() {
   } catch {}
   return (await csSettings()).space;
 }
+// OBスレへの自動投稿（キックオフMTGのあとの投稿・情報が足りないときのメンション・議事録なしのメンション）を出すか（2026-11-05 久野さん：止めてほしい）。
+//   settings.csObAuto が true のときだけ自動で投稿する。企業カードの「保存してOBスレに修正版を投稿」は、押したときだけ投稿する（今までどおり）
+async function csObAutoOn() { const st = await getSettings().catch(() => ({})); return st.csObAuto === true; }
 async function csPost(k, { edited = false } = {}) {
   if (k && k.is_test) return k;   // テスト用の企業カードは、OBスレに投稿しない
   const f = k.fields || {};
@@ -12187,6 +12190,7 @@ async function csAlertMissing(k, { reminder = false } = {}) {
 // その会社の商談の記録が無ければ、OBスレでFSにメンションして知らせる（1つの予定につき1回）
 async function csCheckUnrecordedKickoffs() {
   const st = await getSettings().catch(() => ({}));
+  if (st.csObAuto !== true) return;   // OBスレへの自動の知らせは止めている
   const done = new Set(Array.isArray(st.csNoRecAlerted) ? st.csNoRecAlerted : []);
   const ops = [st.apoScanOwner, st.apoInviteOwner, st.apoCalendarOwner].map((x) => String(x || "").trim()).find(Boolean) || "";
   const closers = await listClosers({ activeOnly: true }).catch(() => []);
@@ -12232,7 +12236,7 @@ setInterval(async () => {
     for (const k of await listCsKickoffs(150)) {
       if (Date.now() - Date.parse(k.meeting_at || k.created_at || 0) > 14 * 86400000) continue;
       if (((al[k.bot_id] || {}).n || 0) >= 3) continue;
-      if (csMissing(k).length || k.error) await csAlertMissing(k, { reminder: true });
+      if ((csMissing(k).length || k.error) && (await csObAutoOn())) await csAlertMissing(k, { reminder: true });
     }
   } catch (e) { console.warn("[cs] 足りない情報の再送", e.message); }
 }, 10 * 60 * 1000).unref?.();
@@ -12333,14 +12337,14 @@ async function csProcessKickoff(m0) {
     else if (pk && pk.reason) k._csAutoNg = pk.reason;
   }
   if (!k.cs_email) k = await csEnsureConfirmAndCs(k, { announce: false }).catch(() => k);
-  k = (await csPost(k)) || k;
+  if (await csObAutoOn()) k = (await csPost(k)) || k;   // OBスレへの自動投稿は止めている（設定で戻せる）
   k = await csIssuePortal(k).catch(() => k);
   if (k.cs_email) {
     k = await csEnsureConfirmLink(k); k = await csSyncConfirmEvent(k);
     const d = await csMakeDraft(k);
     if (d.ok) await postToSpaceThread(await csSpace(), `✉️ 御礼メールの下書きを${k.fs_name}さんのGmailに作りました${k.client_email ? `（宛先：${k.client_email}）` : "（宛先は空です。入れて送ってください）"}`, k.chat_thread || "").catch(() => {});
   }
-  if (csMissing(k).length || k.error) await csAlertMissing(k).catch(() => {});
+  if ((csMissing(k).length || k.error) && (await csObAutoOn())) await csAlertMissing(k).catch(() => {});
   console.log(`[cs] キックオフを連携しました：${company}（FS ${fsName}・CS ${k.cs_name || "未定"}）`);
 }
 let _csBusy = false;
@@ -12503,7 +12507,7 @@ app.get("/api/cs/kickoffs", async (req, res) => {
       const byKey = new Map(); for (const r of kxRows) for (const n of [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])]) { const kk = csCoKey(n || ""); if (kk && !byKey.has(kk)) byKey.set(kk, r); }
       for (const k of rows) { const hit = byKey.get(csCoKey(k.company || "")) || (k.fields && byKey.get(csCoKey(k.fields.企業名 || ""))); if (hit) k.logo = `/api/kinxs/logo/${encodeURIComponent(hit.account_id)}?v=${encodeURIComponent(String(hit.logo_at ? Date.parse(hit.logo_at) : ""))}`; }
     } catch {}
-    res.json({ ok: true, kenshuReady: !!(stK.kenshuForm && stK.kenshuForm.entries), candidateSheetError: cand.error || "", adminUrl: DOC_ADMIN_URL, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, kickoffs: rows });
+    res.json({ ok: true, kenshuReady: !!(stK.kenshuForm && stK.kenshuForm.entries), candidateSheetError: cand.error || "", adminUrl: DOC_ADMIN_URL, members: cfg.members, space: cfg.space, subject: cfg.subject, body: cfg.body, defaultBody: CS_DEFAULT_BODY, isAdmin: !!req.isAdmin, obAuto: stK.csObAuto === true, kickoffs: rows });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 直す：項目・CS担当・確認MTG・宛先・候補者用URL（会社プロフィールにも入れる）
@@ -14968,6 +14972,7 @@ app.put("/api/cs/settings", async (req, res) => {
     if (b.space !== undefined) patch.csChatSpace = normalizeSpace(b.space) || CS_DEFAULT_SPACE;
     if (b.subject !== undefined) patch.csMailSubject = String(b.subject || "").slice(0, 300);
     if (b.body !== undefined) patch.csMailBody = String(b.body || "").slice(0, 6000);
+    if (b.obAuto !== undefined) patch.csObAuto = !!b.obAuto;
     await saveSettings(patch);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -28378,7 +28383,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05j kinXsのサイドバー：AI社員を外し、ほかのツールの上に太い線、下の線をなくした。名前がかぶって更新管理などの道具の帯の見た目が崩れていたのも直した。";
+const BUILD_TAG = "2026-11-05k CS連携：キックオフMTGのあとのOBスレへの自動投稿を止めた（情報が足りない・議事録が無いときのメンションも）。設定の「OBスレへの自動投稿」で戻せる。企業カードの「保存してOBスレに修正版を投稿」は押したときだけ投稿。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

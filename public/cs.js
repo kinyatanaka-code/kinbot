@@ -347,6 +347,7 @@ function renderSettings() {
   box.innerHTML = `<p class="note" style="margin:0 0 8px;">CS担当の候補には、設定 → メンバー管理 で役割「CS」を付けた人が出ます（いま ${d.members.length}名）。下の欄は、メンバー管理にいない人を足したいときだけ使います。</p><div class="cs-set">
       ${mem.map((m, i) => `<label>CS ${i + 1}</label><div style="display:flex;gap:6px"><input data-ce="${i}" value="${esc(m.email)}" placeholder="メールアドレス"><input data-cn="${i}" value="${esc(m.name)}" placeholder="名前"></div>`).join("")}
       <label>OBスレ</label><div><input id="csSpace" value="${esc(d.space)}" placeholder="https://chat.google.com/room/… または spaces/…"><div class="cs-sub">設定 → 通知先 で「CS連携（回収MTG）」にチェックした送り先があれば、そちらに送ります（ここは予備）。</div></div>
+      <label>OBスレへの自動投稿</label><div><label style="display:flex;gap:6px;align-items:center;font-weight:600"><input type="checkbox" id="csObAuto" ${d.obAuto ? "checked" : ""}> キックオフMTGのあとに、OBスレへ自動で投稿する</label><div class="cs-sub">オフ（いまの設定）：自動では投稿しません（情報が足りないときのメンション・議事録が無いときのメンションも止めます）。企業カードの「保存してOBスレに修正版を投稿」を押したときだけ投稿します。</div></div>
       <label>御礼メールの件名</label><input id="csSubj" value="${esc(d.subject)}">
       <label>御礼メールの本文</label><textarea id="csBody" rows="16">${esc(d.body)}</textarea>
     </div>
@@ -355,7 +356,7 @@ function renderSettings() {
   $("csSetDef").addEventListener("click", () => { $("csBody").value = d.defaultBody; });
   $("csSetSave").addEventListener("click", async () => {
     const members = [0, 1, 2].map((i) => ({ email: box.querySelector(`[data-ce="${i}"]`).value.trim(), name: box.querySelector(`[data-cn="${i}"]`).value.trim() })).filter((m) => m.email);
-    try { await api("/api/cs/settings", { method: "PUT", body: JSON.stringify({ members, space: $("csSpace").value, subject: $("csSubj").value, body: $("csBody").value }) }); say("設定を保存しました"); await load(); renderSettings(); }
+    try { await api("/api/cs/settings", { method: "PUT", body: JSON.stringify({ members, space: $("csSpace").value, subject: $("csSubj").value, body: $("csBody").value, obAuto: !!($("csObAuto") && $("csObAuto").checked) }) }); say("設定を保存しました"); await load(); renderSettings(); }
     catch (e) { alert(e.message); }
   });
 }
