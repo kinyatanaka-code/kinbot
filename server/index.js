@@ -12389,6 +12389,9 @@ setTimeout(async () => {
 setTimeout(() => { csTick().catch(() => {}); }, 60 * 1000).unref?.();
 
 // CS画面の API
+// kinXs は、ログインしているメンバーなら全員が見られる・使える（2026-11-05 田中さん「kinXsは全員みれるようにしてほしい」）。
+//   CS連携（回収MTG）のAIアカウントのパスワードなど /api/cs/ の大事なものは、今までどおり canCs（CS・FS・クローザー・管理者）
+async function canKinxs(req) { return !!(req.isAdmin || req.user); }
 async function canCs(req) {
   if (req.isAdmin || req.actingCloser || (await isCloserUser(req.user).catch(() => false)) || isAlwaysCloser(req.user)) return true;
   const cfg = await csSettings();
@@ -12465,7 +12468,7 @@ app.get("/api/cs/kickoffs/:bot/ai-account", async (req, res) => {
 });
 app.get("/api/cs/kickoffs", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     const cfg = await csSettings();
     const cand = await csCandidateRows([req.user]).catch(() => ({ rows: [], error: "" }));
     const stK = await getSettings().catch(() => ({}));
@@ -12566,14 +12569,14 @@ app.put("/api/cs/kickoffs/:bot", async (req, res) => {
 });
 // ヘルプサイトを用意している進み具合
 app.get("/api/cs/kickoffs/:bot/portal-progress", async (req, res) => {
-  if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+  if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
   const p = _portalProgress.get(req.params.bot);
   res.json({ ok: true, progress: p ? { ...p, steps: p.steps.map((x) => ({ t: x.t, sec: Math.round((x.at - p.startedAt) / 1000) })) } : null });
 });
 // うまくいかなかったときの画面（確かめ用）
 app.get("/api/cs/kickoffs/:bot/portal-shot", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).end();
+    if (!(await canKinxs(req))) return res.status(403).end();
     const k = await getCsKickoff(req.params.bot);
     if (!k || !k.portal_shot) return res.status(404).end();
     res.setHeader("Content-Type", "image/png"); res.send(Buffer.from(k.portal_shot, "base64"));
@@ -12731,7 +12734,7 @@ app.post("/api/cs/import", async (req, res) => {
 });
 app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const k = await getCsKickoff(req.params.bot);
     if (!k) return res.status(404).json({ error: "見つかりません" });
     const auto = await csBuildMail(k);
@@ -12845,7 +12848,7 @@ setInterval(() => { kinxsSync().catch(() => {}); }, 30 * 60 * 1000).unref?.();
 // 更新管理：更新月（今月の前の月〜12か月先）× 更新確度
 app.get("/api/kinxs/renewals", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     await kinxsInit();
     const rows = (await kinxsList()).filter((r) => !r.merged_into && !r.archived);
     const nowJ = new Date(Date.now() + 9 * 3600000);
@@ -13127,7 +13130,7 @@ async function kxFindLogo(site, coName = "") {
 const _kxLogoImg = new Map();
 app.get("/api/kinxs/logo/:id", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).end();
+    if (!(await canKinxs(req))) return res.status(403).end();
     const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id);
     if (!r || !r.logo_url) return res.status(404).end();
     if (r.logo_data) { const buf = Buffer.from(String(r.logo_data), "base64"); res.set({ "Content-Type": r.logo_type || "image/png", "Cache-Control": "private, max-age=86400" }); return res.end(buf); }
@@ -13391,12 +13394,12 @@ async function kxTaskResolveAccount(user, company) {
   return x ? { id: x.id, name: x.name } : { id: "", name: q };
 }
 app.get("/api/kinxs/tasks", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, items: await kxTaskList(req.user), statuses: KX_TASK_STATUS }); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, items: await kxTaskList(req.user), statuses: KX_TASK_STATUS }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/kinxs/tasks", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {}; const title = String(b.title || "").trim().slice(0, 200);
     if (!title) return res.status(400).json({ error: "タスクの内容を入れてください" });
     const acc = b.accountId ? { id: b.accountId, name: b.accountName || "" } : await kxTaskResolveAccount(req.user, b.company);
@@ -13408,7 +13411,7 @@ app.post("/api/kinxs/tasks", async (req, res) => {
 // 自動のやること（kinXs・メール・チャット）の状態を変える・消す：その時点の中身ごと覚える
 app.post("/api/kinxs/tasks/state", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {}; const key = String(b.key || "");
     if (!/^(auto|m):/.test(key)) return res.status(400).json({ error: "タスクが分かりません" });
     const del = b.deleted === true;
@@ -13420,7 +13423,7 @@ app.post("/api/kinxs/tasks/state", async (req, res) => {
 });
 app.put("/api/kinxs/tasks/:id", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {}; const patch = {};
     if (b.title !== undefined) patch.title = String(b.title || "").slice(0, 200);
     if (b.due !== undefined) patch.due = /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null;
@@ -13434,14 +13437,14 @@ app.put("/api/kinxs/tasks/:id", async (req, res) => {
 });
 app.get("/api/kinxs/home", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const { _mine, ...b } = await kinxsHomeBase(req.user);
     kinxsHomeInbox(req.user).catch(() => {});   // 裏で、メール・チャットを読み始める
     res.json(b);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/home/inbox", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsHomeInbox(req.user, { fresh: req.query.fresh === "1" })); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsHomeInbox(req.user, { fresh: req.query.fresh === "1" })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ===== kinXs のコネクタ（Claude.ai から kinXs を読む・直す）/kinxs/mcp =====
@@ -13525,7 +13528,7 @@ async function kinxsMcpCall(name, args, req) {
 mountMcpEndpoint(app, "/kinxs/mcp", { tools: KINXS_TOOLS, serverInfo: { name: "kinXs", version: "1.0.0" }, call: kinxsMcpCall });
 app.post("/api/kinxs/accounts/:id/rename", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {};
     if (Array.isArray(b.former)) { await kinxsSetFormer(req.params.id, b.former.map((x) => String(x || "").trim()).filter(Boolean)); return res.json({ ok: true }); }
     const nn = String(b.name || "").trim(); if (!nn) return res.status(400).json({ error: "新しい社名を入れてください" });
@@ -13536,7 +13539,7 @@ app.post("/api/kinxs/accounts/:id/rename", async (req, res) => {
 });
 app.post("/api/kinxs/accounts/:id/logo", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {}; const id = req.params.id;
     const rows = await kinxsList(); const r = rows.find((y) => y.account_id === id);
     if (!r) return res.status(404).json({ error: "見つかりません" });
@@ -13620,7 +13623,7 @@ async function kinxsDedupe() {
   return merged;
 }
 app.post("/api/kinxs/dedupe", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, merged: await kinxsDedupe() }); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, merged: await kinxsDedupe() }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 setTimeout(() => { kinxsDedupe().catch((e) => console.warn("[kinxs] 重複", e.message)); }, 4 * 60 * 1000).unref?.();
@@ -13648,7 +13651,7 @@ setTimeout(async () => {
 setInterval(() => { kinxsLogoTick(15).catch(() => {}); }, 20 * 60 * 1000).unref?.();
 app.get("/api/kinxs/users", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
     const { items, rules } = await kinxsBuild();
     // 施策（年間施策・電話フォロー）の NA日の1週間前で未完了なら、要アクション（納品後）に足す（2026-11-04 要望書 4-3・修正点 3）
     try {
@@ -13701,7 +13704,7 @@ const kxYmd = (v) => { const t = String(v || "").normalize("NFKC").trim(); const
 const kxRank = (v) => { const t = String(v || "").normalize("NFKC").trim().toUpperCase(); const m = t.match(/^[SABCZF]/); return m ? m[0] : null; };
 app.post("/api/kinxs/import/preview", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {};
     let values = [], tabs = [], sheetTitle = "", book = "";
     if (b.csv) values = kxParseCsv(b.csv);
@@ -13733,7 +13736,7 @@ app.post("/api/kinxs/import/preview", async (req, res) => {
 });
 app.post("/api/kinxs/import/apply", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     await kinxsInit();
     const b = req.body || {};
     const map = b.mapping || {}, rows = Array.isArray(b.rows) ? b.rows : [];
@@ -13780,7 +13783,7 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
 
 app.post("/api/kinxs/accounts", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが追加できます" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが追加できます" });
     await kinxsInit();
     const b = req.body || {};
     const name = String(b.name || "").trim();
@@ -13800,7 +13803,7 @@ app.post("/api/kinxs/accounts", async (req, res) => {
 });
 app.delete("/api/kinxs/accounts/:id", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const n = await kinxsDeleteManual(req.params.id);
     if (!n) return res.status(400).json({ error: "消せるのは手で追加したユーザーだけです" });
     res.json({ ok: true });
@@ -13809,7 +13812,7 @@ app.delete("/api/kinxs/accounts/:id", async (req, res) => {
 // kinXsの議事録のモーダルで流す録画：ドライブに保存済みならそこから、無ければRecallの録画
 app.get("/api/kinxs/meetings/:id/recording", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const m = await getMeeting(req.params.id);
     if (!m) return res.json({ url: null });
     if (m.drive_file_id) return res.json({ url: `/api/meetings/${encodeURIComponent(req.params.id)}/drive-video`, source: "drive" });
@@ -13822,7 +13825,7 @@ app.get("/api/kinxs/meetings/:id/recording", async (req, res) => {
 // kinXsの中で開く議事録（CS・FSは、自分の商談でなくても見られる）
 app.get("/api/kinxs/meetings/:id", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
     const tr = Array.isArray(m.transcript) ? m.transcript : [];
@@ -13922,7 +13925,7 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   return { ok: true, applied: true, suggest: sug, filled: [...filled, "次回アクション"] };
 }
 app.post("/api/kinxs/accounts/:id/read-na", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsReadNextAction(req.params.id, { force: true })); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsReadNextAction(req.params.id, { force: true })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 平日の9〜19時、1時間ごとに、読むのが古い順に8社ずつ（解約済み・キャンセルは読まない）
@@ -14013,13 +14016,13 @@ async function kinxsMakeSummary(accountId) {
   return { ok: true, summary };
 }
 app.post("/api/kinxs/accounts/:id/summary", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSummary(req.params.id)); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSummary(req.params.id)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 次回アクションの詳しい中身を手で直す（当日に確認することのチェック・宿題の状態など）
 app.put("/api/kinxs/accounts/:id/na-detail", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {};
     const nd = { manual: true, at: new Date().toISOString(), title: String(b.title || "").slice(0, 60), place: String(b.place || "").slice(0, 60), participants: String(b.participants || "").slice(0, 120), purpose: String(b.purpose || "").slice(0, 120),
       agenda: (Array.isArray(b.agenda) ? b.agenda : []).slice(0, 12).map((a) => ({ t: String(a.t || "").slice(0, 100), done: !!a.done })).filter((a) => a.t),
@@ -14108,7 +14111,7 @@ async function kxPlanFor(ym, ctx = null) {
 }
 app.get("/api/kinxs/plan", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const ym = /^\d{4}-\d{2}$/.test(String(req.query.ym || "")) ? String(req.query.ym) : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
     const measures = await kxPlanFor(ym);
     const st = await getSettings().catch(() => ({}));
@@ -14118,7 +14121,7 @@ app.get("/api/kinxs/plan", async (req, res) => {
 // 実施記録を直す（1社）。電話の施策で結果・メモを入れたら、企業詳細の議事録タブ（電話・メールなどの記録）にも同じ記録を残す
 app.put("/api/kinxs/actions", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {};
     const me = KX_MEASURES.find((x) => x.key === b.mkey); if (!me) return res.status(400).json({ error: "施策が正しくありません" });
     if (!/^\d{4}-\d{2}$/.test(String(b.ym || ""))) return res.status(400).json({ error: "月が正しくありません" });
@@ -14144,7 +14147,7 @@ app.put("/api/kinxs/actions", async (req, res) => {
 });
 app.put("/api/kinxs/plan/prep", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const ym = String(req.body?.ym || ""); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月が正しくありません" });
     const items = (Array.isArray(req.body?.items) ? req.body.items : []).slice(0, 30).map((x) => ({ t: String(x.t || "").slice(0, 100), done: !!x.done })).filter((x) => x.t);
     const st = await getSettings().catch(() => ({})); await saveSettings({ kxPrep: { ...(st.kxPrep || {}), [ym]: items } });
@@ -14193,7 +14196,7 @@ function kxJudge(me, row, inf) {
 }
 app.get("/api/kinxs/plan/targets", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const ym = String(req.query.ym || ""); const mkey = String(req.query.mkey || "");
     const me0 = (await kxPlanFor(ym)).find((x) => x.key === mkey); if (!me0) return res.status(404).json({ error: "その月の施策が見つかりません" });
     const inf = await kxSfInfo(me0.rows.map((r) => r.id));
@@ -14204,13 +14207,13 @@ app.get("/api/kinxs/plan/targets", async (req, res) => {
 });
 // 電話番号など（電話フォローの表に使う）
 app.post("/api/kinxs/sfinfo", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(String).slice(0, 500); res.json({ ok: true, info: await kxSfInfo(ids) }); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(String).slice(0, 500); res.json({ ok: true, info: await kxSfInfo(ids) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 送付先（kinXs だけで持つ上書き：郵便番号・住所・宛名・部署）と確認状態（確認OK／修正必要／対象外）・送付NG
 app.put("/api/kinxs/accounts/:id/send", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" });
     const b = req.body || {}; const cur = ((r.info || {}).send) || {};
     const send = { ...cur };
@@ -14225,7 +14228,7 @@ app.put("/api/kinxs/accounts/:id/send", async (req, res) => {
 // 一斉配信の対象を、スプレッドシート（DOCユーザーリスト）の新しいタブに書き出す。シートは settings.kxSheetId（無ければ受け取った id）
 app.post("/api/kinxs/plan/sheet", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const b = req.body || {}; const st = await getSettings().catch(() => ({}));
     const sid = String(b.sheetId || st.kxSheetId || "").replace(/^.*\/d\/([^/]+).*$/, "$1").trim();
     if (!sid) return res.status(400).json({ error: "書き出すスプレッドシート（DOCユーザーリスト）のURLを入れてください" });
@@ -14281,7 +14284,7 @@ async function kxTrendData(period) {
 }
 app.get("/api/kinxs/trend", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const period = req.query.period === "all" ? "all" : String(parseInt(req.query.period, 10) || (() => { const [y, m] = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7).split("-").map(Number); return (m >= 3 ? y : y - 1) - 1999; })());
     const d = await kxTrendData(period);
     const st = await getSettings().catch(() => ({})); const sm = (st.kxTrendSummary || {})[period] || null;
@@ -14291,7 +14294,7 @@ app.get("/api/kinxs/trend", async (req, res) => {
 // 傾向のまとめ（3〜4文）を AI で作る（数字だけを渡す。推測で書かない）
 app.post("/api/kinxs/trend/summary", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const period = req.body?.period === "all" ? "all" : String(parseInt(req.body?.period, 10) || "");
     if (!period) return res.status(400).json({ error: "期間を選んでください" });
     const d = await kxTrendData(period);
@@ -14307,7 +14310,7 @@ app.post("/api/kinxs/trend/summary", async (req, res) => {
 // 電話フォロー：期の月別進捗表
 app.get("/api/kinxs/calls", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const nowYm = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
     const [y0, m0] = nowYm.split("-").map(Number); const curP = (m0 >= 3 ? y0 : y0 - 1) - 1999;
     const p = parseInt(req.query.period, 10) || curP;
@@ -14326,7 +14329,7 @@ app.get("/api/kinxs/calls", async (req, res) => {
 // 月間アクセス数の取り込み（CSV：会社名・月（YYYY-MM）・アクセス数）
 app.post("/api/kinxs/access", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const rows0 = Array.isArray(req.body?.rows) ? req.body.rows.slice(0, 5000) : [];
     const accs = (await kinxsList()).filter((r) => !r.merged_into);
     const byKey = new Map(); for (const r of accs) for (const n of [r.name_override || r.name, ...(Array.isArray(r.former_names) ? r.former_names : [])]) { const k = csCoKey(n || ""); if (k && !byKey.has(k)) byKey.set(k, r.account_id); }
@@ -14340,7 +14343,7 @@ app.post("/api/kinxs/access", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/kinxs/accounts/:id/schedule", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSchedule(req.params.id)); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMakeSchedule(req.params.id)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // スケジュールがまだの DOC の会社（CS連携に入った・利用中より前）は、1時間に3社ずつ作っておく
@@ -14400,12 +14403,12 @@ async function kinxsMissing({ fresh = false } = {}) {
   return data;
 }
 app.get("/api/kinxs/missing", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMissing({ fresh: req.query.fresh === "1" })); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsMissing({ fresh: req.query.fresh === "1" })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/missing/required", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const list = (Array.isArray(req.body?.required) ? req.body.required : []).filter((k2) => KX_REQUIRED_NAMES[k2]);
     await saveSettings({ kinxsRequired: list }); _kxMissing = { at: 0, data: null };
     res.json({ ok: true, required: list });
@@ -14547,7 +14550,7 @@ async function kxSfAccountCandidates(name, formers = []) {
 }
 app.get("/api/kinxs/accounts/:id/sf-opps", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const rows = await kinxsList(); const m = rows.find((y) => y.account_id === req.params.id); if (!m) return res.status(404).json({ error: "見つかりません" });
     const q = String(req.query.q || "").trim();
     res.json({ ok: true, items: await kxSfOppCandidates(q || m.name_override || m.name, q ? [] : (Array.isArray(m.former_names) ? m.former_names : [])) });
@@ -14555,7 +14558,7 @@ app.get("/api/kinxs/accounts/:id/sf-opps", async (req, res) => {
 });
 app.post("/api/kinxs/accounts/:id/link-opps", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const raw = Array.isArray(req.body && req.body.oppIds) ? req.body.oppIds : [];
     const ids = raw.map((v) => (String(v).match(/(006[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?)/) || [])[1]).filter(Boolean);
     const r = await kinxsLinkManualToOpps(req.params.id, ids, req.user);
@@ -14564,7 +14567,7 @@ app.post("/api/kinxs/accounts/:id/link-opps", async (req, res) => {
 });
 app.get("/api/kinxs/accounts/:id/sf-candidates", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const rows = await kinxsList(); const m = rows.find((y) => y.account_id === req.params.id); if (!m) return res.status(404).json({ error: "見つかりません" });
     const q = String(req.query.q || "").trim();
     res.json({ ok: true, items: await kxSfAccountCandidates(q || m.name_override || m.name, q ? [] : (Array.isArray(m.former_names) ? m.former_names : [])) });
@@ -14572,7 +14575,7 @@ app.get("/api/kinxs/accounts/:id/sf-candidates", async (req, res) => {
 });
 app.post("/api/kinxs/accounts/:id/link-sf", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const sfId = String((req.body && req.body.sfId) || "").match(/(001[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?)/);
     if (!sfId) return res.status(400).json({ error: "SFの取引先（001から始まるID、または取引先のURL）を入れてください" });
     const extra = Array.isArray(req.body && req.body.more) ? req.body.more.map((v) => (String(v).match(/(001[0-9a-zA-Z]{12}(?:[0-9a-zA-Z]{3})?)/) || [])[1]).filter(Boolean) : [];
@@ -14583,7 +14586,7 @@ app.post("/api/kinxs/accounts/:id/link-sf", async (req, res) => {
 // まとめて：名前がぴったり同じ取引先が1つだけ見つかった会社を、自動で紐づける
 app.post("/api/kinxs/link-sf-auto", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const rows = (await kinxsList()).filter((r) => r.source === "manual" && !r.merged_into);
     const linked = [], notFound = [], many = [];
     for (const m of rows) {
@@ -14605,7 +14608,7 @@ async function kinxsRefreshLinked() {
 }
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const { items, mtBy, kickBy } = await kinxsBuild();
     const x = items.find((i) => i.id === req.params.id);
     if (!x) return res.status(404).json({ error: "見つかりません" });
@@ -14704,7 +14707,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
 });
 app.put("/api/kinxs/accounts/:id", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
     const b = req.body || {};
     const patch = {};
     for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
@@ -14771,7 +14774,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
 });
 app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
     const rank = String(req.body?.rank || "").toUpperCase();
     if (!["S", "A", "B", "C", "Z", "F"].includes(rank)) return res.status(400).json({ error: "更新確度は S・A・B・C・Z・F のどれかです" });
     const r = await kinxsSetRank(req.params.id, rank, req.user);
@@ -14780,11 +14783,11 @@ app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/accounts/:id/history", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, items: await kinxsHistory(req.params.id) }); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, items: await kinxsHistory(req.params.id) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/kinxs/sync", async (req, res) => {
-  try { if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, result: await kinxsSync() }); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, result: await kinxsSync() }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14926,7 +14929,7 @@ function kenshuBuild(form, v) {
 }
 app.get("/api/cs/kickoffs/:bot/kenshu", async (req, res) => {
   try {
-    if (!(await canCs(req))) return res.status(403).json({ error: "権限がありません" });
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const k = await getCsKickoff(req.params.bot);
     if (!k) return res.status(404).json({ error: "見つかりません" });
     const st = await getSettings().catch(() => ({}));
@@ -28385,7 +28388,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-05n kincall：浦林さんの候補日は「検証リスト」のグループのときだけ出す（ディーラー・ホテル・販売・接客・不動産はやめた。ほかでは出さない）。自動の割り振りでは、浦林さんが空いていても割り振らない（誰も空いていない扱い）。";
+const BUILD_TAG = "2026-11-05o kinXsを、ログインしているメンバー全員が見られる・使えるように（CS連携の一覧も見られる。AIアカウントのパスワード・CS連携の直し・投稿は今までどおりCS・FS・クローザー・管理者）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
