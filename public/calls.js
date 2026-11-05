@@ -1577,6 +1577,10 @@ function renderDock() {
     .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
+    /* LINEリストの利用中ATS（トークの上）（2026-11-05） */
+    .kc-ats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 4px;padding:10px 12px;border-radius:12px;background:linear-gradient(135deg,#E9F9EE,#F4FCF6);border:1px solid #9FDDB4;}
+    .kc-ats .tag{font-size:10.5px;font-weight:800;color:#fff;background:#06C755;border-radius:6px;padding:1px 7px;}
+    .kc-ats .l{font-size:12px;font-weight:700;color:#2F6B45;} .kc-ats b{font-size:15px;color:#14231D;} .kc-ats .none{font-size:12px;font-weight:600;color:#8FA39A;}
     /* 会社情報：左の別パネル（おすすめ日程パネルの左版） */
     .kc-copanel{position:fixed;top:80px;left:24px;width:290px;height:calc(100vh - 110px);max-height:none;overflow:auto;background:#ffffff;border:1px solid #d5e3dd;border-radius:14px;box-shadow:0 18px 48px rgba(20,40,30,.28);z-index:9300;padding:16px;}
     .kc-copanel .kc-slot-h{font-weight:700;color:#0d5b47;font-size:15px;margin-bottom:10px;}
@@ -3530,8 +3534,17 @@ function openCompanyPanel(m, company, x) {
   if (!company) return;
   const panel = document.createElement("div");
   panel.className = "kc-copanel";
+  // LINEリストのリードは、トークの上に「利用中ATS」を出す（2026-11-05 田中さん）
+  const isLine = x && (String(x["ソース"] || "") === "LINE" || /(^|[^A-Za-z])LINE/i.test(String(x["リスト名"] || x["元のリスト"] || "").normalize("NFKC")));
+  let atsHtml = "";
+  if (isLine) {
+    const pool = { ...((x && x.追加) || {}), ...(x || {}) };
+    const k = Object.keys(pool).find((kk) => /利用中\s*ATS/i.test(kk)) || Object.keys(pool).find((kk) => /ATS/i.test(kk));
+    const v = k ? String(pool[k] || "").trim() : "";
+    atsHtml = `<div class="kc-ats"><span class="tag">LINE</span><span class="l">利用中ATS</span><b>${v ? esc(v) : '<span class="none">リストに記載なし</span>'}</b></div>`;
+  }
   panel.innerHTML = `<div class="kc-slot-h">会社情報</div><div class="kc-co-info" id="kcCoInfo"><div class="note">読み込んでいます…</div></div>` +
-    `<div class="kc-talk" id="kcTalk"><div class="note">トークスクリプトを読み込んでいます…</div></div>`;
+    atsHtml + `<div class="kc-talk" id="kcTalk"><div class="note">トークスクリプトを読み込んでいます…</div></div>`;
   kcLoadTalk(panel.querySelector("#kcTalk"), x || { 会社名: company });
   document.body.appendChild(panel);
   const obs = new MutationObserver(() => { if (!document.body.contains(m.el)) { panel.remove(); obs.disconnect(); } });

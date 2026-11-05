@@ -2105,3 +2105,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-05 BUILD_TAG=2026-11-05k 開発メモ（久野さん）「OBスレにキックオフMTG後投稿されるのをストップしてほしい」。settings.csObAuto（いつもは false）：csProcess の csPost（キックオフのあとの自動投稿）、csAlertMissing（情報が足りないときのOBスレのメンション：連携のときと思い出し）、csCheckUnrecordedKickoffs（議事録が無いときのメンション）を、true のときだけ動かす。読み取り・確認MTG・CS担当・リンク・御礼メールの下書きは今までどおり。企業カードの「保存してOBスレに修正版を投稿」（csPost を直接）は押したときだけ投稿。CS連携の設定に「OBスレへの自動投稿」のチェック（/api/cs/settings の obAuto）。版20261105k。
 
 - 2026-11-05 BUILD_TAG=2026-11-05l 田中さん「LINEリストから獲得したものは、カレンダーのタイトルと説明に LINE、説明には何のATSを使っているかをメモで残してほしい」。createApoFromKincall：LINE かどうか（ソースが LINE、またはリスト名・グループ名に LINE）を先に決め、LINE なら種別を「初回/LINE」（予定名【初回/LINE】会社/様）、説明の【リスト】の下に「【LINE】LINEリストから獲得したアポ」「【利用中ATS】〇〇」。種別の選択肢に 初回/LINE（kincall の記録の窓・アポ画面の TAGS）、kcApoTagOf も LINE なら 初回/LINE。【初回/LINE】は isApoCountableTitle で初回アポとして数える。版20261105l。
+
+- 2026-11-05 BUILD_TAG=2026-11-05m 田中さん「LINEリストについてはトークの上に利用中ATSを見えるようにしてほしい」。openCompanyPanel（記録の窓の左：会社情報とトーク）で、LINE のリード（ソース LINE、またはリスト名・元のリストに LINE）なら、会社情報とトークの間に .kc-ats（LINE の緑の札・利用中ATS・値、無ければ「リストに記載なし」）。値は x と x.追加 の列名が 利用中ATS（無ければ ATS を含む列）。版20261105m。
