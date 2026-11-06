@@ -28466,7 +28466,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06i kinXs：ホームの数字（解約はアーカイブも・今月お申込者数・稼働は積み上げ）。情報不足は開くたびにSFを読み直し（開始日・終了日も）、取引先責任者がいない会社はCS連携の先方の担当者でSFに作る。";
+const BUILD_TAG = "2026-11-06j kinXsのホーム：解約社数は、受注商品にアチコチバースが入っている会社だけを数える。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -1423,7 +1423,8 @@ function kxDocCounts(items, ym) {
   const bk = (x) => x.docBooked || x.booked;
   const docs = items.filter((x) => kxHasDoc(x) && bk(x) && bk(x) <= E);   // アーカイブも入れる
   const churnOn = (x) => x.endOn || (x.renew ? `${x.renew}-01` : "");
-  const kai = docs.filter((x) => (x.label === "解約済み" || x.rank === "F" || x.archived) && (!churnOn(x) || churnOn(x) <= E));
+  // 解約は、受注商品に「アチコチバース」が入っている会社だけ数える（2026-11-06 久野さん）
+  const kai = docs.filter((x) => kxIsAchiX(x) && (x.label === "解約済み" || x.rank === "F" || x.archived) && (!churnOn(x) || churnOn(x) <= E));
   const ka = docs.filter((x) => x.delivered && (!x.deliveredOn || x.deliveredOn <= E));
   const mo = docs.filter((x) => bk(x) >= S && bk(x) <= E);
   return { all: docs, ka, mo, kai };
@@ -1468,7 +1469,7 @@ function renderHomeV2() {
     <button type="button" class="h2-hero" data-kpi="all"><span class="l">DOC受注社数</span><span class="v" data-cu="${c.all.length}">${c.all.length}<small>社</small></span>${dl(c.all.length, p.all.length)}
       <span class="h2-mix" data-grow><i style="width:${(c.ka.length / tot) * 100}%" class="ka"></i><i style="width:${(c.mo.length / tot) * 100}%" class="mo"></i><i style="width:${(c.kai.length / tot) * 100}%" class="kai"></i></span>
       <span class="h2-leg"><span><i class="ka"></i>稼働 ${Math.round((c.ka.length / tot) * 100)}%</span><span><i class="mo"></i>今月お申込み ${Math.round((c.mo.length / tot) * 100)}%</span><span><i class="kai"></i>解約 ${Math.round((c.kai.length / tot) * 100)}%</span></span></button>
-    ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "今月お申込者数", "この月に受注した会社", c.mo, p.mo, "mo"], ["kai", "解約社数", "解約済み（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
+    ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "今月お申込者数", "この月に受注した会社", c.mo, p.mo, "mo"], ["kai", "解約社数", "アチコチバースの解約（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
   </div>
   <div class="h2-row">
     <section class="h2-box h2-act"><div class="h2-h"><h2>要アクション</h2><span class="h2-big" data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span></div>
