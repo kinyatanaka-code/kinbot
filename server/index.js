@@ -28417,7 +28417,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06a kincallの出勤のPDF：書き出した当日は欠勤にせず、全員 灰色で出勤予定の時間を出す（欠勤は前日まで・前もって欠勤にした日だけ）。";
+const BUILD_TAG = "2026-11-06b kinbotのAPI（コネクタ）：kinbot で自分のSalesforceを連携している人は、だれでもSFの読み取り・書き込み（sf_query・sf_update・sf_create）ができる。書き込みは本人のSF連携で行う（SFの更新履歴に本人が残る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
