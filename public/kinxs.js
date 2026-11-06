@@ -352,6 +352,7 @@ function renderList() {
   $("lsChips").querySelectorAll("[data-lab]").forEach((b) => b.addEventListener("click", () => { lsLabel = b.dataset.lab; renderList(); }));
   // 受注日（計上日）が新しい順。日付が無い会社は最後
   const items = base.filter((x) => !lsLabel || x.label === lsLabel).slice().sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || "")) || a.name.localeCompare(b.name, "ja"));
+  window.__lsShown = items;   // CSVで書き出す用（いま表示している会社）
   // 要注意企業（上に固定）
   const al = base.filter((x) => x.alerts.length).sort((a, b) => b.score - a.score);
   $("lsAlerts").innerHTML = `<h2><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A5B00" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>要注意企業 <span class="kx-note">${al.length}社・上ほど急ぎ</span></h2>` +
@@ -1942,3 +1943,79 @@ function kxDoneToast(msg) {
   requestAnimationFrame(() => t.classList.add("on"));
   setTimeout(() => { t.classList.remove("on"); setTimeout(() => t.remove(), 400); }, 2400);
 }
+
+// ===================== ユーザー一覧：CSVで書き出す・CSVでまとめて直す（2026-11-06 久野さんの要望）=====================
+const KX_CSV_COLS = [
+  ["ID", (x) => x.id, null], ["会社名", (x) => x.name, null], ["商品", (x) => (x.products || []).join("・"), null], ["FS", (x) => x.fs || "", null], ["受注日", (x) => x.booked || "", null],
+  ["CS担当", (x) => x.cs || "", "cs"], ["フェーズ", (x) => x.label || "", "phase"], ["確度", (x) => x.rank || "", "rank"], ["更新月", (x) => x.renew || "", "renew"],
+  ["次回アクション", (x) => x.na || "", "na"], ["NA日", (x) => x.naDue || "", "naDue"], ["利用目的", (x) => x.purpose || "", "purpose"], ["活用", (x) => x.usage || "", "usage"], ["メモ", (x) => x.memo || "", "memo"],
+];
+function kxCsvLine(arr) { return arr.map((v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`).join(","); }
+function kxCsvParse(text) {
+  const rows = []; let row = [], cur = "", q = false;
+  const t = String(text || "").replace(/^\ufeff/, "");
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (q) { if (c === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; continue; }
+    if (c === '"') q = true; else if (c === ",") { row.push(cur); cur = ""; } else if (c === "\n" || c === "\r") { if (c === "\r" && t[i + 1] === "\n") i++; row.push(cur); rows.push(row); row = []; cur = ""; } else cur += c;
+  }
+  if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter((r) => r.some((v) => String(v).trim() !== ""));
+}
+if ($("lsCsvOut")) $("lsCsvOut").addEventListener("click", () => {
+  const items = window.__lsShown || [];
+  if (!items.length) { alert("書き出す会社がありません"); return; }
+  const body = [kxCsvLine(KX_CSV_COLS.map((c) => c[0])), ...items.map((x) => kxCsvLine(KX_CSV_COLS.map((c) => c[1](x))))].join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\ufeff" + body], { type: "text/csv" }));
+  a.download = `kinXs_ユーザー一覧_${new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+if ($("lsCsvIn")) $("lsCsvIn").addEventListener("click", () => $("lsCsvFile").click());
+if ($("lsCsvFile")) $("lsCsvFile").addEventListener("change", async (e) => {
+  const f = e.target.files && e.target.files[0]; e.target.value = ""; if (!f) return;
+  const rows = kxCsvParse(await f.text()); if (rows.length < 2) { alert("CSVの中身がありません"); return; }
+  const head = rows[0].map((h) => String(h).trim()); const idx = (n) => head.indexOf(n);
+  if (idx("ID") < 0) { alert("「ID」の列がありません。「CSVで書き出す」で出したCSVを直して取り込んでください"); return; }
+  const byId = new Map(((lsData && lsData.items) || []).map((x) => [String(x.id), x]));
+  const labels = (lsData && lsData.labels) || [];
+  const changes = []; const bad = [];
+  for (const r of rows.slice(1)) {
+    const id = String(r[idx("ID")] || "").trim(); const x = byId.get(id); if (!x) { if (id) bad.push(`${r[idx("会社名")] || id}（IDが見つからない）`); continue; }
+    const ch = {};
+    for (const [col, get, key] of KX_CSV_COLS) {
+      if (!key || idx(col) < 0) continue;
+      const nv = String(r[idx(col)] == null ? "" : r[idx(col)]).trim(); const ov = String(get(x) || "").trim();
+      if (nv === ov) continue;
+      if (key === "rank" && !["S", "A", "B", "C", "Z", "F"].includes(nv.toUpperCase())) { bad.push(`${x.name}：確度「${nv}」は S・A・B・C・Z・F のどれか`); continue; }
+      if (key === "renew" && nv && !/^\d{4}-\d{2}$/.test(nv.replace(/\//g, "-"))) { bad.push(`${x.name}：更新月「${nv}」は 2027-03 の形`); continue; }
+      if (key === "phase" && nv && !labels.includes(nv)) { bad.push(`${x.name}：フェーズ「${nv}」は ${labels.join("・")} のどれか`); continue; }
+      if (key === "naDue" && nv && !/^\d{4}-\d{1,2}-\d{1,2}$/.test(nv.replace(/\//g, "-"))) { bad.push(`${x.name}：NA日「${nv}」は 2026-11-20 の形`); continue; }
+      ch[key] = { from: ov, to: nv };
+    }
+    if (Object.keys(ch).length) changes.push({ x, ch });
+  }
+  const NAME = { cs: "CS担当", phase: "フェーズ", rank: "確度", renew: "更新月", na: "次回アクション", naDue: "NA日", purpose: "利用目的", usage: "活用", memo: "メモ" };
+  document.querySelectorAll(".v2-pop-bg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "v2-pop-bg";
+  bg.innerHTML = `<div class="v2-pop wide"><div class="v2-pop-h"><b>CSVでまとめて直す</b><span class="kx-note">${changes.length}社・${changes.reduce((a, c) => a + Object.keys(c.ch).length, 0)}か所が変わります${bad.length ? `／直せないもの ${bad.length}件` : ""}</span><button type="button" class="kx-btn" data-x style="margin-left:auto">やめる</button></div>
+    <div class="v2-pop-b">${bad.length ? `<div class="kx-note" style="color:#A51F16;margin-bottom:8px">${bad.slice(0, 20).map(esc).join("<br>")}${bad.length > 20 ? "<br>…" : ""}</div>` : ""}
+    ${changes.length ? changes.map(({ x, ch }) => `<div class="v2-csvr"><b>${esc(x.name)}</b>${Object.entries(ch).map(([k, v]) => `<span><em>${NAME[k]}</em>${esc(v.from || "（空）")} → <b>${esc(v.to || "（空）")}</b></span>`).join("")}</div>`).join("") : '<div class="kx-empty">変わるところはありません</div>'}</div>
+    ${changes.length ? `<div class="v2-pop-h" style="border-top:1px solid #E6EDE9;border-bottom:0"><span class="kx-note" data-csv-st>確かめて「直す」を押してください。フェーズを空にすると自動に戻ります。</span><button type="button" class="kx-btn kx-pri" data-csv-go style="margin-left:auto">${changes.length}社を直す</button></div>` : ""}</div>`;
+  document.body.appendChild(bg);
+  bg.querySelector("[data-x]").addEventListener("click", () => bg.remove());
+  const go = bg.querySelector("[data-csv-go]"); if (go) go.addEventListener("click", async () => {
+    go.disabled = true; const st = bg.querySelector("[data-csv-st]"); let ok = 0, ng = 0;
+    for (const { x, ch } of changes) {
+      try {
+        const body = {};
+        if (ch.cs) body.cs_name = ch.cs.to; if (ch.na) body.na_text = ch.na.to; if (ch.naDue) body.na_due = ch.naDue.to.replace(/\//g, "-"); if (ch.purpose) body.purpose = ch.purpose.to; if (ch.usage) body.usage_status = ch.usage.to; if (ch.memo) body.memo = ch.memo.to;
+        if (ch.phase) body.main_label = ch.phase.to || null; if (ch.renew && ch.renew.to) body.renew_month = ch.renew.to.replace(/\//g, "-");
+        if (Object.keys(body).length) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify(body) });
+        if (ch.rank) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/rank`, { method: "PUT", body: JSON.stringify({ rank: ch.rank.to.toUpperCase() }) });
+        ok++;
+      } catch { ng++; }
+      if (st) st.textContent = `直しています… ${ok + ng}/${changes.length}`;
+    }
+    bg.remove(); kxDoneToast(`${ok}社を直しました${ng ? `（${ng}社は直せませんでした）` : ""}`);
+    lsData = null; loadList();
+  });
+});

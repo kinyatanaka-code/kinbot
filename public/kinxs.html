@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261106c" />
+    <link rel="stylesheet" href="style.css?v=20261106d" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -755,6 +755,8 @@
   .kx-stool img{border-radius:7px;flex:none;} .kx-stool svg{flex:none;width:22px;opacity:.95;}
   .kx-stool em{margin-left:auto;font-style:normal;font-size:10px;font-weight:800;border-radius:99px;padding:1px 7px;background:rgba(182,226,92,.18);color:#C8EE6E;} .kx-stool .ar{margin-left:auto;font-weight:700;opacity:.6;}
   .kx-side .kx-side-foot{margin-top:auto !important;border-top:0 !important;}
+  /* CSVでまとめて直す（2026-11-06） */
+  .v2-csvr{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:baseline;padding:7px 4px;border-bottom:1px solid #F0F3F1;font-size:12.5px;} .v2-csvr > b{min-width:180px;} .v2-csvr span{color:#4F6158;} .v2-csvr em{font-style:normal;font-size:10.5px;font-weight:800;background:#F1F5F3;border-radius:5px;padding:1px 6px;margin-right:5px;color:#33463E;} .v2-csvr span b{color:#0E6B4E;}
 </style>
 </head>
   <body>
@@ -810,6 +812,9 @@
               <div class="kx-chips" id="lsChips"></div>
               <select id="lsCs" aria-label="CS担当"><option value="">CS担当：全員</option></select>
               <div class="kx-kpis3" id="lsKpi"></div><span class="kx-note" id="lsSt" style="margin-left:auto"></span>
+              <button type="button" class="kx-btn" id="lsCsvOut" title="いま表示している会社を、CSVで書き出す（Excel・スプレッドシートで直して、取り込める）">CSVで書き出す</button>
+              <button type="button" class="kx-btn" id="lsCsvIn" title="書き出したCSVを直して取り込むと、変わったところだけまとめて直す">CSVでまとめて直す</button>
+              <input type="file" id="lsCsvFile" accept=".csv,text/csv" hidden />
             </div>
             <div id="lsTable"><div class="kx-empty">読み込み中…</div></div>
           </div>
@@ -873,7 +878,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261106c" defer></script>
-    <script src="kinxs.js?v=20261106c"></script>
+    <script src="kbchat.js?v=20261106d" defer></script>
+    <script src="kinxs.js?v=20261106d"></script>
   </body>
 </html>
