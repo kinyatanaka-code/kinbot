@@ -2135,3 +2135,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-06 BUILD_TAG=2026-11-06e 開発メモ（久野さん）「更新管理はDOC更新管理に名前を変えてほしい。ここに出てくる対象企業はDOC（アチコチバース）が受注商品に入っている企業を対象にしてください」。サイドバー・見出し・ヘッダーのページ名を「DOC更新管理」に。render()（更新管理）の items を kxIsAchiX（products の名前に アチコチバース、NFKC）で絞る→上の数字・今月〜再来月のカード・更新月を過ぎた会社・解約企業（kxRenewV2 は items の id で絞る）に効く。更新表の窓（data-rt-open）も kxIsAchiX。ホームの「これからの更新」・ホームの更新表は今までどおり DOC（空間・AI）。版20261106e。
 
 - 2026-11-06 BUILD_TAG=2026-11-06f 開発メモ（久野さん）「検収書 未回収、回収の部分について、対象外の項目を増やしてほしい」。kinxs_accounts.kenshu_na（BOOLEAN）。kinxsBuild の kenshu＝対象外 を最初に、delivered（納品後）に 対象外 も入れる（検収書の未回収アラートも出ない）。PUT：kenshu_na（true なら kenshu_done を空に）、kenshu_done を入れたら kenshu_na を false。企業詳細のステータスの「検収書」の選ぶボタンに「対象外」（data-v=na → {kenshu_na:true}）。item に kenshuNa。版20261106f。
+
+- 2026-11-06 BUILD_TAG=2026-11-06g 開発メモ（久野さん：サントリービバレッジソリューションの企業詳細で、会社名の下の商品の文字がとても長い）「ここまで商品数が多い場合は、2行程度の表示にして、それ以降は矢印ボタンを押すと出るようにしてほしい」。企業詳細の見出しの商品を .kx-prods（.t を -webkit-line-clamp:2）にし、はみ出すときだけ「▼ すべて見る」（押すと全部・▲ たたむ）。はみ出しの判定は MutationObserver で窓が開いたときに scrollHeight を見る。版20261106g。

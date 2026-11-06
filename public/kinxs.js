@@ -651,7 +651,7 @@ async function openDetail(id, reuse) {
   bg.innerHTML = `<aside class="kx-drawer" role="dialog" aria-label="${esc(x.name)}" style="width:min(560px,100%)">
     <div style="display:flex;align-items:center;gap:14px">
       <div class="kx-dlogo" data-logo-btn role="button" tabindex="0" title="押すと、ロゴを取り直す・手で入れる">${x.logo ? `<img src="${esc(x.logo)}" alt="" data-logo-img" />` : `<span class="mono">${esc((x.name || "？").replace(/^(株式会社|有限会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益財団法人|学校法人)\s*/, "").slice(0, 1))}</span>`}<span class="ed">ロゴ</span></div>
-      <div style="min-width:0"><h2>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former-h">（旧：${esc(x.formerNames.slice().reverse().join("・旧："))}）</span>` : ""} <button type="button" class="kx-ren" data-ren-open title="社名が変わったとき">社名を変える</button></h2><div class="kx-note">${esc(x.products.join("・"))}</div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
+      <div style="min-width:0"><h2>${esc(x.name)}${(x.formerNames || []).length ? `<span class="kx-former-h">（旧：${esc(x.formerNames.slice().reverse().join("・旧："))}）</span>` : ""} <button type="button" class="kx-ren" data-ren-open title="社名が変わったとき">社名を変える</button></h2><div class="kx-prods" data-prods><div class="t">${esc(x.products.join("・"))}</div><button type="button" class="ar" data-prods-tog hidden aria-label="商品をすべて見る">▼ すべて見る</button></div></div><button type="button" class="kx-btn" data-archive style="margin-left:auto" title="${x.archived ? "ユーザー一覧・フェーズ別に戻す" : "動いていない会社を、ユーザー一覧・フェーズ別から見えなくする（あとで戻せる）"}">${x.archived ? "アーカイブから戻す" : "アーカイブする"}</button><button type="button" class="kx-btn" data-x>閉じる</button></div>
     ${x.archived ? '<div class="kh-warn" style="margin:0">この会社はアーカイブしています（ユーザー一覧・フェーズ別には出ません）</div>' : ""}
     <div class="kx-logo-menu" data-ren-box hidden>
       <div class="h" style="width:100%"><b>社名を変える</b><span class="kx-note">今の名前は「旧社名」として残り、「新しい社名（旧：今の社名）」と出ます</span><button type="button" class="hp-b" data-ren-close style="margin-left:auto">しまう ▲</button></div>
@@ -2023,3 +2023,16 @@ if ($("lsCsvFile")) $("lsCsvFile").addEventListener("change", async (e) => {
 
 // 受注商品に「アチコチバース」が入っている会社か（DOC更新管理の対象）（2026-11-06）
 function kxIsAchiX(x) { return (x && Array.isArray(x.products) ? x.products : []).some((p) => /アチコチバース/.test(String((p && p.name) || p || "").normalize("NFKC"))); }
+
+// 企業詳細：会社名の下の商品は2行まで。長いときは「▼ すべて見る」で開く（2026-11-06 久野さん）
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest("[data-prods-tog]"); if (!b) return;
+  const box = b.closest("[data-prods]"); const open = box.classList.toggle("open");
+  b.textContent = open ? "▲ たたむ" : "▼ すべて見る";
+});
+new MutationObserver(() => {
+  document.querySelectorAll("[data-prods]:not([data-prods-ck])").forEach((box) => {
+    box.setAttribute("data-prods-ck", "1");
+    requestAnimationFrame(() => { const t = box.querySelector(".t"); const b = box.querySelector("[data-prods-tog]"); if (t && b && t.scrollHeight > t.clientHeight + 2) b.hidden = false; });
+  });
+}).observe(document.body, { childList: true, subtree: true });
