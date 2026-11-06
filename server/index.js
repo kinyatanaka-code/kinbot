@@ -28469,7 +28469,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06l kinXsの更新表をCS管理DB（GAS）と同じ決め方に：更新月＝契約終了日の月、更新月②も数える、27期＝3月〜1月・28期から2月〜1月、取り込みで更新月と更新月②を別々に。";
+const BUILD_TAG = "2026-11-06m kinXsの開発の報告：通知先にチェックが無ければ、名前に「kinXs」が入った通知先（kinXs立ち上げチャット）に印を付けて、たまっている報告を送る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -32442,8 +32442,15 @@ async function notifyKinxsReleases() {
   const sent = new Set(Array.isArray(st.kxRelSent) ? st.kxRelSent : []);
   const todo = list.filter((r) => r && r.id && !sent.has(r.id));
   if (!todo.length) return;
-  const targets = (await listChatTargets({ onlyActive: true }).catch(() => [])).filter((t) => t.on_kxrel);
-  if (!targets.length) { console.log(`[kinxs-rel] 送り先（kinXsの開発の報告）が無いので、${todo.length}件は送らずに待ちます`); return; }
+  const all = await listChatTargets({ onlyActive: true }).catch(() => []);
+  let targets = all.filter((t) => t.on_kxrel);
+  // チェックがまだ無ければ、名前に「kinXs」が入った送り先（kinXs立ち上げチャット）を探して、そこに印を付けて送る（2026-11-06 田中さん「今報告しちゃって」）
+  if (!targets.length) {
+    const cand = all.filter((t) => /kinxs/i.test(String(t.name || "").normalize("NFKC")));
+    const pick = cand.find((t) => /立ち上げ|立上げ/.test(String(t.name || ""))) || cand[0];
+    if (pick) { await updateChatTarget(pick.id, { onKxRel: true }).catch(() => {}); targets = [pick]; console.log(`[kinxs-rel] 送り先「${pick.name}」に「kinXsの開発の報告」の印を付けました`); }
+  }
+  if (!targets.length) { console.log(`[kinxs-rel] 送り先（kinXsの開発の報告／名前に kinXs が入った通知先）が無いので、${todo.length}件は送らずに待ちます`); return; }
   for (const r of todo) {
     const text = [`🛠 *kinXs を更新しました*${r.title ? `：${r.title}` : ""}`, `${r.date || ""}${r.from ? `・${r.from}さんの要望` : ""}`.trim(),
       "", "*何を変えたか*", ...(r.what || []).map((x) => `・${x}`), "", "*どう使う・どう見る*", ...(r.how || []).map((x) => `・${x}`), "", `${PUBLIC_URL.replace(/\/$/, "")}/kinxs`].filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n");

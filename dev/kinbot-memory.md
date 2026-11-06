@@ -2153,3 +2153,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-06 BUILD_TAG=2026-11-06l 開発メモ（久野さん）「GAS（https://script.google.com/a/macros/neo-career.co.jp/s/AKfycbzA…/exec）の更新表と一致するように。今後の更新表の条件も」。元：27期DOC_CS管理DB（スプレッドシート 1cTc40_IRHEjFarmaTkNObwr3513kF8_2Iozm50qSxe8。Claude のドライブのコネクタは個人の goldfly32@gmail.com なので読めず、田中さんが .xlsx を添付）。調べた結果：集計表＝「更新月＋更新月②」で数える、27期＝2026年3月〜2027年1月（11か月）・28期＝2027年2月〜2028年1月、確度＝更新確度（空は他）。企業一覧（230社）の更新月は IMPORT_アチコチバースの年間プラン終了日の月と 109社で同じ（＝契約終了の月）。27期を再現すると合計31（集計表と同じ、確度ごとは S20/A3 対 S18/A5 で少しずれ＝書き出しの時刻の差とみた）。
   ・変えたこと：SF からの更新月＝契約終了日の月（前は前月）。kinxs_accounts.renew_month2（更新月②）。CS管理ボードから取り込む：「更新月」と「更新月②」を別々の列に当てる（前は②を優先して1つ）、IM_FIELDS に renew2。画面：kxPeriodOf・kxPeriodMonths・kxPeriodLabel（27期＝3〜1月、28期から＝2〜翌1月、それより前は3〜2月）、kxRenewIn（renew か renew2 がその月）で 更新表・ホームのこれからの更新・DOC更新管理の今月〜再来月を数える。/api/kinxs/users と renewals の会社に renew2。電話フォロー（kincall 側の期）は今までどおり 3〜2月。
   ・残り：田中さん（久野さん）に「CS管理ボードから取り込む」で CS管理DB の企業一覧を取り込んでもらう（更新月・②・確度・CS担当がそろう）。
+
+- 2026-11-06 BUILD_TAG=2026-11-06m 田中さん「今報告しちゃって！」。notifyKinxsReleases：on_kxrel の送り先が無ければ、通知先の名前に kinXs（立ち上げを優先）が入ったものに onKxRel を付けて送る。無ければ待つ（ログに出す）。この更新の起動で、たまっている10件を送る。版20261106m。
