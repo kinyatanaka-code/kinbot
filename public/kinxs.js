@@ -1014,7 +1014,7 @@ function openAddUser() {
 }
 document.querySelectorAll(".kx-add-user").forEach((b) => b.addEventListener("click", openAddUser));
 // ===== CS管理ボードから取り込む =====
-const IM_FIELDS = [["name", "企業名（必須）"], ["renew", "更新月"], ["rank", "確度（S/A/B/C/Z/F）"], ["cs", "CS担当"], ["prod", "本番サイト（aticotiならVR、ほかはAI）"], ["product", "契約商品"], ["start", "契約開始日"], ["end", "契約終了日"], ["memo", "メモ"]];
+const IM_FIELDS = [["name", "企業名（必須）"], ["renew", "更新月"], ["renew2", "更新月②（2回目の更新月）"], ["rank", "確度（S/A/B/C/Z/F）"], ["cs", "CS担当"], ["prod", "本番サイト（aticotiならVR、ほかはAI）"], ["product", "契約商品"], ["start", "契約開始日"], ["end", "契約終了日"], ["memo", "メモ"]];
 let imData = null;
 async function imLoad(sheet) {
   const st = $("imSt"); st.textContent = "読み込んでいます…";
@@ -1370,8 +1370,12 @@ const kxNowYm = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 
 const kxYmAdd = (ym, n) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
 const kxYmEnd = (ym) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
 const kxYmLabel = (ym) => `${ym.slice(0, 4)}年${Number(ym.slice(5))}月`;
-function kxPeriodOf(ym) { const [y, m] = ym.split("-").map(Number); return (m >= 3 ? y : y - 1) - 1999; }   // 27期＝2026年3月〜2027年2月
-function kxPeriodMonths(p) { const y0 = p + 1999; return Array.from({ length: 12 }, (_, i) => kxYmAdd(`${y0}-03`, i)); }
+// 期（更新表）：CS管理DB（GAS）の更新表に合わせる（2026-11-06 久野さん）。27期＝2026年3月〜2027年1月、28期から＝2月〜翌1月
+function kxPeriodOf(ym) { const [y, m] = ym.split("-").map(Number); if (ym >= "2027-02") return (m >= 2 ? y : y - 1) - 1999; return (m >= 3 ? y : y - 1) - 1999; }
+function kxPeriodMonths(p) { if (p >= 28) return Array.from({ length: 12 }, (_, i) => kxYmAdd(`${p + 1999}-02`, i)); if (p === 27) return Array.from({ length: 11 }, (_, i) => kxYmAdd("2026-03", i)); return Array.from({ length: 12 }, (_, i) => kxYmAdd(`${p + 1999}-03`, i)); }
+const kxPeriodLabel = (p) => { const ms = kxPeriodMonths(p); return `${p}期（${ms[0].slice(0, 4)}年${Number(ms[0].slice(5))}月〜${ms[ms.length - 1].slice(0, 4)}年${Number(ms[ms.length - 1].slice(5))}月）`; };
+// 更新月か更新月②がその月の会社（更新表は両方で数える：CS管理DBと同じ）
+const kxRenewIn = (x, ym) => x.renew === ym || (x.renew2 && x.renew2 === ym);
 function kxRankBadge(r) { return `<span class="v2-rk" style="background:${KX_RC2[r] || "#8A949C"}">${esc(r || "Z")}</span>`; }
 function kxLogoMini(x) { return `<span class="v2-lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" onerror="this.parentNode.textContent='・'" />` : esc(bdMono(x.name))}</span>`; }
 // 会社の一覧を窓で出す（数字やカードを押したとき）。会社を押すと企業詳細
@@ -1391,7 +1395,7 @@ function kxRenewTableHtml(items, period, hlYm) {
   const months = kxPeriodMonths(period); const R = ["S", "A", "B", "C", "Z"];
   const hasOther = items.some((x) => months.includes(x.renew) && !R.includes(x.rank));
   const COLS = [...R, ...(hasOther ? ["他"] : []), "計"];
-  const cell = (ym, r) => items.filter((x) => x.renew === ym && (r === "他" ? !R.includes(x.rank) : r === "計" ? true : x.rank === r));
+  const cell = (ym, r) => items.filter((x) => kxRenewIn(x, ym) && (r === "他" ? !R.includes(x.rank) : r === "計" ? true : x.rank === r));
   const tot = { S: 0, A: 0, B: 0, C: 0, Z: 0, 他: 0, 計: 0 };
   const rows = months.map((ym) => `<tr class="${ym === hlYm ? "hl" : ""}"><th>${Number(ym.slice(5))}月<small>${ym.slice(0, 4)}</small></th>${COLS.map((r) => { const n = cell(ym, r).length; tot[r] += n; return `<td class="${n && r === "B" ? "cb" : ""}${n && r === "C" ? " cc" : ""}${r === "計" ? " ct" : ""}">${n ? `<button type="button" data-rt="${ym}|${r}">${n}</button>` : '<span class="z">0</span>'}</td>`; }).join("")}</tr>`).join("");
   return `<div class="v2-rt-wrap"><table class="v2-rt"><thead><tr><th>更新月</th>${COLS.map((r) => `<th class="${r === "計" ? "ct" : ""}">${KX_RC2[r] ? kxRankBadge(r) : r}</th>`).join("")}</tr></thead><tbody>${rows}</tbody>
@@ -1401,7 +1405,7 @@ function kxRenewTableHtml(items, period, hlYm) {
 function kxWireRenewTable(root, items) {
   root.querySelectorAll("[data-rt]").forEach((b) => b.addEventListener("click", () => {
     const [ym, r] = b.dataset.rt.split("|"); const R = ["S", "A", "B", "C", "Z"];
-    kxCoListPopup(`${kxYmLabel(ym)} 更新・${r}`, items.filter((x) => x.renew === ym && (r === "他" ? !R.includes(x.rank) : r === "計" ? true : x.rank === r)));
+    kxCoListPopup(`${kxYmLabel(ym)} 更新・${r}`, items.filter((x) => kxRenewIn(x, ym) && (r === "他" ? !R.includes(x.rank) : r === "計" ? true : x.rank === r)));
   }));
 }
 function kxPeriodsOf(items) { const ps = [...new Set(items.map((x) => x.renew).filter(Boolean).map(kxPeriodOf))].sort((a, b) => b - a); const cur = kxPeriodOf(kxNowYm()); if (!ps.includes(cur)) ps.unshift(cur); return ps.sort((a, b) => b - a); }
@@ -1461,7 +1465,7 @@ function renderHomeV2() {
   // 3か月の更新
   const docs = items.filter((x) => kxHasDoc(x));
   const R = ["S", "A", "B", "C", "Z"];
-  const renewMonths = [0, 1, 2].map((n) => { const m = kxYmAdd(kxNowYm(), n); const l = docs.filter((x) => x.renew === m && x.label !== "解約済み" && x.rank !== "F"); return { m, l, by: R.map((r) => [r, l.filter((x) => x.rank === r).length]) }; });
+  const renewMonths = [0, 1, 2].map((n) => { const m = kxYmAdd(kxNowYm(), n); const l = docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F"); return { m, l, by: R.map((r) => [r, l.filter((x) => x.rank === r).length]) }; });
   // 情報不足
   const ms = kh2.miss; const msItems = ms ? ms.items || [] : []; const req = ms ? ms.required || [] : [];
   const reqN = req.map((r) => [r, msItems.filter((x) => (x.missKeys || []).includes(r.key)).length]).sort((a, b) => b[1] - a[1]);
@@ -1492,7 +1496,7 @@ function renderHomeV2() {
   box.querySelectorAll("[data-kf]").forEach((b) => b.addEventListener("click", () => { kh2.kf = kh2.kf === b.dataset.kf ? "" : b.dataset.kf; renderHomeV2(); }));
   box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
-  box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => x.renew === m && x.label !== "解約済み" && x.rank !== "F")); }));
+  box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F")); }));
   const rtm = box.querySelector("[data-rt-modal]"); if (rtm) rtm.addEventListener("click", () => kxRenewTableModal(docs));
   box.querySelectorAll("[data-miss]").forEach((b) => b.addEventListener("click", () => { const r = req.find((x) => x.key === b.dataset.miss); kxCoListPopup(`情報不足：${r.short || r.name}がない`, msItems.filter((x) => (x.missKeys || []).includes(r.key)).map((x) => ({ ...x, ...(items.find((y) => y.id === x.id) || {}) }))); }));
 }
@@ -1512,7 +1516,7 @@ function kxRenewV2(itemsR) {
   if (past.length) html += `<details class="v2-past"><summary>更新月を過ぎた会社（${past.length}社）</summary><div class="v2-cards">${past.sort((a, b) => a.renew.localeCompare(b.renew)).map(card).join("")}</div></details>`;
   months.forEach((ym, i) => {
     if (i > 0 && ym.slice(5) === "03") { const p = kxPeriodOf(ym); html += `<div class="v2-cut"><span>${p - 1}期 ここまで ／ ここから${p}期</span></div>`; }
-    const list = items.filter((x) => x.renew === ym && x.label !== "解約済み" && x.rank !== "F");
+    const list = items.filter((x) => kxRenewIn(x, ym) && x.label !== "解約済み" && x.rank !== "F");
     html += `<section class="v2-sec"><h2>${["今月更新", "来月更新", "再来月更新"][i]} <span class="kx-note">${kxYmLabel(ym)}・${list.length}社</span></h2><div class="v2-cards">${list.map(card).join("") || '<div class="kx-empty">ありません</div>'}</div></section>`;
   });
   const kai = items.filter((x) => x.label === "解約済み" || x.rank === "F").sort((a, b) => String(b.endOn || b.renew || "").localeCompare(String(a.endOn || a.renew || "")));
@@ -1530,7 +1534,7 @@ function kxRenewTableModal(items) {
   let period = kxPeriodOf(kxNowYm()); const periods = kxPeriodsOf(items);
   const bg = document.createElement("div"); bg.className = "v2-pop-bg v2-main-only";
   const paint = () => {
-    bg.innerHTML = `<div class="v2-pop wide" role="dialog" aria-label="DOC更新表"><div class="v2-pop-h"><b>DOC更新表</b><select class="kx-in" data-period style="max-width:140px">${periods.map((p) => `<option value="${p}" ${p === period ? "selected" : ""}>${p}期</option>`).join("")}</select><span class="kx-note">${period}期（${period + 1999}年3月〜${period + 2000}年2月）</span><button type="button" class="kx-btn" data-x style="margin-left:auto">×</button></div><div class="v2-pop-b">${kxRenewTableHtml(items, period, kxNowYm())}</div></div>`;
+    bg.innerHTML = `<div class="v2-pop wide" role="dialog" aria-label="DOC更新表"><div class="v2-pop-h"><b>DOC更新表</b><select class="kx-in" data-period style="max-width:140px">${periods.map((p) => `<option value="${p}" ${p === period ? "selected" : ""}>${p}期</option>`).join("")}</select><span class="kx-note">${kxPeriodLabel(period)}</span><button type="button" class="kx-btn" data-x style="margin-left:auto">×</button></div><div class="v2-pop-b">${kxRenewTableHtml(items, period, kxNowYm())}</div></div>`;
     bg.querySelector("[data-x]").addEventListener("click", () => bg.remove());
     bg.querySelector("[data-period]").addEventListener("change", (e) => { period = Number(e.target.value); paint(); });
     kxWireRenewTable(bg, items);

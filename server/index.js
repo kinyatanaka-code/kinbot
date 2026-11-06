@@ -12771,7 +12771,7 @@ app.get("/api/cs/kickoffs/:bot/mail-preview", async (req, res) => {
 // 設定（CS 3人・OBスレ・ひな形）。管理者・クローザー
 // ===== kinXs（DOC導入企業のCS一元管理）：まずは「更新管理（更新月×確度）」から =====
 // SFのクロスの商談が「06 申込書回収」以降になった会社を、取引先ごとに1件にまとめて持つ。対象は要件定義書の5商品だけ。
-// 契約終了日：商談の項目でラベルに「契約終了」「利用終了」を含むもの → 無ければ計上日から1年（推定の印つき）。更新月＝契約終了日の前月
+// 契約終了日：商談の項目でラベルに「契約終了」「利用終了」を含むもの → 無ければ計上日から1年（推定の印つき）。更新月＝契約終了日の月（2026-11-06 から。前は前月）
 // 対象：商談の商品に「アチコチバース」が入っているものだけ（2026-10-23 田中さん。前は要件定義書の5商品）
 // （2026-10-24 田中さん：商品に「空間デザイン制作」か「アチコチバース」が入っている会社だけ。ほかは手で追加する）
 const KINXS_PRODUCTS = [/アチコチバース/, /空間デザイン制作/];
@@ -12855,7 +12855,8 @@ async function kinxsSync() {
       try {
         if (!end && a.booked_on) { const t = new Date(`${a.booked_on}T00:00:00Z`); t.setUTCFullYear(t.getUTCFullYear() + 1); t.setUTCDate(t.getUTCDate() - 1); end = t.toISOString().slice(0, 10); a.end_estimated = true; }
         a.end_on = end;
-        if (end) { const t = new Date(`${end.slice(0, 7)}-01T00:00:00Z`); t.setUTCMonth(t.getUTCMonth() - 1); a.renew_month = t.toISOString().slice(0, 7); }
+        // 更新月＝契約終了日の月（2026-11-06 久野さん：CS管理DB（GAS）の更新表と一致させる。あちらは年間プランの終了月。前は前月にしていた）
+        if (end) a.renew_month = end.slice(0, 7);
       } catch { a.end_on = null; a.renew_month = null; }
       a.error = !a.name ? "取引先名が空です" : !end ? "契約終了日・計上日が空です" : null;
       const k = kicks.find((x) => csCoKey(x.company) && csCoKey(x.company) === csCoKey(a.name));
@@ -12884,7 +12885,7 @@ app.get("/api/kinxs/renewals", async (req, res) => {
     const items = rows.map((r) => {
       const left = r.renew_month ? daysTo(r.renew_month) : null;
       const warn = left != null && left <= warnDays && ["B", "C", "Z"].includes(r.rank || "Z") && r.rank !== "F";
-      return { id: r.account_id, prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), name: r.name_override || r.name, formerNames: (Array.isArray(r.former_names) ? r.former_names : []), logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", rank: r.rank || "Z", renew: r.renew_month, left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
+      return { id: r.account_id, prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), name: r.name_override || r.name, formerNames: (Array.isArray(r.former_names) ? r.former_names : []), logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", rank: r.rank || "Z", renew: r.renew_month, renew2: r.renew_month2 || "", left, warn, estimated: !!r.end_estimated, end: r.end_on, booked: r.booked_on,
         cs: r.cs_name || "", fs: r.fs_name || "", products: (r.products || []).map((p) => p.name), error: r.error || "", rankAt: r.rank_at, rankBy: r.rank_by || "", manual: r.source === "manual" };
     });
     res.json({ ok: true, thisMonth, warnDays, items, sync: _kinxsLast, fields: st.kinxsFields || {} });
@@ -13046,7 +13047,7 @@ async function kinxsBuild() {
     const sinceUpd = days(lastUpd);
     if (sinceUpd != null && sinceUpd >= rules.staleDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "情報更新なし", score: 15, detail: `記録と議事録が${sinceUpd}日更新されていません` });
     const shown = alerts.filter((a) => !hidden(a.rule));
-    return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, left,
+    return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, renew2: r.renew_month2 || "", left,
       kenshu, mail, cs: (k && k.cs_name) || r.cs_name || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", sfLinked: !!(r.info && r.info.sf_linked), formerNames, renewLocked: !!r.renew_locked,
@@ -13477,7 +13478,7 @@ app.get("/api/kinxs/home/inbox", async (req, res) => {
 const KINXS_TOOLS = [
   { name: "list_users", description: "kinXs（DOC導入企業のCS一元管理）のユーザー（導入企業）の一覧。会社名・旧社名・契約商品・フェーズ・更新確度（S/A/B/C/Z/F）・更新月・CS担当・FS（受注者）・初回の受注日・次回アクションと期日・要注意（更新月接近／NA期限切れ／接触途絶／情報更新なし）を返す。CS担当・フェーズ・確度・会社名の一部で絞れる。", inputSchema: { type: "object", properties: { cs: { type: "string", description: "CS担当（苗字でよい）" }, phase: { type: "string", description: "フェーズ（計上予定・フォローMTG設定済・オンボーディング中・利用中・更新検討時期・解約予定・解約済み・キャンセル）" }, rank: { type: "string", description: "更新確度 S/A/B/C/Z/F" }, q: { type: "string", description: "会社名の一部" }, alertsOnly: { type: "boolean", description: "要注意の会社だけ" } } } },
   { name: "get_user_detail", description: "kinXsの1社の詳細。企業情報（HP・住所・電話・先方の担当者・受注日・受注者・ヘルプサイト・DOCのURL）、ステータス（CS担当・フェーズ・利用目的・活用・次回アクション）、議事録・フォロー履歴（キックオフ以降はフォロー、それより前は商談、要約つき）と変更の履歴を返す。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社名（一部でよい）か kinXs のID" } }, required: ["company"] } },
-  { name: "list_renewals", description: "kinXsの更新管理。会社ごとの更新月（契約終了日の前月）・残り日数・確度・要注意（更新月まで90日以内で確度B以下）を返す。", inputSchema: { type: "object", properties: { from: { type: "string", description: "更新月の始め YYYY-MM（任意）" }, to: { type: "string", description: "更新月の終わり YYYY-MM（任意）" } } } },
+  { name: "list_renewals", description: "kinXsの更新管理。会社ごとの更新月（契約終了日の月）・残り日数・確度・要注意（更新月まで90日以内で確度B以下）を返す。", inputSchema: { type: "object", properties: { from: { type: "string", description: "更新月の始め YYYY-MM（任意）" }, to: { type: "string", description: "更新月の終わり YYYY-MM（任意）" } } } },
   { name: "get_home_tasks", description: "kinXsのホームのやること。担当ユーザーの次回アクション・要注意、先方から来てまだ返していないメール、チャットの自分あてのメッセージを、期限切れ・今日・返事・依頼・今週… に分けて返す。", inputSchema: { type: "object", properties: { user: { type: "string", description: "だれのやることか（メールアドレス。省略すると、つないでいる人）" }, fresh: { type: "boolean", description: "読み直す" } } } },
   { name: "list_tasks", description: "kinXsのホームのタスク一覧（自動のやること＋手で足したタスク）。それぞれに状態（未着手・進行中・完了）・期日・会社・出どころ（kinXs・メール・チャット・手入力・Claude）と、直すときに使う key・id が付く。status で絞れる。", inputSchema: { type: "object", properties: { status: { type: "string", description: "未着手・進行中・完了（省略で完了以外）" }, user: { type: "string", description: "だれのタスクか（管理者だけ。省略でつないでいる人）" } } } },
   { name: "add_task", description: "kinXsのホームにタスクを足す（書き込み）。会社名を入れると、その会社に結びつける。", inputSchema: { type: "object", properties: { title: { type: "string", description: "タスクの内容" }, company: { type: "string", description: "会社名（一部でよい・任意）" }, due: { type: "string", description: "期日 YYYY-MM-DD（任意）" }, status: { type: "string", description: "未着手・進行中・完了（省略で未着手）" }, note: { type: "string", description: "メモ（任意）" } }, required: ["title"] } },
@@ -13700,7 +13701,7 @@ app.get("/api/kinxs/users", async (req, res) => {
 // ===== kinXs：今のCS管理ボード（スプレッドシート）から取り込む =====
 // ①URLを貼る（またはCSVを貼る）→ 見出しから列を当てる → ②プレビュー（どの会社と一致するか）→ ③反映（更新月・確度・CS担当など）
 const KX_IMPORT_GUESS = {
-  name: /企業名|会社名|取引先|顧客名|法人名/, renew: /更新月/, rank: /確度|更新ラベル|更新確度|ランク/, cs: /CS担当|CS|担当CS/,
+  name: /企業名|会社名|取引先|顧客名|法人名/, renew: /^更新月$|更新月(?![②2])/, renew2: /更新月[②2]/, rank: /確度|更新ラベル|更新確度|ランク/, cs: /CS担当|CS|担当CS/,
   product: /商品|プラン|契約内容/, start: /契約開始|開始日|利用開始/, end: /契約終了|終了日|満了|利用終了/, memo: /メモ|備考|特記/,
   prod: /本番サイト|本番URL|本番環境/,
 };
@@ -13753,7 +13754,8 @@ app.post("/api/kinxs/import/preview", async (req, res) => {
     for (const [k, re] of Object.entries(KX_IMPORT_GUESS)) {
       const cand = headers.map((h, i) => ({ h, i })).filter((x) => re.test(x.h));
       // 更新月は「更新月②」があればそちらを優先（今のボードで使っている列）
-      const pick = k === "renew" ? (cand.find((x) => /②|2/.test(x.h)) || cand[0]) : cand[0];
+      // 更新月と更新月②は別の列（2026-11-06：CS管理DBの更新表は「更新月＋更新月②」で数える。前は②を優先して1つだけ取っていた）
+      const pick = k === "renew" ? (cand.find((x) => !/[②2]/.test(x.h)) || cand[0]) : cand[0];
       if (pick) guess[k] = pick.i;
     }
     const rows = values.slice(hi + 1).filter((r) => (r || []).some((c) => String(c || "").trim())).slice(0, 3000);
@@ -13775,7 +13777,7 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
       const name = cell(r, "name"); if (!name) { out.skipped++; continue; }
       const key = csCoKey(name);
       const acc = key ? byKey.get(key) : null;
-      const renew = kxRenewMonth(cell(r, "renew")), rank = kxRank(cell(r, "rank")), cs = cell(r, "cs"), memo = cell(r, "memo");
+      const renew = kxRenewMonth(cell(r, "renew")), renew2 = kxRenewMonth(cell(r, "renew2")), rank = kxRank(cell(r, "rank")), cs = cell(r, "cs"), memo = cell(r, "memo");
       const urlOf = (v) => { const t = String(v || "").trim(); const m = t.match(/https?:\/\/[^\s"'<>）」]+/); return m ? m[0] : (/^[\w.-]+\.[a-z]{2,}(\/\S*)?$/i.test(t) ? `https://${t}` : ""); };
       // 本番サイト：aticoti のドメインなら VR、それ以外は AI（その会社の候補者画面）
       const prodUrl = urlOf(cell(r, "prod"));
@@ -13786,6 +13788,7 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
       if (acc) {
         const patch = {};
         if (renew) { patch.renew_month = renew; patch.renew_locked = true; }
+        if (map.renew2 != null && map.renew2 !== "") patch.renew_month2 = renew2 || null;   // 更新月②（2年契約の2回目など）
         if (cs) patch.cs_name = cs;
         if (memo && !String(acc.memo || "").includes(memo)) patch.memo = [acc.memo, `【CS管理ボードより】${memo}`].filter(Boolean).join("\n");
         if (docInfo) patch.info = { ...(acc.info || {}), ...docInfo };
@@ -28466,7 +28469,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06k kinXsのホーム：「今月お申込者数」を「先月お申込者数」に（表示している月の前の月に受注した会社）。";
+const BUILD_TAG = "2026-11-06l kinXsの更新表をCS管理DB（GAS）と同じ決め方に：更新月＝契約終了日の月、更新月②も数える、27期＝3月〜1月・28期から2月〜1月、取り込みで更新月と更新月②を別々に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
