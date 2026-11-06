@@ -12970,7 +12970,8 @@ async function kinxsBuild() {
     // 納品（検収書・納品メール）：手で決めたらそれ。決めていなければ、もう使っている会社（掲載を確認した・計上から90日たった）は「完了（自動）」、最近受注した会社は今の状況
     const bookedDays = r.booked_on ? Math.floor((now - Date.parse(String(r.booked_on).slice(0, 10) + "T00:00:00+09:00")) / 86400000) : null;
     const matured = !!r.published || (bookedDays != null && bookedDays >= (rules.deliveredDays || 90));
-    const kenshu = r.kenshu_done === true ? "回収済み" : r.kenshu_done === false ? "未回収" : matured ? "回収済み（自動）" : (k && ksSent[k.bot_id] ? "依頼済み" : "未回収");
+    // 検収書：対象外（回収しない会社）を足した（2026-11-06 久野さん）。対象外は「回収済み」と同じく納品後として進む
+    const kenshu = r.kenshu_na === true ? "対象外" : r.kenshu_done === true ? "回収済み" : r.kenshu_done === false ? "未回収" : matured ? "回収済み（自動）" : (k && ksSent[k.bot_id] ? "依頼済み" : "未回収");
     const mail = r.mail_done === true || (tr && (tr.opened || (tr.clicks || []).length)) ? "送付済み" : r.mail_done === false ? "未送付" : matured ? "送付済み（自動）" : (k && k.draft_at ? "下書きあり" : "未送付");
     // メインラベル（自動）。手で決めて鍵をかけたら、そのまま
     // 2026-11-04（久野さんの要望書）：納品前／納品後でフェーズを決める
@@ -12985,7 +12986,7 @@ async function kinxsBuild() {
     // 2026年10月より前に受注した会社は、ぜんぶ稼働中（納品後）とみなす（2026-11-04 田中さん。settings.kxDeliveredBefore で変えられる）
     const bookedYmd0 = ymd0(r.first_booked_on || r.booked_on);
     const oldDeal = !!bookedYmd0 && bookedYmd0 < String(rules.deliveredBefore || "2026-10-01");
-    const delivered = !!kenshuOn || String(kenshu || "").startsWith("回収済み") || oldDeal;
+    const delivered = !!kenshuOn || String(kenshu || "").startsWith("回収済み") || kenshu === "対象外" || oldDeal;
     let auto = "計上予定";
     if (r.error) auto = "エラー";
     else if (rank === "F" || (r.end_on && String(r.end_on).slice(0, 10) < today)) auto = "解約済み";
@@ -13057,7 +13058,7 @@ async function kinxsBuild() {
       deliveredOn: delivered ? (kenshuOn || (oldDeal ? bookedYmd0 : "") || (bookedYmd0 ? new Date(Date.parse(bookedYmd0 + "T00:00:00+09:00") + 90 * 86400000 + 9 * 3600000).toISOString().slice(0, 10) : "")) : "",
       docBooked: (r.products || []).filter((p0) => p0 && typeof p0 === "object" && p0.booked && ["空間", "AI"].includes(kxClassOf(p0.name))).map((p0) => String(p0.booked).slice(0, 10)).sort()[0] || "",
       invoiceNeed: r.invoice_need == null ? null : !!r.invoice_need, invoiceState: r.invoice_state || "", invoiceDate: ymd0(r.invoice_date),
-      mtgSummary: r.mtg_summary || null, naDetail: r.na_detail || null,
+      mtgSummary: r.mtg_summary || null, naDetail: r.na_detail || null, kenshuNa: r.kenshu_na === true,
       lastBooked: (r.products || []).map((p) => String(p && p.booked || "").slice(0, 10)).filter(Boolean).sort().pop() || "", deliveryMonth: kxDeliveryMonth(k), logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
   return { items, rules, mtBy, kickBy, allMeetings: ms };
@@ -14771,6 +14772,8 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
       if (g) { patch.na_text = g.content; patch.na_type = g.type; patch.na_at = g.at; patch.na_due = g.at ? String(g.at).slice(0, 10) : null; patch.na_source = `auto:${g.source}`; patch.na_suggest = null; } }
     if (b.dismiss_suggest) patch.na_suggest = null;
     for (const k of ["kenshu_done", "mail_done", "published", "label_locked"]) if (k in b) patch[k] = b[k] === null ? null : !!b[k];
+    if ("kenshu_na" in b) { patch.kenshu_na = !!b.kenshu_na; if (b.kenshu_na) patch.kenshu_done = null; }   // 検収書の対象外（2026-11-06）
+    if ("kenshu_done" in b && b.kenshu_done !== null) patch.kenshu_na = false;
     if ("renew_month" in b) { if (!/^\d{4}-\d{2}$/.test(String(b.renew_month || ""))) return res.status(400).json({ error: "更新月は YYYY-MM で入れてください" }); patch.renew_month = b.renew_month; patch.renew_locked = true; }
     // 「自動に戻す」：手で決めた更新月をやめて、契約終了日から求め直す（次のSFからの取り込みで入る）
     if (b.renew_auto === true) {
@@ -28417,7 +28420,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06e kinXs：「更新管理」を「DOC更新管理」に名前を変え、受注商品に「アチコチバース」が入っている会社だけを対象にした（上の数字・カード・解約企業・更新表とも）。";
+const BUILD_TAG = "2026-11-06f kinXs：検収書の「回収済み・未回収」に「対象外」を足した（対象外は回収済みと同じく納品後として進み、未回収のアラートも出さない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
