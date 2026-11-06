@@ -1317,7 +1317,7 @@ function renderMissing() {
   }));
 }
 if ($("msQ")) { const st0 = document.querySelector(".kx-ms-set"); if (st0) st0.addEventListener("toggle", () => kxFitMissing()); $("msQ").addEventListener("input", renderMissing); $("msFs").addEventListener("change", renderMissing); $("msReload").addEventListener("click", () => loadMissing(true)); }
-if (VIEW === "missing") loadMissing(false);
+if (VIEW === "missing") loadMissing(true);   // 情報不足のページは、開くたびにSFを読み直す（2026-11-06）
 if (VIEW === "home") { if ($("kxPageName")) $("kxPageName").textContent = "ホーム"; }   // ホームは UI刷新（第1弾）の loadHomeV2 で描く
 if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIEW === "board") loadBoard();
 
@@ -1417,14 +1417,15 @@ async function loadHomeV2() {
 }
 // その月の月末の時点で数える（2026-11-04 直し：前は今の状態で数えていたので、前月比がいつも±0だった）
 //   受注＝DOCを最初に受注した日（無ければ最初の受注日）が月末まで／稼働＝納品した日が月末まで／解約＝解約済みで、契約終了日（無ければ更新月）が月末まで
+// 2026-11-06 久野さん：解約はアーカイブした会社も数える／申し込みは「今月お申込者数」（その月に受注した会社）／稼働は積み上げ（その月末までに納品した会社。あとで解約した会社も入れる）
 function kxDocCounts(items, ym) {
-  const E = kxYmEnd(ym);
+  const E = kxYmEnd(ym), S = `${ym}-01`;
   const bk = (x) => x.docBooked || x.booked;
-  const docs = items.filter((x) => !x.archived && kxHasDoc(x) && bk(x) && bk(x) <= E);
+  const docs = items.filter((x) => kxHasDoc(x) && bk(x) && bk(x) <= E);   // アーカイブも入れる
   const churnOn = (x) => x.endOn || (x.renew ? `${x.renew}-01` : "");
-  const kai = docs.filter((x) => (x.label === "解約済み" || x.rank === "F") && (!churnOn(x) || churnOn(x) <= E));
-  const ka = docs.filter((x) => !kai.includes(x) && x.delivered && (!x.deliveredOn || x.deliveredOn <= E));
-  const mo = docs.filter((x) => !kai.includes(x) && !ka.includes(x));
+  const kai = docs.filter((x) => (x.label === "解約済み" || x.rank === "F" || x.archived) && (!churnOn(x) || churnOn(x) <= E));
+  const ka = docs.filter((x) => x.delivered && (!x.deliveredOn || x.deliveredOn <= E));
+  const mo = docs.filter((x) => bk(x) >= S && bk(x) <= E);
   return { all: docs, ka, mo, kai };
 }
 // ホームは1画面に収める（ページ全体はスクロールせず、要アクションの一覧だけが中で動く）（2026-11-04）
@@ -1444,7 +1445,8 @@ function kxHeadMonth(ym, onMove) {
 function renderHomeV2() {
   const box = $("kh2"); if (!box || !lsData) return;
   const items = (lsData.items || []).filter((x) => !x.archived);
-  const ym = kh2.ym; const c = kxDocCounts(items, ym), p = kxDocCounts(items, kxYmAdd(ym, -1));
+  const allIt = lsData.items || [];   // 数字はアーカイブした会社も入れて数える
+  const ym = kh2.ym; const c = kxDocCounts(allIt, ym), p = kxDocCounts(allIt, kxYmAdd(ym, -1));
   kxHeadMonth(ym, (n) => { kh2.ym = n === 0 ? kxNowYm() : kxYmAdd(kh2.ym, n); kh2.period = null; renderHomeV2(); });
   const dl = (a, b) => { const d = a - b; return `<span class="h2-d ${d > 0 ? "up" : d < 0 ? "dn" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "±"}${Math.abs(d)}<small>前月比</small></span>`; };
   const tot = Math.max(1, c.all.length);
@@ -1465,8 +1467,8 @@ function renderHomeV2() {
   <div class="h2-kpi">
     <button type="button" class="h2-hero" data-kpi="all"><span class="l">DOC受注社数</span><span class="v" data-cu="${c.all.length}">${c.all.length}<small>社</small></span>${dl(c.all.length, p.all.length)}
       <span class="h2-mix" data-grow><i style="width:${(c.ka.length / tot) * 100}%" class="ka"></i><i style="width:${(c.mo.length / tot) * 100}%" class="mo"></i><i style="width:${(c.kai.length / tot) * 100}%" class="kai"></i></span>
-      <span class="h2-leg"><span><i class="ka"></i>稼働 ${Math.round((c.ka.length / tot) * 100)}%</span><span><i class="mo"></i>申し込み ${Math.round((c.mo.length / tot) * 100)}%</span><span><i class="kai"></i>解約 ${Math.round((c.kai.length / tot) * 100)}%</span></span></button>
-    ${[["ka", "稼働社数", "納品後", c.ka, p.ka, "ka"], ["mo", "申し込み社数", "申し込み済み・納品待ち", c.mo, p.mo, "mo"], ["kai", "解約社数", "解約済み", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
+      <span class="h2-leg"><span><i class="ka"></i>稼働 ${Math.round((c.ka.length / tot) * 100)}%</span><span><i class="mo"></i>今月お申込み ${Math.round((c.mo.length / tot) * 100)}%</span><span><i class="kai"></i>解約 ${Math.round((c.kai.length / tot) * 100)}%</span></span></button>
+    ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "今月お申込者数", "この月に受注した会社", c.mo, p.mo, "mo"], ["kai", "解約社数", "解約済み（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
   </div>
   <div class="h2-row">
     <section class="h2-box h2-act"><div class="h2-h"><h2>要アクション</h2><span class="h2-big" data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span></div>
@@ -1483,7 +1485,7 @@ function renderHomeV2() {
   // 動きは1回だけ：月を開いた（変えた）ときに全体を1回。情報不足は、あとから読めたときにその枠だけ1回（2026-11-04 「2回読み込まれるのやめてほしい」）
   if (kh2.animKey !== ym) { kh2.animKey = ym; kh2.missAnim = !!ms; kxCountUp(box); }
   else if (ms && !kh2.missAnim) { kh2.missAnim = true; kxCountUp(box.querySelector(".h2-miss")); }
-  box.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.kpi; kxCoListPopup({ all: "DOC受注社数", ka: "稼働社数（納品後）", mo: "申し込み社数（納品待ち）", kai: "解約社数" }[k] + `（${kxYmLabel(ym)}）`, c[k]); }));
+  box.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.kpi; kxCoListPopup({ all: "DOC受注社数", ka: "稼働社数（積み上げ）", mo: "今月お申込者数", kai: "解約社数（アーカイブも含む）" }[k] + `（${kxYmLabel(ym)}）`, c[k]); }));
   box.querySelectorAll("[data-kf]").forEach((b) => b.addEventListener("click", () => { kh2.kf = kh2.kf === b.dataset.kf ? "" : b.dataset.kf; renderHomeV2(); }));
   box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));

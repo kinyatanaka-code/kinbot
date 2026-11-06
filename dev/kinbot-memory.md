@@ -2143,3 +2143,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・server/kinxs-releases.json（id・date・from（要望した人）・title・what［何を変えたか］・how［どう使う・どう見る］）。更新が終わって起動したとき（notifyDeployDone の最初）に notifyKinxsReleases：settings.kxRelSent に無いものを、on_kxrel の送り先へ「🛠 kinXs を更新しました：…／何を変えたか／どう使う・どう見る／kinXs の URL」で1件ずつ送る。送り先が無ければ送らずに待つ。
   ・★これから：kinXs の「要望に応えた」変更（開発メモの要望・不具合、田中さん経由の依頼）をしたら、同じコミットで server/kinxs-releases.json に1件足す（id は日付＋短い英字、重ならないように）。内部の直しや田中さんの見た目の調整だけのものは足さない。
   ・最初の6件：UI刷新（第1〜4弾）・OBスレの自動投稿を止めた・ユーザー一覧のCSV・DOC更新管理・検収書の対象外・企業詳細の商品2行。
+
+- 2026-11-06 BUILD_TAG=2026-11-06i 開発メモ（久野さん）2件。①ホーム「解約者数はアーカイブの企業も含めてカウント／申込者数は『今月お申込者数』の表記に／稼働者数は積み上げで」→kxDocCounts（アーカイブも入れる。受注＝月末までに受注、稼働＝delivered かつ deliveredOn ≤ 月末（解約・アーカイブも入れる積み上げ）、今月お申込＝その月に受注、解約＝解約済み・F・アーカイブ で終了日（無ければ更新月）≤ 月末）、カードの名前と説明・一覧の題名も。②情報不足「kinbotを更新しても情報が足りないまま」「SFの取引先責任者がいない場合はそれで作成」→kinxsMissing：とっておき 10分→2分、情報不足のページは開くたびに fresh、開始日・終了日が空か推定の会社は SF の商談（kxOppFields の開始・終了の項目、いちばん早い開始・いちばん遅い終了）をその場で読み直して kinxs に入れる（allow に start_on・end_on・end_estimated）、SF の Contact が0件の会社は CS連携（kickBy）の 先方ご担当者名（無ければ client_name）・client_email・client_phone で Contact を作る（1回20社まで、info.ctCreated の印で二度作らない、失敗も印）。kinxs-releases.json に2件足した。版20261106i。

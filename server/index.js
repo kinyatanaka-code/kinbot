@@ -14390,10 +14390,11 @@ const KX_REQUIRED_DEFAULT = ["website", "phone", "address", "contact", "contact_
 const KX_REQUIRED_NAMES = { website: "HP（取引先のWebサイト）", phone: "電話番号（取引先）", address: "住所（取引先の請求先住所）", contact: "先方の担当者（取引先責任者）", contact_email: "先方の担当者のメールアドレス", start: "契約開始日（商談）", end: "契約終了日（商談）", prod_labels: "商品（商談の商品）" };
 let _kxMissing = { at: 0, data: null };
 async function kinxsMissing({ fresh = false } = {}) {
-  if (!fresh && _kxMissing.data && Date.now() - _kxMissing.at < 10 * 60 * 1000) return _kxMissing.data;
+  // とっておきは2分（SFを直したあと、すぐ読み直せるように。2026-11-06 久野さん「kinbotを更新しても情報が足りないまま」）
+  if (!fresh && _kxMissing.data && Date.now() - _kxMissing.at < 2 * 60 * 1000) return _kxMissing.data;
   const st = await getSettings().catch(() => ({}));
   const req0 = Array.isArray(st.kinxsRequired) && st.kinxsRequired.length ? st.kinxsRequired : KX_REQUIRED_DEFAULT;
-  const { items } = await kinxsBuild();
+  const { items, kickBy } = await kinxsBuild();
   const rows = await kinxsList().catch(() => []); const rowBy = new Map(rows.map((r) => [r.account_id, r]));
   const target = items.filter((x) => !x.archived && !["解約済み", "キャンセル", "エラー"].includes(x.label));
   const sfIds = target.map((x) => x.id).filter((id) => /^[0-9a-zA-Z]{15,18}$/.test(id));
@@ -14408,6 +14409,51 @@ async function kinxsMissing({ fresh = false } = {}) {
       for (const c of ((await sfQuery(sfU, `SELECT AccountId, Email FROM Contact WHERE AccountId IN (${ids}) LIMIT 2000`)).records || [])) { const k2 = String(c.AccountId || "").slice(0, 15); ctN.set(k2, (ctN.get(k2) || 0) + 1); if (c.Email) ctMail.set(k2, true); }
     }
   } catch (e) { sfNote = `SFを読めませんでした：${e.message}`; }
+  // 開始日・終了日は、SFの商談をその場で読み直して入れる（前は取り込みのときだけだったので、SFで直しても「情報不足」のままだった）（2026-11-06）
+  try {
+    const sfU = await pickSfUser(st.psOwner || "");
+    const need = target.filter((x) => /^[0-9a-zA-Z]{15,18}$/.test(x.id)).filter((x) => { const r = rowBy.get(x.id) || {}; return !r.start_on || !r.end_on || r.end_estimated; }).map((x) => x.id);
+    if (sfU && need.length) {
+      const { startF, endF, extra } = await kxOppFields(sfU);
+      const ymd = (v) => { const t = String(v || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : ""; };
+      for (let i = 0; i < need.length; i += 100) {
+        const ids = need.slice(i, i + 100).map((id) => `'${id}'`).join(",");
+        const opps = (await sfQuery(sfU, `SELECT AccountId, Id${extra} FROM Opportunity WHERE AccountId IN (${ids})`).catch(() => ({ records: [] }))).records || [];
+        const by = new Map();
+        for (const o of opps) { const k2 = String(o.AccountId || "").slice(0, 15); const v = by.get(k2) || { s: "", e: "" }; for (const f of startF) { const d = ymd(o[f]); if (d && (!v.s || d < v.s)) v.s = d; } for (const f of endF) { const d = ymd(o[f]); if (d && (!v.e || d > v.e)) v.e = d; } by.set(k2, v); }
+        for (const id of need.slice(i, i + 100)) {
+          const v = by.get(String(id).slice(0, 15)); if (!v) continue; const r = rowBy.get(id) || {}; const patch = {};
+          if (v.s && !r.start_on) patch.start_on = v.s;
+          if (v.e && (!r.end_on || r.end_estimated)) { patch.end_on = v.e; patch.end_estimated = false; }
+          if (Object.keys(patch).length) { await kinxsUpdate(id, patch, "kinXs（SFから）").catch(() => {}); Object.assign(r, patch); rowBy.set(id, r); }
+        }
+      }
+    }
+  } catch (e) { console.warn("[kinxs-missing] 開始日・終了日を読み直せませんでした", e.message); }
+  // SFの取引先責任者がいない会社は、CS連携（回収MTG）で読み取った先方の担当者で作る（2026-11-06 久野さん）。1回の読み直しで20社まで、作ったら印を付けて二度作らない
+  try {
+    const sfU = await pickSfUser(st.psOwner || "");
+    let made = 0;
+    for (const x of target) {
+      if (made >= 20 || !sfU) break;
+      if (!/^[0-9a-zA-Z]{15,18}$/.test(x.id) || (ctN.get(String(x.id).slice(0, 15)) || 0) > 0) continue;
+      const r = rowBy.get(x.id) || {}; if ((r.info || {}).ctCreated) continue;
+      const k = [x.name, ...(x.formerNames || [])].map((n) => kickBy.get(csCoKey(n))).find(Boolean); if (!k) continue;
+      const f = k.fields || {};
+      const nm = String((f.先方ご担当者名 && f.先方ご担当者名 !== "未確認" ? f.先方ご担当者名 : k.client_name) || "").replace(/様$/, "").split(/[、,・／/]/)[0].trim();
+      if (!nm) continue;
+      const parts = nm.split(/[\s　]+/).filter(Boolean);
+      const fields = { AccountId: x.id, LastName: parts[0] || nm, ...(parts.length > 1 ? { FirstName: parts.slice(1).join(" ") } : {}) };
+      if (k.client_email) fields.Email = String(k.client_email).trim();
+      if (k.client_phone) fields.Phone = String(k.client_phone).trim();
+      try {
+        await sfCreateRecord(sfU, "Contact", fields);
+        made++; ctN.set(String(x.id).slice(0, 15), 1); if (fields.Email) ctMail.set(String(x.id).slice(0, 15), true);
+        await kinxsUpdate(x.id, { info: { ...(r.info || {}), ctCreated: new Date().toISOString() } }, "kinXs（自動）").catch(() => {});
+        console.log(`[kinxs-missing] SFに取引先責任者を作りました：${x.name}／${nm}`);
+      } catch (e) { console.warn(`[kinxs-missing] 取引先責任者を作れませんでした：${x.name}`, e.message); await kinxsUpdate(x.id, { info: { ...(r.info || {}), ctCreated: `失敗：${String(e.message).slice(0, 80)}` } }, "kinXs（自動）").catch(() => {}); }
+    }
+  } catch (e) { console.warn("[kinxs-missing] 取引先責任者の作成", e.message); }
   const out = [];
   for (const x of target) {
     const r = rowBy.get(x.id) || {}; const a = acc.get(String(x.id).slice(0, 15)) || {}; const sf = /^[0-9a-zA-Z]{15,18}$/.test(x.id);
@@ -28420,7 +28466,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06h kinXsの開発の報告：要望に応えた変更（何を変えたか・どう使うか）を、通知先で「kinXsの開発の報告」にチェックしたチャット（kinXs立ち上げチャット）へ、更新が終わったときに送る。";
+const BUILD_TAG = "2026-11-06i kinXs：ホームの数字（解約はアーカイブも・今月お申込者数・稼働は積み上げ）。情報不足は開くたびにSFを読み直し（開始日・終了日も）、取引先責任者がいない会社はCS連携の先方の担当者でSFに作る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

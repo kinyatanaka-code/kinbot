@@ -11728,7 +11728,7 @@ export async function kinxsUpdate(accountId, patch, by) {
   if (!pool) return null;
   const { rows: cur } = await pool.query(`SELECT * FROM kinxs_accounts WHERE account_id=$1`, [accountId]);
   if (!cur[0]) return null;
-  const allow = ["prod_labels", "archived", "archived_at", "sns_phase", "doc_schedule", "info", "usage_status", "purpose", "na_type", "na_at", "na_source", "na_suggest", "na_scan_at", "na_text", "na_due", "memo", "kenshu_done", "mail_done", "published", "published_on", "kickoff_on", "kenshu_month", "kenshu_on", "invoice_need", "invoice_state", "invoice_date", "mtg_summary", "na_detail", "kenshu_na", "main_label", "label_locked", "cs_name", "alert_dismiss", "contacts", "renew_month", "renew_locked"];
+  const allow = ["prod_labels", "archived", "archived_at", "sns_phase", "doc_schedule", "info", "usage_status", "purpose", "na_type", "na_at", "na_source", "na_suggest", "na_scan_at", "na_text", "na_due", "memo", "kenshu_done", "mail_done", "published", "published_on", "kickoff_on", "kenshu_month", "kenshu_on", "invoice_need", "invoice_state", "invoice_date", "mtg_summary", "na_detail", "kenshu_na", "start_on", "end_on", "end_estimated", "main_label", "label_locked", "cs_name", "alert_dismiss", "contacts", "renew_month", "renew_locked"];
   const sets = [], vals = [accountId];
   for (const k of allow) {
     if (!(k in patch)) continue;
