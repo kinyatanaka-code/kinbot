@@ -946,6 +946,8 @@ export async function initDb() {
   // CS連携（回収MTG＝キックオフの完了・御礼メールの下書き）。チェックした送り先（OBスレなど）にだけ送るので既定OFF
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_cs BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_devreq BOOLEAN NOT NULL DEFAULT false;`);
+  // kinXs の開発の報告（要望に応えたものを、kinXs立ち上げチャットへ）（2026-11-06）
+  await sq(`ALTER TABLE chat_targets ADD COLUMN IF NOT EXISTS on_kxrel BOOLEAN NOT NULL DEFAULT false;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_calendar_watch_cal ON calendar_watch(calendar_id);`);
 
   // ===== スマートリンク（担当者切り替えに追随する共有Zoom URL） =====
@@ -7439,6 +7441,7 @@ export async function updateChatTarget(id, patch) {
     onDaily: "on_daily",
     onCs: "on_cs",
     onDevReq: "on_devreq",
+    onKxRel: "on_kxrel",
     onDeploy: "on_deploy", active: "active" };
   const sets = [], vals = [id];
   for (const [k, col] of Object.entries(cols)) {

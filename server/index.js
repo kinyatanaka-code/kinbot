@@ -22979,7 +22979,7 @@ app.get("/api/chat-targets", async (req, res) => {
       targets: rows.map((r) => ({
         id: r.id, name: r.name,
         webhookUrl: r.webhook_url || "", spaceId: r.space_id || "",
-        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily, onCs: !!r.on_cs, onDevReq: !!r.on_devreq,
+        onAssign: r.on_assign, onMail: r.on_mail, onDoc: r.on_doc, onLaunch: r.on_launch, onValid: r.on_valid, onDaily: r.on_daily, onCs: !!r.on_cs, onDevReq: !!r.on_devreq, onKxRel: !!r.on_kxrel,
         onDeploy: r.on_deploy, onNews: r.on_news, onDev: r.on_dev, onIncentive: r.on_incentive,
         onResched: r.on_resched, onDatechg: r.on_datechg, onApo: r.on_apo,
         active: r.active, lastError: r.last_error || "", sentCount: r.sent_count,
@@ -23011,7 +23011,7 @@ app.put("/api/chat-targets/:id", async (req, res) => {
   try {
     const b = req.body || {};
     const patch = {};
-    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onDatechg", "onApo", "onValid", "onDaily", "onCs", "onDevReq", "active"]) {
+    for (const k of ["onAssign", "onMail", "onDoc", "onLaunch", "onDeploy", "onNews", "onDev", "onIncentive", "onResched", "onDatechg", "onApo", "onValid", "onDaily", "onCs", "onDevReq", "onKxRel", "active"]) {
       if (b[k] !== undefined) patch[k] = b[k] !== false;
     }
     if (b.name !== undefined) patch.name = String(b.name).trim().slice(0, 80);
@@ -28420,7 +28420,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06g kinXsの企業詳細：会社名の下の商品は2行まで出し、長いときは「▼ すべて見る」で開く。";
+const BUILD_TAG = "2026-11-06h kinXsの開発の報告：要望に応えた変更（何を変えたか・どう使うか）を、通知先で「kinXsの開発の報告」にチェックしたチャット（kinXs立ち上げチャット）へ、更新が終わったときに送る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -32383,7 +32383,29 @@ function deployText(head) {
   ].filter(Boolean).join("\n");
 }
 
+// kinXs の開発の報告（2026-11-06 田中さん「kinXsで開発したことは kinXs立ち上げチャットに報告してほしい。要望に応えたもののみ。何を変えたか・どう使う／どう見るか」）
+//   server/kinxs-releases.json に書いたものを、まだ送っていなければ、通知先で「kinXsの開発の報告」にチェックした送り先へ送る
+async function notifyKinxsReleases() {
+  if (!PUBLIC_URL) return;
+  let list = [];
+  try { list = JSON.parse(fs.readFileSync(path.join(__dirname, "kinxs-releases.json"), "utf8")); } catch { return; }
+  const st = await getSettings().catch(() => ({}));
+  const sent = new Set(Array.isArray(st.kxRelSent) ? st.kxRelSent : []);
+  const todo = list.filter((r) => r && r.id && !sent.has(r.id));
+  if (!todo.length) return;
+  const targets = (await listChatTargets({ onlyActive: true }).catch(() => [])).filter((t) => t.on_kxrel);
+  if (!targets.length) { console.log(`[kinxs-rel] 送り先（kinXsの開発の報告）が無いので、${todo.length}件は送らずに待ちます`); return; }
+  for (const r of todo) {
+    const text = [`🛠 *kinXs を更新しました*${r.title ? `：${r.title}` : ""}`, `${r.date || ""}${r.from ? `・${r.from}さんの要望` : ""}`.trim(),
+      "", "*何を変えたか*", ...(r.what || []).map((x) => `・${x}`), "", "*どう使う・どう見る*", ...(r.how || []).map((x) => `・${x}`), "", `${PUBLIC_URL.replace(/\/$/, "")}/kinxs`].filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n");
+    const res = await notifyAll(text, "kxrel").catch((e) => ({ ok: false, error: e.message }));
+    if (res && res.ok !== false) sent.add(r.id);
+  }
+  await saveSettings({ kxRelSent: [...sent].slice(-500) });
+  console.log(`[kinxs-rel] kinXs の開発の報告を ${todo.length}件送りました`);
+}
 async function notifyDeployDone() {
+  notifyKinxsReleases().catch((e) => console.warn("[kinxs-rel]", e.message));
   const st = await getSettings().catch(() => ({}));
   if (st.notifyDeploy === false) return;
   // 手元で動かしているときは流さない（公開URLがある＝本番とみなす）

@@ -2758,6 +2758,7 @@ const CT_KINDS = [
   ["onDaily", "デイリー目標（朝8時）"],
   ["onCs", "CS連携（回収MTG）"],
   ["onDevReq", "開発依頼（kinbotチャット）"],
+  ["onKxRel", "kinXsの開発の報告"],
 ];
 
 function ctSay(id, t, ms) {

@@ -2137,3 +2137,9 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-06 BUILD_TAG=2026-11-06f 開発メモ（久野さん）「検収書 未回収、回収の部分について、対象外の項目を増やしてほしい」。kinxs_accounts.kenshu_na（BOOLEAN）。kinxsBuild の kenshu＝対象外 を最初に、delivered（納品後）に 対象外 も入れる（検収書の未回収アラートも出ない）。PUT：kenshu_na（true なら kenshu_done を空に）、kenshu_done を入れたら kenshu_na を false。企業詳細のステータスの「検収書」の選ぶボタンに「対象外」（data-v=na → {kenshu_na:true}）。item に kenshuNa。版20261106f。
 
 - 2026-11-06 BUILD_TAG=2026-11-06g 開発メモ（久野さん：サントリービバレッジソリューションの企業詳細で、会社名の下の商品の文字がとても長い）「ここまで商品数が多い場合は、2行程度の表示にして、それ以降は矢印ボタンを押すと出るようにしてほしい」。企業詳細の見出しの商品を .kx-prods（.t を -webkit-line-clamp:2）にし、はみ出すときだけ「▼ すべて見る」（押すと全部・▲ たたむ）。はみ出しの判定は MutationObserver で窓が開いたときに scrollHeight を見る。版20261106g。
+
+- 2026-11-06 BUILD_TAG=2026-11-06h 田中さん「kinXsで開発したことは kinXs立ち上げチャットに報告してほしい。要望に応えたもののみ！ 何を変えたか、どう使う・どう見たらなど」。
+  ・chat_targets.on_kxrel（既定 false）、chat.js の種類 kxrel、設定 → 通知先 に「kinXsの開発の報告」のチェック（settings.js・db の更新項目・index の一覧）。
+  ・server/kinxs-releases.json（id・date・from（要望した人）・title・what［何を変えたか］・how［どう使う・どう見る］）。更新が終わって起動したとき（notifyDeployDone の最初）に notifyKinxsReleases：settings.kxRelSent に無いものを、on_kxrel の送り先へ「🛠 kinXs を更新しました：…／何を変えたか／どう使う・どう見る／kinXs の URL」で1件ずつ送る。送り先が無ければ送らずに待つ。
+  ・★これから：kinXs の「要望に応えた」変更（開発メモの要望・不具合、田中さん経由の依頼）をしたら、同じコミットで server/kinxs-releases.json に1件足す（id は日付＋短い英字、重ならないように）。内部の直しや田中さんの見た目の調整だけのものは足さない。
+  ・最初の6件：UI刷新（第1〜4弾）・OBスレの自動投稿を止めた・ユーザー一覧のCSV・DOC更新管理・検収書の対象外・企業詳細の商品2行。

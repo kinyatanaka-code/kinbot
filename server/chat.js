@@ -137,6 +137,8 @@ export async function notifyAll(text, kind = "", { mentionName = "", mentionName
     daily: "on_daily",
     // CS連携（回収MTG）
     cs: "on_cs",
+    // kinXs の開発の報告（要望に応えたもの）
+    kxrel: "on_kxrel",
     // 開発依頼（kinbotに聞く・開発メモに要望・不具合が入ったとき）
     devreq: "on_devreq",
   }[kind];
