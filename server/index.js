@@ -28417,7 +28417,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-06b kinbotのAPI（コネクタ）：kinbot で自分のSalesforceを連携している人は、だれでもSFの読み取り・書き込み（sf_query・sf_update・sf_create）ができる。書き込みは本人のSF連携で行う（SFの更新履歴に本人が残る）。";
+const BUILD_TAG = "2026-11-06c アポの割り振り：いったん浦林さんの担当になったアポは、日程変更などで営業担当が空いても、自動の割り振りで別の人に変えない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -31990,6 +31990,14 @@ async function _autoAssignOneInner(link, { inviteOwner, closers = null, cfg, tea
   const isAuto = autoIn != null ? !!autoIn : (actor !== "manual" && !String(actor || "").includes("@"));
   // 事業ごとに候補が違うので、アポの事業に合わせて毎回引き直す
   const biz = String(link.business || "").trim();
+
+  // いったん浦林さんの担当になったアポは、自動の割り振りで別の人に変えない（2026-11-06 田中さん）。
+  //   日程変更などで営業担当の予定が空いても、浦林さんのまま。人が「自動で決める」を押したとき（actor にメール）は今までどおり割り振る
+  if (isAuto && link.current_owner && kxIsUra({ email: link.current_owner, name: await repDisplayName(link.current_owner).catch(() => "") })) {
+    console.log(`[apo-assign] ${link.slug} は浦林さんが担当なので、自動では割り振り直しません`);
+    await markAutoAssigned(link.slug).catch(() => {});
+    return { ok: true, already: true, email: link.current_owner, reason: "浦林さんが担当（自動では変えない）" };
+  }
 
   // クローザーが自分で取ったアポは、割り振らずに本人を担当にする。
   // ローテーションの順番も動かさない（他の人の順番を飛ばさないため）。
