@@ -50,7 +50,8 @@ function render() {
   const css = [...new Set(d.items.map((x) => kxSurname(x.cs)).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   sel.innerHTML = `<option value="">CS担当：全員</option>` + css.map((c) => `<option ${c === cur ? "selected" : ""}>${esc(c)}</option>`).join("") + `<option value="__none" ${cur === "__none" ? "selected" : ""}>CS担当：未定</option>`;
   const q = $("kxQ").value || "";
-  const items = d.items.filter((x) => kxTrackOk(x) && kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
+  // DOC更新管理の対象は、受注商品に「アチコチバース」が入っている会社だけ（2026-11-06 久野さん）
+  const items = d.items.filter((x) => kxIsAchiX(x) && kxTrackOk(x) && kxMatch(q, x.name, x.formerNames || [], x.cs, x.fs, x.products) && (!sel.value || (sel.value === "__none" ? !x.cs : kxSurname(x.cs) === sel.value)));
   // KPI（90日以内）
   const near = items.filter((x) => x.left != null && x.left >= -31 && x.left <= d.warnDays && x.rank !== "F");
   const warn = near.filter((x) => x.warn);
@@ -245,7 +246,7 @@ $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !=
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = "kinXs";
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "更新管理", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "更新管理";
+$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "DOC更新管理", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "DOC更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = !["renew", "list"].includes(VIEW);
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
@@ -1516,7 +1517,7 @@ function kxRenewV2(itemsR) {
   host.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
   host.querySelectorAll("[data-rk]").forEach((b) => b.addEventListener("click", () => { const s = window.__rnRanks = window.__rnRanks || new Set(); s.has(b.dataset.rk) ? s.delete(b.dataset.rk) : s.add(b.dataset.rk); render(); }));
   const ka = host.querySelector("[data-kai-all]"); if (ka) ka.addEventListener("click", () => { window.__rnKaiAll = !window.__rnKaiAll; render(); });
-  host.querySelector("[data-rt-open]").addEventListener("click", () => kxRenewTableModal(all.filter((x) => kxHasDoc(x))));
+  host.querySelector("[data-rt-open]").addEventListener("click", () => kxRenewTableModal(all.filter((x) => kxIsAchiX(x))));
   return true;
 }
 function kxRenewTableModal(items) {
@@ -2019,3 +2020,6 @@ if ($("lsCsvFile")) $("lsCsvFile").addEventListener("change", async (e) => {
     lsData = null; loadList();
   });
 });
+
+// 受注商品に「アチコチバース」が入っている会社か（DOC更新管理の対象）（2026-11-06）
+function kxIsAchiX(x) { return (x && Array.isArray(x.products) ? x.products : []).some((p) => /アチコチバース/.test(String((p && p.name) || p || "").normalize("NFKC"))); }
