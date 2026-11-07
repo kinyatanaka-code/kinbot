@@ -12397,9 +12397,7 @@ async function kcZoomShareOpen() {
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
-      <div class="zs-steps"><a class="st" href="https://zoom.us/logout" target="_blank" rel="noopener"><i>1</i><b>サインアウト</b><small>いまのZoomから</small></a><span class="ar">›</span>
-        <a class="st hot" href="https://zoom.us/signin#/login" target="_blank" rel="noopener"><i>2</i><b>サインイン</b><small>上のID・PWで（Googleは使わない）</small></a><span class="ar">›</span>
-        <button type="button" class="st" data-zp-open><i>3</i><b>Zoom電話も</b><small>押すとkincallの中のZoom電話が開く</small></button></div>
+
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
     ${d.admin ? `<div class="zs-add"><input data-zs-new placeholder="＋ アカウントを足す（メールアドレス）" /><button type="button" class="zs-go" data-zs-add>足す</button></div>` : ""}
@@ -12441,7 +12439,6 @@ async function kcZoomShareOpen() {
     try { await post("/api/zoom-share/account", { account: acc, ...(emp.trim() ? { empNo: emp.trim() } : {}), ...(pw ? { password: pw } : {}) }); again(); } catch (e) { alert(e.message); }
   }));
   const add = bg.querySelector("[data-zs-add]"); if (add) add.addEventListener("click", async () => { const v = bg.querySelector("[data-zs-new]").value.trim(); if (!v) return; try { await post("/api/zoom-share/account", { account: v }); again(); } catch (e) { alert(e.message); } });
-  const zpo = bg.querySelector("[data-zp-open]"); if (zpo) zpo.addEventListener("click", () => { close(); if (typeof zpPanel === "function") zpPanel(true); });
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
     if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }
