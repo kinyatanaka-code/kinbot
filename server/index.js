@@ -28556,7 +28556,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07i kincallのZoomアカウントの窓を作り直した（Zoom風の青い見出し・自分のアカウントの緑のカードにID／PW（見る・コピー）と3つの手順、ほかはタイルで空き／使用中）。";
+const BUILD_TAG = "2026-11-07j kincallのZoomアカウント：Zoom専用のChromeの案内にWindows（デスクトップのショートカットの作り方と1行）を足した（Windowsの人には先に出す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

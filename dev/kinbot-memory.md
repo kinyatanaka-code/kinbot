@@ -2180,3 +2180,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07h 田中さん「別のChromeをログインするようにしたい。そうしないと今ログインしているChromeでサインインされてしまう」。Web ページからは別の Chrome のプロフィールやシークレットウィンドウを開けないので、Zoomアカウントの窓に「🧭 Zoom専用のChromeで使う」（開閉）：①Chrome のプロフィールを足す手順（アカウントなしで続行・名前 Zoom共有・kincall をブックマーク）②Mac のターミナル用の1行 open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "<origin>/kincall"（コピーのボタン）。専用の Chrome では kinbot は自分の Google、Zoom だけ借りたアカウント。版20261107h。
 
 - 2026-11-07 BUILD_TAG=2026-11-07i 田中さん（Zoomアカウントの窓のスクショ）「もっと見やすいUIで、カッコいい感じでw」。kcZoomShareOpen を作り直し（.zs）：上＝青いグラデーション「📞 ZOOM SHARE／Zoomアカウント／今日の使用 n/5」と✕、自分が使っているアカウント＝緑のカード（頭文字のアイコン・名前・返す・⚙、ID とパスワード（••••••••、見る／隠す、コピーは押すと✓）、手順のタイル 1 サインアウト（zoom.us/logout）› 2 サインイン（白で強調、zoom.us/signin#/login）› 3 Zoom電話も）。ほかのアカウント＝2列のタイル（頭文字・短い名前・空き（緑の点）／使用中（黄の点・名前）・使う（青）・返してもらう・⚙）。アカウントを足す、Zoom専用のChrome（開閉）、注意書き。版20261107i。
+
+- 2026-11-07 BUILD_TAG=2026-11-07j 田中さん「Windows PCでも設定できるようにしたい」。Zoom専用のChrome の案内に Windows：デスクトップで右クリック→新規作成→ショートカット→項目の場所に "C:\Program Files\Google\Chrome\Application
