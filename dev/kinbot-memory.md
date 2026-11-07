@@ -2167,3 +2167,10 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07d 田中さん「かけるリストは今日かけるリストだけで、80コールしたら他のリストが見れるような仕様にしたい」。/api/calls/my-today に gateNeed（settings.callGateNeed、無ければ80、0で止める）と gateFree（管理者・その人がクローザー）。calls.js：_kcGate（loadToday で今日の実数を入れる）、kcGateLocked(cat)（today・box 以外を鍵）、renderClPills で鍵のタブ「🔒 ○○ あとn」、押すと説明、開いていたら今日かけるに戻す、80に届いた瞬間に「🎉 80コール達成！」。同じ会話で：リストの割り振りの自動化・Zoom Phone の要約をきれいに・Zoom Phone の5アカウント（kinya.tanaka・ryo.iijima・ryo.matsumoto・kanna.kuribayashi・sotaro.nakamura）をほかの人で使い回す、の相談も受けた（まだ作っていない）。版20261107d。
 
 - 2026-11-07 BUILD_TAG=2026-11-07e 田中さん（かける画面の行の最後のメモが「終日不在【通話録音の要約】・相手：機内電…」で切れている）「これじゃあ誰が架電したのかもわからないし、履歴を見ないとどんな会話したのかもわからない」。db.lastMemoLogs(ids)（メモのある最後の記録の caller・memo・at）を /api/calls/targets の行づくりでまとめて読み、最終メモの人（メンバーの名前）・最終メモの日時を足した。calls.js：kcLastMemoHtml（緑の札「中澤 10/27」＋本文）、kcMemoCompact（人が書いたメモ｜要点 → 反応（次回：…）、【通話録音の要約】の 相手 は省く、改行でも「・」続きでも拾う）、記録したあとの行の書き換え（updateRow）も同じ形。版20261107e。
+
+- 2026-11-07 BUILD_TAG=2026-11-07f 田中さん「この5人のズームにログインを kincall からできるようにする。パスワードとかは kincall で登録する感じで」（kinya.tanaka・ryo.iijima・ryo.matsumoto・kanna.kuribayashi・sotaro.nakamura @neo-career.co.jp）。
+  ・db：zoom_shared（account・pass_enc（csEnc）・memo）、zoom_checkouts（account・member・start_at・end_at。その日だけ有効、前の日の分は終わったあつかい）。zoomShareList・zoomShareUpsert・zoomShareRemove・zoomSharePass・zoomCheckout（ほかの人が使っていれば断る、自分の前の分と同じアカウントの前の分は終わらせる）・zoomRelease・zoomHeldBy・zoomCheckoutsBetween。
+  ・API：GET /api/zoom-share（初回は5アカウントを入れる。admin＝管理者か kinya.tanaka）、POST /api/zoom-share/account（admin：アカウントを足す・パスワード登録・remove）、POST /api/zoom-share/checkout・/release（admin は account 指定で返してもらう）、GET /api/zoom-share/password（借りている本人か admin だけ、見たらログ）。
+  ・読みかえ：zoomphone.js の zoomPhoneRecordings・zoomPhoneCallHistory を index.js で包んで（zoomMapOwners）、その時間・その日に借りていた人の ownerEmail にする（録音の要約・照合・通話履歴の取り込み・アポの録音の かけた人）。/api/zoom-phone/caller-id は借りていればそのアカウントの番号。
+  ・画面：kincall のヘッダー（今日の数字の横）に「📞 Zoomアカウント」（借りていれば「📞 Zoom：ryo.iijima」）。窓：アカウントごとに 空き／使用中（名前）、このアカウントを使う、ID・パスワードを見る（コピー・Zoomを開いてログイン https://zoom.us/signin）、返す、admin は パスワードを登録／変える・返してもらう・アカウントを足す。
+  ・Zoom へ自動でログインはしない（Zoom の API にパスワードでのログインは無い）。人が ID・パスワードを貼ってログインする。

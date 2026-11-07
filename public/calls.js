@@ -1588,6 +1588,15 @@ function renderDock() {
     .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
+    /* Zoomアカウントの貸し出し（2026-11-07） */
+    .kc-zs-btn{border:1px solid #CFE3D9;background:#fff;border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;margin-left:8px;} .kc-zs-btn:hover{background:#E1F5EE;}
+    .kc-zs-bg{position:fixed;inset:0;background:rgba(10,30,22,.4);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow:auto;}
+    .kc-zs{background:#fff;border-radius:16px;max-width:640px;width:100%;padding:16px 18px;box-shadow:0 24px 60px -20px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:10px;}
+    .kc-zs-h{display:flex;align-items:center;gap:8px;} .kc-zs-h b{font-size:15px;}
+    .kc-zs-r{border:1px solid #E1E9E5;border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;} .kc-zs-r.mine{border-color:#1D9E75;background:#F2FBF7;} .kc-zs-r.busy{opacity:.7;}
+    .kc-zs-r .a{flex:1;min-width:220px;display:flex;flex-direction:column;} .kc-zs-r .a small{color:#6A7A72;font-size:11.5px;} .kc-zs-r .b{display:flex;gap:6px;flex-wrap:wrap;}
+    .kc-zs-r .pw{flex-basis:100%;display:flex;flex-direction:column;gap:6px;} .kc-zs-r .pw:empty{display:none;} .kc-zs-r .pw > div{display:flex;align-items:center;gap:8px;} .kc-zs-r .pw span{width:72px;font-size:12px;color:#4F6158;} .kc-zs-r .pw code{background:#F1F5F3;border-radius:6px;padding:3px 8px;font-size:13px;}
+    .kc-zs-add{display:flex;gap:6px;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
     /* 80コールまでは鍵のかかったタブ（2026-11-07） */
@@ -12341,3 +12350,47 @@ function kcLastMemoHtml(x) {
   const body = kcMemoCompact(x["最終コメント"]);
   return `<div class="kc-lastmemo" title="${esc(String(x["最終コメント"] || ""))}">${sur || when ? `<span class="kc-lm-who">${esc(sur)}${sur && when ? " " : ""}${esc(when)}</span>` : ""}${esc(body)}</div>`;
 }
+
+// ===================== Zoomアカウントの貸し出し（2026-11-07 田中さん）=====================
+// 共有のZoomアカウントを、その日だけ借りて使う。借りたアカウントのID・パスワードをここで見てコピーし、Zoomにログインする
+async function kcZoomShareOpen() {
+  let d; try { d = await (await fetch("/api/zoom-share")).json(); if (d.error) throw new Error(d.error); } catch (e) { alert(e.message); return; }
+  document.querySelectorAll(".kc-zs-bg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "kc-zs-bg";
+  const row = (x) => {
+    const mine = d.mine === x.account, busy = x.holder && !mine;
+    return `<div class="kc-zs-r${mine ? " mine" : ""}${busy ? " busy" : ""}"><div class="a"><b>${esc(x.account)}</b><small>${mine ? "あなたが使用中" : busy ? `${esc(x.holderName)}さんが使用中` : "空いています"}${x.hasPass ? "" : "・パスワード未登録"}</small></div>
+      <div class="b">${mine ? `<button type="button" class="kc-btn" data-zs-pw="${esc(x.account)}">ID・パスワードを見る</button><button type="button" class="kc-btn" data-zs-rel>返す</button>` : busy ? (d.admin ? `<button type="button" class="kc-btn" data-zs-force="${esc(x.account)}">返してもらう</button>` : "") : `<button type="button" class="kc-btn primary" data-zs-take="${esc(x.account)}">このアカウントを使う</button>`}
+      ${d.admin ? `<button type="button" class="kc-btn" data-zs-set="${esc(x.account)}">${x.hasPass ? "パスワードを変える" : "パスワードを登録"}</button>` : ""}</div><div class="pw" data-zs-pwbox="${esc(x.account)}"></div></div>`;
+  };
+  bg.innerHTML = `<div class="kc-zs"><div class="kc-zs-h"><b>Zoomアカウント（共有）</b><button type="button" class="kc-btn" data-zs-x style="margin-left:auto">閉じる</button></div>
+    <div class="note">空いているアカウントを「使う」にすると、今日はあなたが使います（その日だけ。夜には自動で返ったあつかい）。ID・パスワードをコピーして、Zoomにログインしてください。</div>
+    <div class="kc-zs-list">${d.items.map(row).join("") || '<div class="note">登録されたアカウントがありません</div>'}</div>
+    ${d.admin ? `<div class="kc-zs-add"><input class="kc-input" data-zs-new placeholder="アカウントを足す（メールアドレス）" /><button type="button" class="kc-btn" data-zs-add>足す</button></div>` : ""}
+    <div class="note">通話の録音・履歴は、使っていた時間の分だけ、あなたの記録として数えます。パスワードは、使っている本人と田中さん・管理者だけが見られます。</div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove(); const again = () => { close(); kcZoomShareOpen(); };
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-zs-x]").addEventListener("click", close);
+  const post = async (url, body) => { const r = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })).json(); if (r.error) throw new Error(r.error); return r; };
+  bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); again(); } catch (e) { alert(e.message); } }));
+  bg.querySelectorAll("[data-zs-rel]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/release"); again(); } catch (e) { alert(e.message); } }));
+  bg.querySelectorAll("[data-zs-force]").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`${b.dataset.zsForce} を返してもらいます。よろしいですか？`)) return; try { await post("/api/zoom-share/release", { account: b.dataset.zsForce }); again(); } catch (e) { alert(e.message); } }));
+  bg.querySelectorAll("[data-zs-set]").forEach((b) => b.addEventListener("click", async () => { const pw = prompt(`${b.dataset.zsSet} のZoomのパスワード`); if (!pw) return; try { await post("/api/zoom-share/account", { account: b.dataset.zsSet, password: pw }); again(); } catch (e) { alert(e.message); } }));
+  const add = bg.querySelector("[data-zs-add]"); if (add) add.addEventListener("click", async () => { const v = bg.querySelector("[data-zs-new]").value.trim(); if (!v) return; try { await post("/api/zoom-share/account", { account: v }); again(); } catch (e) { alert(e.message); } });
+  bg.querySelectorAll("[data-zs-pw]").forEach((b) => b.addEventListener("click", async () => {
+    const acc = b.dataset.zsPw; const box = bg.querySelector(`[data-zs-pwbox="${CSS.escape(acc)}"]`);
+    try {
+      const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(acc)}`)).json(); if (r.error) throw new Error(r.error);
+      box.innerHTML = `<div><span>ID</span><code>${esc(acc)}</code><button type="button" class="kc-btn" data-cp="${esc(acc)}">コピー</button></div><div><span>パスワード</span><code>${esc(r.password)}</code><button type="button" class="kc-btn" data-cp="${esc(r.password)}">コピー</button></div><a class="kc-btn primary" href="https://zoom.us/signin" target="_blank" rel="noopener">Zoomを開いてログイン ↗</a>`;
+      box.querySelectorAll("[data-cp]").forEach((c) => c.addEventListener("click", async () => { try { await navigator.clipboard.writeText(c.dataset.cp); c.textContent = "コピーしました"; } catch { alert("コピーできませんでした"); } }));
+    } catch (e) { box.innerHTML = `<div class="note">${esc(e.message)}</div>`; }
+  }));
+}
+(function kcZoomShareButton() {
+  const host = document.getElementById("kcToday"); if (!host || document.getElementById("kcZsBtn")) return;
+  const b = document.createElement("button"); b.type = "button"; b.id = "kcZsBtn"; b.className = "kc-zs-btn"; b.textContent = "📞 Zoomアカウント";
+  b.addEventListener("click", kcZoomShareOpen);
+  host.parentElement.insertBefore(b, host.nextSibling);
+  fetch("/api/zoom-share").then((r) => r.json()).then((d) => { if (d && d.mine) b.textContent = `📞 Zoom：${d.mine.split("@")[0]}`; }).catch(() => {});
+})();

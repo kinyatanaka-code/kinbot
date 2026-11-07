@@ -12052,3 +12052,61 @@ export async function lastMemoLogs(ids = []) {
       WHERE target_id = ANY($1::int[]) AND coalesce(btrim(memo),'') <> '' ORDER BY target_id, at DESC`, [ids.map((x) => parseInt(x, 10)).filter(Boolean)]);
   return new Map(rows.map((r) => [r.target_id, r]));
 }
+
+// ===== Zoom Phone のアカウントの貸し出し（2026-11-07 田中さん：5アカウントをほかの人で使い回す）=====
+let _zsReady = false;
+async function ensureZoomShare() {
+  if (_zsReady || !pool) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS zoom_shared (account TEXT PRIMARY KEY, pass_enc TEXT, memo TEXT, updated_by TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS zoom_checkouts (id SERIAL PRIMARY KEY, account TEXT NOT NULL, member TEXT NOT NULL, start_at TIMESTAMPTZ NOT NULL DEFAULT now(), end_at TIMESTAMPTZ)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS zoom_checkouts_acc ON zoom_checkouts (account, start_at)`);
+  _zsReady = true;
+}
+export async function zoomShareList() {
+  if (!pool) return [];
+  await ensureZoomShare();
+  const { rows } = await pool.query(`SELECT s.account, (s.pass_enc IS NOT NULL) AS has_pass, s.memo, c.member AS holder, c.start_at AS since
+      FROM zoom_shared s LEFT JOIN LATERAL (SELECT member, start_at FROM zoom_checkouts k WHERE k.account = s.account AND k.end_at IS NULL
+        AND (k.start_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date ORDER BY start_at DESC LIMIT 1) c ON true ORDER BY s.account`);
+  return rows;
+}
+export async function zoomShareUpsert(account, { passEnc, memo } = {}, by = "") {
+  if (!pool) return null;
+  await ensureZoomShare();
+  const a = String(account || "").trim().toLowerCase(); if (!a) return null;
+  await pool.query(`INSERT INTO zoom_shared (account, pass_enc, memo, updated_by) VALUES ($1,$2,$3,$4)
+      ON CONFLICT (account) DO UPDATE SET pass_enc = COALESCE($2, zoom_shared.pass_enc), memo = COALESCE($3, zoom_shared.memo), updated_by = $4, updated_at = now()`, [a, passEnc ?? null, memo ?? null, by]);
+  return a;
+}
+export async function zoomShareRemove(account) { if (!pool) return 0; await ensureZoomShare(); return (await pool.query(`DELETE FROM zoom_shared WHERE account = $1`, [String(account).toLowerCase()])).rowCount; }
+export async function zoomSharePass(account) { if (!pool) return null; await ensureZoomShare(); const { rows } = await pool.query(`SELECT pass_enc FROM zoom_shared WHERE account = $1`, [String(account).toLowerCase()]); return rows[0] ? rows[0].pass_enc : null; }
+// 借りる（その日だけ。前の日の貸し出しは自動で終わったものとみなす）。同じ人がほかに借りていれば返してから
+export async function zoomCheckout(account, member) {
+  if (!pool) return { ok: false };
+  await ensureZoomShare();
+  const a = String(account).toLowerCase(), m = String(member).toLowerCase();
+  const { rows } = await pool.query(`SELECT member FROM zoom_checkouts WHERE account = $1 AND end_at IS NULL AND (start_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date ORDER BY start_at DESC LIMIT 1`, [a]);
+  if (rows[0] && rows[0].member !== m) return { ok: false, holder: rows[0].member };
+  if (rows[0]) return { ok: true, already: true };
+  await pool.query(`UPDATE zoom_checkouts SET end_at = now() WHERE member = $1 AND end_at IS NULL`, [m]);
+  await pool.query(`UPDATE zoom_checkouts SET end_at = now() WHERE account = $1 AND end_at IS NULL`, [a]);
+  await pool.query(`INSERT INTO zoom_checkouts (account, member) VALUES ($1,$2)`, [a, m]);
+  return { ok: true };
+}
+export async function zoomRelease(member, account = "") {
+  if (!pool) return 0; await ensureZoomShare();
+  const r = await pool.query(`UPDATE zoom_checkouts SET end_at = now() WHERE end_at IS NULL AND (member = $1 OR ($2 <> '' AND account = $2))`, [String(member).toLowerCase(), String(account).toLowerCase()]);
+  return r.rowCount;
+}
+// いま（その日）その人が借りているアカウント
+export async function zoomHeldBy(member) {
+  if (!pool) return ""; await ensureZoomShare();
+  const { rows } = await pool.query(`SELECT account FROM zoom_checkouts WHERE member = $1 AND end_at IS NULL AND (start_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date ORDER BY start_at DESC LIMIT 1`, [String(member).toLowerCase()]);
+  return rows[0] ? rows[0].account : "";
+}
+// 期間の貸し出しの記録（通話・録音の持ち主を、そのとき借りていた人に読みかえる）
+export async function zoomCheckoutsBetween(fromIso, toIso) {
+  if (!pool) return []; await ensureZoomShare();
+  const { rows } = await pool.query(`SELECT account, member, start_at, end_at FROM zoom_checkouts WHERE start_at <= $2 AND (end_at IS NULL OR end_at >= $1)`, [fromIso, toIso]);
+  return rows;
+}

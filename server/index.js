@@ -28,7 +28,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo, NOTIFY_KINDS, notifyDisabledSet } from "./chat.js";
 import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
 import { deepgramReady, transcribeUrl } from "./deepgram.js";
-import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory, zoomResultToKincall, zoomPhoneRecordings, zoomDownload, zoomPhoneUserNumber } from "./zoomphone.js";
+import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory as _zpCallHistory, zoomResultToKincall, zoomPhoneRecordings as _zpRecordings, zoomDownload, zoomPhoneUserNumber } from "./zoomphone.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -15688,12 +15688,84 @@ app.get("/api/zoom-phone/caller-id", async (req, res) => {
     if (req.impersonatorFrom === "admin") return res.json({ ok: true, callerId: "" });
     const c = _callerIdCache.get(me);
     if (c && Date.now() - c.at < 6 * 3600 * 1000) return res.json({ ok: true, callerId: c.v });
-    const v = await zoomPhoneUserNumber(me).catch(() => "");
+    const held = await zoomHeldBy(me).catch(() => "");   // Zoomのアカウントを借りていれば、そのアカウントの番号
+    const v = await zoomPhoneUserNumber(held || me).catch(() => "");
     _callerIdCache.set(me, { v, at: Date.now() });
     res.json({ ok: true, callerId: v });
   } catch (e) { res.json({ ok: true, callerId: "" }); }
 });
 
+// ===== Zoom Phone のアカウントの貸し出し（2026-11-07 田中さん）=====
+//   共有の5アカウント（kinya.tanaka・ryo.iijima・ryo.matsumoto・kanna.kuribayashi・sotaro.nakamura）を、その日だけほかの人が借りて使う。
+//   パスワードは kincall に暗号化して登録（田中さん・管理者が登録）。借りた人と管理者だけが見られる。
+//   通話履歴・録音の持ち主（アカウント）は、その時間に借りていた人に読みかえる（だれがかけたかを合わせるため）
+const ZOOM_SHARE_DEFAULT = ["kinya.tanaka@neo-career.co.jp", "ryo.iijima@neo-career.co.jp", "ryo.matsumoto@neo-career.co.jp", "kanna.kuribayashi@neo-career.co.jp", "sotaro.nakamura@neo-career.co.jp"];
+let _zsSeeded = false;
+async function zoomShareSeed() { if (_zsSeeded) return; _zsSeeded = true; const cur = await zoomShareList().catch(() => []); if (!cur.length) for (const a of ZOOM_SHARE_DEFAULT) await zoomShareUpsert(a, {}, "初期").catch(() => {}); }
+async function zoomMapOwners(list) {
+  if (!Array.isArray(list) || !list.length) return list;
+  const ats = list.map((x) => Date.parse(x.at || "")).filter(isFinite);
+  if (!ats.length) return list;
+  const cos = await zoomCheckoutsBetween(new Date(Math.min(...ats) - 86400000).toISOString(), new Date(Math.max(...ats) + 60000).toISOString()).catch(() => []);
+  if (!cos.length) return list;
+  for (const x of list) {
+    const acc = String(x.ownerEmail || "").toLowerCase(); const t = Date.parse(x.at || ""); if (!acc || !isFinite(t)) continue;
+    const c = cos.find((k) => String(k.account).toLowerCase() === acc && Date.parse(k.start_at) <= t && (!k.end_at || Date.parse(k.end_at) >= t)
+      && new Date(Date.parse(k.start_at) + 9 * 3600000).toISOString().slice(0, 10) === new Date(t + 9 * 3600000).toISOString().slice(0, 10));
+    if (c) { x.zoomAccount = acc; x.ownerEmail = String(c.member).toLowerCase(); x.ownerId = ""; }
+  }
+  return list;
+}
+async function zoomPhoneRecordings(o) { return zoomMapOwners(await _zpRecordings(o)); }
+async function zoomPhoneCallHistory(o) { return zoomMapOwners(await _zpCallHistory(o)); }
+const zsCanAdmin = (req) => !!req.isAdmin || /^kinya\.tanaka@/i.test(String(req.user || ""));
+app.get("/api/zoom-share", async (req, res) => {
+  try {
+    await zoomShareSeed();
+    const me = String(req.user || "").toLowerCase();
+    const rows = await zoomShareList();
+    const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), m.name || ""]));
+    res.json({ ok: true, admin: zsCanAdmin(req), mine: await zoomHeldBy(me), items: rows.map((r) => ({ account: r.account, hasPass: r.has_pass, memo: r.memo || "", holder: r.holder || "", holderName: r.holder ? (names.get(r.holder) || r.holder.split("@")[0]) : "", since: r.since })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/zoom-share/account", async (req, res) => {
+  try {
+    if (!zsCanAdmin(req)) return res.status(403).json({ error: "田中さん・管理者だけが登録できます" });
+    const b = req.body || {}; const acc = String(b.account || "").trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+$/.test(acc)) return res.status(400).json({ error: "アカウント（メールアドレス）が正しくありません" });
+    if (b.remove) { await zoomShareRemove(acc); return res.json({ ok: true }); }
+    await zoomShareUpsert(acc, { passEnc: b.password ? csEnc(String(b.password)) : undefined, memo: b.memo != null ? String(b.memo).slice(0, 200) : undefined }, req.user);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/zoom-share/checkout", async (req, res) => {
+  try {
+    const me = String(req.user || "").toLowerCase(); const acc = String(req.body?.account || "").toLowerCase();
+    if (!(await zoomShareList()).some((r) => r.account === acc)) return res.status(404).json({ error: "そのアカウントは登録されていません" });
+    const r = await zoomCheckout(acc, me);
+    if (!r.ok) return res.status(409).json({ error: `いま ${r.holder} さんが使っています` });
+    _callerIdCache.delete(me);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/zoom-share/release", async (req, res) => {
+  try {
+    const me = String(req.user || "").toLowerCase(); const acc = zsCanAdmin(req) ? String(req.body?.account || "") : "";
+    const n = await zoomRelease(acc ? "__none__" : me, acc); _callerIdCache.delete(me);
+    res.json({ ok: true, n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// パスワードを見る：借りている本人と、田中さん・管理者だけ
+app.get("/api/zoom-share/password", async (req, res) => {
+  try {
+    const me = String(req.user || "").toLowerCase(); const acc = String(req.query.account || "").toLowerCase();
+    if (!zsCanAdmin(req) && (await zoomHeldBy(me)) !== acc) return res.status(403).json({ error: "借りているアカウントのパスワードだけ見られます" });
+    const enc = await zoomSharePass(acc); if (!enc) return res.status(404).json({ error: "パスワードがまだ登録されていません（田中さんに登録してもらってください）" });
+    let pw = ""; try { pw = csDec(enc); } catch { return res.status(500).json({ error: "パスワードを読めませんでした（登録し直してください）" }); }
+    console.log(`[zoom-share] ${me} が ${acc} のパスワードを見ました`);
+    res.json({ ok: true, account: acc, password: pw });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // Zoom電話でかけられないときの確認：kincallのメールがZoom Phoneの利用者にいるか・電話番号があるか。
 // 管理者・クローザーには、メンバー全員（インサイド・クローザー）の状態も返す。
 let _zpUsersCache = { at: 0, v: null };
@@ -28484,7 +28556,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07e kincallのかける画面：行の「最後のメモ」に、だれが・いつ（例：中澤 10/27）を付け、通話録音の要約は「要点 → 反応（次回）」に縮めて出す。";
+const BUILD_TAG = "2026-11-07f kincall：Zoomアカウントの貸し出し（共有の5アカウントを、その日だけ借りてID・パスワードを見てログイン。録音・通話履歴は借りていた人の記録に、発信元の番号も借りたアカウントに）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
