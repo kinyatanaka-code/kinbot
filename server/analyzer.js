@@ -2408,3 +2408,14 @@ ${text}
     弊社の宿題: arr(j["弊社の宿題"]), 貴社の宿題: arr(j["貴社の宿題"]),
   };
 }
+
+// 要約の文から、不在の状況・断り理由の文言（kincall の記録の窓のボタン）を1つ選ぶ。当てはまらなければ空（2026-11-07）
+export async function guessCallReason(summary, reasons = []) {
+  const opts = (reasons || []).map((x) => String(x || "").trim()).filter(Boolean).slice(0, 80);
+  if (!summary || !opts.length) return "";
+  const out = await callLLM("あなたは営業電話の記録係です。", `次の架電の要約について、相手（担当者）の状況や断り理由に、はっきり当てはまるものが選択肢にあれば1つだけ、文字を変えずに答えてください。当てはまるものが無ければ「なし」とだけ答えてください。答えだけを1行で。\n選択肢：${opts.join(" / ")}\n\n要約：\n${String(summary).slice(0, 2000)}`, 40,
+    { provider: "gemini", model: "gemini-2.5-flash-lite" }).catch(() => "");
+  const a = String(out || "").replace(/^[・\s「『"]+|[」』"\s。]+$/g, "").trim();
+  if (!a || /^なし$/.test(a)) return "";
+  return opts.includes(a) ? a : (opts.find((x) => a.includes(x)) || "");
+}

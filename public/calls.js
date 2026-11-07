@@ -1635,6 +1635,7 @@ function renderDock() {
     .zs-chrome .c{margin-top:8px;display:flex;flex-direction:column;gap:3px;} .zs-chrome .c small{color:#6A7A72;line-height:1.6;}
     .zs-cmd{display:flex;gap:6px;align-items:center;} .zs-ho{background:#F2F7FF;border-radius:10px;padding:8px 10px;} .zs-ho [data-ho-url]{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd .zs-cp{background:#1B5FD0;}
     .zs-foot{padding:10px 18px 16px;font-size:11px;color:#8FA39A;}
+    .kc-reason-chip.picked{background:#E1F5EE;border-color:#1D9E75;color:#0A5440;font-weight:800;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -2682,7 +2683,9 @@ async function openTarget(id, draft, opt) {
         const sec = d.duration ? `・${d.duration}秒` : "";
         if (d.kind === "failed") { if (st) st.textContent = `${d.when || ""}の通話（録音${sec}）は見つかりましたが、要約を作れませんでした。少し待ってからもう一度押してください（メモは変えていません）。`; recBtn.disabled = false; return; }
         const none = d.kind === "none";
-        ta.value = none ? body : (body ? `${body}\n${sum}` : sum);
+        let sum2 = sum; const first = sum.split("\n")[0];
+        if (first && !/^・/.test(first) && body.split(/[、,\n]/).map((x) => x.trim()).includes(first.trim())) sum2 = sum.split("\n").slice(1).join("\n").trim();
+        ta.value = none ? body : (body ? (sum2 ? `${body}\n${sum2}` : body) : sum);
         if (st) st.textContent = none ? `${d.when || ""}の通話（録音${sec}）は、会話がありませんでした（留守電・不在など）。要約は入れていません。「直す」で保存してください。` : `${d.when || ""}の通話（録音${sec}）から入れました。確かめて「直す」で保存してください。`;
       } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
       recBtn.disabled = false;
@@ -3301,8 +3304,14 @@ function wireZoomSummary(m, id) {
       show(`<span class="kc-zsum-ok">Zoom録音（${esc(hm(d.at))}の通話）は、会話がありませんでした（留守電・不在など）。結果を選んで記録してください。</span>`, true);
       return;
     }
-    memo.value = memo.value.trim() ? `${memo.value.trim()}\n${sum}` : sum;
-    m._zsumText = sum;
+    // いちばん上の行（不在の状況・断り理由の文言）が、もうメモにあれば重ねない
+    let sum2 = sum; const first = sum.split("\n")[0];
+    if (first && !/^・/.test(first) && memo.value.split(/[、,\n]/).map((x) => x.trim()).includes(first.trim())) sum2 = sum.split("\n").slice(1).join("\n").trim();
+    if (!sum2) { m._zoomRecId = d.recId || ""; return; }
+    memo.value = memo.value.trim() ? `${memo.value.trim()}\n${sum2}` : sum2;
+    m._zsumText = sum2;
+    // 不在の状況・断り理由のボタンを、選んだ文言だけ光らせる
+    if (first && !/^・/.test(first)) m.el.querySelectorAll(".kc-reason-chip").forEach((b) => b.classList.toggle("picked", b.textContent.trim() === first.trim()));
     m._zoomRecId = d.recId || "";
     // 結果のプルダウンも、まだ選んでいなければ要約から自動で選ぶ（あとから変えられる）
     let picked = "";

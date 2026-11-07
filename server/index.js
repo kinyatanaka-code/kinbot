@@ -658,7 +658,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, guessCallReason, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave, lookupIndustry } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -16021,6 +16021,17 @@ app.get("/api/calls/apo-recordings", async (req, res) => {
 });
 
 // 記録の窓から呼ぶ：この相手の、架電後の録音の要約を返す（?since=ISO 以降の通話。無ければ直近30分）
+// 要約のいちばん上に、不在の状況・断り理由（記録の窓のボタンの文言）を1行で付ける。「会話なし」だけなら、当てはまる文言（留守電など）に置きかえる（2026-11-07 田中さん）
+async function withCallReason(summary) {
+  const sum = String(summary || "").trim(); if (!sum) return sum;
+  const st = await getSettings().catch(() => ({})); const saved = st.reasonChips || {};
+  const pick = (k) => (Array.isArray(saved[k]) && saved[k].length ? saved[k] : (REASON_DEFAULTS[k] || []));
+  const reasons = [...new Set([...pick("不在"), ...pick("断り")])];
+  const rs = await guessCallReason(sum, reasons).catch(() => "");
+  if (!rs) return sum;
+  const lines = sum.split("\n").filter((l) => l.trim() && !/^・?\s*会話なし/.test(l));
+  return [rs, ...lines].join("\n");
+}
 // 履歴の「直す」：その時の録音を取り込み直す（その記録の録音、無ければ同じ電話番号で記録の前後30分の通話の録音）（2026-11-07）
 app.post("/api/calls/targets/:id/history/resummary", async (req, res) => {
   try {
@@ -16040,7 +16051,7 @@ app.post("/api/calls/targets/:id/history/resummary", async (req, res) => {
     const o = await summarizeZoomRec(r, []).catch((e) => ({ summary: "", error: e.message }));
     if (o.summary) await saveZoomRecSummary({ recId: r.id, targetId: t.id, at: r.at, duration: r.duration, summary: o.summary, downloadUrl: r.downloadUrl }).catch(() => {});
     const d = new Date(Date.parse(r.at) + 9 * 3600000);
-    const sum = cleanCallSummary(o.summary || "");
+    const sum = await withCallReason(cleanCallSummary(o.summary || ""));
     // 会話なし と 要約できなかった を分けて返す（2026-11-07：要約に失敗したのに「会話がありませんでした」と出ていた）
     const kind = !sum ? "failed" : (/^・?\s*会話なし/.test(sum) && sum.split("\n").filter((l) => l.trim()).length <= 1 ? "none" : "ok");
     if (kind === "failed") console.warn(`[resummary] 要約できませんでした rec=${r.id} 秒=${r.duration} 文字起こし=${!!r.transcriptUrl} 音声=${!!r.downloadUrl} ${o.error || ""}`);
@@ -16070,14 +16081,14 @@ app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
       if (!o.summary) return res.json({ ok: true, none: true, reason: "録音はありますが要約できませんでした" });
       const c = await getZoomRecSummary(r.id);
       const used = (await isZoomRecProcessed(r.id)) || !!(c && c.log_id);
-      return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: o.summary, result: o.result || "", used });
+      return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: await withCallReason(o.summary), result: o.result || "", used });
     }
     // ①先に要約済み（15分ごとの処理で作られたもの）
     const cached = await findUnusedZoomSummary(t.id, sinceIso);
     if (cached && cleanCallSummary(cached.summary).replace(/[・\s]/g, "").length >= 4) {
       const summary = cleanCallSummary(cached.summary);
       const result = options.length ? await guessCallResult(summary, options).catch(() => "") : "";
-      return res.json({ ok: true, recId: cached.rec_id, at: cached.at, duration: cached.duration, summary, result });
+      return res.json({ ok: true, recId: cached.rec_id, at: cached.at, duration: cached.duration, summary: await withCallReason(summary), result });
     }
     // ②Zoomから、この番号の録音を探す
     const last9 = zoomLast9(t.phone);
@@ -16093,7 +16104,7 @@ app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
       const c = await getZoomRecSummary(r.id);
       if (c && c.log_id) continue;
       const o = await zoomRecSummaryCached(r, t.id, req.user, options);
-      if (o.summary) return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: o.summary, result: o.result || "" });
+      if (o.summary) return res.json({ ok: true, recId: r.id, at: r.at, duration: r.duration, summary: await withCallReason(o.summary), result: o.result || "" });
       return res.json({ ok: true, none: true, reason: "録音はありますが要約できませんでした" });
     }
     res.json({ ok: true, none: true, reason: "録音はまだありません（通話後、Zoomに録音が出るまで少しかかります）" });
@@ -28654,7 +28665,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zg 履歴の録音の取り込み直し：「会話なし」と「要約を作れなかった」を分けて出す（録音の秒数も）。要約できなかったときはメモを変えない。";
+const BUILD_TAG = "2026-11-07zh kincallの通話の要約：録音から、不在の状況・断り理由のボタンの文言に当てはまるものを選んで、いちばん上の行に入れる（例：席を外している／・要点：…）。会話なしは留守電などに置きかえる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
