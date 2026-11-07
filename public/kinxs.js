@@ -22,7 +22,8 @@ function kxSurnameMap(names) {
   return map;
 }
 let kxSur = new Map();
-const kxSurname = (n) => (n ? (kxSur.get(n) || String(n).normalize("NFKC").trim().split(/[\s　]+/)[0]) : "");
+// 苗字：早見表（kxSur）に無い名前でも、空白の無い漢字4文字以上の名前は頭の2文字にする（「皆葉優ブラッド」→「皆葉」）（2026-11-07：ホームで苗字とフルネームが混ざっていた）
+const kxSurname = (n) => { if (!n) return ""; if (kxSur.has(n)) return kxSur.get(n); const t = String(n).normalize("NFKC").trim(); const b = t.split(/[\s　]+/)[0]; return /[\s　]/.test(t) ? b : (b.length >= 4 && /^[\p{Script=Han}]{2}/u.test(b) ? b.slice(0, 2) : b); };
 // 検索：入れた文字を含む会社を全部出す（大文字・小文字、カタカナ・ひらがな、全角・半角、空白・記号の違いは気にしない。空白で区切ると全部を含むもの）
 function kxNormQ(t) {
   return String(t || "").normalize("NFKC").toLowerCase()
@@ -1415,7 +1416,7 @@ let kh2 = { ym: kxNowYm(), open: {}, period: null, miss: null };
 async function loadHomeV2() {
   const box = $("kh2"); if (!box) return;
   if (!lsData) box.innerHTML = kxSkel("home");
-  try { if (!lsData) lsData = await api("/api/kinxs/users"); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  try { if (!lsData) lsData = await api("/api/kinxs/users"); kxSur = kxSurnameMap((lsData.items || []).map((x) => x.cs).filter(Boolean)); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
   renderHomeV2();
   api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
 }
