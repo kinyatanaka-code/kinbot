@@ -5937,7 +5937,7 @@ app.get("/kincs", (req, res) => {
       // kincs では、サイドバーのほかのツール（kinbot・kincall・Salesforce・ツール）を出さない（2026-11-07 田中さん）
       //   メニューも、ホーム・フェーズ別・年間施策・電話フォロー・傾向分析・CS連携（回収MTG）は出さない（ユーザー一覧・DOC更新管理だけ）
       //   ユーザー一覧の「SF未連携を自動で紐づける」「アーカイブを見る」「CSVで書き出す」「CSVでまとめて直す」も出さない
-      .replace("</head>", `<style>.kx-stools{display:none !important;} .kx-nav[data-view="home"],.kx-nav[data-view="board"],.kx-nav[data-view="plan"],.kx-nav[data-view="call"],.kx-nav[data-view="trend"],.kx-nav[data-view="cs"]{display:none !important;} [data-link-auto],[data-kpi="arc"],#lsCsvOut,#lsCsvIn{display:none !important;}</style>
+      .replace("</head>", `<style>.kx-stools{display:none !important;} .kx-nav[data-view="home"],.kx-nav[data-view="board"],.kx-nav[data-view="plan"],.kx-nav[data-view="call"],.kx-nav[data-view="trend"],.kx-nav[data-view="cs"]{display:none !important;} [data-link-auto],[data-kpi="arc"],#lsCsvOut,#lsCsvIn{display:none !important;} .kx-side-foot,.kx-side .kx-imp-btn{display:none !important;}</style>
 <script>window.KX_COPY = true;</script>
 </head>`)
       .replace("</body>", `<script>
@@ -28806,7 +28806,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08c kincsの設定（/kincs/settings）：アカウントと外部連携（Google・Salesforceだけ）。kincsのサイドバーに「設定」、kincsだけの人も使える。";
+const BUILD_TAG = "2026-11-08d kincs：サイドバーの下の自分の名前・設定（kinbotの設定）・「他メンバーとして見る」を出さない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
