@@ -16371,7 +16371,11 @@ app.get("/api/calls/my-today", async (req, res) => {
     const cadj = Number(((st.contactCountAdjust || {})[`${対象}|${today}`] || {}).delta || 0);
     const 接触実数 = 接触;
     接触 = Math.max(0, 接触 + cadj);
-    res.json({ ok: true, 日: today, コール, 実数, 手直し: adj, 接触, 接触実数, 接触手直し: cadj, アポ, ナーチャ, canEdit: jisshiEditorOk(req), member: 対象 });
+    // 80コールまでは「今日かける」だけ（2026-11-07 田中さん）。数は設定 callGateNeed（0で止める）。管理者・クローザーは鍵なし
+    const stG = await getSettings().catch(() => ({}));
+    const gateNeed = stG.callGateNeed == null ? 80 : Number(stG.callGateNeed) || 0;
+    const gateFree = !!req.isAdmin || (await isCloserUser(対象).catch(() => false));
+    res.json({ ok: true, 日: today, コール, 実数, 手直し: adj, 接触, 接触実数, 接触手直し: cadj, アポ, ナーチャ, canEdit: jisshiEditorOk(req), member: 対象, gateNeed, gateFree });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 今日のコール数を手で直す（田中欽也さんだけ）。body: { member, value }＝出したいコール数。差分を、その人のその日の手直しにする
@@ -28475,7 +28479,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07c kincall：アポ獲得の予定名の種類に「メール（メールで日程調整）」を足した（予定名【初回/メール】、確定メールのお礼はメール用の1行、かけた人のアポとして数える）。";
+const BUILD_TAG = "2026-11-07d kincallのかける画面：今日80コールまでは「今日かける」（と今日の箱）だけ。ほかのリストのタブは鍵（あとnコール）で、80コールで開く（管理者・クローザーは鍵なし）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

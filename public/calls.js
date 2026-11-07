@@ -144,8 +144,12 @@ function clCatLast(cat, v) {
   } catch {}
   return "";
 }
+const _kcGate = { calls: 0, need: 80, bypass: false, ready: false };
+const kcGateLocked = (cat) => _kcGate.ready && !_kcGate.bypass && _kcGate.need > 0 && _kcGate.calls < _kcGate.need && !["today", "box"].includes(cat);
 function renderClPills() {
   const sel = $("clList"), box = $("clPills"); if (!sel || !box) return;
+  // まだ80コールに届いていないのに、ほかのリストを開いていたら「今日かける」に戻す
+  if (kcGateLocked(clCatOf(String(sel.value || ""))) && [...sel.options].some((o) => o.value === "today")) { sel.value = "today"; sel.dispatchEvent(new Event("change")); }
   const cur = String(sel.value || "");
   const curCat = clCatOf(cur);
   const opts = clSortOptions([...sel.options]);
@@ -157,6 +161,7 @@ function renderClPills() {
     const lists = inCat(c.key);
     const single = c.key === "today" || c.key === "nurture" || c.key === "box";
     const badge = single ? cnt(c.key) : `<span class="cl-ccnt">${lists.length}</span>`;
+    if (kcGateLocked(c.key)) return `<button type="button" class="cl-cat locked" data-cat-locked="${c.key}" title="今日 ${_kcGate.need}コールかけると開きます">🔒 ${esc(c.label)}<span class="cl-ccnt">あと${_kcGate.need - _kcGate.calls}</span></button>`;
     return `<button type="button" class="cl-cat${c.key === curCat ? " active" : ""}" data-cat="${c.key}">${esc(c.label)}${badge}</button>`;
   }).join("");
   const showSubs = !["today", "nurture", "box"].includes(curCat);
@@ -1583,6 +1588,8 @@ function renderDock() {
     .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
+    /* 80コールまでは鍵のかかったタブ（2026-11-07） */
+    .cl-cat.locked{opacity:.55;border-style:dashed;cursor:not-allowed;} .cl-cat.locked .cl-ccnt{background:#FFF1DC;color:#7A3F00;}
     /* LINEリストの利用中ATS（トークの上）（2026-11-05） */
     .kc-ats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 4px;padding:10px 12px;border-radius:12px;background:linear-gradient(135deg,#E9F9EE,#F4FCF6);border:1px solid #9FDDB4;}
     .kc-ats .tag{font-size:10.5px;font-weight:800;color:#fff;background:#06C755;border-radius:6px;padding:1px 7px;}
@@ -3757,6 +3764,10 @@ async function loadToday() {
     if (!d.ok) return;
     const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
     set("kcTodayCall", d.コール || 0);
+    // 80コールまでは「今日かける」（と今日の箱）だけ。超えたらほかのリストも開く（2026-11-07 田中さん）
+    { const prev = _kcGate.calls; _kcGate.calls = Number(d.実数 ?? d.コール ?? 0) || 0; _kcGate.bypass = !!d.canEdit || !!d.gateFree; if (d.gateNeed != null) _kcGate.need = Number(d.gateNeed) || 0; _kcGate.ready = true;
+      if (prev < _kcGate.need && _kcGate.calls >= _kcGate.need && !_kcGate.bypass && typeof toast === "function") toast(`🎉 ${_kcGate.need}コール達成！ほかのリストも開けるようになりました`);
+      renderClPills(); }
     // 田中さんだけ：コール数を押して直せる（直しているときは小さく印）
     const cEl = $("kcTodayCall");
     if (cEl) {
@@ -6205,6 +6216,8 @@ if ($("clPills")) $("clPills").addEventListener("click", (e) => {
   if (pinEl) { e.stopPropagation(); const v = pinEl.dataset.pin; const p = clPins(); if (p.has(v)) p.delete(v); else p.add(v); clSavePins(p); renderClPills(); return; }
   if (e.target.closest("[data-done-toggle]")) { const box = $("clPills"); box._showDone = !box._showDone; renderClPills(); return; }
   const pick = (v) => { if (!v) return; clCatLast(clCatOf(v), v); if (sel.value !== v) { sel.value = v; sel.dispatchEvent(new Event("change")); } renderClPills(); };
+  const lk = e.target.closest("[data-cat-locked]");
+  if (lk) { alert(`ほかのリストは、今日 ${_kcGate.need}コールかけると開きます（いま ${_kcGate.calls}コール・あと ${_kcGate.need - _kcGate.calls}）。まずは「今日かける」からかけましょう！`); return; }
   const c = e.target.closest(".cl-cat");
   if (c) {
     const cat = c.dataset.cat;
