@@ -2211,3 +2211,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・流れ：kincall のページ（content kincall.js）が dataset.kcZoomExt=1 を立てる → kincall が window.postMessage({source:'kincall', type:'zoom-autologin', cred:{account, empNo, password}}) → background が chrome.storage.session（メモリだけ）に10分置き、https://zoom.us/google_oauth_signin を新しいタブで開く → google.js（#identifierId にメール→次へ、アカウントの選択ではそのアカウント／別のアカウントを使用）→ okta.js（input[name=identifier]・username・#okta-signin-username に社員番号→次へ、credentials.passcode・password・#okta-signin-password にパスワード→送る）。10分のあいだは、パソコンの Zoom アプリの「Googleでサインイン」が同じ Chrome（プロフィール）で開けば、同じく自動で入る。
   ・kincall：自分のカードに、拡張機能があれば黄緑の「⚡ 自動でサインイン ↗」（kcZoomAutoLogin：/api/zoom-share/password を読んで渡す、社員番号が無ければ止める）、無ければ「拡張機能をダウンロード・入れ方」（chrome://extensions → デベロッパーモード → パッケージ化されていない拡張機能を読み込む）と手動のサインイン。?zsetup=1 で開いたら自動で始める。
   ・手元では本物の Google・Okta の画面で試せていない（ヘッドレスの Chrome に拡張機能が入らない）。画面の作りが違えば google.js・okta.js の選び方を直す。
+
+- 2026-11-07 BUILD_TAG=2026-11-07x 田中さん（準備の画面とアカウントの窓のスクショ）「このページよりも2枚目のページを出してほしい。使うってやったら引き継ぎリンクはコピーされる仕様は変わらず」。使う→ checkout → /api/auth/handoff → クリップボードへ（だめなら execCommand）→ アカウントの窓を開き直す（again）→ 下に kcZsToast「引き継ぎのリンクをコピーしました…」（5秒）。kcZoomSetupOpen（準備の画面）は呼ばない（関数は残す）。版20261107x。

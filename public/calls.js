@@ -1620,6 +1620,7 @@ function renderDock() {
     .zs-extnote{font-size:11.5px;color:#E3F4EC;background:rgba(0,0,0,.16);border-radius:10px;padding:7px 10px;} .zs-extnote a,.zs-linkbtn{color:#fff;font-weight:800;text-decoration:underline;background:none;border:0;font:inherit;font-size:11.5px;cursor:pointer;padding:0;}
     .zs-okta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;background:rgba(0,0,0,.18);border-radius:12px;padding:9px 12px;font-size:12px;color:#fff;} .zs-okta b{flex-basis:100%;font-size:12.5px;} .zs-okta[hidden]{display:none;}
     .zs-signin.pulse{animation:zsPulse 1.6s ease-in-out 4;} @keyframes zsPulse{50%{box-shadow:0 0 0 6px rgba(182,226,92,.7);}}
+    .zs-toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,16px);opacity:0;z-index:9600;max-width:560px;background:#14231D;color:#fff;border-radius:14px;padding:11px 16px;font-size:13px;font-weight:700;box-shadow:0 18px 40px -18px rgba(0,0,0,.6);transition:opacity .3s, transform .35s;} .zs-toast.on{opacity:1;transform:translate(-50%,0);}
     .zsu{padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;} .zsu-step{display:flex;gap:10px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;}
     .zsu-step > i{font-style:normal;flex:none;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#2D8CFF,#1B5FD0);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;}
     .zsu-step > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;} .zsu-step b{font-size:13px;} .zsu-step small{font-size:11.5px;color:#6A7A72;line-height:1.6;}
@@ -12446,7 +12447,17 @@ async function kcZoomShareOpen() {
     } catch (e) { alert(e.message); }
   });
   const post = async (url, body) => { const r = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })).json(); if (r.error) throw new Error(r.error); return r; };
-  bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); bg.remove(); kcZoomSetupOpen(b.dataset.zsTake); } catch (e) { alert(e.message); } }));
+  // 使う：アカウントの窓（この画面）のまま、引き継ぎのリンクを作ってコピーしておく（2026-11-07 田中さん）
+  bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => {
+    try {
+      await post("/api/zoom-share/checkout", { account: b.dataset.zsTake });
+      let url = ""; try { const h = await post("/api/auth/handoff"); url = h.url; } catch {}
+      let ok = false;
+      if (url) { try { await navigator.clipboard.writeText(url); ok = true; } catch { try { const t = document.createElement("textarea"); t.value = url; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select(); ok = document.execCommand("copy"); t.remove(); } catch {} } }
+      again();
+      kcZsToast(ok ? "引き継ぎのリンクをコピーしました。専用のChrome（Zoom共有）のアドレス欄に貼ってください（5分・1回だけ）" : (url ? `引き継ぎのリンク：${url}` : "使うにしました"));
+    } catch (e) { alert(e.message); }
+  }));
   bg.querySelectorAll("[data-zs-rel]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/release"); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-force]").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`${b.dataset.zsForce} を返してもらいます。よろしいですか？`)) return; try { await post("/api/zoom-share/release", { account: b.dataset.zsForce }); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-set]").forEach((b) => b.addEventListener("click", async () => {
@@ -12564,4 +12575,11 @@ async function kcZoomAutoLogin(account, btn) {
     if (!res.ok) throw new Error(res.error || "拡張機能が動きませんでした");
     if (btn) { btn.querySelector("small").textContent = "新しいタブでサインインを進めています。Zoomの画面が出たら完了です（パソコンのZoomアプリでも「Googleでサインイン」を押せば、10分間は同じく自動で入ります）"; }
   } catch (e) { alert(e.message); }
+}
+
+function kcZsToast(msg) {
+  document.querySelectorAll(".zs-toast").forEach((x) => x.remove());
+  const t = document.createElement("div"); t.className = "zs-toast"; t.textContent = "✓ " + msg;
+  document.body.appendChild(t); requestAnimationFrame(() => t.classList.add("on"));
+  setTimeout(() => { t.classList.remove("on"); setTimeout(() => t.remove(), 400); }, 5000);
 }
