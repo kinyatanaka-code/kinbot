@@ -2185,3 +2185,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07k 田中さん（専用のChromeで kincall を開くと Okta（社員番号）のログインが要る）「Oktaのログインが必要だから、そのログイン情報も、いちいちコピーするのも面倒だから、自動で入力されているようにしたい」。Okta の情報は預からず（会社の大事なログインなので）、ログインの引き継ぎを作った：POST /api/auth/handoff（ログイン中の本人、代理ログイン中は不可）→ makeToken('handoff|メール|期限|nonce') のリンク（5分）。GET /auth/handoff（OPEN_PATHS）で確かめ、1回だけ（_handoffUsed）、setSessionCookie して /kincall へ。Zoomアカウントの窓の「Zoom専用のChrome」に「🔑 引き継ぎのリンクを作る」（作るとコピー、Mac・Windows の1行もそのリンクに入れかわる）。Zoom のパスワードは、専用の Chrome の『パスワードを保存』で次から自動で入る（案内）。版20261107k。
 
 - 2026-11-07 BUILD_TAG=2026-11-07l 田中さん「Oktaのログイン情報をここに表示させればいいか。社員番号を見えるように。PWはZoomと一緒」→リスク（会社のアカウント全部に入れる）を伝えて確認したところ「この4人の本人と、会社の情報システムの担当は、Oktaの社員番号とパスワードをほかのメンバーに共有することを了承している」。zoom_shared.emp_enc（社員番号、csEnc）、zoomShareEmp、/api/zoom-share/account に empNo、/api/zoom-share/password が empNo も返す（ログにも）、一覧に hasEmp。窓：自分のカードに「社員番号（Okta）」（見るを押すとパスワードと一緒に出る・コピー）、パスワードの見出しは「Zoom・Okta」、管理者の⚙は 社員番号→パスワード の順に聞く（空なら変えない）、タイルに「社員番号未登録」。版20261107l。
+
+- 2026-11-07 BUILD_TAG=2026-11-07m 田中さん「MACでは使わないから消していいよ」。Zoom専用のChrome の案内から Mac のターミナルの1行を外した（引き継ぎのリンク・Chrome のプロフィール・Windows のショートカットだけ）。版20261107m。

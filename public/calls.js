@@ -12404,7 +12404,7 @@ async function kcZoomShareOpen() {
       <div class="c zs-ho"><b>🔑 ログインしたまま専用のChromeへ（Google・Oktaのログインなし）</b><small>下のボタンで「引き継ぎのリンク」を作り、専用のChromeで開くと、あなたとしてそのままログインできます（5分だけ・1回だけ使えます）。</small>
         <div class="zs-cmd"><button type="button" class="zs-go" data-ho>引き継ぎのリンクを作る</button><code data-ho-url hidden></code><button type="button" class="zs-cp" data-ho-cp hidden>コピー</button></div></div>
       <div class="c"><b>Chromeのプロフィールを足す（おすすめ）</b><small>右上の自分のアイコン →「追加（＋）」→「アカウントなしで続行」→ 名前「Zoom共有」。そのウィンドウで kincall を開いてブックマーク。次からはアイコンで切りかえるだけ。</small></div>
-${/Windows/i.test(navigator.userAgent) ? `      <div class="c"><b>Windowsなら、デスクトップにショートカットを作る</b><small>デスクトップで右クリック →「新規作成」→「ショートカット」→「項目の場所」に下の1行を貼る →「次へ」→ 名前を「kincall（Zoom共有）」にして完了。次からはそのアイコンをダブルクリックするだけで、Zoom専用のChromeでkincallが開きます。（すぐ試すなら、Windowsキー＋R に貼って Enter でも開きます）</small><div class="zs-cmd"><code data-cmd-win>${esc(`"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-win>コピー</button></div></div>      <div class="c"><b>Macなら、ターミナルで1行</b><small>「ターミナル」を開いて、下の1行を貼って Enter。Zoom専用のChromeが別に開きます。</small><div class="zs-cmd"><code data-cmd-mac>${esc(`open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-cmd>コピー</button></div></div>` : `      <div class="c"><b>Macなら、ターミナルで1行</b><small>「ターミナル」を開いて、下の1行を貼って Enter。Zoom専用のChromeが別に開きます。</small><div class="zs-cmd"><code data-cmd-mac>${esc(`open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-cmd>コピー</button></div></div>      <div class="c"><b>Windowsなら、デスクトップにショートカットを作る</b><small>デスクトップで右クリック →「新規作成」→「ショートカット」→「項目の場所」に下の1行を貼る →「次へ」→ 名前を「kincall（Zoom共有）」にして完了。次からはそのアイコンをダブルクリックするだけで、Zoom専用のChromeでkincallが開きます。（すぐ試すなら、Windowsキー＋R に貼って Enter でも開きます）</small><div class="zs-cmd"><code data-cmd-win>${esc(`"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-win>コピー</button></div></div>`}
+      <div class="c"><b>Windowsなら、デスクトップにショートカットを作る</b><small>デスクトップで右クリック →「新規作成」→「ショートカット」→「項目の場所」に下の1行を貼る →「次へ」→ 名前を「kincall（Zoom共有）」にして完了。次からはそのアイコンをダブルクリックするだけで、Zoom専用のChromeでkincallが開きます。（すぐ試すなら、Windowsキー＋R に貼って Enter でも開きます）</small><div class="zs-cmd"><code data-cmd-win>${esc(`"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-win>コピー</button></div></div>
     </details>
     <div class="zs-foot">録音・通話履歴は、使っていた時間の分だけあなたの記録になります。パスワードは使っている本人と管理者だけが見られます。</div>
   </div>`;
@@ -12414,16 +12414,14 @@ ${/Windows/i.test(navigator.userAgent) ? `      <div class="c"><b>Windowsなら�
   bg.querySelector("[data-zs-x]").addEventListener("click", close);
   const copy = async (btn, text) => { try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = "✓"; btn.classList.add("ok"); setTimeout(() => { btn.textContent = t; btn.classList.remove("ok"); }, 1400); } catch { alert("コピーできませんでした"); } };
   bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", () => copy(b, b.dataset.cp)));
-  const cpc = bg.querySelector("[data-cp-cmd]"); if (cpc) cpc.addEventListener("click", () => copy(cpc, bg.querySelector("[data-cmd-mac]").textContent));
   const cpw = bg.querySelector("[data-cp-win]"); if (cpw) cpw.addEventListener("click", () => copy(cpw, bg.querySelector("[data-cmd-win]").textContent));
   const ho = bg.querySelector("[data-ho]"); if (ho) ho.addEventListener("click", async () => {
     try {
       const r = await post("/api/auth/handoff");
       const code = bg.querySelector("[data-ho-url]"), cp = bg.querySelector("[data-ho-cp]");
       code.textContent = r.url; code.hidden = false; cp.hidden = false; cp.onclick = () => copy(cp, r.url); ho.textContent = "作り直す";
-      // Mac・Windows の1行も、このリンクで開くものに入れかえる（そのまま貼れば、ログイン済みで開く）
-      const mac = bg.querySelector("[data-cmd-mac]"), win = bg.querySelector("[data-cmd-win]");
-      if (mac) mac.textContent = `open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${r.url}"`;
+      // Windows の1行も、このリンクで開くものに入れかえる（そのまま貼れば、ログイン済みで開く）
+      const win = bg.querySelector("[data-cmd-win]");
       if (win) win.textContent = `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${r.url}"`;
       copy(cp, r.url);
     } catch (e) { alert(e.message); }
