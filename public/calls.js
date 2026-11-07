@@ -1614,6 +1614,7 @@ function renderDock() {
     .zs-card{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;transition:transform .15s, box-shadow .15s;} .zs-card:hover{transform:translateY(-2px);box-shadow:0 12px 24px -18px rgba(0,0,0,.45);}
     .zs-card.busy{opacity:.6;} .zs-card .nm{flex:1;min-width:0;display:flex;flex-direction:column;} .zs-card .nm b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .zs-card .nm small{font-size:11px;color:#6A7A72;display:flex;align-items:center;gap:4px;}
     .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.wait{background:#8FA39A;animation:fxBlinkZ 1.4s ease-in-out infinite;} @keyframes fxBlinkZ{50%{opacity:.3;}}
+    .zs-ok{margin-left:8px;border:0;border-radius:99px;padding:2px 10px;font:inherit;font-size:11px;font-weight:800;background:#B6E25C;color:#14231D;cursor:pointer;} .zs-ok:hover{filter:brightness(1.05);}
     .zs-tag.ok{background:#B6E25C;color:#14231D;} .zs-tag.wait{background:rgba(255,255,255,.18);color:#FFE7A8;}
     .zs-signin{display:flex;flex-direction:column;gap:2px;text-decoration:none;border-radius:14px;padding:11px 14px;background:#fff;color:#1B5FD0;box-shadow:0 10px 24px -14px rgba(0,0,0,.5);} .zs-signin b{font-size:15px;} .zs-signin small{font-size:11px;color:#4F6158;}
     .zs-signin.auto{border:0;font:inherit;text-align:left;cursor:pointer;background:linear-gradient(135deg,#B6E25C,#8FD14F);color:#14231D;} .zs-signin.auto small{color:#2F4A1A;}
@@ -12406,7 +12407,7 @@ async function kcZoomShareOpen() {
   };
   bg.innerHTML = `<div class="zs">
     <div class="zs-top"><div><span class="zs-k">📞 ZOOM SHARE</span><b>Zoomアカウント</b><small>今日の使用 ${used} / ${d.items.length}</small></div><button type="button" class="zs-x" data-zs-x aria-label="閉じる">✕</button></div>
-    ${mine ? `<div class="zs-mine"><div class="zs-mh"><span class="av big">${esc(ini(mine.account))}</span><div>${mine.confirmed ? `<span class="zs-tag ok">✓ 使用中（Zoomにつながっています）</span>` : `<span class="zs-tag wait">ログイン待ち：Zoomにサインインすると「使用中」になります</span>`}<b>${esc(short(mine.account))}</b></div><button type="button" class="zs-ghost light" data-zs-rel style="margin-left:auto">返す</button>${d.admin ? `<button type="button" class="zs-icon light" title="パスワードを変える" data-zs-set="${esc(mine.account)}">⚙</button>` : ""}</div>
+    ${mine ? `<div class="zs-mine"><div class="zs-mh"><span class="av big">${esc(ini(mine.account))}</span><div>${mine.confirmed ? `<span class="zs-tag ok">✓ 使用中（Zoomにつながっています）</span>` : `<span class="zs-tag wait">ログイン待ち：Zoomにサインインすると「使用中」になります</span><button type="button" class="zs-ok" data-zs-okd>✓ ログインできた</button>`}<b>${esc(short(mine.account))}</b></div><button type="button" class="zs-ghost light" data-zs-rel style="margin-left:auto">返す</button>${d.admin ? `<button type="button" class="zs-icon light" title="パスワードを変える" data-zs-set="${esc(mine.account)}">⚙</button>` : ""}</div>
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
@@ -12482,6 +12483,7 @@ async function kcZoomShareOpen() {
   }
   const auto = bg.querySelector("[data-zs-auto]"); if (auto && mine) auto.addEventListener("click", () => kcZoomAutoLogin(mine.account, auto));
   const how = bg.querySelector("[data-zs-exthow]"); if (how) how.addEventListener("click", () => alert("拡張機能の入れ方（ふだん使うChromeに1回だけ）\n\n1. 「拡張機能をダウンロード」でZIPを保存して、右クリック →「すべて展開」\n2. Chromeで chrome://extensions を開く\n3. 右上の「デベロッパー モード」をオン\n4. 「パッケージ化されていない拡張機能を読み込む」→ 展開したフォルダを選ぶ\n5. kincallを読み込み直すと「⚡ 自動でサインイン」が出ます"));
+  const okd = bg.querySelector("[data-zs-okd]"); if (okd) okd.addEventListener("click", async () => { try { await post("/api/zoom-share/confirm", { manual: true }); again(); } catch (e) { alert(e.message); } });
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
     if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }

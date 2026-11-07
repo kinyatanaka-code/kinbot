@@ -15728,6 +15728,7 @@ app.get("/auth/handoff", (req, res) => {
 //   通話履歴・録音の持ち主（アカウント）は、その時間に借りていた人に読みかえる（だれがかけたかを合わせるため）
 const ZOOM_SHARE_DEFAULT = ["kinya.tanaka@neo-career.co.jp", "ryo.iijima@neo-career.co.jp", "ryo.matsumoto@neo-career.co.jp", "kanna.kuribayashi@neo-career.co.jp", "sotaro.nakamura@neo-career.co.jp"];
 let _zsSeeded = false;
+let _zsHist = { at: 0, list: [] };
 async function zoomShareSeed() { if (_zsSeeded) return; _zsSeeded = true; const cur = await zoomShareList().catch(() => []); if (!cur.length) for (const a of ZOOM_SHARE_DEFAULT) await zoomShareUpsert(a, {}, "初期").catch(() => {}); }
 async function zoomMapOwners(list) {
   if (!Array.isArray(list) || !list.length) return list;
@@ -15753,9 +15754,22 @@ app.get("/api/zoom-share", async (req, res) => {
     let rows = await zoomShareList();
     // 借りたけれどまだ確かめていないアカウントは、Zoomの状態を見る（Offline でなければログインできたとみなす）
     let touched = false;
-    for (const r of rows.filter((x) => x.holder && !x.confirmed_at)) {
+    const waiting = rows.filter((x) => x.holder && !x.confirmed_at);
+    for (const r of waiting) {
       const st = await zoomPresence(r.account).catch(() => null);
-      if (st && !/offline/i.test(st)) { await zoomConfirm(r.account).catch(() => {}); touched = true; }
+      if (st && !/offline/i.test(st)) { await zoomConfirm(r.account).catch(() => {}); touched = true; r._done = true; }
+    }
+    // Zoomの状態が読めないとき（権限なし）は、そのアカウントで借りたあとに電話をかけた記録があるかで確かめる（1分とっておく）（2026-11-07）
+    const still = waiting.filter((r) => !r._done);
+    if (still.length) {
+      if (!_zsHist.at || Date.now() - _zsHist.at > 60 * 1000) {
+        const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+        _zsHist = { at: Date.now(), list: await zoomPhoneCallHistory({ from: today, to: today, max: 300 }).catch(() => []) };
+      }
+      for (const r of still) {
+        const since = Date.parse(r.since || 0) - 60 * 1000;
+        if ((_zsHist.list || []).some((c) => String(c.zoomAccount || c.ownerEmail || "").toLowerCase() === r.account && Date.parse(c.at || 0) >= since)) { await zoomConfirm(r.account).catch(() => {}); touched = true; }
+      }
     }
     if (touched) rows = await zoomShareList();
     const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), m.name || ""]));
@@ -15786,6 +15800,7 @@ app.post("/api/zoom-share/confirm", async (req, res) => {
   try {
     const me = String(req.user || "").toLowerCase(); const acc = await zoomHeldBy(me); if (!acc) return res.json({ ok: true, confirmed: false });
     const b = req.body || {}; const d = (v) => String(v || "").replace(/[^0-9]/g, "");
+    if (b.manual) { await zoomConfirm(acc, me); console.log(`[zoom-share] ${me} が ${acc} のログインを手で確かめました`); return res.json({ ok: true, confirmed: true }); }
     const num = d(await zoomPhoneUserNumber(acc).catch(() => "")); const users = await zoomPhoneUsers().catch(() => ({})); const ext = d((users[acc] || {}).ext);
     const ph = d(b.phone), ex = d(b.ext);
     const hit = (ph && num && ph.slice(-9) === num.slice(-9)) || (ex && ext && ex === ext);
@@ -28602,7 +28617,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07y kincallのZoomサインインの拡張機能1.1：ふだんのChromeで使える（始める前にOkta・ZoomのWebからサインアウト）。拡張機能の無いChromeでは手動のサインインを出さない。";
+const BUILD_TAG = "2026-11-07z kincallのZoomアカウント：ログイン待ちのまま残る対策（Zoomの状態が読めないときは、借りたあとにそのアカウントで電話をかけた記録で使用中にする）と、手で押せる「✓ ログインできた」。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
