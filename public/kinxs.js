@@ -1,5 +1,5 @@
-// kinXs と、そのコピー（kinxs：/kinxs-copy）で同じ画面を使う。ページの移動先はここで切りかえる（2026-11-07）
-const KX_BASE = window.KX_COPY ? "/kinxs-copy" : "/kinxs";
+// kinXs と、そのコピー（kincs：/kincs）で同じ画面を使う。ページの移動先はここで切りかえる（2026-11-07）
+const KX_BASE = window.KX_COPY ? "/kincs" : "/kinxs";
 // kinXs 更新管理（更新月×更新確度）
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

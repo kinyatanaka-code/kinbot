@@ -2243,3 +2243,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07zl 田中さん（履歴の kinbot の記録が kinya.tanaka@neo-career.co.jp・shuto.takahashi@… とメールで出ている）「録音がある場合も架電者をつけて欲しい」。/history：kinbot の記録は 誰メール を残しつつ 誰＝メンバーの名前、SF の活動は説明の『架電した人／記録した人：○○』を 誰 にして説明からその行を外す（SF の持ち主は代わりに書いた人のことがあるため）。自分だけの絞り込みは 誰メール と 誰（名前）で見る。版20261107zl。
 
 - 2026-11-07 BUILD_TAG=2026-11-07zm 田中さん（販売管理向けの納品管理のデモのあと）「kinxsっていう全くのコピーを作って欲しい。kinXsで変更した情報は同じく反映されるように。kinxsの方のロゴのスフィンクスは小さくして欲しい」。GET /kinxs-copy：kinxs.html をその場で読み、title と サイドバーの名前を kinxs、href="/kinxs? を /kinxs-copy? に、スフィンクスのロゴ（.kx-brand img 24px・.kx-top-ico 26px）を小さく、window.KX_COPY=true、あとから作られるリンクも MutationObserver で読みかえ。kinxs.js の先頭に KX_BASE（コピーなら /kinxs-copy）、location.href の移動先は KX_BASE。同じ kinxs.js・同じ API・同じデータなので、kinXs の変更・データがそのまま出る。コピーだけの違いは window.KX_COPY で足せる（納品管理の自動化をここで試す想定）。版20261107zm。
+
+- 2026-11-07 BUILD_TAG=2026-11-07zn 田中さん「kinxs-copyはやめてくれ！kincsにしてくか」。コピーを GET /kincs（題名・サイドバーの名前『kincs』、リンクは /kincs?…、KX_BASE も /kincs）に。/kinxs-copy は 301 で /kincs へ。版20261107zn。

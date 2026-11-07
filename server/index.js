@@ -5824,17 +5824,17 @@ app.get("/kincall", (req, res) => {
 app.get("/kinxs", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "kinxs.html"));
 });
-// kinxs（kinXs のコピー）（2026-11-07 田中さん「kinxsっていう全くのコピーを作ってほしい。kinXsで変更した情報は同じく反映されるように。kinxsの方のロゴのスフィンクスは小さく」）
-//   画面は kinXs と同じもの（kinxs.html・kinxs.js・同じAPI・同じデータ）を、/kinxs-copy で出す。名前を「kinxs」に、スフィンクスのロゴを小さく、
-//   ページの中のリンク（/kinxs?…）は /kinxs-copy?… に読みかえる。kinXs を直せば、こちらにもそのまま反映される。window.KX_COPY=true でコピーだけの違いを足せる
-app.get("/kinxs-copy", (req, res) => {
+// kincs（kinXs のコピー。最初は /kinxs-copy、田中さん「kinxs-copyはやめてくれ！kincsにしてくか」で /kincs に）（2026-11-07 田中さん「kinxsっていう全くのコピーを作ってほしい。kinXsで変更した情報は同じく反映されるように。kinxsの方のロゴのスフィンクスは小さく」）
+//   画面は kinXs と同じもの（kinxs.html・kinxs.js・同じAPI・同じデータ）を、/kincs で出す。名前を「kincs」に、スフィンクスのロゴを小さく、
+//   ページの中のリンク（/kinxs?…）は /kincs?… に読みかえる。kinXs を直せば、こちらにもそのまま反映される。window.KX_COPY=true でコピーだけの違いを足せる
+app.get("/kincs", (req, res) => {
   try {
     let h = fs.readFileSync(path.join(__dirname, "..", "public", "kinxs.html"), "utf8");
-    h = h.replace(/<title>[^<]*<\/title>/, "<title>kinxs</title>")
-      .replace('<span>kinXs</span></a>', '<span>kinxs</span></a>')
-      .replace(/href="\/kinxs\?/g, 'href="/kinxs-copy?')
+    h = h.replace(/<title>[^<]*<\/title>/, "<title>kincs</title>")
+      .replace('<span>kinXs</span></a>', '<span>kincs</span></a>')
+      .replace(/href="\/kinxs\?/g, 'href="/kincs?')
       .replace("</head>", `<style>
-  /* kinxs（コピー）：スフィンクスのロゴを小さく */
+  /* kincs（kinXs のコピー）：スフィンクスのロゴを小さく */
   .kx-brand img{width:24px !important;height:24px !important;border-radius:7px;}
   .kx-top-ico{width:26px !important;height:26px !important;}
   .kx-brand{gap:8px;}
@@ -5842,15 +5842,17 @@ app.get("/kinxs-copy", (req, res) => {
 <script>window.KX_COPY = true;</script>
 </head>`)
       .replace("</body>", `<script>
-// ページの中で作られるリンク（/kinxs?…）を /kinxs-copy?… に読みかえる
-(function(){ const fix = (root) => (root.querySelectorAll ? root.querySelectorAll('a[href^="/kinxs?"], a[href="/kinxs"]') : []).forEach((a) => { a.setAttribute("href", a.getAttribute("href").replace(/^\/kinxs(?=\?|$)/, "/kinxs-copy")); });
+// ページの中で作られるリンク（/kinxs?…）を /kincs?… に読みかえる
+(function(){ const fix = (root) => (root.querySelectorAll ? root.querySelectorAll('a[href^="/kinxs?"], a[href="/kinxs"]') : []).forEach((a) => { a.setAttribute("href", a.getAttribute("href").replace(/^\/kinxs(?=\?|$)/, "/kincs")); });
   fix(document); new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => { if (n.nodeType === 1) { fix(n); if (n.matches && n.matches('a[href^="/kinxs?"]')) fix(n.parentNode || document); } }))).observe(document.documentElement, { childList: true, subtree: true });
   const _a = location.assign.bind(location); })();
 </script>
 </body>`);
     res.type("html").send(h);
-  } catch (e) { res.status(500).send("kinxs を開けませんでした：" + e.message); }
+  } catch (e) { res.status(500).send("kincs を開けませんでした：" + e.message); }
 });
+// 前の名前（/kinxs-copy）は /kincs へ
+app.get("/kinxs-copy", (req, res) => res.redirect(301, "/kincs" + (req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "")));
 
 // 日程調整ページ（お客様が開くURL）
 app.get("/b/:slug", (req, res) => {
@@ -28705,7 +28707,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zm kinxs（kinXsのコピー）を /kinxs-copy に。画面・データはkinXsと同じ（kinXsで変えた情報はそのまま反映）、名前は「kinxs」、スフィンクスのロゴは小さく。";
+const BUILD_TAG = "2026-11-07zn kinXsのコピーの名前とURLを kincs（/kincs）に。前の /kinxs-copy は /kincs へ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
