@@ -11357,7 +11357,7 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       .filter((h) => !h.sf_task_id)   // SFへ残せたものは、SF側から出す
       .map((h) => ({
         logId: h.id, sfTaskId: h.sf_task_id || "",
-        結果: h.result, メモ: h.memo || "", 誰: h.caller || "", at: h.at,
+        結果: h.result, メモ: h.memo || "", 誰: h.caller || "", 誰メール: h.caller || "", at: h.at,
         元: "kinbot", まだ送れていない: true, 直せる: true,
         zoomRecId: h.zoom_rec_id || "",
       }));
@@ -11434,6 +11434,15 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     // 新しい順に並べ直す（日付が空/不正でも壊れないようにする）
     const ts = (v) => { const n = new Date(v || 0).getTime(); return Number.isFinite(n) ? n : 0; };
     uniq.sort((a, b) => ts(b.at) - ts(a.at));
+    // 架電した人：kinbot の記録はメールではなく名前で、SF の活動は説明の「架電した人／記録した人：○○」をその人として出す（持ち主は代わりに書いた人のことがあるため）（2026-11-07）
+    { const nm = new Map((await listMembers().catch(() => [])).map((mm) => [String(mm.email || "").toLowerCase(), String(mm.name || "").trim()]));
+      for (const h of uniq) {
+        if (h.元 === "kinbot") { const e = String(h.誰メール || h.誰 || "").toLowerCase(); if (nm.get(e)) h.誰 = nm.get(e); }
+        else {
+          const mm2 = String(h.メモ || "").match(/(?:架電|記録)した人[:：]\s*([^\n）)]+)/);
+          if (mm2) { h.誰 = mm2[1].trim(); h.メモ = String(h.メモ).replace(/\n?(?:架電|記録)した人[:：][^\n]*/g, "").trim(); }
+        }
+      } }
     // SF の「次にかける日」の予定（kincallから設定）は、やり取りではないので履歴に出さない（2026-11-07 田中さん）
     for (let i = uniq.length - 1; i >= 0; i--) if (/^kincallから設定[（(]/.test(String(uniq[i].メモ || "").trim())) uniq.splice(i, 1);
 
@@ -11443,10 +11452,11 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
       const me = String(req.user || "").toLowerCase();
       const myName = String(await repDisplayName(me).catch(() => "") || "").replace(/[\s　]/g, "");
       const isMine = (h) => {
-        if (h.元 === "kinbot") return String(h.誰 || "").toLowerCase() === me;
+        if (h.元 === "kinbot") return String(h.誰メール || h.誰 || "").toLowerCase() === me;
         const memo = String(h.メモ || "").replace(/[\s　]/g, "");
         const who = String(h.誰 || "").replace(/[\s　]/g, "");
         if (/(記録|架電)した人[:：]/.test(memo)) return !!myName && [`記録した人:${myName}`, `記録した人：${myName}`, `架電した人:${myName}`, `架電した人：${myName}`].some((k) => memo.includes(k));
+        if (myName && who === myName) return true;
         return !!myName && who === myName;
       };
       out = uniq.filter(isMine);
@@ -28668,7 +28678,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zk kincall：これまでのやり取りにSFの次にかける日の予定（kincallから設定）を出さない。SFの活動の「記録した人」を「架電した人」に（Zoom Phoneの通話から作った記録も）。";
+const BUILD_TAG = "2026-11-07zl kincallのこれまでのやり取り：架電した人を名前で出す（kinbotの記録はメールでなく名前、SFの活動は説明の「架電した人」をその人として出し、説明からは外す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
