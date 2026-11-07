@@ -2193,3 +2193,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07o 田中さん（自分のカードの手順のタイル）「このへんもいらない」。.zs-steps（1 サインアウト › 2 サインイン › 3 Zoom電話も）を外した。kincall の中のZoom電話は、電話番号を押してかけるときに開く（そこでサインイン）。版20261107o。
 
 - 2026-11-07 BUILD_TAG=2026-11-07p 田中さん「zoomのログイン、連携が確認できたら使用中にしてほしい」。Smart Embed にはログインの知らせが無いので、2つで確かめる：①GET /api/zoom-share のたびに、借りたが未確認のアカウントの Zoom の状態（zoomphone.zoomPresence＝/users/{email}/presence_status、Offline 以外ならログイン中とみなす。権限が無ければ null で何もしない）②kincall の中のZoom電話の発信・着信の合図（zp-call-ringing/connected）の自分側の phoneNumber・extensionNumber を POST /api/zoom-share/confirm に送り、借りたアカウントの番号（下9桁）か内線と同じなら確かめた印。zoom_checkouts.confirmed_at・zoomConfirm、一覧に confirmed。画面：見出しの使用数は確かめたものだけ、自分のカード『✓ 使用中（Zoomにつながっています）』／『ログイン待ち：Zoomにサインインすると使用中になります』、ほかのタイル『○○さんがログイン中…』（点滅する灰色の点）、ヘッダーのボタン『📞 Zoom：ryo.iijima（ログイン待ち）』→『✓』、未確認のあいだは1分ごとに見直す。※presence の権限（user:read:presence_status）が Zoom のアプリに無いと①は効かない→そのときは②（最初の1本をかけたとき）で使用中になる。版20261107p。
+
+- 2026-11-07 BUILD_TAG=2026-11-07q 田中さん「探すとzoomphoneの表示を入れ替えて欲しい」。📞 Zoom のボタンを #kcTopFind（探す）の右に置く（前は今日の数字の右＝探すの左）。.kc-zs-btn は white-space:nowrap・flex:none。版20261107q。

@@ -1592,7 +1592,7 @@ function renderDock() {
     .kc-zp.min{display:none !important;}
     .zs-steps button.st{border:0;font:inherit;text-align:left;cursor:pointer;} .zs-steps button.st:hover{background:rgba(255,255,255,.22);}
     /* Zoomアカウントの貸し出し（2026-11-07・見た目を作り直し） */
-    .kc-zs-btn{border:1px solid #CFE3D9;background:#fff;border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;margin-left:8px;} .kc-zs-btn:hover{background:#E1F5EE;}
+    .kc-zs-btn{white-space:nowrap;flex:none;border:1px solid #CFE3D9;background:#fff;border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;margin-left:8px;} .kc-zs-btn:hover{background:#E1F5EE;}
     .kc-zs-bg{position:fixed;inset:0;background:rgba(8,24,18,.55);backdrop-filter:blur(3px);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:48px 16px;overflow:auto;}
     .zs{width:100%;max-width:620px;background:#F6F9F7;border-radius:22px;overflow:hidden;box-shadow:0 30px 80px -24px rgba(0,0,0,.6);display:flex;flex-direction:column;}
     .zs-top{display:flex;align-items:center;gap:10px;padding:18px 22px;color:#fff;background:radial-gradient(120% 160% at 100% 0%,#2D8CFF 0%,#1B5FD0 40%,#0B2E6E 100%);}
@@ -12457,7 +12457,9 @@ async function kcZoomShareOpen() {
   const host = document.getElementById("kcToday"); if (!host || document.getElementById("kcZsBtn")) return;
   const b = document.createElement("button"); b.type = "button"; b.id = "kcZsBtn"; b.className = "kc-zs-btn"; b.textContent = "📞 Zoomアカウント";
   b.addEventListener("click", kcZoomShareOpen);
-  host.parentElement.insertBefore(b, host.nextSibling);
+  // 「探す」の右に置く（2026-11-07 田中さん：探すとZoomの表示を入れかえ）
+  const find = document.getElementById("kcTopFind");
+  if (find && find.parentElement) find.parentElement.insertBefore(b, find.nextSibling); else host.parentElement.insertBefore(b, host.nextSibling);
   const refresh = () => fetch("/api/zoom-share").then((r) => r.json()).then((d) => {
     const m = d && d.mine ? (d.items || []).find((x) => x.account === d.mine) : null;
     _kcZsMine = m || null;
