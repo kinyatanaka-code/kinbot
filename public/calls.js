@@ -1597,6 +1597,8 @@ function renderDock() {
     .kc-zs-r .a{flex:1;min-width:220px;display:flex;flex-direction:column;} .kc-zs-r .a small{color:#6A7A72;font-size:11.5px;} .kc-zs-r .b{display:flex;gap:6px;flex-wrap:wrap;}
     .kc-zs-r .pw{flex-basis:100%;display:flex;flex-direction:column;gap:6px;} .kc-zs-r .pw:empty{display:none;} .kc-zs-r .pw > div{display:flex;align-items:center;gap:8px;} .kc-zs-r .pw span{width:72px;font-size:12px;color:#4F6158;} .kc-zs-r .pw code{background:#F1F5F3;border-radius:6px;padding:3px 8px;font-size:13px;}
     .kc-zs-add{display:flex;gap:6px;}
+    .kc-zs-chrome{border:1px solid #E1E9E5;border-radius:12px;padding:8px 12px;background:#FAFCFB;font-size:12px;} .kc-zs-chrome summary{cursor:pointer;font-weight:700;color:#0E6B4E;} .kc-zs-chrome ol{margin:8px 0;padding-left:18px;display:flex;flex-direction:column;gap:8px;} .kc-zs-chrome li small{display:block;color:#6A7A72;font-size:11px;margin-top:2px;line-height:1.6;}
+    .kc-zs-cmd{display:flex;gap:6px;align-items:center;margin-top:4px;} .kc-zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#14231D;color:#D7EFE4;border-radius:6px;padding:5px 8px;font-size:11px;}
     .kc-zs-steps{border-top:1px dashed #DCE6E1;padding-top:8px;margin-top:2px;font-size:12px;} .kc-zs-steps ol{margin:6px 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;} .kc-zs-steps li small,.kc-zs-steps > small{display:block;color:#6A7A72;font-size:11px;margin-top:2px;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -12368,11 +12370,21 @@ async function kcZoomShareOpen() {
     <div class="note">空いているアカウントを「使う」にすると、今日はあなたが使います（その日だけ。夜には自動で返ったあつかい）。ID・パスワードをコピーして、Zoomにログインしてください。</div>
     <div class="kc-zs-list">${d.items.map(row).join("") || '<div class="note">登録されたアカウントがありません</div>'}</div>
     ${d.admin ? `<div class="kc-zs-add"><input class="kc-input" data-zs-new placeholder="アカウントを足す（メールアドレス）" /><button type="button" class="kc-btn" data-zs-add>足す</button></div>` : ""}
+    <details class="kc-zs-chrome"><summary>🧭 自分のZoomで開いてしまうときは「Zoom専用のChrome」で使う</summary>
+      <div class="note">いまのChromeは自分のGoogle・Zoomでログインしているので、借りたアカウントでサインインできません。Zoom専用のChromeを1つ作って、kincallはそちらで開いてください（作るのは最初の1回だけ）。</div>
+      <ol>
+        <li><b>Chromeのプロフィールを足す（おすすめ）</b><small>Chromeの右上の自分のアイコン → 「追加」（＋）→「アカウントなしで続行」→ 名前を「Zoom共有」にして完了。新しく開いたウィンドウで kincall を開き、ブックマークしておく。次からは右上のアイコンで「Zoom共有」に切りかえるだけ。</small></li>
+        <li><b>Macなら、ターミナルから1行で開く</b><small>ターミナルに下の1行を貼って Enter（Zoom専用のChromeが別に開きます）</small>
+          <div class="kc-zs-cmd"><code>${esc(`open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="kc-btn" data-cp-cmd>コピー</button></div></li>
+      </ol>
+      <div class="note">専用のChromeでは、kinbotには自分のGoogleでログインし、Zoom（kincallの中のZoom電話・Zoomのサイト）だけ借りたアカウントでサインインします。</div>
+    </details>
     <div class="note">通話の録音・履歴は、使っていた時間の分だけ、あなたの記録として数えます。パスワードは、使っている本人と田中さん・管理者だけが見られます。</div></div>`;
   document.body.appendChild(bg);
   const close = () => bg.remove(); const again = () => { close(); kcZoomShareOpen(); };
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   bg.querySelector("[data-zs-x]").addEventListener("click", close);
+  const cpc = bg.querySelector("[data-cp-cmd]"); if (cpc) cpc.addEventListener("click", async () => { try { await navigator.clipboard.writeText(bg.querySelector(".kc-zs-cmd code").textContent); cpc.textContent = "コピーしました"; } catch { alert("コピーできませんでした"); } });
   const post = async (url, body) => { const r = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })).json(); if (r.error) throw new Error(r.error); return r; };
   bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-rel]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/release"); again(); } catch (e) { alert(e.message); } }));

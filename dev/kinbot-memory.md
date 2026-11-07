@@ -2176,3 +2176,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・Zoom へ自動でログインはしない（Zoom の API にパスワードでのログインは無い）。人が ID・パスワードを貼ってログインする。
 
 - 2026-11-07 BUILD_TAG=2026-11-07g 田中さん（Zoomを開くと、いまログインしているGoogle・Zoomのアカウントで開いてしまい、ほかの人でログインできない）「その仕様に対応してほしい」。Zoomアカウントの窓の ID・パスワードの下を「ログインのしかた」に：① https://zoom.us/logout（いまのZoomからサインアウト）② https://zoom.us/signin#/login（Googleでサインインではなく ID とパスワード）③ kincall の中のZoom電話もサインアウト→サインインし直す。サインアウトしたくなければシークレットウィンドウか別の Chrome プロフィールで kincall を開く案内。Zoom のアカウントが Google でのサインイン（パスワードなし）だと借りて使えない点は田中さんに確認中。版20261107g。
+
+- 2026-11-07 BUILD_TAG=2026-11-07h 田中さん「別のChromeをログインするようにしたい。そうしないと今ログインしているChromeでサインインされてしまう」。Web ページからは別の Chrome のプロフィールやシークレットウィンドウを開けないので、Zoomアカウントの窓に「🧭 Zoom専用のChromeで使う」（開閉）：①Chrome のプロフィールを足す手順（アカウントなしで続行・名前 Zoom共有・kincall をブックマーク）②Mac のターミナル用の1行 open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "<origin>/kincall"（コピーのボタン）。専用の Chrome では kinbot は自分の Google、Zoom だけ借りたアカウント。版20261107h。
