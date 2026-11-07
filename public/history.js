@@ -950,6 +950,11 @@ function renderList() {
       sub.querySelector(".acard-phase").textContent = stLabel;
       sub.querySelector(".acard-last").textContent = ` ・ 最終 ${fmtDate(last.created_at)}`;
       sfCards.push({ nk, company: acctName(repKey), el: card });
+      // 案件共有（2026-11-08 田中さん）：カードの右上の 🤝 で、案件共有_申請フォームの下書き
+      { const cs = document.createElement("span"); cs.className = "acard-cshare"; cs.setAttribute("role", "button"); cs.tabIndex = 0; cs.title = "案件共有（社内の案件共有_申請フォーム）"; cs.textContent = "🤝 案件共有";
+        const go = (ev) => { ev.stopPropagation(); ev.preventDefault(); if (window.kbCaseShare) window.kbCaseShare({ company: acctName(repKey), person: last.client_name || "", email: last.client_email || "" }); };
+        cs.addEventListener("click", go); cs.addEventListener("keydown", (ev) => { if (ev.key === "Enter") go(ev); });
+        card.appendChild(cs); }
       if (histSelectMode) {
         const checked = histSelected.has(nk);
         card.classList.add("selectable");

@@ -23,6 +23,8 @@ const homeItems = {}; // カードの中身（スマホのシート表示用）
 
 // 行の操作に使う小さなアイコン。名前は吹き出しで出す。
 const HOME_ICONS = {
+  // 案件共有（2つの吹き出し＝人から人へ渡す）
+  cshare: "M4 5h10a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-3 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zm16 4h-2v5a4 4 0 0 1-4 4h-2.5l1.6 1.6H17l3 2.4v-2.4h0a2 2 0 0 0 2-2V11a2 2 0 0 0-2-2z",
   undo: "M9 14l-4-4 4-4M5 10h8a4 4 0 0 1 0 8h-3",
   rec:  "M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zm7 9a7 7 0 0 1-6 6.9V22h-2v-3.1A7 7 0 0 1 5 12h2a5 5 0 0 0 10 0z",
   sf:   "M10.3 7.2a3.1 3.1 0 0 1 5.2.9 2.6 2.6 0 0 1 1.1-.2 2.7 2.7 0 0 1 2.6 2.2 2.5 2.5 0 0 1 1.8 2.4 2.6 2.6 0 0 1-2.6 2.6H7.6a3.8 3.8 0 0 1-3.8-3.8 3.8 3.8 0 0 1 3.8-3.8c.4 0 .9.1 1.3.3a3.1 3.1 0 0 1 1.4-.6z",
@@ -61,6 +63,7 @@ const HOME_ICON_NAMES = {
   tplin: "型を入れる", tpluse: "この型で作る", tplsave: "型を保存", tpledit: "型を直す", tpldel: "型を消す", tplshare: "みんなへ",
   owner: "担当",
   aidemo: "AIデモ",
+  cshare: "案件共有",
 };
 
 function hIcon(kind, label, attrs = "", state = "", tag = "button") {
@@ -520,12 +523,8 @@ function render() {
         : (linkedOpp
             ? hIcon("sf", "SFを更新（ひも付け済み）", `data-sfedit="${escH(key)}"`, "done")
             : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done"))) +
-      (m && m.bot_id
-        ? hIcon("mail",
-            mailSentMap[m.bot_id] ? `御礼メール（送信済み：${mailSentMap[m.bot_id]}）` : "御礼メール",
-            `data-mail="${escH(m.bot_id)}" data-key="${escH(key)}"`,
-            mailSentMap[m.bot_id] ? "done" : "need")
-        : hIcon("mail", "御礼メール（商談の記録がまだありません）", `data-mail-none="${escH(key)}"`, "done")) +
+      // メールのアイコンは「案件共有」に変えた（2026-11-08 田中さん）。押すと案件共有_申請フォームの下書きが開く
+      hIcon("cshare", "案件共有（社内の案件共有_申請フォーム）", `data-cshare="${escH(key)}" data-cs-company="${escH(company || "")}" data-cs-person="${escH((m && m.client_name) || (e && e.clientName) || "")}" data-cs-email="${escH((e && e.clientEmail) || (m && m.client_email) || "")}"`, "done") +
       hIcon("aidemo", aidemoByKey[fnorm(company)] ? "AIデモ（作成済み・URLを見る）" : "AIデモを作る", `data-aidemo="${escH(key)}"`, aidemoByKey[fnorm(company)] ? "done" : "need") +
       // 「その他」にカーソルを合わせると、担当変更と開くが出てくる
       `<span class="hl-moregrp">${hIcon("more", "担当変更・開く", `data-more-toggle="${escH(key)}"`, "")}` +
@@ -1945,6 +1944,8 @@ function wireListBox(box) {
     if (more) { openCardSheet(more.dataset.sheetOpen); return; }
     const rec = ev.target.closest("[data-rec]");
     if (rec) { startRecording(rec.dataset.rec); return; }
+    const csh = ev.target.closest("[data-cshare]");
+    if (csh) { if (window.kbCaseShare) window.kbCaseShare({ company: csh.dataset.csCompany, person: csh.dataset.csPerson, email: csh.dataset.csEmail }); return; }
     const mail = ev.target.closest("[data-mail]");
     if (mail) { openMail(mail.dataset.mail, mail.dataset.key); return; }
     // 商談の記録が無いと文面を作れないので、その理由を出す
