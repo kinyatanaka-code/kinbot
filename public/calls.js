@@ -1498,7 +1498,7 @@ async function renderHistoryInto(box, id) {
         ? items.map((h, i) => `
             <div class="kc-hist-row" data-hi="${i}"
                  data-task="${esc(h.taskId || "")}" data-log="${esc(h.logId || "")}"
-                 data-result="${esc(h["結果"] || "")}" data-memo="${esc(h["メモ"] || "")}">
+                 data-result="${esc(h["結果"] || "")}" data-memo="${esc(h["メモ"] || "")}" data-at="${esc(h.at || "")}" data-rec="${esc(h.zoomRecId || "")}">
               <div class="kc-hist-top">
                 <span class="kc-hist-at">${esc(h["日付のみ"] ? String(when(h.at)).replace(/\s*\d{1,2}:\d{2}$/, "") : when(h.at))}</span>
                 <span class="kc-hist-r">${esc(h["件名"] || h["結果"] || "")}</span>
@@ -2645,7 +2645,7 @@ async function openTarget(id, draft, opt) {
       const row = editBtn.closest(".kc-hist-row");
       const cur = row.getAttribute("data-result") || "";
       const memo = row.getAttribute("data-memo") || "";
-      row._ctx = { taskId: row.getAttribute("data-task") || "", logId: row.getAttribute("data-log") || "" };
+      row._ctx = { taskId: row.getAttribute("data-task") || "", logId: row.getAttribute("data-log") || "", at: row.getAttribute("data-at") || "", recId: row.getAttribute("data-rec") || "" };
       row.innerHTML = `
         <div class="kc-lb">結果</div>
         <select class="kc-input kc-he-result">
@@ -2654,6 +2654,7 @@ async function openTarget(id, draft, opt) {
         </select>
         <div class="kc-lb">メモ</div>
         <textarea class="kc-input kc-he-memo" rows="3">${esc(memo)}</textarea>
+        <div><button type="button" class="kc-zsum-x kc-he-rec">🎧 この時の録音を取り込み直す</button> <span class="note kc-he-recst"></span></div>
         <div class="kc-modal-foot">
           <button type="button" class="btn kc-he-save">直す</button>
           <button type="button" class="btn ghost kc-he-cancel">やめる</button>
@@ -2663,6 +2664,28 @@ async function openTarget(id, draft, opt) {
     }
 
     if (tt.closest(".kc-he-cancel")) { renderHistoryInto(histBox, id); return; }
+
+    // この時の録音を取り込み直す：その記録の録音（無ければ同じ日時の通話の録音）を要約し直して、メモの要約の部分を入れかえる（2026-11-07）
+    const recBtn = tt.closest(".kc-he-rec");
+    if (recBtn) {
+      const row = recBtn.closest(".kc-hist-row"); const ctx = (row && row._ctx) || {};
+      const st = row.querySelector(".kc-he-recst"), ta = row.querySelector(".kc-he-memo");
+      recBtn.disabled = true; if (st) st.textContent = "録音を探して、要約し直しています…（30秒ほど）";
+      try {
+        const r = await fetch(`/api/calls/targets/${encodeURIComponent(id)}/history/resummary`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ logId: ctx.logId || "", recId: ctx.recId || "", at: ctx.at || "" }) });
+        const d = await r.json(); if (!r.ok || d.error) throw new Error(d.error || "取り込めませんでした");
+        // 前の要約（見出しつき・見出しなしの「・相手／要点／反応／次回／会話なし」の行）を外して、新しい要約を足す
+        let body = String(ta.value || "");
+        const hi = body.indexOf("【通話録音の要約】"); if (hi >= 0) body = body.slice(0, hi);
+        body = body.split("\n").filter((l) => !/^\s*・?\s*(相手|要点|反応|次回)\s*[:：]|^\s*・?\s*会話なし/.test(l)).join("\n").trim();
+        const sum = String(d.summary || "").trim();
+        const none = !sum || (/^・?\s*会話なし/.test(sum) && sum.split("\n").filter((l) => l.trim()).length <= 1);
+        ta.value = none ? body : (body ? `${body}\n${sum}` : sum);
+        if (st) st.textContent = none ? `${d.when || ""}の通話は、会話がありませんでした（要約は入れていません）。「直す」で保存してください。` : `${d.when || ""}の通話の録音から入れました。確かめて「直す」で保存してください。`;
+      } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
+      recBtn.disabled = false;
+      return;
+    }
 
     const saveBtn = tt.closest(".kc-he-save");
     if (saveBtn) {

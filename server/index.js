@@ -16021,6 +16021,28 @@ app.get("/api/calls/apo-recordings", async (req, res) => {
 });
 
 // 記録の窓から呼ぶ：この相手の、架電後の録音の要約を返す（?since=ISO 以降の通話。無ければ直近30分）
+// 履歴の「直す」：その時の録音を取り込み直す（その記録の録音、無ければ同じ電話番号で記録の前後30分の通話の録音）（2026-11-07）
+app.post("/api/calls/targets/:id/history/resummary", async (req, res) => {
+  try {
+    if (!zoomPhoneConfigured()) return res.status(400).json({ error: "Zoom Phone につながっていません" });
+    const t = await getCallTarget(parseInt(req.params.id, 10)); if (!t) return res.status(404).json({ error: "リードが見つかりません" });
+    const b = req.body || {}; const at = Date.parse(b.at || ""); const recId = String(b.recId || "");
+    const base = isFinite(at) ? new Date(at + 9 * 3600000) : new Date(Date.now() + 9 * 3600000);
+    const from = new Date(base.getTime() - 86400000).toISOString().slice(0, 10), to = new Date(base.getTime() + 86400000).toISOString().slice(0, 10);
+    const recs = await zoomPhoneRecordings({ from, to, max: 1000 }).catch(() => []);
+    let r = recId ? recs.find((x) => x.id === recId) : null;
+    if (!r) {
+      const nums = [t.phone, t.mobile, t.phone2].map((v) => zoomLast9(v)).filter((v) => v.length >= 6);
+      r = recs.filter((x) => nums.includes(zoomLast9(x.number)) && x.at && (!isFinite(at) || Math.abs(Date.parse(x.at) - at) < 30 * 60000) && (x.downloadUrl || x.transcriptUrl))
+        .sort((a, b2) => (isFinite(at) ? Math.abs(Date.parse(a.at) - at) - Math.abs(Date.parse(b2.at) - at) : Date.parse(b2.at) - Date.parse(a.at)))[0] || null;
+    }
+    if (!r) return res.status(404).json({ error: "その時の録音が見つかりませんでした（Zoomの録音は30日まで・録音していない通話もあります）" });
+    const o = await summarizeZoomRec(r, []).catch((e) => ({ summary: "", error: e.message }));
+    if (o.summary) await saveZoomRecSummary({ recId: r.id, targetId: t.id, at: r.at, duration: r.duration, summary: o.summary, downloadUrl: r.downloadUrl }).catch(() => {});
+    const d = new Date(Date.parse(r.at) + 9 * 3600000);
+    res.json({ ok: true, recId: r.id, summary: cleanCallSummary(o.summary || ""), when: `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
   try {
     if (!zoomPhoneConfigured()) return res.json({ ok: true, none: true, reason: "Zoom未設定" });
@@ -28628,7 +28650,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07ze 通話の要約：返事が途中で切れないように（考える量0・文字の枠2048）、JSONのかけらを消す、中身の無いとっておいた要約は作り直す。";
+const BUILD_TAG = "2026-11-07zf kincallの履歴の「直す」に「🎧 この時の録音を取り込み直す」（その記録の録音、無ければ同じ電話番号で前後30分の通話の録音を要約し直して、メモの要約を入れかえる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
