@@ -2316,8 +2316,15 @@ export function cleanCallSummary(v) {
       };
       walk(j);
       s = lines.join("\n");
-    } catch {}
+    } catch {
+      // 途中で切れたJSON（{"summary":"・相手：… のように閉じていない）でも、summary の中身だけを取り出す（2026-11-07）
+      const m = s.match(/"summary"\s*:\s*"((?:[^"\\]|\\.)*)/);
+      if (m) { let t = m[1]; try { t = JSON.parse(`"${t}"`); } catch { t = t.replace(/\\n/g, "\n").replace(/\\"/g, '"'); } s = t; }
+      else s = s.replace(/^[\[{]\s*/, "").replace(/[\]}]\s*$/, "");
+    }
   }
+  // 「・相手：…・要点：…」と1行につながっていたら、項目ごとに改行する
+  s = s.replace(/\s*[・･]\s*(?=(相手|要点|反応|次回|会話なし)\s*[:：（(]?)/g, "\n・").trim();
   return s.split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => (/^[・\-•]/.test(l) ? l.replace(/^[\-•]\s*/, "・") : "・" + l)).join("\n");
 }
 export async function summarizeCallRecording({ buf = null, mimeType = "audio/mpeg", transcriptText = "", options = [] } = {}) {

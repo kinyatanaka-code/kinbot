@@ -28628,7 +28628,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zc Zoomの通話履歴：新しい形（caller_email・callee_email・caller_ext_id・caller_did_number）からもアカウントを読む。借りたアカウントで1本かけたら使用中になるように（メール・ID・発信元の番号で照らす）。";
+const BUILD_TAG = "2026-11-07zd kincallの記録の窓：通話の要約に「【通話録音の要約】」の見出しを付けない、{\"summary\": のような文字が混ざらない（途中で切れたJSONも中身だけ取り出す）、1行につながった項目は行に分ける、会話なしは説明に入れない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

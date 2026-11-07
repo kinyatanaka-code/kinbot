@@ -2837,7 +2837,7 @@ async function openTarget(id, draft, opt) {
           absentRank,
           memo: m.el.querySelector("#kcMemo").value,
           // 説明に入れたZoom録音の要約（使用済みにして、後から二重に入らないようにする）
-          zoomRecId: (m._zoomRecId && /【通話録音の要約】/.test(m.el.querySelector("#kcMemo").value)) ? m._zoomRecId : "",
+          zoomRecId: (m._zoomRecId && ((m._zsumText && m.el.querySelector("#kcMemo").value.includes(m._zsumText)) || /【通話録音の要約】/.test(m.el.querySelector("#kcMemo").value) || !m._zsumText)) ? m._zoomRecId : "",
           status: m.el.querySelector("#kcStatus").value,
           // Salesforceのリードの状態も、この値で書き換える
           leadStatus: m.el.querySelector("#kcStatus").value,
@@ -3265,11 +3265,19 @@ function wireZoomSummary(m, id) {
   const LATEST = ' <button type="button" class="kc-zsum-x" data-zlatest="1">🎧 最新の録音を取り込む</button>';
   const show = (html, withLatest = true) => { box.hidden = false; box.innerHTML = html + (withLatest ? LATEST : ""); };
   const hm = (v) => { const d = new Date(v); return isNaN(d) ? "" : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
-  const removeBlock = () => { const i = memo.value.indexOf(MARK); if (i >= 0) memo.value = memo.value.slice(0, i).trim(); };
+  // 見出し（【通話録音の要約】）は付けない。入れた要約は m._zsumText で覚えて、差しかえ・消すときに使う（2026-11-07）
+  const removeBlock = () => { const tx = m._zsumText || ""; if (tx && memo.value.includes(tx)) memo.value = memo.value.replace(tx, "").replace(/\n{2,}$/, "").trim(); const i = memo.value.indexOf(MARK); if (i >= 0) memo.value = memo.value.slice(0, i).trim(); m._zsumText = ""; };
   const put = (d, force) => {
-    if (memo.value.includes(MARK)) { if (!force) return; removeBlock(); }
-    const block = `${MARK}\n${String(d.summary || "").trim()}`;
-    memo.value = memo.value.trim() ? `${memo.value.trim()}\n\n${block}` : block;
+    if (m._zsumText && memo.value.includes(m._zsumText)) { if (!force) return; removeBlock(); }
+    const sum = String(d.summary || "").trim();
+    // 会話が無かった（留守電・不在など）ときは、説明には入れない
+    if (/^・?\s*会話なし/.test(sum) && sum.split("\n").filter((l) => l.trim()).length <= 1) {
+      m._zoomRecId = d.recId || "";
+      show(`<span class="kc-zsum-ok">Zoom録音（${esc(hm(d.at))}の通話）は、会話がありませんでした（留守電・不在など）。結果を選んで記録してください。</span>`, true);
+      return;
+    }
+    memo.value = memo.value.trim() ? `${memo.value.trim()}\n${sum}` : sum;
+    m._zsumText = sum;
     m._zoomRecId = d.recId || "";
     // 結果のプルダウンも、まだ選んでいなければ要約から自動で選ぶ（あとから変えられる）
     let picked = "";
