@@ -1588,18 +1588,36 @@ function renderDock() {
     .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
-    /* Zoomアカウントの貸し出し（2026-11-07） */
+    /* Zoomアカウントの貸し出し（2026-11-07・見た目を作り直し） */
     .kc-zs-btn{border:1px solid #CFE3D9;background:#fff;border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;margin-left:8px;} .kc-zs-btn:hover{background:#E1F5EE;}
-    .kc-zs-bg{position:fixed;inset:0;background:rgba(10,30,22,.4);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow:auto;}
-    .kc-zs{background:#fff;border-radius:16px;max-width:640px;width:100%;padding:16px 18px;box-shadow:0 24px 60px -20px rgba(0,0,0,.5);display:flex;flex-direction:column;gap:10px;}
-    .kc-zs-h{display:flex;align-items:center;gap:8px;} .kc-zs-h b{font-size:15px;}
-    .kc-zs-r{border:1px solid #E1E9E5;border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;} .kc-zs-r.mine{border-color:#1D9E75;background:#F2FBF7;} .kc-zs-r.busy{opacity:.7;}
-    .kc-zs-r .a{flex:1;min-width:220px;display:flex;flex-direction:column;} .kc-zs-r .a small{color:#6A7A72;font-size:11.5px;} .kc-zs-r .b{display:flex;gap:6px;flex-wrap:wrap;}
-    .kc-zs-r .pw{flex-basis:100%;display:flex;flex-direction:column;gap:6px;} .kc-zs-r .pw:empty{display:none;} .kc-zs-r .pw > div{display:flex;align-items:center;gap:8px;} .kc-zs-r .pw span{width:72px;font-size:12px;color:#4F6158;} .kc-zs-r .pw code{background:#F1F5F3;border-radius:6px;padding:3px 8px;font-size:13px;}
-    .kc-zs-add{display:flex;gap:6px;}
-    .kc-zs-chrome{border:1px solid #E1E9E5;border-radius:12px;padding:8px 12px;background:#FAFCFB;font-size:12px;} .kc-zs-chrome summary{cursor:pointer;font-weight:700;color:#0E6B4E;} .kc-zs-chrome ol{margin:8px 0;padding-left:18px;display:flex;flex-direction:column;gap:8px;} .kc-zs-chrome li small{display:block;color:#6A7A72;font-size:11px;margin-top:2px;line-height:1.6;}
-    .kc-zs-cmd{display:flex;gap:6px;align-items:center;margin-top:4px;} .kc-zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#14231D;color:#D7EFE4;border-radius:6px;padding:5px 8px;font-size:11px;}
-    .kc-zs-steps{border-top:1px dashed #DCE6E1;padding-top:8px;margin-top:2px;font-size:12px;} .kc-zs-steps ol{margin:6px 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;} .kc-zs-steps li small,.kc-zs-steps > small{display:block;color:#6A7A72;font-size:11px;margin-top:2px;}
+    .kc-zs-bg{position:fixed;inset:0;background:rgba(8,24,18,.55);backdrop-filter:blur(3px);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:48px 16px;overflow:auto;}
+    .zs{width:100%;max-width:620px;background:#F6F9F7;border-radius:22px;overflow:hidden;box-shadow:0 30px 80px -24px rgba(0,0,0,.6);display:flex;flex-direction:column;}
+    .zs-top{display:flex;align-items:center;gap:10px;padding:18px 22px;color:#fff;background:radial-gradient(120% 160% at 100% 0%,#2D8CFF 0%,#1B5FD0 40%,#0B2E6E 100%);}
+    .zs-top > div{display:flex;flex-direction:column;gap:2px;} .zs-k{font-size:10.5px;font-weight:800;letter-spacing:.14em;color:#A9CBFF;} .zs-top b{font-size:19px;} .zs-top small{font-size:12px;color:#CFE0FF;}
+    .zs-x{margin-left:auto;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.14);color:#fff;font-size:15px;cursor:pointer;} .zs-x:hover{background:rgba(255,255,255,.25);}
+    .zs-mine{margin:16px 18px 6px;border-radius:18px;padding:14px 16px;color:#fff;background:linear-gradient(135deg,#1AA884,#0F6E62);box-shadow:0 16px 34px -18px rgba(15,110,98,.9);display:flex;flex-direction:column;gap:12px;}
+    .zs-mh{display:flex;align-items:center;gap:10px;} .zs-mh b{display:block;font-size:18px;} .zs-tag{font-size:10.5px;font-weight:800;background:rgba(255,255,255,.18);border-radius:99px;padding:2px 8px;}
+    .av{width:34px;height:34px;border-radius:12px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;color:#1B5FD0;background:#E3EEFF;} .av.big{width:44px;height:44px;border-radius:14px;font-size:15px;color:#0F6E62;background:#fff;}
+    .zs-cred{display:flex;flex-direction:column;gap:6px;background:rgba(0,0,0,.16);border-radius:12px;padding:10px 12px;}
+    .zs-cred .f{display:flex;align-items:center;gap:8px;} .zs-cred span{width:68px;font-size:11.5px;color:#CFEDE2;} .zs-cred code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#fff;font-family:ui-monospace,Menlo,monospace;}
+    .zs-cp{border:0;border-radius:8px;padding:5px 10px;font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;background:rgba(255,255,255,.18);color:#fff;} .zs-cp:hover{background:rgba(255,255,255,.3);} .zs-cp.ok{background:#B6E25C;color:#14231D;}
+    .zs-steps{display:flex;align-items:stretch;gap:6px;} .zs-steps .ar{align-self:center;opacity:.6;font-weight:800;}
+    .zs-steps .st{flex:1;display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.12);color:#fff;text-decoration:none;} .zs-steps a.st:hover{background:rgba(255,255,255,.22);}
+    .zs-steps .st.hot{background:#fff;color:#0F6E62;} .zs-steps .st i{font-style:normal;width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.25);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;} .zs-steps .st.hot i{background:#0F6E62;color:#fff;}
+    .zs-steps .st b{font-size:12.5px;} .zs-steps .st small{font-size:10.5px;opacity:.85;}
+    .zs-hint{margin:14px 18px 0;padding:10px 12px;border-radius:12px;background:#fff;border:1px dashed #C9D8D1;font-size:12px;color:#4F6158;}
+    .zs-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px 18px;} @media (max-width:560px){ .zs-grid{grid-template-columns:1fr;} .zs-steps{flex-direction:column;} .zs-steps .ar{display:none;} }
+    .zs-card{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;transition:transform .15s, box-shadow .15s;} .zs-card:hover{transform:translateY(-2px);box-shadow:0 12px 24px -18px rgba(0,0,0,.45);}
+    .zs-card.busy{opacity:.6;} .zs-card .nm{flex:1;min-width:0;display:flex;flex-direction:column;} .zs-card .nm b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .zs-card .nm small{font-size:11px;color:#6A7A72;display:flex;align-items:center;gap:4px;}
+    .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.free{background:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.18);} .dot.busy{background:#E0A100;}
+    .zs-go{border:0;border-radius:10px;padding:7px 14px;font:inherit;font-size:12.5px;font-weight:800;color:#fff;background:linear-gradient(135deg,#2D8CFF,#1B5FD0);cursor:pointer;box-shadow:0 6px 14px -8px rgba(27,95,208,.9);} .zs-go:hover{filter:brightness(1.08);}
+    .zs-ghost{white-space:nowrap;border:1px solid #D5E0DA;background:#fff;border-radius:10px;padding:6px 10px;font:inherit;font-size:11.5px;font-weight:700;color:#4F6158;cursor:pointer;} .zs-ghost.light{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3);color:#fff;}
+    .zs-icon{border:0;background:#F1F5F3;width:30px;height:30px;border-radius:9px;cursor:pointer;color:#6A7A72;} .zs-icon.light{background:rgba(255,255,255,.14);color:#fff;}
+    .zs-add{display:flex;gap:6px;padding:0 18px 10px;} .zs-add input{flex:1;border:1px solid #D5E0DA;border-radius:10px;padding:7px 10px;font:inherit;font-size:12.5px;}
+    .zs-chrome{margin:0 18px 10px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:9px 12px;font-size:12px;} .zs-chrome summary{cursor:pointer;font-weight:800;color:#1B5FD0;}
+    .zs-chrome .c{margin-top:8px;display:flex;flex-direction:column;gap:3px;} .zs-chrome .c small{color:#6A7A72;line-height:1.6;}
+    .zs-cmd{display:flex;gap:6px;align-items:center;} .zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd .zs-cp{background:#1B5FD0;}
+    .zs-foot{padding:10px 18px 16px;font-size:11px;color:#8FA39A;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
     /* 80コールまでは鍵のかかったタブ（2026-11-07） */
@@ -12360,49 +12378,52 @@ async function kcZoomShareOpen() {
   let d; try { d = await (await fetch("/api/zoom-share")).json(); if (d.error) throw new Error(d.error); } catch (e) { alert(e.message); return; }
   document.querySelectorAll(".kc-zs-bg").forEach((x) => x.remove());
   const bg = document.createElement("div"); bg.className = "kc-zs-bg";
-  const row = (x) => {
-    const mine = d.mine === x.account, busy = x.holder && !mine;
-    return `<div class="kc-zs-r${mine ? " mine" : ""}${busy ? " busy" : ""}"><div class="a"><b>${esc(x.account)}</b><small>${mine ? "あなたが使用中" : busy ? `${esc(x.holderName)}さんが使用中` : "空いています"}${x.hasPass ? "" : "・パスワード未登録"}</small></div>
-      <div class="b">${mine ? `<button type="button" class="kc-btn" data-zs-pw="${esc(x.account)}">ID・パスワードを見る</button><button type="button" class="kc-btn" data-zs-rel>返す</button>` : busy ? (d.admin ? `<button type="button" class="kc-btn" data-zs-force="${esc(x.account)}">返してもらう</button>` : "") : `<button type="button" class="kc-btn primary" data-zs-take="${esc(x.account)}">このアカウントを使う</button>`}
-      ${d.admin ? `<button type="button" class="kc-btn" data-zs-set="${esc(x.account)}">${x.hasPass ? "パスワードを変える" : "パスワードを登録"}</button>` : ""}</div><div class="pw" data-zs-pwbox="${esc(x.account)}"></div></div>`;
+  const short = (a) => String(a).split("@")[0];
+  const ini = (a) => short(a).split(/[._-]/).map((s) => s.slice(0, 1).toUpperCase()).join("").slice(0, 2);
+  const used = d.items.filter((x) => x.holder).length;
+  const mine = d.items.find((x) => x.account === d.mine);
+  const card = (x) => {
+    const busy = x.holder && x.account !== d.mine;
+    return `<div class="zs-card${busy ? " busy" : ""}"><span class="av">${esc(ini(x.account))}</span><div class="nm"><b>${esc(short(x.account))}</b><small>${busy ? `<i class="dot busy"></i>${esc(x.holderName)}さんが使用中` : `<i class="dot free"></i>空いています`}${x.hasPass ? "" : "・PW未登録"}</small></div>
+      ${busy ? (d.admin ? `<button type="button" class="zs-ghost" data-zs-force="${esc(x.account)}">返してもらう</button>` : "") : `<button type="button" class="zs-go" data-zs-take="${esc(x.account)}">使う</button>`}
+      ${d.admin ? `<button type="button" class="zs-icon" title="${x.hasPass ? "パスワードを変える" : "パスワードを登録"}" data-zs-set="${esc(x.account)}">⚙</button>` : ""}</div>`;
   };
-  bg.innerHTML = `<div class="kc-zs"><div class="kc-zs-h"><b>Zoomアカウント（共有）</b><button type="button" class="kc-btn" data-zs-x style="margin-left:auto">閉じる</button></div>
-    <div class="note">空いているアカウントを「使う」にすると、今日はあなたが使います（その日だけ。夜には自動で返ったあつかい）。ID・パスワードをコピーして、Zoomにログインしてください。</div>
-    <div class="kc-zs-list">${d.items.map(row).join("") || '<div class="note">登録されたアカウントがありません</div>'}</div>
-    ${d.admin ? `<div class="kc-zs-add"><input class="kc-input" data-zs-new placeholder="アカウントを足す（メールアドレス）" /><button type="button" class="kc-btn" data-zs-add>足す</button></div>` : ""}
-    <details class="kc-zs-chrome"><summary>🧭 自分のZoomで開いてしまうときは「Zoom専用のChrome」で使う</summary>
-      <div class="note">いまのChromeは自分のGoogle・Zoomでログインしているので、借りたアカウントでサインインできません。Zoom専用のChromeを1つ作って、kincallはそちらで開いてください（作るのは最初の1回だけ）。</div>
-      <ol>
-        <li><b>Chromeのプロフィールを足す（おすすめ）</b><small>Chromeの右上の自分のアイコン → 「追加」（＋）→「アカウントなしで続行」→ 名前を「Zoom共有」にして完了。新しく開いたウィンドウで kincall を開き、ブックマークしておく。次からは右上のアイコンで「Zoom共有」に切りかえるだけ。</small></li>
-        <li><b>Macなら、ターミナルから1行で開く</b><small>ターミナルに下の1行を貼って Enter（Zoom専用のChromeが別に開きます）</small>
-          <div class="kc-zs-cmd"><code>${esc(`open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="kc-btn" data-cp-cmd>コピー</button></div></li>
-      </ol>
-      <div class="note">専用のChromeでは、kinbotには自分のGoogleでログインし、Zoom（kincallの中のZoom電話・Zoomのサイト）だけ借りたアカウントでサインインします。</div>
+  bg.innerHTML = `<div class="zs">
+    <div class="zs-top"><div><span class="zs-k">📞 ZOOM SHARE</span><b>Zoomアカウント</b><small>今日の使用 ${used} / ${d.items.length}</small></div><button type="button" class="zs-x" data-zs-x aria-label="閉じる">✕</button></div>
+    ${mine ? `<div class="zs-mine"><div class="zs-mh"><span class="av big">${esc(ini(mine.account))}</span><div><span class="zs-tag">あなたが使用中</span><b>${esc(short(mine.account))}</b></div><button type="button" class="zs-ghost light" data-zs-rel style="margin-left:auto">返す</button>${d.admin ? `<button type="button" class="zs-icon light" title="パスワードを変える" data-zs-set="${esc(mine.account)}">⚙</button>` : ""}</div>
+      <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
+        <div class="f"><span>パスワード</span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
+      <div class="zs-steps"><a class="st" href="https://zoom.us/logout" target="_blank" rel="noopener"><i>1</i><b>サインアウト</b><small>いまのZoomから</small></a><span class="ar">›</span>
+        <a class="st hot" href="https://zoom.us/signin#/login" target="_blank" rel="noopener"><i>2</i><b>サインイン</b><small>上のID・PWで（Googleは使わない）</small></a><span class="ar">›</span>
+        <div class="st"><i>3</i><b>Zoom電話も</b><small>kincallの中も入り直す</small></div></div>
+    </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
+    <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
+    ${d.admin ? `<div class="zs-add"><input data-zs-new placeholder="＋ アカウントを足す（メールアドレス）" /><button type="button" class="zs-go" data-zs-add>足す</button></div>` : ""}
+    <details class="zs-chrome"><summary>🧭 自分のZoomで開いてしまうときは「Zoom専用のChrome」</summary>
+      <div class="c"><b>Chromeのプロフィールを足す（おすすめ）</b><small>右上の自分のアイコン →「追加（＋）」→「アカウントなしで続行」→ 名前「Zoom共有」。そのウィンドウで kincall を開いてブックマーク。次からはアイコンで切りかえるだけ。</small></div>
+      <div class="c"><b>Macなら、ターミナルで1行</b><div class="zs-cmd"><code>${esc(`open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-cmd>コピー</button></div></div>
     </details>
-    <div class="note">通話の録音・履歴は、使っていた時間の分だけ、あなたの記録として数えます。パスワードは、使っている本人と田中さん・管理者だけが見られます。</div></div>`;
+    <div class="zs-foot">録音・通話履歴は、使っていた時間の分だけあなたの記録になります。パスワードは使っている本人と管理者だけが見られます。</div>
+  </div>`;
   document.body.appendChild(bg);
   const close = () => bg.remove(); const again = () => { close(); kcZoomShareOpen(); };
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   bg.querySelector("[data-zs-x]").addEventListener("click", close);
-  const cpc = bg.querySelector("[data-cp-cmd]"); if (cpc) cpc.addEventListener("click", async () => { try { await navigator.clipboard.writeText(bg.querySelector(".kc-zs-cmd code").textContent); cpc.textContent = "コピーしました"; } catch { alert("コピーできませんでした"); } });
+  const copy = async (btn, text) => { try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = "✓"; btn.classList.add("ok"); setTimeout(() => { btn.textContent = t; btn.classList.remove("ok"); }, 1400); } catch { alert("コピーできませんでした"); } };
+  bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", () => copy(b, b.dataset.cp)));
+  const cpc = bg.querySelector("[data-cp-cmd]"); if (cpc) cpc.addEventListener("click", () => copy(cpc, bg.querySelector(".zs-cmd code").textContent));
   const post = async (url, body) => { const r = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })).json(); if (r.error) throw new Error(r.error); return r; };
   bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-rel]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/release"); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-force]").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`${b.dataset.zsForce} を返してもらいます。よろしいですか？`)) return; try { await post("/api/zoom-share/release", { account: b.dataset.zsForce }); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-set]").forEach((b) => b.addEventListener("click", async () => { const pw = prompt(`${b.dataset.zsSet} のZoomのパスワード`); if (!pw) return; try { await post("/api/zoom-share/account", { account: b.dataset.zsSet, password: pw }); again(); } catch (e) { alert(e.message); } }));
   const add = bg.querySelector("[data-zs-add]"); if (add) add.addEventListener("click", async () => { const v = bg.querySelector("[data-zs-new]").value.trim(); if (!v) return; try { await post("/api/zoom-share/account", { account: v }); again(); } catch (e) { alert(e.message); } });
-  bg.querySelectorAll("[data-zs-pw]").forEach((b) => b.addEventListener("click", async () => {
-    const acc = b.dataset.zsPw; const box = bg.querySelector(`[data-zs-pwbox="${CSS.escape(acc)}"]`);
-    try {
-      const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(acc)}`)).json(); if (r.error) throw new Error(r.error);
-      box.innerHTML = `<div><span>ID</span><code>${esc(acc)}</code><button type="button" class="kc-btn" data-cp="${esc(acc)}">コピー</button></div><div><span>パスワード</span><code>${esc(r.password)}</code><button type="button" class="kc-btn" data-cp="${esc(r.password)}">コピー</button></div><div class="kc-zs-steps"><b>ログインのしかた</b>
-        <ol><li><a class="kc-btn" href="https://zoom.us/logout" target="_blank" rel="noopener">① いまのZoomからサインアウト ↗</a><small>このブラウザで、ほかの人（自分）のZoomにログインしたままだと、そのアカウントで開いてしまうため</small></li>
-        <li><a class="kc-btn primary" href="https://zoom.us/signin#/login" target="_blank" rel="noopener">② 借りたアカウントでサインイン ↗</a><small>「Googleでサインイン」ではなく、上のIDとパスワードを入れる</small></li>
-        <li><small>kincallの中のZoom電話も、右上のメニューから一度サインアウトして、借りたアカウントでサインインし直す</small></li></ol>
-        <small>サインアウトしたくないときは、Chromeのシークレットウィンドウ（Ctrl/Cmd＋Shift＋N）か、別のChromeのプロフィールでkincallを開いて使うと、自分のZoomはそのままにできます。</small></div>`;
-      box.querySelectorAll("[data-cp]").forEach((c) => c.addEventListener("click", async () => { try { await navigator.clipboard.writeText(c.dataset.cp); c.textContent = "コピーしました"; } catch { alert("コピーできませんでした"); } }));
-    } catch (e) { box.innerHTML = `<div class="note">${esc(e.message)}</div>`; }
-  }));
+  const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
+    const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
+    if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; return; }
+    try { const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(pwb.dataset.zsPw)}`)).json(); if (r.error) throw new Error(r.error); code.textContent = r.password; pwb.textContent = "隠す"; pwb.dataset.shown = "1"; cp.hidden = false; cp.onclick = () => copy(cp, r.password); }
+    catch (e) { alert(e.message); }
+  });
 }
 (function kcZoomShareButton() {
   const host = document.getElementById("kcToday"); if (!host || document.getElementById("kcZsBtn")) return;
