@@ -2247,3 +2247,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07zn 田中さん「kinxs-copyはやめてくれ！kincsにしてくか」。コピーを GET /kincs（題名・サイドバーの名前『kincs』、リンクは /kincs?…、KX_BASE も /kincs）に。/kinxs-copy は 301 で /kincs へ。版20261107zn。
 
 - 2026-11-07 BUILD_TAG=2026-11-07zo 田中さん「アイコンは小さいスフィンクスというよりは子猫のスフィンクスにしてくか」。public/kincs.svg（本家と同じ深緑の角丸・黄緑。正面を向いた子猫が、しまの頭巾（ネメス）をかぶり、耳が頭巾から出て、ファラオのひげ・葉っぱの先のしっぽ）。/kincs は /kinxs.svg を /kincs.svg に置きかえ（ファビコン・サイドバー・上の見出し）、小さくする CSS はやめた。版20261107zo。
+
+- 2026-11-07 BUILD_TAG=2026-11-07zp 田中さん（kincs のタブが kinXs の名前とアイコン）「タブがkinXsのまま」。原因：kinxs.js が document.title = "kinXs" で上書きしていた→ KX_COPY なら kincs。アイコンは /kincs.svg?v=2 にして、ブラウザの覚えたアイコンでも替わるように。/kincs の HTML は Cache-Control: no-store。版20261107zp。
