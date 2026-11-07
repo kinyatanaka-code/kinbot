@@ -5833,13 +5833,9 @@ app.get("/kincs", (req, res) => {
     h = h.replace(/<title>[^<]*<\/title>/, "<title>kincs</title>")
       .replace('<span>kinXs</span></a>', '<span>kincs</span></a>')
       .replace(/href="\/kinxs\?/g, 'href="/kincs?')
-      .replace("</head>", `<style>
-  /* kincs（kinXs のコピー）：スフィンクスのロゴを小さく */
-  .kx-brand img{width:24px !important;height:24px !important;border-radius:7px;}
-  .kx-top-ico{width:26px !important;height:26px !important;}
-  .kx-brand{gap:8px;}
-</style>
-<script>window.KX_COPY = true;</script>
+      // アイコンは「子猫のスフィンクス」（/kincs.svg）（2026-11-07 田中さん「小さいスフィンクスというよりは子猫のスフィンクスに」）
+      .replace(/\/kinxs\.svg/g, "/kincs.svg")
+      .replace("</head>", `<script>window.KX_COPY = true;</script>
 </head>`)
       .replace("</body>", `<script>
 // ページの中で作られるリンク（/kinxs?…）を /kincs?… に読みかえる
@@ -28707,7 +28703,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zn kinXsのコピーの名前とURLを kincs（/kincs）に。前の /kinxs-copy は /kincs へ。";
+const BUILD_TAG = "2026-11-07zo kincsのアイコンを「子猫のスフィンクス」（頭巾つきの子猫、葉っぱのしっぽ）に（/kincs.svg）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

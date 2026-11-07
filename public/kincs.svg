@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512">
+  <rect width="100" height="100" rx="22" fill="#0B3B2E"/>
+  <!-- しっぽ（本家と同じ、先が葉っぱ） -->
+  <path d="M66 84 C80 86 86 76 82 68" fill="none" stroke="#B6E25C" stroke-width="3.6" stroke-linecap="round"/>
+  <path d="M82 68 C80 62 84 58 88 60 C88 64 86 68 82 68 Z" fill="#B6E25C"/>
+  <path d="M82 68 C78 64 78 59 81 56 C83 59 83 64 82 68 Z" fill="#B6E25C"/>
+  <!-- からだ（おすわり） -->
+  <path d="M30 88 C29 76 36 66 50 65 C64 66 71 76 70 88 Z" fill="#B6E25C"/>
+  <rect x="40" y="79" width="8.5" height="10" rx="4" fill="#B6E25C"/>
+  <rect x="51.5" y="79" width="8.5" height="10" rx="4" fill="#B6E25C"/>
+  <path d="M48.5 81 L48.5 88 M51.5 81 L51.5 88" stroke="#0B3B2E" stroke-width="1.2" stroke-linecap="round"/>
+  <!-- ネメス（スフィンクスの頭巾）：うしろと肩にたれる部分 -->
+  <path d="M27 30 C28 20 38 13 50 13 C62 13 72 20 73 30 L77 66 L63 66 L60 54 L40 54 L37 66 L23 66 Z" fill="#B6E25C"/>
+  <path d="M25.5 40 L33 40 M24.6 48 L33.6 48 M23.8 56 L35 56 M74.5 40 L67 40 M75.4 48 L66.4 48 M76.2 56 L65 56" stroke="#0B3B2E" stroke-width="2" stroke-linecap="round"/>
+  <!-- 頭巾のおでこの帯 -->
+  <path d="M31 31 C36 26 43 24 50 24 C57 24 64 26 69 31" fill="none" stroke="#0B3B2E" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M34 22.5 C38 19.5 44 18 50 18 C56 18 62 19.5 66 22.5" fill="none" stroke="#0B3B2E" stroke-width="1.8" stroke-linecap="round"/>
+  <!-- 子猫の顔（大きく丸く） -->
+  <ellipse cx="50" cy="45" rx="17.5" ry="15.5" fill="#CDEE7E"/>
+  <!-- 頭巾から出たちいさな耳 -->
+  <path d="M35 18 L33.5 8 L42 14.5 Z" fill="#B6E25C"/>
+  <path d="M65 18 L66.5 8 L58 14.5 Z" fill="#B6E25C"/>
+  <!-- め -->
+  <ellipse cx="43" cy="44" rx="4.6" ry="5.4" fill="#0B3B2E"/>
+  <ellipse cx="57" cy="44" rx="4.6" ry="5.4" fill="#0B3B2E"/>
+  <circle cx="44.6" cy="42" r="1.6" fill="#FFFFFF"/>
+  <circle cx="58.6" cy="42" r="1.6" fill="#FFFFFF"/>
+  <!-- はな・くち -->
+  <path d="M48.3 50.6 L51.7 50.6 L50 52.6 Z" fill="#0B3B2E"/>
+  <path d="M50 52.6 C49.7 54.6 47.4 55.2 46.3 53.8 M50 52.6 C50.3 54.6 52.6 55.2 53.7 53.8" fill="none" stroke="#0B3B2E" stroke-width="1.1" stroke-linecap="round"/>
+  <!-- ファラオのひげ（あごの下） -->
+  <path d="M47.6 60 L52.4 60 L51.6 66 L48.4 66 Z" fill="#B6E25C"/>
+  <path d="M48 62 L52 62 M48.2 64 L51.8 64" stroke="#0B3B2E" stroke-width="0.9"/>
+  <ellipse cx="38" cy="51" rx="2.6" ry="1.6" fill="#F2FBD8" opacity=".8"/>
+  <ellipse cx="62" cy="51" rx="2.6" ry="1.6" fill="#F2FBD8" opacity=".8"/>
+</svg>

@@ -2245,3 +2245,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07zm 田中さん（販売管理向けの納品管理のデモのあと）「kinxsっていう全くのコピーを作って欲しい。kinXsで変更した情報は同じく反映されるように。kinxsの方のロゴのスフィンクスは小さくして欲しい」。GET /kinxs-copy：kinxs.html をその場で読み、title と サイドバーの名前を kinxs、href="/kinxs? を /kinxs-copy? に、スフィンクスのロゴ（.kx-brand img 24px・.kx-top-ico 26px）を小さく、window.KX_COPY=true、あとから作られるリンクも MutationObserver で読みかえ。kinxs.js の先頭に KX_BASE（コピーなら /kinxs-copy）、location.href の移動先は KX_BASE。同じ kinxs.js・同じ API・同じデータなので、kinXs の変更・データがそのまま出る。コピーだけの違いは window.KX_COPY で足せる（納品管理の自動化をここで試す想定）。版20261107zm。
 
 - 2026-11-07 BUILD_TAG=2026-11-07zn 田中さん「kinxs-copyはやめてくれ！kincsにしてくか」。コピーを GET /kincs（題名・サイドバーの名前『kincs』、リンクは /kincs?…、KX_BASE も /kincs）に。/kinxs-copy は 301 で /kincs へ。版20261107zn。
+
+- 2026-11-07 BUILD_TAG=2026-11-07zo 田中さん「アイコンは小さいスフィンクスというよりは子猫のスフィンクスにしてくか」。public/kincs.svg（本家と同じ深緑の角丸・黄緑。正面を向いた子猫が、しまの頭巾（ネメス）をかぶり、耳が頭巾から出て、ファラオのひげ・葉っぱの先のしっぽ）。/kincs は /kinxs.svg を /kincs.svg に置きかえ（ファビコン・サイドバー・上の見出し）、小さくする CSS はやめた。版20261107zo。
