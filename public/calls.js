@@ -1645,6 +1645,12 @@ function renderDock() {
     .kc-modal.kc-slide-in-r{animation:kcSlideInR .32s cubic-bezier(.2,.9,.3,1);} .kc-modal.kc-slide-in-l{animation:kcSlideInL .32s cubic-bezier(.2,.9,.3,1);}
     @keyframes kcSlideInR{from{transform:translateX(70px);opacity:0;}to{transform:none;opacity:1;}} @keyframes kcSlideInL{from{transform:translateX(-70px);opacity:0;}to{transform:none;opacity:1;}}
     .kc-table tr.kc-row-flash td{animation:kcRowFlash 1.6s ease;} @keyframes kcRowFlash{0%,40%{background:#FFF6D6;}100%{background:transparent;}}
+    .kc-modal{position:relative;}
+    .kc-done-ov{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(240,250,245,.88);backdrop-filter:blur(2px);border-radius:inherit;animation:kcDoneIn .25s ease;}
+    .kc-done-ov .ck{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,#1AA884,#0F6E62);color:#fff;font-size:34px;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 14px 30px -12px rgba(15,110,98,.8);animation:kcPop .4s cubic-bezier(.3,1.7,.5,1);}
+    .kc-done-ov b{font-size:18px;color:#0A5440;} .kc-done-ov small{font-size:13px;color:#0E6B4E;font-weight:800;}
+    @keyframes kcDoneIn{from{opacity:0;}to{opacity:1;}} @keyframes kcPop{from{transform:scale(0);}to{transform:scale(1);}}
+    .kc-prevdone{display:flex;align-items:center;gap:8px;margin:0 16px 4px;padding:8px 12px;border-radius:10px;background:#E1F5EE;color:#0A5440;font-size:12.5px;font-weight:700;transition:opacity .5s, transform .5s;animation:kcSlideInR .35s ease;} .kc-prevdone .ck{width:20px;height:20px;border-radius:50%;background:#1D9E75;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;} .kc-prevdone.hide{opacity:0;transform:translateY(-6px);}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -2921,12 +2927,19 @@ async function openTarget(id, draft, opt) {
       dockItems = dockItems.filter((d) => d.id !== id);
       renderDock();
       m._saved = true;
-      m.close();
-      // 記録したら、そのまま表のひとつ下のリードの記録へ（スライドして開く）（2026-11-07 田中さん）
-      if (m._nextId && document.querySelector(`.kc-table tbody tr[data-id="${CSS.escape(m._nextId)}"]`)) {
-        const nx = m._nextId;
-        setTimeout(() => { const tr = document.querySelector(`.kc-table tbody tr[data-id="${CSS.escape(nx)}"]`); if (tr) { tr.scrollIntoView({ block: "center" }); tr.classList.add("kc-row-flash"); setTimeout(() => tr.classList.remove("kc-row-flash"), 1600); } openTarget(nx, undefined, { slide: "next" }); }, 250);
-      }
+      // 記録したら、✓を出しながら窓を左へすべらせ、表のひとつ下のリードの記録を右からすべり込ませる（2026-11-07 田中さん：次に行った感）
+      const nx = m._nextId && document.querySelector(`.kc-table tbody tr[data-id="${CSS.escape(m._nextId)}"]`) ? m._nextId : "";
+      if (nx) {
+        const md = m.el.querySelector(".kc-modal");
+        if (md) { md.insertAdjacentHTML("beforeend", `<div class="kc-done-ov"><span class="ck">✓</span><b>記録しました</b><small>次のリードへ ›</small></div>`); }
+        setTimeout(() => { if (md) md.classList.add("kc-slide-out-l"); }, 380);
+        setTimeout(() => {
+          m.close();
+          const tr = document.querySelector(`.kc-table tbody tr[data-id="${CSS.escape(nx)}"]`);
+          if (tr) { tr.scrollIntoView({ block: "center" }); tr.classList.add("kc-row-flash"); setTimeout(() => tr.classList.remove("kc-row-flash"), 1600); }
+          openTarget(nx, undefined, { slide: "next", prevDone: { company: x["会社名"] || "", result: 結果 || "" } });
+        }, 600);
+      } else m.close();
       const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
       const 次回 = d.sf && d.sf.hold ? `　当分架電しない（${Number(d.sf.hold.slice(5, 7))}/${Number(d.sf.hold.slice(8, 10))}まで今日かけるリードに出しません）`
         : d.sf && d.sf.nextAction ? `　次回架電日=${d.sf.nextAction} をSFに書きました` : "";
@@ -12660,6 +12673,10 @@ function kcRecNav(m, id, opt) {
   const modal = m.el.querySelector(".kc-modal"); const btns = m.el.querySelector(".kc-modal-btns");
   if (!modal || !btns) return;
   if (opt && opt.slide) { modal.classList.add(opt.slide === "prev" ? "kc-slide-in-l" : "kc-slide-in-r"); setTimeout(() => modal.classList.remove("kc-slide-in-l", "kc-slide-in-r"), 400); }
+  if (opt && opt.prevDone) {
+    const head = modal.querySelector(".kc-modal-head");
+    if (head) { head.insertAdjacentHTML("afterend", `<div class="kc-prevdone"><span class="ck">✓</span>${esc(opt.prevDone.company || "前のリード")} を記録しました${opt.prevDone.result ? `（${esc(opt.prevDone.result)}）` : ""}　→　次のリードです</div>`); setTimeout(() => { const b = modal.querySelector(".kc-prevdone"); if (b) b.classList.add("hide"); }, 3200); setTimeout(() => { const b = modal.querySelector(".kc-prevdone"); if (b) b.remove(); }, 3800); }
+  }
   const order = () => [...document.querySelectorAll(".kc-table tbody tr[data-id]")].map((tr) => tr.dataset.id).filter((v, i, a) => v && a.indexOf(v) === i);
   const ids = order(); const at = ids.indexOf(String(id));
   const prevId = at > 0 ? ids[at - 1] : "", nextId = at >= 0 && at < ids.length - 1 ? ids[at + 1] : "";
