@@ -12405,7 +12405,7 @@ async function kcZoomShareOpen() {
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
-      ${mine.confirmed ? "" : `<a class="zs-signin" href="https://zoom.us/signin#/login" target="_blank" rel="noopener" data-zs-signin><b>Zoomにサインイン ↗</b><small>新しいタブでZoomのサインインが開きます。「Googleでサインイン」は押さず、上のID（または社員番号）とパスワードで</small></a>`}
+      ${mine.confirmed ? "" : `<a class="zs-signin" href="https://zoom.us/google_oauth_signin" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>新しいタブで開きます → Oktaの画面で、上の「社員番号」と「パスワード」を入れる</small></a>`}
 
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
@@ -12497,7 +12497,7 @@ async function kcZoomSetupOpen(account) {
         <div class="zs-cmd"><code data-url>作っています…</code><button type="button" class="zs-cp" data-cp-url>コピー</button></div></div></div>
       <div class="zsu-step"><i>2</i><div><b>専用のChrome（Zoom共有）を開いて、アドレス欄に貼る</b><small>Chromeの右上のアイコンで「Zoom共有」に切りかえるか、デスクトップの「kincall（Zoom共有）」のショートカットから開いてください。</small>
         <div class="zs-cmd"><code data-win>…</code><button type="button" class="zs-cp" data-cp-win>コピー</button></div><small>↑ ショートカットが無いときは、Windowsキー＋R にこの1行を貼って Enter（専用のChromeがリンク付きで開きます）</small></div></div>
-      <div class="zsu-step"><i>3</i><div><b>開いた画面で、Zoomにサインイン</b><small>専用のChromeでは、IDと社員番号・パスワードの窓と、kincallの中のZoom電話（サインインの画面）が自動で開きます。サインインできると「使用中 ✓」になります。</small></div></div>
+      <div class="zsu-step"><i>3</i><div><b>開いた画面で、Googleで Zoom にサインイン</b><small>専用のChromeでは、社員番号・パスワードの窓と、Zoomのサインイン（Google → Okta）が自動で開きます。Oktaの画面で、借りたアカウントの社員番号とパスワードを入れてください。サインインできると「使用中 ✓」になります。</small></div></div>
     </div></div>`;
   document.body.appendChild(bg);
   const close = () => { bg.remove(); if (window._kcZsRefresh) window._kcZsRefresh(); };
@@ -12522,6 +12522,6 @@ async function kcZoomSetupOpen(account) {
     await kcZoomShareOpen();
     const pw = document.querySelector("[data-zs-pw]"); if (pw) pw.click();   // ID・社員番号・パスワードを見える状態に
     const si = document.querySelector("[data-zs-signin]");
-    if (si) { si.classList.add("pulse"); try { const w = window.open(si.href, "_blank", "noopener"); if (w) si.querySelector("small").textContent = "Zoomのサインインを新しいタブで開きました。開かなければ、ここを押してください"; } catch {} }
+    if (si) { si.classList.add("pulse"); try { const w = window.open(si.href, "_blank", "noopener"); if (w) si.querySelector("small").textContent = "Zoomのサインイン（Google → Okta）を新しいタブで開きました。Oktaで上の社員番号とパスワードを入れてください。開かなければ、ここを押してください"; } catch {} }
   }, 1200);
 })();

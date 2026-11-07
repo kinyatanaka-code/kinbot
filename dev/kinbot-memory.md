@@ -2199,3 +2199,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07r 田中さん「使うってやったら、別のChromeをログインする画面に行き、引き継ぎリンクとzoomのサインインの画面が見れるようにしたい」。使う→ kcZoomSetupOpen（『○○ を使う準備』：①引き継ぎのリンクを作って自動でコピー ②専用のChrome（プロフィール Zoom共有／ショートカット）で貼る、Win＋R 用の1行（リンク付き）③開いた画面でZoomにサインイン）。/auth/handoff のあとは /kincall?zsetup=1 → kcZoomSetupLanding が zpPanel(true)（Zoom電話のサインイン）と Zoomアカウントの窓を開き、ID・社員番号・パスワードを見える状態にする（URL から zsetup を消す）。版20261107r。
 
 - 2026-11-07 BUILD_TAG=2026-11-07s 田中さん「引き継ぎリンクからzoomのサインインができるように」。自分のカードに、まだ確かめていないあいだだけ白い大きな「Zoomにサインイン ↗」（https://zoom.us/signin#/login、新しいタブ、Google は押さず ID か社員番号とパスワードで）。?zsetup=1 で開いたときは、ボタンを光らせ、window.open で自動でも開く（ブロックされたらボタンを押す）。版20261107s。
+
+- 2026-11-07 BUILD_TAG=2026-11-07t 田中さん「Googleでサインインにしないとログインできない仕様になっている」（5つの Zoom は Google（Okta）でのサインイン）。サインインのボタンを https://zoom.us/google_oauth_signin（Googleで Zoom にサインイン ↗）にし、説明を『Okta の画面で社員番号とパスワード』に。準備の画面の手順3も同じ。専用の Chrome は Google・Okta が借りた人になるが、kincall は引き継ぎのリンクで自分のまま。版20261107t。
