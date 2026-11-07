@@ -76,7 +76,11 @@ export async function zoomPhoneCallHistory({ from, to, max = 300 } = {}) {
       const number = String(direction === "inbound" || direction === "incoming"
         ? (c.caller_number || c.caller_did_number || (c.caller && c.caller.phone_number) || "")
         : (c.callee_number || c.callee_did_number || (c.callee && c.callee.phone_number) || c.destination || "")) || String(c.phone_number || "");
-      const ownerEmail = String((c.owner && c.owner.email) || c.user_email || c.email || (c.caller && c.caller.email) || "").toLowerCase();
+      const inb = direction === "inbound" || direction === "incoming";
+      // 新しい call_history では owner が無く、caller_email／callee_email に入っている（2026-11-07）
+      const ownerEmail = String((c.owner && c.owner.email) || c.user_email || c.email || (inb ? c.callee_email : c.caller_email) || (c.caller && c.caller.email) || "").toLowerCase();
+      const ownerId = String((c.owner && c.owner.id) || c.user_id || (inb ? c.callee_ext_id : c.caller_ext_id) || "");
+      const myNumber = String(inb ? (c.callee_did_number || c.callee_number || "") : (c.caller_did_number || c.caller_number || ""));
       const result = String(c.result || c.call_result || c.status || "").toLowerCase();
       items.push({
         id: String(c.id || c.call_id || c.call_log_id || c.uuid || ""),
@@ -85,7 +89,7 @@ export async function zoomPhoneCallHistory({ from, to, max = 300 } = {}) {
         result,
         duration: Number(c.duration || 0),
         at: c.date_time || c.start_time || c.created_time || null,
-        ownerEmail,
+        ownerEmail, ownerId, myNumber,
       });
       if (items.length >= max) break;
     }

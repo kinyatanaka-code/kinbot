@@ -15767,14 +15767,20 @@ app.get("/api/zoom-share", async (req, res) => {
     // Zoomの状態が読めないとき（権限なし）は、そのアカウントで借りたあとに電話をかけた記録があるかで確かめる（1分とっておく）（2026-11-07）
     const still = waiting.filter((r) => !r._done);
     if (still.length) {
-      if (!_zsHist.at || Date.now() - _zsHist.at > 60 * 1000) {
+      if (!_zsHist.at || Date.now() - _zsHist.at > 30 * 1000) {
         const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
         _zsHist = { at: Date.now(), list: await zoomPhoneCallHistory({ from: today, to: today, max: 300 }).catch(() => []) };
       }
+      const users = await zoomPhoneUsers().catch(() => ({}));
+      const dig = (v) => String(v || "").replace(/[^0-9]/g, "");
       for (const r of still) {
         const since = Date.parse(r.since || 0) - 60 * 1000;
-        if ((_zsHist.list || []).some((c) => String(c.zoomAccount || c.ownerEmail || "").toLowerCase() === r.account && Date.parse(c.at || 0) >= since)) { await zoomConfirm(r.account).catch(() => {}); touched = true; }
+        const uid = String((users[r.account] || {}).id || ""), num = dig(await zoomPhoneUserNumber(r.account).catch(() => "")).slice(-9);
+        const hit = (_zsHist.list || []).some((c) => Date.parse(c.at || 0) >= since && (
+          String(c.zoomAccount || c.ownerEmail || "").toLowerCase() === r.account || (uid && String(c.ownerId || "") === uid) || (num && dig(c.myNumber).slice(-9) === num)));
+        if (hit) { await zoomConfirm(r.account).catch(() => {}); touched = true; }
       }
+      if (still.length && !touched) console.log(`[zoom-share] 通話履歴からはまだ確かめられません（${still.map((r) => r.account).join(",")}・履歴${(_zsHist.list || []).length}件）`);
     }
     if (touched) rows = await zoomShareList();
     const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), m.name || ""]));
@@ -28622,7 +28628,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zb kincallのかける画面：行の履歴は、いちばん新しい架電（メモが無くても、だれ・いつ・結果）を先に出す。前の人のメモは下に小さく（新しくかけた人の名前で前のメモが出ていた）。";
+const BUILD_TAG = "2026-11-07zc Zoomの通話履歴：新しい形（caller_email・callee_email・caller_ext_id・caller_did_number）からもアカウントを読む。借りたアカウントで1本かけたら使用中になるように（メール・ID・発信元の番号で照らす）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
