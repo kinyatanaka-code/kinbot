@@ -17656,8 +17656,11 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
       const k = normCompanyKey(w.company || ""); if (!k) continue;
       const day = ymdJst(w["日"] || w.date || w.at || "");
       if (day) wonByCompanyDay.set(`${k}|${day}`, em);
-      if (!wonByCompany.has(k)) wonByCompany.set(k, em);
+      if (day) (wonByCompany.get(k) || wonByCompany.set(k, []).get(k)).push({ day, em });
     }
+    // 会社の獲得者のフォールバックは、取得日の3日前までに、その会社でアポ獲得を記録した人だけ（2026-11-07：前は期間の中でいちばん最初の人にしていたので、
+    //   同じ会社の別の月のアポ（取り直し・自分で取ったアポ）が、前にその会社でアポを取った人に数えられていた）
+    const wonNear = (cok, takenDay) => { const l = wonByCompany.get(cok) || []; let best = null; for (const w of l) { if (!takenDay || w.day > takenDay) continue; const dd = (Date.parse(takenDay) - Date.parse(w.day)) / 86400000; if (dd <= 3 && (!best || w.day > best.day)) best = w; } return best ? best.em : ""; };
     const 数えた = new Set();   // 同じ予定（会社×商談日×計上先）は1回だけ数える
     // メルマガ由来のアポは、人（セールス・インサイド）には数えず「メルマガ」として別に数える。
     //   メルマガの印のアポ・予定名に「メルマガ」が入っているアポだけ（2026-10-13〜）。
@@ -17679,7 +17682,7 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
       const 商談日 = ymdJst(a.start_time);
       const 取得日 = ymdJst(a.taken_at);
       // 計上先：会社×取得日の獲得者 → 会社の獲得者 → setter/現担当 の順
-      let em = wonByCompanyDay.get(`${cok}|${取得日}`) || wonByCompany.get(cok) || "";
+      let em = wonByCompanyDay.get(`${cok}|${取得日}`) || wonNear(cok, 取得日) || "";
       if (!em) em = setterEmail(a);                              // 無ければ現担当（クローザー）
       const p = byEmail.get(em); if (!p) continue;
       const uk = `${cok}|${商談日}|${em}`;
@@ -22519,14 +22522,17 @@ async function runProcessSheet(sfUser, opts = {}) {
       const k = normCompanyKey(w.company || ""); if (!k) continue;
       const day = ymdJst(w["日"] || w.date || w.at || "");
       if (day) wonByCompanyDay.set(`${k}|${day}`, em);
-      if (!wonByCompany.has(k)) wonByCompany.set(k, em);
+      if (day) (wonByCompany.get(k) || wonByCompany.set(k, []).get(k)).push({ day, em });
     }
+    // 会社の獲得者のフォールバックは、取得日の3日前までに、その会社でアポ獲得を記録した人だけ（2026-11-07：前は期間の中でいちばん最初の人にしていたので、
+    //   同じ会社の別の月のアポ（取り直し・自分で取ったアポ）が、前にその会社でアポを取った人に数えられていた）
+    const wonNear = (cok, takenDay) => { const l = wonByCompany.get(cok) || []; let best = null; for (const w of l) { if (!takenDay || w.day > takenDay) continue; const dd = (Date.parse(takenDay) - Date.parse(w.day)) / 86400000; if (dd <= 3 && (!best || w.day > best.day)) best = w; } return best ? best.em : ""; };
     for (const a of aposB) {
       if (!isApoCountableTitle(a.label)) continue;
       const co = companyFromTitle(a.label || "") || "";
       const cok = normCompanyKey(co);
       const takenY = ymdJst(a.taken_at);
-      let em = wonByCompanyDay.get(`${cok}|${takenY}`) || wonByCompany.get(cok) || "";
+      let em = wonByCompanyDay.get(`${cok}|${takenY}`) || wonNear(cok, takenY) || "";
       let name = em ? email2name.get(em) : "";
       if (!name) name = (a.current_owner ? (email2name.get(String(a.current_owner).toLowerCase()) || "") : "") || String(a.setter || "").trim();
       if (!name) continue;
@@ -28469,7 +28475,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07a kinXs：担当の名前を、どの画面でも苗字にそろえた（ホームの要アクションで「皆葉優ブラッド」「久野沙織」のようにフルネームが混ざっていた）。";
+const BUILD_TAG = "2026-11-07b kincallの実績：アポを人に数えるとき、同じ会社で前に（別の月に）アポを取った人に寄せていたのをやめた（取得日の3日前までにその会社でアポ獲得を記録した人だけ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
