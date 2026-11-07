@@ -1614,6 +1614,10 @@ function renderDock() {
     .zs-card.busy{opacity:.6;} .zs-card .nm{flex:1;min-width:0;display:flex;flex-direction:column;} .zs-card .nm b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .zs-card .nm small{font-size:11px;color:#6A7A72;display:flex;align-items:center;gap:4px;}
     .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.wait{background:#8FA39A;animation:fxBlinkZ 1.4s ease-in-out infinite;} @keyframes fxBlinkZ{50%{opacity:.3;}}
     .zs-tag.ok{background:#B6E25C;color:#14231D;} .zs-tag.wait{background:rgba(255,255,255,.18);color:#FFE7A8;}
+    .zsu{padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;} .zsu-step{display:flex;gap:10px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;}
+    .zsu-step > i{font-style:normal;flex:none;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#2D8CFF,#1B5FD0);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;}
+    .zsu-step > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;} .zsu-step b{font-size:13px;} .zsu-step small{font-size:11.5px;color:#6A7A72;line-height:1.6;}
+    .zsu .zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zsu .zs-cp{background:#1B5FD0;}
     .kc-zs-btn.wait{border-style:dashed;color:#7A3F00;background:#FFF8EA;} .dot.free{background:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.18);} .dot.busy{background:#E0A100;}
     .zs-go{border:0;border-radius:10px;padding:7px 14px;font:inherit;font-size:12.5px;font-weight:800;color:#fff;background:linear-gradient(135deg,#2D8CFF,#1B5FD0);cursor:pointer;box-shadow:0 6px 14px -8px rgba(27,95,208,.9);} .zs-go:hover{filter:brightness(1.08);}
     .zs-ghost{white-space:nowrap;border:1px solid #D5E0DA;background:#fff;border-radius:10px;padding:6px 10px;font:inherit;font-size:11.5px;font-weight:700;color:#4F6158;cursor:pointer;} .zs-ghost.light{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3);color:#fff;}
@@ -12430,7 +12434,7 @@ async function kcZoomShareOpen() {
     } catch (e) { alert(e.message); }
   });
   const post = async (url, body) => { const r = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })).json(); if (r.error) throw new Error(r.error); return r; };
-  bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); again(); } catch (e) { alert(e.message); } }));
+  bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); bg.remove(); kcZoomSetupOpen(b.dataset.zsTake); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-rel]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/release"); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-force]").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`${b.dataset.zsForce} を返してもらいます。よろしいですか？`)) return; try { await post("/api/zoom-share/release", { account: b.dataset.zsForce }); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-set]").forEach((b) => b.addEventListener("click", async () => {
@@ -12478,3 +12482,41 @@ document.addEventListener("kc-zoom-event", (e) => {
   fetch("/api/zoom-share/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone: me.phoneNumber || "", ext: me.extensionNumber || "" }) })
     .then((r) => r.json()).then((r) => { if (r && r.confirmed && window._kcZsRefresh) window._kcZsRefresh(); }).catch(() => {});
 });
+
+// 「使う」を押したあと：専用のChromeへ移る画面（引き継ぎのリンクを作ってコピー → 専用のChromeで開く → そこでZoomのサインイン）（2026-11-07 田中さん）
+async function kcZoomSetupOpen(account) {
+  document.querySelectorAll(".kc-zs-bg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "kc-zs-bg";
+  const short = String(account).split("@")[0];
+  bg.innerHTML = `<div class="zs"><div class="zs-top"><div><span class="zs-k">📞 ZOOM SHARE</span><b>${esc(short)} を使う準備</b><small>専用のChromeで、Zoomにサインインします</small></div><button type="button" class="zs-x" data-x aria-label="閉じる">✕</button></div>
+    <div class="zsu">
+      <div class="zsu-step"><i>1</i><div><b>引き継ぎのリンクをコピーしました</b><small>このリンクを開くと、専用のChromeでも、あなたとしてkincallに入れます（5分・1回だけ）。</small>
+        <div class="zs-cmd"><code data-url>作っています…</code><button type="button" class="zs-cp" data-cp-url>コピー</button></div></div></div>
+      <div class="zsu-step"><i>2</i><div><b>専用のChrome（Zoom共有）を開いて、アドレス欄に貼る</b><small>Chromeの右上のアイコンで「Zoom共有」に切りかえるか、デスクトップの「kincall（Zoom共有）」のショートカットから開いてください。</small>
+        <div class="zs-cmd"><code data-win>…</code><button type="button" class="zs-cp" data-cp-win>コピー</button></div><small>↑ ショートカットが無いときは、Windowsキー＋R にこの1行を貼って Enter（専用のChromeがリンク付きで開きます）</small></div></div>
+      <div class="zsu-step"><i>3</i><div><b>開いた画面で、Zoomにサインイン</b><small>専用のChromeでは、IDと社員番号・パスワードの窓と、kincallの中のZoom電話（サインインの画面）が自動で開きます。サインインできると「使用中 ✓」になります。</small></div></div>
+    </div></div>`;
+  document.body.appendChild(bg);
+  const close = () => { bg.remove(); if (window._kcZsRefresh) window._kcZsRefresh(); };
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  const copy = async (btn, text) => { try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = "✓"; btn.classList.add("ok"); setTimeout(() => { btn.textContent = t; btn.classList.remove("ok"); }, 1400); } catch {} };
+  try {
+    const r = await (await fetch("/api/auth/handoff", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json(); if (r.error) throw new Error(r.error);
+    const url = r.url; const win = `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${url}"`;
+    bg.querySelector("[data-url]").textContent = url; bg.querySelector("[data-win]").textContent = win;
+    bg.querySelector("[data-cp-url]").addEventListener("click", (e) => copy(e.currentTarget, url));
+    bg.querySelector("[data-cp-win]").addEventListener("click", (e) => copy(e.currentTarget, win));
+    copy(bg.querySelector("[data-cp-url]"), url);
+  } catch (e) { bg.querySelector("[data-url]").textContent = `作れませんでした：${e.message}`; }
+}
+// 専用のChromeで引き継ぎのリンクから開いたとき（?zsetup=1）：Zoomアカウントの窓（ID・社員番号・パスワードを開いた状態）と、kincallの中のZoom電話（サインインの画面）を出す
+(function kcZoomSetupLanding() {
+  const u = new URL(location.href); if (!u.searchParams.has("zsetup")) return;
+  u.searchParams.delete("zsetup"); history.replaceState(null, "", u.pathname + (u.search || "") + u.hash);
+  setTimeout(async () => {
+    try { if (typeof zpPanel === "function") zpPanel(true); } catch {}
+    await kcZoomShareOpen();
+    const pw = document.querySelector("[data-zs-pw]"); if (pw) pw.click();   // ID・社員番号・パスワードを見える状態に
+  }, 1200);
+})();

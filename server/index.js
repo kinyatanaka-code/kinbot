@@ -15720,7 +15720,7 @@ app.get("/auth/handoff", (req, res) => {
   _handoffUsed.set(nonce, Date.now()); for (const [k, t] of _handoffUsed) if (Date.now() - t > 10 * 60 * 1000) _handoffUsed.delete(k);
   setSessionCookie(res, email);
   console.log(`[handoff] ${email} がログインを引き継ぎました`);
-  res.redirect("/kincall");
+  res.redirect("/kincall?zsetup=1");   // 専用のChromeで開いたら、Zoomのサインインの画面まで出す
 });
 // ===== Zoom Phone のアカウントの貸し出し（2026-11-07 田中さん）=====
 //   共有の5アカウント（kinya.tanaka・ryo.iijima・ryo.matsumoto・kanna.kuribayashi・sotaro.nakamura）を、その日だけほかの人が借りて使う。
@@ -28602,7 +28602,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07q kincallのヘッダー：「探す」とZoomのボタンの順番を入れかえた（探す → 📞 Zoom）。Zoomのボタンは折り返さない。";
+const BUILD_TAG = "2026-11-07r kincallのZoomアカウント：「使う」を押すと、引き継ぎのリンクを作ってコピーし、専用のChromeへ移る3つの手順の画面を出す。専用のChromeでリンクを開くと、ID・社員番号・パスワードの窓とZoom電話のサインインが自動で開く。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
