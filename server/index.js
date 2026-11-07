@@ -15920,7 +15920,7 @@ async function summarizeZoomRec(r, options = []) {
 // キャッシュがあればそれを、無ければ要約して保存。{summary, result}
 async function zoomRecSummaryCached(r, targetId, caller, options = []) {
   const c = await getZoomRecSummary(r.id);
-  if (c && c.summary) {
+  if (c && c.summary && cleanCallSummary(c.summary).replace(/[・\s]/g, "").length >= 4) {   // 途中で切れて中身の無い要約（{"summary":" だけ）は作り直す（2026-11-07）
     if (r.downloadUrl && !c.download_url) await saveZoomRecSummary({ recId: r.id, targetId, caller, at: r.at, duration: r.duration, summary: c.summary, downloadUrl: r.downloadUrl });
     const summary = cleanCallSummary(c.summary);
     return { summary, result: options.length ? await guessCallResult(summary, options).catch(() => "") : "" };
@@ -16048,7 +16048,7 @@ app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
     }
     // ①先に要約済み（15分ごとの処理で作られたもの）
     const cached = await findUnusedZoomSummary(t.id, sinceIso);
-    if (cached) {
+    if (cached && cleanCallSummary(cached.summary).replace(/[・\s]/g, "").length >= 4) {
       const summary = cleanCallSummary(cached.summary);
       const result = options.length ? await guessCallResult(summary, options).catch(() => "") : "";
       return res.json({ ok: true, recId: cached.rec_id, at: cached.at, duration: cached.duration, summary, result });
@@ -28628,7 +28628,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zd kincallの記録の窓：通話の要約に「【通話録音の要約】」の見出しを付けない、{\"summary\": のような文字が混ざらない（途中で切れたJSONも中身だけ取り出す）、1行につながった項目は行に分ける、会話なしは説明に入れない。";
+const BUILD_TAG = "2026-11-07ze 通話の要約：返事が途中で切れないように（考える量0・文字の枠2048）、JSONのかけらを消す、中身の無いとっておいた要約は作り直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -2323,6 +2323,8 @@ export function cleanCallSummary(v) {
       else s = s.replace(/^[\[{]\s*/, "").replace(/[\]}]\s*$/, "");
     }
   }
+  // JSONのかけら（{"summary":" など）が残っていたら消す
+  s = s.replace(/[{}\[\]]/g, " ").replace(/"?\b(summary|result)\b"?\s*:\s*"?/gi, " ").replace(/^[\s"・,:]+|[\s",]+$/g, "").trim();
   // 「・相手：…・要点：…」と1行につながっていたら、項目ごとに改行する
   s = s.replace(/\s*[・･]\s*(?=(相手|要点|反応|次回|会話なし)\s*[:：（(]?)/g, "\n・").trim();
   return s.split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => (/^[・\-•]/.test(l) ? l.replace(/^[\-•]\s*/, "・") : "・" + l)).join("\n");
@@ -2342,7 +2344,8 @@ export async function summarizeCallRecording({ buf = null, mimeType = "audio/mpe
     try {
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: "application/json", responseSchema: schema } }),
+        // 考える分に文字の枠を使い切って返事が途中で切れないよう、考える量を0にして、枠も広げる（2026-11-07）
+        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 2048, responseMimeType: "application/json", responseSchema: schema, thinkingConfig: { thinkingBudget: 0 } } }),
       });
       if (!res.ok) continue;
       const d = await res.json().catch(() => ({}));
