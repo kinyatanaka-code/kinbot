@@ -12370,8 +12370,10 @@ function bxRender() {
 
 // かける画面の行の「最後のメモ」：だれが・いつ（例：中澤 10/27）＋メモを短く。通話録音の要約は「要点 → 反応（次回）」に縮める（2026-11-07 田中さん）
 function kcMemoCompact(memo) {
-  const t = String(memo || "").replace(/\r/g, "");
-  const i = t.indexOf("【通話録音の要約】");
+  const t = String(memo || "").replace(/\r/g, "").replace(/\n?・?\s*会話なし（[^\n]*/g, "");
+  // 見出しのある古い記録と、見出しの無い新しい記録（「・相手：」「・要点：」から始まる行）の両方
+  let i = t.indexOf("【通話録音の要約】");
+  if (i < 0) { const m = t.match(/(^|\n)・?\s*(相手|要点|反応|次回)\s*[:：]/); if (m) i = m.index + (m[1] ? 1 : 0); }
   const human = (i >= 0 ? t.slice(0, i) : t).replace(/^結果[:：].*$/m, "").replace(/^メモ[:：]\s*/m, "").replace(/\s+/g, " ").trim();
   if (i < 0) return human;
   const sum = t.slice(i);

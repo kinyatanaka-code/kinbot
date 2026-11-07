@@ -3394,10 +3394,13 @@ export async function findCallLogForZoom({ targetId, at, zoomCallIds = [] } = {}
 export async function appendZoomSummary(logId, recId, summary) {
   if (!pool || !logId) return null;
   try {
+    // 見出し「【通話録音の要約】」は付けない。会話が無かった（留守電・不在など）ときは何も足さない（2026-11-07 田中さん：パッと見て結果が分かりにくいため）
+    let text = String(summary || "").trim();
+    if (/^・?\s*会話なし/.test(text) && text.split("\n").filter((l) => l.trim()).length <= 1) text = "";
     const { rows } = await pool.query(
-      `UPDATE call_logs SET memo = CASE WHEN coalesce(btrim(memo),'') = '' THEN $3 ELSE memo || E'\n\n' || $3 END, zoom_rec_id = $2
+      `UPDATE call_logs SET memo = CASE WHEN $3 = '' THEN memo WHEN coalesce(btrim(memo),'') = '' THEN $3 ELSE memo || E'\n' || $3 END, zoom_rec_id = $2
         WHERE id = $1 RETURNING id, memo, result, sf_task_id, caller`,
-      [logId, String(recId), "【通話録音の要約】\n" + String(summary || "").trim()]);
+      [logId, String(recId), text]);
     return rows[0] || null;
   } catch (e) { console.error("[db] appendZoomSummary", e.message); return null; }
 }

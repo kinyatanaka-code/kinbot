@@ -16130,7 +16130,7 @@ async function apoCallConversationTick() {
           let desc = String(ev.description || "");
           const i = desc.indexOf(APO_CONV_MARK);
           if (i >= 0) desc = desc.slice(0, Math.max(0, desc.lastIndexOf("────────────────", i))).trimEnd();
-          desc = desc.replace(/【通話録音の要約】\n・?会話なし[^\n]*\n?/g, "").trimEnd();
+          desc = desc.replace(/(【通話録音の要約】\n)?・?会話なし（[^\n]*\n?/g, "").trimEnd();
           await patchCalendarEvent(owner, id, { description: `${desc}\n\n${block}`.slice(0, 7900) }, "primary");
           ok++;
         } catch (e) { console.warn("[apo-conv] 予定に入れられませんでした", owner, e.message); }
@@ -28617,7 +28617,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07z kincallのZoomアカウント：ログイン待ちのまま残る対策（Zoomの状態が読めないときは、借りたあとにそのアカウントで電話をかけた記録で使用中にする）と、手で押せる「✓ ログインできた」。";
+const BUILD_TAG = "2026-11-07za kincall：架電の記録に足す通話の要約から「【通話録音の要約】」の見出しをやめ、会話なし（留守電・不在など）のときは何も足さない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
