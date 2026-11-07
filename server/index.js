@@ -877,6 +877,8 @@ function isKincallSelfSettingPath(p) {
 
 const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
+  // Zoom専用のChromeへ、ログインしたまま引き継ぐ1回だけのリンク（2026-11-07）
+  "/auth/handoff",
   // 商談の切り替え（スマホのアプリ）：ホーム画面に追加するための設定・アイコン・サービスワーカー
   "/switch.webmanifest", "/switch-sw.js", "/switch-icon-192.png", "/switch-icon-512.png", "/switch-icon-180.png",
   // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
@@ -15695,6 +15697,31 @@ app.get("/api/zoom-phone/caller-id", async (req, res) => {
   } catch (e) { res.json({ ok: true, callerId: "" }); }
 });
 
+// ===== Zoom専用のChromeへ、ログインを引き継ぐ（2026-11-07 田中さん「Oktaのログインが要る・いちいちコピーが面倒」）=====
+//   いつものChromeの kincall で「引き継ぎのリンク」を作る → 専用のChromeでそのリンクを開くと、Google／Okta のログインなしで同じ人としてログインできる。
+//   リンクは5分だけ・1回だけ使える。代理ログイン（なりすまし）中は作れない
+const _handoffUsed = new Map();
+app.post("/api/auth/handoff", async (req, res) => {
+  try {
+    if (getImpersonator(req)) return res.status(403).json({ error: "代理ログイン中は作れません（元のアカウントに戻ってから）" });
+    const me = String(req.user || "").trim().toLowerCase(); if (!me) return res.status(401).json({ error: "ログインしてください" });
+    const exp = Date.now() + 5 * 60 * 1000; const nonce = crypto.randomBytes(9).toString("base64url");
+    const t = makeToken(`handoff|${me}|${exp}|${nonce}`);
+    res.json({ ok: true, url: `${PUBLIC_URL.replace(/\/$/, "")}/auth/handoff?t=${encodeURIComponent(t)}`, expiresAt: new Date(exp).toISOString() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/auth/handoff", (req, res) => {
+  const v = verifyToken(String(req.query.t || ""));
+  const bad = (msg) => res.status(400).send(`<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;padding:40px"><h2>ログインを引き継げませんでした</h2><p>${msg}</p><p>いつものChromeの kincall で「Zoomアカウント」→「専用のChromeで開くリンク」を作り直してください。</p></body>`);
+  if (!v || !v.startsWith("handoff|")) return bad("リンクが正しくありません。");
+  const [, email, exp, nonce] = v.split("|");
+  if (!email || !(Number(exp) > Date.now())) return bad("リンクの期限（5分）が切れています。");
+  if (_handoffUsed.has(nonce)) return bad("このリンクはもう使われています（1回だけ使えます）。");
+  _handoffUsed.set(nonce, Date.now()); for (const [k, t] of _handoffUsed) if (Date.now() - t > 10 * 60 * 1000) _handoffUsed.delete(k);
+  setSessionCookie(res, email);
+  console.log(`[handoff] ${email} がログインを引き継ぎました`);
+  res.redirect("/kincall");
+});
 // ===== Zoom Phone のアカウントの貸し出し（2026-11-07 田中さん）=====
 //   共有の5アカウント（kinya.tanaka・ryo.iijima・ryo.matsumoto・kanna.kuribayashi・sotaro.nakamura）を、その日だけほかの人が借りて使う。
 //   パスワードは kincall に暗号化して登録（田中さん・管理者が登録）。借りた人と管理者だけが見られる。
@@ -28556,7 +28583,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07j kincallのZoomアカウント：Zoom専用のChromeの案内にWindows（デスクトップのショートカットの作り方と1行）を足した（Windowsの人には先に出す）。";
+const BUILD_TAG = "2026-11-07k kincall：Zoom専用のChromeへ、ログインしたまま引き継ぐリンク（5分・1回だけ）。Google・Oktaのログインなしで専用のChromeでkincallを開ける。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

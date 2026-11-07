@@ -1616,7 +1616,7 @@ function renderDock() {
     .zs-add{display:flex;gap:6px;padding:0 18px 10px;} .zs-add input{flex:1;border:1px solid #D5E0DA;border-radius:10px;padding:7px 10px;font:inherit;font-size:12.5px;}
     .zs-chrome{margin:0 18px 10px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:9px 12px;font-size:12px;} .zs-chrome summary{cursor:pointer;font-weight:800;color:#1B5FD0;}
     .zs-chrome .c{margin-top:8px;display:flex;flex-direction:column;gap:3px;} .zs-chrome .c small{color:#6A7A72;line-height:1.6;}
-    .zs-cmd{display:flex;gap:6px;align-items:center;} .zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd .zs-cp{background:#1B5FD0;}
+    .zs-cmd{display:flex;gap:6px;align-items:center;} .zs-ho{background:#F2F7FF;border-radius:10px;padding:8px 10px;} .zs-ho [data-ho-url]{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd .zs-cp{background:#1B5FD0;}
     .zs-foot{padding:10px 18px 16px;font-size:11px;color:#8FA39A;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -12400,6 +12400,8 @@ async function kcZoomShareOpen() {
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
     ${d.admin ? `<div class="zs-add"><input data-zs-new placeholder="＋ アカウントを足す（メールアドレス）" /><button type="button" class="zs-go" data-zs-add>足す</button></div>` : ""}
     <details class="zs-chrome"><summary>🧭 自分のZoomで開いてしまうときは「Zoom専用のChrome」</summary>
+      <div class="c zs-ho"><b>🔑 ログインしたまま専用のChromeへ（Google・Oktaのログインなし）</b><small>下のボタンで「引き継ぎのリンク」を作り、専用のChromeで開くと、あなたとしてそのままログインできます（5分だけ・1回だけ使えます）。</small>
+        <div class="zs-cmd"><button type="button" class="zs-go" data-ho>引き継ぎのリンクを作る</button><code data-ho-url hidden></code><button type="button" class="zs-cp" data-ho-cp hidden>コピー</button></div></div>
       <div class="c"><b>Chromeのプロフィールを足す（おすすめ）</b><small>右上の自分のアイコン →「追加（＋）」→「アカウントなしで続行」→ 名前「Zoom共有」。そのウィンドウで kincall を開いてブックマーク。次からはアイコンで切りかえるだけ。</small></div>
 ${/Windows/i.test(navigator.userAgent) ? `      <div class="c"><b>Windowsなら、デスクトップにショートカットを作る</b><small>デスクトップで右クリック →「新規作成」→「ショートカット」→「項目の場所」に下の1行を貼る →「次へ」→ 名前を「kincall（Zoom共有）」にして完了。次からはそのアイコンをダブルクリックするだけで、Zoom専用のChromeでkincallが開きます。（すぐ試すなら、Windowsキー＋R に貼って Enter でも開きます）</small><div class="zs-cmd"><code data-cmd-win>${esc(`"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-win>コピー</button></div></div>      <div class="c"><b>Macなら、ターミナルで1行</b><small>「ターミナル」を開いて、下の1行を貼って Enter。Zoom専用のChromeが別に開きます。</small><div class="zs-cmd"><code data-cmd-mac>${esc(`open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-cmd>コピー</button></div></div>` : `      <div class="c"><b>Macなら、ターミナルで1行</b><small>「ターミナル」を開いて、下の1行を貼って Enter。Zoom専用のChromeが別に開きます。</small><div class="zs-cmd"><code data-cmd-mac>${esc(`open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-cmd>コピー</button></div></div>      <div class="c"><b>Windowsなら、デスクトップにショートカットを作る</b><small>デスクトップで右クリック →「新規作成」→「ショートカット」→「項目の場所」に下の1行を貼る →「次へ」→ 名前を「kincall（Zoom共有）」にして完了。次からはそのアイコンをダブルクリックするだけで、Zoom専用のChromeでkincallが開きます。（すぐ試すなら、Windowsキー＋R に貼って Enter でも開きます）</small><div class="zs-cmd"><code data-cmd-win>${esc(`"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${location.origin}/kincall"`)}</code><button type="button" class="zs-cp" data-cp-win>コピー</button></div></div>`}
     </details>
@@ -12413,6 +12415,18 @@ ${/Windows/i.test(navigator.userAgent) ? `      <div class="c"><b>Windowsなら�
   bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", () => copy(b, b.dataset.cp)));
   const cpc = bg.querySelector("[data-cp-cmd]"); if (cpc) cpc.addEventListener("click", () => copy(cpc, bg.querySelector("[data-cmd-mac]").textContent));
   const cpw = bg.querySelector("[data-cp-win]"); if (cpw) cpw.addEventListener("click", () => copy(cpw, bg.querySelector("[data-cmd-win]").textContent));
+  const ho = bg.querySelector("[data-ho]"); if (ho) ho.addEventListener("click", async () => {
+    try {
+      const r = await post("/api/auth/handoff");
+      const code = bg.querySelector("[data-ho-url]"), cp = bg.querySelector("[data-ho-cp]");
+      code.textContent = r.url; code.hidden = false; cp.hidden = false; cp.onclick = () => copy(cp, r.url); ho.textContent = "作り直す";
+      // Mac・Windows の1行も、このリンクで開くものに入れかえる（そのまま貼れば、ログイン済みで開く）
+      const mac = bg.querySelector("[data-cmd-mac]"), win = bg.querySelector("[data-cmd-win]");
+      if (mac) mac.textContent = `open -na "Google Chrome" --args --user-data-dir="$HOME/.kincall-zoom" "${r.url}"`;
+      if (win) win.textContent = `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\kincall-zoom" "${r.url}"`;
+      copy(cp, r.url);
+    } catch (e) { alert(e.message); }
+  });
   const post = async (url, body) => { const r = await (await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) })).json(); if (r.error) throw new Error(r.error); return r; };
   bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-rel]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/release"); again(); } catch (e) { alert(e.message); } }));
