@@ -12061,13 +12061,14 @@ async function ensureZoomShare() {
   await pool.query(`ALTER TABLE zoom_shared ADD COLUMN IF NOT EXISTS emp_enc TEXT`);   // Okta の社員番号（暗号化）（2026-11-07）
   await pool.query(`CREATE TABLE IF NOT EXISTS zoom_checkouts (id SERIAL PRIMARY KEY, account TEXT NOT NULL, member TEXT NOT NULL, start_at TIMESTAMPTZ NOT NULL DEFAULT now(), end_at TIMESTAMPTZ)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS zoom_checkouts_acc ON zoom_checkouts (account, start_at)`);
+  await pool.query(`ALTER TABLE zoom_checkouts ADD COLUMN IF NOT EXISTS confirmed_at TIMESTAMPTZ`);   // Zoomにログインできたのを確かめた時刻（2026-11-07）
   _zsReady = true;
 }
 export async function zoomShareList() {
   if (!pool) return [];
   await ensureZoomShare();
-  const { rows } = await pool.query(`SELECT s.account, (s.pass_enc IS NOT NULL) AS has_pass, (s.emp_enc IS NOT NULL) AS has_emp, s.memo, c.member AS holder, c.start_at AS since
-      FROM zoom_shared s LEFT JOIN LATERAL (SELECT member, start_at FROM zoom_checkouts k WHERE k.account = s.account AND k.end_at IS NULL
+  const { rows } = await pool.query(`SELECT s.account, (s.pass_enc IS NOT NULL) AS has_pass, (s.emp_enc IS NOT NULL) AS has_emp, s.memo, c.member AS holder, c.start_at AS since, c.confirmed_at
+      FROM zoom_shared s LEFT JOIN LATERAL (SELECT member, start_at, confirmed_at FROM zoom_checkouts k WHERE k.account = s.account AND k.end_at IS NULL
         AND (k.start_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date ORDER BY start_at DESC LIMIT 1) c ON true ORDER BY s.account`);
   return rows;
 }
@@ -12111,4 +12112,12 @@ export async function zoomCheckoutsBetween(fromIso, toIso) {
   if (!pool) return []; await ensureZoomShare();
   const { rows } = await pool.query(`SELECT account, member, start_at, end_at FROM zoom_checkouts WHERE start_at <= $2 AND (end_at IS NULL OR end_at >= $1)`, [fromIso, toIso]);
   return rows;
+}
+
+// Zoomにログインできたのを確かめた（今日の貸し出しに印）
+export async function zoomConfirm(account, member = "") {
+  if (!pool) return 0; await ensureZoomShare();
+  const r = await pool.query(`UPDATE zoom_checkouts SET confirmed_at = COALESCE(confirmed_at, now()) WHERE account = $1 AND end_at IS NULL
+      AND (start_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date ${member ? "AND member = $2" : ""}`, member ? [String(account).toLowerCase(), String(member).toLowerCase()] : [String(account).toLowerCase()]);
+  return r.rowCount;
 }

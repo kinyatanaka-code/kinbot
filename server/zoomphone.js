@@ -157,3 +157,10 @@ export async function zoomPhoneUserNumber(email) {
   const n = nums.find((x) => x && x.number) || null;
   return n ? String(n.number) : "";
 }
+
+// その人のZoomの状態（ログインしているか）：Available・Away・Busy・Do_Not_Disturb・In_Meeting・Presenting・On_Phone_Call など／Offline。
+//   読めない（権限なし）なら null（2026-11-07 Zoomアカウントの貸し出しで、ログインを確かめる）
+export async function zoomPresence(email) {
+  try { const d = await zoomGet(`/users/${encodeURIComponent(String(email || "").toLowerCase())}/presence_status`); return d && d.status ? String(d.status) : null; }
+  catch { return null; }
+}

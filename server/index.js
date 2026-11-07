@@ -28,7 +28,7 @@ import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo, NOTIFY_KINDS, notifyDisabledSet } from "./chat.js";
 import { placesEnabled, fetchPlaceHours, openState } from "./places.js";
 import { deepgramReady, transcribeUrl } from "./deepgram.js";
-import { zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory as _zpCallHistory, zoomResultToKincall, zoomPhoneRecordings as _zpRecordings, zoomDownload, zoomPhoneUserNumber } from "./zoomphone.js";
+import { zoomPresence, zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory as _zpCallHistory, zoomResultToKincall, zoomPhoneRecordings as _zpRecordings, zoomDownload, zoomPhoneUserNumber } from "./zoomphone.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -15750,9 +15750,16 @@ app.get("/api/zoom-share", async (req, res) => {
   try {
     await zoomShareSeed();
     const me = String(req.user || "").toLowerCase();
-    const rows = await zoomShareList();
+    let rows = await zoomShareList();
+    // 借りたけれどまだ確かめていないアカウントは、Zoomの状態を見る（Offline でなければログインできたとみなす）
+    let touched = false;
+    for (const r of rows.filter((x) => x.holder && !x.confirmed_at)) {
+      const st = await zoomPresence(r.account).catch(() => null);
+      if (st && !/offline/i.test(st)) { await zoomConfirm(r.account).catch(() => {}); touched = true; }
+    }
+    if (touched) rows = await zoomShareList();
     const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), m.name || ""]));
-    res.json({ ok: true, admin: zsCanAdmin(req), mine: await zoomHeldBy(me), items: rows.map((r) => ({ account: r.account, hasPass: r.has_pass, hasEmp: r.has_emp, memo: r.memo || "", holder: r.holder || "", holderName: r.holder ? (names.get(r.holder) || r.holder.split("@")[0]) : "", since: r.since })) });
+    res.json({ ok: true, admin: zsCanAdmin(req), mine: await zoomHeldBy(me), items: rows.map((r) => ({ account: r.account, hasPass: r.has_pass, hasEmp: r.has_emp, memo: r.memo || "", holder: r.holder || "", holderName: r.holder ? (names.get(r.holder) || r.holder.split("@")[0]) : "", since: r.since, confirmed: !!r.confirmed_at })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/zoom-share/account", async (req, res) => {
@@ -15773,6 +15780,17 @@ app.post("/api/zoom-share/checkout", async (req, res) => {
     if (!r.ok) return res.status(409).json({ error: `いま ${r.holder} さんが使っています` });
     _callerIdCache.delete(me);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/zoom-share/confirm", async (req, res) => {
+  try {
+    const me = String(req.user || "").toLowerCase(); const acc = await zoomHeldBy(me); if (!acc) return res.json({ ok: true, confirmed: false });
+    const b = req.body || {}; const d = (v) => String(v || "").replace(/[^0-9]/g, "");
+    const num = d(await zoomPhoneUserNumber(acc).catch(() => "")); const users = await zoomPhoneUsers().catch(() => ({})); const ext = d((users[acc] || {}).ext);
+    const ph = d(b.phone), ex = d(b.ext);
+    const hit = (ph && num && ph.slice(-9) === num.slice(-9)) || (ex && ext && ex === ext);
+    if (hit) await zoomConfirm(acc, me);
+    res.json({ ok: true, confirmed: !!hit });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/zoom-share/release", async (req, res) => {
@@ -28584,7 +28602,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07o kincallのZoomアカウント：自分のカードの「1 サインアウト › 2 サインイン › 3 Zoom電話も」のタイルを外した。";
+const BUILD_TAG = "2026-11-07p kincallのZoomアカウント：「使う」を押した直後は「ログイン待ち」、Zoomにログインできたのを確かめたら「使用中 ✓」（Zoomの状態がオンライン、またはZoom電話の発信の番号・内線が借りたアカウントのもの）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

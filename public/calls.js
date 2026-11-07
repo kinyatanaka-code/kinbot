@@ -1612,7 +1612,9 @@ function renderDock() {
     .zs-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px 18px;} @media (max-width:560px){ .zs-grid{grid-template-columns:1fr;} .zs-steps{flex-direction:column;} .zs-steps .ar{display:none;} }
     .zs-card{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;transition:transform .15s, box-shadow .15s;} .zs-card:hover{transform:translateY(-2px);box-shadow:0 12px 24px -18px rgba(0,0,0,.45);}
     .zs-card.busy{opacity:.6;} .zs-card .nm{flex:1;min-width:0;display:flex;flex-direction:column;} .zs-card .nm b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .zs-card .nm small{font-size:11px;color:#6A7A72;display:flex;align-items:center;gap:4px;}
-    .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.free{background:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.18);} .dot.busy{background:#E0A100;}
+    .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.wait{background:#8FA39A;animation:fxBlinkZ 1.4s ease-in-out infinite;} @keyframes fxBlinkZ{50%{opacity:.3;}}
+    .zs-tag.ok{background:#B6E25C;color:#14231D;} .zs-tag.wait{background:rgba(255,255,255,.18);color:#FFE7A8;}
+    .kc-zs-btn.wait{border-style:dashed;color:#7A3F00;background:#FFF8EA;} .dot.free{background:#1D9E75;box-shadow:0 0 0 3px rgba(29,158,117,.18);} .dot.busy{background:#E0A100;}
     .zs-go{border:0;border-radius:10px;padding:7px 14px;font:inherit;font-size:12.5px;font-weight:800;color:#fff;background:linear-gradient(135deg,#2D8CFF,#1B5FD0);cursor:pointer;box-shadow:0 6px 14px -8px rgba(27,95,208,.9);} .zs-go:hover{filter:brightness(1.08);}
     .zs-ghost{white-space:nowrap;border:1px solid #D5E0DA;background:#fff;border-radius:10px;padding:6px 10px;font:inherit;font-size:11.5px;font-weight:700;color:#4F6158;cursor:pointer;} .zs-ghost.light{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.3);color:#fff;}
     .zs-icon{border:0;background:#F1F5F3;width:30px;height:30px;border-radius:9px;cursor:pointer;color:#6A7A72;} .zs-icon.light{background:rgba(255,255,255,.14);color:#fff;}
@@ -12383,17 +12385,17 @@ async function kcZoomShareOpen() {
   const bg = document.createElement("div"); bg.className = "kc-zs-bg";
   const short = (a) => String(a).split("@")[0];
   const ini = (a) => short(a).split(/[._-]/).map((s) => s.slice(0, 1).toUpperCase()).join("").slice(0, 2);
-  const used = d.items.filter((x) => x.holder).length;
+  const used = d.items.filter((x) => x.holder && x.confirmed).length;
   const mine = d.items.find((x) => x.account === d.mine);
   const card = (x) => {
     const busy = x.holder && x.account !== d.mine;
-    return `<div class="zs-card${busy ? " busy" : ""}"><span class="av">${esc(ini(x.account))}</span><div class="nm"><b>${esc(short(x.account))}</b><small>${busy ? `<i class="dot busy"></i>${esc(x.holderName)}さんが使用中` : `<i class="dot free"></i>空いています`}${x.hasPass ? "" : "・PW未登録"}${x.hasEmp ? "" : "・社員番号未登録"}</small></div>
+    return `<div class="zs-card${busy ? " busy" : ""}"><span class="av">${esc(ini(x.account))}</span><div class="nm"><b>${esc(short(x.account))}</b><small>${busy ? (x.confirmed ? `<i class="dot busy"></i>${esc(x.holderName)}さんが使用中` : `<i class="dot wait"></i>${esc(x.holderName)}さんがログイン中…`) : `<i class="dot free"></i>空いています`}${x.hasPass ? "" : "・PW未登録"}${x.hasEmp ? "" : "・社員番号未登録"}</small></div>
       ${busy ? (d.admin ? `<button type="button" class="zs-ghost" data-zs-force="${esc(x.account)}">返してもらう</button>` : "") : `<button type="button" class="zs-go" data-zs-take="${esc(x.account)}">使う</button>`}
       ${d.admin ? `<button type="button" class="zs-icon" title="${x.hasPass ? "パスワードを変える" : "パスワードを登録"}" data-zs-set="${esc(x.account)}">⚙</button>` : ""}</div>`;
   };
   bg.innerHTML = `<div class="zs">
     <div class="zs-top"><div><span class="zs-k">📞 ZOOM SHARE</span><b>Zoomアカウント</b><small>今日の使用 ${used} / ${d.items.length}</small></div><button type="button" class="zs-x" data-zs-x aria-label="閉じる">✕</button></div>
-    ${mine ? `<div class="zs-mine"><div class="zs-mh"><span class="av big">${esc(ini(mine.account))}</span><div><span class="zs-tag">あなたが使用中</span><b>${esc(short(mine.account))}</b></div><button type="button" class="zs-ghost light" data-zs-rel style="margin-left:auto">返す</button>${d.admin ? `<button type="button" class="zs-icon light" title="パスワードを変える" data-zs-set="${esc(mine.account)}">⚙</button>` : ""}</div>
+    ${mine ? `<div class="zs-mine"><div class="zs-mh"><span class="av big">${esc(ini(mine.account))}</span><div>${mine.confirmed ? `<span class="zs-tag ok">✓ 使用中（Zoomにつながっています）</span>` : `<span class="zs-tag wait">ログイン待ち：Zoomにサインインすると「使用中」になります</span>`}<b>${esc(short(mine.account))}</b></div><button type="button" class="zs-ghost light" data-zs-rel style="margin-left:auto">返す</button>${d.admin ? `<button type="button" class="zs-icon light" title="パスワードを変える" data-zs-set="${esc(mine.account)}">⚙</button>` : ""}</div>
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
@@ -12410,7 +12412,7 @@ async function kcZoomShareOpen() {
     <div class="zs-foot">録音・通話履歴は、使っていた時間の分だけあなたの記録になります。パスワードは使っている本人と管理者だけが見られます。</div>
   </div>`;
   document.body.appendChild(bg);
-  const close = () => bg.remove(); const again = () => { close(); kcZoomShareOpen(); };
+  const close = () => { bg.remove(); if (window._kcZsRefresh) window._kcZsRefresh(); }; const again = () => { bg.remove(); kcZoomShareOpen(); if (window._kcZsRefresh) window._kcZsRefresh(); };
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   bg.querySelector("[data-zs-x]").addEventListener("click", close);
   const copy = async (btn, text) => { try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = "✓"; btn.classList.add("ok"); setTimeout(() => { btn.textContent = t; btn.classList.remove("ok"); }, 1400); } catch { alert("コピーできませんでした"); } };
@@ -12456,5 +12458,21 @@ async function kcZoomShareOpen() {
   const b = document.createElement("button"); b.type = "button"; b.id = "kcZsBtn"; b.className = "kc-zs-btn"; b.textContent = "📞 Zoomアカウント";
   b.addEventListener("click", kcZoomShareOpen);
   host.parentElement.insertBefore(b, host.nextSibling);
-  fetch("/api/zoom-share").then((r) => r.json()).then((d) => { if (d && d.mine) b.textContent = `📞 Zoom：${d.mine.split("@")[0]}`; }).catch(() => {});
+  const refresh = () => fetch("/api/zoom-share").then((r) => r.json()).then((d) => {
+    const m = d && d.mine ? (d.items || []).find((x) => x.account === d.mine) : null;
+    _kcZsMine = m || null;
+    b.textContent = m ? `📞 Zoom：${m.account.split("@")[0]}${m.confirmed ? " ✓" : "（ログイン待ち）"}` : "📞 Zoomアカウント";
+    b.classList.toggle("wait", !!(m && !m.confirmed));
+  }).catch(() => {});
+  refresh(); setInterval(() => { if (_kcZsMine && !_kcZsMine.confirmed) refresh(); }, 60000);
+  window._kcZsRefresh = refresh;
 })();
+// Zoom電話で発信したら、その番号・内線が借りたアカウントのものか確かめて「使用中」にする
+let _kcZsMine = null;
+document.addEventListener("kc-zoom-event", (e) => {
+  const t = e.detail && e.detail.type, dd = (e.detail && e.detail.data) || {};
+  if (!_kcZsMine || _kcZsMine.confirmed || !/zp-call-(ringing|connected)-event/.test(t)) return;
+  const me = dd.direction === "inbound" ? (dd.callee || {}) : (dd.caller || {});
+  fetch("/api/zoom-share/confirm", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ phone: me.phoneNumber || "", ext: me.extensionNumber || "" }) })
+    .then((r) => r.json()).then((r) => { if (r && r.confirmed && window._kcZsRefresh) window._kcZsRefresh(); }).catch(() => {});
+});
