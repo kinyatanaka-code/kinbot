@@ -1616,6 +1616,8 @@ function renderDock() {
     .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.wait{background:#8FA39A;animation:fxBlinkZ 1.4s ease-in-out infinite;} @keyframes fxBlinkZ{50%{opacity:.3;}}
     .zs-tag.ok{background:#B6E25C;color:#14231D;} .zs-tag.wait{background:rgba(255,255,255,.18);color:#FFE7A8;}
     .zs-signin{display:flex;flex-direction:column;gap:2px;text-decoration:none;border-radius:14px;padding:11px 14px;background:#fff;color:#1B5FD0;box-shadow:0 10px 24px -14px rgba(0,0,0,.5);} .zs-signin b{font-size:15px;} .zs-signin small{font-size:11px;color:#4F6158;}
+    .zs-signin.auto{border:0;font:inherit;text-align:left;cursor:pointer;background:linear-gradient(135deg,#B6E25C,#8FD14F);color:#14231D;} .zs-signin.auto small{color:#2F4A1A;}
+    .zs-extnote{font-size:11.5px;color:#E3F4EC;background:rgba(0,0,0,.16);border-radius:10px;padding:7px 10px;} .zs-extnote a,.zs-linkbtn{color:#fff;font-weight:800;text-decoration:underline;background:none;border:0;font:inherit;font-size:11.5px;cursor:pointer;padding:0;}
     .zs-okta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;background:rgba(0,0,0,.18);border-radius:12px;padding:9px 12px;font-size:12px;color:#fff;} .zs-okta b{flex-basis:100%;font-size:12.5px;} .zs-okta[hidden]{display:none;}
     .zs-signin.pulse{animation:zsPulse 1.6s ease-in-out 4;} @keyframes zsPulse{50%{box-shadow:0 0 0 6px rgba(182,226,92,.7);}}
     .zsu{padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;} .zsu-step{display:flex;gap:10px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;}
@@ -12407,7 +12409,8 @@ async function kcZoomShareOpen() {
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
-      ${mine.confirmed ? "" : `<a class="zs-signin" href="https://zoom.us/google_oauth_signin" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>押すとメールアドレスをコピーします → Googleに貼る → 次に社員番号・パスワードの順にコピーして、Oktaに貼る</small></a>
+      ${mine.confirmed ? "" : (document.documentElement.dataset.kcZoomExt === "1" ? `<button type="button" class="zs-signin auto" data-zs-auto><b>⚡ 自動でサインイン ↗</b><small>Google → Okta（社員番号・パスワード）→ Zoom を、拡張機能が自動で進めます</small></button>` : `<div class="zs-extnote">💡 Chromeの拡張機能「kincall Zoomサインイン補助」を入れると、ここが「⚡ 自動でサインイン」になります <a href="/kincall-zoom-ext.zip" download>拡張機能をダウンロード</a>・<button type="button" class="zs-linkbtn" data-zs-exthow>入れ方</button></div>`)}
+      ${mine.confirmed || document.documentElement.dataset.kcZoomExt === "1" ? "" : `<a class="zs-signin" href="https://zoom.us/google_oauth_signin" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>押すとメールアドレスをコピーします → Googleに貼る → 次に社員番号・パスワードの順にコピーして、Oktaに貼る</small></a>
       <div class="zs-okta" data-zs-okta hidden><b>サインインの画面で、上から順に貼る</b><button type="button" class="zs-cp" data-okta-mail>① メールアドレス（Google）</button><button type="button" class="zs-cp" data-okta-emp>② 社員番号（Okta）</button><button type="button" class="zs-cp" data-okta-pw>③ パスワード（Okta）</button></div>`}
 
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
@@ -12467,6 +12470,8 @@ async function kcZoomShareOpen() {
     bindBtn("[data-okta-emp]", () => cred && cred.empNo);
     bindBtn("[data-okta-pw]", () => cred && cred.password);
   }
+  const auto = bg.querySelector("[data-zs-auto]"); if (auto && mine) auto.addEventListener("click", () => kcZoomAutoLogin(mine.account, auto));
+  const how = bg.querySelector("[data-zs-exthow]"); if (how) how.addEventListener("click", () => alert("拡張機能の入れ方（専用のChrome〈Zoom共有〉に1回だけ）\n\n1. 「拡張機能をダウンロード」でZIPを保存して、右クリック →「すべて展開」\n2. 専用のChromeで chrome://extensions を開く\n3. 右上の「デベロッパー モード」をオン\n4. 「パッケージ化されていない拡張機能を読み込む」→ 展開したフォルダを選ぶ\n5. kincallを読み込み直すと「⚡ 自動でサインイン」が出ます"));
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
     if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }
@@ -12539,7 +12544,24 @@ async function kcZoomSetupOpen(account) {
   setTimeout(async () => {
     await kcZoomShareOpen();
     const pw = document.querySelector("[data-zs-pw]"); if (pw) pw.click();   // ID・社員番号・パスワードを見える状態に
-    const si = document.querySelector("[data-zs-signin]");
-    if (si) { si.classList.add("pulse"); try { const w = window.open(si.href, "_blank", "noopener"); if (w) si.querySelector("small").textContent = "Zoomのサインイン（Google → Okta）を新しいタブで開きました。Oktaで上の社員番号とパスワードを入れてください。開かなければ、ここを押してください"; } catch {} }
+    const au = document.querySelector("[data-zs-auto]");
+    if (au) { au.classList.add("pulse"); au.click(); }
+    else {
+      const si = document.querySelector("[data-zs-signin]");
+      if (si) { si.classList.add("pulse"); try { const w = window.open(si.href, "_blank", "noopener"); if (w) si.querySelector("small").textContent = "Zoomのサインイン（Google → Okta）を新しいタブで開きました。Oktaで上の社員番号とパスワードを入れてください。開かなければ、ここを押してください"; } catch {} }
+    }
   }, 1200);
 })();
+
+// 拡張機能に、借りたアカウントのログイン情報を渡して、Google → Okta → Zoom のサインインを自動で進めてもらう（2026-11-07）
+async function kcZoomAutoLogin(account, btn) {
+  try {
+    const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(account)}`)).json(); if (r.error) throw new Error(r.error);
+    if (!r.empNo) { alert("社員番号が登録されていません。田中さん（管理者）に「⚙」から登録してもらってください"); return; }
+    const done = new Promise((res) => { const h = (e) => { if (e.source === window && e.data && e.data.source === "kc-zoom-ext" && e.data.type === "zoom-autologin-result") { window.removeEventListener("message", h); res(e.data); } }; window.addEventListener("message", h); setTimeout(() => res({ ok: false, error: "拡張機能から返事がありません" }), 4000); });
+    window.postMessage({ source: "kincall", type: "zoom-autologin", cred: { account: r.account, empNo: r.empNo, password: r.password } }, location.origin);
+    const res = await done;
+    if (!res.ok) throw new Error(res.error || "拡張機能が動きませんでした");
+    if (btn) { btn.querySelector("small").textContent = "新しいタブでサインインを進めています。Zoomの画面が出たら完了です（パソコンのZoomアプリでも「Googleでサインイン」を押せば、10分間は同じく自動で入ります）"; }
+  } catch (e) { alert(e.message); }
+}

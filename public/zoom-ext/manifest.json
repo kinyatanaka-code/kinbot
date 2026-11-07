@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "kincall Zoomサインイン補助",
+  "version": "1.0.0",
+  "description": "kincallで借りたZoomアカウントで、Google → Okta → Zoom のサインインを自動で進めます（ネオキャリア社内用）。",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "https://kinbot-production-225f.up.railway.app/*",
+    "https://accounts.google.com/*",
+    "https://*.okta.com/*",
+    "https://zoom.us/*",
+    "https://*.zoom.us/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://kinbot-production-225f.up.railway.app/*"], "js": ["kincall.js"], "run_at": "document_start" },
+    { "matches": ["https://accounts.google.com/*"], "js": ["fill.js", "google.js"], "run_at": "document_idle", "all_frames": false },
+    { "matches": ["https://*.okta.com/*"], "js": ["fill.js", "okta.js"], "run_at": "document_idle", "all_frames": false }
+  ],
+  "icons": { "128": "icon128.png" }
+}
