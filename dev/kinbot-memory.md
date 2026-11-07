@@ -2201,3 +2201,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07s 田中さん「引き継ぎリンクからzoomのサインインができるように」。自分のカードに、まだ確かめていないあいだだけ白い大きな「Zoomにサインイン ↗」（https://zoom.us/signin#/login、新しいタブ、Google は押さず ID か社員番号とパスワードで）。?zsetup=1 で開いたときは、ボタンを光らせ、window.open で自動でも開く（ブロックされたらボタンを押す）。版20261107s。
 
 - 2026-11-07 BUILD_TAG=2026-11-07t 田中さん「Googleでサインインにしないとログインできない仕様になっている」（5つの Zoom は Google（Okta）でのサインイン）。サインインのボタンを https://zoom.us/google_oauth_signin（Googleで Zoom にサインイン ↗）にし、説明を『Okta の画面で社員番号とパスワード』に。準備の画面の手順3も同じ。専用の Chrome は Google・Okta が借りた人になるが、kincall は引き継ぎのリンクで自分のまま。版20261107t。
+
+- 2026-11-07 BUILD_TAG=2026-11-07u 田中さん「zoomにサインインってやったらメールアドレスを自動入力、次にOkta自動入力」。サインインのボタンを https://accounts.google.com/AccountChooser?Email=<借りたメール>&continue=https://zoom.us/google_oauth_signin に（Google のメールアドレスが入った状態→ Okta → Zoom）。Okta のページには kincall から文字を入れられないので、押したときに /api/zoom-share/password を読んで社員番号を自動でコピーし、カードの中に『Oktaの画面で ①社員番号を貼る（コピー済み）②パスワードをコピー』を出す。専用の Chrome のパスワードの保存で Okta も次から自動で入る（案内済み）。版20261107u。

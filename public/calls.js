@@ -1615,6 +1615,7 @@ function renderDock() {
     .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.wait{background:#8FA39A;animation:fxBlinkZ 1.4s ease-in-out infinite;} @keyframes fxBlinkZ{50%{opacity:.3;}}
     .zs-tag.ok{background:#B6E25C;color:#14231D;} .zs-tag.wait{background:rgba(255,255,255,.18);color:#FFE7A8;}
     .zs-signin{display:flex;flex-direction:column;gap:2px;text-decoration:none;border-radius:14px;padding:11px 14px;background:#fff;color:#1B5FD0;box-shadow:0 10px 24px -14px rgba(0,0,0,.5);} .zs-signin b{font-size:15px;} .zs-signin small{font-size:11px;color:#4F6158;}
+    .zs-okta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;background:rgba(0,0,0,.18);border-radius:12px;padding:9px 12px;font-size:12px;color:#fff;} .zs-okta b{flex-basis:100%;font-size:12.5px;} .zs-okta[hidden]{display:none;}
     .zs-signin.pulse{animation:zsPulse 1.6s ease-in-out 4;} @keyframes zsPulse{50%{box-shadow:0 0 0 6px rgba(182,226,92,.7);}}
     .zsu{padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;} .zsu-step{display:flex;gap:10px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;}
     .zsu-step > i{font-style:normal;flex:none;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#2D8CFF,#1B5FD0);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;}
@@ -12405,7 +12406,8 @@ async function kcZoomShareOpen() {
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
-      ${mine.confirmed ? "" : `<a class="zs-signin" href="https://zoom.us/google_oauth_signin" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>新しいタブで開きます → Oktaの画面で、上の「社員番号」と「パスワード」を入れる</small></a>`}
+      ${mine.confirmed ? "" : `<a class="zs-signin" href="${esc(`https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(mine.account)}&continue=${encodeURIComponent("https://zoom.us/google_oauth_signin")}`)}" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>メールアドレスは自動で入ります。押すと社員番号をコピーするので、Oktaの画面で貼ってください</small></a>
+      <div class="zs-okta" data-zs-okta hidden><b>Oktaの画面で</b><span>① 社員番号を貼る（コピー済み）</span><button type="button" class="zs-cp" data-okta-emp>社員番号をコピー</button><span>② パスワードを貼る</span><button type="button" class="zs-cp" data-okta-pw>パスワードをコピー</button></div>`}
 
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
@@ -12448,6 +12450,18 @@ async function kcZoomShareOpen() {
     try { await post("/api/zoom-share/account", { account: acc, ...(emp.trim() ? { empNo: emp.trim() } : {}), ...(pw ? { password: pw } : {}) }); again(); } catch (e) { alert(e.message); }
   }));
   const add = bg.querySelector("[data-zs-add]"); if (add) add.addEventListener("click", async () => { const v = bg.querySelector("[data-zs-new]").value.trim(); if (!v) return; try { await post("/api/zoom-share/account", { account: v }); again(); } catch (e) { alert(e.message); } });
+  // 「Googleで Zoom にサインイン」：Google はメールアドレスを入れた状態で開き、Okta 用に社員番号をコピーしておく（Okta の画面にはkincallから直接入れられないため）
+  const si = bg.querySelector("[data-zs-signin]");
+  if (si && mine) si.addEventListener("click", async () => {
+    let cred = null;
+    try { const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(mine.account)}`)).json(); if (!r.error) cred = r; } catch {}
+    const box = bg.querySelector("[data-zs-okta]"); if (box) box.hidden = false;
+    if (cred) {
+      const eb = bg.querySelector("[data-okta-emp]"), pb = bg.querySelector("[data-okta-pw]");
+      if (cred.empNo) { copy(eb, cred.empNo); eb.onclick = () => copy(eb, cred.empNo); } else { eb.textContent = "社員番号が未登録"; eb.disabled = true; }
+      pb.onclick = () => copy(pb, cred.password);
+    }
+  });
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
     if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }
