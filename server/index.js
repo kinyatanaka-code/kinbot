@@ -5863,6 +5863,18 @@ app.use(async (req, res, next) => {
     next();
   } catch (e) { next(); }
 });
+// ===== 案件共有（社内の案件共有_申請フォーム）を kincall から入力済みで開く（2026-11-08 田中さん）=====
+//   フォームの各質問の entry 番号は settings.caseShareEntries（キー → "entry.123..."）。分かるまでは、入力済みにはせず、値をコピーして貼る形
+const CASE_SHARE_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScangZkXBazmLi1Amc7RM-xPtsyhKLdhn3rWO8P225_9QeLYw/viewform";
+app.get("/api/case-share/config", async (req, res) => {
+  const st = await getSettings().catch(() => ({}));
+  res.json({ ok: true, formUrl: st.caseShareFormUrl || CASE_SHARE_FORM, entries: st.caseShareEntries || {} });
+});
+app.put("/api/case-share/config", async (req, res) => {
+  if (!req.isAdmin && !/^kinya\.tanaka@/i.test(String(req.user || ""))) return res.status(403).json({ error: "管理者だけが変えられます" });
+  const b = req.body || {}; await saveSettings({ ...(b.formUrl ? { caseShareFormUrl: String(b.formUrl) } : {}), ...(b.entries ? { caseShareEntries: b.entries } : {}) });
+  res.json({ ok: true });
+});
 // kincs の設定（アカウントと、外部連携の Google・Salesforce だけ）（2026-11-08 田中さん）
 app.get("/kincs/settings", (req, res) => {
   try {
@@ -28806,7 +28818,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08d kincs：サイドバーの下の自分の名前・設定（kinbotの設定）・「他メンバーとして見る」を出さない。";
+const BUILD_TAG = "2026-11-08e kincallの記録の窓に「🤝 案件共有」：社内の案件共有_申請フォームの項目どおりに、会社名・URL・担当者・電話・メール・勤務地（住所の都道府県）を入れた下書き。コピーかフォームを開く。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

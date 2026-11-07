@@ -1651,6 +1651,17 @@ function renderDock() {
     .kc-done-ov b{font-size:18px;color:#0A5440;} .kc-done-ov small{font-size:13px;color:#0E6B4E;font-weight:800;}
     @keyframes kcDoneIn{from{opacity:0;}to{opacity:1;}} @keyframes kcPop{from{transform:scale(0);}to{transform:scale(1);}}
     .kc-prevdone{display:flex;align-items:center;gap:8px;margin:0 16px 4px;padding:8px 12px;border-radius:10px;background:#E1F5EE;color:#0A5440;font-size:12.5px;font-weight:700;transition:opacity .5s, transform .5s;animation:kcSlideInR .35s ease;} .kc-prevdone .ck{width:20px;height:20px;border-radius:50%;background:#1D9E75;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;} .kc-prevdone.hide{opacity:0;transform:translateY(-6px);}
+    /* 案件共有（2026-11-08） */
+    .kc-cs-btn{background:#fff;}
+    .kcs-bg{position:fixed;inset:0;background:rgba(10,30,22,.45);z-index:9500;display:flex;align-items:flex-start;justify-content:center;padding:40px 14px;overflow:auto;}
+    .kcs{background:#fff;border-radius:18px;width:min(760px,100%);box-shadow:0 24px 60px -20px rgba(0,0,0,.5);display:flex;flex-direction:column;}
+    .kcs-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid #E1E9E5;} .kcs-h b{font-size:16px;} .kcs-h small{color:#6A7A72;font-size:12px;}
+    .kcs-b{padding:12px 18px;display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow:auto;}
+    .kcs-f{display:grid;grid-template-columns:200px 1fr;gap:10px;align-items:center;font-size:13px;} .kcs-f > div{display:flex;gap:6px;} .kcs-f input{flex:1;}
+    @media (max-width:640px){ .kcs-f,.kcs-g{grid-template-columns:1fr !important;} }
+    .kcs-g{display:grid;grid-template-columns:200px 1fr;gap:10px;font-size:13px;} .kcs-g > div{display:flex;flex-wrap:wrap;gap:6px;}
+    .kcs-opt{display:inline-flex;align-items:center;gap:5px;border:1px solid #DCE6E1;border-radius:99px;padding:3px 10px;font-size:12px;cursor:pointer;} .kcs-opt:has(input:checked){background:#E1F5EE;border-color:#1D9E75;color:#0A5440;font-weight:700;}
+    .kcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5;} .kcs-foot .note{flex:1;font-size:12px;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -12684,6 +12695,9 @@ function kcRecNav(m, id, opt) {
   const nav = document.createElement("span"); nav.className = "kc-recnav";
   nav.innerHTML = `<button type="button" class="kc-nav-b" data-nav="prev" ${prevId ? "" : "disabled"} title="ひとつ上のリード">‹ 前</button><span class="kc-nav-n">${at >= 0 ? `${at + 1} / ${ids.length}` : ""}</span><button type="button" class="kc-nav-b next" data-nav="next" ${nextId ? "" : "disabled"} title="ひとつ下のリード（記録していない入力があれば確かめます）">次 ›</button>`;
   btns.insertBefore(nav, btns.firstChild);
+  const cs = document.createElement("button"); cs.type = "button"; cs.className = "kc-nav-b kc-cs-btn"; cs.textContent = "🤝 案件共有"; cs.title = "社内の案件共有フォームに、この会社の情報を入れて開きます";
+  cs.addEventListener("click", () => kcCaseShareOpen(id));
+  btns.insertBefore(cs, nav);
   const go = (dir) => {
     const to = dir === "prev" ? prevId : nextId; if (!to) return;
     const memo = (m.el.querySelector("#kcMemo") || {}).value || "", res = (m.el.querySelector("#kcResult") || {}).value || "";
@@ -12700,4 +12714,51 @@ function kcRecNav(m, id, opt) {
   // キーボード：Alt＋→ で次、Alt＋← で前
   const key = (e) => { if (!document.body.contains(m.el)) { document.removeEventListener("keydown", key); return; } if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); go("next"); } if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); go("prev"); } };
   document.addEventListener("keydown", key);
+}
+
+// ===================== 案件共有（社内の案件共有_申請フォーム）（2026-11-08 田中さん「案件共有しやすいようにしたい」）=====================
+const CS_FIELDS = ["新卒採用(媒体)", "新卒採用(紹介)", "中途採用(媒体)", "二次店希望(PS)", "中途採用(紹介)/未経験OK", "中途採用(紹介)/未経験OK （Bee）", "中途採用(紹介)/経験必須", "アルバイト採用", "派遣利用（オフィスワーク）", "派遣利用（介護）", "派遣利用（その他）", "業務委託", "ツール制作（Web、パンフレット、スライド、動画など）", "どこでもオープンカンパニー", "Bスポンサーズ（高卒採用）"];
+const CS_ATTR = ["ユーザー", "今期ユーザー", "新規"];
+const CS_DESK = ["事務局対応不要（自身で共有先へ連携済み）", "事務局対応必要（共有先と事前に接続希望）", "事務局対応必要（事務局側で担当者調整次第、先方へ直接連絡でOK）"];
+const CS_WHEN = ["すぐに", "1ヶ月以内", "3ヶ月以内", "半年以内", "常時", "27卒", "28卒", "不明"];
+const CS_HOW = ["1名", "2-5名", "6-10名", "11名以上", "不明"];
+const CS_PREFS = ["北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"];
+async function kcCaseShareOpen(id) {
+  const x = (Array.isArray(rows) ? rows : []).find((v) => String(v.id) === String(id)) || {};
+  const ex = (x && x["追加"]) || {};
+  const pick = (...keys) => { for (const k of keys) { const v = (x && x[k]) || ex[k]; if (v) return String(v); } return ""; };
+  const addr = pick("住所", "所在地", "本社所在地");
+  const pref = CS_PREFS.find((p) => addr.includes(p)) || "";
+  let url = pick("URL", "HP", "ホームページ", "企業URL", "Webサイト"); if (url && !/^https?:\/\//.test(url)) url = "https://" + url;
+  const person = [pick("担当者"), pick("ふりがな") ? `（${pick("ふりがな")}）` : ""].join("");
+  let cfg = { formUrl: "", entries: {} }; try { cfg = await (await fetch("/api/case-share/config")).json(); } catch {}
+  document.querySelectorAll(".kcs-bg").forEach((n) => n.remove());
+  const bg = document.createElement("div"); bg.className = "kcs-bg";
+  const radio = (name, list, val) => list.map((v) => `<label class="kcs-opt"><input type="radio" name="${name}" value="${esc(v)}" ${v === val ? "checked" : ""}>${esc(v)}</label>`).join("");
+  bg.innerHTML = `<div class="kcs"><div class="kcs-h"><b>🤝 案件共有</b><small>社内の案件共有_申請フォームに入れる内容です。確かめて「フォームを開く」</small><button type="button" class="kc-btn" data-x style="margin-left:auto">閉じる</button></div>
+    <div class="kcs-b">
+      ${[["company", "クライアント企業名（事業所名）", pick("会社名")], ["url", "企業URL（HP）", url || "https://example.com/"], ["person", "先方担当者名", person], ["phone", "先方の電話番号", pick("電話番号")], ["email", "先方のメールアドレス", pick("メール")], ["job", "募集職種", ""], ["place", "募集勤務地", pref], ["to", "共有先となる営業担当の指定有無", "指定なし"], ["date", "商談予定日時", ""], ["price", "希望採用/稼働単価", ""]]
+        .map(([k, l, v]) => `<label class="kcs-f"><span>${esc(l)}</span><div><input class="kc-input" data-k="${k}" value="${esc(v)}"><button type="button" class="kc-btn kcs-cp" data-cp="${k}">コピー</button></div></label>`).join("")}
+      <div class="kcs-g"><span>想定分野（複数可）</span><div>${CS_FIELDS.map((v) => `<label class="kcs-opt"><input type="checkbox" name="field" value="${esc(v)}">${esc(v)}</label>`).join("")}</div></div>
+      <div class="kcs-g"><span>共有元企業の属性</span><div>${radio("attr", CS_ATTR, "新規")}</div></div>
+      <div class="kcs-g"><span>事務局対応</span><div>${radio("desk", CS_DESK, CS_DESK[2])}</div></div>
+      <div class="kcs-g"><span>希望採用/稼働時期</span><div>${radio("when", CS_WHEN, "不明")}</div></div>
+      <div class="kcs-g"><span>希望採用/稼働人数</span><div>${radio("how", CS_HOW, "不明")}</div></div>
+    </div>
+    <div class="kcs-foot"><span class="note" data-st>${Object.keys(cfg.entries || {}).length ? "「フォームを開く」で、上の内容が入った状態で開きます。最後にフォームで確かめて送信してください。" : "フォームに自動で入れる設定がまだなので、各欄の「コピー」でフォームに貼ってください。"}</span><button type="button" class="kc-btn primary" data-open>フォームを開く ↗</button></div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  const val = (k) => (bg.querySelector(`[data-k="${k}"]`) || {}).value || "";
+  bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", async () => { const v = val(b.dataset.cp); try { await navigator.clipboard.writeText(v); } catch { const t = document.createElement("textarea"); t.value = v; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); } b.textContent = "✓"; setTimeout(() => (b.textContent = "コピー"), 1200); }));
+  bg.querySelector("[data-open]").addEventListener("click", () => {
+    const en = cfg.entries || {}; const base = cfg.formUrl || "https://docs.google.com/forms/d/e/1FAIpQLScangZkXBazmLi1Amc7RM-xPtsyhKLdhn3rWO8P225_9QeLYw/viewform";
+    if (!Object.keys(en).length) { window.open(base, "_blank", "noopener"); return; }
+    const q = new URLSearchParams(); q.set("usp", "pp_url");
+    for (const k of ["company", "url", "person", "phone", "email", "job", "place", "to", "date", "price"]) if (en[k] && val(k)) q.append(en[k], val(k));
+    if (en.field) bg.querySelectorAll('input[name="field"]:checked').forEach((c) => q.append(en.field, c.value));
+    for (const k of ["attr", "desk", "when", "how"]) { const c = bg.querySelector(`input[name="${k}"]:checked`); if (en[k] && c) q.append(en[k], c.value); }
+    window.open(`${base}?${q.toString()}`, "_blank", "noopener");
+  });
 }
