@@ -12043,3 +12043,12 @@ export async function listBoxTargetsForMember(member, day = jstToday()) {
       WHERE b.day = $1 AND b.member = $2 ORDER BY b.pos`, [day, String(member).toLowerCase()]);
   return rows;
 }
+
+// かける画面の行に出す「最後のメモ」と、それを書いた人・日（2026-11-07 田中さん：誰がかけたか・どんな会話か、履歴を開かずに分かるように）
+export async function lastMemoLogs(ids = []) {
+  if (!pool || !ids.length) return new Map();
+  const { rows } = await pool.query(
+    `SELECT DISTINCT ON (target_id) target_id, caller, memo, at, result FROM call_logs
+      WHERE target_id = ANY($1::int[]) AND coalesce(btrim(memo),'') <> '' ORDER BY target_id, at DESC`, [ids.map((x) => parseInt(x, 10)).filter(Boolean)]);
+  return new Map(rows.map((r) => [r.target_id, r]));
+}

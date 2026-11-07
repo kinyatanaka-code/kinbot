@@ -1205,7 +1205,7 @@ function render() {
         <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td class="kc-phase">${x["最終フェーズ"] ? `<span class="kc-ph kc-ph-${KC_PHASES.indexOf(x["最終フェーズ"])}">${esc(x["最終フェーズ"])}</span>` : "-"}</td>
-        <td class="kc-histc">${x["最終コメント"] ? `<div class="kc-lastmemo" title="${esc(x["最終コメント"])}">${esc(x["最終コメント"])}</div>` : ""}<button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
+        <td class="kc-histc">${x["最終コメント"] ? kcLastMemoHtml(x) : ""}<button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
         ${rcols.map((k) => {
@@ -1588,6 +1588,8 @@ function renderDock() {
     .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
+    /* 最後のメモ：だれが・いつ（2026-11-07） */
+    .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
     /* 80コールまでは鍵のかかったタブ（2026-11-07） */
     .cl-cat.locked{opacity:.55;border-style:dashed;cursor:not-allowed;} .cl-cat.locked .cl-ccnt{background:#FFF1DC;color:#7A3F00;}
     /* LINEリストの利用中ATS（トークの上）（2026-11-05） */
@@ -3316,12 +3318,13 @@ function updateRow(x) {
   const stage = tr.querySelector(".kc-stage"); if (stage) stage.textContent = x["ステージ"] || "-";
   const status = tr.querySelector(".kc-status"); if (status) status.textContent = x["最終ステータス"] || "-";
   const hist = tr.querySelector(".kc-hist"); if (hist) hist.textContent = x["履歴数"] ? `${x["履歴数"]}件` : "なし";
-  // 履歴セルの最終コメント
+  // 履歴セルの最終コメント（だれが・いつ・何を話したか）
   const hc = tr.querySelector(".kc-histc");
   if (hc) {
-    let m = hc.querySelector(".kc-lastmemo");
-    if (x["最終コメント"]) { if (!m) { m = document.createElement("div"); m.className = "kc-lastmemo"; hc.insertBefore(m, hc.firstChild); } m.textContent = x["最終コメント"]; m.title = x["最終コメント"]; }
+    const old = hc.querySelector(".kc-lastmemo"); if (old) old.remove();
+    if (x["最終コメント"]) hc.insertAdjacentHTML("afterbegin", kcLastMemoHtml(x));
   }
+
   const last = tr.querySelector(".kc-lastcall"); if (last) last.textContent = lastCallLabel(x["最終日時"]);
   // 記録したことが分かるよう、少し光らせる
   tr.classList.add("kc-just");
@@ -12316,4 +12319,25 @@ function bxRender() {
     } catch (er) { alert(er.message); }
     bxRender();
   }));
+}
+
+// かける画面の行の「最後のメモ」：だれが・いつ（例：中澤 10/27）＋メモを短く。通話録音の要約は「要点 → 反応（次回）」に縮める（2026-11-07 田中さん）
+function kcMemoCompact(memo) {
+  const t = String(memo || "").replace(/\r/g, "");
+  const i = t.indexOf("【通話録音の要約】");
+  const human = (i >= 0 ? t.slice(0, i) : t).replace(/^結果[:：].*$/m, "").replace(/^メモ[:：]\s*/m, "").replace(/\s+/g, " ").trim();
+  if (i < 0) return human;
+  const sum = t.slice(i);
+  const pick = (k) => { const m = sum.match(new RegExp(`${k}\\s*[:：]\\s*([^\\n・･]+)`)); return m ? m[1].trim() : ""; };
+  const yo = pick("要点"), han = pick("反応"), next = pick("次回");
+  const ai = [yo, han ? `→ ${han}` : "", next ? `（次回：${next}）` : ""].filter(Boolean).join(" ");
+  return [human, ai].filter(Boolean).join("｜");
+}
+function kcLastMemoHtml(x) {
+  const who = String(x["最終メモの人"] || "").trim();
+  const sur = who ? (who.split(/[\s　]+/)[0].length < who.length ? who.split(/[\s　]+/)[0] : (who.length >= 4 ? who.slice(0, 2) : who)) : "";
+  const at = x["最終メモの日時"] || x["最終日時"]; const d = at ? new Date(at) : null;
+  const when = d && !isNaN(d) ? `${d.getMonth() + 1}/${d.getDate()}` : "";
+  const body = kcMemoCompact(x["最終コメント"]);
+  return `<div class="kc-lastmemo" title="${esc(String(x["最終コメント"] || ""))}">${sur || when ? `<span class="kc-lm-who">${esc(sur)}${sur && when ? " " : ""}${esc(when)}</span>` : ""}${esc(body)}</div>`;
 }

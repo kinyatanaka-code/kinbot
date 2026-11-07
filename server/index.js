@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -11141,6 +11141,9 @@ app.get("/api/calls/targets", async (req, res) => {
       const v = (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em) && dv.byEmail.get(em)) || dv.byCompany.get(normCompanyKey(String(r.company || "").normalize("NFKC")));
       return v ? { 回数: v.n, 秒: v.sec, 最後: v.last, 資料: [...v.docs].slice(0, 3) } : null;
     };
+    // 最後のメモを書いた人・日（行の「最後のメモ」に出す）
+    const _lastMemo = await lastMemoLogs(rows.map((r) => r.id)).catch(() => new Map());
+    const _memName = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), String(m.name || "").trim()]));
     const items = rows.map((r) => ({
         直近商談: recentMeetingOf(mtgMapAll, r.company),
         資料閲覧: viewOf(r),   // 直近に商談した・これから商談がある会社なら { day, kind }
@@ -11167,6 +11170,8 @@ app.get("/api/calls/targets", async (req, res) => {
         最終結果: r["最終結果"] || "",
         最終日時: r["最終日時"] || null,
         最終コメント: String(r["最終メモ"] || "").slice(0, 300),
+        最終メモの人: (() => { const lm = _lastMemo.get(r.id); return lm ? (_memName.get(String(lm.caller || "").toLowerCase()) || String(lm.caller || "").split("@")[0]) : ""; })(),
+        最終メモの日時: (() => { const lm = _lastMemo.get(r.id); return lm ? lm.at : null; })(),
         次回予定: r.next_call_at || null,
         担当メール: String(r.assigned_to || r._list_owner || "").trim().toLowerCase(),
         リスト名: r._list_name || r.リスト名 || "",
@@ -28479,7 +28484,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07d kincallのかける画面：今日80コールまでは「今日かける」（と今日の箱）だけ。ほかのリストのタブは鍵（あとnコール）で、80コールで開く（管理者・クローザーは鍵なし）。";
+const BUILD_TAG = "2026-11-07e kincallのかける画面：行の「最後のメモ」に、だれが・いつ（例：中澤 10/27）を付け、通話録音の要約は「要点 → 反応（次回）」に縮めて出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
