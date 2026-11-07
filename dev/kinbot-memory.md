@@ -2267,3 +2267,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・保存：kincsOnly の書き込みは、PUT /api/kinxs/accounts/:id（KCS_MAP で項目名を一覧の名前に：cs_name→cs、main_label→label、renew_month→renew…）と /rank だけ kincs_overlay に入れて ok、ほかは 403『kincs では、この操作は保存できません』。本番の kinxs_accounts は変えない。
   ・読む：kincs の画面（kinxs.js の api() が x-kx-app: kincs を付ける）か kincsOnly の GET /api/kinxs/users・renewals は、items に kincs_overlay を重ねて返す（kincs を見る人みんなに見える、kinXs には出ない）。
   ・kincs だけの人も、本番の kinXs のデータ（会社・議事録など）は読める（コピーなので）。
+
+- 2026-11-08 BUILD_TAG=2026-11-08c 田中さん「設定もkincsでは、アカウントと外部連携以外は非表示。外部連携もGoogle連携とSalesforce連携くらいで」。GET /kincs/settings：settings.html を読み、<base href="/">、題名『kincs の設定』、アイコン kincs.svg、左のメニュー（.sidebar）・グループの見出し・アカウントと外部連携以外のタブ・calendar と salesforce 以外の連携のカードを出さない、kinbot に相談の吹き出しも出さない、右上に『‹ kincs に戻る』、最初はアカウントのタブ。kincs のサイドバーの DOC更新管理の下に『設定』（kinxs.js、KX_COPY のとき）。kincs だけの人：/kincs/settings・/auth/google(/callback)・/api/calendar/status|disconnect・/auth/salesforce(/callback)・/api/salesforce/status|disconnect を通す、設定のページへ戻されたときは /kincs/settings へ。版20261108c。

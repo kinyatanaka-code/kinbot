@@ -1040,9 +1040,11 @@ app.use(async (req, res, next) => {
     req.kincsOnly = !u.admin && !req.impersonatorFrom && (await isKincsOnlyUser(u.username).catch(() => false));
     if (req.kincsOnly) {
       const p = req.path;
-      const ok = p === "/kincs" || p.startsWith("/api/kinxs/") || p === "/api/me" || p === "/api/logout" || p === "/logout"
+      const ok = p === "/kincs" || p === "/kincs/settings" || p.startsWith("/api/kinxs/") || p === "/api/me" || p === "/api/logout" || p === "/logout"
+        || p === "/auth/google" || p === "/auth/google/callback" || p === "/api/calendar/status" || p === "/api/calendar/disconnect"
+        || p === "/auth/salesforce" || p === "/auth/salesforce/callback" || p === "/api/salesforce/status" || p === "/api/salesforce/disconnect"
         || /\.(js|css|svg|png|jpg|ico|woff2?|webmanifest)$/.test(p) || p.startsWith("/api/kincs/");
-      if (!ok) { if (p.startsWith("/api/")) return res.status(403).json({ error: "kincs だけを使うアカウントです" }); return res.redirect("/kincs"); }
+      if (!ok) { if (p.startsWith("/api/")) return res.status(403).json({ error: "kincs だけを使うアカウントです" }); return res.redirect(/settings/.test(p) ? "/kincs/settings" : "/kincs"); }   // 連携のあと設定に戻るときは kincs の設定へ
       return next();
     }
     // 代理ログイン中は、元のアカウントに戻る道を必ず開けておく
@@ -5860,6 +5862,32 @@ app.use(async (req, res, next) => {
     }
     next();
   } catch (e) { next(); }
+});
+// kincs の設定（アカウントと、外部連携の Google・Salesforce だけ）（2026-11-08 田中さん）
+app.get("/kincs/settings", (req, res) => {
+  try {
+    let h = fs.readFileSync(path.join(__dirname, "..", "public", "settings.html"), "utf8");
+    h = h.replace("<head>", `<head>\n    <base href="/" />`)
+      .replace(/<title>[^<]*<\/title>/, "<title>kincs の設定</title>")
+      .replace(/href="\/icon\.svg"/, 'href="/kincs.svg?v=3"')
+      .replace("</head>", `<style>
+  /* kincs：左のメニュー（kinbot）は出さず、設定の項目はアカウントと外部連携だけ */
+  .sidebar{display:none !important;}
+  .set-menu .set-group-label{display:none !important;}
+  .set-menu-item:not([data-tab="account"]):not([data-tab="integrations"]){display:none !important;}
+  .integ-card:not([data-integ="calendar"]):not([data-integ="salesforce"]){display:none !important;}
+  .kb-bot-hint{display:none !important;} .topbar-bot{pointer-events:none;}
+  .kcs-back{display:inline-flex;align-items:center;gap:6px;margin-left:auto;border:1px solid #D6E2DB;border-radius:99px;padding:6px 14px;text-decoration:none;color:#0E6B4E;font-weight:700;font-size:13px;background:#fff;}
+</style>
+</head>`)
+      .replace(/<img class="topbar-bot" src="kinbot\.svg" alt="" \/><span class="brand-name">設定<\/span><\/div>/, '<img class="topbar-bot" src="/kincs.svg?v=3" alt="" /><span class="brand-name">kincs の設定</span></div><a class="kcs-back" href="/kincs?p=list">‹ kincs に戻る</a>')
+      .replace("</body>", `<script>
+// 最初はアカウントを開く（動作設定などは出さない）
+window.addEventListener("load", () => { const b = document.querySelector('.set-menu-item[data-tab="account"]'); if (b) b.click(); });
+</script>
+</body>`);
+    res.set("Cache-Control", "no-store").type("html").send(h);
+  } catch (e) { res.status(500).send("設定を開けませんでした：" + e.message); }
 });
 // kincs の招待リンク（管理者）と、招待から作るアカウント
 app.get("/api/kincs/invite", (req, res) => {
@@ -28778,7 +28806,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08b kincs：招待リンクから作ったアカウントは kincs しか見られず、直した内容は kincs にだけ残る（本番のkinXsは変えない）。管理者には「＋ メンバーを招待」。";
+const BUILD_TAG = "2026-11-08c kincsの設定（/kincs/settings）：アカウントと外部連携（Google・Salesforceだけ）。kincsのサイドバーに「設定」、kincsだけの人も使える。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
