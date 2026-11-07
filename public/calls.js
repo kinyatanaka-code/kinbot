@@ -2458,7 +2458,7 @@ async function openTarget(id, draft, opt) {
             <label class="kc-apo-lb" for="kcApoTag">種別</label>
             <div>
               <select class="kc-input" id="kcApoTag">
-                ${[["初回", "新規"], ["初回/過去失注", "過去失注"], ["初回/MO失注", "MO失注"], ["初回/フロッグ", "フロッグ"], ["初回/メルマガ", "メルマガリスト"], ["初回/LINE", "LINEリスト"]]
+                ${[["初回", "新規"], ["初回/過去失注", "過去失注"], ["初回/MO失注", "MO失注"], ["初回/フロッグ", "フロッグ"], ["初回/メルマガ", "メルマガリスト"], ["初回/LINE", "LINEリスト"], ["初回/メール", "メール（メールで日程調整）"]]
                   .map(([v, lb]) => `<option value="${v}"${kcApoTagOf(x) === v ? " selected" : ""}>${lb}（【${v}】）</option>`).join("")}
               </select>
               <div class="kc-apo-free" id="kcApoTitle"></div>

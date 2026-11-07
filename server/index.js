@@ -28475,7 +28475,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07b kincallの実績：アポを人に数えるとき、同じ会社で前に（別の月に）アポを取った人に寄せていたのをやめた（取得日の3日前までにその会社でアポ獲得を記録した人だけ）。";
+const BUILD_TAG = "2026-11-07c kincall：アポ獲得の予定名の種類に「メール（メールで日程調整）」を足した（予定名【初回/メール】、確定メールのお礼はメール用の1行、かけた人のアポとして数える）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -33194,7 +33194,7 @@ async function createApoFromKincall({ target, apo, setterEmail, actor }) {
     isLine = String(target && target.source || "") === "LINE" || /(^|[^A-Za-z])LINE/i.test(`${lg.name || ""} ${lg.group || ""}`.normalize("NFKC"));
   } catch {}
   // LINEリストから取ったアポは、予定名を【初回/LINE】に（2026-11-05 田中さん）
-  const tag = isLine ? "初回/LINE" : (["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ", "初回/LINE"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回");
+  const tag = isLine ? "初回/LINE" : (["初回", "初回/過去失注", "初回/MO失注", "初回/フロッグ", "初回/メルマガ", "初回/LINE", "初回/メール"].includes(String(apo.tag || "")) ? String(apo.tag) : "初回");
   const label = apoLabelOf(tag, company, person);
   // LINEリストのアポは、説明に「LINE」と、リストの「利用中ATS」の列を載せる
   let atsLine = "";
