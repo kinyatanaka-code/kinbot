@@ -1599,7 +1599,7 @@ function renderDock() {
     .zs-mh{display:flex;align-items:center;gap:10px;} .zs-mh b{display:block;font-size:18px;} .zs-tag{font-size:10.5px;font-weight:800;background:rgba(255,255,255,.18);border-radius:99px;padding:2px 8px;}
     .av{width:34px;height:34px;border-radius:12px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;color:#1B5FD0;background:#E3EEFF;} .av.big{width:44px;height:44px;border-radius:14px;font-size:15px;color:#0F6E62;background:#fff;}
     .zs-cred{display:flex;flex-direction:column;gap:6px;background:rgba(0,0,0,.16);border-radius:12px;padding:10px 12px;}
-    .zs-cred .f{display:flex;align-items:center;gap:8px;} .zs-cred span{width:68px;font-size:11.5px;color:#CFEDE2;} .zs-cred code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#fff;font-family:ui-monospace,Menlo,monospace;}
+    .zs-cred .f{display:flex;align-items:center;gap:8px;} .zs-cred span{width:78px;font-size:11.5px;color:#CFEDE2;line-height:1.2;} .zs-cred span small{font-size:9.5px;opacity:.8;} .zs-cred code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:#fff;font-family:ui-monospace,Menlo,monospace;}
     .zs-cp{border:0;border-radius:8px;padding:5px 10px;font:inherit;font-size:11.5px;font-weight:800;cursor:pointer;background:rgba(255,255,255,.18);color:#fff;} .zs-cp:hover{background:rgba(255,255,255,.3);} .zs-cp.ok{background:#B6E25C;color:#14231D;}
     .zs-steps{display:flex;align-items:stretch;gap:6px;} .zs-steps .ar{align-self:center;opacity:.6;font-weight:800;}
     .zs-steps .st{flex:1;display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.12);color:#fff;text-decoration:none;} .zs-steps a.st:hover{background:rgba(255,255,255,.22);}
@@ -12384,7 +12384,7 @@ async function kcZoomShareOpen() {
   const mine = d.items.find((x) => x.account === d.mine);
   const card = (x) => {
     const busy = x.holder && x.account !== d.mine;
-    return `<div class="zs-card${busy ? " busy" : ""}"><span class="av">${esc(ini(x.account))}</span><div class="nm"><b>${esc(short(x.account))}</b><small>${busy ? `<i class="dot busy"></i>${esc(x.holderName)}さんが使用中` : `<i class="dot free"></i>空いています`}${x.hasPass ? "" : "・PW未登録"}</small></div>
+    return `<div class="zs-card${busy ? " busy" : ""}"><span class="av">${esc(ini(x.account))}</span><div class="nm"><b>${esc(short(x.account))}</b><small>${busy ? `<i class="dot busy"></i>${esc(x.holderName)}さんが使用中` : `<i class="dot free"></i>空いています`}${x.hasPass ? "" : "・PW未登録"}${x.hasEmp ? "" : "・社員番号未登録"}</small></div>
       ${busy ? (d.admin ? `<button type="button" class="zs-ghost" data-zs-force="${esc(x.account)}">返してもらう</button>` : "") : `<button type="button" class="zs-go" data-zs-take="${esc(x.account)}">使う</button>`}
       ${d.admin ? `<button type="button" class="zs-icon" title="${x.hasPass ? "パスワードを変える" : "パスワードを登録"}" data-zs-set="${esc(x.account)}">⚙</button>` : ""}</div>`;
   };
@@ -12392,7 +12392,8 @@ async function kcZoomShareOpen() {
     <div class="zs-top"><div><span class="zs-k">📞 ZOOM SHARE</span><b>Zoomアカウント</b><small>今日の使用 ${used} / ${d.items.length}</small></div><button type="button" class="zs-x" data-zs-x aria-label="閉じる">✕</button></div>
     ${mine ? `<div class="zs-mine"><div class="zs-mh"><span class="av big">${esc(ini(mine.account))}</span><div><span class="zs-tag">あなたが使用中</span><b>${esc(short(mine.account))}</b></div><button type="button" class="zs-ghost light" data-zs-rel style="margin-left:auto">返す</button>${d.admin ? `<button type="button" class="zs-icon light" title="パスワードを変える" data-zs-set="${esc(mine.account)}">⚙</button>` : ""}</div>
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
-        <div class="f"><span>パスワード</span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
+        <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
+        <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
       <div class="zs-steps"><a class="st" href="https://zoom.us/logout" target="_blank" rel="noopener"><i>1</i><b>サインアウト</b><small>いまのZoomから</small></a><span class="ar">›</span>
         <a class="st hot" href="https://zoom.us/signin#/login" target="_blank" rel="noopener"><i>2</i><b>サインイン</b><small>上のID・PWで（Googleは使わない）</small></a><span class="ar">›</span>
         <div class="st"><i>3</i><b>Zoom電話も</b><small>kincallの中も入り直す</small></div></div>
@@ -12431,12 +12432,23 @@ ${/Windows/i.test(navigator.userAgent) ? `      <div class="c"><b>Windowsなら�
   bg.querySelectorAll("[data-zs-take]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/checkout", { account: b.dataset.zsTake }); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-rel]").forEach((b) => b.addEventListener("click", async () => { try { await post("/api/zoom-share/release"); again(); } catch (e) { alert(e.message); } }));
   bg.querySelectorAll("[data-zs-force]").forEach((b) => b.addEventListener("click", async () => { if (!confirm(`${b.dataset.zsForce} を返してもらいます。よろしいですか？`)) return; try { await post("/api/zoom-share/release", { account: b.dataset.zsForce }); again(); } catch (e) { alert(e.message); } }));
-  bg.querySelectorAll("[data-zs-set]").forEach((b) => b.addEventListener("click", async () => { const pw = prompt(`${b.dataset.zsSet} のZoomのパスワード`); if (!pw) return; try { await post("/api/zoom-share/account", { account: b.dataset.zsSet, password: pw }); again(); } catch (e) { alert(e.message); } }));
+  bg.querySelectorAll("[data-zs-set]").forEach((b) => b.addEventListener("click", async () => {
+    const acc = b.dataset.zsSet;
+    const emp = prompt(`${acc} のOktaの社員番号（変えないときは空のままOK）`); if (emp === null) return;
+    const pw = prompt(`${acc} のパスワード（Zoom・Okta 共通。変えないときは空のままOK）`); if (pw === null) return;
+    if (!emp.trim() && !pw) return;
+    try { await post("/api/zoom-share/account", { account: acc, ...(emp.trim() ? { empNo: emp.trim() } : {}), ...(pw ? { password: pw } : {}) }); again(); } catch (e) { alert(e.message); }
+  }));
   const add = bg.querySelector("[data-zs-add]"); if (add) add.addEventListener("click", async () => { const v = bg.querySelector("[data-zs-new]").value.trim(); if (!v) return; try { await post("/api/zoom-share/account", { account: v }); again(); } catch (e) { alert(e.message); } });
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
-    if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; return; }
-    try { const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(pwb.dataset.zsPw)}`)).json(); if (r.error) throw new Error(r.error); code.textContent = r.password; pwb.textContent = "隠す"; pwb.dataset.shown = "1"; cp.hidden = false; cp.onclick = () => copy(cp, r.password); }
+    if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }
+    try {
+      const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(pwb.dataset.zsPw)}`)).json(); if (r.error) throw new Error(r.error);
+      code.textContent = r.password; pwb.textContent = "隠す"; pwb.dataset.shown = "1"; cp.hidden = false; cp.onclick = () => copy(cp, r.password);
+      const ec = bg.querySelector("[data-emp]"), ecp = bg.querySelector("[data-cp-emp]");
+      if (ec && r.empNo) { ec.textContent = r.empNo; ecp.hidden = false; ecp.onclick = () => copy(ecp, r.empNo); }
+    }
     catch (e) { alert(e.message); }
   });
 }

@@ -12058,6 +12058,7 @@ let _zsReady = false;
 async function ensureZoomShare() {
   if (_zsReady || !pool) return;
   await pool.query(`CREATE TABLE IF NOT EXISTS zoom_shared (account TEXT PRIMARY KEY, pass_enc TEXT, memo TEXT, updated_by TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  await pool.query(`ALTER TABLE zoom_shared ADD COLUMN IF NOT EXISTS emp_enc TEXT`);   // Okta の社員番号（暗号化）（2026-11-07）
   await pool.query(`CREATE TABLE IF NOT EXISTS zoom_checkouts (id SERIAL PRIMARY KEY, account TEXT NOT NULL, member TEXT NOT NULL, start_at TIMESTAMPTZ NOT NULL DEFAULT now(), end_at TIMESTAMPTZ)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS zoom_checkouts_acc ON zoom_checkouts (account, start_at)`);
   _zsReady = true;
@@ -12065,21 +12066,22 @@ async function ensureZoomShare() {
 export async function zoomShareList() {
   if (!pool) return [];
   await ensureZoomShare();
-  const { rows } = await pool.query(`SELECT s.account, (s.pass_enc IS NOT NULL) AS has_pass, s.memo, c.member AS holder, c.start_at AS since
+  const { rows } = await pool.query(`SELECT s.account, (s.pass_enc IS NOT NULL) AS has_pass, (s.emp_enc IS NOT NULL) AS has_emp, s.memo, c.member AS holder, c.start_at AS since
       FROM zoom_shared s LEFT JOIN LATERAL (SELECT member, start_at FROM zoom_checkouts k WHERE k.account = s.account AND k.end_at IS NULL
         AND (k.start_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date ORDER BY start_at DESC LIMIT 1) c ON true ORDER BY s.account`);
   return rows;
 }
-export async function zoomShareUpsert(account, { passEnc, memo } = {}, by = "") {
+export async function zoomShareUpsert(account, { passEnc, memo, empEnc } = {}, by = "") {
   if (!pool) return null;
   await ensureZoomShare();
   const a = String(account || "").trim().toLowerCase(); if (!a) return null;
-  await pool.query(`INSERT INTO zoom_shared (account, pass_enc, memo, updated_by) VALUES ($1,$2,$3,$4)
-      ON CONFLICT (account) DO UPDATE SET pass_enc = COALESCE($2, zoom_shared.pass_enc), memo = COALESCE($3, zoom_shared.memo), updated_by = $4, updated_at = now()`, [a, passEnc ?? null, memo ?? null, by]);
+  await pool.query(`INSERT INTO zoom_shared (account, pass_enc, memo, updated_by, emp_enc) VALUES ($1,$2,$3,$4,$5)
+      ON CONFLICT (account) DO UPDATE SET pass_enc = COALESCE($2, zoom_shared.pass_enc), memo = COALESCE($3, zoom_shared.memo), emp_enc = COALESCE($5, zoom_shared.emp_enc), updated_by = $4, updated_at = now()`, [a, passEnc ?? null, memo ?? null, by, empEnc ?? null]);
   return a;
 }
 export async function zoomShareRemove(account) { if (!pool) return 0; await ensureZoomShare(); return (await pool.query(`DELETE FROM zoom_shared WHERE account = $1`, [String(account).toLowerCase()])).rowCount; }
 export async function zoomSharePass(account) { if (!pool) return null; await ensureZoomShare(); const { rows } = await pool.query(`SELECT pass_enc FROM zoom_shared WHERE account = $1`, [String(account).toLowerCase()]); return rows[0] ? rows[0].pass_enc : null; }
+export async function zoomShareEmp(account) { if (!pool) return null; await ensureZoomShare(); const { rows } = await pool.query(`SELECT emp_enc FROM zoom_shared WHERE account = $1`, [String(account).toLowerCase()]); return rows[0] ? rows[0].emp_enc : null; }
 // 借りる（その日だけ。前の日の貸し出しは自動で終わったものとみなす）。同じ人がほかに借りていれば返してから
 export async function zoomCheckout(account, member) {
   if (!pool) return { ok: false };

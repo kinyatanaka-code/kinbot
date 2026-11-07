@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -15752,7 +15752,7 @@ app.get("/api/zoom-share", async (req, res) => {
     const me = String(req.user || "").toLowerCase();
     const rows = await zoomShareList();
     const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), m.name || ""]));
-    res.json({ ok: true, admin: zsCanAdmin(req), mine: await zoomHeldBy(me), items: rows.map((r) => ({ account: r.account, hasPass: r.has_pass, memo: r.memo || "", holder: r.holder || "", holderName: r.holder ? (names.get(r.holder) || r.holder.split("@")[0]) : "", since: r.since })) });
+    res.json({ ok: true, admin: zsCanAdmin(req), mine: await zoomHeldBy(me), items: rows.map((r) => ({ account: r.account, hasPass: r.has_pass, hasEmp: r.has_emp, memo: r.memo || "", holder: r.holder || "", holderName: r.holder ? (names.get(r.holder) || r.holder.split("@")[0]) : "", since: r.since })) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/zoom-share/account", async (req, res) => {
@@ -15761,7 +15761,7 @@ app.post("/api/zoom-share/account", async (req, res) => {
     const b = req.body || {}; const acc = String(b.account || "").trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+$/.test(acc)) return res.status(400).json({ error: "アカウント（メールアドレス）が正しくありません" });
     if (b.remove) { await zoomShareRemove(acc); return res.json({ ok: true }); }
-    await zoomShareUpsert(acc, { passEnc: b.password ? csEnc(String(b.password)) : undefined, memo: b.memo != null ? String(b.memo).slice(0, 200) : undefined }, req.user);
+    await zoomShareUpsert(acc, { passEnc: b.password ? csEnc(String(b.password)) : undefined, empEnc: b.empNo ? csEnc(String(b.empNo).trim()) : undefined, memo: b.memo != null ? String(b.memo).slice(0, 200) : undefined }, req.user);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -15789,8 +15789,9 @@ app.get("/api/zoom-share/password", async (req, res) => {
     if (!zsCanAdmin(req) && (await zoomHeldBy(me)) !== acc) return res.status(403).json({ error: "借りているアカウントのパスワードだけ見られます" });
     const enc = await zoomSharePass(acc); if (!enc) return res.status(404).json({ error: "パスワードがまだ登録されていません（田中さんに登録してもらってください）" });
     let pw = ""; try { pw = csDec(enc); } catch { return res.status(500).json({ error: "パスワードを読めませんでした（登録し直してください）" }); }
-    console.log(`[zoom-share] ${me} が ${acc} のパスワードを見ました`);
-    res.json({ ok: true, account: acc, password: pw });
+    let empNo = ""; try { const ee = await zoomShareEmp(acc); if (ee) empNo = csDec(ee); } catch {}
+    console.log(`[zoom-share] ${me} が ${acc} のパスワード${empNo ? "・社員番号" : ""}を見ました`);
+    res.json({ ok: true, account: acc, password: pw, empNo });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // Zoom電話でかけられないときの確認：kincallのメールがZoom Phoneの利用者にいるか・電話番号があるか。
@@ -28583,7 +28584,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07k kincall：Zoom専用のChromeへ、ログインしたまま引き継ぐリンク（5分・1回だけ）。Google・Oktaのログインなしで専用のChromeでkincallを開ける。";
+const BUILD_TAG = "2026-11-07l kincallのZoomアカウント：Oktaの社員番号を登録・表示（パスワードはZoom・Okta共通）。借りている本人と管理者だけが見られる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
