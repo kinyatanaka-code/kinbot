@@ -2253,3 +2253,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07zq 田中さん「kincsの子猫スフィンクスは横向きね笑」。public/kincs.svg を描き直し：本家と同じ右向きの横顔。ころんとおすわりした子猫のからだ、前へのばした前足、頭のうしろから肩へたれるしまの頭巾、頭巾から出た耳、大きな目・ひげ・ファラオのひげ、葉っぱの先のしっぽ（背中の側）。アイコンの URL は /kincs.svg?v=3。版20261107zq。
 
 - 2026-11-07 BUILD_TAG=2026-11-07zr 田中さん（サイドバーの kinbot・kincall・Salesforce・ツール）「kincsはこの辺非表示で」。/kincs に .kx-stools{display:none} を入れた（kinXs はそのまま）。版20261107zr。
+
+- 2026-11-07 BUILD_TAG=2026-11-07zs 田中さん（サイドバーのフェーズ別〜CS連携（回収MTG））「このメニューバーも非表示」。/kincs で .kx-nav[data-view=board|plan|call|trend|cs] を出さない（ホーム・ユーザー一覧・DOC更新管理だけ）。URL を直接開けば画面は出る。版20261107zs。
