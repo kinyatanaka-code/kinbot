@@ -2255,3 +2255,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07zr 田中さん（サイドバーの kinbot・kincall・Salesforce・ツール）「kincsはこの辺非表示で」。/kincs に .kx-stools{display:none} を入れた（kinXs はそのまま）。版20261107zr。
 
 - 2026-11-07 BUILD_TAG=2026-11-07zs 田中さん（サイドバーのフェーズ別〜CS連携（回収MTG））「このメニューバーも非表示」。/kincs で .kx-nav[data-view=board|plan|call|trend|cs] を出さない（ホーム・ユーザー一覧・DOC更新管理だけ）。URL を直接開けば画面は出る。版20261107zs。
+
+- 2026-11-07 BUILD_TAG=2026-11-07zt 田中さん「ホームを非表示で」。/kincs のメニューから home も外した（ユーザー一覧・DOC更新管理だけ）。/kincs（p なし）と ?p=home はユーザー一覧（?p=list）へ移す、サイドバーのロゴのリンクも ?p=list。版20261107zt。
