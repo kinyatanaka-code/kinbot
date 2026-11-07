@@ -11434,6 +11434,8 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     // 新しい順に並べ直す（日付が空/不正でも壊れないようにする）
     const ts = (v) => { const n = new Date(v || 0).getTime(); return Number.isFinite(n) ? n : 0; };
     uniq.sort((a, b) => ts(b.at) - ts(a.at));
+    // SF の「次にかける日」の予定（kincallから設定）は、やり取りではないので履歴に出さない（2026-11-07 田中さん）
+    for (let i = uniq.length - 1; i >= 0; i--) if (/^kincallから設定[（(]/.test(String(uniq[i].メモ || "").trim())) uniq.splice(i, 1);
 
     // 履歴を見せないリスト：自分がかけた記録だけ（kincallの記録はかけた人、SFの活動は「記録した人：自分」か持ち主が自分）
     let out = uniq, note = sfNote;
@@ -11444,7 +11446,7 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
         if (h.元 === "kinbot") return String(h.誰 || "").toLowerCase() === me;
         const memo = String(h.メモ || "").replace(/[\s　]/g, "");
         const who = String(h.誰 || "").replace(/[\s　]/g, "");
-        if (/記録した人[:：]/.test(memo)) return !!myName && (memo.includes(`記録した人:${myName}`) || memo.includes(`記録した人：${myName}`));
+        if (/(記録|架電)した人[:：]/.test(memo)) return !!myName && [`記録した人:${myName}`, `記録した人：${myName}`, `架電した人:${myName}`, `架電した人：${myName}`].some((k) => memo.includes(k));
         return !!myName && who === myName;
       };
       out = uniq.filter(isMine);
@@ -17168,8 +17170,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
             `結果：${result}`,
             b.memo ? `メモ：${b.memo}` : "",
             b.status ? `リードの状態：${b.status}` : "",
-            // 誰がかけたかを必ず残す（代理で更新するときは特に大事）
-            `記録した人：${記録者}`,
+            // 誰がかけたかを必ず残す（代理で更新するときは特に大事）。「記録した人」ではなく「架電した人」（2026-11-07 田中さん）
+            `架電した人：${記録者}`,
           ].filter(Boolean).join("\n"),
         });
         // リードの状態も直す（項目名は組織ごとに違うので、指定があるときだけ）
@@ -17213,7 +17215,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
             ActivityDate: naDate,                       // 活動日
             Type: naType,                               // 活動種別（既定：ネクストアクション）
             // Status は付けない＝未完了の「予定」にする
-            Description: `kincallから設定（記録した人：${記録者}）`,
+            Description: `kincallから設定（架電した人：${記録者}）`,
           });
           sf.nextAction = naDate;
           console.log(`[kincall] ネクストアクション（活動予定）を作成 lead=${t.lead_id} 活動日=${naDate}${naType ? ` 種別=${naType}` : ""} by ${req.user}`);
@@ -17446,7 +17448,8 @@ async function syncCallToSf(log) {
       ActivityDate: 時刻.slice(0, 10),
       ...(st0.sfSetCompletedAt !== false ? { CompletedDateTime: 時刻 } : {}),
       ...(st0.sfActivityTimeField ? { [String(st0.sfActivityTimeField)]: 時刻 } : {}),
-      Description: [`結果：${log.result}`, log.memo ? `メモ：${log.memo}` : ""].filter(Boolean).join("\n"),
+      // だれがかけたか（Zoom Phone の通話から作った記録も。借りたZoomアカウントでかけたときは、借りていた人）（2026-11-07）
+      Description: [`結果：${log.result}`, log.memo ? `メモ：${log.memo}` : "", `架電した人：${await displayNameOf(log.caller).catch(() => log.caller)}`].filter(Boolean).join("\n"),
     });
     await markCallSynced(log.id, { taskId: (task && (task.id || task.Id)) || "done" });
     console.log(`[コール] Salesforceに残しました：${log.company}（${log.result}）`);
@@ -28665,7 +28668,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zj kincallの記録の窓：記録したら大きな✓「記録しました／次のリードへ ›」を出して窓を左へすべらせ、次のリードを右からすべり込ませる。次の窓の上に「○○を記録しました → 次のリードです」。";
+const BUILD_TAG = "2026-11-07zk kincall：これまでのやり取りにSFの次にかける日の予定（kincallから設定）を出さない。SFの活動の「記録した人」を「架電した人」に（Zoom Phoneの通話から作った記録も）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
