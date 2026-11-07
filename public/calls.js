@@ -85,7 +85,8 @@ function callHref(v) {
   try {
     const z = await (await fetch("/api/zoom-phone/status")).json();
     _zoomOn = !!(z && z.設定済み && z.接続); _zoomCall = _zoomOn && z.clickToCall !== false;
-    _zoomEmbed = _zoomOn && z.embed === true && window.innerWidth > 760;
+    // kincallの中のZoom電話（埋め込み）は使わない（2026-11-07 田中さん「さっきのzoom電話消して」）。電話番号を押すとZoomアプリでかける
+    _zoomEmbed = false;
     if (_zoomEmbed && typeof zpPanel === "function") zpPanel(false);   // 先に読み込んでおく（サインイン・着信のため）
   } catch {}
 })();
@@ -12406,8 +12407,8 @@ async function kcZoomShareOpen() {
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
-      ${mine.confirmed ? "" : `<a class="zs-signin" href="${esc(`https://accounts.google.com/AccountChooser?Email=${encodeURIComponent(mine.account)}&continue=${encodeURIComponent("https://zoom.us/google_oauth_signin")}`)}" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>メールアドレスは自動で入ります。押すと社員番号をコピーするので、Oktaの画面で貼ってください</small></a>
-      <div class="zs-okta" data-zs-okta hidden><b>Oktaの画面で</b><span>① 社員番号を貼る（コピー済み）</span><button type="button" class="zs-cp" data-okta-emp>社員番号をコピー</button><span>② パスワードを貼る</span><button type="button" class="zs-cp" data-okta-pw>パスワードをコピー</button></div>`}
+      ${mine.confirmed ? "" : `<a class="zs-signin" href="https://zoom.us/google_oauth_signin" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>押すとメールアドレスをコピーします → Googleに貼る → 次に社員番号・パスワードの順にコピーして、Oktaに貼る</small></a>
+      <div class="zs-okta" data-zs-okta hidden><b>サインインの画面で、上から順に貼る</b><button type="button" class="zs-cp" data-okta-mail>① メールアドレス（Google）</button><button type="button" class="zs-cp" data-okta-emp>② 社員番号（Okta）</button><button type="button" class="zs-cp" data-okta-pw>③ パスワード（Okta）</button></div>`}
 
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
@@ -12424,7 +12425,10 @@ async function kcZoomShareOpen() {
   const close = () => { bg.remove(); if (window._kcZsRefresh) window._kcZsRefresh(); }; const again = () => { bg.remove(); kcZoomShareOpen(); if (window._kcZsRefresh) window._kcZsRefresh(); };
   bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
   bg.querySelector("[data-zs-x]").addEventListener("click", close);
-  const copy = async (btn, text) => { try { await navigator.clipboard.writeText(text); const t = btn.textContent; btn.textContent = "✓"; btn.classList.add("ok"); setTimeout(() => { btn.textContent = t; btn.classList.remove("ok"); }, 1400); } catch { alert("コピーできませんでした"); } };
+  const copy = async (btn, text) => {
+    let ok = false; try { await navigator.clipboard.writeText(text); ok = true; } catch { try { const t = document.createElement("textarea"); t.value = text; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select(); ok = document.execCommand("copy"); t.remove(); } catch {} }
+    if (!ok) return; const t0 = btn.textContent; btn.textContent = "✓"; btn.classList.add("ok"); setTimeout(() => { btn.textContent = t0; btn.classList.remove("ok"); }, 1400);
+  };
   bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", () => copy(b, b.dataset.cp)));
   const cpw = bg.querySelector("[data-cp-win]"); if (cpw) cpw.addEventListener("click", () => copy(cpw, bg.querySelector("[data-cmd-win]").textContent));
   const ho = bg.querySelector("[data-ho]"); if (ho) ho.addEventListener("click", async () => {
@@ -12450,18 +12454,19 @@ async function kcZoomShareOpen() {
     try { await post("/api/zoom-share/account", { account: acc, ...(emp.trim() ? { empNo: emp.trim() } : {}), ...(pw ? { password: pw } : {}) }); again(); } catch (e) { alert(e.message); }
   }));
   const add = bg.querySelector("[data-zs-add]"); if (add) add.addEventListener("click", async () => { const v = bg.querySelector("[data-zs-new]").value.trim(); if (!v) return; try { await post("/api/zoom-share/account", { account: v }); again(); } catch (e) { alert(e.message); } });
-  // 「Googleで Zoom にサインイン」：Google はメールアドレスを入れた状態で開き、Okta 用に社員番号をコピーしておく（Okta の画面にはkincallから直接入れられないため）
+  // 「Googleで Zoom にサインイン」：押したその場でメールアドレスをコピー（別のタブが開くとコピーできなくなるため、先に読んでおく）。
+  //   Google・Okta の入力欄には kincall から直接入れられないので、①メール ②社員番号 ③パスワード の順にコピーできるボタンを出す
   const si = bg.querySelector("[data-zs-signin]");
-  if (si && mine) si.addEventListener("click", async () => {
-    let cred = null;
-    try { const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(mine.account)}`)).json(); if (!r.error) cred = r; } catch {}
-    const box = bg.querySelector("[data-zs-okta]"); if (box) box.hidden = false;
-    if (cred) {
-      const eb = bg.querySelector("[data-okta-emp]"), pb = bg.querySelector("[data-okta-pw]");
-      if (cred.empNo) { copy(eb, cred.empNo); eb.onclick = () => copy(eb, cred.empNo); } else { eb.textContent = "社員番号が未登録"; eb.disabled = true; }
-      pb.onclick = () => copy(pb, cred.password);
-    }
-  });
+  let cred = null;
+  if (si && mine) {
+    fetch(`/api/zoom-share/password?account=${encodeURIComponent(mine.account)}`).then((r) => r.json()).then((r) => { if (!r.error) cred = r; }).catch(() => {});
+    const syncCopy = (text) => { try { const t = document.createElement("textarea"); t.value = text; t.style.position = "fixed"; t.style.opacity = "0"; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); return true; } catch { return false; } };
+    const bindBtn = (sel, get) => { const b = bg.querySelector(sel); if (!b) return; b.addEventListener("click", () => { const v = get(); if (!v) { b.textContent = "未登録"; return; } if (syncCopy(v)) { const t0 = b.textContent; b.textContent = "✓ コピーしました"; b.classList.add("ok"); setTimeout(() => { b.textContent = t0; b.classList.remove("ok"); }, 1600); } }); };
+    si.addEventListener("click", () => { syncCopy(mine.account); const box = bg.querySelector("[data-zs-okta]"); if (box) box.hidden = false; });
+    bindBtn("[data-okta-mail]", () => mine.account);
+    bindBtn("[data-okta-emp]", () => cred && cred.empNo);
+    bindBtn("[data-okta-pw]", () => cred && cred.password);
+  }
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
     if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }
@@ -12532,7 +12537,6 @@ async function kcZoomSetupOpen(account) {
   const u = new URL(location.href); if (!u.searchParams.has("zsetup")) return;
   u.searchParams.delete("zsetup"); history.replaceState(null, "", u.pathname + (u.search || "") + u.hash);
   setTimeout(async () => {
-    try { if (typeof zpPanel === "function") zpPanel(true); } catch {}
     await kcZoomShareOpen();
     const pw = document.querySelector("[data-zs-pw]"); if (pw) pw.click();   // ID・社員番号・パスワードを見える状態に
     const si = document.querySelector("[data-zs-signin]");

@@ -28602,7 +28602,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07u kincallのZoomアカウント：「Googleで Zoom にサインイン」でGoogleのメールアドレスを自動で入れ、押したときにOkta用の社員番号をコピー（続けてパスワードもコピーできる）。";
+const BUILD_TAG = "2026-11-07v kincall：中のZoom電話（埋め込み）をやめた（電話番号はZoomアプリでかける）。Zoomのサインインは、Googleの400エラーになる開き方を戻し、①メール ②社員番号 ③パスワードの順にコピーできる形に（コピーの失敗も直した）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
