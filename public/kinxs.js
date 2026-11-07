@@ -1,3 +1,5 @@
+// kinXs と、そのコピー（kinxs：/kinxs-copy）で同じ画面を使う。ページの移動先はここで切りかえる（2026-11-07）
+const KX_BASE = window.KX_COPY ? "/kinxs-copy" : "/kinxs";
 // kinXs 更新管理（更新月×更新確度）
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -270,14 +272,14 @@ api("/api/kinxs/users").then((u) => {
     tk.innerHTML = [["won", "今月受注"], ["last", "先月受注"], ["del", "今月納品予定"]].map(([k, t]) => `<button type="button" class="kx-tk ${cur === k ? "on" : ""}" data-tk="${k}">${t}<b>${cnt[k]}</b>社</button>`).join("");
     tk.querySelectorAll("[data-tk]").forEach((b) => b.addEventListener("click", () => {
       if (VIEW === "list") { window.__lsKpi = window.__lsKpi === b.dataset.tk ? "" : b.dataset.tk; tk.querySelectorAll("[data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); window.__lsTab = "all"; renderList(); }
-      else location.href = `/kinxs?p=list&kpi=${b.dataset.tk}`;
+      else location.href = `${KX_BASE}?p=list&kpi=${b.dataset.tk}`;
     }));
   }
   const n = ((u && u.items) || []).filter((x) => (x.alerts || []).length).length;
   const c = $("kxTopChip"); if (!c || !n) return;
   if (!window.KX_SHOW_TOP_ALERT) return;   // ヘッダーの「要注意 ○社」は、いまは出さない（2026-10-26）
   c.hidden = false; c.textContent = `要注意 ${n}社`;
-  c.addEventListener("click", () => { location.href = "/kinxs?p=list"; });
+  c.addEventListener("click", () => { location.href = KX_BASE + "?p=list"; });
 }).catch(() => {});
 if (VIEW === "settings") {
   // kinbotの設定（Google連携・アカウントなど）を、kinXsの中に埋め込んで開く
@@ -1331,7 +1333,7 @@ if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIE
     const bar = document.createElement("div"); bar.className = "kx-imp-bar";
     bar.innerHTML = `<span aria-hidden="true">👤</span><span><b>${H(me.impersonator_name || me.impersonator_email || "元のアカウント")}</b> として、<b>${H(me.name || me.username)}</b> の kinXs を見ています（直した内容は、あなたの操作として残ります）</span><button type="button" class="kx-imp-back">← 元のアカウントに戻る</button>`;
     document.body.prepend(bar); document.body.classList.add("kx-imp-on");
-    bar.querySelector(".kx-imp-back").addEventListener("click", async () => { try { const r = await fetch("/api/impersonate/stop", { method: "POST" }); if (!r.ok) throw new Error("戻れませんでした"); location.href = "/kinxs?p=home"; } catch (e) { alert(e.message); } });
+    bar.querySelector(".kx-imp-back").addEventListener("click", async () => { try { const r = await fetch("/api/impersonate/stop", { method: "POST" }); if (!r.ok) throw new Error("戻れませんでした"); location.href = KX_BASE + "?p=home"; } catch (e) { alert(e.message); } });
   }
   if (!me.can_impersonate) return;
   const side = document.querySelector(".kx-side"); if (!side) return;
@@ -1355,7 +1357,7 @@ if (VIEW === "list") loadList(); else if (VIEW === "renew") load(); else if (VIE
       list.querySelectorAll(".imp-user").forEach((el) => el.addEventListener("click", async () => {
         const nm = el.querySelector(".imp-user-name").textContent;
         if (!confirm(`${nm} として kinXs を見ます。よろしいですか？（記録に残ります）`)) return;
-        try { const r = await fetch("/api/impersonate/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: el.dataset.email }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "切りかえられませんでした"); location.href = "/kinxs?p=home"; } catch (e) { alert(e.message); }
+        try { const r = await fetch("/api/impersonate/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: el.dataset.email }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "切りかえられませんでした"); location.href = KX_BASE + "?p=home"; } catch (e) { alert(e.message); }
       })); };
     m.querySelector(".imp-modal-filter").addEventListener("input", (e) => render(e.target.value));
     m.querySelector(".imp-modal-x").addEventListener("click", () => m.remove());
