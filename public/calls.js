@@ -2679,9 +2679,11 @@ async function openTarget(id, draft, opt) {
         const hi = body.indexOf("【通話録音の要約】"); if (hi >= 0) body = body.slice(0, hi);
         body = body.split("\n").filter((l) => !/^\s*・?\s*(相手|要点|反応|次回)\s*[:：]|^\s*・?\s*会話なし/.test(l)).join("\n").trim();
         const sum = String(d.summary || "").trim();
-        const none = !sum || (/^・?\s*会話なし/.test(sum) && sum.split("\n").filter((l) => l.trim()).length <= 1);
+        const sec = d.duration ? `・${d.duration}秒` : "";
+        if (d.kind === "failed") { if (st) st.textContent = `${d.when || ""}の通話（録音${sec}）は見つかりましたが、要約を作れませんでした。少し待ってからもう一度押してください（メモは変えていません）。`; recBtn.disabled = false; return; }
+        const none = d.kind === "none";
         ta.value = none ? body : (body ? `${body}\n${sum}` : sum);
-        if (st) st.textContent = none ? `${d.when || ""}の通話は、会話がありませんでした（要約は入れていません）。「直す」で保存してください。` : `${d.when || ""}の通話の録音から入れました。確かめて「直す」で保存してください。`;
+        if (st) st.textContent = none ? `${d.when || ""}の通話（録音${sec}）は、会話がありませんでした（留守電・不在など）。要約は入れていません。「直す」で保存してください。` : `${d.when || ""}の通話（録音${sec}）から入れました。確かめて「直す」で保存してください。`;
       } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
       recBtn.disabled = false;
       return;

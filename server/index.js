@@ -16040,7 +16040,11 @@ app.post("/api/calls/targets/:id/history/resummary", async (req, res) => {
     const o = await summarizeZoomRec(r, []).catch((e) => ({ summary: "", error: e.message }));
     if (o.summary) await saveZoomRecSummary({ recId: r.id, targetId: t.id, at: r.at, duration: r.duration, summary: o.summary, downloadUrl: r.downloadUrl }).catch(() => {});
     const d = new Date(Date.parse(r.at) + 9 * 3600000);
-    res.json({ ok: true, recId: r.id, summary: cleanCallSummary(o.summary || ""), when: `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}` });
+    const sum = cleanCallSummary(o.summary || "");
+    // 会話なし と 要約できなかった を分けて返す（2026-11-07：要約に失敗したのに「会話がありませんでした」と出ていた）
+    const kind = !sum ? "failed" : (/^・?\s*会話なし/.test(sum) && sum.split("\n").filter((l) => l.trim()).length <= 1 ? "none" : "ok");
+    if (kind === "failed") console.warn(`[resummary] 要約できませんでした rec=${r.id} 秒=${r.duration} 文字起こし=${!!r.transcriptUrl} 音声=${!!r.downloadUrl} ${o.error || ""}`);
+    res.json({ ok: true, recId: r.id, kind, duration: Math.round(Number(r.duration) || 0), summary: sum, when: `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}` });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/calls/targets/:id/zoom-summary", async (req, res) => {
@@ -28650,7 +28654,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zf kincallの履歴の「直す」に「🎧 この時の録音を取り込み直す」（その記録の録音、無ければ同じ電話番号で前後30分の通話の録音を要約し直して、メモの要約を入れかえる）。";
+const BUILD_TAG = "2026-11-07zg 履歴の録音の取り込み直し：「会話なし」と「要約を作れなかった」を分けて出す（録音の秒数も）。要約できなかったときはメモを変えない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
