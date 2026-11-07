@@ -6,7 +6,8 @@ const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&":
 const RANKS = [["S", "更新確定"], ["A", "更新予定"], ["B", "検討中"], ["C", "解約検討"], ["Z", "未アプローチ"], ["F", "解約企業"]];
 let data = null;
 async function api(url, opts = {}) {
-  const r = await fetch(url, { headers: { "content-type": "application/json" }, ...opts });
+  // kincs（コピー）から呼ぶときは、その印を付ける（kincs だけに保存した内容を重ねて返してもらう）
+  const r = await fetch(url, { headers: { "content-type": "application/json", ...(window.KX_COPY ? { "x-kx-app": "kincs" } : {}) }, ...opts });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error || `エラー（${r.status}）`);
   return d;
@@ -2048,3 +2049,18 @@ new MutationObserver(() => {
     requestAnimationFrame(() => { const t = box.querySelector(".t"); const b = box.querySelector("[data-prods-tog]"); if (t && b && t.scrollHeight > t.clientHeight + 2) b.hidden = false; });
   });
 }).observe(document.body, { childList: true, subtree: true });
+
+// kincs：管理者には「メンバーを招待」（kincs だけを使うアカウントを作るリンク）（2026-11-08）
+if (window.KX_COPY) {
+  fetch("/api/me").then((r) => r.json()).then((me) => {
+    if (!me || !me.admin) return;
+    const host = document.querySelector(".kx-head-r, .kx-top .r, header .kx-head, .topbar") || document.body;
+    const b = document.createElement("button"); b.type = "button"; b.className = "kx-btn"; b.textContent = "＋ メンバーを招待";
+    b.style.cssText = "margin-left:8px";
+    b.title = "kincs だけを使うアカウントを作るリンクをコピーします（その人は kincs しか見られず、直した内容は kincs にだけ残ります）";
+    b.addEventListener("click", async () => {
+      try { const d = await api("/api/kincs/invite"); await navigator.clipboard.writeText(d.url).catch(() => {}); prompt("招待リンク（コピーしました）。この人は kincs しか見られず、直した内容は kincs にだけ残ります。", d.url); } catch (e) { alert(e.message); }
+    });
+    const pn = document.getElementById("kxPageName"); if (pn && pn.parentElement) pn.parentElement.appendChild(b); else host.appendChild(b);
+  }).catch(() => {});
+}

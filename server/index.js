@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -879,6 +879,8 @@ const OPEN_PATHS = new Set([
   "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
   // Zoom専用のChromeへ、ログインしたまま引き継ぐ1回だけのリンク（2026-11-07）
   "/auth/handoff",
+  // kincs の招待から作るアカウント（2026-11-08）
+  "/kincs/join", "/api/kincs/join",
   // 商談の切り替え（スマホのアプリ）：ホーム画面に追加するための設定・アイコン・サービスワーカー
   "/switch.webmanifest", "/switch-sw.js", "/switch-icon-192.png", "/switch-icon-512.png", "/switch-icon-180.png",
   // 会議に映すページとその中身（Recallのブラウザから認証なしで読む）
@@ -1033,6 +1035,15 @@ app.use(async (req, res, next) => {
       if (操作者 === "admin" || 管理者一覧.includes(操作者)) { req.isAdmin = true; req.kincallOnly = false; }
       // クローザーが操作しているときも、その人の権限で動けるようにする
       else if (await isCloserUser(操作者).catch(() => false)) { req.actingCloser = true; req.kincallOnly = false; }
+    }
+    // kincs だけの人：kincs の画面と、その画面で使う API・ファイルだけ（2026-11-08 田中さん）
+    req.kincsOnly = !u.admin && !req.impersonatorFrom && (await isKincsOnlyUser(u.username).catch(() => false));
+    if (req.kincsOnly) {
+      const p = req.path;
+      const ok = p === "/kincs" || p.startsWith("/api/kinxs/") || p === "/api/me" || p === "/api/logout" || p === "/logout"
+        || /\.(js|css|svg|png|jpg|ico|woff2?|webmanifest)$/.test(p) || p.startsWith("/api/kincs/");
+      if (!ok) { if (p.startsWith("/api/")) return res.status(403).json({ error: "kincs だけを使うアカウントです" }); return res.redirect("/kincs"); }
+      return next();
     }
     // 代理ログイン中は、元のアカウントに戻る道を必ず開けておく
     const 戻る道 = req.path === "/api/impersonate/stop" || req.path === "/api/me";
@@ -5821,6 +5832,63 @@ app.get("/kincall", (req, res) => {
 });
 
 // kinXs（DOC導入企業のCS一元管理）。kinbotとは別の道具として、独自の画面で開く
+// ===== kincs だけの保存（kincs の招待で作った人が直した内容は、本番の kinXs には書かず kincs にだけ残す）（2026-11-08）=====
+const KCS_MAP = { cs_name: "cs", main_label: "label", renew_month: "renew", renew_month2: "renew2", na_text: "na", na_due: "naDue", purpose: "purpose", usage_status: "usage", memo: "memo",
+  kenshu_na: "kenshuNa", kenshu_done: "kenshuDone", kenshu_month: "kenshuMonth", kenshu_on: "kenshuOn", published_on: "publishedOn", invoice_state: "invoiceState", invoice_need: "invoiceNeed", sns_phase: "snsPhase" };
+app.use(async (req, res, next) => {
+  try {
+    if (!req.path.startsWith("/api/kinxs/")) return next();
+    // 書く：kincs だけの人 → kincs の置き場へ（本番は変えない）
+    if (req.kincsOnly && req.method !== "GET") {
+      const m1 = req.path.match(/^\/api\/kinxs\/accounts\/([^/]+)\/rank$/), m2 = req.path.match(/^\/api\/kinxs\/accounts\/([^/]+)$/);
+      const b = req.body || {};
+      if (m1 && req.method === "PUT") { await kincsOverlayPatch(decodeURIComponent(m1[1]), { rank: String(b.rank || "").toUpperCase() }, req.user); return res.json({ ok: true, kincs: true }); }
+      if (m2 && req.method === "PUT") {
+        const patch = {}; for (const [k, v] of Object.entries(b)) if (KCS_MAP[k]) patch[KCS_MAP[k]] = v;
+        if (b.main_label === null || b.main_label === "") delete patch.label;
+        await kincsOverlayPatch(decodeURIComponent(m2[1]), patch, req.user); return res.json({ ok: true, kincs: true });
+      }
+      return res.status(403).json({ error: "kincs では、この操作は保存できません" });
+    }
+    // 読む：kincs の画面から（または kincs だけの人）なら、kincs に残した内容を重ねて返す
+    if (req.method === "GET" && (req.kincsOnly || String(req.headers["x-kx-app"] || "") === "kincs") && /^\/api\/kinxs\/(users|renewals)$/.test(req.path)) {
+      const ov = await kincsOverlayAll().catch(() => new Map());
+      if (ov.size) {
+        const orig = res.json.bind(res);
+        res.json = (d) => { try { for (const it of (d && d.items) || []) { const p = ov.get(String(it.id)); if (p) Object.assign(it, p); } } catch {} return orig(d); };
+      }
+    }
+    next();
+  } catch (e) { next(); }
+});
+// kincs の招待リンク（管理者）と、招待から作るアカウント
+app.get("/api/kincs/invite", (req, res) => {
+  if (!req.isAdmin && !/^kinya\.tanaka@/i.test(String(req.user || ""))) return res.status(403).json({ error: "管理者だけが作れます" });
+  res.json({ ok: true, url: `${PUBLIC_URL.replace(/\/$/, "")}/kincs/join?t=${encodeURIComponent(makeToken("kincs-join"))}` });
+});
+app.get("/kincs/join", (req, res) => {
+  const ok = verifyToken(String(req.query.t || "")) === "kincs-join";
+  res.type("html").send(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>kincs に参加</title><link rel="icon" href="/kincs.svg?v=3">
+<style>body{margin:0;font-family:"Hiragino Sans","Yu Gothic",sans-serif;background:#F2F6F3;color:#0F3D33;display:flex;min-height:100vh;align-items:center;justify-content:center}form{background:#fff;border:1px solid #D6E2DB;border-radius:18px;padding:26px;width:min(380px,92vw);display:flex;flex-direction:column;gap:12px;box-shadow:0 18px 40px -28px rgba(15,61,51,.55)}img{width:56px;height:56px;border-radius:14px}h1{margin:0;font-size:20px}p{margin:0;color:#4A6158;font-size:13px}label{font-size:12px;color:#4A6158;display:flex;flex-direction:column;gap:4px}input{font:inherit;border:1px solid #D6E2DB;border-radius:10px;padding:9px 10px}button{border:0;border-radius:12px;padding:11px;background:#0F6E62;color:#fff;font:inherit;font-weight:700;cursor:pointer}.e{color:#B4441F;font-size:12.5px}</style></head><body>
+${ok ? `<form id="f"><img src="/kincs.svg?v=3" alt=""><h1>kincs に参加する</h1><p>アカウントを作ると、kincs を使えます。</p>
+<label>メールアドレス<input name="email" type="email" required autocomplete="email"></label><label>名前<input name="name" required></label><label>パスワード（8文字以上）<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+<button type="submit">アカウントを作る</button><div class="e" id="e"></div></form>
+<script>document.getElementById("f").addEventListener("submit",async(ev)=>{ev.preventDefault();const f=new FormData(ev.target);const r=await fetch("/api/kincs/join",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({t:${JSON.stringify(String(req.query.t || ""))},email:f.get("email"),name:f.get("name"),password:f.get("password")})});const d=await r.json().catch(()=>({}));if(!r.ok){document.getElementById("e").textContent=d.error||"作れませんでした";return;}location.href="/kincs";});</script>`
+    : `<form><img src="/kincs.svg?v=3" alt=""><h1>招待リンクが正しくありません</h1><p>招待した人に、リンクをもう一度もらってください。</p></form>`}</body></html>`);
+});
+app.post("/api/kincs/join", async (req, res) => {
+  try {
+    const b = req.body || {};
+    if (verifyToken(String(b.t || "")) !== "kincs-join") return res.status(400).json({ error: "招待リンクが正しくありません" });
+    const r = await registerUser({ email: b.email, password: b.password, displayName: String(b.name || "").trim(), code: process.env.SIGNUP_CODE || "" });
+    if (r.error) return res.status(400).json({ error: r.error });
+    await addKincsUser(r.email, String(b.name || "").trim(), "招待リンク");
+    setSessionCookie(res, r.email);
+    console.log(`[kincs] 招待から ${r.email} のアカウントを作りました（kincs だけ）`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get("/kinxs", (req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "kinxs.html"));
 });
@@ -28710,7 +28778,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08a kincs：ユーザー一覧の「SF未連携を自動で紐づける」「アーカイブを見る」「CSVで書き出す」「CSVでまとめて直す」を出さない。";
+const BUILD_TAG = "2026-11-08b kincs：招待リンクから作ったアカウントは kincs しか見られず、直した内容は kincs にだけ残る（本番のkinXsは変えない）。管理者には「＋ メンバーを招待」。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -2259,3 +2259,11 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07zt 田中さん「ホームを非表示で」。/kincs のメニューから home も外した（ユーザー一覧・DOC更新管理だけ）。/kincs（p なし）と ?p=home はユーザー一覧（?p=list）へ移す、サイドバーのロゴのリンクも ?p=list。版20261107zt。
 
 - 2026-11-08 BUILD_TAG=2026-11-08a 田中さん（ユーザー一覧の上の帯）「この辺も非表示で」。/kincs で [data-link-auto]（SF未連携を自動で紐づける）・[data-kpi=arc]（アーカイブを見る）・#lsCsvOut・#lsCsvIn を出さない（全n社の数は残す）。版20261108a。
+
+- 2026-11-08 BUILD_TAG=2026-11-08b 田中さん「kincsのリンクからアカウント追加したものはkincsしか見れず、kincsにしか保存されない」。
+  ・db：kincs_users（kincs だけの人）、kincs_overlay（account_id → kincs だけに残した直し JSON、上書きで重ねる）。isKincsOnlyUser（1分とっておく）・addKincsUser・listKincsUsers・kincsOverlayAll・kincsOverlayPatch。
+  ・招待：GET /api/kincs/invite（管理者・田中さん）→ /kincs/join?t=makeToken('kincs-join')（何度でも使える）。/kincs/join（OPEN）は参加の画面（メール・名前・パスワード）、POST /api/kincs/join（OPEN）は registerUser（ドメインの決まりもそのまま）→ addKincsUser → ログインして /kincs。kincs の上に管理者だけ『＋ メンバーを招待』（リンクをコピー）。
+  ・見張り：req.kincsOnly（管理者でなく、代理ログインでもない）なら、/kincs・/api/kinxs/*・/api/kincs/*・/api/me・ログアウト・静的ファイルだけ。ほかのページは /kincs へ、API は 403。
+  ・保存：kincsOnly の書き込みは、PUT /api/kinxs/accounts/:id（KCS_MAP で項目名を一覧の名前に：cs_name→cs、main_label→label、renew_month→renew…）と /rank だけ kincs_overlay に入れて ok、ほかは 403『kincs では、この操作は保存できません』。本番の kinxs_accounts は変えない。
+  ・読む：kincs の画面（kinxs.js の api() が x-kx-app: kincs を付ける）か kincsOnly の GET /api/kinxs/users・renewals は、items に kincs_overlay を重ねて返す（kincs を見る人みんなに見える、kinXs には出ない）。
+  ・kincs だけの人も、本番の kinXs のデータ（会社・議事録など）は読める（コピーなので）。

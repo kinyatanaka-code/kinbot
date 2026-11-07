@@ -12133,3 +12133,35 @@ export async function lastCallLogs(ids = []) {
     [ids.map((x) => parseInt(x, 10)).filter(Boolean)]);
   return new Map(rows.map((r) => [r.target_id, r]));
 }
+
+// ===== kincs（kinXs のコピー）の「kincs だけの人」と、その人の保存先（2026-11-08 田中さん）=====
+//   kincs の招待リンクから作ったアカウントは kincs しか見られず、直した内容は kincs にだけ残す（本番の kinXs のデータは変えない）
+let _kcsReady = false;
+async function ensureKincs() {
+  if (_kcsReady || !pool) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS kincs_users (email TEXT PRIMARY KEY, name TEXT, invited_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS kincs_overlay (account_id TEXT PRIMARY KEY, patch JSONB NOT NULL DEFAULT '{}'::jsonb, updated_by TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  _kcsReady = true;
+}
+let _kcsSet = { at: 0, set: new Set() };
+export async function isKincsOnlyUser(email) {
+  if (!pool || !email) return false;
+  if (Date.now() - _kcsSet.at > 60 * 1000) { await ensureKincs(); const { rows } = await pool.query(`SELECT email FROM kincs_users`); _kcsSet = { at: Date.now(), set: new Set(rows.map((r) => r.email)) }; }
+  return _kcsSet.set.has(String(email).toLowerCase());
+}
+export async function addKincsUser(email, name = "", by = "") {
+  if (!pool) return; await ensureKincs();
+  await pool.query(`INSERT INTO kincs_users (email, name, invited_by) VALUES ($1,$2,$3) ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name`, [String(email).toLowerCase(), name, by]);
+  _kcsSet.at = 0;
+}
+export async function listKincsUsers() { if (!pool) return []; await ensureKincs(); return (await pool.query(`SELECT email, name, invited_by, created_at FROM kincs_users ORDER BY created_at`)).rows; }
+export async function kincsOverlayAll() {
+  if (!pool) return new Map(); await ensureKincs();
+  const { rows } = await pool.query(`SELECT account_id, patch FROM kincs_overlay`);
+  return new Map(rows.map((r) => [r.account_id, r.patch || {}]));
+}
+export async function kincsOverlayPatch(accountId, patch, by = "") {
+  if (!pool) return; await ensureKincs();
+  await pool.query(`INSERT INTO kincs_overlay (account_id, patch, updated_by) VALUES ($1,$2::jsonb,$3)
+    ON CONFLICT (account_id) DO UPDATE SET patch = kincs_overlay.patch || $2::jsonb, updated_by = $3, updated_at = now()`, [String(accountId), JSON.stringify(patch || {}), by]);
+}
