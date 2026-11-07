@@ -1614,6 +1614,8 @@ function renderDock() {
     .zs-card.busy{opacity:.6;} .zs-card .nm{flex:1;min-width:0;display:flex;flex-direction:column;} .zs-card .nm b{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .zs-card .nm small{font-size:11px;color:#6A7A72;display:flex;align-items:center;gap:4px;}
     .dot{display:inline-block;width:7px;height:7px;border-radius:50%;} .dot.wait{background:#8FA39A;animation:fxBlinkZ 1.4s ease-in-out infinite;} @keyframes fxBlinkZ{50%{opacity:.3;}}
     .zs-tag.ok{background:#B6E25C;color:#14231D;} .zs-tag.wait{background:rgba(255,255,255,.18);color:#FFE7A8;}
+    .zs-signin{display:flex;flex-direction:column;gap:2px;text-decoration:none;border-radius:14px;padding:11px 14px;background:#fff;color:#1B5FD0;box-shadow:0 10px 24px -14px rgba(0,0,0,.5);} .zs-signin b{font-size:15px;} .zs-signin small{font-size:11px;color:#4F6158;}
+    .zs-signin.pulse{animation:zsPulse 1.6s ease-in-out 4;} @keyframes zsPulse{50%{box-shadow:0 0 0 6px rgba(182,226,92,.7);}}
     .zsu{padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px;} .zsu-step{display:flex;gap:10px;background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;}
     .zsu-step > i{font-style:normal;flex:none;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#2D8CFF,#1B5FD0);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;}
     .zsu-step > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;} .zsu-step b{font-size:13px;} .zsu-step small{font-size:11.5px;color:#6A7A72;line-height:1.6;}
@@ -12403,6 +12405,7 @@ async function kcZoomShareOpen() {
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
+      ${mine.confirmed ? "" : `<a class="zs-signin" href="https://zoom.us/signin#/login" target="_blank" rel="noopener" data-zs-signin><b>Zoomにサインイン ↗</b><small>新しいタブでZoomのサインインが開きます。「Googleでサインイン」は押さず、上のID（または社員番号）とパスワードで</small></a>`}
 
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
@@ -12518,5 +12521,7 @@ async function kcZoomSetupOpen(account) {
     try { if (typeof zpPanel === "function") zpPanel(true); } catch {}
     await kcZoomShareOpen();
     const pw = document.querySelector("[data-zs-pw]"); if (pw) pw.click();   // ID・社員番号・パスワードを見える状態に
+    const si = document.querySelector("[data-zs-signin]");
+    if (si) { si.classList.add("pulse"); try { const w = window.open(si.href, "_blank", "noopener"); if (w) si.querySelector("small").textContent = "Zoomのサインインを新しいタブで開きました。開かなければ、ここを押してください"; } catch {} }
   }, 1200);
 })();
