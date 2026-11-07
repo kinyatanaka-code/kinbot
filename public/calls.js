@@ -1636,6 +1636,15 @@ function renderDock() {
     .zs-cmd{display:flex;gap:6px;align-items:center;} .zs-ho{background:#F2F7FF;border-radius:10px;padding:8px 10px;} .zs-ho [data-ho-url]{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd .zs-cp{background:#1B5FD0;}
     .zs-foot{padding:10px 18px 16px;font-size:11px;color:#8FA39A;}
     .kc-reason-chip.picked{background:#E1F5EE;border-color:#1D9E75;color:#0A5440;font-weight:800;}
+    /* 記録の窓の 前・次（スライド）（2026-11-07） */
+    .kc-recnav{display:inline-flex;align-items:center;gap:6px;margin-right:8px;}
+    .kc-nav-b{border:1px solid #CFE3D9;background:#fff;border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:800;color:#0E6B4E;cursor:pointer;transition:transform .12s, background .12s;} .kc-nav-b:hover:not([disabled]){background:#E1F5EE;transform:translateY(-1px);}
+    .kc-nav-b.next{background:linear-gradient(135deg,#1AA884,#0F6E62);color:#fff;border-color:transparent;box-shadow:0 6px 14px -8px rgba(15,110,98,.8);} .kc-nav-b.next:hover:not([disabled]){background:linear-gradient(135deg,#21B891,#12806F);}
+    .kc-nav-b[disabled]{opacity:.35;cursor:default;} .kc-nav-n{font-size:11px;color:#8FA39A;min-width:44px;text-align:center;}
+    .kc-modal.kc-slide-out-l{transition:transform .2s ease-in, opacity .2s;transform:translateX(-60px);opacity:0;} .kc-modal.kc-slide-out-r{transition:transform .2s ease-in, opacity .2s;transform:translateX(60px);opacity:0;}
+    .kc-modal.kc-slide-in-r{animation:kcSlideInR .32s cubic-bezier(.2,.9,.3,1);} .kc-modal.kc-slide-in-l{animation:kcSlideInL .32s cubic-bezier(.2,.9,.3,1);}
+    @keyframes kcSlideInR{from{transform:translateX(70px);opacity:0;}to{transform:none;opacity:1;}} @keyframes kcSlideInL{from{transform:translateX(-70px);opacity:0;}to{transform:none;opacity:1;}}
+    .kc-table tr.kc-row-flash td{animation:kcRowFlash 1.6s ease;} @keyframes kcRowFlash{0%,40%{background:#FFF6D6;}100%{background:transparent;}}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -2578,6 +2587,7 @@ async function openTarget(id, draft, opt) {
       m.close();
     },
   });
+  kcRecNav(m, id, opt);
 
   // 連絡先の「表示⇄編集」トグル（鉛筆マークで編集モードへ）
   const viewBox = m.el.querySelector("#kcContactView");
@@ -2910,7 +2920,13 @@ async function openTarget(id, draft, opt) {
       // もし最小化してあった同じ相手が残っていれば、それは消す。
       dockItems = dockItems.filter((d) => d.id !== id);
       renderDock();
+      m._saved = true;
       m.close();
+      // 記録したら、そのまま表のひとつ下のリードの記録へ（スライドして開く）（2026-11-07 田中さん）
+      if (m._nextId && document.querySelector(`.kc-table tbody tr[data-id="${CSS.escape(m._nextId)}"]`)) {
+        const nx = m._nextId;
+        setTimeout(() => { const tr = document.querySelector(`.kc-table tbody tr[data-id="${CSS.escape(nx)}"]`); if (tr) { tr.scrollIntoView({ block: "center" }); tr.classList.add("kc-row-flash"); setTimeout(() => tr.classList.remove("kc-row-flash"), 1600); } openTarget(nx, undefined, { slide: "next" }); }, 250);
+      }
       const 代理 = d.sf && d.sf["代理"] ? `（${d.sf["代理"]}さんとして残しました）` : "";
       const 次回 = d.sf && d.sf.hold ? `　当分架電しない（${Number(d.sf.hold.slice(5, 7))}/${Number(d.sf.hold.slice(8, 10))}まで今日かけるリードに出しません）`
         : d.sf && d.sf.nextAction ? `　次回架電日=${d.sf.nextAction} をSFに書きました` : "";
@@ -12637,3 +12653,34 @@ function kcZsToast(msg) {
 
 // 自分の名前（記録した直後に、行の「最後の架電」を自分の名前で出すため）
 fetch("/api/me").then((r) => r.json()).then((m) => { window.KC_ME_NAME = (m && (m.displayName || m.name || m.username)) || ""; }).catch(() => {});
+
+// 記録の窓の右上に「‹ 前」「次 ›」：表の上下のリードの記録へ、窓をスライドさせて移る（✕で閉じなくてよい）（2026-11-07 田中さん）
+function kcRecNav(m, id, opt) {
+  if (!m || !m.el || (opt && opt.histOnly)) return;
+  const modal = m.el.querySelector(".kc-modal"); const btns = m.el.querySelector(".kc-modal-btns");
+  if (!modal || !btns) return;
+  if (opt && opt.slide) { modal.classList.add(opt.slide === "prev" ? "kc-slide-in-l" : "kc-slide-in-r"); setTimeout(() => modal.classList.remove("kc-slide-in-l", "kc-slide-in-r"), 400); }
+  const order = () => [...document.querySelectorAll(".kc-table tbody tr[data-id]")].map((tr) => tr.dataset.id).filter((v, i, a) => v && a.indexOf(v) === i);
+  const ids = order(); const at = ids.indexOf(String(id));
+  const prevId = at > 0 ? ids[at - 1] : "", nextId = at >= 0 && at < ids.length - 1 ? ids[at + 1] : "";
+  m._nextId = nextId;
+  const nav = document.createElement("span"); nav.className = "kc-recnav";
+  nav.innerHTML = `<button type="button" class="kc-nav-b" data-nav="prev" ${prevId ? "" : "disabled"} title="ひとつ上のリード">‹ 前</button><span class="kc-nav-n">${at >= 0 ? `${at + 1} / ${ids.length}` : ""}</span><button type="button" class="kc-nav-b next" data-nav="next" ${nextId ? "" : "disabled"} title="ひとつ下のリード（記録していない入力があれば確かめます）">次 ›</button>`;
+  btns.insertBefore(nav, btns.firstChild);
+  const go = (dir) => {
+    const to = dir === "prev" ? prevId : nextId; if (!to) return;
+    const memo = (m.el.querySelector("#kcMemo") || {}).value || "", res = (m.el.querySelector("#kcResult") || {}).value || "";
+    if ((memo.trim() || res) && !m._saved && !confirm("記録していない入力があります。記録せずに次のリードへ進みますか？")) return;
+    modal.classList.add(dir === "prev" ? "kc-slide-out-r" : "kc-slide-out-l");
+    setTimeout(() => {
+      m.close();
+      const tr = document.querySelector(`.kc-table tbody tr[data-id="${CSS.escape(to)}"]`);
+      if (tr) { tr.scrollIntoView({ block: "center" }); tr.classList.add("kc-row-flash"); setTimeout(() => tr.classList.remove("kc-row-flash"), 1600); }
+      openTarget(to, undefined, { slide: dir });
+    }, 200);
+  };
+  nav.querySelectorAll("[data-nav]").forEach((b) => b.addEventListener("click", () => go(b.dataset.nav)));
+  // キーボード：Alt＋→ で次、Alt＋← で前
+  const key = (e) => { if (!document.body.contains(m.el)) { document.removeEventListener("keydown", key); return; } if (e.altKey && e.key === "ArrowRight") { e.preventDefault(); go("next"); } if (e.altKey && e.key === "ArrowLeft") { e.preventDefault(); go("prev"); } };
+  document.addEventListener("keydown", key);
+}
