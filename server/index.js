@@ -28602,7 +28602,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07x kincallのZoomアカウント：「使う」のあとは準備の画面ではなく、アカウントの窓のまま（引き継ぎのリンクは今までどおり自動でコピーし、下に知らせを出す）。";
+const BUILD_TAG = "2026-11-07y kincallのZoomサインインの拡張機能1.1：ふだんのChromeで使える（始める前にOkta・ZoomのWebからサインアウト）。拡張機能の無いChromeでは手動のサインインを出さない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

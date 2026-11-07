@@ -12410,9 +12410,8 @@ async function kcZoomShareOpen() {
       <div class="zs-cred"><div class="f"><span>ID</span><code>${esc(mine.account)}</code><button type="button" class="zs-cp" data-cp="${esc(mine.account)}">コピー</button></div>
         <div class="f"><span>社員番号<br><small>Okta</small></span><code data-emp>${mine.hasEmp ? "••••••" : "未登録"}</code><button type="button" class="zs-cp" data-cp-emp hidden>コピー</button></div>
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
-      ${mine.confirmed ? "" : (document.documentElement.dataset.kcZoomExt === "1" ? `<button type="button" class="zs-signin auto" data-zs-auto><b>⚡ 自動でサインイン ↗</b><small>Google → Okta（社員番号・パスワード）→ Zoom を、拡張機能が自動で進めます</small></button>` : `<div class="zs-extnote">💡 Chromeの拡張機能「kincall Zoomサインイン補助」を入れると、ここが「⚡ 自動でサインイン」になります <a href="/kincall-zoom-ext.zip" download>拡張機能をダウンロード</a>・<button type="button" class="zs-linkbtn" data-zs-exthow>入れ方</button></div>`)}
-      ${mine.confirmed || document.documentElement.dataset.kcZoomExt === "1" ? "" : `<a class="zs-signin" href="https://zoom.us/google_oauth_signin" target="_blank" rel="noopener" data-zs-signin><b>Googleで Zoom にサインイン ↗</b><small>押すとメールアドレスをコピーします → Googleに貼る → 次に社員番号・パスワードの順にコピーして、Oktaに貼る</small></a>
-      <div class="zs-okta" data-zs-okta hidden><b>サインインの画面で、上から順に貼る</b><button type="button" class="zs-cp" data-okta-mail>① メールアドレス（Google）</button><button type="button" class="zs-cp" data-okta-emp>② 社員番号（Okta）</button><button type="button" class="zs-cp" data-okta-pw>③ パスワード（Okta）</button></div>`}
+      ${mine.confirmed ? "" : (document.documentElement.dataset.kcZoomExt === "1" ? `<button type="button" class="zs-signin auto" data-zs-auto><b>⚡ 自動でサインイン ↗</b><small>Google → Okta（社員番号・パスワード）→ Zoom を、拡張機能が自動で進めます</small></button>` : `<div class="zs-extnote">💡 このChromeに拡張機能「kincall Zoomサインイン補助」を入れると、ここに「⚡ 自動でサインイン」が出ます（ふだんのChromeでOK） <a href="/kincall-zoom-ext.zip" download>拡張機能をダウンロード</a>・<button type="button" class="zs-linkbtn" data-zs-exthow>入れ方</button></div>`)}
+      <!-- 手動のサインインのボタンは出さない（自分のGoogleで開いてしまうため。拡張機能で自動にする）（2026-11-07） -->
 
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
@@ -12482,7 +12481,7 @@ async function kcZoomShareOpen() {
     bindBtn("[data-okta-pw]", () => cred && cred.password);
   }
   const auto = bg.querySelector("[data-zs-auto]"); if (auto && mine) auto.addEventListener("click", () => kcZoomAutoLogin(mine.account, auto));
-  const how = bg.querySelector("[data-zs-exthow]"); if (how) how.addEventListener("click", () => alert("拡張機能の入れ方（専用のChrome〈Zoom共有〉に1回だけ）\n\n1. 「拡張機能をダウンロード」でZIPを保存して、右クリック →「すべて展開」\n2. 専用のChromeで chrome://extensions を開く\n3. 右上の「デベロッパー モード」をオン\n4. 「パッケージ化されていない拡張機能を読み込む」→ 展開したフォルダを選ぶ\n5. kincallを読み込み直すと「⚡ 自動でサインイン」が出ます"));
+  const how = bg.querySelector("[data-zs-exthow]"); if (how) how.addEventListener("click", () => alert("拡張機能の入れ方（ふだん使うChromeに1回だけ）\n\n1. 「拡張機能をダウンロード」でZIPを保存して、右クリック →「すべて展開」\n2. Chromeで chrome://extensions を開く\n3. 右上の「デベロッパー モード」をオン\n4. 「パッケージ化されていない拡張機能を読み込む」→ 展開したフォルダを選ぶ\n5. kincallを読み込み直すと「⚡ 自動でサインイン」が出ます"));
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
     if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }
@@ -12573,7 +12572,7 @@ async function kcZoomAutoLogin(account, btn) {
     window.postMessage({ source: "kincall", type: "zoom-autologin", cred: { account: r.account, empNo: r.empNo, password: r.password } }, location.origin);
     const res = await done;
     if (!res.ok) throw new Error(res.error || "拡張機能が動きませんでした");
-    if (btn) { btn.querySelector("small").textContent = "新しいタブでサインインを進めています。Zoomの画面が出たら完了です（パソコンのZoomアプリでも「Googleでサインイン」を押せば、10分間は同じく自動で入ります）"; }
+    if (btn) { btn.querySelector("small").textContent = "新しいタブでサインインを進めています。続けてパソコンのZoomアプリで「サインイン」→「Google」を押すと、10分間は同じく自動で入ります（最後に「Zoom Workplaceを開く」を押す）"; }
   } catch (e) { alert(e.message); }
 }
 

@@ -2213,3 +2213,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・手元では本物の Google・Okta の画面で試せていない（ヘッドレスの Chrome に拡張機能が入らない）。画面の作りが違えば google.js・okta.js の選び方を直す。
 
 - 2026-11-07 BUILD_TAG=2026-11-07x 田中さん（準備の画面とアカウントの窓のスクショ）「このページよりも2枚目のページを出してほしい。使うってやったら引き継ぎリンクはコピーされる仕様は変わらず」。使う→ checkout → /api/auth/handoff → クリップボードへ（だめなら execCommand）→ アカウントの窓を開き直す（again）→ 下に kcZsToast「引き継ぎのリンクをコピーしました…」（5秒）。kcZoomSetupOpen（準備の画面）は呼ばない（関数は残す）。版20261107x。
+
+- 2026-11-07 BUILD_TAG=2026-11-07y 田中さん「自分のGoogleのChromeから kincall で Zoom へサインインすると、専用 Chrome ではなく自分の Chrome で開く。Zoom アプリでも自分の Google の Chrome で新しいタブを作ってしまう」。方針を変えた：専用の Chrome をやめ、拡張機能（1.1）をふだんの Chrome に入れる。background の kc-zoom-start で、先に https://neo-career.okta.com/login/signout と https://zoom.us/logout を credentials 付きで叩いてから zoom.us/google_oauth_signin を開く（Okta に自分のログインが残っていると、借りたアカウントでなく自分として Google に返ってしまうため）。google.js はアカウントの選択で自分のアカウントは押さず、借りたアカウントか『別のアカウントを使用』。Zoom アプリの『Google』で開くタブも同じ Chrome なので10分のあいだは自動。kincall：拡張機能が無い Chrome では手動のサインインのボタンを出さず、入れ方（ふだんの Chrome に）だけ。影響：自分の Okta はそのたびにサインアウトされる（自分の Google・Gmail はそのまま）、自分の Zoom（Web・アプリ）は借りたアカウントに置きかわる。版20261107y。

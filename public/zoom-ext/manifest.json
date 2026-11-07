@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "kincall Zoomサインイン補助",
-  "version": "1.0.0",
-  "description": "kincallで借りたZoomアカウントで、Google → Okta → Zoom のサインインを自動で進めます（ネオキャリア社内用）。",
+  "version": "1.1.0",
+  "description": "kincallで借りたZoomアカウントで、Google → Okta → Zoom のサインインを自動で進めます。ふだんのChromeに入れて使えます（ネオキャリア社内用）。",
   "permissions": ["storage", "tabs"],
   "host_permissions": [
     "https://kinbot-production-225f.up.railway.app/*",
