@@ -2174,3 +2174,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・読みかえ：zoomphone.js の zoomPhoneRecordings・zoomPhoneCallHistory を index.js で包んで（zoomMapOwners）、その時間・その日に借りていた人の ownerEmail にする（録音の要約・照合・通話履歴の取り込み・アポの録音の かけた人）。/api/zoom-phone/caller-id は借りていればそのアカウントの番号。
   ・画面：kincall のヘッダー（今日の数字の横）に「📞 Zoomアカウント」（借りていれば「📞 Zoom：ryo.iijima」）。窓：アカウントごとに 空き／使用中（名前）、このアカウントを使う、ID・パスワードを見る（コピー・Zoomを開いてログイン https://zoom.us/signin）、返す、admin は パスワードを登録／変える・返してもらう・アカウントを足す。
   ・Zoom へ自動でログインはしない（Zoom の API にパスワードでのログインは無い）。人が ID・パスワードを貼ってログインする。
+
+- 2026-11-07 BUILD_TAG=2026-11-07g 田中さん（Zoomを開くと、いまログインしているGoogle・Zoomのアカウントで開いてしまい、ほかの人でログインできない）「その仕様に対応してほしい」。Zoomアカウントの窓の ID・パスワードの下を「ログインのしかた」に：① https://zoom.us/logout（いまのZoomからサインアウト）② https://zoom.us/signin#/login（Googleでサインインではなく ID とパスワード）③ kincall の中のZoom電話もサインアウト→サインインし直す。サインアウトしたくなければシークレットウィンドウか別の Chrome プロフィールで kincall を開く案内。Zoom のアカウントが Google でのサインイン（パスワードなし）だと借りて使えない点は田中さんに確認中。版20261107g。

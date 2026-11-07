@@ -1597,6 +1597,7 @@ function renderDock() {
     .kc-zs-r .a{flex:1;min-width:220px;display:flex;flex-direction:column;} .kc-zs-r .a small{color:#6A7A72;font-size:11.5px;} .kc-zs-r .b{display:flex;gap:6px;flex-wrap:wrap;}
     .kc-zs-r .pw{flex-basis:100%;display:flex;flex-direction:column;gap:6px;} .kc-zs-r .pw:empty{display:none;} .kc-zs-r .pw > div{display:flex;align-items:center;gap:8px;} .kc-zs-r .pw span{width:72px;font-size:12px;color:#4F6158;} .kc-zs-r .pw code{background:#F1F5F3;border-radius:6px;padding:3px 8px;font-size:13px;}
     .kc-zs-add{display:flex;gap:6px;}
+    .kc-zs-steps{border-top:1px dashed #DCE6E1;padding-top:8px;margin-top:2px;font-size:12px;} .kc-zs-steps ol{margin:6px 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;} .kc-zs-steps li small,.kc-zs-steps > small{display:block;color:#6A7A72;font-size:11px;margin-top:2px;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
     /* 80コールまでは鍵のかかったタブ（2026-11-07） */
@@ -12382,7 +12383,11 @@ async function kcZoomShareOpen() {
     const acc = b.dataset.zsPw; const box = bg.querySelector(`[data-zs-pwbox="${CSS.escape(acc)}"]`);
     try {
       const r = await (await fetch(`/api/zoom-share/password?account=${encodeURIComponent(acc)}`)).json(); if (r.error) throw new Error(r.error);
-      box.innerHTML = `<div><span>ID</span><code>${esc(acc)}</code><button type="button" class="kc-btn" data-cp="${esc(acc)}">コピー</button></div><div><span>パスワード</span><code>${esc(r.password)}</code><button type="button" class="kc-btn" data-cp="${esc(r.password)}">コピー</button></div><a class="kc-btn primary" href="https://zoom.us/signin" target="_blank" rel="noopener">Zoomを開いてログイン ↗</a>`;
+      box.innerHTML = `<div><span>ID</span><code>${esc(acc)}</code><button type="button" class="kc-btn" data-cp="${esc(acc)}">コピー</button></div><div><span>パスワード</span><code>${esc(r.password)}</code><button type="button" class="kc-btn" data-cp="${esc(r.password)}">コピー</button></div><div class="kc-zs-steps"><b>ログインのしかた</b>
+        <ol><li><a class="kc-btn" href="https://zoom.us/logout" target="_blank" rel="noopener">① いまのZoomからサインアウト ↗</a><small>このブラウザで、ほかの人（自分）のZoomにログインしたままだと、そのアカウントで開いてしまうため</small></li>
+        <li><a class="kc-btn primary" href="https://zoom.us/signin#/login" target="_blank" rel="noopener">② 借りたアカウントでサインイン ↗</a><small>「Googleでサインイン」ではなく、上のIDとパスワードを入れる</small></li>
+        <li><small>kincallの中のZoom電話も、右上のメニューから一度サインアウトして、借りたアカウントでサインインし直す</small></li></ol>
+        <small>サインアウトしたくないときは、Chromeのシークレットウィンドウ（Ctrl/Cmd＋Shift＋N）か、別のChromeのプロフィールでkincallを開いて使うと、自分のZoomはそのままにできます。</small></div>`;
       box.querySelectorAll("[data-cp]").forEach((c) => c.addEventListener("click", async () => { try { await navigator.clipboard.writeText(c.dataset.cp); c.textContent = "コピーしました"; } catch { alert("コピーできませんでした"); } }));
     } catch (e) { box.innerHTML = `<div class="note">${esc(e.message)}</div>`; }
   }));
