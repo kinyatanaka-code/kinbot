@@ -1588,6 +1588,9 @@ function renderDock() {
     .kc-two-histonly .kc-two-l{flex:1 1 100%;border-right:none;padding-right:0;max-height:70vh;}
     .kc-two-r{flex:1 1 55%;min-width:0;}
     .kc-two-h{font-weight:700;color:#0d5b47;margin-bottom:8px;font-size:13px;}
+    /* 左下の「📞 Zoom電話 ▲」（小さくしたZoom電話）は出さない（2026-11-07 田中さん）。電話番号を押してかけるとき・Zoomアカウントの手順3で開く */
+    .kc-zp.min{display:none !important;}
+    .zs-steps button.st{border:0;font:inherit;text-align:left;cursor:pointer;} .zs-steps button.st:hover{background:rgba(255,255,255,.22);}
     /* Zoomアカウントの貸し出し（2026-11-07・見た目を作り直し） */
     .kc-zs-btn{border:1px solid #CFE3D9;background:#fff;border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;margin-left:8px;} .kc-zs-btn:hover{background:#E1F5EE;}
     .kc-zs-bg{position:fixed;inset:0;background:rgba(8,24,18,.55);backdrop-filter:blur(3px);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:48px 16px;overflow:auto;}
@@ -12396,7 +12399,7 @@ async function kcZoomShareOpen() {
         <div class="f"><span>パスワード<br><small>Zoom・Okta</small></span><code data-pw>••••••••</code><button type="button" class="zs-cp" data-zs-pw="${esc(mine.account)}">見る</button><button type="button" class="zs-cp" data-cp-pw hidden>コピー</button></div></div>
       <div class="zs-steps"><a class="st" href="https://zoom.us/logout" target="_blank" rel="noopener"><i>1</i><b>サインアウト</b><small>いまのZoomから</small></a><span class="ar">›</span>
         <a class="st hot" href="https://zoom.us/signin#/login" target="_blank" rel="noopener"><i>2</i><b>サインイン</b><small>上のID・PWで（Googleは使わない）</small></a><span class="ar">›</span>
-        <div class="st"><i>3</i><b>Zoom電話も</b><small>kincallの中も入り直す</small></div></div>
+        <button type="button" class="st" data-zp-open><i>3</i><b>Zoom電話も</b><small>押すとkincallの中のZoom電話が開く</small></button></div>
     </div>` : `<div class="zs-hint">空いているアカウントの「使う」を押すと、今日はあなたのアカウントになります（夜に自動で返却）。</div>`}
     <div class="zs-grid">${d.items.filter((x) => x.account !== d.mine).map(card).join("") || '<div class="zs-hint">ほかのアカウントはありません</div>'}</div>
     ${d.admin ? `<div class="zs-add"><input data-zs-new placeholder="＋ アカウントを足す（メールアドレス）" /><button type="button" class="zs-go" data-zs-add>足す</button></div>` : ""}
@@ -12438,6 +12441,7 @@ async function kcZoomShareOpen() {
     try { await post("/api/zoom-share/account", { account: acc, ...(emp.trim() ? { empNo: emp.trim() } : {}), ...(pw ? { password: pw } : {}) }); again(); } catch (e) { alert(e.message); }
   }));
   const add = bg.querySelector("[data-zs-add]"); if (add) add.addEventListener("click", async () => { const v = bg.querySelector("[data-zs-new]").value.trim(); if (!v) return; try { await post("/api/zoom-share/account", { account: v }); again(); } catch (e) { alert(e.message); } });
+  const zpo = bg.querySelector("[data-zp-open]"); if (zpo) zpo.addEventListener("click", () => { close(); if (typeof zpPanel === "function") zpPanel(true); });
   const pwb = bg.querySelector("[data-zs-pw]"); if (pwb) pwb.addEventListener("click", async () => {
     const code = bg.querySelector("[data-pw]"), cp = bg.querySelector("[data-cp-pw]");
     if (pwb.dataset.shown) { code.textContent = "••••••••"; pwb.textContent = "見る"; delete pwb.dataset.shown; const ec = bg.querySelector("[data-emp]"); if (ec && ec.textContent !== "未登録") ec.textContent = "••••••"; return; }
