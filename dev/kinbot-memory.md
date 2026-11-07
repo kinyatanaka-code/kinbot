@@ -2251,3 +2251,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-07 BUILD_TAG=2026-11-07zp 田中さん（kincs のタブが kinXs の名前とアイコン）「タブがkinXsのまま」。原因：kinxs.js が document.title = "kinXs" で上書きしていた→ KX_COPY なら kincs。アイコンは /kincs.svg?v=2 にして、ブラウザの覚えたアイコンでも替わるように。/kincs の HTML は Cache-Control: no-store。版20261107zp。
 
 - 2026-11-07 BUILD_TAG=2026-11-07zq 田中さん「kincsの子猫スフィンクスは横向きね笑」。public/kincs.svg を描き直し：本家と同じ右向きの横顔。ころんとおすわりした子猫のからだ、前へのばした前足、頭のうしろから肩へたれるしまの頭巾、頭巾から出た耳、大きな目・ひげ・ファラオのひげ、葉っぱの先のしっぽ（背中の側）。アイコンの URL は /kincs.svg?v=3。版20261107zq。
+
+- 2026-11-07 BUILD_TAG=2026-11-07zr 田中さん（サイドバーの kinbot・kincall・Salesforce・ツール）「kincsはこの辺非表示で」。/kincs に .kx-stools{display:none} を入れた（kinXs はそのまま）。版20261107zr。

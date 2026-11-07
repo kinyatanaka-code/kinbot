@@ -5835,7 +5835,9 @@ app.get("/kincs", (req, res) => {
       .replace(/href="\/kinxs\?/g, 'href="/kincs?')
       // アイコンは「子猫のスフィンクス」（/kincs.svg）（2026-11-07 田中さん「小さいスフィンクスというよりは子猫のスフィンクスに」）
       .replace(/\/kinxs\.svg/g, "/kincs.svg?v=3")   // ブラウザが前のアイコンを覚えていても替わるように ?v を付ける
-      .replace("</head>", `<script>window.KX_COPY = true;</script>
+      // kincs では、サイドバーのほかのツール（kinbot・kincall・Salesforce・ツール）を出さない（2026-11-07 田中さん）
+      .replace("</head>", `<style>.kx-stools{display:none !important;}</style>
+<script>window.KX_COPY = true;</script>
 </head>`)
       .replace("</body>", `<script>
 // ページの中で作られるリンク（/kinxs?…）を /kincs?… に読みかえる
@@ -28703,7 +28705,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07zq kincsの子猫のスフィンクスを、本家と同じ横向き（右向き）に描き直した。";
+const BUILD_TAG = "2026-11-07zr kincs：サイドバーのほかのツール（kinbot・kincall・Salesforce・ツール）を出さない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
