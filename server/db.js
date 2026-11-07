@@ -12124,3 +12124,12 @@ export async function zoomConfirm(account, member = "") {
       AND (start_at AT TIME ZONE 'Asia/Tokyo')::date = (now() AT TIME ZONE 'Asia/Tokyo')::date ${member ? "AND member = $2" : ""}`, member ? [String(account).toLowerCase(), String(member).toLowerCase()] : [String(account).toLowerCase()]);
   return r.rowCount;
 }
+
+// 最後にかけた記録（メモが無くても）：だれが・いつ・結果・メモ（2026-11-07：メモの無い最新の架電があると、前の人のメモがその人の名前で出ていた）
+export async function lastCallLogs(ids = []) {
+  if (!pool || !ids.length) return new Map();
+  const { rows } = await pool.query(
+    `SELECT DISTINCT ON (target_id) target_id, caller, memo, at, result FROM call_logs WHERE target_id = ANY($1::int[]) ORDER BY target_id, at DESC`,
+    [ids.map((x) => parseInt(x, 10)).filter(Boolean)]);
+  return new Map(rows.map((r) => [r.target_id, r]));
+}

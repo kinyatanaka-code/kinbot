@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -11145,6 +11145,7 @@ app.get("/api/calls/targets", async (req, res) => {
     };
     // 最後のメモを書いた人・日（行の「最後のメモ」に出す）
     const _lastMemo = await lastMemoLogs(rows.map((r) => r.id)).catch(() => new Map());
+    const _lastCall = await lastCallLogs(rows.map((r) => r.id)).catch(() => new Map());
     const _memName = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), String(m.name || "").trim()]));
     const items = rows.map((r) => ({
         直近商談: recentMeetingOf(mtgMapAll, r.company),
@@ -11174,6 +11175,10 @@ app.get("/api/calls/targets", async (req, res) => {
         最終コメント: String(r["最終メモ"] || "").slice(0, 300),
         最終メモの人: (() => { const lm = _lastMemo.get(r.id); return lm ? (_memName.get(String(lm.caller || "").toLowerCase()) || String(lm.caller || "").split("@")[0]) : ""; })(),
         最終メモの日時: (() => { const lm = _lastMemo.get(r.id); return lm ? lm.at : null; })(),
+        最終架電の人: (() => { const lc = _lastCall.get(r.id); return lc ? (_memName.get(String(lc.caller || "").toLowerCase()) || String(lc.caller || "").split("@")[0]) : ""; })(),
+        最終架電の日時: (() => { const lc = _lastCall.get(r.id); return lc ? lc.at : null; })(),
+        最終架電の結果: (() => { const lc = _lastCall.get(r.id); return lc ? String(lc.result || "") : ""; })(),
+        最終架電のメモ: (() => { const lc = _lastCall.get(r.id); return lc ? String(lc.memo || "").slice(0, 300) : ""; })(),
         次回予定: r.next_call_at || null,
         担当メール: String(r.assigned_to || r._list_owner || "").trim().toLowerCase(),
         リスト名: r._list_name || r.リスト名 || "",
@@ -28617,7 +28622,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-07za kincall：架電の記録に足す通話の要約から「【通話録音の要約】」の見出しをやめ、会話なし（留守電・不在など）のときは何も足さない。";
+const BUILD_TAG = "2026-11-07zb kincallのかける画面：行の履歴は、いちばん新しい架電（メモが無くても、だれ・いつ・結果）を先に出す。前の人のメモは下に小さく（新しくかけた人の名前で前のメモが出ていた）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

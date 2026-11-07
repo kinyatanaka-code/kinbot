@@ -1206,7 +1206,7 @@ function render() {
         <td class="kc-lastcall">${esc(lastCallLabel(x["最終日時"]))}</td>
         <td class="kc-status">${x["最終ステータス"] ? esc(x["最終ステータス"]) : "-"}</td>
         <td class="kc-phase">${x["最終フェーズ"] ? `<span class="kc-ph kc-ph-${KC_PHASES.indexOf(x["最終フェーズ"])}">${esc(x["最終フェーズ"])}</span>` : "-"}</td>
-        <td class="kc-histc">${x["最終コメント"] ? kcLastMemoHtml(x) : ""}<button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
+        <td class="kc-histc">${x["最終コメント"] || x["最終架電の日時"] ? kcLastMemoHtml(x) : ""}<button type="button" class="kc-btn kc-hist" data-id="${x.id}">${x["履歴数"] ? `${x["履歴数"]}件` : "なし"}</button></td>
         <td><button type="button" class="kc-btn kc-rec" data-id="${x.id}">記録</button></td>
         <td><button type="button" class="kc-btn kc-doc" data-id="${x.id}">資料送付</button></td>
         ${rcols.map((k) => {
@@ -1636,6 +1636,7 @@ function renderDock() {
     .zs-cmd{display:flex;gap:6px;align-items:center;} .zs-ho{background:#F2F7FF;border-radius:10px;padding:8px 10px;} .zs-ho [data-ho-url]{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;background:#0B2E6E;color:#D7E6FF;border-radius:8px;padding:6px 9px;font-size:11px;} .zs-cmd .zs-cp{background:#1B5FD0;}
     .zs-foot{padding:10px 18px 16px;font-size:11px;color:#8FA39A;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
+    .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
     /* 80コールまでは鍵のかかったタブ（2026-11-07） */
     .cl-cat.locked{opacity:.55;border-style:dashed;cursor:not-allowed;} .cl-cat.locked .cl-ccnt{background:#FFF1DC;color:#7A3F00;}
@@ -2870,7 +2871,8 @@ async function openTarget(id, draft, opt) {
       }
       x["履歴数"] = Number(x["履歴数"] || 0) + 1;
       x["最終ステータス"] = 結果;
-      { const mv = String((m.el.querySelector("#kcMemo") || {}).value || "").trim(); if (mv) x["最終コメント"] = mv.slice(0, 300); }
+      { const mv = String((m.el.querySelector("#kcMemo") || {}).value || "").trim(); if (mv) { x["最終コメント"] = mv.slice(0, 300); x["最終メモの人"] = (window.KC_ME_NAME || ""); x["最終メモの日時"] = new Date().toISOString(); }
+        x["最終架電の人"] = (window.KC_ME_NAME || ""); x["最終架電の日時"] = new Date().toISOString(); x["最終架電の結果"] = 結果; x["最終架電のメモ"] = mv.slice(0, 300); }
       x["最終日時"] = new Date().toISOString();
       if (d.sf && d.sf.nextCallAt) x["次回予定"] = d.sf.nextCallAt;
       updateRow(x);
@@ -3369,7 +3371,7 @@ function updateRow(x) {
   const hc = tr.querySelector(".kc-histc");
   if (hc) {
     const old = hc.querySelector(".kc-lastmemo"); if (old) old.remove();
-    if (x["最終コメント"]) hc.insertAdjacentHTML("afterbegin", kcLastMemoHtml(x));
+    if (x["最終コメント"] || x["最終架電の日時"]) hc.insertAdjacentHTML("afterbegin", kcLastMemoHtml(x));
   }
 
   const last = tr.querySelector(".kc-lastcall"); if (last) last.textContent = lastCallLabel(x["最終日時"]);
@@ -12383,12 +12385,16 @@ function kcMemoCompact(memo) {
   return [human, ai].filter(Boolean).join("｜");
 }
 function kcLastMemoHtml(x) {
-  const who = String(x["最終メモの人"] || "").trim();
-  const sur = who ? (who.split(/[\s　]+/)[0].length < who.length ? who.split(/[\s　]+/)[0] : (who.length >= 4 ? who.slice(0, 2) : who)) : "";
-  const at = x["最終メモの日時"] || x["最終日時"]; const d = at ? new Date(at) : null;
-  const when = d && !isNaN(d) ? `${d.getMonth() + 1}/${d.getDate()}` : "";
-  const body = kcMemoCompact(x["最終コメント"]);
-  return `<div class="kc-lastmemo" title="${esc(String(x["最終コメント"] || ""))}">${sur || when ? `<span class="kc-lm-who">${esc(sur)}${sur && when ? " " : ""}${esc(when)}</span>` : ""}${esc(body)}</div>`;
+  const sur = (who) => { who = String(who || "").trim(); if (!who) return ""; const p = who.split(/[\s　]+/); return p.length > 1 ? p[0] : (who.length >= 4 ? who.slice(0, 2) : who); };
+  const md = (at) => { const d = at ? new Date(at) : null; return d && !isNaN(d) ? `${d.getMonth() + 1}/${d.getDate()}` : ""; };
+  const tag = (who, at, cls = "") => (who || at ? `<span class="kc-lm-who${cls}">${esc(sur(who))}${who && at ? " " : ""}${esc(md(at))}</span>` : "");
+  // いちばん新しい架電（メモが無くても）：だれが・いつ・結果。メモがあればメモ（2026-11-07：前の人のメモが、新しくかけた人の名前で出ないように）
+  const lcAt = x["最終架電の日時"], lcWho = x["最終架電の人"];
+  const lmAt = x["最終メモの日時"], lmWho = x["最終メモの人"];
+  if (lcAt && x["最終架電のメモ"]) return `<div class="kc-lastmemo" title="${esc(x["最終架電のメモ"])}">${tag(lcWho, lcAt)}${esc(kcMemoCompact(x["最終架電のメモ"]))}</div>`;
+  const prev = x["最終コメント"] ? `<span class="kc-lm-prev">${tag(lmWho, lmAt, " old")}${esc(kcMemoCompact(x["最終コメント"]))}</span>` : "";
+  if (lcAt) return `<div class="kc-lastmemo" title="${esc(x["最終コメント"] || "")}">${tag(lcWho, lcAt)}${esc(String(x["最終架電の結果"] || "").replace(/^担当者接触[:：]/, "")) || "メモなし"}${prev ? `<br>${prev}` : ""}</div>`;
+  return x["最終コメント"] ? `<div class="kc-lastmemo" title="${esc(x["最終コメント"])}">${tag(lmWho || x["最終メモの人"], lmAt || x["最終日時"])}${esc(kcMemoCompact(x["最終コメント"]))}</div>` : "";
 }
 
 // ===================== Zoomアカウントの貸し出し（2026-11-07 田中さん）=====================
@@ -12586,3 +12592,6 @@ function kcZsToast(msg) {
   document.body.appendChild(t); requestAnimationFrame(() => t.classList.add("on"));
   setTimeout(() => { t.classList.remove("on"); setTimeout(() => t.remove(), 400); }, 5000);
 }
+
+// 自分の名前（記録した直後に、行の「最後の架電」を自分の名前で出すため）
+fetch("/api/me").then((r) => r.json()).then((m) => { window.KC_ME_NAME = (m && (m.displayName || m.name || m.username)) || ""; }).catch(() => {});
