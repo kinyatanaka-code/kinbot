@@ -1671,7 +1671,7 @@ function renderDock() {
     .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
     .nm-mg-opt{display:flex;flex-direction:column;gap:6px;font-size:13px;background:#F7FAF8;border-radius:12px;padding:10px 12px;} .nm-mg-opt span{font-weight:800;} .nm-mg-opt label{display:flex;gap:6px;align-items:center;cursor:pointer;}
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
-    .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;min-width:0;max-width:100%;overflow:hidden;} .nm-folder .nm-card-who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
+    .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;min-width:0;max-width:100%;overflow:hidden;} .nm-folder .nm-card-who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:0;min-width:100%;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
     /* グループ：配る前のリードとメンバー（2026-11-08） */
     .gd-pool{border:2px solid #9FC5F0;border-radius:14px;padding:14px 16px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:10px;} .gd-pool.hot{background:#F0F6FF;border-style:dashed;}
     @media (max-width:900px){ .gd-pool{grid-template-columns:1fr;} }
@@ -8293,7 +8293,7 @@ function nmRenderCards() {
     const allLs = _nmLists.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
     const zanA = allLs.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
     const nurA = allLs.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0);
-    html += `<div class="nm-sec"><div class="nm-sec-h">全体</div><div class="nm-grid"><button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</div></button>${_nmTree ? _nmTree.map(nmTypeCardHtml).join("") : ""}</div></div>`;
+    html += `<div class="nm-sec"><div class="nm-sec-h">全体</div><div class="nm-grid"><button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</div></button>${_nmTree ? _nmTree.map((f) => f.name === "リサイクル" ? nmSpecialCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") : f.name === "アーカイブ" ? nmSpecialCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") : nmTypeCardHtml(f)).join("") : ""}</div></div>`;
     if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
   if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
@@ -8314,8 +8314,7 @@ function nmRenderCards() {
   const spCard = (key, name, n, sub) => `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`;
   html += `<div class="nm-sec"><div class="nm-sec-h">その他</div><div class="nm-grid">` +
     `<button type="button" class="nm-card" data-owner="__other__"><div class="nm-card-name">未割り当て</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${unZan.toLocaleString()}</span></div><div class="nm-card-sub">${orphan.length} リスト</div>${nmRatePill(nmSumRates(orphan), "このリストでかけた分のアポ率（直近3か月）")}</button>` +
-    spCard("recycle", "リサイクル", _nmStage.recycle, "ステージ＝リサイクル（全体）") +
-    spCard("archive", "アーカイブ", _nmStage.archive, "ステージ＝アーカイブ・使われていない番号（全体）") +
+    // リサイクル・アーカイブは「全体」の段（全リストの並び）へ移した（2026-11-09 田中さん）
     `</div></div>`;
   // ナーチャリング：全体／今週かける予定（担当メンバー間で移せる）
   {
@@ -8538,6 +8537,8 @@ function nmRenderGroupCards(body) {
   body.querySelectorAll("[data-folder]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "folder", key: c.dataset.folder, name: c.dataset.folder }; nmRenderDetail(); }));
   body.querySelectorAll(".nm-card[data-group]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
 }
+// リサイクル・アーカイブ（ステージで数える全体のカード）。押すと今までどおりの中身の画面
+function nmSpecialCard(key, name, n, sub) { return `<button type="button" class="nm-card" data-special="${key}"><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">件</span><span class="nm-zan-n">${Number(n || 0).toLocaleString()}</span></div><div class="nm-card-sub">${esc(sub)}</div></button>`; }
 function nmTypeCardHtml(f) {
   if (!f.children) return nmGroupCardHtml(f.id, f.name);
   const ids = f.children.map((c) => c.id).filter(Boolean).map(String); const ls = _nmLists.filter((x) => ids.includes(String(x.group_id)));
