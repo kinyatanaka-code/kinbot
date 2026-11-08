@@ -12782,7 +12782,18 @@ async function kcCaseShareOpen(id) {
 }
 
 // ===== 全リスト：同じ名前のリスト（例：「新規_11月」をメンバーごとに分けたもの）を1枚のカードにまとめる（2026-11-08 田中さん）=====
-function nmNameKey(n) { return String(n || "").normalize("NFKC").replace(/[\s　]+/g, " ").trim(); }
+// リスト名のまとまり：「DOC＿フロッグリスト-栗林環菜」のように、最後に「-人の名前」が付いたものは、付いていない名前と同じまとまりにする（2026-11-08 田中さん）
+function nmNameKey(n) {
+  let s = String(n || "").normalize("NFKC").replace(/[\s　]+/g, " ").trim();
+  const m = s.match(/^(.*\S)\s*[-‐－–—]\s*([^-‐－–—]+)$/);
+  if (m) {
+    const tail = m[2].replace(/[\s　]/g, "");
+    const names = new Set((_nmMembers || []).map((x) => String(x.name || "").replace(/[\s　]/g, "")).filter(Boolean));
+    // 人の名前（メンバーの名前、または漢字の名字で始まる2〜8文字の名前）なら外す
+    if (names.has(tail) || /^[\p{Script=Han}々]{1,3}[\p{Script=Han}\p{Script=Hiragana}々]{1,5}$/u.test(tail)) s = m[1].trim();   // 名字（漢字）＋名前
+  }
+  return s;
+}
 function nmRenderAllGroups(body) {
   const ls = _nmLists.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
   const groups = new Map();
