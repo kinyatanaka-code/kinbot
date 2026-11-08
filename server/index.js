@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -9921,6 +9921,16 @@ app.put("/api/calls/lists/:id/name", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 選んだリストをまとめて削除（2026-11-09 田中さん）。中にリードが入っているリストは消さない（先に移すか非表示に）
+app.post("/api/calls/lists/bulk-delete", async (req, res) => {
+  try {
+    if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "まとめて削除できるのは、決められた人だけです" });
+    const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map((x) => parseInt(x, 10)).filter(Boolean);
+    const { deleted, kept } = await bulkDeleteEmptyLists(ids);
+    console.log(`[kincall] リストをまとめて削除：${deleted.length}本（中身があって残した ${kept.length}本） by ${req.user}`);
+    res.json({ ok: true, deleted, kept });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.delete("/api/calls/lists/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -29017,7 +29027,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09l kincall：メンバー全員に、新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・その他・過去失注の8つのリスト（○○リスト - 名前）を必ず入れる（同じ名前のリストが無ければ作る）。";
+const BUILD_TAG = "2026-11-09m kincallのリスト管理：選んだリストをまとめて削除（中にリードがあるリストは消さずに残す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

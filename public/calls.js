@@ -1673,6 +1673,7 @@ function renderDock() {
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
     /* 「…」のメニューを開いたカードを、ほかのカード（空の枠など）より前に出す（2026-11-09 田中さん「重なっている」） */
     .nm-lcard{position:relative;} .nm-lcard:has(.nm-kmenu:not([hidden])){z-index:30;} .nm-kmenu{z-index:40;} .nm-slotcard{z-index:0;}
+    .nm-delgo{color:#B4441F !important;border-color:#F0C9B8 !important;} .nm-delgo:hover{background:#FDEBE3 !important;}
     .nm-slotcard{border-style:dashed !important;opacity:.8;background:#FAFCFB;} .nm-slotcard .nm-zan-n{color:#9DB3A9;}
     .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;min-width:0;max-width:100%;overflow:hidden;} .nm-folder .nm-card-who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:0;min-width:100%;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
     /* グループ：配る前のリードとメンバー（2026-11-08） */
@@ -8672,11 +8673,26 @@ function nmRenderDetail() {
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
   body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${visN} リスト${ls.length > visN ? `（非表示 ${ls.length - visN}）` : ""}</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
     `<div class="nm-lgrid">${todayCard}${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}${nmSlotCards()}</div><span class="rev-status" id="nmOpSt"></span>` +
-    `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button><button type="button" class="btn ghost" id="nmMoveGo">中身をまとめて移す</button>` +
+    `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button><button type="button" class="btn ghost" id="nmMoveGo">中身をまとめて移す</button><button type="button" class="btn ghost nm-delgo" id="nmDelGo">選んだリストを削除</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   // 全リストの中の「同じ名前のまとまり」から開いたときは、戻るでまとまりの一覧へ
   if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.type === "group" && _nmSel.flat) { _nmSel = { ..._nmSel, flat: false }; nmRenderDetail(); return; } if (_nmSel && _nmSel.key === "__all__" && _nmSel.sub) { _nmSel = { ..._nmSel, sub: "", name: "全リスト" }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
   if ($("nmMoveGo")) $("nmMoveGo").addEventListener("click", () => nmOpenMoveContents());
+  // 選んだリストをまとめて削除（中にリードがあるリストは残す）（2026-11-09）
+  if ($("nmDelGo")) $("nmDelGo").addEventListener("click", async () => {
+    const ids = [..._nmChosen]; if (!ids.length) return;
+    const all = [...(_nmLists || []), ...(_nmHiddenLists || [])];
+    const sel = ids.map((id) => all.find((x) => String(x.id) === String(id))).filter(Boolean);
+    const full = sel.filter((x) => Number(x.全部 || 0) > 0);
+    if (!confirm(`選んだ ${ids.length} 本のリストを削除します。${full.length ? `\n\n中にリードが入っている ${full.length} 本（${full.slice(0, 3).map((x) => x.name).join("・")}${full.length > 3 ? " ほか" : ""}）は消さずに残します。先に中身を移すか、非表示にしてください。` : ""}\n\n元に戻せません。よろしいですか？`)) return;
+    try {
+      const r = await fetch("/api/calls/lists/bulk-delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: ids.map(Number) }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "削除できませんでした");
+      _nmChosen = new Set();
+      if (typeof toast === "function") toast(`${(d.deleted || []).length} 本のリストを削除しました${(d.kept || []).length ? `（中身がある ${(d.kept || []).length} 本は残しました）` : ""}`);
+      await nmLoad(); nmRenderDetail();
+    } catch (e) { alert(e.message); }
+  });
   body.querySelectorAll(".nm-nur-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("nurture-all", `ナーチャリング - ${_nmSel.name}`, _nmSel.key)));
   body.querySelectorAll(".nm-today-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("today", `今日かけるリード - ${_nmSel.name}`, _nmSel.key)));
   body.querySelectorAll(".nm-today-add").forEach((b) => b.addEventListener("click", () => openTodayAdd(_nmSel.key, _nmSel.name, () => nmRenderDetail())));

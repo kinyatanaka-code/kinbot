@@ -12318,3 +12318,16 @@ export async function ensureMemberSlotLists(members = [], slots = [], by = "") {
   }
   return { made };
 }
+
+// 選んだリストをまとめて削除（中にリードが1件でもあるリストは消さずに残す）（2026-11-09）
+export async function bulkDeleteEmptyLists(ids = []) {
+  const deleted = [], kept = [];
+  if (!pool) return { deleted, kept };
+  for (const id of ids.map((x) => parseInt(x, 10)).filter(Boolean)) {
+    const { rows } = await pool.query(`SELECT l.name, (SELECT count(*)::int FROM call_targets t WHERE t.list_id = l.id) AS n FROM call_lists l WHERE l.id = $1`, [id]);
+    const r = rows[0]; if (!r) continue;
+    if (r.n > 0) { kept.push({ id, name: r.name, n: r.n }); continue; }
+    await pool.query(`DELETE FROM call_lists WHERE id = $1`, [id]); deleted.push({ id, name: r.name });
+  }
+  return { deleted, kept };
+}
