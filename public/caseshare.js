@@ -8,6 +8,8 @@
   const HOW = ["1名", "2-5名", "6-10名", "11名以上", "不明"];
   const PREFS = "北海道 青森県 岩手県 宮城県 秋田県 山形県 福島県 茨城県 栃木県 群馬県 埼玉県 千葉県 東京都 神奈川県 新潟県 富山県 石川県 福井県 山梨県 長野県 岐阜県 静岡県 愛知県 三重県 滋賀県 京都府 大阪府 兵庫県 奈良県 和歌山県 鳥取県 島根県 岡山県 広島県 山口県 徳島県 香川県 愛媛県 高知県 福岡県 佐賀県 長崎県 熊本県 大分県 宮崎県 鹿児島県 沖縄県".split(" ");
   const FORM = "https://docs.google.com/forms/d/e/1FAIpQLScangZkXBazmLi1Amc7RM-xPtsyhKLdhn3rWO8P225_9QeLYw/viewform";
+  // フォームで必須（*）の欄（2026-11-08 田中さん「必須項目にはモーダルにも必須の赤い印」）
+  const REQ = new Set(["company", "url", "person", "phone", "email", "job", "place", "to"]);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   function css() {
     if (document.getElementById("kbcsCss")) return;
@@ -26,6 +28,8 @@
 .kbcs-setup{display:flex;flex-direction:column;gap:6px;border:1px dashed #9CCBB5;border-radius:12px;padding:10px 12px;background:#F4FBF8;font-size:12.5px}.kbcs-setup small{color:#6A7A72}.kbcs-setup textarea{border:1px solid #D6E2DB;border-radius:9px;padding:7px;font:12px monospace}.kbcs-setup div{display:flex;gap:8px;align-items:center}.kbcs-setup .st{color:#0E6B4E;font-weight:700}
 .kbcs-ppl{position:absolute;left:0;right:70px;top:100%;margin-top:4px;background:#fff;border:1px solid #CFE3D9;border-radius:12px;box-shadow:0 14px 30px -16px rgba(0,0,0,.45);z-index:5;max-height:260px;overflow:auto;padding:4px}
 .kbcs-ppl .it{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:7px 9px;border-radius:9px;font:inherit;font-size:12.5px;cursor:pointer}.kbcs-ppl .it:hover{background:#E1F5EE}.kbcs-ppl .it span{color:#4A6158}.kbcs-ppl .it small{font-size:10.5px;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 6px}.kbcs-ppl .mute{color:#8FA39A;cursor:default;display:block}.kbcs-ppl .none{display:block;color:#6A7A72;border-top:1px dashed #DCE6E1;border-radius:0}
+.kbcs-req{font-style:normal;color:#D93025;font-weight:800;margin-left:3px}
+.kbcs-f input.miss{border-color:#D93025;background:#FFF6F5}
 .kbcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5}.kbcs-foot .n{flex:1;font-size:12px;color:#6A7A72}
 @media (max-width:640px){.kbcs-f,.kbcs-g{grid-template-columns:1fr}}`;
     document.head.appendChild(st);
@@ -48,11 +52,11 @@
     bg.innerHTML = `<div class="kbcs" role="dialog" aria-modal="true"><div class="kbcs-h"><b>🤝 案件共有</b><small>社内の案件共有_申請フォームに入れる内容です。確かめて「フォームを開く」</small><button type="button" class="kbcs-btn" data-x style="margin-left:auto">閉じる</button></div>
       <div class="kbcs-b">${fields.map(([k, l, v]) => k === "date"
           ? `<label class="kbcs-f"><span>${esc(l)}</span><div><input type="date" data-dd value="${esc(dDay)}"><input type="time" data-dt value="${esc(dTime)}" style="max-width:120px"><input type="hidden" data-k="date"><button type="button" class="kbcs-btn" data-cp="date">コピー</button></div></label>`
-          : `<label class="kbcs-f"><span>${esc(l)}</span><div><input data-k="${k}" value="${esc(v)}"><button type="button" class="kbcs-btn" data-cp="${k}">コピー</button></div></label>`).join("")}
-        <div class="kbcs-g"><span>想定分野（複数可）</span><div>${FIELDS.map((v) => `<label class="kbcs-opt"><input type="checkbox" name="field" value="${esc(v)}">${esc(v)}</label>`).join("")}</div></div>
-        <div class="kbcs-g"><span>共有元企業の属性</span><div>${radio("attr", ATTR, p.attr || "新規")}</div></div>
-        <div class="kbcs-g"><span>事務局対応</span><div>${radio("desk", DESK, DESK[2])}</div></div>
-        <div class="kbcs-g"><span>希望採用/稼働時期</span><div>${radio("when", WHEN, "不明")}</div></div>
+          : `<label class="kbcs-f"><span>${esc(l)}${REQ.has(k) ? '<i class="kbcs-req" title="必須">*</i>' : ""}</span><div><input data-k="${k}" value="${esc(v)}"${REQ.has(k) ? " required" : ""}><button type="button" class="kbcs-btn" data-cp="${k}">コピー</button></div></label>`).join("")}
+        <div class="kbcs-g"><span>想定分野（複数可）<i class="kbcs-req" title="必須">*</i></span><div>${FIELDS.map((v) => `<label class="kbcs-opt"><input type="checkbox" name="field" value="${esc(v)}">${esc(v)}</label>`).join("")}</div></div>
+        <div class="kbcs-g"><span>共有元企業の属性<i class="kbcs-req" title="必須">*</i></span><div>${radio("attr", ATTR, p.attr || "新規")}</div></div>
+        <div class="kbcs-g"><span>事務局対応<i class="kbcs-req" title="必須">*</i></span><div>${radio("desk", DESK, DESK[2])}</div></div>
+        <div class="kbcs-g"><span>希望採用/稼働時期<i class="kbcs-req" title="必須">*</i></span><div>${radio("when", WHEN, "不明")}</div></div>
         <div class="kbcs-g"><span>希望採用/稼働人数</span><div>${radio("how", HOW, "不明")}</div></div></div>
       <div class="kbcs-foot"><span class="n">${Object.keys(cfg.entries || {}).length >= 10 ? "「この内容で送信」で、フォームに回答します（あなたのGoogleのログインで送り、「メール」の欄もチェックした状態で送ります）。「フォームで確かめる」から送るときは、フォームの「メール」の欄だけ自分でチェックしてください。" : "各欄の「コピー」でフォームに貼ってください。"}${Object.keys(cfg.entries || {}).length < 10 && cfg.canSet ? ` <button type="button" class="kbcs-link" data-setup>最初の設定：ここから送信できるようにする</button>` : ""}</span>
         <button type="button" class="kbcs-btn" data-open>${Object.keys(cfg.entries || {}).length >= 10 ? "フォームで確かめる ↗" : "フォームを開く ↗"}</button>
@@ -66,6 +70,7 @@
     const syncDate = () => { const d = (bg.querySelector("[data-dd]") || {}).value || "", t = (bg.querySelector("[data-dt]") || {}).value || ""; const h = bg.querySelector('[data-k="date"]'); if (h) h.value = d ? `${d.replace(/-/g, "/")}${t ? ` ${t}` : ""}` : ""; };
     bg.querySelectorAll("[data-dd],[data-dt]").forEach((x) => x.addEventListener("input", syncDate)); syncDate();
     const val = (k) => (bg.querySelector(`[data-k="${k}"]`) || {}).value || "";
+    bg.querySelectorAll(".kbcs-f input[required]").forEach((i) => i.addEventListener("input", () => { if (i.value.trim()) i.classList.remove("miss"); }));
     // アポ一覧・kincall・Salesforce から、空いている欄を自動で埋める（どこから入れたかを小さく出す）
     (async () => {
       const foot = bg.querySelector(".kbcs-foot .n"); const old = foot ? foot.textContent : "";
@@ -120,7 +125,8 @@
       const en = cfg.entries || {}; const base = cfg.formUrl || FORM;
       const need = [["company", "クライアント企業名"], ["url", "企業URL"], ["person", "先方担当者名"], ["phone", "先方の電話番号"], ["email", "先方のメールアドレス"], ["job", "募集職種"], ["place", "募集勤務地"], ["to", "共有先となる営業担当の指定有無"]].filter(([k]) => !val(k).trim()).map(([, l]) => l);
       if (!bg.querySelector('input[name="field"]:checked')) need.push("想定分野");
-      if (need.length) { alert(`必須の欄が空です：${need.join("・")}\n入れてから送信してください（「フォームで確かめる」から入れることもできます）`); return; }
+      bg.querySelectorAll(".kbcs-f input[required]").forEach((i) => i.classList.toggle("miss", !i.value.trim()));
+      if (need.length) { alert(`必須の欄が空です：${need.join("・")}\n入れてから送信してください（「フォームで確かめる」から入れることもできます）`); const f1 = bg.querySelector(".kbcs-f input.miss"); if (f1) f1.focus(); return; }
       if (!confirm(`「${val("company")}」の案件共有を、フォームに送信します。よろしいですか？`)) return;
       const f = document.createElement("form"); f.method = "POST"; f.action = base.replace(/\/viewform.*$/, "/formResponse"); f.target = "_blank"; f.acceptCharset = "UTF-8"; f.style.display = "none";
       const add = (k, v) => { const i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = v; f.appendChild(i); };
