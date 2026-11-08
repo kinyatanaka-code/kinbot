@@ -17543,6 +17543,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
       予定 = `${naDate}T${t2}:00+09:00`;
     }
     try { await setCallTargetNextCall(id, 予定); sf.nextCallAt = 予定; } catch {}
+    if (当分) moveRecycleCToCold().catch(() => {});   // 当分架電しない → コールドリストへ（2026-11-09）
 
     // 再架電スケジューラ用に、この記録へ予定・理由・時間帯を残す（挙動は不変・データのみ）
     try {
@@ -19752,7 +19753,7 @@ app.get("/api/calls/_listdiag", async (req, res) => {
 // グループの並べ方（フォルダ）：新規リスト（新卒・フロッグ・MO失注・MOユーザー・LINE・検証）、過去リスト（クロス失注・DOC過去失注・リスケ）、
 //   リサイクル・アーカイブ・コールド・対象外（2026-11-08 田中さん）。無いグループはここで作る（空のカード）
 const LIST_GROUP_TREE_DEFAULT = [
-  { name: "新規リスト", children: ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "LINEリスト", "検証リスト"] },
+  { name: "新規リスト", children: ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "MO解約リスト", "LINEリスト", "検証リスト"] },
   { name: "過去リスト", children: ["クロス失注", "DOC過去失注", "リスケ"] },
   { name: "リサイクル" }, { name: "アーカイブ" }, { name: "コールド" }, { name: "対象外" },
 ];
@@ -28997,7 +28998,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09f kincall：リサイクルで温度Cになったリードを、コールドのグループの「コールドリスト」へ自動で移す（6時間ごと）。全リストの隣のカードが段の外に出ていたのも直した。";
+const BUILD_TAG = "2026-11-09g kincall：当分架電しないもコールドリストへ。メンバーのリストの画面に、今日かける・新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・過去失注の枠（空なら点線のカード）。新規リストにMO解約リスト。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

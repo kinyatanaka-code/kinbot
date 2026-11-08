@@ -1671,6 +1671,7 @@ function renderDock() {
     .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
     .nm-mg-opt{display:flex;flex-direction:column;gap:6px;font-size:13px;background:#F7FAF8;border-radius:12px;padding:10px 12px;} .nm-mg-opt span{font-weight:800;} .nm-mg-opt label{display:flex;gap:6px;align-items:center;cursor:pointer;}
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
+    .nm-slotcard{border-style:dashed !important;opacity:.8;background:#FAFCFB;} .nm-slotcard .nm-zan-n{color:#9DB3A9;}
     .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;min-width:0;max-width:100%;overflow:hidden;} .nm-folder .nm-card-who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:0;min-width:100%;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
     /* グループ：配る前のリードとメンバー（2026-11-08） */
     .gd-pool{border:2px solid #9FC5F0;border-radius:14px;padding:14px 16px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:10px;} .gd-pool.hot{background:#F0F6FF;border-style:dashed;}
@@ -8668,7 +8669,7 @@ function nmRenderDetail() {
   }).join("");
   const allOn = ls.length && ls.every((x) => _nmChosen.has(String(x.id)));
   body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBack">← 戻る</button><div class="nm-detail-title">${esc(_nmSel.name)}<span class="nm-detail-n">${visN} リスト${ls.length > visN ? `（非表示 ${ls.length - visN}）` : ""}</span></div>${ls.length ? `<button type="button" class="nm-selall" id="nmSelAll">${allOn ? "全部はずす" : "全部選ぶ"}</button>` : ""}</div>` +
-    `<div class="nm-lgrid">${todayCard}${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}</div><span class="rev-status" id="nmOpSt"></span>` +
+    `<div class="nm-lgrid">${todayCard}${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}${nmSlotCards()}</div><span class="rev-status" id="nmOpSt"></span>` +
     `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button><button type="button" class="btn ghost" id="nmMoveGo">中身をまとめて移す</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   // 全リストの中の「同じ名前のまとまり」から開いたときは、戻るでまとまりの一覧へ
@@ -12989,7 +12990,7 @@ function nmRenderGroupDist(body) {
   const poolIds = poolLs.map((x) => Number(x.id));
   const recount = async () => { const el = $("gdCnt"); if (!el) return; el.textContent = "…"; try { const r = await fetch(`/api/calls/groups/${encodeURIComponent(gid)}/pool-count`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolIds, filters: _gdFilters }) }); const d = await r.json(); el.textContent = Number(d.n || 0).toLocaleString(); } catch { el.textContent = "?"; } };
   recount();
-  $("gdBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.folder) { _nmSel = { type: "folder", key: _nmSel.folder, name: _nmSel.folder }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
+  $("gdBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.backOwner) { _nmSel = { type: "owner", key: _nmSel.backOwner, name: nmMemberName(_nmSel.backOwner) }; nmRenderDetail(); return; } if (_nmSel && _nmSel.folder) { _nmSel = { type: "folder", key: _nmSel.folder, name: _nmSel.folder }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
   $("gdFlat").addEventListener("click", () => { _nmSel = { ..._nmSel, flat: true }; nmRenderDetail(); });
   // 中身を見て編集する（リストの編集の画面。いくつかのリストはまとめて1つの表に）（2026-11-09 田中さん）
   const openLists = (arr, title) => { if (!arr.length) return; if (arr.length === 1) return openListFromSource(arr[0].id, arr[0].name, arr[0].owner || ""); openListsCombined(arr, title); };
@@ -13055,3 +13056,33 @@ function openListsCombined(arr, title) {
   orgLoadEdit(arr.map((x) => String(x.id)));
   if ($("edTableHead")) $("edTableHead").hidden = true;
 }
+
+// メンバーのリストの画面：決まったリストの枠（新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・過去失注）。まだ持っていないものは点線の空のカード（2026-11-09 田中さん）
+const NM_SLOTS = ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "MO解約リスト", "LINEリスト", "過去失注リスト"];
+function nmSlotGroups(slot) {
+  const t = _nmTree || []; const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+  if (slot === "過去失注リスト") { const f = t.find((x) => x.name === "過去リスト"); return f && f.children ? f.children.filter((c) => c.id) : []; }
+  for (const f of t) { const hit = (f.children || []).find((c) => norm(c.name) === norm(slot)); if (hit && hit.id) return [hit]; if (!f.children && norm(f.name) === norm(slot) && f.id) return [{ id: f.id, name: f.name }]; }
+  return [];
+}
+function nmSlotCards() {
+  if (!_nmSel || _nmSel.type !== "owner" || ["__other__", "__all__"].includes(_nmSel.key)) return "";
+  if (!_nmTree) { nmLoadTree().then(() => { if (_nmSel && _nmSel.type === "owner") nmRenderDetail(); }); return ""; }
+  const me = String(_nmSel.key || "").toLowerCase();
+  const mine = _nmLists.filter((x) => String(x.owner || "").toLowerCase() === me);
+  return NM_SLOTS.map((slot) => {
+    const gs = nmSlotGroups(slot); const ids = gs.map((g) => String(g.id));
+    if (mine.some((x) => ids.includes(String(x.group_id)))) return "";   // もう持っている（いつものリストのカードで出ている）
+    return `<div class="nm-lcard nm-slotcard"><div class="nm-lcard-name"><span class="nm-lname-t">${esc(slot)}</span></div>
+      <div class="nm-lcard-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">0</span></div>
+      <div class="nm-lcard-sub">まだリストがありません</div>
+      ${gs.length ? `<div class="nm-lcard-ops"><button type="button" class="btn ghost nm-slot-go" data-gid="${esc(String(gs[0].id))}" data-gname="${esc(gs[0].name)}" style="padding:4px 12px">${esc(_nmSel.name)}さんに配る</button></div>` : ""}</div>`;
+  }).join("");
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest && e.target.closest(".nm-slot-go"); if (!b) return;
+  const em = String((_nmSel && _nmSel.key) || "").toLowerCase();
+  if (em) _gdPick = new Set([em]);
+  _nmChosen = new Set(); _nmSel = { type: "group", key: b.dataset.gid, name: b.dataset.gname, backOwner: em };
+  nmRenderDetail();
+});

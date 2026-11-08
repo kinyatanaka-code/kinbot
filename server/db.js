@@ -12291,5 +12291,8 @@ export async function moveRecycleCToCold() {
   if (!l) l = (await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ('コールドリスト', NULL, 'リサイクルで温度Cになったリード（自動）', 'kincall', $1) RETURNING id`, [g.id])).rows[0];
   const r = await pool.query(`UPDATE call_targets SET list_id = $1, stage = 'コールド', assigned_to = NULL
       WHERE COALESCE(stage,'') ILIKE '%リサイクル%' AND upper(COALESCE(temperature,'')) = 'C' AND list_id IS DISTINCT FROM $1`, [l.id]);
-  return { moved: r.rowCount, listId: l.id, groupId: g.id };
+  // 「当分架電しない」（次にかける日が150日より先）もコールドへ（2026-11-09 田中さん）。ジャッジ・営業フォローは除く
+  const r2 = await pool.query(`UPDATE call_targets t SET list_id = $1, stage = 'コールド', assigned_to = NULL
+      WHERE t.next_call_at > now() + interval '150 days' AND t.list_id IS DISTINCT FROM $1 AND NOT (${NURTURE_WHERE})`, [l.id]);
+  return { moved: r.rowCount + r2.rowCount, recycleC: r.rowCount, hold: r2.rowCount, listId: l.id, groupId: g.id };
 }
