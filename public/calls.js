@@ -1663,6 +1663,7 @@ function renderDock() {
     .kcs-opt{display:inline-flex;align-items:center;gap:5px;border:1px solid #DCE6E1;border-radius:99px;padding:3px 10px;font-size:12px;cursor:pointer;} .kcs-opt:has(input:checked){background:#E1F5EE;border-color:#1D9E75;color:#0A5440;font-weight:700;}
     .kcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5;} .kcs-foot .note{flex:1;font-size:12px;}
     .nm-allcard{background:linear-gradient(135deg,#E9F7F1,#fff);border-color:#9FD5BF;}
+    .nm-namecard.multi{border-color:#9FD5BF;box-shadow:0 0 0 3px rgba(29,158,117,.08);} .nm-card-who{font-size:11px;color:#6A7A72;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -8536,10 +8537,11 @@ function nmGoEditVirtual(virtId, title, member) {
 function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
   if (_nmSel.type === "special") return nmRenderSpecial(body);
+  if (_nmSel.type === "owner" && _nmSel.key === "__all__" && !_nmSel.sub) return nmRenderAllGroups(body);
   const pick = (arr) => {
     if (_nmSel.type === "owner") {
       if (_nmSel.key === "__other__") return arr.filter((x) => !String(x.owner || "").trim() && !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
-      if (_nmSel.key === "__all__") return arr.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
+      if (_nmSel.key === "__all__") return arr.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()) && (!_nmSel.sub || _nmSel.sub === "__flat__" || nmNameKey(x.name) === _nmSel.sub));
       return arr.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
     }
     return arr.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
@@ -8602,7 +8604,8 @@ function nmRenderDetail() {
     `<div class="nm-lgrid">${todayCard}${nurCard}${rows || (nurCard ? "" : '<div class="empty-state">リストがありません</div>')}</div><span class="rev-status" id="nmOpSt"></span>` +
     `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button><button type="button" class="btn ghost" id="nmMoveGo">中身をまとめて移す</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
-  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+  // 全リストの中の「同じ名前のまとまり」から開いたときは、戻るでまとまりの一覧へ
+  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.key === "__all__" && _nmSel.sub) { _nmSel = { ..._nmSel, sub: "", name: "全リスト" }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
   if ($("nmMoveGo")) $("nmMoveGo").addEventListener("click", () => nmOpenMoveContents());
   body.querySelectorAll(".nm-nur-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("nurture-all", `ナーチャリング - ${_nmSel.name}`, _nmSel.key)));
   body.querySelectorAll(".nm-today-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("today", `今日かけるリード - ${_nmSel.name}`, _nmSel.key)));
@@ -12776,4 +12779,27 @@ async function kcCaseShareOpen(id) {
     for (const k of ["attr", "desk", "when", "how"]) { const c = bg.querySelector(`input[name="${k}"]:checked`); if (en[k] && c) q.append(en[k], c.value); }
     window.open(`${base}?${q.toString()}`, "_blank", "noopener");
   });
+}
+
+// ===== 全リスト：同じ名前のリスト（例：「新規_11月」をメンバーごとに分けたもの）を1枚のカードにまとめる（2026-11-08 田中さん）=====
+function nmNameKey(n) { return String(n || "").normalize("NFKC").replace(/[\s　]+/g, " ").trim(); }
+function nmRenderAllGroups(body) {
+  const ls = _nmLists.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
+  const groups = new Map();
+  for (const x of ls) { const k = nmNameKey(x.name); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+  const arr = [...groups.entries()].map(([name, xs]) => ({ name, xs, zan: xs.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0), nur: xs.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0), owners: [...new Set(xs.map((x) => String(x.owner || "").toLowerCase()).filter(Boolean))] }))
+    .sort((a, b) => b.xs.length - a.xs.length || b.zan - a.zan || a.name.localeCompare(b.name, "ja"));
+  const multi = arr.filter((g) => g.xs.length > 1), single = arr.filter((g) => g.xs.length === 1);
+  const card = (g) => `<button type="button" class="nm-card nm-namecard${g.xs.length > 1 ? " multi" : ""}" data-sub="${esc(g.name)}">
+      <div class="nm-card-name">${esc(g.name)}</div>
+      <div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${g.zan.toLocaleString()}</span></div>
+      <div class="nm-card-sub">${g.xs.length > 1 ? `${g.xs.length} リスト・` : ""}ナーチャリング ${g.nur.toLocaleString()}</div>
+      <div class="nm-card-who">${g.owners.length ? g.owners.slice(0, 4).map((e) => esc(nmMemberName(e))).join("・") + (g.owners.length > 4 ? ` ほか${g.owners.length - 4}人` : "") : "未割り当て"}</div></button>`;
+  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmBackAll">← 戻る</button><div class="nm-detail-title">全リスト<span class="nm-detail-n">${ls.length} リスト・名前ごとに ${arr.length} まとまり</span></div>
+      <button type="button" class="kc-btn" id="nmAllFlat" style="margin-left:auto">ばらして全部見る</button></div>
+    ${multi.length ? `<div class="nm-sec"><div class="nm-sec-h">同じ名前のリスト（メンバーに分けたもの）</div><div class="nm-grid">${multi.map(card).join("")}</div></div>` : ""}
+    ${single.length ? `<div class="nm-sec"><div class="nm-sec-h">ほかのリスト</div><div class="nm-grid">${single.map(card).join("")}</div></div>` : ""}`;
+  $("nmBackAll").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+  $("nmAllFlat").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "owner", key: "__all__", sub: "__flat__", name: "全リスト（ばらして全部）" }; nmRenderDetail(); });
+  body.querySelectorAll("[data-sub]").forEach((b) => b.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "owner", key: "__all__", sub: b.dataset.sub, name: b.dataset.sub }; nmRenderDetail(); }));
 }
