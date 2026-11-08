@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -19775,6 +19775,24 @@ app.get("/api/calls/group-tree", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
   finally { release(); }
 });
+// メンバーの決まったリストを作る（無いものだけ）（2026-11-09 田中さん「追加した新卒リストなどは他のリストと同じ扱い」）
+const MEMBER_SLOTS = ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "MO解約リスト", "LINEリスト", "過去失注リスト", "その他リスト"];
+app.post("/api/calls/member-slots/ensure", async (req, res) => {
+  try {
+    if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.json({ ok: true, made: 0 });
+    const groups = await listGroups(); const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+    const g = (n) => groups.find((x) => norm(x.name) === norm(n));
+    const past = ["DOC過去失注", "クロス失注", "リスケ"].map(g).filter(Boolean);
+    const slots = MEMBER_SLOTS.map((slot) => slot === "過去失注リスト"
+      ? (past[0] ? { slot, groupId: past[0].id, groupIds: past.map((x) => x.id) } : null)
+      : (g(slot) ? { slot, groupId: g(slot).id } : null)).filter(Boolean);
+    const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), String(m.name || "").trim()]));
+    const members = (Array.isArray(req.body?.members) ? req.body.members : []).map((e) => String(e || "").toLowerCase()).filter(Boolean).map((e) => ({ email: e, name: names.get(e) || "" }));
+    const r = await ensureMemberSlotLists(members, slots, req.user);
+    if (r.made) console.log(`[kincall] メンバーの決まったリストを ${r.made}本作りました by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/calls/groups", async (req, res) => {
   try { res.json({ ok: true, items: await listGroups() }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -28999,7 +29017,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09i kincallのリスト管理：リストのカードの「…」のメニューが、下の空の枠のカードに隠れていたのを直した（開いたカードを前に）。カードの長い説明の吹き出しもやめた。";
+const BUILD_TAG = "2026-11-09j kincall：メンバーごとの決まったリスト（新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・過去失注・その他）を、空の枠ではなく本物のリスト（枠の名前 - 名前）として作る。ほかのリストと同じに扱える。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

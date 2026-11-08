@@ -13067,7 +13067,17 @@ function nmSlotGroups(slot) {
   for (const f of t) { const hit = (f.children || []).find((c) => norm(c.name) === norm(slot)); if (hit && hit.id) return [hit]; if (!f.children && norm(f.name) === norm(slot) && f.id) return [{ id: f.id, name: f.name }]; }
   return [];
 }
+let _nmSlotsEnsured = false;
+async function nmEnsureSlots() {
+  if (_nmSlotsEnsured) return; _nmSlotsEnsured = true;
+  const team = (e) => (typeof nmTeamOf === "function" ? nmTeamOf(e) : "");
+  const members = (_nmMembers || []).map((m) => String(m.email || "").toLowerCase()).filter((e) => e && ["inside", "sales"].includes(team(e)));
+  if (!members.length) return;
+  try { const r = await fetch("/api/calls/member-slots/ensure", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); const d = await r.json(); if (d.made) { await nmLoad(); if (_nmSel) nmRenderDetail(); else nmRenderCards(); } } catch {}
+}
 function nmSlotCards() {
+  nmEnsureSlots();
+  return "";   // 枠は本物のリストとして作るので、空の枠のカードは出さない（2026-11-09）
   if (!_nmSel || _nmSel.type !== "owner" || ["__other__", "__all__"].includes(_nmSel.key)) return "";
   if (!_nmTree) { nmLoadTree().then(() => { if (_nmSel && _nmSel.type === "owner") nmRenderDetail(); }); return ""; }
   const me = String(_nmSel.key || "").toLowerCase();

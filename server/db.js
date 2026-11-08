@@ -12296,3 +12296,21 @@ export async function moveRecycleCToCold() {
       WHERE t.next_call_at > now() + interval '150 days' AND t.list_id IS DISTINCT FROM $1 AND NOT (${NURTURE_WHERE})`, [l.id]);
   return { moved: r.rowCount + r2.rowCount, recycleC: r.rowCount, hold: r2.rowCount, listId: l.id, groupId: g.id };
 }
+
+// メンバーごとの決まったリスト（新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・過去失注・その他）を、ほかのリストと同じ本物のリストとして作っておく（2026-11-09 田中さん）
+//   slots: [{ slot, groupId, groupIds }]。そのメンバーが groupIds のどれかのリスト（非表示も含む）を持っていれば作らない。名前は「枠の名前 - メンバー名」
+export async function ensureMemberSlotLists(members = [], slots = [], by = "") {
+  if (!pool) return { made: 0 };
+  let made = 0;
+  for (const m of members) {
+    const em = String(m.email || "").toLowerCase(); if (!em) continue;
+    const { rows } = await pool.query(`SELECT DISTINCT group_id FROM call_lists WHERE lower(owner) = $1 AND group_id IS NOT NULL`, [em]);
+    const have = new Set(rows.map((r) => String(r.group_id)));
+    for (const s of slots) {
+      if (!s.groupId || (s.groupIds || [s.groupId]).some((g) => have.has(String(g)))) continue;
+      await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ($1,$2,$3,$4,$5)`, [`${s.slot} - ${m.name || em.split("@")[0]}`.slice(0, 120), em, "メンバーの決まったリスト（自動）", by, s.groupId]);
+      have.add(String(s.groupId)); made++;
+    }
+  }
+  return { made };
+}
