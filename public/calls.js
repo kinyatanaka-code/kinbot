@@ -1671,6 +1671,7 @@ function renderDock() {
     .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
     .nm-mg-opt{display:flex;flex-direction:column;gap:6px;font-size:13px;background:#F7FAF8;border-radius:12px;padding:10px 12px;} .nm-mg-opt span{font-weight:800;} .nm-mg-opt label{display:flex;gap:6px;align-items:center;cursor:pointer;}
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
+    .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
     /* グループ：配る前のリードとメンバー（2026-11-08） */
     .gd-pool{border:2px solid #9FC5F0;border-radius:14px;padding:14px 16px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:10px;} .gd-pool.hot{background:#F0F6FF;border-style:dashed;}
     @media (max-width:900px){ .gd-pool{grid-template-columns:1fr;} }
@@ -8512,7 +8513,36 @@ function nmRenderMonthly(kind = "crosslost") {
     nmGoEditVirtual(kind, `${r.dataset.m} の${kind === "pastlost-old" ? "失注（〜2026/2）" : "クロス失注"}`, "");
   }));
 }
+// グループ別：フォルダ（新規リスト・過去リスト…）でまとめて出す（2026-11-08 田中さん）
+let _nmTree = null;
+async function nmLoadTree() { try { const d = await (await fetch("/api/calls/group-tree")).json(); if (d.ok) { _nmTree = d.tree; if (d.made) await loadGroups(); } } catch {} }
+function nmGroupStats(gid) { const ls = _nmLists.filter((x) => String(x.group_id) === String(gid)); return { ls, zan: ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0), nur: ls.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0) }; }
+function nmGroupCardHtml(id, name, extra = "") {
+  const st = id ? nmGroupStats(id) : { ls: [], zan: 0, nur: 0 };
+  return `<button type="button" class="nm-card${st.ls.length ? "" : " nm-empty"}" data-group="${esc(String(id || ""))}" data-gname="${esc(name)}"${extra}><div class="nm-card-name">${esc(name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${st.zan.toLocaleString()}</span></div><div class="nm-card-sub">${st.ls.length ? `ナーチャリング ${st.nur}・${st.ls.length} リスト` : "まだリストがありません"}</div>${st.ls.length ? nmRatePill(nmSumRates(st.ls), "このグループのリストでかけた分のアポ率（直近3か月）") : ""}</button>`;
+}
 function nmRenderGroupCards(body) {
+  if (!_nmTree) { body.innerHTML = '<div class="empty-state">読み込んでいます…</div>'; nmLoadTree().then(() => { if (!_nmSel && _nmMode === "group") nmRenderGroupCards(body); }); return; }
+  const inTree = new Set(); for (const f of _nmTree) { if (f.children) f.children.forEach((c) => c.id && inTree.add(String(c.id))); else if (f.id) inTree.add(String(f.id)); }
+  const folderCard = (f) => { if (!f.children) return nmGroupCardHtml(f.id, f.name);
+    const ids = f.children.map((c) => c.id).filter(Boolean); const ls = _nmLists.filter((x) => ids.map(String).includes(String(x.group_id)));
+    const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
+    return `<button type="button" class="nm-card nm-folder" data-folder="${esc(f.name)}"><div class="nm-card-name">📁 ${esc(f.name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">${f.children.length} グループ・${ls.length} リスト</div><div class="nm-card-who">${f.children.map((c) => esc(c.name)).join("・")}</div></button>`; };
+  const others = new Map(); for (const x of _nmLists) { const k = (x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__"; if (k !== "__none__" && inTree.has(k)) continue; if (!others.has(k)) others.set(k, x.group_name || ""); }
+  body.innerHTML = `<div class="nm-sec"><div class="nm-sec-h">リストの種類</div><div class="nm-grid">${_nmTree.map(folderCard).join("")}</div></div>
+    ${others.size ? `<div class="nm-sec"><div class="nm-sec-h">ほかのグループ</div><div class="nm-grid">${[...others.entries()].map(([k, nm]) => k === "__none__" ? nmNoneCard() : nmGroupCardHtml(k, nm || ("グループ " + k))).join("")}</div></div>` : ""}`;
+  body.querySelectorAll("[data-folder]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "folder", key: c.dataset.folder, name: c.dataset.folder }; nmRenderDetail(); }));
+  body.querySelectorAll(".nm-card[data-group]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
+}
+function nmNoneCard() { const ls = _nmLists.filter((x) => x.group_id == null || x.group_id === ""); const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-group="__none__" data-gname="（グループなし）"><div class="nm-card-name">（グループなし）</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">${ls.length} リスト</div></button>`; }
+function nmRenderFolder(body) {
+  const f = (_nmTree || []).find((x) => x.name === _nmSel.key); if (!f) { _nmSel = null; return nmRenderCards(); }
+  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="nmFoldBack">← 戻る</button><div class="nm-detail-title">📁 ${esc(f.name)}<span class="nm-detail-n">${f.children.length} グループ</span></div></div>
+    <div class="nm-sec"><div class="nm-grid">${f.children.map((c) => nmGroupCardHtml(c.id, c.name)).join("")}</div></div>`;
+  $("nmFoldBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+  body.querySelectorAll(".nm-card[data-group]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname, folder: f.name }; nmRenderDetail(); }));
+}
+function nmRenderGroupCardsOld(body) {
   const byGroup = new Map();
   for (const x of _nmLists) { const k = (x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__"; if (!byGroup.has(k)) byGroup.set(k, { name: x.group_name || "", ls: [] }); const g = byGroup.get(k); if (x.group_name && !g.name) g.name = x.group_name; g.ls.push(x); }
   const entries = [...byGroup.entries()].sort((a, b) => (a[0] === "__none__") - (b[0] === "__none__") || String(a[1].name).localeCompare(String(b[1].name), "ja"));
@@ -8561,6 +8591,7 @@ function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
   if (_nmSel.type === "special") return nmRenderSpecial(body);
   if (_nmSel.type === "owner" && _nmSel.key === "__all__" && !_nmSel.sub) return nmRenderAllGroups(body);
+  if (_nmSel.type === "folder") return nmRenderFolder(body);
   if (_nmSel.type === "group" && _nmSel.key !== "__none__" && !_nmSel.flat) return nmRenderGroupDist(body);
   const pick = (arr) => {
     if (_nmSel.type === "owner") {
@@ -12947,7 +12978,7 @@ function nmRenderGroupDist(body) {
   const poolIds = poolLs.map((x) => Number(x.id));
   const recount = async () => { const el = $("gdCnt"); if (!el) return; el.textContent = "…"; try { const r = await fetch(`/api/calls/groups/${encodeURIComponent(gid)}/pool-count`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolIds, filters: _gdFilters }) }); const d = await r.json(); el.textContent = Number(d.n || 0).toLocaleString(); } catch { el.textContent = "?"; } };
   recount();
-  $("gdBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+  $("gdBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.folder) { _nmSel = { type: "folder", key: _nmSel.folder, name: _nmSel.folder }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
   $("gdFlat").addEventListener("click", () => { _nmSel = { ..._nmSel, flat: true }; nmRenderDetail(); });
   body.querySelectorAll(".gd-pill").forEach((b) => b.addEventListener("click", () => {
     const k = b.dataset.f, v = b.dataset.v;

@@ -19732,6 +19732,30 @@ app.get("/api/calls/_listdiag", async (req, res) => {
 });
 
 // ===== リストのグループ（中途リスト・新卒リストなど） =====
+// グループの並べ方（フォルダ）：新規リスト（新卒・フロッグ・MO失注・MOユーザー・LINE・検証）、過去リスト（クロス失注・DOC過去失注・リスケ）、
+//   リサイクル・アーカイブ・コールド・対象外（2026-11-08 田中さん）。無いグループはここで作る（空のカード）
+const LIST_GROUP_TREE_DEFAULT = [
+  { name: "新規リスト", children: ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "LINEリスト", "検証リスト"] },
+  { name: "過去リスト", children: ["クロス失注", "DOC過去失注", "リスケ"] },
+  { name: "リサイクル" }, { name: "アーカイブ" }, { name: "コールド" }, { name: "対象外" },
+];
+let _treeLock = Promise.resolve();
+app.get("/api/calls/group-tree", async (req, res) => {
+  let release; const wait = _treeLock; _treeLock = new Promise((r) => (release = r)); await wait;   // 同時に開いても、グループを二重に作らない
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const tree = Array.isArray(st.listGroupTree) && st.listGroupTree.length ? st.listGroupTree : LIST_GROUP_TREE_DEFAULT;
+    let groups = await listGroups();
+    const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+    const find = (n) => groups.find((g) => norm(g.name) === norm(n));
+    const need = []; for (const f of tree) { if (f.children && f.children.length) need.push(...f.children); else need.push(f.name); }
+    let made = 0; for (const n of need) if (!find(n)) { await addGroup(n); made++; }
+    if (made) groups = await listGroups();
+    const out = tree.map((f) => f.children && f.children.length ? { name: f.name, children: f.children.map((c) => ({ name: c, id: (find(c) || {}).id || null })) } : { name: f.name, id: (find(f.name) || {}).id || null });
+    res.json({ ok: true, tree: out, made });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+  finally { release(); }
+});
 app.get("/api/calls/groups", async (req, res) => {
   try { res.json({ ok: true, items: await listGroups() }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -28956,7 +28980,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08x kincallのリスト管理（グループ別）：グループを開くと「配る前のリードの束」と「メンバーのカード」。条件で絞って○件ずつメンバーのリスト（グループ名 - 名前）に配る・ドラッグで配る／戻す。";
+const BUILD_TAG = "2026-11-08y kincallのリスト管理（グループ別）：リストの種類（新規リスト・過去リストのフォルダ、リサイクル・アーカイブ・コールド・対象外）で並べる。無いグループは空のカードとして作る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
