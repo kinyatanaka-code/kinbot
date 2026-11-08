@@ -12304,12 +12304,16 @@ export async function ensureMemberSlotLists(members = [], slots = [], by = "") {
   let made = 0;
   for (const m of members) {
     const em = String(m.email || "").toLowerCase(); if (!em) continue;
-    const { rows } = await pool.query(`SELECT DISTINCT group_id FROM call_lists WHERE lower(owner) = $1 AND group_id IS NOT NULL`, [em]);
-    const have = new Set(rows.map((r) => String(r.group_id)));
+    const { rows } = await pool.query(`SELECT group_id, name FROM call_lists WHERE lower(owner) = $1`, [em]);
+    const have = new Set(rows.filter((r) => r.group_id != null).map((r) => String(r.group_id)));
+    const names = new Set(rows.map((r) => String(r.name || "").normalize("NFKC").replace(/[\s　]/g, "")));
     for (const s of slots) {
-      if (!s.groupId || (s.groupIds || [s.groupId]).some((g) => have.has(String(g)))) continue;
-      await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ($1,$2,$3,$4,$5)`, [`${s.slot} - ${m.name || em.split("@")[0]}`.slice(0, 120), em, "メンバーの決まったリスト（自動）", by, s.groupId]);
-      have.add(String(s.groupId)); made++;
+      if (!s.groupId) continue;
+      const nm = `${s.slot} - ${m.name || em.split("@")[0]}`;
+      // byName の枠（過去失注リスト・その他リスト）は、同じ名前のリストが無ければ作る（グループのほかのリストを持っていても）（2026-11-09 田中さん）
+      if (s.byName ? names.has(nm.normalize("NFKC").replace(/[\s　]/g, "")) : (s.groupIds || [s.groupId]).some((g) => have.has(String(g)))) continue;
+      await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ($1,$2,$3,$4,$5)`, [nm.slice(0, 120), em, "メンバーの決まったリスト（自動）", by, s.groupId]);
+      have.add(String(s.groupId)); names.add(nm.normalize("NFKC").replace(/[\s　]/g, "")); made++;
     }
   }
   return { made };

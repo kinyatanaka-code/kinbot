@@ -19784,8 +19784,8 @@ app.post("/api/calls/member-slots/ensure", async (req, res) => {
     const g = (n) => groups.find((x) => norm(x.name) === norm(n));
     const past = ["DOC過去失注", "クロス失注", "リスケ"].map(g).filter(Boolean);
     const slots = MEMBER_SLOTS.map((slot) => slot === "過去失注リスト"
-      ? (past[0] ? { slot, groupId: past[0].id, groupIds: past.map((x) => x.id) } : null)
-      : (g(slot) ? { slot, groupId: g(slot).id } : null)).filter(Boolean);
+      ? (past[0] ? { slot, groupId: past[0].id, groupIds: past.map((x) => x.id), byName: true } : null)
+      : (g(slot) ? { slot, groupId: g(slot).id, byName: slot === "その他リスト" } : null)).filter(Boolean);
     const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), String(m.name || "").trim()]));
     const members = (Array.isArray(req.body?.members) ? req.body.members : []).map((e) => String(e || "").toLowerCase()).filter(Boolean).map((e) => ({ email: e, name: names.get(e) || "" }));
     const r = await ensureMemberSlotLists(members, slots, req.user);
@@ -29017,7 +29017,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09j kincall：メンバーごとの決まったリスト（新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・過去失注・その他）を、空の枠ではなく本物のリスト（枠の名前 - 名前）として作る。ほかのリストと同じに扱える。";
+const BUILD_TAG = "2026-11-09k kincall：メンバーの「過去失注リスト」「その他リスト」は、同じグループのほかのリストを持っていても作る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
