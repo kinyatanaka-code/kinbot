@@ -1662,6 +1662,7 @@ function renderDock() {
     .kcs-g{display:grid;grid-template-columns:200px 1fr;gap:10px;font-size:13px;} .kcs-g > div{display:flex;flex-wrap:wrap;gap:6px;}
     .kcs-opt{display:inline-flex;align-items:center;gap:5px;border:1px solid #DCE6E1;border-radius:99px;padding:3px 10px;font-size:12px;cursor:pointer;} .kcs-opt:has(input:checked){background:#E1F5EE;border-color:#1D9E75;color:#0A5440;font-weight:700;}
     .kcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5;} .kcs-foot .note{flex:1;font-size:12px;}
+    .nm-allcard{background:linear-gradient(135deg,#E9F7F1,#fff);border-color:#9FD5BF;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -8261,6 +8262,13 @@ function nmRenderCards() {
   for (const [email, ls] of byOwner) buckets[nmTeamOf(email)].push({ email, ls });
   const secs = [["sales", "セールス"], ["inside", "インサイド"], ["other", "他"]];
   let html = "", any = false;
+  // 全リスト（2026-11-08 田中さん）：アーカイブ・リサイクル以外の全部のリストを1枚に。押すと全部のリストが並ぶ
+  {
+    const allLs = _nmLists.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
+    const zanA = allLs.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
+    const nurA = allLs.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0);
+    html += `<div class="nm-sec"><div class="nm-sec-h">全体</div><div class="nm-grid"><button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</div></button></div></div>`;
+  }
   if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
   for (const [key, label] of secs) {
     const arr = buckets[key]; if (!arr.length) continue; any = true;
@@ -8326,7 +8334,7 @@ function nmRenderCards() {
     if (c.dataset.clold) { nmOpenCrosslost(c.dataset.clold, "pastlost-old"); return; }   // 〜2026/2 の失注
     if (c.dataset.nur) { nmOpenNurture(c.dataset.nur); return; }   // ナーチャリング（全体／今週）
     if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special, member: c.dataset.member || "", name: c.dataset.mname || "" };
-    else _nmSel = { type: "owner", key: c.dataset.owner, name: nmMemberName(c.dataset.owner) };
+    else _nmSel = { type: "owner", key: c.dataset.owner, name: c.dataset.owner === "__all__" ? "全リスト" : nmMemberName(c.dataset.owner) };
     nmRenderDetail();
   }));
 }
@@ -8531,6 +8539,7 @@ function nmRenderDetail() {
   const pick = (arr) => {
     if (_nmSel.type === "owner") {
       if (_nmSel.key === "__other__") return arr.filter((x) => !String(x.owner || "").trim() && !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
+      if (_nmSel.key === "__all__") return arr.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
       return arr.filter((x) => String(x.owner || "").toLowerCase() === String(_nmSel.key).toLowerCase());
     }
     return arr.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
@@ -8547,7 +8556,7 @@ function nmRenderDetail() {
   // 【ナーチャリング】〇〇 のような入れ物のリストは、このまとめのカードに含めて、個別のカードには出さない。
   const isNurList = (x) => /【\s*ナーチャリング\s*】/.test(String(x.name || "")) || /ナーチャリング/.test(String(x.group_name || ""));
   let nurCard = "", todayCard = "";
-  if (_nmSel.type === "owner" && _nmSel.key !== "__other__") {
+  if (_nmSel.type === "owner" && _nmSel.key !== "__other__" && _nmSel.key !== "__all__") {
     const parts = [];
     let nurTotal = 0;
     for (const x of ls) {
