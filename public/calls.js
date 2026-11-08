@@ -12725,6 +12725,12 @@ const CS_HOW = ["1名", "2-5名", "6-10名", "11名以上", "不明"];
 const CS_PREFS = ["北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県", "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県", "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県", "岐阜県", "静岡県", "愛知県", "三重県", "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県", "鳥取県", "島根県", "岡山県", "広島県", "山口県", "徳島県", "香川県", "愛媛県", "高知県", "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"];
 async function kcCaseShareOpen(id) {
   const x = (Array.isArray(rows) ? rows : []).find((v) => String(v.id) === String(id)) || {};
+  // 共通の窓（caseshare.js）があれば、そちらを使う（アポ一覧・SF から自動で埋める）（2026-11-08）
+  if (window.kbCaseShare) {
+    const ex0 = x["追加"] || {}; const g = (...k) => { for (const kk of k) { const v = x[kk] || ex0[kk]; if (v) return String(v); } return ""; };
+    window.kbCaseShare({ company: g("会社名"), url: g("URL", "HP", "ホームページ", "企業URL", "Webサイト"), person: [g("担当者"), g("ふりがな") ? `（${g("ふりがな")}）` : ""].join(""), phone: g("電話番号"), email: g("メール"), address: g("住所", "所在地", "本社所在地") });
+    return;
+  }
   const ex = (x && x["追加"]) || {};
   const pick = (...keys) => { for (const k of keys) { const v = (x && x[k]) || ex[k]; if (v) return String(v); } return ""; };
   const addr = pick("住所", "所在地", "本社所在地");

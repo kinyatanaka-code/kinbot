@@ -12165,3 +12165,31 @@ export async function kincsOverlayPatch(accountId, patch, by = "") {
   await pool.query(`INSERT INTO kincs_overlay (account_id, patch, updated_by) VALUES ($1,$2::jsonb,$3)
     ON CONFLICT (account_id) DO UPDATE SET patch = kincs_overlay.patch || $2::jsonb, updated_by = $3, updated_at = now()`, [String(accountId), JSON.stringify(patch || {}), by]);
 }
+
+// 案件共有の下書きを埋めるための、アポ一覧（smart_links）と kincall のリードの情報（会社名で探す）（2026-11-08）
+export async function caseSharePrefillLocal(company, email = "") {
+  const out = { apo: null, lead: null };
+  if (!pool) return out;
+  const c = String(company || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|（株）|\(株\)|\s|　/g, "").trim();
+  const em = String(email || "").trim().toLowerCase();
+  if (c.length < 2 && !em) return out;
+  try {
+    const { rows } = await pool.query(
+      `SELECT label, client_name, client_email, client_phone, created_at FROM smart_links
+        WHERE ($2 <> '' AND lower(client_email) = $2) OR ($1 <> '' AND replace(replace(replace(label,'株式会社',''),' ',''),'　','') ILIKE '%' || $1 || '%')
+        ORDER BY created_at DESC LIMIT 5`, [c.length >= 2 ? c : "", em]);
+    const r = rows.find((x) => x.client_name || x.client_email || x.client_phone) || rows[0];
+    if (r) out.apo = { name: r.client_name || "", email: r.client_email || "", phone: r.client_phone || "" };
+  } catch {}
+  try {
+    const { rows } = await pool.query(
+      `SELECT person, person_kana, phone, email, extra, lead_id FROM call_targets
+        WHERE ($2 <> '' AND lower(email) = $2) OR ($1 <> '' AND replace(replace(replace(company,'株式会社',''),' ',''),'　','') ILIKE '%' || $1 || '%')
+        ORDER BY (coalesce(person,'') <> '') DESC, id DESC LIMIT 5`, [c.length >= 2 ? c : "", em]);
+    const r = rows[0];
+    if (r) { const ex = r.extra && typeof r.extra === "object" ? r.extra : {};
+      out.lead = { name: r.person || "", kana: r.person_kana || "", phone: r.phone || "", email: r.email || "", leadId: r.lead_id || "",
+        address: ex["住所"] || ex["所在地"] || ex["本社所在地"] || "", url: ex["URL"] || ex["HP"] || ex["ホームページ"] || ex["企業URL"] || ex["Webサイト"] || "" }; }
+  } catch {}
+  return out;
+}

@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -5869,6 +5869,36 @@ const CASE_SHARE_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScangZkXBazmLi
 app.get("/api/case-share/config", async (req, res) => {
   const st = await getSettings().catch(() => ({}));
   res.json({ ok: true, formUrl: st.caseShareFormUrl || CASE_SHARE_FORM, entries: st.caseShareEntries || {} });
+});
+// 案件共有の下書きを自動で埋める：アポ一覧・kincall のリード・Salesforce（取引先・取引先責任者・リード）から（2026-11-08 田中さん）
+app.get("/api/case-share/prefill", async (req, res) => {
+  try {
+    const company = String(req.query.company || "").trim(), email = String(req.query.email || "").trim();
+    const out = { company, url: "", person: "", phone: "", email: "", address: "", src: {} };
+    const put = (k, v, src) => { v = String(v || "").trim(); if (v && !out[k]) { out[k] = v; out.src[k] = src; } };
+    const loc = await caseSharePrefillLocal(company, email).catch(() => ({}));
+    if (loc.apo) { put("person", loc.apo.name, "アポ一覧"); put("email", loc.apo.email, "アポ一覧"); put("phone", loc.apo.phone, "アポ一覧"); }
+    if (loc.lead) { put("person", loc.lead.name ? `${loc.lead.name}${loc.lead.kana ? `（${loc.lead.kana}）` : ""}` : "", "kincall"); put("phone", loc.lead.phone, "kincall"); put("email", loc.lead.email, "kincall"); put("address", loc.lead.address, "kincall"); put("url", loc.lead.url, "kincall"); }
+    // Salesforce（読むだけ。代わりのアカウントで）
+    try {
+      const st = await getSettings().catch(() => ({}));
+      const sfU = await pickSfUser(st.psOwner || "");
+      if (sfU && company.length >= 2) {
+        const q = company.replace(/'/g, "\\'");
+        const acc = ((await sfQuery(sfU, `SELECT Id, Name, Website, Phone, BillingState, BillingCity, BillingStreet FROM Account WHERE Name LIKE '%${q}%' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => ({}))).records || [])[0];
+        if (acc) {
+          put("url", acc.Website, "SF取引先"); put("phone", acc.Phone, "SF取引先"); put("address", [acc.BillingState, acc.BillingCity, acc.BillingStreet].filter(Boolean).join(""), "SF取引先");
+          const ct = ((await sfQuery(sfU, `SELECT Name, Email, Phone, MobilePhone FROM Contact WHERE AccountId = '${acc.Id}' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => ({}))).records || [])[0];
+          if (ct) { put("person", ct.Name, "SF取引先責任者"); put("email", ct.Email, "SF取引先責任者"); put("phone", ct.Phone || ct.MobilePhone, "SF取引先責任者"); }
+        }
+        if (!out.person || !out.email || !out.phone || !out.url) {
+          const ld = ((await sfQuery(sfU, `SELECT Name, Email, Phone, MobilePhone, Website, State, City, Street FROM Lead WHERE Company LIKE '%${q}%' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => ({}))).records || [])[0];
+          if (ld) { put("person", ld.Name, "SFリード"); put("email", ld.Email, "SFリード"); put("phone", ld.Phone || ld.MobilePhone, "SFリード"); put("url", ld.Website, "SFリード"); put("address", [ld.State, ld.City, ld.Street].filter(Boolean).join(""), "SFリード"); }
+        }
+      }
+    } catch (e) { out.sfError = e.message; }
+    res.json({ ok: true, ...out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/case-share/config", async (req, res) => {
   if (!req.isAdmin && !/^kinya\.tanaka@/i.test(String(req.user || ""))) return res.status(403).json({ error: "管理者だけが変えられます" });
@@ -28818,7 +28848,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08f kinbot：ホームの商談のカードのメールのアイコンを「案件共有」に、商談履歴の会社カードに「🤝 案件共有」（案件共有_申請フォームの下書き、共通の caseshare.js）。";
+const BUILD_TAG = "2026-11-08g 案件共有の下書き：アポ一覧・kincallのリード・Salesforce（取引先・取引先責任者・リード）から、URL・担当者・電話・メール・勤務地を自動で埋める（出どころの札つき）。kincallも同じ窓に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

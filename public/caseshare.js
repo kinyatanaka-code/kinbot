@@ -20,6 +20,7 @@
 .kbcs-g{align-items:start}.kbcs-g>div{display:flex;flex-wrap:wrap;gap:6px}
 .kbcs-opt{display:inline-flex;align-items:center;gap:5px;border:1px solid #DCE6E1;border-radius:99px;padding:3px 10px;font-size:12px;cursor:pointer}.kbcs-opt:has(input:checked){background:#E1F5EE;border-color:#1D9E75;color:#0A5440;font-weight:700}
 .kbcs-btn{border:1px solid #CFE3D9;background:#fff;border-radius:10px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;white-space:nowrap}.kbcs-btn.pri{background:#0F6E62;color:#fff;border-color:transparent}
+.kbcs-src{align-self:center;font-size:10.5px;font-weight:700;color:#0E6B4E;background:#E1F5EE;border-radius:6px;padding:1px 6px;white-space:nowrap}
 .kbcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5}.kbcs-foot .n{flex:1;font-size:12px;color:#6A7A72}
 @media (max-width:640px){.kbcs-f,.kbcs-g{grid-template-columns:1fr}}`;
     document.head.appendChild(st);
@@ -48,6 +49,25 @@
     bg.querySelector("[data-x]").addEventListener("click", close);
     document.addEventListener("keydown", function k(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", k); } });
     const val = (k) => (bg.querySelector(`[data-k="${k}"]`) || {}).value || "";
+    // アポ一覧・kincall・Salesforce から、空いている欄を自動で埋める（どこから入れたかを小さく出す）
+    (async () => {
+      const foot = bg.querySelector(".kbcs-foot .n"); const old = foot ? foot.textContent : "";
+      if (foot) foot.textContent = "アポ一覧・kincall・Salesforce から探しています…";
+      try {
+        const q = new URLSearchParams({ company: val("company") || p.company || "", email: val("email") || p.email || "" });
+        const d = await (await fetch(`/api/case-share/prefill?${q}`)).json();
+        let n = 0;
+        for (const k of ["url", "person", "phone", "email"]) {
+          const inp = bg.querySelector(`[data-k="${k}"]`); if (!inp || !d[k]) continue;
+          if (inp.value && !(k === "url" && inp.value === "https://example.com/")) continue;
+          inp.value = d[k]; n++;
+          const tag = document.createElement("small"); tag.className = "kbcs-src"; tag.textContent = (d.src && d.src[k]) || ""; inp.parentElement.appendChild(tag);
+        }
+        const place = bg.querySelector('[data-k="place"]');
+        if (place && !place.value && d.address) { const pf = PREFS.find((x) => d.address.includes(x)); if (pf) { place.value = pf; n++; const tag = document.createElement("small"); tag.className = "kbcs-src"; tag.textContent = (d.src && d.src.address) || ""; place.parentElement.appendChild(tag); } }
+        if (foot) foot.textContent = n ? `${n}つの欄を自動で埋めました（右の小さな札が出どころ）。確かめてから使ってください。` : old;
+      } catch { if (foot) foot.textContent = old; }
+    })();
     bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", async () => { const v = val(b.dataset.cp); try { await navigator.clipboard.writeText(v); } catch { const t = document.createElement("textarea"); t.value = v; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); } b.textContent = "✓"; setTimeout(() => (b.textContent = "コピー"), 1200); }));
     bg.querySelector("[data-open]").addEventListener("click", () => {
       const en = cfg.entries || {}; const base = cfg.formUrl || FORM;
