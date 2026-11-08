@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -8292,6 +8292,21 @@ function canHideLists(req) {
   return allow.includes(String(req.user || "").toLowerCase());
 }
 // リストの表示／非表示（データは消さない）。決められた人だけが操作できる。
+// グループのリードを、メンバーのリストに配る（2026-11-08 田中さん）
+app.post("/api/calls/groups/:gid/pool-count", async (req, res) => {
+  try { res.json({ ok: true, n: await groupPoolCount(req.body?.poolIds || [], req.body?.filters || {}) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post("/api/calls/groups/:gid/distribute", async (req, res) => {
+  try {
+    if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "配れるのは、決められた人だけです" });
+    const b = req.body || {}; const names = new Map((await listMembers().catch(() => [])).map((m) => [String(m.email || "").toLowerCase(), String(m.name || "").trim()]));
+    const members = (Array.isArray(b.members) ? b.members : []).map((e) => String(e || "").toLowerCase()).filter(Boolean).map((e) => ({ email: e, name: names.get(e) || e.split("@")[0] }));
+    const r = await distributeGroupLeads({ groupId: parseInt(req.params.gid, 10) || null, groupName: String(b.groupName || "リスト").trim(), poolIds: b.poolIds || [], members, per: b.per, filters: b.filters || {}, by: req.user });
+    console.log(`[kincall] グループ${req.params.gid}「${b.groupName}」を配りました：${r.results.map((x) => `${x.listName} ${x.moved}件`).join("・")} by ${req.user}`);
+    res.json({ ok: true, ...r });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 // リストのカードを別のカードに重ねたら、そのリストへ割り振る（中のリードを移す）。ジャッジを残すか移すかを選べる。空になった元のリストは非表示に（2026-11-08 田中さん）
 app.post("/api/calls/lists/:id/merge-into", async (req, res) => {
   try {
@@ -28941,7 +28956,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08w kincallのリスト管理：リストのカードを左右の端に落とすと並べかえ（並びを保存）、まん中に重ねると割り振り。";
+const BUILD_TAG = "2026-11-08x kincallのリスト管理（グループ別）：グループを開くと「配る前のリードの束」と「メンバーのカード」。条件で絞って○件ずつメンバーのリスト（グループ名 - 名前）に配る・ドラッグで配る／戻す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

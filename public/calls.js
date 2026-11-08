@@ -1671,6 +1671,22 @@ function renderDock() {
     .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
     .nm-mg-opt{display:flex;flex-direction:column;gap:6px;font-size:13px;background:#F7FAF8;border-radius:12px;padding:10px 12px;} .nm-mg-opt span{font-weight:800;} .nm-mg-opt label{display:flex;gap:6px;align-items:center;cursor:pointer;}
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
+    /* グループ：配る前のリードとメンバー（2026-11-08） */
+    .gd-pool{border:2px solid #9FC5F0;border-radius:14px;padding:14px 16px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:10px;} .gd-pool.hot{background:#F0F6FF;border-style:dashed;}
+    @media (max-width:900px){ .gd-pool{grid-template-columns:1fr;} }
+    .gd-lb{font-size:12px;color:#6A7A72;} .gd-big{display:flex;align-items:baseline;gap:8px;} .gd-big b{font-size:30px;font-weight:800;color:#14231D;} .gd-big span{font-size:12px;color:#6A7A72;}
+    .gd-src{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;} .gd-src span{font-size:11.5px;padding:2px 8px;border-radius:7px;background:#E6F1FB;color:#0C447C;} .gd-src .none{background:#F1F5F3;color:#8FA39A;}
+    .gd-grab{margin-top:10px;display:inline-flex;font-size:12px;padding:5px 10px;border-radius:9px;border:1.5px dashed #378ADD;color:#185FA5;cursor:grab;}
+    .gd-f{display:flex;flex-direction:column;gap:8px;} .gd-f .r{display:flex;gap:6px;flex-wrap:wrap;align-items:center;} .gd-f .r small{width:84px;color:#6A7A72;font-size:12px;}
+    .gd-pill{font:inherit;font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid #D5E0DA;background:#fff;cursor:pointer;} .gd-pill.on{background:#E1F5EE;color:#0A5440;border-color:#1D9E75;font-weight:700;}
+    .gd-f .act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px;} .gd-f .act input{width:80px;border:1px solid #D5E0DA;border-radius:8px;padding:5px 8px;font:inherit;}
+    .gd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:8px;}
+    .gd-m{border:1px solid #E1E9E5;border-radius:14px;padding:10px 12px;background:#fff;display:flex;flex-direction:column;gap:6px;} .gd-m[draggable="true"]{cursor:grab;} .gd-m.zero{opacity:.75;} .gd-m.hot{border:2px dashed #1D9E75;background:#F0FBF6;}
+    .gd-m .t{display:flex;align-items:center;gap:6px;} .gd-m .t b{font-weight:800;} .gd-m .t small{margin-left:auto;font-size:11px;color:#8FA39A;}
+    .gd-m .z{display:flex;align-items:baseline;gap:6px;} .gd-m .z b{font-size:22px;font-weight:800;color:#0E6B4E;} .gd-m .z span{font-size:11.5px;color:#6A7A72;}
+    .gd-m .bar{height:6px;border-radius:99px;background:#EEF3F0;overflow:hidden;} .gd-m .bar i{display:block;height:100%;background:#1D9E75;}
+    .gd-m .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;} .gd-m .tag{font-size:11px;padding:1px 7px;border-radius:6px;background:#F1F5F3;color:#4F6158;}
+    .gd-foot{margin-top:12px;font-size:12px;color:#6A7A72;border-top:1px solid #E1E9E5;padding-top:10px;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -8545,6 +8561,7 @@ function nmRenderDetail() {
   const body = $("nmBody"); if (!body || !_nmSel) return;
   if (_nmSel.type === "special") return nmRenderSpecial(body);
   if (_nmSel.type === "owner" && _nmSel.key === "__all__" && !_nmSel.sub) return nmRenderAllGroups(body);
+  if (_nmSel.type === "group" && _nmSel.key !== "__none__" && !_nmSel.flat) return nmRenderGroupDist(body);
   const pick = (arr) => {
     if (_nmSel.type === "owner") {
       if (_nmSel.key === "__other__") return arr.filter((x) => !String(x.owner || "").trim() && !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
@@ -8613,7 +8630,7 @@ function nmRenderDetail() {
     `<div class="nm-editbar" id="nmEditBar" hidden><button type="button" class="btn nm-editgo" id="nmEditGo">この <span id="nmEditN">0</span> 件を編集する</button><button type="button" class="btn ghost" id="nmMoveGo">中身をまとめて移す</button>` +
     `<select class="nm-grpbulk" id="nmGrpBulk"><option value="">選んだリストをグループに入れる…</option>${(GROUPS || []).map((g) => `<option value="${g.id}">「${esc(g.name)}」に入れる</option>`).join("")}<option value="__new__">＋新しいグループを作って入れる…</option><option value="__none__">グループから外す</option></select></div>`;
   // 全リストの中の「同じ名前のまとまり」から開いたときは、戻るでまとまりの一覧へ
-  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.key === "__all__" && _nmSel.sub) { _nmSel = { ..._nmSel, sub: "", name: "全リスト" }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
+  if ($("nmBack")) $("nmBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.type === "group" && _nmSel.flat) { _nmSel = { ..._nmSel, flat: false }; nmRenderDetail(); return; } if (_nmSel && _nmSel.key === "__all__" && _nmSel.sub) { _nmSel = { ..._nmSel, sub: "", name: "全リスト" }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
   if ($("nmMoveGo")) $("nmMoveGo").addEventListener("click", () => nmOpenMoveContents());
   body.querySelectorAll(".nm-nur-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("nurture-all", `ナーチャリング - ${_nmSel.name}`, _nmSel.key)));
   body.querySelectorAll(".nm-today-open").forEach((b) => b.addEventListener("click", () => nmGoEditVirtual("today", `今日かけるリード - ${_nmSel.name}`, _nmSel.key)));
@@ -12890,4 +12907,90 @@ async function nmReorder(fromId, toId, where) {
   if (_nmSel) nmRenderDetail();
   try { const r = await fetch("/api/calls/lists/order", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: rest.map(Number) }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || ""); }
   catch (e) { alert("並びを保存できませんでした：" + e.message); }
+}
+
+// ===================== グループ：配る前のリード（束）と、メンバーのリストのカード（2026-11-08 田中さん）=====================
+let _gdFilters = { size: "all", lastDays: 30, stages: ["new", "absent"] }, _gdPer = 200, _gdPick = new Set();
+function nmIsMemberList(x) { const n = String(x.name || "").normalize("NFKC").replace(/[\s　]+/g, " ").trim(); return !!String(x.owner || "").trim() && nmNameKey(x.name) !== n; }
+function nmRenderGroupDist(body) {
+  const gid = _nmSel.key, gname = _nmSel.name;
+  const ls = _nmLists.filter((x) => String(x.group_id) === String(gid));
+  const poolLs = ls.filter((x) => !nmIsMemberList(x)), memLs = ls.filter(nmIsMemberList);
+  const byM = new Map();
+  for (const x of memLs) { const e = String(x.owner).toLowerCase(); if (!byM.has(e)) byM.set(e, []); byM.get(e).push(x); }
+  const team = (e) => (typeof nmTeamOf === "function" ? nmTeamOf(e) : "");
+  for (const m of (_nmMembers || [])) { const e = String(m.email || "").toLowerCase(); if (e && ["inside", "sales"].includes(team(e)) && !byM.has(e)) byM.set(e, []); }
+  const sum = (arr, k) => arr.reduce((s, x) => s + Number(x[k] || 0), 0);
+  const members = [...byM.entries()].map(([e, arr]) => ({ e, arr, zan: sum(arr, "残ステータス"), all: sum(arr, "全部"), jud: sum(arr, "ナーチャリング"), team: team(e) }))
+    .sort((a, b) => (b.all > 0) - (a.all > 0) || (a.team === "inside" ? 0 : 1) - (b.team === "inside" ? 0 : 1) || b.all - a.all || nmMemberName(a.e).localeCompare(nmMemberName(b.e), "ja"));
+  const pill = (k, v, label) => { const on = k === "stages" ? _gdFilters.stages.includes(v) : String(_gdFilters[k]) === String(v); return `<button type="button" class="gd-pill${on ? " on" : ""}" data-f="${k}" data-v="${esc(String(v))}">${esc(label)}</button>`; };
+  body.innerHTML = `<div class="nm-detail-head"><button type="button" class="nm-back" id="gdBack">← 戻る</button><div class="nm-detail-title">${esc(gname)}<span class="nm-detail-n">全 ${sum(ls, "全部").toLocaleString()} 件・メンバー ${members.filter((m) => m.all > 0).length} 人に配り中</span></div><button type="button" class="kc-btn" id="gdFlat" style="margin-left:auto">リストの一覧で見る</button></div>
+    <div class="gd-pool" id="gdPool">
+      <div><div class="gd-lb">配る前のリード（人の名前が付いていないリスト）</div>
+        <div class="gd-big"><b>${sum(poolLs, "全部").toLocaleString()}</b><span>件 ／ 残 ${sum(poolLs, "残ステータス").toLocaleString()}</span></div>
+        <div class="gd-src">${poolLs.map((x) => `<span>${esc(x.name)} ${Number(x.全部 || 0).toLocaleString()}</span>`).join("") || '<span class="none">配る前のリストがありません</span>'}</div>
+        <div class="gd-grab" draggable="true" id="gdGrab">✋ この束をつかんでメンバーに落とす</div></div>
+      <div class="gd-f">
+        <div class="r"><small>規模</small>${pill("size", "all", "すべて")}${pill("size", "lt50", "〜49")}${pill("size", "100_500", "100〜500")}${pill("size", "gt500", "501〜")}</div>
+        <div class="r"><small>最後にかけて</small>${pill("lastDays", 0, "なし")}${pill("lastDays", 30, "30日以上")}${pill("lastDays", 7, "7日以上")}</div>
+        <div class="r"><small>ステージ</small>${pill("stages", "new", "はじめて")}${pill("stages", "absent", "担当者不在")}${pill("stages", "reception", "受付NG")}</div>
+        <div class="act"><span class="gd-lb">条件に合う <b id="gdCnt">…</b> 件を</span><input type="number" min="1" step="10" id="gdPer" value="${_gdPer}"><span class="gd-lb">件ずつ</span><button type="button" class="kc-btn primary" id="gdGo">選んだメンバーに配る</button></div>
+      </div>
+    </div>
+    <div class="nm-sec-h" style="margin-top:14px">メンバー（配った先：${esc(gname)} - 名前）</div>
+    <div class="gd-grid">${members.map((m) => { const pct = m.all ? Math.round(m.zan / m.all * 100) : 0; return `<div class="gd-m${m.all ? "" : " zero"}" data-em="${esc(m.e)}" draggable="${m.all ? "true" : "false"}">
+        <div class="t"><input type="checkbox" data-pick="${esc(m.e)}" ${_gdPick.has(m.e) ? "checked" : ""}><b>${esc(nmMemberName(m.e))}</b><small>${m.team === "sales" ? "セールス" : m.team === "inside" ? "インサイド" : ""}</small></div>
+        <div class="z"><b>${m.zan.toLocaleString()}</b><span>${m.all ? `残 ／ 全 ${m.all.toLocaleString()}` : "まだ配っていません"}</span></div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+        <div class="row"><span class="tag">ジャッジ ${m.jud}</span>${m.arr.length ? nmRatePill(nmSumRates(m.arr), "このメンバーのこのグループのリストでかけた分のアポ率") : ""}${m.arr.length > 1 ? `<span class="tag">${m.arr.length} リスト</span>` : ""}</div></div>`; }).join("")}</div>
+    <div class="gd-foot">メンバーのカードを上の束に落とすと、そのメンバーのリードを元のリストに戻せます（ジャッジは残すか選べます）。</div>`;
+  const poolIds = poolLs.map((x) => Number(x.id));
+  const recount = async () => { const el = $("gdCnt"); if (!el) return; el.textContent = "…"; try { const r = await fetch(`/api/calls/groups/${encodeURIComponent(gid)}/pool-count`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolIds, filters: _gdFilters }) }); const d = await r.json(); el.textContent = Number(d.n || 0).toLocaleString(); } catch { el.textContent = "?"; } };
+  recount();
+  $("gdBack").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
+  $("gdFlat").addEventListener("click", () => { _nmSel = { ..._nmSel, flat: true }; nmRenderDetail(); });
+  body.querySelectorAll(".gd-pill").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.f, v = b.dataset.v;
+    if (k === "stages") { const s = new Set(_gdFilters.stages); s.has(v) ? s.delete(v) : s.add(v); _gdFilters.stages = [...s]; } else _gdFilters[k] = k === "lastDays" ? Number(v) : v;
+    nmRenderGroupDist(body);
+  }));
+  $("gdPer").addEventListener("input", (e) => { _gdPer = Math.max(1, parseInt(e.target.value, 10) || 0); });
+  body.querySelectorAll("[data-pick]").forEach((c) => c.addEventListener("change", () => { c.checked ? _gdPick.add(c.dataset.pick) : _gdPick.delete(c.dataset.pick); }));
+  const give = async (emails, per) => {
+    if (!emails.length) { alert("配るメンバーを選んでください（カードの左上のチェック）"); return; }
+    if (!poolIds.length) { alert("配る前のリストがありません"); return; }
+    if (!confirm(`${emails.map((e) => nmMemberName(e)).join("・")} に、${per}件ずつ配ります。よろしいですか？`)) return;
+    try {
+      const r = await fetch(`/api/calls/groups/${encodeURIComponent(gid)}/distribute`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupName: gname, poolIds, members: emails, per, filters: _gdFilters }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "配れませんでした");
+      if (typeof toast === "function") toast(`配りました：${(d.results || []).map((x) => `${nmMemberName(x.email)} ${x.moved}件`).join("・")}`);
+      _gdPick = new Set(); await nmLoad(); nmRenderDetail();
+    } catch (e) { alert(e.message); }
+  };
+  $("gdGo").addEventListener("click", () => give([..._gdPick], _gdPer));
+  // ドラッグ：束 → メンバー（そのメンバーに配る）／メンバー → 束（元に戻す）
+  let drag = null;
+  $("gdGrab").addEventListener("dragstart", (e) => { drag = { kind: "pool" }; try { e.dataTransfer.setData("text/plain", "pool"); } catch {} });
+  body.querySelectorAll('.gd-m[draggable="true"]').forEach((c) => c.addEventListener("dragstart", (e) => { drag = { kind: "member", em: c.dataset.em }; try { e.dataTransfer.setData("text/plain", c.dataset.em); } catch {} }));
+  body.addEventListener("dragend", () => { drag = null; body.querySelectorAll(".hot").forEach((x) => x.classList.remove("hot")); });
+  body.querySelectorAll(".gd-m").forEach((c) => {
+    c.addEventListener("dragover", (e) => { if (drag && drag.kind === "pool") { e.preventDefault(); c.classList.add("hot"); } });
+    c.addEventListener("dragleave", () => c.classList.remove("hot"));
+    c.addEventListener("drop", (e) => { if (!drag || drag.kind !== "pool") return; e.preventDefault(); c.classList.remove("hot"); const n = parseInt(prompt(`${nmMemberName(c.dataset.em)} に何件配りますか？`, String(_gdPer)) || "", 10); if (n > 0) give([c.dataset.em], n); });
+  });
+  const pz = $("gdPool");
+  pz.addEventListener("dragover", (e) => { if (drag && drag.kind === "member") { e.preventDefault(); pz.classList.add("hot"); } });
+  pz.addEventListener("dragleave", () => pz.classList.remove("hot"));
+  pz.addEventListener("drop", async (e) => {
+    if (!drag || drag.kind !== "member") return; e.preventDefault(); pz.classList.remove("hot");
+    const m = members.find((x) => x.e === drag.em); if (!m || !m.arr.length) return;
+    const dst = poolLs.slice().sort((a, b) => Number(b.全部 || 0) - Number(a.全部 || 0))[0];
+    if (!dst) { alert("戻す先の元のリストがありません"); return; }
+    const keep = confirm(`${nmMemberName(m.e)} のリード（${m.all}件）を「${dst.name}」に戻します。\nジャッジは今の担当に残しますか？\n\nOK＝ジャッジは残す／キャンセル＝ジャッジも一緒に戻す`);
+    try {
+      let moved = 0; for (const x of m.arr) { const r = await fetch(`/api/calls/lists/${encodeURIComponent(x.id)}/merge-into`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: Number(dst.id), keepJudge: keep }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || ""); moved += Number(d.moved || 0); }
+      if (typeof toast === "function") toast(`${nmMemberName(m.e)} から ${moved}件を「${dst.name}」に戻しました`);
+      await nmLoad(); nmRenderDetail();
+    } catch (er) { alert("戻せませんでした：" + er.message); }
+  });
 }

@@ -12232,3 +12232,51 @@ export async function setCallListsOrder(ids = []) {
   await pool.query(`UPDATE call_lists l SET view_order = v.ord FROM unnest($1::int[]) WITH ORDINALITY AS v(id, ord) WHERE l.id = v.id`, [arr]);
   return arr.length;
 }
+
+// ===== グループのリードを、メンバーのリスト（「グループ名 - 名前」）に配る（2026-11-08 田中さん）=====
+//   poolIds：配る前のリスト（人の名前が付いていない元のリスト）。filters：size（all|lt50|100_500|gt500）・lastDays（0|7|30）・stages（new|absent|reception）
+function _distWhere(filters = {}) {
+  const w = [`NOT (${NURTURE_WHERE})`, `COALESCE(t.stage,'') !~ 'ユーザー|失注|アーカイブ|リサイクル|ジャッジ|営業フォロー'`, `COALESCE(t.status,'') !~ '営業フォロー|アポ獲得|使われて|現在使わ|現アナ|欠番|不通'`];
+  const sz = String(filters.size || "all");
+  const EMP = `NULLIF(regexp_replace(COALESCE(t.employees::text,''), '[^0-9]', '', 'g'), '')::bigint`;   // 従業員数（文字で入っていても数に）
+  if (sz === "lt50") w.push(`${EMP} BETWEEN 1 AND 49`);
+  else if (sz === "100_500") w.push(`${EMP} BETWEEN 100 AND 500`);
+  else if (sz === "gt500") w.push(`${EMP} > 500`);
+  const ld = parseInt(filters.lastDays || 0, 10);
+  if (ld > 0) w.push(`(lg.last IS NULL OR lg.last < now() - interval '${ld} days')`);
+  const st = Array.isArray(filters.stages) ? filters.stages : [];
+  if (st.length) {
+    const o = [];
+    if (st.includes("new")) o.push(`lg.last IS NULL`);
+    if (st.includes("absent")) o.push(`COALESCE(t.status,'') ILIKE '%担当者不在%'`);
+    if (st.includes("reception")) o.push(`COALESCE(t.status,'') ILIKE '%受付%'`);
+    if (o.length) w.push(`(${o.join(" OR ")})`);
+  }
+  return w.join(" AND ");
+}
+export async function groupPoolCount(poolIds = [], filters = {}) {
+  if (!pool) return 0;
+  const ids = poolIds.map((x) => parseInt(x, 10)).filter(Boolean); if (!ids.length) return 0;
+  const { rows } = await pool.query(`SELECT count(*)::int AS n FROM call_targets t LEFT JOIN LATERAL (SELECT max(at) AS last FROM call_logs l WHERE l.target_id = t.id) lg ON true
+    WHERE t.list_id = ANY($1::int[]) AND ${_distWhere(filters)}`, [ids]);
+  return rows[0].n;
+}
+// members: [{ email, name }]。それぞれ per 件ずつ、最後にかけた日が古い順（かけていないものが先）に配る
+export async function distributeGroupLeads({ groupId, groupName, poolIds = [], members = [], per = 0, filters = {}, by = "" }) {
+  if (!pool) return { results: [] };
+  const ids = poolIds.map((x) => parseInt(x, 10)).filter(Boolean); const n = Math.max(0, parseInt(per, 10) || 0);
+  if (!ids.length || !members.length || !n) throw new Error("配る前のリスト・メンバー・件数を選んでください");
+  const out = [];
+  for (const m of members) {
+    const listName = `${groupName} - ${m.name || m.email}`;
+    let dst = (await pool.query(`SELECT id FROM call_lists WHERE lower(owner) = lower($1) AND (group_id = $2 OR name = $3) AND name = $3 ORDER BY id LIMIT 1`, [m.email, groupId, listName])).rows[0];
+    if (!dst) {
+      dst = (await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ($1,$2,$3,$4,$5) RETURNING id`, [listName.slice(0, 120), m.email, "グループから配ったリスト", by, groupId])).rows[0];
+    } else await pool.query(`UPDATE call_lists SET hidden = false WHERE id = $1`, [dst.id]).catch(() => {});
+    const r = await pool.query(`UPDATE call_targets SET list_id = $1, assigned_to = NULL WHERE id IN (
+        SELECT t.id FROM call_targets t LEFT JOIN LATERAL (SELECT max(at) AS last FROM call_logs l WHERE l.target_id = t.id) lg ON true
+         WHERE t.list_id = ANY($2::int[]) AND ${_distWhere(filters)} ORDER BY lg.last NULLS FIRST, t.id LIMIT $3)`, [dst.id, ids, n]);
+    out.push({ email: m.email, listId: dst.id, listName, moved: r.rowCount });
+  }
+  return { results: out };
+}
