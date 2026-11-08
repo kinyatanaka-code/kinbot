@@ -1671,7 +1671,7 @@ function renderDock() {
     .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
     .nm-mg-opt{display:flex;flex-direction:column;gap:6px;font-size:13px;background:#F7FAF8;border-radius:12px;padding:10px 12px;} .nm-mg-opt span{font-weight:800;} .nm-mg-opt label{display:flex;gap:6px;align-items:center;cursor:pointer;}
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
-    .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
+    .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;min-width:0;max-width:100%;overflow:hidden;} .nm-folder .nm-card-who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
     /* グループ：配る前のリードとメンバー（2026-11-08） */
     .gd-pool{border:2px solid #9FC5F0;border-radius:14px;padding:14px 16px;background:#fff;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-top:10px;} .gd-pool.hot{background:#F0F6FF;border-style:dashed;}
     @media (max-width:900px){ .gd-pool{grid-template-columns:1fr;} }
@@ -8541,7 +8541,7 @@ function nmTypeCardHtml(f) {
   if (!f.children) return nmGroupCardHtml(f.id, f.name);
   const ids = f.children.map((c) => c.id).filter(Boolean).map(String); const ls = _nmLists.filter((x) => ids.includes(String(x.group_id)));
   const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
-  return `<button type="button" class="nm-card nm-folder" data-folder="${esc(f.name)}"><div class="nm-card-name">📁 ${esc(f.name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">${f.children.length} グループ・${ls.length} リスト</div><div class="nm-card-who">${f.children.map((c) => esc(c.name)).join("・")}</div></button>`;
+  return `<button type="button" class="nm-card nm-folder" data-folder="${esc(f.name)}"><div class="nm-card-name">📁 ${esc(f.name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">${f.children.length} グループ・${ls.length} リスト</div><div class="nm-card-who" title="${esc(f.children.map((c) => c.name).join("・"))}">${f.children.map((c) => esc(String(c.name).replace(/リスト$/, ""))).join("・")}</div></button>`;
 }
 function nmNoneCard() { const ls = _nmLists.filter((x) => x.group_id == null || x.group_id === ""); const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-group="__none__" data-gname="（グループなし）"><div class="nm-card-name">（グループなし）</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">${ls.length} リスト</div></button>`; }
 function nmRenderFolder(body) {
