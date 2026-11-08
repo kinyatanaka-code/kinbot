@@ -12208,3 +12208,15 @@ export async function caseShareMeetingText(company) {
   const sum = typeof r.summary === "string" ? r.summary : JSON.stringify(r.summary || "");
   return { botId: r.bot_id, title: r.title || "", at: r.created_at, text: `${sum}\n\n${r.tx || ""}`.slice(0, 14000) };
 }
+
+// リストのカードを別のカードに重ねたとき：元のリストのリードを、先のリストへ移す（2026-11-08 田中さん）
+//   keepJudge=true なら、ジャッジ・営業フォロー（ナーチャリング）のリードは元のリストに残す。移したリードの担当（assigned_to）は外す（先のリストの持ち主になる）
+export async function mergeCallListInto(srcId, dstId, { keepJudge = true } = {}) {
+  if (!pool) return { moved: 0 };
+  const s = parseInt(srcId, 10), d = parseInt(dstId, 10);
+  if (!s || !d || s === d) throw new Error("リストが正しくありません");
+  const cond = keepJudge ? `AND NOT (${NURTURE_WHERE})` : "";
+  const r = await pool.query(`UPDATE call_targets t SET list_id = $2, assigned_to = NULL WHERE t.list_id = $1 ${cond}`, [s, d]);
+  const left = (await pool.query(`SELECT count(*)::int AS n FROM call_targets WHERE list_id = $1`, [s])).rows[0].n;
+  return { moved: r.rowCount, left };
+}

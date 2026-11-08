@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -8292,6 +8292,18 @@ function canHideLists(req) {
   return allow.includes(String(req.user || "").toLowerCase());
 }
 // リストの表示／非表示（データは消さない）。決められた人だけが操作できる。
+// リストのカードを別のカードに重ねたら、そのリストへ割り振る（中のリードを移す）。ジャッジを残すか移すかを選べる。空になった元のリストは非表示に（2026-11-08 田中さん）
+app.post("/api/calls/lists/:id/merge-into", async (req, res) => {
+  try {
+    if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "リストをまとめられるのは、決められた人だけです" });
+    const src = parseInt(req.params.id, 10), dst = parseInt(req.body?.to, 10);
+    const r = await mergeCallListInto(src, dst, { keepJudge: req.body?.keepJudge !== false });
+    let hidden = false;
+    if (r.left === 0) { await setCallListHidden(src, true).catch(() => {}); hidden = true; }
+    console.log(`[kincall] リスト${src} → ${dst} に ${r.moved}件を移しました（ジャッジは${req.body?.keepJudge !== false ? "残す" : "移す"}・残り${r.left}件${hidden ? "・元のリストは非表示" : ""}）by ${req.user}`);
+    res.json({ ok: true, ...r, hidden });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 app.put("/api/calls/lists/:id/hidden", async (req, res) => {
   try {
     if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "このリストの表示・非表示を変えられるのは、決められた人だけです" });
@@ -28921,7 +28933,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08u kincallの全リスト：「DOC＿フロッグリスト-栗林環菜」のように最後に「-人の名前」が付いたリストも、付いていない名前と同じまとまりにする。";
+const BUILD_TAG = "2026-11-08v kincallのリスト管理：リストのカードを別のカードに重ねると、そのリストへ割り振る（ジャッジは残すか一緒に移すか選べる・空になった元のリストは非表示）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

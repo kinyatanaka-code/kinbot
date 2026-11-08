@@ -1664,6 +1664,13 @@ function renderDock() {
     .kcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5;} .kcs-foot .note{flex:1;font-size:12px;}
     .nm-allcard{background:linear-gradient(135deg,#E9F7F1,#fff);border-color:#9FD5BF;}
     .nm-namecard.multi{border-color:#9FD5BF;box-shadow:0 0 0 3px rgba(29,158,117,.08);} .nm-card-who{font-size:11px;color:#6A7A72;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    /* リストのカードを重ねて割り振る（2026-11-08） */
+    #nmBody .nm-lcard[draggable="true"]{cursor:grab;} .nm-lcard.nm-drag{opacity:.45;transform:scale(.98);} .nm-lcard.nm-drop{outline:3px dashed #1D9E75;outline-offset:3px;background:#F0FBF6;}
+    .nm-mg-bg{position:fixed;inset:0;background:rgba(10,30,22,.45);z-index:9500;display:flex;align-items:center;justify-content:center;padding:16px;}
+    .nm-mg{background:#fff;border-radius:16px;width:min(560px,100%);padding:16px 18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 24px 60px -20px rgba(0,0,0,.5);} .nm-mg > b{font-size:16px;}
+    .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
+    .nm-mg-opt{display:flex;flex-direction:column;gap:6px;font-size:13px;background:#F7FAF8;border-radius:12px;padding:10px 12px;} .nm-mg-opt span{font-weight:800;} .nm-mg-opt label{display:flex;gap:6px;align-items:center;cursor:pointer;}
+    .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
     /* 最後のメモ：だれが・いつ（2026-11-07） */
     .kc-lastmemo .kc-lm-prev{font-size:10.5px;color:#8FA39A;} .kc-lastmemo .kc-lm-who.old{background:#F1F5F3;color:#6A7A72;}
     .kc-lastmemo .kc-lm-who{display:inline-block;font-size:10.5px;font-weight:800;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 5px;margin-right:4px;}
@@ -12813,4 +12820,56 @@ function nmRenderAllGroups(body) {
   $("nmBackAll").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = null; nmRenderCards(); });
   $("nmAllFlat").addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "owner", key: "__all__", sub: "__flat__", name: "全リスト（ばらして全部）" }; nmRenderDetail(); });
   body.querySelectorAll("[data-sub]").forEach((b) => b.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "owner", key: "__all__", sub: b.dataset.sub, name: b.dataset.sub }; nmRenderDetail(); }));
+}
+
+// ===== リストのカードを別のカードに重ねると、そのリストへ割り振る（2026-11-08 田中さん）=====
+//   リスト管理の詳しい画面（メンバー・全リスト・グループ）で、カードをつかんで別のカードに落とす → ジャッジを残すか移すか選んで移す
+(function nmDragMerge() {
+  let dragId = "";
+  document.addEventListener("dragstart", (e) => {
+    const c = e.target.closest && e.target.closest("#nmBody .nm-lcard[data-id]"); if (!c || c.classList.contains("nm-todaycard")) return;
+    dragId = c.dataset.id; c.classList.add("nm-drag"); try { e.dataTransfer.setData("text/plain", dragId); e.dataTransfer.effectAllowed = "move"; } catch {}
+  });
+  document.addEventListener("dragend", () => { dragId = ""; document.querySelectorAll(".nm-drag,.nm-drop").forEach((x) => x.classList.remove("nm-drag", "nm-drop")); });
+  document.addEventListener("dragover", (e) => {
+    const c = e.target.closest && e.target.closest("#nmBody .nm-lcard[data-id]"); if (!c || !dragId || c.dataset.id === dragId) return;
+    e.preventDefault(); document.querySelectorAll(".nm-drop").forEach((x) => x !== c && x.classList.remove("nm-drop")); c.classList.add("nm-drop");
+  });
+  document.addEventListener("dragleave", (e) => { const c = e.target.closest && e.target.closest(".nm-lcard"); if (c && !c.contains(e.relatedTarget)) c.classList.remove("nm-drop"); });
+  document.addEventListener("drop", (e) => {
+    const c = e.target.closest && e.target.closest("#nmBody .nm-lcard[data-id]"); if (!c || !dragId || c.dataset.id === dragId) return;
+    e.preventDefault(); const from = dragId, to = c.dataset.id; dragId = ""; c.classList.remove("nm-drop");
+    nmMergeAsk(from, to);
+  });
+  // カードを動かせるように（描き直しのたびに付け直す）
+  new MutationObserver(() => document.querySelectorAll("#nmBody .nm-lcard[data-id]:not([draggable])").forEach((c) => { if (!c.classList.contains("nm-todaycard")) { c.setAttribute("draggable", "true"); c.title = c.title || "別のリストのカードに重ねると、そのリストへ割り振れます"; } }))
+    .observe(document.body, { childList: true, subtree: true });
+})();
+function nmMergeAsk(fromId, toId) {
+  const all = [...(_nmLists || []), ...(_nmHiddenLists || [])];
+  const a = all.find((x) => String(x.id) === String(fromId)), b = all.find((x) => String(x.id) === String(toId));
+  if (!a || !b) return;
+  const nur = Number(a.ナーチャリング || 0), zan = Number(a.残ステータス || 0), total = Number(a.全件 || a.total || 0);
+  document.querySelectorAll(".nm-mg-bg").forEach((x) => x.remove());
+  const bg = document.createElement("div"); bg.className = "nm-mg-bg";
+  bg.innerHTML = `<div class="nm-mg"><b>リストを割り振る</b>
+    <div class="nm-mg-flow"><div class="f"><small>元のリスト</small><span>${esc(a.name)}</span><em>${esc(nmMemberName(a.owner) || "未割り当て")}</em></div><span class="ar">→</span><div class="f to"><small>割り振り先</small><span>${esc(b.name)}</span><em>${esc(nmMemberName(b.owner) || "未割り当て")}</em></div></div>
+    <div class="nm-mg-opt"><span>ジャッジ（ナーチャリング）${nur ? ` ${nur}件` : ""}は</span>
+      <label><input type="radio" name="kj" value="keep" checked> 元のリストに残す（今の担当がフォローを続ける）</label>
+      <label><input type="radio" name="kj" value="move"> 一緒に移す</label></div>
+    <div class="note">移したリードは、割り振り先のリストの持ち主のものになります${total ? `（元のリストは全 ${total.toLocaleString()}件・残 ${zan.toLocaleString()}件）` : ""}。元のリストが空になったら、非表示にします。</div>
+    <div class="nm-mg-foot"><button type="button" class="kc-btn" data-x>やめる</button><button type="button" class="kc-btn primary" data-go>割り振る</button></div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").addEventListener("click", close);
+  bg.querySelector("[data-go]").addEventListener("click", async () => {
+    const keep = bg.querySelector('input[name="kj"]:checked').value === "keep"; const go = bg.querySelector("[data-go]"); go.disabled = true; go.textContent = "割り振っています…";
+    try {
+      const r = await fetch(`/api/calls/lists/${encodeURIComponent(fromId)}/merge-into`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ to: Number(toId), keepJudge: keep }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || "割り振れませんでした");
+      close(); if (typeof toast === "function") toast(`「${a.name}」から ${Number(d.moved || 0).toLocaleString()}件を「${b.name}」へ割り振りました${d.hidden ? "（元のリストは空になったので非表示に）" : ""}`); else alert(`${d.moved}件を割り振りました`);
+      await nmLoad(); if (_nmSel) nmRenderDetail();
+    } catch (e) { alert(e.message); go.disabled = false; go.textContent = "割り振る"; }
+  });
 }
