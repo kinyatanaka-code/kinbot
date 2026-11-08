@@ -54,7 +54,7 @@
         <div class="kbcs-g"><span>事務局対応</span><div>${radio("desk", DESK, DESK[2])}</div></div>
         <div class="kbcs-g"><span>希望採用/稼働時期</span><div>${radio("when", WHEN, "不明")}</div></div>
         <div class="kbcs-g"><span>希望採用/稼働人数</span><div>${radio("how", HOW, "不明")}</div></div></div>
-      <div class="kbcs-foot"><span class="n">${Object.keys(cfg.entries || {}).length >= 10 ? "「この内容で送信」で、フォームに回答します（あなたのGoogleのログインで送ります）。" : "各欄の「コピー」でフォームに貼ってください。"}${Object.keys(cfg.entries || {}).length < 10 && cfg.canSet ? ` <button type="button" class="kbcs-link" data-setup>最初の設定：ここから送信できるようにする</button>` : ""}</span>
+      <div class="kbcs-foot"><span class="n">${Object.keys(cfg.entries || {}).length >= 10 ? "「この内容で送信」で、フォームに回答します（あなたのGoogleのログインで送り、「メール」の欄もチェックした状態で送ります）。「フォームで確かめる」から送るときは、フォームの「メール」の欄だけ自分でチェックしてください。" : "各欄の「コピー」でフォームに貼ってください。"}${Object.keys(cfg.entries || {}).length < 10 && cfg.canSet ? ` <button type="button" class="kbcs-link" data-setup>最初の設定：ここから送信できるようにする</button>` : ""}</span>
         <button type="button" class="kbcs-btn" data-open>${Object.keys(cfg.entries || {}).length >= 10 ? "フォームで確かめる ↗" : "フォームを開く ↗"}</button>
         ${Object.keys(cfg.entries || {}).length >= 10 ? `<button type="button" class="kbcs-btn pri" data-send>この内容で送信</button>` : ""}</div></div>`;
     document.body.appendChild(bg);
@@ -125,7 +125,9 @@
       for (const k of ["company", "url", "person", "phone", "email", "job", "place", "to", "date", "price"]) if (en[k] && val(k)) add(en[k], val(k));
       if (en.field) bg.querySelectorAll('input[name="field"]:checked').forEach((c) => add(en.field, c.value));
       for (const k of ["attr", "desk", "when", "how"]) { const c = bg.querySelector(`input[name="${k}"]:checked`); if (en[k] && c) add(en[k], c.value); }
-      if (cfg.me) add("emailAddress", cfg.me);   // 「メール」（回答者のメールアドレスを記録する）
+      // 「メール：返信に表示するメールアドレスとして ○○ を記録する」にチェックを入れた状態で送る（フォームのページでは emailReceipt=true の隠れた項目）（2026-11-08）
+      add("emailReceipt", "true");
+      if (cfg.me) add("emailAddress", cfg.me);
       add("fvv", "1"); add("pageHistory", "0");   // フォームが送るときに付ける決まりの項目
       document.body.appendChild(f); f.submit(); setTimeout(() => f.remove(), 1000);
       bg.querySelector(".kbcs-foot .n").textContent = "送りました。新しいタブに「回答を記録しました」が出ていれば完了です。";

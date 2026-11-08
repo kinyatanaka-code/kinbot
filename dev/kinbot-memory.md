@@ -2291,3 +2291,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-08 BUILD_TAG=2026-11-08l 田中さん（森田で探すと kinbot・Gmail の2人だけ）「Googleカレンダーで検索かけて欲しい」。google.js の SCOPE に directory.readonly を足し、googleDirectorySearch（People API people:searchDirectoryPeople、DOMAIN_PROFILE、names・emailAddresses）。/api/case-share/people はいちばん先にこれ（出どころ『Google』）、失敗は dirNote（needScope＝連携し直し／disabled＝GCP で People API が無効／error）。caseshare.js：needScope なら『Googleの連携をし直す（/auth/google）』、disabled なら『People API を有効に』の案内を候補の上に。使うには①各自 Google 連携のし直し ②GCP（kinbot の OAuth クライアントのプロジェクト）で People API を有効化 ③Workspace の管理者がアプリのアクセスを絞っていれば許可。版20261108l。
 
 - 2026-11-08 BUILD_TAG=2026-11-08m 田中さん「ここカレンダーにして。商談予定日時は商談日にして欲しい」。caseshare.js：商談予定日時を type=date と type=time の2つに（フォームへは隠れた欄に『2026/11/10 14:00』、時刻なしなら日付だけ）。最初の値は p.date：ホームのカード＝予定の開始（e.start）か録音の日時、商談履歴の会社カード＝最新の商談の日時、kincall＝直近商談の日（時刻なし）。版20261108m。
+
+- 2026-11-08 BUILD_TAG=2026-11-08n 田中さん（フォームの『メール：返信に表示するメールアドレスとして kinya.tanaka@ を記録する』のチェックが空）「ここはチェックされるようにして欲しい」。フォームのページの隠れた項目 emailReceipt（value=true、チェックの JS が使う）を、『この内容で送信』のときに付ける（emailAddress も）。『フォームで確かめる』（事前入力の URL）では Google の仕組み上このチェックを入れられないので、窓の下の説明に『メールの欄だけ自分でチェック』と書いた。版20261108n。
