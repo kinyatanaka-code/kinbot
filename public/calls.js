@@ -8292,7 +8292,8 @@ function nmRenderCards() {
     const allLs = _nmLists.filter((x) => !["アーカイブ", "リサイクル"].includes(String(x.name || "").trim()));
     const zanA = allLs.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
     const nurA = allLs.reduce((s, x) => s + Number(x.ナーチャリング || 0), 0);
-    html += `<div class="nm-sec"><div class="nm-sec-h">全体</div><div class="nm-grid"><button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</div></button></div></div>`;
+    html += `<div class="nm-sec"><div class="nm-sec-h">全体</div><div class="nm-grid"><button type="button" class="nm-card nm-allcard" data-owner="__all__"><div class="nm-card-name">全リスト</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zanA.toLocaleString()}</span></div><div class="nm-card-sub">ナーチャリング ${nurA.toLocaleString()}・${allLs.length} リスト</div>${_nmRates && _nmRates.byCaller ? `<div class="nm-rates">${nmRatePill(Object.values(_nmRates.byCaller).reduce((s, o) => ({ calls: s.calls + Number((o && o.calls) || 0), apos: s.apos + Number((o && o.apos) || 0) }), { calls: 0, apos: 0 }), "全体のアポ率（直近3か月・全員）")}</div>` : ""}</div></button>${_nmTree ? _nmTree.map(nmTypeCardHtml).join("") : ""}</div></div>`;
+    if (!_nmTree) nmLoadTree().then(() => { if (!_nmSel && _nmMode !== "group") nmRenderCards(); });   // 全リストの隣のリストの種類（2026-11-08）
   }
   if (!_nmShift || _nmShiftDay !== nmTodayStr()) nmLoadShift();
   for (const [key, label] of secs) {
@@ -8358,6 +8359,8 @@ function nmRenderCards() {
     if (c.dataset.cl) { nmOpenCrosslost(c.dataset.cl); return; }   // 過去リストカード（今月かける／失注リスト／月別）
     if (c.dataset.clold) { nmOpenCrosslost(c.dataset.clold, "pastlost-old"); return; }   // 〜2026/2 の失注
     if (c.dataset.nur) { nmOpenNurture(c.dataset.nur); return; }   // ナーチャリング（全体／今週）
+    if (c.dataset.folder) { _nmSel = { type: "folder", key: c.dataset.folder, name: c.dataset.folder }; nmRenderDetail(); return; }   // リストの種類（フォルダ）
+    if (c.dataset.group) { _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); return; }       // リストの種類（グループ）
     if (c.dataset.special) _nmSel = { type: "special", key: c.dataset.special, member: c.dataset.member || "", name: c.dataset.mname || "" };
     else _nmSel = { type: "owner", key: c.dataset.owner, name: c.dataset.owner === "__all__" ? "全リスト" : nmMemberName(c.dataset.owner) };
     nmRenderDetail();
@@ -8533,6 +8536,12 @@ function nmRenderGroupCards(body) {
     ${others.size ? `<div class="nm-sec"><div class="nm-sec-h">ほかのグループ</div><div class="nm-grid">${[...others.entries()].map(([k, nm]) => k === "__none__" ? nmNoneCard() : nmGroupCardHtml(k, nm || ("グループ " + k))).join("")}</div></div>` : ""}`;
   body.querySelectorAll("[data-folder]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "folder", key: c.dataset.folder, name: c.dataset.folder }; nmRenderDetail(); }));
   body.querySelectorAll(".nm-card[data-group]").forEach((c) => c.addEventListener("click", () => { _nmChosen = new Set(); _nmSel = { type: "group", key: c.dataset.group, name: c.dataset.gname }; nmRenderDetail(); }));
+}
+function nmTypeCardHtml(f) {
+  if (!f.children) return nmGroupCardHtml(f.id, f.name);
+  const ids = f.children.map((c) => c.id).filter(Boolean).map(String); const ls = _nmLists.filter((x) => ids.includes(String(x.group_id)));
+  const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0);
+  return `<button type="button" class="nm-card nm-folder" data-folder="${esc(f.name)}"><div class="nm-card-name">📁 ${esc(f.name)}</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">${f.children.length} グループ・${ls.length} リスト</div><div class="nm-card-who">${f.children.map((c) => esc(c.name)).join("・")}</div></button>`;
 }
 function nmNoneCard() { const ls = _nmLists.filter((x) => x.group_id == null || x.group_id === ""); const zan = ls.reduce((s, x) => s + Number(x.残ステータス || 0) + Number(x.ナーチャリング || 0), 0); return `<button type="button" class="nm-card" data-group="__none__" data-gname="（グループなし）"><div class="nm-card-name">（グループなし）</div><div class="nm-card-zan"><span class="nm-zan-lb">残</span><span class="nm-zan-n">${zan.toLocaleString()}</span></div><div class="nm-card-sub">${ls.length} リスト</div></button>`; }
 function nmRenderFolder(body) {
