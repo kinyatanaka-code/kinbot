@@ -5868,7 +5868,33 @@ app.use(async (req, res, next) => {
 const CASE_SHARE_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScangZkXBazmLi1Amc7RM-xPtsyhKLdhn3rWO8P225_9QeLYw/viewform";
 app.get("/api/case-share/config", async (req, res) => {
   const st = await getSettings().catch(() => ({}));
-  res.json({ ok: true, formUrl: st.caseShareFormUrl || CASE_SHARE_FORM, entries: st.caseShareEntries || {} });
+  res.json({ ok: true, formUrl: st.caseShareFormUrl || CASE_SHARE_FORM, entries: st.caseShareEntries || {}, me: String(req.user || ""), canSet: !!req.isAdmin || /^kinya\.tanaka@/i.test(String(req.user || "")) });
+});
+// フォームのページのソース（FB_PUBLIC_LOAD_DATA_）から、質問の名前で entry 番号を読む（検収書と同じやり方）（2026-11-08）
+function parseCaseShareSource(html) {
+  const t = String(html || ""); const i = t.indexOf("FB_PUBLIC_LOAD_DATA_");
+  if (i < 0) throw new Error("フォームのソースが読めませんでした（FB_PUBLIC_LOAD_DATA_ が見つかりません）");
+  const st = t.indexOf("[", i); let depth = 0, end = -1, inStr = false, esc = false;
+  for (let k = st; k < t.length; k++) { const ch = t[k]; if (inStr) { if (esc) esc = false; else if (ch === "\\") esc = true; else if (ch === '"') inStr = false; continue; } if (ch === '"') inStr = true; else if (ch === "[") depth++; else if (ch === "]") { depth--; if (!depth) { end = k; break; } } }
+  const data = JSON.parse(t.slice(st, end + 1)); const qs = (data[1] && data[1][1]) || [];
+  const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　■]/g, "");
+  const pick = (n) => /クライアント企業名/.test(n) ? "company" : /企業URL/.test(n) ? "url" : /先方担当者名/.test(n) ? "person" : /先方の電話番号/.test(n) ? "phone" : /先方のメールアドレス/.test(n) ? "email"
+    : /想定分野/.test(n) ? "field" : /募集職種/.test(n) ? "job" : /募集勤務地/.test(n) ? "place" : /共有元企業の属性/.test(n) ? "attr" : /共有先となる営業担当/.test(n) ? "to" : /事務局対応/.test(n) ? "desk"
+    : /商談予定日時/.test(n) ? "date" : /稼働時期/.test(n) ? "when" : /稼働人数/.test(n) ? "how" : /稼働単価/.test(n) ? "price" : "";
+  const entries = {};
+  for (const q of qs) { const key = pick(norm(q[1])); const id = q[4] && q[4][0] && q[4][0][0]; if (key && id && !entries[key]) entries[key] = `entry.${id}`; }
+  const m = /https:\/\/docs\.google\.com\/forms\/d\/e\/([A-Za-z0-9_-]+)\//.exec(t);
+  const n = Object.keys(entries).length;
+  if (n < 10) throw new Error(`欄の番号が ${n} 個しか読めませんでした（案件共有_申請フォームのソースか確かめてください）`);
+  return { formUrl: m ? `https://docs.google.com/forms/d/e/${m[1]}/viewform` : CASE_SHARE_FORM, entries, count: n };
+}
+app.post("/api/case-share/source", async (req, res) => {
+  try {
+    if (!req.isAdmin && !/^kinya\.tanaka@/i.test(String(req.user || ""))) return res.status(403).json({ error: "管理者だけが設定できます" });
+    const r = parseCaseShareSource(String((req.body || {}).html || ""));
+    await saveSettings({ caseShareFormUrl: r.formUrl, caseShareEntries: r.entries });
+    res.json({ ok: true, count: r.count, keys: Object.keys(r.entries) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 // 案件共有の下書きを自動で埋める：アポ一覧・kincall のリード・Salesforce（取引先・取引先責任者・リード）から（2026-11-08 田中さん）
 app.get("/api/case-share/prefill", async (req, res) => {
@@ -28856,7 +28882,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08h 案件共有の下書き：先方担当者名に（ふりがな）。kincallのふりがながあればそれを、無ければ読みを予測して付ける（「読みは予測」の札）。";
+const BUILD_TAG = "2026-11-08i 案件共有の窓から、そのままフォームに回答できるように（検収書と同じく、ブラウザからその人のGoogleのログインで送る）。最初の1回だけ、フォームのソースを貼って欄の番号を読み込む。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -22,6 +22,8 @@
 .kbcs-btn{border:1px solid #CFE3D9;background:#fff;border-radius:10px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;white-space:nowrap}.kbcs-btn.pri{background:#0F6E62;color:#fff;border-color:transparent}
 .kbcs-src{align-self:center;font-size:10.5px;font-weight:700;color:#0E6B4E;background:#E1F5EE;border-radius:6px;padding:1px 6px;white-space:nowrap}
 .kbcs-src.guess{background:#FFF4D6;color:#8A5A00}
+.kbcs-link{border:0;background:none;color:#0E6B4E;font:inherit;font-size:12px;font-weight:700;text-decoration:underline;cursor:pointer;padding:0}
+.kbcs-setup{display:flex;flex-direction:column;gap:6px;border:1px dashed #9CCBB5;border-radius:12px;padding:10px 12px;background:#F4FBF8;font-size:12.5px}.kbcs-setup small{color:#6A7A72}.kbcs-setup textarea{border:1px solid #D6E2DB;border-radius:9px;padding:7px;font:12px monospace}.kbcs-setup div{display:flex;gap:8px;align-items:center}.kbcs-setup .st{color:#0E6B4E;font-weight:700}
 .kbcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5}.kbcs-foot .n{flex:1;font-size:12px;color:#6A7A72}
 @media (max-width:640px){.kbcs-f,.kbcs-g{grid-template-columns:1fr}}`;
     document.head.appendChild(st);
@@ -43,7 +45,9 @@
         <div class="kbcs-g"><span>事務局対応</span><div>${radio("desk", DESK, DESK[2])}</div></div>
         <div class="kbcs-g"><span>希望採用/稼働時期</span><div>${radio("when", WHEN, "不明")}</div></div>
         <div class="kbcs-g"><span>希望採用/稼働人数</span><div>${radio("how", HOW, "不明")}</div></div></div>
-      <div class="kbcs-foot"><span class="n">${Object.keys(cfg.entries || {}).length ? "「フォームを開く」で、上の内容が入った状態で開きます。フォームで確かめて送信してください。" : "各欄の「コピー」でフォームに貼ってください。"}</span><button type="button" class="kbcs-btn pri" data-open>フォームを開く ↗</button></div></div>`;
+      <div class="kbcs-foot"><span class="n">${Object.keys(cfg.entries || {}).length >= 10 ? "「この内容で送信」で、フォームに回答します（あなたのGoogleのログインで送ります）。" : "各欄の「コピー」でフォームに貼ってください。"}${Object.keys(cfg.entries || {}).length < 10 && cfg.canSet ? ` <button type="button" class="kbcs-link" data-setup>最初の設定：ここから送信できるようにする</button>` : ""}</span>
+        <button type="button" class="kbcs-btn" data-open>${Object.keys(cfg.entries || {}).length >= 10 ? "フォームで確かめる ↗" : "フォームを開く ↗"}</button>
+        ${Object.keys(cfg.entries || {}).length >= 10 ? `<button type="button" class="kbcs-btn pri" data-send>この内容で送信</button>` : ""}</div></div>`;
     document.body.appendChild(bg);
     const close = () => bg.remove();
     bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
@@ -76,6 +80,37 @@
       } catch { if (foot) foot.textContent = old; }
     })();
     bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", async () => { const v = val(b.dataset.cp); try { await navigator.clipboard.writeText(v); } catch { const t = document.createElement("textarea"); t.value = v; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); } b.textContent = "✓"; setTimeout(() => (b.textContent = "コピー"), 1200); }));
+    // この窓から、そのままフォームに回答する（検収書と同じく、ブラウザからその人のGoogleのログインで送る）（2026-11-08）
+    const sendBtn = bg.querySelector("[data-send]");
+    if (sendBtn) sendBtn.addEventListener("click", () => {
+      const en = cfg.entries || {}; const base = cfg.formUrl || FORM;
+      const need = [["company", "クライアント企業名"], ["url", "企業URL"], ["person", "先方担当者名"], ["phone", "先方の電話番号"], ["email", "先方のメールアドレス"], ["job", "募集職種"], ["place", "募集勤務地"], ["to", "共有先となる営業担当の指定有無"]].filter(([k]) => !val(k).trim()).map(([, l]) => l);
+      if (!bg.querySelector('input[name="field"]:checked')) need.push("想定分野");
+      if (need.length) { alert(`必須の欄が空です：${need.join("・")}\n入れてから送信してください（「フォームで確かめる」から入れることもできます）`); return; }
+      if (!confirm(`「${val("company")}」の案件共有を、フォームに送信します。よろしいですか？`)) return;
+      const f = document.createElement("form"); f.method = "POST"; f.action = base.replace(/\/viewform.*$/, "/formResponse"); f.target = "_blank"; f.acceptCharset = "UTF-8"; f.style.display = "none";
+      const add = (k, v) => { const i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = v; f.appendChild(i); };
+      for (const k of ["company", "url", "person", "phone", "email", "job", "place", "to", "date", "price"]) if (en[k] && val(k)) add(en[k], val(k));
+      if (en.field) bg.querySelectorAll('input[name="field"]:checked').forEach((c) => add(en.field, c.value));
+      for (const k of ["attr", "desk", "when", "how"]) { const c = bg.querySelector(`input[name="${k}"]:checked`); if (en[k] && c) add(en[k], c.value); }
+      if (cfg.me) add("emailAddress", cfg.me);   // 「メール」（回答者のメールアドレスを記録する）
+      document.body.appendChild(f); f.submit(); setTimeout(() => f.remove(), 1000);
+      bg.querySelector(".kbcs-foot .n").textContent = "送りました。新しいタブに「回答を記録しました」が出ていれば完了です。";
+      sendBtn.disabled = true; setTimeout(close, 3500);
+    });
+    // 最初の設定（管理者）：フォームのページのソースを貼ると、各欄の番号を覚える
+    const setup = bg.querySelector("[data-setup]");
+    if (setup) setup.addEventListener("click", () => {
+      const box = document.createElement("div"); box.className = "kbcs-setup";
+      box.innerHTML = `<b>フォームの番号を読み込む（最初の1回）</b><small>案件共有_申請フォームを開いたページで Ctrl+U（Macは Cmd+Option+U）→ 全部コピー → 下に貼る。または、ページを保存した .html を選ぶ。</small><textarea rows="5" placeholder="ここにページのソースを貼る"></textarea><div><input type="file" accept=".html,.htm,text/html"><button type="button" class="kbcs-btn pri" data-load>読み込む</button></div><span class="st"></span>`;
+      bg.querySelector(".kbcs-b").prepend(box);
+      box.querySelector("[data-load]").addEventListener("click", async () => {
+        const st = box.querySelector(".st"); let html = box.querySelector("textarea").value; const fl = box.querySelector("input[type=file]").files[0]; if (fl) html = await fl.text();
+        if (!html.trim()) { st.textContent = "ソースを貼るか、ファイルを選んでください"; return; }
+        try { const r = await fetch("/api/case-share/source", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ html }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "読めませんでした"); st.textContent = `${d.count}個の欄を読み込みました。窓を開き直すと「この内容で送信」が使えます。`; }
+        catch (e) { st.textContent = "失敗：" + e.message; }
+      });
+    });
     bg.querySelector("[data-open]").addEventListener("click", () => {
       const en = cfg.entries || {}; const base = cfg.formUrl || FORM;
       if (!Object.keys(en).length) { window.open(base, "_blank", "noopener"); return; }
