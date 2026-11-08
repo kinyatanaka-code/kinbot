@@ -2419,3 +2419,14 @@ export async function guessCallReason(summary, reasons = []) {
   if (!a || /^なし$/.test(a)) return "";
   return opts.includes(a) ? a : (opts.find((x) => a.includes(x)) || "");
 }
+
+// 人の名前の読み（カタカナ）を予測する（案件共有の先方担当者名のふりがな用）。読めなければ空（2026-11-08）
+export async function guessKana(name) {
+  const n = String(name || "").replace(/[（(].*?[）)]/g, "").replace(/様$/, "").trim();
+  if (!n) return "";
+  if (/^[\u30A0-\u30FF\s　]+$/.test(n)) return n;   // もうカタカナ
+  const out = await callLLM("あなたは日本人の名前の読みに詳しい人です。", `次の名前の、いちばんよくある読みをカタカナで答えてください。姓と名があれば、間を半角スペースで区切ってください。答えだけを1行で。\n名前：${n}`, 30,
+    { provider: "gemini", model: "gemini-2.5-flash-lite" }).catch(() => "");
+  const k = String(out || "").replace(/[「」『』"。\s]+$/g, "").replace(/^[「『"\s]+/, "").trim();
+  return /^[\u30A0-\u30FF\s　]+$/.test(k) ? k.replace(/[　]/g, " ") : "";
+}

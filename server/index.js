@@ -658,7 +658,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, guessCallReason, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, guessCallReason, guessKana, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave, lookupIndustry } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -5897,6 +5897,14 @@ app.get("/api/case-share/prefill", async (req, res) => {
         }
       }
     } catch (e) { out.sfError = e.message; }
+    // 先方担当者名にふりがな：ある読み（kincall のふりがな）を使い、無ければ予測（2026-11-08 田中さん「（ふりがな）を振って欲しい。ない場合は予測で」）
+    const who = String(req.query.person || "").trim() || out.person;
+    if (who && !/[（(][\u30A0-\u30FF\u3040-\u309F\s　]+[）)]/.test(who)) {
+      let kana = (loc.lead && loc.lead.kana && loc.lead.name && who.replace(/\s|　/g, "").startsWith(String(loc.lead.name).replace(/\s|　/g, "").slice(0, 2))) ? loc.lead.kana : "";
+      let guessed = false;
+      if (!kana) { kana = await guessKana(who).catch(() => ""); guessed = !!kana; }
+      if (kana) { out.personKana = kana; out.personKanaGuessed = guessed; }
+    }
     res.json({ ok: true, ...out });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -28848,7 +28856,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08g 案件共有の下書き：アポ一覧・kincallのリード・Salesforce（取引先・取引先責任者・リード）から、URL・担当者・電話・メール・勤務地を自動で埋める（出どころの札つき）。kincallも同じ窓に。";
+const BUILD_TAG = "2026-11-08h 案件共有の下書き：先方担当者名に（ふりがな）。kincallのふりがながあればそれを、無ければ読みを予測して付ける（「読みは予測」の札）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

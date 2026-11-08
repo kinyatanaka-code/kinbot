@@ -21,6 +21,7 @@
 .kbcs-opt{display:inline-flex;align-items:center;gap:5px;border:1px solid #DCE6E1;border-radius:99px;padding:3px 10px;font-size:12px;cursor:pointer}.kbcs-opt:has(input:checked){background:#E1F5EE;border-color:#1D9E75;color:#0A5440;font-weight:700}
 .kbcs-btn{border:1px solid #CFE3D9;background:#fff;border-radius:10px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0E6B4E;cursor:pointer;white-space:nowrap}.kbcs-btn.pri{background:#0F6E62;color:#fff;border-color:transparent}
 .kbcs-src{align-self:center;font-size:10.5px;font-weight:700;color:#0E6B4E;background:#E1F5EE;border-radius:6px;padding:1px 6px;white-space:nowrap}
+.kbcs-src.guess{background:#FFF4D6;color:#8A5A00}
 .kbcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5}.kbcs-foot .n{flex:1;font-size:12px;color:#6A7A72}
 @media (max-width:640px){.kbcs-f,.kbcs-g{grid-template-columns:1fr}}`;
     document.head.appendChild(st);
@@ -54,7 +55,7 @@
       const foot = bg.querySelector(".kbcs-foot .n"); const old = foot ? foot.textContent : "";
       if (foot) foot.textContent = "アポ一覧・kincall・Salesforce から探しています…";
       try {
-        const q = new URLSearchParams({ company: val("company") || p.company || "", email: val("email") || p.email || "" });
+        const q = new URLSearchParams({ company: val("company") || p.company || "", email: val("email") || p.email || "", person: val("person") || p.person || "" });
         const d = await (await fetch(`/api/case-share/prefill?${q}`)).json();
         let n = 0;
         for (const k of ["url", "person", "phone", "email"]) {
@@ -62,6 +63,12 @@
           if (inp.value && !(k === "url" && inp.value === "https://example.com/")) continue;
           inp.value = d[k]; n++;
           const tag = document.createElement("small"); tag.className = "kbcs-src"; tag.textContent = (d.src && d.src[k]) || ""; inp.parentElement.appendChild(tag);
+        }
+        // 先方担当者名に（ふりがな）を付ける。予測した読みなら札で知らせる
+        const pin = bg.querySelector('[data-k="person"]');
+        if (pin && pin.value && d.personKana && !/[（(][\u30A0-\u30FF\u3040-\u309F\s　]+[）)]/.test(pin.value)) {
+          pin.value = `${pin.value.replace(/様$/, "").trim()}（${d.personKana}）`; n++;
+          if (d.personKanaGuessed) { const tag = document.createElement("small"); tag.className = "kbcs-src guess"; tag.textContent = "読みは予測"; pin.parentElement.appendChild(tag); }
         }
         const place = bg.querySelector('[data-k="place"]');
         if (place && !place.value && d.address) { const pf = PREFS.find((x) => d.address.includes(x)); if (pf) { place.value = pf; n++; const tag = document.createElement("small"); tag.className = "kbcs-src"; tag.textContent = (d.src && d.src.address) || ""; place.parentElement.appendChild(tag); } }
