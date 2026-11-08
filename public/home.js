@@ -524,7 +524,7 @@ function render() {
             ? hIcon("sf", "SFを更新（ひも付け済み）", `data-sfedit="${escH(key)}"`, "done")
             : hIcon("sf", s.open ? "SF商談を閉じる" : "SF商談を選ぶ", `data-sf-open="${escH(key)}"`, "done"))) +
       // メールのアイコンは「案件共有」に変えた（2026-11-08 田中さん）。押すと案件共有_申請フォームの下書きが開く
-      hIcon("cshare", "案件共有（社内の案件共有_申請フォーム）", `data-cshare="${escH(key)}" data-cs-company="${escH(company || "")}" data-cs-person="${escH((m && m.client_name) || (e && e.clientName) || "")}" data-cs-email="${escH((e && e.clientEmail) || (m && m.client_email) || "")}" data-cs-date="${escH((e && e.start) || (m && m.created_at) || "")}"`, "done") +
+      hIcon("cshare", "案件共有（社内の案件共有_申請フォーム）", `data-cshare="${escH(key)}" data-cs-company="${escH(company || "")}" data-cs-person="${escH((m && m.client_name) || (e && e.clientName) || "")}" data-cs-email="${escH((e && e.clientEmail) || (m && m.client_email) || "")}" data-cs-date="${escH((e && e.start) || (m && m.created_at) || "")}"`, "need") +   // いつも濃く（AIデモと同じ）（2026-11-08）
       hIcon("aidemo", aidemoByKey[fnorm(company)] ? "AIデモ（作成済み・URLを見る）" : "AIデモを作る", `data-aidemo="${escH(key)}"`, aidemoByKey[fnorm(company)] ? "done" : "need") +
       // 「その他」にカーソルを合わせると、担当変更と開くが出てくる
       `<span class="hl-moregrp">${hIcon("more", "担当変更・開く", `data-more-toggle="${escH(key)}"`, "")}` +
