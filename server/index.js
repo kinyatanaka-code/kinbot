@@ -19755,6 +19755,7 @@ app.get("/api/calls/_listdiag", async (req, res) => {
 const LIST_GROUP_TREE_DEFAULT = [
   { name: "新規リスト", children: ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "MO解約リスト", "LINEリスト", "検証リスト"] },
   { name: "過去リスト", children: ["クロス失注", "DOC過去失注", "リスケ"] },
+  { name: "その他リスト" },   // 過去リストの次に（2026-11-09 田中さん）
   { name: "リサイクル" }, { name: "アーカイブ" }, { name: "コールド" }, { name: "対象外" },
 ];
 let _treeLock = Promise.resolve();
@@ -28998,7 +28999,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09g kincall：当分架電しないもコールドリストへ。メンバーのリストの画面に、今日かける・新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・過去失注の枠（空なら点線のカード）。新規リストにMO解約リスト。";
+const BUILD_TAG = "2026-11-09h kincallのリスト管理：「その他リスト」を足した（全体の段は過去リストの次、メンバーの画面の枠にも）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

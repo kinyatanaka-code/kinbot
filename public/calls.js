@@ -13058,7 +13058,7 @@ function openListsCombined(arr, title) {
 }
 
 // メンバーのリストの画面：決まったリストの枠（新卒・フロッグ・MO失注・MOユーザー・MO解約・LINE・過去失注）。まだ持っていないものは点線の空のカード（2026-11-09 田中さん）
-const NM_SLOTS = ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "MO解約リスト", "LINEリスト", "過去失注リスト"];
+const NM_SLOTS = ["新卒リスト", "フロッグリスト", "MO失注リスト", "MOユーザーリスト", "MO解約リスト", "LINEリスト", "過去失注リスト", "その他リスト"];
 function nmSlotGroups(slot) {
   const t = _nmTree || []; const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
   if (slot === "過去失注リスト") { const f = t.find((x) => x.name === "過去リスト"); return f && f.children ? f.children.filter((c) => c.id) : []; }
