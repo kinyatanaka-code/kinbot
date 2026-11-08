@@ -24,6 +24,8 @@
 .kbcs-src.guess{background:#FFF4D6;color:#8A5A00}
 .kbcs-link{border:0;background:none;color:#0E6B4E;font:inherit;font-size:12px;font-weight:700;text-decoration:underline;cursor:pointer;padding:0}
 .kbcs-setup{display:flex;flex-direction:column;gap:6px;border:1px dashed #9CCBB5;border-radius:12px;padding:10px 12px;background:#F4FBF8;font-size:12.5px}.kbcs-setup small{color:#6A7A72}.kbcs-setup textarea{border:1px solid #D6E2DB;border-radius:9px;padding:7px;font:12px monospace}.kbcs-setup div{display:flex;gap:8px;align-items:center}.kbcs-setup .st{color:#0E6B4E;font-weight:700}
+.kbcs-ppl{position:absolute;left:0;right:70px;top:100%;margin-top:4px;background:#fff;border:1px solid #CFE3D9;border-radius:12px;box-shadow:0 14px 30px -16px rgba(0,0,0,.45);z-index:5;max-height:260px;overflow:auto;padding:4px}
+.kbcs-ppl .it{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:7px 9px;border-radius:9px;font:inherit;font-size:12.5px;cursor:pointer}.kbcs-ppl .it:hover{background:#E1F5EE}.kbcs-ppl .it span{color:#4A6158}.kbcs-ppl .it small{font-size:10.5px;color:#0E6B4E;background:#E1F5EE;border-radius:5px;padding:0 6px}.kbcs-ppl .mute{color:#8FA39A;cursor:default;display:block}.kbcs-ppl .none{display:block;color:#6A7A72;border-top:1px dashed #DCE6E1;border-radius:0}
 .kbcs-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #E1E9E5}.kbcs-foot .n{flex:1;font-size:12px;color:#6A7A72}
 @media (max-width:640px){.kbcs-f,.kbcs-g{grid-template-columns:1fr}}`;
     document.head.appendChild(st);
@@ -80,6 +82,24 @@
       } catch { if (foot) foot.textContent = old; }
     })();
     bg.querySelectorAll("[data-cp]").forEach((b) => b.addEventListener("click", async () => { const v = val(b.dataset.cp); try { await navigator.clipboard.writeText(v); } catch { const t = document.createElement("textarea"); t.value = v; document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); } b.textContent = "✓"; setTimeout(() => (b.textContent = "コピー"), 1200); }));
+    // 共有先の営業担当：名前を入れると、kinbot・SF・自分のGmail から探して、選ぶとメールアドレスが入る（2026-11-08）
+    { const to = bg.querySelector('[data-k="to"]'); const wrap = to.parentElement; wrap.style.position = "relative";
+      const list = document.createElement("div"); list.className = "kbcs-ppl"; list.hidden = true; wrap.appendChild(list);
+      to.placeholder = "名前で探す（例：田中）／指定なし"; let tm = 0, seq = 0;
+      to.addEventListener("focus", () => { if (to.value === "指定なし") to.select(); });
+      to.addEventListener("input", () => {
+        clearTimeout(tm); const q = to.value.trim();
+        if (q.length < 2 || q.includes("@") || q === "指定なし") { list.hidden = true; return; }
+        tm = setTimeout(async () => {
+          const my = ++seq; list.hidden = false; list.innerHTML = `<div class="it mute">「${esc(q)}」を探しています…</div>`;
+          try { const d = await (await fetch(`/api/case-share/people?q=${encodeURIComponent(q)}`)).json(); if (my !== seq) return;
+            const items = d.items || [];
+            list.innerHTML = (items.map((p2) => `<button type="button" class="it" data-em="${esc(p2.email)}"><b>${esc(p2.name || p2.email)}</b><span>${esc(p2.email)}</span><small>${esc(p2.src)}</small></button>`).join("") || `<div class="it mute">見つかりませんでした（メールアドレスを直接入れてもOK）</div>`) + `<button type="button" class="it none" data-em="指定なし">指定なし</button>`;
+            list.querySelectorAll("[data-em]").forEach((b) => b.addEventListener("mousedown", (ev) => { ev.preventDefault(); to.value = b.dataset.em; list.hidden = true; }));
+          } catch { list.hidden = true; }
+        }, 300);
+      });
+      to.addEventListener("blur", () => setTimeout(() => { list.hidden = true; }, 150)); }
     // この窓から、そのままフォームに回答する（検収書と同じく、ブラウザからその人のGoogleのログインで送る）（2026-11-08）
     const sendBtn = bg.querySelector("[data-send]");
     if (sendBtn) sendBtn.addEventListener("click", () => {
