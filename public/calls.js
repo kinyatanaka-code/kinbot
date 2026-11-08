@@ -1671,6 +1671,8 @@ function renderDock() {
     .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
     .nm-mg-opt{display:flex;flex-direction:column;gap:6px;font-size:13px;background:#F7FAF8;border-radius:12px;padding:10px 12px;} .nm-mg-opt span{font-weight:800;} .nm-mg-opt label{display:flex;gap:6px;align-items:center;cursor:pointer;}
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
+    /* 「…」のメニューを開いたカードを、ほかのカード（空の枠など）より前に出す（2026-11-09 田中さん「重なっている」） */
+    .nm-lcard{position:relative;} .nm-lcard:has(.nm-kmenu:not([hidden])){z-index:30;} .nm-kmenu{z-index:40;} .nm-slotcard{z-index:0;}
     .nm-slotcard{border-style:dashed !important;opacity:.8;background:#FAFCFB;} .nm-slotcard .nm-zan-n{color:#9DB3A9;}
     .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;min-width:0;max-width:100%;overflow:hidden;} .nm-folder .nm-card-who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:0;min-width:100%;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
     /* グループ：配る前のリードとメンバー（2026-11-08） */
@@ -12908,7 +12910,7 @@ function nmRenderAllGroups(body) {
     if (z === "merge") nmMergeAsk(from, to); else nmReorder(from, to, z);
   });
   // カードを動かせるように（描き直しのたびに付け直す）
-  new MutationObserver(() => document.querySelectorAll("#nmBody .nm-lcard[data-id]:not([draggable])").forEach((c) => { if (!c.classList.contains("nm-todaycard")) { c.setAttribute("draggable", "true"); c.title = c.title || "カードの左右の端に落とすと並べかえ、まん中に重ねるとそのリストへ割り振り"; } }))
+  new MutationObserver(() => document.querySelectorAll("#nmBody .nm-lcard[data-id]:not([draggable])").forEach((c) => { if (!c.classList.contains("nm-todaycard")) { c.setAttribute("draggable", "true"); /* 説明の吹き出しは出さない（「…」のメニューと重なるため）（2026-11-09） */ } }))
     .observe(document.body, { childList: true, subtree: true });
 })();
 function nmMergeAsk(fromId, toId) {
