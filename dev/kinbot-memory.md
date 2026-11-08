@@ -2309,5 +2309,3 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-08 BUILD_TAG=2026-11-08u 田中さん「-〇〇となっているものがあるからそれも同じグループで。例：DOC＿フロッグリストとDOC＿フロッグリスト-栗林環菜は同じグループ」。nmNameKey：最後の『-（-‐－–—）＋名前』が、メンバーの名前（空白なし）か、漢字の名字で始まる2〜8文字（漢字・ひらがな）なら外してまとめる（LINE-2026・過去失注-テスト用 などはそのまま）。全角＿も NFKC で _ にそろう。版20261108u。
 
 - 2026-11-08 BUILD_TAG=2026-11-08v 田中さん「リストのカードとカードを合わせるとそのリストに割り振るようにできる。ジャッジを残すか移すか選択できるように」。db.mergeCallListInto（list_id を移す、keepJudge なら NURTURE_WHERE のリードは残す、移したリードの assigned_to は外す、残り件数）。POST /api/calls/lists/:id/merge-into {to, keepJudge}（canHideLists かクローザー、空になったら setCallListHidden）。calls.js：リスト管理の詳しい画面のリストのカード（.nm-lcard[data-id]、今日かけるのカードは除く）を draggable、別のカードに重ねると点線で光り、落とすと『リストを割り振る』の窓（元→先、持ち主、ジャッジ n件は 残す（初期）／一緒に移す）→ 割り振る → nmLoad して描き直し。版20261108v。
-
-- 2026-11-08 BUILD_TAG=2026-11-08w 田中さん（全リストの DOC_フロッグリストのまとまりのスクショ）「順序を持って動かせるように」。call_lists.view_order（listAllCallLists で ADD COLUMN して返す、lists-all の『順』）、db.setCallListsOrder（ids の順に1,2,3…）、PUT /api/calls/lists/order（canHideLists かクローザー）。calls.js：詳しい画面の並び＝順 → 名前。ドラッグ：落とした位置がカードの左右の端28%なら並べかえ（緑の縦線がその側に出る、画面をすぐ並べかえて全部の順を保存）、まん中なら今までの割り振り（点線）。版20261108w。
