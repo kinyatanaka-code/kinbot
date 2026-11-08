@@ -1665,7 +1665,7 @@ function renderDock() {
     .nm-allcard{background:linear-gradient(135deg,#E9F7F1,#fff);border-color:#9FD5BF;}
     .nm-namecard.multi{border-color:#9FD5BF;box-shadow:0 0 0 3px rgba(29,158,117,.08);} .nm-card-who{font-size:11px;color:#6A7A72;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     /* リストのカードを重ねて割り振る（2026-11-08） */
-    #nmBody .nm-lcard[draggable="true"]{cursor:grab;} .nm-lcard.nm-drag{opacity:.45;transform:scale(.98);} .nm-lcard.nm-drop{outline:3px dashed #1D9E75;outline-offset:3px;background:#F0FBF6;}
+    #nmBody .nm-lcard[draggable="true"]{cursor:grab;} .nm-lcard.nm-ins-l{box-shadow:-6px 0 0 -1px #1D9E75;} .nm-lcard.nm-ins-r{box-shadow:6px 0 0 -1px #1D9E75;} .nm-lcard.nm-drag{opacity:.45;transform:scale(.98);} .nm-lcard.nm-drop{outline:3px dashed #1D9E75;outline-offset:3px;background:#F0FBF6;}
     .nm-mg-bg{position:fixed;inset:0;background:rgba(10,30,22,.45);z-index:9500;display:flex;align-items:center;justify-content:center;padding:16px;}
     .nm-mg{background:#fff;border-radius:16px;width:min(560px,100%);padding:16px 18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 24px 60px -20px rgba(0,0,0,.5);} .nm-mg > b{font-size:16px;}
     .nm-mg-flow{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;} .nm-mg-flow .f{border:1px solid #E1E9E5;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px;} .nm-mg-flow .f.to{border-color:#1D9E75;background:#F0FBF6;} .nm-mg-flow small{font-size:10.5px;color:#8FA39A;} .nm-mg-flow span{font-weight:800;font-size:13px;} .nm-mg-flow em{font-style:normal;font-size:11.5px;color:#6A7A72;} .nm-mg-flow .ar{font-size:20px;color:#1D9E75;font-weight:800;}
@@ -8553,7 +8553,8 @@ function nmRenderDetail() {
     }
     return arr.filter((x) => ((x.group_id != null && x.group_id !== "") ? String(x.group_id) : "__none__") === String(_nmSel.key));
   };
-  const byName = (a, b) => String(a.name).localeCompare(String(b.name), "ja");
+  // 並び：ドラッグで並べかえた順（順）→ 名前（2026-11-08）
+  const byName = (a, b) => ((a.順 ?? 1e9) - (b.順 ?? 1e9)) || String(a.name).localeCompare(String(b.name), "ja");
   const visN = pick(_nmLists).length;
   // 表示中のリストのあとに、非表示のリストを薄く並べる（「表示に戻す」ができる）
   let ls = [...pick(_nmLists).sort(byName), ...pick(_nmHiddenLists || []).sort(byName)];
@@ -12830,19 +12831,24 @@ function nmRenderAllGroups(body) {
     const c = e.target.closest && e.target.closest("#nmBody .nm-lcard[data-id]"); if (!c || c.classList.contains("nm-todaycard")) return;
     dragId = c.dataset.id; c.classList.add("nm-drag"); try { e.dataTransfer.setData("text/plain", dragId); e.dataTransfer.effectAllowed = "move"; } catch {}
   });
-  document.addEventListener("dragend", () => { dragId = ""; document.querySelectorAll(".nm-drag,.nm-drop").forEach((x) => x.classList.remove("nm-drag", "nm-drop")); });
+  document.addEventListener("dragend", () => { dragId = ""; document.querySelectorAll(".nm-drag,.nm-drop,.nm-ins-l,.nm-ins-r").forEach((x) => x.classList.remove("nm-drag", "nm-drop", "nm-ins-l", "nm-ins-r")); });
+  // カードの左右の端（それぞれ28%）に落とすと「並べかえ」、まん中に落とすと「割り振り」（2026-11-08 田中さん「順序を持って動かせるように」）
+  const zoneOf = (c, e) => { const r = c.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width; return x < 0.28 ? "before" : x > 0.72 ? "after" : "merge"; };
   document.addEventListener("dragover", (e) => {
     const c = e.target.closest && e.target.closest("#nmBody .nm-lcard[data-id]"); if (!c || !dragId || c.dataset.id === dragId) return;
-    e.preventDefault(); document.querySelectorAll(".nm-drop").forEach((x) => x !== c && x.classList.remove("nm-drop")); c.classList.add("nm-drop");
+    e.preventDefault(); const z = zoneOf(c, e);
+    document.querySelectorAll(".nm-drop,.nm-ins-l,.nm-ins-r").forEach((x) => x.classList.remove("nm-drop", "nm-ins-l", "nm-ins-r"));
+    c.classList.add(z === "merge" ? "nm-drop" : z === "before" ? "nm-ins-l" : "nm-ins-r");
   });
   document.addEventListener("dragleave", (e) => { const c = e.target.closest && e.target.closest(".nm-lcard"); if (c && !c.contains(e.relatedTarget)) c.classList.remove("nm-drop"); });
   document.addEventListener("drop", (e) => {
     const c = e.target.closest && e.target.closest("#nmBody .nm-lcard[data-id]"); if (!c || !dragId || c.dataset.id === dragId) return;
-    e.preventDefault(); const from = dragId, to = c.dataset.id; dragId = ""; c.classList.remove("nm-drop");
-    nmMergeAsk(from, to);
+    e.preventDefault(); const z = zoneOf(c, e); const from = dragId, to = c.dataset.id; dragId = "";
+    document.querySelectorAll(".nm-drop,.nm-ins-l,.nm-ins-r,.nm-drag").forEach((x) => x.classList.remove("nm-drop", "nm-ins-l", "nm-ins-r", "nm-drag"));
+    if (z === "merge") nmMergeAsk(from, to); else nmReorder(from, to, z);
   });
   // カードを動かせるように（描き直しのたびに付け直す）
-  new MutationObserver(() => document.querySelectorAll("#nmBody .nm-lcard[data-id]:not([draggable])").forEach((c) => { if (!c.classList.contains("nm-todaycard")) { c.setAttribute("draggable", "true"); c.title = c.title || "別のリストのカードに重ねると、そのリストへ割り振れます"; } }))
+  new MutationObserver(() => document.querySelectorAll("#nmBody .nm-lcard[data-id]:not([draggable])").forEach((c) => { if (!c.classList.contains("nm-todaycard")) { c.setAttribute("draggable", "true"); c.title = c.title || "カードの左右の端に落とすと並べかえ、まん中に重ねるとそのリストへ割り振り"; } }))
     .observe(document.body, { childList: true, subtree: true });
 })();
 function nmMergeAsk(fromId, toId) {
@@ -12872,4 +12878,16 @@ function nmMergeAsk(fromId, toId) {
       await nmLoad(); if (_nmSel) nmRenderDetail();
     } catch (e) { alert(e.message); go.disabled = false; go.textContent = "割り振る"; }
   });
+}
+
+// 並べかえ：今の画面のカードの並びの中で、動かしたカードを落とした位置へ。全部の順を保存する
+async function nmReorder(fromId, toId, where) {
+  const ids = [...document.querySelectorAll("#nmBody .nm-lcard[data-id]")].filter((c) => !c.classList.contains("nm-todaycard")).map((c) => c.dataset.id);
+  const rest = ids.filter((x) => x !== fromId); const at = rest.indexOf(toId); if (at < 0) return;
+  rest.splice(where === "before" ? at : at + 1, 0, fromId);
+  // 画面のほうはすぐ並べかえる（保存はうしろで）
+  rest.forEach((id, i) => { for (const arr of [_nmLists || [], _nmHiddenLists || []]) { const x = arr.find((v) => String(v.id) === String(id)); if (x) x.順 = i + 1; } });
+  if (_nmSel) nmRenderDetail();
+  try { const r = await fetch("/api/calls/lists/order", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: rest.map(Number) }) }); const d = await r.json(); if (!r.ok) throw new Error(d.error || ""); }
+  catch (e) { alert("並びを保存できませんでした：" + e.message); }
 }
