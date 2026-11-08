@@ -685,6 +685,7 @@ import {
   driveGetContent,
   gmailReady,
   gmailSearchThreads,
+  googleDirectorySearch,
   gmailSentToday,
   gmailFindBounces,
   gmailGetThread,
@@ -5949,6 +5950,10 @@ app.get("/api/case-share/people", async (req, res) => {
     const doms = String(process.env.ALLOWED_EMAIL_DOMAIN || "neo-career.co.jp").toLowerCase().split(/[\s,]+/).map((d) => d.replace(/^@/, "")).filter(Boolean);
     const out = new Map(); const nn = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
     const add = (name, email, src) => { const e = String(email || "").trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+$/.test(e) || out.has(e)) return; if (doms.length && !doms.some((d) => e.endsWith("@" + d))) return; if (!nn(name).includes(qn) && !e.includes(qn.toLowerCase())) return; out.set(e, { name: String(name || "").trim(), email: e, src }); };
+    // いちばん先に、会社の Google のアドレス帳（Googleカレンダーで名前を入れたときと同じ）（2026-11-08 田中さん）
+    let dirNote = "";
+    try { for (const p2 of await googleDirectorySearch(req.user, q, 10)) { const e = String(p2.email || "").trim().toLowerCase(); if (!out.has(e) && (!doms.length || doms.some((d) => e.endsWith("@" + d)))) out.set(e, { name: p2.name, email: e, src: "Google" }); } }
+    catch (e) { dirNote = e.needScope ? "needScope" : e.serviceDisabled ? "disabled" : "error"; console.warn("[case-share] Googleのアドレス帳:", e.message); }
     for (const m of await listMembers().catch(() => [])) add(m.name, m.email, "kinbot");
     try {
       const st = await getSettings().catch(() => ({})); const sfU = await pickSfUser(st.psOwner || "");
@@ -5963,7 +5968,7 @@ app.get("/api/case-share/people", async (req, res) => {
         for (const t of th) for (const mm of (t.messages || [])) for (const h of [mm.from, mm.to, mm.cc]) { let m; re.lastIndex = 0; while ((m = re.exec(String(h || "")))) add(m[1] || "", m[2], "Gmail"); }
       } catch {}
     }
-    res.json({ ok: true, items: [...out.values()].slice(0, 12) });
+    res.json({ ok: true, items: [...out.values()].slice(0, 12), dirNote });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/case-share/config", async (req, res) => {
@@ -28914,7 +28919,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08k 案件共有：フォームの15個の欄の番号を最初から入れた（田中さんが送ってくれたページから）。どの画面の案件共有の窓でも「この内容で送信」が使える。";
+const BUILD_TAG = "2026-11-08l 案件共有の共有先：会社のGoogleのアドレス帳（Googleカレンダーで名前を入れたときと同じ）から先に探す。Google連携に directory.readonly を足した（連携し直しが要る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

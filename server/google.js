@@ -6,7 +6,7 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
 // calendar.events は「自分のカレンダーに予定を作り、ゲストを招待する」ために必要。
 // 招待方式なので、相手（クローザー）のカレンダーへの権限は不要。
-const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/chat.messages.readonly https://www.googleapis.com/auth/chat.spaces.readonly";
+const SCOPE = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/chat.messages.readonly https://www.googleapis.com/auth/chat.spaces.readonly https://www.googleapis.com/auth/directory.readonly";
 
 export function googleConfigured() {
   return !!(CLIENT_ID && CLIENT_SECRET);
@@ -1734,4 +1734,21 @@ export async function writeSheetNewTab(owner, spreadsheetId, title, rows) {
   const put = await fetch(`${base}/values/${encodeURIComponent(name)}!A1?valueInputOption=RAW`, { method: "PUT", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ values: rows }) });
   if (!put.ok) { const t = await put.text(); throw new Error(`書き込めません ${put.status}: ${t.slice(0, 200)}`); }
   return { tab: name, url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit` };
+}
+
+// 会社の Google のアドレス帳（ディレクトリ）から、名前で人を探す（Googleカレンダーで名前を入れたときと同じところ）（2026-11-08）
+//   要るもの：Google 連携の directory.readonly（連携し直し）と、Google Cloud で People API を有効にしておくこと
+export async function googleDirectorySearch(owner, query, max = 10) {
+  const token = await accessToken(owner);
+  if (!token) { const e = new Error("Google未連携です"); e.needScope = true; throw e; }
+  const u = `https://people.googleapis.com/v1/people:searchDirectoryPeople?query=${encodeURIComponent(String(query || "").trim())}&readMask=names,emailAddresses&sources=DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE&pageSize=${max}`;
+  const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) {
+    const t = await r.text(); const e = new Error(`Googleのアドレス帳 ${r.status}: ${t.slice(0, 200)}`);
+    if (r.status === 403 && /insufficient|scope|ACCESS_TOKEN_SCOPE/i.test(t)) e.needScope = true;
+    if (/SERVICE_DISABLED|has not been used|is disabled/i.test(t)) e.serviceDisabled = true;
+    throw e;
+  }
+  const d = await r.json();
+  return (d.people || []).map((p) => ({ name: ((p.names || [])[0] || {}).displayName || "", email: ((p.emailAddresses || [])[0] || {}).value || "" })).filter((x) => x.email);
 }

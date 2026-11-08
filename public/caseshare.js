@@ -94,7 +94,9 @@
           const my = ++seq; list.hidden = false; list.innerHTML = `<div class="it mute">「${esc(q)}」を探しています…</div>`;
           try { const d = await (await fetch(`/api/case-share/people?q=${encodeURIComponent(q)}`)).json(); if (my !== seq) return;
             const items = d.items || [];
-            list.innerHTML = (items.map((p2) => `<button type="button" class="it" data-em="${esc(p2.email)}"><b>${esc(p2.name || p2.email)}</b><span>${esc(p2.email)}</span><small>${esc(p2.src)}</small></button>`).join("") || `<div class="it mute">見つかりませんでした（メールアドレスを直接入れてもOK）</div>`) + `<button type="button" class="it none" data-em="指定なし">指定なし</button>`;
+            const hint = d.dirNote === "needScope" ? `<div class="it mute">Googleのアドレス帳からも探すには、<a href="/auth/google" target="_blank" rel="noopener">Googleの連携をし直す</a>（1回だけ）</div>`
+              : d.dirNote === "disabled" ? `<div class="it mute">Googleのアドレス帳がまだ使えません（Google Cloud で People API を有効にする必要があります。田中さんに連絡してください）</div>` : "";
+            list.innerHTML = hint + (items.map((p2) => `<button type="button" class="it" data-em="${esc(p2.email)}"><b>${esc(p2.name || p2.email)}</b><span>${esc(p2.email)}</span><small>${esc(p2.src)}</small></button>`).join("") || `<div class="it mute">見つかりませんでした（メールアドレスを直接入れてもOK）</div>`) + `<button type="button" class="it none" data-em="指定なし">指定なし</button>`;
             list.querySelectorAll("[data-em]").forEach((b) => b.addEventListener("mousedown", (ev) => { ev.preventDefault(); to.value = b.dataset.em; list.hidden = true; }));
           } catch { list.hidden = true; }
         }, 300);
