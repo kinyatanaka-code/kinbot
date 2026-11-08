@@ -114,6 +114,7 @@
       if (en.field) bg.querySelectorAll('input[name="field"]:checked').forEach((c) => add(en.field, c.value));
       for (const k of ["attr", "desk", "when", "how"]) { const c = bg.querySelector(`input[name="${k}"]:checked`); if (en[k] && c) add(en[k], c.value); }
       if (cfg.me) add("emailAddress", cfg.me);   // 「メール」（回答者のメールアドレスを記録する）
+      add("fvv", "1"); add("pageHistory", "0");   // フォームが送るときに付ける決まりの項目
       document.body.appendChild(f); f.submit(); setTimeout(() => f.remove(), 1000);
       bg.querySelector(".kbcs-foot .n").textContent = "送りました。新しいタブに「回答を記録しました」が出ていれば完了です。";
       sendBtn.disabled = true; setTimeout(close, 3500);

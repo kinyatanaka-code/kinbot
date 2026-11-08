@@ -5866,9 +5866,16 @@ app.use(async (req, res, next) => {
 // ===== 案件共有（社内の案件共有_申請フォーム）を kincall から入力済みで開く（2026-11-08 田中さん）=====
 //   フォームの各質問の entry 番号は settings.caseShareEntries（キー → "entry.123..."）。分かるまでは、入力済みにはせず、値をコピーして貼る形
 const CASE_SHARE_FORM = "https://docs.google.com/forms/d/e/1FAIpQLScangZkXBazmLi1Amc7RM-xPtsyhKLdhn3rWO8P225_9QeLYw/viewform";
+// 田中さんが送ってくれたフォームのページ（2026-11-08）から読んだ、各質問の entry 番号（15個）。設定で読み込み直せば、そちらが優先
+const CASE_SHARE_ENTRIES_DEFAULT = {
+  company: "entry.1241162822", url: "entry.1946171077", person: "entry.783636178", phone: "entry.97515935", email: "entry.1356576020",
+  field: "entry.1254828682", job: "entry.1006096460", place: "entry.1148810111", attr: "entry.136992332", to: "entry.814516665",
+  desk: "entry.1016291198", date: "entry.1929083812", when: "entry.1690898190", how: "entry.1954965802", price: "entry.114055248",
+};
 app.get("/api/case-share/config", async (req, res) => {
   const st = await getSettings().catch(() => ({}));
-  res.json({ ok: true, formUrl: st.caseShareFormUrl || CASE_SHARE_FORM, entries: st.caseShareEntries || {}, me: String(req.user || ""), canSet: !!req.isAdmin || /^kinya\.tanaka@/i.test(String(req.user || "")) });
+  const ent = st.caseShareEntries && Object.keys(st.caseShareEntries).length >= 10 ? st.caseShareEntries : CASE_SHARE_ENTRIES_DEFAULT;
+  res.json({ ok: true, formUrl: st.caseShareFormUrl || CASE_SHARE_FORM, entries: ent, me: String(req.user || ""), canSet: !!req.isAdmin || /^kinya\.tanaka@/i.test(String(req.user || "")) });
 });
 // フォームのページのソース（FB_PUBLIC_LOAD_DATA_）から、質問の名前で entry 番号を読む（検収書と同じやり方）（2026-11-08）
 function parseCaseShareSource(html) {
@@ -28907,7 +28914,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08j 案件共有：共有先の営業担当を名前で探して、選ぶとメールアドレスが入る（kinbotのメンバー・SFのユーザー・自分のGmailのやり取りから、ネオキャリアのメールだけ）。";
+const BUILD_TAG = "2026-11-08k 案件共有：フォームの15個の欄の番号を最初から入れた（田中さんが送ってくれたページから）。どの画面の案件共有の窓でも「この内容で送信」が使える。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
