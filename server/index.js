@@ -13243,7 +13243,14 @@ async function kinxsBuild() {
   for (const r of rowsAll) if (r.merged_into && Array.isArray(r.products) && r.products.length) mergedProducts.set(r.merged_into, [...(mergedProducts.get(r.merged_into) || []), ...r.products]);
   const rows = rowsAll.filter((r) => !r.merged_into).map((r) => (mergedProducts.has(r.account_id) ? { ...r, products: [...(r.products || []), ...mergedProducts.get(r.account_id)] } : r));
   const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
-  const kickBy = new Map(); for (const k of kicks) { const key = csCoKey(k.company); if (key && !kickBy.has(key)) kickBy.set(key, k); }
+  // CS連携のカードと会社を照らす：会社名・取引先名・予定名・読み取った企業名のどれか、SF の取引先のリンク（sf_url の Id）でも（2026-11-09 田中さん「CS連携にある企業はキックオフ済み」）
+  const kickBy = new Map(), kickByAcc = new Map();
+  for (const k of kicks) {
+    for (const nm of [k.company, k.account, (k.fields || {}).企業名, k.title]) { const key = csCoKey(nm); if (key && key.length >= 2 && !kickBy.has(key)) kickBy.set(key, k); }
+    const m = String(k.sf_url || "").match(/\b(001[0-9A-Za-z]{12,15})\b/); if (m && !kickByAcc.has(m[1].slice(0, 15))) kickByAcc.set(m[1].slice(0, 15), k);
+  }
+  const kickFind = (r, key, formerNames) => kickByAcc.get(String(r.account_id || "").slice(0, 15)) || (key && kickBy.get(key)) || formerNames.map((f) => kickBy.get(csCoKey(f))).find(Boolean)
+    || (key && key.length >= 4 ? [...kickBy.entries()].find(([kk]) => kk.length >= 4 && (kk.includes(key) || key.includes(kk)))?.[1] : null) || null;
   const ksSent = st.kenshuSent || {};
   const track = await csTrackSummary(kicks.map((k) => k.bot_id)).catch(() => ({}));
   // 商談（議事録）を会社のキーでまとめる（最終接触・フォロー履歴）
@@ -13260,7 +13267,7 @@ async function kinxsBuild() {
     let r = r0; r = { ...r, name: r.name_override || r.name };
     const formerNames = (Array.isArray(r.former_names) ? r.former_names : []).filter((f) => f && f !== r.name);
     const key = csCoKey(r.name || "");
-    const k = key ? (kickBy.get(key) || formerNames.map((f) => kickBy.get(csCoKey(f))).find(Boolean) || null) : null;
+    const k = kickFind(r, key, formerNames);
     const fkeys = formerNames.map((f) => csCoKey(f)).filter((f2) => f2 && f2 !== key);
     const mts = key ? [...new Map([...(mtBy.get(key) || []), ...fkeys.flatMap((f2) => mtBy.get(f2) || [])].map((m) => [m.bot_id, m])).values()] : [];
     const contacts = Array.isArray(r.contacts) ? r.contacts : [];
@@ -28980,7 +28987,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09d kincallのリスト管理：「状況」と「振り分け」のタブを出さない。最初に開くのは「リスト」。";
+const BUILD_TAG = "2026-11-09e kinXs：CS連携（回収MTG）にある会社はキックオフ済みとみなす（会社名・取引先名・予定名・読み取った企業名・SFの取引先のIdで照らす、似た名前も）。キックオフ未実施のアラートが出ないように。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
