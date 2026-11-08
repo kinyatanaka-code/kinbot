@@ -40,8 +40,15 @@
     const bg = document.createElement("div"); bg.className = "kbcs-bg";
     const radio = (name, list, val) => list.map((v) => `<label class="kbcs-opt"><input type="radio" name="${name}" value="${esc(v)}" ${v === val ? "checked" : ""}>${esc(v)}</label>`).join("");
     const fields = [["company", "クライアント企業名（事業所名）", p.company || ""], ["url", "企業URL（HP）", url || "https://example.com/"], ["person", "先方担当者名", p.person || ""], ["phone", "先方の電話番号", p.phone || ""], ["email", "先方のメールアドレス", p.email || ""], ["job", "募集職種", ""], ["place", "募集勤務地", pref], ["to", "共有先となる営業担当の指定有無", "指定なし"], ["date", "商談予定日時", ""], ["price", "希望採用/稼働単価", ""]];
+    // 商談予定日時：カレンダーで選ぶ。最初は、その商談の日時（2026-11-08 田中さん）
+    const dt0 = p.date ? new Date(p.date) : null; const ok0 = dt0 && !isNaN(dt0);
+    const pad = (n) => String(n).padStart(2, "0");
+    const dDay = ok0 ? `${dt0.getFullYear()}-${pad(dt0.getMonth() + 1)}-${pad(dt0.getDate())}` : "";
+    const dTime = ok0 && !/^\d{4}-\d{2}-\d{2}$/.test(String(p.date)) ? `${pad(dt0.getHours())}:${pad(dt0.getMinutes())}` : "";
     bg.innerHTML = `<div class="kbcs" role="dialog" aria-modal="true"><div class="kbcs-h"><b>🤝 案件共有</b><small>社内の案件共有_申請フォームに入れる内容です。確かめて「フォームを開く」</small><button type="button" class="kbcs-btn" data-x style="margin-left:auto">閉じる</button></div>
-      <div class="kbcs-b">${fields.map(([k, l, v]) => `<label class="kbcs-f"><span>${esc(l)}</span><div><input data-k="${k}" value="${esc(v)}"><button type="button" class="kbcs-btn" data-cp="${k}">コピー</button></div></label>`).join("")}
+      <div class="kbcs-b">${fields.map(([k, l, v]) => k === "date"
+          ? `<label class="kbcs-f"><span>${esc(l)}</span><div><input type="date" data-dd value="${esc(dDay)}"><input type="time" data-dt value="${esc(dTime)}" style="max-width:120px"><input type="hidden" data-k="date"><button type="button" class="kbcs-btn" data-cp="date">コピー</button></div></label>`
+          : `<label class="kbcs-f"><span>${esc(l)}</span><div><input data-k="${k}" value="${esc(v)}"><button type="button" class="kbcs-btn" data-cp="${k}">コピー</button></div></label>`).join("")}
         <div class="kbcs-g"><span>想定分野（複数可）</span><div>${FIELDS.map((v) => `<label class="kbcs-opt"><input type="checkbox" name="field" value="${esc(v)}">${esc(v)}</label>`).join("")}</div></div>
         <div class="kbcs-g"><span>共有元企業の属性</span><div>${radio("attr", ATTR, p.attr || "新規")}</div></div>
         <div class="kbcs-g"><span>事務局対応</span><div>${radio("desk", DESK, DESK[2])}</div></div>
@@ -55,6 +62,9 @@
     bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
     bg.querySelector("[data-x]").addEventListener("click", close);
     document.addEventListener("keydown", function k(e) { if (e.key === "Escape") { close(); document.removeEventListener("keydown", k); } });
+    // 日付と時刻から、フォームに入れる文字（2026/11/10 14:00）を作って、隠れた欄に入れておく
+    const syncDate = () => { const d = (bg.querySelector("[data-dd]") || {}).value || "", t = (bg.querySelector("[data-dt]") || {}).value || ""; const h = bg.querySelector('[data-k="date"]'); if (h) h.value = d ? `${d.replace(/-/g, "/")}${t ? ` ${t}` : ""}` : ""; };
+    bg.querySelectorAll("[data-dd],[data-dt]").forEach((x) => x.addEventListener("input", syncDate)); syncDate();
     const val = (k) => (bg.querySelector(`[data-k="${k}"]`) || {}).value || "";
     // アポ一覧・kincall・Salesforce から、空いている欄を自動で埋める（どこから入れたかを小さく出す）
     (async () => {

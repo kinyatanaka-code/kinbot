@@ -12728,7 +12728,7 @@ async function kcCaseShareOpen(id) {
   // 共通の窓（caseshare.js）があれば、そちらを使う（アポ一覧・SF から自動で埋める）（2026-11-08）
   if (window.kbCaseShare) {
     const ex0 = x["追加"] || {}; const g = (...k) => { for (const kk of k) { const v = x[kk] || ex0[kk]; if (v) return String(v); } return ""; };
-    window.kbCaseShare({ company: g("会社名"), url: g("URL", "HP", "ホームページ", "企業URL", "Webサイト"), person: [g("担当者"), g("ふりがな") ? `（${g("ふりがな")}）` : ""].join(""), phone: g("電話番号"), email: g("メール"), address: g("住所", "所在地", "本社所在地") });
+    window.kbCaseShare({ company: g("会社名"), url: g("URL", "HP", "ホームページ", "企業URL", "Webサイト"), person: [g("担当者"), g("ふりがな") ? `（${g("ふりがな")}）` : ""].join(""), phone: g("電話番号"), email: g("メール"), address: g("住所", "所在地", "本社所在地"), date: (x["直近商談"] && x["直近商談"].day) || "" });
     return;
   }
   const ex = (x && x["追加"]) || {};
