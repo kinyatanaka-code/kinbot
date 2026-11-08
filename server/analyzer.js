@@ -2430,3 +2430,12 @@ export async function guessKana(name) {
   const k = String(out || "").replace(/[「」『』"。\s]+$/g, "").replace(/^[「『"\s]+/, "").trim();
   return /^[\u30A0-\u30FF\s　]+$/.test(k) ? k.replace(/[　]/g, " ") : "";
 }
+
+// 議事録から、募集職種（営業・事務・コールセンターなど）を取り出す。分からなければ空（2026-11-08）
+export async function extractJobTypes(text) {
+  const t = String(text || "").trim(); if (!t) return "";
+  const out = await callLLM("あなたは採用支援の営業アシスタントです。", `次の商談の議事録から、先方が募集する予定の職種を、短い言葉を「、」でつないで答えてください（例：営業、事務、コールセンター）。議事録に職種がはっきり出ていなければ「なし」とだけ答えてください。答えだけを1行で。\n\n${t.slice(0, 12000)}`, 60,
+    { provider: "gemini", model: "gemini-2.5-flash-lite" }).catch(() => "");
+  const a = String(out || "").replace(/^[「『"\s]+|[」』"\s。]+$/g, "").trim();
+  return !a || /^なし$/.test(a) || a.length > 60 ? "" : a;
+}

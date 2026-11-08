@@ -12193,3 +12193,18 @@ export async function caseSharePrefillLocal(company, email = "") {
   } catch {}
   return out;
 }
+
+// 案件共有：その会社のいちばん新しい議事録（要約と、文字起こしの始めの方）（2026-11-08）
+export async function caseShareMeetingText(company) {
+  if (!pool) return null;
+  const c = String(company || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|（株）|\(株\)|\s|　/g, "").trim();
+  if (c.length < 2) return null;
+  const { rows } = await pool.query(
+    `SELECT bot_id, title, created_at, summary, left(coalesce(transcript::text,''), 12000) AS tx FROM meetings
+      WHERE replace(replace(coalesce(account,'') || ' ' || coalesce(title,''),' ',''),'株式会社','') ILIKE '%' || $1 || '%'
+        AND (coalesce(summary::text,'') <> '' OR coalesce(transcript::text,'') <> '')
+      ORDER BY created_at DESC LIMIT 1`, [c]).catch(() => ({ rows: [] }));
+  const r = rows[0]; if (!r) return null;
+  const sum = typeof r.summary === "string" ? r.summary : JSON.stringify(r.summary || "");
+  return { botId: r.bot_id, title: r.title || "", at: r.created_at, text: `${sum}\n\n${r.tx || ""}`.slice(0, 14000) };
+}
