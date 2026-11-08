@@ -2311,3 +2311,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-08 BUILD_TAG=2026-11-08v 田中さん「リストのカードとカードを合わせるとそのリストに割り振るようにできる。ジャッジを残すか移すか選択できるように」。db.mergeCallListInto（list_id を移す、keepJudge なら NURTURE_WHERE のリードは残す、移したリードの assigned_to は外す、残り件数）。POST /api/calls/lists/:id/merge-into {to, keepJudge}（canHideLists かクローザー、空になったら setCallListHidden）。calls.js：リスト管理の詳しい画面のリストのカード（.nm-lcard[data-id]、今日かけるのカードは除く）を draggable、別のカードに重ねると点線で光り、落とすと『リストを割り振る』の窓（元→先、持ち主、ジャッジ n件は 残す（初期）／一緒に移す）→ 割り振る → nmLoad して描き直し。版20261108v。
 
 - 2026-11-08 BUILD_TAG=2026-11-08w 田中さん（全リストの DOC_フロッグリストのまとまりのスクショ）「順序を持って動かせるように」。call_lists.view_order（listAllCallLists で ADD COLUMN して返す、lists-all の『順』）、db.setCallListsOrder（ids の順に1,2,3…）、PUT /api/calls/lists/order（canHideLists かクローザー）。calls.js：詳しい画面の並び＝順 → 名前。ドラッグ：落とした位置がカードの左右の端28%なら並べかえ（緑の縦線がその側に出る、画面をすぐ並べかえて全部の順を保存）、まん中なら今までの割り振り（点線）。版20261108w。
+
+- 2026-11-08 デプロイの失敗：c65bf6f9（並べかえ）から Railway の kinbot が『Deployment failed』（中継は成功）。空のコミット・並べかえを取り消したコミット（c23bbb3f と同じ中身）でも失敗したので、コードではなく Railway 側（ビルド・起動・使用量など）とみた。並べかえは戻して main は 81453298。田中さんに Railway のデプロイのログを見てもらう。本番は最後に成功した c23bbb3f（2026-11-08v）のまま動いているはず。
