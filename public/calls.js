@@ -1677,6 +1677,7 @@ function renderDock() {
     @media (max-width:900px){ .gd-pool{grid-template-columns:1fr;} }
     .gd-lb{font-size:12px;color:#6A7A72;} .gd-big{display:flex;align-items:baseline;gap:8px;} .gd-big b{font-size:30px;font-weight:800;color:#14231D;} .gd-big span{font-size:12px;color:#6A7A72;}
     .gd-src{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;} .gd-src span{font-size:11.5px;padding:2px 8px;border-radius:7px;background:#E6F1FB;color:#0C447C;} .gd-src .none{background:#F1F5F3;color:#8FA39A;}
+    .gd-open{font:inherit;font-size:11.5px;padding:2px 8px;border-radius:7px;background:#E6F1FB;color:#0C447C;border:1px solid transparent;cursor:pointer;} .gd-open:hover{border-color:#378ADD;background:#fff;} .gd-open.all{background:#0C447C;color:#fff;font-weight:700;} .gd-open.mini{margin-left:auto;background:#F1F5F3;color:#0E6B4E;}
     .gd-grab{margin-top:10px;display:inline-flex;font-size:12px;padding:5px 10px;border-radius:9px;border:1.5px dashed #378ADD;color:#185FA5;cursor:grab;}
     .gd-f{display:flex;flex-direction:column;gap:8px;} .gd-f .r{display:flex;gap:6px;flex-wrap:wrap;align-items:center;} .gd-f .r small{width:84px;color:#6A7A72;font-size:12px;}
     .gd-pill{font:inherit;font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid #D5E0DA;background:#fff;cursor:pointer;} .gd-pill.on{background:#E1F5EE;color:#0A5440;border-color:#1D9E75;font-weight:700;}
@@ -12968,7 +12969,7 @@ function nmRenderGroupDist(body) {
     <div class="gd-pool" id="gdPool">
       <div><div class="gd-lb">配る前のリード（人の名前が付いていないリスト）</div>
         <div class="gd-big"><b>${sum(poolLs, "全部").toLocaleString()}</b><span>件 ／ 残 ${sum(poolLs, "残ステータス").toLocaleString()}</span></div>
-        <div class="gd-src">${poolLs.map((x) => `<span>${esc(x.name)} ${Number(x.全部 || 0).toLocaleString()}</span>`).join("") || '<span class="none">配る前のリストがありません</span>'}</div>
+        <div class="gd-src">${poolLs.length ? `<button type="button" class="gd-open all" data-open-all>全部の中身を見る（${sum(poolLs, "全部").toLocaleString()}件）</button>` : ""}${poolLs.map((x) => `<button type="button" class="gd-open" data-open-id="${esc(String(x.id))}" data-open-name="${esc(x.name)}" data-open-owner="${esc(x.owner || "")}" title="押すと中身を見て編集できます">${esc(x.name)} ${Number(x.全部 || 0).toLocaleString()}</button>`).join("") || '<span class="none">配る前のリストがありません</span>'}</div>
         <div class="gd-grab" draggable="true" id="gdGrab">✋ この束をつかんでメンバーに落とす</div></div>
       <div class="gd-f">
         <div class="r"><small>規模</small>${pill("size", "all", "すべて")}${pill("size", "lt50", "〜49")}${pill("size", "100_500", "100〜500")}${pill("size", "gt500", "501〜")}</div>
@@ -12982,13 +12983,18 @@ function nmRenderGroupDist(body) {
         <div class="t"><input type="checkbox" data-pick="${esc(m.e)}" ${_gdPick.has(m.e) ? "checked" : ""}><b>${esc(nmMemberName(m.e))}</b><small>${m.team === "sales" ? "セールス" : m.team === "inside" ? "インサイド" : ""}</small></div>
         <div class="z"><b>${m.zan.toLocaleString()}</b><span>${m.all ? `残 ／ 全 ${m.all.toLocaleString()}` : "まだ配っていません"}</span></div>
         <div class="bar"><i style="width:${pct}%"></i></div>
-        <div class="row"><span class="tag">ジャッジ ${m.jud}</span>${m.arr.length ? nmRatePill(nmSumRates(m.arr), "このメンバーのこのグループのリストでかけた分のアポ率") : ""}${m.arr.length > 1 ? `<span class="tag">${m.arr.length} リスト</span>` : ""}</div></div>`; }).join("")}</div>
+        <div class="row"><span class="tag">ジャッジ ${m.jud}</span>${m.arr.length ? nmRatePill(nmSumRates(m.arr), "このメンバーのこのグループのリストでかけた分のアポ率") : ""}${m.arr.length > 1 ? `<span class="tag">${m.arr.length} リスト</span>` : ""}${m.arr.length ? `<button type="button" class="gd-open mini" data-open-mem="${esc(m.e)}">中身</button>` : ""}</div></div>`; }).join("")}</div>
     <div class="gd-foot">メンバーのカードを上の束に落とすと、そのメンバーのリードを元のリストに戻せます（ジャッジは残すか選べます）。</div>`;
   const poolIds = poolLs.map((x) => Number(x.id));
   const recount = async () => { const el = $("gdCnt"); if (!el) return; el.textContent = "…"; try { const r = await fetch(`/api/calls/groups/${encodeURIComponent(gid)}/pool-count`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ poolIds, filters: _gdFilters }) }); const d = await r.json(); el.textContent = Number(d.n || 0).toLocaleString(); } catch { el.textContent = "?"; } };
   recount();
   $("gdBack").addEventListener("click", () => { _nmChosen = new Set(); if (_nmSel && _nmSel.folder) { _nmSel = { type: "folder", key: _nmSel.folder, name: _nmSel.folder }; nmRenderDetail(); return; } _nmSel = null; nmRenderCards(); });
   $("gdFlat").addEventListener("click", () => { _nmSel = { ..._nmSel, flat: true }; nmRenderDetail(); });
+  // 中身を見て編集する（リストの編集の画面。いくつかのリストはまとめて1つの表に）（2026-11-09 田中さん）
+  const openLists = (arr, title) => { if (!arr.length) return; if (arr.length === 1) return openListFromSource(arr[0].id, arr[0].name, arr[0].owner || ""); openListsCombined(arr, title); };
+  body.querySelectorAll("[data-open-id]").forEach((b) => b.addEventListener("click", () => openListFromSource(b.dataset.openId, b.dataset.openName, b.dataset.openOwner)));
+  const oa = body.querySelector("[data-open-all]"); if (oa) oa.addEventListener("click", () => openLists(poolLs, `${gname}（配る前のリード）`));
+  body.querySelectorAll("[data-open-mem]").forEach((b) => b.addEventListener("click", (ev) => { ev.stopPropagation(); const m = members.find((x) => x.e === b.dataset.openMem); if (m) openLists(m.arr, `${gname} - ${nmMemberName(m.e)}`); }));
   body.querySelectorAll(".gd-pill").forEach((b) => b.addEventListener("click", () => {
     const k = b.dataset.f, v = b.dataset.v;
     if (k === "stages") { const s = new Set(_gdFilters.stages); s.has(v) ? s.delete(v) : s.add(v); _gdFilters.stages = [...s]; } else _gdFilters[k] = k === "lastDays" ? Number(v) : v;
@@ -13033,4 +13039,18 @@ function nmRenderGroupDist(body) {
       await nmLoad(); nmRenderDetail();
     } catch (er) { alert("戻せませんでした：" + er.message); }
   });
+}
+
+// いくつかのリストを、1つの編集の表にまとめて開く（openListFromSource の複数版）（2026-11-09）
+function openListsCombined(arr, title) {
+  if (!_edInit) orgLoadLists();
+  _edVirtMember = ""; _edClMode = "";
+  _edChosen.clear(); for (const x of arr) _edChosen.set(String(x.id), { name: x.name, owner: x.owner || "" });
+  const shared = $("edShared"), slot = $("nmHostSlot");
+  if (shared && slot) slot.appendChild(shared);
+  _nmHostMode = "edit";
+  const pane = $("hubPane"); if (pane) pane.hidden = true;
+  nmHostShow(title || `${arr.length} リスト`);
+  orgLoadEdit(arr.map((x) => String(x.id)));
+  if ($("edTableHead")) $("edTableHead").hidden = true;
 }
