@@ -7699,7 +7699,7 @@ async function nmLoad() {
 // ===== リスト管理ハブ（概要／リスト／リサイクル／ナーチャリング／過去リスト） =====
 const HUB_ICO = {"status": "M3 13h4v8H3zm7-5h4v13h-4zm7-5h4v18h-4z", "list": "M4 5h16v2.6H4zm0 5.7h16v2.6H4zm0 5.7h10v2.6H4z", "recycle": "M12 4a8 8 0 0 1 7.3 4.8H22l-3.6 4.4-3.6-4.4h2.3A6 6 0 0 0 6.4 10L4.6 9.1A8 8 0 0 1 12 4zM5.6 10.8l3.6 4.4H6.9a6 6 0 0 0 10.7 1.2l1.8.9A8 8 0 0 1 4.7 15.2H2z", "leaf": "M20 4C12.5 4 7 7.8 7 14.2c0 1.3.3 2.5.8 3.5L5 20.5 6.4 22l2.8-2.8c1 .5 2.1.8 3.3.8C18.6 20 20 13 20 4zm-8.3 13.9c-.5 0-1.1-.1-1.6-.3 2-3 4.5-5.6 7.4-7.6-2.9 1.2-5.6 3.6-7.8 6.4-.3-.7-.4-1.4-.4-2.2 0-4.8 3.6-7.6 8.6-8.1-.3 7-2.4 11.8-6.2 11.8z", "archive": "M3 4h18v4H3zm1 5h16v11H4zm5 3v2h6v-2z", "phone": "M6.6 4.5c-1 0-1.8.8-1.8 1.8 0 6.9 5.6 12.5 12.5 12.5 1 0 1.8-.8 1.8-1.8v-2.3c0-.9-.6-1.6-1.5-1.8l-2.3-.5c-.8-.2-1.6.2-2 .9l-.6 1a11 11 0 0 1-4.4-4.4l1-.6c.7-.4 1.1-1.2.9-2l-.5-2.3c-.2-.9-.9-1.5-1.8-1.5z", "cal": "M7 2v2H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2V2h-2v2H9V2zm12 7v10H5V9zM7 11v2h2v-2zm4 0v2h2v-2zm4 0v2h2v-2z", "check": "M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"};
 const hubIco = (k) => `<svg class="hub-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${HUB_ICO[k]}"/></svg>`;
-let _hubTab = "ov", _hubInit = false, _hubSum = null;
+let _hubTab = "ls", _hubInit = false, _hubSum = null;   // 状況・振り分けのタブは出さないので、最初はリスト（2026-11-09 田中さん）
 const hubMembers = () => (_nmMembers || []).filter((m) => !NM_EX.includes(String(m.email || "").toLowerCase()));
 const hubNm = (e) => nmMemberName(String(e || "").toLowerCase()) || e || "（未割り当て）";
 const hubMd = (v) => { const d = new Date(v); return isNaN(d) ? "" : `${d.getMonth() + 1}/${d.getDate()}`; };
