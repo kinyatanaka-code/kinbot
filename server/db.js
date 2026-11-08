@@ -12280,3 +12280,16 @@ export async function distributeGroupLeads({ groupId, groupName, poolIds = [], m
   }
   return { results: out };
 }
+
+// リサイクルで温度C（リサイクルC）になったリードを、コールドのグループの「コールドリスト」へ移す（2026-11-09 田中さん）
+//   ステージは「コールド」にして、リサイクルの数からは外す。担当は外す
+export async function moveRecycleCToCold() {
+  if (!pool) return { moved: 0 };
+  let g = (await pool.query(`SELECT id FROM call_list_groups WHERE replace(name,' ','') = 'コールド' ORDER BY id LIMIT 1`)).rows[0];
+  if (!g) g = (await pool.query(`INSERT INTO call_list_groups (name) VALUES ('コールド') RETURNING id`)).rows[0];
+  let l = (await pool.query(`SELECT id FROM call_lists WHERE name = 'コールドリスト' AND group_id = $1 ORDER BY id LIMIT 1`, [g.id])).rows[0];
+  if (!l) l = (await pool.query(`INSERT INTO call_lists (name, owner, note, created_by, group_id) VALUES ('コールドリスト', NULL, 'リサイクルで温度Cになったリード（自動）', 'kincall', $1) RETURNING id`, [g.id])).rows[0];
+  const r = await pool.query(`UPDATE call_targets SET list_id = $1, stage = 'コールド', assigned_to = NULL
+      WHERE COALESCE(stage,'') ILIKE '%リサイクル%' AND upper(COALESCE(temperature,'')) = 'C' AND list_id IS DISTINCT FROM $1`, [l.id]);
+  return { moved: r.rowCount, listId: l.id, groupId: g.id };
+}

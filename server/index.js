@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -8292,6 +8292,16 @@ function canHideLists(req) {
   return allow.includes(String(req.user || "").toLowerCase());
 }
 // リストの表示／非表示（データは消さない）。決められた人だけが操作できる。
+// リサイクルで温度Cのリードは、コールドリストへ（起動して1分後と、6時間ごと）（2026-11-09 田中さん）
+async function runRecycleToCold() {
+  try { const r = await moveRecycleCToCold(); if (r.moved) console.log(`[kincall] リサイクルの温度Cを ${r.moved}件、コールドリストへ移しました`); }
+  catch (e) { console.warn("[kincall] リサイクル→コールド", e.message); }
+}
+setTimeout(runRecycleToCold, 60 * 1000); setInterval(runRecycleToCold, 6 * 3600 * 1000);
+app.post("/api/calls/recycle-to-cold", async (req, res) => {
+  try { if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "できるのは、決められた人だけです" }); res.json({ ok: true, ...(await moveRecycleCToCold()) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 // グループのリードを、メンバーのリストに配る（2026-11-08 田中さん）
 app.post("/api/calls/groups/:gid/pool-count", async (req, res) => {
   try { res.json({ ok: true, n: await groupPoolCount(req.body?.poolIds || [], req.body?.filters || {}) }); }
@@ -28987,7 +28997,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09e kinXs：CS連携（回収MTG）にある会社はキックオフ済みとみなす（会社名・取引先名・予定名・読み取った企業名・SFの取引先のIdで照らす、似た名前も）。キックオフ未実施のアラートが出ないように。";
+const BUILD_TAG = "2026-11-09f kincall：リサイクルで温度Cになったリードを、コールドのグループの「コールドリスト」へ自動で移す（6時間ごと）。全リストの隣のカードが段の外に出ていたのも直した。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
