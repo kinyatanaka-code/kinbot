@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -8596,8 +8596,16 @@ app.get("/api/calls/lists-all", async (req, res) => {
       id: r.id, name: r.name, owner: r.owner || "", group_id: r.group_id || null, group_name: r.group_name || "",
       全部: Number(r["全部"] || 0), 済み: Number(r["済み"] || 0), 残り: Number(r["全部"] || 0) - Number(r["済み"] || 0),
       残ステータス: Number(r["残ステータス"] || 0), ナーチャリング: Number(r["ナーチャリング"] || 0),
-      hidden: !!r.hidden,
+      hidden: !!r.hidden, 順: r.view_order == null ? null : Number(r.view_order),
     })) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// リスト管理のカードの並び順を保存（ドラッグで並べかえ）（2026-11-08）
+app.put("/api/calls/lists/order", async (req, res) => {
+  try {
+    if (!canHideLists(req) && !(await isCloserUser(req.user).catch(() => false))) return res.status(403).json({ error: "並びを変えられるのは、決められた人だけです" });
+    const n = await setCallListsOrder(Array.isArray(req.body?.ids) ? req.body.ids : []);
+    res.json({ ok: true, n });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // アーカイブ／リサイクルの実データ件数（管理タブの「その他」で表示）。
@@ -28933,7 +28941,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-08v kincallのリスト管理：リストのカードを別のカードに重ねると、そのリストへ割り振る（ジャッジは残すか一緒に移すか選べる・空になった元のリストは非表示）。";
+const BUILD_TAG = "2026-11-08w kincallのリスト管理：リストのカードを左右の端に落とすと並べかえ（並びを保存）、まん中に重ねると割り振り。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

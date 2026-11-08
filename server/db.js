@@ -4551,11 +4551,13 @@ export async function crosslostCountsByMember() {
   } catch (e) { console.error("[db] crosslostCountsByMember", e.message); return {}; }
 }
 
+let _viewOrderReady = false;
 export async function listAllCallLists() {
   if (!pool) return [];
   try {
+    if (!_viewOrderReady) { await pool.query(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS view_order INT`).catch(() => {}); _viewOrderReady = true; }   // リスト管理での並び順（2026-11-08）
     const { rows } = await pool.query(
-      `SELECT l.id, l.name, l.owner, l.group_id, COALESCE(l.hidden, false) AS hidden,
+      `SELECT l.id, l.name, l.owner, l.group_id, COALESCE(l.hidden, false) AS hidden, l.view_order,
               (SELECT g.name FROM call_list_groups g WHERE g.id = l.group_id) AS group_name,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id) AS 全部,
               (SELECT count(*) FROM call_targets t WHERE t.list_id = l.id AND t.done) AS 済み,
@@ -12219,4 +12221,14 @@ export async function mergeCallListInto(srcId, dstId, { keepJudge = true } = {})
   const r = await pool.query(`UPDATE call_targets t SET list_id = $2, assigned_to = NULL WHERE t.list_id = $1 ${cond}`, [s, d]);
   const left = (await pool.query(`SELECT count(*)::int AS n FROM call_targets WHERE list_id = $1`, [s])).rows[0].n;
   return { moved: r.rowCount, left };
+}
+
+// リスト管理のカードの並び順を保存する（ids の順に 1,2,3…）（2026-11-08）
+export async function setCallListsOrder(ids = []) {
+  if (!pool) return 0;
+  await pool.query(`ALTER TABLE call_lists ADD COLUMN IF NOT EXISTS view_order INT`).catch(() => {});
+  const arr = ids.map((x) => parseInt(x, 10)).filter(Boolean);
+  if (!arr.length) return 0;
+  await pool.query(`UPDATE call_lists l SET view_order = v.ord FROM unnest($1::int[]) WITH ORDINALITY AS v(id, ord) WHERE l.id = v.id`, [arr]);
+  return arr.length;
 }
