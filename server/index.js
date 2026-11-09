@@ -862,7 +862,8 @@ function isKincallPath(p) {
     p === "/kincall.svg" || p === "/style.css" || p === "/nav.js" || p === "/icon.svg" ||
     p === "/api/me" || p === "/api/logout" ||
     p.startsWith("/api/calls/") || p === "/api/calls" ||
-    /\.(css|svg|png|ico|webmanifest)$/.test(p);
+    // 画面で読むファイル（.js：案件共有など）・Zoomの拡張機能の zip も（2026-11-09：インターン生がダウンロードすると HTML になっていた）
+    /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p) || p.startsWith("/zoom-ext/");
 }
 
 // kincallのみの人でも、自分の設定（Google連携・アカウント・登録リンク）は開けるようにする。
@@ -29031,7 +29032,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09q kincall：80コールまで今日かける以外に鍵をかけるのを、いったんやめた（設定 callGateNeed に数を入れれば戻る）。";
+const BUILD_TAG = "2026-11-09r kincall：インターン生（kincallだけの人）も、Zoomの拡張機能のzipと、画面で読むファイル（.js）を取れるように（HTMLがダウンロードされていた）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

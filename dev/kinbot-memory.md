@@ -2355,3 +2355,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-09 BUILD_TAG=2026-11-09p 田中さん「菅原がこの操作ができませんになっている」。原因：菅原さんは kincall だけの人（isKincallOnly）で、isKincallPath に /api/zoom-share（一覧・借りる・返す・確かめ・パスワード）と /api/auth/handoff が入っていなかった→ 403『この操作はできません』。足した（貸し出し全体が、インターン生には前から使えていなかったはず）。版20261109p。
 
 - 2026-11-09 BUILD_TAG=2026-11-09q 田中さん「今日かける以外ブロックするをいったんやめてほしい」。/api/calls/my-today の gateNeed の既定を 80→0（鍵なし）。settings.callGateNeed に数を入れれば、また鍵がかかる（画面は need=0 なら鍵をかけない作り）。版20261109q。
+
+- 2026-11-09 BUILD_TAG=2026-11-09r 田中さん「zoomphoneの拡張機能のダウンロードと拡張機能を追加するやつが菅原のPCでできない。HTMLがダウンロードされるだけ」。原因：isKincallPath が .zip（/kincall-zoom-ext.zip）や .js（caseshare.js・sf-data.js・cmdk.js）を通しておらず、kincall だけの人は /kincall に戻され、その HTML が zip の名前で落ちていた。.js・.zip・.jpg・フォント・/zoom-ext/ を通すようにした（案件共有の窓も、インターン生には動いていなかったはず）。版20261109r。
