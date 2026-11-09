@@ -12338,3 +12338,21 @@ export async function listGroupNameOf(listId) {
   const { rows } = await pool.query(`SELECT l.name AS list_name, g.name AS group_name FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id WHERE l.id = $1`, [parseInt(listId, 10)]).catch(() => ({ rows: [] }));
   return rows[0] ? { list: rows[0].list_name || "", group: rows[0].group_name || "" } : { list: "", group: "" };
 }
+
+// MOユーザー・MO解約リストで、ある日（日本時間）にアポ獲得を記録したもの（スプレッドシートへのさかのぼり用）（2026-11-09）
+export async function moApoLogsOn(ymd) {
+  if (!pool) return [];
+  const { rows } = await pool.query(`
+    SELECT lg.at, lg.caller, lg.memo, lg.result, t.id AS target_id, t.list_id, t.company, t.person, t.phone, t.email, t.extra,
+           l.name AS list_name, g.name AS group_name,
+           (SELECT COALESCE(s.start_time_manual, s.start_time) FROM smart_links s
+             WHERE replace(replace(s.label,' ',''),'株式会社','') ILIKE '%' || replace(replace(t.company,' ',''),'株式会社','') || '%' AND COALESCE(s.start_time_manual, s.start_time) IS NOT NULL
+             ORDER BY s.created_at DESC LIMIT 1) AS apo_start
+      FROM call_logs lg JOIN call_targets t ON t.id = lg.target_id
+      LEFT JOIN call_lists l ON l.id = t.list_id LEFT JOIN call_list_groups g ON g.id = l.group_id
+     WHERE lg.result ILIKE '%アポ獲得%'
+       AND (lg.at AT TIME ZONE 'Asia/Tokyo')::date = $1::date
+       AND (COALESCE(g.name,'') ~ 'MO ?ユーザー|MO ?解約' OR COALESCE(l.name,'') ~ 'MO ?ユーザー|MO ?解約')
+     ORDER BY lg.at`, [ymd]);
+  return rows;
+}

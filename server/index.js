@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, moApoLogsOn, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -8304,7 +8304,7 @@ function canHideLists(req) {
 //   1行目の見出しに合わせて入れる（見出しが無ければ、こちらの見出しを先に書く）
 const MO_APO_SHEET = "13JlORZCORO5xFE0rkJAqSNzwpSTc1cx4BYi4GrbndnA";
 const MO_APO_HEAD = ["記録日時", "リスト", "会社名", "先方担当者", "電話番号", "メール", "商談日時", "獲得者", "メモ"];
-async function moApoToSheet(t, b, caller) {
+async function moApoToSheet(t, b, caller, at = null) {
   const g = await listGroupNameOf(t.list_id);
   const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
   const which = /MOユーザー|MO解約/.test(norm(g.group)) ? g.group : /MOユーザー|MO解約/.test(norm(g.list)) ? g.list : "";
@@ -8315,7 +8315,7 @@ async function moApoToSheet(t, b, caller) {
   if (!head.filter((x) => String(x || "").trim()).length) { await appendSheetRowAt(owner, sheet, "A1", MO_APO_HEAD); head = MO_APO_HEAD; }
   const jst = (d) => { const x = new Date(new Date(d).getTime() + 9 * 3600000); return isNaN(x) ? "" : `${x.getUTCFullYear()}/${x.getUTCMonth() + 1}/${x.getUTCDate()} ${String(x.getUTCHours()).padStart(2, "0")}:${String(x.getUTCMinutes()).padStart(2, "0")}`; };
   const ex = t.extra && typeof t.extra === "object" ? t.extra : {};
-  const v = { 記録日時: jst(Date.now()), リスト: which, 会社名: t.company || "", 先方担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || ex["メール"] || "",
+  const v = { 記録日時: jst(at || Date.now()), リスト: which, 会社名: t.company || "", 先方担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || ex["メール"] || "",
     商談日時: b.apo && b.apo.start ? jst(b.apo.start) : "", 獲得者: await displayNameOf(caller).catch(() => caller), メモ: String(b.memo || "").slice(0, 500) };
   const pick = (h) => { const n = norm(h);
     if (/記録|登録|獲得日|入力日/.test(n) && /日/.test(n)) return v.記録日時; if (/商談|アポ日|予定/.test(n)) return v.商談日時;
@@ -8326,6 +8326,33 @@ async function moApoToSheet(t, b, caller) {
   await appendSheetRowAt(owner, sheet, "A1", row);
   console.log(`[MOシート] ${which} のアポ獲得を足しました：${t.company}（${v.獲得者}）`);
 }
+// さかのぼり：決まった日にMOのリストで取れたアポを、シートに足す（同じ会社・同じ日の行がシートにあれば足さない）（2026-11-09 田中さん「金曜日にすでに取れているものを反映」）
+async function moApoBackfill(ymd) {
+  const st = await getSettings().catch(() => ({}));
+  const sheet = st.moApoSheetId || MO_APO_SHEET; const owner = st.moApoSheetOwner || "kinya.tanaka@neo-career.co.jp";
+  const rows = await moApoLogsOn(ymd);
+  let have = ""; try { have = JSON.stringify(await readSheet(owner, sheet, "A1:Z2000")).replace(/\s|　/g, ""); } catch {}
+  let n = 0;
+  for (const r of rows) {
+    const key = String(r.company || "").replace(/\s|　/g, "");
+    if (key && have.includes(key)) continue;   // もうシートにある
+    await moApoToSheet({ list_id: r.list_id, company: r.company, person: r.person, phone: r.phone, email: r.email, extra: r.extra }, { memo: r.memo || "", apo: r.apo_start ? { start: r.apo_start } : null }, r.caller, r.at);
+    have += key; n++;
+  }
+  console.log(`[MOシート] ${ymd} のさかのぼり：${rows.length}件中 ${n}件を足しました`);
+  return { found: rows.length, added: n };
+}
+// 起動して1分半後に1回だけ：11/6（金）の分（設定に「済み」を残す）
+setTimeout(async () => {
+  try { const st = await getSettings().catch(() => ({})); if (st.moApoBackfill1106) return;
+    const r = await moApoBackfill("2026-11-06"); await saveSettings({ moApoBackfill1106: { at: new Date().toISOString(), ...r } }); }
+  catch (e) { console.warn("[MOシート] さかのぼり", e.message); }
+}, 90 * 1000);
+app.post("/api/calls/mo-apo-backfill", async (req, res) => {
+  try { if (!req.isAdmin && !/^kinya\.tanaka@/i.test(String(req.user || ""))) return res.status(403).json({ error: "田中さん・管理者だけ" });
+    res.json({ ok: true, ...(await moApoBackfill(String(req.body?.date || "").slice(0, 10))) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 // リサイクルで温度Cのリードは、コールドリストへ（起動して1分後と、6時間ごと）（2026-11-09 田中さん）
 async function runRecycleToCold() {
   try { const r = await moveRecycleCToCold(); if (r.moved) console.log(`[kincall] リサイクルの温度Cを ${r.moved}件、コールドリストへ移しました`); }
@@ -29064,7 +29091,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09t kincall：MOユーザーリスト・MO解約リストでアポ獲得を記録したら、田中さんのスプレッドシートに1行足す（見出しに合わせて入れる）。";
+const BUILD_TAG = "2026-11-09u kincall：11/6（金）にMOユーザー・MO解約リストで取れたアポを、スプレッドシートにさかのぼって足す（デプロイ後に1回だけ、同じ会社の行があれば足さない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
