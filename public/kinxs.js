@@ -6,7 +6,8 @@ fetch("/api/zoom-phone/status").then((r) => r.json()).then((z) => { KX_ZOOM = !!
 function kxTelLink(v) {
   const s = String(v || "").trim(); const d = s.replace(/[^0-9+]/g, "");
   if (!d) return esc(s);
-  return KX_ZOOM ? `<a href="zoomphonecall://${esc(d)}" class="kx-zcall" title="Zoom Phone でかける">📞 ${esc(s)}</a> <a href="tel:${esc(d)}" class="kx-tel2" title="この端末の電話アプリでかける">端末</a>` : `<a href="tel:${esc(d)}">${esc(s)}</a>`;
+  // 「端末」のリンクはやめ、📞 は1つだけ（2026-11-10 田中さん）
+  return KX_ZOOM ? `<a href="zoomphonecall://${esc(d)}" class="kx-zcall" title="Zoom Phone でかける">📞 ${esc(s)}</a>` : `<a href="tel:${esc(d)}">📞 ${esc(s)}</a>`;
 }
 // kinXs 更新管理（更新月×更新確度）
 const $ = (id) => document.getElementById(id);
@@ -566,7 +567,7 @@ function kxCoPane(d) {
       </section>
       <section class="kx-c2" data-sec>
         ${head(`先方の担当者 ${tag("contacts")}`, true)}
-        <div class="kx-view">${contacts.length ? contacts.map((c) => `<div class="kx-person"><div class="av">${esc((c.name || "？").slice(0, 1))}</div><div style="min-width:0"><div class="nm">${esc(c.name || "（お名前なし）")}${c.title ? `<span>${esc(c.title)}</span>` : ""}</div><div class="ct">${c.phone ? `📞 ${val(c.phone, "tel")}` : ""}${c.email ? `　✉ ${val(c.email, "mail")}` : ""}</div></div></div>`).join("") : '<span class="kx-none">未登録</span>'}</div>
+        <div class="kx-view">${contacts.length ? contacts.map((c) => `<div class="kx-person"><div class="av">${esc((c.name || "？").slice(0, 1))}</div><div style="min-width:0"><div class="nm">${esc(c.name || "（お名前なし）")}${c.title ? `<span>${esc(c.title)}</span>` : ""}</div><div class="ct">${c.phone ? val(c.phone, "tel") : ""}${c.email ? `　✉ ${val(c.email, "mail")}` : ""}</div></div></div>`).join("") : '<span class="kx-none">未登録</span>'}</div>
         <div class="kx-editbox">
           <div data-ct-rows>${(contacts.length ? contacts : [{}]).map((c) => `<div class="kx-ct"><input class="kx-in" data-ct="name" value="${esc(c.name || "")}" placeholder="お名前" /><input class="kx-in" data-ct="title" value="${esc(c.title || "")}" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" value="${esc(c.phone || "")}" placeholder="電話番号" /><input class="kx-in" data-ct="email" value="${esc(c.email || "")}" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`).join("")}</div>
           <div class="kx-edact"><button type="button" class="hp-b" data-ct-add style="margin-right:auto">＋ 担当者を追加</button><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
