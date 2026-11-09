@@ -12367,3 +12367,54 @@ export async function apoOwnerByCompany(company) {
   const { rows } = await pool.query(`SELECT current_owner FROM smart_links WHERE replace(replace(replace(label,' ',''),'　',''),'株式会社','') ILIKE '%' || $1 || '%' AND COALESCE(current_owner,'') <> '' ORDER BY created_at DESC LIMIT 1`, [c]).catch(() => ({ rows: [] }));
   return rows[0] ? String(rows[0].current_owner || "").toLowerCase() : "";
 }
+
+// ===== DOC（アチコチバース）1ヶ月ごとの自動更新（2026-11-09 幸地美穂さんの要件・田中さん）=====
+//   kinxs_accounts に：プラン区分・サーカスの申込番号・契約開始月・自動更新のステータス・解約（申請日・希望月・解約月・申請者・連絡先）・月ごとの SF 計上／入金
+let _arReady = false;
+async function ensureAutoRenew() {
+  if (_arReady || !pool) return;
+  for (const c of ["ar_plan TEXT", "ar_no TEXT", "ar_start TEXT", "ar_status TEXT", "ar_cancel_applied DATE", "ar_cancel_wish TEXT", "ar_cancel_month TEXT", "ar_applicant TEXT", "ar_contact TEXT", "ar_months JSONB", "ar_note TEXT"])
+    await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_recon (ym TEXT PRIMARY KEY, invoices INT, bv INT, note TEXT, updated_by TEXT, updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_exports (id SERIAL PRIMARY KEY, ym TEXT, version INT, by_user TEXT, at TIMESTAMPTZ DEFAULT now(), counts JSONB)`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_history (id SERIAL PRIMARY KEY, account_id TEXT, by_user TEXT, at TIMESTAMPTZ DEFAULT now(), change JSONB)`).catch(() => {});
+  _arReady = true;
+}
+export async function arList() {
+  if (!pool) return []; await ensureAutoRenew();
+  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name
+    FROM kinxs_accounts WHERE COALESCE(ar_plan,'') <> '' ORDER BY ar_start NULLS LAST, name`);
+  return rows;
+}
+export async function arUpdate(id, patch = {}, by = "") {
+  if (!pool) return null; await ensureAutoRenew();
+  const map = { plan: "ar_plan", no: "ar_no", start: "ar_start", status: "ar_status", cancelApplied: "ar_cancel_applied", cancelWish: "ar_cancel_wish", cancelMonth: "ar_cancel_month", applicant: "ar_applicant", contact: "ar_contact", note: "ar_note" };
+  const sets = [], vals = [String(id)];
+  for (const [k, col] of Object.entries(map)) if (patch[k] !== undefined) { vals.push(patch[k] === "" ? null : patch[k]); sets.push(`${col} = $${vals.length}`); }
+  if (patch.months && typeof patch.months === "object") { vals.push(JSON.stringify(patch.months)); sets.push(`ar_months = COALESCE(ar_months, '{}'::jsonb) || $${vals.length}::jsonb`); }
+  if (!sets.length) return null;
+  const { rows } = await pool.query(`UPDATE kinxs_accounts SET ${sets.join(", ")} WHERE account_id = $1 RETURNING account_id AS id`, vals);
+  await pool.query(`INSERT INTO kinxs_ar_history (account_id, by_user, change) VALUES ($1,$2,$3::jsonb)`, [String(id), by, JSON.stringify(patch)]).catch(() => {});
+  return rows[0] || null;
+}
+export async function arFindByNo(no) {
+  if (!pool) return null; await ensureAutoRenew();
+  const n = String(no || "").replace(/[\s　]/g, ""); if (!n) return null;
+  const { rows } = await pool.query(`SELECT account_id AS id, name FROM kinxs_accounts WHERE replace(COALESCE(ar_no,''),' ','') = $1 LIMIT 1`, [n]);
+  return rows[0] || null;
+}
+export async function arRecon(ym) { if (!pool) return null; await ensureAutoRenew(); return (await pool.query(`SELECT * FROM kinxs_ar_recon WHERE ym = $1`, [ym])).rows[0] || null; }
+export async function arReconSet(ym, { invoices, bv, note } = {}, by = "") {
+  if (!pool) return; await ensureAutoRenew();
+  await pool.query(`INSERT INTO kinxs_ar_recon (ym, invoices, bv, note, updated_by, updated_at) VALUES ($1,$2,$3,$4,$5,now())
+    ON CONFLICT (ym) DO UPDATE SET invoices = COALESCE($2, kinxs_ar_recon.invoices), bv = COALESCE($3, kinxs_ar_recon.bv), note = COALESCE($4, kinxs_ar_recon.note), updated_by = $5, updated_at = now()`,
+    [ym, invoices == null || invoices === "" ? null : Number(invoices), bv == null || bv === "" ? null : Number(bv), note == null ? null : String(note), by]);
+}
+export async function arExportLog(ym, by, counts) {
+  if (!pool) return 1; await ensureAutoRenew();
+  const v = ((await pool.query(`SELECT COALESCE(max(version),0)::int AS v FROM kinxs_ar_exports WHERE ym = $1`, [ym])).rows[0].v || 0) + 1;
+  await pool.query(`INSERT INTO kinxs_ar_exports (ym, version, by_user, counts) VALUES ($1,$2,$3,$4::jsonb)`, [ym, v, by, JSON.stringify(counts || {})]);
+  return v;
+}
+export async function arExports(ym) { if (!pool) return []; await ensureAutoRenew(); return (await pool.query(`SELECT ym, version, by_user, at, counts FROM kinxs_ar_exports WHERE ($1 = '' OR ym = $1) ORDER BY at DESC LIMIT 30`, [ym || ""])).rows; }
+export async function arHistory(id) { if (!pool) return []; await ensureAutoRenew(); return (await pool.query(`SELECT by_user, at, change FROM kinxs_ar_history WHERE account_id = $1 ORDER BY at DESC LIMIT 50`, [String(id)])).rows; }

@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261109x" />
+    <link rel="stylesheet" href="style.css?v=20261109y" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -762,6 +762,20 @@
   .kx-prods.open .t{display:block;-webkit-line-clamp:unset;overflow:visible;}
   .kx-prods .ar{border:0;background:none;padding:2px 0 0;font:inherit;font-size:11.5px;font-weight:800;color:#0E6B4E;cursor:pointer;} .kx-prods .ar[hidden]{display:none;}
   .kx-zcall{color:#0B5CFF;font-weight:700;text-decoration:none;} .kx-zcall:hover{text-decoration:underline;} .kx-tel2{font-size:11px;color:#8FA39A;margin-left:4px;}
+  /* DOC自動更新（2026-11-09） */
+  .ar-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .ar-mon{display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #DCE6E1;border-radius:12px;padding:4px;}
+  .ar-mon button{border:0;background:none;font:inherit;font-weight:800;padding:4px 10px;border-radius:8px;cursor:pointer;color:#0E6B4E;} .ar-mon button:hover{background:#E1F5EE;}
+  .ar-mon b{font-size:15px;min-width:120px;text-align:center;}
+  .ar-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px;}
+  .ar-card{background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:12px 14px;} .ar-card small{display:block;font-size:12px;color:#6A7A72;} .ar-card b{font-size:26px;font-weight:800;color:#14231D;} .ar-card span{font-size:12px;color:#6A7A72;margin-left:4px;}
+  .ar-card.warn b{color:#B4441F;}
+  .ar-tbl{background:#fff;border:1px solid #E1E9E5;border-radius:14px;overflow:auto;}
+  .ar-tbl table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:720px;} .ar-tbl th{text-align:left;font-size:11.5px;color:#6A7A72;font-weight:700;padding:8px 10px;border-bottom:1px solid #E1E9E5;background:#F7FAF8;white-space:nowrap;} .ar-tbl td{padding:8px 10px;border-bottom:1px solid #F0F3F1;}
+  .ar-st{display:inline-block;font-size:11px;font-weight:800;border-radius:7px;padding:1px 8px;background:#E1F5EE;color:#0A5440;} .ar-st.cx{background:#FFF4D6;color:#8A5A00;} .ar-st.done{background:#F1F5F3;color:#6A7A72;} .ar-st.bad{background:#FDEBE3;color:#B4441F;}
+  .ar-recon td.n{font-weight:800;font-size:15px;} .ar-recon tr.ng td{background:#FFF6F3;} .ar-recon input{width:90px;border:1px solid #DCE6E1;border-radius:8px;padding:4px 6px;font:inherit;}
+  .ar-empty{padding:18px;color:#8FA39A;font-size:13px;}
+  .ar-f{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;font-size:13px;margin-bottom:8px;} .ar-f input,.ar-f select{border:1px solid #DCE6E1;border-radius:8px;padding:6px 8px;font:inherit;}
 </style>
 </head>
   <body>
@@ -772,6 +786,7 @@
         <a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h7A1.5 1.5 0 0 1 14 5.5V21"/><path d="M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21"/><path d="M2.5 21h19"/><path d="M7.5 8h3M7.5 11.5h3M7.5 15h3M16.5 14h1M16.5 17h1"/></svg>ユーザー一覧</a>
       
         <a class="kx-nav" data-view="renew" href="/kinxs?p=renew"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>DOC更新管理</a>
+        <a class="kx-nav" data-view="ar" href="/kinxs?p=ar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/><path d="M9 12h6M12 9v6"/></svg>DOC自動更新</a>
         <a class="kx-nav" data-view="board" href="/kinxs?p=board"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>フェーズ別</a>
         <a class="kx-nav" data-view="plan" href="/kinxs?p=plan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 14h3M13 14h3M8 17h3"/></svg>年間施策</a>
         <a class="kx-nav" data-view="call" href="/kinxs?p=call"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>電話フォロー</a>
@@ -853,6 +868,7 @@
           </div>
           <div class="kx-wrap" id="vHome" hidden><div id="kh2"><div class="kx-empty">読み込み中…</div></div></div>
           <div class="kx-wrap" id="vPlan" hidden><div class="kx-head"><div><h1 class="kx-title">年間施策</h1></div></div><div id="vPlanBody"></div></div>
+          <div class="kx-wrap" id="vAr" hidden><div class="kx-head"><div><h1 class="kx-title">DOC自動更新（1ヶ月ごと）</h1><p class="kx-sub">アチコチバース（空間利用料）月額の自動更新企業の、請求対象・解約・突合</p></div></div><div id="vArBody"></div></div>
           <div class="kx-wrap" id="vCall" hidden><div class="kx-head"><div><h1 class="kx-title">電話フォロー</h1></div></div><div id="vCallBody"></div></div>
           <div class="kx-wrap" id="vTrend" hidden><div class="kx-head"><div><h1 class="kx-title">傾向分析</h1></div></div><div id="vTrendBody"></div></div>
           <div class="kx-wrap" id="vMissing" hidden>
@@ -882,7 +898,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261109x" defer></script>
-    <script src="kinxs.js?v=20261109x"></script>
+    <script src="kbchat.js?v=20261109y" defer></script>
+    <script src="kinxs.js?v=20261109y"></script>
   </body>
 </html>

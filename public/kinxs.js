@@ -252,9 +252,9 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
-const VIEW = ({ missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call" })[new URLSearchParams(location.search).get("p")] || "home";
+const VIEW = ({ ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-$("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call";
+if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
@@ -2082,3 +2082,113 @@ if (window.KX_COPY) {
     nav.parentElement.insertBefore(a, nav.nextSibling);
   }
 }
+
+// ===================== DOC（アチコチバース）1ヶ月ごとの自動更新（2026-11-09 幸地美穂さんの要件・田中さん）=====================
+//   販売管理部は kincs でこの画面を見て、締めの日に自分で Excel を落とす。事業部（kinXs）は企業の登録・ステータス・解約・SF計上・入金を直す
+const ar = { ym: "", data: null, tab: "bill" };
+function arYmNow() { const d = new Date(Date.now() + 9 * 3600000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; }
+function arAddYm(ym, n) { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; }
+const arJp = (ym) => ym ? `${ym.slice(0, 4)}年${Number(ym.slice(5, 7))}月` : "";
+async function arLoad() {
+  const box = $("vArBody"); if (!box) return;
+  if (!ar.ym) ar.ym = arYmNow();
+  box.innerHTML = '<div class="ar-empty">読み込んでいます…</div>';
+  try { ar.data = await api(`/api/kinxs/autorenew?ym=${ar.ym}`); arRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
+}
+function arStTag(s) { const c = s === "継続中" ? "" : s === "解約予定" ? " cx" : s === "解約済" ? " done" : " bad"; return `<span class="ar-st${c}">${esc(s)}</span>`; }
+function arRender() {
+  const box = $("vArBody"); const d = ar.data; if (!box || !d) return;
+  const ed = !!d.canEdit;
+  const nNew = d.diff.filter((x) => x.kind === "新規").length, nCx = d.cancels.length, nStop = d.all.filter((x) => ["未入金", "停止"].includes(x.status)).length;
+  const tabs = [["bill", `請求対象一覧（${d.bill.length}）`], ["cancel", `解約一覧（${nCx}）`], ["diff", `差分（${d.diff.length}）`], ["recon", "突合"], ["all", `全企業（${d.all.length}）`]];
+  let body = "";
+  const tbl = (head, rows, empty) => `<div class="ar-tbl"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("") || `<tr><td colspan="${head.length}" class="ar-empty">${empty}</td></tr>`}</tbody></table></div>`;
+  if (ar.tab === "bill") body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "請求金額", "ステータス", "SF計上", "入金"], d.bill.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${Number(x.amount).toLocaleString()}円</td><td>${arStTag(x.statusOn)}${x.status === "解約予定" ? ` <small>${esc(arJp(x.cancelMonth))}末で解約</small>` : ""}</td>
+      <td>${ed ? `<label><input type="checkbox" data-ar-sf="${esc(x.id)}" ${x.sf ? "checked" : ""}> 済</label>` : (x.sf ? "済" : "<span style='color:#B4441F'>未</span>")}</td>
+      <td>${ed ? `<select data-ar-paid="${esc(x.id)}"><option value="">未確認</option><option value="1" ${x.paid === true ? "selected" : ""}>入金あり</option><option value="0" ${x.paid === false ? "selected" : ""}>未入金</option></select>` : (x.paid === true ? "入金あり" : x.paid === false ? "<span style='color:#B4441F'>未入金</span>" : "未確認")}</td></tr>`), `${arJp(d.ym)}に請求する企業はありません`);
+  else if (ar.tab === "cancel") body = tbl(["申込番号", "企業名", "解約申請日", "解約希望月", "解約月", "申請者", "連絡先"], d.cancels.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.cancelApplied || "—")}</td><td>${esc(arJp(x.cancelWish))}</td><td>${esc(arJp(x.cancelMonth))}末</td><td>${esc(x.applicant || "—")}</td><td>${esc(x.contact || "—")}</td></tr>`), `${arJp(d.ym)}末で解約となる企業はありません`);
+  else if (ar.tab === "diff") body = tbl(["申込番号", "企業名", "区分", "変更月"], d.diff.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${arStTag(x.kind === "新規" ? "継続中" : x.kind).replace("継続中", "新規")}</td><td>${esc(arJp(x.changed))}</td></tr>`), `${arJp(d.prev)}からの増減はありません`);
+  else if (ar.tab === "recon") {
+    const r = d.recon; const base = r.kinxs;
+    const row = (label, n, key) => { const ng = n != null && n !== "" && Number(n) !== base; return `<tr class="${ng ? "ng" : ""}"><td>${label}</td><td class="n">${key ? `<input type="number" min="0" data-ar-rc="${key}" value="${n == null ? "" : n}" placeholder="記入">` : (n == null ? "—" : n)}</td><td>${n == null || n === "" ? "<span style='color:#8FA39A'>未記入</span>" : ng ? `<b style="color:#B4441F">差異 ${Number(n) - base > 0 ? "+" : ""}${Number(n) - base}</b>` : "一致"}</td></tr>`; };
+    body = `<div class="ar-tbl ar-recon"><table><thead><tr><th>項目</th><th>件数</th><th>kinXsの請求対象との差異</th></tr></thead><tbody>
+      <tr><td>kinXsの請求対象社数</td><td class="n">${base}</td><td>基準</td></tr>${row("SF計上件数（SF計上「済」の数）", r.sf)}${row("請求書発行件数（販売管理部）", r.invoices, "invoices")}${row("ブレインバース社からの請求件数", r.bv, "bv")}</tbody></table></div>
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center"><button type="button" class="kx-btn kx-pri" id="arRcSave">件数を保存</button><span class="kx-note" id="arRcSt"></span></div>`;
+  } else body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "ステータス", "解約月", "担当CS", ""], d.all.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${arStTag(x.statusOn)}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>` : ""}</td></tr>`), "まだ企業が登録されていません");
+  const ex = (d.exports || [])[0];
+  box.innerHTML = `<div class="ar-top"><div class="ar-mon"><button type="button" data-ar-mv="-1">‹</button><b>${arJp(d.ym)}分</b><button type="button" data-ar-mv="1">›</button></div>
+      <button type="button" class="kx-btn kx-pri" id="arXlsx">月次Excelをダウンロード</button>${ed ? '<button type="button" class="kx-btn" id="arAdd">＋ 自動更新の企業を登録</button>' : ""}
+      <span class="kx-note">${ex ? `最後の出力：${esc(String(ex.at).slice(0, 16).replace("T", " "))}・第${ex.version}版` : "この月分はまだ出力していません"}</span></div>
+    <div class="ar-cards"><div class="ar-card"><small>請求対象</small><b>${d.bill.length}</b><span>社・${(d.bill.length * d.price).toLocaleString()}円（税別）</span></div><div class="ar-card"><small>新規</small><b>${nNew}</b><span>社</span></div><div class="ar-card"><small>この月末で解約</small><b>${nCx}</b><span>社</span></div><div class="ar-card${nStop ? " warn" : ""}"><small>未入金・停止</small><b>${nStop}</b><span>社</span></div></div>
+    <div class="kx-seg" style="margin-bottom:10px">${tabs.map(([k, l]) => `<button type="button" class="${ar.tab === k ? "on" : ""}" data-ar-tab="${k}">${l}</button>`).join("")}</div>${body}`;
+  box.querySelectorAll("[data-ar-mv]").forEach((b) => b.addEventListener("click", () => { ar.ym = arAddYm(ar.ym, Number(b.dataset.arMv)); arLoad(); }));
+  box.querySelectorAll("[data-ar-tab]").forEach((b) => b.addEventListener("click", () => { ar.tab = b.dataset.arTab; arRender(); }));
+  box.querySelectorAll("[data-ar-sf]").forEach((c) => c.addEventListener("change", () => arSaveMonth(c.dataset.arSf, { sf: c.checked })));
+  box.querySelectorAll("[data-ar-paid]").forEach((c) => c.addEventListener("change", () => arSaveMonth(c.dataset.arPaid, { paid: c.value === "" ? null : c.value === "1" })));
+  box.querySelectorAll("[data-ar-edit]").forEach((b) => b.addEventListener("click", () => arEdit(d.all.find((x) => String(x.id) === b.dataset.arEdit))));
+  if ($("arAdd")) $("arAdd").addEventListener("click", () => arEdit(null));
+  if ($("arXlsx")) $("arXlsx").addEventListener("click", arExcel);
+  if ($("arRcSave")) $("arRcSave").addEventListener("click", async () => {
+    const v = (k) => { const i = box.querySelector(`[data-ar-rc="${k}"]`); return i && i.value !== "" ? Number(i.value) : null; };
+    try { await api(`/api/kinxs/autorenew-recon/${d.ym}`, { method: "PUT", body: JSON.stringify({ invoices: v("invoices"), bv: v("bv") }) }); $("arRcSt").textContent = "保存しました"; arLoad(); } catch (e) { $("arRcSt").textContent = e.message; }
+  });
+}
+async function arSaveMonth(id, patch) {
+  const cur = (ar.data.all.find((x) => String(x.id) === String(id)) || {});
+  const mo = { sf: patch.sf !== undefined ? patch.sf : cur.sf, paid: patch.paid !== undefined ? patch.paid : cur.paid };
+  try { await api(`/api/kinxs/autorenew/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ months: { [ar.ym]: mo }, ...(patch.paid === false ? { status: "未入金" } : {}) }) }); arLoad(); } catch (e) { alert(e.message); }
+}
+// 企業の登録・直す（プラン区分・申込番号・契約開始月・ステータス・解約）
+async function arEdit(x) {
+  const isNew = !x; let accts = [];
+  if (isNew) { try { const u = await api("/api/kinxs/users"); accts = (u.items || []).filter((i) => !i.archived); } catch {} }
+  document.querySelectorAll(".ar-bg").forEach((n) => n.remove());
+  const bg = document.createElement("div"); bg.className = "ar-bg"; bg.style.cssText = "position:fixed;inset:0;background:rgba(10,30,22,.45);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:40px 14px;overflow:auto";
+  const st = ["継続中", "解約予定", "解約済", "未入金", "停止"];
+  bg.innerHTML = `<div style="background:#fff;border-radius:16px;width:min(560px,100%);padding:18px 20px">
+    <b style="font-size:16px">${isNew ? "自動更新の企業を登録" : esc(x.name)}</b><div style="height:12px"></div>
+    ${isNew ? `<div class="ar-f"><span>会社（kinXs）</span><input list="arAcList" id="arAc" placeholder="会社名で探す"><datalist id="arAcList">${accts.map((a) => `<option value="${esc(a.name)}"></option>`).join("")}</datalist></div>` : ""}
+    <div class="ar-f"><span>プラン区分</span><select id="arPlan"><option ${!x || x.plan === "自動更新" ? "selected" : ""}>自動更新</option><option ${x && x.plan === "年間" ? "selected" : ""}>年間</option></select></div>
+    <div class="ar-f"><span>申込番号（サーカス）</span><input id="arNo" value="${esc((x && x.no) || "")}" placeholder="解約フォームとの突合キー"></div>
+    <div class="ar-f"><span>契約開始月</span><input type="month" id="arStart" value="${esc((x && x.start) || arYmNow())}"></div>
+    <div class="ar-f"><span>ステータス</span><select id="arSt">${st.map((s) => `<option ${(x ? x.status : "継続中") === s ? "selected" : ""}>${s}</option>`).join("")}</select></div>
+    <div class="ar-f"><span>解約申請日</span><input type="date" id="arCxA" value="${esc((x && x.cancelApplied) || "")}"></div>
+    <div class="ar-f"><span>解約希望月</span><input type="month" id="arCxW" value="${esc((x && x.cancelWish) || "")}"></div>
+    <div class="ar-f"><span>申請者・連絡先</span><div style="display:flex;gap:6px"><input id="arAp" value="${esc((x && x.applicant) || "")}" placeholder="申請者名" style="flex:1"><input id="arCt" value="${esc((x && x.contact) || "")}" placeholder="メール・電話" style="flex:1"></div></div>
+    <div class="ar-f"><span>メモ</span><input id="arNote" value="${esc((x && x.note) || "")}"></div>
+    <div class="kx-note" id="arCxNote" style="margin:4px 0 10px"></div>
+    ${!isNew ? '<details id="arHist"><summary class="kx-note" style="cursor:pointer">変更の履歴</summary><div class="kx-note">読み込み中…</div></details>' : ""}
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><button type="button" class="hp-b" data-x>やめる</button><button type="button" class="kx-btn kx-pri" data-save>${isNew ? "登録する" : "保存する"}</button></div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove(); bg.addEventListener("click", (e) => { if (e.target === bg) close(); }); bg.querySelector("[data-x]").addEventListener("click", close);
+  const note = () => { const a = $("arCxA").value, w = $("arCxW").value; if (!w) { $("arCxNote").textContent = ""; return; } const dl = `${arAddYm(w, -1)}-15`; const m = !a || a <= dl ? w : arAddYm(w, 1); $("arCxNote").textContent = `解約月：${arJp(m)}末（締切 ${dl.replace(/-/g, "/")}${a && a > dl ? " を過ぎた申請なので翌月末" : " までの申請"}）`; };
+  ["arCxA", "arCxW"].forEach((k) => $(k).addEventListener("input", note)); note();
+  if (!isNew) api(`/api/kinxs/autorenew/${encodeURIComponent(x.id)}/history`).then((h) => { const el = bg.querySelector("#arHist div"); if (el) el.innerHTML = (h.items || []).map((i) => `${esc(String(i.at).slice(0, 16).replace("T", " "))}　${esc(i.by_user)}　${esc(Object.entries(i.change || {}).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join("・"))}`).join("<br>") || "まだありません"; }).catch(() => {});
+  bg.querySelector("[data-save]").addEventListener("click", async () => {
+    let id = x && x.id;
+    if (isNew) { const nm = $("arAc").value.trim(); const hit = accts.find((a) => a.name === nm); if (!hit) { alert("kinXsの会社を一覧から選んでください（まだ無い会社は、SFで計上されると出てきます）"); return; } id = hit.id; }
+    const body = { plan: $("arPlan").value, no: $("arNo").value, start: $("arStart").value, status: $("arSt").value, cancelApplied: $("arCxA").value, cancelWish: $("arCxW").value, applicant: $("arAp").value, contact: $("arCt").value, note: $("arNote").value };
+    if (!body.cancelWish && body.status === "解約予定") { alert("解約予定にするときは、解約希望月を入れてください"); return; }
+    try { await api(`/api/kinxs/autorenew/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); close(); arLoad(); } catch (e) { alert(e.message); }
+  });
+}
+// 月次Excel（5つのシート）。ファイル名に対象月・出力日・版数
+async function arExcel() {
+  const d = ar.data; if (!d) return;
+  if (!window.XLSX) { await new Promise((ok, ng) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload = ok; s.onerror = () => ng(new Error("Excelの部品を読み込めませんでした")); document.head.appendChild(s); }).catch((e) => alert(e.message)); if (!window.XLSX) return; }
+  const counts = { bill: d.bill.length, new: d.diff.filter((x) => x.kind === "新規").length, cancel: d.cancels.length, stop: d.diff.filter((x) => x.kind === "停止").length };
+  let ver = 1, by = window.__kxMe || ""; try { const r = await api("/api/kinxs/autorenew-export", { method: "POST", body: JSON.stringify({ ym: d.ym, counts }) }); ver = r.version || 1; by = r.by || by; } catch {}
+  const now = new Date(Date.now() + 9 * 3600000); const stamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
+  const nowStr = `${now.getUTCFullYear()}/${now.getUTCMonth() + 1}/${now.getUTCDate()} ${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
+  const X = window.XLSX, wb = X.utils.book_new();
+  const add = (name, rows) => { const ws = X.utils.aoa_to_sheet(rows); ws["!cols"] = rows[0].map((_, i) => ({ wch: Math.min(40, Math.max(10, ...rows.map((r) => String(r[i] ?? "").length * 1.6))) })); X.utils.book_append_sheet(wb, ws, name); };
+  add("サマリー", [["項目", "内容"], ["対象月", arJp(d.ym)], ["請求対象社数", counts.bill], ["請求金額合計（税別）", counts.bill * d.price], ["新規", counts.new], ["解約（この月末）", counts.cancel], ["停止", counts.stop], ["出力日時", nowStr], ["出力者", by], ["版", `第${ver}版`]]);
+  add("請求対象一覧", [["企業ID（申込番号）", "企業名", "プラン区分", "契約開始月", "請求金額（税別）", "ステータス"], ...d.bill.map((x) => [x.no, x.name, x.plan, arJp(x.start), x.amount, x.statusOn])]);
+  add("解約一覧", [["企業ID（申込番号）", "企業名", "解約申請日", "解約月"], ...d.cancels.map((x) => [x.no, x.name, x.cancelApplied, `${arJp(x.cancelMonth)}末`])]);
+  add("差分", [["企業ID（申込番号）", "企業名", "区分", "変更月"], ...d.diff.map((x) => [x.no, x.name, x.kind, arJp(x.changed)])]);
+  const r = d.recon; const df = (n) => (n == null || n === "" ? "" : Number(n) - r.kinxs);
+  add("突合", [["項目", "件数", "差異（kinXsとの差）"], ["kinXsの請求対象社数", r.kinxs, 0], ["SF計上件数", r.sf, df(r.sf)], ["請求書発行件数（販売管理部）", r.invoices ?? "", df(r.invoices)], ["ブレインバース社からの請求件数", r.bv ?? "", df(r.bv)]]);
+  X.writeFile(wb, `DOC自動更新_請求対象_${d.ym.slice(0, 4)}年${d.ym.slice(5, 7)}月分_${stamp}出力${ver > 1 ? `_第${ver}版` : ""}.xlsx`);
+  arLoad();
+}
+if (VIEW === "ar") { if ($("kxPageName")) $("kxPageName").textContent = "DOC自動更新"; arLoad(); }
