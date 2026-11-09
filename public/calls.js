@@ -13114,3 +13114,29 @@ document.addEventListener("click", (e) => {
   _nmChosen = new Set(); _nmSel = { type: "group", key: b.dataset.gid, name: b.dataset.gname, backOwner: em };
   nmRenderDetail();
 });
+
+// ===== Zoom Phone のライセンスが無い人も、kincall からかけられるように（2026-11-09 田中さん）=====
+//   自分のアカウントに Zoom Phone（番号）が無いときは、電話番号を押すと、空いている共有の Zoom アカウントを借りて、そのアカウントでかける。
+//   借りたあとの通話・録音は、借りていた時間の分だけ自分の記録になる（Zoom アカウントの貸し出しと同じ仕組み）
+let _zpLicensed = null;
+(async () => { try { const d = await (await fetch("/api/zoom-phone/check")).json(); if (d && d.設定済み) { const me = d.自分 || {}; _zpLicensed = !!(me.Zoom利用者 && me.電話番号); } } catch {} })();
+document.addEventListener("click", async (e) => {
+  const a = e.target.closest && e.target.closest('a[href^="zoomphonecall:"]'); if (!a) return;
+  if (_zpLicensed !== false) return;   // ライセンスがある（または分からない）ときは、いつもどおり
+  e.preventDefault(); e.stopPropagation();
+  const href = a.getAttribute("href");
+  try {
+    const z = await (await fetch("/api/zoom-share")).json();
+    if (z.mine) {   // もう借りている：そのままかける（Zoom アプリが借りたアカウントでサインインしていれば発信できる）
+      const it = (z.items || []).find((x) => x.account === z.mine);
+      if (it && !it.confirmed && !confirm(`借りている ${z.mine} に、まだ Zoom アプリでサインインしていないかもしれません。\nこのままかけますか？（キャンセルで Zoomアカウントの窓を開きます）`)) { kcZoomShareOpen(); return; }
+      location.href = href; return;
+    }
+    const free = (z.items || []).find((x) => !x.holder && x.hasPass);
+    if (!free) { alert("あなたの Zoom アカウントには Zoom Phone のライセンスが無く、借りられる共有の Zoom アカウントも、いまは全部使われています。\n空いたら、もう一度押してください（Zoomアカウントの窓で、空きを確かめられます）。"); return; }
+    if (!confirm(`あなたの Zoom アカウントには Zoom Phone のライセンスが無いため、共有の Zoom アカウント（${free.account}）を借りてかけます。\n\n借りたら、Zoom アプリでそのアカウントにサインインしてから、もう一度電話番号を押してください（窓の「⚡ 自動でサインイン」が使えます）。\nこの通話の記録は、あなたの記録になります。`)) return;
+    const r = await fetch("/api/zoom-share/checkout", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ account: free.account }) });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || "借りられませんでした");
+    kcZoomShareOpen();
+  } catch (er) { alert(er.message); }
+}, true);

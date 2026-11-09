@@ -29028,7 +29028,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09n kinXs・kincs：電話番号（会社・先方の担当者・電話フォロー）を押すと Zoom Phone でかける（横に「端末」でふつうの電話も）。kincs だけの人も使える。";
+const BUILD_TAG = "2026-11-09o kincall：Zoom Phoneのライセンスが無い人が電話番号を押すと、空いている共有のZoomアカウントを借りてかけられる（借りていればそのままかける）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
