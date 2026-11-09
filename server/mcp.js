@@ -23,6 +23,7 @@ import {
   callStatsByDay,
   aposTakenInRange,
   callListOverview,
+  listInterns,
 } from "./db.js";
 import { sfQuery, sfUpdateRecord, sfCreateRecord, isConnected as sfIsConnected } from "./salesforce.js";
 
@@ -143,12 +144,12 @@ const TOOLS = [
   },
   {
     name: "sf_update",
-    description: "Salesforceのレコードを更新する（書き込み）。オブジェクトAPI名・レコードID・更新フィールドを指定。例: sobject=Opportunity, id=006xxx, fields={StageName:\"02 : 有効商談（3ヵ月以内検討）\"}。kinbot で Salesforce を連携している人が使える（本人として書き込む）。対象は主要オブジェクト（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case 等）に限定。",
+    description: "Salesforceのレコードを更新する（書き込み）。オブジェクトAPI名・レコードID・更新フィールドを指定。例: sobject=Opportunity, id=006xxx, fields={StageName:\"02 : 有効商談（3ヵ月以内検討）\"}。kinbot で Salesforce を連携している人は本人として、連携していない人（MOCHICAなど）は代理アカウントで書き込む。ステージの変更は sobject=Opportunity・fields={StageName: …}。対象は主要オブジェクト（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case 等）に限定。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, id: { type: "string", description: "レコードのSalesforce ID" }, fields: { type: "object", description: "更新するフィールド {API名: 値}" } }, required: ["sobject", "id", "fields"] },
   },
   {
     name: "sf_create",
-    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人が使える（本人として作る）。対象は主要オブジェクトに限定。",
+    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, fields: { type: "object", description: "作成するフィールド {API名: 値}" } }, required: ["sobject", "fields"] },
   },
 
@@ -235,7 +236,20 @@ async function canUseSf(req) {
   if (allow.includes(u) || u === "kinya.tanaka@neo-career.co.jp") return true;
   // kinbot で自分の Salesforce を連携している人は、だれでも使える（2026-11-06 田中さん「SF連携している人は全員書き込めるようにしたらいい」）
   try { if (u && (await sfIsConnected(u))) return true; } catch {}
-  try { const me = (await listMembers().catch(() => [])).find((m) => String(m.email || "").toLowerCase() === u); return !!(me && Array.isArray(me.roles) && me.roles.includes("closer")); } catch { return false; }
+  // SFを連携していない人（MOCHICAなど、SFで記録や商談の立ち上げができない人）も、kinbot のメンバーなら代理アカウントで書ける（2026-11-10 田中さん）。インターン（kincall だけの人）は除く
+  try {
+    if (!u) return false;
+    const interns = new Set((await listInterns().catch(() => [])).map((x) => String(x.email || "").toLowerCase()));
+    if (interns.has(u)) return false;
+    if ((await listMembers().catch(() => [])).some((m) => String(m.email || "").toLowerCase() === u)) return true;
+    return (await listUsers().catch(() => [])).some((x) => String(x.email || "").toLowerCase() === u);
+  } catch { return false; }
+}
+// 代理アカウントで書いたときは、だれが書いたかを残す（活動の説明に「記録した人」）
+async function sfByNameMcp(req, owner) {
+  const u = String(req.user || "").toLowerCase(); if (!owner || String(owner).toLowerCase() === u) return "";
+  const x = (await listUsers().catch(() => [])).find((y) => String(y.email || "").toLowerCase() === u);
+  return (x && x.name) || u;
 }
 async function sfOwnerFor(req) {
   const u = String(req.user || "").trim();
@@ -399,24 +413,31 @@ export async function callTool(name, args, req) {
       }));
     }
     case "sf_query": {
-      if (!(await canUseSf(req))) throw new Error("Salesforceの操作は許可されていません（kinbot の設定で自分の Salesforce を連携すると使えます）");
+      if (!(await canUseSf(req))) throw new Error("Salesforceの操作は許可されていません（kinbot のメンバーなら使えます。うまくいかないときは管理者に聞いてください）");
       const owner = await sfOwnerFor(req);
       const d = await sfQuery(owner, String(args && args.soql || ""));
       return { records: (d && d.records) || [], totalSize: d && d.totalSize, done: d && d.done };
     }
     case "sf_update": {
-      if (!(await canUseSf(req))) throw new Error("Salesforceの更新は許可されていません（kinbot の設定で自分の Salesforce を連携すると使えます）");
+      if (!(await canUseSf(req))) throw new Error("Salesforceの更新は許可されていません（kinbot のメンバーなら使えます。うまくいかないときは管理者に聞いてください）");
       const so = String(args && args.sobject || "");
       if (!SF_WRITE_OBJECTS.has(so)) throw new Error(`このオブジェクトは更新できません（許可: ${[...SF_WRITE_OBJECTS].join(", ")}）`);
       const owner = await sfOwnerFor(req);
-      return await sfUpdateRecord(owner, so, String(args.id || ""), (args && args.fields) || {});
+      const r = await sfUpdateRecord(owner, so, String(args.id || ""), (args && args.fields) || {});
+      const by = await sfByNameMcp(req, owner);
+      if (by) console.log(`[sf_update] 代理で更新：${so} ${args.id} by ${req.user}`);
+      return by ? { ...(r || {}), 代理: `代理アカウントで更新しました（依頼した人：${by}）` } : r;
     }
     case "sf_create": {
-      if (!(await canUseSf(req))) throw new Error("Salesforceの作成は許可されていません（kinbot の設定で自分の Salesforce を連携すると使えます）");
+      if (!(await canUseSf(req))) throw new Error("Salesforceの作成は許可されていません（kinbot のメンバーなら使えます。うまくいかないときは管理者に聞いてください）");
       const so = String(args && args.sobject || "");
       if (!SF_WRITE_OBJECTS.has(so)) throw new Error(`このオブジェクトは作成できません（許可: ${[...SF_WRITE_OBJECTS].join(", ")}）`);
       const owner = await sfOwnerFor(req);
-      return await sfCreateRecord(owner, so, (args && args.fields) || {});
+      const fields = { ...((args && args.fields) || {}) };
+      const by = await sfByNameMcp(req, owner);
+      if (by && (so === "Task" || so === "Event")) fields.Description = `記録した人：${by}（kinbot から代理で記録）\n${fields.Description || ""}`.trim();
+      const r = await sfCreateRecord(owner, so, fields);
+      return by ? { ...(r || {}), 代理: `代理アカウントで作成しました（記録した人：${by}）` } : r;
     }
     default:
       throw new Error(`不明なツール: ${name}`);

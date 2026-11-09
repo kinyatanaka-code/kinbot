@@ -9669,6 +9669,13 @@ app.post("/api/calls/from-leads", async (req, res) => {
 const NAKAZAWA_EMAIL = "ryota.nakazawa@neo-career.co.jp";
 
 // SF操作に使う連携アカウント（自分が未連携なら「代わりに更新する人」）
+// SFに書く人：本人がSF連携していれば本人、していなければ代理（操作している人→代理アカウント→運用者）（2026-11-10 田中さん：MOCHICAの人はSFで記録や商談の立ち上げができないため）
+async function sfActor(req) {
+  if (req._sfActor !== undefined) return req._sfActor;
+  const u = req.user; req._sfActor = (await sfConnected(u).catch(() => false)) ? u : await pickSfUser(u, req).catch(() => u);
+  return req._sfActor;
+}
+async function sfByName(req, actor) { if (!actor || String(actor).toLowerCase() === String(req.user || "").toLowerCase()) return ""; return await displayNameOf(req.user).catch(() => req.user); }
 async function pickSfUser(user, req = null) {
   if (await sfConnected(user).catch(() => false)) return user;
   // 他メンバーの画面を操作しているとき（代理ログイン）は、操作している本人のSFで更新する。
@@ -25929,9 +25936,10 @@ app.post("/api/meetings/:id/extract", async (req, res) => {
       // 既定でON。商談が終わって要約ができたら、活動履歴と空欄をSFへ自動で反映する。
       // 止めたい人は 設定→動作設定 でOFFにできる。
       const autoOn = settings.sfAutoReflect !== false;
-      if (autoOn && salesforceConfigured() && (await sfConnected(req.user))) {
+      const actor0 = salesforceConfigured() ? await sfActor(req) : "";
+      if (autoOn && salesforceConfigured() && (await sfConnected(actor0))) {
         const meetingId = req.params.id;
-        const user = req.user;
+        const user = actor0; const byName0 = await sfByName(req, actor0);
         (async () => {
           try {
             const m = await getMeeting(meetingId);
@@ -25943,7 +25951,7 @@ app.post("/api/meetings/:id/extract", async (req, res) => {
               if (recs && recs.length === 1) url = recs[0].Id;
             }
             if (!extractRecordId(url)) return;
-            const rr = await autofillMeetingToSf(user, m, url);
+            const rr = await autofillMeetingToSf(user, m, url, { byName: byName0 });
             console.log("[sf-auto] reflected", meetingId,
               "filled=" + (Object.keys((rr.opportunity && rr.opportunity.filled) || {}).length
                 + Object.keys((rr.account && rr.account.filled) || {}).length),
@@ -29721,7 +29729,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10ze kinXs 検収書：PDFを保存した人のGoogleドライブ（kinXs 検収書）に置いて社内共有し、そのリンクをチャットで送る。";
+const BUILD_TAG = "2026-11-10zf kinbot：SFを連携していない人（MOCHICAなど）も、商談のSF記録（項目・活動の自動反映・候補）と、Claudeからの書き込み（ステージ変更など）を代理アカウントで。活動の説明に記録した人を残す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -31349,19 +31357,19 @@ app.post("/api/meetings/:id/sf-fields", async (req, res) => {
   try {
     const out = { configured: salesforceConfigured(), connected: false, rows: [] };
     if (!out.configured) return res.json(out);
-    out.connected = await sfConnected(req.user);
+    const actor = await sfActor(req); out.connected = await sfConnected(actor); out.proxy = actor !== req.user;
     if (!out.connected) return res.json(out);
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
     const url = (req.body && req.body.url) || m.sf_url || "";
     const recordId = extractRecordId(url);
     if (!recordId) return res.json({ ...out, needLink: true });
-    const mapping = (await getUserSettings(req.user)).sfMapping || {};
+    let mapping = (await getUserSettings(req.user)).sfMapping || {}; if (!Object.keys(mapping).length && actor !== req.user) mapping = (await getUserSettings(actor)).sfMapping || {};
     const sfFields = SF_SOURCES.map((s) => mapping[s.key]).filter(Boolean);
     if (sfFields.length === 0) return res.json({ ...out, recordId, needMapping: true });
     let record = {};
     try {
-      record = await getOpportunity(req.user, recordId, sfFields);
+      record = await getOpportunity(actor, recordId, sfFields);
     } catch (e) {
       return res.json({ ...out, recordId, fetchError: e.message });
     }
@@ -31385,7 +31393,7 @@ app.post("/api/meetings/:id/sf-update", async (req, res) => {
     const { recordId, fields } = req.body || {};
     if (!recordId || !fields || typeof fields !== "object")
       return res.status(400).json({ error: "recordId と fields が必要です" });
-    await updateOpportunity(req.user, recordId, fields);
+    const actor = await sfActor(req); await updateOpportunity(actor, recordId, fields);
     res.json({ ok: true });
   } catch (e) {
     console.error("[sf-update]", e.message);
@@ -31414,7 +31422,7 @@ app.post("/api/meetings/:id/sf-candidates", async (req, res) => {
   try {
     const out = { configured: salesforceConfigured(), connected: false, records: [] };
     if (!out.configured) return res.json({ ...out, reason: "未設定" });
-    out.connected = await sfConnected(req.user);
+    const actor = await sfActor(req); out.connected = await sfConnected(actor);
     if (!out.connected) return res.json({ ...out, reason: "未連携" });
 
     const m = await getMeeting(req.params.id);
@@ -31423,9 +31431,9 @@ app.post("/api/meetings/:id/sf-candidates", async (req, res) => {
     const q = ((req.body && req.body.q) || m.account || "").trim();
     if (!q) return res.json({ ...out, needQuery: true });
 
-    const info = await sfInfo(req.user);
+    const info = await sfInfo(actor);
     const base = (info.instanceUrl || "").replace(/\/+$/, "");
-    const records = await searchOpportunities(req.user, q);
+    const records = await searchOpportunities(actor, q);
     out.records = (records || []).map((r) => ({
       id: r.Id,
       name: r.Name,
@@ -31527,7 +31535,7 @@ async function persistMeetingOpp(user, m, oppId) {
   } catch {}
 }
 
-async function autofillMeetingToSf(user, meeting, url) {
+async function autofillMeetingToSf(user, meeting, url, opts = {}) {
   const m = meeting;
   let recordId = extractRecordId(url || m.sf_url || "");
   // sf_urlが無い/取れないときは、予定にひも付いたSF商談IDから解決する（会社名検索に頼らない）
@@ -31606,7 +31614,7 @@ async function autofillMeetingToSf(user, meeting, url) {
     WhatId: recordId,
     Subject: `[kinbot] ${m.title || "商談"}（第${m.round || 1}回）`,
     Type: "商談",
-    Description: desc.slice(0, 30000),
+    Description: `${opts.byName ? `記録した人：${opts.byName}（kinbot から代理で記録）\n` : ""}${desc}`.slice(0, 30000),
     Status: "完了",
     ActivityDate: (m.meeting_date || new Date().toISOString()).slice(0, 10),
   };
@@ -32011,13 +32019,13 @@ app.post("/api/meetings/:id/sf-autofill", async (req, res) => {
   try {
     const out = { ok: false, configured: salesforceConfigured(), connected: false };
     if (!out.configured) return res.json({ ...out, reason: "未設定" });
-    out.connected = await sfConnected(req.user);
+    const actor = await sfActor(req); out.connected = await sfConnected(actor);
     if (!out.connected) return res.json({ ...out, reason: "未連携" });
 
     const m = await getMeeting(req.params.id);
     if (!m) return res.status(404).json({ error: "見つかりません" });
 
-    const r = await autofillMeetingToSf(req.user, m, (req.body && req.body.url) || "");
+    const r = await autofillMeetingToSf(actor, m, (req.body && req.body.url) || "", { byName: await sfByName(req, actor) });
     if (r.needLink) return res.json({ ...out, needLink: true });
     res.json({ ...out, ...r });
   } catch (e) {
