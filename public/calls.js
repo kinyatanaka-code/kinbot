@@ -3776,7 +3776,8 @@ function dockRecordPanels(m) {
 function openSlotPanel(m, x) {
   // リードのリスト名（ディーラーのリストなら、日程の候補は浦林さんの空き）（2026-11-02）
   const slotList = String((x && (x["リスト名"] || x["元のリスト"])) || "");
-  const slotQ = slotList ? `list=${encodeURIComponent(slotList)}` : "";
+  // リストのIDとグループ名も渡す（LINEリストのグループなら中澤さんの空きだけ、など）（2026-11-10）
+  const slotQ = [slotList ? `list=${encodeURIComponent(slotList)}` : "", x && x.listId ? `listId=${encodeURIComponent(x.listId)}` : "", x && x.listGroupName ? `group=${encodeURIComponent(x.listGroupName)}` : ""].filter(Boolean).join("&");
   document.querySelectorAll(".kc-slotpanel").forEach((el) => el.remove());
   const panel = document.createElement("div");
   panel.className = "kc-slotpanel";

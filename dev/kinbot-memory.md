@@ -2393,3 +2393,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-10 BUILD_TAG=2026-11-10e 開発メモの要望（植野ひかりさん）『kincallの記録画面から資料送付ができるようにしたい（あえてできないようにしているなら修正不要）』→ 止めていたわけではない。kcRecNav で記録の窓の右上（🤝 案件共有の左）に『📄 資料送付』＝openDocSend(id)。版20261110e。
 
 - 2026-11-10 BUILD_TAG=2026-11-10f 田中さん「LINEリストにグループ分けされているのは中澤だけ」。/api/calls/group-tree を開くたびに autoGroupListsByName：グループが無いか、種類の木に無いグループのリストを、名前の正規表現で種類のグループへ（LINE|ＬＩＮＥ|ライン→LINEリスト、新卒、フロッグ、MOユーザー、MO解約、MO失注（過去は除く）、検証、クロス失注、DOC過去失注|過去失注リスト、リスケ。上から先に合ったもの）。木のグループに入れてあるリストは動かさない。MO過去失注などはそのまま。版20261110f。
+
+- 2026-11-10 BUILD_TAG=2026-11-10f 田中さん「LINEリストにグループ分けされているのは中澤だけのおすすめ日程になるようにと、割り振られるのも中澤だけで」。仕組み（SLOT_REPS_DEFAULT・ASSIGN_REPS_DEFAULT の LINE → 中澤良太、11/4）はあったが、日程の候補はリスト名だけで見分けていて、リスト名に LINE が無い・名前で引けないリストだと効かなかった。openSlotPanel が listId と group（行の listGroupName）も渡し、slot-suggest・slot-day の slotMembersForList → repsForList が リストの ID・グループ名でも照らす。割り振りは前から origin_target_id のリストの ID → グループで見ている。版20261110f。

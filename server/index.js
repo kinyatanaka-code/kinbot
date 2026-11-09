@@ -16952,9 +16952,10 @@ app.post("/api/calls/chat", async (req, res) => {
 const SLOT_REPS_DEFAULT = { 検証: ["浦林"], LINE: ["中澤良太"] };
 const kxIsUra = (x) => /浦林/.test(String((x && (x.name || x.email)) || ""));
 const ASSIGN_REPS_DEFAULT = { LINE: ["中澤良太"] };   // LINEリストのグループのアポは中澤良太さんだけに割り振る（2026-11-04）
-async function repsForList(listName, { kind = "slot", listId = null } = {}) {
+async function repsForList(listName, { kind = "slot", listId = null, group = "" } = {}) {
   const info = await callListAndGroup({ id: listId, name: listName }).catch(() => ({ name: listName, group: "" }));
-  const hay = [String(info.name || listName || ""), String(info.group || "")].map((x) => x.normalize("NFKC"));
+  // グループ名は、画面から来たもの（行のリストのグループ）も見る（2026-11-10：LINEリストのグループのリードを確実に中澤さんだけに）
+  const hay = [String(info.name || listName || ""), String(info.group || ""), String(group || "")].map((x) => x.normalize("NFKC"));
   if (!hay.some(Boolean)) return null;
   const st = await getSettings().catch(() => ({}));
   const map = kind === "assign" ? { ...ASSIGN_REPS_DEFAULT, ...(st.assignRepsByList || {}) } : { ...SLOT_REPS_DEFAULT, ...(st.slotRepsByList || {}) };
@@ -16962,10 +16963,10 @@ async function repsForList(listName, { kind = "slot", listId = null } = {}) {
   if (!key) return null;
   return map[key];
 }
-async function slotMembersForList(listName) {
+async function slotMembersForList(listName, { listId = null, group = "" } = {}) {
   const ln = String(listName || "");
-  if (!ln) return null;
-  const names = await repsForList(ln, { kind: "slot" });
+  if (!ln && !listId && !group) return null;
+  const names = await repsForList(ln, { kind: "slot", listId: listId ? parseInt(listId, 10) || null : null, group });
   const map = names ? { _: names } : {};
   const key = names ? "_" : null;
   if (!key) return null;
@@ -16978,7 +16979,7 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
   try {
     const closers = await listClosers({ activeOnly: true }).catch(() => []);
     const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
-    const members = (await slotMembersForList(req.query.list).catch(() => null)) || closers
+    const members = (await slotMembersForList(req.query.list, { listId: req.query.listId, group: req.query.group }).catch(() => null)) || closers
       .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")) && !kxIsUra(x))
       .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
     if (!members.length) return res.json({ ok: true, 候補: [], reason: "対象のクローザーがいません" });
@@ -17087,7 +17088,7 @@ app.get("/api/calls/slot-day", async (req, res) => {
     const mins = Math.max(15, Math.min(240, parseInt(req.query.minutes, 10) || 60));
     const closers = await listClosers({ activeOnly: true }).catch(() => []);
     const isTanaka = (x) => /田中欽也/.test(String(x.name || "")) || /kinya\.tanaka/i.test(String(x.email || ""));
-    const members = (await slotMembersForList(req.query.list).catch(() => null)) || closers
+    const members = (await slotMembersForList(req.query.list, { listId: req.query.listId, group: req.query.group }).catch(() => null)) || closers
       .filter((x) => x.email && !isTanaka(x) && !/田中綾/.test(String(x.name || "")) && !kxIsUra(x))
       .map((x) => ({ email: String(x.email).toLowerCase(), name: x.name || x.email }));
     if (!members.length) return res.json({ ok: true, date, 枠: [], 対象: [], reason: "対象のクローザーがいません" });
@@ -29343,7 +29344,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10f kincallのリスト管理：リスト名から種類のグループへ自動で入れる（LINE・新卒・フロッグ・MOユーザー・MO解約・MO失注・検証・クロス失注・DOC過去失注・リスケ）。";
+const BUILD_TAG = "2026-11-10f kincall：LINEリストのグループのリードは、日程の候補（おすすめ・他の日程）を中澤さんの空きだけに、割り振りも中澤さんだけに（リストのIDとグループ名でも見分ける）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
