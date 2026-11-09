@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, moApoLogsOn, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -687,6 +687,7 @@ import {
   gmailSearchThreads,
   googleDirectorySearch,
   appendSheetRowAt,
+  updateCellsFirstSheet,
   gmailSentToday,
   gmailFindBounces,
   gmailGetThread,
@@ -8303,8 +8304,8 @@ function canHideLists(req) {
 //   シート：settings.moApoSheetId（既定は田中さんのシート）。書き込みは settings.moApoSheetOwner（既定 kinya.tanaka@）の Google 連携で
 //   1行目の見出しに合わせて入れる（見出しが無ければ、こちらの見出しを先に書く）
 const MO_APO_SHEET = "13JlORZCORO5xFE0rkJAqSNzwpSTc1cx4BYi4GrbndnA";
-const MO_APO_HEAD = ["記録日時", "リスト", "会社名", "先方担当者", "電話番号", "メール", "商談日時", "獲得者", "メモ"];
-async function moApoToSheet(t, b, caller, at = null) {
+const MO_APO_HEAD = ["記録日時", "リスト", "会社名", "先方担当者", "電話番号", "メール", "商談日時", "商談予定者", "獲得者", "メモ"];
+async function moApoToSheet(t, b, caller, at = null, planner = "") {
   const g = await listGroupNameOf(t.list_id);
   const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
   const which = /MOユーザー|MO解約/.test(norm(g.group)) ? g.group : /MOユーザー|MO解約/.test(norm(g.list)) ? g.list : "";
@@ -8316,8 +8317,9 @@ async function moApoToSheet(t, b, caller, at = null) {
   const jst = (d) => { const x = new Date(new Date(d).getTime() + 9 * 3600000); return isNaN(x) ? "" : `${x.getUTCFullYear()}/${x.getUTCMonth() + 1}/${x.getUTCDate()} ${String(x.getUTCHours()).padStart(2, "0")}:${String(x.getUTCMinutes()).padStart(2, "0")}`; };
   const ex = t.extra && typeof t.extra === "object" ? t.extra : {};
   const v = { 記録日時: jst(at || Date.now()), リスト: which, 会社名: t.company || "", 先方担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || ex["メール"] || "",
-    商談日時: b.apo && b.apo.start ? jst(b.apo.start) : "", 獲得者: await displayNameOf(caller).catch(() => caller), メモ: String(b.memo || "").slice(0, 500) };
+    商談日時: b.apo && b.apo.start ? jst(b.apo.start) : "", 獲得者: await displayNameOf(caller).catch(() => caller), メモ: String(b.memo || "").slice(0, 500), 商談予定者: String(planner || "").toLowerCase() };
   const pick = (h) => { const n = norm(h);
+    if (/商談予定者|商談者|商談担当|クローザー|予定者/.test(n)) return v.商談予定者;   // 商談予定者はメールアドレス（2026-11-09 田中さん）
     if (/記録|登録|獲得日|入力日/.test(n) && /日/.test(n)) return v.記録日時; if (/商談|アポ日|予定/.test(n)) return v.商談日時;
     if (/リスト|種類|区分/.test(n)) return v.リスト; if (/会社|企業|社名/.test(n)) return v.会社名; if (/電話|TEL/i.test(n)) return v.電話番号;
     if (/メール|mail/i.test(n)) return v.メール; if (/獲得者|架電者|アポインター|取得者|担当営業|インサイド/.test(n)) return v.獲得者;
@@ -8336,12 +8338,31 @@ async function moApoBackfill(ymd) {
   for (const r of rows) {
     const key = String(r.company || "").replace(/\s|　/g, "");
     if (key && have.includes(key)) continue;   // もうシートにある
-    await moApoToSheet({ list_id: r.list_id, company: r.company, person: r.person, phone: r.phone, email: r.email, extra: r.extra }, { memo: r.memo || "", apo: r.apo_start ? { start: r.apo_start } : null }, r.caller, r.at);
+    await moApoToSheet({ list_id: r.list_id, company: r.company, person: r.person, phone: r.phone, email: r.email, extra: r.extra }, { memo: r.memo || "", apo: r.apo_start ? { start: r.apo_start } : null }, r.caller, r.at, r.apo_owner || "");
     have += key; n++;
   }
   console.log(`[MOシート] ${ymd} のさかのぼり：${rows.length}件中 ${n}件を足しました`);
   return { found: rows.length, added: n };
 }
+// 商談予定者が空の行を、アポ一覧の担当（割り振られた人のメール）で埋める（割り振りがアポの記録よりあとになることがあるので、30分ごと）（2026-11-09）
+async function moApoFillPlanner() {
+  const st = await getSettings().catch(() => ({}));
+  const sheet = st.moApoSheetId || MO_APO_SHEET; const owner = st.moApoSheetOwner || "kinya.tanaka@neo-career.co.jp";
+  const rows = await readSheet(owner, sheet, "A1:Z2000").catch(() => []); if (!rows.length) return 0;
+  const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+  const head = rows[0] || []; const pi = head.findIndex((h) => /商談予定者|商談者|商談担当|クローザー|予定者/.test(norm(h))); const ci = head.findIndex((h) => /会社|企業|社名/.test(norm(h)));
+  if (pi < 0 || ci < 0) return 0;
+  const col = (i) => { let s2 = ""; i += 1; while (i > 0) { const m = (i - 1) % 26; s2 = String.fromCharCode(65 + m) + s2; i = Math.floor((i - 1) / 26); } return s2; };
+  const cells = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r] || []; if (String(row[pi] || "").trim() || !String(row[ci] || "").trim()) continue;
+    const em = await apoOwnerByCompany(row[ci]); if (em) cells.push({ a1: `${col(pi)}${r + 1}`, value: em });
+  }
+  if (cells.length) { await updateCellsFirstSheet(owner, sheet, cells); console.log(`[MOシート] 商談予定者を ${cells.length}行 埋めました`); }
+  return cells.length;
+}
+setTimeout(() => moApoFillPlanner().catch((e) => console.warn("[MOシート] 商談予定者", e.message)), 3 * 60 * 1000);
+setInterval(() => moApoFillPlanner().catch((e) => console.warn("[MOシート] 商談予定者", e.message)), 30 * 60 * 1000);
 // 起動して1分半後に1回だけ：11/6（金）の分（設定に「済み」を残す）
 setTimeout(async () => {
   // 2回目（moApoBackfill1106b）：田中さんがリードを MOユーザー・MO解約のリストへ移したあとに、もう一度流す（シートにある会社は足さない）
@@ -17459,8 +17480,7 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     });
     // 説明に入れたZoom録音の要約を「使用済み」にする（後から二重に追記しないため）
     if (b.zoomRecId && log && log.id) await markZoomRecUsed(String(b.zoomRecId), log.id).catch(() => {});
-    // MOユーザー・MO解約リストでアポ獲得 → 決まったスプレッドシートに1行（2026-11-09 田中さん）。うしろで動かす（記録は待たせない）
-    if (/アポ獲得/.test(result)) moApoToSheet(t, b, req.user).catch((e) => console.warn("[MOシート]", e.message));
+
     // ステージと最終ステータスを書き換える。
     // 最終ステータスは「いま記録した結果」を入れる（空で上書きしない）。
     // ステージは、選ばれたときだけ変える。
@@ -17665,6 +17685,11 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
         console.warn("[kincall-apo] 登録に失敗:", e.message);
         apo = { ok: false, error: e.message };
       }
+    }
+    // MOユーザー・MO解約リストでアポ獲得 → 決まったスプレッドシートに1行（2026-11-09 田中さん）。商談予定者（割り振られた人のメール）も。うしろで動かす
+    if (/アポ獲得/.test(result)) {
+      const planner = (apo && ((apo.link && apo.link.current_owner) || (apo.assign && ((apo.assign.assigned && apo.assign.assigned.email) || apo.assign.email)))) || "";
+      moApoToSheet(t, b, req.user, null, planner).catch((e) => console.warn("[MOシート]", e.message));
     }
     res.json({ ok: true, sf, 自動ステージ, 連続不在, 復活補充, apo });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -29092,7 +29117,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09v kincall：11/6のMOのアポのさかのぼりを、リードを移したあとでもう一度流す（MOユーザー正式・ＭＯ解約のような名前も拾う、シートにある会社は足さない）。";
+const BUILD_TAG = "2026-11-09w MOのアポのスプレッドシートに「商談予定者」（割り振られた人のメールアドレス）。空の行は30分ごとにアポ一覧の担当で埋める。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

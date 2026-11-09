@@ -2365,3 +2365,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-09 BUILD_TAG=2026-11-09u 田中さん「金曜日にすでに取れているものを反映させてほしい」。db.moApoLogsOn(ymd)（その日（日本時間）のアポ獲得の記録で、グループ名かリスト名が MOユーザー／MO解約、商談日時はアポ一覧（smart_links の start_time）から会社名で探す）、moApoBackfill：シートを A1:Z2000 読んで同じ会社名があれば足さない、moApoToSheet に記録日時（at）を渡す。起動90秒後に1回だけ 2026-11-06 を流して settings.moApoBackfill1106 に済み（件数）を残す。POST /api/calls/mo-apo-backfill {date}（田中さん・管理者）でほかの日も流せる。版20261109u。
 
 - 2026-11-09 BUILD_TAG=2026-11-09v 田中さん「MOユーザー正式、MO解約みたいなリストの名前にしてたと思う、今は全部移させている」。moApoLogsOn の名前の見分けを ~* '[MＭ][OＯ][ 　]*(ユーザー|解約)'（全角も）に。さかのぼりを1回目の済み（moApoBackfill1106）とは別の印 moApoBackfill1106b でもう一度流す（シートにある会社は足さない）。リードの今のリストで見るので、移したあとなら拾える。版20261109v。
+
+- 2026-11-09 BUILD_TAG=2026-11-09w 田中さん「商談予定者も入れたい。これはメールアドレスで」。moApoToSheet に planner（記録の API ではアポを作って割り振ったあと apo.link.current_owner／apo.assign の email で呼ぶように順番を変えた）、見出し『商談予定者・商談者・商談担当・クローザー・予定者』にメール（商談日時の判定より先）。MO_APO_HEAD にも『商談予定者』。さかのぼり（moApoLogsOn）も smart_links の current_owner を apo_owner として。moApoFillPlanner：シートの見出しに商談予定者の列と会社の列があれば、商談予定者が空の行を apoOwnerByCompany（アポ一覧の会社名でいちばん新しい予定の担当）で埋める（起動3分後と30分ごと、google.js updateCellsFirstSheet）。※シートに『商談予定者』の列が無ければ、列を足してもらう必要あり。版20261109w。

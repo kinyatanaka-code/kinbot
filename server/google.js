@@ -1761,3 +1761,14 @@ export async function appendSheetRowAt(owner, spreadsheetId, range, values) {
   if (!res.ok) { const t = await res.text(); throw new Error(`シートへの書き込み ${res.status}: ${t.slice(0, 300)}`); }
   return res.json().catch(() => ({}));
 }
+
+// セルをまとめて書く（シート名を省くと、いちばん左のシート。cells: [{ a1: "H5", value }]）（2026-11-09）
+export async function updateCellsFirstSheet(owner, spreadsheetId, cells = []) {
+  if (!cells.length) return {};
+  const token = await accessToken(owner);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`, {
+    method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: cells.map((c) => ({ range: c.a1, values: [[c.value]] })) }) });
+  if (!res.ok) { const t = await res.text(); throw new Error(`シートの書きかえ ${res.status}: ${t.slice(0, 300)}`); }
+  return res.json().catch(() => ({}));
+}

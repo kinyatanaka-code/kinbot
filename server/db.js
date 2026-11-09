@@ -12347,7 +12347,10 @@ export async function moApoLogsOn(ymd) {
            l.name AS list_name, g.name AS group_name,
            (SELECT COALESCE(s.start_time_manual, s.start_time) FROM smart_links s
              WHERE replace(replace(s.label,' ',''),'株式会社','') ILIKE '%' || replace(replace(t.company,' ',''),'株式会社','') || '%' AND COALESCE(s.start_time_manual, s.start_time) IS NOT NULL
-             ORDER BY s.created_at DESC LIMIT 1) AS apo_start
+             ORDER BY s.created_at DESC LIMIT 1) AS apo_start,
+           (SELECT s.current_owner FROM smart_links s
+             WHERE replace(replace(s.label,' ',''),'株式会社','') ILIKE '%' || replace(replace(t.company,' ',''),'株式会社','') || '%'
+             ORDER BY s.created_at DESC LIMIT 1) AS apo_owner
       FROM call_logs lg JOIN call_targets t ON t.id = lg.target_id
       LEFT JOIN call_lists l ON l.id = t.list_id LEFT JOIN call_list_groups g ON g.id = l.group_id
      WHERE lg.result ILIKE '%アポ獲得%'
@@ -12355,4 +12358,12 @@ export async function moApoLogsOn(ymd) {
        AND (COALESCE(g.name,'') ~* '[MＭ][OＯ][ 　]*(ユーザー|解約)' OR COALESCE(l.name,'') ~* '[MＭ][OＯ][ 　]*(ユーザー|解約)')
      ORDER BY lg.at`, [ymd]);
   return rows;
+}
+
+// 会社名から、アポ一覧のいちばん新しい予定の担当（割り振られた人のメール）（2026-11-09）
+export async function apoOwnerByCompany(company) {
+  if (!pool) return "";
+  const c = String(company || "").replace(/株式会社|\s|　/g, ""); if (c.length < 2) return "";
+  const { rows } = await pool.query(`SELECT current_owner FROM smart_links WHERE replace(replace(replace(label,' ',''),'　',''),'株式会社','') ILIKE '%' || $1 || '%' AND COALESCE(current_owner,'') <> '' ORDER BY created_at DESC LIMIT 1`, [c]).catch(() => ({ rows: [] }));
+  return rows[0] ? String(rows[0].current_owner || "").toLowerCase() : "";
 }
