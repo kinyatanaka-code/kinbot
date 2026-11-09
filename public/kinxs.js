@@ -1,5 +1,13 @@
 // kinXs と、そのコピー（kincs：/kincs）で同じ画面を使う。ページの移動先はここで切りかえる（2026-11-07）
 const KX_BASE = window.KX_COPY ? "/kincs" : "/kinxs";
+// 電話番号は Zoom Phone でかける（Zoom の連携が入っていれば zoomphonecall://、無ければ tel:）（2026-11-09 田中さん「kincs・販売管理など kincall 以外の人も Zoom Phone を」）
+let KX_ZOOM = true;
+fetch("/api/zoom-phone/status").then((r) => r.json()).then((z) => { KX_ZOOM = !!(z && z.設定済み && z.接続 !== false && z.clickToCall !== false); }).catch(() => {});
+function kxTelLink(v) {
+  const s = String(v || "").trim(); const d = s.replace(/[^0-9+]/g, "");
+  if (!d) return esc(s);
+  return KX_ZOOM ? `<a href="zoomphonecall://${esc(d)}" class="kx-zcall" title="Zoom Phone でかける">📞 ${esc(s)}</a> <a href="tel:${esc(d)}" class="kx-tel2" title="この端末の電話アプリでかける">端末</a>` : `<a href="tel:${esc(d)}">${esc(s)}</a>`;
+}
 // kinXs 更新管理（更新月×更新確度）
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -532,7 +540,7 @@ function kxCoPane(d) {
   const f = d.info || {}; const src = f.source || {};
   const tag = (k) => (src[k] ? `<span class="kx-src">${esc(src[k])}</span>` : "");
   const href = (u) => (/^https?:/.test(u) ? u : `https://${u}`);
-  const val = (v, kind) => !v ? '<span class="kx-none">未登録</span>' : kind === "url" ? `<a href="${esc(href(v))}" target="_blank" rel="noopener">${esc(String(v).replace(/^https?:\/\//, "").replace(/\/$/, ""))} ↗</a>` : kind === "tel" ? `<a href="tel:${esc(v)}">${esc(v)}</a>` : kind === "mail" ? `<a href="mailto:${esc(v)}">${esc(v)}</a>` : esc(v);
+  const val = (v, kind) => !v ? '<span class="kx-none">未登録</span>' : kind === "url" ? `<a href="${esc(href(v))}" target="_blank" rel="noopener">${esc(String(v).replace(/^https?:\/\//, "").replace(/\/$/, ""))} ↗</a>` : kind === "tel" ? kxTelLink(v) : kind === "mail" ? `<a href="mailto:${esc(v)}">${esc(v)}</a>` : esc(v);
   const contacts = f.contacts || [];
   const pw = (v) => `<span class="kx-pw" data-pw="${esc(v || "")}">••••••••</span><button type="button" class="hp-b" data-pw-show>見る</button><button type="button" class="hp-b" data-copy="${esc(v || "")}">コピー</button>`;
   const head = (t, edit) => `<div class="kx-c2h"><b>${t}</b>${edit ? '<button type="button" class="kx-ed" data-edit>編集</button>' : ""}</div>`;
@@ -1854,7 +1862,7 @@ function renderCallV2() {
         <div class="v2-big" style="margin-top:6px">${ST.map((s) => `<button type="button" class="v2-chip ${kc.f.st === s ? "red" : ""}" data-kc-st="${esc(s)}">${esc(s)} <b>${rows0.filter((r) => r.status === s).length}</b></button>`).join("")}</div></section>
       <div class="v2-month"><select class="kx-in" data-kc-f="reason" style="max-width:180px"><option value="">電話の理由：すべて</option>${[...new Set(rows0.map((r) => r.reason))].map((x) => `<option ${kc.f.reason === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select><select class="kx-in" data-kc-f="cs" style="max-width:160px"><option value="">担当：全員</option>${[...new Set(rows0.map((r) => kxSurname(r.cs)).filter(Boolean))].map((x) => `<option ${kc.f.cs === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
       <div class="v2-tbl" style="max-height:none"><div class="v2-act h call co2"><span>企業名</span><span>電話の理由</span><span>担当</span><span>電話番号（SF）</span><span>ステータス</span><span>架電</span><span>結果</span><span>メモ・次のアクション</span><span>NA日</span></div>
-      ${rows.map((r) => `<div class="v2-act call co2" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}"><span class="co" data-open="${esc(r.id)}" role="button" tabindex="0">${kxLogoMini(r)}${esc(r.name)}</span><span><span class="v2-tag">${esc(r.reason)}</span></span><span>${esc(kxSurname(r.cs) || "未定")}</span><span class="tel">${kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? `<a href="tel:${esc(kc.inf[r.id].phone)}">${esc(kc.inf[r.id].phone)}</a>` : "—") : "…"}</span>
+      ${rows.map((r) => `<div class="v2-act call co2" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}"><span class="co" data-open="${esc(r.id)}" role="button" tabindex="0">${kxLogoMini(r)}${esc(r.name)}</span><span><span class="v2-tag">${esc(r.reason)}</span></span><span>${esc(kxSurname(r.cs) || "未定")}</span><span class="tel">${kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? kxTelLink(kc.inf[r.id].phone) : "—") : "…"}</span>
         <select class="kx-in" data-f="status">${ST.map((s) => `<option ${s === r.status ? "selected" : ""}>${s}</option>`).join("")}</select>
         <span class="calls"><b>${r.calls}</b>回 <button type="button" class="hp-b" data-call>＋架電</button><small>${esc(r.lastCall ? r.lastCall.slice(5).replace("-", "/") : "")}</small></span>
         <select class="kx-in" data-f="result">${["", "良好", "普通", "懸念あり", "未接続"].map((s) => `<option value="${s}" ${s === r.result ? "selected" : ""}>${s || "—"}</option>`).join("")}</select>
