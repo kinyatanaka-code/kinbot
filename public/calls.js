@@ -581,7 +581,12 @@ function fromBadge(x) {
   // リストの移り変わり（どこからどこへ・いつ）。札に乗せると全部出る（2026-11-04）
   const trail = (x && Array.isArray(x["リストの移り変わり"])) ? x["リストの移り変わり"] : [];
   const trailTxt = trail.length ? "\n\nリストの移り変わり：\n" + trail.map((t) => { const d = t.at ? new Date(t.at) : null; const dd = d && !isNaN(d) ? `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}` : ""; return `${dd}　${t.from || "？"} → ${t.to || "？"}`; }).join("\n") : "";
-  if (listShown) parts.push(`<span class="kc-src-list" title="${origin ? "元のリスト" : "入っているリスト"}：${esc(listShown)}${esc(trailTxt)}">${origin ? "元：" : ""}${esc(listShown.replace(/^【\s*復活\s*】/, "復活・"))}${trail.length > 1 ? `<small>（${trail.length}回移動）</small>` : ""}</span>`);
+  // いたリストを順に積み上げて出すだけ（「元：」や「n回移動」は付けない）（2026-11-09 田中さん「MOユーザーとかだと元MOユーザーと勘違いされる」）
+  const chain = [];
+  const push = (n) => { n = String(n || "").trim(); if (n && chain[chain.length - 1] !== n) chain.push(n); };
+  if (trail.length) { push(trail[0].from); trail.forEach((t) => push(t.to)); } else push(listShown);
+  if (multi && ln) push(ln);
+  if (chain.length) parts.push(`<span class="kc-src-list" title="いたリスト：${esc(chain.join(" → "))}${esc(trailTxt)}">${chain.map((n) => `<i>${esc(n.replace(/^【\s*復活\s*】/, "復活・"))}</i>`).join('<b class="kc-src-sep">›</b>')}</span>`);
   return parts.length ? `<div class="kc-src-line">${parts.join("")}</div>` : "";
 }
 function tempBadge(x) {
@@ -1673,6 +1678,7 @@ function renderDock() {
     .nm-mg-foot{display:flex;justify-content:flex-end;gap:8px;}
     /* 「…」のメニューを開いたカードを、ほかのカード（空の枠など）より前に出す（2026-11-09 田中さん「重なっている」） */
     .nm-lcard{position:relative;} .nm-lcard:has(.nm-kmenu:not([hidden])){z-index:30;} .nm-kmenu{z-index:40;} .nm-slotcard{z-index:0;}
+    .kc-src-list i{font-style:normal;} .kc-src-list .kc-src-sep{margin:0 3px;color:#9DB3A9;font-weight:700;}
     .nm-delgo{color:#B4441F !important;border-color:#F0C9B8 !important;} .nm-delgo:hover{background:#FDEBE3 !important;}
     .nm-slotcard{border-style:dashed !important;opacity:.8;background:#FAFCFB;} .nm-slotcard .nm-zan-n{color:#9DB3A9;}
     .nm-folder{background:linear-gradient(135deg,#F4F8FF,#fff);border-color:#B5D4F4;min-width:0;max-width:100%;overflow:hidden;} .nm-folder .nm-card-who{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:0;min-width:100%;} .nm-card.nm-empty{opacity:.7;border-style:dashed;}
