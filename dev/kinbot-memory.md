@@ -2387,3 +2387,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・画面：アラートの帯、タブ『解約フォーム（要確認 n）』（シートの URL・自動返信のチェック・要確認の回答に企業を選んで当てはめる／無視）、『CSVでまとめて登録』。kinxs-releases.json に報告。
 
 - 2026-11-10 BUILD_TAG=2026-11-10c 田中さん「自動返信はDOCの事務局のメールアドレスもしくは幸地さんから送る感じ」。arReply は settings.arReplyOwner（kinbot で Google 連携している人＝事務局のアカウントか幸地さん。未設定なら送らない＝田中さん個人からは送らない）の Gmail で送る。settings.arReplyFrom（事務局のアドレス）があれば From を『どこでもオープンカンパニー 事務局 <アドレス>』（MIME で符号化、Gmail の送信元のエイリアスが要る）・Reply-To もそのアドレス。google.js の gmailSend・buildRawMessage に fromOverride。解約フォームのタブに『自動返信を送る人』（Gmail で送れるかの札）・『差出人・返信先（事務局）』、まだ送れていない回答の件数。版20261110c。
+
+- 2026-11-10 BUILD_TAG=2026-11-10d 田中さん「zipファイル開いたらこれらはフォルダにまとまっていてほしい」。public/kincall-zoom-ext.zip を、中身が kincall-zoom-ext/ フォルダに入る形で作り直した（public/zoom-ext の7ファイル）。版20261110d。
