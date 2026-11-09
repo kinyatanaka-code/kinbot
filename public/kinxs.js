@@ -2150,7 +2150,8 @@ async function arEdit(x) {
     <b style="font-size:16px">${isNew ? "自動更新の企業を登録" : esc(x.name)}</b><div style="height:12px"></div>
     ${isNew ? `<div class="ar-f"><span>会社（kinXs）</span><input list="arAcList" id="arAc" placeholder="会社名で探す"><datalist id="arAcList">${accts.map((a) => `<option value="${esc(a.name)}"></option>`).join("")}</datalist></div>` : ""}
     <div class="ar-f"><span>プラン区分</span><select id="arPlan"><option ${!x || x.plan === "自動更新" ? "selected" : ""}>自動更新</option><option ${x && x.plan === "年間" ? "selected" : ""}>年間</option></select></div>
-    <div class="ar-f"><span>申込番号（サーカス）</span><input id="arNo" value="${esc((x && x.no) || "")}" placeholder="解約フォームとの突合キー"></div>
+    <div class="ar-f"><span>申込番号（サーカス）</span><div style="display:flex;gap:6px"><input id="arNo" value="${esc((x && x.no) || "")}" placeholder="解約フォームとの突合キー" style="flex:1"><button type="button" class="hp-b" id="arNoSf">SFから読む</button></div></div>
+    <div class="kx-note" id="arNoSt" style="margin:-4px 0 8px 138px"></div>
     <div class="ar-f"><span>契約開始月</span><input type="month" id="arStart" value="${esc((x && x.start) || arYmNow())}"></div>
     <div class="ar-f"><span>ステータス</span><select id="arSt">${st.map((s) => `<option ${(x ? x.status : "継続中") === s ? "selected" : ""}>${s}</option>`).join("")}</select></div>
     <div class="ar-f"><span>解約申請日</span><input type="date" id="arCxA" value="${esc((x && x.cancelApplied) || "")}"></div>
@@ -2164,6 +2165,20 @@ async function arEdit(x) {
   const close = () => bg.remove(); bg.addEventListener("click", (e) => { if (e.target === bg) close(); }); bg.querySelector("[data-x]").addEventListener("click", close);
   const note = () => { const a = $("arCxA").value, w = $("arCxW").value; if (!w) { $("arCxNote").textContent = ""; return; } const dl = `${arAddYm(w, -1)}-15`; const m = !a || a <= dl ? w : arAddYm(w, 1); $("arCxNote").textContent = `解約月：${arJp(m)}末（締切 ${dl.replace(/-/g, "/")}${a && a > dl ? " を過ぎた申請なので翌月末" : " までの申請"}）`; };
   ["arCxA", "arCxW"].forEach((k) => $(k).addEventListener("input", note)); note();
+  // サーカスの申込番号を SF の商談から読む（会社を選んだときは自動で）
+  const readNo = async () => {
+    let id = x && x.id; if (!id) { const nm = ($("arAc") || {}).value || ""; const hit = accts.find((a) => a.name === nm.trim()); id = hit && hit.id; }
+    if (!id) { $("arNoSt").textContent = "先に会社を選んでください"; return; }
+    $("arNoSt").textContent = "SFの商談から読んでいます…";
+    try { const r = await api(`/api/kinxs/autorenew/${encodeURIComponent(id)}/circus`); const it = r.items || [];
+      if (!it.length) { $("arNoSt").textContent = r.note || "SFの商談に申込番号が見つかりませんでした"; return; }
+      if (!$("arNo").value) $("arNo").value = it[0].no;
+      $("arNoSt").innerHTML = it.length > 1 ? `SFの「${esc(r.field || "サーカス")}」：${it.slice(0, 4).map((o) => `<a href="#" data-no="${esc(o.no)}">${esc(o.no)}</a>（${esc(o.close || "")}）`).join("・")}` : `SFの「${esc(r.field || "サーカス")}」から入れました（${esc(it[0].opp || "")}）`;
+      $("arNoSt").querySelectorAll("[data-no]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); $("arNo").value = a.dataset.no; }));
+    } catch (e) { $("arNoSt").textContent = e.message; }
+  };
+  $("arNoSf").addEventListener("click", readNo);
+  if ($("arAc")) $("arAc").addEventListener("change", () => { if (!$("arNo").value) readNo(); });
   if (!isNew) api(`/api/kinxs/autorenew/${encodeURIComponent(x.id)}/history`).then((h) => { const el = bg.querySelector("#arHist div"); if (el) el.innerHTML = (h.items || []).map((i) => `${esc(String(i.at).slice(0, 16).replace("T", " "))}　${esc(i.by_user)}　${esc(Object.entries(i.change || {}).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join("・"))}`).join("<br>") || "まだありません"; }).catch(() => {});
   bg.querySelector("[data-save]").addEventListener("click", async () => {
     let id = x && x.id;

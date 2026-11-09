@@ -13280,6 +13280,7 @@ setInterval(() => { kinxsSync().catch(() => {}); }, 30 * 60 * 1000).unref?.();
 // 更新管理：更新月（今月の前の月〜12か月先）× 更新確度
 // ===== DOC（アチコチバース）1ヶ月ごとの自動更新（2026-11-09 幸地美穂さんの要件・田中さん。販売管理部は kincs で見る）=====
 const AR_PRICE = 10000;   // 月額（税別）
+const _arCircusTried = new Map();
 const arYm = (d) => { const x = new Date(new Date(d).getTime() + 9 * 3600000); return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, "0")}`; };
 const arAdd = (ym, n) => { const [y, m] = String(ym).split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; };
 // 解約月：希望月の前月15日までの申請なら希望月末、16日以降なら翌月末
@@ -13304,7 +13305,11 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
     const ym = /^\d{4}-\d{2}$/.test(String(req.query.ym || "")) ? String(req.query.ym) : arYm(Date.now());
     const prev = arAdd(ym, -1);
-    const rows = await arList();
+    let rows = await arList();
+    // 申込番号が空の企業は、SF の商談のサーカスの番号で埋める（いちばん新しいもの。会社ごとに6時間に1回まで）
+    { let filled = 0; for (const r of rows.filter((x) => !x.ar_no)) { const k = `ar_circus_${r.id}`; if (_arCircusTried.get(k) > Date.now() - 6 * 3600000) continue; _arCircusTried.set(k, Date.now());
+        const c = await arCircusFromSf(r.id, req.user).catch(() => ({ items: [] })); if (c.items && c.items[0]) { await arUpdate(r.id, { no: c.items[0].no }, "SFから自動"); filled++; } }
+      if (filled) rows = await arList(); }
     const view = (r) => { const mo = (r.ar_months && r.ar_months[ym]) || {}; return { id: r.id, name: r.name, plan: r.ar_plan, no: r.ar_no || "", start: r.ar_start || "", status: r.ar_status || "継続中", statusOn: arStatusOn(r, ym),
       cancelApplied: r.ar_cancel_applied ? String(r.ar_cancel_applied instanceof Date ? r.ar_cancel_applied.toISOString() : r.ar_cancel_applied).slice(0, 10) : "", cancelWish: r.ar_cancel_wish || "", cancelMonth: r.ar_cancel_month || "",
       applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: r.cs_name || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE }; };
@@ -13337,6 +13342,19 @@ app.put("/api/kinxs/autorenew/:id", async (req, res) => {
     if (!r) return res.status(404).json({ error: "会社が見つかりません" });
     res.json({ ok: true, cancelMonth: patch.cancelMonth });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// サーカスの申込番号を SF の商談から読む（その取引先の商談で「サーカス」の項目が入っているもの、新しい順）（2026-11-09 田中さん）
+async function arCircusFromSf(accountId, user) {
+  const acc = String(accountId || "").trim(); if (!/^001[A-Za-z0-9]{12,15}$/.test(acc)) return { items: [], note: "SFの取引先とつながっていない会社です" };
+  const st = await getSettings().catch(() => ({}));
+  const sfUser = await pickSfUser(user || st.psOwner || "").catch(() => ""); if (!sfUser) return { items: [], note: "SFにつながっていません" };
+  const cf = await csCircusField(sfUser); if (!cf) return { items: [], note: "SFの商談に「サーカス」の項目が見つかりませんでした" };
+  const r = await sfQuery(sfUser, `SELECT Id, Name, CloseDate, StageName, ${cf.api} FROM Opportunity WHERE AccountId = '${acc}' AND ${cf.api} != null ORDER BY CloseDate DESC LIMIT 10`).catch((e) => ({ records: [], error: e.message }));
+  return { field: cf.label, items: (r.records || []).map((o) => ({ no: String(o[cf.api] || "").trim(), opp: o.Name, close: o.CloseDate, stage: o.StageName })).filter((x) => x.no), note: r.error || "" };
+}
+app.get("/api/kinxs/autorenew/:id/circus", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" }); res.json({ ok: true, ...(await arCircusFromSf(req.params.id, req.user)) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/autorenew/:id/history", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" }); res.json({ ok: true, items: await arHistory(req.params.id) }); }
@@ -29192,7 +29210,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09z kincs：サイドバーの並びを ユーザー一覧・DOC更新管理・DOC自動更新・設定 に。";
+const BUILD_TAG = "2026-11-10a DOC自動更新：サーカスの申込番号をSFの商談（「サーカス」の項目）から読む。登録の窓で会社を選ぶと自動、空の企業は一覧を開いたときに埋める。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

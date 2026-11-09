@@ -2377,3 +2377,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・まだ：解約の Google フォームの取り込み・自動返信、アラート（SF計上未・フォームの特定失敗・未入金）、CSV で登録。kinxs-releases.json に報告を足した。
 
 - 2026-11-09 BUILD_TAG=2026-11-09z 田中さん（kincs のサイドバーが ユーザー一覧・DOC更新管理・設定・DOC自動更新）「設定の上に自動更新のメニューバーをつけてほしい」。kincs の『設定』を DOC自動更新（data-view=ar）のうしろに入れる。版20261109z。
+
+- 2026-11-10 BUILD_TAG=2026-11-10a 田中さん「サーカス番号って読み取れるようになってる？」→ 手入力だった。検収書の依頼で使っている csCircusField（SF の Opportunity の『サーカス』の項目）を使い、arCircusFromSf（kinXs の会社の account_id＝SF の取引先 Id の商談で、その項目が入っているもの、CloseDate の新しい順10件）・GET /api/kinxs/autorenew/:id/circus（事業部）。登録・直すの窓に『SFから読む』（会社を選ぶと番号が空なら自動、いくつかあれば候補を押して選べる）。GET /api/kinxs/autorenew のとき、申込番号が空の企業は SF のいちばん新しい番号で埋める（会社ごとに6時間に1回、履歴は『SFから自動』）。版20261110a。
