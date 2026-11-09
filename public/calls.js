@@ -12802,6 +12802,9 @@ function kcRecNav(m, id, opt) {
   const cs = document.createElement("button"); cs.type = "button"; cs.className = "kc-nav-b kc-cs-btn"; cs.textContent = "🤝 案件共有"; cs.title = "社内の案件共有フォームに、この会社の情報を入れて開きます";
   cs.addEventListener("click", () => kcCaseShareOpen(id));
   btns.insertBefore(cs, nav);
+  // 記録の窓からも資料送付（2026-11-10 植野さんの要望）
+  if (typeof openDocSend === "function") { const ds = document.createElement("button"); ds.type = "button"; ds.className = "kc-nav-b kc-cs-btn"; ds.textContent = "📄 資料送付"; ds.title = "この会社に資料を送ります（記録の窓は開いたまま）";
+    ds.addEventListener("click", () => openDocSend(id)); btns.insertBefore(ds, cs); }
   const go = (dir) => {
     const to = dir === "prev" ? prevId : nextId; if (!to) return;
     const memo = (m.el.querySelector("#kcMemo") || {}).value || "", res = (m.el.querySelector("#kcResult") || {}).value || "";
