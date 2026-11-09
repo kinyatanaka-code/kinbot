@@ -16879,7 +16879,8 @@ app.get("/api/calls/my-today", async (req, res) => {
     接触 = Math.max(0, 接触 + cadj);
     // 80コールまでは「今日かける」だけ（2026-11-07 田中さん）。数は設定 callGateNeed（0で止める）。管理者・クローザーは鍵なし
     const stG = await getSettings().catch(() => ({}));
-    const gateNeed = stG.callGateNeed == null ? 80 : Number(stG.callGateNeed) || 0;
+    // 2026-11-09 田中さん「今日かける以外ブロックするをいったんやめてほしい」→ 既定を0（鍵なし）に。設定 callGateNeed に数を入れれば、また鍵がかかる
+    const gateNeed = stG.callGateNeed == null ? 0 : Number(stG.callGateNeed) || 0;
     const gateFree = !!req.isAdmin || (await isCloserUser(対象).catch(() => false));
     res.json({ ok: true, 日: today, コール, 実数, 手直し: adj, 接触, 接触実数, 接触手直し: cadj, アポ, ナーチャ, canEdit: jisshiEditorOk(req), member: 対象, gateNeed, gateFree });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -29030,7 +29031,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09p kincall：インターン生（kincallだけの人）も、Zoomアカウントの貸し出し（借りる・返す・確かめ・パスワード）とログインの引き継ぎを使えるように（「この操作はできません」になっていた）。";
+const BUILD_TAG = "2026-11-09q kincall：80コールまで今日かける以外に鍵をかけるのを、いったんやめた（設定 callGateNeed に数を入れれば戻る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
