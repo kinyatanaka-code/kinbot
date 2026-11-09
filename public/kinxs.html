@@ -322,8 +322,8 @@
   .kx-dragghost{position:fixed;top:-100px;left:-100px;background:#0E6B4E;color:#fff;font-weight:800;font-size:14px;padding:8px 14px;border-radius:10px;}
   /* 担当別：横にスクロールして、ほかの担当の列も見られるように */
   .kx-body,.kx-wrap,#vList,#lsTable{min-width:0;max-width:100%;}
-  .kx-csboard{max-width:100%;overflow-x:auto !important;overflow-y:hidden;scrollbar-width:auto;scroll-behavior:smooth;}
-  .kx-csboard::-webkit-scrollbar{height:12px;} .kx-csboard::-webkit-scrollbar-thumb{background:#B9CBC3;border-radius:99px;} .kx-csboard::-webkit-scrollbar-track{background:#E7EEEA;border-radius:99px;}
+  .kx-csboard{max-width:100%;overflow-x:auto !important;overflow-y:hidden;scrollbar-width:auto;scroll-behavior:auto;}   /* smooth にすると、ホイールで少しずつ足す横の動きが打ち消し合って、ほとんど動かなかった（2026-11-10 久野さん） */
+  .kx-csboard::-webkit-scrollbar{height:14px;} .kx-csboard::-webkit-scrollbar-thumb{background:#B9CBC3;border-radius:99px;} .kx-csboard::-webkit-scrollbar-track{background:#E7EEEA;border-radius:99px;}
   .kx-cswrap{position:relative;}
   .kx-csnav{position:absolute;top:50%;transform:translateY(-50%);z-index:5;width:40px;height:40px;border-radius:50%;border:1px solid #CFE0D8;background:#fff;color:#0E6B4E;font-size:20px;font-weight:800;cursor:pointer;box-shadow:0 6px 16px -8px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;}
   .kx-csnav.l{left:-6px;} .kx-csnav.r{right:-6px;} .kx-csnav[hidden]{display:none;}

@@ -442,15 +442,20 @@ function renderList() {
     // 横にスクロール：左右のボタン・Shift＋ホイール・カードを運びながら端に近づけると流れる
     const navs = $("lsTable").querySelectorAll("[data-csnav]");
     const paintNav = () => { const max = board.scrollWidth - board.clientWidth - 2; navs[0].hidden = board.scrollLeft <= 2; navs[1].hidden = board.scrollLeft >= max; };
-    navs.forEach((b) => b.addEventListener("click", () => { board.scrollBy({ left: Number(b.dataset.csnav) * 540, behavior: "smooth" }); setTimeout(paintNav, 400); }));
+    navs.forEach((b) => b.addEventListener("click", () => { board.scrollBy({ left: Number(b.dataset.csnav) * Math.max(280, board.clientWidth - 280), behavior: "smooth" }); setTimeout(paintNav, 450); }));
+    window.addEventListener("resize", paintNav);
     board.addEventListener("scroll", paintNav);
     // 横に動かす：列の中でも、横向きのスワイプ（トラックパッド）・Shift＋ホイールなら横に。列の外ではふつうのホイールも横に
     board.addEventListener("wheel", (e) => {
       const inCol = !!e.target.closest(".kx-cscol-b");
       const horiz = Math.abs(e.deltaX) > Math.abs(e.deltaY);
-      if (horiz) { board.scrollLeft += e.deltaX; e.preventDefault(); return; }
+      if (horiz) return;   // 横向きのスワイプは、ブラウザにそのまま任せる（自分で動かすと引っかかる）
       if (e.shiftKey) { board.scrollLeft += e.deltaY; e.preventDefault(); return; }
-      if (inCol) return;   // 列の中のふつうのホイールは、その列を縦に
+      if (inCol) {   // 列の中のふつうのホイールは、その列を縦に。ただし、その列がもう縦に動かないとき（短い列・端まで来た）は横に
+        const cb = e.target.closest(".kx-cscol-b");
+        const canV = e.deltaY > 0 ? cb.scrollTop + cb.clientHeight < cb.scrollHeight - 1 : cb.scrollTop > 0;
+        if (canV) return;
+      }
       board.scrollLeft += e.deltaY; e.preventDefault();
     }, { passive: false });
     board.addEventListener("dragover", (e) => { const r0 = board.getBoundingClientRect(); if (e.clientX > r0.right - 70) board.scrollLeft += 18; else if (e.clientX < r0.left + 70) board.scrollLeft -= 18; });
