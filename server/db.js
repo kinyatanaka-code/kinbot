@@ -12352,7 +12352,7 @@ export async function moApoLogsOn(ymd) {
       LEFT JOIN call_lists l ON l.id = t.list_id LEFT JOIN call_list_groups g ON g.id = l.group_id
      WHERE lg.result ILIKE '%アポ獲得%'
        AND (lg.at AT TIME ZONE 'Asia/Tokyo')::date = $1::date
-       AND (COALESCE(g.name,'') ~ 'MO ?ユーザー|MO ?解約' OR COALESCE(l.name,'') ~ 'MO ?ユーザー|MO ?解約')
+       AND (COALESCE(g.name,'') ~* '[MＭ][OＯ][ 　]*(ユーザー|解約)' OR COALESCE(l.name,'') ~* '[MＭ][OＯ][ 　]*(ユーザー|解約)')
      ORDER BY lg.at`, [ymd]);
   return rows;
 }

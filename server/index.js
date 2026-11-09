@@ -8344,8 +8344,9 @@ async function moApoBackfill(ymd) {
 }
 // 起動して1分半後に1回だけ：11/6（金）の分（設定に「済み」を残す）
 setTimeout(async () => {
-  try { const st = await getSettings().catch(() => ({})); if (st.moApoBackfill1106) return;
-    const r = await moApoBackfill("2026-11-06"); await saveSettings({ moApoBackfill1106: { at: new Date().toISOString(), ...r } }); }
+  // 2回目（moApoBackfill1106b）：田中さんがリードを MOユーザー・MO解約のリストへ移したあとに、もう一度流す（シートにある会社は足さない）
+  try { const st = await getSettings().catch(() => ({})); if (st.moApoBackfill1106b) return;
+    const r = await moApoBackfill("2026-11-06"); await saveSettings({ moApoBackfill1106b: { at: new Date().toISOString(), ...r } }); }
   catch (e) { console.warn("[MOシート] さかのぼり", e.message); }
 }, 90 * 1000);
 app.post("/api/calls/mo-apo-backfill", async (req, res) => {
@@ -29091,7 +29092,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09u kincall：11/6（金）にMOユーザー・MO解約リストで取れたアポを、スプレッドシートにさかのぼって足す（デプロイ後に1回だけ、同じ会社の行があれば足さない）。";
+const BUILD_TAG = "2026-11-09v kincall：11/6のMOのアポのさかのぼりを、リードを移したあとでもう一度流す（MOユーザー正式・ＭＯ解約のような名前も拾う、シートにある会社は足さない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
