@@ -13349,7 +13349,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unmatched: inbox.length, unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name) };
     res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
       form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false,
-        replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyReady: stA.arReplyOwner ? !!(await arWithin(gmailReady(stA.arReplyOwner).catch(() => false), 5000, false)) : false,
+        replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyAlso: stA.arReplyAlso != null ? stA.arReplyAlso : "support_x@mochica.jp", replyCs: stA.arReplyCs !== false, replyReady: stA.arReplyOwner ? !!(await arWithin(gmailReady(stA.arReplyOwner).catch(() => false), 5000, false)) : false,
         notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length },
       sync: await (async () => { const l = await arSyncLast().catch(() => null); return l ? { at: l.at, by: l.by_user, rows: l.rows, matched: l.matched, changed: l.changed, unmatched: l.unmatched || [], unknown: l.unknown || [], error: l.error || "" } : null; })(),
       rules: stA.arPlanRules || [] });
@@ -13405,7 +13405,17 @@ async function arMatch(company, no) {
   const hits = rows.filter((r) => r.ar_plan === "自動更新" && csCoKey(r.name) === key);
   return hits.length === 1 ? hits[0] : null;
 }
-async function arReply(owner, to, { company, applicant, cancelMonth }) {
+// CS担当（kinXs の CS担当の名前）→ kinbot のメンバーのメール。同じ苗字が2人いるときは名前全体で決める。決まらなければ空
+async function arCsEmailOf(accId) {
+  if (!accId) return "";
+  const { items } = await kinxsBuildMemo().catch(() => ({ items: [] }));
+  const x = (items || []).find((i) => String(i.id) === String(accId)); const cs = String((x && x.cs) || "").normalize("NFKC").trim(); if (!cs) return "";
+  const flat = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
+  const users = (await listUsers().catch(() => [])).filter((u) => u.email && u.name);
+  const full = users.filter((u) => flat(u.name) === flat(cs)); if (full.length === 1) return String(full[0].email).toLowerCase();
+  const sur = users.filter((u) => kxSur(u.name) && kxSur(u.name) === kxSur(cs)); return sur.length === 1 ? String(sur[0].email).toLowerCase() : "";
+}
+async function arReply(owner, to, { company, applicant, cancelMonth, accId }) {
   if (!to || !/@/.test(to)) return false;
   const ym = cancelMonth ? `${cancelMonth.slice(0, 4)}年${Number(cancelMonth.slice(5, 7))}月末` : "";
   const body = `${company || ""}\n${applicant ? `${applicant} 様` : "ご担当者様"}\n\nいつもどこでもオープンカンパニーをご利用いただき、ありがとうございます。\nアチコチバース（月額利用料）の解約のお申し込みを受け付けました。\n\n${ym ? `解約日：${ym}（${ym}までご利用いただけます）\n\n` : ""}解約日までのご利用料金は、これまでどおりご請求いたします。\nご不明な点がございましたら、本メールにご返信ください。\n\n株式会社ネオキャリア\nどこでもオープンカンパニー 事務局`;
@@ -13413,7 +13423,11 @@ async function arReply(owner, to, { company, applicant, cancelMonth }) {
   const st = await getSettings().catch(() => ({}));
   const sender = st.arReplyOwner || ""; if (!sender) throw new Error("自動返信を送る人が決まっていません");
   const fromAddr = String(st.arReplyFrom || "").trim();
-  await gmailSend(sender, { to, subject: "【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ", bodyText: body,
+  // 宛先（To）：申請者＋一緒に入れるアドレス（既定 support_x@mochica.jp＝メールワイズ）＋CS担当（2026-11-10 田中さん「先方の担当者、support_x、CS担当宛に送る」）
+  const also = String(st.arReplyAlso != null ? st.arReplyAlso : "support_x@mochica.jp").split(/[,\s;、]+/).filter((a) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a));
+  const csMail = st.arReplyCs !== false ? await arCsEmailOf(accId).catch(() => "") : "";
+  const toList = [...new Set([to, ...also, csMail].map((a) => String(a || "").trim().toLowerCase()).filter(Boolean))];
+  await gmailSend(sender, { to: toList.join(", "), subject: "【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ", bodyText: body,
     ...(fromAddr ? { fromOverride: `=?UTF-8?B?${Buffer.from("どこでもオープンカンパニー 事務局").toString("base64")}?= <${fromAddr}>`, extraHeaders: { "Reply-To": fromAddr } } : {}) });
   return true;
 }
@@ -13439,7 +13453,7 @@ async function arIntake() {
     const hit = await arMatch(company, no);
     let cm = "", replied = false;
     if (hit) { cm = await arApplyCancel(hit.id, { applied, wish, applicant, contact: email }, "解約フォーム"); matched++; }
-    if (st.arReplyOn !== false) replied = await arReply(owner, email, { company, applicant, cancelMonth: cm || arCancelMonth(applied, wish) }).catch((e) => { console.warn("[DOC自動更新] 自動返信", e.message); return false; });
+    if (st.arReplyOn !== false) replied = await arReply(owner, email, { company, applicant, cancelMonth: cm || arCancelMonth(applied, wish), accId: hit ? hit.id : null }).catch((e) => { console.warn("[DOC自動更新] 自動返信", e.message); return false; });
     await arInboxAdd({ key, at: applied ? `${applied}T00:00:00+09:00` : null, company, applicant, email, no, wish, raw: Object.fromEntries((rows[0] || []).map((h, i) => [h, r[i] ?? ""])), matched: hit ? hit.id : null, state: hit ? "取込済" : "要確認", replied });
     added++;
   }
@@ -13457,6 +13471,8 @@ app.put("/api/kinxs/autorenew-settings", async (req, res) => {
     if (b.replyOn !== undefined) patch.arReplyOn = !!b.replyOn;
     if (b.replyOwner !== undefined) patch.arReplyOwner = String(b.replyOwner || "").trim().toLowerCase();
     if (b.replyFrom !== undefined) patch.arReplyFrom = String(b.replyFrom || "").trim().toLowerCase();
+    if (b.replyAlso !== undefined) patch.arReplyAlso = String(b.replyAlso || "").trim().toLowerCase();
+    if (b.replyCs !== undefined) patch.arReplyCs = !!b.replyCs;
     await saveSettings(patch);
     const r = await arIntake().catch((e) => ({ error: e.message }));
     res.json({ ok: true, intake: r });
@@ -29595,7 +29611,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10s kinXs メール配信：メールワイズで送る（拡張機能「kinbot 補助」1.2.0 が下書きを持ち、メールワイズの作成・返信の画面に入れる。送信はメールワイズで）。";
+const BUILD_TAG = "2026-11-10t DOC自動更新：解約受付の自動返信の宛先（To）を、申請者＋support_x@mochica.jp＋その企業のCS担当の3つに（設定で変えられる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
