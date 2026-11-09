@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261110j" />
+    <link rel="stylesheet" href="style.css?v=20261110k" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -774,6 +774,17 @@
   .ar-tbl table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:720px;} .ar-tbl th{text-align:left;font-size:11.5px;color:#6A7A72;font-weight:700;padding:8px 10px;border-bottom:1px solid #E1E9E5;background:#F7FAF8;white-space:nowrap;} .ar-tbl td{padding:8px 10px;border-bottom:1px solid #F0F3F1;}
   .ar-st{display:inline-block;font-size:11px;font-weight:800;border-radius:7px;padding:1px 8px;background:#E1F5EE;color:#0A5440;} .ar-st.cx{background:#FFF4D6;color:#8A5A00;} .ar-st.done{background:#F1F5F3;color:#6A7A72;} .ar-st.bad{background:#FDEBE3;color:#B4441F;}
   .ar-recon td.n{font-weight:800;font-size:15px;} .ar-recon tr.ng td{background:#FFF6F3;} .ar-recon input{width:90px;border:1px solid #DCE6E1;border-radius:8px;padding:4px 6px;font:inherit;}
+  .ml-step{background:#fff;border:1px solid #E1E9E5;border-radius:14px;padding:14px 16px;margin-bottom:12px;}
+  .ml-step h3{margin:0 0 8px;font-size:15px;color:#14231D;} .ml-step h3 span{display:inline-block;background:#0d5b47;color:#fff;border-radius:999px;width:22px;height:22px;text-align:center;line-height:22px;font-size:12px;margin-right:6px;}
+  .ml-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;}
+  .ml-list{max-height:360px;overflow:auto;border:1px solid #EEF3F0;border-radius:10px;}
+  .ml-row{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid #F1F5F3;font-size:13px;} .ml-row:last-child{border-bottom:0;} .ml-row small{color:#6A7A72;}
+  .ml-co{border:1px solid #E1E9E5;border-radius:12px;padding:10px 12px;margin-bottom:10px;} .ml-co.off{opacity:.45;}
+  .ml-co .hd{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px;} .ml-co .hd b{font-size:14px;}
+  .ml-wait{background:#FDECE6;color:#B4441F;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:700;}
+  .ml-grid{display:grid;grid-template-columns:70px 1fr;gap:6px 8px;align-items:center;font-size:12px;color:#6A7A72;}
+  .ml-grid input,.ml-grid select,.ml-grid textarea{width:100%;box-sizing:border-box;}
+  .ml-res-ok{color:#0d5b47;font-weight:700;} .ml-res-ng{color:#B4441F;font-weight:700;}
   .ar-empty{padding:18px;color:#8FA39A;font-size:13px;}
   .ar-f{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;font-size:13px;margin-bottom:8px;} .ar-f input,.ar-f select{border:1px solid #DCE6E1;border-radius:8px;padding:6px 8px;font:inherit;}
 </style>
@@ -790,6 +801,7 @@
         <a class="kx-nav" data-view="board" href="/kinxs?p=board"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>フェーズ別</a>
         <a class="kx-nav" data-view="plan" href="/kinxs?p=plan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 14h3M13 14h3M8 17h3"/></svg>年間施策</a>
         <a class="kx-nav" data-view="call" href="/kinxs?p=call"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>電話フォロー</a>
+        <a class="kx-nav" data-view="mail" href="/kinxs?p=mail"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6 8.5-6"/></svg>メール配信</a>
         <a class="kx-nav" data-view="trend" href="/kinxs?p=trend"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>傾向分析</a>
         <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携（回収MTG）</a>
         <a class="kx-nav kx-back" href="/home.html"><img src="/kinbot.svg" alt="" width="18" height="18" style="border-radius:5px" />kinbot<span class="kx-back-tag">戻る</span></a>
@@ -869,6 +881,7 @@
           <div class="kx-wrap" id="vHome" hidden><div id="kh2"><div class="kx-empty">読み込み中…</div></div></div>
           <div class="kx-wrap" id="vPlan" hidden><div class="kx-head"><div><h1 class="kx-title">年間施策</h1></div></div><div id="vPlanBody"></div></div>
           <div class="kx-wrap" id="vAr" hidden><div class="kx-head"><div><h1 class="kx-title">DOC自動更新（1ヶ月ごと）</h1><p class="kx-sub">アチコチバース（空間利用料）月額の自動更新企業の、請求対象・解約・突合</p></div></div><div id="vArBody"></div></div>
+          <div class="kx-wrap" id="vMail" hidden><div class="kx-head"><div><h1 class="kx-title">メール配信</h1><p class="kx-sub">会社を選んで、書きたいことを入れると、会社ごとに下書きを作ります。見直してから、自分のGmailで送ります（返事待ちのメールには返信で）</p></div></div><div id="vMailBody"></div></div>
           <div class="kx-wrap" id="vCall" hidden><div class="kx-head"><div><h1 class="kx-title">電話フォロー</h1></div></div><div id="vCallBody"></div></div>
           <div class="kx-wrap" id="vTrend" hidden><div class="kx-head"><div><h1 class="kx-title">傾向分析</h1></div></div><div id="vTrendBody"></div></div>
           <div class="kx-wrap" id="vMissing" hidden>
@@ -898,7 +911,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261110j" defer></script>
-    <script src="kinxs.js?v=20261110j"></script>
+    <script src="kbchat.js?v=20261110k" defer></script>
+    <script src="kinxs.js?v=20261110k"></script>
   </body>
 </html>

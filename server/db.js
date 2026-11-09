@@ -12479,3 +12479,19 @@ export async function arSyncApply(id, { start, end, product, plan }) {
 }
 export async function arSyncLog(r) { if (!pool) return; await ensureArSync(); await pool.query(`INSERT INTO kinxs_ar_sync (by_user, rows, matched, changed, unmatched, unknown, error) VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7)`, [r.by || "", r.rows || 0, r.matched || 0, r.changed || 0, JSON.stringify(r.unmatched || []), JSON.stringify(r.unknown || []), r.error || null]); }
 export async function arSyncLast() { if (!pool) return null; await ensureArSync(); return (await pool.query(`SELECT * FROM kinxs_ar_sync ORDER BY at DESC LIMIT 1`)).rows[0] || null; }
+
+// kinXs：メールの一斉配信・返信の送信の記録（2026-11-10 田中さん）
+let _kxMailReady = false;
+async function ensureKxMail() {
+  if (!pool || _kxMailReady) return; _kxMailReady = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_mail_log (id SERIAL PRIMARY KEY, at TIMESTAMPTZ DEFAULT now(), by_user TEXT, account_id TEXT, company TEXT, to_addr TEXT, cc TEXT, subject TEXT, body TEXT, thread_id TEXT, mode TEXT, ok BOOLEAN, error TEXT, batch TEXT)`).catch(() => {});
+}
+export async function kxMailLog(e) {
+  if (!pool) return; await ensureKxMail();
+  await pool.query(`INSERT INTO kinxs_mail_log (by_user, account_id, company, to_addr, cc, subject, body, thread_id, mode, ok, error, batch) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [e.by || "", e.accountId || "", e.company || "", e.to || "", e.cc || "", e.subject || "", e.body || "", e.threadId || "", e.mode || "", !!e.ok, e.error || "", e.batch || ""]).catch(() => {});
+}
+export async function kxMailLogList(limit = 100) {
+  if (!pool) return []; await ensureKxMail();
+  return (await pool.query(`SELECT id, at, by_user, account_id, company, to_addr, subject, mode, ok, error, batch FROM kinxs_mail_log ORDER BY at DESC LIMIT $1`, [limit])).rows;
+}

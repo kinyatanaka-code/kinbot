@@ -278,6 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
+  kxMailLog, kxMailLogList,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -6061,7 +6062,7 @@ app.get("/kincs", (req, res) => {
       // kincs では、サイドバーのほかのツール（kinbot・kincall・Salesforce・ツール）を出さない（2026-11-07 田中さん）
       //   メニューも、ホーム・フェーズ別・年間施策・電話フォロー・傾向分析・CS連携（回収MTG）は出さない（ユーザー一覧・DOC更新管理だけ）
       //   ユーザー一覧の「SF未連携を自動で紐づける」「アーカイブを見る」「CSVで書き出す」「CSVでまとめて直す」も出さない
-      .replace("</head>", `<style>.kx-stools{display:none !important;} .kx-nav[data-view="home"],.kx-nav[data-view="board"],.kx-nav[data-view="plan"],.kx-nav[data-view="call"],.kx-nav[data-view="trend"],.kx-nav[data-view="cs"]{display:none !important;} [data-link-auto],[data-kpi="arc"],#lsCsvOut,#lsCsvIn{display:none !important;} .kx-side-foot,.kx-side .kx-imp-btn{display:none !important;}</style>
+      .replace("</head>", `<style>.kx-stools{display:none !important;} .kx-nav[data-view="home"],.kx-nav[data-view="board"],.kx-nav[data-view="plan"],.kx-nav[data-view="call"],.kx-nav[data-view="trend"],.kx-nav[data-view="cs"],.kx-nav[data-view="mail"]{display:none !important;} [data-link-auto],[data-kpi="arc"],#lsCsvOut,#lsCsvIn{display:none !important;} .kx-side-foot,.kx-side .kx-imp-btn{display:none !important;}</style>
 <script>window.KX_COPY = true;</script>
 </head>`)
       .replace("</body>", `<script>
@@ -14170,6 +14171,112 @@ app.put("/api/kinxs/tasks/:id", async (req, res) => {
     if (!r) return res.status(404).json({ error: "見つかりません" });
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ===================== kinXs：メールの一斉配信・返信（2026-11-10 田中さん）=====================
+//   会社を選ぶ → 宛先（企業情報の担当者・CS連携の先方）と最近のやり取り（Gmail）を読む → 書きたいことを入れて会社ごとに下書き（AI）→ 見直して送る（本人の Gmail から）
+//   先方から来て返していないメールがあれば、そのスレッドへの返信を最初から選んでおく
+async function kxMailCtx() {
+  const { items } = await kinxsBuildMemo();
+  const kicks = (await listCsKickoffs(500).catch(() => [])).filter((k) => !k.is_test);
+  const rows = await kinxsList().catch(() => []);
+  return { items, kicks, rowBy: new Map(rows.map((r) => [r.account_id, r])) };
+}
+function kxMailContactsOf(ctx, x) {
+  const k = ctx.kicks.find((k2) => csCoKey(k2.company) === csCoKey(x.name) || (x.formerNames || []).some((f) => csCoKey(f) === csCoKey(k2.company)));
+  const r = ctx.rowBy.get(x.id) || {};
+  const list = [], seen = new Set();
+  const add = (email, name, src) => { const m = String(email || "").toLowerCase().trim(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m) || seen.has(m) || /neo-career|neocareer/.test(m)) return; seen.add(m); list.push({ email: m, name: String(name || "").replace(/様$/, "").trim(), src }); };
+  for (const c of ((r.info && r.info.contacts) || [])) add(c.email, c.name, "企業情報");
+  if (k) { add(k.client_email, k.client_name, "CS連携"); String(k.client_cc || "").split(/[,\s;]+/).forEach((e) => add(e, "", "CS連携（CC）")); }
+  return list;
+}
+const kxAddrOf = (s) => (String(s || "").match(/[^<>\s,]+@[^<>\s,]+/) || [""])[0].toLowerCase();
+app.post("/api/kinxs/mail/targets", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
+    const ids = (Array.isArray(req.body && req.body.ids) ? req.body.ids : []).map(String).slice(0, 60);
+    const me = String(req.user || "").toLowerCase();
+    const ctx = await kxMailCtx();
+    const gReady = await gmailReady(me).catch(() => false);
+    const out = await pmap(ids, 4, async (id) => {
+      const x = ctx.items.find((i) => i.id === id); if (!x) return { id, error: "会社が見つかりません" };
+      const contacts = kxMailContactsOf(ctx, x);
+      let threads = [];
+      if (gReady && contacts.length) {
+        const doms = [...new Set(contacts.map((c) => c.email.split("@")[1]).filter((d) => d && !KX_FREE_MAIL.test(d)))].slice(0, 3);
+        const terms = [...contacts.slice(0, 5).map((c) => `from:${c.email} OR to:${c.email}`), ...doms.map((d) => `from:@${d} OR to:@${d}`)];
+        try {
+          const ths = await gmailSearchThreads(me, `(${terms.join(" OR ")}) newer_than:90d`, 4);
+          threads = ths.map((t) => { const last = (t.messages || [])[t.messages.length - 1] || {}; const lf = String(last.from || t.from || "").toLowerCase();
+            return { threadId: t.threadId, subject: t.subject || "（件名なし）", date: last.date || t.date || "", lastFrom: last.from || t.from || "", snippet: String(last.snippet || t.snippet || "").slice(0, 140), waiting: !!lf && !lf.includes(me) && !/neo-career|neocareer/.test(lf), count: t.count || 1 }; })
+            .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+        } catch (e) { threads = []; }
+      }
+      return { id, name: x.name, cs: x.cs || "", label: x.label || "", contacts, threads };
+    });
+    res.json({ ok: true, gmail: gReady, items: out.filter(Boolean) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/mail/draft", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
+    const prompt = String((req.body && req.body.prompt) || "").trim(); if (!prompt) return res.status(400).json({ error: "書きたいことを入れてください" });
+    const list = (Array.isArray(req.body.items) ? req.body.items : []).slice(0, 60);
+    const me = String(req.user || "").toLowerCase();
+    const { meName } = await kxMe(me);
+    const ctx = await kxMailCtx();
+    const sys = "あなたは株式会社ネオキャリアの「どこでもオープンカンパニー（DOC）」のカスタマーサクセス担当者の代わりに、お客様へのビジネスメールを書きます。丁寧で読みやすい日本語にし、書かれていない約束・日付・金額・事実は作りません。必ずJSONだけを返します。";
+    const out = await pmap(list, 4, async (it) => {
+      const x = ctx.items.find((i) => i.id === String(it.id)); if (!x) return { id: it.id, error: "会社が見つかりません" };
+      let thread = "", origSubject = "";
+      if (it.threadId) {
+        try { const th = await gmailGetThread(me, it.threadId); const ms = (th.messages || []).slice(-3); origSubject = (th.messages || [])[0] ? th.messages[0].subject : "";
+          thread = ms.map((m) => `【${m.from}／${m.date}】\n${String(m.body || "").replace(/\n>.*$/gm, "").slice(0, 1500)}`).join("\n\n"); } catch {}
+      }
+      const toName = String(it.toName || "").trim();
+      const userP = `宛先の会社：${x.name}\n宛先の人：${toName ? `${toName} 様` : "ご担当者様（名前が分からないとき）"}\nこの会社の状況：フェーズ ${x.label || "不明"}${x.na ? `・次回アクション「${x.na}」` : ""}\n差出人：${meName || "（担当者）"}\n\n書きたいこと（担当者の指示）：\n${prompt}\n` +
+        (thread ? `\nこれは次のやり取りへの返信です。相手の最後のメールに答える形にしてください：\n${thread}\n` : "\nこれは新しく送るメールです。\n") +
+        `\n本文の最初は「${x.name}\\n${toName ? `${toName} 様` : "ご担当者様"}」で始め、最後は署名「株式会社ネオキャリア\\nどこでもオープンカンパニー\\n${meName || ""}」で終えてください。\n次の形のJSONを返してください：{"subject":"件名（返信なら空でよい）","body":"本文"}`;
+      try {
+        const o = JSON.parse(String(await callLLMPublic(sys, userP, 1500, { json: true })).replace(/```json|```/g, "").trim());
+        const subject = it.threadId ? `Re: ${String(origSubject || "").replace(/^(re|ｒｅ|返信)\s*[:：]\s*/i, "")}` : String(o.subject || "").trim();
+        return { id: x.id, subject, body: String(o.body || "").trim() };
+      } catch (e) { return { id: x.id, error: `下書きを作れませんでした：${e.message}` }; }
+    });
+    res.json({ ok: true, items: out.filter(Boolean) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/mail/send", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
+    const list = (Array.isArray(req.body && req.body.items) ? req.body.items : []).slice(0, 60);
+    const me = String(req.user || "").toLowerCase();
+    if (!(await gmailReady(me).catch(() => false))) return res.status(400).json({ error: "Googleの連携（Gmail）ができていません。設定から連携してください" });
+    const ctx = await kxMailCtx();
+    const batch = `${Date.now()}`; const results = [];
+    for (const it of list) {
+      const x = ctx.items.find((i) => i.id === String(it.id)) || { name: it.company || "" };
+      const to = String(it.to || "").split(/[,\s;、]+/).map(kxAddrOf).filter(Boolean).join(", ");
+      const cc = String(it.cc || "").split(/[,\s;、]+/).map(kxAddrOf).filter(Boolean).join(", ");
+      const subject = String(it.subject || "").trim(), body = String(it.body || "").trim();
+      const log = { by: me, accountId: String(it.id || ""), company: x.name, to, cc, subject, body, threadId: it.threadId || "", mode: it.threadId ? "返信" : "新規", batch };
+      if (!to || !subject || !body) { results.push({ id: it.id, ok: false, error: "宛先・件名・本文のどれかが空です" }); await kxMailLog({ ...log, ok: false, error: "空の項目" }); continue; }
+      try {
+        let inReplyTo, references;
+        if (it.threadId) { const th = await gmailGetThread(me, it.threadId).catch(() => null); const last = th && th.messages && th.messages[th.messages.length - 1];
+          if (last && last.messageIdHeader) { inReplyTo = last.messageIdHeader; references = `${last.references ? last.references + " " : ""}${last.messageIdHeader}`; } }
+        await gmailSend(me, { to, cc: cc || undefined, subject, bodyText: body, ...(it.threadId ? { threadId: it.threadId, inReplyTo, references } : {}) });
+        results.push({ id: it.id, ok: true }); await kxMailLog({ ...log, ok: true });
+      } catch (e) { results.push({ id: it.id, ok: false, error: e.message }); await kxMailLog({ ...log, ok: false, error: e.message }); }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    res.json({ ok: true, results, sent: results.filter((r) => r.ok).length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/kinxs/mail/log", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" }); res.json({ ok: true, items: await kxMailLogList(100) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/home", async (req, res) => {
   try {
@@ -29450,7 +29557,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10j DOC自動更新：読み込みが終わらない不具合を修正（申込番号のSFの調べを裏に回し、自動更新の企業だけ・1回20社まで。返信の準備の確かめは5秒まで。画面は45秒で知らせる）。";
+const BUILD_TAG = "2026-11-10k kinXs：メール配信（一斉配信・返信）。会社を選ぶ→宛先とGmailのやり取りを読む→書きたいことから会社ごとに下書き→見直して自分のGmailで送る。返事待ちは返信を初めから選ぶ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
