@@ -2375,3 +2375,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・API：GET /api/kinxs/autorenew?ym（all・bill・cancels・diff（新規／解約／停止／未入金）・recon・exports・canEdit＝kincs だけの人は false）、PUT /api/kinxs/autorenew/:id（事業部だけ。解約希望月が入ると arCancelMonth＝前月15日までの申請なら希望月、16日以降なら翌月、継続中なら解約予定に）、GET …/:id/history、PUT /api/kinxs/autorenew-recon/:ym・POST /api/kinxs/autorenew-export（kincs だけの人も可＝overlay の例外）。月額 AR_PRICE 10,000円。請求対象＝自動更新・契約開始月≦対象月・（継続中）か（解約予定で解約月≧対象月）。
   ・画面：kinXs と kincs のサイドバー『DOC自動更新』（?p=ar、DOC更新管理の次）。月の切りかえ・カード（請求対象・新規・この月末で解約・未入金停止）・タブ（請求対象一覧（SF計上のチェック・入金の選択）・解約一覧・差分・突合（件数の記入・差異を赤く）・全企業（直す））。『＋ 自動更新の企業を登録』（kinXs の会社を選ぶ）、直すの窓に解約月の見込みと変更の履歴。『月次Excelをダウンロード』＝SheetJS（cdnjs）でサマリー・請求対象一覧・解約一覧・差分・突合の5シート、ファイル名 DOC自動更新_請求対象_YYYY年MM月分_YYYYMMDD出力（_第n版）.xlsx。
   ・まだ：解約の Google フォームの取り込み・自動返信、アラート（SF計上未・フォームの特定失敗・未入金）、CSV で登録。kinxs-releases.json に報告を足した。
+
+- 2026-11-09 BUILD_TAG=2026-11-09z 田中さん（kincs のサイドバーが ユーザー一覧・DOC更新管理・設定・DOC自動更新）「設定の上に自動更新のメニューバーをつけてほしい」。kincs の『設定』を DOC自動更新（data-view=ar）のうしろに入れる。版20261109z。

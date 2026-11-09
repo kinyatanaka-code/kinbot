@@ -29192,7 +29192,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09y kinXs・kincs：DOC自動更新（アチコチバース月額）の管理。月ごとの請求対象・解約・差分・突合、企業の登録・解約月の自動判定・SF計上と入金の記入、月次Excel（5シート）の出力。";
+const BUILD_TAG = "2026-11-09z kincs：サイドバーの並びを ユーザー一覧・DOC更新管理・DOC自動更新・設定 に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
