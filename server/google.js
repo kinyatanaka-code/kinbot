@@ -1773,3 +1773,32 @@ export async function updateCellsFirstSheet(owner, spreadsheetId, cells = []) {
   if (!res.ok) { const t = await res.text(); throw new Error(`シートの書きかえ ${res.status}: ${t.slice(0, 300)}`); }
   return res.json().catch(() => ({}));
 }
+
+// kinXs：検収書などのファイルを、その人のドライブの「kinXs 検収書」フォルダに置き、社内で見られるリンクを返す（2026-11-10 田中さん）
+//   drive.file の許可で足りる（kinbot が作ったフォルダ・ファイルだけを扱う）
+export async function driveUploadBuffer(owner, { name, mimeType = "application/pdf", data, folderName = "kinXs 検収書", shareDomain = "" }) {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません（設定からGoogle連携をしてください）");
+  const H = { Authorization: `Bearer ${token}` };
+  // フォルダを探す（なければ作る）
+  let folderId = "";
+  try {
+    const q = `name='${String(folderName).replace(/'/g, "")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files?${new URLSearchParams({ q, fields: "files(id)", spaces: "drive" })}`, { headers: H });
+    const d = await r.json().catch(() => ({})); folderId = (d.files && d.files[0] && d.files[0].id) || "";
+    if (!folderId) { const mk = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ name: folderName, mimeType: "application/vnd.google-apps.folder" }) });
+      const md = await mk.json().catch(() => ({})); folderId = md.id || ""; }
+  } catch {}
+  const boundary = `kx${Date.now().toString(36)}`;
+  const meta = JSON.stringify({ name, mimeType, ...(folderId ? { parents: [folderId] } : {}) });
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\ncontent-type: ${mimeType}\r\n\r\n`),
+    data, Buffer.from(`\r\n--${boundary}--`),
+  ]);
+  const up = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", { method: "POST", headers: { ...H, "content-type": `multipart/related; boundary=${boundary}` }, body });
+  const ud = await up.json().catch(() => ({}));
+  if (!up.ok) throw new Error(`ドライブに置けませんでした（${up.status}）：${JSON.stringify(ud).slice(0, 160)}`);
+  const domain = shareDomain || (String(owner).includes("@") ? String(owner).split("@")[1] : "");
+  if (domain) await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(ud.id)}/permissions?sendNotificationEmail=false`, { method: "POST", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ role: "reader", type: "domain", domain }) }).catch(() => {});
+  return { fileId: ud.id, link: ud.webViewLink || `https://drive.google.com/file/d/${ud.id}/view` };
+}

@@ -2424,12 +2424,12 @@ function kxKenshuOne(bg, x, box, d, mode) {
   const defNo = () => ((x._circus || [])[0] || {}).no || "";
   const tpl = (no) => `お疲れ様です。\n下記案件の検収書を回収いたしましたので\nご確認のほどよろしくお願いいたします。\n\n企業名：${x.name}\nサーカスNo：${no || ""}`;
   box.classList.remove("kx-note");
-  box.innerHTML = `${list.length ? `<div class="kx-ken-box">${list.map((f) => `<div class="kx-ken-row">📄 <a href="/api/kinxs/files/${f.id}" target="_blank" rel="noopener">${esc(f.name)}</a><small>${esc(fmt(f.at))}・${esc(f.by_user || "")}${f.circus_no ? `・サーカスNo ${esc(f.circus_no)}` : ""}</small>${f.chat_at ? '<small style="color:#0d5b47">✓ チャット済み</small>' : f.chat_error ? `<small style="color:#B4441F">チャット失敗：${esc(f.chat_error)}</small>` : ""}${ro ? "" : `<button type="button" class="hp-b" data-ken-del="${f.id}" style="margin-left:auto">消す</button>`}</div>`).join("")}</div>` : '<div class="kx-note" style="margin-bottom:8px">まだ検収書はありません</div>'}
+  box.innerHTML = `${list.length ? `<div class="kx-ken-box">${list.map((f) => `<div class="kx-ken-row">📄 <a href="/api/kinxs/files/${f.id}" target="_blank" rel="noopener">${esc(f.name)}</a><small>${esc(fmt(f.at))}・${esc(f.by_user || "")}${f.circus_no ? `・サーカスNo ${esc(f.circus_no)}` : ""}</small>${f.drive_link ? `<a href="${esc(f.drive_link)}" target="_blank" rel="noopener" style="font-size:12px">ドライブ ↗</a>` : ""}${f.chat_at ? '<small style="color:#0d5b47">✓ チャット済み</small>' : f.chat_error ? `<small style="color:#B4441F">チャット失敗：${esc(f.chat_error)}</small>` : ""}${ro ? "" : `<button type="button" class="hp-b" data-ken-del="${f.id}" style="margin-left:auto">消す</button>`}</div>`).join("")}</div>` : '<div class="kx-note" style="margin-bottom:8px">まだ検収書はありません</div>'}
   ${ro ? "" : mode === "list" ? '<button type="button" class="hp-b" data-ken-add>＋ 検収書を追加</button>' : ""}
   ${ro ? "" : `<div class="kx-ken-up" ${mode === "list" ? "hidden" : ""}>
     <span>PDF</span><input type="file" data-ken-file accept="application/pdf,image/*">
     <span>サーカスNo</span><input class="kx-in" data-ken-no value="${esc(defNo())}" placeholder="例：20260728BD005">
-    <span>チャットで知らせる</span><label><input type="checkbox" data-ken-notify checked> 回収をチャットに送る（PDFのリンクつき）</label>
+    <span>チャットで知らせる</span><label><input type="checkbox" data-ken-notify checked> 回収をチャットに送る（PDFは自分のGoogleドライブに置き、そのリンクを送ります）</label>
     <span>スペース</span><input class="kx-in" data-ken-space value="${esc(d.space || "")}" placeholder="Google ChatのスペースのURL（kinbot を追加したスペース）">
     <span>メンション</span><input class="kx-in" data-ken-men value="${esc((d.mention || []).join("、"))}" placeholder="例：相澤莉菜子、幸地美穂">
     <span>本文</span><textarea class="kx-in" data-ken-text rows="7">${esc(tpl(defNo()))}</textarea>

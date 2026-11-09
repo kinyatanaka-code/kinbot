@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat,
+  kxMailLog, kxMailLogList, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -702,7 +702,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -13423,8 +13423,10 @@ app.post("/api/kinxs/accounts/:id/files", express.json({ limit: "25mb" }), async
         if (!space) throw new Error("知らせるスペースが決まっていません");
         const ms = (await Promise.all(names.map((n) => mentionFor(normalizeSpace(space), n)))).map((m, i) => m || `@${names[i]}`);
         const body = String(b.text || "").trim() || kenshuText(names, x.name || "", f.circus_no);
-        const link = `${PUBLIC_URL}/api/kinxs/files/${f.id}`;
-        await chatPostToSpace(normalizeSpace(space), `${ms.join(" ")}\n${body}\n\n📄 検収書：${link}`);
+        // PDF は送った人のGoogleドライブ（「kinXs 検収書」フォルダ）に置き、社内で見られるリンクを送る。チャットでは見本つきのカードで出る（2026-11-10 田中さん）。置けないときは kinXs のリンク
+        let link = `${PUBLIC_URL}/api/kinxs/files/${f.id}`;
+        try { const dv = await driveUploadBuffer(req.user, { name: `検収書_${x.name || ""}${f.circus_no ? `_${f.circus_no}` : ""}${/\.pdf$/i.test(name) ? ".pdf" : (name.match(/\.\w+$/) || [""])[0]}`, mimeType: mime, data }); link = dv.link; await kxFileDrive(f.id, dv.link).catch(() => {}); } catch (e) { console.warn("[検収書] ドライブ", e.message); }
+        await chatPostToSpace(normalizeSpace(space), `${ms.join(" ")}\n${body}\n\n${link}`);
         await kxFileChat(f.id, { at: new Date().toISOString() }); chat = { ok: true };
       } catch (e) { await kxFileChat(f.id, { error: e.hint || e.message }); chat = { ok: false, error: e.hint || e.message }; }
     }
@@ -29719,7 +29721,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zd kinXs：電話番号の「端末」をなくし、📞は1つに。";
+const BUILD_TAG = "2026-11-10ze kinXs 検収書：PDFを保存した人のGoogleドライブ（kinXs 検収書）に置いて社内共有し、そのリンクをチャットで送る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

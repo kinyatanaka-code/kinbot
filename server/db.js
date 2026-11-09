@@ -12509,6 +12509,7 @@ async function ensureKxFiles() {
   if (!pool || _kxFilesReady) return; _kxFilesReady = true;
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_files (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, name TEXT, mime TEXT, size INT, data BYTEA, by_user TEXT, at TIMESTAMPTZ DEFAULT now(), circus_no TEXT, chat_at TIMESTAMPTZ, chat_error TEXT)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS kinxs_files_acc ON kinxs_files (account_id)`).catch(() => {});
+  await pool.query(`ALTER TABLE kinxs_files ADD COLUMN IF NOT EXISTS drive_link TEXT`).catch(() => {});
 }
 export async function kxFileAdd(f) {
   if (!pool) return null; await ensureKxFiles();
@@ -12517,7 +12518,7 @@ export async function kxFileAdd(f) {
 }
 export async function kxFileList(accountId) {
   if (!pool) return []; await ensureKxFiles();
-  return (await pool.query(`SELECT id, account_id, kind, name, mime, size, by_user, at, circus_no, chat_at, chat_error FROM kinxs_files WHERE account_id = $1 ORDER BY at DESC`, [String(accountId)])).rows;
+  return (await pool.query(`SELECT id, account_id, kind, name, mime, size, by_user, at, circus_no, chat_at, chat_error, drive_link FROM kinxs_files WHERE account_id = $1 ORDER BY at DESC`, [String(accountId)])).rows;
 }
 export async function kxFileGet(id) {
   if (!pool) return null; await ensureKxFiles();
@@ -12525,3 +12526,4 @@ export async function kxFileGet(id) {
 }
 export async function kxFileDelete(id) { if (!pool) return; await ensureKxFiles(); await pool.query(`DELETE FROM kinxs_files WHERE id = $1`, [Number(id) || 0]); }
 export async function kxFileChat(id, { at, error }) { if (!pool) return; await ensureKxFiles(); await pool.query(`UPDATE kinxs_files SET chat_at = $2, chat_error = $3 WHERE id = $1`, [Number(id) || 0, at || null, error || null]); }
+export async function kxFileDrive(id, link) { if (!pool) return; await ensureKxFiles(); await pool.query(`UPDATE kinxs_files SET drive_link = $2 WHERE id = $1`, [Number(id) || 0, link || null]); }
