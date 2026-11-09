@@ -620,7 +620,7 @@ function kxLabelSchedPane(d, part = "all") {
     </div>`;
   const schedSec = `${doc ? `<div class="kx-sec"><div class="lb" style="display:flex;align-items:center;gap:8px">掲載までのスケジュール（DOC）${sc ? `<span class="kx-note">${esc(new Date(sc.at).toLocaleDateString("ja-JP"))} に議事録から作成</span>` : ""}<span style="margin-left:auto;display:flex;gap:6px">${sc ? '<button type="button" class="hp-b" data-sch-doc>スケジュール資料を開く</button>' : ""}<button type="button" class="hp-b" data-sch-make>${sc ? "議事録から作り直す" : "議事録から作る"}</button></span></div>
       ${sc ? `<div class="kx-sch">${schRows}</div>` : '<div class="kx-note">まだありません。キックオフ・フォローの議事録から、掲載までの段取りと日付を作ります（予定より遅れると要注意に出ます）。</div>'}<span class="kx-note" data-sch-st></span></div>` : ""}`;
-  if (part === "prod") return prodTbl + kenSec;   // 企業情報のタブ（2026-11-10 田中さん：SFの商品は企業情報へ）
+  if (part === "prod") return prodTbl;   // 企業情報のタブ（2026-11-10 田中さん：SFの商品は企業情報へ。検収書はステータスで扱う）
   if (part === "label") return labelSec;   // 先方の担当者の下（2026-11-10 田中さん）
   if (part === "sched") return schedSec;
   return prodTbl + kenSec + labelSec + schedSec;
@@ -2521,7 +2521,8 @@ function kxNowCard(d) {
       <div><small>最終接触</small><b class="${x.sinceTouch > 30 ? "warn" : ""}">${esc(touchTxt)}</b></div>
       <div><small>更新月</small><b>${esc(x.renew ? `${x.renew.replace("-", "/")}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}` : "—")}</b></div>
       <div><small>更新確度</small><b>${esc(x.rank || "Z")}${!x.rank || x.rank === "Z" ? "（未判定）" : ""}</b></div>
-    </section>`;
+    </section>
+    ${cur !== 2 && !x.kenshuNa ? `<section class="kx-sec" data-ken-sec><div class="lb">検収書<span class="kx-note" style="margin-left:8px">入れたPDFと、あとから足すとき</span></div><div data-ken-list data-ken-mode="list" class="kx-note">読み込んでいます…</div></section>` : ""}`;
 }
 // 「次にやること」「対応事項」のボタン：今ある欄のボタンを押す・開く（保存のしかたは今までと同じ）
 function kxNowMount(bg) {
@@ -2544,6 +2545,6 @@ function kxNowMount(bg) {
     if (a === "read") { const r = bg.querySelector("[data-read-all]"); if (r) { const dt = r.closest("details"); if (dt) dt.open = true; r.scrollIntoView({ behavior: "smooth", block: "center" }); r.click(); } return; }
     if (a === "renew") { const ob = bg.querySelector("[data-rank-open]"); if (ob) { ob.scrollIntoView({ behavior: "smooth", block: "center" }); const pop = bg.querySelector("[data-rank-pop]"); if (pop && pop.hidden) ob.click(); } return; }
     if (a === "ken-pdf") { const here = bg.querySelector("[data-ken-sec-st]"); if (here) { here.scrollIntoView({ behavior: "smooth", block: "start" }); const f = here.querySelector("[data-ken-file]"); if (f) setTimeout(() => f.click(), 350); return; }
-      const t = bg.querySelector('[data-tab="co"]'); if (t) t.click(); setTimeout(() => { const k = bg.querySelector("[data-ken-sec]"); if (k) { k.scrollIntoView({ behavior: "smooth", block: "start" }); const b = k.querySelector("[data-ken-add]"); if (b) b.click(); } }, 80); }
+      const k = bg.querySelector("[data-ken-sec]"); if (k) { k.scrollIntoView({ behavior: "smooth", block: "start" }); const b = k.querySelector("[data-ken-add]"); if (b) b.click(); } }
   }));
 }
