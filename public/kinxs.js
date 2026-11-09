@@ -688,9 +688,10 @@ async function openDetail(id, reuse) {
       <div class="row"><label class="hp-b" style="cursor:pointer">画像ファイルを選ぶ<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" data-logo-file hidden /></label><span class="kx-note">1MBまで。画面のスクリーンショットの切り抜きでも大丈夫です</span></div>
       <div class="row"><button type="button" class="hp-b" data-logo="clear">ロゴなし（頭文字）にする</button><span class="kx-note" data-logo-st style="margin-left:auto"></span></div>
     </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><span class="kx-rank r-${x.rank}">${x.rank}</span><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}${x.renewLocked ? "・手で決めた" : ""}</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="kx-lab l-${esc(x.label)}">${esc(x.label)}</span><button type="button" class="kx-rank r-${x.rank} kx-rank-btn" data-rank-open title="押すと更新確度を変えられます" aria-expanded="false">${x.rank} <small>▾</small></button><span class="kx-note">更新月 ${x.renew ? esc(x.renew.replace("-", "/")) : "—"}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}${x.renewLocked ? "・手で決めた" : ""}</span>
       <button type="button" class="kx-ren" data-renew-open>更新月を変える</button>
       <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span></div>
+    <div class="kx-rank-pop" data-rank-pop hidden></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
     <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
     <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}${kxLabelSchedPane(d, "prod")}</div>
@@ -751,7 +752,9 @@ async function openDetail(id, reuse) {
     if (lbl && top) { top.after(lbl); lbl.classList.add("kx-editbox"); }
     const naSec = (pane.querySelector("[data-na]") || {}).closest?.(".kx-sec");
     if (naSec) { naSec.classList.add("kx-editbox"); (lbl || top).after(naSec); }
-    if (rk || dl) { const h = document.createElement("div"); h.className = "kx-other-h"; h.textContent = "そのほか（更新確度・納品）"; pane.appendChild(h); if (rk) pane.appendChild(rk); if (dl) pane.appendChild(dl); }
+    // 更新確度は、上の確度の文字を押すと出る小窓へ。検収書・納品メール・掲載の切りかえは見せない（ステータスの道のりで1つずつ済みにする）（2026-11-10 田中さん）
+    const pop = bg.querySelector("[data-rank-pop]"); if (rk && pop) { pop.appendChild(rk); }
+    if (dl) dl.style.display = "none";
   })();
   if (!bg.isConnected) document.body.appendChild(bg);
   kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg);
@@ -2494,14 +2497,16 @@ function kxNowCard(d) {
   todo.sort((a, b) => a.lv - b.lv);
   const top = todo[0];
   const btn = (act, pri) => ({
-    ken: [["ken-pdf", "PDFを入れる"], ["ken-done", "回収済みにする"]], mail: [["mail-done", "送付済みにする"]], pub: [["pub-done", "掲載を確認した"]],
+    ken: [["ken-pdf", "PDFを入れる"], ["ken-done", "回収済みにする"], ["ken-na", "対象外"]], mail: [["mail-done", "送付済みにする"]], pub: [["pub-done", "掲載を確認した"]],
     na: [["na-open", "中身を開く"]], read: [["read", "議事録・メールから読み取る"]], renew: [["renew", "確度を決める"]],
   }[act] || []).map(([a, l], i) => `<button type="button" class="${pri && i === 0 ? "kx-a-pri" : "kx-a-sec"}" data-now="${a}">${esc(l)}</button>`).join("");
   const chk = (t) => ({ ken: "ken-done", mail: "mail-done", pub: "pub-done" })[t.act];
   const touchTxt = x.lastTouch ? `${x.sinceTouch}日前` : "—";
   return `<section class="kx-a-where">
       <div class="kx-a-row"><span class="kx-a-q">いまどこ？</span><b class="kx-a-head">${esc(head)}</b>${since != null ? `<span class="kx-a-since">受注から ${since}日</span>` : ""}</div>
-      <div class="kx-a-steps">${steps.map((s0, i) => `<div class="kx-a-st ${s0.ok ? "ok" : i === cur ? "now" : ""}"><i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small></div>`).join("")}</div>
+      <div class="kx-a-steps">${steps.map((s0, i) => { const key = { 検収書: "kenshu_done", 納品メール: "mail_done", 掲載: "published" }[s0.k]; const cls = `kx-a-st ${s0.ok ? "ok" : i === cur ? "now" : ""}`; const inner = `<i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small>`;
+        return key && !(s0.k === "検収書" && x.kenshuNa) ? `<button type="button" class="${cls} kx-a-stb" data-step="${key}" data-ok="${s0.ok ? 1 : 0}" title="${s0.ok ? "押すと未完了に戻します" : "押すと済みにします"}">${inner}</button>` : `<div class="${cls}">${inner}</div>`; }).join("")}</div>
+      <div class="kx-note" style="margin-top:-6px">検収書・納品メール・掲載は、道のりを押すと済みにできます</div>
     </section>
     ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true)}</div></section>` : ""}
     ${cur === 2 && !x.kenshuNa ? `<section class="kx-sec" data-ken-sec-st><div class="lb">検収書を入れる<span class="kx-note" style="margin-left:8px">PDFを残して、回収をチャットで知らせます</span></div><div data-ken-list data-ken-mode="full" class="kx-note">読み込んでいます…</div></section>` : ""}
@@ -2522,15 +2527,22 @@ function kxNowCard(d) {
 function kxNowMount(bg) {
   const pane = bg.querySelector('[data-pane="info"]'); if (!pane) return;
   const tog = (key, v) => { const b = bg.querySelector(`[data-tog="${key}"] button[data-v="${v}"]`); if (b) b.click(); };
+  const ob = bg.querySelector("[data-rank-open]"), pop = bg.querySelector("[data-rank-pop]");
+  if (ob && pop && !ob.dataset.wired) { ob.dataset.wired = "1"; ob.addEventListener("click", () => { pop.hidden = !pop.hidden; ob.setAttribute("aria-expanded", String(!pop.hidden)); }); }
+  pane.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => {
+    const ok = b.dataset.ok === "1"; const name = b.querySelector("b").textContent;
+    if (ok) { if (confirm(`「${name}」を未完了に戻しますか？`)) tog(b.dataset.step, "false"); } else tog(b.dataset.step, "true");
+  }));
   const openNa = () => { const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; dt.scrollIntoView({ behavior: "smooth", block: "start" }); } };
   pane.querySelectorAll("[data-now]").forEach((el) => el.addEventListener(el.tagName === "INPUT" ? "change" : "click", () => {
     const a = el.dataset.now;
     if (a === "ken-done") return tog("kenshu_done", "true");
+    if (a === "ken-na") { if (confirm("この会社は検収書を回収しない（対象外）にしますか？")) tog("kenshu_done", "na"); return; }
     if (a === "mail-done") return tog("mail_done", "true");
     if (a === "pub-done") return tog("published", "true");
     if (a === "na-open") return openNa();
     if (a === "read") { const r = bg.querySelector("[data-read-all]"); if (r) { const dt = r.closest("details"); if (dt) dt.open = true; r.scrollIntoView({ behavior: "smooth", block: "center" }); r.click(); } return; }
-    if (a === "renew") { const rk = bg.querySelector(".kx-ranks"); if (rk) { const dt = rk.closest("details"); if (dt) dt.open = true; rk.scrollIntoView({ behavior: "smooth", block: "center" }); } return; }
+    if (a === "renew") { const ob = bg.querySelector("[data-rank-open]"); if (ob) { ob.scrollIntoView({ behavior: "smooth", block: "center" }); const pop = bg.querySelector("[data-rank-pop]"); if (pop && pop.hidden) ob.click(); } return; }
     if (a === "ken-pdf") { const here = bg.querySelector("[data-ken-sec-st]"); if (here) { here.scrollIntoView({ behavior: "smooth", block: "start" }); const f = here.querySelector("[data-ken-file]"); if (f) setTimeout(() => f.click(), 350); return; }
       const t = bg.querySelector('[data-tab="co"]'); if (t) t.click(); setTimeout(() => { const k = bg.querySelector("[data-ken-sec]"); if (k) { k.scrollIntoView({ behavior: "smooth", block: "start" }); const b = k.querySelector("[data-ken-add]"); if (b) b.click(); } }, 80); }
   }));
