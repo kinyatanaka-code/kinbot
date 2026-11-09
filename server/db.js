@@ -12331,3 +12331,10 @@ export async function bulkDeleteEmptyLists(ids = []) {
   }
   return { deleted, kept };
 }
+
+// リストのグループ名（MOユーザーリスト などを見分けるため）（2026-11-09）
+export async function listGroupNameOf(listId) {
+  if (!pool || !listId) return "";
+  const { rows } = await pool.query(`SELECT l.name AS list_name, g.name AS group_name FROM call_lists l LEFT JOIN call_list_groups g ON g.id = l.group_id WHERE l.id = $1`, [parseInt(listId, 10)]).catch(() => ({ rows: [] }));
+  return rows[0] ? { list: rows[0].list_name || "", group: rows[0].group_name || "" } : { list: "", group: "" };
+}

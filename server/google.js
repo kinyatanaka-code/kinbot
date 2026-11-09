@@ -1752,3 +1752,12 @@ export async function googleDirectorySearch(owner, query, max = 10) {
   const d = await r.json();
   return (d.people || []).map((p) => ({ name: ((p.names || [])[0] || {}).displayName || "", email: ((p.emailAddresses || [])[0] || {}).value || "" })).filter((x) => x.email);
 }
+
+// 範囲を指定して1行足す（シート名を省くと、いちばん左のシート）（2026-11-09）
+export async function appendSheetRowAt(owner, spreadsheetId, range, values) {
+  const token = await accessToken(owner);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range || "A1")}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ values: [values] }) });
+  if (!res.ok) { const t = await res.text(); throw new Error(`シートへの書き込み ${res.status}: ${t.slice(0, 300)}`); }
+  return res.json().catch(() => ({}));
+}

@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -686,6 +686,7 @@ import {
   gmailReady,
   gmailSearchThreads,
   googleDirectorySearch,
+  appendSheetRowAt,
   gmailSentToday,
   gmailFindBounces,
   gmailGetThread,
@@ -8298,6 +8299,33 @@ function canHideLists(req) {
   return allow.includes(String(req.user || "").toLowerCase());
 }
 // リストの表示／非表示（データは消さない）。決められた人だけが操作できる。
+// ===== MOユーザーリスト・MO解約リストのアポ獲得を、スプレッドシートに足す（2026-11-09 田中さん）=====
+//   シート：settings.moApoSheetId（既定は田中さんのシート）。書き込みは settings.moApoSheetOwner（既定 kinya.tanaka@）の Google 連携で
+//   1行目の見出しに合わせて入れる（見出しが無ければ、こちらの見出しを先に書く）
+const MO_APO_SHEET = "13JlORZCORO5xFE0rkJAqSNzwpSTc1cx4BYi4GrbndnA";
+const MO_APO_HEAD = ["記録日時", "リスト", "会社名", "先方担当者", "電話番号", "メール", "商談日時", "獲得者", "メモ"];
+async function moApoToSheet(t, b, caller) {
+  const g = await listGroupNameOf(t.list_id);
+  const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+  const which = /MOユーザー|MO解約/.test(norm(g.group)) ? g.group : /MOユーザー|MO解約/.test(norm(g.list)) ? g.list : "";
+  if (!which) return;
+  const st = await getSettings().catch(() => ({}));
+  const sheet = st.moApoSheetId || MO_APO_SHEET; const owner = st.moApoSheetOwner || "kinya.tanaka@neo-career.co.jp";
+  let head = []; try { head = ((await readSheet(owner, sheet, "A1:Z1")) || [])[0] || []; } catch (e) { console.warn("[MOシート] 見出しを読めません", e.message); }
+  if (!head.filter((x) => String(x || "").trim()).length) { await appendSheetRowAt(owner, sheet, "A1", MO_APO_HEAD); head = MO_APO_HEAD; }
+  const jst = (d) => { const x = new Date(new Date(d).getTime() + 9 * 3600000); return isNaN(x) ? "" : `${x.getUTCFullYear()}/${x.getUTCMonth() + 1}/${x.getUTCDate()} ${String(x.getUTCHours()).padStart(2, "0")}:${String(x.getUTCMinutes()).padStart(2, "0")}`; };
+  const ex = t.extra && typeof t.extra === "object" ? t.extra : {};
+  const v = { 記録日時: jst(Date.now()), リスト: which, 会社名: t.company || "", 先方担当者: t.person || "", 電話番号: t.phone || "", メール: t.email || ex["メール"] || "",
+    商談日時: b.apo && b.apo.start ? jst(b.apo.start) : "", 獲得者: await displayNameOf(caller).catch(() => caller), メモ: String(b.memo || "").slice(0, 500) };
+  const pick = (h) => { const n = norm(h);
+    if (/記録|登録|獲得日|入力日/.test(n) && /日/.test(n)) return v.記録日時; if (/商談|アポ日|予定/.test(n)) return v.商談日時;
+    if (/リスト|種類|区分/.test(n)) return v.リスト; if (/会社|企業|社名/.test(n)) return v.会社名; if (/電話|TEL/i.test(n)) return v.電話番号;
+    if (/メール|mail/i.test(n)) return v.メール; if (/獲得者|架電者|アポインター|取得者|担当営業|インサイド/.test(n)) return v.獲得者;
+    if (/担当|氏名|名前/.test(n)) return v.先方担当者; if (/メモ|備考|内容|詳細/.test(n)) return v.メモ; if (/日時|日付/.test(n)) return v.記録日時; return ""; };
+  const row = head.map(pick);
+  await appendSheetRowAt(owner, sheet, "A1", row);
+  console.log(`[MOシート] ${which} のアポ獲得を足しました：${t.company}（${v.獲得者}）`);
+}
 // リサイクルで温度Cのリードは、コールドリストへ（起動して1分後と、6時間ごと）（2026-11-09 田中さん）
 async function runRecycleToCold() {
   try { const r = await moveRecycleCToCold(); if (r.moved) console.log(`[kincall] リサイクルの温度Cを ${r.moved}件、コールドリストへ移しました`); }
@@ -17403,6 +17431,8 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     });
     // 説明に入れたZoom録音の要約を「使用済み」にする（後から二重に追記しないため）
     if (b.zoomRecId && log && log.id) await markZoomRecUsed(String(b.zoomRecId), log.id).catch(() => {});
+    // MOユーザー・MO解約リストでアポ獲得 → 決まったスプレッドシートに1行（2026-11-09 田中さん）。うしろで動かす（記録は待たせない）
+    if (/アポ獲得/.test(result)) moApoToSheet(t, b, req.user).catch((e) => console.warn("[MOシート]", e.message));
     // ステージと最終ステータスを書き換える。
     // 最終ステータスは「いま記録した結果」を入れる（空で上書きしない）。
     // ステージは、選ばれたときだけ変える。
@@ -29034,7 +29064,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09s kincall：インターン生（kincallだけの人）も、記録の窓の「🤝 案件共有」を使えるように（/api/case-share が止められていた）。";
+const BUILD_TAG = "2026-11-09t kincall：MOユーザーリスト・MO解約リストでアポ獲得を記録したら、田中さんのスプレッドシートに1行足す（見出しに合わせて入れる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
