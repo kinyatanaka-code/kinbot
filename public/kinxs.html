@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261110x" />
+    <link rel="stylesheet" href="style.css?v=20261110y" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -796,6 +796,21 @@
   .kx-ken-box{border:1px solid #E6ECE9;border-radius:10px;overflow:hidden;margin-bottom:8px;}
   .kx-ken-up{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;align-items:center;font-size:12.5px;background:#F8FAF9;border-radius:10px;padding:10px;}
   .kx-ken-up textarea,.kx-ken-up input{width:100%;box-sizing:border-box;}
+  .kx-now{background:#fff;border:1px solid #DCE7E1;border-radius:14px;padding:14px 16px;box-shadow:0 1px 0 rgba(0,0,0,.02);}
+  .kx-now-h{font-size:13px;font-weight:800;color:#14231D;margin-bottom:8px;} .kx-now-h small{color:#6A7A72;font-weight:700;margin-left:4px;}
+  .kx-now-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+  .kx-now-grid>div{background:#F6F9F7;border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:3px;min-width:0;}
+  .kx-now-grid span{font-size:11px;color:#6A7A72;font-weight:700;} .kx-now-grid b{font-size:13.5px;color:#14231D;overflow:hidden;text-overflow:ellipsis;} .kx-now-grid b.warn{color:#B4441F;}
+  .kx-now-steps{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;} .kx-now-sl{font-size:11px;color:#6A7A72;font-weight:700;margin-right:2px;}
+  .kx-now-step{font-size:12px;font-weight:700;border-radius:99px;padding:3px 10px;background:#F3F5F4;color:#6A7A72;} .kx-now-step.ok{background:#E3F4EC;color:#0d5b47;} .kx-now-step.todo{background:#FFF1E8;color:#B4441F;}
+  .kx-now-todo{display:flex;flex-direction:column;gap:6px;}
+  .kx-now-it{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border-radius:10px;background:#F8FAF9;border:1px solid #EEF3F0;}
+  .kx-now-it i{flex:none;width:8px;height:8px;border-radius:50%;margin-top:6px;background:#9DB3A8;} .kx-now-it.hi{background:#FFF6F2;border-color:#F6D3C3;} .kx-now-it.hi i{background:#D9542B;} .kx-now-it.mid i{background:#E7A33B;}
+  .kx-now-it .t{font-size:13px;font-weight:700;color:#14231D;} .kx-now-it .t em{font-style:normal;font-size:10.5px;font-weight:800;color:#0d5b47;background:#E3F4EC;border-radius:99px;padding:1px 7px;margin-right:6px;vertical-align:1px;}
+  .kx-now-it .s{font-size:12px;color:#5B6B63;margin-top:2px;}
+  details.kx-more{background:#fff;border:1px solid #E6ECE9;border-radius:14px;padding:0;} details.kx-more>summary{cursor:pointer;padding:12px 16px;font-size:13px;font-weight:800;color:#33463D;list-style:none;} details.kx-more>summary::before{content:"▸ ";color:#8FA39A;} details.kx-more[open]>summary::before{content:"▾ ";}
+  details.kx-more>.kx-sec{border:0;box-shadow:none;margin:0;}
+  @media (max-width:640px){.kx-now-grid{grid-template-columns:repeat(2,minmax(0,1fr));}}
   .ar-empty{padding:18px;color:#8FA39A;font-size:13px;}
   .ar-f{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;font-size:13px;margin-bottom:8px;} .ar-f input,.ar-f select{border:1px solid #DCE6E1;border-radius:8px;padding:6px 8px;font:inherit;}
 </style>
@@ -926,7 +941,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261110x" defer></script>
-    <script src="kinxs.js?v=20261110x"></script>
+    <script src="kbchat.js?v=20261110y" defer></script>
+    <script src="kinxs.js?v=20261110y"></script>
   </body>
 </html>

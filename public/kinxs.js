@@ -595,7 +595,7 @@ function kxCoPane(d) {
   </div>`;
 }
 // ② ステータス（CS担当・利用目的・活用）。フェーズ・次回アクションは下に続く
-function kxLabelSchedPane(d) {
+function kxLabelSchedPane(d, part = "all") {
   const x = d.item || {}; const labs = new Set(x.prodLabels || []);
   const chip = (t, g) => `<button type="button" class="kx-us ${labs.has(t) ? "on" : ""}" data-pl="${esc(t)}" data-plg="${g}">${esc(t)}</button>`;
   const sns = (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
@@ -611,14 +611,17 @@ function kxLabelSchedPane(d) {
       ${pis.length ? `<div class="kx-ptbl"><div class="h"><span>商品</span><span>区別</span><span>計上日</span><span>サーカスNo</span><span>商談</span></div>${pis.map((p0) => `<div class="r"><span class="nm">${esc(p0.name)}</span><span>${clsTag(p0.cls)}</span><span>${esc(String(p0.booked || "").replace(/-/g, "/") || "—")}</span><span data-circus-opp="${esc(p0.opp || "")}" data-circus-name="${esc(p0.oppName || "")}" style="font-variant-numeric:tabular-nums">…</span><span class="kx-note">${esc(p0.oppName || p0.stage || "")}</span></div>`).join("")}</div>` : '<div class="kx-note">SFの商談の商品がありません（手で追加した会社か、まだ取り込んでいません）</div>'}
     </div>`;
   const kenSec = `<div class="kx-sec" data-ken-sec><div class="lb">検収書<span class="kx-note" style="margin-left:8px">PDFを企業ごとに残し、回収をチャットで知らせます</span></div><div data-ken-list class="kx-note">読み込んでいます…</div></div>`;
-  return prodTbl + kenSec + `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品から）</span>' : ""}</div>
+  const labelSec = `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品から）</span>' : ""}</div>
       <label>DOC</label><div class="kx-usage">${KX_DOC_L.map((t) => chip(t, "DOC")).join("")}</div>
       <label>SNS</label><div class="kx-usage">${KX_SNS_L.map((t) => chip(t, "SNS")).join("")}</div>
       <div class="kx-edact">${!x.prodLabelsAuto ? '<button type="button" class="hp-b" data-pl-auto>自動に戻す</button>' : ""}<button type="button" class="kx-btn kx-pri" data-pl-save>ラベルを保存</button></div>
       ${sns ? `<label>SNSのフェーズ</label><div><select class="kx-in" data-sns-phase>${phases.map((p0) => `<option ${p0 === (x.snsPhase || "計上") ? "selected" : ""}>${esc(p0)}</option>`).join("")}</select></div>` : ""}
-    </div>
-    ${doc ? `<div class="kx-sec"><div class="lb" style="display:flex;align-items:center;gap:8px">掲載までのスケジュール（DOC）${sc ? `<span class="kx-note">${esc(new Date(sc.at).toLocaleDateString("ja-JP"))} に議事録から作成</span>` : ""}<span style="margin-left:auto;display:flex;gap:6px">${sc ? '<button type="button" class="hp-b" data-sch-doc>スケジュール資料を開く</button>' : ""}<button type="button" class="hp-b" data-sch-make>${sc ? "議事録から作り直す" : "議事録から作る"}</button></span></div>
+    </div>`;
+  const schedSec = `${doc ? `<div class="kx-sec"><div class="lb" style="display:flex;align-items:center;gap:8px">掲載までのスケジュール（DOC）${sc ? `<span class="kx-note">${esc(new Date(sc.at).toLocaleDateString("ja-JP"))} に議事録から作成</span>` : ""}<span style="margin-left:auto;display:flex;gap:6px">${sc ? '<button type="button" class="hp-b" data-sch-doc>スケジュール資料を開く</button>' : ""}<button type="button" class="hp-b" data-sch-make>${sc ? "議事録から作り直す" : "議事録から作る"}</button></span></div>
       ${sc ? `<div class="kx-sch">${schRows}</div>` : '<div class="kx-note">まだありません。キックオフ・フォローの議事録から、掲載までの段取りと日付を作ります（予定より遅れると要注意に出ます）。</div>'}<span class="kx-note" data-sch-st></span></div>` : ""}`;
+  if (part === "prod") return prodTbl + kenSec + labelSec;   // 企業情報のタブ（2026-11-10 田中さん：SFの商品・ラベルは企業情報へ）
+  if (part === "sched") return schedSec;
+  return prodTbl + kenSec + labelSec + schedSec;
 }
 function kxStatusPane(d) {
   const st = d.status || {}; const x = d.item || {}; const au = st.auto || {};
@@ -688,12 +691,13 @@ async function openDetail(id, reuse) {
       <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
     <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
-    <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}</div>
+    <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}${kxLabelSchedPane(d, "prod")}</div>
     <div data-pane="info" hidden style="display:flex;flex-direction:column;gap:12px">
-      ${kxNextActSection(x)}
-      ${kxOpsSection(x)}
+      ${kxNowCard(d)}
       ${kxStatusPane(d)}
-      ${kxLabelSchedPane(d)}
+      <details class="kx-more" data-na-more ${(() => { const l = x.naDue ? Math.ceil((Date.parse(x.naDue + "T23:59:59+09:00") - Date.now()) / 86400000) : 99; return l <= 7 ? "open" : ""; })()}><summary>次回アクションの中身（当日に確認すること・前回の宿題）</summary>${kxNextActSection(x)}</details>
+      ${kxLabelSchedPane(d, "sched")}
+      <details class="kx-more"><summary>請求・納品（フェーズの判定に使う項目）</summary>${kxOpsSection(x)}</details>
       <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
       <div class="kx-sec"><div class="lb">フェーズ${x.locked ? "（手で決めています）" : "（自動）"}</div>
         <select class="kx-in" data-label><option value="">自動に任せる（いま：${esc(x.autoLabel)}）</option>${(lsData && lsData.labels || ["計上予定", "フォローMTG設定済", "オンボーディング中", "利用中", "更新検討時期", "解約予定", "解約済み", "キャンセル", "エラー"]).map((l) => `<option ${x.locked && x.label === l ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
@@ -2440,4 +2444,51 @@ async function kxKenshuMount(bg, x) {
   };
   // サーカスNo がまだ読めていなければ、読めたら入れ直す
   if (no && !no.value) setTimeout(() => { const v = defNo(); if (v && !no.value) { no.value = v; no.oninput(); } }, 2500);
+}
+
+// ===== 企業の詳細：ステータスの一番上「いまの状態」と「対応事項」（2026-11-10 田中さん：このページの目的は、ユーザーが今どんな状態か・対応事項は何か）=====
+function kxNowCard(d) {
+  const x = d.item || {}; const st = d.status || {};
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const daysTo = (ymd) => Math.ceil((Date.parse(ymd + "T23:59:59+09:00") - Date.now()) / 86400000);
+  const fmt = (ymd) => String(ymd || "").slice(5).replace("-", "/");
+  // いまの状態
+  const steps = [
+    ["検収書", x.kenshuNa ? "na" : (x.kenshuDone === true || String(x.kenshu || "").startsWith("回収済み")) ? "ok" : "todo"],
+    ["納品メール", (x.mailDone === true || String(x.mail || "").startsWith("送付済み")) ? "ok" : "todo"],
+    ["掲載", x.published === true || x.published === "true" ? "ok" : "todo"],
+  ];
+  const stepHtml = steps.map(([n, v]) => `<span class="kx-now-step ${v}">${v === "ok" ? "✓" : v === "na" ? "－" : "○"} ${n}${v === "na" ? "（対象外）" : ""}</span>`).join("");
+  const renewTxt = x.renew ? `${x.renew.replace("-", "/")}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}` : "—";
+  const touch = x.lastTouch ? `${x.sinceTouch}日前` : "—";
+  // 対応事項（急ぐ順）
+  const todo = [];
+  for (const a of (x.alerts || [])) todo.push({ lv: 1, t: a.rule, s: a.detail });
+  if (x.na) { const l = x.naDue ? daysTo(x.naDue) : null; const when = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : x.naDue ? fmt(x.naDue) : "日時未定";
+    todo.push({ lv: l != null && l < 0 ? 1 : l != null && l <= 7 ? 2 : 3, t: `${x.naType ? `${x.naType}：` : ""}${x.na}`, s: `${when}${l == null ? "" : l < 0 ? `・${-l}日過ぎ` : `・あと${l}日`}`, tag: "次回アクション" }); }
+  else todo.push({ lv: 2, t: "次回アクションが決まっていません", s: "議事録・メールから読み取るか、手で入れてください", tag: "次回アクション" });
+  const nd = x.naDetail || {}; const sm = x.mtgSummary || {};
+  const hw = (Array.isArray(nd.homework) ? nd.homework : (sm.homework || [])).filter((h) => h && h.state !== "完了" && (h.t || h.text || h.task));
+  for (const h of hw.slice(0, 6)) { const due = h.due || ""; const l = due ? daysTo(due) : null;
+    todo.push({ lv: l != null && l < 0 ? 1 : 3, t: `${h.who ? `${h.who}：` : ""}${h.t || h.text || h.task}`, s: due ? `${fmt(due)}まで${l < 0 ? `・${-l}日過ぎ` : ""}` : "", tag: "宿題" }); }
+  if (steps[0][1] === "todo") todo.push({ lv: 2, t: String(x.kenshu || "").startsWith("依頼済み") ? "検収書の回収を待っています（依頼済み）" : "検収書を回収する", s: "回収したら企業情報の「検収書」にPDFを入れると、チャットで知らせます", tag: "納品" });
+  if (steps[1][1] === "todo") todo.push({ lv: 3, t: "納品メールを送る", s: "", tag: "納品" });
+  if (steps[2][1] === "todo" && steps[0][1] !== "todo") todo.push({ lv: 3, t: "掲載を確認する", s: "", tag: "納品" });
+  if (x.left != null && x.left <= 90 && ["B", "C", "Z"].includes(x.rank || "Z")) todo.push({ lv: x.left <= 30 ? 1 : 2, t: "更新の確度を上げる（更新の打診）", s: `更新月 ${renewTxt}・確度 ${x.rank || "Z"}`, tag: "更新" });
+  todo.sort((a, b) => a.lv - b.lv);
+  const lvCls = (lv) => (lv === 1 ? "hi" : lv === 2 ? "mid" : "lo");
+  return `<section class="kx-now">
+    <div class="kx-now-h">いまの状態</div>
+    <div class="kx-now-grid">
+      <div><span>フェーズ</span><b><span class="kx-lab l-${esc(st.phase || x.label || "")}">${esc(st.phase || x.label || "—")}</span></b></div>
+      <div><span>活用</span><b>${esc(st.usage || "—")}</b></div>
+      <div><span>更新月</span><b>${esc(renewTxt)}</b></div>
+      <div><span>更新確度</span><b><span class="kx-rank r-${esc(x.rank || "Z")}">${esc(x.rank || "Z")}</span></b></div>
+      <div><span>最終接触</span><b class="${x.sinceTouch > 30 ? "warn" : ""}">${esc(touch)}</b></div>
+      <div><span>CS担当</span><b>${esc(st.cs || x.cs || "未定")}</b></div>
+    </div>
+    <div class="kx-now-steps"><span class="kx-now-sl">納品まで</span>${stepHtml}</div>
+    <div class="kx-now-h" style="margin-top:12px">対応事項 <small>${todo.length}件</small></div>
+    <div class="kx-now-todo">${todo.length ? todo.map((t) => `<div class="kx-now-it ${lvCls(t.lv)}"><i></i><div><div class="t">${t.tag ? `<em>${esc(t.tag)}</em>` : ""}${esc(t.t)}</div>${t.s ? `<div class="s">${esc(t.s)}</div>` : ""}</div></div>`).join("") : '<div class="kx-note">いまの対応事項はありません</div>'}</div>
+  </section>`;
 }
