@@ -12383,7 +12383,7 @@ async function ensureAutoRenew() {
 export async function arList() {
   if (!pool) return []; await ensureAutoRenew();
   await ensureArSync();
-  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name
+  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name, ar_cs
     FROM kinxs_accounts WHERE COALESCE(ar_plan,'') <> '' ORDER BY ar_start NULLS LAST, name`);
   return rows;
 }
@@ -12464,11 +12464,18 @@ async function ensureArSync() {
   if (!pool || _arSyncReady) return; _arSyncReady = true;   // 列を足すのは1回だけ（毎回 ALTER すると表を長く止めてしまう）
   await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_end TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_product TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_cs TEXT`).catch(() => {});
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_sync (id SERIAL PRIMARY KEY, at TIMESTAMPTZ DEFAULT now(), by_user TEXT, rows INT, matched INT, changed INT, unmatched JSONB, unknown JSONB, error TEXT)`).catch(() => {});
 }
 export async function arSyncAccounts() {
   if (!pool) return []; await ensureArSync();
-  return (await pool.query(`SELECT account_id AS id, name, former_names, ar_plan, ar_start, ar_end, ar_product, COALESCE(archived,false) AS archived, merged_into FROM kinxs_accounts`)).rows;
+  return (await pool.query(`SELECT account_id AS id, name, name_override, former_names, ar_plan, ar_start, ar_end, ar_product, ar_cs, renew_month, cs_name, COALESCE(archived,false) AS archived, merged_into FROM kinxs_accounts`)).rows;
+}
+// 納品一覧のCS担当（企業ごと）。同期のたびに上書き（2026-11-10 幸地さん：自動返信はこのCS担当へ）
+export async function arSyncSetCs(id, cs) {
+  if (!pool) return false; await ensureArSync();
+  const { rowCount } = await pool.query(`UPDATE kinxs_accounts SET ar_cs = $2 WHERE account_id = $1 AND COALESCE(ar_cs,'') IS DISTINCT FROM COALESCE($2,'')`, [String(id), cs || null]);
+  return rowCount > 0;
 }
 export async function arSyncApply(id, { start, end, product, plan }) {
   if (!pool) return false; await ensureArSync();

@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList,
+  kxMailLog, kxMailLogList, arSyncSetCs,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -4261,6 +4261,10 @@ const JP_HOLIDAYS = {
   "2026-05-05": "こどもの日", "2026-05-06": "振替休日", "2026-07-20": "海の日", "2026-08-11": "山の日",
   "2026-09-21": "敬老の日", "2026-09-22": "国民の休日", "2026-09-23": "秋分の日", "2026-10-12": "スポーツの日",
   "2026-11-03": "文化の日", "2026-11-23": "勤労感謝の日",
+  "2027-01-01": "元日", "2027-01-11": "成人の日", "2027-02-11": "建国記念の日", "2027-02-23": "天皇誕生日",
+  "2027-03-22": "振替休日", "2027-04-29": "昭和の日", "2027-05-03": "憲法記念日", "2027-05-04": "みどりの日",
+  "2027-05-05": "こどもの日", "2027-07-19": "海の日", "2027-08-11": "山の日", "2027-09-20": "敬老の日",
+  "2027-09-23": "秋分の日", "2027-10-11": "スポーツの日", "2027-11-03": "文化の日", "2027-11-23": "勤労感謝の日",
 };
 // ===== インターンのシフト提出（kincallログイン必須・本人のみ入力） =====
 async function shiftUserName(email) {
@@ -13331,7 +13335,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     arCircusFillBg(rows, req.user);
     const view = (r) => { const mo = (r.ar_months && r.ar_months[ym]) || {}; return { id: r.id, name: r.name, plan: r.ar_plan, no: r.ar_no || "", start: r.ar_start || "", status: r.ar_status || "継続中", statusOn: arStatusOn(r, ym),
       cancelApplied: r.ar_cancel_applied ? String(r.ar_cancel_applied instanceof Date ? r.ar_cancel_applied.toISOString() : r.ar_cancel_applied).slice(0, 10) : "", cancelWish: r.ar_cancel_wish || "", cancelMonth: r.ar_cancel_month || "",
-      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: r.cs_name || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "" }; };
+      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: r.ar_cs || r.cs_name || "", csSheet: r.ar_cs || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "" }; };
     const all = rows.map(view);
     const bill = rows.filter((r) => arBillOn(r, ym)).map(view);
     const billPrev = new Set(rows.filter((r) => arBillOn(r, prev)).map((r) => String(r.id)));
@@ -13349,7 +13353,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unmatched: inbox.length, unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name) };
     res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
       form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false,
-        replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyAlso: stA.arReplyAlso != null ? stA.arReplyAlso : "support_x@mochica.jp", replyCs: stA.arReplyCs !== false, replyReady: stA.arReplyOwner ? !!(await arWithin(gmailReady(stA.arReplyOwner).catch(() => false), 5000, false)) : false,
+        replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyAlso: stA.arReplyAlso != null ? stA.arReplyAlso : AR_REPLY_ALSO_DEFAULT, replyCs: stA.arReplyCs !== false, csMails: stA.arCsMails || {}, shareDay: Number(stA.arShareBizDay || 20), shareDate: arBizDay(ym, Number(stA.arShareBizDay || 20)), replyReady: stA.arReplyOwner ? !!(await arWithin(gmailReady(stA.arReplyOwner).catch(() => false), 5000, false)) : false,
         notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length },
       sync: await (async () => { const l = await arSyncLast().catch(() => null); return l ? { at: l.at, by: l.by_user, rows: l.rows, matched: l.matched, changed: l.changed, unmatched: l.unmatched || [], unknown: l.unknown || [], error: l.error || "" } : null; })(),
       rules: stA.arPlanRules || [] });
@@ -13405,11 +13409,16 @@ async function arMatch(company, no) {
   const hits = rows.filter((r) => r.ar_plan === "自動更新" && csCoKey(r.name) === key);
   return hits.length === 1 ? hits[0] : null;
 }
-// CS担当（kinXs の CS担当の名前）→ kinbot のメンバーのメール。同じ苗字が2人いるときは名前全体で決める。決まらなければ空
+const AR_REPLY_ALSO_DEFAULT = "doc_support@neo-career.co.jp, support_x@mochica.jp";   // DOCの共有アドレス・メールワイズ（2026-11-10 幸地さん）
+// CS担当（納品一覧のCS担当、無ければ kinXs の CS担当の名前）→ 設定の対応表 arCsMails か kinbot のメンバーのメール。同じ苗字が2人いるときは名前全体で決める。決まらなければ空
 async function arCsEmailOf(accId) {
   if (!accId) return "";
   const { items } = await kinxsBuildMemo().catch(() => ({ items: [] }));
-  const x = (items || []).find((i) => String(i.id) === String(accId)); const cs = String((x && x.cs) || "").normalize("NFKC").trim(); if (!cs) return "";
+  const x = (items || []).find((i) => String(i.id) === String(accId));
+  const acc = (await arSyncAccounts().catch(() => [])).find((a) => String(a.id) === String(accId));
+  const cs = String((acc && acc.ar_cs) || (x && x.cs) || "").normalize("NFKC").trim(); if (!cs) return "";
+  const map = (await getSettings().catch(() => ({}))).arCsMails || {};
+  const hit = Object.entries(map).find(([k]) => String(k).normalize("NFKC").replace(/[\s　]/g, "") === cs.replace(/[\s　]/g, "") || kxSur(k) === kxSur(cs)); if (hit && /@/.test(hit[1])) return String(hit[1]).toLowerCase();
   const flat = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
   const users = (await listUsers().catch(() => [])).filter((u) => u.email && u.name);
   const full = users.filter((u) => flat(u.name) === flat(cs)); if (full.length === 1) return String(full[0].email).toLowerCase();
@@ -13424,7 +13433,7 @@ async function arReply(owner, to, { company, applicant, cancelMonth, accId }) {
   const sender = st.arReplyOwner || ""; if (!sender) throw new Error("自動返信を送る人が決まっていません");
   const fromAddr = String(st.arReplyFrom || "").trim();
   // 宛先（To）：申請者＋一緒に入れるアドレス（既定 support_x@mochica.jp＝メールワイズ）＋CS担当（2026-11-10 田中さん「先方の担当者、support_x、CS担当宛に送る」）
-  const also = String(st.arReplyAlso != null ? st.arReplyAlso : "support_x@mochica.jp").split(/[,\s;、]+/).filter((a) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a));
+  const also = String(st.arReplyAlso != null ? st.arReplyAlso : AR_REPLY_ALSO_DEFAULT).split(/[,\s;、]+/).filter((a) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a));
   const csMail = st.arReplyCs !== false ? await arCsEmailOf(accId).catch(() => "") : "";
   const toList = [...new Set([to, ...also, csMail].map((a) => String(a || "").trim().toLowerCase()).filter(Boolean))];
   await gmailSend(sender, { to: toList.join(", "), subject: "【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ", bodyText: body,
@@ -13473,6 +13482,8 @@ app.put("/api/kinxs/autorenew-settings", async (req, res) => {
     if (b.replyFrom !== undefined) patch.arReplyFrom = String(b.replyFrom || "").trim().toLowerCase();
     if (b.replyAlso !== undefined) patch.arReplyAlso = String(b.replyAlso || "").trim().toLowerCase();
     if (b.replyCs !== undefined) patch.arReplyCs = !!b.replyCs;
+    if (b.csMails && typeof b.csMails === "object") { const m = {}; for (const [k, v] of Object.entries(b.csMails)) { const e = String(v || "").trim().toLowerCase(); if (String(k).trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) m[String(k).trim()] = e; } patch.arCsMails = m; }
+    if (b.shareDay !== undefined) patch.arShareBizDay = Math.min(23, Math.max(1, Number(b.shareDay) || 20));
     await saveSettings(patch);
     const r = await arIntake().catch((e) => ({ error: e.message }));
     res.json({ ok: true, intake: r });
@@ -13521,7 +13532,7 @@ function arYmOf(v) {
 function arPlanOf(product, rules) {
   const p = String(product || "").normalize("NFKC");
   for (const r of (Array.isArray(rules) ? rules : [])) { if (r && r.match && p.includes(String(r.match).normalize("NFKC"))) return { plan: r.plan === "自動更新" ? "自動更新" : "年間", known: true }; }
-  if (/自動更新|月額|1ヶ月|1か月|マンスリー/.test(p)) return { plan: "自動更新", known: true };
+  if (/自動更新/.test(p)) return { plan: "自動更新", known: true };   // 2026-11-10：「月額」だけでは自動更新にしない（年間の商品にも「月額利用料」と付くことがあるため）。決まった商品名は設定のルールで足す
   return { plan: "年間", known: !!p };
 }
 let _arSyncBusy = false;
@@ -13533,6 +13544,8 @@ async function arSyncSheet(by = "自動") {
     const sheet = st.arSyncSheetId || AR_SYNC_SHEET, tab = st.arSyncTab || AR_SYNC_TAB;
     const rows = await readSheet(owner, sheet, `'${tab}'!A1:Z5000`);
     const D = 3, E = 4, X = 23, Y = 24;
+    // CS担当の列は、見出し（上の5行）で探す（2026-11-10 幸地さん：自動返信を納品一覧のCS担当へ）
+    let CSC = -1; for (const h of rows.slice(0, 5)) { const i = (h || []).findIndex((c) => /CS担当|ＣＳ担当|^\s*CS\s*$|カスタマーサクセス/i.test(String(c || ""))); if (i >= 0) { CSC = i; break; } }
     // 企業ごとに、いちばん新しい期間の行
     const best = new Map();
     for (const r of rows) {
@@ -13540,12 +13553,12 @@ async function arSyncSheet(by = "自動") {
       if (!name || (!start && !end) || /企業名|会社名/.test(name)) continue;
       const k = csCoKey(name); if (!k) continue;
       const cur = best.get(k); const key = `${end || ""}|${start || ""}`;
-      if (!cur || key > cur.key) best.set(k, { key, name, product: String(r[D] || "").trim(), start, end });
+      if (!cur || key > cur.key) best.set(k, { key, name, product: String(r[D] || "").trim(), start, end, cs: CSC >= 0 ? String(r[CSC] || "").trim() : (cur ? cur.cs : "") });
     }
     const accts = (await arSyncAccounts()).filter((a) => !a.merged_into);
     const links = st.arSyncLinks || {};   // 手で紐づけたもの：{ 企業名のキー: account_id }
     const byKey = new Map(); for (const a of accts) { for (const n of [a.name, ...(Array.isArray(a.former_names) ? a.former_names : [])]) { const k = csCoKey(n); if (k && !byKey.has(k)) byKey.set(k, a); } }
-    let matched = 0, changed = 0; const unmatched = [], unknown = [];
+    let matched = 0, changed = 0, aligned = 0; const unmatched = [], unknown = [];
     for (const [k, v] of best) {
       const a = (links[k] && accts.find((x) => String(x.id) === String(links[k]))) || byKey.get(k);
       if (!a) { unmatched.push({ key: k, name: v.name, product: v.product, start: v.start, end: v.end }); continue; }
@@ -13555,20 +13568,57 @@ async function arSyncSheet(by = "自動") {
       // すでに自動更新にしている企業は、ルールで自動更新と分からないかぎり年間に戻さない
       const plan = a.ar_plan === "自動更新" && pl.plan === "年間" && !(st.arPlanRules || []).some((r) => r && r.plan === "年間" && String(v.product || "").includes(r.match)) ? "自動更新" : pl.plan;
       if (await arSyncApply(a.id, { start: v.start, end: v.end, product: v.product, plan })) changed++;
+      if (CSC >= 0) await arSyncSetCs(a.id, v.cs).catch(() => {});
+      // 納品一覧の契約終了月を正にする（設定でオン）：kinXs の更新月を合わせて、SF から上書きされないように固定
+      if (st.arEndTruth && v.end && v.end !== String(a.renew_month || "")) { await kinxsUpdate(a.id, { renew_month: v.end, renew_locked: true }, "納品一覧").catch(() => {}); aligned++; }
     }
-    const r = { by, rows: best.size, matched, changed, unmatched, unknown: [...new Set(unknown)].slice(0, 30) };
+    const r = { by, rows: best.size, matched, changed, aligned, csCol: CSC, unmatched, unknown: [...new Set(unknown)].slice(0, 30) };
     await arSyncLog(r);
     if (changed || unmatched.length) console.log(`[DOC自動更新] 納品一覧と同期：${best.size}社（突合 ${matched}・更新 ${changed}・未突合 ${unmatched.length}）`);
     return r;
   } catch (e) { await arSyncLog({ by, error: e.message }).catch(() => {}); throw e; }
   finally { _arSyncBusy = false; }
 }
+setTimeout(async () => { try { const st = await getSettings(); if (!st.arPlanRulesSeeded) { const rules = Array.isArray(st.arPlanRules) ? st.arPlanRules : [];
+  const m = "アチコチバース（月額利用料／自動更新）"; await saveSettings({ arPlanRules: rules.some((r) => r && r.match === m) ? rules : [{ match: m, plan: "自動更新" }, ...rules], arPlanRulesSeeded: true }); } } catch {} }, 60 * 1000);
 setTimeout(() => arSyncSheet("自動").catch((e) => console.warn("[DOC自動更新] 納品一覧", e.message)), 4 * 60 * 1000);
 setInterval(() => arSyncSheet("自動").catch((e) => console.warn("[DOC自動更新] 納品一覧", e.message)), 60 * 60 * 1000);
 app.post("/api/kinxs/autorenew-sync", async (req, res) => {
   try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" }); res.json({ ok: true, ...(await arSyncSheet(await displayNameOf(req.user).catch(() => req.user))) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 納品一覧の契約終了月と kinXs の更新月のズレ（2026-11-10 幸地さん「どの企業がズレてるか教えて」）
+async function arEndDiffs() {
+  const accts = (await arSyncAccounts()).filter((a) => !a.merged_into && !a.archived && a.ar_end);
+  return accts.filter((a) => String(a.ar_end) !== String(a.renew_month || "")).map((a) => ({ id: a.id, name: a.name_override || a.name, sheetEnd: a.ar_end, renew: a.renew_month || "", cs: a.ar_cs || a.cs_name || "",
+    gap: a.renew_month ? ((Number(a.ar_end.slice(0, 4)) - Number(String(a.renew_month).slice(0, 4))) * 12 + Number(a.ar_end.slice(5, 7)) - Number(String(a.renew_month).slice(5, 7))) : null }))
+    .sort((x, y) => Math.abs(y.gap ?? 99) - Math.abs(x.gap ?? 99) || String(x.name).localeCompare(String(y.name), "ja"));
+}
+app.get("/api/kinxs/autorenew-sync/diffs", async (req, res) => {
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "できません" }); const st = await getSettings().catch(() => ({})); res.json({ ok: true, endTruth: !!st.arEndTruth, items: await arEndDiffs() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ズレを納品一覧に合わせる（ids を指定すればその企業だけ、無ければ全部）。truth を送れば「納品一覧を正にする」の設定も変える
+app.post("/api/kinxs/autorenew-sync/align", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
+    const by = await displayNameOf(req.user).catch(() => req.user);
+    if (req.body && req.body.truth !== undefined) await saveSettings({ arEndTruth: !!req.body.truth });
+    const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(String) : null;
+    let n = 0;
+    if (!(req.body && req.body.onlySetting)) for (const d of await arEndDiffs()) { if (ids && !ids.includes(String(d.id))) continue; await kinxsUpdate(d.id, { renew_month: d.sheetEnd, renew_locked: true }, `${by}（納品一覧に合わせる）`); n++; }
+    res.json({ ok: true, aligned: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 共有日：毎月の第n営業日（土日・祝日・年末年始 12/29〜1/3 を除く）（2026-11-10 幸地さん「第20営業日くらい」）
+function arBizDay(ym, n) {
+  const [y, m] = ym.split("-").map(Number); let c = 0;
+  for (let d = 1; d <= 31; d++) { const dt = new Date(Date.UTC(y, m - 1, d)); if (dt.getUTCMonth() !== m - 1) break;
+    const iso = dt.toISOString().slice(0, 10), wd = dt.getUTCDay(), md = iso.slice(5);
+    if (wd === 0 || wd === 6 || JP_HOLIDAYS[iso] || md >= "12-29" || md <= "01-03") continue;
+    if (++c === n) return iso; }
+  return "";
+}
 // 未突合の企業を、kinXs の会社に手で紐づける（次の同期から使う）
 app.post("/api/kinxs/autorenew-sync/link", async (req, res) => {
   try {
@@ -29611,7 +29661,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10u DOC自動更新：自動返信を送る共通アカウント（doc_support@ など）の Google 連携リンクを「解約フォーム」タブから出せるように（kinbot へのログイン不要）。";
+const BUILD_TAG = "2026-11-10v DOC自動更新：自動返信の宛先（申請者・doc_support・support_x・納品一覧のCS担当）、CS担当の列とメールの対応表、商品名ルール（月額利用料／自動更新）、契約終了月と更新月のズレの一覧と合わせる、共有日＝第20営業日。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
