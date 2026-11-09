@@ -2404,3 +2404,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・画面：全企業のタブに『納品一覧シートと同期』（今すぐ同期・最後の同期・未突合の紐づけ・ルールの欄）、プランで絞る札、商品名・契約終了月の列。※作業用フォルダが消えて取り直したあと、手元のデータベースが無いので手元での確かめは関数だけ。
 
 - 2026-11-10 デプロイの失敗（b0310e2a から3回）：arList が毎回 ALTER TABLE kinxs_accounts を2回、arSyncApply（同期で会社ごと）も ensureArSync で毎回 ALTER していた。ALTER は表をしばらく止めるので、本番の起動の確かめ（healthcheck）を待たせていた可能性→ ensureArSync・ensureArInbox を1回だけに。
+- 2026-11-10 BUILD_TAG=2026-11-10j 田中さん「DOC自動更新がずっと読み込んでいる」。原因：納品一覧の同期で年間の企業も ar_plan が入り arList が大きくなり、GET /api/kinxs/autorenew が申込番号の空の全社を arCircusFromSf（SF）で順番に調べてから返していた。修正：arCircusFillBg（裏で・ar_plan=自動更新だけ・1回20社・6時間に1回・同時に1本）にして応答を待たせない。replyReady の gmailReady は arWithin で5秒まで。kinxs.js arLoad は45秒で「時間がかかりすぎています」を出す。版20261110j。

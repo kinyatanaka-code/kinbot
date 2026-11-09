@@ -2094,7 +2094,7 @@ async function arLoad() {
   const box = $("vArBody"); if (!box) return;
   if (!ar.ym) ar.ym = arYmNow();
   box.innerHTML = '<div class="ar-empty">読み込んでいます…</div>';
-  try { ar.data = await api(`/api/kinxs/autorenew?ym=${ar.ym}`); arRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
+  try { ar.data = await Promise.race([api(`/api/kinxs/autorenew?ym=${ar.ym}`), new Promise((_, no) => setTimeout(() => no(new Error("時間がかかりすぎています。少し待ってから開き直してください")), 45000))]); arRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 function arStTag(s) { const c = s === "継続中" ? "" : s === "解約予定" ? " cx" : s === "解約済" ? " done" : " bad"; return `<span class="ar-st${c}">${esc(s)}</span>`; }
 function arRender() {

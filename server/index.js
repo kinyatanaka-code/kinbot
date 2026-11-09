@@ -13281,6 +13281,17 @@ setInterval(() => { kinxsSync().catch(() => {}); }, 30 * 60 * 1000).unref?.();
 // ===== DOC（アチコチバース）1ヶ月ごとの自動更新（2026-11-09 幸地美穂さんの要件・田中さん。販売管理部は kincs で見る）=====
 const AR_PRICE = 10000;   // 月額（税別）
 const _arCircusTried = new Map();
+let _arCircusRunning = false;
+function arCircusFillBg(rows, user) {
+  if (_arCircusRunning) return;
+  const todo = rows.filter((x) => x.ar_plan === "自動更新" && !x.ar_no && !(_arCircusTried.get(`ar_circus_${x.id}`) > Date.now() - 6 * 3600000)).slice(0, 20);
+  if (!todo.length) return;
+  _arCircusRunning = true;
+  (async () => { try { for (const r of todo) { _arCircusTried.set(`ar_circus_${r.id}`, Date.now());
+      const c = await arCircusFromSf(r.id, user).catch(() => ({ items: [] })); if (c.items && c.items[0]) await arUpdate(r.id, { no: c.items[0].no }, "SFから自動").catch(() => {}); } }
+    finally { _arCircusRunning = false; } })();
+}
+const arWithin = (p, ms, dflt) => Promise.race([p, new Promise((r) => setTimeout(() => r(dflt), ms))]);
 const arYm = (d) => { const x = new Date(new Date(d).getTime() + 9 * 3600000); return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, "0")}`; };
 const arAdd = (ym, n) => { const [y, m] = String(ym).split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; };
 // 解約月：希望月の前月15日までの申請なら希望月末、16日以降なら翌月末
@@ -13306,10 +13317,8 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const ym = /^\d{4}-\d{2}$/.test(String(req.query.ym || "")) ? String(req.query.ym) : arYm(Date.now());
     const prev = arAdd(ym, -1);
     let rows = await arList();
-    // 申込番号が空の企業は、SF の商談のサーカスの番号で埋める（いちばん新しいもの。会社ごとに6時間に1回まで）
-    { let filled = 0; for (const r of rows.filter((x) => !x.ar_no)) { const k = `ar_circus_${r.id}`; if (_arCircusTried.get(k) > Date.now() - 6 * 3600000) continue; _arCircusTried.set(k, Date.now());
-        const c = await arCircusFromSf(r.id, req.user).catch(() => ({ items: [] })); if (c.items && c.items[0]) { await arUpdate(r.id, { no: c.items[0].no }, "SFから自動"); filled++; } }
-      if (filled) rows = await arList(); }
+    // 申込番号が空の自動更新の企業は、SF の商談のサーカスの番号で埋める（画面を待たせないよう裏で。年間の企業は調べない）（2026-11-10 修正：同期で年間の企業が増え、開くたびに全社をSFで調べて読み込みが終わらなかった）
+    arCircusFillBg(rows, req.user);
     const view = (r) => { const mo = (r.ar_months && r.ar_months[ym]) || {}; return { id: r.id, name: r.name, plan: r.ar_plan, no: r.ar_no || "", start: r.ar_start || "", status: r.ar_status || "継続中", statusOn: arStatusOn(r, ym),
       cancelApplied: r.ar_cancel_applied ? String(r.ar_cancel_applied instanceof Date ? r.ar_cancel_applied.toISOString() : r.ar_cancel_applied).slice(0, 10) : "", cancelWish: r.ar_cancel_wish || "", cancelMonth: r.ar_cancel_month || "",
       applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: r.cs_name || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "" }; };
@@ -13330,7 +13339,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unmatched: inbox.length, unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name) };
     res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
       form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false,
-        replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyReady: stA.arReplyOwner ? !!(await gmailReady(stA.arReplyOwner).catch(() => false)) : false,
+        replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyReady: stA.arReplyOwner ? !!(await arWithin(gmailReady(stA.arReplyOwner).catch(() => false), 5000, false)) : false,
         notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length },
       sync: await (async () => { const l = await arSyncLast().catch(() => null); return l ? { at: l.at, by: l.by_user, rows: l.rows, matched: l.matched, changed: l.changed, unmatched: l.unmatched || [], unknown: l.unknown || [], error: l.error || "" } : null; })(),
       rules: stA.arPlanRules || [] });
@@ -29441,7 +29450,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10i DOC自動更新：納品一覧シート（DOC_アチコチバース（年間）のD・E・X・Y列）と1時間ごとに同期。契約開始月・終了月・商品名・プラン区分を取り込み、未突合は手で紐づけ、商品名のルールでプラン区分。";
+const BUILD_TAG = "2026-11-10j DOC自動更新：読み込みが終わらない不具合を修正（申込番号のSFの調べを裏に回し、自動更新の企業だけ・1回20社まで。返信の準備の確かめは5秒まで。画面は45秒で知らせる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
