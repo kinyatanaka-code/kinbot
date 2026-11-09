@@ -12382,7 +12382,7 @@ async function ensureAutoRenew() {
 }
 export async function arList() {
   if (!pool) return []; await ensureAutoRenew();
-  await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_end TEXT`).catch(() => {}); await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_product TEXT`).catch(() => {});
+  await ensureArSync();
   const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name
     FROM kinxs_accounts WHERE COALESCE(ar_plan,'') <> '' ORDER BY ar_start NULLS LAST, name`);
   return rows;
@@ -12421,8 +12421,9 @@ export async function arExports(ym) { if (!pool) return []; await ensureAutoRene
 export async function arHistory(id) { if (!pool) return []; await ensureAutoRenew(); return (await pool.query(`SELECT by_user, at, change FROM kinxs_ar_history WHERE account_id = $1 ORDER BY at DESC LIMIT 50`, [String(id)])).rows; }
 
 // 解約フォームの回答の受け箱（取り込んだもの・要確認・無視）（2026-11-10）
+let _arInboxReady = false;
 async function ensureArInbox() {
-  if (!pool) return;
+  if (!pool || _arInboxReady) return; _arInboxReady = true;
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_inbox (id SERIAL PRIMARY KEY, row_key TEXT UNIQUE, at TIMESTAMPTZ, company TEXT, applicant TEXT, email TEXT, no TEXT, wish TEXT,
     raw JSONB, matched_id TEXT, state TEXT, replied BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
 }
@@ -12458,8 +12459,9 @@ export async function autoGroupListsByName(rules = [], treeIds = []) {
 }
 
 // 納品一覧シートとの同期（契約開始月・終了月・プラン区分）（2026-11-10 幸地さん）
+let _arSyncReady = false;
 async function ensureArSync() {
-  if (!pool) return;
+  if (!pool || _arSyncReady) return; _arSyncReady = true;   // 列を足すのは1回だけ（毎回 ALTER すると表を長く止めてしまう）
   await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_end TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_product TEXT`).catch(() => {});
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_sync (id SERIAL PRIMARY KEY, at TIMESTAMPTZ DEFAULT now(), by_user TEXT, rows INT, matched INT, changed INT, unmatched JSONB, unknown JSONB, error TEXT)`).catch(() => {});

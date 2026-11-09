@@ -2402,3 +2402,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
   ・arSyncSheet（起動4分後と1時間ごと・POST /api/kinxs/autorenew-sync）：settings.arSyncOwner→arCancelOwner→kinya.tanaka@ の Google で `'タブ'!A1:Z5000` を読み、D=3・E=4・X=23・Y=24、arYmOf（2026/4/1・2026年4月・シートの日付の数字も）、企業名の csCoKey ごとに『終了月|開始月』が最大の行。kinXs の会社（名前・旧社名の csCoKey、settings.arSyncLinks の手の紐づけが先）に arSyncApply（ar_start・ar_end（新）・ar_product（新）・ar_plan だけ、変わったときだけ）。プラン＝arPlanOf（settings.arPlanRules [{match,plan}]、無ければ商品名に 自動更新・月額・1ヶ月 で自動更新、ほかは年間。すでに自動更新の企業はルールで年間と分からないかぎり戻さない）。kinxs_ar_sync に履歴（未突合・判定できない商品名）。
   ・POST /api/kinxs/autorenew-sync/link（未突合を kinXs の会社に紐づけて同期し直す）、PUT /api/kinxs/autorenew-rules。GET /api/kinxs/autorenew に sync・rules、行に end・product。
   ・画面：全企業のタブに『納品一覧シートと同期』（今すぐ同期・最後の同期・未突合の紐づけ・ルールの欄）、プランで絞る札、商品名・契約終了月の列。※作業用フォルダが消えて取り直したあと、手元のデータベースが無いので手元での確かめは関数だけ。
+
+- 2026-11-10 デプロイの失敗（b0310e2a から3回）：arList が毎回 ALTER TABLE kinxs_accounts を2回、arSyncApply（同期で会社ごと）も ensureArSync で毎回 ALTER していた。ALTER は表をしばらく止めるので、本番の起動の確かめ（healthcheck）を待たせていた可能性→ ensureArSync・ensureArInbox を1回だけに。
