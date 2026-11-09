@@ -17889,6 +17889,22 @@ app.post("/api/calls/targets/:id/record", async (req, res) => {
     if (アポ登録) {
       try {
         apo = await createApoFromKincall({ target: t, apo: b.apo, setterEmail: String(req.user || "").toLowerCase(), actor: req.user || "kincall" });
+        // アポの内容で先方担当（苗字）・メールを変えたら、SF のリードの担当者名とメール、kincall のリードも直す（2026-11-10 田中さん）
+        try {
+          const nn = (v) => String(v || "").normalize("NFKC").replace(/[\s　]|様$/g, "");
+          const newSur = String(b.apo.person || "").replace(/\s*様$/, "").trim().split(/[\s　]+/)[0] || "";
+          const oldSur = String(t.person || "").replace(/\s*様$/, "").trim().split(/[\s　]+/)[0] || "";
+          const newEm = String(b.apo.email || "").trim(), oldEm = String(t.email || "").trim();
+          const nameChanged = newSur && nn(newSur) !== nn(oldSur), mailChanged = newEm && newEm.toLowerCase() !== oldEm.toLowerCase();
+          if (nameChanged || mailChanged) {
+            await updateCallTargetFields(t.id, { ...(nameChanged ? { person: newSur } : {}), ...(mailChanged ? { email: newEm } : {}) }).catch(() => {});
+            if (t.lead_id) {
+              const sfU = await pickSfUser(req.user, req).catch(() => req.user);
+              const f = {}; if (nameChanged) { f.LastName = newSur; f.FirstName = null; } if (mailChanged) f.Email = newEm;
+              await updateLead(sfU, t.lead_id, f).then(() => console.log(`[kincall-apo] SFのリードの担当者を直しました：${t.company} ${oldSur}→${newSur} ${mailChanged ? newEm : ""}`)).catch((e) => console.warn("[kincall-apo] SFのリードの担当者を直せません", e.message));
+            }
+          }
+        } catch (e) { console.warn("[kincall-apo] 担当者の更新", e.message); }
       } catch (e) {
         console.warn("[kincall-apo] 登録に失敗:", e.message);
         apo = { ok: false, error: e.message };
@@ -29344,7 +29360,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10g kincall：LINEリストのグループのリードは、日程の候補を中澤さんの空きだけに（画面の読み込み直しのため版を上げた）。";
+const BUILD_TAG = "2026-11-10h kincallのアポの内容：先方担当は苗字だけ。担当者名やメールを変えてアポ獲得を記録したら、SFのリードの担当者名・メールとkincallのリードも直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

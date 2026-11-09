@@ -2395,3 +2395,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-10 BUILD_TAG=2026-11-10f 田中さん「LINEリストにグループ分けされているのは中澤だけ」。/api/calls/group-tree を開くたびに autoGroupListsByName：グループが無いか、種類の木に無いグループのリストを、名前の正規表現で種類のグループへ（LINE|ＬＩＮＥ|ライン→LINEリスト、新卒、フロッグ、MOユーザー、MO解約、MO失注（過去は除く）、検証、クロス失注、DOC過去失注|過去失注リスト、リスケ。上から先に合ったもの）。木のグループに入れてあるリストは動かさない。MO過去失注などはそのまま。版20261110f。
 
 - 2026-11-10 BUILD_TAG=2026-11-10f 田中さん「LINEリストにグループ分けされているのは中澤だけのおすすめ日程になるようにと、割り振られるのも中澤だけで」。仕組み（SLOT_REPS_DEFAULT・ASSIGN_REPS_DEFAULT の LINE → 中澤良太、11/4）はあったが、日程の候補はリスト名だけで見分けていて、リスト名に LINE が無い・名前で引けないリストだと効かなかった。openSlotPanel が listId と group（行の listGroupName）も渡し、slot-suggest・slot-day の slotMembersForList → repsForList が リストの ID・グループ名でも照らす。割り振りは前から origin_target_id のリストの ID → グループで見ている。版20261110f。
+
+- 2026-11-10 BUILD_TAG=2026-11-10h 田中さん「アポ獲得した際に担当者の名前を変更したときは、SFのリードの担当者名とメールアドレスも変えるように。また苗字だけを入れるように。今名前とかも自動でアポ内容にのってしまっている」。calls.js：アポの内容の『先方担当』の初期値を kcSurnameOnly（『山田 太郎様』→『山田』）、送るときも苗字だけ（予定名の『【初回】会社名/山田様』も苗字）。記録の API：アポを作ったあと、先方担当（苗字）かメールが kincall のリードと違えば updateCallTargetFields（person・email）と、lead_id があれば updateLead（pickSfUser：LastName＝苗字・FirstName＝null、Email）。※作業用フォルダが消えていたので取り直した（node_modules も入れ直し）。版20261110h。

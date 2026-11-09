@@ -2569,7 +2569,7 @@ async function openTarget(id, draft, opt) {
             </div>
             <span></span><div class="kc-apo-free" id="kcApoFree">右の「おすすめの日程」を押すか、日付と時間を選んでください</div>
             <label class="kc-apo-lb" for="kcApoPerson">先方担当</label>
-            <input type="text" class="kc-input" id="kcApoPerson" value="${esc(String(x["担当者"] || "").replace(/\s*様$/, ""))}" placeholder="山田 太郎" />
+            <input type="text" class="kc-input" id="kcApoPerson" value="${esc(kcSurnameOnly(x["担当者"]))}" placeholder="山田（苗字だけ）" title="苗字だけを入れます。変えると、SFのリードの担当者名とメールも直します" />
             <label class="kc-apo-lb" for="kcApoEmail">メール</label>
             <input type="email" class="kc-input" id="kcApoEmail" value="${esc(x["メール"] || "")}" placeholder="yamada@example.co.jp" />
             <label class="kc-apo-lb" for="kcApoPhone">電話</label>
@@ -2914,7 +2914,7 @@ async function openTarget(id, draft, opt) {
       if (!em && !confirm("先方のメールアドレスが空です。確定メールは送られません。このまま登録しますか？")) return;
       apoBody = {
         start: startIso, minutes: gv("#kcApoMins") || "60",
-        company: x["会社名"] || "", person: gv("#kcApoPerson"), email: em, cc: gv("#kcApoCc"), phone: gv("#kcApoPhone"),
+        company: x["会社名"] || "", person: kcSurnameOnly(gv("#kcApoPerson")), email: em, cc: gv("#kcApoCc"), phone: gv("#kcApoPhone"),
         business: gv("#kcApoBiz"), memo: gv("#kcMemo"), tag: gv("#kcApoTag") || "初回",
       };
     }
@@ -13150,3 +13150,6 @@ document.addEventListener("click", async (e) => {
     kcZoomShareOpen();
   } catch (er) { alert(er.message); }
 }, true);
+
+// 先方担当は苗字だけ（「山田 太郎様」→「山田」）（2026-11-10 田中さん）
+function kcSurnameOnly(v) { return String(v || "").replace(/\s*様$/, "").trim().split(/[\s　]+/)[0] || ""; }
