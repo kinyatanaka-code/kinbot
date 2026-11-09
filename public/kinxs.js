@@ -572,6 +572,7 @@ function kxCoPane(d) {
           <div class="kx-edact"><button type="button" class="hp-b" data-ct-add style="margin-right:auto">＋ 担当者を追加</button><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
         </div>
       </section>
+      ${kxLabelSchedPane(d, "label")}
     </div>
     <div class="kx-co-col">
       <section class="kx-c2">
@@ -610,7 +611,7 @@ function kxLabelSchedPane(d, part = "all") {
   const prodTbl = `<div class="kx-sec"><div class="lb">SFの商談の商品<span class="kx-note" style="margin-left:8px">空間デザイン制作・スタンダード・ライト→空間／エントリー・アチコチバース→AI／取材費→対象外／それ以外→SNS</span></div>
       ${pis.length ? `<div class="kx-ptbl"><div class="h"><span>商品</span><span>区別</span><span>計上日</span><span>サーカスNo</span><span>商談</span></div>${pis.map((p0) => `<div class="r"><span class="nm">${esc(p0.name)}</span><span>${clsTag(p0.cls)}</span><span>${esc(String(p0.booked || "").replace(/-/g, "/") || "—")}</span><span data-circus-opp="${esc(p0.opp || "")}" data-circus-name="${esc(p0.oppName || "")}" style="font-variant-numeric:tabular-nums">…</span><span class="kx-note">${esc(p0.oppName || p0.stage || "")}</span></div>`).join("")}</div>` : '<div class="kx-note">SFの商談の商品がありません（手で追加した会社か、まだ取り込んでいません）</div>'}
     </div>`;
-  const kenSec = `<div class="kx-sec" data-ken-sec><div class="lb">検収書<span class="kx-note" style="margin-left:8px">PDFを企業ごとに残し、回収をチャットで知らせます</span></div><div data-ken-list class="kx-note">読み込んでいます…</div></div>`;
+  const kenSec = `<div class="kx-sec" data-ken-sec><div class="lb">検収書<span class="kx-note" style="margin-left:8px">PDFを企業ごとに残し、回収をチャットで知らせます</span></div><div data-ken-list data-ken-mode="list" class="kx-note">読み込んでいます…</div></div>`;
   const labelSec = `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品から）</span>' : ""}</div>
       <label>DOC</label><div class="kx-usage">${KX_DOC_L.map((t) => chip(t, "DOC")).join("")}</div>
       <label>SNS</label><div class="kx-usage">${KX_SNS_L.map((t) => chip(t, "SNS")).join("")}</div>
@@ -619,7 +620,8 @@ function kxLabelSchedPane(d, part = "all") {
     </div>`;
   const schedSec = `${doc ? `<div class="kx-sec"><div class="lb" style="display:flex;align-items:center;gap:8px">掲載までのスケジュール（DOC）${sc ? `<span class="kx-note">${esc(new Date(sc.at).toLocaleDateString("ja-JP"))} に議事録から作成</span>` : ""}<span style="margin-left:auto;display:flex;gap:6px">${sc ? '<button type="button" class="hp-b" data-sch-doc>スケジュール資料を開く</button>' : ""}<button type="button" class="hp-b" data-sch-make>${sc ? "議事録から作り直す" : "議事録から作る"}</button></span></div>
       ${sc ? `<div class="kx-sch">${schRows}</div>` : '<div class="kx-note">まだありません。キックオフ・フォローの議事録から、掲載までの段取りと日付を作ります（予定より遅れると要注意に出ます）。</div>'}<span class="kx-note" data-sch-st></span></div>` : ""}`;
-  if (part === "prod") return prodTbl + kenSec + labelSec;   // 企業情報のタブ（2026-11-10 田中さん：SFの商品・ラベルは企業情報へ）
+  if (part === "prod") return prodTbl + kenSec;   // 企業情報のタブ（2026-11-10 田中さん：SFの商品は企業情報へ）
+  if (part === "label") return labelSec;   // 先方の担当者の下（2026-11-10 田中さん）
   if (part === "sched") return schedSec;
   return prodTbl + kenSec + labelSec + schedSec;
 }
@@ -2407,8 +2409,11 @@ async function kxCircusMount(bg, x) {
   x._circus = its;
 }
 async function kxKenshuMount(bg, x) {
-  const box = bg.querySelector("[data-ken-list]"); if (!box) return;
-  let d; try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/files`); } catch (e) { box.textContent = "読めませんでした：" + e.message; return; }
+  const boxes = [...bg.querySelectorAll("[data-ken-list]")]; if (!boxes.length) return;
+  let d; try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/files`); } catch (e) { boxes.forEach((b) => { b.textContent = "読めませんでした：" + e.message; }); return; }
+  for (const box of boxes) kxKenshuOne(bg, x, box, d, box.dataset.kenMode || "full");
+}
+function kxKenshuOne(bg, x, box, d, mode) {
   const ro = !!window.KX_COPY;
   const fmt = (t) => String(t || "").slice(0, 16).replace("T", " ");
   const list = (d.items || []);
@@ -2416,7 +2421,8 @@ async function kxKenshuMount(bg, x) {
   const tpl = (no) => `お疲れ様です。\n下記案件の検収書を回収いたしましたので\nご確認のほどよろしくお願いいたします。\n\n企業名：${x.name}\nサーカスNo：${no || ""}`;
   box.classList.remove("kx-note");
   box.innerHTML = `${list.length ? `<div class="kx-ken-box">${list.map((f) => `<div class="kx-ken-row">📄 <a href="/api/kinxs/files/${f.id}" target="_blank" rel="noopener">${esc(f.name)}</a><small>${esc(fmt(f.at))}・${esc(f.by_user || "")}${f.circus_no ? `・サーカスNo ${esc(f.circus_no)}` : ""}</small>${f.chat_at ? '<small style="color:#0d5b47">✓ チャット済み</small>' : f.chat_error ? `<small style="color:#B4441F">チャット失敗：${esc(f.chat_error)}</small>` : ""}${ro ? "" : `<button type="button" class="hp-b" data-ken-del="${f.id}" style="margin-left:auto">消す</button>`}</div>`).join("")}</div>` : '<div class="kx-note" style="margin-bottom:8px">まだ検収書はありません</div>'}
-  ${ro ? "" : `<div class="kx-ken-up">
+  ${ro ? "" : mode === "list" ? '<button type="button" class="hp-b" data-ken-add>＋ 検収書を追加</button>' : ""}
+  ${ro ? "" : `<div class="kx-ken-up" ${mode === "list" ? "hidden" : ""}>
     <span>PDF</span><input type="file" data-ken-file accept="application/pdf,image/*">
     <span>サーカスNo</span><input class="kx-in" data-ken-no value="${esc(defNo())}" placeholder="例：20260728BD005">
     <span>チャットで知らせる</span><label><input type="checkbox" data-ken-notify checked> 回収をチャットに送る（PDFのリンクつき）</label>
@@ -2425,6 +2431,7 @@ async function kxKenshuMount(bg, x) {
     <span>本文</span><textarea class="kx-in" data-ken-text rows="7">${esc(tpl(defNo()))}</textarea>
     <span></span><div><button type="button" class="kx-btn kx-pri" data-ken-go>検収書を保存${""}</button> <span class="kx-note" data-ken-st></span></div>
   </div>`}`;
+  const addB = box.querySelector("[data-ken-add]"); if (addB) addB.onclick = () => { const up = box.querySelector(".kx-ken-up"); if (up) { up.hidden = false; addB.hidden = true; } };
   box.querySelectorAll("[data-ken-del]").forEach((b) => b.onclick = async () => { if (!confirm("この検収書を消しますか？")) return; try { await api(`/api/kinxs/files/${b.dataset.kenDel}`, { method: "DELETE" }); kxKenshuMount(bg, x); } catch (e) { alert(e.message); } });
   const no = box.querySelector("[data-ken-no]"), tx = box.querySelector("[data-ken-text]");
   if (no) no.oninput = () => { tx.value = tx.value.replace(/サーカスNo：.*$/m, `サーカスNo：${no.value.trim()}`); };
@@ -2497,6 +2504,7 @@ function kxNowCard(d) {
       <div class="kx-a-steps">${steps.map((s0, i) => `<div class="kx-a-st ${s0.ok ? "ok" : i === cur ? "now" : ""}"><i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small></div>`).join("")}</div>
     </section>
     ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true)}</div></section>` : ""}
+    ${cur === 2 && !x.kenshuNa ? `<section class="kx-sec" data-ken-sec-st><div class="lb">検収書を入れる<span class="kx-note" style="margin-left:8px">PDFを残して、回収をチャットで知らせます</span></div><div data-ken-list data-ken-mode="full" class="kx-note">読み込んでいます…</div></section>` : ""}
     <section class="kx-a-todo"><div class="kx-a-th"><b>対応事項</b><small>${todo.length}件</small></div>
       ${todo.map((t) => `<div class="kx-a-it ${t.lv === 1 ? "hi" : ""}">${chk(t) ? `<input type="checkbox" aria-label="${esc(t.t)}を済みにする" data-now="${chk(t)}">` : `<span class="kx-a-dot" aria-hidden="true"></span>`}
         <div class="kx-a-tx"><b>${esc(t.t)}</b><small>${t.tag ? `<em>${esc(t.tag)}</em>` : ""}${esc(t.s || "")}</small></div>
@@ -2523,6 +2531,7 @@ function kxNowMount(bg) {
     if (a === "na-open") return openNa();
     if (a === "read") { const r = bg.querySelector("[data-read-all]"); if (r) { const dt = r.closest("details"); if (dt) dt.open = true; r.scrollIntoView({ behavior: "smooth", block: "center" }); r.click(); } return; }
     if (a === "renew") { const rk = bg.querySelector(".kx-ranks"); if (rk) { const dt = rk.closest("details"); if (dt) dt.open = true; rk.scrollIntoView({ behavior: "smooth", block: "center" }); } return; }
-    if (a === "ken-pdf") { const t = bg.querySelector('[data-tab="co"]'); if (t) t.click(); setTimeout(() => { const k = bg.querySelector("[data-ken-sec]"); if (k) k.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80); }
+    if (a === "ken-pdf") { const here = bg.querySelector("[data-ken-sec-st]"); if (here) { here.scrollIntoView({ behavior: "smooth", block: "start" }); const f = here.querySelector("[data-ken-file]"); if (f) setTimeout(() => f.click(), 350); return; }
+      const t = bg.querySelector('[data-tab="co"]'); if (t) t.click(); setTimeout(() => { const k = bg.querySelector("[data-ken-sec]"); if (k) { k.scrollIntoView({ behavior: "smooth", block: "start" }); const b = k.querySelector("[data-ken-add]"); if (b) b.click(); } }, 80); }
   }));
 }
