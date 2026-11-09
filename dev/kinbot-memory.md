@@ -2357,3 +2357,5 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-09 BUILD_TAG=2026-11-09q 田中さん「今日かける以外ブロックするをいったんやめてほしい」。/api/calls/my-today の gateNeed の既定を 80→0（鍵なし）。settings.callGateNeed に数を入れれば、また鍵がかかる（画面は need=0 なら鍵をかけない作り）。版20261109q。
 
 - 2026-11-09 BUILD_TAG=2026-11-09r 田中さん「zoomphoneの拡張機能のダウンロードと拡張機能を追加するやつが菅原のPCでできない。HTMLがダウンロードされるだけ」。原因：isKincallPath が .zip（/kincall-zoom-ext.zip）や .js（caseshare.js・sf-data.js・cmdk.js）を通しておらず、kincall だけの人は /kincall に戻され、その HTML が zip の名前で落ちていた。.js・.zip・.jpg・フォント・/zoom-ext/ を通すようにした（案件共有の窓も、インターン生には動いていなかったはず）。版20261109r。
+
+- 2026-11-09 BUILD_TAG=2026-11-09s 田中さん「昨日変えたところで全員に反映されていないものはこの場で教えて」。調べると、kincall だけの人は /api/case-share/*（案件共有の下書き・共有先を探す・送信の設定）も止められていた→ isKincallPath に足した。calls.js が呼ぶ /api/calls 以外の API：company-card・daily/*・inside-shifts/*・interns・members・process-sheet・shift/admin-link は前からのもの（今回は触っていない）。版20261109s。
