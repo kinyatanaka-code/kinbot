@@ -2339,4 +2339,9 @@ function mlRender() {
     } catch (e) { alert("送れませんでした：" + e.message); }
     mlRender(); };
 }
+// サイドバーの「ツール」：押すと中のメニュー（メール配信・kinbotのツール）を開く。メール配信を見ているときは開いておく
+(function () { const tg = $("kxToolsTog"), sub = $("kxToolsSub"); if (!tg || !sub) return;
+  const set = (open) => { sub.hidden = !open; tg.setAttribute("aria-expanded", String(open)); if ($("kxToolsAr")) $("kxToolsAr").textContent = open ? "⌄" : "›"; };
+  sub.querySelectorAll("[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
+  set(VIEW === "mail"); tg.addEventListener("click", () => set(sub.hidden)); })();
 if (VIEW === "mail") { if ($("kxPageName")) $("kxPageName").textContent = "メール配信"; mlLoad(); }

@@ -29557,7 +29557,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10k kinXs：メール配信（一斉配信・返信）。会社を選ぶ→宛先とGmailのやり取りを読む→書きたいことから会社ごとに下書き→見直して自分のGmailで送る。返事待ちは返信を初めから選ぶ。";
+const BUILD_TAG = "2026-11-10l kinXs：メール配信をサイドバーの「ツール」の中へ（ツールを押すと メール配信・kinbotのツール が開く）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
