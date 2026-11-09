@@ -1506,12 +1506,11 @@ async function renderHistoryInto(box, id) {
                  data-result="${esc(h["結果"] || "")}" data-memo="${esc(h["メモ"] || "")}" data-at="${esc(h.at || "")}" data-rec="${esc(h.zoomRecId || "")}">
               <div class="kc-hist-top">
                 <span class="kc-hist-at">${esc(h["日付のみ"] ? String(when(h.at)).replace(/\s*\d{1,2}:\d{2}$/, "") : when(h.at))}</span>
-                <span class="kc-hist-r">${esc(h["件名"] || h["結果"] || "")}</span>
-                ${h["件名"] && h["結果"] ? `<span class="kc-hist-res">${esc(h["結果"])}</span>` : ""}
-                <span class="kc-hist-who">${esc(h["誰"] || "")}</span>
+                <span class="kc-hist-who${h["誰"] ? "" : " none"}">📞 ${esc(h["誰"] || "架電者不明")}</span>
                 ${h["元"] === "salesforce" ? '<span class="kc-hist-sf">SF</span>' : ""}
                 ${h["直せる"] ? '<button type="button" class="kc-hist-edit" data-hedit="1">直す</button>' : ""}
               </div>
+              ${(h["件名"] || h["結果"]) ? `<div class="kc-hist-tags">${h["件名"] ? `<span class="kc-hist-r">${esc(h["件名"])}</span>` : ""}${h["結果"] && h["結果"] !== h["件名"] ? `<span class="kc-hist-res">${esc(h["結果"])}</span>` : ""}</div>` : ""}
               ${h["メモ"] ? `<div class="kc-hist-m">${esc(h["メモ"])}</div>` : ""}
               ${h.zoomRecId ? `<div class="kc-hist-rec"><span class="kc-hist-rec-lb">🎧 録音${h["録音秒"] ? " " + Math.floor(h["録音秒"] / 60) + ":" + String(Math.round(h["録音秒"]) % 60).padStart(2, "0") : ""}</span><audio class="kc-hist-audio" controls preload="metadata" src="/api/calls/zoom-rec/${encodeURIComponent(h.zoomRecId)}/audio" onerror="this.outerHTML='<span class=&quot;kc-hist-rec-err&quot;>録音を読み込めませんでした</span>'"></audio></div>` : ""}
             </div>`).join("")

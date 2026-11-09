@@ -7206,3 +7206,14 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .acard{position:relative;}
 .acard-cshare{position:absolute;top:8px;right:10px;font-size:11.5px;font-weight:700;color:#0E6B4E;background:#fff;border:1px solid #CFE3D9;border-radius:99px;padding:2px 9px;cursor:pointer;}
 .acard-cshare:hover{background:#E1F5EE;}
+
+/* kincall 記録の窓の「これまでのやり取り」：架電者を名前で見やすく。日付・架電者の行と、件名・結果の札の行に分ける（2026-11-10 田中さん） */
+.kc-hist-top { flex-wrap: wrap; row-gap: 4px; min-width: 0; }
+.kc-hist-at { width: auto; white-space: nowrap; }
+.kc-hist-who { margin-left: 0; flex: none; white-space: nowrap; font-size: 11.5px; font-weight: 700; color: #14231D; background: #EEF5F1; border-radius: 99px; padding: 1px 9px; }
+.kc-hist-who.none { color: var(--muted); font-weight: 600; background: #F3F5F4; }
+.kc-hist-top .kc-hist-who { margin-right: auto; }   /* SF・直す は右はしへ */
+.kc-hist-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; min-width: 0; }
+.kc-hist-tags .kc-hist-r { font-size: 11.5px; word-break: break-word; }
+#kcHist { overflow-x: hidden; }
+#kcHist .kc-hist-row { min-width: 0; }
