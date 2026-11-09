@@ -8,3 +8,13 @@ window.addEventListener("message", (e) => {
     window.postMessage({ source: "kc-zoom-ext", type: "zoom-autologin-result", ok: !!(r && r.ok), error: r && r.error }, location.origin);
   });
 });
+// kinXs のメール配信：下書きを受け取って拡張機能に置き、メールワイズを開く（2026-11-10）
+window.addEventListener("message", (e) => {
+  if (e.source !== window || e.origin !== location.origin) return;
+  const d = e.data || {};
+  if (d.source !== "kinxs" || d.type !== "mw-drafts") return;
+  chrome.runtime.sendMessage({ type: "kx-mw-set", list: d.list || [], url: d.url || "" }, (r) => {
+    window.postMessage({ source: "kc-zoom-ext", type: "mw-drafts-result", ok: !!(r && r.ok), error: r && r.error }, location.origin);
+  });
+});
+document.documentElement.dataset.kxMwExt = "1";

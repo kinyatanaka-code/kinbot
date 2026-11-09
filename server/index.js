@@ -14290,16 +14290,26 @@ app.post("/api/kinxs/mail/send", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 const KX_MW_DEFAULT = "support_x@mochica.jp";
+const KX_MW_URL = "https://mochica-mailwise.cybozu.com/m/mw.cgi?wid=37";
 app.get("/api/kinxs/mail/settings", async (req, res) => {
   try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" }); const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, mwAddr: st.kxMwAddr || KX_MW_DEFAULT, mwName: st.kxMwName || "どこでもオープンカンパニー サポート" }); }
+    res.json({ ok: true, mwAddr: st.kxMwAddr || KX_MW_DEFAULT, mwName: st.kxMwName || "どこでもオープンカンパニー サポート", mwUrl: st.kxMwUrl || KX_MW_URL }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/mail/settings", async (req, res) => {
   try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
     const a = String((req.body && req.body.mwAddr) || "").trim().toLowerCase(); if (a && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a)) return res.status(400).json({ error: "メールアドレスの形ではありません" });
     const n = String((req.body && req.body.mwName) || "").trim().slice(0, 60);
-    await saveSettings({ ...(a ? { kxMwAddr: a } : {}), ...(n ? { kxMwName: n } : {}) }); res.json({ ok: true }); }
+    const u = String((req.body && req.body.mwUrl) || "").trim(); if (u && !/^https:\/\/[\w.-]+\.cybozu\.com\//.test(u)) return res.status(400).json({ error: "メールワイズのURL（https://〜.cybozu.com/〜）を入れてください" });
+    await saveSettings({ ...(a ? { kxMwAddr: a } : {}), ...(n ? { kxMwName: n } : {}), ...(u ? { kxMwUrl: u } : {}) }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// メールワイズへ下書きを渡した記録（送信はメールワイズで行う）
+app.post("/api/kinxs/mail/handoff", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
+    const me = String(req.user || "").toLowerCase(); const batch = `${Date.now()}`;
+    for (const it of (Array.isArray(req.body && req.body.items) ? req.body.items : []).slice(0, 60)) await kxMailLog({ by: me, accountId: String(it.id || ""), company: it.company || "", to: it.to || "", cc: it.cc || "", subject: it.subject || "", body: it.body || "", threadId: "", mode: it.reply ? "メールワイズへ渡した（返信）" : "メールワイズへ渡した", ok: true, batch });
+    res.json({ ok: true }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/mail/log", async (req, res) => {
@@ -29585,7 +29595,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10r kinXs メール配信：メールワイズ（support_x@mochica.jp）から送る（差出人・返信先＝共通アドレス、BCCでメールワイズに残す）。メールワイズにはAPIが無いため。";
+const BUILD_TAG = "2026-11-10s kinXs メール配信：メールワイズで送る（拡張機能「kinbot 補助」1.2.0 が下書きを持ち、メールワイズの作成・返信の画面に入れる。送信はメールワイズで）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

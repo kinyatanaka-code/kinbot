@@ -18,6 +18,14 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       reply({ ok: true, cred: kcZoom });
     } else if (msg && msg.type === "kc-zoom-clear") {
       await chrome.storage.session.remove("kcZoom"); reply({ ok: true });
+    } else if (msg && msg.type === "kx-mw-set") {
+      // kinXs のメールの下書き：メールワイズの画面で使う。前の下書きのうち、まだ送っていないものは残して足す（1日たったものは消す）
+      const { kxMwDrafts: cur } = await chrome.storage.local.get("kxMwDrafts");
+      const keep = ((cur && cur.list) || []).filter((x) => !x.done && x.at > Date.now() - 86400000);
+      const add = (msg.list || []).map((x, i) => ({ ...x, key: `${Date.now()}-${i}`, at: Date.now() }));
+      await chrome.storage.local.set({ kxMwDrafts: { list: [...keep, ...add] } });
+      if (msg.url && /^https:\/\/[\w.-]+\.cybozu\.com\//.test(msg.url)) await chrome.tabs.create({ url: msg.url, active: true });
+      reply({ ok: true, n: add.length });
     } else reply({ ok: false });
   })();
   return true;

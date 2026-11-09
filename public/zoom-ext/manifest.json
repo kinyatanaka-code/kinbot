@@ -1,21 +1,67 @@
 {
   "manifest_version": 3,
-  "name": "kincall Zoomサインイン補助",
-  "version": "1.1.0",
-  "description": "kincallで借りたZoomアカウントで、Google → Okta → Zoom のサインインを自動で進めます。ふだんのChromeに入れて使えます（ネオキャリア社内用）。",
-  "permissions": ["storage", "tabs"],
+  "name": "kinbot 補助（Zoomサインイン・メールワイズ）",
+  "version": "1.2.0",
+  "description": "kincallで借りたZoomアカウントのサインインを自動で進めます。kinXsで作ったメールの下書きを、メールワイズの作成画面に入れます（ネオキャリア社内用）。",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
   "host_permissions": [
     "https://kinbot-production-225f.up.railway.app/*",
     "https://accounts.google.com/*",
     "https://*.okta.com/*",
     "https://zoom.us/*",
-    "https://*.zoom.us/*"
+    "https://*.zoom.us/*",
+    "https://*.cybozu.com/*"
   ],
-  "background": { "service_worker": "background.js" },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
-    { "matches": ["https://kinbot-production-225f.up.railway.app/*"], "js": ["kincall.js"], "run_at": "document_start" },
-    { "matches": ["https://accounts.google.com/*"], "js": ["fill.js", "google.js"], "run_at": "document_idle", "all_frames": false },
-    { "matches": ["https://*.okta.com/*"], "js": ["fill.js", "okta.js"], "run_at": "document_idle", "all_frames": false }
+    {
+      "matches": [
+        "https://kinbot-production-225f.up.railway.app/*"
+      ],
+      "js": [
+        "kincall.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://accounts.google.com/*"
+      ],
+      "js": [
+        "fill.js",
+        "google.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.okta.com/*"
+      ],
+      "js": [
+        "fill.js",
+        "okta.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.cybozu.com/m/*"
+      ],
+      "js": [
+        "mailwise.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
   ],
-  "icons": { "128": "icon128.png" }
+  "icons": {
+    "128": "icon128.png"
+  }
 }

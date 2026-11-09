@@ -2271,7 +2271,7 @@ const ml = { users: null, sel: new Set(), targets: [], drafts: {}, prompt: "", r
 async function mlLoad() {
   const box = $("vMailBody"); if (!box) return;
   box.innerHTML = '<div class="ar-empty">読み込んでいます…</div>';
-  try { const ms = await api("/api/kinxs/mail/settings").catch(() => ({})); ml.mwAddr = ms.mwAddr || "support_x@mochica.jp"; ml.mwName = ms.mwName || ""; if (ml.mw === undefined) ml.mw = true; } catch {}
+  try { const ms = await api("/api/kinxs/mail/settings").catch(() => ({})); ml.mwAddr = ms.mwAddr || "support_x@mochica.jp"; ml.mwName = ms.mwName || ""; ml.mwUrl = ms.mwUrl || "https://mochica-mailwise.cybozu.com/m/mw.cgi?wid=37"; if (ml.mw === undefined) ml.mw = true; } catch {}
   try { const d = await api("/api/kinxs/users"); ml.users = (d.items || []).filter((x) => !x.archived); kxSur = kxSurnameMap(ml.users.map((x) => x.cs).filter(Boolean)); mlRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 function mlRender() {
@@ -2293,11 +2293,11 @@ function mlRender() {
   </div>
   ${tg.length ? `<div class="ml-step"><h3><span>2</span>書きたいことを入れて、下書きを作る</h3>
     <textarea id="mlPrompt" class="kx-in" rows="4" style="width:100%;box-sizing:border-box" placeholder="例：12月の活用事例セミナーのご案内。日時は12/10(水)15時、オンライン。参加の可否を返信でもらいたい。返信のときは、相手の質問に答えたうえで同じ案内を添える">${esc(ml.prompt)}</textarea>
-    <div class="ml-bar" style="margin-top:8px;background:#F4F8F6;border-radius:10px;padding:8px 10px"><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="mlMw" ${ml.mw ? "checked" : ""}><b>メールワイズから送る</b></label>
-      <span class="kx-note">差出人と返信先を <b>${esc(ml.mwAddr || "")}</b> にして、BCCでメールワイズにも残します（相手の返信はメールワイズに届きます）</span><button type="button" class="hp-b" id="mlMwEd">アドレスを変える</button></div>
+    <div class="ml-bar" style="margin-top:8px;background:#F4F8F6;border-radius:10px;padding:8px 10px"><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="mlMw" ${ml.mw ? "checked" : ""}><b>メールワイズで送る</b></label>
+      <span class="kx-note">下書きをメールワイズ（${esc(ml.mwAddr || "")}）に渡して開きます。作成・返信の画面で「入れる」を押すと宛先・件名・本文が入り、送信はメールワイズで押します（Chromeの拡張機能「kinbot 補助」が要ります）${document.documentElement.dataset.kxMwExt ? "" : ' <b style="color:#B4441F">このChromeには新しい拡張機能が入っていません</b> <a href="/kincall-zoom-ext.zip" download>ダウンロード</a>'}</span><button type="button" class="hp-b" id="mlMwEd">設定</button></div>
     <div class="ml-bar" style="margin-top:8px"><button type="button" class="kx-btn kx-pri" id="mlDraft">下書きを作る（${tg.filter((t) => t.on).length}社）</button><span class="kx-note">会社ごとに、宛先の名前・状況・返信ならそのやり取りをふまえて書きます</span></div>
     ${tg.map((t, i) => { const dr = ml.drafts[t.id] || {}; const rs = ml.results[t.id];
-      return `<div class="ml-co ${t.on ? "" : "off"}"><div class="hd"><input type="checkbox" data-ml-on="${i}" ${t.on ? "checked" : ""}><b>${esc(t.name)}</b>${t.threads.some((h) => h.waiting) ? '<span class="ml-wait">返事待ちのメールあり</span>' : ""}${rs ? (rs.ok ? '<span class="ml-res-ok">✓ 送りました</span>' : `<span class="ml-res-ng">送れませんでした：${esc(rs.error || "")}</span>`) : ""}${t.error ? `<span class="ml-res-ng">${esc(t.error)}</span>` : ""}</div>
+      return `<div class="ml-co ${t.on ? "" : "off"}"><div class="hd"><input type="checkbox" data-ml-on="${i}" ${t.on ? "checked" : ""}><b>${esc(t.name)}</b>${t.threads.some((h) => h.waiting) ? '<span class="ml-wait">返事待ちのメールあり</span>' : ""}${rs ? (rs.ok ? (rs.handoff ? '<span class="ml-res-ok">✓ メールワイズに渡しました</span>' : '<span class="ml-res-ok">✓ 送りました</span>') : `<span class="ml-res-ng">送れませんでした：${esc(rs.error || "")}</span>`) : ""}${t.error ? `<span class="ml-res-ng">${esc(t.error)}</span>` : ""}</div>
       <div class="ml-grid">
         <span>宛先</span><input class="kx-in" data-ml-to="${i}" value="${esc(t.to)}" placeholder="${t.contacts.length ? "" : "宛先のメールアドレスが見つかりません。入れてください"}" list="mlTo${i}"><datalist id="mlTo${i}">${t.contacts.map((c) => `<option value="${esc(c.email)}">${esc(c.name || "")}（${esc(c.src)}）</option>`).join("")}</datalist>
         <span>宛名</span><input class="kx-in" data-ml-nm="${i}" value="${esc(t.toName)}" placeholder="例：山田（空ならご担当者様）">
@@ -2305,7 +2305,7 @@ function mlRender() {
         <span>送り方</span><select data-ml-th="${i}"><option value="">新しいメール</option>${t.threads.map((h) => `<option value="${esc(h.threadId)}" ${t.threadId === h.threadId ? "selected" : ""}>返信：${esc(String(h.subject).slice(0, 40))}（${esc(String(h.date).slice(5, 16))}${h.waiting ? "・返事待ち" : ""}）</option>`).join("")}</select>
         ${dr.body != null ? `<span>件名</span><input class="kx-in" data-ml-sb="${i}" value="${esc(dr.subject || "")}"><span>本文</span><textarea class="kx-in" data-ml-bd="${i}" rows="10">${esc(dr.body || "")}</textarea>` : (dr.error ? `<span></span><span class="ml-res-ng">${esc(dr.error)}</span>` : "")}
       </div></div>`; }).join("")}
-    ${Object.keys(ml.drafts).length ? `<div class="ml-bar"><button type="button" class="kx-btn kx-pri" id="mlSend">見直したので送る（${tg.filter((t) => t.on && ml.drafts[t.id] && ml.drafts[t.id].body && !(ml.results[t.id] || {}).ok).length}件）</button><span class="kx-note">自分のGmailから1通ずつ送ります。送ったものは送信済みに残ります</span></div>` : ""}
+    ${Object.keys(ml.drafts).length ? `<div class="ml-bar"><button type="button" class="kx-btn kx-pri" id="mlSend">${ml.mw ? "見直したのでメールワイズに渡す（" : "見直したので送る（"}${tg.filter((t) => t.on && ml.drafts[t.id] && ml.drafts[t.id].body && !(ml.results[t.id] || {}).ok).length}件）</button><span class="kx-note">${ml.mw ? "メールワイズが開きます。会社ごとに「入れる」→ メールワイズで「送信」" : "自分のGmailから1通ずつ送ります。送ったものは送信済みに残ります"}</span></div>` : ""}
   </div>` : ""}`;
   const keepF = () => { f.cs = $("mlCs").value; f.ph = $("mlPh").value; f.q = $("mlQ").value; };
   $("mlCs").onchange = () => { keepF(); mlRender(); }; $("mlPh").onchange = () => { keepF(); mlRender(); };
@@ -2316,9 +2316,9 @@ function mlRender() {
   const keepT = () => { tg.forEach((t, i) => { const g = (k) => box.querySelector(`[data-ml-${k}="${i}"]`); if (g("to")) t.to = g("to").value; if (g("nm")) t.toName = g("nm").value; if (g("cc")) t.cc = g("cc").value; if (g("th")) t.threadId = g("th").value;
     const d = ml.drafts[t.id]; if (d && g("sb")) { d.subject = g("sb").value; d.body = g("bd").value; } }); if ($("mlPrompt")) ml.prompt = $("mlPrompt").value; };
   ml._keep = keepT;
-  if ($("mlMw")) $("mlMw").onchange = () => { ml.mw = $("mlMw").checked; };
-  if ($("mlMwEd")) $("mlMwEd").onclick = async () => { const a = prompt("メールワイズの共通アドレス", ml.mwAddr || ""); if (a == null) return; const n = prompt("差出人の名前（相手に見える名前）", ml.mwName || ""); if (n == null) return;
-    try { await api("/api/kinxs/mail/settings", { method: "PUT", body: JSON.stringify({ mwAddr: a.trim(), mwName: n.trim() }) }); ml.mwAddr = a.trim() || ml.mwAddr; ml.mwName = n.trim() || ml.mwName; keepT(); mlRender(); } catch (e) { alert(e.message); } };
+  if ($("mlMw")) $("mlMw").onchange = () => { keepT(); ml.mw = $("mlMw").checked; mlRender(); };
+  if ($("mlMwEd")) $("mlMwEd").onclick = async () => { const u = prompt("メールワイズを開くURL", ml.mwUrl || ""); if (u == null) return; const a = prompt("メールワイズの共通アドレス", ml.mwAddr || ""); if (a == null) return;
+    try { await api("/api/kinxs/mail/settings", { method: "PUT", body: JSON.stringify({ mwUrl: u.trim(), mwAddr: a.trim() }) }); ml.mwUrl = u.trim() || ml.mwUrl; ml.mwAddr = a.trim() || ml.mwAddr; keepT(); mlRender(); } catch (e) { alert(e.message); } };
   $("mlRead").onclick = async () => { keepT(); const b = $("mlRead"); b.disabled = true; b.textContent = "読んでいます…（1社数秒）";
     try { const r = await api("/api/kinxs/mail/targets", { method: "POST", body: JSON.stringify({ ids: [...ml.sel] }) });
       if (!r.gmail) alert("Googleの連携（Gmail）ができていないため、やり取りは読めませんでした。宛先だけ出します");
@@ -2342,6 +2342,15 @@ function mlRender() {
     const go = tg.filter((t) => t.on && ml.drafts[t.id] && ml.drafts[t.id].body && !(ml.results[t.id] || {}).ok);
     const bad = go.filter((t) => !String(t.to).trim() || !String(ml.drafts[t.id].subject || "").trim()); if (bad.length) { alert(`宛先か件名が空の会社があります：\n${bad.map((t) => t.name).join("\n")}`); return; }
     if (!go.length) return;
+    if (ml.mw) {   // メールワイズに渡す（拡張機能が下書きを持ち、メールワイズの作成画面に入れる）
+      if (!document.documentElement.dataset.kxMwExt) { alert("このChromeに拡張機能「kinbot 補助」（新しい版）が入っていません。\n「ダウンロード」から入れ直して、このページを開き直してください。\n（入れ方：chrome://extensions →「デベロッパー モード」→ 古いものを削除 →「パッケージ化されていない拡張機能を読み込む」で、ダウンロードしたフォルダを選ぶ）"); return; }
+      const list = go.map((t) => ({ id: t.id, company: t.name, to: t.to, cc: t.cc, subject: ml.drafts[t.id].subject, body: ml.drafts[t.id].body, reply: !!t.threadId, orig: t.threadId ? ((t.threads.find((h) => h.threadId === t.threadId) || {}).subject || "") : "" }));
+      const res = await new Promise((resolve) => { const h = (e) => { if (e.source === window && e.data && e.data.source === "kc-zoom-ext" && e.data.type === "mw-drafts-result") { window.removeEventListener("message", h); resolve(e.data); } }; window.addEventListener("message", h); window.postMessage({ source: "kinxs", type: "mw-drafts", list, url: ml.mwUrl }, location.origin); setTimeout(() => { window.removeEventListener("message", h); resolve({ ok: false, error: "拡張機能から返事がありません" }); }, 5000); });
+      if (!res.ok) { alert("メールワイズに渡せませんでした：" + (res.error || "")); return; }
+      api("/api/kinxs/mail/handoff", { method: "POST", body: JSON.stringify({ items: list }) }).catch(() => {});
+      for (const t of go) ml.results[t.id] = { ok: true, handoff: true };
+      mlRender(); return;
+    }
     if (!confirm(`${go.length}件のメールを、${ml.mw ? `メールワイズ（${ml.mwAddr}）の名前で、` : ""}自分のGmailから送ります。\n\n${go.slice(0, 12).map((t) => `・${t.name}（${t.threadId ? "返信" : "新規"}）→ ${t.to}`).join("\n")}${go.length > 12 ? `\n…ほか${go.length - 12}件` : ""}\n\n送ってよいですか？`)) return;
     const b = $("mlSend"); b.disabled = true; b.textContent = `送っています…（${go.length}件）`;
     try { const r = await api("/api/kinxs/mail/send", { method: "POST", body: JSON.stringify({ viaMailwise: !!ml.mw, items: go.map((t) => ({ id: t.id, company: t.name, to: t.to, cc: t.cc, subject: ml.drafts[t.id].subject, body: ml.drafts[t.id].body, threadId: t.threadId || "" })) }) });
