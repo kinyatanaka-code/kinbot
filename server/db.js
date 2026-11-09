@@ -12440,3 +12440,18 @@ export async function arInboxSet(id, patch = {}) {
   for (const k of ["matched_id", "state", "replied"]) if (patch[k] !== undefined) { vals.push(patch[k]); sets.push(`${k} = $${vals.length}`); }
   if (sets.length) await pool.query(`UPDATE kinxs_ar_inbox SET ${sets.join(", ")} WHERE id = $1`, vals);
 }
+
+// リスト名から、リストの種類のグループへ自動で入れる（グループが無いか、種類の木に無いグループのリストだけ。木のグループに入れたものは動かさない）（2026-11-10）
+//   rules: [{ re: 'LINE', gid }]（re は PostgreSQL の正規表現・大文字小文字を区別しない）、treeIds: 木のグループの id
+export async function autoGroupListsByName(rules = [], treeIds = []) {
+  if (!pool || !rules.length) return [];
+  const out = [];
+  for (const r of rules) {
+    if (!r.gid) continue;
+    const q = await pool.query(`UPDATE call_lists SET group_id = $1
+      WHERE (group_id IS NULL OR NOT (group_id = ANY($2::int[]))) AND name ~* $3 ${r.not ? "AND NOT (name ~* $4)" : ""} RETURNING name`,
+      r.not ? [r.gid, treeIds, r.re, r.not] : [r.gid, treeIds, r.re]);
+    if (q.rowCount) out.push({ group: r.name, n: q.rowCount, names: q.rows.slice(0, 5).map((x) => x.name) });
+  }
+  return out;
+}

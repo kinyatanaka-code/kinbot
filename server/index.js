@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -20078,6 +20078,25 @@ app.get("/api/calls/group-tree", async (req, res) => {
     let made = 0; for (const n of need) if (!find(n)) { await addGroup(n); made++; }
     if (made) groups = await listGroups();
     const out = tree.map((f) => f.children && f.children.length ? { name: f.name, children: f.children.map((c) => ({ name: c, id: (find(c) || {}).id || null })) } : { name: f.name, id: (find(f.name) || {}).id || null });
+    // リスト名から、種類のグループへ自動で入れる（グループが無いか、木に無いグループのリストだけ）（2026-11-10 田中さん「LINEリストにグループ分けされているのは中澤だけ」）
+    try {
+      const treeIds = []; for (const f of out) { if (f.children) f.children.forEach((c) => c.id && treeIds.push(Number(c.id))); else if (f.id) treeIds.push(Number(f.id)); }
+      const gid = (n) => (find(n) || {}).id;
+      const rules = [
+        { name: "LINEリスト", re: "LINE|ＬＩＮＥ|ライン", gid: gid("LINEリスト") },
+        { name: "新卒リスト", re: "新卒", gid: gid("新卒リスト") },
+        { name: "フロッグリスト", re: "フロッグ", gid: gid("フロッグリスト") },
+        { name: "MOユーザーリスト", re: "[MＭ][OＯ][ 　]*ユーザー", gid: gid("MOユーザーリスト") },
+        { name: "MO解約リスト", re: "[MＭ][OＯ][ 　]*解約", gid: gid("MO解約リスト") },
+        { name: "MO失注リスト", re: "[MＭ][OＯ][ 　]*失注", not: "過去", gid: gid("MO失注リスト") },
+        { name: "検証リスト", re: "検証", gid: gid("検証リスト") },
+        { name: "クロス失注", re: "クロス[ 　]*失注", gid: gid("クロス失注") },
+        { name: "DOC過去失注", re: "DOC[ 　_＿]*過去[ 　]*失注|過去失注リスト", gid: gid("DOC過去失注") },
+        { name: "リスケ", re: "リスケ", gid: gid("リスケ") },
+      ].filter((r) => r.gid);
+      const moved = await autoGroupListsByName(rules, treeIds);
+      if (moved.length) console.log(`[kincall] リスト名からグループへ：${moved.map((m) => `${m.group} ${m.n}本`).join("・")}`);
+    } catch (e) { console.warn("[kincall] グループ分け", e.message); }
     res.json({ ok: true, tree: out, made });
   } catch (e) { res.status(500).json({ error: e.message }); }
   finally { release(); }
@@ -29324,7 +29343,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10e kincallの記録の窓の右上に「📄 資料送付」（行の資料送付と同じ窓。記録の窓は開いたまま）。";
+const BUILD_TAG = "2026-11-10f kincallのリスト管理：リスト名から種類のグループへ自動で入れる（LINE・新卒・フロッグ・MOユーザー・MO解約・MO失注・検証・クロス失注・DOC過去失注・リスケ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
