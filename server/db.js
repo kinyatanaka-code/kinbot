@@ -12418,3 +12418,25 @@ export async function arExportLog(ym, by, counts) {
 }
 export async function arExports(ym) { if (!pool) return []; await ensureAutoRenew(); return (await pool.query(`SELECT ym, version, by_user, at, counts FROM kinxs_ar_exports WHERE ($1 = '' OR ym = $1) ORDER BY at DESC LIMIT 30`, [ym || ""])).rows; }
 export async function arHistory(id) { if (!pool) return []; await ensureAutoRenew(); return (await pool.query(`SELECT by_user, at, change FROM kinxs_ar_history WHERE account_id = $1 ORDER BY at DESC LIMIT 50`, [String(id)])).rows; }
+
+// 解約フォームの回答の受け箱（取り込んだもの・要確認・無視）（2026-11-10）
+async function ensureArInbox() {
+  if (!pool) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_inbox (id SERIAL PRIMARY KEY, row_key TEXT UNIQUE, at TIMESTAMPTZ, company TEXT, applicant TEXT, email TEXT, no TEXT, wish TEXT,
+    raw JSONB, matched_id TEXT, state TEXT, replied BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+}
+export async function arInboxHas(key) { if (!pool) return true; await ensureArInbox(); return !!(await pool.query(`SELECT 1 FROM kinxs_ar_inbox WHERE row_key = $1`, [key])).rows[0]; }
+export async function arInboxAdd(r) {
+  if (!pool) return null; await ensureArInbox();
+  const { rows } = await pool.query(`INSERT INTO kinxs_ar_inbox (row_key, at, company, applicant, email, no, wish, raw, matched_id, state, replied) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
+    ON CONFLICT (row_key) DO NOTHING RETURNING id`, [r.key, r.at || null, r.company || "", r.applicant || "", r.email || "", r.no || "", r.wish || "", JSON.stringify(r.raw || {}), r.matched || null, r.state || "要確認", !!r.replied]);
+  return rows[0] || null;
+}
+export async function arInboxList(state = "") { if (!pool) return []; await ensureArInbox(); return (await pool.query(`SELECT * FROM kinxs_ar_inbox WHERE ($1 = '' OR state = $1) ORDER BY at DESC NULLS LAST LIMIT 200`, [state])).rows; }
+export async function arInboxGet(id) { if (!pool) return null; await ensureArInbox(); return (await pool.query(`SELECT * FROM kinxs_ar_inbox WHERE id = $1`, [parseInt(id, 10)])).rows[0] || null; }
+export async function arInboxSet(id, patch = {}) {
+  if (!pool) return; await ensureArInbox();
+  const sets = [], vals = [parseInt(id, 10)];
+  for (const k of ["matched_id", "state", "replied"]) if (patch[k] !== undefined) { vals.push(patch[k]); sets.push(`${k} = $${vals.length}`); }
+  if (sets.length) await pool.query(`UPDATE kinxs_ar_inbox SET ${sets.join(", ")} WHERE id = $1`, vals);
+}

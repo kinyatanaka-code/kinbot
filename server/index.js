@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -13324,7 +13324,12 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     ];
     const rc = await arRecon(ym);
     const recon = { kinxs: bill.length, sf: bill.filter((x) => x.sf).length, invoices: rc && rc.invoices != null ? rc.invoices : null, bv: rc && rc.bv != null ? rc.bv : null, note: (rc && rc.note) || "" };
-    res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly });
+    const stA = await getSettings().catch(() => ({}));
+    const inbox = (await arInboxList("要確認").catch(() => [])).map((x) => ({ id: x.id, at: x.at, company: x.company, applicant: x.applicant, email: x.email, no: x.no, wish: x.wish }));
+    const nowYm = arYm(Date.now());
+    const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unmatched: inbox.length, unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name) };
+    res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
+      form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/autorenew/:id", async (req, res) => {
@@ -13355,6 +13360,106 @@ async function arCircusFromSf(accountId, user) {
 app.get("/api/kinxs/autorenew/:id/circus", async (req, res) => {
   try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" }); res.json({ ok: true, ...(await arCircusFromSf(req.params.id, req.user)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ===== 解約フォームの取り込み（回答のスプレッドシートを10分ごとに読む）・受付の自動返信（2026-11-10）=====
+//   settings.arCancelSheetId（回答のシート）・settings.arCancelOwner（読む・メールを送る人、既定 kinya.tanaka@）
+const AR_OWNER_DEFAULT = "kinya.tanaka@neo-career.co.jp";
+const arNorm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+function arParseWish(v, appliedYmd) {
+  const t = arNorm(v); let m = t.match(/(\d{4})[年\/\-.](\d{1,2})/);
+  if (m) return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}`;
+  m = t.match(/^(\d{1,2})月/); if (m && appliedYmd) { const y = Number(appliedYmd.slice(0, 4)); const mm = Number(m[1]); const ap = Number(appliedYmd.slice(5, 7)); return `${mm < ap ? y + 1 : y}-${String(mm).padStart(2, "0")}`; }
+  return appliedYmd ? arAdd(appliedYmd.slice(0, 7), 1) : "";   // 聞いていなければ、申請した月の翌月を希望月とみなす
+}
+function arParseDate(v) {
+  const t = String(v || "").trim(); const m = t.match(/(\d{4})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/);
+  return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : "";
+}
+async function arMatch(company, no) {
+  const rows = await arList();
+  if (no) { const n = arNorm(no); const hit = rows.find((r) => arNorm(r.ar_no) === n); if (hit) return hit; }
+  const key = csCoKey(company); if (!key) return null;
+  const hits = rows.filter((r) => r.ar_plan === "自動更新" && csCoKey(r.name) === key);
+  return hits.length === 1 ? hits[0] : null;
+}
+async function arReply(owner, to, { company, applicant, cancelMonth }) {
+  if (!to || !/@/.test(to)) return false;
+  const ym = cancelMonth ? `${cancelMonth.slice(0, 4)}年${Number(cancelMonth.slice(5, 7))}月末` : "";
+  const body = `${company || ""}\n${applicant ? `${applicant} 様` : "ご担当者様"}\n\nいつもどこでもオープンカンパニーをご利用いただき、ありがとうございます。\nアチコチバース（月額利用料）の解約のお申し込みを受け付けました。\n\n${ym ? `解約日：${ym}（${ym}までご利用いただけます）\n\n` : ""}解約日までのご利用料金は、これまでどおりご請求いたします。\nご不明な点がございましたら、本メールにご返信ください。\n\n株式会社ネオキャリア\nどこでもオープンカンパニー 事務局`;
+  await gmailSend(owner, { to, subject: "【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ", bodyText: body });
+  return true;
+}
+async function arApplyCancel(accId, { applied, wish, applicant, contact }, by) {
+  const cancelMonth = arCancelMonth(applied, wish);
+  await arUpdate(accId, { cancelApplied: applied || null, cancelWish: wish, cancelMonth, status: "解約予定", applicant: applicant || "", contact: contact || "" }, by);
+  return cancelMonth;
+}
+let _arIntakeAt = null, _arIntakeErr = "";
+async function arIntake() {
+  const st = await getSettings().catch(() => ({})); const sheet = st.arCancelSheetId; if (!sheet) return { skipped: true };
+  const owner = st.arCancelOwner || AR_OWNER_DEFAULT;
+  const rows = await readSheet(owner, sheet, "A1:Z2000");
+  const head = (rows[0] || []).map(arNorm);
+  const col = (re) => head.findIndex((h) => re.test(h));
+  const cTs = col(/タイムスタンプ|timestamp/i), cCo = col(/貴社名|会社名|企業名/), cNm = col(/お名前|氏名|申請者/), cEm = col(/メール/), cNo = col(/申込番号|契約番号|サーカス|企業ID/), cWish = col(/解約希望|希望月|解約月/);
+  let added = 0, matched = 0;
+  for (const r of rows.slice(1)) {
+    const ts = String(r[cTs] || "").trim(); const company = String(r[cCo] || "").trim(); if (!ts || !company) continue;
+    const key = `${ts}|${arNorm(company)}`; if (await arInboxHas(key)) continue;
+    const applied = arParseDate(ts); const wish = arParseWish(cWish >= 0 ? r[cWish] : "", applied);
+    const applicant = String(r[cNm] || "").trim(), email = String(r[cEm] || "").trim(), no = cNo >= 0 ? String(r[cNo] || "").trim() : "";
+    const hit = await arMatch(company, no);
+    let cm = "", replied = false;
+    if (hit) { cm = await arApplyCancel(hit.id, { applied, wish, applicant, contact: email }, "解約フォーム"); matched++; }
+    if (st.arReplyOn !== false) replied = await arReply(owner, email, { company, applicant, cancelMonth: cm || arCancelMonth(applied, wish) }).catch((e) => { console.warn("[DOC自動更新] 自動返信", e.message); return false; });
+    await arInboxAdd({ key, at: applied ? `${applied}T00:00:00+09:00` : null, company, applicant, email, no, wish, raw: Object.fromEntries((rows[0] || []).map((h, i) => [h, r[i] ?? ""])), matched: hit ? hit.id : null, state: hit ? "取込済" : "要確認", replied });
+    added++;
+  }
+  _arIntakeAt = new Date().toISOString(); _arIntakeErr = "";
+  if (added) console.log(`[DOC自動更新] 解約フォーム：${added}件を読み、${matched}件を取り込みました（要確認 ${added - matched}件）`);
+  return { added, matched };
+}
+setTimeout(() => arIntake().catch((e) => { _arIntakeErr = e.message; console.warn("[DOC自動更新] 解約フォーム", e.message); }), 2 * 60 * 1000);
+setInterval(() => arIntake().catch((e) => { _arIntakeErr = e.message; console.warn("[DOC自動更新] 解約フォーム", e.message); }), 10 * 60 * 1000);
+app.put("/api/kinxs/autorenew-settings", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
+    const b = req.body || {}; const patch = {};
+    if (b.sheet !== undefined) { const m = String(b.sheet || "").match(/\/d\/([A-Za-z0-9_-]{20,})/); patch.arCancelSheetId = m ? m[1] : String(b.sheet || "").trim(); }
+    if (b.replyOn !== undefined) patch.arReplyOn = !!b.replyOn;
+    await saveSettings(patch);
+    const r = await arIntake().catch((e) => ({ error: e.message }));
+    res.json({ ok: true, intake: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 要確認の回答を、企業に当てはめる／無視する
+app.post("/api/kinxs/autorenew-inbox/:id", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
+    const it = await arInboxGet(req.params.id); if (!it) return res.status(404).json({ error: "見つかりません" });
+    if (req.body?.ignore) { await arInboxSet(it.id, { state: "無視" }); return res.json({ ok: true }); }
+    const acc = String(req.body?.accountId || ""); if (!acc) return res.status(400).json({ error: "企業を選んでください" });
+    const applied = it.at ? new Date(new Date(it.at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "";
+    const cm = await arApplyCancel(acc, { applied, wish: it.wish, applicant: it.applicant, contact: it.email }, req.user);
+    await arInboxSet(it.id, { matched_id: acc, state: "取込済" });
+    res.json({ ok: true, cancelMonth: cm });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// CSV でまとめて登録（企業名・申込番号・契約開始月・プラン・ステータス）
+app.post("/api/kinxs/autorenew-import", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
+    await kinxsInit(); const accts = (await kinxsList()).filter((r) => !r.merged_into);
+    const byKey = new Map(); for (const a of accts) { const k = csCoKey(a.name); if (k && !byKey.has(k)) byKey.set(k, a); }
+    const out = [];
+    for (const r of (Array.isArray(req.body?.rows) ? req.body.rows : []).slice(0, 500)) {
+      const a = byKey.get(csCoKey(r.name)); if (!a) { out.push({ name: r.name, ok: false, why: "kinXsに無い会社" }); continue; }
+      const start = /^\d{4}-\d{2}$/.test(String(r.start || "")) ? r.start : (String(r.start || "").match(/(\d{4})\D+(\d{1,2})/) ? String(r.start).replace(/^(\d{4})\D+(\d{1,2}).*$/, (m0, y, m) => `${y}-${String(m).padStart(2, "0")}`) : "");
+      await arUpdate(a.account_id, { plan: r.plan || "自動更新", no: r.no || "", start, status: r.status || "継続中" }, req.user);
+      out.push({ name: r.name, ok: true, matched: a.name });
+    }
+    res.json({ ok: true, results: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/autorenew/:id/history", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" }); res.json({ ok: true, items: await arHistory(req.params.id) }); }
@@ -29210,7 +29315,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10a DOC自動更新：サーカスの申込番号をSFの商談（「サーカス」の項目）から読む。登録の窓で会社を選ぶと自動、空の企業は一覧を開いたときに埋める。";
+const BUILD_TAG = "2026-11-10b DOC自動更新：解約フォームの取り込み（回答シートを10分ごと・申込番号か会社名で特定・解約予定に・受付の自動返信・要確認の当てはめ）、アラート、CSVでまとめて登録。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

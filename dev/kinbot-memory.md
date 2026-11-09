@@ -2379,3 +2379,9 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-09 BUILD_TAG=2026-11-09z 田中さん（kincs のサイドバーが ユーザー一覧・DOC更新管理・設定・DOC自動更新）「設定の上に自動更新のメニューバーをつけてほしい」。kincs の『設定』を DOC自動更新（data-view=ar）のうしろに入れる。版20261109z。
 
 - 2026-11-10 BUILD_TAG=2026-11-10a 田中さん「サーカス番号って読み取れるようになってる？」→ 手入力だった。検収書の依頼で使っている csCircusField（SF の Opportunity の『サーカス』の項目）を使い、arCircusFromSf（kinXs の会社の account_id＝SF の取引先 Id の商談で、その項目が入っているもの、CloseDate の新しい順10件）・GET /api/kinxs/autorenew/:id/circus（事業部）。登録・直すの窓に『SFから読む』（会社を選ぶと番号が空なら自動、いくつかあれば候補を押して選べる）。GET /api/kinxs/autorenew のとき、申込番号が空の企業は SF のいちばん新しい番号で埋める（会社ごとに6時間に1回、履歴は『SFから自動』）。版20261110a。
+
+- 2026-11-10 BUILD_TAG=2026-11-10b 田中さん「一旦全部つくっていこう」（DOC自動更新の第2段）。
+  ・解約フォーム（https://docs.google.com/forms/d/16wYIYcYMpXm2f5cl48NtJBjkfb2HOKgbUv774yy262Y・項目：貴社名・お名前・メールアドレス・解約を希望されるサービス・解約理由・満足度・ご意見。申込番号と解約希望月の欄は無い、締切の文言は『前月の15営業日前』→ 幸地さんに直してもらう話をした）。
+  ・arIntake（起動2分後と10分ごと）：settings.arCancelSheetId の回答シートを settings.arCancelOwner（既定 kinya.tanaka@）で読み、見出しで タイムスタンプ・貴社名・お名前・メール・申込番号（あれば）・解約希望月（あれば、無ければ申請した月の翌月）を拾う。行ごとに kinxs_ar_inbox（row_key＝タイムスタンプ|会社名）に入れて二重にしない。arMatch＝申込番号が合う企業、無ければ自動更新の企業で csCoKey が1社だけ合うもの。合えば arApplyCancel（解約月は arCancelMonth・解約予定・申請者・連絡先、履歴は『解約フォーム』）、合わなければ『要確認』。arReply＝受付の自動返信（田中さんの Gmail から、件名『【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ』、解約日入り）。settings.arReplyOn で止められる。
+  ・API：PUT /api/kinxs/autorenew-settings（sheet・replyOn、保存したらすぐ読む）、POST /api/kinxs/autorenew-inbox/:id（accountId で当てはめ／ignore）、POST /api/kinxs/autorenew-import（CSV の行：企業名を kinXs の会社名と csCoKey で照らして登録）。GET /api/kinxs/autorenew に inbox（要確認）・alerts（今月の SF 計上がまだ・要確認の数・未入金）・form（シート・最後に読んだ日時・エラー・自動返信）。
+  ・画面：アラートの帯、タブ『解約フォーム（要確認 n）』（シートの URL・自動返信のチェック・要確認の回答に企業を選んで当てはめる／無視）、『CSVでまとめて登録』。kinxs-releases.json に報告。
