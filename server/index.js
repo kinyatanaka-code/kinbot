@@ -94,7 +94,7 @@ function readMemory() {
   }
   return _memCache;
 }
-import { normalizeSpace, deleteChatMessage, postToSpaceThread, mentionFor } from "./chatapp.js";
+import { normalizeSpace, deleteChatMessage, postToSpaceThread, mentionFor, postToSpace as chatPostToSpace } from "./chatapp.js";
 import { cspIssueAccount, cspSetOwner, cspConfigured } from "./csplatform.js";
 import { judge as judgeAutolaunch, reasonText, parseTitle as parseLaunchTitle } from "./autolaunch.js";
 import { fixMojibake } from "./docs.js";
@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, arSyncSetCs,
+  kxMailLog, kxMailLogList, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -1112,6 +1112,7 @@ app.use(
 // 既定の100kbだと足りずに「Payload Too Large」のHTMLが返ってしまう。
 // kinbotに聞く：ファイル（画面の写真・PDFなど）を添えられるので、ここだけ大きめ
 app.use("/api/ask-bot", express.json({ limit: "30mb" }));
+app.use("/api/kinxs/accounts", express.json({ limit: "25mb" }));   // 検収書のPDFを受け取る（2026-11-10）
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true })); // OAuth承認画面の<form>送信（application/x-www-form-urlencoded）用
 
@@ -13383,9 +13384,63 @@ async function arCircusFromSf(accountId, user) {
   const st = await getSettings().catch(() => ({}));
   const sfUser = await pickSfUser(user || st.psOwner || "").catch(() => ""); if (!sfUser) return { items: [], note: "SFにつながっていません" };
   const cf = await csCircusField(sfUser); if (!cf) return { items: [], note: "SFの商談に「サーカス」の項目が見つかりませんでした" };
-  const r = await sfQuery(sfUser, `SELECT Id, Name, CloseDate, StageName, ${cf.api} FROM Opportunity WHERE AccountId = '${acc}' AND ${cf.api} != null ORDER BY CloseDate DESC LIMIT 10`).catch((e) => ({ records: [], error: e.message }));
-  return { field: cf.label, items: (r.records || []).map((o) => ({ no: String(o[cf.api] || "").trim(), opp: o.Name, close: o.CloseDate, stage: o.StageName })).filter((x) => x.no), note: r.error || "" };
+  const r = await sfQuery(sfUser, `SELECT Id, Name, CloseDate, StageName, ${cf.api} FROM Opportunity WHERE AccountId = '${acc}' AND ${cf.api} != null ORDER BY CloseDate DESC LIMIT 20`).catch((e) => ({ records: [], error: e.message }));
+  return { field: cf.label, items: (r.records || []).map((o) => ({ no: String(o[cf.api] || "").trim(), opp: o.Name, oppId: o.Id, close: o.CloseDate, stage: o.StageName })).filter((x) => x.no), note: r.error || "" };
 }
+// 企業の詳細の「SFの商談の商品」に出すサーカスNo（読むだけなので kincs でも）（2026-11-10 田中さん）
+app.get("/api/kinxs/accounts/:id/circus", async (req, res) => {
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "できません" }); res.json({ ok: true, ...(await arCircusFromSf(req.params.id, req.user)) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ===== 検収書：企業ごとにPDFを残し、回収をチャットで知らせる（2026-11-10 田中さん）=====
+//   settings.kenshuSpace（知らせるスペース）・settings.kenshuMention（メンションする人、既定 相澤莉菜子・幸地美穂）
+const KENSHU_MENTION_DEFAULT = ["相澤莉菜子", "幸地美穂"];
+const kenshuText = (names, company, no, extra) => `お疲れ様です。\n${extra ? `${extra}\n` : ""}下記案件の検収書を回収いたしましたので\nご確認のほどよろしくお願いいたします。\n\n企業名：${company}\nサーカスNo：${no || "（未入力）"}`;
+app.get("/api/kinxs/accounts/:id/files", async (req, res) => {
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "できません" }); const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, items: await kxFileList(req.params.id), space: st.kenshuSpace || "", mention: Array.isArray(st.kenshuMention) ? st.kenshuMention : KENSHU_MENTION_DEFAULT }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/kinxs/accounts/:id/files", express.json({ limit: "25mb" }), async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
+    const b = req.body || {}; const data = Buffer.from(String(b.data || ""), "base64");
+    if (!data.length) return res.status(400).json({ error: "ファイルが空です" });
+    if (data.length > 15 * 1024 * 1024) return res.status(400).json({ error: "15MBまでのファイルにしてください" });
+    const name = String(b.name || "検収書.pdf").slice(0, 120), mime = String(b.mime || "application/pdf");
+    if (!/pdf|image\//.test(mime)) return res.status(400).json({ error: "PDFか画像を選んでください" });
+    const { items } = await kinxsBuildMemo(); const x = (items || []).find((i) => String(i.id) === String(req.params.id)) || {};
+    const by = await displayNameOf(req.user).catch(() => req.user);
+    const f = await kxFileAdd({ accountId: req.params.id, kind: b.kind || "検収書", name, mime, data, by, circusNo: String(b.circusNo || "").trim() });
+    // 検収日が空なら、今日にする
+    try { const row = (await kinxsList()).find((r) => String(r.account_id) === String(req.params.id)); if (row && !row.kenshu_on && (b.kind || "検収書") === "検収書") await kinxsUpdate(req.params.id, { kenshu_on: kxToday() }, by); } catch {}
+    let chat = null;
+    if (b.notify) {
+      const st = await getSettings().catch(() => ({}));
+      const space = String(b.space || st.kenshuSpace || "").trim(); const names = Array.isArray(b.mention) ? b.mention : (Array.isArray(st.kenshuMention) ? st.kenshuMention : KENSHU_MENTION_DEFAULT);
+      if (b.space !== undefined || b.mention !== undefined) await saveSettings({ ...(b.space !== undefined ? { kenshuSpace: String(b.space || "").trim() } : {}), ...(Array.isArray(b.mention) ? { kenshuMention: b.mention.map((n) => String(n).trim()).filter(Boolean) } : {}) }).catch(() => {});
+      try {
+        if (!space) throw new Error("知らせるスペースが決まっていません");
+        const ms = (await Promise.all(names.map((n) => mentionFor(normalizeSpace(space), n)))).map((m, i) => m || `@${names[i]}`);
+        const body = String(b.text || "").trim() || kenshuText(names, x.name || "", f.circus_no);
+        const link = `${PUBLIC_URL}/api/kinxs/files/${f.id}`;
+        await chatPostToSpace(normalizeSpace(space), `${ms.join(" ")}\n${body}\n\n📄 検収書：${link}`);
+        await kxFileChat(f.id, { at: new Date().toISOString() }); chat = { ok: true };
+      } catch (e) { await kxFileChat(f.id, { error: e.hint || e.message }); chat = { ok: false, error: e.hint || e.message }; }
+    }
+    res.json({ ok: true, file: f, chat });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/kinxs/files/:fid", async (req, res) => {
+  try { if (!(await canKinxs(req))) return res.status(403).send("見られません（kinXs にログインしてください）");
+    const f = await kxFileGet(req.params.fid); if (!f) return res.status(404).send("ファイルがありません");
+    res.set("content-type", f.mime || "application/pdf"); res.set("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(f.name || "file.pdf")}`); res.send(f.data); }
+  catch (e) { res.status(500).send(e.message); }
+});
+app.delete("/api/kinxs/files/:fid", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" }); await kxFileDelete(req.params.fid); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/autorenew/:id/circus", async (req, res) => {
   try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" }); res.json({ ok: true, ...(await arCircusFromSf(req.params.id, req.user)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -29664,7 +29719,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10w DOC自動更新：担当CSは kinXs のCS担当（CS連携→SF）を正に。一覧・ズレ・自動返信のCS担当のメールもこれで。";
+const BUILD_TAG = "2026-11-10x kinXs：企業の詳細の商品にサーカスNo、検収書のPDFを企業ごとに保存し、回収をGoogle Chatで知らせる（メンション・企業名・サーカスNo・PDFのリンク）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

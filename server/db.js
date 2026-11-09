@@ -12502,3 +12502,26 @@ export async function kxMailLogList(limit = 100) {
   if (!pool) return []; await ensureKxMail();
   return (await pool.query(`SELECT id, at, by_user, account_id, company, to_addr, subject, mode, ok, error, batch FROM kinxs_mail_log ORDER BY at DESC LIMIT $1`, [limit])).rows;
 }
+
+// kinXs：企業ごとのファイル（検収書のPDFなど）（2026-11-10 田中さん）
+let _kxFilesReady = false;
+async function ensureKxFiles() {
+  if (!pool || _kxFilesReady) return; _kxFilesReady = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_files (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, name TEXT, mime TEXT, size INT, data BYTEA, by_user TEXT, at TIMESTAMPTZ DEFAULT now(), circus_no TEXT, chat_at TIMESTAMPTZ, chat_error TEXT)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS kinxs_files_acc ON kinxs_files (account_id)`).catch(() => {});
+}
+export async function kxFileAdd(f) {
+  if (!pool) return null; await ensureKxFiles();
+  return (await pool.query(`INSERT INTO kinxs_files (account_id, kind, name, mime, size, data, by_user, circus_no) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, account_id, kind, name, mime, size, by_user, at, circus_no`,
+    [String(f.accountId), f.kind || "検収書", f.name || "file.pdf", f.mime || "application/pdf", f.data.length, f.data, f.by || "", f.circusNo || ""])).rows[0];
+}
+export async function kxFileList(accountId) {
+  if (!pool) return []; await ensureKxFiles();
+  return (await pool.query(`SELECT id, account_id, kind, name, mime, size, by_user, at, circus_no, chat_at, chat_error FROM kinxs_files WHERE account_id = $1 ORDER BY at DESC`, [String(accountId)])).rows;
+}
+export async function kxFileGet(id) {
+  if (!pool) return null; await ensureKxFiles();
+  return (await pool.query(`SELECT * FROM kinxs_files WHERE id = $1`, [Number(id) || 0])).rows[0] || null;
+}
+export async function kxFileDelete(id) { if (!pool) return; await ensureKxFiles(); await pool.query(`DELETE FROM kinxs_files WHERE id = $1`, [Number(id) || 0]); }
+export async function kxFileChat(id, { at, error }) { if (!pool) return; await ensureKxFiles(); await pool.query(`UPDATE kinxs_files SET chat_at = $2, chat_error = $3 WHERE id = $1`, [Number(id) || 0, at || null, error || null]); }

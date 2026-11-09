@@ -608,9 +608,10 @@ function kxLabelSchedPane(d) {
   const pis = x.productItems || [];
   const clsTag = (c) => (c ? `<span class="kx-pl ${KX_SNS_L.includes(c) ? "sns" : "doc"}">${esc(c)}</span>` : '<span class="kx-pl nosf" title="商品ラベルには入れない商品（取材費など）">対象外</span>');
   const prodTbl = `<div class="kx-sec"><div class="lb">SFの商談の商品<span class="kx-note" style="margin-left:8px">空間デザイン制作・スタンダード・ライト→空間／エントリー・アチコチバース→AI／取材費→対象外／それ以外→SNS</span></div>
-      ${pis.length ? `<div class="kx-ptbl"><div class="h"><span>商品</span><span>区別</span><span>計上日</span><span>商談</span></div>${pis.map((p0) => `<div class="r"><span class="nm">${esc(p0.name)}</span><span>${clsTag(p0.cls)}</span><span>${esc(String(p0.booked || "").replace(/-/g, "/") || "—")}</span><span class="kx-note">${esc(p0.oppName || p0.stage || "")}</span></div>`).join("")}</div>` : '<div class="kx-note">SFの商談の商品がありません（手で追加した会社か、まだ取り込んでいません）</div>'}
+      ${pis.length ? `<div class="kx-ptbl"><div class="h"><span>商品</span><span>区別</span><span>計上日</span><span>サーカスNo</span><span>商談</span></div>${pis.map((p0) => `<div class="r"><span class="nm">${esc(p0.name)}</span><span>${clsTag(p0.cls)}</span><span>${esc(String(p0.booked || "").replace(/-/g, "/") || "—")}</span><span data-circus-opp="${esc(p0.opp || "")}" data-circus-name="${esc(p0.oppName || "")}" style="font-variant-numeric:tabular-nums">…</span><span class="kx-note">${esc(p0.oppName || p0.stage || "")}</span></div>`).join("")}</div>` : '<div class="kx-note">SFの商談の商品がありません（手で追加した会社か、まだ取り込んでいません）</div>'}
     </div>`;
-  return prodTbl + `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品から）</span>' : ""}</div>
+  const kenSec = `<div class="kx-sec" data-ken-sec><div class="lb">検収書<span class="kx-note" style="margin-left:8px">PDFを企業ごとに残し、回収をチャットで知らせます</span></div><div data-ken-list class="kx-note">読み込んでいます…</div></div>`;
+  return prodTbl + kenSec + `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品から）</span>' : ""}</div>
       <label>DOC</label><div class="kx-usage">${KX_DOC_L.map((t) => chip(t, "DOC")).join("")}</div>
       <label>SNS</label><div class="kx-usage">${KX_SNS_L.map((t) => chip(t, "SNS")).join("")}</div>
       <div class="kx-edact">${!x.prodLabelsAuto ? '<button type="button" class="hp-b" data-pl-auto>自動に戻す</button>' : ""}<button type="button" class="kx-btn kx-pri" data-pl-save>ラベルを保存</button></div>
@@ -747,6 +748,7 @@ async function openDetail(id, reuse) {
     if (rk || dl) { const h = document.createElement("div"); h.className = "kx-other-h"; h.textContent = "そのほか（更新確度・納品）"; pane.appendChild(h); if (rk) pane.appendChild(rk); if (dl) pane.appendChild(dl); }
   })();
   if (!bg.isConnected) document.body.appendChild(bg);
+  kxCircusMount(bg, x); kxKenshuMount(bg, x);
   if (reuse) {
     if (reuse.tab) { bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2.dataset.tab === reuse.tab)); bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== reuse.tab; }); }
     const dr = bg.querySelector(".kx-drawer"); if (dr && reuse.scroll) dr.scrollTop = reuse.scroll;
@@ -2386,3 +2388,56 @@ function mlRender() {
   sub.querySelectorAll("[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
   set(VIEW === "mail"); tg.addEventListener("click", () => set(sub.hidden)); })();
 if (VIEW === "mail") { if ($("kxPageName")) $("kxPageName").textContent = "メール配信"; mlLoad(); }
+
+// ===== 企業の詳細：SFの商談の商品にサーカスNo・検収書（2026-11-10 田中さん）=====
+const _kxCircus = new Map();
+async function kxCircusMount(bg, x) {
+  const cells = [...bg.querySelectorAll("[data-circus-opp]")]; if (!cells.length) return;
+  let r = _kxCircus.get(x.id);
+  if (!r) { try { r = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/circus`); _kxCircus.set(x.id, r); } catch (e) { r = { items: [], note: e.message }; } }
+  const its = r.items || []; const k15 = (v) => String(v || "").slice(0, 15);
+  for (const c of cells) {
+    const hit = its.find((i) => c.dataset.circusOpp && k15(i.oppId) === k15(c.dataset.circusOpp)) || its.find((i) => c.dataset.circusName && i.opp === c.dataset.circusName);
+    c.textContent = hit ? hit.no : "—"; if (!hit && r.note) c.title = r.note;
+  }
+  x._circus = its;
+}
+async function kxKenshuMount(bg, x) {
+  const box = bg.querySelector("[data-ken-list]"); if (!box) return;
+  let d; try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/files`); } catch (e) { box.textContent = "読めませんでした：" + e.message; return; }
+  const ro = !!window.KX_COPY;
+  const fmt = (t) => String(t || "").slice(0, 16).replace("T", " ");
+  const list = (d.items || []);
+  const defNo = () => ((x._circus || [])[0] || {}).no || "";
+  const tpl = (no) => `お疲れ様です。\n下記案件の検収書を回収いたしましたので\nご確認のほどよろしくお願いいたします。\n\n企業名：${x.name}\nサーカスNo：${no || ""}`;
+  box.classList.remove("kx-note");
+  box.innerHTML = `${list.length ? `<div class="kx-ken-box">${list.map((f) => `<div class="kx-ken-row">📄 <a href="/api/kinxs/files/${f.id}" target="_blank" rel="noopener">${esc(f.name)}</a><small>${esc(fmt(f.at))}・${esc(f.by_user || "")}${f.circus_no ? `・サーカスNo ${esc(f.circus_no)}` : ""}</small>${f.chat_at ? '<small style="color:#0d5b47">✓ チャット済み</small>' : f.chat_error ? `<small style="color:#B4441F">チャット失敗：${esc(f.chat_error)}</small>` : ""}${ro ? "" : `<button type="button" class="hp-b" data-ken-del="${f.id}" style="margin-left:auto">消す</button>`}</div>`).join("")}</div>` : '<div class="kx-note" style="margin-bottom:8px">まだ検収書はありません</div>'}
+  ${ro ? "" : `<div class="kx-ken-up">
+    <span>PDF</span><input type="file" data-ken-file accept="application/pdf,image/*">
+    <span>サーカスNo</span><input class="kx-in" data-ken-no value="${esc(defNo())}" placeholder="例：20260728BD005">
+    <span>チャットで知らせる</span><label><input type="checkbox" data-ken-notify checked> 回収をチャットに送る（PDFのリンクつき）</label>
+    <span>スペース</span><input class="kx-in" data-ken-space value="${esc(d.space || "")}" placeholder="Google ChatのスペースのURL（kinbot を追加したスペース）">
+    <span>メンション</span><input class="kx-in" data-ken-men value="${esc((d.mention || []).join("、"))}" placeholder="例：相澤莉菜子、幸地美穂">
+    <span>本文</span><textarea class="kx-in" data-ken-text rows="7">${esc(tpl(defNo()))}</textarea>
+    <span></span><div><button type="button" class="kx-btn kx-pri" data-ken-go>検収書を保存${""}</button> <span class="kx-note" data-ken-st></span></div>
+  </div>`}`;
+  box.querySelectorAll("[data-ken-del]").forEach((b) => b.onclick = async () => { if (!confirm("この検収書を消しますか？")) return; try { await api(`/api/kinxs/files/${b.dataset.kenDel}`, { method: "DELETE" }); kxKenshuMount(bg, x); } catch (e) { alert(e.message); } });
+  const no = box.querySelector("[data-ken-no]"), tx = box.querySelector("[data-ken-text]");
+  if (no) no.oninput = () => { tx.value = tx.value.replace(/サーカスNo：.*$/m, `サーカスNo：${no.value.trim()}`); };
+  const go = box.querySelector("[data-ken-go]"); if (!go) return;
+  go.onclick = async () => {
+    const fi = box.querySelector("[data-ken-file]").files[0]; if (!fi) { alert("PDFを選んでください"); return; }
+    if (fi.size > 15 * 1024 * 1024) { alert("15MBまでのファイルにしてください"); return; }
+    const notify = box.querySelector("[data-ken-notify]").checked; const space = box.querySelector("[data-ken-space]").value.trim();
+    if (notify && !space) { alert("知らせるスペース（Google ChatのスペースのURL）を入れてください"); return; }
+    const st = box.querySelector("[data-ken-st]"); go.disabled = true; st.textContent = "保存しています…";
+    try {
+      const data = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = () => rej(new Error("ファイルを読めませんでした")); r.readAsDataURL(fi); });
+      const r = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/files`, { method: "POST", body: JSON.stringify({ name: fi.name, mime: fi.type || "application/pdf", data, circusNo: no.value.trim(), notify, space, mention: box.querySelector("[data-ken-men]").value.split(/[、,\s]+/).filter(Boolean), text: tx.value }) });
+      if (r.chat && !r.chat.ok) alert("検収書は保存しました。チャットは送れませんでした：" + (r.chat.error || ""));
+      kxKenshuMount(bg, x);
+    } catch (e) { alert(e.message); go.disabled = false; st.textContent = ""; }
+  };
+  // サーカスNo がまだ読めていなければ、読めたら入れ直す
+  if (no && !no.value) setTimeout(() => { const v = defNo(); if (v && !no.value) { no.value = v; no.oninput(); } }, 2500);
+}
