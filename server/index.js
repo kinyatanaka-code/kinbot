@@ -29611,7 +29611,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10t DOC自動更新：解約受付の自動返信の宛先（To）を、申請者＋support_x@mochica.jp＋その企業のCS担当の3つに（設定で変えられる）。";
+const BUILD_TAG = "2026-11-10u DOC自動更新：自動返信を送る共通アカウント（doc_support@ など）の Google 連携リンクを「解約フォーム」タブから出せるように（kinbot へのログイン不要）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -34527,6 +34527,18 @@ app.get("/api/members", async (req, res) => {
 
 // メンバーごとのGoogle連携状況と、本人がつなぐための連携リンク（管理者だけが発行できる）。
 // 本人はこのリンクを開いて自分のGoogleでつなぐ（kinbotへのログインは不要）。
+// DOC自動更新：自動返信を送るアカウント（doc_support@ など、kinbot のメンバーでない共通アカウント）の Google 連携リンク（2026-11-10 田中さん）
+//   そのアカウントで Google にログインしたブラウザでこのリンクを開くと、kinbot へのログインなしで Gmail をつなげる。社内のドメインだけ
+app.get("/api/kinxs/autorenew/connect-link", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
+    if (!PUBLIC_URL) return res.status(500).json({ error: "PUBLIC_URL が未設定です" });
+    const email = String(req.query.email || "").trim().toLowerCase();
+    if (!/^[^@\s]+@(neo-career\.co\.jp|neocareer\.co\.jp)$/.test(email)) return res.status(400).json({ error: "社内（@neo-career.co.jp）のアドレスを入れてください" });
+    let connected = false; try { const t = await getGoogleToken(email); connected = !!(t && t.refresh_token); } catch {}
+    res.json({ ok: true, email, connected, link: `${PUBLIC_URL}/auth/google?as=${encodeURIComponent(makeConnectToken(email))}` });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/members/google-links", async (req, res) => {
   try {
     if (!req.isAdmin && !isAdmin(req.user)) return res.status(403).json({ error: "管理者だけが使えます" });
