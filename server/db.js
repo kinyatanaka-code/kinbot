@@ -12382,7 +12382,8 @@ async function ensureAutoRenew() {
 }
 export async function arList() {
   if (!pool) return []; await ensureAutoRenew();
-  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name
+  await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_end TEXT`).catch(() => {}); await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_product TEXT`).catch(() => {});
+  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name
     FROM kinxs_accounts WHERE COALESCE(ar_plan,'') <> '' ORDER BY ar_start NULLS LAST, name`);
   return rows;
 }
@@ -12455,3 +12456,24 @@ export async function autoGroupListsByName(rules = [], treeIds = []) {
   }
   return out;
 }
+
+// 納品一覧シートとの同期（契約開始月・終了月・プラン区分）（2026-11-10 幸地さん）
+async function ensureArSync() {
+  if (!pool) return;
+  await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_end TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ar_product TEXT`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_sync (id SERIAL PRIMARY KEY, at TIMESTAMPTZ DEFAULT now(), by_user TEXT, rows INT, matched INT, changed INT, unmatched JSONB, unknown JSONB, error TEXT)`).catch(() => {});
+}
+export async function arSyncAccounts() {
+  if (!pool) return []; await ensureArSync();
+  return (await pool.query(`SELECT account_id AS id, name, former_names, ar_plan, ar_start, ar_end, ar_product, COALESCE(archived,false) AS archived, merged_into FROM kinxs_accounts`)).rows;
+}
+export async function arSyncApply(id, { start, end, product, plan }) {
+  if (!pool) return false; await ensureArSync();
+  const { rowCount } = await pool.query(`UPDATE kinxs_accounts SET ar_start = $2, ar_end = $3, ar_product = $4, ar_plan = $5
+     WHERE account_id = $1 AND (COALESCE(ar_start,'') IS DISTINCT FROM COALESCE($2,'') OR COALESCE(ar_end,'') IS DISTINCT FROM COALESCE($3,'') OR COALESCE(ar_product,'') IS DISTINCT FROM COALESCE($4,'') OR COALESCE(ar_plan,'') IS DISTINCT FROM COALESCE($5,''))`,
+    [String(id), start || null, end || null, product || null, plan || null]);
+  return rowCount > 0;
+}
+export async function arSyncLog(r) { if (!pool) return; await ensureArSync(); await pool.query(`INSERT INTO kinxs_ar_sync (by_user, rows, matched, changed, unmatched, unknown, error) VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7)`, [r.by || "", r.rows || 0, r.matched || 0, r.changed || 0, JSON.stringify(r.unmatched || []), JSON.stringify(r.unknown || []), r.error || null]); }
+export async function arSyncLast() { if (!pool) return null; await ensureArSync(); return (await pool.query(`SELECT * FROM kinxs_ar_sync ORDER BY at DESC LIMIT 1`)).rows[0] || null; }

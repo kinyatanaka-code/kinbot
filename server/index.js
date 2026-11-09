@@ -584,7 +584,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -13312,7 +13312,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
       if (filled) rows = await arList(); }
     const view = (r) => { const mo = (r.ar_months && r.ar_months[ym]) || {}; return { id: r.id, name: r.name, plan: r.ar_plan, no: r.ar_no || "", start: r.ar_start || "", status: r.ar_status || "継続中", statusOn: arStatusOn(r, ym),
       cancelApplied: r.ar_cancel_applied ? String(r.ar_cancel_applied instanceof Date ? r.ar_cancel_applied.toISOString() : r.ar_cancel_applied).slice(0, 10) : "", cancelWish: r.ar_cancel_wish || "", cancelMonth: r.ar_cancel_month || "",
-      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: r.cs_name || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE }; };
+      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: r.cs_name || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "" }; };
     const all = rows.map(view);
     const bill = rows.filter((r) => arBillOn(r, ym)).map(view);
     const billPrev = new Set(rows.filter((r) => arBillOn(r, prev)).map((r) => String(r.id)));
@@ -13331,7 +13331,9 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
       form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false,
         replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyReady: stA.arReplyOwner ? !!(await gmailReady(stA.arReplyOwner).catch(() => false)) : false,
-        notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length } });
+        notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length },
+      sync: await (async () => { const l = await arSyncLast().catch(() => null); return l ? { at: l.at, by: l.by_user, rows: l.rows, matched: l.matched, changed: l.changed, unmatched: l.unmatched || [], unknown: l.unknown || [], error: l.error || "" } : null; })(),
+      rules: stA.arPlanRules || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/autorenew/:id", async (req, res) => {
@@ -13469,6 +13471,85 @@ app.post("/api/kinxs/autorenew-import", async (req, res) => {
     }
     res.json({ ok: true, results: out });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ===== 納品一覧シート（【販管↔MO/事開】納品一覧／タブ DOC_アチコチバース（年間））との同期（2026-11-10 幸地さんの依頼・要件 6-8／6-9）=====
+//   D列＝商品名、E列＝企業名、X列＝契約開始月、Y列＝契約終了月。同じ企業が何行かあれば、いちばん新しい期間の行を採用。1時間ごと＋「今すぐ同期」
+//   上書きするのは 契約開始月・終了月・商品名・プラン区分 だけ（ステータス・解約・入金は上書きしない）
+const AR_SYNC_SHEET = "1xI9HiAViMQj6d86oaBTt_OvTBclcHXg06I7QZ24rz-g", AR_SYNC_TAB = "DOC_アチコチバース（年間）";
+function arYmOf(v) {
+  const t = String(v ?? "").normalize("NFKC").trim(); if (!t) return "";
+  let m = t.match(/(\d{4})\s*[\/\-.年]\s*(\d{1,2})/); if (m) return `${m[1]}-${String(Number(m[2])).padStart(2, "0")}`;
+  m = t.match(/^(\d{5})(\.\d+)?$/); if (m) { const d = new Date(Date.UTC(1899, 11, 30) + Number(m[1]) * 86400000); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; }   // シートの日付の数字
+  return "";
+}
+// 商品名からプラン区分：設定 arPlanRules（[{ match, plan }]）か、商品名に「自動更新」「月額」があれば自動更新。当てはまらなければ年間
+function arPlanOf(product, rules) {
+  const p = String(product || "").normalize("NFKC");
+  for (const r of (Array.isArray(rules) ? rules : [])) { if (r && r.match && p.includes(String(r.match).normalize("NFKC"))) return { plan: r.plan === "自動更新" ? "自動更新" : "年間", known: true }; }
+  if (/自動更新|月額|1ヶ月|1か月|マンスリー/.test(p)) return { plan: "自動更新", known: true };
+  return { plan: "年間", known: !!p };
+}
+let _arSyncBusy = false;
+async function arSyncSheet(by = "自動") {
+  if (_arSyncBusy) return { busy: true }; _arSyncBusy = true;
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const owner = st.arSyncOwner || st.arCancelOwner || AR_OWNER_DEFAULT;
+    const sheet = st.arSyncSheetId || AR_SYNC_SHEET, tab = st.arSyncTab || AR_SYNC_TAB;
+    const rows = await readSheet(owner, sheet, `'${tab}'!A1:Z5000`);
+    const D = 3, E = 4, X = 23, Y = 24;
+    // 企業ごとに、いちばん新しい期間の行
+    const best = new Map();
+    for (const r of rows) {
+      const name = String(r[E] || "").trim(); const start = arYmOf(r[X]), end = arYmOf(r[Y]);
+      if (!name || (!start && !end) || /企業名|会社名/.test(name)) continue;
+      const k = csCoKey(name); if (!k) continue;
+      const cur = best.get(k); const key = `${end || ""}|${start || ""}`;
+      if (!cur || key > cur.key) best.set(k, { key, name, product: String(r[D] || "").trim(), start, end });
+    }
+    const accts = (await arSyncAccounts()).filter((a) => !a.merged_into);
+    const links = st.arSyncLinks || {};   // 手で紐づけたもの：{ 企業名のキー: account_id }
+    const byKey = new Map(); for (const a of accts) { for (const n of [a.name, ...(Array.isArray(a.former_names) ? a.former_names : [])]) { const k = csCoKey(n); if (k && !byKey.has(k)) byKey.set(k, a); } }
+    let matched = 0, changed = 0; const unmatched = [], unknown = [];
+    for (const [k, v] of best) {
+      const a = (links[k] && accts.find((x) => String(x.id) === String(links[k]))) || byKey.get(k);
+      if (!a) { unmatched.push({ key: k, name: v.name, product: v.product, start: v.start, end: v.end }); continue; }
+      matched++;
+      const pl = arPlanOf(v.product, st.arPlanRules);
+      if (!pl.known && v.product) unknown.push(v.product);
+      // すでに自動更新にしている企業は、ルールで自動更新と分からないかぎり年間に戻さない
+      const plan = a.ar_plan === "自動更新" && pl.plan === "年間" && !(st.arPlanRules || []).some((r) => r && r.plan === "年間" && String(v.product || "").includes(r.match)) ? "自動更新" : pl.plan;
+      if (await arSyncApply(a.id, { start: v.start, end: v.end, product: v.product, plan })) changed++;
+    }
+    const r = { by, rows: best.size, matched, changed, unmatched, unknown: [...new Set(unknown)].slice(0, 30) };
+    await arSyncLog(r);
+    if (changed || unmatched.length) console.log(`[DOC自動更新] 納品一覧と同期：${best.size}社（突合 ${matched}・更新 ${changed}・未突合 ${unmatched.length}）`);
+    return r;
+  } catch (e) { await arSyncLog({ by, error: e.message }).catch(() => {}); throw e; }
+  finally { _arSyncBusy = false; }
+}
+setTimeout(() => arSyncSheet("自動").catch((e) => console.warn("[DOC自動更新] 納品一覧", e.message)), 4 * 60 * 1000);
+setInterval(() => arSyncSheet("自動").catch((e) => console.warn("[DOC自動更新] 納品一覧", e.message)), 60 * 60 * 1000);
+app.post("/api/kinxs/autorenew-sync", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" }); res.json({ ok: true, ...(await arSyncSheet(await displayNameOf(req.user).catch(() => req.user))) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 未突合の企業を、kinXs の会社に手で紐づける（次の同期から使う）
+app.post("/api/kinxs/autorenew-sync/link", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
+    const st = await getSettings().catch(() => ({})); const links = { ...(st.arSyncLinks || {}) };
+    const k = String(req.body?.key || ""), id = String(req.body?.accountId || ""); if (!k || !id) return res.status(400).json({ error: "企業を選んでください" });
+    links[k] = id; await saveSettings({ arSyncLinks: links });
+    res.json({ ok: true, ...(await arSyncSheet(await displayNameOf(req.user).catch(() => req.user))) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 商品名→プラン区分のルール
+app.put("/api/kinxs/autorenew-rules", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
+    const rules = (Array.isArray(req.body?.rules) ? req.body.rules : []).map((r) => ({ match: String(r.match || "").trim(), plan: r.plan === "自動更新" ? "自動更新" : "年間" })).filter((r) => r.match).slice(0, 50);
+    await saveSettings({ arPlanRules: rules }); res.json({ ok: true, ...(await arSyncSheet(await displayNameOf(req.user).catch(() => req.user))) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/autorenew/:id/history", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" }); res.json({ ok: true, items: await arHistory(req.params.id) }); }
@@ -29360,7 +29441,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10h kincallのアポの内容：先方担当は苗字だけ。担当者名やメールを変えてアポ獲得を記録したら、SFのリードの担当者名・メールとkincallのリードも直す。";
+const BUILD_TAG = "2026-11-10i DOC自動更新：納品一覧シート（DOC_アチコチバース（年間）のD・E・X・Y列）と1時間ごとに同期。契約開始月・終了月・商品名・プラン区分を取り込み、未突合は手で紐づけ、商品名のルールでプラン区分。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
