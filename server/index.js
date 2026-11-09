@@ -11819,14 +11819,20 @@ app.get("/api/calls/targets/:id/history", async (req, res) => {
     uniq.sort((a, b) => ts(b.at) - ts(a.at));
     // 架電した人：kinbot の記録はメールではなく名前で、SF の活動は説明の「架電した人／記録した人：○○」をその人として出す（持ち主は代わりに書いた人のことがあるため）（2026-11-07）
     { const nm = new Map((await listMembers().catch(() => [])).map((mm) => [String(mm.email || "").toLowerCase(), String(mm.name || "").trim()]));
+      // SFに送れた kincall の記録は、その SF の活動の Id を持っている → その活動の架電者は、kincall で記録した（かけた）人（2026-11-10 田中さん「SFの記録の中澤ではなく架電したインターン生の名前」）
+      const byTask = new Map(rows.filter((r0) => r0.sf_task_id && r0.caller).map((r0) => [String(r0.sf_task_id).slice(0, 15), String(r0.caller).toLowerCase()]));
       for (const h of uniq) {
+        if (h.元 !== "kinbot" && h.taskId && byTask.has(String(h.taskId).slice(0, 15))) { const e = byTask.get(String(h.taskId).slice(0, 15)); h.誰 = nm.get(e) || e; h.誰メール = e; h._byLog = true; }
+      }
+      for (const h of uniq) {
+        if (h._byLog) { h.メモ = String(h.メモ || "").replace(/\n?(?:架電|記録)した人[:：][^\n]*/g, "").trim(); const ms4 = String(h.件名 || "").match(/^\s*\d{4}[-\/年]\d{1,2}[-\/月]\d{1,2}日?\s*[_＿\s・-]\s*([^\d_＿:：（）()・、,]{2,12})\s*$/); if (ms4) h.件名 = ""; delete h._byLog; continue; }
         if (h.元 === "kinbot") { const e = String(h.誰メール || h.誰 || "").toLowerCase(); if (nm.get(e)) h.誰 = nm.get(e); }
         else {
           const mm2 = String(h.メモ || "").match(/(?:架電|記録)した人[:：]\s*([^\n）)]+)/);
           if (mm2) { h.誰 = mm2[1].trim(); h.メモ = String(h.メモ).replace(/\n?(?:架電|記録)した人[:：][^\n]*/g, "").trim(); }
-          // 件名が「2026-11-05_中澤良太」の形（日付＿かけた人）なら、その人を架電者にして、件名は出さない（日付と名前だけで中身が無いため）（2026-11-10 田中さん）
+          // 件名が「2026-11-05_中澤良太」の形（日付＿名前）なら、件名は出さない（日付と名前だけで中身が無いため）
           const ms3 = String(h.件名 || "").match(/^\s*\d{4}[-\/年]\d{1,2}[-\/月]\d{1,2}日?\s*[_＿\s・-]\s*([^\d_＿:：（）()・、,]{2,12})\s*$/);
-          if (ms3) { if (!mm2) h.誰 = ms3[1].trim(); h.件名 = ""; }
+          if (ms3) h.件名 = "";   // 件名の名前はSFに記録した人（中澤さんなど）で、かけた人ではないので架電者には使わない（2026-11-10 田中さん）
         }
       } }
     // SF の「次にかける日」の予定（kincallから設定）は、やり取りではないので履歴に出さない（2026-11-07 田中さん）
@@ -29560,7 +29566,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10p kinXs DOC自動更新：見出しと説明の行を消し、月の切りかえ・月次Excel・登録・CSVのボタンを上のヘッダーへ。";
+const BUILD_TAG = "2026-11-10q kincall：これまでのやり取りの架電者は、kincallで記録したかけた人（インターン生）。SFの件名の名前（中澤さん）は使わない。（前の版のDOC自動更新のヘッダーも含む）";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
