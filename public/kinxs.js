@@ -2146,17 +2146,17 @@ function arRender() {
       + `<datalist id="arAcAll"></datalist>`;
   }
   const ex = (d.exports || [])[0];
-  box.innerHTML = `<div class="ar-top"><div class="ar-mon"><button type="button" data-ar-mv="-1">‹</button><b>${arJp(d.ym)}分</b><button type="button" data-ar-mv="1">›</button></div>
+  { const tb = $("kxTopAr"); if (tb) { tb.hidden = false; tb.innerHTML = `<div class="ar-mon"><button type="button" data-ar-mv="-1">‹</button><b>${arJp(d.ym)}分</b><button type="button" data-ar-mv="1">›</button></div>
       <button type="button" class="kx-btn kx-pri" id="arXlsx">月次Excelをダウンロード</button>${ed ? '<button type="button" class="kx-btn" id="arAdd">＋ 自動更新の企業を登録</button><button type="button" class="kx-btn" id="arCsv">CSVでまとめて登録</button><input type="file" id="arCsvF" accept=".csv,text/csv" hidden>' : ""}
-      <span class="kx-note">${ex ? `最後の出力：${esc(String(ex.at).slice(0, 16).replace("T", " "))}・第${ex.version}版` : "この月分はまだ出力していません"}</span></div>
-    ${(() => { const al = d.alerts || {}; const items = [];
+      <span class="kx-note">${ex ? `最後の出力：${esc(String(ex.at).slice(0, 16).replace("T", " "))}・第${ex.version}版` : "この月分はまだ出力していません"}</span>`; } }
+  box.innerHTML = `    ${(() => { const al = d.alerts || {}; const items = [];
       if ((al.sfNotDone || []).length) items.push(`今月のSF計上がまだの企業が <b>${al.sfNotDone.length}社</b>（${esc(al.sfNotDone.slice(0, 3).join("・"))}${al.sfNotDone.length > 3 ? " ほか" : ""}）`);
       if (ed && al.unmatched) items.push(`解約フォームの回答で、企業を特定できなかったものが <b>${al.unmatched}件</b>（「解約フォーム」のタブで当てはめてください）`);
       if ((al.unpaid || []).length) items.push(`未入金の企業が <b>${al.unpaid.length}社</b>（${esc(al.unpaid.slice(0, 3).join("・"))}）`);
       return items.length ? `<div style="background:#FFF6F3;border:1px solid #F0C9B8;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#7A2E12">${items.map((t) => `⚠ ${t}`).join("<br>")}</div>` : ""; })()}
     <div class="ar-cards"><div class="ar-card"><small>請求対象</small><b>${d.bill.length}</b><span>社・${(d.bill.length * d.price).toLocaleString()}円（税別）</span></div><div class="ar-card"><small>新規</small><b>${nNew}</b><span>社</span></div><div class="ar-card"><small>この月末で解約</small><b>${nCx}</b><span>社</span></div><div class="ar-card${nStop ? " warn" : ""}"><small>未入金・停止</small><b>${nStop}</b><span>社</span></div></div>
     <div class="kx-seg" style="margin-bottom:10px">${tabs.map(([k, l]) => `<button type="button" class="${ar.tab === k ? "on" : ""}" data-ar-tab="${k}">${l}</button>`).join("")}</div>${body}`;
-  box.querySelectorAll("[data-ar-mv]").forEach((b) => b.addEventListener("click", () => { ar.ym = arAddYm(ar.ym, Number(b.dataset.arMv)); arLoad(); }));
+  document.querySelectorAll("#kxTopAr [data-ar-mv]").forEach((b) => b.addEventListener("click", () => { ar.ym = arAddYm(ar.ym, Number(b.dataset.arMv)); arLoad(); }));
   box.querySelectorAll("[data-ar-tab]").forEach((b) => b.addEventListener("click", () => { ar.tab = b.dataset.arTab; arRender(); }));
   box.querySelectorAll("[data-ar-sf]").forEach((c) => c.addEventListener("change", () => arSaveMonth(c.dataset.arSf, { sf: c.checked })));
   box.querySelectorAll("[data-ar-paid]").forEach((c) => c.addEventListener("change", () => arSaveMonth(c.dataset.arPaid, { paid: c.value === "" ? null : c.value === "1" })));

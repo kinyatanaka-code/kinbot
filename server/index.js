@@ -29560,7 +29560,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10o kincall：記録の窓の「これまでのやり取り」に架電者の名前を見やすく（📞 名前の札・日付と同じ行、件名・結果は下の行）。件名が「日付_名前」ならその人を架電者に。";
+const BUILD_TAG = "2026-11-10p kinXs DOC自動更新：見出しと説明の行を消し、月の切りかえ・月次Excel・登録・CSVのボタンを上のヘッダーへ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

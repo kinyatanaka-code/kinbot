@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261110o" />
+    <link rel="stylesheet" href="style.css?v=20261110p" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -764,6 +764,7 @@
   .kx-zcall{color:#0B5CFF;font-weight:700;text-decoration:none;} .kx-zcall:hover{text-decoration:underline;} .kx-tel2{font-size:11px;color:#8FA39A;margin-left:4px;}
   /* DOC自動更新（2026-11-09） */
   .ar-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .ar-top-head{margin:0;flex-wrap:nowrap;gap:8px;min-width:0;overflow-x:auto;} .ar-top-head .kx-btn{white-space:nowrap;} .ar-top-head .kx-note{white-space:nowrap;}
   .ar-mon{display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid #DCE6E1;border-radius:12px;padding:4px;}
   .ar-mon button{border:0;background:none;font:inherit;font-weight:800;padding:4px 10px;border-radius:8px;cursor:pointer;color:#0E6B4E;} .ar-mon button:hover{background:#E1F5EE;}
   .ar-mon b{font-size:15px;min-width:120px;text-align:center;}
@@ -829,6 +830,7 @@
         <header class="topbar kx-topbar">
           <div class="brand"><img class="kx-top-ico topbar-bot" src="/kinxs.svg" alt="kinbotに聞く" width="40" height="40"  title="押すとkinbotに相談できます" /><span class="brand-name" id="kxPageName">DOC更新管理</span></div>
           <div class="v2-headm" id="kxHeadMonth" hidden></div>
+          <div class="ar-top ar-top-head" id="kxTopAr" hidden></div>
           <span class="kx-top-chip" id="kxTopChip" hidden></span>
           <span class="kx-top-kpis" id="kxTopKpis"></span>
           <div class="kx-top-right">
@@ -888,7 +890,7 @@
           </div>
           <div class="kx-wrap" id="vHome" hidden><div id="kh2"><div class="kx-empty">読み込み中…</div></div></div>
           <div class="kx-wrap" id="vPlan" hidden><div class="kx-head"><div><h1 class="kx-title">年間施策</h1></div></div><div id="vPlanBody"></div></div>
-          <div class="kx-wrap" id="vAr" hidden><div class="kx-head"><div><h1 class="kx-title">DOC自動更新（1ヶ月ごと）</h1><p class="kx-sub">アチコチバース（空間利用料）月額の自動更新企業の、請求対象・解約・突合</p></div></div><div id="vArBody"></div></div>
+          <div class="kx-wrap" id="vAr" hidden><div id="vArBody"></div></div>
           <div class="kx-wrap" id="vMail" hidden><div class="kx-head"><div><h1 class="kx-title">メール配信</h1><p class="kx-sub">会社を選んで、書きたいことを入れると、会社ごとに下書きを作ります。見直してから、自分のGmailで送ります（返事待ちのメールには返信で）</p></div></div><div id="vMailBody"></div></div>
           <div class="kx-wrap" id="vCall" hidden><div class="kx-head"><div><h1 class="kx-title">電話フォロー</h1></div></div><div id="vCallBody"></div></div>
           <div class="kx-wrap" id="vTrend" hidden><div class="kx-head"><div><h1 class="kx-title">傾向分析</h1></div></div><div id="vTrendBody"></div></div>
@@ -919,7 +921,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261110o" defer></script>
-    <script src="kinxs.js?v=20261110o"></script>
+    <script src="kbchat.js?v=20261110p" defer></script>
+    <script src="kinxs.js?v=20261110p"></script>
   </body>
 </html>
