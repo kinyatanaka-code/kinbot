@@ -873,7 +873,9 @@ function isKincallSelfSettingPath(p) {
     p === "/api/calendar/status" || p === "/api/calendar/disconnect" ||
     p === "/api/my-zoom-link" || p === "/api/links" ||
     // Zoom Phone：接続の確認と、自分の発信者番号（かける画面のZoom発信・録音の要約で使う）。設定の変更・同期は管理者だけ
-    p === "/api/zoom-phone/status" || p === "/api/zoom-phone/caller-id" || p === "/api/zoom-phone/check";
+    p === "/api/zoom-phone/status" || p === "/api/zoom-phone/caller-id" || p === "/api/zoom-phone/check" ||
+    // Zoomアカウントの貸し出し（借りる・返す・ログインの確かめ・パスワード）と、ログインの引き継ぎ（2026-11-09：インターン生が「この操作はできません」になっていた）
+    p === "/api/zoom-share" || p.startsWith("/api/zoom-share/") || p === "/api/auth/handoff";
 }
 
 const OPEN_PATHS = new Set([
@@ -29028,7 +29030,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-09o kincall：Zoom Phoneのライセンスが無い人が電話番号を押すと、空いている共有のZoomアカウントを借りてかけられる（借りていればそのままかける）。";
+const BUILD_TAG = "2026-11-09p kincall：インターン生（kincallだけの人）も、Zoomアカウントの貸し出し（借りる・返す・確かめ・パスワード）とログインの引き継ぎを使えるように（「この操作はできません」になっていた）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
