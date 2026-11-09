@@ -13333,9 +13333,11 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     let rows = await arList();
     // 申込番号が空の自動更新の企業は、SF の商談のサーカスの番号で埋める（画面を待たせないよう裏で。年間の企業は調べない）（2026-11-10 修正：同期で年間の企業が増え、開くたびに全社をSFで調べて読み込みが終わらなかった）
     arCircusFillBg(rows, req.user);
+    // 担当CSは kinXs のCS担当（CS連携の担当→SF）を正にする（2026-11-10 田中さん。納品一覧のCS担当は使わない）
+    const kxCs = new Map((((await kinxsBuildMemo().catch(() => ({ items: [] }))).items) || []).map((i) => [String(i.id), i.cs || ""]));
     const view = (r) => { const mo = (r.ar_months && r.ar_months[ym]) || {}; return { id: r.id, name: r.name, plan: r.ar_plan, no: r.ar_no || "", start: r.ar_start || "", status: r.ar_status || "継続中", statusOn: arStatusOn(r, ym),
       cancelApplied: r.ar_cancel_applied ? String(r.ar_cancel_applied instanceof Date ? r.ar_cancel_applied.toISOString() : r.ar_cancel_applied).slice(0, 10) : "", cancelWish: r.ar_cancel_wish || "", cancelMonth: r.ar_cancel_month || "",
-      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: r.ar_cs || r.cs_name || "", csSheet: r.ar_cs || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "" }; };
+      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: kxCs.get(String(r.id)) || r.cs_name || "", csSheet: r.ar_cs || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "" }; };
     const all = rows.map(view);
     const bill = rows.filter((r) => arBillOn(r, ym)).map(view);
     const billPrev = new Set(rows.filter((r) => arBillOn(r, prev)).map((r) => String(r.id)));
@@ -13410,13 +13412,13 @@ async function arMatch(company, no) {
   return hits.length === 1 ? hits[0] : null;
 }
 const AR_REPLY_ALSO_DEFAULT = "doc_support@neo-career.co.jp, support_x@mochica.jp";   // DOCの共有アドレス・メールワイズ（2026-11-10 幸地さん）
-// CS担当（納品一覧のCS担当、無ければ kinXs の CS担当の名前）→ 設定の対応表 arCsMails か kinbot のメンバーのメール。同じ苗字が2人いるときは名前全体で決める。決まらなければ空
+// CS担当（kinXs の CS担当、無ければ納品一覧のCS担当）→ 設定の対応表 arCsMails か kinbot のメンバーのメール。同じ苗字が2人いるときは名前全体で決める。決まらなければ空
 async function arCsEmailOf(accId) {
   if (!accId) return "";
   const { items } = await kinxsBuildMemo().catch(() => ({ items: [] }));
   const x = (items || []).find((i) => String(i.id) === String(accId));
   const acc = (await arSyncAccounts().catch(() => [])).find((a) => String(a.id) === String(accId));
-  const cs = String((acc && acc.ar_cs) || (x && x.cs) || "").normalize("NFKC").trim(); if (!cs) return "";
+  const cs = String((x && x.cs) || (acc && acc.ar_cs) || "").normalize("NFKC").trim(); if (!cs) return "";   // kinXs のCS担当を正に（2026-11-10 田中さん）
   const map = (await getSettings().catch(() => ({}))).arCsMails || {};
   const hit = Object.entries(map).find(([k]) => String(k).normalize("NFKC").replace(/[\s　]/g, "") === cs.replace(/[\s　]/g, "") || kxSur(k) === kxSur(cs)); if (hit && /@/.test(hit[1])) return String(hit[1]).toLowerCase();
   const flat = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
@@ -13590,7 +13592,8 @@ app.post("/api/kinxs/autorenew-sync", async (req, res) => {
 // 納品一覧の契約終了月と kinXs の更新月のズレ（2026-11-10 幸地さん「どの企業がズレてるか教えて」）
 async function arEndDiffs() {
   const accts = (await arSyncAccounts()).filter((a) => !a.merged_into && !a.archived && a.ar_end);
-  return accts.filter((a) => String(a.ar_end) !== String(a.renew_month || "")).map((a) => ({ id: a.id, name: a.name_override || a.name, sheetEnd: a.ar_end, renew: a.renew_month || "", cs: a.ar_cs || a.cs_name || "",
+  const kxCs = new Map((((await kinxsBuildMemo().catch(() => ({ items: [] }))).items) || []).map((i) => [String(i.id), i.cs || ""]));
+  return accts.filter((a) => String(a.ar_end) !== String(a.renew_month || "")).map((a) => ({ id: a.id, name: a.name_override || a.name, sheetEnd: a.ar_end, renew: a.renew_month || "", cs: kxCs.get(String(a.id)) || a.cs_name || "",
     gap: a.renew_month ? ((Number(a.ar_end.slice(0, 4)) - Number(String(a.renew_month).slice(0, 4))) * 12 + Number(a.ar_end.slice(5, 7)) - Number(String(a.renew_month).slice(5, 7))) : null }))
     .sort((x, y) => Math.abs(y.gap ?? 99) - Math.abs(x.gap ?? 99) || String(x.name).localeCompare(String(y.name), "ja"));
 }
@@ -29661,7 +29664,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10v DOC自動更新：自動返信の宛先（申請者・doc_support・support_x・納品一覧のCS担当）、CS担当の列とメールの対応表、商品名ルール（月額利用料／自動更新）、契約終了月と更新月のズレの一覧と合わせる、共有日＝第20営業日。";
+const BUILD_TAG = "2026-11-10w DOC自動更新：担当CSは kinXs のCS担当（CS連携→SF）を正に。一覧・ズレ・自動返信のCS担当のメールもこれで。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
