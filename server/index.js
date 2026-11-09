@@ -13329,7 +13329,9 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const nowYm = arYm(Date.now());
     const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unmatched: inbox.length, unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name) };
     res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
-      form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false } });
+      form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false,
+        replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyReady: stA.arReplyOwner ? !!(await gmailReady(stA.arReplyOwner).catch(() => false)) : false,
+        notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length } });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/autorenew/:id", async (req, res) => {
@@ -13386,7 +13388,12 @@ async function arReply(owner, to, { company, applicant, cancelMonth }) {
   if (!to || !/@/.test(to)) return false;
   const ym = cancelMonth ? `${cancelMonth.slice(0, 4)}年${Number(cancelMonth.slice(5, 7))}月末` : "";
   const body = `${company || ""}\n${applicant ? `${applicant} 様` : "ご担当者様"}\n\nいつもどこでもオープンカンパニーをご利用いただき、ありがとうございます。\nアチコチバース（月額利用料）の解約のお申し込みを受け付けました。\n\n${ym ? `解約日：${ym}（${ym}までご利用いただけます）\n\n` : ""}解約日までのご利用料金は、これまでどおりご請求いたします。\nご不明な点がございましたら、本メールにご返信ください。\n\n株式会社ネオキャリア\nどこでもオープンカンパニー 事務局`;
-  await gmailSend(owner, { to, subject: "【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ", bodyText: body });
+  // 送り主：settings.arReplyOwner（DOC 事務局の kinbot アカウント か 幸地さん）。差出人の名義と返信先は settings.arReplyFrom（事務局のアドレス）（2026-11-10 田中さん）
+  const st = await getSettings().catch(() => ({}));
+  const sender = st.arReplyOwner || ""; if (!sender) throw new Error("自動返信を送る人が決まっていません");
+  const fromAddr = String(st.arReplyFrom || "").trim();
+  await gmailSend(sender, { to, subject: "【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ", bodyText: body,
+    ...(fromAddr ? { fromOverride: `=?UTF-8?B?${Buffer.from("どこでもオープンカンパニー 事務局").toString("base64")}?= <${fromAddr}>`, extraHeaders: { "Reply-To": fromAddr } } : {}) });
   return true;
 }
 async function arApplyCancel(accId, { applied, wish, applicant, contact }, by) {
@@ -13427,6 +13434,8 @@ app.put("/api/kinxs/autorenew-settings", async (req, res) => {
     const b = req.body || {}; const patch = {};
     if (b.sheet !== undefined) { const m = String(b.sheet || "").match(/\/d\/([A-Za-z0-9_-]{20,})/); patch.arCancelSheetId = m ? m[1] : String(b.sheet || "").trim(); }
     if (b.replyOn !== undefined) patch.arReplyOn = !!b.replyOn;
+    if (b.replyOwner !== undefined) patch.arReplyOwner = String(b.replyOwner || "").trim().toLowerCase();
+    if (b.replyFrom !== undefined) patch.arReplyFrom = String(b.replyFrom || "").trim().toLowerCase();
     await saveSettings(patch);
     const r = await arIntake().catch((e) => ({ error: e.message }));
     res.json({ ok: true, intake: r });
@@ -29315,7 +29324,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10b DOC自動更新：解約フォームの取り込み（回答シートを10分ごと・申込番号か会社名で特定・解約予定に・受付の自動返信・要確認の当てはめ）、アラート、CSVでまとめて登録。";
+const BUILD_TAG = "2026-11-10c DOC自動更新：解約の自動返信を、DOC事務局か幸地さんから送る（送る人・差出人の事務局のアドレス・返信先を設定で）。田中さん個人からは送らない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

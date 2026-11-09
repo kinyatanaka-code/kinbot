@@ -775,10 +775,10 @@ export function parseEmailAddr(s) {
 }
 
 // 返信を送信する。threadIdを渡すと同じスレッドにぶら下がる。
-export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc, extraHeaders }) {
+export async function gmailSend(owner, { to, subject, bodyText, threadId, inReplyTo, references, bcc, cc, extraHeaders, fromOverride }) {
   const token = await accessToken(owner);
   if (!token) throw new Error("Google未連携です");
-  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc, extraHeaders });
+  const raw = await buildRawMessage(owner, { to, subject, bodyText, inReplyTo, references, bcc, cc, extraHeaders, fromOverride });
   const payload = threadId ? { raw, threadId } : { raw };
   const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
     method: "POST",
@@ -959,8 +959,9 @@ export async function gmailUntrashThread(owner, threadId) {
 }
 
 // RFC822形式のメッセージを組み立ててbase64url化（送信・下書きで共通）
-async function buildRawMessage(owner, { to, subject, bodyText, bodyHtml, inReplyTo, references, bcc, cc, extraHeaders }) {
-  const from = await getPrimaryEmail(owner);
+async function buildRawMessage(owner, { to, subject, bodyText, bodyHtml, inReplyTo, references, bcc, cc, extraHeaders, fromOverride }) {
+  // fromOverride：差出人を別のアドレス（Gmail の「他のアドレスからメールを送信」に入れてあるもの）にする（2026-11-10 DOC 事務局の自動返信）
+  const from = fromOverride || await getPrimaryEmail(owner);
   const enc = (s) => `=?UTF-8?B?${Buffer.from(String(s || "")).toString("base64")}?=`;
   const headers = [
     from ? `From: ${from}` : "",
