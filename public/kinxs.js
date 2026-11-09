@@ -694,7 +694,7 @@ async function openDetail(id, reuse) {
     <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}${kxLabelSchedPane(d, "prod")}</div>
     <div data-pane="info" hidden style="display:flex;flex-direction:column;gap:12px">
       ${kxNowCard(d)}
-      ${kxStatusPane(d)}
+      <details class="kx-more"><summary>CS担当・フェーズ・利用目的・活用を見る・直す</summary>${kxStatusPane(d)}</details>
       <details class="kx-more" data-na-more ${(() => { const l = x.naDue ? Math.ceil((Date.parse(x.naDue + "T23:59:59+09:00") - Date.now()) / 86400000) : 99; return l <= 7 ? "open" : ""; })()}><summary>次回アクションの中身（当日に確認すること・前回の宿題）</summary>${kxNextActSection(x)}</details>
       ${kxLabelSchedPane(d, "sched")}
       <details class="kx-more"><summary>請求・納品（フェーズの判定に使う項目）</summary>${kxOpsSection(x)}</details>
@@ -752,7 +752,7 @@ async function openDetail(id, reuse) {
     if (rk || dl) { const h = document.createElement("div"); h.className = "kx-other-h"; h.textContent = "そのほか（更新確度・納品）"; pane.appendChild(h); if (rk) pane.appendChild(rk); if (dl) pane.appendChild(dl); }
   })();
   if (!bg.isConnected) document.body.appendChild(bg);
-  kxCircusMount(bg, x); kxKenshuMount(bg, x);
+  kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg);
   if (reuse) {
     if (reuse.tab) { bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2.dataset.tab === reuse.tab)); bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== reuse.tab; }); }
     const dr = bg.querySelector(".kx-drawer"); if (dr && reuse.scroll) dr.scrollTop = reuse.scroll;
@@ -2446,49 +2446,83 @@ async function kxKenshuMount(bg, x) {
   if (no && !no.value) setTimeout(() => { const v = defNo(); if (v && !no.value) { no.value = v; no.oninput(); } }, 2500);
 }
 
-// ===== 企業の詳細：ステータスの一番上「いまの状態」と「対応事項」（2026-11-10 田中さん：このページの目的は、ユーザーが今どんな状態か・対応事項は何か）=====
+// ===== 企業の詳細：ステータス＝道のり型（案A）（2026-11-10 田中さん：いまどこにいて、次は何か・対応事項）=====
 function kxNowCard(d) {
-  const x = d.item || {}; const st = d.status || {};
-  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const x = d.item || {}; const st = d.status || {}; const info = d.info || {};
   const daysTo = (ymd) => Math.ceil((Date.parse(ymd + "T23:59:59+09:00") - Date.now()) / 86400000);
-  const fmt = (ymd) => String(ymd || "").slice(5).replace("-", "/");
-  // いまの状態
+  const md = (iso) => { const t = String(iso || "").slice(0, 10); return t ? `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}` : ""; };
+  const usage = st.usage || x.usage || "";
+  const kenOk = x.kenshuNa || x.kenshuDone === true || String(x.kenshu || "").startsWith("回収済み");
+  const mailOk = x.mailDone === true || String(x.mail || "").startsWith("送付済み");
+  const pubOk = x.published === true || x.published === "true";
+  const useOk = /^活用：(公開掲載|限定公開)/.test(usage);
+  const koOk = !!(d.kickoffAt && Date.parse(d.kickoffAt) <= Date.now());
   const steps = [
-    ["検収書", x.kenshuNa ? "na" : (x.kenshuDone === true || String(x.kenshu || "").startsWith("回収済み")) ? "ok" : "todo"],
-    ["納品メール", (x.mailDone === true || String(x.mail || "").startsWith("送付済み")) ? "ok" : "todo"],
-    ["掲載", x.published === true || x.published === "true" ? "ok" : "todo"],
+    { k: "受注", ok: !!info.booked, sub: info.booked ? `${md(info.booked)} ✓` : "—" },
+    { k: "キックオフ", ok: koOk, sub: d.kickoffAt ? `${md(d.kickoffAt)}${koOk ? " ✓" : "予定"}` : "まだ" },
+    { k: "検収書", ok: kenOk, sub: x.kenshuNa ? "対象外" : kenOk ? "✓" : String(x.kenshu || "").startsWith("依頼済み") ? "依頼済み" : "まだ" },
+    { k: "納品メール", ok: mailOk, sub: mailOk ? "✓" : "まだ" },
+    { k: "掲載", ok: pubOk, sub: pubOk ? "✓" : "まだ" },
+    { k: "活用", ok: useOk, sub: usage ? usage.replace(/^活用：/, "") : "—" },
+    { k: "更新", ok: false, sub: x.renew ? x.renew.replace("-", "/") : "—" },
   ];
-  const stepHtml = steps.map(([n, v]) => `<span class="kx-now-step ${v}">${v === "ok" ? "✓" : v === "na" ? "－" : "○"} ${n}${v === "na" ? "（対象外）" : ""}</span>`).join("");
-  const renewTxt = x.renew ? `${x.renew.replace("-", "/")}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}` : "—";
-  const touch = x.lastTouch ? `${x.sinceTouch}日前` : "—";
-  // 対応事項（急ぐ順）
+  const cur = steps.findIndex((s0) => !s0.ok);
+  const head = { 0: "受注の手続き中", 1: "キックオフの前", 2: "納品の手前（検収書の回収待ち）", 3: "納品メールを送る段階", 4: "掲載の確認待ち", 5: "活用を始めるところ", 6: "活用中（次は更新）" }[cur] || "—";
+  const since = info.booked ? Math.max(0, Math.floor((Date.now() - Date.parse(info.booked + "T00:00:00+09:00")) / 86400000)) : null;
+  // 対応事項（急ぐ順）。act＝その場で片づけるボタンの種類
   const todo = [];
-  for (const a of (x.alerts || [])) todo.push({ lv: 1, t: a.rule, s: a.detail });
-  if (x.na) { const l = x.naDue ? daysTo(x.naDue) : null; const when = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : x.naDue ? fmt(x.naDue) : "日時未定";
-    todo.push({ lv: l != null && l < 0 ? 1 : l != null && l <= 7 ? 2 : 3, t: `${x.naType ? `${x.naType}：` : ""}${x.na}`, s: `${when}${l == null ? "" : l < 0 ? `・${-l}日過ぎ` : `・あと${l}日`}`, tag: "次回アクション" }); }
-  else todo.push({ lv: 2, t: "次回アクションが決まっていません", s: "議事録・メールから読み取るか、手で入れてください", tag: "次回アクション" });
+  for (const a of (x.alerts || [])) todo.push({ lv: 1, t: a.rule, s: a.detail, tag: "要注意", act: a.rule === "更新月接近" ? "renew" : a.rule === "NA期限切れ" ? "na" : "" });
+  if (!kenOk) todo.push({ lv: cur === 2 ? 1 : 2, t: String(x.kenshu || "").startsWith("依頼済み") ? "検収書の回収を待つ（依頼済み）" : "検収書を回収する", s: since != null ? `受注から${since}日` : "", tag: "納品", act: "ken", sub: "回収できたらPDFを入れると、相澤さん・幸地さんにチャットで知らせます" });
+  if (x.na) { const l = x.naDue ? daysTo(x.naDue) : null; const when = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : x.naDue ? md(x.naDue) : "日時未定";
+    const n = ((x.naDetail || {}).agenda || []).length;
+    todo.push({ lv: l != null && l < 0 ? 1 : l != null && l <= 7 ? 2 : 3, t: `${x.na}（${when}）の準備`, s: `${x.naType || "次回アクション"}${n ? `　確認すること${n}つ` : ""}`, right: l == null ? "" : l < 0 ? `${-l}日過ぎ` : `あと${l}日`, tag: "次回アクション", act: "na" }); }
+  else todo.push({ lv: 2, t: "次回アクションを決める", s: "議事録・メールから読み取れます", tag: "次回アクション", act: "read" });
   const nd = x.naDetail || {}; const sm = x.mtgSummary || {};
-  const hw = (Array.isArray(nd.homework) ? nd.homework : (sm.homework || [])).filter((h) => h && h.state !== "完了" && (h.t || h.text || h.task));
-  for (const h of hw.slice(0, 6)) { const due = h.due || ""; const l = due ? daysTo(due) : null;
-    todo.push({ lv: l != null && l < 0 ? 1 : 3, t: `${h.who ? `${h.who}：` : ""}${h.t || h.text || h.task}`, s: due ? `${fmt(due)}まで${l < 0 ? `・${-l}日過ぎ` : ""}` : "", tag: "宿題" }); }
-  if (steps[0][1] === "todo") todo.push({ lv: 2, t: String(x.kenshu || "").startsWith("依頼済み") ? "検収書の回収を待っています（依頼済み）" : "検収書を回収する", s: "回収したら企業情報の「検収書」にPDFを入れると、チャットで知らせます", tag: "納品" });
-  if (steps[1][1] === "todo") todo.push({ lv: 3, t: "納品メールを送る", s: "", tag: "納品" });
-  if (steps[2][1] === "todo" && steps[0][1] !== "todo") todo.push({ lv: 3, t: "掲載を確認する", s: "", tag: "納品" });
-  if (x.left != null && x.left <= 90 && ["B", "C", "Z"].includes(x.rank || "Z")) todo.push({ lv: x.left <= 30 ? 1 : 2, t: "更新の確度を上げる（更新の打診）", s: `更新月 ${renewTxt}・確度 ${x.rank || "Z"}`, tag: "更新" });
+  for (const h of (Array.isArray(nd.homework) ? nd.homework : (sm.homework || [])).filter((h) => h && h.state !== "完了" && (h.task || h.t)).slice(0, 6)) {
+    const l = h.due ? daysTo(h.due) : null;
+    todo.push({ lv: l != null && l < 0 ? 1 : 3, t: h.task || h.t, s: `${h.who || ""}の宿題${h.due ? `　${md(h.due)}まで` : ""}`, right: l != null && l < 0 ? `${-l}日過ぎ` : "", tag: "宿題", act: "na" }); }
+  if (!mailOk) todo.push({ lv: 3, t: "納品メールを送る", s: kenOk ? "" : "検収書のあと", tag: "納品", act: "mail" });
+  if (!pubOk && kenOk) todo.push({ lv: 3, t: "掲載を確認する", s: "", tag: "納品", act: "pub" });
+  if (!(x.alerts || []).some((a) => a.rule === "更新月接近") && ["Z", ""].includes(x.rank || "")) todo.push({ lv: 4, t: "更新確度を決める", s: `いま ${x.rank || "Z"}（未判定）`, right: x.renew ? `${x.renew.replace("-", "/")}まで` : "", tag: "更新", act: "renew" });
   todo.sort((a, b) => a.lv - b.lv);
-  const lvCls = (lv) => (lv === 1 ? "hi" : lv === 2 ? "mid" : "lo");
-  return `<section class="kx-now">
-    <div class="kx-now-h">いまの状態</div>
-    <div class="kx-now-grid">
-      <div><span>フェーズ</span><b><span class="kx-lab l-${esc(st.phase || x.label || "")}">${esc(st.phase || x.label || "—")}</span></b></div>
-      <div><span>活用</span><b>${esc(st.usage || "—")}</b></div>
-      <div><span>更新月</span><b>${esc(renewTxt)}</b></div>
-      <div><span>更新確度</span><b><span class="kx-rank r-${esc(x.rank || "Z")}">${esc(x.rank || "Z")}</span></b></div>
-      <div><span>最終接触</span><b class="${x.sinceTouch > 30 ? "warn" : ""}">${esc(touch)}</b></div>
-      <div><span>CS担当</span><b>${esc(st.cs || x.cs || "未定")}</b></div>
-    </div>
-    <div class="kx-now-steps"><span class="kx-now-sl">納品まで</span>${stepHtml}</div>
-    <div class="kx-now-h" style="margin-top:12px">対応事項 <small>${todo.length}件</small></div>
-    <div class="kx-now-todo">${todo.length ? todo.map((t) => `<div class="kx-now-it ${lvCls(t.lv)}"><i></i><div><div class="t">${t.tag ? `<em>${esc(t.tag)}</em>` : ""}${esc(t.t)}</div>${t.s ? `<div class="s">${esc(t.s)}</div>` : ""}</div></div>`).join("") : '<div class="kx-note">いまの対応事項はありません</div>'}</div>
-  </section>`;
+  const top = todo[0];
+  const btn = (act, pri) => ({
+    ken: [["ken-pdf", "PDFを入れる"], ["ken-done", "回収済みにする"]], mail: [["mail-done", "送付済みにする"]], pub: [["pub-done", "掲載を確認した"]],
+    na: [["na-open", "中身を開く"]], read: [["read", "議事録・メールから読み取る"]], renew: [["renew", "確度を決める"]],
+  }[act] || []).map(([a, l], i) => `<button type="button" class="${pri && i === 0 ? "kx-a-pri" : "kx-a-sec"}" data-now="${a}">${esc(l)}</button>`).join("");
+  const chk = (t) => ({ ken: "ken-done", mail: "mail-done", pub: "pub-done" })[t.act];
+  const touchTxt = x.lastTouch ? `${x.sinceTouch}日前` : "—";
+  return `<section class="kx-a-where">
+      <div class="kx-a-row"><span class="kx-a-q">いまどこ？</span><b class="kx-a-head">${esc(head)}</b>${since != null ? `<span class="kx-a-since">受注から ${since}日</span>` : ""}</div>
+      <div class="kx-a-steps">${steps.map((s0, i) => `<div class="kx-a-st ${s0.ok ? "ok" : i === cur ? "now" : ""}"><i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small></div>`).join("")}</div>
+    </section>
+    ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true)}</div></section>` : ""}
+    <section class="kx-a-todo"><div class="kx-a-th"><b>対応事項</b><small>${todo.length}件</small></div>
+      ${todo.map((t) => `<div class="kx-a-it ${t.lv === 1 ? "hi" : ""}">${chk(t) ? `<input type="checkbox" aria-label="${esc(t.t)}を済みにする" data-now="${chk(t)}">` : `<span class="kx-a-dot" aria-hidden="true"></span>`}
+        <div class="kx-a-tx"><b>${esc(t.t)}</b><small>${t.tag ? `<em>${esc(t.tag)}</em>` : ""}${esc(t.s || "")}</small></div>
+        ${t.right ? `<span class="kx-a-r ${t.lv === 1 ? "hi" : ""}">${esc(t.right)}</span>` : t.lv === 1 ? '<span class="kx-a-r hi">急ぎ</span>' : ""}
+        ${!chk(t) && t.act ? `<span class="kx-a-ib">${btn(t.act, false).replace(/<button[^>]*data-now="(ken-pdf)"[^>]*>[^<]*<\/button>/, "")}</span>` : ""}</div>`).join("") || '<div class="kx-note">いまの対応事項はありません</div>'}
+    </section>
+    <section class="kx-a-cards">
+      <div><small>活用</small><b>${esc(usage ? usage.replace(/^活用：/, "") : "未入力")}</b></div>
+      <div><small>最終接触</small><b class="${x.sinceTouch > 30 ? "warn" : ""}">${esc(touchTxt)}</b></div>
+      <div><small>更新月</small><b>${esc(x.renew ? `${x.renew.replace("-", "/")}${x.left != null ? `（${x.left < 0 ? `${-x.left}日過ぎ` : `あと${x.left}日`}）` : ""}` : "—")}</b></div>
+      <div><small>更新確度</small><b>${esc(x.rank || "Z")}${!x.rank || x.rank === "Z" ? "（未判定）" : ""}</b></div>
+    </section>`;
+}
+// 「次にやること」「対応事項」のボタン：今ある欄のボタンを押す・開く（保存のしかたは今までと同じ）
+function kxNowMount(bg) {
+  const pane = bg.querySelector('[data-pane="info"]'); if (!pane) return;
+  const tog = (key, v) => { const b = bg.querySelector(`[data-tog="${key}"] button[data-v="${v}"]`); if (b) b.click(); };
+  const openNa = () => { const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; dt.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+  pane.querySelectorAll("[data-now]").forEach((el) => el.addEventListener(el.tagName === "INPUT" ? "change" : "click", () => {
+    const a = el.dataset.now;
+    if (a === "ken-done") return tog("kenshu_done", "true");
+    if (a === "mail-done") return tog("mail_done", "true");
+    if (a === "pub-done") return tog("published", "true");
+    if (a === "na-open") return openNa();
+    if (a === "read") { const r = bg.querySelector("[data-read-all]"); if (r) { const dt = r.closest("details"); if (dt) dt.open = true; r.scrollIntoView({ behavior: "smooth", block: "center" }); r.click(); } return; }
+    if (a === "renew") { const rk = bg.querySelector(".kx-ranks"); if (rk) { const dt = rk.closest("details"); if (dt) dt.open = true; rk.scrollIntoView({ behavior: "smooth", block: "center" }); } return; }
+    if (a === "ken-pdf") { const t = bg.querySelector('[data-tab="co"]'); if (t) t.click(); setTimeout(() => { const k = bg.querySelector("[data-ken-sec]"); if (k) k.scrollIntoView({ behavior: "smooth", block: "start" }); }, 80); }
+  }));
 }
