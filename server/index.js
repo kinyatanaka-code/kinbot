@@ -14208,6 +14208,7 @@ app.post("/api/kinxs/mail/targets", async (req, res) => {
     const me = String(req.user || "").toLowerCase();
     const ctx = await kxMailCtx();
     const gReady = await gmailReady(me).catch(() => false);
+    const mwA = String(((await getSettings().catch(() => ({}))).kxMwAddr) || KX_MW_DEFAULT).toLowerCase();
     const out = await pmap(ids, 4, async (id) => {
       const x = ctx.items.find((i) => i.id === id); if (!x) return { id, error: "会社が見つかりません" };
       const contacts = kxMailContactsOf(ctx, x);
@@ -14218,7 +14219,7 @@ app.post("/api/kinxs/mail/targets", async (req, res) => {
         try {
           const ths = await gmailSearchThreads(me, `(${terms.join(" OR ")}) newer_than:90d`, 4);
           threads = ths.map((t) => { const last = (t.messages || [])[t.messages.length - 1] || {}; const lf = String(last.from || t.from || "").toLowerCase();
-            return { threadId: t.threadId, subject: t.subject || "（件名なし）", date: last.date || t.date || "", lastFrom: last.from || t.from || "", snippet: String(last.snippet || t.snippet || "").slice(0, 140), waiting: !!lf && !lf.includes(me) && !/neo-career|neocareer/.test(lf), count: t.count || 1 }; })
+            return { threadId: t.threadId, subject: t.subject || "（件名なし）", date: last.date || t.date || "", lastFrom: last.from || t.from || "", snippet: String(last.snippet || t.snippet || "").slice(0, 140), waiting: !!lf && !lf.includes(me) && !lf.includes(mwA) && !/neo-career|neocareer/.test(lf), count: t.count || 1 }; })
             .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
         } catch (e) { threads = []; }
       }
@@ -14263,25 +14264,43 @@ app.post("/api/kinxs/mail/send", async (req, res) => {
     const me = String(req.user || "").toLowerCase();
     if (!(await gmailReady(me).catch(() => false))) return res.status(400).json({ error: "Googleの連携（Gmail）ができていません。設定から連携してください" });
     const ctx = await kxMailCtx();
+    const stM = await getSettings().catch(() => ({}));
+    const mwAddr = String(stM.kxMwAddr || KX_MW_DEFAULT).trim().toLowerCase(), mwName = String(stM.kxMwName || "どこでもオープンカンパニー サポート").trim();
+    const mwOn = !!(req.body && req.body.viaMailwise) && /@/.test(mwAddr);
     const batch = `${Date.now()}`; const results = [];
     for (const it of list) {
       const x = ctx.items.find((i) => i.id === String(it.id)) || { name: it.company || "" };
       const to = String(it.to || "").split(/[,\s;、]+/).map(kxAddrOf).filter(Boolean).join(", ");
       const cc = String(it.cc || "").split(/[,\s;、]+/).map(kxAddrOf).filter(Boolean).join(", ");
       const subject = String(it.subject || "").trim(), body = String(it.body || "").trim();
-      const log = { by: me, accountId: String(it.id || ""), company: x.name, to, cc, subject, body, threadId: it.threadId || "", mode: it.threadId ? "返信" : "新規", batch };
+      const log = { by: me, accountId: String(it.id || ""), company: x.name, to, cc, subject, body, threadId: it.threadId || "", mode: `${it.threadId ? "返信" : "新規"}${mwOn ? "（メールワイズ）" : ""}`, batch };
       if (!to || !subject || !body) { results.push({ id: it.id, ok: false, error: "宛先・件名・本文のどれかが空です" }); await kxMailLog({ ...log, ok: false, error: "空の項目" }); continue; }
       try {
         let inReplyTo, references;
         if (it.threadId) { const th = await gmailGetThread(me, it.threadId).catch(() => null); const last = th && th.messages && th.messages[th.messages.length - 1];
           if (last && last.messageIdHeader) { inReplyTo = last.messageIdHeader; references = `${last.references ? last.references + " " : ""}${last.messageIdHeader}`; } }
-        await gmailSend(me, { to, cc: cc || undefined, subject, bodyText: body, ...(it.threadId ? { threadId: it.threadId, inReplyTo, references } : {}) });
+        // メールワイズから送る：差出人・返信先＝メールワイズの共通アドレス、BCCにも入れてメールワイズに残す（メールワイズには外からつなぐAPIが無いため）（2026-11-10 田中さん）
+        const mw = mwOn ? { fromOverride: `=?UTF-8?B?${Buffer.from(mwName).toString("base64")}?= <${mwAddr}>`, extraHeaders: { "Reply-To": mwAddr }, bcc: mwAddr } : {};
+        await gmailSend(me, { to, cc: cc || undefined, subject, bodyText: body, ...mw, ...(it.threadId ? { threadId: it.threadId, inReplyTo, references } : {}) });
         results.push({ id: it.id, ok: true }); await kxMailLog({ ...log, ok: true });
       } catch (e) { results.push({ id: it.id, ok: false, error: e.message }); await kxMailLog({ ...log, ok: false, error: e.message }); }
       await new Promise((r) => setTimeout(r, 400));
     }
     res.json({ ok: true, results, sent: results.filter((r) => r.ok).length });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+const KX_MW_DEFAULT = "support_x@mochica.jp";
+app.get("/api/kinxs/mail/settings", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" }); const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, mwAddr: st.kxMwAddr || KX_MW_DEFAULT, mwName: st.kxMwName || "どこでもオープンカンパニー サポート" }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/kinxs/mail/settings", async (req, res) => {
+  try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
+    const a = String((req.body && req.body.mwAddr) || "").trim().toLowerCase(); if (a && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a)) return res.status(400).json({ error: "メールアドレスの形ではありません" });
+    const n = String((req.body && req.body.mwName) || "").trim().slice(0, 60);
+    await saveSettings({ ...(a ? { kxMwAddr: a } : {}), ...(n ? { kxMwName: n } : {}) }); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/mail/log", async (req, res) => {
   try { if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" }); res.json({ ok: true, items: await kxMailLogList(100) }); }
@@ -29566,7 +29585,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10q kincall：これまでのやり取りの架電者は、kincallで記録したかけた人（インターン生）。SFの件名の名前（中澤さん）は使わない。（前の版のDOC自動更新のヘッダーも含む）";
+const BUILD_TAG = "2026-11-10r kinXs メール配信：メールワイズ（support_x@mochica.jp）から送る（差出人・返信先＝共通アドレス、BCCでメールワイズに残す）。メールワイズにはAPIが無いため。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
