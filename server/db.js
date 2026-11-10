@@ -12560,3 +12560,8 @@ export async function kinxsDeleteTest(accountId) {
   for (const t of ["kinxs_history", "kinxs_ar_history", "kinxs_files"]) await pool.query(`DELETE FROM ${t} WHERE account_id = $1`, [accountId]).catch(() => {});
   return (await pool.query(`DELETE FROM kinxs_accounts WHERE account_id = $1 AND source = 'test'`, [accountId])).rowCount || 0;
 }
+// テスト用の会社の名前を、申込番号で変える（前の名前は残さない）
+export async function kinxsTestRenameByNo(no, name) {
+  if (!pool) return 0;
+  return (await pool.query(`UPDATE kinxs_accounts SET name = $2, name_override = NULL, former_names = '[]'::jsonb WHERE source = 'test' AND ar_no = $1`, [no, name])).rowCount || 0;
+}

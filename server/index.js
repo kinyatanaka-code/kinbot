@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, kinxsTestRenameByNo, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -13379,7 +13379,17 @@ async function kxSeedTests() {
   _kxBuildMemo = { at: 0, p: null };
   console.log("[テストの準備] テスト用の会社を作りました：", list.length);
 }
-setTimeout(() => kxSeedTests().catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
+// テスト用の会社を、それらしい社名に（2026-11-10 田中さん「もっと会社っぽくして」）。【テスト】は、本物とまちがえないよう頭に残す
+const KX_TEST_NAMES = { "TEST-001": "株式会社みどり精工", "TEST-002": "ひまわりフーズ株式会社", "TEST-003": "株式会社北斗ロジスティクス", "TEST-004": "あおば不動産株式会社",
+  "TEST-005": "株式会社さくら介護サービス", "TEST-006": "東和テクノ株式会社", "TEST-007": "株式会社ことぶき建設", "TEST-008": "有限会社まるやま商店", "TEST-009": "医療法人社団 青葉会" };
+async function kxSeedTests2() {
+  const st = await getSettings().catch(() => ({})); if (st.kxTestSeed2) return;
+  if (!st.kxTestSeed1) return;   // 先に9社ができてから
+  await saveSettings({ kxTestSeed2: new Date().toISOString() });
+  for (const [no, nm] of Object.entries(KX_TEST_NAMES)) await kinxsTestRenameByNo(no, `【テスト】${nm}`).catch(() => {});
+  _kxBuildMemo = { at: 0, p: null };
+}
+setTimeout(() => kxSeedTests().then(() => kxSeedTests2()).catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
 app.get("/api/kinxs/autorenew", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
@@ -29802,7 +29812,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zk kinXs DOC自動更新：テスト用の会社を9社（継続中・来月から・解約予定（締切内／締切後）・今月末で解約・未入金・停止・年間）を起動のときに1回だけ作る。";
+const BUILD_TAG = "2026-11-10zl kinXs DOC自動更新：テスト用の9社を、それらしい社名に（【テスト】は残す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
