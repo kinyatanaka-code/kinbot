@@ -253,6 +253,9 @@ $("kxSync").addEventListener("click", async () => {
 });
 
 // ===== 画面の切りかえ（更新管理／ユーザー一覧）=====
+// テスト用の会社を出すか（このブラウザだけ。DOC自動更新の上の「🧪 テスト」で切りかえ）（2026-11-10）
+const KX_TEST = (() => { try { return localStorage.getItem("kxTest") === "1"; } catch { return false; } })();
+const kxUsersUrl = () => `/api/kinxs/users${KX_TEST ? "?test=1" : ""}`;
 const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
 if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call";
@@ -269,7 +272,7 @@ api("/api/me").then((me) => {
   if ($("kxSideName")) { $("kxSideName").textContent = n; $("kxSideAv").textContent = n ? n.slice(0, 1) : "・"; }
 }).catch(() => {});
 // 要注意の社数をヘッダーに（押すと、ユーザー一覧の要注意企業へ）
-api("/api/kinxs/users").then((u) => {
+api(kxUsersUrl()).then((u) => {
   // 今月の受注・先月の受注（SS06昇格日）・今月の納品予定。押すと、ユーザー一覧でその会社だけ
   const items0 = ((u && u.items) || []).filter((x) => !x.archived);
   const nowJ = new Date(Date.now() + 9 * 3600000); const ym = nowJ.toISOString().slice(0, 7);
@@ -307,7 +310,7 @@ if (VIEW === "cs") {
 let lsData = null, lsLabel = "";
 const fmtD = (t) => { if (!t) return "—"; const d = new Date(t); return isNaN(d) ? "—" : `${d.getMonth() + 1}/${d.getDate()}`; };
 async function loadList() {
-  try { lsData = await api("/api/kinxs/users"); renderList(); }
+  try { lsData = await api(kxUsersUrl()); renderList(); }
   catch (e) { $("lsTable").innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 // 商品ラベルの小さな札（DOC＝緑、SNS＝紫）
@@ -1093,7 +1096,7 @@ const BD_COLS = [
 ];
 let bdData = null;
 async function loadBoard() {
-  try { bdData = await api("/api/kinxs/users"); renderBoard(); }
+  try { bdData = await api(kxUsersUrl()); renderBoard(); }
   catch (e) { $("bdCols").innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 // フェーズ別のカードの、会社名の隣のロゴ（無い・読めないときは頭文字）
@@ -1444,7 +1447,7 @@ let kh2 = { ym: kxNowYm(), open: {}, period: null, miss: null };
 async function loadHomeV2() {
   const box = $("kh2"); if (!box) return;
   if (!lsData) box.innerHTML = kxSkel("home");
-  try { if (!lsData) lsData = await api("/api/kinxs/users"); kxSur = kxSurnameMap((lsData.items || []).map((x) => x.cs).filter(Boolean)); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  try { if (!lsData) lsData = await api(kxUsersUrl()); kxSur = kxSurnameMap((lsData.items || []).map((x) => x.cs).filter(Boolean)); } catch (e) { box.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
   renderHomeV2();
   api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
 }
@@ -1535,7 +1538,7 @@ function kxRenewV2(itemsR) {
   const host = $("kxTable"); if (!host) return false;
   const ranks = window.__rnRanks || new Set();
   const all = (lsData && lsData.items) ? lsData.items.filter((x) => !x.archived) : null;
-  if (!all) { api("/api/kinxs/users").then((d) => { lsData = d; render(); }).catch(() => {}); host.innerHTML = '<div class="kx-empty">読み込み中…</div>'; return true; }
+  if (!all) { api(kxUsersUrl()).then((d) => { lsData = d; render(); }).catch(() => {}); host.innerHTML = '<div class="kx-empty">読み込み中…</div>'; return true; }
   const okIds = new Set(itemsR.map((x) => x.id));
   const items = all.filter((x) => okIds.has(x.id) && (!ranks.size || ranks.has(x.rank)));
   const ym0 = kxNowYm(); const months = [0, 1, 2].map((n) => kxYmAdd(ym0, n));
@@ -2111,7 +2114,7 @@ async function arLoad() {
   const box = $("vArBody"); if (!box) return;
   if (!ar.ym) ar.ym = arYmNow();
   box.innerHTML = '<div class="ar-empty">読み込んでいます…</div>';
-  try { ar.data = await Promise.race([api(`/api/kinxs/autorenew?ym=${ar.ym}`), new Promise((_, no) => setTimeout(() => no(new Error("時間がかかりすぎています。少し待ってから開き直してください")), 45000))]); arRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
+  try { ar.data = await Promise.race([api(`/api/kinxs/autorenew?ym=${ar.ym}${KX_TEST ? "&test=1" : ""}`), new Promise((_, no) => setTimeout(() => no(new Error("時間がかかりすぎています。少し待ってから開き直してください")), 45000))]); arRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 function arStTag(s) { const c = s === "継続中" ? "" : s === "解約予定" ? " cx" : s === "解約済" ? " done" : " bad"; return `<span class="ar-st${c}">${esc(s)}</span>`; }
 function arRender() {
@@ -2159,13 +2162,14 @@ ${(() => { const names = [...new Set(d.all.map((x) => x.cs).filter(Boolean))].so
           <textarea id="arRules" class="kx-in" rows="3" style="width:100%;margin-top:6px" placeholder="1行に1つ：商品名に含む文字 → 自動更新 または 年間（例：アチコチバース月額 → 自動更新）">${esc((d.rules || []).map((r) => `${r.match} → ${r.plan}`).join("\n"))}</textarea><button type="button" class="hp-b" id="arRulesSave">ルールを保存して同期</button></details>
         <div id="arDiffs" style="margin-top:10px"></div></div>` : "";
     body = syncBox + `<div class="kx-seg" style="margin-bottom:8px">${[["", "すべて"], ["自動更新", "自動更新"], ["年間", "年間"]].map(([k, l]) => `<button type="button" class="${pf === k ? "on" : ""}" data-ar-pf="${k}">${l}（${k ? d.all.filter((x) => x.plan === k).length : d.all.length}）</button>`).join("")}</div>` +
-      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約月", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
+      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約月", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
       + `<datalist id="arAcAll"></datalist>`;
   }
   const ex = (d.exports || [])[0];
   { const tb = $("kxTopAr"); if (tb) { tb.hidden = false; tb.innerHTML = `<div class="ar-mon"><button type="button" data-ar-mv="-1">‹</button><b>${arJp(d.ym)}分</b><button type="button" data-ar-mv="1">›</button></div>
       <button type="button" class="kx-btn kx-pri" id="arXlsx">月次Excelをダウンロード</button>${ed ? '<button type="button" class="kx-btn" id="arAdd">＋ 自動更新の企業を登録</button><button type="button" class="kx-btn" id="arCsv">CSVでまとめて登録</button><input type="file" id="arCsvF" accept=".csv,text/csv" hidden>' : ""}
-      <span class="kx-note">${ex ? `最後の出力：${esc(String(ex.at).slice(0, 16).replace("T", " "))}・第${ex.version}版` : "この月分はまだ出力していません"}</span>`; } }
+      <span class="kx-note">${ex ? `最後の出力：${esc(String(ex.at).slice(0, 16).replace("T", " "))}・第${ex.version}版` : "この月分はまだ出力していません"}</span>
+      ${ed ? `<button type="button" class="kx-btn ${KX_TEST ? "kx-test-on" : ""}" id="arTestTg" title="テスト用の会社を出す・隠す（このブラウザだけ）">🧪 テスト${KX_TEST ? "中" : ""}</button>${KX_TEST ? '<button type="button" class="kx-btn" id="arTestAdd">＋ テスト用の会社</button>' : ""}` : ""}`; } }
   box.innerHTML = `    ${(() => { const al = d.alerts || {}; const items = [];
       if ((al.sfNotDone || []).length) items.push(`今月のSF計上がまだの企業が <b>${al.sfNotDone.length}社</b>（${esc(al.sfNotDone.slice(0, 3).join("・"))}${al.sfNotDone.length > 3 ? " ほか" : ""}）`);
       if (ed && al.unmatched) items.push(`解約フォームの回答で、企業を特定できなかったものが <b>${al.unmatched}件</b>（「解約フォーム」のタブで当てはめてください）`);
@@ -2180,10 +2184,16 @@ ${(() => { const names = [...new Set(d.all.map((x) => x.cs).filter(Boolean))].so
   box.querySelectorAll("[data-ar-edit]").forEach((b) => b.addEventListener("click", () => arEdit(d.all.find((x) => String(x.id) === b.dataset.arEdit))));
   if ($("arAdd")) $("arAdd").addEventListener("click", () => arEdit(null));
   if ($("arXlsx")) $("arXlsx").addEventListener("click", arExcel);
+  if ($("arTestTg")) $("arTestTg").onclick = () => { try { localStorage.setItem("kxTest", KX_TEST ? "0" : "1"); } catch {} location.reload(); };
+  if ($("arTestAdd")) $("arTestAdd").onclick = async () => {
+    const nm = prompt("テスト用の会社の名前（空ならおまかせ）。頭に【テスト】が付きます。\n自動更新・今月から・継続中で作り、申込番号は TEST-… になります", ""); if (nm == null) return;
+    try { const r = await api("/api/kinxs/test-accounts", { method: "POST", body: JSON.stringify({ name: nm }) }); alert(`作りました：${r.name}\n申込番号：${r.no}\n\n解約フォームを試すときは、この申込番号と自分のメールアドレスで送ってください（自動返信は自分にだけ届きます）`); arLoad(); }
+    catch (e) { alert(e.message); } };
+  document.querySelectorAll("[data-ar-deltest]").forEach((b) => b.onclick = async () => { if (!confirm("このテスト用の会社を消しますか？（記録もいっしょに消えます）")) return; try { await api(`/api/kinxs/test-accounts/${encodeURIComponent(b.dataset.arDeltest)}`, { method: "DELETE" }); arLoad(); } catch (e) { alert(e.message); } });
   // 全企業：プランで絞る・同期・未突合の紐づけ・ルール
   box.querySelectorAll("[data-ar-pf]").forEach((b) => b.addEventListener("click", () => { ar.plan = b.dataset.arPf; arRender(); }));
   if ($("arSyncGo")) $("arSyncGo").addEventListener("click", async () => { $("arSyncGo").disabled = true; $("arSyncGo").textContent = "同期しています…"; try { const r = await api("/api/kinxs/autorenew-sync", { method: "POST", body: "{}" }); alert(`同期しました：シートの企業 ${r.rows || 0}社・突合 ${r.matched || 0}・更新 ${r.changed || 0}・未突合 ${(r.unmatched || []).length}`); } catch (e) { alert("同期できませんでした：" + e.message); } arLoad(); });
-  if (box.querySelector("[data-un-go]")) { api("/api/kinxs/users").then((u) => { const dl = $("arAcAll"); if (dl) dl.innerHTML = (u.items || []).filter((i) => !i.archived).map((i) => `<option value="${esc(i.name)}"></option>`).join(""); ar._acc = u.items || []; }).catch(() => {}); }
+  if (box.querySelector("[data-un-go]")) { api(kxUsersUrl()).then((u) => { const dl = $("arAcAll"); if (dl) dl.innerHTML = (u.items || []).filter((i) => !i.archived).map((i) => `<option value="${esc(i.name)}"></option>`).join(""); ar._acc = u.items || []; }).catch(() => {}); }
   box.querySelectorAll("[data-un-go]").forEach((b) => b.addEventListener("click", async () => { const nm = (box.querySelector(`[data-un-in="${CSS.escape(b.dataset.unGo)}"]`) || {}).value || ""; const hit = (ar._acc || []).find((i) => i.name === nm.trim()); if (!hit) { alert("kinXsの会社を候補から選んでください"); return; } try { await api("/api/kinxs/autorenew-sync/link", { method: "POST", body: JSON.stringify({ key: b.dataset.unGo, accountId: hit.id }) }); arLoad(); } catch (e) { alert(e.message); } }));
   if ($("arRulesSave")) $("arRulesSave").addEventListener("click", async () => { const rules = $("arRules").value.split(/\n/).map((l) => l.split(/→|->|＝|=/)).filter((x) => x.length >= 2 && x[0].trim()).map((x) => ({ match: x[0].trim(), plan: /自動/.test(x[1]) ? "自動更新" : "年間" })); try { await api("/api/kinxs/autorenew-rules", { method: "PUT", body: JSON.stringify({ rules }) }); arLoad(); } catch (e) { alert(e.message); } });
   // 解約フォーム：シートの保存・要確認の当てはめ
@@ -2232,7 +2242,7 @@ async function arSaveMonth(id, patch) {
 // 企業の登録・直す（プラン区分・申込番号・契約開始月・ステータス・解約）
 async function arEdit(x) {
   const isNew = !x; let accts = [];
-  if (isNew) { try { const u = await api("/api/kinxs/users"); accts = (u.items || []).filter((i) => !i.archived); } catch {} }
+  if (isNew) { try { const u = await api(kxUsersUrl()); accts = (u.items || []).filter((i) => !i.archived); } catch {} }
   document.querySelectorAll(".ar-bg").forEach((n) => n.remove());
   const bg = document.createElement("div"); bg.className = "ar-bg"; bg.style.cssText = "position:fixed;inset:0;background:rgba(10,30,22,.45);z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:40px 14px;overflow:auto";
   const st = ["継続中", "解約予定", "解約済", "未入金", "停止"];
@@ -2283,7 +2293,7 @@ async function arExcel() {
   const d = ar.data; if (!d) return;
   if (!window.XLSX) { await new Promise((ok, ng) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload = ok; s.onerror = () => ng(new Error("Excelの部品を読み込めませんでした")); document.head.appendChild(s); }).catch((e) => alert(e.message)); if (!window.XLSX) return; }
   const counts = { bill: d.bill.length, new: d.diff.filter((x) => x.kind === "新規").length, cancel: d.cancels.length, stop: d.diff.filter((x) => x.kind === "停止").length };
-  let ver = 1, by = window.__kxMe || ""; try { const r = await api("/api/kinxs/autorenew-export", { method: "POST", body: JSON.stringify({ ym: d.ym, counts }) }); ver = r.version || 1; by = r.by || by; } catch {}
+  let ver = 1, by = window.__kxMe || ""; if (!KX_TEST) try { const r = await api("/api/kinxs/autorenew-export", { method: "POST", body: JSON.stringify({ ym: d.ym, counts }) }); ver = r.version || 1; by = r.by || by; } catch {}   // テスト中は出力の記録に残さない
   const now = new Date(Date.now() + 9 * 3600000); const stamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
   const nowStr = `${now.getUTCFullYear()}/${now.getUTCMonth() + 1}/${now.getUTCDate()} ${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
   const X = window.XLSX, wb = X.utils.book_new();
@@ -2294,7 +2304,7 @@ async function arExcel() {
   add("差分", [["企業ID（申込番号）", "企業名", "区分", "変更月"], ...d.diff.map((x) => [x.no, x.name, x.kind, arJp(x.changed)])]);
   const r = d.recon; const df = (n) => (n == null || n === "" ? "" : Number(n) - r.kinxs);
   add("突合", [["項目", "件数", "差異（kinXsとの差）"], ["kinXsの請求対象社数", r.kinxs, 0], ["SF計上件数", r.sf, df(r.sf)], ["請求書発行件数（販売管理部）", r.invoices ?? "", df(r.invoices)], ["ブレインバース社からの請求件数", r.bv ?? "", df(r.bv)]]);
-  X.writeFile(wb, `DOC自動更新_請求対象_${d.ym.slice(0, 4)}年${d.ym.slice(5, 7)}月分_${stamp}出力${ver > 1 ? `_第${ver}版` : ""}.xlsx`);
+  X.writeFile(wb, `${KX_TEST ? "テスト_" : ""}DOC自動更新_請求対象_${d.ym.slice(0, 4)}年${d.ym.slice(5, 7)}月分_${stamp}出力${ver > 1 ? `_第${ver}版` : ""}.xlsx`);
   arLoad();
 }
 if (VIEW === "ar") { if ($("kxPageName")) $("kxPageName").textContent = "DOC自動更新"; arLoad(); }
@@ -2305,7 +2315,7 @@ async function mlLoad() {
   const box = $("vMailBody"); if (!box) return;
   box.innerHTML = '<div class="ar-empty">読み込んでいます…</div>';
   try { const ms = await api("/api/kinxs/mail/settings").catch(() => ({})); ml.mwAddr = ms.mwAddr || "support_x@mochica.jp"; ml.mwName = ms.mwName || ""; ml.mwUrl = ms.mwUrl || "https://mochica-mailwise.cybozu.com/m/mw.cgi?wid=37"; if (ml.mw === undefined) ml.mw = true; } catch {}
-  try { const d = await api("/api/kinxs/users"); ml.users = (d.items || []).filter((x) => !x.archived); kxSur = kxSurnameMap(ml.users.map((x) => x.cs).filter(Boolean)); mlRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
+  try { const d = await api(kxUsersUrl()); ml.users = (d.items || []).filter((x) => !x.archived); kxSur = kxSurnameMap(ml.users.map((x) => x.cs).filter(Boolean)); mlRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
 function mlRender() {
   const box = $("vMailBody"); const us = ml.users || [];

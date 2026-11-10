@@ -12542,3 +12542,21 @@ export async function listApoDeletedSlugs() {
   if (!pool) return new Set(); await ensureApoDel();
   try { return new Set((await pool.query(`SELECT slug FROM smart_links WHERE deleted_at IS NOT NULL`)).rows.map((r) => r.slug)); } catch { return new Set(); }
 }
+
+// kinXs：テスト用の会社（source='test'、id は test-…）。ふだんの一覧・集計には出さず、テストを表示しているときだけ出す（2026-11-10 田中さん）
+export async function kinxsAddTest(name, by, csName = "") {
+  if (!pool) return null;
+  const id = `test-${Date.now()}`;
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const { rows } = await pool.query(
+    `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, cs_name, source, rank, rank_by, rank_at, memo)
+     VALUES ($1,$2,$3::jsonb,$4,$5,'test','Z',$6,now(),'テスト用の会社') RETURNING *`,
+    [id, name, JSON.stringify([{ name: "アチコチバース（月額利用料／自動更新）", opp: null, booked: today, stage: "テスト" }]), today, csName || null, by]);
+  await pool.query(`INSERT INTO kinxs_history (account_id, kind, from_v, to_v, by_user, auto) VALUES ($1,'add','','テスト用に追加',$2,false)`, [id, by]).catch(() => {});
+  return rows[0];
+}
+export async function kinxsDeleteTest(accountId) {
+  if (!pool || !String(accountId).startsWith("test-")) return 0;
+  for (const t of ["kinxs_history", "kinxs_ar_history", "kinxs_files"]) await pool.query(`DELETE FROM ${t} WHERE account_id = $1`, [accountId]).catch(() => {});
+  return (await pool.query(`DELETE FROM kinxs_accounts WHERE account_id = $1 AND source = 'test'`, [accountId])).rowCount || 0;
+}

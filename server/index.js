@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -13359,6 +13359,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const ym = /^\d{4}-\d{2}$/.test(String(req.query.ym || "")) ? String(req.query.ym) : arYm(Date.now());
     const prev = arAdd(ym, -1);
     let rows = await arList();
+    rows = req.query.test === "1" ? rows : rows.filter((r) => !String(r.id).startsWith("test-"));   // テスト用の会社は、テストを表示しているときだけ
     // 申込番号が空の自動更新の企業は、SF の商談のサーカスの番号で埋める（画面を待たせないよう裏で。年間の企業は調べない）（2026-11-10 修正：同期で年間の企業が増え、開くたびに全社をSFで調べて読み込みが終わらなかった）
     arCircusFillBg(rows, req.user);
     // 担当CSは kinXs のCS担当（CS連携の担当→SF）を正にする（2026-11-10 田中さん。納品一覧のCS担当は使わない）
@@ -13521,8 +13522,9 @@ async function arReply(owner, to, { company, applicant, cancelMonth, accId }) {
   // 宛先（To）：申請者＋一緒に入れるアドレス（既定 support_x@mochica.jp＝メールワイズ）＋CS担当（2026-11-10 田中さん「先方の担当者、support_x、CS担当宛に送る」）
   const also = String(st.arReplyAlso != null ? st.arReplyAlso : AR_REPLY_ALSO_DEFAULT).split(/[,\s;、]+/).filter((a) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a));
   const csMail = st.arReplyCs !== false ? await arCsEmailOf(accId).catch(() => "") : "";
-  const toList = [...new Set([to, ...also, csMail].map((a) => String(a || "").trim().toLowerCase()).filter(Boolean))];
-  await gmailSend(sender, { to: toList.join(", "), subject: "【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ", bodyText: body,
+  const isTest = String(accId || "").startsWith("test-");   // テスト用の会社は、申請者（テストした人）にだけ送る
+  const toList = isTest ? [String(to).trim().toLowerCase()] : [...new Set([to, ...also, csMail].map((a) => String(a || "").trim().toLowerCase()).filter(Boolean))];
+  await gmailSend(sender, { to: toList.join(", "), subject: `${isTest ? "【テスト】" : ""}【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ`, bodyText: body,
     ...(fromAddr ? { fromOverride: `=?UTF-8?B?${Buffer.from("どこでもオープンカンパニー 事務局").toString("base64")}?= <${fromAddr}>`, extraHeaders: { "Reply-To": fromAddr } } : {}) });
   return true;
 }
@@ -13922,7 +13924,7 @@ async function kinxsBuild() {
     return { id: r.account_id, name: r.name, products: (r.products || []).map((p) => p.name), label, autoLabel: auto, locked: !!r.label_locked, rank, renew: r.renew_month, renew2: r.renew_month2 || "", left,
       kenshu, mail, cs: (k && k.cs_name) || r.cs_name || "", fs: r.fs_name || "", lastTouch, sinceTouch, usage: r.usage_status || "", na: r.na_text || "", naDue: kxYmdOf(r.na_due), naType: r.na_type || "", naAt: r.na_at ? new Date(r.na_at).toISOString() : "", naSource: r.na_source || "", naSuggest: r.na_suggest || null,
       memo: r.memo || "", published: !!r.published, kenshuDone: r.kenshu_done, mailDone: r.mail_done, kickBot: k ? k.bot_id : "", alerts: shown, score: shown.reduce((a, b) => a + b.score, 0),
-      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", sfLinked: !!(r.info && r.info.sf_linked), formerNames, renewLocked: !!r.renew_locked,
+      meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", test: r.source === "test", sfLinked: !!(r.info && r.info.sf_linked), formerNames, renewLocked: !!r.renew_locked,
       productItems: (r.products || []).map((p) => (typeof p === "string" ? { name: p } : p)).map((p) => ({ name: p.name, cls: kxClassOf(p.name), booked: p.booked || "", stage: p.stage || "", opp: p.opp || "", oppName: p.oppName || "" })),
       prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
@@ -13934,7 +13936,8 @@ async function kinxsBuild() {
       mtgSummary: r.mtg_summary || null, naDetail: r.na_detail || null, kenshuNa: r.kenshu_na === true,
       lastBooked: (r.products || []).map((p) => String(p && p.booked || "").slice(0, 10)).filter(Boolean).sort().pop() || "", deliveryMonth: kxDeliveryMonth(k), logoManual: !!r.logo_manual, logo: r.logo_url ? `/api/kinxs/logo/${encodeURIComponent(r.account_id)}?v=${encodeURIComponent(String(r.logo_at ? Date.parse(r.logo_at) : ""))}` : "", booked: (() => { const v = r.first_booked_on || r.booked_on; if (!v) return ""; const d0 = v instanceof Date ? new Date(v.getTime() + 9 * 3600000) : null; return d0 ? d0.toISOString().slice(0, 10) : String(v).slice(0, 10); })() };
   });
-  return { items, rules, mtBy, kickBy, allMeetings: ms };
+  // テスト用の会社は、ふだんの一覧・集計に出さない（testItems に分ける）（2026-11-10）
+  return { items: items.filter((x) => !x.test), testItems: items.filter((x) => x.test), rules, mtBy, kickBy, allMeetings: ms };
 }
 // ===== kinXs：会社のHPからロゴ（アイコン）を探す =====
 // HPのトップを読んで apple-touch-icon → 大きい icon の順に。見つからなければ Google のファビコン（128px）。30日に1回読み直す
@@ -14683,10 +14686,32 @@ setTimeout(async () => {
   kinxsLogoTick(40).catch(() => {});
 }, 3 * 60 * 1000).unref?.();
 setInterval(() => { kinxsLogoTick(15).catch(() => {}); }, 20 * 60 * 1000).unref?.();
+// テスト用の会社を作る（自動更新・申込番号 TEST-…・今月から・継続中）／消す（2026-11-10 田中さん）
+app.post("/api/kinxs/test-accounts", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "作れるのは事業部だけです" });
+    const by = await displayNameOf(req.user).catch(() => req.user);
+    const name = `【テスト】${String((req.body && req.body.name) || "").trim() || `テスト株式会社 ${new Date(Date.now() + 9 * 3600000).toISOString().slice(5, 16).replace("T", " ")}`}`.slice(0, 80);
+    const a = await kinxsAddTest(name, by, by);
+    const ym = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+    const no = `TEST-${String(a.account_id).slice(-6)}`;
+    await arUpdate(a.account_id, { plan: "自動更新", no, start: ym, status: "継続中" }, by).catch(() => {});
+    _kxBuildMemo = { at: 0, p: null };
+    res.json({ ok: true, id: a.account_id, name, no });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/kinxs/test-accounts/:id", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "消せるのは事業部だけです" });
+    const n = await kinxsDeleteTest(req.params.id); _kxBuildMemo = { at: 0, p: null };
+    res.json({ ok: true, deleted: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/users", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
-    const { items, rules } = await kinxsBuild();
+    const { items: items0, testItems, rules } = await kinxsBuild();
+    const items = req.query.test === "1" ? [...(testItems || []), ...items0] : items0;   // テストを表示しているときだけ、テスト用の会社も
     // 施策（年間施策・電話フォロー）の NA日の1週間前で未完了なら、要アクション（納品後）に足す（2026-11-04 要望書 4-3・修正点 3）
     try {
       const nowYm = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
@@ -15691,8 +15716,8 @@ async function kinxsRefreshLinked() {
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
-    const { items, mtBy, kickBy } = await kinxsBuild();
-    const x = items.find((i) => i.id === req.params.id);
+    const { items, testItems, mtBy, kickBy } = await kinxsBuild();
+    const x = items.find((i) => i.id === req.params.id) || (testItems || []).find((i) => i.id === req.params.id);
     if (!x) return res.status(404).json({ error: "見つかりません" });
     const key = csCoKey(x.name);
     const mts = [...new Map([...(mtBy.get(key) || []), ...(x.formerNames || []).flatMap((f) => mtBy.get(csCoKey(f)) || [])].map((m) => [m.bot_id, m])).values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 40)
@@ -29750,7 +29775,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zh kincall アポ一覧：カードの「⋮」に「このアポを消す」（一覧と集計から外す・カレンダーとSFはそのまま・スキャンで戻らない）。";
+const BUILD_TAG = "2026-11-10zi kinXs：テスト用の会社（source=test・【テスト】・TEST-申込番号）でDOC自動更新を最初から試せる。🧪 テストの切りかえ、ふだんの一覧・集計には出さない、自動返信は自分にだけ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
