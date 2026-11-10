@@ -29867,7 +29867,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zs kinXs DOC自動更新：納品一覧シートと同期の枠を1行＋「くわしく」で折りたたむ。申請内容の窓を見やすく（項目と答えの2列・文字の大きさをふつうに）。";
+const BUILD_TAG = "2026-11-10zt kinXs ホーム：要アクションを済みにしたら、その行をすぐ消す（読み直しを待たない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

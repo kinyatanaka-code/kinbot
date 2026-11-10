@@ -1493,7 +1493,11 @@ async function kxHomeAct(el) {
       if (isDate) { const tm = el.dataset.at ? new Date(new Date(el.dataset.at).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "10:00"; await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ na_at: `${v}T${tm}` }) }); }
       else { if (!confirm("この次回アクションを済みにしますか？（次回アクションが空になります）")) return; await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) }); }
     } else if (k === "me") await api("/api/kinxs/actions", { method: "PUT", body: JSON.stringify({ mkey: el.dataset.mkey, ym: el.dataset.ym, account_id: id, ...(isDate ? { na_date: v } : { status: "完了" }) }) });
-    lsData = await api(kxUsersUrl()); renderHomeV2();
+    // 済みにしたら、その行をすぐ消す（読み直しを待たない）（2026-11-10 田中さん）。日付を変えたときは読み直しで並びが変わる
+    if (!isDate) { const row = el.closest(".h2-li"); if (row) { row.style.transition = "opacity .25s, height .25s"; row.style.opacity = "0"; setTimeout(() => row.remove(), 260); } }
+    // 数字（何社・何件）は、読み直して合わせる。そのあいだ、消した行が戻ってこないように覚えておく
+    if (!isDate) { const hd = (window.__kxHomeDone = window.__kxHomeDone || {}); (hd[id] = hd[id] || new Set()).add(`${k}|${el.dataset.mkey || ""}`); }
+    api(kxUsersUrl()).then((d) => { lsData = d; renderHomeV2(); }).catch(() => {});
   } catch (e) { alert(e.message); }
 }
 function renderHomeV2() {
@@ -1505,7 +1509,8 @@ function renderHomeV2() {
   const dl = (a, b) => { const d = a - b; return `<span class="h2-d ${d > 0 ? "up" : d < 0 ? "dn" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "±"}${Math.abs(d)}<small>前月比</small></span>`; };
   const tot = Math.max(1, c.all.length);
   // 要アクション
-  const actRows = items.filter((x) => kxHasDoc(x)).flatMap((x) => (x.actions || []).map((a) => ({ x, a }))).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
+  const kxDoneKey = (a) => `${a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""}|${a.measure || ""}`;
+  const actRows = items.filter((x) => kxHasDoc(x)).flatMap((x) => (x.actions || []).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a }))).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
   const actCos = new Set(actRows.map((r) => r.x.id)).size;
   const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"], ["na", "施策・次回アクション", (a) => a.group === "納品後", "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
