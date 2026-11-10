@@ -2170,7 +2170,7 @@ function arRender() {
   } else if (ar.tab === "form") {
     const f = d.form || {}; const opts = d.all.filter((x) => x.plan === "自動更新").map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.no ? `（${esc(x.no)}）` : ""}</option>`).join("");
     body = `<div class="ar-card" style="margin-bottom:10px"><small>解約フォームの回答のスプレッドシート（フォームの「回答」→「スプレッドシートにリンク」で作ったもの）</small>
-        <div style="display:flex;gap:6px;margin-top:6px"><input id="arSheet" class="kx-in" style="flex:1" value="${esc(f.sheet || "")}" placeholder="https://docs.google.com/spreadsheets/d/…"><button type="button" class="kx-btn kx-pri" id="arSheetSave">保存して読む</button></div>
+        <div style="display:flex;gap:6px;margin-top:6px"><input id="arSheet" class="kx-in" style="flex:1" value="${esc(f.sheet || "")}" placeholder="https://docs.google.com/spreadsheets/d/…"><button type="button" class="kx-btn" id="arSheetSave">今すぐ読む</button></div><div class="kx-note" id="arAutoSt" style="margin-top:4px">変えた内容はすぐ保存されます</div>
         <div class="kx-note" style="margin-top:6px">フォームが送られたらすぐ（下の「すぐ取り込む設定」をしたとき）、この画面を開いたとき、念のため2分ごとに読み、申込番号（無ければ会社名）で企業を特定して「解約予定」にします。
           <button type="button" class="hp-b" id="arHookScript" style="margin-left:4px">⚡ すぐ取り込む設定（フォームに貼るスクリプト）</button></div><div id="arHookBox" hidden style="margin-top:6px"></div>
         <div class="kx-note" style="margin-top:6px">申請者には受付の自動返信を送ります（<label><input type="checkbox" id="arReplyOn" ${f.replyOn ? "checked" : ""}> 自動返信する</label>）。</div>
@@ -2260,7 +2260,16 @@ function arRender() {
       try { await navigator.clipboard.writeText(r.link); } catch {}
       prompt(`${r.email} の Google 連携リンクです（コピーしました）。${r.connected ? "\n※ もう連携ずみです。つなぎ直すときだけ使ってください。" : ""}\n\n${r.email} で Google にログインしたブラウザ（シークレットウィンドウがおすすめ）でこのリンクを開き、「許可」を押すと連携できます。kinbot へのログインは要りません。終わったら、ここで「保存して読む」を押してください。`, r.link);
     } catch (e) { alert(e.message); } };
-  if ($("arSheetSave")) $("arSheetSave").addEventListener("click", async () => { try { const r = await api("/api/kinxs/autorenew-settings", { method: "PUT", body: JSON.stringify({ sheet: $("arSheet").value, replyOn: $("arReplyOn").checked, replyOwner: $("arReplyOwner").value, replyFrom: $("arReplyFrom").value, replyAlso: $("arReplyAlso") ? $("arReplyAlso").value : undefined, replyCs: $("arReplyCs") ? $("arReplyCs").checked : undefined, shareDay: $("arShareDay") ? $("arShareDay").value : undefined }) }); if (r.intake && r.intake.error) alert("シートを読めませんでした：" + r.intake.error); arLoad(); } catch (e) { alert(e.message); } });
+  // 設定は、変えたらすぐ保存（ボタンを押さなくてよい）（2026-11-10 田中さん）。シートのURLを変えたときだけ読み直して描き直す
+  const arFormBody = () => ({ sheet: $("arSheet").value, replyOn: $("arReplyOn").checked, replyOwner: $("arReplyOwner").value, replyFrom: $("arReplyFrom").value, replyAlso: $("arReplyAlso") ? $("arReplyAlso").value : undefined, replyCs: $("arReplyCs") ? $("arReplyCs").checked : undefined, shareDay: $("arShareDay") ? $("arShareDay").value : undefined });
+  const arFormSave = async (reload) => { const st = $("arAutoSt"); if (st) st.textContent = "保存しています…";
+    try { const r = await api("/api/kinxs/autorenew-settings", { method: "PUT", body: JSON.stringify({ ...arFormBody(), intake: !!reload }) }); if (r.intake && r.intake.error) alert("シートを読めませんでした：" + r.intake.error);
+      if (st) st.textContent = "✓ 保存しました"; if (reload) arLoad(); } catch (e) { if (st) st.textContent = "保存できませんでした：" + e.message; } };
+  let arFormT = null;
+  ["arReplyOwner", "arReplyFrom", "arReplyAlso", "arShareDay"].forEach((k) => { const el = $(k); if (!el) return; el.addEventListener("input", () => { clearTimeout(arFormT); arFormT = setTimeout(() => arFormSave(false), 900); }); el.addEventListener("change", () => { clearTimeout(arFormT); arFormSave(false); }); });
+  ["arReplyOn", "arReplyCs"].forEach((k) => { const el = $(k); if (el) el.addEventListener("change", () => arFormSave(false)); });
+  if ($("arSheet")) $("arSheet").addEventListener("change", () => arFormSave(true));
+  if ($("arSheetSave")) $("arSheetSave").addEventListener("click", () => arFormSave(true));
   box.querySelectorAll("[data-ib-go]").forEach((b) => b.addEventListener("click", async () => { const sel = box.querySelector(`[data-ib-sel="${b.dataset.ibGo}"]`); if (!sel.value) { alert("企業を選んでください"); return; } try { const r = await api(`/api/kinxs/autorenew-inbox/${b.dataset.ibGo}`, { method: "POST", body: JSON.stringify({ accountId: sel.value }) }); alert(`解約予定にしました（解約月：${arJp(r.cancelMonth)}末）`); arLoad(); } catch (e) { alert(e.message); } }));
   box.querySelectorAll("[data-ib-ig]").forEach((b) => b.addEventListener("click", async () => { if (!confirm("この回答を無視しますか？（解約として扱いません）")) return; try { await api(`/api/kinxs/autorenew-inbox/${b.dataset.ibIg}`, { method: "POST", body: JSON.stringify({ ignore: true }) }); arLoad(); } catch (e) { alert(e.message); } }));
   // CSV でまとめて登録（見出し：企業名・申込番号・契約開始月・プラン・ステータス）
@@ -2276,6 +2285,7 @@ function arRender() {
     try { const r = await api("/api/kinxs/autorenew-import", { method: "POST", body: JSON.stringify({ rows: list }) }); const ng = (r.results || []).filter((x) => !x.ok); alert(`${(r.results || []).length - ng.length}社を登録しました${ng.length ? `\n\nkinXsに見つからなかった会社（${ng.length}社）：\n${ng.slice(0, 15).map((x) => x.name).join("\n")}` : ""}`); arLoad(); } catch (er) { alert(er.message); }
     e.target.value = "";
   });
+  box.querySelectorAll("[data-ar-rc]").forEach((i) => i.addEventListener("change", () => { if ($("arRcSave")) $("arRcSave").click(); }));   // 突合の件数も、変えたらすぐ保存
   if ($("arRcSave")) $("arRcSave").addEventListener("click", async () => {
     const v = (k) => { const i = box.querySelector(`[data-ar-rc="${k}"]`); return i && i.value !== "" ? Number(i.value) : null; };
     try { await api(`/api/kinxs/autorenew-recon/${d.ym}`, { method: "PUT", body: JSON.stringify({ invoices: v("invoices"), bv: v("bv") }) }); $("arRcSt").textContent = "保存しました"; arLoad(); } catch (e) { $("arRcSt").textContent = e.message; }
