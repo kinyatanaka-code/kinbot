@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, kinxsTestRenameByNo, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -13353,43 +13353,34 @@ function arBillOn(r, ym) {
   if (st === "解約予定") return !!r.ar_cancel_month && r.ar_cancel_month >= ym;
   return false;
 }
-// テスト用の会社を、いろいろな状態でまとめて作る（起動のときに1回だけ。settings.kxTestSeed1）（2026-11-10 田中さん「自動更新にテスト企業をいくつか作って」）
-//   🧪 テストをオンにしたときだけ見える。自動返信はフォームから入ったときだけ動くので、ここでは送らない
+// テスト用の会社を、いろいろな状態でまとめて作る（起動のときに1回だけ。settings.kxTestSeed3）（2026-11-10 田中さん「自動更新にテスト企業をいくつか作って」「もっと会社っぽく」）
+//   🧪 テストをオンにしたときだけ見える。自動返信はフォームから入ったときだけ動くので、ここでは送らない。頭の【テスト】は本物とまちがえないよう残す
+//   ※ 1回目（kxTestSeed1）の9社は、SFの取り込みの「対象でない会社を消す」に消されていた → kinxsPruneSf で test を消さないよう直して、作り直す
 async function kxSeedTests() {
-  const st = await getSettings().catch(() => ({})); if (st.kxTestSeed1) return;
-  await saveSettings({ kxTestSeed1: new Date().toISOString() });
+  const st = await getSettings().catch(() => ({})); if (st.kxTestSeed3) return;
+  await saveSettings({ kxTestSeed3: new Date().toISOString() });
   const by = "テストの準備（自動）";
   const list = [
-    { name: "【テスト】継続中・先月から株式会社", no: "TEST-001", plan: "自動更新", start: "2026-10", status: "継続中" },
-    { name: "【テスト】継続中・今月から株式会社", no: "TEST-002", plan: "自動更新", start: "2026-11", status: "継続中" },
-    { name: "【テスト】来月から株式会社", no: "TEST-003", plan: "自動更新", start: "2026-12", status: "継続中" },
-    { name: "【テスト】解約予定・締切内株式会社", no: "TEST-004", plan: "自動更新", start: "2026-09", status: "解約予定", cancelApplied: "2026-11-05", cancelWish: "2026-12", applicant: "テスト 太郎" },
-    { name: "【テスト】解約予定・締切後株式会社", no: "TEST-005", plan: "自動更新", start: "2026-09", status: "解約予定", cancelApplied: "2026-11-20", cancelWish: "2026-12", applicant: "テスト 花子" },
-    { name: "【テスト】今月末で解約株式会社", no: "TEST-006", plan: "自動更新", start: "2026-08", status: "解約予定", cancelApplied: "2026-10-10", cancelWish: "2026-11", applicant: "テスト 次郎" },
-    { name: "【テスト】未入金株式会社", no: "TEST-007", plan: "自動更新", start: "2026-10", status: "未入金" },
-    { name: "【テスト】停止株式会社", no: "TEST-008", plan: "自動更新", start: "2026-09", status: "停止" },
-    { name: "【テスト】年間プラン株式会社", no: "TEST-009", plan: "年間", start: "2026-04", status: "継続中" },
+    { name: "株式会社みどり精工", no: "TEST-001", plan: "自動更新", start: "2026-10", status: "継続中" },
+    { name: "ひまわりフーズ株式会社", no: "TEST-002", plan: "自動更新", start: "2026-11", status: "継続中" },
+    { name: "株式会社北斗ロジスティクス", no: "TEST-003", plan: "自動更新", start: "2026-12", status: "継続中" },
+    { name: "あおば不動産株式会社", no: "TEST-004", plan: "自動更新", start: "2026-09", status: "解約予定", cancelApplied: "2026-11-05", cancelWish: "2026-12", applicant: "青葉 太郎" },
+    { name: "株式会社さくら介護サービス", no: "TEST-005", plan: "自動更新", start: "2026-09", status: "解約予定", cancelApplied: "2026-11-20", cancelWish: "2026-12", applicant: "桜井 花子" },
+    { name: "東和テクノ株式会社", no: "TEST-006", plan: "自動更新", start: "2026-08", status: "解約予定", cancelApplied: "2026-10-10", cancelWish: "2026-11", applicant: "東 次郎" },
+    { name: "株式会社ことぶき建設", no: "TEST-007", plan: "自動更新", start: "2026-10", status: "未入金" },
+    { name: "有限会社まるやま商店", no: "TEST-008", plan: "自動更新", start: "2026-09", status: "停止" },
+    { name: "医療法人社団 青葉会", no: "TEST-009", plan: "年間", start: "2026-04", status: "継続中" },
   ];
   for (const t of list) {
     try {
-      const a = await kinxsAddTest(t.name, by, "田中");
+      const a = await kinxsAddTest(`【テスト】${t.name}`, by, "田中");
       await arUpdate(a.account_id, { plan: t.plan, no: t.no, start: t.start, status: t.status, ...(t.cancelWish ? { cancelApplied: t.cancelApplied, cancelWish: t.cancelWish, cancelMonth: arCancelMonth(t.cancelApplied, t.cancelWish), applicant: t.applicant } : {}) }, by);
     } catch (e) { console.warn("[テストの準備]", t.name, e.message); }
   }
   _kxBuildMemo = { at: 0, p: null };
   console.log("[テストの準備] テスト用の会社を作りました：", list.length);
 }
-// テスト用の会社を、それらしい社名に（2026-11-10 田中さん「もっと会社っぽくして」）。【テスト】は、本物とまちがえないよう頭に残す
-const KX_TEST_NAMES = { "TEST-001": "株式会社みどり精工", "TEST-002": "ひまわりフーズ株式会社", "TEST-003": "株式会社北斗ロジスティクス", "TEST-004": "あおば不動産株式会社",
-  "TEST-005": "株式会社さくら介護サービス", "TEST-006": "東和テクノ株式会社", "TEST-007": "株式会社ことぶき建設", "TEST-008": "有限会社まるやま商店", "TEST-009": "医療法人社団 青葉会" };
-async function kxSeedTests2() {
-  const st = await getSettings().catch(() => ({})); if (st.kxTestSeed2) return;
-  if (!st.kxTestSeed1) return;   // 先に9社ができてから
-  await saveSettings({ kxTestSeed2: new Date().toISOString() });
-  for (const [no, nm] of Object.entries(KX_TEST_NAMES)) await kinxsTestRenameByNo(no, `【テスト】${nm}`).catch(() => {});
-  _kxBuildMemo = { at: 0, p: null };
-}
-setTimeout(() => kxSeedTests().then(() => kxSeedTests2()).catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
+setTimeout(() => kxSeedTests().catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
 app.get("/api/kinxs/autorenew", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
@@ -29812,7 +29803,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zl kinXs DOC自動更新：テスト用の9社を、それらしい社名に（【テスト】は残す）。";
+const BUILD_TAG = "2026-11-10zm kinXs DOC自動更新：請求対象一覧の入金の列をなくす。テスト用の会社がSFの取り込みで消えていたのを直し、9社を作り直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

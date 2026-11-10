@@ -11776,11 +11776,12 @@ export async function kinxsDeleteManual(accountId) {
 export async function kinxsPruneSf(keepIds, checkedOppIds) {
   if (!pool) return 0;
   // 手で紐づけたSFの会社（info.sf_linked）は、取り込みの対象に入っていなくても消さない
-  const { rows } = await pool.query(`SELECT account_id, opp_ids FROM kinxs_accounts WHERE COALESCE(source,'sf') <> 'manual' AND COALESCE(info->>'sf_linked','') <> 'true'`);
+  // 手で足した会社・テスト用の会社（source='test'）は消さない（2026-11-10：テスト用の会社がSFの取り込みで消えていた）
+  const { rows } = await pool.query(`SELECT account_id, opp_ids FROM kinxs_accounts WHERE COALESCE(source,'sf') NOT IN ('manual','test') AND COALESCE(info->>'sf_linked','') <> 'true'`);
   const keep = new Set(keepIds), checked = new Set(checkedOppIds);
   const del = rows.filter((r) => !keep.has(r.account_id) && (Array.isArray(r.opp_ids) ? r.opp_ids : []).every((o) => checked.has(o))).map((r) => r.account_id);
   if (!del.length) return 0;
-  await pool.query(`DELETE FROM kinxs_accounts WHERE account_id = ANY($1::text[]) AND COALESCE(source,'sf') <> 'manual'`, [del]);
+  await pool.query(`DELETE FROM kinxs_accounts WHERE account_id = ANY($1::text[]) AND COALESCE(source,'sf') NOT IN ('manual','test')`, [del]);
   return del.length;
 }
 
