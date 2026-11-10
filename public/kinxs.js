@@ -2171,7 +2171,9 @@ function arRender() {
     const f = d.form || {}; const opts = d.all.filter((x) => x.plan === "自動更新").map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.no ? `（${esc(x.no)}）` : ""}</option>`).join("");
     body = `<div class="ar-card" style="margin-bottom:10px"><small>解約フォームの回答のスプレッドシート（フォームの「回答」→「スプレッドシートにリンク」で作ったもの）</small>
         <div style="display:flex;gap:6px;margin-top:6px"><input id="arSheet" class="kx-in" style="flex:1" value="${esc(f.sheet || "")}" placeholder="https://docs.google.com/spreadsheets/d/…"><button type="button" class="kx-btn kx-pri" id="arSheetSave">保存して読む</button></div>
-        <div class="kx-note" style="margin-top:6px">10分ごとに読み、申込番号（無ければ会社名）で企業を特定して「解約予定」にします。申請者には受付の自動返信を送ります（<label><input type="checkbox" id="arReplyOn" ${f.replyOn ? "checked" : ""}> 自動返信する</label>）。</div>
+        <div class="kx-note" style="margin-top:6px">フォームが送られたらすぐ（下の「すぐ取り込む設定」をしたとき）、この画面を開いたとき、念のため2分ごとに読み、申込番号（無ければ会社名）で企業を特定して「解約予定」にします。
+          <button type="button" class="hp-b" id="arHookScript" style="margin-left:4px">⚡ すぐ取り込む設定（フォームに貼るスクリプト）</button></div><div id="arHookBox" hidden style="margin-top:6px"></div>
+        <div class="kx-note" style="margin-top:6px">申請者には受付の自動返信を送ります（<label><input type="checkbox" id="arReplyOn" ${f.replyOn ? "checked" : ""}> 自動返信する</label>）。</div>
         <div style="display:grid;grid-template-columns:200px 1fr;gap:6px 10px;align-items:center;margin-top:10px;font-size:12.5px">
           <span>自動返信を送る人</span><div style="display:flex;gap:6px;align-items:center"><input id="arReplyOwner" class="kx-in" style="flex:1" value="${esc(f.replyOwner || "")}" placeholder="DOC事務局 か 幸地さんの kinbot のメール"><span class="${f.replyReady ? "ar-st" : "ar-st bad"}">${f.replyOwner ? (f.replyReady ? "Gmailで送れます" : "Google連携がまだ") : "未設定"}</span><button type="button" class="hp-b" id="arConnLink">Google連携のリンク</button></div>
           <span>差出人・返信先（事務局）</span><input id="arReplyFrom" class="kx-in" value="${esc(f.replyFrom || "")}" placeholder="例：doc-jimukyoku@neo-career.co.jp（空なら送る人のアドレス）">
@@ -2244,6 +2246,15 @@ ${(() => { const names = [...new Set(d.all.map((x) => x.cs).filter(Boolean))].so
       if ($("arAlignAll")) $("arAlignAll").onclick = () => { if (confirm(`${it.length}社のkinXsの更新月を、納品一覧の契約終了月に合わせます。よいですか？`)) go({}); };
       box.querySelectorAll("[data-align]").forEach((b) => b.onclick = () => go({ ids: [b.dataset.align] }));
     } catch (e) { box.innerHTML = `<div class="kx-note">ズレを読めませんでした：${esc(e.message)}</div>`; } })();
+  if ($("arHookScript")) $("arHookScript").onclick = async () => {
+    const box = $("arHookBox"); box.hidden = false; box.innerHTML = '<span class="kx-note">作っています…</span>';
+    try { const r = await api("/api/kinxs/autorenew/form-hook-script");
+      box.innerHTML = `<div class="kx-note">解約フォームの編集画面 → 右上の「︙」→「スクリプト エディタ」に下を貼って保存 → 左の「⏰ トリガー」→「トリガーを追加」→ 関数「kinxsNotify」・イベントのソース「フォームから」・種類「フォーム送信時」→ 保存（Googleの許可を求められたら「許可」）。これで、送られた瞬間に解約予定・解約月が変わります。</div>
+        <textarea class="kx-in" rows="7" readonly style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px;margin-top:6px">${esc(r.script)}</textarea>
+        <div style="display:flex;gap:6px;margin-top:4px"><button type="button" class="hp-b" id="arHookCopy">コピー</button><button type="button" class="hp-b" id="arHookRenew" title="合言葉を作り直す（前に貼ったスクリプトは動かなくなります）">合言葉を作り直す</button></div>`;
+      $("arHookCopy").onclick = async () => { try { await navigator.clipboard.writeText(r.script); $("arHookCopy").textContent = "コピーしました"; } catch { box.querySelector("textarea").select(); } };
+      $("arHookRenew").onclick = async () => { if (!confirm("合言葉を作り直しますか？前に貼ったスクリプトは動かなくなるので、貼り直しが要ります")) return; await api("/api/kinxs/autorenew/form-hook-script?renew=1"); $("arHookScript").click(); };
+    } catch (e) { box.innerHTML = `<span class="kx-note">作れませんでした：${esc(e.message)}</span>`; } };
   if ($("arConnLink")) $("arConnLink").onclick = async () => {
     const em = $("arReplyOwner").value.trim(); if (!em) { alert("先に「自動返信を送る人」にアドレスを入れてください（例：doc_support@neo-career.co.jp）"); return; }
     try { const r = await api(`/api/kinxs/autorenew/connect-link?email=${encodeURIComponent(em)}`);

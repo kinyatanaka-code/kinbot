@@ -885,7 +885,9 @@ function isKincallSelfSettingPath(p) {
 }
 
 const OPEN_PATHS = new Set([
-  "/api/recall/webhook", "/api/zoom/webhook", "/api/login", "/api/register", "/api/auth-info",
+  "/api/recall/webhook", "/api/zoom/webhook",
+  // 解約フォームの送信をすぐ知らせてもらう入口（Googleフォームのスクリプトから。合言葉で守る）（2026-11-10）
+  "/api/kinxs/autorenew/form-hook", "/api/login", "/api/register", "/api/auth-info",
   // Zoom専用のChromeへ、ログインしたまま引き継ぐ1回だけのリンク（2026-11-07）
   "/auth/handoff",
   // kincs の招待から作るアカウント（2026-11-08）
@@ -13386,6 +13388,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
     const ym = /^\d{4}-\d{2}$/.test(String(req.query.ym || "")) ? String(req.query.ym) : arYm(Date.now());
     const prev = arAdd(ym, -1);
+    if (!_arIntakeAt || Date.now() - Date.parse(_arIntakeAt) > 60 * 1000) await Promise.race([arIntakeNow(), new Promise((r) => setTimeout(r, 8000))]);   // 開いたときに解約フォームを読み直す（リアルタイムに近づける）
     let rows = await arList();
     rows = req.query.test === "1" ? rows : rows.filter((r) => !String(r.id).startsWith("test-"));   // テスト用の会社は、テストを表示しているときだけ
     // 申込番号が空の自動更新の企業は、SF の商談のサーカスの番号で埋める（画面を待たせないよう裏で。年間の企業は調べない）（2026-11-10 修正：同期で年間の企業が増え、開くたびに全社をSFで調べて読み込みが終わらなかった）
@@ -13586,8 +13589,31 @@ async function arIntake() {
   if (added) console.log(`[DOC自動更新] 解約フォーム：${added}件を読み、${matched}件を取り込みました（要確認 ${added - matched}件）`);
   return { added, matched };
 }
-setTimeout(() => arIntake().catch((e) => { _arIntakeErr = e.message; console.warn("[DOC自動更新] 解約フォーム", e.message); }), 2 * 60 * 1000);
-setInterval(() => arIntake().catch((e) => { _arIntakeErr = e.message; console.warn("[DOC自動更新] 解約フォーム", e.message); }), 10 * 60 * 1000);
+// 解約フォームの取り込み：①フォームが送られたらすぐ（form-hook）②DOC自動更新を開いたとき ③念のため2分ごと（2026-11-10 田中さん「リアルタイムで」。前は10分ごと）
+let _arIntakeRun = null;
+function arIntakeNow() { if (_arIntakeRun) return _arIntakeRun; _arIntakeRun = arIntake().catch((e) => { _arIntakeErr = e.message; console.warn("[DOC自動更新] 解約フォーム", e.message); return { error: e.message }; }).finally(() => { _arIntakeRun = null; }); return _arIntakeRun; }
+setTimeout(() => arIntakeNow(), 2 * 60 * 1000);
+setInterval(() => arIntakeNow(), 2 * 60 * 1000);
+app.all("/api/kinxs/autorenew/form-hook", async (req, res) => {
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const key = String(req.query.key || (req.body && req.body.key) || "");
+    if (!st.arHookKey || key !== st.arHookKey) return res.status(403).json({ error: "合言葉がちがいます" });
+    const r = await arIntakeNow();
+    res.json({ ok: true, ...(r || {}) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// フォームに入れるスクリプト（合言葉つき）を返す
+app.get("/api/kinxs/autorenew/form-hook-script", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "できません" });
+    let st = await getSettings().catch(() => ({}));
+    if (!st.arHookKey || req.query.renew === "1") { const k = crypto.randomBytes(16).toString("hex"); await saveSettings({ arHookKey: k }); st = { ...st, arHookKey: k }; }
+    const url = `${PUBLIC_URL}/api/kinxs/autorenew/form-hook?key=${st.arHookKey}`;
+    const script = `// kinXs：解約フォームが送られたら、すぐ kinXs に知らせる（DOC自動更新の解約の判定がすぐ変わります）\n// 入れ方：解約フォームの編集画面 → 右上の「︙」→「スクリプト エディタ」→ これを貼って保存 → 左の「⏰ トリガー」→「トリガーを追加」\n//        → 実行する関数「kinxsNotify」・イベントのソース「フォームから」・イベントの種類「フォーム送信時」→ 保存（Googleの許可を求められたら「許可」）\nfunction kinxsNotify(e) {\n  UrlFetchApp.fetch(${JSON.stringify(url)}, { method: "post", muteHttpExceptions: true });\n}\n`;
+    res.json({ ok: true, url, script });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.put("/api/kinxs/autorenew-settings", async (req, res) => {
   try {
     if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
@@ -13601,7 +13627,7 @@ app.put("/api/kinxs/autorenew-settings", async (req, res) => {
     if (b.csMails && typeof b.csMails === "object") { const m = {}; for (const [k, v] of Object.entries(b.csMails)) { const e = String(v || "").trim().toLowerCase(); if (String(k).trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) m[String(k).trim()] = e; } patch.arCsMails = m; }
     if (b.shareDay !== undefined) patch.arShareBizDay = Math.min(23, Math.max(1, Number(b.shareDay) || 20));
     await saveSettings(patch);
-    const r = await arIntake().catch((e) => ({ error: e.message }));
+    const r = await arIntakeNow();
     res.json({ ok: true, intake: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -29813,7 +29839,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zn kinXs DOC自動更新：本物の会社のテスト用コピー（🧪 この会社でテスト）。社名・CS担当・商品・先方の担当者を写し、本物は変えない。";
+const BUILD_TAG = "2026-11-10zo kinXs DOC自動更新：解約フォームをほぼリアルタイムで取り込む（フォーム送信時のスクリプト→form-hook、画面を開いたとき、2分ごと）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
