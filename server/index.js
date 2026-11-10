@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -13382,7 +13382,31 @@ async function kxSeedTests() {
   _kxBuildMemo = { at: 0, p: null };
   console.log("[テストの準備] テスト用の会社を作りました：", list.length);
 }
-setTimeout(() => kxSeedTests().catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
+// テスト用の会社の申込番号を本物の形（YYYYMMDDBD###）に、CS担当を3人に振り分け（2026-11-10 幸地さんの要望。settings.kxTestSeed4）
+//   本物の会社に同じ番号があれば、BD9## にずらす（解約フォームのテストで本物に当たらないように）
+const KX_TEST_NOS = ["20260113BD001", "20260115BD001", "20260122BD003", "20260123BD004", "20260204BD002", "20260210BD001", "20260218BD005", "20260226BD002", "20260305BD001", "20260312BD003", "20260319BD002", "20260325BD004"];
+const KX_TEST_CS = ["皆葉 優ブラッド", "田中 欽也", "久野 沙織"];
+async function kxTestNumber(i) {
+  let no = KX_TEST_NOS[i] || `2026${String(1 + (i % 12)).padStart(2, "0")}${String(5 + (i * 3) % 23).padStart(2, "0")}BD${String(i + 1).padStart(3, "0")}`;
+  if (await arNoUsedByReal(no).catch(() => false)) no = no.replace(/BD0/, "BD9");
+  return no;
+}
+async function kxSeedTests4() {
+  const st = await getSettings().catch(() => ({})); if (st.kxTestSeed4) return;
+  await saveSettings({ kxTestSeed4: new Date().toISOString() });
+  const rows = await kinxsTestRows();
+  for (let i = 0; i < rows.length; i++) await kinxsTestSet(rows[i].account_id, { no: await kxTestNumber(i), cs: KX_TEST_CS[i % KX_TEST_CS.length] }).catch(() => {});
+  _kxBuildMemo = { at: 0, p: null };
+}
+setTimeout(() => kxSeedTests().then(() => kxSeedTests4()).catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
+// その企業の解約フォームの申請内容（フォームの回答そのもの）と、回答シートへのリンク（2026-11-10 幸地さん）
+app.get("/api/kinxs/autorenew/:id/applications", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, items: await arInboxForAccount(req.params.id), sheet: st.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${st.arCancelSheetId}/edit` : "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/autorenew", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
@@ -14760,8 +14784,10 @@ app.post("/api/kinxs/test-accounts", async (req, res) => {
     }
     const name = `【テスト】${baseName || String((req.body && req.body.name) || "").trim() || `テスト株式会社 ${new Date(Date.now() + 9 * 3600000).toISOString().slice(5, 16).replace("T", " ")}`}`.slice(0, 80);
     const a = await kinxsAddTest(name, by, cs, { from: from ? { ...from, name: baseName } : null });
-    const no = `TEST-${String(a.account_id).slice(-6)}`;
+    const n0 = (await kinxsTestRows().catch(() => [])).length;
+    const no = await kxTestNumber(n0 + 20);
     await arUpdate(a.account_id, { plan: "自動更新", no, start, status: "継続中" }, by).catch(() => {});
+    if (!(req.body && req.body.fromId)) await kinxsTestSet(a.account_id, { cs: KX_TEST_CS[n0 % KX_TEST_CS.length] }).catch(() => {});
     _kxBuildMemo = { at: 0, p: null };
     res.json({ ok: true, id: a.account_id, name, no });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -29841,7 +29867,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zq kinXs DOC自動更新：解約フォームの設定と突合の件数は、変えたらすぐ保存（ボタン不要）。";
+const BUILD_TAG = "2026-11-10zr DOC自動更新（幸地さんの要望）：テスト用の申込番号を本物の形に・CS担当を3人に振り分け・解約申請日の列・申請内容を見る・差分と突合のタブをなくす。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

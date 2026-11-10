@@ -2152,14 +2152,15 @@ async function arLoad() {
 function arStTag(s) { const c = s === "継続中" ? "" : s === "解約予定" ? " cx" : s === "解約済" ? " done" : " bad"; return `<span class="ar-st${c}">${esc(s)}</span>`; }
 function arRender() {
   const box = $("vArBody"); const d = ar.data; if (!box || !d) return;
+  if (ar.tab === "diff" || ar.tab === "recon") ar.tab = "bill";
   const ed = !!d.canEdit;
   const nNew = d.diff.filter((x) => x.kind === "新規").length, nCx = d.cancels.length, nStop = d.all.filter((x) => ["未入金", "停止"].includes(x.status)).length;
-  const tabs = [["bill", `請求対象一覧（${d.bill.length}）`], ["cancel", `解約一覧（${nCx}）`], ["diff", `差分（${d.diff.length}）`], ["recon", "突合"], ["all", `全企業（${d.all.length}）`], ...(ed ? [["form", `解約フォーム${(d.inbox || []).length ? `（要確認 ${(d.inbox || []).length}）` : ""}`]] : [])];
+  const tabs = [["bill", `請求対象一覧（${d.bill.length}）`], ["cancel", `解約一覧（${nCx}）`], ["all", `全企業（${d.all.length}）`],   /* 差分・突合はなくした（2026-11-10 幸地さん） */ ...(ed ? [["form", `解約フォーム${(d.inbox || []).length ? `（要確認 ${(d.inbox || []).length}）` : ""}`]] : [])];
   let body = "";
   const tbl = (head, rows, empty) => `<div class="ar-tbl"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("") || `<tr><td colspan="${head.length}" class="ar-empty">${empty}</td></tr>`}</tbody></table></div>`;
-  if (ar.tab === "bill") body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "請求金額", "ステータス", "SF計上"], /* 入金の列はなくした（2026-11-10 田中さん。未入金は「直す」のステータスで） */ d.bill.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${Number(x.amount).toLocaleString()}円</td><td>${arStTag(x.statusOn)}${x.status === "解約予定" ? ` <small>${esc(arJp(x.cancelMonth))}末で解約</small>` : ""}</td>
+  if (ar.tab === "bill") body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "請求金額", "ステータス", "解約申請日", "SF計上"], /* 入金の列はなくした（2026-11-10 田中さん。未入金は「直す」のステータスで） */ d.bill.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${Number(x.amount).toLocaleString()}円</td><td>${arStTag(x.statusOn)}${x.status === "解約予定" ? ` <small>${esc(arJp(x.cancelMonth))}末で解約</small>` : ""}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td>
       <td>${ed ? `<label><input type="checkbox" data-ar-sf="${esc(x.id)}" ${x.sf ? "checked" : ""}> 済</label>` : (x.sf ? "済" : "<span style='color:#B4441F'>未</span>")}</td></tr>`), `${arJp(d.ym)}に請求する企業はありません`);
-  else if (ar.tab === "cancel") body = tbl(["申込番号", "企業名", "解約申請日", "解約希望月", "解約月", "申請者", "連絡先"], d.cancels.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.cancelApplied || "—")}</td><td>${esc(arJp(x.cancelWish))}</td><td>${esc(arJp(x.cancelMonth))}末</td><td>${esc(x.applicant || "—")}</td><td>${esc(x.contact || "—")}</td></tr>`), `${arJp(d.ym)}末で解約となる企業はありません`);
+  else if (ar.tab === "cancel") body = tbl(["申込番号", "企業名", "解約申請日", "解約希望月", "解約月", "申請者", "連絡先"], d.cancels.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(arJp(x.cancelWish))}</td><td>${esc(arJp(x.cancelMonth))}末</td><td>${esc(x.applicant || "—")}</td><td>${esc(x.contact || "—")}</td></tr>`), `${arJp(d.ym)}末で解約となる企業はありません`);
   else if (ar.tab === "diff") body = tbl(["申込番号", "企業名", "区分", "変更月"], d.diff.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${arStTag(x.kind === "新規" ? "継続中" : x.kind).replace("継続中", "新規")}</td><td>${esc(arJp(x.changed))}</td></tr>`), `${arJp(d.prev)}からの増減はありません`);
   else if (ar.tab === "recon") {
     const r = d.recon; const base = r.kinxs;
@@ -2195,7 +2196,7 @@ function arRender() {
           <textarea id="arRules" class="kx-in" rows="3" style="width:100%;margin-top:6px" placeholder="1行に1つ：商品名に含む文字 → 自動更新 または 年間（例：アチコチバース月額 → 自動更新）">${esc((d.rules || []).map((r) => `${r.match} → ${r.plan}`).join("\n"))}</textarea><button type="button" class="hp-b" id="arRulesSave">ルールを保存して同期</button></details>
         <div id="arDiffs" style="margin-top:10px"></div></div>` : "";
     body = syncBox + `<div class="kx-seg" style="margin-bottom:8px">${[["", "すべて"], ["自動更新", "自動更新"], ["年間", "年間"]].map(([k, l]) => `<button type="button" class="${pf === k ? "on" : ""}" data-ar-pf="${k}">${l}（${k ? d.all.filter((x) => x.plan === k).length : d.all.length}）</button>`).join("")}</div>` +
-      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約月", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : KX_TEST ? ` <button type="button" class="hp-b" data-ar-clone="${esc(x.id)}" title="この会社のテスト用コピーを作る（本物は変わりません）">🧪 この会社でテスト</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
+      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約申請日", "解約月", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : KX_TEST ? ` <button type="button" class="hp-b" data-ar-clone="${esc(x.id)}" title="この会社のテスト用コピーを作る（本物は変わりません）">🧪 この会社でテスト</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
       + `<datalist id="arAcAll"></datalist>`;
   }
   const ex = (d.exports || [])[0];
@@ -2222,6 +2223,20 @@ function arRender() {
     const nm = prompt("テスト用の会社の名前（空ならおまかせ）。頭に【テスト】が付きます。\n自動更新・今月から・継続中で作り、申込番号は TEST-… になります", ""); if (nm == null) return;
     try { const r = await api("/api/kinxs/test-accounts", { method: "POST", body: JSON.stringify({ name: nm }) }); alert(`作りました：${r.name}\n申込番号：${r.no}\n\n解約フォームを試すときは、この申込番号と自分のメールアドレスで送ってください（自動返信は自分にだけ届きます）`); arLoad(); }
     catch (e) { alert(e.message); } };
+  document.querySelectorAll("[data-ar-app]").forEach((b) => b.onclick = async () => {
+    let r; try { r = await api(`/api/kinxs/autorenew/${encodeURIComponent(b.dataset.arApp)}/applications`); } catch (e) { alert(e.message); return; }
+    const x0 = (ar.data.all || []).find((y) => String(y.id) === String(b.dataset.arApp)) || {};
+    const bg = document.createElement("div"); bg.className = "kx-drawer-bg"; bg.style.cssText = "display:flex;align-items:center;justify-content:center;";
+    const it = r.items || [];
+    bg.innerHTML = `<div class="ar-card" style="width:min(640px,94vw);max-height:84vh;overflow:auto;background:#fff;padding:18px 20px;border-radius:14px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><b style="font-size:15px">解約の申請内容：${esc(x0.name || "")}</b><button type="button" class="hp-b" data-x style="margin-left:auto">閉じる</button></div>
+      ${it.length ? it.map((a) => `<div style="border:1px solid #E6ECE9;border-radius:10px;padding:10px 12px;margin-bottom:8px"><div class="kx-note" style="margin-bottom:6px">${esc(String(a.at || "").slice(0, 10))} に申請・${esc(a.state || "")}${a.replied ? "・受付メール送信済み" : ""}</div>
+        <table style="width:100%;font-size:12.5px;border-collapse:collapse">${Object.entries(a.raw || {}).filter(([k]) => k).map(([k, v]) => `<tr><td style="color:#5B6B63;padding:3px 8px 3px 0;vertical-align:top;white-space:nowrap">${esc(k)}</td><td style="padding:3px 0"><b>${esc(String(v ?? ""))}</b></td></tr>`).join("")}</table></div>`).join("")
+        : `<div class="kx-note">フォームからの申請は見つかりませんでした（手で解約予定にした会社か、フォームの回答と結びついていません）</div>`}
+      ${r.sheet ? `<a class="kx-btn" href="${esc(r.sheet)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px">回答シート（フォームの回答）を開く ↗</a>` : ""}</div>`;
+    document.body.appendChild(bg);
+    bg.addEventListener("click", (e) => { if (e.target === bg || e.target.closest("[data-x]")) bg.remove(); });
+  });
   document.querySelectorAll("[data-ar-clone]").forEach((b) => b.onclick = async () => {
     b.disabled = true;
     try { const r = await api("/api/kinxs/test-accounts", { method: "POST", body: JSON.stringify({ fromId: b.dataset.arClone }) });
@@ -2349,7 +2364,7 @@ async function arEdit(x) {
 async function arExcel() {
   const d = ar.data; if (!d) return;
   if (!window.XLSX) { await new Promise((ok, ng) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; s.onload = ok; s.onerror = () => ng(new Error("Excelの部品を読み込めませんでした")); document.head.appendChild(s); }).catch((e) => alert(e.message)); if (!window.XLSX) return; }
-  const counts = { bill: d.bill.length, new: d.diff.filter((x) => x.kind === "新規").length, cancel: d.cancels.length, stop: d.diff.filter((x) => x.kind === "停止").length };
+  const counts = { bill: d.bill.length, new: (d.diff || []).filter((x) => x.kind === "新規").length, cancel: d.cancels.length, stop: (d.diff || []).filter((x) => x.kind === "停止").length };
   let ver = 1, by = window.__kxMe || ""; if (!KX_TEST) try { const r = await api("/api/kinxs/autorenew-export", { method: "POST", body: JSON.stringify({ ym: d.ym, counts }) }); ver = r.version || 1; by = r.by || by; } catch {}   // テスト中は出力の記録に残さない
   const now = new Date(Date.now() + 9 * 3600000); const stamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
   const nowStr = `${now.getUTCFullYear()}/${now.getUTCMonth() + 1}/${now.getUTCDate()} ${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
@@ -2358,9 +2373,7 @@ async function arExcel() {
   add("サマリー", [["項目", "内容"], ["対象月", arJp(d.ym)], ["請求対象社数", counts.bill], ["請求金額合計（税別）", counts.bill * d.price], ["新規", counts.new], ["解約（この月末）", counts.cancel], ["停止", counts.stop], ["出力日時", nowStr], ["出力者", by], ["版", `第${ver}版`]]);
   add("請求対象一覧", [["企業ID（申込番号）", "企業名", "プラン区分", "契約開始月", "請求金額（税別）", "ステータス"], ...d.bill.map((x) => [x.no, x.name, x.plan, arJp(x.start), x.amount, x.statusOn])]);
   add("解約一覧", [["企業ID（申込番号）", "企業名", "解約申請日", "解約月"], ...d.cancels.map((x) => [x.no, x.name, x.cancelApplied, `${arJp(x.cancelMonth)}末`])]);
-  add("差分", [["企業ID（申込番号）", "企業名", "区分", "変更月"], ...d.diff.map((x) => [x.no, x.name, x.kind, arJp(x.changed)])]);
-  const r = d.recon; const df = (n) => (n == null || n === "" ? "" : Number(n) - r.kinxs);
-  add("突合", [["項目", "件数", "差異（kinXsとの差）"], ["kinXsの請求対象社数", r.kinxs, 0], ["SF計上件数", r.sf, df(r.sf)], ["請求書発行件数（販売管理部）", r.invoices ?? "", df(r.invoices)], ["ブレインバース社からの請求件数", r.bv ?? "", df(r.bv)]]);
+  // 差分・突合のシートはなくした（2026-11-10 幸地さん）
   X.writeFile(wb, `${KX_TEST ? "テスト_" : ""}DOC自動更新_請求対象_${d.ym.slice(0, 4)}年${d.ym.slice(5, 7)}月分_${stamp}出力${ver > 1 ? `_第${ver}版` : ""}.xlsx`);
   arLoad();
 }

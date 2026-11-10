@@ -12402,7 +12402,8 @@ export async function arUpdate(id, patch = {}, by = "") {
 export async function arFindByNo(no) {
   if (!pool) return null; await ensureAutoRenew();
   const n = String(no || "").replace(/[\s　]/g, ""); if (!n) return null;
-  const { rows } = await pool.query(`SELECT account_id AS id, name FROM kinxs_accounts WHERE replace(COALESCE(ar_no,''),' ','') = $1 LIMIT 1`, [n]);
+  // 同じ番号が本物とテスト用の両方にあれば、本物を先に（2026-11-10）
+  const { rows } = await pool.query(`SELECT account_id AS id, name FROM kinxs_accounts WHERE replace(COALESCE(ar_no,''),' ','') = $1 ORDER BY (COALESCE(source,'') = 'test') LIMIT 1`, [n]);
   return rows[0] || null;
 }
 export async function arRecon(ym) { if (!pool) return null; await ensureAutoRenew(); return (await pool.query(`SELECT * FROM kinxs_ar_recon WHERE ym = $1`, [ym])).rows[0] || null; }
@@ -12568,4 +12569,24 @@ export async function kinxsDeleteTest(accountId) {
 export async function kinxsTestRenameByNo(no, name) {
   if (!pool) return 0;
   return (await pool.query(`UPDATE kinxs_accounts SET name = $2, name_override = NULL, former_names = '[]'::jsonb WHERE source = 'test' AND ar_no = $1`, [no, name])).rowCount || 0;
+}
+
+// DOC自動更新：その企業に当てはまった解約フォームの回答（申請内容を見る）（2026-11-10 幸地さん）
+export async function arInboxForAccount(accId) {
+  if (!pool) return []; await ensureArInbox();
+  return (await pool.query(`SELECT id, at, company, applicant, email, no, wish, raw, state, replied FROM kinxs_ar_inbox WHERE matched_id = $1 ORDER BY at DESC NULLS LAST LIMIT 20`, [String(accId)])).rows;
+}
+// テスト用の会社の一覧（申込番号・CS担当を振り直すため）
+export async function kinxsTestRows() {
+  if (!pool) return []; await ensureAutoRenew();
+  return (await pool.query(`SELECT account_id, name, ar_no, ar_start FROM kinxs_accounts WHERE source = 'test' ORDER BY account_id`)).rows;
+}
+export async function kinxsTestSet(id, { no, cs }) {
+  if (!pool) return; await ensureAutoRenew();
+  await pool.query(`UPDATE kinxs_accounts SET ar_no = COALESCE($2, ar_no), cs_name = COALESCE($3, cs_name) WHERE account_id = $1 AND source = 'test'`, [String(id), no || null, cs || null]);
+}
+// 申込番号が本物の会社（テスト用でない）にもあるか
+export async function arNoUsedByReal(no) {
+  if (!pool) return false; await ensureAutoRenew();
+  return (await pool.query(`SELECT 1 FROM kinxs_accounts WHERE replace(COALESCE(ar_no,''),' ','') = $1 AND COALESCE(source,'') <> 'test' LIMIT 1`, [String(no)])).rowCount > 0;
 }
