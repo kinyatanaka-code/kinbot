@@ -14719,11 +14719,21 @@ app.post("/api/kinxs/test-accounts", async (req, res) => {
   try {
     if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "作れるのは事業部だけです" });
     const by = await displayNameOf(req.user).catch(() => req.user);
-    const name = `【テスト】${String((req.body && req.body.name) || "").trim() || `テスト株式会社 ${new Date(Date.now() + 9 * 3600000).toISOString().slice(5, 16).replace("T", " ")}`}`.slice(0, 80);
-    const a = await kinxsAddTest(name, by, by);
     const ym = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+    // fromId があれば、本物の会社のテスト用コピー（社名・CS担当・商品・先方の担当者など）。本物のデータは変えない（2026-11-10 田中さん）
+    let from = null, cs = by, start = ym, baseName = "";
+    if (req.body && req.body.fromId) {
+      const fid = String(req.body.fromId);
+      from = (await kinxsList()).find((r) => String(r.account_id) === fid) || null;
+      if (!from) return res.status(404).json({ error: "元の会社が見つかりません" });
+      const it = ((await kinxsBuildMemo().catch(() => ({ items: [] }))).items || []).find((i) => String(i.id) === fid);
+      cs = (it && it.cs) || from.cs_name || by; baseName = from.name_override || from.name || "";
+      const ar0 = (await arList().catch(() => [])).find((r) => String(r.id) === fid); if (ar0 && ar0.ar_start) start = ar0.ar_start;
+    }
+    const name = `【テスト】${baseName || String((req.body && req.body.name) || "").trim() || `テスト株式会社 ${new Date(Date.now() + 9 * 3600000).toISOString().slice(5, 16).replace("T", " ")}`}`.slice(0, 80);
+    const a = await kinxsAddTest(name, by, cs, { from: from ? { ...from, name: baseName } : null });
     const no = `TEST-${String(a.account_id).slice(-6)}`;
-    await arUpdate(a.account_id, { plan: "自動更新", no, start: ym, status: "継続中" }, by).catch(() => {});
+    await arUpdate(a.account_id, { plan: "自動更新", no, start, status: "継続中" }, by).catch(() => {});
     _kxBuildMemo = { at: 0, p: null };
     res.json({ ok: true, id: a.account_id, name, no });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -29803,7 +29813,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zm kinXs DOC自動更新：請求対象一覧の入金の列をなくす。テスト用の会社がSFの取り込みで消えていたのを直し、9社を作り直す。";
+const BUILD_TAG = "2026-11-10zn kinXs DOC自動更新：本物の会社のテスト用コピー（🧪 この会社でテスト）。社名・CS担当・商品・先方の担当者を写し、本物は変えない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

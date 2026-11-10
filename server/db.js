@@ -12545,14 +12545,17 @@ export async function listApoDeletedSlugs() {
 }
 
 // kinXs：テスト用の会社（source='test'、id は test-…）。ふだんの一覧・集計には出さず、テストを表示しているときだけ出す（2026-11-10 田中さん）
-export async function kinxsAddTest(name, by, csName = "") {
+export async function kinxsAddTest(name, by, csName = "", opts = {}) {
   if (!pool) return null;
   const id = `test-${Date.now()}`;
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  // opts.from：本物の会社のコピーのとき（商品・企業情報（先方の担当者など）・受注日も写す）（2026-11-10 田中さん）
+  const f = opts.from || null;
+  const prods = f && Array.isArray(f.products) && f.products.length ? f.products : [{ name: "アチコチバース（月額利用料／自動更新）", opp: null, booked: today, stage: "テスト" }];
   const { rows } = await pool.query(
-    `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, cs_name, source, rank, rank_by, rank_at, memo)
-     VALUES ($1,$2,$3::jsonb,$4,$5,'test','Z',$6,now(),'テスト用の会社') RETURNING *`,
-    [id, name, JSON.stringify([{ name: "アチコチバース（月額利用料／自動更新）", opp: null, booked: today, stage: "テスト" }]), today, csName || null, by]);
+    `INSERT INTO kinxs_accounts (account_id, name, products, booked_on, cs_name, source, rank, rank_by, rank_at, memo, info, renew_month)
+     VALUES ($1,$2,$3::jsonb,$4,$5,'test','Z',$6,now(),$7,$8::jsonb,$9) RETURNING *`,
+    [id, name, JSON.stringify(prods), (f && f.booked_on) || today, csName || null, by, f ? `テスト用のコピー（元：${f.name || ""}）` : "テスト用の会社", JSON.stringify((f && f.info) || {}), (f && f.renew_month) || null]);
   await pool.query(`INSERT INTO kinxs_history (account_id, kind, from_v, to_v, by_user, auto) VALUES ($1,'add','','テスト用に追加',$2,false)`, [id, by]).catch(() => {});
   return rows[0];
 }

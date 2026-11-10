@@ -2194,7 +2194,7 @@ ${(() => { const names = [...new Set(d.all.map((x) => x.cs).filter(Boolean))].so
           <textarea id="arRules" class="kx-in" rows="3" style="width:100%;margin-top:6px" placeholder="1行に1つ：商品名に含む文字 → 自動更新 または 年間（例：アチコチバース月額 → 自動更新）">${esc((d.rules || []).map((r) => `${r.match} → ${r.plan}`).join("\n"))}</textarea><button type="button" class="hp-b" id="arRulesSave">ルールを保存して同期</button></details>
         <div id="arDiffs" style="margin-top:10px"></div></div>` : "";
     body = syncBox + `<div class="kx-seg" style="margin-bottom:8px">${[["", "すべて"], ["自動更新", "自動更新"], ["年間", "年間"]].map(([k, l]) => `<button type="button" class="${pf === k ? "on" : ""}" data-ar-pf="${k}">${l}（${k ? d.all.filter((x) => x.plan === k).length : d.all.length}）</button>`).join("")}</div>` +
-      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約月", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
+      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約月", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : KX_TEST ? ` <button type="button" class="hp-b" data-ar-clone="${esc(x.id)}" title="この会社のテスト用コピーを作る（本物は変わりません）">🧪 この会社でテスト</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
       + `<datalist id="arAcAll"></datalist>`;
   }
   const ex = (d.exports || [])[0];
@@ -2221,6 +2221,11 @@ ${(() => { const names = [...new Set(d.all.map((x) => x.cs).filter(Boolean))].so
     const nm = prompt("テスト用の会社の名前（空ならおまかせ）。頭に【テスト】が付きます。\n自動更新・今月から・継続中で作り、申込番号は TEST-… になります", ""); if (nm == null) return;
     try { const r = await api("/api/kinxs/test-accounts", { method: "POST", body: JSON.stringify({ name: nm }) }); alert(`作りました：${r.name}\n申込番号：${r.no}\n\n解約フォームを試すときは、この申込番号と自分のメールアドレスで送ってください（自動返信は自分にだけ届きます）`); arLoad(); }
     catch (e) { alert(e.message); } };
+  document.querySelectorAll("[data-ar-clone]").forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await api("/api/kinxs/test-accounts", { method: "POST", body: JSON.stringify({ fromId: b.dataset.arClone }) });
+      alert(`テスト用のコピーを作りました：${r.name}\n申込番号：${r.no}\n\n本物の会社は変わりません。解約を試すときは、このコピーを「直す」で解約予定にするか、解約フォームにこの申込番号と自分のメールアドレスで送ってください（自動返信は自分にだけ届きます）`); arLoad(); }
+    catch (e) { alert(e.message); b.disabled = false; } });
   document.querySelectorAll("[data-ar-deltest]").forEach((b) => b.onclick = async () => { if (!confirm("このテスト用の会社を消しますか？（記録もいっしょに消えます）")) return; try { await api(`/api/kinxs/test-accounts/${encodeURIComponent(b.dataset.arDeltest)}`, { method: "DELETE" }); arLoad(); } catch (e) { alert(e.message); } });
   // 全企業：プランで絞る・同期・未突合の紐づけ・ルール
   box.querySelectorAll("[data-ar-pf]").forEach((b) => b.addEventListener("click", () => { ar.plan = b.dataset.arPf; arRender(); }));
