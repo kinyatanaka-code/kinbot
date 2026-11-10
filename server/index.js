@@ -13353,6 +13353,33 @@ function arBillOn(r, ym) {
   if (st === "解約予定") return !!r.ar_cancel_month && r.ar_cancel_month >= ym;
   return false;
 }
+// テスト用の会社を、いろいろな状態でまとめて作る（起動のときに1回だけ。settings.kxTestSeed1）（2026-11-10 田中さん「自動更新にテスト企業をいくつか作って」）
+//   🧪 テストをオンにしたときだけ見える。自動返信はフォームから入ったときだけ動くので、ここでは送らない
+async function kxSeedTests() {
+  const st = await getSettings().catch(() => ({})); if (st.kxTestSeed1) return;
+  await saveSettings({ kxTestSeed1: new Date().toISOString() });
+  const by = "テストの準備（自動）";
+  const list = [
+    { name: "【テスト】継続中・先月から株式会社", no: "TEST-001", plan: "自動更新", start: "2026-10", status: "継続中" },
+    { name: "【テスト】継続中・今月から株式会社", no: "TEST-002", plan: "自動更新", start: "2026-11", status: "継続中" },
+    { name: "【テスト】来月から株式会社", no: "TEST-003", plan: "自動更新", start: "2026-12", status: "継続中" },
+    { name: "【テスト】解約予定・締切内株式会社", no: "TEST-004", plan: "自動更新", start: "2026-09", status: "解約予定", cancelApplied: "2026-11-05", cancelWish: "2026-12", applicant: "テスト 太郎" },
+    { name: "【テスト】解約予定・締切後株式会社", no: "TEST-005", plan: "自動更新", start: "2026-09", status: "解約予定", cancelApplied: "2026-11-20", cancelWish: "2026-12", applicant: "テスト 花子" },
+    { name: "【テスト】今月末で解約株式会社", no: "TEST-006", plan: "自動更新", start: "2026-08", status: "解約予定", cancelApplied: "2026-10-10", cancelWish: "2026-11", applicant: "テスト 次郎" },
+    { name: "【テスト】未入金株式会社", no: "TEST-007", plan: "自動更新", start: "2026-10", status: "未入金" },
+    { name: "【テスト】停止株式会社", no: "TEST-008", plan: "自動更新", start: "2026-09", status: "停止" },
+    { name: "【テスト】年間プラン株式会社", no: "TEST-009", plan: "年間", start: "2026-04", status: "継続中" },
+  ];
+  for (const t of list) {
+    try {
+      const a = await kinxsAddTest(t.name, by, "田中");
+      await arUpdate(a.account_id, { plan: t.plan, no: t.no, start: t.start, status: t.status, ...(t.cancelWish ? { cancelApplied: t.cancelApplied, cancelWish: t.cancelWish, cancelMonth: arCancelMonth(t.cancelApplied, t.cancelWish), applicant: t.applicant } : {}) }, by);
+    } catch (e) { console.warn("[テストの準備]", t.name, e.message); }
+  }
+  _kxBuildMemo = { at: 0, p: null };
+  console.log("[テストの準備] テスト用の会社を作りました：", list.length);
+}
+setTimeout(() => kxSeedTests().catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
 app.get("/api/kinxs/autorenew", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
@@ -29775,7 +29802,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zj kinXs：次回アクションの日時を手で直す・済みにする。ホームの要アクションの行で済み（キックオフ実施済み・検収書回収済み・NA・施策）と日付の変更。";
+const BUILD_TAG = "2026-11-10zk kinXs DOC自動更新：テスト用の会社を9社（継続中・来月から・解約予定（締切内／締切後）・今月末で解約・未入金・停止・年間）を起動のときに1回だけ作る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
