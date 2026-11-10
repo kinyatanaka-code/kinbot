@@ -1481,6 +1481,21 @@ function kxHeadMonth(ym, onMove) {
   hm.innerHTML = `<button type="button" data-hm="-1" aria-label="前の月">‹</button><b>${kxYmLabel(ym)}</b><button type="button" data-hm="1" aria-label="次の月">›</button>${ym !== kxNowYm() ? '<button type="button" class="now" data-hm="0">今月</button>' : ""}`;
   hm.querySelectorAll("[data-hm]").forEach((b) => b.addEventListener("click", () => onMove(Number(b.dataset.hm))));
 }
+// ホームの要アクションを、その場で済み・日付変更（2026-11-10 田中さん：要アクションを更新する手立てがない）
+async function kxHomeAct(el) {
+  const k = el.dataset.ha, id = el.dataset.id, today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const isDate = el.dataset.do === "date"; const v = isDate ? el.value : "";
+  if (isDate && !v) return;
+  try {
+    if (k === "ko") await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ kickoff_on: today }) });
+    else if (k === "ks") await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ kenshu_on: today }) });
+    else if (k === "na") {
+      if (isDate) { const tm = el.dataset.at ? new Date(new Date(el.dataset.at).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "10:00"; await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ na_at: `${v}T${tm}` }) }); }
+      else { if (!confirm("この次回アクションを済みにしますか？（次回アクションが空になります）")) return; await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) }); }
+    } else if (k === "me") await api("/api/kinxs/actions", { method: "PUT", body: JSON.stringify({ mkey: el.dataset.mkey, ym: el.dataset.ym, account_id: id, ...(isDate ? { na_date: v } : { status: "完了" }) }) });
+    lsData = await api(kxUsersUrl()); renderHomeV2();
+  } catch (e) { alert(e.message); }
+}
 function renderHomeV2() {
   const box = $("kh2"); if (!box || !lsData) return;
   const items = (lsData.items || []).filter((x) => !x.archived);
@@ -1512,7 +1527,9 @@ function renderHomeV2() {
   <div class="h2-row">
     <section class="h2-box h2-act"><div class="h2-h"><h2>要アクション</h2><span class="h2-big" data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span></div>
       <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b>${actRows.filter((r) => f(r.a)).length}</b><span>${l}</span></button>`).join("")}</div>
-      <div class="h2-list">${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="pin ${a.left < 0 ? "over" : a.left <= 3 ? "soon" : ""}">${a.left == null ? "" : a.left < 0 ? `${-a.left}日過ぎ` : `あと${a.left}日`}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
+      <div class="h2-list">${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="pin ${a.left < 0 ? "over" : a.left <= 3 ? "soon" : ""}">${a.left == null ? "" : a.left < 0 ? `${-a.left}日過ぎ` : `あと${a.left}日`}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span><span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
+        const dat = `data-ha="${k}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}"`;
+        return `<button type="button" class="h2-op" ${dat} data-do="done" title="${k === "ko" ? "キックオフ済みにする" : k === "ks" ? "検収書を回収済みにする" : "済みにする"}">✓ ${k === "ko" ? "実施済み" : k === "ks" ? "回収済み" : "済み"}</button>${k === "na" || k === "me" ? `<label class="h2-op" title="日付を変える">📅<input type="date" ${dat} data-do="date" value="${esc(a.due || "")}"></label>` : ""}`; })()}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
       </section>
     <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
       ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="st" data-grow>${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span><span class="n">${r.l.length}<small>社</small></span></button>`).join("")}
@@ -1527,7 +1544,9 @@ function renderHomeV2() {
   box.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => { const k = b.dataset.kpi; kxCoListPopup({ all: "DOC受注社数", ka: "稼働社数（積み上げ）", mo: "先月お申込者数", kai: "解約社数（アーカイブも含む）" }[k] + `（${kxYmLabel(ym)}）`, c[k]); }));
   box.querySelectorAll("[data-kf]").forEach((b) => b.addEventListener("click", () => { kh2.kf = kh2.kf === b.dataset.kf ? "" : b.dataset.kf; renderHomeV2(); }));
   box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
-  box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
+  box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-noopen]")) return; openDetail(el.dataset.open); }));
+  box.querySelectorAll("button[data-ha]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); b.disabled = true; kxHomeAct(b).finally(() => { b.disabled = false; }); }));
+  box.querySelectorAll("input[data-ha]").forEach((i) => { i.addEventListener("click", (e) => { e.stopPropagation(); try { i.showPicker(); } catch {} }); i.addEventListener("change", () => kxHomeAct(i)); });
   box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F")); }));
   const rtm = box.querySelector("[data-rt-modal]"); if (rtm) rtm.addEventListener("click", () => kxRenewTableModal(docs));
   box.querySelectorAll("[data-miss]").forEach((b) => b.addEventListener("click", () => { const r = req.find((x) => x.key === b.dataset.miss); kxCoListPopup(`情報不足：${r.short || r.name}がない`, msItems.filter((x) => (x.missKeys || []).includes(r.key)).map((x) => ({ ...x, ...(items.find((y) => y.id === x.id) || {}) }))); }));
@@ -1698,10 +1717,10 @@ function kxNextActSection(x) {
   const hw = Array.isArray(nd.homework) ? nd.homework : (sm.homework || []).filter((h) => h.state !== "完了");
   const when = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : (x.naDue ? x.naDue.replace(/-/g, "/") : "未定");
   const alertTxt = x.naDue ? (() => { const l = Math.ceil((Date.parse(x.naDue + "T23:59:59+09:00") - Date.now()) / 86400000); return l < 0 ? `<span class="v2-miss">${-l}日過ぎ</span>` : l <= 7 ? `<span class="v2-miss">あと${l}日（アラート）</span>` : `<span class="kx-note">あと${l}日（期限の1週間前にアラート）</span>`; })() : "";
-  return `<section class="kx-sec v2-na" data-na-box="${esc(x.id)}"><div class="lb" style="display:flex;align-items:center;gap:8px">次回アクション<span class="kx-src">${nd.manual ? "手で直した" : nd.auto ? "自動（議事録から）" : "—"}</span>${alertTxt}<button type="button" class="kx-btn kx-pri" data-na-save style="margin-left:auto">保存</button></div>
+  return `<section class="kx-sec v2-na" data-na-box="${esc(x.id)}"><div class="lb" style="display:flex;align-items:center;gap:8px">次回アクション<span class="kx-src">${nd.manual ? "手で直した" : nd.auto ? "自動（議事録から）" : "—"}</span>${alertTxt}<button type="button" class="hp-b" data-na-done style="margin-left:auto" title="この次回アクションを終えて、空にします">✓ 済みにする</button><button type="button" class="kx-btn kx-pri" data-na-save>保存</button></div>
     <div class="v2-na-g">
       <label>種別・タイトル<input class="kx-in" data-nad="title" value="${esc(nd.title || x.na || n.title || "")}" placeholder="例：運用開始前の最終確認ミーティング" /></label>
-      <label>日時<span class="kx-note" style="padding:6px 0">${esc(when)}</span></label>
+      <label>日時<input class="kx-in" type="datetime-local" data-na-at value="${esc(x.naAt ? new Date(new Date(x.naAt).getTime() + 9 * 3600000).toISOString().slice(0, 16) : (x.naDue ? `${x.naDue}T10:00` : ""))}" /></label>
       <label>場所<input class="kx-in" data-nad="place" value="${esc(nd.place || n.place || "")}" placeholder="オンライン など" /></label>
       <label>参加者<input class="kx-in" data-nad="participants" value="${esc(nd.participants || "")}" placeholder="先方：○○様／当社：○○" /></label>
       <label style="grid-column:1/-1">目的<input class="kx-in" data-nad="purpose" value="${esc(nd.purpose || n.purpose || "")}" /></label>
@@ -1721,6 +1740,15 @@ document.addEventListener("click", async (e) => {
     catch (er) { if (st) st.textContent = er.message; mk.disabled = false; }
     return;
   }
+  const nd0 = e.target.closest && e.target.closest("[data-na-done]");
+  if (nd0) {
+    const box = nd0.closest("[data-na-box]"); if (!confirm("この次回アクションを済みにしますか？（次回アクションが空になり、要アクションから外れます）")) return;
+    nd0.disabled = true;
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(box.dataset.naBox)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) }); lsData = null;
+      const bgEl = box.closest(".kx-drawer-bg"); if (bgEl) openDetail(box.dataset.naBox, { bg: bgEl }); }
+    catch (er) { alert(er.message); nd0.disabled = false; }
+    return;
+  }
   const sv = e.target.closest && e.target.closest("[data-na-save]");
   if (sv) {
     const box = sv.closest("[data-na-box]"); const st = box.querySelector("[data-na-st]");
@@ -1728,7 +1756,12 @@ document.addEventListener("click", async (e) => {
       agenda: [...box.querySelectorAll("[data-na-agenda] .v2-ag")].map((l) => ({ done: l.querySelector("input[type=checkbox]").checked, t: l.querySelector("input.kx-in").value.trim() })).filter((a) => a.t),
       homework: [...box.querySelectorAll("[data-na-hw] .v2-hw-ed")].map((r) => ({ who: r.querySelector('[data-k="who"]').value, task: r.querySelector('[data-k="task"]').value.trim(), due: r.querySelector('[data-k="due"]').value, state: r.querySelector('[data-k="state"]').value })).filter((h) => h.task) };
     if (st) st.textContent = "　保存しています…"; sv.disabled = true;
-    try { await api(`/api/kinxs/accounts/${encodeURIComponent(box.dataset.naBox)}/na-detail`, { method: "PUT", body: JSON.stringify(body) }); if (st) st.textContent = "　保存しました"; lsData = null; }
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(box.dataset.naBox)}/na-detail`, { method: "PUT", body: JSON.stringify(body) });
+      // 日時・タイトルは次回アクションそのもの（要アクション・アラートの期限）にも入れる（2026-11-10 田中さん：手で直せるように）
+      const atEl = box.querySelector("[data-na-at]"); const at = atEl ? atEl.value : "";
+      await api(`/api/kinxs/accounts/${encodeURIComponent(box.dataset.naBox)}`, { method: "PUT", body: JSON.stringify({ na_text: body.title, na_at: at }) });
+      if (st) st.textContent = "　保存しました"; lsData = null;
+      const bgEl = box.closest(".kx-drawer-bg"); if (bgEl) openDetail(box.dataset.naBox, { bg: bgEl }); }
     catch (er) { if (st) st.textContent = "　" + er.message; }
     finally { sv.disabled = false; }
   }

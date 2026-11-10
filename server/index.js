@@ -13895,7 +13895,7 @@ async function kinxsBuild() {
     }
     if (!r.archived && POST.includes(label) && r.na_due) {
       const nd = kxYmdOf(r.na_due); const l = Math.ceil((Date.parse(nd + "T23:59:59+09:00") - now) / 86400000);
-      if (l <= 7) actions.push({ group: "納品後", kind: r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション", detail: l >= 0 ? `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（あと${l}日）` : `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（${-l}日過ぎ）`, due: nd, left: l });
+      if (l <= 7) actions.push({ na: true, group: "納品後", kind: r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション", detail: l >= 0 ? `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（あと${l}日）` : `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（${-l}日過ぎ）`, due: nd, left: l });
     }
     // DOCのスケジュール（議事録から作った予定）より、フェーズが進んでいなければ要注意
     let schedLate = null;
@@ -14722,7 +14722,7 @@ app.get("/api/kinxs/users", async (req, res) => {
         const nd = new Date(new Date(a.na_date).getTime() + 9 * 3600000).toISOString().slice(0, 10);
         const l = Math.ceil((Date.parse(nd + "T23:59:59+09:00") - Date.now()) / 86400000); if (l > 7) continue;
         const x = byId.get(a.account_id); if (!x) continue; const me = KX_MEASURES.find((m) => m.key === a.mkey) || { name: a.mkey };
-        (x.actions = x.actions || []).push({ group: "納品後", kind: me.name, detail: l >= 0 ? `${me.name}（あと${l}日）` : `${me.name}（${-l}日過ぎ）`, due: nd, left: l, measure: a.mkey });
+        (x.actions = x.actions || []).push({ group: "納品後", kind: me.name, detail: l >= 0 ? `${me.name}（あと${l}日）` : `${me.name}（${-l}日過ぎ）`, due: nd, left: l, measure: a.mkey, ym: a.ym });
       }
     } catch {}
     items.sort((a, b) => (b.score - a.score) || String(a.renew || "9").localeCompare(String(b.renew || "9")));
@@ -29775,7 +29775,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zi kinXs：テスト用の会社（source=test・【テスト】・TEST-申込番号）でDOC自動更新を最初から試せる。🧪 テストの切りかえ、ふだんの一覧・集計には出さない、自動返信は自分にだけ。";
+const BUILD_TAG = "2026-11-10zj kinXs：次回アクションの日時を手で直す・済みにする。ホームの要アクションの行で済み（キックオフ実施済み・検収書回収済み・NA・施策）と日付の変更。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
