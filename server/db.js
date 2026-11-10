@@ -12527,3 +12527,18 @@ export async function kxFileGet(id) {
 export async function kxFileDelete(id) { if (!pool) return; await ensureKxFiles(); await pool.query(`DELETE FROM kinxs_files WHERE id = $1`, [Number(id) || 0]); }
 export async function kxFileChat(id, { at, error }) { if (!pool) return; await ensureKxFiles(); await pool.query(`UPDATE kinxs_files SET chat_at = $2, chat_error = $3 WHERE id = $1`, [Number(id) || 0, at || null, error || null]); }
 export async function kxFileDrive(id, link) { if (!pool) return; await ensureKxFiles(); await pool.query(`UPDATE kinxs_files SET drive_link = $2 WHERE id = $1`, [Number(id) || 0, link || null]); }
+
+// アポのカードを消す（一覧から外し、集計からも外す）。カレンダーのスキャンで同じ予定を拾っても、消したまま（2026-11-10 田中さん）
+let _apoDelReady = false;
+async function ensureApoDel() { if (!pool || _apoDelReady) return; _apoDelReady = true; await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`).catch(() => {}); await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS deleted_by TEXT`).catch(() => {}); await pool.query(`ALTER TABLE smart_links ADD COLUMN IF NOT EXISTS excluded_reason TEXT`).catch(() => {}); }
+export async function setApoDeleted(slug, on, by = "") {
+  if (!pool || !slug) return null; await ensureApoDel();
+  const { rows } = await pool.query(on
+    ? `UPDATE smart_links SET deleted_at = now(), deleted_by = $2, excluded = true, excluded_reason = '削除' WHERE slug = $1 RETURNING slug, label`
+    : `UPDATE smart_links SET deleted_at = NULL, deleted_by = NULL, excluded = false, excluded_reason = '' WHERE slug = $1 RETURNING slug, label`, on ? [slug, by] : [slug]);
+  return rows[0] || null;
+}
+export async function listApoDeletedSlugs() {
+  if (!pool) return new Set(); await ensureApoDel();
+  try { return new Set((await pool.query(`SELECT slug FROM smart_links WHERE deleted_at IS NOT NULL`)).rows.map((r) => r.slug)); } catch { return new Set(); }
+}

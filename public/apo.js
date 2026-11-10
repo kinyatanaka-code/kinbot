@@ -284,6 +284,7 @@ function apoCard(a, i) {
               <button class="ap-more-item ap-calonly" data-i="${i}" data-slug="${esc(a.slug)}">カレンダーだけ作る</button>
               <button class="ap-more-item ap-renotify" data-slug="${esc(a.slug)}">割り振り通知だけ再送</button>
               <button class="ap-more-item ap-why" data-slug="${esc(a.slug)}">メール・SF・通知の状態を調べる</button>
+              <button class="ap-more-item ap-del" data-slug="${esc(a.slug)}" data-i="${i}" style="color:#B4441F">このアポを消す</button>
               ${/^(リスケ|キャンセル)$/.test(String(a.excludedReason || ""))
                 ? `<button class="ap-more-item ap-state" data-slug="${esc(a.slug)}" data-state="">${esc(a.excludedReason)}を取り消す</button>`
                 : `<button class="ap-more-item ap-state" data-slug="${esc(a.slug)}" data-state="リスケ">リスケにする</button>
@@ -488,6 +489,19 @@ function bindCardEvents(card) {
   });
 
   // リスケ・キャンセルにする（リマインドを送らない・カレンダーの予定名の頭に印を付ける）／取り消す
+  // このアポを消す（一覧と集計から外す。カレンダーの予定はそのまま）（2026-11-10）
+  card.querySelectorAll(".ap-del").forEach((b) => b.addEventListener("click", async () => {
+    const idx = Number(b.dataset.i); const a0 = apState.appts[idx] || {};
+    if (!confirm(`このアポのカードを消します。\n\n${a0.title || ""}\n\n・アポ一覧と集計から外れます\n・カレンダーの予定やSFはそのままです\n\nよろしいですか？`)) return;
+    b.disabled = true;
+    try {
+      const r = await fetch(`/api/apo/${encodeURIComponent(b.dataset.slug)}`, { method: "DELETE" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "消せませんでした");
+      apState.appts = apState.appts.filter((x) => x.slug !== b.dataset.slug);
+      renderApo();
+    } catch (e) { alert(e.message); b.disabled = false; }
+  }));
   card.querySelectorAll(".ap-state").forEach((b) => b.addEventListener("click", async () => {
     const st = b.dataset.state;
     const msg = st

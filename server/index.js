@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -4730,6 +4730,26 @@ app.put("/api/apo/:slug/title", async (req, res) => {
 //   ・いつもの「リスケが入りました／キャンセルが入りました」をChatに1回だけ知らせる（スキャンが同じ予定を拾っても重ねない）
 // state＝"リスケ" | "キャンセル" | ""（取り消し：外したのを戻し、予定名の頭の印を消す）
 const APO_HEAD_RE = /^\s*(リスケ|ﾘｽｹ|キャンセル|ｷｬﾝｾﾙ)\s*[:：\-－・]?\s*/;
+// アポのカードを消す（一覧と集計から外す。カレンダーの予定はそのまま）（2026-11-10 田中さん）。戻すときは PUT /api/apo/:slug/restore
+app.delete("/api/apo/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)) {
+      const l0 = await getSmartLink(slug).catch(() => null);
+      if (!l0 || String(l0.setter_email || "").toLowerCase() !== String(req.user || "").toLowerCase()) return res.status(403).json({ error: "消せるのは、管理者・クローザー・そのアポを取った人だけです" });
+    }
+    const by = await displayNameOf(req.user).catch(() => req.user);
+    const r = await setApoDeleted(slug, true, by); if (!r) return res.status(404).json({ error: "見つかりませんでした" });
+    res.json({ ok: true, slug, label: r.label });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/apo/:slug/restore", async (req, res) => {
+  try {
+    if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)) return res.status(403).json({ error: "権限がありません" });
+    const r = await setApoDeleted(String(req.params.slug || ""), false); if (!r) return res.status(404).json({ error: "見つかりませんでした" });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.put("/api/apo/:slug/state", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user).catch(() => false)) && !isAlwaysCloser(req.user)) {
@@ -29730,7 +29750,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zg kincall ダッシュボード：田中欽也の11月のアポを手補正で+1（今5件）。";
+const BUILD_TAG = "2026-11-10zh kincall アポ一覧：カードの「⋮」に「このアポを消す」（一覧と集計から外す・カレンダーとSFはそのまま・スキャンで戻らない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -35483,6 +35503,8 @@ app.get("/api/apo/pickup", async (req, res) => {
     } catch (e) { console.warn("[apo/pickup] DB合流", e.message); errors = [...(errors || []), { name: "kinbotのアポ", error: "kinbotにだけあるアポ（手で追加など）を読めませんでした：" + e.message }]; }
     // 事業タブで絞る。事業が未判定のアポはどのタブでも残す（取りこぼさないため）。
     if (biz) items = items.filter((it) => !it.business || it.business === biz);
+    // 消したアポは出さない（2026-11-10）
+    try { const del = await listApoDeletedSlugs(); if (del.size) items = items.filter((it) => !del.has(it.slug)); } catch {}
     // アポメールの送信状況をまとめて引く（1件ずつ引くとN+1になるため）
     const mailStatus = await listApoMailStatus(items.map((i) => i.slug));
     for (const it of items) it.mail = mailStatus[it.slug] || {};
