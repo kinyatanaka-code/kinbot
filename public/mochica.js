@@ -38,5 +38,14 @@
     catch (e) { $("mcSaved").textContent = "保存できませんでした：" + e.message; }
   });
   go(location.hash.slice(1) || "home"); loadHome();
-  fetch("/api/me", { credentials: "include" }).then((r) => r.json()).then((d) => { const w = $("who"); if (w && d) w.textContent = d.name || d.displayName || d.email || ""; }).catch(() => {});
+  // 下の段：頭文字の丸アイコン・名前・設定（歯車）・ログアウト（kinbot と同じ作り）
+  fetch("/api/me", { credentials: "include" }).then((r) => r.json()).then((me) => {
+    const who = $("who"); if (!who || !me) return; const name = me.name || me.username || "";
+    who.textContent = name ? name + (me.admin ? "（管理者）" : "") : ""; who.title = me.username || "";
+    const foot = who.parentElement;
+    if (foot && name && !foot.querySelector(".side-avatar")) { const av = document.createElement("span"); av.className = "side-avatar"; av.setAttribute("aria-hidden", "true"); av.textContent = String(name).trim().charAt(0).toUpperCase(); foot.insertBefore(av, who); }
+    if (foot && !foot.querySelector(".side-foot-set")) { const set = document.createElement("a"); set.className = "side-foot-set"; set.href = "#settings"; set.title = "設定"; set.setAttribute("aria-label", "設定");
+      set.innerHTML = '<span class="side-ico ico-set"></span><span class="side-foot-set-label">設定</span>'; set.addEventListener("click", (e) => { e.preventDefault(); go("settings"); }); who.insertAdjacentElement("afterend", set); }
+  }).catch(() => {});
+  const lo = $("logout"); if (lo) lo.addEventListener("click", async (e) => { e.preventDefault(); await fetch("/api/logout", { method: "POST" }); location.href = "/login.html"; });
 })();
