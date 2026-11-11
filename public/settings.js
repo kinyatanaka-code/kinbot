@@ -3285,3 +3285,10 @@ if (document.getElementById("sfProxy")) {
     finally { cb.disabled = false; }
   });
 })();
+
+// 拡張機能（kinbot-ext）の新しい版と、このChromeに入っている版（2026-11-11）
+(async function () {
+  const el = document.getElementById("extVer"); if (!el) return;
+  try { const d = await (await fetch("/api/ext/version")).json(); const have = document.documentElement.dataset.kbExtVer || (document.documentElement.dataset.kxMwExt ? "1.3.2 以前" : "");
+    el.textContent = `新しい版：${d.version || "?"}${have ? `／このChromeに入っている版：${have}` : "／このChromeには入っていないか、古い版です"}`; } catch {}
+})();

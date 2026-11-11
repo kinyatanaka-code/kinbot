@@ -18,7 +18,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261111zl" />
+    <link rel="stylesheet" href="style.css?v=20261111zm" />
   </head>
   <body>
     <div class="app">
@@ -58,6 +58,7 @@
             <button class="set-menu-item" data-tab="account">アカウント</button>
             <div class="set-group-label">ツール</div>
             <button class="set-menu-item" data-tab="links">登録リンク</button>
+            <button class="set-menu-item" data-tab="ext">拡張機能</button>
             <div class="set-group-label">連携</div>
             <button class="set-menu-item" data-tab="integrations">外部連携</button>
             <button class="set-menu-item" data-tab="notices">知らせ</button>
@@ -164,6 +165,30 @@
                 <button class="btn" id="accSavePw">パスワードを変更</button>
                 <span class="saved" id="accPwSaved" hidden></span>
               </div>
+            </div>
+          </div>
+
+          <div class="set-pane" data-pane="ext" hidden>
+            <div class="set-card">
+              <h3>拡張機能（kinbot-ext）</h3>
+              <p class="note">Chrome に入れて使う kinbot の拡張機能です。1つ入れておくと、次のことができます。<br>
+              ・kincall：借りた Zoom アカウントのサインインを自動で進める<br>
+              ・kinXs：作ったメールの下書きを、メールワイズの作成・返信の画面に入れる<br>
+              ・kinXs：メールワイズのメールを読んで、会社ごとのタスク作りに使う（メールワイズのタブを開いておくだけ）</p>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0">
+                <a class="btn" href="/kinbot-ext.zip" download>kinbot-ext をダウンロード</a>
+                <span class="note" id="extVer" style="margin:0"></span>
+              </div>
+              <h4 style="margin:16px 0 6px">入れ方</h4>
+              <ol class="note" style="padding-left:20px;line-height:1.9;margin:0">
+                <li>上のボタンで zip をダウンロードして、展開（解凍）する</li>
+                <li>Chrome で <code>chrome://extensions</code> を開く</li>
+                <li>右上の「デベロッパーモード」をオンにする</li>
+                <li>前の拡張機能（「kincall」や「kinbot 補助」の名前のもの）が入っていれば「削除」する</li>
+                <li>「パッケージ化されていない拡張機能を読み込む」を押して、展開したフォルダを選ぶ</li>
+                <li>一覧に「kinbot-ext」と、下の新しい版の番号が出ていれば完了です</li>
+              </ol>
+              <p class="note" style="margin-top:10px">新しい版が出たときは、同じように入れ直してください（前のフォルダの中身を置きかえて、拡張機能の画面で「更新」を押すのでも大丈夫です）。</p>
             </div>
           </div>
 
@@ -847,8 +872,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261111zl"></script>
-      <script src="nav.js?v=20261111zl"></script>
+    <script src="settings.js?v=20261111zm"></script>
+      <script src="nav.js?v=20261111zm"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

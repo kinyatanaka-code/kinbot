@@ -18,6 +18,7 @@ window.addEventListener("message", (e) => {
   });
 });
 document.documentElement.dataset.kxMwExt = "1";
+try { document.documentElement.dataset.kbExtVer = chrome.runtime.getManifest().version; } catch {}   // 設定の「拡張機能」で、入っている版を出す
 
 // メールワイズで読んで送れなかったメールを、kinbot の画面を開いたときに送り直す（ログインの印がここでは確実に付くため）（2026-11-11）
 (async () => {
