@@ -2499,3 +2499,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-12 BUILD_TAG=2026-11-12k 田中さん「準備中にして」。kinbot の左メニューの for MOCHICA の入り口に水色の「準備中」の札、kinbot for MOCHICA の上の帯（画面の名前の横）にも「準備中」の札。開けなくはしていない。版20261112k。
 - 2026-11-12 BUILD_TAG=2026-11-12l 田中さん（kinXs の左メニューの kinbot・kincall・Salesforce・ツールのスクショ）「kincall と kinbot だけに。ほかのメニューも小さいから見やすい大きさで。でも1ページにまとめて」。kinxs.html：.kx-stools から Salesforce とツール（kxToolsTog・kxToolsSub）を消す（メール配信はツールの中にしか入口が無かったので、CS連携の下にメニューの1行「メール配信」を足す）。左メニューの大きさ：行 padding 10px 14px・14.5px・アイコン 19px、ロゴ 18px、ツールは2列で大きめ。画面の高さ820px以下・700px以下では段階的に詰める（1画面に収める）。版20261112l。
 - 2026-11-12 BUILD_TAG=2026-11-12m 田中さん（kinbot の左メニューのスクショ）「AI社員とツールは非表示で」。nav.js の左メニュー（apps）から AI社員（ai.html）と KB_TOOL（ツール：分析・営業スタイル分析・天気予報など）を外す。ページそのものは URL で開ける。版20261112m。
+- 2026-11-12 BUILD_TAG=2026-11-12n 田中さん（kinXs の左メニューの kinbot・kincall のボタン）「横並びじゃなく縦で。kinbot と同じ感じで」。.kx-stools を縦（flex column）、.kx-stool を幅いっぱい・左寄せ・メニューの行と同じ大きさ（padding 10px 14px・14.5px）。版20261112n。
