@@ -3360,7 +3360,7 @@ loadList().then(() => {
         head.textContent = `取り込み中… 完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}`;
         const res = await fetch("/api/meetings/import-from-recall", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ hours: 24, max: 2, skipTranscribe: true, onlyErrors: true }),   // 直近1日ぶん・うまく取り込めなかったものだけ（2026-11-11）
+          body: JSON.stringify({ hours: Number((document.getElementById("importRecDays") || {}).value || 1) * 24, max: 2, skipTranscribe: true, onlyErrors: true }),   // 選んだ日数ぶん・うまく取り込めなかったものだけ（2026-11-11）
         });
         const d = await res.json();
         if (d.error) throw new Error(d.error);
@@ -3368,7 +3368,7 @@ loadList().then(() => {
         rs.forEach(追記);
         if (!rs.length || !rs.some((r) => /取り込みました/.test(r.状態))) break;
       }
-      if (!成功 && !失敗) { head.textContent = "直近1日ぶんに、うまく取り込めなかった録音はありませんでした。"; return; }
+      if (!成功 && !失敗) { head.textContent = `直近${(document.getElementById("importRecDays") || {}).value || 1}日ぶんに、うまく取り込めなかった録音はありませんでした。`; return; }
       head.textContent = `終わりました：完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}。一覧を更新します。`;
       setTimeout(() => location.reload(), 1200);
     } catch (e) {

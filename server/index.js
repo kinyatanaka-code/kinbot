@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -18114,7 +18114,7 @@ async function importFromRecall(req, res) {
     // 指定が無ければ、最近のRecall録音のうち「まだ商談になっていないもの」を自動で探す
     if (!ids.length) {
       const hours = Math.max(1, Math.min(720, parseInt(b.hours, 10) || 48));
-      const bots = await listRecentBots({ hours, limit: 80 }).catch(() => []);
+      const bots = await listRecentBots({ hours, limit: hours > 48 ? 200 : 80 }).catch(() => []);
       for (const bt of bots) {
         // 終わった録音に加えて、Recall の側でエラー（fatal）で終わったものも拾う（2026-11-11）
         if (!bt.id || !(/done|recording_done|call_ended/i.test(String(bt.status)) || bt.errored)) continue;
@@ -18212,7 +18212,17 @@ if (process.env.RECALL_AUTO_RECOVER === "1") {
 }
 
 // 取り込みで入ってしまった中身の無い「議事録」を消す（起動のたび・直近48時間）（2026-11-11）
-setTimeout(async () => { try { const ids = await deleteEmptyImportedMeetings(48); if (ids.length) console.log("[取り込みの掃除] 中身の無い『議事録』を消しました：", ids.length); } catch {} }, 20 * 1000);
+//   消すのは、Recall に録音が本当に無いもの（会議に入れなかったボット）だけ。録音があるもの（題名が無くて「議事録」になった本物の商談）は残す（2026-11-11 直し）
+setTimeout(async () => { try {
+  let n = 0;
+  for (const id of await listEmptyImportedMeetings(48)) {
+    const bot = await getBot(id).catch(() => null); if (!bot) continue;
+    const recs0 = Array.isArray(bot.recordings) ? bot.recordings : [];
+    const hasMedia = recs0.some((r) => r && r.media_shortcuts && (r.media_shortcuts.video_mixed || r.media_shortcuts.audio_mixed || r.media_shortcuts.transcript));
+    if (!hasMedia) { await deleteMeeting(id).catch(() => {}); n++; }
+  }
+  if (n) console.log("[取り込みの掃除] 録音の無い『議事録』を消しました：", n);
+} catch {} }, 20 * 1000);
 // 【文字起こしの自動のやり直し】（2026-11-11 田中さん「Deepgram のキーを直したら、エラーの分は自動で商談履歴に入らないの？」）
 //   kinbot に商談はあるのに文字起こしが空のまま（直近3日・2回まで）のものを、Recall の文字起こし → 無ければ録音から Deepgram で作り直し、要約・分析も作る。
 //   新しい商談を勝手に増やすことはしない（前に自動の取り込みで「議事録」の空ボットが大量に入ったため。RECALL_AUTO_RECOVER は止めたまま）
@@ -18220,7 +18230,7 @@ let _retransBusy = false;
 async function retranscribeEmptyTick() {
   if (_retransBusy || !deepgramReady()) return; _retransBusy = true;
   try {
-    for (const m of await listEmptyTranscriptMeetings(3, 3)) {
+    for (const m of await listEmptyTranscriptMeetings(7, 3)) {
       await bumpRetransTry(m.bot_id);
       try {
         let tr = await getBotTranscript(m.bot_id).catch(() => []);
@@ -30105,7 +30115,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11v 商談履歴：録音から取り込むで、録音の無いボット（会議に入れなかった空のもの）を商談にしない。入ってしまった中身の無い「議事録」を消す。日時は録音の時刻に。";
+const BUILD_TAG = "2026-11-11w 商談履歴：録音から取り込むで、さかのぼる日数（1・3・7・14日）を選べる。空の「議事録」の掃除は Recall に録音が無いものだけ。文字起こしのやり直しは直近7日。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

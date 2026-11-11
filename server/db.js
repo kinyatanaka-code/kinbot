@@ -12636,12 +12636,12 @@ export async function listEmptyTranscriptMeetings(days = 3, limit = 5) {
 export async function bumpRetransTry(botId) { if (!pool) return; await pool.query(`UPDATE meetings SET retrans_try = COALESCE(retrans_try,0) + 1 WHERE bot_id = $1`, [botId]).catch(() => {}); }
 
 // 「録音から取り込む」で入ってしまった、中身の無い「議事録」（会議に入れなかったボット）を消す（2026-11-11）
-export async function deleteEmptyImportedMeetings(hours = 48) {
+export async function listEmptyImportedMeetings(hours = 48) {
   if (!pool) return [];
   try {
-    return (await pool.query(`DELETE FROM meetings WHERE imported_at > now() - ($1 || ' hours')::interval
+    return (await pool.query(`SELECT bot_id FROM meetings WHERE imported_at > now() - ($1 || ' hours')::interval
       AND COALESCE(title,'') IN ('議事録','')
       AND (transcript IS NULL OR jsonb_typeof(transcript) <> 'array' OR jsonb_array_length(transcript) = 0)
-      AND summary IS NULL RETURNING bot_id`, [String(hours)])).rows.map((r) => r.bot_id);
-  } catch (e) { console.warn("[db] deleteEmptyImportedMeetings", e.message); return []; }
+      AND summary IS NULL`, [String(hours)])).rows.map((r) => r.bot_id);
+  } catch (e) { console.warn("[db] listEmptyImportedMeetings", e.message); return []; }
 }
