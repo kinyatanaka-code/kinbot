@@ -322,13 +322,18 @@ function kxTrackSet(v) { try { localStorage.setItem("kxTrack", v); } catch {} }
 // DOC を選んだときは、さらに「すべて／直販／PS」で絞れる（2026-11-11 田中さん）
 function kxChanGet() { try { return localStorage.getItem("kxChan") || "all"; } catch { return "all"; } }
 function kxChanSet(v) { try { localStorage.setItem("kxChan", v); } catch {} }
-function kxTrackOk(x) { const t = kxTrackGet(); if (t === "DOC") { const c = kxChanGet(); return kxHasDoc(x) && (c === "all" || x.channel === c); } return t === "SNS" ? kxHasSns(x) : true; }
+function kxInitGet() { try { return localStorage.getItem("kxInit") || "all"; } catch { return "all"; } }
+function kxInitSet(v) { try { localStorage.setItem("kxInit", v); } catch {} }
+function kxTrackOk(x) { const t = kxTrackGet(); if (t === "DOC") { const c = kxChanGet(), ii = kxInitGet(); return kxHasDoc(x) && (c === "all" || x.channel === c) && (ii === "all" || (ii === "yes" ? x.initFee === true : x.initFee === false)); } return t === "SNS" ? kxHasSns(x) : true; }
 function kxTrackSeg(onChange) {
   const t = kxTrackGet(), c = kxChanGet();
   const html = `<div class="kx-seg kx-trackseg" role="tablist">${[["all", "すべて"], ["DOC", "DOC"], ["SNS", "SNS"]].map(([k, l]) => `<button type="button" class="${t === k ? "on" : ""}" data-kxtrack="${k}">${l}</button>`).join("")}</div>${t === "DOC" ? `<div class="kx-seg kx-trackseg kx-chanseg" role="tablist" title="販売区分">${(() => { const src = (typeof lsData !== "undefined" && lsData && lsData.items) ? lsData.items.filter((x) => !x.archived && kxHasDoc(x)) : null;
-      return [["all", "すべて"], ["直販", "直販"], ["PS", "PS"]].map(([k, l]) => `<button type="button" class="${c === k ? "on" : ""}" data-kxchan="${k}">${l}${src ? `<small style="margin-left:3px;opacity:.75">${k === "all" ? src.length : src.filter((x) => x.channel === k).length}</small>` : ""}</button>`).join(""); })()}</div>` : ""}`;
+      return [["all", "すべて"], ["直販", "直販"], ["PS", "PS"]].map(([k, l]) => `<button type="button" class="${c === k ? "on" : ""}" data-kxchan="${k}">${l}${src ? `<small style="margin-left:3px;opacity:.75">${k === "all" ? src.length : src.filter((x) => x.channel === k).length}</small>` : ""}</button>`).join(""); })()}</div>
+      <div class="kx-seg kx-trackseg kx-chanseg" role="tablist" title="初期費用">${(() => { const ii = kxInitGet(); const src = (typeof lsData !== "undefined" && lsData && lsData.items) ? lsData.items.filter((x) => !x.archived && kxHasDoc(x) && (c === "all" || x.channel === c)) : null;
+        return [["all", "初期：すべて"], ["yes", "初期あり"], ["no", "初期なし"]].map(([k, l]) => `<button type="button" class="${ii === k ? "on" : ""}" data-kxinit="${k}">${l}${src ? `<small style="margin-left:3px;opacity:.75">${k === "all" ? src.length : src.filter((x) => x.initFee === (k === "yes")).length}</small>` : ""}</button>`).join(""); })()}</div>` : ""}`;
   return { html, wire: (root) => { root.querySelectorAll("[data-kxtrack]").forEach((b) => b.addEventListener("click", () => { kxTrackSet(b.dataset.kxtrack); onChange(); }));
-    root.querySelectorAll("[data-kxchan]").forEach((b) => b.addEventListener("click", () => { kxChanSet(b.dataset.kxchan); onChange(); })); } };
+    root.querySelectorAll("[data-kxchan]").forEach((b) => b.addEventListener("click", () => { kxChanSet(b.dataset.kxchan); onChange(); }));
+    root.querySelectorAll("[data-kxinit]").forEach((b) => b.addEventListener("click", () => { kxInitSet(b.dataset.kxinit); onChange(); })); } };
 }
 const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 const kxHasDoc = (x) => (x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length;
