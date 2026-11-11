@@ -325,7 +325,8 @@ function kxChanSet(v) { try { localStorage.setItem("kxChan", v); } catch {} }
 function kxTrackOk(x) { const t = kxTrackGet(); if (t === "DOC") { const c = kxChanGet(); return kxHasDoc(x) && (c === "all" || x.channel === c); } return t === "SNS" ? kxHasSns(x) : true; }
 function kxTrackSeg(onChange) {
   const t = kxTrackGet(), c = kxChanGet();
-  const html = `<div class="kx-seg kx-trackseg" role="tablist">${[["all", "すべて"], ["DOC", "DOC"], ["SNS", "SNS"]].map(([k, l]) => `<button type="button" class="${t === k ? "on" : ""}" data-kxtrack="${k}">${l}</button>`).join("")}</div>${t === "DOC" ? `<div class="kx-seg kx-trackseg kx-chanseg" role="tablist" title="販売区分">${[["all", "すべて"], ["直販", "直販"], ["PS", "PS"]].map(([k, l]) => `<button type="button" class="${c === k ? "on" : ""}" data-kxchan="${k}">${l}</button>`).join("")}</div>` : ""}`;
+  const html = `<div class="kx-seg kx-trackseg" role="tablist">${[["all", "すべて"], ["DOC", "DOC"], ["SNS", "SNS"]].map(([k, l]) => `<button type="button" class="${t === k ? "on" : ""}" data-kxtrack="${k}">${l}</button>`).join("")}</div>${t === "DOC" ? `<div class="kx-seg kx-trackseg kx-chanseg" role="tablist" title="販売区分">${(() => { const src = (typeof lsData !== "undefined" && lsData && lsData.items) ? lsData.items.filter((x) => !x.archived && kxHasDoc(x)) : null;
+      return [["all", "すべて"], ["直販", "直販"], ["PS", "PS"]].map(([k, l]) => `<button type="button" class="${c === k ? "on" : ""}" data-kxchan="${k}">${l}${src ? `<small style="margin-left:3px;opacity:.75">${k === "all" ? src.length : src.filter((x) => x.channel === k).length}</small>` : ""}</button>`).join(""); })()}</div>` : ""}`;
   return { html, wire: (root) => { root.querySelectorAll("[data-kxtrack]").forEach((b) => b.addEventListener("click", () => { kxTrackSet(b.dataset.kxtrack); onChange(); }));
     root.querySelectorAll("[data-kxchan]").forEach((b) => b.addEventListener("click", () => { kxChanSet(b.dataset.kxchan); onChange(); })); } };
 }
@@ -532,7 +533,9 @@ function renderList() {
     try { for (const rule of b.dataset.rule.split(",")) await api(`/api/kinxs/accounts/${encodeURIComponent(b.dataset.dis)}`, { method: "PUT", body: JSON.stringify({ dismiss: rule }) }); await loadList(); }
     catch (er) { alert(er.message); }
   }));
-  $("lsSt").textContent = `全${d.items.length}社`;
+  // 絞り込んだときの社数（2026-11-11 田中さん）
+  { const shown = items.length; const live0 = d.items.filter((x) => !x.archived).length;
+    $("lsSt").innerHTML = shown != null && shown !== live0 ? `<b style="color:#0E6B4E;font-size:13px">${shown}社</b> ／ 全${d.items.length}社` : `全${d.items.length}社`; }
 }
 $("lsQ").addEventListener("input", renderList);
 document.querySelectorAll("[data-lstab]").forEach((b) => b.addEventListener("click", () => { window.__lsTab = b.dataset.lstab; renderList(); }));
