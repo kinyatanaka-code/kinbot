@@ -7226,3 +7226,8 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 /* リスト編集の失注回数：計・新規・クロスの3段で絞る（2026-11-11） */
 .ed-lostf { display: flex; flex-direction: column; gap: 3px; }
 .ed-lostf .ed-empf small { display: inline-block; width: 34px; font-size: 10.5px; font-weight: 700; color: #5B6B63; }
+
+/* ホームの録音：URLを貼って入室（2026-11-11） */
+.home-rec-paste { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.home-rec-paste .home-rec-url { flex: 1; min-width: 0; height: 34px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 10px; font: inherit; font-size: 13px; }
+.home-rec-paste .home-rec-go { height: 34px; white-space: nowrap; }

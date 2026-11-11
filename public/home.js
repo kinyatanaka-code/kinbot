@@ -1917,9 +1917,17 @@ async function showRecPicker(key) {
     html += `<div class="quick-links-label" style="margin-top:10px">よく使うリンク</div><div class="quick-links">` +
       roomCands.map((r) => chip(r.label, r.url, false)).join("") + `</div>`;
   }
-  if (!html) html = '<div class="home-rec-pick-h">この予定にはZoom等のURLがありません。レコーディング画面から入室してください。</div>';
+  // URLが予定に無くても、ここで貼って入室させられるように（2026-11-11 田中さん：鶴川さんがホームから入室させられない）
+  if (!html) html = '<div class="home-rec-pick-h">この予定にはZoom等のURLが入っていません。下に会議のURLを貼ると、そのまま入室させられます。</div>';
+  html += `<div class="quick-links-label" style="margin-top:10px">会議のURLを貼って入室</div><div class="home-rec-paste"><input type="url" class="home-rec-url" placeholder="https://zoom.us/j/… ／ https://meet.google.com/… ／ Teams のURL" /><button type="button" class="btn home-rec-go">入室させる</button></div>`;
   box.innerHTML = html;
   card.appendChild(box);
+  { const inp = box.querySelector(".home-rec-url"), go = box.querySelector(".home-rec-go");
+    const start = () => { const u = String(inp.value || "").trim(); if (!/^https?:\/\/\S+/.test(u)) { inp.focus(); inp.style.borderColor = "#c0392b"; return; }
+      go.textContent = "入室しています…"; go.disabled = true; saveRecUrl(key, u);
+      location.href = `index.html?auto=1&url=${encodeURIComponent(u)}&title=${encodeURIComponent(ev.title || "")}`; };
+    go.addEventListener("click", start); inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) start(); });
+    if (!cands.length && !roomCands.length) setTimeout(() => inp.focus(), 50); }
 
   box.addEventListener("click", (e2) => {
     const b = e2.target.closest("[data-url]");
