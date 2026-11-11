@@ -14078,6 +14078,8 @@ async function kinxsBuild() {
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", test: r.source === "test", sfLinked: !!(r.info && r.info.sf_linked), formerNames, renewLocked: !!r.renew_locked,
       productItems: (r.products || []).map((p) => (typeof p === "string" ? { name: p } : p)).map((p) => ({ name: p.name, cls: kxClassOf(p.name), booked: p.booked || "", stage: p.stage || "", opp: p.opp || "", oppName: p.oppName || "" })),
       prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
+      // 初期費用の有無：DOCの商品のうち、アチコチバース（空間利用料）以外（エントリープランなど）があれば「あり」（2026-11-11 田中さん：カードに）。DOCの商品が無ければ null
+      initFee: (() => { const ps = (r.products || []).map((p) => String((p && typeof p === "object" ? p.name : p) || "")); const doc = ps.filter((n) => /アチコチ|ＤＯＣ|DOC|どこでもオープン|空間デザイン|エントリープラン|スタンダードプラン|ライトプラン/i.test(n)); if (!doc.length) return null; return doc.some((n) => !/アチコチ/.test(n)); })(),
       // 販売区分（直販／社内代理店＝PS）：SFの商談名の頭（「直販_クロス_…」「社内代理店_クロス_…」）から。一番新しい受注の商談で（2026-11-11 田中さん：企業カードにも）
       channel: (() => { const ps = (r.products || []).filter((p) => p && typeof p === "object" && p.oppName).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))); for (const p of ps) { const m = String(p.oppName).match(/^\s*(直販|社内代理店|代理店|PS)[_＿]/); if (m) return m[1] === "直販" ? "直販" : "PS"; } return ""; })(),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
@@ -30135,7 +30137,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11z kinXs ホーム：要アクションの見出し・社数・「⤢ 大きく」を押すと、画面いっぱいの窓で大きく表示（✕・Esc・外を押すと戻る）。";
+const BUILD_TAG = "2026-11-11za kinXs ユーザー一覧：カードのラベルの後に「初期あり」「初期なし」。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
