@@ -1583,6 +1583,8 @@ function renderHomeV2() {
   { const cf = box.querySelector("[data-home-cs]"); if (cf) cf.addEventListener("change", () => { try { localStorage.setItem("kxHomeCs", cf.value); } catch {} renderHomeV2(); }); }
   // 要アクションを大きく表示（モーダル）（2026-11-11 田中さん）
   box.querySelectorAll("[data-act-big]").forEach((el) => el.addEventListener("click", () => { window.__kxActBig = true; renderHomeV2(); }));
+  // 要アクションの枠の余白を押しても大きく（行・ボタン・選択・枠の切りかえは除く）（2026-11-11 田中さん）
+  { const act = box.querySelector(".h2-act"); if (act && !window.__kxActBig) act.addEventListener("click", (e) => { if (e.target.closest(".h2-li, button, select, label, input, a, .h2-tiles")) return; window.__kxActBig = true; renderHomeV2(); }); }
   box.querySelectorAll("[data-act-close]").forEach((el) => el.addEventListener("click", () => { window.__kxActBig = false; renderHomeV2(); }));
   if (window.__kxActBig && !window.__kxActEsc) { window.__kxActEsc = true; document.addEventListener("keydown", (e) => { if (e.key === "Escape" && window.__kxActBig) { window.__kxActBig = false; renderHomeV2(); } }); }
   box.querySelectorAll("button[data-ha]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); b.disabled = true; kxHomeAct(b).finally(() => { b.disabled = false; }); }));
