@@ -7217,3 +7217,8 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kc-hist-tags .kc-hist-r { font-size: 11.5px; word-break: break-word; }
 #kcHist { overflow-x: hidden; }
 #kcHist .kc-hist-row { min-width: 0; }
+
+/* 出勤（予定）の窓：実績の文字が入ると名前の幅が0になって消えていた → 名前は幅を取り、実績は次の行に（2026-11-11 田中さん） */
+.sc-mrow { flex-wrap: wrap; row-gap: 2px; }
+.sc-mname { flex: 0 0 112px; font-weight: 700; color: #14231D; white-space: nowrap; }
+.sc-act { flex-basis: 100%; margin-left: 28px; }
