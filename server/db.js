@@ -12590,3 +12590,10 @@ export async function arNoUsedByReal(no) {
   if (!pool) return false; await ensureAutoRenew();
   return (await pool.query(`SELECT 1 FROM kinxs_accounts WHERE replace(COALESCE(ar_no,''),' ','') = $1 AND COALESCE(source,'') <> 'test' LIMIT 1`, [String(no)])).rowCount > 0;
 }
+
+// 解約月の意味を「最後に使う月」→「解約になる月（この月から使わない）」に変えたので、今ある値を1か月うしろにずらす（1回だけ）（2026-11-10 幸地さん）
+export async function arShiftCancelMonthsOnce() {
+  if (!pool) return 0; await ensureAutoRenew();
+  const r = await pool.query(`UPDATE kinxs_accounts SET ar_cancel_month = to_char((ar_cancel_month || '-01')::date + interval '1 month', 'YYYY-MM') WHERE ar_cancel_month ~ '^[0-9]{4}-[0-9]{2}$'`);
+  return r.rowCount || 0;
+}
