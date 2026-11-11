@@ -26291,6 +26291,38 @@ app.put("/api/apo-invite-config", async (req, res) => {
 });
 
 // プロダクト（DOC / MOCHICA）の担当者マッピング。表示の切り替えに使う。
+// ===== MOCHICA の箱（2026-11-12 田中さん：DOC を壊さずに横に作る）=====
+app.get("/mochica", (req, res) => res.sendFile(path.join(process.cwd(), "public/mochica.html")));
+app.get("/api/mochica/summary", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const map = await listRepProducts().catch(() => ({}));   // 表示名 → プロダクト
+    const members = Object.entries(map || {}).filter(([, p]) => p === "MOCHICA").map(([n]) => n).sort((a, b) => a.localeCompare(b, "ja"));
+    const set = new Set(members.map((n) => String(n).replace(/[\s　]/g, "")));
+    let meetings7 = 0;
+    try { const ms = await listMeetings(); const since = Date.now() - 7 * 86400000; meetings7 = (ms || []).filter((m) => new Date(m.created_at || 0).getTime() >= since && set.has(String(m.owner_name || m.rep_name || "").replace(/[\s　]/g, ""))).length; } catch {}
+    const c = (await getSettings().catch(() => ({}))).mochica || {};
+    res.json({ ok: true, members, meetings7, miitel: !!(c.miitel && c.miitel.token), bales: !!(c.bales && c.bales.key) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/config", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const c = (await getSettings().catch(() => ({}))).mochica || {};
+    res.json({ ok: true, miitel: { domain: (c.miitel && c.miitel.domain) || "", tokenLast4: c.miitel && c.miitel.token ? String(c.miitel.token).slice(-4) : "" },
+      bales: { note: (c.bales && c.bales.note) || "", keyLast4: c.bales && c.bales.key ? String(c.bales.key).slice(-4) : "" },
+      sf: { leadType: (c.sf && c.sf.leadType) || "MOCHICAリード", oppPrefix: (c.sf && c.sf.oppPrefix) || "" } });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/mochica/config", async (req, res) => {
+  try { if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけが保存できます" });
+    const b = req.body || {}; const cur = (await getSettings().catch(() => ({}))).mochica || {};
+    const next = { miitel: { ...(cur.miitel || {}), domain: String((b.miitel && b.miitel.domain) || "").slice(0, 120) }, bales: { ...(cur.bales || {}), note: String((b.bales && b.bales.note) || "").slice(0, 120) },
+      sf: { leadType: String((b.sf && b.sf.leadType) || "").slice(0, 60), oppPrefix: String((b.sf && b.sf.oppPrefix) || "").slice(0, 60) } };
+    if (b.miitel && b.miitel.token) next.miitel.token = String(b.miitel.token).trim().slice(0, 400);
+    if (b.bales && b.bales.key) next.bales.key = String(b.bales.key).trim().slice(0, 400);
+    await saveSettings({ mochica: next }); res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/rep-products", async (req, res) => {
   try {
     const map = await listRepProducts();   // 表示名 -> プロダクト
@@ -30303,7 +30335,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zs メールワイズ：ネオキャリア（MOCHICA）からのメールは読まない・自社には結びつけない。会社の当て方を強く（アドレス→ドメイン（先方・HP）→差出人の会社名・先方の担当者名→件名（【】の中も）→本文）。受け取り済みも結びつけ直す。";
+const BUILD_TAG = "2026-11-12b MOCHICA の箱（/mochica）：緑っぽい水色の別の画面。ホーム・商談（MiiTel）・リスト（Bales Cloud）・架電・アポ（準備中）・DOC の議事録（見るだけ）・設定（MiiTel・Bales Cloud の API、SF のきまり）。DOC はそのまま。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

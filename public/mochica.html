@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>kinbot MOCHICA</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml" />
+<meta name="theme-color" content="#0E8F86" />
+<style>
+  :root{--mc:#14A89C;--mc-d:#0B7A72;--mc-dd:#075B55;--mc-l:#E2F6F3;--mc-ll:#F2FBF9;--ink:#13302D;--sub:#5A716D;--line:#D8EBE7;--bg:#F5FAF9;--card:#fff;--warn:#B4441F;}
+  *{box-sizing:border-box} body{margin:0;font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;color:var(--ink);background:var(--bg);}
+  .mc{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh;}
+  .mc-side{background:linear-gradient(180deg,#0E8F86,#0B6F69);color:#fff;padding:16px 12px;display:flex;flex-direction:column;gap:2px;position:sticky;top:0;height:100vh;overflow-y:auto;}
+  .mc-brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;padding:0 8px 12px;}
+  .mc-brand i{width:30px;height:30px;border-radius:9px;background:#fff;color:var(--mc-d);display:flex;align-items:center;justify-content:center;font-style:normal;font-weight:900;}
+  .mc-nav{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:#E6FBF8;text-decoration:none;font-size:13.5px;font-weight:700;cursor:pointer;}
+  .mc-nav:hover{background:rgba(255,255,255,.12);} .mc-nav.on{background:#fff;color:var(--mc-dd);}
+  .mc-nav small{margin-left:auto;font-size:10px;font-weight:700;background:rgba(255,255,255,.18);border-radius:99px;padding:1px 7px;} .mc-nav.on small{background:var(--mc-l);}
+  .mc-sep{height:1px;background:rgba(255,255,255,.2);margin:8px 4px;}
+  .mc-foot{margin-top:auto;font-size:12px;color:#CDEFEA;padding:8px;}
+  .mc-main{padding:18px 26px 40px;min-width:0;}
+  .mc-top{display:flex;align-items:center;gap:12px;margin-bottom:18px;}
+  .mc-top h1{font-size:20px;margin:0;}
+  .mc-sw{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;margin-left:auto;}
+  .mc-sw a{padding:7px 16px;font-size:13px;font-weight:800;text-decoration:none;color:var(--sub);} .mc-sw a.on{background:var(--mc);color:#fff;}
+  .mc-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;}
+  .mc-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;}
+  .mc-card small{display:block;font-size:12px;color:var(--sub);font-weight:700;} .mc-card b{display:block;font-size:26px;margin-top:4px;}
+  .mc-card .ok{color:var(--mc-d);} .mc-card .ng{color:var(--warn);font-size:15px;}
+  .mc-box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px 18px;margin-bottom:14px;}
+  .mc-box h2{font-size:15px;margin:0 0 10px;}
+  .mc-note{font-size:13px;color:var(--sub);line-height:1.8;margin:0;}
+  .mc-steps{margin:0;padding-left:20px;font-size:13.5px;line-height:2;}
+  .mc-tag{display:inline-block;font-size:11px;font-weight:800;border-radius:99px;padding:1px 8px;background:var(--mc-l);color:var(--mc-dd);margin-left:6px;}
+  .mc-tag.wait{background:#FFF1E6;color:#A2480C;}
+  .mc-form{display:grid;grid-template-columns:180px minmax(0,1fr);gap:10px 14px;align-items:center;font-size:13px;}
+  .mc-form label{font-weight:700;color:var(--sub);}
+  .mc-form input{height:36px;border:1px solid var(--line);border-radius:9px;padding:0 10px;font:inherit;font-size:13px;}
+  .mc-btn{height:36px;border:0;border-radius:10px;background:var(--mc);color:#fff;font:inherit;font-size:13px;font-weight:800;padding:0 16px;cursor:pointer;}
+  .mc-btn.ghost{background:#fff;color:var(--mc-dd);border:1px solid var(--line);}
+  .mc-list{width:100%;border-collapse:collapse;font-size:13px;} .mc-list td,.mc-list th{border-top:1px solid var(--line);padding:8px 6px;text-align:left;} .mc-list th{color:var(--sub);font-size:12px;}
+  [data-pane][hidden]{display:none;}
+  @media (max-width:860px){.mc{grid-template-columns:1fr}.mc-side{position:static;height:auto;flex-direction:row;flex-wrap:wrap}.mc-foot{display:none}}
+</style>
+</head>
+<body>
+<div class="mc">
+  <nav class="mc-side">
+    <div class="mc-brand"><i>M</i>MOCHICA</div>
+    <a class="mc-nav on" data-go="home">ホーム</a>
+    <a class="mc-nav" data-go="mtg">商談（MiiTel）<small>準備中</small></a>
+    <a class="mc-nav" data-go="list">リスト（Bales Cloud）<small>準備中</small></a>
+    <a class="mc-nav" data-go="call">架電（Zoom Phone）<small>準備中</small></a>
+    <a class="mc-nav" data-go="apo">アポ（カレンダー）<small>準備中</small></a>
+    <div class="mc-sep"></div>
+    <a class="mc-nav" data-go="doc">DOC の議事録（見るだけ）</a>
+    <a class="mc-nav" data-go="settings">設定（連携）</a>
+    <div class="mc-foot"><a href="/home.html" style="color:#fff">← DOC の kinbot へ</a></div>
+  </nav>
+  <main class="mc-main">
+    <div class="mc-top"><h1 id="mcTitle">ホーム</h1>
+      <div class="mc-sw"><a href="/home.html">DOC</a><a class="on" href="/mochica">MOCHICA</a></div></div>
+    <section data-pane="home">
+      <div class="mc-cards" id="mcCards"><div class="mc-card"><small>読み込んでいます…</small></div></div>
+      <div class="mc-box"><h2>MOCHICA の箱でやること（これから順に作ります）</h2>
+        <ol class="mc-steps">
+          <li>MiiTel の録画・文字起こしを取り込んで議事録に → Salesforce に記録・新規商談の立ち上げ・ステージ更新</li>
+          <li>インターン生の Zoom Phone の架電と、カレンダーのアポを集める</li>
+          <li>Bales Cloud のリストを読む</li>
+        </ol>
+        <p class="mc-note">DOC の kinbot（録画・kincall・kinXs）はそのまま動きます。MOCHICA の箱は、そこを触らずに横に作っています。</p></div>
+      <div class="mc-box"><h2>MOCHICA のメンバー</h2><div id="mcMembers" class="mc-note">読み込んでいます…</div>
+        <p class="mc-note" style="margin-top:8px">メンバーの DOC／MOCHICA は、kinbot の設定 → メンバー管理の「プロダクト」で決めます。</p></div>
+    </section>
+    <section data-pane="mtg" hidden><div class="mc-box"><h2>商談（MiiTel）<span class="mc-tag wait">準備中</span></h2>
+      <p class="mc-note">MiiTel の録画・文字起こしを取り込み、要約・分析を作って、Salesforce の「MOCHICA リード」から新規の商談を立ち上げ、ステージを進められるようにします。まず「設定（連携）」で MiiTel の API をつないでください。</p></div></section>
+    <section data-pane="list" hidden><div class="mc-box"><h2>リスト（Bales Cloud）<span class="mc-tag wait">準備中</span></h2>
+      <p class="mc-note">Bales Cloud のリストを読み、会社・架電の状況を kinbot で見られるようにします。まず「設定（連携）」で Bales Cloud の API をつないでください。</p></div></section>
+    <section data-pane="call" hidden><div class="mc-box"><h2>架電（Zoom Phone）<span class="mc-tag wait">準備中</span></h2>
+      <p class="mc-note">インターン生の Zoom Phone の架電記録を、人ごと・日ごとに集めます（DOC の kincall で使っている Zoom Phone のつなぎ方を使い回します）。</p></div></section>
+    <section data-pane="apo" hidden><div class="mc-box"><h2>アポ（カレンダー）<span class="mc-tag wait">準備中</span></h2>
+      <p class="mc-note">カレンダーのアポを読み、獲得者・商談の予定を一覧にします（DOC のアポ履歴の仕組みを使い回します）。</p></div></section>
+    <section data-pane="doc" hidden><div class="mc-box"><h2>DOC の議事録（見るだけ）</h2>
+      <p class="mc-note">DOC の商談の議事録は、商談履歴で見られます（直したり、DOC の Salesforce に書いたりはしません）。</p>
+      <p style="margin-top:12px"><a class="mc-btn" style="display:inline-flex;align-items:center;text-decoration:none" href="/history.html" target="_blank" rel="noopener">DOC の商談履歴を開く ↗</a></p></div></section>
+    <section data-pane="settings" hidden>
+      <div class="mc-box"><h2>MiiTel <span class="mc-tag" id="stMiitel">—</span></h2>
+        <div class="mc-form"><label>会社のドメイン</label><input id="miDomain" placeholder="例：xxxx.miitel.jp" />
+          <label>API のトークン</label><input id="miToken" type="password" autocomplete="off" placeholder="管理画面の「API」で発行したもの" /></div></div>
+      <div class="mc-box"><h2>Bales Cloud <span class="mc-tag" id="stBales">—</span></h2>
+        <div class="mc-form"><label>API のキー</label><input id="baKey" type="password" autocomplete="off" placeholder="管理画面の「連携」「API」で発行したもの" />
+          <label>メモ</label><input id="baNote" placeholder="アカウント名など（任意）" /></div></div>
+      <div class="mc-box"><h2>Salesforce（MOCHICA のきまり）</h2>
+        <div class="mc-form"><label>リードの種別</label><input id="sfLead" placeholder="MOCHICAリード" />
+          <label>新規の商談名の頭</label><input id="sfOpp" placeholder="例：MOCHICA_新規_" /></div>
+        <p class="mc-note" style="margin-top:8px">ステージの並びは、つないだあと Salesforce から読みます。</p></div>
+      <p><button class="mc-btn" id="mcSave">保存する</button> <span id="mcSaved" class="mc-note"></span></p>
+      <p class="mc-note">キーは kinbot のサーバーにだけ置き、画面には末尾の4文字しか出しません。保存できるのは管理者だけです。</p>
+    </section>
+  </main>
+</div>
+<script src="/mochica.js?v=20261112b"></script>
+</body>
+</html>
