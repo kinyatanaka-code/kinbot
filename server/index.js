@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -18206,6 +18206,35 @@ if (process.env.RECALL_AUTO_RECOVER === "1") {
   setTimeout(() => { recallReconcileTick(); }, 3 * 60 * 1000);
 }
 
+// 【文字起こしの自動のやり直し】（2026-11-11 田中さん「Deepgram のキーを直したら、エラーの分は自動で商談履歴に入らないの？」）
+//   kinbot に商談はあるのに文字起こしが空のまま（直近3日・2回まで）のものを、Recall の文字起こし → 無ければ録音から Deepgram で作り直し、要約・分析も作る。
+//   新しい商談を勝手に増やすことはしない（前に自動の取り込みで「議事録」の空ボットが大量に入ったため。RECALL_AUTO_RECOVER は止めたまま）
+let _retransBusy = false;
+async function retranscribeEmptyTick() {
+  if (_retransBusy || !deepgramReady()) return; _retransBusy = true;
+  try {
+    for (const m of await listEmptyTranscriptMeetings(3, 3)) {
+      await bumpRetransTry(m.bot_id);
+      try {
+        let tr = await getBotTranscript(m.bot_id).catch(() => []);
+        let how = "Recallの文字起こし";
+        if (!tr.length) { const media = await getMediaForTranscript(m.bot_id).catch(() => null); if (media && media.url) { tr = await transcribeUrl(media.url).catch(() => []); how = "Deepgram"; } }
+        if (!tr.length) { console.log(`[文字起こしのやり直し] まだ作れません：${m.title || m.bot_id}`); continue; }
+        await saveMeeting(m.bot_id, { transcript: tr });
+        const text = tr.map((u) => `${u.speaker?.name || ""}: ${u.text}`).join("\n").slice(-12000);
+        const repName = m.rep_name || ""; const dateStr = new Date(m.created_at || Date.now()).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        const speakers = [...new Set(tr.map((u) => u.speaker?.name).filter(Boolean))];
+        try { await saveAnalysis(m.bot_id, await analyzeMeeting({ transcript: text, repName, dateStr, speakers })); } catch (e) { console.warn("[やり直し:要約]", e.message); }
+        try { let lostSignals = []; try { lostSignals = (await getSettings()).lostSignals || []; } catch {} await saveDeepAnalysis(m.bot_id, await analyzeDeep({ transcript: text, repName, lostSignals })); } catch (e) { console.warn("[やり直し:分析]", e.message); }
+        try { const chapters = buildChapters(tr, await splitPhases({ transcript: tr, repName })); if (chapters.length) await saveChapters(m.bot_id, chapters); } catch {}
+        console.log(`[文字起こしのやり直し] できました：${m.title || m.bot_id}（${how}・${tr.length}件）`);
+      } catch (e) { console.warn("[文字起こしのやり直し]", m.bot_id, e.message); }
+    }
+  } finally { _retransBusy = false; }
+}
+setTimeout(() => retranscribeEmptyTick(), 4 * 60 * 1000);
+setInterval(() => retranscribeEmptyTick(), 20 * 60 * 1000);
+
 // 【点検用】Recallのbotの中身をそのまま見る（文字起こしがどこにあるか調べる）
 app.get("/api/meetings/_botdiag", async (req, res) => {
   try {
@@ -30069,7 +30098,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11t kinbot 設定：Deepgramの控えのキーを、ほかの管理者向けの画面と同じ判定（オーナー＋管理者）で見られるように。";
+const BUILD_TAG = "2026-11-11u kinbot：文字起こしが空のまま残った最近の商談（直近3日）を、20分ごとに自動でやり直す（Recall→録音からDeepgram、要約・分析も）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

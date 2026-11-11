@@ -12620,3 +12620,17 @@ export async function isShinsotsuList(listId) {
   try { const { rows } = await pool.query(`SELECT name FROM call_lists WHERE id=$1`, [listId]); return !!rows[0] && /^\s*新卒リスト/.test(String(rows[0].name || "")); }
   catch { return false; }
 }
+
+// 文字起こしが空のまま残っている最近の商談（Deepgram のキー切れなどで作れなかったもの）（2026-11-11）
+let _retrReady = false;
+export async function listEmptyTranscriptMeetings(days = 3, limit = 5) {
+  if (!pool) return [];
+  if (!_retrReady) { _retrReady = true; await pool.query(`ALTER TABLE meetings ADD COLUMN IF NOT EXISTS retrans_try INT DEFAULT 0`).catch(() => {}); }
+  try {
+    return (await pool.query(`SELECT bot_id, title, rep_name, owner, created_at FROM meetings
+      WHERE created_at > now() - ($1 || ' days')::interval AND (transcript IS NULL OR jsonb_typeof(transcript) <> 'array' OR jsonb_array_length(transcript) = 0)
+        AND COALESCE(retrans_try, 0) < 2 AND bot_id NOT LIKE 'upload_%' AND bot_id NOT LIKE 'manual_%'
+      ORDER BY created_at DESC LIMIT $2`, [String(days), limit])).rows;
+  } catch { return []; }
+}
+export async function bumpRetransTry(botId) { if (!pool) return; await pool.query(`UPDATE meetings SET retrans_try = COALESCE(retrans_try,0) + 1 WHERE bot_id = $1`, [botId]).catch(() => {}); }
