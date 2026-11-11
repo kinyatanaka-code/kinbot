@@ -12597,3 +12597,19 @@ export async function arShiftCancelMonthsOnce() {
   const r = await pool.query(`UPDATE kinxs_accounts SET ar_cancel_month = to_char((ar_cancel_month || '-01')::date + interval '1 month', 'YYYY-MM') WHERE ar_cancel_month ~ '^[0-9]{4}-[0-9]{2}$'`);
   return r.rowCount || 0;
 }
+
+// kinXs：会社ごとのタスク（だれが足したものでも）（2026-11-11 田中さん：企業の詳細の「タスク」タブ）
+export async function kxTaskListByAccount(accountId) {
+  if (!pool) return [];
+  await kxTaskInit();
+  return (await pool.query(`SELECT * FROM kinxs_tasks WHERE account_id = $1 AND NOT COALESCE(deleted,false) AND (status <> '完了' OR done_at > now() - interval '14 days') ORDER BY (status = '完了'), due NULLS LAST, created_at DESC LIMIT 200`, [String(accountId)])).rows;
+}
+export async function kxTaskUpdateAny(id, patch) {
+  if (!pool) return null;
+  await kxTaskInit();
+  const sets = [], vals = [Number(id)];
+  for (const k of ["title", "due", "status", "note", "deleted"]) if (k in patch) { vals.push(patch[k]); sets.push(`${k}=$${vals.length}`); }
+  if ("status" in patch) sets.push(patch.status === "完了" ? "done_at=now()" : "done_at=NULL");
+  if (!sets.length) return null;
+  return (await pool.query(`UPDATE kinxs_tasks SET ${sets.join(", ")}, updated_at=now() WHERE id=$1 RETURNING *`, vals)).rows[0] || null;
+}

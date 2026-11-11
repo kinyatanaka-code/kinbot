@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -14426,6 +14426,89 @@ app.post("/api/kinxs/tasks", async (req, res) => {
     _kxInbox.delete(String(req.user || "").toLowerCase()) ; res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== 企業の詳細の「タスク」タブ：この会社のタスク（2026-11-11 田中さん）=====
+//   手で足したもの（だれが足したものでも）＋ 自分と その会社のCS担当の「やること」のうち、この会社のもの（Gmail・メールワイズのコピー・チャット・kinXs の自動）
+//   Claude のコネクタの add_task（会社名つき）で作ったものも、ここに出る
+async function kxEmailOfName(nm) {
+  const n = String(nm || "").normalize("NFKC").replace(/[\s　]/g, ""); if (!n) return "";
+  const users = (await listUsers().catch(() => [])).filter((u) => u.email && u.name);
+  const full = users.filter((u) => String(u.name).normalize("NFKC").replace(/[\s　]/g, "") === n); if (full.length === 1) return String(full[0].email).toLowerCase();
+  const sur = users.filter((u) => kxSur(u.name) === kxSur(nm)); return sur.length === 1 ? String(sur[0].email).toLowerCase() : "";
+}
+app.get("/api/kinxs/accounts/:id/tasks", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const id = String(req.params.id || "");
+    const { items } = await kinxsBuildMemo(); const x = (items || []).find((i) => String(i.id) === id) || {};
+    const me = String(req.user || "").toLowerCase(); const cs = await kxEmailOfName(x.cs).catch(() => "");
+    const out = new Map();
+    for (const o of await kxTaskListByAccount(id)) out.set(o.key, { key: o.key, id: o.id, title: o.title || "", src: o.src || "手入力", kind: "タスク", due: o.due ? String(o.due instanceof Date ? new Date(o.due.getTime() + 9 * 3600000).toISOString() : o.due).slice(0, 10) : "", status: o.status || "未着手", owner: o.owner, auto: !String(o.key).startsWith("m:"), note: o.note || "" });
+    for (const u of [...new Set([me, cs].filter(Boolean))]) {
+      const m = await Promise.race([kinxsTasksMerged(u).catch(() => ({ tasks: [] })), new Promise((r) => setTimeout(() => r({ tasks: [] }), 6000))]);
+      for (const t of (m.tasks || [])) {
+        if (String(t.accountId || "") !== id || out.has(t.key)) continue;
+        if (t.kind === "次回アクション" || /^次回アクション/.test(String(t.kind || ""))) continue;   // 次回アクションは上の枠に出すので重ねない
+        out.set(t.key, { key: t.key, id: t.id, title: t.title || t.kind || "", src: t.src || "kinXs", kind: t.kind || "", due: t.due || "", status: t.status || "未着手", owner: u, auto: true, link: t.link || "", detail: t.detail || "" });
+      }
+    }
+    const list = [...out.values()].sort((a, b) => (a.status === "完了") - (b.status === "完了") || String(a.due || "9999").localeCompare(String(b.due || "9999")));
+    res.json({ ok: true, items: list, cs: x.cs || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// この会社のタスクを、だれのものでも直せる（済みにする・期日・消す）
+app.put("/api/kinxs/accounts/:id/tasks/:tid", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; const patch = {};
+    if (b.status !== undefined) { if (!KX_TASK_STATUS.includes(b.status)) return res.status(400).json({ error: "状態が正しくありません" }); patch.status = b.status; }
+    if (b.due !== undefined) patch.due = /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null;
+    if (b.deleted !== undefined) patch.deleted = b.deleted === true;
+    if (b.title !== undefined) patch.title = String(b.title || "").slice(0, 200);
+    const r = await kxTaskUpdateAny(req.params.tid, patch); if (!r) return res.status(404).json({ error: "見つかりません" });
+    for (const k of [..._kxInbox.keys()]) _kxInbox.delete(k);
+    res.json({ ok: true, item: r });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ===== 活動記録の「案内済み・未案内」（営業・CSがお客様に説明したこと）（2026-11-11 田中さん・CSヒアリング）=====
+const KX_GUIDE = [
+  { key: "invoice", name: "請求書", hint: "送り方・支払い期日（翌月払い）" },
+  { key: "kenshu", name: "検収書", hint: "いつ・どう回収するか" },
+  { key: "schedule", name: "納品までのスケジュール", hint: "取材から約1か月で納品・全体で2か月ほど" },
+  { key: "kickoff", name: "キックオフMTG・取材の日程と準備", hint: "" },
+  { key: "account", name: "アカウントの作成・AIの学習", hint: "" },
+  { key: "renew", name: "更新・解約のきまり", hint: "自動更新なら解約の締切も" },
+];
+app.put("/api/kinxs/accounts/:id/guide", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; if (!KX_GUIDE.some((g) => g.key === b.key)) return res.status(400).json({ error: "項目が分かりません" });
+    const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id) || {};
+    const info = { ...(r.info || {}) }; const guide = { ...(info.guide || {}) };
+    const by = await displayNameOf(req.user).catch(() => req.user);
+    guide[b.key] = { state: b.state === "done" ? "done" : "todo", by, at: new Date().toISOString(), src: "手入力" };
+    await kinxsUpdate(req.params.id, { info: { ...info, guide } }, by);
+    res.json({ ok: true, guide });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 議事録（商談・キックオフ）をAIで読んで、案内済みの項目を当てる（手で決めた項目は変えない）
+app.post("/api/kinxs/accounts/:id/guide/read", async (req, res) => {
+  try {
+    if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "権限がありません" });
+    const { items, mtBy } = await kinxsBuild(); const x = items.find((i) => i.id === req.params.id); if (!x) return res.status(404).json({ error: "見つかりません" });
+    const mts = [...new Map([...(mtBy.get(csCoKey(x.name)) || []), ...(x.formerNames || []).flatMap((f) => mtBy.get(csCoKey(f)) || [])].map((m) => [m.bot_id, m])).values()].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).slice(-8);
+    if (!mts.length) return res.json({ ok: true, none: true, guide: {} });
+    const txt = mts.map((m) => { const s0 = m.summary || {}; return `【${String(m.created_at).slice(0, 10)} ${m.title || ""}】\n${[s0.overview, ...(s0.key_points || []), ...(s0.agreements || []), ...(s0.action_items || []).map((a) => (typeof a === "string" ? a : a.task || a.text || ""))].filter(Boolean).join("\n")}`.slice(0, 2500); }).join("\n\n");
+    const sys = "あなたは営業・カスタマーサクセスの記録を読むアシスタントです。必ずJSONだけを返します。書かれていないことは案内済みにしません。";
+    const userP = `次は、ある会社との商談・キックオフの議事録の要約です。下の項目それぞれについて、当社がお客様にすでに説明（案内）しているかを判断してください。\n項目：${KX_GUIDE.map((g) => `${g.key}=${g.name}${g.hint ? `（${g.hint}）` : ""}`).join("／")}\n\n${txt}\n\n形式：{"items":{"invoice":{"done":true,"why":"根拠を1文"},...}}（6項目すべて）`;
+    const o = JSON.parse(String(await callLLMPublic(sys, userP, 1200, { json: true })).replace(/```json|```/g, "").trim());
+    const rows = await kinxsList(); const r = rows.find((y) => y.account_id === x.id) || {};
+    const info = { ...(r.info || {}) }; const guide = { ...(info.guide || {}) }; let n = 0;
+    for (const g of KX_GUIDE) { const v = o.items && o.items[g.key]; if (!v) continue; if (guide[g.key] && guide[g.key].src === "手入力") continue;
+      guide[g.key] = { state: v.done ? "done" : "todo", by: "AI（議事録から）", at: new Date().toISOString(), src: "AI", why: String(v.why || "").slice(0, 200) }; if (v.done) n++; }
+    await kinxsUpdate(x.id, { info: { ...info, guide } }, "kinXs（議事録から）");
+    res.json({ ok: true, guide, done: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // 自動のやること（kinXs・メール・チャット）の状態を変える・消す：その時点の中身ごと覚える
 app.post("/api/kinxs/tasks/state", async (req, res) => {
   try {
@@ -15939,7 +16022,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
     // CS担当の選択肢：メンバー管理で役割「CS」の人＋CS連携の設定に入れた人
     const csOptions = ((await csSettings().catch(() => ({ members: [] }))).members || []).map((m) => m.name).filter(Boolean);
     const status = { auto: (r.info && r.info.auto) || {}, naSource: r.na_source || "", cs: x.cs || "", csOptions, phase: x.label, autoPhase: x.autoLabel, locked: x.locked, purpose: r.purpose || fl["活用場所"] || "", usage: r.usage_status || "" };
-    res.json({ ok: true, item: x, timeline, info: out, status, kickoffAt: koAt });
+    res.json({ ok: true, item: x, timeline, info: out, status, kickoffAt: koAt, guide: (r.info && r.info.guide) || {} });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/accounts/:id", async (req, res) => {
@@ -29906,7 +29989,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11d kinXs ユーザー一覧：絞り込んだときの社数（右上）と、直販／PSのボタンの社数。";
+const BUILD_TAG = "2026-11-11e kinXs 企業の詳細：タブを タスク・活動記録・議事録・企業情報 に。タスク（次回アクション＋この会社のタスク：手入力・Claude・メール・チャット）、活動記録（ステータス＋案内済み・未案内）、議事録にkinbotで開くリンク。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

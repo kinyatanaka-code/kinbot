@@ -705,12 +705,18 @@ async function openDetail(id, reuse) {
       <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span></div>
     <div class="kx-rank-pop" data-rank-pop hidden></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
-    <div class="kx-tabs"><button type="button" class="on" data-tab="co">企業情報</button><button type="button" data-tab="info">ステータス</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button></div>
-    <div data-pane="co" style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}${kxLabelSchedPane(d, "prod")}</div>
+    <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button><button type="button" data-tab="co">企業情報</button></div>
+    <div data-pane="task" style="display:flex;flex-direction:column;gap:12px">
+      <div class="kx-note" style="margin:-2px 2px 0">次回アクションは、この会社の一番近いタスクです。下の「この会社のタスク」には、手で足したもの・Claudeから作ったもの・Gmailやメールワイズのコピー・チャットから読み取ったものが出ます。</div>
+      ${kxNextActSection(x)}
+      <section class="kx-sec" data-ctask-sec><div class="lb">この会社のタスク</div><div data-ctask class="kx-note">読み込んでいます…</div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input class="kx-in" data-ctask-t placeholder="タスクを足す（例：検収書の回収をお願いする）" style="flex:1;min-width:220px"><input class="kx-in" type="date" data-ctask-d style="max-width:150px"><button type="button" class="kx-btn kx-pri" data-ctask-add>足す</button></div></section>
+    </div>
+    <div data-pane="co" hidden style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}${kxLabelSchedPane(d, "prod")}</div>
     <div data-pane="info" hidden style="display:flex;flex-direction:column;gap:12px">
       ${kxNowCard(d)}
+      ${kxGuideSec(d)}
       <details class="kx-more"><summary>CS担当・フェーズ・利用目的・活用を見る・直す</summary>${kxStatusPane(d)}</details>
-      <details class="kx-more" data-na-more ${(() => { const l = x.naDue ? Math.ceil((Date.parse(x.naDue + "T23:59:59+09:00") - Date.now()) / 86400000) : 99; return l <= 7 ? "open" : ""; })()}><summary>次回アクションの中身（当日に確認すること・前回の宿題）</summary>${kxNextActSection(x)}</details>
       ${kxLabelSchedPane(d, "sched")}
       <details class="kx-more"><summary>請求・納品（フェーズの判定に使う項目）</summary>${kxOpsSection(x)}</details>
       <div class="kx-sec"><div class="lb">更新確度</div><div class="kx-ranks">${RANKS.map(([k, l]) => `<button type="button" class="r-${k} ${x.rank === k ? "on" : ""}" data-rank="${k}" title="${esc(l)}" aria-label="${k} ${esc(l)}">${k}</button>`).join("")}</div></div>
@@ -741,7 +747,7 @@ async function openDetail(id, reuse) {
         const main = d.timeline.filter((t) => t.kind !== "label");
         const chg = d.timeline.filter((t) => t.kind === "label");
         const item = (t) => `<div class="it ${t.kind}" ${t.botId ? `data-mt="${esc(t.botId)}" role="button" tabindex="0" title="押すと議事録を開きます"` : ""}>
-            <div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-open">議事録を開く ›</span>' : ""}</div>
+            <div class="t">${esc(t.title)}${t.botId ? ' <span class="kx-open">議事録を開く ›</span>' : ""}${t.url ? ` <a class="kx-mtlink" href="${esc(t.url)}" target="_blank" rel="noopener" data-noopen title="kinbotの議事録のページを別のタブで開く">kinbotで開く ↗</a>` : ""}</div>
             <div class="m">${esc(fmt(t.at))}${t.owner ? `・${esc(t.owner)}` : ""}${(() => { const pm = t.botId && x.mtgSummary && x.mtgSummary.perMeeting && x.mtgSummary.perMeeting[t.botId]; return pm ? `<span class="v2-hwc">この回で決まった宿題：先方${pm.theirs}件／当社${pm.ours}件</span>` : ""; })()}</div>${t.summary ? `<div class="b">${esc(t.summary)}</div>` : ""}</div>`;
         const follow = main.filter((t) => t.kind !== "mtg" || t.phase === "フォロー");
         const pre = main.filter((t) => t.kind === "mtg" && t.phase !== "フォロー");
@@ -769,7 +775,7 @@ async function openDetail(id, reuse) {
     if (dl) dl.style.display = "none";
   })();
   if (!bg.isConnected) document.body.appendChild(bg);
-  kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg); kxSalesMount(bg, x);
+  kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg); kxSalesMount(bg, x); kxCTaskMount(bg, x); kxGuideMount(bg, x, d);
   if (reuse) {
     if (reuse.tab) { bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2.dataset.tab === reuse.tab)); bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== reuse.tab; }); }
     const dr = bg.querySelector(".kx-drawer"); if (dr && reuse.scroll) dr.scrollTop = reuse.scroll;
@@ -820,7 +826,7 @@ async function openDetail(id, reuse) {
   const ds = bg.querySelector("[data-dismiss-sug]"); if (ds) ds.addEventListener("click", () => put({ dismiss_suggest: true }));
   bg.querySelector("[data-save-memo]").addEventListener("click", () => put({ memo: bg.querySelector("[data-memo]").value }));
   bg.querySelectorAll("[data-mt]").forEach((el) => {
-    el.addEventListener("click", () => openMeeting(el.dataset.mt));
+    el.addEventListener("click", (e) => { if (e.target.closest("a")) return; openMeeting(el.dataset.mt); });   // 「kinbotで開く ↗」はリンクのまま
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") openMeeting(el.dataset.mt); });
   });
   bg.querySelectorAll("[data-edit]").forEach((b) => b.addEventListener("click", () => { const sec = b.closest("[data-sec]"); sec.classList.add("editing"); const first = sec.querySelector(".kx-editbox input"); if (first) first.focus(); }));
@@ -2634,7 +2640,7 @@ function kxNowMount(bg) {
     const ok = b.dataset.ok === "1"; const name = b.querySelector("b").textContent;
     if (ok) { if (confirm(`「${name}」を未完了に戻しますか？`)) tog(b.dataset.step, "false"); } else tog(b.dataset.step, "true");
   }));
-  const openNa = () => { const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; dt.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+  const openNa = () => { const tb = bg.querySelector('[data-tab="task"]'); if (tb) tb.click(); const nb = bg.querySelector("[data-na-box]"); if (nb) setTimeout(() => nb.scrollIntoView({ behavior: "smooth", block: "start" }), 60); };
   pane.querySelectorAll("[data-now]").forEach((el) => el.addEventListener(el.tagName === "INPUT" ? "change" : "click", () => {
     const a = el.dataset.now;
     if (a === "ken-done") return tog("kenshu_done", "true");
@@ -2664,4 +2670,57 @@ async function kxSalesMount(bg, x) {
   cells.initial.innerHTML = d.initial && d.initial.has
     ? `<b class="kx-sales-chip yes">あり</b> <small>${d.initial.items.map((it) => `${esc(String(it.name).replace(/【ＤＯＣ】|【DOC】/, ""))}${it.price != null ? ` ${Number(it.price).toLocaleString()}円` : ""}`).join("・")}</small>`
     : '<b class="kx-sales-chip no">なし</b> <small class="kx-note">（アチコチバースのみ）</small>';
+}
+
+// ===== 企業の詳細「タスク」：この会社のタスク（2026-11-11 田中さん）=====
+async function kxCTaskMount(bg, x) {
+  const box = bg.querySelector("[data-ctask]"); if (!box) return;
+  const ro = !!window.KX_COPY;
+  const load = async () => {
+    let d; try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks`); } catch (e) { box.textContent = "読めませんでした：" + e.message; return; }
+    const it = d.items || []; box.classList.remove("kx-note");
+    const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    const srcCls = (s0) => /メール|Gmail|メールワイズ/.test(s0) ? "ml" : /チャット|Chat/.test(s0) ? "ch" : /Claude/.test(s0) ? "cl" : /手入力/.test(s0) ? "mn" : "kx";
+    box.innerHTML = it.length ? it.map((t, i) => `<div class="kx-ct-row ${t.status === "完了" ? "done" : ""}">
+        ${ro ? "" : `<input type="checkbox" data-ct-done="${i}" ${t.status === "完了" ? "checked" : ""} aria-label="済みにする">`}
+        <div class="kx-ct-tx"><b>${esc(t.title)}</b><small><em class="kx-ct-src ${srcCls(t.src)}">${esc(t.src || "")}</em>${t.detail ? esc(t.detail) : ""}${t.link ? ` <a href="${esc(t.link)}" target="_blank" rel="noopener">開く ↗</a>` : ""}</small></div>
+        <span class="kx-ct-due ${t.due && t.due < today && t.status !== "完了" ? "late" : ""}">${t.due ? esc(t.due.slice(5).replace("-", "/")) : ""}</span>
+        ${ro ? "" : `<button type="button" class="hp-b" data-ct-del="${i}" title="消す">×</button>`}</div>`).join("")
+      : '<div class="kx-note">この会社のタスクはまだありません</div>';
+    const upd = async (t, body) => {
+      if (t.id) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks/${t.id}`, { method: "PUT", body: JSON.stringify(body) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t.key, title: t.title, accountId: x.id, account: x.name, src: t.src, status: body.status || t.status, ...(body.deleted ? { deleted: true } : {}) }) });
+    };
+    box.querySelectorAll("[data-ct-done]").forEach((c) => c.addEventListener("change", async () => { const t = it[Number(c.dataset.ctDone)]; try { await upd(t, { status: c.checked ? "完了" : "未着手" }); load(); } catch (e) { alert(e.message); } }));
+    box.querySelectorAll("[data-ct-del]").forEach((b) => b.addEventListener("click", async () => { const t = it[Number(b.dataset.ctDel)]; if (!confirm(`「${t.title}」を消しますか？`)) return; try { await upd(t, { deleted: true }); load(); } catch (e) { alert(e.message); } }));
+  };
+  const add = bg.querySelector("[data-ctask-add]"), tIn = bg.querySelector("[data-ctask-t]"), dIn = bg.querySelector("[data-ctask-d]");
+  if (ro) { const sec = add && add.parentElement; if (sec) sec.hidden = true; }
+  else if (add) {
+    const go = async () => { const title = tIn.value.trim(); if (!title) { tIn.focus(); return; } add.disabled = true;
+      try { await api("/api/kinxs/tasks", { method: "POST", body: JSON.stringify({ title, accountId: x.id, accountName: x.name, due: dIn.value || "" }) }); tIn.value = ""; dIn.value = ""; load(); } catch (e) { alert(e.message); } add.disabled = false; };
+    add.addEventListener("click", go); tIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) go(); });
+  }
+  load();
+}
+// ===== 活動記録「案内済み・未案内」（2026-11-11）=====
+const KX_GUIDE_C = [["invoice", "請求書", "送り方・支払い期日（翌月払い）"], ["kenshu", "検収書", "いつ・どう回収するか"], ["schedule", "納品までのスケジュール", "取材から約1か月で納品・全体で2か月ほど"], ["kickoff", "キックオフMTG・取材の日程と準備", ""], ["account", "アカウントの作成・AIの学習", ""], ["renew", "更新・解約のきまり", "自動更新なら解約の締切も"]];
+function kxGuideSec(d) {
+  return `<section class="kx-sec" data-guide-sec><div class="lb" style="display:flex;align-items:center;gap:8px">お客様への案内<span class="kx-note">営業・CSが説明したかどうか</span>${window.KX_COPY ? "" : '<button type="button" class="hp-b" data-guide-read style="margin-left:auto">議事録から読み取る</button>'}</div><div data-guide></div></section>`;
+}
+function kxGuideMount(bg, x, d) {
+  const box = bg.querySelector("[data-guide]"); if (!box) return;
+  let g = { ...(d.guide || {}) }; const ro = !!window.KX_COPY;
+  const draw = () => {
+    const todo = KX_GUIDE_C.filter(([k]) => !g[k] || g[k].state !== "done"), done = KX_GUIDE_C.filter(([k]) => g[k] && g[k].state === "done");
+    const card = ([k, n, h], isDone) => `<div class="kx-gd-it ${isDone ? "done" : ""}"><div class="kx-gd-tx"><b>${esc(n)}</b>${h ? `<small>${esc(h)}</small>` : ""}${g[k] && g[k].by ? `<small class="kx-gd-by">${esc(g[k].by)}${g[k].why ? `：${esc(g[k].why)}` : ""}</small>` : ""}</div>${ro ? "" : `<button type="button" class="hp-b" data-gd="${k}" data-to="${isDone ? "todo" : "done"}">${isDone ? "← 未案内に戻す" : "案内済み →"}</button>`}</div>`;
+    box.innerHTML = `<div class="kx-gd-cols"><div class="kx-gd-col"><div class="kx-gd-h todo">未案内 <span>${todo.length}</span></div>${todo.map((it) => card(it, false)).join("") || '<div class="kx-note">ぜんぶ案内済みです</div>'}</div>
+      <div class="kx-gd-col"><div class="kx-gd-h done">案内済み <span>${done.length}</span></div>${done.map((it) => card(it, true)).join("") || '<div class="kx-note">まだありません</div>'}</div></div>`;
+    box.querySelectorAll("[data-gd]").forEach((b) => b.addEventListener("click", async () => { b.disabled = true; try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/guide`, { method: "PUT", body: JSON.stringify({ key: b.dataset.gd, state: b.dataset.to }) }); g = r.guide || g; draw(); } catch (e) { alert(e.message); b.disabled = false; } }));
+  };
+  draw();
+  const rb = bg.querySelector("[data-guide-read]");
+  if (rb) rb.addEventListener("click", async () => { rb.disabled = true; rb.textContent = "読んでいます…";
+    try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/guide/read`, { method: "POST", body: "{}" }); if (r.none) alert("この会社の議事録が見つかりませんでした"); else { g = r.guide || g; draw(); } }
+    catch (e) { alert(e.message); } rb.disabled = false; rb.textContent = "議事録から読み取る"; });
 }
