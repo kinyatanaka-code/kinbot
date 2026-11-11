@@ -14481,7 +14481,9 @@ async function kxEmailOfName(nm) {
 // タスクを託せる人（kinbot のメンバー。インターンは除く）。名前かメールからメールを決める（2026-11-11 田中さん：タスクはCS担当以外にも託せる）
 async function kxPeople() {
   const interns = new Set((await listInterns().catch(() => [])).map((x) => String(x.email || "").toLowerCase()));
-  return (await listUsers().catch(() => [])).filter((u) => u.email && !interns.has(String(u.email).toLowerCase())).map((u) => ({ email: String(u.email).toLowerCase(), name: u.name || u.email }));
+  const us = (await listUsers().catch(() => [])).filter((u) => u.email && !interns.has(String(u.email).toLowerCase()));
+  // 名前が入っていない人は、メンバーの表示名で（メールアドレスのまま出さない）（2026-11-11）
+  return Promise.all(us.map(async (u) => { const em = String(u.email).toLowerCase(); let nm = u.name || ""; if (!nm || /@/.test(nm)) nm = await displayNameOf(em).catch(() => "") || ""; if (!nm || /@/.test(nm)) nm = em.split("@")[0]; return { email: em, name: nm }; }));
 }
 async function kxAssigneeEmail(v) {
   const t = String(v || "").trim(); if (!t) return ""; const ps = await kxPeople();
@@ -30144,7 +30146,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zg kinXs ホーム：要アクションの次回アクションの行で担当を移せる。「今日・あと○日」が1日ずれていたのを直す。";
+const BUILD_TAG = "2026-11-11zh kinXs：タスクの担当の札がメールアドレスになっていたのを苗字に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
