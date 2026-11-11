@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20261112b";
+    sc.src = "kbchat.js?v=20261112c";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -136,9 +136,9 @@ function kbBuildSidebar() {
     `<a class="side-item side-app side-hi${kxOn}" href="/kinxs">` +
     `<img class="side-app-ico" src="/kinxs-ico.svg" alt="" />` +
     `<span class="side-label">kinXs</span></a>` +
-    `<a class="side-item side-app side-hi" href="/mochica" title="MOCHICA の箱（DOC とは別）">` +
-    `<span class="side-app-ico" style="display:inline-flex;align-items:center;justify-content:center;background:#14A89C;color:#fff;border-radius:7px;font-weight:900;font-size:12px">M</span>` +
-    `<span class="side-label">MOCHICA</span></a>` +
+    `<a class="side-item side-app side-hi" href="/mochica" title="kinbot for MOCHICA（DOC とは別の箱）">` +
+    `<img class="side-app-ico" src="/kinbot.svg" alt="" />` +
+    `<span class="side-label">kinbot for MOCHICA</span></a>` +
     `<a class="side-item side-hi${sfOn}" href="sf-launch.html">` +
     `<span class="side-ico ico-sf"></span>` +
     `<span class="side-label">Salesforce</span></a>` +

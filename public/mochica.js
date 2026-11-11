@@ -7,7 +7,7 @@
   const go = (k) => {
     if (!TITLES[k]) k = "home";
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
-    document.querySelectorAll("[data-go]").forEach((a) => a.classList.toggle("on", a.dataset.go === k));
+    document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
     if (k === "settings") loadConfig();
   };
@@ -38,4 +38,5 @@
     catch (e) { $("mcSaved").textContent = "保存できませんでした：" + e.message; }
   });
   go(location.hash.slice(1) || "home"); loadHome();
+  fetch("/api/me", { credentials: "include" }).then((r) => r.json()).then((d) => { const w = $("who"); if (w && d) w.textContent = d.name || d.displayName || d.email || ""; }).catch(() => {});
 })();
