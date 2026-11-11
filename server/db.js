@@ -12681,3 +12681,11 @@ export async function kxMwRecent(hours = 2) {
   if (!pool) return []; await ensureKxMw();
   return (await pool.query(`SELECT * FROM kinxs_mw_mails WHERE at > now() - ($1 || ' hours')::interval AND account_id IS NOT NULL ORDER BY at DESC LIMIT 300`, [String(hours)])).rows;
 }
+
+// メールワイズの読み取り状況（設定の「拡張機能」で確かめる）（2026-11-11）
+export async function kxMwStatus() {
+  if (!pool) return { total: 0, day: 0, matched: 0, last: null, recent: [] }; await ensureKxMw();
+  const a = (await pool.query(`SELECT count(*)::int AS total, count(*) FILTER (WHERE at > now() - interval '1 day')::int AS day, count(*) FILTER (WHERE at > now() - interval '1 day' AND account_id IS NOT NULL)::int AS matched, max(at) AS last FROM kinxs_mw_mails`)).rows[0];
+  const recent = (await pool.query(`SELECT space, owner, subject, from_email, account_name, sent_by, at FROM kinxs_mw_mails ORDER BY at DESC LIMIT 12`)).rows;
+  return { ...a, recent };
+}

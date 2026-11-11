@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxMwAdd, kxMwRecent, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxMwAdd, kxMwRecent, kxMwStatus, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -14592,6 +14592,11 @@ app.post("/api/kinxs/mailwise/ingest", express.json({ limit: "5mb" }), async (re
     }
     res.json({ ok: true, added, matched });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// メールワイズの読み取り状況（2026-11-11）
+app.get("/api/kinxs/mailwise/status", async (req, res) => {
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.set("Cache-Control", "no-store"); res.json({ ok: true, ...(await kxMwStatus()) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 今すぐ1回まわす（オーナー・管理者）。結果を返す
 app.post("/api/kinxs/auto-tasks/run", async (req, res) => {
@@ -30254,7 +30259,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zo 拡張機能の zip を、開くと kinbot-ext フォルダが出てくる形に。設定の入れ方もそれに合わせる。";
+const BUILD_TAG = "2026-11-11zp 設定の「拡張機能」に、メールワイズの読み取り状況（受け取った数・最後・最近のメールと会社）と「今すぐタスクを作る」。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

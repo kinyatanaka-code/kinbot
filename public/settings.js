@@ -3292,3 +3292,22 @@ if (document.getElementById("sfProxy")) {
   try { const d = await (await fetch("/api/ext/version")).json(); const have = document.documentElement.dataset.kbExtVer || (document.documentElement.dataset.kxMwExt ? "1.3.2 以前" : "");
     el.textContent = `新しい版：${d.version || "?"}${have ? `／このChromeに入っている版：${have}` : "／このChromeには入っていないか、古い版です"}`; } catch {}
 })();
+
+// メールワイズの読み取り状況（2026-11-11）
+async function loadMwStatus() {
+  const box = document.getElementById("mwStatus"); if (!box) return;
+  try { const d = await (await fetch("/api/kinxs/mailwise/status")).json(); if (d.error) throw new Error(d.error);
+    const t = (v) => v ? new Date(v).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+    box.innerHTML = `<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px"><span>最後に受け取った：<b>${t(d.last)}</b></span><span>この24時間：<b>${d.day}</b>通（会社に結びついた ${d.matched}通）</span><span>これまで：${d.total}通</span></div>` +
+      (d.recent && d.recent.length ? `<table class="integ-tbl" style="width:100%;border-collapse:collapse;font-size:12.5px"><tr style="text-align:left;color:#6A7A72"><th>受け取り</th><th>メールアプリ</th><th>件名</th><th>会社</th><th>持ち主</th></tr>${d.recent.map((r) => `<tr style="border-top:1px solid #EEF3F0"><td>${t(r.at)}</td><td>${escapeHtml(r.space || "")}</td><td>${escapeHtml(r.subject || "")}</td><td>${r.account_name ? escapeHtml(r.account_name) : '<span style="color:#A2480C">結びつかず</span>'}</td><td>${escapeHtml(String(r.owner || "").split("@")[0])}</td></tr>`).join("")}</table>`
+        : '<div style="color:#A2480C">まだ1通も届いていません。メールワイズのタブを開いて（ログインしたまま）、1分ほど待ってから「読み直す」を押してください。</div>');
+  } catch (e) { box.textContent = "読めませんでした：" + e.message; }
+}
+(function () {
+  const r = document.getElementById("mwStReload"); if (r) r.addEventListener("click", loadMwStatus);
+  const b = document.getElementById("mwRunTasks"); if (b) b.addEventListener("click", async () => { b.disabled = true; b.textContent = "作っています…";
+    try { const d = await (await fetch("/api/kinxs/auto-tasks/run", { method: "POST" })).json(); if (d.error) throw new Error(d.error); const made = (d.results || []).reduce((a, x) => a + (x.made || 0), 0); const read = (d.results || []).reduce((a, x) => a + (x.read || 0), 0); alert(`読んだもの：${read}件／作ったタスク：${made}件`); }
+    catch (e) { alert(e.message); } b.disabled = false; b.textContent = "今すぐタスクを作る"; });
+  document.querySelectorAll('[data-tab="ext"]').forEach((x) => x.addEventListener("click", () => setTimeout(loadMwStatus, 50)));
+  if (location.hash === "#ext") setTimeout(loadMwStatus, 300);
+})();
