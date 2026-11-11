@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -11321,6 +11321,7 @@ app.get("/api/calls/targets", async (req, res) => {
     let 復活リストか = false;
     let 過去失注リストか = false;
     let MO失注リストか = false;
+    let 新卒リストか = false;   // 新卒リスト：リサイクルのリードも、日をおいてかける先に出す（2026-11-11 田中さん）
     // かける画面の「過去リスト（今月かける）」＝自分担当のクロス失注。次回アクション日での絞り込みは後段で行う。
     const clNow = listParam === "crosslost-now";
     if (clNow) listParam = "crosslost";
@@ -11468,6 +11469,7 @@ app.get("/api/calls/targets", async (req, res) => {
       復活リストか = await isRevivalList(listId).catch(() => false);
       過去失注リストか = await isPastLostList(listId).catch(() => false);
       MO失注リストか = await isMoLostList(listId).catch(() => false);
+      新卒リストか = await isShinsotsuList(listId).catch(() => false);
       rows = await listCallTargets(listId, {
         q: String(req.query.q || ""),
         limit: Math.min(rawEdit ? 20000 : 2000, parseInt(req.query.limit, 10) || (rawEdit ? 20000 : 2000)),
@@ -11484,7 +11486,11 @@ app.get("/api/calls/targets", async (req, res) => {
       const 死番 = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
       rows = rows.filter((r) => !/ユーザー/.test(String(r.stage || "")) && !死番.test(String(r.status || "")) && !死番.test(String(r.stage || "")));
     } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && listParam !== "nurture-week" && listParam !== "pastlost-old" && !復活リストか) {
-      const 隠すステージ = /ユーザー|失注|アーカイブ|リサイクル/;
+      const 隠すステージ = 新卒リストか ? /ユーザー|失注|アーカイブ/ : /ユーザー|失注|アーカイブ|リサイクル/;
+      // 新卒リストのリサイクルは、最後にかけてから RECYCLE_GAP_DAYS 日（既定7日）たったもの・架電予定が来たものだけ出す
+      const gapMs = Math.max(1, parseInt(process.env.RECYCLE_GAP_DAYS || "7", 10) || 7) * 86400000;
+      const recycleReady = (r) => { const now = Date.now(); if (r.next_call_at && new Date(r.next_call_at).getTime() > now) return false; const last = r["最終日時"] || r.last_called_at || r.last_call_at; return !last || now - new Date(last).getTime() >= gapMs; };
+      if (新卒リストか) rows = rows.filter((r) => !/リサイクル/.test(String(r.stage || "")) || recycleReady(r));
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
       rows = rows.filter((r) => !隠すステージ.test(String(r.stage || "")) &&
@@ -30021,7 +30027,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11k kincs DOC自動更新（仕様変更指示書）：ステータス 開始待ち・更新確定・解約確定・解約済、解約予定の列（翌月解約）、締切＝申請月15日まで→+2月、Excelは更新確定一覧・解約確定の2タブ、テスト企業10社。";
+const BUILD_TAG = "2026-11-11l kincall：新卒リストでは、リサイクルのリードも、最後にかけてから7日たったらかける先に出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

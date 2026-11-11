@@ -12613,3 +12613,10 @@ export async function kxTaskUpdateAny(id, patch) {
   if (!sets.length) return null;
   return (await pool.query(`UPDATE kinxs_tasks SET ${sets.join(", ")}, updated_at=now() WHERE id=$1 RETURNING *`, vals)).rows[0] || null;
 }
+
+// 新卒リストか（名前が「新卒リスト」で始まる）（2026-11-11：新卒リストではリサイクルも日をおいてかける）
+export async function isShinsotsuList(listId) {
+  if (!pool || !listId) return false;
+  try { const { rows } = await pool.query(`SELECT name FROM call_lists WHERE id=$1`, [listId]); return !!rows[0] && /^\s*新卒リスト/.test(String(rows[0].name || "")); }
+  catch { return false; }
+}
