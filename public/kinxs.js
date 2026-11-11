@@ -1527,7 +1527,10 @@ function renderHomeV2() {
   const tot = Math.max(1, c.all.length);
   // 要アクション
   const kxDoneKey = (a) => `${a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""}|${a.measure || ""}`;
-  const actRows = items.filter((x) => kxHasDoc(x)).flatMap((x) => (x.actions || []).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a }))).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
+  // 担当（CS）で絞る（2026-11-11 田中さん）。このブラウザに覚える
+  const kxCsF = (() => { try { return localStorage.getItem("kxHomeCs") || ""; } catch { return ""; } })();
+  const csNames = [...new Set(items.filter((x) => kxHasDoc(x) && (x.actions || []).length).map((x) => kxSurname(x.cs) || "（未定）"))].sort((a, b) => a.localeCompare(b, "ja"));
+  const actRows = items.filter((x) => kxHasDoc(x) && (!kxCsF || (kxSurname(x.cs) || "（未定）") === kxCsF)).flatMap((x) => (x.actions || []).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a }))).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
   const actCos = new Set(actRows.map((r) => r.x.id)).size;
   const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"], ["na", "施策・次回アクション", (a) => a.group === "納品後", "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
@@ -1547,7 +1550,7 @@ function renderHomeV2() {
     ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "先月お申込者数", `${Number(kxYmAdd(ym, -1).slice(5))}月に受注した会社`, c.mo, p.mo, "mo"], ["kai", "解約社数", "アチコチバースの解約（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
   </div>
   <div class="h2-row">
-    <section class="h2-box h2-act"><div class="h2-h"><h2>要アクション</h2><span class="h2-big" data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span></div>
+    <section class="h2-box h2-act"><div class="h2-h"><h2>要アクション</h2><span class="h2-big" data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><select class="h2-csf" data-home-cs title="担当で絞る"><option value="">担当：全員</option>${csNames.map((n) => `<option ${n === kxCsF ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
       <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b>${actRows.filter((r) => f(r.a)).length}</b><span>${l}</span></button>`).join("")}</div>
       <div class="h2-list">${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="pin ${a.left < 0 ? "over" : a.left <= 3 ? "soon" : ""}">${a.left == null ? "" : a.left < 0 ? `${-a.left}日過ぎ` : `あと${a.left}日`}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span><span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
         const dat = `data-ha="${k}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}"`;
@@ -1568,6 +1571,7 @@ function renderHomeV2() {
   box.querySelectorAll("[data-kf]").forEach((b) => b.addEventListener("click", () => { kh2.kf = kh2.kf === b.dataset.kf ? "" : b.dataset.kf; renderHomeV2(); }));
   box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-noopen]")) return; openDetail(el.dataset.open); }));
+  { const cf = box.querySelector("[data-home-cs]"); if (cf) cf.addEventListener("change", () => { try { localStorage.setItem("kxHomeCs", cf.value); } catch {} renderHomeV2(); }); }
   box.querySelectorAll("button[data-ha]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); b.disabled = true; kxHomeAct(b).finally(() => { b.disabled = false; }); }));
   box.querySelectorAll("input[data-ha]").forEach((i) => { i.addEventListener("click", (e) => { e.stopPropagation(); try { i.showPicker(); } catch {} }); i.addEventListener("change", () => kxHomeAct(i)); });
   box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F")); }));
