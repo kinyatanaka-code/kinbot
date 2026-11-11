@@ -3345,7 +3345,7 @@ loadList().then(() => {
     let 成功 = 0, 失敗 = 0;
     const 追記 = (r) => {
       const ok = /取り込みました/.test(r.状態);
-      const skip = /取り込み済み/.test(r.状態);
+      const skip = /取り込み済み|録音がありません/.test(r.状態);   // 録音の無いボットは出さない
       if (ok) 成功++; else if (!skip) 失敗++;
       if (skip) return;   // 取り込み済みのものは出さない（エラーのものだけ見せる）
       const li = document.createElement("div");

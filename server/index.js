@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -18133,6 +18133,10 @@ async function importFromRecall(req, res) {
         const 済み = already && (already.imported_at || (Array.isArray(already.transcript) && already.transcript.length));
         if (済み) { 結果.push({ botId, 状態: "すでに取り込み済み", 商談名: already.title || "" }); continue; }
         const bot = await getBot(botId);
+        // 会議に入れず録音が無いボット（エラーで終わった空のもの）は、商談にしない（2026-11-11：「議事録」が大量にできた）
+        const recs0 = Array.isArray(bot?.recordings) ? bot.recordings : [];
+        const hasMedia = recs0.some((r) => r && r.media_shortcuts && (r.media_shortcuts.video_mixed || r.media_shortcuts.audio_mixed || r.media_shortcuts.transcript));
+        if (!hasMedia) { 結果.push({ botId, 状態: "録音がありません（会議に入れなかった）", 商談名: bot?.meeting_metadata?.title || "" }); continue; }
         // 商談名：Zoomの会議名 → カレンダー予定名 → 会議ID の順で拾う
         const title = bot?.meeting_metadata?.title || bot?.meeting_metadata?.zoom?.topic || bot?.bot_name || String(bot?.meeting_url?.meeting_id || "") || `商談 ${String(botId).slice(0, 8)}`;
         const started = bot?.recordings?.[0]?.started_at || bot?.join_at || bot?.created_at || new Date().toISOString();
@@ -18166,6 +18170,7 @@ async function importFromRecall(req, res) {
         }
         if (tr.length) await saveMeeting(botId, { transcript: tr });
         await markMeetingImported(botId);
+        if (!already && started) await setMeetingCreatedAt(botId, started).catch(() => {});   // 商談の日時は録音の時刻に（取り込んだ時刻にしない）
         const 確認 = await getMeeting(botId).catch(() => null);
         console.log(`[取り込み] ${確認 ? "OK" : "NG"} ${title}（${方法}・${tr.length}件）`);
         const why = _recallErr.has(botId) ? `Recallでエラー（${_recallErr.get(botId)}）` : (already ? "文字起こしが空だった" : "kinbotに商談が無かった");
@@ -18206,6 +18211,8 @@ if (process.env.RECALL_AUTO_RECOVER === "1") {
   setTimeout(() => { recallReconcileTick(); }, 3 * 60 * 1000);
 }
 
+// 取り込みで入ってしまった中身の無い「議事録」を消す（起動のたび・直近48時間）（2026-11-11）
+setTimeout(async () => { try { const ids = await deleteEmptyImportedMeetings(48); if (ids.length) console.log("[取り込みの掃除] 中身の無い『議事録』を消しました：", ids.length); } catch {} }, 20 * 1000);
 // 【文字起こしの自動のやり直し】（2026-11-11 田中さん「Deepgram のキーを直したら、エラーの分は自動で商談履歴に入らないの？」）
 //   kinbot に商談はあるのに文字起こしが空のまま（直近3日・2回まで）のものを、Recall の文字起こし → 無ければ録音から Deepgram で作り直し、要約・分析も作る。
 //   新しい商談を勝手に増やすことはしない（前に自動の取り込みで「議事録」の空ボットが大量に入ったため。RECALL_AUTO_RECOVER は止めたまま）
@@ -30098,7 +30105,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11u kinbot：文字起こしが空のまま残った最近の商談（直近3日）を、20分ごとに自動でやり直す（Recall→録音からDeepgram、要約・分析も）。";
+const BUILD_TAG = "2026-11-11v 商談履歴：録音から取り込むで、録音の無いボット（会議に入れなかった空のもの）を商談にしない。入ってしまった中身の無い「議事録」を消す。日時は録音の時刻に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
