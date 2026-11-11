@@ -12645,3 +12645,25 @@ export async function listEmptyImportedMeetings(hours = 48) {
       AND summary IS NULL`, [String(hours)])).rows.map((r) => r.bot_id);
   } catch (e) { console.warn("[db] listEmptyImportedMeetings", e.message); return []; }
 }
+
+// 自動でタスクを作るとき、一度読んだもの（メールのメッセージ・議事録）を覚えておく（同じものを何度もAIに読ませない）（2026-11-11）
+let _kxAutoReady = false;
+async function ensureKxAuto() { if (!pool || _kxAutoReady) return; _kxAutoReady = true; await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_auto_seen (owner TEXT, ref TEXT, at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (owner, ref))`).catch(() => {}); }
+export async function kxAutoSeen(owner, refs) {
+  if (!pool || !refs.length) return new Set(); await ensureKxAuto();
+  return new Set((await pool.query(`SELECT ref FROM kinxs_auto_seen WHERE owner = $1 AND ref = ANY($2::text[])`, [String(owner).toLowerCase(), refs])).rows.map((r) => r.ref));
+}
+export async function kxAutoMark(owner, refs) {
+  if (!pool || !refs.length) return; await ensureKxAuto();
+  await pool.query(`INSERT INTO kinxs_auto_seen (owner, ref) SELECT $1, unnest($2::text[]) ON CONFLICT DO NOTHING`, [String(owner).toLowerCase(), refs]).catch(() => {});
+}
+export async function kxTaskKeyExists(owner, key) {
+  if (!pool) return false; await kxTaskInit();
+  return (await pool.query(`SELECT 1 FROM kinxs_tasks WHERE owner = $1 AND key = $2 LIMIT 1`, [String(owner).toLowerCase(), key])).rowCount > 0;
+}
+// 直近に要約ができた商談（議事録）
+export async function listRecentSummarizedMeetings(hours = 2) {
+  if (!pool) return [];
+  try { return (await pool.query(`SELECT bot_id, title, owner, summary, created_at FROM meetings WHERE summary IS NOT NULL AND updated_at > now() - ($1 || ' hours')::interval ORDER BY updated_at DESC LIMIT 60`, [String(hours)])).rows; }
+  catch { return []; }
+}

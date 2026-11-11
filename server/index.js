@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -14492,6 +14492,76 @@ async function kxAssigneeEmail(v) {
   const full = ps.filter((p) => String(p.name).normalize("NFKC").replace(/[\s　]/g, "") === n); if (full.length === 1) return full[0].email;
   const sur = ps.filter((p) => kxSur(p.name) === kxSur(t)); return sur.length === 1 ? sur[0].email : "";
 }
+// ===== 1時間に1回、議事録とメール（メールワイズのコピーも）から、企業に結びついたタスクを自動で作る（2026-11-11 田中さん）=====
+//   メンバーごとに：直近2時間のGmail（kinXs の企業の先方のアドレス・ドメインから来たもの）と、その人の商談で要約ができたもの を集める
+//   → 一度読んだものは飛ばす → 何も無ければAIを呼ばない → AI（ふだんは Gemini Flash-Lite）で「当社がやること」だけを取り出し → その人のタスクとして作る（同じものは二重に作らない）
+let _kxAutoBusy = false;
+const kxHash = (t) => crypto.createHash("sha1").update(String(t || "")).digest("hex").slice(0, 10);
+async function kxAutoTasksFor(user, ctx, maps) {
+  const u = String(user).toLowerCase(); const items = [];
+  // メール
+  if (await gmailReady(u).catch(() => false)) {
+    const ths = await gmailSearchThreads(u, "newer_than:2h -in:sent -in:chats -category:promotions -category:social", 25).catch(() => []);
+    for (const t of ths) {
+      const fromAddr = kxAddrOf(t.from); if (!fromAddr || fromAddr === u || /neo-career|neocareer/.test(fromAddr)) continue;
+      const acc = maps.byEmail.get(fromAddr) || maps.byDomain.get(fromAddr.split("@")[1] || ""); if (!acc) continue;
+      const ref = `mail:${t.messageId || t.threadId}`; items.push({ ref, kind: "メール", accId: acc.id, accName: acc.name, threadId: t.threadId, subject: t.subject || "", from: t.from || "" });
+    }
+  }
+  // 議事録（その人の商談）
+  for (const m of maps.meetings.filter((m0) => String(m0.owner || "").toLowerCase() === u)) {
+    const acc = maps.byTitle(m.title || ""); if (!acc) continue;
+    items.push({ ref: `mtg:${m.bot_id}`, kind: "議事録", accId: acc.id, accName: acc.name, bot: m });
+  }
+  if (!items.length) return { user: u, made: 0, read: 0 };
+  const seen = await kxAutoSeen(u, items.map((i) => i.ref)); const fresh = items.filter((i) => !seen.has(i.ref)).slice(0, 12);
+  if (!fresh.length) return { user: u, made: 0, read: 0 };
+  // 中身を集める
+  const blocks = [];
+  for (const it of fresh) {
+    if (it.kind === "メール") { const th = await gmailGetThread(u, it.threadId).catch(() => null); const last = th && th.messages && th.messages[th.messages.length - 1];
+      blocks.push(`[${it.ref}] 会社：${it.accName}（id ${it.accId}）／メール／件名：${it.subject}\n${String((last && last.body) || "").replace(/\n>.*$/gm, "").slice(0, 1500)}`); }
+    else { const s0 = it.bot.summary || {}; blocks.push(`[${it.ref}] 会社：${it.accName}（id ${it.accId}）／議事録：${it.bot.title || ""}\n${[s0.overview, ...(s0.action_items || []).map((a) => (typeof a === "string" ? a : a.task || a.text || "")), ...(s0.next_actions || []).map((a) => (typeof a === "string" ? a : a.task || a.text || ""))].filter(Boolean).join("\n").slice(0, 1500)}`); }
+  }
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const sys = "あなたはネオキャリア（当社）のカスタマーサクセスのアシスタントです。メールや議事録から、当社の担当者がやるべきこと（タスク）だけを取り出します。先方がやること・もう終わったこと・挨拶やお礼だけのもの・広告は出しません。必ずJSONだけを返します。";
+  const userP = `今日は${today}です。次の材料から、当社がやるべきタスクを取り出してください（1つの材料につき3つまで、無ければ出さない）。期日が書いてあれば YYYY-MM-DD、無ければ null。\n\n${blocks.join("\n\n")}\n\n形式：{"tasks":[{"ref":"材料の[ ]の中","account_id":"会社のid","title":"誰に・何をするかが分かる1文（40字まで）","due":"YYYY-MM-DD か null"}]}`;
+  let out = { tasks: [] };
+  try { out = JSON.parse(String(await callLLMPublic(sys, userP, 1500, { json: true })).replace(/```json|```/g, "").trim()); } catch (e) { console.warn("[自動タスク]", u, e.message); return { user: u, made: 0, read: 0, error: e.message }; }
+  let made = 0;
+  for (const t of (out.tasks || []).slice(0, 30)) {
+    const it = fresh.find((i) => i.ref === t.ref) || fresh.find((i) => i.accId === t.account_id); if (!it || !t.title) continue;
+    const key = `auto:${it.ref}:${kxHash(t.title)}`; if (await kxTaskKeyExists(u, key)) continue;
+    await kxTaskAdd(u, { key, title: String(t.title).slice(0, 200), account_id: it.accId, account_name: it.accName, due: /^\d{4}-\d{2}-\d{2}$/.test(String(t.due || "")) ? t.due : null, status: "未着手", src: it.kind === "メール" ? "メール（自動）" : "議事録（自動）", note: it.kind === "メール" ? `件名：${it.subject}` : `議事録：${(it.bot && it.bot.title) || ""}`, created_by: "kinXs（自動）" });
+    made++;
+  }
+  await kxAutoMark(u, fresh.map((i) => i.ref));
+  return { user: u, made, read: fresh.length };
+}
+async function kxAutoTasksTick() {
+  if (_kxAutoBusy) return []; _kxAutoBusy = true;
+  try {
+    const st = await getSettings().catch(() => ({})); if (st.kxAutoTasksOff) return [];
+    const ctx = await kxMailCtx();
+    const byEmail = new Map(), byDomain = new Map();
+    for (const x of ctx.items) for (const c of kxMailContactsOf(ctx, x)) { byEmail.set(c.email, x); const d = c.email.split("@")[1]; if (d && !KX_FREE_MAIL.test(d) && !byDomain.has(d)) byDomain.set(d, x); }
+    const keys = ctx.items.map((x) => ({ x, ks: [x.name, ...(x.formerNames || [])].map((n) => csCoKey(n)).filter((k) => k && k.length >= 2) })).sort((a, b) => Math.max(...b.ks.map((k) => k.length), 0) - Math.max(...a.ks.map((k) => k.length), 0));
+    const byTitle = (title) => { const t = csCoKey(String(title || "").replace(/[【\[［][^】\]］]*[】\]］]/g, "")); if (!t) return null; for (const { x, ks } of keys) if (ks.some((k) => t.includes(k))) return x; return null; };
+    const meetings = await listRecentSummarizedMeetings(2);
+    const maps = { byEmail, byDomain, byTitle, meetings };
+    const res = [];
+    for (const p of await kxPeople()) { try { res.push(await kxAutoTasksFor(p.email, ctx, maps)); } catch (e) { res.push({ user: p.email, error: e.message }); } }
+    const made = res.reduce((a, r) => a + (r.made || 0), 0); if (made) { console.log("[自動タスク] 作りました：", made, "件"); for (const k of [..._kxInbox.keys()]) _kxInbox.delete(k); }
+    return res;
+  } finally { _kxAutoBusy = false; }
+}
+setTimeout(() => kxAutoTasksTick().catch((e) => console.warn("[自動タスク]", e.message)), 10 * 60 * 1000);
+setInterval(() => kxAutoTasksTick().catch((e) => console.warn("[自動タスク]", e.message)), 60 * 60 * 1000);
+// 今すぐ1回まわす（オーナー・管理者）。結果を返す
+app.post("/api/kinxs/auto-tasks/run", async (req, res) => {
+  try { if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけが動かせます" }); res.json({ ok: true, results: await kxAutoTasksTick() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/people", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, me: String(req.user || "").toLowerCase(), items: await kxPeople() }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -30146,7 +30216,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zh kinXs：タスクの担当の札がメールアドレスになっていたのを苗字に。";
+const BUILD_TAG = "2026-11-11zi kinXs：1時間に1回、メンバーごとに議事録とGmail（メールワイズのコピーも）から、企業に結びついたタスクを自動で作る（新しいものが無ければAIを呼ばない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
