@@ -3296,7 +3296,7 @@ if (document.getElementById("sfProxy")) {
 // メールワイズの読み取り状況（2026-11-11）
 async function loadMwStatus() {
   const box = document.getElementById("mwStatus"); if (!box) return;
-  try { const d = await (await fetch("/api/kinxs/mailwise/status")).json(); if (d.error) throw new Error(d.error);
+  try { const d = await (await fetch("/api/kinxs/mailwise/status?rematch=1")).json(); if (d.error) throw new Error(d.error);
     const t = (v) => v ? new Date(v).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
     let dg = null; try { dg = JSON.parse(document.documentElement.dataset.kbMwDiag || "null"); } catch {}
     const diagHtml = dg ? `<div style="background:#F4F8F6;border-radius:10px;padding:8px 10px;margin-bottom:8px">拡張機能の様子：最後に動いた <b>${t(dg.at)}</b>／メールアプリ <b>${dg.apps}</b>個／直近2日の行 <b>${dg.rows}</b>件（まだ読んでいない ${dg.newRows}件・読んだ ${dg.read}件）／kinbot に送った <b>${dg.sent}</b>件${dg.err ? `<br><span style="color:#B4441F">${escapeHtml(dg.err)}</span>` : ""}</div>`

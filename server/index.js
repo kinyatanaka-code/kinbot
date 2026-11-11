@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxMwAdd, kxMwRecent, kxMwStatus, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -14546,12 +14546,42 @@ let _kxMatchMemo = { at: 0, v: null };
 async function kxCompanyMatchers() {
   if (_kxMatchMemo.v && Date.now() - _kxMatchMemo.at < 10 * 60 * 1000) return _kxMatchMemo.v;
   const ctx = await kxMailCtx();
-  const byEmail = new Map(), byDomain = new Map();
-  for (const x of ctx.items) for (const c of kxMailContactsOf(ctx, x)) { byEmail.set(c.email, x); const d = c.email.split("@")[1]; if (d && !KX_FREE_MAIL.test(d) && !byDomain.has(d)) byDomain.set(d, x); }
-  const keys = ctx.items.map((x) => ({ x, ks: [x.name, ...(x.formerNames || [])].map((n) => csCoKey(n)).filter((k) => k && k.length >= 2) })).sort((a, b) => Math.max(...b.ks.map((k) => k.length), 0) - Math.max(...a.ks.map((k) => k.length), 0));
-  const byTitle = (title) => { const t = csCoKey(String(title || "").replace(/[【\[［][^】\]］]*[】\]］]/g, "")); if (!t) return null; for (const { x, ks } of keys) if (ks.some((k) => t.includes(k))) return x; return null; };
-  _kxMatchMemo = { at: Date.now(), v: { ctx, byEmail, byDomain, byTitle } };
+  // 自社（ネオキャリア・MOCHICA）は結びつけ先にしない（2026-11-11 田中さん）
+  const SELF = /ネオキャリア|neo\s*-?career|モチカ|mochica/i;
+  const items = ctx.items.filter((x) => !SELF.test(x.name || "") && !x.archived);
+  const byEmail = new Map(), byDomain = new Map(), personCount = new Map(), byPerson = new Map();
+  const nk = (n) => String(n || "").normalize("NFKC").replace(/[\s　]/g, "").replace(/(様|さん|殿)$/, "");
+  for (const x of items) {
+    for (const c of kxMailContactsOf(ctx, x)) { byEmail.set(c.email, x); const d = c.email.split("@")[1]; if (d && !KX_FREE_MAIL.test(d) && !byDomain.has(d)) byDomain.set(d, x);
+      const pn = nk(c.name); if (pn.length >= 3) { personCount.set(pn, (personCount.get(pn) || 0) + 1); byPerson.set(pn, x); } }
+    // 会社のHP（企業情報・SF）のドメインも使う
+    const r = ctx.rowBy.get(x.id) || {}; const site = String((r.info && r.info.website) || r.website || "");
+    const hd = (site.match(/^(?:https?:\/\/)?(?:www\.)?([^\/\s:?#]+)/i) || [])[1]; if (hd && /\./.test(hd) && !KX_FREE_MAIL.test(hd) && !byDomain.has(hd.toLowerCase())) byDomain.set(hd.toLowerCase(), x);
+  }
+  for (const [pn, n] of personCount) if (n > 1) byPerson.delete(pn);   // 同じ名前が2社にいるときは使わない
+  // 文の中の会社名を探すときの形：全角半角・大小をそろえ、法人格・空白・記号を外す（長い文にも使える）
+  const pk = (t) => String(t || "").normalize("NFKC").toLowerCase().replace(/株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人|社会福祉法人|学校法人|医療法人社団|医療法人|特定非営利活動法人|\(株\)|（株）|㈱|\(有\)|㈲/g, "").replace(/[\s　・,，.。、'"’”「」『』【】\[\]()（）<>＜＞\/／|｜:：\-－_]/g, "");
+  const keys = items.map((x) => ({ x, ks: [...new Set([x.name, ...(x.formerNames || [])].map((n) => pk(n)).filter((k) => k && k.length >= 3))] })).sort((a, b) => Math.max(...b.ks.map((k) => k.length), 0) - Math.max(...a.ks.map((k) => k.length), 0));
+  // 文の中に kinXs の会社名が入っていれば、その会社（いちばん長く当たるもの）。【】の中もそのまま見る
+  const byText = (text) => { const t = pk(text); if (!t) return null; for (const { x, ks } of keys) if (ks.some((k) => t.includes(k))) return x; return null; };
+  // 議事録の題名用：頭の【ユ/フォ】などの印は外す
+  const byTitle = (title) => byText(String(title || "").replace(/^\s*[【\[［][^】\]］]{0,8}[】\]］]/g, ""));
+  const byName = (s0) => { const t = nk(String(s0 || "").replace(/<[^>]*>/g, "").replace(/[（(][^)）]*[)）]/g, "")); if (!t) return null; for (const [pn, x] of byPerson) if (t.includes(pn)) return x; return null; };
+  _kxMatchMemo = { at: Date.now(), v: { ctx, byEmail, byDomain, byTitle, byText, byName, SELF } };
   return _kxMatchMemo.v;
+}
+const KX_SELF_MAIL = /@(?:[\w-]+\.)*(?:neo-career\.co\.jp|neocareer\.co\.jp|mochica\.jp)$/i;
+// メールワイズのメール1通の会社を決める：アドレス → ドメイン（先方・HP）→ 差出人の欄（会社名・先方の担当者名）→ 件名 → 本文（最初の2000字）
+function kxMwMatchOne(m, it) {
+  const fromMail = (String(it.from || "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) || [])[0] || "";
+  const emails = [...new Set([fromMail, ...(Array.isArray(it.emails) ? it.emails : [])].map((e) => String(e).toLowerCase()).filter(Boolean))].filter((e) => !KX_SELF_MAIL.test(e) && !/cybozu/.test(e));
+  for (const e of emails) { const a = m.byEmail.get(e); if (a) return { acc: a, from: e, how: "アドレス" }; }
+  for (const e of emails) { const a = m.byDomain.get(e.split("@")[1] || ""); if (a) return { acc: a, from: e, how: "ドメイン" }; }
+  let a = m.byText(it.from) || m.byName(it.from); if (a) return { acc: a, from: emails[0] || "", how: "差出人" };
+  a = m.byText(it.subject); if (a) return { acc: a, from: emails[0] || "", how: "件名" };
+  const body = String(it.text || it.body || "").split(/\n[-—_=]{4,}\s*\n|\n>|\n-----Original Message|\n-----元のメッセージ|\n.{0,40}(?:wrote|書きました)[:：]/)[0].slice(0, 2000);
+  a = m.byText(body) || m.byName(body); if (a) return { acc: a, from: emails[0] || "", how: "本文" };
+  return { acc: null, from: emails[0] || "", how: "" };
 }
 async function kxAutoTasksTick() {
   if (_kxAutoBusy) return []; _kxAutoBusy = true;
@@ -14574,28 +14604,42 @@ app.post("/api/kinxs/mailwise/ingest", express.json({ limit: "5mb" }), async (re
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     const items = (Array.isArray(req.body && req.body.items) ? req.body.items : []).slice(0, 200);
-    const { byEmail, byDomain, byTitle, ctx } = await kxCompanyMatchers();
-    let added = 0, matched = 0;
+    const m = await kxCompanyMatchers();
+    let added = 0, matched = 0, skipped = 0;
     for (const it of items) {
       const url = String(it.url || ""); if (!url) continue;
+      // ネオキャリア（MOCHICA）から来たメールは読まない（社内の写し・自分たちの送信）（2026-11-11 田中さん）
       const fromMail = (String(it.from || "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) || [])[0] || "";
-      const emails = [...new Set([fromMail, ...(Array.isArray(it.emails) ? it.emails : [])].map((e) => String(e).toLowerCase()).filter(Boolean))].filter((e) => !/neo-career|neocareer|mochica\.jp|cybozu/.test(e));
-      let acc = null; let from = "";
-      for (const e of emails) { acc = byEmail.get(e) || byDomain.get(e.split("@")[1] || ""); if (acc) { from = e; break; } }
-      if (!acc) acc = byTitle(it.subject || "") || byTitle(it.from || "");   // 差出人の欄に会社名が出ることもある（アドレス帳に入っている先方）
-      // 持ち主：メールワイズで「担当者」が付いていればその人、なければメールアプリの名前（担当者ごとのアプリ）、それも無ければ会社のCS担当
+      if ((fromMail && KX_SELF_MAIL.test(fromMail)) || m.SELF.test(String(it.from || ""))) { skipped++; continue; }
+      const r = kxMwMatchOne(m, it); const acc = r.acc;
       let owner = it.assigned ? await kxAssigneeEmail(String(it.assigned).trim()).catch(() => "") : "";
       if (!owner) owner = await kxAssigneeEmail(String(it.space || "").trim()).catch(() => "");
       if (!owner && acc) owner = await kxEmailOfName(acc.cs || "").catch(() => "");
-      const ok = await kxMwAdd({ id: crypto.createHash("sha1").update(url).digest("hex").slice(0, 24), url, space: it.space, owner: owner || null, subject: it.subject, body: it.text, emails, from: from || emails[0] || "", accountId: acc ? acc.id : null, accountName: acc ? acc.name : "", sentBy: req.user });
+      const emails = [...new Set([fromMail, ...(Array.isArray(it.emails) ? it.emails : [])].map((e) => String(e).toLowerCase()))].filter(Boolean);
+      const ok = await kxMwAdd({ id: crypto.createHash("sha1").update(url).digest("hex").slice(0, 24), url, space: it.space, owner: owner || null, subject: it.subject, body: it.text, emails, from: r.from || fromMail || String(it.from || "").slice(0, 120), accountId: acc ? acc.id : null, accountName: acc ? acc.name : "", sentBy: req.user });
       if (ok) { added++; if (acc) matched++; }
     }
-    res.json({ ok: true, added, matched });
+    res.json({ ok: true, added, matched, skipped });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // メールワイズの読み取り状況（2026-11-11）
+// すでに受け取ったメールを、新しい当て方で結びつけ直す（自社からのメールは消す）（2026-11-11）
+async function kxMwRematch() {
+  const m = await kxCompanyMatchers(); let fixed = 0, removed = 0;
+  for (const r of await kxMwForRematch(3)) {
+    const fromMail = (String(r.from_email || "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) || [])[0] || "";
+    if ((fromMail && KX_SELF_MAIL.test(fromMail)) || m.SELF.test(String(r.from_email || ""))) { await kxMwDelete(r.id); removed++; continue; }
+    if (r.account_id && !m.SELF.test(r.account_name || "")) continue;
+    const hit = kxMwMatchOne(m, { from: r.from_email, subject: r.subject, text: r.body, emails: r.emails || [] });
+    if ((hit.acc ? hit.acc.id : null) !== (r.account_id || null)) { await kxMwSetAccount(r.id, hit.acc ? hit.acc.id : null, hit.acc ? hit.acc.name : ""); fixed++; }
+  }
+  return { fixed, removed };
+}
+setTimeout(() => kxMwRematch().then((r) => (r.fixed || r.removed) && console.log("[メールワイズ] 結びつけ直し", r)).catch(() => {}), 40 * 1000);
 app.get("/api/kinxs/mailwise/status", async (req, res) => {
-  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.set("Cache-Control", "no-store"); res.json({ ok: true, ...(await kxMwStatus()) }); }
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.set("Cache-Control", "no-store");
+    const rm = req.query.rematch ? await kxMwRematch().catch(() => null) : null;
+    res.json({ ok: true, rematch: rm, ...(await kxMwStatus()) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 今すぐ1回まわす（オーナー・管理者）。結果を返す
@@ -30259,7 +30303,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zr 設定の拡張機能：見えないときの案内を「画面を開き直して（F5）」に。古い拡張機能が残っているときも分かるように。";
+const BUILD_TAG = "2026-11-11zs メールワイズ：ネオキャリア（MOCHICA）からのメールは読まない・自社には結びつけない。会社の当て方を強く（アドレス→ドメイン（先方・HP）→差出人の会社名・先方の担当者名→件名（【】の中も）→本文）。受け取り済みも結びつけ直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

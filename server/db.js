@@ -12689,3 +12689,10 @@ export async function kxMwStatus() {
   const recent = (await pool.query(`SELECT space, owner, subject, from_email, account_name, sent_by, at FROM kinxs_mw_mails ORDER BY at DESC LIMIT 12`)).rows;
   return { ...a, recent };
 }
+// 結びつけ直し用（2026-11-11）
+export async function kxMwForRematch(days = 3) {
+  if (!pool) return []; await ensureKxMw();
+  return (await pool.query(`SELECT id, space, subject, body, emails, from_email, account_id, account_name FROM kinxs_mw_mails WHERE at > now() - ($1 || ' days')::interval`, [String(days)])).rows;
+}
+export async function kxMwSetAccount(id, accountId, accountName) { if (!pool) return; await pool.query(`UPDATE kinxs_mw_mails SET account_id=$2, account_name=$3 WHERE id=$1`, [id, accountId || null, accountName || ""]).catch(() => {}); }
+export async function kxMwDelete(id) { if (!pool) return; await pool.query(`DELETE FROM kinxs_mw_mails WHERE id=$1`, [id]).catch(() => {}); }
