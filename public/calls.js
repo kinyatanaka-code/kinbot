@@ -9595,6 +9595,11 @@ function edFiltered() {
     // 失注回数：下限〜上限（どちらかだけでもよい）。SFに失注が無い（空白の）会社は0回として数える
     { const lo = parseInt(($("edLostMin") && $("edLostMin").value) || "", 10), hi = parseInt(($("edLostMax") && $("edLostMax").value) || "", 10);
       if ((Number.isFinite(lo) || Number.isFinite(hi)) && _edLost) { const n0 = ((_edLost[r.id] || {}).total) || 0; if (Number.isFinite(lo) && n0 < lo) return false; if (Number.isFinite(hi) && n0 > hi) return false; } }
+    // 失注回数を 新規・クロス でも、それぞれ下限〜上限で絞る（2026-11-11 田中さん）
+    for (const [k, a, b] of [["新規", "edLostNMin", "edLostNMax"], ["クロス", "edLostCMin", "edLostCMax"]]) {
+      const lo = parseInt(($(a) && $(a).value) || "", 10), hi = parseInt(($(b) && $(b).value) || "", 10);
+      if ((Number.isFinite(lo) || Number.isFinite(hi)) && _edLost) { const n0 = ((_edLost[r.id] || {})[k]) || 0; if (Number.isFinite(lo) && n0 < lo) return false; if (Number.isFinite(hi) && n0 > hi) return false; }
+    }
     if (_edPastLost) { const pr = edMselVals("edPlReason"); if (pr.size && !pr.has(edLossBig(r) || "（なし）")) return false; }
     if (med && !g(r, "媒体掲載", "media_tags").includes(med)) return false;
     // 文字列を含むもので絞る（全角・半角・大文字小文字・空白のちがいは気にしない。空白で区切ると、全部を含むもの）（2026-10-30）
@@ -10139,7 +10144,7 @@ function edBuildTable() {
     th("電話", txt("edQPhone")) +
     th("メール", txt("edQEmail")) +
     th("架電状態", msel("edStatus", uniq((r) => g(r, "最終ステータス", "最終結果", "status") || "（なし）"))) +
-    th("失注回数", `<div class="ed-empf"><input type="number" id="edLostMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostMax" class="ed-emp-in" placeholder="上限" min="0" /></div>`) +
+    th("失注回数", `<div class="ed-lostf"><div class="ed-empf"><small>計</small><input type="number" id="edLostMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostMax" class="ed-emp-in" placeholder="上限" min="0" /></div><div class="ed-empf"><small>新規</small><input type="number" id="edLostNMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostNMax" class="ed-emp-in" placeholder="上限" min="0" /></div><div class="ed-empf"><small>クロス</small><input type="number" id="edLostCMin" class="ed-emp-in" placeholder="下限" min="0" /><span>〜</span><input type="number" id="edLostCMax" class="ed-emp-in" placeholder="上限" min="0" /></div></div>`) +
     th("業種", msel("edInd", uniq((r) => String(g(r, "業種", "industry") || "").trim() || "（空）"))) +
     (_edPastLost ? th("失注理由（大項目）", msel("edPlReason", uniq((r) => edLossBig(r) || "（なし）"))) : "") +
     th("従業員数", empF) +
@@ -10150,7 +10155,7 @@ function edBuildTable() {
       : th("失注理由（大項目）", msel("edLostReason", uniq((r) => g(r, "失注理由（大項目）") || "（なし）"))) + th("失注理由（中項目）", msel("edLostReasonMid", uniq((r) => g(r, "失注理由（中項目）") || "（なし）"))) + th("失注理由詳細", txt("edQLostDetail")) + th("受失注日", drange("edDLost")) + th("失注後次回アクション日", drange("edDNextAct")) + th("商談所有者", msel("edOppOwner", uniq((r) => g(r, "商談所有者")))) + th("担当（かける人）", msel("edClWho", uniq((r) => (r["担当メール"] ? nmMemberName(r["担当メール"]) : "（未割り当て）")))) + th("リスト", msel("edClList", uniq((r) => edListName(r) || "（不明）")))
     ) + "</tr>";
   tbl.innerHTML = `<div class="kc-prev-wrap" style="max-height:64vh"><table class="kc-table kc-prev ed-table"><thead>${head}</thead><tbody id="edTbody"></tbody></table></div>`;
-  ["edQInd", "edLostMin", "edLostMax", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
+  ["edQInd", "edLostMin", "edLostMax", "edLostNMin", "edLostNMax", "edLostCMin", "edLostCMax", "edStage", "edStatus", "edMedia", "edQCompany", "edQPerson", "edQPhone", "edQEmail", "edEmpMin", "edEmpMax", "edEmpDash", "edLostReason", "edLostReasonMid", "edQLostDetail", "edNurWho", "edQFrom", "edDLostFrom", "edDLostTo", "edDNextActFrom", "edDNextActTo", "edDNextFrom", "edDNextTo"].forEach((id) => { const el = $(id); if (el) { el.addEventListener("input", edRenderBody); el.addEventListener("change", edRenderBody); } });
   edNurBar();
   document.querySelectorAll("#edTable .ed-msel").forEach(edWireMsel);
 }

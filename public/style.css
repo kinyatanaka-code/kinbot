@@ -7222,3 +7222,7 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .sc-mrow { flex-wrap: wrap; row-gap: 2px; }
 .sc-mname { flex: 0 0 112px; font-weight: 700; color: #14231D; white-space: nowrap; }
 .sc-act { flex-basis: 100%; margin-left: 28px; }
+
+/* リスト編集の失注回数：計・新規・クロスの3段で絞る（2026-11-11） */
+.ed-lostf { display: flex; flex-direction: column; gap: 3px; }
+.ed-lostf .ed-empf small { display: inline-block; width: 34px; font-size: 10.5px; font-weight: 700; color: #5B6B63; }
