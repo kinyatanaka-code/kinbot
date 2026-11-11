@@ -774,7 +774,10 @@ async function openDetail(id, reuse) {
     await openDetail(id, { bg, tab, scroll, msg });
   };
   const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else if (VIEW === "home") return; else if (VIEW === "missing") return; else await load(); };
-  const put = async (body, redraw = true) => { try { const r0 = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {}); if (redraw) await again(r0 && r0.logoRefetched ? "保存して、新しいHPからロゴを取り直しました" : undefined); } catch (e) { alert(e.message); } };
+  const put = async (body, redraw = true) => { try { const r0 = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {});
+      // 情報不足（ホームの枠・情報不足のページ）も読み直す（2026-11-10 久野さん）
+      if (typeof kh2 !== "undefined" && kh2 && VIEW === "home") api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
+      if (VIEW === "missing" && typeof loadMissing === "function") loadMissing(false); if (redraw) await again(r0 && r0.logoRefetched ? "保存して、新しいHPからロゴを取り直しました" : undefined); } catch (e) { alert(e.message); } };
   if (!bg.dataset.wired) { bg.dataset.wired = "1"; bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); }); }
   bg.querySelector("[data-x]").addEventListener("click", close);
   bg.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {

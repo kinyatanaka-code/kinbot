@@ -15596,9 +15596,11 @@ async function kinxsMissing({ fresh = false } = {}) {
   const out = [];
   for (const x of target) {
     const r = rowBy.get(x.id) || {}; const a = acc.get(String(x.id).slice(0, 15)) || {}; const sf = /^[0-9a-zA-Z]{15,18}$/.test(x.id);
+    // kinXs の「企業情報」「先方の担当者」で手で入れた値も、入っているとみなす（2026-11-10 久野さん「情報不足の企業を更新しても変わらない」：前は SF だけを見ていた）
+    const inf = r.info || {}; const cts = Array.isArray(inf.contacts) ? inf.contacts : [];
     const has = {
-      website: !!(a.Website || r.website), phone: !!a.Phone, address: !!(a.BillingState || a.BillingCity || a.BillingStreet),
-      contact: (ctN.get(String(x.id).slice(0, 15)) || 0) > 0, contact_email: !!ctMail.get(String(x.id).slice(0, 15)),
+      website: !!(a.Website || r.website || inf.website), phone: !!(a.Phone || inf.phone), address: !!(a.BillingState || a.BillingCity || a.BillingStreet || inf.address),
+      contact: (ctN.get(String(x.id).slice(0, 15)) || 0) > 0 || cts.some((c) => c && c.name), contact_email: !!ctMail.get(String(x.id).slice(0, 15)) || cts.some((c) => c && /@/.test(c.email || "")),
       start: !!r.start_on, end: !!r.end_on && !r.end_estimated, prod_labels: (x.prodLabels || []).length > 0,
     };
     const miss = req0.filter((k2) => k2 in has && !has[k2] && (sf || ["prod_labels"].includes(k2)));
@@ -15918,6 +15920,7 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
 });
 app.put("/api/kinxs/accounts/:id", async (req, res) => {
   try {
+    _kxMissing = { at: 0, data: null };   // 直したら、情報不足を次に読むときに作り直す（2026-11-10）
     if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
     const b = req.body || {};
     const patch = {};
@@ -29879,7 +29882,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zu DOC自動更新（幸地さん）：解約希望月＝もう使わない月、締切＝2か月前の第15営業日、解約になる月の前は「更新確定」・その月から「解約済み」。今の解約月を1回だけ1か月うしろへ。";
+const BUILD_TAG = "2026-11-10zv kinXs 情報不足：kinXsで手で入れたHP・住所・電話・先方の担当者も数える。直したら情報不足を作り直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
