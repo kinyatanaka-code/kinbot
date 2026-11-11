@@ -848,10 +848,27 @@ async function loadIntegrations() {
       html += `<div class="integ-group-title">無料の連携</div>`;
       html += free.map(row).join("");
     }
+    html += `<div class="integ-group-title" style="margin-top:14px">Deepgram のキー（控え）</div><div id="dgKeysBox" class="integ-dg"><div class="empty-state">読み込み中…</div></div>`;
     host.innerHTML = html;
+    loadDgKeys();
   } catch {
     host.innerHTML = '<div class="empty-state">一覧の取得に失敗しました。</div>';
   }
+}
+// Deepgram のキー：Railway のキーが使えなくなったら（残高切れなど）、ここに入れた控えのキーへ自動で切りかえる（2026-11-11）
+async function loadDgKeys() {
+  const box = document.getElementById("dgKeysBox"); if (!box) return;
+  let d; try { const r = await fetch("/api/admin/deepgram-keys"); d = await r.json(); if (!r.ok) throw new Error(d.error || ""); } catch (e) { box.innerHTML = `<div class="empty-state">${escapeHtml(e.message || "管理者だけが見られます")}</div>`; return; }
+  const bad = (b) => b ? `<span class="integ-badge off" title="${escapeHtml(b.reason || "")}">使えない（${escapeHtml(new Date(b.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}）</span>` : '<span class="integ-badge on">使える</span>';
+  box.innerHTML = `<div class="integ-sub" style="margin-bottom:6px">いま使っているキー：<b>****${escapeHtml(d.active || "—")}</b>。使う順は Railway の DEEPGRAM_API_KEY → 下の控えのキー（上から）。残高切れなどで使えないと、自動で次のキーに切りかえて送り直します。</div>
+    ${(d.env || []).map((k) => `<div class="integ-row"><div class="integ-main"><div class="integ-name">Railway のキー ****${escapeHtml(k.last4)} ${bad(k.bad)}</div></div></div>`).join("")}
+    ${(d.saved || []).map((k) => `<div class="integ-row"><div class="integ-main"><div class="integ-name">控え ****${escapeHtml(k.last4)}${k.label ? `（${escapeHtml(k.label)}）` : ""} ${bad(k.bad)}</div><div class="integ-sub">${escapeHtml((k.at || "").slice(0, 10))} ${escapeHtml(k.by || "")}</div></div><div class="integ-right"><button type="button" class="btn ghost" data-dg-del="${k.i}">消す</button></div></div>`).join("")}
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input id="dgKeyIn" type="password" autocomplete="off" placeholder="Deepgram のAPIキーを貼る" style="flex:1;min-width:220px"><input id="dgKeyLabel" placeholder="メモ（例：2つ目のアカウント）" style="max-width:200px"><button type="button" class="btn" id="dgKeyAdd">確かめて足す</button></div>`;
+  box.querySelectorAll("[data-dg-del]").forEach((b) => b.addEventListener("click", async () => { if (!confirm("この控えのキーを消しますか？")) return; await fetch(`/api/admin/deepgram-keys/${b.dataset.dgDel}`, { method: "DELETE" }); loadDgKeys(); }));
+  const add = document.getElementById("dgKeyAdd");
+  add.addEventListener("click", async () => { const key = document.getElementById("dgKeyIn").value.trim(); if (!key) return; add.disabled = true; add.textContent = "確かめています…";
+    try { const r = await fetch("/api/admin/deepgram-keys", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key, label: document.getElementById("dgKeyLabel").value }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error || "足せませんでした"); loadDgKeys(); }
+    catch (e) { alert(e.message); add.disabled = false; add.textContent = "確かめて足す"; } });
 }
 (function () {
   const btn = document.getElementById("integReload");

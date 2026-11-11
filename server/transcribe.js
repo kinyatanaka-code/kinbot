@@ -2,13 +2,14 @@
 // アップロードされた音声/動画ファイルを文字起こしする。
 // 優先: Deepgram（話者分離あり）。無ければ Groq Whisper（話者分離なし）。
 import fs from "node:fs";
+import { deepgramKeys, dgFetch } from "./deepgram.js";
 
 export function transcriberAvailable() {
-  return !!(process.env.DEEPGRAM_API_KEY || process.env.GROQ_API_KEY);
+  return !!(deepgramKeys().length || process.env.GROQ_API_KEY);
 }
 
 export async function transcribeFile(filePath, mimetype) {
-  if (process.env.DEEPGRAM_API_KEY) return transcribeDeepgram(filePath, mimetype);
+  if (deepgramKeys().length) return transcribeDeepgram(filePath, mimetype);
   if (process.env.GROQ_API_KEY) return transcribeGroq(filePath, mimetype);
   throw new Error("文字起こし用のAPIキー（DEEPGRAM_API_KEY か GROQ_API_KEY）が未設定です");
 }
@@ -21,17 +22,17 @@ async function transcribeDeepgram(filePath, mimetype) {
   )}&language=${encodeURIComponent(lang)}&diarize=true&punctuate=true&smart_format=true`;
   // 大きいファイルでもメモリに載せないようストリームで送信
   const stat = fs.statSync(filePath);
-  const stream = fs.createReadStream(filePath);
-  const res = await fetch(url, {
+  // キーが使えなければ次のキーで送り直す（ファイルは毎回読み直す）
+  const res = await dgFetch(url, (key) => ({
     method: "POST",
     headers: {
-      Authorization: `Token ${process.env.DEEPGRAM_API_KEY}`,
+      Authorization: `Token ${key}`,
       "Content-Type": mimetype || "application/octet-stream",
       "Content-Length": String(stat.size),
     },
-    body: stream,
+    body: fs.createReadStream(filePath),
     duplex: "half",
-  });
+  }));
   if (!res.ok) throw new Error(`Deepgram ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = await res.json();
   const alt = data?.results?.channels?.[0]?.alternatives?.[0];
