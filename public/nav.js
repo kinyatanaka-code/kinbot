@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20261112l";
+    sc.src = "kbchat.js?v=20261112m";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -142,12 +142,7 @@ function kbBuildSidebar() {
     `<a class="side-item side-hi${sfOn}" href="sf-launch.html">` +
     `<span class="side-ico ico-sf"></span>` +
     `<span class="side-label">Salesforce</span></a>` +
-    (kbAiAllowed()
-      ? `<a class="side-item side-hi${aiOn}" href="ai.html">` +
-        `<span class="side-ico ico-ai"></span>` +
-        `<span class="side-label">AI社員</span></a>`
-      : "") +
-    itemHtml(KB_TOOL);
+    "";   // AI社員とツールは左メニューに出さない（2026-11-12 田中さん。ページそのものは URL で開ける）
 
   const brand = nav.querySelector(".side-brand");
   nav.innerHTML = (brand ? brand.outerHTML : "") + html + apps + (foot ? foot.outerHTML : "");
