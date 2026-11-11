@@ -3347,6 +3347,7 @@ loadList().then(() => {
       const ok = /取り込みました/.test(r.状態);
       const skip = /取り込み済み/.test(r.状態);
       if (ok) 成功++; else if (!skip) 失敗++;
+      if (skip) return;   // 取り込み済みのものは出さない（エラーのものだけ見せる）
       const li = document.createElement("div");
       li.className = "imp-row " + (ok ? "ok" : skip ? "skip" : "ng");
       li.innerHTML = `<span class="imp-mark">${ok ? "✓" : skip ? "－" : "×"}</span>` +
@@ -3359,7 +3360,7 @@ loadList().then(() => {
         head.textContent = `取り込み中… 完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}`;
         const res = await fetch("/api/meetings/import-from-recall", {
           method: "POST", headers: { "content-type": "application/json" },
-          body: JSON.stringify({ hours: 48, max: 2, skipTranscribe: true }),
+          body: JSON.stringify({ hours: 24, max: 2, skipTranscribe: true, onlyErrors: true }),   // 直近1日ぶん・うまく取り込めなかったものだけ（2026-11-11）
         });
         const d = await res.json();
         if (d.error) throw new Error(d.error);
@@ -3367,6 +3368,7 @@ loadList().then(() => {
         rs.forEach(追記);
         if (!rs.length || !rs.some((r) => /取り込みました/.test(r.状態))) break;
       }
+      if (!成功 && !失敗) { head.textContent = "直近1日ぶんに、うまく取り込めなかった録音はありませんでした。"; return; }
       head.textContent = `終わりました：完了 ${成功}件${失敗 ? `／できなかったもの ${失敗}件` : ""}。一覧を更新します。`;
       setTimeout(() => location.reload(), 1200);
     } catch (e) {

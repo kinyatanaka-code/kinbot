@@ -392,6 +392,9 @@ export async function listRecentBots({ hours = 48, limit = 60 } = {}) {
       created_at: b.created_at || "",
       started_at: rec?.started_at || b.join_at || b.created_at || "",
       status: (ch.length ? ch[ch.length - 1].code : b?.status?.code) || "",
+      // Recall の側でエラーになったか（fatal や、sub_code に error・fail が入っている）（2026-11-11）
+      errored: ch.some((c) => c && (c.code === "fatal" || /error|fail|timeout/i.test(String(c.sub_code || "")))),
+      errorCodes: [...new Set(ch.filter((c) => c && (c.code === "fatal" || /error|fail|timeout/i.test(String(c.sub_code || "")))).map((c) => c.sub_code || c.code))].slice(0, 3),
     };
   });
 }

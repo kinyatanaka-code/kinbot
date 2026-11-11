@@ -18106,6 +18106,7 @@ app.get("/api/meetings/import-from-recall", async (req, res) => {
   req.body = { hours: parseInt(req.query.hours, 10) || 48, botIds: String(req.query.botIds || "").split(",").map((x) => x.trim()).filter(Boolean) };
   return importFromRecall(req, res);
 });
+const _recallErr = new Map();   // botId → Recall のエラーの中身（取り込みの結果に出す）
 async function importFromRecall(req, res) {
   try {
     const b = req.body || {};
@@ -18115,11 +18116,14 @@ async function importFromRecall(req, res) {
       const hours = Math.max(1, Math.min(720, parseInt(b.hours, 10) || 48));
       const bots = await listRecentBots({ hours, limit: 80 }).catch(() => []);
       for (const bt of bots) {
-        if (!bt.id || !/done|recording_done|call_ended/i.test(String(bt.status))) continue;
+        // 終わった録音に加えて、Recall の側でエラー（fatal）で終わったものも拾う（2026-11-11）
+        if (!bt.id || !(/done|recording_done|call_ended/i.test(String(bt.status)) || bt.errored)) continue;
         const done = await getMeeting(bt.id).catch(() => null);
         // 文字起こしが入っている・一度取り込みを試したものは飛ばす（題名だけあって文字起こしが空の商談は拾う：2026-10-17）
         if (done && ((Array.isArray(done.transcript) && done.transcript.length) || done.imported_at)) continue;
-        ids.push(bt.id);
+        // エラーのものだけ（onlyErrors）：kinbot に商談が無い／文字起こしが空、のうちで Recall がエラーを出したもの（2026-11-11 田中さん）
+        if (b.onlyErrors && !bt.errored && done) continue;
+        ids.push(bt.id); if (bt.errored) _recallErr.set(bt.id, (bt.errorCodes || []).join("・") || "エラー");
       }
     }
     const 結果 = [];
@@ -18164,9 +18168,10 @@ async function importFromRecall(req, res) {
         await markMeetingImported(botId);
         const 確認 = await getMeeting(botId).catch(() => null);
         console.log(`[取り込み] ${確認 ? "OK" : "NG"} ${title}（${方法}・${tr.length}件）`);
+        const why = _recallErr.has(botId) ? `Recallでエラー（${_recallErr.get(botId)}）` : (already ? "文字起こしが空だった" : "kinbotに商談が無かった");
         結果.push({
           botId, 状態: 確認 ? "取り込みました" : "保存できませんでした",
-          商談名: title, 開始: started, 文字起こし: tr.length ? tr.length + "件" : "なし", 方法, 補足, 担当: owner,
+          商談名: title, 開始: started, 文字起こし: tr.length ? tr.length + "件" : "なし", 方法, 補足: [why, 補足].filter(Boolean).join("／"), 担当: owner,
         });
       } catch (e) { 結果.push({ botId, 状態: "できませんでした：" + e.message }); }
     }
@@ -30039,7 +30044,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11q kinXs：道のりの「いまここ」を一番進んだところの次に（飛ばした段は未記録）。次回アクションを済みにしたら、メール・議事録から次の次回アクションを自動で読む。";
+const BUILD_TAG = "2026-11-11r 商談履歴「録音から取り込む」：直近1日ぶん・うまく取り込めなかったもの（kinbotに無い／文字起こしが空／Recallでエラー）だけを読み、理由も出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
