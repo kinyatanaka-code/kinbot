@@ -319,11 +319,15 @@ function kxPlTags(x) { const l = (x.prodLabels || []).map((t) => (t === "イン�
 // ユーザー一覧・更新管理の「すべて／DOC／SNS」（2026-10-27）
 function kxTrackGet() { try { return localStorage.getItem("kxTrack") || "all"; } catch { return "all"; } }
 function kxTrackSet(v) { try { localStorage.setItem("kxTrack", v); } catch {} }
-function kxTrackOk(x) { const t = kxTrackGet(); return t === "DOC" ? kxHasDoc(x) : t === "SNS" ? kxHasSns(x) : true; }
+// DOC を選んだときは、さらに「すべて／直販／PS」で絞れる（2026-11-11 田中さん）
+function kxChanGet() { try { return localStorage.getItem("kxChan") || "all"; } catch { return "all"; } }
+function kxChanSet(v) { try { localStorage.setItem("kxChan", v); } catch {} }
+function kxTrackOk(x) { const t = kxTrackGet(); if (t === "DOC") { const c = kxChanGet(); return kxHasDoc(x) && (c === "all" || x.channel === c); } return t === "SNS" ? kxHasSns(x) : true; }
 function kxTrackSeg(onChange) {
-  const t = kxTrackGet();
-  const html = `<div class="kx-seg kx-trackseg" role="tablist">${[["all", "すべて"], ["DOC", "DOC"], ["SNS", "SNS"]].map(([k, l]) => `<button type="button" class="${t === k ? "on" : ""}" data-kxtrack="${k}">${l}</button>`).join("")}</div>`;
-  return { html, wire: (root) => root.querySelectorAll("[data-kxtrack]").forEach((b) => b.addEventListener("click", () => { kxTrackSet(b.dataset.kxtrack); onChange(); })) };
+  const t = kxTrackGet(), c = kxChanGet();
+  const html = `<div class="kx-seg kx-trackseg" role="tablist">${[["all", "すべて"], ["DOC", "DOC"], ["SNS", "SNS"]].map(([k, l]) => `<button type="button" class="${t === k ? "on" : ""}" data-kxtrack="${k}">${l}</button>`).join("")}</div>${t === "DOC" ? `<div class="kx-seg kx-trackseg kx-chanseg" role="tablist" title="販売区分">${[["all", "すべて"], ["直販", "直販"], ["PS", "PS"]].map(([k, l]) => `<button type="button" class="${c === k ? "on" : ""}" data-kxchan="${k}">${l}</button>`).join("")}</div>` : ""}`;
+  return { html, wire: (root) => { root.querySelectorAll("[data-kxtrack]").forEach((b) => b.addEventListener("click", () => { kxTrackSet(b.dataset.kxtrack); onChange(); }));
+    root.querySelectorAll("[data-kxchan]").forEach((b) => b.addEventListener("click", () => { kxChanSet(b.dataset.kxchan); onChange(); })); } };
 }
 const kxHasSns = (x) => (x.prodLabels || []).some((t) => KX_SNS_L.includes(t));
 const kxHasDoc = (x) => (x.prodLabels || []).some((t) => KX_DOC_L.includes(t)) || !(x.prodLabels || []).length;
