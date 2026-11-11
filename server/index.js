@@ -13949,6 +13949,8 @@ function kxDeliveryMonth(k) {
   return `${y}-${String(mon).padStart(2, "0")}`;
 }
 const KX_LABELS = ["計上予定", "フォローMTG設定済", "検収書回収待ち", "オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定", "解約済み", "エラー"];   // 「キャンセル」はやめた（2026-11-04）
+// 今日（日本時間）から、その日まであと何日か（今日＝0、昨日＝-1）。前は時刻で割って切り上げていたため、前日が「今日」・今日が「あと1日」になっていた（2026-11-11）
+function kxDaysLeft(ymd) { const t = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); return Math.round((Date.parse(String(ymd).slice(0, 10) + "T00:00:00Z") - Date.parse(t + "T00:00:00Z")) / 86400000); }
 async function kinxsBuild() {
   await kinxsInit();
   const st = await getSettings().catch(() => ({}));
@@ -14039,13 +14041,13 @@ async function kinxsBuild() {
         const ms = Date.parse(`${r.kenshu_month}-01T00:00:00+09:00`);
         if (isFinite(ms) && now >= ms - 7 * 86400000) {
           const end = new Date(ms); end.setUTCMonth(end.getUTCMonth() + 1); const endYmd = new Date(end.getTime() - 86400000 + 9 * 3600000).toISOString().slice(0, 10);
-          const l = Math.ceil((Date.parse(endYmd + "T23:59:59+09:00") - now) / 86400000);
+          const l = kxDaysLeft(endYmd);
           actions.push({ group: "納品前", kind: "検収書 未回収", detail: l >= 0 ? `検収書 未回収（あと${l}日）` : `検収書 未回収（${-l}日過ぎ）`, due: endYmd, left: l });
         }
       }
     }
     if (!r.archived && POST.includes(label) && r.na_due) {
-      const nd = kxYmdOf(r.na_due); const l = Math.ceil((Date.parse(nd + "T23:59:59+09:00") - now) / 86400000);
+      const nd = kxYmdOf(r.na_due); const l = kxDaysLeft(nd);
       if (l <= 7) actions.push({ na: true, group: "納品後", kind: r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション", detail: l >= 0 ? `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（あと${l}日）` : `${r.na_text ? String(r.na_text).slice(0, 30) : "次回アクション"}（${-l}日過ぎ）`, due: nd, left: l });
     }
     // DOCのスケジュール（議事録から作った予定）より、フェーズが進んでいなければ要注意
@@ -14998,7 +15000,7 @@ app.get("/api/kinxs/users", async (req, res) => {
       for (const a of acts) {
         if (!a.na_date || ["完了", "対象外"].includes(a.status)) continue;
         const nd = new Date(new Date(a.na_date).getTime() + 9 * 3600000).toISOString().slice(0, 10);
-        const l = Math.ceil((Date.parse(nd + "T23:59:59+09:00") - Date.now()) / 86400000); if (l > 7) continue;
+        const l = kxDaysLeft(nd); if (l > 7) continue;
         const x = byId.get(a.account_id); if (!x) continue; const me = KX_MEASURES.find((m) => m.key === a.mkey) || { name: a.mkey };
         (x.actions = x.actions || []).push({ group: "納品後", kind: me.name, detail: l >= 0 ? `${me.name}（あと${l}日）` : `${me.name}（${-l}日過ぎ）`, due: nd, left: l, measure: a.mkey, ym: a.ym });
       }
@@ -30142,7 +30144,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zf kinXs：次回アクションにも担当（ふだんはCS担当、ほかの人に託せる）。タスクのタブとホームの要アクションに担当の名前。";
+const BUILD_TAG = "2026-11-11zg kinXs ホーム：要アクションの次回アクションの行で担当を移せる。「今日・あと○日」が1日ずれていたのを直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

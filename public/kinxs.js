@@ -1526,7 +1526,7 @@ async function kxHomeAct(el) {
   } catch (e) { alert(e.message); }
 }
 // 託した次回アクションの担当の名前に使う（ホーム）
-if (!window.__kxPeople) { window.__kxPeople = []; api("/api/kinxs/people").then((d) => { window.__kxPeople = d.items || []; }).catch(() => {}); }
+if (!window.__kxPeople) { window.__kxPeople = []; api("/api/kinxs/people").then((d) => { window.__kxPeople = d.items || []; if (VIEW === "home" && typeof lsData !== "undefined" && lsData) try { renderHomeV2(); } catch {} }).catch(() => {}); }
 function renderHomeV2() {
   const box = $("kh2"); if (!box || !lsData) return;
   const items = (lsData.items || []).filter((x) => !x.archived);
@@ -1570,7 +1570,12 @@ function renderHomeV2() {
         const em = a.left == null ? "" : a.left < 0 ? `<em class="over">${-a.left}日過ぎ</em>` : a.left === 0 ? '<em class="soon">今日</em>' : `<em class="${a.left <= 3 ? "soon" : ""}">あと${a.left}日</em>`;
         const cls = `h2-due ${a.left != null && a.left < 0 ? "over" : a.left != null && a.left <= 3 ? "soon" : ""}`;
         if (k0 === "na" || k0 === "me") return `<label class="${cls} edit" data-noopen title="押すと日付を変えられます">${lbl}${em}<input type="date" data-ha="${k0}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}" data-do="date" value="${esc(due)}"></label>`;
-        return `<span class="${cls}" title="${k0 === "ko" ? "受注から14日（キックオフの目安）" : "期日"}">${lbl}${em}</span>`; })()}<span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span><span class="who">${esc(a.na && x.naOwner ? (kxSurname((window.__kxPeople || []).find((p0) => p0.email === x.naOwner)?.name || "") || x.naOwner.split("@")[0]) : (kxSurname(x.cs) || "CS未定"))}</span><span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
+        return `<span class="${cls}" title="${k0 === "ko" ? "受注から14日（キックオフの目安）" : "期日"}">${lbl}${em}</span>`; })()}<span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span>${(() => { const ppl = window.__kxPeople || []; const csEm = (ppl.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || "";
+        const nm = a.na && x.naOwner ? (kxSurname((ppl.find((p0) => p0.email === x.naOwner) || {}).name || "") || x.naOwner.split("@")[0]) : (kxSurname(x.cs) || "CS未定");
+        if (!a.na || !ppl.length || window.KX_COPY) return `<span class="who">${esc(nm)}</span>`;
+        // 次回アクションの行は、担当を押すと別の人に移せる（2026-11-11 田中さん）
+        const cur = x.naOwner || csEm;
+        return `<label class="who h2-who" data-noopen title="押すと担当を移せます">${esc(nm)}${x.naOwner && x.naOwner !== csEm ? "<em>託</em>" : ""}<select data-home-naown="${esc(x.id)}" data-cs="${esc(csEm)}">${ppl.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })()}<span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
         const dat = `data-ha="${k}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}"`;
         // ボタンの言葉は「✓ 済み」にそろえる（2026-11-11 田中さん：実施済み／済みが分かりにくい）。何が起きるかは、指を置くと出る説明に
         return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
@@ -1596,6 +1601,9 @@ function renderHomeV2() {
   { const act = box.querySelector(".h2-act"); if (act && !window.__kxActBig) act.addEventListener("click", (e) => { if (e.target.closest(".h2-li, button, select, label, input, a, .h2-tiles")) return; window.__kxActBig = true; renderHomeV2(); }); }
   box.querySelectorAll("[data-act-close]").forEach((el) => el.addEventListener("click", () => { window.__kxActBig = false; renderHomeV2(); }));
   if (window.__kxActBig && !window.__kxActEsc) { window.__kxActEsc = true; document.addEventListener("keydown", (e) => { if (e.key === "Escape" && window.__kxActBig) { window.__kxActBig = false; renderHomeV2(); } }); }
+  box.querySelectorAll("[data-home-naown]").forEach((sel) => { sel.addEventListener("click", (e) => e.stopPropagation()); sel.addEventListener("change", async () => {
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(sel.dataset.homeNaown)}`, { method: "PUT", body: JSON.stringify({ na_owner: sel.value === sel.dataset.cs ? "" : sel.value }) });
+      const it = (lsData.items || []).find((y) => y.id === sel.dataset.homeNaown); if (it) it.naOwner = sel.value === sel.dataset.cs ? "" : sel.value; renderHomeV2(); } catch (e) { alert(e.message); } }); });
   box.querySelectorAll("button[data-ha]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); b.disabled = true; kxHomeAct(b).finally(() => { b.disabled = false; }); }));
   box.querySelectorAll("input[data-ha]").forEach((i) => { i.addEventListener("click", (e) => { e.stopPropagation(); try { i.showPicker(); } catch {} }); i.addEventListener("change", () => kxHomeAct(i)); });
   box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F")); }));
@@ -1767,7 +1775,7 @@ function kxNextActSection(x) {
   const agenda = Array.isArray(nd.agenda) ? nd.agenda : [];
   const hw = Array.isArray(nd.homework) ? nd.homework : (sm.homework || []).filter((h) => h.state !== "完了");
   const when = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : (x.naDue ? x.naDue.replace(/-/g, "/") : "未定");
-  const alertTxt = x.naDue ? (() => { const l = Math.ceil((Date.parse(x.naDue + "T23:59:59+09:00") - Date.now()) / 86400000); return l < 0 ? `<span class="v2-miss">${-l}日過ぎ</span>` : l <= 7 ? `<span class="v2-miss">あと${l}日（アラート）</span>` : `<span class="kx-note">あと${l}日（期限の1週間前にアラート）</span>`; })() : "";
+  const alertTxt = x.naDue ? (() => { const l = Math.round((Date.parse(String(x.naDue).slice(0, 10) + "T00:00:00Z") - Date.parse(new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) + "T00:00:00Z")) / 86400000); return l < 0 ? `<span class="v2-miss">${-l}日過ぎ</span>` : l <= 7 ? `<span class="v2-miss">あと${l}日（アラート）</span>` : `<span class="kx-note">あと${l}日（期限の1週間前にアラート）</span>`; })() : "";
   return `<section class="kx-sec v2-na" data-na-box="${esc(x.id)}"><div class="lb" style="display:flex;align-items:center;gap:8px">次回アクション<span class="kx-src">${nd.manual ? "手で直した" : nd.auto ? "自動（議事録から）" : "—"}</span>${alertTxt}<button type="button" class="hp-b" data-na-done style="margin-left:auto" title="この次回アクションを終えて、空にします">✓ 済みにする</button><button type="button" class="kx-btn kx-pri" data-na-save>保存</button></div>
     <div class="v2-na-g">
       <label>種別・タイトル<input class="kx-in" data-nad="title" value="${esc(nd.title || x.na || n.title || "")}" placeholder="例：運用開始前の最終確認ミーティング" /></label>
@@ -2606,7 +2614,7 @@ function kxKenshuOne(bg, x, box, d, mode) {
 // ===== 企業の詳細：ステータス＝道のり型（案A）（2026-11-10 田中さん：いまどこにいて、次は何か・対応事項）=====
 function kxNowCard(d) {
   const x = d.item || {}; const st = d.status || {}; const info = d.info || {};
-  const daysTo = (ymd) => Math.ceil((Date.parse(ymd + "T23:59:59+09:00") - Date.now()) / 86400000);
+  const daysTo = (ymd) => Math.round((Date.parse(String(ymd).slice(0, 10) + "T00:00:00Z") - Date.parse(new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) + "T00:00:00Z")) / 86400000);
   const md = (iso) => { const t = String(iso || "").slice(0, 10); return t ? `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}` : ""; };
   const usage = st.usage || x.usage || "";
   const kenOk = x.kenshuNa || x.kenshuDone === true || String(x.kenshu || "").startsWith("回収済み");
