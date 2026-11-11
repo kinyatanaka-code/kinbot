@@ -11311,6 +11311,13 @@ app.post("/api/calls/lists/split", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// リサイクルのリードを、もうかけてよいか：最後にかけてから RECYCLE_GAP_DAYS 日（既定7日）たったか、架電予定が来たか（2026-11-11）
+function recycleReadySrv(r) {
+  const now = Date.now(); const gapMs = Math.max(1, parseInt(process.env.RECYCLE_GAP_DAYS || "7", 10) || 7) * 86400000;
+  if (r.next_call_at && new Date(r.next_call_at).getTime() > now) return false;
+  const last = r["最終日時"] || r.last_called_at || r.last_call_at;
+  return !last || now - new Date(last).getTime() >= gapMs;
+}
 app.get("/api/calls/targets", async (req, res) => {
   try {
     let listParam = String(req.query.list || "");
@@ -11385,7 +11392,7 @@ app.get("/api/calls/targets", async (req, res) => {
         if (nur.test(st) && !/アポ獲得/.test(st)) { /* ナーチャリングは下で */ }
         else if (deadAll.test(st) || (!isPast && /失注/.test(st) && lostHasDateSrv(r))) return false;   // 失注でも、商談の日付（失注日・商談日）が無ければかける（2026-10-31）
         // 新規リストのリサイクル（ステージがリサイクル）は今日かけるリードに入れない（過去リストのリサイクルは入れる）
-        if (!isPast && stageBucket(r.stage) === "リサイクル") return false;
+        if (stageBucket(r.stage) === "リサイクル" && !recycleReadySrv(r)) return false;   // リサイクルは日をおいて（7日）入れる（全リスト。2026-11-11）
         if (r.done && !isPast) return false;
         if (r.next_call_at && new Date(r.next_call_at).getTime() >= endToday) return false;
         // 直近に商談した・これから商談がある会社のリードは入れない（同じ会社に重ねて電話しないため）
@@ -11486,11 +11493,10 @@ app.get("/api/calls/targets", async (req, res) => {
       const 死番 = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
       rows = rows.filter((r) => !/ユーザー/.test(String(r.stage || "")) && !死番.test(String(r.status || "")) && !死番.test(String(r.stage || "")));
     } else if (listParam !== "archive" && listParam !== "recycle" && listParam !== "crosslost" && listParam !== "nurture" && listParam !== "nurture-all" && listParam !== "nurture-week" && listParam !== "pastlost-old" && !復活リストか) {
-      const 隠すステージ = 新卒リストか ? /ユーザー|失注|アーカイブ/ : /ユーザー|失注|アーカイブ|リサイクル/;
-      // 新卒リストのリサイクルは、最後にかけてから RECYCLE_GAP_DAYS 日（既定7日）たったもの・架電予定が来たものだけ出す
-      const gapMs = Math.max(1, parseInt(process.env.RECYCLE_GAP_DAYS || "7", 10) || 7) * 86400000;
-      const recycleReady = (r) => { const now = Date.now(); if (r.next_call_at && new Date(r.next_call_at).getTime() > now) return false; const last = r["最終日時"] || r.last_called_at || r.last_call_at; return !last || now - new Date(last).getTime() >= gapMs; };
-      if (新卒リストか) rows = rows.filter((r) => !/リサイクル/.test(String(r.stage || "")) || recycleReady(r));
+      // リサイクルのリードも、そのリストのかける先に出す（全リスト。2026-11-11 田中さん「基本リサイクルのものはそのリストに入るように」）
+      //   ただし、最後にかけてから RECYCLE_GAP_DAYS 日（既定7日）たったもの・架電予定が来たものだけ（日をおいてかける）
+      const 隠すステージ = /ユーザー|失注|アーカイブ/;
+      rows = rows.filter((r) => !/リサイクル/.test(String(r.stage || "")) || recycleReadySrv(r));
       // 「現在使われていない（現アナ・欠番・不通）」はアーカイブ扱いで、かける一覧には出さない
       const 死番ステータス = /使われて|使わない|現在使わ|現アナ|欠番|不通|使われていない番号/;
       rows = rows.filter((r) => !隠すステージ.test(String(r.stage || "")) &&
@@ -30027,7 +30033,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11l kincall：新卒リストでは、リサイクルのリードも、最後にかけてから7日たったらかける先に出す。";
+const BUILD_TAG = "2026-11-11m kincall：リサイクルのリードを、全部のリストでかける先に出す（最後にかけてから7日たったもの）。今日かけるリードにも入れる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
