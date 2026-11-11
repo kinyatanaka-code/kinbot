@@ -242,10 +242,13 @@ function companyFromTitleH(title) {
   let t = String(title || "").trim();
   if (!t) return "(無題)";
   t = t.replace(/^[\s　・※•◆◇■□▶▷*\-–—✉⊠]+/u, "");
-  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ");
+  t = t.replace(/[【\[［][^】\]］]*[】\]］]/gu, " ").replace(/\s+/g, " ").trim();   // 【ユ/フォ】などの頭の印を外して、前後の空白も取る（2026-11-11：空白が残ると会社名ごと消えていた）
+  const t0 = t;
   t = t.replace(/[\s　/／|｜:：][^\s　/／|｜]{0,16}様(?:\s*[・,、][^\s　/／|｜]{0,16}様)*\s*$/u, "");
-  t = t.replace(/[^\s　/／|｜]{0,16}様\s*$/u, "");
+  if (/[\s　/／|｜:：]/.test(t)) t = t.replace(/[\s　][^\s　/／|｜]{0,16}様\s*$/u, "");
   t = t.replace(/\s+/g, " ").trim();
+  if (!t) t = t0;
+  t = t.replace(/(様|御中|さま)\s*$/u, "").trim();   // 「コーチョー様」のように会社名に様が付く書き方
   // 会社名部分だけを抽出（日本の主要な法人形態を網羅）
   const suffix = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|特定非営利活動法人|NPO法人|医療法人(?:社団|財団)?|学校法人|宗教法人|社会福祉法人|独立行政法人|生活協同組合|農業協同組合|漁業協同組合|信用金庫|信用組合)";
   const prePattern = new RegExp("(" + suffix + "[^\\s(（/／|｜:：,、]+)");
@@ -257,13 +260,24 @@ function companyFromTitleH(title) {
   if (postMatch) return postMatch[0];
   return t || String(title || "(無題)").trim();
 }
-const acctKey = (m) => (m.account && m.account.trim()) || companyFromTitleH(m.title) || "(無題)";
+// kinXs のユーザー一覧の会社名に当てる（題名の中に、その会社名が入っていればそれを使う。いちばん長く当たるもの）（2026-11-11 田中さん）
+let KX_NAMES = [];
+fetch("/api/kinxs/names").then((r) => (r.ok ? r.json() : null)).then((d) => { if (!d || !d.items) return; KX_NAMES = d.items.flatMap((x) => [x.name, ...(x.former || [])].map((n) => ({ name: x.name, k: normKey(n) }))).filter((x) => x.k.length >= 2).sort((a, b) => b.k.length - a.k.length); if (typeof renderList === "function") try { renderList(); } catch {} }).catch(() => {});
+function kxNameFromTitle(title) {
+  if (!KX_NAMES.length) return "";
+  const t = normKey(String(title || "").replace(/[【\[［][^】\]］]*[】\]］]/gu, " ").replace(/[\/／|｜:：]/g, " ")).replace(/[\s　]/g, "");
+  const tFull = String(title || "").normalize("NFKC").replace(/[【\[［][^】\]］]*[】\]］]/gu, "").replace(/株式会社|有限会社|合同会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人|社会福祉法人|学校法人|医療法人社団|医療法人|特定非営利活動法人|生活協同組合|農業協同組合/g, "").replace(/[\s　]/g, "").toLowerCase();
+  for (const x of KX_NAMES) if (tFull.includes(x.k) || (t && t.includes(x.k))) return x.name;
+  return "";
+}
+const acctKey = (m) => (m.account && m.account.trim() && !/[【［\[]/.test(m.account) ? m.account.trim() : "") || kxNameFromTitle(m.title) || companyFromTitleH(m.title) || "(無題)";
 // 会社名の正規化（法人格・空白・様を除去）。「生活協同組合コープみえ」と「コープみえ」を同一視するため。
 function normKey(s) {
   return String(s || "")
     .normalize("NFKC")
     // 「（山崎さん・男性）」のような補足や「/山崎様」は外して比べる
     .replace(/[（(][^）)]*[）)]/g, "")
+    .replace(/[【\[［][^】\]］]*[】\]］]/gu, "")   // 【ユ/フォ】などの頭の印は外して比べる（前は「/」で切れて「【ユ」になり、別の会社が1つにまとまっていた）
     .replace(/株式会社|（株）|\(株\)|㈱|有限会社|（有）|\(有\)|合同会社|合資会社|一般社団法人|公益社団法人|一般財団法人|公益財団法人|社会福祉法人|学校法人|医療法人社団|医療法人|税理士法人|司法書士法人|特定非営利活動法人|独立行政法人|生活協同組合|農業協同組合|漁業協同組合/g, "")
     .replace(/[\/／].*$/u, "")
     .replace(/[\s　]+/g, "")

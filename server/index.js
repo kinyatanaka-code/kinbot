@@ -14918,6 +14918,13 @@ app.delete("/api/kinxs/test-accounts/:id", async (req, res) => {
     res.json({ ok: true, deleted: n });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// kinXs のユーザー（導入企業）の名前だけ（商談履歴で、議事録の題名から会社名を当てるため）（2026-11-11 田中さん）
+app.get("/api/kinxs/names", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const { items } = await kinxsBuildMemo(); res.set("Cache-Control", "no-store");
+    res.json({ ok: true, items: (items || []).map((x) => ({ name: x.name, former: x.formerNames || [] })) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/users", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが見られます" });
@@ -29989,7 +29996,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11i kinbot：商談のライブ映像の配信をやめる（LIVE_STREAM_ENABLED=1 のときだけ配信）。録音の画面からライブ映像のタブと案内を消す。";
+const BUILD_TAG = "2026-11-11j 商談履歴：【ユ/フォ】などの頭の印と「様」で会社名がずれていたのを直し、kinXsのユーザー一覧の会社名に当てる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
