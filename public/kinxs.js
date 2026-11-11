@@ -558,7 +558,8 @@ function kxCoPane(d) {
       <section class="kx-c2" data-sec>
         ${head("企業情報", true)}
         <div class="kx-view">
-          <div class="kx-dl"><span>HP</span><div>${val(f.website, "url")} ${tag("website")}</div><span>住所</span><div>${val(f.address)} ${tag("address")}</div><span>電話番号</span><div>${val(f.phone, "tel")} ${tag("phone")}</div></div>
+          <div class="kx-dl"><span>HP</span><div>${val(f.website, "url")} ${tag("website")}</div><span>住所</span><div>${val(f.address)} ${tag("address")}</div><span>電話番号</span><div>${val(f.phone, "tel")} ${tag("phone")}</div>
+            <span>販売区分</span><div data-sales="channel"><span class="kx-note">SFを読んでいます…</span></div><span>サーカスNo</span><div data-sales="circus"><span class="kx-note">…</span></div><span>初期費用</span><div data-sales="initial"><span class="kx-note">…</span></div></div>
           ${f.sfNote && (!f.website || !f.address || !f.phone) ? `<div class="kx-note" style="margin-top:8px">${esc(f.sfNote)}${/見つかりません/.test(f.sfNote) ? "。「編集」で入れられます" : ""}</div>` : ""}
         </div>
         <div class="kx-editbox kx-form">
@@ -761,7 +762,7 @@ async function openDetail(id, reuse) {
     if (dl) dl.style.display = "none";
   })();
   if (!bg.isConnected) document.body.appendChild(bg);
-  kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg);
+  kxCircusMount(bg, x); kxKenshuMount(bg, x); kxNowMount(bg); kxSalesMount(bg, x);
   if (reuse) {
     if (reuse.tab) { bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2.dataset.tab === reuse.tab)); bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== reuse.tab; }); }
     const dr = bg.querySelector(".kx-drawer"); if (dr && reuse.scroll) dr.scrollTop = reuse.scroll;
@@ -2639,4 +2640,21 @@ function kxNowMount(bg) {
     if (a === "ken-pdf") { const here = bg.querySelector("[data-ken-sec-st]"); if (here) { here.scrollIntoView({ behavior: "smooth", block: "start" }); const f = here.querySelector("[data-ken-file]"); if (f) setTimeout(() => f.click(), 350); return; }
       const k = bg.querySelector("[data-ken-sec]"); if (k) { k.scrollIntoView({ behavior: "smooth", block: "start" }); const b = k.querySelector("[data-ken-add]"); if (b) b.click(); } }
   }));
+}
+
+// 企業情報：販売区分・サーカスNo・初期費用（SFの受注商談から）（2026-11-11 CSの要望）
+const _kxSalesC = new Map();
+async function kxSalesMount(bg, x) {
+  const cells = { channel: bg.querySelector('[data-sales="channel"]'), circus: bg.querySelector('[data-sales="circus"]'), initial: bg.querySelector('[data-sales="initial"]') };
+  if (!cells.channel) return;
+  let d = _kxSalesC.get(x.id);
+  if (!d) { try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/sales`); if (d && d.ok) _kxSalesC.set(x.id, d); } catch (e) { d = { error: e.message }; } }
+  const none = '<span class="kx-none">SFに無し</span>';
+  if (!d || d.none || d.error) { const m = d && d.error ? `<span class="kx-note">${esc(d.error)}</span>` : '<span class="kx-none">SFの会社ではありません</span>'; Object.values(cells).forEach((c) => { if (c) c.innerHTML = m; }); return; }
+  const ch = d.channel === "社内代理店" ? "社内代理店（PS）" : d.channel;
+  cells.channel.innerHTML = ch ? `<b class="kx-sales-chip ${d.channel === "直販" ? "dr" : "ps"}">${esc(ch)}</b>` : none;
+  cells.circus.innerHTML = d.circus ? `<b>${esc(d.circus)}</b>${(d.circusAll || []).length > 1 ? ` <small class="kx-note">（ほか ${esc(d.circusAll.filter((c) => c !== d.circus).join("・"))}）</small>` : ""}` : none;
+  cells.initial.innerHTML = d.initial && d.initial.has
+    ? `<b class="kx-sales-chip yes">あり</b> <small>${d.initial.items.map((it) => `${esc(String(it.name).replace(/【ＤＯＣ】|【DOC】/, ""))}${it.price != null ? ` ${Number(it.price).toLocaleString()}円` : ""}`).join("・")}</small>`
+    : '<b class="kx-sales-chip no">なし</b> <small class="kx-note">（アチコチバースのみ）</small>';
 }

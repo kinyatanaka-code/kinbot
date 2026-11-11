@@ -13481,6 +13481,28 @@ async function arCircusFromSf(accountId, user) {
   const r = await sfQuery(sfUser, `SELECT Id, Name, CloseDate, StageName, ${cf.api} FROM Opportunity WHERE AccountId = '${acc}' AND ${cf.api} != null ORDER BY CloseDate DESC LIMIT 20`).catch((e) => ({ records: [], error: e.message }));
   return { field: cf.label, items: (r.records || []).map((o) => ({ no: String(o[cf.api] || "").trim(), opp: o.Name, oppId: o.Id, close: o.CloseDate, stage: o.StageName })).filter((x) => x.no), note: r.error || "" };
 }
+// 企業情報の「販売区分（直販／社内代理店＝PS）」「サーカスNo」「初期費用の有無」（2026-11-11 CSヒアリング：初期費用は毎回SFで確かめていて手間）
+//   SFの受注した商談（DOCの商品が入っているもの）のうち一番新しいもので見る。初期費用＝アチコチバース（空間利用料）以外の商品（エントリープランなど）
+const _kxSales = new Map();
+app.get("/api/kinxs/accounts/:id/sales", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "できません" });
+    const id = String(req.params.id || ""); if (!/^[0-9a-zA-Z]{15,18}$/.test(id)) return res.json({ ok: true, none: true });
+    const hit = _kxSales.get(id); if (hit && Date.now() - hit.at < 10 * 60 * 1000 && req.query.fresh !== "1") return res.json(hit.data);
+    const st = await getSettings().catch(() => ({}));
+    const sfU = await pickSfUser(st.psOwner || req.user || "", req).catch(() => ""); if (!sfU) return res.json({ ok: true, error: "SFにつながっている人がいません" });
+    const r = await sfQuery(sfU, `SELECT Id, Name, CloseDate, salestype__c, SarcusNO__c, Amount, (SELECT Product2.Name, TotalPrice FROM OpportunityLineItems) FROM Opportunity WHERE AccountId = '${id}' AND IsWon = true ORDER BY CloseDate DESC LIMIT 20`);
+    const isDoc = (n) => /アチコチ|ＤＯＣ|DOC|どこでもオープン|空間デザイン|エントリープラン|スタンダードプラン|ライトプラン/i.test(String(n || ""));
+    const opps = (r.records || []).map((o) => ({ id: o.Id, name: o.Name, close: o.CloseDate, channel: o.salestype__c || "", circus: o.SarcusNO__c || "", items: ((o.OpportunityLineItems && o.OpportunityLineItems.records) || []).map((li) => ({ name: (li.Product2 && li.Product2.Name) || "", price: li.TotalPrice })) }));
+    const doc = opps.filter((o) => o.items.some((it) => isDoc(it.name)));
+    const first = doc[doc.length - 1] || null, last = doc[0] || null;
+    const initItems = doc.flatMap((o) => o.items.filter((it) => isDoc(it.name) && !/アチコチ/.test(it.name)).map((it) => ({ ...it, close: o.close })));
+    const data = { ok: true, channel: (last && last.channel) || (first && first.channel) || "", circus: (last && last.circus) || "", circusAll: [...new Set(doc.map((o) => o.circus).filter(Boolean))],
+      initial: { has: initItems.length > 0, items: initItems }, opp: last ? { id: last.id, name: last.name, close: last.close } : null };
+    _kxSales.set(id, { at: Date.now(), data });
+    res.json(data);
+  } catch (e) { res.json({ ok: false, error: e.message }); }
+});
 // 企業の詳細の「SFの商談の商品」に出すサーカスNo（読むだけなので kincs でも）（2026-11-10 田中さん）
 app.get("/api/kinxs/accounts/:id/circus", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "できません" }); res.json({ ok: true, ...(await arCircusFromSf(req.params.id, req.user)) }); }
@@ -29882,7 +29904,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-10zv kinXs 情報不足：kinXsで手で入れたHP・住所・電話・先方の担当者も数える。直したら情報不足を作り直す。";
+const BUILD_TAG = "2026-11-11a kinXs 企業情報：販売区分（直販／社内代理店）・サーカスNo・初期費用の有無をSFの受注商談から出す（CSの要望）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
