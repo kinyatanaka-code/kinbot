@@ -30254,7 +30254,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zm 拡張機能の名前を kinbot-ext に（1.3.3、/kinbot-ext.zip）。設定に「拡張機能」のメニュー（ダウンロード・入れ方・版）。";
+const BUILD_TAG = "2026-11-11zn kinXs：左のメニューを詰めて、設定（下の名前・設定）まで1画面に収める。ほかのツールは2列の小さいボタンに。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
