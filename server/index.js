@@ -14041,6 +14041,8 @@ async function kinxsBuild() {
       meetings: mts.length, error: r.error || "", estimated: !!r.end_estimated, manual: r.source === "manual", test: r.source === "test", sfLinked: !!(r.info && r.info.sf_linked), formerNames, renewLocked: !!r.renew_locked,
       productItems: (r.products || []).map((p) => (typeof p === "string" ? { name: p } : p)).map((p) => ({ name: p.name, cls: kxClassOf(p.name), booked: p.booked || "", stage: p.stage || "", opp: p.opp || "", oppName: p.oppName || "" })),
       prodLabels: Array.isArray(r.prod_labels) ? r.prod_labels : kxGuessLabels(r.products), prodLabelsAuto: !Array.isArray(r.prod_labels),
+      // 販売区分（直販／社内代理店＝PS）：SFの商談名の頭（「直販_クロス_…」「社内代理店_クロス_…」）から。一番新しい受注の商談で（2026-11-11 田中さん：企業カードにも）
+      channel: (() => { const ps = (r.products || []).filter((p) => p && typeof p === "object" && p.oppName).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))); for (const p of ps) { const m = String(p.oppName).match(/^\s*(直販|社内代理店|代理店|PS)[_＿]/); if (m) return m[1] === "直販" ? "直販" : "PS"; } return ""; })(),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", kenshuOn, delivered, endOn: ymd0(r.end_on),
       // 前月比のための日付（2026-11-04）：納品した日（検収書の回収日 → 10月より前の受注は受注日 → 自動で回収済みにしたものは受注日＋90日）・DOCを最初に受注した日
@@ -29904,7 +29906,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11a kinXs 企業情報：販売区分（直販／社内代理店）・サーカスNo・初期費用の有無をSFの受注商談から出す（CSの要望）。";
+const BUILD_TAG = "2026-11-11b kinXs：企業カードに販売区分（直販／PS）を出す（SFの商談名の頭から）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

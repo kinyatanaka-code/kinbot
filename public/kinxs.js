@@ -388,7 +388,7 @@ function renderList() {
   // ロゴ（会社のHPから）があれば白い四角に、読めなければ頭文字
   const card = (x) => `<div class="kx-uc kx-uc-lux" style="--accent:${PH[x.label] || "#1D9E75"}" data-open="${esc(x.id)}" role="button" tabindex="0" title="${esc(`${x.name}（${x.label}）`)}">${x.logo
       ? `<span class="mono logo" aria-hidden="true"><img src="${esc(x.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.remove('logo');this.parentNode.textContent='${esc(mono(x.name)).replace(/'/g, "")}'"></span>`
-      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm has-former"><span class="t">${esc(x.name)}</span>${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}${kxPlTags(x)}</div></div>`;
+      : `<span class="mono" aria-hidden="true">${esc(mono(x.name))}</span>`}<div class="nm has-former"><span class="t">${esc(x.name)}</span>${(x.formerNames || []).length ? `<span class="kx-former" title="旧社名：${esc(x.formerNames.join("・"))}">旧：${esc(x.formerNames[x.formerNames.length - 1])}</span>` : ""}<span class="kx-uc-tags2">${x.channel ? `<span class="kx-chtag ${x.channel === "直販" ? "dr" : "ps"}" title="販売区分">${esc(x.channel)}</span>` : ""}${kxPlTags(x)}</span></div></div>`;
   const lsTab = window.__lsTab || "all";
   const lsTabPrevSeen = window.__lsTabSeen; window.__lsTabPrev = lsTabPrevSeen; window.__lsTabSeen = lsTab;
   document.querySelectorAll("[data-lstab]").forEach((b) => b.classList.toggle("on", b.dataset.lstab === lsTab));
