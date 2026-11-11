@@ -819,8 +819,10 @@ function handle(msg) {
       // 実際のライブ開始時刻にタイマーを合わせる
       if (msg.startedAt) startTimer(msg.startedAt);
       if (msg.repName) liveRepName = msg.repName;
-      // ライブ映像（Mux）
-      if (msg.isOwner) {
+      // ライブ映像（Mux）。配信をやめているときは、タブも案内も出さない（2026-11-11）
+      if (!_liveCfg || _liveCfg.enabled !== true) {
+        showVideoTab(false);
+      } else if (msg.isOwner) {
         // 録画している本人は、ライブ映像を見られない。
         // 同じ会議に出ているので見る必要がなく、音が二重に聞こえてしまうため。
         showOwnerNotice(msg.muxError || "");

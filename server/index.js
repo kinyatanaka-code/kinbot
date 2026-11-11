@@ -2797,7 +2797,7 @@ app.get("/api/live/relay-dest", async (req, res) => {
 // ライブ配信の設定（画面側が再生URLを組み立てるために使う）
 app.get("/api/live/info", (req, res) => {
   res.set("Cache-Control", "no-store");
-  const info = liveInfo();
+  const info = { ...liveInfo(), enabled: process.env.LIVE_STREAM_ENABLED === "1" };   // ライブ映像の配信をしているか（2026-11-11 ふだんは止める）
   const raw = String(process.env.CF_STREAM_CUSTOMER_CODE || "");
   const code = raw.trim().replace(/^https?:\/\//, "").replace(/^customer-/, "").replace(/\.cloudflarestream\.com.*$/, "").replace(/\/.*$/, "");
   res.json({
@@ -28604,9 +28604,9 @@ async function startBotSession(owner, meetingUrl, { title = "", repName = "", la
   //
   // ここで作れないと、あとから配信できない（Recallに渡す送り先は入室時にしか決められないため）。
   // だから、作れなかったときは必ず理由を残す。
-  if (process.env.LIVE_STREAM_ENABLED === "0") {
-    muxError = "ライブ配信が止められています（LIVE_STREAM_ENABLED=0）";
-    console.warn("[live] " + muxError);
+  // 2026-11-11 田中さん「商談のライブ映像の配信はもう消してほしい」：ふだんは配信しない（LIVE_STREAM_ENABLED=1 のときだけ配信）
+  if (process.env.LIVE_STREAM_ENABLED !== "1") {
+    muxError = "";   // 配信しない。画面にも何も出さない
   } else if (!liveConfigured()) {
     const info = liveInfo();
     muxError = info.provider === "cloudflare"
@@ -29989,7 +29989,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11h kinXs 企業の詳細：タスクのタブをタスク管理ツールの形に（追加の欄・期限ごとのまとまり・丸で済み・期日で日付変更・次回アクションも1行に）。";
+const BUILD_TAG = "2026-11-11i kinbot：商談のライブ映像の配信をやめる（LIVE_STREAM_ENABLED=1 のときだけ配信）。録音の画面からライブ映像のタブと案内を消す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
