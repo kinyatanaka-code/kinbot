@@ -14081,6 +14081,7 @@ async function kinxsBuild() {
       // 初期費用の有無：DOCの商品のうち、アチコチバース（空間利用料）以外（エントリープランなど）があれば「あり」（2026-11-11 田中さん：カードに）。DOCの商品が無ければ null
       initFee: (() => { const ps = (r.products || []).map((p) => String((p && typeof p === "object" ? p.name : p) || "")); const doc = ps.filter((n) => /アチコチ|ＤＯＣ|DOC|どこでもオープン|空間デザイン|エントリープラン|スタンダードプラン|ライトプラン/i.test(n)); if (!doc.length) return null; return doc.some((n) => !/アチコチ/.test(n)); })(),
       // 販売区分（直販／社内代理店＝PS）：SFの商談名の頭（「直販_クロス_…」「社内代理店_クロス_…」）から。一番新しい受注の商談で（2026-11-11 田中さん：企業カードにも）
+      naOwner: r.na_owner || "",
       channel: (() => { const ps = (r.products || []).filter((p) => p && typeof p === "object" && p.oppName).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))); for (const p of ps) { const m = String(p.oppName).match(/^\s*(直販|社内代理店|代理店|PS)[_＿]/); if (m) return m[1] === "直販" ? "直販" : "PS"; } return ""; })(),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", kenshuOn, delivered, endOn: ymd0(r.end_on),
@@ -16095,6 +16096,9 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
 app.put("/api/kinxs/accounts/:id", async (req, res) => {
   try {
     _kxMissing = { at: 0, data: null };   // 直したら、情報不足を次に読むときに作り直す（2026-11-10）
+    // 次回アクションの担当（CS担当以外にも託せる）（2026-11-11 田中さん）。空ならCS担当に戻す。次回アクションを済み（空）にしたら担当も戻す
+    if (req.body && req.body.na_owner !== undefined) { const v0 = String(req.body.na_owner || "").trim(); if (v0) { const em = await kxAssigneeEmail(v0); if (!em) return res.status(400).json({ error: "託す人が見つかりません" }); req.body.na_owner = em; } else req.body.na_owner = null; }
+    if (req.body && req.body.na_text === "" && req.body.na_owner === undefined) req.body.na_owner = null;
     // 次回アクションを「済み」（空）にしたら、Gmail（メールワイズのコピー）・議事録から次の次回アクションを読む（2026-11-11 田中さん）。裏で動かす
     if (req.body && req.body.na_text === "") {
       const prevNa = String(((await kinxsList().catch(() => [])).find((y) => y.account_id === req.params.id) || {}).na_text || "");
@@ -16103,6 +16107,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
     const b = req.body || {};
     const patch = {};
+    if (req.body && req.body.na_owner !== undefined) patch.na_owner = req.body.na_owner;
     for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
     if ("purpose" in b || "usage_status" in b || "cs_name" in b) {
       const rows2 = await kinxsList(); const r2 = rows2.find((y) => y.account_id === req.params.id) || {};
@@ -30137,7 +30142,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11ze kinXs：DOCを選んだら「初期：すべて／初期あり／初期なし」でも絞れる（社数つき）。カードの札は折り返さない。";
+const BUILD_TAG = "2026-11-11zf kinXs：次回アクションにも担当（ふだんはCS担当、ほかの人に託せる）。タスクのタブとホームの要アクションに担当の名前。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
