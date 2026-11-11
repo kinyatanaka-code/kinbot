@@ -30259,7 +30259,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zq 拡張機能1.3.4：メールワイズの読み取りの様子を残して設定に出す。kinbot へ送れたかは返事の中身で判断し、送れなければ kinbot の画面から1分ごとに送り直す。";
+const BUILD_TAG = "2026-11-11zr 設定の拡張機能：見えないときの案内を「画面を開き直して（F5）」に。古い拡張機能が残っているときも分かるように。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
