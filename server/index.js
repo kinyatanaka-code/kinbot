@@ -14578,11 +14578,14 @@ app.post("/api/kinxs/mailwise/ingest", express.json({ limit: "5mb" }), async (re
     let added = 0, matched = 0;
     for (const it of items) {
       const url = String(it.url || ""); if (!url) continue;
-      const emails = (Array.isArray(it.emails) ? it.emails : []).map((e) => String(e).toLowerCase()).filter((e) => !/neo-career|neocareer|mochica\.jp|cybozu/.test(e));
+      const fromMail = (String(it.from || "").match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/) || [])[0] || "";
+      const emails = [...new Set([fromMail, ...(Array.isArray(it.emails) ? it.emails : [])].map((e) => String(e).toLowerCase()).filter(Boolean))].filter((e) => !/neo-career|neocareer|mochica\.jp|cybozu/.test(e));
       let acc = null; let from = "";
       for (const e of emails) { acc = byEmail.get(e) || byDomain.get(e.split("@")[1] || ""); if (acc) { from = e; break; } }
-      if (!acc) acc = byTitle(it.subject || "");
-      let owner = await kxAssigneeEmail(String(it.space || "").trim()).catch(() => "");
+      if (!acc) acc = byTitle(it.subject || "") || byTitle(it.from || "");   // 差出人の欄に会社名が出ることもある（アドレス帳に入っている先方）
+      // 持ち主：メールワイズで「担当者」が付いていればその人、なければメールアプリの名前（担当者ごとのアプリ）、それも無ければ会社のCS担当
+      let owner = it.assigned ? await kxAssigneeEmail(String(it.assigned).trim()).catch(() => "") : "";
+      if (!owner) owner = await kxAssigneeEmail(String(it.space || "").trim()).catch(() => "");
       if (!owner && acc) owner = await kxEmailOfName(acc.cs || "").catch(() => "");
       const ok = await kxMwAdd({ id: crypto.createHash("sha1").update(url).digest("hex").slice(0, 24), url, space: it.space, owner: owner || null, subject: it.subject, body: it.text, emails, from: from || emails[0] || "", accountId: acc ? acc.id : null, accountName: acc ? acc.name : "", sentBy: req.user });
       if (ok) { added++; if (acc) matched++; }
@@ -30249,7 +30252,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11zj kinXs：拡張機能（1.3.0）がメールワイズの各メールスペースを5分ごとに裏で読み、kinXsへ送る。会社と持ち主を当て、1時間に1回のタスク作りに入れる。";
+const BUILD_TAG = "2026-11-11zk 拡張機能1.3.1：メールワイズの読み方を本物の画面（スペース wid とメールアプリ bs、tr#hl…の行）に合わせる。直近2日・通知メールは除く。担当者・差出人の会社名でも当てる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
