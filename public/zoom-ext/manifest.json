@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "kinbot 補助（Zoomサインイン・メールワイズ）",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "kincallで借りたZoomアカウントのサインインを自動で進めます。kinXsで作ったメールの下書きをメールワイズに入れ、メールワイズのメールを読んでkinXsのタスク作りに使います（ネオキャリア社内用）。",
   "permissions": [
     "storage",

@@ -132,12 +132,17 @@
   };
   // 通知メール（パスワード通知・暗号化・ブロック・配送エラーなど）は読まない
   const SKIP = /パスワード通知|暗号化完了|safeAttach|Delivery Status|ダウンロード通知|送信案内|返信成功|Cc送信案内|ブロック通知/i;
+  // メールの詳細（MailView）：件名 .mailTitle、差出人・宛先・CC は .mailContentDiv（見出し .mailContentHead）、本文 .mailBody（<tt> と <br>）、日時 .mailContentDateTime
   const readMail = (doc, url, row) => {
-    doc.querySelectorAll("script,style,noscript,select,option,button,header,#appmenu-wrapper,#pathbar,.edit-overlay-outer,form[name=HeaderSearch]").forEach((e) => e.remove());
-    const all = txt(doc.body ? doc.body.textContent : "");
-    const emails = [...new Set((all.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map((e) => e.toLowerCase()))].slice(0, 20);
-    let body = ""; doc.querySelectorAll("pre, tt, .mailBody, .mail-body, .messageBody, td, div").forEach((e) => { const t = String(e.textContent || "").trim(); if (t.length > body.length && t.length < 20000 && !e.querySelector("table table")) body = t; });
-    return { url, subject: row.subject, from: row.from, status: row.status, assigned: row.assigned, received: `${row.date} ${row.time}`.trim(), text: (body || all).replace(/\n{3,}/g, "\n\n").slice(0, 6000), emails };
+    const head = {}; doc.querySelectorAll(".mailContentDiv").forEach((d) => { const h = txt((d.querySelector(".mailContentHead") || {}).textContent); const v = d.querySelector(".mailContentHead + div"); if (h && v) head[h] = txt(v.textContent); });
+    const bodyEl = doc.querySelector(".mailBody tt") || doc.querySelector(".mailBody");
+    let body = ""; if (bodyEl) { bodyEl.querySelectorAll("script,style").forEach((e) => e.remove()); body = String(bodyEl.innerHTML || "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\n\s*\n\s*\n+/g, "\n\n").trim(); }
+    const subject = txt((doc.querySelector(".mailTitle") || {}).textContent) || row.subject;
+    const from = head["差出人"] || row.from || "";
+    const addrs = [from, head["宛先"], head["CC"], body].join(" ");
+    const emails = [...new Set((addrs.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map((e) => e.toLowerCase()))].slice(0, 20);
+    const when = txt((doc.querySelector(".mailContentDateTime") || {}).textContent) || `${row.date} ${row.time}`.trim();
+    return { url, subject, from, to: head["宛先"] || "", cc: head["CC"] || "", status: row.status, assigned: row.assigned, received: when, text: body.slice(0, 6000), emails };
   };
   async function crawl() {
     const st = await chrome.storage.local.get([RUN, SEEN, PEND]);
