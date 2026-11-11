@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>kinbot for MOCHICA</title>
 <link rel="icon" href="/kinbot-mochica.svg" type="image/svg+xml" />
-<meta name="theme-color" content="#0d5b47" />
+<meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 <link rel="stylesheet" href="/style.css?v=20261112c" />
@@ -32,6 +32,17 @@
   .mc-form input{height:36px;border:1px solid #DCE7E1;border-radius:9px;padding:0 10px;font:inherit;font-size:13px;}
   .mc-btn{height:36px;border:0;border-radius:10px;background:#0d5b47;color:#fff;font:inherit;font-size:13px;font-weight:800;padding:0 16px;cursor:pointer;}
   [data-pane][hidden]{display:none;}
+
+  /* kinbot for MOCHICA：基本の色を水色に（2026-11-12 田中さん） */
+  :root{--accent:#0E9AA7 !important;--accent-soft:#DDF5F7 !important;--bg:#F2F9FA !important;--panel-2:#F2FAFB !important;--line:#D9ECEE !important;--ink:#12292C !important;--muted:#5C7377 !important;}
+  .sidebar{background:linear-gradient(180deg,#0F3D44 0%,#082429 100%) !important;}
+  .sidebar .side-item{color:#A8E8EE !important;} .sidebar .side-item:hover{background:rgba(94,234,212,.10) !important;color:#fff !important;}
+  .sidebar .side-item.active{background:rgba(94,234,212,.16) !important;color:#5EEAD4 !important;}
+  .sidebar .side-hi{border-color:rgba(94,234,212,.4) !important;background:linear-gradient(135deg,rgba(94,234,212,.18),rgba(94,234,212,.05)) !important;color:#CFF7FA !important;}
+  .side-foot .who,.side-foot a{color:#A8E8EE !important;}
+  .mc-card .ok{color:#0E9AA7 !important;} .mc-tag{background:#DDF5F7 !important;color:#0B6E78 !important;} .mc-tag.wait{background:#FFF1E6 !important;color:#A2480C !important;}
+  .mc-btn{background:#0E9AA7 !important;} .mc-card,.mc-box{border-color:#D9ECEE !important;} .mc-form input{border-color:#D9ECEE !important;}
+  .mc-form input:focus{outline:2px solid #5EEAD4;border-color:#0E9AA7 !important;}
 </style>
 </head>
 <body>
@@ -51,7 +62,6 @@
   <div class="main">
     <header class="topbar">
       <div class="brand"><img class="topbar-bot" src="/kinbot-mochica.svg" alt="" /><span class="brand-name" id="mcTitle">ホーム</span></div>
-      <div class="mc-sw"><a href="/home.html">DOC</a><a class="on" href="/mochica">MOCHICA</a></div>
     </header>
     <div class="mc-main">
 <section data-pane="home">
