@@ -25182,14 +25182,14 @@ app.get("/api/vendors", async (req, res) => {
 // ===== Deepgram のキー（控え）：kinbot の設定からも足せる・使えなくなったら次のキーに自動で切りかえる（2026-11-11 田中さん）=====
 setTimeout(async () => { try { setDeepgramKeys((await getSettings()).dgKeys || []); } catch {} }, 2000);
 app.get("/api/admin/deepgram-keys", async (req, res) => {
-  try { if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが見られます" });
+  try { if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけが見られます" });
     const st = await getSettings().catch(() => ({})); const saved = Array.isArray(st.dgKeys) ? st.dgKeys : [];
     const status = deepgramKeyStatus();
     res.json({ ok: true, active: deepgramActiveLast4(), env: status.filter((k) => k.fromEnv), saved: saved.map((k, i) => ({ i, last4: String(k.key || "").slice(-4), label: k.label || "", at: k.at || "", by: k.by || "", bad: (status.find((x) => !x.fromEnv && x.last4 === String(k.key || "").slice(-4)) || {}).bad || null })) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/admin/deepgram-keys", async (req, res) => {
-  try { if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが足せます" });
+  try { if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけが足せます" });
     const key = String((req.body && req.body.key) || "").trim(); if (!/^[A-Za-z0-9]{20,80}$/.test(key)) return res.status(400).json({ error: "キーの形ではありません" });
     const t = await deepgramTestKey(key); if (!t.ok && !(req.body && req.body.force)) return res.status(400).json({ error: `このキーは使えませんでした：${t.reason}` });
     const st = await getSettings().catch(() => ({})); const list = (Array.isArray(st.dgKeys) ? st.dgKeys : []).filter((k) => k.key !== key);
@@ -25199,7 +25199,7 @@ app.post("/api/admin/deepgram-keys", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete("/api/admin/deepgram-keys/:i", async (req, res) => {
-  try { if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが消せます" });
+  try { if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけが消せます" });
     const st = await getSettings().catch(() => ({})); const list = (Array.isArray(st.dgKeys) ? st.dgKeys : []).filter((_, i) => i !== Number(req.params.i));
     await saveSettings({ dgKeys: list }); setDeepgramKeys(list); res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -30069,7 +30069,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11s kinbot：Deepgramのキーを設定（サービスと料金）からも足せる。今のキーが使えなくなったら（残高切れなど）、控えのキーに自動で切りかえて送り直す。";
+const BUILD_TAG = "2026-11-11t kinbot 設定：Deepgramの控えのキーを、ほかの管理者向けの画面と同じ判定（オーナー＋管理者）で見られるように。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
