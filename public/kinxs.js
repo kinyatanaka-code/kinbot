@@ -708,7 +708,7 @@ async function openDetail(id, reuse) {
     <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button><button type="button" data-tab="co">企業情報</button></div>
     <div data-pane="task" style="display:flex;flex-direction:column;gap:12px">
       <section class="kx-tm">
-        <div class="kx-tm-add">${window.KX_COPY ? "" : `<span class="kx-tm-plus">＋</span><input data-ctask-t placeholder="タスクを追加（例：検収書の回収をお願いする）　Enterで追加"><label class="kx-tm-due add" title="期日（なくてもよい）">期日<input type="date" data-ctask-d></label><button type="button" class="kx-btn kx-pri" data-ctask-add>追加</button>`}</div>
+        <div class="kx-tm-add">${window.KX_COPY ? "" : `<span class="kx-tm-plus">＋</span><input data-ctask-t placeholder="タスクを追加（例：検収書の回収をお願いする）　Enterで追加"><label class="kx-tm-due add" title="期日（なくてもよい）">期日<input type="date" data-ctask-d></label><label class="kx-tm-who add" title="だれのタスクにするか（CS担当以外にも託せます）"><span data-ctask-wl>自分</span><select data-ctask-who></select></label><button type="button" class="kx-btn kx-pri" data-ctask-add>追加</button>`}</div>
         <div data-ctask class="kx-note" style="padding:10px 4px">読み込んでいます…</div>
       </section>
       <details class="kx-more" data-na-more><summary>次回アクションの中身（目的・当日に確認すること・前回の宿題）</summary>${kxNextActSection(x)}</details>
@@ -2719,6 +2719,11 @@ async function kxCTaskMount(bg, x) {
   const srcCls = (s0) => /メール|Gmail|メールワイズ/.test(s0) ? "ml" : /チャット|Chat/.test(s0) ? "ch" : /Claude/.test(s0) ? "cl" : /手入力/.test(s0) ? "mn" : "kx";
   const openNa = () => { const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; dt.scrollIntoView({ behavior: "smooth", block: "start" }); } };
   let open = { done: false };
+  let people = [], me = "";
+  try { const pp = await api("/api/kinxs/people"); people = pp.items || []; me = pp.me || ""; } catch {}
+  { const sel = bg.querySelector("[data-ctask-who]"), wl = bg.querySelector("[data-ctask-wl]");
+    if (sel) { sel.innerHTML = people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === me ? "selected" : ""}>${esc(p0.name)}${p0.email === me ? "（自分）" : ""}</option>`).join("");
+      sel.addEventListener("change", () => { const p0 = people.find((q) => q.email === sel.value); if (wl) wl.textContent = sel.value === me ? "自分" : (kxSurname(p0 ? p0.name : "") || (p0 ? p0.name : "")); }); } }
   const load = async () => {
     let d; try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks`); } catch (e) { box.textContent = "読めませんでした：" + e.message; return; }
     // 次回アクションも、この会社のタスクの1つとして並べる
@@ -2736,6 +2741,7 @@ async function kxCTaskMount(bg, x) {
           <div class="kx-tm-title">${esc(t.title)}</div>
           <div class="kx-tm-meta">${t.na ? '<span class="kx-tm-tag na">次回アクション</span>' : `<span class="kx-tm-tag ${srcCls(t.src)}">${esc(t.src || "")}</span>`}${t.kind && t.na ? `<span class="kx-tm-tag kx">${esc(t.kind)}</span>` : ""}${t.detail ? `<span>${esc(t.detail)}</span>` : ""}${t.link ? `<a href="${esc(t.link)}" target="_blank" rel="noopener">開く ↗</a>` : ""}</div>
         </div>
+        ${t.na ? "" : (ro || !t.id ? `<span class="kx-tm-who" title="担当">${esc(kxSurname(t.ownerName || "") || t.ownerName || "")}</span>` : `<label class="kx-tm-who" title="担当を変える（託す）${t.byName ? `／${esc(t.byName)}さんが託した` : ""}">${esc(kxSurname(t.ownerName || "") || t.ownerName || "")}${t.byName ? '<em>託</em>' : ""}<select data-tm-who="${i}">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === String(t.owner || "").toLowerCase() ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`)}
         ${ro ? `<span class="kx-tm-due ${b}">${t.due ? md(t.due) : ""}</span>` : `<label class="kx-tm-due ${b}" title="期日を変える">${t.due ? `${md(t.due)}${t.time ? ` ${t.time}` : ""}${late ? `<em>${late}日過ぎ</em>` : ""}` : "期日"}<input type="date" data-tm-due="${i}" value="${esc(t.due || "")}"></label>`}
         ${ro || t.na ? "" : `<button type="button" class="kx-tm-x" data-tm-del="${i}" title="消す" aria-label="消す">×</button>`}
       </div>`;
@@ -2761,6 +2767,8 @@ async function kxCTaskMount(bg, x) {
       b.disabled = true; try { await upd(t, { status: t.status === "完了" ? "未着手" : "完了" }); load(); } catch (e) { alert(e.message); b.disabled = false; } }));
     box.querySelectorAll("[data-tm-due]").forEach((inp) => { inp.addEventListener("click", () => { try { inp.showPicker(); } catch {} });
       inp.addEventListener("change", async () => { const t = list[Number(inp.dataset.tmDue)]; try { await upd(t, { due: inp.value || "" }); load(); } catch (e) { alert(e.message); } }); });
+    box.querySelectorAll("[data-tm-who]").forEach((sel) => sel.addEventListener("change", async () => { const t = list[Number(sel.dataset.tmWho)];
+      try { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks/${t.id}`, { method: "PUT", body: JSON.stringify({ assignee: sel.value }) }); load(); } catch (e) { alert(e.message); } }));
     box.querySelectorAll("[data-tm-del]").forEach((b) => b.addEventListener("click", async () => { const t = list[Number(b.dataset.tmDel)]; if (!confirm(`「${t.title}」を消しますか？`)) return; try { await upd(t, { deleted: true }); load(); } catch (e) { alert(e.message); } }));
     box.querySelectorAll("[data-tm-na]").forEach((el) => { el.addEventListener("click", openNa); el.addEventListener("keydown", (e) => { if (e.key === "Enter") openNa(); }); });
     const fb = box.querySelector("[data-tm-fold]"); if (fb) fb.addEventListener("click", () => { open.done = !open.done; load(); });
@@ -2769,7 +2777,8 @@ async function kxCTaskMount(bg, x) {
   if (add) {
     const dl = dIn && dIn.closest("label"); if (dIn) { dIn.addEventListener("click", () => { try { dIn.showPicker(); } catch {} }); dIn.addEventListener("change", () => { if (dl) dl.firstChild.textContent = dIn.value ? md(dIn.value) : "期日"; }); }
     const go = async () => { const title = tIn.value.trim(); if (!title) { tIn.focus(); return; } add.disabled = true;
-      try { await api("/api/kinxs/tasks", { method: "POST", body: JSON.stringify({ title, accountId: x.id, accountName: x.name, due: dIn.value || "" }) }); tIn.value = ""; dIn.value = ""; if (dl) dl.firstChild.textContent = "期日"; load(); } catch (e) { alert(e.message); } add.disabled = false; tIn.focus(); };
+      const wSel = bg.querySelector("[data-ctask-who]"); const assignee = wSel && wSel.value && wSel.value !== me ? wSel.value : "";
+      try { await api("/api/kinxs/tasks", { method: "POST", body: JSON.stringify({ title, accountId: x.id, accountName: x.name, due: dIn.value || "", ...(assignee ? { assignee } : {}) }) }); tIn.value = ""; dIn.value = ""; if (dl) dl.firstChild.textContent = "期日"; load(); } catch (e) { alert(e.message); } add.disabled = false; tIn.focus(); };
     add.addEventListener("click", go); tIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) go(); });
   }
   load();

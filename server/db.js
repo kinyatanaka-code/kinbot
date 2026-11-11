@@ -12608,7 +12608,7 @@ export async function kxTaskUpdateAny(id, patch) {
   if (!pool) return null;
   await kxTaskInit();
   const sets = [], vals = [Number(id)];
-  for (const k of ["title", "due", "status", "note", "deleted"]) if (k in patch) { vals.push(patch[k]); sets.push(`${k}=$${vals.length}`); }
+  for (const k of ["title", "due", "status", "note", "deleted", "owner"]) if (k in patch) { vals.push(k === "owner" ? String(patch[k] || "").toLowerCase() : patch[k]); sets.push(`${k}=$${vals.length}`); }
   if ("status" in patch) sets.push(patch.status === "完了" ? "done_at=now()" : "done_at=NULL");
   if (!sets.length) return null;
   return (await pool.query(`UPDATE kinxs_tasks SET ${sets.join(", ")}, updated_at=now() WHERE id=$1 RETURNING *`, vals)).rows[0] || null;
