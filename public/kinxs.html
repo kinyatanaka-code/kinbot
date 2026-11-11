@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261111g" />
+    <link rel="stylesheet" href="style.css?v=20261111h" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -861,6 +861,25 @@
   .h2-op.date{color:#33463D;} .h2-op.date::before{content:"📅";margin-right:3px;font-size:11px;}
   .h2-list .h2-li{grid-template-columns:76px minmax(0,1.3fr) minmax(0,1.4fr) 56px auto;}
   .h2-csf{margin-left:auto;height:30px;border:1px solid #DCE7E1;border-radius:9px;background:#fff;font:inherit;font-size:12px;font-weight:700;color:#33463D;padding:0 8px;cursor:pointer;}
+  /* 企業の詳細「タスク」：タスク管理ツールの形（2026-11-11） */
+  .kx-tm{background:#fff;border:1px solid #DCE7E1;border-radius:16px;padding:6px 6px 10px;}
+  .kx-tm-add{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #EEF3F0;margin-bottom:4px;}
+  .kx-tm-plus{width:24px;height:24px;border-radius:50%;background:#E3F4EC;color:#0E6B4E;display:flex;align-items:center;justify-content:center;font-weight:800;flex:none;}
+  .kx-tm-add input[data-ctask-t]{flex:1;min-width:0;border:0;outline:0;font:inherit;font-size:14px;padding:8px 2px;background:transparent;}
+  .kx-tm-grp{margin-top:6px;} .kx-tm-gh{display:flex;align-items:center;gap:6px;width:100%;border:0;background:none;padding:8px 12px 4px;font:inherit;font-size:12px;font-weight:800;color:#4F6158;text-align:left;cursor:default;}
+  .kx-tm-gh span{font-size:11px;background:#EEF2F0;border-radius:99px;padding:0 7px;} .kx-tm-grp.late .kx-tm-gh{color:#B4441F;} .kx-tm-grp.late .kx-tm-gh span{background:#FDECE6;} .kx-tm-grp.today .kx-tm-gh{color:#A2480C;} button.kx-tm-gh[data-tm-fold]{cursor:pointer;}
+  .kx-tm-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;} .kx-tm-row:hover{background:#F6F9F7;} .kx-tm-row.na{background:#F3F8FF;} .kx-tm-row.na:hover{background:#EAF2FD;}
+  .kx-tm-chk{width:22px;height:22px;border-radius:50%;border:2px solid #A9B7B0;background:#fff;color:#fff;font-size:12px;font-weight:900;display:flex;align-items:center;justify-content:center;flex:none;cursor:pointer;padding:0;}
+  .kx-tm-chk:hover{border-color:#0E6B4E;background:#E3F4EC;} .kx-tm-row.done .kx-tm-chk{background:#0E6B4E;border-color:#0E6B4E;}
+  .kx-tm-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;} .kx-tm-body[data-tm-na]{cursor:pointer;}
+  .kx-tm-title{font-size:14px;font-weight:700;color:#14231D;line-height:1.4;} .kx-tm-row.done .kx-tm-title{text-decoration:line-through;color:#8FA39A;font-weight:600;}
+  .kx-tm-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:11.5px;color:#5B6B63;} .kx-tm-meta a{color:#1F5F8B;}
+  .kx-tm-tag{font-size:10.5px;font-weight:800;border-radius:99px;padding:1px 8px;background:#EEF2F0;color:#4F6158;} .kx-tm-tag.na{background:#DCEBFB;color:#1F5F8B;} .kx-tm-tag.ml{background:#E3F0FA;color:#1F5F8B;} .kx-tm-tag.ch{background:#F3E8FB;color:#6B3E9A;} .kx-tm-tag.cl{background:#FFF1E6;color:#A2480C;} .kx-tm-tag.mn{background:#E3F4EC;color:#0d5b47;}
+  .kx-tm-due{position:relative;display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#4F6158;border:1px solid #E1E9E5;border-radius:8px;padding:4px 9px;white-space:nowrap;cursor:pointer;background:#fff;}
+  .kx-tm-due:hover{border-color:#0E6B4E;} .kx-tm-due input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;} .kx-tm-due em{font-style:normal;font-size:10.5px;color:#fff;background:#D9542B;border-radius:6px;padding:0 5px;}
+  .kx-tm-due.late{color:#B4441F;border-color:#F3D2B8;background:#FFF6F2;} .kx-tm-due.today{color:#A2480C;border-color:#F3D2B8;} .kx-tm-due.add{color:#6A7A72;}
+  .kx-tm-x{border:0;background:none;color:#A9B7B0;font-size:16px;cursor:pointer;padding:2px 4px;visibility:hidden;} .kx-tm-row:hover .kx-tm-x{visibility:visible;} .kx-tm-x:hover{color:#B4441F;}
+  .kx-tm-empty{padding:18px 12px;font-size:13px;color:#6A7A72;}
   .ar-empty{padding:18px;color:#8FA39A;font-size:13px;}
   .ar-f{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;font-size:13px;margin-bottom:8px;} .ar-f input,.ar-f select{border:1px solid #DCE6E1;border-radius:8px;padding:6px 8px;font:inherit;}
 </style>
@@ -991,7 +1010,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261111g" defer></script>
-    <script src="kinxs.js?v=20261111g"></script>
+    <script src="kbchat.js?v=20261111h" defer></script>
+    <script src="kinxs.js?v=20261111h"></script>
   </body>
 </html>

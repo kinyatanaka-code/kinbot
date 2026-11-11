@@ -707,10 +707,11 @@ async function openDetail(id, reuse) {
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
     <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button><button type="button" data-tab="co">企業情報</button></div>
     <div data-pane="task" style="display:flex;flex-direction:column;gap:12px">
-      <div class="kx-note" style="margin:-2px 2px 0">次回アクションは、この会社の一番近いタスクです。下の「この会社のタスク」には、手で足したもの・Claudeから作ったもの・Gmailやメールワイズのコピー・チャットから読み取ったものが出ます。</div>
-      ${kxNextActSection(x)}
-      <section class="kx-sec" data-ctask-sec><div class="lb">この会社のタスク</div><div data-ctask class="kx-note">読み込んでいます…</div>
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><input class="kx-in" data-ctask-t placeholder="タスクを足す（例：検収書の回収をお願いする）" style="flex:1;min-width:220px"><input class="kx-in" type="date" data-ctask-d style="max-width:150px"><button type="button" class="kx-btn kx-pri" data-ctask-add>足す</button></div></section>
+      <section class="kx-tm">
+        <div class="kx-tm-add">${window.KX_COPY ? "" : `<span class="kx-tm-plus">＋</span><input data-ctask-t placeholder="タスクを追加（例：検収書の回収をお願いする）　Enterで追加"><label class="kx-tm-due add" title="期日（なくてもよい）">期日<input type="date" data-ctask-d></label><button type="button" class="kx-btn kx-pri" data-ctask-add>追加</button>`}</div>
+        <div data-ctask class="kx-note" style="padding:10px 4px">読み込んでいます…</div>
+      </section>
+      <details class="kx-more" data-na-more><summary>次回アクションの中身（目的・当日に確認すること・前回の宿題）</summary>${kxNextActSection(x)}</details>
     </div>
     <div data-pane="co" hidden style="display:flex;flex-direction:column;gap:12px">${kxCoPane(d)}${kxLabelSchedPane(d, "prod")}</div>
     <div data-pane="info" hidden style="display:flex;flex-direction:column;gap:12px">
@@ -2645,7 +2646,7 @@ function kxNowMount(bg) {
     const ok = b.dataset.ok === "1"; const name = b.querySelector("b").textContent;
     if (ok) { if (confirm(`「${name}」を未完了に戻しますか？`)) tog(b.dataset.step, "false"); } else tog(b.dataset.step, "true");
   }));
-  const openNa = () => { const tb = bg.querySelector('[data-tab="task"]'); if (tb) tb.click(); const nb = bg.querySelector("[data-na-box]"); if (nb) setTimeout(() => nb.scrollIntoView({ behavior: "smooth", block: "start" }), 60); };
+  const openNa = () => { const tb = bg.querySelector('[data-tab="task"]'); if (tb) tb.click(); const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; setTimeout(() => dt.scrollIntoView({ behavior: "smooth", block: "start" }), 60); } };
   pane.querySelectorAll("[data-now]").forEach((el) => el.addEventListener(el.tagName === "INPUT" ? "change" : "click", () => {
     const a = el.dataset.now;
     if (a === "ken-done") return tog("kenshu_done", "true");
@@ -2681,29 +2682,62 @@ async function kxSalesMount(bg, x) {
 async function kxCTaskMount(bg, x) {
   const box = bg.querySelector("[data-ctask]"); if (!box) return;
   const ro = !!window.KX_COPY;
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const addD = (n) => new Date(Date.parse(today + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+  const wk = addD(7);
+  const md = (v) => v ? `${Number(v.slice(5, 7))}/${Number(v.slice(8, 10))}` : "";
+  const srcCls = (s0) => /メール|Gmail|メールワイズ/.test(s0) ? "ml" : /チャット|Chat/.test(s0) ? "ch" : /Claude/.test(s0) ? "cl" : /手入力/.test(s0) ? "mn" : "kx";
+  const openNa = () => { const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; dt.scrollIntoView({ behavior: "smooth", block: "start" }); } };
+  let open = { done: false };
   const load = async () => {
     let d; try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks`); } catch (e) { box.textContent = "読めませんでした：" + e.message; return; }
-    const it = d.items || []; box.classList.remove("kx-note");
-    const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-    const srcCls = (s0) => /メール|Gmail|メールワイズ/.test(s0) ? "ml" : /チャット|Chat/.test(s0) ? "ch" : /Claude/.test(s0) ? "cl" : /手入力/.test(s0) ? "mn" : "kx";
-    box.innerHTML = it.length ? it.map((t, i) => `<div class="kx-ct-row ${t.status === "完了" ? "done" : ""}">
-        ${ro ? "" : `<input type="checkbox" data-ct-done="${i}" ${t.status === "完了" ? "checked" : ""} aria-label="済みにする">`}
-        <div class="kx-ct-tx"><b>${esc(t.title)}</b><small><em class="kx-ct-src ${srcCls(t.src)}">${esc(t.src || "")}</em>${t.detail ? esc(t.detail) : ""}${t.link ? ` <a href="${esc(t.link)}" target="_blank" rel="noopener">開く ↗</a>` : ""}</small></div>
-        <span class="kx-ct-due ${t.due && t.due < today && t.status !== "完了" ? "late" : ""}">${t.due ? esc(t.due.slice(5).replace("-", "/")) : ""}</span>
-        ${ro ? "" : `<button type="button" class="hp-b" data-ct-del="${i}" title="消す">×</button>`}</div>`).join("")
-      : '<div class="kx-note">この会社のタスクはまだありません</div>';
-    const upd = async (t, body) => {
-      if (t.id) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks/${t.id}`, { method: "PUT", body: JSON.stringify(body) });
-      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t.key, title: t.title, accountId: x.id, account: x.name, src: t.src, status: body.status || t.status, ...(body.deleted ? { deleted: true } : {}) }) });
+    // 次回アクションも、この会社のタスクの1つとして並べる
+    const naDue = x.naAt ? new Date(new Date(x.naAt).getTime() + 9 * 3600000).toISOString().slice(0, 10) : (x.naDue || "");
+    const naTime = x.naAt ? new Date(new Date(x.naAt).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "";
+    const list = [...(x.na ? [{ key: "na", na: true, title: x.na, due: naDue, time: naTime, status: "未着手", src: "次回アクション", kind: x.naType || "" }] : []), ...(d.items || [])];
+    const bucket = (t) => t.status === "完了" ? "done" : !t.due ? "none" : t.due < today ? "late" : t.due === today ? "today" : t.due <= wk ? "week" : "later";
+    const G = [["late", "期限切れ"], ["today", "今日"], ["week", "1週間以内"], ["later", "あとで"], ["none", "日付なし"], ["done", "完了"]];
+    box.classList.remove("kx-note");
+    const row = (t, i) => {
+      const b = bucket(t); const late = b === "late" ? Math.round((Date.parse(today) - Date.parse(t.due)) / 86400000) : 0;
+      return `<div class="kx-tm-row ${t.status === "完了" ? "done" : ""} ${t.na ? "na" : ""}">
+        ${ro ? "" : `<button type="button" class="kx-tm-chk" data-tm-done="${i}" title="${t.status === "完了" ? "未完了に戻す" : "済みにする"}" aria-label="済みにする">${t.status === "完了" ? "✓" : ""}</button>`}
+        <div class="kx-tm-body" ${t.na ? 'data-tm-na role="button" tabindex="0" title="押すと次回アクションの中身を開きます"' : ""}>
+          <div class="kx-tm-title">${esc(t.title)}</div>
+          <div class="kx-tm-meta">${t.na ? '<span class="kx-tm-tag na">次回アクション</span>' : `<span class="kx-tm-tag ${srcCls(t.src)}">${esc(t.src || "")}</span>`}${t.kind && t.na ? `<span class="kx-tm-tag kx">${esc(t.kind)}</span>` : ""}${t.detail ? `<span>${esc(t.detail)}</span>` : ""}${t.link ? `<a href="${esc(t.link)}" target="_blank" rel="noopener">開く ↗</a>` : ""}</div>
+        </div>
+        ${ro ? `<span class="kx-tm-due ${b}">${t.due ? md(t.due) : ""}</span>` : `<label class="kx-tm-due ${b}" title="期日を変える">${t.due ? `${md(t.due)}${t.time ? ` ${t.time}` : ""}${late ? `<em>${late}日過ぎ</em>` : ""}` : "期日"}<input type="date" data-tm-due="${i}" value="${esc(t.due || "")}"></label>`}
+        ${ro || t.na ? "" : `<button type="button" class="kx-tm-x" data-tm-del="${i}" title="消す" aria-label="消す">×</button>`}
+      </div>`;
     };
-    box.querySelectorAll("[data-ct-done]").forEach((c) => c.addEventListener("change", async () => { const t = it[Number(c.dataset.ctDone)]; try { await upd(t, { status: c.checked ? "完了" : "未着手" }); load(); } catch (e) { alert(e.message); } }));
-    box.querySelectorAll("[data-ct-del]").forEach((b) => b.addEventListener("click", async () => { const t = it[Number(b.dataset.ctDel)]; if (!confirm(`「${t.title}」を消しますか？`)) return; try { await upd(t, { deleted: true }); load(); } catch (e) { alert(e.message); } }));
+    const idx = new Map(list.map((t, i) => [t, i]));
+    box.innerHTML = list.length ? G.map(([k, l]) => { const g = list.filter((t) => bucket(t) === k); if (!g.length) return "";
+        const fold = k === "done"; return `<div class="kx-tm-grp ${k}"><button type="button" class="kx-tm-gh" ${fold ? "data-tm-fold" : "disabled"}>${fold ? (open.done ? "▾ " : "▸ ") : ""}${l}<span>${g.length}</span></button>${fold && !open.done ? "" : g.map((t) => row(t, idx.get(t))).join("")}</div>`; }).join("")
+      : '<div class="kx-tm-empty">この会社のタスクはまだありません。上の欄から追加できます。Claudeに「○○社のタスクを作って」と頼んでも入ります。</div>';
+    const upd = async (t, body) => {
+      if (t.na) {
+        if (body.status === "完了") await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) });
+        else if (body.due !== undefined) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_at: body.due ? `${body.due}T${t.time || "10:00"}` : "" }) });
+        x.na = body.status === "完了" ? "" : x.na; if (body.due !== undefined) { x.naDue = body.due; x.naAt = body.due ? new Date(`${body.due}T${t.time || "10:00"}:00+09:00`).toISOString() : ""; }
+        return;
+      }
+      if (t.id) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks/${t.id}`, { method: "PUT", body: JSON.stringify(body) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t.key, title: t.title, accountId: x.id, account: x.name, src: t.src, status: body.status || t.status, ...(body.deleted ? { deleted: true } : {}), ...(body.due !== undefined ? { due: body.due } : {}) }) });
+    };
+    box.querySelectorAll("[data-tm-done]").forEach((b) => b.addEventListener("click", async () => { const t = list[Number(b.dataset.tmDone)];
+      if (t.na && !confirm("次回アクションを済みにしますか？（次回アクションが空になります）")) return;
+      b.disabled = true; try { await upd(t, { status: t.status === "完了" ? "未着手" : "完了" }); load(); } catch (e) { alert(e.message); b.disabled = false; } }));
+    box.querySelectorAll("[data-tm-due]").forEach((inp) => { inp.addEventListener("click", () => { try { inp.showPicker(); } catch {} });
+      inp.addEventListener("change", async () => { const t = list[Number(inp.dataset.tmDue)]; try { await upd(t, { due: inp.value || "" }); load(); } catch (e) { alert(e.message); } }); });
+    box.querySelectorAll("[data-tm-del]").forEach((b) => b.addEventListener("click", async () => { const t = list[Number(b.dataset.tmDel)]; if (!confirm(`「${t.title}」を消しますか？`)) return; try { await upd(t, { deleted: true }); load(); } catch (e) { alert(e.message); } }));
+    box.querySelectorAll("[data-tm-na]").forEach((el) => { el.addEventListener("click", openNa); el.addEventListener("keydown", (e) => { if (e.key === "Enter") openNa(); }); });
+    const fb = box.querySelector("[data-tm-fold]"); if (fb) fb.addEventListener("click", () => { open.done = !open.done; load(); });
   };
   const add = bg.querySelector("[data-ctask-add]"), tIn = bg.querySelector("[data-ctask-t]"), dIn = bg.querySelector("[data-ctask-d]");
-  if (ro) { const sec = add && add.parentElement; if (sec) sec.hidden = true; }
-  else if (add) {
+  if (add) {
+    const dl = dIn && dIn.closest("label"); if (dIn) { dIn.addEventListener("click", () => { try { dIn.showPicker(); } catch {} }); dIn.addEventListener("change", () => { if (dl) dl.firstChild.textContent = dIn.value ? md(dIn.value) : "期日"; }); }
     const go = async () => { const title = tIn.value.trim(); if (!title) { tIn.focus(); return; } add.disabled = true;
-      try { await api("/api/kinxs/tasks", { method: "POST", body: JSON.stringify({ title, accountId: x.id, accountName: x.name, due: dIn.value || "" }) }); tIn.value = ""; dIn.value = ""; load(); } catch (e) { alert(e.message); } add.disabled = false; };
+      try { await api("/api/kinxs/tasks", { method: "POST", body: JSON.stringify({ title, accountId: x.id, accountName: x.name, due: dIn.value || "" }) }); tIn.value = ""; dIn.value = ""; if (dl) dl.firstChild.textContent = "期日"; load(); } catch (e) { alert(e.message); } add.disabled = false; tIn.focus(); };
     add.addEventListener("click", go); tIn.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) go(); });
   }
   load();
