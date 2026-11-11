@@ -86,3 +86,74 @@
   chrome.storage.onChanged.addListener((ch, area) => { if (area === "local" && ch[KEY]) render(); });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", render); else render();
 })();
+
+// ===== メールワイズのメールを、開かなくても裏で読んで kinXs に送る（2026-11-11 田中さん）=====
+//   メールワイズのタブが開いている間、5分ごとに：担当者ごとのメールスペース（上の人のアイコン＝MailIndex の wid）の一覧を読み、
+//   まだ送っていないメールを開かずに読み（同じログインのまま）、件名・本文・メールアドレスを kinXs に送る。会社の結びつけとタスク作りは kinXs がやる
+(function () {
+  if (window.top !== window) return;
+  const SEEN = "kxMwSeen", RUN = "kxMwRunAt", PEND = "kxMwPending";
+  const base = location.origin + location.pathname;   // …/m/mw.cgi
+  const txt = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const spacesFrom = (doc, baseUrl) => {
+    const out = new Map();
+    doc.querySelectorAll('a[href*="page=MailIndex"]').forEach((a) => {
+      try { const u = new URL(a.getAttribute("href"), baseUrl); const wid = u.searchParams.get("wid"); const name = txt(a.textContent || a.title); if (wid && name && !out.has(wid)) out.set(wid, { wid, name, url: u.href }); } catch {}
+    });
+    return [...out.values()];
+  };
+  const mailLinksFrom = (doc, baseUrl) => {
+    const out = new Map();
+    doc.querySelectorAll("a[href]").forEach((a) => {
+      const h = a.getAttribute("href") || "";
+      if (!/mw\.cgi/i.test(h) && !/^\?/.test(h)) return;
+      if (/page=Mail(Index|Send|Search|Edit|Print)/i.test(h)) return;
+      if (!(/page=Mail(View|Detail|Show|Read)/i.test(h) || /[?&](mid|mDBID|mailId|MID)=/i.test(h))) return;
+      try { const u = new URL(h, baseUrl); u.hash = ""; if (!out.has(u.href)) out.set(u.href, { url: u.href, subject: txt(a.textContent).slice(0, 200) }); } catch {}
+    });
+    return [...out.values()];
+  };
+  const readMail = (html, url, fallbackSubject) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    doc.querySelectorAll("script,style,noscript,select,option,button,nav,header").forEach((e) => e.remove());
+    const all = txt(doc.body ? doc.body.textContent : "");
+    const emails = [...new Set((all.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []).map((e) => e.toLowerCase()))].slice(0, 20);
+    let subject = fallbackSubject || "";
+    const m = all.match(/件名[\s:：]*([^\n]{2,120}?)(?:\s{2,}|差出人|送信者|From|日時|宛先|$)/); if (m && !subject) subject = txt(m[1]);
+    if (!subject) subject = txt((doc.querySelector("title") || {}).textContent || "");
+    // 本文：いちばん文字の多いかたまり（pre か div）
+    let body = ""; doc.querySelectorAll("pre, .mailBody, .mail_body, .body, td, div").forEach((e) => { const t = String(e.textContent || "").trim(); if (t.length > body.length && t.length < 20000 && !e.querySelector("table table")) body = t; });
+    return { url, subject: subject.slice(0, 200), text: (body || all).replace(/\n{3,}/g, "\n\n").slice(0, 6000), emails };
+  };
+  async function crawl() {
+    const st = await chrome.storage.local.get([RUN, SEEN, PEND]);
+    if (Date.now() - (st[RUN] || 0) < 4.5 * 60 * 1000) return;   // ほかのタブが動いたばかりなら待つ
+    await chrome.storage.local.set({ [RUN]: Date.now() });
+    const seen = new Set(st[SEEN] || []); const pending = st[PEND] || [];
+    let spaces = spacesFrom(document, location.href);
+    const cur = new URL(location.href); if (cur.searchParams.get("wid") && !spaces.some((s) => s.wid === cur.searchParams.get("wid"))) spaces.push({ wid: cur.searchParams.get("wid"), name: txt((document.querySelector("h1,h2,.breadcrumb") || {}).textContent || ""), url: location.href });
+    spaces = spaces.slice(0, 30);
+    const found = [];
+    for (const sp of spaces) {
+      try {
+        const r = await fetch(`${base}?page=MailIndex&wid=${encodeURIComponent(sp.wid)}`, { credentials: "include" }); if (!r.ok) continue;
+        const doc = new DOMParser().parseFromString(await r.text(), "text/html");
+        for (const l of mailLinksFrom(doc, r.url).slice(0, 15)) if (!seen.has(l.url)) found.push({ ...l, space: sp.name, wid: sp.wid });
+      } catch {}
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    const out = [];
+    for (const f of found.slice(0, 40)) {
+      try { const r = await fetch(f.url, { credentials: "include" }); if (!r.ok) continue; out.push({ ...readMail(await r.text(), f.url, f.subject), space: f.space, wid: f.wid, at: new Date().toISOString() }); seen.add(f.url); } catch {}
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    const send = [...pending, ...out].slice(-200);
+    if (send.length) {
+      const res = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "kx-mw-ingest", items: send }, (x) => resolve(x || {})));
+      await chrome.storage.local.set({ [PEND]: res.ok ? [] : send });   // 送れなければ、kinbot の画面を開いたときに送り直す
+    }
+    await chrome.storage.local.set({ [SEEN]: [...seen].slice(-3000) });
+  }
+  setTimeout(() => crawl().catch(() => {}), 15 * 1000);
+  setInterval(() => crawl().catch(() => {}), 5 * 60 * 1000);
+})();

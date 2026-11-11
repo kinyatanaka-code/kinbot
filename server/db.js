@@ -12667,3 +12667,17 @@ export async function listRecentSummarizedMeetings(hours = 2) {
   try { return (await pool.query(`SELECT bot_id, title, owner, summary, created_at FROM meetings WHERE summary IS NOT NULL AND updated_at > now() - ($1 || ' hours')::interval ORDER BY updated_at DESC LIMIT 60`, [String(hours)])).rows; }
   catch { return []; }
 }
+
+// メールワイズから拡張機能が読んできたメール（2026-11-11）
+let _kxMwReady = false;
+async function ensureKxMw() { if (!pool || _kxMwReady) return; _kxMwReady = true; await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_mw_mails (id TEXT PRIMARY KEY, url TEXT, space TEXT, owner TEXT, subject TEXT, body TEXT, emails JSONB, from_email TEXT, account_id TEXT, account_name TEXT, sent_by TEXT, at TIMESTAMPTZ DEFAULT now())`).catch(() => {}); }
+export async function kxMwAdd(m) {
+  if (!pool) return false; await ensureKxMw();
+  const r = await pool.query(`INSERT INTO kinxs_mw_mails (id, url, space, owner, subject, body, emails, from_email, account_id, account_name, sent_by) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11) ON CONFLICT (id) DO NOTHING`,
+    [m.id, m.url, m.space || "", m.owner || null, m.subject || "", m.body || "", JSON.stringify(m.emails || []), m.from || "", m.accountId || null, m.accountName || "", m.sentBy || ""]).catch(() => ({ rowCount: 0 }));
+  return r.rowCount > 0;
+}
+export async function kxMwRecent(hours = 2) {
+  if (!pool) return []; await ensureKxMw();
+  return (await pool.query(`SELECT * FROM kinxs_mw_mails WHERE at > now() - ($1 || ' hours')::interval AND account_id IS NOT NULL ORDER BY at DESC LIMIT 300`, [String(hours)])).rows;
+}

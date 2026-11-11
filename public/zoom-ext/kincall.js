@@ -18,3 +18,12 @@ window.addEventListener("message", (e) => {
   });
 });
 document.documentElement.dataset.kxMwExt = "1";
+
+// メールワイズで読んで送れなかったメールを、kinbot の画面を開いたときに送り直す（ログインの印がここでは確実に付くため）（2026-11-11）
+(async () => {
+  try {
+    const st = await chrome.storage.local.get("kxMwPending"); const items = st.kxMwPending || []; if (!items.length) return;
+    const r = await fetch("/api/kinxs/mailwise/ingest", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
+    if (r.ok) await chrome.storage.local.set({ kxMwPending: [] });
+  } catch {}
+})();
