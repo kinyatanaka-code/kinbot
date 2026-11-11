@@ -354,7 +354,9 @@ function renderList() {
   if (kb) {
     // 数はヘッダーに出す。ここは、絞り込み中の表示と、アーカイブを見る入口だけ
     const nm = { won: "今月受注", last: "先月受注", del: "今月納品予定", arc: "アーカイブ" }[kp];
-    kb.innerHTML = `${kp ? `<span class="kx-chip on" style="cursor:default">${esc(nm)}の会社だけ</span><button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>` : ""}${(() => { const n0 = d.items.filter((x) => x.manual && !x.archived).length; return n0 ? `<button type="button" class="kx-chip" data-link-auto title="取引先名がぴったり同じで、クロスの商談で受注している商談に、まとめて紐づけます">SF未連携 ${n0}社を自動で紐づける</button>` : ""; })()}<button type="button" class="kx-chip" data-kpi="arc">${kp === "arc" ? "アーカイブを閉じる" : `アーカイブを見る${arcN ? `（${arcN}）` : ""}`}</button>`;
+    kb.innerHTML = `${kp ? `<span class="kx-chip on" style="cursor:default">${esc(nm)}の会社だけ</span><button type="button" class="kx-chip" data-kpi="">絞り込みを外す</button>` : ""}`;   // 「SF未連携を自動で紐づける」はなくし、「アーカイブを見る」はヘッダーへ（2026-11-11 田中さん）
+    { const ab = $("kxArcTop"); if (ab) { ab.hidden = VIEW !== "list"; ab.textContent = kp === "arc" ? "アーカイブを閉じる" : `アーカイブを見る${arcN ? `（${arcN}）` : ""}`; ab.classList.toggle("on", kp === "arc");
+      if (!ab.dataset.wired) { ab.dataset.wired = "1"; ab.addEventListener("click", () => { window.__lsKpi = window.__lsKpi === "arc" ? "" : "arc"; document.querySelectorAll("#kxTopKpis [data-tk]").forEach((x) => x.classList.toggle("on", x.dataset.tk === window.__lsKpi)); renderList(); }); } } }
     const la = kb.querySelector("[data-link-auto]");
     if (la) la.addEventListener("click", async () => {
       if (!confirm("取引先名がぴったり同じで、クロスの商談で受注している商談に、まとめて紐づけます。よろしいですか？（手で入れた中身は、SFの会社に引き継ぎます）")) return;
