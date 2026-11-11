@@ -2600,7 +2600,9 @@ function kxNowCard(d) {
     { k: "活用", ok: useOk, sub: usage ? usage.replace(/^活用：/, "") : "—" },
     { k: "更新", ok: false, sub: x.renew ? x.renew.replace("-", "/") : "—" },
   ];
-  const cur = steps.findIndex((s0) => !s0.ok);
+  // いまここ＝いちばん進んだ段の次（前の段が記録されていなくても進める。飛ばした段は「未記録」）（2026-11-11 田中さん）
+  let lastOk = -1; for (let i = 0; i < 6; i++) if (steps[i].ok) lastOk = i;
+  let cur = steps.findIndex((s0, i) => i > lastOk && !s0.ok); if (cur < 0) cur = 6;
   const head = { 0: "受注の手続き中", 1: "キックオフの前", 2: "納品の手前（検収書の回収待ち）", 3: "納品メールを送る段階", 4: "掲載の確認待ち", 5: "活用を始めるところ", 6: "活用中（次は更新）" }[cur] || "—";
   const since = info.booked ? Math.max(0, Math.floor((Date.now() - Date.parse(info.booked + "T00:00:00+09:00")) / 86400000)) : null;
   // 対応事項（急ぐ順）。act＝その場で片づけるボタンの種類
@@ -2629,7 +2631,10 @@ function kxNowCard(d) {
   return `<section class="kx-a-where">
       <div class="kx-a-row"><span class="kx-a-q">いまどこ？</span><b class="kx-a-head">${esc(head)}</b>${since != null ? `<span class="kx-a-since">受注から ${since}日</span>` : ""}</div>
       <div class="kx-a-steps">${steps.map((s0, i) => { const key = { 検収書: "kenshu_done", 納品メール: "mail_done", 掲載: "published" }[s0.k]; const cls = `kx-a-st ${s0.ok ? "ok" : i === cur ? "now" : ""}`; const inner = `<i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small>`;
-        return key && !(s0.k === "検収書" && x.kenshuNa) ? `<button type="button" class="${cls} kx-a-stb" data-step="${key}" data-ok="${s0.ok ? 1 : 0}" title="${s0.ok ? "押すと未完了に戻します" : "押すと済みにします"}">${inner}</button>` : `<div class="${cls}">${inner}</div>`; }).join("")}</div>
+        const skip = !s0.ok && i < cur && i < 6;   // 先の段は済んでいるのに、記録がない段
+        const cls2 = skip ? `${cls} skip` : cls; const inner2 = skip ? `<i></i><b>${esc(s0.k)}</b><small>未記録</small>` : inner;
+        if (s0.k === "キックオフ" && !s0.ok) return `<button type="button" class="${cls2} kx-a-stb" data-step-ko="1" title="押すとキックオフを実施済みにします（実施日＝今日）">${inner2}</button>`;
+        return key && !(s0.k === "検収書" && x.kenshuNa) ? `<button type="button" class="${cls2} kx-a-stb" data-step="${key}" data-ok="${s0.ok ? 1 : 0}" title="${s0.ok ? "押すと未完了に戻します" : "押すと済みにします"}">${inner2}</button>` : `<div class="${cls2}">${inner2}</div>`; }).join("")}</div>
       <div class="kx-note" style="margin-top:-6px">検収書・納品メール・掲載は、道のりを押すと済みにできます</div>
     </section>
     ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true)}</div></section>` : ""}
@@ -2654,6 +2659,11 @@ function kxNowMount(bg) {
   const tog = (key, v) => { const b = bg.querySelector(`[data-tog="${key}"] button[data-v="${v}"]`); if (b) b.click(); };
   const ob = bg.querySelector("[data-rank-open]"), pop = bg.querySelector("[data-rank-pop]");
   if (ob && pop && !ob.dataset.wired) { ob.dataset.wired = "1"; ob.addEventListener("click", () => { pop.hidden = !pop.hidden; ob.setAttribute("aria-expanded", String(!pop.hidden)); }); }
+  pane.querySelectorAll("[data-step-ko]").forEach((b) => b.addEventListener("click", async () => {
+    if (!confirm("キックオフを実施済みにしますか？（実施日は今日で入れます。あとで企業情報から直せます）")) return;
+    const id0 = (bg.querySelector("[data-na-box]") || {}).dataset?.naBox || bg.dataset.kxId;
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify({ kickoff_on: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) }) }); openDetail(id0, { bg, tab: "info" }); } catch (e) { alert(e.message); }
+  }));
   pane.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => {
     const ok = b.dataset.ok === "1"; const name = b.querySelector("b").textContent;
     if (ok) { if (confirm(`「${name}」を未完了に戻しますか？`)) tog(b.dataset.step, "false"); } else tog(b.dataset.step, "true");
@@ -2728,7 +2738,9 @@ async function kxCTaskMount(bg, x) {
       : '<div class="kx-tm-empty">この会社のタスクはまだありません。上の欄から追加できます。Claudeに「○○社のタスクを作って」と頼んでも入ります。</div>';
     const upd = async (t, body) => {
       if (t.na) {
-        if (body.status === "完了") await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) });
+        if (body.status === "完了") { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) });
+          box.insertAdjacentHTML("beforebegin", '<div class="kx-note" data-na-reading style="padding:6px 12px">✓ 済みにしました。メール・議事録から次の次回アクションを読んでいます（30秒ほど）…</div>');
+          setTimeout(() => { if (bg.isConnected) openDetail(x.id, { bg, tab: "task" }); }, 35000); }
         else if (body.due !== undefined) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_at: body.due ? `${body.due}T${t.time || "10:00"}` : "" }) });
         x.na = body.status === "完了" ? "" : x.na; if (body.due !== undefined) { x.naDue = body.due; x.naAt = body.due ? new Date(`${body.due}T${t.time || "10:00"}:00+09:00`).toISOString() : ""; }
         return;

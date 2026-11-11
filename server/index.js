@@ -15154,7 +15154,7 @@ app.get("/api/kinxs/meetings/:id", async (req, res) => {
 // 次回アクションが空か、前に自動で入れたものなら書きかえる。手で入れてあれば「提案」として残す（モーダルで採用できる）
 const KX_FREE_MAIL = /^(gmail|yahoo|ymail|hotmail|outlook|icloud|me|docomo|ezweb|au|softbank|i\.softbank|nifty|biglobe|ocn|so-net)\./i;
 const KX_NA_TYPES = ["電話", "メール", "MTG", "資料送付", "その他"];
-async function kinxsReadNextAction(accountId, { force = false } = {}) {
+async function kinxsReadNextAction(accountId, { force = false, doneText = "" } = {}) {
   const { items, mtBy, kickBy, allMeetings } = await kinxsBuild();
   const x = items.find((i) => i.id === accountId);
   if (!x) return { ok: false, reason: "会社が見つかりません" };
@@ -15211,7 +15211,7 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   const user = `今は ${today}（日本時間）です。会社：${x.name}\n\n${[...mails, ...minutes].join("\n\n").slice(0, 12000)}\n\n次のJSONを返してください：
 {"purpose": "この会社がDOC（どこでもオープンカンパニー）を使う目的を30字以内で（例：採用サイト掲載・カジュアル面談）。分からなければ空", "usage": "${KX_USAGE.join("|")} のどれか1つ（公開して使っている＝活用：公開掲載、一部だけ公開＝活用：限定公開、公開の予定がある＝活用予定、使うか考えている＝活用検討中、納品したのに未完了のもの＝発生済み未納品、解約の話＝解約企業、読み取れない＝不明）",
  "found": true/false（弊社が次にやることが読み取れたか）, "type": "${KX_NA_TYPES.join("|")}", "at": "YYYY-MM-DDTHH:MM（日時が書いてあれば。日だけなら09:00。書いていなければ文脈から妥当な期日）", "content": "やることを40字以内で（例：打ち合わせの日程候補を3つ送る）", "basis": "根拠を30字以内で（どのメール・議事録か）"}
-先方がやること・もう終わったこと・挨拶だけのメールは次回アクションにしません。`;
+先方がやること・もう終わったこと・挨拶だけのメールは次回アクションにしません。${doneText ? `\nなお、弊社は「${String(doneText).slice(0, 80)}」をさきほど済ませました。これと同じことは出さず、そのあとに弊社がやることを選んでください。` : ""}`;
   let ans = null;
   try { const raw = await callLLMPublic(sys, user, 800, { json: true }); ans = JSON.parse(String(raw).replace(/```json|```/g, "").trim()); } catch (e) { return { ok: false, reason: `AIで読めませんでした：${e.message}` }; }
   if (!ans) return { ok: false, reason: "読み取れませんでした" };
@@ -15231,6 +15231,7 @@ async function kinxsReadNextAction(accountId, { force = false } = {}) {
   }
   if (Object.keys(stPatch).length) { stPatch.info = { ...info0, auto: auto0 }; await kinxsUpdate(accountId, stPatch, "kinXs（自動）"); }
   if (!ans.found || !ans.content) return filled.length ? { ok: true, applied: false, filled } : { ok: false, reason: "次にやることは読み取れませんでした" };
+  if (doneText && String(ans.content).replace(/\s/g, "") === String(doneText).replace(/\s/g, "")) return { ok: false, reason: "済ませたものと同じ内容しか読み取れませんでした" };
   const type = KX_NA_TYPES.includes(ans.type) ? ans.type : "その他";
   const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(ans.at || "")) ? `${String(ans.at).slice(0, 16)}:00+09:00` : null;
   const sug = { type, at, content: String(ans.content).slice(0, 120), basis: String(ans.basis || "").slice(0, 80), source: src, mailbox: usedOwner, read_at: new Date().toISOString() };
@@ -16072,6 +16073,11 @@ app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
 app.put("/api/kinxs/accounts/:id", async (req, res) => {
   try {
     _kxMissing = { at: 0, data: null };   // 直したら、情報不足を次に読むときに作り直す（2026-11-10）
+    // 次回アクションを「済み」（空）にしたら、Gmail（メールワイズのコピー）・議事録から次の次回アクションを読む（2026-11-11 田中さん）。裏で動かす
+    if (req.body && req.body.na_text === "") {
+      const prevNa = String(((await kinxsList().catch(() => [])).find((y) => y.account_id === req.params.id) || {}).na_text || "");
+      if (prevNa) setTimeout(() => { kinxsReadNextAction(req.params.id, { force: true, doneText: prevNa }).then((r0) => console.log("[kinxs] 済みのあとの次回アクション", req.params.id, r0 && (r0.applied ? "入れた" : r0.reason))).catch(() => {}); }, 1500);
+    }
     if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
     const b = req.body || {};
     const patch = {};
@@ -30033,7 +30039,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11p kinbot ホーム：録音の選択に「会議のURLを貼って入室」を足す（予定にURLが無くてもホームから入室させられる）。";
+const BUILD_TAG = "2026-11-11q kinXs：道のりの「いまここ」を一番進んだところの次に（飛ばした段は未記録）。次回アクションを済みにしたら、メール・議事録から次の次回アクションを自動で読む。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
