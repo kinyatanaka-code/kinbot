@@ -21,8 +21,9 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     } else if (msg && msg.type === "kx-mw-ingest") {
       // メールワイズで読んだメールを kinXs に送る（kinbot にログインしていれば送れる。だめなら false を返し、拡張機能が持っておく）
       try {
-        const r = await fetch("https://kinbot-production-225f.up.railway.app/api/kinxs/mailwise/ingest", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: msg.items || [] }) });
-        reply({ ok: r.ok, status: r.status });
+        const r = await fetch("https://kinbot-production-225f.up.railway.app/api/kinxs/mailwise/ingest", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: msg.items || [] }) });
+        const j = await r.json().catch(() => null);   // ログイン画面に飛ばされたときなどは JSON にならない＝受け取られていない
+        reply({ ok: !!(j && j.ok), status: r.status });
       } catch (e) { reply({ ok: false, error: e.message }); }
     } else if (msg && msg.type === "kx-mw-set") {
       // kinXs のメールの下書き：メールワイズの画面で使う。前の下書きのうち、まだ送っていないものは残して足す（1日たったものは消す）

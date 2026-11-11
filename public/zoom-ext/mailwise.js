@@ -149,11 +149,16 @@
     if (Date.now() - (st[RUN] || 0) < 4.5 * 60 * 1000) return;   // ほかのタブが動いたばかりなら待つ
     await chrome.storage.local.set({ [RUN]: Date.now() });
     const seen = new Set(st[SEEN] || []); const pending = st[PEND] || [];
-    const apps = (await discoverApps()).slice(0, 40);
+    const diag = { at: new Date().toISOString(), page: location.href.slice(0, 120), apps: 0, rows: 0, newRows: 0, read: 0, sent: 0, err: "" };
+    const saveDiag = () => chrome.storage.local.set({ kxMwDiag: diag }).catch(() => {});
+    let apps = [];
+    try { apps = (await discoverApps()).slice(0, 40); } catch (e) { diag.err = "メールアプリを見つけられない：" + e.message; }
+    diag.apps = apps.length; await saveDiag();
     const found = [];
     for (const ap of apps) {
       try { const { url, doc } = await get(`${base}?page=MailIndex&wid=${encodeURIComponent(ap.wid)}&bs=${encodeURIComponent(ap.bs)}&vid=&fid=-5`);
-        for (const r of rowsIn(doc, url)) { const key = `${ap.wid}:${ap.bs}:${r.mid}`; if (!seen.has(key) && !SKIP.test(r.subject)) found.push({ ...r, key, space: ap.name, wid: ap.wid, bs: ap.bs }); } } catch {}
+        const rs = rowsIn(doc, url); diag.rows += rs.length;
+        for (const r of rs) { const key = `${ap.wid}:${ap.bs}:${r.mid}`; if (!seen.has(key) && !SKIP.test(r.subject)) found.push({ ...r, key, space: ap.name, wid: ap.wid, bs: ap.bs }); } } catch (e) { diag.err = `一覧を読めない（${ap.name}）：${e.message}`; }
       await new Promise((r) => setTimeout(r, 400));
     }
     const out = [];
@@ -161,12 +166,15 @@
       try { const { doc } = await get(f.url); out.push({ ...readMail(doc, f.url, f), space: f.space, wid: f.wid, at: new Date().toISOString() }); seen.add(f.key); } catch {}
       await new Promise((r) => setTimeout(r, 300));
     }
+    diag.newRows = found.length; diag.read = out.length;
     const send = [...pending, ...out].slice(-200);
     if (send.length) {
       const res = await new Promise((resolve) => chrome.runtime.sendMessage({ type: "kx-mw-ingest", items: send }, (x) => resolve(x || {})));
-      await chrome.storage.local.set({ [PEND]: res.ok ? [] : send });   // 送れなければ、kinbot の画面を開いたときに送り直す
+      await chrome.storage.local.set({ [PEND]: res.ok ? [] : send });   // 送れなければ、kinbot の画面を開いているときに送り直す
+      diag.sent = res.ok ? send.length : 0; if (!res.ok) diag.err = `kinbot に送れない（${res.status || res.error || "?"}）。kinbot の画面を開くと送り直します`;
     }
     await chrome.storage.local.set({ [SEEN]: [...seen].slice(-5000) });
+    await saveDiag();
   }
   setTimeout(() => crawl().catch(() => {}), 15 * 1000);
   setInterval(() => crawl().catch(() => {}), 5 * 60 * 1000);

@@ -20,11 +20,15 @@ window.addEventListener("message", (e) => {
 document.documentElement.dataset.kxMwExt = "1";
 try { document.documentElement.dataset.kbExtVer = chrome.runtime.getManifest().version; } catch {}   // 設定の「拡張機能」で、入っている版を出す
 
-// メールワイズで読んで送れなかったメールを、kinbot の画面を開いたときに送り直す（ログインの印がここでは確実に付くため）（2026-11-11）
-(async () => {
+// メールワイズで読んで送れなかったメールを、kinbot の画面を開いている間に送り直す（同じ画面からなのでログインの印が確実に付く）。1分ごと（2026-11-11）
+async function kbFlushMw() {
   try {
-    const st = await chrome.storage.local.get("kxMwPending"); const items = st.kxMwPending || []; if (!items.length) return;
+    const st = await chrome.storage.local.get(["kxMwPending", "kxMwDiag"]);
+    if (st.kxMwDiag) document.documentElement.dataset.kbMwDiag = JSON.stringify(st.kxMwDiag);
+    const items = st.kxMwPending || []; if (!items.length) return;
     const r = await fetch("/api/kinxs/mailwise/ingest", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ items }) });
-    if (r.ok) await chrome.storage.local.set({ kxMwPending: [] });
+    const j = await r.json().catch(() => null);
+    if (j && j.ok) { await chrome.storage.local.set({ kxMwPending: [] }); const d = st.kxMwDiag || {}; d.sent = (d.sent || 0) + items.length; d.err = ""; d.flushAt = new Date().toISOString(); await chrome.storage.local.set({ kxMwDiag: d }); document.documentElement.dataset.kbMwDiag = JSON.stringify(d); }
   } catch {}
-})();
+}
+setTimeout(kbFlushMw, 3000); setInterval(kbFlushMw, 60 * 1000);
