@@ -1551,7 +1551,7 @@ function renderHomeV2() {
     ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "先月お申込者数", `${Number(kxYmAdd(ym, -1).slice(5))}月に受注した会社`, c.mo, p.mo, "mo"], ["kai", "解約社数", "アチコチバースの解約（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
   </div>
   <div class="h2-row">
-    <section class="h2-box h2-act"><div class="h2-h"><h2>要アクション</h2><span class="h2-big" data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><select class="h2-csf" data-home-cs title="担当で絞る"><option value="">担当：全員</option>${csNames.map((n) => `<option ${n === kxCsF ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    ${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><select class="h2-csf" data-home-cs title="担当で絞る"><option value="">担当：全員</option>${csNames.map((n) => `<option ${n === kxCsF ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : '<button type="button" class="h2-act-x" data-act-big title="大きく表示">⤢ 大きく</button>'}</div>
       <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b>${actRows.filter((r) => f(r.a)).length}</b><span>${l}</span></button>`).join("")}</div>
       <div class="h2-list">${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0">${(() => {
         // 期日の札（タスクのタブと同じ形）：日付・時刻＋「n日過ぎ／あとn日」。次回アクション・施策は押すと日付を変えられる（2026-11-11 田中さん）
@@ -1581,6 +1581,10 @@ function renderHomeV2() {
   box.querySelectorAll("[data-open-sec]").forEach((b) => b.addEventListener("click", () => { kh2.open[b.dataset.openSec] = !kh2.open[b.dataset.openSec]; renderHomeV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-noopen]")) return; openDetail(el.dataset.open); }));
   { const cf = box.querySelector("[data-home-cs]"); if (cf) cf.addEventListener("change", () => { try { localStorage.setItem("kxHomeCs", cf.value); } catch {} renderHomeV2(); }); }
+  // 要アクションを大きく表示（モーダル）（2026-11-11 田中さん）
+  box.querySelectorAll("[data-act-big]").forEach((el) => el.addEventListener("click", () => { window.__kxActBig = true; renderHomeV2(); }));
+  box.querySelectorAll("[data-act-close]").forEach((el) => el.addEventListener("click", () => { window.__kxActBig = false; renderHomeV2(); }));
+  if (window.__kxActBig && !window.__kxActEsc) { window.__kxActEsc = true; document.addEventListener("keydown", (e) => { if (e.key === "Escape" && window.__kxActBig) { window.__kxActBig = false; renderHomeV2(); } }); }
   box.querySelectorAll("button[data-ha]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); b.disabled = true; kxHomeAct(b).finally(() => { b.disabled = false; }); }));
   box.querySelectorAll("input[data-ha]").forEach((i) => { i.addEventListener("click", (e) => { e.stopPropagation(); try { i.showPicker(); } catch {} }); i.addEventListener("change", () => kxHomeAct(i)); });
   box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F")); }));
