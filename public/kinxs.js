@@ -2177,19 +2177,23 @@ async function arLoad() {
   box.innerHTML = '<div class="ar-empty">読み込んでいます…</div>';
   try { ar.data = await Promise.race([api(`/api/kinxs/autorenew?ym=${ar.ym}${KX_TEST ? "&test=1" : ""}`), new Promise((_, no) => setTimeout(() => no(new Error("時間がかかりすぎています。少し待ってから開き直してください")), 45000))]); arRender(); } catch (e) { box.innerHTML = `<div class="ar-empty">読み込めませんでした：${esc(e.message)}</div>`; }
 }
-function arStTag(s) { const c = s === "継続中" ? "" : (s === "更新確定" || s === "解約予定") ? " cx" : (s === "解約済み" || s === "解約済") ? " done" : " bad"; return `<span class="ar-st${c}">${esc(s === "解約予定" ? "更新確定" : s === "解約済" ? "解約済み" : s)}</span>`; }
+// ステータスの札（2026-11-11 仕様変更指示書：開始待ち・更新確定・解約確定・解約済・未入金・停止）
+function arStTag(s) { const c = { 更新確定: " ok", 開始待ち: " wait", 解約確定: " cx", 解約済: " done", 未入金: " bad", 停止: " bad" }[s] ?? ""; return `<span class="ar-st${c}">${esc(s)}</span>`; }
+// 解約予定の列：翌月なら「翌月解約」（強調）、それ以外は解約予定月、申請なしは「—」
+function arPlanCell(x, ym) { const E = (x.status === "解約予定" || x.status === "解約済") ? x.cancelMonth : ""; if (!E) return "—"; return E === arAddYm(ym, 1) ? '<b class="ar-next">翌月解約</b>' : esc(arJp(E)); }
 const arPrevYm = (ym) => { const [y, m] = String(ym).split("-").map(Number); const d = new Date(Date.UTC(y, m - 2, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; };
 function arRender() {
   const box = $("vArBody"); const d = ar.data; if (!box || !d) return;
   if (ar.tab === "diff" || ar.tab === "recon") ar.tab = "bill";
   const ed = !!d.canEdit;
   const nNew = d.diff.filter((x) => x.kind === "新規").length, nCx = d.cancels.length, nStop = d.all.filter((x) => ["未入金", "停止"].includes(x.status)).length;
-  const tabs = [["bill", `請求対象一覧（${d.bill.length}）`], ["cancel", `解約一覧（${nCx}）`], ["all", `全企業（${d.all.length}）`],   /* 差分・突合はなくした（2026-11-10 幸地さん） */ ...(ed ? [["form", `解約フォーム${(d.inbox || []).length ? `（要確認 ${(d.inbox || []).length}）` : ""}`]] : [])];
+  const tabs = [["bill", `請求対象一覧（${d.bill.length}）`], ["cancel", `解約一覧（${nCx}）`], ["wait", `開始待ち（${(d.waiting || []).length}）`], ["all", `全企業（${d.all.length}）`],   /* 差分・突合はなくした（2026-11-10 幸地さん） */ ...(ed ? [["form", `解約フォーム${(d.inbox || []).length ? `（要確認 ${(d.inbox || []).length}）` : ""}`]] : [])];
   let body = "";
   const tbl = (head, rows, empty) => `<div class="ar-tbl"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("") || `<tr><td colspan="${head.length}" class="ar-empty">${empty}</td></tr>`}</tbody></table></div>`;
-  if (ar.tab === "bill") body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "請求金額", "ステータス", "解約申請日", "SF計上"], /* 入金の列はなくした（2026-11-10 田中さん。未入金は「直す」のステータスで） */ d.bill.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${Number(x.amount).toLocaleString()}円</td><td>${arStTag(x.statusOn)}${x.status === "解約予定" && x.cancelMonth ? ` <small>${esc(arJp(arPrevYm(x.cancelMonth)))}末まで・${esc(arJp(x.cancelMonth))}から解約</small>` : ""}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td>
+  if (ar.tab === "bill") body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "請求金額", "ステータス", "解約予定", "解約申請日", "SF計上"], /* 入金の列はなくした（2026-11-10 田中さん。未入金は「直す」のステータスで） */ d.bill.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${Number(x.amount).toLocaleString()}円</td><td>${arStTag(x.statusOn)}</td><td>${arPlanCell(x, d.ym)}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td>
       <td>${ed ? `<label><input type="checkbox" data-ar-sf="${esc(x.id)}" ${x.sf ? "checked" : ""}> 済</label>` : (x.sf ? "済" : "<span style='color:#B4441F'>未</span>")}</td></tr>`), `${arJp(d.ym)}に請求する企業はありません`);
-  else if (ar.tab === "cancel") body = tbl(["申込番号", "企業名", "解約申請日", "解約希望月", "解約月（この月から）", "申請者", "連絡先"], d.cancels.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(arJp(x.cancelWish))}</td><td>${esc(arJp(x.cancelMonth))}</td><td>${esc(x.applicant || "—")}</td><td>${esc(x.contact || "—")}</td></tr>`), `${arJp(d.ym)}から解約済みになる企業はありません`);
+  else if (ar.tab === "wait") body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "ステータス", "担当CS"], (d.waiting || []).map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${arStTag(x.statusOn)}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td></tr>`), `${arJp(d.ym)}に開始待ちの企業はありません`);
+  else if (ar.tab === "cancel") body = tbl(["申込番号", "企業名", "解約申請日", "解約希望月", "解約予定月", "申請者", "連絡先"], d.cancels.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(arJp(x.cancelWish))}</td><td>${esc(arJp(x.cancelMonth))}</td><td>${esc(x.applicant || "—")}</td><td>${esc(x.contact || "—")}</td></tr>`), `${arJp(d.ym)}から解約済みになる企業はありません`);
   else if (ar.tab === "diff") body = tbl(["申込番号", "企業名", "区分", "変更月"], d.diff.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${arStTag(x.kind === "新規" ? "継続中" : x.kind).replace("継続中", "新規")}</td><td>${esc(arJp(x.changed))}</td></tr>`), `${arJp(d.prev)}からの増減はありません`);
   else if (ar.tab === "recon") {
     const r = d.recon; const base = r.kinxs;
@@ -2227,7 +2231,7 @@ function arRender() {
           <textarea id="arRules" class="kx-in" rows="3" style="width:100%;margin-top:6px" placeholder="1行に1つ：商品名に含む文字 → 自動更新 または 年間（例：アチコチバース月額 → 自動更新）">${esc((d.rules || []).map((r) => `${r.match} → ${r.plan}`).join("\n"))}</textarea><button type="button" class="hp-b" id="arRulesSave">ルールを保存して同期</button></details>
         <div id="arDiffs" style="margin-top:10px"></div></details></div>` : "";
     body = syncBox + `<div class="kx-seg" style="margin-bottom:8px">${[["", "すべて"], ["自動更新", "自動更新"], ["年間", "年間"]].map(([k, l]) => `<button type="button" class="${pf === k ? "on" : ""}" data-ar-pf="${k}">${l}（${k ? d.all.filter((x) => x.plan === k).length : d.all.length}）</button>`).join("")}</div>` +
-      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約申請日", "解約月", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(arJp(x.cancelMonth) || "—")}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : KX_TEST ? ` <button type="button" class="hp-b" data-ar-clone="${esc(x.id)}" title="この会社のテスト用コピーを作る（本物は変わりません）">🧪 この会社でテスト</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
+      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約予定", "解約申請日", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${x.plan === "自動更新" ? arPlanCell(x, d.ym) : "—"}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : KX_TEST ? ` <button type="button" class="hp-b" data-ar-clone="${esc(x.id)}" title="この会社のテスト用コピーを作る（本物は変わりません）">🧪 この会社でテスト</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
       + `<datalist id="arAcAll"></datalist>`;
   }
   const ex = (d.exports || [])[0];
@@ -2240,7 +2244,7 @@ function arRender() {
       if (ed && al.unmatched) items.push(`解約フォームの回答で、企業を特定できなかったものが <b>${al.unmatched}件</b>（「解約フォーム」のタブで当てはめてください）`);
       if ((al.unpaid || []).length) items.push(`未入金の企業が <b>${al.unpaid.length}社</b>（${esc(al.unpaid.slice(0, 3).join("・"))}）`);
       return items.length ? `<div style="background:#FFF6F3;border:1px solid #F0C9B8;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#7A2E12">${items.map((t) => `⚠ ${t}`).join("<br>")}</div>` : ""; })()}
-    <div class="ar-cards"><div class="ar-card"><small>請求対象</small><b>${d.bill.length}</b><span>社・${(d.bill.length * d.price).toLocaleString()}円（税別）</span></div><div class="ar-card"><small>新規</small><b>${nNew}</b><span>社</span></div><div class="ar-card"><small>この月から解約済み</small><b>${nCx}</b><span>社</span></div><div class="ar-card${nStop ? " warn" : ""}"><small>未入金・停止</small><b>${nStop}</b><span>社</span></div></div>
+    <div class="ar-cards"><div class="ar-card"><small>請求対象（更新確定）</small><b>${d.bill.length}</b><span>社・${(d.bill.length * d.price).toLocaleString()}円（税別）</span></div><div class="ar-card"><small>開始待ち</small><b>${(d.waiting || []).length}</b><span>社</span></div><div class="ar-card"><small>この月から解約（解約確定）</small><b>${nCx}</b><span>社</span></div><div class="ar-card${nStop ? " warn" : ""}"><small>未入金・停止</small><b>${nStop}</b><span>社</span></div></div>
     <div class="kx-seg" style="margin-bottom:10px">${tabs.map(([k, l]) => `<button type="button" class="${ar.tab === k ? "on" : ""}" data-ar-tab="${k}">${l}</button>`).join("")}</div>${body}`;
   document.querySelectorAll("#kxTopAr [data-ar-mv]").forEach((b) => b.addEventListener("click", () => { ar.ym = arAddYm(ar.ym, Number(b.dataset.arMv)); arLoad(); }));
   box.querySelectorAll("[data-ar-tab]").forEach((b) => b.addEventListener("click", () => { ar.tab = b.dataset.arTab; arRender(); }));
@@ -2356,7 +2360,7 @@ async function arEdit(x) {
     <div class="ar-f"><span>申込番号（サーカス）</span><div style="display:flex;gap:6px"><input id="arNo" value="${esc((x && x.no) || "")}" placeholder="解約フォームとの突合キー" style="flex:1"><button type="button" class="hp-b" id="arNoSf">SFから読む</button></div></div>
     <div class="kx-note" id="arNoSt" style="margin:-4px 0 8px 138px"></div>
     <div class="ar-f"><span>契約開始月</span><input type="month" id="arStart" value="${esc((x && x.start) || arYmNow())}"></div>
-    <div class="ar-f"><span>ステータス</span><select id="arSt">${st.map((s) => `<option value="${s}" ${(x ? x.status : "継続中") === s ? "selected" : ""}>${{ 解約予定: "更新確定（解約の申請あり）", 解約済: "解約済み" }[s] || s}</option>`).join("")}</select></div>
+    <div class="ar-f"><span>ステータス</span><select id="arSt">${st.map((s) => `<option value="${s}" ${(x ? x.status : "継続中") === s ? "selected" : ""}>${{ 継続中: "通常（解約の申請なし）", 解約予定: "解約の申請あり", 解約済: "解約済" }[s] || s}</option>`).join("")}</select></div>
     <div class="ar-f"><span>解約申請日</span><input type="date" id="arCxA" value="${esc((x && x.cancelApplied) || "")}"></div>
     <div class="ar-f"><span>解約希望月<small style="display:block;font-weight:400;color:#6A7A72">この月から使わない</small></span><input type="month" id="arCxW" value="${esc((x && x.cancelWish) || "")}"></div>
     <div class="ar-f"><span>申請者・連絡先</span><div style="display:flex;gap:6px"><input id="arAp" value="${esc((x && x.applicant) || "")}" placeholder="申請者名" style="flex:1"><input id="arCt" value="${esc((x && x.contact) || "")}" placeholder="メール・電話" style="flex:1"></div></div>
@@ -2387,7 +2391,7 @@ async function arEdit(x) {
     let id = x && x.id;
     if (isNew) { const nm = $("arAc").value.trim(); const hit = accts.find((a) => a.name === nm); if (!hit) { alert("kinXsの会社を一覧から選んでください（まだ無い会社は、SFで計上されると出てきます）"); return; } id = hit.id; }
     const body = { plan: $("arPlan").value, no: $("arNo").value, start: $("arStart").value, status: $("arSt").value, cancelApplied: $("arCxA").value, cancelWish: $("arCxW").value, applicant: $("arAp").value, contact: $("arCt").value, note: $("arNote").value };
-    if (!body.cancelWish && body.status === "解約予定") { alert("更新確定（解約の申請あり）にするときは、解約希望月を入れてください"); return; }
+    if (!body.cancelWish && body.status === "解約予定") { alert("解約の申請ありにするときは、解約希望月（使わなくなる最初の月）を入れてください"); return; }
     try { await api(`/api/kinxs/autorenew/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); close(); arLoad(); } catch (e) { alert(e.message); }
   });
 }
@@ -2400,12 +2404,20 @@ async function arExcel() {
   const now = new Date(Date.now() + 9 * 3600000); const stamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`;
   const nowStr = `${now.getUTCFullYear()}/${now.getUTCMonth() + 1}/${now.getUTCDate()} ${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
   const X = window.XLSX, wb = X.utils.book_new();
-  const add = (name, rows) => { const ws = X.utils.aoa_to_sheet(rows); ws["!cols"] = rows[0].map((_, i) => ({ wch: Math.min(40, Math.max(10, ...rows.map((r) => String(r[i] ?? "").length * 1.6))) })); X.utils.book_append_sheet(wb, ws, name); };
-  add("サマリー", [["項目", "内容"], ["対象月", arJp(d.ym)], ["請求対象社数", counts.bill], ["請求金額合計（税別）", counts.bill * d.price], ["新規", counts.new], ["解約（この月末）", counts.cancel], ["停止", counts.stop], ["出力日時", nowStr], ["出力者", by], ["版", `第${ver}版`]]);
-  add("請求対象一覧", [["企業ID（申込番号）", "企業名", "プラン区分", "契約開始月", "請求金額（税別）", "ステータス"], ...d.bill.map((x) => [x.no, x.name, x.plan, arJp(x.start), x.amount, x.statusOn])]);
-  add("解約一覧", [["企業ID（申込番号）", "企業名", "解約申請日", "解約月（この月から利用なし）"], ...d.cancels.map((x) => [x.no, x.name, x.cancelApplied, arJp(x.cancelMonth)])]);
-  // 差分・突合のシートはなくした（2026-11-10 幸地さん）
-  X.writeFile(wb, `${KX_TEST ? "テスト_" : ""}DOC自動更新_請求対象_${d.ym.slice(0, 4)}年${d.ym.slice(5, 7)}月分_${stamp}出力${ver > 1 ? `_第${ver}版` : ""}.xlsx`);
+  // 2026-11-11 仕様変更指示書：タブは「更新確定一覧」「解約確定」の2つ。A1＝○月分、2行目＝合計（SUM関数）、3行目＝見出し、4行目から
+  const title = `${d.ym.slice(0, 4)}年${Number(d.ym.slice(5, 7))}月分`;
+  const fmt = "#,##0";
+  { const rows = d.bill; const last = 3 + rows.length;
+    const aoa = [[title], ["", "", "合計", null, null], ["申込番号", "企業名", "ステータス", "売上", "原価"], ...rows.map((x) => [x.no, x.name, x.statusOn, d.price, d.cost || 3000])];
+    const ws = X.utils.aoa_to_sheet(aoa);
+    ws["D2"] = { t: "n", f: rows.length ? `SUM(D4:D${last})` : "0", z: fmt }; ws["E2"] = { t: "n", f: rows.length ? `SUM(E4:E${last})` : "0", z: fmt };
+    for (let r = 4; r <= last; r++) { if (ws[`D${r}`]) ws[`D${r}`].z = fmt; if (ws[`E${r}`]) ws[`E${r}`].z = fmt; }
+    ws["!cols"] = [{ wch: 18 }, { wch: 36 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+    X.utils.book_append_sheet(wb, ws, "更新確定一覧"); }
+  { const ws = X.utils.aoa_to_sheet([[title], [], ["申込番号", "企業名", "ステータス"], ...d.cancels.map((x) => [x.no, x.name, x.statusOn])]);
+    ws["!cols"] = [{ wch: 18 }, { wch: 36 }, { wch: 12 }];
+    X.utils.book_append_sheet(wb, ws, "解約確定"); }
+  X.writeFile(wb, `${KX_TEST ? "テスト_" : ""}DOC自動更新_${d.ym.slice(0, 4)}年${Number(d.ym.slice(5, 7))}月分_${stamp}出力${ver > 1 ? `_第${ver}版` : ""}.xlsx`);
   arLoad();
 }
 if (VIEW === "ar") { if ($("kxPageName")) $("kxPageName").textContent = "DOC自動更新"; arLoad(); }

@@ -13323,6 +13323,7 @@ setTimeout(() => { kinxsSync().catch(() => {}); }, 90 * 1000).unref?.();
 setInterval(() => { kinxsSync().catch(() => {}); }, 30 * 60 * 1000).unref?.();
 // 更新管理：更新月（今月の前の月〜12か月先）× 更新確度
 // ===== DOC（アチコチバース）1ヶ月ごとの自動更新（2026-11-09 幸地美穂さんの要件・田中さん。販売管理部は kincs で見る）=====
+const AR_COST = 3000;   // 原価（ブレインバース社）1社あたり（2026-11-11 仕様変更指示書）
 const AR_PRICE = 10000;   // 月額（税別）
 const _arCircusTried = new Map();
 let _arCircusRunning = false;
@@ -13338,31 +13339,32 @@ function arCircusFillBg(rows, user) {
 const arWithin = (p, ms, dflt) => Promise.race([p, new Promise((r) => setTimeout(() => r(dflt), ms))]);
 const arYm = (d) => { const x = new Date(new Date(d).getTime() + 9 * 3600000); return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, "0")}`; };
 const arAdd = (ym, n) => { const [y, m] = String(ym).split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; };
-// ===== 解約のきまり（2026-11-10 幸地さん）=====
-//   解約希望月＝もう使わない月（この月から解約済み）。例：12月を希望 → 11月末まで使い（10月・11月は「更新確定」）、12月から「解約済み」
-//   締切：解約になる月の2か月前の第15営業日まで（例：12月に解約 → 10月の第15営業日まで）。過ぎたら1か月うしろ
-//   ar_cancel_month は「解約になる月」。ar_status は今までどおり「解約予定」で持ち、画面では月ごとに「更新確定」「解約済み」と出す
+// ===== 解約のきまり・ステータス（2026-11-11 kincs 仕様変更指示書）=====
+//   解約予定月（ar_cancel_month）＝サービスを使わなくなる最初の月。締切は「最終利用月の前月15日まで」
+//   → 申請日が M月1〜15日なら M+2月、16日以降なら M+3月（15日ちょうどは締切内）。希望月がそれより後なら希望月
+//   ステータス（その月）：停止 → 未入金 → 解約済（解約予定月 < その月）→ 解約確定（＝その月）→ 開始待ち（契約開始月 > その月）→ 更新確定（ほか。その月は請求する）
+//   ar_status は「継続中」（解約の申請なし）「解約予定」（申請あり）「未入金」「停止」「解約済」を持ち、画面の表記は月ごとに arStatusOn で決める
 function arCancelMonth(applied, wish) {
-  if (!/^\d{4}-\d{2}$/.test(String(wish || ""))) return "";
-  const a = String(applied || "").slice(0, 10); if (!/^\d{4}-\d{2}-\d{2}$/.test(a)) return wish;
-  const am = a.slice(0, 7); const dl = arBizDay(am, 15) || `${am}-15`;
-  const earliest = arAdd(am, a <= dl ? 2 : 3);
-  return wish >= earliest ? wish : earliest;
+  const a = String(applied || "").slice(0, 10);
+  const w = /^\d{4}-\d{2}$/.test(String(wish || "")) ? String(wish) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a)) return w;
+  const earliest = arAdd(a.slice(0, 7), Number(a.slice(8, 10)) <= 15 ? 2 : 3);
+  return w && w > earliest ? w : earliest;
 }
-// その月の状態：解約の申請があれば、解約になる月より前は「更新確定」、その月からは「解約済み」
 function arStatusOn(r, ym) {
   const st = r.ar_status || "継続中";
-  if (st === "解約予定") return r.ar_cancel_month && r.ar_cancel_month <= ym ? "解約済み" : "更新確定";
-  if (st === "解約済") return "解約済み";
-  return st;
+  if (st === "停止") return "停止";
+  if (st === "未入金") return "未入金";
+  const E = (st === "解約予定" || st === "解約済") ? (r.ar_cancel_month || "") : "";
+  if (E && E < ym) return "解約済";
+  if (E && E === ym) return "解約確定";
+  if (st === "解約済" && !E) return "解約済";
+  if (r.ar_start && r.ar_start > ym) return "開始待ち";
+  return "更新確定";
 }
-// その月に請求するか：自動更新・契約開始月以降・（継続中）か（解約の申請があって、解約になる月より前）
+// その月に請求するか：自動更新で、その月が「更新確定」
 function arBillOn(r, ym) {
-  if (r.ar_plan !== "自動更新" || !r.ar_start || r.ar_start > ym) return false;
-  const st = r.ar_status || "継続中";
-  if (st === "継続中") return true;
-  if (st === "解約予定") return !!r.ar_cancel_month && r.ar_cancel_month > ym;
-  return false;
+  return r.ar_plan === "自動更新" && !!r.ar_start && arStatusOn(r, ym) === "更新確定";
 }
 // 今ある解約月を、新しい意味（解約になる月）に1回だけずらす
 setTimeout(async () => { try { const st = await getSettings(); if (st.arCancelSemV2) return; await saveSettings({ arCancelSemV2: new Date().toISOString() }); const n = await arShiftCancelMonthsOnce(); console.log("[DOC自動更新] 解約月を新しいきまりにずらしました：", n); } catch (e) { console.warn("[DOC自動更新] 解約月のずらし", e.message); } }, 45 * 1000);
@@ -13409,7 +13411,29 @@ async function kxSeedTests4() {
   for (let i = 0; i < rows.length; i++) await kinxsTestSet(rows[i].account_id, { no: await kxTestNumber(i), cs: KX_TEST_CS[i % KX_TEST_CS.length] }).catch(() => {});
   _kxBuildMemo = { at: 0, p: null };
 }
-setTimeout(() => kxSeedTests().then(() => kxSeedTests4()).catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
+// 仕様変更指示書（2026-11-11）6-1 のテスト企業10社（1回だけ。settings.kxTestSeed5）
+async function kxSeedTests5() {
+  const st = await getSettings().catch(() => ({})); if (st.kxTestSeed5) return;
+  await saveSettings({ kxTestSeed5: new Date().toISOString() });
+  const by = "テストの準備（仕様変更指示書）";
+  const L = [
+    ["20261101BD101", "株式会社ひだまり商事", "2026-12", "", ""], ["20261101BD102", "みらい設計株式会社", "2027-03", "", ""],
+    ["20261101BD201", "株式会社あさひ物流", "2026-10", "", ""], ["20261101BD202", "こだまフーズ株式会社", "2026-08", "", ""], ["20261101BD203", "株式会社かえで不動産", "2026-06", "", ""],
+    ["20261101BD301", "株式会社つばさ工業", "2026-09", "2026-09-12", "2026-11"], ["20261101BD302", "はなまるサービス株式会社", "2026-08", "2026-10-08", "2026-12"], ["20261101BD303", "株式会社やまびこ電機", "2026-06", "2026-10-20", "2027-01"],
+    ["20261101BD401", "境界15日株式会社", "2026-08", "2026-11-15", "2027-01"], ["20261101BD402", "境界16日株式会社", "2026-08", "2026-11-16", "2027-02"],
+  ];
+  let n = 0;
+  for (const [no, nm, start, applied, expect] of L) {
+    try {
+      const a = await kinxsAddTest(`【テスト】${nm}`, by, KX_TEST_CS[n % KX_TEST_CS.length]); n++;
+      const cm = applied ? arCancelMonth(applied, "") : "";
+      if (applied && cm !== expect) console.warn(`[テストの準備] 解約予定月が指示書と違います：${nm} ${cm} ≠ ${expect}`);
+      await arUpdate(a.account_id, { plan: "自動更新", no, start, status: applied ? "解約予定" : "継続中", ...(applied ? { cancelApplied: applied, cancelWish: cm, cancelMonth: cm, applicant: "テスト 申請者" } : {}) }, by);
+    } catch (e) { console.warn("[テストの準備]", nm, e.message); }
+  }
+  _kxBuildMemo = { at: 0, p: null };
+}
+setTimeout(() => kxSeedTests().then(() => kxSeedTests4()).then(() => kxSeedTests5()).catch((e) => console.warn("[テストの準備]", e.message)), 90 * 1000);
 // その企業の解約フォームの申請内容（フォームの回答そのもの）と、回答シートへのリンク（2026-11-10 幸地さん）
 app.get("/api/kinxs/autorenew/:id/applications", async (req, res) => {
   try {
@@ -13437,7 +13461,8 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const bill = rows.filter((r) => arBillOn(r, ym)).map(view);
     const billPrev = new Set(rows.filter((r) => arBillOn(r, prev)).map((r) => String(r.id)));
     const billNow = new Set(bill.map((x) => String(x.id)));
-    const cancels = rows.filter((r) => r.ar_cancel_month === ym && (r.ar_status === "解約予定" || r.ar_status === "解約済")).map(view);   // その月から解約済みになる企業
+    const cancels = rows.filter((r) => r.ar_plan === "自動更新" && arStatusOn(r, ym) === "解約確定").map(view);   // その月から使わない（解約確定）
+    const waiting = rows.filter((r) => r.ar_plan === "自動更新" && arStatusOn(r, ym) === "開始待ち").map(view);   // 受注済みで、まだ使い始めていない
     const diff = [
       ...bill.filter((x) => !billPrev.has(String(x.id))).map((x) => ({ ...x, kind: "新規", changed: x.start })),
       ...rows.filter((r) => billPrev.has(String(r.id)) && !billNow.has(String(r.id))).map(view).map((x) => ({ ...x, kind: x.status === "停止" ? "停止" : x.status === "未入金" ? "未入金" : "解約", changed: x.cancelMonth || prev })),
@@ -13448,7 +13473,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const inbox = (await arInboxList("要確認").catch(() => [])).map((x) => ({ id: x.id, at: x.at, company: x.company, applicant: x.applicant, email: x.email, no: x.no, wish: x.wish }));
     const nowYm = arYm(Date.now());
     const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unmatched: inbox.length, unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name) };
-    res.json({ ok: true, ym, prev, price: AR_PRICE, all, bill, cancels, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
+    res.json({ ok: true, ym, prev, price: AR_PRICE, cost: AR_COST, next: arAdd(ym, 1), all, bill, cancels, waiting, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
       form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false,
         replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyAlso: stA.arReplyAlso != null ? stA.arReplyAlso : AR_REPLY_ALSO_DEFAULT, replyCs: stA.arReplyCs !== false, csMails: stA.arCsMails || {}, shareDay: Number(stA.arShareBizDay || 20), shareDate: arBizDay(ym, Number(stA.arShareBizDay || 20)), replyReady: stA.arReplyOwner ? !!(await arWithin(gmailReady(stA.arReplyOwner).catch(() => false), 5000, false)) : false,
         notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length },
@@ -29996,7 +30021,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-11j 商談履歴：【ユ/フォ】などの頭の印と「様」で会社名がずれていたのを直し、kinXsのユーザー一覧の会社名に当てる。";
+const BUILD_TAG = "2026-11-11k kincs DOC自動更新（仕様変更指示書）：ステータス 開始待ち・更新確定・解約確定・解約済、解約予定の列（翌月解約）、締切＝申請月15日まで→+2月、Excelは更新確定一覧・解約確定の2タブ、テスト企業10社。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
