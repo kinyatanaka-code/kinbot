@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261112zv" />
+<link rel="stylesheet" href="/style.css?v=20261112zw" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -45,6 +45,38 @@
   .mc-form input:focus{outline:2px solid #5EEAD4;border-color:#0E9AA7 !important;}
   .side-foot .side-avatar{background:#0E9AA7 !important;color:#fff !important;}
   .side-foot .side-foot-set{border-color:rgba(94,234,212,.35) !important;color:#CFF7FA !important;} .side-foot .side-foot-set:hover{background:rgba(94,234,212,.12) !important;}
+
+  /* 商談（MiiTel）：左に商談のカード、右に中身（kinbot の商談履歴と同じ作りを水色で）（2026-11-12） */
+  .mt-wrap{display:grid;grid-template-columns:300px minmax(0,1fr);gap:14px;height:calc(100vh - 120px);min-height:520px;}
+  .mt-side{display:flex;flex-direction:column;min-height:0;background:#F2FAFB;border:1px solid #D9ECEE;border-radius:16px;padding:12px;}
+  .mt-side-h{display:flex;align-items:baseline;gap:8px;padding:2px 4px 8px;} .mt-side-h b{font-size:14px;color:#12292C;} .mt-n{font-size:12px;color:#5C7377;}
+  .mt-q{height:36px;border:1px solid #CFE6E9;border-radius:10px;padding:0 12px;font:inherit;font-size:13px;margin-bottom:10px;background:#fff;}
+  .mt-q:focus{outline:2px solid #5EEAD4;border-color:#0E9AA7;}
+  .mt-list{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px;}
+  .mt-day{font-size:11.5px;font-weight:800;color:#5C7377;padding:6px 4px 0;}
+  .mt-card{background:#fff;border:1px solid #DDEEF0;border-left:4px solid #9FDCE2;border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .15s, box-shadow .15s;}
+  .mt-card:hover{border-color:#5EC7CF;box-shadow:0 4px 14px rgba(14,154,167,.12);}
+  .mt-card.on{border-color:#0E9AA7;border-left-color:#0E9AA7;background:#E9F8F9;box-shadow:0 0 0 1px #0E9AA7 inset;}
+  .mt-card .t{font-weight:800;font-size:13px;color:#12292C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .mt-card .m{display:flex;gap:8px;font-size:11.5px;color:#5C7377;margin-top:3px;} .mt-card .m .who{margin-left:auto;}
+  .mt-card .tags{display:flex;gap:5px;margin-top:6px;flex-wrap:wrap;}
+  .mt-tag{font-size:10.5px;font-weight:800;border-radius:99px;padding:1px 8px;background:#E6F6F8;color:#0B6E78;} .mt-tag.none{background:#F1F4F4;color:#8A9A9C;} .mt-tag.sf{background:#FFF1E6;color:#A2480C;}
+  .mt-main{min-width:0;min-height:0;overflow-y:auto;background:#fff;border:1px solid #D9ECEE;border-radius:16px;padding:16px 18px;}
+  .mt-empty{color:#5C7377;font-size:13px;padding:40px 10px;text-align:center;}
+  .mt-rec{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:200px;border-radius:14px;background:linear-gradient(135deg,#0F3D44,#0E7A82);color:#E6FBFD;text-align:center;padding:18px;}
+  .mt-rec b{font-size:15px;} .mt-rec a{background:#fff;color:#0B6E78;font-weight:800;border-radius:10px;padding:9px 18px;text-decoration:none;font-size:13px;}
+  .mt-title{display:flex;align-items:center;gap:10px;margin:14px 0 10px;flex-wrap:wrap;} .mt-title h2{font-size:17px;margin:0;color:#12292C;flex:1;min-width:0;}
+  .mt-btn{height:34px;border:0;border-radius:10px;background:#0E9AA7;color:#fff;font:inherit;font-size:12.5px;font-weight:800;padding:0 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;}
+  .mt-btn.ghost{background:#fff;color:#0B6E78;border:1px solid #CFE6E9;}
+  .mt-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 14px;font-size:12.5px;margin-bottom:12px;}
+  .mt-fields div{display:flex;flex-direction:column;gap:2px;} .mt-fields span{color:#5C7377;font-size:11.5px;font-weight:700;} .mt-fields b{color:#12292C;font-weight:700;}
+  .mt-tabs{display:flex;gap:6px;background:#F2FAFB;border-radius:12px;padding:4px;margin:6px 0 12px;flex-wrap:wrap;}
+  .mt-tabs button{border:0;background:none;border-radius:9px;padding:7px 14px;font:inherit;font-size:12.5px;font-weight:800;color:#5C7377;cursor:pointer;} .mt-tabs button.on{background:#fff;color:#0B6E78;box-shadow:0 1px 4px rgba(14,154,167,.18);}
+  .mt-tr{display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.7;}
+  .mt-tr .ln{display:flex;gap:8px;align-items:flex-start;} .mt-tr .spk{flex:0 0 auto;font-size:11px;font-weight:800;color:#0B6E78;background:#E6F6F8;border-radius:6px;padding:1px 8px;margin-top:3px;white-space:nowrap;} .mt-tr .tm{flex:0 0 auto;font-size:11px;color:#8A9A9C;margin-top:4px;min-width:38px;}
+  .mt-doc{font-size:13.5px;line-height:1.9;white-space:pre-wrap;color:#12292C;}
+  .mt-wait{background:#F2FAFB;border:1px dashed #BFE3E7;border-radius:12px;padding:16px;color:#3F5A5E;font-size:13px;line-height:1.8;}
+  @media (max-width:900px){.mt-wrap{grid-template-columns:1fr;height:auto;}.mt-side{max-height:320px;}}
 </style>
 </head>
 <body>
@@ -78,9 +110,16 @@
       <div class="mc-box"><h2>MOCHICA のメンバー</h2><div id="mcMembers" class="mc-note">読み込んでいます…</div>
         <p class="mc-note" style="margin-top:8px">メンバーの DOC／MOCHICA は、kinbot の設定 → メンバー管理の「プロダクト」で決めます。</p></div>
     </section>
-    <section data-pane="mtg" hidden><div class="mc-box"><h2>商談（MiiTel）</h2>
-      <p class="mc-note">MiiTel で録画・文字起こしが終わった会議が、ここに自動で届きます（MiiTel の Outgoing Webhook）。届いた会議から、要約・分析と Salesforce への記録を順に作っていきます。</p>
-      <div id="mcMtList" class="mc-note" style="margin-top:10px">読み込んでいます…</div></div></section>
+    <section data-pane="mtg" hidden>
+      <div class="mt-wrap">
+        <aside class="mt-side">
+          <div class="mt-side-h"><b>商談</b><span id="mtCount" class="mt-n"></span></div>
+          <input id="mtQ" class="mt-q" type="search" placeholder="会議名・担当で探す" />
+          <div id="mtList" class="mt-list"><div class="mc-note" style="padding:10px">読み込んでいます…</div></div>
+        </aside>
+        <div class="mt-main" id="mtMain"><div class="mt-empty">左の商談を選ぶと、ここに中身が出ます。</div></div>
+      </div>
+    </section>
     <section data-pane="list" hidden><div class="mc-box"><h2>リスト（Bales Cloud）<span class="mc-tag wait">準備中</span></h2>
       <p class="mc-note">Bales Cloud のリストを読み、会社・架電の状況を kinbot で見られるようにします。まず「設定（連携）」で Bales Cloud の API をつないでください。</p></div></section>
     <section data-pane="call" hidden><div class="mc-box"><h2>架電（Zoom Phone）<span class="mc-tag wait">準備中</span></h2>
@@ -112,6 +151,6 @@
       </div>
   </div>
 </div>
-<script src="/mochica.js?v=20261112zv"></script>
+<script src="/mochica.js?v=20261112zw"></script>
 </body>
 </html>

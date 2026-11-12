@@ -23,15 +23,60 @@
       $("mcMembers").innerHTML = d.members.length ? d.members.map((m) => `<span class="mc-tag" style="margin:0 6px 6px 0">${esc(m)}</span>`).join("") : "まだ MOCHICA のメンバーが決まっていません。";
     } catch (e) { $("mcCards").innerHTML = `<div class="mc-card"><small>読めませんでした：${esc(e.message)}</small></div>`; }
   }
-  // MiiTel から届いた会議（2026-11-12）
-  async function loadMeetings() {
-    const box = $("mcMtList"); if (!box) return;
-    try { const d = await api("/api/mochica/miitel/meetings"); const it = d.items || [];
-      const t0 = (v) => v ? new Date(v).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
-      box.innerHTML = it.length ? `<table class="mc-list"><tr><th>日時</th><th>会議</th><th>主催</th><th>長さ</th><th>文字起こし</th></tr>${it.map((m) => `<tr><td>${t0(m.started_at || m.received_at)}</td><td>${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title || "（題名なし）")}</a>` : esc(m.title || "（題名なし）")}</td><td>${esc(m.host || "")}</td><td>${m.duration_sec ? Math.round(m.duration_sec / 60) + "分" : "—"}</td><td>${m.transcript_len ? `${m.transcript_len}` : "—"}</td></tr>`).join("")}</table>`
-        : "まだ届いていません。設定（連携）の URL と追加ヘッダーを MiiTel の Outgoing Webhook（会議履歴）に入れると、次の会議から届きます。";
-    } catch (e) { box.textContent = "読めませんでした：" + e.message; }
+  // ===== 商談（MiiTel）：左に商談のカード、右に中身（kinbot の商談履歴と同じ作りを水色で）（2026-11-12）=====
+  let mtAll = [], mtSel = "";
+  const jst = (v) => v ? new Date(new Date(v).getTime() + 9 * 3600000) : null;
+  const dkey = (v) => { const d = jst(v); return d ? d.toISOString().slice(0, 10) : ""; };
+  const hm = (v) => { const d = jst(v); return d ? d.toISOString().slice(11, 16) : ""; };
+  const md = (v) => { const d = jst(v); return d ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : ""; };
+  const wk = (v) => { const d = jst(v); return d ? "日月火水木金土"[d.getUTCDay()] : ""; };
+  function mtDraw() {
+    const box = $("mtList"); if (!box) return;
+    const q = String(($("mtQ") || {}).value || "").trim().toLowerCase();
+    const list = mtAll.filter((m) => !q || `${m.title || ""} ${m.host || ""} ${m.participants || ""}`.toLowerCase().includes(q));
+    $("mtCount").textContent = `${list.length}件`;
+    if (!list.length) { box.innerHTML = `<div class="mc-note" style="padding:10px">${mtAll.length ? "見つかりませんでした" : "まだ届いていません。設定（連携）の URL と追加ヘッダーを MiiTel の Outgoing Webhook（会議履歴）に入れると、次の会議から届きます。"}</div>`; return; }
+    let last = ""; let html = "";
+    for (const m of list) {
+      const at = m.started_at || m.received_at; const k = dkey(at);
+      if (k !== last) { html += `<div class="mt-day">${md(at)}（${wk(at)}）</div>`; last = k; }
+      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(m.title || "（題名なし）")}</div><div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}<span class="who">${esc(m.host || "")}</span></div><div class="tags">${m.transcript_len ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}<span class="mt-tag sf">SF未記録</span></div></div>`;
+    }
+    box.innerHTML = html;
+    box.querySelectorAll("[data-mt]").forEach((el) => el.addEventListener("click", () => mtOpen(el.dataset.mt)));
   }
+  async function loadMeetings() {
+    try { const d = await api("/api/mochica/miitel/meetings"); mtAll = d.items || []; mtDraw(); if (!mtSel && mtAll[0]) mtOpen(mtAll[0].id); }
+    catch (e) { const b = $("mtList"); if (b) b.textContent = "読めませんでした：" + e.message; }
+  }
+  async function mtOpen(id) {
+    mtSel = id; mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
+    let it; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}`)).item; } catch (e) { main.innerHTML = `<div class="mt-empty">読めませんでした：${esc(e.message)}</div>`; return; }
+    const p = it.payload || {}; const v = p.video || p.meeting || p.data || p;
+    const tr0 = v.transcript || v.transcription || v.utterances || v.speeches || null;
+    const tr = Array.isArray(tr0) ? tr0.map((u) => typeof u === "string" ? { s: "", t: u } : { s: String((u.speaker && (u.speaker.name || u.speaker)) || u.speaker_name || u.name || ""), t: String(u.text || u.phrase || u.content || ""), at: u.start || u.start_time || null }).filter((u) => u.t)
+      : typeof tr0 === "string" ? tr0.split(/\n+/).filter(Boolean).map((x) => ({ s: "", t: x })) : [];
+    const minutes = String(v.minutes || v.summary || "").trim();
+    const at = it.started_at || it.received_at; const url = it.url || `https://mochica.app.miitel.com/app/video/${id}`;
+    const tabs = [["tr", "文字起こし"], ["mn", "議事録"], ["sm", "要約"], ["an", "FB & 分析"], ["ml", "御礼メール"], ["sf", "SF連携"]];
+    const pane = (k) => {
+      if (k === "tr") return tr.length ? `<div class="mt-tr">${tr.map((u) => `<div class="ln">${u.at != null ? `<span class="tm">${esc(typeof u.at === "number" ? `${Math.floor(u.at / 60)}:${String(Math.floor(u.at % 60)).padStart(2, "0")}` : String(u.at).slice(11, 16))}</span>` : ""}${u.s ? `<span class="spk">${esc(u.s)}</span>` : ""}<span>${esc(u.t)}</span></div>`).join("")}</div>`
+        : '<div class="mt-wait">文字起こしは、まだ kinbot に入っていません。MiiTel の Webhook で文字起こしごと届いた会議は、ここに話した人つきで出ます。録画と文字起こしは上の「MiiTel で開く」から見られます。</div>';
+      if (k === "mn") return minutes ? `<div class="mt-doc">${esc(minutes)}</div>` : '<div class="mt-wait">MiiTel の議事録は、まだ kinbot に入っていません（MiiTel の Webhook の通知ルールに「議事録作成完了時」を足すと届きます）。</div>';
+      if (k === "sm") return '<div class="mt-wait">要約は、文字起こしが入った会議から kinbot が作ります（準備中）。</div>';
+      if (k === "an") return '<div class="mt-wait">話し方・良かった点・直す点などの分析は、文字起こしが入った会議から作ります（準備中）。</div>';
+      if (k === "ml") return '<div class="mt-wait">御礼メールの下書きは、文字起こしが入った会議から作ります（準備中）。</div>';
+      return '<div class="mt-wait">Salesforce の「MOCHICA リード」から新規の商談を立ち上げる・ステージを進める・記録を残すのは、ここから行えるようにします（準備中）。</div>';
+    };
+    const cur = mtOpen.tab || "tr";
+    main.innerHTML = `<div class="mt-rec"><b>録画は MiiTel にあります</b><a href="${esc(url)}" target="_blank" rel="noopener">MiiTel で録画を見る ↗</a></div>
+      <div class="mt-title"><h2>${esc(it.title || "（題名なし）")}</h2><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
+      <div class="mt-fields"><div><span>担当</span><b>${esc(it.host || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(it.participants || "—")}</b></div></div>
+      <div class="mt-tabs">${tabs.map(([k, l]) => `<button type="button" data-mtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>
+      <div id="mtPane">${pane(cur)}</div>`;
+    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); }));
+  }
+  { const q = $("mtQ"); if (q) q.addEventListener("input", mtDraw); }
   async function loadConfig() {
     try { const c = await api("/api/mochica/config");
       $("miDomain").value = c.miitel.domain || ""; $("miToken").value = ""; $("miToken").placeholder = c.miitel.tokenLast4 ? `保存済み（****${c.miitel.tokenLast4}）。変えるときだけ入れる` : "管理画面の「API」で発行したもの";
