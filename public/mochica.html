@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261112zz3" />
+<link rel="stylesheet" href="/style.css?v=20261112zz4" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -139,9 +139,14 @@
         <div class="mc-form" style="margin-top:10px"><label>URL</label><input id="mhUrl" readonly onclick="this.select()" />
           <label>追加ヘッダー</label><input id="mhHead" readonly onclick="this.select()" placeholder="管理者だけが見られます" /></div>
         <p class="mc-note" style="margin-top:8px">追加ヘッダーは合言葉です。ほかの人に見せないでください。</p></div>
-      <div class="mc-box"><h2>MiiTel <span class="mc-tag" id="stMiitel">—</span></h2>
-        <div class="mc-form"><label>会社のドメイン</label><input id="miDomain" placeholder="例：xxxx.miitel.jp" />
-          <label>API のトークン</label><input id="miToken" type="text" class="mc-secret" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="管理画面の「API」で発行したもの" /></div></div>
+      <div class="mc-box"><h2>MiiTel の文字起こし・議事録の読み込み</h2>
+        <p class="mc-note">MiiTel には外から読む鍵（API）が無いので、<b>営業担当それぞれの Chrome</b> で読みます。パスワードは kinbot に入れません。</p>
+        <ol class="mc-steps" style="margin-top:6px">
+          <li>各自の Chrome に拡張機能 <b>kinbot-ext（1.4.0 以上）</b>を入れる（kinbot の設定 → 拡張機能）</li>
+          <li>その Chrome で、自分の MiiTel のアカウントでログインしておく</li>
+          <li>MiiTel で会議のページを開くと、その会議の文字起こし・議事録が自動で kinbot に入る。まとめて入れるときは「商談（MiiTel）」の「MiiTel から文字起こし・議事録を読む」</li>
+        </ol>
+        <input id="miDomain" type="hidden" /><input id="miToken" type="hidden" /><span id="stMiitel" hidden></span></div>
       <div class="mc-box"><h2>Bales Cloud <span class="mc-tag" id="stBales">—</span></h2>
         <div class="mc-form"><label>API のキー</label><input id="baKey" type="text" class="mc-secret" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="管理画面の「連携」「API」で発行したもの" />
           <label>メモ</label><input id="baNote" placeholder="アカウント名など（任意）" /></div></div>
@@ -155,6 +160,6 @@
       </div>
   </div>
 </div>
-<script src="/mochica.js?v=20261112zz3"></script>
+<script src="/mochica.js?v=20261112zz4"></script>
 </body>
 </html>
