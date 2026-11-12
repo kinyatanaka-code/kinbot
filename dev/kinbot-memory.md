@@ -2524,3 +2524,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-12 BUILD_TAG=2026-11-12zj 田中さん「ホームは基本そのアカウント個人のデータで、右上に全員というタブ」。renderHomeV2：担当の選択（kxHomeCs）をやめ、右上に「自分｜全員」（localStorage kxHomeScope、既定 me）。自分＝/api/me の名前の苗字（window.__kxMe、読めたら描き直す）で要アクションを絞る。タスクは 自分＝自分のタスク、全員＝GET /api/kinxs/home/tasks?who=all（kxTaskListAllOpen：全員のまだのタスク（kinXs のお知らせを除く）＋全社の次回アクション、担当の名前 ownerName、期限順、最大200）。全員のときは行に担当の名前、済みのボタンは自分のときだけ。版20261112zj。
 - 2026-11-12 BUILD_TAG=2026-11-12zk 田中さん（タスクの一覧の下が切れていた）「スクロールできるように」。#kh2 .h2-act .h2-tk を .h2-list と同じく flex:1・min-height:0・overflow-y:auto（枠の中でスクロール）、大きく表示のときも。版20261112zk。
 - 2026-11-12 BUILD_TAG=2026-11-12zl 田中さん「自分と全員でタブを切りかえたら、これからの更新・情報不足もかわるように」。renderHomeV2：kxMineCo（自分のときは CS 担当の苗字＝自分の会社だけ）で、3か月の更新の docs と情報不足の msItems（ms.items を id で会社に当てて）を絞る。上の数字のカード（DOC受注社数など）は全社のまま。版20261112zl。
+- 2026-11-12 BUILD_TAG=2026-11-12zm 田中さん「大きくするときにカーソルがプラスになるけど違うカーソルがいいかも」。.h2-act:not(.big) の cursor を zoom-in（虫めがねの＋）から pointer（指）に。版20261112zm。
