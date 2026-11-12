@@ -149,7 +149,7 @@ const TOOLS = [
   },
   {
     name: "sf_create",
-    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。",
+    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。リード（Lead）と取引先（Account）を作るときは業種（Industry）が必須：Industry を入れていなければ、kinbot がネットで事業内容を調べて SF の選択肢から入れる（分からなければ作らずに選択肢を返すので、その中から選んで Industry に入れてやり直す）。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, fields: { type: "object", description: "作成するフィールド {API名: 値}" } }, required: ["sobject", "fields"] },
   },
 
@@ -423,6 +423,11 @@ export async function callTool(name, args, req) {
       const so = String(args && args.sobject || "");
       if (!SF_WRITE_OBJECTS.has(so)) throw new Error(`このオブジェクトは更新できません（許可: ${[...SF_WRITE_OBJECTS].join(", ")}）`);
       const owner = await sfOwnerFor(req);
+      if ((so === "Lead" || so === "Account") && args && args.fields && "Industry" in args.fields && globalThis.kbIndustry) {
+        const opts = (await globalThis.kbIndustry.options(owner).catch(() => [])).map((o) => o.value);
+        if (!String(args.fields.Industry || "").trim()) throw new Error("業種（Industry）は空にできません（必須）");
+        if (opts.length && !opts.includes(String(args.fields.Industry))) throw new Error(`業種（Industry）は SF の選択肢から選んでください：${opts.join("／")}`);
+      }
       const r = await sfUpdateRecord(owner, so, String(args.id || ""), (args && args.fields) || {});
       const by = await sfByNameMcp(req, owner);
       if (by) console.log(`[sf_update] 代理で更新：${so} ${args.id} by ${req.user}`);
@@ -434,9 +439,22 @@ export async function callTool(name, args, req) {
       if (!SF_WRITE_OBJECTS.has(so)) throw new Error(`このオブジェクトは作成できません（許可: ${[...SF_WRITE_OBJECTS].join(", ")}）`);
       const owner = await sfOwnerFor(req);
       const fields = { ...((args && args.fields) || {}) };
+      // 業種は必須（リード・取引先）（2026-11-12 田中さん：Claude で SF を書くときも業種を入れる）
+      let indNote = "";
+      if ((so === "Lead" || so === "Account") && globalThis.kbIndustry) {
+        const opts = (await globalThis.kbIndustry.options(owner).catch(() => [])).map((o) => o.value);
+        if (fields.Industry && opts.length && !opts.includes(String(fields.Industry))) throw new Error(`業種（Industry）は SF の選択肢から選んでください：${opts.join("／")}`);
+        if (!fields.Industry) {
+          const co = String(fields.Company || fields.Name || "").trim();
+          const g = co ? await globalThis.kbIndustry.guess(owner, co, { website: String(fields.Website || "") }).catch(() => "") : "";
+          if (!g) throw new Error(`業種（Industry）が必須です。ネットで調べても決められませんでした。次の選択肢から選んで fields.Industry に入れてやり直してください：${opts.join("／")}`);
+          fields.Industry = g; indNote = `業種は「${g}」を入れました（ネットで調べた事業内容から）。違っていれば sf_update で直してください。`;
+        }
+      }
       const by = await sfByNameMcp(req, owner);
       if (by && (so === "Task" || so === "Event")) fields.Description = `記録した人：${by}（kinbot から代理で記録）\n${fields.Description || ""}`.trim();
-      const r = await sfCreateRecord(owner, so, fields);
+      const r0 = await sfCreateRecord(owner, so, fields);
+      const r = indNote ? { ...(r0 || {}), 業種: indNote } : r0;
       return by ? { ...(r || {}), 代理: `代理アカウントで作成しました（記録した人：${by}）` } : r;
     }
     default:

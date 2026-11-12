@@ -5448,6 +5448,7 @@ async function kbGuessIndustry(user, company, { website = "" } = {}) {
   } catch { return ""; }
 }
 const _kbIndGuess = new Map();
+globalThis.kbIndustry = { options: (u) => kbIndustryOptions(u), guess: (u, c, o) => kbGuessIndustry(u, c, o) };   // Claude のコネクタ（mcp.js）から使う
 // リードに業種が無ければ入れる：画面で選んだもの → SF の取引先 → AI の見立て。入れた（または元からあった）業種を返す
 async function kbEnsureLeadIndustry(user, leadId, company, { pick = "", website = "" } = {}) {
   const lid = String(leadId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!lid) return "";
@@ -30424,7 +30425,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12v 業種の見立て：ネット検索で主な事業を調べてから、日本標準産業分類の考え方で選択肢から選ぶ（名前だけで当てない）。";
+const BUILD_TAG = "2026-11-12w Claude のコネクタで SF のリード・取引先を作るときも業種を必須に（無ければネットで調べて入れる・決められなければ選択肢を返す）。更新でも業種は選択肢の中だけ・空にできない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
