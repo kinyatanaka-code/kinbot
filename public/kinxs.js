@@ -1541,14 +1541,20 @@ async function kh2LoadTasks(who0) {
   const wk = new Date(Date.now() + 9 * 3600000 + 7 * 86400000).toISOString().slice(0, 10);
   const lbl = (s0) => { const v = String(s0 || ""); const au = /自動/.test(v) ? "（自動）" : ""; if (/メールワイズ/.test(v)) return "メールワイズ" + au; if (/Gmail|メール/.test(v)) return "Gmail" + au; if (/議事録/.test(v)) return "議事録" + au; if (/チャット/.test(v)) return "チャット"; if (/Claude/.test(v)) return "Claude"; return "手入力"; };
   const groups = [["期限切れ", (t0) => t0.due && t0.due < today, "over"], ["今日", (t0) => t0.due === today, "today"], ["1週間", (t0) => t0.due && t0.due > today && t0.due <= wk, ""], ["あとで", (t0) => t0.due && t0.due > wk, ""], ["日付なし", (t0) => !t0.due, "none"]];
+  // 行の形は、キックオフ未実施などの要アクションの行と同じ（左に期日の札、会社、内容、担当、右に「✓ 済み」）（2026-11-12 田中さん）
+  const coOf = new Map(((typeof lsData !== "undefined" && lsData && lsData.items) || []).map((x) => [x.id, x]));
   const row = (t0, i0) => { const n = t0.due ? Math.round((new Date(t0.due) - new Date(today)) / 86400000) : null;
-    return `<div class="h2-tk-li" data-tk="${i0}">${d.mine ? '<button type="button" class="h2-tk-ck" data-tk-done title="済みにする"></button>' : ""}<span class="tt">${esc(t0.title)}</span>${t0.account ? `<button type="button" class="co" data-tk-co="${esc(t0.accountId || "")}">${esc(t0.account)}</button>` : ""}<span class="src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</span>${(() => { // 担当の札：押すと託せる（次回アクションと、手で足したタスク・自動で作ったタスク）（2026-11-12）
-      const pp = window.__kxPeople || []; const cur = String(t0.owner || "").toLowerCase(); const nm = t0.ownerName || (d.all ? "" : "自分");
+    const em = n == null ? "" : n < 0 ? `<em class="over">${-n}日過ぎ</em>` : n === 0 ? '<em class="soon">今日</em>' : `<em class="${n <= 3 ? "soon" : ""}">あと${n}日</em>`;
+    const dcls = `h2-due ${n != null && n < 0 ? "over" : n != null && n <= 3 ? "soon" : ""}`;
+    const dl = t0.due ? `${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))}` : "期日なし";
+    const x = coOf.get(t0.accountId);
+    const who = (() => { const pp = window.__kxPeople || []; const cur = String(t0.owner || "").toLowerCase(); const nm = t0.ownerName || (d.all ? "" : "自分");
       const canMove = (t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (t0.id && /（自動）|Claude/.test(String(t0.src || "")));
-      if (!canMove || !pp.length) return nm ? `<span class="who">${esc(nm)}</span>` : "";
-      return `<label class="who pick" title="押してほかの人に託す"><span>👤 ${esc(nm || "担当")}</span><select data-tk-who="${i0}"><option value="">託す人を選ぶ</option>${pp.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`; })()}${t0.due ? `<span class="h2-due ${n < 0 ? "over" : n === 0 ? "today" : ""}">${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))}${n < 0 ? ` <i>${-n}日過ぎ</i>` : n === 0 ? " <i>今日</i>" : ""}</span>` : ""}</div>`; };
-  box.innerHTML = `<div class="kx-note" style="padding:2px 4px 6px">${d.all ? "全員" : d.mine ? "自分" : esc(who)}のタスク（期限の近い順）</div>` + (items.length ? groups.map(([g, f, cls]) => { const l = items.map((t0, i0) => [t0, i0]).filter(([t0]) => f(t0)); return l.length ? `<div class="h2-tk-g ${cls}">${g}<b>${l.length}</b></div>` + l.map(([t0, i0]) => row(t0, i0)).join("") : ""; }).join("") : '<div class="kx-empty">タスクはありません 🎉</div>');
-  kh2FitTasks(); setTimeout(kh2FitTasks, 60);
+      if (!canMove || !pp.length) return `<span class="who">${esc(nm)}</span>`;
+      return `<label class="who h2-who" data-noopen title="押してほかの人に託す">${esc(nm || "担当")}<select data-tk-who="${i0}"><option value="">託す人を選ぶ</option>${pp.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`; })();
+    return `<div class="h2-li h2-tkrow" data-tk="${i0}" ${t0.accountId ? `data-tk-open="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><span class="${dcls}">${dl}${em}</span><span class="co">${x ? kxLogoMini(x) : ""}<b>${esc(t0.account || "（会社なし）")}</b></span><span class="what">${esc(t0.title)}<small class="h2-src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</small></span>${who}<span class="h2-ops" data-noopen>${d.mine ? '<button type="button" class="h2-op done" data-tk-done title="済みにする">✓ 済み</button>' : ""}</span></div>`; };
+  box.innerHTML = `<div class="kx-note" style="padding:2px 4px 6px">${d.all ? "全員" : d.mine ? "自分" : esc(who)}のタスク（期限の近い順）</div><div class="h2-list">` + (items.length ? items.map((t0, i0) => row(t0, i0)).join("") : '<div class="kx-empty">タスクはありません 🎉</div>') + "</div>";
+  box.querySelectorAll("[data-tk-open]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-noopen], button, select, label")) return; openDetail(el.dataset.tkOpen); }));
   box.querySelectorAll("[data-tk-co]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tkCo) openDetail(b.dataset.tkCo); }));
   box.querySelectorAll("[data-tk-who]").forEach((sel) => sel.addEventListener("change", async () => {
     const t0 = items[Number(sel.dataset.tkWho)]; const em = sel.value; if (!em) return;
