@@ -15240,7 +15240,7 @@ app.get("/api/kinxs/users", async (req, res) => {
       const acts = await kxActionsList({ yms: [kxYmShift(nowYm, -1), nowYm, kxYmShift(nowYm, 1)] });
       const byId = new Map(items.map((x) => [x.id, x]));
       for (const a of acts) {
-        if (!a.na_date || ["完了", "対象外"].includes(a.status)) continue;
+        if (!a.na_date || ["完了", "対応完了", "対象外"].includes(a.status)) continue;
         const nd = new Date(new Date(a.na_date).getTime() + 9 * 3600000).toISOString().slice(0, 10);
         const l = kxDaysLeft(nd); if (l > 7) continue;
         const x = byId.get(a.account_id); if (!x) continue; const me = KX_MEASURES.find((m) => m.key === a.mkey) || { name: a.mkey };
@@ -15659,6 +15659,13 @@ const KX_MEASURES = [
   { key: "mtg_r2", name: "打ち合わせ（更新提案）", kind: "low", ch: "打ち合わせ", from: "renew", before: 2, label: "更新2か月前" },
 ];
 const KX_ACT_ST = ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"];
+// お手紙（ポニー）だけは、ステータスを「未対応・送付待ち・送付済み・架電済み（不在）・対応完了」（＋対象外）にする（2026-11-12 久野さんの要望）
+const KX_ACT_ST_LETTER = ["未対応", "送付待ち", "送付済み", "架電済み（不在）", "対応完了", "対象外"];
+const kxActStFor = (mkey) => (mkey === "letter" ? KX_ACT_ST_LETTER : KX_ACT_ST);
+const kxActDone = (st) => st === "完了" || st === "対応完了";   // 進み具合の「完了」に数えるもの
+const kxLetterSent = (st) => ["完了", "送付済み", "架電済み（不在）", "対応完了"].includes(st);   // お手紙を送ったもの（電話フォローの対象）
+// 前の言葉で入っているお手紙の記録は、新しい言葉で見せる（完了→送付済み、対応中→送付待ち、架電済み（不在）はそのまま）
+const kxActStShow = (mkey, st) => (mkey === "letter" ? ({ "完了": "送付済み", "対応中": "送付待ち" }[st] || st) : st);
 const kxYmShift = (ym, n) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 7); };
 // その月の施策ごとに、対象の会社と実施記録をまとめる
 async function kxPlanFor(ym, ctx = null) {
@@ -15680,7 +15687,7 @@ async function kxPlanFor(ym, ctx = null) {
       if (!me.months.includes(m)) continue;
       when = `${m}月・全社`;
       if (me.target === "all") targets = live;
-      else if (me.target === "letter") targets = live.filter((x) => (actBy.get(`${x.id}|letter`) || {}).status === "完了");
+      else if (me.target === "letter") targets = live.filter((x) => kxLetterSent((actBy.get(`${x.id}|letter`) || {}).status));
       else if (me.target === "zero2") targets = live.filter((x) => acc.get(`${x.id}|${kxYmShift(ym, -1)}`) === 0 && acc.get(`${x.id}|${kxYmShift(ym, -2)}`) === 0);
     } else if (me.from === "pub") {
       when = me.label;
@@ -15691,9 +15698,10 @@ async function kxPlanFor(ym, ctx = null) {
       targets = live.filter((x) => x.renew === kxYmShift(ym, me.before));
     }
     const rows = targets.map((x) => { const a = actBy.get(`${x.id}|${me.key}`) || {}; return { id: x.id, name: x.name, cs: x.cs || "", logo: x.logo || "", rank: x.rank, label: x.label, status: a.status || "未対応", result: a.result || "", memo: a.memo || "", naDate: a.na_date ? new Date(new Date(a.na_date).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "", calls: a.call_count || 0, lastCall: a.last_call_on ? new Date(new Date(a.last_call_on).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "", products: x.products || [] }; });
-    const counts = Object.fromEntries(KX_ACT_ST.map((s) => [s, rows.filter((r) => r.status === s).length]));
+    for (const r of rows) r.status = kxActStShow(me.key, r.status);
+    const counts = Object.fromEntries(kxActStFor(me.key).map((s) => [s, rows.filter((r) => r.status === s).length]));
     const eff = rows.filter((r) => r.status !== "対象外");
-    out.push({ key: me.key, name: (me.nameBy && me.nameBy[m]) || (me.key === "layer" ? KX_LAYER_TITLE[m] : "") || me.name, kind: me.kind, ch: me.ch, when, call: !!me.call, reason: me.reason || "", rows, counts, total: eff.length, done: eff.filter((r) => r.status === "完了").length });
+    out.push({ key: me.key, name: (me.nameBy && me.nameBy[m]) || (me.key === "layer" ? KX_LAYER_TITLE[m] : "") || me.name, kind: me.kind, ch: me.ch, when, call: !!me.call, reason: me.reason || "", rows, counts, statuses: kxActStFor(me.key), total: eff.length, done: eff.filter((r) => kxActDone(r.status)).length });
   }
   return out;
 }
@@ -15715,7 +15723,7 @@ app.put("/api/kinxs/actions", async (req, res) => {
     if (!/^\d{4}-\d{2}$/.test(String(b.ym || ""))) return res.status(400).json({ error: "月が正しくありません" });
     const ids = Array.isArray(b.ids) ? b.ids.map(String).slice(0, 500) : [String(b.account_id || "")];
     const patch = {};
-    if ("status" in b) { if (!KX_ACT_ST.includes(b.status)) return res.status(400).json({ error: "ステータスが正しくありません" }); patch.status = b.status; if (b.status === "完了") patch.done_on = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
+    if ("status" in b) { if (!kxActStFor(me.key).includes(b.status)) return res.status(400).json({ error: "ステータスが正しくありません" }); patch.status = b.status; if (kxActDone(b.status) || b.status === "送付済み") patch.done_on = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
     if ("result" in b) patch.result = ["良好", "普通", "懸念あり", "未接続", ""].includes(b.result) ? b.result : "";
     if ("memo" in b) patch.memo = String(b.memo || "").slice(0, 1000);
     if ("na_date" in b) patch.na_date = /^\d{4}-\d{2}-\d{2}$/.test(String(b.na_date || "")) ? b.na_date : null;
@@ -30425,7 +30433,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12w Claude のコネクタで SF のリード・取引先を作るときも業種を必須に（無ければネットで調べて入れる・決められなければ選択肢を返す）。更新でも業種は選択肢の中だけ・空にできない。";
+const BUILD_TAG = "2026-11-12x kinXs 年間施策：お手紙（ポニー）のステータスを「未対応・送付待ち・送付済み・架電済み（不在）・対応完了」（＋対象外）に（久野さんの要望）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
