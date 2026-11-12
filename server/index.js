@@ -22184,6 +22184,21 @@ async function notifyDevNoteDone(note) {
   } catch (e) { console.warn("[開発メモ] 完了通知に失敗", e.message); }
 }
 
+// 手で対応した開発メモを「完了」にして、要望者に知らせる（デプロイのあと1回だけ。完了になったものは二度と送らない）（2026-11-12 田中さん「デプロイ完了したから通知して」）
+const KB_DONE_ON_DEPLOY = [
+  { by: /sa_kuno@/i, title: /お手紙/ },   // 久野さん：年間施策のお手紙のステータス変更（版 2026-11-12x）
+];
+setTimeout(async () => {
+  try {
+    const rows = await listDevNotes({ status: "", limit: 500 }).catch(() => []);
+    for (const r of rows) {
+      if (r.status === "done") continue;
+      if (!KB_DONE_ON_DEPLOY.some((k) => k.by.test(String(r.created_by || "")) && k.title.test(`${r.title || ""} ${r.detail || ""}`))) continue;
+      const u = await updateDevNote(r.id, { status: "done" }).catch(() => null);
+      if (u) { await notifyDevNoteDone(u).catch(() => {}); console.log(`[開発メモ] 対応済みにして知らせました：${r.title}`); }
+    }
+  } catch (e) { console.warn("[開発メモ] 対応済みの知らせに失敗", e.message); }
+}, 45 * 1000);
 app.post("/api/dev-notes", async (req, res) => {
   try {
     const b = req.body || {};
@@ -30433,7 +30448,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12x kinXs 年間施策：お手紙（ポニー）のステータスを「未対応・送付待ち・送付済み・架電済み（不在）・対応完了」（＋対象外）に（久野さんの要望）。";
+const BUILD_TAG = "2026-11-12y 久野さんの開発メモ（お手紙のステータス）を対応済みにして、久野さん・kinXs のチャットへ知らせる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
