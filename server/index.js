@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -26541,6 +26541,9 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
   } catch (e) { console.warn("[MiiTel] webhook", e.message); res.status(500).json({ error: e.message }); }
 });
 globalThis.mcMiitel = { save: (ev) => mcMiitelSave(ev), list: (n) => mcMiitelList(n) };
+// 2026-11-12：Claude から取り込んだ3月の会議（172件）を1回だけ消す（印を付けて、あとから取り込んだ分は消さない）
+setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); if (st.mcMiitelPurged20261112) return;
+  const n = await mcMiitelDeleteImported(); await saveSettings({ mcMiitelPurged20261112: true }); console.log(`[MiiTel] 取り込んだ会議 ${n}件を消しました`); } catch {} }, 25 * 1000);
 // 2026-11-12：商談履歴に入れる変更（zu）を取り消したので、入ってしまった MiiTel の商談を起動のあとに消す（何度動いても安全）
 setTimeout(() => deleteMiitelMeetings().then((n) => n && console.log(`[MiiTel] 商談履歴に入っていた MiiTel の会議 ${n}件を消しました`)).catch(() => {}), 20 * 1000);   // Claude のコネクタ（mcp.js）から過去の会議を取り込む
 // 拡張機能（kinbot-ext）が MiiTel のページから写した文字起こし（phrases）・議事録（summary）などを受け取る（2026-11-12 田中さん）
@@ -30603,7 +30606,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz 拡張機能1.4.0：MiiTel の会議ページが取ってくる文字起こし（phrases）・議事録（summary）を写して kinbot for MOCHICA に入れる（ページを開くだけ／MOCHICA の画面から裏でまとめて読む）。";
+const BUILD_TAG = "2026-11-12zz2 MOCHICA の商談：Claude から取り込んだ3月の会議（172件）を1回だけ消す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

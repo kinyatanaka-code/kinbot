@@ -12738,3 +12738,9 @@ export async function deleteMiitelMeetings() {
   if (!pool) return 0;
   try { const r = await pool.query(`DELETE FROM meetings WHERE bot_id LIKE 'miitel-%'`); return r.rowCount || 0; } catch (e) { console.warn("[db] deleteMiitelMeetings", e.message); return 0; }
 }
+
+// MOCHICA：Claude（MiiTel の MCP）から取り込んだ会議を消す（2026-11-12 田中さん「いったんこれまでのやつなくして」）
+export async function mcMiitelDeleteImported() {
+  if (!pool) return 0; await ensureMcMiitel();
+  try { const r = await pool.query(`DELETE FROM mochica_miitel_events WHERE kind LIKE 'Claude%'`); return r.rowCount || 0; } catch (e) { console.warn("[db] mcMiitelDeleteImported", e.message); return 0; }
+}
