@@ -12732,3 +12732,9 @@ export async function mcMiitelGet(id) {
   if (!pool) return null; await ensureMcMiitel();
   return (await pool.query(`SELECT * FROM mochica_miitel_events WHERE id=$1`, [id]).catch(() => ({ rows: [] }))).rows[0] || null;
 }
+
+// 取り消した変更（2026-11-12zu）で kinbot の商談に入れてしまった MiiTel の会議（bot_id=miitel-…）を消す
+export async function deleteMiitelMeetings() {
+  if (!pool) return 0;
+  try { const r = await pool.query(`DELETE FROM meetings WHERE bot_id LIKE 'miitel-%'`); return r.rowCount || 0; } catch (e) { console.warn("[db] deleteMiitelMeetings", e.message); return 0; }
+}
