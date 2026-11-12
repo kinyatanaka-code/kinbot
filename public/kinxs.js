@@ -1581,12 +1581,14 @@ function renderHomeV2() {
   const actCos = new Set(actRows.map((r) => r.x.id)).size;
   const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 今月回収・未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = kf === "tk" ? [] : actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
+  // 「自分」のときは、自分がCS担当の会社だけ（これからの更新・情報不足も）（2026-11-12 田中さん）
+  const kxMineCo = (x) => !kxCsF || !x || (kxSurname(x.cs) || "") === kxCsF;
   // 3か月の更新
-  const docs = items.filter((x) => kxHasDoc(x));
+  const docs = items.filter((x) => kxHasDoc(x) && kxMineCo(x));
   const R = ["S", "A", "B", "C", "Z"];
   const renewMonths = [0, 1, 2].map((n) => { const m = kxYmAdd(kxNowYm(), n); const l = docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F"); return { m, l, by: R.map((r) => [r, l.filter((x) => x.rank === r).length]) }; });
   // 情報不足
-  const ms = kh2.miss; const msItems = ms ? ms.items || [] : []; const req = ms ? ms.required || [] : [];
+  const ms = kh2.miss; const coById = new Map(allIt.map((x) => [x.id, x])); const msItems = ms ? (ms.items || []).filter((m0) => kxMineCo(coById.get(m0.id) || m0)) : []; const req = ms ? ms.required || [] : [];
   const reqN = req.map((r) => [r, msItems.filter((x) => (x.missKeys || []).includes(r.key)).length]).sort((a, b) => b[1] - a[1]);
   const maxReq = Math.max(1, ...reqN.map((x) => x[1]));
   box.innerHTML = `
