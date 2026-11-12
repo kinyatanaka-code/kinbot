@@ -1118,6 +1118,7 @@ app.use(
 // kinbotに聞く：ファイル（画面の写真・PDFなど）を添えられるので、ここだけ大きめ
 app.use("/api/ask-bot", express.json({ limit: "30mb" }));
 app.use("/api/kinxs/accounts", express.json({ limit: "25mb" }));   // 検収書のPDFを受け取る（2026-11-10）
+app.use("/mcp", express.json({ limit: "40mb" }));   // MiiTel の会議を文字起こしごと取り込む（2026-11-12）
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true })); // OAuth承認画面の<form>送信（application/x-www-form-urlencoded）用
 
@@ -26539,6 +26540,7 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
     res.json({ ok: true });
   } catch (e) { console.warn("[MiiTel] webhook", e.message); res.status(500).json({ error: e.message }); }
 });
+globalThis.mcMiitel = { save: (ev) => mcMiitelSave(ev), list: (n) => mcMiitelList(n) };   // Claude のコネクタ（mcp.js）から過去の会議を取り込む
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcMiitelList(100) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -30580,7 +30582,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zs kinbot for MOCHICA：MiiTel の会議履歴を Outgoing Webhook で受け取る口（合言葉つき）と、商談（MiiTel）の一覧。設定に URL と追加ヘッダーを出す。";
+const BUILD_TAG = "2026-11-12zt kinbot のコネクタに MiiTel の会議を取り込む道具（mochica_miitel_import・mochica_miitel_imported_ids）。過去の会議を Claude（MiiTel の MCP）から入れられる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

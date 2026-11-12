@@ -148,6 +148,20 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, id: { type: "string", description: "レコードのSalesforce ID" }, fields: { type: "object", description: "更新するフィールド {API名: 値}" } }, required: ["sobject", "id", "fields"] },
   },
   {
+    name: "mochica_miitel_imported_ids",
+    description: "kinbot for MOCHICA に取り込み済みの MiiTel の会議（会議履歴）の ID の一覧を返す（読み取り）。MiiTel の過去の会議を取り込む前に呼び、ここにある ID は取り込まない（二重に入れない）。",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "mochica_miitel_import",
+    description: "MiiTel の会議（会議履歴）を kinbot for MOCHICA に取り込む（書き込み）。MiiTel の MCP で読んだ過去の会議を、1回に10件まで入れる。id は MiiTel の会議の ID（URL の /video/ のあと）。transcript は文字起こし（[{speaker, text, start}] の配列か文字列）、minutes は議事録の本文。同じ id はまとめて1件になる（後から議事録だけ足すのも可）。取り込む前に mochica_miitel_imported_ids で取り込み済みを確かめる。",
+    inputSchema: { type: "object", properties: { meetings: { type: "array", maxItems: 10, items: { type: "object", properties: {
+      id: { type: "string", description: "MiiTel の会議の ID" }, title: { type: "string" }, started_at: { type: "string", description: "開始日時（ISO 8601）" },
+      host: { type: "string", description: "主催者の名前かメール" }, participants: { type: "string", description: "参加者（名前を読点でつなぐ）" },
+      duration_sec: { type: "number" }, url: { type: "string", description: "MiiTel の会議のページの URL" },
+      transcript: { description: "文字起こし：[{speaker, text, start}] の配列か文字列" }, minutes: { type: "string", description: "議事録の本文" } }, required: ["id"] } } }, required: ["meetings"] },
+  },
+  {
     name: "sf_create",
     description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。リード（Lead）と取引先（Account）を作るとき、商談（Opportunity）を作るとき（その取引先）は業種（Industry）が必須：Industry を入れていなければ、kinbot がネットで事業内容を調べて SF の選択肢から入れる（分からなければ作らずに選択肢を返すので、その中から選んで Industry に入れてやり直す）。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, fields: { type: "object", description: "作成するフィールド {API名: 値}" } }, required: ["sobject", "fields"] },
@@ -435,6 +449,26 @@ export async function callTool(name, args, req) {
       const by = await sfByNameMcp(req, owner);
       if (by) console.log(`[sf_update] 代理で更新：${so} ${args.id} by ${req.user}`);
       return by ? { ...(r || {}), 代理: `代理アカウントで更新しました（依頼した人：${by}）` } : r;
+    }
+    case "mochica_miitel_imported_ids": {
+      if (!req.user) throw new Error("ログインが必要です");
+      const rows = globalThis.mcMiitel ? await globalThis.mcMiitel.list(5000) : [];
+      return { 件数: rows.length, ids: rows.map((r) => r.id) };
+    }
+    case "mochica_miitel_import": {
+      if (!req.user) throw new Error("ログインが必要です");
+      if (!globalThis.mcMiitel) throw new Error("取り込みの準備ができていません");
+      const ms = Array.isArray(args && args.meetings) ? args.meetings.slice(0, 10) : [];
+      const out = [];
+      for (const m of ms) {
+        const id = String(m.id || "").trim(); if (!id) { out.push({ ok: false, error: "id がありません" }); continue; }
+        const tr = m.transcript; const trLen = Array.isArray(tr) ? tr.length : typeof tr === "string" ? tr.length : 0;
+        const st = m.started_at && !isNaN(Date.parse(m.started_at)) ? new Date(m.started_at).toISOString() : null;
+        const saved = await globalThis.mcMiitel.save({ id, kind: "Claude（MiiTel の MCP から取り込み）", title: String(m.title || ""), startedAt: st, host: String(m.host || ""), participants: String(m.participants || "").slice(0, 500),
+          durationSec: Number(m.duration_sec) || null, transcriptLen: trLen, url: String(m.url || ""), payload: { source: "claude-mcp", by: req.user, video: { id, title: m.title || "", started_at: st, host: m.host || "", participants: m.participants || "", duration: m.duration_sec || null, url: m.url || "", transcript: tr || null, minutes: m.minutes || "" } } });
+        out.push({ id, ok: !!saved, title: m.title || "" });
+      }
+      return { 取り込んだ: out.filter((o) => o.ok).length, 結果: out };
     }
     case "sf_create": {
       if (!(await canUseSf(req))) throw new Error("Salesforceの作成は許可されていません（kinbot のメンバーなら使えます。うまくいかないときは管理者に聞いてください）");
