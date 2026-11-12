@@ -14425,7 +14425,11 @@ setInterval(async () => {
 }, 3 * 60 * 1000).unref?.();
 // ===== kinXs のタスク管理（ホームのやること）：状態（未着手・進行中・完了）・削除・手で足す・Claudeのコネクタから作る（2026-10-27）=====
 const KX_TASK_STATUS = ["未着手", "進行中", "完了"];
-const kxTaskKey = (t) => `auto:${crypto.createHash("sha1").update([t.src, t.accountId, t.kind, t.link || "", t.link ? "" : t.title].join("|")).digest("hex").slice(0, 16)}`;
+const kxTaskKeyOld = (t) => `auto:${crypto.createHash("sha1").update([t.src, t.accountId, t.kind, t.link || "", t.link ? "" : t.title].join("|")).digest("hex").slice(0, 16)}`;
+// 自動のやることの鍵（2026-11-12 直し：題名の「（受注から30日）」「8日過ぎ」のような毎日変わる数字で鍵が変わり、済みにしても次の日に別のタスクとして復活していた）
+//   → 題名の中の（…）と数字を外して鍵を作る。前の鍵で済み・消したものも、そのまま効くようにする
+const kxTaskTitleCore = (s0) => String(s0 || "").normalize("NFKC").replace(/[（(][^）)]*[）)]/g, "").replace(/\d+/g, "#").replace(/\s+/g, "");
+const kxTaskKey = (t) => `auto:${crypto.createHash("sha1").update(["v2", t.src, t.accountId, t.kind, t.link || "", t.link ? "" : kxTaskTitleCore(t.title)].join("|")).digest("hex").slice(0, 16)}`;
 // 自動のやること（kinXs・メール・チャット）と、手で足したタスクを合わせて、状態を当てる
 async function kinxsTasksMerged(user, { fresh = false } = {}) {
   const h = await kinxsHome(user, { fresh });
@@ -14434,7 +14438,7 @@ async function kinxsTasksMerged(user, { fresh = false } = {}) {
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const out = [];
   for (const t of h.tasks || []) {
-    const key = t.key || kxTaskKey(t); const o = byKey.get(key);
+    const key = t.key || kxTaskKey(t); const o = byKey.get(key) || (!t.key ? byKey.get(kxTaskKeyOld(t)) : null);
     if (o && o.deleted) continue;
     out.push({ ...t, key, id: o ? o.id : null, status: (o && o.status) || "未着手", due: (o && o.due) || t.due || "", auto: true });
   }
@@ -15415,7 +15419,11 @@ async function kinxsReadNextAction(accountId, { force = false, doneText = "" } =
   }
   if (Object.keys(stPatch).length) { stPatch.info = { ...info0, auto: auto0 }; await kinxsUpdate(accountId, stPatch, "kinXs（自動）"); }
   if (!ans.found || !ans.content) return filled.length ? { ok: true, applied: false, filled } : { ok: false, reason: "次にやることは読み取れませんでした" };
-  if (doneText && String(ans.content).replace(/\s/g, "") === String(doneText).replace(/\s/g, "")) return { ok: false, reason: "済ませたものと同じ内容しか読み取れませんでした" };
+  // 済ませたものと同じ・よく似た内容は入れない（2文字ずつの重なりが5割以上なら同じとみなす）（2026-11-12 復活の直し）
+  const bg = (t0) => { const a = String(t0 || "").normalize("NFKC").replace(/[\s、。・（）()「」]/g, ""); const out = new Set(); for (let i = 0; i < a.length - 1; i++) out.add(a.slice(i, i + 2)); return out; };
+  const simNa = (a, b) => { const A = bg(a), B = bg(b); if (!A.size || !B.size) return 0; let n = 0; for (const x of A) if (B.has(x)) n++; return n / Math.min(A.size, B.size); };
+  const doneList = [doneText, ...String(r.na_done || "").split("\n")].filter(Boolean);
+  if (doneList.some((d0) => simNa(ans.content, d0) >= 0.5)) return { ok: false, reason: "済ませたものと同じような内容しか読み取れませんでした" };
   const type = KX_NA_TYPES.includes(ans.type) ? ans.type : "その他";
   const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(ans.at || "")) ? `${String(ans.at).slice(0, 16)}:00+09:00` : null;
   const sug = { type, at, content: String(ans.content).slice(0, 120), basis: String(ans.basis || "").slice(0, 80), source: src, mailbox: usedOwner, read_at: new Date().toISOString() };
@@ -16262,13 +16270,16 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     if (req.body && req.body.na_text === "" && req.body.na_owner === undefined) req.body.na_owner = null;
     // 次回アクションを「済み」（空）にしたら、Gmail（メールワイズのコピー）・議事録から次の次回アクションを読む（2026-11-11 田中さん）。裏で動かす
     if (req.body && req.body.na_text === "") {
-      const prevNa = String(((await kinxsList().catch(() => [])).find((y) => y.account_id === req.params.id) || {}).na_text || "");
+      const prevRow = (await kinxsList().catch(() => [])).find((y) => y.account_id === req.params.id) || {};
+      const prevNa = String(prevRow.na_text || "");
+      if (prevNa) req.body.na_done = [prevNa, ...String(prevRow.na_done || "").split("\n")].filter(Boolean).slice(0, 10).join("\n");
       if (prevNa) setTimeout(() => { kinxsReadNextAction(req.params.id, { force: true, doneText: prevNa }).then((r0) => console.log("[kinxs] 済みのあとの次回アクション", req.params.id, r0 && (r0.applied ? "入れた" : r0.reason))).catch(() => {}); }, 1500);
     }
     if (!(await canKinxs(req))) return res.status(403).json({ error: "CS・FS・管理者だけが変えられます" });
     const b = req.body || {};
     const patch = {};
     if (req.body && req.body.na_owner !== undefined) patch.na_owner = req.body.na_owner;
+    if (req.body && req.body.na_done !== undefined) patch.na_done = req.body.na_done;
     for (const k of ["na_text", "na_due", "memo", "cs_name"]) if (k in b) patch[k] = String(b[k] || "").slice(0, 2000);
     if ("purpose" in b || "usage_status" in b || "cs_name" in b) {
       const rows2 = await kinxsList(); const r2 = rows2.find((y) => y.account_id === req.params.id) || {};
@@ -30335,7 +30346,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12n kinXs：左メニューの kinbot・kincall を縦に並べる（kinbot の左メニューと同じ形）。";
+const BUILD_TAG = "2026-11-12o kinXs：済みにしたタスクが復活する不具合を直す（毎日変わる数字で鍵が変わっていた）。次回アクションは済ませたものと似た内容を入れない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
