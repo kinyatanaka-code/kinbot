@@ -1539,8 +1539,11 @@ function renderHomeV2() {
   const kxDoneKey = (a) => `${a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""}|${a.measure || ""}`;
   // 担当（CS）で絞る（2026-11-11 田中さん）。このブラウザに覚える
   const kxCsF = (() => { try { return localStorage.getItem("kxHomeCs") || ""; } catch { return ""; } })();
-  const csNames = [...new Set(items.filter((x) => kxHasDoc(x) && (x.actions || []).length).map((x) => kxSurname(x.cs) || "（未定）"))].sort((a, b) => a.localeCompare(b, "ja"));
-  const actRows = items.filter((x) => kxHasDoc(x) && (!kxCsF || (kxSurname(x.cs) || "（未定）") === kxCsF)).flatMap((x) => (x.actions || []).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a }))).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
+  // 行ごとの担当：次回アクションをほかの人に託していれば、その人（2026-11-12 田中さん：久野で絞っても託した分が出なかった）
+  const kxActWho = (x, a) => { if (a.na && x.naOwner) { const p0 = (window.__kxPeople || []).find((q) => q.email === x.naOwner); const nm = p0 ? (kxSurname(p0.name) || p0.name) : String(x.naOwner).split("@")[0]; if (nm) return nm; } return kxSurname(x.cs) || "（未定）"; };
+  const actAll = items.filter((x) => kxHasDoc(x)).flatMap((x) => (x.actions || []).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a, who: kxActWho(x, a) })));
+  const csNames = [...new Set(actAll.map((r) => r.who))].sort((a, b) => a.localeCompare(b, "ja"));
+  const actRows = actAll.filter((r) => !kxCsF || r.who === kxCsF).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
   const actCos = new Set(actRows.map((r) => r.x.id)).size;
   const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"], ["na", "施策・次回アクション", (a) => a.group === "納品後", "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
