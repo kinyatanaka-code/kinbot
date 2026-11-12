@@ -2442,22 +2442,32 @@ export async function extractJobTypes(text) {
 
 // 会社の業種を、SF の業種の選択肢から1つ選ぶ（2026-11-12 田中さん：名前だけで当てると全然違った）
 //   1) ネット検索（Gemini＋Google検索）で「主な事業・売上の中心」を調べる → 2) その結果だけを根拠に、日本標準産業分類の考え方で選択肢から1つ選ぶ
-export async function lookupIndustryPick(companyName, website = "", options = []) {
-  const name = String(companyName || "").trim(); if (!name || !options.length) return { industry: "", reason: "" };
+export async function lookupIndustryPick(companyName, website = "", options = [], { siteText = "", hint = "" } = {}) {
+  // 2026-11-12 精度の見直し（田中さん「分からないものが多い」）：
+  //   ① 公式サイトの本文・会社の補足（gBizINFOの事業内容など）も材料にする ② ネット検索の結果が薄くても、材料があれば選ぶ
+  //   ③ まず「確かに言える業種」を選ばせ、決められなければ「いちばん近い業種」をもう一度選ばせる（不明は本当に材料が無いときだけ）
+  const name = String(companyName || "").trim(); if (!name || !options.length) return { industry: "", reason: "", confidence: "" };
   let research = "";
   try {
     research = await geminiGrounded(
-      `「${name}」${website ? `（公式サイト：${website}）` : ""}の事業内容を調べてください。主な事業（売上・従業員がいちばん多い事業）、ほかの事業、扱っている商品・サービス、取引先（卸か小売か、工事か保守か など）を、公式サイトの会社概要・事業紹介や企業情報サイトなど複数のソースで確かめて、ソースのURLも挙げてください。分からないことは「不明」と書き、推測で作らないでください。`,
-      ""
+      `「${name}」${website ? `（公式サイト：${website}）` : ""}の事業内容を調べてください。主な事業（売上・従業員がいちばん多い事業）、ほかの事業、扱っている商品・サービス、お客さん（会社か個人か）、作っているのか・売っているのか・工事や修理をしているのか、を公式サイトの会社概要・事業紹介や企業情報サイトなどで確かめて、ソースのURLも挙げてください。分からないことは「不明」と書き、推測で作らないでください。`,
+      String(siteText || "").slice(0, 6000)
     );
   } catch (e) { console.warn("[業種] 検索に失敗", e.message); }
-  if (!research || research.length < 40) return { industry: "", reason: "" };
-  const schema = { type: "object", properties: { industry: { type: "string", description: "選択肢の文字列そのまま。決められなければ空文字" }, main_business: { type: "string" }, reason: { type: "string" } }, required: ["industry"] };
-  const sys = "あなたは日本標準産業分類に詳しい企業調査の係です。与えられた調査結果だけを根拠に、その会社の主な事業（売上がいちばん大きい事業）に当てはまる業種を、決められた選択肢の中から1つだけ選びます。いくつも事業がある会社は主な事業で決めます。卸売（ほかの会社に売る）と小売（一般の人に売る）、工事と保守・サービスを取り違えないこと。調査結果から決められなければ空文字にします。出力は指定のJSONだけ。";
-  const user = `会社名：${name}\n\n調査結果：\n"""\n${research.slice(0, 6000)}\n"""\n\n選択肢（この中の文字列をそのまま1つ）：\n${options.join("\n")}`;
-  try {
-    const o = parseJson(await callLLM(sys, user, 400, { schema, provider: "anthropic" })) || {};
-    const v = String(o.industry || "").trim();
-    return { industry: options.includes(v) ? v : "", reason: String(o.reason || o.main_business || "").slice(0, 200) };
-  } catch { return { industry: "", reason: "" }; }
+  const material = [research ? `【ネットで調べた結果】\n${research.slice(0, 5000)}` : "", siteText ? `【公式サイトの本文】\n${String(siteText).slice(0, 3500)}` : "", hint ? `【会社の補足】\n${String(hint).slice(0, 1200)}` : ""].filter(Boolean).join("\n\n");
+  const schema = { type: "object", properties: { industry: { type: "string", description: "選択肢の文字列そのまま。決められなければ空文字" }, main_business: { type: "string" }, reason: { type: "string" }, confidence: { type: "string", enum: ["high", "medium", "low"] } }, required: ["industry"] };
+  const pick = async (sys, user) => { try { const o = parseJson(await callLLM(sys, user, 500, { schema, provider: "anthropic" })) || {}; const v = String(o.industry || "").trim(); return { industry: options.includes(v) ? v : "", reason: String(o.reason || o.main_business || "").slice(0, 200), confidence: o.confidence || "" }; } catch { return { industry: "", reason: "", confidence: "" }; } };
+  const list = options.join("\n");
+  // ① 材料から確かに言える業種
+  if (material.length >= 40) {
+    const r1 = await pick(
+      "あなたは日本標準産業分類に詳しい企業調査の係です。与えられた材料を根拠に、その会社の主な事業（売上がいちばん大きい事業）に当てはまる業種を、決められた選択肢の中から1つだけ選びます。いくつも事業がある会社は主な事業で決めます。卸売（ほかの会社に売る）と小売（一般の人に売る）、製造と販売、工事と保守・サービスを取り違えないこと。日本標準産業分類の名前（○○業）の選択肢を優先し、無ければ大まかな分類（メーカー・商社など）から選びます。材料から決められなければ空文字。出力は指定のJSONだけ。",
+      `会社名：${name}\nサイト：${website || "（不明）"}\n\n${material}\n\n選択肢（この中の文字列をそのまま1つ）：\n${list}`);
+    if (r1.industry) return r1;
+  }
+  // ② いちばん近い業種（会社名・サイトのドメイン・材料から）。名前に業種が表れていることが多い（〇〇工業・〇〇建設・〇〇保育園・〇〇病院・〇〇商事 など）
+  const r2 = await pick(
+    "あなたは日本の会社の業種を見立てる係です。材料が少なくても、会社名（〇〇建設＝工事、〇〇工業・〇〇製作所＝製造、〇〇商事・〇〇商会＝卸売、〇〇病院・クリニック＝医療、保育園・こども園＝児童福祉（社会保険・社会福祉・介護事業）、学校法人＝学校教育、社会福祉法人＝社会保険・社会福祉・介護事業、ホテル・旅館＝宿泊業、〇〇運輸・物流＝道路貨物運送業 など）・サイトのドメイン・材料から、選択肢の中でいちばん近いものを1つ選びます。本当に何の会社か手がかりが無いときだけ空文字にします。確かさは confidence に入れます（名前だけで決めたときは low）。出力は指定のJSONだけ。",
+    `会社名：${name}\nサイト：${website || "（不明）"}\n\n${material || "（調べた材料なし）"}\n\n選択肢（この中の文字列をそのまま1つ）：\n${list}`);
+  return r2.industry ? { ...r2, confidence: r2.confidence || "low" } : r2;
 }

@@ -5437,13 +5437,19 @@ async function kbIndustryOptions(user) {
 }
 // 会社名・サイトから、選択リストの中でいちばん近い業種を AI に選ばせる（当てずっぽうはしない：分からなければ空）
 async function kbGuessIndustry(user, company, { website = "" } = {}) {
-  // 名前だけで当てると外れる（リョーウン：卸売業なのに「技術サービス業」）ので、ネットで事業内容を調べてから選ぶ（2026-11-12）
+  // ネットの検索・公式サイトの本文・gBizINFO の事業内容を材料に選ぶ。見つからなかった結果は覚えない（次はやり直す）（2026-11-12 精度の見直し）
   try {
     const opts = await kbIndustryOptions(user); if (!opts.length || !company) return "";
-    const key = normCompanyKey(company); const hit = _kbIndGuess.get(key); if (hit && Date.now() - hit.at < 24 * 3600000) return hit.v;
-    const r = await lookupIndustryPick(company, website, opts.map((o) => o.value)).catch(() => ({ industry: "" }));
-    _kbIndGuess.set(key, { at: Date.now(), v: r.industry || "", reason: r.reason || "" });
-    if (r.industry) console.log(`[業種] ${company} → ${r.industry}（${r.reason || ""}）`);
+    const key = normCompanyKey(company); const hit = _kbIndGuess.get(key); if (hit && hit.v && Date.now() - hit.at < 24 * 3600000) return hit.v;
+    let site = String(website || "").trim();
+    let hint = "";
+    try { const hits = await searchCompanies(company, 1); const d = hits && hits[0] ? await getCompanyDetail(hits[0].corporate_number).catch(() => null) : null;
+      if (d) { hint = [d.industry ? `gBizINFO の業種（日本標準産業分類）：${d.industry}` : "", d.business ? `事業内容：${d.business}` : "", d.official_name ? `正式名：${d.official_name}` : "", d.location ? `所在地：${d.location}` : ""].filter(Boolean).join("／"); if (!site && d.company_url) site = d.company_url; } } catch {}
+    const siteText = site && /^https?:\/\//i.test(site) ? await fetchPageText(site).catch(() => "") : "";
+    const r = await lookupIndustryPick(company, site, opts.map((o) => o.value), { siteText, hint }).catch(() => ({ industry: "" }));
+    if (r.industry) _kbIndGuess.set(key, { at: Date.now(), v: r.industry, reason: r.reason || "", confidence: r.confidence || "" });
+    else _kbIndGuess.delete(key);
+    console.log(`[業種] ${company} → ${r.industry || "（決められず）"}${r.confidence ? `・${r.confidence}` : ""}（${r.reason || ""}）`);
     return r.industry || "";
   } catch { return ""; }
 }
@@ -5471,8 +5477,8 @@ app.get("/api/salesforce/industry-guess", async (req, res) => {
     const company = String(req.query.company || "").trim(); if (!company) return res.json({ ok: true, industry: "" });
     const a = await ciFromSf(op, company).catch(() => ({})); const opts = await kbIndustryOptions(op).catch(() => []);
     if (a.industry && opts.some((o) => o.value === a.industry)) return res.json({ ok: true, industry: a.industry, from: "SFの取引先" });
-    const g = await kbGuessIndustry(op, company, { website: String(req.query.website || "") }); const why = (_kbIndGuess.get(normCompanyKey(company)) || {}).reason || "";
-    res.json({ ok: true, industry: g, from: g ? "ネットで調べた事業内容" : "", reason: why });
+    const g = await kbGuessIndustry(op, company, { website: String(req.query.website || "") }); const hitG = _kbIndGuess.get(normCompanyKey(company)) || {};
+    res.json({ ok: true, industry: g, from: g ? (hitG.confidence === "low" ? "会社名などからの見立て（確かめてください）" : "ネットで調べた事業内容") : "", reason: hitG.reason || "", confidence: hitG.confidence || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true, leadOverride = null } = {}) {  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
@@ -30450,7 +30456,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zb kinXs ホーム：要アクションをキックオフ未実施と今月回収の検収書（未回収）だけに。キックオフ未実施に直販の担当（受注者）を出す（久野さんの要望）。";
+const BUILD_TAG = "2026-11-12zc 業種の見立ての精度を上げる：公式サイトの本文・gBizINFO の事業内容も材料に、決められなければ会社名などから一番近い業種を選ぶ（確かさ低めと出す）。見つからなかった結果は覚えない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
