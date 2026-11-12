@@ -37,3 +37,36 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   })();
   return true;
 });
+
+// MiiTel の文字起こし・議事録を kinbot へ（2026-11-12）
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-miitel-capture") return;
+  (async () => {
+    try {
+      const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/capture", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: msg.items || [] }) });
+      const j = await r.json().catch(() => null); reply({ ok: !!(j && j.ok), status: r.status });
+    } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
+  })();
+  return true;
+});
+// MiiTel の会議のページを裏で1件ずつ開いて、文字起こし・議事録を読ませる（kinbot for MOCHICA の「MiiTel から読む」）（2026-11-12）
+let kbMtCrawling = false;
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-miitel-crawl") return;
+  const urls = (msg.urls || []).filter((u) => /^https:\/\/[a-z0-9.-]+\.miitel\.com\/app\/video\//i.test(u)).slice(0, 300);
+  if (kbMtCrawling) { reply({ ok: false, error: "いま読んでいる最中です" }); return; }
+  kbMtCrawling = true; reply({ ok: true, count: urls.length });
+  (async () => {
+    let done = 0;
+    for (const u of urls) {
+      try {
+        const tab = await chrome.tabs.create({ url: u, active: false });
+        await new Promise((r) => setTimeout(r, 14000));   // ページが文字起こし・議事録を取ってくるまで待つ
+        await chrome.tabs.remove(tab.id).catch(() => {});
+      } catch {}
+      done++; await chrome.storage.local.set({ kbMiitelCrawl: { done, total: urls.length, at: Date.now() } });
+    }
+    kbMtCrawling = false;
+  })();
+  return true;
+});

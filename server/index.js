@@ -26543,6 +26543,25 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
 globalThis.mcMiitel = { save: (ev) => mcMiitelSave(ev), list: (n) => mcMiitelList(n) };
 // 2026-11-12：商談履歴に入れる変更（zu）を取り消したので、入ってしまった MiiTel の商談を起動のあとに消す（何度動いても安全）
 setTimeout(() => deleteMiitelMeetings().then((n) => n && console.log(`[MiiTel] 商談履歴に入っていた MiiTel の会議 ${n}件を消しました`)).catch(() => {}), 20 * 1000);   // Claude のコネクタ（mcp.js）から過去の会議を取り込む
+// 拡張機能（kinbot-ext）が MiiTel のページから写した文字起こし（phrases）・議事録（summary）などを受け取る（2026-11-12 田中さん）
+app.post("/api/mochica/miitel/capture", express.json({ limit: "20mb" }), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const items = (Array.isArray(req.body && req.body.items) ? req.body.items : []).slice(0, 60);
+    let n = 0;
+    for (const it of items) {
+      const vid = String(it.videoId || "").trim(); const kind = String(it.kind || "").replace(/[^a-z_]/gi, "").slice(0, 20); if (!vid || !kind) continue;
+      let body = null; try { body = JSON.parse(String(it.text || "")); } catch { body = String(it.text || "").slice(0, 2000000); }
+      // 文字起こしの数（phrases は配列のどこかにある）
+      const arr = (o) => Array.isArray(o) ? o : o && typeof o === "object" ? (Object.values(o).find((x) => Array.isArray(x) && x.length) || []) : [];
+      const trLen = kind === "phrases" ? arr(body).length : 0;
+      const title = String(it.title || "").replace(/\s*[|｜-]\s*MiiTel.*$/i, "").trim();
+      await mcMiitelSave({ id: vid, kind: "拡張機能（MiiTel のページから）", title: title && !/^MiiTel/i.test(title) ? title : "", transcriptLen: trLen, url: `https://mochica.app.miitel.com/app/video/${vid}`, payload: { [`mt_${kind}`]: body, mt_detail_id: String(it.detailId || "") } });
+      n++;
+    }
+    res.json({ ok: true, saved: n });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcMiitelList(100) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -30584,7 +30603,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zy MOCHICA の商談：探す欄にブラウザの自動入力（メールアドレス）が入って0件になっていたのを直す。";
+const BUILD_TAG = "2026-11-12zz 拡張機能1.4.0：MiiTel の会議ページが取ってくる文字起こし（phrases）・議事録（summary）を写して kinbot for MOCHICA に入れる（ページを開くだけ／MOCHICA の画面から裏でまとめて読む）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

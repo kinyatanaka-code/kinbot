@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "kinbot-ext",
-  "version": "1.3.4",
+  "version": "1.4.0",
   "description": "kinbot の拡張機能：kincall の Zoom アカウントのサインイン補助、kinXs の下書きをメールワイズへ入れる、メールワイズのメールを読んで kinXs のタスク作りに使う（ネオキャリア社内用）。",
   "permissions": [
     "storage",
@@ -13,7 +13,8 @@
     "https://*.okta.com/*",
     "https://zoom.us/*",
     "https://*.zoom.us/*",
-    "https://*.cybozu.com/*"
+    "https://*.cybozu.com/*",
+    "https://*.miitel.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -58,6 +59,27 @@
         "mailwise.js"
       ],
       "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.miitel.com/app/*"
+      ],
+      "js": [
+        "miitel-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*.miitel.com/app/*"
+      ],
+      "js": [
+        "miitel.js"
+      ],
+      "run_at": "document_start",
       "all_frames": false
     }
   ],

@@ -35,6 +35,8 @@
     const q = String(($("mtQ") || {}).value || "").trim().toLowerCase();
     const list = mtAll.filter((m) => !q || `${m.title || ""} ${m.host || ""} ${m.participants || ""}`.toLowerCase().includes(q));
     $("mtCount").textContent = `${list.length}件`;
+    const need = mtAll.filter((m) => !m.transcript_len).length; const rb = $("mtRead");
+    if (rb) { rb.hidden = !need; rb.textContent = `MiiTel から文字起こし・議事録を読む（${Math.min(need, 30)}件）`; }
     if (!list.length) { box.innerHTML = `<div class="mc-note" style="padding:10px">${mtAll.length ? "見つかりませんでした" : "まだ届いていません。設定（連携）の URL と追加ヘッダーを MiiTel の Outgoing Webhook（会議履歴）に入れると、次の会議から届きます。"}</div>`; return; }
     let last = ""; let html = "";
     for (const m of list) {
@@ -56,7 +58,24 @@
     const tr0 = v.transcript || v.transcription || v.utterances || v.speeches || null;
     const tr = Array.isArray(tr0) ? tr0.map((u) => typeof u === "string" ? { s: "", t: u } : { s: String((u.speaker && (u.speaker.name || u.speaker)) || u.speaker_name || u.name || ""), t: String(u.text || u.phrase || u.content || ""), at: u.start || u.start_time || null }).filter((u) => u.t)
       : typeof tr0 === "string" ? tr0.split(/\n+/).filter(Boolean).map((x) => ({ s: "", t: x })) : [];
-    const minutes = String(v.minutes || v.summary || "").trim();
+    let minutes = String(v.minutes || (typeof v.summary === "string" ? v.summary : "") || "").trim();
+    // 拡張機能が MiiTel のページから写した文字起こし（mt_phrases）・議事録（mt_summary）（2026-11-12）
+    const firstArr = (o, d = 0) => { if (Array.isArray(o)) return o; if (!o || typeof o !== "object" || d > 3) return []; for (const x of Object.values(o)) { const a = firstArr(x, d + 1); if (a.length) return a; } return []; };
+    const pick = (o, ks) => { for (const k of ks) { const val = k.split(".").reduce((a, b) => (a == null ? a : a[b]), o); if (val != null && val !== "" && typeof val !== "object") return val; } return ""; };
+    const mtPh = firstArr(p.mt_phrases);
+    if (!tr.length && mtPh.length) {
+      for (const u of mtPh) { if (!u || typeof u !== "object") continue; const tx = String(pick(u, ["text", "phrase", "content", "sentence", "body", "value"]) || ""); if (!tx) continue;
+        let sec = Number(pick(u, ["start_time", "start", "begin_time", "begin", "offset", "start_sec", "started_at"])); if (sec > 100000) sec = sec / 1000;
+        tr.push({ s: String(pick(u, ["speaker_name", "speaker.name", "user.name", "participant.name", "participant_name", "name", "speaker", "user_name"]) || ""), t: tx, at: isFinite(sec) && sec > 0 ? sec : null }); }
+    }
+    let minutesHtml = "";
+    if (!minutes && p.mt_summary != null) {
+      const sm = p.mt_summary;
+      if (typeof sm === "string") minutes = sm;
+      else { const secs = firstArr(sm).filter((x) => x && typeof x === "object");
+        if (secs.length && secs.some((x) => pick(x, ["title", "heading", "name"]) || pick(x, ["content", "text", "body", "summary"]))) minutesHtml = secs.map((x) => { const h = pick(x, ["title", "heading", "name", "topic"]); const c = pick(x, ["content", "text", "body", "summary", "description", "value"]); const sub = firstArr(x).map((y) => typeof y === "string" ? y : pick(y, ["content", "text", "body", "value"])).filter(Boolean); return `${h ? `<h3 style="font-size:14px;margin:12px 0 4px;color:#0B6E78">${esc(h)}</h3>` : ""}${c ? `<div class="mt-doc">${esc(c)}</div>` : ""}${sub.length ? `<ul style="margin:4px 0 0 18px;padding:0;font-size:13.5px;line-height:1.8">${sub.map((y) => `<li>${esc(y)}</li>`).join("")}</ul>` : ""}`; }).join("");
+        else { let best = ""; const walk = (o, d) => { if (d > 5 || o == null) return; if (typeof o === "string") { if (o.length > best.length) best = o; return; } if (typeof o === "object") Object.values(o).forEach((x) => walk(x, d + 1)); }; walk(sm, 0); minutes = best; } }
+    }
     const at = it.started_at || it.received_at; const url = it.url || `https://mochica.app.miitel.com/app/video/${id}`;
     // Webhook で届いた中身から、録画のファイルらしい URL を探す（mp4・m3u8・webm、または download／recording／media／video_url の項目）（2026-11-12）
     const media = (() => { const hits = []; const walk = (o, k0, d) => { if (d > 6 || o == null) return; if (typeof o === "string") { if (/^https?:\/\//.test(o) && (/\.(mp4|m3u8|webm|mov|m4a|mp3|wav)(\?|$)/i.test(o) || /(download|recording|media|video_url|audio_url|file_url)/i.test(k0 || ""))) hits.push({ k: k0, u: o }); return; } if (Array.isArray(o)) { o.forEach((x) => walk(x, k0, d + 1)); return; } if (typeof o === "object") for (const [k, x] of Object.entries(o)) walk(x, k, d + 1); }; walk(p, "", 0); return hits; })();
@@ -65,7 +84,7 @@
     const pane = (k) => {
       if (k === "tr") return tr.length ? `<div class="mt-tr">${tr.map((u) => `<div class="ln">${u.at != null ? `<span class="tm">${esc(typeof u.at === "number" ? `${Math.floor(u.at / 60)}:${String(Math.floor(u.at % 60)).padStart(2, "0")}` : String(u.at).slice(11, 16))}</span>` : ""}${u.s ? `<span class="spk">${esc(u.s)}</span>` : ""}<span>${esc(u.t)}</span></div>`).join("")}</div>`
         : '<div class="mt-wait">文字起こしは、まだ kinbot に入っていません。MiiTel の Webhook で文字起こしごと届いた会議は、ここに話した人つきで出ます。録画と文字起こしは上の「MiiTel で開く」から見られます。</div>';
-      if (k === "mn") return minutes ? `<div class="mt-doc">${esc(minutes)}</div>` : '<div class="mt-wait">MiiTel の議事録は、まだ kinbot に入っていません（MiiTel の Webhook の通知ルールに「議事録作成完了時」を足すと届きます）。</div>';
+      if (k === "mn") return minutesHtml ? minutesHtml : minutes ? `<div class="mt-doc">${esc(minutes)}</div>` : '<div class="mt-wait">MiiTel の議事録は、まだ kinbot に入っていません（MiiTel の Webhook の通知ルールに「議事録作成完了時」を足すと届きます）。</div>';
       if (k === "sm") return '<div class="mt-wait">要約は、文字起こしが入った会議から kinbot が作ります（準備中）。</div>';
       if (k === "an") return '<div class="mt-wait">話し方・良かった点・直す点などの分析は、文字起こしが入った会議から作ります（準備中）。</div>';
       if (k === "ml") return '<div class="mt-wait">御礼メールの下書きは、文字起こしが入った会議から作ります（準備中）。</div>';
@@ -81,6 +100,14 @@
     main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); }));
   }
   // ブラウザの自動入力（メールアドレスなど）が探す欄に入って「0件」になるのを防ぐ（2026-11-12）
+  // 拡張機能で、文字起こしがまだの会議を MiiTel で裏で開いて読む（1回30件まで）（2026-11-12）
+  { const rb = $("mtRead"); if (rb) rb.addEventListener("click", () => {
+      if (!document.documentElement.dataset.kbMiitelExt) { alert("拡張機能 kinbot-ext（1.4.0 以上）が必要です。kinbot の設定 → 拡張機能 から入れ直して、この画面を開き直してください。"); return; }
+      const urls = mtAll.filter((m) => !m.transcript_len).slice(0, 30).map((m) => m.url || `https://mochica.app.miitel.com/app/video/${m.id}`);
+      if (!confirm(`MiiTel にログインしたまま、${urls.length}件の会議を裏のタブで1件ずつ開いて読みます（1件15秒ほど・全部で${Math.ceil(urls.length * 15 / 60)}分ほど）。始めますか？`)) return;
+      window.postMessage({ __kbMiitelCrawl: true, urls }, "*"); rb.disabled = true; rb.textContent = "読んでいます…（終わったら一覧を開き直してください）";
+      const tick = setInterval(() => { try { const c = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); if (c && c.total) rb.textContent = `読んでいます… ${c.done}/${c.total}`; if (c && c.done >= c.total) { clearInterval(tick); rb.disabled = false; loadMeetings(); } } catch {} }, 5000);
+    }); }
   { const q = $("mtQ"); if (q) { q.addEventListener("input", mtDraw); const clr = () => { if (/@/.test(q.value)) { q.value = ""; mtDraw(); } }; setTimeout(clr, 300); setTimeout(clr, 1500); } }
   async function loadConfig() {
     try { const c = await api("/api/mochica/config");
