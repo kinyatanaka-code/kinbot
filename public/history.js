@@ -415,9 +415,18 @@ function openCompanySfLink(company) {
        <label class="csf-f"><span>都道府県</span><input id="clState" type="text" placeholder="例：東京都" /></label>
        <label class="csf-f"><span>住所</span><input id="clStreet" type="text" /></label>
        <label class="csf-f"><span>従業員数</span><input id="clEmp" type="text" inputmode="numeric" /></label>
+       <label class="csf-f"><span>業種 <b style="color:#C0392B">＊</b></span><select id="clInd"><option value="">読み込み中…</option></select></label>
+       <div class="csf-msg" id="clIndNote" style="font-size:11.5px;color:#6A7A72"></div>
        <div class="csf-msg" id="clMsg"></div>
        <div class="csf-actions"><button type="button" class="btn btn-ghost csf-back-btn">← 戻る</button><button type="button" class="btn csf-go">この内容で立ち上げる</button></div>`;
     panel.querySelector(".csf-x2").addEventListener("click", close);
+    // 業種（必須）（2026-11-12）
+    const clInd = panel.querySelector("#clInd"), clIndNote = panel.querySelector("#clIndNote");
+    const guessCl = async () => { if (!clInd || clInd.value) return; const co = (panel.querySelector("#clCompany").value || "").trim() || company; clIndNote.textContent = "業種を見立てています…";
+      try { const d = await (await fetch(`/api/salesforce/industry-guess?company=${encodeURIComponent(co)}&website=${encodeURIComponent((panel.querySelector("#clWeb").value || "").trim())}`)).json();
+        if (d.industry && !clInd.value) { clInd.value = d.industry; clIndNote.textContent = `業種は${d.from || "見立て"}から選びました。違っていたら直してください。`; } else clIndNote.textContent = d.industry ? "" : "業種が分かりませんでした。選んでください。"; } catch { clIndNote.textContent = ""; } };
+    (async () => { try { const d = await (await fetch("/api/salesforce/industry-options")).json();
+      clInd.innerHTML = '<option value="">--選んでください--</option>' + (d.items || []).map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join(""); guessCl(); } catch { clInd.innerHTML = '<option value="">（読めませんでした）</option>'; } })();
     panel.querySelector(".csf-back-btn").addEventListener("click", () => { close(); openCompanySfLink(company); });
     // 会社情報の自動補完（アポ一覧と同じ：SF取引先→gBiz→ネット→公式サイト読込 の4段階＋空欄が埋まるまで最大3回リトライ）
     const setIfEmpty = (id, val) => { const el = panel.querySelector("#" + id); if (el && !(el.value || "").trim() && val) { el.value = val; return true; } return false; };
@@ -474,6 +483,8 @@ function openCompanySfLink(company) {
       for (const [id, key] of [["clPerson", "person"], ["clEmail", "email"], ["clDate", "meetingDate"], ["clPhone", "phone"], ["clWeb", "website"], ["clState", "state"], ["clStreet", "street"], ["clEmp", "employees"]]) {
         if (v(id)) lead[key] = v(id);
       }
+      if (!v("clInd")) { const m0 = panel.querySelector("#clMsg"); m0.textContent = "業種を選んでください（業種なしでは立ち上げられません）"; panel.querySelector("#clInd").focus(); return; }
+      lead.industry = v("clInd");
       const msg = panel.querySelector("#clMsg"); msg.textContent = "";
       const go = panel.querySelector(".csf-go"); go.disabled = true; const bo = go.textContent; go.textContent = "立ち上げ中…";
       try {

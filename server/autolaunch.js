@@ -23,6 +23,7 @@ export const REASONS = {
   no_person:     "商談の予定名から担当者名が読み取れません",
   no_company:    "商談の予定名から会社名が読み取れません",
   missing_url:   "URLが空で、gBizINFOでも見つかりませんでした",
+  missing_industry: "業種が分かりませんでした（業種を選んでから立ち上げてください）",
   missing_field: "必須項目が埋まっていません",
   already:       "すでに立ち上げ済みです",
   sf_error:      "Salesforceでエラーが起きました",

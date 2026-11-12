@@ -3965,6 +3965,7 @@ app.post("/api/company/sf-launch", async (req, res) => {
       state: lead.state || info.state || "",
       employees: lead.employees || info.employees || "",
       meetingDate: lead.meetingDate || "",
+      industry: lead.industry || "",
     };
     const slug = "co:" + normCompanyKey(company);
     const link = {
@@ -5425,6 +5426,52 @@ async function convertLeadPreferExisting(user, convArgs, { company = "", person 
   }
 }
 
+// ===== 業種（SF の選択リスト）：必須（2026-11-12 田中さん）=====
+let _kbIndOpts = { at: 0, v: null };
+async function kbIndustryOptions(user) {
+  if (_kbIndOpts.v && Date.now() - _kbIndOpts.at < 60 * 60 * 1000) return _kbIndOpts.v;
+  const desc = await describeObject(user, "Lead");
+  const f = (desc.fields || []).find((x) => x.name === "Industry");
+  const v = f ? (f.picklistValues || []).filter((o) => o.active).map((o) => ({ value: o.value, label: o.label || o.value })) : [];
+  _kbIndOpts = { at: Date.now(), v }; return v;
+}
+// 会社名・サイトから、選択リストの中でいちばん近い業種を AI に選ばせる（当てずっぽうはしない：分からなければ空）
+async function kbGuessIndustry(user, company, { website = "", note = "" } = {}) {
+  try {
+    const opts = await kbIndustryOptions(user); if (!opts.length || !company) return "";
+    const list = opts.map((o) => o.value).join("\n");
+    const sys = "あなたは日本の会社の業種を、決められた選択肢の中から1つ選ぶ係です。知らない会社なら無理に選ばず「不明」と答えます。JSONだけを返します。";
+    const usr = `会社名：${company}\nサイト：${website || "（不明）"}\n${note ? `補足：${note}\n` : ""}\n選択肢（この中からそのまま1つ）：\n${list}\n\n形式：{"industry":"選択肢の文字列そのまま か 不明"}`;
+    const out = JSON.parse(String(await callLLMPublic(sys, usr, 200, { json: true })).replace(/```json|```/g, "").trim());
+    const v = String(out.industry || "").trim();
+    return opts.some((o) => o.value === v) ? v : "";
+  } catch { return ""; }
+}
+// リードに業種が無ければ入れる：画面で選んだもの → SF の取引先 → AI の見立て。入れた（または元からあった）業種を返す
+async function kbEnsureLeadIndustry(user, leadId, company, { pick = "", website = "" } = {}) {
+  const lid = String(leadId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!lid) return "";
+  const cur = await sfQuery(user, `SELECT Industry FROM Lead WHERE Id = '${lid}'`).then((d) => d?.records?.[0]?.Industry || "").catch(() => "");
+  const opts = await kbIndustryOptions(user).catch(() => []);
+  const ok = (v) => v && (!opts.length || opts.some((o) => o.value === v));
+  let v = ok(pick) ? pick : "";
+  if (!v && cur) return cur;
+  if (!v) { const a = await ciFromSf(user, company).catch(() => ({})); if (ok(a.industry)) v = a.industry; }
+  if (!v) v = await kbGuessIndustry(user, company, { website });
+  if (v && v !== cur) { try { await updateLead(user, lid, { Industry: v }); console.log(`[SF立ち上げ] 業種を入れました ${company} → ${v}`); } catch (e) { console.warn("[SF立ち上げ] 業種を入れられませんでした", e.message); return cur; } }
+  return v || cur;
+}
+app.get("/api/salesforce/industry-options", async (req, res) => {
+  try { const op = await sfOperator(req.user); if (!op) return res.json({ ok: false, items: [] }); res.json({ ok: true, items: await kbIndustryOptions(op) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/salesforce/industry-guess", async (req, res) => {
+  try { const op = await sfOperator(req.user); if (!op) return res.json({ ok: false, industry: "" });
+    const company = String(req.query.company || "").trim(); if (!company) return res.json({ ok: true, industry: "" });
+    const a = await ciFromSf(op, company).catch(() => ({})); const opts = await kbIndustryOptions(op).catch(() => []);
+    if (a.industry && opts.some((o) => o.value === a.industry)) return res.json({ ok: true, industry: a.industry, from: "SFの取引先" });
+    const g = await kbGuessIndustry(op, company, { website: String(req.query.website || "") }); res.json({ ok: true, industry: g, from: g ? "AIの見立て" : "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true, leadOverride = null } = {}) {  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
   try {
     // すでに立ち上げ済みなら触らない
@@ -5510,6 +5557,14 @@ async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", noti
       return r;
     }
 
+    // 業種（必須）：リードに無ければ、画面で選んだもの → SF の取引先 → AI の見立て の順で入れる。それでも無ければ立ち上げない（2026-11-12）
+    if (!dryRun && j.lead && j.lead.Id && j.lead.Id !== "__will_create__") {
+      const ind = await kbEnsureLeadIndustry(user, id15(j.lead.Id), j.company, { pick: leadOverride && leadOverride.industry, website: site.url }).catch(() => "");
+      if (!ind) {
+        const r = { ...base, ok: false, company: j.company, person: j.person, reason: "missing_industry", leadId: j.lead.Id };
+        await saveAutolaunch(r); return r;
+      }
+    }
     if (dryRun) {
       // 実際に立ち上げる前に、所有者にできる人かどうかも見ておく
       const want = String(ownerEmail || link.current_owner || "").trim();
@@ -30367,7 +30422,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12t SF立ち上げ：業種を必須に（選んでいないと立ち上げない）。";
+const BUILD_TAG = "2026-11-12u SF商談の立ち上げ（アポ一覧・商談履歴の窓・自動の立ち上げ）でも業種を必須に：窓に業種（SF の選択リスト、SF の取引先か AI の見立てで先に選ぶ）、自動の立ち上げは SF の取引先 → AI の見立てで入れ、分からなければ止める。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

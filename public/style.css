@@ -7234,3 +7234,6 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 
 /* SF立ち上げ：必須の業種が空のとき（2026-11-12） */
 .sf-select.sf-need, .sf-input.sf-need { border-color: #D9542B !important; background: #FFF6F2 !important; }
+
+/* SF商談の立ち上げの窓：業種の選択（2026-11-12） */
+.ap-lc-f select, .csf-f select { width: 100%; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 8px; font: inherit; font-size: 13px; background: #fff; }

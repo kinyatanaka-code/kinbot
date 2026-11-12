@@ -811,6 +811,8 @@ function openLaunchModal(i, reasonText) {
       <label class="ap-lc-f"><span>都道府県</span><input id="lcState" type="text" placeholder="例：東京都" /></label>
       <label class="ap-lc-f"><span>住所</span><input id="lcStreet" type="text" /></label>
       <label class="ap-lc-f"><span>従業員数</span><input id="lcEmp" type="text" inputmode="numeric" /></label>
+      <label class="ap-lc-f"><span>業種 <b style="color:#C0392B">＊</b></span><select id="lcInd"><option value="">読み込み中…</option></select></label>
+      <div class="ap-lc-msg" id="lcInfoInd" style="margin-top:-4px;font-size:11.5px;color:#6A7A72"></div>
       <div class="ap-lc-msg" id="lcMsg"></div>
       <div class="ap-lc-actions"><button type="button" class="btn ghost ap-lc-cancel">閉じる</button><button type="button" class="btn ap-lc-go">この内容で立ち上げる</button></div>
     </div>`;
@@ -820,6 +822,16 @@ function openLaunchModal(i, reasonText) {
   back.querySelector(".ap-lc-x").addEventListener("click", close);
   back.querySelector(".ap-lc-cancel").addEventListener("click", close);
   const go = back.querySelector(".ap-lc-go");
+  // 業種（必須）：SF の選択リストを出し、SF の取引先 → AI の見立てで先に選んでおく（2026-11-12）
+  const indSel = back.querySelector("#lcInd"), indNote = back.querySelector("#lcInfoInd");
+  const guessInd = async () => {
+    if (!indSel || indSel.value) return; const co = (back.querySelector("#lcCompany").value || "").trim() || a.company || ""; if (!co) return;
+    indNote.textContent = "業種を見立てています…";
+    try { const d = await (await fetch(`/api/salesforce/industry-guess?company=${encodeURIComponent(co)}&website=${encodeURIComponent((back.querySelector("#lcWeb").value || "").trim())}`)).json();
+      if (d.industry && !indSel.value) { indSel.value = d.industry; indNote.textContent = `業種は${d.from || "見立て"}から選びました。違っていたら直してください。`; } else indNote.textContent = d.industry ? "" : "業種が分かりませんでした。選んでください。"; } catch { indNote.textContent = ""; }
+  };
+  (async () => { try { const d = await (await fetch("/api/salesforce/industry-options")).json();
+    indSel.innerHTML = '<option value="">--選んでください--</option>' + (d.items || []).map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join(""); guessInd(); } catch { indSel.innerHTML = '<option value="">（読めませんでした）</option>'; } })();
   // 予定名から会社名・担当者を、SF取引先→gBiz→ネット→サイト読込 の順で補う。空欄だけ埋める（入力済みは尊重）。
   const setIfEmpty = (id, v) => { const el = back.querySelector("#" + id); if (el && !(el.value || "").trim() && v) { el.value = v; return true; } return false; };
   // 電話が空なら、kincallの架電先の番号を入れておく（実際にかけている番号）
@@ -874,6 +886,7 @@ function openLaunchModal(i, reasonText) {
       msg.textContent = allFilled() ? "自動で補完しました。内容を確認してください。"
         : (filledAny ? "空欄を埋めました。残りは手で入力してください（もう一度押すと再検索します）。" : "見つかりませんでした。手で入力してください（もう一度押すと再検索します）。");
     }
+    guessInd();
   };
   back.querySelector(".ap-lc-fill").addEventListener("click", () => autofill(false));
   // 開いたときに、予定名・メールを手がかりに自動で1回補完する
@@ -887,6 +900,8 @@ function openLaunchModal(i, reasonText) {
       ["lcMeeting", "meetingDate"], ["lcPhone", "phone"], ["lcWeb", "website"], ["lcState", "state"], ["lcStreet", "street"], ["lcEmp", "employees"]]) {
       if (val(id)) lead[key] = val(id);
     }
+    if (!val("lcInd")) { const m0 = back.querySelector("#lcMsg"); m0.className = "ap-lc-msg"; m0.textContent = "業種を選んでください（業種なしでは立ち上げられません）"; back.querySelector("#lcInd").focus(); return; }
+    lead.industry = val("lcInd");
     const msg = back.querySelector("#lcMsg");
     go.disabled = true; const bo = go.textContent; go.textContent = "立ち上げ中…"; msg.className = "ap-lc-msg"; msg.textContent = "";
     try {
