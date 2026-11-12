@@ -58,6 +58,9 @@
       : typeof tr0 === "string" ? tr0.split(/\n+/).filter(Boolean).map((x) => ({ s: "", t: x })) : [];
     const minutes = String(v.minutes || v.summary || "").trim();
     const at = it.started_at || it.received_at; const url = it.url || `https://mochica.app.miitel.com/app/video/${id}`;
+    // Webhook で届いた中身から、録画のファイルらしい URL を探す（mp4・m3u8・webm、または download／recording／media／video_url の項目）（2026-11-12）
+    const media = (() => { const hits = []; const walk = (o, k0, d) => { if (d > 6 || o == null) return; if (typeof o === "string") { if (/^https?:\/\//.test(o) && (/\.(mp4|m3u8|webm|mov|m4a|mp3|wav)(\?|$)/i.test(o) || /(download|recording|media|video_url|audio_url|file_url)/i.test(k0 || ""))) hits.push({ k: k0, u: o }); return; } if (Array.isArray(o)) { o.forEach((x) => walk(x, k0, d + 1)); return; } if (typeof o === "object") for (const [k, x] of Object.entries(o)) walk(x, k, d + 1); }; walk(p, "", 0); return hits; })();
+    const playable = media.find((h) => /\.(mp4|webm|mov|m4a|mp3|wav)(\?|$)/i.test(h.u)) || media[0] || null;
     const tabs = [["tr", "文字起こし"], ["mn", "議事録"], ["sm", "要約"], ["an", "FB & 分析"], ["ml", "御礼メール"], ["sf", "SF連携"]];
     const pane = (k) => {
       if (k === "tr") return tr.length ? `<div class="mt-tr">${tr.map((u) => `<div class="ln">${u.at != null ? `<span class="tm">${esc(typeof u.at === "number" ? `${Math.floor(u.at / 60)}:${String(Math.floor(u.at % 60)).padStart(2, "0")}` : String(u.at).slice(11, 16))}</span>` : ""}${u.s ? `<span class="spk">${esc(u.s)}</span>` : ""}<span>${esc(u.t)}</span></div>`).join("")}</div>`
@@ -69,11 +72,12 @@
       return '<div class="mt-wait">Salesforce の「MOCHICA リード」から新規の商談を立ち上げる・ステージを進める・記録を残すのは、ここから行えるようにします（準備中）。</div>';
     };
     const cur = mtOpen.tab || "tr";
-    main.innerHTML = `<div class="mt-rec"><b>録画は MiiTel にあります</b><a href="${esc(url)}" target="_blank" rel="noopener">MiiTel で録画を見る ↗</a></div>
+    main.innerHTML = `${playable ? `<video class="mt-video" controls preload="metadata" playsinline src="${esc(playable.u)}"></video><div class="mc-note" style="margin-top:6px">録画（MiiTel から届いたファイル）。再生できないときは <a href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>` : `<div class="mt-rec"><b>録画は MiiTel にあります</b><a href="${esc(url)}" target="_blank" rel="noopener">MiiTel で録画を見る ↗</a></div>`}
       <div class="mt-title"><h2>${esc(it.title || "（題名なし）")}</h2><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
       <div class="mt-fields"><div><span>担当</span><b>${esc(it.host || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(it.participants || "—")}</b></div></div>
       <div class="mt-tabs">${tabs.map(([k, l]) => `<button type="button" data-mtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>
-      <div id="mtPane">${pane(cur)}</div>`;
+      <div id="mtPane">${pane(cur)}</div>
+      ${p && p.source !== "claude-mcp" && Object.keys(p).length ? `<details class="mt-raw" style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;color:#5C7377;font-weight:700">MiiTel から届いた中身（項目の確かめ用）</summary><pre style="white-space:pre-wrap;font-size:11px;background:#F2FAFB;border-radius:10px;padding:10px;max-height:320px;overflow:auto">${esc(JSON.stringify(p, (k, x) => (typeof x === "string" && x.length > 300 ? x.slice(0, 300) + "…" : Array.isArray(x) && x.length > 5 ? [...x.slice(0, 5), `…ほか${x.length - 5}件`] : x), 2))}</pre></details>` : ""}`;
     main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); }));
   }
   { const q = $("mtQ"); if (q) q.addEventListener("input", mtDraw); }

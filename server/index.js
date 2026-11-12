@@ -26536,7 +26536,7 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
       durationSec: Number(mcPick(v, ["duration", "duration_sec", "duration_seconds", "total_time"])) || null, transcriptLen: trLen,
       url: String(mcPick(v, ["url", "video_url", "detail_url", "analytics_url"]) || ""), payload: b };
     await mcMiitelSave(ev);
-    console.log(`[MiiTel] 会議履歴を受け取りました ${ev.title || id}（発言 ${trLen}）`);
+    console.log(`[MiiTel] 会議履歴を受け取りました ${ev.title || id}（発言 ${trLen}）項目：${Object.keys(v || {}).slice(0, 40).join(",")}`);
     res.json({ ok: true });
   } catch (e) { console.warn("[MiiTel] webhook", e.message); res.status(500).json({ error: e.message }); }
 });
@@ -30584,7 +30584,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zw kinbot for MOCHICA の商談（MiiTel）：kinbot の商談履歴と同じ作り（左に日ごとの商談カード、右に録画（MiiTel）・題名・担当・日時・長さ、文字起こし・議事録・要約・FB＆分析・御礼メール・SF連携のタブ）を水色で。";
+const BUILD_TAG = "2026-11-12zx MOCHICA の商談：Webhook で届いた中身に録画のファイルの URL があれば、その場で再生する。届いた中身を確かめる欄も。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
