@@ -22187,6 +22187,7 @@ async function notifyDevNoteDone(note) {
 // 手で対応した開発メモを「完了」にして、要望者に知らせる（デプロイのあと1回だけ。完了になったものは二度と送らない）（2026-11-12 田中さん「デプロイ完了したから通知して」）
 const KB_DONE_ON_DEPLOY = [
   { by: /sa_kuno@/i, title: /お手紙/ },   // 久野さん：年間施策のお手紙のステータス変更（版 2026-11-12x）
+  { by: /sa_kuno@/i, title: /商談ID/ },   // 久野さん：サーカスNoに加えてSF商談IDを表示（版 2026-11-12z）
 ];
 setTimeout(async () => {
   try {
@@ -30448,7 +30449,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12y 久野さんの開発メモ（お手紙のステータス）を対応済みにして、久野さん・kinXs のチャットへ知らせる。";
+const BUILD_TAG = "2026-11-12z kinXs 企業の詳細：SFの商談の商品の表に「SF商談ID」（押すとSFの商談、コピーも）（久野さんの要望）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

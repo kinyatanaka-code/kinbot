@@ -628,7 +628,7 @@ function kxLabelSchedPane(d, part = "all") {
   const pis = x.productItems || [];
   const clsTag = (c) => (c ? `<span class="kx-pl ${KX_SNS_L.includes(c) ? "sns" : "doc"}">${esc(c)}</span>` : '<span class="kx-pl nosf" title="商品ラベルには入れない商品（取材費など）">対象外</span>');
   const prodTbl = `<div class="kx-sec"><div class="lb">SFの商談の商品<span class="kx-note" style="margin-left:8px">空間デザイン制作・スタンダード・ライト→空間／エントリー・アチコチバース→AI／取材費→対象外／それ以外→SNS</span></div>
-      ${pis.length ? `<div class="kx-ptbl"><div class="h"><span>商品</span><span>区別</span><span>計上日</span><span>サーカスNo</span><span>商談</span></div>${pis.map((p0) => `<div class="r"><span class="nm">${esc(p0.name)}</span><span>${clsTag(p0.cls)}</span><span>${esc(String(p0.booked || "").replace(/-/g, "/") || "—")}</span><span data-circus-opp="${esc(p0.opp || "")}" data-circus-name="${esc(p0.oppName || "")}" style="font-variant-numeric:tabular-nums">…</span><span class="kx-note">${esc(p0.oppName || p0.stage || "")}</span></div>`).join("")}</div>` : '<div class="kx-note">SFの商談の商品がありません（手で追加した会社か、まだ取り込んでいません）</div>'}
+      ${pis.length ? `<div class="kx-ptbl"><div class="h"><span>商品</span><span>区別</span><span>計上日</span><span>サーカスNo</span><span>SF商談ID</span><span>商談</span></div>${pis.map((p0) => `<div class="r"><span class="nm">${esc(p0.name)}</span><span>${clsTag(p0.cls)}</span><span>${esc(String(p0.booked || "").replace(/-/g, "/") || "—")}</span><span data-circus-opp="${esc(p0.opp || "")}" data-circus-name="${esc(p0.oppName || "")}" style="font-variant-numeric:tabular-nums">…</span><span class="kx-oppid">${p0.opp ? `<a href="https://neo-media.my.salesforce.com/lightning/r/Opportunity/${encodeURIComponent(p0.opp)}/view" target="_blank" rel="noopener" title="SFの商談を開く">${esc(p0.opp)}</a><button type="button" class="kx-oppcp" data-copy="${esc(p0.opp)}" title="商談IDをコピー" aria-label="商談IDをコピー">⧉</button>` : "—"}</span><span class="kx-note">${esc(p0.oppName || p0.stage || "")}</span></div>`).join("")}</div>` : '<div class="kx-note">SFの商談の商品がありません（手で追加した会社か、まだ取り込んでいません）</div>'}
     </div>`;
   const kenSec = `<div class="kx-sec" data-ken-sec><div class="lb">検収書<span class="kx-note" style="margin-left:8px">PDFを企業ごとに残し、回収をチャットで知らせます</span></div><div data-ken-list data-ken-mode="list" class="kx-note">読み込んでいます…</div></div>`;
   const labelSec = `<div class="kx-sec kx-form"><div class="lb">商品ラベル${x.prodLabelsAuto ? '<span class="kx-src" style="margin-left:6px">自動（SFの商品から）</span>' : ""}</div>
@@ -2562,6 +2562,9 @@ if (VIEW === "mail") { if ($("kxPageName")) $("kxPageName").textContent = "メ�
 
 // ===== 企業の詳細：SFの商談の商品にサーカスNo・検収書（2026-11-10 田中さん）=====
 const _kxCircus = new Map();
+// SF商談IDのコピー（2026-11-12 久野さんの要望）
+document.addEventListener("click", (e) => { const b = e.target.closest && e.target.closest(".kx-oppcp"); if (!b) return; e.preventDefault(); e.stopPropagation();
+  const v = b.dataset.copy || ""; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => { b.textContent = "✓"; setTimeout(() => { b.textContent = "⧉"; }, 1200); }).catch(() => { window.prompt("商談ID", v); }); });
 async function kxCircusMount(bg, x) {
   const cells = [...bg.querySelectorAll("[data-circus-opp]")]; if (!cells.length) return;
   let r = _kxCircus.get(x.id);
