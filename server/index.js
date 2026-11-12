@@ -14092,6 +14092,7 @@ async function kinxsBuild() {
       initFee: (() => { const ps = (r.products || []).map((p) => String((p && typeof p === "object" ? p.name : p) || "")); const doc = ps.filter((n) => /アチコチ|ＤＯＣ|DOC|どこでもオープン|空間デザイン|エントリープラン|スタンダードプラン|ライトプラン/i.test(n)); if (!doc.length) return null; return doc.some((n) => !/アチコチ/.test(n)); })(),
       // 販売区分（直販／社内代理店＝PS）：SFの商談名の頭（「直販_クロス_…」「社内代理店_クロス_…」）から。一番新しい受注の商談で（2026-11-11 田中さん：企業カードにも）
       naOwner: r.na_owner || "",
+      naSource: r.na_source || "",
       channel: (() => { const ps = (r.products || []).filter((p) => p && typeof p === "object" && p.oppName).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))); for (const p of ps) { const m = String(p.oppName).match(/^\s*(直販|社内代理店|代理店|PS)[_＿]/); if (m) return m[1] === "直販" ? "直販" : "PS"; } return ""; })(),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", kenshuOn, delivered, endOn: ymd0(r.end_on),
@@ -14307,8 +14308,13 @@ async function kinxsHomeBase(user) {
   const mine = items.filter((x) => meName && !x.archived && isMine(x.cs));
   const today = kxToday();
   const tasks = [];
+  // 次回アクションの出どころ（Gmail・議事録・手入力）（2026-11-12）
+  const naSrc = (x) => { const v = String(x.naSource || ""); return /議事録/.test(v) ? "議事録" : /Gmail|メール/.test(v) ? "Gmail" : /メールワイズ/.test(v) ? "メールワイズ" : "手入力"; };
+  const naTask = (x) => ({ src: naSrc(x), kind: "次回アクション", title: `${x.naType ? `【${x.naType}】` : ""}${x.na}`, account: x.name, accountId: x.id, due: x.naDue || "", at: x.naAt || "", delegated: !!x.naOwner });
+  // 託された次回アクション（CS担当でない会社でも、その人のタスクに出す）（2026-11-12 田中さん：久野さんに託したのに久野さんに行っていなかった）
+  for (const x of items) if (!x.archived && x.na && String(x.naOwner || "").toLowerCase() === me && !mine.includes(x)) tasks.push(naTask(x));
   for (const x of mine) {
-    if (x.na) tasks.push({ src: "kinXs", kind: "次回アクション", title: `${x.naType ? `【${x.naType}】` : ""}${x.na}`, account: x.name, accountId: x.id, due: x.naDue || "", at: x.naAt || "" });
+    if (x.na && (!x.naOwner || String(x.naOwner).toLowerCase() === me)) tasks.push(naTask(x));   // ほかの人に託した次回アクションは、CS担当のタスクには出さない
     for (const a of x.alerts || []) tasks.push({ src: "kinXs", kind: a.rule, title: a.detail, account: x.name, accountId: x.id, due: a.rule === "NA期限切れ" ? x.naDue : "" });
     if (!x.na && !(x.alerts || []).length && !["解約済み", "キャンセル"].includes(x.label)) tasks.push({ src: "kinXs", kind: "次回アクション未定", title: "次回アクションを決める", account: x.name, accountId: x.id, due: "" });
   }
@@ -14450,8 +14456,11 @@ async function kinxsTasksMerged(user, { fresh = false } = {}) {
     if (o && o.deleted) continue;
     out.push({ ...t, key, id: o ? o.id : null, status: (o && o.status) || "未着手", due: (o && o.due) || t.due || "", auto: true });
   }
+  const seenKeys = new Set(out.map((t) => t.key));
   for (const o of own) {
-    if (o.deleted || !String(o.key).startsWith("m:")) continue;
+    // 手で足したもの（m:）と、議事録・メール・メールワイズから自動で作ったもの（auto:mail: など、題名があるもの）を出す
+    if (o.deleted || seenKeys.has(o.key)) continue;
+    if (!String(o.key).startsWith("m:") && !(String(o.key).startsWith("auto:") && o.title && /（自動）|Claude/.test(String(o.src || "")))) continue;
     const t = { src: o.src || "手入力", kind: "タスク", title: o.title || "", account: o.account_name || "", accountId: o.account_id || "", due: o.due || "", note: o.note || "" };
     out.push({ ...t, key: o.key, id: o.id, status: o.status || "未着手", auto: false, createdAt: o.created_at, bucket: kxBucket(t, today) });
   }
@@ -14495,7 +14504,9 @@ async function kxPeople() {
   const interns = new Set((await listInterns().catch(() => [])).map((x) => String(x.email || "").toLowerCase()));
   const us = (await listUsers().catch(() => [])).filter((u) => u.email && !interns.has(String(u.email).toLowerCase()));
   // 名前が入っていない人は、メンバーの表示名で（メールアドレスのまま出さない）（2026-11-11）
-  return Promise.all(us.map(async (u) => { const em = String(u.email).toLowerCase(); let nm = u.name || ""; if (!nm || /@/.test(nm)) nm = await displayNameOf(em).catch(() => "") || ""; if (!nm || /@/.test(nm)) nm = em.split("@")[0]; return { email: em, name: nm }; }));
+  // 名前が入っていない人は、CS 連携のメンバーの名前 → メンバーの表示名 → メールの@の前（2026-11-12：田中さんが kinya.tanaka と出ていた）
+  const csNames = new Map(((await csSettings().catch(() => ({ members: [] }))).members || []).filter((m) => m && m.email && m.name).map((m) => [String(m.email).toLowerCase(), m.name]));
+  return Promise.all(us.map(async (u) => { const em = String(u.email).toLowerCase(); let nm = u.name || ""; if (!nm || /@/.test(nm)) nm = csNames.get(em) || ""; if (!nm || /@/.test(nm)) nm = await displayNameOf(em).catch(() => "") || ""; if (!nm || /@/.test(nm)) nm = em.split("@")[0]; return { email: em, name: nm }; }));
 }
 async function kxAssigneeEmail(v) {
   const t = String(v || "").trim(); if (!t) return ""; const ps = await kxPeople();
@@ -30354,7 +30365,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12p 中谷奏さんを田中と同じ権限（管理者）に（kinbot のメンバーの名前から決める）。勤怠の修正・遅刻のカウントなどもできる。";
+const BUILD_TAG = "2026-11-12q kinXs：託した次回アクションを託された人のタスクに出す（CS担当のタスクからは外す）。自動で作ったタスクもホームに。タスクの出どころ（議事録・Gmail・メールワイズ・手入力・Claude など）を札で出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

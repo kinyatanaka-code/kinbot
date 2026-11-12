@@ -2739,7 +2739,12 @@ async function kxCTaskMount(bg, x) {
   const addD = (n) => new Date(Date.parse(today + "T00:00:00Z") + n * 86400000).toISOString().slice(0, 10);
   const wk = addD(7);
   const md = (v) => v ? `${Number(v.slice(5, 7))}/${Number(v.slice(8, 10))}` : "";
-  const srcCls = (s0) => /メール|Gmail|メールワイズ/.test(s0) ? "ml" : /チャット|Chat/.test(s0) ? "ch" : /Claude/.test(s0) ? "cl" : /手入力/.test(s0) ? "mn" : "kx";
+  const srcCls = (s0) => /議事録/.test(s0) ? "mt" : /メール|Gmail|メールワイズ/.test(s0) ? "ml" : /チャット|Chat/.test(s0) ? "ch" : /Claude/.test(s0) ? "cl" : /手入力/.test(s0) ? "mn" : "kx";
+  // 出どころの札の言葉（2026-11-12 田中さん：どこから取ってきたタスクか見えるように）
+  const srcLabel = (s0) => { const v = String(s0 || ""); const auto = /自動/.test(v) ? "（自動）" : "";
+    if (/メールワイズ/.test(v)) return "メールワイズ" + auto; if (/Gmail|メール/.test(v)) return "Gmail" + auto; if (/議事録/.test(v)) return "議事録" + auto;
+    if (/チャット|Chat/.test(v)) return "チャット"; if (/Claude/.test(v)) return "Claude"; if (/手入力/.test(v)) return "手入力"; if (/kinXs/.test(v)) return "kinXsのお知らせ"; return v || "手入力"; };
+  const naSrc = String(x.naSource || ""); const naSrcLabel = /議事録/.test(naSrc) ? "議事録" : /Gmail|メール/.test(naSrc) ? "Gmail" : "手入力";
   const openNa = () => { const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; dt.scrollIntoView({ behavior: "smooth", block: "start" }); } };
   let open = { done: false };
   let people = [], me = "";
@@ -2763,7 +2768,7 @@ async function kxCTaskMount(bg, x) {
         ${ro ? "" : `<button type="button" class="kx-tm-chk" data-tm-done="${i}" title="${t.status === "完了" ? "未完了に戻す" : "済みにする"}" aria-label="済みにする">${t.status === "完了" ? "✓" : ""}</button>`}
         <div class="kx-tm-body" ${t.na ? 'data-tm-na role="button" tabindex="0" title="押すと次回アクションの中身を開きます"' : ""}>
           <div class="kx-tm-title">${esc(t.title)}</div>
-          <div class="kx-tm-meta">${t.na ? '<span class="kx-tm-tag na">次回アクション</span>' : `<span class="kx-tm-tag ${srcCls(t.src)}">${esc(t.src || "")}</span>`}${t.kind && t.na ? `<span class="kx-tm-tag kx">${esc(t.kind)}</span>` : ""}${t.detail ? `<span>${esc(t.detail)}</span>` : ""}${t.link ? `<a href="${esc(t.link)}" target="_blank" rel="noopener">開く ↗</a>` : ""}</div>
+          <div class="kx-tm-meta">${t.na ? `<span class="kx-tm-tag na">次回アクション</span><span class="kx-tm-tag ${srcCls(naSrcLabel)}" title="どこから読み取ったか">${esc(naSrcLabel)}</span>` : `<span class="kx-tm-tag ${srcCls(t.src)}" title="どこから取ってきたタスクか">${esc(srcLabel(t.src))}</span>`}${t.kind && t.na ? `<span class="kx-tm-tag kx">${esc(t.kind)}</span>` : ""}${t.detail ? `<span>${esc(t.detail)}</span>` : ""}${t.link ? `<a href="${esc(t.link)}" target="_blank" rel="noopener">開く ↗</a>` : ""}</div>
         </div>
         ${t.na ? (() => { const csEm = (people.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || ""; const curEm = x.naOwner || csEm; const curP = people.find((p0) => p0.email === curEm);
             const nm = curP ? (kxSurname(curP.name) || curP.name) : (kxSurname(x.cs || "") || "CS未定");
