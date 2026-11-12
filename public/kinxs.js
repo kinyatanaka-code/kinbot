@@ -2851,3 +2851,28 @@ function kxGuideMount(bg, x, d) {
     try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/guide/read`, { method: "POST", body: "{}" }); if (r.none) alert("この会社の議事録が見つかりませんでした"); else { g = r.guide || g; draw(); } }
     catch (e) { alert(e.message); } rb.disabled = false; rb.textContent = "議事録から読み取る"; });
 }
+
+// ===== 会社を探す（会社名・担当者・電話・メール）（2026-11-12）=====
+(function () {
+  const inp = document.getElementById("kxFindQ"), list = document.getElementById("kxFindList"); if (!inp || !list) return;
+  let tm = null, seq = 0, sel = -1, rows = [];
+  const hide = () => { list.hidden = true; sel = -1; };
+  const draw = () => {
+    list.innerHTML = rows.length ? rows.map((r, i) => `<div class="kx-find-it${i === sel ? " on" : ""}" data-id="${esc(r.id)}"><b>${esc(r.name)}</b><small>${esc([r.cs && "CS " + (kxSurname(r.cs) || r.cs), r.phase, r.archived ? "アーカイブ" : ""].filter(Boolean).join("・"))}</small><span class="hit">${esc(r.hit)}</span></div>`).join("") : '<div class="kx-find-none">見つかりませんでした</div>';
+    list.hidden = false;
+    list.querySelectorAll("[data-id]").forEach((el) => el.addEventListener("mousedown", (e) => { e.preventDefault(); hide(); inp.blur(); openDetail(el.dataset.id); }));
+  };
+  inp.addEventListener("input", () => {
+    clearTimeout(tm); const q = inp.value.trim(); if (q.length < 2) { hide(); return; }
+    tm = setTimeout(async () => { const my = ++seq; try { const d = await api(`/api/kinxs/search?q=${encodeURIComponent(q)}`); if (my !== seq) return; rows = d.items || []; sel = rows.length ? 0 : -1; draw(); } catch { } }, 250);
+  });
+  inp.addEventListener("keydown", (e) => {
+    if (list.hidden) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(rows.length - 1, sel + 1); draw(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(0, sel - 1); draw(); }
+    else if (e.key === "Enter" && rows[sel]) { e.preventDefault(); const id = rows[sel].id; hide(); inp.blur(); openDetail(id); }
+    else if (e.key === "Escape") hide();
+  });
+  inp.addEventListener("blur", () => setTimeout(hide, 150));
+  inp.addEventListener("focus", () => { if (rows.length && inp.value.trim().length >= 2) draw(); });
+})();

@@ -15411,6 +15411,36 @@ app.get("/api/kinxs/meetings/:id/recording", async (req, res) => {
     res.json({ url: null });
   } catch (e) { res.json({ url: null, error: e.message }); }
 });
+// 会社を探す：会社名（前の社名も）・先方の担当者名・電話番号・メールアドレス（2026-11-12 田中さん）
+app.get("/api/kinxs/search", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const q0 = String(req.query.q || "").trim(); if (q0.length < 2) return res.json({ ok: true, items: [] });
+    const nz = (v) => String(v || "").normalize("NFKC").toLowerCase().replace(/[\s　]/g, "").replace(/株式会社|有限会社|合同会社|\(株\)|（株）|㈱/g, "");
+    const q = nz(q0); const qd = q0.replace(/[^0-9]/g, "");   // 電話は数字だけで比べる（ハイフンの有無を気にしない）
+    const isPhone = qd.length >= 4 && qd.length >= q0.replace(/[\s\-－ー()（）+]/g, "").length - 1;
+    const ctx = await kxMailCtx();
+    const out = [];
+    for (const x of ctx.items) {
+      const r = ctx.rowBy.get(x.id) || {}; const info = r.info || {};
+      let hit = "", score = 0;
+      const names = [x.name, ...(x.formerNames || [])];
+      if (names.some((n) => nz(n) === q)) { hit = "会社名"; score = 100; }
+      else if (names.some((n) => nz(n).includes(q))) { hit = names.find((n) => nz(n).includes(q)) !== x.name ? "前の社名" : "会社名"; score = 80; }
+      const contacts = [...(Array.isArray(info.contacts) ? info.contacts : []), ...kxMailContactsOf(ctx, x)];
+      if (!hit) for (const c of contacts) {
+        if (c.name && nz(c.name).includes(q)) { hit = `担当者：${c.name}`; score = 70; break; }
+        if (c.email && String(c.email).toLowerCase().includes(q0.toLowerCase())) { hit = `メール：${c.email}`; score = 70; break; }
+        if (isPhone && c.phone && String(c.phone).replace(/[^0-9]/g, "").includes(qd)) { hit = `電話：${c.phone}`; score = 70; break; }
+      }
+      if (!hit && isPhone) { const ph = [info.phone, r.phone, x.phone].filter(Boolean); const p0 = ph.find((v) => String(v).replace(/[^0-9]/g, "").includes(qd)); if (p0) { hit = `電話：${p0}`; score = 70; } }
+      if (!hit && /@/.test(q0)) { const dom = q0.toLowerCase().split("@")[1]; if (dom && contacts.some((c) => String(c.email || "").toLowerCase().endsWith("@" + dom))) { hit = `メールのドメイン：@${dom}`; score = 50; } }
+      if (hit) out.push({ id: x.id, name: x.name, cs: x.cs || "", phase: x.phase || "", rank: x.rank || "", archived: !!x.archived, hit, score: score - (x.archived ? 30 : 0) });
+    }
+    out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "ja"));
+    res.json({ ok: true, items: out.slice(0, 20) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // kinXsの中で開く議事録（CS・FSは、自分の商談でなくても見られる）
 app.get("/api/kinxs/meetings/:id", async (req, res) => {
   try {
@@ -30457,7 +30487,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zd kinXs から議事録が開けなかったのを直す（商談履歴が ?bot= を読んでいなかった。一覧に無い商談も開く）。";
+const BUILD_TAG = "2026-11-12ze kinXs：上の帯に会社を探す欄（会社名・前の社名・担当者名・電話番号・メールアドレス）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
