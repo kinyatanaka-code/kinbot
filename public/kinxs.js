@@ -1541,11 +1541,14 @@ function renderHomeV2() {
   const kxCsF = (() => { try { return localStorage.getItem("kxHomeCs") || ""; } catch { return ""; } })();
   // 行ごとの担当：次回アクションをほかの人に託していれば、その人（2026-11-12 田中さん：久野で絞っても託した分が出なかった）
   const kxActWho = (x, a) => { if (a.na && x.naOwner) { const p0 = (window.__kxPeople || []).find((q) => q.email === x.naOwner); const nm = p0 ? (kxSurname(p0.name) || p0.name) : String(x.naOwner).split("@")[0]; if (nm) return nm; } return kxSurname(x.cs) || "（未定）"; };
-  const actAll = items.filter((x) => kxHasDoc(x)).flatMap((x) => (x.actions || []).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a, who: kxActWho(x, a) })));
+  // 要アクションは緊急度の高いものだけ：キックオフ未実施と、検収書が今月回収で未回収の企業（2026-11-12 久野さんの要望）
+  const kxThisYm = kxNowYm();
+  const kxUrgent = (a) => a.kind === "キックオフ未実施" || (a.kind === "検収書 未回収" && String(a.due || "").slice(0, 7) === kxThisYm);
+  const actAll = items.filter((x) => kxHasDoc(x)).flatMap((x) => (x.actions || []).filter(kxUrgent).filter((a) => { const hd = window.__kxHomeDone || {}; return !(hd[x.id] && hd[x.id].has(kxDoneKey(a))); }).map((a) => ({ x, a, who: kxActWho(x, a) })));
   const csNames = [...new Set(actAll.map((r) => r.who))].sort((a, b) => a.localeCompare(b, "ja"));
   const actRows = actAll.filter((r) => !kxCsF || r.who === kxCsF).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
   const actCos = new Set(actRows.map((r) => r.x.id)).size;
-  const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"], ["na", "施策・次回アクション", (a) => a.group === "納品後", "#3F72C9"]];
+  const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 今月回収・未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"]];
   const kf = kh2.kf || ""; const shown = actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
   // 3か月の更新
   const docs = items.filter((x) => kxHasDoc(x));
@@ -1573,7 +1576,7 @@ function renderHomeV2() {
         const em = a.left == null ? "" : a.left < 0 ? `<em class="over">${-a.left}日過ぎ</em>` : a.left === 0 ? '<em class="soon">今日</em>' : `<em class="${a.left <= 3 ? "soon" : ""}">あと${a.left}日</em>`;
         const cls = `h2-due ${a.left != null && a.left < 0 ? "over" : a.left != null && a.left <= 3 ? "soon" : ""}`;
         if (k0 === "na" || k0 === "me") return `<label class="${cls} edit" data-noopen title="押すと日付を変えられます">${lbl}${em}<input type="date" data-ha="${k0}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}" data-do="date" value="${esc(due)}"></label>`;
-        return `<span class="${cls}" title="${k0 === "ko" ? "受注から14日（キックオフの目安）" : "期日"}">${lbl}${em}</span>`; })()}<span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}</span>${(() => { const ppl = window.__kxPeople || []; const csEm = (ppl.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || "";
+        return `<span class="${cls}" title="${k0 === "ko" ? "受注から14日（キックオフの目安）" : "期日"}">${lbl}${em}</span>`; })()}<span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}${a.kind === "キックオフ未実施" && x.fs ? `<small class="h2-fs" title="受注した人（${esc(x.channel || "直販")}）">${esc(x.channel === "PS" ? "PS" : "直販")}：${esc(kxSurname(x.fs) || x.fs)}</small>` : ""}</span>${(() => { const ppl = window.__kxPeople || []; const csEm = (ppl.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || "";
         const nm = a.na && x.naOwner ? (kxSurname((ppl.find((p0) => p0.email === x.naOwner) || {}).name || "") || x.naOwner.split("@")[0]) : (kxSurname(x.cs) || "CS未定");
         if (!a.na || !ppl.length || window.KX_COPY) return `<span class="who">${esc(nm)}</span>`;
         // 次回アクションの行は、担当を押すと別の人に移せる（2026-11-11 田中さん）
