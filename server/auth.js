@@ -45,8 +45,10 @@ export function authEnabled() {
   return dbEnabled() || LEGACY.size > 0;
 }
 export function isAdmin(id) {
-  return ADMINS.has(id);
+  return ADMINS.has(id) || ADMINS.has(String(id || "").toLowerCase());
 }
+// 名前で管理者にする人（メールが分からなくても、kinbot のメンバーの名前から決める）（2026-11-12 田中さん：中谷奏さんも田中と同じ権限に）
+export function addAdmin(id) { const v = String(id || "").trim().toLowerCase(); if (v) ADMINS.add(v); }
 
 // --- パスワードハッシュ（scrypt） ---
 export function hashPassword(pw) {

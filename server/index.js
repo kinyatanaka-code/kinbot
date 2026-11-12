@@ -795,6 +795,7 @@ import {
   setImpersonationCookies,
   endImpersonation,
   getImpersonator,
+  addAdmin,
 } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1200,6 +1201,13 @@ async function canRedistribute(req) {
   } catch { return false; }
 }
 
+// 田中欽也と同じ権限（管理者）にする人を、名前から決める（メールが分からなくてもよいように）。10分ごとに見直す（2026-11-12）
+const KB_OWNER_LIKE_NAMES = ["中谷奏"];
+async function kbSyncOwnerLike() {
+  try { const st = await getSettings().catch(() => ({})); const names = [...KB_OWNER_LIKE_NAMES, ...((st && st.ownerLikeNames) || [])].map((n) => String(n).normalize("NFKC").replace(/[\s　]/g, ""));
+    for (const u of await listUsers().catch(() => [])) { const n = String(u.name || "").normalize("NFKC").replace(/[\s　]/g, ""); if (n && names.includes(n) && u.email) addAdmin(u.email); } } catch {}
+}
+setTimeout(kbSyncOwnerLike, 5000); setInterval(kbSyncOwnerLike, 10 * 60 * 1000);
 app.get("/api/me", async (req, res) => {
   let name = "";
   try {
@@ -30346,7 +30354,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12o kinXs：済みにしたタスクが復活する不具合を直す（毎日変わる数字で鍵が変わっていた）。次回アクションは済ませたものと似た内容を入れない。";
+const BUILD_TAG = "2026-11-12p 中谷奏さんを田中と同じ権限（管理者）に（kinbot のメンバーの名前から決める）。勤怠の修正・遅刻のカウントなどもできる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
