@@ -577,9 +577,9 @@ function kxCoPane(d) {
           ${f.sfNote && (!f.website || !f.address || !f.phone) ? `<div class="kx-note" style="margin-top:8px">${esc(f.sfNote)}${/見つかりません/.test(f.sfNote) ? "。「編集」で入れられます" : ""}</div>` : ""}
         </div>
         <div class="kx-editbox kx-form">
-          <label>HP</label><input class="kx-in" data-info="website" value="${esc(f.website || "")}" placeholder="https://" />
-          <label>住所</label><input class="kx-in" data-info="address" value="${esc(f.address || "")}" />
-          <label>電話番号</label><input class="kx-in" data-info="phone" value="${esc(f.phone || "")}" />
+          <label>HP</label><input class="kx-in" data-info="website" data-src="${esc(src.website || "")}" value="${esc(f.website || "")}" placeholder="https://" />
+          <label>住所</label><input class="kx-in" data-info="address" data-src="${esc(src.address || "")}" value="${esc(f.address || "")}" />
+          <label>電話番号</label><input class="kx-in" data-info="phone" data-src="${esc(src.phone || "")}" value="${esc(f.phone || "")}" />
           <div class="kx-edact"><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
         </div>
       </section>
@@ -846,7 +846,8 @@ async function openDetail(id, reuse) {
   if (ctBox) { wireCt(); bg.querySelector("[data-ct-add]").addEventListener("click", () => { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); }); }
   bg.querySelectorAll("[data-save-info]").forEach((b) => b.addEventListener("click", () => {
     // 直した欄だけを保存する（SFから来た値をそのまま手入力として残さないため）
-    const info = {}; bg.querySelectorAll("[data-info]").forEach((el) => { if (el.value !== el.defaultValue) info[el.dataset.info] = el.value; });
+    // 直した欄に加えて、SF にも手入力にも無い値（メールのドメイン・CS連携などから出していた値）も、そのまま保存して SF に書く（2026-11-12 田中さん）
+    const info = {}; bg.querySelectorAll("[data-info]").forEach((el) => { const sk = String(el.dataset.src || ""); if (el.value !== el.defaultValue || (el.value.trim() && sk && !/^(SF|手入力)/.test(sk))) info[el.dataset.info] = el.value; });
     const ctSec = bg.querySelector("[data-ct-rows]") && bg.querySelector("[data-ct-rows]").closest("[data-sec]");
     if (ctSec && ctSec.classList.contains("editing")) info.contacts = [...bg.querySelectorAll(".kx-ct")].map((r) => ({ name: r.querySelector('[data-ct="name"]').value, title: r.querySelector('[data-ct="title"]').value, phone: r.querySelector('[data-ct="phone"]').value, email: r.querySelector('[data-ct="email"]').value }));
     if (!Object.keys(info).length) { b.closest("[data-sec]")?.classList.remove("editing"); return; }

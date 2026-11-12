@@ -16496,7 +16496,25 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
     if (b.info && typeof b.info === "object" && "website" in b.info && String(b.info.website || "").trim() && !r.logo_manual) {
       try { const logo = await kxFindLogo(String(b.info.website).trim(), r.name_override || r.name); _kxLogoImg.delete(r.logo_url || ""); await kinxsSetLogo(req.params.id, logo); logoRefetched = true; } catch {}
     }
-    res.json({ ok: true, logoRefetched });
+    // 企業情報で入れた HP・電話・住所を SF の取引先にも書く（2026-11-12 田中さん「HP を入れたのに SF に反映されない」）。情報不足の数もすぐ読み直す
+    let sfWrote = null;
+    if (b.info && typeof b.info === "object" && /^[0-9a-zA-Z]{15,18}$/.test(String(req.params.id))) {
+      const f = {}; const inf = b.info;
+      if (String(inf.website || "").trim()) { const w = String(inf.website).trim(); f.Website = /^https?:\/\//i.test(w) ? w : `https://${w}`; }
+      if (String(inf.phone || "").trim()) f.Phone = String(inf.phone).trim();
+      if (String(inf.address || "").trim()) {
+        let a0 = String(inf.address).normalize("NFKC").trim(); const pm = a0.match(/〒?\s*(\d{3})-?(\d{4})/); if (pm) { f.BillingPostalCode = `${pm[1]}-${pm[2]}`; a0 = a0.replace(pm[0], "").trim(); }
+        const pref = (a0.match(/^(東京都|北海道|(?:京都|大阪)府|.{2,3}県)/) || [])[1]; if (pref) { f.BillingState = pref; a0 = a0.slice(pref.length).trim(); }
+        if (a0) f.BillingStreet = a0;
+      }
+      if (Object.keys(f).length) {
+        try { const st0 = await getSettings().catch(() => ({})); const sfU = await pickSfUser(st0.psOwner || "").catch(() => "");
+          if (sfU) { await sfUpdateRecord(sfU, "Account", String(req.params.id), f); sfWrote = Object.keys(f); console.log(`[kinXs] 企業情報を SF の取引先に書きました ${req.params.id} ${Object.keys(f).join(",")}`); } }
+        catch (e) { sfWrote = { error: String(e.message || "").slice(0, 160) }; console.warn("[kinXs] SF の取引先に書けませんでした", e.message); }
+      }
+      _kxMissing = { at: 0, data: null };
+    }
+    res.json({ ok: true, sfWrote, logoRefetched });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
@@ -30519,7 +30537,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zq kinXs ホーム：タスクの行を要アクションの行と同じ形に（期日の札・会社・内容・担当・✓ 済み）。";
+const BUILD_TAG = "2026-11-12zr kinXs 企業情報：メールのドメインなどで出ていた HP・電話・住所も保存で手入力として残し、SF の取引先（Website・Phone・Billing）にも書く。情報不足もすぐ読み直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
