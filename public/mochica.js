@@ -10,6 +10,7 @@
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
     if (k === "settings") loadConfig();
+    if (k === "mtg") loadMeetings();
   };
   document.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", () => go(a.dataset.go)));
   window.addEventListener("hashchange", () => go(location.hash.slice(1)));
@@ -22,12 +23,22 @@
       $("mcMembers").innerHTML = d.members.length ? d.members.map((m) => `<span class="mc-tag" style="margin:0 6px 6px 0">${esc(m)}</span>`).join("") : "まだ MOCHICA のメンバーが決まっていません。";
     } catch (e) { $("mcCards").innerHTML = `<div class="mc-card"><small>読めませんでした：${esc(e.message)}</small></div>`; }
   }
+  // MiiTel から届いた会議（2026-11-12）
+  async function loadMeetings() {
+    const box = $("mcMtList"); if (!box) return;
+    try { const d = await api("/api/mochica/miitel/meetings"); const it = d.items || [];
+      const t0 = (v) => v ? new Date(v).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+      box.innerHTML = it.length ? `<table class="mc-list"><tr><th>日時</th><th>会議</th><th>主催</th><th>長さ</th><th>文字起こし</th></tr>${it.map((m) => `<tr><td>${t0(m.started_at || m.received_at)}</td><td>${m.url ? `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title || "（題名なし）")}</a>` : esc(m.title || "（題名なし）")}</td><td>${esc(m.host || "")}</td><td>${m.duration_sec ? Math.round(m.duration_sec / 60) + "分" : "—"}</td><td>${m.transcript_len ? `${m.transcript_len}` : "—"}</td></tr>`).join("")}</table>`
+        : "まだ届いていません。設定（連携）の URL と追加ヘッダーを MiiTel の Outgoing Webhook（会議履歴）に入れると、次の会議から届きます。";
+    } catch (e) { box.textContent = "読めませんでした：" + e.message; }
+  }
   async function loadConfig() {
     try { const c = await api("/api/mochica/config");
       $("miDomain").value = c.miitel.domain || ""; $("miToken").value = ""; $("miToken").placeholder = c.miitel.tokenLast4 ? `保存済み（****${c.miitel.tokenLast4}）。変えるときだけ入れる` : "管理画面の「API」で発行したもの";
       $("baKey").value = ""; $("baKey").placeholder = c.bales.keyLast4 ? `保存済み（****${c.bales.keyLast4}）。変えるときだけ入れる` : "管理画面の「連携」「API」で発行したもの"; $("baNote").value = c.bales.note || "";
       $("sfLead").value = c.sf.leadType || ""; $("sfOpp").value = c.sf.oppPrefix || "";
       $("stMiitel").textContent = c.miitel.tokenLast4 ? "保存済み" : "未設定"; $("stBales").textContent = c.bales.keyLast4 ? "保存済み" : "未設定";
+      if (c.hook) { $("mhUrl").value = c.hook.url || ""; $("mhHead").value = c.hook.header || ""; }
     } catch (e) { $("mcSaved").textContent = "読めませんでした：" + e.message; }
   }
   $("mcSave").addEventListener("click", async () => {

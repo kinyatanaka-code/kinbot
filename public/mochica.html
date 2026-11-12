@@ -78,8 +78,9 @@
       <div class="mc-box"><h2>MOCHICA のメンバー</h2><div id="mcMembers" class="mc-note">読み込んでいます…</div>
         <p class="mc-note" style="margin-top:8px">メンバーの DOC／MOCHICA は、kinbot の設定 → メンバー管理の「プロダクト」で決めます。</p></div>
     </section>
-    <section data-pane="mtg" hidden><div class="mc-box"><h2>商談（MiiTel）<span class="mc-tag wait">準備中</span></h2>
-      <p class="mc-note">MiiTel の録画・文字起こしを取り込み、要約・分析を作って、Salesforce の「MOCHICA リード」から新規の商談を立ち上げ、ステージを進められるようにします。まず「設定（連携）」で MiiTel の API をつないでください。</p></div></section>
+    <section data-pane="mtg" hidden><div class="mc-box"><h2>商談（MiiTel）</h2>
+      <p class="mc-note">MiiTel で録画・文字起こしが終わった会議が、ここに自動で届きます（MiiTel の Outgoing Webhook）。届いた会議から、要約・分析と Salesforce への記録を順に作っていきます。</p>
+      <div id="mcMtList" class="mc-note" style="margin-top:10px">読み込んでいます…</div></div></section>
     <section data-pane="list" hidden><div class="mc-box"><h2>リスト（Bales Cloud）<span class="mc-tag wait">準備中</span></h2>
       <p class="mc-note">Bales Cloud のリストを読み、会社・架電の状況を kinbot で見られるようにします。まず「設定（連携）」で Bales Cloud の API をつないでください。</p></div></section>
     <section data-pane="call" hidden><div class="mc-box"><h2>架電（Zoom Phone）<span class="mc-tag wait">準備中</span></h2>
@@ -90,6 +91,11 @@
       <p class="mc-note">DOC の商談の議事録は、商談履歴で見られます（直したり、DOC の Salesforce に書いたりはしません）。</p>
       <p style="margin-top:12px"><a class="mc-btn" style="display:inline-flex;align-items:center;text-decoration:none" href="/history.html" target="_blank" rel="noopener">DOC の商談履歴を開く ↗</a></p></div></section>
     <section data-pane="settings" hidden>
+      <div class="mc-box"><h2>MiiTel の会議履歴を受け取る（Outgoing Webhook）</h2>
+        <p class="mc-note">MiiTel Admin → 外部連携 → Outgoing Webhook → 「会議履歴」タブ → 連携設定を追加 で、次の2つを入れてください。送るタイミングは「会議履歴の音声分析完了時」と、使えれば「議事録作成完了時」「文字起こし要約完了時」も選びます。</p>
+        <div class="mc-form" style="margin-top:10px"><label>URL</label><input id="mhUrl" readonly onclick="this.select()" />
+          <label>追加ヘッダー</label><input id="mhHead" readonly onclick="this.select()" placeholder="管理者だけが見られます" /></div>
+        <p class="mc-note" style="margin-top:8px">追加ヘッダーは合言葉です。ほかの人に見せないでください。</p></div>
       <div class="mc-box"><h2>MiiTel <span class="mc-tag" id="stMiitel">—</span></h2>
         <div class="mc-form"><label>会社のドメイン</label><input id="miDomain" placeholder="例：xxxx.miitel.jp" />
           <label>API のトークン</label><input id="miToken" type="password" autocomplete="off" placeholder="管理画面の「API」で発行したもの" /></div></div>

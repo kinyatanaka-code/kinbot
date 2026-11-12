@@ -12704,3 +12704,31 @@ export async function kxTaskListAllOpen() {
   const { rows } = await pool.query(`SELECT * FROM kinxs_tasks WHERE COALESCE(status,'') <> '完了' AND COALESCE(deleted,false) = false AND COALESCE(title,'') <> '' ORDER BY due NULLS LAST, created_at DESC LIMIT 800`);
   return rows;
 }
+
+// MOCHICA：MiiTel の Outgoing Webhook で届いた会議履歴（2026-11-12）
+let _mcMtInit = false;
+async function ensureMcMiitel() {
+  if (!pool || _mcMtInit) return; _mcMtInit = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_miitel_events (
+    id TEXT PRIMARY KEY, received_at TIMESTAMPTZ DEFAULT now(), kind TEXT, title TEXT, started_at TIMESTAMPTZ, host TEXT, participants TEXT,
+    duration_sec INT, transcript_len INT DEFAULT 0, url TEXT, payload JSONB)`).catch(() => {});
+}
+export async function mcMiitelSave(ev) {
+  if (!pool) return null; await ensureMcMiitel();
+  const r = await pool.query(`INSERT INTO mochica_miitel_events (id, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+    ON CONFLICT (id) DO UPDATE SET received_at=now(), kind=COALESCE(EXCLUDED.kind, mochica_miitel_events.kind), title=COALESCE(NULLIF(EXCLUDED.title,''), mochica_miitel_events.title),
+      started_at=COALESCE(EXCLUDED.started_at, mochica_miitel_events.started_at), host=COALESCE(NULLIF(EXCLUDED.host,''), mochica_miitel_events.host), participants=COALESCE(NULLIF(EXCLUDED.participants,''), mochica_miitel_events.participants),
+      duration_sec=COALESCE(EXCLUDED.duration_sec, mochica_miitel_events.duration_sec), transcript_len=GREATEST(EXCLUDED.transcript_len, mochica_miitel_events.transcript_len), url=COALESCE(NULLIF(EXCLUDED.url,''), mochica_miitel_events.url),
+      payload = mochica_miitel_events.payload || EXCLUDED.payload
+    RETURNING id`, [ev.id, ev.kind || null, ev.title || "", ev.startedAt || null, ev.host || "", ev.participants || "", ev.durationSec ?? null, ev.transcriptLen || 0, ev.url || "", JSON.stringify(ev.payload || {})]).catch((e) => { console.warn("[MiiTel] 保存できませんでした", e.message); return null; });
+  return r && r.rows[0] ? r.rows[0].id : null;
+}
+export async function mcMiitelList(limit = 100) {
+  if (!pool) return []; await ensureMcMiitel();
+  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+}
+export async function mcMiitelGet(id) {
+  if (!pool) return null; await ensureMcMiitel();
+  return (await pool.query(`SELECT * FROM mochica_miitel_events WHERE id=$1`, [id]).catch(() => ({ rows: [] }))).rows[0] || null;
+}
