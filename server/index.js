@@ -30487,7 +30487,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12ze kinXs：上の帯に会社を探す欄（会社名・前の社名・担当者名・電話番号・メールアドレス）。";
+const BUILD_TAG = "2026-11-12zf kinXs：会社を探す欄をヘッダーで目立つように（ページ名の右に大きく、緑のふち、/ キーで移れる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -2874,5 +2874,6 @@ function kxGuideMount(bg, x, d) {
     else if (e.key === "Escape") hide();
   });
   inp.addEventListener("blur", () => setTimeout(hide, 150));
+  document.addEventListener("keydown", (e) => { if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return; const tg = e.target; if (tg && (tg.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName))) return; e.preventDefault(); inp.focus(); inp.select(); });
   inp.addEventListener("focus", () => { if (rows.length && inp.value.trim().length >= 2) draw(); });
 })();
