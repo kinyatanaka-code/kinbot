@@ -2,7 +2,7 @@
 //   ページの中（MAIN）で動く。fetch と XHR の返事のうち /api/video/v2/video_details/<id>/(phrases|summary|topics|...) だけを写して、拡張機能へ postMessage する
 (function () {
   if (window.__kbMiitelHook) return; window.__kbMiitelHook = true;
-  const RE = /\/api\/video\/v2\/video_details\/([0-9a-f-]{20,})(?:\/(phrases|summary|topics|comments|settings))?(?:[/?]|$)/i;
+  const RE = /\/api\/video\/v2\/video_details\/([0-9a-f-]{20,})(?:\/(phrases|summary|topics|comments|settings|signed_cookie))?(?:[/?]|$)/i;
   const vid = () => { const m = location.pathname.match(/\/app\/video\/([0-9a-f-]{20,})/i); return m ? m[1] : ""; };
   // 会議の一覧（会議履歴のページが取ってくる search／videos）も写す → kinbot に会議の一覧を入れる
   const RE_LIST = /\/api\/(?:video\/v\d+\/)?(?:videos|video_list|search)(?:[/?]|$)/i;
@@ -15,7 +15,13 @@
     } catch {}
   };
   const seen = new Set();
-  const note = (u) => { try { const path = new URL(String(u), location.href).pathname; if (!/\/api\//.test(path) || seen.has(path)) return; seen.add(path); window.postMessage({ __kbMiitelSeen: true, path, page: location.pathname }, "*"); } catch {} };
+  let lastDetail = "";
+  const note = (u) => { try { const U = new URL(String(u), location.href); const path = U.pathname;
+      const dm = path.match(/\/video_details\/([0-9a-f-]{20,})/i); if (dm) lastDetail = dm[1];
+      // 録画のファイル（MiiTel の画面の外の置き場：mp4・m3u8・ts・metadata.json、または会議の詳細の id を含むもの）
+      const isMedia = !/\/api\//.test(path) && (/\.(mp4|m3u8|ts|m4a|webm|mpd)(\?|$)/i.test(path) || /metadata\.json$/i.test(path) || (lastDetail && path.includes(lastDetail)));
+      if (isMedia && !seen.has("m:" + path)) { seen.add("m:" + path); window.postMessage({ __kbMiitel: true, kind: "media", detailId: lastDetail, videoId: vid(), url: U.origin + U.pathname, text: JSON.stringify({ url: U.href.slice(0, 2000), host: U.host, path }), title: document.title }, "*"); }
+      if (!/\/api\//.test(path) && !isMedia) return; const key = isMedia ? U.host + path : path; if (seen.has(key)) return; seen.add(key); window.postMessage({ __kbMiitelSeen: true, path: isMedia ? `[録画] ${U.host}${path}` : path, page: location.pathname }, "*"); } catch {} };
   const of = window.fetch;
   window.fetch = async function (...a) {
     const r = await of.apply(this, a);

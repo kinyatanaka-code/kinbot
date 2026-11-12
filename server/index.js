@@ -26554,7 +26554,14 @@ app.post("/api/mochica/miitel/capture", express.json({ limit: "20mb" }), async (
     let n = 0;
     for (const it of items) {
       const vid = String(it.videoId || "").trim(); const kind = String(it.kind || "").replace(/[^a-z_]/gi, "").slice(0, 20); if (!vid || !kind) continue;
+      if (kind === "signed_cookie") { /* 通行証そのものは残さない（鍵なので）。来たことだけ印にする */ await mcMiitelSave({ id: vid, kind: "拡張機能（MiiTel のページから）", url: `https://mochica.app.miitel.com/app/video/${vid}`, payload: { mt_signed_cookie_seen: Date.now() } }); n++; continue; }
       let body = null; try { body = JSON.parse(String(it.text || "")); } catch { body = String(it.text || "").slice(0, 2000000); }
+      // 録画のファイルの場所（URL）：会議ごとに重ねて残す（あとで録画を kinbot に持ってくるため）
+      if (kind === "media") {
+        const cur = await mcMiitelGet(vid).catch(() => null); const list = (cur && cur.payload && Array.isArray(cur.payload.mt_media)) ? cur.payload.mt_media : [];
+        if (body && body.url && !list.some((x) => x.path === body.path)) list.push({ url: String(body.url).slice(0, 2000), host: body.host, path: body.path, at: Date.now() });
+        await mcMiitelSave({ id: vid, kind: "拡張機能（MiiTel のページから）", url: `https://mochica.app.miitel.com/app/video/${vid}`, payload: { mt_media: list.slice(-20) } }); n++; continue;
+      }
       // 会議の一覧：配列の中の会議（id・題名・開始）を1件ずつ入れる
       if (kind === "list") {
         const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => x && typeof x === "object" && (x.id || x.video_id))) return o; if (!o || typeof o !== "object" || d > 4) return []; for (const x of Object.values(o)) { const a = findArr(x, d + 1); if (a.length) return a; } return []; };
@@ -30618,7 +30625,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz6 拡張機能1.4.2：MiiTel で見た通り道・送った結果を残し、MOCHICA の商談に「拡張機能の様子」を出す（読み込みが進まないときの原因を見る）。";
+const BUILD_TAG = "2026-11-12zz7 拡張機能1.4.3：MiiTel の録画のファイルの場所（mp4・m3u8・metadata.json など）を写して残す（録画を kinbot に持ってくる準備）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
