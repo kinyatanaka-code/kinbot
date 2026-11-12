@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -26541,6 +26541,8 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
   } catch (e) { console.warn("[MiiTel] webhook", e.message); res.status(500).json({ error: e.message }); }
 });
 globalThis.mcMiitel = { save: (ev) => mcMiitelSave(ev), list: (n) => mcMiitelList(n) };
+// 会議でないものを拾っていた分（題名も日時も無い）を消す（起動のたび・安全）
+setTimeout(() => mcMiitelCleanJunk().then((n) => n && console.log(`[MiiTel] 会議でないもの ${n}件を消しました`)).catch(() => {}), 30 * 1000);
 // 2026-11-12：Claude から取り込んだ3月の会議（172件）を1回だけ消す（印を付けて、あとから取り込んだ分は消さない）
 setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); if (st.mcMiitelPurged20261112) return;
   const n = await mcMiitelDeleteImported(); await saveSettings({ mcMiitelPurged20261112: true }); console.log(`[MiiTel] 取り込んだ会議 ${n}件を消しました`); } catch {} }, 25 * 1000);
@@ -26567,7 +26569,9 @@ app.post("/api/mochica/miitel/capture", express.json({ limit: "20mb" }), async (
         const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => x && typeof x === "object" && (x.id || x.video_id))) return o; if (!o || typeof o !== "object" || d > 4) return []; for (const x of Object.values(o)) { const a = findArr(x, d + 1); if (a.length) return a; } return []; };
         for (const x of findArr(body).slice(0, 500)) {
           const id = String(x.video_id || x.id || "").trim(); if (!/^[0-9a-f-]{20,}$/i.test(id)) continue;
-          const st = x.starts_at || x.started_at || x.start_at || x.created_at || null;
+          const st = x.starts_at || x.started_at || x.start_at || null;
+          // 会議でないもの（人・タグ・キーワードなど）を拾わない：題名と開始の日時がある会議だけ
+          if (!String(x.title || "").trim() || !st || isNaN(Date.parse(st))) continue;
           const host = (x.host && (x.host.name || x.host.email)) || x.host_name || (x.owner && x.owner.name) || String(x.title || "").replace(/\s*のミーティング.*$/, "").replace(/^ネオキャリア/, "").replace(/のパーソナルミーティングルーム$/, "");
           await mcMiitelSave({ id, kind: "拡張機能（MiiTel の会議の一覧から）", title: String(x.title || x.name || ""), startedAt: st && !isNaN(Date.parse(st)) ? new Date(st).toISOString() : null, host: String(host || "").slice(0, 60), participants: String(x.participant_names || "").slice(0, 500), durationSec: Number(x.duration) || null, url: `https://mochica.app.miitel.com/app/video/${id}`, payload: {} });
           n++;
@@ -30625,7 +30629,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz7 拡張機能1.4.3：MiiTel の録画のファイルの場所（mp4・m3u8・metadata.json など）を写して残す（録画を kinbot に持ってくる準備）。";
+const BUILD_TAG = "2026-11-12zz8 MOCHICA の商談：左を担当ごとのカード（商談数・最新日）→押すとその人の商談に。会議でないもの（題名なし）を拾わない・消す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

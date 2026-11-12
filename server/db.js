@@ -12744,3 +12744,9 @@ export async function mcMiitelDeleteImported() {
   if (!pool) return 0; await ensureMcMiitel();
   try { const r = await pool.query(`DELETE FROM mochica_miitel_events WHERE kind LIKE 'Claude%'`); return r.rowCount || 0; } catch (e) { console.warn("[db] mcMiitelDeleteImported", e.message); return 0; }
 }
+
+// MOCHICA：一覧から入った「題名も日時も無い」もの（会議でないものを拾っていた）を消す（2026-11-12）
+export async function mcMiitelCleanJunk() {
+  if (!pool) return 0; await ensureMcMiitel();
+  try { const r = await pool.query(`DELETE FROM mochica_miitel_events WHERE COALESCE(title,'')='' AND started_at IS NULL AND COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND NOT (payload ? 'mt_summary') AND NOT (payload ? 'mt_media')`); return r.rowCount || 0; } catch (e) { console.warn("[db] mcMiitelCleanJunk", e.message); return 0; }
+}

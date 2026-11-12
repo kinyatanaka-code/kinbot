@@ -30,29 +30,42 @@
   const hm = (v) => { const d = jst(v); return d ? d.toISOString().slice(11, 16) : ""; };
   const md = (v) => { const d = jst(v); return d ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : ""; };
   const wk = (v) => { const d = jst(v); return d ? "日月火水木金土"[d.getUTCDay()] : ""; };
+  let mtHost = null;   // 選んだ担当（null＝担当のカードの一覧）
+  const hostOf = (m) => String(m.host || "").trim() || "（担当なし）";
   function mtDraw() {
     const box = $("mtList"); if (!box) return;
     const q = String(($("mtQ") || {}).value || "").trim().toLowerCase();
-    const list = mtAll.filter((m) => !q || `${m.title || ""} ${m.host || ""} ${m.participants || ""}`.toLowerCase().includes(q));
-    $("mtCount").textContent = `${list.length}件`;
     const need = mtAll.filter((m) => !m.transcript_len).length; const rb = $("mtRead");
     if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = need ? `MiiTel から文字起こし・議事録を読む（${Math.min(need, 30)}件）` : "MiiTel から会議を読み込む"; }
-    if (!list.length) { box.innerHTML = `<div class="mc-note" style="padding:10px">${mtAll.length ? "見つかりませんでした" : "まだ届いていません。設定（連携）の URL と追加ヘッダーを MiiTel の Outgoing Webhook（会議履歴）に入れると、次の会議から届きます。"}</div>`; return; }
-    let last = ""; let html = "";
+    if (!mtAll.length) { $("mtCount").textContent = "0件"; box.innerHTML = '<div class="mc-note" style="padding:10px">まだありません。上の「MiiTel から会議を読み込む」を押すと、MiiTel の会議履歴から読み込みます。</div>'; return; }
+    // ① 担当のカード（kinbot の商談履歴と同じ）
+    if (mtHost == null) {
+      const by = new Map(); for (const m of mtAll) { const h = hostOf(m); const v = by.get(h) || { n: 0, tr: 0, last: "" }; v.n++; if (m.transcript_len) v.tr++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; by.set(h, v); }
+      const hs = [...by.entries()].filter(([h]) => !q || h.toLowerCase().includes(q)).sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)));
+      $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`;
+      box.innerHTML = hs.map(([h, v]) => `<div class="mt-pcard" data-host="${esc(h)}"><span class="av">${esc(h.replace(/^（|）$/g, "").slice(0, 1))}</span><span class="nm"><b>${esc(h)}</b><small>${v.n}商談${v.tr ? `・文字起こし${v.tr}` : ""}${v.last ? `・最新 ${md(v.last)}` : ""}</small></span><span class="go">›</span></div>`).join("") || '<div class="mc-note" style="padding:10px">見つかりませんでした</div>';
+      box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); const first = mtAll.find((m) => hostOf(m) === mtHost); if (first) mtOpen(first.id); }));
+      return;
+    }
+    // ② その担当の商談（日ごと）
+    const list = mtAll.filter((m) => hostOf(m) === mtHost).filter((m) => !q || `${m.title || ""} ${m.participants || ""}`.toLowerCase().includes(q));
+    $("mtCount").textContent = `${list.length}件`;
+    let last = ""; let html = `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${list.length}商談</small></div>`;
     for (const m of list) {
       const at = m.started_at || m.received_at; const k = dkey(at);
       if (k !== last) { html += `<div class="mt-day">${md(at)}（${wk(at)}）</div>`; last = k; }
-      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(m.title || "（題名なし）")}</div><div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}<span class="who">${esc(m.host || "")}</span></div><div class="tags">${m.transcript_len ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}<span class="mt-tag sf">SF未記録</span></div></div>`;
+      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(m.title || "（題名なし）")}</div><div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}<span class="mt-tag sf">SF未記録</span></div></div>`;
     }
     box.innerHTML = html;
+    box.querySelector("[data-back]").addEventListener("click", () => { mtHost = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); });
     box.querySelectorAll("[data-mt]").forEach((el) => el.addEventListener("click", () => mtOpen(el.dataset.mt)));
   }
   async function loadMeetings() {
-    try { const d = await api("/api/mochica/miitel/meetings"); mtAll = d.items || []; mtDraw(); if (!mtSel && mtAll[0]) mtOpen(mtAll[0].id); }
+    try { const d = await api("/api/mochica/miitel/meetings"); mtAll = (d.items || []).filter((m) => String(m.title || "").trim() || m.started_at || m.transcript_len); mtDraw(); }
     catch (e) { const b = $("mtList"); if (b) b.textContent = "読めませんでした：" + e.message; }
   }
   async function mtOpen(id) {
-    mtSel = id; mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
+    mtSel = id; if (mtHost != null) mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
     let it; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}`)).item; } catch (e) { main.innerHTML = `<div class="mt-empty">読めませんでした：${esc(e.message)}</div>`; return; }
     const p = it.payload || {}; const v = p.video || p.meeting || p.data || p;
     const tr0 = v.transcript || v.transcription || v.utterances || v.speeches || null;
