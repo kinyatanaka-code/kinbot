@@ -30618,7 +30618,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz5 MOCHICA の商談：「MiiTel から読み込む」ボタンをいつも出す（会議の一覧のページを裏で開いて会議を入れ、そのあと文字起こし・議事録を読む）。拡張機能1.4.1。";
+const BUILD_TAG = "2026-11-12zz6 拡張機能1.4.2：MiiTel で見た通り道・送った結果を残し、MOCHICA の商談に「拡張機能の様子」を出す（読み込みが進まないときの原因を見る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

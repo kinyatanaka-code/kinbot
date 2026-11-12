@@ -14,14 +14,16 @@
       if (RE_LIST.test(String(url))) window.postMessage({ __kbMiitel: true, kind: "list", detailId: "", videoId: "list", url: String(url).split("?")[0], text, title: document.title }, "*");
     } catch {}
   };
+  const seen = new Set();
+  const note = (u) => { try { const path = new URL(String(u), location.href).pathname; if (!/\/api\//.test(path) || seen.has(path)) return; seen.add(path); window.postMessage({ __kbMiitelSeen: true, path, page: location.pathname }, "*"); } catch {} };
   const of = window.fetch;
   window.fetch = async function (...a) {
     const r = await of.apply(this, a);
-    try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; if (RE.test(u) || RE_LIST.test(u)) r.clone().text().then((t) => send(u, t)).catch(() => {}); } catch {}
+    try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; note(u); if (RE.test(u) || RE_LIST.test(u)) r.clone().text().then((t) => send(u, t)).catch(() => {}); } catch {}
     return r;
   };
   const oo = XMLHttpRequest.prototype.open, os = XMLHttpRequest.prototype.send;
-  XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbU = u; return oo.call(this, m, u, ...rest); };
+  XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbU = u; note(u); return oo.call(this, m, u, ...rest); };
   XMLHttpRequest.prototype.send = function (...a) {
     try { if (RE.test(String(this.__kbU || "")) || RE_LIST.test(String(this.__kbU || ""))) this.addEventListener("load", () => { try { if (!this.responseType || this.responseType === "text" || this.responseType === "json") send(this.__kbU, this.responseType === "json" ? JSON.stringify(this.response) : this.responseText); } catch {} }); } catch {}
     return os.apply(this, a);

@@ -110,6 +110,10 @@
       window.postMessage({ __kbMiitelCrawl: true, urls }, "*"); rb.disabled = true; rb.textContent = "読んでいます…（終わったら一覧を開き直してください）";
       const tick = setInterval(() => { try { const c = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); if (c && c.total) rb.textContent = `読んでいます… ${c.done}/${c.total}`; if (c && c.done >= c.total) { clearInterval(tick); rb.disabled = false; loadMeetings(); } } catch {} }, 5000);
     }); }
+  // 拡張機能の様子（見た MiiTel の通り道・送った結果）を5秒ごとに出す（2026-11-12）
+  setInterval(() => { const b = $("mtDiagBody"); if (!b) return; const ext = document.documentElement.dataset.kbMiitelExt; let dg = null; try { dg = JSON.parse(document.documentElement.dataset.kbMtDiag || "null"); } catch {}
+    let cr = null; try { cr = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); } catch {}
+    b.innerHTML = !ext ? "拡張機能 kinbot-ext（1.4.2 以上）が見えません。入れ直して、この画面を開き直してください。" : `${cr ? `裏で開いた数：${cr.done}/${cr.total}<br>` : ""}送り直し待ち：${dg ? dg.pending : 0}件<br>送った結果：${dg && dg.last.length ? dg.last.map((x) => `${esc(x.kind)}（${x.ok ? "OK" : "NG " + esc(String(x.status))}・${Math.round(x.len / 1000)}k）`).join("、") : "まだなし"}<br>見た MiiTel の通り道：${dg && dg.seen.length ? dg.seen.map((x) => esc(x.path)).join("<br>") : "まだなし（MiiTel のページを開くと出ます）"}`; }, 5000);
   { const q = $("mtQ"); if (q) { q.addEventListener("input", mtDraw); const clr = () => { if (/@/.test(q.value)) { q.value = ""; mtDraw(); } }; setTimeout(clr, 300); setTimeout(clr, 1500); } }
   async function loadConfig() {
     try { const c = await api("/api/mochica/config");
