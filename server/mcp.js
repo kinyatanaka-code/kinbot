@@ -144,12 +144,12 @@ const TOOLS = [
   },
   {
     name: "sf_update",
-    description: "Salesforceのレコードを更新する（書き込み）。オブジェクトAPI名・レコードID・更新フィールドを指定。例: sobject=Opportunity, id=006xxx, fields={StageName:\"02 : 有効商談（3ヵ月以内検討）\"}。kinbot で Salesforce を連携している人は本人として、連携していない人（MOCHICAなど）は代理アカウントで書き込む。ステージの変更は sobject=Opportunity・fields={StageName: …}。対象は主要オブジェクト（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case 等）に限定。",
+    description: "Salesforceのレコードを更新する（書き込み）。オブジェクトAPI名・レコードID・更新フィールドを指定。例: sobject=Opportunity, id=006xxx, fields={StageName:\"02 : 有効商談（3ヵ月以内検討）\"}。kinbot で Salesforce を連携している人は本人として、連携していない人（MOCHICAなど）は代理アカウントで書き込む。ステージの変更は sobject=Opportunity・fields={StageName: …}。対象は主要オブジェクト（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case 等）に限定。業種（Industry）は必須：商談（Opportunity）を更新するときは、その取引先の業種が空なら kinbot がネットで調べて入れる（決められなければ止めて選択肢を返すので、取引先に Industry を入れてからやり直す）。リード・取引先の Industry は SF の選択肢の中だけ・空にできない。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, id: { type: "string", description: "レコードのSalesforce ID" }, fields: { type: "object", description: "更新するフィールド {API名: 値}" } }, required: ["sobject", "id", "fields"] },
   },
   {
     name: "sf_create",
-    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。リード（Lead）と取引先（Account）を作るときは業種（Industry）が必須：Industry を入れていなければ、kinbot がネットで事業内容を調べて SF の選択肢から入れる（分からなければ作らずに選択肢を返すので、その中から選んで Industry に入れてやり直す）。",
+    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。リード（Lead）と取引先（Account）を作るとき、商談（Opportunity）を作るとき（その取引先）は業種（Industry）が必須：Industry を入れていなければ、kinbot がネットで事業内容を調べて SF の選択肢から入れる（分からなければ作らずに選択肢を返すので、その中から選んで Industry に入れてやり直す）。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, fields: { type: "object", description: "作成するフィールド {API名: 値}" } }, required: ["sobject", "fields"] },
   },
 
@@ -428,7 +428,10 @@ export async function callTool(name, args, req) {
         if (!String(args.fields.Industry || "").trim()) throw new Error("業種（Industry）は空にできません（必須）");
         if (opts.length && !opts.includes(String(args.fields.Industry))) throw new Error(`業種（Industry）は SF の選択肢から選んでください：${opts.join("／")}`);
       }
-      const r = await sfUpdateRecord(owner, so, String(args.id || ""), (args && args.fields) || {});
+      let indNoteU = "";
+      if (so === "Opportunity") indNoteU = await ensureAccountIndustry(owner, (args.fields && args.fields.AccountId) || await oppAccountId(owner, args.id));
+      const r0u = await sfUpdateRecord(owner, so, String(args.id || ""), (args && args.fields) || {});
+      const r = indNoteU ? { ...(r0u || {}), 業種: indNoteU } : r0u;
       const by = await sfByNameMcp(req, owner);
       if (by) console.log(`[sf_update] 代理で更新：${so} ${args.id} by ${req.user}`);
       return by ? { ...(r || {}), 代理: `代理アカウントで更新しました（依頼した人：${by}）` } : r;
@@ -441,6 +444,7 @@ export async function callTool(name, args, req) {
       const fields = { ...((args && args.fields) || {}) };
       // 業種は必須（リード・取引先）（2026-11-12 田中さん：Claude で SF を書くときも業種を入れる）
       let indNote = "";
+      if (so === "Opportunity" && fields.AccountId) indNote = await ensureAccountIndustry(owner, fields.AccountId);
       if ((so === "Lead" || so === "Account") && globalThis.kbIndustry) {
         const opts = (await globalThis.kbIndustry.options(owner).catch(() => [])).map((o) => o.value);
         if (fields.Industry && opts.length && !opts.includes(String(fields.Industry))) throw new Error(`業種（Industry）は SF の選択肢から選んでください：${opts.join("／")}`);
@@ -460,6 +464,23 @@ export async function callTool(name, args, req) {
     default:
       throw new Error(`不明なツール: ${name}`);
   }
+}
+
+// 商談（Opportunity）を Claude から作る・更新するときは、取引先の業種（Industry）を必ず入れる（2026-11-12 田中さん：kinbot のコネクタを使う全員）
+//   取引先の業種が空なら、ネットで事業内容を調べて SF の選択肢から入れる。決められなければ止めて、選択肢を返す（Claude が選んで取引先に入れてからやり直す）
+async function ensureAccountIndustry(owner, accountId) {
+  const aid = String(accountId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!aid || !globalThis.kbIndustry) return "";
+  const a = await sfQuery(owner, `SELECT Id, Name, Industry, Website FROM Account WHERE Id = '${aid}'`).then((d) => d?.records?.[0]).catch(() => null);
+  if (!a || a.Industry) return "";
+  const opts = (await globalThis.kbIndustry.options(owner).catch(() => [])).map((o) => o.value);
+  const g = await globalThis.kbIndustry.guess(owner, a.Name, { website: a.Website || "" }).catch(() => "");
+  if (!g) throw new Error(`取引先「${a.Name}」（${a.Id}）の業種（Industry）が空です。業種は必須なので、この会社の事業内容を調べて次の選択肢から1つ選び、先に sf_update（sobject=Account, id=${a.Id}, fields={Industry: …}）で入れてから、もう一度この操作をしてください。選択肢：${opts.join("／")}`);
+  try { await sfUpdateRecord(owner, "Account", a.Id, { Industry: g }); return `取引先「${a.Name}」の業種が空だったので「${g}」を入れました（ネットで調べた事業内容から）。違っていれば sf_update で直してください。`; }
+  catch (e) { return `取引先「${a.Name}」の業種は「${g}」と見立てましたが、権限が無くて入れられませんでした（${String(e.message || "").slice(0, 80)}）。取引先の所有者に頼んでください。`; }
+}
+async function oppAccountId(owner, oppId) {
+  const id = String(oppId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!id) return "";
+  return sfQuery(owner, `SELECT AccountId FROM Opportunity WHERE Id = '${id}'`).then((d) => d?.records?.[0]?.AccountId || "").catch(() => "");
 }
 
 // ---- JSON-RPC ハンドラ ----
