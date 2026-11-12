@@ -22194,7 +22194,8 @@ async function notifyDevNoteDone(note) {
 const KB_DONE_ON_DEPLOY = [
   { by: /sa_kuno@/i, title: /お手紙/ },   // 久野さん：年間施策のお手紙のステータス変更（版 2026-11-12x）
   { by: /sa_kuno@/i, title: /商談ID/ },   // 久野さん：サーカスNoに加えてSF商談IDを表示（版 2026-11-12z）
-  { by: /sa_kuno@/i, title: /要アクション/ },   // 久野さん：要アクションを緊急度の高いものだけ・キックオフ未実施に直販担当（版 2026-11-12zb）
+  { by: /sa_kuno@/i, title: /要アクション/ },
+  { by: /natsumi\.tsurukawa@/i, title: /議事録が開けない/ },   // 鶴川さん：kinXs から議事録が開けない（版 2026-11-12zd）   // 久野さん：要アクションを緊急度の高いものだけ・キックオフ未実施に直販担当（版 2026-11-12zb）
 ];
 setTimeout(async () => {
   try {
@@ -30456,7 +30457,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zc 業種の見立ての精度を上げる：公式サイトの本文・gBizINFO の事業内容も材料に、決められなければ会社名などから一番近い業種を選ぶ（確かさ低めと出す）。見つからなかった結果は覚えない。";
+const BUILD_TAG = "2026-11-12zd kinXs から議事録が開けなかったのを直す（商談履歴が ?bot= を読んでいなかった。一覧に無い商談も開く）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

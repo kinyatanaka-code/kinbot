@@ -1272,7 +1272,7 @@ async function loadList() {
       selectedAccount = acctKey(want);
       renderList();
       loadDetail(wantId);
-    }
+    } else if (wantId) loadDetail(wantId);   // 一覧に出ていない商談（ほかの人の商談など）でも開く
     // ホームから ?company=会社名（&sf=lose）で来たら、その会社の概要を開く
     const wantCompany = params.get("company");
     if (wantCompany) {
@@ -3327,8 +3327,9 @@ function htmlToText(s) {
 }
 
 loadList().then(() => {
-  // 分析タブなどから ?id=botId で来たら、その商談を自動で開く
-  const id = new URLSearchParams(location.search).get("id");
+  // 分析タブなどから ?id=botId で来たら、その商談を自動で開く。kinXs からの ?bot=botId も同じ（2026-11-12 鶴川さん：kinXs から議事録が開けなかった）
+  const qs = new URLSearchParams(location.search);
+  const id = qs.get("id") || qs.get("bot");
   if (id) loadDetail(id);
 });
 
