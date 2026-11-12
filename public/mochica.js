@@ -6,8 +6,6 @@
   const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電（Zoom Phone）", apo: "アポ（カレンダー）", doc: "DOC の議事録", settings: "設定（連携）" };
   const go = (k) => {
     if (!TITLES[k]) k = "home";
-    // 商談は kinbot の商談履歴と同じ画面で（MOCHICA のタブ）（2026-11-12 田中さん）
-    if (k === "mtg") { try { localStorage.setItem("kinbot.product", "MOCHICA"); } catch {} location.href = "/history.html"; return; }
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);

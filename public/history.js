@@ -598,8 +598,6 @@ function applyHistoryFilter() {
     if (!window.passesNonProductFilters(m)) return false;
     // プロダクト（DOC/MOCHICA）タブの絞り込み。実施者の所属で判定する。
     // ただし担当者が未設定の商談は振り分けようがないので、どのプロダクトでも表示する。
-    // MiiTel から来た商談（kinbot for MOCHICA）は MOCHICA のタブ（と全体）にだけ出す（2026-11-12）
-    if (String(m.bot_id || "").startsWith("miitel-")) { const p0 = window.kbProduct ? window.kbProduct.current() : ""; return !p0 || p0 === "MOCHICA"; }
     const ownerForProduct = (m.owner_name || m.owner || "").trim();
     if (ownerForProduct && window.kbProduct && !window.kbProduct.matches(ownerForProduct)) return false;
     return true;
@@ -2494,11 +2492,6 @@ async function loadDetail(botId, openTab, opts = {}) {
 
     // 録画（あれば）アプリ内で再生
     const drec = hdetail.querySelector("#drec");
-    // MiiTel の商談：録画は MiiTel にあるので、MiiTel で開くボタンを出す（2026-11-12）
-    if (String(botId).startsWith("miitel-")) {
-      const mu = m.meeting_url || `https://mochica.app.miitel.com/app/video/${String(botId).slice(7)}`;
-      drec.innerHTML = `<div class="rec-miitel" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:180px;border-radius:14px;background:linear-gradient(135deg,#0F3D44,#0E7A82);color:#E6FBFD;text-align:center;padding:18px"><div style="font-size:15px;font-weight:800">録画は MiiTel にあります</div><a href="${escapeHtml(mu)}" target="_blank" rel="noopener" style="background:#fff;color:#0B6E78;font-weight:800;border-radius:10px;padding:9px 18px;text-decoration:none">MiiTel で録画を見る ↗</a></div>`;
-    } else {
     drec.innerHTML = '<div class="rec-loading">録画を確認中…</div>';
     fetch(`/api/meetings/${encodeURIComponent(botId)}/recording`)
       .then((r) => r.json())
@@ -2524,7 +2517,6 @@ async function loadDetail(botId, openTab, opts = {}) {
       .catch(() => {
         drec.innerHTML = '<div class="rec-none">録画を取得できませんでした。</div>';
       });
-    }
   } catch (e) {
     hdetail.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
   }

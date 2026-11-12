@@ -26535,40 +26535,12 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
       participants: Array.isArray(parts) ? parts.map((p0) => (p0 && (p0.name || p0.email)) || String(p0)).join("、").slice(0, 500) : String(parts || "").slice(0, 500),
       durationSec: Number(mcPick(v, ["duration", "duration_sec", "duration_seconds", "total_time"])) || null, transcriptLen: trLen,
       url: String(mcPick(v, ["url", "video_url", "detail_url", "analytics_url"]) || ""), payload: b };
-    await mcMiitelSave(ev); await mcSyncToMeeting(ev);
+    await mcMiitelSave(ev);
     console.log(`[MiiTel] 会議履歴を受け取りました ${ev.title || id}（発言 ${trLen}）`);
     res.json({ ok: true });
   } catch (e) { console.warn("[MiiTel] webhook", e.message); res.status(500).json({ error: e.message }); }
 });
-// MiiTel の会議を kinbot の商談（meetings）にも入れる → 商談履歴の「MOCHICA」のタブで、kinbot と同じ画面で見られる（2026-11-12 田中さん「2枚目みたいに」）
-//   bot_id は miitel-<MiiTel の id>。主催の苗字から kinbot の人（メール）を当てる。文字起こし・議事録があれば入れる
-async function mcSyncToMeeting(ev) {
-  try {
-    const id = String(ev.id || ""); if (!id) return; const botId = `miitel-${id}`;
-    const host = String(ev.host || "").trim(); const sur = host.split(/[\s　]+/)[0];
-    let owner = "";
-    if (sur && sur !== "オーナー") { const us = await listUsers().catch(() => []); const hit = us.find((u) => String(u.name || "").replace(/[\s　]/g, "").startsWith(sur)); if (hit) owner = String(hit.email || "").toLowerCase(); }
-    const url = ev.url || `https://mochica.app.miitel.com/app/video/${id}`;
-    await createMeeting(botId, { meetingUrl: url, repName: host || "MiiTel", title: ev.title || "MiiTel の会議", owner });
-    if (ev.startedAt) await setMeetingCreatedAt(botId, ev.startedAt);
-    const v = (ev.payload && (ev.payload.video || ev.payload.meeting || ev.payload.data)) || ev.payload || {};
-    const tr0 = v.transcript || v.transcription || v.utterances || v.speeches || null;
-    let tr = [];
-    if (Array.isArray(tr0)) tr = tr0.map((u) => (typeof u === "string" ? { speaker: { name: "" }, text: u } : { speaker: { name: String((u.speaker && (u.speaker.name || u.speaker)) || u.speaker_name || u.name || "") }, text: String(u.text || u.phrase || u.content || ""), start: u.start || u.start_time || null })).filter((u) => u.text);
-    else if (typeof tr0 === "string" && tr0.trim()) tr = tr0.split(/\n+/).filter(Boolean).map((line) => ({ speaker: { name: "" }, text: line }));
-    const minutes = String(v.minutes || v.summary || "").trim();
-    if (tr.length || minutes) await saveMeeting(botId, { transcript: tr, summary: minutes ? { overview: minutes } : null, suggestions: null });
-  } catch (e) { console.warn("[MiiTel] 商談に入れられませんでした", e.message); }
-}
-globalThis.mcMiitel = { save: async (ev) => { const r = await mcMiitelSave(ev); if (r) await mcSyncToMeeting(ev); return r; }, list: (n) => mcMiitelList(n) };
-// 起動のあと、すでに受け取った MiiTel の会議を商談にも入れる（1回。入っているものは飛ばす）
-setTimeout(async () => {
-  try { const rows = await mcMiitelList(5000); let n = 0;
-    for (const r of rows) { const full = await mcMiitelGet(r.id).catch(() => null); if (!full) continue;
-      await mcSyncToMeeting({ id: full.id, title: full.title, host: full.host, url: full.url, startedAt: full.started_at ? new Date(full.started_at).toISOString() : null, payload: full.payload || {} }); n++; }
-    if (n) console.log(`[MiiTel] 受け取り済みの会議 ${n}件を商談に入れました`);
-  } catch (e) { console.warn("[MiiTel] 商談への取り込み", e.message); }
-}, 50 * 1000);   // Claude のコネクタ（mcp.js）から過去の会議を取り込む
+globalThis.mcMiitel = { save: (ev) => mcMiitelSave(ev), list: (n) => mcMiitelList(n) };   // Claude のコネクタ（mcp.js）から過去の会議を取り込む
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcMiitelList(100) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -30610,7 +30582,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zu MiiTel の会議を kinbot の商談にも入れ、商談履歴の MOCHICA のタブで kinbot と同じ画面で見られるように（録画は MiiTel で開く）。kinbot for MOCHICA の商談（MiiTel）はそこへ。";
+const BUILD_TAG = "2026-11-12zt kinbot のコネクタに MiiTel の会議を取り込む道具（mochica_miitel_import・mochica_miitel_imported_ids）。過去の会議を Claude（MiiTel の MCP）から入れられる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
