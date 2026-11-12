@@ -14988,6 +14988,18 @@ app.get("/api/kinxs/home", async (req, res) => {
     res.json(b);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ホームの要アクションの下に出すタスク（担当で絞ったらその人、全員なら自分）（2026-11-12 田中さん「タスクも出してほしい」）
+app.get("/api/kinxs/home/tasks", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    let u = String(req.user || "").toLowerCase();
+    if (req.query.who) { const em = await kxAssigneeEmail(String(req.query.who)).catch(() => ""); if (em) u = em.toLowerCase(); }
+    const d = await kinxsTasksMerged(u).catch(() => ({ tasks: [] }));
+    const open = (d.tasks || []).filter((t) => t.status !== "完了");
+    open.sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
+    res.json({ ok: true, user: u, mine: u === String(req.user || "").toLowerCase(), items: open.slice(0, 60), total: open.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/home/inbox", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json(await kinxsHomeInbox(req.user, { fresh: req.query.fresh === "1" })); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -30487,7 +30499,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zf kinXs：会社を探す欄をヘッダーで目立つように（ページ名の右に大きく、緑のふち、/ キーで移れる）。";
+const BUILD_TAG = "2026-11-12zg kinXs ホーム：要アクションの下にタスク（担当で絞ればその人、全員なら自分。期限順、済みにできる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

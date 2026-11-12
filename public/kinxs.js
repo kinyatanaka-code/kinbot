@@ -1527,6 +1527,31 @@ async function kxHomeAct(el) {
 }
 // 託した次回アクションの担当の名前に使う（ホーム）
 if (!window.__kxPeople) { window.__kxPeople = []; api("/api/kinxs/people").then((d) => { window.__kxPeople = d.items || []; if (VIEW === "home" && typeof lsData !== "undefined" && lsData) try { renderHomeV2(); } catch {} }).catch(() => {}); }
+// ホームの要アクションの下のタスク（2026-11-12）
+async function kh2LoadTasks() {
+  const box = $("kh2Tasks"); if (!box) return;
+  const who = kxCsF || ""; const my = ++kh2LoadTasks.seq;
+  let d; try { d = await api(`/api/kinxs/home/tasks${who && who !== "（未定）" ? `?who=${encodeURIComponent(who)}` : ""}`); } catch (e) { box.innerHTML = `<div class="h2-tk-h"><b>タスク</b><span class="kx-note">読めませんでした：${esc(e.message)}</span></div>`; return; }
+  if (my !== kh2LoadTasks.seq) return;
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const lbl = (s0) => { const v = String(s0 || ""); const au = /自動/.test(v) ? "（自動）" : ""; if (/メールワイズ/.test(v)) return "メールワイズ" + au; if (/Gmail|メール/.test(v)) return "Gmail" + au; if (/議事録/.test(v)) return "議事録" + au; if (/チャット/.test(v)) return "チャット"; if (/Claude/.test(v)) return "Claude"; if (/手入力/.test(v)) return "手入力"; return "kinXsのお知らせ"; };
+  const due = (t0) => { if (!t0.due) return '<span class="h2-due none">日付なし</span>'; const n = Math.round((new Date(t0.due) - new Date(today)) / 86400000); return `<span class="h2-due ${n < 0 ? "over" : n === 0 ? "today" : ""}">${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))} <i>${n < 0 ? `${-n}日過ぎ` : n === 0 ? "今日" : `あと${n}日`}</i></span>`; };
+  const items = d.items || []; const shown = items.slice(0, 15);
+  box.innerHTML = `<div class="h2-tk-h"><b>タスク</b><span class="h2-tk-n">${d.total}</span><span class="kx-note">${d.mine ? "自分" : esc(who)}のやること（期限の近い順）</span></div>` +
+    (shown.length ? shown.map((t0, i) => `<div class="h2-tk-li" data-tk="${i}">${due(t0)}<span class="tt">${esc(t0.title)}</span>${t0.account ? `<button type="button" class="co" data-tk-co="${esc(t0.accountId || "")}">${esc(t0.account)}</button>` : ""}<span class="src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</span>${d.mine ? '<button type="button" class="h2-op done" data-tk-done title="済みにする">✓ 済み</button>' : ""}</div>`).join("") + (items.length > shown.length ? `<div class="kx-note" style="padding:6px 4px">ほか ${items.length - shown.length}件</div>` : "")
+      : '<div class="kx-empty">タスクはありません 🎉</div>');
+  box.querySelectorAll("[data-tk-co]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tkCo) openDetail(b.dataset.tkCo); }));
+  box.querySelectorAll("[data-tk-done]").forEach((b) => b.addEventListener("click", async () => {
+    const t0 = shown[Number(b.closest("[data-tk]").dataset.tk)]; b.disabled = true;
+    try {
+      if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_text: "" }) });
+      else if (t0.id && !String(t0.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ status: "完了" }) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: "完了" }) });
+      kh2LoadTasks();
+    } catch (e) { b.disabled = false; alert(e.message); }
+  }));
+}
+kh2LoadTasks.seq = 0;
 function renderHomeV2() {
   const box = $("kh2"); if (!box || !lsData) return;
   const items = (lsData.items || []).filter((x) => !x.archived);
@@ -1585,6 +1610,7 @@ function renderHomeV2() {
         const dat = `data-ha="${k}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}"`;
         // ボタンの言葉は「✓ 済み」にそろえる（2026-11-11 田中さん：実施済み／済みが分かりにくい）。何が起きるかは、指を置くと出る説明に
         return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
+      <div class="h2-tk" id="kh2Tasks"><div class="h2-tk-h"><b>タスク</b><span class="kx-note">読み込み中…</span></div></div>
       </section>
     <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
       ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="st" data-grow>${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span><span class="n">${r.l.length}<small>社</small></span></button>`).join("")}
@@ -1615,6 +1641,7 @@ function renderHomeV2() {
   box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F")); }));
   const rtm = box.querySelector("[data-rt-modal]"); if (rtm) rtm.addEventListener("click", () => kxRenewTableModal(docs));
   box.querySelectorAll("[data-miss]").forEach((b) => b.addEventListener("click", () => { const r = req.find((x) => x.key === b.dataset.miss); kxCoListPopup(`情報不足：${r.short || r.name}がない`, msItems.filter((x) => (x.missKeys || []).includes(r.key)).map((x) => ({ ...x, ...(items.find((y) => y.id === x.id) || {}) }))); }));
+  setTimeout(() => kh2LoadTasks(), 0);
 }
 
 // ---------- 更新管理：今月・来月・再来月の会社カード、期の区切り、解約企業、更新表の窓 ----------
