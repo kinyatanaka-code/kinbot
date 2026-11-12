@@ -14840,6 +14840,13 @@ app.put("/api/kinxs/tasks/:id", async (req, res) => {
     if (b.status !== undefined) { if (!KX_TASK_STATUS.includes(b.status)) return res.status(400).json({ error: "状態が正しくありません" }); patch.status = b.status; }
     if (b.deleted !== undefined) patch.deleted = b.deleted === true;
     if (b.note !== undefined) patch.note = String(b.note || "").slice(0, 1000);
+    // 託す（担当を変える）：ホームのタスクから（2026-11-12 田中さん）
+    if (b.assignee) {
+      const who = await kxAssigneeEmail(b.assignee).catch(() => ""); if (!who) return res.status(400).json({ error: "託す人が見つかりません" });
+      const r0 = await kxTaskUpdateAny(req.params.id, { ...patch, owner: who.toLowerCase(), ...(who.toLowerCase() !== String(req.user || "").toLowerCase() ? { created_by: req.user } : {}) }).catch(() => null);
+      if (!r0) return res.status(404).json({ error: "見つかりません" });
+      return res.json({ ok: true, item: r0 });
+    }
     const r = await kxTaskUpdate(req.user, req.params.id, patch);
     if (!r) return res.status(404).json({ error: "見つかりません" });
     res.json({ ok: true, item: r });
@@ -30512,7 +30519,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zn kinXs ホーム：タスクの一覧を画面の下までの高さにしてスクロールできるように（隠した一覧が場所をとっていたのも直す）。";
+const BUILD_TAG = "2026-11-12zn kinXs ホーム：タスクの一覧から、ほかの人に託せる（担当の札を押して選ぶ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

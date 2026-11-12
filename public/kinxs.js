@@ -1542,10 +1542,24 @@ async function kh2LoadTasks(who0) {
   const lbl = (s0) => { const v = String(s0 || ""); const au = /自動/.test(v) ? "（自動）" : ""; if (/メールワイズ/.test(v)) return "メールワイズ" + au; if (/Gmail|メール/.test(v)) return "Gmail" + au; if (/議事録/.test(v)) return "議事録" + au; if (/チャット/.test(v)) return "チャット"; if (/Claude/.test(v)) return "Claude"; return "手入力"; };
   const groups = [["期限切れ", (t0) => t0.due && t0.due < today, "over"], ["今日", (t0) => t0.due === today, "today"], ["1週間", (t0) => t0.due && t0.due > today && t0.due <= wk, ""], ["あとで", (t0) => t0.due && t0.due > wk, ""], ["日付なし", (t0) => !t0.due, "none"]];
   const row = (t0, i0) => { const n = t0.due ? Math.round((new Date(t0.due) - new Date(today)) / 86400000) : null;
-    return `<div class="h2-tk-li" data-tk="${i0}">${d.mine ? '<button type="button" class="h2-tk-ck" data-tk-done title="済みにする"></button>' : ""}<span class="tt">${esc(t0.title)}</span>${t0.account ? `<button type="button" class="co" data-tk-co="${esc(t0.accountId || "")}">${esc(t0.account)}</button>` : ""}<span class="src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</span>${d.all && t0.ownerName ? `<span class="who">${esc(t0.ownerName)}</span>` : ""}${t0.due ? `<span class="h2-due ${n < 0 ? "over" : n === 0 ? "today" : ""}">${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))}${n < 0 ? ` <i>${-n}日過ぎ</i>` : n === 0 ? " <i>今日</i>" : ""}</span>` : ""}</div>`; };
+    return `<div class="h2-tk-li" data-tk="${i0}">${d.mine ? '<button type="button" class="h2-tk-ck" data-tk-done title="済みにする"></button>' : ""}<span class="tt">${esc(t0.title)}</span>${t0.account ? `<button type="button" class="co" data-tk-co="${esc(t0.accountId || "")}">${esc(t0.account)}</button>` : ""}<span class="src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</span>${(() => { // 担当の札：押すと託せる（次回アクションと、手で足したタスク・自動で作ったタスク）（2026-11-12）
+      const pp = window.__kxPeople || []; const cur = String(t0.owner || "").toLowerCase(); const nm = t0.ownerName || (d.all ? "" : "自分");
+      const canMove = (t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (t0.id && /（自動）|Claude/.test(String(t0.src || "")));
+      if (!canMove || !pp.length) return nm ? `<span class="who">${esc(nm)}</span>` : "";
+      return `<label class="who pick" title="押してほかの人に託す"><span>👤 ${esc(nm || "担当")}</span><select data-tk-who="${i0}"><option value="">託す人を選ぶ</option>${pp.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`; })()}${t0.due ? `<span class="h2-due ${n < 0 ? "over" : n === 0 ? "today" : ""}">${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))}${n < 0 ? ` <i>${-n}日過ぎ</i>` : n === 0 ? " <i>今日</i>" : ""}</span>` : ""}</div>`; };
   box.innerHTML = `<div class="kx-note" style="padding:2px 4px 6px">${d.all ? "全員" : d.mine ? "自分" : esc(who)}のタスク（期限の近い順）</div>` + (items.length ? groups.map(([g, f, cls]) => { const l = items.map((t0, i0) => [t0, i0]).filter(([t0]) => f(t0)); return l.length ? `<div class="h2-tk-g ${cls}">${g}<b>${l.length}</b></div>` + l.map(([t0, i0]) => row(t0, i0)).join("") : ""; }).join("") : '<div class="kx-empty">タスクはありません 🎉</div>');
   kh2FitTasks(); setTimeout(kh2FitTasks, 60);
   box.querySelectorAll("[data-tk-co]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tkCo) openDetail(b.dataset.tkCo); }));
+  box.querySelectorAll("[data-tk-who]").forEach((sel) => sel.addEventListener("change", async () => {
+    const t0 = items[Number(sel.dataset.tkWho)]; const em = sel.value; if (!em) return;
+    const p0 = (window.__kxPeople || []).find((q) => q.email === em);
+    if (!confirm(`「${t0.title}」を${p0 ? p0.name : em}さんに託しますか？`)) { sel.value = ""; return; }
+    try {
+      if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_owner: em }) });
+      else await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ assignee: em }) });
+      kh2LoadTasks(who0);
+    } catch (e) { alert(e.message); sel.value = ""; }
+  }));
   box.querySelectorAll("[data-tk-done]").forEach((b) => b.addEventListener("click", async () => {
     const t0 = items[Number(b.closest("[data-tk]").dataset.tk)]; b.disabled = true; b.classList.add("on");
     try {
