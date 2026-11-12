@@ -14994,7 +14994,9 @@ app.get("/api/kinxs/home/tasks", async (req, res) => {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
     let u = String(req.user || "").toLowerCase();
     if (req.query.who) { const em = await kxAssigneeEmail(String(req.query.who)).catch(() => ""); if (em) u = em.toLowerCase(); }
-    const d = await kinxsTasksMerged(u).catch(() => ({ tasks: [] }));
+    // 重いとき（メールの読み込みなど）は20秒で打ち切って、手で足したタスクだけでも返す
+    const d = await Promise.race([kinxsTasksMerged(u).catch(() => null), new Promise((r) => setTimeout(() => r(null), 20000))])
+      || { tasks: (await kxTaskList(u).catch(() => [])).filter((o) => !o.deleted && o.title).map((o) => ({ key: o.key, id: o.id, title: o.title, account: o.account_name || "", accountId: o.account_id || "", due: o.due ? String(o.due).slice(0, 10) : "", status: o.status, src: o.src || "手入力" })) };
     const open = (d.tasks || []).filter((t) => t.status !== "完了");
     open.sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
     res.json({ ok: true, user: u, mine: u === String(req.user || "").toLowerCase(), items: open.slice(0, 60), total: open.length });
@@ -30499,7 +30501,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zg kinXs ホーム：要アクションの下にタスク（担当で絞ればその人、全員なら自分。期限順、済みにできる）。";
+const BUILD_TAG = "2026-11-12zh kinXs ホーム：タスクが「読み込み中」のままだったのを直す（担当の値が読めずに止まっていた）。重いときは20秒で手のタスクだけ返す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

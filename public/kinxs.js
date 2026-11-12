@@ -1528,9 +1528,9 @@ async function kxHomeAct(el) {
 // 託した次回アクションの担当の名前に使う（ホーム）
 if (!window.__kxPeople) { window.__kxPeople = []; api("/api/kinxs/people").then((d) => { window.__kxPeople = d.items || []; if (VIEW === "home" && typeof lsData !== "undefined" && lsData) try { renderHomeV2(); } catch {} }).catch(() => {}); }
 // ホームの要アクションの下のタスク（2026-11-12）
-async function kh2LoadTasks() {
+async function kh2LoadTasks(who0) {
   const box = $("kh2Tasks"); if (!box) return;
-  const who = kxCsF || ""; const my = ++kh2LoadTasks.seq;
+  const who = who0 || ""; const my = ++kh2LoadTasks.seq;
   let d; try { d = await api(`/api/kinxs/home/tasks${who && who !== "（未定）" ? `?who=${encodeURIComponent(who)}` : ""}`); } catch (e) { box.innerHTML = `<div class="h2-tk-h"><b>タスク</b><span class="kx-note">読めませんでした：${esc(e.message)}</span></div>`; return; }
   if (my !== kh2LoadTasks.seq) return;
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
@@ -1547,7 +1547,7 @@ async function kh2LoadTasks() {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_text: "" }) });
       else if (t0.id && !String(t0.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ status: "完了" }) });
       else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: "完了" }) });
-      kh2LoadTasks();
+      kh2LoadTasks(who0);
     } catch (e) { b.disabled = false; alert(e.message); }
   }));
 }
@@ -1641,7 +1641,7 @@ function renderHomeV2() {
   box.querySelectorAll("[data-rm]").forEach((b) => b.addEventListener("click", () => { const m = b.dataset.rm; kxCoListPopup(`${kxYmLabel(m)} 更新`, docs.filter((x) => kxRenewIn(x, m) && x.label !== "解約済み" && x.rank !== "F")); }));
   const rtm = box.querySelector("[data-rt-modal]"); if (rtm) rtm.addEventListener("click", () => kxRenewTableModal(docs));
   box.querySelectorAll("[data-miss]").forEach((b) => b.addEventListener("click", () => { const r = req.find((x) => x.key === b.dataset.miss); kxCoListPopup(`情報不足：${r.short || r.name}がない`, msItems.filter((x) => (x.missKeys || []).includes(r.key)).map((x) => ({ ...x, ...(items.find((y) => y.id === x.id) || {}) }))); }));
-  setTimeout(() => kh2LoadTasks(), 0);
+  setTimeout(() => kh2LoadTasks(typeof kxCsF !== "undefined" ? kxCsF : "").catch((e) => { const b0 = $("kh2Tasks"); if (b0) b0.innerHTML = `<div class="h2-tk-h"><b>タスク</b><span class="kx-note">読めませんでした：${esc(e.message)}</span></div>`; }), 0);
 }
 
 // ---------- 更新管理：今月・来月・再来月の会社カード、期の区切り、解約企業、更新表の窓 ----------
