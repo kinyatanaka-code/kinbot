@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261112zz" />
+<link rel="stylesheet" href="/style.css?v=20261112zz3" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -66,6 +66,8 @@
   .mt-rec{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:200px;border-radius:14px;background:linear-gradient(135deg,#0F3D44,#0E7A82);color:#E6FBFD;text-align:center;padding:18px;}
   .mt-rec b{font-size:15px;} .mt-rec a{background:#fff;color:#0B6E78;font-weight:800;border-radius:10px;padding:9px 18px;text-decoration:none;font-size:13px;}
   .mt-video{width:100%;max-height:420px;border-radius:14px;background:#0F3D44;}
+  /* 鍵の欄は「パスワード」の欄にしない（ブラウザがログインの画面だと思い、ほかの欄にメールアドレスを自動で入れていた）（2026-11-12） */
+  .mc-secret{-webkit-text-security:disc;}
   .mt-title{display:flex;align-items:center;gap:10px;margin:14px 0 10px;flex-wrap:wrap;} .mt-title h2{font-size:17px;margin:0;color:#12292C;flex:1;min-width:0;}
   .mt-btn{height:34px;border:0;border-radius:10px;background:#0E9AA7;color:#fff;font:inherit;font-size:12.5px;font-weight:800;padding:0 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;}
   .mt-btn.ghost{background:#fff;color:#0B6E78;border:1px solid #CFE6E9;}
@@ -139,9 +141,9 @@
         <p class="mc-note" style="margin-top:8px">追加ヘッダーは合言葉です。ほかの人に見せないでください。</p></div>
       <div class="mc-box"><h2>MiiTel <span class="mc-tag" id="stMiitel">—</span></h2>
         <div class="mc-form"><label>会社のドメイン</label><input id="miDomain" placeholder="例：xxxx.miitel.jp" />
-          <label>API のトークン</label><input id="miToken" type="password" autocomplete="off" placeholder="管理画面の「API」で発行したもの" /></div></div>
+          <label>API のトークン</label><input id="miToken" type="text" class="mc-secret" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="管理画面の「API」で発行したもの" /></div></div>
       <div class="mc-box"><h2>Bales Cloud <span class="mc-tag" id="stBales">—</span></h2>
-        <div class="mc-form"><label>API のキー</label><input id="baKey" type="password" autocomplete="off" placeholder="管理画面の「連携」「API」で発行したもの" />
+        <div class="mc-form"><label>API のキー</label><input id="baKey" type="text" class="mc-secret" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="管理画面の「連携」「API」で発行したもの" />
           <label>メモ</label><input id="baNote" placeholder="アカウント名など（任意）" /></div></div>
       <div class="mc-box"><h2>Salesforce（MOCHICA のきまり）</h2>
         <div class="mc-form"><label>リードの種別</label><input id="sfLead" placeholder="MOCHICAリード" />
@@ -153,6 +155,6 @@
       </div>
   </div>
 </div>
-<script src="/mochica.js?v=20261112zz"></script>
+<script src="/mochica.js?v=20261112zz3"></script>
 </body>
 </html>
