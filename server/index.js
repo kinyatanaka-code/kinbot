@@ -5094,7 +5094,7 @@ async function ciFromSf(sfUser, company) {
     const vars = [...new Set([company, noSpace, core].map((s) => String(s || "").trim()).filter((s) => s.length >= 2))];
     if (!vars.length) return out;
     const ors = vars.map((v) => `Name LIKE '%${esc(v)}%'`).join(" OR ");
-    const d = await sfQuery(sfUser, `SELECT Id, Name, Phone, Website, BillingState, BillingStreet, BillingCity, NumberOfEmployees FROM Account WHERE ${ors} ORDER BY LastModifiedDate DESC LIMIT 5`);
+    const d = await sfQuery(sfUser, `SELECT Id, Name, Phone, Website, BillingState, BillingStreet, BillingCity, NumberOfEmployees, Industry FROM Account WHERE ${ors} ORDER BY LastModifiedDate DESC LIMIT 5`);
     const recs = d.records || [];
     const pick = recs.find((a) => normCompanyKey(a.Name) === normCompanyKey(company)) || recs[0];
     if (pick) {
@@ -5104,6 +5104,7 @@ async function ciFromSf(sfUser, company) {
       out.state = pick.BillingState || "";
       out.street = [pick.BillingStreet, pick.BillingCity].filter(Boolean).join(" ");
       out.employees = pick.NumberOfEmployees ? String(pick.NumberOfEmployees) : "";
+      out.industry = pick.Industry || "";
     }
   } catch (e) { console.warn("[会社情報] SF取引先失敗", e.message); }
   return out;
@@ -5201,7 +5202,7 @@ async function ciFromDeep(company, email, hint, have = {}) {
 }
 // 全部まとめて（sf-launch 用）。空欄だけ順に埋める。SFには書かない。
 async function lookupCompanyInfo(company, email, sfUser, hint = "") {
-  const out = { official_name: "", website: "", phone: "", street: "", state: "", employees: "" };
+  const out = { official_name: "", website: "", phone: "", street: "", state: "", employees: "", industry: "" };
   const merge = (o) => { for (const k of Object.keys(out)) { if (!out[k] && o && o[k] != null && String(o[k]).trim()) out[k] = String(o[k]).trim(); } };
   // 電話番号は、まずkincallの架電先から（実際にかけている番号なので確か）
   merge({ phone: await findCallTargetPhone({ company, email }).catch(() => "") });
@@ -5392,7 +5393,7 @@ async function convertLeadPreferExisting(user, convArgs, { company = "", person 
     //     重複ルールにも当たりにくい。作成自体は allowSave で重複を許可する。
     try {
       const ld = await sfQuery(user,
-        `SELECT Id, Company, LastName, FirstName, Email, Phone, Website, Street, City, State, PostalCode, NumberOfEmployees, Title FROM Lead WHERE Id = '${String(convArgs.leadId).replace(/[^a-zA-Z0-9]/g, "")}'`)
+        `SELECT Id, Company, LastName, FirstName, Email, Phone, Website, Street, City, State, PostalCode, NumberOfEmployees, Industry, Title FROM Lead WHERE Id = '${String(convArgs.leadId).replace(/[^a-zA-Z0-9]/g, "")}'`)
         .then((d) => d?.records?.[0]).catch(() => null);
       const src = ld || {};
       const accRes = await createAccount(user, {
@@ -5401,6 +5402,7 @@ async function convertLeadPreferExisting(user, convArgs, { company = "", person 
         BillingStreet: src.Street || "", BillingCity: src.City || "", BillingState: src.State || "",
         BillingPostalCode: src.PostalCode || "",
         NumberOfEmployees: src.NumberOfEmployees || undefined,
+        ...(src.Industry ? { Industry: src.Industry } : {}),
       }, { allowDuplicate: true });
       const accountId = accRes && (accRes.id || accRes.Id);
       let contactId = "";
@@ -30365,7 +30367,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12r kinXs ホーム：要アクションの担当の絞り込みを行ごとに（託した次回アクションは託された人で絞れる）。";
+const BUILD_TAG = "2026-11-12s SF立ち上げ：リードの「業種」を読み・選んで入れられるように（取引先にも写る）。会社情報でもSFの取引先の業種を読む。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -31019,6 +31021,7 @@ const LEAD_WANT = [
   { key: "address",   label: "町名・番地",           re: /住所|Street/i,              apis: ["Street"] },
   { key: "postal",    label: "郵便番号",             re: /郵便番号|PostalCode/i,      apis: ["PostalCode"] },
   { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"] },
+  { key: "industry",  label: "業種",                 re: /^業種$|Industry/i,          apis: ["Industry"] },   // 2026-11-12 田中さん：取引先の業種もアポの立ち上げで入れる
 ];
 
 app.get("/api/salesforce/lead-fields", async (req, res) => {

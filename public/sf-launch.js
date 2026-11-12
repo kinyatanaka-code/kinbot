@@ -164,6 +164,7 @@ function formHtml(key, ev) {
       return (lead.State || lead.City) ? dedupeAddr(lead.Street || "") : (parts.street || dedupeAddr(lead.Street || ""));
     }
     if (k === "employees") return lead.NumberOfEmployees != null ? String(lead.NumberOfEmployees) : "";
+    if (k === "industry") return lead.Industry || (s.sfIndustry || "");   // 業種：リード → 取引先（SF）の順
     // この組織で必須の項目は、リードにすでに入っている値を出す
     if (String(k).startsWith("req_")) {
       const api = String(k).slice(4);

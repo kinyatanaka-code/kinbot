@@ -920,7 +920,7 @@ export async function searchLeads(owner, { company = "", person = "", limit = 20
     conds.push(`(LastName LIKE '%${p}%' OR Name LIKE '%${p}%')`);
   }
   const soql =
-    `SELECT Id, Name, LastName, FirstName, Company, Title, Email, Phone, Status, Website, Street, City, State, PostalCode, NumberOfEmployees, LeadSource, RecordType.Name, CreatedDate, Owner.Name ` +
+    `SELECT Id, Name, LastName, FirstName, Company, Title, Email, Phone, Status, Website, Street, City, State, PostalCode, NumberOfEmployees, Industry, LeadSource, RecordType.Name, CreatedDate, Owner.Name ` +
     `FROM Lead WHERE ${conds.join(" AND ")} ORDER BY CreatedDate DESC LIMIT ${Math.min(50, Number(limit) || 20)}`;
   const d = await sfQuery(owner, soql);
   return d.records || [];
