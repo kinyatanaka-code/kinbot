@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "kinbot-ext",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "kinbot の拡張機能：kincall の Zoom アカウントのサインイン補助、kinXs の下書きをメールワイズへ入れる、メールワイズのメールを読んで kinXs のタスク作りに使う（ネオキャリア社内用）。",
   "permissions": [
     "storage",

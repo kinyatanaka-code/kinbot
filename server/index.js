@@ -26555,6 +26555,18 @@ app.post("/api/mochica/miitel/capture", express.json({ limit: "20mb" }), async (
     for (const it of items) {
       const vid = String(it.videoId || "").trim(); const kind = String(it.kind || "").replace(/[^a-z_]/gi, "").slice(0, 20); if (!vid || !kind) continue;
       let body = null; try { body = JSON.parse(String(it.text || "")); } catch { body = String(it.text || "").slice(0, 2000000); }
+      // 会議の一覧：配列の中の会議（id・題名・開始）を1件ずつ入れる
+      if (kind === "list") {
+        const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => x && typeof x === "object" && (x.id || x.video_id))) return o; if (!o || typeof o !== "object" || d > 4) return []; for (const x of Object.values(o)) { const a = findArr(x, d + 1); if (a.length) return a; } return []; };
+        for (const x of findArr(body).slice(0, 500)) {
+          const id = String(x.video_id || x.id || "").trim(); if (!/^[0-9a-f-]{20,}$/i.test(id)) continue;
+          const st = x.starts_at || x.started_at || x.start_at || x.created_at || null;
+          const host = (x.host && (x.host.name || x.host.email)) || x.host_name || (x.owner && x.owner.name) || String(x.title || "").replace(/\s*のミーティング.*$/, "").replace(/^ネオキャリア/, "").replace(/のパーソナルミーティングルーム$/, "");
+          await mcMiitelSave({ id, kind: "拡張機能（MiiTel の会議の一覧から）", title: String(x.title || x.name || ""), startedAt: st && !isNaN(Date.parse(st)) ? new Date(st).toISOString() : null, host: String(host || "").slice(0, 60), participants: String(x.participant_names || "").slice(0, 500), durationSec: Number(x.duration) || null, url: `https://mochica.app.miitel.com/app/video/${id}`, payload: {} });
+          n++;
+        }
+        continue;
+      }
       // 文字起こしの数（phrases は配列のどこかにある）
       const arr = (o) => Array.isArray(o) ? o : o && typeof o === "object" ? (Object.values(o).find((x) => Array.isArray(x) && x.length) || []) : [];
       const trLen = kind === "phrases" ? arr(body).length : 0;
@@ -30606,7 +30618,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz4 MOCHICA の設定：MiiTel の API の欄をなくし、各自の Chrome（拡張機能＋自分の MiiTel のログイン）で読む案内に。";
+const BUILD_TAG = "2026-11-12zz5 MOCHICA の商談：「MiiTel から読み込む」ボタンをいつも出す（会議の一覧のページを裏で開いて会議を入れ、そのあと文字起こし・議事録を読む）。拡張機能1.4.1。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

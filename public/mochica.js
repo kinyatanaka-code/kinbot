@@ -36,7 +36,7 @@
     const list = mtAll.filter((m) => !q || `${m.title || ""} ${m.host || ""} ${m.participants || ""}`.toLowerCase().includes(q));
     $("mtCount").textContent = `${list.length}件`;
     const need = mtAll.filter((m) => !m.transcript_len).length; const rb = $("mtRead");
-    if (rb) { rb.hidden = !need; rb.textContent = `MiiTel から文字起こし・議事録を読む（${Math.min(need, 30)}件）`; }
+    if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = need ? `MiiTel から文字起こし・議事録を読む（${Math.min(need, 30)}件）` : "MiiTel から会議を読み込む"; }
     if (!list.length) { box.innerHTML = `<div class="mc-note" style="padding:10px">${mtAll.length ? "見つかりませんでした" : "まだ届いていません。設定（連携）の URL と追加ヘッダーを MiiTel の Outgoing Webhook（会議履歴）に入れると、次の会議から届きます。"}</div>`; return; }
     let last = ""; let html = "";
     for (const m of list) {
@@ -103,8 +103,10 @@
   // 拡張機能で、文字起こしがまだの会議を MiiTel で裏で開いて読む（1回30件まで）（2026-11-12）
   { const rb = $("mtRead"); if (rb) rb.addEventListener("click", () => {
       if (!document.documentElement.dataset.kbMiitelExt) { alert("拡張機能 kinbot-ext（1.4.0 以上）が必要です。kinbot の設定 → 拡張機能 から入れ直して、この画面を開き直してください。"); return; }
-      const urls = mtAll.filter((m) => !m.transcript_len).slice(0, 30).map((m) => m.url || `https://mochica.app.miitel.com/app/video/${m.id}`);
-      if (!confirm(`MiiTel にログインしたまま、${urls.length}件の会議を裏のタブで1件ずつ開いて読みます（1件15秒ほど・全部で${Math.ceil(urls.length * 15 / 60)}分ほど）。始めますか？`)) return;
+      let urls = mtAll.filter((m) => !m.transcript_len).slice(0, 30).map((m) => m.url || `https://mochica.app.miitel.com/app/video/${m.id}`);
+      // まだ会議が無いときは、MiiTel の会議履歴のページを裏で開いて、会議の一覧を読み込む（そのあと、もう一度押すと文字起こし・議事録を読む）
+      if (!urls.length) { urls = ["https://mochica.app.miitel.com/app/video"]; if (!confirm("MiiTel にログインしたまま、MiiTel の会議履歴のページを裏のタブで開いて、会議の一覧を読み込みます（15秒ほど）。始めますか？")) return; }
+      else if (!confirm(`MiiTel にログインしたまま、${urls.length}件の会議を裏のタブで1件ずつ開いて読みます（1件15秒ほど・全部で${Math.ceil(urls.length * 15 / 60)}分ほど）。始めますか？`)) return;
       window.postMessage({ __kbMiitelCrawl: true, urls }, "*"); rb.disabled = true; rb.textContent = "読んでいます…（終わったら一覧を開き直してください）";
       const tick = setInterval(() => { try { const c = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); if (c && c.total) rb.textContent = `読んでいます… ${c.done}/${c.total}`; if (c && c.done >= c.total) { clearInterval(tick); rb.disabled = false; loadMeetings(); } } catch {} }, 5000);
     }); }
