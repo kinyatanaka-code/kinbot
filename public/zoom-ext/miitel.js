@@ -15,3 +15,8 @@
     } catch {}
   });
 })();
+
+// 録画の取り込み：合言葉を MAIN（miitel-hook.js）へ渡し、進み具合と終わりを残す（2026-11-12）
+(async () => { try { const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || ""; const send = () => window.postMessage({ __kbExtToken: tk, kb: "https://kinbot-production-225f.up.railway.app" }, "*"); send(); setTimeout(send, 1500); setTimeout(send, 5000); } catch {} })();
+window.addEventListener("message", async (e) => { const d = e.data; if (!d || !d.__kbMtVid || e.source !== window) return;
+  try { await chrome.storage.local.set({ kbMtVidProg: { ...d, at: Date.now() } }); if (d.done || d.error) await chrome.storage.local.set({ kbMtVidDone: d.error ? "error" : "done" }); } catch {} });

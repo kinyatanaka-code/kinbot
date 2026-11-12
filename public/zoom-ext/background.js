@@ -43,7 +43,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!msg || msg.type !== "kb-miitel-capture") return;
   (async () => {
     try {
-      const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/capture", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: msg.items || [] }) });
+      const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || "";
+      const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/capture", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json", "x-kb-ext": tk }, body: JSON.stringify({ items: msg.items || [] }) });
       const j = await r.json().catch(() => null); reply({ ok: !!(j && j.ok), status: r.status });
     } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
   })();
@@ -61,7 +62,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
     for (const u of urls) {
       try {
         const tab = await chrome.tabs.create({ url: u, active: false });
-        await new Promise((r) => setTimeout(r, 14000));   // ページが文字起こし・議事録を取ってくるまで待つ
+        if (/#kbGrabVideo/.test(u)) {
+          // 録画：ページが「終わった」と知らせるまで待つ（最長20分）
+          await chrome.storage.local.set({ kbMtVidDone: "" });
+          for (let k = 0; k < 240; k++) { await new Promise((r) => setTimeout(r, 5000)); const d0 = (await chrome.storage.local.get(["kbMtVidDone"])).kbMtVidDone; if (d0) break; }
+        } else await new Promise((r) => setTimeout(r, 14000));   // ページが文字起こし・議事録を取ってくるまで待つ
         await chrome.tabs.remove(tab.id).catch(() => {});
       } catch {}
       done++; await chrome.storage.local.set({ kbMiitelCrawl: { done, total: urls.length, at: Date.now() } });

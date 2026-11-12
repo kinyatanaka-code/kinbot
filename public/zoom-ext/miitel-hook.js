@@ -34,4 +34,31 @@
     try { if (RE.test(String(this.__kbU || "")) || RE_LIST.test(String(this.__kbU || ""))) this.addEventListener("load", () => { try { if (!this.responseType || this.responseType === "text" || this.responseType === "json") send(this.__kbU, this.responseType === "json" ? JSON.stringify(this.response) : this.responseText); } catch {} }); } catch {}
     return os.apply(this, a);
   };
+  // ===== 録画の取り込み（#kbGrabVideo で開かれたとき）（2026-11-12）=====
+  let tk = "", KB = "", grabbing = false;
+  window.addEventListener("message", (e) => { const d = e.data; if (d && d.__kbExtToken && e.source === window) { tk = d.__kbExtToken; KB = d.kb; } });
+  const prog = (o) => window.postMessage({ __kbMtVid: true, videoId: vid(), ...o }, "*");
+  async function grab(m3u8) {
+    if (grabbing || !/kbGrabVideo/.test(location.hash)) return; grabbing = true;
+    try {
+      for (let k = 0; k < 20 && !tk; k++) await new Promise((r) => setTimeout(r, 500));
+      if (!tk) throw new Error("合言葉がありません（kinbot の画面を一度開いてください）");
+      const pl = await (await fetch(m3u8, { credentials: "include" })).text();
+      const lines = pl.split(/\r?\n/); const segs = []; let dur = 0;
+      for (const ln of lines) { const m = ln.match(/^#EXTINF:([\d.]+)/); if (m) { dur = Number(m[1]); continue; } if (ln && !ln.startsWith("#")) { segs.push({ u: new URL(ln, m3u8).href, dur }); dur = 0; } }
+      if (!segs.length) throw new Error("録画の細切れが見つかりません");
+      for (let i = 0; i < segs.length; i++) {
+        const b = await (await fetch(segs[i].u, { credentials: "include" })).arrayBuffer();
+        let ok = false;
+        for (let t = 0; t < 3 && !ok; t++) { const r = await fetch(`${KB}/api/mochica/miitel/ext/video/${vid()}/seg?i=${i}&total=${segs.length}&dur=${segs[i].dur}`, { method: "POST", headers: { "content-type": "application/octet-stream", "x-kb-ext": tk }, body: b }); const j = await r.json().catch(() => ({})); if (r.ok && j.ok) ok = true; else if (t === 2) throw new Error(j.error || `送れませんでした（${r.status}）`); }
+        prog({ i: i + 1, total: segs.length });
+      }
+      prog({ done: true, total: segs.length });
+    } catch (err) { prog({ error: String(err && err.message || err) }); }
+  }
+  const chkGrab = (u) => { try { if (/kbGrabVideo/.test(location.hash) && /\.m3u8(\?|$)/i.test(new URL(String(u), location.href).pathname)) grab(new URL(String(u), location.href).href); } catch {} };
+  const of2 = window.fetch; window.fetch = function (...a) { try { chkGrab(typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""); } catch {} return of2.apply(this, a); };
+  const oo2 = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function (m, u, ...rest) { chkGrab(u); return oo2.call(this, m, u, ...rest); };
+  // 再生が始まらないと録画を読みにいかないことがあるので、少しして動画を消音で再生してみる
+  if (/kbGrabVideo/.test(location.hash)) setTimeout(() => { try { const v = document.querySelector("video"); if (v) { v.muted = true; v.play().catch(() => {}); } } catch {} }, 6000);
 })();

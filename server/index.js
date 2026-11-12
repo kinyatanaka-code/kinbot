@@ -700,7 +700,7 @@ import {
   gmailSetRead,
   gmailCreateDraft, gmailDraftExists, chatMySpaces, chatRecentMessages, sheetTabs,
   gmailDeleteDraft,
-  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
+  parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
   writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer } from "./google.js";
 import { startScheduler } from "./scheduler.js";
@@ -980,6 +980,8 @@ app.use(async (req, res, next) => {
     return next();
   }
   if (OPEN_PATHS.has(req.path) || req.path.startsWith("/j/")) return next();
+  // 拡張機能（kinbot-ext）から MiiTel の文字起こし・議事録・録画を送る道。kinbot のログインの代わりに、拡張機能の合言葉（x-kb-ext）で守る（2026-11-12）
+  if (req.path.startsWith("/api/mochica/miitel/ext/")) return next();
   // お客様が開くページ（日程調整）は、ログインなしで通す
   if (/^\/b\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
   // 転送URL（お客様が踏むので認証なし）
@@ -26548,13 +26550,71 @@ setTimeout(async () => { try { const st = await getSettings().catch(() => ({}));
   const n = await mcMiitelDeleteImported(); await saveSettings({ mcMiitelPurged20261112: true }); console.log(`[MiiTel] 取り込んだ会議 ${n}件を消しました`); } catch {} }, 25 * 1000);
 // 2026-11-12：商談履歴に入れる変更（zu）を取り消したので、入ってしまった MiiTel の商談を起動のあとに消す（何度動いても安全）
 setTimeout(() => deleteMiitelMeetings().then((n) => n && console.log(`[MiiTel] 商談履歴に入っていた MiiTel の会議 ${n}件を消しました`)).catch(() => {}), 20 * 1000);   // Claude のコネクタ（mcp.js）から過去の会議を取り込む
-// 拡張機能（kinbot-ext）が MiiTel のページから写した文字起こし（phrases）・議事録（summary）などを受け取る（2026-11-12 田中さん）
-app.post("/api/mochica/miitel/capture", express.json({ limit: "20mb" }), async (req, res) => {
+// ===== 拡張機能の合言葉（ログインの代わり）：その人のメール＋署名。拡張機能は kinbot の画面で受け取り、MiiTel の画面から送るときに付ける（2026-11-12）=====
+async function mcExtSecret() { const st = await getSettings().catch(() => ({})); if (st.extTokenSecret) return st.extTokenSecret; const sec = crypto.randomBytes(32).toString("hex"); await saveSettings({ extTokenSecret: sec }).catch(() => {}); return sec; }
+async function mcExtToken(email) { const e = String(email || "").toLowerCase(); const sig = crypto.createHmac("sha256", await mcExtSecret()).update(e).digest("hex").slice(0, 40); return `${Buffer.from(e).toString("base64url")}.${sig}`; }
+async function mcExtUser(req) {
+  if (req.user) return req.user;
+  const t = String(req.headers["x-kb-ext"] || ""); const [b, sig] = t.split("."); if (!b || !sig) return "";
+  const e = Buffer.from(b, "base64url").toString(); const want = (await mcExtToken(e)).split(".")[1];
+  return want && sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? e : "";
+}
+app.get("/api/mochica/miitel/ext-token", async (req, res) => { try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, token: await mcExtToken(req.user) }); } catch (e) { res.status(500).json({ error: e.message }); } });
+// MiiTel の画面（mochica.app.miitel.com）から直接送れるように（CORS）
+app.use("/api/mochica/miitel/ext/", (req, res, next) => {
+  const o = String(req.headers.origin || ""); if (/^https:\/\/[a-z0-9.-]+\.miitel\.com$/i.test(o) || /^chrome-extension:\/\//.test(o)) { res.setHeader("Access-Control-Allow-Origin", o); res.setHeader("Vary", "Origin"); res.setHeader("Access-Control-Allow-Headers", "content-type,x-kb-ext"); res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS"); res.setHeader("Access-Control-Max-Age", "600"); }
+  if (req.method === "OPTIONS") return res.status(204).end(); next();
+});
+// 録画：MiiTel の HLS（m3u8＋.ts の細切れ）を、拡張機能が1つずつ送る → 1本の .ts にためて Google ドライブへ。再生はバイトの範囲つきの再生リストで
+const _mcVid = new Map();   // vid -> { file, segs: [[off,len,dur]], size, user, total }
+app.post("/api/mochica/miitel/ext/video/:vid/seg", express.raw({ type: "*/*", limit: "40mb" }), async (req, res) => {
   try {
-    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const user = await mcExtUser(req); if (!user) return res.status(401).json({ error: "合言葉が違います" });
+    const vid = String(req.params.vid || "").replace(/[^0-9a-f-]/gi, ""); if (vid.length < 20) return res.status(400).json({ error: "id" });
+    const i = Number(req.query.i), total = Number(req.query.total), dur = Number(req.query.dur) || 0; const buf = req.body;
+    if (!Number.isInteger(i) || !Number.isInteger(total) || total < 1 || total > 5000 || !Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: "形が違います" });
+    const fs = await import("fs"); const file = `/tmp/mcvid-${vid}.ts`;
+    let st = _mcVid.get(vid);
+    if (i === 0 || !st) { try { fs.unlinkSync(file); } catch {} st = { file, segs: [], size: 0, user, total, at: Date.now() }; _mcVid.set(vid, st); }
+    if (i !== st.segs.length) return res.status(409).json({ error: `順番が違います（${st.segs.length} を待っています）`, want: st.segs.length });
+    fs.appendFileSync(file, buf); st.segs.push([st.size, buf.length, dur]); st.size += buf.length; st.at = Date.now();
+    if (st.segs.length < total) return res.json({ ok: true, got: st.segs.length, total });
+    // 全部そろった：ドライブへ
+    const owners = [user, process.env.DRIVE_ARCHIVE_OWNER].filter(Boolean); let up = null, owner = "", err = null;
+    const cur = await mcMiitelGet(vid).catch(() => null); const nm = `${(cur && cur.title) || "MiiTel"}_${vid}.ts`.replace(/[\\/:*?"<>|]/g, "_");
+    for (const o of owners) { try { up = await driveUploadFile(o, { path: file, name: nm }); owner = o; break; } catch (e) { err = e; } }
+    try { fs.unlinkSync(file); } catch {} _mcVid.delete(vid);
+    if (!up) return res.status(502).json({ error: `ドライブに置けませんでした：${(err && err.message) || ""}` });
+    await mcMiitelSave({ id: vid, kind: "拡張機能（MiiTel のページから）", url: `https://mochica.app.miitel.com/app/video/${vid}`, payload: { mt_video: { fileId: up.fileId, owner, size: st.size, segs: st.segs, at: Date.now() } } });
+    console.log(`[MiiTel] 録画をドライブに置きました ${vid}（${Math.round(st.size / 1048576)}MB・${st.segs.length}本）`);
+    res.json({ ok: true, done: true, size: st.size });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/miitel/video/:vid.m3u8", async (req, res) => {
+  try { if (!req.user) return res.status(401).end(); const r = await mcMiitelGet(req.params.vid); const v = r && r.payload && r.payload.mt_video; if (!v || !v.fileId) return res.status(404).end();
+    const segs = v.segs || []; const td = Math.max(1, ...segs.map((x) => Math.ceil(x[2] || 10)));
+    const fu = `/api/mochica/miitel/video/${encodeURIComponent(req.params.vid)}/file`;
+    const body = ["#EXTM3U", "#EXT-X-VERSION:4", `#EXT-X-TARGETDURATION:${td}`, "#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-PLAYLIST-TYPE:VOD", ...segs.flatMap(([off, len, dur]) => [`#EXTINF:${(dur || 10).toFixed(3)},`, `#EXT-X-BYTERANGE:${len}@${off}`, fu]), "#EXT-X-ENDLIST", ""].join("\n");
+    res.setHeader("content-type", "application/vnd.apple.mpegurl"); res.setHeader("cache-control", "no-store"); res.send(body);
+  } catch (e) { res.status(500).end(); }
+});
+app.get("/api/mochica/miitel/video/:vid/file", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).end(); const r = await mcMiitelGet(req.params.vid); const v = r && r.payload && r.payload.mt_video; if (!v || !v.fileId) return res.status(404).end();
+    let up = null; for (const who of [req.user, v.owner, process.env.DRIVE_ARCHIVE_OWNER].filter(Boolean)) { try { const x = await driveStream(who, v.fileId, req.headers.range); if (x.ok || x.status === 206) { up = x; break; } } catch {} }
+    if (!up) return res.status(404).end();
+    res.status(up.status === 206 ? 206 : 200); for (const h of ["content-length", "content-range", "accept-ranges"]) { const x = up.headers.get(h); if (x) res.setHeader(h, x); } res.setHeader("content-type", "video/mp2t");
+    if (!up.body) return res.end(); const reader = up.body.getReader(); let closed = false; res.on("close", () => { closed = true; try { reader.cancel(); } catch {} });
+    const pump = async () => { if (closed) return; try { const { done, value } = await reader.read(); if (done || closed) return res.end(); if (!res.write(Buffer.from(value))) { res.once("drain", pump); return; } pump(); } catch { try { res.end(); } catch {} } }; pump();
+  } catch (e) { res.status(502).end(); }
+});
+// 拡張機能（kinbot-ext）が MiiTel のページから写した文字起こし（phrases）・議事録（summary）などを受け取る（2026-11-12 田中さん）
+app.post(["/api/mochica/miitel/capture", "/api/mochica/miitel/ext/capture"], express.json({ limit: "20mb" }), async (req, res) => {
+  try {
+    if (!(await mcExtUser(req))) return res.status(401).json({ error: "ログインしてください" });
     const items = (Array.isArray(req.body && req.body.items) ? req.body.items : []).slice(0, 60);
     let n = 0;
-    for (const it of items) {
+    for (const it of items) { try {
       const vid = String(it.videoId || "").trim(); const kind = String(it.kind || "").replace(/[^a-z_]/gi, "").slice(0, 20); if (!vid || !kind) continue;
       if (kind === "signed_cookie") { /* 通行証そのものは残さない（鍵なので）。来たことだけ印にする */ await mcMiitelSave({ id: vid, kind: "拡張機能（MiiTel のページから）", url: `https://mochica.app.miitel.com/app/video/${vid}`, payload: { mt_signed_cookie_seen: Date.now() } }); n++; continue; }
       let body = null; try { body = JSON.parse(String(it.text || "")); } catch { body = String(it.text || "").slice(0, 2000000); }
@@ -26584,7 +26644,7 @@ app.post("/api/mochica/miitel/capture", express.json({ limit: "20mb" }), async (
       const title = String(it.title || "").replace(/\s*[|｜-]\s*MiiTel.*$/i, "").trim();
       await mcMiitelSave({ id: vid, kind: "拡張機能（MiiTel のページから）", title: title && !/^MiiTel/i.test(title) ? title : "", transcriptLen: trLen, url: `https://mochica.app.miitel.com/app/video/${vid}`, payload: { [`mt_${kind}`]: body, mt_detail_id: String(it.detailId || "") } });
       n++;
-    }
+    } catch (e1) { console.warn("[MiiTel] capture の1件", e1.message); } }
     res.json({ ok: true, saved: n });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -30629,7 +30689,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz8 MOCHICA の商談：左を担当ごとのカード（商談数・最新日）→押すとその人の商談に。会議でないもの（題名なし）を拾わない・消す。";
+const BUILD_TAG = "2026-11-12zz9 MOCHICA：MiiTel の録画を拡張機能で取り込み（HLS の細切れ→1本にして Google ドライブへ）、商談の画面で再生。拡張機能の合言葉で、送り直しの NG もなくす。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

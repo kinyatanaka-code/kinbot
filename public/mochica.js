@@ -104,12 +104,25 @@
       return '<div class="mt-wait">Salesforce の「MOCHICA リード」から新規の商談を立ち上げる・ステージを進める・記録を残すのは、ここから行えるようにします（準備中）。</div>';
     };
     const cur = mtOpen.tab || "tr";
-    main.innerHTML = `${playable ? `<video class="mt-video" controls preload="metadata" playsinline src="${esc(playable.u)}"></video><div class="mc-note" style="margin-top:6px">録画（MiiTel から届いたファイル）。再生できないときは <a href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>` : `<div class="mt-rec"><b>録画は MiiTel にあります</b><a href="${esc(url)}" target="_blank" rel="noopener">MiiTel で録画を見る ↗</a></div>`}
+    const hasVid = !!(p.mt_video && p.mt_video.fileId);
+    main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}
       <div class="mt-title"><h2>${esc(it.title || "（題名なし）")}</h2><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
       <div class="mt-fields"><div><span>担当</span><b>${esc(it.host || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(it.participants || "—")}</b></div></div>
       <div class="mt-tabs">${tabs.map(([k, l]) => `<button type="button" data-mtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>
       <div id="mtPane">${pane(cur)}</div>
       ${p && p.source !== "claude-mcp" && Object.keys(p).length ? `<details class="mt-raw" style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;color:#5C7377;font-weight:700">MiiTel から届いた中身（項目の確かめ用）</summary><pre style="white-space:pre-wrap;font-size:11px;background:#F2FAFB;border-radius:10px;padding:10px;max-height:320px;overflow:auto">${esc(JSON.stringify(p, (k, x) => (typeof x === "string" && x.length > 300 ? x.slice(0, 300) + "…" : Array.isArray(x) && x.length > 5 ? [...x.slice(0, 5), `…ほか${x.length - 5}件`] : x), 2))}</pre></details>` : ""}`;
+    // 録画：ドライブに置いた録画を HLS（バイトの範囲つき）で再生
+    if (hasVid) { const ve = $("mtVideo"); const src = `/api/mochica/miitel/video/${encodeURIComponent(id)}.m3u8`;
+      if (window.Hls && window.Hls.isSupported()) { const h = new window.Hls(); h.loadSource(src); h.attachMedia(ve); } else ve.src = src; }
+    // 録画の取り込み：拡張機能が MiiTel の会議を裏で開いて、録画の細切れを kinbot に送る
+    const gb = main.querySelector("[data-grab]"); if (gb) gb.addEventListener("click", () => {
+      if (!document.documentElement.dataset.kbMiitelExt) { alert("拡張機能 kinbot-ext（1.5.0 以上）が必要です。入れ直して、この画面を開き直してください。"); return; }
+      if (!confirm("MiiTel にログインしたまま、この会議を裏のタブで開いて、録画を kinbot（Google ドライブ）に取り込みます。1時間の会議で数分かかります。始めますか？")) return;
+      window.postMessage({ __kbMiitelCrawl: true, urls: [`${url}#kbGrabVideo`] }, "*"); gb.disabled = true; gb.textContent = "取り込んでいます…";
+      const t0 = Date.now(); const tick = setInterval(() => { try { const pg = JSON.parse(document.documentElement.dataset.kbMtVid || "null"); const sEl = $("mtGrabSt");
+        if (pg && pg.at > t0 && pg.videoId === id) { if (pg.error) { clearInterval(tick); gb.disabled = false; gb.textContent = "もう一度取り込む"; if (sEl) sEl.textContent = "取り込めませんでした：" + pg.error; }
+          else if (pg.done) { clearInterval(tick); if (sEl) sEl.textContent = "取り込みました。開き直しています…"; setTimeout(() => mtOpen(id), 3000); }
+          else if (sEl) sEl.textContent = `${pg.i}/${pg.total}`; } } catch {} }, 3000); });
     main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); }));
   }
   // ブラウザの自動入力（メールアドレスなど）が探す欄に入って「0件」になるのを防ぐ（2026-11-12）

@@ -1802,3 +1802,27 @@ export async function driveUploadBuffer(owner, { name, mimeType = "application/p
   if (domain) await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(ud.id)}/permissions?sendNotificationEmail=false`, { method: "POST", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ role: "reader", type: "domain", domain }) }).catch(() => {});
   return { fileId: ud.id, link: ud.webViewLink || `https://drive.google.com/file/d/${ud.id}/view` };
 }
+
+// 大きなファイル（録画など）を、手元のファイルから少しずつ Google ドライブへ（再開できるアップロード）（2026-11-12 MOCHICA の MiiTel の録画）
+export async function driveUploadFile(owner, { path: fpath, name, mimeType = "video/mp2t", folderName = "kinbot for MOCHICA 録画" }) {
+  const fs = await import("fs");
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const H = { Authorization: `Bearer ${token}` };
+  let folderId = "";
+  try {
+    const q = `name='${String(folderName).replace(/'/g, "")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files?${new URLSearchParams({ q, fields: "files(id)", spaces: "drive" })}`, { headers: H });
+    const d = await r.json().catch(() => ({})); folderId = (d.files && d.files[0] && d.files[0].id) || "";
+    if (!folderId) { const mk = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ name: folderName, mimeType: "application/vnd.google-apps.folder" }) }); const md = await mk.json().catch(() => ({})); folderId = md.id || ""; }
+  } catch {}
+  const size = fs.statSync(fpath).size;
+  const start = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink,size", { method: "POST", headers: { ...H, "content-type": "application/json", "X-Upload-Content-Type": mimeType, "X-Upload-Content-Length": String(size) }, body: JSON.stringify({ name, ...(folderId ? { parents: [folderId] } : {}) }) });
+  if (!start.ok) throw new Error(`Drive upload start ${start.status}: ${(await start.text()).slice(0, 200)}`);
+  const session = start.headers.get("location"); if (!session) throw new Error("Driveのアップロード枠を作れませんでした");
+  const { Readable } = await import("stream");
+  const put = await fetch(session, { method: "PUT", headers: { "content-length": String(size), "content-type": mimeType }, body: Readable.toWeb(fs.createReadStream(fpath)), duplex: "half" });
+  const pd = await put.json().catch(() => ({}));
+  if (!put.ok) throw new Error(`Drive upload ${put.status}: ${JSON.stringify(pd).slice(0, 200)}`);
+  return { fileId: pd.id, link: pd.webViewLink || "", size };
+}
