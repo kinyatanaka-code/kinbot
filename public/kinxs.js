@@ -1544,6 +1544,7 @@ async function kh2LoadTasks(who0) {
   const row = (t0, i0) => { const n = t0.due ? Math.round((new Date(t0.due) - new Date(today)) / 86400000) : null;
     return `<div class="h2-tk-li" data-tk="${i0}">${d.mine ? '<button type="button" class="h2-tk-ck" data-tk-done title="済みにする"></button>' : ""}<span class="tt">${esc(t0.title)}</span>${t0.account ? `<button type="button" class="co" data-tk-co="${esc(t0.accountId || "")}">${esc(t0.account)}</button>` : ""}<span class="src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</span>${d.all && t0.ownerName ? `<span class="who">${esc(t0.ownerName)}</span>` : ""}${t0.due ? `<span class="h2-due ${n < 0 ? "over" : n === 0 ? "today" : ""}">${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))}${n < 0 ? ` <i>${-n}日過ぎ</i>` : n === 0 ? " <i>今日</i>" : ""}</span>` : ""}</div>`; };
   box.innerHTML = `<div class="kx-note" style="padding:2px 4px 6px">${d.all ? "全員" : d.mine ? "自分" : esc(who)}のタスク（期限の近い順）</div>` + (items.length ? groups.map(([g, f, cls]) => { const l = items.map((t0, i0) => [t0, i0]).filter(([t0]) => f(t0)); return l.length ? `<div class="h2-tk-g ${cls}">${g}<b>${l.length}</b></div>` + l.map(([t0, i0]) => row(t0, i0)).join("") : ""; }).join("") : '<div class="kx-empty">タスクはありません 🎉</div>');
+  kh2FitTasks(); setTimeout(kh2FitTasks, 60);
   box.querySelectorAll("[data-tk-co]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tkCo) openDetail(b.dataset.tkCo); }));
   box.querySelectorAll("[data-tk-done]").forEach((b) => b.addEventListener("click", async () => {
     const t0 = items[Number(b.closest("[data-tk]").dataset.tk)]; b.disabled = true; b.classList.add("on");
@@ -1556,6 +1557,13 @@ async function kh2LoadTasks(who0) {
   }));
 }
 kh2LoadTasks.seq = 0;
+// タスクの一覧の高さを、画面の下までに合わせる（画面の幅が狭いときや、枠の高さが決まっていないときもスクロールできるように）（2026-11-12）
+function kh2FitTasks() {
+  const el = document.getElementById("kh2Tasks"); if (!el || el.closest(".h2-act.big")) { if (el) el.style.maxHeight = ""; return; }
+  const top = el.getBoundingClientRect().top;
+  el.style.maxHeight = `${Math.max(240, window.innerHeight - top - 28)}px`; el.style.overflowY = "auto"; el.style.overscrollBehavior = "contain";
+}
+window.addEventListener("resize", () => kh2FitTasks());
 function renderHomeV2() {
   const box = $("kh2"); if (!box || !lsData) return;
   const items = (lsData.items || []).filter((x) => !x.archived);
