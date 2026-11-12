@@ -12750,3 +12750,12 @@ export async function mcMiitelCleanJunk() {
   if (!pool) return 0; await ensureMcMiitel();
   try { const r = await pool.query(`DELETE FROM mochica_miitel_events WHERE COALESCE(title,'')='' AND started_at IS NULL AND COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND NOT (payload ? 'mt_summary') AND NOT (payload ? 'mt_media')`); return r.rowCount || 0; } catch (e) { console.warn("[db] mcMiitelCleanJunk", e.message); return 0; }
 }
+
+// MOCHICA：拡張機能に「次に読む会議」を渡す（文字起こしか録画がまだのもの・60日以内・新しい順）（2026-11-12）
+export async function mcMiitelTodo(limit = 10) {
+  if (!pool) return []; await ensureMcMiitel();
+  return (await pool.query(`SELECT id, url, COALESCE(transcript_len,0) AS tl, (payload ? 'mt_video') AS hv FROM mochica_miitel_events
+    WHERE (COALESCE(transcript_len,0)=0 OR NOT (payload ? 'mt_video')) AND COALESCE(started_at, received_at) > now() - interval '60 days' AND COALESCE(title,'') <> ''
+      AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3
+    ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+}

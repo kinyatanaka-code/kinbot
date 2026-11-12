@@ -36,7 +36,7 @@
     const box = $("mtList"); if (!box) return;
     const q = String(($("mtQ") || {}).value || "").trim().toLowerCase();
     const need = mtAll.filter((m) => !m.transcript_len).length; const rb = $("mtRead");
-    if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = need ? `MiiTel から文字起こし・議事録を読む（${Math.min(need, 30)}件）` : "MiiTel から会議を読み込む"; }
+    if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = "MiiTel から今すぐ読む（20分ごとに自動）"; }
     if (!mtAll.length) { $("mtCount").textContent = "0件"; box.innerHTML = '<div class="mc-note" style="padding:10px">まだありません。上の「MiiTel から会議を読み込む」を押すと、MiiTel の会議履歴から読み込みます。</div>'; return; }
     // ① 担当のカード（kinbot の商談履歴と同じ）
     if (mtHost == null) {
@@ -129,6 +129,11 @@
   // 拡張機能で、文字起こしがまだの会議を MiiTel で裏で開いて読む（1回30件まで）（2026-11-12）
   { const rb = $("mtRead"); if (rb) rb.addEventListener("click", () => {
       if (!document.documentElement.dataset.kbMiitelExt) { alert("拡張機能 kinbot-ext（1.4.0 以上）が必要です。kinbot の設定 → 拡張機能 から入れ直して、この画面を開き直してください。"); return; }
+      // 自動と同じ流れ（新しい会議の一覧 → 文字起こし・録画がまだの会議）を今すぐ動かす（2026-11-12）
+      if (!confirm("MiiTel にログインしたまま、新しい会議を探して、文字起こし・議事録・録画がまだの会議を裏のタブで読みます（20分ごとにも自動で動いています）。今すぐ始めますか？")) return;
+      window.postMessage({ __kbMiitelAutoNow: true }, "*"); rb.disabled = true; rb.textContent = "読んでいます…";
+      const tick0 = setInterval(() => { try { const c = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); if (c && c.total) rb.textContent = `読んでいます… ${c.done}/${c.total}`; if (c && c.at > Date.now() - 30000 && c.done >= c.total) { clearInterval(tick0); rb.disabled = false; loadMeetings(); } } catch {} }, 5000);
+      return;
       let urls = mtAll.filter((m) => !m.transcript_len).slice(0, 30).map((m) => m.url || `https://mochica.app.miitel.com/app/video/${m.id}`);
       // まだ会議が無いときは、MiiTel の会議履歴のページを裏で開いて、会議の一覧を読み込む（そのあと、もう一度押すと文字起こし・議事録を読む）
       if (!urls.length) { urls = ["https://mochica.app.miitel.com/app/video"]; if (!confirm("MiiTel にログインしたまま、MiiTel の会議履歴のページを裏のタブで開いて、会議の一覧を読み込みます（15秒ほど）。始めますか？")) return; }

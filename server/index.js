@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -26559,6 +26559,16 @@ async function mcExtUser(req) {
   const e = Buffer.from(b, "base64url").toString(); const want = (await mcExtToken(e)).split(".")[1];
   return want && sig.length === want.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want)) ? e : "";
 }
+// 拡張機能が自動で読むときの「次に読む会議」（2026-11-12 田中さん「自動で録画も取り込むように」）
+//   まず MiiTel の会議履歴のページ（新しい会議を見つける）、つぎに文字起こしか録画がまだの会議（録画がまだなら #kbGrabVideo を付ける）
+app.get("/api/mochica/miitel/ext/todo", async (req, res) => {
+  try {
+    const user = await mcExtUser(req); if (!user) return res.status(401).json({ error: "合言葉が違います" });
+    const rows = await mcMiitelTodo(Math.max(1, Math.min(20, Number(req.query.limit) || 6)));
+    const urls = ["https://mochica.app.miitel.com/app/video", ...rows.map((r) => `${r.url || `https://mochica.app.miitel.com/app/video/${r.id}`}${r.hv ? "" : "#kbGrabVideo"}`)];
+    res.json({ ok: true, urls });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/miitel/ext-token", async (req, res) => { try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, token: await mcExtToken(req.user) }); } catch (e) { res.status(500).json({ error: e.message }); } });
 // MiiTel の画面（mochica.app.miitel.com）から直接送れるように（CORS）
 app.use("/api/mochica/miitel/ext/", (req, res, next) => {
@@ -30689,7 +30699,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz9 MOCHICA：MiiTel の録画を拡張機能で取り込み（HLS の細切れ→1本にして Google ドライブへ）、商談の画面で再生。拡張機能の合言葉で、送り直しの NG もなくす。";
+const BUILD_TAG = "2026-11-12zz10 MOCHICA：拡張機能1.6.0 が20分ごとに自動で MiiTel を読む（新しい会議の一覧→文字起こし・議事録・録画がまだの会議）。録画も自動で取り込む。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

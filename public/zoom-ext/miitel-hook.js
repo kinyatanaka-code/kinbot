@@ -61,4 +61,6 @@
   const oo2 = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function (m, u, ...rest) { chkGrab(u); return oo2.call(this, m, u, ...rest); };
   // 再生が始まらないと録画を読みにいかないことがあるので、少しして動画を消音で再生してみる
   if (/kbGrabVideo/.test(location.hash)) setTimeout(() => { try { const v = document.querySelector("video"); if (v) { v.muted = true; v.play().catch(() => {}); } } catch {} }, 6000);
+  // 90秒たっても録画の目次（m3u8）が見えなければ、あきらめて次へ（裏のタブを長く待たせない）
+  if (/kbGrabVideo/.test(location.hash)) setTimeout(() => { if (!grabbing) prog({ error: "録画が見つかりませんでした（この会議には録画が無いか、見る権限がありません）" }); }, 90000);
 })();

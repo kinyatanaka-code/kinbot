@@ -50,3 +50,5 @@ window.addEventListener("message", (e) => { const d = e.data; if (!d || !d.__kbM
 
 // 拡張機能の合言葉（MiiTel の画面から kinbot へ送るときに使う）をもらってしまう（2026-11-12）
 (async () => { try { const r = await fetch("/api/mochica/miitel/ext-token", { credentials: "include" }); const j = await r.json().catch(() => null); if (j && j.token) await chrome.storage.local.set({ kbExtToken: j.token }); } catch {} })();
+
+window.addEventListener("message", (e) => { const d = e.data; if (!d || !d.__kbMiitelAutoNow || e.source !== window) return; chrome.runtime.sendMessage({ type: "kb-miitel-auto-now" }, () => {}); });

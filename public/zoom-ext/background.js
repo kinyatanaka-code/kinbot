@@ -56,8 +56,13 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!msg || msg.type !== "kb-miitel-crawl") return;
   const urls = (msg.urls || []).filter((u) => /^https:\/\/[a-z0-9.-]+\.miitel\.com\/app\/video\//i.test(u)).slice(0, 300);
   if (kbMtCrawling) { reply({ ok: false, error: "いま読んでいる最中です" }); return; }
-  kbMtCrawling = true; reply({ ok: true, count: urls.length });
-  (async () => {
+  reply({ ok: true, count: urls.length });
+  kbMtCrawl(urls);
+  return true;
+});
+async function kbMtCrawl(urls) {
+  if (kbMtCrawling) return; kbMtCrawling = true;
+  try {
     let done = 0;
     for (const u of urls) {
       try {
@@ -71,7 +76,19 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       } catch {}
       done++; await chrome.storage.local.set({ kbMiitelCrawl: { done, total: urls.length, at: Date.now() } });
     }
-    kbMtCrawling = false;
-  })();
-  return true;
-});
+  } finally { kbMtCrawling = false; }
+}
+// 自動：20分ごとに kinbot から「次に読む会議」をもらって、裏で読む（Chrome が開いていて、MiiTel にログインしていれば動く）（2026-11-12）
+async function kbMtAuto() {
+  try {
+    if (kbMtCrawling) return;
+    const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || ""; if (!tk) return;
+    const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/todo?limit=6", { headers: { "x-kb-ext": tk } });
+    const j = await r.json().catch(() => null); if (!j || !j.ok || !(j.urls || []).length) return;
+    await chrome.storage.local.set({ kbMtAutoAt: Date.now() });
+    await kbMtCrawl(j.urls);
+  } catch {}
+}
+chrome.alarms.create("kb-miitel-auto", { periodInMinutes: 20, delayInMinutes: 2 });
+chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === "kb-miitel-auto") kbMtAuto(); });
+chrome.runtime.onMessage.addListener((msg, sender, reply) => { if (msg && msg.type === "kb-miitel-auto-now") { kbMtAuto(); reply({ ok: true }); return true; } });

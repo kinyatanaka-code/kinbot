@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "kinbot-ext",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "kinbot の拡張機能：kincall の Zoom アカウントのサインイン補助、kinXs の下書きをメールワイズへ入れる、メールワイズのメールを読んで kinXs のタスク作りに使う（ネオキャリア社内用）。",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "alarms"
   ],
   "host_permissions": [
     "https://kinbot-production-225f.up.railway.app/*",
