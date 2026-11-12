@@ -1560,14 +1560,18 @@ async function kh2LoadTasks(who0) {
       kh2LoadTasks(who0);
     } catch (e) { alert(e.message); sel.value = ""; }
   }));
-  box.querySelectorAll("[data-tk-done]").forEach((b) => b.addEventListener("click", async () => {
-    const t0 = items[Number(b.closest("[data-tk]").dataset.tk)]; b.disabled = true; b.classList.add("on");
+  // 済み：押したらすぐ行を消して数を減らす（返事を待たない＝押した手ごたえ）。失敗したら戻す（2026-11-12 田中さん「押す判定が弱い」）
+  box.querySelectorAll("[data-tk-done]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation(); const li = b.closest("[data-tk]"); if (!li || li.classList.contains("gone")) return;
+    const t0 = items[Number(li.dataset.tk)]; b.classList.add("on"); li.classList.add("gone");
+    kh2.tkN = Math.max(0, (kh2.tkN || 1) - 1); const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN;
+    setTimeout(() => { li.style.display = "none"; }, 260);
     try {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_text: "" }) });
       else if (t0.id && !String(t0.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ status: "完了" }) });
       else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: "完了" }) });
-      kh2LoadTasks(who0);
-    } catch (e) { b.disabled = false; b.classList.remove("on"); alert(e.message); }
+      if (typeof kxDoneToast === "function") kxDoneToast("済みにしました");
+    } catch (err) { li.classList.remove("gone"); li.style.display = ""; b.classList.remove("on"); kh2.tkN += 1; if (nb) nb.textContent = kh2.tkN; alert(err.message); }
   }));
 }
 kh2LoadTasks.seq = 0;
@@ -1659,7 +1663,7 @@ function renderHomeV2() {
   // 要アクションを大きく表示（モーダル）（2026-11-11 田中さん）
   box.querySelectorAll("[data-act-big]").forEach((el) => el.addEventListener("click", () => { window.__kxActBig = true; renderHomeV2(); }));
   // 要アクションの枠の余白を押しても大きく（行・ボタン・選択・枠の切りかえは除く）（2026-11-11 田中さん）
-  { const act = box.querySelector(".h2-act"); if (act && !window.__kxActBig) act.addEventListener("click", (e) => { if (e.target.closest(".h2-li, button, select, label, input, a, .h2-tiles")) return; window.__kxActBig = true; renderHomeV2(); }); }
+  { const act = box.querySelector(".h2-act"); if (act && !window.__kxActBig) act.addEventListener("click", (e) => { if (e.target.closest(".h2-li, .h2-tk, .h2-scope, button, select, label, input, a, .h2-tiles")) return; window.__kxActBig = true; renderHomeV2(); }); }
   box.querySelectorAll("[data-act-close]").forEach((el) => el.addEventListener("click", () => { window.__kxActBig = false; renderHomeV2(); }));
   if (window.__kxActBig && !window.__kxActEsc) { window.__kxActEsc = true; document.addEventListener("keydown", (e) => { if (e.key === "Escape" && window.__kxActBig) { window.__kxActBig = false; renderHomeV2(); } }); }
   box.querySelectorAll("[data-home-naown]").forEach((sel) => { sel.addEventListener("click", (e) => e.stopPropagation()); sel.addEventListener("change", async () => {
