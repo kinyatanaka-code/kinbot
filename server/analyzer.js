@@ -2439,3 +2439,25 @@ export async function extractJobTypes(text) {
   const a = String(out || "").replace(/^[「『"\s]+|[」』"\s。]+$/g, "").trim();
   return !a || /^なし$/.test(a) || a.length > 60 ? "" : a;
 }
+
+// 会社の業種を、SF の業種の選択肢から1つ選ぶ（2026-11-12 田中さん：名前だけで当てると全然違った）
+//   1) ネット検索（Gemini＋Google検索）で「主な事業・売上の中心」を調べる → 2) その結果だけを根拠に、日本標準産業分類の考え方で選択肢から1つ選ぶ
+export async function lookupIndustryPick(companyName, website = "", options = []) {
+  const name = String(companyName || "").trim(); if (!name || !options.length) return { industry: "", reason: "" };
+  let research = "";
+  try {
+    research = await geminiGrounded(
+      `「${name}」${website ? `（公式サイト：${website}）` : ""}の事業内容を調べてください。主な事業（売上・従業員がいちばん多い事業）、ほかの事業、扱っている商品・サービス、取引先（卸か小売か、工事か保守か など）を、公式サイトの会社概要・事業紹介や企業情報サイトなど複数のソースで確かめて、ソースのURLも挙げてください。分からないことは「不明」と書き、推測で作らないでください。`,
+      ""
+    );
+  } catch (e) { console.warn("[業種] 検索に失敗", e.message); }
+  if (!research || research.length < 40) return { industry: "", reason: "" };
+  const schema = { type: "object", properties: { industry: { type: "string", description: "選択肢の文字列そのまま。決められなければ空文字" }, main_business: { type: "string" }, reason: { type: "string" } }, required: ["industry"] };
+  const sys = "あなたは日本標準産業分類に詳しい企業調査の係です。与えられた調査結果だけを根拠に、その会社の主な事業（売上がいちばん大きい事業）に当てはまる業種を、決められた選択肢の中から1つだけ選びます。いくつも事業がある会社は主な事業で決めます。卸売（ほかの会社に売る）と小売（一般の人に売る）、工事と保守・サービスを取り違えないこと。調査結果から決められなければ空文字にします。出力は指定のJSONだけ。";
+  const user = `会社名：${name}\n\n調査結果：\n"""\n${research.slice(0, 6000)}\n"""\n\n選択肢（この中の文字列をそのまま1つ）：\n${options.join("\n")}`;
+  try {
+    const o = parseJson(await callLLM(sys, user, 400, { schema, provider: "anthropic" })) || {};
+    const v = String(o.industry || "").trim();
+    return { industry: options.includes(v) ? v : "", reason: String(o.reason || o.main_business || "").slice(0, 200) };
+  } catch { return { industry: "", reason: "" }; }
+}

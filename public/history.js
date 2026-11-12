@@ -422,9 +422,9 @@ function openCompanySfLink(company) {
     panel.querySelector(".csf-x2").addEventListener("click", close);
     // 業種（必須）（2026-11-12）
     const clInd = panel.querySelector("#clInd"), clIndNote = panel.querySelector("#clIndNote");
-    const guessCl = async () => { if (!clInd || clInd.value) return; const co = (panel.querySelector("#clCompany").value || "").trim() || company; clIndNote.textContent = "業種を見立てています…";
+    const guessCl = async () => { if (!clInd || clInd.value) return; const co = (panel.querySelector("#clCompany").value || "").trim() || company; clIndNote.textContent = "業種を調べています（ネットで事業内容を確かめるので10〜20秒ほど）…";
       try { const d = await (await fetch(`/api/salesforce/industry-guess?company=${encodeURIComponent(co)}&website=${encodeURIComponent((panel.querySelector("#clWeb").value || "").trim())}`)).json();
-        if (d.industry && !clInd.value) { clInd.value = d.industry; clIndNote.textContent = `業種は${d.from || "見立て"}から選びました。違っていたら直してください。`; } else clIndNote.textContent = d.industry ? "" : "業種が分かりませんでした。選んでください。"; } catch { clIndNote.textContent = ""; } };
+        if (d.industry && !clInd.value) { clInd.value = d.industry; clIndNote.textContent = `業種は${d.from || "見立て"}から選びました${d.reason ? `（${d.reason}）` : ""}。違っていたら直してください。`; } else clIndNote.textContent = d.industry ? "" : "業種が分かりませんでした。選んでください。"; } catch { clIndNote.textContent = ""; } };
     (async () => { try { const d = await (await fetch("/api/salesforce/industry-options")).json();
       clInd.innerHTML = '<option value="">--選んでください--</option>' + (d.items || []).map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join(""); guessCl(); } catch { clInd.innerHTML = '<option value="">（読めませんでした）</option>'; } })();
     panel.querySelector(".csf-back-btn").addEventListener("click", () => { close(); openCompanySfLink(company); });

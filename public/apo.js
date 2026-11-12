@@ -826,9 +826,9 @@ function openLaunchModal(i, reasonText) {
   const indSel = back.querySelector("#lcInd"), indNote = back.querySelector("#lcInfoInd");
   const guessInd = async () => {
     if (!indSel || indSel.value) return; const co = (back.querySelector("#lcCompany").value || "").trim() || a.company || ""; if (!co) return;
-    indNote.textContent = "業種を見立てています…";
+    indNote.textContent = "業種を調べています（ネットで事業内容を確かめるので10〜20秒ほど）…";
     try { const d = await (await fetch(`/api/salesforce/industry-guess?company=${encodeURIComponent(co)}&website=${encodeURIComponent((back.querySelector("#lcWeb").value || "").trim())}`)).json();
-      if (d.industry && !indSel.value) { indSel.value = d.industry; indNote.textContent = `業種は${d.from || "見立て"}から選びました。違っていたら直してください。`; } else indNote.textContent = d.industry ? "" : "業種が分かりませんでした。選んでください。"; } catch { indNote.textContent = ""; }
+      if (d.industry && !indSel.value) { indSel.value = d.industry; indNote.textContent = `業種は${d.from || "見立て"}から選びました${d.reason ? `（${d.reason}）` : ""}。違っていたら直してください。`; } else indNote.textContent = d.industry ? "" : "業種が分かりませんでした。選んでください。"; } catch { indNote.textContent = ""; }
   };
   (async () => { try { const d = await (await fetch("/api/salesforce/industry-options")).json();
     indSel.innerHTML = '<option value="">--選んでください--</option>' + (d.items || []).map((o) => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join(""); guessInd(); } catch { indSel.innerHTML = '<option value="">（読めませんでした）</option>'; } })();

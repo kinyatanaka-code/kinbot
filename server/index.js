@@ -659,7 +659,7 @@ import {
   deleteProposalFile,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
-import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, guessCallReason, guessKana, extractJobTypes, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff } from "./analyzer.js";
+import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, guessCallReason, guessKana, extractJobTypes, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff , lookupIndustryPick } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave, lookupIndustry } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
@@ -5436,17 +5436,18 @@ async function kbIndustryOptions(user) {
   _kbIndOpts = { at: Date.now(), v }; return v;
 }
 // 会社名・サイトから、選択リストの中でいちばん近い業種を AI に選ばせる（当てずっぽうはしない：分からなければ空）
-async function kbGuessIndustry(user, company, { website = "", note = "" } = {}) {
+async function kbGuessIndustry(user, company, { website = "" } = {}) {
+  // 名前だけで当てると外れる（リョーウン：卸売業なのに「技術サービス業」）ので、ネットで事業内容を調べてから選ぶ（2026-11-12）
   try {
     const opts = await kbIndustryOptions(user); if (!opts.length || !company) return "";
-    const list = opts.map((o) => o.value).join("\n");
-    const sys = "あなたは日本の会社の業種を、決められた選択肢の中から1つ選ぶ係です。知らない会社なら無理に選ばず「不明」と答えます。JSONだけを返します。";
-    const usr = `会社名：${company}\nサイト：${website || "（不明）"}\n${note ? `補足：${note}\n` : ""}\n選択肢（この中からそのまま1つ）：\n${list}\n\n形式：{"industry":"選択肢の文字列そのまま か 不明"}`;
-    const out = JSON.parse(String(await callLLMPublic(sys, usr, 200, { json: true })).replace(/```json|```/g, "").trim());
-    const v = String(out.industry || "").trim();
-    return opts.some((o) => o.value === v) ? v : "";
+    const key = normCompanyKey(company); const hit = _kbIndGuess.get(key); if (hit && Date.now() - hit.at < 24 * 3600000) return hit.v;
+    const r = await lookupIndustryPick(company, website, opts.map((o) => o.value)).catch(() => ({ industry: "" }));
+    _kbIndGuess.set(key, { at: Date.now(), v: r.industry || "", reason: r.reason || "" });
+    if (r.industry) console.log(`[業種] ${company} → ${r.industry}（${r.reason || ""}）`);
+    return r.industry || "";
   } catch { return ""; }
 }
+const _kbIndGuess = new Map();
 // リードに業種が無ければ入れる：画面で選んだもの → SF の取引先 → AI の見立て。入れた（または元からあった）業種を返す
 async function kbEnsureLeadIndustry(user, leadId, company, { pick = "", website = "" } = {}) {
   const lid = String(leadId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!lid) return "";
@@ -5469,7 +5470,8 @@ app.get("/api/salesforce/industry-guess", async (req, res) => {
     const company = String(req.query.company || "").trim(); if (!company) return res.json({ ok: true, industry: "" });
     const a = await ciFromSf(op, company).catch(() => ({})); const opts = await kbIndustryOptions(op).catch(() => []);
     if (a.industry && opts.some((o) => o.value === a.industry)) return res.json({ ok: true, industry: a.industry, from: "SFの取引先" });
-    const g = await kbGuessIndustry(op, company, { website: String(req.query.website || "") }); res.json({ ok: true, industry: g, from: g ? "AIの見立て" : "" });
+    const g = await kbGuessIndustry(op, company, { website: String(req.query.website || "") }); const why = (_kbIndGuess.get(normCompanyKey(company)) || {}).reason || "";
+    res.json({ ok: true, industry: g, from: g ? "ネットで調べた事業内容" : "", reason: why });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 async function tryAutoLaunch(user, link, { dryRun = false, ownerEmail = "", notify = true, leadOverride = null } = {}) {  const base = { slug: link.slug, botId: link.bot_id || null, title: link.label };
@@ -30422,7 +30424,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12u SF商談の立ち上げ（アポ一覧・商談履歴の窓・自動の立ち上げ）でも業種を必須に：窓に業種（SF の選択リスト、SF の取引先か AI の見立てで先に選ぶ）、自動の立ち上げは SF の取引先 → AI の見立てで入れ、分からなければ止める。";
+const BUILD_TAG = "2026-11-12v 業種の見立て：ネット検索で主な事業を調べてから、日本標準産業分類の考え方で選択肢から選ぶ（名前だけで当てない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
