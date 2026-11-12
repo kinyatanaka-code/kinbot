@@ -30367,7 +30367,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12s SF立ち上げ：リードの「業種」を読み・選んで入れられるように（取引先にも写る）。会社情報でもSFの取引先の業種を読む。";
+const BUILD_TAG = "2026-11-12t SF立ち上げ：業種を必須に（選んでいないと立ち上げない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -31021,7 +31021,7 @@ const LEAD_WANT = [
   { key: "address",   label: "町名・番地",           re: /住所|Street/i,              apis: ["Street"] },
   { key: "postal",    label: "郵便番号",             re: /郵便番号|PostalCode/i,      apis: ["PostalCode"] },
   { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"] },
-  { key: "industry",  label: "業種",                 re: /^業種$|Industry/i,          apis: ["Industry"] },   // 2026-11-12 田中さん：取引先の業種もアポの立ち上げで入れる
+  { key: "industry",  label: "業種",                 re: /^業種$|Industry/i,          apis: ["Industry"], req: true },   // 2026-11-12 田中さん：取引先の業種もアポの立ち上げで入れる
 ];
 
 app.get("/api/salesforce/lead-fields", async (req, res) => {
@@ -31676,6 +31676,12 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
   try {
     const b = req.body || {};
     const fields = b.fields && typeof b.fields === "object" ? b.fields : {};
+    // 業種は必須（なしでは立ち上げない）（2026-11-12 田中さん）。画面で選んでいなければ、リードに入っているかを見る
+    if (!String(fields.Industry || "").trim()) {
+      const lid = String(req.params.id).replace(/[^a-zA-Z0-9]/g, "");
+      const ld = await sfQuery(req.user, `SELECT Industry FROM Lead WHERE Id = '${lid}'`).then((d) => d?.records?.[0]).catch(() => null);
+      if (ld && !ld.Industry) return res.status(400).json({ error: "業種を選んでください（業種なしでは立ち上げられません）" });
+    }
     if (Object.keys(fields).length) await updateLead(req.user, req.params.id, fields);
     // 「アポ獲得日」が空だとコンバートで弾かれる。画面で入れていなければ今日を入れる。
     try {

@@ -535,6 +535,9 @@ async function convert(key) {
       fields[api] = el.dataset.num ? Number(v.replace(/[^\d.-]/g, "")) : v;
     });
   }
+  // 業種は必須（2026-11-12）
+  const indEl = card && card.querySelector('[data-api="Industry"]');
+  if (indEl && !String(indEl.value || "").trim()) { alert("業種を選んでください（業種なしでは立ち上げられません）"); indEl.focus(); indEl.classList.add("sf-need"); return; }
   if (!confirm(`「${s.picked.Company || s.picked.Name}」のリードを商談として立ち上げます。よろしいですか？`)) return;
   s.loading = true; s.error = "";
   render();

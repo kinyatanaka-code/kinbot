@@ -7231,3 +7231,6 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .home-rec-paste { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .home-rec-paste .home-rec-url { flex: 1; min-width: 0; height: 34px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 10px; font: inherit; font-size: 13px; }
 .home-rec-paste .home-rec-go { height: 34px; white-space: nowrap; }
+
+/* SF立ち上げ：必須の業種が空のとき（2026-11-12） */
+.sf-select.sf-need, .sf-input.sf-need { border-color: #D9542B !important; background: #FFF6F2 !important; }
