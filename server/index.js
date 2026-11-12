@@ -279,7 +279,7 @@ import {
   docViewSummary,
   docViewCheck,
   kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
-  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
+  kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
   markApoCallConversation,
@@ -14989,9 +14989,20 @@ app.get("/api/kinxs/home", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ホームの要アクションの下に出すタスク（担当で絞ったらその人、全員なら自分）（2026-11-12 田中さん「タスクも出してほしい」）
+const kxSurnameSrv = (n) => String(n || "").trim().split(/[\s　]+/)[0] || "";
 app.get("/api/kinxs/home/tasks", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    // 全員：手で足したもの・自動で作ったもの（持ち主ごと）と、全社の次回アクション（2026-11-12 田中さん：ホームは自分、右上に「全員」）
+    if (req.query.who === "all") {
+      const pn = new Map((await kxPeople().catch(() => [])).map((p0) => [p0.email, kxSurnameSrv(p0.name) || p0.name]));
+      const own = (await kxTaskListAllOpen().catch(() => [])).filter((o) => String(o.src || "") !== "kinXs" && !String(o.key || "").startsWith("auto:") || /（自動）|Claude/.test(String(o.src || "")))
+        .map((o) => ({ key: o.key, id: o.id, title: o.title, account: o.account_name || "", accountId: o.account_id || "", due: o.due ? String(o.due).slice(0, 10) : "", status: o.status, src: o.src || "手入力", owner: o.owner, ownerName: pn.get(String(o.owner || "").toLowerCase()) || String(o.owner || "").split("@")[0] }));
+      const { items } = await kinxsBuild();
+      const nas = items.filter((x) => !x.archived && x.na).map((x) => ({ key: `na:${x.id}`, kind: "次回アクション", title: `${x.naType ? `【${x.naType}】` : ""}${x.na}`, account: x.name, accountId: x.id, due: x.naDue || "", status: "未着手", src: String(x.naSource || ""), owner: x.naOwner || "", ownerName: x.naOwner ? (pn.get(String(x.naOwner).toLowerCase()) || String(x.naOwner).split("@")[0]) : (kxSurnameSrv(x.cs) || x.cs || "") }));
+      const all = [...nas, ...own].sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
+      return res.json({ ok: true, user: "all", mine: false, all: true, items: all.slice(0, 200), total: all.length });
+    }
     let u = String(req.user || "").toLowerCase();
     if (req.query.who) { const em = await kxAssigneeEmail(String(req.query.who)).catch(() => ""); if (em) u = em.toLowerCase(); }
     // 重いとき（メールの読み込みなど）は20秒で打ち切って、手で足したタスクだけでも返す
@@ -30501,7 +30512,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zi kinXs ホーム：要アクションのカードを「キックオフ・検収書・タスク」の3つに（社数はキックオフ・検収書だけ）。タスクはカードを選んだら、会社の詳細のタスクと同じまとまりで（kinXsのお知らせは出さない）。";
+const BUILD_TAG = "2026-11-12zj kinXs ホーム：要アクションは自分のデータが基本、右上に「自分｜全員」の切りかえ（全員のタスクも出す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

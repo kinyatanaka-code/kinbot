@@ -12696,3 +12696,11 @@ export async function kxMwForRematch(days = 3) {
 }
 export async function kxMwSetAccount(id, accountId, accountName) { if (!pool) return; await pool.query(`UPDATE kinxs_mw_mails SET account_id=$2, account_name=$3 WHERE id=$1`, [id, accountId || null, accountName || ""]).catch(() => {}); }
 export async function kxMwDelete(id) { if (!pool) return; await pool.query(`DELETE FROM kinxs_mw_mails WHERE id=$1`, [id]).catch(() => {}); }
+
+// 全員のまだ済んでいないタスク（ホームの「全員」）（2026-11-12）
+export async function kxTaskListAllOpen() {
+  if (!pool) return [];
+  await kxTaskInit();
+  const { rows } = await pool.query(`SELECT * FROM kinxs_tasks WHERE COALESCE(status,'') <> '完了' AND COALESCE(deleted,false) = false AND COALESCE(title,'') <> '' ORDER BY due NULLS LAST, created_at DESC LIMIT 800`);
+  return rows;
+}
