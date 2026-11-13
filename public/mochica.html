@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261112zz10" />
+<link rel="stylesheet" href="/style.css?v=20261113r" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -133,8 +133,13 @@
         <div class="mt-main" id="mtMain"><div class="mt-empty">左の商談を選ぶと、ここに中身が出ます。</div></div>
       </div>
     </section>
-    <section data-pane="list" hidden><div class="mc-box"><h2>リスト（Bales Cloud）<span class="mc-tag wait">準備中</span></h2>
-      <p class="mc-note">Bales Cloud のリストを読み、会社・架電の状況を kinbot で見られるようにします。まず「設定（連携）」で Bales Cloud の API をつないでください。</p></div></section>
+    <section data-pane="list" hidden>
+      <div class="mc-box"><h2>Bales に SF の情報を入れる</h2>
+        <p class="mc-note">SF の「新規」の商談から、会社ごとに<b>いちばん新しい失注</b>（失注日・次回アクション日・理由 大/中/詳細・失注前ステージ・バッティング負け競合）と、<b>前回の商談</b>（商談日・担当・アポ獲得者・前回のヒアリング＝顧客の現状を1行に）、<b>既存顧客（受注あり）</b>・業種・従業員数を集めて、Bales に取り込むファイルにします。連絡先や人についての書き込みは外します。</p>
+        <div id="mcBalesSum" class="mc-note" style="margin-top:10px">「集計する」を押すと、SF から読み込みます（1〜2分かかります）。</div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button type="button" class="mt-btn" id="mcBalesRun">集計する</button><a class="mt-btn ghost" id="mcBalesCsv" href="/api/mochica/bales/export.csv" style="display:none">取り込み用ファイル（CSV）をダウンロード</a><a class="mt-btn ghost" href="/mochica-bales-custom-fields.xlsx" download>Bales に足すカスタム項目のひな形</a></div>
+        <p class="mc-note" style="margin-top:10px">いまは「ダウンロード → Bales で取り込み」の手作業です。Bales の取り込み（更新）の画面が分かりしだい、拡張機能で毎朝自動で取り込むようにします。</p></div>
+    </section>
     <section data-pane="call" hidden><div class="mc-box"><h2>架電（Zoom Phone）<span class="mc-tag wait">準備中</span></h2>
       <p class="mc-note">インターン生の Zoom Phone の架電記録を、人ごと・日ごとに集めます（DOC の kincall で使っている Zoom Phone のつなぎ方を使い回します）。</p></div></section>
     <section data-pane="apo" hidden><div class="mc-box"><h2>アポ（カレンダー）<span class="mc-tag wait">準備中</span></h2>
@@ -170,6 +175,6 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mochica.js?v=20261112zz10"></script>
+  <script src="/mochica.js?v=20261113r"></script>
 </body>
 </html>

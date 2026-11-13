@@ -1731,3 +1731,17 @@ export async function leadsByIds(owner, ids = []) {
   }
   return out;
 }
+
+// 全件を読む（2000件ずつの続き＝nextRecordsUrl をたどる）（2026-11-13 MOCHICA の Bales 連携）
+export async function sfQueryAll(owner, soql, max = 80000) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  let url = `${acc.instanceUrl}/services/data/${API_VERSION}/query?q=${encodeURIComponent(soql)}`; const out = [];
+  while (url && out.length < max) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${acc.token}` } });
+    if (!res.ok) throw new Error(`SF query ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const d = await res.json(); out.push(...(d.records || []));
+    url = d.nextRecordsUrl ? `${acc.instanceUrl}${d.nextRecordsUrl}` : "";
+  }
+  return out;
+}

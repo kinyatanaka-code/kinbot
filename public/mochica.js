@@ -126,6 +126,13 @@
     main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); }));
   }
   // ブラウザの自動入力（メールアドレスなど）が探す欄に入って「0件」になるのを防ぐ（2026-11-12）
+  // Bales に SF の情報を入れる：集計（2026-11-13）
+  { const rb = $("mcBalesRun"); if (rb) rb.addEventListener("click", async () => {
+      rb.disabled = true; rb.textContent = "集計しています…（1〜2分）"; const box = $("mcBalesSum");
+      try { const d = await api("/api/mochica/bales/summary?fresh=1");
+        box.innerHTML = `SF の「新規」の商談 <b>${d.opps.toLocaleString()}</b> 件 → 会社 <b>${d.accounts.toLocaleString()}</b> 社（失注あり ${d.lost.toLocaleString()} 社・既存顧客 ${d.won.toLocaleString()} 社）` + (d.sample || []).map((r) => `<div style="margin-top:8px;padding:8px 10px;background:#F2FAFB;border-radius:10px"><b>${esc(r["会社名"])}</b>　失注 ${esc(r["失注商談失注日"])}・${esc(r["失注商談失注理由大"])}${r["失注後次回アクション日"] ? `・次回 ${esc(r["失注後次回アクション日"])}` : ""}<br><span style="font-size:12px">ヒアリング：${esc(r["前回のヒアリング"])}</span></div>`).join("");
+        $("mcBalesCsv").style.display = "";
+      } catch (e) { box.textContent = "集計できませんでした：" + e.message; } finally { rb.disabled = false; rb.textContent = "もう一度集計する"; } }); }
   // 拡張機能で、文字起こしがまだの会議を MiiTel で裏で開いて読む（1回30件まで）（2026-11-12）
   { const rb = $("mtRead"); if (rb) rb.addEventListener("click", () => {
       if (!document.documentElement.dataset.kbMiitelExt) { alert("拡張機能 kinbot-ext（1.4.0 以上）が必要です。kinbot の設定 → 拡張機能 から入れ直して、この画面を開き直してください。"); return; }

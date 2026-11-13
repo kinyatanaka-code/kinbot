@@ -762,7 +762,7 @@ import {
   updateTask,
   deleteTask,
   clearSfTokenCache,
-  sfQuery,
+  sfQuery, sfQueryAll,
   listAccountContacts,
   getOpportunityProducts,
   listOpportunityLineItems,
@@ -26764,6 +26764,62 @@ app.post(["/api/mochica/miitel/capture", "/api/mochica/miitel/ext/capture"], exp
     res.json({ ok: true, saved: n });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== MOCHICA × Bales：SF の「新規」の商談の情報を、Bales に取り込むファイルにする（2026-11-13 田中さん）=====
+//   会社（SF の取引先）ごとに：いちばん新しい「新規」の失注（失注日・次回アクション日・理由 大/中/詳細・失注前ステージ・バッティング負け競合）、
+//   いちばん新しい「新規」の商談（商談日・担当・アポ獲得者・顧客の現状＝前回のヒアリング）、既存顧客（受注あり）、業種・従業員数・商談の数
+let _mcBales = { at: 0, p: null };
+function mcHearing(t) {
+  // 「顧客の現状」を1行に縮める：連絡先・人についての書き込み・空の見出しを外す
+  const lines = String(t || "").replace(/\r/g, "").split("\n").map((l) => l.replace(/[　\s]+/g, " ").trim()).filter(Boolean);
+  const drop = /(担当者名|メールアドレス|メアド|電話番号|TEL|携帯|性別|雰囲気|年齢|見た目|担当者情報|商談日程|何に興味を持ってアポをくれたか|^\d{1,2}:\d{2}\s*-)/i;
+  const out = []; let head = "";
+  for (const l of lines) {
+    if (drop.test(l) || /@[\w.-]+\.[a-z]{2,}/i.test(l) || /0\d{1,4}-?\d{1,4}-?\d{3,4}/.test(l)) continue;
+    const h = l.match(/^■\s*(.+)$/); if (h) { head = h[1].replace(/[（(].*?[)）]/g, "").replace(/[、,。]+$/, "").trim(); continue; }
+    const v = l.replace(/^[・\-－→]+\s*/, "").replace(/[:：]\s*$/, "").trim(); if (!v || /^[:：]$/.test(v)) continue;
+    if (/[:：]\s*$/.test(l)) continue;   // 「・採用目標人数：」のように中身が無い行
+    out.push(head && !out.some((x) => x.startsWith(head + "：")) ? `${head}：${v}` : v);
+  }
+  const txt = out.join("／"); return txt.length > 300 ? txt.slice(0, 299) + "…" : txt;
+}
+async function mcBalesBuild(owner) {
+  const opps = await sfQueryAll(owner, "SELECT Id, AccountId, Account.Name, Account.Phone, Account.Industry, Account.NumberOfEmployees, StageName, CreatedDate, appointment__c, order_date__c, LostOpp_nextactiondate__c, Loss_Reason__c, Loss_Reason1__c, order_reason_detail__c, Lost_before_stage__c, Losing_batting__c, Client_Current_Status__c, owner_text__c, Internship_apo__c FROM Opportunity WHERE RecordType.Name = '新規' AND AccountId != null ORDER BY CreatedDate DESC");
+  const won = new Set((await sfQueryAll(owner, "SELECT AccountId FROM Opportunity WHERE StageName LIKE '08%' AND AccountId != null").catch(() => [])).map((r) => r.AccountId));
+  const by = new Map(); for (const o of opps) { const a = by.get(o.AccountId) || []; a.push(o); by.set(o.AccountId, a); }
+  const d10 = (v) => (v ? String(v).slice(0, 10).replace(/-/g, "/") : "");
+  const rows = [];
+  for (const [aid, list] of by) {
+    const latest = list[0]; const lost = list.filter((o) => /失注/.test(o.StageName || "")).sort((a, b) => String(b.order_date__c || b.CreatedDate).localeCompare(String(a.order_date__c || a.CreatedDate)))[0];
+    const hear = list.map((o) => o.Client_Current_Status__c).find((t) => mcHearing(t).length >= 10) || "";
+    const acc = latest.Account || {};
+    rows.push({ "SalesforceID": aid, "会社名": acc.Name || "", "電話番号": acc.Phone || "",
+      "既存顧客": won.has(aid) ? "受注あり" : "", "前回の商談日": d10(latest.appointment__c || latest.CreatedDate), "前回の担当": latest.owner_text__c || "", "アポ獲得者": latest.Internship_apo__c || "",
+      "前回のヒアリング": mcHearing(hear),
+      "失注商談失注日": lost ? d10(lost.order_date__c) : "", "失注後次回アクション日": lost ? d10(lost.LostOpp_nextactiondate__c) : "",
+      "失注商談失注理由大": lost ? lost.Loss_Reason__c || "" : "", "失注商談失注理由中": lost ? lost.Loss_Reason1__c || "" : "",
+      "失注商談失注理由詳細": lost ? String(lost.order_reason_detail__c || "").replace(/\s+/g, " ").replace(/^-$/, "").slice(0, 300) : "",
+      "失注商談失注前ステージ": lost ? lost.Lost_before_stage__c || "" : "", "失注商談バッティング負け競合": lost ? lost.Losing_batting__c || "" : "",
+      "業種": acc.Industry || "", "従業員数": acc.NumberOfEmployees != null ? String(acc.NumberOfEmployees) : "", "新規の商談の数": String(list.length) });
+  }
+  return { rows, at: Date.now(), opps: opps.length, accounts: rows.length, lost: rows.filter((r) => r["失注商談失注日"]).length, won: rows.filter((r) => r["既存顧客"]).length };
+}
+async function mcBalesGet(owner, fresh) {
+  if (!fresh && _mcBales.p && Date.now() - _mcBales.at < 3600000) return _mcBales.p;
+  _mcBales = { at: Date.now(), p: mcBalesBuild(owner).catch((e) => { _mcBales = { at: 0, p: null }; throw e; }) }; return _mcBales.p;
+}
+app.get("/api/mochica/bales/summary", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const d = await mcBalesGet(owner, !!req.query.fresh); res.json({ ok: true, at: d.at, opps: d.opps, accounts: d.accounts, lost: d.lost, won: d.won, sample: d.rows.filter((r) => r["失注商談失注日"] && r["前回のヒアリング"]).slice(0, 3) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/export.csv", async (req, res) => {
+  try { if (!req.user) return res.status(401).send("ログインしてください"); const owner = await pickSfUser(req.user, req);
+    const d = await mcBalesGet(owner, !!req.query.fresh); const cols = Object.keys(d.rows[0] || { SalesforceID: "" });
+    const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const csv = "\ufeff" + [cols.map(q).join(","), ...d.rows.map((r) => cols.map((c) => q(r[c])).join(","))].join("\r\n");
+    res.setHeader("content-type", "text/csv; charset=utf-8"); res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`Bales取り込み用_SFの新規商談_${new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10)}.csv`)}`); res.send(csv);
+  } catch (e) { res.status(500).send("作れませんでした：" + e.message); }
+});
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcMiitelList(100) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -30805,7 +30861,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13q 電話フォローのシートから読む：A〜I を読み、I＝企業名、B＝手紙を記載しているか。記載済みで未対応のものを「送付待ち」に（先に進んでいるものは戻さない）。";
+const BUILD_TAG = "2026-11-13r kinbot for MOCHICA：SF の「新規」の商談から、Bales に取り込むファイル（失注・前回の商談・ヒアリング・既存顧客・業種など、会社ごと）を作る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
