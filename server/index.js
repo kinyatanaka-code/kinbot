@@ -14432,12 +14432,17 @@ async function kinxsHomeInboxRead(user) {
       const spaces = (await chatMySpaces(me)).filter((sp) => !sp.lastActive || sp.lastActive > since).sort((a2, b2) => String(b2.lastActive).localeCompare(String(a2.lastActive))).slice(0, 20);
       const s0 = kxSur(meName);
       const lists = await pmap(spaces, 8, (sp) => chatRecentMessages(me, sp.name, since, 30));
+      // ユーザー企業（kinXs の会社）の名前が出てくるメッセージだけをタスクにする（2026-11-13 田中さん「関連するチャットだけ。今日キャンセルですか、みたいなものはいらない」）
+      const coList = []; try { const { items: its } = await kinxsBuildMemo(); for (const x of its || []) { if (x.archived) continue; for (const n of [x.name, ...(x.formerNames || [])]) { const k = kxNz(n); if (k && k.length >= 3) coList.push([k, x]); } } } catch {}
+      coList.sort((a2, b2) => b2[0].length - a2[0].length);
+      const coOf = (txt) => { const t0 = kxNz(txt); const hit = coList.find(([k]) => t0.includes(k)); return hit ? hit[1] : null; };
       spaces.forEach((sp, k) => {
         for (const m of (lists[k] || [])) {
           if (m.senderType === "BOT") continue;
           const toMe = sp.type === "DIRECT_MESSAGE" ? !String(m.sender).includes(s0) : (m.mentions.some((n) => n && s0 && String(n).includes(s0)) || (s0 && String(m.text).includes(`@${s0}`)));
           if (!toMe || !m.text.trim()) continue;
-          tasks.push({ src: "チャット", kind: sp.type === "DIRECT_MESSAGE" ? "1対1" : "メンション", title: m.text.replace(/\s+/g, " ").slice(0, 80), account: "", accountId: "", due: "", at: m.at, from: m.sender, space: sp.title || "1対1のチャット", body: m.text.slice(0, 600), link: "https://chat.google.com/" });
+          const co = coOf(`${m.text} ${sp.title || ""}`); if (!co) continue;   // 会社に結びつかないチャットは出さない
+          tasks.push({ src: "チャット", kind: sp.type === "DIRECT_MESSAGE" ? "1対1" : "メンション", title: m.text.replace(/\s+/g, " ").slice(0, 80), account: co.name, accountId: co.id, due: "", at: m.at, from: m.sender, space: sp.title || "1対1のチャット", body: m.text.slice(0, 600), link: "https://chat.google.com/" });
         }
       });
     } catch (e) { if (e.needScope) chatNeed = true; else notes.push(`チャットを読めませんでした：${e.message}`); }
@@ -30750,7 +30755,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13j kinXs 年間施策：ヘッダーの月の切りかえをなくす（月は3月〜2月の帯で選ぶ）。";
+const BUILD_TAG = "2026-11-13k kinXs ホーム：チャットは、ユーザー企業の名前が出てくるものだけタスクにする（会社に結びつかないものは出さない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
