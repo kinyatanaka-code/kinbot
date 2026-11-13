@@ -15814,6 +15814,53 @@ app.put("/api/kinxs/actions", async (req, res) => {
     res.json({ ok: true, n: rows.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== 電話フォロー：今使っている「手紙送付リスト」のスプレッドシートを kinXs が読む（2026-11-13 田中さん「CSV ではなく自動でスプレッドシートを読む」）=====
+//   見出しの行から列を当てて（会社・担当・ステータス・結果・メモ・NA日 など）、会社名で kinXs の会社に当て、
+//   お手紙（letter）と電話フォロー（call_letter）の記録に入れる。30分ごとに自動、ヘッダーの「シートから読む」で今すぐ
+const KX_LETTER_SHEET_DEF = { id: "1xbe80Rs1Dy50zJ8-wKMgYVTtth-3bG0sScbWwYARHPU", tab: "手紙送付リスト" };
+const kxNz = (v) => String(v || "").normalize("NFKC").toLowerCase().replace(/[\s　・,，.。()（）「」『』]/g, "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益社団法人|学校法人|\(株\)|㈱|（株）/g, "");
+function kxSheetCols(head) {
+  const find = (re, not) => head.findIndex((h) => re.test(String(h || "")) && !(not && not.test(String(h || ""))));
+  return { company: find(/企業名|会社名|法人名|^企業$|^会社$|顧客名|取引先/), cs: find(/担当|CS/i, /電話|メール/), status: find(/ステータス|状況|対応状況|進捗/), result: find(/結果|温度感|反応/), memo: find(/メモ|備考|次のアクション|内容|コメント/), na: find(/NA|次回|ネクストアクション/i), sent: find(/送付日|発送日|送付済|送付/), calls: find(/架電回数|架電数|コール数|回数/), lastCall: find(/最終架電|架電日|コール日/) };
+}
+function kxSheetDate(v) { const t = String(v || "").normalize("NFKC").trim(); let m = t.match(/(\d{4})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/); if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`; m = t.match(/^(\d{1,2})[\/月](\d{1,2})/); if (m) { const y = new Date(Date.now() + 9 * 3600000).getUTCFullYear(); return `${y}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`; } return null; }
+function kxSheetSt(mkey, v) { const t = String(v || "").normalize("NFKC").trim(); if (!t) return null; const opts = kxActStFor(mkey);
+  const hit = opts.find((o) => t === o) || opts.find((o) => t.includes(o.replace(/（.*）/, ""))) ; if (hit) return hit;
+  if (/不在/.test(t) && opts.includes("架電済み（不在）")) return "架電済み（不在）"; if (/送付済|発送済/.test(t) && opts.includes("送付済み")) return "送付済み"; if (/待ち|準備/.test(t) && opts.includes("送付待ち")) return "送付待ち";
+  if (/完了|済/.test(t)) return opts.includes("対応完了") ? "対応完了" : opts.includes("完了") ? "完了" : null; if (/対象外|不要|除外/.test(t) && opts.includes("対象外")) return "対象外"; if (/対応中|架電中/.test(t) && opts.includes("対応中")) return "対応中"; if (/未/.test(t) && opts.includes("未対応")) return "未対応"; return null; }
+async function kxLetterSheetSync(owner, { dry = false } = {}) {
+  const st = await getSettings().catch(() => ({})); const cfg = { ...KX_LETTER_SHEET_DEF, ...(st.kxLetterSheet || {}) };
+  const vals = await readSheet(owner, cfg.id, `'${cfg.tab}'!A1:AD2000`);
+  const rows = (vals && (vals.values || vals)) || []; if (!Array.isArray(rows) || !rows.length) throw new Error("シートが空でした");
+  let hi = rows.slice(0, 15).findIndex((r) => (r || []).some((c) => /企業名|会社名|法人名|^企業$|^会社$|顧客名|取引先/.test(String(c || ""))));
+  if (hi < 0) throw new Error("見出しの行（企業名・会社名など）が見つかりませんでした");
+  const head = rows[hi].map((x) => String(x || "").trim()); const col = kxSheetCols(head);
+  const { items } = await kinxsBuild(); const byName = new Map(); for (const x of items) for (const n of [x.name, ...(x.formerNames || [])]) { const k = kxNz(n); if (k && !byName.has(k)) byName.set(k, x); }
+  const now = new Date(Date.now() + 9 * 3600000); let y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1; const lm = KX_MEASURES.find((x) => x.key === "letter").months; while (!lm.includes(mo)) { mo--; if (mo < 1) { mo = 12; y--; } } const ym = `${y}-${String(mo).padStart(2, "0")}`;
+  const out = { ym, header: head, cols: Object.fromEntries(Object.entries(col).map(([k, i]) => [k, i >= 0 ? head[i] : null])), rows: 0, matched: 0, updated: 0, unmatched: [] };
+  for (const r of rows.slice(hi + 1)) {
+    const name = col.company >= 0 ? String(r[col.company] || "").trim() : ""; if (!name) continue; out.rows++;
+    const k = kxNz(name); const x = byName.get(k) || [...byName.entries()].find(([kk]) => kk.length >= 3 && (kk.includes(k) || k.includes(kk)))?.[1];
+    if (!x) { if (out.unmatched.length < 30) out.unmatched.push(name); continue; } out.matched++;
+    const sv = col.status >= 0 ? r[col.status] : ""; const lp = {}, cp = {};
+    const ls = kxSheetSt("letter", sv); if (ls) lp.status = ls;
+    const cs0 = kxSheetSt("call_letter", sv); if (cs0) cp.status = cs0;
+    if (col.result >= 0) { const rv = String(r[col.result] || ""); const rr = ["良好", "普通", "懸念あり", "未接続"].find((z) => rv.includes(z)) || (/不在|つながらない|繋がらない/.test(rv) ? "未接続" : /懸念|解約|不満/.test(rv) ? "懸念あり" : ""); if (rr) cp.result = rr; }
+    if (col.memo >= 0 && String(r[col.memo] || "").trim()) cp.memo = String(r[col.memo]).slice(0, 1000);
+    if (col.na >= 0) { const d = kxSheetDate(r[col.na]); if (d) cp.na_date = d; }
+    if (!dry) { if (Object.keys(lp).length) await kxActionUpsert(x.id, "letter", ym, lp, owner).catch(() => {}); if (Object.keys(cp).length) await kxActionUpsert(x.id, "call_letter", ym, cp, owner).catch(() => {}); }
+    if (Object.keys(lp).length || Object.keys(cp).length) out.updated++;
+  }
+  if (!dry) await saveSettings({ kxLetterSheet: { ...cfg, owner, lastSync: new Date().toISOString(), last: { rows: out.rows, matched: out.matched, updated: out.updated } } }).catch(() => {});
+  return out;
+}
+app.post("/api/kinxs/letter-sheet/sync", async (req, res) => {
+  try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    res.json({ ok: true, ...(await kxLetterSheetSync(req.user, { dry: !!(req.body && req.body.dry) })) });
+  } catch (e) { res.status(e.notFound ? 404 : e.needScope ? 403 : 500).json({ error: e.notFound ? "スプレッドシートが見つかりません（このGoogleのアカウントで見られるか確かめてください）" : e.needScope ? "Googleの連携でスプレッドシートを読む許可がありません（kinbot の設定 → Google を連携し直してください）" : e.message }); }
+});
+// 30分ごとに自動で読む（最後に「シートから読む」を押した人の Google で）
+setInterval(async () => { try { const st = await getSettings().catch(() => ({})); const o = st.kxLetterSheet && st.kxLetterSheet.owner; if (o) await kxLetterSheetSync(o).catch((e) => console.warn("[手紙送付リスト] 自動で読めませんでした", e.message)); } catch {} }, 30 * 60 * 1000);
 app.put("/api/kinxs/plan/prep", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -30699,7 +30746,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13b kinXs 電話フォロー：ステータス・結果の列を中身に合わせて細く、空いた分を企業名とメモへ。";
+const BUILD_TAG = "2026-11-13c kinXs 電話フォロー：CSV の代わりに「手紙送付リスト」のスプレッドシートを読む（見出しから列を当て、会社名で当て、お手紙・電話フォローの記録に入れる。30分ごとに自動）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

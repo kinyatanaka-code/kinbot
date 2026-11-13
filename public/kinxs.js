@@ -2064,8 +2064,15 @@ function renderCallV2() {
   if (hc) { hc.hidden = false;
     hc.innerHTML = `<span class="kx-seg hc-seg"><button type="button" class="${kc.tab === "month" ? "on" : ""}" data-kc-tab="month">月別進捗表</button><button type="button" class="${kc.tab === "co" ? "on" : ""}" data-kc-tab="co">企業ごとの進捗</button></span>`
       + (kc.tab === "month" ? `<select class="kx-in hc-sel" data-kc-period title="${d.period}期（${d.period + 1999}年3月〜${d.period + 2000}年2月）">${[curP, curP - 1].map((p) => `<option value="${p}" ${p === d.period ? "selected" : ""}>${p}期（${p + 1999}/3〜${p + 2000}/2）</option>`).join("")}</select><button type="button" class="kx-btn hc-csv" data-kc-csv title="スプレッドシート用に書き出す（CSV）">CSV ⬇</button>`
-        : `<span class="v2-headm hc-m"><button type="button" data-kc-m="-1" aria-label="前の月">‹</button><b>${kxYmLabel(kc.ym)}</b><button type="button" data-kc-m="1" aria-label="次の月">›</button></span><button type="button" class="kx-btn hc-csv" data-kc-csv2 title="スプレッドシート用に書き出す（CSV）">CSV ⬇</button>`); }
+        : `<span class="v2-headm hc-m"><button type="button" data-kc-m="-1" aria-label="前の月">‹</button><b>${kxYmLabel(kc.ym)}</b><button type="button" data-kc-m="1" aria-label="次の月">›</button></span><button type="button" class="kx-btn hc-csv" data-kc-sheet title="「手紙送付リスト」のスプレッドシートを今すぐ読む（30分ごとにも自動）">シートから読む</button>`); }
   box.innerHTML = tabs + body;
+  { const sb = hc && hc.querySelector("[data-kc-sheet]"); if (sb) sb.addEventListener("click", async () => {
+      sb.disabled = true; sb.textContent = "読んでいます…";
+      try { const r = await api("/api/kinxs/letter-sheet/sync", { method: "POST", body: JSON.stringify({}) });
+        const cols = Object.entries(r.cols || {}).filter(([, v]) => v).map(([k, v]) => `${({ company: "会社", cs: "担当", status: "ステータス", result: "結果", memo: "メモ", na: "NA日", sent: "送付", calls: "架電回数", lastCall: "最終架電" })[k] || k}＝${v}`).join("、");
+        alert(`「手紙送付リスト」を読みました（${r.ym.replace("-", "年")}月の分）\n\n行：${r.rows}／kinXs の会社に当たった：${r.matched}／記録を入れた：${r.updated}\n読んだ列：${cols || "なし"}${r.unmatched && r.unmatched.length ? `\n\n当たらなかった会社（${r.unmatched.length}）：${r.unmatched.slice(0, 15).join("、")}` : ""}`);
+        location.reload();
+      } catch (e) { alert("読めませんでした：" + e.message); } finally { sb.disabled = false; sb.textContent = "シートから読む"; } }); }
   const scope = { querySelectorAll: (q) => [...box.querySelectorAll(q), ...(hc ? hc.querySelectorAll(q) : [])], querySelector: (q) => box.querySelector(q) || (hc && hc.querySelector(q)) };
   scope.querySelectorAll("[data-kc-tab]").forEach((b) => b.addEventListener("click", () => { kc.tab = b.dataset.kcTab; renderCallV2(); }));
   const pe = scope.querySelector("[data-kc-period]"); if (pe) pe.addEventListener("change", () => { kc.period = Number(pe.value); kc.data = null; renderCallV2(); });
