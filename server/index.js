@@ -701,7 +701,7 @@ import {
   gmailCreateDraft, gmailDraftExists, chatMySpaces, chatRecentMessages, sheetTabs,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, sheetTabs, updateSheetCells, diagnoseSheet,
+  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
   writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
@@ -15832,7 +15832,7 @@ async function kxLetterSheetSync(owner, { dry = false } = {}) {
   const st = await getSettings().catch(() => ({})); const cfg = { ...KX_LETTER_SHEET_DEF, ...(st.kxLetterSheet || {}) };
   // タブの名前は、URL の gid（1213626809）で本当の名前を確かめる（名前に空白などが入っていて読めなかった：2026-11-13）
   let tabName = cfg.tab;
-  try { const tabs = await sheetTabs(owner, cfg.id); const hit = tabs.find((t) => t.id === Number(cfg.gid)) || tabs.find((t) => t.title.trim() === cfg.tab) || tabs.find((t) => /手紙/.test(t.title)); if (hit) tabName = hit.title; } catch (e) { if (e.notFound || e.needScope) throw e; }
+  try { const tabs = ((await sheetTabs(owner, cfg.id)) || {}).tabs || []; const hit = tabs.find((t) => Number(t.gid) === Number(cfg.gid)) || tabs.find((t) => String(t.title).trim() === cfg.tab) || tabs.find((t) => /手紙/.test(String(t.title))); if (hit) tabName = hit.title; } catch (e) { if (e.notFound) throw e; }
   const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'!A1:AD2000`);
   const rows = (vals && (vals.values || vals)) || []; if (!Array.isArray(rows) || !rows.length) throw new Error("シートが空でした");
   let hi = rows.slice(0, 15).findIndex((r) => (r || []).some((c) => /企業名|会社名|法人名|^企業$|^会社$|顧客名|取引先/.test(String(c || ""))));
@@ -30750,7 +30750,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13e 電話フォローの「シートから読む」：タブの名前を URL の gid で確かめてから読む（Unable to parse range を直す）。";
+const BUILD_TAG = "2026-11-13f 前の版（e）が起動できなかったのを直す（sheetTabs が二重）。シートから読むはタブを gid で当てる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
