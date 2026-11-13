@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261113g" />
+    <link rel="stylesheet" href="style.css?v=20261113h" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -962,6 +962,21 @@
   .p3-live .nm{font-weight:800;}
   .p3-live b{font-size:22px !important;}
   .p3-live:hover{filter:brightness(1.08);}
+  /* ホームの上の数字のカードを薄く（2026-11-13 田中さん「もう少し薄くして下にスペースを」）：数字と前月比を横に並べる */
+  #kh2 .h2-kpi{gap:10px;}
+  #kh2 .h2-hero{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:2px 10px;padding:10px 16px 9px;border-radius:16px;}
+  #kh2 .h2-hero .l{width:100%;font-size:12px;}
+  #kh2 .h2-hero .v{font-size:34px;}
+  #kh2 .h2-hero .v small{font-size:13px;}
+  #kh2 .h2-hero .h2-mix{width:100%;margin-top:4px;}
+  #kh2 .h2-hero .h2-leg{width:100%;margin-top:2px;}
+  #kh2 .h2-hero::after{width:96px;height:96px;right:-24px;top:-24px;}
+  #kh2 .h2-card{flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:9px 14px;border-radius:14px;}
+  #kh2 .h2-card .l{font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  #kh2 .h2-card .v{font-size:26px;order:3;}
+  #kh2 .h2-card .v small{font-size:12px;}
+  #kh2 .h2-card .h2-d{order:4;}
+  #kh2 .h2-card .s{order:5;width:100%;font-size:10.5px;}
   .ar-empty{padding:18px;color:#8FA39A;font-size:13px;}
   .ar-f{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;font-size:13px;margin-bottom:8px;} .ar-f input,.ar-f select{border:1px solid #DCE6E1;border-radius:8px;padding:6px 8px;font:inherit;}
 
@@ -1103,7 +1118,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261113g" defer></script>
-    <script src="kinxs.js?v=20261113g"></script>
+    <script src="kbchat.js?v=20261113h" defer></script>
+    <script src="kinxs.js?v=20261113h"></script>
   </body>
 </html>
