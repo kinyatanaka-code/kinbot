@@ -15007,6 +15007,19 @@ app.get("/api/kinxs/home", async (req, res) => {
 });
 // ホームの要アクションの下に出すタスク（担当で絞ったらその人、全員なら自分）（2026-11-12 田中さん「タスクも出してほしい」）
 const kxSurnameSrv = (n) => String(n || "").trim().split(/[\s　]+/)[0] || "";
+// 要アクション（キックオフ未実施・検収書）の担当を、CS担当以外の人に割り振る（2026-11-13 田中さん）。settings.kxActOwner { "<会社のid>:<種類>": メール }
+app.get("/api/kinxs/act-owner", async (req, res) => { try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); const st = await getSettings().catch(() => ({})); res.json({ ok: true, map: st.kxActOwner || {} }); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.put("/api/kinxs/act-owner", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const b = req.body || {}; const id = String(b.id || "").trim(); const kind = String(b.kind || "").trim();
+    if (!id || !["キックオフ未実施", "検収書 未回収"].includes(kind)) return res.status(400).json({ error: "形が違います" });
+    let em = ""; if (String(b.email || "").trim()) { em = await kxAssigneeEmail(String(b.email)).catch(() => ""); if (!em) return res.status(400).json({ error: "割り振る人が見つかりません" }); }
+    const st = await getSettings().catch(() => ({})); const map = { ...(st.kxActOwner || {}) }; const k = `${id}:${kind}`;
+    if (em) map[k] = em.toLowerCase(); else delete map[k];
+    await saveSettings({ kxActOwner: map }); res.json({ ok: true, map });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/home/tasks", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -30755,7 +30768,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13k kinXs ホーム：チャットは、ユーザー企業の名前が出てくるものだけタスクにする（会社に結びつかないものは出さない）。";
+const BUILD_TAG = "2026-11-13l kinXs ホーム：要アクションのキックオフ未実施・検収書を、担当の札からほかの人に割り振れる（割り振られた人の「自分」に出る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
