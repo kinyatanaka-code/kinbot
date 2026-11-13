@@ -16473,6 +16473,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
   try {
     _kxMissing = { at: 0, data: null };   // 直したら、情報不足を次に読むときに作り直す（2026-11-10）
     // 次回アクションの担当（CS担当以外にも託せる）（2026-11-11 田中さん）。空ならCS担当に戻す。次回アクションを済み（空）にしたら担当も戻す
+    if (req.body && req.body.na_owner !== undefined) _kxBuildMemo = { at: 0, p: null };   // 託したらすぐ、託した人・託された人のホームに反映（2026-11-13）
     if (req.body && req.body.na_owner !== undefined) { const v0 = String(req.body.na_owner || "").trim(); if (v0) { const em = await kxAssigneeEmail(v0); if (!em) return res.status(400).json({ error: "託す人が見つかりません" }); req.body.na_owner = em; } else req.body.na_owner = null; }
     if (req.body && req.body.na_text === "" && req.body.na_owner === undefined) req.body.na_owner = null;
     // 次回アクションを「済み」（空）にしたら、Gmail（メールワイズのコピー）・議事録から次の次回アクションを読む（2026-11-11 田中さん）。裏で動かす
@@ -30746,7 +30747,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13c kinXs 電話フォロー：CSV の代わりに「手紙送付リスト」のスプレッドシートを読む（見出しから列を当て、会社名で当て、お手紙・電話フォローの記録に入れる。30分ごとに自動）。";
+const BUILD_TAG = "2026-11-13d kinXs ホーム：タスクを託したら、すぐ自分の一覧から消す（託された人のホームにすぐ出す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

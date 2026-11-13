@@ -1561,11 +1561,18 @@ async function kh2LoadTasks(who0) {
     const t0 = items[Number(sel.dataset.tkWho)]; const em = sel.value; if (!em) return;
     const p0 = (window.__kxPeople || []).find((q) => q.email === em);
     if (!confirm(`「${t0.title}」を${p0 ? p0.name : em}さんに託しますか？`)) { sel.value = ""; return; }
+    // 託したら、その場ですぐ自分の一覧から消す（全員のときは担当の名前だけ変える）。うまくいかなければ戻す（2026-11-13 田中さん）
+    const li = sel.closest("[data-tk]"); const lab = sel.closest("label"); const prevName = lab ? lab.firstChild && lab.firstChild.nodeValue : "";
+    if (d.all) { if (lab && lab.firstChild) lab.firstChild.nodeValue = p0 ? kxSurname(p0.name) || p0.name : em; }
+    else if (li) { li.classList.add("gone"); kh2.tkN = Math.max(0, (kh2.tkN || 1) - 1); const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN; setTimeout(() => { li.style.display = "none"; }, 260); }
+    if (typeof kxDoneToast === "function") kxDoneToast(`${p0 ? p0.name : em}さんに託しました`);
     try {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_owner: em }) });
       else await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ assignee: em }) });
-      kh2LoadTasks(who0);
-    } catch (e) { alert(e.message); sel.value = ""; }
+    } catch (e) {
+      alert("託せませんでした：" + e.message); sel.value = "";
+      if (d.all) { if (lab && lab.firstChild) lab.firstChild.nodeValue = prevName; } else if (li) { li.classList.remove("gone"); li.style.display = ""; kh2.tkN += 1; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN; }
+    }
   }));
   // 済み：押したらすぐ行を消して数を減らす（返事を待たない＝押した手ごたえ）。失敗したら戻す（2026-11-12 田中さん「押す判定が弱い」）
   box.querySelectorAll("[data-tk-done]").forEach((b) => b.addEventListener("click", async (e) => {
