@@ -1516,7 +1516,7 @@ async function kxHomeAct(el) {
     if (k === "ko") await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ kickoff_on: today }) });
     else if (k === "ks") await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ kenshu_on: today }) });
     else if (k === "na") {
-      if (isDate) { const tm = el.dataset.at ? new Date(new Date(el.dataset.at).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "10:00"; await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ na_at: `${v}T${tm}` }) }); }
+      if (isDate) { const tm = el.dataset.at ? new Date(new Date(el.dataset.at).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "10:00"; await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ na_at: /T\d{2}:\d{2}/.test(v) ? v.slice(0, 16) : `${v}T${tm}` }) }); }
       else { if (!confirm("この次回アクションを済みにしますか？（次回アクションが空になります）")) return; await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) }); }
     } else if (k === "me") await api("/api/kinxs/actions", { method: "PUT", body: JSON.stringify({ mkey: el.dataset.mkey, ym: el.dataset.ym, account_id: id, ...(isDate ? { na_date: v } : { status: "完了" }) }) });
     // 済みにしたら、その行をすぐ消す（読み直しを待たない）（2026-11-10 田中さん）。日付を変えたときは読み直しで並びが変わる
@@ -1649,7 +1649,7 @@ function renderHomeV2() {
         const lbl = due ? `${Number(due.slice(5, 7))}/${Number(due.slice(8, 10))}${tm ? ` ${tm}` : ""}` : "期日なし";
         const em = a.left == null ? "" : a.left < 0 ? `<em class="over">${-a.left}日過ぎ</em>` : a.left === 0 ? '<em class="soon">今日</em>' : `<em class="${a.left <= 3 ? "soon" : ""}">あと${a.left}日</em>`;
         const cls = `h2-due ${a.left != null && a.left < 0 ? "over" : a.left != null && a.left <= 3 ? "soon" : ""}`;
-        if (k0 === "na" || k0 === "me") return `<label class="${cls} edit" data-noopen title="押すと日付を変えられます">${lbl}${em}<input type="date" data-ha="${k0}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}" data-do="date" value="${esc(due)}"></label>`;
+        if (k0 === "na" || k0 === "me") return `<label class="${cls} edit" data-noopen title="押すと日付${k0 === "na" ? "と時間" : ""}を変えられます">${lbl}${em}<input type="${k0 === "na" ? "datetime-local" : "date"}" data-ha="${k0}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}" data-do="date" value="${esc(k0 === "na" && due ? `${due}T${x.naAt ? new Date(new Date(x.naAt).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "10:00"}` : due)}"></label>`;
         return `<span class="${cls}" title="${k0 === "ko" ? "受注から14日（キックオフの目安）" : "期日"}">${lbl}${em}</span>`; })()}<span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}${a.kind === "キックオフ未実施" && x.fs ? `<small class="h2-fs" title="受注した人（${esc(x.channel || "直販")}）">${esc(x.channel === "PS" ? "PS" : "直販")}：${esc(kxSurname(x.fs) || x.fs)}</small>` : ""}</span>${(() => { const ppl = window.__kxPeople || []; const csEm = (ppl.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || "";
         const nm = a.na && x.naOwner ? (kxSurname((ppl.find((p0) => p0.email === x.naOwner) || {}).name || "") || x.naOwner.split("@")[0]) : (kxSurname(x.cs) || "CS未定");
         // キックオフ未実施・検収書も、担当を押すとほかの人に割り振れる（2026-11-13 田中さん）
@@ -2893,7 +2893,7 @@ async function kxCTaskMount(bg, x) {
         ${t.na ? (() => { const csEm = (people.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || ""; const curEm = x.naOwner || csEm; const curP = people.find((p0) => p0.email === curEm);
             const nm = curP ? (kxSurname(curP.name) || curP.name) : (kxSurname(x.cs || "") || "CS未定");
             return ro ? `<span class="kx-tm-who" title="担当">${esc(nm)}</span>` : `<label class="kx-tm-who" title="次回アクションの担当を変える（ふだんはCS担当）">${esc(nm)}${x.naOwner && x.naOwner !== csEm ? "<em>託</em>" : ""}<select data-tm-naown="1">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === curEm ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })() : (ro || !t.id ? `<span class="kx-tm-who" title="担当">${esc(whoName(t.ownerName || t.owner))}</span>` : `<label class="kx-tm-who" title="担当を変える（託す）${t.byName ? `／${esc(whoName(t.byName))}さんが託した` : ""}">${esc(whoName(t.ownerName || t.owner))}${t.byName ? '<em>託</em>' : ""}<select data-tm-who="${i}">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === String(t.owner || "").toLowerCase() ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`)}
-        ${ro ? `<span class="kx-tm-due ${b}">${t.due ? md(t.due) : ""}</span>` : `<label class="kx-tm-due ${b}" title="期日を変える">${t.due ? `${md(t.due)}${t.time ? ` ${t.time}` : ""}${late ? `<em>${late}日過ぎ</em>` : ""}` : "期日"}<input type="date" data-tm-due="${i}" value="${esc(t.due || "")}"></label>`}
+        ${ro ? `<span class="kx-tm-due ${b}">${t.due ? md(t.due) : ""}</span>` : `<label class="kx-tm-due ${b}" title="期日を変える">${t.due ? `${md(t.due)}${t.time ? ` ${t.time}` : ""}${late ? `<em>${late}日過ぎ</em>` : ""}` : "期日"}${t.na ? `<input type="datetime-local" data-tm-due="${i}" value="${esc(t.due ? `${t.due}T${t.time || "10:00"}` : "")}">` : `<input type="date" data-tm-due="${i}" value="${esc(t.due || "")}">`}</label>`}
         ${ro || t.na ? "" : `<button type="button" class="kx-tm-x" data-tm-del="${i}" title="消す" aria-label="消す">×</button>`}
       </div>`;
     };
@@ -2917,7 +2917,11 @@ async function kxCTaskMount(bg, x) {
       if (t.na && !confirm("次回アクションを済みにしますか？（次回アクションが空になります）")) return;
       b.disabled = true; try { await upd(t, { status: t.status === "完了" ? "未着手" : "完了" }); load(); } catch (e) { alert(e.message); b.disabled = false; } }));
     box.querySelectorAll("[data-tm-due]").forEach((inp) => { inp.addEventListener("click", () => { try { inp.showPicker(); } catch {} });
-      inp.addEventListener("change", async () => { const t = list[Number(inp.dataset.tmDue)]; try { await upd(t, { due: inp.value || "" }); load(); } catch (e) { alert(e.message); } }); });
+      inp.addEventListener("change", async () => { const t = list[Number(inp.dataset.tmDue)]; try {
+        // 次回アクションは日にちと時間をそのまま（2026-11-13 田中さん「時間も変更できるように」）
+        if (t.na && /T\d{2}:\d{2}/.test(inp.value)) { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_at: inp.value.slice(0, 16) }) }); }
+        else await upd(t, { due: (inp.value || "").slice(0, 10) });
+        load(); } catch (e) { alert(e.message); } }); });
     box.querySelectorAll("[data-tm-naown]").forEach((sel) => sel.addEventListener("change", async () => {
       const csEm = (people.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || "";
       try { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_owner: sel.value === csEm ? "" : sel.value }) }); x.naOwner = sel.value === csEm ? "" : sel.value; load(); } catch (e) { alert(e.message); } }));
