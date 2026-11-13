@@ -1540,6 +1540,8 @@ async function kh2LoadTasks(who0) {
   // kinXs のお知らせ（期日が過ぎています・接触途絶など）は要アクション・会社のカードと重なるので、タスクには出さない（次回アクションそのものは出す）
   const items = (d.items || []).filter((t0) => t0.kind === "次回アクション" || !/^kinXs$/.test(String(t0.src || "")));
   kh2.tkN = items.length; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = items.length;
+  // 期限を過ぎているタスクの数（2026-11-13 田中さん）
+  { const td0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); kh2.tkOver = items.filter((t0) => t0.due && t0.due < td0).length; kh2.tkOverSet = new Set(items.filter((t0) => t0.due && t0.due < td0)); kxTkOverPaint(); }
   const box = $("kh2Tasks"); if (!box) return;
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
   const wk = new Date(Date.now() + 9 * 3600000 + 7 * 86400000).toISOString().slice(0, 10);
@@ -1567,7 +1569,7 @@ async function kh2LoadTasks(who0) {
     // 託したら、その場ですぐ自分の一覧から消す（全員のときは担当の名前だけ変える）。うまくいかなければ戻す（2026-11-13 田中さん）
     const li = sel.closest("[data-tk]"); const lab = sel.closest("label"); const prevName = lab ? lab.firstChild && lab.firstChild.nodeValue : "";
     if (d.all) { if (lab && lab.firstChild) lab.firstChild.nodeValue = p0 ? kxSurname(p0.name) || p0.name : em; }
-    else if (li) { li.classList.add("gone"); kh2.tkN = Math.max(0, (kh2.tkN || 1) - 1); const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN; setTimeout(() => { li.style.display = "none"; }, 260); }
+    else if (li) { li.classList.add("gone"); kh2.tkN = Math.max(0, (kh2.tkN || 1) - 1); const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN; if (kh2.tkOverSet && kh2.tkOverSet.has(t0)) { kh2.tkOverSet.delete(t0); kh2.tkOver = Math.max(0, (kh2.tkOver || 1) - 1); kxTkOverPaint(); } setTimeout(() => { li.style.display = "none"; }, 260); }
     if (typeof kxDoneToast === "function") kxDoneToast(`${p0 ? p0.name : em}さんに移しました`);
     try {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_owner: em }) });
@@ -1582,6 +1584,7 @@ async function kh2LoadTasks(who0) {
     e.stopPropagation(); const li = b.closest("[data-tk]"); if (!li || li.classList.contains("gone")) return;
     const t0 = items[Number(li.dataset.tk)]; b.classList.add("on"); li.classList.add("gone");
     kh2.tkN = Math.max(0, (kh2.tkN || 1) - 1); const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN;
+    if (kh2.tkOverSet && kh2.tkOverSet.has(t0)) { kh2.tkOverSet.delete(t0); kh2.tkOver = Math.max(0, (kh2.tkOver || 1) - 1); kxTkOverPaint(); }
     setTimeout(() => { li.style.display = "none"; }, 260);
     try {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_text: "" }) });
@@ -1644,7 +1647,7 @@ function renderHomeV2() {
   </div>
   <div class="h2-row">
     ${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><span class="h2-scope" role="tablist"><button type="button" class="${kxScope !== "all" ? "on" : ""}" data-home-scope="me">自分</button><button type="button" class="${kxScope === "all" ? "on" : ""}" data-home-scope="all">全員</button></span>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : ""}</div>
-      <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b ${k === "tk" ? 'data-tk-n' : ""}>${k === "tk" ? (kh2.tkN != null ? kh2.tkN : "…") : actRows.filter((r) => f(r.a)).length}</b><span>${l}</span></button>`).join("")}</div>
+      <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b ${k === "tk" ? 'data-tk-n' : ""}>${k === "tk" ? (kh2.tkN != null ? kh2.tkN : "…") : actRows.filter((r) => f(r.a)).length}</b><span>${l}${k === "tk" ? `<em class="tk-over" data-tk-over ${kh2.tkOver ? "" : "hidden"}>期限切れ ${kh2.tkOver || 0}</em>` : ""}</span></button>`).join("")}</div>
       ${kf === "tk" ? '<div class="h2-tk" id="kh2Tasks"><div class="kx-note" style="padding:10px 4px">読み込み中…</div></div>' : ""}<div class="h2-list"${kf === "tk" ? " hidden" : ""}>${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0">${(() => {
         // 期日の札（タスクのタブと同じ形）：日付・時刻＋「n日過ぎ／あとn日」。次回アクション・施策は押すと日付を変えられる（2026-11-11 田中さん）
         const k0 = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : "";
@@ -3016,3 +3019,6 @@ async function kxHireLoad(bg, id, refresh) {
       <div class="kx-note" style="margin-top:8px">読み取った議事録：${(d.sources || []).map((s0) => `${esc(s0.at)} ${esc(s0.title)}`).join("／") || "接触の記録のみ"}${upd ? `　｜　更新 ${esc(upd)}` : ""}</div>`;
   const re = box.querySelector("[data-hire-re]"); if (re) re.addEventListener("click", () => kxHireLoad(bg, id, true));
 }
+
+// タスクのカードの「期限切れ ○」の札を描く（2026-11-13）
+function kxTkOverPaint() { const el = document.querySelector("[data-tk-over]"); if (!el) return; const n = (typeof kh2 !== "undefined" && kh2.tkOver) || 0; el.textContent = `期限切れ ${n}`; el.hidden = !n; }

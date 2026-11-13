@@ -30861,7 +30861,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13r kinbot for MOCHICA：SF の「新規」の商談から、Bales に取り込むファイル（失注・前回の商談・ヒアリング・既存顧客・業種など、会社ごと）を作る。";
+const BUILD_TAG = "2026-11-13s kinXs ホーム：タスクのカードに「期限切れ ○」の赤い札（済み・移すと減る）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
