@@ -30699,7 +30699,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13a kinXs 電話フォロー：月別進捗表／企業ごとの進捗の切りかえ・期・月の送り・CSV をヘッダーに、月の帯を細く（スペースを取りすぎ）。";
+const BUILD_TAG = "2026-11-13b kinXs 電話フォロー：ステータス・結果の列を中身に合わせて細く、空いた分を企業名とメモへ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
