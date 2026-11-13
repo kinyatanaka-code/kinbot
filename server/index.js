@@ -26783,7 +26783,7 @@ function mcHearing(t) {
   const txt = out.join("／"); return txt.length > 300 ? txt.slice(0, 299) + "…" : txt;
 }
 async function mcBalesBuild(owner) {
-  const opps = await sfQueryAll(owner, "SELECT Id, AccountId, Account.Name, Account.Phone, Account.Industry, Account.NumberOfEmployees, StageName, CreatedDate, appointment__c, order_date__c, LostOpp_nextactiondate__c, Loss_Reason__c, Loss_Reason1__c, order_reason_detail__c, Lost_before_stage__c, Losing_batting__c, Client_Current_Status__c, owner_text__c, Internship_apo__c FROM Opportunity WHERE RecordType.Name = '新規' AND AccountId != null ORDER BY CreatedDate DESC");
+  const opps = await sfQueryAll(owner, "SELECT Id, AccountId, Account.Name, Account.Phone, Account.Industry, Account.NumberOfEmployees, StageName, CreatedDate, appointment__c, order_date__c, LostOpp_nextactiondate__c, Loss_Reason__c, Loss_Reason1__c, order_reason_detail__c, Lost_before_stage__c, Losing_batting__c, Loss_Reason2__c, Client_Current_Status__c, Client_Issue__c, owner_text__c, Owner.Name, Internship_apo__c FROM Opportunity WHERE RecordType.Name = '新規' AND AccountId != null ORDER BY CreatedDate DESC");
   const won = new Set((await sfQueryAll(owner, "SELECT AccountId FROM Opportunity WHERE StageName LIKE '08%' AND AccountId != null").catch(() => [])).map((r) => r.AccountId));
   const by = new Map(); for (const o of opps) { const a = by.get(o.AccountId) || []; a.push(o); by.set(o.AccountId, a); }
   const d10 = (v) => (v ? String(v).slice(0, 10).replace(/-/g, "/") : "");
@@ -26792,24 +26792,65 @@ async function mcBalesBuild(owner) {
     const latest = list[0]; const lost = list.filter((o) => /失注/.test(o.StageName || "")).sort((a, b) => String(b.order_date__c || b.CreatedDate).localeCompare(String(a.order_date__c || a.CreatedDate)))[0];
     const hear = list.map((o) => o.Client_Current_Status__c).find((t) => mcHearing(t).length >= 10) || "";
     const acc = latest.Account || {};
+    const issue = list.map((o) => String(o.Client_Issue__c || "").replace(/\s+/g, " ").trim()).find(Boolean) || "";
+    // 列の名前は Bales のカスタム情報のシステム参照名（Client_Current_Status__c など）。左の3列は会社を当てるため（2026-11-13）
     rows.push({ "SalesforceID": aid, "会社名": acc.Name || "", "電話番号": acc.Phone || "",
+      "Client_Current_Status__c": mcHearing(hear), "Client_Issue__c": issue.slice(0, 300),
+      "LostOppID__c": lost ? lost.Id : "", "LostOpp_OwnerID__c": lost ? ((lost.Owner && lost.Owner.Name) || lost.owner_text__c || "") : "",
+      "Lostopp_beforeCloseStage__c": lost ? lost.Lost_before_stage__c || "" : "",
+      "LostOpp_lostdate__c": lost ? d10(lost.order_date__c) : "", "Lostopp_nextactiondate__c": lost ? d10(lost.LostOpp_nextactiondate__c) : "",
+      "Lostopp_reason1__c": lost ? lost.Loss_Reason__c || "" : "", "Lostopp_reason2__c": lost ? lost.Loss_Reason1__c || "" : "",
+      "Lostopp_reason3__c": lost ? String(lost.order_reason_detail__c || "").replace(/\s+/g, " ").replace(/^-$/, "").slice(0, 300) : "",
+      "Lostopp_reason4__c": lost ? lost.Loss_Reason2__c || "" : "", "Losing_batting__c": lost ? lost.Losing_batting__c || "" : "",
       "既存顧客": won.has(aid) ? "受注あり" : "", "前回の商談日": d10(latest.appointment__c || latest.CreatedDate), "前回の担当": latest.owner_text__c || "", "アポ獲得者": latest.Internship_apo__c || "",
-      "前回のヒアリング": mcHearing(hear),
-      "失注商談失注日": lost ? d10(lost.order_date__c) : "", "失注後次回アクション日": lost ? d10(lost.LostOpp_nextactiondate__c) : "",
-      "失注商談失注理由大": lost ? lost.Loss_Reason__c || "" : "", "失注商談失注理由中": lost ? lost.Loss_Reason1__c || "" : "",
-      "失注商談失注理由詳細": lost ? String(lost.order_reason_detail__c || "").replace(/\s+/g, " ").replace(/^-$/, "").slice(0, 300) : "",
-      "失注商談失注前ステージ": lost ? lost.Lost_before_stage__c || "" : "", "失注商談バッティング負け競合": lost ? lost.Losing_batting__c || "" : "",
       "業種": acc.Industry || "", "従業員数": acc.NumberOfEmployees != null ? String(acc.NumberOfEmployees) : "", "新規の商談の数": String(list.length) });
   }
-  return { rows, at: Date.now(), opps: opps.length, accounts: rows.length, lost: rows.filter((r) => r["失注商談失注日"]).length, won: rows.filter((r) => r["既存顧客"]).length };
+  return { rows, at: Date.now(), opps: opps.length, accounts: rows.length, lost: rows.filter((r) => r["LostOpp_lostdate__c"]).length, won: rows.filter((r) => r["既存顧客"]).length };
 }
 async function mcBalesGet(owner, fresh) {
   if (!fresh && _mcBales.p && Date.now() - _mcBales.at < 3600000) return _mcBales.p;
   _mcBales = { at: Date.now(), p: mcBalesBuild(owner).catch((e) => { _mcBales = { at: 0, p: null }; throw e; }) }; return _mcBales.p;
 }
+// ===== Bales のカスタム情報は、SF の「Mochica（リード）」の項目と同じ名前（2026-11-13 田中さんのスクショで判明）。
+//   Bales の SalesforceID＝SF のリードの ID（00Q…）。SF のリードの値を、リードの ID で Bales にそのまま入れる =====
+const MC_BALES_FIELDS = [
+  ["活動予定日時", "scheduledate__c"], ["活動予定コメント", "schedule_comment__c"], ["顧客の現状", "Client_Current_Status__c"], ["顧客の課題感", "Client_Issue__c"],
+  ["ペンディング理由", "pending_reason__c"], ["失注商談失注前ステージ", "Lostopp_beforeCloseStage__c"], ["失注商談失注日", "LostOpp_lostdate__c"], ["失注後次回アクション日", "Lostopp_nextaction__c"],
+  ["失注商談失注理由大", "Lostopp_reason1__c"], ["失注商談失注理由中", "Lostopp_reason2__c"], ["失注商談失注理由詳細", "Lostopp_reason3__c"], ["失注商談失注理由小", "Lostopp_reason4__c"],
+  ["失注商談バッティング負け競合", "Losing_batting__c"], ["利用中ATS", "ATS__c"], ["現利用サービス更新予定月", "update_month__c"], ["採用人数(選択リスト)", "Number_of_hires__c"],
+  ["エントリー数", "entry_amount__c"], ["検討開始時期", "Start_Considering_Date__c"], ["アプローチ禁止の種類", "Ban_Type__c"], ["失注商談", "LostOppID__c"], ["失注商談所有者", "LostOpp_OwnerID__c"],
+];
+let _mcBalesLead = { key: "", at: 0, p: null };
+async function mcBalesLeadBuild(owner, scope) {
+  const f = MC_BALES_FIELDS.map(([, api]) => api).join(", ");
+  // 既定は「失注の情報があるリード」。all ならリード全部（約8.7万件）
+  const where = scope === "all" ? "" : " AND (LostOppID__c != null OR LostOpp_lostdate__c != null)";   // 既定は失注の情報があるリード（約1.4万件）
+  const leads = await sfQueryAll(owner, `SELECT Id, Company, ${f} FROM Lead WHERE RecordType.Name = 'Mochica（リード）'${where} ORDER BY LastModifiedDate DESC`, 120000);
+  const val = (v) => (v == null ? "" : String(v).replace(/\r/g, "").replace(/\n+/g, " ").trim());
+  const rows = leads.map((l) => { const r = { SalesforceID: l.Id, 会社名: l.Company || "" }; for (const [lbl, api] of MC_BALES_FIELDS) r[lbl] = val(l[api]); return r; });
+  return { rows, at: Date.now(), count: rows.length, lost: rows.filter((r) => r["失注商談失注日"]).length };
+}
+async function mcBalesLeadGet(owner, scope, fresh) {
+  const key = scope || "lost"; if (!fresh && _mcBalesLead.key === key && _mcBalesLead.p && Date.now() - _mcBalesLead.at < 3600000) return _mcBalesLead.p;
+  _mcBalesLead = { key, at: Date.now(), p: mcBalesLeadBuild(owner, key).catch((e) => { _mcBalesLead = { key: "", at: 0, p: null }; throw e; }) }; return _mcBalesLead.p;
+}
+app.get("/api/mochica/bales/leads/summary", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const d = await mcBalesLeadGet(owner, String(req.query.scope || "lost"), !!req.query.fresh);
+    res.json({ ok: true, count: d.count, lost: d.lost, fields: MC_BALES_FIELDS.map(([l, a]) => ({ label: l, api: a, filled: d.rows.filter((r) => r[l]).length })), sample: d.rows.filter((r) => r["失注商談失注理由大"]).slice(0, 3) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/leads.csv", async (req, res) => {
+  try { if (!req.user) return res.status(401).send("ログインしてください"); const owner = await pickSfUser(req.user, req);
+    const d = await mcBalesLeadGet(owner, String(req.query.scope || "lost"), !!req.query.fresh); const cols = ["SalesforceID", "会社名", ...MC_BALES_FIELDS.map(([l]) => l)];
+    const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+    const csv = "\ufeff" + [cols.map(q).join(","), ...d.rows.map((r) => cols.map((c) => q(r[c])).join(","))].join("\r\n");
+    res.setHeader("content-type", "text/csv; charset=utf-8"); res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`Bales取り込み用_SFのMochicaリード_${new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10)}.csv`)}`); res.send(csv);
+  } catch (e) { res.status(500).send("作れませんでした：" + e.message); }
+});
 app.get("/api/mochica/bales/summary", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
-    const d = await mcBalesGet(owner, !!req.query.fresh); res.json({ ok: true, at: d.at, opps: d.opps, accounts: d.accounts, lost: d.lost, won: d.won, sample: d.rows.filter((r) => r["失注商談失注日"] && r["前回のヒアリング"]).slice(0, 3) });
+    const d = await mcBalesGet(owner, !!req.query.fresh); res.json({ ok: true, at: d.at, opps: d.opps, accounts: d.accounts, lost: d.lost, won: d.won, sample: d.rows.filter((r) => r["LostOpp_lostdate__c"] && r["Client_Current_Status__c"]).slice(0, 3) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/bales/export.csv", async (req, res) => {
@@ -30861,7 +30902,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13s kinXs ホーム：タスクのカードに「期限切れ ○」の赤い札（済み・移すと減る）。";
+const BUILD_TAG = "2026-11-13t kinbot for MOCHICA：Bales のカスタム情報＝SF の Mochica（リード）の項目と分かったので、SF のリードの値をリードの ID（00Q…）で Bales に入れるファイルを作る。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
