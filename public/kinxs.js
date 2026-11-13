@@ -1999,7 +1999,8 @@ function renderPlanV2() {
       ${col(low, "ロータッチ", "low", ls, band)}
       <section class="p3-side"><div class="p3-tabs">${[["send", "一斉配信"], ["prep", "来月の準備"], ["acc", "アクセス数"]].map(([k2, l]) => `<button type="button" class="${kp.tab === k2 ? "on" : ""}" data-ptab="${k2}">${l}</button>`).join("")}</div><div class="p3-tb">${tabBody}</div></section>
     </div></div>`;
-  kxHeadMonth(kp.ym, (n) => { kp.ym = n === 0 ? kxNowYm() : kxYmAdd(kp.ym, n); kp.data = null; kp.sel = ""; kp.chk.clear(); renderPlanV2(); });
+  // ヘッダーの月の切りかえは出さない（月は上の3月〜2月の帯で選ぶ）（2026-11-13 田中さん「年間施策の月の切りかえもいらない」）
+  { const hm0 = $("kxHeadMonth"); if (hm0) { hm0.hidden = true; hm0.innerHTML = ""; } }
   box.querySelectorAll("[data-goym]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.goym === kp.ym) return; kp.ym = b.dataset.goym; kp.data = null; kp.sel = ""; kp.chk.clear(); renderPlanV2(); }));
   box.querySelectorAll("[data-ptab]").forEach((b) => b.addEventListener("click", () => { kp.tab = b.dataset.ptab; renderPlanV2(); }));
   box.querySelectorAll("[data-mk-all]").forEach((b) => b.addEventListener("click", () => { const me = d.measures.find((x) => x.key === b.dataset.mkAll); kpActPopup(me, kp.ym, "", () => kpLoad(true)); }));
