@@ -1826,3 +1826,11 @@ export async function driveUploadFile(owner, { path: fpath, name, mimeType = "vi
   if (!put.ok) throw new Error(`Drive upload ${put.status}: ${JSON.stringify(pd).slice(0, 200)}`);
   return { fileId: pd.id, link: pd.webViewLink || "", size };
 }
+
+// スプレッドシートのタブ（シート）の一覧：sheetId（URL の gid）と名前（2026-11-13）
+export async function sheetTabs(owner, spreadsheetId) {
+  const token = await accessToken(owner);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties(sheetId,title)`, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) { const t = await res.text(); const e = new Error(`シートの一覧 ${res.status}: ${t.slice(0, 200)}`); if (res.status === 404) e.notFound = true; if (res.status === 403 && /insufficient|scope/i.test(t)) e.needScope = true; throw e; }
+  const d = await res.json().catch(() => ({})); return (d.sheets || []).map((s) => ({ id: s.properties.sheetId, title: s.properties.title }));
+}

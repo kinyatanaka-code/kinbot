@@ -701,7 +701,7 @@ import {
   gmailCreateDraft, gmailDraftExists, chatMySpaces, chatRecentMessages, sheetTabs,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
+  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, sheetTabs, updateSheetCells, diagnoseSheet,
   writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
@@ -15817,7 +15817,7 @@ app.put("/api/kinxs/actions", async (req, res) => {
 // ===== 電話フォロー：今使っている「手紙送付リスト」のスプレッドシートを kinXs が読む（2026-11-13 田中さん「CSV ではなく自動でスプレッドシートを読む」）=====
 //   見出しの行から列を当てて（会社・担当・ステータス・結果・メモ・NA日 など）、会社名で kinXs の会社に当て、
 //   お手紙（letter）と電話フォロー（call_letter）の記録に入れる。30分ごとに自動、ヘッダーの「シートから読む」で今すぐ
-const KX_LETTER_SHEET_DEF = { id: "1xbe80Rs1Dy50zJ8-wKMgYVTtth-3bG0sScbWwYARHPU", tab: "手紙送付リスト" };
+const KX_LETTER_SHEET_DEF = { id: "1xbe80Rs1Dy50zJ8-wKMgYVTtth-3bG0sScbWwYARHPU", tab: "手紙送付リスト", gid: 1213626809 };
 const kxNz = (v) => String(v || "").normalize("NFKC").toLowerCase().replace(/[\s　・,，.。()（）「」『』]/g, "").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|公益社団法人|学校法人|\(株\)|㈱|（株）/g, "");
 function kxSheetCols(head) {
   const find = (re, not) => head.findIndex((h) => re.test(String(h || "")) && !(not && not.test(String(h || ""))));
@@ -15830,7 +15830,10 @@ function kxSheetSt(mkey, v) { const t = String(v || "").normalize("NFKC").trim()
   if (/完了|済/.test(t)) return opts.includes("対応完了") ? "対応完了" : opts.includes("完了") ? "完了" : null; if (/対象外|不要|除外/.test(t) && opts.includes("対象外")) return "対象外"; if (/対応中|架電中/.test(t) && opts.includes("対応中")) return "対応中"; if (/未/.test(t) && opts.includes("未対応")) return "未対応"; return null; }
 async function kxLetterSheetSync(owner, { dry = false } = {}) {
   const st = await getSettings().catch(() => ({})); const cfg = { ...KX_LETTER_SHEET_DEF, ...(st.kxLetterSheet || {}) };
-  const vals = await readSheet(owner, cfg.id, `'${cfg.tab}'!A1:AD2000`);
+  // タブの名前は、URL の gid（1213626809）で本当の名前を確かめる（名前に空白などが入っていて読めなかった：2026-11-13）
+  let tabName = cfg.tab;
+  try { const tabs = await sheetTabs(owner, cfg.id); const hit = tabs.find((t) => t.id === Number(cfg.gid)) || tabs.find((t) => t.title.trim() === cfg.tab) || tabs.find((t) => /手紙/.test(t.title)); if (hit) tabName = hit.title; } catch (e) { if (e.notFound || e.needScope) throw e; }
+  const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'!A1:AD2000`);
   const rows = (vals && (vals.values || vals)) || []; if (!Array.isArray(rows) || !rows.length) throw new Error("シートが空でした");
   let hi = rows.slice(0, 15).findIndex((r) => (r || []).some((c) => /企業名|会社名|法人名|^企業$|^会社$|顧客名|取引先/.test(String(c || ""))));
   if (hi < 0) throw new Error("見出しの行（企業名・会社名など）が見つかりませんでした");
@@ -30747,7 +30750,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13d kinXs ホーム：タスクを託したら、すぐ自分の一覧から消す（託された人のホームにすぐ出す）。";
+const BUILD_TAG = "2026-11-13e 電話フォローの「シートから読む」：タブの名前を URL の gid で確かめてから読む（Unable to parse range を直す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
