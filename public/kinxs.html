@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261112zz10" />
+    <link rel="stylesheet" href="style.css?v=20261113a" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -945,6 +945,16 @@
   #kh2 .h2-act .h2-tk{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;margin-right:-8px;padding-right:6px;}
   #kh2 .h2-list[hidden]{display:none !important;}
   .h2-act.big .h2-tk{max-height:none !important;flex:1;overflow:auto;}
+  /* 電話フォロー：切りかえ・期・月・CSV をヘッダーに、月の帯を細く（2026-11-13） */
+  .kx-headcall{display:inline-flex;align-items:center;gap:8px;margin-left:6px;flex-wrap:nowrap;}
+  .kx-headcall .hc-seg{margin:0 !important;} .kx-headcall .hc-seg button{padding:6px 12px;font-size:12.5px;}
+  .kx-headcall .hc-sel{height:34px;max-width:190px;font-size:12.5px;padding:0 8px;}
+  .kx-headcall .hc-m{margin-left:0;}
+  .kx-headcall .hc-csv{height:34px;padding:0 12px;font-size:12px;white-space:nowrap;}
+  .v2-strip{gap:3px !important;margin:0 0 10px !important;}
+  .v2-strip button{flex-direction:row !important;align-items:baseline;gap:6px !important;padding:4px 7px !important;border-radius:7px !important;min-width:0;overflow:hidden;}
+  .v2-strip button b{font-size:11.5px;white-space:nowrap;} .v2-strip button span{margin-left:auto;font-size:11px;white-space:nowrap;}
+  .v2-strip small{display:none;}
   .ar-empty{padding:18px;color:#8FA39A;font-size:13px;}
   .ar-f{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;font-size:13px;margin-bottom:8px;} .ar-f input,.ar-f select{border:1px solid #DCE6E1;border-radius:8px;padding:6px 8px;font:inherit;}
 
@@ -1086,7 +1096,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261112zz10" defer></script>
-    <script src="kinxs.js?v=20261112zz10"></script>
+    <script src="kbchat.js?v=20261113a" defer></script>
+    <script src="kinxs.js?v=20261113a"></script>
   </body>
 </html>

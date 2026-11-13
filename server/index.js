@@ -30699,7 +30699,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-12zz10 MOCHICA：拡張機能1.6.0 が20分ごとに自動で MiiTel を読む（新しい会議の一覧→文字起こし・議事録・録画がまだの会議）。録画も自動で取り込む。";
+const BUILD_TAG = "2026-11-13a kinXs 電話フォロー：月別進捗表／企業ごとの進捗の切りかえ・期・月の送り・CSV をヘッダーに、月の帯を細く（スペースを取りすぎ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

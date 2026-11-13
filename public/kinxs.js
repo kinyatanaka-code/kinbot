@@ -2024,13 +2024,13 @@ function renderCallV2() {
   const box = $("vCallBody"); if (!box) return;
   if (!kc.data) { box.innerHTML = kxSkel(); kcLoad(); return; }
   const d = kc.data; const curP = kxPeriodOf(kxNowYm());
-  const tabs = `<div class="kx-seg" style="margin-bottom:12px"><button type="button" class="${kc.tab === "month" ? "on" : ""}" data-kc-tab="month">月別進捗表</button><button type="button" class="${kc.tab === "co" ? "on" : ""}" data-kc-tab="co">企業ごとの進捗</button></div>`;
+  const tabs = "";   // 切りかえ・月の送り・期の選択・CSV はヘッダーに出す（2026-11-13 田中さん「スペースを取りすぎ」）
   let body = "";
   if (kc.tab === "month") {
     const past = d.months.filter((m) => !m.future); const tot = past.reduce((a, m) => a + m.total, 0), dn = past.reduce((a, m) => a + m.done, 0);
     const cur = d.months.find((m) => m.ym === d.nowYm) || { counts: {}, done: 0, total: 0 };
     const worry = d.months.reduce((a, m) => a + (m.results["懸念あり"] || 0), 0);
-    body = `<div class="v2-month"><select class="kx-in" data-kc-period style="max-width:140px">${[curP, curP - 1].map((p) => `<option value="${p}" ${p === d.period ? "selected" : ""}>${p}期</option>`).join("")}</select><span class="kx-note">${d.period}期（${d.period + 1999}年3月〜${d.period + 2000}年2月）</span><button type="button" class="kx-btn" data-kc-csv style="margin-left:auto">スプレッドシート用に書き出す（CSV）</button></div>
+    body = `
       <div class="v2-kpis">${[["累計の完了", `${dn} / ${tot}社`, tot ? `${Math.round((dn / tot) * 100)}%` : "—", true], ["今月の未対応", `${cur.counts["未対応"] || 0}社`, ""], ["今月の完了", `${cur.done}社`, ""], ["懸念ありの企業（累計）", `${worry}社`, ""]].map(([l, v, s, strong]) => `<div class="v2-kpi ${strong ? "strong" : ""}"><span class="l">${l}</span><span class="v" style="font-size:24px">${v}</span><span class="d">${s}</span></div>`).join("")}</div>
       <div class="v2-rt-wrap"><table class="v2-rt v2-kct"><thead><tr><th>月</th><th>電話の理由</th><th>対象</th><th>未対応</th><th>架電済み（不在）</th><th>対応中</th><th>完了</th><th>完了率</th><th>良好</th><th>普通</th><th>懸念あり</th></tr></thead><tbody>
       ${d.months.map((m) => { const pct = m.total ? Math.round((m.done / m.total) * 100) : 0; const now = m.ym === d.nowYm; return `<tr class="${now ? "hl now" : ""} ${m.future ? "fut" : ""}"><th><button type="button" data-kc-ym="${m.ym}">${Number(m.ym.slice(5))}月</button></th><td class="rs">${esc(m.reasons.join("・") || "—")}</td>${m.future ? `<td colspan="9" class="kx-note">予定</td>` : `<td>${m.total}</td><td class="${now && m.counts["未対応"] ? "cc" : ""}">${m.counts["未対応"] || 0}</td><td>${m.counts["架電済み（不在）"] || 0}</td><td>${m.counts["対応中"] || 0}</td><td>${m.done}</td><td><div class="bar"><i style="width:${pct}%"></i></div><small>${pct}%</small></td><td>${m.results["良好"] || 0}</td><td>${m.results["普通"] || 0}</td><td class="${m.results["懸念あり"] ? "cc" : ""}">${m.results["懸念あり"] || 0}</td>`}</tr>`; }).join("")}
@@ -2044,7 +2044,7 @@ function renderCallV2() {
     const ST = ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"];
     const needIds = rows0.map((r) => r.id).filter((id) => !(kc.inf && kc.inf[id]));
     if (needIds.length && !kc.infBusy) { kc.infBusy = true; api("/api/kinxs/sfinfo", { method: "POST", body: JSON.stringify({ ids: needIds }) }).then((d2) => { kc.inf = { ...(kc.inf || {}), ...(d2.info || {}) }; kc.infBusy = false; renderCallV2(); }).catch(() => { kc.infBusy = false; }); }
-    body = `<div class="v2-month"><button type="button" class="kx-btn" data-kc-m="-1">◀</button><b>${kxYmLabel(kc.ym)}</b><button type="button" class="kx-btn" data-kc-m="1">▶</button><button type="button" class="kx-btn" data-kc-csv2 style="margin-left:auto">スプレッドシート用に書き出す（CSV）</button></div>
+    body = `
       <div class="v2-strip">${d.months.map((m) => `<button type="button" class="${m.ym === kc.ym ? "on" : ""}" data-kc-ym="${m.ym}"><b>${Number(m.ym.slice(5))}月</b><small>${esc(m.reasons.join("・") || "—")}</small><span>${m.future ? "予定" : `完了 ${m.done}`}</span></button>`).join("")}</div>
       <section class="v2-sec"><div class="v2-big"><span class="l">今月のサマリ</span><span class="v">完了 ${dn}<small>/ ${eff.length}社</small></span><span class="pct" style="font-weight:800;color:#0E6B4E">${pct}%</span><div class="bar" style="flex:1;min-width:120px"><i style="width:${pct}%"></i></div></div>
         <div class="v2-big" style="margin-top:6px">${ST.map((s) => `<button type="button" class="v2-chip ${kc.f.st === s ? "red" : ""}" data-kc-st="${esc(s)}">${esc(s)} <b>${rows0.filter((r) => r.status === s).length}</b></button>`).join("")}</div></section>
@@ -2057,11 +2057,20 @@ function renderCallV2() {
         <input class="kx-in" data-f="memo" value="${esc(r.memo)}" placeholder="メモ・次のアクション" /><input type="date" class="kx-in" data-f="na_date" value="${esc(r.naDate)}" /></div>`).join("") || '<div class="kx-empty">この月の電話の対象はありません</div>'}</div>
       <div class="kx-note">変えるとすぐ保存し、年間施策の数字と、企業詳細の議事録タブ（電話・メールなどの記録）にも入ります。</div>`;
   }
+  // ヘッダー：月別進捗表／企業ごとの進捗、期の選択 or 月の送り、CSV
+  let hc = $("kxHeadCall"); const hmEl = $("kxHeadMonth");
+  if (!hc && hmEl) { hc = document.createElement("div"); hc.id = "kxHeadCall"; hc.className = "kx-headcall"; hmEl.insertAdjacentElement("afterend", hc); }
+  if (hmEl) hmEl.hidden = true;
+  if (hc) { hc.hidden = false;
+    hc.innerHTML = `<span class="kx-seg hc-seg"><button type="button" class="${kc.tab === "month" ? "on" : ""}" data-kc-tab="month">月別進捗表</button><button type="button" class="${kc.tab === "co" ? "on" : ""}" data-kc-tab="co">企業ごとの進捗</button></span>`
+      + (kc.tab === "month" ? `<select class="kx-in hc-sel" data-kc-period title="${d.period}期（${d.period + 1999}年3月〜${d.period + 2000}年2月）">${[curP, curP - 1].map((p) => `<option value="${p}" ${p === d.period ? "selected" : ""}>${p}期（${p + 1999}/3〜${p + 2000}/2）</option>`).join("")}</select><button type="button" class="kx-btn hc-csv" data-kc-csv title="スプレッドシート用に書き出す（CSV）">CSV ⬇</button>`
+        : `<span class="v2-headm hc-m"><button type="button" data-kc-m="-1" aria-label="前の月">‹</button><b>${kxYmLabel(kc.ym)}</b><button type="button" data-kc-m="1" aria-label="次の月">›</button></span><button type="button" class="kx-btn hc-csv" data-kc-csv2 title="スプレッドシート用に書き出す（CSV）">CSV ⬇</button>`); }
   box.innerHTML = tabs + body;
-  box.querySelectorAll("[data-kc-tab]").forEach((b) => b.addEventListener("click", () => { kc.tab = b.dataset.kcTab; renderCallV2(); }));
-  const pe = box.querySelector("[data-kc-period]"); if (pe) pe.addEventListener("change", () => { kc.period = Number(pe.value); kc.data = null; renderCallV2(); });
+  const scope = { querySelectorAll: (q) => [...box.querySelectorAll(q), ...(hc ? hc.querySelectorAll(q) : [])], querySelector: (q) => box.querySelector(q) || (hc && hc.querySelector(q)) };
+  scope.querySelectorAll("[data-kc-tab]").forEach((b) => b.addEventListener("click", () => { kc.tab = b.dataset.kcTab; renderCallV2(); }));
+  const pe = scope.querySelector("[data-kc-period]"); if (pe) pe.addEventListener("change", () => { kc.period = Number(pe.value); kc.data = null; renderCallV2(); });
   box.querySelectorAll("[data-kc-ym]").forEach((b) => b.addEventListener("click", async () => { kc.ym = b.dataset.kcYm; kc.tab = "co"; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => null); renderCallV2(); }));
-  box.querySelectorAll("[data-kc-m]").forEach((b) => b.addEventListener("click", async () => { kc.ym = kxYmAdd(kc.ym, Number(b.dataset.kcM)); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => null); renderCallV2(); }));
+  scope.querySelectorAll("[data-kc-m]").forEach((b) => b.addEventListener("click", async () => { kc.ym = kxYmAdd(kc.ym, Number(b.dataset.kcM)); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => null); renderCallV2(); }));
   box.querySelectorAll("[data-kc-st]").forEach((b) => b.addEventListener("click", () => { kc.f.st = kc.f.st === b.dataset.kcSt ? "" : b.dataset.kcSt; renderCallV2(); }));
   box.querySelectorAll("[data-kc-f]").forEach((s) => s.addEventListener("change", () => { kc.f[s.dataset.kcF] = s.value; renderCallV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
@@ -2070,8 +2079,8 @@ function renderCallV2() {
     row.querySelectorAll("[data-f]").forEach((el) => el.addEventListener("change", async () => { try { await kpSave(mkey, kc.ym, { account_id: id, [el.dataset.f]: el.value }); el.style.borderColor = "#1D9E75"; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => kc.plan); } catch (e) { el.style.borderColor = "#C43D3D"; alert(e.message); } }));
     const cb = row.querySelector("[data-call]"); if (cb) cb.addEventListener("click", async () => { const stEl = row.querySelector('[data-f="status"]'); const st0 = stEl.value === "未対応" ? "架電済み（不在）" : stEl.value; try { await kpSave(mkey, kc.ym, { account_id: id, call: true, status: st0 }); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`); renderCallV2(); } catch (e) { alert(e.message); } });
   });
-  const c1 = box.querySelector("[data-kc-csv]"); if (c1) c1.addEventListener("click", () => kpCsv(`電話フォロー_${d.period}期_月別.csv`, ["月", "電話の理由", "対象", "未対応", "架電済み（不在）", "対応中", "完了", "完了率", "良好", "普通", "懸念あり"], d.months.map((m) => [m.ym, m.reasons.join("・"), m.total, m.counts["未対応"] || 0, m.counts["架電済み（不在）"] || 0, m.counts["対応中"] || 0, m.done, m.total ? Math.round((m.done / m.total) * 100) + "%" : "", m.results["良好"] || 0, m.results["普通"] || 0, m.results["懸念あり"] || 0])));
-  const c2 = box.querySelector("[data-kc-csv2]"); if (c2) c2.addEventListener("click", () => { const ms = ((kc.plan && kc.plan.measures) || []).filter((x) => x.call); kpCsv(`電話フォロー_${kc.ym}.csv`, ["企業名", "電話の理由", "担当", "電話番号", "ステータス", "架電回数", "最終架電日", "結果", "メモ・次のアクション", "NA日"], ms.flatMap((x) => x.rows.map((r) => [r.name, x.reason, r.cs, ((kc.inf || {})[r.id] || {}).phone || "", r.status, r.calls, r.lastCall, r.result, r.memo, r.naDate]))); });
+  const c1 = scope.querySelector("[data-kc-csv]"); if (c1) c1.addEventListener("click", () => kpCsv(`電話フォロー_${d.period}期_月別.csv`, ["月", "電話の理由", "対象", "未対応", "架電済み（不在）", "対応中", "完了", "完了率", "良好", "普通", "懸念あり"], d.months.map((m) => [m.ym, m.reasons.join("・"), m.total, m.counts["未対応"] || 0, m.counts["架電済み（不在）"] || 0, m.counts["対応中"] || 0, m.done, m.total ? Math.round((m.done / m.total) * 100) + "%" : "", m.results["良好"] || 0, m.results["普通"] || 0, m.results["懸念あり"] || 0])));
+  const c2 = scope.querySelector("[data-kc-csv2]"); if (c2) c2.addEventListener("click", () => { const ms = ((kc.plan && kc.plan.measures) || []).filter((x) => x.call); kpCsv(`電話フォロー_${kc.ym}.csv`, ["企業名", "電話の理由", "担当", "電話番号", "ステータス", "架電回数", "最終架電日", "結果", "メモ・次のアクション", "NA日"], ms.flatMap((x) => x.rows.map((r) => [r.name, x.reason, r.cs, ((kc.inf || {})[r.id] || {}).phone || "", r.status, r.calls, r.lastCall, r.result, r.memo, r.naDate]))); });
 }
 
 // 起動（年間施策・電話フォロー）。let の変数を使うので、いちばん最後で呼ぶ
@@ -2944,3 +2953,6 @@ function kxGuideMount(bg, x, d) {
   document.addEventListener("keydown", (e) => { if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return; const tg = e.target; if (tg && (tg.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName))) return; e.preventDefault(); inp.focus(); inp.select(); });
   inp.addEventListener("focus", () => { if (rows.length && inp.value.trim().length >= 2) draw(); });
 })();
+
+// 電話フォローのヘッダーの部品は、ほかの画面では隠す（2026-11-13）
+setInterval(() => { const hc = document.getElementById("kxHeadCall"); if (hc && typeof VIEW !== "undefined" && VIEW !== "call" && !hc.hidden) hc.hidden = true; }, 800);
