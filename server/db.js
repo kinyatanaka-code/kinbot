@@ -12771,3 +12771,20 @@ export async function mcMiitelNeedCal(limit = 40) {
   if (!pool) return []; await ensureMcMiitel();
   return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec FROM mochica_miitel_events WHERE started_at IS NOT NULL AND NOT (payload ? 'mt_cal') AND started_at > now() - interval '60 days' ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
+
+// SF の立ち上げ：kincall の架電先から、会社の従業員数・業種を探す（2026-11-13 田中さん「従業員数は基本 kincall の情報から」）
+export async function findCallTargetCompanyInfo({ company = "", email = "", phone = "", leadId = "" } = {}) {
+  if (!pool) return null;
+  const core = String(company || "").normalize("NFKC").replace(/[\s　]/g, "").replace(/(株式会社|有限会社|合同会社|㈱|\(株\)|（株）|一般社団法人|一般財団法人|公益社団法人|公益財団法人|医療法人社団|医療法人|社会福祉法人|学校法人)/g, "");
+  const ph = String(phone || "").replace(/[^0-9]/g, "");
+  if (!core && !ph && !leadId) return null;
+  const r = await pool.query(`SELECT company, phone, lead_id, employees::text AS employees, industry, email FROM call_targets
+    WHERE (($1 <> '' AND lead_id = $1) OR ($2 <> '' AND company ILIKE '%' || $2 || '%') OR ($3 <> '' AND regexp_replace(COALESCE(phone,''),'[^0-9]','','g') = $3) OR ($4 <> '' AND lower(email) = lower($4)))
+    ORDER BY id DESC LIMIT 30`, [String(leadId || ""), core.length >= 2 ? core : "", ph.length >= 9 ? ph : "", String(email || "")]).catch(() => ({ rows: [] }));
+  const nz = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "").replace(/(株式会社|有限会社|合同会社|㈱|\(株\)|（株）)/g, "");
+  const rows = r.rows || []; const same = rows.filter((x) => (leadId && x.lead_id === leadId) || nz(x.company) === core || (ph && String(x.phone || "").replace(/[^0-9]/g, "") === ph));
+  const pool2 = same.length ? same : rows.filter((x) => nz(x.company).includes(core) && core.length >= 3);
+  const emp = pool2.map((x) => String(x.employees || "").trim()).find((v) => v && v !== "-" && /\d/.test(v)) || "";
+  const ind = pool2.map((x) => String(x.industry || "").trim()).find((v) => v) || "";
+  return emp || ind ? { employees: emp, industry: ind } : null;
+}

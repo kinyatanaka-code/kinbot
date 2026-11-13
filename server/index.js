@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelNeedCal, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelNeedCal, findCallTargetCompanyInfo, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -5212,6 +5212,8 @@ async function lookupCompanyInfo(company, email, sfUser, hint = "") {
   const merge = (o) => { for (const k of Object.keys(out)) { if (!out[k] && o && o[k] != null && String(o[k]).trim()) out[k] = String(o[k]).trim(); } };
   // 電話番号は、まずkincallの架電先から（実際にかけている番号なので確か）
   merge({ phone: await findCallTargetPhone({ company, email }).catch(() => "") });
+  // 従業員数も、まず kincall の架電先から（リストに入っている数を使う。SF・ネットはそのあと）（2026-11-13 田中さん）
+  { const kc = await findCallTargetCompanyInfo({ company, email }).catch(() => null); if (kc && kc.employees) { const n = parseInt(String(kc.employees).replace(/[^\d]/g, ""), 10); if (n) merge({ employees: String(n) }); } }
   merge(await ciFromSf(sfUser, company));
   merge(await ciFromGbiz(company, email));
   const need = () => !out.website || !out.phone || !out.street || !out.employees;
@@ -5450,6 +5452,7 @@ async function kbGuessIndustry(user, company, { website = "" } = {}) {
     let hint = "";
     try { const hits = await searchCompanies(company, 1); const d = hits && hits[0] ? await getCompanyDetail(hits[0].corporate_number).catch(() => null) : null;
       if (d) { hint = [d.industry ? `gBizINFO の業種（日本標準産業分類）：${d.industry}` : "", d.business ? `事業内容：${d.business}` : "", d.official_name ? `正式名：${d.official_name}` : "", d.location ? `所在地：${d.location}` : ""].filter(Boolean).join("／"); if (!site && d.company_url) site = d.company_url; } } catch {}
+    { const kc = await findCallTargetCompanyInfo({ company }).catch(() => null); if (kc && (kc.industry || kc.employees)) hint = [hint, kc.industry ? `kincall のリストの業種：${kc.industry}` : "", kc.employees ? `従業員数：${kc.employees}` : ""].filter(Boolean).join("／"); }
     const siteText = site && /^https?:\/\//i.test(site) ? await fetchPageText(site).catch(() => "") : "";
     const r = await lookupIndustryPick(company, site, opts.map((o) => o.value), { siteText, hint }).catch(() => ({ industry: "" }));
     if (r.industry) _kbIndGuess.set(key, { at: Date.now(), v: r.industry, reason: r.reason || "", confidence: r.confidence || "" });
@@ -30957,7 +30960,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13y MOCHICA の商談：MiiTel の会議を MOCHICA のメンバーのカレンダーの予定（±20分）と突き合わせ、予定のタイトル・会社名・担当・SF（リード・取引先）に結びつける。参加者の [object Object] を直す。";
+const BUILD_TAG = "2026-11-13z SF の立ち上げ：従業員数はまず kincall の架電先の数を使う（SF・ネットはそのあと）。業種の見立てにも kincall のリストの業種・従業員数を材料として渡す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
