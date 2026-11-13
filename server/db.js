@@ -12726,7 +12726,7 @@ export async function mcMiitelSave(ev) {
 }
 export async function mcMiitelList(limit = 100) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload->'mt_cal' AS cal, (payload ? 'mt_video') AS has_video FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 export async function mcMiitelGet(id) {
   if (!pool) return null; await ensureMcMiitel();
@@ -12765,3 +12765,9 @@ let _kxHiringInit = false;
 async function kxHiringEnsure() { if (!pool || _kxHiringInit) return; _kxHiringInit = true; await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_hiring (account_id TEXT PRIMARY KEY, data JSONB, sources JSONB, updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT)`).catch(() => {}); }
 export async function kxHiringGetDb(id) { if (!pool) return null; await kxHiringEnsure(); return (await pool.query(`SELECT * FROM kinxs_hiring WHERE account_id=$1`, [id]).catch(() => ({ rows: [] }))).rows[0] || null; }
 export async function kxHiringSaveDb(id, data, sources, by) { if (!pool) return; await kxHiringEnsure(); await pool.query(`INSERT INTO kinxs_hiring (account_id, data, sources, updated_at, updated_by) VALUES ($1,$2,$3,now(),$4) ON CONFLICT (account_id) DO UPDATE SET data=EXCLUDED.data, sources=EXCLUDED.sources, updated_at=now(), updated_by=EXCLUDED.updated_by`, [id, JSON.stringify(data || {}), JSON.stringify(sources || []), by || ""]).catch(() => {}); }
+
+// MOCHICA：カレンダーとまだ突き合わせていない会議（2026-11-13）
+export async function mcMiitelNeedCal(limit = 40) {
+  if (!pool) return []; await ensureMcMiitel();
+  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec FROM mochica_miitel_events WHERE started_at IS NOT NULL AND NOT (payload ? 'mt_cal') AND started_at > now() - interval '60 days' ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+}

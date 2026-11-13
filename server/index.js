@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelNeedCal, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -26750,7 +26750,7 @@ app.post(["/api/mochica/miitel/capture", "/api/mochica/miitel/ext/capture"], exp
           // 会議でないもの（人・タグ・キーワードなど）を拾わない：題名と開始の日時がある会議だけ
           if (!String(x.title || "").trim() || !st || isNaN(Date.parse(st))) continue;
           const host = (x.host && (x.host.name || x.host.email)) || x.host_name || (x.owner && x.owner.name) || String(x.title || "").replace(/\s*のミーティング.*$/, "").replace(/^ネオキャリア/, "").replace(/のパーソナルミーティングルーム$/, "");
-          await mcMiitelSave({ id, kind: "拡張機能（MiiTel の会議の一覧から）", title: String(x.title || x.name || ""), startedAt: st && !isNaN(Date.parse(st)) ? new Date(st).toISOString() : null, host: String(host || "").slice(0, 60), participants: String(x.participant_names || "").slice(0, 500), durationSec: Number(x.duration) || null, url: `https://mochica.app.miitel.com/app/video/${id}`, payload: {} });
+          await mcMiitelSave({ id, kind: "拡張機能（MiiTel の会議の一覧から）", title: String(x.title || x.name || ""), startedAt: st && !isNaN(Date.parse(st)) ? new Date(st).toISOString() : null, host: String(host || "").slice(0, 60), participants: (Array.isArray(x.participant_names) ? x.participant_names.map((o) => (o && typeof o === "object" ? o.name || o.display_name || o.email || "" : String(o || ""))).filter(Boolean).join("、") : Array.isArray(x.participants) ? x.participants.map((o) => (o && typeof o === "object" ? o.name || o.display_name || o.email || "" : String(o || ""))).filter(Boolean).join("、") : String(x.participant_names || "")).slice(0, 500), durationSec: Number(x.duration) || null, url: `https://mochica.app.miitel.com/app/video/${id}`, payload: {} });
           n++;
         }
         continue;
@@ -26862,8 +26862,62 @@ app.get("/api/mochica/bales/export.csv", async (req, res) => {
     res.setHeader("content-type", "text/csv; charset=utf-8"); res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`Bales取り込み用_SFの新規商談_${new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10)}.csv`)}`); res.send(csv);
   } catch (e) { res.status(500).send("作れませんでした：" + e.message); }
 });
+// ===== MOCHICA：MiiTel の会議を、MOCHICA のメンバーのカレンダーの予定と突き合わせる（2026-11-13 田中さん）=====
+//   開始の時刻が近い（±20分）予定のタイトルから会社名を取り（kinbot と同じ companyFromTitle）、SF の Mochica（リード）・取引先に結びつける
+const _mcCalCache = new Map();   // email -> { at, evs }
+async function mcCalEvents(email) {
+  const hit = _mcCalCache.get(email); if (hit && Date.now() - hit.at < 10 * 60000) return hit.evs;
+  const evs = await listCalendarEvents(email, "primary", { timeMin: new Date(Date.now() - 30 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() }).catch(() => []);
+  _mcCalCache.set(email, { at: Date.now(), evs }); return evs;
+}
+async function mcMembers() {
+  const map = await listRepProducts().catch(() => ({})); const names = Object.entries(map || {}).filter(([, p]) => p === "MOCHICA").map(([n]) => n);
+  const us = await listUsers().catch(() => []); const nz = (v) => String(v || "").replace(/[\s　]/g, "");
+  return names.map((n) => { const u = us.find((x) => nz(x.name) === nz(n)); return u ? { name: n, email: String(u.email || "").toLowerCase() } : null; }).filter(Boolean);
+}
+async function mcCalMatchOne(r, members, owner) {
+  const st = new Date(r.started_at).getTime(); if (!st) return null;
+  const nz = (v) => String(v || "").replace(/[\s　]/g, "");
+  // 主催の名前で、まずその人のカレンダーを見る。分からなければ MOCHICA のメンバー全員
+  const host = nz(String(r.host || "").split(/[\s　]/)[0]);
+  const first = members.filter((m) => host && host !== "オーナー" && nz(m.name).startsWith(host));
+  const order = [...first, ...members.filter((m) => !first.includes(m))];
+  let best = null;
+  for (const m of order) {
+    const evs = await mcCalEvents(m.email);
+    for (const ev of evs) {
+      if (ev.allDay || !ev.start) continue; const d = Math.abs(new Date(ev.start).getTime() - st); if (d > 20 * 60000) continue;
+      if (/休憩|ランチ|移動|ブロック|作業|朝会|夕会|MTG枠|社内/.test(ev.title || "")) continue;
+      const score = d + (ev.url && /zoom|meet|teams/i.test(ev.url) ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
+      if (!best || score < best.score) best = { score, ev, m };
+    }
+    if (best && first.includes(m) && best.score < 10 * 60000) break;
+  }
+  if (!best) return null;
+  const title = best.ev.title || ""; const company = companyFromTitle(title);
+  let sf = {};
+  try {
+    const q = String(company || "").replace(/'/g, "\\'"); if (q && q !== "(無題)") {
+      const ld = await sfQuery(owner, `SELECT Id, Company FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company = '${q}' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
+      const ac = await sfQuery(owner, `SELECT Id, Name FROM Account WHERE Name = '${q}' LIMIT 1`).catch(() => null);
+      sf = { leadId: ld && ld.records && ld.records[0] ? ld.records[0].Id : "", accountId: ac && ac.records && ac.records[0] ? ac.records[0].Id : "" };
+    }
+  } catch {}
+  return { title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, sf, at: Date.now() };
+}
+let _mcCalRunning = false;
+async function mcCalMatchRun(owner) {
+  if (_mcCalRunning) return 0; _mcCalRunning = true; let n = 0;
+  try { const members = await mcMembers(); if (!members.length) return 0; const rows = await mcMiitelNeedCal(40);
+    for (const r of rows) { const c = await mcCalMatchOne(r, members, owner).catch(() => null); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, at: Date.now() } } }); if (c) n++; }
+  } finally { _mcCalRunning = false; } return n;
+}
+setInterval(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || ""; await mcCalMatchRun(o || (await pickSfUser("").catch(() => ""))); } catch {} }, 15 * 60 * 1000);
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
-  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcMiitelList(100) }); }
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const items = await mcMiitelList(200);
+    const owner = await pickSfUser(req.user, req).catch(() => req.user); mcCalMatchRun(owner).catch(() => {});   // まだのものは裏で突き合わせる
+    res.json({ ok: true, items }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/miitel/meetings/:id", async (req, res) => {
@@ -30903,7 +30957,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13x 拡張機能1.6.2：MiiTel の書きこみの通り道（方法と項目名）も「拡張機能の様子」に出す（ボットを入れる操作の形を知るため）。";
+const BUILD_TAG = "2026-11-13y MOCHICA の商談：MiiTel の会議を MOCHICA のメンバーのカレンダーの予定（±20分）と突き合わせ、予定のタイトル・会社名・担当・SF（リード・取引先）に結びつける。参加者の [object Object] を直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

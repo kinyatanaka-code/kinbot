@@ -32,7 +32,9 @@
   const md = (v) => { const d = jst(v); return d ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : ""; };
   const wk = (v) => { const d = jst(v); return d ? "日月火水木金土"[d.getUTCDay()] : ""; };
   let mtHost = null;   // 選んだ担当（null＝担当のカードの一覧）
-  const hostOf = (m) => String(m.host || "").trim() || "（担当なし）";
+  const hostOf = (m) => (m.cal && m.cal.ownerName) || (String(m.host || "").trim() && String(m.host).trim() !== "オーナー" ? String(m.host).trim() : "") || "（担当なし）";
+  const titleOf = (m) => (m.cal && m.cal.title) || m.title || "（題名なし）";
+  const coOf = (m) => (m.cal && m.cal.company && m.cal.company !== "(無題)" ? m.cal.company : "");
   function mtDraw() {
     const box = $("mtList"); if (!box) return;
     const q = String(($("mtQ") || {}).value || "").trim().toLowerCase();
@@ -49,13 +51,13 @@
       return;
     }
     // ② その担当の商談（日ごと）
-    const list = mtAll.filter((m) => hostOf(m) === mtHost).filter((m) => !q || `${m.title || ""} ${m.participants || ""}`.toLowerCase().includes(q));
+    const list = mtAll.filter((m) => hostOf(m) === mtHost).filter((m) => !q || `${titleOf(m)} ${coOf(m)} ${m.participants || ""}`.toLowerCase().includes(q));
     $("mtCount").textContent = `${list.length}件`;
     let last = ""; let html = `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${list.length}商談</small></div>`;
     for (const m of list) {
       const at = m.started_at || m.received_at; const k = dkey(at);
       if (k !== last) { html += `<div class="mt-day">${md(at)}（${wk(at)}）</div>`; last = k; }
-      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(m.title || "（題名なし）")}</div><div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}<span class="mt-tag sf">SF未記録</span></div></div>`;
+      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
     }
     box.innerHTML = html;
     box.querySelector("[data-back]").addEventListener("click", () => { mtHost = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); });
@@ -68,7 +70,7 @@
   async function mtOpen(id) {
     mtSel = id; if (mtHost != null) mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
     let it; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}`)).item; } catch (e) { main.innerHTML = `<div class="mt-empty">読めませんでした：${esc(e.message)}</div>`; return; }
-    const p = it.payload || {}; const v = p.video || p.meeting || p.data || p;
+    const p = it.payload || {}; const v = p.video || p.meeting || p.data || p; const cal = p.mt_cal && !p.mt_cal.none ? p.mt_cal : null;
     const tr0 = v.transcript || v.transcription || v.utterances || v.speeches || null;
     const tr = Array.isArray(tr0) ? tr0.map((u) => typeof u === "string" ? { s: "", t: u } : { s: String((u.speaker && (u.speaker.name || u.speaker)) || u.speaker_name || u.name || ""), t: String(u.text || u.phrase || u.content || ""), at: u.start || u.start_time || null }).filter((u) => u.t)
       : typeof tr0 === "string" ? tr0.split(/\n+/).filter(Boolean).map((x) => ({ s: "", t: x })) : [];
@@ -107,8 +109,8 @@
     const cur = mtOpen.tab || "tr";
     const hasVid = !!(p.mt_video && p.mt_video.fileId);
     main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}
-      <div class="mt-title"><h2>${esc(it.title || "（題名なし）")}</h2><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
-      <div class="mt-fields"><div><span>担当</span><b>${esc(it.host || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(it.participants || "—")}</b></div></div>
+      <div class="mt-title"><h2>${esc((cal && cal.title) || it.title || "（題名なし）")}</h2><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
+      <div class="mt-fields">${cal && cal.company && cal.company !== "(無題)" ? `<div><span>会社</span><b>${esc(cal.company)}${cal.sf && cal.sf.leadId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Lead/${esc(cal.sf.leadId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFのリード ↗</a>` : ""}${cal.sf && cal.sf.accountId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Account/${esc(cal.sf.accountId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFの取引先 ↗</a>` : ""}</b></div>` : ""}<div><span>担当</span><b>${esc((cal && cal.ownerName) || (it.host && it.host !== "オーナー" ? it.host : "") || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(/\[object Object\]/.test(it.participants || "") ? "—" : it.participants || "—")}</b></div></div>
       <div class="mt-tabs">${tabs.map(([k, l]) => `<button type="button" data-mtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>
       <div id="mtPane">${pane(cur)}</div>
       ${p && p.source !== "claude-mcp" && Object.keys(p).length ? `<details class="mt-raw" style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;color:#5C7377;font-weight:700">MiiTel から届いた中身（項目の確かめ用）</summary><pre style="white-space:pre-wrap;font-size:11px;background:#F2FAFB;border-radius:10px;padding:10px;max-height:320px;overflow:auto">${esc(JSON.stringify(p, (k, x) => (typeof x === "string" && x.length > 300 ? x.slice(0, 300) + "…" : Array.isArray(x) && x.length > 5 ? [...x.slice(0, 5), `…ほか${x.length - 5}件`] : x), 2))}</pre></details>` : ""}`;
