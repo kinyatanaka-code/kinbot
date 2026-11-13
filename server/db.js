@@ -12759,3 +12759,9 @@ export async function mcMiitelTodo(limit = 10) {
       AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3
     ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
+
+// kinXs 企業の詳細「採用状況」（議事録から読み取ったもの）（2026-11-13）
+let _kxHiringInit = false;
+async function kxHiringEnsure() { if (!pool || _kxHiringInit) return; _kxHiringInit = true; await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_hiring (account_id TEXT PRIMARY KEY, data JSONB, sources JSONB, updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT)`).catch(() => {}); }
+export async function kxHiringGetDb(id) { if (!pool) return null; await kxHiringEnsure(); return (await pool.query(`SELECT * FROM kinxs_hiring WHERE account_id=$1`, [id]).catch(() => ({ rows: [] }))).rows[0] || null; }
+export async function kxHiringSaveDb(id, data, sources, by) { if (!pool) return; await kxHiringEnsure(); await pool.query(`INSERT INTO kinxs_hiring (account_id, data, sources, updated_at, updated_by) VALUES ($1,$2,$3,now(),$4) ON CONFLICT (account_id) DO UPDATE SET data=EXCLUDED.data, sources=EXCLUDED.sources, updated_at=now(), updated_by=EXCLUDED.updated_by`, [id, JSON.stringify(data || {}), JSON.stringify(sources || []), by || ""]).catch(() => {}); }

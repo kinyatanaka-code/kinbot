@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -16391,6 +16391,45 @@ async function kinxsRefreshLinked() {
   for (const r of rows) await kinxsSyncOneAccount(r.account_id, { oppIds: Array.isArray(r.info.sf_opps) && r.info.sf_opps.length ? r.info.sf_opps : null }).catch(() => {});
   return rows.length;
 }
+// ===== 企業の詳細「採用状況」：議事録（商談・フォロー）・接触の記録から、今の採用の状況を読み取る（2026-11-13 田中さん）=====
+//   settings ではなく専用の表 kinxs_hiring（会社ごと1行）。開いたときに無ければ作り、「議事録から読み直す」で作り直す
+const kxHiringGet = (id) => kxHiringGetDb(id);
+async function kxHiringMake(id, user) {
+  const { items, testItems, mtBy } = await kinxsBuild();
+  const x = items.find((i) => i.id === id) || (testItems || []).find((i) => i.id === id); if (!x) throw new Error("見つかりません");
+  const key = csCoKey(x.name);
+  const mts = [...new Map([...(mtBy.get(key) || []), ...(x.formerNames || []).flatMap((f) => mtBy.get(csCoKey(f)) || [])].map((m) => [m.bot_id, m])).values()].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, 8);
+  let budget = 60000; const parts = []; const sources = [];
+  for (const m0 of mts) {
+    const m = await getMeeting(m0.bot_id).catch(() => null) || m0; const sm = (m.summary && (m.summary.overview || JSON.stringify(m.summary).slice(0, 3000))) || "";
+    const tr = Array.isArray(m.transcript) ? m.transcript.map((u) => `${(u.speaker && u.speaker.name) || u.speaker || ""}：${u.text || ""}`).join("\n") : "";
+    const chunk = `【${String(m.created_at || "").slice(0, 10)} ${m.title || ""}】\n要約：${sm}\n${tr.slice(0, Math.min(14000, Math.max(0, budget - sm.length)))}`;
+    budget -= chunk.length; parts.push(chunk); sources.push({ at: String(m.created_at || "").slice(0, 10), title: m.title || "", botId: m.bot_id }); if (budget <= 0) break;
+  }
+  const rows = await kinxsList(); const r = rows.find((y) => y.account_id === x.id) || {};
+  const touches = (Array.isArray(r.contacts) ? r.contacts : []).slice(-15).map((c) => `【${String(c.at || "").slice(0, 10)} ${c.type || "接触"}】${c.text || ""}`).join("\n");
+  if (!parts.length && !touches) return { data: null, sources: [], empty: true };
+  const schema = { type: "object", properties: {
+    summary: { type: "string", description: "今の採用の状況を2〜3文で" },
+    kinds: { type: "string", description: "新卒・中途・アルバイトなど" }, jobs: { type: "string", description: "募集している職種" }, count: { type: "string", description: "採用したい人数・目標" },
+    timing: { type: "string", description: "採用の時期・入社の時期" }, media: { type: "string", description: "使っている求人媒体・手法（DOC以外も）" },
+    progress: { type: "string", description: "応募・選考・内定などの今の進み具合" }, issues: { type: "string", description: "採用の悩み・課題" },
+    budget: { type: "string", description: "採用の予算・費用の話" }, people: { type: "string", description: "採用の担当者・決める人" },
+    asof: { type: "string", description: "この情報がいつの議事録のものか（YYYY-MM-DD）" } }, required: ["summary"] };
+  const sys = "あなたは採用支援サービス（DOC）のCS担当のアシスタントです。与えられた議事録・接触の記録だけを根拠に、この会社の『今の採用の状況』を項目ごとにまとめます。新しい記録を優先し、古い情報と食い違うときは新しい方を書きます。記録に無いことは書かず、その項目は空文字にします。推測で数字を作りません。出力は指定のJSONだけ。";
+  const out = await callLLMPublic(sys, `会社：${x.name}\n\n${parts.join("\n\n")}\n\n${touches ? `【接触の記録】\n${touches}` : ""}`, 1600, { schema, provider: "anthropic" });
+  let data = null; try { data = typeof out === "string" ? JSON.parse(out.replace(/^```json|```$/g, "").trim()) : out; } catch { data = { summary: String(out || "").slice(0, 600) }; }
+  await kxHiringSaveDb(id, data, sources, user);
+  return { data, sources, updated_at: new Date().toISOString() };
+}
+app.get("/api/kinxs/accounts/:id/hiring", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const cur = await kxHiringGet(req.params.id);
+    if (cur && !req.query.refresh) return res.json({ ok: true, data: cur.data, sources: cur.sources || [], updated_at: cur.updated_at, updated_by: cur.updated_by || "" });
+    res.json({ ok: true, ...(await kxHiringMake(req.params.id, req.user)) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/accounts/:id/detail", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -30768,7 +30807,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13n kinXs：「託」の印をなくし、言葉を「移す」に。要アクションを移したら自分の一覧からすぐ消す。";
+const BUILD_TAG = "2026-11-13o kinXs 企業の詳細：「採用状況」のタブ（議事録・接触の記録から今の採用の状況を読み取る。無ければ開いたときに作り、読み直しもできる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

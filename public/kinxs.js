@@ -712,7 +712,8 @@ async function openDetail(id, reuse) {
       <span class="kx-renew-ed" data-renew-box hidden><input type="month" class="kx-in" data-renew-in value="${esc(x.renew || "")}" style="width:150px;height:30px" /><button type="button" class="hp-b" data-renew-save>保存</button>${x.renewLocked ? '<button type="button" class="hp-b" data-renew-auto title="手で決めた更新月をやめて、契約終了日の前月に戻す">自動に戻す</button>' : ""}<button type="button" class="hp-b" data-renew-cancel>やめる</button></span></div>
     <div class="kx-rank-pop" data-rank-pop hidden></div>
     ${x.alerts.length ? `<div class="kx-sec" style="background:#FFF7EA;border-color:#F0D5B0;color:#6B3700;font-size:12.5px"><b>要注意：</b>${x.alerts.map((a) => `${esc(a.rule)}（${esc(a.detail)}）`).join("／")}</div>` : ""}
-    <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button><button type="button" data-tab="co">企業情報</button></div>
+    <div class="kx-tabs"><button type="button" class="on" data-tab="task">タスク</button><button type="button" data-tab="info">活動記録</button><button type="button" data-tab="tl">議事録（${d.timeline.filter((t) => t.kind === "mtg").length}）</button><button type="button" data-tab="hire">採用状況</button><button type="button" data-tab="co">企業情報</button></div>
+    <div data-pane="hire" hidden style="display:flex;flex-direction:column;gap:12px"><div class="kx-sec" data-hire-box><div class="kx-note">「採用状況」を押すと、議事録から読み取ります…</div></div></div>
     <div data-pane="task" style="display:flex;flex-direction:column;gap:12px">
       <section class="kx-tm">
         <div class="kx-tm-add">${window.KX_COPY ? "" : `<span class="kx-tm-plus">＋</span><input data-ctask-t placeholder="タスクを追加（例：検収書の回収をお願いする）　Enterで追加"><label class="kx-tm-due add" title="期日（なくてもよい）">期日<input type="date" data-ctask-d></label><label class="kx-tm-who add" title="だれのタスクにするか（CS担当以外にも託せます）"><span data-ctask-wl>自分</span><select data-ctask-who></select></label><button type="button" class="kx-btn kx-pri" data-ctask-add>追加</button>`}</div>
@@ -805,7 +806,9 @@ async function openDetail(id, reuse) {
   bg.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => {
     bg.querySelectorAll("[data-tab]").forEach((x2) => x2.classList.toggle("on", x2 === b));
     bg.querySelectorAll("[data-pane]").forEach((p2) => { p2.hidden = p2.dataset.pane !== b.dataset.tab; });
+    if (b.dataset.tab === "hire") kxHireLoad(bg, id, false);
   }));
+  if (reuse && reuse.tab === "hire") kxHireLoad(bg, id, false);
   bg.querySelectorAll("[data-rank]").forEach((b) => b.addEventListener("click", async () => {
     try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/rank`, { method: "PUT", body: JSON.stringify({ rank: b.dataset.rank }) }); refresh().catch(() => {}); await again(`更新確度を ${b.dataset.rank} にしました`); } catch (e) { alert(e.message); }
   }));
@@ -2994,3 +2997,22 @@ function kxGuideMount(bg, x, d) {
 
 // 電話フォローのヘッダーの部品は、ほかの画面では隠す（2026-11-13）
 setInterval(() => { const hc = document.getElementById("kxHeadCall"); if (hc && typeof VIEW !== "undefined" && VIEW !== "call" && !hc.hidden) hc.hidden = true; }, 800);
+
+// ===== 企業の詳細「採用状況」：議事録・接触の記録から読み取った今の採用の状況（2026-11-13 田中さん）=====
+async function kxHireLoad(bg, id, refresh) {
+  const box = bg.querySelector("[data-hire-box]"); if (!box) return;
+  if (box.dataset.loaded === "1" && !refresh) return;
+  box.innerHTML = `<div class="kx-note">${refresh ? "議事録から読み直しています…（30秒ほど）" : "読み込んでいます…（初めてのときは議事録から読み取るので30秒ほど）"}</div>`;
+  let d; try { d = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/hiring${refresh ? "?refresh=1" : ""}`); } catch (e) { box.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; }
+  box.dataset.loaded = "1";
+  const h = d.data || {}; const F = [["kinds", "採用の種類"], ["jobs", "募集職種"], ["count", "採用人数・目標"], ["timing", "時期"], ["media", "使っている媒体・手法"], ["progress", "選考の進み具合"], ["issues", "悩み・課題"], ["budget", "予算・費用"], ["people", "採用の担当・決める人"]];
+  const filled = F.filter(([k]) => String(h[k] || "").trim());
+  const upd = d.updated_at ? new Date(new Date(d.updated_at).getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "";
+  box.innerHTML = d.empty || !d.data ? `<div class="kx-note">この会社の議事録・接触の記録がまだ無いので、採用状況を読み取れませんでした。</div><button type="button" class="kx-btn" data-hire-re style="align-self:flex-start;margin-top:8px">議事録から読み直す</button>`
+    : `<div class="kx-hire-top"><b>今の採用の状況</b>${h.asof ? `<span class="kx-note">（${esc(h.asof)} 時点の議事録より）</span>` : ""}<button type="button" class="kx-btn" data-hire-re style="margin-left:auto">議事録から読み直す</button></div>
+      ${h.summary ? `<div class="kx-hire-sum">${esc(h.summary)}</div>` : ""}
+      <div class="kx-hire-grid">${filled.map(([k, l]) => `<div><span>${l}</span><b>${esc(h[k])}</b></div>`).join("") || '<div class="kx-note">項目ごとの情報は議事録に見つかりませんでした。</div>'}</div>
+      ${F.length - filled.length ? `<div class="kx-note" style="margin-top:6px">議事録に無かった項目：${F.filter(([k]) => !String(h[k] || "").trim()).map(([, l]) => l).join("・")}</div>` : ""}
+      <div class="kx-note" style="margin-top:8px">読み取った議事録：${(d.sources || []).map((s0) => `${esc(s0.at)} ${esc(s0.title)}`).join("／") || "接触の記録のみ"}${upd ? `　｜　更新 ${esc(upd)}` : ""}</div>`;
+  const re = box.querySelector("[data-hire-re]"); if (re) re.addEventListener("click", () => kxHireLoad(bg, id, true));
+}
