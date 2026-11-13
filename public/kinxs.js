@@ -1981,7 +1981,7 @@ function renderPlanV2() {
   const col = (list, label, cls, s0, extra) => { const act = list.filter((x) => x.rows.length), emp = list.filter((x) => !x.rows.length);
     return `<section class="p3-col ${cls}"><div class="p3-ch"><span class="dot"></span><b>${label}</b><span class="sm">完了 <b>${s0.d}</b> / ${s0.t}社</span><span class="ring" style="--p:${pct(s0.d, s0.t)}"><i>${pct(s0.d, s0.t)}%</i></span></div>${extra || ""}
       <div class="p3-list">${act.map(row).join("") || '<div class="kx-empty">今月、対象のある施策はありません</div>'}${emp.length ? `<details class="p3-emp"><summary>対象のない施策（${emp.length}）</summary>${emp.map(row).join("")}</details>` : ""}</div></section>`; };
-  const band = `<a class="p3-live" href="/kinxs?p=call"><span class="lv">● LIVE</span><span>電話フォロー（今月）</span><b>${cDone}</b><small>/ ${cTot}社</small><span class="go">進捗表 ›</span></a>`;
+  const band = `<a class="p3-live" href="/kinxs?p=call"><span class="lv">実施中</span><span class="nm">電話フォロー（今月）</span><b>${cDone}</b><small>/ ${cTot}社</small><span class="go">進捗表 ›</span></a>`;
   const selMe = d.measures.find((x) => x.key === kp.sel) || null;
   const tabBody = kp.tab === "prep"
     ? `<div data-prep>${(d.prep || []).map((p0) => `<label class="v2-ag"><input type="checkbox" ${p0.done ? "checked" : ""} /><input class="kx-in" value="${esc(p0.t)}" /></label>`).join("")}<label class="v2-ag"><input type="checkbox" /><input class="kx-in" placeholder="＋ 準備することを足す（例：1月ウェビナーのテーマを決める）" /></label></div><button type="button" class="kx-btn kx-pri" data-prep-save style="margin-top:8px">準備を保存</button>`
