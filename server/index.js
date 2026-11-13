@@ -15849,12 +15849,14 @@ function kxSheetSt(mkey, v) { const t = String(v || "").normalize("NFKC").trim()
 async function kxLetterSheetSync(owner, { dry = false } = {}) {
   const st = await getSettings().catch(() => ({})); const cfg = { ...KX_LETTER_SHEET_DEF, ...(st.kxLetterSheet || {}) };
   // タブの名前は、URL の gid（1213626809）で本当の名前を確かめる（名前に空白などが入っていて読めなかった：2026-11-13）
-  let tabName = cfg.tab;
-  try { const tabs = ((await sheetTabs(owner, cfg.id)) || {}).tabs || []; const hit = tabs.find((t) => Number(t.gid) === Number(cfg.gid)) || tabs.find((t) => String(t.title).trim() === cfg.tab) || tabs.find((t) => /手紙/.test(String(t.title))); if (hit) tabName = hit.title; } catch (e) { if (e.notFound) throw e; }
-  const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'!A1:AD2000`);
-  const rows = (vals && (vals.values || vals)) || []; if (!Array.isArray(rows) || !rows.length) throw new Error("シートが空でした");
-  let hi = rows.slice(0, 15).findIndex((r) => (r || []).some((c) => /企業名|会社名|法人名|^企業$|^会社$|顧客名|取引先/.test(String(c || ""))));
-  if (hi < 0) throw new Error("見出しの行（企業名・会社名など）が見つかりませんでした");
+  let tabName = cfg.tab; let tabList = [];
+  try { const tabs = ((await sheetTabs(owner, cfg.id)) || {}).tabs || []; tabList = tabs.map((t) => `${t.title}（${t.gid}）`); const hit = tabs.find((t) => Number(t.gid) === Number(cfg.gid)) || tabs.find((t) => String(t.title).trim() === cfg.tab) || tabs.find((t) => /手紙/.test(String(t.title))); if (hit) tabName = hit.title; } catch (e) { if (e.notFound) throw e; }
+  // 範囲を決めずにタブ全体を読む（列が多い・下の方から始まるシートでも読めるように）（2026-11-13：「シートが空でした」）
+  const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'`);
+  const rows = (Array.isArray(vals) ? vals : (vals && vals.values) || []).filter((r) => Array.isArray(r));
+  if (!rows.some((r) => r.some((c) => String(c || "").trim()))) throw new Error(`「${tabName}」のタブが空でした。タブの一覧：${tabList.join("、") || "（読めませんでした）"}`);
+  let hi = rows.slice(0, 40).findIndex((r) => (r || []).some((c) => /企業名|会社名|法人名|^企業$|^会社$|顧客名|取引先/.test(String(c || ""))));
+  if (hi < 0) throw new Error(`「${tabName}」に見出しの行（企業名・会社名など）が見つかりませんでした。最初の行：${(rows.find((r) => r.some((c) => String(c || "").trim())) || []).slice(0, 12).join("｜")}`);
   const head = rows[hi].map((x) => String(x || "").trim()); const col = kxSheetCols(head);
   const { items } = await kinxsBuild(); const byName = new Map(); for (const x of items) for (const n of [x.name, ...(x.formerNames || [])]) { const k = kxNz(n); if (k && !byName.has(k)) byName.set(k, x); }
   const now = new Date(Date.now() + 9 * 3600000); let y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1; const lm = KX_MEASURES.find((x) => x.key === "letter").months; while (!lm.includes(mo)) { mo--; if (mo < 1) { mo = 12; y--; } } const ym = `${y}-${String(mo).padStart(2, "0")}`;
@@ -30807,7 +30809,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13o kinXs 企業の詳細：「採用状況」のタブ（議事録・接触の記録から今の採用の状況を読み取る。無ければ開いたときに作り、読み直しもできる）。";
+const BUILD_TAG = "2026-11-13p 電話フォローのシートから読む：タブ全体を読む（範囲を決めない）、見出しは40行目までさがす、読めないときはタブの一覧・最初の行を出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
