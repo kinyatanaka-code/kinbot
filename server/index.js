@@ -775,7 +775,7 @@ import {
   describeContactRolePicklist,
   fillEmptyFields,
   createTaskIdempotent, createOpportunity, firstOpportunityStage, snapshotLead, deleteRecord, isFreshlyCreated,
-  sfUpdateRecord, sfCreateRecord, sfPatchRaw } from "./salesforce.js";
+  sfUpdateRecord, sfCreateRecord, sfPatchRaw, sfValidationRules } from "./salesforce.js";
 import {
   authEnabled,
   getUser,
@@ -26951,6 +26951,29 @@ async function mcFindOpp(owner, row) {
   const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Account.Name = '${co.replace(/'/g, "\\'")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null);
   return d && d.records && d.records[0] ? d.records[0] : null;
 }
+// SF の入力チェックの式から「どのステージで、どの項目が空だと止められるか」を読む（2026-11-13 田中さん「API から取る仕組みに」）
+//   例：AND(ISPICKVAL(StageName, "99：失注"), ISBLANK(order_date__c)) → 99 で order_date__c が必須
+//   ステージの番号の比較（VALUE(LEFT(TEXT(StageName),2)) >= 2 など）も読む。レコードタイプの条件があれば「新規」に関係するものだけ
+const _mcVr = { at: 0, p: null };
+async function mcRequiredFromRules(owner) {
+  if (_mcVr.p && Date.now() - _mcVr.at < 6 * 3600000) return _mcVr.p;
+  _mcVr.at = Date.now(); _mcVr.p = (async () => {
+    const rules = await sfValidationRules(owner, "Opportunity");
+    const keys = ["01", "02", "03", "04", "05", "06", "08", "99"]; const map = Object.fromEntries(keys.map((k) => [k, new Set()])); const why = {};
+    for (const r of rules) {
+      const f = String(r.formula || ""); if (!f) continue;
+      const rt = f.match(/RecordType\.(?:Name|DeveloperName)\s*[=<>!]+\s*["']([^"']+)["']/gi); if (rt && !rt.some((x) => /新規/.test(x))) continue;
+      const blanks = [...f.matchAll(/(?:ISBLANK|ISNULL)\(\s*([A-Za-z0-9_]+)\s*\)|LEN\(\s*(?:TEXT\()?\s*([A-Za-z0-9_]+)\s*\)?\s*\)\s*(?:=|<)\s*[01]|ISPICKVAL\(\s*([A-Za-z0-9_]+)\s*,\s*["']{2}\s*\)/gi)].map((m) => m[1] || m[2] || m[3]).filter((x) => x && x !== "StageName");
+      if (!blanks.length) continue;
+      let st = [...f.matchAll(/(?:ISPICKVAL\(\s*StageName\s*,|TEXT\(\s*StageName\s*\)\s*=)\s*["'](\d{2})/gi)].map((m) => m[1]);
+      const ge = f.match(/VALUE\(\s*LEFT\(\s*TEXT\(\s*StageName\s*\)\s*,\s*2\s*\)\s*\)\s*(>=|>)\s*(\d+)/i); if (ge) { const n = Number(ge[2]) + (ge[1] === ">" ? 1 : 0); st = st.concat(keys.filter((k) => Number(k) >= n && k !== "99")); }
+      if (!st.length) continue;
+      for (const k of new Set(st)) if (map[k]) for (const b of blanks) { map[k].add(b); (why[`${k}:${b}`] = why[`${k}:${b}`] || []).push(r.message || r.name); }
+    }
+    return { req: Object.fromEntries(Object.entries(map).map(([k, v]) => [k, [...v]])), why, count: rules.length };
+  })().catch((e) => { _mcVr.p = null; throw e; });
+  return _mcVr.p;
+}
 app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
@@ -26961,8 +26984,10 @@ app.get("/api/mochica/sf/form", async (req, res) => {
     const opp = await mcFindOpp(owner, row);
     const names = new Set(); const defs = MC_STAGE_DEF.map((st) => ({ key: st.key, label: st.label, stageValue: stages.find((v) => st.re.test(v)) || "", fields: st.fields.map((lbl) => { const f = byLbl.get(mcLblKey(lbl)); if (f) names.add(f.name); return f ? { label: f.label, name: f.name, type: f.type, options: (f.picklistValues || []).filter((o) => o.active).map((o) => o.value), length: f.length || 0, updateable: !!f.updateable } : { label: lbl, name: "", missing: true }; }) }));
     let cur = {}; if (opp && names.size) { const d = await sfQuery(owner, `SELECT ${[...names].join(", ")} FROM Opportunity WHERE Id = '${opp.Id}'`).catch(() => null); cur = (d && d.records && d.records[0]) || {}; }
-    const reqd = ((await getSettings().catch(() => ({}))).mcSfRequired) || {};
-    res.json({ ok: true, opp, stages, defs, current: cur, required: reqd, sfBase: "https://ap10.lightning.force.com" });
+    const learned = ((await getSettings().catch(() => ({}))).mcSfRequired) || {};
+    let fromRules = { req: {}, why: {}, count: 0 }, rulesErr = ""; try { fromRules = await mcRequiredFromRules(owner); } catch (e) { rulesErr = String(e.message || e).slice(0, 160); }
+    const reqd = {}; for (const k of new Set([...Object.keys(learned), ...Object.keys(fromRules.req || {})])) reqd[k] = [...new Set([...(learned[k] || []), ...((fromRules.req || {})[k] || [])])];
+    res.json({ ok: true, opp, stages, defs, current: cur, required: reqd, requiredWhy: fromRules.why || {}, rulesCount: fromRules.count || 0, rulesErr, sfBase: "https://ap10.lightning.force.com" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/mochica/sf/fill", async (req, res) => {
@@ -26989,7 +27014,7 @@ app.post("/api/mochica/sf/save", async (req, res) => {
     const key = String(b.stageKey || ""); const fields = { ...(b.fields || {}) }; for (const k of Object.keys(fields)) if (fields[k] === "" || fields[k] == null) delete fields[k];
     if (b.stageValue) fields.StageName = String(b.stageValue);
     // 覚えている必須が空なら、書く前に止める
-    const st = await getSettings().catch(() => ({})); const reqd = (st.mcSfRequired && st.mcSfRequired[key]) || [];
+    const st = await getSettings().catch(() => ({})); let fr = []; try { fr = ((await mcRequiredFromRules(owner)).req || {})[key] || []; } catch {} const reqd = [...new Set([...((st.mcSfRequired && st.mcSfRequired[key]) || []), ...fr])];
     const lack = reqd.filter((n) => fields[n] == null && !(b.current && b.current[n] != null && b.current[n] !== ""));
     if (lack.length) return res.json({ ok: false, needs: lack, errors: [{ message: "このステージで必須の項目が空です。入れてから書いてください。", fields: lack }] });
     const r = await sfPatchRaw(owner, "Opportunity", oppId, fields);
@@ -31047,7 +31072,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13ze kinbot for MOCHICA の SF 連携：ステージごとの項目（画面の名前から SF の項目を当てる）を議事録から AI で埋めて、SF の「新規」の商談に書く。SF の入力チェックで止められた項目はステージごとの必須として覚え、次から空なら書く前に止める。";
+const BUILD_TAG = "2026-11-13zf MOCHICA の SF 連携：必須の項目を SF の入力チェック（Tooling API の ValidationRule の式）から最初に読む（ステージ・空の判定・番号の比較を読む）。止められて覚えた分とあわせる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

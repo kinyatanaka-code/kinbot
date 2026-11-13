@@ -179,7 +179,7 @@
     const draw = () => {
       mtSfLoad.sel = sel; const def = d.defs.find((x) => x.key === sel) || d.defs[0]; const req = new Set((d.required || {})[sel] || []);
       const inp = (f) => { if (f.missing) return `<div class="mt-sf-f miss"><span>${esc(f.label)}</span><small>SF にこの名前の項目が見つかりません</small></div>`;
-        const v = cur[f.name]; const r = req.has(f.name) ? '<em class="req">必須</em>' : ""; const nm = `data-sf="${esc(f.name)}"`;
+        const v = cur[f.name]; const r = req.has(f.name) ? `<em class="req" title="${esc(((d.requiredWhy || {})[`${sel}:${f.name}`] || []).join(" ／ ") || "SF の入力チェックで止められたことのある項目")}">必須</em>` : ""; const nm = `data-sf="${esc(f.name)}"`;
         let el;
         if (f.type === "picklist" || f.type === "multipicklist") el = `<select ${nm}><option value=""></option>${f.options.map((o) => `<option ${String(v || "") === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
         else if (f.type === "boolean") el = `<label class="chk"><input type="checkbox" ${nm} ${v ? "checked" : ""}> はい</label>`;
@@ -193,7 +193,7 @@
         <div class="mt-sf-grid">${def.fields.map(inp).join("")}</div>
         <div class="mt-sf-err" data-sf-err hidden></div>
         <div class="mt-sf-act"><button type="button" class="mt-btn ghost" data-sf-fill>議事録から AI で埋める</button><button type="button" class="mt-btn" data-sf-save>${esc(def.label.split("：")[0])}としてSFに書く</button><span class="mc-note" data-sf-msg></span></div>
-        <div class="mc-note" style="margin-top:6px">「必須」は、SF の入力チェックで止められたことのある項目です（止められると自動で覚えます）。空のままだと、書く前に止めます。</div>`;
+        <div class="mc-note" style="margin-top:6px">「必須」は、SF の入力チェック（${d.rulesCount ? `${d.rulesCount}件を読みました` : d.rulesErr ? `読めませんでした：${esc(d.rulesErr)}` : "読み込み中"}）から読んだ項目と、SF に止められて覚えた項目です。空のままだと、書く前に止めます。札に指を置くと理由が出ます。</div>`;
       box.querySelector("[data-sf-stage]").addEventListener("change", (e) => { sel = e.target.value; draw(); });
       const vals = () => { const o = {}; box.querySelectorAll("[data-sf]").forEach((el) => { o[el.dataset.sf] = el.type === "checkbox" ? el.checked : el.value; }); return o; };
       box.querySelector("[data-sf-fill]").addEventListener("click", async (e) => { const b = e.target; b.disabled = true; b.textContent = "議事録から埋めています…（30秒ほど）";

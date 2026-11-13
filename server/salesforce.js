@@ -1756,3 +1756,20 @@ export async function sfPatchRaw(owner, sobject, id, fields) {
   let errs = []; try { errs = await res.json(); } catch { errs = [{ message: await res.text().catch(() => "") }]; }
   return { ok: false, status: res.status, errors: (Array.isArray(errs) ? errs : [errs]).map((e) => ({ message: String(e.message || ""), code: e.errorCode || "", fields: e.fields || [] })) };
 }
+
+// SF の入力チェック（ValidationRule）を Tooling API で読む：名前・有効・エラーの文言・式（2026-11-13 MOCHICA の必須の項目）
+export async function sfValidationRules(owner, sobject = "Opportunity") {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const so = String(sobject).replace(/[^A-Za-z0-9_]/g, "");
+  const q = `SELECT Id, ValidationName, Active, ErrorDisplayField, ErrorMessage FROM ValidationRule WHERE EntityDefinition.QualifiedApiName = '${so}' AND Active = true`;
+  const r = await fetch(`${acc.instanceUrl}/services/data/${API_VERSION}/tooling/query?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${acc.token}` } });
+  if (!r.ok) throw new Error(`SF tooling ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  const list = (await r.json()).records || []; const out = [];
+  for (const v of list.slice(0, 120)) {   // 式（Metadata）は1件ずつしか読めない
+    const r2 = await fetch(`${acc.instanceUrl}/services/data/${API_VERSION}/tooling/query?q=${encodeURIComponent(`SELECT Id, Metadata FROM ValidationRule WHERE Id = '${v.Id}'`)}`, { headers: { Authorization: `Bearer ${acc.token}` } }).catch(() => null);
+    const m = r2 && r2.ok ? ((await r2.json()).records || [])[0] : null;
+    out.push({ name: v.ValidationName, message: v.ErrorMessage || "", displayField: v.ErrorDisplayField || "", formula: (m && m.Metadata && m.Metadata.errorConditionFormula) || "" });
+  }
+  return out;
+}
