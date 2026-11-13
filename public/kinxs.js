@@ -1600,8 +1600,9 @@ function renderHomeV2() {
   const box = $("kh2"); if (!box || !lsData) return;
   const items = (lsData.items || []).filter((x) => !x.archived);
   const allIt = lsData.items || [];   // 数字はアーカイブした会社も入れて数える
-  const ym = kh2.ym; const c = kxDocCounts(allIt, ym), p = kxDocCounts(allIt, kxYmAdd(ym, -1));
-  kxHeadMonth(ym, (n) => { kh2.ym = n === 0 ? kxNowYm() : kxYmAdd(kh2.ym, n); kh2.period = null; renderHomeV2(); });
+  // ホームはいつも今月（月の切りかえは出さない）（2026-11-13 田中さん「ホームには月選択いらない」）
+  kh2.ym = kxNowYm(); const ym = kh2.ym; const c = kxDocCounts(allIt, ym), p = kxDocCounts(allIt, kxYmAdd(ym, -1));
+  { const hm0 = $("kxHeadMonth"); if (hm0) { hm0.hidden = true; hm0.innerHTML = ""; } }
   const dl = (a, b) => { const d = a - b; return `<span class="h2-d ${d > 0 ? "up" : d < 0 ? "dn" : ""}">${d > 0 ? "▲" : d < 0 ? "▼" : "±"}${Math.abs(d)}<small>前月比</small></span>`; };
   const tot = Math.max(1, c.all.length);
   // 要アクション
