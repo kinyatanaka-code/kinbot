@@ -151,6 +151,9 @@
       window.postMessage({ __kbMiitelCrawl: true, urls }, "*"); rb.disabled = true; rb.textContent = "読んでいます…（終わったら一覧を開き直してください）";
       const tick = setInterval(() => { try { const c = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); if (c && c.total) rb.textContent = `読んでいます… ${c.done}/${c.total}`; if (c && c.done >= c.total) { clearInterval(tick); rb.disabled = false; loadMeetings(); } } catch {} }, 5000);
     }); }
+  // 拡張機能の様子は、ヘッダーのボタンで開く小さな窓に（2026-11-13 田中さん）
+  { const btn = $("mtDiagBtn"), pop = $("mtDiagPop"); if (btn && pop) { btn.addEventListener("click", (e) => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute("aria-expanded", String(!pop.hidden)); });
+      document.addEventListener("click", (e) => { if (!pop.hidden && !e.target.closest(".mt-diag-w")) { pop.hidden = true; btn.setAttribute("aria-expanded", "false"); } }); } }
   // 拡張機能の様子（見た MiiTel の通り道・送った結果）を5秒ごとに出す（2026-11-12）
   setInterval(() => { const b = $("mtDiagBody"); if (!b) return; const ext = document.documentElement.dataset.kbMiitelExt; let dg = null; try { dg = JSON.parse(document.documentElement.dataset.kbMtDiag || "null"); } catch {}
     let cr = null; try { cr = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); } catch {}

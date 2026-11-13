@@ -30963,7 +30963,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13za MOCHICA の商談：文字起こしがあるのに「文字起こし待ち」になっていたのを直す（数え方を深く・一覧は中身の有無で判定・同じ会議を読み直さない）。";
+const BUILD_TAG = "2026-11-13zb MOCHICA の商談：「拡張機能の様子」をヘッダーの右上のボタン（押すと小さな窓）に。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
