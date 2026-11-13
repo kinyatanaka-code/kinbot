@@ -104,7 +104,7 @@
       if (k === "sm") return '<div class="mt-wait">要約は、文字起こしが入った会議から kinbot が作ります（準備中）。</div>';
       if (k === "an") return '<div class="mt-wait">話し方・良かった点・直す点などの分析は、文字起こしが入った会議から作ります（準備中）。</div>';
       if (k === "ml") return '<div class="mt-wait">御礼メールの下書きは、文字起こしが入った会議から作ります（準備中）。</div>';
-      return '<div class="mt-wait">Salesforce の「MOCHICA リード」から新規の商談を立ち上げる・ステージを進める・記録を残すのは、ここから行えるようにします（準備中）。</div>';
+      return '<div id="mtSf" class="mt-sf"><div class="mt-wait">SF の商談を読み込んでいます…</div></div>';
     };
     const cur = mtOpen.tab || "tr";
     const hasVid = !!(p.mt_video && p.mt_video.fileId);
@@ -126,7 +126,8 @@
         if (pg && pg.at > t0 && pg.videoId === id) { if (pg.error) { clearInterval(tick); gb.disabled = false; gb.textContent = "もう一度取り込む"; if (sEl) sEl.textContent = "取り込めませんでした：" + pg.error; }
           else if (pg.done) { clearInterval(tick); if (sEl) sEl.textContent = "取り込みました。開き直しています…"; setTimeout(() => mtOpen(id), 3000); }
           else if (sEl) sEl.textContent = `${pg.i}/${pg.total}`; } } catch {} }, 3000); });
-    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); }));
+    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id); }));
+    if (cur === "sf") mtSfLoad(id);
   }
   // ブラウザの自動入力（メールアドレスなど）が探す欄に入って「0件」になるのを防ぐ（2026-11-12）
   // Bales に SF の情報を入れる：SF の Mochica（リード）の値を、リードの ID で（2026-11-13）
@@ -167,6 +168,51 @@
     document.querySelectorAll("[data-minteg]").forEach((c) => c.addEventListener("click", () => show(c.dataset.minteg)));
     document.querySelectorAll("[data-mback]").forEach((b) => b.addEventListener("click", () => show("")));
     document.querySelectorAll("[data-msave]").forEach((b) => b.addEventListener("click", () => { const s0 = $("mcSave"); if (s0) s0.click(); })); }
+  // ===== SF 連携：ステージごとの項目を議事録から埋めて、SF の「新規」の商談に書く（2026-11-13）=====
+  async function mtSfLoad(vid) {
+    const box = $("mtSf"); if (!box) return;
+    let d; try { d = await api(`/api/mochica/sf/form?vid=${encodeURIComponent(vid)}`); } catch (e) { box.innerHTML = `<div class="mt-wait">読めませんでした：${esc(e.message)}</div>`; return; }
+    if (!d.opp) { box.innerHTML = '<div class="mt-wait">SF の「新規」の商談が見つかりませんでした。カレンダーの予定のタイトルに会社名が入っていて、SF にその会社の「新規」の商談があると、ここに出ます。</div>'; return; }
+    const cur = d.current || {}; const curKey = (String(d.opp.StageName || "").match(/^(\d{2})/) || [])[1] || "01";
+    const order = ["01", "02", "03", "04", "05", "06", "08", "99"]; const nextKey = order[Math.min(order.indexOf(curKey) + 1, order.length - 2)] || "02";
+    let sel = mtSfLoad.sel && mtSfLoad.vid === vid ? mtSfLoad.sel : nextKey; mtSfLoad.vid = vid;
+    const draw = () => {
+      mtSfLoad.sel = sel; const def = d.defs.find((x) => x.key === sel) || d.defs[0]; const req = new Set((d.required || {})[sel] || []);
+      const inp = (f) => { if (f.missing) return `<div class="mt-sf-f miss"><span>${esc(f.label)}</span><small>SF にこの名前の項目が見つかりません</small></div>`;
+        const v = cur[f.name]; const r = req.has(f.name) ? '<em class="req">必須</em>' : ""; const nm = `data-sf="${esc(f.name)}"`;
+        let el;
+        if (f.type === "picklist" || f.type === "multipicklist") el = `<select ${nm}><option value=""></option>${f.options.map((o) => `<option ${String(v || "") === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`;
+        else if (f.type === "boolean") el = `<label class="chk"><input type="checkbox" ${nm} ${v ? "checked" : ""}> はい</label>`;
+        else if (f.type === "date") el = `<input type="date" ${nm} value="${esc(v || "")}">`;
+        else if (f.type === "textarea" || (f.length || 0) > 255) el = `<textarea ${nm} rows="${/メモ|現状|ヒアリング|詳細/.test(f.label) ? 6 : 3}">${esc(v || "")}</textarea>`;
+        else if (["double", "int", "currency", "percent"].includes(f.type)) el = `<input type="number" ${nm} value="${esc(v ?? "")}">`;
+        else el = `<input type="text" ${nm} value="${esc(v || "")}" ${f.updateable ? "" : "readonly"}>`;
+        return `<label class="mt-sf-f" data-fw="${esc(f.name)}"><span>${esc(f.label)}${r}</span>${el}</label>`; };
+      box.innerHTML = `<div class="mt-sf-top"><div><b><a href="${esc(d.sfBase)}/lightning/r/Opportunity/${esc(d.opp.Id)}/view" target="_blank" rel="noopener">${esc(d.opp.Name)} ↗</a></b><small>今のステージ：${esc(d.opp.StageName || "—")}</small></div>
+          <label class="mt-sf-st">進めるステージ<select data-sf-stage>${d.defs.map((x) => `<option value="${x.key}" ${x.key === sel ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label></div>
+        <div class="mt-sf-grid">${def.fields.map(inp).join("")}</div>
+        <div class="mt-sf-err" data-sf-err hidden></div>
+        <div class="mt-sf-act"><button type="button" class="mt-btn ghost" data-sf-fill>議事録から AI で埋める</button><button type="button" class="mt-btn" data-sf-save>${esc(def.label.split("：")[0])}としてSFに書く</button><span class="mc-note" data-sf-msg></span></div>
+        <div class="mc-note" style="margin-top:6px">「必須」は、SF の入力チェックで止められたことのある項目です（止められると自動で覚えます）。空のままだと、書く前に止めます。</div>`;
+      box.querySelector("[data-sf-stage]").addEventListener("change", (e) => { sel = e.target.value; draw(); });
+      const vals = () => { const o = {}; box.querySelectorAll("[data-sf]").forEach((el) => { o[el.dataset.sf] = el.type === "checkbox" ? el.checked : el.value; }); return o; };
+      box.querySelector("[data-sf-fill]").addEventListener("click", async (e) => { const b = e.target; b.disabled = true; b.textContent = "議事録から埋めています…（30秒ほど）";
+        try { const r = await api("/api/mochica/sf/fill", { method: "POST", body: JSON.stringify({ vid, fields: def.fields.filter((f) => f.name) }) }); let n = 0;
+          for (const [k, v] of Object.entries(r.values || {})) { const el = box.querySelector(`[data-sf="${k}"]`); if (!el) continue; if (el.type === "checkbox") el.checked = v === true || v === "true"; else el.value = String(v); el.closest("[data-fw]").classList.add("ai"); n++; }
+          box.querySelector("[data-sf-msg]").textContent = `${n}項目を埋めました。確かめてから「SFに書く」を押してください。`;
+        } catch (err) { alert(err.message); } finally { b.disabled = false; b.textContent = "議事録から AI で埋める"; } });
+      box.querySelector("[data-sf-save]").addEventListener("click", async (e) => { const b = e.target; const v = vals(); const er = box.querySelector("[data-sf-err]");
+        box.querySelectorAll("[data-fw]").forEach((w) => w.classList.remove("bad"));
+        const lack = [...req].filter((n) => v[n] === "" || v[n] == null || v[n] === false);
+        if (lack.length) { er.hidden = false; er.textContent = "このステージで必須の項目が空です。入れてから書いてください。"; lack.forEach((n) => { const w = box.querySelector(`[data-fw="${n}"]`); if (w) w.classList.add("bad"); }); return; }
+        if (!confirm(`「${d.opp.Name}」を ${def.label} として SF に書きますか？`)) return; b.disabled = true;
+        try { const r = await api("/api/mochica/sf/save", { method: "POST", body: JSON.stringify({ vid, oppId: d.opp.Id, stageKey: def.key, stageValue: def.stageValue, fields: v, current: cur }) });
+          if (r.ok) { er.hidden = true; box.querySelector("[data-sf-msg]").textContent = "SF に書きました。"; d.opp.StageName = def.stageValue || d.opp.StageName; Object.assign(cur, v); }
+          else { er.hidden = false; er.innerHTML = (r.errors || []).map((x) => `・${esc(x.message)}`).join("<br>") + '<br><small>赤い枠の項目を入れて、もう一度押してください（この項目は次から必須として覚えます）。</small>'; (r.needs || []).forEach((n) => { const w = box.querySelector(`[data-fw="${n}"]`); if (w) w.classList.add("bad"); }); ((d.required || {})[def.key] = [...new Set([...((d.required || {})[def.key] || []), ...(r.needs || [])])]); }
+        } catch (err) { alert(err.message); } finally { b.disabled = false; } });
+    };
+    draw();
+  }
   async function loadConfig() {
     try { const c = await api("/api/mochica/config");
       $("miDomain").value = c.miitel.domain || ""; $("miToken").value = ""; $("miToken").placeholder = c.miitel.tokenLast4 ? `保存済み（****${c.miitel.tokenLast4}）。変えるときだけ入れる` : "管理画面の「API」で発行したもの";

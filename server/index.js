@@ -775,7 +775,7 @@ import {
   describeContactRolePicklist,
   fillEmptyFields,
   createTaskIdempotent, createOpportunity, firstOpportunityStage, snapshotLead, deleteRecord, isFreshlyCreated,
-  sfUpdateRecord, sfCreateRecord } from "./salesforce.js";
+  sfUpdateRecord, sfCreateRecord, sfPatchRaw } from "./salesforce.js";
 import {
   authEnabled,
   getUser,
@@ -26923,6 +26923,86 @@ async function mcCalMatchRun(owner) {
   } finally { _mcCalRunning = false; } return n;
 }
 setInterval(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || ""; await mcCalMatchRun(o || (await pickSfUser("").catch(() => ""))); } catch {} }, 15 * 60 * 1000);
+// ===== MOCHICA の SF 連携：ステージごとの項目を、議事録から AI で埋めて、SF の「新規」の商談に書く（2026-11-13 田中さん）=====
+//   項目は SF の画面の「項目の名前（ラベル）」で決め、SF の項目の説明（describe）から本当の項目名・型・選択肢を当てる。
+//   必須：SF の入力チェックで止められた項目を、ステージごとに覚えて（settings.mcSfRequired）、次から空なら書く前に止める
+const MC_STAGE_DEF = [
+  { key: "01", label: "SS01：アポ獲得", re: /^01/, fields: ["IS⇒FS案件パス内容", "SS01昇格日", "アポ獲得日", "初回アポ設定日", "顧客の現状", "初回商談対応者", "金額の合意", "採用人数(MO)", "接触人数(MO)", "利用目的", "利用目的詳細", "3か月以内の意思決定の合意", "活用想定時期", "活用想定時期詳細"] },
+  { key: "02", label: "SS02：有効商談(3ヶ月以内検討)", re: /^02/, fields: ["SS02昇格日", "フロント担当者(先方)", "初回提案商品", "初回提案商品（その他）", "商談メモ", "顧客の課題感", "学生管理の方法", "学生管理方法詳細", "利用中ATS", "利用中ATS利用開始年", "利用中ATS利用開始月", "利用中ATS更新予定月", "競合他社", "競合ATS利用開始日", "母集団形成の方法", "母集団形成の手法", "次回提案形式"] },
+  { key: "03", label: "SS03：担当者合意", re: /^03/, fields: ["SS03昇格日", "企画決定者同席チェック", "決裁フロー", "企画決定者提案予定日", "企画決定者の重視ポイント", "企画決定者への提案形式"] },
+  { key: "04", label: "SS04：企画決定者合意", re: /^04/, fields: ["SS04昇格日", "役員等への稟議等に必要な書類"] },
+  { key: "05", label: "SS05：決裁者合意", re: /^05/, fields: ["目標用_SS05昇格日", "申込書回収想定日"] },
+  { key: "06", label: "SS06：申込書回収完了", re: /^06/, fields: ["SS06昇格日", "☆受失注日", "サーカスNO(メディア用)", "ATS利用状況"] },
+  { key: "99", label: "SS99：失注", re: /^99/, fields: ["☆受失注日", "受失注理由(大項目)", "受失注理由（中項目）", "受失注理由(小項目)", "受失注理由詳細", "バッティング負け競合", "バッティング負け競合更新予定日", "失注後次回アクション日", "ATS利用状況"] },
+  { key: "08", label: "SS08：受注処理完了", re: /^08/, fields: ["導入フォロー担当者", "RI営業担当者", "【LINE】有料プラン利用開始希望日", "コメント", "有料稼働（終了日）", "契約月数", "オンボーディング作成"] },
+];
+const _mcOppDesc = { at: 0, p: null };
+async function mcOppDescribe(owner) { if (_mcOppDesc.p && Date.now() - _mcOppDesc.at < 3600000) return _mcOppDesc.p; _mcOppDesc.at = Date.now(); _mcOppDesc.p = describeObject(owner, "Opportunity").catch((e) => { _mcOppDesc.p = null; throw e; }); return _mcOppDesc.p; }
+const mcLblKey = (v) => String(v || "").normalize("NFKC").replace(/[\s　（）()_・]/g, "").toLowerCase();
+function mcTranscriptText(p) {
+  const out = []; const walk = (o, d) => { if (d > 6 || o == null) return; if (Array.isArray(o)) { for (const x of o) { if (x && typeof x === "object") { const t = x.text || x.phrase || x.content || x.sentence; const sp = x.speaker_name || (x.speaker && (x.speaker.name || x.speaker)) || x.name || ""; if (t) out.push(`${sp ? sp + "：" : ""}${t}`); else walk(x, d + 1); } } return; } if (typeof o === "object") for (const v of Object.values(o)) walk(v, d + 1); };
+  walk(p.mt_phrases || (p.video && p.video.transcript) || [], 0); return out.join("\n");
+}
+async function mcFindOpp(owner, row) {
+  const cal = row && row.payload && row.payload.mt_cal; const aid = cal && cal.sf && cal.sf.accountId;
+  const cols = "Id, Name, StageName, AccountId, Account.Name, CloseDate";
+  if (aid) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE AccountId = '${String(aid).replace(/[^A-Za-z0-9]/g, "")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return d.records[0]; }
+  const co = cal && cal.company && cal.company !== "(無題)" ? cal.company : ""; if (!co) return null;
+  const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Account.Name = '${co.replace(/'/g, "\\'")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null);
+  return d && d.records && d.records[0] ? d.records[0] : null;
+}
+app.get("/api/mochica/sf/form", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const row = await mcMiitelGet(String(req.query.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    const desc = await mcOppDescribe(owner); const all = (desc.fields || []);
+    const byLbl = new Map(all.map((f) => [mcLblKey(f.label), f]));
+    const stageField = all.find((f) => f.name === "StageName"); const stages = (stageField && stageField.picklistValues || []).filter((o) => o.active).map((o) => o.value);
+    const opp = await mcFindOpp(owner, row);
+    const names = new Set(); const defs = MC_STAGE_DEF.map((st) => ({ key: st.key, label: st.label, stageValue: stages.find((v) => st.re.test(v)) || "", fields: st.fields.map((lbl) => { const f = byLbl.get(mcLblKey(lbl)); if (f) names.add(f.name); return f ? { label: f.label, name: f.name, type: f.type, options: (f.picklistValues || []).filter((o) => o.active).map((o) => o.value), length: f.length || 0, updateable: !!f.updateable } : { label: lbl, name: "", missing: true }; }) }));
+    let cur = {}; if (opp && names.size) { const d = await sfQuery(owner, `SELECT ${[...names].join(", ")} FROM Opportunity WHERE Id = '${opp.Id}'`).catch(() => null); cur = (d && d.records && d.records[0]) || {}; }
+    const reqd = ((await getSettings().catch(() => ({}))).mcSfRequired) || {};
+    res.json({ ok: true, opp, stages, defs, current: cur, required: reqd, sfBase: "https://ap10.lightning.force.com" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/sf/fill", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {}; const row = await mcMiitelGet(String(b.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    const fields = (Array.isArray(b.fields) ? b.fields : []).filter((f) => f && f.name).slice(0, 40);
+    const tr = mcTranscriptText(row.payload || {}).slice(0, 60000); if (!tr) return res.status(400).json({ error: "この会議には文字起こしがまだありません" });
+    const cal = (row.payload || {}).mt_cal || {}; const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); const mdate = row.started_at ? new Date(new Date(row.started_at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : today;
+    const spec = fields.map((f) => `- ${f.name}（${f.label}／${f.type}${f.options && f.options.length ? `／選択肢：${f.options.join("|")}` : ""}）`).join("\n");
+    const sys = "あなたは MOCHICA（新卒採用の LINE ツール）の営業アシスタントです。商談の文字起こしだけを根拠に、Salesforce の商談の項目を埋めます。文字起こしに無いことは書かず、その項目は出しません。選択肢のある項目は選択肢の文字列そのままにします。日付は YYYY-MM-DD、チェックは true/false、数値は数字だけ。テキストは簡潔に（商談メモ・顧客の現状は箇条書きで、要点を落とさない）。出力は {\"項目名\": 値} の JSON だけ。";
+    const out = await callLLMPublic(sys, `商談：${cal.title || row.title || ""}（${mdate}、会社：${cal.company || ""}）\n今日：${today}\n\n埋める項目：\n${spec}\n\n文字起こし：\n${tr}`, 3000, { provider: "anthropic" });
+    let vals = {}; try { vals = typeof out === "string" ? JSON.parse(String(out).replace(/^```json|```$/g, "").trim()) : out || {}; } catch { vals = {}; }
+    const ok = new Set(fields.map((f) => f.name)); for (const k of Object.keys(vals)) if (!ok.has(k)) delete vals[k];
+    // 昇格日は、この会議の日付を入れる（文字起こしに無くても）
+    for (const f of fields) if (/昇格日/.test(f.label) && !vals[f.name]) vals[f.name] = mdate;
+    res.json({ ok: true, values: vals });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/sf/save", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const b = req.body || {}; const oppId = String(b.oppId || "").replace(/[^A-Za-z0-9]/g, ""); if (!oppId) return res.status(400).json({ error: "商談がありません" });
+    const key = String(b.stageKey || ""); const fields = { ...(b.fields || {}) }; for (const k of Object.keys(fields)) if (fields[k] === "" || fields[k] == null) delete fields[k];
+    if (b.stageValue) fields.StageName = String(b.stageValue);
+    // 覚えている必須が空なら、書く前に止める
+    const st = await getSettings().catch(() => ({})); const reqd = (st.mcSfRequired && st.mcSfRequired[key]) || [];
+    const lack = reqd.filter((n) => fields[n] == null && !(b.current && b.current[n] != null && b.current[n] !== ""));
+    if (lack.length) return res.json({ ok: false, needs: lack, errors: [{ message: "このステージで必須の項目が空です。入れてから書いてください。", fields: lack }] });
+    const r = await sfPatchRaw(owner, "Opportunity", oppId, fields);
+    if (!r.ok) {
+      // SF の入力チェックで止められた項目を、このステージの必須として覚える
+      const nf = [...new Set(r.errors.flatMap((e) => e.fields || []))];
+      if (nf.length && key) { const m = { ...(st.mcSfRequired || {}) }; m[key] = [...new Set([...(m[key] || []), ...nf])]; await saveSettings({ mcSfRequired: m }).catch(() => {}); }
+      return res.json({ ok: false, needs: nf, errors: r.errors });
+    }
+    if (b.vid) await mcMiitelSave({ id: String(b.vid), kind: "SF に記録", payload: { mt_sf: { oppId, stage: fields.StageName || "", at: Date.now(), by: req.user } } }).catch(() => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const items = await mcMiitelList(200);
@@ -30967,7 +31047,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13zd kinbot for MOCHICA の設定を kinbot の設定と同じ形に（左のメニュー：外部連携・拡張機能、外部連携のカード：MiiTel・Bales Cloud・Salesforce・Google、押すと中身）。";
+const BUILD_TAG = "2026-11-13ze kinbot for MOCHICA の SF 連携：ステージごとの項目（画面の名前から SF の項目を当てる）を議事録から AI で埋めて、SF の「新規」の商談に書く。SF の入力チェックで止められた項目はステージごとの必須として覚え、次から空なら書く前に止める。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

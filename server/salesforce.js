@@ -1745,3 +1745,14 @@ export async function sfQueryAll(owner, soql, max = 80000) {
   }
   return out;
 }
+
+// 更新して、だめなら SF のエラー（入力チェックの文言と項目）をそのまま返す（2026-11-13 MOCHICA の SF 連携）
+export async function sfPatchRaw(owner, sobject, id, fields) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const so = String(sobject || "").replace(/[^A-Za-z0-9_]/g, ""); const rid = String(id || "").replace(/[^A-Za-z0-9]/g, "");
+  const res = await fetch(`${acc.instanceUrl}/services/data/${API_VERSION}/sobjects/${so}/${rid}`, { method: "PATCH", headers: { Authorization: `Bearer ${acc.token}`, "content-type": "application/json" }, body: JSON.stringify(fields || {}) });
+  if (res.status === 204 || res.ok) return { ok: true, id: rid };
+  let errs = []; try { errs = await res.json(); } catch { errs = [{ message: await res.text().catch(() => "") }]; }
+  return { ok: false, status: res.status, errors: (Array.isArray(errs) ? errs : [errs]).map((e) => ({ message: String(e.message || ""), code: e.errorCode || "", fields: e.fields || [] })) };
+}
