@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261113t" />
+<link rel="stylesheet" href="/style.css?v=20261113u" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -136,9 +136,9 @@
     <section data-pane="list" hidden>
       <div class="mc-box"><h2>Bales に SF の情報を入れる</h2>
         <p class="mc-note">Bales のカスタム情報（失注商談失注日・失注理由 大/中/詳細/小・失注前ステージ・顧客の現状・利用中ATS・採用人数 など21項目）は、SF の「Mochica（リード）」の同じ名前の項目です。Bales の <b>SalesforceID（00Q…）</b>＝SF のリードの ID なので、SF のリードの値を、そのまま Bales に入れるファイルを作ります。</p>
-        <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap"><label class="mc-note" style="margin:0">対象：<select id="mcBalesScope" class="mt-q" style="height:34px;margin:0"><option value="lost">失注の情報があるリード（約1.4万件）</option><option value="all">Mochica（リード）全部（約8.7万件）</option></select></label><button type="button" class="mt-btn" id="mcBalesRun">集計する</button><a class="mt-btn ghost" id="mcBalesCsv" href="/api/mochica/bales/leads.csv" style="display:none">取り込み用ファイル（CSV）をダウンロード</a></div>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap"><label class="mc-note" style="margin:0">対象：<select id="mcBalesScope" class="mt-q" style="height:34px;margin:0"><option value="lost">SF の失注の情報があるリード（約1.4万件）</option><option value="all">SF の Mochica（リード）全部（約8.7万件・Bales に無いものも含む）</option></select></label><button type="button" class="mt-btn" id="mcBalesRun">集計する</button><a class="mt-btn ghost" id="mcBalesCsv" href="/api/mochica/bales/leads.csv" style="display:none">取り込み用ファイル（CSV）をダウンロード</a></div>
         <div id="mcBalesSum" class="mc-note" style="margin-top:10px">「集計する」を押すと、SF のリードを読み込みます（1〜2分かかります）。</div>
-        <p class="mc-note" style="margin-top:10px">いまは「ダウンロード → Bales でリードの更新として取り込み（SalesforceID で当てる）」の手作業です。Bales の取り込み（更新）の画面が分かりしだい、拡張機能で毎朝自動で取り込むようにします。</p></div>
+        <p class="mc-note" style="margin-top:10px">件数は <b>SF の</b> リードの数です（Bales に入っているのは約2.3万件）。Bales に無いリードの行は、取り込むときに当たらずに飛ばされます。いまは「ダウンロード → Bales でリードの更新として取り込み（SalesforceID で当てる）」の手作業です。Bales の取り込み（更新）の画面が分かりしだい、拡張機能で毎朝自動で取り込むようにします。</p></div>
     </section>
     <section data-pane="call" hidden><div class="mc-box"><h2>架電（Zoom Phone）<span class="mc-tag wait">準備中</span></h2>
       <p class="mc-note">インターン生の Zoom Phone の架電記録を、人ごと・日ごとに集めます（DOC の kincall で使っている Zoom Phone のつなぎ方を使い回します）。</p></div></section>
@@ -175,6 +175,6 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mochica.js?v=20261113t"></script>
+  <script src="/mochica.js?v=20261113u"></script>
 </body>
 </html>

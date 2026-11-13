@@ -30902,7 +30902,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13t kinbot for MOCHICA：Bales のカスタム情報＝SF の Mochica（リード）の項目と分かったので、SF のリードの値をリードの ID（00Q…）で Bales に入れるファイルを作る。";
+const BUILD_TAG = "2026-11-13u MOCHICA のリスト：件数は SF のリードの数（Bales は約2.3万件）と分かるように言葉を直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
