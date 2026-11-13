@@ -15857,7 +15857,7 @@ async function kxLetterSheetSync(owner, { dry = false } = {}) {
   if (!rows.some((r) => String(r[8] || "").trim())) throw new Error(`「${tabName}」の I 列（企業名）が空でした。タブの一覧：${tabList.join("、") || "（読めませんでした）"}`);
   const { items } = await kinxsBuild(); const byName = new Map(); for (const x of items) for (const n of [x.name, ...(x.formerNames || [])]) { const k = kxNz(n); if (k && !byName.has(k)) byName.set(k, x); }
   const now = new Date(Date.now() + 9 * 3600000); let y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1; const lm = KX_MEASURES.find((x) => x.key === "letter").months; while (!lm.includes(mo)) { mo--; if (mo < 1) { mo = 12; y--; } } const ym = `${y}-${String(mo).padStart(2, "0")}`;
-  // B 列の「記載している」：チェック（TRUE）・✓・○・済・記載・書いた・1 など。いまの状況を見て、まだ「未対応」のものだけ「送付待ち」にする（先に進んでいるものは戻さない）
+  // B 列の「記載している」：チェック（TRUE）・✓・○・済・記載・書いた・1 など。まだ「未対応」「送付待ち」のものを「送付済み」にする（先に進んでいるものは戻さない）
   const isYes = (v) => /^(true|1|yes|✓|✔|○|〇|◯|済|記載済|記載|書いた|書き済|完了|ok)/i.test(String(v || "").normalize("NFKC").trim());
   const plan = await kxActionsList({ yms: [ym] }).catch(() => []); const curSt = new Map((plan || []).filter((r0) => (r0.measure_key || r0.mkey || r0.measure) === "letter").map((r0) => [r0.account_id, r0.status || ""]));
   const out = { ym, tab: tabName, cols: { company: "I列", letter: "B列（手紙を記載しているか）" }, rows: 0, matched: 0, updated: 0, written: 0, unmatched: [] };
@@ -15866,8 +15866,9 @@ async function kxLetterSheetSync(owner, { dry = false } = {}) {
     const k = kxNz(name); const x = byName.get(k) || [...byName.entries()].find(([kk]) => kk.length >= 3 && (kk.includes(k) || k.includes(kk)))?.[1];
     if (!x) { if (out.unmatched.length < 30) out.unmatched.push(name); continue; } out.matched++;
     if (!isYes(r[1])) continue; out.written++;
-    const cur = curSt.get(x.id) || "未対応"; if (cur && cur !== "未対応") continue;
-    if (!dry) await kxActionUpsert(x.id, "letter", ym, { status: "送付待ち" }, owner).catch(() => {});
+    // B 列に記載がある＝手紙を送った会社 → 「送付済み」にして、電話フォローの対象に入れる（2026-11-13 田中さん「22社から変わらない」）
+    const cur = curSt.get(x.id) || "未対応"; if (cur && !["未対応", "送付待ち"].includes(cur)) continue;
+    if (!dry) await kxActionUpsert(x.id, "letter", ym, { status: "送付済み" }, owner).catch(() => {});
     out.updated++;
   }
   if (!dry) await saveSettings({ kxLetterSheet: { ...cfg, owner, lastSync: new Date().toISOString(), last: { rows: out.rows, matched: out.matched, updated: out.updated } } }).catch(() => {});
@@ -30902,7 +30903,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13u MOCHICA のリスト：件数は SF のリードの数（Bales は約2.3万件）と分かるように言葉を直す。";
+const BUILD_TAG = "2026-11-13v 電話フォローのシートから読む：B列に記載のある会社を「送付済み」にして、電話フォローの対象に入れる（送付待ちでは対象にならず22社のままだった）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -2103,7 +2103,7 @@ function renderCallV2() {
       sb.disabled = true; sb.textContent = "読んでいます…";
       try { const r = await api("/api/kinxs/letter-sheet/sync", { method: "POST", body: JSON.stringify({}) });
         const cols = Object.entries(r.cols || {}).filter(([, v]) => v).map(([k, v]) => `${({ company: "会社", cs: "担当", status: "ステータス", result: "結果", memo: "メモ", na: "NA日", sent: "送付", calls: "架電回数", lastCall: "最終架電" })[k] || k}＝${v}`).join("、");
-        alert(`「${r.tab || "手紙送付リスト"}」を読みました（${r.ym.replace("-", "年")}月の分・A〜I列）\n\n企業名の行：${r.rows}／kinXs の会社に当たった：${r.matched}\n手紙を記載済み（B列）：${r.written}／「送付待ち」にした：${r.updated}${r.unmatched && r.unmatched.length ? `\n\n当たらなかった会社（${r.unmatched.length}）：${r.unmatched.slice(0, 15).join("、")}` : ""}`);
+        alert(`「${r.tab || "手紙送付リスト"}」を読みました（${r.ym.replace("-", "年")}月の分・A〜I列）\n\n企業名の行：${r.rows}／kinXs の会社に当たった：${r.matched}\n手紙を記載済み（B列）：${r.written}／「送付済み」にした（電話フォローの対象に入る）：${r.updated}${r.unmatched && r.unmatched.length ? `\n\n当たらなかった会社（${r.unmatched.length}）：${r.unmatched.slice(0, 15).join("、")}` : ""}`);
         location.reload();
       } catch (e) { alert("読めませんでした：" + e.message); } finally { sb.disabled = false; sb.textContent = "シートから読む"; } }); }
   const scope = { querySelectorAll: (q) => [...box.querySelectorAll(q), ...(hc ? hc.querySelectorAll(q) : [])], querySelector: (q) => box.querySelector(q) || (hc && hc.querySelector(q)) };
