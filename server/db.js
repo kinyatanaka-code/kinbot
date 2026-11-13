@@ -12726,7 +12726,7 @@ export async function mcMiitelSave(ev) {
 }
 export async function mcMiitelList(limit = 100) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload->'mt_cal' AS cal, (payload ? 'mt_video') AS has_video FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload->'mt_cal' AS cal, (payload ? 'mt_video') AS has_video, ((payload ? 'mt_phrases') OR COALESCE(transcript_len,0) > 0) AS has_tr FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 export async function mcMiitelGet(id) {
   if (!pool) return null; await ensureMcMiitel();
@@ -12755,7 +12755,7 @@ export async function mcMiitelCleanJunk() {
 export async function mcMiitelTodo(limit = 10) {
   if (!pool) return []; await ensureMcMiitel();
   return (await pool.query(`SELECT id, url, COALESCE(transcript_len,0) AS tl, (payload ? 'mt_video') AS hv FROM mochica_miitel_events
-    WHERE (COALESCE(transcript_len,0)=0 OR NOT (payload ? 'mt_video')) AND COALESCE(started_at, received_at) > now() - interval '60 days' AND COALESCE(title,'') <> ''
+    WHERE ((COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases')) OR NOT (payload ? 'mt_video')) AND COALESCE(started_at, received_at) > now() - interval '60 days' AND COALESCE(title,'') <> ''
       AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3
     ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
@@ -12787,4 +12787,10 @@ export async function findCallTargetCompanyInfo({ company = "", email = "", phon
   const emp = pool2.map((x) => String(x.employees || "").trim()).find((v) => v && v !== "-" && /\d/.test(v)) || "";
   const ind = pool2.map((x) => String(x.industry || "").trim()).find((v) => v) || "";
   return emp || ind ? { employees: emp, industry: ind } : null;
+}
+
+// 文字起こしがあるのに数が0になっていたものを直す（2026-11-13：「文字起こしがあるのに無い判定」）
+export async function mcMiitelFixTrLen() {
+  if (!pool) return 0; await ensureMcMiitel();
+  try { const r = await pool.query(`UPDATE mochica_miitel_events SET transcript_len = 1 WHERE COALESCE(transcript_len,0) = 0 AND payload ? 'mt_phrases'`); return r.rowCount || 0; } catch { return 0; }
 }

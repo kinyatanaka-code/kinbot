@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelNeedCal, findCallTargetCompanyInfo, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -26653,6 +26653,8 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
   } catch (e) { console.warn("[MiiTel] webhook", e.message); res.status(500).json({ error: e.message }); }
 });
 globalThis.mcMiitel = { save: (ev) => mcMiitelSave(ev), list: (n) => mcMiitelList(n) };
+// 文字起こしがあるのに数が0のものを直す（起動のたび・安全）
+setTimeout(() => mcMiitelFixTrLen().then((n) => n && console.log(`[MiiTel] 文字起こしの数を直しました ${n}件`)).catch(() => {}), 35 * 1000);
 // 会議でないものを拾っていた分（題名も日時も無い）を消す（起動のたび・安全）
 setTimeout(() => mcMiitelCleanJunk().then((n) => n && console.log(`[MiiTel] 会議でないもの ${n}件を消しました`)).catch(() => {}), 30 * 1000);
 // 2026-11-12：Claude から取り込んだ3月の会議（172件）を1回だけ消す（印を付けて、あとから取り込んだ分は消さない）
@@ -26759,7 +26761,8 @@ app.post(["/api/mochica/miitel/capture", "/api/mochica/miitel/ext/capture"], exp
         continue;
       }
       // 文字起こしの数（phrases は配列のどこかにある）
-      const arr = (o) => Array.isArray(o) ? o : o && typeof o === "object" ? (Object.values(o).find((x) => Array.isArray(x) && x.length) || []) : [];
+      // 文字起こしの配列は、入れ子の奥にあることもあるので深く探す（2026-11-13：上の段だけ見ていて0件になっていた）
+      const arr = (o, d = 0) => { if (Array.isArray(o)) return o; if (!o || typeof o !== "object" || d > 4) return []; for (const x of Object.values(o)) { const a = arr(x, d + 1); if (a.length) return a; } return []; };
       const trLen = kind === "phrases" ? arr(body).length : 0;
       const title = String(it.title || "").replace(/\s*[|｜-]\s*MiiTel.*$/i, "").trim();
       await mcMiitelSave({ id: vid, kind: "拡張機能（MiiTel のページから）", title: title && !/^MiiTel/i.test(title) ? title : "", transcriptLen: trLen, url: `https://mochica.app.miitel.com/app/video/${vid}`, payload: { [`mt_${kind}`]: body, mt_detail_id: String(it.detailId || "") } });
@@ -30960,7 +30963,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13z SF の立ち上げ：従業員数はまず kincall の架電先の数を使う（SF・ネットはそのあと）。業種の見立てにも kincall のリストの業種・従業員数を材料として渡す。";
+const BUILD_TAG = "2026-11-13za MOCHICA の商談：文字起こしがあるのに「文字起こし待ち」になっていたのを直す（数え方を深く・一覧は中身の有無で判定・同じ会議を読み直さない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

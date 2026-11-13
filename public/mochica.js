@@ -38,12 +38,12 @@
   function mtDraw() {
     const box = $("mtList"); if (!box) return;
     const q = String(($("mtQ") || {}).value || "").trim().toLowerCase();
-    const need = mtAll.filter((m) => !m.transcript_len).length; const rb = $("mtRead");
+    const need = mtAll.filter((m) => !m.transcript_len && !m.has_tr).length; const rb = $("mtRead");
     if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = "MiiTel から今すぐ読む"; }
     if (!mtAll.length) { $("mtCount").textContent = "0件"; box.innerHTML = '<div class="mc-note" style="padding:10px">まだありません。上の「MiiTel から会議を読み込む」を押すと、MiiTel の会議履歴から読み込みます。</div>'; return; }
     // ① 担当のカード（kinbot の商談履歴と同じ）
     if (mtHost == null) {
-      const by = new Map(); for (const m of mtAll) { const h = hostOf(m); const v = by.get(h) || { n: 0, tr: 0, last: "" }; v.n++; if (m.transcript_len) v.tr++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; by.set(h, v); }
+      const by = new Map(); for (const m of mtAll) { const h = hostOf(m); const v = by.get(h) || { n: 0, tr: 0, last: "" }; v.n++; if (m.transcript_len || m.has_tr) v.tr++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; by.set(h, v); }
       const hs = [...by.entries()].filter(([h]) => !q || h.toLowerCase().includes(q)).sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)));
       $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`;
       box.innerHTML = hs.map(([h, v]) => `<div class="mt-pcard" data-host="${esc(h)}"><span class="av">${esc(h.replace(/^（|）$/g, "").slice(0, 1))}</span><span class="nm"><b>${esc(h)}</b><small>${v.n}商談${v.tr ? `・文字起こし${v.tr}` : ""}${v.last ? `・最新 ${md(v.last)}` : ""}</small></span><span class="go">›</span></div>`).join("") || '<div class="mc-note" style="padding:10px">見つかりませんでした</div>';
@@ -57,7 +57,7 @@
     for (const m of list) {
       const at = m.started_at || m.received_at; const k = dkey(at);
       if (k !== last) { html += `<div class="mt-day">${md(at)}（${wk(at)}）</div>`; last = k; }
-      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
+      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len || m.has_tr ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
     }
     box.innerHTML = html;
     box.querySelector("[data-back]").addEventListener("click", () => { mtHost = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); });
