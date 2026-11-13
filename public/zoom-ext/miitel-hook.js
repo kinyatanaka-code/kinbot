@@ -24,15 +24,21 @@
       const isMedia = !/\/api\//.test(path) && (/\.(mp4|m3u8|ts|m4a|webm|mpd)(\?|$)/i.test(path) || /metadata\.json$/i.test(path) || (lastDetail && path.includes(lastDetail)));
       if (isMedia && !seen.has("m:" + path)) { seen.add("m:" + path); window.postMessage({ __kbMiitel: true, kind: "media", detailId: lastDetail, videoId: vid(), url: U.origin + U.pathname, text: JSON.stringify({ url: U.href.slice(0, 2000), host: U.host, path }), title: document.title }, "*"); }
       if (!/\/api\//.test(path) && !isMedia) return; const key = isMedia ? U.host + path : path; if (seen.has(key)) return; seen.add(key); window.postMessage({ __kbMiitelSeen: true, path: isMedia ? `[録画] ${U.host}${path}` : path, page: location.pathname }, "*"); } catch {} };
+  const noteWrite = (method, u, body) => { try { const m0 = String(method || "GET").toUpperCase(); if (m0 === "GET") return; const U = new URL(String(u), location.href); if (!/\/api\//.test(U.pathname)) return;
+      let keys = ""; try { const o = typeof body === "string" ? JSON.parse(body) : null; if (o && typeof o === "object") keys = Object.entries(o).map(([k, v]) => `${k}=${/url|link|title|name|meeting/i.test(k) ? String(v).slice(0, 60) : typeof v}`).join("&"); } catch { keys = typeof body; }
+      window.postMessage({ __kbMiitelSeen: true, path: `[${m0}] ${U.pathname}${keys ? ` {${keys}}` : ""}`, page: location.pathname }, "*"); } catch {} };
   const of = window.fetch;
   window.fetch = async function (...a) {
+    try { const o0 = a[1] || {}; noteWrite(o0.method || (a[0] && a[0].method), typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || "", o0.body); } catch {}
     const r = await of.apply(this, a);
     try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; note(u); if (RE.test(u) || RE_LIST.test(u)) r.clone().text().then((t) => send(u, t)).catch(() => {}); } catch {}
     return r;
   };
   const oo = XMLHttpRequest.prototype.open, os = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbU = u; note(u); return oo.call(this, m, u, ...rest); };
+  const oo3 = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbM = m; return oo3.call(this, m, u, ...rest); };
   XMLHttpRequest.prototype.send = function (...a) {
+    try { noteWrite(this.__kbM, this.__kbU, a[0]); } catch {}
     try { if (RE.test(String(this.__kbU || "")) || RE_LIST.test(String(this.__kbU || ""))) this.addEventListener("load", () => { try { if (!this.responseType || this.responseType === "text" || this.responseType === "json") send(this.__kbU, this.responseType === "json" ? JSON.stringify(this.response) : this.responseText); } catch {} }); } catch {}
     return os.apply(this, a);
   };
