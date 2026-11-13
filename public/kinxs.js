@@ -1552,7 +1552,7 @@ async function kh2LoadTasks(who0) {
     const who = (() => { const pp = window.__kxPeople || []; const cur = String(t0.owner || "").toLowerCase(); const nm = t0.ownerName || (d.all ? "" : "自分");
       const canMove = (t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (t0.id && /（自動）|Claude/.test(String(t0.src || "")));
       if (!canMove || !pp.length) return `<span class="who">${esc(nm)}</span>`;
-      return `<label class="who h2-who" data-noopen title="押してほかの人に託す">${esc(nm || "担当")}<select data-tk-who="${i0}"><option value="">託す人を選ぶ</option>${pp.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`; })();
+      return `<label class="who h2-who" data-noopen title="押すとほかの人に移せます">${esc(nm || "担当")}<select data-tk-who="${i0}"><option value="">移す人を選ぶ</option>${pp.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`; })();
     return `<div class="h2-li h2-tkrow" data-tk="${i0}" ${t0.accountId ? `data-tk-open="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><span class="${dcls}">${dl}${em}</span><span class="co">${x ? kxLogoMini(x) : ""}<b>${esc(t0.account || "（会社なし）")}</b></span><span class="what">${esc(t0.title)}<small class="h2-src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</small></span>${who}<span class="h2-ops" data-noopen>${d.mine ? '<button type="button" class="h2-op done" data-tk-done title="済みにする">✓ 済み</button>' : ""}</span></div>`; };
   box.innerHTML = `<div class="kx-note" style="padding:2px 4px 6px">${d.all ? "全員" : d.mine ? "自分" : esc(who)}のタスク（期限の近い順）</div><div class="h2-list">` + (items.length ? items.map((t0, i0) => row(t0, i0)).join("") : '<div class="kx-empty">タスクはありません 🎉</div>') + "</div>";
   box.querySelectorAll("[data-tk-open]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-noopen], button, select, label")) return; openDetail(el.dataset.tkOpen); }));
@@ -1560,17 +1560,17 @@ async function kh2LoadTasks(who0) {
   box.querySelectorAll("[data-tk-who]").forEach((sel) => sel.addEventListener("change", async () => {
     const t0 = items[Number(sel.dataset.tkWho)]; const em = sel.value; if (!em) return;
     const p0 = (window.__kxPeople || []).find((q) => q.email === em);
-    if (!confirm(`「${t0.title}」を${p0 ? p0.name : em}さんに託しますか？`)) { sel.value = ""; return; }
+    if (!confirm(`「${t0.title}」を${p0 ? p0.name : em}さんに移しますか？`)) { sel.value = ""; return; }
     // 託したら、その場ですぐ自分の一覧から消す（全員のときは担当の名前だけ変える）。うまくいかなければ戻す（2026-11-13 田中さん）
     const li = sel.closest("[data-tk]"); const lab = sel.closest("label"); const prevName = lab ? lab.firstChild && lab.firstChild.nodeValue : "";
     if (d.all) { if (lab && lab.firstChild) lab.firstChild.nodeValue = p0 ? kxSurname(p0.name) || p0.name : em; }
     else if (li) { li.classList.add("gone"); kh2.tkN = Math.max(0, (kh2.tkN || 1) - 1); const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN; setTimeout(() => { li.style.display = "none"; }, 260); }
-    if (typeof kxDoneToast === "function") kxDoneToast(`${p0 ? p0.name : em}さんに託しました`);
+    if (typeof kxDoneToast === "function") kxDoneToast(`${p0 ? p0.name : em}さんに移しました`);
     try {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_owner: em }) });
       else await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ assignee: em }) });
     } catch (e) {
-      alert("託せませんでした：" + e.message); sel.value = "";
+      alert("移せませんでした：" + e.message); sel.value = "";
       if (d.all) { if (lab && lab.firstChild) lab.firstChild.nodeValue = prevName; } else if (li) { li.classList.remove("gone"); li.style.display = ""; kh2.tkN += 1; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN; }
     }
   }));
@@ -1655,12 +1655,12 @@ function renderHomeV2() {
         // キックオフ未実施・検収書も、担当を押すとほかの人に割り振れる（2026-11-13 田中さん）
         if ((a.kind === "キックオフ未実施" || a.kind === "検収書 未回収") && ppl.length && !window.KX_COPY) {
           const ao = (window.__kxActOwner || {})[`${x.id}:${a.kind}`] || ""; const nm2 = kxActWho(x, a); const cur2 = ao || csEm;
-          return `<label class="who h2-who" data-noopen title="押すと担当を割り振れます">${esc(nm2)}${ao && ao !== csEm ? "<em>託</em>" : ""}<select data-home-actown="${esc(x.id)}" data-kind="${esc(a.kind)}" data-cs="${esc(csEm)}">${ppl.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur2 ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`;
+          return `<label class="who h2-who" data-noopen title="押すと担当を割り振れます">${esc(nm2)}<select data-home-actown="${esc(x.id)}" data-kind="${esc(a.kind)}" data-cs="${esc(csEm)}">${ppl.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur2 ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`;
         }
         if (!a.na || !ppl.length || window.KX_COPY) return `<span class="who">${esc(nm)}</span>`;
         // 次回アクションの行は、担当を押すと別の人に移せる（2026-11-11 田中さん）
         const cur = x.naOwner || csEm;
-        return `<label class="who h2-who" data-noopen title="押すと担当を移せます">${esc(nm)}${x.naOwner && x.naOwner !== csEm ? "<em>託</em>" : ""}<select data-home-naown="${esc(x.id)}" data-cs="${esc(csEm)}">${ppl.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })()}<span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
+        return `<label class="who h2-who" data-noopen title="押すと担当を移せます">${esc(nm)}<select data-home-naown="${esc(x.id)}" data-cs="${esc(csEm)}">${ppl.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })()}<span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
         const dat = `data-ha="${k}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}"`;
         // ボタンの言葉は「✓ 済み」にそろえる（2026-11-11 田中さん：実施済み／済みが分かりにくい）。何が起きるかは、指を置くと出る説明に
         return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
@@ -1697,7 +1697,10 @@ function renderHomeV2() {
   box.querySelectorAll("[data-home-actown]").forEach((sel) => sel.addEventListener("change", async () => {
     const id = sel.dataset.homeActown, kind = sel.dataset.kind, em = sel.value, cs = sel.dataset.cs || ""; const p0 = (window.__kxPeople || []).find((q) => q.email === em);
     if (!confirm(`「${kind}」を${p0 ? p0.name : em}さんに割り振りますか？`)) { renderHomeV2(); return; }
-    const map = { ...(window.__kxActOwner || {}) }; const k = `${id}:${kind}`; const prev = map[k]; if (em && em !== cs) map[k] = em; else delete map[k]; window.__kxActOwner = map; renderHomeV2();
+    const map = { ...(window.__kxActOwner || {}) }; const k = `${id}:${kind}`; const prev = map[k]; if (em && em !== cs) map[k] = em; else delete map[k]; window.__kxActOwner = map;
+    // 移したら、自分の一覧からはすぐ消す（2026-11-13 田中さん）。そのあと描き直して数もそろえる
+    { const li = sel.closest(".h2-li"); const me0 = kxSurname(window.__kxMe || ""); const to0 = p0 ? kxSurname(p0.name) : ""; if (li && me0 && to0 !== me0) { li.style.transition = "opacity .25s, transform .25s"; li.style.opacity = ".2"; li.style.transform = "translateX(12px)"; } }
+    setTimeout(() => renderHomeV2(), 280);
     if (typeof kxDoneToast === "function") kxDoneToast(`${p0 ? p0.name : em}さんに割り振りました`);
     try { await api("/api/kinxs/act-owner", { method: "PUT", body: JSON.stringify({ id, kind, email: em && em !== cs ? em : "" }) }); }
     catch (e) { alert("割り振れませんでした：" + e.message); const m2 = { ...(window.__kxActOwner || {}) }; if (prev) m2[k] = prev; else delete m2[k]; window.__kxActOwner = m2; renderHomeV2(); }
@@ -2892,7 +2895,7 @@ async function kxCTaskMount(bg, x) {
         </div>
         ${t.na ? (() => { const csEm = (people.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || ""; const curEm = x.naOwner || csEm; const curP = people.find((p0) => p0.email === curEm);
             const nm = curP ? (kxSurname(curP.name) || curP.name) : (kxSurname(x.cs || "") || "CS未定");
-            return ro ? `<span class="kx-tm-who" title="担当">${esc(nm)}</span>` : `<label class="kx-tm-who" title="次回アクションの担当を変える（ふだんはCS担当）">${esc(nm)}${x.naOwner && x.naOwner !== csEm ? "<em>託</em>" : ""}<select data-tm-naown="1">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === curEm ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })() : (ro || !t.id ? `<span class="kx-tm-who" title="担当">${esc(whoName(t.ownerName || t.owner))}</span>` : `<label class="kx-tm-who" title="担当を変える（託す）${t.byName ? `／${esc(whoName(t.byName))}さんが託した` : ""}">${esc(whoName(t.ownerName || t.owner))}${t.byName ? '<em>託</em>' : ""}<select data-tm-who="${i}">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === String(t.owner || "").toLowerCase() ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`)}
+            return ro ? `<span class="kx-tm-who" title="担当">${esc(nm)}</span>` : `<label class="kx-tm-who" title="次回アクションの担当を変える（ふだんはCS担当）">${esc(nm)}<select data-tm-naown="1">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === curEm ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })() : (ro || !t.id ? `<span class="kx-tm-who" title="担当">${esc(whoName(t.ownerName || t.owner))}</span>` : `<label class="kx-tm-who" title="担当を変える（託す）${t.byName ? `／${esc(whoName(t.byName))}さんが託した` : ""}">${esc(whoName(t.ownerName || t.owner))}<select data-tm-who="${i}">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === String(t.owner || "").toLowerCase() ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`)}
         ${ro ? `<span class="kx-tm-due ${b}">${t.due ? md(t.due) : ""}</span>` : `<label class="kx-tm-due ${b}" title="期日を変える">${t.due ? `${md(t.due)}${t.time ? ` ${t.time}` : ""}${late ? `<em>${late}日過ぎ</em>` : ""}` : "期日"}${t.na ? `<input type="datetime-local" data-tm-due="${i}" value="${esc(t.due ? `${t.due}T${t.time || "10:00"}` : "")}">` : `<input type="date" data-tm-due="${i}" value="${esc(t.due || "")}">`}</label>`}
         ${ro || t.na ? "" : `<button type="button" class="kx-tm-x" data-tm-del="${i}" title="消す" aria-label="消す">×</button>`}
       </div>`;
