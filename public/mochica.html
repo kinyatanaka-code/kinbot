@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261113u" />
+<link rel="stylesheet" href="/style.css?v=20261113w" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -107,6 +107,7 @@
     <header class="topbar">
       <div class="brand"><img class="topbar-bot" src="/kinbot-mochica.svg" alt="" /><span class="brand-name" id="mcTitle">ホーム</span></div>
       <span style="font-size:12px;font-weight:800;color:#0B6E78;background:#DDF5F7;border-radius:99px;padding:3px 10px;">準備中</span>
+      <div class="mc-head-r" id="mcHeadR" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px"><span id="mtAutoSt" class="mc-note" style="margin:0;font-size:12px"></span><button type="button" id="mtRead" class="mt-btn">MiiTel から今すぐ読む</button></div>
     </header>
     <div class="mc-main">
 <section data-pane="home">
@@ -125,7 +126,7 @@
       <div class="mt-wrap">
         <aside class="mt-side">
           <div class="mt-side-h"><b>商談</b><span id="mtCount" class="mt-n"></span></div>
-          <button type="button" id="mtRead" class="mt-btn" style="margin-bottom:8px;justify-content:center">MiiTel から会議を読み込む</button>
+          
           <details id="mtDiag" class="mt-diag" style="margin:-2px 0 8px;font-size:11.5px;color:#5C7377"><summary style="cursor:pointer">拡張機能の様子</summary><div id="mtDiagBody" style="margin-top:6px;line-height:1.6;word-break:break-all">—</div></details>
           <input id="mtQ" class="mt-q" type="search" name="mc-mt-find" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="会議名・担当で探す" />
           <div id="mtList" class="mt-list"><div class="mc-note" style="padding:10px">読み込んでいます…</div></div>
@@ -175,6 +176,6 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mochica.js?v=20261113u"></script>
+  <script src="/mochica.js?v=20261113w"></script>
 </body>
 </html>

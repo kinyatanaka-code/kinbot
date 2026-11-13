@@ -11,6 +11,7 @@
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
     if (k === "settings") loadConfig();
     if (k === "mtg") loadMeetings();
+    { const hr = $("mcHeadR"); if (hr) hr.hidden = k !== "mtg"; }
   };
   document.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", () => go(a.dataset.go)));
   window.addEventListener("hashchange", () => go(location.hash.slice(1)));
@@ -36,7 +37,7 @@
     const box = $("mtList"); if (!box) return;
     const q = String(($("mtQ") || {}).value || "").trim().toLowerCase();
     const need = mtAll.filter((m) => !m.transcript_len).length; const rb = $("mtRead");
-    if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = "MiiTel から今すぐ読む（20分ごとに自動）"; }
+    if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = "MiiTel から今すぐ読む"; }
     if (!mtAll.length) { $("mtCount").textContent = "0件"; box.innerHTML = '<div class="mc-note" style="padding:10px">まだありません。上の「MiiTel から会議を読み込む」を押すと、MiiTel の会議履歴から読み込みます。</div>'; return; }
     // ① 担当のカード（kinbot の商談履歴と同じ）
     if (mtHost == null) {
@@ -151,7 +152,9 @@
   // 拡張機能の様子（見た MiiTel の通り道・送った結果）を5秒ごとに出す（2026-11-12）
   setInterval(() => { const b = $("mtDiagBody"); if (!b) return; const ext = document.documentElement.dataset.kbMiitelExt; let dg = null; try { dg = JSON.parse(document.documentElement.dataset.kbMtDiag || "null"); } catch {}
     let cr = null; try { cr = JSON.parse(document.documentElement.dataset.kbMtCrawl || "null"); } catch {}
-    b.innerHTML = !ext ? "拡張機能 kinbot-ext（1.4.2 以上）が見えません。入れ直して、この画面を開き直してください。" : `${cr ? `裏で開いた数：${cr.done}/${cr.total}<br>` : ""}送り直し待ち：${dg ? dg.pending : 0}件<br>送った結果：${dg && dg.last.length ? dg.last.map((x) => `${esc(x.kind)}（${x.ok ? "OK" : "NG " + esc(String(x.status))}・${Math.round(x.len / 1000)}k）`).join("、") : "まだなし"}<br>見た MiiTel の通り道：${dg && dg.seen.length ? dg.seen.map((x) => esc(x.path)).join("<br>") : "まだなし（MiiTel のページを開くと出ます）"}`; }, 5000);
+    let vp = null; try { vp = JSON.parse(document.documentElement.dataset.kbMtVid || "null"); } catch {}
+    { const st = $("mtAutoSt"); if (st) st.textContent = !ext ? "拡張機能が見えません" : cr && cr.done < cr.total && Date.now() - cr.at < 1800000 ? `自動で読んでいます ${cr.done}/${cr.total}${vp && !vp.done && !vp.error && Date.now() - vp.at < 300000 ? `（録画 ${vp.i || 0}/${vp.total || "?"}）` : ""}` : "20分ごとに自動で読みます"; }
+    b.innerHTML = !ext ? "拡張機能 kinbot-ext（1.6.1 以上）が見えません。入れ直して、この画面を開き直してください。" : `${cr ? `裏で開いた数：${cr.done}/${cr.total}<br>` : ""}${vp ? `録画：${vp.error ? `取り込めませんでした（${esc(vp.error)}）` : vp.done ? "取り込みました" : `${vp.i || 0}/${vp.total || "?"}`}<br>` : ""}送り直し待ち：${dg ? dg.pending : 0}件<br>送った結果：${dg && dg.last.length ? dg.last.map((x) => `${esc(x.kind)}（${x.ok ? "OK" : "NG " + esc(String(x.status))}・${Math.round(x.len / 1000)}k）`).join("、") : "まだなし"}<br>見た MiiTel の通り道：${dg && dg.seen.length ? dg.seen.map((x) => esc(x.path)).join("<br>") : "まだなし（MiiTel のページを開くと出ます）"}`; }, 5000);
   { const q = $("mtQ"); if (q) { q.addEventListener("input", mtDraw); const clr = () => { if (/@/.test(q.value)) { q.value = ""; mtDraw(); } }; setTimeout(clr, 300); setTimeout(clr, 1500); } }
   async function loadConfig() {
     try { const c = await api("/api/mochica/config");

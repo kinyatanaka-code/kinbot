@@ -69,8 +69,10 @@ async function kbMtCrawl(urls) {
         const tab = await chrome.tabs.create({ url: u, active: false });
         if (/#kbGrabVideo/.test(u)) {
           // 録画：ページが「終わった」と知らせるまで待つ（最長20分）
-          await chrome.storage.local.set({ kbMtVidDone: "" });
-          for (let k = 0; k < 240; k++) { await new Promise((r) => setTimeout(r, 5000)); const d0 = (await chrome.storage.local.get(["kbMtVidDone"])).kbMtVidDone; if (d0) break; }
+          await chrome.storage.local.set({ kbMtVidDone: "", kbMtVidProg: null }); const t0 = Date.now();
+          // 終わったら次へ。進み具合が2分止まったら（録画が無い・読めない）あきらめて次へ。最長15分
+          for (let k = 0; k < 180; k++) { await new Promise((r) => setTimeout(r, 5000)); const st0 = await chrome.storage.local.get(["kbMtVidDone", "kbMtVidProg"]); if (st0.kbMtVidDone) break;
+            const lastAt = (st0.kbMtVidProg && st0.kbMtVidProg.at) || t0; if (Date.now() - lastAt > 120000) break; }
         } else await new Promise((r) => setTimeout(r, 14000));   // ページが文字起こし・議事録を取ってくるまで待つ
         await chrome.tabs.remove(tab.id).catch(() => {});
       } catch {}
