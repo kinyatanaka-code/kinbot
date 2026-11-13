@@ -15851,28 +15851,24 @@ async function kxLetterSheetSync(owner, { dry = false } = {}) {
   // タブの名前は、URL の gid（1213626809）で本当の名前を確かめる（名前に空白などが入っていて読めなかった：2026-11-13）
   let tabName = cfg.tab; let tabList = [];
   try { const tabs = ((await sheetTabs(owner, cfg.id)) || {}).tabs || []; tabList = tabs.map((t) => `${t.title}（${t.gid}）`); const hit = tabs.find((t) => Number(t.gid) === Number(cfg.gid)) || tabs.find((t) => String(t.title).trim() === cfg.tab) || tabs.find((t) => /手紙/.test(String(t.title))); if (hit) tabName = hit.title; } catch (e) { if (e.notFound) throw e; }
-  // 範囲を決めずにタブ全体を読む（列が多い・下の方から始まるシートでも読めるように）（2026-11-13：「シートが空でした」）
-  const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'`);
-  const rows = (Array.isArray(vals) ? vals : (vals && vals.values) || []).filter((r) => Array.isArray(r));
-  if (!rows.some((r) => r.some((c) => String(c || "").trim()))) throw new Error(`「${tabName}」のタブが空でした。タブの一覧：${tabList.join("、") || "（読めませんでした）"}`);
-  let hi = rows.slice(0, 40).findIndex((r) => (r || []).some((c) => /企業名|会社名|法人名|^企業$|^会社$|顧客名|取引先/.test(String(c || ""))));
-  if (hi < 0) throw new Error(`「${tabName}」に見出しの行（企業名・会社名など）が見つかりませんでした。最初の行：${(rows.find((r) => r.some((c) => String(c || "").trim())) || []).slice(0, 12).join("｜")}`);
-  const head = rows[hi].map((x) => String(x || "").trim()); const col = kxSheetCols(head);
+  // 読む範囲は A〜I。I＝企業名、B＝手紙を記載しているか（2026-11-13 田中さん）
+  const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'!A:I`);
+  const rows = (Array.isArray(vals) ? vals : []).filter((r) => Array.isArray(r));
+  if (!rows.some((r) => String(r[8] || "").trim())) throw new Error(`「${tabName}」の I 列（企業名）が空でした。タブの一覧：${tabList.join("、") || "（読めませんでした）"}`);
   const { items } = await kinxsBuild(); const byName = new Map(); for (const x of items) for (const n of [x.name, ...(x.formerNames || [])]) { const k = kxNz(n); if (k && !byName.has(k)) byName.set(k, x); }
   const now = new Date(Date.now() + 9 * 3600000); let y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1; const lm = KX_MEASURES.find((x) => x.key === "letter").months; while (!lm.includes(mo)) { mo--; if (mo < 1) { mo = 12; y--; } } const ym = `${y}-${String(mo).padStart(2, "0")}`;
-  const out = { ym, header: head, cols: Object.fromEntries(Object.entries(col).map(([k, i]) => [k, i >= 0 ? head[i] : null])), rows: 0, matched: 0, updated: 0, unmatched: [] };
-  for (const r of rows.slice(hi + 1)) {
-    const name = col.company >= 0 ? String(r[col.company] || "").trim() : ""; if (!name) continue; out.rows++;
+  // B 列の「記載している」：チェック（TRUE）・✓・○・済・記載・書いた・1 など。いまの状況を見て、まだ「未対応」のものだけ「送付待ち」にする（先に進んでいるものは戻さない）
+  const isYes = (v) => /^(true|1|yes|✓|✔|○|〇|◯|済|記載済|記載|書いた|書き済|完了|ok)/i.test(String(v || "").normalize("NFKC").trim());
+  const plan = await kxActionsList({ yms: [ym] }).catch(() => []); const curSt = new Map((plan || []).filter((r0) => (r0.measure_key || r0.mkey || r0.measure) === "letter").map((r0) => [r0.account_id, r0.status || ""]));
+  const out = { ym, tab: tabName, cols: { company: "I列", letter: "B列（手紙を記載しているか）" }, rows: 0, matched: 0, updated: 0, written: 0, unmatched: [] };
+  for (const r of rows) {
+    const name = String(r[8] || "").trim(); if (!name || /^(企業名|会社名|法人名|顧客名)$/.test(name)) continue; out.rows++;
     const k = kxNz(name); const x = byName.get(k) || [...byName.entries()].find(([kk]) => kk.length >= 3 && (kk.includes(k) || k.includes(kk)))?.[1];
     if (!x) { if (out.unmatched.length < 30) out.unmatched.push(name); continue; } out.matched++;
-    const sv = col.status >= 0 ? r[col.status] : ""; const lp = {}, cp = {};
-    const ls = kxSheetSt("letter", sv); if (ls) lp.status = ls;
-    const cs0 = kxSheetSt("call_letter", sv); if (cs0) cp.status = cs0;
-    if (col.result >= 0) { const rv = String(r[col.result] || ""); const rr = ["良好", "普通", "懸念あり", "未接続"].find((z) => rv.includes(z)) || (/不在|つながらない|繋がらない/.test(rv) ? "未接続" : /懸念|解約|不満/.test(rv) ? "懸念あり" : ""); if (rr) cp.result = rr; }
-    if (col.memo >= 0 && String(r[col.memo] || "").trim()) cp.memo = String(r[col.memo]).slice(0, 1000);
-    if (col.na >= 0) { const d = kxSheetDate(r[col.na]); if (d) cp.na_date = d; }
-    if (!dry) { if (Object.keys(lp).length) await kxActionUpsert(x.id, "letter", ym, lp, owner).catch(() => {}); if (Object.keys(cp).length) await kxActionUpsert(x.id, "call_letter", ym, cp, owner).catch(() => {}); }
-    if (Object.keys(lp).length || Object.keys(cp).length) out.updated++;
+    if (!isYes(r[1])) continue; out.written++;
+    const cur = curSt.get(x.id) || "未対応"; if (cur && cur !== "未対応") continue;
+    if (!dry) await kxActionUpsert(x.id, "letter", ym, { status: "送付待ち" }, owner).catch(() => {});
+    out.updated++;
   }
   if (!dry) await saveSettings({ kxLetterSheet: { ...cfg, owner, lastSync: new Date().toISOString(), last: { rows: out.rows, matched: out.matched, updated: out.updated } } }).catch(() => {});
   return out;
@@ -30809,7 +30805,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13p 電話フォローのシートから読む：タブ全体を読む（範囲を決めない）、見出しは40行目までさがす、読めないときはタブの一覧・最初の行を出す。";
+const BUILD_TAG = "2026-11-13q 電話フォローのシートから読む：A〜I を読み、I＝企業名、B＝手紙を記載しているか。記載済みで未対応のものを「送付待ち」に（先に進んでいるものは戻さない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
