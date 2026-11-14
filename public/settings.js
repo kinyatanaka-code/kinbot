@@ -1153,19 +1153,40 @@ function mbRender() {
       { k: "mochica", label: "MOCHICA", has: (m) => m.businesses.includes("MOCHICA") },
       { k: "other", label: "その他", has: (m) => !m.businesses.includes("DOC") && !m.businesses.includes("MOCHICA") },
     ];
-    mbState.closed = mbState.closed || {};
-    for (const g of GROUPS) {
+    // 外部連携と同じく、最初は3枚のカードだけ。押すとそのグループの人の一覧を開く（2026-11-14 田中さん）
+    const ICON = '<svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="12" fill="currentColor"/><circle cx="19" cy="19" r="5.5" fill="#fff"/><path d="M9.5 34c.8-5.2 4.8-8.5 9.5-8.5s8.7 3.3 9.5 8.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="31.5" cy="20.5" r="4.3" fill="#fff" opacity=".8"/><path d="M28.5 27.2c1-.4 2-.6 3-.6 3.9 0 6.9 2.8 7.5 7.1" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" opacity=".8"/></svg>';
+    const cur = GROUPS.find((g) => g.k === mbState.view);
+    if (!cur) {
+      const grid = document.createElement("div");
+      grid.className = "mb-tiles";
+      for (const g of GROUPS) {
+        const list = mbState.members.filter((m) => g.has(m));
+        const on = list.filter((m) => m.active !== false).length;
+        const rc = (r) => list.filter((m) => m.active !== false && m.roles.includes(r)).length;
+        const t = document.createElement("button");
+        t.type = "button";
+        t.className = "mb-tile mb-grp-" + g.k;
+        t.innerHTML = `<span class="mb-tile-ico">${ICON}</span><span class="mb-tile-name">${g.label}</span>
+          <span class="mb-tile-n">在籍 ${on}名${list.length > on ? `・休み ${list.length - on}名` : ""}</span>
+          <span class="mb-tile-sub">クローザー ${rc("closer")}・インサイド ${rc("inside")}・CS ${rc("cs")}</span>`;
+        t.addEventListener("click", () => { mbState.view = g.k; mbRender(); });
+        grid.appendChild(t);
+      }
+      box.appendChild(grid);
+    } else {
+      const g = cur;
       const list = mbState.members.map((m, i) => ({ m, i })).filter(({ m }) => g.has(m));
       const on = list.filter(({ m }) => m.active !== false).length;
+      const back = document.createElement("button");
+      back.type = "button"; back.className = "integ-back mb-back"; back.textContent = "← グループの一覧に戻る";
+      back.addEventListener("click", () => { mbState.view = null; mbRender(); });
+      box.appendChild(back);
       const card = document.createElement("section");
-      card.className = "mb-grp mb-grp-" + g.k + (mbState.closed[g.k] ? " mb-closed" : "");
-      card.innerHTML = `<button type="button" class="mb-grp-h" aria-expanded="${mbState.closed[g.k] ? "false" : "true"}">
-          <span class="mb-grp-dot"></span><b>${g.label}</b><span class="mb-grp-n">在籍 ${on}名${list.length > on ? `・休み ${list.length - on}名` : ""}</span>
-          <span class="mb-grp-tog" aria-hidden="true"></span></button>
+      card.className = "mb-grp mb-grp-" + g.k;
+      card.innerHTML = `<div class="mb-grp-h"><span class="mb-grp-dot"></span><b>${g.label}</b><span class="mb-grp-n">在籍 ${on}名${list.length > on ? `・休み ${list.length - on}名` : ""}</span></div>
         <div class="mb-grp-body"></div>`;
-      card.querySelector(".mb-grp-h").addEventListener("click", () => { mbState.closed[g.k] = !mbState.closed[g.k]; mbRender(); });
       const body = card.querySelector(".mb-grp-body");
-      if (!list.length) body.innerHTML = `<p class="note mb-grp-empty">${g.k === "other" ? "DOC にも MOCHICA にも入っていない人はいません。" : `まだ ${g.label} の人はいません。行の「事業」で ${g.label} にチェックすると、ここに入ります。`}</p>`;
+      if (!list.length) body.innerHTML = `<p class="note mb-grp-empty">${g.k === "other" ? "DOC にも MOCHICA にも入っていない人はいません。" : `まだ ${g.label} の人はいません。下の欄から追加すると、${g.label} の人として入ります。`}</p>`;
       for (const { m, i } of list) body.appendChild(build(m, i, g.k));
       box.appendChild(card);
     }
@@ -1200,7 +1221,8 @@ function mbAddMember(name, email) {
   if (mbState.members.some((m) => m.email === e)) { mbSay("すでに登録されています", 3000); return; }
   mbState.members.push({
     email: e, name: String(name || "").trim() || e,
-    businesses: [], team: "", roles: [], active: true, daily_cap: null, profile: {},
+    businesses: mbState.view === "doc" ? ["DOC"] : mbState.view === "mochica" ? ["MOCHICA"] : [],
+    team: "", roles: [], active: true, daily_cap: null, profile: {},
   });
   mbRender();
   mbSay("追加しました。役割を選んで［保存］を押してください", 5000);

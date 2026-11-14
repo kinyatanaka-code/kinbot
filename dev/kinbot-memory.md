@@ -2581,3 +2581,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 
 - 2026-11-14 BUILD_TAG=2026-11-14a 田中さん「kinbot と MOCHICA は設定画面同じにしてほしい」。設定画面は settings.html の1つだけにした：外部連携に MiiTel連携（Webhook の URL・合言葉、拡張機能での読み込みの説明）と Bales Cloud連携（API のキー・メモ）のカード、Salesforce連携の詳細に「MOCHICA のときのきまり」（リードの種別・新規の商談名の頭）。値は /api/mochica/config。mochica.html の設定は自前の画面をやめ、/settings.html?embed=1&app=mochica&tab=integrations を iframe で開く（app=mochica で水色）。
 - 2026-11-14 BUILD_TAG=2026-11-14b 田中さん「メンバー管理をもっときれいに。DOC・MOCHICA・その他のグループカードに。DOC は緑、MOCHICA は水色、その他は黄緑」。settings.js の mbRender を、事業（businesses）で DOC／MOCHICA／その他（どちらでもない）のカードに分けて出すようにした（両方の人は両方に出す、事業を変えたら mbRender で移す、見出しでたためる＝mbState.closed）。Google 連携の絵文字（🟢⚪）は CSS の丸に替えた。
+- 2026-11-14 BUILD_TAG=2026-11-14c 田中さん「DOC・MOCHICA・その他というカードを使って」→（聞いて）外部連携みたいに選ぶ形。mbRender は mbState.view が無いとき3枚のタイル（.mb-tile、在籍・休み・役割の人数）、あるときは「← グループの一覧に戻る」とそのグループの人の行。開いたグループで追加した人には businesses にその事業を付ける。たたむ機能（mbState.closed）はやめた。
