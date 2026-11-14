@@ -21,7 +21,27 @@
   const seen = new Map();
   const noteSeen = (req, info) => { try { const U = new URL(req.url); if (/\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico|map|webp)(\?|$)/i.test(U.pathname)) return; const ep = req.method + " " + U.host + U.pathname; seen.set(ep, { ep, ...info, at: Date.now() }); if (seen.size > 60) seen.delete(seen.keys().next().value); } catch {} };
   window.__kbBalesSeen = () => [...seen.values()].sort((a, b) => b.at - a.at).slice(0, 40);
+  // ===== リード1件の詳しい中身（架電履歴・カスタム情報など）の読み方を覚える（2026-11-15 田中さん「全部取り込みたい」）=====
+  //   lead-list?callTargetId=<id> のページで、その id を含む GET の頼み方を「{id}」入りの形で覚える（Bales のページの保存場所に。鍵は入れない）
+  const TPL_KEY = "kbBalesTpl";
+  const loadTpl = () => { try { return JSON.parse(localStorage.getItem(TPL_KEY) || "{}"); } catch { return {}; } };
+  let tpls = loadTpl();
+  const lastAuth = {};   // API のホストごとの、いちばん新しい頼み方のヘッダー（ページの中だけで使う）
+  const curLeadId = () => { const v = new URLSearchParams(location.search).get("callTargetId") || ""; return /^\d{3,}$/.test(v) ? v : ""; };
+  const noteTpl = (req, text) => {
+    try {
+      const id = curLeadId(); if (!id || req.method !== "GET" || !/^\s*[[{]/.test(text || "")) return;
+      const re = new RegExp(`(^|[^0-9])${id}(?![0-9])`, "g"); if (!re.test(req.url)) return;
+      const u = req.url.replace(new RegExp(`(^|[^0-9])${id}(?![0-9])`, "g"), (m, a) => a + "{id}");
+      const U = new URL(u); const name = (decodeURIComponent(U.pathname).replace(/^\/api\/(user\/)?/, "") + (U.search ? decodeURIComponent(U.search).replace(/[?&][^=]+=\{id\}/g, "") : "")).replace(/\{id\}\/?/g, "").replace(/\/$/, "") || "lead";
+      tpls[name] = { u, at: Date.now() };
+      const keys = Object.keys(tpls).sort((a, b) => tpls[b].at - tpls[a].at); for (const k of keys.slice(20)) delete tpls[k];
+      localStorage.setItem(TPL_KEY, JSON.stringify(tpls));
+    } catch {}
+  };
+  const noteAuth = (req) => { try { const h = new URL(req.url).host; if (h !== location.host || Object.keys(req.headers || {}).length) lastAuth[h] = { headers: req.headers || {}, cred: req.cred || "same-origin" }; } catch {} };
   const onResp = (req, text, ct, status) => {
+    try { noteAuth(req); if (status >= 200 && status < 300) noteTpl(req, text); } catch {}
     try {
       noteSeen(req, { ct: String(ct || "").slice(0, 40), status, len: (text || "").length, arr: -1 });
       if (!text || text.length > 30000000 || !/^\s*[[{]/.test(text)) return;
@@ -79,9 +99,56 @@
       cands.sort((a, b) => sc(b) - sc(a)); }
     if (d.__kbBalesAsk) window.postMessage({ __kbBalesCands: true, seen: window.__kbBalesSeen(), href: location.href, items: cands.map((c, i) => ({ i, ep: c.method + " " + String(c.url).split("?")[0].replace(location.origin, ""), n: c.n, total: c.total, keys: c.keys.slice(0, 10), lead: c.lead, pager: (() => { const p = pagerOf(c); return p.page ? "page" : p.offset ? "offset" : ""; })() })) }, "*");
     if (d.__kbBalesRun) run(d.i, d.name);
+    if (d.__kbBalesTpls) window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: Object.keys(tpls) }, "*");
+    if (d.__kbBalesTplClear) { tpls = {}; try { localStorage.removeItem(TPL_KEY); } catch {} window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: [] }, "*"); }
+    if (d.__kbBalesDetail) runDetail(d.name);
+    if (d.__kbBalesStop) stopDetail = true;
   });
   const toKinbot = (payload) => new Promise((resolve) => { const id = ++ackN; acks.set(id, resolve); window.postMessage({ __kbBalesSend: true, id, payload }, "*"); setTimeout(() => { if (acks.has(id)) { acks.delete(id); resolve({ ok: false, error: "拡張機能から返事がありません（拡張機能を入れ直したあとは、このページを読み込み直してください）" }); } }, 30000); });
   const prog = (o) => window.postMessage({ __kbBalesProg: true, ...o }, "*");
+
+  let detailing = false, stopDetail = false;
+  async function runDetail(name) {
+    if (detailing) return; const names = Object.keys(tpls); if (!names.length) { prog({ detail: true, error: "まだ読み方を覚えていません。リードを1件開いてから押してください" }); return; }
+    detailing = true; stopDetail = false;
+    const c0 = cands.find((x) => /\/call_targets(\?|$)/.test(String(x.url)));
+    const listKey = "bales:" + ((c0 && pagerOf(c0).listId) || String(name || "").trim() || "すべてのリード").slice(0, 100);
+    const send = async (payload) => { for (let t = 0; t < 2; t++) { const r = await toKinbot({ listKey, ...payload }); if (r.ok) return r; if (t === 1 || /読み込み直|ログイン|合言葉/.test(r.error || "")) throw new Error(r.error || "kinbot に送れませんでした"); await sleep(1500); } };
+    const readOne = async (id) => {
+      const out = {};
+      for (const k of names) {
+        const u = tpls[k].u.replace(/\{id\}/g, id); const a = lastAuth[new URL(u).host] || {};
+        for (let t = 0; t < 3; t++) {
+          const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 45000);
+          try { const r = await of(u, { headers: a.headers || {}, credentials: a.cred || "same-origin", signal: ac.signal });
+            if (r.status === 429 || r.status >= 500) { await sleep(4000 * (t + 1)); continue; }   // 混んでいるときは待ってからもう一度
+            if (r.status === 401 || r.status === 403) throw new Error("Bales のログインが切れました。Bales を読み込み直してから、もう一度押してください");
+            out[k] = r.ok ? await r.json().catch(() => ({ _status: r.status })) : { _status: r.status }; break; }
+          catch (e) { if (/ログイン/.test(e.message)) throw e; if (t === 2) out[k] = { _error: String(e && e.message || e).slice(0, 100) }; await sleep(1500); }
+          finally { clearTimeout(tm); }
+        }
+      }
+      return { id, detail: out };
+    };
+    try {
+      prog({ detail: true, got: 0, step: "まだのリードを kinbot に聞いています…" });
+      let t = await send({ todo: true, limit: 60 }); if (t.none) throw new Error("先に「全部取り込む」でリストを取り込んでください");
+      const all = t.all || 0; let doneN = all - (t.left || 0);
+      while (t.ids && t.ids.length && !stopDetail) {
+        let buf = [];
+        for (let i = 0; i < t.ids.length && !stopDetail; i += 2) {
+          buf.push(...(await Promise.all(t.ids.slice(i, i + 2).map(readOne))));
+          if (buf.length >= 20) { const r = await send({ details: buf }); if (!r.n) throw new Error("kinbot のリードと合いませんでした（リストを取り込み直してください）"); doneN += buf.length; buf = []; prog({ detail: true, got: doneN, total: all }); }
+          await sleep(200);   // Bales に負担をかけないよう、少し間をあける
+        }
+        if (buf.length) { await send({ details: buf }); doneN += buf.length; prog({ detail: true, got: doneN, total: all }); }
+        if (stopDetail) break;
+        t = await send({ todo: true, limit: 60 });
+      }
+      prog({ detail: true, done: !stopDetail, stopped: stopDetail, got: doneN, total: all });
+    } catch (err) { prog({ detail: true, error: String(err && err.message || err) }); }
+    finally { detailing = false; }
+  }
 
   let running = false;
   async function run(i, name) {

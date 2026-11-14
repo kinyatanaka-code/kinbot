@@ -12813,6 +12813,10 @@ async function ensureMcBales() {
     cols JSONB, run_at TIMESTAMPTZ, done_at TIMESTAMPTZ, prev_count INT, error TEXT)`).catch(() => {});
   await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_rows (
     seq BIGSERIAL, list_key TEXT, row_key TEXT, data JSONB, run_at TIMESTAMPTZ, PRIMARY KEY (list_key, row_key))`).catch(() => {});
+  // 元の形のまま（raw）と、リード1件ずつの詳しい中身（架電履歴・カスタム情報など：detail）も持つ（2026-11-15 田中さん「全部取り込みたい」）
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS raw JSONB`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail JSONB`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail_at TIMESTAMPTZ`).catch(() => {});
 }
 export async function mcBalesStart({ listKey, name, src, total }) {
   if (!pool) return null; await ensureMcBales();
@@ -12825,9 +12829,9 @@ export async function mcBalesStart({ listKey, name, src, total }) {
 export async function mcBalesAddRows(listKey, rows, total) {
   if (!pool) return 0; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) throw new Error("先に取り込みを始めてください");
-  if (rows.length) await pool.query(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at)
-    SELECT $1, x.k, x.d, $2 FROM jsonb_to_recordset($3::jsonb) AS x(k text, d jsonb)
-    ON CONFLICT (list_key, row_key) DO UPDATE SET data=EXCLUDED.data, run_at=EXCLUDED.run_at`, [listKey, l.run_at, JSON.stringify(rows)]);
+  if (rows.length) await pool.query(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at, raw)
+    SELECT $1, x.k, x.d, $2, x.r FROM jsonb_to_recordset($3::jsonb) AS x(k text, d jsonb, r jsonb)
+    ON CONFLICT (list_key, row_key) DO UPDATE SET data=EXCLUDED.data, run_at=EXCLUDED.run_at, raw=EXCLUDED.raw`, [listKey, l.run_at, JSON.stringify(rows)]);
   await pool.query(`UPDATE mochica_bales_lists SET got=got+$2, total=COALESCE($3,total) WHERE list_key=$1`, [listKey, rows.length, total ?? null]);
   return rows.length;
 }
@@ -12837,13 +12841,15 @@ export async function mcBalesFinish(listKey, error = "") {
   const n = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0].count);
   // 列：今回の行でよく埋まっている順
   const cols = (await pool.query(`SELECT k, count(*) AS n FROM (SELECT data FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 LIMIT 3000) t, jsonb_each_text(t.data) AS e(k, v)
-    WHERE COALESCE(v,'') <> '' GROUP BY k ORDER BY n DESC LIMIT 80`, [listKey, l.run_at])).rows.map((r) => ({ key: r.k, n: Number(r.n) }));
+    WHERE COALESCE(v,'') <> '' GROUP BY k ORDER BY n DESC LIMIT 400`, [listKey, l.run_at])).rows.map((r) => ({ key: r.k, n: Number(r.n) }));
   await pool.query(`UPDATE mochica_bales_lists SET status=$2, count=$3, cols=$4, done_at=now(), error=NULLIF($5,'') WHERE list_key=$1`, [listKey, error ? "error" : "done", n, JSON.stringify(cols), String(error || "").slice(0, 300)]);
   return n;
 }
 export async function mcBalesLists() {
   if (!pool) return []; await ensureMcBales();
-  return (await pool.query(`SELECT list_key, name, src, status, total, got, count, prev_count, cols, run_at, done_at, error FROM mochica_bales_lists ORDER BY run_at DESC NULLS LAST`)).rows;
+  return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.run_at, l.done_at, l.error,
+    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.detail_at IS NOT NULL) AS detail_n
+    FROM mochica_bales_lists l ORDER BY l.run_at DESC NULLS LAST`)).rows;
 }
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100 } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
@@ -12853,7 +12859,7 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
-  const rows = (await pool.query(`SELECT data FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY seq LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => r.data);
+  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY seq LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd }));
   return { total, rows };
 }
 export async function mcBalesValues(listKey, col) {
@@ -12867,4 +12873,22 @@ export async function mcBalesDelete(listKey) {
   const r = await pool.query(`DELETE FROM mochica_bales_rows WHERE list_key=$1`, [listKey]);
   await pool.query(`DELETE FROM mochica_bales_lists WHERE list_key=$1`, [listKey]);
   return r.rowCount;
+}
+
+// 詳しい中身がまだのリード（拡張機能が順に読む）
+export async function mcBalesTodo(listKey, limit = 60) {
+  if (!pool) return { ids: [], left: 0 }; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { ids: [], left: 0, none: true };
+  const ids = (await pool.query(`SELECT row_key FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND detail_at IS NULL ORDER BY seq LIMIT $3`, [listKey, l.run_at, Math.min(Number(limit) || 60, 300)])).rows.map((r) => r.row_key);
+  const c = (await pool.query(`SELECT count(*) FILTER (WHERE detail_at IS NULL)::int AS left, count(*)::int AS all FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0];
+  return { ids, left: c.left, all: c.all };
+}
+export async function mcBalesSetDetail(listKey, items) {
+  if (!pool || !items.length) return 0; await ensureMcBales();
+  const r = await pool.query(`UPDATE mochica_bales_rows r SET detail=x.d, detail_at=now() FROM jsonb_to_recordset($2::jsonb) AS x(k text, d jsonb) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items)]);
+  return r.rowCount;
+}
+export async function mcBalesRow(listKey, rowKey) {
+  if (!pool) return null; await ensureMcBales();
+  return (await pool.query(`SELECT data, raw, detail, detail_at FROM mochica_bales_rows WHERE list_key=$1 AND row_key=$2`, [listKey, rowKey])).rows[0] || null;
 }

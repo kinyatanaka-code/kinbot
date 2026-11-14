@@ -31,6 +31,8 @@
         <select data-c hidden>${cands.map((c) => `<option value="${c.i}" ${c.i === cands[best].i ? "selected" : ""}>${epName(c.ep)}（${c.n}件）</option>`).join("")}</select>
         <button class="go" type="button" data-go>全部取り込む</button><div class="bar"><i></i></div><div class="msg" data-m>最後のページまで自動でめくって kinbot に送ります。終わるまでこのタブは開いたままにしてください。</div>`
       : `<div class="msg">まだ一覧のデータが見えていません。Bales のリスト（リード一覧）を開いて、一覧が表示されてからもう一度押してください。うまくいかないときは、ページを読み込み直してください。</div>`}`;
+    box.insertAdjacentHTML("beforeend", '<div data-det style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"><div class="msg">詳しい中身の読み方を確かめています…</div></div>');
+    window.postMessage({ __kbBalesTpls: true }, "*");
     box.querySelector(".x").onclick = () => { box.hidden = true; };
     const chg = box.querySelector("[data-chg]"); if (chg) chg.onclick = (e) => { e.preventDefault(); box.querySelector("[data-c]").hidden = false; chg.hidden = true; };
     const go = box.querySelector("[data-go]"); if (go) go.onclick = () => { go.disabled = true; go.textContent = "取り込んでいます…"; window.postMessage({ __kbBalesRun: true, i: Number(box.querySelector("[data-c]").value), name: box.querySelector("[data-n]").value.trim() }, "*"); };
@@ -45,6 +47,22 @@
       // 取り込めないときの手がかり：拡張機能の版・ページ・見えた通り道（名前と件数だけ）を kinbot に残す（2026-11-15）
       let ver = ""; try { ver = chrome.runtime.getManifest().version; } catch {}
       chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", diag: { ver, href: String(d.href || location.href).split("?")[0], cands: cands.map((c) => ({ ep: c.ep, n: c.n, total: c.total, pager: c.pager, keys: c.keys })), seen: d.seen || [] } } }, () => {}); }
+    if (d.__kbBalesTplList) { const el = box.querySelector("[data-det]"); if (!el) return; const n = (d.names || []).length;
+      el.innerHTML = `<h4 style="margin-bottom:4px">詳しい中身（名前・架電履歴・カスタム情報など）</h4>` + (n
+        ? `<div class="msg" style="margin:0">リード1件の読み方を ${n} 個覚えています：${(d.names || []).slice(0, 8).join("、")} <a href="#" data-tclr style="color:#0E9AA7">覚え直す</a></div>
+           <button class="go" type="button" data-dgo>詳しい中身も全部取り込む</button><button type="button" data-dstop style="display:none;margin-top:6px;width:100%;border:1px solid #CFE6EA;background:#fff;border-radius:10px;padding:7px;cursor:pointer">止める（あとで続きから）</button>
+           <div class="bar"><i data-dbar></i></div><div class="msg" data-dm>リードを1件ずつ読みます。2.3万件で数時間かかります。途中で止めても、次は続きから読みます。このタブは開いたままにしてください。</div>`
+        : `<div class="msg">${d.lead ? "このリードの中身を読んでいるところです。画面が出きったら（架電履歴やカスタム情報が見えたら）、もう一度右下のボタンを押してください。" : "まだ読み方を覚えていません。リードを1件開いて（会社名を押す）、中身が出たら、もう一度右下のボタンを押してください。"}</div>`);
+      const g = el.querySelector("[data-dgo]"), st = el.querySelector("[data-dstop]"), cl = el.querySelector("[data-tclr]");
+      if (g) g.onclick = () => { g.disabled = true; g.textContent = "取り込んでいます…"; st.style.display = "block"; const ni = box.querySelector("[data-n]"); window.postMessage({ __kbBalesDetail: true, name: ni ? ni.value.trim() : pageName() }, "*"); };
+      if (st) st.onclick = () => { st.textContent = "止めています…"; window.postMessage({ __kbBalesStop: true }, "*"); };
+      if (cl) cl.onclick = (e) => { e.preventDefault(); if (confirm("覚えた読み方を消して、覚え直しますか？（リードを1件開き直すと覚えます）")) window.postMessage({ __kbBalesTplClear: true }, "*"); };
+      return; }
+    if (d.__kbBalesProg && d.detail) { const m = box.querySelector("[data-dm]"), bar = box.querySelector("[data-dbar]"), g = box.querySelector("[data-dgo]"), st = box.querySelector("[data-dstop]");
+      if (bar && d.total) bar.style.width = Math.min(100, Math.round((d.got || 0) / d.total * 100)) + "%";
+      if (m) m.textContent = d.error ? `止まりました：${d.error}` : d.stopped ? `止めました：${d.got} / ${d.total}件。もう一度押すと続きから読みます。` : d.done ? `終わりました：${d.got}件の詳しい中身を kinbot に入れました。` : d.step ? d.step : `${d.got} / ${d.total}件 読みました…`;
+      if (g && (d.done || d.error || d.stopped)) { g.disabled = false; g.textContent = "続きから取り込む"; if (st) { st.style.display = "none"; st.textContent = "止める（あとで続きから）"; } }
+      return; }
     if (d.__kbBalesProg) { const m = box.querySelector("[data-m]"), bar = box.querySelector(".bar i"), go = box.querySelector("[data-go]");
       if (bar && d.total) bar.style.width = Math.min(100, Math.round((d.got || 0) / d.total * 100)) + "%";
       if (m) m.textContent = d.error ? `止まりました：${d.error}（${d.got || 0}件までは kinbot に入っています）` : d.done ? `終わりました：${d.got}件を kinbot に入れました。${d.warn ? "\n" + d.warn : ""}\nkinbot for MOCHICA の「リスト（Bales Cloud）」で見られます。` : d.step ? d.step : `${d.got}件${d.total ? ` / ${d.total}件` : ""} 送りました…`;

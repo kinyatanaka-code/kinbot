@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesDelete, mcBalesAddRows, mcBalesFinish, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesDelete, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -26867,11 +26867,12 @@ app.get("/api/mochica/bales/summary", async (req, res) => {
 //   送ってくる形：{ listKey, name, src, total, start:true } → { listKey, rows:[{…}], total } を何回か → { listKey, done:true, error }
 const mcBalesFlat = (o) => {
   // 入れ子は「親.子」の列に平らにする（Bales の項目の名前のまま）。長すぎる値は切る
+  // 入れ子は5段まで平らにする。それより深いものは「名前」があれば名前、無ければ JSON（2026-11-15：担当が JSON のまま出ていた）
   const out = {}; const walk = (v, k, d) => {
-    if (Object.keys(out).length > 150) return;
+    if (Object.keys(out).length > 500) return;
     if (v == null) { if (k) out[k] = ""; return; }
-    if (Array.isArray(v)) { if (v.every((x) => x == null || typeof x !== "object")) out[k] = v.filter((x) => x != null).join("、").slice(0, 500); else if (d < 3) v.slice(0, 3).forEach((x, i) => walk(x, `${k}.${i}`, d + 1)); return; }
-    if (typeof v === "object") { if (d >= 3) { out[k] = JSON.stringify(v).slice(0, 500); return; } for (const [kk, vv] of Object.entries(v)) walk(vv, k ? `${k}.${kk}` : kk, d + 1); return; }
+    if (Array.isArray(v)) { if (v.every((x) => x == null || typeof x !== "object")) out[k] = v.filter((x) => x != null).join("、").slice(0, 500); else if (d < 5) v.slice(0, 5).forEach((x, i) => walk(x, `${k}.${i}`, d + 1)); return; }
+    if (typeof v === "object") { if (d >= 5) { out[k] = v.name != null ? String(v.name).slice(0, 500) : JSON.stringify(v).slice(0, 500); return; } for (const [kk, vv] of Object.entries(v)) walk(vv, k ? `${k}.${kk}` : kk, d + 1); return; }
     out[k] = String(v).slice(0, 500);
   };
   walk(o, "", 0); return out;
@@ -26889,12 +26890,16 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
         seen: (Array.isArray(g.seen) ? g.seen : []).slice(0, 40).map((x) => ({ ep: clean(x.ep), ct: clean(x.ct), status: Number(x.status) || 0, len: Number(x.len) || 0, arr: Number(x.arr) })) } }).catch(() => {});
       return res.json({ ok: true }); }
     const listKey = mcBalesKeyOk(b.listKey); if (!listKey) return res.status(400).json({ error: "リストの印がありません" });
+    // 詳しい中身：まだのリードを渡す／読んだ中身を受け取る（2026-11-15 田中さん「架電履歴もカスタム情報も全部」）
+    if (b.todo) return res.json({ ok: true, ...(await mcBalesTodo(listKey, b.limit)) });
+    if (Array.isArray(b.details)) { const items = b.details.slice(0, 100).filter((x) => x && x.id != null).map((x) => { let d = x.detail || {}; let t = JSON.stringify(d); if (t.length > 600000) d = { _cut: true, keys: Object.keys(d) }; return { k: String(x.id).slice(0, 120), d }; });
+      return res.json({ ok: true, n: await mcBalesSetDetail(listKey, items) }); }
     const total = Number.isFinite(Number(b.total)) && b.total !== null && b.total !== "" ? Number(b.total) : null;
     if (b.start) { await mcBalesStart({ listKey, name: String(b.name || listKey).slice(0, 120), src: String(b.src || "").slice(0, 300), total }); }
     let n = 0;
     if (Array.isArray(b.rows) && b.rows.length) {
       const seen = new Set(); const rows = [];
-      for (const r0 of b.rows.slice(0, 5000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = mcBalesRowKey(d); if (seen.has(k)) continue; seen.add(k); rows.push({ k, d }); }
+      for (const r0 of b.rows.slice(0, 5000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = mcBalesRowKey(d); if (seen.has(k)) continue; seen.add(k); const rs = JSON.stringify(r0); rows.push({ k, d, r: rs.length < 300000 ? r0 : null }); }
       n = await mcBalesAddRows(listKey, rows, total);
     }
     let count = null; if (b.done) count = await mcBalesFinish(listKey, b.error || "");
@@ -26908,6 +26913,10 @@ app.get("/api/mochica/bales/lists", async (req, res) => {
 app.get("/api/mochica/bales/lists/:key/rows", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     res.json({ ok: true, ...(await mcBalesRows(String(req.params.key), { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: req.query.offset, limit: req.query.limit })) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcBalesRow(String(req.params.key), String(req.params.rid)); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, ...r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete("/api/mochica/bales/lists/:key", async (req, res) => {
@@ -31524,7 +31533,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

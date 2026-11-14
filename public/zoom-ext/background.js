@@ -105,7 +105,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || "";
       const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/bales/ext/rows", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json", "x-kb-ext": tk }, body: JSON.stringify(msg.payload || {}) });
       const j = await r.json().catch(() => null);
-      reply(j && j.ok ? { ok: true, n: j.n, count: j.count } : { ok: false, status: r.status, error: (j && j.error) || (r.status === 0 || r.status === 302 ? "kinbot にログインしていません。kinbot の画面を開いてから、もう一度押してください" : `kinbot に送れませんでした（${r.status}）`) });
+      reply(j && j.ok ? { ...j, ok: true } : { ok: false, status: r.status, error: (j && j.error) || (r.status === 0 || r.status === 302 ? "kinbot にログインしていません。kinbot の画面を開いてから、もう一度押してください" : `kinbot に送れませんでした（${r.status}）`) });
     } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
   })();
   return true;
