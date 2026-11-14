@@ -26871,13 +26871,17 @@ app.get("/api/mochica/bales/export.csv", async (req, res) => {
 // ===== MOCHICA：MiiTel の会議を、MOCHICA のメンバーのカレンダーの予定と突き合わせる（2026-11-13 田中さん）=====
 //   開始の時刻が近い（±20分）予定のタイトルから会社名を取り（kinbot と同じ companyFromTitle）、SF の Mochica（リード）・取引先に結びつける
 const _mcCalCache = new Map();   // email -> { at, evs }
+const _mcCalStat = new Map();
 async function mcCalEvents(email, reader = "") {
   const hit = _mcCalCache.get(email); if (hit && Date.now() - hit.at < 10 * 60000) return hit.evs;
   const range = { timeMin: new Date(Date.now() - 60 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() };
   // 本人が Google とつないでいなくても読めるように、つないでいる人（カレンダーを読む代表者など）から本人のカレンダーを読む（2026-11-14）
-  let evs = await listCalendarEvents(email, "primary", range).catch(() => null);
-  if ((!evs || !evs.length) && reader && reader !== email) evs = await listCalendarEvents(reader, email, range).catch(() => null);
-  evs = evs || [];
+  // 読めたかどうか・どこから読んだかを残す（見つからなかった理由に出す）（2026-11-15）
+  let how = "本人の連携"; let err1 = "", err2 = "";
+  let evs = await listCalendarEvents(email, "primary", range).catch((e) => { err1 = String(e.message || e).slice(0, 80); return null; });
+  if ((!evs || !evs.length) && reader && reader !== email) { how = "代表者の連携"; evs = await listCalendarEvents(reader, email, range).catch((e) => { err2 = String(e.message || e).slice(0, 80); return null; }); }
+  const ok = !!evs; evs = evs || [];
+  _mcCalStat.set(email, { ok, how: ok ? how : "", n: evs.length, err: ok ? "" : (err1 || err2 || "") });
   _mcCalCache.set(email, { at: Date.now(), evs }); return evs;
 }
 async function mcMembers(hosts = []) {
@@ -26937,7 +26941,7 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
   const guestTokens = String(r.participants || "").split(/[,、，;／\/\n]+/).map((x) => nz(x).replace(/(様|さま|さん)$/, "")).filter((x) => x.length >= 2 && !/^[\w.-]+$/.test(x) && !neo(x));
   const titleHasGuest = (t) => { const tt = nz(t); return guestTokens.some((g) => tt.includes(g) || (g.length >= 3 && tt.includes(g.slice(0, 2)))); };
   const order = [...first, ...others];
-  let best = null;
+  let best = null; const near = [];
   for (const m of order) {
     const evs = await mcCalEvents(m.email, ctx.reader);
     for (const ev of evs) {
@@ -26947,6 +26951,7 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
       const d = Math.abs(es - st); const overlap = Math.min(ee, en) - Math.max(es, st);
       if (d > 20 * 60000 && overlap < 5 * 60000) continue;
       const t = String(ev.title || "");
+      if (near.length < 4) near.push(`${m.name}「${t.slice(0, 30) || "（題名なし）"}」`);
       // 商談の予定の形（【新/ヒ】【新/再提案】、「会社：人様」）だけを使う（2026-11-14 田中さん「【】の予定よりは…」）
       if (!mcIsDealTitle(t)) continue;
       if (!first.includes(m) && !titleHasGuest(t)) continue;   // 担当でない人の予定は、お客様の名前が入っているときだけ
@@ -26956,10 +26961,10 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
     }
     if (best && best.bracket && first.includes(m) && best.score < 10 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 5, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（見たカレンダー：${tried || "なし"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
+  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); const readInfo = order.slice(0, 6).map((m) => { const st = _mcCalStat.get(m.email); return st ? (st.ok ? `${m.name}＝${st.how}で${st.n}件` : `${m.name}＝読めない（${st.err || "Google 未連携か、共有されていない"}）`) : m.name; }).join("・"); return { none: true, v: 6, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
   const title = best.ev.title || ""; const company = mcCoFromTitle(title);
   const sf = await mcSfFor(company, owner);
-  return { v: 5, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
+  return { v: 6, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
 }
 let _mcCalRunning = false;
 async function mcCalMatchRun(owner) {
@@ -31441,7 +31446,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15c MOCHICA のカレンダー照合を、サーバーが起動したら20秒後にすぐ最後までやり直す（40件ずつ・多くて20回）。";
+const BUILD_TAG = "2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

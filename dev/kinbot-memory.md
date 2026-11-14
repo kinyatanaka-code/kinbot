@@ -2609,3 +2609,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-15 BUILD_TAG=2026-11-15a 田中さん「クロードから商談の題名を変えれるようにしたい」。mcp.js に set_meeting_title（id が MOCHICA の会議なら mcpHooks.mochica.setTitle＝mcSetTitle、kinbot の bot_id なら updateMeetingMeta（round_no は今の値を渡して消さない）、kinbot は自分の商談だけ）。/api/mochica/miitel/meetings/:id/cal の中身は mcSetTitle に切り出した。
 - 2026-11-15 BUILD_TAG=2026-11-15b 田中さん（別のチャットの報告）「八尾隣保館の商談が瀬良垣ホテルマネジメントの題名になる」など10件、ほかのメンバーのカレンダーの予定を拾っていた。mcCalMatchOne：担当が分かればその人のカレンダーだけ（mt_rep も使う、NeedCal で mrep を読む）、分からなければ他のメンバーも見るが題名にお客様の名前（参加者から ネオキャリアの人を除いた2文字以上）が入るものだけ。mcIsDealTitle：「X：Y様」は法人の言葉なしでも可。mcCoFromTitle：「：」の前を会社名。v=5。
 - 2026-11-15 BUILD_TAG=2026-11-15c 田中さん「（本炭のカレンダーを登録した）今やり直して」。起動20秒後に mcCalMatchRun を件数が0になるまで（最大20回）回す。デプロイ＝やり直しの合図になる。
+- 2026-11-15d: MOCHICA カレンダー照合の「見つからなかった理由」に、カレンダーを本人/代表者どちらの連携で何件読めたか・読めない理由・その時間の予定題名を残すようにした。照合の版を6に上げて全件やり直し。
