@@ -33,7 +33,8 @@
   const md = (v) => { const d = jst(v); return d ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : ""; };
   const wk = (v) => { const d = jst(v); return d ? "日月火水木金土"[d.getUTCDay()] : ""; };
   let mtHost = null;   // 選んだ担当（null＝担当のカードの一覧）
-  const hostOf = (m) => (m.cal && m.cal.ownerName) || (String(m.host || "").trim() && String(m.host).trim() !== "オーナー" ? String(m.host).trim() : "") || "（担当なし）";
+  // 商談者：MiiTel の参加者のうち kinbot のアカウントの人を先に使う（2026-11-14 田中さん）。無ければカレンダー、主催者の順
+  const hostOf = (m) => (m.rep && m.rep.name) || (m.cal && m.cal.ownerName) || (String(m.host || "").trim() && String(m.host).trim() !== "オーナー" ? String(m.host).trim() : "") || "（担当なし）";
   const titleOf = (m) => (m.cal && m.cal.title) || m.title || "（題名なし）";
   const coOf = (m) => (m.cal && m.cal.company && m.cal.company !== "(無題)" ? m.cal.company : "");
   function mtDraw() {

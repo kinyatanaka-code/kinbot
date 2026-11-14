@@ -22,7 +22,7 @@ import { pickCloser, isPersonFree, commitAssignment, rotationStatus, setNextClos
          getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
 import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
-         DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
+         DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines, familyName as mcFamilyName } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo, NOTIFY_KINDS, notifyDisabledSet } from "./chat.js";
@@ -27028,9 +27028,41 @@ app.post("/api/mochica/sf/save", async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// MiiTel の参加者から、kinbot のアカウントの人を商談者として見つける（2026-11-14 田中さん）。
+//   MiiTel の主催者は共有の「オーナー」なので、だれの商談か分からない。参加者の名前で決める。
+//   ① 参加者の名前が kinbot のアカウントの名前と同じ（空白は見ない）
+//   ② 参加者が「ネオキャリア＋苗字」（例：ネオキャリア 山下）なら、その苗字の kinbot のアカウント
+//   お客様と苗字が同じになることがあるので、苗字だけの参加者（「山下」）では決めない。
+//   同じ苗字の人が何人もいるときは、MOCHICA のメンバーを先にし、それでも1人に決まらなければ決めない。
+async function mcRepIndex() {
+  const norm = (v) => String(v || "").replace(/[\s\u3000]+/g, "").trim();
+  const users = (await listUsers().catch(() => [])).filter((u) => u && u.email && String(u.name || "").trim());
+  const mochica = new Set((await listMembers().catch(() => [])).filter((m) => Array.isArray(m.businesses) && m.businesses.includes("MOCHICA")).map((m) => String(m.email || "").toLowerCase()));
+  const byName = new Map(), byFam = new Map();
+  for (const u of users) {
+    const rep = { email: String(u.email).toLowerCase(), name: String(u.name).trim() };
+    byName.set(norm(rep.name), rep);
+    const f = norm(mcFamilyName(rep.name)); if (!f) continue;
+    if (!byFam.has(f)) byFam.set(f, []); byFam.get(f).push(rep);
+  }
+  const pick = (list) => { if (!list || !list.length) return null; if (list.length === 1) return list[0]; const mc = list.filter((r) => mochica.has(r.email)); return mc.length === 1 ? mc[0] : null; };
+  return (participants) => {
+    const ps = String(participants || "").split(/[,、，;／\/\n]+/).map((p) => p.trim()).filter(Boolean).slice(0, 30);
+    const reps = [];
+    for (const p of ps) {
+      const n = norm(p).replace(/(様|さん)$/, "");
+      let hit = byName.get(n) || null;
+      if (!hit) { const m = n.match(/^(?:株式会社)?ネオキャリア(?:株式会社)?[・:：\-]?(.{1,4})$/) || n.match(/^([^（(]{1,4})[（(]?(?:株式会社)?ネオキャリア[)）]?$/); if (m) hit = pick(byFam.get(m[1])); }
+      if (hit && !reps.some((r) => r.email === hit.email)) reps.push(hit);
+    }
+    return reps;
+  };
+}
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    const items = await mcMiitelList(200);
+    const items0 = await mcMiitelList(200);
+    const repOf = await mcRepIndex().catch(() => () => []);
+    const items = items0.map((m) => { const reps = repOf(m.participants); return reps.length ? { ...m, rep: reps[0], reps } : m; });
     const owner = await pickSfUser(req.user, req).catch(() => req.user); mcCalMatchRun(owner).catch(() => {});   // まだのものは裏で突き合わせる
     res.json({ ok: true, items }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -31072,7 +31104,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14l kinbot の MCP に create_kinbot_accounts（管理者だけ・アカウントを作るだけ）を足した。Claude から直接アカウントを作れる。";
+const BUILD_TAG = "2026-11-14m kinbot for MOCHICA の商談：MiiTel の参加者のうち、kinbot のアカウントと名前が同じ人、または「ネオキャリア＋苗字」の人を商談者にして、担当のカードに出す（主催者が共有の「オーナー」でも分かる）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
