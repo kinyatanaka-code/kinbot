@@ -26,6 +26,7 @@ import {
   listInterns,
 } from "./db.js";
 import { sfQuery, sfUpdateRecord, sfCreateRecord, isConnected as sfIsConnected } from "./salesforce.js";
+import { registerUser } from "./auth.js";
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
 const PROTOCOL_VERSION = "2025-03-26";
@@ -160,6 +161,11 @@ const TOOLS = [
       host: { type: "string", description: "主催者の名前かメール" }, participants: { type: "string", description: "参加者（名前を読点でつなぐ）" },
       duration_sec: { type: "number" }, url: { type: "string", description: "MiiTel の会議のページの URL" },
       transcript: { description: "文字起こし：[{speaker, text, start}] の配列か文字列" }, minutes: { type: "string", description: "議事録の本文" } }, required: ["id"] } } }, required: ["meetings"] },
+  },
+  {
+    name: "create_kinbot_accounts",
+    description: "kinbot のログイン用アカウントをまとめて作る（書き込み・管理者だけ）。accounts に {name, email} を並べ、password は全員共通の最初のパスワード（8文字以上）。作るだけで、だれのログインも変えない。すでにあるメールは作らずにそう返す。",
+    inputSchema: { type: "object", properties: { accounts: { type: "array", maxItems: 50, items: { type: "object", properties: { name: { type: "string" }, email: { type: "string" } }, required: ["email"] } }, password: { type: "string", description: "最初のパスワード（8文字以上）" } }, required: ["accounts", "password"] },
   },
   {
     name: "sf_create",
@@ -449,6 +455,23 @@ export async function callTool(name, args, req) {
       const by = await sfByNameMcp(req, owner);
       if (by) console.log(`[sf_update] 代理で更新：${so} ${args.id} by ${req.user}`);
       return by ? { ...(r || {}), 代理: `代理アカウントで更新しました（依頼した人：${by}）` } : r;
+    }
+    // 管理者が kinbot のアカウントを作る（2026-11-14 田中さん「4人のアカウントを作ってほしい」「ブラウザなしで」）。パスワードはログに出さない
+    case "create_kinbot_accounts": {
+      const u = String(req.user || "").toLowerCase();
+      if (!req.isAdmin && u !== String(process.env.AI_OWNER_EMAIL || "kinya.tanaka@neo-career.co.jp").toLowerCase()) throw new Error("管理者だけが作れます");
+      const pw = String((args && args.password) || "");
+      if (pw.length < 8) throw new Error("パスワードは8文字以上にしてください");
+      const list = Array.isArray(args && args.accounts) ? args.accounts.slice(0, 50) : [];
+      const out = [];
+      for (const a of list) {
+        const email = String(a.email || "").trim().toLowerCase();
+        const name = String(a.name || "").trim().slice(0, 60);
+        const r = await registerUser({ email, password: pw, displayName: name, code: process.env.SIGNUP_CODE || "" }).catch((e) => ({ error: e.message }));
+        out.push({ name, email, 結果: r.ok ? "作りました" : r.error });
+      }
+      console.log(`[accounts] ${u} が MCP からアカウントを作りました：${out.filter((x) => x.結果 === "作りました").map((x) => x.email).join("・") || "なし"}`);
+      return { 件数: out.filter((x) => x.結果 === "作りました").length, 結果: out };
     }
     case "mochica_miitel_imported_ids": {
       if (!req.user) throw new Error("ログインが必要です");

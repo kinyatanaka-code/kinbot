@@ -31072,7 +31072,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14k 管理者が kinbot のアカウントをまとめて作れるように（設定 → メンバー管理 → 「kinbot のアカウントを作る」。POST /api/admin/accounts、作るだけでログインし直さない）。";
+const BUILD_TAG = "2026-11-14l kinbot の MCP に create_kinbot_accounts（管理者だけ・アカウントを作るだけ）を足した。Claude から直接アカウントを作れる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
