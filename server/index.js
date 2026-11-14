@@ -31414,7 +31414,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14y kinbot for MOCHICA：会社のカードに kinbot と同じ「SF: ステージ／SF未紐付け」の札（押すと会社の概要の SF の欄）と「案件共有」（caseshare.js の窓）。会社の概要で会社名を直せる（その会社の商談すべて・SF も探し直す）。予定の頭の「〇」などを会社名に入れない（v=4 でやり直し）。";
+const BUILD_TAG = "2026-11-14z 案件共有の窓：「共有先となる営業担当の指定有無」を最初は空欄に（前は「指定なし」が入っていた）。kinbot・MOCHICA・kincall のどれから開いても同じ。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
