@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261114r" />
+<link rel="stylesheet" href="/style.css?v=20261114s" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -91,7 +91,17 @@
   .mt-sf{display:flex;flex-direction:column;gap:10px;}
   .mt-sf-top{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;justify-content:space-between;} .mt-sf-top b a{color:#0B6E78;text-decoration:none;} .mt-sf-top small{display:block;font-size:11.5px;color:#5C7377;margin-top:2px;}
   .mt-sf-st{display:flex;flex-direction:column;font-size:11.5px;color:#5C7377;font-weight:700;gap:3px;} .mt-sf-st select{height:34px;border:1px solid #CFE6E9;border-radius:9px;padding:0 8px;font:inherit;font-size:13px;}
-  .mt-sf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;}
+  /* 項目は縦に1列で並べる（2026-11-14 田中さん：kinbot のように縦に） */
+  .mt-sf-grid,.mt-sf-vert{display:flex;flex-direction:column;gap:12px;}
+  .mt-sf-find{display:flex;gap:8px;} .mt-sf-find input{flex:1;min-width:0;height:40px;border:1px solid #CFE6E9;border-radius:10px;padding:0 12px;font:inherit;font-size:13.5px;} .mt-sf-find input:focus{outline:2px solid #5EEAD4;border-color:#0E9AA7;}
+  .mt-sf-res{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;}
+  .mt-sf-cand{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;border:1px solid #DDEEF0;border-radius:12px;background:#F7FBFB;padding:10px 14px;cursor:pointer;font:inherit;}
+  .mt-sf-cand:hover{border-color:#5EC7CF;background:#fff;} .mt-sf-cand b{font-size:13.5px;color:#12292C;} .mt-sf-cand small{font-size:11.5px;color:#5C7377;}
+  .mt-sf-linked{display:flex;align-items:flex-start;gap:10px;border:1px solid #9FD9DF;background:#EAF8F9;border-radius:12px;padding:12px 14px;}
+  .mt-sf-linked > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;} .mt-sf-linked b a{color:#0B6E78;text-decoration:none;font-size:14px;} .mt-sf-linked small{font-size:11.5px;color:#5C7377;}
+  .mt-sf-unlink{border:1px solid #CFE6E9;background:#fff;color:#5C7377;border-radius:8px;font:inherit;font-size:11.5px;padding:3px 10px;cursor:pointer;}
+  .mt-sf-sub{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#F2FAFB;border-radius:12px;padding:4px;}
+  .mt-sf-sub button{border:0;background:transparent;border-radius:9px;padding:9px;font:inherit;font-size:13px;font-weight:800;color:#5C7377;cursor:pointer;} .mt-sf-sub button.on{background:#fff;color:#0B6E78;box-shadow:0 1px 4px rgba(15,61,68,.10);}
   .mt-sf-f{display:flex;flex-direction:column;gap:4px;font-size:12px;} .mt-sf-f span{font-weight:700;color:#3F5A5E;} .mt-sf-f .req{font-style:normal;margin-left:6px;font-size:10.5px;color:#fff;background:#D14B2B;border-radius:99px;padding:0 6px;}
   .mt-sf-f input,.mt-sf-f select,.mt-sf-f textarea{border:1px solid #CFE6E9;border-radius:9px;padding:7px 9px;font:inherit;font-size:13px;background:#fff;} .mt-sf-f textarea{resize:vertical;}
   .mt-sf-f.ai input,.mt-sf-f.ai select,.mt-sf-f.ai textarea{background:#F0FBF7;border-color:#7FD3B6;} .mt-sf-f.bad input,.mt-sf-f.bad select,.mt-sf-f.bad textarea{border-color:#D14B2B;box-shadow:0 0 0 2px rgba(209,75,43,.15);}
@@ -99,6 +109,7 @@
   .mt-sf-err{background:#FDECE7;border:1px solid #F3C1B3;color:#8A2E12;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.7;}
   .mt-sf-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
   .mt-title{display:flex;align-items:center;gap:10px;margin:14px 0 10px;flex-wrap:wrap;} .mt-title h2{font-size:17px;margin:0;color:#12292C;flex:1;min-width:0;}
+  .mt-repsel{font:inherit;font-size:13px;font-weight:800;color:#12292C;border:1px solid #D9ECEE;border-radius:9px;padding:4px 8px;background:#fff;max-width:100%;cursor:pointer;} .mt-repsel:focus{outline:2px solid #5EEAD4;}
   /* 商談名：直せる欄とカレンダーから選ぶボタン（2026-11-14） */
   .mt-tw{position:relative;display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
   .mt-tin{flex:1;min-width:0;font:inherit;font-size:17px;font-weight:800;color:#12292C;border:1px solid transparent;border-radius:10px;padding:6px 8px;background:transparent;}
@@ -189,6 +200,6 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mochica.js?v=20261114r"></script>
+  <script src="/mochica.js?v=20261114s"></script>
 </body>
 </html>

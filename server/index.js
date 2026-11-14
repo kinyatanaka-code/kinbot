@@ -26982,6 +26982,10 @@ function mcTranscriptText(p) {
 async function mcFindOpp(owner, row) {
   const cal = row && row.payload && row.payload.mt_cal; const aid = cal && cal.sf && cal.sf.accountId;
   const cols = "Id, Name, StageName, AccountId, Account.Name, CloseDate";
+  // 画面で結びつけた SF の商談があれば、それを使う（kinbot と同じ）。解除したときは自動でも探さない（2026-11-14）
+  const lk = row && row.payload && row.payload.mt_sfopp;
+  if (lk && lk.none) return null;
+  if (lk && lk.id) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Id = '${String(lk.id).replace(/[^A-Za-z0-9]/g, "")}' LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return { ...d.records[0], _linked: true }; }
   if (aid) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE AccountId = '${String(aid).replace(/[^A-Za-z0-9]/g, "")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return d.records[0]; }
   const co = cal && cal.company && cal.company !== "(無題)" ? cal.company : ""; if (!co) return null;
   const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Account.Name = '${co.replace(/'/g, "\\'")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null);
@@ -27010,6 +27014,55 @@ async function mcRequiredFromRules(owner) {
   })().catch((e) => { _mcVr.p = null; throw e; });
   return _mcVr.p;
 }
+// ===== MOCHICA の SF 連携：kinbot と同じく、SF の商談を探して結びつける・活動記録を書く（2026-11-14 田中さん）=====
+app.get("/api/mochica/sf/search", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const q = String(req.query.q || "").trim().replace(/[%_\\']/g, "").slice(0, 80); if (!q) return res.json({ ok: true, items: [] });
+    const d = await sfQuery(owner, `SELECT Id, Name, StageName, CloseDate, Account.Name, RecordType.Name, Owner.Name FROM Opportunity WHERE Name LIKE '%${q}%' OR Account.Name LIKE '%${q}%' ORDER BY CreatedDate DESC LIMIT 20`);
+    res.json({ ok: true, items: (d && d.records) || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/miitel/meetings/:id/sfopp", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); if (!(await mcMiitelGet(id))) return res.status(404).json({ error: "見つかりません" });
+    const oppId = String((req.body && req.body.oppId) || "").replace(/[^A-Za-z0-9]/g, "");
+    await mcMiitelSave({ id, payload: { mt_sfopp: oppId ? { id: oppId, by: req.user, at: Date.now() } : { none: true, by: req.user, at: Date.now() } } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 活動記録：結びつけた商談に、SF の活動（ToDo）として書く。活動種別は「商談」、状況は「完了」
+app.post("/api/mochica/sf/activity", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const b = req.body || {}; const oppId = String(b.oppId || "").replace(/[^A-Za-z0-9]/g, ""); if (!oppId) return res.status(400).json({ error: "SF の商談を先に結びつけてください" });
+    const fn = await taskFieldNames(owner).catch(() => ({}));
+    const done = (fn.statusPicklist || []).find((v) => /^(完了|済|Completed|Closed)/i.test(String(v).trim())) || "完了";
+    const data = { WhatId: oppId, Subject: String(b.subject || "商談").slice(0, 250), Description: String(b.description || "").slice(0, 31000), ActivityDate: /^\d{4}-\d{2}-\d{2}$/.test(String(b.date || "")) ? b.date : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), Status: done };
+    if (fn.actKind) data[fn.actKind] = String(b.kind || "商談");
+    const r = await sfCreateRecord(owner, "Task", data);
+    const vid = String(b.vid || ""); if (vid) await mcMiitelSave({ id: vid, payload: { mt_sfact: { id: (r && (r.id || r.Id)) || "", at: Date.now(), by: req.user } } }).catch(() => {});
+    console.log(`[mochica sf] 活動記録を書きました：${oppId} by ${req.user}`);
+    res.json({ ok: true, id: (r && (r.id || r.Id)) || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 担当を画面で直す（kinbot のアカウントから選ぶ）。参加者から決めたものより先に使う
+app.get("/api/mochica/reps", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const mc = new Set((await listMembers().catch(() => [])).filter((m) => Array.isArray(m.businesses) && m.businesses.includes("MOCHICA")).map((m) => String(m.email || "").toLowerCase()));
+    const us = (await listUsers().catch(() => [])).filter((u) => u && u.email).map((u) => ({ email: String(u.email).toLowerCase(), name: String(u.name || u.email), mochica: mc.has(String(u.email).toLowerCase()) }));
+    us.sort((a, b) => (b.mochica - a.mochica) || a.name.localeCompare(b.name, "ja"));
+    res.json({ ok: true, items: us });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); if (!(await mcMiitelGet(id))) return res.status(404).json({ error: "見つかりません" });
+    const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+    const u = email ? (await listUsers().catch(() => [])).find((x) => String(x.email || "").toLowerCase() === email) : null;
+    if (email && !u) return res.status(400).json({ error: "その人の kinbot アカウントが見つかりません" });
+    await mcMiitelSave({ id, payload: { mt_rep: u ? { email, name: String(u.name || email), manual: true, by: req.user, at: Date.now() } : {} } });
+    res.json({ ok: true, rep: u ? { email, name: u.name || email } : null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
@@ -27098,7 +27151,8 @@ app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const items0 = await mcMiitelList(200);
     const repOf = await mcRepIndex().catch(() => () => []);
-    const items = items0.map((m) => { const reps = repOf(m.participants); return reps.length ? { ...m, rep: reps[0], reps } : m; });
+    const items = items0.map((m) => { if (m.mrep && m.mrep.email) return { ...m, rep: m.mrep, reps: [m.mrep] };   // 画面で決めた担当がいちばん
+      const reps = repOf(m.participants); return reps.length ? { ...m, rep: reps[0], reps } : m; });
     const owner = await pickSfUser(req.user, req).catch(() => req.user); mcCalMatchRun(owner).catch(() => {});   // まだのものは裏で突き合わせる
     res.json({ ok: true, items }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -31222,7 +31276,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14r kinbot for MOCHICA の商談：自動で使う予定は【新/ヒ】【新/再提案】と「○○株式会社：○○様」「株式会社○○：○○様」の形だけにした（v=3 でやり直し）。会社名は「_」区切りや「会社：人様」も読む。商談名は直して Enter で保存、横のカレンダーのボタンからその日の予定を選べる（kinbot と同じ）。手で決めたものは自動で上書きしない。";
+const BUILD_TAG = "2026-11-14s kinbot for MOCHICA の商談：担当を選んで直せる（kinbot のアカウント、MOCHICA が上）。SF 連携を kinbot と同じ形に：上で SF の商談を探して結びつける（解除も）、下は「活動記録」（件名・活動日・活動種別・説明＝要約から、SF の活動として書く）と「ステージ・項目更新」（項目は縦に1列）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -153,6 +153,19 @@
     const cp = box.querySelector("[data-rvcopy]"); if (cp) cp.addEventListener("click", async () => { try { await navigator.clipboard.writeText(s.formatted && !s.key_points ? s.formatted : mtSumText(s)); cp.textContent = "コピーしました"; setTimeout(() => (cp.textContent = "要約をコピー"), 1500); } catch {} });
     box.querySelector("[data-rvredo]").addEventListener("click", () => { if (confirm("要約とフィードバックを作り直しますか？（1分ほどかかります）")) mtReview(id, tr, tab, null, true); });
   }
+  async function mtRepTools(id) {
+    const sel = $("mtRepSel"); if (!sel) return;
+    if (!mtRepTools.list) { try { mtRepTools.list = (await api("/api/mochica/reps")).items || []; } catch { return; } }
+    if ($("mtRepSel") !== sel) return;
+    const m0 = mtAll.find((x) => x.id === id) || {}; const curE = (m0.rep && m0.rep.email) || "";
+    const L = mtRepTools.list; const mc = L.filter((u) => u.mochica), ot = L.filter((u) => !u.mochica);
+    const opt = (u) => `<option value="${esc(u.email)}" ${u.email === curE ? "selected" : ""}>${esc(u.name)}</option>`;
+    sel.innerHTML = `${curE ? "" : `<option value="" selected>${esc(hostOf(m0))}（選ぶ）</option>`}${mc.length ? `<optgroup label="MOCHICA">${mc.map(opt).join("")}</optgroup>` : ""}<optgroup label="そのほか">${ot.map(opt).join("")}</optgroup>`;
+    sel.addEventListener("change", async () => { const email = sel.value; if (!email) return; sel.disabled = true;
+      try { const r = await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/rep`, { method: "POST", body: JSON.stringify({ email }) });
+        if (r.rep && m0.id) { m0.rep = r.rep; m0.reps = [r.rep]; m0.mrep = r.rep; } mtDraw(); }
+      catch (e) { alert("保存できませんでした：" + e.message); } finally { sel.disabled = false; } });
+  }
   // ===== 商談名を直す・Google カレンダーの予定から選ぶ（2026-11-14）=====
   async function mtSetCal(id, body) {
     const r = await fetch(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/cal`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -224,7 +237,7 @@
     const hasVid = !!(p.mt_video && p.mt_video.fileId);
     main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}${tr.length >= 6 ? '<div class="ch-wrap" id="mtCh" style="margin-top:10px"></div>' : ""}
       <div class="mt-title"><div class="mt-tw"><input class="mt-tin" id="mtTitleIn" value="${esc((cal && cal.title) || it.title || "")}" placeholder="商談名" title="直して Enter で保存" /><button type="button" class="mt-calbtn" id="mtCalBtn" title="Google カレンダーの予定から選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><rect x="2.5" y="4" width="15" height="13.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 8.5h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button><div class="mt-calp" id="mtCalP" hidden></div></div><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
-      ${calWhy ? `<div class="mc-note" style="margin:-4px 0 10px;font-size:11.5px">📅 ${esc(calWhy)}</div>` : ""}<div class="mt-fields">${cal && cal.company && cal.company !== "(無題)" ? `<div><span>会社</span><b>${esc(cal.company)}${cal.sf && cal.sf.leadId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Lead/${esc(cal.sf.leadId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFのリード ↗</a>` : ""}${cal.sf && cal.sf.accountId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Account/${esc(cal.sf.accountId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFの取引先 ↗</a>` : ""}</b></div>` : ""}<div><span>担当</span><b>${esc((cal && cal.ownerName) || (it.host && it.host !== "オーナー" ? it.host : "") || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(/\[object Object\]/.test(it.participants || "") ? "—" : it.participants || "—")}</b></div></div>
+      ${calWhy ? `<div class="mc-note" style="margin:-4px 0 10px;font-size:11.5px">📅 ${esc(calWhy)}</div>` : ""}<div class="mt-fields">${cal && cal.company && cal.company !== "(無題)" ? `<div><span>会社</span><b>${esc(cal.company)}${cal.sf && cal.sf.leadId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Lead/${esc(cal.sf.leadId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFのリード ↗</a>` : ""}${cal.sf && cal.sf.accountId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Account/${esc(cal.sf.accountId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFの取引先 ↗</a>` : ""}</b></div>` : ""}<div><span>担当</span><select class="mt-repsel" id="mtRepSel" title="担当を直す"><option value="">${esc(hostOf(mtAll.find((x) => x.id === id) || it))}</option></select></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(/\[object Object\]/.test(it.participants || "") ? "—" : it.participants || "—")}</b></div></div>
       <div class="mt-tabs">${tabs.map(([k, l]) => `<button type="button" data-mtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>
       <div id="mtPane">${pane(cur)}</div>
       ${p && p.source !== "claude-mcp" && Object.keys(p).length ? `<details class="mt-raw" style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;color:#5C7377;font-weight:700">MiiTel から届いた中身（項目の確かめ用）</summary><pre style="white-space:pre-wrap;font-size:11px;background:#F2FAFB;border-radius:10px;padding:10px;max-height:320px;overflow:auto">${esc(JSON.stringify(p, (k, x) => (typeof x === "string" && x.length > 300 ? x.slice(0, 300) + "…" : Array.isArray(x) && x.length > 5 ? [...x.slice(0, 5), `…ほか${x.length - 5}件`] : x), 2))}</pre></details>` : ""}`;
@@ -233,6 +246,8 @@
       if (window.Hls && window.Hls.isSupported()) { const h = new window.Hls(); h.loadSource(src); h.attachMedia(ve); } else ve.src = src; }
     // 商談名：直して保存・カレンダーの予定から選ぶ（kinbot の商談履歴と同じ）（2026-11-14 田中さん）
     mtTitleTools(id, it);
+    // 担当を直す（kinbot のアカウントから選ぶ。MOCHICA のメンバーが上）（2026-11-14 田中さん「担当者名を変えられるように」）
+    mtRepTools(id);
     // 商談の段階（kinbot と同じ帯と一覧）（2026-11-14 田中さん）
     if (tr.length >= 6) mtChapters(id, tr, (p.mt_chapters && p.mt_chapters.chapters) || [], Number(it.duration_sec) || 0, hostOf(mtAll.find((x) => x.id === id) || it));
     // 録画の取り込み：拡張機能が MiiTel の会議を裏で開いて、録画の細切れを kinbot に送る
@@ -244,9 +259,9 @@
         if (pg && pg.at > t0 && pg.videoId === id) { if (pg.error) { clearInterval(tick); gb.disabled = false; gb.textContent = "もう一度取り込む"; if (sEl) sEl.textContent = "取り込めませんでした：" + pg.error; }
           else if (pg.done) { clearInterval(tick); if (sEl) sEl.textContent = "取り込みました。開き直しています…"; setTimeout(() => mtOpen(id), 3000); }
           else if (sEl) sEl.textContent = `${pg.i}/${pg.total}`; } } catch {} }, 3000); });
-    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id); if (b.dataset.mtab === "sm" || b.dataset.mtab === "an") mtReview(id, tr, b.dataset.mtab, p.mt_review); }));
+    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id, { title: (cal && cal.title) || it.title || "", at: it.started_at, review: p.mt_review, co: (cal && cal.company) || "" }); if (b.dataset.mtab === "sm" || b.dataset.mtab === "an") mtReview(id, tr, b.dataset.mtab, p.mt_review); }));
     if (cur === "sm" || cur === "an") mtReview(id, tr, cur, p.mt_review);
-    if (cur === "sf") mtSfLoad(id);
+    if (cur === "sf") mtSfLoad(id, { title: (cal && cal.title) || it.title || "", at: it.started_at, review: p.mt_review, co: (cal && cal.company) || "" });
   }
   // ブラウザの自動入力（メールアドレスなど）が探す欄に入って「0件」になるのを防ぐ（2026-11-12）
   // Bales に SF の情報を入れる：SF の Mochica（リード）の値を、リードの ID で（2026-11-13）
@@ -282,10 +297,40 @@
     b.innerHTML = !ext ? "拡張機能 kinbot-ext（1.6.1 以上）が見えません。入れ直して、この画面を開き直してください。" : `${cr ? `裏で開いた数：${cr.done}/${cr.total}<br>` : ""}${vp ? `録画：${vp.error ? `取り込めませんでした（${esc(vp.error)}）` : vp.done ? "取り込みました" : `${vp.i || 0}/${vp.total || "?"}`}<br>` : ""}送り直し待ち：${dg ? dg.pending : 0}件<br>送った結果：${dg && dg.last.length ? dg.last.map((x) => `${esc(x.kind)}（${x.ok ? "OK" : "NG " + esc(String(x.status))}・${Math.round(x.len / 1000)}k）`).join("、") : "まだなし"}<br>見た MiiTel の通り道：${dg && dg.seen.length ? dg.seen.map((x) => esc(x.path)).join("<br>") : "まだなし（MiiTel のページを開くと出ます）"}`; }, 5000);
   { const q = $("mtQ"); if (q) { q.addEventListener("input", mtDraw); const clr = () => { if (/@/.test(q.value)) { q.value = ""; mtDraw(); } }; setTimeout(clr, 300); setTimeout(clr, 1500); } }
   // ===== SF 連携：ステージごとの項目を議事録から埋めて、SF の「新規」の商談に書く（2026-11-13）=====
-  async function mtSfLoad(vid) {
-    const box = $("mtSf"); if (!box) return;
+  // SF 連携：kinbot と同じく、上で SF の商談を探して結びつけ、下で「活動記録」と「ステージ・項目更新」に分ける。項目は縦に並べる（2026-11-14 田中さん）
+  async function mtSfLoad(vid, ctx = {}) {
+    const root = $("mtSf"); if (!root) return; let box = root;
     let d; try { d = await api(`/api/mochica/sf/form?vid=${encodeURIComponent(vid)}`); } catch (e) { box.innerHTML = `<div class="mt-wait">読めませんでした：${esc(e.message)}</div>`; return; }
-    if (!d.opp) { box.innerHTML = '<div class="mt-wait">SF の「新規」の商談が見つかりませんでした。カレンダーの予定のタイトルに会社名が入っていて、SF にその会社の「新規」の商談があると、ここに出ます。</div>'; return; }
+    const link = async (oppId) => { try { await api(`/api/mochica/miitel/meetings/${encodeURIComponent(vid)}/sfopp`, { method: "POST", body: JSON.stringify({ oppId }) }); mtSfLoad(vid, ctx); } catch (e) { alert(e.message); } };
+    root.innerHTML = `<div class="mt-sf-find"><input type="search" data-sfq value="${esc(ctx.co || "")}" placeholder="会社名・商談名で SF の商談を探す"><button type="button" class="mt-btn" data-sfgo>商談を検索</button></div><div class="mt-sf-res" data-sfres></div>
+      ${d.opp ? `<div class="mt-sf-linked"><div><b><a href="${esc(d.sfBase)}/lightning/r/Opportunity/${esc(d.opp.Id)}/view" target="_blank" rel="noopener">${esc(d.opp.Name)} ↗</a></b><small>${esc((d.opp.Account && d.opp.Account.Name) || "")} ・ ステージ：${esc(d.opp.StageName || "—")} ・ 完了予定：${esc(d.opp.CloseDate || "—")}${d.opp._linked ? "" : " ・ 会社名から自動で結びつけました"}</small></div><button type="button" class="mt-sf-unlink" data-sfun>解除</button></div>
+        <div class="mt-sf-sub"><button type="button" data-sfsub="act" class="${mtSfLoad.sub === "act" ? "on" : ""}">活動記録</button><button type="button" data-sfsub="stage" class="${mtSfLoad.sub !== "act" ? "on" : ""}">ステージ・項目更新</button></div><div data-sfpane></div>`
+      : '<div class="mt-wait">SF の商談が結びついていません。上で会社名を入れて「商談を検索」を押し、結びつける商談を選んでください。</div>'}`;
+    const qi = root.querySelector("[data-sfq]"), res = root.querySelector("[data-sfres]");
+    const search = async () => { const q = qi.value.trim(); if (!q) return; res.innerHTML = '<div class="mc-note" style="padding:6px 2px">探しています…</div>';
+      try { const r = await api(`/api/mochica/sf/search?q=${encodeURIComponent(q)}`); res.innerHTML = r.items.length ? r.items.map((o) => `<button type="button" class="mt-sf-cand" data-opp="${esc(o.Id)}"><b>${esc(o.Name)}</b><small>${esc(o.StageName || "")} ・ ${esc((o.Account && o.Account.Name) || "")} ・ ${esc(o.CloseDate || "")}${o.RecordType ? ` ・ ${esc(o.RecordType.Name)}` : ""}</small></button>`).join("") : '<div class="mc-note" style="padding:6px 2px">見つかりませんでした。</div>';
+        res.querySelectorAll("[data-opp]").forEach((b) => b.addEventListener("click", () => link(b.dataset.opp))); } catch (e) { res.innerHTML = `<div class="mc-note">探せませんでした：${esc(e.message)}</div>`; } };
+    root.querySelector("[data-sfgo]").addEventListener("click", search); qi.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) search(); });
+    if (!d.opp) { if (qi.value) search(); return; }
+    root.querySelector("[data-sfun]").addEventListener("click", () => { if (confirm("この商談との結びつきを外しますか？（SF の中身は変わりません）")) link(""); });
+    const paneEl = root.querySelector("[data-sfpane]");
+    root.querySelectorAll("[data-sfsub]").forEach((b) => b.addEventListener("click", () => { mtSfLoad.sub = b.dataset.sfsub; root.querySelectorAll("[data-sfsub]").forEach((x) => x.classList.toggle("on", x === b)); showSub(); }));
+    // 活動記録：件名・日付・説明（要約から入れられる）を、結びつけた商談の活動として SF に書く
+    const actDraw = () => {
+      const dd = ctx.at ? new Date(new Date(ctx.at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+      const rv = (mtReview._last && mtReview._last.id === vid ? mtReview._last.rv : null) || ctx.review || null; const sumTxt = rv && rv.summary ? (rv.summary.formatted && !rv.summary.key_points ? rv.summary.formatted : mtSumText(rv.summary)) : "";
+      paneEl.innerHTML = `<div class="mt-sf-vert"><label class="mt-sf-f"><span>件名</span><input type="text" data-act="subject" value="${esc("【商談】" + (ctx.title || ""))}"></label>
+        <label class="mt-sf-f"><span>活動日</span><input type="date" data-act="date" value="${dd}"></label>
+        <label class="mt-sf-f"><span>活動種別</span><input type="text" data-act="kind" value="商談"></label>
+        <label class="mt-sf-f"><span>説明</span><textarea data-act="description" rows="12" placeholder="要約タブで要約を作ると、ここに入れられます">${esc(sumTxt)}</textarea></label></div>
+        <div class="mt-sf-act">${sumTxt ? "" : '<span class="mc-note">要約がまだありません。「要約」タブで作ると、説明に入ります。</span>'}<button type="button" class="mt-btn" data-actsave>活動記録として SF に書く</button><span class="mc-note" data-actmsg></span></div>`;
+      paneEl.querySelector("[data-actsave]").addEventListener("click", async (e) => { const b = e.target; const v = {}; paneEl.querySelectorAll("[data-act]").forEach((el) => { v[el.dataset.act] = el.value; });
+        if (!v.description.trim() && !confirm("説明が空です。このまま書きますか？")) return;
+        if (!confirm(`「${d.opp.Name}」に活動記録を書きますか？`)) return; b.disabled = true;
+        try { await api("/api/mochica/sf/activity", { method: "POST", body: JSON.stringify({ ...v, oppId: d.opp.Id, vid }) }); paneEl.querySelector("[data-actmsg]").textContent = "SF に書きました。"; }
+        catch (err) { paneEl.querySelector("[data-actmsg]").textContent = "書けませんでした：" + err.message; } finally { b.disabled = false; } });
+    };
+    const showSub = () => { if (mtSfLoad.sub === "act") actDraw(); else { box = paneEl; draw(); } };
     const cur = d.current || {}; const curKey = (String(d.opp.StageName || "").match(/^(\d{2})/) || [])[1] || "01";
     const order = ["01", "02", "03", "04", "05", "06", "08", "99"]; const nextKey = order[Math.min(order.indexOf(curKey) + 1, order.length - 2)] || "02";
     let sel = mtSfLoad.sel && mtSfLoad.vid === vid ? mtSfLoad.sel : nextKey; mtSfLoad.vid = vid;
@@ -301,8 +346,7 @@
         else if (["double", "int", "currency", "percent"].includes(f.type)) el = `<input type="number" ${nm} value="${esc(v ?? "")}">`;
         else el = `<input type="text" ${nm} value="${esc(v || "")}" ${f.updateable ? "" : "readonly"}>`;
         return `<label class="mt-sf-f" data-fw="${esc(f.name)}"><span>${esc(f.label)}${r}</span>${el}</label>`; };
-      box.innerHTML = `<div class="mt-sf-top"><div><b><a href="${esc(d.sfBase)}/lightning/r/Opportunity/${esc(d.opp.Id)}/view" target="_blank" rel="noopener">${esc(d.opp.Name)} ↗</a></b><small>今のステージ：${esc(d.opp.StageName || "—")}</small></div>
-          <label class="mt-sf-st">進めるステージ<select data-sf-stage>${d.defs.map((x) => `<option value="${x.key}" ${x.key === sel ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label></div>
+      box.innerHTML = `<div class="mt-sf-top"><label class="mt-sf-st">ステージ（段階）を選ぶ<select data-sf-stage>${d.defs.map((x) => `<option value="${x.key}" ${x.key === sel ? "selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label></div>
         <div class="mt-sf-grid">${def.fields.map(inp).join("")}</div>
         <div class="mt-sf-err" data-sf-err hidden></div>
         <div class="mt-sf-act"><button type="button" class="mt-btn ghost" data-sf-fill>議事録から AI で埋める</button><button type="button" class="mt-btn" data-sf-save>${esc(def.label.split("：")[0])}としてSFに書く</button><span class="mc-note" data-sf-msg></span></div>
@@ -324,7 +368,7 @@
           else { er.hidden = false; er.innerHTML = (r.errors || []).map((x) => `・${esc(x.message)}`).join("<br>") + '<br><small>赤い枠の項目を入れて、もう一度押してください（この項目は次から必須として覚えます）。</small>'; (r.needs || []).forEach((n) => { const w = box.querySelector(`[data-fw="${n}"]`); if (w) w.classList.add("bad"); }); ((d.required || {})[def.key] = [...new Set([...((d.required || {})[def.key] || []), ...(r.needs || [])])]); }
         } catch (err) { alert(err.message); } finally { b.disabled = false; } });
     };
-    draw();
+    showSub();
   }
   go(location.hash.slice(1) || "home"); loadHome();
   // 下の段：頭文字の丸アイコン・名前・設定（歯車）・ログアウト（kinbot と同じ作り）

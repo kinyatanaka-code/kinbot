@@ -12733,7 +12733,7 @@ export async function mcMiitelSave(ev) {
 }
 export async function mcMiitelList(limit = 100) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload->'mt_cal' AS cal, (payload ? 'mt_video') AS has_video, ((payload ? 'mt_phrases') OR COALESCE(transcript_len,0) > 0) AS has_tr FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload->'mt_cal' AS cal, payload->'mt_rep' AS mrep, (payload ? 'mt_video') AS has_video, ((payload ? 'mt_phrases') OR COALESCE(transcript_len,0) > 0) AS has_tr FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 export async function mcMiitelGet(id) {
   if (!pool) return null; await ensureMcMiitel();
