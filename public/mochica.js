@@ -153,6 +153,35 @@
     const cp = box.querySelector("[data-rvcopy]"); if (cp) cp.addEventListener("click", async () => { try { await navigator.clipboard.writeText(s.formatted && !s.key_points ? s.formatted : mtSumText(s)); cp.textContent = "コピーしました"; setTimeout(() => (cp.textContent = "要約をコピー"), 1500); } catch {} });
     box.querySelector("[data-rvredo]").addEventListener("click", () => { if (confirm("要約とフィードバックを作り直しますか？（1分ほどかかります）")) mtReview(id, tr, tab, null, true); });
   }
+  // ===== 商談名を直す・Google カレンダーの予定から選ぶ（2026-11-14）=====
+  async function mtSetCal(id, body) {
+    const r = await fetch(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/cal`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || r.status);
+    const m0 = mtAll.find((x) => x.id === id); if (m0) m0.cal = d.cal; mtDraw(); mtOpen(id);
+  }
+  function mtTitleTools(id, it) {
+    const inp = $("mtTitleIn"), btn = $("mtCalBtn"), pan = $("mtCalP"); if (!inp || !btn || !pan) return;
+    const orig = inp.value;
+    const save = async () => { const v = inp.value.trim(); if (!v || v === orig) return; inp.disabled = true; try { await mtSetCal(id, { title: v }); } catch (e) { alert("保存できませんでした：" + e.message); inp.disabled = false; } };
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); inp.blur(); } if (e.key === "Escape") { inp.value = orig; inp.blur(); } });
+    inp.addEventListener("blur", save);
+    const st0 = it.started_at ? new Date(new Date(it.started_at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "";
+    let day = st0;
+    const shift = (d, n) => { const t = new Date(Date.parse(d + "T00:00:00Z") + n * 86400000); return t.toISOString().slice(0, 10); };
+    const draw = async () => {
+      pan.innerHTML = `<div class="mt-calbar"><button type="button" data-d="-1">‹</button><input type="date" value="${esc(day)}"><button type="button" data-d="1">›</button></div><div class="mt-calist"><div class="mc-note" style="padding:8px">読み込んでいます…</div></div>`;
+      pan.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); day = shift(day, Number(b.dataset.d)); draw(); }));
+      const di = pan.querySelector("input[type=date]"); di.addEventListener("change", () => { day = di.value || day; draw(); });
+      const list = pan.querySelector(".mt-calist");
+      try { const d = await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/cal-cands?date=${encodeURIComponent(day)}`);
+        if (!d.events.length) { list.innerHTML = `<div class="mc-note" style="padding:8px">この日の予定は見つかりませんでした（見たカレンダー：${esc((d.people || []).join("・"))}）</div>`; return; }
+        list.innerHTML = d.events.map((ev, i) => `<button type="button" class="mt-calrow${ev.deal ? " deal" : ""}" data-i="${i}"><span class="tm">${hm(ev.start)}</span><span class="nm">${esc(ev.title || "（題名なし）")}<small>${esc(ev.ownerName || "")}${ev.deal ? "・商談の予定" : ""}</small></span></button>`).join("");
+        list.querySelectorAll("[data-i]").forEach((b) => b.addEventListener("click", async () => { const ev = d.events[Number(b.dataset.i)]; pan.hidden = true; try { await mtSetCal(id, ev); } catch (e) { alert("保存できませんでした：" + e.message); } }));
+      } catch (e) { list.innerHTML = `<div class="mc-note" style="padding:8px">読めませんでした：${esc(e.message)}</div>`; }
+    };
+    btn.addEventListener("click", (e) => { e.stopPropagation(); pan.hidden = !pan.hidden; if (!pan.hidden) { day = st0 || day; draw(); } });
+    document.addEventListener("click", (e) => { if (!pan.hidden && !pan.contains(e.target) && e.target !== btn) pan.hidden = true; });
+  }
   async function mtOpen(id) {
     mtSel = id; if (mtHost != null) mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
     let it; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}`)).item; } catch (e) { main.innerHTML = `<div class="mt-empty">読めませんでした：${esc(e.message)}</div>`; return; }
@@ -194,7 +223,7 @@
     const cur = mtOpen.tab || "tr";
     const hasVid = !!(p.mt_video && p.mt_video.fileId);
     main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}${tr.length >= 6 ? '<div class="ch-wrap" id="mtCh" style="margin-top:10px"></div>' : ""}
-      <div class="mt-title"><h2>${esc((cal && cal.title) || it.title || "（題名なし）")}</h2><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
+      <div class="mt-title"><div class="mt-tw"><input class="mt-tin" id="mtTitleIn" value="${esc((cal && cal.title) || it.title || "")}" placeholder="商談名" title="直して Enter で保存" /><button type="button" class="mt-calbtn" id="mtCalBtn" title="Google カレンダーの予定から選ぶ" aria-label="カレンダーから選ぶ"><svg viewBox="0 0 20 20" width="17" height="17" aria-hidden="true"><rect x="2.5" y="4" width="15" height="13.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 8.5h15M6.5 2.5v3M13.5 2.5v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button><div class="mt-calp" id="mtCalP" hidden></div></div><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
       ${calWhy ? `<div class="mc-note" style="margin:-4px 0 10px;font-size:11.5px">📅 ${esc(calWhy)}</div>` : ""}<div class="mt-fields">${cal && cal.company && cal.company !== "(無題)" ? `<div><span>会社</span><b>${esc(cal.company)}${cal.sf && cal.sf.leadId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Lead/${esc(cal.sf.leadId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFのリード ↗</a>` : ""}${cal.sf && cal.sf.accountId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Account/${esc(cal.sf.accountId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFの取引先 ↗</a>` : ""}</b></div>` : ""}<div><span>担当</span><b>${esc((cal && cal.ownerName) || (it.host && it.host !== "オーナー" ? it.host : "") || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(/\[object Object\]/.test(it.participants || "") ? "—" : it.participants || "—")}</b></div></div>
       <div class="mt-tabs">${tabs.map(([k, l]) => `<button type="button" data-mtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>
       <div id="mtPane">${pane(cur)}</div>
@@ -202,6 +231,8 @@
     // 録画：ドライブに置いた録画を HLS（バイトの範囲つき）で再生
     if (hasVid) { const ve = $("mtVideo"); const src = `/api/mochica/miitel/video/${encodeURIComponent(id)}.m3u8`;
       if (window.Hls && window.Hls.isSupported()) { const h = new window.Hls(); h.loadSource(src); h.attachMedia(ve); } else ve.src = src; }
+    // 商談名：直して保存・カレンダーの予定から選ぶ（kinbot の商談履歴と同じ）（2026-11-14 田中さん）
+    mtTitleTools(id, it);
     // 商談の段階（kinbot と同じ帯と一覧）（2026-11-14 田中さん）
     if (tr.length >= 6) mtChapters(id, tr, (p.mt_chapters && p.mt_chapters.chapters) || [], Number(it.duration_sec) || 0, hostOf(mtAll.find((x) => x.id === id) || it));
     // 録画の取り込み：拡張機能が MiiTel の会議を裏で開いて、録画の細切れを kinbot に送る

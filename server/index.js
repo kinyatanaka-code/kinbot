@@ -26889,6 +26889,34 @@ async function mcMembers(hosts = []) {
     for (const u of us) if (nz(u.name).startsWith(sur) && !out.some((o) => o.email === String(u.email || "").toLowerCase())) out.push({ name: u.name, email: String(u.email || "").toLowerCase() }); }
   return out;
 }
+// MOCHICA の商談の予定の見分け方（2026-11-14 田中さん）：
+//   ・【新/ヒ】【新/再提案】で始まる予定（例：【新/ヒ】福井商談_東邦コンサルタント株式会社_川瀬様）
+//   ・「○○株式会社：○○様」「株式会社○○：○○様」の形の予定
+//   これ以外の予定（【】が付いていても）は、自動では商談の予定にしない（画面で選べば使える）
+const MC_CORP = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人|学校法人|特定非営利活動法人|NPO法人)";
+function mcIsDealTitle(t) {
+  const x = String(t || "").normalize("NFKC");
+  if (/【\s*新\s*\/\s*(ヒ|再提案)\s*】/.test(x)) return true;
+  return new RegExp(`(${MC_CORP}[^:：]{1,40}|[^:：]{1,40}${MC_CORP})\\s*[:：]\\s*[^:：]{1,20}(様|さま)`).test(x);
+}
+// 予定のタイトルから会社名を読む。「_」区切りや「会社：人様」の形も読めるようにしてから、kinbot と同じ companyFromTitle に渡す
+function mcCoFromTitle(t) {
+  let x = String(t || "").normalize("NFKC").replace(/【[^】]*】/g, " ");
+  const ci = x.search(/[:：]/); if (ci > 0 && new RegExp(MC_CORP).test(x.slice(0, ci))) x = x.slice(0, ci);
+  x = x.replace(/[_＿]+/g, " ").replace(/\s+/g, " ").trim();
+  // 「福井商談 東邦コンサルタント株式会社 川瀬様」のように前に別の言葉があるときは、法人の言葉を含むかたまりを選ぶ
+  const part = x.split(" ").find((w) => new RegExp(MC_CORP).test(w));
+  return companyFromTitle(part || x);
+}
+// 会社名から、SF の Mochica（リード）と取引先を探す
+async function mcSfFor(company, owner) {
+  try {
+    const q = String(company || "").replace(/'/g, "\\'"); if (!q || q === "(無題)") return {};
+    const ld = await sfQuery(owner, `SELECT Id, Company FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company = '${q}' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
+    const ac = await sfQuery(owner, `SELECT Id, Name FROM Account WHERE Name = '${q}' LIMIT 1`).catch(() => null);
+    return { leadId: ld && ld.records && ld.records[0] ? ld.records[0].Id : "", accountId: ac && ac.records && ac.records[0] ? ac.records[0].Id : "" };
+  } catch { return {}; }
+}
 async function mcCalMatchOne(r, members, owner, ctx = {}) {
   const st = new Date(r.started_at).getTime(); if (!st) return null;
   const en = st + Math.max(10 * 60, Number(r.duration_sec) || 30 * 60) * 1000;   // 録画の終わり（長さが無ければ30分）
@@ -26910,24 +26938,18 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
       const d = Math.abs(es - st); const overlap = Math.min(ee, en) - Math.max(es, st);
       if (d > 20 * 60000 && overlap < 5 * 60000) continue;
       const t = String(ev.title || "");
-      const bracket = /【[^】]+】/.test(t);   // 【】が付いているのが商談（2026-11-14 田中さん）
-      if (!bracket && /休憩|ランチ|移動|ブロック|作業|朝会|夕会|MTG枠|社内/.test(t)) continue;
-      const score = (bracket ? 0 : 60 * 60000) + Math.min(d, 60 * 60000) + (ev.url && /zoom|meet|teams/i.test(ev.url) ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
+      // 商談の予定の形（【新/ヒ】【新/再提案】、「会社：人様」）だけを使う（2026-11-14 田中さん「【】の予定よりは…」）
+      if (!mcIsDealTitle(t)) continue;
+      const bracket = true;
+      const score = Math.min(d, 60 * 60000) + (overlap > 0 ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
       if (!best || score < best.score) best = { score, ev, m, bracket };
     }
     if (best && best.bracket && first.includes(m) && best.score < 10 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 2, reason: `録画の時間にカレンダーの予定が見つかりませんでした（見たカレンダー：${tried || "なし"}）`, at: Date.now() }; }
-  const title = best.ev.title || ""; const company = companyFromTitle(title);
-  let sf = {};
-  try {
-    const q = String(company || "").replace(/'/g, "\\'"); if (q && q !== "(無題)") {
-      const ld = await sfQuery(owner, `SELECT Id, Company FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company = '${q}' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
-      const ac = await sfQuery(owner, `SELECT Id, Name FROM Account WHERE Name = '${q}' LIMIT 1`).catch(() => null);
-      sf = { leadId: ld && ld.records && ld.records[0] ? ld.records[0].Id : "", accountId: ac && ac.records && ac.records[0] ? ac.records[0].Id : "" };
-    }
-  } catch {}
-  return { v: 2, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
+  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 3, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（見たカレンダー：${tried || "なし"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
+  const title = best.ev.title || ""; const company = mcCoFromTitle(title);
+  const sf = await mcSfFor(company, owner);
+  return { v: 3, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
 }
 let _mcCalRunning = false;
 async function mcCalMatchRun(owner) {
@@ -27118,6 +27140,50 @@ app.post("/api/mochica/miitel/meetings/:id/summary", async (req, res) => {
     await mcMiitelSave({ id, payload: { mt_review: review } });
     res.json(review);
   } catch (e) { console.error("[mochica summary]", e.message); res.status(502).json({ error: e.message }); }
+});
+// 商談の題名を、Google カレンダーの予定から選ぶ・自分で直す（kinbot の商談履歴と同じ）（2026-11-14 田中さん）
+//   候補：その日の、参加者の kinbot の人・主催の苗字の人・MOCHICA のメンバー・開いている本人のカレンダーの予定。商談の形の予定と、録画の時間に近いものを上に
+app.get("/api/mochica/miitel/meetings/:id/cal-cands", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const row = await mcMiitelGet(String(req.params.id || "")); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const st = row.started_at ? new Date(row.started_at).getTime() : Date.now();
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : new Date(st + 9 * 3600000).toISOString().slice(0, 10);
+    const d0 = Date.parse(day + "T00:00:00+09:00"), d1 = d0 + 86400000;
+    const repOf = await mcRepIndex().catch(() => null);
+    const reps = (repOf && repOf(row.participants)) || [];
+    const ms = [...reps, ...(await mcMembers([row.host || row.title]).catch(() => []))];
+    const me = String(req.user).toLowerCase(); if (!ms.some((m) => m.email === me)) ms.push({ email: me, name: (await listUsers().catch(() => [])).find((u) => String(u.email || "").toLowerCase() === me)?.name || me });
+    const seen = new Set(); const people = ms.filter((m) => m && m.email && !seen.has(m.email) && seen.add(m.email)).slice(0, 14);
+    const s0 = await getSettings().catch(() => ({})); const reader = String(s0.apoScanOwner || s0.apoInviteOwner || req.user || "").toLowerCase();
+    // 60日より前の日は、本人のつないだカレンダーから直接その日を読む
+    const old = d0 < Date.now() - 59 * 86400000;
+    const out = []; const seenEv = new Set();
+    for (const m of people) {
+      let evs = [];
+      if (old) { evs = await listCalendarEvents(m.email, "primary", { timeMin: new Date(d0).toISOString(), timeMax: new Date(d1).toISOString() }).catch(() => null) || await listCalendarEvents(reader, m.email, { timeMin: new Date(d0).toISOString(), timeMax: new Date(d1).toISOString() }).catch(() => []); }
+      else evs = await mcCalEvents(m.email, reader);
+      for (const ev of evs || []) {
+        if (ev.allDay || !ev.start) continue; const es = new Date(ev.start).getTime(); if (es < d0 || es >= d1) continue;
+        const k = (ev.title || "") + "|" + ev.start; if (seenEv.has(k)) continue; seenEv.add(k);
+        out.push({ title: ev.title || "", start: ev.start, end: ev.end || null, eventId: ev.id || "", owner: m.email, ownerName: m.name, deal: mcIsDealTitle(ev.title), near: Math.round(Math.abs(es - st) / 60000) });
+      }
+    }
+    out.sort((a, b) => (b.deal - a.deal) || (a.near - b.near));
+    res.json({ ok: true, date: day, people: people.map((p) => p.name), events: out.slice(0, 60) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/miitel/meetings/:id/cal", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {}; const title = String(b.title || "").trim().slice(0, 200);
+    if (!title) return res.status(400).json({ error: "題名が空です" });
+    const owner = await pickSfUser(req.user, req).catch(() => req.user);
+    const company = String(b.company || "").trim().slice(0, 120) || mcCoFromTitle(title);
+    const prev = (row.payload && row.payload.mt_cal) || {};
+    const cal = { v: 3, manual: true, title, start: b.start || prev.start || null, owner: b.owner || prev.owner || "", ownerName: b.ownerName || prev.ownerName || "", eventId: b.eventId || "", company, sf: await mcSfFor(company, owner), by: req.user, at: Date.now() };
+    await mcMiitelSave({ id, payload: { mt_cal: cal } });
+    res.json({ ok: true, cal });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/miitel/meetings/:id", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcMiitelGet(req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, item: r }); }
@@ -31156,7 +31222,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14q kinbot for MOCHICA の商談：カレンダーは録画の時間に重なる予定を見て、【】の付いた予定（商談）を一番にし、そのタイトルを商談の題名にする。参加者の kinbot の人のカレンダーを先に見る。本人が Google 未連携でも、代表者の連携から読む。前の決め方のものも1回やり直す（v=2）。担当の中に会社のカードを足した（担当→会社→商談）。";
+const BUILD_TAG = "2026-11-14r kinbot for MOCHICA の商談：自動で使う予定は【新/ヒ】【新/再提案】と「○○株式会社：○○様」「株式会社○○：○○様」の形だけにした（v=3 でやり直し）。会社名は「_」区切りや「会社：人様」も読む。商談名は直して Enter で保存、横のカレンダーのボタンからその日の予定を選べる（kinbot と同じ）。手で決めたものは自動で上書きしない。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
