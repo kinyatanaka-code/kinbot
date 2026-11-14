@@ -27063,6 +27063,16 @@ app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
     res.json({ ok: true, rep: u ? { email, name: u.name || email } : null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 活動記録の「商談から読み取る」：MiiTel の会議の要約・文字起こしから、活動種別・次回アクション種別・日を読む（kinbot の field-suggest と同じ考え方）
+app.post("/api/mochica/sf/task-suggest", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {}; const row = await mcMiitelGet(String(b.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    const p = row.payload || {}; const fields = (Array.isArray(b.fields) ? b.fields : []).filter((f) => f && f.api).slice(0, 12);
+    const m = { summary: (p.mt_review && p.mt_review.summary) || "", transcript: mcTranscriptText(p).slice(0, 40000), created_at: row.started_at || row.received_at };
+    const values = await extractSfTaskValues(m, fields);
+    res.json({ ok: true, values });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
@@ -31276,7 +31286,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14s kinbot for MOCHICA の商談：担当を選んで直せる（kinbot のアカウント、MOCHICA が上）。SF 連携を kinbot と同じ形に：上で SF の商談を探して結びつける（解除も）、下は「活動記録」（件名・活動日・活動種別・説明＝要約から、SF の活動として書く）と「ステージ・項目更新」（項目は縦に1列）。";
+const BUILD_TAG = "2026-11-14t kinbot for MOCHICA の活動記録を kinbot の案件画面と同じ仕様に（活動種別・次回アクション種別・次回アクション日・説明、商談から読み取る、活動を記録＝商談とネクストアクションに分ける、過去の活動の完了チェック・編集・削除）。kinbot の活動の API は、SF をつないでいない人は代理アカウントで動くようにした（記録した人を説明の頭に残す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -32761,7 +32771,8 @@ app.get("/api/salesforce/opportunity-layout", async (req, res) => {
 // Task（活動）の項目定義を返す（活動記録フォームを実項目ベースで作るため）
 app.get("/api/salesforce/task-describe", async (req, res) => {
   try {
-    const desc = await describeTask(req.user);
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
+    const desc = await describeTask(sfU);
     const fields = (desc.fields || []).map(f => ({
       name: f.name, label: f.label, type: f.type,
       updateable: f.updateable, createable: f.createable, custom: f.custom,
@@ -32798,6 +32809,7 @@ async function taskFieldNames(owner) {
 
 app.post("/api/salesforce/task", async (req, res) => {
   try {
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
     const { opportunityId, fields, subject, type, description, status, activityDate } = req.body || {};
     if (!opportunityId) return res.status(400).json({ error: "商談IDが必要です" });
     const data = { WhatId: opportunityId };
@@ -32808,13 +32820,15 @@ app.post("/api/salesforce/task", async (req, res) => {
     if (description !== undefined && data.Description === undefined) data.Description = description;
     if (status && data.Status === undefined) data.Status = status;
     if (activityDate && data.ActivityDate === undefined) data.ActivityDate = activityDate;
+    // 代理アカウントで書くときは、だれが記録したかを説明の頭に残す（2026-11-14）
+    { const by = await sfByName(req, sfU).catch(() => ""); if (by && typeof data.Description === "string" && !data.Description.startsWith("記録した人")) data.Description = `記録した人：${by}（kinbot から代理で記録）\n${data.Description}`; }
     // 既定値
     if (!data.Subject) data.Subject = "[kinbot] 活動記録";
     // 次回アクションが入っている活動は「未着手」で作る。
     // そうしないと、やることが残っているのに最初から完了扱いになり、
     // 過去の活動のチェックが意味を持たなくなる。
     if (!data.Status) {
-      const fn = await taskFieldNames(req.user).catch(() => ({}));
+      const fn = await taskFieldNames(sfU).catch(() => ({}));
       const hasNext =
         (fn.nextKind && data[fn.nextKind]) || (fn.nextDate && data[fn.nextDate]);
       const list = fn.statusPicklist || [];
@@ -32833,7 +32847,7 @@ app.post("/api/salesforce/task", async (req, res) => {
     // 活動種別が「商談」で、次回アクション（種別・日）が入っているときは、2つに分けて記録する：
     //   ・商談の記録：活動種別（商談）と説明だけ。次回アクションは付けない。
     //   ・ネクストアクション：次回アクション種別・日を、別のネクストアクションの活動として記録。
-    const fn = await taskFieldNames(req.user).catch(() => ({}));
+    const fn = await taskFieldNames(sfU).catch(() => ({}));
     const 活動種別値 = fn.actKind ? String(data[fn.actKind] || "") : "";
     const 次回種別 = fn.nextKind ? data[fn.nextKind] : "";
     const 次回日 = fn.nextDate ? data[fn.nextDate] : "";
@@ -32847,9 +32861,9 @@ app.post("/api/salesforce/task", async (req, res) => {
       shodan.Subject = shodan.Subject || "[kinbot] 商談";
       const list = (fn.statusPicklist || []);
       shodan.Status = list.find((v) => /^(完了|済|Completed|Closed)/i.test(String(v).trim())) || "完了";
-      const t1 = await createTask(req.user, shodan);
+      const t1 = await createTask(sfU, shodan);
       const t1id = t1 && (t1.id || t1.Id);
-      if (t1id) { try { await updateTask(req.user, t1id, shodan); } catch {} }
+      if (t1id) { try { await updateTask(sfU, t1id, shodan); } catch {} }
 
       // (2) ネクストアクションの記録（活動種別＝ネクストアクション・次回アクション種別/日・未着手で作る）
       const na = { WhatId: opportunityId, Subject: "[kinbot] ネクストアクション" };
@@ -32859,18 +32873,18 @@ app.post("/api/salesforce/task", async (req, res) => {
       na.ActivityDate = 次回日 || data.ActivityDate;
       na.Status = list.find((v) => /^(未着手|未完了|未対応|未実施|オープン|Not Started|Open)/i.test(String(v).trim())) ||
                   list.find((v) => /^(未|Not|Open)/i.test(String(v).trim())) || "未着手";
-      const t2 = await createTask(req.user, na);
+      const t2 = await createTask(sfU, na);
       const t2id = t2 && (t2.id || t2.Id);
-      if (t2id) { try { await updateTask(req.user, t2id, na); } catch {} }
+      if (t2id) { try { await updateTask(sfU, t2id, na); } catch {} }
 
       return res.json({ ok: true, task: t1, nextAction: t2, split: true });
     }
 
-    const task = await createTask(req.user, data); // 存在しない項目は自動で外して再送
+    const task = await createTask(sfU, data); // 存在しない項目は自動で外して再送
     // 作成時に入らなかった項目（活動種別などのカスタム項目）を、後追いのupdateで確実に反映する
     const taskId = task && (task.id || task.Id);
     if (taskId) {
-      try { await updateTask(req.user, taskId, data); }
+      try { await updateTask(sfU, taskId, data); }
       catch (e) { console.warn("[sf task] 後追いupdate失敗", e.message); }
     }
     res.json({ ok: true, task });
@@ -33237,7 +33251,8 @@ async function recordSfStats(user, { filled, activityCreated }) {
 // 活動（Task）を更新
 app.patch("/api/salesforce/task/:id", async (req, res) => {
   try {
-    await updateTask(req.user, req.params.id, req.body || {});
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
+    await updateTask(sfU, req.params.id, req.body || {});
     res.json({ ok: true });
   } catch (e) { sfErrorResponse(res, e); }
 });
@@ -33245,7 +33260,8 @@ app.patch("/api/salesforce/task/:id", async (req, res) => {
 // 活動（Task）を削除
 app.delete("/api/salesforce/task/:id", async (req, res) => {
   try {
-    await deleteTask(req.user, req.params.id);
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
+    await deleteTask(sfU, req.params.id);
     res.json({ ok: true });
   } catch (e) { sfErrorResponse(res, e); }
 });
@@ -33260,14 +33276,15 @@ app.get("/api/salesforce/task-field-names", async (req, res) => {
 
 app.get("/api/salesforce/tasks", async (req, res) => {
   try {
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
     const oppId = String(req.query.opportunityId || "").replace(/[^a-zA-Z0-9]/g, "");
     if (!oppId) return res.status(400).json({ error: "opportunityIdが必要です" });
-    const fn = await taskFieldNames(req.user);
+    const fn = await taskFieldNames(sfU);
     // 次回アクションの種別・日も一緒に取る（過去の活動で別々に見せるため）
     const extra = [fn.actKind, fn.nextKind, fn.nextDate].filter(Boolean).join(", ");
     const soql = `SELECT Id, Subject, Status, IsClosed, ActivityDate, Description, CreatedDate, Owner.Name` +
       `${extra ? ", " + extra : ""} FROM Task WHERE WhatId = '${oppId}' ORDER BY CreatedDate DESC LIMIT 30`;
-    const data = await sfQuery(req.user, soql);
+    const data = await sfQuery(sfU, soql);
     const tasks = (data.records || []).map((t) => ({
       id: t.Id, subject: t.Subject, status: t.Status, isClosed: !!t.IsClosed,
       activityDate: t.ActivityDate, description: t.Description,
@@ -33334,9 +33351,10 @@ app.post("/api/salesforce/next-action", async (req, res) => {
 // 活動のチェックを入れる／外す（Salesforceの状況を完了・未着手に切り替える）
 app.put("/api/salesforce/task/:id/status", async (req, res) => {
   try {
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
     const id = String(req.params.id || "").replace(/[^a-zA-Z0-9]/g, "");
     if (!id) return res.status(400).json({ error: "活動IDが必要です" });
-    const fn = await taskFieldNames(req.user);
+    const fn = await taskFieldNames(sfU);
     const done = req.body?.done !== false;
     // 組織の選択肢から、完了／未着手にあたる値を選ぶ
     // 状況の選択肢は組織ごとに違う（完了／未着手／未完了／未対応／Completed など）。
@@ -33351,8 +33369,8 @@ app.put("/api/salesforce/task/:id/status", async (req, res) => {
       list.find((v) => /完了|Completed/i.test(String(v)) && !/^未/.test(String(v).trim())) ||
       "完了";
     const value = done ? findDone() : findOpen();
-    await updateTask(req.user, id, { Status: value });
-    console.log(`[sf-task] ${id} の状況を「${value}」にしました by ${req.user}`);
+    await updateTask(sfU, id, { Status: value });
+    console.log(`[sf-task] ${id} の状況を「${value}」にしました by ${sfU}`);
     res.json({ ok: true, status: value });
   } catch (e) { sfErrorResponse(res, e); }
 });

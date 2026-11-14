@@ -315,20 +315,74 @@
     root.querySelector("[data-sfun]").addEventListener("click", () => { if (confirm("この商談との結びつきを外しますか？（SF の中身は変わりません）")) link(""); });
     const paneEl = root.querySelector("[data-sfpane]");
     root.querySelectorAll("[data-sfsub]").forEach((b) => b.addEventListener("click", () => { mtSfLoad.sub = b.dataset.sfsub; root.querySelectorAll("[data-sfsub]").forEach((x) => x.classList.toggle("on", x === b)); showSub(); }));
-    // 活動記録：件名・日付・説明（要約から入れられる）を、結びつけた商談の活動として SF に書く
-    const actDraw = () => {
-      const dd = ctx.at ? new Date(new Date(ctx.at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    // 活動記録：kinbot の案件画面と同じ仕様（活動種別・次回アクション種別・次回アクション日・説明、商談から読み取る、過去の活動）（2026-11-14 田中さん）
+    const actDraw = async () => {
       const rv = (mtReview._last && mtReview._last.id === vid ? mtReview._last.rv : null) || ctx.review || null; const sumTxt = rv && rv.summary ? (rv.summary.formatted && !rv.summary.key_points ? rv.summary.formatted : mtSumText(rv.summary)) : "";
-      paneEl.innerHTML = `<div class="mt-sf-vert"><label class="mt-sf-f"><span>件名</span><input type="text" data-act="subject" value="${esc("【商談】" + (ctx.title || ""))}"></label>
-        <label class="mt-sf-f"><span>活動日</span><input type="date" data-act="date" value="${dd}"></label>
-        <label class="mt-sf-f"><span>活動種別</span><input type="text" data-act="kind" value="商談"></label>
-        <label class="mt-sf-f"><span>説明</span><textarea data-act="description" rows="12" placeholder="要約タブで要約を作ると、ここに入れられます">${esc(sumTxt)}</textarea></label></div>
-        <div class="mt-sf-act">${sumTxt ? "" : '<span class="mc-note">要約がまだありません。「要約」タブで作ると、説明に入ります。</span>'}<button type="button" class="mt-btn" data-actsave>活動記録として SF に書く</button><span class="mc-note" data-actmsg></span></div>`;
-      paneEl.querySelector("[data-actsave]").addEventListener("click", async (e) => { const b = e.target; const v = {}; paneEl.querySelectorAll("[data-act]").forEach((el) => { v[el.dataset.act] = el.value; });
-        if (!v.description.trim() && !confirm("説明が空です。このまま書きますか？")) return;
-        if (!confirm(`「${d.opp.Name}」に活動記録を書きますか？`)) return; b.disabled = true;
-        try { await api("/api/mochica/sf/activity", { method: "POST", body: JSON.stringify({ ...v, oppId: d.opp.Id, vid }) }); paneEl.querySelector("[data-actmsg]").textContent = "SF に書きました。"; }
-        catch (err) { paneEl.querySelector("[data-actmsg]").textContent = "書けませんでした：" + err.message; } finally { b.disabled = false; } });
+      const ICO1 = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><circle cx="8" cy="8" r="7" fill="#0d5b47"/><path d="M8 4v4l3 2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>';
+      const ICO2 = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="vertical-align:-2px;margin-right:4px"><rect x="2" y="3" width="12" height="11" rx="1.5" fill="#0d5b47"/><rect x="4" y="6" width="8" height="1.5" rx=".75" fill="#fff"/><rect x="4" y="9" width="6" height="1.5" rx=".75" fill="#fff"/></svg>';
+      paneEl.innerHTML = `<div class="sf-section-box"><div class="sf-section-title">${ICO1}活動を記録</div><div data-tf-box><div class="empty-state">項目を読み込み中…</div></div>
+          <div class="sf-autofill-row"><button type="button" class="btn btn-ghost" data-tread>商談から読み取る</button><span class="sf-autofill-note" data-tnote>この商談の要約・文字起こしから、活動種別・次回アクション・説明を埋めます</span></div>
+          <div class="sf-field" style="margin-top:8px"><button class="btn sf-btn-secondary" data-tsave>活動を記録</button></div><div data-tmsg></div></div>
+        <div class="sf-section-box"><div class="sf-section-title">${ICO2}過去の活動</div><div data-thist><div class="sf-ss-note">読み込み中…</div></div></div>`;
+      const fbox = paneEl.querySelector("[data-tf-box]");
+      let fields = [];
+      try { fields = (await api("/api/salesforce/task-describe")).fields || []; } catch (e) { fbox.innerHTML = `<div class="sf-ss-note">SF の活動の項目を読めませんでした：${esc(e.message)}</div>`; }
+      const normL = (x) => String(x || "").replace(/[\s　()（）_]/g, "").toLowerCase();
+      const byL = {}; for (const f of fields) if (f.label) byL[normL(f.label)] = f;
+      const picked = []; for (const w of ["活動種別", "次回アクション種別", "次回アクション日", "説明", "コメント"]) { const f = byL[normL(w)]; if (f && !picked.includes(f)) picked.push(f); }
+      const isDescF = (f) => /説明|コメント|description/i.test(f.label || f.name);
+      const fieldHtml = (f) => { const label = esc(f.label || f.name) + (f.required ? ' <span class="sf-req">＊必須</span>' : "");
+        if (f.type === "picklist" && f.picklistValues && f.picklistValues.length) { let pv = f.picklistValues;
+          if (/活動種別/.test(f.label || "")) { const allow = ["電話", "メール", "商談", "再商談", "ネクストアクション"]; const ord = (o) => { const i = allow.indexOf(o.label || o.value); return i === -1 ? allow.indexOf(o.value) : i; }; pv = pv.filter((o) => ord(o) !== -1).sort((x, y) => ord(x) - ord(y)); }
+          return `<div class="sf-field"><label>${label}</label><select class="sf-select" data-sf-task-field="${esc(f.name)}"><option value=""></option>${pv.map((o) => `<option value="${esc(o.value)}">${esc(o.label || o.value)}</option>`).join("")}</select></div>`; }
+        if (f.type === "textarea" || isDescF(f)) return `<div class="sf-field"><label>${label}</label><textarea class="sf-textarea" data-sf-task-field="${esc(f.name)}" rows="8">${esc(isDescF(f) ? sumTxt : "")}</textarea></div>`;
+        if (f.type === "date") return `<div class="sf-field"><label>${label}</label><input type="date" class="sf-input" data-sf-task-field="${esc(f.name)}"></div>`;
+        return `<div class="sf-field"><label>${label}</label><input type="text" class="sf-input" data-sf-task-field="${esc(f.name)}"></div>`; };
+      if (fields.length) fbox.innerHTML = picked.length ? picked.map(fieldHtml).join("") : `<div class="sf-field"><label>件名</label><input type="text" class="sf-input" data-sf-task-field="Subject" value="${esc("【商談】" + (ctx.title || ""))}"></div><div class="sf-field"><label>説明</label><textarea class="sf-textarea" data-sf-task-field="Description" rows="8">${esc(sumTxt)}</textarea></div>`;
+      const inputs = () => [...paneEl.querySelectorAll("[data-sf-task-field]")];
+      const typeOf = (api) => (fields.find((f) => f.name === api) || {}).type || "";
+      // 商談から読み取る：説明は要約、ほかは AI で
+      paneEl.querySelector("[data-tread]").addEventListener("click", async (e) => { const btn = e.target; const note = paneEl.querySelector("[data-tnote]");
+        const ins = inputs(); const descEl = ins.find((el) => isDescF(fields.find((f) => f.name === el.dataset.sfTaskField) || { name: el.dataset.sfTaskField }));
+        if (descEl && sumTxt && !descEl.value.trim()) descEl.value = sumTxt;
+        const fl = ins.filter((el) => el !== descEl).map((el) => ({ api: el.dataset.sfTaskField, label: (el.closest(".sf-field")?.querySelector("label")?.textContent || "").trim(), type: el.tagName === "SELECT" ? "picklist" : el.type === "date" ? "date" : "string", options: el.tagName === "SELECT" ? [...el.options].map((o) => o.textContent).filter(Boolean) : [] }));
+        btn.disabled = true; btn.textContent = "読み取り中…"; note.textContent = "商談の内容を読み取っています…";
+        try { const r = await api("/api/mochica/sf/task-suggest", { method: "POST", body: JSON.stringify({ vid, fields: fl }) }); let n = 0;
+          for (const el of ins) { if (el === descEl) continue; const v = (r.values || {})[el.dataset.sfTaskField]; if (v == null || v === "") continue;
+            if (el.tagName === "SELECT") { const o = [...el.options].find((x) => x.value === v || x.textContent === v); if (o) { el.value = o.value; n++; } } else { el.value = v; n++; } }
+          const dEl = ins.find((el) => el.type === "date" && /次回アクション日/.test(el.closest(".sf-field")?.textContent || ""));
+          if (dEl && !dEl.value) { const t = new Date(Date.now() + 7 * 86400000 + 9 * 3600000); dEl.value = t.toISOString().slice(0, 10); n++; }
+          note.textContent = descEl && descEl.value.trim() ? `説明に要約を入れ、${n}項目を読み取りました。確かめてから記録してください。` : `${n}項目を読み取りました。要約がまだないので、説明は空です（「要約」タブで作れます）。`;
+        } catch (err) { note.textContent = "読み取れませんでした：" + err.message; } finally { btn.disabled = false; btn.textContent = "商談から読み取る"; } });
+      // 活動を記録：kinbot と同じ API（活動種別が「商談」で次回アクションがあれば、商談とネクストアクションの2つに分けて記録）
+      paneEl.querySelector("[data-tsave]").addEventListener("click", async (e) => { const btn = e.target; const msg = paneEl.querySelector("[data-tmsg]"); const fv = {};
+        for (const el of inputs()) { const api0 = el.dataset.sfTaskField; const v = String(el.value ?? "").trim(); if (v === "") continue; const t = typeOf(api0);
+          if (["double", "currency", "int", "percent"].includes(t)) { const n = Number(v.replace(/[,¥￥\s]/g, "")); if (!isNaN(n)) fv[api0] = n; } else fv[api0] = v; }
+        btn.disabled = true; btn.textContent = "記録中…";
+        try { await api("/api/salesforce/task", { method: "POST", body: JSON.stringify({ opportunityId: d.opp.Id, fields: fv }) }); msg.innerHTML = '<div style="color:#0d5b47;font-size:13px;padding:6px 2px;">活動を記録しました</div>'; loadHist(); }
+        catch (err) { msg.innerHTML = `<div style="color:#B4441F;font-size:13px;padding:6px 2px;">記録できませんでした：${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.textContent = "活動を記録"; } });
+      // 過去の活動：kinbot と同じ見え方（次回アクションはチェックで完了、編集・削除）
+      const hist = paneEl.querySelector("[data-thist]");
+      const loadHist = async () => { hist.innerHTML = '<div class="sf-ss-note">読み込み中…</div>';
+        let tasks = []; try { tasks = (await api(`/api/salesforce/tasks?opportunityId=${encodeURIComponent(d.opp.Id)}`)).tasks || []; } catch (e) { hist.innerHTML = `<div class="sf-ss-note">読めませんでした：${esc(e.message)}</div>`; return; }
+        if (!tasks.length) { hist.innerHTML = '<div class="sf-ss-note">まだ活動の記録がありません。</div>'; return; }
+        hist.innerHTML = tasks.map((t) => { const date = t.activityDate || (t.createdDate || "").slice(0, 10) || ""; const desc = (t.description || "").trim(); const short = desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
+          const nd = (t.nextDate || "").slice(0, 10); const late = nd && !t.isClosed && new Date(nd + "T23:59:59").getTime() < Date.now(); const hasNext = !!(t.nextKind || nd) && String(t.actKind || "") !== "商談";
+          return `<div class="sf-task-item" data-tid="${esc(t.id)}"><div class="sf-task-head"><span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span><span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}</span></div>
+            ${t.actKind ? `<div class="sf-task-row"><span class="sf-task-k">活動種別</span><span>${esc(t.actKind)}</span></div>` : ""}
+            ${hasNext ? `<label class="sf-task-row sf-task-nextrow${t.isClosed ? " sf-next-done" : ""}"><span class="sf-task-k">次回アクション</span><span class="sf-next-body"><input type="checkbox" class="sf-task-done-chk" ${t.isClosed ? "checked" : ""}><span class="sf-next-label">${t.nextKind ? esc(t.nextKind) : "（種別なし）"}</span>${nd ? `<span class="sf-task-next${late ? " sf-task-late" : ""}">${esc(nd)}</span>` : ""}<span class="sf-next-state">${t.isClosed ? "完了" : "未完了"}</span></span></label>` : ""}
+            ${short ? `<div class="sf-task-row"><span class="sf-task-k">説明</span><span class="sf-task-desc">${esc(short)}</span></div>` : ""}
+            <div class="sf-task-actions"><button type="button" class="btn btn-ghost sf-task-edit">編集</button><button type="button" class="btn btn-ghost sf-task-del">削除</button></div></div>`; }).join("");
+        hist.querySelectorAll(".sf-task-item").forEach((el) => { const t = tasks.find((x) => x.id === el.dataset.tid) || {};
+          const chk = el.querySelector(".sf-task-done-chk"); if (chk) chk.addEventListener("change", async () => { chk.disabled = true; try { await api(`/api/salesforce/task/${encodeURIComponent(t.id)}/status`, { method: "PUT", body: JSON.stringify({ done: chk.checked }) }); loadHist(); } catch (err) { alert("状況を変えられませんでした：" + err.message); chk.checked = !chk.checked; chk.disabled = false; } });
+          el.querySelector(".sf-task-edit").addEventListener("click", () => { if (el.querySelector(".sf-task-editbox")) return; const bx = document.createElement("div"); bx.className = "sf-task-editbox";
+            bx.innerHTML = `<div class="sf-field"><label>件名</label><input type="text" class="sf-input" data-tf="Subject" value="${esc(t.subject || "")}"></div><div class="sf-field"><label>期日</label><input type="date" class="sf-input" data-tf="ActivityDate" value="${esc((t.activityDate || "").slice(0, 10))}"></div><div class="sf-field"><label>状況</label><input type="text" class="sf-input" data-tf="Status" value="${esc(t.status || "")}"></div><div class="sf-field"><label>説明</label><textarea class="sf-textarea" data-tf="Description" rows="4">${esc(t.description || "")}</textarea></div><div class="sf-task-actions"><button type="button" class="btn sf-task-save">保存</button><button type="button" class="btn btn-ghost sf-task-cancel">キャンセル</button></div><div class="sf-ss-note sf-task-msg"></div>`;
+            el.appendChild(bx); bx.querySelector(".sf-task-cancel").addEventListener("click", () => bx.remove());
+            bx.querySelector(".sf-task-save").addEventListener("click", async () => { const f = {}; bx.querySelectorAll("[data-tf]").forEach((i) => { const v = (i.value || "").trim(); if (v !== "") f[i.dataset.tf] = v; });
+              try { await api(`/api/salesforce/task/${encodeURIComponent(t.id)}`, { method: "PATCH", body: JSON.stringify(f) }); loadHist(); } catch (err) { bx.querySelector(".sf-task-msg").textContent = "保存できませんでした：" + err.message; } }); });
+          el.querySelector(".sf-task-del").addEventListener("click", async () => { if (!confirm("この活動を削除しますか？（SF からも消えます）")) return; try { await api(`/api/salesforce/task/${encodeURIComponent(t.id)}`, { method: "DELETE" }); loadHist(); } catch (err) { alert("削除できませんでした：" + err.message); } }); });
+      };
+      loadHist();
     };
     const showSub = () => { if (mtSfLoad.sub === "act") actDraw(); else { box = paneEl; draw(); } };
     const cur = d.current || {}; const curKey = (String(d.opp.StageName || "").match(/^(\d{2})/) || [])[1] || "01";
