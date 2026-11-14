@@ -243,6 +243,58 @@
         bx.innerHTML = `<div class="ov-c-h">社内にあるこの会社の資料<span class="ov-files-note">Googleドライブから検索</span></div>` + (d.error ? `<div class="ov-muted">${esc(d.error)}</div>` : fs.length ? `<div class="ov-files">${fs.map((f) => `<a class="ov-file" href="${esc(f.link)}" target="_blank" rel="noopener"><span class="ov-file-kind ${f.kind === "スライド" ? "is-slide" : f.kind === "PDF" ? "is-pdf" : "is-doc"}">${esc(f.kind)}</span><span class="ov-file-name">${esc(f.name)}</span><span class="ov-file-meta">${esc(f.modified)}${f.owner ? " ・ " + esc(f.owner) : ""}</span></a>`).join("")}</div>` : '<div class="ov-muted">見つかりませんでした。社内共有されていない資料は出ません。</div>');
       } catch { if (bx) bx.innerHTML = '<div class="ov-c-h">社内にあるこの会社の資料</div><div class="ov-muted">探せませんでした。</div>'; } })();
   }
+  // ===== 御礼メール：kinbot の商談履歴と同じ（型・商談回数・資料URL → 本文と確認事項、Gmail の過去のやり取り、Gmail に下書き）（2026-11-14）=====
+  function mtThanks(id, tr, it, p) {
+    const box = $("mtMl"); if (!box) return;
+    const m0 = mtAll.find((x) => x.id === id) || {}; const rep = m0.rep || {}; const cal = p.mt_cal || {}; const saved = p.mt_thanks || mtThanks._last && mtThanks._last.id === id && mtThanks._last.d || null;
+    const title = (cal.title || it.title || "");
+    const person = (() => { const mm = String(title).replace(/【[^】]*】/g, " ").match(/([^\s　/／|｜:：・、,_]{1,12})\s*(?:様|さま|さん|殿)/); return mm ? mm[1] : ""; })();
+    const cands = [...new Set([cal.company, person, ...[...new Set(tr.map((u) => u.s).filter(Boolean))].filter((n) => n && !hostsOf(m0).some((h) => n.includes(String(h).split(/\s/)[0])))].filter(Boolean))].slice(0, 6);
+    const opt = (v, l, cur) => `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`;
+    box.innerHTML = `<div class="gmail-box"><div class="gmail-title">Gmail の過去のやり取りから返信を作る</div>
+        <div class="gm-searchrow"><input data-gq type="text" value="${esc(cands[0] || "")}" placeholder="会社名・担当者名・メールアドレスで検索"><button class="btn btn-ghost" data-gfetch>取得</button></div>
+        <div class="gm-chips">${cands.map((c) => `<button type="button" class="gm-chip" data-gchip="${esc(c)}">${esc(c)}</button>`).join("")}</div><span class="thanks-note" data-gnote></span><div data-gthreads></div>
+        <div class="gmail-to" data-gtowrap hidden><label class="thanks-field"><span>宛先</span><input data-gto type="email" placeholder="送信先メールアドレス"></label><button class="btn" data-gdraft>Gmail に下書きを保存</button><span class="thanks-note" data-gsnote></span></div></div>
+      <div class="pane-bar" style="flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px">
+        <label class="thanks-inline"><span>型</span><select data-ttype>${[["A", "A 初回・案件化"], ["B", "B 初回・再商談未設定"], ["C", "C 再商談・上申準備"], ["D", "D 受注後・キックオフ前"], ["E", "E 見送り・タイミング未達"], ["F", "F 資料送付・約束履行"]].map(([v, l]) => opt(v, l, saved && saved.meeting_type)).join("")}</select></label>
+        <label class="thanks-inline"><span>商談回数</span><select data-tcount>${["初回", "2回目", "3回目以降"].map((v) => opt(v, v, saved && saved.meeting_count)).join("")}</select></label>
+        <button class="btn" data-tgen>御礼メールを生成</button><span class="thanks-note" data-tnote></span></div>
+      <label class="thanks-field"><span>資料URL（任意）</span><textarea data-tdocs rows="2" placeholder="送る資料の URL。空欄なら、この会社に発行済みの資料があれば自動で入ります">${esc((saved && saved.docUrls) || "")}</textarea></label>
+      <div class="thanks-wrap"><label class="thanks-field"><span>件名</span><input data-tsubj type="text" value="${esc(saved && saved.subject || (cal.company ? `本日の御礼（${cal.company}様）` : "本日の御礼"))}"></label>
+        <div class="thanks-bodyhead"><span>本文</span><button class="btn ghost copy-mini" data-tcopy>本文をコピー</button></div>
+        <textarea data-tbody rows="16" placeholder="「御礼メールを生成」を押すと、型と商談回数に合わせて作ります。最初は AI が型を決めます。">${esc((saved && saved.mail_body) || "")}</textarea>
+        <div class="thanks-warn" data-twarn ${saved && saved.warnings ? "" : "hidden"}><div class="thanks-warn-h">送る前の確認事項</div><div class="thanks-warn-b" data-twarnb style="white-space:pre-wrap">${esc((saved && saved.warnings) || "")}</div></div></div>`;
+    const q = (k) => box.querySelector(`[data-${k}]`);
+    let auto = !saved; q("ttype").addEventListener("change", () => { auto = false; }); q("tcount").addEventListener("change", () => { auto = false; });
+    q("tgen").addEventListener("click", async (e) => { const b = e.target; b.disabled = true; b.textContent = "生成中…"; q("tnote").textContent = "";
+      try { const body = { tr, repEmail: rep.email || "", repName: rep.name || "", docUrls: q("tdocs").value || "" }; if (!auto) { body.meetingType = q("ttype").value; body.meetingCount = q("tcount").value; }
+        const d = await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/thanks`, { method: "POST", body: JSON.stringify(body) });
+        q("tbody").value = d.mail_body || ""; if (d.meeting_type) q("ttype").value = d.meeting_type; if (d.meeting_count) q("tcount").value = d.meeting_count; auto = false;
+        if (!q("tdocs").value && d.docUrls) q("tdocs").value = d.docUrls;
+        q("twarnb").textContent = d.warnings || ""; q("twarn").hidden = !(d.warnings && d.warnings.trim());
+        mtThanks._last = { id, d: { ...d, subject: q("tsubj").value } }; q("tnote").textContent = "作りました。送る前に、下の確認事項を必ず見てください。";
+      } catch (err) { q("tnote").textContent = "作れませんでした：" + err.message; } finally { b.disabled = false; b.textContent = "御礼メールを生成"; } });
+    q("tcopy").addEventListener("click", async (e) => { try { await navigator.clipboard.writeText(q("tbody").value); e.target.textContent = "コピーしました"; setTimeout(() => (e.target.textContent = "本文をコピー"), 1500); } catch {} });
+    // Gmail：過去のやり取りを探して、返信として下書きを作る
+    let reply = null;
+    const fetchTh = async () => { const qq = q("gq").value.trim(); if (!qq) { q("gnote").textContent = "会社名や担当者名を入れてください。"; return; }
+      const b = q("gfetch"); b.disabled = true; b.textContent = "取得中…"; q("gthreads").innerHTML = ""; q("gnote").textContent = "";
+      try { const d = await api(`/api/mochica/gmail-threads?q=${encodeURIComponent(qq)}`);
+        if (!d.connected) { q("gnote").textContent = "Google と連携していません。設定 → 外部連携 → Google連携 でつないでください。"; q("gtowrap").hidden = false; return; }
+        if (d.needScope) { q("gnote").textContent = "Gmail を読む許可がありません。設定 → 外部連携 → Google連携 をやり直してください。"; return; }
+        const th = d.threads || []; q("gtowrap").hidden = false;
+        if (!th.length) { q("gnote").textContent = "やり取りが見つかりませんでした。宛先を入れて、新しいメールとして下書きにできます。"; return; }
+        q("gthreads").innerHTML = th.map((t, i) => `<button type="button" class="gm-thread mt-gmt" data-gi="${i}"><div class="gm-thread-top"><span class="gm-from">${esc(t.from || "")}</span><span class="gm-date">${esc(String(t.date || "").slice(0, 25))}</span></div><b>${esc(t.subject || "（件名なし）")}</b><span>${esc(String(t.snippet || "").slice(0, 120))}</span></button>`).join("");
+        q("gthreads").querySelectorAll("[data-gi]").forEach((el) => el.addEventListener("click", () => { const t = th[Number(el.dataset.gi)]; reply = { threadId: t.threadId };   // 同じやり取りの中に下書きを置く
+          q("gthreads").querySelectorAll("[data-gi]").forEach((x) => x.classList.toggle("on", x === el)); q("gto").value = (String(t.返信先 || "").match(/[\w.+-]+@[\w.-]+/) || [""])[0]; if (t.subject) q("tsubj").value = /^re:/i.test(t.subject) ? t.subject : "Re: " + t.subject; q("gsnote").textContent = "このやり取りへの返信として下書きにします。"; }));
+      } catch (err) { q("gnote").textContent = "取得できませんでした：" + err.message; } finally { b.disabled = false; b.textContent = "取得"; } };
+    q("gfetch").addEventListener("click", fetchTh); q("gq").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) fetchTh(); });
+    box.querySelectorAll("[data-gchip]").forEach((c) => c.addEventListener("click", () => { q("gq").value = c.dataset.gchip; fetchTh(); }));
+    q("gdraft").addEventListener("click", async (e) => { const to = q("gto").value.trim(), bodyT = q("tbody").value.trim(); if (!to || !bodyT) { q("gsnote").textContent = "宛先と本文を入れてください。"; return; }
+      const b = e.target; b.disabled = true;
+      try { await api("/api/gmail/draft", { method: "POST", body: JSON.stringify({ to, subject: q("tsubj").value, body: bodyT, ...(reply || {}) }) }); q("gsnote").textContent = "Gmail に下書きを保存しました。Gmail で中身を確かめてから送ってください。"; }
+      catch (err) { q("gsnote").textContent = "保存できませんでした：" + err.message; } finally { b.disabled = false; } });
+  }
   async function mtOpen(id) {
     mtSel = id; if (mtHost != null) mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
     let it; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}`)).item; } catch (e) { main.innerHTML = `<div class="mt-empty">読めませんでした：${esc(e.message)}</div>`; return; }
@@ -278,7 +330,7 @@
         : '<div class="mt-wait">文字起こしは、まだ kinbot に入っていません。MiiTel の Webhook で文字起こしごと届いた会議は、ここに話した人つきで出ます。録画と文字起こしは上の「MiiTel で開く」から見られます。</div>';
       if (k === "mn") return minutesHtml ? minutesHtml : minutes ? `<div class="mt-doc">${esc(minutes)}</div>` : '<div class="mt-wait">MiiTel の議事録は、まだ kinbot に入っていません（MiiTel の Webhook の通知ルールに「議事録作成完了時」を足すと届きます）。</div>';
       if (k === "sm" || k === "an") return tr.length >= 6 ? '<div id="mtRv"><div class="mt-wait">読み込んでいます…</div></div>' : '<div class="mt-wait">文字起こしが入った会議から、kinbot が要約を作ります。この会議にはまだ文字起こしがありません。</div>';
-      if (k === "ml") return '<div class="mt-wait">御礼メールの下書きは、文字起こしが入った会議から作ります（準備中）。</div>';
+      if (k === "ml") return tr.length ? '<div id="mtMl"></div>' : '<div class="mt-wait">文字起こしが入った会議から、御礼メールを作れます。この会議にはまだ文字起こしがありません。</div>';
       return '<div id="mtSf" class="mt-sf"><div class="mt-wait">SF の商談を読み込んでいます…</div></div>';
     };
     const cur = mtOpen.tab || "tr";
@@ -307,8 +359,9 @@
         if (pg && pg.at > t0 && pg.videoId === id) { if (pg.error) { clearInterval(tick); gb.disabled = false; gb.textContent = "もう一度取り込む"; if (sEl) sEl.textContent = "取り込めませんでした：" + pg.error; }
           else if (pg.done) { clearInterval(tick); if (sEl) sEl.textContent = "取り込みました。開き直しています…"; setTimeout(() => mtOpen(id), 3000); }
           else if (sEl) sEl.textContent = `${pg.i}/${pg.total}`; } } catch {} }, 3000); });
-    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id, { title: (cal && cal.title) || it.title || "", at: it.started_at, review: p.mt_review, co: (cal && cal.company) || "" }); if (b.dataset.mtab === "sm" || b.dataset.mtab === "an") mtReview(id, tr, b.dataset.mtab, p.mt_review); }));
+    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id, { title: (cal && cal.title) || it.title || "", at: it.started_at, review: p.mt_review, co: (cal && cal.company) || "" }); if (b.dataset.mtab === "sm" || b.dataset.mtab === "an") mtReview(id, tr, b.dataset.mtab, p.mt_review); if (b.dataset.mtab === "ml") mtThanks(id, tr, it, p); }));
     if (cur === "sm" || cur === "an") mtReview(id, tr, cur, p.mt_review);
+    if (cur === "ml") mtThanks(id, tr, it, p);
     if (cur === "sf") mtSfLoad(id, { title: (cal && cal.title) || it.title || "", at: it.started_at, review: p.mt_review, co: (cal && cal.company) || "" });
   }
   // ブラウザの自動入力（メールアドレスなど）が探す欄に入って「0件」になるのを防ぐ（2026-11-12）

@@ -27293,6 +27293,42 @@ app.post("/api/mochica/miitel/meetings/:id/cal", async (req, res) => {
     res.json({ ok: true, cal });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== 御礼メール：kinbot の商談履歴と同じ作り（型・商談回数・資料URL → 本文と確認事項）（2026-11-14 田中さん「DOC とまったく同じことができるように」）=====
+//   担当（画面で選んだ人、なければ参加者から決めた人）の名前・登録リンク・御礼メールのプロンプトを使う
+app.post("/api/mochica/miitel/meetings/:id/thanks", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const tr = (Array.isArray(b.tr) ? b.tr : []).slice(0, 4000).map((u) => `${String((u && u.s) || "").slice(0, 40)}: ${String((u && u.t) || "").slice(0, 600)}`).filter((x) => x.length > 2);
+    const transcript = tr.join("\n"); if (!transcript.trim()) return res.status(400).json({ error: "この商談には文字起こしがありません" });
+    const repEmail = String(b.repEmail || "").toLowerCase() || String(req.user).toLowerCase();
+    const s = await getUserSettings(repEmail).catch(() => ({}));
+    const mine = repEmail === String(req.user).toLowerCase() ? s : await getUserSettings(req.user).catch(() => ({}));
+    const staffName = String(b.repName || "").trim() || (await displayNameOf(repEmail).catch(() => "")) || "";
+    const zoomUrl = String(s.myZoomLink || "").trim(); const zoomId = zoomUrl ? (zoomMeetingId(zoomUrl) || "") : "";
+    const company = String((row.payload && row.payload.mt_cal && row.payload.mt_cal.company) || "").trim();
+    let docUrls = String(b.docUrls || "").trim();
+    if (!docUrls && company) { try { const dl = await docLinksForCompany(company, 5); const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, ""); docUrls = dl.map((d) => `${fixMojibake(d.doc_name)}：${base}/d/${d.slug}`).join("\n"); } catch {} }
+    const prompt = typeof s.thanksPrompt === "string" && s.thanksPrompt.trim() ? s.thanksPrompt : (typeof mine.thanksPrompt === "string" ? mine.thanksPrompt : "");
+    const r = await generateThanksMail({ transcript, meetingType: String(b.meetingType || "").trim(), meetingCount: String(b.meetingCount || "").trim(), staffName, zoomUrl, zoomId, docUrls, prompt });
+    const out = { ok: true, mail_body: r.mail_body || "", warnings: r.warnings || "", meeting_type: r.meeting_type, meeting_count: r.meeting_count, staff_name: staffName, company, docUrls };
+    await mcMiitelSave({ id, payload: { mt_thanks: { ...out, at: Date.now(), by: req.user } } }).catch(() => {});
+    res.json(out);
+  } catch (e) { console.error("[mochica thanks]", e.message); res.status(502).json({ error: e.message }); }
+});
+// Gmail の過去のやり取りを探す（開いている本人の Gmail）。kinbot の商談履歴の「取得」と同じ考え方
+app.get("/api/mochica/gmail-threads", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    if (!(await gcalConnected(req.user).catch(() => false))) return res.json({ connected: false, threads: [] });
+    const ready = await gmailReady(req.user); if (!ready.ok) return res.json({ connected: true, needScope: true, threads: [] });
+    const q = String(req.query.q || "").trim().slice(0, 120); if (!q) return res.json({ connected: true, needQuery: true, threads: [] });
+    const threads = await gmailSearchThreads(req.user, q, 10).catch(() => []);
+    threads.sort((a, b) => (Date.parse(b.date || "") || 0) - (Date.parse(a.date || "") || 0));
+    const me = String(req.user || "").toLowerCase();
+    for (const t of threads) { const fa = parseEmailAddr(t.from).toLowerCase(); t.返信先 = fa && fa !== me ? (t.replyTo || t.from) : t.to; }
+    res.json({ connected: true, query: q, threads });
+  } catch (e) { if (e.needScope) return res.json({ connected: true, needScope: true, threads: [] }); res.status(502).json({ error: e.message }); }
+});
 app.get("/api/mochica/miitel/meetings/:id", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcMiitelGet(req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, item: r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -31330,7 +31366,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14v kinbot for MOCHICA：会社のカードを押すと右に会社の概要（gBizINFO の会社プロフィール・SF の商談の結びつき・この会社の商談・社内の資料）。会社のカードから SF の商談を結びつけられ（settings.mcCoSf）、その会社の商談の SF 連携で使う。";
+const BUILD_TAG = "2026-11-14w kinbot for MOCHICA の商談に御礼メールを付けた（kinbot と同じ：型・商談回数・資料URL → 本文と確認事項、担当の名前・登録リンク・プロンプトを使う。Gmail の過去のやり取りを探して、そのやり取りの中に下書きを保存）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
