@@ -12861,3 +12861,10 @@ export async function mcBalesValues(listKey, col) {
   return (await pool.query(`SELECT r.data->>$2 AS v, count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
     WHERE r.list_key=$1 AND COALESCE(r.data->>$2,'') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
 }
+// Bales のリストを消す（画面の「消す」から。リストと、その行を全部）（2026-11-15 田中さん「消せるように」）
+export async function mcBalesDelete(listKey) {
+  if (!pool) return 0; await ensureMcBales();
+  const r = await pool.query(`DELETE FROM mochica_bales_rows WHERE list_key=$1`, [listKey]);
+  await pool.query(`DELETE FROM mochica_bales_lists WHERE list_key=$1`, [listKey]);
+  return r.rowCount;
+}

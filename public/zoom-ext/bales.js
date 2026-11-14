@@ -17,15 +17,22 @@
   const mount = () => { if (!document.body) return setTimeout(mount, 300); document.body.appendChild(btn); document.body.appendChild(box); };
   mount();
   let cands = [];
-  const pageName = () => { const h = document.querySelector("h1, h2, [class*='title' i] h1, [class*='header' i] h2"); const t = (h && h.innerText || "").trim().split("\n")[0]; return (t && t.length < 60 ? t : document.title || "Bales のリスト").trim(); };
+  // リストの名前：Bales の左上の「すべてのリード」のような、いま開いているリードのリストの名前（2026-11-15）
+  const pageName = () => { for (const el of document.querySelectorAll("button, div, span, p")) { if (el.children.length > 2) continue; const t = (el.innerText || "").trim(); if (t && t.length <= 30 && /リード$/.test(t) && el.getBoundingClientRect().top < 260 && el.getBoundingClientRect().width > 0) return t; } return "すべてのリード"; };
+  // 読む一覧の名前（Bales の画面が裏で読んでいるデータの名前を、わかる言葉に）
+  const EPN = { call_targets: "リード一覧", mail_notifications: "メールの通知", users: "メンバー", lead_sources: "リードソース", lead_stages: "リードステージ", call_result_types: "コール結果の種類", custom_fields: "カスタム項目", sent_bulk_mail_names: "一斉メールの名前", assigned_user_candidates: "担当の候補" };
+  const epName = (ep) => { const k = String(ep).split("/").pop(); return EPN[k] ? `${EPN[k]}（${k}）` : k; };
   const draw = () => {
-    const best = cands.findIndex((c) => c.lead && c.pager) >= 0 ? cands.findIndex((c) => c.lead && c.pager) : cands.findIndex((c) => c.lead) >= 0 ? cands.findIndex((c) => c.lead) : 0;
+    // リード一覧（call_targets）があればそれ。無ければ、ページの中で並べ替えた一番上（画面の件数と合うもの）
+    const best = Math.max(0, cands.findIndex((c) => /\/call_targets$/.test(c.ep)));
     box.innerHTML = `<button class="x" type="button" aria-label="閉じる">×</button><h4>kinbot に取り込む<small style="font-weight:400;color:#5C7377;margin-left:6px">版 ${(() => { try { return chrome.runtime.getManifest().version; } catch { return "?（ページを読み込み直してください）"; } })()}</small></h4>
       ${cands.length ? `<label>リストの名前（kinbot で出る名前）</label><input data-n value="${pageName().replace(/"/g, "&quot;")}">
-        <label>読む一覧（ふつうは変えなくてよい）</label><select data-c>${cands.map((c) => `<option value="${c.i}" ${c.i === cands[best].i ? "selected" : ""}>${c.ep}（${c.n}件${c.total != null ? `／全${c.total}件` : ""}${c.pager ? "" : "・めくり方不明"}）</option>`).join("")}</select>
+        <label>読む一覧</label><div class="msg" style="margin:0;color:#0F3D44"><b>${epName(cands[best].ep)}</b>・1ページ ${cands[best].n}件 <a href="#" data-chg style="color:#0E9AA7">変える</a></div>
+        <select data-c hidden>${cands.map((c) => `<option value="${c.i}" ${c.i === cands[best].i ? "selected" : ""}>${epName(c.ep)}（${c.n}件）</option>`).join("")}</select>
         <button class="go" type="button" data-go>全部取り込む</button><div class="bar"><i></i></div><div class="msg" data-m>最後のページまで自動でめくって kinbot に送ります。終わるまでこのタブは開いたままにしてください。</div>`
       : `<div class="msg">まだ一覧のデータが見えていません。Bales のリスト（リード一覧）を開いて、一覧が表示されてからもう一度押してください。うまくいかないときは、ページを読み込み直してください。</div>`}`;
     box.querySelector(".x").onclick = () => { box.hidden = true; };
+    const chg = box.querySelector("[data-chg]"); if (chg) chg.onclick = (e) => { e.preventDefault(); box.querySelector("[data-c]").hidden = false; chg.hidden = true; };
     const go = box.querySelector("[data-go]"); if (go) go.onclick = () => { go.disabled = true; go.textContent = "取り込んでいます…"; window.postMessage({ __kbBalesRun: true, i: Number(box.querySelector("[data-c]").value), name: box.querySelector("[data-n]").value.trim() }, "*"); };
   };
   btn.onclick = () => { if (!box.hidden) { box.hidden = true; return; } box.hidden = false; box.innerHTML = '<div class="msg">一覧のデータを探しています…</div>'; let got = false; const once = (e) => { if (e.data && e.data.__kbBalesCands) got = true; }; window.addEventListener("message", once); window.postMessage({ __kbBalesAsk: true }, "*");

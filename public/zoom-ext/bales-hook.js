@@ -75,7 +75,7 @@
   window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return;
     if (d.__kbBalesAck && acks.has(d.id)) { acks.get(d.id)(d); acks.delete(d.id); }
     if (d.__kbBalesAsk) { const m = (document.body.innerText || "").match(/(\d[\d,]*)\s*-\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/); const shownTotal = m ? Number(m[3].replace(/,/g, "")) : null; const shownN = m ? Number(m[2].replace(/,/g, "")) - Number(m[1].replace(/,/g, "")) + 1 : null;
-      const sc = (c) => (shownTotal != null && c.total === shownTotal ? 100 : 0) + (shownN != null && c.n === shownN ? 50 : 0) + (c.lead ? 10 : 0) + (pagerOf(c).page || pagerOf(c).offset ? 5 : 0);
+      const sc = (c) => (/\/call_targets(\?|$)/.test(c.url) ? 200 : 0) + (shownTotal != null && c.total === shownTotal ? 100 : 0) + (shownN != null && c.n === shownN ? 50 : 0) + (c.lead ? 10 : 0) + (pagerOf(c).page || pagerOf(c).offset ? 5 : 0);
       cands.sort((a, b) => sc(b) - sc(a)); }
     if (d.__kbBalesAsk) window.postMessage({ __kbBalesCands: true, seen: window.__kbBalesSeen(), href: location.href, items: cands.map((c, i) => ({ i, ep: c.method + " " + String(c.url).split("?")[0].replace(location.origin, ""), n: c.n, total: c.total, keys: c.keys.slice(0, 10), lead: c.lead, pager: (() => { const p = pagerOf(c); return p.page ? "page" : p.offset ? "offset" : ""; })() })) }, "*");
     if (d.__kbBalesRun) run(d.i, d.name);
@@ -94,6 +94,16 @@
     try {
       prog({ got: 0, step: "kinbot に知らせています…" });
       await send({ start: true, name: name || "Bales のリスト", src: String(c.url).split("?")[0], total: c.total });
+      // 画面の「1 - 100 / 23394」の総数（API が総数を返さないとき用）
+      { const m = (document.body.innerText || "").match(/(\d[\d,]*)\s*-\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/); if (c.total == null && m) c.total = Number(m[3].replace(/,/g, "")); }
+      if (!pg.page && !pg.offset) {
+        // 1ページ目は「page」を付けずに頼んでいることがある → よくある名前で2ページ目を試し、中身が変わる名前を使う（2026-11-15）
+        prog({ got: 0, step: "ページのめくり方を探しています…" });
+        const sig1 = c.firstSig;
+        const tryQ = async (k, v) => { const U = new URL(c.url); U.searchParams.set(k, String(v)); const r = await bf(U.href, { method: c.method, headers: c.headers, body: c.method === "GET" || c.method === "HEAD" ? undefined : c.body }); if (!r.ok) return false; const a = getAt(await r.json(), c.path) || []; return a.length && JSON.stringify(a[0]).slice(0, 200) !== sig1; };
+        for (const k of ["page", "currentPage", "current_page", "pageNumber", "page_number", "pageNo", "page_no", "p", "pageIndex"]) { try { if (await tryQ(k, 2)) { pg.page = { where: "q", k, v: 1 }; break; } } catch {} }
+        if (!pg.page) for (const k of ["offset", "skip", "start", "from"]) { try { if (await tryQ(k, c.n)) { pg.offset = { where: "q", k, v: 0 }; break; } } catch {} }
+      }
       if (!pg.page && !pg.offset) {
         // めくり方が分からないときは、いま見えている分だけ送る
         const j0 = await (await bf(c.url, { method: c.method, headers: c.headers, body: c.method === "GET" ? undefined : c.body })).json();
