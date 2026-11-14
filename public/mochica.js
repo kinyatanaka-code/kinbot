@@ -43,7 +43,8 @@
     if (rb && !rb.disabled) { rb.hidden = false; rb.textContent = "MiiTel から今すぐ読む"; }
     if (!mtAll.length) { $("mtCount").textContent = "0件"; box.innerHTML = '<div class="mc-note" style="padding:10px">まだありません。上の「MiiTel から会議を読み込む」を押すと、MiiTel の会議履歴から読み込みます。</div>'; return; }
     // ① 担当のカード（kinbot の商談履歴と同じ）
-    if (mtHost == null) {
+    // ヘッダーで探したときは、担当をまたいで商談を出す（2026-11-14 田中さん：検索はヘッダーで）
+    if (mtHost == null && !q) {
       const by = new Map(); for (const m of mtAll) { const h = hostOf(m); const v = by.get(h) || { n: 0, tr: 0, last: "" }; v.n++; if (m.transcript_len || m.has_tr) v.tr++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; by.set(h, v); }
       const hs = [...by.entries()].filter(([h]) => !q || h.toLowerCase().includes(q)).sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)));
       $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`;
@@ -52,16 +53,19 @@
       return;
     }
     // ② その担当の商談（日ごと）
-    const list = mtAll.filter((m) => hostOf(m) === mtHost).filter((m) => !q || `${titleOf(m)} ${coOf(m)} ${m.participants || ""}`.toLowerCase().includes(q));
+    const all = mtHost == null;
+    const list = mtAll.filter((m) => all || hostOf(m) === mtHost).filter((m) => !q || `${titleOf(m)} ${coOf(m)} ${m.participants || ""} ${all ? hostOf(m) : ""}`.toLowerCase().includes(q));
     $("mtCount").textContent = `${list.length}件`;
-    let last = ""; let html = `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${list.length}商談</small></div>`;
+    let last = ""; let html = all
+      ? `<div class="mt-who"><b>「${esc(q)}」で探した商談</b><small>${list.length}件</small></div>${list.length ? "" : '<div class="mc-note" style="padding:10px">見つかりませんでした。</div>'}`
+      : `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${list.length}商談</small></div>`;
     for (const m of list) {
       const at = m.started_at || m.received_at; const k = dkey(at);
       if (k !== last) { html += `<div class="mt-day">${md(at)}（${wk(at)}）</div>`; last = k; }
-      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len || m.has_tr ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
+      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${all ? `<span>${esc(hostOf(m))}</span>` : ""}${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len || m.has_tr ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
     }
     box.innerHTML = html;
-    box.querySelector("[data-back]").addEventListener("click", () => { mtHost = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); });
+    { const bk = box.querySelector("[data-back]"); if (bk) bk.addEventListener("click", () => { mtHost = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); }); }
     box.querySelectorAll("[data-mt]").forEach((el) => el.addEventListener("click", () => mtOpen(el.dataset.mt)));
   }
   async function loadMeetings() {
