@@ -27329,6 +27329,18 @@ app.get("/api/mochica/gmail-threads", async (req, res) => {
     res.json({ connected: true, query: q, threads });
   } catch (e) { if (e.needScope) return res.json({ connected: true, needScope: true, threads: [] }); res.status(502).json({ error: e.message }); }
 });
+// AI分析（温度感・BANT・スコア・購買シグナル・コーチング）：kinbot の「AI分析を作る」と同じ（analyzeDeep）。payload.mt_deep に置く（2026-11-14）
+app.post("/api/mochica/miitel/meetings/:id/deep", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const text = (Array.isArray(b.tr) ? b.tr : []).slice(0, 4000).map((u) => `${String((u && u.s) || "話者").slice(0, 40)}: ${String((u && u.t) || "").slice(0, 600)}`).join("\n").slice(-12000);
+    if (!text.trim()) return res.status(400).json({ error: "文字起こしがありません" });
+    const analysis = await analyzeDeep({ transcript: text, repName: String(b.rep || "") });
+    await mcMiitelSave({ id, payload: { mt_deep: { ...analysis, at: Date.now(), by: req.user } } });
+    res.json(analysis);
+  } catch (e) { console.error("[mochica deep]", e.message); res.status(502).json({ error: e.message }); }
+});
 app.get("/api/mochica/miitel/meetings/:id", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcMiitelGet(req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, item: r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -31366,7 +31378,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14w kinbot for MOCHICA の商談に御礼メールを付けた（kinbot と同じ：型・商談回数・資料URL → 本文と確認事項、担当の名前・登録リンク・プロンプトを使う。Gmail の過去のやり取りを探して、そのやり取りの中に下書きを保存）。";
+const BUILD_TAG = "2026-11-14x kinbot for MOCHICA：御礼メールのタブを外した。「FB & 分析」の下に AI分析（kinbot と同じ analyzeDeep：スコア・BANT・案件の状態・次アクションの明確さ・課題・購買シグナル・懸念と対応・競合・話し方の癖・顧客の反応・コーチング）を足した。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

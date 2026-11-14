@@ -153,6 +153,30 @@
     box.innerHTML = `<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:4px">${tab === "sm" ? '<button type="button" class="mt-btn ghost" data-rvcopy>要約をコピー</button>' : ""}<button type="button" class="mt-btn ghost" data-rvredo>作り直す</button></div>${body || '<div class="mt-wait">中身が空でした。「作り直す」を押してください。</div>'}`;
     const cp = box.querySelector("[data-rvcopy]"); if (cp) cp.addEventListener("click", async () => { try { await navigator.clipboard.writeText(s.formatted && !s.key_points ? s.formatted : mtSumText(s)); cp.textContent = "コピーしました"; setTimeout(() => (cp.textContent = "要約をコピー"), 1500); } catch {} });
     box.querySelector("[data-rvredo]").addEventListener("click", () => { if (confirm("要約とフィードバックを作り直しますか？（1分ほどかかります）")) mtReview(id, tr, tab, null, true); });
+    if (tab === "an") { const dv = document.createElement("div"); dv.id = "mtDeep"; dv.className = "mt-deep"; box.appendChild(dv); mtDeep(id, tr); }
+  }
+  // ===== AI分析：kinbot の「AI分析を作る」と同じ（スコア・BANT・次アクションの明確さ・課題・購買シグナル・懸念と対応・競合・話し方の癖・顧客の反応・コーチング）（2026-11-14）=====
+  async function mtDeep(id, tr, force) {
+    const box = $("mtDeep"); if (!box) return;
+    const H = '<div class="mt-deep-h"><b>AI分析</b><span>温度感・BANT・スコア</span><button type="button" class="mt-btn ghost" data-dpgo>' + "{{L}}" + '</button></div>';
+    let a = !force && mtDeep.saved && mtDeep.saved.id === id ? mtDeep.saved.d : null;
+    const draw = () => { const sc = a.scores || {}, rs = a.score_reasons || {}, b = a.bant || {};
+      let h = '<div class="scores">';
+      for (const [k, jp] of [["hearing", "ヒアリング"], ["proposal", "提案"], ["closing", "クロージング"], ["listening", "傾聴"]]) { const v = Number(sc[k]) || 0;
+        h += `<div class="score-row"><span class="score-name">${jp}</span><span class="dots">${[1, 2, 3, 4, 5].map((n) => `<span class="dot${n <= v ? " on" : ""}"></span>`).join("")}</span><span class="score-val">${v}/5</span></div>${rs[k] ? `<div class="score-reason">${esc(rs[k])}</div>` : ""}`; }
+      h += "</div>";
+      if (b.budget || b.authority || b.need || b.timeline) h += `<div class="sgroup"><div class="label">BANT</div><table class="bant"><tr><td>予算</td><td>${esc(b.budget || "未確認")}</td></tr><tr><td>決裁者</td><td>${esc(b.authority || "未確認")}</td></tr><tr><td>必要性</td><td>${esc(b.need || "未確認")}</td></tr><tr><td>時期</td><td>${esc(b.timeline || "未確認")}</td></tr></table></div>`;
+      if (a.deal_status) h += `<div class="sgroup"><div class="label">案件の状態（AI の見立て）</div><p>${esc(a.deal_status)}${a.deal_status_reason ? `：${esc(a.deal_status_reason)}` : ""}</p></div>`;
+      if (a.next_step) h += `<div class="sgroup"><div class="label">次アクションの明確さ</div><p>${esc(a.next_step)}</p></div>`;
+      h += mtGroup("把握した課題・ニーズ", a.needs) + mtGroup("購買シグナル", a.buying_signals) + mtGroup("懸念と対応", a.objections, "concerns") + mtGroup("競合の言及", a.competitors) + mtGroup("話し方の癖・口癖", a.rep_habits) + mtGroup("顧客の反応", a.customer_reactions) + mtGroup("コーチング", a.coaching, "actions");
+      box.innerHTML = H.replace("{{L}}", "作り直す") + h; box.querySelector("[data-dpgo]").addEventListener("click", () => { if (confirm("AI分析を作り直しますか？（1分ほどかかります）")) mtDeep(id, tr, true); }); };
+    const make = async () => { box.innerHTML = H.replace("{{L}}", "作っています…") + '<div class="mt-wait">AI が商談をいろいろな面から分析しています…（1分ほど）</div>'; box.querySelector("[data-dpgo]").disabled = true;
+      try { a = await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/deep`, { method: "POST", body: JSON.stringify({ tr, rep: hostOf(mtAll.find((x) => x.id === id) || {}) }) }); mtDeep.saved = { id, d: a }; if ($("mtDeep") === box) draw(); }
+      catch (e) { if ($("mtDeep") !== box) return; box.innerHTML = H.replace("{{L}}", "もう一度作る") + `<div class="mt-wait">作れませんでした：${esc(e.message)}</div>`; box.querySelector("[data-dpgo]").addEventListener("click", () => mtDeep(id, tr, true)); } };
+    if (a && (a.scores || a.bant || a.needs)) { draw(); return; }
+    if (force) { make(); return; }
+    box.innerHTML = H.replace("{{L}}", "AI分析を作る") + '<div class="mt-wait">「AI分析を作る」を押すと、スコア・BANT・購買シグナルなどを作ります。</div>';
+    box.querySelector("[data-dpgo]").addEventListener("click", make);
   }
   async function mtRepTools(id) {
     const sel = $("mtRepSel"); if (!sel) return;
@@ -324,7 +348,7 @@
     // Webhook で届いた中身から、録画のファイルらしい URL を探す（mp4・m3u8・webm、または download／recording／media／video_url の項目）（2026-11-12）
     const media = (() => { const hits = []; const walk = (o, k0, d) => { if (d > 6 || o == null) return; if (typeof o === "string") { if (/^https?:\/\//.test(o) && (/\.(mp4|m3u8|webm|mov|m4a|mp3|wav)(\?|$)/i.test(o) || /(download|recording|media|video_url|audio_url|file_url)/i.test(k0 || ""))) hits.push({ k: k0, u: o }); return; } if (Array.isArray(o)) { o.forEach((x) => walk(x, k0, d + 1)); return; } if (typeof o === "object") for (const [k, x] of Object.entries(o)) walk(x, k, d + 1); }; walk(p, "", 0); return hits; })();
     const playable = media.find((h) => /\.(mp4|webm|mov|m4a|mp3|wav)(\?|$)/i.test(h.u)) || media[0] || null;
-    const tabs = [["tr", "文字起こし"], ["mn", "議事録"], ["sm", "要約"], ["an", "FB & 分析"], ["ml", "御礼メール"], ["sf", "SF連携"]];
+    const tabs = [["tr", "文字起こし"], ["mn", "議事録"], ["sm", "要約"], ["an", "FB & 分析"], ["sf", "SF連携"]];
     const pane = (k) => {
       if (k === "tr") return tr.length ? `<div class="mt-tr">${tr.map((u) => `<div class="ln">${u.at != null ? `<span class="tm">${esc(typeof u.at === "number" ? `${Math.floor(u.at / 60)}:${String(Math.floor(u.at % 60)).padStart(2, "0")}` : String(u.at).slice(11, 16))}</span>` : ""}${u.s ? `<span class="spk">${esc(u.s)}</span>` : ""}<span>${esc(u.t)}</span></div>`).join("")}</div>`
         : '<div class="mt-wait">文字起こしは、まだ kinbot に入っていません。MiiTel の Webhook で文字起こしごと届いた会議は、ここに話した人つきで出ます。録画と文字起こしは上の「MiiTel で開く」から見られます。</div>';
@@ -333,6 +357,7 @@
       if (k === "ml") return tr.length ? '<div id="mtMl"></div>' : '<div class="mt-wait">文字起こしが入った会議から、御礼メールを作れます。この会議にはまだ文字起こしがありません。</div>';
       return '<div id="mtSf" class="mt-sf"><div class="mt-wait">SF の商談を読み込んでいます…</div></div>';
     };
+    if (mtOpen.tab === "ml") mtOpen.tab = "tr";   // 御礼メールのタブはやめた（2026-11-14）
     const cur = mtOpen.tab || "tr";
     const hasVid = !!(p.mt_video && p.mt_video.fileId);
     main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}${tr.length >= 6 ? '<div class="ch-wrap" id="mtCh" style="margin-top:10px"></div>' : ""}
@@ -360,6 +385,7 @@
           else if (pg.done) { clearInterval(tick); if (sEl) sEl.textContent = "取り込みました。開き直しています…"; setTimeout(() => mtOpen(id), 3000); }
           else if (sEl) sEl.textContent = `${pg.i}/${pg.total}`; } } catch {} }, 3000); });
     main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id, { title: (cal && cal.title) || it.title || "", at: it.started_at, review: p.mt_review, co: (cal && cal.company) || "" }); if (b.dataset.mtab === "sm" || b.dataset.mtab === "an") mtReview(id, tr, b.dataset.mtab, p.mt_review); if (b.dataset.mtab === "ml") mtThanks(id, tr, it, p); }));
+    mtDeep.saved = p.mt_deep ? { id, d: p.mt_deep } : (mtDeep.saved && mtDeep.saved.id === id ? mtDeep.saved : null);
     if (cur === "sm" || cur === "an") mtReview(id, tr, cur, p.mt_review);
     if (cur === "ml") mtThanks(id, tr, it, p);
     if (cur === "sf") mtSfLoad(id, { title: (cal && cal.title) || it.title || "", at: it.started_at, review: p.mt_review, co: (cal && cal.company) || "" });
