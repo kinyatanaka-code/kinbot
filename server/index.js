@@ -26969,6 +26969,12 @@ async function mcCalMatchRun(owner) {
   } finally { _mcCalRunning = false; } return n;
 }
 setInterval(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || ""; await mcCalMatchRun(o || (await pickSfUser("").catch(() => ""))); } catch {} }, 15 * 60 * 1000);
+// 起動したら、カレンダーの照合をすぐに最後までやり直す（15分を待たない）（2026-11-15 田中さん「今やり直して」）。
+//   決め方を変えた版を上げたとき、全部そろうまで待たなくてよいように。40件ずつ、なくなるまで（多くても20回）
+setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || "";
+  const owner = o || (await pickSfUser("").catch(() => "")); let total = 0;
+  for (let k = 0; k < 20; k++) { const n = await mcCalMatchRun(owner).catch(() => 0); total += n || 0; if (!n) break; }
+  console.log(`[mochica cal] 起動時のやり直し：${total}件`); } catch (e) { console.error("[mochica cal] 起動時のやり直し", e.message); } }, 20000);
 // ===== MOCHICA の SF 連携：ステージごとの項目を、議事録から AI で埋めて、SF の「新規」の商談に書く（2026-11-13 田中さん）=====
 //   項目は SF の画面の「項目の名前（ラベル）」で決め、SF の項目の説明（describe）から本当の項目名・型・選択肢を当てる。
 //   必須：SF の入力チェックで止められた項目を、ステージごとに覚えて（settings.mcSfRequired）、次から空なら書く前に止める
@@ -31435,7 +31441,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15b MOCHICA のカレンダー照合を直した：担当（画面で選んだ人・参加者の kinbot の人・主催の苗字の人）が分かればその人のカレンダーだけを見る。分からないときだけほかのメンバーも見るが、題名にお客様の名前が入った予定に限る。「会社：人様」は法人の言葉が無くても商談の予定（エコーデリカ：高橋様など）。v=5 で手で決めたもの以外をやり直す。";
+const BUILD_TAG = "2026-11-15c MOCHICA のカレンダー照合を、サーバーが起動したら20秒後にすぐ最後までやり直す（40件ずつ・多くて20回）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
