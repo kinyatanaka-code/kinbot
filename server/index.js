@@ -26881,7 +26881,14 @@ const mcBalesKeyOk = (k) => String(k || "").replace(/[^\w:.\-ぁ-んァ-ヶ一-�
 app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (req, res) => {
   try {
     if (!(await mcExtUser(req))) return res.status(401).json({ error: "kinbot の合言葉がありません。kinbot の画面を一度開いてから、もう一度押してください" });
-    const b = req.body || {}; const listKey = mcBalesKeyOk(b.listKey); if (!listKey) return res.status(400).json({ error: "リストの印がありません" });
+    const b = req.body || {};
+    // 取り込めないときの手がかり（拡張機能の版・ページ・見えた通り道の名前と件数）を最後の1回分だけ残す（2026-11-15）
+    if (b.diag) { const g = b.diag; const clean = (x) => String(x ?? "").slice(0, 160);
+      await saveSettings({ mcBalesDiag: { at: Date.now(), by: await mcExtUser(req), ver: clean(g.ver), href: clean(g.href), nohook: !!g.nohook,
+        cands: (Array.isArray(g.cands) ? g.cands : []).slice(0, 15).map((c) => ({ ep: clean(c.ep), n: Number(c.n) || 0, total: c.total ?? null, pager: clean(c.pager), keys: (Array.isArray(c.keys) ? c.keys : []).slice(0, 12).map(clean) })),
+        seen: (Array.isArray(g.seen) ? g.seen : []).slice(0, 40).map((x) => ({ ep: clean(x.ep), ct: clean(x.ct), status: Number(x.status) || 0, len: Number(x.len) || 0, arr: Number(x.arr) })) } }).catch(() => {});
+      return res.json({ ok: true }); }
+    const listKey = mcBalesKeyOk(b.listKey); if (!listKey) return res.status(400).json({ error: "リストの印がありません" });
     const total = Number.isFinite(Number(b.total)) && b.total !== null && b.total !== "" ? Number(b.total) : null;
     if (b.start) { await mcBalesStart({ listKey, name: String(b.name || listKey).slice(0, 120), src: String(b.src || "").slice(0, 300), total }); }
     let n = 0;
@@ -26895,7 +26902,7 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/bales/lists", async (req, res) => {
-  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcBalesLists() }); }
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const st = await getSettings().catch(() => ({})); res.json({ ok: true, items: await mcBalesLists(), diag: st.mcBalesDiag || null }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/bales/lists/:key/rows", async (req, res) => {
@@ -31513,7 +31520,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

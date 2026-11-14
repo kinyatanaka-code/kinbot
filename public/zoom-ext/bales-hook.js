@@ -17,10 +17,15 @@
   const getAt = (o, path) => path.reduce((x, k) => (x == null ? x : x[k]), o);
   const hdrObj = (h) => { const o = {}; try { if (!h) return o; if (h instanceof Headers) h.forEach((v, k) => { o[k] = v; }); else if (Array.isArray(h)) h.forEach(([k, v]) => { o[k] = v; }); else Object.assign(o, h); } catch {} return o; };
   const looksLead = (keys) => keys.some((k) => /company|corp|会社|name|tel|phone|lead/i.test(k));
-  const onResp = (req, text) => {
+  // 見た通り道（名前と件数だけ。中身・鍵は残さない）：取り込めないときに、なぜかを kinbot で見るため（2026-11-15）
+  const seen = new Map();
+  const noteSeen = (req, info) => { try { const U = new URL(req.url); if (/\.(js|css|png|jpe?g|gif|svg|woff2?|ttf|ico|map|webp)(\?|$)/i.test(U.pathname)) return; const ep = req.method + " " + U.host + U.pathname; seen.set(ep, { ep, ...info, at: Date.now() }); if (seen.size > 60) seen.delete(seen.keys().next().value); } catch {} };
+  window.__kbBalesSeen = () => [...seen.values()].sort((a, b) => b.at - a.at).slice(0, 40);
+  const onResp = (req, text, ct, status) => {
     try {
+      noteSeen(req, { ct: String(ct || "").slice(0, 40), status, len: (text || "").length, arr: -1 });
       if (!text || text.length > 30000000 || !/^\s*[[{]/.test(text)) return;
-      const j = JSON.parse(text); const f = findArr(j); if (!f) return;
+      const j = JSON.parse(text); const f = findArr(j); try { const U = new URL(req.url); const s0 = seen.get(req.method + " " + U.host + U.pathname); if (s0) s0.arr = f ? f.arr.length : 0; } catch {} if (!f) return;
       const keys = Object.keys(f.arr[0] || {});
       const c = { ...req, path: f.path, n: f.arr.length, total: findTotal(j), keys: keys.slice(0, 40), lead: looksLead(keys), at: Date.now(), firstSig: JSON.stringify(f.arr[0]).slice(0, 200) };
       const ep = c.method + " " + String(c.url).split("?")[0];
@@ -34,14 +39,14 @@
     let req = null;
     try { const r0 = a[0]; const o = a[1] || {}; const url = typeof r0 === "string" ? r0 : r0 instanceof URL ? r0.href : (r0 && r0.url) || ""; req = { url: new URL(url, location.href).href, method: String(o.method || (r0 && r0.method) || "GET").toUpperCase(), headers: { ...hdrObj(r0 && r0.headers), ...hdrObj(o.headers) }, body: typeof o.body === "string" ? o.body : null, via: "fetch" }; } catch {}
     const r = await of.apply(this, a);
-    try { if (req && /json/i.test(r.headers.get("content-type") || "")) r.clone().text().then((t) => onResp(req, t)).catch(() => {}); } catch {}
+    try { const ct = r.headers.get("content-type") || ""; if (req && (/json|text\/plain/i.test(ct) || !ct)) r.clone().text().then((t) => onResp(req, t, ct, r.status)).catch(() => {}); else if (req) noteSeen(req, { ct: ct.slice(0, 40), status: r.status, len: -1, arr: -1 }); } catch {}
     return r;
   };
   const XO = XMLHttpRequest.prototype.open, XH = XMLHttpRequest.prototype.setRequestHeader, XS = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u, ...rest) { try { this.__kb = { url: new URL(String(u), location.href).href, method: String(m || "GET").toUpperCase(), headers: {}, body: null, via: "xhr" }; } catch {} return XO.call(this, m, u, ...rest); };
   XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__kb) this.__kb.headers[k] = v; } catch {} return XH.call(this, k, v); };
   XMLHttpRequest.prototype.send = function (b) {
-    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; const req = this.__kb; this.addEventListener("load", () => { try { const ct = this.getResponseHeader("content-type") || ""; if (!/json/i.test(ct)) return; onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : this.responseText); } catch {} }); } } catch {}
+    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; const req = this.__kb; this.addEventListener("load", () => { try { const ct = this.getResponseHeader("content-type") || ""; if (!(/json|text\/plain/i.test(ct) || !ct || this.responseType === "json")) { noteSeen(req, { ct: ct.slice(0, 40), status: this.status, len: -1, arr: -1 }); return; } onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : (this.responseType === "" || this.responseType === "text") ? this.responseText : "", ct, this.status); } catch {} }); } } catch {}
     return XS.call(this, b);
   };
 
@@ -69,7 +74,7 @@
   let ackN = 0; const acks = new Map();
   window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return;
     if (d.__kbBalesAck && acks.has(d.id)) { acks.get(d.id)(d); acks.delete(d.id); }
-    if (d.__kbBalesAsk) window.postMessage({ __kbBalesCands: true, items: cands.map((c, i) => ({ i, ep: c.method + " " + String(c.url).split("?")[0].replace(location.origin, ""), n: c.n, total: c.total, keys: c.keys.slice(0, 10), lead: c.lead, pager: (() => { const p = pagerOf(c); return p.page ? "page" : p.offset ? "offset" : ""; })() })) }, "*");
+    if (d.__kbBalesAsk) window.postMessage({ __kbBalesCands: true, seen: window.__kbBalesSeen(), href: location.href, items: cands.map((c, i) => ({ i, ep: c.method + " " + String(c.url).split("?")[0].replace(location.origin, ""), n: c.n, total: c.total, keys: c.keys.slice(0, 10), lead: c.lead, pager: (() => { const p = pagerOf(c); return p.page ? "page" : p.offset ? "offset" : ""; })() })) }, "*");
     if (d.__kbBalesRun) run(d.i, d.name);
   });
   const toKinbot = (payload) => new Promise((resolve) => { const id = ++ackN; acks.set(id, resolve); window.postMessage({ __kbBalesSend: true, id, payload }, "*"); setTimeout(() => { if (acks.has(id)) { acks.delete(id); resolve({ ok: false, error: "kinbot から返事がありません" }); } }, 120000); });

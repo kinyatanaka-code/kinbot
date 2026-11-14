@@ -28,10 +28,16 @@
     box.querySelector(".x").onclick = () => { box.hidden = true; };
     const go = box.querySelector("[data-go]"); if (go) go.onclick = () => { go.disabled = true; go.textContent = "取り込んでいます…"; window.postMessage({ __kbBalesRun: true, i: Number(box.querySelector("[data-c]").value), name: box.querySelector("[data-n]").value.trim() }, "*"); };
   };
-  btn.onclick = () => { if (!box.hidden) { box.hidden = true; return; } box.hidden = false; box.innerHTML = '<div class="msg">一覧のデータを探しています…</div>'; window.postMessage({ __kbBalesAsk: true }, "*"); };
+  btn.onclick = () => { if (!box.hidden) { box.hidden = true; return; } box.hidden = false; box.innerHTML = '<div class="msg">一覧のデータを探しています…</div>'; let got = false; const once = (e) => { if (e.data && e.data.__kbBalesCands) got = true; }; window.addEventListener("message", once); window.postMessage({ __kbBalesAsk: true }, "*");
+    // ページの中の読み取り部分（bales-hook.js）から返事が無い＝動いていない
+    setTimeout(() => { window.removeEventListener("message", once); if (got) return; box.innerHTML = '<button class="x" type="button" aria-label="閉じる">×</button><div class="msg">一覧を読む部分が動いていません。Bales のページを読み込み直して（F5）、一覧が出てからもう一度押してください。</div>'; box.querySelector(".x").onclick = () => { box.hidden = true; };
+      let ver = ""; try { ver = chrome.runtime.getManifest().version; } catch {} chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", diag: { ver, href: location.href.split("?")[0], nohook: true, cands: [], seen: [] } } }, () => {}); }, 3000); };
   window.addEventListener("message", (e) => {
     const d = e.data; if (!d || e.source !== window) return;
-    if (d.__kbBalesCands) { cands = d.items || []; draw(); }
+    if (d.__kbBalesCands) { cands = d.items || []; draw();
+      // 取り込めないときの手がかり：拡張機能の版・ページ・見えた通り道（名前と件数だけ）を kinbot に残す（2026-11-15）
+      let ver = ""; try { ver = chrome.runtime.getManifest().version; } catch {}
+      chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", diag: { ver, href: String(d.href || location.href).split("?")[0], cands: cands.map((c) => ({ ep: c.ep, n: c.n, total: c.total, pager: c.pager, keys: c.keys })), seen: d.seen || [] } } }, () => {}); }
     if (d.__kbBalesProg) { const m = box.querySelector("[data-m]"), bar = box.querySelector(".bar i"), go = box.querySelector("[data-go]");
       if (bar && d.total) bar.style.width = Math.min(100, Math.round((d.got || 0) / d.total * 100)) + "%";
       if (m) m.textContent = d.error ? `止まりました：${d.error}（${d.got || 0}件までは kinbot に入っています）` : d.done ? `終わりました：${d.got}件を kinbot に入れました。${d.warn ? "\n" + d.warn : ""}\nkinbot for MOCHICA の「リスト（Bales Cloud）」で見られます。` : `${d.got}件${d.total ? ` / ${d.total}件` : ""} 送りました…`;
