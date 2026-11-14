@@ -26986,6 +26986,9 @@ async function mcFindOpp(owner, row) {
   const lk = row && row.payload && row.payload.mt_sfopp;
   if (lk && lk.none) return null;
   if (lk && lk.id) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Id = '${String(lk.id).replace(/[^A-Za-z0-9]/g, "")}' LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return { ...d.records[0], _linked: true }; }
+  // 会社のカードで結びつけた商談（2026-11-14）
+  { const cm = ((await getSettings().catch(() => ({}))).mcCoSf || {})[mcCoKeyN(cal && cal.company)];
+    if (cm && cm.oppId) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Id = '${String(cm.oppId).replace(/[^A-Za-z0-9]/g, "")}' LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return { ...d.records[0], _linked: true, _byCompany: true }; } }
   if (aid) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE AccountId = '${String(aid).replace(/[^A-Za-z0-9]/g, "")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return d.records[0]; }
   const co = cal && cal.company && cal.company !== "(無題)" ? cal.company : ""; if (!co) return null;
   const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Account.Name = '${co.replace(/'/g, "\\'")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null);
@@ -27093,6 +27096,26 @@ app.get("/api/mochica/sf/tasks", async (req, res) => {
     res.json({ ok: true, tasks: showAll ? all : all.filter((t) => !isAuto(t)), hiddenAuto: showAll ? 0 : all.filter(isAuto).length, account: !!aid });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 会社のカードから SF の商談を結びつける（2026-11-14 田中さん「SF を会社カードから紐づけできるように」）。
+//   settings.mcCoSf に会社名（空白を除いた形）ごとに置く。その会社の商談は、商談ごとに結びつけていなければ、これを使う
+const mcCoKeyN = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
+app.get("/api/mochica/co-sf", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const map = ((await getSettings().catch(() => ({}))).mcCoSf) || {}; res.json({ ok: true, link: map[mcCoKeyN(req.query.company)] || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/co-sf", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const b = req.body || {}; const key = mcCoKeyN(b.company); if (!key) return res.status(400).json({ error: "会社名がありません" });
+    const map = { ...(((await getSettings().catch(() => ({}))).mcCoSf) || {}) };
+    const oppId = String(b.oppId || "").replace(/[^A-Za-z0-9]/g, "");
+    if (!oppId) { delete map[key]; await saveSettings({ mcCoSf: map }); return res.json({ ok: true, link: null }); }
+    const d = await sfQuery(owner, `SELECT Id, Name, StageName, AccountId, Account.Name FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`);
+    const o = d && d.records && d.records[0]; if (!o) return res.status(404).json({ error: "SF の商談が見つかりません" });
+    map[key] = { company: String(b.company).slice(0, 120), oppId: o.Id, oppName: o.Name, stage: o.StageName || "", accountId: o.AccountId || "", accountName: (o.Account && o.Account.Name) || "", by: req.user, at: Date.now() };
+    await saveSettings({ mcCoSf: map }); res.json({ ok: true, link: map[key] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
@@ -27181,7 +27204,8 @@ app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const items0 = await mcMiitelList(200);
     const repOf = await mcRepIndex().catch(() => () => []);
-    const items = items0.map((m) => { if (m.mrep && m.mrep.email) return { ...m, rep: m.mrep, reps: [m.mrep] };   // 画面で決めた担当がいちばん
+    const coSf = ((await getSettings().catch(() => ({}))).mcCoSf) || {};
+    const items = items0.map((m) => (m.cal && coSf[mcCoKeyN(m.cal.company)] ? { ...m, cosf: coSf[mcCoKeyN(m.cal.company)] } : m)).map((m) => { if (m.mrep && m.mrep.email) return { ...m, rep: m.mrep, reps: [m.mrep] };   // 画面で決めた担当がいちばん
       const reps = repOf(m.participants); return reps.length ? { ...m, rep: reps[0], reps } : m; });
     const owner = await pickSfUser(req.user, req).catch(() => req.user); mcCalMatchRun(owner).catch(() => {});   // まだのものは裏で突き合わせる
     res.json({ ok: true, items }); }
@@ -31306,7 +31330,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14u kinbot for MOCHICA の過去の活動：結びつけた商談の活動に加えて、その会社（取引先）の活動（取引先責任者・前の商談・オンボーディング）も SF から読む。Integration の自動の記録はふだん隠して件数を出す。";
+const BUILD_TAG = "2026-11-14v kinbot for MOCHICA：会社のカードを押すと右に会社の概要（gBizINFO の会社プロフィール・SF の商談の結びつき・この会社の商談・社内の資料）。会社のカードから SF の商談を結びつけられ（settings.mcCoSf）、その会社の商談の SF 連携で使う。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
