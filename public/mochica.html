@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261115c" />
+<link rel="stylesheet" href="/style.css?v=20261115d" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -112,6 +112,21 @@
   .mt-sf-linked > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;} .mt-sf-linked b a{color:#0B6E78;text-decoration:none;font-size:14px;} .mt-sf-linked small{font-size:11.5px;color:#5C7377;}
   .mt-sf-unlink{border:1px solid #CFE6E9;background:#fff;color:#5C7377;border-radius:8px;font:inherit;font-size:11.5px;padding:3px 10px;cursor:pointer;}
   .mt-cosf-up{margin-top:12px;display:flex;flex-direction:column;gap:10px;} .mt-sf-base{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5C7377;} .mt-sf-base select{flex:1;min-width:0;border:1px solid #CFE6EA;border-radius:10px;padding:7px 9px;font:inherit;font-size:13px;color:#0F3D44;background:#fff;}
+  .bl-wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;align-items:start;}
+  .bl-side{background:#F2FAFB;border:1px solid #DDEFF2;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:8px;}
+  .bl-side-h{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#0F3D44;} .bl-side-h span{font-size:11px;color:#5C7377;}
+  .bl-card{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;background:#fff;border:1px solid #DDEFF2;border-radius:14px;padding:10px 12px;cursor:pointer;font:inherit;color:#0F3D44;} .bl-card b{font-size:13px;} .bl-card small{font-size:11px;color:#5C7377;} .bl-card.on{border:1.5px solid #0E9AA7;box-shadow:0 2px 8px rgba(14,154,167,.12);}
+  .bl-tag{font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;background:#DDF5F7;color:#0B6E78;} .bl-tag.w{background:#FDF0D8;color:#8A5A00;}
+  .bl-run{background:#fff;border:1px dashed #9FD9DF;border-radius:14px;padding:10px 12px;font-size:12px;color:#0F3D44;display:flex;flex-direction:column;gap:3px;} .bl-run small{color:#5C7377;font-size:11px;}
+  .bl-bar{height:6px;background:#DDF5F7;border-radius:3px;overflow:hidden;} .bl-bar i{display:block;height:6px;background:#0E9AA7;}
+  .bl-how{font-size:11px;color:#5C7377;line-height:1.6;border-top:1px solid #DDEFF2;padding-top:8px;} .bl-how b{display:block;color:#0B6E78;font-size:12px;}
+  .bl-main{background:#fff;border:1px solid #DDEFF2;border-radius:16px;padding:16px;min-width:0;} .bl-empty{color:#5C7377;font-size:13px;padding:30px 10px;text-align:center;}
+  .bl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;} .bl-head h3{margin:0;font-size:17px;color:#0F3D44;} .bl-head small{font-size:11px;color:#5C7377;} .bl-acts{display:flex;gap:6px;} .bl-acts a{text-decoration:none;}
+  .bl-mets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0;} .bl-mets div{background:#F2FAFB;border-radius:12px;padding:10px 12px;} .bl-mets small{display:block;font-size:11px;color:#5C7377;} .bl-mets b{font-size:20px;color:#0F3D44;}
+  .bl-find{display:flex;gap:8px;margin-bottom:8px;} .bl-find input{flex:1;min-width:0;height:36px;border:1px solid #CFE6EA;border-radius:10px;padding:0 10px;font:inherit;} .bl-find select{height:36px;border:1px solid #CFE6EA;border-radius:10px;padding:0 8px;font:inherit;max-width:220px;}
+  .bl-tbl{overflow-x:auto;} .bl-tbl table{width:100%;border-collapse:collapse;font-size:12px;} .bl-tbl th{text-align:left;color:#5C7377;font-weight:700;padding:7px 8px;border-bottom:1px solid #DDEFF2;white-space:nowrap;} .bl-tbl td{padding:7px 8px;border-bottom:1px solid #EEF6F7;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;color:#0F3D44;}
+  .bl-mt{border:0;background:none;padding:0 4px 0 0;cursor:pointer;vertical-align:-2px;} .bl-pg{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#5C7377;}
+  @media (max-width:820px){.bl-wrap{grid-template-columns:1fr;}}
   .mt-sf-sub{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#F2FAFB;border-radius:12px;padding:4px;}
   .mt-sf-sub button{border:0;background:transparent;border-radius:9px;padding:9px;font:inherit;font-size:13px;font-weight:800;color:#5C7377;cursor:pointer;} .mt-sf-sub button.on{background:#fff;color:#0B6E78;box-shadow:0 1px 4px rgba(15,61,68,.10);}
   .mt-sf-f{display:flex;flex-direction:column;gap:4px;font-size:12px;} .mt-sf-f span{font-weight:700;color:#3F5A5E;} .mt-sf-f .req{font-style:normal;margin-left:6px;font-size:10.5px;color:#fff;background:#D14B2B;border-radius:99px;padding:0 6px;}
@@ -191,7 +206,9 @@
       </div>
     </section>
     <section data-pane="list" hidden>
-      <div class="mc-box"><h2>Bales に SF の情報を入れる</h2>
+      <!-- Bales のリスト（拡張機能で Bales の画面から取り込んだもの）（2026-11-15 田中さん） -->
+      <div id="mcBalesView"><div class="mc-note">読み込んでいます…</div></div>
+      <div class="mc-box" style="margin-top:14px"><h2>Bales に SF の情報を入れる</h2>
         <p class="mc-note">Bales のカスタム情報（失注商談失注日・失注理由 大/中/詳細/小・失注前ステージ・顧客の現状・利用中ATS・採用人数 など21項目）は、SF の「Mochica（リード）」の同じ名前の項目です。Bales の <b>SalesforceID（00Q…）</b>＝SF のリードの ID なので、SF のリードの値を、そのまま Bales に入れるファイルを作ります。</p>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap"><label class="mc-note" style="margin:0">対象：<select id="mcBalesScope" class="mt-q" style="height:34px;margin:0"><option value="lost">SF の失注の情報があるリード（約1.4万件）</option><option value="all">SF の Mochica（リード）全部（約8.7万件・Bales に無いものも含む）</option></select></label><button type="button" class="mt-btn" id="mcBalesRun">集計する</button><a class="mt-btn ghost" id="mcBalesCsv" href="/api/mochica/bales/leads.csv" style="display:none">取り込み用ファイル（CSV）をダウンロード</a></div>
         <div id="mcBalesSum" class="mc-note" style="margin-top:10px">「集計する」を押すと、SF のリードを読み込みます（1〜2分かかります）。</div>
@@ -212,7 +229,8 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/caseshare.js?v=20261115c"></script>
-  <script src="/mochica.js?v=20261115c"></script>
+  <script src="/mcbales.js?v=20261115d"></script>
+  <script src="/caseshare.js?v=20261115d"></script>
+  <script src="/mochica.js?v=20261115d"></script>
 </body>
 </html>

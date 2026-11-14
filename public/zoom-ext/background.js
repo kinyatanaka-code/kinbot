@@ -94,3 +94,17 @@ async function kbMtAuto() {
 chrome.alarms.create("kb-miitel-auto", { periodInMinutes: 20, delayInMinutes: 2 });
 chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === "kb-miitel-auto") kbMtAuto(); });
 chrome.runtime.onMessage.addListener((msg, sender, reply) => { if (msg && msg.type === "kb-miitel-auto-now") { kbMtAuto(); reply({ ok: true }); return true; } });
+
+// Bales Cloud の画面で読んだリストを kinbot へ（2026-11-15 田中さん）
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-bales-rows") return;
+  (async () => {
+    try {
+      const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || "";
+      const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/bales/ext/rows", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json", "x-kb-ext": tk }, body: JSON.stringify(msg.payload || {}) });
+      const j = await r.json().catch(() => null);
+      reply(j && j.ok ? { ok: true, n: j.n, count: j.count } : { ok: false, status: r.status, error: (j && j.error) || (r.status === 0 || r.status === 302 ? "kinbot にログインしていません。kinbot の画面を開いてから、もう一度押してください" : `kinbot に送れませんでした（${r.status}）`) });
+    } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
+  })();
+  return true;
+});

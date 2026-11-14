@@ -12,6 +12,7 @@
     // 設定は kinbot と同じ画面を中に開く（開いたときに初めて読む）（2026-11-14）
     if (k === "settings") { const f = $("mcSetFrame"); if (f && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
     if (k === "mtg") loadMeetings();
+    if (k === "list" && window.mcBalesView) window.mcBalesView();   // Bales のリスト（2026-11-15）
     { const hr = $("mcHeadR"); if (hr) hr.hidden = k !== "mtg"; }
   };
   document.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", () => go(a.dataset.go)));
@@ -95,6 +96,9 @@
     { const ov = box.querySelector("[data-coov]"); if (ov) ov.addEventListener("click", () => { mtSel = ""; mtDraw(); mtCompany(mtCo); }); }
     box.querySelectorAll("[data-mt]").forEach((el) => el.addEventListener("click", () => mtOpen(el.dataset.mt)));
   }
+  // Bales のリストの画面から使う：MOCHICA の商談がある会社の名前／その会社カードを開く（2026-11-15）
+  window.mcMeetingCompanies = async () => { if (!mtAll.length) await loadMeetings(); return [...new Set(mtAll.map((m) => coOf(m)).filter(Boolean))]; };
+  window.mcOpenCompany = async (co) => { go("mtg"); if (!mtAll.length) await loadMeetings(); const m = mtAll.find((x) => coKey(x) === co); mtHost = m ? (hostsOf(m)[0] ?? null) : null; mtCo = co; mtSel = ""; mtDraw(); mtCompany(co); };
   async function loadMeetings() {
     try { const d = await api("/api/mochica/miitel/meetings"); mtAll = (d.items || []).filter((m) => String(m.title || "").trim() || m.started_at || m.transcript_len); mtDraw(); }
     catch (e) { const b = $("mtList"); if (b) b.textContent = "読めませんでした：" + e.message; }
