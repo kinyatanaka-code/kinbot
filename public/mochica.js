@@ -66,9 +66,12 @@
       const cs = [...by.entries()].sort((a, b) => (a[0] === "（会社名なし）") - (b[0] === "（会社名なし）") || String(b[1].last).localeCompare(String(a[1].last)));
       $("mtCount").textContent = `${cs.filter(([k]) => k !== "（会社名なし）").length}社・${mine.length}商談`;
       box.innerHTML = `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${cs.length}社・${mine.length}商談</small></div>` +
-        cs.map(([k, v]) => `<div class="mt-pcard mt-cocard${k === "（会社名なし）" ? " none" : ""}" data-co="${esc(k)}"><span class="av">${esc(coIni(k))}</span><span class="nm"><b>${esc(k)}</b><small>${v.n}商談${v.last ? `・最新 ${md(v.last)}` : ""}${v.sf ? "・SFと結びつき" : ""}</small></span><span class="go">›</span></div>`).join("");
+        cs.map(([k, v]) => `<div class="mt-pcard mt-cocard${k === "（会社名なし）" ? " none" : ""}" data-co="${esc(k)}"><span class="av">${esc(coIni(k))}</span><span class="nm"><b>${esc(k)}</b><small>${v.n}商談${v.last ? `・最新 ${md(v.last)}` : ""}</small>${k === "（会社名なし）" ? "" : `<span class="mt-cotags"><span class="acard-sf acard-sf-load" data-cosf="${esc(k)}">SF確認中…</span><span class="mt-cshare" data-cshare="${esc(k)}" role="button" tabindex="0" title="案件共有（社内の案件共有_申請フォーム）">案件共有</span></span>`}</span><span class="go">›</span></div>`).join("");
       box.querySelector("[data-back]").addEventListener("click", () => { mtHost = null; mtCo = null; mtDraw(); });
       box.querySelectorAll("[data-co]").forEach((el) => el.addEventListener("click", () => { mtCo = el.dataset.co; mtSel = ""; mtDraw(); mtCompany(mtCo); }));
+      // 案件共有（kinbot の商談履歴と同じ下書きの窓）と、SF の札（2026-11-14 田中さん）
+      box.querySelectorAll("[data-cshare]").forEach((el) => { const go2 = (ev) => { ev.stopPropagation(); ev.preventDefault(); mtCaseShare(el.dataset.cshare); }; el.addEventListener("click", go2); el.addEventListener("keydown", (ev) => { if (ev.key === "Enter") go2(ev); }); });
+      mtCoSfTags(box, cs.map(([k]) => k));
       return;
     }
     // ③ その会社の商談（日ごと）。探したときは担当や会社をまたいで出す
@@ -222,21 +225,51 @@
   }
   // ===== 会社の概要：kinbot の会社カードと同じく、gBizINFO などから会社のプロフィールを出す（2026-11-14 田中さん）=====
   //   gBizINFO のプロフィール・SF の商談の結びつき・この会社の商談・社内の資料を並べる
-  function mtCompany(co) {
+  // 会社のカードの SF の札：「SF: ステージ」（結びつけた・会社名で見つけた商談）か「SF未紐付け」。押すと会社の概要（そこで結びつけられる）
+  async function mtCoSfTags(box, cos) {
+    // 戻るたびに SF に聞き直さないよう、2分は覚えておく（結びつけを変えたら消す）
+    const ck = cos.join("|"); const c0 = mtCoSfTags.cache; let d = {};
+    if (c0 && c0.k === ck && Date.now() - c0.at < 120000) d = c0.d;
+    else { try { d = (await api("/api/mochica/co-sf-status", { method: "POST", body: JSON.stringify({ companies: cos }) })).byCompany || {}; mtCoSfTags.cache = { k: ck, at: Date.now(), d }; } catch { box.querySelectorAll("[data-cosf]").forEach((el) => el.remove()); return; } }
+    box.querySelectorAll("[data-cosf]").forEach((el) => { const v = d[el.dataset.cosf];
+      if (v && v.stage) { el.className = "acard-sf acard-sf-on"; el.textContent = "SF: " + String(v.stage).replace(/^\s*\d+\s*[:：.、)]\s*/, ""); el.title = `${v.name || ""}${v.linked ? "（会社のカードで結びつけた商談）" : "（会社名で見つけた商談。押すと結びつけを決められます）"}`; }
+      else { el.className = "acard-sf acard-sf-off"; el.textContent = "SF未紐付け"; el.title = "押すと、会社の概要で SF の商談を結びつけられます"; }
+      el.addEventListener("click", (ev) => { ev.stopPropagation(); mtCo = el.dataset.cosf; mtSel = ""; mtDraw(); mtCompany(mtCo, true); }); });
+  }
+  // 案件共有：kinbot と同じ caseshare.js の窓。会社名・相手の名前・商談の日時を入れて開く
+  function mtCaseShare(co) {
+    if (!window.kbCaseShare) { alert("案件共有の窓を読み込めませんでした。画面を開き直してください。"); return; }
+    const ms = mtAll.filter((m) => coKey(m) === co).sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || ""))); const m = ms[0] || {};
+    const t = String((m.cal && m.cal.title) || "").replace(/【[^】]*】/g, " "); const pm = t.match(/([^\s　/／|｜:：・、,_]{1,12})\s*(?:様|さま|さん|殿)/);
+    window.kbCaseShare({ company: co, person: pm ? pm[1] : "", date: m.started_at || "" });
+  }
+  function mtCompany(co, focusSf) {
     const main = $("mtMain"); if (!main) return;
     if (!co || co === "（会社名なし）") { main.innerHTML = '<div class="mt-empty">会社名が読めなかった商談です。左の商談を選んで、題名の横のカレンダーから商談の予定を選ぶと、会社名が入ります。</div>'; return; }
     const ms = mtAll.filter((m) => coKey(m) === co).sort((a, b) => String(b.started_at || "").localeCompare(String(a.started_at || "")));
     const sfm = ms.find((m) => m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId));
     const sf = sfm ? sfm.cal.sf : {};
     main.innerHTML = `<div class="ov-wrap mt-ov">
-        <div class="ov-name">${esc(co)}</div>
-        <div class="mt-ov-links">${sf.accountId ? `<a class="mt-btn ghost" href="https://ap10.lightning.force.com/lightning/r/Account/${esc(sf.accountId)}/view" target="_blank" rel="noopener">SF の取引先 ↗</a>` : ""}${sf.leadId ? `<a class="mt-btn ghost" href="https://ap10.lightning.force.com/lightning/r/Lead/${esc(sf.leadId)}/view" target="_blank" rel="noopener">SF のリード ↗</a>` : ""}${ms[0] ? `<button type="button" class="mt-btn" data-ovlatest>直近の商談を開く（${md(ms[0].started_at)}）</button>` : ""}</div>
+        <div class="mt-ovname"><input class="ov-name mt-coin" data-coname value="${esc(co)}" title="直して Enter で保存（この会社の商談すべての会社名が変わります）"><span class="mc-note" data-conote></span></div>
+        <div class="mt-ov-links">${sf.accountId ? `<a class="mt-btn ghost" href="https://ap10.lightning.force.com/lightning/r/Account/${esc(sf.accountId)}/view" target="_blank" rel="noopener">SF の取引先 ↗</a>` : ""}${sf.leadId ? `<a class="mt-btn ghost" href="https://ap10.lightning.force.com/lightning/r/Lead/${esc(sf.leadId)}/view" target="_blank" rel="noopener">SF のリード ↗</a>` : ""}${ms[0] ? `<button type="button" class="mt-btn" data-ovlatest>直近の商談を開く（${md(ms[0].started_at)}）</button>` : ""}<button type="button" class="mt-btn ghost" data-ovshare>案件共有</button></div>
         <div class="ov-c mt-ovp" id="mtOvProf"><div class="ov-c-h">会社プロフィール<span class="ov-files-note">gBizINFO から</span></div><div class="ov-muted">gBizINFO から読んでいます…</div></div>
         <div class="ov-c" id="mtOvSf" style="margin-top:12px"><div class="ov-c-h">Salesforce の商談</div><div class="ov-muted">読み込んでいます…</div></div>
         <div class="ov-c" id="mtOvMeet"><div class="ov-c-h">この会社の商談（${ms.length}件）</div>${ms.map((m) => `<button type="button" class="mt-ovm" data-mt="${esc(m.id)}"><span class="d">${md(m.started_at)}（${wk(m.started_at)}）${hm(m.started_at)}</span><span class="t">${esc(titleOf(m))}</span><span class="h">${esc(hostsOf(m).join("・"))}</span></button>`).join("")}</div>
         <div class="ov-c" id="mtOvFiles" style="margin-top:12px"><div class="ov-c-h">社内にあるこの会社の資料</div><div class="ov-muted">探しています…</div></div>
       </div>`;
     const lb = main.querySelector("[data-ovlatest]"); if (lb) lb.addEventListener("click", () => mtOpen(ms[0].id));
+    main.querySelector("[data-ovshare]").addEventListener("click", () => mtCaseShare(co));
+    // 会社名を直す：この会社の商談すべてに入れ、SF のリード・取引先も探し直す（2026-11-14 田中さん）
+    { const ci = main.querySelector("[data-coname]"), cn = main.querySelector("[data-conote]"); let busy = false;
+      const save = async () => { const to = ci.value.trim(); if (busy || !to || to === co) { if (!to) ci.value = co; return; }
+        if (!confirm(`会社名を「${co}」から「${to}」に直しますか？（この会社の商談 ${ms.length}件すべてが変わります）`)) { ci.value = co; return; }
+        busy = true; ci.disabled = true; cn.textContent = "直しています…";
+        try { const r = await api("/api/mochica/co-rename", { method: "POST", body: JSON.stringify({ from: co, to }) });
+          mtAll.forEach((m) => { if (m.cal && coKey(m) === co) m.cal = { ...m.cal, company: to, sf: r.sf || m.cal.sf }; }); mtCoSfTags.cache = null; mtCo = to; mtDraw(); mtCompany(to); }
+        catch (e) { cn.textContent = "直せませんでした：" + e.message; ci.disabled = false; busy = false; } };
+      ci.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); ci.blur(); } if (e.key === "Escape") { ci.value = co; ci.blur(); } });
+      ci.addEventListener("blur", save); }
+    if (focusSf) setTimeout(() => { const sb = $("mtOvSf"); if (sb) sb.scrollIntoView({ behavior: "smooth", block: "start" }); }, 300);
     // 会社プロフィール：kinbot の会社カードと同じく gBizINFO から（法人番号・所在地・従業員数・業種・設立・資本金・サイト・事業内容）
     (async () => { const bx = $("mtOvProf"); try { const d = await api("/api/gbiz/company?name=" + encodeURIComponent(co)); if (!bx || $("mtOvProf") !== bx) return;
         if (d.configured === false) { bx.innerHTML = '<div class="ov-c-h">会社プロフィール</div><div class="ov-muted">gBizINFO の鍵がまだ設定されていません。</div>'; return; }
@@ -248,7 +281,7 @@
     const sfBox = async () => { const bx = $("mtOvSf"); if (!bx) return; let link = null; try { link = (await api("/api/mochica/co-sf?company=" + encodeURIComponent(co))).link; } catch {}
       if ($("mtOvSf") !== bx) return;
       const H = '<div class="ov-c-h">Salesforce の商談</div>';
-      const setLink = async (oppId) => { try { const r = await api("/api/mochica/co-sf", { method: "POST", body: JSON.stringify({ company: co, oppId }) }); mtAll.forEach((m) => { if (coKey(m) === co) m.cosf = r.link || undefined; }); mtDraw(); sfBox(); } catch (e) { alert(e.message); } };
+      const setLink = async (oppId) => { try { const r = await api("/api/mochica/co-sf", { method: "POST", body: JSON.stringify({ company: co, oppId }) }); mtAll.forEach((m) => { if (coKey(m) === co) m.cosf = r.link || undefined; }); mtCoSfTags.cache = null; mtDraw(); sfBox(); } catch (e) { alert(e.message); } };
       if (link) {
         bx.innerHTML = H + `<div class="mt-sf-linked"><div><b><a href="https://ap10.lightning.force.com/lightning/r/Opportunity/${esc(link.oppId)}/view" target="_blank" rel="noopener">${esc(link.oppName)} ↗</a></b><small>${esc(link.accountName || "")} ・ ステージ：${esc(link.stage || "—")} ・ この会社の商談の SF 連携で使います</small></div><button type="button" class="mt-sf-unlink" data-cun>解除</button></div>`;
         bx.querySelector("[data-cun]").addEventListener("click", () => { if (confirm("この会社と SF の商談の結びつきを外しますか？（SF の中身は変わりません）")) setLink(""); });

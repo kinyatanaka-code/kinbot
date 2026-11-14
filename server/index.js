@@ -26901,7 +26901,7 @@ function mcIsDealTitle(t) {
 }
 // 予定のタイトルから会社名を読む。「_」区切りや「会社：人様」の形も読めるようにしてから、kinbot と同じ companyFromTitle に渡す
 function mcCoFromTitle(t) {
-  let x = String(t || "").normalize("NFKC").replace(/【[^】]*】/g, " ");
+  let x = String(t || "").normalize("NFKC").replace(/【[^】]*】/g, " ").replace(/[〇○●◎◯☆★◆◇■□]+/g, " ");   // 予定の頭の「〇」などの印は会社名に入れない（2026-11-14）
   const ci = x.search(/[:：]/); if (ci > 0 && new RegExp(MC_CORP).test(x.slice(0, ci))) x = x.slice(0, ci);
   x = x.replace(/[_＿]+/g, " ").replace(/\s+/g, " ").trim();
   // 「福井商談 東邦コンサルタント株式会社 川瀬様」のように前に別の言葉があるときは、法人の言葉を含むかたまりを選ぶ
@@ -26946,10 +26946,10 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
     }
     if (best && best.bracket && first.includes(m) && best.score < 10 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 3, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（見たカレンダー：${tried || "なし"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
+  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 4, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（見たカレンダー：${tried || "なし"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
   const title = best.ev.title || ""; const company = mcCoFromTitle(title);
   const sf = await mcSfFor(company, owner);
-  return { v: 3, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
+  return { v: 4, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
 }
 let _mcCalRunning = false;
 async function mcCalMatchRun(owner) {
@@ -27099,6 +27099,42 @@ app.get("/api/mochica/sf/tasks", async (req, res) => {
 // 会社のカードから SF の商談を結びつける（2026-11-14 田中さん「SF を会社カードから紐づけできるように」）。
 //   settings.mcCoSf に会社名（空白を除いた形）ごとに置く。その会社の商談は、商談ごとに結びつけていなければ、これを使う
 const mcCoKeyN = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
+// 会社のカードの「SF: ステージ／SF未紐付け」の札（kinbot の商談履歴と同じ）（2026-11-14 田中さん）。
+//   会社のカードで結びつけた商談があればそのステージ、無ければ SF の「新規」の商談を会社名で探して、いちばん新しいもののステージ
+app.post("/api/mochica/co-sf-status", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const cos = [...new Set((Array.isArray(req.body && req.body.companies) ? req.body.companies : []).map((c) => String(c || "").trim()).filter((c) => c && c !== "（会社名なし）"))].slice(0, 120);
+    const map = ((await getSettings().catch(() => ({}))).mcCoSf) || {}; const out = {};
+    const q = (v) => `'${String(v).replace(/\\/g, "").replace(/'/g, "\\'")}'`;
+    const linkedIds = cos.map((c) => map[mcCoKeyN(c)] && map[mcCoKeyN(c)].oppId).filter(Boolean).map((x) => String(x).replace(/[^A-Za-z0-9]/g, ""));
+    const stageById = {};
+    if (linkedIds.length) { const d = await sfQuery(owner, `SELECT Id, StageName FROM Opportunity WHERE Id IN (${linkedIds.map(q).join(",")})`).catch(() => null); for (const r of (d && d.records) || []) stageById[r.Id] = r.StageName || ""; }
+    const rest = cos.filter((c) => !(map[mcCoKeyN(c)] && map[mcCoKeyN(c)].oppId));
+    const autoBy = {};
+    for (let i = 0; i < rest.length; i += 40) { const part = rest.slice(i, i + 40);
+      const d = await sfQuery(owner, `SELECT Id, Name, StageName, Account.Name FROM Opportunity WHERE Account.Name IN (${part.map(q).join(",")}) AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 400`).catch(() => null);
+      for (const r of (d && d.records) || []) { const k = mcCoKeyN(r.Account && r.Account.Name); if (!autoBy[k]) autoBy[k] = r; } }
+    for (const c of cos) { const lk = map[mcCoKeyN(c)];
+      if (lk && lk.oppId) out[c] = { company: c, linked: true, oppId: lk.oppId, name: lk.oppName, stage: stageById[lk.oppId] ?? lk.stage ?? "" };
+      else { const a = autoBy[mcCoKeyN(c)]; out[c] = a ? { company: c, linked: false, auto: true, oppId: a.Id, name: a.Name, stage: a.StageName || "" } : { company: c, linked: false }; } }
+    res.json({ ok: true, byCompany: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 会社名を直す（会社の概要で）：その会社名の商談をまとめて新しい会社名にし、SF のリード・取引先も探し直す。会社の SF の結びつきも移す（2026-11-14 田中さん）
+app.post("/api/mochica/co-rename", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const from = String((req.body && req.body.from) || "").trim(), to = String((req.body && req.body.to) || "").trim().slice(0, 120);
+    if (!from || !to) return res.status(400).json({ error: "会社名が空です" });
+    if (from === to) return res.json({ ok: true, n: 0 });
+    const rows = (await mcMiitelList(2000)).filter((r) => r.cal && mcCoKeyN(r.cal.company) === mcCoKeyN(from));
+    const sf = await mcSfFor(to, owner);
+    for (const r of rows) await mcMiitelSave({ id: r.id, payload: { mt_cal: { ...r.cal, company: to, sf, manual: true, renamedFrom: from, by: req.user, at: Date.now() } } });
+    const st = await getSettings().catch(() => ({})); const map = { ...(st.mcCoSf || {}) };
+    if (map[mcCoKeyN(from)] && !map[mcCoKeyN(to)]) { map[mcCoKeyN(to)] = { ...map[mcCoKeyN(from)], company: to }; delete map[mcCoKeyN(from)]; await saveSettings({ mcCoSf: map }); }
+    console.log(`[mochica] 会社名を直しました：${from} → ${to}（${rows.length}件） by ${req.user}`);
+    res.json({ ok: true, n: rows.length, sf });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/co-sf", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const map = ((await getSettings().catch(() => ({}))).mcCoSf) || {}; res.json({ ok: true, link: map[mcCoKeyN(req.query.company)] || null });
@@ -31378,7 +31414,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14x kinbot for MOCHICA：御礼メールのタブを外した。「FB & 分析」の下に AI分析（kinbot と同じ analyzeDeep：スコア・BANT・案件の状態・次アクションの明確さ・課題・購買シグナル・懸念と対応・競合・話し方の癖・顧客の反応・コーチング）を足した。";
+const BUILD_TAG = "2026-11-14y kinbot for MOCHICA：会社のカードに kinbot と同じ「SF: ステージ／SF未紐付け」の札（押すと会社の概要の SF の欄）と「案件共有」（caseshare.js の窓）。会社の概要で会社名を直せる（その会社の商談すべて・SF も探し直す）。予定の頭の「〇」などを会社名に入れない（v=4 でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
