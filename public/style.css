@@ -810,7 +810,7 @@ label.iv-row { cursor: pointer; }
 .mb-legend { display: flex; flex-direction: column; gap: 4px; margin: 12px 0 16px; padding: 12px 14px;
   background: var(--panel-2); border-radius: 10px; font-size: 12px; color: var(--muted); line-height: 1.7; }
 .mb-legend b { color: #0F6E56; }
-.mb-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.mb-list { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
 .mb-row { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel); cursor: grab; }
 .mb-row.mb-drag { opacity: .45; }
 .mb-row.mb-off { opacity: .55; background: var(--panel-2); }
@@ -834,6 +834,27 @@ label.iv-row { cursor: pointer; }
 .mb-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
 .mb-add input { padding: 8px 11px; border: 1px solid var(--line); border-radius: 9px; font-size: 13px; font-family: inherit; }
 .mb-sum { margin-top: 4px; }
+/* メンバー管理：DOC（緑）・MOCHICA（水色）・その他（黄緑）のグループのカード（2026-11-14） */
+.mb-grp { --g: #0d5b47; --g2: #1d9e75; --gs: #E8F5EE; --gl: #CFE8DA; border: 1px solid var(--gl); border-radius: 14px; background: #fff; overflow: hidden; }
+.mb-grp-mochica { --g: #0B6E78; --g2: #0E9AA7; --gs: #E3F6F8; --gl: #C7E8EC; }
+.mb-grp-other { --g: #4E7A0C; --g2: #7CB518; --gs: #F2F8E3; --gl: #DCEBB8; }
+.mb-grp-h { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 14px; border: 0; background: var(--gs); font: inherit; cursor: pointer; text-align: left; border-bottom: 1px solid var(--gl); }
+.mb-grp-h b { font-size: 14px; color: var(--g); letter-spacing: .04em; }
+.mb-grp-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--g2); flex: 0 0 auto; }
+.mb-grp-n { font-size: 12px; color: var(--g); font-weight: 700; background: #fff; border-radius: 99px; padding: 2px 10px; }
+.mb-grp-tog { margin-left: auto; width: 9px; height: 9px; border-right: 2px solid var(--g); border-bottom: 2px solid var(--g); transform: rotate(45deg); margin-top: -4px; transition: transform .15s; }
+.mb-closed .mb-grp-tog { transform: rotate(-45deg); margin-top: 0; }
+.mb-closed .mb-grp-h { border-bottom: 0; }
+.mb-closed .mb-grp-body { display: none; }
+.mb-grp-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.mb-grp-empty { margin: 4px 6px; }
+.mb-grp .mb-row { border-left: 4px solid var(--g2); padding: 10px 12px; }
+.mb-grp .mb-row .btn { padding: 4px 12px; font-size: 12px; min-height: 0; height: 28px; border-radius: 8px; }
+.mb-grp .mb-main input { height: 32px; padding: 0 10px; }
+.mb-gstatus { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.mb-gstatus::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid #A8B5AF; }
+.mb-gstatus.mb-g-on { color: #1f7a4d; }
+.mb-gstatus.mb-g-on::before { background: #1d9e75; border-color: #1d9e75; }
 @media (max-width: 720px) {
   .mb-name, .mb-team, .mb-email { width: 100%; flex: 1 1 100%; }
   .mb-del { margin-left: 0; }

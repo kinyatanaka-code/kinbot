@@ -1049,10 +1049,11 @@ function mbRender() {
     box.innerHTML = '<p class="note">まだ誰も登録されていません。下の欄から追加してください。</p>';
   } else {
     box.innerHTML = "";
-    mbState.members.forEach((m, i) => {
+    // 1人分の行を作る（DOC と MOCHICA の両方の人は、両方のグループに出す）
+    const build = (m, i, gk) => {
       const p = m.profile || {};
       const row = document.createElement("div");
-      row.className = "mb-row" + (m.active === false ? " mb-off" : "");
+      row.className = "mb-row mb-row-" + gk + (m.active === false ? " mb-off" : "");
       row.draggable = true;
       row.innerHTML =
         `<div class="mb-main">
@@ -1069,7 +1070,7 @@ function mbRender() {
            <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
            <button type="button" class="btn ghost mb-sig">署名</button>
            <button type="button" class="btn ghost mb-gcopy">Google連携リンク</button>
-           <span class="mb-gstatus note">${(mbState.gLinks && mbState.gLinks[String(m.email || "").trim().toLowerCase()] || {}).connected ? "🟢 Google連携済み" : "⚪ Google未連携"}</span>
+           ${(mbState.gLinks && mbState.gLinks[String(m.email || "").trim().toLowerCase()] || {}).connected ? '<span class="mb-gstatus mb-g-on">Google連携済み</span>' : '<span class="mb-gstatus">Google未連携</span>'}
            <button type="button" class="btn ghost mb-del">外す</button>
          </div>
          <div class="mb-sigbox" hidden>
@@ -1121,6 +1122,7 @@ function mbRender() {
       row.querySelectorAll(".mb-biz").forEach((c) => c.addEventListener("change", (e) => {
         const v = e.target.dataset.v;
         m.businesses = e.target.checked ? [...new Set([...m.businesses, v])] : m.businesses.filter((x) => x !== v);
+        mbRender();   // 事業を変えたら、そのグループのカードへ移す
       }));
       row.querySelectorAll(".mb-role").forEach((c) => c.addEventListener("change", (e) => {
         const v = e.target.dataset.v;
@@ -1143,8 +1145,30 @@ function mbRender() {
         mbState.members.splice(i, 0, moved);
         mbRender();
       });
-      box.appendChild(row);
-    });
+      return row;
+    };
+    // DOC・MOCHICA・その他のグループのカードに分けて並べる（2026-11-14 田中さん：色は DOC=緑・MOCHICA=水色・その他=黄緑）
+    const GROUPS = [
+      { k: "doc", label: "DOC", has: (m) => m.businesses.includes("DOC") },
+      { k: "mochica", label: "MOCHICA", has: (m) => m.businesses.includes("MOCHICA") },
+      { k: "other", label: "その他", has: (m) => !m.businesses.includes("DOC") && !m.businesses.includes("MOCHICA") },
+    ];
+    mbState.closed = mbState.closed || {};
+    for (const g of GROUPS) {
+      const list = mbState.members.map((m, i) => ({ m, i })).filter(({ m }) => g.has(m));
+      const on = list.filter(({ m }) => m.active !== false).length;
+      const card = document.createElement("section");
+      card.className = "mb-grp mb-grp-" + g.k + (mbState.closed[g.k] ? " mb-closed" : "");
+      card.innerHTML = `<button type="button" class="mb-grp-h" aria-expanded="${mbState.closed[g.k] ? "false" : "true"}">
+          <span class="mb-grp-dot"></span><b>${g.label}</b><span class="mb-grp-n">在籍 ${on}名${list.length > on ? `・休み ${list.length - on}名` : ""}</span>
+          <span class="mb-grp-tog" aria-hidden="true"></span></button>
+        <div class="mb-grp-body"></div>`;
+      card.querySelector(".mb-grp-h").addEventListener("click", () => { mbState.closed[g.k] = !mbState.closed[g.k]; mbRender(); });
+      const body = card.querySelector(".mb-grp-body");
+      if (!list.length) body.innerHTML = `<p class="note mb-grp-empty">${g.k === "other" ? "DOC にも MOCHICA にも入っていない人はいません。" : `まだ ${g.label} の人はいません。行の「事業」で ${g.label} にチェックすると、ここに入ります。`}</p>`;
+      for (const { m, i } of list) body.appendChild(build(m, i, g.k));
+      box.appendChild(card);
+    }
   }
 
   // 内訳のまとめ
