@@ -710,7 +710,7 @@ import { notionConfigured, notionStatus, createMeetingPage, createReportPage } f
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
 import { readDocument, describeForChat, readerAvailable, readWhiteboard, readShiftCalendar } from "./ai_read.js";
-import { mountMcpServer, mountMcpEndpoint } from "./mcp.js";
+import { mountMcpServer, mountMcpEndpoint, mcpHooks } from "./mcp.js";
 import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
@@ -27152,10 +27152,8 @@ app.post("/api/mochica/co-sf", async (req, res) => {
     await saveSettings({ mcCoSf: map }); res.json({ ok: true, link: map[key] });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.get("/api/mochica/sf/form", async (req, res) => {
-  try {
-    if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
-    const row = await mcMiitelGet(String(req.query.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+// SF 連携の中身（結びついた商談・ステージごとの項目・いまの値・必須）。画面と Claude（kinbot コネクタ）の両方で使う（2026-11-14）
+async function mcSfFormData(owner, row) {
     const desc = await mcOppDescribe(owner); const all = (desc.fields || []);
     const byLbl = new Map(all.map((f) => [mcLblKey(f.label), f]));
     const stageField = all.find((f) => f.name === "StageName"); const stages = (stageField && stageField.picklistValues || []).filter((o) => o.active).map((o) => o.value);
@@ -27165,7 +27163,15 @@ app.get("/api/mochica/sf/form", async (req, res) => {
     const learned = ((await getSettings().catch(() => ({}))).mcSfRequired) || {};
     let fromRules = { req: {}, why: {}, count: 0 }, rulesErr = ""; try { fromRules = await mcRequiredFromRules(owner); } catch (e) { rulesErr = String(e.message || e).slice(0, 160); }
     const reqd = {}; for (const k of new Set([...Object.keys(learned), ...Object.keys(fromRules.req || {})])) reqd[k] = [...new Set([...(learned[k] || []), ...((fromRules.req || {})[k] || [])])];
-    res.json({ ok: true, opp, stages, defs, current: cur, required: reqd, requiredWhy: fromRules.why || {}, rulesCount: fromRules.count || 0, rulesErr, sfBase: "https://ap10.lightning.force.com" });
+    return { ok: true, opp, stages, defs, current: cur, required: reqd, requiredWhy: fromRules.why || {}, rulesCount: fromRules.count || 0, rulesErr, sfBase: "https://ap10.lightning.force.com" };
+}
+// Claude（kinbot コネクタ）から MOCHICA の商談を読む・SF を直すための道具（2026-11-14 田中さん「MOCHICA でもクロードから文字起こしを引っ張ってきたり SF の更新ができたりしたい」）
+mcpHooks.mochica = { transcriptText: (p) => mcTranscriptText(p), repIndex: () => mcRepIndex(), sfFormData: (owner, row) => mcSfFormData(owner, row), pickSfUser: (u) => pickSfUser(u), coKey: (v) => mcCoKeyN(v), settings: () => getSettings() };
+app.get("/api/mochica/sf/form", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const row = await mcMiitelGet(String(req.query.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    res.json(await mcSfFormData(owner, row));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/mochica/sf/fill", async (req, res) => {
@@ -31414,7 +31420,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14z 案件共有の窓：「共有先となる営業担当の指定有無」を最初は空欄に（前は「指定なし」が入っていた）。kinbot・MOCHICA・kincall のどれから開いても同じ。";
+const BUILD_TAG = "2026-11-14za kinbot コネクタ（Claude）に MOCHICA の道具を足した：mochica_list_meetings（一覧・日付/会社/担当で絞る）、mochica_get_meeting（文字起こし全文・議事録・要約・FB・AI分析・段階・SF の ID）、mochica_sf_form（結びついた SF の商談とステージごとの項目・いまの値・必須）。SF を直すのは今までの sf_update。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

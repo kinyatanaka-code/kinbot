@@ -27,6 +27,9 @@ import {
 } from "./db.js";
 import { sfQuery, sfUpdateRecord, sfCreateRecord, isConnected as sfIsConnected } from "./salesforce.js";
 import { registerUser } from "./auth.js";
+import { mcMiitelList, mcMiitelGet } from "./db.js";
+// index.js から MOCHICA の道具（文字起こしの読み方・SF の項目の中身など）を受け取る（2026-11-14）
+export const mcpHooks = {};
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
 const PROTOCOL_VERSION = "2025-03-26";
@@ -166,6 +169,21 @@ const TOOLS = [
     name: "create_kinbot_accounts",
     description: "kinbot のログイン用アカウントをまとめて作る（書き込み・管理者だけ）。accounts に {name, email} を並べ、password は全員共通の最初のパスワード（8文字以上）。作るだけで、だれのログインも変えない。すでにあるメールは作らずにそう返す。",
     inputSchema: { type: "object", properties: { accounts: { type: "array", maxItems: 50, items: { type: "object", properties: { name: { type: "string" }, email: { type: "string" } }, required: ["email"] } }, password: { type: "string", description: "最初のパスワード（8文字以上）" } }, required: ["accounts", "password"] },
+  },
+  {
+    name: "mochica_list_meetings",
+    description: "kinbot for MOCHICA の商談（MiiTel の会議）の一覧を返す（読み取り）。日付・会社名・担当で絞れる。各商談の id・題名（カレンダーの予定）・会社名・担当・日時・長さ・文字起こしの有無・SF の結びつきを返す。文字起こしや議事録は mochica_get_meeting で読む。",
+    inputSchema: { type: "object", properties: { from: { type: "string", description: "この日から YYYY-MM-DD（任意）" }, to: { type: "string", description: "この日まで YYYY-MM-DD（任意）" }, company: { type: "string", description: "会社名の一部（任意）" }, rep: { type: "string", description: "担当の名前の一部かメール（任意）" }, limit: { type: "number", description: "最大件数（既定50・最大200）" } } },
+  },
+  {
+    name: "mochica_get_meeting",
+    description: "kinbot for MOCHICA の商談（MiiTel の会議）を1件読む（読み取り）。文字起こし全文・MiiTel の議事録・kinbot の要約と営業フィードバック・AI分析・商談の段階・会社名・担当・参加者・SF のリード／取引先 ID を返す。id は mochica_list_meetings の id。",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "MiiTel の会議の ID" }, transcript: { type: "boolean", description: "文字起こし全文を含めるか（既定 true）" } }, required: ["id"] },
+  },
+  {
+    name: "mochica_sf_form",
+    description: "kinbot for MOCHICA の商談に結びついた SF の商談（_新規_）と、ステージごとに入れる項目・いまの値・必須（SF の入力規則から読んだもの）を返す（読み取り）。SF を直すときは、これで項目の API 名と必須を確かめてから sf_update（sobject=Opportunity）で書く。必須が空のままステージを進めると SF に止められる。",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "MiiTel の会議の ID" } }, required: ["id"] },
   },
   {
     name: "sf_create",
@@ -472,6 +490,63 @@ export async function callTool(name, args, req) {
       }
       console.log(`[accounts] ${u} が MCP からアカウントを作りました：${out.filter((x) => x.結果 === "作りました").map((x) => x.email).join("・") || "なし"}`);
       return { 件数: out.filter((x) => x.結果 === "作りました").length, 結果: out };
+    }
+    // ===== MOCHICA の商談を Claude から読む・SF を直す（2026-11-14 田中さん）=====
+    case "mochica_list_meetings": {
+      if (!req.user) throw new Error("ログインが必要です");
+      const H = mcpHooks.mochica || {}; const repOf = H.repIndex ? await H.repIndex().catch(() => null) : null;
+      const coSf = H.settings ? (((await H.settings().catch(() => ({}))).mcCoSf) || {}) : {};
+      const jst = (v) => v ? new Date(new Date(v).getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "";
+      const lim = Math.min(200, Math.max(1, Number(args && args.limit) || 50));
+      const f = String((args && args.from) || ""), t = String((args && args.to) || "");
+      const co = String((args && args.company) || "").trim(), rp = String((args && args.rep) || "").trim().toLowerCase();
+      const rows = await mcMiitelList(3000);
+      const out = [];
+      for (const r of rows) {
+        const cal = r.cal && !r.cal.none ? r.cal : null; const d = jst(r.started_at || r.received_at).slice(0, 10);
+        if (f && d < f) continue; if (t && d > t) continue;
+        const company = (cal && cal.company) || "";
+        if (co && !String(company + " " + ((cal && cal.title) || r.title || "")).includes(co)) continue;
+        const reps = r.mrep && r.mrep.email ? [r.mrep] : (repOf ? repOf(r.participants) : []);
+        const repName = reps.map((x) => x.name).join("・") || (cal && cal.ownerName) || (r.host && r.host !== "オーナー" ? r.host : "");
+        if (rp && !String(repName + " " + reps.map((x) => x.email).join(" ")).toLowerCase().includes(rp)) continue;
+        const lk = H.coKey && coSf[H.coKey(company)];
+        out.push({ id: r.id, 題名: (cal && cal.title) || r.title || "", 会社名: company, 担当: repName, 日時: jst(r.started_at || r.received_at), 長さ_分: r.duration_sec ? Math.round(r.duration_sec / 60) : null, 文字起こし: !!(r.has_tr || r.transcript_len), 参加者: r.participants || "", SF: { リードID: (cal && cal.sf && cal.sf.leadId) || "", 取引先ID: (cal && cal.sf && cal.sf.accountId) || "", 会社で結びつけた商談: lk ? `${lk.oppName}（${lk.oppId}）` : "" } });
+        if (out.length >= lim) break;
+      }
+      return { 件数: out.length, 商談: out };
+    }
+    case "mochica_get_meeting": {
+      if (!req.user) throw new Error("ログインが必要です");
+      const id = String((args && args.id) || ""); const r = await mcMiitelGet(id); if (!r) throw new Error("その会議は kinbot for MOCHICA に入っていません");
+      const H = mcpHooks.mochica || {}; const p = r.payload || {}; const v = p.video || p.meeting || p.data || p;
+      const cal = p.mt_cal && !p.mt_cal.none ? p.mt_cal : null;
+      const repOf = H.repIndex ? await H.repIndex().catch(() => null) : null;
+      const reps = p.mt_rep && p.mt_rep.email ? [p.mt_rep] : (repOf ? repOf(r.participants) : []);
+      // 議事録：MiiTel から届いた本文、なければ拡張機能が写した議事録（見出しと中身をつなぐ）
+      let minutes = String(v.minutes || (typeof v.summary === "string" ? v.summary : "") || "").trim();
+      if (!minutes && p.mt_summary != null) { const parts = []; const walk = (o, d) => { if (d > 6 || o == null) return; if (typeof o === "string") { if (o.trim()) parts.push(o.trim()); return; } if (Array.isArray(o)) { o.forEach((x) => walk(x, d + 1)); return; } if (typeof o === "object") { const h = o.title || o.heading || o.name; const c = o.content || o.text || o.body || o.summary; if (h || c) { parts.push([h, c].filter((x) => typeof x === "string" && x.trim()).join("\n")); return; } Object.values(o).forEach((x) => walk(x, d + 1)); } }; walk(p.mt_summary, 0); minutes = parts.join("\n\n"); }
+      let tr = H.transcriptText ? H.transcriptText(p) : "";
+      if (!tr && Array.isArray(v.transcript)) tr = v.transcript.map((u) => `${(u.speaker && (u.speaker.name || u.speaker)) || ""}: ${u.text || ""}`).join("\n");
+      const want = !(args && args.transcript === false);
+      const jst = (x) => x ? new Date(new Date(x).getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "";
+      return { id, 題名: (cal && cal.title) || r.title || "", 会社名: (cal && cal.company) || "", 担当: reps.map((x) => `${x.name}（${x.email}）`).join("・") || (cal && cal.ownerName) || r.host || "", 日時: jst(r.started_at || r.received_at), 長さ_分: r.duration_sec ? Math.round(r.duration_sec / 60) : null, 参加者: r.participants || "",
+        MiiTel: r.url || `https://mochica.app.miitel.com/app/video/${id}`, SF: { リードID: (cal && cal.sf && cal.sf.leadId) || "", 取引先ID: (cal && cal.sf && cal.sf.accountId) || "", 商談ごとに結びつけた商談ID: (p.mt_sfopp && p.mt_sfopp.id) || "" },
+        議事録: minutes ? minutes.slice(0, 30000) : "（MiiTel の議事録はまだありません）",
+        要約: (p.mt_review && p.mt_review.summary) || null, 営業フィードバック: (p.mt_review && p.mt_review.feedback) || null, AI分析: p.mt_deep || null,
+        商談の段階: (p.mt_chapters && p.mt_chapters.chapters) || null,
+        文字起こし: want ? (tr ? tr.slice(0, 120000) : "（文字起こしはまだありません）") : `（省略：${tr.length}文字）`, 文字起こし_文字数: tr.length };
+    }
+    case "mochica_sf_form": {
+      if (!req.user) throw new Error("ログインが必要です");
+      const H = mcpHooks.mochica || {}; if (!H.sfFormData) throw new Error("いまは使えません（サーバーの準備中）");
+      const r = await mcMiitelGet(String((args && args.id) || "")); if (!r) throw new Error("その会議は kinbot for MOCHICA に入っていません");
+      const owner = await sfOwnerFor(req);
+      const d = await H.sfFormData(owner, r);
+      if (!d.opp) return { 結びついた商談: null, メモ: "この会議には SF の商談が結びついていません。会社名で sf_query（Opportunity）を探すか、kinbot for MOCHICA の画面で結びつけてください。" };
+      return { 結びついた商談: { Id: d.opp.Id, 商談名: d.opp.Name, ステージ: d.opp.StageName, 取引先: d.opp.Account && d.opp.Account.Name, 完了予定日: d.opp.CloseDate },
+        ステージの選択肢: d.stages, ステージごとの項目: (d.defs || []).map((x) => ({ 段階: x.label, ステージの値: x.stageValue, 項目: (x.fields || []).map((fl) => ({ 名前: fl.label, API名: fl.name, 型: fl.type, 選択肢: fl.options || undefined, いまの値: fl.name ? (d.current || {})[fl.name] ?? null : null, 必須: !!(fl.name && ((d.required || {})[x.key] || []).includes(fl.name)) })) })),
+        書き方: "sf_update で sobject=Opportunity、id=上の Id、fields={API名: 値} を書く。ステージを進めるときは、その段階の必須の項目も一緒に入れる。" };
     }
     case "mochica_miitel_imported_ids": {
       if (!req.user) throw new Error("ログインが必要です");
