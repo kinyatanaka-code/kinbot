@@ -363,16 +363,21 @@
         catch (err) { msg.innerHTML = `<div style="color:#B4441F;font-size:13px;padding:6px 2px;">記録できませんでした：${esc(err.message)}</div>`; } finally { btn.disabled = false; btn.textContent = "活動を記録"; } });
       // 過去の活動：kinbot と同じ見え方（次回アクションはチェックで完了、編集・削除）
       const hist = paneEl.querySelector("[data-thist]");
-      const loadHist = async () => { hist.innerHTML = '<div class="sf-ss-note">読み込み中…</div>';
-        let tasks = []; try { tasks = (await api(`/api/salesforce/tasks?opportunityId=${encodeURIComponent(d.opp.Id)}`)).tasks || []; } catch (e) { hist.innerHTML = `<div class="sf-ss-note">読めませんでした：${esc(e.message)}</div>`; return; }
-        if (!tasks.length) { hist.innerHTML = '<div class="sf-ss-note">まだ活動の記録がありません。</div>'; return; }
-        hist.innerHTML = tasks.map((t) => { const date = t.activityDate || (t.createdDate || "").slice(0, 10) || ""; const desc = (t.description || "").trim(); const short = desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
+      // この商談の活動に加えて、その会社（取引先）の活動もまとめて出す。Integration の自動の記録は、ふだんは隠す（2026-11-14）
+      let showAuto = false;
+      const loadHist = async () => { hist.innerHTML = '<div class="sf-ss-note">SF から読み込んでいます…</div>';
+        let r0 = {}; try { r0 = await api(`/api/mochica/sf/tasks?oppId=${encodeURIComponent(d.opp.Id)}${showAuto ? "&all=1" : ""}`); } catch (e) { hist.innerHTML = `<div class="sf-ss-note">読めませんでした：${esc(e.message)}</div>`; return; }
+        const tasks = r0.tasks || [];
+        const autoNote = r0.hiddenAuto ? `<div class="sf-ss-note" style="margin-bottom:6px">自動の記録（Integration）${r0.hiddenAuto}件を隠しています。<a href="#" data-showauto>出す</a></div>` : (showAuto ? '<div class="sf-ss-note" style="margin-bottom:6px"><a href="#" data-showauto>自動の記録を隠す</a></div>' : "");
+        if (!tasks.length) { hist.innerHTML = autoNote + `<div class="sf-ss-note">${r0.account ? "この商談と会社には、まだ活動の記録がありません。" : "まだ活動の記録がありません。"}</div>`; const sa = hist.querySelector("[data-showauto]"); if (sa) sa.addEventListener("click", (e) => { e.preventDefault(); showAuto = !showAuto; loadHist(); }); return; }
+        hist.innerHTML = autoNote + tasks.map((t) => { const date = t.activityDate || (t.createdDate || "").slice(0, 10) || ""; const desc = (t.description || "").trim(); const short = desc.length > 140 ? desc.slice(0, 140) + "…" : desc;
           const nd = (t.nextDate || "").slice(0, 10); const late = nd && !t.isClosed && new Date(nd + "T23:59:59").getTime() < Date.now(); const hasNext = !!(t.nextKind || nd) && String(t.actKind || "") !== "商談";
-          return `<div class="sf-task-item" data-tid="${esc(t.id)}"><div class="sf-task-head"><span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span><span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}</span></div>
+          return `<div class="sf-task-item" data-tid="${esc(t.id)}"><div class="sf-task-head"><span class="sf-task-subj">${esc(t.subject || "(件名なし)")}</span><span class="sf-task-meta">${esc(date)}${t.owner ? " ・ " + esc(t.owner) : ""}${t.where ? " ・ " + esc(t.where) : ""}</span></div>
             ${t.actKind ? `<div class="sf-task-row"><span class="sf-task-k">活動種別</span><span>${esc(t.actKind)}</span></div>` : ""}
             ${hasNext ? `<label class="sf-task-row sf-task-nextrow${t.isClosed ? " sf-next-done" : ""}"><span class="sf-task-k">次回アクション</span><span class="sf-next-body"><input type="checkbox" class="sf-task-done-chk" ${t.isClosed ? "checked" : ""}><span class="sf-next-label">${t.nextKind ? esc(t.nextKind) : "（種別なし）"}</span>${nd ? `<span class="sf-task-next${late ? " sf-task-late" : ""}">${esc(nd)}</span>` : ""}<span class="sf-next-state">${t.isClosed ? "完了" : "未完了"}</span></span></label>` : ""}
             ${short ? `<div class="sf-task-row"><span class="sf-task-k">説明</span><span class="sf-task-desc">${esc(short)}</span></div>` : ""}
             <div class="sf-task-actions"><button type="button" class="btn btn-ghost sf-task-edit">編集</button><button type="button" class="btn btn-ghost sf-task-del">削除</button></div></div>`; }).join("");
+        { const sa = hist.querySelector("[data-showauto]"); if (sa) sa.addEventListener("click", (e) => { e.preventDefault(); showAuto = !showAuto; loadHist(); }); }
         hist.querySelectorAll(".sf-task-item").forEach((el) => { const t = tasks.find((x) => x.id === el.dataset.tid) || {};
           const chk = el.querySelector(".sf-task-done-chk"); if (chk) chk.addEventListener("change", async () => { chk.disabled = true; try { await api(`/api/salesforce/task/${encodeURIComponent(t.id)}/status`, { method: "PUT", body: JSON.stringify({ done: chk.checked }) }); loadHist(); } catch (err) { alert("状況を変えられませんでした：" + err.message); chk.checked = !chk.checked; chk.disabled = false; } });
           el.querySelector(".sf-task-edit").addEventListener("click", () => { if (el.querySelector(".sf-task-editbox")) return; const bx = document.createElement("div"); bx.className = "sf-task-editbox";

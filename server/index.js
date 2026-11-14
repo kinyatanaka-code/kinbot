@@ -27073,6 +27073,26 @@ app.post("/api/mochica/sf/task-suggest", async (req, res) => {
     res.json({ ok: true, values });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 過去の活動：結びつけた商談の活動だけでなく、その会社（取引先）の活動もまとめて SF から読む（2026-11-14 田中さん「過去の活動も SF から読み取るように」）
+//   MOCHICA の新しい商談には活動がまだ無く、これまでのやりとりは取引先責任者や前の商談・オンボーディングに付いているため。
+//   Integration（自動の連携ユーザー）の記録は数が多いので、ふだんは隠して件数だけ返す（all=1 で出す）
+app.get("/api/mochica/sf/tasks", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const oppId = String(req.query.oppId || "").replace(/[^A-Za-z0-9]/g, ""); if (!oppId) return res.status(400).json({ error: "商談が結びついていません" });
+    const o = await sfQuery(owner, `SELECT AccountId FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`).catch(() => null);
+    const aid = o && o.records && o.records[0] && o.records[0].AccountId ? String(o.records[0].AccountId).replace(/[^A-Za-z0-9]/g, "") : "";
+    const fn = await taskFieldNames(owner).catch(() => ({}));
+    const extra = [fn.actKind, fn.nextKind, fn.nextDate].filter(Boolean).join(", ");
+    const where = aid ? `(WhatId = '${oppId}' OR AccountId = '${aid}')` : `WhatId = '${oppId}'`;
+    const d = await sfQuery(owner, `SELECT Id, Subject, Status, IsClosed, ActivityDate, Description, CreatedDate, Owner.Name, What.Name, Who.Name, WhatId${extra ? ", " + extra : ""} FROM Task WHERE ${where} ORDER BY ActivityDate DESC NULLS LAST, CreatedDate DESC LIMIT 80`);
+    const all = (d.records || []).map((t) => ({ id: t.Id, subject: t.Subject, status: t.Status, isClosed: !!t.IsClosed, activityDate: t.ActivityDate, description: t.Description, createdDate: t.CreatedDate,
+      owner: (t.Owner && t.Owner.Name) || "", where: t.WhatId === oppId ? "この商談" : ((t.What && t.What.Name) || (t.Who && t.Who.Name) || ""),
+      actKind: fn.actKind ? t[fn.actKind] || "" : "", nextKind: fn.nextKind ? t[fn.nextKind] || "" : "", nextDate: fn.nextDate ? t[fn.nextDate] || "" : "" }));
+    const isAuto = (t) => /^Integration\b/i.test(t.owner);
+    const showAll = req.query.all === "1";
+    res.json({ ok: true, tasks: showAll ? all : all.filter((t) => !isAuto(t)), hiddenAuto: showAll ? 0 : all.filter(isAuto).length, account: !!aid });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
@@ -31286,7 +31306,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14t kinbot for MOCHICA の活動記録を kinbot の案件画面と同じ仕様に（活動種別・次回アクション種別・次回アクション日・説明、商談から読み取る、活動を記録＝商談とネクストアクションに分ける、過去の活動の完了チェック・編集・削除）。kinbot の活動の API は、SF をつないでいない人は代理アカウントで動くようにした（記録した人を説明の頭に残す）。";
+const BUILD_TAG = "2026-11-14u kinbot for MOCHICA の過去の活動：結びつけた商談の活動に加えて、その会社（取引先）の活動（取引先責任者・前の商談・オンボーディング）も SF から読む。Integration の自動の記録はふだん隠して件数を出す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
