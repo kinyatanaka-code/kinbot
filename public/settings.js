@@ -579,6 +579,7 @@ function showIntegDetail(name) {
   if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
   if (name === "chatgpt") { initGptConnector(); }
   if (name === "zoomphone") { loadZoomPane(); }
+  if (name === "miitel" || name === "bales" || name === "salesforce") { loadMcConfig(); }
 }
 (function () {
   const grid = document.getElementById("integGrid");
@@ -592,6 +593,7 @@ function showIntegDetail(name) {
 })();
 // 各連携カードに、接続済み/未接続の状態バッジを反映する
 async function refreshIntegStates() {
+  loadMcConfig();
   // Google連携
   try {
     const r = await fetch("/api/calendar/status");
@@ -692,6 +694,46 @@ async function loadZoomPane() {
     } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
     finally { sy.disabled = false; }
   });
+})();
+
+// ===== MOCHICA の連携（MiiTel・Bales・SF のきまり）=====
+// kinbot for MOCHICA の設定も、この画面1つにまとめた（2026-11-14 田中さん）。
+// 値は /api/mochica/config に置く。鍵は末尾4文字しか返ってこない。
+async function loadMcConfig() {
+  const $ = (id) => document.getElementById(id);
+  try {
+    const r = await fetch("/api/mochica/config", { credentials: "include" });
+    const c = await r.json();
+    if (!r.ok) throw new Error(c.error || r.status);
+    if (c.hook) { if ($("mhUrl")) $("mhUrl").value = c.hook.url || ""; if ($("mhHead")) $("mhHead").value = c.hook.header || ""; }
+    if ($("baKey")) { $("baKey").value = ""; $("baKey").placeholder = c.bales.keyLast4 ? `保存済み（****${c.bales.keyLast4}）。変えるときだけ入れる` : "Bales から API のキーをもらえたら"; }
+    if ($("baNote")) $("baNote").value = c.bales.note || "";
+    if ($("sfLead")) $("sfLead").value = c.sf.leadType || "";
+    if ($("sfOpp")) $("sfOpp").value = c.sf.oppPrefix || "";
+    window.__mcConf = c;
+    setIntegState("bales", c.bales.keyLast4 ? "キー保存済み" : "CSVで連携", !!c.bales.keyLast4);
+  } catch (e) {
+    document.querySelectorAll("[data-mcsaved]").forEach((x) => { x.hidden = false; x.textContent = "読めませんでした：" + e.message; });
+  }
+}
+(function () {
+  document.querySelectorAll("[data-mcsave]").forEach((b) => b.addEventListener("click", async () => {
+    const v = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ""; };
+    const c = window.__mcConf || { miitel: {}, bales: {}, sf: {} };
+    const body = { miitel: { domain: (c.miitel && c.miitel.domain) || "" },
+      bales: { note: v("baNote"), ...(v("baKey") ? { key: v("baKey") } : {}) },
+      sf: { leadType: v("sfLead"), oppPrefix: v("sfOpp") } };
+    const msg = b.parentElement && b.parentElement.querySelector("[data-mcsaved]");
+    b.disabled = true;
+    try {
+      const r = await fetch("/api/mochica/config", { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || r.status);
+      if (msg) { msg.hidden = false; msg.textContent = "保存しました"; }
+      loadMcConfig();
+    } catch (e) { if (msg) { msg.hidden = false; msg.textContent = "保存できませんでした：" + e.message; } }
+    finally { b.disabled = false; }
+  }));
 })();
 
 function setIntegState(key, label, ok) {

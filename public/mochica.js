@@ -3,13 +3,14 @@
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const api = async (u, o = {}) => { const r = await fetch(u, { credentials: "include", headers: { "content-type": "application/json" }, ...o }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; };
-  const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電（Zoom Phone）", apo: "アポ（カレンダー）", doc: "DOC の議事録", settings: "設定（連携）" };
+  const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電（Zoom Phone）", apo: "アポ（カレンダー）", doc: "DOC の議事録", settings: "設定" };
   const go = (k) => {
     if (!TITLES[k]) k = "home";
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
-    if (k === "settings") loadConfig();
+    // 設定は kinbot と同じ画面を中に開く（開いたときに初めて読む）（2026-11-14）
+    if (k === "settings") { const f = $("mcSetFrame"); if (f && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
     if (k === "mtg") loadMeetings();
     { const hr = $("mcHeadR"); if (hr) hr.hidden = k !== "mtg"; }
   };
@@ -162,12 +163,6 @@
     { const st = $("mtAutoSt"); if (st) st.textContent = !ext ? "拡張機能が見えません" : cr && cr.done < cr.total && Date.now() - cr.at < 1800000 ? `自動で読んでいます ${cr.done}/${cr.total}${vp && !vp.done && !vp.error && Date.now() - vp.at < 300000 ? `（録画 ${vp.i || 0}/${vp.total || "?"}）` : ""}` : "20分ごとに自動で読みます"; }
     b.innerHTML = !ext ? "拡張機能 kinbot-ext（1.6.1 以上）が見えません。入れ直して、この画面を開き直してください。" : `${cr ? `裏で開いた数：${cr.done}/${cr.total}<br>` : ""}${vp ? `録画：${vp.error ? `取り込めませんでした（${esc(vp.error)}）` : vp.done ? "取り込みました" : `${vp.i || 0}/${vp.total || "?"}`}<br>` : ""}送り直し待ち：${dg ? dg.pending : 0}件<br>送った結果：${dg && dg.last.length ? dg.last.map((x) => `${esc(x.kind)}（${x.ok ? "OK" : "NG " + esc(String(x.status))}・${Math.round(x.len / 1000)}k）`).join("、") : "まだなし"}<br>見た MiiTel の通り道：${dg && dg.seen.length ? dg.seen.map((x) => esc(x.path)).join("<br>") : "まだなし（MiiTel のページを開くと出ます）"}`; }, 5000);
   { const q = $("mtQ"); if (q) { q.addEventListener("input", mtDraw); const clr = () => { if (/@/.test(q.value)) { q.value = ""; mtDraw(); } }; setTimeout(clr, 300); setTimeout(clr, 1500); } }
-  // 設定：kinbot の設定画面と同じ形（左のメニュー・外部連携のカード）（2026-11-13 田中さん）
-  { const menu = $("mcSetMenu"); if (menu) menu.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { menu.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("active", x === b)); document.querySelectorAll("[data-mpane]").forEach((p0) => { p0.hidden = p0.dataset.mpane !== b.dataset.mtab; }); if (b.dataset.mtab === "ext") { const st = $("mcExtSt"); if (st) st.textContent = document.documentElement.dataset.kbMiitelExt ? "このChromeには入っています。" : "このChromeにはまだ入っていないようです。"; } }));
-    const grid = $("mcIntegGrid"); const show = (k) => { if (grid) grid.hidden = !!k; document.querySelectorAll("[data-mdetail]").forEach((d) => { d.hidden = d.dataset.mdetail !== k; }); };
-    document.querySelectorAll("[data-minteg]").forEach((c) => c.addEventListener("click", () => show(c.dataset.minteg)));
-    document.querySelectorAll("[data-mback]").forEach((b) => b.addEventListener("click", () => show("")));
-    document.querySelectorAll("[data-msave]").forEach((b) => b.addEventListener("click", () => { const s0 = $("mcSave"); if (s0) s0.click(); })); }
   // ===== SF 連携：ステージごとの項目を議事録から埋めて、SF の「新規」の商談に書く（2026-11-13）=====
   async function mtSfLoad(vid) {
     const box = $("mtSf"); if (!box) return;
@@ -213,22 +208,6 @@
     };
     draw();
   }
-  async function loadConfig() {
-    try { const c = await api("/api/mochica/config");
-      $("miDomain").value = c.miitel.domain || ""; $("miToken").value = ""; $("miToken").placeholder = c.miitel.tokenLast4 ? `保存済み（****${c.miitel.tokenLast4}）。変えるときだけ入れる` : "管理画面の「API」で発行したもの";
-      $("baKey").value = ""; $("baKey").placeholder = c.bales.keyLast4 ? `保存済み（****${c.bales.keyLast4}）。変えるときだけ入れる` : "管理画面の「連携」「API」で発行したもの"; $("baNote").value = c.bales.note || "";
-      $("sfLead").value = c.sf.leadType || ""; $("sfOpp").value = c.sf.oppPrefix || "";
-      $("stMiitel").textContent = c.miitel.tokenLast4 ? "保存済み" : "未設定"; $("stBales").textContent = c.bales.keyLast4 ? "保存済み" : "未設定";
-      if (c.hook) { $("mhUrl").value = c.hook.url || ""; $("mhHead").value = c.hook.header || ""; }
-    } catch (e) { $("mcSaved").textContent = "読めませんでした：" + e.message; }
-  }
-  $("mcSave").addEventListener("click", async () => {
-    const body = { miitel: { domain: $("miDomain").value.trim(), ...($("miToken").value.trim() ? { token: $("miToken").value.trim() } : {}) },
-      bales: { note: $("baNote").value.trim(), ...($("baKey").value.trim() ? { key: $("baKey").value.trim() } : {}) },
-      sf: { leadType: $("sfLead").value.trim(), oppPrefix: $("sfOpp").value.trim() } };
-    try { await api("/api/mochica/config", { method: "PUT", body: JSON.stringify(body) }); $("mcSaved").textContent = "保存しました"; loadConfig(); loadHome(); }
-    catch (e) { $("mcSaved").textContent = "保存できませんでした：" + e.message; }
-  });
   go(location.hash.slice(1) || "home"); loadHome();
   // 下の段：頭文字の丸アイコン・名前・設定（歯車）・ログアウト（kinbot と同じ作り）
   fetch("/api/me", { credentials: "include" }).then((r) => r.json()).then((me) => {

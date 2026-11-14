@@ -4,11 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot 設定</title>
-    <script>if (new URLSearchParams(location.search).get("embed")) document.documentElement.classList.add("kb-embed");</script>
+    <script>{ const q = new URLSearchParams(location.search); if (q.get("embed")) document.documentElement.classList.add("kb-embed"); if (q.get("app") === "mochica") document.documentElement.classList.add("kb-mochica"); }</script>
     <style>
       html.kb-embed .sidebar, html.kb-embed .topbar, html.kb-embed .side-backdrop, html.kb-embed .kb-menu-btn, html.kb-embed .kb-menu, html.kb-embed .kb-sheet-back, html.kb-embed .kb-ver, html.kb-embed .live-banner { display: none !important; }
       html.kb-embed .main { margin-left: 0 !important; padding-left: 0 !important; }
       html.kb-embed body { background: transparent; }
+      /* kinbot for MOCHICA の中で開いたときは水色（中身は kinbot の設定と同じ）（2026-11-14） */
+      html.kb-mochica{--accent:#0E9AA7;--accent-soft:#DDF5F7;--panel-2:#F2FAFB;--line:#D9ECEE;}
+      html.kb-mochica .set-menu-item.active{background:#DDF5F7 !important;color:#0B6E78 !important;}
+      html.kb-mochica .btn:not(.ghost){background:#0E9AA7;border-color:#0E9AA7;}
+      html.kb-mochica .integ-card:hover{border-color:#5EC7CF;box-shadow:0 4px 12px rgba(14,154,167,.12);}
+      .integ-icon-plain{background:transparent !important;border:0 !important;} .integ-icon-plain svg{width:40px;height:40px;}
+      .integ-h{display:flex;align-items:center;gap:8px;} .integ-h svg{flex:0 0 auto;}
       .cc-conn{margin-top:12px;padding-top:10px;border-top:1px dashed #CFE3D9;} .cc-conn:first-of-type{border-top:0;}
   .cc-conn-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;} .cc-conn-h b{font-size:14px;} .cc-conn-h span{font-size:12px;color:#5A6B63;}
 </style>
@@ -18,7 +25,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261113zf" />
+    <link rel="stylesheet" href="style.css?v=20261114a" />
   </head>
   <body>
     <div class="app">
@@ -325,6 +332,17 @@
                 <span class="integ-name">Zoom Phone連携</span>
                 <span class="integ-state" id="integState-zoomphone">未確認</span>
               </button>
+              <!-- MOCHICA の連携も kinbot と同じ設定画面に並べる（2026-11-14 田中さん：設定画面は1つにする） -->
+              <button class="integ-card" data-integ="miitel">
+                <span class="integ-icon integ-icon-plain"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#1A8FE3"/><rect x="11" y="20" width="4" height="9" rx="2" fill="#fff"/><rect x="18" y="13" width="4" height="22" rx="2" fill="#fff"/><rect x="25" y="17" width="4" height="15" rx="2" fill="#fff"/><rect x="32" y="21" width="4" height="7" rx="2" fill="#fff"/><circle cx="34" cy="14" r="2.4" fill="#fff"/></svg></span>
+                <span class="integ-name">MiiTel連携</span>
+                <span class="integ-state" id="integState-miitel">MOCHICA</span>
+              </button>
+              <button class="integ-card" data-integ="bales">
+                <span class="integ-icon integ-icon-plain"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#0F6E6A"/><path d="M16 12h16v4c0 3.5-3.4 6.1-6 8 2.6 1.9 6 4.5 6 8v4H16v-4c0-3.5 3.4-6.1 6-8-2.6-1.9-6-4.5-6-8v-4z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 33.5h8" stroke="#7FE0D6" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+                <span class="integ-name">Bales Cloud連携</span>
+                <span class="integ-state" id="integState-bales">MOCHICA</span>
+              </button>
               <button class="integ-card" data-integ="status">
                 <span class="integ-icon integ-icon-status"><i class="ti ti-plug-connected" aria-hidden="true"></i></span>
                 <span class="integ-name">接続状況・API一覧</span>
@@ -422,6 +440,13 @@
                 <button class="btn" id="saveSfMapBtn">マッピングを保存</button>
                 <span class="saved" id="sfMapSaved" hidden>保存しました</span>
               </div>
+            </div>
+            <div class="set-card">
+              <h3>MOCHICA のときのきまり</h3>
+              <p class="note">Salesforce の連携そのものは同じものを使います。ここでは kinbot for MOCHICA のときだけのきまりを決めます。</p>
+              <label class="field"><span>リードの種別</span><input id="sfLead" placeholder="Mochica（リード）" /></label>
+              <label class="field"><span>新規の商談名の頭</span><input id="sfOpp" placeholder="例：_新規_" /></label>
+              <div class="modal-actions"><button class="btn" data-mcsave>保存する</button><span class="saved" data-mcsaved></span></div>
             </div>
               </div>
 
@@ -569,6 +594,36 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                 <span id="gptSchemaCopyNote" class="note"></span>
               </div>
             </details>
+              </div>
+
+              <div class="set-pane-inner" data-integ="miitel" hidden>
+            <div class="set-card">
+              <h3 class="integ-h"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#1A8FE3"/><rect x="11" y="20" width="4" height="9" rx="2" fill="#fff"/><rect x="18" y="13" width="4" height="22" rx="2" fill="#fff"/><rect x="25" y="17" width="4" height="15" rx="2" fill="#fff"/><rect x="32" y="21" width="4" height="7" rx="2" fill="#fff"/><circle cx="34" cy="14" r="2.4" fill="#fff"/></svg> MiiTel の会議履歴を受け取る（Outgoing Webhook）</h3>
+              <p class="note">MiiTel Admin → 外部連携 → Outgoing Webhook → 「会議履歴」タブ → 連携設定を追加 で、次の2つを入れてください。送るタイミングは「会議履歴の音声分析完了時」と、使えれば「議事録作成完了時」「文字起こし要約完了時」も選びます。</p>
+              <label class="field"><span>URL</span><input id="mhUrl" readonly onclick="this.select()" /></label>
+              <label class="field"><span>追加ヘッダー（合言葉）</span><input id="mhHead" readonly onclick="this.select()" placeholder="管理者だけが見られます" /></label>
+              <p class="note">追加ヘッダーは合言葉です。ほかの人に見せないでください。</p>
+            </div>
+            <div class="set-card">
+              <h3>MiiTel の文字起こし・議事録・録画の読み込み</h3>
+              <p class="note">MiiTel には外から読む鍵（API）が無いので、<b>営業担当それぞれの Chrome</b> で読みます。パスワードは kinbot に入れません。</p>
+              <ol class="note" style="padding-left:20px;line-height:1.9">
+                <li>各自の Chrome に拡張機能 <b>kinbot-ext</b> を入れる（左の「拡張機能」）</li>
+                <li>その Chrome で、自分の MiiTel のアカウントでログインしておく</li>
+                <li>20分ごとに自動で、新しい会議の文字起こし・議事録・録画が kinbot に入る。すぐ入れたいときは kinbot for MOCHICA の「商談（MiiTel）」の右上から読む</li>
+              </ol>
+            </div>
+              </div>
+
+              <div class="set-pane-inner" data-integ="bales" hidden>
+            <div class="set-card">
+              <h3 class="integ-h"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#0F6E6A"/><path d="M16 12h16v4c0 3.5-3.4 6.1-6 8 2.6 1.9 6 4.5 6 8v4H16v-4c0-3.5 3.4-6.1 6-8-2.6-1.9-6-4.5-6-8v-4z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 33.5h8" stroke="#7FE0D6" stroke-width="2.6" stroke-linecap="round"/></svg> Bales Cloud</h3>
+              <p class="note">Bales のカスタム情報は SF の「Mochica（リード）」と同じ項目です。SF の情報を Bales に入れるファイルは、kinbot for MOCHICA の「リスト（Bales Cloud）」で作れます。API のキーがもらえたら、ここに入れると自動で取り込めるようにします。</p>
+              <label class="field"><span>API のキー</span><input id="baKey" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="Bales から API のキーをもらえたら" style="-webkit-text-security:disc" /></label>
+              <label class="field"><span>メモ</span><input id="baNote" placeholder="アカウント名など（任意）" /></label>
+              <div class="modal-actions"><button class="btn" data-mcsave>保存する</button><span class="saved" data-mcsaved></span></div>
+              <p class="note">キーは kinbot のサーバーにだけ置き、画面には末尾の4文字しか出しません。保存できるのは管理者だけです。</p>
+            </div>
               </div>
 
               <div class="set-pane-inner" data-integ="status" hidden>
@@ -881,8 +936,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261113zf"></script>
-      <script src="nav.js?v=20261113zf"></script>
+    <script src="settings.js?v=20261114a"></script>
+      <script src="nav.js?v=20261114a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

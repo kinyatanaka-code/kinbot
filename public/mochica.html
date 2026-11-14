@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261113zf" />
+<link rel="stylesheet" href="/style.css?v=20261114a" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -165,71 +165,13 @@
       <p class="mc-note">DOC の商談の議事録は、商談履歴で見られます（直したり、DOC の Salesforce に書いたりはしません）。</p>
       <p style="margin-top:12px"><a class="mc-btn" style="display:inline-flex;align-items:center;text-decoration:none" href="/history.html" target="_blank" rel="noopener">DOC の商談履歴を開く ↗</a></p></div></section>
     <section data-pane="settings" hidden>
-      <main class="settings mc-settings">
-        <nav class="set-menu" id="mcSetMenu">
-          <div class="set-group-label">連携</div>
-          <button class="set-menu-item active" data-mtab="integ">外部連携</button>
-          <div class="set-group-label">ツール</div>
-          <button class="set-menu-item" data-mtab="ext">拡張機能</button>
-        </nav>
-        <div class="set-body">
-          <div class="set-pane" data-mpane="integ">
-            <div class="integ-grid" id="mcIntegGrid">
-              <button class="integ-card" data-minteg="miitel"><span class="integ-icon"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#1A8FE3"/><rect x="11" y="20" width="4" height="9" rx="2" fill="#fff"/><rect x="18" y="13" width="4" height="22" rx="2" fill="#fff"/><rect x="25" y="17" width="4" height="15" rx="2" fill="#fff"/><rect x="32" y="21" width="4" height="7" rx="2" fill="#fff"/><circle cx="34" cy="14" r="2.4" fill="#fff"/></svg></span><span class="integ-name">MiiTel連携</span><span class="integ-state" id="mcState-miitel">受け取り口あり</span></button>
-              <button class="integ-card" data-minteg="bales"><span class="integ-icon"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#0F6E6A"/><path d="M16 12h16v4c0 3.5-3.4 6.1-6 8 2.6 1.9 6 4.5 6 8v4H16v-4c0-3.5 3.4-6.1 6-8-2.6-1.9-6-4.5-6-8v-4z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 33.5h8" stroke="#7FE0D6" stroke-width="2.6" stroke-linecap="round"/></svg></span><span class="integ-name">Bales Cloud連携</span><span class="integ-state" id="stBales">—</span></button>
-              <button class="integ-card" data-minteg="sf"><span class="integ-icon integ-icon-sf"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><path fill="#00A1E0" d="M19.98 12.5c1.55-1.62 3.71-2.62 6.1-2.62 3.18 0 5.95 1.77 7.43 4.41.94-.6 2.03-.94 3.2-.94 3.31 0 6 2.69 6 6.02 0 .59-.09 1.15-.24 1.69 2.6.86 4.53 3.32 4.53 6.24 0 3.62-2.94 6.56-6.56 6.56-.44 0-.87-.05-1.28-.13a5.8 5.8 0 0 1-5.13 3.08c-.99 0-1.92-.24-2.75-.65a6.1 6.1 0 0 1-5.47 3.44c-2.31 0-4.34-1.19-5.53-3-.53.19-1.1.29-1.7.29-2.87 0-5.19-2.34-5.19-5.22 0-1.03.29-1.98.79-2.79A5.31 5.31 0 0 1 5 23.75c0-2.94 2.38-5.32 5.32-5.32.36 0 .71.04 1.05.11.9-3.5 4.05-6.04 7.81-6.04 1.34 0 2.6.31 3.7.87"/></svg></span><span class="integ-name">Salesforce（MOCHICA）</span><span class="integ-state" id="mcState-sf">きまり</span></button>
-              <button class="integ-card" data-minteg="google"><span class="integ-icon integ-icon-google"><svg viewBox="0 0 48 48" width="22" height="22" aria-hidden="true"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.11-7.45 2.11-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.69 28.19c-.43-1.29-.68-2.67-.68-4.09s.25-2.8.68-4.09v-5.7H4.34a21.9 21.9 0 0 0 0 19.58l7.35-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.31l7.35 5.7c1.73-5.2 6.58-9.26 12.31-9.26z"/></svg></span><span class="integ-name">Googleカレンダー</span><span class="integ-state">kinbot の設定で連携</span></button>
-            </div>
-            <div class="mc-integ-detail" data-mdetail="miitel" hidden>
-              <button type="button" class="mt-back" data-mback>‹ 外部連携へ戻る</button>
-              <div class="set-card"><h3><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#1A8FE3"/><rect x="11" y="20" width="4" height="9" rx="2" fill="#fff"/><rect x="18" y="13" width="4" height="22" rx="2" fill="#fff"/><rect x="25" y="17" width="4" height="15" rx="2" fill="#fff"/><rect x="32" y="21" width="4" height="7" rx="2" fill="#fff"/><circle cx="34" cy="14" r="2.4" fill="#fff"/></svg> MiiTel の会議履歴を受け取る（Outgoing Webhook）</h3>
-                <p class="note">MiiTel Admin → 外部連携 → Outgoing Webhook → 「会議履歴」タブ → 連携設定を追加 で、次の2つを入れてください。送るタイミングは「会議履歴の音声分析完了時」と、使えれば「議事録作成完了時」「文字起こし要約完了時」も選びます。</p>
-                <label class="field"><span>URL</span><input id="mhUrl" readonly onclick="this.select()" /></label>
-                <label class="field"><span>追加ヘッダー（合言葉）</span><input id="mhHead" readonly onclick="this.select()" placeholder="管理者だけが見られます" class="mc-secret" /></label>
-                <p class="note">追加ヘッダーは合言葉です。ほかの人に見せないでください。</p></div>
-              <div class="set-card"><h3>MiiTel の文字起こし・議事録・録画の読み込み</h3>
-                <p class="note">MiiTel には外から読む鍵（API）が無いので、<b>営業担当それぞれの Chrome</b> で読みます。パスワードは kinbot に入れません。</p>
-                <ol class="mc-steps"><li>各自の Chrome に拡張機能 <b>kinbot-ext</b>を入れる（左の「拡張機能」）</li><li>その Chrome で、自分の MiiTel のアカウントでログインしておく</li><li>20分ごとに自動で、新しい会議の文字起こし・議事録・録画が kinbot に入る。すぐ入れたいときは「商談（MiiTel）」の右上「MiiTel から今すぐ読む」</li></ol>
-                <input id="miDomain" type="hidden" /><input id="miToken" type="hidden" /><span id="stMiitel" hidden></span></div>
-            </div>
-            <div class="mc-integ-detail" data-mdetail="bales" hidden>
-              <button type="button" class="mt-back" data-mback>‹ 外部連携へ戻る</button>
-              <div class="set-card"><h3><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#0F6E6A"/><path d="M16 12h16v4c0 3.5-3.4 6.1-6 8 2.6 1.9 6 4.5 6 8v4H16v-4c0-3.5 3.4-6.1 6-8-2.6-1.9-6-4.5-6-8v-4z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 33.5h8" stroke="#7FE0D6" stroke-width="2.6" stroke-linecap="round"/></svg> Bales Cloud</h3>
-                <p class="note">Bales のカスタム情報は SF の「Mochica（リード）」と同じ項目です。SF の情報を Bales に入れるファイルは、左の「リスト（Bales Cloud）」で作れます。API のキーがもらえたら、ここに入れると自動で取り込めるようにします。</p>
-                <label class="field"><span>API のキー</span><input id="baKey" type="text" class="mc-secret" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="Bales から API のキーをもらえたら" /></label>
-                <label class="field"><span>メモ</span><input id="baNote" placeholder="アカウント名など（任意）" /></label>
-                <div class="modal-actions"><button class="btn" data-msave>保存する</button></div></div>
-            </div>
-            <div class="mc-integ-detail" data-mdetail="sf" hidden>
-              <button type="button" class="mt-back" data-mback>‹ 外部連携へ戻る</button>
-              <div class="set-card"><h3><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><path fill="#00A1E0" d="M19.98 12.5c1.55-1.62 3.71-2.62 6.1-2.62 3.18 0 5.95 1.77 7.43 4.41.94-.6 2.03-.94 3.2-.94 3.31 0 6 2.69 6 6.02 0 .59-.09 1.15-.24 1.69 2.6.86 4.53 3.32 4.53 6.24 0 3.62-2.94 6.56-6.56 6.56-.44 0-.87-.05-1.28-.13a5.8 5.8 0 0 1-5.13 3.08c-.99 0-1.92-.24-2.75-.65a6.1 6.1 0 0 1-5.47 3.44c-2.31 0-4.34-1.19-5.53-3-.53.19-1.1.29-1.7.29-2.87 0-5.19-2.34-5.19-5.22 0-1.03.29-1.98.79-2.79A5.31 5.31 0 0 1 5 23.75c0-2.94 2.38-5.32 5.32-5.32.36 0 .71.04 1.05.11.9-3.5 4.05-6.04 7.81-6.04 1.34 0 2.6.31 3.7.87"/></svg> Salesforce（MOCHICA のきまり）</h3>
-                <p class="note">Salesforce の連携そのものは kinbot と同じものを使います。ここでは MOCHICA のときだけのきまりを決めます。</p>
-                <label class="field"><span>リードの種別</span><input id="sfLead" placeholder="Mochica（リード）" /></label>
-                <label class="field"><span>新規の商談名の頭</span><input id="sfOpp" placeholder="例：_新規_" /></label>
-                <div class="modal-actions"><button class="btn" data-msave>保存する</button></div></div>
-            </div>
-            <div class="mc-integ-detail" data-mdetail="google" hidden>
-              <button type="button" class="mt-back" data-mback>‹ 外部連携へ戻る</button>
-              <div class="set-card"><h3><svg viewBox="0 0 48 48" width="22" height="22" aria-hidden="true"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.11-7.45 2.11-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.69 28.19c-.43-1.29-.68-2.67-.68-4.09s.25-2.8.68-4.09v-5.7H4.34a21.9 21.9 0 0 0 0 19.58l7.35-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.31l7.35 5.7c1.73-5.2 6.58-9.26 12.31-9.26z"/></svg> Google カレンダー</h3>
-                <p class="note">MiiTel の会議を、開始の時刻が近いカレンダーの予定と突き合わせて、予定のタイトルから会社名・SF を結びつけます。各自の Google の連携は kinbot の設定の「外部連携」で行います。</p>
-                <div class="modal-actions"><a class="btn" href="/settings.html#integrations">kinbot の外部連携を開く</a></div></div>
-            </div>
-            <p class="note" style="margin-top:10px"><span id="mcSaved"></span> キーは kinbot のサーバーにだけ置き、画面には末尾の4文字しか出しません。保存できるのは管理者だけです。</p>
-          </div>
-          <div class="set-pane" data-mpane="ext" hidden>
-            <div class="set-card"><h3><svg viewBox="0 0 48 48" width="22" height="22" aria-hidden="true"><path fill="#0E9AA7" d="M19 6a5 5 0 0 1 10 0v3h8a3 3 0 0 1 3 3v8h-3a5 5 0 0 0 0 10h3v8a3 3 0 0 1-3 3h-8v-3a5 5 0 0 0-10 0v3h-8a3 3 0 0 1-3-3v-8h3a5 5 0 0 0 0-10H8v-8a3 3 0 0 1 3-3h8V6z"/></svg> 拡張機能 kinbot-ext</h3>
-              <p class="note">MiiTel の文字起こし・議事録・録画の自動の読み込みと、メールワイズの読み込みに使います。Chrome のプロフィールごとに入れてください。</p>
-              <div class="modal-actions"><a class="btn" href="/kinbot-ext.zip" download>拡張機能（zip）をダウンロード</a><a class="btn ghost" href="/settings.html#ext">入れ方を見る</a></div>
-              <p class="note" id="mcExtSt" style="margin-top:8px"></p></div>
-          </div>
-        </div>
-      </main>
-      <button type="button" id="mcSave" hidden></button>
+      <!-- 設定は kinbot と同じ画面を使う（2026-11-14 田中さん：設定画面は1つにする）。MiiTel・Bales は「外部連携」にある -->
+      <iframe id="mcSetFrame" title="設定" data-src="/settings.html?embed=1&amp;app=mochica&amp;tab=integrations" style="width:100%;height:calc(100vh - 96px);min-height:560px;border:0;background:transparent;display:block"></iframe>
     </section>
       </div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mochica.js?v=20261113zf"></script>
+  <script src="/mochica.js?v=20261114a"></script>
 </body>
 </html>
