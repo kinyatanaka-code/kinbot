@@ -31072,7 +31072,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14d メンバー管理：グループを開くと、メンバーもカード（頭文字・名前・チーム・メール・役割・Google連携）で並ぶ。カードを押すとその人だけを直す画面になり、戻るでカードに戻る。";
+const BUILD_TAG = "2026-11-14e メンバー管理：人のカードから Google 連携の有無を外した（押して開いた画面には残す）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

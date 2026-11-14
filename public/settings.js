@@ -1203,7 +1203,6 @@ function mbRender() {
       const body = card.querySelector(".mb-grp-body");
       if (!list.length) { body.classList.remove("mb-cards"); body.innerHTML = `<p class="note mb-grp-empty">${g.k === "other" ? "DOC にも MOCHICA にも入っていない人はいません。" : `まだ ${g.label} の人はいません。下の欄から追加すると、${g.label} の人として入ります。`}</p>`; }
       for (const { m } of list) {
-        const gl = (mbState.gLinks && mbState.gLinks[String(m.email || "").trim().toLowerCase()]) || {};
         const c = document.createElement("button");
         c.type = "button";
         c.className = "mb-card" + (m.active === false ? " mb-off" : "");
@@ -1213,8 +1212,7 @@ function mbRender() {
             <span class="mb-card-nm"><b>${mbEsc(m.name || "(名前なし)")}</b><small>${mbEsc(m.team || "チームなし")}</small></span>
             ${m.active === false ? '<span class="mb-card-off">休み</span>' : ""}</span>
           <span class="mb-card-mail">${mbEsc(m.email)}</span>
-          <span class="mb-card-roles">${roles.length ? roles.map((r) => `<span class="mb-rc mb-rc-${r}">${mbEsc(ROLE_LABEL[r])}</span>`).join("") : '<span class="mb-rc mb-rc-none">役割なし</span>'}${both ? `<span class="mb-rc mb-rc-both">${g.k === "doc" ? "MOCHICA も" : "DOC も"}</span>` : ""}</span>
-          <span class="mb-gstatus${gl.connected ? " mb-g-on" : ""}">${gl.connected ? "Google連携済み" : "Google未連携"}</span>`;
+          <span class="mb-card-roles">${roles.length ? roles.map((r) => `<span class="mb-rc mb-rc-${r}">${mbEsc(ROLE_LABEL[r])}</span>`).join("") : '<span class="mb-rc mb-rc-none">役割なし</span>'}${both ? `<span class="mb-rc mb-rc-both">${g.k === "doc" ? "MOCHICA も" : "DOC も"}</span>` : ""}</span>`;
         c.addEventListener("click", () => { mbState.editObj = m; mbRender(); });
         body.appendChild(c);
       }
