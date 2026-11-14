@@ -33,6 +33,9 @@
   const md = (v) => { const d = jst(v); return d ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : ""; };
   const wk = (v) => { const d = jst(v); return d ? "日月火水木金土"[d.getUTCDay()] : ""; };
   let mtHost = null;   // 選んだ担当（null＝担当のカードの一覧）
+  let mtCo = null;     // 選んだ会社（null＝その担当の会社のカードの一覧）（2026-11-14 田中さん「会社カードを作って」）
+  const coKey = (m) => coOf(m) || "（会社名なし）";
+  const coIni = (c) => String(c).replace(/^(株式会社|有限会社|合同会社|一般社団法人|一般財団法人|社会福祉法人|医療法人|学校法人)/, "").replace(/^（|）$/g, "").trim().slice(0, 1) || "社";
   // 商談者：MiiTel の参加者のうち kinbot のアカウントの人を先に使う（2026-11-14 田中さん）。無ければカレンダー、主催者の順
   const hostOf = (m) => (m.rep && m.rep.name) || (m.cal && m.cal.ownerName) || (String(m.host || "").trim() && String(m.host).trim() !== "オーナー" ? String(m.host).trim() : "") || "（担当なし）";
   // 参加した kinbot の人が何人もいるときは、その全員の担当のカードに同じ商談を出す（2026-11-14 田中さん「福井聖の参加した MiiTel が読み込まれていない」）
@@ -52,23 +55,38 @@
       const hs = [...by.entries()].filter(([h]) => !q || h.toLowerCase().includes(q)).sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)));
       $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`;
       box.innerHTML = hs.map(([h, v]) => `<div class="mt-pcard" data-host="${esc(h)}"><span class="av">${esc(h.replace(/^（|）$/g, "").slice(0, 1))}</span><span class="nm"><b>${esc(h)}</b><small>${v.n}商談${v.tr ? `・文字起こし${v.tr}` : ""}${v.last ? `・最新 ${md(v.last)}` : ""}</small></span><span class="go">›</span></div>`).join("") || '<div class="mc-note" style="padding:10px">見つかりませんでした</div>';
-      box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); const first = mtAll.find((m) => hostsOf(m).includes(mtHost)); if (first) mtOpen(first.id); }));
+      box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; mtCo = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); const first = mtAll.find((m) => hostsOf(m).includes(mtHost)); if (first) mtOpen(first.id); }));
       return;
     }
-    // ② その担当の商談（日ごと）
+    // ② その担当の会社のカード（カレンダーの【】の予定のタイトルから会社名を読む）
     const all = mtHost == null;
-    const list = mtAll.filter((m) => all || hostsOf(m).includes(mtHost)).filter((m) => !q || `${titleOf(m)} ${coOf(m)} ${m.participants || ""} ${all ? hostsOf(m).join(" ") : ""}`.toLowerCase().includes(q));
+    if (!all && mtCo == null && !q) {
+      const mine = mtAll.filter((m) => hostsOf(m).includes(mtHost));
+      const by = new Map(); for (const m of mine) { const k = coKey(m); const v = by.get(k) || { n: 0, last: "", sf: false }; v.n++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; if (m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId)) v.sf = true; by.set(k, v); }
+      const cs = [...by.entries()].sort((a, b) => (a[0] === "（会社名なし）") - (b[0] === "（会社名なし）") || String(b[1].last).localeCompare(String(a[1].last)));
+      $("mtCount").textContent = `${cs.filter(([k]) => k !== "（会社名なし）").length}社・${mine.length}商談`;
+      box.innerHTML = `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${cs.length}社・${mine.length}商談</small></div>` +
+        cs.map(([k, v]) => `<div class="mt-pcard mt-cocard${k === "（会社名なし）" ? " none" : ""}" data-co="${esc(k)}"><span class="av">${esc(coIni(k))}</span><span class="nm"><b>${esc(k)}</b><small>${v.n}商談${v.last ? `・最新 ${md(v.last)}` : ""}${v.sf ? "・SFと結びつき" : ""}</small></span><span class="go">›</span></div>`).join("");
+      box.querySelector("[data-back]").addEventListener("click", () => { mtHost = null; mtCo = null; mtDraw(); });
+      box.querySelectorAll("[data-co]").forEach((el) => el.addEventListener("click", () => { mtCo = el.dataset.co; mtDraw(); const first = mine.find((m) => coKey(m) === mtCo); if (first) mtOpen(first.id); }));
+      return;
+    }
+    // ③ その会社の商談（日ごと）。探したときは担当や会社をまたいで出す
+    const list = mtAll.filter((m) => all || (hostsOf(m).includes(mtHost) && (q || mtCo == null || coKey(m) === mtCo))).filter((m) => !q || `${titleOf(m)} ${coOf(m)} ${m.participants || ""} ${all ? hostsOf(m).join(" ") : ""}`.toLowerCase().includes(q));
     $("mtCount").textContent = `${list.length}件`;
     let last = ""; let html = all
       ? `<div class="mt-who"><b>「${esc(q)}」で探した商談</b><small>${list.length}件</small></div>${list.length ? "" : '<div class="mc-note" style="padding:10px">見つかりませんでした。</div>'}`
-      : `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${list.length}商談</small></div>`;
+      : mtCo != null && !q
+        ? `<button type="button" class="mt-back" data-backco>‹ ${esc(mtHost)} の会社一覧</button><div class="mt-who"><span class="av">${esc(coIni(mtCo))}</span><b>${esc(mtCo)}</b><small>${list.length}商談</small></div>`
+        : `<button type="button" class="mt-back" data-back>‹ 担当一覧</button><div class="mt-who"><span class="av">${esc(mtHost.replace(/^（|）$/g, "").slice(0, 1))}</span><b>${esc(mtHost)}</b><small>${list.length}商談</small></div>`;
     for (const m of list) {
       const at = m.started_at || m.received_at; const k = dkey(at);
       if (k !== last) { html += `<div class="mt-day">${md(at)}（${wk(at)}）</div>`; last = k; }
       html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${all ? `<span>${esc(hostsOf(m).join("・"))}</span>` : ""}${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len || m.has_tr ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
     }
     box.innerHTML = html;
-    { const bk = box.querySelector("[data-back]"); if (bk) bk.addEventListener("click", () => { mtHost = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); }); }
+    { const bk = box.querySelector("[data-back]"); if (bk) bk.addEventListener("click", () => { mtHost = null; mtCo = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); }); }
+    { const bc = box.querySelector("[data-backco]"); if (bc) bc.addEventListener("click", () => { mtCo = null; mtDraw(); }); }
     box.querySelectorAll("[data-mt]").forEach((el) => el.addEventListener("click", () => mtOpen(el.dataset.mt)));
   }
   async function loadMeetings() {

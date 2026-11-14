@@ -26871,9 +26871,13 @@ app.get("/api/mochica/bales/export.csv", async (req, res) => {
 // ===== MOCHICA：MiiTel の会議を、MOCHICA のメンバーのカレンダーの予定と突き合わせる（2026-11-13 田中さん）=====
 //   開始の時刻が近い（±20分）予定のタイトルから会社名を取り（kinbot と同じ companyFromTitle）、SF の Mochica（リード）・取引先に結びつける
 const _mcCalCache = new Map();   // email -> { at, evs }
-async function mcCalEvents(email) {
+async function mcCalEvents(email, reader = "") {
   const hit = _mcCalCache.get(email); if (hit && Date.now() - hit.at < 10 * 60000) return hit.evs;
-  const evs = await listCalendarEvents(email, "primary", { timeMin: new Date(Date.now() - 30 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() }).catch(() => []);
+  const range = { timeMin: new Date(Date.now() - 60 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() };
+  // 本人が Google とつないでいなくても読めるように、つないでいる人（カレンダーを読む代表者など）から本人のカレンダーを読む（2026-11-14）
+  let evs = await listCalendarEvents(email, "primary", range).catch(() => null);
+  if ((!evs || !evs.length) && reader && reader !== email) evs = await listCalendarEvents(reader, email, range).catch(() => null);
+  evs = evs || [];
   _mcCalCache.set(email, { at: Date.now(), evs }); return evs;
 }
 async function mcMembers(hosts = []) {
@@ -26885,25 +26889,35 @@ async function mcMembers(hosts = []) {
     for (const u of us) if (nz(u.name).startsWith(sur) && !out.some((o) => o.email === String(u.email || "").toLowerCase())) out.push({ name: u.name, email: String(u.email || "").toLowerCase() }); }
   return out;
 }
-async function mcCalMatchOne(r, members, owner) {
+async function mcCalMatchOne(r, members, owner, ctx = {}) {
   const st = new Date(r.started_at).getTime(); if (!st) return null;
+  const en = st + Math.max(10 * 60, Number(r.duration_sec) || 30 * 60) * 1000;   // 録画の終わり（長さが無ければ30分）
   const nz = (v) => String(v || "").replace(/[\s　]/g, "");
   // 主催の名前で、まずその人のカレンダーを見る。分からなければ MOCHICA のメンバー全員
   const host = nz(String(r.host && r.host !== "オーナー" ? r.host : String(r.title || "").replace(/^ネオキャリア/, "").replace(/のパーソナルミーティングルーム$/, "").replace(/\s*のミーティング$/, "")).split(/[\s　]/)[0]);
-  const first = members.filter((m) => host && host !== "オーナー" && nz(m.name).startsWith(host));
+  // 参加者の中の kinbot の人（2026-11-14）を先に、次に主催の苗字が合う人
+  const repEmails = new Set(((ctx.repOf && ctx.repOf(r.participants)) || []).map((x) => x.email));
+  for (const e of repEmails) if (!members.some((m) => m.email === e)) { const rp = ((ctx.repOf && ctx.repOf(r.participants)) || []).find((x) => x.email === e); if (rp) members = [...members, { name: rp.name, email: rp.email }]; }
+  const first = members.filter((m) => repEmails.has(m.email) || (host && host !== "オーナー" && nz(m.name).startsWith(host)));
   const order = [...first, ...members.filter((m) => !first.includes(m))];
   let best = null;
   for (const m of order) {
-    const evs = await mcCalEvents(m.email);
+    const evs = await mcCalEvents(m.email, ctx.reader);
     for (const ev of evs) {
-      if (ev.allDay || !ev.start) continue; const d = Math.abs(new Date(ev.start).getTime() - st); if (d > 20 * 60000) continue;
-      if (/休憩|ランチ|移動|ブロック|作業|朝会|夕会|MTG枠|社内/.test(ev.title || "")) continue;
-      const score = d + (ev.url && /zoom|meet|teams/i.test(ev.url) ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
-      if (!best || score < best.score) best = { score, ev, m };
+      if (ev.allDay || !ev.start) continue;
+      // 録画している時間に重なる予定、または開始が前後20分の予定（2026-11-14 田中さん：録画の時間の予定にする）
+      const es = new Date(ev.start).getTime(), ee = ev.end ? new Date(ev.end).getTime() : es + 30 * 60000;
+      const d = Math.abs(es - st); const overlap = Math.min(ee, en) - Math.max(es, st);
+      if (d > 20 * 60000 && overlap < 5 * 60000) continue;
+      const t = String(ev.title || "");
+      const bracket = /【[^】]+】/.test(t);   // 【】が付いているのが商談（2026-11-14 田中さん）
+      if (!bracket && /休憩|ランチ|移動|ブロック|作業|朝会|夕会|MTG枠|社内/.test(t)) continue;
+      const score = (bracket ? 0 : 60 * 60000) + Math.min(d, 60 * 60000) + (ev.url && /zoom|meet|teams/i.test(ev.url) ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
+      if (!best || score < best.score) best = { score, ev, m, bracket };
     }
-    if (best && first.includes(m) && best.score < 10 * 60000) break;
+    if (best && best.bracket && first.includes(m) && best.score < 10 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, reason: `開始の前後20分にカレンダーの予定が見つかりませんでした（見たカレンダー：${tried || "なし"}）`, at: Date.now() }; }
+  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 2, reason: `録画の時間にカレンダーの予定が見つかりませんでした（見たカレンダー：${tried || "なし"}）`, at: Date.now() }; }
   const title = best.ev.title || ""; const company = companyFromTitle(title);
   let sf = {};
   try {
@@ -26913,13 +26927,13 @@ async function mcCalMatchOne(r, members, owner) {
       sf = { leadId: ld && ld.records && ld.records[0] ? ld.records[0].Id : "", accountId: ac && ac.records && ac.records[0] ? ac.records[0].Id : "" };
     }
   } catch {}
-  return { title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, sf, at: Date.now() };
+  return { v: 2, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
 }
 let _mcCalRunning = false;
 async function mcCalMatchRun(owner) {
   if (_mcCalRunning) return 0; _mcCalRunning = true; let n = 0;
-  try { const rows = await mcMiitelNeedCal(40); if (!rows.length) return 0; const members = await mcMembers(rows.map((r) => r.host || r.title)); if (!members.length) return 0;
-    for (const r of rows) { const c = await mcCalMatchOne(r, members, owner).catch((e) => ({ none: true, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, at: Date.now() } } }); if (c && !c.none) n++; }
+  try { const rows = await mcMiitelNeedCal(40); if (!rows.length) return 0; const members = await mcMembers(rows.map((r) => r.host || r.title)); const repOf = await mcRepIndex().catch(() => null); const st0 = await getSettings().catch(() => ({})); const ctx = { repOf, reader: String(st0.apoScanOwner || st0.apoInviteOwner || owner || "").toLowerCase() }; if (!members.length && !repOf) return 0;
+    for (const r of rows) { const c = await mcCalMatchOne(r, members, owner, ctx).catch((e) => ({ none: true, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, at: Date.now() } } }); if (c && !c.none) n++; }
   } finally { _mcCalRunning = false; } return n;
 }
 setInterval(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || ""; await mcCalMatchRun(o || (await pickSfUser("").catch(() => ""))); } catch {} }, 15 * 60 * 1000);
@@ -31142,7 +31156,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14p kinbot for MOCHICA の商談：参加した kinbot の人が何人もいるときは、その全員の担当のカードに同じ商談を出す（前は参加者の並びで先の1人だけ）。";
+const BUILD_TAG = "2026-11-14q kinbot for MOCHICA の商談：カレンダーは録画の時間に重なる予定を見て、【】の付いた予定（商談）を一番にし、そのタイトルを商談の題名にする。参加者の kinbot の人のカレンダーを先に見る。本人が Google 未連携でも、代表者の連携から読む。前の決め方のものも1回やり直す（v=2）。担当の中に会社のカードを足した（担当→会社→商談）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

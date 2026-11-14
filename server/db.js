@@ -12776,7 +12776,7 @@ export async function kxHiringSaveDb(id, data, sources, by) { if (!pool) return;
 // MOCHICA：カレンダーとまだ突き合わせていない会議（2026-11-13）
 export async function mcMiitelNeedCal(limit = 40) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '60 days' AND (NOT (payload ? 'mt_cal') OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - 3600000))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '60 days' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '2' OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - 3600000))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 
 // SF の立ち上げ：kincall の架電先から、会社の従業員数・業種を探す（2026-11-13 田中さん「従業員数は基本 kincall の情報から」）
