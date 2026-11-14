@@ -1131,7 +1131,7 @@ function mbRender() {
       }));
       q(".mb-del").addEventListener("click", () => {
         if (!confirm(`${m.name || m.email} をメンバーから外します。よろしいですか？（保存を押すまで反映されません）`)) return;
-        mbState.members.splice(i, 1); mbRender();
+        mbState.members.splice(i, 1); mbState.editObj = null; mbRender();
       });
 
       row.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", String(i)); row.classList.add("mb-drag"); });
@@ -1173,7 +1173,22 @@ function mbRender() {
         grid.appendChild(t);
       }
       box.appendChild(grid);
+    } else if (mbState.editObj && mbState.members.includes(mbState.editObj)) {
+      // 1人を開いたとき：その人だけを、いままでの入力の形で直す
+      const g = cur;
+      const m = mbState.editObj, i = mbState.members.indexOf(m);
+      const back = document.createElement("button");
+      back.type = "button"; back.className = "integ-back mb-back"; back.textContent = `← ${g.label} のメンバーに戻る`;
+      back.addEventListener("click", () => { mbState.editObj = null; mbRender(); });
+      box.appendChild(back);
+      const card = document.createElement("section");
+      card.className = "mb-grp mb-grp-" + g.k;
+      card.innerHTML = `<div class="mb-grp-h"><span class="mb-grp-dot"></span><b>${g.label}</b><span class="mb-grp-n">${mbEsc(m.name || m.email)}</span></div><div class="mb-grp-body"></div>`;
+      card.querySelector(".mb-grp-body").appendChild(build(m, i, g.k));
+      box.appendChild(card);
     } else {
+      // グループを開いたとき：メンバーもカードで並べる。押すとその人を直す画面になる（2026-11-14 田中さん）
+      mbState.editObj = null;
       const g = cur;
       const list = mbState.members.map((m, i) => ({ m, i })).filter(({ m }) => g.has(m));
       const on = list.filter(({ m }) => m.active !== false).length;
@@ -1184,10 +1199,25 @@ function mbRender() {
       const card = document.createElement("section");
       card.className = "mb-grp mb-grp-" + g.k;
       card.innerHTML = `<div class="mb-grp-h"><span class="mb-grp-dot"></span><b>${g.label}</b><span class="mb-grp-n">在籍 ${on}名${list.length > on ? `・休み ${list.length - on}名` : ""}</span></div>
-        <div class="mb-grp-body"></div>`;
+        <div class="mb-grp-body mb-cards"></div>`;
       const body = card.querySelector(".mb-grp-body");
-      if (!list.length) body.innerHTML = `<p class="note mb-grp-empty">${g.k === "other" ? "DOC にも MOCHICA にも入っていない人はいません。" : `まだ ${g.label} の人はいません。下の欄から追加すると、${g.label} の人として入ります。`}</p>`;
-      for (const { m, i } of list) body.appendChild(build(m, i, g.k));
+      if (!list.length) { body.classList.remove("mb-cards"); body.innerHTML = `<p class="note mb-grp-empty">${g.k === "other" ? "DOC にも MOCHICA にも入っていない人はいません。" : `まだ ${g.label} の人はいません。下の欄から追加すると、${g.label} の人として入ります。`}</p>`; }
+      for (const { m } of list) {
+        const gl = (mbState.gLinks && mbState.gLinks[String(m.email || "").trim().toLowerCase()]) || {};
+        const c = document.createElement("button");
+        c.type = "button";
+        c.className = "mb-card" + (m.active === false ? " mb-off" : "");
+        const roles = Object.keys(ROLE_LABEL).filter((r) => m.roles.includes(r));
+        const both = m.businesses.includes("DOC") && m.businesses.includes("MOCHICA");
+        c.innerHTML = `<span class="mb-card-top"><span class="mb-av">${mbEsc(String(m.name || m.email || "?").trim().charAt(0))}</span>
+            <span class="mb-card-nm"><b>${mbEsc(m.name || "(名前なし)")}</b><small>${mbEsc(m.team || "チームなし")}</small></span>
+            ${m.active === false ? '<span class="mb-card-off">休み</span>' : ""}</span>
+          <span class="mb-card-mail">${mbEsc(m.email)}</span>
+          <span class="mb-card-roles">${roles.length ? roles.map((r) => `<span class="mb-rc mb-rc-${r}">${mbEsc(ROLE_LABEL[r])}</span>`).join("") : '<span class="mb-rc mb-rc-none">役割なし</span>'}${both ? `<span class="mb-rc mb-rc-both">${g.k === "doc" ? "MOCHICA も" : "DOC も"}</span>` : ""}</span>
+          <span class="mb-gstatus${gl.connected ? " mb-g-on" : ""}">${gl.connected ? "Google連携済み" : "Google未連携"}</span>`;
+        c.addEventListener("click", () => { mbState.editObj = m; mbRender(); });
+        body.appendChild(c);
+      }
       box.appendChild(card);
     }
   }
@@ -1224,6 +1254,8 @@ function mbAddMember(name, email) {
     businesses: mbState.view === "doc" ? ["DOC"] : mbState.view === "mochica" ? ["MOCHICA"] : [],
     team: "", roles: [], active: true, daily_cap: null, profile: {},
   });
+  // グループを開いているときは、足した人をそのまま開いて役割を選んでもらう
+  if (mbState.view) mbState.editObj = mbState.members[mbState.members.length - 1];
   mbRender();
   mbSay("追加しました。役割を選んで［保存］を押してください", 5000);
 }

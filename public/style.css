@@ -852,6 +852,26 @@ label.iv-row { cursor: pointer; }
 .mb-tile-n { font-size: 12px; font-weight: 700; color: var(--g); background: var(--gs); border-radius: 99px; padding: 2px 10px; }
 .mb-tile-sub { font-size: 11.5px; color: var(--muted); }
 .mb-back { margin-bottom: -4px; }
+/* メンバーのカード（グループの中）（2026-11-14） */
+.mb-grp-body.mb-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.mb-card { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; background: #fff; border: 1px solid var(--gl); border-radius: 12px; padding: 12px 13px; cursor: pointer; text-align: left; font-family: inherit; transition: border-color .15s, box-shadow .15s, transform .15s; }
+.mb-card:hover { border-color: var(--g2); box-shadow: 0 6px 14px rgba(15,61,40,.10); transform: translateY(-1px); }
+.mb-card.mb-off { opacity: .6; background: #FAFBFA; }
+.mb-card-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mb-av { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 11px; background: var(--gs); color: var(--g); display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 15px; }
+.mb-card-nm { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.mb-card-nm b { font-size: 14px; color: #14231D; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-card-nm small { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.mb-card-off { font-size: 11px; font-weight: 800; color: #6A7A72; background: #EEF2F0; border-radius: 99px; padding: 2px 8px; }
+.mb-card-mail { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-card-roles { display: flex; flex-wrap: wrap; gap: 5px; }
+.mb-rc { font-size: 11px; font-weight: 800; border-radius: 99px; padding: 2px 9px; background: #EEF2F0; color: #4F6158; }
+.mb-rc-closer { background: #E3F4EC; color: #0F6E56; }
+.mb-rc-inside { background: #FBF1DC; color: #8A6A1F; }
+.mb-rc-fallback { background: #E6EDF8; color: #3A5C9A; }
+.mb-rc-cs { background: #F5E6F1; color: #8A3A7A; }
+.mb-rc-both { background: #fff; border: 1px dashed var(--gl); color: var(--muted); }
+.mb-rc-none { background: #FFF1E6; color: #A2480C; }
 .mb-grp-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .mb-grp-empty { margin: 4px 6px; }
 .mb-grp .mb-row { border-left: 4px solid var(--g2); padding: 10px 12px; }
