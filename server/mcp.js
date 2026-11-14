@@ -540,6 +540,7 @@ export async function callTool(name, args, req) {
         議事録: minutes ? minutes.slice(0, 30000) : "（MiiTel の議事録はまだありません）",
         要約: (p.mt_review && p.mt_review.summary) || null, 営業フィードバック: (p.mt_review && p.mt_review.feedback) || null, AI分析: p.mt_deep || null,
         商談の段階: (p.mt_chapters && p.mt_chapters.chapters) || null,
+        カレンダーの照合: p.mt_cal ? { 題名: p.mt_cal.title || "", 見つからなかった理由: p.mt_cal.none ? (p.mt_cal.reason || "") : "", 読んだ人: p.mt_cal.ownerName || p.mt_cal.owner || "", 予定の開始: p.mt_cal.start || "", 手で決めた: !!p.mt_cal.manual, 版: p.mt_cal.v || "" } : null,
         文字起こし: want ? (tr ? tr.slice(0, 120000) : "（文字起こしはまだありません）") : `（省略：${tr.length}文字）`, 文字起こし_文字数: tr.length };
     }
     case "set_meeting_title": {
