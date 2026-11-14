@@ -25,7 +25,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261114f" />
+    <link rel="stylesheet" href="style.css?v=20261114g" />
   </head>
   <body>
     <div class="app">
@@ -880,12 +880,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
           <div class="set-pane" data-pane="members" hidden>
             <div class="set-card">
               <h3>メンバー管理</h3>
-              <p class="note">kinbotに関わる人をここで一括登録します。<b>この内容がアポ振り分けの割り振り設定、アポ獲得者のカレンダー照合、実績のチーム別集計にそのまま使われます。</b>ほかの画面で別に登録する必要はありません。</p>
-              <div class="mb-legend">
-                <span><b>クローザー</b>　商談を担当します。アポ振り分けのローテーションに入ります。</span>
-                <span><b>インサイド</b>　アポを獲得します。カレンダー照合の対象になります。</span>
-                <span><b>予備</b>　通常の順番には入らず、他の全員が埋まっているときだけ回ります。</span>
-              </div>
+              <!-- 上の説明と役割の説明はやめた（2026-11-14 田中さん：いらない） -->
               <div id="mbList" class="mb-list"></div>
               <!-- 追加の欄と未登録の人を1つの枠にまとめる（2026-11-14 田中さん：スマートに） -->
               <div class="mb-addbox">
@@ -940,8 +935,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261114f"></script>
-      <script src="nav.js?v=20261114f"></script>
+    <script src="settings.js?v=20261114g"></script>
+      <script src="nav.js?v=20261114g"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
