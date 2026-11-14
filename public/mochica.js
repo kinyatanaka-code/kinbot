@@ -35,6 +35,8 @@
   let mtHost = null;   // 選んだ担当（null＝担当のカードの一覧）
   // 商談者：MiiTel の参加者のうち kinbot のアカウントの人を先に使う（2026-11-14 田中さん）。無ければカレンダー、主催者の順
   const hostOf = (m) => (m.rep && m.rep.name) || (m.cal && m.cal.ownerName) || (String(m.host || "").trim() && String(m.host).trim() !== "オーナー" ? String(m.host).trim() : "") || "（担当なし）";
+  // 参加した kinbot の人が何人もいるときは、その全員の担当のカードに同じ商談を出す（2026-11-14 田中さん「福井聖の参加した MiiTel が読み込まれていない」）
+  const hostsOf = (m) => (Array.isArray(m.reps) && m.reps.length ? m.reps.map((r) => r.name).filter(Boolean) : [hostOf(m)]);
   const titleOf = (m) => (m.cal && m.cal.title) || m.title || "（題名なし）";
   const coOf = (m) => (m.cal && m.cal.company && m.cal.company !== "(無題)" ? m.cal.company : "");
   function mtDraw() {
@@ -46,16 +48,16 @@
     // ① 担当のカード（kinbot の商談履歴と同じ）
     // ヘッダーで探したときは、担当をまたいで商談を出す（2026-11-14 田中さん：検索はヘッダーで）
     if (mtHost == null && !q) {
-      const by = new Map(); for (const m of mtAll) { const h = hostOf(m); const v = by.get(h) || { n: 0, tr: 0, last: "" }; v.n++; if (m.transcript_len || m.has_tr) v.tr++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; by.set(h, v); }
+      const by = new Map(); for (const m of mtAll) for (const h of hostsOf(m)) { const v = by.get(h) || { n: 0, tr: 0, last: "" }; v.n++; if (m.transcript_len || m.has_tr) v.tr++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; by.set(h, v); }
       const hs = [...by.entries()].filter(([h]) => !q || h.toLowerCase().includes(q)).sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)));
       $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`;
       box.innerHTML = hs.map(([h, v]) => `<div class="mt-pcard" data-host="${esc(h)}"><span class="av">${esc(h.replace(/^（|）$/g, "").slice(0, 1))}</span><span class="nm"><b>${esc(h)}</b><small>${v.n}商談${v.tr ? `・文字起こし${v.tr}` : ""}${v.last ? `・最新 ${md(v.last)}` : ""}</small></span><span class="go">›</span></div>`).join("") || '<div class="mc-note" style="padding:10px">見つかりませんでした</div>';
-      box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); const first = mtAll.find((m) => hostOf(m) === mtHost); if (first) mtOpen(first.id); }));
+      box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); const first = mtAll.find((m) => hostsOf(m).includes(mtHost)); if (first) mtOpen(first.id); }));
       return;
     }
     // ② その担当の商談（日ごと）
     const all = mtHost == null;
-    const list = mtAll.filter((m) => all || hostOf(m) === mtHost).filter((m) => !q || `${titleOf(m)} ${coOf(m)} ${m.participants || ""} ${all ? hostOf(m) : ""}`.toLowerCase().includes(q));
+    const list = mtAll.filter((m) => all || hostsOf(m).includes(mtHost)).filter((m) => !q || `${titleOf(m)} ${coOf(m)} ${m.participants || ""} ${all ? hostsOf(m).join(" ") : ""}`.toLowerCase().includes(q));
     $("mtCount").textContent = `${list.length}件`;
     let last = ""; let html = all
       ? `<div class="mt-who"><b>「${esc(q)}」で探した商談</b><small>${list.length}件</small></div>${list.length ? "" : '<div class="mc-note" style="padding:10px">見つかりませんでした。</div>'}`
@@ -63,7 +65,7 @@
     for (const m of list) {
       const at = m.started_at || m.received_at; const k = dkey(at);
       if (k !== last) { html += `<div class="mt-day">${md(at)}（${wk(at)}）</div>`; last = k; }
-      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${all ? `<span>${esc(hostOf(m))}</span>` : ""}${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len || m.has_tr ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
+      html += `<div class="mt-card${m.id === mtSel ? " on" : ""}" data-mt="${esc(m.id)}"><div class="t">${esc(coOf(m) || titleOf(m))}</div>${coOf(m) ? `<div class="m" style="margin-top:1px"><span>${esc(titleOf(m))}</span></div>` : ""}<div class="m"><span>${hm(at)}</span>${all ? `<span>${esc(hostsOf(m).join("・"))}</span>` : ""}${m.duration_sec ? `<span>${Math.round(m.duration_sec / 60)}分</span>` : ""}</div><div class="tags">${m.transcript_len || m.has_tr ? '<span class="mt-tag">文字起こしあり</span>' : '<span class="mt-tag none">文字起こし待ち</span>'}${m.has_video ? '<span class="mt-tag">録画あり</span>' : ""}${m.cal && m.cal.sf && (m.cal.sf.leadId || m.cal.sf.accountId) ? '<span class="mt-tag">SFと結びつき</span>' : '<span class="mt-tag sf">SF未記録</span>'}</div></div>`;
     }
     box.innerHTML = html;
     { const bk = box.querySelector("[data-back]"); if (bk) bk.addEventListener("click", () => { mtHost = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); }); }

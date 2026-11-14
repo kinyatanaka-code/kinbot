@@ -31142,7 +31142,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14o kinbot for MOCHICA の商談に要約を付けた（kinbot と同じ作り：概要・要点・合意事項・宿題・相手の懸念、コピー・作り直す）。同時に作る営業フィードバックは「FB & 分析」に出す。payload.mt_review に置く。";
+const BUILD_TAG = "2026-11-14p kinbot for MOCHICA の商談：参加した kinbot の人が何人もいるときは、その全員の担当のカードに同じ商談を出す（前は参加者の並びで先の1人だけ）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
