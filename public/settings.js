@@ -1222,11 +1222,13 @@ function mbRender() {
 
   // 内訳のまとめ
   const count = (r) => mbState.members.filter((m) => m.active !== false && m.roles.includes(r)).length;
-  const sum = document.createElement("p");
-  sum.className = "note mb-sum";
-  sum.innerHTML = `在籍 <b>${mbState.members.filter((m) => m.active !== false).length}</b>名` +
-    `／クローザー <b>${count("closer")}</b>名・インサイド <b>${count("inside")}</b>名・予備 <b>${count("fallback")}</b>名・CS <b>${count("cs")}</b>名` +
-    `／チーム <b>${teamNames.length}</b>`;
+  // 内訳は小さな札で並べる（2026-11-14 田中さん：スマートに）
+  const sum = document.createElement("div");
+  sum.className = "mb-sum";
+  const chip = (k, l, n) => `<span class="mb-sc mb-sc-${k}">${l}<b>${n}</b></span>`;
+  sum.innerHTML = chip("all", "在籍", mbState.members.filter((m) => m.active !== false).length) +
+    chip("closer", "クローザー", count("closer")) + chip("inside", "インサイド", count("inside")) +
+    chip("fallback", "予備", count("fallback")) + chip("cs", "CS", count("cs")) + chip("team", "チーム", teamNames.length);
   box.appendChild(sum);
 
   // 未登録の候補
@@ -1234,8 +1236,8 @@ function mbRender() {
   if (cand) {
     const rest = mbState.candidates.filter((c) => !mbState.members.some((m) => m.email === c.email));
     cand.innerHTML = rest.length
-      ? `<p class="note">未登録の人がいます：${rest.map((c) =>
-          `<button type="button" class="btn ghost mb-quick" data-e="${mbEsc(c.email)}" data-n="${mbEsc(c.name)}">${mbEsc(c.name)} を追加</button>`).join(" ")}</p>`
+      ? `<div class="mb-cand"><span class="mb-add-l">未登録の人</span>${rest.map((c) =>
+          `<button type="button" class="mb-quick" data-e="${mbEsc(c.email)}" data-n="${mbEsc(c.name)}" title="${mbEsc(c.email)} を追加"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>${mbEsc(c.name)}</button>`).join("")}</div>`
       : "";
     cand.querySelectorAll(".mb-quick").forEach((b) => b.addEventListener("click", () => {
       mbAddMember(b.dataset.n, b.dataset.e);

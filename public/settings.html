@@ -25,7 +25,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261114e" />
+    <link rel="stylesheet" href="style.css?v=20261114f" />
   </head>
   <body>
     <div class="app">
@@ -887,13 +887,17 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                 <span><b>予備</b>　通常の順番には入らず、他の全員が埋まっているときだけ回ります。</span>
               </div>
               <div id="mbList" class="mb-list"></div>
-              <div class="mb-add">
-                <input id="mbName" placeholder="名前（例：田中欽也）" />
-                <input id="mbEmail" type="email" placeholder="メールアドレス" list="mbCandList" />
-                <datalist id="mbCandList"></datalist>
-                <button class="btn ghost" id="mbAdd">メンバーを追加</button>
+              <!-- 追加の欄と未登録の人を1つの枠にまとめる（2026-11-14 田中さん：スマートに） -->
+              <div class="mb-addbox">
+                <div class="mb-add">
+                  <span class="mb-add-l">メンバーを追加</span>
+                  <input id="mbName" placeholder="名前（例：田中欽也）" />
+                  <input id="mbEmail" type="email" placeholder="メールアドレス" list="mbCandList" />
+                  <datalist id="mbCandList"></datalist>
+                  <button type="button" class="mb-add-btn" id="mbAdd"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>追加</button>
+                </div>
+                <div id="mbCandidates"></div>
               </div>
-              <div id="mbCandidates"></div>
               <div class="modal-actions">
                 <button class="btn" id="mbSave">保存</button>
                 <span class="tm-status" id="mbStatus"></span>
@@ -936,8 +940,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261114e"></script>
-      <script src="nav.js?v=20261114e"></script>
+    <script src="settings.js?v=20261114f"></script>
+      <script src="nav.js?v=20261114f"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
