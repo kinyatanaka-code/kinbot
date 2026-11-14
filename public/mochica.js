@@ -55,7 +55,9 @@
       const hs = [...by.entries()].filter(([h]) => !q || h.toLowerCase().includes(q)).sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)));
       $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`;
       box.innerHTML = hs.map(([h, v]) => `<div class="mt-pcard" data-host="${esc(h)}"><span class="av">${esc(h.replace(/^（|）$/g, "").slice(0, 1))}</span><span class="nm"><b>${esc(h)}</b><small>${v.n}商談${v.tr ? `・文字起こし${v.tr}` : ""}${v.last ? `・最新 ${md(v.last)}` : ""}</small></span><span class="go">›</span></div>`).join("") || '<div class="mc-note" style="padding:10px">見つかりませんでした</div>';
-      box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; mtCo = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtDraw(); const first = mtAll.find((m) => hostsOf(m).includes(mtHost)); if (first) mtOpen(first.id); }));
+      box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; mtCo = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtSel = ""; mtDraw();
+        // 担当を選んだだけでは商談を開かない。会社カード → その会社の商談、の順で開く（2026-11-15 田中さん）
+        const mm = $("mtMain"); if (mm) mm.innerHTML = '<div class="mt-empty">左の会社カードを選ぶと、その会社の商談が出ます。</div>'; }));
       return;
     }
     // ② その担当の会社のカード（カレンダーの【】の予定のタイトルから会社名を読む）
