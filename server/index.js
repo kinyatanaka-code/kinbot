@@ -26900,6 +26900,14 @@ async function mcMembers(hosts = []) {
 const MC_CORP = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人|学校法人|特定非営利活動法人|NPO法人)";
 function mcIsDealTitle(t) {
   const x = String(t || "").normalize("NFKC");
+  if (mcIsStrongDeal(x)) return true;
+  // 頭が【…】で「…様」で終わる予定も商談として拾う（例：【デモ確認・提案】八尾隣保館　百瀬様）。
+  // 本炭さんのカレンダーで、録画の時間の予定がこの形だったため（2026-11-15）。【新/ヒ】などがあればそちらを優先する
+  return /^\s*【[^】]{1,20}】.{2,}(様|さま)\s*$/.test(x.trim());
+}
+// いちばん確かな商談の形（【新/ヒ】【新/再提案】・「会社：人様」）
+function mcIsStrongDeal(t) {
+  const x = String(t || "").normalize("NFKC");
   if (/【\s*新\s*\/\s*(ヒ|再提案)\s*】/.test(x)) return true;
   // 「会社：人様」の形（法人の言葉が無くてもよい。例：エコーデリカ：高橋様、TJS：採用ご担当者様）（2026-11-15）
   return /[^:：\s]{2,40}\s*[:：]\s*[^:：]{1,20}(様|さま)\s*$/.test(x.trim());
@@ -26956,15 +26964,15 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
       if (!mcIsDealTitle(t)) continue;
       if (!first.includes(m) && !titleHasGuest(t)) continue;   // 担当でない人の予定は、お客様の名前が入っているときだけ
       const bracket = true;
-      const score = Math.min(d, 60 * 60000) + (overlap > 0 ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
+      const score = Math.min(d, 60 * 60000) + (overlap > 0 ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000) + (mcIsStrongDeal(t) ? 0 : 15 * 60000);
       if (!best || score < best.score) best = { score, ev, m, bracket };
     }
-    if (best && best.bracket && first.includes(m) && best.score < 10 * 60000) break;
+    if (best && best.bracket && first.includes(m) && best.score < 25 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); const readInfo = order.slice(0, 6).map((m) => { const st = _mcCalStat.get(m.email); return st ? (st.ok ? `${m.name}＝${st.how}で${st.n}件` : `${m.name}＝読めない（${st.err || "Google 未連携か、共有されていない"}）`) : m.name; }).join("・"); return { none: true, v: 6, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
+  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); const readInfo = order.slice(0, 6).map((m) => { const st = _mcCalStat.get(m.email); return st ? (st.ok ? `${m.name}＝${st.how}で${st.n}件` : `${m.name}＝読めない（${st.err || "Google 未連携か、共有されていない"}）`) : m.name; }).join("・"); return { none: true, v: 7, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】・「会社：○○様」・「【…】○○様」）が見つかりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
   const title = best.ev.title || ""; const company = mcCoFromTitle(title);
   const sf = await mcSfFor(company, owner);
-  return { v: 6, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
+  return { v: 7, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
 }
 let _mcCalRunning = false;
 async function mcCalMatchRun(owner) {
@@ -31446,7 +31454,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
