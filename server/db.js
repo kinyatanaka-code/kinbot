@@ -8706,8 +8706,15 @@ export async function syncMembersToLegacy() {
       return { ...out, skipped: true };
     }
 
+    // MOCHICA だけの人は、DOC のアポ振り分け（クローザーの順番・インサイドのカレンダー照合）に入れない。
+    // 入れると、MOCHICA のインサイドのカレンダーまで読んで、アポを自動で割り振ってしまった（2026-11-14 田中さん「暴走した」）。
+    // MOCHICA は kinbot for MOCHICA の別の箱で扱う。DOC が付いている人と、事業が未設定の人（今までどおり）だけを入れる。
+    const forDocApo = (m) => { const b = Array.isArray(m.businesses) ? m.businesses : []; return !b.length || b.includes("DOC"); };
+    const skipped = members.filter((m) => !forDocApo(m) && (m.roles.includes("closer") || m.roles.includes("fallback") || m.roles.includes("inside")));
+    if (skipped.length) console.log(`[members] MOCHICA だけの人はアポ振り分けに入れません：${skipped.map((m) => m.name || m.email).join("・")}`);
+
     // --- クローザー（closer / fallback） ---
-    const closers = members.filter((m) => m.roles.includes("closer") || m.roles.includes("fallback"));
+    const closers = members.filter((m) => forDocApo(m) && (m.roles.includes("closer") || m.roles.includes("fallback")));
     for (let i = 0; i < closers.length; i++) {
       const m = closers[i];
       await pool.query(
@@ -8725,7 +8732,7 @@ export async function syncMembersToLegacy() {
     out.closers = closers.length;
 
     // --- インサイド（アポ獲得者） ---
-    const insides = members.filter((m) => m.roles.includes("inside"));
+    const insides = members.filter((m) => forDocApo(m) && m.roles.includes("inside"));
     for (const m of insides) {
       await pool.query(
         `INSERT INTO interns (email, name) VALUES ($1,$2)
