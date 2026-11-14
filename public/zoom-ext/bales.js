@@ -20,7 +20,7 @@
   const pageName = () => { const h = document.querySelector("h1, h2, [class*='title' i] h1, [class*='header' i] h2"); const t = (h && h.innerText || "").trim().split("\n")[0]; return (t && t.length < 60 ? t : document.title || "Bales のリスト").trim(); };
   const draw = () => {
     const best = cands.findIndex((c) => c.lead && c.pager) >= 0 ? cands.findIndex((c) => c.lead && c.pager) : cands.findIndex((c) => c.lead) >= 0 ? cands.findIndex((c) => c.lead) : 0;
-    box.innerHTML = `<button class="x" type="button" aria-label="閉じる">×</button><h4>kinbot に取り込む</h4>
+    box.innerHTML = `<button class="x" type="button" aria-label="閉じる">×</button><h4>kinbot に取り込む<small style="font-weight:400;color:#5C7377;margin-left:6px">版 ${(() => { try { return chrome.runtime.getManifest().version; } catch { return "?（ページを読み込み直してください）"; } })()}</small></h4>
       ${cands.length ? `<label>リストの名前（kinbot で出る名前）</label><input data-n value="${pageName().replace(/"/g, "&quot;")}">
         <label>読む一覧（ふつうは変えなくてよい）</label><select data-c>${cands.map((c) => `<option value="${c.i}" ${c.i === cands[best].i ? "selected" : ""}>${c.ep}（${c.n}件${c.total != null ? `／全${c.total}件` : ""}${c.pager ? "" : "・めくり方不明"}）</option>`).join("")}</select>
         <button class="go" type="button" data-go>全部取り込む</button><div class="bar"><i></i></div><div class="msg" data-m>最後のページまで自動でめくって kinbot に送ります。終わるまでこのタブは開いたままにしてください。</div>`

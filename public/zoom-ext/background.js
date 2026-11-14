@@ -2,6 +2,8 @@
 // kincall から受け取ったログイン情報を、ブラウザのメモリ（chrome.storage.session）に10分だけ置く。ファイルには残さない。
 const TTL = 10 * 60 * 1000;
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  // ここで扱わない頼み（MiiTel・Bales など）には返事をしない。先に「だめ」と返すと、本当の返事が届かなくなるため（2026-11-15）
+  if (!msg || !["kc-zoom-start", "kc-zoom-get", "kc-zoom-clear", "kx-mw-ingest", "kx-mw-set"].includes(msg.type)) return false;
   (async () => {
     if (msg && msg.type === "kc-zoom-start") {
       const c = msg.cred || {};
