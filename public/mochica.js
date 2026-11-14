@@ -73,6 +73,42 @@
     try { const d = await api("/api/mochica/miitel/meetings"); mtAll = (d.items || []).filter((m) => String(m.title || "").trim() || m.started_at || m.transcript_len); mtDraw(); }
     catch (e) { const b = $("mtList"); if (b) b.textContent = "読めませんでした：" + e.message; }
   }
+  // ===== 商談の段階：録画の下に帯と一覧を出す（kinbot の商談履歴と同じ作り・同じ色）（2026-11-14）=====
+  const PHASE_COLOR = { "アイスブレイク": "#cfe7dd", "ヒアリング": "#5DCAA5", "提案・説明": "#1d9e75", "デモ": "#17b39a", "質疑・懸念": "#e0b25e", "価格・条件": "#d99114", "クロージング": "#0d5b47", "次回調整": "#8fb8ab", "雑談": "#c9c7bd" };
+  const mmss = (sec) => { const x = Math.max(0, Math.round(Number(sec) || 0)); return Math.floor(x / 60) + ":" + String(x % 60).padStart(2, "0"); };
+  const chOpen = () => { try { return localStorage.getItem("kinbot_ch_open") !== "0"; } catch { return true; } };
+  function mtChapters(id, tr, chapters0, durSec, rep) {
+    const wrap = $("mtCh"); if (!wrap) return;
+    let chapters = Array.isArray(chapters0) ? chapters0 : [];
+    const ve = () => $("mtVideo");
+    const total = () => { const v = ve(); const d = v && v.duration; return (d && isFinite(d) && d > 1) ? d : (durSec || 0); };
+    const timesOf = () => { const T = total(); return chapters.map((c) => { const has = typeof c.start === "number" && isFinite(c.start); const st = has ? c.start : Math.round((c.ratioStart || 0) * T); const en = has && typeof c.end === "number" ? c.end : Math.round((c.ratioEnd || 1) * T); return { start: st, end: Math.max(st + 1, en) }; }); };
+    const seek = (sec) => { const v = ve(); if (!v) return; try { v.currentTime = Math.max(0, sec || 0); } catch {} const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); };
+    const make = async (force) => {
+      wrap.innerHTML = '<div class="ch-loading">商談の段階に分けています…</div>';
+      try { const r = await fetch(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/chapters`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ tr, rep, force: !!force }) });
+        const d = await r.json(); if (!r.ok) throw new Error(d.error || "作れませんでした"); chapters = d.chapters || [];
+        if (!chapters.length) { wrap.innerHTML = d.reason ? `<div class="mc-note" style="font-size:12px">${esc(d.reason)}</div>` : ""; return; } draw();
+      } catch (e) { wrap.innerHTML = `<button type="button" class="mt-btn ghost" data-chredo>段階を作り直す（${esc(e.message)}）</button>`; const b = wrap.querySelector("[data-chredo]"); if (b) b.addEventListener("click", () => make(true)); }
+    };
+    const draw = () => {
+      if (!chapters.length) { make(false); return; }
+      const ts = timesOf(); const T = Math.max(1, total() || ts[ts.length - 1].end || 1);
+      wrap.innerHTML = `<div class="ch-track"><div class="ch-bar" role="group" aria-label="商談の段階">` + chapters.map((c, i) => `<button type="button" class="ch-seg" data-sec="${ts[i].start}" style="width:${Math.max(2, ((ts[i].end - ts[i].start) / T) * 100)}%;background:${PHASE_COLOR[c.phase] || "#9db3ab"}" title="${esc(c.phase)}（${mmss(ts[i].start)}〜）${c.note ? " " + esc(c.note) : ""}"><span class="ch-seg-label">${esc(c.phase)}</span></button>`).join("") + `</div></div>
+        <div class="ch-tools"><button type="button" class="ch-toggle">${chOpen() ? "段階の一覧を隠す" : "段階の一覧を出す"}</button><button type="button" class="ch-redo">作り直す</button></div>
+        <div class="ch-list${chOpen() ? "" : " is-hidden"}">` + chapters.map((c, i) => `<button type="button" class="ch-item" data-sec="${ts[i].start}"><span class="ch-dot" style="background:${PHASE_COLOR[c.phase] || "#9db3ab"}"></span><span class="ch-time">${mmss(ts[i].start)}</span><span class="ch-phase">${esc(c.phase)}</span><span class="ch-note">${esc(c.note || "")}</span></button>`).join("") + `</div>`;
+      wrap.querySelectorAll("[data-sec]").forEach((b) => b.addEventListener("click", () => seek(Number(b.dataset.sec) || 0)));
+      const tg = wrap.querySelector(".ch-toggle"); tg.addEventListener("click", () => { const o = !chOpen(); try { localStorage.setItem("kinbot_ch_open", o ? "1" : "0"); } catch {} wrap.querySelector(".ch-list").classList.toggle("is-hidden", !o); tg.textContent = o ? "段階の一覧を隠す" : "段階の一覧を出す"; });
+      wrap.querySelector(".ch-redo").addEventListener("click", () => { if (confirm("段階を作り直しますか？（30秒ほどかかります）")) make(true); });
+    };
+    // 録画の長さが分かったら、秒の無い段階の位置を描き直す。再生中は今の段階に印を付ける
+    const v = ve();
+    if (v) {
+      v.addEventListener("loadedmetadata", () => { if (chapters.length) draw(); }, { once: true });
+      v.addEventListener("timeupdate", () => { if (!chapters.length) return; const ts = timesOf(); let k = 0; ts.forEach((t, i) => { if (v.currentTime >= t.start) k = i; }); wrap.querySelectorAll(".ch-seg").forEach((b, i) => b.classList.toggle("is-now", i === k)); });
+    }
+    draw();
+  }
   async function mtOpen(id) {
     mtSel = id; if (mtHost != null) mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
     let it; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}`)).item; } catch (e) { main.innerHTML = `<div class="mt-empty">読めませんでした：${esc(e.message)}</div>`; return; }
@@ -114,7 +150,7 @@
     };
     const cur = mtOpen.tab || "tr";
     const hasVid = !!(p.mt_video && p.mt_video.fileId);
-    main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}
+    main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}${tr.length >= 6 ? '<div class="ch-wrap" id="mtCh" style="margin-top:10px"></div>' : ""}
       <div class="mt-title"><h2>${esc((cal && cal.title) || it.title || "（題名なし）")}</h2><a class="mt-btn ghost" href="${esc(url)}" target="_blank" rel="noopener">MiiTel で開く ↗</a></div>
       ${calWhy ? `<div class="mc-note" style="margin:-4px 0 10px;font-size:11.5px">📅 ${esc(calWhy)}</div>` : ""}<div class="mt-fields">${cal && cal.company && cal.company !== "(無題)" ? `<div><span>会社</span><b>${esc(cal.company)}${cal.sf && cal.sf.leadId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Lead/${esc(cal.sf.leadId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFのリード ↗</a>` : ""}${cal.sf && cal.sf.accountId ? ` <a href="https://ap10.lightning.force.com/lightning/r/Account/${esc(cal.sf.accountId)}/view" target="_blank" rel="noopener" style="font-size:11px">SFの取引先 ↗</a>` : ""}</b></div>` : ""}<div><span>担当</span><b>${esc((cal && cal.ownerName) || (it.host && it.host !== "オーナー" ? it.host : "") || "—")}</b></div><div><span>日時</span><b>${at ? `${md(at)}（${wk(at)}） ${hm(at)}` : "—"}</b></div><div><span>長さ</span><b>${it.duration_sec ? Math.round(it.duration_sec / 60) + "分" : "—"}</b></div><div><span>参加者</span><b>${esc(/\[object Object\]/.test(it.participants || "") ? "—" : it.participants || "—")}</b></div></div>
       <div class="mt-tabs">${tabs.map(([k, l]) => `<button type="button" data-mtab="${k}" class="${k === cur ? "on" : ""}">${l}</button>`).join("")}</div>
@@ -123,6 +159,8 @@
     // 録画：ドライブに置いた録画を HLS（バイトの範囲つき）で再生
     if (hasVid) { const ve = $("mtVideo"); const src = `/api/mochica/miitel/video/${encodeURIComponent(id)}.m3u8`;
       if (window.Hls && window.Hls.isSupported()) { const h = new window.Hls(); h.loadSource(src); h.attachMedia(ve); } else ve.src = src; }
+    // 商談の段階（kinbot と同じ帯と一覧）（2026-11-14 田中さん）
+    if (tr.length >= 6) mtChapters(id, tr, (p.mt_chapters && p.mt_chapters.chapters) || [], Number(it.duration_sec) || 0, hostOf(mtAll.find((x) => x.id === id) || it));
     // 録画の取り込み：拡張機能が MiiTel の会議を裏で開いて、録画の細切れを kinbot に送る
     const gb = main.querySelector("[data-grab]"); if (gb) gb.addEventListener("click", () => {
       if (!document.documentElement.dataset.kbMiitelExt) { alert("拡張機能 kinbot-ext（1.5.0 以上）が必要です。入れ直して、この画面を開き直してください。"); return; }

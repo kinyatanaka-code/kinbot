@@ -27067,6 +27067,25 @@ app.get("/api/mochica/miitel/meetings", async (req, res) => {
     res.json({ ok: true, items }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// MOCHICA の商談も、kinbot と同じく「商談の段階」（ヒアリング・デモ・質疑・懸念…）に分ける（2026-11-14 田中さん）。
+//   文字起こしの形は MiiTel の届き方でまちまちなので、画面で読みそろえたもの（{s:話した人, t:言葉, at:秒}）を送ってもらう。
+//   できた段階は payload.mt_chapters に置き、次からは作らずに出す。force で作り直す。
+app.post("/api/mochica/miitel/meetings/:id/chapters", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || "");
+    const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const old = row.payload && row.payload.mt_chapters;
+    if (old && Array.isArray(old.chapters) && old.chapters.length && !(req.body && req.body.force)) return res.json({ chapters: old.chapters });
+    const lines = (Array.isArray(req.body && req.body.tr) ? req.body.tr : []).slice(0, 4000)
+      .map((u) => ({ speaker: { name: String((u && u.s) || "").slice(0, 40) }, text: String((u && u.t) || "").slice(0, 400), off: Number.isFinite(+(u && u.at)) && u.at !== null ? +u.at : undefined }))
+      .filter((u) => u.text);
+    if (lines.length < 6) return res.json({ chapters: [], reason: "文字起こしが短いので、段階に分けられません" });
+    const raw = await splitPhases({ transcript: lines, repName: String((req.body && req.body.rep) || "") });
+    const chapters = buildChapters(lines, raw);
+    await mcMiitelSave({ id, payload: { mt_chapters: { chapters, at: Date.now(), by: req.user } } });
+    res.json({ chapters });
+  } catch (e) { console.error("[mochica chapters]", e.message); res.status(502).json({ error: e.message }); }
+});
 app.get("/api/mochica/miitel/meetings/:id", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcMiitelGet(req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, item: r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -31104,7 +31123,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14m kinbot for MOCHICA の商談：MiiTel の参加者のうち、kinbot のアカウントと名前が同じ人、または「ネオキャリア＋苗字」の人を商談者にして、担当のカードに出す（主催者が共有の「オーナー」でも分かる）。";
+const BUILD_TAG = "2026-11-14n kinbot for MOCHICA の商談にも、kinbot と同じ「商談の段階」（録画の下の色の帯と、時刻つきの段階の一覧。押すとその時刻から再生、作り直すも）を付けた。最初に開いたときに AI が作り、payload.mt_chapters に置く。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
