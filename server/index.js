@@ -26897,12 +26897,13 @@ const MC_CORP = "(?:株式会社|有限会社|合同会社|合名会社|合資�
 function mcIsDealTitle(t) {
   const x = String(t || "").normalize("NFKC");
   if (/【\s*新\s*\/\s*(ヒ|再提案)\s*】/.test(x)) return true;
-  return new RegExp(`(${MC_CORP}[^:：]{1,40}|[^:：]{1,40}${MC_CORP})\\s*[:：]\\s*[^:：]{1,20}(様|さま)`).test(x);
+  // 「会社：人様」の形（法人の言葉が無くてもよい。例：エコーデリカ：高橋様、TJS：採用ご担当者様）（2026-11-15）
+  return /[^:：\s]{2,40}\s*[:：]\s*[^:：]{1,20}(様|さま)\s*$/.test(x.trim());
 }
 // 予定のタイトルから会社名を読む。「_」区切りや「会社：人様」の形も読めるようにしてから、kinbot と同じ companyFromTitle に渡す
 function mcCoFromTitle(t) {
   let x = String(t || "").normalize("NFKC").replace(/【[^】]*】/g, " ").replace(/[〇○●◎◯☆★◆◇■□]+/g, " ");   // 予定の頭の「〇」などの印は会社名に入れない（2026-11-14）
-  const ci = x.search(/[:：]/); if (ci > 0 && new RegExp(MC_CORP).test(x.slice(0, ci))) x = x.slice(0, ci);
+  const ci = x.search(/[:：]/); if (ci > 0 && /(様|さま)\s*$/.test(x)) { const head = x.slice(0, ci).replace(/[_＿]+/g, " ").trim(); const w = head.split(/\s+/); const hit = w.find((y) => new RegExp(MC_CORP).test(y)); return hit ? companyFromTitle(hit) : (w[w.length - 1] || head); }
   x = x.replace(/[_＿]+/g, " ").replace(/\s+/g, " ").trim();
   // 「福井商談 東邦コンサルタント株式会社 川瀬様」のように前に別の言葉があるときは、法人の言葉を含むかたまりを選ぶ
   const part = x.split(" ").find((w) => new RegExp(MC_CORP).test(w));
@@ -26926,8 +26927,16 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
   // 参加者の中の kinbot の人（2026-11-14）を先に、次に主催の苗字が合う人
   const repEmails = new Set(((ctx.repOf && ctx.repOf(r.participants)) || []).map((x) => x.email));
   for (const e of repEmails) if (!members.some((m) => m.email === e)) { const rp = ((ctx.repOf && ctx.repOf(r.participants)) || []).find((x) => x.email === e); if (rp) members = [...members, { name: rp.name, email: rp.email }]; }
+  // 画面で選んだ担当がいれば、その人を一番に
+  if (r.mrep && r.mrep.email) { repEmails.add(String(r.mrep.email).toLowerCase()); if (!members.some((m) => m.email === String(r.mrep.email).toLowerCase())) members = [...members, { name: r.mrep.name || r.mrep.email, email: String(r.mrep.email).toLowerCase() }]; }
   const first = members.filter((m) => repEmails.has(m.email) || (host && host !== "オーナー" && nz(m.name).startsWith(host)));
-  const order = [...first, ...members.filter((m) => !first.includes(m))];
+  // 担当（参加者の kinbot の人・主催の苗字の人）が分かれば、その人のカレンダーだけを見る（2026-11-15：ほかの人の予定を拾って題名が違っていた）。
+  // 分からないときだけほかのメンバーも見るが、そのときは予定の題名に、参加者（お客様）の名前が入っているものに限る
+  const others = first.length ? [] : members;
+  const neo = (n) => /ネオキャリア|neo-?career/i.test(n) || members.some((m) => { const f = nz(m.name).slice(0, 2); return f && nz(n).startsWith(f) && nz(n).length <= nz(m.name).length + 1; });
+  const guestTokens = String(r.participants || "").split(/[,、，;／\/\n]+/).map((x) => nz(x).replace(/(様|さま|さん)$/, "")).filter((x) => x.length >= 2 && !/^[\w.-]+$/.test(x) && !neo(x));
+  const titleHasGuest = (t) => { const tt = nz(t); return guestTokens.some((g) => tt.includes(g) || (g.length >= 3 && tt.includes(g.slice(0, 2)))); };
+  const order = [...first, ...others];
   let best = null;
   for (const m of order) {
     const evs = await mcCalEvents(m.email, ctx.reader);
@@ -26940,16 +26949,17 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
       const t = String(ev.title || "");
       // 商談の予定の形（【新/ヒ】【新/再提案】、「会社：人様」）だけを使う（2026-11-14 田中さん「【】の予定よりは…」）
       if (!mcIsDealTitle(t)) continue;
+      if (!first.includes(m) && !titleHasGuest(t)) continue;   // 担当でない人の予定は、お客様の名前が入っているときだけ
       const bracket = true;
       const score = Math.min(d, 60 * 60000) + (overlap > 0 ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
       if (!best || score < best.score) best = { score, ev, m, bracket };
     }
     if (best && best.bracket && first.includes(m) && best.score < 10 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 4, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（見たカレンダー：${tried || "なし"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
+  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, v: 5, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】や「会社：○○様」）が見つかりませんでした（見たカレンダー：${tried || "なし"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
   const title = best.ev.title || ""; const company = mcCoFromTitle(title);
   const sf = await mcSfFor(company, owner);
-  return { v: 4, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
+  return { v: 5, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
 }
 let _mcCalRunning = false;
 async function mcCalMatchRun(owner) {
@@ -31425,7 +31435,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15a kinbot コネクタ（Claude）に set_meeting_title：MOCHICA の会議（題名から会社名・SF を読み直し、手で決めた扱い）と kinbot の商談（自分の商談だけ、管理者は全部、回数は消さない）の題名を変えられる。";
+const BUILD_TAG = "2026-11-15b MOCHICA のカレンダー照合を直した：担当（画面で選んだ人・参加者の kinbot の人・主催の苗字の人）が分かればその人のカレンダーだけを見る。分からないときだけほかのメンバーも見るが、題名にお客様の名前が入った予定に限る。「会社：人様」は法人の言葉が無くても商談の予定（エコーデリカ：高橋様など）。v=5 で手で決めたもの以外をやり直す。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
