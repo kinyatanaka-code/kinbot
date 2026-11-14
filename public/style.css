@@ -846,6 +846,9 @@ label.iv-row { cursor: pointer; }
 .mb-add-btn:hover { background: #0F6E56; }
 .mb-cand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid #E6EFEA; }
 .mb-quick { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 1px solid #CFE3D9; border-radius: 99px; background: #fff; color: #0F6E56; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.mb-acct { border-top: 1px solid #E6EFEA; padding-top: 10px; }
+.mb-acct summary { cursor: pointer; font-size: 12px; font-weight: 800; color: #0F6E56; }
+.mb-acct textarea { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: 12.5px; }
 .mb-quick:hover { background: #E3F4EC; border-color: #1d9e75; }
 /* メンバー管理：DOC（緑）・MOCHICA（水色）・その他（黄緑）のグループのカード（2026-11-14） */
 .mb-grp { --g: #0d5b47; --g2: #1d9e75; --gs: #E8F5EE; --gl: #CFE8DA; border: 1px solid var(--gl); border-radius: 14px; background: #fff; overflow: hidden; }

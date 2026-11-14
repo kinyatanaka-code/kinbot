@@ -3459,3 +3459,34 @@ function showExtDetail(k) {
   document.querySelectorAll("#extGrid .integ-card").forEach((c) => c.addEventListener("click", () => showExtDetail(c.dataset.ext)));
   const back = document.getElementById("extBack"); if (back) back.addEventListener("click", showExtGrid);
 })();
+
+// ===== 管理者：kinbot のアカウントをまとめて作る（2026-11-14 田中さん）=====
+(function () {
+  const box = document.getElementById("mbAcct"); if (!box) return;
+  fetch("/api/me").then((r) => r.json()).then((me) => {
+    if (me && (me.admin || /^kinya\.tanaka@/i.test(String(me.username || me.email || "")))) box.hidden = false;
+  }).catch(() => {});
+  const go = document.getElementById("mbAcctGo");
+  go.addEventListener("click", async () => {
+    const res = document.getElementById("mbAcctRes");
+    const pw = document.getElementById("mbAcctPw").value;
+    // 「名前 メール」の行を読む。メールは @ を含む語、残りを名前にする
+    const accounts = document.getElementById("mbAcctList").value.split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => {
+      const parts = l.split(/[\s　,，]+/).filter(Boolean);
+      const email = parts.find((x) => x.includes("@")) || "";
+      return { email, name: parts.filter((x) => x !== email).join(" ") };
+    }).filter((a) => a.email);
+    if (!accounts.length) { res.textContent = "「名前 メールアドレス」を1行に1人ずつ入れてください。"; return; }
+    if (String(pw).length < 8) { res.textContent = "パスワードは8文字以上にしてください。"; return; }
+    if (!confirm(`${accounts.length}人のアカウントを作ります。よろしいですか？\n${accounts.map((a) => `${a.name} ${a.email}`).join("\n")}`)) return;
+    go.disabled = true; res.textContent = "作っています…";
+    try {
+      const r = await fetch("/api/admin/accounts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accounts, password: pw }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.status);
+      res.innerHTML = d.results.map((x) => `${mbEsc(x.name || "")} ${mbEsc(x.email)}：${x.ok ? "<b>作りました</b>" : `<span style="color:#A2480C">${mbEsc(x.error)}</span>`}`).join("<br>");
+      document.getElementById("mbAcctPw").value = "";
+    } catch (e) { res.textContent = "作れませんでした：" + e.message; }
+    finally { go.disabled = false; }
+  });
+})();

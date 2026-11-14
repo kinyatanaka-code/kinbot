@@ -31072,7 +31072,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14j 止める直し：メンバー管理で MOCHICA だけの人（事業に DOC が無い人）は、クローザーの順番（closer_rotation）とインサイド（interns＝カレンダー照合）に入れない。起動時の同期で外れる。MOCHICA の人のアポが DOC の自動割り振りで割り振られていた。";
+const BUILD_TAG = "2026-11-14k 管理者が kinbot のアカウントをまとめて作れるように（設定 → メンバー管理 → 「kinbot のアカウントを作る」。POST /api/admin/accounts、作るだけでログインし直さない）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
@@ -35981,6 +35981,28 @@ app.put("/api/apo/rotation-config", async (req, res) => {
 // ===== メンバー管理 =====
 // 事業（DOC/MOCHICA）・チーム・役割（クローザー／インサイド／予備）をここで一括管理し、
 // 保存時に closer_rotation・interns・rep_team_mapping へ同期する。
+// 管理者が、ほかの人の kinbot のアカウントをまとめて作る（2026-11-14 田中さん「4人のアカウントを作ってほしい」）。
+//   登録の画面（/api/register）は作った人でログインし直してしまうので、ここでは作るだけにする。
+//   パスワードは保存の前に暗号化（registerUser と同じ）。ログには出さない。最初のログインのあとで本人に変えてもらう。
+app.post("/api/admin/accounts", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけが作れます" });
+    const b = req.body || {};
+    const pw = String(b.password || "");
+    if (pw.length < 8) return res.status(400).json({ error: "パスワードは8文字以上にしてください" });
+    const list = (Array.isArray(b.accounts) ? b.accounts : []).slice(0, 50);
+    if (!list.length) return res.status(400).json({ error: "作る人がいません" });
+    const results = [];
+    for (const a of list) {
+      const email = String(a.email || "").trim().toLowerCase();
+      const name = String(a.name || "").trim().slice(0, 60);
+      const r = await registerUser({ email, password: pw, displayName: name, code: process.env.SIGNUP_CODE || "" }).catch((e) => ({ error: e.message }));
+      results.push({ email, name, ok: !!r.ok, error: r.error || "" });
+    }
+    console.log(`[accounts] ${req.user} がアカウントを作りました：${results.filter((x) => x.ok).map((x) => x.email).join("・") || "なし"}`);
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/members", async (req, res) => {
   try {
     const [members, candidates] = await Promise.all([listMembers(), memberCandidates()]);

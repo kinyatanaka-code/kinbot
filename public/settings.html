@@ -25,7 +25,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261114i" />
+    <link rel="stylesheet" href="style.css?v=20261114k" />
   </head>
   <body>
     <div class="app">
@@ -895,6 +895,17 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                   <button type="button" class="mb-add-btn" id="mbAdd"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>追加</button>
                 </div>
                 <div id="mbCandidates"></div>
+                <!-- 管理者だけ：kinbot のアカウント（ログイン）をまとめて作る（2026-11-14） -->
+                <details class="mb-acct" id="mbAcct" hidden>
+                  <summary>kinbot のアカウントを作る（管理者）</summary>
+                  <p class="note">1行に1人、「名前 メールアドレス」で入れます。パスワードは全員同じものにします。最初にログインしたら、本人に 設定 → アカウント で変えてもらってください。</p>
+                  <textarea id="mbAcctList" rows="4" placeholder="齊藤 玲耶 reiya.saito@neo-career.co.jp"></textarea>
+                  <div class="mb-add">
+                    <input id="mbAcctPw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="最初のパスワード（8文字以上）" style="-webkit-text-security:disc" />
+                    <button type="button" class="mb-add-btn" id="mbAcctGo">アカウントを作る</button>
+                  </div>
+                  <div id="mbAcctRes" class="note"></div>
+                </details>
               </div>
               <div class="modal-actions">
                 <button class="btn" id="mbSave">保存</button>
@@ -938,8 +949,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261114i"></script>
-      <script src="nav.js?v=20261114i"></script>
+    <script src="settings.js?v=20261114k"></script>
+      <script src="nav.js?v=20261114k"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
