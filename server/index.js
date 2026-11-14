@@ -27200,6 +27200,8 @@ app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
     const row = await mcMiitelGet(String(req.query.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    // 会社のカードから開いたときは、会社で結びつけた SF の商談を使う（商談ごとの結びつきは見ない）（2026-11-15）
+    if (req.query.co === "1" && row.payload) { const pl = { ...row.payload }; delete pl.mt_sfopp; row.payload = pl; }
     res.json(await mcSfFormData(owner, row));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -31454,7 +31456,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

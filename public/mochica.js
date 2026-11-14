@@ -285,9 +285,16 @@
       if (link) {
         bx.innerHTML = H + `<div class="mt-sf-linked"><div><b><a href="https://ap10.lightning.force.com/lightning/r/Opportunity/${esc(link.oppId)}/view" target="_blank" rel="noopener">${esc(link.oppName)} ↗</a></b><small>${esc(link.accountName || "")} ・ ステージ：${esc(link.stage || "—")} ・ この会社の商談の SF 連携で使います</small></div><button type="button" class="mt-sf-unlink" data-cun>解除</button></div>`;
         bx.querySelector("[data-cun]").addEventListener("click", () => { if (confirm("この会社と SF の商談の結びつきを外しますか？（SF の中身は変わりません）")) setLink(""); });
+        // SF の更新（活動記録・ステージ・項目更新）は会社のカードでする。元にする商談は、いちばん新しい商談から選べる（2026-11-15 田中さん）
+        const up = document.createElement("div"); up.className = "mt-sf mt-cosf-up"; up.innerHTML = '<div class="ov-muted">SF の項目を読み込んでいます…</div>'; bx.appendChild(up);
+        const meetings = ms.map((m) => ({ id: m.id, label: `${md(m.started_at)}（${wk(m.started_at)}）${hm(m.started_at)}　${titleOf(m)}` }));
+        const loadUp = async (vid) => { up.innerHTML = '<div class="ov-muted">SF の項目を読み込んでいます…</div>'; let it = null; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(vid)}`)).item; } catch {}
+          if ($("mtOvSf") !== bx) return; const p = (it && it.payload) || {}; const cal = p.mt_cal && !p.mt_cal.none ? p.mt_cal : {};
+          mtSfLoad(vid, { root: up, coMode: true, meetings, onBase: loadUp, title: cal.title || (it && it.title) || "", at: it && it.started_at, review: p.mt_review, co }); };
+        if (ms.length) loadUp(ms[0].id); else up.innerHTML = '<div class="ov-muted">この会社の商談がまだありません。</div>';
         return;
       }
-      bx.innerHTML = H + `<div class="mt-sf-find"><input type="search" data-cq value="${esc(co)}" placeholder="会社名・商談名で SF の商談を探す"><button type="button" class="mt-btn" data-cgo>商談を検索</button></div><div class="mt-sf-res" data-cres style="margin-top:8px"></div>`;
+      bx.innerHTML = H + `<div class="ov-muted" style="margin-bottom:8px">SF の商談を結びつけると、ここで活動記録・ステージ・項目を更新できます。</div><div class="mt-sf-find"><input type="search" data-cq value="${esc(co)}" placeholder="会社名・商談名で SF の商談を探す"><button type="button" class="mt-btn" data-cgo>商談を検索</button></div><div class="mt-sf-res" data-cres style="margin-top:8px"></div>`;
       const qi = bx.querySelector("[data-cq]"), rs = bx.querySelector("[data-cres]");
       const go = async () => { const q = qi.value.trim(); if (!q) return; rs.innerHTML = '<div class="ov-muted">探しています…</div>';
         try { const r = await api(`/api/mochica/sf/search?q=${encodeURIComponent(q)}`); rs.innerHTML = r.items.length ? r.items.map((o) => `<button type="button" class="mt-sf-cand" data-opp="${esc(o.Id)}"><b>${esc(o.Name)}</b><small>${esc(o.StageName || "")} ・ ${esc((o.Account && o.Account.Name) || "")} ・ ${esc(o.CloseDate || "")}${o.RecordType ? ` ・ ${esc(o.RecordType.Name)}` : ""}</small></button>`).join("") : '<div class="ov-muted">見つかりませんでした。</div>';
@@ -381,7 +388,8 @@
     // Webhook で届いた中身から、録画のファイルらしい URL を探す（mp4・m3u8・webm、または download／recording／media／video_url の項目）（2026-11-12）
     const media = (() => { const hits = []; const walk = (o, k0, d) => { if (d > 6 || o == null) return; if (typeof o === "string") { if (/^https?:\/\//.test(o) && (/\.(mp4|m3u8|webm|mov|m4a|mp3|wav)(\?|$)/i.test(o) || /(download|recording|media|video_url|audio_url|file_url)/i.test(k0 || ""))) hits.push({ k: k0, u: o }); return; } if (Array.isArray(o)) { o.forEach((x) => walk(x, k0, d + 1)); return; } if (typeof o === "object") for (const [k, x] of Object.entries(o)) walk(x, k, d + 1); }; walk(p, "", 0); return hits; })();
     const playable = media.find((h) => /\.(mp4|webm|mov|m4a|mp3|wav)(\?|$)/i.test(h.u)) || media[0] || null;
-    const tabs = [["tr", "文字起こし"], ["mn", "議事録"], ["sm", "要約"], ["an", "FB & 分析"], ["sf", "SF連携"]];
+    // SF の更新は会社のカードでまとめてする（2026-11-15 田中さん「商談のところの SF 連携は削除」）
+    const tabs = [["tr", "文字起こし"], ["mn", "議事録"], ["sm", "要約"], ["an", "FB & 分析"]];
     const pane = (k) => {
       if (k === "tr") return tr.length ? `<div class="mt-tr">${tr.map((u) => `<div class="ln">${u.at != null ? `<span class="tm">${esc(typeof u.at === "number" ? `${Math.floor(u.at / 60)}:${String(Math.floor(u.at % 60)).padStart(2, "0")}` : String(u.at).slice(11, 16))}</span>` : ""}${u.s ? `<span class="spk">${esc(u.s)}</span>` : ""}<span>${esc(u.t)}</span></div>`).join("")}</div>`
         : '<div class="mt-wait">文字起こしは、まだ kinbot に入っていません。MiiTel の Webhook で文字起こしごと届いた会議は、ここに話した人つきで出ます。録画と文字起こしは上の「MiiTel で開く」から見られます。</div>';
@@ -390,7 +398,7 @@
       if (k === "ml") return tr.length ? '<div id="mtMl"></div>' : '<div class="mt-wait">文字起こしが入った会議から、御礼メールを作れます。この会議にはまだ文字起こしがありません。</div>';
       return '<div id="mtSf" class="mt-sf"><div class="mt-wait">SF の商談を読み込んでいます…</div></div>';
     };
-    if (mtOpen.tab === "ml") mtOpen.tab = "tr";   // 御礼メールのタブはやめた（2026-11-14）
+    if (mtOpen.tab === "ml" || mtOpen.tab === "sf") mtOpen.tab = "tr";   // 御礼メールのタブはやめた（2026-11-14）
     const cur = mtOpen.tab || "tr";
     const hasVid = !!(p.mt_video && p.mt_video.fileId);
     main.innerHTML = `${hasVid ? `<video class="mt-video" id="mtVideo" controls preload="metadata" playsinline></video>` : `<div class="mt-rec"><b>録画はまだ kinbot にありません</b><button type="button" class="mt-grab" data-grab>録画を kinbot に取り込む</button><a href="${esc(url)}" target="_blank" rel="noopener" style="background:none;color:#CFF5F7;font-weight:700;padding:0">MiiTel で見る ↗</a><small id="mtGrabSt" style="opacity:.85"></small></div>`}${tr.length >= 6 ? '<div class="ch-wrap" id="mtCh" style="margin-top:10px"></div>' : ""}
@@ -459,8 +467,16 @@
   // ===== SF 連携：ステージごとの項目を議事録から埋めて、SF の「新規」の商談に書く（2026-11-13）=====
   // SF 連携：kinbot と同じく、上で SF の商談を探して結びつけ、下で「活動記録」と「ステージ・項目更新」に分ける。項目は縦に並べる（2026-11-14 田中さん）
   async function mtSfLoad(vid, ctx = {}) {
-    const root = $("mtSf"); if (!root) return; let box = root;
-    let d; try { d = await api(`/api/mochica/sf/form?vid=${encodeURIComponent(vid)}`); } catch (e) { box.innerHTML = `<div class="mt-wait">読めませんでした：${esc(e.message)}</div>`; return; }
+    const root = ctx.root || $("mtSf"); if (!root) return; let box = root;
+    let d; try { d = await api(`/api/mochica/sf/form?vid=${encodeURIComponent(vid)}${ctx.coMode ? "&co=1" : ""}`); } catch (e) { box.innerHTML = `<div class="mt-wait">読めませんでした：${esc(e.message)}</div>`; return; }
+    if (ctx.coMode) {
+      // 会社のカード：結びつけた SF の商談を、えらんだ商談の文字起こし・要約を元に更新する（2026-11-15）
+      if (!d.opp) { root.innerHTML = '<div class="ov-muted">SF の商談が読めませんでした。上の結びつきを確かめてください。</div>'; return; }
+      const list = ctx.meetings || [];
+      root.innerHTML = `${list.length > 1 ? `<label class="mt-sf-base"><span>元にする商談</span><select data-sfbase>${list.map((m) => `<option value="${esc(m.id)}" ${m.id === vid ? "selected" : ""}>${esc(m.label)}</option>`).join("")}</select></label>` : ""}
+        <div class="mt-sf-sub"><button type="button" data-sfsub="act" class="${mtSfLoad.sub === "act" ? "on" : ""}">活動記録</button><button type="button" data-sfsub="stage" class="${mtSfLoad.sub !== "act" ? "on" : ""}">ステージ・項目更新</button></div><div data-sfpane></div>`;
+      const bs = root.querySelector("[data-sfbase]"); if (bs) bs.addEventListener("change", () => ctx.onBase && ctx.onBase(bs.value));
+    } else {
     const link = async (oppId) => { try { await api(`/api/mochica/miitel/meetings/${encodeURIComponent(vid)}/sfopp`, { method: "POST", body: JSON.stringify({ oppId }) }); mtSfLoad(vid, ctx); } catch (e) { alert(e.message); } };
     root.innerHTML = `<div class="mt-sf-find"><input type="search" data-sfq value="${esc(ctx.co || "")}" placeholder="会社名・商談名で SF の商談を探す"><button type="button" class="mt-btn" data-sfgo>商談を検索</button></div><div class="mt-sf-res" data-sfres></div>
       ${d.opp ? `<div class="mt-sf-linked"><div><b><a href="${esc(d.sfBase)}/lightning/r/Opportunity/${esc(d.opp.Id)}/view" target="_blank" rel="noopener">${esc(d.opp.Name)} ↗</a></b><small>${esc((d.opp.Account && d.opp.Account.Name) || "")} ・ ステージ：${esc(d.opp.StageName || "—")} ・ 完了予定：${esc(d.opp.CloseDate || "—")}${d.opp._byCompany ? " ・ 会社のカードで結びつけた商談" : d.opp._linked ? "" : " ・ 会社名から自動で結びつけました"}</small></div><button type="button" class="mt-sf-unlink" data-sfun>解除</button></div>
@@ -473,6 +489,7 @@
     root.querySelector("[data-sfgo]").addEventListener("click", search); qi.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) search(); });
     if (!d.opp) { if (qi.value) search(); return; }
     root.querySelector("[data-sfun]").addEventListener("click", () => { if (confirm("この商談との結びつきを外しますか？（SF の中身は変わりません）")) link(""); });
+    }
     const paneEl = root.querySelector("[data-sfpane]");
     root.querySelectorAll("[data-sfsub]").forEach((b) => b.addEventListener("click", () => { mtSfLoad.sub = b.dataset.sfsub; root.querySelectorAll("[data-sfsub]").forEach((x) => x.classList.toggle("on", x === b)); showSub(); }));
     // 活動記録：kinbot の案件画面と同じ仕様（活動種別・次回アクション種別・次回アクション日・説明、商談から読み取る、過去の活動）（2026-11-14 田中さん）
