@@ -27166,7 +27166,7 @@ async function mcSfFormData(owner, row) {
     return { ok: true, opp, stages, defs, current: cur, required: reqd, requiredWhy: fromRules.why || {}, rulesCount: fromRules.count || 0, rulesErr, sfBase: "https://ap10.lightning.force.com" };
 }
 // Claude（kinbot コネクタ）から MOCHICA の商談を読む・SF を直すための道具（2026-11-14 田中さん「MOCHICA でもクロードから文字起こしを引っ張ってきたり SF の更新ができたりしたい」）
-mcpHooks.mochica = { transcriptText: (p) => mcTranscriptText(p), repIndex: () => mcRepIndex(), sfFormData: (owner, row) => mcSfFormData(owner, row), pickSfUser: (u) => pickSfUser(u), coKey: (v) => mcCoKeyN(v), settings: () => getSettings() };
+mcpHooks.mochica = { setTitle: (id, b, user) => mcSetTitle(id, b, user), transcriptText: (p) => mcTranscriptText(p), repIndex: () => mcRepIndex(), sfFormData: (owner, row) => mcSfFormData(owner, row), pickSfUser: (u) => pickSfUser(u), coKey: (v) => mcCoKeyN(v), settings: () => getSettings() };
 app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
@@ -27322,18 +27322,23 @@ app.get("/api/mochica/miitel/meetings/:id/cal-cands", async (req, res) => {
     res.json({ ok: true, date: day, people: people.map((p) => p.name), events: out.slice(0, 60) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.post("/api/mochica/miitel/meetings/:id/cal", async (req, res) => {
-  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    const id = String(req.params.id || ""); const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
-    const b = req.body || {}; const title = String(b.title || "").trim().slice(0, 200);
-    if (!title) return res.status(400).json({ error: "題名が空です" });
-    const owner = await pickSfUser(req.user, req).catch(() => req.user);
+// 商談の題名（と会社名）を手で決める。画面と Claude（kinbot コネクタの set_meeting_title）の両方で使う（2026-11-15 田中さん）
+async function mcSetTitle(id, b, user, req = null) {
+    const row = await mcMiitelGet(String(id || "")); if (!row) throw Object.assign(new Error("見つかりません"), { status: 404 });
+    const title = String((b && b.title) || "").trim().slice(0, 200);
+    if (!title) throw Object.assign(new Error("題名が空です"), { status: 400 });
+    const owner = await pickSfUser(user, req).catch(() => user);
     const company = String(b.company || "").trim().slice(0, 120) || mcCoFromTitle(title);
     const prev = (row.payload && row.payload.mt_cal) || {};
-    const cal = { v: 3, manual: true, title, start: b.start || prev.start || null, owner: b.owner || prev.owner || "", ownerName: b.ownerName || prev.ownerName || "", eventId: b.eventId || "", company, sf: await mcSfFor(company, owner), by: req.user, at: Date.now() };
+    const cal = { v: 3, manual: true, title, start: b.start || prev.start || null, owner: b.owner || prev.owner || "", ownerName: b.ownerName || prev.ownerName || "", eventId: b.eventId || "", company, sf: await mcSfFor(company, owner), by: user, at: Date.now() };
     await mcMiitelSave({ id, payload: { mt_cal: cal } });
+    return cal;
+}
+app.post("/api/mochica/miitel/meetings/:id/cal", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const cal = await mcSetTitle(String(req.params.id || ""), req.body || {}, req.user, req);
     res.json({ ok: true, cal });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
 });
 // ===== 御礼メール：kinbot の商談履歴と同じ作り（型・商談回数・資料URL → 本文と確認事項）（2026-11-14 田中さん「DOC とまったく同じことができるように」）=====
 //   担当（画面で選んだ人、なければ参加者から決めた人）の名前・登録リンク・御礼メールのプロンプトを使う
@@ -31420,7 +31425,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14za kinbot コネクタ（Claude）に MOCHICA の道具を足した：mochica_list_meetings（一覧・日付/会社/担当で絞る）、mochica_get_meeting（文字起こし全文・議事録・要約・FB・AI分析・段階・SF の ID）、mochica_sf_form（結びついた SF の商談とステージごとの項目・いまの値・必須）。SF を直すのは今までの sf_update。";
+const BUILD_TAG = "2026-11-15a kinbot コネクタ（Claude）に set_meeting_title：MOCHICA の会議（題名から会社名・SF を読み直し、手で決めた扱い）と kinbot の商談（自分の商談だけ、管理者は全部、回数は消さない）の題名を変えられる。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

@@ -27,7 +27,7 @@ import {
 } from "./db.js";
 import { sfQuery, sfUpdateRecord, sfCreateRecord, isConnected as sfIsConnected } from "./salesforce.js";
 import { registerUser } from "./auth.js";
-import { mcMiitelList, mcMiitelGet } from "./db.js";
+import { mcMiitelList, mcMiitelGet, updateMeetingMeta } from "./db.js";
 // index.js から MOCHICA の道具（文字起こしの読み方・SF の項目の中身など）を受け取る（2026-11-14）
 export const mcpHooks = {};
 
@@ -179,6 +179,11 @@ const TOOLS = [
     name: "mochica_get_meeting",
     description: "kinbot for MOCHICA の商談（MiiTel の会議）を1件読む（読み取り）。文字起こし全文・MiiTel の議事録・kinbot の要約と営業フィードバック・AI分析・商談の段階・会社名・担当・参加者・SF のリード／取引先 ID を返す。id は mochica_list_meetings の id。",
     inputSchema: { type: "object", properties: { id: { type: "string", description: "MiiTel の会議の ID" }, transcript: { type: "boolean", description: "文字起こし全文を含めるか（既定 true）" } }, required: ["id"] },
+  },
+  {
+    name: "set_meeting_title",
+    description: "商談の題名を変える（書き込み）。kinbot for MOCHICA の商談（MiiTel の会議の id）と、kinbot（DOC）の商談（bot_id）のどちらにも使える。MOCHICA では題名から会社名を読み直し、SF のリード・取引先も探し直す（company を渡せば会社名はそれにする）。手で決めた題名は自動の決め直しで上書きされない。kinbot の商談は、自分の商談だけ変えられる（管理者は全部）。",
+    inputSchema: { type: "object", properties: { id: { type: "string", description: "MOCHICA の会議の id、または kinbot の商談の bot_id" }, title: { type: "string", description: "新しい題名" }, company: { type: "string", description: "会社名（任意。MOCHICA は空なら題名から読む、kinbot は空なら変えない）" } }, required: ["id", "title"] },
   },
   {
     name: "mochica_sf_form",
@@ -536,6 +541,25 @@ export async function callTool(name, args, req) {
         要約: (p.mt_review && p.mt_review.summary) || null, 営業フィードバック: (p.mt_review && p.mt_review.feedback) || null, AI分析: p.mt_deep || null,
         商談の段階: (p.mt_chapters && p.mt_chapters.chapters) || null,
         文字起こし: want ? (tr ? tr.slice(0, 120000) : "（文字起こしはまだありません）") : `（省略：${tr.length}文字）`, 文字起こし_文字数: tr.length };
+    }
+    case "set_meeting_title": {
+      if (!req.user) throw new Error("ログインが必要です");
+      const id = String((args && args.id) || "").trim(), title = String((args && args.title) || "").trim().slice(0, 200), company = String((args && args.company) || "").trim().slice(0, 120);
+      if (!id || !title) throw new Error("id と title が必要です");
+      // MOCHICA の会議か、kinbot の商談かを見分ける
+      if (await mcMiitelGet(id)) {
+        const H = mcpHooks.mochica || {}; if (!H.setTitle) throw new Error("いまは使えません（サーバーの準備中）");
+        const cal = await H.setTitle(id, { title, company }, req.user);
+        console.log(`[mcp] MOCHICA の題名を変えました：${id} →「${title}」 by ${req.user}`);
+        return { 結果: "変えました", 種類: "MOCHICA", 題名: cal.title, 会社名: cal.company, SF: { リードID: (cal.sf && cal.sf.leadId) || "", 取引先ID: (cal.sf && cal.sf.accountId) || "" } };
+      }
+      const m = await getMeeting(id); if (!m) throw new Error("その id の商談は見つかりません（mochica_list_meetings の id か、list_meetings の bot_id を使ってください）");
+      if (!req.isAdmin && String(m.owner || "").toLowerCase() !== String(req.user).toLowerCase()) throw new Error("自分の商談だけ題名を変えられます");
+      // updateMeetingMeta は回数（round_no）も書き直すので、いまの回数を渡して消さないようにする
+      const r0 = m.round_no ?? m.round ?? null;
+      await updateMeetingMeta(id, { title, ...(r0 != null ? { round: r0 } : {}), ...(company ? { account: company } : {}) });
+      console.log(`[mcp] kinbot の題名を変えました：${id} →「${title}」 by ${req.user}`);
+      return { 結果: "変えました", 種類: "kinbot", 題名: title, 会社名: company || m.account || "" };
     }
     case "mochica_sf_form": {
       if (!req.user) throw new Error("ログインが必要です");
