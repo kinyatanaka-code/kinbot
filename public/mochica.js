@@ -109,6 +109,30 @@
     }
     draw();
   }
+  // ===== 要約・FB & 分析：kinbot の商談履歴と同じ形（概要・要点・合意事項・宿題・相手の懸念／良かった点・改善点…）（2026-11-14）=====
+  const mtGroup = (label, items, cls) => Array.isArray(items) && items.length ? `<div class="sgroup${cls ? " " + cls : ""}"><div class="label">${label}</div><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+  const mtSumText = (s) => { const L = []; if (s.overview) L.push(s.overview, ""); const sec = (l, a) => { if (Array.isArray(a) && a.length) { L.push("■" + l); a.forEach((x) => L.push("・" + x)); L.push(""); } }; sec("要点", s.key_points); sec("合意事項", s.agreements); sec("宿題・次アクション", s.action_items); sec("相手の懸念", s.customer_concerns); return L.join("\n").trim(); };
+  async function mtReview(id, tr, tab, saved, force) {
+    const box = $("mtRv"); if (!box) return;
+    if (!force && !(saved && saved.summary) && mtReview._last && mtReview._last.id === id) saved = mtReview._last.rv;   // さっき作ったものを使う（タブを替えても作り直さない）
+    let rv = !force && saved && saved.summary && Object.keys(saved.summary).length ? saved : null;
+    if (!rv) {
+      box.innerHTML = '<div class="mt-wait">文字起こしから要約とフィードバックを作っています…（30秒〜1分ほど）</div>';
+      try { const r = await fetch(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/summary`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ tr, rep: hostOf(mtAll.find((x) => x.id === id) || {}), force: !!force }) });
+        const d = await r.json(); if (!r.ok) throw new Error(d.error || "作れませんでした"); rv = d; }
+      catch (e) { if ($("mtRv") !== box) return; box.innerHTML = `<div class="mt-wait">作れませんでした：${esc(e.message)}　<button type="button" class="mt-btn ghost" data-rvredo>もう一度作る</button></div>`; const b = box.querySelector("[data-rvredo]"); if (b) b.addEventListener("click", () => mtReview(id, tr, tab, null, true)); return; }
+      // 開き直さなくても次から出るように、手元にも持っておく
+      const m0 = mtAll.find((x) => x.id === id); if (m0) m0._review = rv; mtReview._last = { id, rv };
+    }
+    if ($("mtRv") !== box) return;
+    const s = rv.summary || {}, fb = rv.feedback || {};
+    const body = tab === "an"
+      ? (fb.overall ? `<p class="overview">${esc(fb.overall)}</p>` : "") + mtGroup("良かった点", fb.good_points) + mtGroup("改善点", fb.improvements, "concerns") + mtGroup("見落とし・機会損失", fb.missed, "concerns") + mtGroup("次回への宿題", fb.next_steps, "actions")
+      : (s.formatted && !s.key_points ? `<div class="summary-fmt">${esc(s.formatted)}</div>` : (s.overview ? `<p class="overview">${esc(s.overview)}</p>` : "") + mtGroup("要点", s.key_points) + mtGroup("合意事項", s.agreements) + mtGroup("宿題・次アクション", s.action_items, "actions") + mtGroup("相手の懸念", s.customer_concerns, "concerns"));
+    box.innerHTML = `<div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:4px">${tab === "sm" ? '<button type="button" class="mt-btn ghost" data-rvcopy>要約をコピー</button>' : ""}<button type="button" class="mt-btn ghost" data-rvredo>作り直す</button></div>${body || '<div class="mt-wait">中身が空でした。「作り直す」を押してください。</div>'}`;
+    const cp = box.querySelector("[data-rvcopy]"); if (cp) cp.addEventListener("click", async () => { try { await navigator.clipboard.writeText(s.formatted && !s.key_points ? s.formatted : mtSumText(s)); cp.textContent = "コピーしました"; setTimeout(() => (cp.textContent = "要約をコピー"), 1500); } catch {} });
+    box.querySelector("[data-rvredo]").addEventListener("click", () => { if (confirm("要約とフィードバックを作り直しますか？（1分ほどかかります）")) mtReview(id, tr, tab, null, true); });
+  }
   async function mtOpen(id) {
     mtSel = id; if (mtHost != null) mtDraw(); const main = $("mtMain"); main.innerHTML = '<div class="mt-empty">読み込んでいます…</div>';
     let it; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}`)).item; } catch (e) { main.innerHTML = `<div class="mt-empty">読めませんでした：${esc(e.message)}</div>`; return; }
@@ -143,8 +167,7 @@
       if (k === "tr") return tr.length ? `<div class="mt-tr">${tr.map((u) => `<div class="ln">${u.at != null ? `<span class="tm">${esc(typeof u.at === "number" ? `${Math.floor(u.at / 60)}:${String(Math.floor(u.at % 60)).padStart(2, "0")}` : String(u.at).slice(11, 16))}</span>` : ""}${u.s ? `<span class="spk">${esc(u.s)}</span>` : ""}<span>${esc(u.t)}</span></div>`).join("")}</div>`
         : '<div class="mt-wait">文字起こしは、まだ kinbot に入っていません。MiiTel の Webhook で文字起こしごと届いた会議は、ここに話した人つきで出ます。録画と文字起こしは上の「MiiTel で開く」から見られます。</div>';
       if (k === "mn") return minutesHtml ? minutesHtml : minutes ? `<div class="mt-doc">${esc(minutes)}</div>` : '<div class="mt-wait">MiiTel の議事録は、まだ kinbot に入っていません（MiiTel の Webhook の通知ルールに「議事録作成完了時」を足すと届きます）。</div>';
-      if (k === "sm") return '<div class="mt-wait">要約は、文字起こしが入った会議から kinbot が作ります（準備中）。</div>';
-      if (k === "an") return '<div class="mt-wait">話し方・良かった点・直す点などの分析は、文字起こしが入った会議から作ります（準備中）。</div>';
+      if (k === "sm" || k === "an") return tr.length >= 6 ? '<div id="mtRv"><div class="mt-wait">読み込んでいます…</div></div>' : '<div class="mt-wait">文字起こしが入った会議から、kinbot が要約を作ります。この会議にはまだ文字起こしがありません。</div>';
       if (k === "ml") return '<div class="mt-wait">御礼メールの下書きは、文字起こしが入った会議から作ります（準備中）。</div>';
       return '<div id="mtSf" class="mt-sf"><div class="mt-wait">SF の商談を読み込んでいます…</div></div>';
     };
@@ -170,7 +193,8 @@
         if (pg && pg.at > t0 && pg.videoId === id) { if (pg.error) { clearInterval(tick); gb.disabled = false; gb.textContent = "もう一度取り込む"; if (sEl) sEl.textContent = "取り込めませんでした：" + pg.error; }
           else if (pg.done) { clearInterval(tick); if (sEl) sEl.textContent = "取り込みました。開き直しています…"; setTimeout(() => mtOpen(id), 3000); }
           else if (sEl) sEl.textContent = `${pg.i}/${pg.total}`; } } catch {} }, 3000); });
-    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id); }));
+    main.querySelectorAll("[data-mtab]").forEach((b) => b.addEventListener("click", () => { mtOpen.tab = b.dataset.mtab; main.querySelectorAll("[data-mtab]").forEach((x) => x.classList.toggle("on", x === b)); $("mtPane").innerHTML = pane(b.dataset.mtab); if (b.dataset.mtab === "sf") mtSfLoad(id); if (b.dataset.mtab === "sm" || b.dataset.mtab === "an") mtReview(id, tr, b.dataset.mtab, p.mt_review); }));
+    if (cur === "sm" || cur === "an") mtReview(id, tr, cur, p.mt_review);
     if (cur === "sf") mtSfLoad(id);
   }
   // ブラウザの自動入力（メールアドレスなど）が探す欄に入って「0件」になるのを防ぐ（2026-11-12）

@@ -27086,6 +27086,25 @@ app.post("/api/mochica/miitel/meetings/:id/chapters", async (req, res) => {
     res.json({ chapters });
   } catch (e) { console.error("[mochica chapters]", e.message); res.status(502).json({ error: e.message }); }
 });
+// MOCHICA の商談の要約（＋営業フィードバック）。kinbot の商談履歴と同じ作り（analyzeMeeting）で作る（2026-11-14 田中さん「要約もつくるか」）。
+//   画面で読みそろえた文字起こしを受け取り、payload.mt_review に置く。次からは作らずに出す。force で作り直す。
+app.post("/api/mochica/miitel/meetings/:id/summary", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || "");
+    const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const old = row.payload && row.payload.mt_review;
+    if (old && old.summary && Object.keys(old.summary).length && !(req.body && req.body.force)) return res.json(old);
+    const tr = (Array.isArray(req.body && req.body.tr) ? req.body.tr : []).slice(0, 4000).map((u) => ({ s: String((u && u.s) || "").slice(0, 40), t: String((u && u.t) || "").slice(0, 600) })).filter((u) => u.t);
+    if (tr.length < 6) return res.status(400).json({ error: "文字起こしが短いので、要約を作れません" });
+    const text = tr.map((u) => `${u.s || "話者"}: ${u.t}`).join("\n");
+    const speakers = [...new Set(tr.map((u) => u.s).filter(Boolean))].slice(0, 12);
+    const dateStr = row.started_at ? new Date(new Date(row.started_at).getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "";
+    const r = await analyzeMeeting({ transcript: text, repName: String((req.body && req.body.rep) || ""), dateStr, speakers });
+    const review = { summary: r.summary || {}, feedback: r.feedback || {}, at: Date.now(), by: req.user };
+    await mcMiitelSave({ id, payload: { mt_review: review } });
+    res.json(review);
+  } catch (e) { console.error("[mochica summary]", e.message); res.status(502).json({ error: e.message }); }
+});
 app.get("/api/mochica/miitel/meetings/:id", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcMiitelGet(req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, item: r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -31123,7 +31142,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-14n kinbot for MOCHICA の商談にも、kinbot と同じ「商談の段階」（録画の下の色の帯と、時刻つきの段階の一覧。押すとその時刻から再生、作り直すも）を付けた。最初に開いたときに AI が作り、payload.mt_chapters に置く。";
+const BUILD_TAG = "2026-11-14o kinbot for MOCHICA の商談に要約を付けた（kinbot と同じ作り：概要・要点・合意事項・宿題・相手の懸念、コピー・作り直す）。同時に作る営業フィードバックは「FB & 分析」に出す。payload.mt_review に置く。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
