@@ -37,7 +37,7 @@
   const of = window.fetch;
   window.fetch = async function (...a) {
     let req = null;
-    try { const r0 = a[0]; const o = a[1] || {}; const url = typeof r0 === "string" ? r0 : r0 instanceof URL ? r0.href : (r0 && r0.url) || ""; req = { url: new URL(url, location.href).href, method: String(o.method || (r0 && r0.method) || "GET").toUpperCase(), headers: { ...hdrObj(r0 && r0.headers), ...hdrObj(o.headers) }, body: typeof o.body === "string" ? o.body : null, via: "fetch" }; } catch {}
+    try { const r0 = a[0]; const o = a[1] || {}; const url = typeof r0 === "string" ? r0 : r0 instanceof URL ? r0.href : (r0 && r0.url) || ""; req = { url: new URL(url, location.href).href, method: String(o.method || (r0 && r0.method) || "GET").toUpperCase(), headers: { ...hdrObj(r0 && r0.headers), ...hdrObj(o.headers) }, body: typeof o.body === "string" ? o.body : null, cred: o.credentials || (r0 && r0.credentials) || "same-origin", via: "fetch" }; } catch {}
     const r = await of.apply(this, a);
     try { const ct = r.headers.get("content-type") || ""; if (req && (/json|text\/plain/i.test(ct) || !ct)) r.clone().text().then((t) => onResp(req, t, ct, r.status)).catch(() => {}); else if (req) noteSeen(req, { ct: ct.slice(0, 40), status: r.status, len: -1, arr: -1 }); } catch {}
     return r;
@@ -46,7 +46,7 @@
   XMLHttpRequest.prototype.open = function (m, u, ...rest) { try { this.__kb = { url: new URL(String(u), location.href).href, method: String(m || "GET").toUpperCase(), headers: {}, body: null, via: "xhr" }; } catch {} return XO.call(this, m, u, ...rest); };
   XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__kb) this.__kb.headers[k] = v; } catch {} return XH.call(this, k, v); };
   XMLHttpRequest.prototype.send = function (b) {
-    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; const req = this.__kb; this.addEventListener("load", () => { try { const ct = this.getResponseHeader("content-type") || ""; if (!(/json|text\/plain/i.test(ct) || !ct || this.responseType === "json")) { noteSeen(req, { ct: ct.slice(0, 40), status: this.status, len: -1, arr: -1 }); return; } onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : (this.responseType === "" || this.responseType === "text") ? this.responseText : "", ct, this.status); } catch {} }); } } catch {}
+    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; this.__kb.cred = this.withCredentials ? "include" : "same-origin"; const req = this.__kb; this.addEventListener("load", () => { try { const ct = this.getResponseHeader("content-type") || ""; if (!(/json|text\/plain/i.test(ct) || !ct || this.responseType === "json")) { noteSeen(req, { ct: ct.slice(0, 40), status: this.status, len: -1, arr: -1 }); return; } onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : (this.responseType === "" || this.responseType === "text") ? this.responseText : "", ct, this.status); } catch {} }); } } catch {}
     return XS.call(this, b);
   };
 
@@ -74,10 +74,13 @@
   let ackN = 0; const acks = new Map();
   window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return;
     if (d.__kbBalesAck && acks.has(d.id)) { acks.get(d.id)(d); acks.delete(d.id); }
+    if (d.__kbBalesAsk) { const m = (document.body.innerText || "").match(/(\d[\d,]*)\s*-\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/); const shownTotal = m ? Number(m[3].replace(/,/g, "")) : null; const shownN = m ? Number(m[2].replace(/,/g, "")) - Number(m[1].replace(/,/g, "")) + 1 : null;
+      const sc = (c) => (shownTotal != null && c.total === shownTotal ? 100 : 0) + (shownN != null && c.n === shownN ? 50 : 0) + (c.lead ? 10 : 0) + (pagerOf(c).page || pagerOf(c).offset ? 5 : 0);
+      cands.sort((a, b) => sc(b) - sc(a)); }
     if (d.__kbBalesAsk) window.postMessage({ __kbBalesCands: true, seen: window.__kbBalesSeen(), href: location.href, items: cands.map((c, i) => ({ i, ep: c.method + " " + String(c.url).split("?")[0].replace(location.origin, ""), n: c.n, total: c.total, keys: c.keys.slice(0, 10), lead: c.lead, pager: (() => { const p = pagerOf(c); return p.page ? "page" : p.offset ? "offset" : ""; })() })) }, "*");
     if (d.__kbBalesRun) run(d.i, d.name);
   });
-  const toKinbot = (payload) => new Promise((resolve) => { const id = ++ackN; acks.set(id, resolve); window.postMessage({ __kbBalesSend: true, id, payload }, "*"); setTimeout(() => { if (acks.has(id)) { acks.delete(id); resolve({ ok: false, error: "kinbot から返事がありません" }); } }, 120000); });
+  const toKinbot = (payload) => new Promise((resolve) => { const id = ++ackN; acks.set(id, resolve); window.postMessage({ __kbBalesSend: true, id, payload }, "*"); setTimeout(() => { if (acks.has(id)) { acks.delete(id); resolve({ ok: false, error: "拡張機能から返事がありません（拡張機能を入れ直したあとは、このページを読み込み直してください）" }); } }, 30000); });
   const prog = (o) => window.postMessage({ __kbBalesProg: true, ...o }, "*");
 
   let running = false;
@@ -85,13 +88,15 @@
     if (running) return; const c = cands[i]; if (!c) { prog({ error: "一覧のデータがまだ見えていません。Bales のリストを開き直してから押してください" }); return; }
     running = true;
     const pg = pagerOf(c); const listKey = "bales:" + (pg.listId || String(name || "").trim() || String(c.url).split("?")[0]).slice(0, 100);
-    const send = async (payload) => { for (let t = 0; t < 3; t++) { const r = await toKinbot({ listKey, ...payload }); if (r.ok) return r; if (t === 2) throw new Error(r.error || "kinbot に送れませんでした"); await sleep(1500); } };
+    const send = async (payload) => { for (let t = 0; t < 2; t++) { const r = await toKinbot({ listKey, ...payload }); if (r.ok) return r; if (t === 1 || /読み込み直|ログイン|合言葉/.test(r.error || "")) throw new Error(r.error || "kinbot に送れませんでした"); await sleep(1500); } };
+    const bf = (u, o) => { const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 60000); return of(u, { ...o, credentials: c.cred || "same-origin", signal: ac.signal }).catch((e) => { throw new Error(e && e.name === "AbortError" ? "Bales から返事がありません（60秒）" : `Bales から読めませんでした（${e && e.message || e}）`); }).finally(() => clearTimeout(tm)); };
     let got = 0;
     try {
+      prog({ got: 0, step: "kinbot に知らせています…" });
       await send({ start: true, name: name || "Bales のリスト", src: String(c.url).split("?")[0], total: c.total });
       if (!pg.page && !pg.offset) {
         // めくり方が分からないときは、いま見えている分だけ送る
-        const j0 = await (await fetch(c.url, { method: c.method, headers: c.headers, body: c.method === "GET" ? undefined : c.body, credentials: "include" })).json();
+        const j0 = await (await bf(c.url, { method: c.method, headers: c.headers, body: c.method === "GET" ? undefined : c.body })).json();
         const arr = getAt(j0, c.path) || []; await send({ rows: arr, total: c.total }); got = arr.length;
         await send({ done: true, error: arr.length < (c.total || 0) ? "ページのめくり方が分からず、見えている分だけ取り込みました" : "" });
         prog({ done: true, got, total: c.total, warn: "ページのめくり方が分からず、見えている分だけ取り込みました" }); return;
@@ -104,7 +109,8 @@
         const U = new URL(c.url); const body = pg.body ? JSON.parse(JSON.stringify(pg.body)) : null;
         const sz = want && !tried500 ? want : size; if (pg.size && sz) setVal(U, body, pg.size, sz);
         if (pg.page) setVal(U, body, pg.page, pageNo); else setVal(U, body, pg.offset, off);
-        const r = await fetch(U.href, { method: c.method, headers: c.headers, body: c.method === "GET" || c.method === "HEAD" ? undefined : body ? JSON.stringify(body) : c.body, credentials: "include" });
+        if (!got) prog({ got: 0, step: "Bales から1ページ目を読んでいます…" });
+        const r = await bf(U.href, { method: c.method, headers: c.headers, body: c.method === "GET" || c.method === "HEAD" ? undefined : body ? JSON.stringify(body) : c.body });
         if (!r.ok) { if (want && !tried500) { tried500 = true; k--; continue; } throw new Error(`Bales から読めませんでした（${r.status}）`); }
         const j = await r.json(); const arr = getAt(j, c.path) || []; const t = (() => { try { const f = findTotal(j); return f; } catch { return null; } })(); if (t != null) total = t;
         if (want && !tried500) { tried500 = true; if (arr.length) size = sz; }
