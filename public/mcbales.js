@@ -128,7 +128,7 @@
   async function sfPoll(key) {
     sfPolling = key; let j = null; try { j = (await api(`/api/mochica/bales/lists/${encodeURIComponent(key)}/sf-link`)).job; } catch {}
     const el = document.querySelector("[data-sfst]"); const b = document.querySelector("[data-sf]");
-    if (!j) { sfPolling = ""; return; }
+    if (!j) { if (sfPolling === key && el && cur === key && /段階目/.test(el.textContent)) { el.textContent = "SF との結びつけが途中で止まりました（kinbot が再起動したため）。もう一度押してください。"; if (b) { b.disabled = false; b.textContent = "SF と結び直す"; } } sfPolling = ""; return; }
     // 進み具合：全体の％のバー・何段階目か・いまの作業と件数・経過時間（2026-11-15 田中さん「進捗がわかるように」）
     if (el && cur === key) { const sec = Math.round((Date.now() - (j.at || Date.now())) / 1000); const el2 = `${Math.floor(sec / 60)}分${String(sec % 60).padStart(2, "0")}秒`;
       el.innerHTML = j.error ? `SF と結びつけられませんでした：${esc(j.error)}` : j.running ? `<div class="bl-prog"><div class="bl-bar"><i style="width:${j.pct || 1}%"></i></div><b>${j.pct || 0}%</b></div><small>${j.no || 1} / ${j.of || 6} 段階目 ・ ${esc(j.step)} ・ 経過 ${el2}</small>` : "SF と結びつけました。"; }
