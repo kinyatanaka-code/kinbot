@@ -27356,7 +27356,7 @@ app.post("/api/mochica/sf/activity", async (req, res) => {
 // 担当を画面で直す（kinbot のアカウントから選ぶ）。参加者から決めたものより先に使う
 app.get("/api/mochica/reps", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    const mc = new Set((await listMembers().catch(() => [])).filter((m) => Array.isArray(m.businesses) && m.businesses.includes("MOCHICA")).map((m) => String(m.email || "").toLowerCase()));
+    const mc = await mcMochicaSet();
     const us = (await listUsers().catch(() => [])).filter((u) => u && u.email).map((u) => ({ email: String(u.email).toLowerCase(), name: String(u.name || u.email), mochica: mc.has(String(u.email).toLowerCase()) }));
     us.sort((a, b) => (b.mochica - a.mochica) || a.name.localeCompare(b.name, "ja"));
     res.json({ ok: true, items: us });
@@ -27593,10 +27593,26 @@ app.post("/api/mochica/sf/save", async (req, res) => {
 //   ② 参加者が「ネオキャリア＋苗字」（例：ネオキャリア 山下）なら、その苗字の kinbot のアカウント
 //   お客様と苗字が同じになることがあるので、苗字だけの参加者（「山下」）では決めない。
 //   同じ苗字の人が何人もいるときは、MOCHICA のメンバーを先にし、それでも1人に決まらなければ決めない。
+// MOCHICA のメンバー（メール）の決め方（2026-11-16 田中さん「植野・江田・佐藤・中澤など MOCHICA じゃないメンバーもいる」）：
+//   ① 担当→チームの対応（rep_team_mapping）の事業が決まっていれば、それに従う（MOCHICA なら入れる・DOC なら入れない）
+//   ② 決まっていなければ、メンバー管理の事業が MOCHICA だけの人（DOC と両方付いている人は入れない）
+async function mcMochicaSet() {
+  const nz = (v) => String(v || "").replace(/[\s\u3000]/g, "");
+  const prod = await listRepProducts().catch(() => ({})); const pmap = new Map(Object.entries(prod || {}).map(([n, p]) => [nz(n), p]));
+  const us = await listUsers().catch(() => []); const nameOf = new Map(us.map((u) => [String(u.email || "").toLowerCase(), u.name]));
+  const out = new Set();
+  for (const m of await listMembers().catch(() => [])) {
+    const email = String(m.email || "").toLowerCase(); if (!email) continue;
+    const p = pmap.get(nz(m.name)) || pmap.get(nz(nameOf.get(email)));
+    const biz = Array.isArray(m.businesses) ? m.businesses : [];
+    if (p ? p === "MOCHICA" : (biz.includes("MOCHICA") && !biz.includes("DOC"))) out.add(email);
+  }
+  return out;
+}
 async function mcRepIndex() {
   const norm = (v) => String(v || "").replace(/[\s\u3000]+/g, "").trim();
   const users = (await listUsers().catch(() => [])).filter((u) => u && u.email && String(u.name || "").trim());
-  const mochica = new Set((await listMembers().catch(() => [])).filter((m) => Array.isArray(m.businesses) && m.businesses.includes("MOCHICA")).map((m) => String(m.email || "").toLowerCase()));
+  const mochica = await mcMochicaSet();
   const byName = new Map(), byFam = new Map();
   for (const u of users) {
     const rep = { email: String(u.email).toLowerCase(), name: String(u.name).trim() };
@@ -27627,9 +27643,9 @@ app.get("/api/mochica/miitel/meetings", async (req, res) => {
     const items1 = items0.map((m) => (m.cal && coSf[mcCoKeyN(m.cal.company)] ? { ...m, cosf: coSf[mcCoKeyN(m.cal.company)] } : m)).map((m) => { if (m.mrep && m.mrep.email) return { ...m, rep: m.mrep, reps: [m.mrep], manualRep: true };   // 画面で決めた担当がいちばん
       const reps = repOf(m.participants); return reps.length ? { ...m, rep: reps[0], reps } : m; });
     // ここには MOCHICA のメンバーの商談だけを出す（2026-11-16 田中さん）。参加者に MOCHICA の人がいなければ出さない（画面で担当を決めたものは出す）。
-    //   MOCHICA のメンバーが1人も登録されていないときは、今までどおり全部出す（消えたように見えないように）
+    //   （画面で決めた担当も MOCHICA のメンバーのときだけ）MOCHICA のメンバーが1人も登録されていないときは、今までどおり全部出す（消えたように見えないように）
     const mcSet = (repOf && repOf.mochica) || new Set();
-    const items = mcSet.size ? items1.filter((m) => m.manualRep || (m.rep && m.rep.mochica)) : items1;
+    const items = mcSet.size ? items1.filter((m) => m.rep && mcSet.has(String(m.rep.email || "").toLowerCase())) : items1;   // 画面で決めた担当でも MOCHICA の人でなければ出さない
     const hidden = items1.length - items.length;
     const owner = await pickSfUser(req.user, req).catch(() => req.user); mcCalMatchRun(owner).catch(() => {});   // まだのものは裏で突き合わせる
     res.json({ ok: true, items, hidden, mochicaMembers: mcSet.size }); }
@@ -31807,7 +31823,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "SF：商談の取引先の業種・従業員数を必須に（立ち上げ・Claude・SF直接の商談は自動で補う）",
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
