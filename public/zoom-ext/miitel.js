@@ -23,7 +23,8 @@ window.addEventListener("message", async (e) => { const d = e.data; if (!d || !d
 
 // ===== 過去の会議を読む（会議履歴一覧の画面だけ）：一覧のページをめくって会議を kinbot に入れ、続けて文字起こし・議事録を裏で順に読む（2026-11-15 田中さん「3月1日までの会議を全部」）=====
 (function () {
-  if (window.top !== window || !/^\/app\/video\/?$/.test(location.pathname) || document.getElementById("kbMtBackBtn")) return;
+  // 会議履歴一覧は /app/video-list（新しい画面）と /app/video の両方（2026-11-15：ボタンが出なかった）
+  if (window.top !== window || !/^\/app\/video(-list)?\/?$/.test(location.pathname) || document.getElementById("kbMtBackBtn")) return;
   const C = { deep: "#0B6E78", main: "#0E9AA7", line: "#9FD9DF", light: "#DDF5F7" };
   const css = document.createElement("style");
   css.textContent = `#kbMtBackBtn{position:fixed;left:18px;bottom:18px;z-index:2147483000;border:1.5px solid ${C.line};background:#fff;color:${C.deep};font:700 13px/1 system-ui,sans-serif;border-radius:999px;padding:9px 14px;box-shadow:0 4px 14px rgba(14,154,167,.18);cursor:pointer}

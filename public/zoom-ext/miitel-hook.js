@@ -35,6 +35,8 @@
     try { const u0 = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; if (RE_LIST.test(u0)) { const o0 = a[1] || {}; lastList = { url: new URL(u0, location.href).href, method: String(o0.method || (a[0] && a[0].method) || "GET").toUpperCase(), body: typeof o0.body === "string" ? o0.body : null, headers: { ...hdrObj(a[0] && a[0].headers), ...hdrObj(o0.headers) }, cred: o0.credentials || "same-origin", at: Date.now() }; } } catch {}
     try { const o0 = a[1] || {}; noteWrite(o0.method || (a[0] && a[0].method), typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || "", o0.body); } catch {}
     const r = await of.apply(this, a);
+    try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; const o0 = a[1] || {};
+      if (/\/api\//.test(u) && !RE.test(u) && /json/i.test(r.headers.get("content-type") || "")) r.clone().text().then((t) => maybeList({ url: new URL(u, location.href).href, method: String(o0.method || (a[0] && a[0].method) || "GET").toUpperCase(), body: typeof o0.body === "string" ? o0.body : null, headers: { ...hdrObj(a[0] && a[0].headers), ...hdrObj(o0.headers) }, cred: o0.credentials || "same-origin" }, t)).catch(() => {}); } catch {}
     try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; note(u); if (RE.test(u) || RE_LIST.test(u)) r.clone().text().then((t) => send(u, t)).catch(() => {}); } catch {}
     return r;
   };
@@ -44,12 +46,23 @@
   const osh = XMLHttpRequest.prototype.setRequestHeader; XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__kbH) this.__kbH[k] = v; } catch {} return osh.call(this, k, v); };
   XMLHttpRequest.prototype.send = function (...a) {
     try { noteWrite(this.__kbM, this.__kbU, a[0]); } catch {}
+    try { const xr = this; const u1 = String(this.__kbU || ""); if (/\/api\//.test(u1) && !RE.test(u1)) { const info = { url: new URL(u1, location.href).href, method: String(this.__kbM || "GET").toUpperCase(), body: typeof a[0] === "string" ? a[0] : null, headers: { ...(this.__kbH || {}) }, cred: this.withCredentials ? "include" : "same-origin" };
+        this.addEventListener("load", () => { try { if (!xr.responseType || xr.responseType === "text") maybeList(info, xr.responseText); else if (xr.responseType === "json") maybeList(info, JSON.stringify(xr.response)); } catch {} }); } } catch {}
     try { if (RE_LIST.test(String(this.__kbU || ""))) lastList = { url: new URL(String(this.__kbU), location.href).href, method: String(this.__kbM || "GET").toUpperCase(), body: typeof a[0] === "string" ? a[0] : null, headers: { ...(this.__kbH || {}) }, cred: this.withCredentials ? "include" : "same-origin", at: Date.now() }; } catch {}
     try { if (RE.test(String(this.__kbU || "")) || RE_LIST.test(String(this.__kbU || ""))) this.addEventListener("load", () => { try { if (!this.responseType || this.responseType === "text" || this.responseType === "json") send(this.__kbU, this.responseType === "json" ? JSON.stringify(this.response) : this.responseText); } catch {} }); } catch {}
     return os.apply(this, a);
   };
   const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
-  const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => isObj(x) && (x.id || x.video_id))) return o; if (!isObj(o) || d > 4) return null; for (const v of Object.values(o)) { const r = findArr(v, d + 1); if (r) return r; } return null; };
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const itemId = (x) => String(x.video_id || x.videoId || x.id || x.uuid || "");
+  const itemAt = (x) => x.starts_at || x.started_at || x.start_at || x.startsAt || x.startedAt || x.startAt || x.start_time || x.started_time || x.date || x.created_at || x.createdAt;
+  // 会議らしい並び（会議の id と題名と日時がある物が並ぶ）を返した頼みを、一覧として覚える
+  function maybeList(info, text) { try { if (!text || text.length > 8000000 || !/^\s*[{[]/.test(text)) return; const j = JSON.parse(text); const arr = findArr(j); if (!arr || !arr.length) return;
+      const ok = arr.filter((x) => isObj(x) && UUID.test(itemId(x)) && (x.title || x.name) && !isNaN(Date.parse(itemAt(x)))).length; if (ok < Math.max(1, arr.length * 0.6)) return;
+      lastList = { ...info, at: Date.now() };
+      if (!RE_LIST.test(info.url)) window.postMessage({ __kbMiitel: true, kind: "list", detailId: "", videoId: "list", url: info.url.split("?")[0], text, title: document.title }, "*");
+    } catch {} }
+  const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => isObj(x) && itemId(x))) return o; if (!isObj(o) || d > 4) return null; for (const v of Object.values(o)) { const r = findArr(v, d + 1); if (r) return r; } return null; };
   const PAGE = /^(page|page_number|pageNumber|current_page|currentPage|p)$/i, OFF = /^(offset|from|start|skip)$/i, SIZE = /^(per_page|perPage|limit|size|page_size|pageSize|per)$/i;
   const prg = (o) => window.postMessage({ __kbMtBack: true, ...o }, "*");
   let backRunning = false, backStop = false;
@@ -66,7 +79,7 @@
       if (pg) set(pg, pageNo); else if (off) set(off, offN); else U.searchParams.set("page", String(pageNo)); if (sz && size) set(sz, size);
       const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 60000);
       try { const r = await of(U.href, { method: L.method, headers: L.headers, body: L.method === "GET" ? undefined : b ? JSON.stringify(b) : L.body, credentials: L.cred, signal: ac.signal }); if (!r.ok) throw new Error(`MiiTel から読めませんでした（${r.status}）`); return { url: U.href, text: await r.text() }; } finally { clearTimeout(tm); } };
-    const dateOf = (x) => { const v = x.starts_at || x.started_at || x.start_at || x.created_at || x.date; const t = Date.parse(v); return isNaN(t) ? null : t; };
+    const dateOf = (x) => { const t = Date.parse(itemAt(x)); return isNaN(t) ? null : t; };
     let got = 0, pages = 0, prevSig = "", oldest = null; const size = sz ? 100 : 0;
     try {
       for (let p = 0; p < 500 && !backStop; p++) {
@@ -74,7 +87,7 @@
         let r; try { r = await req(pageNo, p * (size || 25), size); } catch (e) { if (size && p === 0) { r = await req(pageNo, 0, 0); } else throw e; }
         let j = null; try { j = JSON.parse(r.text); } catch {} const arr = (j && findArr(j)) || [];
         if (!arr.length) break; const sig = JSON.stringify(arr[0]).slice(0, 200); if (sig === prevSig) break; prevSig = sig;
-        send(r.url, r.text); got += arr.length; pages++;
+        window.postMessage({ __kbMiitel: true, kind: "list", detailId: "", videoId: "list", url: r.url.split("?")[0], text: r.text, title: document.title }, "*"); got += arr.length; pages++;
         const ds = arr.map(dateOf).filter((t) => t != null); if (ds.length) oldest = Math.min(...ds, oldest ?? Infinity);
         prg({ got, pages, oldest });
         if (oldest != null && oldest < lim) break;
