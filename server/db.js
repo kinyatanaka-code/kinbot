@@ -12815,15 +12815,18 @@ async function ensureMcBales() {
     seq BIGSERIAL, list_key TEXT, row_key TEXT, data JSONB, run_at TIMESTAMPTZ, PRIMARY KEY (list_key, row_key))`).catch(() => {});
   // 元の形のまま（raw）と、リード1件ずつの詳しい中身（架電履歴・カスタム情報など：detail）も持つ（2026-11-15 田中さん「全部取り込みたい」）
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS raw JSONB`).catch(() => {});
+  // Bales の一覧の見出しと、データの項目の結びつき（[{label, key}]。拡張機能が画面の表から見つける）
+  await pool.query(`ALTER TABLE mochica_bales_lists ADD COLUMN IF NOT EXISTS view JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail_at TIMESTAMPTZ`).catch(() => {});
 }
-export async function mcBalesStart({ listKey, name, src, total }) {
+export async function mcBalesStart({ listKey, name, src, total, view = null }) {
   if (!pool) return null; await ensureMcBales();
   const r = await pool.query(`INSERT INTO mochica_bales_lists (list_key, name, src, status, total, got, run_at, error)
     VALUES ($1,$2,$3,'running',$4,0,date_trunc('milliseconds', now()),NULL)
     ON CONFLICT (list_key) DO UPDATE SET name=EXCLUDED.name, src=EXCLUDED.src, status='running', total=EXCLUDED.total, got=0, run_at=EXCLUDED.run_at, error=NULL, prev_count=mochica_bales_lists.count
     RETURNING run_at`, [listKey, name, src, total]);
+  if (Array.isArray(view) && view.length) await pool.query(`UPDATE mochica_bales_lists SET view=$2 WHERE list_key=$1`, [listKey, JSON.stringify(view.slice(0, 40))]);
   return r.rows[0].run_at;
 }
 export async function mcBalesAddRows(listKey, rows, total) {
@@ -12847,7 +12850,7 @@ export async function mcBalesFinish(listKey, error = "") {
 }
 export async function mcBalesLists() {
   if (!pool) return []; await ensureMcBales();
-  return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.run_at, l.done_at, l.error,
+  return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.view, l.run_at, l.done_at, l.error,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.detail_at IS NOT NULL) AS detail_n
     FROM mochica_bales_lists l ORDER BY l.run_at DESC NULLS LAST`)).rows;
 }

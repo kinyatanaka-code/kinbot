@@ -47,7 +47,7 @@
       if (!text || text.length > 30000000 || !/^\s*[[{]/.test(text)) return;
       const j = JSON.parse(text); const f = findArr(j); try { const U = new URL(req.url); const s0 = seen.get(req.method + " " + U.host + U.pathname); if (s0) s0.arr = f ? f.arr.length : 0; } catch {} if (!f) return;
       const keys = Object.keys(f.arr[0] || {});
-      const c = { ...req, path: f.path, n: f.arr.length, total: findTotal(j), keys: keys.slice(0, 40), lead: looksLead(keys), at: Date.now(), firstSig: JSON.stringify(f.arr[0]).slice(0, 200) };
+      const c = { ...req, path: f.path, arr: f.arr.slice(0, 100), n: f.arr.length, total: findTotal(j), keys: keys.slice(0, 40), lead: looksLead(keys), at: Date.now(), firstSig: JSON.stringify(f.arr[0]).slice(0, 200) };
       const ep = c.method + " " + String(c.url).split("?")[0];
       const i = cands.findIndex((x) => x.method + " " + String(x.url).split("?")[0] === ep); if (i >= 0) cands.splice(i, 1);
       cands.unshift(c); if (cands.length > 15) cands.pop();
@@ -99,6 +99,7 @@
       cands.sort((a, b) => sc(b) - sc(a)); }
     if (d.__kbBalesAsk) window.postMessage({ __kbBalesCands: true, seen: window.__kbBalesSeen(), href: location.href, items: cands.map((c, i) => ({ i, ep: c.method + " " + String(c.url).split("?")[0].replace(location.origin, ""), n: c.n, total: c.total, keys: c.keys.slice(0, 10), lead: c.lead, pager: (() => { const p = pagerOf(c); return p.page ? "page" : p.offset ? "offset" : ""; })() })) }, "*");
     if (d.__kbBalesRun) run(d.i, d.name);
+    if (d.__kbBalesView) { const c0 = cands.find((x) => /\/call_targets(\?|$)/.test(String(x.url))); window.postMessage({ __kbBalesViewIs: true, view: c0 ? learnView(c0) : null }, "*"); }
     if (d.__kbBalesTpls) window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: Object.keys(tpls) }, "*");
     if (d.__kbBalesTplClear) { tpls = {}; try { localStorage.removeItem(TPL_KEY); } catch {} window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: [] }, "*"); }
     if (d.__kbBalesDetail) runDetail(d.name);
@@ -106,6 +107,45 @@
   });
   const toKinbot = (payload) => new Promise((resolve) => { const id = ++ackN; acks.set(id, resolve); window.postMessage({ __kbBalesSend: true, id, payload }, "*"); setTimeout(() => { if (acks.has(id)) { acks.delete(id); resolve({ ok: false, error: "拡張機能から返事がありません（拡張機能を入れ直したあとは、このページを読み込み直してください）" }); } }, 30000); });
   const prog = (o) => window.postMessage({ __kbBalesProg: true, ...o }, "*");
+
+  // ===== Bales の一覧の見出しと中身を、データの項目に結びつける（2026-11-15 田中さん「Bales の一覧と同じ内容を kinbot で」）=====
+  //   画面の表（見出し・1行ずつの文字）と、裏のデータ（同じ並び）を見比べ、見出しごとに「どの項目か」を見つける。kinbot はその並びで表を出す
+  const flatP = (o) => {   // kinbot と同じ平らにし方。配列の何番目かは [] にまとめる
+    const out = {}; const walk = (v, k, d) => {
+      if (v == null) return;
+      if (Array.isArray(v)) { if (v.every((x) => x == null || typeof x !== "object")) { (out[k] = out[k] || []).push(v.filter((x) => x != null).join("、")); } else if (d < 5) v.slice(0, 5).forEach((x) => walk(x, `${k}.[]`, d + 1)); return; }
+      if (typeof v === "object") { if (d >= 5) { (out[k] = out[k] || []).push(v.name != null ? String(v.name) : ""); return; } for (const [kk, vv] of Object.entries(v)) walk(vv, k ? `${k}.${kk}` : kk, d + 1); return; }
+      (out[k] = out[k] || []).push(String(v));
+    }; walk(o, "", 0); return out;
+  };
+  const nz = (t) => String(t || "").normalize("NFKC").replace(/\s+/g, "").replace(/[…\.]{1,3}$/, "");
+  const dVar = (v) => { if (!/^\d{4}-\d{2}-\d{2}T/.test(v)) return []; const d = new Date(v); if (isNaN(d)) return []; const p = (n) => String(n).padStart(2, "0");
+    return [`${p(d.getMonth() + 1)}/${p(d.getDate())}${p(d.getHours())}:${p(d.getMinutes())}`, `${d.getMonth() + 1}/${d.getDate()}${p(d.getHours())}:${p(d.getMinutes())}`, `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}${p(d.getHours())}:${p(d.getMinutes())}`, `${p(d.getMonth() + 1)}/${p(d.getDate())}`, `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}`]; };
+  const readTable = () => {
+    for (const t of document.querySelectorAll("table")) { const hs = [...t.querySelectorAll("thead th")].map((x) => x.innerText.trim()); const rows = [...t.querySelectorAll("tbody tr")].slice(0, 40).map((tr) => [...tr.children].map((td) => td.innerText.trim())); if (hs.filter(Boolean).length >= 3 && rows.length) return { hs, rows }; }
+    const rr = [...document.querySelectorAll('[role="row"]')]; if (rr.length > 1) { const hs = [...rr[0].querySelectorAll('[role="columnheader"]')].map((x) => x.innerText.trim()); const rows = rr.slice(1, 41).map((r) => [...r.querySelectorAll('[role="cell"],[role="gridcell"]')].map((x) => x.innerText.trim())); if (hs.filter(Boolean).length >= 3) return { hs, rows }; }
+    return null;
+  };
+  const learnView = (c) => {
+    try {
+      const tb = readTable(); if (!tb || !c.arr || !c.arr.length) return null;
+      const items = c.arr.slice(0, tb.rows.length).map(flatP); const view = [];
+      tb.hs.forEach((h, i) => {
+        if (!h) return; let best = null;
+        const pats = new Set(); items.forEach((f) => Object.keys(f).forEach((k) => pats.add(k)));
+        for (const p of pats) {
+          let hit = 0, seen = 0;
+          tb.rows.forEach((row, r) => { const cell = nz(row[i]); const f = items[r]; if (!f || cell === "" || cell === "-") return; seen++;
+            const vs = (f[p] || []).filter((x) => x !== ""); if (!vs.length) return; const all = nz(vs.join("")), one = nz(vs[0]);
+            const ok = all === cell || one === cell || dVar(vs[0]).some((x) => nz(x) === cell) || (cell.length >= 2 && (all.startsWith(cell) || one.startsWith(cell))) || (cell.length >= 4 && all.includes(cell));
+            if (ok) hit++; });
+          if (hit && (!best || hit > best.hit || (hit === best.hit && p.length < best.p.length))) best = { p, hit, seen };
+        }
+        if (best && best.hit >= Math.max(1, Math.ceil(best.seen * 0.5))) view.push({ label: h, key: best.p });
+      });
+      return view.length ? view : null;
+    } catch { return null; }
+  };
 
   let detailing = false, stopDetail = false;
   async function runDetail(name) {
@@ -160,7 +200,7 @@
     let got = 0;
     try {
       prog({ got: 0, step: "kinbot に知らせています…" });
-      await send({ start: true, name: name || "Bales のリスト", src: String(c.url).split("?")[0], total: c.total });
+      await send({ start: true, name: name || "Bales のリスト", src: String(c.url).split("?")[0], total: c.total, view: learnView(c) });
       // 画面の「1 - 100 / 23394」の総数（API が総数を返さないとき用）
       { const m = (document.body.innerText || "").match(/(\d[\d,]*)\s*-\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/); if (c.total == null && m) c.total = Number(m[3].replace(/,/g, "")); }
       if (!pg.page && !pg.offset) {
