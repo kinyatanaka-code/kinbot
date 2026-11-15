@@ -148,7 +148,7 @@ const TOOLS = [
   },
   {
     name: "sf_update",
-    description: "Salesforceのレコードを更新する（書き込み）。オブジェクトAPI名・レコードID・更新フィールドを指定。例: sobject=Opportunity, id=006xxx, fields={StageName:\"02 : 有効商談（3ヵ月以内検討）\"}。kinbot で Salesforce を連携している人は本人として、連携していない人（MOCHICAなど）は代理アカウントで書き込む。ステージの変更は sobject=Opportunity・fields={StageName: …}。対象は主要オブジェクト（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case 等）に限定。業種（Industry）は必須：商談（Opportunity）を更新するときは、その取引先の業種が空なら kinbot がネットで調べて入れる（決められなければ止めて選択肢を返すので、取引先に Industry を入れてからやり直す）。リード・取引先の Industry は SF の選択肢の中だけ・空にできない。",
+    description: "Salesforceのレコードを更新する（書き込み）。オブジェクトAPI名・レコードID・更新フィールドを指定。例: sobject=Opportunity, id=006xxx, fields={StageName:\"02 : 有効商談（3ヵ月以内検討）\"}。kinbot で Salesforce を連携している人は本人として、連携していない人（MOCHICAなど）は代理アカウントで書き込む。ステージの変更は sobject=Opportunity・fields={StageName: …}。対象は主要オブジェクト（Opportunity/Lead/Account/Contact/Task/Event/OpportunityLineItem/Case 等）に限定。業種（Industry）は必須：商談（Opportunity）を更新するときは、その取引先の業種が空なら kinbot がネットで調べて入れる（決められなければ止めて選択肢を返すので、取引先に Industry を入れてからやり直す）。リード・取引先の Industry は SF の選択肢の中だけ・空にできない。商談（Opportunity）を作る・更新するときは、その取引先の従業員数（NumberOfEmployees）も必須：空なら kinbot が kincall のリストや会社の情報から入れる（分からなければ止まるので、調べて先に Account に入れてからやり直す）。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, id: { type: "string", description: "レコードのSalesforce ID" }, fields: { type: "object", description: "更新するフィールド {API名: 値}" } }, required: ["sobject", "id", "fields"] },
   },
   {
@@ -197,7 +197,7 @@ const TOOLS = [
   },
   {
     name: "sf_create",
-    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。リード（Lead）と取引先（Account）を作るとき、商談（Opportunity）を作るとき（その取引先）は業種（Industry）が必須：Industry を入れていなければ、kinbot がネットで事業内容を調べて SF の選択肢から入れる（分からなければ作らずに選択肢を返すので、その中から選んで Industry に入れてやり直す）。",
+    description: "Salesforceにレコードを新規作成する（書き込み）。オブジェクトAPI名と作成フィールドを指定。kinbot で Salesforce を連携している人は本人として、連携していない人は代理アカウントで作る（活動の説明に記録した人を残す）。対象は主要オブジェクトに限定。リード（Lead）と取引先（Account）を作るとき、商談（Opportunity）を作るとき（その取引先）は業種（Industry）が必須：Industry を入れていなければ、kinbot がネットで事業内容を調べて SF の選択肢から入れる（分からなければ作らずに選択肢を返すので、その中から選んで Industry に入れてやり直す）。商談（Opportunity）を作る・更新するときは、その取引先の従業員数（NumberOfEmployees）も必須：空なら kinbot が kincall のリストや会社の情報から入れる（分からなければ止まるので、調べて先に Account に入れてからやり直す）。",
     inputSchema: { type: "object", properties: { sobject: { type: "string", description: "オブジェクトのAPI名" }, fields: { type: "object", description: "作成するフィールド {API名: 値}" } }, required: ["sobject", "fields"] },
   },
 
@@ -639,10 +639,22 @@ export async function callTool(name, args, req) {
 
 // 商談（Opportunity）を Claude から作る・更新するときは、取引先の業種（Industry）を必ず入れる（2026-11-12 田中さん：kinbot のコネクタを使う全員）
 //   取引先の業種が空なら、ネットで事業内容を調べて SF の選択肢から入れる。決められなければ止めて、選択肢を返す（Claude が選んで取引先に入れてからやり直す）
+// 従業員数（NumberOfEmployees）も同じく必須（2026-11-16 田中さん）：空なら kincall のリスト→SF・gBizINFO・ネットの順で調べて入れる。分からなければ止める
 async function ensureAccountIndustry(owner, accountId) {
   const aid = String(accountId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!aid || !globalThis.kbIndustry) return "";
-  const a = await sfQuery(owner, `SELECT Id, Name, Industry, Website FROM Account WHERE Id = '${aid}'`).then((d) => d?.records?.[0]).catch(() => null);
-  if (!a || a.Industry) return "";
+  const a = await sfQuery(owner, `SELECT Id, Name, Industry, NumberOfEmployees, Website FROM Account WHERE Id = '${aid}'`).then((d) => d?.records?.[0]).catch(() => null);
+  if (!a) return "";
+  let empNote = "";
+  if (!(Number(a.NumberOfEmployees) > 0) && globalThis.kbIndustry.employees) {
+    const n = await globalThis.kbIndustry.employees(owner, a.Name, { website: a.Website || "" }).catch(() => 0);
+    if (!n) throw new Error(`取引先「${a.Name}」（${a.Id}）の従業員数（NumberOfEmployees）が空です。従業員数は必須なので、会社のサイト・求人・会社データベースで調べて、先に sf_update（sobject=Account, id=${a.Id}, fields={NumberOfEmployees: 数字}）で入れてから、もう一度この操作をしてください。`);
+    try { await sfUpdateRecord(owner, "Account", a.Id, { NumberOfEmployees: n }); empNote = `取引先「${a.Name}」の従業員数が空だったので「${n}」を入れました（kincall のリストや会社の情報から）。違っていれば sf_update で直してください。`; }
+    catch (e) { empNote = `取引先「${a.Name}」の従業員数は「${n}」と調べましたが、権限が無くて入れられませんでした（${String(e.message || "").slice(0, 80)}）。`; }
+  }
+  if (a.Industry) return empNote;
+  return [empNote, await ensureIndustryOnly(owner, a)].filter(Boolean).join(" ");
+}
+async function ensureIndustryOnly(owner, a) {
   const opts = (await globalThis.kbIndustry.options(owner).catch(() => [])).map((o) => o.value);
   const g = await globalThis.kbIndustry.guess(owner, a.Name, { website: a.Website || "" }).catch(() => "");
   if (!g) throw new Error(`取引先「${a.Name}」（${a.Id}）の業種（Industry）が空です。業種は必須なので、この会社の事業内容を調べて次の選択肢から1つ選び、先に sf_update（sobject=Account, id=${a.Id}, fields={Industry: …}）で入れてから、もう一度この操作をしてください。選択肢：${opts.join("／")}`);

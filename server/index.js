@@ -5466,7 +5466,17 @@ async function kbGuessIndustry(user, company, { website = "" } = {}) {
   } catch { return ""; }
 }
 const _kbIndGuess = new Map();
-globalThis.kbIndustry = { options: (u) => kbIndustryOptions(u), guess: (u, c, o) => kbGuessIndustry(u, c, o) };   // Claude のコネクタ（mcp.js）から使う
+// 従業員数を調べる：kincall のリスト → SF の取引先・gBizINFO・ネットの順（lookupCompanyInfo と同じ）。数字が取れなければ 0（2026-11-16 田中さん：従業員数も必須）
+async function kbGuessEmployees(user, company, { website = "" } = {}) {
+  try {
+    if (!company) return 0;
+    const ci = await lookupCompanyInfo(company, "", user, website ? `会社URL：${website}` : "").catch(() => null);
+    const n = parseInt(String((ci && ci.employees) || "").replace(/[^\d]/g, ""), 10);
+    console.log(`[従業員数] ${company} → ${n || "（分からず）"}`);
+    return n > 0 && n < 1000000 ? n : 0;
+  } catch { return 0; }
+}
+globalThis.kbIndustry = { options: (u) => kbIndustryOptions(u), guess: (u, c, o) => kbGuessIndustry(u, c, o), employees: (u, c, o) => kbGuessEmployees(u, c, o) };   // Claude のコネクタ（mcp.js）から使う
 // リードに業種が無ければ入れる：画面で選んだもの → SF の取引先 → AI の見立て。入れた（または元からあった）業種を返す
 async function kbEnsureLeadIndustry(user, leadId, company, { pick = "", website = "" } = {}) {
   const lid = String(leadId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!lid) return "";
@@ -27466,6 +27476,70 @@ mcpHooks.mochica = { setTitle: (id, b, user) => mcSetTitle(id, b, user), transcr
 // SF の項目の形（describe）と入力チェックは、起動して少ししたら先に読んでおき、50分ごとに読み直す（会社カードの SF の欄を速く出すため）（2026-11-15）
 const mcSfWarm = async () => { try { const op = await sfOperator(); if (!op) return; await mcOppDescribe(op).catch(() => {}); await mcRequiredFromRules(op).catch(() => {}); } catch {} };
 setTimeout(mcSfWarm, 45000); setInterval(() => { _mcOppDesc.at = 0; mcSfWarm(); }, 50 * 60000);
+
+// ===== 商談の取引先に「業種」「従業員数」を必ず入れる見張り（2026-11-16 田中さん「業種と従業員数は商談をつくるときの必須にする。100%」）=====
+//   kinbot の立ち上げ画面と Claude では必須にしたが、SF の画面で直接つくる商談は止められない。
+//   そこで平日 9〜20 時に 30 分ごと、直近 14 日につくられた商談の取引先で空のものを探し、調べて入れる。
+//   調べても分からなかったものは、商談の担当に Google Chat で「SF で入れてください」と1回だけ知らせる。
+const ACCT_FILL_DAYS = 14, ACCT_FILL_MAX = 20;
+let _acctFill = { running: false, at: 0, last: null };
+async function acctFillRun({ force = false } = {}) {
+  if (_acctFill.running) return _acctFill.last;
+  const jst = new Date(Date.now() + 9 * 3600 * 1000); const h = jst.getUTCHours(), dow = jst.getUTCDay();
+  if (!force && (dow === 0 || dow === 6 || h < 9 || h >= 20)) return null;
+  const op = await sfOperator(); if (!op) return null;
+  _acctFill.running = true;
+  const out = { at: new Date().toISOString(), checked: 0, industry: 0, employees: 0, left: [], errors: [] };
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const tried = { ...(st.acctFillTried || {}) };   // 取引先ID → { at, n, told }（何度も調べ直さない・知らせるのは1回）
+    const d = await sfQuery(op, `SELECT Id, AccountId, Account.Name, Account.Industry, Account.NumberOfEmployees, Account.Website, Owner.Name, Owner.Email, Name FROM Opportunity WHERE CreatedDate = LAST_N_DAYS:${ACCT_FILL_DAYS} AND AccountId != null AND (Account.Industry = null OR Account.NumberOfEmployees = null) ORDER BY CreatedDate DESC LIMIT 200`);
+    const seen = new Set(); const todo = [];
+    for (const o of (d && d.records) || []) { if (seen.has(o.AccountId)) continue; seen.add(o.AccountId); todo.push(o); }
+    const now = Date.now(); let n = 0;
+    for (const o of todo) {
+      const t = tried[o.AccountId] || { at: 0, n: 0, told: false };
+      if (n >= ACCT_FILL_MAX) break;
+      if (t.n >= 3 || now - t.at < 6 * 3600000) { out.left.push({ account: o.Account.Name, owner: o.Owner && o.Owner.Name, needIndustry: !o.Account.Industry, needEmployees: !(Number(o.Account.NumberOfEmployees) > 0) }); continue; }
+      n++; out.checked++;
+      const a = o.Account || {}; const f = {};
+      if (!a.Industry) { const g = await kbGuessIndustry(op, a.Name, { website: a.Website || "" }).catch(() => ""); if (g) f.Industry = g; }
+      if (!(Number(a.NumberOfEmployees) > 0)) { const e = await kbGuessEmployees(op, a.Name, { website: a.Website || "" }).catch(() => 0); if (e) f.NumberOfEmployees = e; }
+      if (Object.keys(f).length) {
+        try { await sfUpdateRecord(op, "Account", o.AccountId, f); if (f.Industry) out.industry++; if (f.NumberOfEmployees) out.employees++; console.log(`[取引先の補完] ${a.Name} ← ${Object.entries(f).map(([k, v]) => `${k}=${v}`).join(" ")}`); }
+        catch (e) { out.errors.push(`${a.Name}：${String(e.message || e).slice(0, 120)}`); }
+      }
+      const needI = !a.Industry && !f.Industry, needE = !(Number(a.NumberOfEmployees) > 0) && !f.NumberOfEmployees;
+      tried[o.AccountId] = { at: now, n: t.n + 1, told: t.told };
+      if (needI || needE) {
+        out.left.push({ account: a.Name, owner: o.Owner && o.Owner.Name, needIndustry: needI, needEmployees: needE });
+        const mail = o.Owner && o.Owner.Email;
+        if (!t.told && mail && st.acctFillNotify === true) {   // 担当への知らせは、田中さんが「知らせてよい」と決めてから（設定 acctFillNotify）
+          const what = [needI ? "業種" : "", needE ? "従業員数" : ""].filter(Boolean).join("と");
+          const msg = `【SF】「${a.Name}」の取引先に${what}が入っていません。kinbot で調べても分かりませんでした。\n商談をつくるときの必須なので、会社のサイトや求人で確かめて SF の取引先に入れてください。\nhttps://ap10.lightning.force.com/lightning/r/Account/${o.AccountId}/view`;
+          const r = await notifyPerson(mail, msg).catch(() => ({ ok: false }));
+          if (r && r.ok) tried[o.AccountId].told = true;
+        }
+      } else delete tried[o.AccountId];
+    }
+    // 14日より古い記録は捨てる（設定を大きくしない）
+    for (const [k, v] of Object.entries(tried)) if (now - (v.at || 0) > ACCT_FILL_DAYS * 86400000) delete tried[k];
+    await saveSettings({ acctFillTried: tried, acctFillLast: { ...out, left: out.left.slice(0, 50) } }).catch(() => {});
+    console.log(`[取引先の補完] 見た ${out.checked} 社・業種 ${out.industry}・従業員数 ${out.employees}・残り ${out.left.length}`);
+  } catch (e) { out.errors.push(String(e.message || e).slice(0, 200)); console.warn("[取引先の補完] 失敗:", e.message); }
+  finally { _acctFill.running = false; _acctFill.at = Date.now(); _acctFill.last = out; }
+  return out;
+}
+setTimeout(() => acctFillRun().catch(() => {}), 120000); setInterval(() => acctFillRun().catch(() => {}), 30 * 60000);
+// いまの様子を見る・すぐ動かす（管理者）
+app.get("/api/sf/account-fill", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const st = await getSettings().catch(() => ({})); res.json({ ok: true, running: _acctFill.running, last: _acctFill.last || st.acctFillLast || null }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/sf/account-fill/run", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); acctFillRun({ force: true }).catch(() => {}); res.json({ ok: true, started: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/sf/form", async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
@@ -31726,8 +31800,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
+  "SF：商談の取引先の業種・従業員数を必須に（立ち上げ・Claude・SF直接の商談は自動で補う）",
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
@@ -32379,7 +32454,7 @@ const LEAD_WANT = [
   { key: "city",      label: "市区郡",               re: /市区郡|市区町村|City/i,     apis: ["City"] },
   { key: "address",   label: "町名・番地",           re: /住所|Street/i,              apis: ["Street"] },
   { key: "postal",    label: "郵便番号",             re: /郵便番号|PostalCode/i,      apis: ["PostalCode"] },
-  { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"] },
+  { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"], req: true },   // 2026-11-16 田中さん：業種と従業員数は商談をつくるときの必須
   { key: "industry",  label: "業種",                 re: /^業種$|Industry/i,          apis: ["Industry"], req: true },   // 2026-11-12 田中さん：取引先の業種もアポの立ち上げで入れる
 ];
 
@@ -33040,6 +33115,13 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
       const lid = String(req.params.id).replace(/[^a-zA-Z0-9]/g, "");
       const ld = await sfQuery(req.user, `SELECT Industry FROM Lead WHERE Id = '${lid}'`).then((d) => d?.records?.[0]).catch(() => null);
       if (ld && !ld.Industry) return res.status(400).json({ error: "業種を選んでください（業種なしでは立ち上げられません）" });
+    }
+    // 従業員数も必須（2026-11-16 田中さん）。画面で入れていなければ、リードに入っているかを見る
+    if (!(Number(fields.NumberOfEmployees) > 0)) {
+      delete fields.NumberOfEmployees;
+      const lid = String(req.params.id).replace(/[^a-zA-Z0-9]/g, "");
+      const ld = await sfQuery(req.user, `SELECT NumberOfEmployees FROM Lead WHERE Id = '${lid}'`).then((d) => d?.records?.[0]).catch(() => null);
+      if (ld && !(Number(ld.NumberOfEmployees) > 0)) return res.status(400).json({ error: "従業員数を入れてください（従業員数なしでは立ち上げられません）。分からないときは「会社情報を自動で入れる」を押すか、会社のサイト・求人で確かめてください" });
     }
     if (Object.keys(fields).length) await updateLead(req.user, req.params.id, fields);
     // 「アポ獲得日」が空だとコンバートで弾かれる。画面で入れていなければ今日を入れる。
