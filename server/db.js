@@ -12759,12 +12759,17 @@ export async function mcMiitelCleanJunk() {
 }
 
 // MOCHICA：拡張機能に「次に読む会議」を渡す（文字起こしか録画がまだのもの・60日以内・新しい順）（2026-11-12）
-export async function mcMiitelTodo(limit = 10) {
+export async function mcMiitelTodo(limit = 10, { days = 60, novideo = false, skip = [] } = {}) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, url, COALESCE(transcript_len,0) AS tl, (payload ? 'mt_video') AS hv FROM mochica_miitel_events
-    WHERE ((COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases')) OR NOT (payload ? 'mt_video')) AND COALESCE(started_at, received_at) > now() - interval '60 days' AND COALESCE(title,'') <> ''
-      AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3
-    ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  // novideo：過去の会議をまとめて読むときは、録画は後回しにして文字起こし・議事録だけ（2026-11-15）
+  // 何度開いても文字起こしが取れない会議（短い・録音なし）で止まらないよう、2回まで（mt_tr_try）
+  const need = novideo ? `(COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND COALESCE((payload->>'mt_tr_try')::int, 0) < 2)` : `((COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases')) OR NOT (payload ? 'mt_video'))`;
+  const rows = (await pool.query(`SELECT id, url, COALESCE(transcript_len,0) AS tl, (payload ? 'mt_video') AS hv FROM mochica_miitel_events
+    WHERE ${need} AND COALESCE(started_at, received_at) > now() - make_interval(days => $2) AND COALESCE(title,'') <> ''
+      AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3 AND NOT (id = ANY($3::text[]))
+    ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit, Math.max(1, Math.min(400, Number(days) || 60)), skip]).catch(() => ({ rows: [] }))).rows;
+  if (novideo && rows.length) await pool.query(`UPDATE mochica_miitel_events SET payload = jsonb_set(COALESCE(payload,'{}'::jsonb), '{mt_tr_try}', to_jsonb(COALESCE((payload->>'mt_tr_try')::int, 0) + 1)) WHERE id = ANY($1::text[])`, [rows.map((r) => r.id)]).catch(() => {});
+  return rows;
 }
 
 // kinXs 企業の詳細「採用状況」（議事録から読み取ったもの）（2026-11-13）

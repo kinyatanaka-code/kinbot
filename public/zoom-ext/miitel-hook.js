@@ -27,8 +27,12 @@
   const noteWrite = (method, u, body) => { try { const m0 = String(method || "GET").toUpperCase(); if (m0 === "GET") return; const U = new URL(String(u), location.href); if (!/\/api\//.test(U.pathname)) return;
       let keys = ""; try { const o = typeof body === "string" ? JSON.parse(body) : null; if (o && typeof o === "object") keys = Object.entries(o).map(([k, v]) => `${k}=${/url|link|title|name|meeting/i.test(k) ? String(v).slice(0, 60) : typeof v}`).join("&"); } catch { keys = typeof body; }
       window.postMessage({ __kbMiitelSeen: true, path: `[${m0}] ${U.pathname}${keys ? ` {${keys}}` : ""}`, page: location.pathname }, "*"); } catch {} };
+  // ===== 過去の会議を読む：会議履歴一覧の頼み方を覚えて、ページをめくる（2026-11-15 田中さん「3月1日までの会議を全部」）=====
+  let lastList = null;
+  const hdrObj = (h) => { const o = {}; try { if (!h) return o; if (h instanceof Headers) h.forEach((v, k) => { o[k] = v; }); else if (Array.isArray(h)) h.forEach(([k, v]) => { o[k] = v; }); else Object.assign(o, h); } catch {} return o; };
   const of = window.fetch;
   window.fetch = async function (...a) {
+    try { const u0 = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; if (RE_LIST.test(u0)) { const o0 = a[1] || {}; lastList = { url: new URL(u0, location.href).href, method: String(o0.method || (a[0] && a[0].method) || "GET").toUpperCase(), body: typeof o0.body === "string" ? o0.body : null, headers: { ...hdrObj(a[0] && a[0].headers), ...hdrObj(o0.headers) }, cred: o0.credentials || "same-origin", at: Date.now() }; } } catch {}
     try { const o0 = a[1] || {}; noteWrite(o0.method || (a[0] && a[0].method), typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || "", o0.body); } catch {}
     const r = await of.apply(this, a);
     try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; note(u); if (RE.test(u) || RE_LIST.test(u)) r.clone().text().then((t) => send(u, t)).catch(() => {}); } catch {}
@@ -36,12 +40,52 @@
   };
   const oo = XMLHttpRequest.prototype.open, os = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbU = u; note(u); return oo.call(this, m, u, ...rest); };
-  const oo3 = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbM = m; return oo3.call(this, m, u, ...rest); };
+  const oo3 = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbM = m; this.__kbH = {}; return oo3.call(this, m, u, ...rest); };
+  const osh = XMLHttpRequest.prototype.setRequestHeader; XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__kbH) this.__kbH[k] = v; } catch {} return osh.call(this, k, v); };
   XMLHttpRequest.prototype.send = function (...a) {
     try { noteWrite(this.__kbM, this.__kbU, a[0]); } catch {}
+    try { if (RE_LIST.test(String(this.__kbU || ""))) lastList = { url: new URL(String(this.__kbU), location.href).href, method: String(this.__kbM || "GET").toUpperCase(), body: typeof a[0] === "string" ? a[0] : null, headers: { ...(this.__kbH || {}) }, cred: this.withCredentials ? "include" : "same-origin", at: Date.now() }; } catch {}
     try { if (RE.test(String(this.__kbU || "")) || RE_LIST.test(String(this.__kbU || ""))) this.addEventListener("load", () => { try { if (!this.responseType || this.responseType === "text" || this.responseType === "json") send(this.__kbU, this.responseType === "json" ? JSON.stringify(this.response) : this.responseText); } catch {} }); } catch {}
     return os.apply(this, a);
   };
+  const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
+  const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => isObj(x) && (x.id || x.video_id))) return o; if (!isObj(o) || d > 4) return null; for (const v of Object.values(o)) { const r = findArr(v, d + 1); if (r) return r; } return null; };
+  const PAGE = /^(page|page_number|pageNumber|current_page|currentPage|p)$/i, OFF = /^(offset|from|start|skip)$/i, SIZE = /^(per_page|perPage|limit|size|page_size|pageSize|per)$/i;
+  const prg = (o) => window.postMessage({ __kbMtBack: true, ...o }, "*");
+  let backRunning = false, backStop = false;
+  async function backfill(until) {
+    if (backRunning) return; if (!lastList) { prg({ error: "会議の一覧が見えていません。会議履歴一覧を開き直して（F5）、一覧が出てから押してください" }); return; }
+    backRunning = true; backStop = false;
+    const L = lastList; const lim = new Date(until + "T00:00:00+09:00").getTime();
+    let body = null; try { body = L.body ? JSON.parse(L.body) : null; } catch {}
+    // めくり方：URL の ? の後ろか、本文（JSON）の中の page／offset と、1回の件数
+    const U0 = new URL(L.url); const find = (re) => { for (const [k] of U0.searchParams) if (re.test(k)) return { q: k }; if (isObj(body)) { for (const k of Object.keys(body)) if (re.test(k)) return { b: k }; for (const [pk, pv] of Object.entries(body)) if (isObj(pv)) for (const k of Object.keys(pv)) if (re.test(k)) return { b: k, in: pk }; } return null; };
+    let pg = find(PAGE), off = pg ? null : find(OFF); const sz = find(SIZE);
+    const req = async (pageNo, offN, size) => { const U = new URL(L.url); let b = body ? JSON.parse(JSON.stringify(body)) : null;
+      const set = (f, v) => { if (!f) return; if (f.q) U.searchParams.set(f.q, String(v)); else if (b) { if (f.in) b[f.in][f.b] = v; else b[f.b] = v; } };
+      if (pg) set(pg, pageNo); else if (off) set(off, offN); else U.searchParams.set("page", String(pageNo)); if (sz && size) set(sz, size);
+      const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 60000);
+      try { const r = await of(U.href, { method: L.method, headers: L.headers, body: L.method === "GET" ? undefined : b ? JSON.stringify(b) : L.body, credentials: L.cred, signal: ac.signal }); if (!r.ok) throw new Error(`MiiTel から読めませんでした（${r.status}）`); return { url: U.href, text: await r.text() }; } finally { clearTimeout(tm); } };
+    const dateOf = (x) => { const v = x.starts_at || x.started_at || x.start_at || x.created_at || x.date; const t = Date.parse(v); return isNaN(t) ? null : t; };
+    let got = 0, pages = 0, prevSig = "", oldest = null; const size = sz ? 100 : 0;
+    try {
+      for (let p = 0; p < 500 && !backStop; p++) {
+        const pageNo = (pg && /^0$/.test(String(U0.searchParams.get(pg.q || "") || (body && (pg.in ? body[pg.in][pg.b] : body[pg.b])) || ""))) ? p : p + 1;
+        let r; try { r = await req(pageNo, p * (size || 25), size); } catch (e) { if (size && p === 0) { r = await req(pageNo, 0, 0); } else throw e; }
+        let j = null; try { j = JSON.parse(r.text); } catch {} const arr = (j && findArr(j)) || [];
+        if (!arr.length) break; const sig = JSON.stringify(arr[0]).slice(0, 200); if (sig === prevSig) break; prevSig = sig;
+        send(r.url, r.text); got += arr.length; pages++;
+        const ds = arr.map(dateOf).filter((t) => t != null); if (ds.length) oldest = Math.min(...ds, oldest ?? Infinity);
+        prg({ got, pages, oldest });
+        if (oldest != null && oldest < lim) break;
+        if (!pg && !off && p === 1 && pages === 2 && sig === prevSig) break;
+        await new Promise((res) => setTimeout(res, 700));   // MiiTel に負担をかけないよう、少し間をあける
+      }
+      prg({ done: true, got, pages, oldest, stopped: backStop });
+    } catch (e) { prg({ error: String(e && e.message || e), got, pages, oldest }); }
+    finally { backRunning = false; }
+  }
+  window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return; if (d.__kbMtBackRun) backfill(d.until || "2026-03-01"); if (d.__kbMtBackStop) backStop = true; if (d.__kbMtBackAsk) prg({ ready: !!lastList, url: lastList ? lastList.url.replace(/\?.*$/, "") : "" }); });
   // ===== 録画の取り込み（#kbGrabVideo で開かれたとき）（2026-11-12）=====
   let tk = "", KB = "", grabbing = false;
   window.addEventListener("message", (e) => { const d = e.data; if (d && d.__kbExtToken && e.source === window) { tk = d.__kbExtToken; KB = d.kb; } });

@@ -1,3 +1,12 @@
+// kinbot の合言葉：無ければ、この Chrome の kinbot のログインで取りにいく（拡張機能を入れ直した直後に「合言葉がありません」で止まらないように）（2026-11-15）
+async function kbTok() {
+  try {
+    const t = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken; if (t) return t;
+    const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext-token", { credentials: "include", redirect: "manual" });
+    const j = await r.json().catch(() => null); if (j && j.token) { await chrome.storage.local.set({ kbExtToken: j.token }); return j.token; }
+  } catch {}
+  return "";
+}
 // kincall Zoomサインイン補助（バックグラウンド）
 // kincall から受け取ったログイン情報を、ブラウザのメモリ（chrome.storage.session）に10分だけ置く。ファイルには残さない。
 const TTL = 10 * 60 * 1000;
@@ -45,7 +54,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!msg || msg.type !== "kb-miitel-capture") return;
   (async () => {
     try {
-      const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || "";
+      const tk = (await kbTok());
       const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/capture", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json", "x-kb-ext": tk }, body: JSON.stringify({ items: msg.items || [] }) });
       const j = await r.json().catch(() => null); reply({ ok: !!(j && j.ok), status: r.status });
     } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
@@ -88,7 +97,7 @@ const kbWorkHours = () => { const d = new Date(); const w = d.getDay(), h = d.ge
 async function kbMtAuto() {
   try {
     if (kbMtCrawling || !kbWorkHours()) return;
-    const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || ""; if (!tk) return;
+    const tk = (await kbTok()); if (!tk) return;
     const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/todo?limit=6", { headers: { "x-kb-ext": tk } });
     const j = await r.json().catch(() => null); if (!j || !j.ok || !(j.urls || []).length) return;
     await chrome.storage.local.set({ kbMtAutoAt: Date.now() });
@@ -104,7 +113,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!msg || msg.type !== "kb-bales-rows") return;
   (async () => {
     try {
-      const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || "";
+      const tk = (await kbTok());
       const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/bales/ext/rows", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json", "x-kb-ext": tk }, body: JSON.stringify(msg.payload || {}) });
       const j = await r.json().catch(() => null);
       reply(j && j.ok ? { ...j, ok: true } : { ok: false, status: r.status, error: (j && j.error) || (r.status === 0 || r.status === 302 ? "kinbot にログインしていません。kinbot の画面を開いてから、もう一度押してください" : `kinbot に送れませんでした（${r.status}）`) });
@@ -117,7 +126,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 async function kbBalesWatch() {
   try {
     if (!kbWorkHours()) return;
-    const st = await chrome.storage.local.get(["kbBalesWatch", "kbExtToken"]); if (!st.kbBalesWatch || !st.kbExtToken) return;
+    const st = await chrome.storage.local.get(["kbBalesWatch"]); if (!st.kbBalesWatch || !(await kbTok())) return;
     let tabs = await chrome.tabs.query({ url: "https://*.balescloud.jp/*" });
     if (!tabs.length) { const t = await chrome.tabs.create({ url: "https://mochica.balescloud.jp/app/lead-list", active: false, pinned: true }); await new Promise((r) => setTimeout(r, 25000)); tabs = [t]; }
     const tab = tabs.find((t) => !t.discarded) || tabs[0]; if (tab.discarded) { await chrome.tabs.reload(tab.id); await new Promise((r) => setTimeout(r, 25000)); }
@@ -152,3 +161,28 @@ chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === "kb-self-update")
     for (const t of tabs) if (!t.active) await chrome.tabs.reload(t.id).catch(() => {});
   } catch {}
 })();
+
+// ===== 過去の会議の文字起こし・議事録をまとめて読む（2026-11-15）=====
+//   kinbot に「まだの会議」（録画は後回し・同じ会議は2回まで）を10件ずつ聞き、裏のタブで順に開く。止めるまで、または無くなるまで続ける
+let kbMtBackStop = false;
+async function kbMtBackfill(days) {
+  const st0 = await chrome.storage.local.get(["kbMtBackDet"]); if (st0.kbMtBackDet && st0.kbMtBackDet.running && Date.now() - st0.kbMtBackDet.at < 600000) return;
+  kbMtBackStop = false; let done = 0;
+  await chrome.storage.local.set({ kbMtBackDet: { running: true, done, at: Date.now() } });
+  try {
+    const tk = (await kbTok()); if (!tk) throw new Error("no token");
+    for (let k = 0; k < 400 && !kbMtBackStop; k++) {
+      while (kbMtCrawling) await new Promise((r) => setTimeout(r, 5000));   // 自動の読み込みが動いていれば待つ
+      const r = await fetch(`https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/todo?limit=10&novideo=1&days=${days}`, { headers: { "x-kb-ext": tk } });
+      const j = await r.json().catch(() => null); const urls = (j && j.urls) || []; if (!urls.length) break;
+      await kbMtCrawl(urls); done += urls.length;
+      await chrome.storage.local.set({ kbMtBackDet: { running: true, done, at: Date.now() } });
+    }
+  } catch {}
+  await chrome.storage.local.set({ kbMtBackDet: { running: false, done, stopped: kbMtBackStop, at: Date.now() } });
+}
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg) return;
+  if (msg.type === "kb-miitel-backfill") { kbMtBackfill(Math.max(1, Math.min(400, Number(msg.days) || 260))); reply({ ok: true }); return true; }
+  if (msg.type === "kb-miitel-backfill-stop") { kbMtBackStop = true; reply({ ok: true }); return true; }
+});
