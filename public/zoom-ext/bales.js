@@ -78,8 +78,8 @@
       return; }
     if (d.__kbBalesWLearned) { const m = box.querySelector("[data-wm]");
       if (d.ok) { window.postMessage({ __kbBalesWAsk: true }, "*"); }
-      else { if (m) m.innerHTML = `覚えられませんでした：${String(d.reason || "").replace(/</g, "&lt;")}${d.shape ? `<pre style="white-space:pre-wrap;font-size:10px;max-height:160px;overflow:auto;background:#F2FAFB;padding:6px;border-radius:8px">${(d.method || "") + " " + String(d.url || "").replace(/</g, "&lt;")}\n${JSON.stringify(d.shape, null, 1).replace(/</g, "&lt;").slice(0, 3000)}</pre>` : ""}`; const wl = box.querySelector("[data-wl]"); if (wl) { wl.disabled = false; wl.textContent = "もう一度覚える"; } }
-      try { chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", writeDiag: { ok: !!d.ok, mode: d.mode, reason: d.reason, shape: d.shape, url: d.url, method: d.method } } }, () => {}); } catch {}
+      else { if (m) m.innerHTML = `覚えられませんでした：${String(d.reason || "").replace(/</g, "&lt;")}${d.seen && d.seen.length ? `<div style="font-size:10px;margin-top:6px;color:#5C7377">見えた保存：<br>${d.seen.map((x) => String(x).replace(/</g, "&lt;")).join("<br>")}</div>` : ""}${d.shape ? `<pre style="white-space:pre-wrap;font-size:10px;max-height:160px;overflow:auto;background:#F2FAFB;padding:6px;border-radius:8px">${(d.method || "") + " " + String(d.url || "").replace(/</g, "&lt;")}\n${JSON.stringify(d.shape, null, 1).replace(/</g, "&lt;").slice(0, 3000)}</pre>` : ""}`; const wl = box.querySelector("[data-wl]"); if (wl) { wl.disabled = false; wl.textContent = "もう一度覚える"; } }
+      try { chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", writeDiag: { ok: !!d.ok, mode: d.mode, reason: d.reason, shape: d.shape || d.seen, url: d.url, method: d.method } } }, () => {}); } catch {}
       return; }
     if (d.__kbBalesProg && d.write) { const m = box.querySelector("[data-wm]"), bar = box.querySelector("[data-wbar]"), alls = box.querySelector("[data-wall]"), one = box.querySelector("[data-wone]"), st = box.querySelector("[data-wstop]");
       if (bar && d.total) bar.style.width = Math.min(100, Math.round((d.got || 0) / d.total * 100)) + "%";
