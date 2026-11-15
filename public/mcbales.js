@@ -62,7 +62,7 @@
     const csvQ = `q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}`;
     box.innerHTML = `<div class="bl-head"><div><h3>${esc(l.name || l.list_key)}</h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         <div class="bl-acts"><a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">取り込み直す ↗</a><a class="mt-btn ghost" href="/api/mochica/bales/lists/${encodeURIComponent(cur)}/csv?${csvQ}">CSV</a><button type="button" class="mt-btn" data-sf>${l.sf_info ? "SF と結び直す" : "SF と結びつける"}</button><button type="button" class="mt-btn ghost bl-del" data-del>消す</button></div></div>
-      <div class="bl-sfst" data-sfst>${l.sf_info ? `SF：SalesforceID あり ${Number(l.sf_info.withId || 0).toLocaleString()}件 → SF で見つかった ${Number(l.sf_info.linked || 0).toLocaleString()}件・過去の商談あり ${Number(l.sf_info.withOpps || 0).toLocaleString()}件（${esc(dt(l.sf_info.at))}）` : ""}</div>
+      <div class="bl-sfst" data-sfst>${l.sf_info ? `SF：${l.sf_info.byName != null ? `SalesforceID で ${Number(l.sf_info.byId || 0).toLocaleString()}件・会社名で ${Number(l.sf_info.byName || 0).toLocaleString()}件` : `SalesforceID あり ${Number(l.sf_info.withId || 0).toLocaleString()}件`} → SF で見つかった ${Number(l.sf_info.linked || 0).toLocaleString()}件・過去の商談あり ${Number(l.sf_info.withOpps || 0).toLocaleString()}件（${esc(dt(l.sf_info.at))}）` : ""}</div>
       ${l.w_n ? `<div class="bl-sfst">Bales に書き込んだ（SF の失注情報など）：${Number(l.w_n).toLocaleString()}件</div>` : ""}
       ${wdiag && !wdiag.ok ? `<details class="bl-diag" style="margin-top:6px"><summary>Bales への書き込み方を覚えられませんでした（${esc(dt(wdiag.at))}）</summary>${esc(wdiag.reason)}<div class="bl-dl">${esc(wdiag.method)} ${esc(wdiag.url)}<br>${esc(wdiag.shape)}</div></details>` : ""}
       <div class="bl-mets"><div><small>会社</small><b>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}</b></div><div><small>MOCHICA の商談あり</small><b data-mtn>—</b></div><div><small>前回から</small><b>${diff == null ? "—" : (diff >= 0 ? "+" : "") + diff.toLocaleString()}</b></div><div><small>詳しい中身（架電履歴など）</small><b>${Number(l.detail_n || 0).toLocaleString()}</b></div><div><small>SF と結びついた</small><b>${Number(l.sf_n || 0).toLocaleString()}</b></div></div>
@@ -138,9 +138,9 @@
   const SFL = "https://ap10.lightning.force.com/lightning/r";
   function sfSec(x) {
     if (!x) return '<div class="bl-diag" style="margin-top:10px">SF とはまだ結びついていません。リストの上の「SF と結びつける」を押すと、SF のリードと過去の商談が入ります。</div>';
-    if (x.none) return `<div class="bl-diag" style="margin-top:10px">${x.id ? `SalesforceID（${esc(x.id)}）のリードが SF に見つかりませんでした。` : "Bales に SalesforceID が入っていません。"}</div>`;
+    if (x.none) return `<div class="bl-diag" style="margin-top:10px">${x.id ? `SF のリード（${esc(x.id)}）が見つかりませんでした。` : "SalesforceID が無く、会社名が同じ Mochica リードも SF に見つかりませんでした。"}</div>`;
     const L = x.lead || {}; const skip = new Set(["id", "name", "company", "status", "owner", "converted", "created"]);
-    return `<details class="bl-sec" open><summary>Salesforce<small>${x.opps && x.opps.length ? `過去の商談 ${x.sum.n}件` : "過去の商談なし"}</small></summary>
+    return `<details class="bl-sec" open><summary>Salesforce<small>${x.how ? `${esc(x.how)}で結びつけ・` : ""}${x.opps && x.opps.length ? `過去の商談 ${x.sum.n}件` : "過去の商談なし"}</small></summary>
       <div class="bl-sflinks"><a class="mt-btn ghost" href="${SFL}/Lead/${esc(L.id)}/view" target="_blank" rel="noopener">SF のリード ↗</a>${x.accountId ? `<a class="mt-btn ghost" href="${SFL}/Account/${esc(x.accountId)}/view" target="_blank" rel="noopener">取引先${x.account ? `（${esc(x.account)}）` : ""} ↗</a>` : ""}</div>
       <div class="bl-kv"><div><small>リードの状態</small><span>${esc(L.status) || "-"}${L.converted ? "（コンバート済み）" : ""}</span></div><div><small>リードの所有者</small><span>${esc(L.owner) || "-"}</span></div>
         ${Object.entries(L).filter(([k]) => !skip.has(k)).map(([k, v]) => `<div><small>${esc(k)}</small><span>${esc(v)}</span></div>`).join("")}</div>

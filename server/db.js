@@ -12909,7 +12909,9 @@ export async function mcBalesRow(listKey, rowKey) {
 export async function mcBalesRowsForSf(listKey) {
   if (!pool) return []; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return [];
-  return (await pool.query(`SELECT row_key, data FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 ORDER BY seq`, [listKey, l.run_at])).rows;
+  // 一覧の項目に無くても、元の形や詳しい中身のどこかに SalesforceID（00Q…）があれば拾う
+  return (await pool.query(`SELECT row_key, data, (regexp_match(COALESCE(raw::text,'') || COALESCE(detail::text,''), '"(00Q[0-9A-Za-z]{15}|00Q[0-9A-Za-z]{12})"'))[1] AS sfid
+    FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 ORDER BY seq`, [listKey, l.run_at])).rows;
 }
 export async function mcBalesSetSf(listKey, items) {
   if (!pool || !items.length) return 0; await ensureMcBales();
