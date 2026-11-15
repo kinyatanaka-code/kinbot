@@ -33,6 +33,8 @@
       : `<div class="msg">まだ一覧のデータが見えていません。Bales のリスト（リード一覧）を開いて、一覧が表示されてからもう一度押してください。うまくいかないときは、ページを読み込み直してください。</div>`}`;
     box.insertAdjacentHTML("beforeend", '<div data-det style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"><div class="msg">詳しい中身の読み方を確かめています…</div></div>');
     window.postMessage({ __kbBalesTpls: true }, "*");
+    box.insertAdjacentHTML("beforeend", '<div data-fd style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"></div>');
+    window.postMessage({ __kbBalesFeedAsk: true }, "*");
     box.insertAdjacentHTML("beforeend", '<div data-wr style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"></div>');
     window.postMessage({ __kbBalesWAsk: true }, "*");
     box.querySelector(".x").onclick = () => { box.hidden = true; };
@@ -43,6 +45,7 @@
     // ページの中の読み取り部分（bales-hook.js）から返事が無い＝動いていない
     setTimeout(() => { window.removeEventListener("message", once); if (got) return; box.innerHTML = '<button class="x" type="button" aria-label="閉じる">×</button><div class="msg">一覧を読む部分が動いていません。Bales のページを読み込み直して（F5）、一覧が出てからもう一度押してください。</div>'; box.querySelector(".x").onclick = () => { box.hidden = true; };
       let ver = ""; try { ver = chrome.runtime.getManifest().version; } catch {} chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", diag: { ver, href: location.href.split("?")[0], nohook: true, cands: [], seen: [] } } }, () => {}); }, 3000); };
+  try { chrome.runtime.onMessage.addListener((msg, sender, reply) => { if (msg && msg.type === "kb-bales-sync") { window.postMessage({ __kbBalesSync: true, why: "自動" }, "*"); reply({ ok: true }); } }); } catch {}
   window.addEventListener("message", (e) => {
     const d = e.data; if (!d || e.source !== window) return;
     if (d.__kbBalesCands) { cands = d.items || []; draw();
@@ -60,6 +63,21 @@
       if (st) st.onclick = () => { st.textContent = "止めています…"; window.postMessage({ __kbBalesStop: true }, "*"); };
       if (cl) cl.onclick = (e) => { e.preventDefault(); if (confirm("覚えた読み方を消して、覚え直しますか？（リードを1件開き直すと覚えます）")) window.postMessage({ __kbBalesTplClear: true }, "*"); };
       return; }
+    // ===== 見張る（平日10〜19時、10分ごとに新しい行を kinbot へ）=====
+    if (d.__kbBalesFeedIs) { const el = box.querySelector("[data-fd]"); if (!el) return; const fs = d.feeds || [];
+      try { chrome.storage.local.set({ kbBalesWatch: fs.length > 0, kbBalesWatchPages: fs.map((f) => f.page) }); } catch {}
+      el.innerHTML = `<h4 style="margin-bottom:4px">見張る（平日10〜19時に10分ごと）</h4>
+        <div class="msg" style="margin:0 0 6px">この画面の一覧（架電の記録など）を登録すると、Chrome が開いていれば、新しい行を自動で kinbot に入れます。</div>
+        ${fs.map((f) => `<div class="msg" style="margin:2px 0;color:#0F3D44"><b>${f.name}</b>${f.pager ? "" : "（1ページ目だけ）"}${f.view && f.view.length ? `<br><small>${f.view.slice(0, 6).join("・")}</small>` : ""} <a href="#" data-fdel="${f.key}" style="color:#B4442E">外す</a></div>`).join("")}
+        <label>見張りの名前</label><input data-fn value="${fs.length ? "" : "架電の記録"}" placeholder="例：架電の記録">
+        <button class="go" type="button" data-fadd>この画面の一覧を見張る</button>${fs.length ? '<button type="button" data-fsync style="margin-top:6px;width:100%;border:1px solid #CFE6EA;background:#fff;border-radius:10px;padding:7px;cursor:pointer">いま読む</button>' : ""}<div class="msg" data-fm></div>`;
+      el.querySelectorAll("[data-fdel]").forEach((a) => a.onclick = (e) => { e.preventDefault(); if (confirm("この見張りを外しますか？（kinbot に入った分は残ります）")) window.postMessage({ __kbBalesFeedDel: true, key: a.dataset.fdel }, "*"); });
+      const fa = el.querySelector("[data-fadd]"); fa.onclick = () => { const n = el.querySelector("[data-fn]").value.trim(); if (!n) { el.querySelector("[data-fm]").textContent = "見張りの名前を入れてください"; return; } fa.disabled = true; fa.textContent = "登録しています…"; window.postMessage({ __kbBalesFeedAdd: true, name: n }, "*"); };
+      const fsb = el.querySelector("[data-fsync]"); if (fsb) fsb.onclick = () => { fsb.disabled = true; fsb.textContent = "読んでいます…"; window.postMessage({ __kbBalesSync: true, why: "手で" }, "*"); };
+      return; }
+    if (d.__kbBalesFeedAdded) { window.postMessage({ __kbBalesFeedAsk: true }, "*"); setTimeout(() => { const m = box.querySelector("[data-fm]"); if (m) m.textContent = d.ok ? `登録しました：${d.feed.name}（${d.feed.ep}・1ページ ${d.feed.n}件${d.feed.pager ? "" : "・めくり方不明なので1ページ目だけ"}）。見出し：${(d.feed.view || []).join("・") || "（見つからず）"}` : `登録できませんでした：${d.error || ""}`; }, 200); return; }
+    if (d.__kbBalesSynced) { const m = box.querySelector("[data-fm]"); const b2 = box.querySelector("[data-fsync]"); if (b2) { b2.disabled = false; b2.textContent = "いま読む"; } if (m) m.textContent = "読みました：" + (d.out || []).map((x) => `${x.name} 新しい ${x.nw}件${x.err ? `（${x.err}）` : ""}`).join("、");
+      try { chrome.storage.local.set({ kbBalesLastSync: { at: d.at, out: d.out } }); } catch {} return; }
     // ===== Bales に書き込む（SF の失注情報などをカスタム情報へ）=====
     if (d.__kbBalesWIs) { const el = box.querySelector("[data-wr]"); if (!el) return; const nm = () => { const ni = box.querySelector("[data-n]"); return ni ? ni.value.trim() : pageName(); };
       el.innerHTML = `<h4 style="margin-bottom:4px">Bales に書き込む（SF の失注情報など → カスタム情報）</h4>` + (d.learned

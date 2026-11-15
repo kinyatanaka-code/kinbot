@@ -29,13 +29,13 @@
     return out.slice(0, 6);
   };
   const coNorm = (s) => String(s || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|一般財団法人|社会福祉法人|医療法人|学校法人|\(株\)|㈱|（株）|\s/g, "").toLowerCase();
-  let wdiag = null, diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
+  let feeds = [], fday = "", wdiag = null, diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
   const PER = 100;
 
   async function load() {
     const root = $("mcBalesView"); if (!root) return;
-    try { const d0 = await api("/api/mochica/bales/lists"); lists = d0.items || []; diag = d0.diag || null; wdiag = d0.wdiag || null; } catch (e) { root.innerHTML = `<div class="mc-box"><p class="mc-note">読めませんでした：${esc(e.message)}</p></div>`; return; }
-    if (!cur || !lists.some((l) => l.list_key === cur)) cur = (lists.find((l) => l.status !== "running") || lists[0] || {}).list_key || null;
+    try { const d0 = await api("/api/mochica/bales/lists"); lists = d0.items || []; diag = d0.diag || null; try { feeds = (await api("/api/mochica/bales/feeds")).items || []; } catch { feeds = []; } wdiag = d0.wdiag || null; } catch (e) { root.innerHTML = `<div class="mc-box"><p class="mc-note">読めませんでした：${esc(e.message)}</p></div>`; return; }
+    if (!cur || (!lists.some((l) => l.list_key === cur) && !feeds.some((f) => f.feed === cur))) cur = (feeds[0] || {}).feed || (lists.find((l) => l.status !== "running") || lists[0] || {}).list_key || null;
     if (!mtCos && window.mcMeetingCompanies) { try { mtCos = new Map((await window.mcMeetingCompanies()).map((c) => [coNorm(c), c])); } catch { mtCos = new Map(); } }
     draw();
     clearTimeout(poll); if (lists.some((l) => l.status === "running") && !$("mcBalesView").closest("[hidden]")) poll = setTimeout(load, 3000);
@@ -46,10 +46,44 @@
     root.innerHTML = `<div class="bl-wrap"><aside class="bl-side"><div class="bl-side-h"><b>Bales のリスト</b><span>${lists.length}リスト</span></div>
       ${run.map((l) => `<div class="bl-run"><b>取り込み中</b><small>${esc(l.name)} ・ ${Number(l.got || 0).toLocaleString()}${l.total ? ` / ${Number(l.total).toLocaleString()}` : ""}件</small><div class="bl-bar"><i style="width:${l.total ? Math.min(100, Math.round(l.got / l.total * 100)) : 30}%"></i></div></div>`).join("")}
       ${lists.map((l) => `<button type="button" class="bl-card${l.list_key === cur ? " on" : ""}" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><small>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}社 ・ ${l.status === "running" ? "取り込み中" : dt(l.done_at || l.run_at)}</small>${l.status === "error" ? `<span class="bl-tag w">途中で止まりました</span>` : ""}</button>`).join("")}
-      <div class="bl-how"><b>取り込み方</b>Bales のリスト（<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>）を開き、右下の「kinbot に取り込む」→「全部取り込む」。拡張機能 kinbot-ext（1.9.1 以上）が要ります。</div>
+      <div class="bl-side-h" style="margin-top:6px"><b>見張り（架電の記録など）</b><span>${feeds.length}</span></div>
+      ${feeds.map((f) => `<button type="button" class="bl-card${f.feed === cur ? " on" : ""}" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><small>${Number(f.total || 0).toLocaleString()}件 ・ ${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("") || '<div class="bl-how" style="border:0;padding:0">Bales の架電の記録などの画面で、右下の「kinbot に取り込む」→「この画面の一覧を見張る」で登録すると、ここに出ます。</div>'}
+      <div class="bl-how"><b>取り込み方</b>Bales のリスト（<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>）を開き、右下の「kinbot に取り込む」→「全部取り込む」。拡張機能 kinbot-ext（2.0.0 以上）が要ります。</div>
       </aside><div class="bl-main" id="blMain">${cur ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="bl-empty">まだ取り込んだリストがありません。左の「取り込み方」から Bales のリストを取り込むと、ここに出ます。</div>' + diagHtml()}</div></div>`;
     root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; q = ""; fcol = ""; fval = ""; page = 0; draw(); }));
-    if (cur) detail();
+    if (cur && feeds.some((f) => f.feed === cur)) feedDetail(); else if (cur) detail();
+  }
+  // ===== 見張りの1日分：誰が・どこに・何件・どんな結果だったか（2026-11-15 田中さん「インターン生の架電を分析したい」）=====
+  const jstDay = (t = Date.now()) => new Date(t + 9 * 3600000).toISOString().slice(0, 10);
+  async function feedDetail() {
+    const box = $("blMain"); const f = feeds.find((x) => x.feed === cur); if (!box || !f) return; if (!fday) fday = jstDay();
+    box.innerHTML = '<div class="mc-note">読み込んでいます…</div>';
+    let r; try { r = await api(`/api/mochica/bales/feeds/${encodeURIComponent(cur)}/day?date=${fday}`); } catch (e) { box.innerHTML = `<div class="mc-note">読めませんでした：${esc(e.message)}</div>`; return; }
+    if ($("blMain") !== box) return;
+    const view = f.view || []; const vk = (re) => (view.find((v) => re.test(v.label)) || {}).key;
+    const kWho = vk(/担当|架電者|ユーザー|所有者|オペレーター|コール者|発信者|実施者/), kRes = vk(/結果|ステータス/), kCo = vk(/会社/), kT = r.tkey;
+    const it = r.items.map((d) => ({ d, who: kWho ? String(valOf(d, kWho) || "（不明）") : "（不明）", res: kRes ? String(valOf(d, kRes) || "（なし）") : "", co: kCo ? String(valOf(d, kCo) || "") : "", t: kT ? new Date(d[kT]) : null })).sort((a, b) => (b.t || 0) - (a.t || 0));
+    const cnt = (arr, k) => { const m = new Map(); for (const x of arr) m.set(x[k], (m.get(x[k]) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+    const people = cnt(it, "who"); const results = kRes ? cnt(it, "res") : [];
+    const hm = (t) => (t && !isNaN(t) ? `${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}` : "");
+    const hours = Array.from({ length: 11 }, (_, i) => 9 + i).map((h) => [h, it.filter((x) => x.t && x.t.getHours() === h).length]); const hmax = Math.max(1, ...hours.map((h) => h[1]));
+    const shift = (n) => { const d = new Date(`${fday}T00:00:00+09:00`); d.setTime(d.getTime() + n * 86400000); fday = jstDay(d.getTime()); feedDetail(); };
+    const resChips = (arr) => arr.map(([k, n]) => `<span class="bl-rc">${esc(k)} <b>${n}</b></span>`).join("");
+    box.innerHTML = `<div class="bl-head"><div><h3>${esc(f.name)}</h3><small>${f.last_sync ? `最後に読んだ：${esc(dt(f.last_sync))}（新しい ${f.last_new || 0}件）・平日10〜19時に10分ごと` : "まだ読んでいません"}</small></div>
+        <div class="bl-acts"><button type="button" class="mt-btn ghost" data-dd="-1">前の日</button><input type="date" class="bl-date" data-day value="${fday}"><button type="button" class="mt-btn ghost" data-dd="1">次の日</button><button type="button" class="mt-btn ghost" data-dd="0">今日</button><button type="button" class="mt-btn ghost bl-del" data-fdel>外す</button></div></div>
+      <div class="bl-mets"><div><small>架電の数</small><b>${it.length.toLocaleString()}</b></div><div><small>架電した人</small><b>${people.length}</b></div><div><small>架電した会社</small><b>${new Set(it.map((x) => x.co).filter(Boolean)).size.toLocaleString()}</b></div><div><small>結果の種類</small><b>${results.length}</b></div><div><small>見張りの全部</small><b>${Number(f.total || 0).toLocaleString()}</b></div></div>
+      ${!kT ? '<div class="bl-diag">時刻の見出し（日時など）が見つからなかったので、kinbot が初めて見た時刻で日を分けています。</div>' : ""}
+      ${results.length ? `<div class="bl-h4">結果</div><div class="bl-rcs">${resChips(results)}</div>` : ""}
+      <div class="bl-h4">時間ごと</div><div class="bl-hours">${hours.map(([h, n]) => `<div title="${h}時台 ${n}件"><i style="height:${Math.round((n / hmax) * 60)}px"></i><b>${n || ""}</b><small>${h}時</small></div>`).join("")}</div>
+      <div class="bl-h4">人ごと</div><div class="bl-tbl"><table><thead><tr><th>${esc((view.find((v) => v.key === kWho) || {}).label || "担当")}</th><th>架電</th><th>最初</th><th>最後</th>${kRes ? "<th>結果</th>" : ""}</tr></thead><tbody>
+        ${people.map(([w, n]) => { const mine = it.filter((x) => x.who === w); const ts = mine.map((x) => x.t).filter((t) => t && !isNaN(t)).sort((a, b) => a - b); return `<tr class="bl-row" data-who="${esc(w)}"><td><b>${esc(w)}</b></td><td>${n}</td><td>${hm(ts[0])}</td><td>${hm(ts[ts.length - 1])}</td>${kRes ? `<td>${resChips(cnt(mine, "res"))}</td>` : ""}</tr>`; }).join("") || `<tr><td colspan="5" class="mc-note">この日の架電はありません。</td></tr>`}</tbody></table></div>
+      <div class="bl-h4">架電の一覧<small data-who-f></small></div><div class="bl-tbl"><table><thead><tr><th>時刻</th>${view.map((v) => `<th>${esc(v.label)}</th>`).join("")}</tr></thead><tbody data-list>
+        ${it.slice(0, 1000).map((x) => `<tr data-w="${esc(x.who)}"><td>${hm(x.t)}</td>${view.map((v) => `<td title="${esc(valOf(x.d, v.key))}">${esc(fmt(valOf(x.d, v.key)))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    box.querySelectorAll("[data-dd]").forEach((b) => b.addEventListener("click", () => { const n = Number(b.dataset.dd); if (n === 0) { fday = jstDay(); feedDetail(); } else shift(n); }));
+    box.querySelector("[data-day]").addEventListener("change", (e) => { if (e.target.value) { fday = e.target.value; feedDetail(); } });
+    box.querySelectorAll("[data-who]").forEach((tr) => tr.addEventListener("click", () => { const w = tr.dataset.who; const on = tr.classList.toggle("on"); box.querySelectorAll("[data-who]").forEach((x) => { if (x !== tr) x.classList.remove("on"); });
+      box.querySelectorAll("[data-list] tr").forEach((x) => { x.hidden = on && x.dataset.w !== w; }); box.querySelector("[data-who-f]").textContent = on ? `（${w} だけ）` : ""; }));
+    box.querySelector("[data-fdel]").addEventListener("click", async () => { if (!confirm(`見張り「${f.name}」と、kinbot に入った分（${Number(f.total || 0).toLocaleString()}件）を消しますか？（Bales の中身は変わりません。拡張機能の見張りは Bales のパネルで外してください）`)) return; try { await api(`/api/mochica/bales/feeds/${encodeURIComponent(cur)}`, { method: "DELETE" }); cur = null; load(); } catch (e) { alert("消せませんでした：" + e.message); } });
   }
   async function detail() {
     const box = $("blMain"); const l = lists.find((x) => x.list_key === cur); if (!box || !l) return;
@@ -156,7 +190,7 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
   // 拡張機能から最後に届いた様子：取り込めないときに、どこで止まったかを見る（2026-11-15）
   function diagHtml() {
-    if (!diag) return '<div class="bl-diag"><b>拡張機能の様子</b>拡張機能からまだ何も届いていません。kinbot-ext を 1.9.1 に入れ直し、kinbot の画面を一度開いてから、Bales のリード一覧で右下の「kinbot に取り込む」を押してください。ボタンが出ないときは、拡張機能が古いか、入っていません。</div>';
+    if (!diag) return '<div class="bl-diag"><b>拡張機能の様子</b>拡張機能からまだ何も届いていません。kinbot-ext を 2.0.0 に入れ直し、kinbot の画面を一度開いてから、Bales のリード一覧で右下の「kinbot に取り込む」を押してください。ボタンが出ないときは、拡張機能が古いか、入っていません。</div>';
     const why = diag.nohook ? "Bales のページの中で、一覧を読む部分が動いていませんでした（ページを読み込み直すと動きます）。" : diag.cands.length ? `一覧らしいデータが ${diag.cands.length} 個見えています。` : "一覧らしいデータが見つかりませんでした。下の通り道を見て直します。";
     return `<div class="bl-diag"><b>拡張機能の様子</b>${esc(dt(diag.at))} ・ 版 ${esc(diag.ver || "?")} ・ ${esc(diag.href)}<br>${esc(why)}
       ${diag.cands.length ? `<div class="bl-dl">${diag.cands.map((c) => `<div>${esc(c.ep)} … ${c.n}件${c.total != null ? `／全${c.total}` : ""}${c.pager ? `（めくり：${esc(c.pager)}）` : "（めくり方不明）"}<small>${esc(c.keys.join(", "))}</small></div>`).join("")}</div>` : ""}

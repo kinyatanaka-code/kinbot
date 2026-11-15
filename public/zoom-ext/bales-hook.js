@@ -219,6 +219,10 @@
     if (d.__kbBalesTplClear) { tpls = {}; try { localStorage.removeItem(TPL_KEY); } catch {} window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: [] }, "*"); }
     if (d.__kbBalesDetail) runDetail(d.name);
     if (d.__kbBalesStop) stopDetail = true;
+    if (d.__kbBalesFeedAsk) window.postMessage({ __kbBalesFeedIs: true, feeds: feeds.map((f) => ({ key: f.key, name: f.name, page: f.page, pager: f.pager ? f.pager.kind : "", view: (f.view || []).map((v) => v.label) })) }, "*");
+    if (d.__kbBalesFeedAdd) addFeed(d.name).then((r) => window.postMessage({ __kbBalesFeedAdded: true, ...r }, "*"));
+    if (d.__kbBalesFeedDel) { feeds = feeds.filter((x) => x.key !== d.key); saveFeeds(); window.postMessage({ __kbBalesFeedIs: true, feeds: feeds.map((f) => ({ key: f.key, name: f.name, page: f.page, pager: f.pager ? f.pager.kind : "", view: (f.view || []).map((v) => v.label) })) }, "*"); }
+    if (d.__kbBalesSync) syncFeeds(d.why || "");
     if (d.__kbBalesWAsk) window.postMessage({ __kbBalesWIs: true, learned: !!wtpl, mode: wtpl && wtpl.mode, lead: curLeadId() }, "*");
     if (d.__kbBalesWLearn) learnWrite().then((r) => window.postMessage({ __kbBalesWLearned: true, ...r }, "*"));
     if (d.__kbBalesWRun) runWrite(d.name, !!d.only);
@@ -266,6 +270,61 @@
       return view.length ? view : null;
     } catch { return null; }
   };
+
+  // ===== 見張り（平日10〜19時に、拡張機能が10分ごとに新しい行を読む）（2026-11-15 田中さん「架電の記録を分析したい」）=====
+  //   いま開いている画面の一覧（架電の記録・リード一覧など）を登録しておくと、その一覧の1ページ目から新しい行が無くなるまで読んで kinbot に送る
+  const FEEDS_KEY = "kbBalesFeeds";
+  let feeds = (() => { try { return JSON.parse(localStorage.getItem(FEEDS_KEY) || "[]"); } catch { return []; } })();
+  const saveFeeds = () => { try { localStorage.setItem(FEEDS_KEY, JSON.stringify(feeds)); } catch {} };
+  const mainCand = () => { const m = (document.body.innerText || "").match(/(\d[\d,]*)\s*-\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/); const shownN = m ? Number(m[2].replace(/,/g, "")) - Number(m[1].replace(/,/g, "")) + 1 : null; const tb = readTable(); const rowsN = tb ? tb.rows.length : null;
+    const sc = (c) => (shownN != null && c.n === shownN ? 50 : 0) + (rowsN && Math.abs(c.n - rowsN) <= 1 ? 40 : 0) + (/custom_fields|users|lead_sources|lead_stages|result_types|sent_bulk|assigned_user|notifications/.test(String(c.url)) ? -100 : 0) + Math.min(20, c.n / 5) + (Date.now() - c.at < 60000 ? 10 : 0);
+    return [...cands].sort((a, b) => sc(b) - sc(a))[0] || null; };
+  const authFetch = (u, o = {}) => { const a = lastAuth[new URL(u).host] || {}; const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 60000); return of(u, { ...o, headers: { ...(a.headers || {}), ...(o.headers || {}) }, credentials: a.cred || "same-origin", signal: ac.signal }).finally(() => clearTimeout(tm)); };
+  async function findPager(c) {
+    const pg = pagerOf(c); if (pg.page) return { where: "q", k: pg.page.k || null, path: pg.page.path || null, kind: "page", base: pg.page.v === 0 ? 0 : 1 }; if (pg.offset) return { where: pg.offset.where, k: pg.offset.k || null, path: pg.offset.path || null, kind: "offset" };
+    const sig1 = c.firstSig; const tryQ = async (k, v) => { const U = new URL(c.url); U.searchParams.set(k, String(v)); const r = await authFetch(U.href, { method: c.method }); if (!r.ok) return false; const a = getAt(await r.json(), c.path) || []; return a.length && JSON.stringify(a[0]).slice(0, 200) !== sig1; };
+    for (const k of ["page", "currentPage", "current_page", "pageNumber", "page_number", "pageNo", "p"]) { try { if (await tryQ(k, 2)) return { where: "q", k, kind: "page", base: 1 }; } catch {} }
+    for (const k of ["offset", "skip", "start"]) { try { if (await tryQ(k, c.n)) return { where: "q", k, kind: "offset" }; } catch {} }
+    return null;
+  }
+  async function addFeed(name) {
+    const c = mainCand(); if (!c) return { ok: false, error: "この画面の一覧のデータが見えていません。一覧が出てから押してください" };
+    const pager = await findPager(c);
+    const f = { key: "feed:" + String(name || "見張り").slice(0, 40), name: String(name || "見張り").slice(0, 40), url: c.url, method: c.method, body: c.body, path: c.path, n: c.n, full: true, pager, view: learnView(c), page: location.pathname + location.search, at: Date.now() };
+    feeds = feeds.filter((x) => x.key !== f.key); feeds.push(f); saveFeeds();
+    const r = await toKinbot({ feed: f.key, name: f.name, src: String(c.url).split("?")[0], view: f.view, rows: (c.arr || []).slice(0, 100) });
+    return { ok: !!r.ok, error: r.error, feed: { name: f.name, ep: String(c.url).split("?")[0].replace(/^https?:\/\/[^/]+/, ""), n: c.n, pager: pager ? pager.kind : "", view: (f.view || []).map((v) => v.label) } };
+  }
+  let syncing = false;
+  async function syncFeeds(why) {
+    if (syncing || !feeds.length) return; syncing = true; const out = [];
+    try {
+      for (const f of feeds) {
+        let nwAll = 0, pages = 0, err = "";
+        try {
+          // 登録して最初の1回は、新しい行が無いページでも最後まで（最大100ページ）読む。あとは新しい行が無くなったら終わり
+          const maxP = f.full ? 100 : 40;
+          for (let p = 0; p < maxP; p++) {
+            const U = new URL(f.url); let body = f.body;
+            if (f.pager) { if (f.pager.kind === "page") { if (f.pager.where === "q" && f.pager.k) U.searchParams.set(f.pager.k, String((f.pager.base ?? 1) + p)); }
+              else if (f.pager.where === "q" && f.pager.k) U.searchParams.set(f.pager.k, String(p * (f.n || 100))); }
+            else if (p > 0) break;
+            const r = await authFetch(U.href, { method: f.method, body: f.method === "GET" || f.method === "HEAD" ? undefined : body });
+            if (r.status === 401 || r.status === 403) throw new Error("Bales のログインが切れています");
+            if (!r.ok) throw new Error(`Bales から読めませんでした（${r.status}）`);
+            const arr = getAt(await r.json(), f.path) || []; if (!arr.length) break; pages++;
+            const k = await toKinbot({ feed: f.key, rows: arr }); if (!k.ok) throw new Error(k.error || "kinbot に送れませんでした");
+            nwAll += k.nw || 0; if (!k.nw && !f.full) break;   // 新しい行が無いページまで来たら終わり
+            await sleep(400);
+          }
+        } catch (e) { err = String(e && e.message || e); }
+        if (f.full && !err) { f.full = false; saveFeeds(); }
+        await toKinbot({ feed: f.key, rows: [], done: true, newTotal: nwAll }).catch(() => {});
+        out.push({ name: f.name, nw: nwAll, pages, err });
+      }
+    } finally { syncing = false; }
+    window.postMessage({ __kbBalesSynced: true, why, out, at: Date.now() }, "*");
+  }
 
   let detailing = false, stopDetail = false;
   async function runDetail(name) {

@@ -83,9 +83,11 @@ async function kbMtCrawl(urls) {
   } finally { kbMtCrawling = false; }
 }
 // 自動：20分ごとに kinbot から「次に読む会議」をもらって、裏で読む（Chrome が開いていて、MiiTel にログインしていれば動く）（2026-11-12）
+// 見張る時間：平日の10時〜19時（このパソコンの時計で）（2026-11-15 田中さん）
+const kbWorkHours = () => { const d = new Date(); const w = d.getDay(), h = d.getHours(); return w >= 1 && w <= 5 && h >= 10 && h < 19; };
 async function kbMtAuto() {
   try {
-    if (kbMtCrawling) return;
+    if (kbMtCrawling || !kbWorkHours()) return;
     const tk = (await chrome.storage.local.get(["kbExtToken"])).kbExtToken || ""; if (!tk) return;
     const r = await fetch("https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/todo?limit=6", { headers: { "x-kb-ext": tk } });
     const j = await r.json().catch(() => null); if (!j || !j.ok || !(j.urls || []).length) return;
@@ -110,3 +112,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   })();
   return true;
 });
+
+// Bales の見張り：平日10〜19時に10分ごと、Bales のタブに「新しい行を読んで」と頼む。タブが無ければ裏にピン留めで開く（2026-11-15）
+async function kbBalesWatch() {
+  try {
+    if (!kbWorkHours()) return;
+    const st = await chrome.storage.local.get(["kbBalesWatch", "kbExtToken"]); if (!st.kbBalesWatch || !st.kbExtToken) return;
+    let tabs = await chrome.tabs.query({ url: "https://*.balescloud.jp/*" });
+    if (!tabs.length) { const t = await chrome.tabs.create({ url: "https://mochica.balescloud.jp/app/lead-list", active: false, pinned: true }); await new Promise((r) => setTimeout(r, 25000)); tabs = [t]; }
+    const tab = tabs.find((t) => !t.discarded) || tabs[0]; if (tab.discarded) { await chrome.tabs.reload(tab.id); await new Promise((r) => setTimeout(r, 25000)); }
+    await chrome.tabs.sendMessage(tab.id, { type: "kb-bales-sync" }).catch(async () => { await chrome.tabs.reload(tab.id); await new Promise((r) => setTimeout(r, 25000)); await chrome.tabs.sendMessage(tab.id, { type: "kb-bales-sync" }).catch(() => {}); });
+    await chrome.storage.local.set({ kbBalesWatchAt: Date.now() });
+  } catch {}
+}
+chrome.alarms.create("kb-bales-watch", { periodInMinutes: 10, delayInMinutes: 1 });
+chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === "kb-bales-watch") kbBalesWatch(); });

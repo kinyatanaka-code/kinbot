@@ -12939,3 +12939,39 @@ export async function mcBalesWritten(listKey, items) {
   const r = await pool.query(`UPDATE mochica_bales_rows r SET w_at=now(), w_err=NULLIF(x.e,'') FROM jsonb_to_recordset($2::jsonb) AS x(k text, e text) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items)]);
   return r.rowCount;
 }
+
+// ===== Bales の見張り（平日10〜19時に拡張機能が新しい分を読む。架電の記録など）（2026-11-15 田中さん「その日にどこに架電したか・結果を分析したい」）=====
+let _mcFeedInit = false;
+async function ensureMcFeed() {
+  if (!pool || _mcFeedInit) return; _mcFeedInit = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_feeds (feed TEXT PRIMARY KEY, name TEXT, src TEXT, view JSONB, last_sync TIMESTAMPTZ, last_new INT, total INT DEFAULT 0, by_user TEXT)`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_feed_rows (feed TEXT, row_key TEXT, data JSONB, first_at TIMESTAMPTZ DEFAULT now(), seen_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (feed, row_key))`).catch(() => {});
+}
+export async function mcFeedUpsert(feed, { name, src, view, by }, rows) {
+  if (!pool) return { n: 0, nw: 0 }; await ensureMcFeed();
+  await pool.query(`INSERT INTO mochica_bales_feeds (feed, name, src, view, by_user) VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT (feed) DO UPDATE SET name=COALESCE(EXCLUDED.name, mochica_bales_feeds.name), src=COALESCE(EXCLUDED.src, mochica_bales_feeds.src), view=COALESCE(EXCLUDED.view, mochica_bales_feeds.view)`, [feed, name || null, src || null, view ? JSON.stringify(view) : null, by || null]);
+  let nw = 0;
+  if (rows.length) {
+    const r = await pool.query(`INSERT INTO mochica_bales_feed_rows (feed, row_key, data) SELECT $1, x.k, x.d FROM jsonb_to_recordset($2::jsonb) AS x(k text, d jsonb)
+      ON CONFLICT (feed, row_key) DO UPDATE SET data=EXCLUDED.data, seen_at=now() RETURNING (xmax = 0) AS ins`, [feed, JSON.stringify(rows)]);
+    nw = r.rows.filter((x) => x.ins).length;
+  }
+  return { n: rows.length, nw };
+}
+export async function mcFeedSynced(feed, nw) {
+  if (!pool) return; await ensureMcFeed();
+  await pool.query(`UPDATE mochica_bales_feeds SET last_sync=now(), last_new=$2, total=(SELECT count(*) FROM mochica_bales_feed_rows WHERE feed=$1) WHERE feed=$1`, [feed, nw]);
+}
+export async function mcFeedList() {
+  if (!pool) return []; await ensureMcFeed();
+  return (await pool.query(`SELECT feed, name, src, view, last_sync, last_new, total FROM mochica_bales_feeds ORDER BY name`)).rows;
+}
+export async function mcFeedRange(feed, key, from, to) {
+  if (!pool) return []; await ensureMcFeed();
+  return (await pool.query(`SELECT data, first_at FROM mochica_bales_feed_rows WHERE feed=$1 AND ((data->>$2) BETWEEN $3 AND $4 OR ($2 = '' AND first_at BETWEEN $3::timestamptz AND $4::timestamptz)) LIMIT 20000`, [feed, key || "", from, to])).rows;
+}
+export async function mcFeedDelete(feed) {
+  if (!pool) return; await ensureMcFeed();
+  await pool.query(`DELETE FROM mochica_bales_feed_rows WHERE feed=$1`, [feed]); await pool.query(`DELETE FROM mochica_bales_feeds WHERE feed=$1`, [feed]);
+}
