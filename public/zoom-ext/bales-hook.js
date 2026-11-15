@@ -61,7 +61,9 @@
   const NOISE = /\/rum\/|\/intake\/|datadog|sentry|google-analytics|\/collect|presigned|file_storage_access|\/logs?\b|amplitude|segment\.io|intercom/i;
   function noteWrite(req, status) { try { const u0 = String(req.url);
     if (/bugsnag/i.test(u0) || (/"notifier"\s*:\s*\{\s*"name"\s*:\s*"Bugsnag/.test(String(req.body || "")))) { noteBug(req); return; }
-    if (/identitytoolkit|securetoken|firebase|googleapis\.com/i.test(u0)) return;
+    if (/identitytoolkit|securetoken/i.test(u0)) return;
+    // Firebase（Firestore など googleapis）への送信は、kinbot と入れた保存のときだけ残す（2026-11-16：Bales で保存できているのに保存が見えなかったため、こちらの道も見る）
+    if (/firebase|googleapis\.com/i.test(u0) && !String(req.rawBody != null && typeof req.rawBody === "string" ? req.rawBody : req.body || "").includes("kinbot")) return;
     if (NOISE.test(u0)) return; const bo = bodyOf(req.rawBody != null ? req.rawBody : req.body); if (!bo) { writes.unshift({ method: req.method, url: req.url, fmt: "?", status, at: Date.now() }); return; }
     writes.unshift({ method: req.method, url: req.url, headers: req.headers || {}, cred: req.cred, fmt: bo.fmt, body: bo.body, status, at: Date.now() }); if (writes.length > 15) writes.pop(); } catch {} }
   const wsSeen = [];
