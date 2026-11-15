@@ -12851,9 +12851,27 @@ export async function mcBalesAddRows(listKey, rows, total) {
   await pool.query(`UPDATE mochica_bales_lists SET got=got+$2, total=COALESCE($3,total) WHERE list_key=$1`, [listKey, rows.length, total ?? null]);
   return rows.length;
 }
+// 取り込み直した行に、前の行（同じリード番号）の SF との結びつき・詳しい中身・書き込みの記録を写す（2026-11-16）
+//   行の印が中身のハッシュだったころの行は、中身が変わると別の行になり、結びつきが 0 に見えていた
+export async function mcBalesCarryOver(listKey) {
+  if (!pool) return 0; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return 0;
+  const cid = (a) => `COALESCE(NULLIF(${a}.data->>'callTargetId',''), NULLIF(${a}.data->>'call_target_id',''))`;
+  const a = await pool.query(`UPDATE mochica_bales_rows cur SET sf=o.sf, sf_at=o.sf_at FROM (
+      SELECT DISTINCT ON (${cid("r")}) ${cid("r")} AS cid, r.sf, r.sf_at FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.sf IS NOT NULL AND ${cid("r")} IS NOT NULL ORDER BY ${cid("r")}, r.sf_at DESC NULLS LAST) o
+    WHERE cur.list_key=$1 AND cur.run_at=$2 AND cur.sf IS NULL AND ${cid("cur")} = o.cid`, [listKey, l.run_at]);
+  const b = await pool.query(`UPDATE mochica_bales_rows cur SET detail=o.detail, detail_at=o.detail_at FROM (
+      SELECT DISTINCT ON (${cid("r")}) ${cid("r")} AS cid, r.detail, r.detail_at FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.detail_at IS NOT NULL AND ${cid("r")} IS NOT NULL ORDER BY ${cid("r")}, r.detail_at DESC NULLS LAST) o
+    WHERE cur.list_key=$1 AND cur.run_at=$2 AND cur.detail_at IS NULL AND ${cid("cur")} = o.cid`, [listKey, l.run_at]);
+  const c = await pool.query(`UPDATE mochica_bales_rows cur SET w_at=o.w_at, w_err=o.w_err FROM (
+      SELECT DISTINCT ON (${cid("r")}) ${cid("r")} AS cid, r.w_at, r.w_err FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.w_at IS NOT NULL AND ${cid("r")} IS NOT NULL ORDER BY ${cid("r")}, r.w_at DESC NULLS LAST) o
+    WHERE cur.list_key=$1 AND cur.run_at=$2 AND cur.w_at IS NULL AND ${cid("cur")} = o.cid`, [listKey, l.run_at]);
+  return { sf: a.rowCount, detail: b.rowCount, written: c.rowCount };
+}
 export async function mcBalesFinish(listKey, error = "") {
   if (!pool) return null; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return null;
+  try { const co = await mcBalesCarryOver(listKey); if (co) console.log(`[Bales] ${listKey} 前の行から写した：SF ${co.sf}・詳しい中身 ${co.detail}・書き込み ${co.written}`); } catch (e) { console.warn("[Bales] 写し戻し失敗:", e.message); }
   const n = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0].count);
   // 列：今回の行でよく埋まっている順
   const cols = (await pool.query(`SELECT k, count(*) AS n FROM (SELECT data FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 LIMIT 3000) t, jsonb_each_text(t.data) AS e(k, v)
