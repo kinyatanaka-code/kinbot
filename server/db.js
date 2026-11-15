@@ -12980,3 +12980,10 @@ export async function mcFeedDelete(feed) {
   if (!pool) return; await ensureMcFeed();
   await pool.query(`DELETE FROM mochica_bales_feed_rows WHERE feed=$1`, [feed]); await pool.query(`DELETE FROM mochica_bales_feeds WHERE feed=$1`, [feed]);
 }
+
+// まとめて読むときの残り（文字起こし・議事録がまだで、2回まで試していない会議）
+export async function mcMiitelTodoCount(days = 60) {
+  if (!pool) return 0; await ensureMcMiitel();
+  return Number((await pool.query(`SELECT count(*) FROM mochica_miitel_events WHERE COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND COALESCE((payload->>'mt_tr_try')::int, 0) < 2
+    AND COALESCE(started_at, received_at) > now() - make_interval(days => $1) AND COALESCE(title,'') <> ''`, [Math.max(1, Math.min(400, Number(days) || 60))])).rows[0].count);
+}

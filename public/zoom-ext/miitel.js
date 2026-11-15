@@ -59,7 +59,10 @@ window.addEventListener("message", async (e) => { const d = e.data; if (!d || !d
   const days = () => Math.max(1, Math.ceil((Date.now() - until()) / 86400000) + 1);
   $("[data-det]").onclick = () => { chrome.runtime.sendMessage({ type: "kb-miitel-backfill", days: days() }, () => {}); setTimeout(showDet, 800); };
   $("[data-dstop]").onclick = () => { chrome.runtime.sendMessage({ type: "kb-miitel-backfill-stop" }, () => {}); setTimeout(showDet, 800); };
-  async function showDet() { try { const st = await chrome.storage.local.get(["kbMtBackDet"]); const b = st.kbMtBackDet; const el = $("[data-dm]");
-      el.textContent = !b ? "" : b.running ? `読んでいます：${b.done}件 読みました（${new Date(b.at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })} 時点）` : `${b.stopped ? "止めました" : "終わりました"}：${b.done}件 読みました`;
-      $("[data-det]").disabled = !!(b && b.running); $("[data-det]").textContent = b && b.running ? "読んでいます…" : "文字起こし・議事録を読み始める"; } catch {} if (!box.hidden) setTimeout(showDet, 5000); }
+  // 進み具合は1件ずつ：10件のまとまりの合計（kbMtBackDet）＋いま開いているまとまりの何件目か（kbMiitelCrawl）（2026-11-15「15秒たっても0件のまま」）
+  async function showDet() { try { const st = await chrome.storage.local.get(["kbMtBackDet", "kbMiitelCrawl"]); const b = st.kbMtBackDet; const cr = st.kbMiitelCrawl; const el = $("[data-dm]");
+      const inBatch = b && b.running && cr && cr.at > (b.at || 0) - 1000 && cr.done < cr.total ? cr.done : 0; const n = b ? b.done + inBatch : 0;
+      const hm = (t) => new Date(t).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      el.textContent = !b ? "" : b.running ? `読んでいます：${n}件 読みました${cr && cr.total && cr.done < cr.total ? `（いま裏のタブで ${cr.done + 1} / ${cr.total} 件目を開いています）` : ""}・最後に動いた ${hm(Math.max(b.at || 0, (cr && cr.at) || 0))}${b.left != null ? `\n残り約 ${b.left}件（1件15秒ほど：あと約${Math.ceil(b.left * 15 / 3600)}時間）` : ""}` : `${b.stopped ? "止めました" : "終わりました"}：${b.done}件 読みました`;
+      $("[data-det]").disabled = !!(b && b.running); $("[data-det]").textContent = b && b.running ? "読んでいます…" : "文字起こし・議事録を読み始める"; } catch {} if (!box.hidden) setTimeout(showDet, 3000); }
 })();

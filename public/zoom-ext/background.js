@@ -175,8 +175,9 @@ async function kbMtBackfill(days) {
       while (kbMtCrawling) await new Promise((r) => setTimeout(r, 5000));   // 自動の読み込みが動いていれば待つ
       const r = await fetch(`https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/todo?limit=10&novideo=1&days=${days}`, { headers: { "x-kb-ext": tk } });
       const j = await r.json().catch(() => null); const urls = (j && j.urls) || []; if (!urls.length) break;
+      await chrome.storage.local.set({ kbMtBackDet: { running: true, done, at: Date.now(), left: j.left ?? null }, kbMiitelCrawl: { done: 0, total: urls.length, at: Date.now() } });
       await kbMtCrawl(urls); done += urls.length;
-      await chrome.storage.local.set({ kbMtBackDet: { running: true, done, at: Date.now() } });
+      await chrome.storage.local.set({ kbMtBackDet: { running: true, done, at: Date.now(), left: j.left != null ? Math.max(0, j.left - urls.length) : null } });
     }
   } catch {}
   await chrome.storage.local.set({ kbMtBackDet: { running: false, done, stopped: kbMtBackStop, at: Date.now() } });
