@@ -23,7 +23,9 @@
     if (view && view.length) return view.map((v) => ({ key: v.key, label: v.label }));   // Bales の一覧と同じ並び・見出し
     // わかる項目を順に（同じ言葉は1つだけ）→ 足りなければよく埋まっている項目
     const out = [], used = new Set();
-    for (const [, l, ord] of LABELS) { const c = (cols || []).find((x) => labelOf(x.key) === l && !/id$/i.test(x.key)); if (c && !used.has(l)) { out.push({ ...c, label: l, ord }); used.add(l); } }
+    // 同じ言葉に当たる項目が複数あるときは「…name」を選び、色・コード・種類の項目（uranus などの中の印）は後回しにする（2026-11-15 ステータスが uranus と出ていた）
+    const rank = (k) => (/(^|\.)name$|Name$/.test(k) ? 0 : 2) + (/(color|colour|code|key|type|icon|theme)$/i.test(k) ? 5 : 0);
+    for (const [, l, ord] of LABELS) { const c = (cols || []).filter((x) => labelOf(x.key) === l && !/id$/i.test(x.key)).sort((a, b) => rank(a.key) - rank(b.key))[0]; if (c && !used.has(l)) { out.push({ ...c, label: l, ord }); used.add(l); } }
     out.sort((a, b) => a.ord - b.ord);
     for (const c of cols || []) { if (out.length >= 6) break; if (out.some((x) => x.key === c.key) || /(^|\.)(id|_id|uuid)$/i.test(c.key)) continue; out.push({ ...c, label: labelOf(c.key) }); }
     return out.slice(0, 6);
