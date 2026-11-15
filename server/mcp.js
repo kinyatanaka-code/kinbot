@@ -27,7 +27,7 @@ import {
 } from "./db.js";
 import { sfQuery, sfUpdateRecord, sfCreateRecord, isConnected as sfIsConnected } from "./salesforce.js";
 import { registerUser } from "./auth.js";
-import { mcMiitelList, mcMiitelGet, updateMeetingMeta } from "./db.js";
+import { mcMiitelList, mcMiitelGet, updateMeetingMeta, mcBalesLists, mcBalesRows, mcBalesRow } from "./db.js";
 // index.js から MOCHICA の道具（文字起こしの読み方・SF の項目の中身など）を受け取る（2026-11-14）
 export const mcpHooks = {};
 
@@ -169,6 +169,11 @@ const TOOLS = [
     name: "create_kinbot_accounts",
     description: "kinbot のログイン用アカウントをまとめて作る（書き込み・管理者だけ）。accounts に {name, email} を並べ、password は全員共通の最初のパスワード（8文字以上）。作るだけで、だれのログインも変えない。すでにあるメールは作らずにそう返す。",
     inputSchema: { type: "object", properties: { accounts: { type: "array", maxItems: 50, items: { type: "object", properties: { name: { type: "string" }, email: { type: "string" } }, required: ["email"] } }, password: { type: "string", description: "最初のパスワード（8文字以上）" } }, required: ["accounts", "password"] },
+  },
+  {
+    name: "mochica_bales_leads",
+    description: "kinbot for MOCHICA に取り込んだ Bales のリスト（リード）を読む（読み取り）。list を省くとリストの一覧と項目名（よく埋まっている順）を返す。list と id でリード1件の全項目・元の形・詳しい中身（架電履歴・カスタム情報など）を返す。q で会社名などを探せる。",
+    inputSchema: { type: "object", properties: { list: { type: "string", description: "リストの印（例 bales:すべてのリード）" }, id: { type: "string", description: "リードの id（任意）" }, q: { type: "string", description: "探す言葉（任意）" }, limit: { type: "number", description: "最大件数（既定5・最大50）" }, full: { type: "boolean", description: "id のとき、元の形と詳しい中身を省かず返す（既定 true）" } } },
   },
   {
     name: "mochica_list_meetings",
@@ -497,6 +502,15 @@ export async function callTool(name, args, req) {
       return { 件数: out.filter((x) => x.結果 === "作りました").length, 結果: out };
     }
     // ===== MOCHICA の商談を Claude から読む・SF を直す（2026-11-14 田中さん）=====
+    case "mochica_bales_leads": {
+      // Bales のリードを Claude から読む（項目の名前を確かめて、kinbot の表を Bales の一覧に合わせるため）（2026-11-15）
+      if (!req.user) throw new Error("ログインが必要です");
+      const cut = (v, n) => { const t = JSON.stringify(v); return t && t.length > n ? JSON.parse(JSON.stringify(t.slice(0, n) + "…（長いので切りました）")) : v; };
+      if (!args || !args.list) { const ls = await mcBalesLists(); return { リスト: ls.map((l) => ({ 印: l.list_key, 名前: l.name, 件数: l.count, 詳しい中身: l.detail_n, 状態: l.status, 項目: (l.cols || []).slice(0, 400).map((c) => `${c.key}(${c.n})`) })) }; }
+      if (args.id) { const r = await mcBalesRow(String(args.list), String(args.id)); if (!r) throw new Error("見つかりません"); return args.full === false ? { 項目: r.data, 詳しい中身の名前: Object.keys(r.detail || {}) } : { 項目: r.data, 元の形: cut(r.raw, 40000), 詳しい中身: cut(r.detail, 80000), 取り込み日時: r.detail_at }; }
+      const r = await mcBalesRows(String(args.list), { q: String(args.q || ""), limit: Math.min(50, Math.max(1, Number(args.limit) || 5)) });
+      return { 件数: r.total, リード: r.rows };
+    }
     case "mochica_list_meetings": {
       if (!req.user) throw new Error("ログインが必要です");
       const H = mcpHooks.mochica || {}; const repOf = H.repIndex ? await H.repIndex().catch(() => null) : null;
