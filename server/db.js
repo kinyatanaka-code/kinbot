@@ -12779,9 +12779,10 @@ export async function kxHiringGetDb(id) { if (!pool) return null; await kxHiring
 export async function kxHiringSaveDb(id, data, sources, by) { if (!pool) return; await kxHiringEnsure(); await pool.query(`INSERT INTO kinxs_hiring (account_id, data, sources, updated_at, updated_by) VALUES ($1,$2,$3,now(),$4) ON CONFLICT (account_id) DO UPDATE SET data=EXCLUDED.data, sources=EXCLUDED.sources, updated_at=now(), updated_by=EXCLUDED.updated_by`, [id, JSON.stringify(data || {}), JSON.stringify(sources || []), by || ""]).catch(() => {}); }
 
 // MOCHICA：カレンダーとまだ突き合わせていない会議（2026-11-13）
+// 3/1 からの過去の会議もカレンダーと突き合わせる（2026-11-16：MiiTel の過去の会議 1600件を読んだため 60日→300日）。60日より前で見つからなかったものは、1時間ごとでなく7日ごとに試し直す
 export async function mcMiitelNeedCal(limit = 40) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec, payload->'mt_rep' AS mrep FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '60 days' AND COALESCE(payload->'mt_cal'->>'manual','') <> 'true' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '7' OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - 3600000))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec, payload->'mt_rep' AS mrep FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '300 days' AND COALESCE(payload->'mt_cal'->>'manual','') <> 'true' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '7' OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - (CASE WHEN started_at > now() - interval '60 days' THEN 3600000 ELSE 7 * 86400000 END)))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 
 // SF の立ち上げ：kincall の架電先から、会社の従業員数・業種を探す（2026-11-13 田中さん「従業員数は基本 kincall の情報から」）
