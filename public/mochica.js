@@ -5,7 +5,7 @@
   const api = async (u, o = {}) => { const r = await fetch(u, { credentials: "include", headers: { "content-type": "application/json" }, ...o }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; };
   const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電（Zoom Phone）", apo: "アポ（カレンダー）", doc: "DOC の議事録", settings: "設定" };
   const go = (k) => {
-    if (!TITLES[k]) k = "home";
+    if (!TITLES[k] || k === "home") k = "mtg";   // ホームは一旦しまっている（2026-11-15）
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
@@ -301,9 +301,11 @@
         // SF の更新（活動記録・ステージ・項目更新）は会社のカードでする。元にする商談は、いちばん新しい商談から選べる（2026-11-15 田中さん）
         const up = document.createElement("div"); up.className = "mt-sf mt-cosf-up"; up.innerHTML = '<div class="ov-muted">SF の項目を読み込んでいます…</div>'; bx.appendChild(up);
         const meetings = ms.map((m) => ({ id: m.id, label: `${md(m.started_at)}（${wk(m.started_at)}）${hm(m.started_at)}　${titleOf(m)}` }));
-        const loadUp = async (vid) => { up.innerHTML = '<div class="ov-muted">SF の項目を読み込んでいます…</div>'; let it = null; try { it = (await api(`/api/mochica/miitel/meetings/${encodeURIComponent(vid)}`)).item; } catch {}
-          if ($("mtOvSf") !== bx) return; const p = (it && it.payload) || {}; const cal = p.mt_cal && !p.mt_cal.none ? p.mt_cal : {};
-          mtSfLoad(vid, { root: up, coMode: true, meetings, onBase: loadUp, title: cal.title || (it && it.title) || "", at: it && it.started_at, review: p.mt_review, co }); };
+        const loadUp = async (vid) => { up.innerHTML = '<div class="ov-muted">SF の項目を読み込んでいます…</div>';
+          const m0 = ms.find((x) => x.id === vid) || {};
+          const ctx = { root: up, coMode: true, meetings, onBase: loadUp, title: titleOf(m0) || "", at: m0.started_at, review: null, co };
+          api(`/api/mochica/miitel/meetings/${encodeURIComponent(vid)}`).then((d) => { const it = d && d.item; const p = (it && it.payload) || {}; const cal = p.mt_cal && !p.mt_cal.none ? p.mt_cal : {}; if (cal.title) ctx.title = cal.title; if (it && it.started_at) ctx.at = it.started_at; ctx.review = p.mt_review || null; }).catch(() => {});
+          mtSfLoad(vid, ctx); };
         if (ms.length) loadUp(ms[0].id); else up.innerHTML = '<div class="ov-muted">この会社の商談がまだありません。</div>';
         return;
       }
@@ -619,7 +621,7 @@
     };
     showSub();
   }
-  go(location.hash.slice(1) || "home"); loadHome();
+  go(location.hash.slice(1) || "mtg");
   // 下の段：頭文字の丸アイコン・名前・設定（歯車）・ログアウト（kinbot と同じ作り）
   fetch("/api/me", { credentials: "include" }).then((r) => r.json()).then((me) => {
     const who = $("who"); if (!who || !me) return; const name = me.name || me.username || "";
