@@ -918,6 +918,8 @@ const OPEN_PATHS = new Set([
   // ライブ中継サーバーが「配信の宛先」を聞きに来る窓口。
   // 中継サーバーはログインできないので、ここは合言葉（RELAY_SECRET）だけで通す。
   "/api/live/relay-dest",
+  // 拡張機能の自動更新（パソコンの更新係が読む。合言葉 x-kb-ext で守る）（2026-11-15）
+  "/api/ext/pkg/version", "/api/ext/pkg/zip", "/api/ext/pkg/updater.ps1",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -14752,6 +14754,51 @@ app.post("/api/kinxs/auto-tasks/run", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 拡張機能（kinbot-ext）の版。設定の「拡張機能」に出す（2026-11-11）
+// ===== 拡張機能の自動更新（2026-11-15 田中さん「拡張機能の最新を自動で入れたい」）=====
+//   パソコンの「更新係」（Windows のタスクで15分ごとに動く小さな PowerShell）が、新しい版があれば zip を取ってきて
+//   拡張機能のフォルダ（%LOCALAPPDATA%\kinbot-ext）に上書きする。拡張機能は自分のフォルダの版が変わったら自分で読み込み直す。
+const extVer = () => { try { return JSON.parse(fs.readFileSync(path.join(process.cwd(), "public/zoom-ext/manifest.json"), "utf8")).version; } catch { return ""; } };
+const extTok = async (req) => { const t = String(req.headers["x-kb-ext"] || req.query.t || ""); if (!t) return ""; req.headers["x-kb-ext"] = t; return mcExtUser(req); };
+app.get("/api/ext/pkg/version", async (req, res) => { if (!(await extTok(req))) return res.status(401).json({ error: "合言葉が違います" }); res.json({ ok: true, version: extVer() }); });
+app.get("/api/ext/pkg/zip", async (req, res) => { if (!(await extTok(req))) return res.status(401).json({ error: "合言葉が違います" }); res.setHeader("content-type", "application/zip"); res.sendFile(path.join(process.cwd(), "public/kinbot-ext.zip")); });
+const extUpdaterPs1 = (tok, base) => [
+  "# kinbot-ext updater (kinbot). Runs every 15 min from Task Scheduler. ASCII only.",
+  "$ErrorActionPreference = 'Stop'",
+  `$T = '${tok}'; $B = '${base}'`,
+  "$Dest = Join-Path $env:LOCALAPPDATA 'kinbot-ext'",
+  "$Dir = Join-Path $env:LOCALAPPDATA 'kinbot-ext-updater'; New-Item -ItemType Directory -Force -Path $Dir | Out-Null",
+  "$Log = Join-Path $Dir 'update.log'",
+  "try {",
+  "  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+  "  $v = (Invoke-RestMethod -UseBasicParsing -Uri \"$B/api/ext/pkg/version\" -Headers @{ 'x-kb-ext' = $T }).version",
+  "  $have = ''; $mf = Join-Path $Dest 'manifest.json'",
+  "  if (Test-Path $mf) { $have = (Get-Content $mf -Raw -Encoding UTF8 | ConvertFrom-Json).version }",
+  "  if ($v -and $v -ne $have) {",
+  "    $zip = Join-Path $env:TEMP 'kinbot-ext-new.zip'",
+  "    Invoke-WebRequest -UseBasicParsing -Uri \"$B/api/ext/pkg/zip\" -Headers @{ 'x-kb-ext' = $T } -OutFile $zip",
+  "    $tmp = Join-Path $env:TEMP ('kinbot-ext-' + [guid]::NewGuid().ToString())",
+  "    Expand-Archive -Path $zip -DestinationPath $tmp -Force",
+  "    $src = Join-Path $tmp 'kinbot-ext'; if (-not (Test-Path $src)) { $src = $tmp }",
+  "    New-Item -ItemType Directory -Force -Path $Dest | Out-Null",
+  "    Get-ChildItem -Path $src | Where-Object { $_.Name -ne 'manifest.json' } | Copy-Item -Destination $Dest -Recurse -Force",
+  "    Copy-Item -Path (Join-Path $src 'manifest.json') -Destination $Dest -Force",
+  "    Remove-Item $tmp -Recurse -Force; Remove-Item $zip -Force",
+  "    Add-Content $Log ('{0} updated {1} -> {2}' -f (Get-Date), $have, $v)",
+  "  }",
+  "} catch { Add-Content $Log ('{0} error {1}' -f (Get-Date), $_.Exception.Message) }",
+].join("\r\n") + "\r\n";
+app.get("/api/ext/pkg/updater.ps1", async (req, res) => { const u = await extTok(req); if (!u) return res.status(401).send("# bad token"); res.setHeader("content-type", "text/plain; charset=utf-8"); res.send(extUpdaterPs1(String(req.headers["x-kb-ext"]), `https://${req.get("host")}`)); });
+// 設定の「自動で更新する」で配るファイル：1回ダブルクリックで、更新係を置いて、15分ごとのタスクに登録し、いまの版を入れる
+app.get("/api/ext/updater.cmd", async (req, res) => {
+  if (!req.user) return res.status(401).send("ログインしてください");
+  const tok = await mcExtToken(req.user); const base = `https://${req.get("host")}`;
+  const cmd = ["@echo off", "chcp 65001 >nul", "set D=%LOCALAPPDATA%\\kinbot-ext-updater", "mkdir \"%D%\" 2>nul",
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri '${base}/api/ext/pkg/updater.ps1' -Headers @{'x-kb-ext'='${tok}'} -OutFile '%D%\\update.ps1'"`,
+    "powershell -NoProfile -ExecutionPolicy Bypass -File \"%D%\\update.ps1\"",
+    "schtasks /Create /F /SC MINUTE /MO 15 /TN \"kinbot-ext-update\" /TR \"powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \\\"%D%\\update.ps1\\\"\"",
+    "echo.", "echo kinbot-ext: %LOCALAPPDATA%\\kinbot-ext", "echo Chrome: chrome://extensions / Load unpacked / choose this folder (first time only)", "explorer \"%LOCALAPPDATA%\\kinbot-ext\"", "pause", ""].join("\r\n");
+  res.setHeader("content-type", "application/octet-stream"); res.setHeader("content-disposition", "attachment; filename=kinbot-ext-autoupdate.cmd"); res.send(cmd);
+});
 app.get("/api/ext/version", (req, res) => { try { const m = JSON.parse(fs.readFileSync(path.join(process.cwd(), "public/zoom-ext/manifest.json"), "utf8")); res.json({ ok: true, name: m.name, version: m.version }); } catch (e) { res.json({ ok: false, error: e.message }); } });
 app.get("/api/kinxs/people", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, me: String(req.user || "").toLowerCase(), items: await kxPeople() }); }
@@ -31670,7 +31717,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

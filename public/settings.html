@@ -25,7 +25,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261115t" />
+    <link rel="stylesheet" href="style.css?v=20261115u" />
   </head>
   <body>
     <div class="app">
@@ -194,8 +194,19 @@
               ・kinXs：メールワイズのメールを読んで、会社ごとのタスク作りに使う（メールワイズのタブを開いておくだけ）</p>
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0">
                 <a class="btn" href="/kinbot-ext.zip" download>kinbot-ext をダウンロード</a>
+                <a class="btn ghost" href="/api/ext/updater.cmd" download>自動で更新する（Windows）</a>
                 <span class="note" id="extVer" style="margin:0"></span>
               </div>
+              <!-- 自動で更新（2026-11-15）：パソコンの更新係が15分ごとに新しい版をフォルダに入れ、拡張機能が自分で読み込み直す -->
+              <details class="note" style="margin:0 0 12px"><summary style="cursor:pointer">自動で更新する入れ方（Windows・1回だけ）</summary>
+                <ol style="padding-left:20px;line-height:1.9;margin:6px 0 0">
+                  <li>「自動で更新する（Windows）」で kinbot-ext-autoupdate.cmd をダウンロードして、ダブルクリック（Windows の確認が出たら「詳細情報」→「実行」）。</li>
+                  <li>いまの版が <b>%LOCALAPPDATA%\kinbot-ext</b> に入り、そのフォルダが開きます。15分ごとに新しい版を確かめる係が、Windows のタスクに入ります。</li>
+                  <li>Chrome の chrome://extensions で、今の kinbot-ext を「削除」してから、「パッケージ化されていない拡張機能を読み込む」で、開いたフォルダを選ぶ。</li>
+                  <li>あとは新しい版が出ると、15分以内にフォルダが入れ替わり、拡張機能が10分以内に自分で読み込み直します（見ていない Bales・MiiTel のタブも開き直します）。</li>
+                </ol>
+                <p style="margin:6px 0 0">止めたいとき：Windows の「タスク スケジューラ」で「kinbot-ext-update」を削除。このファイルには、あなた用の kinbot の合言葉が入っています。人に渡さないでください。</p>
+              </details>
               <h4 style="margin:16px 0 6px">入れ方</h4>
               <ol class="note" style="padding-left:20px;line-height:1.9;margin:0">
                 <li>上のボタンで zip をダウンロードして、展開（解凍）する（「kinbot-ext」というフォルダが出てきます）</li>
@@ -949,8 +960,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261115t"></script>
-      <script src="nav.js?v=20261115t"></script>
+    <script src="settings.js?v=20261115u"></script>
+      <script src="nav.js?v=20261115u"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

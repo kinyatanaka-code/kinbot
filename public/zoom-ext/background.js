@@ -127,3 +127,28 @@ async function kbBalesWatch() {
 }
 chrome.alarms.create("kb-bales-watch", { periodInMinutes: 10, delayInMinutes: 1 });
 chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === "kb-bales-watch") kbBalesWatch(); });
+
+// ===== 自分で新しい版に入れ替わる（2026-11-15 田中さん「拡張機能の最新を自動で入れたい」）=====
+//   パソコンの更新係（kinbot-ext-autoupdate.cmd で入れる。15分ごと）がこのフォルダに新しい版を上書きする。
+//   ここでは10分ごとにフォルダの manifest.json の版を見て、いま動いている版と違えば読み込み直す。
+//   MiiTel を読んでいる最中はやめる。読み込み直したあとは、裏のタブ（Bales・MiiTel）を開き直して、新しい版で動かす。
+async function kbSelfUpdate() {
+  try {
+    if (kbMtCrawling) return;
+    const r = await fetch(chrome.runtime.getURL("manifest.json") + "?t=" + Date.now(), { cache: "no-store" }); const m = await r.json();
+    const run = chrome.runtime.getManifest().version;
+    if (m && m.version && m.version !== run) { await chrome.storage.local.set({ kbSelfUpdated: { from: run, to: m.version, at: Date.now() } }); chrome.runtime.reload(); }
+  } catch {}
+}
+chrome.alarms.create("kb-self-update", { periodInMinutes: 10, delayInMinutes: 3 });
+chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === "kb-self-update") kbSelfUpdate(); });
+(async () => {
+  try {
+    const st = await chrome.storage.local.get(["kbSelfUpdated"]); const u = st.kbSelfUpdated;
+    if (!u || Date.now() - u.at > 180000 || u.done) return;
+    await chrome.storage.local.set({ kbSelfUpdated: { ...u, done: true } });
+    // いま見ているタブは触らない（入力の途中かもしれないため）。それ以外の Bales・MiiTel のタブを開き直す
+    const tabs = await chrome.tabs.query({ url: ["https://*.balescloud.jp/*", "https://*.miitel.com/*"] });
+    for (const t of tabs) if (!t.active) await chrome.tabs.reload(t.id).catch(() => {});
+  } catch {}
+})();
