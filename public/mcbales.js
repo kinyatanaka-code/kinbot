@@ -29,12 +29,12 @@
     return out.slice(0, 6);
   };
   const coNorm = (s) => String(s || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|一般財団法人|社会福祉法人|医療法人|学校法人|\(株\)|㈱|（株）|\s/g, "").toLowerCase();
-  let diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
+  let wdiag = null, diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
   const PER = 100;
 
   async function load() {
     const root = $("mcBalesView"); if (!root) return;
-    try { const d0 = await api("/api/mochica/bales/lists"); lists = d0.items || []; diag = d0.diag || null; } catch (e) { root.innerHTML = `<div class="mc-box"><p class="mc-note">読めませんでした：${esc(e.message)}</p></div>`; return; }
+    try { const d0 = await api("/api/mochica/bales/lists"); lists = d0.items || []; diag = d0.diag || null; wdiag = d0.wdiag || null; } catch (e) { root.innerHTML = `<div class="mc-box"><p class="mc-note">読めませんでした：${esc(e.message)}</p></div>`; return; }
     if (!cur || !lists.some((l) => l.list_key === cur)) cur = (lists.find((l) => l.status !== "running") || lists[0] || {}).list_key || null;
     if (!mtCos && window.mcMeetingCompanies) { try { mtCos = new Map((await window.mcMeetingCompanies()).map((c) => [coNorm(c), c])); } catch { mtCos = new Map(); } }
     draw();
@@ -46,7 +46,7 @@
     root.innerHTML = `<div class="bl-wrap"><aside class="bl-side"><div class="bl-side-h"><b>Bales のリスト</b><span>${lists.length}リスト</span></div>
       ${run.map((l) => `<div class="bl-run"><b>取り込み中</b><small>${esc(l.name)} ・ ${Number(l.got || 0).toLocaleString()}${l.total ? ` / ${Number(l.total).toLocaleString()}` : ""}件</small><div class="bl-bar"><i style="width:${l.total ? Math.min(100, Math.round(l.got / l.total * 100)) : 30}%"></i></div></div>`).join("")}
       ${lists.map((l) => `<button type="button" class="bl-card${l.list_key === cur ? " on" : ""}" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><small>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}社 ・ ${l.status === "running" ? "取り込み中" : dt(l.done_at || l.run_at)}</small>${l.status === "error" ? `<span class="bl-tag w">途中で止まりました</span>` : ""}</button>`).join("")}
-      <div class="bl-how"><b>取り込み方</b>Bales のリスト（<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>）を開き、右下の「kinbot に取り込む」→「全部取り込む」。拡張機能 kinbot-ext（1.8.1 以上）が要ります。</div>
+      <div class="bl-how"><b>取り込み方</b>Bales のリスト（<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>）を開き、右下の「kinbot に取り込む」→「全部取り込む」。拡張機能 kinbot-ext（1.9.0 以上）が要ります。</div>
       </aside><div class="bl-main" id="blMain">${cur ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="bl-empty">まだ取り込んだリストがありません。左の「取り込み方」から Bales のリストを取り込むと、ここに出ます。</div>' + diagHtml()}</div></div>`;
     root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; q = ""; fcol = ""; fval = ""; page = 0; draw(); }));
     if (cur) detail();
@@ -63,6 +63,8 @@
     box.innerHTML = `<div class="bl-head"><div><h3>${esc(l.name || l.list_key)}</h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         <div class="bl-acts"><a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">取り込み直す ↗</a><a class="mt-btn ghost" href="/api/mochica/bales/lists/${encodeURIComponent(cur)}/csv?${csvQ}">CSV</a><button type="button" class="mt-btn" data-sf>${l.sf_info ? "SF と結び直す" : "SF と結びつける"}</button><button type="button" class="mt-btn ghost bl-del" data-del>消す</button></div></div>
       <div class="bl-sfst" data-sfst>${l.sf_info ? `SF：SalesforceID あり ${Number(l.sf_info.withId || 0).toLocaleString()}件 → SF で見つかった ${Number(l.sf_info.linked || 0).toLocaleString()}件・過去の商談あり ${Number(l.sf_info.withOpps || 0).toLocaleString()}件（${esc(dt(l.sf_info.at))}）` : ""}</div>
+      ${l.w_n ? `<div class="bl-sfst">Bales に書き込んだ（SF の失注情報など）：${Number(l.w_n).toLocaleString()}件</div>` : ""}
+      ${wdiag && !wdiag.ok ? `<details class="bl-diag" style="margin-top:6px"><summary>Bales への書き込み方を覚えられませんでした（${esc(dt(wdiag.at))}）</summary>${esc(wdiag.reason)}<div class="bl-dl">${esc(wdiag.method)} ${esc(wdiag.url)}<br>${esc(wdiag.shape)}</div></details>` : ""}
       <div class="bl-mets"><div><small>会社</small><b>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}</b></div><div><small>MOCHICA の商談あり</small><b data-mtn>—</b></div><div><small>前回から</small><b>${diff == null ? "—" : (diff >= 0 ? "+" : "") + diff.toLocaleString()}</b></div><div><small>詳しい中身（架電履歴など）</small><b>${Number(l.detail_n || 0).toLocaleString()}</b></div><div><small>SF と結びついた</small><b>${Number(l.sf_n || 0).toLocaleString()}</b></div></div>
       <div class="bl-find"><input type="search" data-q value="${esc(q)}" placeholder="会社名・名前・電話番号で探す"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
       ${cols.length ? `<div class="bl-tbl"><table><thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}<th>SF</th></tr></thead><tbody>
@@ -152,7 +154,7 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
   // 拡張機能から最後に届いた様子：取り込めないときに、どこで止まったかを見る（2026-11-15）
   function diagHtml() {
-    if (!diag) return '<div class="bl-diag"><b>拡張機能の様子</b>拡張機能からまだ何も届いていません。kinbot-ext を 1.8.1 に入れ直し、kinbot の画面を一度開いてから、Bales のリード一覧で右下の「kinbot に取り込む」を押してください。ボタンが出ないときは、拡張機能が古いか、入っていません。</div>';
+    if (!diag) return '<div class="bl-diag"><b>拡張機能の様子</b>拡張機能からまだ何も届いていません。kinbot-ext を 1.9.0 に入れ直し、kinbot の画面を一度開いてから、Bales のリード一覧で右下の「kinbot に取り込む」を押してください。ボタンが出ないときは、拡張機能が古いか、入っていません。</div>';
     const why = diag.nohook ? "Bales のページの中で、一覧を読む部分が動いていませんでした（ページを読み込み直すと動きます）。" : diag.cands.length ? `一覧らしいデータが ${diag.cands.length} 個見えています。` : "一覧らしいデータが見つかりませんでした。下の通り道を見て直します。";
     return `<div class="bl-diag"><b>拡張機能の様子</b>${esc(dt(diag.at))} ・ 版 ${esc(diag.ver || "?")} ・ ${esc(diag.href)}<br>${esc(why)}
       ${diag.cands.length ? `<div class="bl-dl">${diag.cands.map((c) => `<div>${esc(c.ep)} … ${c.n}件${c.total != null ? `／全${c.total}` : ""}${c.pager ? `（めくり：${esc(c.pager)}）` : "（めくり方不明）"}<small>${esc(c.keys.join(", "))}</small></div>`).join("")}</div>` : ""}

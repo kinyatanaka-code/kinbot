@@ -39,6 +39,92 @@
       localStorage.setItem(TPL_KEY, JSON.stringify(tpls));
     } catch {}
   };
+  // ===== Bales への書き込み（SF の失注情報などをカスタム情報へ）（2026-11-15 田中さん）=====
+  //   1) リードの画面で、カスタム情報の「顧客の現状」に kinbot と入れて保存してもらう → その保存の頼み方を覚える
+  //   2) 覚えた形の「値」と「項目の印」だけを入れ替えて、1項目ずつ同じように保存する（Bales の画面がしているのと同じ頼み方）
+  const writes = [];
+  function noteWrite(req, status) { try { if (!req.body) return; let b; try { b = JSON.parse(req.body); } catch { return; } writes.unshift({ method: req.method, url: req.url, headers: req.headers || {}, cred: req.cred, body: b, status, at: Date.now() }); if (writes.length > 15) writes.pop(); } catch {} }
+  const WR_KEY = "kbBalesWrite"; let wtpl = (() => { try { return JSON.parse(localStorage.getItem(WR_KEY) || "null"); } catch { return null; } })();
+  const MARK = "kinbot";
+  const pathOf = (o, want, path = []) => { if (o === want) return path; if (o && typeof o === "object") for (const [k, v] of Object.entries(o)) { const r = pathOf(v, want, [...path, Array.isArray(o) ? Number(k) : k]); if (r) return r; } return null; };
+  const at = (o, p) => p.reduce((x, k) => (x == null ? x : x[k]), o);
+  const mask = (o, d = 0) => { if (o == null) return o; if (Array.isArray(o)) return o.slice(0, 4).map((x) => mask(x, d + 1)); if (typeof o === "object") { if (d > 5) return "{…}"; const r = {}; for (const [k, v] of Object.entries(o)) r[k] = mask(v, d + 1); return r; } if (typeof o === "string") return o === MARK ? MARK : o.length > 12 ? o.slice(0, 4) + "…" : o; return o; };
+  async function fieldDefs() {
+    let c = cands.find((x) => /\/custom_fields(\?|$)/.test(String(x.url).split("#")[0]));
+    if (c && c.arr && c.arr.length) return c.arr;
+    const any = cands.find((x) => /\/api\/user\//.test(String(x.url))); if (!any) return [];
+    const U = new URL(any.url); U.pathname = U.pathname.replace(/\/api\/user\/.*$/, "/api/user/custom_fields"); U.search = "";
+    const a = lastAuth[U.host] || {}; const r = await of(U.href, { headers: a.headers || {}, credentials: a.cred || "same-origin" }).catch(() => null); if (!r || !r.ok) return [];
+    const j = await r.json().catch(() => null); const f = j && findArr(j); return f ? f.arr : [];
+  }
+  const defMatch = (defs, lbl, api) => defs.find((d) => Object.values(d).some((v) => typeof v === "string" && (v === lbl || v === api || v.trim() === lbl)));
+  async function learnWrite() {
+    const w = writes.find((x) => JSON.stringify(x.body).includes(`"${MARK}"`));
+    if (!w) return { ok: false, reason: `まだ「${MARK}」と入れた保存が見えていません。顧客の現状に ${MARK} と入れて保存してから、もう一度押してください` };
+    const lead = curLeadId(); const mp = pathOf(w.body, MARK); const parentPath = mp.slice(0, -1); const parent = at(w.body, parentPath); const vKey = mp[mp.length - 1];
+    const defs = await fieldDefs(); const def = defMatch(defs, "顧客の現状", "Client_Current_Status__c");
+    const base = { method: w.method, url: w.url, shape: mask(w.body), defs: defs.length };
+    if (!def) return { ok: false, reason: "カスタム情報の項目の一覧（custom_fields）が読めませんでした", ...base };
+    let mode = "", idKey = "", keyProp = "";
+    if (parent && typeof parent === "object" && !Array.isArray(parent)) for (const [k, v] of Object.entries(parent)) if (k !== String(vKey) && (v === def.id || String(v) === String(def.id))) { mode = "sibling"; idKey = k; }
+    if (!mode) for (const [k, v] of Object.entries(def)) if (String(v) === String(vKey)) { mode = "key"; keyProp = k; }
+    if (!mode) return { ok: false, reason: "保存の形の中で、どこが項目の印かが分かりませんでした", ...base };
+    // ほかの項目も一緒に送る形（全部まとめて保存）だと、1項目ずつ送ると消える心配があるので止める
+    const gp = at(w.body, parentPath.slice(0, -1));
+    if ((mode === "sibling" && Array.isArray(gp) && gp.length > 1) || (mode === "key" && Object.keys(parent).length > 1)) return { ok: false, reason: "Bales がほかの項目もまとめて送る形でした。まとめて送る形に合わせて直します（この画面を見せてください）", mode, ...base };
+    // ほかのリードに向けられるか：URL か本文に、このリードの id が入っていること
+    const hasLead = lead && (new RegExp(`(^|[^0-9])${lead}(?![0-9])`).test(w.url) || JSON.stringify(w.body).includes(lead));
+    if (!hasLead) return { ok: false, reason: "保存の頼み方の中に、このリードの印（id）が見つかりませんでした。リードを開いた画面（callTargetId= のある画面）で保存してください", mode, ...base };
+    // 値そのものの印（id など）が入っていると、ほかのリードに書くと別の値を上書きしてしまう心配があるので止める
+    if (mode === "sibling" && Object.keys(parent).some((k) => k !== idKey && k !== String(vKey) && /^(id|_id|uuid)$/i.test(k))) return { ok: false, reason: "保存の形に、値そのものの印（id）が入っていました。このままでは安全に書けないので、形に合わせて直します（この画面を見せてください）", mode, ...base };
+    const ids = (lead ? [lead] : []);
+    const u = lead ? w.url.replace(new RegExp(`(^|[^0-9])${lead}(?![0-9])`, "g"), (m, a) => a + "{id}") : w.url;
+    wtpl = { method: w.method, u, body: w.body, mp, parentPath, vKey, mode, idKey, keyProp, lead, ct: Object.entries(w.headers).find(([k]) => /content-type/i.test(k))?.[1] || "application/json", at: Date.now() };
+    try { localStorage.setItem(WR_KEY, JSON.stringify(wtpl)); } catch {}
+    return { ok: true, mode, ...base, ids };
+  }
+  const swapId = (o, from, to) => { if (o == null) return o; if (Array.isArray(o)) return o.map((x) => swapId(x, from, to)); if (typeof o === "object") { const r = {}; for (const [k, v] of Object.entries(o)) r[k] = swapId(v, from, to); return r; } if (String(o) === String(from)) return typeof o === "number" ? Number(to) : String(to); return o; };
+  async function writeField(id, def, val) {
+    let body = JSON.parse(JSON.stringify(wtpl.body)); if (wtpl.lead) body = swapId(body, wtpl.lead, id);
+    const parent = at(body, wtpl.parentPath);
+    if (wtpl.mode === "sibling") { parent[wtpl.vKey] = val; parent[wtpl.idKey] = typeof parent[wtpl.idKey] === "number" ? Number(def.id) : def.id; }
+    else { delete parent[wtpl.vKey]; parent[String(def[wtpl.keyProp])] = val; }
+    const url = wtpl.u.replace(/\{id\}/g, id); const a = lastAuth[new URL(url).host] || {};
+    const r = await of(url, { method: wtpl.method, headers: { ...(a.headers || {}), "content-type": wtpl.ct }, body: JSON.stringify(body), credentials: a.cred || "same-origin" });
+    if (r.status === 401 || r.status === 403) throw new Error("Bales のログインが切れました。Bales を読み込み直してから、もう一度押してください");
+    return r.ok ? "" : `${r.status}`;
+  }
+  // 選択リストの項目は、選べる値の中に同じ名前があるときだけ書く（無ければ飛ばす）
+  const choiceOf = (def, v) => { const ops = Object.values(def).find((x) => Array.isArray(x) && x.length && x.every((y) => y && typeof y === "object")); if (!ops) return { ok: true, v }; const o = ops.find((y) => Object.values(y).some((z) => String(z) === v)); return o ? { ok: true, v: o.value ?? o.name ?? v } : { ok: false }; };
+  let writing = false, stopWrite = false;
+  async function runWrite(name, onlyThis) {
+    if (writing) return; if (!wtpl) { prog({ write: true, error: "まだ書き込み方を覚えていません" }); return; }
+    writing = true; stopWrite = false;
+    const c0 = cands.find((x) => /\/call_targets(\?|$)/.test(String(x.url)));
+    const listKey = "bales:" + ((c0 && pagerOf(c0).listId) || String(name || "").trim() || "すべてのリード").slice(0, 100);
+    try {
+      const defs = await fieldDefs(); if (!defs.length) throw new Error("カスタム情報の項目の一覧が読めませんでした");
+      const only = onlyThis ? curLeadId() : ""; if (onlyThis && !only) throw new Error("リードを1件開いてから押してください");
+      let t = await toKinbot({ listKey, writeTodo: true, limit: 30, only }); if (!t.ok) throw new Error(t.error || "kinbot に聞けませんでした"); if (t.none) throw new Error("先にリストを取り込み、SF と結びつけてください");
+      if (onlyThis && !t.items.length) throw new Error("このリードは kinbot で SF と結びついていません（SF の失注情報などがありません）");
+      const all = t.all || 0; let done = onlyThis ? 0 : all - (t.left || 0); const skipped = new Set(); let fields = 0;
+      while (t.items && t.items.length && !stopWrite) {
+        const out = [];
+        for (const it of t.items) {
+          if (stopWrite) break; let err = "";
+          for (const [lbl, api, v] of it.vals) { const def = defMatch(defs, lbl, api); if (!def) { skipped.add(lbl); continue; } const ch = choiceOf(def, v); if (!ch.ok) { skipped.add(lbl + "（選択肢に無い値）"); continue; }
+            const e = await writeField(it.id, def, ch.v); if (e) err = (err ? err + "・" : "") + `${lbl}:${e}`; else fields++; await sleep(150); }
+          out.push({ id: it.id, err }); done++;
+        }
+        if (out.length) await toKinbot({ listKey, written: out });
+        prog({ write: true, got: done, total: onlyThis ? 1 : all, fields });
+        if (onlyThis) break;
+        t = await toKinbot({ listKey, writeTodo: true, limit: 30 });
+      }
+      prog({ write: true, done: !stopWrite, stopped: stopWrite, got: done, total: onlyThis ? 1 : all, fields, skipped: [...skipped].slice(0, 10), only: onlyThis });
+    } catch (err) { prog({ write: true, error: String(err && err.message || err) }); }
+    finally { writing = false; }
+  }
   const noteAuth = (req) => { try { const h = new URL(req.url).host; if (h !== location.host || Object.keys(req.headers || {}).length) lastAuth[h] = { headers: req.headers || {}, cred: req.cred || "same-origin" }; } catch {} };
   const onResp = (req, text, ct, status) => {
     try { noteAuth(req); if (status >= 200 && status < 300) noteTpl(req, text); } catch {}
@@ -59,6 +145,7 @@
     let req = null;
     try { const r0 = a[0]; const o = a[1] || {}; const url = typeof r0 === "string" ? r0 : r0 instanceof URL ? r0.href : (r0 && r0.url) || ""; req = { url: new URL(url, location.href).href, method: String(o.method || (r0 && r0.method) || "GET").toUpperCase(), headers: { ...hdrObj(r0 && r0.headers), ...hdrObj(o.headers) }, body: typeof o.body === "string" ? o.body : null, cred: o.credentials || (r0 && r0.credentials) || "same-origin", via: "fetch" }; } catch {}
     const r = await of.apply(this, a);
+    try { if (req && req.method !== "GET" && req.method !== "HEAD") noteWrite(req, r.status); } catch {}
     try { const ct = r.headers.get("content-type") || ""; if (req && (/json|text\/plain/i.test(ct) || !ct)) r.clone().text().then((t) => onResp(req, t, ct, r.status)).catch(() => {}); else if (req) noteSeen(req, { ct: ct.slice(0, 40), status: r.status, len: -1, arr: -1 }); } catch {}
     return r;
   };
@@ -66,7 +153,7 @@
   XMLHttpRequest.prototype.open = function (m, u, ...rest) { try { this.__kb = { url: new URL(String(u), location.href).href, method: String(m || "GET").toUpperCase(), headers: {}, body: null, via: "xhr" }; } catch {} return XO.call(this, m, u, ...rest); };
   XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__kb) this.__kb.headers[k] = v; } catch {} return XH.call(this, k, v); };
   XMLHttpRequest.prototype.send = function (b) {
-    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; this.__kb.cred = this.withCredentials ? "include" : "same-origin"; const req = this.__kb; this.addEventListener("load", () => { try { const ct = this.getResponseHeader("content-type") || ""; if (!(/json|text\/plain/i.test(ct) || !ct || this.responseType === "json")) { noteSeen(req, { ct: ct.slice(0, 40), status: this.status, len: -1, arr: -1 }); return; } onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : (this.responseType === "" || this.responseType === "text") ? this.responseText : "", ct, this.status); } catch {} }); } } catch {}
+    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; this.__kb.cred = this.withCredentials ? "include" : "same-origin"; const req = this.__kb; this.addEventListener("load", () => { try { if (req.method !== "GET" && req.method !== "HEAD") noteWrite(req, this.status); } catch {} try { const ct = this.getResponseHeader("content-type") || ""; if (!(/json|text\/plain/i.test(ct) || !ct || this.responseType === "json")) { noteSeen(req, { ct: ct.slice(0, 40), status: this.status, len: -1, arr: -1 }); return; } onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : (this.responseType === "" || this.responseType === "text") ? this.responseText : "", ct, this.status); } catch {} }); } } catch {}
     return XS.call(this, b);
   };
 
@@ -104,6 +191,11 @@
     if (d.__kbBalesTplClear) { tpls = {}; try { localStorage.removeItem(TPL_KEY); } catch {} window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: [] }, "*"); }
     if (d.__kbBalesDetail) runDetail(d.name);
     if (d.__kbBalesStop) stopDetail = true;
+    if (d.__kbBalesWAsk) window.postMessage({ __kbBalesWIs: true, learned: !!wtpl, mode: wtpl && wtpl.mode, lead: curLeadId() }, "*");
+    if (d.__kbBalesWLearn) learnWrite().then((r) => window.postMessage({ __kbBalesWLearned: true, ...r }, "*"));
+    if (d.__kbBalesWRun) runWrite(d.name, !!d.only);
+    if (d.__kbBalesWStop) stopWrite = true;
+    if (d.__kbBalesWForget) { wtpl = null; try { localStorage.removeItem(WR_KEY); } catch {} window.postMessage({ __kbBalesWIs: true, learned: false, lead: curLeadId() }, "*"); }
   });
   const toKinbot = (payload) => new Promise((resolve) => { const id = ++ackN; acks.set(id, resolve); window.postMessage({ __kbBalesSend: true, id, payload }, "*"); setTimeout(() => { if (acks.has(id)) { acks.delete(id); resolve({ ok: false, error: "拡張機能から返事がありません（拡張機能を入れ直したあとは、このページを読み込み直してください）" }); } }, 30000); });
   const prog = (o) => window.postMessage({ __kbBalesProg: true, ...o }, "*");

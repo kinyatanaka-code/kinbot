@@ -33,6 +33,8 @@
       : `<div class="msg">まだ一覧のデータが見えていません。Bales のリスト（リード一覧）を開いて、一覧が表示されてからもう一度押してください。うまくいかないときは、ページを読み込み直してください。</div>`}`;
     box.insertAdjacentHTML("beforeend", '<div data-det style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"><div class="msg">詳しい中身の読み方を確かめています…</div></div>');
     window.postMessage({ __kbBalesTpls: true }, "*");
+    box.insertAdjacentHTML("beforeend", '<div data-wr style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"></div>');
+    window.postMessage({ __kbBalesWAsk: true }, "*");
     box.querySelector(".x").onclick = () => { box.hidden = true; };
     const chg = box.querySelector("[data-chg]"); if (chg) chg.onclick = (e) => { e.preventDefault(); box.querySelector("[data-c]").hidden = false; chg.hidden = true; };
     const go = box.querySelector("[data-go]"); if (go) go.onclick = () => { go.disabled = true; go.textContent = "取り込んでいます…"; window.postMessage({ __kbBalesRun: true, i: Number(box.querySelector("[data-c]").value), name: box.querySelector("[data-n]").value.trim() }, "*"); };
@@ -57,6 +59,33 @@
       if (g) g.onclick = () => { g.disabled = true; g.textContent = "取り込んでいます…"; st.style.display = "block"; const ni = box.querySelector("[data-n]"); window.postMessage({ __kbBalesDetail: true, name: ni ? ni.value.trim() : pageName() }, "*"); };
       if (st) st.onclick = () => { st.textContent = "止めています…"; window.postMessage({ __kbBalesStop: true }, "*"); };
       if (cl) cl.onclick = (e) => { e.preventDefault(); if (confirm("覚えた読み方を消して、覚え直しますか？（リードを1件開き直すと覚えます）")) window.postMessage({ __kbBalesTplClear: true }, "*"); };
+      return; }
+    // ===== Bales に書き込む（SF の失注情報などをカスタム情報へ）=====
+    if (d.__kbBalesWIs) { const el = box.querySelector("[data-wr]"); if (!el) return; const nm = () => { const ni = box.querySelector("[data-n]"); return ni ? ni.value.trim() : pageName(); };
+      el.innerHTML = `<h4 style="margin-bottom:4px">Bales に書き込む（SF の失注情報など → カスタム情報）</h4>` + (d.learned
+        ? `<div class="msg" style="margin:0">書き込み方を覚えています。 <a href="#" data-wf style="color:#0E9AA7">覚え直す</a></div>
+           ${d.lead ? '<button class="go" type="button" data-wone style="background:#fff;color:#0B6E78;border:1.5px solid #9FD9DF">このリードに試しに書き込む</button>' : ""}
+           <button class="go" type="button" data-wall>SF と結びついたリード全部に書き込む</button><button type="button" data-wstop style="display:none;margin-top:6px;width:100%;border:1px solid #CFE6EA;background:#fff;border-radius:10px;padding:7px;cursor:pointer">止める（あとで続きから）</button>
+           <div class="bar"><i data-wbar></i></div><div class="msg" data-wm>まずリードを1件開いて「試しに書き込む」→ Bales のカスタム情報に SF の値が入ったかを確かめてから、全部に書き込んでください。</div>`
+        : d.lead ? `<div class="msg">書き込み方を覚えます。このリードのカスタム情報「顧客の現状」に、半角で <b>kinbot</b> と入れて保存してから、下のボタンを押してください。（このあと「試しに書き込む」で SF の値に上書きされます。SF に値が無いときは kinbot のまま残るので、手で消してください）</div><button class="go" type="button" data-wl>書き込み方を覚える</button><div class="msg" data-wm></div>`
+        : `<div class="msg">リードを1件開いた画面（会社名を押した画面）で、このボタンを押してください。そこで書き込み方を覚えます。</div>`);
+      const wl = el.querySelector("[data-wl]"); if (wl) wl.onclick = () => { wl.disabled = true; wl.textContent = "覚えています…"; window.postMessage({ __kbBalesWLearn: true }, "*"); };
+      const wf = el.querySelector("[data-wf]"); if (wf) wf.onclick = (e) => { e.preventDefault(); if (confirm("覚えた書き込み方を消して、覚え直しますか？")) window.postMessage({ __kbBalesWForget: true }, "*"); };
+      const one = el.querySelector("[data-wone]"), alls = el.querySelector("[data-wall]"), st = el.querySelector("[data-wstop]");
+      if (one) one.onclick = () => { if (!confirm("このリードのカスタム情報に、SF の失注情報などを書き込みます。よいですか？")) return; one.disabled = true; window.postMessage({ __kbBalesWRun: true, only: true, name: nm() }, "*"); };
+      if (alls) alls.onclick = () => { if (!confirm("SF と結びついたリード全部のカスタム情報に、SF の失注情報などを書き込みます（Bales の値は SF の値で上書きされます）。始めますか？")) return; alls.disabled = true; alls.textContent = "書き込んでいます…"; st.style.display = "block"; window.postMessage({ __kbBalesWRun: true, only: false, name: nm() }, "*"); };
+      if (st) st.onclick = () => { st.textContent = "止めています…"; window.postMessage({ __kbBalesWStop: true }, "*"); };
+      return; }
+    if (d.__kbBalesWLearned) { const m = box.querySelector("[data-wm]");
+      if (d.ok) { window.postMessage({ __kbBalesWAsk: true }, "*"); }
+      else { if (m) m.innerHTML = `覚えられませんでした：${String(d.reason || "").replace(/</g, "&lt;")}${d.shape ? `<pre style="white-space:pre-wrap;font-size:10px;max-height:160px;overflow:auto;background:#F2FAFB;padding:6px;border-radius:8px">${(d.method || "") + " " + String(d.url || "").replace(/</g, "&lt;")}\n${JSON.stringify(d.shape, null, 1).replace(/</g, "&lt;").slice(0, 3000)}</pre>` : ""}`; const wl = box.querySelector("[data-wl]"); if (wl) { wl.disabled = false; wl.textContent = "もう一度覚える"; } }
+      try { chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", writeDiag: { ok: !!d.ok, mode: d.mode, reason: d.reason, shape: d.shape, url: d.url, method: d.method } } }, () => {}); } catch {}
+      return; }
+    if (d.__kbBalesProg && d.write) { const m = box.querySelector("[data-wm]"), bar = box.querySelector("[data-wbar]"), alls = box.querySelector("[data-wall]"), one = box.querySelector("[data-wone]"), st = box.querySelector("[data-wstop]");
+      if (bar && d.total) bar.style.width = Math.min(100, Math.round((d.got || 0) / d.total * 100)) + "%";
+      const sk = d.skipped && d.skipped.length ? `\n飛ばした項目：${d.skipped.join("、")}` : "";
+      if (m) m.textContent = d.error ? `止まりました：${d.error}` : d.stopped ? `止めました：${d.got} / ${d.total}件。もう一度押すと続きから書きます。` : d.done ? (d.only ? `このリードに ${d.fields}項目 書き込みました。Bales の画面を読み込み直して、カスタム情報を確かめてください。${sk}` : `終わりました：${d.got}件（${d.fields}項目）書き込みました。${sk}`) : `${d.got} / ${d.total}件 書きました…`;
+      if (d.done || d.error || d.stopped) { if (alls) { alls.disabled = false; alls.textContent = "続きから書き込む"; } if (one) one.disabled = false; if (st) { st.style.display = "none"; st.textContent = "止める（あとで続きから）"; } }
       return; }
     if (d.__kbBalesProg && d.detail) { const m = box.querySelector("[data-dm]"), bar = box.querySelector("[data-dbar]"), g = box.querySelector("[data-dgo]"), st = box.querySelector("[data-dstop]");
       if (bar && d.total) bar.style.width = Math.min(100, Math.round((d.got || 0) / d.total * 100)) + "%";
