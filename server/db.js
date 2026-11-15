@@ -12856,7 +12856,8 @@ export async function mcBalesAddRows(listKey, rows, total) {
 export async function mcBalesCarryOver(listKey) {
   if (!pool) return 0; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return 0;
-  const cid = (a) => `COALESCE(NULLIF(${a}.data->>'callTargetId',''), NULLIF(${a}.data->>'call_target_id',''))`;
+  // 前の取り込み（call_targets の snake_case）は id がリード番号だった → それも使う
+  const cid = (a) => `COALESCE(NULLIF(${a}.data->>'callTargetId',''), NULLIF(${a}.data->>'call_target_id',''), NULLIF(${a}.data->>'id',''))`;
   const a = await pool.query(`UPDATE mochica_bales_rows cur SET sf=o.sf, sf_at=o.sf_at FROM (
       SELECT DISTINCT ON (${cid("r")}) ${cid("r")} AS cid, r.sf, r.sf_at FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.sf IS NOT NULL AND ${cid("r")} IS NOT NULL ORDER BY ${cid("r")}, r.sf_at DESC NULLS LAST) o
     WHERE cur.list_key=$1 AND cur.run_at=$2 AND cur.sf IS NULL AND ${cid("cur")} = o.cid`, [listKey, l.run_at]);
