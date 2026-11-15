@@ -23,6 +23,7 @@
   window.__kbBalesSeen = () => [...seen.values()].sort((a, b) => b.at - a.at).slice(0, 40);
   // ===== リード1件の詳しい中身（架電履歴・カスタム情報など）の読み方を覚える（2026-11-15 田中さん「全部取り込みたい」）=====
   //   lead-list?callTargetId=<id> のページで、その id を含む GET の頼み方を「{id}」入りの形で覚える（Bales のページの保存場所に。鍵は入れない）
+  const keep = (key, val) => { try { window.postMessage({ __kbBalesKeep: true, key, val }, "*"); } catch {} };
   const TPL_KEY = "kbBalesTpl";
   const loadTpl = () => { try { return JSON.parse(localStorage.getItem(TPL_KEY) || "{}"); } catch { return {}; } };
   let tpls = loadTpl();
@@ -36,7 +37,7 @@
       const U = new URL(u); const name = (decodeURIComponent(U.pathname).replace(/^\/api\/(user\/)?/, "") + (U.search ? decodeURIComponent(U.search).replace(/[?&][^=]+=\{id\}/g, "") : "")).replace(/\{id\}\/?/g, "").replace(/\/$/, "") || "lead";
       tpls[name] = { u, at: Date.now() };
       const keys = Object.keys(tpls).sort((a, b) => tpls[b].at - tpls[a].at); for (const k of keys.slice(20)) delete tpls[k];
-      localStorage.setItem(TPL_KEY, JSON.stringify(tpls));
+      localStorage.setItem(TPL_KEY, JSON.stringify(tpls)); keep(TPL_KEY, tpls);
     } catch {}
   };
   // ===== Bales への書き込み（SF の失注情報などをカスタム情報へ）（2026-11-15 田中さん）=====
@@ -106,7 +107,7 @@
     const ids = (lead ? [lead] : []);
     const u = lead ? w.url.replace(new RegExp(`(^|[^0-9])${lead}(?![0-9])`, "g"), (m, a) => a + "{id}") : w.url;
     wtpl = { fid: def.id, fmt: w.fmt, mval: String(at(w.body, mp)), method: w.method, u, body: w.body, mp, parentPath, vKey, mode, idKey, keyProp, lead, ct: Object.entries(w.headers).find(([k]) => /content-type/i.test(k))?.[1] || "application/json", at: Date.now() };
-    try { localStorage.setItem(WR_KEY, JSON.stringify(wtpl)); } catch {}
+    try { localStorage.setItem(WR_KEY, JSON.stringify(wtpl)); } catch {} keep(WR_KEY, wtpl);
     return { ok: true, mode, ...base, ids };
   }
   const swapId = (o, from, to) => { if (o == null) return o; if (Array.isArray(o)) return o.map((x) => swapId(x, from, to)); if (typeof o === "object") { const r = {}; for (const [k, v] of Object.entries(o)) r[k] = swapId(v, from, to); return r; } if (String(o) === String(from)) return typeof o === "number" ? Number(to) : String(to); return o; };
@@ -224,9 +225,13 @@
     if (d.__kbBalesRun) run(d.i, d.name);
     if (d.__kbBalesView) { const c0 = cands.find((x) => /\/call_targets(\?|$)/.test(String(x.url))); window.postMessage({ __kbBalesViewIs: true, view: c0 ? learnView(c0) : null }, "*"); }
     if (d.__kbBalesTpls) window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: Object.keys(tpls) }, "*");
-    if (d.__kbBalesTplClear) { tpls = {}; try { localStorage.removeItem(TPL_KEY); } catch {} window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: [] }, "*"); }
+    if (d.__kbBalesTplClear) { tpls = {}; try { localStorage.removeItem(TPL_KEY); } catch {} keep(TPL_KEY, null); window.postMessage({ __kbBalesTplList: true, lead: curLeadId(), names: [] }, "*"); }
     if (d.__kbBalesDetail) runDetail(d.name);
     if (d.__kbBalesStop) stopDetail = true;
+    if (d.__kbBalesRestore) { const v = d.val; if (!v) return;
+      if (d.key === TPL_KEY && !Object.keys(tpls).length && typeof v === "object") { tpls = v; try { localStorage.setItem(TPL_KEY, JSON.stringify(v)); } catch {} }
+      if (d.key === FEEDS_KEY && !feeds.length && Array.isArray(v)) { feeds = v; try { localStorage.setItem(FEEDS_KEY, JSON.stringify(v)); } catch {} }
+      if (d.key === WR_KEY && !wtpl && typeof v === "object") { wtpl = v; try { localStorage.setItem(WR_KEY, JSON.stringify(v)); } catch {} } }
     if (d.__kbBalesFeedAsk) window.postMessage({ __kbBalesFeedIs: true, feeds: feeds.map((f) => ({ key: f.key, name: f.name, page: f.page, pager: f.pager ? f.pager.kind : "", view: (f.view || []).map((v) => v.label) })) }, "*");
     if (d.__kbBalesFeedAdd) addFeed(d.name).then((r) => window.postMessage({ __kbBalesFeedAdded: true, ...r }, "*"));
     if (d.__kbBalesFeedDel) { feeds = feeds.filter((x) => x.key !== d.key); saveFeeds(); window.postMessage({ __kbBalesFeedIs: true, feeds: feeds.map((f) => ({ key: f.key, name: f.name, page: f.page, pager: f.pager ? f.pager.kind : "", view: (f.view || []).map((v) => v.label) })) }, "*"); }
@@ -235,7 +240,7 @@
     if (d.__kbBalesWLearn) learnWrite().then((r) => window.postMessage({ __kbBalesWLearned: true, ...r }, "*"));
     if (d.__kbBalesWRun) runWrite(d.name, !!d.only);
     if (d.__kbBalesWStop) stopWrite = true;
-    if (d.__kbBalesWForget) { wtpl = null; try { localStorage.removeItem(WR_KEY); } catch {} window.postMessage({ __kbBalesWIs: true, learned: false, lead: curLeadId() }, "*"); }
+    if (d.__kbBalesWForget) { wtpl = null; try { localStorage.removeItem(WR_KEY); } catch {} keep(WR_KEY, null); window.postMessage({ __kbBalesWIs: true, learned: false, lead: curLeadId() }, "*"); }
   });
   const toKinbot = (payload) => new Promise((resolve) => { const id = ++ackN; acks.set(id, resolve); window.postMessage({ __kbBalesSend: true, id, payload }, "*"); setTimeout(() => { if (acks.has(id)) { acks.delete(id); resolve({ ok: false, error: "拡張機能から返事がありません（拡張機能を入れ直したあとは、このページを読み込み直してください）" }); } }, 30000); });
   const prog = (o) => window.postMessage({ __kbBalesProg: true, ...o }, "*");
@@ -283,7 +288,7 @@
   //   いま開いている画面の一覧（架電の記録・リード一覧など）を登録しておくと、その一覧の1ページ目から新しい行が無くなるまで読んで kinbot に送る
   const FEEDS_KEY = "kbBalesFeeds";
   let feeds = (() => { try { return JSON.parse(localStorage.getItem(FEEDS_KEY) || "[]"); } catch { return []; } })();
-  const saveFeeds = () => { try { localStorage.setItem(FEEDS_KEY, JSON.stringify(feeds)); } catch {} };
+  const saveFeeds = () => { try { localStorage.setItem(FEEDS_KEY, JSON.stringify(feeds)); } catch {} keep(FEEDS_KEY, feeds); };
   const mainCand = () => { const m = (document.body.innerText || "").match(/(\d[\d,]*)\s*-\s*(\d[\d,]*)\s*\/\s*(\d[\d,]*)/); const shownN = m ? Number(m[2].replace(/,/g, "")) - Number(m[1].replace(/,/g, "")) + 1 : null; const tb = readTable(); const rowsN = tb ? tb.rows.length : null;
     const sc = (c) => (shownN != null && c.n === shownN ? 50 : 0) + (rowsN && Math.abs(c.n - rowsN) <= 1 ? 40 : 0) + (/custom_fields|users|lead_sources|lead_stages|result_types|sent_bulk|assigned_user|notifications/.test(String(c.url)) ? -100 : 0) + Math.min(20, c.n / 5) + (Date.now() - c.at < 60000 ? 10 : 0);
     return [...cands].sort((a, b) => sc(b) - sc(a))[0] || null; };

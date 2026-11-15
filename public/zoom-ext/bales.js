@@ -54,8 +54,11 @@
     setTimeout(() => { window.removeEventListener("message", once); if (got) return; box.innerHTML = '<button class="x" type="button" aria-label="閉じる">×</button><div class="msg">一覧を読む部分が動いていません。Bales のページを読み込み直して（F5）、一覧が出てからもう一度押してください。</div>'; box.querySelector(".x").onclick = () => { box.hidden = true; };
       let ver = ""; try { ver = chrome.runtime.getManifest().version; } catch {} chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", diag: { ver, href: location.href.split("?")[0], nohook: true, cands: [], seen: [] } } }, () => {}); }, 3000); };
   try { chrome.runtime.onMessage.addListener((msg, sender, reply) => { if (msg && msg.type === "kb-bales-sync") { window.postMessage({ __kbBalesSync: true, why: "自動" }, "*"); reply({ ok: true }); } }); } catch {}
+  // 覚えたものを拡張機能の保存場所と行き来させる
+  try { chrome.storage.local.get(["kbBalesTpl", "kbBalesFeeds", "kbBalesWrite"], (st) => { for (const k of ["kbBalesTpl", "kbBalesFeeds", "kbBalesWrite"]) if (st && st[k]) window.postMessage({ __kbBalesRestore: true, key: k, val: st[k] }, "*"); }); } catch {}
   window.addEventListener("message", (e) => {
     const d = e.data; if (!d || e.source !== window) return;
+    if (d.__kbBalesKeep) { try { if (d.val == null) chrome.storage.local.remove(d.key); else chrome.storage.local.set({ [d.key]: d.val }); } catch {} return; }
     if (d.__kbBalesCands) { cands = d.items || []; draw();
       // 取り込めないときの手がかり：拡張機能の版・ページ・見えた通り道（名前と件数だけ）を kinbot に残す（2026-11-15）
       let ver = ""; try { ver = chrome.runtime.getManifest().version; } catch {}
@@ -65,7 +68,7 @@
         ? `<div class="msg" style="margin:0">リード1件の読み方を ${n} 個覚えています：${(d.names || []).slice(0, 8).join("、")} <a href="#" data-tclr style="color:#0E9AA7">覚え直す</a></div>
            <button class="go" type="button" data-dgo>詳しい中身も全部取り込む</button><button type="button" data-dstop style="display:none;margin-top:6px;width:100%;border:1px solid #CFE6EA;background:#fff;border-radius:10px;padding:7px;cursor:pointer">止める（あとで続きから）</button>
            <div class="bar"><i data-dbar></i></div><div class="msg" data-dm>リードを1件ずつ読みます。2.3万件で数時間かかります。途中で止めても、次は続きから読みます。このタブは開いたままにしてください。</div>`
-        : `<div class="msg">${d.lead ? "このリードの中身を読んでいるところです。画面が出きったら（架電履歴やカスタム情報が見えたら）、もう一度右下のボタンを押してください。" : "まだ読み方を覚えていません。リードを1件開いて（会社名を押す）、中身が出たら、もう一度右下のボタンを押してください。"}</div>`);
+        : `<div class="msg">${d.lead ? "まだ読み方を覚えていません。このリードの画面を読み込み直して（F5）、架電履歴やカスタム情報が出てから、もう一度右下のボタンを押してください。（前に覚えた読み方は、Bales にログインし直すと消えることがあります。この版からは消えないように残します）" : "まだ読み方を覚えていません。リードを1件開いて（会社名を押す）、中身が出たら、もう一度右下のボタンを押してください。"}</div>`);
       const g = el.querySelector("[data-dgo]"), st = el.querySelector("[data-dstop]"), cl = el.querySelector("[data-tclr]");
       if (g) g.onclick = () => { g.disabled = true; g.textContent = "取り込んでいます…"; st.style.display = "block"; const ni = box.querySelector("[data-n]"); window.postMessage({ __kbBalesDetail: true, name: ni ? ni.value.trim() : pageName() }, "*"); };
       if (st) st.onclick = () => { st.textContent = "止めています…"; window.postMessage({ __kbBalesStop: true }, "*"); };
