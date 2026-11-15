@@ -5,6 +5,8 @@
   const ICO = `<svg width="18" height="18" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="3" width="16" height="14" rx="4" fill="${C.main}"/><rect x="5" y="7" width="10" height="1.8" rx=".9" fill="#fff"/><rect x="5" y="11" width="7" height="1.8" rx=".9" fill="#fff"/></svg>`;
   const css = document.createElement("style");
   css.textContent = `#kbBalesBtn{position:fixed;right:18px;bottom:18px;z-index:2147483000;display:flex;align-items:center;gap:6px;border:1.5px solid ${C.line};background:#fff;color:${C.deep};font:700 13px/1 system-ui,sans-serif;border-radius:999px;padding:9px 14px;box-shadow:0 4px 14px rgba(14,154,167,.18);cursor:pointer}
+  #kbBalesBox .sec{border-top:1px solid #DDEFF2;margin-top:10px;padding-top:8px} #kbBalesBox .sec>h4{cursor:pointer;display:flex;align-items:center;gap:6px;margin:0;font-size:13px} #kbBalesBox .sec>h4::before{content:"";width:7px;height:7px;border-right:2px solid ${C.main};border-bottom:2px solid ${C.main};transform:rotate(-45deg);transition:transform .15s;flex:none} #kbBalesBox .sec.open>h4::before{transform:rotate(45deg)} #kbBalesBox .sec:not(.open)>:not(h4){display:none} #kbBalesBox .sec.open>h4{margin-bottom:6px}
+  #kbBalesBox{max-height:calc(100vh - 90px);overflow-y:auto;box-sizing:border-box;}
   #kbBalesBox{position:fixed;right:18px;bottom:64px;z-index:2147483000;width:340px;background:#fff;border:1.5px solid ${C.line};border-radius:14px;box-shadow:0 8px 28px rgba(15,61,68,.18);padding:14px;font:13px/1.5 system-ui,sans-serif;color:#0F3D44}
   #kbBalesBox h4{margin:0 0 8px;font-size:14px;color:${C.deep}} #kbBalesBox label{display:block;font-size:12px;color:#5C7377;margin:8px 0 3px}
   #kbBalesBox input,#kbBalesBox select{width:100%;box-sizing:border-box;border:1px solid #CFE6EA;border-radius:9px;padding:7px 9px;font:inherit}
@@ -17,6 +19,11 @@
   const mount = () => { if (!document.body) return setTimeout(mount, 300); document.body.appendChild(btn); document.body.appendChild(box); };
   mount();
   let cands = [];
+  // 開く欄：前に開いた欄。初めては、リードの画面なら「書き込む」、ほかは「一覧を全部取り込む」
+  const openKey = () => { try { return localStorage.getItem("kbBalesOpen") || ""; } catch { return ""; } };
+  const openSec = () => { const k = openKey() || (/callTargetId=/.test(location.search) ? "wr" : "list"); box.querySelectorAll(".sec").forEach((x) => x.classList.toggle("open", x.dataset.sec === k)); };
+  box.addEventListener("click", (e) => { const h = e.target.closest(".sec>h4"); if (!h || e.target.closest("a")) return; const sec = h.parentElement; const was = sec.classList.contains("open");
+    box.querySelectorAll(".sec").forEach((x) => x.classList.remove("open")); if (!was) sec.classList.add("open"); try { localStorage.setItem("kbBalesOpen", was ? "" : sec.dataset.sec); } catch {} });
   // リストの名前：Bales の左上の「すべてのリード」のような、いま開いているリードのリストの名前（2026-11-15）
   const pageName = () => { for (const el of document.querySelectorAll("button, div, span, p")) { if (el.children.length > 2) continue; const t = (el.innerText || "").trim(); if (t && t.length <= 30 && /リード$/.test(t) && el.getBoundingClientRect().top < 260 && el.getBoundingClientRect().width > 0) return t; } return "すべてのリード"; };
   // 読む一覧の名前（Bales の画面が裏で読んでいるデータの名前を、わかる言葉に）
@@ -26,16 +33,17 @@
     // リード一覧（call_targets）があればそれ。無ければ、ページの中で並べ替えた一番上（画面の件数と合うもの）
     const best = Math.max(0, cands.findIndex((c) => /\/call_targets$/.test(c.ep)));
     box.innerHTML = `<button class="x" type="button" aria-label="閉じる">×</button><h4>kinbot に取り込む<small style="font-weight:400;color:#5C7377;margin-left:6px">版 ${(() => { try { return chrome.runtime.getManifest().version; } catch { return "?（ページを読み込み直してください）"; } })()}</small></h4>
-      ${cands.length ? `<label>リストの名前（kinbot で出る名前）</label><input data-n value="${pageName().replace(/"/g, "&quot;")}">
+      <div class="sec" data-sec="list"><h4>一覧を全部取り込む</h4>${cands.length ? `<label>リストの名前（kinbot で出る名前）</label><input data-n value="${pageName().replace(/"/g, "&quot;")}">
         <label>読む一覧</label><div class="msg" style="margin:0;color:#0F3D44"><b>${epName(cands[best].ep)}</b>・1ページ ${cands[best].n}件 <a href="#" data-chg style="color:#0E9AA7">変える</a></div>
         <select data-c hidden>${cands.map((c) => `<option value="${c.i}" ${c.i === cands[best].i ? "selected" : ""}>${epName(c.ep)}（${c.n}件）</option>`).join("")}</select>
         <button class="go" type="button" data-go>全部取り込む</button><div class="bar"><i></i></div><div class="msg" data-m>最後のページまで自動でめくって kinbot に送ります。終わるまでこのタブは開いたままにしてください。</div>`
-      : `<div class="msg">まだ一覧のデータが見えていません。Bales のリスト（リード一覧）を開いて、一覧が表示されてからもう一度押してください。うまくいかないときは、ページを読み込み直してください。</div>`}`;
-    box.insertAdjacentHTML("beforeend", '<div data-det style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"><div class="msg">詳しい中身の読み方を確かめています…</div></div>');
+      : `<div class="msg">まだ一覧のデータが見えていません。Bales のリスト（リード一覧）を開いて、一覧が表示されてからもう一度押してください。うまくいかないときは、ページを読み込み直してください。</div>`}</div>`;
+    box.insertAdjacentHTML("beforeend", '<div class="sec" data-sec="det" data-det><div class="msg">詳しい中身の読み方を確かめています…</div></div>');
     window.postMessage({ __kbBalesTpls: true }, "*");
-    box.insertAdjacentHTML("beforeend", '<div data-fd style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"></div>');
+    box.insertAdjacentHTML("beforeend", '<div class="sec" data-sec="fd" data-fd><h4>見張る</h4></div>');
     window.postMessage({ __kbBalesFeedAsk: true }, "*");
-    box.insertAdjacentHTML("beforeend", '<div data-wr style="border-top:1px solid #DDEFF2;margin-top:12px;padding-top:10px"></div>');
+    box.insertAdjacentHTML("beforeend", '<div class="sec" data-sec="wr" data-wr><h4>Bales に書き込む</h4></div>');
+    openSec();
     window.postMessage({ __kbBalesWAsk: true }, "*");
     box.querySelector(".x").onclick = () => { box.hidden = true; };
     const chg = box.querySelector("[data-chg]"); if (chg) chg.onclick = (e) => { e.preventDefault(); box.querySelector("[data-c]").hidden = false; chg.hidden = true; };
@@ -53,7 +61,7 @@
       let ver = ""; try { ver = chrome.runtime.getManifest().version; } catch {}
       chrome.runtime.sendMessage({ type: "kb-bales-rows", payload: { listKey: "diag", diag: { ver, href: String(d.href || location.href).split("?")[0], cands: cands.map((c) => ({ ep: c.ep, n: c.n, total: c.total, pager: c.pager, keys: c.keys })), seen: d.seen || [] } } }, () => {}); }
     if (d.__kbBalesTplList) { const el = box.querySelector("[data-det]"); if (!el) return; const n = (d.names || []).length;
-      el.innerHTML = `<h4 style="margin-bottom:4px">詳しい中身（名前・架電履歴・カスタム情報など）</h4>` + (n
+      el.innerHTML = `<h4>詳しい中身（架電履歴・カスタム情報など）</h4>` + (n
         ? `<div class="msg" style="margin:0">リード1件の読み方を ${n} 個覚えています：${(d.names || []).slice(0, 8).join("、")} <a href="#" data-tclr style="color:#0E9AA7">覚え直す</a></div>
            <button class="go" type="button" data-dgo>詳しい中身も全部取り込む</button><button type="button" data-dstop style="display:none;margin-top:6px;width:100%;border:1px solid #CFE6EA;background:#fff;border-radius:10px;padding:7px;cursor:pointer">止める（あとで続きから）</button>
            <div class="bar"><i data-dbar></i></div><div class="msg" data-dm>リードを1件ずつ読みます。2.3万件で数時間かかります。途中で止めても、次は続きから読みます。このタブは開いたままにしてください。</div>`
@@ -66,7 +74,7 @@
     // ===== 見張る（平日10〜19時、10分ごとに新しい行を kinbot へ）=====
     if (d.__kbBalesFeedIs) { const el = box.querySelector("[data-fd]"); if (!el) return; const fs = d.feeds || [];
       try { chrome.storage.local.set({ kbBalesWatch: fs.length > 0, kbBalesWatchPages: fs.map((f) => f.page) }); } catch {}
-      el.innerHTML = `<h4 style="margin-bottom:4px">見張る（平日10〜19時に10分ごと）</h4>
+      el.innerHTML = `<h4>見張る（平日10〜19時に10分ごと）</h4>
         <div class="msg" style="margin:0 0 6px">この画面の一覧（架電の記録など）を登録すると、Chrome が開いていれば、新しい行を自動で kinbot に入れます。</div>
         ${fs.map((f) => `<div class="msg" style="margin:2px 0;color:#0F3D44"><b>${f.name}</b>${f.pager ? "" : "（1ページ目だけ）"}${f.view && f.view.length ? `<br><small>${f.view.slice(0, 6).join("・")}</small>` : ""} <a href="#" data-fdel="${f.key}" style="color:#B4442E">外す</a></div>`).join("")}
         <label>見張りの名前</label><input data-fn value="${fs.length ? "" : "架電の記録"}" placeholder="例：架電の記録">
@@ -80,7 +88,7 @@
       try { chrome.storage.local.set({ kbBalesLastSync: { at: d.at, out: d.out } }); } catch {} return; }
     // ===== Bales に書き込む（SF の失注情報などをカスタム情報へ）=====
     if (d.__kbBalesWIs) { const el = box.querySelector("[data-wr]"); if (!el) return; const nm = () => { const ni = box.querySelector("[data-n]"); return ni ? ni.value.trim() : pageName(); };
-      el.innerHTML = `<h4 style="margin-bottom:4px">Bales に書き込む（SF の失注情報など → カスタム情報）</h4>` + (d.learned
+      el.innerHTML = `<h4>Bales に書き込む（SF の失注情報 → カスタム情報）</h4>` + (d.learned
         ? `<div class="msg" style="margin:0">書き込み方を覚えています。 <a href="#" data-wf style="color:#0E9AA7">覚え直す</a></div>
            ${d.lead ? '<button class="go" type="button" data-wone style="background:#fff;color:#0B6E78;border:1.5px solid #9FD9DF">このリードに試しに書き込む</button>' : ""}
            <button class="go" type="button" data-wall>SF と結びついたリード全部に書き込む</button><button type="button" data-wstop style="display:none;margin-top:6px;width:100%;border:1px solid #CFE6EA;background:#fff;border-radius:10px;padding:7px;cursor:pointer">止める（あとで続きから）</button>
