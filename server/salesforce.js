@@ -1733,7 +1733,7 @@ export async function leadsByIds(owner, ids = []) {
 }
 
 // 全件を読む（2000件ずつの続き＝nextRecordsUrl をたどる）（2026-11-13 MOCHICA の Bales 連携）
-export async function sfQueryAll(owner, soql, max = 80000) {
+export async function sfQueryAll(owner, soql, max = 80000, onPage = null) {   // onPage(読んだ件数, 全部の件数)：進み具合を見せたいとき（2026-11-15）
   const acc = await getAccess(owner);
   if (!acc) throw new Error("Salesforce未連携です");
   let url = `${acc.instanceUrl}/services/data/${API_VERSION}/query?q=${encodeURIComponent(soql)}`; const out = [];
@@ -1741,6 +1741,7 @@ export async function sfQueryAll(owner, soql, max = 80000) {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${acc.token}` } });
     if (!res.ok) throw new Error(`SF query ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const d = await res.json(); out.push(...(d.records || []));
+    if (onPage) { try { onPage(out.length, d.totalSize || 0); } catch {} }
     url = d.nextRecordsUrl ? `${acc.instanceUrl}${d.nextRecordsUrl}` : "";
   }
   return out;

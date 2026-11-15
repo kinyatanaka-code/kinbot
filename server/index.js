@@ -26932,7 +26932,10 @@ app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
 const _mcBalesSfJob = new Map();   // list_key → { running, step, done, total, error }
 const MC_SF_ID = /^00Q[0-9A-Za-z]{12}([0-9A-Za-z]{3})?$/;
 async function mcBalesSfLink(owner, listKey) {
-  const job = { running: true, step: "Bales の行を読んでいます", done: 0, total: 0, error: "", at: Date.now() }; _mcBalesSfJob.set(listKey, job);
+  const job = { running: true, step: "Bales の行を読んでいます", done: 0, total: 0, error: "", at: Date.now(), pct: 0, no: 1, of: 6 }; _mcBalesSfJob.set(listKey, job);
+  // 段階ごとの％の幅（全体を 0〜100 に）：1 行を読む／2 会社名で探す／3 リード／4 取引先／5 過去の商談／6 kinbot に書く
+  const SPAN = { 1: [0, 3], 2: [3, 40], 3: [40, 60], 4: [60, 65], 5: [65, 92], 6: [92, 100] };
+  const P = (no, frac, step) => { const [a, b] = SPAN[no]; job.no = no; job.pct = Math.round(a + (b - a) * Math.max(0, Math.min(1, frac || 0))); if (step) job.step = step; };
   try {
     const rows = await mcBalesRowsForSf(listKey); job.total = rows.length;
     // ① SalesforceID（00Q…）：一覧の項目にあればその項目、無ければ元の形・詳しい中身のどこかから
@@ -26943,7 +26946,7 @@ async function mcBalesSfLink(owner, listKey) {
     // ② 無いリードは、SF の「Mochica（リード）」を会社名で探して、そのリードの ID を使う（電話番号が合えばそちらを優先）（2026-11-15 田中さん）
     const rest = rows.filter((r) => !idOf.has(r.row_key));
     if (rest.length) {
-      job.step = `SF の Mochica リードを会社名で探しています（${rest.length.toLocaleString()}件）`;
+      P(2, 0, `SF の Mochica リードを読んでいます（会社名で探す ${rest.length.toLocaleString()}件のため）`);
       const lst = (await mcBalesLists()).find((x) => x.list_key === listKey) || {};
       const vk = (re) => ((lst.view || []).find((v) => re.test(v.label)) || {}).key;
       const keys0 = Object.keys((rows[0] && rows[0].data) || {});
@@ -26952,7 +26955,9 @@ async function mcBalesSfLink(owner, listKey) {
       const nz = (t) => String(t || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人社団|医療法人財団|医療法人|学校法人|特定非営利活動法人|NPO法人|\(株\)|\(有\)|㈱|㈲/g, "").replace(/[\s・,，.。、()（）「」『』【】\-‐_/]/g, "").toLowerCase();   // 「ー」は消さない（カタカナの社名が短くなりすぎるため）
       const tn = (t) => String(t || "").replace(/[^0-9]/g, "").replace(/^81/, "0");
       if (coK) {
-        const all = await sfQueryAll(owner, "SELECT Id, Company, Phone, LastModifiedDate FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company != null ORDER BY LastModifiedDate DESC", 150000);
+        const all = await sfQueryAll(owner, "SELECT Id, Company, Phone, LastModifiedDate FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company != null ORDER BY LastModifiedDate DESC", 150000,
+          (n, t) => P(2, t ? (n / t) * 0.9 : 0, `SF の Mochica リードを読んでいます（${n.toLocaleString()}${t ? ` / ${t.toLocaleString()}` : ""}件）`));
+        P(2, 0.92, `会社名で照らし合わせています（${rest.length.toLocaleString()}件）`);
         const byCo = new Map(); for (const l of all) { const k = nz(l.Company); if (k.length < 2) continue; const a = byCo.get(k) || []; a.push(l); byCo.set(k, a); }
         for (const r of rest) {
           const k = nz((r.data || {})[coK]); if (k.length < 2) continue; const cands = byCo.get(k); if (!cands) continue;
@@ -26963,31 +26968,31 @@ async function mcBalesSfLink(owner, listKey) {
     }
     if (!idOf.size) throw new Error("SalesforceID も、会社名が同じ SF の Mochica リードも見つかりませんでした");
     const ids = [...new Set(idOf.values())];
-    job.step = "SF のリードを読んでいます";
+    P(3, 0, "SF のリードを読んでいます");
     const f = MC_BALES_FIELDS.map(([, api]) => api).join(", ");
     const leads = new Map();
     for (let i = 0; i < ids.length; i += 300) {
       const part = ids.slice(i, i + 300);
       const recs = await sfQueryAll(owner, `SELECT Id, Name, Company, Status, Owner.Name, IsConverted, ConvertedAccountId, ConvertedOpportunityId, CreatedDate, LastModifiedDate, ${f} FROM Lead WHERE Id IN (${part.map((x) => `'${x}'`).join(",")})`, 400);
       for (const l of recs) leads.set(String(l.Id).slice(0, 15), l);
-      job.done = Math.min(ids.length, i + 300); job.step = `SF のリードを読んでいます（${job.done.toLocaleString()} / ${ids.length.toLocaleString()}）`;
+      job.done = Math.min(ids.length, i + 300); P(3, job.done / ids.length, `SF のリードの中身を読んでいます（${job.done.toLocaleString()} / ${ids.length.toLocaleString()}件）`);
     }
     // 取引先：コンバート先。無ければ失注商談の取引先
-    job.step = "取引先を探しています";
+    P(4, 0, "取引先を探しています");
     const lostIds = [...new Set([...leads.values()].map((l) => l.LostOppID__c).filter((x) => /^006/.test(String(x || ""))).map((x) => String(x).slice(0, 15)))];
     const lostAcc = new Map();
-    for (let i = 0; i < lostIds.length; i += 300) { const recs = await sfQueryAll(owner, `SELECT Id, AccountId FROM Opportunity WHERE Id IN (${lostIds.slice(i, i + 300).map((x) => `'${x}'`).join(",")})`, 400).catch(() => []); for (const o of recs) lostAcc.set(String(o.Id).slice(0, 15), o.AccountId); }
+    for (let i = 0; i < lostIds.length; i += 300) { const recs = await sfQueryAll(owner, `SELECT Id, AccountId FROM Opportunity WHERE Id IN (${lostIds.slice(i, i + 300).map((x) => `'${x}'`).join(",")})`, 400).catch(() => []); for (const o of recs) lostAcc.set(String(o.Id).slice(0, 15), o.AccountId); P(4, Math.min(lostIds.length, i + 300) / Math.max(1, lostIds.length), `取引先を探しています（失注商談 ${Math.min(lostIds.length, i + 300).toLocaleString()} / ${lostIds.length.toLocaleString()}）`); }
     const accOf = (l) => l.ConvertedAccountId || (l.LostOppID__c ? lostAcc.get(String(l.LostOppID__c).slice(0, 15)) : null) || null;
     const accIds = [...new Set([...leads.values()].map(accOf).filter(Boolean))];
-    job.step = "過去の商談を読んでいます";
+    P(5, 0, "過去の商談を読んでいます");
     const opps = new Map();
     for (let i = 0; i < accIds.length; i += 200) {
       const recs = await sfQueryAll(owner, `SELECT Id, Name, AccountId, Account.Name, RecordType.Name, StageName, CreatedDate, CloseDate, appointment__c, order_date__c, Amount, owner_text__c, Owner.Name, Loss_Reason__c, Loss_Reason1__c, order_reason_detail__c, Internship_apo__c FROM Opportunity WHERE AccountId IN (${accIds.slice(i, i + 200).map((x) => `'${x}'`).join(",")}) ORDER BY CreatedDate DESC`, 20000);
       for (const o of recs) { const a = opps.get(o.AccountId) || []; a.push(o); opps.set(o.AccountId, a); }
-      job.step = `過去の商談を読んでいます（取引先 ${Math.min(accIds.length, i + 200).toLocaleString()} / ${accIds.length.toLocaleString()}）`;
+      P(5, Math.min(accIds.length, i + 200) / Math.max(1, accIds.length), `過去の商談を読んでいます（取引先 ${Math.min(accIds.length, i + 200).toLocaleString()} / ${accIds.length.toLocaleString()}）`);
     }
     // 行ごとにまとめて書く
-    job.step = "kinbot に書いています";
+    P(6, 0, "kinbot に書いています");
     const d10 = (v) => (v ? String(v).slice(0, 10) : "");
     const items = []; let linked = 0;
     for (const r of rows) {
@@ -27001,10 +27006,10 @@ async function mcBalesSfLink(owner, listKey) {
       const sum = { n: os.length, last: op[0] ? op[0].stage : "", lastDate: op[0] ? op[0].date : "", won: os.some((o) => /^0[6-8]/.test(o.StageName || "") || /受注/.test(o.StageName || "")), lost: os.some((o) => /失注/.test(o.StageName || "")), status: lead.status };
       items.push({ k: r.row_key, d: { how: howOf.get(r.row_key) || "", lead, accountId: aid || "", account: (os[0] && os[0].Account && os[0].Account.Name) || "", opps: op, sum } });
     }
-    for (let i = 0; i < items.length; i += 1000) await mcBalesSetSf(listKey, items.slice(i, i + 1000));
+    for (let i = 0; i < items.length; i += 1000) { await mcBalesSetSf(listKey, items.slice(i, i + 1000)); P(6, Math.min(items.length, i + 1000) / items.length, `kinbot に書いています（${Math.min(items.length, i + 1000).toLocaleString()} / ${items.length.toLocaleString()}件）`); }
     const info = { at: Date.now(), key: sfKey, withId: idOf.size, byId: [...howOf.values()].filter((x) => x === "SalesforceID").length, byName: [...howOf.values()].filter((x) => x !== "SalesforceID").length, linked, accounts: accIds.length, withOpps: items.filter((x) => x.d.sum && x.d.sum.n).length };
     await mcBalesSfInfo(listKey, info);
-    Object.assign(job, { running: false, step: "終わりました", done: rows.length, info });
+    Object.assign(job, { running: false, step: "終わりました", done: rows.length, info, pct: 100, no: 6 });
     console.log(`[bales sf] ${listKey}：SalesforceID あり ${idOf.size}・SF で見つかった ${linked}・過去の商談あり ${info.withOpps}`);
   } catch (e) { Object.assign(job, { running: false, error: String(e.message || e).slice(0, 300) }); console.log(`[bales sf] 止まりました：${e.message}`); }
 }
@@ -31632,7 +31637,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
