@@ -13,7 +13,7 @@
     [/^(fullName|full_name|personName|contactName|lastName)$/i, "名前", 1.5], [/(lastActivity|last_activity)/i, "最終活動日", 4.5], [/(createdAt|created_at)/i, "作成日時", 11]];
   const labelOf = (k) => { const leaf = String(k).split(".").pop(); for (const [re, l] of LABELS) if (re.test(k) || (l !== "会社名" && re.test(leaf))) return l; return k; };   // 「担当.name」を会社名と取り違えない
   // 表示項目：選んだ列はリストごとにこのブラウザに覚える（Bales の「表示項目」と同じ考え方）（2026-11-15）
-  const colsKey = (k) => "kb_bales_cols_" + k;
+  const colsKey = (k) => "kb_bales_cols2_" + k;   // 2026-11-16：列を「会社名・電話番号・担当者名…」に決めたので、前に選んだ列はいったん忘れる
   const savedCols = (k) => { try { return JSON.parse(localStorage.getItem(colsKey(k)) || "null"); } catch { return null; } };
   // 値の取り出し：「a.[].b」は配列の全部（a.0.b、a.1.b…）をつなげる。日時は Bales と同じ「11/13 10:31」に
   const valOf = (d, key) => { if (!String(key).includes("[]")) return d[key]; const re = new RegExp("^" + key.split("[]").map((x) => x.replace(/[.*+?^${}()|\\]/g, "\\$&")).join("\\d+") + "$"); return Object.keys(d).filter((k) => re.test(k)).sort((a, b) => a.localeCompare(b, "en", { numeric: true })).map((k) => d[k]).filter((v) => v !== "" && v != null).join("、"); };
