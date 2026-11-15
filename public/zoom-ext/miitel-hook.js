@@ -70,32 +70,50 @@
     if (backRunning) return; if (!lastList) { prg({ error: "会議の一覧が見えていません。会議履歴一覧を開き直して（F5）、一覧が出てから押してください" }); return; }
     backRunning = true; backStop = false;
     const L = lastList; const lim = new Date(until + "T00:00:00+09:00").getTime();
-    let body = null; try { body = L.body ? JSON.parse(L.body) : null; } catch {}
-    // めくり方：URL の ? の後ろか、本文（JSON）の中の page／offset と、1回の件数
-    const U0 = new URL(L.url); const find = (re) => { for (const [k] of U0.searchParams) if (re.test(k)) return { q: k }; if (isObj(body)) { for (const k of Object.keys(body)) if (re.test(k)) return { b: k }; for (const [pk, pv] of Object.entries(body)) if (isObj(pv)) for (const k of Object.keys(pv)) if (re.test(k)) return { b: k, in: pk }; } return null; };
-    let pg = find(PAGE), off = pg ? null : find(OFF); const sz = find(SIZE);
-    const req = async (pageNo, offN, size) => { const U = new URL(L.url); let b = body ? JSON.parse(JSON.stringify(body)) : null;
-      const set = (f, v) => { if (!f) return; if (f.q) U.searchParams.set(f.q, String(v)); else if (b) { if (f.in) b[f.in][f.b] = v; else b[f.b] = v; } };
-      if (pg) set(pg, pageNo); else if (off) set(off, offN); else U.searchParams.set("page", String(pageNo)); if (sz && size) set(sz, size);
-      const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 60000);
-      try { const r = await of(U.href, { method: L.method, headers: L.headers, body: L.method === "GET" ? undefined : b ? JSON.stringify(b) : L.body, credentials: L.cred, signal: ac.signal }); if (!r.ok) throw new Error(`MiiTel から読めませんでした（${r.status}）`); return { url: U.href, text: await r.text() }; } finally { clearTimeout(tm); } };
+    let body0 = null; try { body0 = L.body ? JSON.parse(L.body) : null; } catch {}
+    // 本文（JSON）の中の項目を、入れ子も含めて「道」で探す
+    const paths = (o, pre = [], out = [], d = 0) => { if (!isObj(o) || d > 3) return out; for (const [k, v] of Object.entries(o)) { const pth = [...pre, k]; if (isObj(v)) paths(v, pth, out, d + 1); else out.push({ b: pth, k, v }); } return out; };
+    const U0 = new URL(L.url); const qk = [...U0.searchParams.keys()]; const bp = paths(body0);
+    const findK = (re) => { const q = qk.find((k) => re.test(k)); if (q) return { q, v: U0.searchParams.get(q) }; const b = bp.find((x) => re.test(x.k)); return b ? { b: b.b, v: b.v } : null; };
+    const build = (sets) => { const U = new URL(L.url); let b = body0 ? JSON.parse(JSON.stringify(body0)) : null;
+      for (const [f, v] of sets) { if (!f) continue; if (f.q) U.searchParams.set(f.q, String(v)); else if (f.b && b) { let o = b; for (const k of f.b.slice(0, -1)) o = o[k] = o[k] ?? {}; o[f.b[f.b.length - 1]] = v; } else if (f.qnew) U.searchParams.set(f.qnew, String(v)); else if (f.bnew && b) b[f.bnew] = v; }
+      return { url: U.href, body: L.method === "GET" || L.method === "HEAD" ? undefined : b ? JSON.stringify(b) : L.body }; };
+    const fetchP = async (sets) => { const x = build(sets); const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 60000);
+      try { const r = await of(x.url, { method: L.method, headers: L.headers, body: x.body, credentials: L.cred, signal: ac.signal }); if (!r.ok) throw new Error(`MiiTel から読めませんでした（${r.status}）`); const text = await r.text(); let j = null; try { j = JSON.parse(text); } catch {} return { url: x.url, text, j, arr: (j && findArr(j)) || [] }; } finally { clearTimeout(tm); } };
+    const ids = new Set(); const newOf = (arr) => arr.filter((x) => !ids.has(itemId(x)));
     const dateOf = (x) => { const t = Date.parse(itemAt(x)); return isNaN(t) ? null : t; };
-    let got = 0, pages = 0, prevSig = "", oldest = null; const size = sz ? 100 : 0;
+    const SZ = findK(SIZE); const size = SZ ? 100 : null; const base = SZ ? [[SZ, 100]] : [];
+    let got = 0, pages = 0, oldest = null, mode = "";
+    const take = (pg) => { const nw = newOf(pg.arr); nw.forEach((x) => ids.add(itemId(x))); if (!nw.length) return 0;
+      window.postMessage({ __kbMiitel: true, kind: "list", detailId: "", videoId: "list", url: pg.url.split("?")[0], text: pg.text, title: document.title }, "*");
+      got += nw.length; pages++; const ds = nw.map(dateOf).filter((t) => t != null); if (ds.length) oldest = Math.min(...ds, oldest ?? Infinity); prg({ got, pages, oldest, mode }); return nw.length; };
+    // 返事の中の「次のページの印」（cursor・next_token など）
+    const nextTok = (j, d = 0) => { if (!isObj(j) || d > 3) return null; for (const [k, v] of Object.entries(j)) { if (/(next|cursor|token|after|continuation)/i.test(k) && !/prev|before|has_|hasNext|total|count/i.test(k) && (typeof v === "string" || typeof v === "number") && String(v)) return { k, v }; } for (const v of Object.values(j)) { const r = nextTok(v, d + 1); if (r) return r; } return null; };
+    const diag = () => ({ path: U0.pathname, q: qk.join(","), b: bp.map((x) => x.b.join(".")).join(","), res: lastJ ? Object.keys(lastJ).join(",") : "" });
+    let lastJ = null;
     try {
-      for (let p = 0; p < 500 && !backStop; p++) {
-        const pageNo = (pg && /^0$/.test(String(U0.searchParams.get(pg.q || "") || (body && (pg.in ? body[pg.in][pg.b] : body[pg.b])) || ""))) ? p : p + 1;
-        let r; try { r = await req(pageNo, p * (size || 25), size); } catch (e) { if (size && p === 0) { r = await req(pageNo, 0, 0); } else throw e; }
-        let j = null; try { j = JSON.parse(r.text); } catch {} const arr = (j && findArr(j)) || [];
-        if (!arr.length) break; const sig = JSON.stringify(arr[0]).slice(0, 200); if (sig === prevSig) break; prevSig = sig;
-        window.postMessage({ __kbMiitel: true, kind: "list", detailId: "", videoId: "list", url: r.url.split("?")[0], text: r.text, title: document.title }, "*"); got += arr.length; pages++;
-        const ds = arr.map(dateOf).filter((t) => t != null); if (ds.length) oldest = Math.min(...ds, oldest ?? Infinity);
-        prg({ got, pages, oldest });
+      let first = null; try { first = await fetchP(base); } catch (e) { if (SZ) first = await fetchP([]); else throw e; }
+      lastJ = first.j; take(first); if (!first.arr.length) throw new Error("一覧が空でした");
+      const per = first.arr.length;
+      // ① 分かるめくり方：page → offset → 次のページの印 → 日付の範囲。② 分からなければ、よくある名前を試して、新しい会議が出たものを使う
+      const PG = findK(PAGE), OF = findK(OFF), DT = findK(/(to|end|until|before|lte|max)[_A-Z]?(date|at|time)|(date|time|at)_?(to|end|lte|before|until)$|^to$|^end$|^until$/i);
+      const tries = [];
+      if (PG) tries.push({ mode: "page", step: (n, pg) => [[PG, (Number(PG.v) === 0 ? 0 : 1) + n]] });
+      if (OF) tries.push({ mode: "offset", step: (n) => [[OF, n * per]] });
+      tries.push({ mode: "cursor", step: (n, prev) => { const t = nextTok(prev.j); if (!t) return null; const rk = qk.find((k) => /(cursor|token|after|next)/i.test(k)) || bp.find((x) => /(cursor|token|after|next)/i.test(x.k)); const f = rk ? (typeof rk === "string" ? { q: rk } : { b: rk.b }) : (body0 ? { bnew: t.k.replace(/^next_?/i, "") || "cursor" } : { qnew: t.k.replace(/^next_?/i, "") || "cursor" }); return [[f, t.v]]; } });
+      if (DT) tries.push({ mode: "date", step: (n, prev) => { const ds = prev.arr.map(dateOf).filter((t) => t != null); if (!ds.length) return null; const t = Math.min(...ds) - 1000; return [[DT, /^\d+$/.test(String(DT.v)) ? (String(DT.v).length > 11 ? t : Math.floor(t / 1000)) : new Date(t).toISOString()]]; } });
+      for (const k of ["page", "page_number", "pageNumber", "current_page", "pageNo", "p"]) tries.push({ mode: `page?${k}`, step: (n) => [[body0 ? { bnew: k } : { qnew: k }, 1 + n]] });
+      for (const k of ["offset", "from", "skip", "start"]) tries.push({ mode: `offset?${k}`, step: (n) => [[body0 ? { bnew: k } : { qnew: k }, n * per]] });
+      let prev = first, chosen = null;
+      for (const t of tries) { if (backStop) break; const st = t.step(1, prev); if (!st) continue; let pg; try { pg = await fetchP([...base, ...st]); } catch { continue; } if (newOf(pg.arr).length) { chosen = t; mode = t.mode; take(pg); prev = pg; break; } }
+      if (!chosen) { prg({ done: true, got, pages, oldest, one: true, diag: diag() }); return; }
+      for (let n = 2; n < 600 && !backStop; n++) {
         if (oldest != null && oldest < lim) break;
-        if (!pg && !off && p === 1 && pages === 2 && sig === prevSig) break;
         await new Promise((res) => setTimeout(res, 700));   // MiiTel に負担をかけないよう、少し間をあける
+        const st = chosen.step(n, prev); if (!st) break; const pg = await fetchP([...base, ...st]); lastJ = pg.j; if (!pg.arr.length || !take(pg)) break; prev = pg;
       }
-      prg({ done: true, got, pages, oldest, stopped: backStop });
-    } catch (e) { prg({ error: String(e && e.message || e), got, pages, oldest }); }
+      prg({ done: true, got, pages, oldest, stopped: backStop, mode });
+    } catch (e) { prg({ error: String(e && e.message || e), got, pages, oldest, diag: diag() }); }
     finally { backRunning = false; }
   }
   window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return; if (d.__kbMtBackRun) backfill(d.until || "2026-03-01"); if (d.__kbMtBackStop) backStop = true; if (d.__kbMtBackAsk) prg({ ready: !!lastList, url: lastList ? lastList.url.replace(/\?.*$/, "") : "" }); });

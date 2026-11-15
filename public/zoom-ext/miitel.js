@@ -51,7 +51,9 @@ window.addEventListener("message", async (e) => { const d = e.data; if (!d || !d
     if (d.ready === false) { $("[data-m]").textContent = "会議の一覧がまだ見えていません。この画面を読み込み直して（F5）、一覧が出てから押してください。"; return; }
     if (d.ready) return;
     if (d.oldest != null) { const now = Date.now(); $("[data-b]").style.width = Math.max(3, Math.min(100, Math.round((now - d.oldest) / Math.max(1, now - until()) * 100))) + "%"; }
-    $("[data-m]").textContent = d.error ? `止まりました：${d.error}（${d.got || 0}件までは kinbot に入っています）` : d.done ? `${d.stopped ? "止めました" : "終わりました"}：${d.got}件（${d.pages}ページ）の会議を kinbot に入れました${d.oldest ? `。いちばん古い会議：${fmtD(d.oldest)}` : ""}。\n続けて②で文字起こし・議事録を読めます。` : `${d.got}件（${d.pages}ページ）読みました…${d.oldest ? ` いま ${fmtD(d.oldest)} あたり` : ""}`;
+    const dg = d.diag ? `\n（手がかり：${d.diag.path}／URL：${d.diag.q || "なし"}／本文：${d.diag.b || "なし"}／返事：${d.diag.res || "?"}）` : "";
+    if (d.one) { $("[data-m]").textContent = `1ページ目（${d.got}件）は入れましたが、2ページ目のめくり方が見つかりませんでした。この画面を見せてください。${dg}`; $("[data-run]").disabled = false; $("[data-run]").textContent = "① もう一度読む"; $("[data-stop]").hidden = true; return; }
+    $("[data-m]").textContent = d.error ? `止まりました：${d.error}（${d.got || 0}件までは kinbot に入っています）${dg}` : d.done ? `${d.stopped ? "止めました" : "終わりました"}：${d.got}件（${d.pages}ページ）の会議を kinbot に入れました${d.oldest ? `。いちばん古い会議：${fmtD(d.oldest)}` : ""}。\n続けて②で文字起こし・議事録を読めます。` : `${d.got}件（${d.pages}ページ）読みました…${d.oldest ? ` いま ${fmtD(d.oldest)} あたり` : ""}`;
     if (d.done || d.error) { $("[data-run]").disabled = false; $("[data-run]").textContent = "① もう一度読む"; $("[data-stop]").hidden = true; if (d.done) $("[data-b]").style.width = "100%"; } });
   // ② 文字起こし・議事録（拡張機能の裏で、kinbot に「まだの会議」を聞きながら順に開く）
   const days = () => Math.max(1, Math.ceil((Date.now() - until()) / 86400000) + 1);
