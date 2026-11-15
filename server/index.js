@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesDelete, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesDelete, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -26920,6 +26920,76 @@ app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcBalesRow(String(req.params.key), String(req.params.rid)); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, ...r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== Bales のリードを SF と結びつける（2026-11-15 田中さん「2万件のリードを SF と紐付けて、過去の商談履歴を見られるように」）=====
+//   Bales の SalesforceID＝SF の「Mochica（リード）」の ID（00Q…）。どの項目に入っているかは、値の形（00Q…）で見つける。
+//   リード → 取引先（コンバート先、または失注商談の取引先）→ その取引先の商談すべて、の順に読み、行ごとに sf として残す。
+const _mcBalesSfJob = new Map();   // list_key → { running, step, done, total, error }
+const MC_SF_ID = /^00Q[0-9A-Za-z]{12}([0-9A-Za-z]{3})?$/;
+async function mcBalesSfLink(owner, listKey) {
+  const job = { running: true, step: "Bales の行を読んでいます", done: 0, total: 0, error: "", at: Date.now() }; _mcBalesSfJob.set(listKey, job);
+  try {
+    const rows = await mcBalesRowsForSf(listKey); job.total = rows.length;
+    // SalesforceID の入っている項目を、値の形で見つける（いちばん多く 00Q… が入っている項目）
+    const cnt = {}; for (const r of rows.slice(0, 3000)) for (const [k, v] of Object.entries(r.data || {})) if (MC_SF_ID.test(String(v || "").trim())) cnt[k] = (cnt[k] || 0) + 1;
+    const sfKey = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+    if (!sfKey) throw new Error("Bales の行に SalesforceID（00Q…）が見つかりませんでした");
+    const idOf = new Map(); for (const r of rows) { const v = String((r.data || {})[sfKey] || "").trim(); if (MC_SF_ID.test(v)) idOf.set(r.row_key, v.slice(0, 15)); }
+    const ids = [...new Set(idOf.values())];
+    job.step = "SF のリードを読んでいます";
+    const f = MC_BALES_FIELDS.map(([, api]) => api).join(", ");
+    const leads = new Map();
+    for (let i = 0; i < ids.length; i += 300) {
+      const part = ids.slice(i, i + 300);
+      const recs = await sfQueryAll(owner, `SELECT Id, Name, Company, Status, Owner.Name, IsConverted, ConvertedAccountId, ConvertedOpportunityId, CreatedDate, LastModifiedDate, ${f} FROM Lead WHERE Id IN (${part.map((x) => `'${x}'`).join(",")})`, 400);
+      for (const l of recs) leads.set(String(l.Id).slice(0, 15), l);
+      job.done = Math.min(ids.length, i + 300); job.step = `SF のリードを読んでいます（${job.done.toLocaleString()} / ${ids.length.toLocaleString()}）`;
+    }
+    // 取引先：コンバート先。無ければ失注商談の取引先
+    job.step = "取引先を探しています";
+    const lostIds = [...new Set([...leads.values()].map((l) => l.LostOppID__c).filter((x) => /^006/.test(String(x || ""))).map((x) => String(x).slice(0, 15)))];
+    const lostAcc = new Map();
+    for (let i = 0; i < lostIds.length; i += 300) { const recs = await sfQueryAll(owner, `SELECT Id, AccountId FROM Opportunity WHERE Id IN (${lostIds.slice(i, i + 300).map((x) => `'${x}'`).join(",")})`, 400).catch(() => []); for (const o of recs) lostAcc.set(String(o.Id).slice(0, 15), o.AccountId); }
+    const accOf = (l) => l.ConvertedAccountId || (l.LostOppID__c ? lostAcc.get(String(l.LostOppID__c).slice(0, 15)) : null) || null;
+    const accIds = [...new Set([...leads.values()].map(accOf).filter(Boolean))];
+    job.step = "過去の商談を読んでいます";
+    const opps = new Map();
+    for (let i = 0; i < accIds.length; i += 200) {
+      const recs = await sfQueryAll(owner, `SELECT Id, Name, AccountId, Account.Name, RecordType.Name, StageName, CreatedDate, CloseDate, appointment__c, order_date__c, Amount, owner_text__c, Owner.Name, Loss_Reason__c, Loss_Reason1__c, order_reason_detail__c, Internship_apo__c FROM Opportunity WHERE AccountId IN (${accIds.slice(i, i + 200).map((x) => `'${x}'`).join(",")}) ORDER BY CreatedDate DESC`, 20000);
+      for (const o of recs) { const a = opps.get(o.AccountId) || []; a.push(o); opps.set(o.AccountId, a); }
+      job.step = `過去の商談を読んでいます（取引先 ${Math.min(accIds.length, i + 200).toLocaleString()} / ${accIds.length.toLocaleString()}）`;
+    }
+    // 行ごとにまとめて書く
+    job.step = "kinbot に書いています";
+    const d10 = (v) => (v ? String(v).slice(0, 10) : "");
+    const items = []; let linked = 0;
+    for (const r of rows) {
+      const id = idOf.get(r.row_key); const l = id ? leads.get(id) : null;
+      if (!l) { items.push({ k: r.row_key, d: { none: true, id: id || "" } }); continue; }
+      linked++;
+      const aid = accOf(l); const os = (aid && opps.get(aid)) || [];
+      const lead = { id: l.Id, name: l.Name || "", company: l.Company || "", status: l.Status || "", owner: (l.Owner && l.Owner.Name) || "", converted: !!l.IsConverted, created: d10(l.CreatedDate) };
+      for (const [lbl, api] of MC_BALES_FIELDS) { const v = l[api]; if (v != null && v !== "") lead[lbl] = String(v).replace(/\s+/g, " ").slice(0, 400); }
+      const op = os.slice(0, 30).map((o) => ({ id: o.Id, name: o.Name || "", type: (o.RecordType && o.RecordType.Name) || "", stage: o.StageName || "", date: d10(o.appointment__c || o.CreatedDate), close: d10(o.order_date__c || o.CloseDate), owner: o.owner_text__c || (o.Owner && o.Owner.Name) || "", apo: o.Internship_apo__c || "", lost: [o.Loss_Reason__c, o.Loss_Reason1__c].filter(Boolean).join("／"), detail: String(o.order_reason_detail__c || "").replace(/\s+/g, " ").slice(0, 200) }));
+      const sum = { n: os.length, last: op[0] ? op[0].stage : "", lastDate: op[0] ? op[0].date : "", won: os.some((o) => /^0[6-8]/.test(o.StageName || "") || /受注/.test(o.StageName || "")), lost: os.some((o) => /失注/.test(o.StageName || "")), status: lead.status };
+      items.push({ k: r.row_key, d: { lead, accountId: aid || "", account: (os[0] && os[0].Account && os[0].Account.Name) || "", opps: op, sum } });
+    }
+    for (let i = 0; i < items.length; i += 1000) await mcBalesSetSf(listKey, items.slice(i, i + 1000));
+    const info = { at: Date.now(), key: sfKey, withId: idOf.size, linked, accounts: accIds.length, withOpps: items.filter((x) => x.d.sum && x.d.sum.n).length };
+    await mcBalesSfInfo(listKey, info);
+    Object.assign(job, { running: false, step: "終わりました", done: rows.length, info });
+    console.log(`[bales sf] ${listKey}：SalesforceID あり ${idOf.size}・SF で見つかった ${linked}・過去の商談あり ${info.withOpps}`);
+  } catch (e) { Object.assign(job, { running: false, error: String(e.message || e).slice(0, 300) }); console.log(`[bales sf] 止まりました：${e.message}`); }
+}
+app.post("/api/mochica/bales/lists/:key/sf-link", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const key = String(req.params.key);
+    const j = _mcBalesSfJob.get(key); if (j && j.running) return res.json({ ok: true, job: j });
+    const owner = await pickSfUser(req.user, req); if (!owner) return res.status(400).json({ error: "SF につながっている人が見つかりません。設定の外部連携で SF につないでください" });
+    mcBalesSfLink(owner, key); res.json({ ok: true, started: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/lists/:key/sf-link", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, job: _mcBalesSfJob.get(String(req.params.key)) || null });
+});
 app.delete("/api/mochica/bales/lists/:key", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, rows: await mcBalesDelete(String(req.params.key)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -31534,7 +31604,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

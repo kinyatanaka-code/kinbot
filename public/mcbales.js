@@ -61,11 +61,12 @@
     const hasMt = (d) => coCol && mtCos && mtCos.get(coNorm(valOf(d, coCol.key)));
     const csvQ = `q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}`;
     box.innerHTML = `<div class="bl-head"><div><h3>${esc(l.name || l.list_key)}</h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
-        <div class="bl-acts"><a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">取り込み直す ↗</a><a class="mt-btn ghost" href="/api/mochica/bales/lists/${encodeURIComponent(cur)}/csv?${csvQ}">CSV</a><button type="button" class="mt-btn ghost bl-del" data-del>消す</button></div></div>
-      <div class="bl-mets"><div><small>会社</small><b>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}</b></div><div><small>MOCHICA の商談あり</small><b data-mtn>—</b></div><div><small>前回から</small><b>${diff == null ? "—" : (diff >= 0 ? "+" : "") + diff.toLocaleString()}</b></div><div><small>詳しい中身（架電履歴など）</small><b>${Number(l.detail_n || 0).toLocaleString()}</b></div></div>
+        <div class="bl-acts"><a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">取り込み直す ↗</a><a class="mt-btn ghost" href="/api/mochica/bales/lists/${encodeURIComponent(cur)}/csv?${csvQ}">CSV</a><button type="button" class="mt-btn" data-sf>${l.sf_info ? "SF と結び直す" : "SF と結びつける"}</button><button type="button" class="mt-btn ghost bl-del" data-del>消す</button></div></div>
+      <div class="bl-sfst" data-sfst>${l.sf_info ? `SF：SalesforceID あり ${Number(l.sf_info.withId || 0).toLocaleString()}件 → SF で見つかった ${Number(l.sf_info.linked || 0).toLocaleString()}件・過去の商談あり ${Number(l.sf_info.withOpps || 0).toLocaleString()}件（${esc(dt(l.sf_info.at))}）` : ""}</div>
+      <div class="bl-mets"><div><small>会社</small><b>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}</b></div><div><small>MOCHICA の商談あり</small><b data-mtn>—</b></div><div><small>前回から</small><b>${diff == null ? "—" : (diff >= 0 ? "+" : "") + diff.toLocaleString()}</b></div><div><small>詳しい中身（架電履歴など）</small><b>${Number(l.detail_n || 0).toLocaleString()}</b></div><div><small>SF と結びついた</small><b>${Number(l.sf_n || 0).toLocaleString()}</b></div></div>
       <div class="bl-find"><input type="search" data-q value="${esc(q)}" placeholder="会社名・名前・電話番号で探す"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
-      ${cols.length ? `<div class="bl-tbl"><table><thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}</tr></thead><tbody>
-        ${r.rows.map((d) => `<tr class="bl-row" data-row="${esc(d.__k)}">${cols.map((c, i) => `<td title="${esc(valOf(d, c.key))}">${i === 0 && hasMt(d) ? `<button type="button" class="bl-mt" data-co="${esc(hasMt(d))}" title="MOCHICA の会社カードへ"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="3" fill="#1d9e75"/><rect x="5" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="9" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="5" y="10" width="6" height="2" rx=".6" fill="#fff"/></svg></button>` : ""}${/^https?:\/\//.test(valOf(d, c.key) || "") ? `<a href="${esc(valOf(d, c.key))}" target="_blank" rel="noopener">${esc(valOf(d, c.key))}</a>` : esc(fmt(valOf(d, c.key)))}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}" class="mc-note">当てはまる会社がありません。</td></tr>`}
+      ${cols.length ? `<div class="bl-tbl"><table><thead><tr>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}<th>SF</th></tr></thead><tbody>
+        ${r.rows.map((d) => `<tr class="bl-row" data-row="${esc(d.__k)}">${cols.map((c, i) => `<td title="${esc(valOf(d, c.key))}">${i === 0 && hasMt(d) ? `<button type="button" class="bl-mt" data-co="${esc(hasMt(d))}" title="MOCHICA の会社カードへ"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="3" fill="#1d9e75"/><rect x="5" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="9" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="5" y="10" width="6" height="2" rx=".6" fill="#fff"/></svg></button>` : ""}${/^https?:\/\//.test(valOf(d, c.key) || "") ? `<a href="${esc(valOf(d, c.key))}" target="_blank" rel="noopener">${esc(valOf(d, c.key))}</a>` : esc(fmt(valOf(d, c.key)))}</td>`).join("")}<td>${sfChip(d.__sf)}</td></tr>`).join("") || `<tr><td colspan="${cols.length + 1}" class="mc-note">当てはまる会社がありません。</td></tr>`}
         </tbody></table></div>` : '<div class="mc-note">まだ行がありません。</div>'}
       <div class="bl-pg"><span>${r.total ? `${(page * PER + 1).toLocaleString()}〜${Math.min(r.total, (page + 1) * PER).toLocaleString()} / ${r.total.toLocaleString()}件` : ""}</span>${page > 0 ? '<button type="button" class="mt-btn ghost" data-pg="-1">前へ</button>' : ""}${(page + 1) * PER < r.total ? '<button type="button" class="mt-btn ghost" data-pg="1">次へ</button>' : ""}</div>
       ${coCol ? '<p class="mc-note" style="margin-top:6px">緑の印＝MOCHICA に商談がある会社。押すとその会社カードへ。</p>' : ""}`;
@@ -77,9 +78,25 @@
     box.querySelectorAll("[data-co]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); window.mcOpenCompany && window.mcOpenCompany(b.dataset.co); }));
     box.querySelectorAll("[data-row]").forEach((tr) => tr.addEventListener("click", () => leadSheet(l, tr.dataset.row)));
     box.querySelector("[data-colsel]").addEventListener("click", () => colSheet(l));
+    // SF と結びつける：サーバーで読んで書く（2万件で数分）。進み具合を見せて、終わったら読み直す
+    box.querySelector("[data-sf]").addEventListener("click", async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = "結びつけています…";
+      try { await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/sf-link`, { method: "POST" }); sfPoll(cur); } catch (er) { b.disabled = false; b.textContent = "SF と結びつける"; alert("始められませんでした：" + er.message); } });
+    if (sfPolling !== cur) { api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/sf-link`).then((j) => { if (j.job && j.job.running) sfPoll(cur); }).catch(() => {}); }
     // 消す：kinbot に取り込んだ分だけ消す（Bales の中身は変わらない）
     box.querySelector("[data-del]").addEventListener("click", async () => { if (!confirm(`「${l.name || l.list_key}」を kinbot から消しますか？（${Number(l.count || l.got || 0).toLocaleString()}件。Bales の中身は変わりません。元に戻せません）`)) return;
       try { await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}`, { method: "DELETE" }); cur = null; load(); } catch (e) { alert("消せませんでした：" + e.message); } });
+  }
+  // SF の結びつきの小さな印（商談の数・いちばん新しい段階。受注は緑、失注は黄色）
+  const sfChip = (x) => { if (!x) return ""; if (!x.n) return x.status ? `<span class="bl-sfc">リード：${esc(x.status)}</span>` : ""; return `<span class="bl-sfc ${x.won ? "won" : x.lost ? "lost" : ""}" title="${esc(x.last)}（${esc(x.lastDate)}）">商談${x.n}・${esc(String(x.last).replace(/^\d+\s*[:：]\s*/, "").slice(0, 8))}</span>`; };
+  let sfPolling = "";
+  async function sfPoll(key) {
+    sfPolling = key; let j = null; try { j = (await api(`/api/mochica/bales/lists/${encodeURIComponent(key)}/sf-link`)).job; } catch {}
+    const el = document.querySelector("[data-sfst]"); const b = document.querySelector("[data-sf]");
+    if (!j) { sfPolling = ""; return; }
+    if (el && cur === key) el.textContent = j.error ? `SF と結びつけられませんでした：${j.error}` : j.running ? `SF：${j.step}…` : "SF と結びつけました。";
+    if (b && cur === key) { b.disabled = !!j.running; b.textContent = j.running ? "結びつけています…" : "SF と結び直す"; }
+    if (j.running) { setTimeout(() => sfPoll(key), 3000); return; }
+    sfPolling = ""; if (!j.error) load();
   }
   // ===== 表示項目を選ぶ（取り込んだ項目すべてから）=====
   function colSheet(l) {
@@ -112,8 +129,21 @@
     sh.innerHTML = `<h3>${esc(d[coK] || "リード")}${nmK && d[nmK] ? `<small>（${esc(d[nmK])}）</small>` : ""}</h3>
       <a class="mt-btn ghost" style="text-decoration:none;display:inline-flex;margin:4px 0 10px" href="https://mochica.balescloud.jp/app/lead-list?callTargetId=${encodeURIComponent(rid)}" target="_blank" rel="noopener">Bales で開く ↗</a>
       ${l.view && l.view.length ? `<details class="bl-sec" open><summary>Bales の一覧の項目</summary><div class="bl-kv">${l.view.map((v) => `<div><small>${esc(v.label)}</small><span>${esc(fmt(valOf(d, v.key))) || "-"}</span></div>`).join("")}</div></details>` : ""}
+      ${sfSec(r.sf)}
       <details class="bl-sec"><summary>取り込んだ全部の項目<small>${Object.keys(d).filter((k) => !/^__/.test(k)).length}項目</small></summary>${kvGrid(d)}</details>
       <div class="bl-h4">詳しい中身${r.detail_at ? `<small>${esc(dt(r.detail_at))} に取り込み</small>` : ""}</div>${secs}`;
+  }
+  const SFL = "https://ap10.lightning.force.com/lightning/r";
+  function sfSec(x) {
+    if (!x) return '<div class="bl-diag" style="margin-top:10px">SF とはまだ結びついていません。リストの上の「SF と結びつける」を押すと、SF のリードと過去の商談が入ります。</div>';
+    if (x.none) return `<div class="bl-diag" style="margin-top:10px">${x.id ? `SalesforceID（${esc(x.id)}）のリードが SF に見つかりませんでした。` : "Bales に SalesforceID が入っていません。"}</div>`;
+    const L = x.lead || {}; const skip = new Set(["id", "name", "company", "status", "owner", "converted", "created"]);
+    return `<details class="bl-sec" open><summary>Salesforce<small>${x.opps && x.opps.length ? `過去の商談 ${x.sum.n}件` : "過去の商談なし"}</small></summary>
+      <div class="bl-sflinks"><a class="mt-btn ghost" href="${SFL}/Lead/${esc(L.id)}/view" target="_blank" rel="noopener">SF のリード ↗</a>${x.accountId ? `<a class="mt-btn ghost" href="${SFL}/Account/${esc(x.accountId)}/view" target="_blank" rel="noopener">取引先${x.account ? `（${esc(x.account)}）` : ""} ↗</a>` : ""}</div>
+      <div class="bl-kv"><div><small>リードの状態</small><span>${esc(L.status) || "-"}${L.converted ? "（コンバート済み）" : ""}</span></div><div><small>リードの所有者</small><span>${esc(L.owner) || "-"}</span></div>
+        ${Object.entries(L).filter(([k]) => !skip.has(k)).map(([k, v]) => `<div><small>${esc(k)}</small><span>${esc(v)}</span></div>`).join("")}</div>
+      ${x.opps && x.opps.length ? `<div class="bl-h4" style="margin-top:12px">過去の商談</div><div class="bl-tbl"><table><thead><tr><th>商談日</th><th>商談名</th><th>段階</th><th>担当</th><th>アポ獲得</th><th>失注理由</th></tr></thead><tbody>
+        ${x.opps.map((o) => `<tr><td>${esc(o.date)}</td><td><a href="${SFL}/Opportunity/${esc(o.id)}/view" target="_blank" rel="noopener">${esc(o.name)}</a>${o.type ? `<small class="bl-sub">${esc(o.type)}</small>` : ""}</td><td>${esc(o.stage)}</td><td>${esc(o.owner)}</td><td>${esc(o.apo)}</td><td title="${esc(o.detail)}">${esc(o.lost)}</td></tr>`).join("")}</tbody></table></div>` : ""}</details>`;
   }
   let sheetEl = null;
   function sheet(html) { closeSheet(); sheetEl = document.createElement("div"); sheetEl.className = "bl-sheet-bg"; sheetEl.innerHTML = `<div class="bl-sheet"><button type="button" class="bl-x" aria-label="閉じる">×</button><div class="bl-sheet-in">${html}</div></div>`;
