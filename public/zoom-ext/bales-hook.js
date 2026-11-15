@@ -55,8 +55,14 @@
       return { fmt: "text", body: { _: raw } };
     } catch { return null; }
   };
+  const errs = [];   // Bales が出したエラー（Bugsnag に送っている中身から：どの頼みが失敗したか）
+  const noteBug = (req) => { try { const b = JSON.parse(req.body || "{}"); for (const ev of b.events || []) { const ex = (ev.exceptions || [])[0] || {}; const md = ev.metaData || ev.metadata || {}; const rq = md.request || md.Request || (md.error && md.error.config) || {};
+      errs.unshift(`${ex.errorClass || "Error"}: ${String(ex.message || "").slice(0, 120)}${rq.url || rq.method ? ` （${rq.method || ""} ${String(rq.url || "").slice(0, 120)}）` : ""}${ev.context ? ` ／ ${String(ev.context).slice(0, 80)}` : ""}`); } if (errs.length > 8) errs.length = 8; } catch {} };
   const NOISE = /\/rum\/|\/intake\/|datadog|sentry|google-analytics|\/collect|presigned|file_storage_access|\/logs?\b|amplitude|segment\.io|intercom/i;
-  function noteWrite(req, status) { try { if (NOISE.test(String(req.url))) return; const bo = bodyOf(req.rawBody != null ? req.rawBody : req.body); if (!bo) { writes.unshift({ method: req.method, url: req.url, fmt: "?", status, at: Date.now() }); return; }
+  function noteWrite(req, status) { try { const u0 = String(req.url);
+    if (/bugsnag/i.test(u0) || (/"notifier"\s*:\s*\{\s*"name"\s*:\s*"Bugsnag/.test(String(req.body || "")))) { noteBug(req); return; }
+    if (/identitytoolkit|securetoken|firebase|googleapis\.com/i.test(u0)) return;
+    if (NOISE.test(u0)) return; const bo = bodyOf(req.rawBody != null ? req.rawBody : req.body); if (!bo) { writes.unshift({ method: req.method, url: req.url, fmt: "?", status, at: Date.now() }); return; }
     writes.unshift({ method: req.method, url: req.url, headers: req.headers || {}, cred: req.cred, fmt: bo.fmt, body: bo.body, status, at: Date.now() }); if (writes.length > 15) writes.pop(); } catch {} }
   const wsSeen = [];
   try { const WS = window.WebSocket; const os = WS.prototype.send; WS.prototype.send = function (data) { try { if (typeof data === "string" && data.length < 200000) { wsSeen.unshift({ url: this.url, data: data.slice(0, 3000), at: Date.now() }); if (wsSeen.length > 20) wsSeen.pop(); } } catch {} return os.call(this, data); }; } catch {}
@@ -78,7 +84,8 @@
     const w = writes.find((x) => x.body && JSON.stringify(x.body).includes(MARK));
     const wsHit = wsSeen.find((x) => x.data.includes(MARK));
     if (!w && wsHit) return { ok: false, reason: "Bales は、この保存を WebSocket（つなぎっぱなしの通信）で送っていました。この形に合わせて直します（この画面を見せてください）", seen: [`WS ${String(wsHit.url).replace(/\?.*$/, "")} ${wsHit.data.replace(/"[^"]{13,}"/g, '"…"').slice(0, 400)}`] };
-    const seenW = writes.slice(0, 12).map((x) => `${x.method} ${String(x.url).replace(/^https?:\/\/[^/]+/, "")}（${x.fmt || "?"}・${x.status}）${x.body ? " " + JSON.stringify(mask(x.body)).slice(0, 160) : ""}`);
+    const errW = errs.slice(0, 4).map((x) => "Bales のエラー：" + x);
+    const seenW = errW.concat(writes.slice(0, 12)).map((x) => typeof x === "string" ? x : `${x.method} ${String(x.url).replace(/^https?:\/\/[^/]+/, "")}（${x.fmt || "?"}・${x.status}）${x.body ? " " + JSON.stringify(mask(x.body)).slice(0, 160) : ""}`);
     if (!w) return { ok: false, reason: `まだ「${MARK}」と入れた保存が見えていません。顧客の現状に ${MARK} と入れて保存してから、もう一度押してください。${seenW.length ? "（見えた保存：" + seenW.length + "件）" : "（このページを開いてから、保存が1つも見えていません。保存したあとにページを読み込み直していると見えなくなります）"}`, seen: seenW };
     const lead = curLeadId(); const mp = pathOf(w.body, MARK); const parentPath = mp.slice(0, -1); const parent = at(w.body, parentPath); const vKey = mp[mp.length - 1];
     const defs = await fieldDefs(); const def = defMatch(defs, "顧客の現状", "Client_Current_Status__c");
@@ -181,7 +188,7 @@
     try { if (req && req.method !== "GET" && req.method !== "HEAD") { const r0 = a[0]; const o = a[1] || {};
         if (o.body == null && r0 instanceof Request) req.bodyP = r0.clone().text().catch(() => null);
         else if (typeof Blob !== "undefined" && o.body instanceof Blob) req.bodyP = o.body.text().catch(() => null); } } catch {}
-    const r = await of.apply(this, a);
+    let r; try { r = await of.apply(this, a); } catch (er) { try { if (req && req.method !== "GET" && req.method !== "HEAD") noteWrite(req, 0); } catch {} throw er; }
     try { if (req && req.method !== "GET" && req.method !== "HEAD") { if (req.bodyP) req.bodyP.then((t) => { req.rawBody = t; noteWrite(req, r.status); }); else noteWrite(req, r.status); } } catch {}
     try { const ct = r.headers.get("content-type") || ""; if (req && (/json|text\/plain/i.test(ct) || !ct)) r.clone().text().then((t) => onResp(req, t, ct, r.status)).catch(() => {}); else if (req) noteSeen(req, { ct: ct.slice(0, 40), status: r.status, len: -1, arr: -1 }); } catch {}
     return r;
@@ -190,7 +197,7 @@
   XMLHttpRequest.prototype.open = function (m, u, ...rest) { try { this.__kb = { url: new URL(String(u), location.href).href, method: String(m || "GET").toUpperCase(), headers: {}, body: null, via: "xhr" }; } catch {} return XO.call(this, m, u, ...rest); };
   XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__kb) this.__kb.headers[k] = v; } catch {} return XH.call(this, k, v); };
   XMLHttpRequest.prototype.send = function (b) {
-    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; this.__kb.rawBody = b; this.__kb.cred = this.withCredentials ? "include" : "same-origin"; const req = this.__kb; this.addEventListener("load", () => { try { if (req.method !== "GET" && req.method !== "HEAD") noteWrite(req, this.status); } catch {} try { const ct = this.getResponseHeader("content-type") || ""; if (!(/json|text\/plain/i.test(ct) || !ct || this.responseType === "json")) { noteSeen(req, { ct: ct.slice(0, 40), status: this.status, len: -1, arr: -1 }); return; } onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : (this.responseType === "" || this.responseType === "text") ? this.responseText : "", ct, this.status); } catch {} }); } } catch {}
+    try { if (this.__kb) { this.__kb.body = typeof b === "string" ? b : null; this.__kb.rawBody = b; this.__kb.cred = this.withCredentials ? "include" : "same-origin"; const req = this.__kb; const fail = () => { try { if (req.method !== "GET" && req.method !== "HEAD") noteWrite(req, 0); } catch {} }; this.addEventListener("error", fail); this.addEventListener("abort", fail); this.addEventListener("timeout", fail); this.addEventListener("load", () => { try { if (req.method !== "GET" && req.method !== "HEAD") noteWrite(req, this.status); } catch {} try { const ct = this.getResponseHeader("content-type") || ""; if (!(/json|text\/plain/i.test(ct) || !ct || this.responseType === "json")) { noteSeen(req, { ct: ct.slice(0, 40), status: this.status, len: -1, arr: -1 }); return; } onResp(req, this.responseType === "json" ? JSON.stringify(this.response) : (this.responseType === "" || this.responseType === "text") ? this.responseText : "", ct, this.status); } catch {} }); } } catch {}
     return XS.call(this, b);
   };
 
@@ -258,8 +265,33 @@
   const nz = (t) => String(t || "").normalize("NFKC").replace(/\s+/g, "").replace(/[…\.]{1,3}$/, "");
   const dVar = (v) => { if (!/^\d{4}-\d{2}-\d{2}T/.test(v)) return []; const d = new Date(v); if (isNaN(d)) return []; const p = (n) => String(n).padStart(2, "0");
     return [`${p(d.getMonth() + 1)}/${p(d.getDate())}${p(d.getHours())}:${p(d.getMinutes())}`, `${d.getMonth() + 1}/${d.getDate()}${p(d.getHours())}:${p(d.getMinutes())}`, `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}${p(d.getHours())}:${p(d.getMinutes())}`, `${p(d.getMonth() + 1)}/${p(d.getDate())}`, `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}`]; };
+  // div で組んだ表：同じ形の子が5つ以上並ぶ箱を行の並びとみなし、すぐ上の同じ列数の並びを見出しにする（2026-11-15）
+  const HEADW = /会社|名前|日時|日付|時刻|結果|担当|所有者|架電|コール|ステージ|ステータス|活動|作成|電話|メール/;
+  const gridRead = () => {
+    try {
+      const sig = (x) => x.tagName + "." + (typeof x.className === "string" ? x.className.trim().split(/\s+/).slice(0, 2).join(".") : "");
+      const cellsOf = (r) => { let c = [...r.children]; for (let k = 0; k < 4 && c.length === 1; k++) c = [...c[0].children]; return c; };
+      let best = null;
+      for (const el of document.querySelectorAll("div,ul,tbody,section")) {
+        const ch = [...el.children]; if (ch.length < 5) continue; const m = new Map(); for (const x of ch) m.set(sig(x), (m.get(sig(x)) || 0) + 1);
+        const [top, n] = [...m.entries()].sort((a, b) => b[1] - a[1])[0]; if (n < 5) continue;
+        const rows = ch.filter((x) => sig(x) === top); const cc = cellsOf(rows[0]).length; if (cc < 3 || cc > 40) continue;
+        const sc = n * cc; if (!best || sc > best.sc) best = { el, rows, cc, sc };
+      }
+      if (!best) return null;
+      const txt = (cs) => cs.map((x) => (x.innerText || "").trim());
+      let hs = null;
+      const okH = (cs) => cs.length >= 3 && Math.abs(cs.length - best.cc) <= 1 && txt(cs).filter((t) => HEADW.test(t)).length >= 2;
+      if (okH(cellsOf(best.rows[0]))) { hs = txt(cellsOf(best.rows[0])); best.rows = best.rows.slice(1); }
+      for (let p = best.el, up = 0; !hs && p && up < 5; up++, p = p.parentElement) { let sb = p.previousElementSibling; for (let k = 0; k < 3 && sb && !hs; k++, sb = sb.previousElementSibling) { const cs = cellsOf(sb); if (okH(cs)) hs = txt(cs); } }
+      if (!hs) { const f = best.el.firstElementChild; if (f && !best.rows.includes(f) && okH(cellsOf(f))) hs = txt(cellsOf(f)); }
+      if (!hs) return null;
+      return { hs, rows: best.rows.slice(0, 40).map((r) => txt(cellsOf(r))) };
+    } catch { return null; }
+  };
   const readTable = () => {
     for (const t of document.querySelectorAll("table")) { const hs = [...t.querySelectorAll("thead th")].map((x) => x.innerText.trim()); const rows = [...t.querySelectorAll("tbody tr")].slice(0, 40).map((tr) => [...tr.children].map((td) => td.innerText.trim())); if (hs.filter(Boolean).length >= 3 && rows.length) return { hs, rows }; }
+    const g = gridRead(); if (g) return g;
     const rr = [...document.querySelectorAll('[role="row"]')]; if (rr.length > 1) { const hs = [...rr[0].querySelectorAll('[role="columnheader"]')].map((x) => x.innerText.trim()); const rows = rr.slice(1, 41).map((r) => [...r.querySelectorAll('[role="cell"],[role="gridcell"]')].map((x) => x.innerText.trim())); if (hs.filter(Boolean).length >= 3) return { hs, rows }; }
     return null;
   };
@@ -306,6 +338,7 @@
     const f = { key: "feed:" + String(name || "見張り").slice(0, 40), name: String(name || "見張り").slice(0, 40), url: c.url, method: c.method, body: c.body, path: c.path, n: c.n, full: true, pager, view: learnView(c), page: location.pathname + location.search, at: Date.now() };
     feeds = feeds.filter((x) => x.key !== f.key); feeds.push(f); saveFeeds();
     const r = await toKinbot({ feed: f.key, name: f.name, src: String(c.url).split("?")[0], view: f.view, rows: (c.arr || []).slice(0, 100) });
+    setTimeout(() => syncFeeds("登録したので最初の読み込み"), 300);
     return { ok: !!r.ok, error: r.error, feed: { name: f.name, ep: String(c.url).split("?")[0].replace(/^https?:\/\/[^/]+/, ""), n: c.n, pager: pager ? pager.kind : "", view: (f.view || []).map((v) => v.label) } };
   }
   let syncing = false;
