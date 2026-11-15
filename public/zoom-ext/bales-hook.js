@@ -54,8 +54,11 @@
       return { fmt: "text", body: { _: raw } };
     } catch { return null; }
   };
-  function noteWrite(req, status) { try { const bo = bodyOf(req.rawBody != null ? req.rawBody : req.body); if (!bo) { writes.unshift({ method: req.method, url: req.url, fmt: "?", status, at: Date.now() }); return; }
+  const NOISE = /\/rum\/|\/intake\/|datadog|sentry|google-analytics|\/collect|presigned|file_storage_access|\/logs?\b|amplitude|segment\.io|intercom/i;
+  function noteWrite(req, status) { try { if (NOISE.test(String(req.url))) return; const bo = bodyOf(req.rawBody != null ? req.rawBody : req.body); if (!bo) { writes.unshift({ method: req.method, url: req.url, fmt: "?", status, at: Date.now() }); return; }
     writes.unshift({ method: req.method, url: req.url, headers: req.headers || {}, cred: req.cred, fmt: bo.fmt, body: bo.body, status, at: Date.now() }); if (writes.length > 15) writes.pop(); } catch {} }
+  const wsSeen = [];
+  try { const WS = window.WebSocket; const os = WS.prototype.send; WS.prototype.send = function (data) { try { if (typeof data === "string" && data.length < 200000) { wsSeen.unshift({ url: this.url, data: data.slice(0, 3000), at: Date.now() }); if (wsSeen.length > 20) wsSeen.pop(); } } catch {} return os.call(this, data); }; } catch {}
   const WR_KEY = "kbBalesWrite"; let wtpl = (() => { try { return JSON.parse(localStorage.getItem(WR_KEY) || "null"); } catch { return null; } })();
   const MARK = "kinbot";
   const pathOf = (o, want, path = []) => { if (typeof o === "string" && o.includes(want)) return path; if (o && typeof o === "object") for (const [k, v] of Object.entries(o)) { const r = pathOf(v, want, [...path, Array.isArray(o) ? Number(k) : k]); if (r) return r; } return null; };
@@ -72,7 +75,9 @@
   const defMatch = (defs, lbl, api) => defs.find((d) => Object.values(d).some((v) => typeof v === "string" && (v === lbl || v === api || v.trim() === lbl)));
   async function learnWrite() {
     const w = writes.find((x) => x.body && JSON.stringify(x.body).includes(MARK));
-    const seenW = writes.slice(0, 6).map((x) => `${x.method} ${String(x.url).replace(/^https?:\/\/[^/]+/, "")}（${x.fmt || "?"}・${x.status}）${x.body ? " " + JSON.stringify(mask(x.body)).slice(0, 160) : ""}`);
+    const wsHit = wsSeen.find((x) => x.data.includes(MARK));
+    if (!w && wsHit) return { ok: false, reason: "Bales は、この保存を WebSocket（つなぎっぱなしの通信）で送っていました。この形に合わせて直します（この画面を見せてください）", seen: [`WS ${String(wsHit.url).replace(/\?.*$/, "")} ${wsHit.data.replace(/"[^"]{13,}"/g, '"…"').slice(0, 400)}`] };
+    const seenW = writes.slice(0, 12).map((x) => `${x.method} ${String(x.url).replace(/^https?:\/\/[^/]+/, "")}（${x.fmt || "?"}・${x.status}）${x.body ? " " + JSON.stringify(mask(x.body)).slice(0, 160) : ""}`);
     if (!w) return { ok: false, reason: `まだ「${MARK}」と入れた保存が見えていません。顧客の現状に ${MARK} と入れて保存してから、もう一度押してください。${seenW.length ? "（見えた保存：" + seenW.length + "件）" : "（このページを開いてから、保存が1つも見えていません。保存したあとにページを読み込み直していると見えなくなります）"}`, seen: seenW };
     const lead = curLeadId(); const mp = pathOf(w.body, MARK); const parentPath = mp.slice(0, -1); const parent = at(w.body, parentPath); const vKey = mp[mp.length - 1];
     const defs = await fieldDefs(); const def = defMatch(defs, "顧客の現状", "Client_Current_Status__c");
@@ -172,8 +177,11 @@
   window.fetch = async function (...a) {
     let req = null;
     try { const r0 = a[0]; const o = a[1] || {}; const url = typeof r0 === "string" ? r0 : r0 instanceof URL ? r0.href : (r0 && r0.url) || ""; req = { url: new URL(url, location.href).href, method: String(o.method || (r0 && r0.method) || "GET").toUpperCase(), headers: { ...hdrObj(r0 && r0.headers), ...hdrObj(o.headers) }, body: typeof o.body === "string" ? o.body : null, rawBody: o.body, cred: o.credentials || (r0 && r0.credentials) || "same-origin", via: "fetch" }; } catch {}
+    try { if (req && req.method !== "GET" && req.method !== "HEAD") { const r0 = a[0]; const o = a[1] || {};
+        if (o.body == null && r0 instanceof Request) req.bodyP = r0.clone().text().catch(() => null);
+        else if (typeof Blob !== "undefined" && o.body instanceof Blob) req.bodyP = o.body.text().catch(() => null); } } catch {}
     const r = await of.apply(this, a);
-    try { if (req && req.method !== "GET" && req.method !== "HEAD") noteWrite(req, r.status); } catch {}
+    try { if (req && req.method !== "GET" && req.method !== "HEAD") { if (req.bodyP) req.bodyP.then((t) => { req.rawBody = t; noteWrite(req, r.status); }); else noteWrite(req, r.status); } } catch {}
     try { const ct = r.headers.get("content-type") || ""; if (req && (/json|text\/plain/i.test(ct) || !ct)) r.clone().text().then((t) => onResp(req, t, ct, r.status)).catch(() => {}); else if (req) noteSeen(req, { ct: ct.slice(0, 40), status: r.status, len: -1, arr: -1 }); } catch {}
     return r;
   };
