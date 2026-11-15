@@ -27,6 +27,7 @@
     } catch (e) { $("mcCards").innerHTML = `<div class="mc-card"><small>読めませんでした：${esc(e.message)}</small></div>`; }
   }
   // ===== 商談（MiiTel）：左に商談のカード、右に中身（kinbot の商談履歴と同じ作りを水色で）（2026-11-12）=====
+  let mtHidden = 0;   // MOCHICA のメンバーが参加していないので出していない会議の数（2026-11-16）
   let mtAll = [], mtSel = "";
   const jst = (v) => v ? new Date(new Date(v).getTime() + 9 * 3600000) : null;
   const dkey = (v) => { const d = jst(v); return d ? d.toISOString().slice(0, 10) : ""; };
@@ -54,7 +55,7 @@
     if (mtHost == null && !q) {
       const by = new Map(); for (const m of mtAll) for (const h of hostsOf(m)) { const v = by.get(h) || { n: 0, tr: 0, last: "" }; v.n++; if (m.transcript_len || m.has_tr) v.tr++; const at = m.started_at || m.received_at || ""; if (at > v.last) v.last = at; by.set(h, v); }
       const hs = [...by.entries()].filter(([h]) => !q || h.toLowerCase().includes(q)).sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last)));
-      $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`;
+      $("mtCount").textContent = `${hs.length}人・${mtAll.length}商談`; $("mtCount").title = mtHidden ? `MOCHICA のメンバーが参加していない会議 ${mtHidden}件は出していません` : "";
       box.innerHTML = hs.map(([h, v]) => `<div class="mt-pcard" data-host="${esc(h)}"><span class="av">${esc(h.replace(/^（|）$/g, "").slice(0, 1))}</span><span class="nm"><b>${esc(h)}</b><small>${v.n}商談${v.tr ? `・文字起こし${v.tr}` : ""}${v.last ? `・最新 ${md(v.last)}` : ""}</small></span><span class="go">›</span></div>`).join("") || '<div class="mc-note" style="padding:10px">見つかりませんでした</div>';
       box.querySelectorAll("[data-host]").forEach((el) => el.addEventListener("click", () => { mtHost = el.dataset.host; mtCo = null; const qi = $("mtQ"); if (qi) qi.value = ""; mtSel = ""; mtDraw();
         // 担当を選んだだけでは商談を開かない。会社カード → その会社の商談、の順で開く（2026-11-15 田中さん）
@@ -100,7 +101,7 @@
   window.mcMeetingCompanies = async () => { if (!mtAll.length) await loadMeetings(); return [...new Set(mtAll.map((m) => coOf(m)).filter(Boolean))]; };
   window.mcOpenCompany = async (co) => { go("mtg"); if (!mtAll.length) await loadMeetings(); const m = mtAll.find((x) => coKey(x) === co); mtHost = m ? (hostsOf(m)[0] ?? null) : null; mtCo = co; mtSel = ""; mtDraw(); mtCompany(co); };
   async function loadMeetings() {
-    try { const d = await api("/api/mochica/miitel/meetings"); mtAll = (d.items || []).filter((m) => String(m.title || "").trim() || m.started_at || m.transcript_len); mtDraw(); }
+    try { const d = await api("/api/mochica/miitel/meetings"); mtHidden = d.hidden || 0; mtAll = (d.items || []).filter((m) => String(m.title || "").trim() || m.started_at || m.transcript_len); mtDraw(); }
     catch (e) { const b = $("mtList"); if (b) b.textContent = "読めませんでした：" + e.message; }
   }
   // ===== 商談の段階：録画の下に帯と一覧を出す（kinbot の商談履歴と同じ作り・同じ色）（2026-11-14）=====
