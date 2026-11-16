@@ -88,7 +88,8 @@ Neo Career / C Career の営業チーム（DOC・MOCHICA）が毎日使ってい
 5. rebase で同じところがぶつかったら、**両方の直しを残す**。`BUILD_TAG` の行と `dev/kinbot-memory.md` はよくぶつかるが、両方の文を残せばよい。分からないときは手を止めて人に聞く。
 6. 福井さんは主に MOCHICA（`public/mochica*`・`public/mcbales.js`・`server/index.js` の `/api/mochica/` まわり・`public/zoom-ext/`）を直す。DOC の画面やほかの機能を直すときは、田中さんに一言伝える。
 7. 拡張機能（`public/zoom-ext/`）を直したら、`manifest.json` の `version` を1つ上げてから `sh dev/build-ext.sh` で zip を作り直し、一緒に上げる（みんなのパソコンの自動更新は、この版の数字が変わったときだけ動く）。
-8. 上げたら、GitHub の commit の状態（Railway の「- kinbot」が success）まで見届けてから「出しました」と言う。直したことは `dev/kinbot-memory.md` に「日付・だれの依頼・何をなぜ」を1行で残す。
+8. **コミットの本文に「開発: 名前」の行を必ず入れる**（例：`開発: 福井聖`）。Claude から上げると作者が「Claude」になり、更新の通知（kinbotデプロイ）にだれの開発かが出ないため。
+9. 上げたら、GitHub の commit の状態（Railway の「- kinbot」が success）まで見届けてから「出しました」と言う。直したことは `dev/kinbot-memory.md` に「日付・だれの依頼・何をなぜ」を1行で残す。
 
 ## 迷ったら
 
