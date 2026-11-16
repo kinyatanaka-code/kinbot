@@ -662,7 +662,52 @@ function apiResponse(pathname, query) {
   if (pathname.indexOf("/api/apo/invites/") === 0) return { ok: true };
   if (pathname.indexOf("/api/smart-links/") === 0 && pathname.endsWith("/mail")) return { ok: true, draft: true, to: "x@y.jp" };
   if (pathname.startsWith("/api/smart-links/")) return { ok: true, link: {}, mail: { ok: true } };
+  // kinbot for MOCHICA の架電（mccall.js）の見た目を確かめるためのダミー（2026-11-16）。/mochica.html#call で開く
+  if (pathname.startsWith("/api/mccall/")) return mccallMock(pathname);
+  if (pathname === "/api/mochica/reps") return { ok: true, items: REPS.map((r) => ({ email: r.email, name: r.name, mochica: r.businesses.includes("MOCHICA") })) };
+  if (pathname === "/api/mochica/bales/lists") return { ok: true, items: [{ list_key: "bales:all", name: "すべてのリード", count: 23394, status: "done" }] };
   return {};
+}
+
+const MC_REACH = {
+  none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "番号が使えない" } },
+  gate: { label: "受付まで", outcomes: { absent: "担当者が不在", blocked: "受付で断られた", callback_req: "掛け直しを指定された" } },
+  person: { label: "担当者と話せた", outcomes: { apo: "アポ獲得", doc_send: "資料を送る", follow: "また話す（フォロー）", reject: "断られた" } },
+};
+const MC_LEADS = [
+  { id: 1, company: "株式会社ベルク", person: "町田", hot: 3, attempts: 2, phone: "03-1234-5678", cross_from: null, next_at: "2026-11-16T05:00:00Z", next_why: "受付で聞いた「午後」に掛け直し",
+    gate: { name: "町田", hours: "午後", direct: "" } },
+  { id: 2, company: "合同会社サンライズ", person: "人事部 ご担当者", hot: 1, attempts: 0, phone: "06-9876-5432", cross_from: "DOC", cross_id: 1, gate: null },
+  { id: 3, company: "株式会社コロンバン", person: "宮村", hot: 2, attempts: 1, phone: "045-111-2222", cross_from: null, gate: null },
+];
+function mccallMock(p) {
+  if (p === "/api/mccall/meta") return { ok: true, reach: MC_REACH, rejectReasons: ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"], admin: true, me: "kinya.tanaka@neo-career.co.jp" };
+  if (p === "/api/mccall/lists") return { ok: true, admin: true, items: [{ id: 1, name: "11月 ホット企業", members: [], total: 120, open: 98, now: 3, cross: 0 }, { id: 2, name: "DOC 失注から MOCHICA 提案", members: ["eda@neo-career.co.jp"], total: 40, open: 40, now: 0, cross: 40 }] };
+  if (p === "/api/mccall/stats") return { ok: true, me: { calls: 37, person: 9, apo: 2, cross: 1 }, all: [{ name: "田中欽也", calls: 37, person: 9, apo: 2, cross: 1 }, { name: "江田 直人", calls: 52, person: 11, apo: 1, cross: 0 }] };
+  if (p === "/api/mccall/queue") return { ok: true, later: 4, items: MC_LEADS.map((l) => ({ id: l.id, company: l.company, person: l.person, hot: l.hot, attempts: l.attempts, next_at: l.next_at || null, next_why: l.next_why || null, cross_from: l.cross_from })) };
+  if (p === "/api/mccall/cross") return { ok: true, moves: [{ at: "2026-11-15T01:00:00Z", by: "田中欽也", from_name: "DOC 9月 失注", to_name: "DOC 失注から MOCHICA 提案", count: 40, calls: 6, apo: 1, reason: "DOC で失注した企業に MOCHICA を提案するため" }],
+    calls: [{ created_at: "2026-11-16T02:10:00Z", caller: "江田 直人", company: "合同会社サンライズ", outcome: "担当者が不在", from_name: "DOC 9月 失注" }] };
+  if (p === "/api/mccall/doc/lists") return { ok: true, items: [{ id: 11, name: "DOC 9月 失注", open: 112 }, { id: 12, name: "doda 掲載中", open: 840 }] };
+  let m = p.match(/^\/api\/mccall\/leads\/(\d+)$/);
+  if (m) {
+    const l = MC_LEADS.find((x) => x.id === +m[1]) || MC_LEADS[0];
+    return { ok: true, lead: { ...l, list_id: 1, src: l.cross_from ? "doc" : "bales", data: l.cross_from ? { list_name: "DOC 9月 失注", assigned_to: "植野 大輔", industry: "小売" } : { lastActivityAt: "2026-11-14T06:30:00Z", lastActivityTypeText: "コール", operatorName: "大沢" } },
+      ban: null, docAlso: l.id === 3 ? [{ list: "doda 掲載中", assigned_to: "田中 遼" }] : [],
+      phones: [{ label: "代表", number: l.phone, digits: l.phone.replace(/\D/g, ""), n: 4, reached: 1, invalid: false, last: "担当者が不在", lastAt: "11/14 15:30" },
+        { label: "電話2", number: "03-5555-0000", digits: "0355550000", n: 2, reached: 0, invalid: true, last: "番号が使えない", lastAt: "11/10 11:00" }],
+      summary: l.attempts ? "11/14 福井聖 担当者が不在 → 担当は町田さん・午後なら在席 → 11/16 14:00 に再架電" : "",
+      sf: { lead: { status: "失注", owner: "中澤 良太", 失注理由大: "時期", 検討開始時期: "2027年4月" }, sum: { n: 2, won: false, lost: true } },
+      cross: l.cross_from ? { from_name: "DOC 9月 失注", reason: "DOC で失注した企業に MOCHICA を提案するため", at: "2026-11-15T01:00:00Z" } : null,
+      timeline: [
+        { at: "2026-11-14T06:30:00Z", src: "kinbot", who: "福井聖", title: "担当者が不在", text: "受付で聞けたこと：担当 町田・在席 午後\n次回 11/16 14:00", mine: true, logId: 9 },
+        { at: "2026-11-10T02:00:00Z", src: "Bales", who: "大沢", title: "コール", text: "受付で、採用は人事部の町田さんが担当とのこと。今期は中途採用を増やす予定。資料が欲しいと言われたので後日送付。" },
+        { at: "2026-09-02", src: "SF", who: "中澤 良太", title: "商談：失注", text: "【新/ヒ】株式会社ベルク" },
+      ] };
+  }
+  if (/\/log$/.test(p)) return { ok: true, logId: 99, nextAt: new Date(Date.now() + 2 * 3600e3).toISOString(), why: "同じ日のうちに", done: false };
+  if (/\/undo$/.test(p)) return { ok: true, leadId: 1, sf: "SF の活動も消しました" };
+  if (/\/gate$/.test(p)) return { ok: true, gate: { name: "町田", hours: "午後", direct: "" } };
+  return { ok: true };
 }
 
 const server = http.createServer((req, res) => {

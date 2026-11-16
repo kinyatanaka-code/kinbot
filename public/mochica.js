@@ -3,9 +3,10 @@
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const api = async (u, o = {}) => { const r = await fetch(u, { credentials: "include", headers: { "content-type": "application/json" }, ...o }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; };
-  const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電（Zoom Phone）", apo: "アポ（カレンダー）", doc: "DOC の議事録", settings: "設定" };
+  const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電", apo: "アポ（カレンダー）", doc: "DOC の議事録", settings: "設定" };
   const go = (k) => {
     if (!TITLES[k] || k === "home") k = "mtg";   // ホームは一旦しまっている（2026-11-15）
+    if (window.__mcCallOnly) k = "call";   // インターン（kincall だけのアカウント）は架電だけ（2026-11-16）
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
@@ -13,6 +14,7 @@
     if (k === "settings") { const f = $("mcSetFrame"); if (f && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
     if (k === "mtg") loadMeetings();
     if (k === "list" && window.mcBalesView) window.mcBalesView();   // Bales のリスト（2026-11-15）
+    if (k === "call" && window.mcCallView) window.mcCallView();   // 架電（2026-11-16 新しく作成）
     { const hr = $("mcHeadR"); if (hr) hr.hidden = k !== "mtg"; }
   };
   document.querySelectorAll("[data-go]").forEach((a) => a.addEventListener("click", () => go(a.dataset.go)));
@@ -625,6 +627,8 @@
   go(location.hash.slice(1) || "mtg");
   // 下の段：頭文字の丸アイコン・名前・設定（歯車）・ログアウト（kinbot と同じ作り）
   fetch("/api/me", { credentials: "include" }).then((r) => r.json()).then((me) => {
+    // kincall だけのアカウント（インターン）は、ほかの MOCHICA の画面を開けないので架電だけを出す（2026-11-16）
+    if (me && me.kincallOnly) { window.__mcCallOnly = true; document.querySelectorAll(".side-item[data-go]").forEach((a) => { if (a.dataset.go !== "call") a.hidden = true; }); go("call"); }
     const who = $("who"); if (!who || !me) return; const name = me.name || me.username || "";
     who.textContent = name ? name + (me.admin ? "（管理者）" : "") : ""; who.title = me.username || "";
     const foot = who.parentElement;

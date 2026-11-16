@@ -508,6 +508,74 @@ if (saveThanksBtn) {
 }
 loadThanks();
 
+// ===== アプローチ禁止企業（2026-11-16）=====
+// 名簿を見る・登録する・（管理者は）手動登録を外す。SF 由来は SF の「アプローチ禁止の種類」で管理するので、ここでは外せない。
+const banEsc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let banTimer = null;
+async function loadBans() {
+  const list = document.getElementById("banList");
+  if (!list) return;
+  const q = (document.getElementById("banQ") || {}).value || "";
+  const src = (document.getElementById("banSrc") || {}).value || "";
+  try {
+    const r = await fetch(`/api/approach-bans?q=${encodeURIComponent(q)}&source=${encodeURIComponent(src)}&limit=500`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "読み込めませんでした");
+    const c = d.counts || {};
+    const sf = d.sf;
+    document.getElementById("banSfState").textContent =
+      `登録 ${(c.manual || 0) + (c.sf || 0)}件（手動 ${c.manual || 0}／SF 由来 ${c.sf || 0}）` +
+      (sf ? (sf.ok ? `　SF から最後に読んだのは ${new Date(sf.at).toLocaleString("ja-JP")}` : `　SF の読み込みに失敗：${sf.error || ""}（前の名簿のまま止めています）`) : "　SF からは起動後まもなく自動で読みます（以後1時間ごと）");
+    document.getElementById("banCount").textContent = d.total > d.items.length ? `${d.total}件中 ${d.items.length}件を表示` : `${d.total}件`;
+    const delIco = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+    list.innerHTML = d.items.length ? d.items.map((b) => `<div class="ban-row">
+        <span class="co" title="${banEsc(b.company)}">${banEsc(b.company || "（会社名なし）")}</span>
+        <span class="tel">${banEsc(b.phone || "")}</span>
+        <span class="why" title="${banEsc(b.reason)}">${banEsc(b.reason || "")}</span>
+        <span class="ban-chip ${b.source === "sf" ? "sf" : ""}">${b.source === "sf" ? "SF" : "手動"}</span>
+        ${d.canRemove && b.source === "manual" ? `<button type="button" class="ban-del" data-id="${b.id}" title="禁止を外す">${delIco}</button>` : "<span></span>"}
+      </div>`).join("") : '<div class="ban-msg">該当する会社はありません</div>';
+  } catch (e) { list.innerHTML = `<div class="ban-msg">${banEsc(e.message)}</div>`; }
+}
+(function () {
+  const add = document.getElementById("banAdd");
+  if (!add) return;
+  const msg = (t) => { const m = document.getElementById("banMsg"); if (m) m.textContent = t; };
+  add.addEventListener("click", async () => {
+    const text = document.getElementById("banText").value.trim();
+    if (!text) return msg("会社名か電話番号を入れてください");
+    add.disabled = true; msg("登録しています…");
+    try {
+      const r = await fetch("/api/approach-bans", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "登録できませんでした");
+      msg(`${d.added}件を登録しました${d.skipped ? `（登録済み・空のため ${d.skipped}件は飛ばしました）` : ""}${d["架電先に印"] ? `　リストにいた ${d["架電先に印"]}件をかける一覧から外しました` : ""}`);
+      document.getElementById("banText").value = "";
+      loadBans();
+    } catch (e) { msg(e.message); } finally { add.disabled = false; }
+  });
+  document.getElementById("banSync").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    document.getElementById("banSfState").textContent = "SF から読み直しています…（数十秒かかることがあります）";
+    try {
+      const r = await fetch("/api/approach-bans/sync-sf", { method: "POST" });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.ok === false) msg(`SF から読めませんでした：${d.error || r.status}（前の名簿のまま止めています）`);
+    } finally { btn.disabled = false; loadBans(); }
+  });
+  document.getElementById("banQ").addEventListener("input", () => { clearTimeout(banTimer); banTimer = setTimeout(loadBans, 300); });
+  document.getElementById("banSrc").addEventListener("change", loadBans);
+  document.getElementById("banList").addEventListener("click", async (ev) => {
+    const b = ev.target.closest(".ban-del");
+    if (!b) return;
+    if (!confirm("この会社のアプローチ禁止を外しますか？外すと、架電リストに入れたり、かけたりできるようになります。")) return;
+    const r = await fetch(`/api/approach-bans/${b.dataset.id}`, { method: "DELETE" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) msg(d.error || "外せませんでした"); else msg("外しました");
+    loadBans();
+  });
+})();
+
 // ===== メニュー切替 =====
 (function () {
   const menu = document.getElementById("setMenu");
@@ -550,6 +618,7 @@ loadThanks();
       const name = item.dataset.tab;
       document.querySelectorAll(".set-pane").forEach((p) => (p.hidden = p.dataset.pane !== name));
       if (name === "members") { loadMembers(); loadApoOwner(); loadApoInvite(); }
+      if (name === "bans") loadBans();
       if (name === "integrations") { loadChatConfig(); }
       // 送り先の登録も「知らせ」に移したので、こちらで読み込む
       if (name === "notices") { loadChatConfig(); loadChatTargets(); }

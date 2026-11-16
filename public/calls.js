@@ -11226,6 +11226,7 @@ async function csvSend(dryRun) {
       合計.履歴 += Number(d["履歴を残した"] || 0);
       合計.履歴済み = (合計.履歴済み || 0) + Number(d["履歴済み"] || 0);
       合計.重複除外 += Number(d["重複除外"] || 0);
+      合計.禁止 = (合計.禁止 || 0) + Number(d["禁止で外した"] || 0);   // アプローチ禁止の会社としてはじいた数
       合計.移した += Number(d["移した"] || 0);
       合計.所有者変更 += Number(d["所有者変更"] || 0);
       合計.クロス商談あり = (合計.クロス商談あり || 0) + Number(d["クロス商談あり"] || 0);
@@ -11271,7 +11272,8 @@ async function csvSend(dryRun) {
               + ([...失敗理由].length ? `　例：${[...失敗理由].slice(0, 3).join(" ／ ")}` : "")
             : "") +
           (csvShareSelected().length ? `　${csvShareSelected().length}人に分けました` : "")
-        + (appendTarget ? `（「${appendTarget.name}」に追加しました）` : ""));
+        + (appendTarget ? `（「${appendTarget.name}」に追加しました）` : "")
+        + (合計.禁止 ? `　アプローチ禁止の会社 ${合計.禁止}件は入れていません` : ""));
       loadLists();
       if (appendTarget) { appendTarget = null; window.__kcAppend = null; renderAppendBanner(); }
     }

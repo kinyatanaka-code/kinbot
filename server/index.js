@@ -31,6 +31,7 @@ import { deepgramReady, transcribeUrl, setDeepgramKeys, deepgramKeyStatus, deepg
 import { zoomPresence, zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomPhoneCallHistory as _zpCallHistory, zoomResultToKincall, zoomPhoneRecordings as _zpRecordings, zoomDownload, zoomPhoneUserNumber } from "./zoomphone.js";
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
+import { registerMcCall } from "./mccall.js";   // kinbot for MOCHICA の架電（DOC の kincall とは別の表）（2026-11-16）
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
 import { buildSlots, stillFree } from "./booking.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
@@ -278,7 +279,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -657,6 +658,8 @@ import {
   insertProposalFile,
   listProposalFiles,
   deleteProposalFile,
+  loadApproachBans, approachBanHitSync, approachBanHit, dropApproachBanned, listApproachBans, addApproachBans,
+  removeApproachBan, replaceSfApproachBans, applyApproachBansToTargets,
 } from "./db.js";
 import { resolveConfig, statusInfo } from "./config.js";
 import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, guessCallReason, guessKana, extractJobTypes, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff , lookupIndustryPick } from "./analyzer.js";
@@ -668,6 +671,8 @@ import {
   googleConfigured,
   authUrl,
   exchangeCode,
+  identityAuthUrl,
+  identityEmailFromCode,
   isConnected as gcalConnected,
   disconnect as gcalDisconnect,
   listZoomEvents,
@@ -796,6 +801,10 @@ import {
   endImpersonation,
   getImpersonator,
   addAdmin,
+  makeResetStartState,
+  readResetStartState,
+  makeResetToken,
+  resetPassword,
 } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -866,6 +875,8 @@ function isKincallPath(p) {
     p === "/kincall.svg" || p === "/style.css" || p === "/nav.js" || p === "/icon.svg" ||
     p === "/api/me" || p === "/api/logout" ||
     p.startsWith("/api/calls/") || p === "/api/calls" ||
+    // MOCHICA のインターンも MOCHICA の架電画面だけは使えるように（2026-11-16）。ほかの MOCHICA の API（/api/mochica/）は開けない
+    p === "/mochica" || p === "/mochica.html" || p.startsWith("/api/mccall/") ||
     // 画面で読むファイル（.js：案件共有など）・Zoomの拡張機能の zip も（2026-11-09：インターン生がダウンロードすると HTML になっていた）
     /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p) || p.startsWith("/zoom-ext/");
 }
@@ -891,6 +902,8 @@ const OPEN_PATHS = new Set([
   "/api/mochica/miitel/webhook",
   // 解約フォームの送信をすぐ知らせてもらう入口（Googleフォームのスクリプトから。合言葉で守る）（2026-11-10）
   "/api/kinxs/autorenew/form-hook", "/api/login", "/api/register", "/api/auth-info",
+  // パスワード再発行（ログインできない人が使う。本人確認はGoogle、state は署名つき）（2026-11-16）
+  "/reset.html", "/auth/pwreset/start", "/api/password-reset", "/auth/google/callback",
   // Zoom専用のChromeへ、ログインしたまま引き継ぐ1回だけのリンク（2026-11-07）
   "/auth/handoff",
   // kincs の招待から作るアカウント（2026-11-08）
@@ -1160,6 +1173,29 @@ app.post("/api/login", async (req, res) => {
     sfErrorResponse(res, e);
   }
 });
+// パスワード再発行：Googleで本人確認してから新しいパスワードを決める（2026-11-16）
+// 管理者がメールだけで作ったアカウントは本人がパスワードを知らないため。メールを送らずに済むようGoogleで確かめる。
+app.get("/auth/pwreset/start", async (req, res) => {
+  const email = String(req.query.email || "").trim().toLowerCase();
+  const back = (msg) => res.redirect("/reset.html?err=" + encodeURIComponent(msg));
+  if (!googleConfigured() || !PUBLIC_URL) return back("Googleでの本人確認が使えない設定です。管理者に連絡してください");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return back("メールアドレスの形式が正しくありません");
+  // 登録の有無はここでは言わない（他人のメールが登録済みか調べられないように）。確かめた後に分かる
+  res.redirect(identityAuthUrl(`${PUBLIC_URL}/auth/google/callback`, makeResetStartState(email), email));
+});
+app.post("/api/password-reset", async (req, res) => {
+  try {
+    const { t, password } = req.body || {};
+    const r = await resetPassword(t, password);
+    if (r.error) return res.status(400).json({ error: r.error });
+    console.log(`[pwreset] ${r.email} がパスワードを決め直しました`);
+    setSessionCookie(res, r.email);
+    res.json({ ok: true, username: r.email, admin: r.admin });
+  } catch (e) {
+    console.error("[pwreset]", e.message);
+    res.status(500).json({ error: "パスワードを変えられませんでした。時間をおいてもう一度お試しください" });
+  }
+});
 app.post("/api/logout", (req, res) => {
   clearSessionCookie(res);
   res.json({ ok: true });
@@ -1338,6 +1374,133 @@ app.use((req, res, next) => {
     console.log(`[audit] IMP ${req.impersonatorFrom} as ${req.user} ${req.method} ${req.path}`);
   }
   next();
+});
+
+// ===== アプローチ禁止企業：架電の記録・次回予約・復活・資料送付をサーバー側で必ず止める（2026-11-16）=====
+//   一覧から外していても、開きっぱなしの画面や古い画面から送られてくることがあるため、受け口でもう一度確かめる。
+//   名簿が読めないときは「通す」ではなく「止める」に倒す（禁止の会社にかけてしまうほうが重いため）。
+const 禁止で止める操作 = /^\/api\/calls\/targets\/(\d+)\/(record|set-next|revive|doc\/send|doc\/preview)$/;
+app.use(async (req, res, next) => {
+  if (req.method !== "POST") return next();
+  let t = null;
+  try {
+    const m = 禁止で止める操作.exec(req.path);
+    if (m) t = await getCallTarget(parseInt(m[1], 10));
+    else if (req.path === "/api/calls/record") {
+      const b = req.body || {};
+      const tid = parseInt(b.targetId, 10);
+      t = tid ? await getCallTarget(tid) : { lead_id: b.leadId, company: b.company };
+    } else return next();
+    if (!t) return next();
+    const h = await approachBanHit(t);
+    if (!h) return next();
+    console.warn(`[アプローチ禁止] ${req.path} を止めました（${t.company || ""}） by ${req.user}`);
+    return res.status(403).json({ approachBan: true, error: `「${t.company || "この会社"}」はアプローチ禁止のため、架電・記録・資料送付はできません（理由：${h.reason || "アプローチ禁止"}）。誤りだと思うときは、設定→アプローチ禁止 で登録内容を確かめてください。` });
+  } catch (e) {
+    console.error("[アプローチ禁止] 確認できませんでした", e.message);
+    return res.status(503).json({ error: "アプローチ禁止の確認ができなかったため、念のため止めました。少し待ってからやり直してください。" });
+  }
+});
+
+// SF の「アプローチ禁止の種類（Ban_Type__c）」が入っているリード（と、項目があれば取引先）を名簿に入れ替える。
+//   「なし」「解除」のような値は禁止ではないので外す。SF が読めなかったときは、前の名簿をそのまま使う。
+const 禁止でない値 = /^(なし|無し|解除|-|ー|－|なし（解除）)$/;
+let _banSync = { at: 0, running: false, last: null };
+async function syncSfApproachBans(why = "定期") {
+  if (_banSync.running) return _banSync.last;
+  _banSync.running = true;
+  try {
+    const owner = await sfOperator().catch(() => "");
+    if (!owner || !salesforceConfigured()) { _banSync.last = { ok: false, error: "Salesforce につながっている運用者がいません" }; return _banSync.last; }
+    const rows = [];
+    const leads = await sfQueryAll(owner, "SELECT Id, Company, Phone, MobilePhone, Ban_Type__c FROM Lead WHERE Ban_Type__c != null", 200000);
+    for (const l of leads) {
+      const v = String(l.Ban_Type__c || "").trim();
+      if (!v || 禁止でない値.test(v)) continue;
+      rows.push({ sfId: l.Id, leadId: l.Id, company: l.Company || "", phone: l.Phone || "", reason: `SF：${v}` });
+      if (l.MobilePhone && l.MobilePhone !== l.Phone) rows.push({ sfId: l.Id, leadId: l.Id, company: l.Company || "", phone: l.MobilePhone, reason: `SF：${v}` });
+    }
+    // 取引先に同じ項目があれば使う（無い組織では SOQL がエラーになるので、黙って飛ばす）
+    let accN = 0;
+    try {
+      const accs = await sfQueryAll(owner, "SELECT Id, Name, Phone, Ban_Type__c FROM Account WHERE Ban_Type__c != null", 200000);
+      for (const a of accs) {
+        const v = String(a.Ban_Type__c || "").trim();
+        if (!v || 禁止でない値.test(v)) continue;
+        rows.push({ sfId: a.Id, leadId: a.Id, company: a.Name || "", phone: a.Phone || "", reason: `SF取引先：${v}` }); accN++;
+      }
+    } catch {}
+    const r = await replaceSfApproachBans(rows);
+    const ap = await applyApproachBansToTargets().catch((e) => ({ error: e.message }));
+    _banSync.at = Date.now();
+    _banSync.last = { ok: true, at: _banSync.at, リード: leads.length, 取引先: accN, 名簿: rows.length, 入れ替えた: r.replaced, 架電先に印: ap };
+    console.log(`[アプローチ禁止] SF から名簿を更新（${why}）：${rows.length}件／架電先の印 +${ap.marked || 0} -${ap.cleared || 0}`);
+    return _banSync.last;
+  } catch (e) {
+    console.error("[アプローチ禁止] SF の名簿を読めませんでした（前の名簿のまま）", e.message);
+    _banSync.last = { ok: false, error: e.message, at: Date.now() };
+    return _banSync.last;
+  } finally { _banSync.running = false; }
+}
+setTimeout(() => { syncSfApproachBans("起動時").catch(() => {}); }, 90 * 1000);
+setInterval(() => { syncSfApproachBans("定期").catch(() => {}); }, 60 * 60 * 1000);
+
+// 名簿を見る・足す・外す（設定→アプローチ禁止）
+app.get("/api/approach-bans", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const d = await listApproachBans({ q: String(req.query.q || ""), source: String(req.query.source || ""), limit: parseInt(req.query.limit, 10) || 500 });
+    res.json({ ok: true, ...d, sf: _banSync.last, canRemove: !!req.isAdmin });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 会社名・電話番号が禁止かどうかだけ確かめる（取り込み前の確認や、ほかの画面から使う）
+app.post("/api/approach-bans/check", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {};
+    const h = await approachBanHit({ company: b.company, phone: b.phone, leadId: b.leadId });
+    res.json({ ok: true, banned: !!h, hit: h });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 登録：{ items:[{company, phone, reason}] } か、{ text: "会社名,電話番号,理由" を1行ずつ }
+app.post("/api/approach-bans", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {};
+    let items = Array.isArray(b.items) ? b.items : [];
+    if (!items.length && b.text) {
+      items = String(b.text).split(/\r?\n/).map((ln) => ln.split(/[,\t]/).map((s) => s.trim()))
+        .filter((c) => c.some(Boolean))
+        .map(([company = "", phone = "", reason = ""]) => {
+          // 1列目が電話番号の形なら、電話番号として扱う
+          if (/^[\d\-+()（）\s０-９－]{9,}$/.test(company) && !phone) return { company: "", phone: company, reason };
+          return { company, phone, reason };
+        });
+    }
+    items = items.slice(0, 5000);
+    if (!items.length) return res.status(400).json({ error: "会社名か電話番号を入れてください" });
+    const r = await addApproachBans(items, req.user);
+    const ap = await applyApproachBansToTargets().catch(() => ({ marked: 0 }));
+    console.log(`[アプローチ禁止] 手動で ${r.added}件 登録（架電先の印 +${ap.marked || 0}） by ${req.user}`);
+    res.json({ ok: true, ...r, 架電先に印: ap.marked || 0 });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 外す：管理者だけ・手動で登録したものだけ（SF 由来は SF の項目を直す）
+app.delete("/api/approach-bans/:id", async (req, res) => {
+  try {
+    if (!req.isAdmin) return res.status(403).json({ error: "禁止の解除は管理者だけができます" });
+    const n = await removeApproachBan(parseInt(req.params.id, 10));
+    if (!n) return res.status(400).json({ error: "外せませんでした（SF 由来のものは、SF の「アプローチ禁止の種類」を空にしてください）" });
+    await applyApproachBansToTargets().catch(() => {});
+    console.log(`[アプローチ禁止] id=${req.params.id} を解除 by ${req.user}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/approach-bans/sync-sf", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    res.json(await syncSfApproachBans(`手動 ${req.user}`));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 商談の「何回目」「フェーズ」を更新
@@ -6455,7 +6618,7 @@ app.get("/api/calls/search-all", async (req, res) => {
     // 全メンバー・全リスト（ナーチャリング・リサイクル・アーカイブ・非表示も）から探す。誰でも使える。
     const q = String(req.query.q || "").trim();
     if (q.length < 2) return res.json({ items: [], note: "2文字以上で探してください" });
-    const items = await searchAllLeads(q, { limit: parseInt(req.query.limit, 10) || 300 });
+    const items = await dropApproachBanned(await searchAllLeads(q, { limit: parseInt(req.query.limit, 10) || 300 }));   // 探しても禁止の会社は出さない
     res.json({ items, count: items.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -9170,7 +9333,21 @@ app.post("/api/calls/from-csv", async (req, res) => {
     const dryRun = !!b.dryRun;
     // SFを一切触らず、CSVの中身だけで架電リストを作るモード（メールが無い等でSF更新したくないとき）
     const listOnly = !!b.listOnly;
-    const 行 = Array.isArray(b.rows) ? b.rows : [];
+    const 生の行 = Array.isArray(b.rows) ? b.rows : [];
+    // アプローチ禁止の会社は、SF のリードを作る前にここで外す（SF に新しいリードを作ってしまうのも防ぐため）
+    const 行 = [], 禁止で外した = [];
+    await loadApproachBans();
+    for (const r of 生の行) {
+      const h = approachBanHitSync({ company: r && r.company, phone: r && r.phone, leadId: r && r.leadId });
+      if (h) 禁止で外した.push({ 会社名: String((r && r.company) || ""), 理由: h.reason || "アプローチ禁止" }); else 行.push(r);
+    }
+    if (禁止で外した.length) {
+      console.log(`[kincall] CSV取り込みでアプローチ禁止の会社を外しました（${禁止で外した.length}件） by ${req.user}`);
+      const 元のjson = res.json.bind(res);
+      res.json = (o) => 元のjson(o && typeof o === "object" && !Array.isArray(o) ? { ...o, 禁止で外した: 禁止で外した.length, 禁止の会社: 禁止で外した.slice(0, 50) } : o);
+    }
+    // 画面は何回かに分けて送ってくるので、ひと塊が全部禁止でもエラーにせず「0件」で返す（途中で取り込みが止まらないように）
+    if (!行.length && 禁止で外した.length) return res.json({ ok: true, 件数: 0, 見つかった: 0, 新しく作った: 0, とばした: 0, 重複除外: 0, 移した: 0, 明細: [], note: "すべてアプローチ禁止の会社だったため、入れませんでした" });
     if (!行.length) return res.status(400).json({ error: "中身がありません" });
 
     // 誰のSF連携を使うか（自分が無ければ代わりに更新する人）
@@ -10995,6 +11172,8 @@ app.get("/api/calls/sheet", async (req, res) => {
   try {
     if (!req.isAdmin && !req.actingCloser && !(await isCloserUser(req.user))) return res.status(403).json({ error: "クローザー・管理者だけが使えます" });
     const d = await callSheet(req.query || {});
+    // アプローチ禁止の会社は出さない（印 excluded が付く前でも名簿で直接はじく）
+    if (Array.isArray(d.rows)) { const before = d.rows.length; d.rows = await dropApproachBanned(d.rows); d.total = Math.max(0, Number(d.total || 0) - (before - d.rows.length)); }
     res.json({ ok: true, ...d });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -11610,6 +11789,8 @@ app.get("/api/calls/targets", async (req, res) => {
     //
     // SFアカウントの無い人（インターン生）でも数を見られるよう、
     // 代わりに更新する人の連携を使う。
+    // アプローチ禁止の会社は、どのリスト・どのまとめ（アーカイブ・ナーチャリング等）から開いても出さない
+    rows = await dropApproachBanned(rows);
     const sfCount = new Map();
     const ids = [...new Set(rows.map((r) => r.lead_id).filter(Boolean))];
     let 数える人 = req.user;
@@ -26705,9 +26886,10 @@ app.post("/api/mochica/miitel/webhook", express.json({ limit: "20mb" }), async (
     const st = mcPick(v, ["started_at", "start_at", "start_time", "starts_at", "meeting_start_time", "created_at"]);
     const ev = { id, kind: String(mcPick(b, ["event", "trigger", "type", "notification_rule"]) || ""), title: String(mcPick(v, ["title", "name", "subject", "meeting_title"]) || ""),
       startedAt: st && !isNaN(Date.parse(st)) ? new Date(st).toISOString() : null, host: String(host),
-      participants: Array.isArray(parts) ? parts.map((p0) => (p0 && (p0.name || p0.email)) || String(p0)).join("、").slice(0, 500) : String(parts || "").slice(0, 500),
-      durationSec: Number(mcPick(v, ["duration", "duration_sec", "duration_seconds", "total_time"])) || null, transcriptLen: trLen,
-      url: String(mcPick(v, ["url", "video_url", "detail_url", "analytics_url"]) || ""), payload: b };
+      // 参加者はオブジェクトで来る（display_name など）。String(p0) にすると「[object Object]」になり、担当が分からなくなっていた（2026-11-16）
+      participants: Array.isArray(parts) ? parts.map(mcPartName).filter(Boolean).join("、").slice(0, 500) : String(parts || "").slice(0, 500),
+      durationSec: mcDurOf(v), transcriptLen: trLen,
+      url: String(mcPick(v, ["url", "video_url", "detail_url", "analytics_url"]) || ""), payload: { ...b, mt_pmails: Array.isArray(parts) ? parts.map(mcPartMail).filter(Boolean).slice(0, 30) : [] } };
     await mcMiitelSave(ev);
     console.log(`[MiiTel] 会議履歴を受け取りました ${ev.title || id}（発言 ${trLen}）項目：${Object.keys(v || {}).slice(0, 40).join(",")}`);
     res.json({ ok: true });
@@ -26987,6 +27169,9 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
 //   画面から覚えた列は、見出しが日付・数字（＝見出しでなく1行目の中身を読んでしまった）なら使わない
 // 起動のあと1回：取り込み直しで 0 に見えていた SF との結びつき・詳しい中身を、前の行から写し戻す（2026-11-16）
 setTimeout(async () => { try { for (const l of await mcBalesLists()) { const co = await mcBalesCarryOver(l.list_key); console.log(`[Bales] ${l.list_key} 写し戻し：SF ${co.sf}・詳しい中身 ${co.detail}・書き込み ${co.written}`); } } catch (e) { console.warn("[Bales] 写し戻し失敗:", e.message); } }, 60000);
+// ホット度（担当者名・ニーズ・検討時期）：起動2分後と10分ごとに、まだ・古い行に付ける（SF と結びついた後も付け直る）（2026-11-16 依頼「架電時のホットリスト化」）
+async function mcBalesHotTick() { try { for (const l of await mcBalesLists()) { if (l.status === "running") continue; const n = await mcBalesHotFill(l.list_key); if (n) console.log(`[Bales] ${l.list_key} ホット度を付けた：${n}件`); } } catch (e) { console.warn("[Bales] ホット度の判定に失敗:", e.message); } }
+setTimeout(mcBalesHotTick, 120000); setInterval(mcBalesHotTick, 600000);
 //   ＋「最終活動日・最終活動タイプ・最終活動コメント・所有者」も（2026-11-16 田中さん）
 const MC_BALES_BASE_VIEW = [{ label: "会社名", key: "companyName" }, { label: "電話番号", key: "companyTel1" }, { label: "担当者名", key: "targetName" },
   { label: "最終活動日", key: "lastActivityAt" }, { label: "最終活動タイプ", key: "lastActivityTypeText" }, { label: "最終活動コメント", key: "lastActivityComment" }, { label: "所有者", key: "operatorName" }];
@@ -27009,7 +27194,7 @@ app.get("/api/mochica/bales/lists", async (req, res) => {
 });
 app.get("/api/mochica/bales/lists/:key/rows", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    res.json({ ok: true, ...(await mcBalesRows(String(req.params.key), { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: req.query.offset, limit: req.query.limit })) }); }
+    res.json({ ok: true, ...(await mcBalesRows(String(req.params.key), { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: req.query.offset, limit: req.query.limit, hot: String(req.query.hot || ""), sort: String(req.query.sort || "") })) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
@@ -27155,8 +27340,10 @@ app.get("/api/mochica/bales/lists/:key/csv", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const key = String(req.params.key); const l = (await mcBalesLists()).find((x) => x.list_key === key); if (!l) return res.status(404).json({ error: "リストが見つかりません" });
     const cols = (l.cols || []).map((c) => c.key); const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const lines = [cols.map(q).join(",")];
-    for (let off = 0; ; off += 5000) { const r = await mcBalesRows(key, { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: off, limit: 5000 }); for (const d of r.rows) lines.push(cols.map((c) => q(d[c])).join(",")); if (r.rows.length < 5000) break; }
+    // 先頭にホット度と3つの判定（担当者名・ニーズ・検討時期）を足す（2026-11-16）
+    const HL = { 3: "ホット", 2: "ウォーム" }; const hv = (h) => (h ? [HL[h.n] || "コールド", (h.name || {}).st || "", (h.need || {}).st || "", (h.when || {}).st || ""] : ["", "", "", ""]);
+    const lines = [["ホット度", "担当者名", "ニーズ", "検討時期", ...cols].map(q).join(",")];
+    for (let off = 0; ; off += 5000) { const r = await mcBalesRows(key, { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: off, limit: 5000, hot: String(req.query.hot || ""), sort: String(req.query.sort || "") }); for (const d of r.rows) lines.push([...hv(d.__hot), ...cols.map((c) => d[c])].map(q).join(",")); if (r.rows.length < 5000) break; }
     res.setHeader("content-type", "text/csv; charset=utf-8"); res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`Bales_${l.name || key}.csv`)}`);
     res.send("﻿" + lines.join("\r\n"));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -27175,7 +27362,7 @@ const _mcCalCache = new Map();   // email -> { at, evs }
 const _mcCalStat = new Map();
 async function mcCalEvents(email, reader = "") {
   const hit = _mcCalCache.get(email); if (hit && Date.now() - hit.at < 10 * 60000) return hit.evs;
-  const range = { timeMin: new Date(Date.now() - 60 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() };
+  const range = { timeMin: new Date(Date.now() - 300 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() };
   // 本人が Google とつないでいなくても読めるように、つないでいる人（カレンダーを読む代表者など）から本人のカレンダーを読む（2026-11-14）
   // 読めたかどうか・どこから読んだかを残す（見つからなかった理由に出す）（2026-11-15）
   let how = "本人の連携"; let err1 = "", err2 = "";
@@ -27222,72 +27409,229 @@ function mcCoFromTitle(t) {
   const part = x.split(" ").find((w) => new RegExp(MC_CORP).test(w));
   return companyFromTitle(part || x);
 }
-// 会社名から、SF の Mochica（リード）と取引先を探す
-async function mcSfFor(company, owner) {
-  try {
-    const q = String(company || "").replace(/'/g, "\\'"); if (!q || q === "(無題)") return {};
-    const ld = await sfQuery(owner, `SELECT Id, Company FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company = '${q}' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
-    const ac = await sfQuery(owner, `SELECT Id, Name FROM Account WHERE Name = '${q}' LIMIT 1`).catch(() => null);
-    return { leadId: ld && ld.records && ld.records[0] ? ld.records[0].Id : "", accountId: ac && ac.records && ac.records[0] ? ac.records[0].Id : "" };
-  } catch { return {}; }
+// ===== 会議と SF をつなぐキー（2026-11-16 田中さん「照合の手法を実装して、照合率100%に」）=====
+//   予定の題名だけでは、餌取さん・北川さんのように題名の書き方が違う人や、予定が無い会議を拾えなかった。
+//   そこで次の順にキーを試す：①お客様のメールのドメイン（予定の参加者・説明欄・MiiTel の参加者）
+//   ②予定の題名の会社名 ③MiiTel の参加者の表示名の会社名 ④文字起こしから AI が読んだ会社名（担当が持つリードを優先）
+const MC_FREE_MAIL = /^(gmail|googlemail|yahoo|ybb|outlook|hotmail|live|icloud|me|docomo|ezweb|softbank|au|nifty|biglobe|ocn|so-net|zoom|miitel)\./i;
+// 会社名の芯（法人の言葉・空白・記号を除く）。同じ会社かどうかをこれで比べる
+function mcCoCore(s) {
+  return String(s || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人社団|医療法人財団|医療法人|学校法人|特定非営利活動法人|NPO法人|\(株\)|\(有\)|\(同\)|\(医\)|\(社\)|\(福\)/g, "").replace(/[\s・,，.。、()（）「」『』【】\-‐_/＿]/g, "").toLowerCase();
+}
+// メールから会社のドメイン（g.noble-j.co.jp → noble-j.co.jp）。フリーメールと自社は使わない
+function mcDomOf(email, own) {
+  const m = String(email || "").toLowerCase().trim().match(/@([a-z0-9.-]+\.[a-z]{2,})$/); if (!m) return "";
+  const lab = m[1].split("."); const n = /\.(co|or|ne|ac|go|ed|lg|gr|ad)\.jp$/.test(m[1]) ? 3 : 2; const d = lab.slice(-n).join(".");
+  if (MC_FREE_MAIL.test(d) || (own && own.has(d)) || /neo-career|calendar\.google|resource\.calendar/.test(d)) return ""; return d;
+}
+// カレンダーの説明欄は HTML（改行が <br>）なので、先にテキストにしてからメールを拾う
+function mcMailsIn(html) {
+  const t = String(html || "").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").slice(0, 20000);
+  return [...new Set((t.match(/[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{2,120}\.[A-Za-z]{2,10}/g) || []).slice(0, 20))];
+}
+// 予定の題名の飾り（※リスケ※・▼WEB・●Web・＿お打ち合わせ）を落とす。餌取さん・本炭さんの書き方（2026-11-16）
+function mcCleanTitle(t) {
+  let x = String(t || "").normalize("NFKC").replace(/※[^※]{0,12}※/g, " ").replace(/^[\s▼▽▲△●○◎〇◯■□◆◇☆★・*※]+/u, "");
+  x = x.replace(/^(web|WEB|Web|オンライン|来社|訪問|zoom|Zoom|ZOOM|meet|Meet)\s*[:：]?\s*/u, "").replace(/^[\s▼▽▲△●○◎〇◯■□◆◇☆★・*]+/u, "");
+  x = x.replace(/[\s_＿/／|｜-]*(お打ち合わせ|お打合せ|打ち合わせ|打合せ|商談|MTG|mtg|ご面談|面談|ミーティング|お打ち合せ)\s*$/u, "");
+  return x.replace(/\s+/g, " ").trim();
+}
+// 社内の予定らしいもの（お客様の名前が無い会議）
+const MC_INTERNAL = /(定例|1on1|1on1|朝会|夕会|朝礼|終礼|リハ|研修|勉強会|社内|共有会|振り返り|ふりかえり|ロープレ|面接|ランチ|懇親|飲み会|移動|作業|ブロック|休憩|感謝祭|全体会|キックオフ|戦略会議|週次|月次|MTG準備)/;
+// 予定がお客様との商談らしいか：2＝決まった形、1＝ゆるい形（様・法人の言葉・社外の参加者）、0＝違う
+function mcDealLevel(ev, own) {
+  const raw = String(ev.title || ""); if (mcIsDealTitle(raw)) return 2;
+  const t = mcCleanTitle(raw); const ext = (ev.attendees || []).some((a) => mcDomOf(a.email, own));
+  // 「一村産業 當山さん」のように「会社 人さん」の形も（2026-11-16 山下さんの書き方）
+  const sama = /(様|さま|御中)\s*$/.test(t) || /(様|さま)[\s_＿]/.test(t) || (/\S\s+\S{1,6}さん\s*$/.test(t) && !MC_INTERNAL.test(t));
+  if (MC_INTERNAL.test(t) && !sama && !ext) return 0;
+  if (sama || new RegExp(MC_CORP).test(t) || /\((株|有)\)/.test(t) || ext) return 1;
+  return 0;
+}
+// 題名から会社名（飾りを落としてから）。「アドプランナー　永岡様」→ アドプランナー
+function mcCoFromTitle2(t) {
+  const x = mcCleanTitle(t); const c = mcCoFromTitle(x);
+  return c && c !== "(無題)" && mcCoCore(c).length >= 2 ? c : "";
+}
+// MiiTel の参加者の表示名から会社名の候補（「株式会社アローズ・システムズ岩本」「一正蒲鉾_髙橋渓一」「帝国通信工業㈱ 人事総務」）
+function mcCoFromPart(name) {
+  const s = String(name || "").normalize("NFKC").trim(); if (!s || s.length < 3) return "";
+  if (/(iphone|ipad|android|galaxy|pixel|のpc|macbook|zoom|guest|ゲスト|ネオキャリア|neo-?career|mochica|\[object)/i.test(s)) return "";
+  if (/^[\w.\- ]+$/.test(s)) return "";   // ローマ字だけ（senaha など）は人の名前とみなす
+  const seg = s.split(/[_＿/／|｜]/)[0].trim();
+  const mA = seg.match(/^(.+?)\((?:株|有)\)/); if (mA) return mA[1].trim();   // 帝国通信工業㈱ 人事総務
+  const mB = seg.match(/^\((?:株|有)\)\s*(\S+)/); if (mB) return mB[1].trim();
+  if (/[_＿]/.test(s) && mcCoCore(seg).length >= 2) return seg;   // 一正蒲鉾_髙橋渓一（会社_人の形）
+  if (new RegExp(MC_CORP).test(seg)) return seg.replace(/\s+\S{1,6}$/, "").trim();   // 後ろの「人事総務」「岩本」は下で縮めて探す
+  if (/(園|病院|クリニック|学園|学校|大学|協会|組合|事務所|センター|ホテル|会館|工業|産業|商事|建設|製作所|工務店|会社)$/.test(seg.replace(/\s+\S{1,6}$/, ""))) return seg.replace(/\s+\S{1,6}$/, "").trim();
+  return "";
+}
+// SF で会社を探す。①ドメイン ②会社名の芯が同じ ③担当が持つリードで名前が近い。どの鍵で見つけたか（how）と、失敗（err）も返す
+async function mcSfResolve(owner, { company = "", domains = [], repName = "", loose = false, person = "" } = {}) {
+  const errs = []; const esc = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'"); const like = (s) => esc(s).replace(/%/g, "\\%").replace(/_/g, "\\_");
+  const q = async (soql) => { try { return ((await sfQuery(owner, soql)) || {}).records || []; } catch (e) { errs.push(String(e.message || e).slice(0, 120)); return []; } };
+  const LF = "Id, Name, Company, Email, Website, Owner.Name, IsConverted, ConvertedAccountId, RecordType.Name, LastModifiedDate";
+  const nzn = (v) => String(v || "").replace(/[\s　]/g, "");
+  const mine = (ls) => (repName ? ls.filter((l) => nzn(l.Owner && l.Owner.Name) === nzn(repName)) : []);
+  // 同じ会社のリードが何件もあるときの選び方：お客様の名前が合う＞担当が持つ＞Mochica のリード＞メールあり（2026-11-16：アドプランナーが2社あった）
+  const pz = nzn(person).replace(/(様|さま|さん)$/, "").slice(0, 4);
+  const rank = (l) => (pz.length >= 2 && nzn(l.Name).includes(pz.slice(0, 2)) ? 8 : 0) + (repName && nzn(l.Owner && l.Owner.Name) === nzn(repName) ? 4 : 0) + (/Mochica/.test(l.RecordType && l.RecordType.Name) ? 2 : 0) + (l.Email ? 1 : 0);
+  const mochiFirst = (ls) => [...ls].sort((x, y) => rank(y) - rank(x));
+  const done = async (lead, acc, how) => {
+    let accountId = (acc && acc.Id) || (lead && lead.ConvertedAccountId) || "";
+    const name = (lead && lead.Company) || (acc && acc.Name) || company;
+    if (!accountId && name) { const core = mcCoCore(name); const as = await q(`SELECT Id, Name FROM Account WHERE Name LIKE '%${like(core.length >= 2 ? name.normalize("NFKC").replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)/g, "").trim() : name)}%' LIMIT 20`); const a = as.find((x) => mcCoCore(x.Name) === core); if (a) accountId = a.Id; }
+    return { leadId: (lead && lead.Id) || "", accountId, company: name, how, err: errs[0] || "" };
+  };
+  // ① お客様のメールのドメイン
+  for (const d of [...new Set(domains)].slice(0, 4)) {
+    const ls = await q(`SELECT ${LF} FROM Lead WHERE Email LIKE '%@${like(d)}' OR Email LIKE '%.${like(d)}' OR Website LIKE '%${like(d)}%' ORDER BY LastModifiedDate DESC LIMIT 30`);
+    if (ls.length) {
+      const cores = [...new Set(ls.map((l) => mcCoCore(l.Company)).filter(Boolean))];
+      const want = company ? mcCoCore(company) : "";
+      const hitCore = want && cores.includes(want) ? want : cores.length === 1 ? cores[0] : null;
+      if (hitCore) { const c = mochiFirst(ls.filter((l) => mcCoCore(l.Company) === hitCore)); return done(c[0], null, "メールのドメイン"); }
+    }
+    const as = await q(`SELECT Id, Name, Website FROM Account WHERE Website LIKE '%${like(d)}%' LIMIT 5`);
+    if (as.length === 1) return done(null, as[0], "メールのドメイン（取引先）");
+  }
+  // ② 会社名の芯が同じ（「株式会社」の有無・空白・㈱の違いを気にしない）。後ろに人の名前が付いているときは縮めて探す
+  const core0 = mcCoCore(company);
+  if (core0.length >= 2) {
+    // 縮めるときは、記号（・など）を残した元の文字のまま縮める（SF の「アローズ・システムズ」に LIKE で当たるように）
+    const raw0 = company.normalize("NFKC").replace(/株式会社|有限会社|合同会社|合名会社|合資会社|\(株\)|\(有\)/g, "").replace(/[\s　]+/g, " ").trim();
+    const tries = [raw0]; if (loose) for (let k = 1; k <= 4; k++) { const x = raw0.slice(0, raw0.length - k).trim(); if (mcCoCore(x).length >= 3) tries.push(x); }
+    for (const tr of tries) {
+      const core = mcCoCore(tr); if (core.length < 2) continue;
+      const key = tr.split(" ").sort((a, b) => b.length - a.length)[0] || tr;
+      const ls = await q(`SELECT ${LF} FROM Lead WHERE Company LIKE '%${like(key)}%' ORDER BY LastModifiedDate DESC LIMIT 50`);
+      const same = mochiFirst(ls.filter((l) => mcCoCore(l.Company) === core));
+      if (same.length) return done(same[0], null, core === core0 ? "会社名" : "会社名（参加者名から）");
+      const as = await q(`SELECT Id, Name FROM Account WHERE Name LIKE '%${like(key)}%' LIMIT 20`);
+      const a = as.find((x) => mcCoCore(x.Name) === core); if (a) return done(null, a, "会社名（取引先）");
+      // ③ 名前が近いリードのうち、担当が持っているもの（キリックス → キリックスグループ のように SF の名前が少し違う）
+      const my = mine(ls.filter((l) => mcCoCore(l.Company).includes(core) || core.includes(mcCoCore(l.Company))));
+      if (my.length && core.length >= 3) return done(my[0], null, "担当のリードで名前が近い");
+    }
+  }
+  return { leadId: "", accountId: "", company, how: "", err: errs[0] || "" };
+}
+// 昔の呼び出し（画面で予定を選んだとき）用
+async function mcSfFor(company, owner) { const r = await mcSfResolve(owner, { company }); return { leadId: r.leadId, accountId: r.accountId, how: r.how, err: r.err }; }
+// 文字起こしから、お客様の会社名を AI に読ませる（予定も参加者名も手がかりが無いときだけ）
+async function mcCoFromTranscript(id) {
+  const row = await mcMiitelGet(id).catch(() => null); if (!row) return null;
+  if (row.payload && row.payload.mt_aico) return row.payload.mt_aico;   // 1会議1回だけ AI に聞く（やり直しのたびに聞かない）
+  const tx = mcTranscriptText(row.payload || {}); if (!tx || tx.length < 200) return null;
+  const mat = tx.length > 7000 ? tx.slice(0, 5500) + "\n…\n" + tx.slice(-1500) : tx;
+  const sys = "あなたは営業の会議の文字起こしから、相手（お客様）の会社名を読む係です。話している自社はネオキャリア（MOCHICA）なので、自社の名前は答えないでください。JSON だけを返します。";
+  const user = `次の文字起こしで、お客様の会社名・法人名を1つだけ答えてください。分からない、または社内の会議なら company を空にしてください。\n{"company":"","person":"","internal":false}\n---\n${mat}`;
+  try { const o = JSON.parse(String(await callLLMPublic(sys, user, 400, { json: true })).replace(/```json|```/g, "").trim()); const c = String(o.company || "").trim().slice(0, 60);
+    const out = { company: /ネオキャリア|mochica/i.test(c) ? "" : c, internal: !!o.internal, at: Date.now() };
+    await mcMiitelSave({ id, payload: { mt_aico: out } }).catch(() => {}); return out; } catch { return null; }
 }
 async function mcCalMatchOne(r, members, owner, ctx = {}) {
   const st = new Date(r.started_at).getTime(); if (!st) return null;
-  const en = st + Math.max(10 * 60, Number(r.duration_sec) || 30 * 60) * 1000;   // 録画の終わり（長さが無ければ30分）
+  const dur = Number(r.duration_sec) || 0;
+  // 3分未満の会議は、つなぎ間違い・テストがほとんどなので商談として数えない（照合率の分母から外す）
+  if (dur && dur < 180) return { none: true, nodeal: true, v: 8, reason: "3分未満の会議なので、商談として数えません", at: Date.now() };
+  const en = st + Math.max(10 * 60, dur || 30 * 60) * 1000;   // 録画の本当の終わり（長さが分からないときだけ30分）
+  const own = ctx.ownDoms || new Set(["neo-career.co.jp"]);
   const nz = (v) => String(v || "").replace(/[\s　]/g, "");
-  // 主催の名前で、まずその人のカレンダーを見る。分からなければ MOCHICA のメンバー全員
   const host = nz(String(r.host && r.host !== "オーナー" ? r.host : String(r.title || "").replace(/^ネオキャリア/, "").replace(/のパーソナルミーティングルーム$/, "").replace(/\s*のミーティング$/, "")).split(/[\s　]/)[0]);
-  // 参加者の中の kinbot の人（2026-11-14）を先に、次に主催の苗字が合う人
-  const repEmails = new Set(((ctx.repOf && ctx.repOf(r.participants)) || []).map((x) => x.email));
-  for (const e of repEmails) if (!members.some((m) => m.email === e)) { const rp = ((ctx.repOf && ctx.repOf(r.participants)) || []).find((x) => x.email === e); if (rp) members = [...members, { name: rp.name, email: rp.email }]; }
-  // 画面で選んだ担当がいれば、その人を一番に
+  const reps = (ctx.repOf && ctx.repOf(r.participants)) || [];
+  const repEmails = new Set(reps.map((x) => x.email));
+  for (const rp of reps) if (!members.some((m) => m.email === rp.email)) members = [...members, { name: rp.name, email: rp.email }];
   if (r.mrep && r.mrep.email) { repEmails.add(String(r.mrep.email).toLowerCase()); if (!members.some((m) => m.email === String(r.mrep.email).toLowerCase())) members = [...members, { name: r.mrep.name || r.mrep.email, email: String(r.mrep.email).toLowerCase() }]; }
   const first = members.filter((m) => repEmails.has(m.email) || (host && host !== "オーナー" && nz(m.name).startsWith(host)));
-  // 担当（参加者の kinbot の人・主催の苗字の人）が分かれば、その人のカレンダーだけを見る（2026-11-15：ほかの人の予定を拾って題名が違っていた）。
-  // 分からないときだけほかのメンバーも見るが、そのときは予定の題名に、参加者（お客様）の名前が入っているものに限る
   const others = first.length ? [] : members;
   const neo = (n) => /ネオキャリア|neo-?career/i.test(n) || members.some((m) => { const f = nz(m.name).slice(0, 2); return f && nz(n).startsWith(f) && nz(n).length <= nz(m.name).length + 1; });
-  const guestTokens = String(r.participants || "").split(/[,、，;／\/\n]+/).map((x) => nz(x).replace(/(様|さま|さん)$/, "")).filter((x) => x.length >= 2 && !/^[\w.-]+$/.test(x) && !neo(x));
+  const partList = String(r.participants || "").split(/[,、，;\n]+/).map((x) => x.trim()).filter(Boolean);
+  const guestTokens = partList.map((x) => nz(x).replace(/(様|さま|さん)$/, "")).filter((x) => x.length >= 2 && !/^[\w.-]+$/.test(x) && !neo(x));
   const titleHasGuest = (t) => { const tt = nz(t); return guestTokens.some((g) => tt.includes(g) || (g.length >= 3 && tt.includes(g.slice(0, 2)))); };
+  const partDoms = [...new Set((r.pemails || []).map((e) => mcDomOf(e, own)).filter(Boolean))];
   const order = [...first, ...others];
   let best = null; const near = [];
   for (const m of order) {
     const evs = await mcCalEvents(m.email, ctx.reader);
     for (const ev of evs) {
-      if (ev.allDay || !ev.start) continue;
-      // 録画している時間に重なる予定、または開始が前後20分の予定（2026-11-14 田中さん：録画の時間の予定にする）
+      if (ev.allDay || !ev.start || ev.selfResponse === "declined") continue;
       const es = new Date(ev.start).getTime(), ee = ev.end ? new Date(ev.end).getTime() : es + 30 * 60000;
       const d = Math.abs(es - st); const overlap = Math.min(ee, en) - Math.max(es, st);
       if (d > 20 * 60000 && overlap < 5 * 60000) continue;
       const t = String(ev.title || "");
       if (near.length < 4) near.push(`${m.name}「${t.slice(0, 30) || "（題名なし）"}」`);
-      // 商談の予定の形（【新/ヒ】【新/再提案】、「会社：人様」）だけを使う（2026-11-14 田中さん「【】の予定よりは…」）
-      if (!mcIsDealTitle(t)) continue;
-      if (!first.includes(m) && !titleHasGuest(t)) continue;   // 担当でない人の予定は、お客様の名前が入っているときだけ
-      const bracket = true;
-      const score = Math.min(d, 60 * 60000) + (overlap > 0 ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000) + (mcIsStrongDeal(t) ? 0 : 15 * 60000);
-      if (!best || score < best.score) best = { score, ev, m, bracket };
+      const lv = mcDealLevel(ev, own); if (!lv) continue;
+      const evDoms = [...new Set([...(ev.attendees || []).map((a) => a.email), ...mcMailsIn(ev.description)].map((e) => mcDomOf(e, own)).filter(Boolean))];
+      const domHit = partDoms.some((x) => evDoms.includes(x));
+      if (!first.includes(m) && !titleHasGuest(t) && !domHit) continue;   // 担当でない人の予定は、お客様の名前かドメインが合うときだけ
+      const score = Math.min(d, 60 * 60000) + (overlap > 0 ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000) + (lv === 2 ? 0 : 12 * 60000) + (domHit ? -10 * 60000 : 0);
+      if (!best || score < best.score) best = { score, ev, m, lv, evDoms };
     }
-    if (best && best.bracket && first.includes(m) && best.score < 25 * 60000) break;
+    if (best && first.includes(m) && best.score < 25 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); const readInfo = order.slice(0, 6).map((m) => { const st = _mcCalStat.get(m.email); return st ? (st.ok ? `${m.name}＝${st.how}で${st.n}件` : `${m.name}＝読めない（${st.err || "Google 未連携か、共有されていない"}）`) : m.name; }).join("・"); return { none: true, v: 7, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】・「会社：○○様」・「【…】○○様」）が見つかりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
-  const title = best.ev.title || ""; const company = mcCoFromTitle(title);
-  const sf = await mcSfFor(company, owner);
-  return { v: 7, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
+  const repName = (best && first.includes(best.m) ? best.m.name : "") || (reps[0] && reps[0].name) || (r.mrep && r.mrep.name) || (first[0] && first[0].name) || "";
+  if (best) {
+    const title = best.ev.title || ""; const company = mcCoFromTitle2(title);
+    const pm = mcCleanTitle(title).match(/[\s:：_＿]([^\s:：_＿]{1,8}?)\s*(様|さま|さん)\s*$/);   // 題名のお客様の名前（同じ会社のリードが何件もあるときに使う）
+    const sf = await mcSfResolve(owner, { company, domains: [...best.evDoms, ...partDoms], repName, person: pm ? pm[1] : "" });
+    return { v: 8, how: "カレンダー", title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company: company || sf.company || "", bracket: best.lv === 2, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
+  }
+  // 予定が見つからないとき：MiiTel の参加者の表示名・メールから
+  for (const p of partList) {
+    if (neo(p)) continue; const c = mcCoFromPart(p); if (!c && !partDoms.length) continue;
+    const sf = await mcSfResolve(owner, { company: c, domains: partDoms, repName, loose: true });
+    if (sf.leadId || sf.accountId) return { v: 8, how: "参加者の名前", title: `${sf.company}（MiiTel の参加者「${p.slice(0, 30)}」から）`, owner: (first[0] && first[0].email) || "", ownerName: repName, company: sf.company, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
+  }
+  // それでも無いとき：文字起こしから AI が会社名を読む（担当が持つリードを優先）
+  if (!ctx.noAi) {
+    const ai = await mcCoFromTranscript(r.id);
+    if (ai && ai.internal && !ai.company) return { none: true, nodeal: true, v: 8, reason: "文字起こしから、社内の会議と判断しました（商談として数えません）", at: Date.now() };
+    if (ai && ai.company) {
+      const sf = await mcSfResolve(owner, { company: ai.company, domains: partDoms, repName, loose: true });
+      return { v: 8, how: "文字起こし", title: `${sf.company || ai.company}（文字起こしから）`, owner: (first[0] && first[0].email) || "", ownerName: repName, company: sf.company || ai.company, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
+    }
+  }
+  const readInfo = order.slice(0, 6).map((m) => { const s = _mcCalStat.get(m.email); return s ? (s.ok ? `${m.name}＝${s.how}で${s.n}件` : `${m.name}＝読めない（${s.err || "Google 未連携か、共有されていない"}）`) : m.name; }).join("・");
+  return { none: true, v: 8, reason: `予定・参加者の名前・文字起こしのどれからも会社が分かりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() };
 }
 let _mcCalRunning = false;
-async function mcCalMatchRun(owner) {
-  if (_mcCalRunning) return 0; _mcCalRunning = true; let n = 0;
-  try { const rows = await mcMiitelNeedCal(40); if (!rows.length) return 0; const members = await mcMembers(rows.map((r) => r.host || r.title)); const repOf = await mcRepIndex().catch(() => null); const st0 = await getSettings().catch(() => ({})); const ctx = { repOf, reader: String(st0.apoScanOwner || st0.apoInviteOwner || owner || "").toLowerCase() }; if (!members.length && !repOf) return 0;
-    for (const r of rows) { const c = await mcCalMatchOne(r, members, owner, ctx).catch((e) => ({ none: true, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, at: Date.now() } } }); if (c && !c.none) n++; }
+// 1回に lim 件。戻り値は「読んだ件数」（0 なら残りなし）
+async function mcCalMatchRun(owner, lim = 40) {
+  if (_mcCalRunning) return 0; _mcCalRunning = true; let n = 0, hit = 0;
+  try {
+    // SF につながっていない人を渡されると、SF の照会が全部黙って失敗していた（2026-11-16：会社名があるのに SF が空）。つながっている人に置き換える
+    owner = await pickSfUser(owner || "").catch(() => owner);
+    await mcFixParticipants().catch(() => 0);
+    const rows = await mcMiitelNeedCal(lim); if (!rows.length) return 0;
+    const members = await mcMembers(rows.map((r) => r.host || r.title)); const repOf = await mcRepIndex().catch(() => null); const st0 = await getSettings().catch(() => ({}));
+    const us = await listUsers().catch(() => []); const ownDoms = new Set(["neo-career.co.jp", ...us.map((u) => mcDomOf(u.email, null)).filter(Boolean)]);
+    const ctx = { repOf, ownDoms, reader: String(st0.apoScanOwner || st0.apoInviteOwner || owner || "").toLowerCase() }; if (!members.length && !repOf) return 0;
+    for (const r of rows) { n++; const c = await mcCalMatchOne(r, members, owner, ctx).catch((e) => ({ none: true, v: 8, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, v: 8, at: Date.now() } } }); if (c && !c.none) hit++; }
+    console.log(`[mochica cal] ${n}件を照合し、${hit}件で会社が分かりました`);
   } finally { _mcCalRunning = false; } return n;
+}
+// MiiTel の webhook で参加者が「[object Object]」で入っていた分と、長さが空の分を、届いた中身（payload）から直す（2026-11-16）
+function mcPartName(p0) { if (p0 == null) return ""; if (typeof p0 !== "object") return String(p0).trim(); const u = p0.user || p0.participant || p0.member || {}; return String(p0.name || p0.display_name || p0.displayName || p0.user_name || p0.full_name || u.name || u.display_name || p0.email || u.email || "").trim(); }
+function mcPartMail(p0) { if (!p0 || typeof p0 !== "object") return ""; const u = p0.user || p0.participant || p0.member || {}; return String(p0.email || u.email || p0.mail || "").toLowerCase().trim(); }
+function mcVideoOf(b) { return (b && (b.video || b.meeting || b.meeting_history || b.data)) || b || {}; }
+function mcDurOf(v) { const d = Number(mcPick(v, ["duration", "duration_sec", "duration_seconds", "total_time"])); if (d > 0) return d; const s = Date.parse(mcPick(v, ["started_at", "start_at", "starts_at", "start_time"]) || ""), e = Date.parse(mcPick(v, ["ended_at", "end_at", "ends_at", "end_time"]) || ""); return s && e && e > s ? Math.round((e - s) / 1000) : null; }
+async function mcFixParticipants() {
+  const rows = await mcMiitelBrokenParts(100); let n = 0;
+  for (const r of rows) {
+    const v = mcVideoOf(r.payload || {}); const parts = mcPick(v, ["participants", "attendees", "users", "members"]);
+    const names = Array.isArray(parts) ? parts.map(mcPartName).filter(Boolean) : []; const mails = Array.isArray(parts) ? parts.map(mcPartMail).filter(Boolean) : [];
+    // 名前が取れないときは、壊れている（[object Object]）ものだけ空の印にする。ちゃんと入っている参加者は消さない
+    await mcMiitelSave({ id: r.id, participants: names.join("、").slice(0, 500) || (/\[object/.test(r.participants || "") ? "（参加者なし）" : ""), durationSec: r.duration_sec || mcDurOf(v) || null, payload: { mt_pmails: mails.slice(0, 30), mt_pfix: Date.now() } }); n++;
+  }
+  if (n) console.log(`[MiiTel] 参加者・長さを直しました ${n}件`); return n;
 }
 setInterval(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || ""; await mcCalMatchRun(o || (await pickSfUser("").catch(() => ""))); } catch {} }, 15 * 60 * 1000);
 // 起動したら、カレンダーの照合をすぐに最後までやり直す（15分を待たない）（2026-11-15 田中さん「今やり直して」）。
 //   決め方を変えた版を上げたとき、全部そろうまで待たなくてよいように。40件ずつ、なくなるまで（多くても20回）
 setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || "";
   const owner = o || (await pickSfUser("").catch(() => "")); let total = 0;
-  for (let k = 0; k < 20; k++) { const n = await mcCalMatchRun(owner).catch(() => 0); total += n || 0; if (!n) break; }
+  for (let k = 0; k < 80; k++) { const n = await mcCalMatchRun(owner, 40).catch(() => 0); total += n || 0; if (!n) break; }
   console.log(`[mochica cal] 起動時のやり直し：${total}件`); } catch (e) { console.error("[mochica cal] 起動時のやり直し", e.message); } }, 20000);
 // ===== MOCHICA の SF 連携：ステージごとの項目を、議事録から AI で埋めて、SF の「新規」の商談に書く（2026-11-13 田中さん）=====
 //   項目は SF の画面の「項目の名前（ラベル）」で決め、SF の項目の説明（describe）から本当の項目名・型・選択肢を当てる。
@@ -27386,6 +27730,8 @@ app.get("/api/mochica/reps", async (req, res) => {
     res.json({ ok: true, items: us });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// MOCHICA の架電（テレアポ）。表も画面も DOC の kincall とは別。DOC の表は管理者がリードを持ってくるときに読むだけ（2026-11-16）
+registerMcCall(app, { isAdmin: isAiOwner, sfActor, mochicaSet: mcMochicaSet });
 app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const id = String(req.params.id || ""); if (!(await mcMiitelGet(id))) return res.status(404).json({ error: "見つかりません" });
@@ -31764,6 +32110,18 @@ app.get("/auth/google/callback", async (req, res) => {
   try {
     const raw = verifyToken(req.query.state || "");
     if (!raw) return res.status(400).send("セッションが無効です。ログインし直してください。");
+    // パスワード再発行の本人確認から戻ってきた（R|メール|時刻）
+    if (raw.startsWith("R|")) {
+      const back = (msg) => res.redirect("/reset.html?err=" + encodeURIComponent(msg));
+      const want = readResetStartState(raw);
+      if (!want) return back("時間が経ちすぎました。もう一度やり直してください");
+      if (!req.query.code) return back("Googleでの確認がキャンセルされました");
+      const got = await identityEmailFromCode(String(req.query.code), googleRedirectUri());
+      if (!got || got !== want) return back(`Googleで選んだアカウント（${got || "不明"}）が、入力したメールアドレスと違います。同じアカウントを選んでください`);
+      const t = await makeResetToken(want);
+      if (!t) return back("このメールアドレスのアカウントはまだありません。新規登録してください");
+      return res.redirect("/reset.html?t=" + encodeURIComponent(t));
+    }
     const viaLink = raw.startsWith("C|");
     const owner = viaLink ? raw.slice(2) : raw;
     await exchangeCode(req.query.code, googleRedirectUri(), owner);
@@ -31849,8 +32207,12 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-16J Bales のリスト：どの取り込みでも列を「会社名・電話番号・担当者名（名前）・最終活動…・所有者」に（前に選んだ表示項目はいったん忘れる）。／2026-11-16I Bales の書き込み方を覚えるとき、Firebase（googleapis）への送信も「kinbot」入りなら見る（kinbot-ext 2.2.4）。／2026-11-16H Bales のリスト：列に最終活動日・最終活動タイプ・最終活動コメント・所有者も。／2026-11-16G Bales のリスト：列を「会社名・電話番号・担当者名」から。行の印を callTargetId にして、取り込み直しても SF との結びつき・詳しい中身が消えないように（消えていた分は前の行から写し戻す）。／2026-11-16F kincall のデイリー目標から田中欽也を外した。／2026-11-16E MOCHICA の商談：一緒に参加した MOCHICA 以外の人（植野さんなど）のカードにも同じ商談を出していたのをやめた。／2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-16P for MOCHICA 架電のリード画面「これまで」に SF の活動（Task：DOC やほかの人の架電・メモ。コンバート済みなら取引先側も）を足し、Bales の活動・SF の商談・kinbot の架電と1本の時系列に。kinbot から書いた Task は二重に出さない。SF が遅いときは5秒で諦めて画面を開く。／2026-11-16OMOCHICA の商談と SF の照合を強化（版8）：MiiTel の参加者が「[object Object]」で入っていたのを直し、本当の長さで予定と重ねる。予定の題名の書き方（▼WEB・※リスケ※・＿お打ち合わせ・「会社 人さん」）も拾い、お客様のメールのドメイン→会社名（株式会社の有無・㈱を気にしない）→担当が持つリードの順で SF を探す。予定が無いときは MiiTel の参加者の表示名、それでも無ければ文字起こしから AI が会社名を読む。3分未満の会議と社内の会議は数えない。SF の照会は SF につながっている人で行い、会社名があるのに SF が空のものは6時間ごとに試し直す。／2026-11-16N for MOCHICA の架電（テレアポ）を新しく作成：DOC の kincall とは別の表（mc_call_lists／mc_call_leads／mc_call_logs／mc_cross_moves）。3列（調べる・操作・これまで）、結果は到達→中身の2段、数字キーと Enter で記録して次へ、受付で聞けたことを残す、不在は同じ日のうちに自動で掛け直し、番号ごとのつながった実績、元に戻す、SF のリードに活動。管理者は Bales・DOC のリストから足せて、DOC から持ってきたことは部署をまたいだ記録に残る。／2026-11-16M アプローチ禁止企業を必ずはじく：SF の「アプローチ禁止の種類」＋設定→アプローチ禁止 で登録した会社（会社名・電話番号・リードIDのどれかが一致）は、架電リストに入れない・かける一覧／シート／検索に出さない・記録／次回予約／資料送付をサーバーで止める。SF の名簿は1時間ごとに入れ替え（読めないときは前の名簿のまま）。／2026-11-16L ログイン画面に「パスワードの再発行」：メールを入れて同じアドレスの Google アカウントで本人確認すると、新しいパスワードを決められる（15分・1回限り）。メールだけ登録されていて新規登録できない人のため。／2026-11-16K kinbot for MOCHICA の Bales のリスト：架電のホットリスト化（担当者名・ニーズ・検討時期の3つがそろえばホット、2つでウォーム）。表にホット度の列と絞り込み・並べ替え、CSV にも。／2026-11-16J Bales のリスト：どの取り込みでも列を「会社名・電話番号・担当者名（名前）・最終活動…・所有者」に（前に選んだ表示項目はいったん忘れる）。／2026-11-16I Bales の書き込み方を覚えるとき、Firebase（googleapis）への送信も「kinbot」入りなら見る（kinbot-ext 2.2.4）。／2026-11-16H Bales のリスト：列に最終活動日・最終活動タイプ・最終活動コメント・所有者も。／2026-11-16G Bales のリスト：列を「会社名・電話番号・担当者名」から。行の印を callTargetId にして、取り込み直しても SF との結びつき・詳しい中身が消えないように（消えていた分は前の行から写し戻す）。／2026-11-16F kincall のデイリー目標から田中欽也を外した。／2026-11-16E MOCHICA の商談：一緒に参加した MOCHICA 以外の人（植野さんなど）のカードにも同じ商談を出していたのをやめた。／2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
+  "for MOCHICA：商談と SF の照合を強化（メールのドメイン・参加者名・文字起こし・担当のリード）",
+  "for MOCHICA：架電（テレアポ）画面を新しく作成（キーボードで記録・2段の結果・同日の自動掛け直し・部署をまたいだ記録）",
+  "kincall：アプローチ禁止企業を取り込み・一覧・記録・資料送付のすべてで必ずはじく（SF の Ban_Type__c＋設定で手動登録）",
+  "for MOCHICA：Bales のリストをホットリスト化（担当者名・ニーズ・検討時期でホット／ウォーム／コールド）",
   "SF：商談の取引先の業種・従業員数を必須に（立ち上げ・Claude・SF直接の商談は自動で補う）",
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

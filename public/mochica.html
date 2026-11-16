@@ -8,7 +8,8 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261116c" />
+<link rel="stylesheet" href="/style.css?v=20261116d" />
+<link rel="stylesheet" href="/mccall.css?v=20261116d" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -132,6 +133,15 @@
   .bl-hours{display:flex;gap:6px;align-items:flex-end;height:96px;margin-top:6px;padding:6px 4px;background:#F2FAFB;border-radius:12px;} .bl-hours div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;} .bl-hours i{display:block;width:70%;background:#0E9AA7;border-radius:4px 4px 0 0;min-height:2px;} .bl-hours b{font-size:10px;color:#0B6E78;} .bl-hours small{font-size:10px;color:#5C7377;}
   .bl-date{height:34px;border:1px solid #CFE6EA;border-radius:10px;padding:0 8px;font:inherit;} .bl-row.on td{background:#DDF5F7;}
   .bl-sfst{font-size:12px;color:#0B6E78;margin-top:6px;min-height:0;} .bl-sfst:empty{display:none;}
+  /* ホット度（2026-11-16 架電のホットリスト化）：札の色でホット・ウォーム・コールド、丸3つで担当者名・ニーズ・検討時期 */
+  .bl-hotbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 12px;} .bl-hb{border:1px solid transparent;border-radius:12px;padding:8px 12px;text-align:left;cursor:pointer;font:inherit;}
+  .bl-hb small{display:block;font-size:11px;} .bl-hb b{font-size:20px;} .bl-hb.hot{background:#FDE7E1;color:#9A3412;} .bl-hb.warm{background:#FDF0D8;color:#8A5A00;} .bl-hb.cold{background:#EEF3F2;color:#4B5F5A;}
+  .bl-hb.on{border-color:currentColor;box-shadow:0 0 0 1px currentColor inset;} .bl-hb-sub{grid-column:1/-1;font-size:12px;color:#5C7377;} .bl-hb-sub b{color:#0F3D44;}
+  .bl-hot{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;white-space:nowrap;margin-right:4px;} .bl-hot.hot{background:#FDE7E1;color:#9A3412;} .bl-hot.warm{background:#FDF0D8;color:#8A5A00;} .bl-hot.cold{background:#EEF3F2;color:#4B5F5A;}
+  .bl-hds{display:inline-flex;gap:2px;vertical-align:middle;} .bl-hd{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;border:1px solid #C9D6D3;color:#8AA09B;background:#fff;}
+  .bl-hd.ok{background:#1d9e75;border-color:#1d9e75;color:#fff;} .bl-hd.no{background:#DDE5E3;border-color:#DDE5E3;color:#5C7377;} .bl-hotc{white-space:nowrap;}
+  .bl-hsort{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:#0F3D44;white-space:nowrap;}
+  @media (max-width:640px){.bl-hotbar{grid-template-columns:minmax(0,1fr);}}
   .bl-sfc{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;background:#DDF5F7;color:#0B6E78;white-space:nowrap;} .bl-sfc.won{background:#E1F5EE;color:#085041;} .bl-sfc.lost{background:#FDF0D8;color:#8A5A00;}
   .bl-sflinks{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;} .bl-sflinks a{text-decoration:none;} .bl-sub{display:block;font-size:10px;color:#9AB0B3;} .bl-row{cursor:pointer;} .bl-row:hover td{background:#F2FAFB;}
   .bl-sheet-bg{position:fixed;inset:0;background:rgba(15,61,68,.28);z-index:900;display:flex;justify-content:flex-end;} .bl-sheet{position:relative;width:min(760px,96vw);height:100%;background:#fff;box-shadow:-8px 0 28px rgba(15,61,68,.18);overflow:auto;border-radius:16px 0 0 16px;}
@@ -184,7 +194,7 @@
     <!-- ホームは一旦しまう（2026-11-15 田中さん「ホームは一旦消して」）。開いたときは商談から -->
     <a class="side-item active" data-go="mtg"><span class="side-ico ico-rec"></span><span class="side-label">商談（MiiTel）</span></a>
     <a class="side-item" data-go="list"><span class="side-ico ico-assign"></span><span class="side-label">リスト（Bales Cloud）</span></a>
-    <a class="side-item" data-go="call"><span class="side-ico ico-phone"></span><span class="side-label">架電（Zoom Phone）</span></a>
+    <a class="side-item" data-go="call"><span class="side-ico ico-phone"></span><span class="side-label">架電</span></a>
     <a class="side-item" data-go="apo"><span class="side-ico ico-apo"></span><span class="side-label">アポイント</span></a>
     <div class="side-sep"></div>
     <a class="side-item side-app side-hi" href="/home.html"><img class="side-app-ico" src="/kinbot.svg" alt="" /><span class="side-label">kinbot（DOC）</span></a>
@@ -229,8 +239,8 @@
         <div id="mcBalesSum" class="mc-note" style="margin-top:10px">「集計する」を押すと、SF のリードを読み込みます（1〜2分かかります）。</div>
         <p class="mc-note" style="margin-top:10px">件数は <b>SF の</b> リードの数です（Bales に入っているのは約2.3万件）。Bales に無いリードの行は、取り込むときに当たらずに飛ばされます。いまは「ダウンロード → Bales でリードの更新として取り込み（SalesforceID で当てる）」の手作業です。Bales の取り込み（更新）の画面が分かりしだい、拡張機能で毎朝自動で取り込むようにします。</p></div>
     </section>
-    <section data-pane="call" hidden><div class="mc-box"><h2>架電（Zoom Phone）<span class="mc-tag wait">準備中</span></h2>
-      <p class="mc-note">インターン生の Zoom Phone の架電記録を、人ごと・日ごとに集めます（DOC の kincall で使っている Zoom Phone のつなぎ方を使い回します）。</p></div></section>
+    <!-- 架電（テレアポ）：DOC の kincall とは別に新しく作った画面（2026-11-16）。中身は mccall.js -->
+    <section data-pane="call" hidden><div id="mcCallView"><div class="mc-note">読み込んでいます…</div></div></section>
     <section data-pane="apo" hidden><div class="mc-box"><h2>アポ（カレンダー）<span class="mc-tag wait">準備中</span></h2>
       <p class="mc-note">カレンダーのアポを読み、獲得者・商談の予定を一覧にします（DOC のアポ履歴の仕組みを使い回します）。</p></div></section>
     <section data-pane="doc" hidden><div class="mc-box"><h2>DOC の議事録（見るだけ）</h2>
@@ -244,8 +254,9 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mcbales.js?v=20261116j"></script>
-  <script src="/caseshare.js?v=20261116c"></script>
-  <script src="/mochica.js?v=20261116c"></script>
+  <script src="/mcbales.js?v=20261116k"></script>
+  <script src="/caseshare.js?v=20261116d"></script>
+  <script src="/mccall.js?v=20261116d"></script>
+  <script src="/mochica.js?v=20261116d"></script>
 </body>
 </html>

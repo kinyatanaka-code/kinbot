@@ -3,11 +3,14 @@
 // DATABASE_URL が無ければ自動で「保存なし（メモリのみ）」で動く（段階導入のため）。
 import pg from "pg";
 import crypto from "crypto";
+import { judgeHot, HOT_VERSION } from "./mchot.js";
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 let pool = null;
 
 export const dbEnabled = () => !!pool;
+// 機能ごとのファイル（例：server/mccall.js）から同じつなぎ口を使うため（2026-11-16 MOCHICA の架電）
+export const dbPool = () => pool;
 
 // スキーマ作成を1文ずつ独立して実行する。
 // 1つ失敗しても残りを作り続け、失敗したものは名前つきで記録する。
@@ -4448,10 +4451,12 @@ export async function repairPhoneAsCompany() {
   } catch (e) { console.error("[db] repairPhoneAsCompany", e.message); return 0; }
 }
 // 直前の addCallTargets で、ほかのリストから移した数（takeOver のとき）
-export const lastAddStats = { moved: 0 };
+export const lastAddStats = { moved: 0, banned: 0, bannedNames: [] };
 export async function addCallTargets(listId, items = [], { dedupe = false, takeOver = false } = {}) {
-  lastAddStats.moved = 0;
+  lastAddStats.moved = 0; lastAddStats.banned = 0; lastAddStats.bannedNames = [];
   if (!pool || !listId || !items.length) return 0;
+  // アプローチ禁止の名簿が読めないときは、1件も入れない（読めないまま入れると禁止の会社が混ざるため）
+  try { await loadApproachBans(); } catch (e) { console.error("[db] addCallTargets 禁止名簿が読めないため取り込みを止めました", e.message); return 0; }
   try {
     // 重複を外す場合、これまで作ったkincallの全リスト（済み・未済みを問わず）の
     // 架電先をカギにして持っておく。過去に一度でもどこかのリストに入れた先とは重複させない。
@@ -4463,6 +4468,12 @@ export async function addCallTargets(listId, items = [], { dedupe = false, takeO
     let n = 0, sort = 0;
     for (const x0 of items) {
       const x = fixPhoneAsCompany(x0 || {});
+      // アプローチ禁止の会社は、新しく入れることも、ほかのリストから移すこともしない
+      if (approachBanHitSync(x)) {
+        lastAddStats.banned++;
+        if (lastAddStats.bannedNames.length < 50) lastAddStats.bannedNames.push(String(x.company || x.phone || ""));
+        continue;
+      }
       if (dedupe) {
         const keys = callDedupeKeys(x.leadId, x.phone, x.company);
         const hit = keys.map((k) => seen.get(k)).find(Boolean);
@@ -12782,7 +12793,14 @@ export async function kxHiringSaveDb(id, data, sources, by) { if (!pool) return;
 // 3/1 からの過去の会議もカレンダーと突き合わせる（2026-11-16：MiiTel の過去の会議 1600件を読んだため 60日→300日）。60日より前で見つからなかったものは、1時間ごとでなく7日ごとに試し直す
 export async function mcMiitelNeedCal(limit = 40) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec, payload->'mt_rep' AS mrep FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '300 days' AND COALESCE(payload->'mt_cal'->>'manual','') <> 'true' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '7' OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - (CASE WHEN started_at > now() - interval '60 days' THEN 3600000 ELSE 7 * 86400000 END)))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  // 版8（2026-11-16）：メールのドメイン・参加者名・文字起こしでも照合。会社名があるのに SF が空のものも6時間ごとに試し直す（SF の照会が黙って失敗していたため）
+  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec, payload->'mt_rep' AS mrep, payload->'mt_pmails' AS pemails FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '300 days' AND COALESCE(payload->'mt_cal'->>'manual','') <> 'true' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '8' OR (COALESCE(payload->'mt_cal'->>'none','') <> 'true' AND COALESCE(payload->'mt_cal'->'sf'->>'leadId','') = '' AND COALESCE(payload->'mt_cal'->'sf'->>'accountId','') = '' AND started_at > now() - interval '60 days' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - 6 * 3600000)) OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE(payload->'mt_cal'->>'nodeal','') <> 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - (CASE WHEN started_at > now() - interval '60 days' THEN 3600000 ELSE 7 * 86400000 END)))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+}
+
+// MiiTel の webhook で参加者が「[object Object]」で入った会議・長さが空の会議（payload から直すため）（2026-11-16）
+export async function mcMiitelBrokenParts(limit = 100) {
+  if (!pool) return []; await ensureMcMiitel();
+  return (await pool.query(`SELECT id, participants, duration_sec, payload - 'mt_phrases' - 'mt_summary' - 'mt_media' - 'mt_cal' AS payload FROM mochica_miitel_events WHERE (participants LIKE '%[object Object]%' OR (duration_sec IS NULL AND (payload ? 'video' OR payload ? 'meeting' OR payload ? 'data'))) AND NOT (payload ? 'mt_pfix') ORDER BY started_at DESC NULLS LAST LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 
 // SF の立ち上げ：kincall の架電先から、会社の従業員数・業種を探す（2026-11-13 田中さん「従業員数は基本 kincall の情報から」）
@@ -12832,6 +12850,28 @@ async function ensureMcBales() {
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS w_err TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail_at TIMESTAMPTZ`).catch(() => {});
+  // ホット度（担当者名・ニーズ・検討時期のそろった数 0〜3 と、それぞれの根拠）（2026-11-16 依頼「架電時のホットリスト化」）
+  //   判定は server/mchot.js。取り込み直し・SF との結びつき・ルールの版が変わったら hot_at／hot_v で分かり、やり直す
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot SMALLINT`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_d JSONB`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_v SMALLINT`).catch(() => {});
+}
+// ホット度をまだ付けていない（または古い）行に付ける。今の取り込みの行だけ。2000件ずつ
+export async function mcBalesHotFill(listKey) {
+  if (!pool) return 0; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l || !l.run_at) return 0;
+  let done = 0;
+  for (let i = 0; i < 200; i++) {
+    const rows = (await pool.query(`SELECT row_key, data, sf->'lead' AS lead FROM mochica_bales_rows
+      WHERE list_key=$1 AND run_at=$2 AND (hot_at IS NULL OR hot_v IS DISTINCT FROM $3 OR hot_at < run_at OR (sf_at IS NOT NULL AND hot_at < sf_at))
+      ORDER BY seq LIMIT 2000`, [listKey, l.run_at, HOT_VERSION])).rows;
+    if (!rows.length) break;
+    const items = rows.map((r) => { const j = judgeHot(r.data, r.lead); return { k: r.row_key, n: j.n, d: { name: j.name, need: j.need, when: j.when } }; });
+    await pool.query(`UPDATE mochica_bales_rows r SET hot=x.n, hot_d=x.d, hot_at=now(), hot_v=$3 FROM jsonb_to_recordset($2::jsonb) AS x(k text, n int, d jsonb) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items), HOT_VERSION]);
+    done += items.length; if (rows.length < 2000) break;
+  }
+  return done;
 }
 export async function mcBalesStart({ listKey, name, src, total, view = null }) {
   if (!pool) return null; await ensureMcBales();
@@ -12878,6 +12918,8 @@ export async function mcBalesFinish(listKey, error = "") {
   const cols = (await pool.query(`SELECT k, count(*) AS n FROM (SELECT data FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 LIMIT 3000) t, jsonb_each_text(t.data) AS e(k, v)
     WHERE COALESCE(v,'') <> '' GROUP BY k ORDER BY n DESC LIMIT 400`, [listKey, l.run_at])).rows.map((r) => ({ key: r.k, n: Number(r.n) }));
   await pool.query(`UPDATE mochica_bales_lists SET status=$2, count=$3, cols=$4, done_at=now(), error=NULLIF($5,'') WHERE list_key=$1`, [listKey, error ? "error" : "done", n, JSON.stringify(cols), String(error || "").slice(0, 300)]);
+  // 取り込み直したら、すぐホット度を付け直す（待たせないよう裏で）
+  mcBalesHotFill(listKey).then((h) => { if (h) console.log(`[Bales] ${listKey} ホット度を付けた：${h}件`); }).catch((e) => console.warn("[Bales] ホット度の判定に失敗:", e.message));
   return n;
 }
 export async function mcBalesLists() {
@@ -12885,18 +12927,24 @@ export async function mcBalesLists() {
   return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.view, l.run_at, l.done_at, l.error,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.detail_at IS NOT NULL) AS detail_n,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.sf IS NOT NULL AND r.sf ? 'lead') AS sf_n, l.sf_info,
-    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.w_at IS NOT NULL AND r.w_err IS NULL) AS w_n
+    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.w_at IS NOT NULL AND r.w_err IS NULL) AS w_n,
+    (SELECT json_build_object('hot', count(*) FILTER (WHERE hot >= 3), 'warm', count(*) FILTER (WHERE hot = 2), 'cold', count(*) FILTER (WHERE hot <= 1), 'yet', count(*) FILTER (WHERE hot IS NULL),
+       'name', count(*) FILTER (WHERE hot_d->'name'->>'st' = 'あり'), 'need', count(*) FILTER (WHERE hot_d->'need'->>'st' = 'あり'), 'when', count(*) FILTER (WHERE hot_d->'when'->>'st' = 'あり'))
+       FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at) AS hot_n
     FROM mochica_bales_lists l ORDER BY l.run_at DESC NULLS LAST`)).rows;
 }
-export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100 } = {}) {
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
+  // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
+  const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
-  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY seq LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __sf: r.sfs || null }));
+  const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
+  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
   return { total, rows };
 }
 export async function mcBalesValues(listKey, col) {
@@ -13006,4 +13054,141 @@ export async function mcMiitelTodoCount(days = 60) {
   if (!pool) return 0; await ensureMcMiitel();
   return Number((await pool.query(`SELECT count(*) FROM mochica_miitel_events WHERE COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND COALESCE((payload->>'mt_tr_try')::int, 0) < 2
     AND COALESCE(started_at, received_at) > now() - make_interval(days => $1) AND COALESCE(title,'') <> ''`, [Math.max(1, Math.min(400, Number(days) || 60))])).rows[0].count);
+}
+
+// ===== アプローチ禁止企業（2026-11-16）=====
+// 「この会社にはかけてはいけない」を、どの取り込み・どの画面・どの記録からでも必ず止めるための名簿。
+//   ・source='sf'     … Salesforce のリード／取引先の「アプローチ禁止の種類（Ban_Type__c）」が入っているもの（定期で入れ替え）
+//   ・source='manual' … kinbot の設定画面から人が登録したもの（SF の入れ替えでは消えない）
+// 突き合わせは「リードID」「電話番号（末尾10けた）」「会社名（株式会社などを外した形）」のどれか1つでも一致したら禁止。
+//   取りこぼしより、かけてしまうほうが重いので、一致しやすい側に倒している。
+let _banReady = false;
+async function ensureApproachBans() {
+  if (_banReady || !pool) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS approach_bans (
+    id SERIAL PRIMARY KEY, company TEXT, phone TEXT, lead_id TEXT, reason TEXT,
+    source TEXT NOT NULL DEFAULT 'manual', sf_id TEXT, created_by TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS ix_approach_bans_source ON approach_bans(source)`);
+  _banReady = true;
+}
+// 会社名だけで止めると「不明」「個人」のような埋め草で大量に止まってしまうので、それは鍵にしない
+const BAN_JUNK_CO = new Set(["不明", "なし", "無し", "個人", "test", "テスト", "-", "ー", "未設定", "担当者"]);
+function banKeys(leadId, phone, company) {
+  const co = String(company || "").normalize("NFKC");
+  return callDedupeKeys(leadId, phone, co).filter((k) => {
+    if (!k.startsWith("co:")) return true;
+    const v = k.slice(3);
+    return v.length >= 2 && !BAN_JUNK_CO.has(v);
+  });
+}
+// 毎回 DB を読むと重いので名簿を手元に持つ（変更したら作り直す。ほかのサーバーで変わった分も1分で読み直す）
+let _banCache = { at: 0, map: new Map(), count: 0 };
+export async function loadApproachBans(force = false) {
+  if (!pool) return _banCache;
+  if (!force && _banCache.at && Date.now() - _banCache.at < 60000) return _banCache;
+  await ensureApproachBans();
+  const { rows } = await pool.query(`SELECT id, company, phone, lead_id, reason, source FROM approach_bans`);
+  const map = new Map();
+  for (const r of rows) {
+    const hit = { id: r.id, company: r.company || "", reason: r.reason || "", source: r.source };
+    for (const k of banKeys(r.lead_id, r.phone, r.company)) if (!map.has(k)) map.set(k, hit);
+  }
+  _banCache = { at: Date.now(), map, count: rows.length };
+  return _banCache;
+}
+// 手元の名簿で判定する。呼ぶ前に必ず loadApproachBans を待つこと（approachBanHit / dropApproachBanned は自分で待つ）
+export function approachBanHitSync(x = {}) {
+  for (const k of banKeys(x.leadId || x.lead_id, x.phone, x.company)) {
+    const h = _banCache.map.get(k);
+    if (h) return { ...h, by: k.split(":")[0] };
+  }
+  return null;
+}
+export async function approachBanHit(x = {}) { await loadApproachBans(); return approachBanHitSync(x); }
+// 一覧などの行の配列から、禁止の会社を取り除く
+export async function dropApproachBanned(rows) {
+  if (!Array.isArray(rows) || !rows.length) return rows;
+  await loadApproachBans();
+  if (!_banCache.map.size) return rows;
+  return rows.filter((r) => !r || typeof r !== "object" || !approachBanHitSync(r));
+}
+export async function listApproachBans({ q = "", source = "", limit = 500 } = {}) {
+  if (!pool) return { items: [], total: 0, counts: {} };
+  await ensureApproachBans();
+  const p = []; const w = [];
+  if (source) { p.push(source); w.push(`source = $${p.length}`); }
+  const nq = String(q || "").trim();
+  if (nq) { p.push(`%${nq}%`); w.push(`(company ILIKE $${p.length} OR phone ILIKE $${p.length} OR reason ILIKE $${p.length})`); }
+  const where = w.length ? `WHERE ${w.join(" AND ")}` : "";
+  const total = Number((await pool.query(`SELECT count(*) FROM approach_bans ${where}`, p)).rows[0].count);
+  p.push(Math.max(1, Math.min(5000, Number(limit) || 500)));
+  const { rows } = await pool.query(`SELECT * FROM approach_bans ${where} ORDER BY (source = 'manual') DESC, created_at DESC, id DESC LIMIT $${p.length}`, p);
+  const counts = (await pool.query(`SELECT source, count(*)::int AS n FROM approach_bans GROUP BY source`)).rows;
+  return { items: rows, total, counts: Object.fromEntries(counts.map((r) => [r.source, r.n])) };
+}
+// 人が登録する（会社名か電話番号のどちらかは必須。鍵がすべて登録済みなら足さない）
+export async function addApproachBans(items = [], by = "") {
+  if (!pool) return { added: 0, skipped: 0 };
+  await loadApproachBans(true);
+  let added = 0, skipped = 0;
+  for (const x of items) {
+    const company = String((x && x.company) || "").trim().slice(0, 200), phone = String((x && x.phone) || "").trim().slice(0, 40);
+    const reason = String((x && x.reason) || "").trim().slice(0, 200);
+    const keys = banKeys("", phone, company);
+    if (!keys.length || keys.every((k) => _banCache.map.has(k))) { skipped++; continue; }
+    await pool.query(`INSERT INTO approach_bans (company, phone, reason, source, created_by) VALUES ($1,$2,$3,'manual',$4)`,
+      [company, phone, reason || "手動登録", String(by || "").toLowerCase()]);
+    added++;
+    for (const k of keys) if (!_banCache.map.has(k)) _banCache.map.set(k, { company, reason, source: "manual" });
+  }
+  await loadApproachBans(true);
+  return { added, skipped };
+}
+// 外せるのは人が登録したものだけ（SF 由来は SF 側で外さないと次の入れ替えで戻るため）
+export async function removeApproachBan(id) {
+  if (!pool) return 0;
+  await ensureApproachBans();
+  const n = (await pool.query(`DELETE FROM approach_bans WHERE id = $1 AND source = 'manual'`, [id])).rowCount;
+  await loadApproachBans(true);
+  return n;
+}
+// SF 由来の名簿をまるごと入れ替える。0件のときは入れ替えない（SF が読めなかっただけで名簿が空になり、かけてしまうのを防ぐ）
+export async function replaceSfApproachBans(rows = []) {
+  if (!pool || !rows.length) return { replaced: false, count: 0 };
+  await ensureApproachBans();
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query(`DELETE FROM approach_bans WHERE source = 'sf'`);
+    for (let i = 0; i < rows.length; i += 500) {
+      const chunk = rows.slice(i, i + 500); const vals = []; const p = [];
+      for (const r of chunk) {
+        p.push(String(r.company || "").slice(0, 200), String(r.phone || "").slice(0, 40), String(r.leadId || ""), String(r.reason || "").slice(0, 200), String(r.sfId || ""));
+        const b = p.length - 4;
+        vals.push(`($${b},$${b + 1},$${b + 2},$${b + 3},'sf',$${b + 4})`);
+      }
+      await c.query(`INSERT INTO approach_bans (company, phone, lead_id, reason, source, sf_id) VALUES ${vals.join(",")}`, p);
+    }
+    await c.query("COMMIT");
+  } catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; }
+  finally { c.release(); }
+  await loadApproachBans(true);
+  return { replaced: true, count: rows.length };
+}
+// すでにリストに入っている架電先にも印（excluded）を付ける。名簿から外れたものは印を外す。
+//   画面・記録は名簿で直接止めているので、これは管理画面などで「禁止で外れている」と分かるようにするため。
+export async function applyApproachBansToTargets() {
+  if (!pool) return { marked: 0, cleared: 0 };
+  await loadApproachBans(true);
+  const { rows } = await pool.query(`SELECT id, lead_id, phone, company, excluded, excluded_reason FROM call_targets`);
+  const mark = [], clear = [];
+  for (const r of rows) {
+    const h = approachBanHitSync(r);
+    const was = !!r.excluded && String(r.excluded_reason || "").startsWith("アプローチ禁止");
+    if (h && !was) mark.push([r.id, `アプローチ禁止：${h.reason || h.company || ""}`.slice(0, 200)]);
+    else if (!h && was) clear.push(r.id);
+  }
+  for (const [id, why] of mark) await pool.query(`UPDATE call_targets SET excluded = true, excluded_reason = $2 WHERE id = $1`, [id, why]);
+  if (clear.length) await pool.query(`UPDATE call_targets SET excluded = false, excluded_reason = NULL WHERE id = ANY($1::int[])`, [clear]);
+  return { marked: mark.length, cleared: clear.length };
 }

@@ -25,7 +25,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261116a" />
+    <link rel="stylesheet" href="style.css?v=20261116d" />
   </head>
   <body>
     <div class="app">
@@ -74,6 +74,7 @@
             <button class="set-menu-item" data-tab="ai">プロンプト設定</button>
             <div class="set-group-label">管理</div>
             <button class="set-menu-item" data-tab="members">メンバー管理</button>
+            <button class="set-menu-item" data-tab="bans">アプローチ禁止</button>
           </nav>
           <div class="set-body">
 
@@ -891,6 +892,28 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
             </div>
           </div>
 
+          <!-- アプローチ禁止企業（2026-11-16）：ここに載った会社は、取り込み・かける一覧・記録・資料送付のすべてで止まる -->
+          <div class="set-pane" data-pane="bans" hidden>
+            <div class="set-card">
+              <h3>アプローチ禁止企業</h3>
+              <p class="ban-lead">ここに載っている会社は、架電リストに入らず、かける一覧にも出ず、記録・資料送付もできません。会社名（株式会社などは無視）・電話番号・SFのリードIDのどれか1つでも一致すれば止まります。</p>
+              <div class="ban-sf">
+                <span id="banSfState">SF の名簿を読み込んでいます…</span>
+                <button type="button" class="ban-btn ban-btn-sub" id="banSync"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>SF から読み直す</button>
+              </div>
+              <div class="mb-addbox">
+                <span class="mb-add-l">禁止に登録する（1行に1社：会社名,電話番号,理由。電話番号・理由は省略できます）</span>
+                <textarea id="banText" rows="4" placeholder="株式会社サンプル,03-1234-5678,先方から架電拒否&#10;0312345678"></textarea>
+                <div><button type="button" class="mb-add-btn" id="banAdd"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>登録</button> <span id="banMsg" class="ban-msg"></span></div>
+              </div>
+              <div class="ban-tools">
+                <input id="banQ" placeholder="会社名・電話番号・理由で探す" />
+                <select id="banSrc"><option value="">すべて</option><option value="manual">手動で登録</option><option value="sf">SF 由来</option></select>
+                <span id="banCount" class="ban-msg"></span>
+              </div>
+              <div id="banList" class="ban-list"></div>
+            </div>
+          </div>
           <div class="set-pane" data-pane="members" hidden>
             <div class="set-card">
               <h3>メンバー管理</h3>
@@ -960,8 +983,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261116a"></script>
-      <script src="nav.js?v=20261116a"></script>
+    <script src="settings.js?v=20261116d"></script>
+      <script src="nav.js?v=20261116d"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

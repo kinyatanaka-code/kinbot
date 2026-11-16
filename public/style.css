@@ -844,6 +844,26 @@ label.iv-row { cursor: pointer; }
 .mb-addbox .mb-add input { height: 32px; padding: 0 10px; font-size: 12.5px; flex: 1 1 180px; min-width: 0; }
 .mb-add-btn { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 14px; border: 0; border-radius: 9px; background: #0d5b47; color: #fff; font: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
 .mb-add-btn:hover { background: #0F6E56; }
+/* アプローチ禁止企業（設定）2026-11-16 */
+.ban-lead { margin: 0 0 10px; font-size: 12.5px; color: #4a5a54; line-height: 1.7; }
+.ban-sf { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: #4a5a54; background: #F3F8F6; border-radius: 10px; padding: 8px 12px; }
+.ban-btn { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px; border-radius: 9px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.ban-btn-sub { border: 1px solid #1d9e75; background: #fff; color: #0d5b47; }
+.ban-btn-sub:hover { background: #EAF6F1; }
+#banText { width: 100%; box-sizing: border-box; border: 1px solid #CFE3D9; border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 12.5px; resize: vertical; }
+.ban-msg { font-size: 12px; color: #4a5a54; }
+.ban-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.ban-tools input { flex: 1 1 200px; height: 32px; padding: 0 10px; border: 1px solid #CFE3D9; border-radius: 9px; font: inherit; font-size: 12.5px; }
+.ban-tools select { height: 32px; border: 1px solid #CFE3D9; border-radius: 9px; font: inherit; font-size: 12.5px; padding: 0 8px; }
+.ban-list { display: grid; gap: 6px; max-height: 480px; overflow: auto; }
+.ban-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr) auto auto; gap: 10px; align-items: center; border: 1px solid #E3EEE9; border-radius: 10px; padding: 7px 10px; font-size: 12.5px; background: #fff; }
+.ban-row .co { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ban-row .why { color: #4a5a54; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ban-chip { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #EAF6F1; color: #0d5b47; white-space: nowrap; }
+.ban-chip.sf { background: #EEF3FB; color: #2b5aa8; }
+.ban-del { border: 0; background: transparent; color: #b94a48; cursor: pointer; padding: 4px; border-radius: 8px; display: inline-flex; }
+.ban-del:hover { background: #FCEDEC; }
+@media (max-width: 640px) { .ban-row { grid-template-columns: 1fr auto; } .ban-row .why, .ban-row .tel { grid-column: 1 / -1; } }
 .mb-cand { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid #E6EFEA; }
 .mb-quick { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 1px solid #CFE3D9; border-radius: 99px; background: #fff; color: #0F6E56; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .mb-acct { border-top: 1px solid #E6EFEA; padding-top: 10px; }

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot パスワードの再発行</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#0d5b47" />
+    <link rel="stylesheet" href="style.css?v=20261116d" />
+  </head>
+  <body>
+    <div class="login-wrap">
+      <div class="login-card">
+        <img class="auth-mascot" src="kinbot.svg" alt="kinbot" />
+        <div class="login-brand"><span class="brand-mark"></span> kinbot</div>
+        <p class="login-sub">パスワードの再発行</p>
+
+        <!-- 1) メールを入れて Google で本人確認 -->
+        <div id="step1">
+          <p class="login-alt" style="margin-top:0">登録済みのメールアドレスを入れて、同じアドレスの Google アカウントで本人確認してください。確認できたら新しいパスワードを決められます。</p>
+          <label class="field"><span>メールアドレス</span><input id="email" type="email" autocomplete="email" /></label>
+          <button class="btn" id="googleBtn">Googleで本人確認する</button>
+        </div>
+
+        <!-- 2) 本人確認が済んだら新しいパスワード -->
+        <div id="step2" hidden>
+          <p class="login-alt" style="margin-top:0">本人確認ができました。新しいパスワードを決めてください（15分以内）。</p>
+          <label class="field"><span>新しいパスワード（8文字以上）</span><input id="p1" type="password" autocomplete="new-password" /></label>
+          <label class="field"><span>もう一度</span><input id="p2" type="password" autocomplete="new-password" /></label>
+          <button class="btn" id="saveBtn">パスワードを決めてログイン</button>
+        </div>
+
+        <p class="login-err" id="err" hidden></p>
+        <p class="login-alt"><a href="login.html">ログインに戻る</a></p>
+      </div>
+    </div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const q = new URLSearchParams(location.search);
+      const token = q.get("t");
+      function showErr(m) { $("err").textContent = m; $("err").hidden = false; }
+      if (q.get("err")) showErr(q.get("err"));
+      if (token) { $("step1").hidden = true; $("step2").hidden = false; }
+
+      $("googleBtn").addEventListener("click", () => {
+        const email = $("email").value.trim();
+        if (!email) return showErr("メールアドレスを入れてください");
+        location.href = "/auth/pwreset/start?email=" + encodeURIComponent(email);
+      });
+      $("email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("googleBtn").click(); });
+
+      async function save() {
+        $("err").hidden = true;
+        if ($("p1").value !== $("p2").value) return showErr("2つのパスワードが違います");
+        try {
+          const res = await fetch("/api/password-reset", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ t: token, password: $("p1").value }),
+          });
+          const d = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(d.error || "パスワードを変えられませんでした");
+          location.href = "/";
+        } catch (e) { showErr(e.message); }
+      }
+      $("saveBtn").addEventListener("click", save);
+      $("p2").addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+    </script>
+  </body>
+</html>
