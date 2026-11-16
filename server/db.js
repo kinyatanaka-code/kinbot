@@ -3,6 +3,7 @@
 // DATABASE_URL が無ければ自動で「保存なし（メモリのみ）」で動く（段階導入のため）。
 import pg from "pg";
 import crypto from "crypto";
+import { judgeHot, HOT_VERSION } from "./mchot.js";
 
 const DATABASE_URL = process.env.DATABASE_URL || "";
 let pool = null;
@@ -12832,6 +12833,28 @@ async function ensureMcBales() {
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS w_err TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail JSONB`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail_at TIMESTAMPTZ`).catch(() => {});
+  // ホット度（担当者名・ニーズ・検討時期のそろった数 0〜3 と、それぞれの根拠）（2026-11-16 依頼「架電時のホットリスト化」）
+  //   判定は server/mchot.js。取り込み直し・SF との結びつき・ルールの版が変わったら hot_at／hot_v で分かり、やり直す
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot SMALLINT`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_d JSONB`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS hot_v SMALLINT`).catch(() => {});
+}
+// ホット度をまだ付けていない（または古い）行に付ける。今の取り込みの行だけ。2000件ずつ
+export async function mcBalesHotFill(listKey) {
+  if (!pool) return 0; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l || !l.run_at) return 0;
+  let done = 0;
+  for (let i = 0; i < 200; i++) {
+    const rows = (await pool.query(`SELECT row_key, data, sf->'lead' AS lead FROM mochica_bales_rows
+      WHERE list_key=$1 AND run_at=$2 AND (hot_at IS NULL OR hot_v IS DISTINCT FROM $3 OR hot_at < run_at OR (sf_at IS NOT NULL AND hot_at < sf_at))
+      ORDER BY seq LIMIT 2000`, [listKey, l.run_at, HOT_VERSION])).rows;
+    if (!rows.length) break;
+    const items = rows.map((r) => { const j = judgeHot(r.data, r.lead); return { k: r.row_key, n: j.n, d: { name: j.name, need: j.need, when: j.when } }; });
+    await pool.query(`UPDATE mochica_bales_rows r SET hot=x.n, hot_d=x.d, hot_at=now(), hot_v=$3 FROM jsonb_to_recordset($2::jsonb) AS x(k text, n int, d jsonb) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items), HOT_VERSION]);
+    done += items.length; if (rows.length < 2000) break;
+  }
+  return done;
 }
 export async function mcBalesStart({ listKey, name, src, total, view = null }) {
   if (!pool) return null; await ensureMcBales();
@@ -12878,6 +12901,8 @@ export async function mcBalesFinish(listKey, error = "") {
   const cols = (await pool.query(`SELECT k, count(*) AS n FROM (SELECT data FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 LIMIT 3000) t, jsonb_each_text(t.data) AS e(k, v)
     WHERE COALESCE(v,'') <> '' GROUP BY k ORDER BY n DESC LIMIT 400`, [listKey, l.run_at])).rows.map((r) => ({ key: r.k, n: Number(r.n) }));
   await pool.query(`UPDATE mochica_bales_lists SET status=$2, count=$3, cols=$4, done_at=now(), error=NULLIF($5,'') WHERE list_key=$1`, [listKey, error ? "error" : "done", n, JSON.stringify(cols), String(error || "").slice(0, 300)]);
+  // 取り込み直したら、すぐホット度を付け直す（待たせないよう裏で）
+  mcBalesHotFill(listKey).then((h) => { if (h) console.log(`[Bales] ${listKey} ホット度を付けた：${h}件`); }).catch((e) => console.warn("[Bales] ホット度の判定に失敗:", e.message));
   return n;
 }
 export async function mcBalesLists() {
@@ -12885,18 +12910,24 @@ export async function mcBalesLists() {
   return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.view, l.run_at, l.done_at, l.error,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.detail_at IS NOT NULL) AS detail_n,
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.sf IS NOT NULL AND r.sf ? 'lead') AS sf_n, l.sf_info,
-    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.w_at IS NOT NULL AND r.w_err IS NULL) AS w_n
+    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.w_at IS NOT NULL AND r.w_err IS NULL) AS w_n,
+    (SELECT json_build_object('hot', count(*) FILTER (WHERE hot >= 3), 'warm', count(*) FILTER (WHERE hot = 2), 'cold', count(*) FILTER (WHERE hot <= 1), 'yet', count(*) FILTER (WHERE hot IS NULL),
+       'name', count(*) FILTER (WHERE hot_d->'name'->>'st' = 'あり'), 'need', count(*) FILTER (WHERE hot_d->'need'->>'st' = 'あり'), 'when', count(*) FILTER (WHERE hot_d->'when'->>'st' = 'あり'))
+       FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at) AS hot_n
     FROM mochica_bales_lists l ORDER BY l.run_at DESC NULLS LAST`)).rows;
 }
-export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100 } = {}) {
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
+  // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
+  const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
-  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY seq LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __sf: r.sfs || null }));
+  const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
+  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
   return { total, rows };
 }
 export async function mcBalesValues(listKey, col) {

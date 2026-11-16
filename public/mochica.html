@@ -132,6 +132,15 @@
   .bl-hours{display:flex;gap:6px;align-items:flex-end;height:96px;margin-top:6px;padding:6px 4px;background:#F2FAFB;border-radius:12px;} .bl-hours div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;} .bl-hours i{display:block;width:70%;background:#0E9AA7;border-radius:4px 4px 0 0;min-height:2px;} .bl-hours b{font-size:10px;color:#0B6E78;} .bl-hours small{font-size:10px;color:#5C7377;}
   .bl-date{height:34px;border:1px solid #CFE6EA;border-radius:10px;padding:0 8px;font:inherit;} .bl-row.on td{background:#DDF5F7;}
   .bl-sfst{font-size:12px;color:#0B6E78;margin-top:6px;min-height:0;} .bl-sfst:empty{display:none;}
+  /* ホット度（2026-11-16 架電のホットリスト化）：札の色でホット・ウォーム・コールド、丸3つで担当者名・ニーズ・検討時期 */
+  .bl-hotbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 12px;} .bl-hb{border:1px solid transparent;border-radius:12px;padding:8px 12px;text-align:left;cursor:pointer;font:inherit;}
+  .bl-hb small{display:block;font-size:11px;} .bl-hb b{font-size:20px;} .bl-hb.hot{background:#FDE7E1;color:#9A3412;} .bl-hb.warm{background:#FDF0D8;color:#8A5A00;} .bl-hb.cold{background:#EEF3F2;color:#4B5F5A;}
+  .bl-hb.on{border-color:currentColor;box-shadow:0 0 0 1px currentColor inset;} .bl-hb-sub{grid-column:1/-1;font-size:12px;color:#5C7377;} .bl-hb-sub b{color:#0F3D44;}
+  .bl-hot{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;white-space:nowrap;margin-right:4px;} .bl-hot.hot{background:#FDE7E1;color:#9A3412;} .bl-hot.warm{background:#FDF0D8;color:#8A5A00;} .bl-hot.cold{background:#EEF3F2;color:#4B5F5A;}
+  .bl-hds{display:inline-flex;gap:2px;vertical-align:middle;} .bl-hd{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;border:1px solid #C9D6D3;color:#8AA09B;background:#fff;}
+  .bl-hd.ok{background:#1d9e75;border-color:#1d9e75;color:#fff;} .bl-hd.no{background:#DDE5E3;border-color:#DDE5E3;color:#5C7377;} .bl-hotc{white-space:nowrap;}
+  .bl-hsort{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:#0F3D44;white-space:nowrap;}
+  @media (max-width:640px){.bl-hotbar{grid-template-columns:minmax(0,1fr);}}
   .bl-sfc{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;background:#DDF5F7;color:#0B6E78;white-space:nowrap;} .bl-sfc.won{background:#E1F5EE;color:#085041;} .bl-sfc.lost{background:#FDF0D8;color:#8A5A00;}
   .bl-sflinks{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;} .bl-sflinks a{text-decoration:none;} .bl-sub{display:block;font-size:10px;color:#9AB0B3;} .bl-row{cursor:pointer;} .bl-row:hover td{background:#F2FAFB;}
   .bl-sheet-bg{position:fixed;inset:0;background:rgba(15,61,68,.28);z-index:900;display:flex;justify-content:flex-end;} .bl-sheet{position:relative;width:min(760px,96vw);height:100%;background:#fff;box-shadow:-8px 0 28px rgba(15,61,68,.18);overflow:auto;border-radius:16px 0 0 16px;}
@@ -248,7 +257,7 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mcbales.js?v=20261116q"></script>
+  <script src="/mcbales.js?v=20261116r"></script>
   <script src="/caseshare.js?v=20261116c"></script>
   <script src="/mochica.js?v=20261116w"></script>
 </body>
