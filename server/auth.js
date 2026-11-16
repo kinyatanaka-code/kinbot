@@ -120,14 +120,15 @@ export function clearSessionCookie(res) {
 }
 
 // ===== 代理ログイン（なりすまし） =====
-// 田中欽也と中澤良太（同じ権限）が、他のメンバーとしてログインできる特別機能。
+// 田中欽也・中澤良太・福井聖が、他のメンバーとしてログインできる特別機能。
 // セキュリティ上のリスクが大きいため、以下の制約を必ず守る。
-//  - 代理ログインできるのは下の2アカウントだけ（ハードコード）
+//  - 代理ログインできるのは下のアカウントだけ（ハードコード）
 //  - 元アカウントは kbt_imp Cookie に別途保持し、いつでも元に戻せる
 //  - すべての操作はサーバー側で監査ログに記録する
 const IMPERSONATOR_EMAILS = new Set([
   "kinya.tanaka@neo-career.co.jp",
   "ryota.nakazawa@neo-career.co.jp",   // 中澤良太（田中欽也と同じ権限）
+  "sho.fukui@neo-career.co.jp",        // 福井聖（2026-11-16 田中さん：MOCHICA の直し・確認のため、他のアカウントで操作できるように）
 ]);
 const IMP_COOKIE = "kbt_imp";
 export function canImpersonate(email) {
