@@ -12953,15 +12953,19 @@ export async function mcBalesWriteTodo(listKey, limit = 40, only = "") {
   if (!pool) return { items: [], left: 0 }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { items: [], left: 0, none: true };
   const p = [listKey, l.run_at]; let w = `list_key=$1 AND run_at=$2 AND sf IS NOT NULL AND sf ? 'lead'`;
-  if (only) { p.push(String(only)); w += ` AND row_key=$${p.length}`; } else w += ` AND w_at IS NULL`;
+  // 拡張機能に渡す id は Bales のリード番号（callTargetId）。行の印（row_key）が中身のハッシュの行もあるので、そちらでは書けない（2026-11-16
+  //   田中さん「入力できていない気がする」：/call_targets/<ハッシュ>/custom_field_value に書こうとして失敗、1件だけはリード番号で探して見つからなかった）
+  const BID = `COALESCE(NULLIF(data->>'callTargetId',''), NULLIF(data->>'call_target_id',''), NULLIF(data->>'id',''), row_key)`;
+  if (only) { p.push(String(only)); w += ` AND (row_key=$${p.length} OR ${BID}=$${p.length})`; } else w += ` AND w_at IS NULL`;
   p.push(Math.min(Number(limit) || 40, 200));
-  const items = (await pool.query(`SELECT row_key, sf->'lead' AS lead FROM mochica_bales_rows WHERE ${w} ORDER BY seq LIMIT $${p.length}`, p)).rows.map((r) => ({ id: r.row_key, lead: r.lead }));
+  const items = (await pool.query(`SELECT ${BID} AS bid, sf->'lead' AS lead FROM mochica_bales_rows WHERE ${w} ORDER BY seq LIMIT $${p.length}`, p)).rows.map((r) => ({ id: r.bid, lead: r.lead }));
   const c = (await pool.query(`SELECT count(*) FILTER (WHERE w_at IS NULL)::int AS left, count(*)::int AS all FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND sf IS NOT NULL AND sf ? 'lead'`, [listKey, l.run_at])).rows[0];
   return { items, left: c.left, all: c.all };
 }
 export async function mcBalesWritten(listKey, items) {
   if (!pool || !items.length) return 0; await ensureMcBales();
-  const r = await pool.query(`UPDATE mochica_bales_rows r SET w_at=now(), w_err=NULLIF(x.e,'') FROM jsonb_to_recordset($2::jsonb) AS x(k text, e text) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items)]);
+  // 拡張機能はリード番号（callTargetId）で返してくるので、行の印でもリード番号でも当てる
+  const r = await pool.query(`UPDATE mochica_bales_rows r SET w_at=now(), w_err=NULLIF(x.e,'') FROM jsonb_to_recordset($2::jsonb) AS x(k text, e text) WHERE r.list_key=$1 AND (r.row_key=x.k OR COALESCE(NULLIF(r.data->>'callTargetId',''), NULLIF(r.data->>'call_target_id',''), NULLIF(r.data->>'id',''))=x.k)`, [listKey, JSON.stringify(items)]);
   return r.rowCount;
 }
 
