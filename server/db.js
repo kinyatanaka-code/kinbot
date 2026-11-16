@@ -13007,3 +13007,25 @@ export async function mcMiitelTodoCount(days = 60) {
   return Number((await pool.query(`SELECT count(*) FROM mochica_miitel_events WHERE COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND COALESCE((payload->>'mt_tr_try')::int, 0) < 2
     AND COALESCE(started_at, received_at) > now() - make_interval(days => $1) AND COALESCE(title,'') <> ''`, [Math.max(1, Math.min(400, Number(days) || 60))])).rows[0].count);
 }
+
+// 取り込みで「担当者（相手の人）」に、リード所有者（こちらの人）が入ってしまった行を直す（2026-11-16 田中さん「リード所有者と採用担当者名が逆になっている」）
+//   条件：元の列に「担当者名」（または「採用担当者名」）があり、いまの担当者と違う。かつ、いまの担当者が
+//   リード所有者（owner_name・元の列の「所有者」など）と同じ、または「管理者」の名前のとき。前の値は元の列「リード所有者（取り込み時）」に残す
+export async function fixPersonOwnerSwap(listId = null) {
+  if (!pool) return 0;
+  const r = await pool.query(`
+    WITH c AS (
+      SELECT t.id, t.person, COALESCE(NULLIF(t.extra->>'担当者名',''), NULLIF(t.extra->>'採用担当者名','')) AS want
+        FROM call_targets t
+       WHERE t.extra IS NOT NULL AND ($1::int IS NULL OR t.list_id = $1)
+         AND COALESCE(NULLIF(t.extra->>'担当者名',''), NULLIF(t.extra->>'採用担当者名','')) IS NOT NULL
+         AND COALESCE(t.person,'') <> COALESCE(NULLIF(t.extra->>'担当者名',''), NULLIF(t.extra->>'採用担当者名',''))
+         AND COALESCE(t.person,'') <> ''
+         AND ( t.person = t.owner_name OR t.person LIKE '%管理者%'
+               OR EXISTS (SELECT 1 FROM jsonb_each_text(t.extra) e WHERE e.value = t.person AND e.key ~* '所有者|owner|^担当者$|^担当$') )
+    )
+    UPDATE call_targets t SET person = c.want, person_kana = NULL,
+           extra = t.extra || jsonb_build_object('リード所有者（取り込み時）', c.person)
+      FROM c WHERE t.id = c.id`, [listId]);
+  return r.rowCount;
+}

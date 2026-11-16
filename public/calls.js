@@ -11062,7 +11062,10 @@ function csvParse(text) {
   const 場所 = { company: 0, person: 1, phone: 2, email: 3, callDate: -1, status: -1, comment: -1, leadId: -1, stage: -1 };
   if (見出しっぽい) {
     const norm = (v) => String(v || "").replace(/[\s　_・\/]/g, "").toLowerCase();
-    const find = (...words) => head.findIndex((h) => words.some((w) => norm(h).includes(norm(w))));
+    // 言葉の順に探す（前は列の並び順で最初に当たった列を使っていたので、「担当者」の列（リード所有者）が「担当者名」より先にあると、
+    //   相手の担当者名にリード所有者が入っていた。2026-11-16 田中さん）。まず同じ名前、次に含む。所有者・作成者の列は使わない
+    const NOTP = /所有者|owner|作成者|更新者/i;
+    const find = (...words) => { for (const w of words) { const i = head.findIndex((h) => norm(h) === norm(w)); if (i >= 0) return i; } for (const w of words) { const i = head.findIndex((h) => norm(h).includes(norm(w)) && !NOTP.test(h)); if (i >= 0) return i; } return -1; };
     const set = (key, ...words) => { const i = find(...words); if (i >= 0) 場所[key] = i; };
     場所.company = -1; 場所.person = -1; 場所.phone = -1; 場所.email = -1;
     set("company", "会社名/取引先", "会社名", "会社", "取引先", "company");
