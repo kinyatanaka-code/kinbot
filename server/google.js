@@ -26,6 +26,36 @@ export function authUrl(redirectUri, state) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
 }
 
+// 本人確認だけ（パスワード再発行用）。メールアドレスを読む権限だけで、トークンは保存しない
+export function identityAuthUrl(redirectUri, state, loginHint) {
+  const p = new URLSearchParams({
+    client_id: CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "openid email",
+    prompt: "select_account",
+    state: state || "",
+  });
+  if (loginHint) p.set("login_hint", loginHint);
+  return `https://accounts.google.com/o/oauth2/v2/auth?${p}`;
+}
+// code を交換して、Googleで確認済みのメールアドレスを返す（確認できなければ null）
+export async function identityEmailFromCode(code, redirectUri) {
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ code, client_id: CLIENT_ID, client_secret: CLIENT_SECRET, redirect_uri: redirectUri, grant_type: "authorization_code" }),
+  });
+  if (!res.ok) throw new Error(`Google token ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  // id_token はGoogleのトークン窓口からTLSで直接受け取ったものなので、中身をそのまま読んでよい（OIDCの仕様）
+  const part = String(data.id_token || "").split(".")[1];
+  if (!part) return null;
+  const claims = JSON.parse(Buffer.from(part, "base64url").toString("utf8"));
+  if (claims.aud !== CLIENT_ID || !claims.email || claims.email_verified === false) return null;
+  return String(claims.email).toLowerCase();
+}
+
 async function fetchPrimaryEmail(accessToken) {
   try {
     const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary", {

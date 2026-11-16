@@ -6,7 +6,7 @@
 //   ALLOWED_EMAIL_DOMAIN 設定するとそのドメインのメールのみ登録可（例: example.co.jp）
 //   ADMIN_EMAILS         全員のデータを見られる管理者メール（カンマ区切り）
 import crypto from "node:crypto";
-import { dbGetUser, dbCreateUser, dbEnabled } from "./db.js";
+import { dbGetUser, dbCreateUser, dbUpdateUser, dbEnabled } from "./db.js";
 
 const COOKIE_NAME = "kinbot_session";
 const SECRET =
@@ -175,7 +175,7 @@ export async function registerUser({ email, password, displayName, code }) {
   }
   if (!dbEnabled()) return { error: "アカウント保存にはDB（DATABASE_URL）が必要です" };
   const existing = await dbGetUser(email);
-  if (existing) return { error: "このメールアドレスは既に登録されています" };
+  if (existing) return { error: "このメールアドレスは既に登録されています。パスワードが分からないときは、ログイン画面の「パスワードの再発行」から決め直してください" };
   await dbCreateUser(email, displayName || "", hashPassword(password));
   return { ok: true, email, admin: isAdmin(email) };
 }
@@ -196,6 +196,38 @@ export async function loginUser({ email, password }) {
     return { ok: true, id: raw, name: raw, admin: isAdmin(raw) };
   }
   return { error: "メールアドレスまたはパスワードが違います" };
+}
+
+// --- パスワード再発行（Googleで本人確認 → 新しいパスワードを決める） ---
+// 管理者がメールだけでアカウントを作った人が、自分でパスワードを決め直せるようにする（2026-11-16）。
+// トークンには今のパスワードの指紋を入れる → 一度変えたら同じリンクは使えない（1回限り）。
+const RESET_TTL_MS = 15 * 60 * 1000;
+const passPrint = (passHash) => crypto.createHash("sha256").update(String(passHash || "")).digest("hex").slice(0, 16);
+export function makeResetStartState(email) {
+  return makeToken(`R|${String(email || "").trim().toLowerCase()}|${Date.now()}`);
+}
+// コールバックで state を読む。期限切れ・改ざんは null
+export function readResetStartState(raw) {
+  if (!raw || !raw.startsWith("R|")) return null;
+  const [, email, ts] = raw.split("|");
+  if (!email || Date.now() - Number(ts) > RESET_TTL_MS) return null;
+  return email;
+}
+export async function makeResetToken(email) {
+  const u = dbEnabled() ? await dbGetUser(email) : null;
+  if (!u) return null;
+  return makeToken(`PWR|${email}|${Date.now()}|${passPrint(u.pass_hash)}`);
+}
+export async function resetPassword(token, password) {
+  const raw = verifyToken(String(token || ""));
+  if (!raw || !raw.startsWith("PWR|")) return { error: "再設定のリンクが正しくありません。もう一度やり直してください" };
+  const [, email, ts, print] = raw.split("|");
+  if (Date.now() - Number(ts) > RESET_TTL_MS) return { error: "再設定のリンクの期限が切れました（15分）。もう一度やり直してください" };
+  if (!password || String(password).length < 8) return { error: "パスワードは8文字以上にしてください" };
+  const u = await dbGetUser(email);
+  if (!u || passPrint(u.pass_hash) !== print) return { error: "このリンクはもう使えません。もう一度やり直してください" };
+  await dbUpdateUser(email, { passHash: hashPassword(password) });
+  return { ok: true, email, admin: isAdmin(email) };
 }
 
 export function signupGateOk(code) {
