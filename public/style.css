@@ -7383,7 +7383,7 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kc3-sel { max-width:180px; height:28px; font-size:12px; }
 .kc3-list { background:#fff; border:1px solid #e1ebe6; border-radius:12px; overflow:hidden; }
 .kc3-list.kc3-scroll { overflow-y:auto; overscroll-behavior:contain; }   /* 画面は固定・一覧だけスクロール（2026-11-16） */
-.kc3-row { display:grid; grid-template-columns:minmax(0,1fr) 150px 268px 74px 28px; align-items:center; gap:12px; padding:9px 14px; border-bottom:1px solid #eef3f0; }
+.kc3-row { display:grid; grid-template-columns:minmax(0,1fr) 150px 190px 210px 28px; align-items:center; gap:12px; padding:9px 14px; border-bottom:1px solid #eef3f0; }
 .kc3-row:last-child { border-bottom:0; }
 .kc3-row:hover { background:#f8fbf9; }
 .kc3-row.op { background:#f3faf6; }
@@ -7402,10 +7402,14 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kc3-seg button.on.s1 { background:#faeeda; color:#854F0B; }
 .kc3-seg button.on.s2 { background:#e1f5ee; color:#0F6E56; }
 .kc3-seg button.on.s3 { background:#1D9E75; color:#fff; }
-.kc3-res { display:flex; gap:7px; }
-.kc3-res button { width:16px; height:16px; border-radius:50%; border:1.5px solid var(--c); background:#fff; cursor:pointer; padding:0; opacity:.55; }
-.kc3-res button:hover { opacity:1; }
-.kc3-res button.on { background:var(--c); opacity:1; }
+/* 結果：色の点だけでは何か分からないので、「結果」の見出しと文字を付けた（2026-11-16 田中さん） */
+.kc3-res { display:flex; gap:4px; align-items:center; }
+.kc3-res small { font-size:10.5px; color:#8FA39A; font-weight:700; margin-right:2px; }
+.kc3-res button { display:inline-flex; align-items:center; gap:4px; border:1px solid #e1ebe6; background:#fff; color:#5B6B63; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; cursor:pointer; white-space:nowrap; }
+.kc3-res button i { width:8px; height:8px; border-radius:50%; background:var(--c); opacity:.6; }
+.kc3-res button:hover { border-color:var(--c); }
+.kc3-res button.on { background:var(--c); border-color:var(--c); color:#fff; }
+.kc3-res button.on i { background:#fff; opacity:1; }
 .kc3-more { border:0; background:transparent; cursor:pointer; padding:4px; border-radius:8px; }
 .kc3-row.op .kc3-more svg { transform:rotate(180deg); }
 .kc3-ed { grid-column:1 / -1; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:2px 0 4px; }
@@ -7416,4 +7420,4 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kc3-legend { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:8px; }
 .kc3-legend span { display:inline-flex; align-items:center; gap:4px; }
 .kc3-legend i { width:9px; height:9px; border-radius:50%; display:inline-block; }
-@media (max-width:1100px) { .kc3-row { grid-template-columns:minmax(0,1fr) 130px 240px 70px 24px; gap:8px; } }
+@media (max-width:1100px) { .kc3-row { grid-template-columns:minmax(0,1fr) 120px 170px 190px 24px; gap:8px; } }

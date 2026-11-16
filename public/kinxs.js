@@ -2100,13 +2100,14 @@ function renderCallV2() {
     const reasons = [...new Set(rows0.map((r) => r.reason))];
     const csN = [...new Set(rows0.map((r) => kxSurname(r.cs) || "未定"))].map((n) => [n, rows0.filter((r) => (kxSurname(r.cs) || "未定") === n).length]).sort((a, b) => b[1] - a[1]);
     const RES = [["良好", "#1D9E75"], ["普通", "#EF9F27"], ["懸念あり", "#E24B4A"]];
-    const STB = [["未対応", "未対応"], ["架電済み（不在）", "不在"], ["対応中", "対応中"], ["完了", "完了"]];
+    // 「対応中」のボタンはなくした（2026-11-16 田中さん「対応中はけしていい」）。前から対応中の会社は、上の札で絞れば見つかる
+    const STB = [["未対応", "未対応"], ["架電済み（不在）", "不在"], ["完了", "完了"]];
     const last = (r) => [r.lastCall ? `前回 ${Number(r.lastCall.slice(5, 7))}/${Number(r.lastCall.slice(8, 10))}` : "", r.memo ? `「${String(r.memo).slice(0, 34)}${String(r.memo).length > 34 ? "…" : ""}」` : ""].filter(Boolean).join("・") || "前回 なし";
     kc.open = kc.open || "";
     body = `
       <section class="kc3-top"><span class="kc3-lb">${Number(kc.ym.slice(5))}月・${esc(reasons.join("・") || "電話フォロー")}</span><span class="kc3-big">完了 ${dn}<small> / ${eff.length}社</small></span>
         <span class="kc3-bar" title="完了 ${dn}・対応中 ${cnt("対応中")}・不在 ${cnt("架電済み（不在）")}"><i style="width:${w(dn)}%;background:#1D9E75"></i><i style="width:${w(cnt("対応中"))}%;background:#5DCAA5"></i><i style="width:${w(cnt("架電済み（不在）"))}%;background:#EF9F27"></i></span><b class="kc3-pct">${pct}%</b></section>
-      <div class="kc3-chips">${[["未対応", "かける"], ["架電済み（不在）", "不在（再架電）"], ["対応中", "対応中"], ["完了", "完了"], ["対象外", "対象外"]].map(([st, lb]) => `<button type="button" class="kc3-chip ${kc.f.st === st ? "on" : ""}" data-kc-st="${esc(st)}">${lb} <b>${cnt(st)}</b></button>`).join("")}
+      <div class="kc3-chips">${[["未対応", "かける"], ["架電済み（不在）", "不在（再架電）"], ...(cnt("対応中") ? [["対応中", "対応中"]] : []), ["完了", "完了"], ["対象外", "対象外"]].map(([st, lb]) => `<button type="button" class="kc3-chip ${kc.f.st === st ? "on" : ""}" data-kc-st="${esc(st)}">${lb} <b>${cnt(st)}</b></button>`).join("")}
         <span class="kc3-sp"></span>${csN.map(([n, c]) => `<button type="button" class="kc3-chip ${kc.f.cs === n ? "on" : ""}" data-kc-cs="${esc(n)}">${esc(n)} <b>${c}</b></button>`).join("")}
         ${reasons.length > 1 ? `<select class="kx-in kc3-sel" data-kc-f="reason"><option value="">電話の理由：すべて</option>${reasons.map((x) => `<option ${kc.f.reason === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>` : ""}</div>
       <div class="kc3-list">${list.map((r) => { const op = kc.open === r.id; const ph = kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? kxTelLink(kc.inf[r.id].phone) : '<span class="kx-note">電話番号なし</span>') : '<span class="kx-note">…</span>';
@@ -2114,11 +2115,11 @@ function renderCallV2() {
           <div class="kc3-co" data-kc-toggle role="button" tabindex="0"><b>${kxLogoMini(r)}<span data-open="${esc(r.id)}" class="kc3-name" title="会社の詳しい情報を開く">${esc(r.name)}</span></b><small>${esc(kxSurname(r.cs) || "担当未定")}${reasons.length > 1 ? `・${esc(r.reason)}` : ""}・${esc(last(r))}</small></div>
           <div class="kc3-tel">${ph}</div>
           <div class="kc3-seg">${STB.map(([st, lb]) => `<button type="button" class="${r.status === st ? "on s" + ORD[st] : ""}" data-kc-set="${esc(st)}">${lb}${st === "架電済み（不在）" && r.calls ? ` ×${r.calls}` : ""}</button>`).join("")}</div>
-          <div class="kc3-res">${RES.map(([v, c]) => `<button type="button" class="${r.result === v ? "on" : ""}" style="--c:${c}" data-kc-res="${esc(v)}" title="${v}" aria-label="${v}"></button>`).join("")}</div>
+          <div class="kc3-res" title="話してみた結果（もう一度押すと消えます）"><small>結果</small>${RES.map(([v, c]) => `<button type="button" class="${r.result === v ? "on" : ""}" style="--c:${c}" data-kc-res="${esc(v)}" title="話した結果：${v}"><i></i>${v === "懸念あり" ? "懸念" : v}</button>`).join("")}</div>
           <button type="button" class="kc3-more" data-kc-toggle aria-label="メモ・NA日を開く"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M6 8l4 4 4-4" stroke="#0d5b47" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           ${op ? `<div class="kc3-ed"><input class="kx-in" data-f="memo" value="${esc(r.memo)}" placeholder="話したこと・次のアクション" /><label>NA日<input type="date" class="kx-in" data-f="na_date" value="${esc(r.naDate || "")}" /></label><span class="kx-note">架電 ${r.calls || 0}回${r.lastCall ? `（最後 ${esc(r.lastCall.slice(5).replace("-", "/"))}）` : ""}</span><button type="button" class="kc3-x" data-kc-set="対象外">対象外にする</button></div>` : ""}
         </div>`; }).join("") || '<div class="kx-empty">この月の電話の対象はありません</div>'}</div>
-      <div class="kx-note kc3-legend"><span><i style="background:#1D9E75"></i>良好</span><span><i style="background:#EF9F27"></i>普通</span><span><i style="background:#E24B4A"></i>懸念あり</span>「不在」を押すと架電の回数が1つ増えます。行（または右の ⌄）を押すとメモ・NA日が開き、会社名を押すと会社の詳しい情報が開きます。変えるとすぐ保存し、企業詳細の記録にも入ります。</div>`;
+      <div class="kx-note kc3-legend">「結果」は話してみた手ごたえ（良好・普通・懸念あり）です。「不在」を押すと架電の回数が1つ増えます。行（または右の ⌄）を押すとメモ・NA日が開き、会社名を押すと会社の詳しい情報が開きます。変えるとすぐ保存し、企業詳細の記録にも入ります。</div>`;
   }
   // ヘッダー：月別進捗表／企業ごとの進捗、期の選択 or 月の送り、CSV
   let hc = $("kxHeadCall"); const hmEl = $("kxHeadMonth");
