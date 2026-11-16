@@ -7351,3 +7351,17 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .h2-ks-done-h { font-size:11px; font-weight:800; color:#1d9e75; margin:10px 2px 4px; }
 .h2-li.h2-ks-done { opacity:.62; }
 .h2-li.h2-ks-done .h2-due { color:#1d9e75; }
+
+/* 商談一覧：選んでまとめて消す（田中さんだけ）（2026-11-16） */
+.hsel-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:4px 0 8px; }
+.hsel-n { font-size:12px; font-weight:800; color:#0d5b47; margin-right:2px; }
+.hsel-btn { display:inline-flex; align-items:center; gap:5px; border:1px solid #cfe0d8; background:#fff; color:#0d5b47; font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:999px; cursor:pointer; }
+.hsel-btn:hover:not(:disabled) { background:#e7f4ee; }
+.hsel-btn:disabled { opacity:.45; cursor:default; }
+.hsel-del { border-color:#f1c6c6; color:#c43d3d; }
+.hsel-del:hover:not(:disabled) { background:#fbebeb; }
+.hcard.hcard-pick { position:relative; padding-left:36px; }
+.hcard-chk { position:absolute; left:11px; top:14px; width:16px; height:16px; border:1.8px solid #9fbfb2; border-radius:5px; background:#fff; }
+.hcard.hcard-pick.on { border-color:#1d9e75; background:#eef8f3; }
+.hcard.hcard-pick.on .hcard-chk { background:#1d9e75; border-color:#1d9e75; }
+.hcard.hcard-pick.on .hcard-chk::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }

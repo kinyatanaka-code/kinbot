@@ -666,6 +666,42 @@ async function bulkSendNotion() {
   }
 }
 
+// 選んでまとめて消す（2026-11-16 田中さん「選択して消せるようにしてほしい。これは俺だけの権限」）
+//   田中さん（/api/me の owner）だけに「選んで消す」を出す。選ぶ間は、カードを押すと開かずに選ぶ／外す
+let histSelMode = false; const histSel = new Set(); let histIsOwner = false;
+fetch("/api/me").then((r) => r.json()).then((j) => { histIsOwner = !!(j && j.owner); if (histIsOwner && document.getElementById("hlist") && document.querySelector("#hlist .hcard")) { try { renderList(); } catch {} } }).catch(() => {});
+function histSelBar(list) {
+  const bar = document.createElement("div"); bar.className = "hsel-bar";
+  if (!histIsOwner) return null;
+  const ids = list.map((r) => r.bot_id).filter(Boolean);
+  if (!histSelMode) {
+    bar.innerHTML = '<button type="button" class="hsel-btn" data-hs="on" title="商談を選んで、まとめて消します（田中さんだけ）"><svg width="13" height="13" viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="14" height="14" rx="4" stroke="#0d5b47" stroke-width="1.8"/><path d="M6.5 10.2l2.4 2.4 4.6-5" stroke="#1d9e75" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>選んで消す</button>';
+  } else {
+    const n = ids.filter((id) => histSel.has(id)).length;
+    bar.innerHTML = `<span class="hsel-n">${n}件 選択中</span><button type="button" class="hsel-btn" data-hs="all">${n === ids.length && ids.length ? "すべて外す" : "すべて選ぶ"}</button><button type="button" class="hsel-btn hsel-del" data-hs="del" ${n ? "" : "disabled"}>消す</button><button type="button" class="hsel-btn" data-hs="off">やめる</button>`;
+  }
+  bar.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-hs]"); if (!b) return;
+    const k = b.dataset.hs;
+    if (k === "on") { histSelMode = true; histSel.clear(); renderList(); return; }
+    if (k === "off") { histSelMode = false; histSel.clear(); renderList(); return; }
+    if (k === "all") { const allOn = ids.every((id) => histSel.has(id)); ids.forEach((id) => (allOn ? histSel.delete(id) : histSel.add(id))); renderList(); return; }
+    if (k === "del") {
+      const pick = ids.filter((id) => histSel.has(id)); if (!pick.length) return;
+      if (pick.length > 500) { alert("一度に消せるのは500件までです。選ぶ数を減らしてください。"); return; }
+      if (!confirm(`${pick.length}件の商談を消します。\n録画・文字起こし・分析もいっしょに消え、元に戻せません。よろしいですか？`)) return;
+      b.disabled = true; b.textContent = "消しています…";
+      try {
+        const r = await fetch("/api/meetings/bulk-delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: pick }) });
+        const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status);
+        if (j.errors && j.errors.length) alert(`${j.removed}件消しました。${j.errors.length}件は消せませんでした。\n${j.errors[0]}`);
+        histSelMode = false; histSel.clear(); resetDetail(); await reloadMeetings();
+      } catch (err) { alert("消せませんでした：" + err.message + "\nもう一度押してください。"); b.disabled = false; b.textContent = "消す"; }
+    }
+  });
+  return bar;
+}
+
 function meetingCardEl(r) {
   const overview =
     r.status === "processing"
@@ -685,6 +721,14 @@ function meetingCardEl(r) {
   card.querySelector(".hcard-rep").textContent = repNameOf(r);
   card.querySelector(".hcard-tags").textContent = tags.join("　");
   card.querySelector(".hcard-ov").textContent = overview;
+  if (histSelMode) {
+    card.classList.add("hcard-pick"); card.classList.toggle("on", histSel.has(r.bot_id));
+    card.insertAdjacentHTML("afterbegin", '<span class="hcard-chk" aria-hidden="true"></span>');
+    card.addEventListener("click", () => { histSel.has(r.bot_id) ? histSel.delete(r.bot_id) : histSel.add(r.bot_id); card.classList.toggle("on", histSel.has(r.bot_id));
+      const n = document.querySelector(".hsel-n"); const cnt = document.querySelectorAll(".hcard-pick.on").length; if (n) n.textContent = `${cnt}件 選択中`;
+      const d = document.querySelector('.hsel-bar [data-hs="del"]'); if (d) d.disabled = !cnt; });
+    return card;
+  }
   card.addEventListener("click", () => {
     document.querySelectorAll(".hcard").forEach((c) => c.classList.remove("active"));
     card.classList.add("active");
@@ -854,6 +898,7 @@ function renderList() {
 
   // すべて表示：従来どおりフラット
   if (histMode === "all") {
+    { const sb = histSelBar(rows); if (sb) hlist.appendChild(sb); }
     for (const r of rows) hlist.appendChild(meetingCardEl(r));
     return;
   }
@@ -1028,6 +1073,7 @@ function renderList() {
   ovCard.addEventListener("click", () => renderCompanyOverview());
   hlist.appendChild(ovCard);
 
+  { const sb = histSelBar(mine); if (sb) hlist.appendChild(sb); }
   for (const r of mine) hlist.appendChild(meetingCardEl(r));
 }
 
