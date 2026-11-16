@@ -12382,7 +12382,7 @@ export async function apoOwnerByCompany(company) {
 let _arReady = false;
 async function ensureAutoRenew() {
   if (_arReady || !pool) return;
-  for (const c of ["ar_plan TEXT", "ar_no TEXT", "ar_start TEXT", "ar_status TEXT", "ar_cancel_applied DATE", "ar_cancel_wish TEXT", "ar_cancel_month TEXT", "ar_applicant TEXT", "ar_contact TEXT", "ar_months JSONB", "ar_note TEXT"])
+  for (const c of ["ar_plan TEXT", "ar_no TEXT", "ar_start TEXT", "ar_status TEXT", "ar_cancel_applied DATE", "ar_cancel_wish TEXT", "ar_cancel_month TEXT", "ar_applicant TEXT", "ar_contact TEXT", "ar_months JSONB", "ar_note TEXT", "ar_url TEXT"])
     await pool.query(`ALTER TABLE kinxs_accounts ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_recon (ym TEXT PRIMARY KEY, invoices INT, bv INT, note TEXT, updated_by TEXT, updated_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_exports (id SERIAL PRIMARY KEY, ym TEXT, version INT, by_user TEXT, at TIMESTAMPTZ DEFAULT now(), counts JSONB)`).catch(() => {});
@@ -12392,13 +12392,13 @@ async function ensureAutoRenew() {
 export async function arList() {
   if (!pool) return []; await ensureAutoRenew();
   await ensureArSync();
-  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name, ar_cs
+  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name, ar_cs, ar_url
     FROM kinxs_accounts WHERE COALESCE(ar_plan,'') <> '' ORDER BY ar_start NULLS LAST, name`);
   return rows;
 }
 export async function arUpdate(id, patch = {}, by = "") {
   if (!pool) return null; await ensureAutoRenew();
-  const map = { plan: "ar_plan", no: "ar_no", start: "ar_start", status: "ar_status", cancelApplied: "ar_cancel_applied", cancelWish: "ar_cancel_wish", cancelMonth: "ar_cancel_month", applicant: "ar_applicant", contact: "ar_contact", note: "ar_note" };
+  const map = { plan: "ar_plan", no: "ar_no", start: "ar_start", status: "ar_status", cancelApplied: "ar_cancel_applied", cancelWish: "ar_cancel_wish", cancelMonth: "ar_cancel_month", applicant: "ar_applicant", contact: "ar_contact", note: "ar_note", url: "ar_url" };
   const sets = [], vals = [String(id)];
   for (const [k, col] of Object.entries(map)) if (patch[k] !== undefined) { vals.push(patch[k] === "" ? null : patch[k]); sets.push(`${col} = $${vals.length}`); }
   if (patch.months && typeof patch.months === "object") { vals.push(JSON.stringify(patch.months)); sets.push(`ar_months = COALESCE(ar_months, '{}'::jsonb) || $${vals.length}::jsonb`); }
@@ -12431,26 +12431,42 @@ export async function arExports(ym) { if (!pool) return []; await ensureAutoRene
 export async function arHistory(id) { if (!pool) return []; await ensureAutoRenew(); return (await pool.query(`SELECT by_user, at, change FROM kinxs_ar_history WHERE account_id = $1 ORDER BY at DESC LIMIT 50`, [String(id)])).rows; }
 
 // 解約フォームの回答の受け箱（取り込んだもの・要確認・無視）（2026-11-10）
-let _arInboxReady = false;
-async function ensureArInbox() {
-  if (!pool || _arInboxReady) return; _arInboxReady = true;
+// 列を足し終わる前に読み書きしないよう、準備は1つの約束（Promise）にまとめて、みんなでそれを待つ
+let _arInboxP = null;
+function ensureArInbox() { if (!pool) return Promise.resolve(); if (!_arInboxP) _arInboxP = _ensureArInbox(); return _arInboxP; }
+async function _ensureArInbox() {
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_ar_inbox (id SERIAL PRIMARY KEY, row_key TEXT UNIQUE, at TIMESTAMPTZ, company TEXT, applicant TEXT, email TEXT, no TEXT, wish TEXT,
     raw JSONB, matched_id TEXT, state TEXT, replied BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+  // 解約フォーム連携の改修（2026-11-16 改修指示書）：空間URL・紐付けの状態と候補・CSの確認・メモ・自動返信の結果・停止月の判定・紐付けの変更履歴
+  //   confirmed は既定値を付けない：前からある回答は NULL（＝前の流れで対応済みとして扱う）、新しく入る回答だけ false（未確認）にするため
+  for (const c of ["url TEXT", "link_state TEXT", "candidates JSONB", "confirmed BOOLEAN", "confirmed_by TEXT", "confirmed_at TIMESTAMPTZ", "memo TEXT",
+    "reply_at TIMESTAMPTZ", "reply_error TEXT", "stop_month TEXT", "earliest TEXT", "overdue BOOLEAN", "link_log JSONB"])
+    await pool.query(`ALTER TABLE kinxs_ar_inbox ADD COLUMN IF NOT EXISTS ${c}`).catch(() => {});
 }
 export async function arInboxHas(key) { if (!pool) return true; await ensureArInbox(); return !!(await pool.query(`SELECT 1 FROM kinxs_ar_inbox WHERE row_key = $1`, [key])).rows[0]; }
 export async function arInboxAdd(r) {
   if (!pool) return null; await ensureArInbox();
-  const { rows } = await pool.query(`INSERT INTO kinxs_ar_inbox (row_key, at, company, applicant, email, no, wish, raw, matched_id, state, replied) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)
-    ON CONFLICT (row_key) DO NOTHING RETURNING id`, [r.key, r.at || null, r.company || "", r.applicant || "", r.email || "", r.no || "", r.wish || "", JSON.stringify(r.raw || {}), r.matched || null, r.state || "要確認", !!r.replied]);
+  const { rows } = await pool.query(`INSERT INTO kinxs_ar_inbox (row_key, at, company, applicant, email, no, wish, raw, matched_id, state, replied,
+      url, link_state, candidates, confirmed, reply_at, reply_error, stop_month, earliest, overdue) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14::jsonb,$15,$16,$17,$18,$19,$20)
+    ON CONFLICT (row_key) DO NOTHING RETURNING id`, [r.key, r.at || null, r.company || "", r.applicant || "", r.email || "", r.no || "", r.wish || "", JSON.stringify(r.raw || {}), r.matched || null, r.state || "要確認", !!r.replied,
+      r.url || null, r.linkState || null, JSON.stringify(r.candidates || []), r.confirmed === undefined ? false : r.confirmed, r.replyAt || null, r.replyError || null, r.stopMonth || null, r.earliest || null, !!r.overdue]);
   return rows[0] || null;
 }
-export async function arInboxList(state = "") { if (!pool) return []; await ensureArInbox(); return (await pool.query(`SELECT * FROM kinxs_ar_inbox WHERE ($1 = '' OR state = $1) ORDER BY at DESC NULLS LAST LIMIT 200`, [state])).rows; }
+export async function arInboxList(state = "") { if (!pool) return []; await ensureArInbox(); return (await pool.query(`SELECT * FROM kinxs_ar_inbox WHERE ($1 = '' OR state = $1) ORDER BY at DESC NULLS LAST, id DESC LIMIT 300`, [state])).rows; }
 export async function arInboxGet(id) { if (!pool) return null; await ensureArInbox(); return (await pool.query(`SELECT * FROM kinxs_ar_inbox WHERE id = $1`, [parseInt(id, 10)])).rows[0] || null; }
 export async function arInboxSet(id, patch = {}) {
   if (!pool) return; await ensureArInbox();
   const sets = [], vals = [parseInt(id, 10)];
-  for (const k of ["matched_id", "state", "replied"]) if (patch[k] !== undefined) { vals.push(patch[k]); sets.push(`${k} = $${vals.length}`); }
+  for (const k of ["matched_id", "state", "replied", "link_state", "confirmed", "confirmed_by", "confirmed_at", "memo", "reply_at", "reply_error", "stop_month", "earliest", "overdue"]) if (patch[k] !== undefined) { vals.push(patch[k]); sets.push(`${k} = $${vals.length}`); }
+  if (patch.candidates !== undefined) { vals.push(JSON.stringify(patch.candidates || [])); sets.push(`candidates = $${vals.length}::jsonb`); }
+  // 紐付けの変更は、だれが・いつ・どこからどこへ を1件ずつ足していく（消さない）
+  if (patch.logEntry) { vals.push(JSON.stringify([patch.logEntry])); sets.push(`link_log = COALESCE(link_log, '[]'::jsonb) || $${vals.length}::jsonb`); }
   if (sets.length) await pool.query(`UPDATE kinxs_ar_inbox SET ${sets.join(", ")} WHERE id = $1`, vals);
+}
+// 未確認の解約申請の数（サイドメニューのバッジ用。軽く数えるだけ）
+export async function arInboxUnconfirmed() {
+  if (!pool) return 0; await ensureArInbox();
+  return (await pool.query(`SELECT count(*)::int AS n FROM kinxs_ar_inbox WHERE confirmed = false AND COALESCE(state,'') <> '無視'`)).rows[0].n || 0;
 }
 
 // リスト名から、リストの種類のグループへ自動で入れる（グループが無いか、種類の木に無いグループのリストだけ。木のグループに入れたものは動かさない）（2026-11-10）
@@ -12582,7 +12598,7 @@ export async function kinxsTestRenameByNo(no, name) {
 // DOC自動更新：その企業に当てはまった解約フォームの回答（申請内容を見る）（2026-11-10 幸地さん）
 export async function arInboxForAccount(accId) {
   if (!pool) return []; await ensureArInbox();
-  return (await pool.query(`SELECT id, at, company, applicant, email, no, wish, raw, state, replied FROM kinxs_ar_inbox WHERE matched_id = $1 ORDER BY at DESC NULLS LAST LIMIT 20`, [String(accId)])).rows;
+  return (await pool.query(`SELECT * FROM kinxs_ar_inbox WHERE matched_id = $1 ORDER BY at DESC NULLS LAST, id DESC LIMIT 20`, [String(accId)])).rows;
 }
 // テスト用の会社の一覧（申込番号・CS担当を振り直すため）
 export async function kinxsTestRows() {

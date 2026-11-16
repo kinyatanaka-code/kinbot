@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261116j" />
+    <link rel="stylesheet" href="style.css?v=20261116k" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -845,6 +845,24 @@
   .ar-panel details>summary b{font-size:13px;}
   .ar-app-dl{display:grid;grid-template-columns:minmax(110px,34%) 1fr;gap:6px 14px;margin:0;font-size:13px;} .ar-app-dl dt{color:#5B6B63;font-weight:600;} .ar-app-dl dd{margin:0;color:#14231D;font-weight:700;word-break:break-word;white-space:pre-wrap;}
   @media (max-width:560px){.ar-app-dl{grid-template-columns:1fr;} .ar-app-dl dd{margin-bottom:6px;}}
+  /* 解約フォーム連携（2026-11-16 改修指示書）：アラート・バッジ・申請一覧の強調・申請詳細 */
+  .ar-als{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;}
+  .ar-al{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;border-radius:12px;padding:10px 14px;font:inherit;font-size:13px;cursor:pointer;}
+  .ar-al svg{flex:none;} .ar-al:hover{filter:brightness(.97);}
+  .ar-al-new{background:#B42318;color:#fff;font-weight:800;font-size:14px;padding:12px 16px;box-shadow:0 2px 8px rgba(180,35,24,.25);} .ar-al-new:hover{filter:brightness(1.06);}
+  .ar-al-red{background:#FDEBE3;color:#9A2A12;font-weight:700;border:1px solid #F0C9B8;}
+  .ar-al-or{background:#FFF4E0;color:#8A4B00;font-weight:700;border:1px solid #F3D9A8;}
+  .ar-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#D92D20;color:#fff;font-size:11px;font-weight:800;line-height:1;vertical-align:1px;margin-left:4px;}
+  .kx-nav .ar-badge-nav{margin-left:auto;}
+  .ar-st.warnc{background:#FFF4E0;color:#8A4B00;}
+  .ib-row{cursor:pointer;} .ib-row:hover td{background:#F4FAF7;}
+  .ib-row.ib-new td{background:#FFF3F0;} .ib-row.ib-new td:first-child{box-shadow:inset 4px 0 0 #D92D20;}
+  .ib-row.ib-unl td:nth-child(9){background:#FDEBE3;} .ib-row.ib-od td:nth-child(7){background:#FFF4E0;}
+  .ib-url small{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#4F6158;}
+  .ib-sec{border-top:1px solid #EEF3F0;padding:10px 0 4px;} .ib-sec h4{margin:0 0 8px;font-size:13px;color:#0d5b47;}
+  .ib-cand{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:6px 8px;border:1px solid #E6ECE9;border-radius:10px;margin-bottom:6px;font-size:12.5px;}
+  .ib-pick{display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap;} .ib-pick input{flex:1;min-width:200px;}
+  .ar-fold2 summary{cursor:pointer;display:flex;gap:8px;align-items:center;flex-wrap:wrap;list-style:none;} .ar-fold2 summary::-webkit-details-marker{display:none;}
   .kx-sales-chip{display:inline-block;font-size:12px;font-weight:800;border-radius:99px;padding:1px 9px;} .kx-sales-chip.dr{background:#E3F0FA;color:#1F5F8B;} .kx-sales-chip.ps{background:#F3E8FB;color:#6B3E9A;} .kx-sales-chip.yes{background:#FFF1E6;color:#A2480C;} .kx-sales-chip.no{background:#EEF2F0;color:#4F6158;}
   .kx-uc-tags2{display:flex;flex-wrap:wrap;gap:4px;align-items:center;} .kx-chtag{display:inline-block;font-size:10.5px;font-weight:800;border-radius:6px;padding:1px 6px;line-height:1.5;} .kx-chtag.dr{background:#E3F0FA;color:#1F5F8B;} .kx-chtag.ps{background:#F3E8FB;color:#6B3E9A;}
   .kx-chanseg{margin-left:6px;} .kx-chanseg button.on{color:#1F5F8B;}
@@ -1124,7 +1142,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261116j" defer></script>
-    <script src="kinxs.js?v=20261116j"></script>
+    <script src="kbchat.js?v=20261116k" defer></script>
+    <script src="kinxs.js?v=20261116k"></script>
   </body>
 </html>
