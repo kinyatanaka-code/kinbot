@@ -506,7 +506,8 @@ export async function callTool(name, args, req) {
       // Bales のリードを Claude から読む（項目の名前を確かめて、kinbot の表を Bales の一覧に合わせるため）（2026-11-15）
       if (!req.user) throw new Error("ログインが必要です");
       const cut = (v, n) => { const t = JSON.stringify(v); return t && t.length > n ? JSON.parse(JSON.stringify(t.slice(0, n) + "…（長いので切りました）")) : v; };
-      if (!args || !args.list) { const ls = await mcBalesLists(); return { リスト: ls.map((l) => ({ 印: l.list_key, 名前: l.name, 件数: l.count, 詳しい中身: l.detail_n, 状態: l.status, 項目: (l.cols || []).slice(0, 400).map((c) => `${c.key}(${c.n})`) })) }; }
+      // 拡張機能の様子（取り込み・Bales への書き込み方の覚え）も返す（2026-11-16：書き込めない原因を Claude からも見られるように）
+      if (!args || !args.list) { const ls = await mcBalesLists(); const st = await getSettings().catch(() => ({})); return { リスト: ls.map((l) => ({ 印: l.list_key, 名前: l.name, 件数: l.count, 詳しい中身: l.detail_n, 状態: l.status, 項目: (l.cols || []).slice(0, 400).map((c) => `${c.key}(${c.n})`) })), 書き込みの様子: st.mcBalesWriteDiag || null, 取り込みの様子: st.mcBalesDiag ? JSON.stringify(st.mcBalesDiag).slice(0, 4000) : null }; }
       if (args.id) { const r = await mcBalesRow(String(args.list), String(args.id)); if (!r) throw new Error("見つかりません"); return args.full === false ? { 項目: r.data, 詳しい中身の名前: Object.keys(r.detail || {}) } : { 項目: r.data, 元の形: cut(r.raw, 40000), 詳しい中身: cut(r.detail, 80000), 取り込み日時: r.detail_at }; }
       const r = await mcBalesRows(String(args.list), { q: String(args.q || ""), limit: Math.min(50, Math.max(1, Number(args.limit) || 5)) });
       return { 件数: r.total, リード: r.rows };

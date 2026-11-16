@@ -24,7 +24,15 @@ if [ ! -d "server" ] || [ ! -d "public" ]; then
   exit 1
 fi
 
-# まだGitを使っていないフォルダなら、ここで用意する
+# まだGitを使っていないフォルダ（zip を解凍したもの）なら、ここで用意する
+#   注意（2026-11-16）：zip の中身が古いと、そのあとにほかの人（福井さんなど）が上げた直しを、古い中身で上書きして消してしまう。
+#   ふたり以上で直すようになったので、zip からは上げない。git clone したフォルダで bash dev/safe-push.sh を使う。
+#   どうしても zip から上げるときだけ KINBOT_ZIP_OK=1 を付けて実行する
+if [ ! -d ".git" ] && [ "${KINBOT_ZIP_OK}" != "1" ]; then
+  echo "zip を解凍したフォルダからは上げません（ほかの人の直しを古い中身で消してしまうおそれがあるため）。"
+  echo "git clone https://github.com/${REPO}.git で取ってきたフォルダで直し、bash dev/safe-push.sh で上げてください。"
+  exit 1
+fi
 if [ ! -d ".git" ]; then
   echo "== はじめての準備をします =="
   git init -q

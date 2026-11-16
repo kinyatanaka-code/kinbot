@@ -32,6 +32,7 @@ import { zoomPresence, zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomP
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";   // kinbot for MOCHICA の架電（DOC の kincall とは別の表）（2026-11-16）
+import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
 import { buildSlots, stillFree } from "./booking.js";
 import { checkLive, checkProcessSheet, checkLinks, buildProposal, notifyCheck } from "./selfcheck.js";
@@ -279,7 +280,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -586,7 +587,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arInboxUnconfirmed, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -1279,6 +1280,7 @@ app.get("/api/me", async (req, res) => {
     username: req.user || null,
     name,
     admin: !!req.isAdmin,
+    owner: String(req.user || "").toLowerCase() === aiOwnerEmail(),   // 田中さんだけの操作（商談をまとめて消す など）（2026-11-16）
     // 「kincallだけ」の人（インターン生など）
     kincallOnly: !!req.kincallOnly,
     canHideLists: canHideLists(req) || closer,   // リストの表示・非表示を変えられるか（クローザーも可）
@@ -1557,6 +1559,19 @@ app.delete("/api/meetings/:id", async (req, res) => {
   } catch (e) {
     sfErrorResponse(res, e);
   }
+});
+// 商談を選んでまとめて消す（2026-11-16 田中さん「選択して消せるようにしてほしい。これは俺だけの権限」）。
+//   管理者でも田中さん（AI_OWNER_EMAIL）以外は不可。録画・文字起こし・分析もいっしょに消え、戻せない
+app.post("/api/meetings/bulk-delete", async (req, res) => {
+  try {
+    if (String(req.user || "").toLowerCase() !== aiOwnerEmail()) return res.status(403).json({ error: "まとめて消すのは田中さんだけができます" });
+    const ids = [...new Set((Array.isArray(req.body && req.body.ids) ? req.body.ids : []).map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 500);
+    if (!ids.length) return res.status(400).json({ error: "消す商談を選んでください" });
+    let ok = 0; const errors = [];
+    for (const id of ids) { try { await deleteMeeting(id); ok++; } catch (e) { errors.push(`${id}: ${String(e.message || e).slice(0, 80)}`); } }
+    console.log(`[meetings] まとめて消した：${ok}件 by ${req.user}${errors.length ? `（失敗 ${errors.length}件）` : ""}`);
+    res.json({ ok: true, removed: ok, errors });
+  } catch (e) { sfErrorResponse(res, e); }
 });
 // 文字起こしの無い古い商談を一括削除（管理者のみ）
 app.post("/api/meetings/cleanup-empty", async (req, res) => {
@@ -3696,7 +3711,10 @@ async function groupApoCountsRaw() {
       const all = { ...DASH_APO_ADJUST_BASE }; const stA = await getSettings(); for (const [k, v] of Object.entries(stA.dashApoAdjust || {})) all[k] = { ...(all[k] || {}), ...v };
       for (const v of Object.values(all[`month:${today.slice(0, 7)}`] || {})) adj += Number(v) || 0;
     } catch {}
-    return { today: tday + mday, week: twk + mwk + adj, month: tmn + mmn + adj, mailmaga: { today: mday, week: mwk, month: mmn } };
+    // 今週に足すのは、手補正の日付が今週に入るとき（日付が分からないときだけ今週へ）
+    const adjAt = DASH_APO_ADJUST_AT[`month:${today.slice(0, 7)}`] || "";
+    const adjWeek = !adjAt || adjAt >= weekFrom ? adj : 0;
+    return { today: tday + mday, week: twk + mwk + adjWeek, month: tmn + mmn + adj, mailmaga: { today: mday, week: mwk, month: mmn } };
   } catch (e) { console.warn("[groupApoCounts]", e.message); return { today: 0, week: 0, month: 0 }; }
 }
 
@@ -10100,7 +10118,9 @@ app.post("/api/calls/from-report", async (req, res) => {
           const i = cols.findIndex((c) => norm(c).includes(norm(w)) && !bad.test(String(c)));
           if (i >= 0) return i;
         }
-        return find("担当者名", "担当者", "姓", "名前", "氏名", "name");
+        // 所有者・作成者の列（こちらの人）は相手の担当者に使わない（2026-11-16）
+        for (const w of ["担当者名", "担当者", "姓", "名前", "氏名", "name"]) { const i = cols.findIndex((c) => norm(c).includes(norm(w)) && !/所有者|owner|作成者|更新者/i.test(String(c)) && !bad.test(String(c))); if (i >= 0) return i; }
+        return -1;
       })(),
       phone: find("電話", "phone", "tel"),
       email: find("メール", "email", "mail"),
@@ -13635,12 +13655,27 @@ const arAdd = (ym, n) => { const [y, m] = String(ym).split("-").map(Number); con
 //   → 申請日が M月1〜15日なら M+2月、16日以降なら M+3月（15日ちょうどは締切内）。希望月がそれより後なら希望月
 //   ステータス（その月）：停止 → 未入金 → 解約済（解約予定月 < その月）→ 解約確定（＝その月）→ 開始待ち（契約開始月 > その月）→ 更新確定（ほか。その月は請求する）
 //   ar_status は「継続中」（解約の申請なし）「解約予定」（申請あり）「未入金」「停止」「解約済」を持ち、画面の表記は月ごとに arStatusOn で決める
-function arCancelMonth(applied, wish) {
+// 2026-11-16 解約フォーム連携の改修指示書でルールを変えた：「停止月」（使えなくなる最初の月）＝ 選んだ月と「最短停止月」の遅い方
+//   最短停止月：申請日が 1〜15日 → 申請月の翌月、16日〜末日 → 翌々月（15日ちょうど・15日が土日祝でも15日中なら期限内。日付は日本時間）
+//   前は 1〜15日 → M+2月、16日〜 → M+3月 だった。最終利用月（請求する最後の月）は停止月の前の月
+function arEarliestStop(applied) {
   const a = String(applied || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(a)) return "";
+  return arAdd(a.slice(0, 7), Number(a.slice(8, 10)) <= 15 ? 1 : 2);
+}
+function arCancelMonth(applied, wish) {
   const w = /^\d{4}-\d{2}$/.test(String(wish || "")) ? String(wish) : "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(a)) return w;
-  const earliest = arAdd(a.slice(0, 7), Number(a.slice(8, 10)) <= 15 ? 2 : 3);
+  const earliest = arEarliestStop(applied);
+  if (!earliest) return w;
   return w && w > earliest ? w : earliest;
+}
+// 判定の中身をまとめて返す（画面の「判定結果」と自動返信で同じものを使うため）
+//   overdue（期限超過）＝ 停止月が選んだ月より後ろにずれたとき
+function arStopInfo(applied, wish) {
+  const w = /^\d{4}-\d{2}$/.test(String(wish || "")) ? String(wish) : "";
+  const earliest = arEarliestStop(applied);
+  const stop = arCancelMonth(applied, w);
+  return { wish: w, earliest, stop, last: stop ? arAdd(stop, -1) : "", overdue: !!(w && stop && stop > w) };
 }
 function arStatusOn(r, ym) {
   const st = r.ar_status || "継続中";
@@ -13657,6 +13692,18 @@ function arStatusOn(r, ym) {
 function arBillOn(r, ym) {
   return r.ar_plan === "自動更新" && !!r.ar_start && arStatusOn(r, ym) === "更新確定";
 }
+// 停止月のルールを変えたので（M+2→M+1）、今ある「申請日と希望月が両方ある」企業の解約予定月を、新しいルールで1回だけ計算し直す（2026-11-16 改修指示書 3-3）
+//   変えた企業は変更の履歴（kinxs_ar_history）に残る。申請日が無く手で月を入れた企業は、その月のまま
+setTimeout(async () => { try { const st = await getSettings(); if (st.arCancelRuleV3) return; await saveSettings({ arCancelRuleV3: new Date().toISOString() });
+  const rows = await arList(); const changed = [];
+  for (const r of rows) {
+    const ap = r.ar_cancel_applied ? String(r.ar_cancel_applied instanceof Date ? new Date(r.ar_cancel_applied.getTime() + 9 * 3600000).toISOString() : r.ar_cancel_applied).slice(0, 10) : "";
+    if (!ap || !r.ar_cancel_wish || !["解約予定", "解約済"].includes(r.ar_status || "")) continue;
+    if (r.ar_cancel_month && r.ar_cancel_month < arYm(Date.now())) continue;   // もう止まった（過去の月の）解約は、請求の済んだ記録なので動かさない
+    const nm = arCancelMonth(ap, r.ar_cancel_wish); if (nm && nm !== r.ar_cancel_month) { await arUpdate(r.id, { cancelMonth: nm }, "停止月ルール変更（M+1）"); changed.push(`${r.name}：${r.ar_cancel_month || "-"}→${nm}`); }
+  }
+  await saveSettings({ arCancelRuleV3Changed: changed });
+  console.log(`[DOC自動更新] 停止月を新しいルールで計算し直しました：${changed.length}社`, changed.slice(0, 20).join(" / ")); } catch (e) { console.warn("[DOC自動更新] 停止月の計算し直し", e.message); } }, 50 * 1000);
 // 今ある解約月を、新しい意味（解約になる月）に1回だけずらす
 setTimeout(async () => { try { const st = await getSettings(); if (st.arCancelSemV2) return; await saveSettings({ arCancelSemV2: new Date().toISOString() }); const n = await arShiftCancelMonthsOnce(); console.log("[DOC自動更新] 解約月を新しいきまりにずらしました：", n); } catch (e) { console.warn("[DOC自動更新] 解約月のずらし", e.message); } }, 45 * 1000);
 // テスト用の会社を、いろいろな状態でまとめて作る（起動のときに1回だけ。settings.kxTestSeed3）（2026-11-10 田中さん「自動更新にテスト企業をいくつか作って」「もっと会社っぽく」）
@@ -13730,7 +13777,8 @@ app.get("/api/kinxs/autorenew/:id/applications", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
     const st = await getSettings().catch(() => ({}));
-    res.json({ ok: true, items: await arInboxForAccount(req.params.id), sheet: st.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${st.arCancelSheetId}/edit` : "" });
+    const accMap = new Map((await arList()).map((r) => [String(r.id), r]));
+    res.json({ ok: true, items: (await arInboxForAccount(req.params.id)).map((x) => arInboxView(x, accMap)), sheet: st.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${st.arCancelSheetId}/edit` : "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/kinxs/autorenew", async (req, res) => {
@@ -13747,7 +13795,7 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const kxCs = new Map((((await kinxsBuildMemo().catch(() => ({ items: [] }))).items) || []).map((i) => [String(i.id), i.cs || ""]));
     const view = (r) => { const mo = (r.ar_months && r.ar_months[ym]) || {}; return { id: r.id, name: r.name, plan: r.ar_plan, no: r.ar_no || "", start: r.ar_start || "", status: r.ar_status || "継続中", statusOn: arStatusOn(r, ym),
       cancelApplied: r.ar_cancel_applied ? String(r.ar_cancel_applied instanceof Date ? r.ar_cancel_applied.toISOString() : r.ar_cancel_applied).slice(0, 10) : "", cancelWish: r.ar_cancel_wish || "", cancelMonth: r.ar_cancel_month || "",
-      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: kxCs.get(String(r.id)) || r.cs_name || "", csSheet: r.ar_cs || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "" }; };
+      applicant: r.ar_applicant || "", contact: r.ar_contact || "", note: r.ar_note || "", cs: kxCs.get(String(r.id)) || r.cs_name || "", csSheet: r.ar_cs || "", sf: !!mo.sf, paid: mo.paid == null ? null : !!mo.paid, amount: AR_PRICE, end: r.ar_end || "", product: r.ar_product || "", url: r.ar_url || "" }; };
     const all = rows.map(view);
     const bill = rows.filter((r) => arBillOn(r, ym)).map(view);
     const billPrev = new Set(rows.filter((r) => arBillOn(r, prev)).map((r) => String(r.id)));
@@ -13761,13 +13809,16 @@ app.get("/api/kinxs/autorenew", async (req, res) => {
     const rc = await arRecon(ym);
     const recon = { kinxs: bill.length, sf: bill.filter((x) => x.sf).length, invoices: rc && rc.invoices != null ? rc.invoices : null, bv: rc && rc.bv != null ? rc.bv : null, note: (rc && rc.note) || "" };
     const stA = await getSettings().catch(() => ({}));
-    const inbox = (await arInboxList("要確認").catch(() => [])).map((x) => ({ id: x.id, at: x.at, company: x.company, applicant: x.applicant, email: x.email, no: x.no, wish: x.wish }));
+    // 解約フォームの申請一覧（2026-11-16 改修指示書 6章）：新しい順。生の回答（raw）は詳細を開いたときだけ読む（一覧を軽くするため）
+    const inboxAll = await arInboxViews().catch(() => []);
+    const inbox = inboxAll.map(({ raw, log, ...x }) => x);
     const nowYm = arYm(Date.now());
-    const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unmatched: inbox.length, unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name) };
+    const alerts = { sfNotDone: ym === nowYm ? bill.filter((x) => !x.sf).map((x) => x.name) : [], unpaid: all.filter((x) => x.status === "未入金").map((x) => x.name), form: arInboxAlerts(inboxAll) };
     res.json({ ok: true, ym, prev, price: AR_PRICE, cost: AR_COST, next: arAdd(ym, 1), all, bill, cancels, waiting, diff, recon, exports: await arExports(ym), canEdit: !req.kincsOnly, inbox, alerts,
       form: { sheet: stA.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${stA.arCancelSheetId}/edit` : "", at: _arIntakeAt, error: _arIntakeErr, replyOn: stA.arReplyOn !== false,
         replyOwner: stA.arReplyOwner || "", replyFrom: stA.arReplyFrom || "", replyAlso: stA.arReplyAlso != null ? stA.arReplyAlso : AR_REPLY_ALSO_DEFAULT, replyCs: stA.arReplyCs !== false, csMails: stA.arCsMails || {}, shareDay: Number(stA.arShareBizDay || 20), shareDate: arBizDay(ym, Number(stA.arShareBizDay || 20)), replyReady: stA.arReplyOwner ? !!(await arWithin(gmailReady(stA.arReplyOwner).catch(() => false), 5000, false)) : false,
-        notReplied: (await arInboxList("").catch(() => [])).filter((x) => !x.replied && x.email && x.state !== "無視").length },
+        replyDept: stA.arReplyDept || "", replyMail: stA.arReplyMail || "", replyTel: stA.arReplyTel || "",
+        notReplied: inboxAll.filter((x) => !x.replied && x.email && !x.ignored && !x.legacy).length },
       sync: await (async () => { const l = await arSyncLast().catch(() => null); return l ? { at: l.at, by: l.by_user, rows: l.rows, matched: l.matched, changed: l.changed, unmatched: l.unmatched || [], unknown: l.unknown || [], error: l.error || "" } : null; })(),
       rules: stA.arPlanRules || [] });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -13776,7 +13827,10 @@ app.put("/api/kinxs/autorenew/:id", async (req, res) => {
   try {
     if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
     const b = req.body || {}; const patch = {};
-    for (const k of ["plan", "no", "start", "status", "cancelApplied", "cancelWish", "applicant", "contact", "note"]) if (b[k] !== undefined) patch[k] = String(b[k] ?? "").trim();
+    for (const k of ["plan", "no", "start", "status", "cancelApplied", "cancelWish", "applicant", "contact", "note", "url"]) if (b[k] !== undefined) patch[k] = String(b[k] ?? "").trim();
+    // 同じ空間URLがほかの契約にもあれば知らせる（保存はする。紐付けでは止まっていない契約が先に選ばれる）
+    let urlDup = [];
+    if (patch.url) { const k = arUrlKey(patch.url); urlDup = (await arList()).filter((r) => String(r.id) !== String(req.params.id) && r.ar_url && arUrlKey(r.ar_url) === k).map((r) => r.name); }
     if (patch.cancelWish !== undefined || patch.cancelApplied !== undefined) {
       const wish = patch.cancelWish !== undefined ? patch.cancelWish : (b._wish || ""); const ap = patch.cancelApplied !== undefined ? patch.cancelApplied : (b._applied || "");
       patch.cancelMonth = wish ? arCancelMonth(ap, wish) : "";
@@ -13785,7 +13839,7 @@ app.put("/api/kinxs/autorenew/:id", async (req, res) => {
     if (b.months && typeof b.months === "object") patch.months = b.months;
     const r = await arUpdate(req.params.id, patch, req.user);
     if (!r) return res.status(404).json({ error: "会社が見つかりません" });
-    res.json({ ok: true, cancelMonth: patch.cancelMonth });
+    res.json({ ok: true, cancelMonth: patch.cancelMonth, urlDup });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // サーカスの申込番号を SF の商談から読む（その取引先の商談で「サーカス」の項目が入っているもの、新しい順）（2026-11-09 田中さん）
@@ -13893,12 +13947,52 @@ function arParseDate(v) {
   const t = String(v || "").trim(); const m = t.match(/(\d{4})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})/);
   return m ? `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}` : "";
 }
-async function arMatch(company, no) {
+// ---- 紐付け（2026-11-16 改修指示書 5-2）：第一キー＝空間URL、第二キー＝企業名 ----
+// URLの正規化：空白・全角を直し、http(s)://・www.・末尾の/・?以降・#以降を取り、小文字に（書き方の違いで一致しないのを防ぐ）
+function arUrlKey(u) {
+  let t = String(u || "").normalize("NFKC").replace(/[\s]/g, "").trim();
+  if (!t) return "";
+  t = t.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/[#?].*$/, "").replace(/\/+$/, "");
+  return t.toLowerCase();
+}
+// 企業名の正規化：空白・法人格・中点・ハイフン・括弧を取る。ただし【テスト】などの頭書きは残す（テストの申請が本物に当たらないように）
+function arCoKey(n) {
+  return String(n || "").normalize("NFKC").replace(/[\s]/g, "")
+    .replace(/株式会社|有限会社|合同会社|合資会社|合名会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人社団|医療法人財団|医療法人|学校法人|特定非営利活動法人|NPO法人|\(株\)|\(有\)|\(同\)|㈱|㈲/g, "")
+    .replace(/[・･·\-‐‑‒–—―ー－~〜()\[\]{}「」『』〔〕〈〉《》]/g, (c) => (c === "ー" ? c : ""))
+    .toLowerCase();
+}
+// 2つの文字列の近さ（0〜1）。含んでいれば高く、そうでなければ編集距離で
+function arSim(a, b) {
+  if (!a || !b) return 0; if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.75 + 0.25 * Math.min(a.length, b.length) / Math.max(a.length, b.length);
+  const m = a.length, n = b.length; if (Math.abs(m - n) > Math.max(m, n) * 0.6) return 0;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+  return 1 - prev[n] / Math.max(m, n);
+}
+// まだ止まっていない契約を先にする（同じURL・同じ名前が2つあるとき、生きている方に付けるため）
+function arAliveFirst(list) {
+  const now = arYm(Date.now());
+  const alive = (r) => !["停止", "解約済"].includes(r.ar_status || "") && !(r.ar_cancel_month && r.ar_cancel_month < now);
+  return [...list].sort((x, y) => (alive(y) ? 1 : 0) - (alive(x) ? 1 : 0));
+}
+const AR_LINK = { AUTO: "自動紐付け済", AUTO_CHECK: "自動紐付け済（要確認）", CAND: "未紐付け（候補あり）", NONE: "未紐付け（候補なし）", MANUAL: "手動で紐付け済" };
+// 申請（URL・企業名・旧フォームの申込番号）から契約を探す。{ hit, state, candidates:[{id,name,no,url,score}] }
+async function arLinkFind({ url, company, no }) {
   const rows = await arList();
-  if (no) { const n = arNorm(no); const hit = rows.find((r) => arNorm(r.ar_no) === n); if (hit) return hit; }
-  const key = csCoKey(company); if (!key) return null;
-  const hits = rows.filter((r) => r.ar_plan === "自動更新" && csCoKey(r.name) === key);
-  return hits.length === 1 ? hits[0] : null;
+  const cand = (r, score) => ({ id: r.id, name: r.name, no: r.ar_no || "", url: r.ar_url || "", score: Math.round(score * 100) / 100 });
+  const uk = arUrlKey(url);
+  if (uk) { const hits = arAliveFirst(rows.filter((r) => r.ar_url && arUrlKey(r.ar_url) === uk)); if (hits.length) return { hit: hits[0], state: AR_LINK.AUTO, candidates: [] }; }
+  // 前のフォームには申込番号の設問があった。今のフォームには無いが、残っている回答のために見る
+  if (no) { const n = arNorm(no); const hit = arAliveFirst(rows.filter((r) => r.ar_no && arNorm(r.ar_no) === n))[0]; if (hit) return { hit, state: AR_LINK.AUTO, candidates: [] }; }
+  const key = arCoKey(company); if (!key) return { hit: null, state: AR_LINK.NONE, candidates: [] };
+  const auto = rows.filter((r) => r.ar_plan === "自動更新");
+  const exact = arAliveFirst(auto.filter((r) => arCoKey(r.name) === key));
+  if (exact.length === 1) return { hit: exact[0], state: AR_LINK.AUTO_CHECK, candidates: [] };
+  if (exact.length > 1) return { hit: null, state: AR_LINK.CAND, candidates: exact.slice(0, 5).map((r) => cand(r, 1)) };
+  const sim = auto.map((r) => ({ r, sc: arSim(key, arCoKey(r.name)) })).filter((x) => x.sc >= 0.55).sort((a, b) => b.sc - a.sc).slice(0, 5);
+  return sim.length ? { hit: null, state: AR_LINK.CAND, candidates: sim.map((x) => cand(x.r, x.sc)) } : { hit: null, state: AR_LINK.NONE, candidates: [] };
 }
 const AR_REPLY_ALSO_DEFAULT = "doc_support@neo-career.co.jp, support_x@mochica.jp";   // DOCの共有アドレス・メールワイズ（2026-11-10 幸地さん）
 // CS担当（kinXs の CS担当、無ければ納品一覧のCS担当）→ 設定の対応表 arCsMails か kinbot のメンバーのメール。同じ苗字が2人いるときは名前全体で決める。決まらなければ空
@@ -13915,23 +14009,38 @@ async function arCsEmailOf(accId) {
   const full = users.filter((u) => flat(u.name) === flat(cs)); if (full.length === 1) return String(full[0].email).toLowerCase();
   const sur = users.filter((u) => kxSur(u.name) && kxSur(u.name) === kxSur(cs)); return sur.length === 1 ? String(sur[0].email).toLowerCase() : "";
 }
-async function arReply(owner, to, { company, applicant, cancelMonth, accId }) {
-  if (!to || !/@/.test(to)) return false;
-  const jp = (v) => `${v.slice(0, 4)}年${Number(v.slice(5, 7))}月`;
-  const last = cancelMonth ? arAdd(cancelMonth, -1) : "";   // 最後に使う月（解約になる月の前の月）
-  const body = `${company || ""}\n${applicant ? `${applicant} 様` : "ご担当者様"}\n\nいつもどこでもオープンカンパニーをご利用いただき、ありがとうございます。\nアチコチバース（月額利用料）の解約のお申し込みを受け付けました。\n\n${cancelMonth ? `解約月：${jp(cancelMonth)}（${jp(last)}末までご利用いただけます）\n\n` : ""}${jp(last || cancelMonth || "2000-01")}末までのご利用料金は、これまでどおりご請求いたします。\nご不明な点がございましたら、本メールにご返信ください。\n\n株式会社ネオキャリア\nどこでもオープンカンパニー 事務局`;
-  // 送り主：settings.arReplyOwner（DOC 事務局の kinbot アカウント か 幸地さん）。差出人の名義と返信先は settings.arReplyFrom（事務局のアドレス）（2026-11-10 田中さん）
+// 受付の自動返信（2026-11-16 改修指示書 7章の文面）。結果は { ok, error } で返し、申請に残す
+//   送るのは kinbot（フォームが送られたらすぐ form-hook で読む）。宛先は今までどおり 申請者＋一緒に入れるアドレス＋CS担当
+//   部署名・問い合わせ先・電話は 設定（arReplyDept・arReplyMail・arReplyTel）。空の行は出さない
+const arJpYm = (v) => (v ? `${v.slice(0, 4)}年${Number(v.slice(5, 7))}月` : "");
+function arReplyText(st, { company, applicant, url, atText, info }) {
+  const dept = String(st.arReplyDept || "").trim(), mail = String(st.arReplyMail || st.arReplyFrom || "").trim(), tel = String(st.arReplyTel || "").trim();
+  const note = info.overdue && info.wish
+    ? `※ご選択いただいた${arJpYm(info.wish)}からの停止は、申請期限（${arJpYm(arAdd(info.wish, -1))}15日）を過ぎていたため、${arJpYm(info.stop)}からの停止となります。\n` : "";
+  return `${company || ""}\n${applicant ? `${applicant} 様` : "ご担当者様"}\n\n` +
+    `いつもアチコチバース（どこでもオープンカンパニー）をご利用いただき、誠にありがとうございます。\n株式会社ネオキャリアでございます。\n\n` +
+    `以下の内容で、解約のお申し出を受け付けいたしました。\n\n` +
+    `■受付内容\n・受付日時　　　　：${atText || "-"}\n・貴社名　　　　　：${company || "-"}\n・ご担当者名　　　：${applicant || "-"}\n・解約対象のURL　：${url || "-"}\n` +
+    `・最終ご利用月　　：${arJpYm(info.last) || "-"}（末日までご利用いただけます）\n・ご利用停止日　　：${info.stop ? `${arJpYm(info.stop)}1日` : "-"}\n${note}\n` +
+    `■ご確認事項\n・最終ご利用月分までの利用料金をご請求いたします。日割り計算および返金はございません。\n・ご利用停止日以降、上記URLのアチコチバースはご利用いただけなくなります。\n・申請内容に確認が必要な場合、担当者よりご連絡させていただく場合がございます。\n\n` +
+    `本メールは送信専用アドレスから自動で送信しております。\nお問い合わせは下記窓口までお願いいたします。\nまた、本メールにお心当たりのない場合も、お手数ですが下記窓口までご連絡ください。\n\n` +
+    `――――――――――――――――――――\n株式会社ネオキャリア${dept ? `　${dept}` : ""}\nアチコチバース担当\n${mail ? `メール：${mail}\n` : ""}${tel ? `電話　：${tel}（受付時間：平日10:00〜18:00）\n` : ""}――――――――――――――――――――`;
+}
+async function arReply(owner, to, { company, applicant, url, atText, info, accId }) {
+  if (!to || !/@/.test(to)) return { ok: false, error: "メールアドレスがありません" };
   const st = await getSettings().catch(() => ({}));
-  const sender = st.arReplyOwner || ""; if (!sender) throw new Error("自動返信を送る人が決まっていません");
+  const sender = st.arReplyOwner || ""; if (!sender) return { ok: false, error: "自動返信を送る人が決まっていません（解約フォームのタブの設定）" };
   const fromAddr = String(st.arReplyFrom || "").trim();
-  // 宛先（To）：申請者＋一緒に入れるアドレス（既定 support_x@mochica.jp＝メールワイズ）＋CS担当（2026-11-10 田中さん「先方の担当者、support_x、CS担当宛に送る」）
   const also = String(st.arReplyAlso != null ? st.arReplyAlso : AR_REPLY_ALSO_DEFAULT).split(/[,\s;、]+/).filter((a) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a));
   const csMail = st.arReplyCs !== false ? await arCsEmailOf(accId).catch(() => "") : "";
-  const isTest = String(accId || "").startsWith("test-");   // テスト用の会社は、申請者（テストした人）にだけ送る
+  const isTest = String(accId || "").startsWith("test-") || /^【テスト】/.test(String(company || "").normalize("NFKC").trim());   // テストは、申請者（テストした人）にだけ送る
   const toList = isTest ? [String(to).trim().toLowerCase()] : [...new Set([to, ...also, csMail].map((a) => String(a || "").trim().toLowerCase()).filter(Boolean))];
-  await gmailSend(sender, { to: toList.join(", "), subject: `${isTest ? "【テスト】" : ""}【どこでもオープンカンパニー】アチコチバース 解約お申し込み受付のお知らせ`, bodyText: body,
-    ...(fromAddr ? { fromOverride: `=?UTF-8?B?${Buffer.from("どこでもオープンカンパニー 事務局").toString("base64")}?= <${fromAddr}>`, extraHeaders: { "Reply-To": fromAddr } } : {}) });
-  return true;
+  const name = "株式会社ネオキャリア アチコチバース担当";
+  try {
+    await gmailSend(sender, { to: toList.join(", "), subject: `${isTest ? "【テスト】" : ""}【アチコチバース】解約申請受付のお知らせ（自動送信）`, bodyText: arReplyText(st, { company, applicant, url, atText, info }),
+      fromOverride: `=?UTF-8?B?${Buffer.from(name).toString("base64")}?= <${fromAddr || sender}>`, ...(fromAddr ? { extraHeaders: { "Reply-To": fromAddr } } : {}) });
+    return { ok: true };
+  } catch (e) { return { ok: false, error: String(e.message || e).slice(0, 300) }; }
 }
 async function arApplyCancel(accId, { applied, wish, applicant, contact }, by) {
   const cancelMonth = arCancelMonth(applied, wish);
@@ -13944,23 +14053,33 @@ async function arIntake() {
   const owner = st.arCancelOwner || AR_OWNER_DEFAULT;
   const rows = await readSheet(owner, sheet, "A1:Z2000");
   const head = (rows[0] || []).map(arNorm);
-  const col = (re) => head.findIndex((h) => re.test(h));
-  const cTs = col(/タイムスタンプ|timestamp/i), cCo = col(/貴社名|会社名|企業名/), cNm = col(/お名前|氏名|申請者/), cEm = col(/メール/), cNo = col(/申込番号|契約番号|サーカス|企業ID/), cWish = col(/解約希望|希望月|解約月/);
+  // 設問名は変わることがあるので「頭の文字」で探す（2026-11-16 改修指示書 2章）。前のフォームの書き方も残す
+  const col = (...res) => { for (const re of res) { const i = head.findIndex((h) => re.test(h)); if (i >= 0) return i; } return -1; };
+  const cTs = col(/^タイムスタンプ/, /timestamp/i), cEm = col(/^メールアドレス/, /メール/), cCo = col(/^貴社名/, /^会社名|^企業名/), cNm = col(/^ご担当者名/, /お名前|氏名|申請者/),
+    cTel = col(/^電話番号/, /電話/), cUrl = col(/^解約するアチコチバースのURL/, /URL/i), cWish = col(/^停止したい月/, /解約希望|希望月|解約月/), cNo = col(/申込番号|契約番号|サーカス|企業ID/);
   let added = 0, matched = 0;
   for (const r of rows.slice(1)) {
     const ts = String(r[cTs] || "").trim(); const company = String(r[cCo] || "").trim(); if (!ts || !company) continue;
+    // 二重取り込みを防ぐ鍵は前と同じ（変えると、取り込み済みの回答をもう一度取り込んで返信を送り直してしまう）
     const key = `${ts}|${arNorm(company)}`; if (await arInboxHas(key)) continue;
     const applied = arParseDate(ts); const wish = arParseWish(cWish >= 0 ? r[cWish] : "", applied);
     const applicant = String(r[cNm] || "").trim(), email = String(r[cEm] || "").trim(), no = cNo >= 0 ? String(r[cNo] || "").trim() : "";
-    const hit = await arMatch(company, no);
-    let cm = "", replied = false;
-    if (hit) { cm = await arApplyCancel(hit.id, { applied, wish, applicant, contact: email }, "解約フォーム"); matched++; }
-    if (st.arReplyOn !== false) replied = await arReply(owner, email, { company, applicant, cancelMonth: cm || arCancelMonth(applied, wish), accId: hit ? hit.id : null }).catch((e) => { console.warn("[DOC自動更新] 自動返信", e.message); return false; });
-    await arInboxAdd({ key, at: applied ? `${applied}T00:00:00+09:00` : null, company, applicant, email, no, wish, raw: Object.fromEntries((rows[0] || []).map((h, i) => [h, r[i] ?? ""])), matched: hit ? hit.id : null, state: hit ? "取込済" : "要確認", replied });
+    const url = cUrl >= 0 ? String(r[cUrl] || "").trim() : "", tel = cTel >= 0 ? String(r[cTel] || "").trim() : "";
+    const info = arStopInfo(applied, wish);
+    const lk = await arLinkFind({ url, company, no });
+    if (lk.hit) { await arApplyCancel(lk.hit.id, { applied, wish, applicant, contact: [email, tel].filter(Boolean).join(" / ") }, "解約フォーム"); matched++; }
+    let rep = { ok: false, error: "" };
+    if (st.arReplyOn !== false) rep = await arReply(owner, email, { company, applicant, url, atText: ts, info, accId: lk.hit ? lk.hit.id : null }).catch((e) => ({ ok: false, error: e.message }));
+    else rep = { ok: false, error: "自動返信はオフです" };
+    if (!rep.ok) console.warn("[DOC自動更新] 自動返信", company, rep.error);
+    await arInboxAdd({ key, at: applied ? `${applied}T00:00:00+09:00` : null, company, applicant, email, no, wish, url,
+      raw: Object.fromEntries((rows[0] || []).map((h, i) => [h, r[i] ?? ""])), matched: lk.hit ? lk.hit.id : null, state: lk.hit ? "取込済" : "要確認",
+      linkState: lk.state, candidates: lk.candidates, confirmed: false, replied: !!rep.ok, replyAt: rep.ok ? new Date().toISOString() : null, replyError: rep.ok ? null : rep.error || null,
+      stopMonth: info.stop, earliest: info.earliest, overdue: info.overdue });
     added++;
   }
   _arIntakeAt = new Date().toISOString(); _arIntakeErr = "";
-  if (added) console.log(`[DOC自動更新] 解約フォーム：${added}件を読み、${matched}件を取り込みました（要確認 ${added - matched}件）`);
+  if (added) console.log(`[DOC自動更新] 解約フォーム：${added}件を読み、${matched}件を紐付けました（未紐付け ${added - matched}件）`);
   return { added, matched };
 }
 // 解約フォームの取り込み：①フォームが送られたらすぐ（form-hook）②DOC自動更新を開いたとき ③念のため2分ごと（2026-11-10 田中さん「リアルタイムで」。前は10分ごと）
@@ -14000,6 +14119,7 @@ app.put("/api/kinxs/autorenew-settings", async (req, res) => {
     if (b.replyCs !== undefined) patch.arReplyCs = !!b.replyCs;
     if (b.csMails && typeof b.csMails === "object") { const m = {}; for (const [k, v] of Object.entries(b.csMails)) { const e = String(v || "").trim().toLowerCase(); if (String(k).trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) m[String(k).trim()] = e; } patch.arCsMails = m; }
     if (b.shareDay !== undefined) patch.arShareBizDay = Math.min(23, Math.max(1, Number(b.shareDay) || 20));
+    for (const [k, key] of [["replyDept", "arReplyDept"], ["replyMail", "arReplyMail"], ["replyTel", "arReplyTel"]]) if (b[k] !== undefined) patch[key] = String(b[k] || "").trim().slice(0, 120);
     const prevSheet = (await getSettings().catch(() => ({}))).arCancelSheetId || "";
     await saveSettings(patch);
     // 変えたらすぐ保存する画面になったので、シートを読むのは「シートが変わった」か「今すぐ読む」のときだけ（2026-11-10）
@@ -14007,18 +14127,86 @@ app.put("/api/kinxs/autorenew-settings", async (req, res) => {
     res.json({ ok: true, intake: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-// 要確認の回答を、企業に当てはめる／無視する
+// 申請1件の見せ方（一覧・詳細・アラートで同じ形にする）。前からある回答（confirmed が NULL）は、前の流れで対応済み＝確認済みとして扱う
+function arInboxView(x, accMap) {
+  const appliedYmd = x.at ? new Date(new Date(x.at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "";
+  const info = arStopInfo(appliedYmd, x.wish);
+  const a = x.matched_id ? accMap.get(String(x.matched_id)) : null;
+  const ignored = x.state === "無視";
+  const linkState = ignored ? "無視" : x.matched_id ? (x.link_state && !/^未紐付け/.test(x.link_state) ? x.link_state : "紐付け済") : (x.link_state && /^未紐付け/.test(x.link_state) ? x.link_state : AR_LINK.NONE);
+  const raw = x.raw || {};
+  const rawUrl = x.url || (Object.entries(raw).find(([k]) => /URL/i.test(k)) || [])[1] || "";
+  return { id: x.id, at: x.at, applied: appliedYmd, company: x.company || "", applicant: x.applicant || "", email: x.email || "", no: x.no || "", url: rawUrl,
+    wish: info.wish, earliest: info.earliest, stop: x.stop_month || info.stop, last: arAdd(x.stop_month || info.stop || "2000-02", -1), overdue: x.overdue != null ? !!x.overdue : info.overdue,
+    linkState, linked: !!x.matched_id && !ignored, ignored, candidates: Array.isArray(x.candidates) ? x.candidates : [],
+    account: a ? { id: a.id, name: a.name, no: a.ar_no || "", url: a.ar_url || "", start: a.ar_start || "" } : (x.matched_id ? { id: x.matched_id, name: "（見つからない契約）", no: "", url: "", start: "" } : null),
+    confirmed: x.confirmed === false ? false : true, legacy: x.confirmed == null, confirmedBy: x.confirmed_by || "", confirmedAt: x.confirmed_at || null, memo: x.memo || "",
+    replied: !!x.replied, replyAt: x.reply_at || null, replyError: x.reply_error || "", raw, log: Array.isArray(x.link_log) ? x.link_log : [] };
+}
+async function arInboxViews() {
+  const accMap = new Map((await arList()).map((r) => [String(r.id), r]));
+  return (await arInboxList("").catch(() => [])).map((x) => arInboxView(x, accMap));
+}
+// アラートの数（未確認・未紐付け・期限超過・自動返信の失敗）。表示中の月に関係なく、確認済みになるまで出し続ける
+function arInboxAlerts(views) {
+  const v = views.filter((x) => !x.ignored);
+  const un = v.filter((x) => !x.confirmed);
+  return { unconfirmed: un.length, unconfirmedNames: un.map((x) => x.company).slice(0, 3), unlinked: v.filter((x) => !x.linked).length,
+    overdue: un.filter((x) => x.overdue).length, replyFailed: un.filter((x) => !x.replied && x.email).length };
+}
+app.get("/api/kinxs/autorenew-inbox/:id", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "見られません" });
+    const it = await arInboxGet(req.params.id); if (!it) return res.status(404).json({ error: "申請が見つかりません" });
+    const accMap = new Map((await arList()).map((r) => [String(r.id), r]));
+    const v = arInboxView(it, accMap);
+    // 同じ契約に紐付いたほかの申請（再申請など）を履歴として出す
+    const others = it.matched_id ? (await arInboxForAccount(it.matched_id)).filter((o) => String(o.id) !== String(it.id)).map((o) => arInboxView(o, accMap)) : [];
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, item: v, others, canEdit: !req.kincsOnly, sheet: st.arCancelSheetId ? `https://docs.google.com/spreadsheets/d/${st.arCancelSheetId}/edit` : "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 申請の操作：紐付け（accountId・updateUrl）／紐付けを外す（unlink）／確認済・未確認（confirm）／メモ（memo）／無視（ignore）
 app.post("/api/kinxs/autorenew-inbox/:id", async (req, res) => {
   try {
     if (!(await canKinxs(req)) || req.kincsOnly) return res.status(403).json({ error: "直せるのは事業部だけです" });
     const it = await arInboxGet(req.params.id); if (!it) return res.status(404).json({ error: "見つかりません" });
-    if (req.body?.ignore) { await arInboxSet(it.id, { state: "無視" }); return res.json({ ok: true }); }
-    const acc = String(req.body?.accountId || ""); if (!acc) return res.status(400).json({ error: "企業を選んでください" });
+    const b = req.body || {}; const by = await displayNameOf(req.user).catch(() => req.user);
+    const out = { ok: true };
+    if (b.memo !== undefined) await arInboxSet(it.id, { memo: String(b.memo || "").slice(0, 2000) });
+    if (b.confirm !== undefined) await arInboxSet(it.id, b.confirm ? { confirmed: true, confirmed_by: by, confirmed_at: new Date().toISOString() } : { confirmed: false, confirmed_by: null, confirmed_at: null });
+    if (b.ignore) { await arInboxSet(it.id, { state: "無視", logEntry: { at: new Date().toISOString(), by, from: it.matched_id || null, to: null, note: "無視（解約として扱わない）" } }); return res.json(out); }
     const applied = it.at ? new Date(new Date(it.at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : "";
-    const cm = await arApplyCancel(acc, { applied, wish: it.wish, applicant: it.applicant, contact: it.email }, req.user);
-    await arInboxSet(it.id, { matched_id: acc, state: "取込済" });
-    res.json({ ok: true, cancelMonth: cm });
+    // 前に付けていた契約から外す：その契約の解約の記録が「この申請のもの」（申請日が同じ）なら、解約の申請なしに戻す（変更の履歴に残る）
+    const undoPrev = async (prevId) => {
+      if (!prevId) return;
+      const prev = (await arList()).find((r) => String(r.id) === String(prevId)); if (!prev) return;
+      const pAp = prev.ar_cancel_applied ? String(prev.ar_cancel_applied instanceof Date ? new Date(prev.ar_cancel_applied.getTime() + 9 * 3600000).toISOString() : prev.ar_cancel_applied).slice(0, 10) : "";
+      if (pAp && pAp === applied && prev.ar_status === "解約予定") await arUpdate(prevId, { status: "継続中", cancelApplied: "", cancelWish: "", cancelMonth: "", applicant: "", contact: "" }, `${by}（解約申請の紐付けを外した）`);
+    };
+    if (b.unlink) {
+      await undoPrev(it.matched_id);
+      await arInboxSet(it.id, { matched_id: null, state: "要確認", link_state: AR_LINK.NONE, logEntry: { at: new Date().toISOString(), by, from: it.matched_id || null, to: null, note: "紐付けを外した" } });
+      return res.json(out);
+    }
+    if (b.accountId) {
+      const acc = String(b.accountId);
+      const target = (await arList()).find((r) => String(r.id) === acc); if (!target) return res.status(404).json({ error: "その契約が見つかりません" });
+      if (String(it.matched_id || "") !== acc) await undoPrev(it.matched_id);
+      const contact = [it.email, ((it.raw || {})[Object.keys(it.raw || {}).find((k) => /^電話/.test(arNorm(k))) || ""] || "")].map((v) => String(v || "").trim()).filter(Boolean).join(" / ");
+      out.cancelMonth = await arApplyCancel(acc, { applied, wish: it.wish, applicant: it.applicant, contact }, by);
+      // 申請のURLで、契約の空間URLを書き換える（画面で「更新しますか？」に はい と答えたときだけ）
+      if (b.updateUrl && it.url) { await arUpdate(acc, { url: it.url }, by); out.urlUpdated = true; }
+      await arInboxSet(it.id, { matched_id: acc, state: "取込済", link_state: AR_LINK.MANUAL,
+        logEntry: { at: new Date().toISOString(), by, from: it.matched_id || null, to: acc, toName: target.name, note: it.matched_id ? "紐付けを変更" : "手動で紐付け" } });
+    }
+    res.json(out);
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// サイドメニューのバッジ（未確認の解約申請の数）
+app.get("/api/kinxs/autorenew-badge", async (req, res) => {
+  try { if (!(await canKinxs(req))) return res.json({ n: 0 }); res.json({ n: await arInboxUnconfirmed() }); }
+  catch { res.json({ n: 0 }); }
 });
 // CSV でまとめて登録（企業名・申込番号・契約開始月・プラン・ステータス）
 app.post("/api/kinxs/autorenew-import", async (req, res) => {
@@ -14030,8 +14218,11 @@ app.post("/api/kinxs/autorenew-import", async (req, res) => {
     for (const r of (Array.isArray(req.body?.rows) ? req.body.rows : []).slice(0, 500)) {
       const a = byKey.get(csCoKey(r.name)); if (!a) { out.push({ name: r.name, ok: false, why: "kinXsに無い会社" }); continue; }
       const start = /^\d{4}-\d{2}$/.test(String(r.start || "")) ? r.start : (String(r.start || "").match(/(\d{4})\D+(\d{1,2})/) ? String(r.start).replace(/^(\d{4})\D+(\d{1,2}).*$/, (m0, y, m) => `${y}-${String(m).padStart(2, "0")}`) : "");
-      await arUpdate(a.account_id, { plan: r.plan || "自動更新", no: r.no || "", start, status: r.status || "継続中" }, req.user);
-      out.push({ name: r.name, ok: true, matched: a.name });
+      const url = String(r.url || "").trim();
+      await arUpdate(a.account_id, { plan: r.plan || "自動更新", no: r.no || "", start, status: r.status || "継続中", ...(url ? { url } : {}) }, req.user);
+      let dup = [];
+      if (url) { const k = arUrlKey(url); dup = (await arList()).filter((x) => String(x.id) !== String(a.account_id) && x.ar_url && arUrlKey(x.ar_url) === k).map((x) => x.name); }
+      out.push({ name: r.name, ok: true, matched: a.name, urlDup: dup });
     }
     res.json({ ok: true, results: out });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -14311,17 +14502,22 @@ async function kinxsBuild() {
     const actions = [];
     const PRE = ["計上予定", "フォローMTG設定済", "検収書回収待ち"], POST = ["オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定"];
     const bookedYmd = ymd0(r.first_booked_on || r.booked_on);
+    // 検収書の回収予定月（空なら受注月の翌月）。ホームの「その月の検収書回収」にも使う（2026-11-16）
+    const ksMonthEff = r.kenshu_month || (bookedYmd ? (() => { const d = new Date(Date.parse(bookedYmd.slice(0, 7) + "-01T00:00:00Z")); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); })() : "");
     if (!r.archived && PRE.includes(label)) {
       if (!kickOn && bookedYmd) {
         const d = Math.floor((now - Date.parse(bookedYmd + "T00:00:00+09:00")) / 86400000);
         if (d >= 14) actions.push({ group: "納品前", kind: "キックオフ未実施", detail: `キックオフ未実施（受注から${d}日）`, due: new Date(Date.parse(bookedYmd + "T00:00:00+09:00") + 14 * 86400000 + 9 * 3600000).toISOString().slice(0, 10), left: 14 - d });
       }
-      if (r.kenshu_month && !delivered) {
-        const ms = Date.parse(`${r.kenshu_month}-01T00:00:00+09:00`);
-        if (isFinite(ms) && now >= ms - 7 * 86400000) {
+      // 回収予定月が空の会社も数える：受注月の翌月を予定月とみなす（2026-11-16 田中さん「検収書未回収が0になっているけど結構あるんじゃない？」
+      //   予定月が入っている会社しか数えておらず、ほとんど空だった）。アラートは予定月の2週間前から（同日「1週間前だとワークフローが漏れる」）
+      const ksMonth = ksMonthEff;
+      if (ksMonth && !delivered) {
+        const ms = Date.parse(`${ksMonth}-01T00:00:00+09:00`);
+        if (isFinite(ms) && now >= ms - 14 * 86400000) {
           const end = new Date(ms); end.setUTCMonth(end.getUTCMonth() + 1); const endYmd = new Date(end.getTime() - 86400000 + 9 * 3600000).toISOString().slice(0, 10);
           const l = kxDaysLeft(endYmd);
-          actions.push({ group: "納品前", kind: "検収書 未回収", detail: l >= 0 ? `検収書 未回収（あと${l}日）` : `検収書 未回収（${-l}日過ぎ）`, due: endYmd, left: l });
+          actions.push({ group: "納品前", kind: "検収書 未回収", detail: (l >= 0 ? `検収書 未回収（あと${l}日）` : `検収書 未回収（${-l}日過ぎ）`) + (r.kenshu_month ? "" : "・予定月は受注の翌月とみなしています"), due: endYmd, left: l });
         }
       }
     }
@@ -14345,9 +14541,11 @@ async function kinxsBuild() {
     if (left != null && left <= rules.renewDays && ["B", "C", "Z"].includes(rank) && label !== "解約済み") alerts.push({ rule: "更新月接近", score: 40, detail: `更新月 ${r.renew_month.replace("-", "/")}（${left < 0 ? `${-left}日過ぎ` : `あと${left}日`}）・確度${rank}` });
     if (schedLate && !r.archived) alerts.push({ rule: "スケジュール遅れ", score: 35, detail: `予定では ${schedLate.due.slice(5).replace("-", "/")} までに「${schedLate.name}」（${schedLate.phase}）。いまは${label}` });
     if (r.na_due && kxYmdOf(r.na_due) < today) alerts.push({ rule: "NA期限切れ", score: 30, detail: `次回アクションの期日 ${kxYmdOf(r.na_due).slice(5).replace("-", "/")} を ${days(kxYmdOf(r.na_due) + "T00:00:00+09:00")}日過ぎています` });
-    const undelivered = !kenshu.startsWith("回収済み") || !mail.startsWith("送付済み");
+    // 2026年10月より前に受注した会社は納品後とみなす決まり（2026-11-04）なので、「未回収・未送付のまま接触途絶」は出さない
+    //   （2026-11-16：利用中の会社に「検収書が未回収のまま…」と出ていた。「回収済み（自動）」も回収済みとして扱う）
+    const undelivered = !oldDeal && (!(kenshu.startsWith("回収済み") || kenshu === "対象外") || !mail.startsWith("送付済み"));
     const sinceTouch = days(lastTouch || r.booked_on || r.created_at);
-    if (undelivered && sinceTouch != null && sinceTouch >= rules.contactDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "接触途絶", score: 25, detail: `${kenshu !== "回収済み" ? "検収書が未回収" : "納品メールが未送付"}のまま、最後の接触から${sinceTouch}日` });
+    if (undelivered && sinceTouch != null && sinceTouch >= rules.contactDays && !["解約済み", "キャンセル"].includes(label)) alerts.push({ rule: "接触途絶", score: 25, detail: `${!(kenshu.startsWith("回収済み") || kenshu === "対象外") ? "検収書が未回収" : "納品メールが未送付"}のまま、最後の接触から${sinceTouch}日` });
     const updMs = Math.max(0, ...[r.manual_updated_at, r.rank_at, lastTouch, r.booked_on, r.created_at].map(toMs));
     const lastUpd = updMs ? new Date(updMs).toISOString() : null;
     const sinceUpd = days(lastUpd);
@@ -14366,7 +14564,7 @@ async function kinxsBuild() {
       naSource: r.na_source || "",
       channel: (() => { const ps = (r.products || []).filter((p) => p && typeof p === "object" && p.oppName).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))); for (const p of ps) { const m = String(p.oppName).match(/^\s*(直販|社内代理店|代理店|PS)[_＿]/); if (m) return m[1] === "直販" ? "直販" : "PS"; } return ""; })(),
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
-      actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", kenshuOn, delivered, endOn: ymd0(r.end_on),
+      actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", ksMonth: oldDeal ? "" : ksMonthEff, kenshuOn, kenshuSt: kenshu, delivered, endOn: ymd0(r.end_on),
       // 前月比のための日付（2026-11-04）：納品した日（検収書の回収日 → 10月より前の受注は受注日 → 自動で回収済みにしたものは受注日＋90日）・DOCを最初に受注した日
       deliveredOn: delivered ? (kenshuOn || (oldDeal ? bookedYmd0 : "") || (bookedYmd0 ? new Date(Date.parse(bookedYmd0 + "T00:00:00+09:00") + 90 * 86400000 + 9 * 3600000).toISOString().slice(0, 10) : "")) : "",
       docBooked: (r.products || []).filter((p0) => p0 && typeof p0 === "object" && p0.booked && ["空間", "AI"].includes(kxClassOf(p0.name))).map((p0) => String(p0.booked).slice(0, 10)).sort()[0] || "",
@@ -15294,6 +15492,7 @@ app.get("/api/kinxs/home/inbox", async (req, res) => {
 });
 // ===== kinXs のコネクタ（Claude.ai から kinXs を読む・直す）/kinxs/mcp =====
 const KINXS_TOOLS = [
+  { name: "letter_sheet_check", description: "電話フォローの「手紙送付リスト」のスプレッドシートを、書き込まずに読んでみる（読み取り）。見出し・読んだ列・企業名の行数・kinXsの会社に当たった数・電話の結果を入れる予定の社数を返す。", inputSchema: { type: "object", properties: {} } },
   { name: "list_users", description: "kinXs（DOC導入企業のCS一元管理）のユーザー（導入企業）の一覧。会社名・旧社名・契約商品・フェーズ・更新確度（S/A/B/C/Z/F）・更新月・CS担当・FS（受注者）・初回の受注日・次回アクションと期日・要注意（更新月接近／NA期限切れ／接触途絶／情報更新なし）を返す。CS担当・フェーズ・確度・会社名の一部で絞れる。", inputSchema: { type: "object", properties: { cs: { type: "string", description: "CS担当（苗字でよい）" }, phase: { type: "string", description: "フェーズ（計上予定・フォローMTG設定済・オンボーディング中・利用中・更新検討時期・解約予定・解約済み・キャンセル）" }, rank: { type: "string", description: "更新確度 S/A/B/C/Z/F" }, q: { type: "string", description: "会社名の一部" }, alertsOnly: { type: "boolean", description: "要注意の会社だけ" } } } },
   { name: "get_user_detail", description: "kinXsの1社の詳細。企業情報（HP・住所・電話・先方の担当者・受注日・受注者・ヘルプサイト・DOCのURL）、ステータス（CS担当・フェーズ・利用目的・活用・次回アクション）、議事録・フォロー履歴（キックオフ以降はフォロー、それより前は商談、要約つき）と変更の履歴を返す。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社名（一部でよい）か kinXs のID" } }, required: ["company"] } },
   { name: "list_renewals", description: "kinXsの更新管理。会社ごとの更新月（契約終了日の月）・残り日数・確度・要注意（更新月まで90日以内で確度B以下）を返す。", inputSchema: { type: "object", properties: { from: { type: "string", description: "更新月の始め YYYY-MM（任意）" }, to: { type: "string", description: "更新月の終わり YYYY-MM（任意）" } } } },
@@ -15331,6 +15530,7 @@ async function kinxsMcpCall(name, args, req) {
   }
   if (name === "get_user_detail") { const x = await kxFindId(a.company); const d = await kxSelf("GET", `/api/kinxs/accounts/${encodeURIComponent(x.id)}/detail`, req); return { company: x.name, info: d.info, status: d.status, kickoffAt: d.kickoffAt, timeline: (d.timeline || []).slice(0, 40) }; }
   if (name === "list_renewals") { const d = await kxSelf("GET", "/api/kinxs/renewals", req); return (d.items || []).filter((x) => (!a.from || (x.renew && x.renew >= a.from)) && (!a.to || (x.renew && x.renew <= a.to))).map((x) => ({ name: x.name, renewMonth: x.renew, daysToRenew: x.left, rank: x.rank, warn: x.warn, cs: x.cs, estimated: x.estimated })); }
+  if (name === "letter_sheet_check") { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || req.user; const r = await kxLetterSheetSync(o, { dry: true }); return { ...r, unmatched: (r.unmatched || []).slice(0, 15) }; }
   if (name === "get_home_tasks") { const u = a.user && req.isAdmin ? a.user : req.user; return await kinxsHome(u, { fresh: !!a.fresh }); }
   if (name === "list_tasks") {
     const u = a.user && req.isAdmin ? a.user : req.user;
@@ -16014,6 +16214,10 @@ async function kxPlanFor(ym, ctx = null) {
   const base = items.filter((x) => !x.archived && (x.prodLabels || []).some((l) => KX_PROD_LABELS.DOC.includes(l)) && !["解約済み", "エラー"].includes(x.label));
   const live = base.filter((x) => x.delivered);
   const actBy = new Map(acts.map((a) => [`${a.account_id}|${a.mkey}`, a]));
+  // 納品前の会社でも、その月のお手紙を送った（送付済みなど）会社は、お手紙・お手紙の電話フォローの対象に入れる
+  //   （2026-11-16 田中さん：10月受注の26社に手紙を送っていて「お手紙フォロー対象にしてほしい」）
+  const letterExtra = base.filter((x) => !x.delivered && kxLetterSent((actBy.get(`${x.id}|letter`) || {}).status));
+  const liveL = [...live, ...letterExtra];
   const inMonth = (d) => d && String(d).slice(0, 7) === ym;
   const addDays = (ymd, n) => new Date(Date.parse(ymd + "T00:00:00+09:00") + n * 86400000 + 9 * 3600000).toISOString().slice(0, 10);
   const out = [];
@@ -16022,8 +16226,8 @@ async function kxPlanFor(ym, ctx = null) {
     if (me.months) {
       if (!me.months.includes(m)) continue;
       when = `${m}月・全社`;
-      if (me.target === "all") targets = live;
-      else if (me.target === "letter") targets = live.filter((x) => kxLetterSent((actBy.get(`${x.id}|letter`) || {}).status));
+      if (me.target === "all") targets = me.key === "letter" ? liveL : live;
+      else if (me.target === "letter") targets = liveL.filter((x) => kxLetterSent((actBy.get(`${x.id}|letter`) || {}).status));
       else if (me.target === "zero2") targets = live.filter((x) => acc.get(`${x.id}|${kxYmShift(ym, -1)}`) === 0 && acc.get(`${x.id}|${kxYmShift(ym, -2)}`) === 0);
     } else if (me.from === "pub") {
       when = me.label;
@@ -16096,27 +16300,48 @@ async function kxLetterSheetSync(owner, { dry = false } = {}) {
   // タブの名前は、URL の gid（1213626809）で本当の名前を確かめる（名前に空白などが入っていて読めなかった：2026-11-13）
   let tabName = cfg.tab; let tabList = [];
   try { const tabs = ((await sheetTabs(owner, cfg.id)) || {}).tabs || []; tabList = tabs.map((t) => `${t.title}（${t.gid}）`); const hit = tabs.find((t) => Number(t.gid) === Number(cfg.gid)) || tabs.find((t) => String(t.title).trim() === cfg.tab) || tabs.find((t) => /手紙/.test(String(t.title))); if (hit) tabName = hit.title; } catch (e) { if (e.notFound) throw e; }
-  // 読む範囲は A〜I。I＝企業名、B＝手紙を記載しているか（2026-11-13 田中さん）
-  const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'!A:I`);
+  // I＝企業名、B＝手紙を記載しているか（2026-11-13 田中さん）。2026-11-16 田中さん「シート読み直してもかわらない」「よみとってほしい」：
+  //   電話の結果（ステータス・結果・メモ・架電日など）の列も見出しから探して、電話フォローに入れる。読む範囲は A〜AD
+  const vals = await readSheet(owner, cfg.id, `'${tabName.replace(/'/g, "''")}'!A:AD`);
   const rows = (Array.isArray(vals) ? vals : []).filter((r) => Array.isArray(r));
   if (!rows.some((r) => String(r[8] || "").trim())) throw new Error(`「${tabName}」の I 列（企業名）が空でした。タブの一覧：${tabList.join("、") || "（読めませんでした）"}`);
+  // 見出しの行は、セルがちょうど「取引先名」「企業名」などの行（「株式会社名村…」の「会社名」に当たって、中身の行を見出しにしていた）
+  const hi = rows.slice(0, 40).findIndex((r) => r.some((c) => /^(企業名|会社名|法人名|顧客名|取引先名?)$/.test(String(c || "").normalize("NFKC").trim())));
+  const head = hi >= 0 ? rows[hi].map((c) => String(c || "").trim()) : [];
+  const hc = head.length ? kxSheetCols(head) : {};
+  const sentIdx = head.findIndex((h) => /^送付済/.test(h));
+  // 手紙の列（B）・企業名の列（I）は電話の項目として使わない
+  for (const k of Object.keys(hc)) if (hc[k] === 1 || hc[k] === 8 || hc[k] === sentIdx || k === "company" || k === "cs" || k === "sent") delete hc[k];
+  const L = (i) => (i >= 0 ? String.fromCharCode(65 + (i % 26)).replace(/^/, i >= 26 ? "A" : "") : "");
+  const callCols = Object.fromEntries(Object.entries(hc).filter(([, i]) => i >= 0));
+  const resultOf = (v) => { const t = String(v || "").normalize("NFKC"); if (!t.trim()) return null; if (/懸念|悪|×|NG|解約/.test(t)) return "懸念あり"; if (/良好|良い|◎|好感|前向/.test(t)) return "良好"; if (/普通|△|ふつう/.test(t)) return "普通"; if (/未接続|不在|つながら|繋がら|留守/.test(t)) return "未接続"; return null; };
   const { items } = await kinxsBuild(); const byName = new Map(); for (const x of items) for (const n of [x.name, ...(x.formerNames || [])]) { const k = kxNz(n); if (k && !byName.has(k)) byName.set(k, x); }
   const now = new Date(Date.now() + 9 * 3600000); let y = now.getUTCFullYear(), mo = now.getUTCMonth() + 1; const lm = KX_MEASURES.find((x) => x.key === "letter").months; while (!lm.includes(mo)) { mo--; if (mo < 1) { mo = 12; y--; } } const ym = `${y}-${String(mo).padStart(2, "0")}`;
   // B 列の「記載している」：チェック（TRUE）・✓・○・済・記載・書いた・1 など。まだ「未対応」「送付待ち」のものを「送付済み」にする（先に進んでいるものは戻さない）
   const isYes = (v) => /^(true|1|yes|✓|✔|○|〇|◯|済|記載済|記載|書いた|書き済|完了|ok)/i.test(String(v || "").normalize("NFKC").trim());
   const plan = await kxActionsList({ yms: [ym] }).catch(() => []); const curSt = new Map((plan || []).filter((r0) => (r0.measure_key || r0.mkey || r0.measure) === "letter").map((r0) => [r0.account_id, r0.status || ""]));
-  const out = { ym, tab: tabName, cols: { company: "I列", letter: "B列（手紙を記載しているか）" }, rows: 0, matched: 0, updated: 0, written: 0, unmatched: [] };
-  for (const r of rows) {
+  const out = { ym, tab: tabName, cols: { company: "I列", letter: sentIdx >= 0 ? `${L(sentIdx)}列（${head[sentIdx]}）` : "B列（手紙を記載しているか）", ...Object.fromEntries(Object.entries(callCols).map(([k, i]) => [k, `${L(i)}列（${head[i] || ""}）`])) }, head: head.slice(0, 30), rows: 0, matched: 0, updated: 0, written: 0, callUpdated: 0, unmatched: [] };
+  for (const r of rows.slice(hi >= 0 ? hi + 1 : 0)) {
     const name = String(r[8] || "").trim(); if (!name || /^(企業名|会社名|法人名|顧客名)$/.test(name)) continue; out.rows++;
     const k = kxNz(name); const x = byName.get(k) || [...byName.entries()].find(([kk]) => kk.length >= 3 && (kk.includes(k) || k.includes(kk)))?.[1];
     if (!x) { if (out.unmatched.length < 30) out.unmatched.push(name); continue; } out.matched++;
-    if (!isYes(r[1])) continue; out.written++;
+    // 手紙を送ったかは「送付済み」の列（H列）で見る。無ければ前どおり B 列（送付記載完了）（2026-11-16 田中さん「送付済みが128なのに106のまま」）
+    if (!isYes(sentIdx >= 0 ? r[sentIdx] : r[1])) continue; out.written++;
+    if (dry) (out.sentList = out.sentList || []).push({ sheet: name, id: x.id, name: x.name });   // 確かめ用：送付済みで当たった会社
+    // 電話の結果の列（見出しで見つけたもの）を電話フォロー（call_letter）に入れる。シートに書いてある分だけ上書きする
+    { const cp = {}; const cell = (k) => (callCols[k] != null ? String(r[callCols[k]] || "").trim() : "");
+      const stv = cell("status"); const st1 = stv ? kxSheetSt("call_letter", stv) : null; if (st1) cp.status = st1;
+      const rs = resultOf(cell("result")) || resultOf(stv); if (rs) { cp.result = rs; if (!cp.status) cp.status = rs === "未接続" ? "架電済み（不在）" : "対応中"; }
+      const memo = [cell("memo"), cell("result") && !resultOf(cell("result")) ? cell("result") : ""].filter(Boolean).join("／"); if (memo) cp.memo = memo.slice(0, 1000);
+      const na = kxSheetDate(cell("na")); if (na) cp.na_date = na;
+      if (cp.status && (kxActDone(cp.status))) cp.done_on = kxSheetDate(cell("lastCall")) || new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+      if (Object.keys(cp).length) { if (!dry) await kxActionUpsert(x.id, "call_letter", ym, cp, owner).catch(() => {}); out.callUpdated++; } }
     // B 列に記載がある＝手紙を送った会社 → 「送付済み」にして、電話フォローの対象に入れる（2026-11-13 田中さん「22社から変わらない」）
     const cur = curSt.get(x.id) || "未対応"; if (cur && !["未対応", "送付待ち"].includes(cur)) continue;
     if (!dry) await kxActionUpsert(x.id, "letter", ym, { status: "送付済み" }, owner).catch(() => {});
     out.updated++;
   }
-  if (!dry) await saveSettings({ kxLetterSheet: { ...cfg, owner, lastSync: new Date().toISOString(), last: { rows: out.rows, matched: out.matched, updated: out.updated } } }).catch(() => {});
+  if (!dry) await saveSettings({ kxLetterSheet: { ...cfg, owner, lastSync: new Date().toISOString(), last: { rows: out.rows, matched: out.matched, updated: out.updated, callUpdated: out.callUpdated, cols: out.cols, head: out.head } } }).catch(() => {});
   return out;
 }
 app.post("/api/kinxs/letter-sheet/sync", async (req, res) => {
@@ -18215,7 +18440,7 @@ setTimeout(async () => {
           if (!ev || ev.status === "cancelled") continue;
           const d0 = String(ev.description || "");
           if (!d0.trimStart().startsWith("────────────────") || !d0.includes(APO_CONV_MARK)) continue;   // 説明が通話の内容だけになっているものだけ
-          let base = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(l.slug)}\nアポ獲得: ${l.setter || "-"}\n担当: ${l.current_owner || "-"}`;
+          let base = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(l.slug)}\nアポ獲得: ${l.setter || "-"}\nアポ獲得日: ${apoGotDayText(l)}\n担当: ${l.current_owner || "-"}`;
           const contact = await apoContactBlock(l).catch(() => "");
           if (contact) base += `\n\n${contact}`;
           const note = String(l.source_note || "").trim();
@@ -20132,6 +20357,9 @@ const DASH_APO_ADJUST_BASE = {
   "month:2026-10": { "植野ひかり": 1 }, // 2026-10-23 依頼：植野ひかりのアポ1件（手で入れたアポと思われる）が数えられていない分
   "month:2026-11": { "田中欽也": 1 },   // 2026-11-10 依頼：田中欽也は今5件（ダッシュボードは4件。記録・予定に出ていない1件の分）
 };
+// 手補正のアポが「いつの週」の分か（2026-11-16 田中さん「今週でカウントされてしまっているかも」：月の手補正を毎週“今週”に足していたので、
+//   11/16（月）に本日3・今週4と、今週が1件多く出ていた）。日付が分かるものはその週に足す。分からないものは今までどおり今の週へ
+const DASH_APO_ADJUST_AT = { "month:2026-09": "2026-09-30", "month:2026-10": "2026-10-23", "month:2026-11": "2026-11-10" };
 // ダッシュボード右上のアワード（インサイド向け）。その月の、人ごとの数を返す（今日までの実績）。
 //   出勤時間 … 出勤管理の「実働時間（架電記録から推定）」と同じ（架電の最初〜最後を30分に丸め、昼休みを引く）
 //   受注数   … その月に受注した案件（受注した日＝won_at）を、その会社のいちばん最初のアポを取った人に付ける
@@ -20955,7 +21183,8 @@ app.get("/api/calls/apo-dashboard", async (req, res) => {
         const n = Number(adjM[String(x.m.email || "").toLowerCase()] || 0) + Number(adjM[String(x.m.誰 || "").replace(/[\s　]/g, "")] || 0);
         if (!n) continue; adjRole.group += n; if (x.role === "sales") adjRole.sales += n; else if (x.role === "inside") adjRole.inside += n;
       }
-      const uptoKey = ymd(upto);
+      // 手補正の日付が分かれば、その日をふくむ週に足す（分からなければ今日をふくむ週）（2026-11-16）
+      const uptoKey = DASH_APO_ADJUST_AT[`month:${selMonth}`] || ymd(upto);
       let adjLap = laps.findIndex((l) => ymd(l.from) <= uptoKey && uptoKey <= ymd(l.to));
       if (adjLap < 0) adjLap = laps.reduce((a2, l, k2) => (ymd(l.from) <= uptoKey ? k2 : a2), laps.length - 1);
       weeks = laps.map((l, li) => {
@@ -22516,6 +22745,8 @@ app.get("/api/calls/stats", async (req, res) => {
 app.post("/api/ask-bot", async (req, res) => {
   try {
     let message = String(req.body?.message || "").slice(0, 2000);
+    // MOCHICA の画面のロボから聞かれたときは、そう伝える（MiiTel の商談・Bales のリストの話として答え、要望も MOCHICA の開発メモとわかるように）（2026-11-16）
+    const fromMc = /^\/mochica/.test(String(req.body?.page || ""));
     const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
     // 添えられたファイル（4つまで・1つ10MBまで）：画像・PDFはAIで中身を書き出し、テキストはそのまま読む
     const files = (Array.isArray(req.body?.files) ? req.body.files : []).slice(0, 4);
@@ -22532,7 +22763,7 @@ app.post("/api/ask-bot", async (req, res) => {
     }
     const attachText = attach.length ? `\n\n【添えられたファイル】\n${attach.map((a) => `■${a.name}\n${a.text}`).join("\n\n")}` : "";
     if (!message.trim() && attach.length) message = "（添えたファイルを見てください）";
-    const r = await askBot({ message: `${message}${attachText}`.slice(0, 12000), history, callLLM: callLLMPublic });
+    const r = await askBot({ message: `${fromMc ? "【kinbot for MOCHICA（MiiTel の商談・Bales Cloud のリスト・Zoom Phone）の画面から】\n" : ""}${message}${attachText}`.slice(0, 12000), history, callLLM: callLLMPublic });
 
     let saved = null;
     if (r.note) {
@@ -27065,6 +27296,33 @@ async function mcBalesGet(owner, fresh) {
 }
 // ===== Bales のカスタム情報は、SF の「Mochica（リード）」の項目と同じ名前（2026-11-13 田中さんのスクショで判明）。
 //   Bales の SalesforceID＝SF のリードの ID（00Q…）。SF のリードの値を、リードの ID で Bales にそのまま入れる =====
+// SF のユーザーID（005…）を名前にする（2026-11-16 田中さん「失注商談所有者がIDになっているため、所有者名にしてほしい」）。
+//   SF の LostOpp_OwnerID__c は ID の文字のまま入っているので、Bales に書くとき・kinbot に出すときに名前へ置き換える。名前は1時間覚える
+const _mcSfUserName = new Map(); let _mcSfUserAt = 0;
+async function mcSfUserNames(ids) {
+  const want = [...new Set(ids.filter((v) => /^005[0-9A-Za-z]{12}([0-9A-Za-z]{3})?$/.test(String(v || ""))))];
+  const miss = want.filter((id) => !_mcSfUserName.has(id) || Date.now() - _mcSfUserAt > 3600000);
+  if (miss.length) { try { const op = await sfOperator(); if (op) for (let i = 0; i < miss.length; i += 150) { const part = miss.slice(i, i + 150);
+    const d = await sfQuery(op, `SELECT Id, Name FROM User WHERE Id IN (${part.map((x) => `'${x}'`).join(",")})`); for (const u of (d && d.records) || []) { _mcSfUserName.set(u.Id, u.Name); _mcSfUserName.set(u.Id.slice(0, 15), u.Name); } } _mcSfUserAt = Date.now(); } catch (e) { console.warn("[Bales] SF のユーザー名を読めませんでした:", e.message); } }
+  return _mcSfUserName;
+}
+// 商談ID（006…）も商談名にする（2026-11-16 田中さん「商談名にできるのなら商談名にしてほしい」）。名前は1時間覚える
+const _mcSfOppName = new Map(); let _mcSfOppAt = 0;
+async function mcSfOppNames(ids) {
+  const want = [...new Set(ids.filter((v) => /^006[0-9A-Za-z]{12}([0-9A-Za-z]{3})?$/.test(String(v || ""))))];
+  if (Date.now() - _mcSfOppAt > 3600000) { _mcSfOppName.clear(); _mcSfOppAt = Date.now(); }
+  const miss = want.filter((id) => !_mcSfOppName.has(id));
+  if (miss.length) { try { const op = await sfOperator(); if (op) for (let i = 0; i < miss.length; i += 150) { const part = miss.slice(i, i + 150);
+    const d = await sfQuery(op, `SELECT Id, Name FROM Opportunity WHERE Id IN (${part.map((x) => `'${x}'`).join(",")})`); for (const o of (d && d.records) || []) { _mcSfOppName.set(o.Id, o.Name); _mcSfOppName.set(o.Id.slice(0, 15), o.Name); } } } catch (e) { console.warn("[Bales] SF の商談名を読めませんでした:", e.message); } }
+  return _mcSfOppName;
+}
+// lead（Bales の項目名→値）の中の ID（ユーザー・商談）を名前に置き換えた写しを返す
+async function mcLeadNice(leads) {
+  const ids = []; for (const l of leads) if (l) for (const v of Object.values(l)) if (typeof v === "string") ids.push(v.trim());
+  const mu = await mcSfUserNames(ids); const mo = await mcSfOppNames(ids);
+  const m = { has: (t) => mu.has(t) || mo.has(t), get: (t) => mu.get(t) || mo.get(t) };
+  return leads.map((l) => { if (!l) return l; const o = { ...l }; for (const [k, v] of Object.entries(o)) { const t = typeof v === "string" ? v.trim() : ""; if (m.has(t)) o[k] = m.get(t); } return o; });
+}
 const MC_BALES_FIELDS = [
   ["活動予定日時", "scheduledate__c"], ["活動予定コメント", "schedule_comment__c"], ["顧客の現状", "Client_Current_Status__c"], ["顧客の課題感", "Client_Issue__c"],
   ["ペンディング理由", "pending_reason__c"], ["失注商談失注前ステージ", "Lostopp_beforeCloseStage__c"], ["失注商談失注日", "LostOpp_lostdate__c"], ["失注後次回アクション日", "Lostopp_nextaction__c"],
@@ -27138,13 +27396,17 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
     // 見張り（架電の記録など）：新しい行を受け取り、いくつ新しかったかを返す（拡張機能は新しい行が無くなったらめくるのをやめる）
     if (b.feed) { const feed = mcBalesKeyOk(b.feed); if (!feed) return res.status(400).json({ error: "見張りの印がありません" });
       const view = Array.isArray(b.view) ? b.view.slice(0, 40).map((v) => ({ label: String(v.label || "").slice(0, 40), key: String(v.key || "").slice(0, 200) })).filter((v) => v.label && v.key) : null;
-      const rows = []; const seen = new Set(); for (const r0 of (Array.isArray(b.rows) ? b.rows : []).slice(0, 2000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = mcBalesRowKey(d); if (seen.has(k)) continue; seen.add(k); rows.push({ k, d }); }
+      // リードの一覧を見張るときは「リード番号＠最終架電日時」を1行に：同じリードにまたかけたら別の行（＝1回の架電）として残す（2026-11-16）
+      const feedKey = (d) => { const id = d.callTargetId || d.call_target_id; const t = d.lastCalledAt || d.last_called_at; return id && t ? `${id}@${t}` : mcBalesRowKey(d); };
+      const rows = []; const seen = new Set(); for (const r0 of (Array.isArray(b.rows) ? b.rows : []).slice(0, 2000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = feedKey(d); if (seen.has(k)) continue; seen.add(k); rows.push({ k, d }); }
+      if (b.done && (b.sort === "ok" || b.sort === "none")) { const st0 = await getSettings().catch(() => ({})); await saveSettings({ mcBalesFeedSort: { ...(st0.mcBalesFeedSort || {}), [feed]: b.sort } }).catch(() => {}); }
       const r = await mcFeedUpsert(feed, { name: b.name ? String(b.name).slice(0, 60) : null, src: b.src ? String(b.src).slice(0, 300) : null, view: view && view.length ? view : null, by: await mcExtUser(req) }, rows);
       if (b.done) await mcFeedSynced(feed, Number(b.newTotal) || 0);
       return res.json({ ok: true, ...r }); }
     const listKey = mcBalesKeyOk(b.listKey); if (!listKey) return res.status(400).json({ error: "リストの印がありません" });
     // Bales への書き込み：書く値（SF の失注情報など＝MC_BALES_FIELDS のラベルと API 名と値）を渡す／書いた印を受け取る（2026-11-15）
     if (b.writeTodo) { const t = await mcBalesWriteTodo(listKey, b.limit, b.only || "");
+      const nice = await mcLeadNice(t.items.map((x) => x.lead)); t.items.forEach((x, i) => { x.lead = nice[i]; });   // 所有者などの ID は名前にして書く
       const items = t.items.map((x) => ({ id: x.id, vals: MC_BALES_FIELDS.map(([lbl, api]) => [lbl, api, x.lead && x.lead[lbl] != null ? String(x.lead[lbl]) : ""]).filter((v) => v[2] !== "") }));
       return res.json({ ok: true, items, left: t.left, all: t.all, none: !!t.none }); }
     if (Array.isArray(b.written)) return res.json({ ok: true, n: await mcBalesWritten(listKey, b.written.slice(0, 500).map((x) => ({ k: String(x.id).slice(0, 120), e: String(x.err || "").slice(0, 300) }))) });
@@ -27167,6 +27429,8 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
 });
 // 一覧の列：Bales のリード一覧なら「会社名・電話番号・担当者名」をいつも先頭に（2026-11-16 田中さん）。
 //   画面から覚えた列は、見出しが日付・数字（＝見出しでなく1行目の中身を読んでしまった）なら使わない
+// 起動のあと1回：担当者（相手の人）にリード所有者が入ってしまった行を直す（2026-11-16 田中さん）。一度直したら印を付けて繰り返さない
+setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); if (st.fixPersonOwner20261116) return; const n = await fixPersonOwnerSwap(); await saveSettings({ fixPersonOwner20261116: { at: new Date().toISOString(), n } }); console.log(`[kincall] 担当者とリード所有者の入れ違いを ${n} 件直しました`); } catch (e) { console.warn("[kincall] 担当者の入れ違いの直し失敗:", e.message); } }, 45000);
 // 起動のあと1回：取り込み直しで 0 に見えていた SF との結びつき・詳しい中身を、前の行から写し戻す（2026-11-16）
 setTimeout(async () => { try { for (const l of await mcBalesLists()) { const co = await mcBalesCarryOver(l.list_key); console.log(`[Bales] ${l.list_key} 写し戻し：SF ${co.sf}・詳しい中身 ${co.detail}・書き込み ${co.written}`); } } catch (e) { console.warn("[Bales] 写し戻し失敗:", e.message); } }, 60000);
 // ホット度（担当者名・ニーズ・検討時期）：起動2分後と10分ごとに、まだ・古い行に付ける（SF と結びついた後も付け直る）（2026-11-16 依頼「架電時のホットリスト化」）
@@ -27198,7 +27462,9 @@ app.get("/api/mochica/bales/lists/:key/rows", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
-  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcBalesRow(String(req.params.key), String(req.params.rid)); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, ...r }); }
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcBalesRow(String(req.params.key), String(req.params.rid)); if (!r) return res.status(404).json({ error: "見つかりません" });
+    if (r.sf && r.sf.lead) { const [nl] = await mcLeadNice([r.sf.lead]); r.sf = { ...r.sf, lead: nl }; }   // 画面でも所有者は名前で
+    res.json({ ok: true, ...r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ===== Bales のリードを SF と結びつける（2026-11-15 田中さん「2万件のリードを SF と紐付けて、過去の商談履歴を見られるように」）=====
@@ -27321,8 +27587,12 @@ app.get("/api/mochica/bales/feeds/:f/day", async (req, res) => {
     const d0 = new Date(`${day}T00:00:00+09:00`); const from = new Date(d0.getTime() - 86400000).toISOString().slice(0, 10), to = new Date(d0.getTime() + 2 * 86400000).toISOString().slice(0, 10);
     const rows = await mcFeedRange(f, tk, tk ? from : new Date(d0.getTime() - 86400000).toISOString(), tk ? to : new Date(d0.getTime() + 2 * 86400000).toISOString());
     const jst = (v) => { const t = new Date(v); return isNaN(t) ? "" : new Date(t.getTime() + 9 * 3600000).toISOString().slice(0, 10); };
-    const items = rows.filter((r) => jst(tk ? (r.data || {})[tk] : r.first_at) === day).map((r) => r.data);
-    res.json({ ok: true, day, tkey: tk, feed: fd, items });
+    // 同じリード・同じ架電日時の行は1回に数える（前の印の行と、リード番号＠日時の行が重なるため）
+    const dk = new Set();
+    const items = rows.filter((r) => jst(tk ? (r.data || {})[tk] : r.first_at) === day).map((r) => r.data)
+      .filter((d) => { const id = d.callTargetId || d.call_target_id; if (!id || !tk) return true; const k = `${id}@${d[tk]}`; if (dk.has(k)) return false; dk.add(k); return true; });
+    const stS = await getSettings().catch(() => ({}));
+    res.json({ ok: true, day, tkey: tk, feed: fd, items, sort: (stS.mcBalesFeedSort || {})[f] || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete("/api/mochica/bales/feeds/:f", async (req, res) => {
@@ -27732,6 +28002,7 @@ app.get("/api/mochica/reps", async (req, res) => {
 });
 // MOCHICA の架電（テレアポ）。表も画面も DOC の kincall とは別。DOC の表は管理者がリードを持ってくるときに読むだけ（2026-11-16）
 registerMcCall(app, { isAdmin: isAiOwner, sfActor, mochicaSet: mcMochicaSet });
+registerTeleapoScience(app);
 app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const id = String(req.params.id || ""); if (!(await mcMiitelGet(id))) return res.status(404).json({ error: "見つかりません" });
@@ -32207,11 +32478,13 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-16P for MOCHICA 架電のリード画面「これまで」に SF の活動（Task：DOC やほかの人の架電・メモ。コンバート済みなら取引先側も）を足し、Bales の活動・SF の商談・kinbot の架電と1本の時系列に。kinbot から書いた Task は二重に出さない。SF が遅いときは5秒で諦めて画面を開く。／2026-11-16OMOCHICA の商談と SF の照合を強化（版8）：MiiTel の参加者が「[object Object]」で入っていたのを直し、本当の長さで予定と重ねる。予定の題名の書き方（▼WEB・※リスケ※・＿お打ち合わせ・「会社 人さん」）も拾い、お客様のメールのドメイン→会社名（株式会社の有無・㈱を気にしない）→担当が持つリードの順で SF を探す。予定が無いときは MiiTel の参加者の表示名、それでも無ければ文字起こしから AI が会社名を読む。3分未満の会議と社内の会議は数えない。SF の照会は SF につながっている人で行い、会社名があるのに SF が空のものは6時間ごとに試し直す。／2026-11-16N for MOCHICA の架電（テレアポ）を新しく作成：DOC の kincall とは別の表（mc_call_lists／mc_call_leads／mc_call_logs／mc_cross_moves）。3列（調べる・操作・これまで）、結果は到達→中身の2段、数字キーと Enter で記録して次へ、受付で聞けたことを残す、不在は同じ日のうちに自動で掛け直し、番号ごとのつながった実績、元に戻す、SF のリードに活動。管理者は Bales・DOC のリストから足せて、DOC から持ってきたことは部署をまたいだ記録に残る。／2026-11-16M アプローチ禁止企業を必ずはじく：SF の「アプローチ禁止の種類」＋設定→アプローチ禁止 で登録した会社（会社名・電話番号・リードIDのどれかが一致）は、架電リストに入れない・かける一覧／シート／検索に出さない・記録／次回予約／資料送付をサーバーで止める。SF の名簿は1時間ごとに入れ替え（読めないときは前の名簿のまま）。／2026-11-16L ログイン画面に「パスワードの再発行」：メールを入れて同じアドレスの Google アカウントで本人確認すると、新しいパスワードを決められる（15分・1回限り）。メールだけ登録されていて新規登録できない人のため。／2026-11-16K kinbot for MOCHICA の Bales のリスト：架電のホットリスト化（担当者名・ニーズ・検討時期の3つがそろえばホット、2つでウォーム）。表にホット度の列と絞り込み・並べ替え、CSV にも。／2026-11-16J Bales のリスト：どの取り込みでも列を「会社名・電話番号・担当者名（名前）・最終活動…・所有者」に（前に選んだ表示項目はいったん忘れる）。／2026-11-16I Bales の書き込み方を覚えるとき、Firebase（googleapis）への送信も「kinbot」入りなら見る（kinbot-ext 2.2.4）。／2026-11-16H Bales のリスト：列に最終活動日・最終活動タイプ・最終活動コメント・所有者も。／2026-11-16G Bales のリスト：列を「会社名・電話番号・担当者名」から。行の印を callTargetId にして、取り込み直しても SF との結びつき・詳しい中身が消えないように（消えていた分は前の行から写し戻す）。／2026-11-16F kincall のデイリー目標から田中欽也を外した。／2026-11-16E MOCHICA の商談：一緒に参加した MOCHICA 以外の人（植野さんなど）のカードにも同じ商談を出していたのをやめた。／2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-16AQ 福井：テレアポ科学モデル v1 の API（/api/teleapo/model・diagnose・aggregate）。文字起こしから打診の有無・打診前の相手の発言・最初の返事・返し方・終わり方を AI が引用つきで読み取り、判定はコードで行う。分かれ道ごとに実測のアポ率と比べた「失ったアポの見込み」を出し、いちばん大きい所を問題の場所にする。時間許諾・最初の打診の形・「覚えてますか」など差が出なかった項目は減点しない。画面への組み込みはまだ。／2026-11-16AP 福井：MOCHICA の架電（テレアポ）を新設（mc_call_* の表・キーボード記録・同日自動掛け直し・部署をまたいだ記録・リード画面の「これまで」に SF の活動も1本の時系列で）。アプローチ禁止企業を取り込み・一覧・記録・資料送付のすべてでサーバー側ではじく（SF の Ban_Type__c を1時間ごとに同期＋設定で手動登録）。MOCHICA の商談と SF の照合を強化（版8：MiiTel 参加者の [object Object] を修正、題名・メールのドメイン・参加者名・文字起こしから会社名を探す）。／2026-11-16AO MOCHICA にも kinbot のロボ（左上の顔を押すと相談できる窓）。MOCHICA の顔・題名で開き、MOCHICA の画面から聞いたことをサーバーに伝える。／2026-11-16AH2 ログインとパスワードの再発行の画面に「パスワードを表示」ボタン。／2026-11-16AN kinXs 電話フォロー：行の「対応中」ボタンをなくし（上の札は対応中の会社があるときだけ）、結果の色の点に「結果　良好・普通・懸念」と文字を付けた。／2026-11-16AM kinXs 電話フォロー（企業ごとの進捗）：上の帯と札は固定し、企業の一覧だけをスクロール（押してもスクロールの位置は戻らない）。／2026-11-16AL 更新の通知に「だれの開発か（👤）」を出す（コミットの「開発: 名前」、無ければ GitHub の作者から）。／2026-11-16AK 福井聖さんも「他メンバーとして操作」できるように。MOCHICA のサイドメニューにも切り替えボタンと、切り替え中の帯（元のアカウントに戻る）を付けた。／2026-11-16AJ kinXs DOC自動更新：前からある申請の紐付け状態は「紐付け済」と出す・表の札を折り返さない。／2026-11-16AI kinXs DOC自動更新：解約フォーム連携の改修（改修指示書）。停止月を「1〜15日の申請は翌月・16日以降は翌々月」に（今ある解約予定も1回計算し直す）。空間URLを契約に持たせ、申請はURL→企業名の順で紐付け（候補を最大5件）。解約フォームのタブを申請一覧（未確認／確認済・紐付け状態・期限超過）と申請詳細（判定結果・紐付けの変更・メモ・自動返信の結果）に。自動返信は新しい文面。画面の一番上に濃い赤の「新しい解約申請」アラート、タブとサイドメニューに未確認の数。／2026-11-16AH ログイン画面に「パスワードの再発行」：メールを入れて同じアドレスの Google アカウントで本人確認すると、新しいパスワードを決められる（15分・1回限り）。メールだけ登録されていて新規登録できない人のため。／2026-11-16AG kinXs 電話フォローの企業ごとの進捗を案A に：上に進み具合の帯と札（状態・担当で絞る）、1社1行で状態はボタン、結果は色の点、メモ・NA日は行を押すと開く。／2026-11-16AF kinXs お手紙・電話フォロー：納品前の会社でも、その月にお手紙を送った会社は対象に入れる。／2026-11-16AF kinbot for MOCHICA の Bales のリスト：架電のホットリスト化（担当者名・ニーズ・検討時期の3つがそろえばホット、2つでウォーム）。表にホット度の列と絞り込み・並べ替え、CSV にも。／2026-11-16AE kinXs 電話フォロー：確かめ用に、試しに読んだとき送付済みで当たった会社の一覧も返す。／2026-11-16AD kinXs 電話フォロー：シートの見出しの行の見つけ方を直した（中身の行を見出しにしていた）。／2026-11-16AC kinXs 電話フォロー：手紙を送ったかを「送付済み」の列（H列）で見る（前は B 列の送付記載完了で、128社のうち106社しか入らなかった）。／2026-11-16AB kinXs 電話フォロー：「手紙送付リスト」の電話の結果の列（ステータス・結果・メモ・NA日・架電日）も見出しから探して読み、架電済み・対応中・完了・良好などに入れる。／2026-11-16AA 商談一覧：選んでまとめて消せるように（田中さんだけ）。／2026-11-16Z kinXs ホーム：検収書は「今月が回収月の会社」を出す（未回収に加えて、今月回収した会社も済みとして並べる）。／2026-11-16Y 更新の通知をコンパクトに（今回の直しの1行・コミット・時刻だけ）。／2026-11-16X kinXs：10月より前に受注した（納品後とみなす）会社に「検収書が未回収のまま接触途絶」を出さない。回収済み（自動）・対象外は回収済みとして扱う。／2026-11-16W kinXs：検収書 未回収を、回収予定月が空の会社も（受注の翌月とみなして）数える。アラートは予定月の2週間前から。／2026-11-16V 商談予定（カレンダー）の説明に「アポ獲得日」を入れる。／2026-11-16U MOCHICA：商談の「準備中」を外し、リスト・架電・アポイントに「準備中」を付けた。／2026-11-16T ふたりで直すための決まり（CLAUDE.md）と安全に上げる dev/safe-push.sh。zip のフォルダからは上げない。／2026-11-16S Bales への書き込み・リードの SF 欄：失注商談の商談ID も商談名にする。／2026-11-16R Bales への書き込み・リードの SF 欄：失注商談所有者などの SF ユーザーID を名前にする。／2026-11-16Q Bales の見張り：リードの一覧を最終架電日時の新しい順で読み（並べ方を自動で探す）、昨日より前まで来たら止める。1回の架電を「リード番号＠最終架電日時」で1行に（kinbot-ext 2.2.5）。／2026-11-16P Bales への書き込み：拡張機能に渡すリードの印を Bales のリード番号（callTargetId）にした（中身のハッシュで書こうとして失敗していた）。／2026-11-16O Claude の Bales の道具で、書き込み方の覚え・取り込みの様子も見られるように。／2026-11-16N アポ通知・週ラップ：月の手補正（記録に出ないアポを足す分）を毎週「今週」に足していたのを、その分の日付の週にだけ足すように（11/16 今週が1件多かった）。／2026-11-16M kincall のリスト編集：移す先のリスト・抜き出し先を打って探せるように。／2026-11-16L kincall：取り込みで担当者（相手の人）にリード所有者が入っていた行を直し、CSV の列の見つけ方を「担当者名」優先・所有者の列は使わないように。／2026-11-16K kincall のリスト編集：道具を「一覧を整える」「絞り込んだ ○ 件を」の2段にまとめ、選ぶ欄とボタンをくっつけた。失注回数・従業員数の下限〜上限を1行に。／2026-11-16J Bales のリスト：どの取り込みでも列を「会社名・電話番号・担当者名（名前）・最終活動…・所有者」に（前に選んだ表示項目はいったん忘れる）。／2026-11-16I Bales の書き込み方を覚えるとき、Firebase（googleapis）への送信も「kinbot」入りなら見る（kinbot-ext 2.2.4）。／2026-11-16H Bales のリスト：列に最終活動日・最終活動タイプ・最終活動コメント・所有者も。／2026-11-16G Bales のリスト：列を「会社名・電話番号・担当者名」から。行の印を callTargetId にして、取り込み直しても SF との結びつき・詳しい中身が消えないように（消えていた分は前の行から写し戻す）。／2026-11-16F kincall のデイリー目標から田中欽也を外した。／2026-11-16E MOCHICA の商談：一緒に参加した MOCHICA 以外の人（植野さんなど）のカードにも同じ商談を出していたのをやめた。／2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
+  "テレアポ科学モデル v1：文字起こしから問題の場所（失ったアポの見込みが最大の分かれ道）を診断する API",
   "for MOCHICA：商談と SF の照合を強化（メールのドメイン・参加者名・文字起こし・担当のリード）",
   "for MOCHICA：架電（テレアポ）画面を新しく作成（キーボードで記録・2段の結果・同日の自動掛け直し・部署をまたいだ記録）",
   "kincall：アプローチ禁止企業を取り込み・一覧・記録・資料送付のすべてで必ずはじく（SF の Ban_Type__c＋設定で手動登録）",
+  "kinXs：解約フォーム連携（空間URLで紐付け・停止月の新ルール・申請一覧と詳細・未確認アラート）",
   "for MOCHICA：Bales のリストをホットリスト化（担当者名・ニーズ・検討時期でホット／ウォーム／コールド）",
   "SF：商談の取引先の業種・従業員数を必須に（立ち上げ・Claude・SF直接の商談は自動で補う）",
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
@@ -36184,17 +36457,25 @@ const DEPLOY_ENV = {
   author: String(process.env.RAILWAY_GIT_AUTHOR || ""),
   branch: String(process.env.RAILWAY_GIT_BRANCH || ""),
 };
+// だれの開発か（2026-11-16 田中さん「誰が開発したかもわかるようにしたい」）
+//   ① コミットの本文の「開発: 名前」（Claude から上げると作者が「Claude」になるため、CLAUDE.md の決まりで必ず書く）
+//   ② 無ければ GitHub の作者名から（shofukui-neo → 福井聖 など）。分からなければ作者名そのまま
+const DEPLOY_DEVS = { "shofukui-neo": "福井聖", "sho.fukui": "福井聖", "kinyatanaka-code": "田中欽也", "kinya.tanaka": "田中欽也" };
+function deployDev() {
+  const full = String(process.env.RAILWAY_GIT_COMMIT_MESSAGE || "");
+  const m = full.match(/^\s*開発\s*[:：]\s*(.{1,30})$/m); if (m) return m[1].trim();
+  const a = String(DEPLOY_ENV.author || "").trim(); if (!a) return "";
+  const k = Object.keys(DEPLOY_DEVS).find((x) => a.toLowerCase().includes(x)); return k ? DEPLOY_DEVS[k] : a;
+}
 
 function deployText(head) {
   const jst = new Date(Date.now() + 9 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 16);
-  return [
-    head,
-    DEPLOY_ENV.message ? `📝 ${DEPLOY_ENV.message}` : "",
-    DEPLOY_ENV.commit ? `🔖 ${DEPLOY_ENV.commit}${DEPLOY_ENV.branch ? `（${DEPLOY_ENV.branch}）` : ""}` : "",
-    `🧩 ${BUILD_TAG}`,
-    `🕒 ${jst}`,
-    PUBLIC_URL ? `🔗 ${PUBLIC_URL}` : "",
-  ].filter(Boolean).join("\n");
+  // コンパクトに（2026-11-16 田中さん「これながくね？もっとデプロイした内容をコンパクトに」）：
+  //   BUILD_TAG はこれまでの全部の履歴がつながっているので出さず、今回の直し（コミットの1行目。無ければ BUILD_TAG の先頭の1件）だけを出す
+  const what = String(DEPLOY_ENV.message || "").split("\n")[0].trim() || String(BUILD_TAG).split("／")[0].replace(/^\d{4}-\d{2}-\d{2}\S*\s*/, "").trim();
+  const meta = [DEPLOY_ENV.commit ? String(DEPLOY_ENV.commit).slice(0, 7) : "", jst.slice(5).replace("-", "/")].filter(Boolean).join("・");
+  const dev = deployDev();
+  return [head, what ? `📝 ${what.length > 120 ? what.slice(0, 120) + "…" : what}` : "", dev ? `👤 ${dev}` : "", meta ? `🔖 ${meta}` : ""].filter(Boolean).join("\n");
 }
 
 // kinXs の開発の報告（2026-11-06 田中さん「kinXsで開発したことは kinXs立ち上げチャットに報告してほしい。要望に応えたもののみ。何を変えたか・どう使う／どう見るか」）
@@ -36421,6 +36702,7 @@ function statusText() {
     `🧩 ${BUILD_TAG}`,
     `🕒 いまは ${jst}（起動：${String(START_TIME).replace("T", " ").slice(0, 16)}）`,
     DEPLOY_ENV.message ? `📝 ${DEPLOY_ENV.message}` : "",
+    deployDev() ? `👤 ${deployDev()}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -38062,6 +38344,11 @@ app.get("/api/smart-links", async (req, res) => {
 // ===== 商談予定の自動作成（招待方式） =====
 // 運用者（設定 apoInviteOwner）のカレンダーに予定を作り、クローザーをゲストに招待する。
 // 招待方式なので、クローザーのカレンダーへの権限は不要。
+// アポ獲得日（取った日）を「2026/11/05（木）」の形に。取得日 apo_at が無ければ、kinbot がアポを見つけた日（created_at）（2026-11-16 田中さん「アポ獲得日もここに入れたい」）
+function apoGotDayText(link) {
+  const v = (link && (link.apo_at || link.created_at)) || ""; const d = v ? new Date(v) : null; if (!d || isNaN(d.getTime())) return "-";
+  const j = new Date(d.getTime() + 9 * 3600000); return `${j.getUTCFullYear()}/${String(j.getUTCMonth() + 1).padStart(2, "0")}/${String(j.getUTCDate()).padStart(2, "0")}（${"日月火水木金土"[j.getUTCDay()]}）`;
+}
 async function createApoInvite(link, { actor } = {}) {
   const s = await getSettings();
   if (!link.current_owner) throw new Error("担当者が未割り当てです。先に担当者を選んでください。");
@@ -38075,7 +38362,7 @@ async function createApoInvite(link, { actor } = {}) {
   }
   const summary = link.label || "商談";
   let description = `kinbotが自動作成した商談予定です。\n参加URL: ${joinUrl(link.slug)}\n` +
-    `アポ獲得: ${link.setter || "-"}\n担当: ${link.current_owner}`;
+    `アポ獲得: ${link.setter || "-"}\nアポ獲得日: ${apoGotDayText(link)}\n担当: ${link.current_owner}`;
   // 先方の担当のメール・つながる電話番号（予定を開いてすぐ連絡できるように）
   const contact = await apoContactBlock(link).catch(() => "");
   if (contact) description += `\n\n${contact}`;

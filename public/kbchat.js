@@ -6,6 +6,8 @@
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+  // MOCHICA の画面から開いたときは、MOCHICA のロボの顔にして、サーバーにも「MOCHICA の画面から」と伝える（2026-11-16 田中さん「MOCHICAにもkinbotロボをつけて」）
+  const IS_MC = /^\/mochica/.test(location.pathname);
   let panel = null;
   let history = [];
   let busy = false;
@@ -17,9 +19,9 @@
     panel.hidden = true;
     panel.innerHTML = `
       <div class="kb-chat-head">
-        <img class="kb-chat-face" src="/kinbot.svg" alt="" />
+        <img class="kb-chat-face" src="${IS_MC ? "/kinbot-mochica.svg" : "/kinbot.svg"}" alt="" />
         <div class="kb-chat-title">
-          <b>kinbotに聞く</b>
+          <b>${IS_MC ? "kinbot for MOCHICA に聞く" : "kinbotに聞く"}</b>
           <span>使い方や、直してほしいことをどうぞ</span>
         </div>
         <span class="kb-chat-dot" aria-hidden="true"></span>
@@ -127,9 +129,15 @@
   // はじめに出す案内と、よく聞かれること
   function greet() {
     if (history.length) return;
-    say("bot", "kinbotの使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。");
+    say("bot", IS_MC ? "kinbot for MOCHICA の使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。" : "kinbotの使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。");
     const tips = panel.querySelector("#kbChatTips");
-    const samples = [
+    // MOCHICA の画面では、MOCHICA でよく聞かれそうなことを出す（DOC の話を出しても使えないので）
+    const samples = IS_MC ? [
+      "MiiTel の商談が入ってこないのはなぜ？",
+      "議事録が読めないときはどうする？",
+      "拡張機能はどう入れる？",
+      "Bales のリストに SF の情報を入れるには？",
+    ] : [
       "御礼メールの宛先はどこから入る？",
       "リスケのときはどうすればいい？",
       "天気予報って何？",
@@ -189,7 +197,7 @@
     try {
       const r = await fetch("/api/ask-bot", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message: text, history: history.slice(-6), files: files.map((f) => ({ name: f.name, type: f.type, data: f.data })) }),
+        body: JSON.stringify({ message: text, page: location.pathname, history: history.slice(-6), files: files.map((f) => ({ name: f.name, type: f.type, data: f.data })) }),
       });
       const d = await r.json();
       waiting.remove();

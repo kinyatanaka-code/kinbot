@@ -9456,7 +9456,8 @@ async function orgLoadLists() {
     if ($("edStageBtn")) $("edStageBtn").addEventListener("click", edStageFiltered);
     if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
     if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", edEnrichIndustryBtn);
-    if ($("edMoveTo")) $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true });
+    if ($("edMoveTo")) { $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true }); kcSearchSelect($("edMoveTo"), { placeholder: "移す先のリストを探す…", onOpen: () => edFillMoveTo() }); }
+    if ($("edExtractOwner")) kcSearchSelect($("edExtractOwner"), { placeholder: "抜き出し先：自分の所有" });
     if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
     if ($("edDedupeAcross")) $("edDedupeAcross").addEventListener("click", edDedupeAcross);
   }
@@ -9698,7 +9699,7 @@ async function edEnrichEmployees(mode) {
     const remain = blanks().length;
     if (st) st.textContent = (_edEnrichStop ? "止めました" : "終わりました") + `：入った ${totalGot}・取れず「-」 ${_edEnrichStop ? "" : (edFiltered().filter((r)=>String(_edg(r,"従業員数","employees"))==="-").length)}・残り ${remain}（${srcStr(bySrc)}）`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-  finally { _edEnrichRunning = false; _edEnrichStop = false; if (btn) btn.textContent = "従業員数を自動取得"; }
+  finally { _edEnrichRunning = false; _edEnrichStop = false; if (btn) btn.textContent = "従業員数"; }
 }
 async function edEnrichHires() {
   const g = _edg;
@@ -9929,7 +9930,7 @@ function edFillExtractOwner() {
   const cur = sel.value;
   const opts = (_edMembers || []).filter((m) => !["goldfly32@gmail.com"].includes(String(m.email || "").toLowerCase()))
     .map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)} の所有にする（担当も${esc(m.name || m.email)}に）</option>`).join("");
-  sel.innerHTML = `<option value="">抜き出し先：自分の所有（担当はそのまま）</option>` + opts;
+  sel.innerHTML = `<option value="">抜き出し先：自分の所有</option>` + opts;   // 短く（担当はそのまま、はボタンの説明に書いてある）
   if (cur) sel.value = cur;
 }
 // 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持 or 選んだメンバーへ）
@@ -9973,7 +9974,7 @@ async function edEnrichIndustryBtn() {
     const r = await edEnrichIndustry(targets, (d, g) => { if (st) st.textContent = `業種を調べています… ${d}/${targets.length}（${g}社わかりました）`; if (d % 24 === 0) edRender(); });
     if (st) st.textContent = `業種を調べました：${r.got}/${targets.length}社${_edIndStop ? "（途中で止めました）" : ""}`;
   } catch (e) { if (st) st.textContent = "業種を調べられませんでした：" + e.message; }
-  finally { _edIndRunning = false; if (btn) btn.textContent = "業種を自動取得"; edBuildTable(); edRender(); }
+  finally { _edIndRunning = false; if (btn) btn.textContent = "業種"; edBuildTable(); edRender(); }
 }
 async function edIndustrySplit() {
   if (_edIndRunning) { _edIndStop = true; return; }   // 調べている途中にもう一度押したら止める
@@ -9985,7 +9986,7 @@ async function edIndustrySplit() {
     const st = $("edEnrichSt"); _edIndStop = false; _edIndRunning = true;
     const b = $("edIndSplit"); if (b) b.textContent = "調べるのを止める";
     try { const r = await edEnrichIndustry(blank, (d, g) => { if (st) st.textContent = `業種を調べています… ${d}/${blank.length}（${g}社わかりました）`; }); if (st) st.textContent = `業種を調べました：${r.got}/${blank.length}社${_edIndStop ? "（途中で止めました）" : ""}`; }
-    finally { _edIndRunning = false; if (b) b.textContent = "業界ごとにリストへ分ける"; edRender(); }
+    finally { _edIndRunning = false; if (b) b.textContent = "業界ごとに分ける"; edRender(); }
   }
   const groups = new Map(ED_INDUSTRIES.map((x) => [x.name, []]));
   for (const r of rows) { const k = edIndustryOf(r); if (k) groups.get(k).push(r); }
@@ -10251,9 +10252,12 @@ function edRenderBody() {
   const rows = edFiltered();
   if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
   if ($("edNurN")) $("edNurN").textContent = rows.length.toLocaleString();
-  if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
-  if ($("edMoveBtn")) { $("edMoveBtn").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件をほかのリストへ移す`; $("edMoveBtn").disabled = rows.length === 0; }
-  if ($("edStageBtn")) { $("edStageBtn").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件のステージを変える`; $("edStageBtn").disabled = rows.length === 0; }
+  // 件数は「絞り込んだ ○ 件を」の1か所にだけ出し、ボタンは短く（2026-11-16 田中さん「この辺醜い」）
+  if ($("edBulkN")) $("edBulkN").textContent = rows.length.toLocaleString();
+  if ($("edExtract")) { $("edExtract").textContent = "新リストに抜き出す"; $("edExtract").disabled = rows.length === 0; }
+  if ($("edMoveBtn")) { $("edMoveBtn").textContent = "移す"; $("edMoveBtn").disabled = rows.length === 0; }
+  if ($("edStageBtn")) { $("edStageBtn").textContent = "ステージを変える"; $("edStageBtn").disabled = rows.length === 0; }
+  if ($("edIndSplit")) $("edIndSplit").disabled = rows.length === 0;
   const tb = $("edTbody"); if (!tb) return;
   tb.innerHTML = rows.length
     ? rows.map((r) => {
@@ -11059,7 +11063,10 @@ function csvParse(text) {
   const 場所 = { company: 0, person: 1, phone: 2, email: 3, callDate: -1, status: -1, comment: -1, leadId: -1, stage: -1 };
   if (見出しっぽい) {
     const norm = (v) => String(v || "").replace(/[\s　_・\/]/g, "").toLowerCase();
-    const find = (...words) => head.findIndex((h) => words.some((w) => norm(h).includes(norm(w))));
+    // 言葉の順に探す（前は列の並び順で最初に当たった列を使っていたので、「担当者」の列（リード所有者）が「担当者名」より先にあると、
+    //   相手の担当者名にリード所有者が入っていた。2026-11-16 田中さん）。まず同じ名前、次に含む。所有者・作成者の列は使わない
+    const NOTP = /所有者|owner|作成者|更新者/i;
+    const find = (...words) => { for (const w of words) { const i = head.findIndex((h) => norm(h) === norm(w)); if (i >= 0) return i; } for (const w of words) { const i = head.findIndex((h) => norm(h).includes(norm(w)) && !NOTP.test(h)); if (i >= 0) return i; } return -1; };
     const set = (key, ...words) => { const i = find(...words); if (i >= 0) 場所[key] = i; };
     場所.company = -1; 場所.person = -1; 場所.phone = -1; 場所.email = -1;
     set("company", "会社名/取引先", "会社名", "会社", "取引先", "company");
@@ -13159,3 +13166,40 @@ document.addEventListener("click", async (e) => {
 
 // 先方担当は苗字だけ（「山田 太郎様」→「山田」）（2026-11-10 田中さん）
 function kcSurnameOnly(v) { return String(v || "").replace(/\s*様$/, "").trim().split(/[\s　]+/)[0] || ""; }
+
+// 選ぶ欄を「打って探せる」形にする（2026-11-16 田中さん「この辺検索できるようにしたい」：移す先のリストが多くて探しにくい）
+//   元の <select> は隠して値の置き場にそのまま使う（ほかの処理は sel.value を読むので変えなくてよい）。
+//   打った言葉を含む選択肢だけを出し、選ぶと select の値を変えて change を送る
+function kcSearchSelect(sel, { placeholder = "探す…", onOpen = null } = {}) {
+  if (!sel || sel.dataset.kcSearch) return; sel.dataset.kcSearch = "1";
+  const box = document.createElement("div"); box.className = "kc-ss";
+  const inp = document.createElement("input"); inp.type = "text"; inp.className = "kc-ss-in"; inp.placeholder = placeholder; inp.title = sel.title || ""; inp.autocomplete = "off";
+  const pop = document.createElement("div"); pop.className = "kc-ss-pop"; pop.hidden = true;
+  sel.parentNode.insertBefore(box, sel); box.appendChild(inp); box.appendChild(pop); box.appendChild(sel); sel.hidden = true;
+  const textOf = () => (sel.value && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].textContent : "");
+  const syncText = () => { if (document.activeElement !== inp) inp.value = textOf(); };
+  let hi = -1;
+  const draw = () => {
+    const q = inp.value.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+    const opts = [...sel.options].filter((o) => o.value && (!q || o.textContent.normalize("NFKC").toLowerCase().replace(/\s+/g, "").includes(q)));
+    hi = opts.length ? Math.max(0, Math.min(hi, opts.length - 1)) : -1;
+    pop.innerHTML = opts.length ? opts.slice(0, 200).map((o, i) => `<div class="kc-ss-it${i === hi ? " on" : ""}${o.value === sel.value ? " cur" : ""}" data-v="${esc(o.value)}">${esc(o.textContent)}</div>`).join("") : `<div class="kc-ss-none">${sel.options.length <= 1 ? "読み込んでいます…" : "当てはまるものがありません"}</div>`;
+  };
+  const choose = (v) => { sel.value = v; sel.dispatchEvent(new Event("change", { bubbles: true })); inp.value = textOf(); pop.hidden = true; inp.blur(); };
+  const open = async () => { pop.hidden = false; inp.select(); hi = 0; draw(); if (onOpen) { try { await onOpen(); } catch {} draw(); } };
+  inp.addEventListener("focus", open);
+  inp.addEventListener("input", () => { hi = 0; pop.hidden = false; draw(); });
+  inp.addEventListener("keydown", (e) => {
+    const its = [...pop.querySelectorAll(".kc-ss-it")];
+    if (e.key === "ArrowDown") { hi = Math.min(hi + 1, its.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { hi = Math.max(hi - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === "Enter") { if (its[hi]) choose(its[hi].dataset.v); e.preventDefault(); }
+    else if (e.key === "Escape") { pop.hidden = true; inp.value = textOf(); inp.blur(); }
+  });
+  pop.addEventListener("mousedown", (e) => { const it = e.target.closest(".kc-ss-it"); if (it) { e.preventDefault(); choose(it.dataset.v); } });
+  inp.addEventListener("blur", () => setTimeout(() => { pop.hidden = true; inp.value = textOf(); }, 120));
+  sel.addEventListener("change", syncText);
+  new MutationObserver(syncText).observe(sel, { childList: true });
+  syncText();
+}
+

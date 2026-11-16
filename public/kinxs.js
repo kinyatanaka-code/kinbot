@@ -1619,6 +1619,7 @@ function renderHomeV2() {
   const kxCsF = kxScope === "all" ? "" : (kxSurname(window.__kxMe || "") || "");
   // 行ごとの担当：次回アクションをほかの人に託していれば、その人（2026-11-12 田中さん：久野で絞っても託した分が出なかった）
   const kxActWho = (x, a) => { { const ao = (window.__kxActOwner || {})[`${x.id}:${a.kind}`]; if (ao) { const p1 = (window.__kxPeople || []).find((q) => q.email === ao); const n1 = p1 ? (kxSurname(p1.name) || p1.name) : String(ao).split("@")[0]; if (n1) return n1; } } if (a.na && x.naOwner) { const p0 = (window.__kxPeople || []).find((q) => q.email === x.naOwner); const nm = p0 ? (kxSurname(p0.name) || p0.name) : String(x.naOwner).split("@")[0]; if (nm) return nm; } return kxSurname(x.cs) || "（未定）"; };
+  const kxMineCo2 = (x) => !kxCsF || (kxSurname(x.cs) || "") === kxCsF;
   // 要アクションは緊急度の高いものだけ：キックオフ未実施と、検収書が今月回収で未回収の企業（2026-11-12 久野さんの要望）
   const kxThisYm = kxNowYm();
   const kxUrgent = (a) => a.kind === "キックオフ未実施" || (a.kind === "検収書 未回収" && String(a.due || "").slice(0, 7) === kxThisYm);
@@ -1626,7 +1627,10 @@ function renderHomeV2() {
   const csNames = [...new Set(actAll.map((r) => r.who))].sort((a, b) => a.localeCompare(b, "ja"));
   const actRows = actAll.filter((r) => !kxCsF || r.who === kxCsF).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
   const actCos = new Set(actRows.map((r) => r.x.id)).size;
-  const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 今月回収・未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
+  // 検収書は「今月が回収月の会社」を出す（2026-11-16 田中さん「その月の検収書回収企業を出してもらったほうがいい」）：
+  //   未回収は要アクションの行、回収済み（今月回収した・回収済みにした）は下に「済み」として並べる。数は「未回収／今月の回収社数」
+  const ksDoneRows = items.filter((x) => kxHasDoc(x) && x.ksMonth === kxThisYm && !x.archived && (String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外" || String(x.kenshuOn || "").slice(0, 7) === kxThisYm) && kxMineCo2(x));
+  const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", `${Number(kxThisYm.slice(5))}月の検収書回収・未回収`, (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = kf === "tk" ? [] : actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
   // 「自分」のときは、自分がCS担当の会社だけ（これからの更新・情報不足も）（2026-11-12 田中さん）
   const kxMineCo = (x) => !kxCsF || !x || (kxSurname(x.cs) || "") === kxCsF;
@@ -1647,7 +1651,7 @@ function renderHomeV2() {
   </div>
   <div class="h2-row">
     ${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><span class="h2-scope" role="tablist"><button type="button" class="${kxScope !== "all" ? "on" : ""}" data-home-scope="me">自分</button><button type="button" class="${kxScope === "all" ? "on" : ""}" data-home-scope="all">全員</button></span>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : ""}</div>
-      <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b ${k === "tk" ? 'data-tk-n' : ""}>${k === "tk" ? (kh2.tkN != null ? kh2.tkN : "…") : actRows.filter((r) => f(r.a)).length}</b><span>${l}${k === "tk" ? `<em class="tk-over" data-tk-over ${kh2.tkOver ? "" : "hidden"}>期限切れ ${kh2.tkOver || 0}</em>` : ""}</span></button>`).join("")}</div>
+      <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b ${k === "tk" ? 'data-tk-n' : ""}>${k === "tk" ? (kh2.tkN != null ? kh2.tkN : "…") : actRows.filter((r) => f(r.a)).length}${k === "ks" ? `<small class="h2-ks-of">／${actRows.filter((r) => f(r.a)).length + ksDoneRows.length}社</small>` : ""}</b><span>${l}${k === "tk" ? `<em class="tk-over" data-tk-over ${kh2.tkOver ? "" : "hidden"}>期限切れ ${kh2.tkOver || 0}</em>` : ""}</span></button>`).join("")}</div>
       ${kf === "tk" ? '<div class="h2-tk" id="kh2Tasks"><div class="kx-note" style="padding:10px 4px">読み込み中…</div></div>' : ""}<div class="h2-list"${kf === "tk" ? " hidden" : ""}>${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0">${(() => {
         // 期日の札（タスクのタブと同じ形）：日付・時刻＋「n日過ぎ／あとn日」。次回アクション・施策は押すと日付を変えられる（2026-11-11 田中さん）
         const k0 = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : "";
@@ -1669,7 +1673,7 @@ function renderHomeV2() {
         return `<label class="who h2-who" data-noopen title="押すと担当を移せます">${esc(nm)}<select data-home-naown="${esc(x.id)}" data-cs="${esc(csEm)}">${ppl.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })()}<span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
         const dat = `data-ha="${k}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}"`;
         // ボタンの言葉は「✓ 済み」にそろえる（2026-11-11 田中さん：実施済み／済みが分かりにくい）。何が起きるかは、指を置くと出る説明に
-        return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
+        return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || (kf === "ks" && ksDoneRows.length ? "" : '<div class="kx-empty">ありません 🎉</div>')}${kf === "ks" && ksDoneRows.length ? `<div class="h2-ks-done-h">${Number(kxThisYm.slice(5))}月の検収書 回収済み ${ksDoneRows.length}社</div>${ksDoneRows.map((x) => `<div class="h2-li h2-ks-done" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="h2-due">${x.kenshuOn ? `${Number(String(x.kenshuOn).slice(5, 7))}/${Number(String(x.kenshuOn).slice(8, 10))}` : "済み"}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">検収書 ${esc(x.kenshuSt === "対象外" ? "対象外" : "回収済み")}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("")}` : ""}</div>
       </section>
     <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
       ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="st" data-grow>${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span><span class="n">${r.l.length}<small>社</small></span></button>`).join("")}
@@ -1769,7 +1773,7 @@ function kxBoardV2(items, track, d) {
   const open = window.__bdOpen = window.__bdOpen || new Set();
   const groups = track === "SNS" ? [["SNS", (d.snsPhases || ["計上"]).map((l) => [l, "CS", ""])]] : KX_PH2;
   const actRows = track === "SNS" ? [] : items.flatMap((x) => (x.actions || []).map((a) => ({ x, a })));
-  const panel = (g) => { const rs = actRows.filter((r) => r.a.group === g).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0)); const rules = g === "納品前" ? ["受注から2週間以内にキックオフ未実施", "検収書の回収予定月の1週間前で未回収"] : ["次回アクション（施策）の期日まで1週間以内"];
+  const panel = (g) => { const rs = actRows.filter((r) => r.a.group === g).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0)); const rules = g === "納品前" ? ["受注から2週間以内にキックオフ未実施", "検収書の回収予定月（空なら受注の翌月）の2週間前で未回収"] : ["次回アクション（施策）の期日まで1週間以内"];
     return `<div class="v2-alp"><div class="h"><b>${g}：要アクション</b><span class="v2-chip red">アラート ${new Set(rs.map((r) => r.x.id)).size}社</span></div><div class="kx-note">${rules.map((r) => `・${r}`).join("　")}</div><div class="v2-alp-list">${rs.map(({ x, a }) => `<div class="v2-tr al" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="co">${esc(x.name)}</span><span class="al ${a.left < 0 ? "over" : ""}">${esc(a.detail)}</span><span>${esc(x.label)}</span><span>担当 ${esc(kxSurname(x.cs) || "未定")}</span><span>期限 ${esc((a.due || "").slice(5).replace("-", "/"))}</span></div>`).join("") || '<div class="kx-empty" style="padding:8px">ありません</div>'}</div></div>`; };
   let html = track === "SNS" ? "" : `<div class="v2-alps">${panel("納品前")}${panel("納品後")}</div>`;
   html += `<div class="v2-ph">`;
@@ -1836,7 +1840,7 @@ function kxOpsSection(x) {
   return `<section class="kx-sec v2-ops" data-ops-box="${esc(x.id)}"><div class="lb" style="display:flex;align-items:center;gap:8px">請求・納品<span class="kx-note">フェーズ（納品前・納品後）と要アクションの判定に使います</span><button type="button" class="kx-btn kx-pri" data-ops-save style="margin-left:auto">保存</button></div>
     <div class="v2-ops-g">
       <label>キックオフ実施日<input type="date" class="kx-in" data-ops="kickoff_on" value="${v(x.kickoffManual ? x.kickoffOn : "")}" /><small>${x.kickoffOn && !x.kickoffManual ? `CS連携から：${v(x.kickoffOn)}` : "空ならCS連携の回収MTGの日"}</small></label>
-      <label>検収書の回収予定月<input type="month" class="kx-in" data-ops="kenshu_month" value="${v(x.kenshuMonth)}" /><small>この月の1週間前で未回収ならアラート</small></label>
+      <label>検収書の回収予定月<input type="month" class="kx-in" data-ops="kenshu_month" value="${v(x.kenshuMonth)}" /><small>この月の2週間前で未回収ならアラート（空なら受注の翌月とみなす）</small></label>
       <label>検収書の回収日<input type="date" class="kx-in" data-ops="kenshu_on" value="${v(x.kenshuOn)}" /><small>${v(x.kenshu || "")}${x.kenshuOn ? "" : "（入れると納品後になります）"}</small></label>
       <label>掲載日<input type="date" class="kx-in" data-ops="published_on" value="${v(x.publishedOn)}" /><small>掲載日から1か月は「掲載・活用開始」</small></label>
       <label>請求書の発行${sel("invoice_need", [["", "未定"], ["true", "必要"], ["false", "不要"]], x.invoiceNeed == null ? "" : String(x.invoiceNeed))}</label>
@@ -2053,6 +2057,16 @@ async function kcLoad() {
   try { kc.data = await api(`/api/kinxs/calls${kc.period ? `?period=${kc.period}` : ""}`); kc.period = kc.data.period; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`); } catch (e) { const b = $("vCallBody"); if (b) b.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
   renderCallV2();
 }
+// 電話フォローの企業一覧を、画面の下までの高さにする（一覧の中だけスクロール）
+function kc3Fit() {
+  const lst = document.querySelector(".kc3-list"); if (!lst) return;
+  if (window.innerWidth < 860) { lst.style.maxHeight = ""; lst.classList.remove("kc3-scroll"); return; }
+  const leg = document.querySelector(".kc3-legend"); const legH = leg ? leg.getBoundingClientRect().height + 12 : 0;
+  const top = lst.getBoundingClientRect().top + window.scrollY;   // ページの一番上からの位置（ページが少しスクロールしていても同じ高さにする）
+  const h = Math.max(240, window.innerHeight - top - legH - 18);
+  lst.style.maxHeight = `${h}px`; lst.classList.add("kc3-scroll");
+}
+if (!window.__kc3FitOn) { window.__kc3FitOn = true; window.addEventListener("resize", () => kc3Fit()); }
 function renderCallV2() {
   const box = $("vCallBody"); if (!box) return;
   if (!kc.data) { box.innerHTML = kxSkel(); kcLoad(); return; }
@@ -2072,23 +2086,40 @@ function renderCallV2() {
   } else {
     const ms = ((kc.plan && kc.plan.measures) || []).filter((x) => x.call);
     const rows0 = ms.flatMap((x) => x.rows.map((r) => ({ ...r, reason: x.reason, me: x })));
-    const rows = rows0.filter((r) => (!kc.f.reason || r.reason === kc.f.reason) && (!kc.f.cs || kxSurname(r.cs) === kc.f.cs) && (!kc.f.st || r.status === kc.f.st));
+    const rows = rows0.filter((r) => (!kc.f.reason || r.reason === kc.f.reason) && (!kc.f.cs || (kxSurname(r.cs) || "未定") === kc.f.cs) && (!kc.f.st || r.status === kc.f.st));
     const eff = rows0.filter((r) => r.status !== "対象外"); const dn = eff.filter((r) => r.status === "完了").length; const pct = eff.length ? Math.round((dn / eff.length) * 100) : 0;
     const ST = ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"];
     const needIds = rows0.map((r) => r.id).filter((id) => !(kc.inf && kc.inf[id]));
     if (needIds.length && !kc.infBusy) { kc.infBusy = true; api("/api/kinxs/sfinfo", { method: "POST", body: JSON.stringify({ ids: needIds }) }).then((d2) => { kc.inf = { ...(kc.inf || {}), ...(d2.info || {}) }; kc.infBusy = false; renderCallV2(); }).catch(() => { kc.infBusy = false; }); }
+    // 案A（2026-11-16 田中さん「みにくいよね」→「案Aでつくってほしい」）：上に進み具合の帯と絞り込みの札、下に1社1行の「かける順」。
+    //   ステータスは並んだボタンを押すだけ、結果は色の点、メモ・NA日は行を押したときだけ開く。12か月のタブはやめて、月はヘッダーの ‹ › で
+    const ORD = { "未対応": 0, "架電済み（不在）": 1, "対応中": 2, "完了": 3, "対象外": 4 };
+    const list = rows.slice().sort((a, b) => (ORD[a.status] ?? 9) - (ORD[b.status] ?? 9) || String(a.name).localeCompare(String(b.name), "ja"));
+    const cnt = (st) => rows0.filter((r) => r.status === st).length;
+    const w = (n) => (eff.length ? (n / eff.length) * 100 : 0);
+    const reasons = [...new Set(rows0.map((r) => r.reason))];
+    const csN = [...new Set(rows0.map((r) => kxSurname(r.cs) || "未定"))].map((n) => [n, rows0.filter((r) => (kxSurname(r.cs) || "未定") === n).length]).sort((a, b) => b[1] - a[1]);
+    const RES = [["良好", "#1D9E75"], ["普通", "#EF9F27"], ["懸念あり", "#E24B4A"]];
+    // 「対応中」のボタンはなくした（2026-11-16 田中さん「対応中はけしていい」）。前から対応中の会社は、上の札で絞れば見つかる
+    const STB = [["未対応", "未対応"], ["架電済み（不在）", "不在"], ["完了", "完了"]];
+    const last = (r) => [r.lastCall ? `前回 ${Number(r.lastCall.slice(5, 7))}/${Number(r.lastCall.slice(8, 10))}` : "", r.memo ? `「${String(r.memo).slice(0, 34)}${String(r.memo).length > 34 ? "…" : ""}」` : ""].filter(Boolean).join("・") || "前回 なし";
+    kc.open = kc.open || "";
     body = `
-      <div class="v2-strip">${d.months.map((m) => `<button type="button" class="${m.ym === kc.ym ? "on" : ""}" data-kc-ym="${m.ym}"><b>${Number(m.ym.slice(5))}月</b><small>${esc(m.reasons.join("・") || "—")}</small><span>${m.future ? "予定" : `完了 ${m.done}`}</span></button>`).join("")}</div>
-      <section class="v2-sec"><div class="v2-big"><span class="l">今月のサマリ</span><span class="v">完了 ${dn}<small>/ ${eff.length}社</small></span><span class="pct" style="font-weight:800;color:#0E6B4E">${pct}%</span><div class="bar" style="flex:1;min-width:120px"><i style="width:${pct}%"></i></div></div>
-        <div class="v2-big" style="margin-top:6px">${ST.map((s) => `<button type="button" class="v2-chip ${kc.f.st === s ? "red" : ""}" data-kc-st="${esc(s)}">${esc(s)} <b>${rows0.filter((r) => r.status === s).length}</b></button>`).join("")}</div></section>
-      <div class="v2-month"><select class="kx-in" data-kc-f="reason" style="max-width:180px"><option value="">電話の理由：すべて</option>${[...new Set(rows0.map((r) => r.reason))].map((x) => `<option ${kc.f.reason === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select><select class="kx-in" data-kc-f="cs" style="max-width:160px"><option value="">担当：全員</option>${[...new Set(rows0.map((r) => kxSurname(r.cs)).filter(Boolean))].map((x) => `<option ${kc.f.cs === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
-      <div class="v2-tbl" style="max-height:none"><div class="v2-act h call co2"><span>企業名</span><span>電話の理由</span><span>担当</span><span>電話番号（SF）</span><span>ステータス</span><span>架電</span><span>結果</span><span>メモ・次のアクション</span><span>NA日</span></div>
-      ${rows.map((r) => `<div class="v2-act call co2" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}"><span class="co" data-open="${esc(r.id)}" role="button" tabindex="0">${kxLogoMini(r)}${esc(r.name)}</span><span><span class="v2-tag">${esc(r.reason)}</span></span><span>${esc(kxSurname(r.cs) || "未定")}</span><span class="tel">${kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? kxTelLink(kc.inf[r.id].phone) : "—") : "…"}</span>
-        <select class="kx-in" data-f="status">${ST.map((s) => `<option ${s === r.status ? "selected" : ""}>${s}</option>`).join("")}</select>
-        <span class="calls"><b>${r.calls}</b>回 <button type="button" class="hp-b" data-call>＋架電</button><small>${esc(r.lastCall ? r.lastCall.slice(5).replace("-", "/") : "")}</small></span>
-        <select class="kx-in" data-f="result">${["", "良好", "普通", "懸念あり", "未接続"].map((s) => `<option value="${s}" ${s === r.result ? "selected" : ""}>${s || "—"}</option>`).join("")}</select>
-        <input class="kx-in" data-f="memo" value="${esc(r.memo)}" placeholder="メモ・次のアクション" /><input type="date" class="kx-in" data-f="na_date" value="${esc(r.naDate)}" /></div>`).join("") || '<div class="kx-empty">この月の電話の対象はありません</div>'}</div>
-      <div class="kx-note">変えるとすぐ保存し、年間施策の数字と、企業詳細の議事録タブ（電話・メールなどの記録）にも入ります。</div>`;
+      <section class="kc3-top"><span class="kc3-lb">${Number(kc.ym.slice(5))}月・${esc(reasons.join("・") || "電話フォロー")}</span><span class="kc3-big">完了 ${dn}<small> / ${eff.length}社</small></span>
+        <span class="kc3-bar" title="完了 ${dn}・対応中 ${cnt("対応中")}・不在 ${cnt("架電済み（不在）")}"><i style="width:${w(dn)}%;background:#1D9E75"></i><i style="width:${w(cnt("対応中"))}%;background:#5DCAA5"></i><i style="width:${w(cnt("架電済み（不在）"))}%;background:#EF9F27"></i></span><b class="kc3-pct">${pct}%</b></section>
+      <div class="kc3-chips">${[["未対応", "かける"], ["架電済み（不在）", "不在（再架電）"], ...(cnt("対応中") ? [["対応中", "対応中"]] : []), ["完了", "完了"], ["対象外", "対象外"]].map(([st, lb]) => `<button type="button" class="kc3-chip ${kc.f.st === st ? "on" : ""}" data-kc-st="${esc(st)}">${lb} <b>${cnt(st)}</b></button>`).join("")}
+        <span class="kc3-sp"></span>${csN.map(([n, c]) => `<button type="button" class="kc3-chip ${kc.f.cs === n ? "on" : ""}" data-kc-cs="${esc(n)}">${esc(n)} <b>${c}</b></button>`).join("")}
+        ${reasons.length > 1 ? `<select class="kx-in kc3-sel" data-kc-f="reason"><option value="">電話の理由：すべて</option>${reasons.map((x) => `<option ${kc.f.reason === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>` : ""}</div>
+      <div class="kc3-list">${list.map((r) => { const op = kc.open === r.id; const ph = kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? kxTelLink(kc.inf[r.id].phone) : '<span class="kx-note">電話番号なし</span>') : '<span class="kx-note">…</span>';
+          return `<div class="kc3-row ${op ? "op" : ""} st-${ORD[r.status] ?? 9}" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}">
+          <div class="kc3-co" data-kc-toggle role="button" tabindex="0"><b>${kxLogoMini(r)}<span data-open="${esc(r.id)}" class="kc3-name" title="会社の詳しい情報を開く">${esc(r.name)}</span></b><small>${esc(kxSurname(r.cs) || "担当未定")}${reasons.length > 1 ? `・${esc(r.reason)}` : ""}・${esc(last(r))}</small></div>
+          <div class="kc3-tel">${ph}</div>
+          <div class="kc3-seg">${STB.map(([st, lb]) => `<button type="button" class="${r.status === st ? "on s" + ORD[st] : ""}" data-kc-set="${esc(st)}">${lb}${st === "架電済み（不在）" && r.calls ? ` ×${r.calls}` : ""}</button>`).join("")}</div>
+          <div class="kc3-res" title="話してみた結果（もう一度押すと消えます）"><small>結果</small>${RES.map(([v, c]) => `<button type="button" class="${r.result === v ? "on" : ""}" style="--c:${c}" data-kc-res="${esc(v)}" title="話した結果：${v}"><i></i>${v === "懸念あり" ? "懸念" : v}</button>`).join("")}</div>
+          <button type="button" class="kc3-more" data-kc-toggle aria-label="メモ・NA日を開く"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M6 8l4 4 4-4" stroke="#0d5b47" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          ${op ? `<div class="kc3-ed"><input class="kx-in" data-f="memo" value="${esc(r.memo)}" placeholder="話したこと・次のアクション" /><label>NA日<input type="date" class="kx-in" data-f="na_date" value="${esc(r.naDate || "")}" /></label><span class="kx-note">架電 ${r.calls || 0}回${r.lastCall ? `（最後 ${esc(r.lastCall.slice(5).replace("-", "/"))}）` : ""}</span><button type="button" class="kc3-x" data-kc-set="対象外">対象外にする</button></div>` : ""}
+        </div>`; }).join("") || '<div class="kx-empty">この月の電話の対象はありません</div>'}</div>
+      <div class="kx-note kc3-legend">「結果」は話してみた手ごたえ（良好・普通・懸念あり）です。「不在」を押すと架電の回数が1つ増えます。行（または右の ⌄）を押すとメモ・NA日が開き、会社名を押すと会社の詳しい情報が開きます。変えるとすぐ保存し、企業詳細の記録にも入ります。</div>`;
   }
   // ヘッダー：月別進捗表／企業ごとの進捗、期の選択 or 月の送り、CSV
   let hc = $("kxHeadCall"); const hmEl = $("kxHeadMonth");
@@ -2102,8 +2133,8 @@ function renderCallV2() {
   { const sb = hc && hc.querySelector("[data-kc-sheet]"); if (sb) sb.addEventListener("click", async () => {
       sb.disabled = true; sb.textContent = "読んでいます…";
       try { const r = await api("/api/kinxs/letter-sheet/sync", { method: "POST", body: JSON.stringify({}) });
-        const cols = Object.entries(r.cols || {}).filter(([, v]) => v).map(([k, v]) => `${({ company: "会社", cs: "担当", status: "ステータス", result: "結果", memo: "メモ", na: "NA日", sent: "送付", calls: "架電回数", lastCall: "最終架電" })[k] || k}＝${v}`).join("、");
-        alert(`「${r.tab || "手紙送付リスト"}」を読みました（${r.ym.replace("-", "年")}月の分・A〜I列）\n\n企業名の行：${r.rows}／kinXs の会社に当たった：${r.matched}\n手紙を記載済み（B列）：${r.written}／「送付済み」にした（電話フォローの対象に入る）：${r.updated}${r.unmatched && r.unmatched.length ? `\n\n当たらなかった会社（${r.unmatched.length}）：${r.unmatched.slice(0, 15).join("、")}` : ""}`);
+        const cols = Object.entries(r.cols || {}).filter(([, v]) => v).map(([k, v]) => `${({ company: "会社", letter: "手紙", cs: "担当", status: "ステータス", result: "結果", memo: "メモ", na: "NA日", sent: "送付", calls: "架電回数", lastCall: "最終架電" })[k] || k}＝${v}`).join("、");
+        alert(`「${r.tab || "手紙送付リスト"}」を読みました（${r.ym.replace("-", "年")}月の分）\n\n読んだ列：${cols || "I列（会社）・B列（手紙）"}\n${Object.keys(r.cols || {}).some((k) => ["status", "result", "memo", "na", "lastCall"].includes(k)) ? `電話の結果を入れた：${r.callUpdated || 0}社` : `電話の結果の列は見つかりませんでした（見出し：${(r.head || []).filter(Boolean).slice(0, 12).join("・") || "なし"}）`}\n\n企業名の行：${r.rows}／kinXs の会社に当たった：${r.matched}\n手紙を送付済み：${r.written}／「送付済み」にした（電話フォローの対象に入る）：${r.updated}${r.unmatched && r.unmatched.length ? `\n\n当たらなかった会社（${r.unmatched.length}）：${r.unmatched.slice(0, 15).join("、")}` : ""}`);
         location.reload();
       } catch (e) { alert("読めませんでした：" + e.message); } finally { sb.disabled = false; sb.textContent = "シートから読む"; } }); }
   const scope = { querySelectorAll: (q) => [...box.querySelectorAll(q), ...(hc ? hc.querySelectorAll(q) : [])], querySelector: (q) => box.querySelector(q) || (hc && hc.querySelector(q)) };
@@ -2114,10 +2145,24 @@ function renderCallV2() {
   box.querySelectorAll("[data-kc-st]").forEach((b) => b.addEventListener("click", () => { kc.f.st = kc.f.st === b.dataset.kcSt ? "" : b.dataset.kcSt; renderCallV2(); }));
   box.querySelectorAll("[data-kc-f]").forEach((s) => s.addEventListener("change", () => { kc.f[s.dataset.kcF] = s.value; renderCallV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
-  box.querySelectorAll(".v2-act[data-id]").forEach((row) => {
-    const id = row.dataset.id, mkey = row.dataset.mkey;
-    row.querySelectorAll("[data-f]").forEach((el) => el.addEventListener("change", async () => { try { await kpSave(mkey, kc.ym, { account_id: id, [el.dataset.f]: el.value }); el.style.borderColor = "#1D9E75"; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => kc.plan); } catch (e) { el.style.borderColor = "#C43D3D"; alert(e.message); } }));
-    const cb = row.querySelector("[data-call]"); if (cb) cb.addEventListener("click", async () => { const stEl = row.querySelector('[data-f="status"]'); const st0 = stEl.value === "未対応" ? "架電済み（不在）" : stEl.value; try { await kpSave(mkey, kc.ym, { account_id: id, call: true, status: st0 }); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`); renderCallV2(); } catch (e) { alert(e.message); } });
+  box.querySelectorAll("[data-kc-cs]").forEach((b) => b.addEventListener("click", () => { kc.f.cs = kc.f.cs === b.dataset.kcCs ? "" : b.dataset.kcCs; renderCallV2(); }));
+  // 案A の1行：押したらすぐ画面を変え（待たせない）、裏で保存して読み直す
+  const kcRow = (id, mkey) => (((kc.plan && kc.plan.measures) || []).find((x) => x.key === mkey) || { rows: [] }).rows.find((r) => r.id === id);
+  const kcSave = async (row, body, local) => { const id = row.dataset.id, mkey = row.dataset.mkey; const r = kcRow(id, mkey); if (r && local) Object.assign(r, local); renderCallV2();
+    try { await kpSave(mkey, kc.ym, { account_id: id, ...body }); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => kc.plan); renderCallV2(); } catch (e) { alert("保存できませんでした：" + e.message); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => kc.plan); renderCallV2(); } };
+  // 画面は固定して、企業の一覧だけをスクロール（2026-11-16 田中さん）：一覧の高さを「画面の下まで」に合わせる。
+  //   描き直す（ボタンを押す）たびに一覧が作り直されるので、スクロールの位置を覚えておいて戻す。スマホは今までどおり画面ごと
+  { const lst = box.querySelector(".kc3-list");
+    if (lst) { lst.scrollTop = kc.listTop || 0; lst.addEventListener("scroll", () => { kc.listTop = lst.scrollTop; }, { passive: true }); kc3Fit(); } }
+  box.querySelectorAll(".kc3-row[data-id]").forEach((row) => {
+    const id = row.dataset.id, mkey = row.dataset.mkey; const r = kcRow(id, mkey) || {};
+    row.querySelectorAll("[data-kc-toggle]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-open]")) return; kc.open = kc.open === id ? "" : id; renderCallV2(); }));
+    row.querySelectorAll("[data-kc-set]").forEach((b) => b.addEventListener("click", () => { const st = b.dataset.kcSet;
+      // 不在を押す＝1回かけた。未対応から対応中・完了にしたときも、かけたことにする
+      const call = st === "架電済み（不在）" || ((st === "対応中" || st === "完了") && !(r.calls > 0));
+      kcSave(row, { status: st, ...(call ? { call: true } : {}) }, { status: st, ...(call ? { calls: (r.calls || 0) + 1 } : {}) }); }));
+    row.querySelectorAll("[data-kc-res]").forEach((b) => b.addEventListener("click", () => { const v = r.result === b.dataset.kcRes ? "" : b.dataset.kcRes; kcSave(row, { result: v }, { result: v }); }));
+    row.querySelectorAll("[data-f]").forEach((el) => el.addEventListener("change", () => kcSave(row, { [el.dataset.f]: el.value }, { [el.dataset.f === "na_date" ? "naDate" : el.dataset.f]: el.value })));
   });
   const c1 = scope.querySelector("[data-kc-csv]"); if (c1) c1.addEventListener("click", () => kpCsv(`電話フォロー_${d.period}期_月別.csv`, ["月", "電話の理由", "対象", "未対応", "架電済み（不在）", "対応中", "完了", "完了率", "良好", "普通", "懸念あり"], d.months.map((m) => [m.ym, m.reasons.join("・"), m.total, m.counts["未対応"] || 0, m.counts["架電済み（不在）"] || 0, m.counts["対応中"] || 0, m.done, m.total ? Math.round((m.done / m.total) * 100) + "%" : "", m.results["良好"] || 0, m.results["普通"] || 0, m.results["懸念あり"] || 0])));
   const c2 = scope.querySelector("[data-kc-csv2]"); if (c2) c2.addEventListener("click", () => { const ms = ((kc.plan && kc.plan.measures) || []).filter((x) => x.call); kpCsv(`電話フォロー_${kc.ym}.csv`, ["企業名", "電話の理由", "担当", "電話番号", "ステータス", "架電回数", "最終架電日", "結果", "メモ・次のアクション", "NA日"], ms.flatMap((x) => x.rows.map((r) => [r.name, x.reason, r.cs, ((kc.inf || {})[r.id] || {}).phone || "", r.status, r.calls, r.lastCall, r.result, r.memo, r.naDate]))); });
@@ -2344,7 +2389,7 @@ function arRender() {
   if (ar.tab === "diff" || ar.tab === "recon") ar.tab = "bill";
   const ed = !!d.canEdit;
   const nNew = d.diff.filter((x) => x.kind === "新規").length, nCx = d.cancels.length, nStop = d.all.filter((x) => ["未入金", "停止"].includes(x.status)).length;
-  const tabs = [["bill", `請求対象一覧（${d.bill.length}）`], ["cancel", `解約一覧（${nCx}）`], ["wait", `開始待ち（${(d.waiting || []).length}）`], ["all", `全企業（${d.all.length}）`],   /* 差分・突合はなくした（2026-11-10 幸地さん） */ ...(ed ? [["form", `解約フォーム${(d.inbox || []).length ? `（要確認 ${(d.inbox || []).length}）` : ""}`]] : [])];
+  const tabs = [["bill", `請求対象一覧（${d.bill.length}）`], ["cancel", `解約一覧（${nCx}）`], ["wait", `開始待ち（${(d.waiting || []).length}）`], ["all", `全企業（${d.all.length}）`],   /* 差分・突合はなくした（2026-11-10 幸地さん） */ ["form", `解約フォーム${arFormAl(d).unconfirmed ? ` <span class="ar-badge" title="未確認の解約申請">${arFormAl(d).unconfirmed}</span>` : ""}`]];
   let body = "";
   const tbl = (head, rows, empty) => `<div class="ar-tbl"><table><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("") || `<tr><td colspan="${head.length}" class="ar-empty">${empty}</td></tr>`}</tbody></table></div>`;
   if (ar.tab === "bill") body = tbl(["申込番号", "企業名", "プラン", "契約開始月", "請求金額", "ステータス", "解約予定", "解約申請日", "SF計上"], /* 入金の列はなくした（2026-11-10 田中さん。未入金は「直す」のステータスで） */ d.bill.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td>${esc(arJp(x.start))}</td><td>${Number(x.amount).toLocaleString()}円</td><td>${arStTag(x.statusOn)}</td><td>${arPlanCell(x, d.ym)}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td>
@@ -2359,22 +2404,32 @@ function arRender() {
       <tr><td>kinXsの請求対象社数</td><td class="n">${base}</td><td>基準</td></tr>${row("SF計上件数（SF計上「済」の数）", r.sf)}${row("請求書発行件数（販売管理部）", r.invoices, "invoices")}${row("ブレインバース社からの請求件数", r.bv, "bv")}</tbody></table></div>
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center"><button type="button" class="kx-btn kx-pri" id="arRcSave">件数を保存</button><span class="kx-note" id="arRcSt"></span></div>`;
   } else if (ar.tab === "form") {
-    const f = d.form || {}; const opts = d.all.filter((x) => x.plan === "自動更新").map((x) => `<option value="${esc(x.id)}">${esc(x.name)}${x.no ? `（${esc(x.no)}）` : ""}</option>`).join("");
-    body = `<div class="ar-card" style="margin-bottom:10px"><small>解約フォームの回答のスプレッドシート（フォームの「回答」→「スプレッドシートにリンク」で作ったもの）</small>
-        <div style="display:flex;gap:6px;margin-top:6px"><input id="arSheet" class="kx-in" style="flex:1" value="${esc(f.sheet || "")}" placeholder="https://docs.google.com/spreadsheets/d/…"><button type="button" class="kx-btn" id="arSheetSave">今すぐ読む</button></div><div class="kx-note" id="arAutoSt" style="margin-top:4px">変えた内容はすぐ保存されます</div>
-        <div class="kx-note" style="margin-top:6px">フォームが送られたらすぐ（下の「すぐ取り込む設定」をしたとき）、この画面を開いたとき、念のため2分ごとに読み、申込番号（無ければ会社名）で企業を特定し、解約になる月の前までは「更新確定」、その月から「解約済み」にします。締切は解約になる月の2か月前の第15営業日（過ぎたら1か月うしろ）です。
-          <button type="button" class="hp-b" id="arHookScript" style="margin-left:4px">⚡ すぐ取り込む設定（フォームに貼るスクリプト）</button></div><div id="arHookBox" hidden style="margin-top:6px"></div>
-        <div class="kx-note" style="margin-top:6px">申請者には受付の自動返信を送ります（<label><input type="checkbox" id="arReplyOn" ${f.replyOn ? "checked" : ""}> 自動返信する</label>）。</div>
+    // 申請一覧（2026-11-16 改修指示書 6-1）：新しい順。未確認・未紐付け・期限超過は色で目立たせ、行を押すと申請詳細
+    const f = d.form || {}; const ff = ar.ff || "";
+    const inb = (d.inbox || []).filter((x) => !x.ignored || ff === "ig");
+    const view = inb.filter((x) => ff === "un" ? !x.confirmed : ff === "nl" ? !x.linked : ff === "od" ? x.overdue : ff === "ig" ? x.ignored : true);
+    const cnt = { "": inb.filter((x) => !x.ignored).length, un: inb.filter((x) => !x.confirmed && !x.ignored).length, nl: inb.filter((x) => !x.linked && !x.ignored).length, od: inb.filter((x) => x.overdue && !x.ignored).length, ig: (d.inbox || []).filter((x) => x.ignored).length };
+    const setBox = ed ? `<details class="ar-card ar-fold2" style="margin-top:12px"><summary><b>フォームの設定</b><span class="kx-note">回答シート・すぐ取り込む設定・自動返信の送り主と署名${f.error ? ` ／ <b style="color:#B4441F">読めませんでした：${esc(f.error)}</b>` : ""}${f.notReplied ? ` ／ <b style="color:#B4441F">自動返信を送れていない申請 ${f.notReplied}件</b>` : ""}</span></summary>
+        <div style="margin-top:10px"><small>解約フォームの回答のスプレッドシート（フォームの「回答」→「スプレッドシートにリンク」で作ったもの）</small>
+        <div style="display:flex;gap:6px;margin-top:6px"><input id="arSheet" class="kx-in" style="flex:1" value="${esc(f.sheet || "")}" placeholder="https://docs.google.com/spreadsheets/d/…"><button type="button" class="kx-btn" id="arSheetSave">今すぐ読む</button></div><div class="kx-note" id="arAutoSt" style="margin-top:4px">変えた内容はすぐ保存されます${f.at ? `（最後に読んだ日時：${esc(String(f.at).slice(0, 16).replace("T", " "))}）` : ""}</div>
+        <div class="kx-note" style="margin-top:6px">フォームが送られたらすぐ（下の「すぐ取り込む設定」をしたとき）、この画面を開いたとき、念のため2分ごとに読みます。<b>空間URL</b>で契約に紐付け、URLで当たらなければ<b>企業名</b>で探します。停止月は「選んだ月」と「最短停止月（申請が1〜15日なら翌月、16日以降は翌々月）」の遅い方です。
+          <button type="button" class="hp-b" id="arHookScript" style="margin-left:4px">すぐ取り込む設定（フォームに貼るスクリプト）</button></div><div id="arHookBox" hidden style="margin-top:6px"></div>
+        <div class="kx-note" style="margin-top:6px">申請者には受付の自動返信を送ります（<label><input type="checkbox" id="arReplyOn" ${f.replyOn ? "checked" : ""}> 自動返信する</label>）。フォームの「回答のコピーを回答者に送信」はオフにしてください（二重に届くのを防ぐため）。</div>
         <div style="display:grid;grid-template-columns:200px 1fr;gap:6px 10px;align-items:center;margin-top:10px;font-size:12.5px">
           <span>自動返信を送る人</span><div style="display:flex;gap:6px;align-items:center"><input id="arReplyOwner" class="kx-in" style="flex:1" value="${esc(f.replyOwner || "")}" placeholder="DOC事務局 か 幸地さんの kinbot のメール"><span class="${f.replyReady ? "ar-st" : "ar-st bad"}">${f.replyOwner ? (f.replyReady ? "Gmailで送れます" : "Google連携がまだ") : "未設定"}</span><button type="button" class="hp-b" id="arConnLink">Google連携のリンク</button></div>
           <span>差出人・返信先（事務局）</span><input id="arReplyFrom" class="kx-in" value="${esc(f.replyFrom || "")}" placeholder="例：doc-jimukyoku@neo-career.co.jp（空なら送る人のアドレス）">
-
-          <span>共有日（販管・ブレインバース社）</span><div style="display:flex;gap:6px;align-items:center">毎月 第<input id="arShareDay" class="kx-in" type="number" min="1" max="23" style="width:64px" value="${esc(f.shareDay || 20)}">営業日<span class="kx-note">${f.shareDate ? `この月は ${esc(f.shareDate.slice(5).replace("-", "/"))}（土日・祝日・12/29〜1/3 を除いて数えます）` : ""}</span></div>
           <span>宛先（申請者といっしょに）</span><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><input id="arReplyAlso" class="kx-in" style="flex:1;min-width:220px" value="${esc(f.replyAlso != null ? f.replyAlso : "support_x@mochica.jp")}" placeholder="例：support_x@mochica.jp（いくつでも・カンマ区切り）"><label style="white-space:nowrap"><input type="checkbox" id="arReplyCs" ${f.replyCs !== false ? "checked" : ""}> その企業のCS担当も入れる</label></div>
+          <span>署名：部署名</span><input id="arReplyDept" class="kx-in" value="${esc(f.replyDept || "")}" placeholder="例：〇〇事業部（空なら「株式会社ネオキャリア」だけ）">
+          <span>署名：問い合わせ先メール</span><input id="arReplyMail" class="kx-in" value="${esc(f.replyMail || "")}" placeholder="空なら「差出人・返信先」のアドレス">
+          <span>署名：電話番号</span><input id="arReplyTel" class="kx-in" value="${esc(f.replyTel || "")}" placeholder="例：03-xxxx-xxxx（空なら電話の行は出しません）">
+          <span>共有日（販管・ブレインバース社）</span><div style="display:flex;gap:6px;align-items:center">毎月 第<input id="arShareDay" class="kx-in" type="number" min="1" max="23" style="width:64px" value="${esc(f.shareDay || 20)}">営業日<span class="kx-note">${f.shareDate ? `この月は ${esc(f.shareDate.slice(5).replace("-", "/"))}` : ""}</span></div>
         </div>
-        <div class="kx-note" style="margin-top:6px">送る人は、kinbot にログインして Google 連携をしている人です。差出人を事務局のアドレスにするときは、送る人の Gmail の「他のアドレスからメールを送信」に事務局のアドレスを入れておいてください（入っていないと、送る人のアドレスで届き、返信先だけ事務局になります）。${f.notReplied ? ` <b style="color:#B4441F">まだ自動返信を送れていない回答が ${f.notReplied}件あります</b>` : ""}${f.at ? `最後に読んだ日時：${esc(String(f.at).slice(0, 16).replace("T", " "))}` : ""}${f.error ? ` <b style="color:#B4441F">読めませんでした：${esc(f.error)}</b>` : ""}</div></div>
-      ${tbl(["申請日", "貴社名（フォーム）", "申込番号", "解約希望月", "申請者・メール", "どの企業か"], (d.inbox || []).map((x) => `<tr><td>${esc(String(x.at || "").slice(0, 10))}</td><td><b>${esc(x.company)}</b></td><td>${esc(x.no || "—")}</td><td>${esc(arJp(x.wish))}</td><td>${esc(x.applicant)}<br><small>${esc(x.email)}</small></td>
-        <td><select data-ib-sel="${x.id}"><option value="">企業を選ぶ…</option>${opts}</select> <button type="button" class="hp-b" data-ib-go="${x.id}">当てはめる</button> <button type="button" class="hp-b" data-ib-ig="${x.id}">無視</button></td></tr>`), "要確認の回答はありません（申込番号・会社名で企業を特定できなかった回答がここに出ます）")}`;
+        <div class="kx-note" style="margin-top:6px">送る人は、kinbot にログインして Google 連携をしている人です。差出人を事務局のアドレスにするときは、送る人の Gmail の「他のアドレスからメールを送信」に事務局のアドレスを入れておいてください。</div></div></details>` : "";
+    const rows = view.map((x) => { const cls = [!x.confirmed ? "ib-new" : "", !x.linked && !x.ignored ? "ib-unl" : "", x.overdue ? "ib-od" : ""].filter(Boolean).join(" ");
+      return `<tr class="ib-row ${cls}" data-ib-open="${x.id}"><td><small>${esc(arAtText(x.at, x.applied))}</small></td><td><b>${esc(x.company)}</b></td><td>${esc(x.applicant || "—")}</td><td class="ib-url">${x.url ? `<small title="${esc(x.url)}">${esc(arUrlShort(x.url))}</small>` : "—"}</td><td>${esc(arJp(x.wish) || "—")}</td><td><b>${esc(arJp(x.stop) || "—")}</b></td>
+        <td>${x.overdue ? '<span class="ar-st warnc">期限超過</span>' : "—"}</td><td>${x.account ? `<small>${esc(x.account.no || "—")}</small><br>${esc(x.account.name)}` : "—"}</td><td>${arLinkTag(x)}</td><td>${x.confirmed ? '<span class="ar-st done">確認済</span>' : '<span class="ar-st bad">未確認</span>'}</td></tr>`; });
+    body = `<div class="kx-seg" style="margin-bottom:8px">${[["", "すべて"], ["un", "未確認のみ"], ["nl", "未紐付けのみ"], ["od", "期限超過のみ"], ["ig", "無視したもの"]].filter(([k]) => k !== "ig" || cnt.ig).map(([k, l]) => `<button type="button" class="${ff === k ? "on" : ""}" data-ib-ff="${k}">${l}（${cnt[k]}）</button>`).join("")}</div>`
+      + tbl(["申請日時", "貴社名", "ご担当者名", "解約するURL", "選択月", "停止月", "期限超過", "紐付け先（申込番号・企業名）", "紐付け状態", "確認状態"], rows, ff ? "当てはまる申請はありません" : "解約フォームの申請はまだありません") + setBox;
   } else {
     // 全企業：プランで絞る・納品一覧シートとの同期（2026-11-10 幸地さん）
     const pf = ar.plan || ""; const list = d.all.filter((x) => !pf || x.plan === pf);
@@ -2388,7 +2443,7 @@ function arRender() {
           <textarea id="arRules" class="kx-in" rows="3" style="width:100%;margin-top:6px" placeholder="1行に1つ：商品名に含む文字 → 自動更新 または 年間（例：アチコチバース月額 → 自動更新）">${esc((d.rules || []).map((r) => `${r.match} → ${r.plan}`).join("\n"))}</textarea><button type="button" class="hp-b" id="arRulesSave">ルールを保存して同期</button></details>
         <div id="arDiffs" style="margin-top:10px"></div></details></div>` : "";
     body = syncBox + `<div class="kx-seg" style="margin-bottom:8px">${[["", "すべて"], ["自動更新", "自動更新"], ["年間", "年間"]].map(([k, l]) => `<button type="button" class="${pf === k ? "on" : ""}" data-ar-pf="${k}">${l}（${k ? d.all.filter((x) => x.plan === k).length : d.all.length}）</button>`).join("")}</div>` +
-      tbl(["申込番号", "企業名", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約予定", "解約申請日", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${x.plan === "自動更新" ? arPlanCell(x, d.ym) : "—"}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : KX_TEST ? ` <button type="button" class="hp-b" data-ar-clone="${esc(x.id)}" title="この会社のテスト用コピーを作る（本物は変わりません）">🧪 この会社でテスト</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
+      tbl(["申込番号", "企業名", "空間URL", "プラン", "商品名", "契約開始月", "契約終了月", "ステータス", "解約予定", "解約申請日", "担当CS", ""], list.map((x) => `<tr><td>${esc(x.no || "—")}</td><td><b>${esc(x.name)}</b></td><td class="ib-url">${x.url ? `<small title="${esc(x.url)}">${esc(arUrlShort(x.url))}</small>` : '<span class="ar-st bad" title="空間URLが無いので、解約フォームは企業名で紐付けます">未登録</span>'}</td><td>${esc(x.plan)}</td><td><small>${esc(x.product || "—")}</small></td><td>${esc(arJp(x.start))}</td><td>${esc(arJp(x.end) || "—")}</td><td>${x.plan === "自動更新" ? arStTag(x.statusOn) : "—"}</td><td>${x.plan === "自動更新" ? arPlanCell(x, d.ym) : "—"}</td><td>${esc(x.cancelApplied || "—")}${x.cancelApplied ? ` <button type="button" class="hp-b" data-ar-app="${esc(x.id)}" title="お客様が解約フォームに書いた内容を見る">申請内容</button>` : ""}</td><td>${esc(kxSurname ? kxSurname(x.cs) : x.cs)}</td><td>${ed ? `<button type="button" class="hp-b" data-ar-edit="${esc(x.id)}">直す</button>${String(x.id).startsWith("test-") ? ` <button type="button" class="hp-b" data-ar-deltest="${esc(x.id)}" style="color:#B4441F">消す</button>` : KX_TEST ? ` <button type="button" class="hp-b" data-ar-clone="${esc(x.id)}" title="この会社のテスト用コピーを作る（本物は変わりません）">🧪 この会社でテスト</button>` : ""}` : ""}</td></tr>`), "まだ企業がありません（納品一覧シートと同期すると出てきます）")
       + `<datalist id="arAcAll"></datalist>`;
   }
   const ex = (d.exports || [])[0];
@@ -2396,15 +2451,18 @@ function arRender() {
       <button type="button" class="kx-btn kx-pri" id="arXlsx">月次Excelをダウンロード</button>${ed ? '<button type="button" class="kx-btn" id="arAdd">＋ 自動更新の企業を登録</button><button type="button" class="kx-btn" id="arCsv">CSVでまとめて登録</button><input type="file" id="arCsvF" accept=".csv,text/csv" hidden>' : ""}
       <span class="kx-note">${ex ? `最後の出力：${esc(String(ex.at).slice(0, 16).replace("T", " "))}・第${ex.version}版` : "この月分はまだ出力していません"}</span>
       ${ed ? `<button type="button" class="kx-btn ${KX_TEST ? "kx-test-on" : ""}" id="arTestTg" title="テスト用の会社を出す・隠す（このブラウザだけ）">🧪 テスト${KX_TEST ? "中" : ""}</button>${KX_TEST ? '<button type="button" class="kx-btn" id="arTestAdd">＋ テスト用の会社</button>' : ""}` : ""}`; } }
-  box.innerHTML = `    ${(() => { const al = d.alerts || {}; const items = [];
+  box.innerHTML = `    ${arFormAlertHtml(d)}${(() => { const al = d.alerts || {}; const items = [];
       if ((al.sfNotDone || []).length) items.push(`今月のSF計上がまだの企業が <b>${al.sfNotDone.length}社</b>（${esc(al.sfNotDone.slice(0, 3).join("・"))}${al.sfNotDone.length > 3 ? " ほか" : ""}）`);
-      if (ed && al.unmatched) items.push(`解約フォームの回答で、企業を特定できなかったものが <b>${al.unmatched}件</b>（「解約フォーム」のタブで当てはめてください）`);
       if ((al.unpaid || []).length) items.push(`未入金の企業が <b>${al.unpaid.length}社</b>（${esc(al.unpaid.slice(0, 3).join("・"))}）`);
       return items.length ? `<div style="background:#FFF6F3;border:1px solid #F0C9B8;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#7A2E12">${items.map((t) => `⚠ ${t}`).join("<br>")}</div>` : ""; })()}
     <div class="ar-cards"><div class="ar-card"><small>請求対象（更新確定）</small><b>${d.bill.length}</b><span>社・${(d.bill.length * d.price).toLocaleString()}円（税別）</span></div><div class="ar-card"><small>開始待ち</small><b>${(d.waiting || []).length}</b><span>社</span></div><div class="ar-card"><small>この月から解約（解約確定）</small><b>${nCx}</b><span>社</span></div><div class="ar-card${nStop ? " warn" : ""}"><small>未入金・停止</small><b>${nStop}</b><span>社</span></div></div>
     <div class="kx-seg" style="margin-bottom:10px">${tabs.map(([k, l]) => `<button type="button" class="${ar.tab === k ? "on" : ""}" data-ar-tab="${k}">${l}</button>`).join("")}</div>${body}`;
   document.querySelectorAll("#kxTopAr [data-ar-mv]").forEach((b) => b.addEventListener("click", () => { ar.ym = arAddYm(ar.ym, Number(b.dataset.arMv)); arLoad(); }));
   box.querySelectorAll("[data-ar-tab]").forEach((b) => b.addEventListener("click", () => { ar.tab = b.dataset.arTab; arRender(); }));
+  box.querySelectorAll("[data-ib-ff]").forEach((b) => b.addEventListener("click", () => { ar.ff = b.dataset.ibFf; arRender(); }));
+  box.querySelectorAll("[data-ib-open]").forEach((tr) => tr.addEventListener("click", () => arAppOpen(tr.dataset.ibOpen)));
+  box.querySelectorAll("[data-al-go]").forEach((b) => b.addEventListener("click", () => { ar.tab = "form"; ar.ff = b.dataset.alGo; arRender(); const t = box.querySelector(".kx-seg [data-ib-ff]"); if (t) t.scrollIntoView({ block: "center", behavior: "smooth" }); }));
+  arBadgeSet(arFormAl(d).unconfirmed);
   box.querySelectorAll("[data-ar-sf]").forEach((c) => c.addEventListener("change", () => arSaveMonth(c.dataset.arSf, { sf: c.checked })));
   box.querySelectorAll("[data-ar-paid]").forEach((c) => c.addEventListener("change", () => arSaveMonth(c.dataset.arPaid, { paid: c.value === "" ? null : c.value === "1" })));
   box.querySelectorAll("[data-ar-edit]").forEach((b) => b.addEventListener("click", () => arEdit(d.all.find((x) => String(x.id) === b.dataset.arEdit))));
@@ -2417,17 +2475,9 @@ function arRender() {
     catch (e) { alert(e.message); } };
   document.querySelectorAll("[data-ar-app]").forEach((b) => b.onclick = async () => {
     let r; try { r = await api(`/api/kinxs/autorenew/${encodeURIComponent(b.dataset.arApp)}/applications`); } catch (e) { alert(e.message); return; }
-    const x0 = (ar.data.all || []).find((y) => String(y.id) === String(b.dataset.arApp)) || {};
-    const bg = document.createElement("div"); bg.className = "kx-drawer-bg"; bg.style.cssText = "display:flex;align-items:center;justify-content:center;";
     const it = r.items || [];
-    bg.innerHTML = `<div class="ar-card ar-panel ar-app" style="width:min(640px,94vw);max-height:84vh;overflow:auto;background:#fff;padding:18px 20px;border-radius:14px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><b style="font-size:15px">解約の申請内容：${esc(x0.name || "")}</b><button type="button" class="hp-b" data-x style="margin-left:auto">閉じる</button></div>
-      ${it.length ? it.map((a) => `<div style="border:1px solid #E6ECE9;border-radius:10px;padding:10px 12px;margin-bottom:8px"><div class="kx-note" style="margin-bottom:6px">${esc(String(a.at || "").slice(0, 10))} に申請・${esc(a.state || "")}${a.replied ? "・受付メール送信済み" : ""}</div>
-        <dl class="ar-app-dl">${Object.entries(a.raw || {}).filter(([k, v]) => k && String(v ?? "").trim() !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(String(v ?? ""))}</dd>`).join("")}</dl></div>`).join("")
-        : `<div class="kx-note">フォームからの申請は見つかりませんでした（手で解約予定にした会社か、フォームの回答と結びついていません）</div>`}
-      ${r.sheet ? `<a class="kx-btn" href="${esc(r.sheet)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px">回答シート（フォームの回答）を開く ↗</a>` : ""}</div>`;
-    document.body.appendChild(bg);
-    bg.addEventListener("click", (e) => { if (e.target === bg || e.target.closest("[data-x]")) bg.remove(); });
+    if (it.length) { arAppOpen(it[0].id); return; }
+    alert("フォームからの申請は見つかりませんでした（手で解約予定にした契約か、フォームの申請と紐付いていません）");
   });
   document.querySelectorAll("[data-ar-clone]").forEach((b) => b.onclick = async () => {
     b.disabled = true;
@@ -2468,28 +2518,26 @@ function arRender() {
       prompt(`${r.email} の Google 連携リンクです（コピーしました）。${r.connected ? "\n※ もう連携ずみです。つなぎ直すときだけ使ってください。" : ""}\n\n${r.email} で Google にログインしたブラウザ（シークレットウィンドウがおすすめ）でこのリンクを開き、「許可」を押すと連携できます。kinbot へのログインは要りません。終わったら、ここで「保存して読む」を押してください。`, r.link);
     } catch (e) { alert(e.message); } };
   // 設定は、変えたらすぐ保存（ボタンを押さなくてよい）（2026-11-10 田中さん）。シートのURLを変えたときだけ読み直して描き直す
-  const arFormBody = () => ({ sheet: $("arSheet").value, replyOn: $("arReplyOn").checked, replyOwner: $("arReplyOwner").value, replyFrom: $("arReplyFrom").value, replyAlso: $("arReplyAlso") ? $("arReplyAlso").value : undefined, replyCs: $("arReplyCs") ? $("arReplyCs").checked : undefined, shareDay: $("arShareDay") ? $("arShareDay").value : undefined });
+  const arFormBody = () => ({ sheet: $("arSheet").value, replyOn: $("arReplyOn").checked, replyOwner: $("arReplyOwner").value, replyFrom: $("arReplyFrom").value, replyAlso: $("arReplyAlso") ? $("arReplyAlso").value : undefined, replyCs: $("arReplyCs") ? $("arReplyCs").checked : undefined, shareDay: $("arShareDay") ? $("arShareDay").value : undefined, replyDept: $("arReplyDept") ? $("arReplyDept").value : undefined, replyMail: $("arReplyMail") ? $("arReplyMail").value : undefined, replyTel: $("arReplyTel") ? $("arReplyTel").value : undefined });
   const arFormSave = async (reload) => { const st = $("arAutoSt"); if (st) st.textContent = "保存しています…";
     try { const r = await api("/api/kinxs/autorenew-settings", { method: "PUT", body: JSON.stringify({ ...arFormBody(), intake: !!reload }) }); if (r.intake && r.intake.error) alert("シートを読めませんでした：" + r.intake.error);
       if (st) st.textContent = "✓ 保存しました"; if (reload) arLoad(); } catch (e) { if (st) st.textContent = "保存できませんでした：" + e.message; } };
   let arFormT = null;
-  ["arReplyOwner", "arReplyFrom", "arReplyAlso", "arShareDay"].forEach((k) => { const el = $(k); if (!el) return; el.addEventListener("input", () => { clearTimeout(arFormT); arFormT = setTimeout(() => arFormSave(false), 900); }); el.addEventListener("change", () => { clearTimeout(arFormT); arFormSave(false); }); });
+  ["arReplyOwner", "arReplyFrom", "arReplyAlso", "arShareDay", "arReplyDept", "arReplyMail", "arReplyTel"].forEach((k) => { const el = $(k); if (!el) return; el.addEventListener("input", () => { clearTimeout(arFormT); arFormT = setTimeout(() => arFormSave(false), 900); }); el.addEventListener("change", () => { clearTimeout(arFormT); arFormSave(false); }); });
   ["arReplyOn", "arReplyCs"].forEach((k) => { const el = $(k); if (el) el.addEventListener("change", () => arFormSave(false)); });
   if ($("arSheet")) $("arSheet").addEventListener("change", () => arFormSave(true));
   if ($("arSheetSave")) $("arSheetSave").addEventListener("click", () => arFormSave(true));
-  box.querySelectorAll("[data-ib-go]").forEach((b) => b.addEventListener("click", async () => { const sel = box.querySelector(`[data-ib-sel="${b.dataset.ibGo}"]`); if (!sel.value) { alert("企業を選んでください"); return; } try { const r = await api(`/api/kinxs/autorenew-inbox/${b.dataset.ibGo}`, { method: "POST", body: JSON.stringify({ accountId: sel.value }) }); alert(`解約の申請として取り込みました（${arJp(r.cancelMonth)}から解約済み）`); arLoad(); } catch (e) { alert(e.message); } }));
-  box.querySelectorAll("[data-ib-ig]").forEach((b) => b.addEventListener("click", async () => { if (!confirm("この回答を無視しますか？（解約として扱いません）")) return; try { await api(`/api/kinxs/autorenew-inbox/${b.dataset.ibIg}`, { method: "POST", body: JSON.stringify({ ignore: true }) }); arLoad(); } catch (e) { alert(e.message); } }));
   // CSV でまとめて登録（見出し：企業名・申込番号・契約開始月・プラン・ステータス）
   if ($("arCsv")) $("arCsv").addEventListener("click", () => $("arCsvF").click());
   if ($("arCsvF")) $("arCsvF").addEventListener("change", async (e) => {
     const f = e.target.files[0]; if (!f) return; const txt = await f.text(); const rows = (typeof kxCsvParse === "function" ? kxCsvParse(txt) : txt.split(/\r?\n/).map((l) => l.split(","))).filter((r) => r.some((c) => String(c).trim()));
     if (rows.length < 2) { alert("見出しの行と、1行以上のデータが要ります"); return; }
     const h = rows[0].map((x) => String(x).replace(/[\s　]/g, "")); const ix = (re) => h.findIndex((x) => re.test(x));
-    const iN = ix(/企業名|会社名|取引先/), iNo = ix(/申込番号|契約番号|サーカス/), iS = ix(/契約開始|開始月/), iP = ix(/プラン/), iSt = ix(/ステータス|状態/);
+    const iN = ix(/企業名|会社名|取引先/), iNo = ix(/申込番号|契約番号|サーカス/), iS = ix(/契約開始|開始月/), iP = ix(/プラン/), iSt = ix(/ステータス|状態/), iU = ix(/空間URL|URL/i);
     if (iN < 0) { alert("「企業名」の列が見つかりません"); return; }
-    const list = rows.slice(1).map((r) => ({ name: String(r[iN] || "").trim(), no: iNo >= 0 ? String(r[iNo] || "").trim() : "", start: iS >= 0 ? String(r[iS] || "").trim() : "", plan: iP >= 0 && String(r[iP] || "").trim() ? String(r[iP]).trim() : "自動更新", status: iSt >= 0 && String(r[iSt] || "").trim() ? String(r[iSt]).trim() : "継続中" })).filter((r) => r.name);
+    const list = rows.slice(1).map((r) => ({ name: String(r[iN] || "").trim(), no: iNo >= 0 ? String(r[iNo] || "").trim() : "", start: iS >= 0 ? String(r[iS] || "").trim() : "", plan: iP >= 0 && String(r[iP] || "").trim() ? String(r[iP]).trim() : "自動更新", status: iSt >= 0 && String(r[iSt] || "").trim() ? String(r[iSt]).trim() : "継続中", url: iU >= 0 ? String(r[iU] || "").trim() : "" })).filter((r) => r.name);
     if (!confirm(`${list.length}社を、自動更新の企業として登録します（kinXsの会社名と照らします）。よろしいですか？`)) { e.target.value = ""; return; }
-    try { const r = await api("/api/kinxs/autorenew-import", { method: "POST", body: JSON.stringify({ rows: list }) }); const ng = (r.results || []).filter((x) => !x.ok); alert(`${(r.results || []).length - ng.length}社を登録しました${ng.length ? `\n\nkinXsに見つからなかった会社（${ng.length}社）：\n${ng.slice(0, 15).map((x) => x.name).join("\n")}` : ""}`); arLoad(); } catch (er) { alert(er.message); }
+    try { const r = await api("/api/kinxs/autorenew-import", { method: "POST", body: JSON.stringify({ rows: list }) }); const ng = (r.results || []).filter((x) => !x.ok); const dup = (r.results || []).filter((x) => x.urlDup && x.urlDup.length); alert(`${(r.results || []).length - ng.length}社を登録しました${ng.length ? `\n\nkinXsに見つからなかった会社（${ng.length}社）：\n${ng.slice(0, 15).map((x) => x.name).join("\n")}` : ""}${dup.length ? `\n\n注意：同じ空間URLがほかの契約にも登録されています（${dup.length}社）：\n${dup.slice(0, 10).map((x) => `${x.name} ＝ ${x.urlDup.join("・")}`).join("\n")}` : ""}`); arLoad(); } catch (er) { alert(er.message); }
     e.target.value = "";
   });
   box.querySelectorAll("[data-ar-rc]").forEach((i) => i.addEventListener("change", () => { if ($("arRcSave")) $("arRcSave").click(); }));   // 突合の件数も、変えたらすぐ保存
@@ -2516,10 +2564,11 @@ async function arEdit(x) {
     <div class="ar-f"><span>プラン区分</span><select id="arPlan"><option ${!x || x.plan === "自動更新" ? "selected" : ""}>自動更新</option><option ${x && x.plan === "年間" ? "selected" : ""}>年間</option></select></div>
     <div class="ar-f"><span>申込番号（サーカス）</span><div style="display:flex;gap:6px"><input id="arNo" value="${esc((x && x.no) || "")}" placeholder="解約フォームとの突合キー" style="flex:1"><button type="button" class="hp-b" id="arNoSf">SFから読む</button></div></div>
     <div class="kx-note" id="arNoSt" style="margin:-4px 0 8px 138px"></div>
+    <div class="ar-f"><span>空間URL<small style="display:block;font-weight:400;color:#6A7A72">解約フォームの紐付けに使う</small></span><input id="arUrl" value="${esc((x && x.url) || "")}" placeholder="https://…（アチコチバースのURL）"></div>
     <div class="ar-f"><span>契約開始月</span><input type="month" id="arStart" value="${esc((x && x.start) || arYmNow())}"></div>
     <div class="ar-f"><span>ステータス</span><select id="arSt">${st.map((s) => `<option value="${s}" ${(x ? x.status : "継続中") === s ? "selected" : ""}>${{ 継続中: "通常（解約の申請なし）", 解約予定: "解約の申請あり", 解約済: "解約済" }[s] || s}</option>`).join("")}</select></div>
     <div class="ar-f"><span>解約申請日</span><input type="date" id="arCxA" value="${esc((x && x.cancelApplied) || "")}"></div>
-    <div class="ar-f"><span>解約希望月<small style="display:block;font-weight:400;color:#6A7A72">この月から使わない</small></span><input type="month" id="arCxW" value="${esc((x && x.cancelWish) || "")}"></div>
+    <div class="ar-f"><span>停止希望月<small style="display:block;font-weight:400;color:#6A7A72">この月から使わない</small></span><input type="month" id="arCxW" value="${esc((x && x.cancelWish) || "")}"></div>
     <div class="ar-f"><span>申請者・連絡先</span><div style="display:flex;gap:6px"><input id="arAp" value="${esc((x && x.applicant) || "")}" placeholder="申請者名" style="flex:1"><input id="arCt" value="${esc((x && x.contact) || "")}" placeholder="メール・電話" style="flex:1"></div></div>
     <div class="ar-f"><span>メモ</span><input id="arNote" value="${esc((x && x.note) || "")}"></div>
     <div class="kx-note" id="arCxNote" style="margin:4px 0 10px"></div>
@@ -2527,7 +2576,8 @@ async function arEdit(x) {
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px"><button type="button" class="hp-b" data-x>やめる</button><button type="button" class="kx-btn kx-pri" data-save>${isNew ? "登録する" : "保存する"}</button></div></div>`;
   document.body.appendChild(bg);
   const close = () => bg.remove(); bg.addEventListener("click", (e) => { if (e.target === bg) close(); }); bg.querySelector("[data-x]").addEventListener("click", close);
-  const note = () => { const a = $("arCxA").value, w = $("arCxW").value; if (!w) { $("arCxNote").textContent = ""; return; } const dl = `${arAddYm(w, -1)}-15`; const m = !a || a <= dl ? w : arAddYm(w, 1); $("arCxNote").textContent = `解約月：${arJp(m)}末（締切 ${dl.replace(/-/g, "/")}${a && a > dl ? " を過ぎた申請なので翌月末" : " までの申請"}）`; };
+  // 停止月の見込み（サーバーと同じルール：選んだ月と最短停止月の遅い方）（2026-11-16）
+  const note = () => { const a = $("arCxA").value, w = $("arCxW").value; if (!w) { $("arCxNote").textContent = ""; return; } const i = arStopCalc(a, w); $("arCxNote").textContent = `停止月：${arJp(i.stop)}（最終利用月 ${arJp(i.last)}末まで）${i.overdue ? `／締切（${arJp(arAddYm(w, -1))}15日）を過ぎた申請なので後ろにずれます` : ""}`; };
   ["arCxA", "arCxW"].forEach((k) => $(k).addEventListener("input", note)); note();
   // サーカスの申込番号を SF の商談から読む（会社を選んだときは自動で）
   const readNo = async () => {
@@ -2547,10 +2597,99 @@ async function arEdit(x) {
   bg.querySelector("[data-save]").addEventListener("click", async () => {
     let id = x && x.id;
     if (isNew) { const nm = $("arAc").value.trim(); const hit = accts.find((a) => a.name === nm); if (!hit) { alert("kinXsの会社を一覧から選んでください（まだ無い会社は、SFで計上されると出てきます）"); return; } id = hit.id; }
-    const body = { plan: $("arPlan").value, no: $("arNo").value, start: $("arStart").value, status: $("arSt").value, cancelApplied: $("arCxA").value, cancelWish: $("arCxW").value, applicant: $("arAp").value, contact: $("arCt").value, note: $("arNote").value };
-    if (!body.cancelWish && body.status === "解約予定") { alert("解約の申請ありにするときは、解約希望月（使わなくなる最初の月）を入れてください"); return; }
-    try { await api(`/api/kinxs/autorenew/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); close(); arLoad(); } catch (e) { alert(e.message); }
+    const body = { plan: $("arPlan").value, no: $("arNo").value, url: $("arUrl").value, start: $("arStart").value, status: $("arSt").value, cancelApplied: $("arCxA").value, cancelWish: $("arCxW").value, applicant: $("arAp").value, contact: $("arCt").value, note: $("arNote").value };
+    if (!body.cancelWish && body.status === "解約予定") { alert("解約の申請ありにするときは、停止希望月（使わなくなる最初の月）を入れてください"); return; }
+    try { const r = await api(`/api/kinxs/autorenew/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); close(); arLoad();
+      if (r.urlDup && r.urlDup.length) alert(`保存しました。\n\n注意：同じ空間URLが、ほかの契約にも登録されています：\n${r.urlDup.join("\n")}\n\n解約フォームは、止まっていない契約に先に紐付けます。どちらかが間違っていれば直してください。`); } catch (e) { alert(e.message); }
   });
+}
+// ===== 解約フォーム連携（2026-11-16 改修指示書）：判定・アラート・申請詳細 =====
+// 停止月の計算（サーバーの arStopInfo と同じ）：最短停止月＝申請日が1〜15日なら翌月、16日以降は翌々月。停止月＝選んだ月と最短の遅い方
+function arStopCalc(applied, wish) {
+  const a = String(applied || "").slice(0, 10); const w = /^\d{4}-\d{2}$/.test(String(wish || "")) ? wish : "";
+  const earliest = /^\d{4}-\d{2}-\d{2}$/.test(a) ? arAddYm(a.slice(0, 7), Number(a.slice(8, 10)) <= 15 ? 1 : 2) : "";
+  const stop = !earliest ? w : (w && w > earliest ? w : earliest);
+  return { wish: w, earliest, stop, last: stop ? arAddYm(stop, -1) : "", overdue: !!(w && stop && stop > w) };
+}
+// URLの比べ方（サーバーの arUrlKey と同じ）
+function arUrlKey(u) { let t = String(u || "").normalize("NFKC").replace(/\s/g, ""); if (!t) return ""; return t.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/[#?].*$/, "").replace(/\/+$/, "").toLowerCase(); }
+function arUrlShort(u) { const k = arUrlKey(u); return k.length > 34 ? `${k.slice(0, 33)}…` : k; }
+function arAtText(at, applied) { if (!at) return applied || "—"; const d = new Date(new Date(at).getTime() + 9 * 3600000); const p = (n) => String(n).padStart(2, "0"); const t = `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())}`; return d.getUTCHours() || d.getUTCMinutes() ? `${t} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` : t; }
+function arFormAl(d) { return ((d && d.alerts) || {}).form || { unconfirmed: 0, unconfirmedNames: [], unlinked: 0, overdue: 0, replyFailed: 0 }; }
+function arLinkTag(x) {
+  if (x.ignored) return '<span class="ar-st done">無視</span>';
+  const s = x.linkState || ""; const c = !x.linked ? "bad" : /要確認/.test(s) ? "cx" : "";
+  return `<span class="ar-st ${c}">${esc(s || (x.linked ? "紐付け済" : "未紐付け"))}</span>`;
+}
+// 丸みのある小さなアイコン（絵文字は使わない決まり）
+const AR_IC = {
+  bell: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>',
+  warn: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+};
+// 画面の一番上の解約フォームのアラート。未確認は濃い赤・白の太字。押すと「解約フォーム」タブの該当の絞り込みへ。確認済になるまで消えない
+function arFormAlertHtml(d) {
+  const a = arFormAl(d); const out = [];
+  if (a.unconfirmed) out.push(`<button type="button" class="ar-al ar-al-new" data-al-go="un">${AR_IC.bell}<span>新しい解約申請が${a.unconfirmed}件あります（未確認）：${esc((a.unconfirmedNames || []).slice(0, 1).join(""))}${a.unconfirmed > 1 ? " ほか" : ""}</span></button>`);
+  if (a.unlinked) out.push(`<button type="button" class="ar-al ar-al-red" data-al-go="nl">${AR_IC.warn}<span>契約に紐付いていない解約申請が${a.unlinked}件あります。紐付けを確認してください</span></button>`);
+  if (a.overdue) out.push(`<button type="button" class="ar-al ar-al-or" data-al-go="od">${AR_IC.warn}<span>申請期限を過ぎた解約申請が${a.overdue}件あります（停止月を1ヶ月後ろ倒しで判定済）</span></button>`);
+  if (a.replyFailed) out.push(`<button type="button" class="ar-al ar-al-or" data-al-go="un">${AR_IC.warn}<span>自動返信メールの送信に失敗した申請が${a.replyFailed}件あります</span></button>`);
+  return out.length ? `<div class="ar-als">${out.join("")}</div>` : "";
+}
+// サイドメニューの「DOC自動更新」に未確認の数
+function arBadgeSet(n) {
+  const nav = document.querySelector(".kx-nav[data-view='ar']"); if (!nav) return;
+  let b = nav.querySelector(".ar-badge"); if (!n) { if (b) b.remove(); return; }
+  if (!b) { b = document.createElement("span"); b.className = "ar-badge ar-badge-nav"; b.title = "未確認の解約申請"; nav.appendChild(b); }
+  b.textContent = String(n);
+}
+if (VIEW !== "ar") api("/api/kinxs/autorenew-badge").then((r) => arBadgeSet((r && r.n) || 0)).catch(() => {});
+// 申請詳細（2026-11-16 改修指示書 6-2）：全回答・判定結果・紐付け先・自動返信・操作（紐付けの変更・確認済・メモ・無視）・紐付けの履歴・同じ契約の過去の申請
+async function arAppOpen(id) {
+  let r; try { r = await api(`/api/kinxs/autorenew-inbox/${encodeURIComponent(id)}`); } catch (e) { alert(e.message); return; }
+  const x = r.item; const ed = !!r.canEdit; const acc = x.account;
+  document.querySelectorAll(".ar-app-bg").forEach((n) => n.remove());
+  const bg = document.createElement("div"); bg.className = "kx-drawer-bg ar-app-bg"; bg.style.cssText = "display:flex;align-items:flex-start;justify-content:center;padding:32px 12px;overflow:auto;";
+  const contracts = ((ar.data && ar.data.all) || []).filter((c) => c.plan === "自動更新" || (acc && String(c.id) === String(acc.id)));
+  const reply = x.replied ? `<span class="ar-st">送信済</span> <small>${esc(x.replyAt ? arAtText(x.replyAt) : "")}</small>` : x.legacy ? '<span class="ar-st done">記録なし</span>' : `<span class="ar-st bad">失敗</span> <small>${esc(x.replyError || "")}</small>`;
+  const dl = (pairs) => `<dl class="ar-app-dl">${pairs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>`;
+  const candHtml = (x.candidates || []).length && !x.linked ? `<div class="kx-note" style="margin:8px 0 4px">候補（似ている順）</div>${x.candidates.map((c) => `<div class="ib-cand"><span><b>${esc(c.name)}</b> <small>${esc(c.no || "申込番号なし")}${c.url ? `・${esc(arUrlShort(c.url))}` : "・URL未登録"}</small></span>${ed ? `<button type="button" class="hp-b" data-ib-link="${esc(c.id)}">この契約に紐付ける</button>` : ""}</div>`).join("")}` : "";
+  bg.innerHTML = `<div class="ar-card ar-panel ar-app" style="width:min(720px,96vw);background:#fff;padding:18px 20px;border-radius:14px">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px"><b style="font-size:16px">解約申請：${esc(x.company)}</b>${x.confirmed ? '<span class="ar-st done">確認済</span>' : '<span class="ar-st bad">未確認</span>'}${arLinkTag(x)}${x.overdue ? '<span class="ar-st warnc">期限超過</span>' : ""}<button type="button" class="hp-b" data-x style="margin-left:auto">閉じる</button></div>
+    <div class="ib-sec"><h4>判定結果</h4>${dl([["申請日時", esc(arAtText(x.at, x.applied))], ["選択月", esc(arJp(x.wish) || "—")], ["最短停止月", esc(arJp(x.earliest) || "—")], ["停止月", `<b>${esc(arJp(x.stop) || "—")}</b>（${esc(arJp(x.stop) || "")}1日から使えない）`], ["最終利用月", `${esc(arJp(x.last) || "—")}（末日まで利用・この月分まで請求）`], ["期限超過", x.overdue ? `<b style="color:#B4441F">あり</b>（締切 ${esc(arJp(arAddYm(x.wish, -1)))}15日を過ぎたため後ろにずらしました）` : "なし"]])}</div>
+    <div class="ib-sec"><h4>紐付け先の契約</h4>${acc ? dl([["申込番号", esc(acc.no || "—")], ["企業名", `<b>${esc(acc.name)}</b>`], ["空間URL", acc.url ? esc(acc.url) : '<span class="ar-st bad">未登録</span>'], ["契約開始月", esc(arJp(acc.start) || "—")], ["紐付け状態", arLinkTag(x)]]) : '<div class="kx-note">まだ契約に紐付いていません</div>'}
+      ${candHtml}
+      ${ed && !x.ignored ? `<div class="ib-pick"><input list="ibAcList" id="ibAcIn" class="kx-in" placeholder="契約を企業名・申込番号で探す"><datalist id="ibAcList">${contracts.map((c) => `<option value="${esc(c.name)}${c.no ? `（${esc(c.no)}）` : ""}"></option>`).join("")}</datalist><button type="button" class="kx-btn" id="ibLinkGo">${acc ? "紐付けを変える" : "紐付ける"}</button>${acc ? '<button type="button" class="hp-b" id="ibUnlink">紐付けを外す</button>' : ""}</div>` : ""}</div>
+    <div class="ib-sec"><h4>自動返信メール</h4>${dl([["送信状態", reply], ["宛先", esc(x.email || "—")]])}</div>
+    <div class="ib-sec"><h4>フォームの回答</h4>${dl(Object.entries(x.raw || {}).filter(([k, v]) => k && String(v ?? "").trim() !== "").map(([k, v]) => [k, esc(String(v ?? ""))]))}${r.sheet ? `<a class="hp-b" href="${esc(r.sheet)}" target="_blank" rel="noopener" style="display:inline-block;margin-top:6px;text-decoration:none">回答シートを開く ↗</a>` : ""}</div>
+    <div class="ib-sec"><h4>CSのメモ</h4><textarea id="ibMemo" class="kx-in" rows="3" style="width:100%;box-sizing:border-box" placeholder="対応の記録（だれに連絡した・何を確かめた など）" ${ed ? "" : "readonly"}>${esc(x.memo || "")}</textarea><div class="kx-note" id="ibMemoSt"></div></div>
+    ${(x.log || []).length ? `<details class="ib-sec"><summary class="kx-note" style="cursor:pointer">紐付けの変更履歴（${x.log.length}）</summary>${x.log.slice().reverse().map((l) => `<div class="kx-note">${esc(arAtText(l.at))}　${esc(l.by || "")}　${esc(l.note || "")}${l.toName ? `：${esc(l.toName)}` : ""}</div>`).join("")}</details>` : ""}
+    ${(r.others || []).length ? `<details class="ib-sec"><summary class="kx-note" style="cursor:pointer">この契約の過去の申請（${r.others.length}）</summary>${r.others.map((o) => `<div class="ib-cand"><span>${esc(arAtText(o.at, o.applied))}　停止月 ${esc(arJp(o.stop) || "—")}　${o.confirmed ? "確認済" : "未確認"}</span><button type="button" class="hp-b" data-ib-other="${o.id}">開く</button></div>`).join("")}</details>` : ""}
+    ${x.confirmedBy ? `<div class="kx-note">確認：${esc(x.confirmedBy)}　${esc(x.confirmedAt ? arAtText(x.confirmedAt) : "")}</div>` : ""}
+    ${ed ? `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">${x.ignored ? "" : '<button type="button" class="hp-b" id="ibIgnore" style="color:#B4441F">無視する（解約として扱わない）</button>'}${x.confirmed ? '<button type="button" class="hp-b" id="ibUnconf">未確認に戻す</button>' : '<button type="button" class="kx-btn kx-pri" id="ibConf">確認済にする</button>'}</div>` : ""}</div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg || e.target.closest("[data-x]")) close(); });
+  const post = async (body, msg) => { try { const res = await api(`/api/kinxs/autorenew-inbox/${encodeURIComponent(x.id)}`, { method: "POST", body: JSON.stringify(body) }); if (msg) msg(res); arLoad(); arAppOpen(x.id); return res; } catch (e) { alert(e.message); return null; } };
+  // 紐付け：申請のURLが契約の空間URLと違う（か未登録）なら、契約の空間URLを書き換えるか聞く
+  const linkTo = async (cid) => {
+    const c = ((ar.data && ar.data.all) || []).find((y) => String(y.id) === String(cid)) || {};
+    let updateUrl = false;
+    if (x.url && arUrlKey(x.url) !== arUrlKey(c.url || "")) updateUrl = confirm(`この契約の空間URLを申請のURLで更新しますか？\n\n契約：${c.name || ""}\nいまの空間URL：${c.url || "（未登録）"}\n申請のURL：${x.url}`);
+    await post({ accountId: cid, updateUrl }, (res) => { if (res && res.cancelMonth) alert(`紐付けました（停止月 ${arJp(res.cancelMonth)}）${res.urlUpdated ? "\n空間URLも更新しました" : ""}`); });
+  };
+  bg.querySelectorAll("[data-ib-link]").forEach((b) => b.onclick = () => linkTo(b.dataset.ibLink));
+  if (bg.querySelector("#ibLinkGo")) bg.querySelector("#ibLinkGo").onclick = () => {
+    const v = bg.querySelector("#ibAcIn").value.trim(); const hit = contracts.find((c) => `${c.name}${c.no ? `（${c.no}）` : ""}` === v) || contracts.filter((c) => c.name === v)[0];
+    if (!hit) { alert("契約を候補から選んでください"); return; } linkTo(hit.id);
+  };
+  if (bg.querySelector("#ibUnlink")) bg.querySelector("#ibUnlink").onclick = () => { if (confirm("この申請の紐付けを外しますか？\n（紐付け先の契約が、この申請で解約予定になっていれば、解約の申請なしに戻します）")) post({ unlink: true }); };
+  if (bg.querySelector("#ibConf")) bg.querySelector("#ibConf").onclick = () => { if (!x.linked && !confirm("まだ契約に紐付いていません。このまま確認済にしますか？")) return; post({ confirm: true }); };
+  if (bg.querySelector("#ibUnconf")) bg.querySelector("#ibUnconf").onclick = () => post({ confirm: false });
+  if (bg.querySelector("#ibIgnore")) bg.querySelector("#ibIgnore").onclick = () => { if (confirm("この申請を無視しますか？（解約として扱いません。いたずら・重複の申請のときに使います）")) post({ ignore: true, confirm: true }); };
+  bg.querySelectorAll("[data-ib-other]").forEach((b) => b.onclick = () => arAppOpen(b.dataset.ibOther));
+  const memo = bg.querySelector("#ibMemo");
+  if (memo && ed) { let t = null; const save = async () => { try { await api(`/api/kinxs/autorenew-inbox/${encodeURIComponent(x.id)}`, { method: "POST", body: JSON.stringify({ memo: memo.value }) }); bg.querySelector("#ibMemoSt").textContent = "保存しました"; } catch (e) { bg.querySelector("#ibMemoSt").textContent = "保存できませんでした：" + e.message; } };
+    memo.addEventListener("input", () => { clearTimeout(t); bg.querySelector("#ibMemoSt").textContent = ""; t = setTimeout(save, 900); }); memo.addEventListener("change", () => { clearTimeout(t); save(); }); }
 }
 // 月次Excel（5つのシート）。ファイル名に対象月・出力日・版数
 async function arExcel() {

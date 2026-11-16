@@ -10,6 +10,7 @@
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
+    if ($("mcWip")) $("mcWip").hidden = !["list", "call", "apo"].includes(k);   // 商談は使える状態なので「準備中」を出さない（2026-11-16）
     // 設定は kinbot と同じ画面を中に開く（開いたときに初めて読む）（2026-11-14）
     if (k === "settings") { const f = $("mcSetFrame"); if (f && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
     if (k === "mtg") loadMeetings();
@@ -635,6 +636,47 @@
     if (foot && name && !foot.querySelector(".side-avatar")) { const av = document.createElement("span"); av.className = "side-avatar"; av.setAttribute("aria-hidden", "true"); av.textContent = String(name).trim().charAt(0).toUpperCase(); foot.insertBefore(av, who); }
     if (foot && !foot.querySelector(".side-foot-set")) { const set = document.createElement("a"); set.className = "side-foot-set"; set.href = "#settings"; set.title = "設定"; set.setAttribute("aria-label", "設定");
       set.innerHTML = '<span class="side-ico ico-set"></span><span class="side-foot-set-label">設定</span>'; set.addEventListener("click", (e) => { e.preventDefault(); go("settings"); }); who.insertAdjacentElement("afterend", set); }
+    mcImpSetup(me);
   }).catch(() => {});
+  // 他メンバーとして操作（2026-11-16 田中さん「MOCHICA にも切り替えるボタン」）：kinbot（nav.js）と同じ API を使い、切り替えても MOCHICA の画面のまま
+  //   切り替え中は上に帯を出し、いつでも元のアカウントに戻れるようにする（操作はサーバーで監査ログに残る）
+  function mcImpSetup(me) {
+    const h = (v) => String(v || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const icon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.8-3 3-4.6 5.5-4.6s4.7 1.6 5.5 4.6"/><path d="M16 7h5m0 0-2-2m2 2-2 2M21 15h-5m0 0 2-2m-2 2 2 2"/></svg>';
+    if (me.impersonating && !document.getElementById("mcImpBar")) {
+      const bar = document.createElement("div"); bar.id = "mcImpBar"; bar.className = "imp-banner";
+      bar.innerHTML = `<div class="imp-banner-inner"><span class="imp-banner-icon">${icon}</span><span class="imp-banner-text"><b>${h(me.impersonator_name || me.impersonator_email || "元のアカウント")}</b> として、<b>${h(me.name || me.username)}</b> の画面を操作しています</span><button type="button" class="imp-banner-btn" id="mcImpBack">元のアカウントに戻る</button></div>`;
+      document.body.insertBefore(bar, document.body.firstChild); document.body.classList.add("imp-active");
+      document.getElementById("mcImpBack").addEventListener("click", async () => { try { const r = await fetch("/api/impersonate/stop", { method: "POST" }); if (!r.ok) throw new Error("元のアカウントに戻れませんでした。いったんログアウトして入り直してください"); location.reload(); } catch (e) { alert(e.message); } });
+    }
+    if (!me.can_impersonate) return;
+    const sep = document.querySelector(".sidebar .side-sep"); if (!sep || document.getElementById("mcImpBtn")) return;
+    const btn = document.createElement("a"); btn.id = "mcImpBtn"; btn.className = "side-item mc-imp-btn"; btn.href = "#";
+    btn.innerHTML = `<span class="mc-imp-ico">${icon}</span><span class="side-label">${me.impersonating ? "ほかのメンバーに切りかえる" : "他メンバーとして操作"}</span>`;
+    btn.addEventListener("click", (e) => { e.preventDefault(); openPicker(); });
+    sep.insertAdjacentElement("afterend", btn);
+    async function openPicker() {
+      const old = document.getElementById("mcImpPicker"); if (old) { old.remove(); return; }
+      let users = [];
+      try { users = (await (await fetch("/api/impersonate/users")).json()).users || []; } catch { alert("メンバーの一覧を読めませんでした。少し待ってからもう一度押してください"); return; }
+      const mine = String(me.impersonator_email || me.username).toLowerCase();
+      users = users.filter((u) => String(u.email || "").toLowerCase() !== mine);
+      const m = document.createElement("div"); m.id = "mcImpPicker"; m.className = "imp-modal";
+      m.innerHTML = `<div class="imp-modal-panel"><div class="imp-modal-h"><span>他のメンバーとして操作</span><button type="button" class="imp-modal-x" aria-label="閉じる">×</button></div>
+        <div class="imp-modal-note">切り替えたメンバーの MOCHICA の画面をそのまま操作できます。<b>編集・削除もあなたの操作として記録に残ります。</b>慎重に扱ってください。</div>
+        <input type="search" class="imp-modal-filter" id="mcImpQ" placeholder="名前・メールで絞り込み" autocomplete="off" /><div class="imp-modal-list" id="mcImpList"></div></div>`;
+      document.body.appendChild(m);
+      const draw = (q) => { const qq = String(q || "").trim().toLowerCase(); const list = document.getElementById("mcImpList");
+        const shown = users.filter((u) => !qq || String(u.name || "").toLowerCase().includes(qq) || String(u.email || "").toLowerCase().includes(qq));
+        list.innerHTML = shown.length ? shown.map((u) => `<button type="button" class="imp-user" data-email="${h(u.email)}" data-name="${h(u.name || u.email)}"><span class="imp-user-name">${h(u.name || u.email)}</span><span class="imp-user-email">${h(u.email)}</span></button>`).join("") : '<div class="imp-empty">当てはまるメンバーがいません</div>';
+        list.querySelectorAll(".imp-user").forEach((el) => el.addEventListener("click", async () => {
+          if (!confirm(`${el.dataset.name} として操作を始めます。よろしいですか？\n（この操作は記録に残ります）`)) return;
+          try { const r = await fetch("/api/impersonate/start", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: el.dataset.email }) }); const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(d.error || "切り替えられませんでした"); location.reload(); } catch (err) { alert(err.message); } })); };
+      document.getElementById("mcImpQ").addEventListener("input", (e) => draw(e.target.value));
+      m.querySelector(".imp-modal-x").addEventListener("click", () => m.remove()); m.addEventListener("click", (e) => { if (e.target === m) m.remove(); });
+      draw(""); setTimeout(() => { const q = document.getElementById("mcImpQ"); if (q) q.focus(); }, 30);
+    }
+  }
   const lo = $("logout"); if (lo) lo.addEventListener("click", async (e) => { e.preventDefault(); await fetch("/api/logout", { method: "POST" }); location.href = "/login.html"; });
 })();

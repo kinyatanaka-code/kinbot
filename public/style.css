@@ -7320,3 +7320,124 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 
 /* SF商談の立ち上げの窓：業種の選択（2026-11-12） */
 .ap-lc-f select, .csf-f select { width: 100%; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 8px; font: inherit; font-size: 13px; background: #fff; }
+
+/* ===== リスト編集の道具（2026-11-16 田中さん「この辺醜い」）：2段にまとめ、選ぶ欄とボタンをくっつける ===== */
+.ed-bar { display:flex; flex-direction:column; gap:8px; margin:0 0 10px; padding:10px 12px; background:#f6faf8; border:1px solid #e1ebe6; border-radius:12px; }
+.ed-bar[hidden] { display:none; }
+.ed-bar-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.ed-bar-lb { font-size:11.5px; font-weight:700; color:#5B6B63; min-width:92px; white-space:nowrap; }
+.ed-bar-lb b { color:#0d5b47; font-size:13px; }
+.ed-tg { display:inline-flex; align-items:center; background:#fff; border:1px solid #dbe7e1; border-radius:999px; padding:2px; gap:1px; }
+.ed-tg-lb { font-size:10.5px; color:#8a9a92; padding:0 6px 0 8px; white-space:nowrap; }
+.ed-tb { border:0; background:transparent; color:#0d5b47; font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px; cursor:pointer; white-space:nowrap; }
+.ed-tb:hover { background:#e7f4ee; }
+.ed-ag { display:inline-flex; align-items:stretch; border:1px solid #cfe0d8; border-radius:9px; overflow:hidden; background:#fff; }
+.ed-as { border:0; background:#fff; font-size:12px; color:#173a30; padding:5px 6px; max-width:190px; outline:none; }
+.ed-ab { border:0; border-left:1px solid #cfe0d8; background:#eef7f2; color:#0d5b47; font-size:12px; font-weight:700; padding:5px 12px; cursor:pointer; white-space:nowrap; }
+.ed-ab:hover:not(:disabled) { background:#dcefe6; }
+.ed-ab:disabled { color:#a9b8b1; cursor:default; }
+.ed-ab-main { background:#1d9e75; color:#fff; border-left-color:#1d9e75; }
+.ed-ab-main:hover:not(:disabled) { background:#0d5b47; }
+.ed-ab-solo { border:1px solid #cfe0d8; border-radius:9px; background:#fff; }
+.ed-bar-cnt { margin-left:auto; font-size:11px; color:#8a9a92; white-space:nowrap; }
+.ed-bar-st { margin:0; font-size:11.5px; }
+.ed-bar-api, .ed-bar-hint { font-size:10.5px; color:#8a9a92; }
+.ed-bar-api:empty { display:none; }
+/* 見出しの絞り込み：下限〜上限を1行に収める */
+.ed-table .ed-empf { flex-wrap:nowrap; gap:3px; }
+.ed-table .ed-empf .ed-emp-in { width:46px; max-width:46px; padding:3px 4px; }
+.ed-table .ed-lostf { gap:4px; }
+.ed-table .ed-lostf .ed-empf small { width:30px; }
+.ed-table .ed-dash { white-space:nowrap; font-size:10.5px; color:#5B6B63; display:inline-flex; align-items:center; gap:2px; }
+.ed-table th:has(.ed-empf) { min-width:150px; }
+.ed-table .ed-empf:has(.ed-dash) { flex-wrap:wrap; }
+.ed-table .ed-empf .ed-dash { flex-basis:100%; }
+
+/* 打って探せる選ぶ欄（2026-11-16 田中さん「この辺検索できるようにしたい」） */
+.kc-ss { position:relative; display:inline-flex; align-items:stretch; }
+.kc-ss-in { border:0; background:#fff; font-size:12px; color:#173a30; padding:5px 8px; width:200px; outline:none; }
+.kc-ss-in::placeholder { color:#8a9a92; }
+.kc-ss-pop { position:absolute; top:calc(100% + 4px); left:0; z-index:60; min-width:260px; max-width:360px; max-height:300px; overflow:auto; background:#fff; border:1px solid #cfe0d8; border-radius:10px; box-shadow:0 8px 24px rgba(13,91,71,.14); padding:4px; }
+.kc-ss-pop[hidden] { display:none; }
+.kc-ss-it { font-size:12.5px; color:#173a30; padding:6px 9px; border-radius:7px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kc-ss-it.on, .kc-ss-it:hover { background:#e7f4ee; }
+.kc-ss-it.cur { font-weight:700; color:#0d5b47; }
+.kc-ss-none { font-size:12px; color:#8a9a92; padding:8px 9px; }
+.ed-ag { overflow:visible; }
+.ed-ag .kc-ss-in { border-radius:9px 0 0 9px; }
+
+/* kinXs ホーム：今月の検収書 回収済み（2026-11-16） */
+.h2-ks-of { font-size:11px; font-weight:700; color:#8a9a92; margin-left:2px; }
+.h2-ks-done-h { font-size:11px; font-weight:800; color:#1d9e75; margin:10px 2px 4px; }
+.h2-li.h2-ks-done { opacity:.62; }
+.h2-li.h2-ks-done .h2-due { color:#1d9e75; }
+
+/* 商談一覧：選んでまとめて消す（田中さんだけ）（2026-11-16） */
+.hsel-bar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:4px 0 8px; }
+.hsel-n { font-size:12px; font-weight:800; color:#0d5b47; margin-right:2px; }
+.hsel-btn { display:inline-flex; align-items:center; gap:5px; border:1px solid #cfe0d8; background:#fff; color:#0d5b47; font-size:11.5px; font-weight:700; padding:4px 10px; border-radius:999px; cursor:pointer; }
+.hsel-btn:hover:not(:disabled) { background:#e7f4ee; }
+.hsel-btn:disabled { opacity:.45; cursor:default; }
+.hsel-del { border-color:#f1c6c6; color:#c43d3d; }
+.hsel-del:hover:not(:disabled) { background:#fbebeb; }
+.hcard.hcard-pick { position:relative; padding-left:36px; }
+.hcard-chk { position:absolute; left:11px; top:14px; width:16px; height:16px; border:1.8px solid #9fbfb2; border-radius:5px; background:#fff; }
+.hcard.hcard-pick.on { border-color:#1d9e75; background:#eef8f3; }
+.hcard.hcard-pick.on .hcard-chk { background:#1d9e75; border-color:#1d9e75; }
+.hcard.hcard-pick.on .hcard-chk::after { content:""; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+
+/* kinXs 電話フォロー 案A（2026-11-16）：上に帯と札、下に1社1行 */
+.kc3-top { display:flex; align-items:center; gap:12px; margin:2px 0 10px; }
+.kc3-lb { font-size:12px; color:#5B6B63; white-space:nowrap; }
+.kc3-big { font-size:22px; font-weight:800; color:#173a30; white-space:nowrap; }
+.kc3-big small { font-size:13px; font-weight:700; color:#5B6B63; }
+.kc3-bar { flex:1; height:10px; border-radius:999px; background:#e9f1ed; display:flex; overflow:hidden; min-width:120px; }
+.kc3-bar i { display:block; height:100%; }
+.kc3-pct { font-size:13px; color:#0d5b47; }
+.kc3-chips { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+.kc3-chip { border:1px solid #d6e5de; background:#fff; color:#3f5a52; font-size:12px; font-weight:700; padding:4px 11px; border-radius:999px; cursor:pointer; }
+.kc3-chip b { color:#0d5b47; margin-left:2px; }
+.kc3-chip.on { background:#0d5b47; border-color:#0d5b47; color:#fff; }
+.kc3-chip.on b { color:#c9f2e2; }
+.kc3-sp { flex:1; }
+.kc3-sel { max-width:180px; height:28px; font-size:12px; }
+.kc3-list { background:#fff; border:1px solid #e1ebe6; border-radius:12px; overflow:hidden; }
+.kc3-list.kc3-scroll { overflow-y:auto; overscroll-behavior:contain; }   /* 画面は固定・一覧だけスクロール（2026-11-16） */
+.kc3-row { display:grid; grid-template-columns:minmax(0,1fr) 150px 190px 210px 28px; align-items:center; gap:12px; padding:9px 14px; border-bottom:1px solid #eef3f0; }
+.kc3-row:last-child { border-bottom:0; }
+.kc3-row:hover { background:#f8fbf9; }
+.kc3-row.op { background:#f3faf6; }
+.kc3-row.st-3 .kc3-name, .kc3-row.st-4 .kc3-name { color:#7d8f87; }
+.kc3-co { min-width:0; cursor:pointer; }
+.kc3-co b { display:flex; align-items:center; gap:6px; font-size:13.5px; color:#173a30; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kc3-name { overflow:hidden; text-overflow:ellipsis; }
+.kc3-name:hover { text-decoration:underline; }
+.kc3-co small { display:block; font-size:11px; color:#7d8f87; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+.kc3-tel { font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kc3-seg { display:inline-flex; border:1px solid #d6e5de; border-radius:999px; overflow:hidden; justify-self:start; }
+.kc3-seg button { border:0; border-left:1px solid #e3ece8; background:#fff; color:#5B6B63; font-size:11.5px; font-weight:700; padding:5px 10px; cursor:pointer; white-space:nowrap; }
+.kc3-seg button:first-child { border-left:0; }
+.kc3-seg button:hover { background:#eef7f2; }
+.kc3-seg button.on.s0 { background:#e7f1fb; color:#185FA5; }
+.kc3-seg button.on.s1 { background:#faeeda; color:#854F0B; }
+.kc3-seg button.on.s2 { background:#e1f5ee; color:#0F6E56; }
+.kc3-seg button.on.s3 { background:#1D9E75; color:#fff; }
+/* 結果：色の点だけでは何か分からないので、「結果」の見出しと文字を付けた（2026-11-16 田中さん） */
+.kc3-res { display:flex; gap:4px; align-items:center; }
+.kc3-res small { font-size:10.5px; color:#8FA39A; font-weight:700; margin-right:2px; }
+.kc3-res button { display:inline-flex; align-items:center; gap:4px; border:1px solid #e1ebe6; background:#fff; color:#5B6B63; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; cursor:pointer; white-space:nowrap; }
+.kc3-res button i { width:8px; height:8px; border-radius:50%; background:var(--c); opacity:.6; }
+.kc3-res button:hover { border-color:var(--c); }
+.kc3-res button.on { background:var(--c); border-color:var(--c); color:#fff; }
+.kc3-res button.on i { background:#fff; opacity:1; }
+.kc3-more { border:0; background:transparent; cursor:pointer; padding:4px; border-radius:8px; }
+.kc3-row.op .kc3-more svg { transform:rotate(180deg); }
+.kc3-ed { grid-column:1 / -1; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:2px 0 4px; }
+.kc3-ed input[data-f="memo"] { flex:1; min-width:240px; height:32px; }
+.kc3-ed label { display:flex; align-items:center; gap:6px; font-size:12px; color:#5B6B63; }
+.kc3-ed input[type="date"] { height:32px; width:150px; }
+.kc3-x { border:1px solid #e3ece8; background:#fff; color:#7d8f87; font-size:11px; padding:4px 10px; border-radius:999px; cursor:pointer; }
+.kc3-legend { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-top:8px; }
+.kc3-legend span { display:inline-flex; align-items:center; gap:4px; }
+.kc3-legend i { width:9px; height:9px; border-radius:50%; display:inline-block; }
+@media (max-width:1100px) { .kc3-row { grid-template-columns:minmax(0,1fr) 120px 170px 190px 24px; gap:8px; } }

@@ -8,7 +8,7 @@
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#0d5b47" />
-    <link rel="stylesheet" href="style.css?v=20261116d" />
+    <link rel="stylesheet" href="style.css?v=20261116r" />
   </head>
   <body>
     <div class="login-wrap">
@@ -29,6 +29,7 @@
           <p class="login-alt" style="margin-top:0">本人確認ができました。新しいパスワードを決めてください（15分以内）。</p>
           <label class="field"><span>新しいパスワード（8文字以上）</span><input id="p1" type="password" autocomplete="new-password" /></label>
           <label class="field"><span>もう一度</span><input id="p2" type="password" autocomplete="new-password" /></label>
+          <button type="button" id="showPw" aria-pressed="false" style="display:inline-flex;align-items:center;gap:6px;margin:-4px 0 12px;padding:4px 8px;border:1px solid #5DCAA5;border-radius:999px;background:#fff;color:#0d5b47;font:inherit;font-size:12px;cursor:pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1d9e75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg><span>パスワードを表示</span></button>
           <button class="btn" id="saveBtn">パスワードを決めてログイン</button>
         </div>
 
@@ -38,6 +39,7 @@
     </div>
     <script>
       const $ = (id) => document.getElementById(id);
+      const IDS = ["p1", "p2"];
       const q = new URLSearchParams(location.search);
       const token = q.get("t");
       function showErr(m) { $("err").textContent = m; $("err").hidden = false; }
@@ -67,6 +69,13 @@
       }
       $("saveBtn").addEventListener("click", save);
       $("p2").addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
+      // 入れたパスワードを目で確かめられるように（「2つのパスワードが違います」の原因＝全角などに気づけるように）
+      $("showPw").addEventListener("click", () => {
+        const show = $("showPw").getAttribute("aria-pressed") !== "true";
+        IDS.forEach((id) => { $(id).type = show ? "text" : "password"; });
+        $("showPw").setAttribute("aria-pressed", String(show));
+        $("showPw").querySelector("span").textContent = show ? "パスワードを隠す" : "パスワードを表示";
+      });
     </script>
   </body>
 </html>
