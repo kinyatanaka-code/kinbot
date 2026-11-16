@@ -87,6 +87,8 @@ Neo Career / C Career の営業チーム（DOC・MOCHICA）が毎日使ってい
 4. **ファイルを丸ごと上げない**：GitHub の画面での上書き、Contents API でのファイル丸ごとの更新、zip を解凍したフォルダからの push はしない（古い中身で相手の直しを消す原因になる）。
 5. rebase で同じところがぶつかったら、**両方の直しを残す**。`BUILD_TAG` の行と `dev/kinbot-memory.md` はよくぶつかるが、両方の文を残せばよい。分からないときは手を止めて人に聞く。
 6. 福井さんは主に MOCHICA（`public/mochica*`・`public/mcbales.js`・`server/index.js` の `/api/mochica/` まわり・`public/zoom-ext/`）を直す。DOC の画面やほかの機能を直すときは、田中さんに一言伝える。
+7. 拡張機能（`public/zoom-ext/`）を直したら、`manifest.json` の `version` を1つ上げてから `sh dev/build-ext.sh` で zip を作り直し、一緒に上げる（みんなのパソコンの自動更新は、この版の数字が変わったときだけ動く）。
+8. 上げたら、GitHub の commit の状態（Railway の「- kinbot」が success）まで見届けてから「出しました」と言う。直したことは `dev/kinbot-memory.md` に「日付・だれの依頼・何をなぜ」を1行で残す。
 
 ## 迷ったら
 
