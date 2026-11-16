@@ -187,3 +187,22 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.type === "kb-miitel-backfill") { kbMtBackfill(Math.max(1, Math.min(400, Number(msg.days) || 260))); reply({ ok: true }); return true; }
   if (msg.type === "kb-miitel-backfill-stop") { kbMtBackStop = true; reply({ ok: true }); return true; }
 });
+
+// NeoSTAGE（取引申請）の自動入力：画面（neostage.js）からの頼みを kinbot へ取り次ぐ（2026-11-16）
+//   通すのは /api/neostage/ext/ だけ（ほかの kinbot の API は、この道からは呼べない）
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-neo") return;
+  (async () => {
+    try {
+      const path = String(msg.path || "").replace(/^\/+/, "");
+      if (!/^[a-z]+(\?[^#]*)?$/i.test(path)) { reply({ ok: false, error: "その頼みは通せません" }); return; }
+      const tk = await kbTok();
+      const r = await fetch(`https://kinbot-production-225f.up.railway.app/api/neostage/ext/${path}`, { method: msg.method === "POST" ? "POST" : "GET", credentials: "include", redirect: "manual",
+        headers: { "content-type": "application/json", "x-kb-ext": tk }, body: msg.method === "POST" ? JSON.stringify(msg.body || {}) : undefined });
+      const j = await r.json().catch(() => null);
+      if (!j) { reply({ ok: false, error: r.status === 401 || r.type === "opaqueredirect" ? "kinbot にログインしてから、このページを読み込み直してください" : `kinbot から返事がありません（${r.status}）` }); return; }
+      reply(r.ok ? { ok: true, ...j } : { ok: false, error: j.error || `うまくいきませんでした（${r.status}）` });
+    } catch (e) { reply({ ok: false, error: String((e && e.message) || e) }); }
+  })();
+  return true;
+});

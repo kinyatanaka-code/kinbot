@@ -83,6 +83,9 @@ export async function getCompanyDetail(corporateNumber) {
     representative: (h.representative && (h.representative.representative_name || "")) || h.representative_name || "",
     company_url: h.company_url || "",
     update_date: h.update_date || "",
+    // NeoSTAGE の自動入力では「円」の数字のまま入れるので、整える前の値も返す（2026-11-16）
+    capital_yen: h.capital_stock != null && h.capital_stock !== "" ? String(h.capital_stock).replace(/[^\d]/g, "") : "",
+    employee_number: h.employee_number != null && h.employee_number !== "" ? String(h.employee_number).replace(/[^\d]/g, "") : "",
   };
 }
 

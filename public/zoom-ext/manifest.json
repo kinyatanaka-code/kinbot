@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "kinbot-ext",
-  "version": "2.2.5",
-  "description": "kinbot の拡張機能：kincall の Zoom アカウントのサインイン補助、kinXs の下書きをメールワイズへ入れる、メールワイズのメールを読んで kinXs のタスク作りに使う、MiiTel・Bales Cloud の画面から kinbot に取り込む（ネオキャリア社内用）。",
+  "version": "2.2.6",
+  "description": "kinbot の拡張機能：kincall の Zoom アカウントのサインイン補助、kinXs の下書きをメールワイズへ入れる、メールワイズのメールを読んで kinXs のタスク作りに使う、MiiTel・Bales Cloud の画面から kinbot に取り込む、NeoSTAGE の取引申請の欄を SF から埋める（ネオキャリア社内用）。",
   "permissions": [
     "storage",
     "tabs",
@@ -16,7 +16,8 @@
     "https://*.zoom.us/*",
     "https://*.cybozu.com/*",
     "https://*.miitel.com/*",
-    "https://*.balescloud.jp/*"
+    "https://*.balescloud.jp/*",
+    "https://neo-crm.net/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -101,6 +102,16 @@
       ],
       "js": [
         "bales.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://neo-crm.net/*"
+      ],
+      "js": [
+        "neostage.js"
       ],
       "run_at": "document_idle",
       "all_frames": false

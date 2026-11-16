@@ -2686,3 +2686,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-16AN: 田中さん「（電話フォローの行）対応中はけしていい／（色の点は）何が何だかわかるように」。行の状態ボタンを 未対応・不在・完了 の3つに。結果は「結果」の見出し＋色つきの文字ボタン（良好・普通・懸念）。
 - 2026-11-16AH2: 福井さん「2つのパスワードが違います」「パスワードを可視化できるボタン頂戴」→ login.html と reset.html に「パスワードを表示／隠す」ボタン（目のSVG・インラインのスタイルなので CSS の版上げなし）。
 - 2026-11-16AO: 田中さん「MOCHICAにもkinbotロボをつけて」。mochica.html で kbchat.js を読む（nav.js は MOCHICA で読んでいないため）。/mochica では顔を kinbot-mochica.svg・題名「kinbot for MOCHICA に聞く」にし、/api/ask-bot に page を渡して質問の頭に「MOCHICA の画面から」と付ける。
+- 2026-11-16AR: 田中さん「NeoSTAGE の企業検索・事業所新規・部署新規の項目を自動で埋めたい」。kinbot-ext 2.2.6 に neostage.js（neo-crm.net）。右下の「kinbot から入れる」→SF の取引先を検索・選択→/api/neostage/ext/prefill（SF Account・Contact〔last_name_kana__c 等〕＋gBizINFO〔法人番号→無ければ同名・同県の1社だけ〕）→画面の見出し（tr の前のセル）で欄を探して入れる。担当者は「取引先担当者N」の小見出しで分ける。社名カナは半角・小さい字は大きく。申請・一時保存は押さない（企業検索だけは検索を押す）。画面の項目の形（値なし）を settings.neostageSchema に送るので、入らない欄はそれを見て直す。Claude in Chrome からは neo-crm.net を開けなかった（社内向けの制限と思われる）。
