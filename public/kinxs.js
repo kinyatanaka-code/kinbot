@@ -1769,7 +1769,7 @@ function kxBoardV2(items, track, d) {
   const open = window.__bdOpen = window.__bdOpen || new Set();
   const groups = track === "SNS" ? [["SNS", (d.snsPhases || ["計上"]).map((l) => [l, "CS", ""])]] : KX_PH2;
   const actRows = track === "SNS" ? [] : items.flatMap((x) => (x.actions || []).map((a) => ({ x, a })));
-  const panel = (g) => { const rs = actRows.filter((r) => r.a.group === g).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0)); const rules = g === "納品前" ? ["受注から2週間以内にキックオフ未実施", "検収書の回収予定月の1週間前で未回収"] : ["次回アクション（施策）の期日まで1週間以内"];
+  const panel = (g) => { const rs = actRows.filter((r) => r.a.group === g).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0)); const rules = g === "納品前" ? ["受注から2週間以内にキックオフ未実施", "検収書の回収予定月（空なら受注の翌月）の2週間前で未回収"] : ["次回アクション（施策）の期日まで1週間以内"];
     return `<div class="v2-alp"><div class="h"><b>${g}：要アクション</b><span class="v2-chip red">アラート ${new Set(rs.map((r) => r.x.id)).size}社</span></div><div class="kx-note">${rules.map((r) => `・${r}`).join("　")}</div><div class="v2-alp-list">${rs.map(({ x, a }) => `<div class="v2-tr al" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="co">${esc(x.name)}</span><span class="al ${a.left < 0 ? "over" : ""}">${esc(a.detail)}</span><span>${esc(x.label)}</span><span>担当 ${esc(kxSurname(x.cs) || "未定")}</span><span>期限 ${esc((a.due || "").slice(5).replace("-", "/"))}</span></div>`).join("") || '<div class="kx-empty" style="padding:8px">ありません</div>'}</div></div>`; };
   let html = track === "SNS" ? "" : `<div class="v2-alps">${panel("納品前")}${panel("納品後")}</div>`;
   html += `<div class="v2-ph">`;
@@ -1836,7 +1836,7 @@ function kxOpsSection(x) {
   return `<section class="kx-sec v2-ops" data-ops-box="${esc(x.id)}"><div class="lb" style="display:flex;align-items:center;gap:8px">請求・納品<span class="kx-note">フェーズ（納品前・納品後）と要アクションの判定に使います</span><button type="button" class="kx-btn kx-pri" data-ops-save style="margin-left:auto">保存</button></div>
     <div class="v2-ops-g">
       <label>キックオフ実施日<input type="date" class="kx-in" data-ops="kickoff_on" value="${v(x.kickoffManual ? x.kickoffOn : "")}" /><small>${x.kickoffOn && !x.kickoffManual ? `CS連携から：${v(x.kickoffOn)}` : "空ならCS連携の回収MTGの日"}</small></label>
-      <label>検収書の回収予定月<input type="month" class="kx-in" data-ops="kenshu_month" value="${v(x.kenshuMonth)}" /><small>この月の1週間前で未回収ならアラート</small></label>
+      <label>検収書の回収予定月<input type="month" class="kx-in" data-ops="kenshu_month" value="${v(x.kenshuMonth)}" /><small>この月の2週間前で未回収ならアラート（空なら受注の翌月とみなす）</small></label>
       <label>検収書の回収日<input type="date" class="kx-in" data-ops="kenshu_on" value="${v(x.kenshuOn)}" /><small>${v(x.kenshu || "")}${x.kenshuOn ? "" : "（入れると納品後になります）"}</small></label>
       <label>掲載日<input type="date" class="kx-in" data-ops="published_on" value="${v(x.publishedOn)}" /><small>掲載日から1か月は「掲載・活用開始」</small></label>
       <label>請求書の発行${sel("invoice_need", [["", "未定"], ["true", "必要"], ["false", "不要"]], x.invoiceNeed == null ? "" : String(x.invoiceNeed))}</label>
