@@ -2057,6 +2057,16 @@ async function kcLoad() {
   try { kc.data = await api(`/api/kinxs/calls${kc.period ? `?period=${kc.period}` : ""}`); kc.period = kc.data.period; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`); } catch (e) { const b = $("vCallBody"); if (b) b.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
   renderCallV2();
 }
+// 電話フォローの企業一覧を、画面の下までの高さにする（一覧の中だけスクロール）
+function kc3Fit() {
+  const lst = document.querySelector(".kc3-list"); if (!lst) return;
+  if (window.innerWidth < 860) { lst.style.maxHeight = ""; lst.classList.remove("kc3-scroll"); return; }
+  const leg = document.querySelector(".kc3-legend"); const legH = leg ? leg.getBoundingClientRect().height + 12 : 0;
+  const top = lst.getBoundingClientRect().top + window.scrollY;   // ページの一番上からの位置（ページが少しスクロールしていても同じ高さにする）
+  const h = Math.max(240, window.innerHeight - top - legH - 18);
+  lst.style.maxHeight = `${h}px`; lst.classList.add("kc3-scroll");
+}
+if (!window.__kc3FitOn) { window.__kc3FitOn = true; window.addEventListener("resize", () => kc3Fit()); }
 function renderCallV2() {
   const box = $("vCallBody"); if (!box) return;
   if (!kc.data) { box.innerHTML = kxSkel(); kcLoad(); return; }
@@ -2139,6 +2149,10 @@ function renderCallV2() {
   const kcRow = (id, mkey) => (((kc.plan && kc.plan.measures) || []).find((x) => x.key === mkey) || { rows: [] }).rows.find((r) => r.id === id);
   const kcSave = async (row, body, local) => { const id = row.dataset.id, mkey = row.dataset.mkey; const r = kcRow(id, mkey); if (r && local) Object.assign(r, local); renderCallV2();
     try { await kpSave(mkey, kc.ym, { account_id: id, ...body }); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => kc.plan); renderCallV2(); } catch (e) { alert("保存できませんでした：" + e.message); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => kc.plan); renderCallV2(); } };
+  // 画面は固定して、企業の一覧だけをスクロール（2026-11-16 田中さん）：一覧の高さを「画面の下まで」に合わせる。
+  //   描き直す（ボタンを押す）たびに一覧が作り直されるので、スクロールの位置を覚えておいて戻す。スマホは今までどおり画面ごと
+  { const lst = box.querySelector(".kc3-list");
+    if (lst) { lst.scrollTop = kc.listTop || 0; lst.addEventListener("scroll", () => { kc.listTop = lst.scrollTop; }, { passive: true }); kc3Fit(); } }
   box.querySelectorAll(".kc3-row[data-id]").forEach((row) => {
     const id = row.dataset.id, mkey = row.dataset.mkey; const r = kcRow(id, mkey) || {};
     row.querySelectorAll("[data-kc-toggle]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-open]")) return; kc.open = kc.open === id ? "" : id; renderCallV2(); }));
