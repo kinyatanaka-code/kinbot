@@ -129,9 +129,15 @@
   // はじめに出す案内と、よく聞かれること
   function greet() {
     if (history.length) return;
-    say("bot", "kinbotの使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。");
+    say("bot", IS_MC ? "kinbot for MOCHICA の使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。" : "kinbotの使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。");
     const tips = panel.querySelector("#kbChatTips");
-    const samples = [
+    // MOCHICA の画面では、MOCHICA でよく聞かれそうなことを出す（DOC の話を出しても使えないので）
+    const samples = IS_MC ? [
+      "MiiTel の商談が入ってこないのはなぜ？",
+      "議事録が読めないときはどうする？",
+      "拡張機能はどう入れる？",
+      "Bales のリストに SF の情報を入れるには？",
+    ] : [
       "御礼メールの宛先はどこから入る？",
       "リスケのときはどうすればいい？",
       "天気予報って何？",
