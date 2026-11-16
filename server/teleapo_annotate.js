@@ -108,13 +108,22 @@ const SCHEMA = {
 };
 
 // 文字起こしを「[秒] 話者: 発言」の行にそろえる（Zoom・MiiTel・kinbot の形のどれでも受ける）
+// Zoom Phone の文字起こし（{ timeline: [{ ts: "00:01:02.500", users: [{ username }], text }] }）もそのまま受ける
+const toSec = (v) => {
+  if (v == null || v === "") return NaN;
+  const m = String(v).match(/^(\d+):(\d{2}):(\d{2}(?:\.\d+)?)$/);
+  return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : Number(v);
+};
 export function transcriptToLines(tr) {
   if (!tr) return "";
   if (typeof tr === "string") return tr;
-  if (!Array.isArray(tr)) return String(tr.text || "");
+  if (!Array.isArray(tr)) {
+    const tl = tr.timeline || tr.recording_transcript || tr.transcript;
+    return Array.isArray(tl) ? transcriptToLines(tl) : String(tr.text || "");
+  }
   return tr.map((u) => {
-    const sec = Number(u.sec ?? u.start ?? u.start_time ?? u.ts);
-    const who = (u.speaker && (u.speaker.name || u.speaker)) || u.username || u.who || "";
+    const sec = toSec(u.sec ?? u.start ?? u.start_time ?? u.ts);
+    const who = (u.speaker && (u.speaker.name || u.speaker)) || (u.users && u.users[0] && u.users[0].username) || u.username || u.who || "";
     const head = isFinite(sec) ? `[${Math.round(sec)}s] ` : "";
     return `${head}${who ? who + ": " : ""}${u.text || u.content || ""}`;
   }).join("\n");
