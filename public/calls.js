@@ -9456,7 +9456,8 @@ async function orgLoadLists() {
     if ($("edStageBtn")) $("edStageBtn").addEventListener("click", edStageFiltered);
     if ($("edIndSplit")) $("edIndSplit").addEventListener("click", edIndustrySplit);
     if ($("edEnrichInd")) $("edEnrichInd").addEventListener("click", edEnrichIndustryBtn);
-    if ($("edMoveTo")) $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true });
+    if ($("edMoveTo")) { $("edMoveTo").addEventListener("focus", edFillMoveTo, { once: true }); kcSearchSelect($("edMoveTo"), { placeholder: "移す先のリストを探す…", onOpen: () => edFillMoveTo() }); }
+    if ($("edExtractOwner")) kcSearchSelect($("edExtractOwner"), { placeholder: "抜き出し先：自分の所有" });
     if ($("edDedupe")) $("edDedupe").addEventListener("click", edDedupe);
     if ($("edDedupeAcross")) $("edDedupeAcross").addEventListener("click", edDedupeAcross);
   }
@@ -13163,3 +13164,40 @@ document.addEventListener("click", async (e) => {
 
 // 先方担当は苗字だけ（「山田 太郎様」→「山田」）（2026-11-10 田中さん）
 function kcSurnameOnly(v) { return String(v || "").replace(/\s*様$/, "").trim().split(/[\s　]+/)[0] || ""; }
+
+// 選ぶ欄を「打って探せる」形にする（2026-11-16 田中さん「この辺検索できるようにしたい」：移す先のリストが多くて探しにくい）
+//   元の <select> は隠して値の置き場にそのまま使う（ほかの処理は sel.value を読むので変えなくてよい）。
+//   打った言葉を含む選択肢だけを出し、選ぶと select の値を変えて change を送る
+function kcSearchSelect(sel, { placeholder = "探す…", onOpen = null } = {}) {
+  if (!sel || sel.dataset.kcSearch) return; sel.dataset.kcSearch = "1";
+  const box = document.createElement("div"); box.className = "kc-ss";
+  const inp = document.createElement("input"); inp.type = "text"; inp.className = "kc-ss-in"; inp.placeholder = placeholder; inp.title = sel.title || ""; inp.autocomplete = "off";
+  const pop = document.createElement("div"); pop.className = "kc-ss-pop"; pop.hidden = true;
+  sel.parentNode.insertBefore(box, sel); box.appendChild(inp); box.appendChild(pop); box.appendChild(sel); sel.hidden = true;
+  const textOf = () => (sel.value && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].textContent : "");
+  const syncText = () => { if (document.activeElement !== inp) inp.value = textOf(); };
+  let hi = -1;
+  const draw = () => {
+    const q = inp.value.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+    const opts = [...sel.options].filter((o) => o.value && (!q || o.textContent.normalize("NFKC").toLowerCase().replace(/\s+/g, "").includes(q)));
+    hi = opts.length ? Math.max(0, Math.min(hi, opts.length - 1)) : -1;
+    pop.innerHTML = opts.length ? opts.slice(0, 200).map((o, i) => `<div class="kc-ss-it${i === hi ? " on" : ""}${o.value === sel.value ? " cur" : ""}" data-v="${esc(o.value)}">${esc(o.textContent)}</div>`).join("") : `<div class="kc-ss-none">${sel.options.length <= 1 ? "読み込んでいます…" : "当てはまるものがありません"}</div>`;
+  };
+  const choose = (v) => { sel.value = v; sel.dispatchEvent(new Event("change", { bubbles: true })); inp.value = textOf(); pop.hidden = true; inp.blur(); };
+  const open = async () => { pop.hidden = false; inp.select(); hi = 0; draw(); if (onOpen) { try { await onOpen(); } catch {} draw(); } };
+  inp.addEventListener("focus", open);
+  inp.addEventListener("input", () => { hi = 0; pop.hidden = false; draw(); });
+  inp.addEventListener("keydown", (e) => {
+    const its = [...pop.querySelectorAll(".kc-ss-it")];
+    if (e.key === "ArrowDown") { hi = Math.min(hi + 1, its.length - 1); draw(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { hi = Math.max(hi - 1, 0); draw(); e.preventDefault(); }
+    else if (e.key === "Enter") { if (its[hi]) choose(its[hi].dataset.v); e.preventDefault(); }
+    else if (e.key === "Escape") { pop.hidden = true; inp.value = textOf(); inp.blur(); }
+  });
+  pop.addEventListener("mousedown", (e) => { const it = e.target.closest(".kc-ss-it"); if (it) { e.preventDefault(); choose(it.dataset.v); } });
+  inp.addEventListener("blur", () => setTimeout(() => { pop.hidden = true; inp.value = textOf(); }, 120));
+  sel.addEventListener("change", syncText);
+  new MutationObserver(syncText).observe(sel, { childList: true });
+  syncText();
+}
+

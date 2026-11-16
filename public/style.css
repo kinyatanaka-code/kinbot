@@ -7332,3 +7332,16 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .ed-table th:has(.ed-empf) { min-width:150px; }
 .ed-table .ed-empf:has(.ed-dash) { flex-wrap:wrap; }
 .ed-table .ed-empf .ed-dash { flex-basis:100%; }
+
+/* 打って探せる選ぶ欄（2026-11-16 田中さん「この辺検索できるようにしたい」） */
+.kc-ss { position:relative; display:inline-flex; align-items:stretch; }
+.kc-ss-in { border:0; background:#fff; font-size:12px; color:#173a30; padding:5px 8px; width:200px; outline:none; }
+.kc-ss-in::placeholder { color:#8a9a92; }
+.kc-ss-pop { position:absolute; top:calc(100% + 4px); left:0; z-index:60; min-width:260px; max-width:360px; max-height:300px; overflow:auto; background:#fff; border:1px solid #cfe0d8; border-radius:10px; box-shadow:0 8px 24px rgba(13,91,71,.14); padding:4px; }
+.kc-ss-pop[hidden] { display:none; }
+.kc-ss-it { font-size:12.5px; color:#173a30; padding:6px 9px; border-radius:7px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kc-ss-it.on, .kc-ss-it:hover { background:#e7f4ee; }
+.kc-ss-it.cur { font-weight:700; color:#0d5b47; }
+.kc-ss-none { font-size:12px; color:#8a9a92; padding:8px 9px; }
+.ed-ag { overflow:visible; }
+.ed-ag .kc-ss-in { border-radius:9px 0 0 9px; }
