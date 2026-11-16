@@ -7345,3 +7345,9 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kc-ss-none { font-size:12px; color:#8a9a92; padding:8px 9px; }
 .ed-ag { overflow:visible; }
 .ed-ag .kc-ss-in { border-radius:9px 0 0 9px; }
+
+/* kinXs ホーム：今月の検収書 回収済み（2026-11-16） */
+.h2-ks-of { font-size:11px; font-weight:700; color:#8a9a92; margin-left:2px; }
+.h2-ks-done-h { font-size:11px; font-weight:800; color:#1d9e75; margin:10px 2px 4px; }
+.h2-li.h2-ks-done { opacity:.62; }
+.h2-li.h2-ks-done .h2-due { color:#1d9e75; }

@@ -1619,6 +1619,7 @@ function renderHomeV2() {
   const kxCsF = kxScope === "all" ? "" : (kxSurname(window.__kxMe || "") || "");
   // 行ごとの担当：次回アクションをほかの人に託していれば、その人（2026-11-12 田中さん：久野で絞っても託した分が出なかった）
   const kxActWho = (x, a) => { { const ao = (window.__kxActOwner || {})[`${x.id}:${a.kind}`]; if (ao) { const p1 = (window.__kxPeople || []).find((q) => q.email === ao); const n1 = p1 ? (kxSurname(p1.name) || p1.name) : String(ao).split("@")[0]; if (n1) return n1; } } if (a.na && x.naOwner) { const p0 = (window.__kxPeople || []).find((q) => q.email === x.naOwner); const nm = p0 ? (kxSurname(p0.name) || p0.name) : String(x.naOwner).split("@")[0]; if (nm) return nm; } return kxSurname(x.cs) || "（未定）"; };
+  const kxMineCo2 = (x) => !kxCsF || (kxSurname(x.cs) || "") === kxCsF;
   // 要アクションは緊急度の高いものだけ：キックオフ未実施と、検収書が今月回収で未回収の企業（2026-11-12 久野さんの要望）
   const kxThisYm = kxNowYm();
   const kxUrgent = (a) => a.kind === "キックオフ未実施" || (a.kind === "検収書 未回収" && String(a.due || "").slice(0, 7) === kxThisYm);
@@ -1626,7 +1627,10 @@ function renderHomeV2() {
   const csNames = [...new Set(actAll.map((r) => r.who))].sort((a, b) => a.localeCompare(b, "ja"));
   const actRows = actAll.filter((r) => !kxCsF || r.who === kxCsF).sort((u, v) => (u.a.left ?? 0) - (v.a.left ?? 0));
   const actCos = new Set(actRows.map((r) => r.x.id)).size;
-  const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", "検収書 今月回収・未回収", (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
+  // 検収書は「今月が回収月の会社」を出す（2026-11-16 田中さん「その月の検収書回収企業を出してもらったほうがいい」）：
+  //   未回収は要アクションの行、回収済み（今月回収した・回収済みにした）は下に「済み」として並べる。数は「未回収／今月の回収社数」
+  const ksDoneRows = items.filter((x) => kxHasDoc(x) && x.ksMonth === kxThisYm && !x.archived && (String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外" || String(x.kenshuOn || "").slice(0, 7) === kxThisYm) && kxMineCo2(x));
+  const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", `${Number(kxThisYm.slice(5))}月の検収書回収・未回収`, (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = kf === "tk" ? [] : actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
   // 「自分」のときは、自分がCS担当の会社だけ（これからの更新・情報不足も）（2026-11-12 田中さん）
   const kxMineCo = (x) => !kxCsF || !x || (kxSurname(x.cs) || "") === kxCsF;
@@ -1647,7 +1651,7 @@ function renderHomeV2() {
   </div>
   <div class="h2-row">
     ${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><span class="h2-scope" role="tablist"><button type="button" class="${kxScope !== "all" ? "on" : ""}" data-home-scope="me">自分</button><button type="button" class="${kxScope === "all" ? "on" : ""}" data-home-scope="all">全員</button></span>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : ""}</div>
-      <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b ${k === "tk" ? 'data-tk-n' : ""}>${k === "tk" ? (kh2.tkN != null ? kh2.tkN : "…") : actRows.filter((r) => f(r.a)).length}</b><span>${l}${k === "tk" ? `<em class="tk-over" data-tk-over ${kh2.tkOver ? "" : "hidden"}>期限切れ ${kh2.tkOver || 0}</em>` : ""}</span></button>`).join("")}</div>
+      <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b ${k === "tk" ? 'data-tk-n' : ""}>${k === "tk" ? (kh2.tkN != null ? kh2.tkN : "…") : actRows.filter((r) => f(r.a)).length}${k === "ks" ? `<small class="h2-ks-of">／${actRows.filter((r) => f(r.a)).length + ksDoneRows.length}社</small>` : ""}</b><span>${l}${k === "tk" ? `<em class="tk-over" data-tk-over ${kh2.tkOver ? "" : "hidden"}>期限切れ ${kh2.tkOver || 0}</em>` : ""}</span></button>`).join("")}</div>
       ${kf === "tk" ? '<div class="h2-tk" id="kh2Tasks"><div class="kx-note" style="padding:10px 4px">読み込み中…</div></div>' : ""}<div class="h2-list"${kf === "tk" ? " hidden" : ""}>${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0">${(() => {
         // 期日の札（タスクのタブと同じ形）：日付・時刻＋「n日過ぎ／あとn日」。次回アクション・施策は押すと日付を変えられる（2026-11-11 田中さん）
         const k0 = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : "";
@@ -1669,7 +1673,7 @@ function renderHomeV2() {
         return `<label class="who h2-who" data-noopen title="押すと担当を移せます">${esc(nm)}<select data-home-naown="${esc(x.id)}" data-cs="${esc(csEm)}">${ppl.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })()}<span class="h2-ops" data-noopen>${(() => { const k = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : ""; if (!k) return "";
         const dat = `data-ha="${k}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}"`;
         // ボタンの言葉は「✓ 済み」にそろえる（2026-11-11 田中さん：実施済み／済みが分かりにくい）。何が起きるかは、指を置くと出る説明に
-        return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || '<div class="kx-empty">ありません 🎉</div>'}</div>
+        return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || (kf === "ks" && ksDoneRows.length ? "" : '<div class="kx-empty">ありません 🎉</div>')}${kf === "ks" && ksDoneRows.length ? `<div class="h2-ks-done-h">${Number(kxThisYm.slice(5))}月の検収書 回収済み ${ksDoneRows.length}社</div>${ksDoneRows.map((x) => `<div class="h2-li h2-ks-done" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="h2-due">${x.kenshuOn ? `${Number(String(x.kenshuOn).slice(5, 7))}/${Number(String(x.kenshuOn).slice(8, 10))}` : "済み"}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">検収書 ${esc(x.kenshuSt === "対象外" ? "対象外" : "回収済み")}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("")}` : ""}</div>
       </section>
     <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
       ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="st" data-grow>${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span><span class="n">${r.l.length}<small>社</small></span></button>`).join("")}
