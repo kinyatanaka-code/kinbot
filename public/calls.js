@@ -12855,7 +12855,7 @@ async function kcCaseShareOpen(id) {
   const radio = (name, list, val) => list.map((v) => `<label class="kcs-opt"><input type="radio" name="${name}" value="${esc(v)}" ${v === val ? "checked" : ""}>${esc(v)}</label>`).join("");
   bg.innerHTML = `<div class="kcs"><div class="kcs-h"><b>🤝 案件共有</b><small>社内の案件共有_申請フォームに入れる内容です。確かめて「フォームを開く」</small><button type="button" class="kc-btn" data-x style="margin-left:auto">閉じる</button></div>
     <div class="kcs-b">
-      ${[["company", "クライアント企業名（事業所名）", pick("会社名")], ["url", "企業URL（HP）", url || "https://example.com/"], ["person", "先方担当者名", person], ["phone", "先方の電話番号", pick("電話番号")], ["email", "先方のメールアドレス", pick("メール")], ["job", "募集職種", ""], ["place", "募集勤務地", pref], ["to", "共有先となる営業担当の指定有無", "指定なし"], ["date", "商談予定日時", ""], ["price", "希望採用/稼働単価", ""]]
+      ${[["company", "クライアント企業名（事業所名）", pick("会社名")], ["url", "企業URL（HP）", url || "https://example.com/"], ["person", "先方担当者名", person], ["phone", "先方の電話番号", pick("電話番号")], ["email", "先方のメールアドレス", pick("メール")], ["job", "募集職種", ""], ["place", "募集勤務地", pref], ["to", "共有先となる営業担当の指定有無", ""], ["date", "商談予定日時", ""], ["price", "希望採用/稼働単価", ""]]
         .map(([k, l, v]) => `<label class="kcs-f"><span>${esc(l)}</span><div><input class="kc-input" data-k="${k}" value="${esc(v)}"><button type="button" class="kc-btn kcs-cp" data-cp="${k}">コピー</button></div></label>`).join("")}
       <div class="kcs-g"><span>想定分野（複数可）</span><div>${CS_FIELDS.map((v) => `<label class="kcs-opt"><input type="checkbox" name="field" value="${esc(v)}">${esc(v)}</label>`).join("")}</div></div>
       <div class="kcs-g"><span>共有元企業の属性</span><div>${radio("attr", CS_ATTR, "新規")}</div></div>

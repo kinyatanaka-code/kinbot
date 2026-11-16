@@ -4,11 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kinbot 設定</title>
-    <script>if (new URLSearchParams(location.search).get("embed")) document.documentElement.classList.add("kb-embed");</script>
+    <script>{ const q = new URLSearchParams(location.search); if (q.get("embed")) document.documentElement.classList.add("kb-embed"); if (q.get("app") === "mochica") document.documentElement.classList.add("kb-mochica"); }</script>
     <style>
       html.kb-embed .sidebar, html.kb-embed .topbar, html.kb-embed .side-backdrop, html.kb-embed .kb-menu-btn, html.kb-embed .kb-menu, html.kb-embed .kb-sheet-back, html.kb-embed .kb-ver, html.kb-embed .live-banner { display: none !important; }
       html.kb-embed .main { margin-left: 0 !important; padding-left: 0 !important; }
       html.kb-embed body { background: transparent; }
+      /* kinbot for MOCHICA の中で開いたときは水色（中身は kinbot の設定と同じ）（2026-11-14） */
+      html.kb-mochica{--accent:#0E9AA7;--accent-soft:#DDF5F7;--panel-2:#F2FAFB;--line:#D9ECEE;}
+      html.kb-mochica .set-menu-item.active{background:#DDF5F7 !important;color:#0B6E78 !important;}
+      html.kb-mochica .btn:not(.ghost){background:#0E9AA7;border-color:#0E9AA7;}
+      html.kb-mochica .integ-card:hover{border-color:#5EC7CF;box-shadow:0 4px 12px rgba(14,154,167,.12);}
+      .integ-icon-plain{background:transparent !important;border:0 !important;} .integ-icon-plain svg{width:40px;height:40px;}
+      .integ-h{display:flex;align-items:center;gap:8px;} .integ-h svg{flex:0 0 auto;}
       .cc-conn{margin-top:12px;padding-top:10px;border-top:1px dashed #CFE3D9;} .cc-conn:first-of-type{border-top:0;}
   .cc-conn-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;} .cc-conn-h b{font-size:14px;} .cc-conn-h span{font-size:12px;color:#5A6B63;}
 </style>
@@ -18,7 +25,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261113zc" />
+    <link rel="stylesheet" href="style.css?v=20261116a" />
   </head>
   <body>
     <div class="app">
@@ -169,6 +176,16 @@
           </div>
 
           <div class="set-pane" data-pane="ext" hidden>
+            <!-- 拡張機能で動くものは、ここにカードで並べる（2026-11-14 田中さん：MiiTel・Bales・メールワイズは外部連携から拡張機能へ） -->
+            <div class="integ-grid" id="extGrid">
+              <button class="integ-card" data-ext="kinbotext"><span class="integ-icon integ-icon-plain"><svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="12" fill="#0d5b47"/><path fill="#5DCAA5" d="M21 11a4 4 0 0 1 8 0v3h6a2 2 0 0 1 2 2v6h-3a4 4 0 0 0 0 8h3v6a2 2 0 0 1-2 2h-6v-3a4 4 0 0 0-8 0v3h-6a2 2 0 0 1-2-2v-6h3a4 4 0 0 0 0-8h-3v-6a2 2 0 0 1 2-2h6v-3z"/></svg></span><span class="integ-name">kinbot-ext</span><span class="integ-state" id="integState-kinbotext">入れ方</span></button>
+              <button class="integ-card" data-ext="miitel"><span class="integ-icon integ-icon-plain"><svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#1A8FE3"/><rect x="11" y="20" width="4" height="9" rx="2" fill="#fff"/><rect x="18" y="13" width="4" height="22" rx="2" fill="#fff"/><rect x="25" y="17" width="4" height="15" rx="2" fill="#fff"/><rect x="32" y="21" width="4" height="7" rx="2" fill="#fff"/><circle cx="34" cy="14" r="2.4" fill="#fff"/></svg></span><span class="integ-name">MiiTel</span><span class="integ-state" id="integState-miitel">MOCHICA</span></button>
+              <button class="integ-card" data-ext="bales"><span class="integ-icon integ-icon-plain"><svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#0F6E6A"/><path d="M16 12h16v4c0 3.5-3.4 6.1-6 8 2.6 1.9 6 4.5 6 8v4H16v-4c0-3.5 3.4-6.1 6-8-2.6-1.9-6-4.5-6-8v-4z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 33.5h8" stroke="#7FE0D6" stroke-width="2.6" stroke-linecap="round"/></svg></span><span class="integ-name">Bales Cloud</span><span class="integ-state" id="integState-bales">MOCHICA</span></button>
+              <button class="integ-card" data-ext="mailwise"><span class="integ-icon integ-icon-plain"><svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="12" fill="#E0782E"/><rect x="11" y="15" width="26" height="19" rx="4" fill="#fff"/><path d="M12.5 17.5 24 26l11.5-8.5" fill="none" stroke="#E0782E" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="integ-name">メールワイズ</span><span class="integ-state" id="integState-mailwise">読み取り状況</span></button>
+            </div>
+            <div class="integ-detail" id="extDetail" hidden>
+              <button class="integ-back" id="extBack" type="button">← 拡張機能の一覧に戻る</button>
+              <div class="ext-inner" data-ext="kinbotext" hidden>
             <div class="set-card">
               <h3>拡張機能（kinbot-ext）</h3>
               <p class="note">Chrome に入れて使う kinbot の拡張機能です。1つ入れておくと、次のことができます。<br>
@@ -177,8 +194,19 @@
               ・kinXs：メールワイズのメールを読んで、会社ごとのタスク作りに使う（メールワイズのタブを開いておくだけ）</p>
               <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0">
                 <a class="btn" href="/kinbot-ext.zip" download>kinbot-ext をダウンロード</a>
+                <a class="btn ghost" href="/api/ext/updater.cmd" download>自動で更新する（Windows）</a>
                 <span class="note" id="extVer" style="margin:0"></span>
               </div>
+              <!-- 自動で更新（2026-11-15）：パソコンの更新係が15分ごとに新しい版をフォルダに入れ、拡張機能が自分で読み込み直す -->
+              <details class="note" style="margin:0 0 12px"><summary style="cursor:pointer">自動で更新する入れ方（Windows・1回だけ）</summary>
+                <ol style="padding-left:20px;line-height:1.9;margin:6px 0 0">
+                  <li>「自動で更新する（Windows）」で kinbot-ext-autoupdate.cmd をダウンロードして、ダブルクリック（Windows の確認が出たら「詳細情報」→「実行」）。</li>
+                  <li>いまの版が <b>%LOCALAPPDATA%\kinbot-ext</b> に入り、そのフォルダが開きます。15分ごとに新しい版を確かめる係が、Windows のタスクに入ります。</li>
+                  <li>Chrome の chrome://extensions で、今の kinbot-ext を「削除」してから、「パッケージ化されていない拡張機能を読み込む」で、開いたフォルダを選ぶ。</li>
+                  <li>あとは新しい版が出ると、15分以内にフォルダが入れ替わり、拡張機能が10分以内に自分で読み込み直します（見ていない Bales・MiiTel のタブも開き直します）。</li>
+                </ol>
+                <p style="margin:6px 0 0">止めたいとき：Windows の「タスク スケジューラ」で「kinbot-ext-update」を削除。このファイルには、あなた用の kinbot の合言葉が入っています。人に渡さないでください。</p>
+              </details>
               <h4 style="margin:16px 0 6px">入れ方</h4>
               <ol class="note" style="padding-left:20px;line-height:1.9;margin:0">
                 <li>上のボタンで zip をダウンロードして、展開（解凍）する（「kinbot-ext」というフォルダが出てきます）</li>
@@ -190,14 +218,48 @@
               </ol>
               <p class="note" style="margin-top:10px">新しい版が出たときは、同じように入れ直してください（前のフォルダの中身を置きかえて、拡張機能の画面で「更新」を押すのでも大丈夫です）。</p>
             </div>
+              </div>
+              <div class="ext-inner" data-ext="miitel" hidden>
+
             <div class="set-card">
-              <h3>メールワイズの読み取り状況</h3>
+              <h3 class="integ-h"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#1A8FE3"/><rect x="11" y="20" width="4" height="9" rx="2" fill="#fff"/><rect x="18" y="13" width="4" height="22" rx="2" fill="#fff"/><rect x="25" y="17" width="4" height="15" rx="2" fill="#fff"/><rect x="32" y="21" width="4" height="7" rx="2" fill="#fff"/><circle cx="34" cy="14" r="2.4" fill="#fff"/></svg> MiiTel の会議履歴を受け取る（Outgoing Webhook）</h3>
+              <p class="note">MiiTel Admin → 外部連携 → Outgoing Webhook → 「会議履歴」タブ → 連携設定を追加 で、次の2つを入れてください。送るタイミングは「会議履歴の音声分析完了時」と、使えれば「議事録作成完了時」「文字起こし要約完了時」も選びます。</p>
+              <label class="field"><span>URL</span><input id="mhUrl" readonly onclick="this.select()" /></label>
+              <label class="field"><span>追加ヘッダー（合言葉）</span><input id="mhHead" readonly onclick="this.select()" placeholder="管理者だけが見られます" /></label>
+              <p class="note">追加ヘッダーは合言葉です。ほかの人に見せないでください。</p>
+            </div>
+            <div class="set-card">
+              <h3>MiiTel の文字起こし・議事録・録画の読み込み</h3>
+              <p class="note">MiiTel には外から読む鍵（API）が無いので、<b>営業担当それぞれの Chrome</b> に入れた kinbot-ext で読みます。パスワードは kinbot に入れません。</p>
+              <ol class="note" style="padding-left:20px;line-height:1.9">
+                <li>各自の Chrome に拡張機能 <b>kinbot-ext</b> を入れる（この一覧の「kinbot-ext」に入れ方があります）</li>
+                <li>その Chrome で、自分の MiiTel のアカウントでログインしておく</li>
+                <li>20分ごとに自動で、新しい会議の文字起こし・議事録・録画が kinbot に入る。すぐ入れたいときは kinbot for MOCHICA の「商談（MiiTel）」の右上から読む</li>
+              </ol>
+            </div>
+              </div>
+              <div class="ext-inner" data-ext="bales" hidden>
+
+            <div class="set-card">
+              <h3 class="integ-h"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#0F6E6A"/><path d="M16 12h16v4c0 3.5-3.4 6.1-6 8 2.6 1.9 6 4.5 6 8v4H16v-4c0-3.5 3.4-6.1 6-8-2.6-1.9-6-4.5-6-8v-4z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 33.5h8" stroke="#7FE0D6" stroke-width="2.6" stroke-linecap="round"/></svg> Bales Cloud</h3>
+              <p class="note">Bales のカスタム情報は SF の「Mochica（リード）」と同じ項目です。SF の情報を Bales に入れるファイルは、kinbot for MOCHICA の「リスト（Bales Cloud）」で作れます。API のキーがもらえたら、ここに入れると自動で取り込めるようにします。</p>
+              <label class="field"><span>API のキー</span><input id="baKey" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="Bales から API のキーをもらえたら" style="-webkit-text-security:disc" /></label>
+              <label class="field"><span>メモ</span><input id="baNote" placeholder="アカウント名など（任意）" /></label>
+              <div class="modal-actions"><button class="btn" data-mcsave>保存する</button><span class="saved" data-mcsaved></span></div>
+              <p class="note">キーは kinbot のサーバーにだけ置き、画面には末尾の4文字しか出しません。保存できるのは管理者だけです。</p>
+            </div>
+              </div>
+              <div class="ext-inner" data-ext="mailwise" hidden>
+            <div class="set-card">
+              <h3 class="integ-h"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="12" fill="#E0782E"/><rect x="11" y="15" width="26" height="19" rx="4" fill="#fff"/><path d="M12.5 17.5 24 26l11.5-8.5" fill="none" stroke="#E0782E" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg> メールワイズの読み取り状況</h3>
               <p class="note">メールワイズのタブを開いておくと、拡張機能が5分ごとに読んでここへ送ります（開いてから最初は15秒ほど）。うまく読めているかをここで確かめられます。</p>
               <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
                 <button class="btn ghost" type="button" id="mwStReload">読み直す</button>
                 <button class="btn ghost" type="button" id="mwRunTasks" title="1時間に1回のタスク作りを、今すぐ1回動かします">今すぐタスクを作る</button>
               </div>
               <div id="mwStatus" class="note">読み込み中…</div>
+            </div>
+              </div>
             </div>
           </div>
 
@@ -422,6 +484,13 @@
                 <button class="btn" id="saveSfMapBtn">マッピングを保存</button>
                 <span class="saved" id="sfMapSaved" hidden>保存しました</span>
               </div>
+            </div>
+            <div class="set-card">
+              <h3>MOCHICA のときのきまり</h3>
+              <p class="note">Salesforce の連携そのものは同じものを使います。ここでは kinbot for MOCHICA のときだけのきまりを決めます。</p>
+              <label class="field"><span>リードの種別</span><input id="sfLead" placeholder="Mochica（リード）" /></label>
+              <label class="field"><span>新規の商談名の頭</span><input id="sfOpp" placeholder="例：_新規_" /></label>
+              <div class="modal-actions"><button class="btn" data-mcsave>保存する</button><span class="saved" data-mcsaved></span></div>
             </div>
               </div>
 
@@ -825,20 +894,30 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
           <div class="set-pane" data-pane="members" hidden>
             <div class="set-card">
               <h3>メンバー管理</h3>
-              <p class="note">kinbotに関わる人をここで一括登録します。<b>この内容がアポ振り分けの割り振り設定、アポ獲得者のカレンダー照合、実績のチーム別集計にそのまま使われます。</b>ほかの画面で別に登録する必要はありません。</p>
-              <div class="mb-legend">
-                <span><b>クローザー</b>　商談を担当します。アポ振り分けのローテーションに入ります。</span>
-                <span><b>インサイド</b>　アポを獲得します。カレンダー照合の対象になります。</span>
-                <span><b>予備</b>　通常の順番には入らず、他の全員が埋まっているときだけ回ります。</span>
-              </div>
+              <!-- 上の説明と役割の説明はやめた（2026-11-14 田中さん：いらない） -->
               <div id="mbList" class="mb-list"></div>
-              <div class="mb-add">
-                <input id="mbName" placeholder="名前（例：田中欽也）" />
-                <input id="mbEmail" type="email" placeholder="メールアドレス" list="mbCandList" />
-                <datalist id="mbCandList"></datalist>
-                <button class="btn ghost" id="mbAdd">メンバーを追加</button>
+              <!-- 追加の欄と未登録の人を1つの枠にまとめる（2026-11-14 田中さん：スマートに） -->
+              <div class="mb-addbox">
+                <div class="mb-add">
+                  <span class="mb-add-l">メンバーを追加</span>
+                  <input id="mbName" placeholder="名前（例：田中欽也）" />
+                  <input id="mbEmail" type="email" placeholder="メールアドレス" list="mbCandList" />
+                  <datalist id="mbCandList"></datalist>
+                  <button type="button" class="mb-add-btn" id="mbAdd"><svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>追加</button>
+                </div>
+                <div id="mbCandidates"></div>
+                <!-- 管理者だけ：kinbot のアカウント（ログイン）をまとめて作る（2026-11-14） -->
+                <details class="mb-acct" id="mbAcct" hidden>
+                  <summary>kinbot のアカウントを作る（管理者）</summary>
+                  <p class="note">1行に1人、「名前 メールアドレス」で入れます。パスワードは全員同じものにします。最初にログインしたら、本人に 設定 → アカウント で変えてもらってください。</p>
+                  <textarea id="mbAcctList" rows="4" placeholder="齊藤 玲耶 reiya.saito@neo-career.co.jp"></textarea>
+                  <div class="mb-add">
+                    <input id="mbAcctPw" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="最初のパスワード（8文字以上）" style="-webkit-text-security:disc" />
+                    <button type="button" class="mb-add-btn" id="mbAcctGo">アカウントを作る</button>
+                  </div>
+                  <div id="mbAcctRes" class="note"></div>
+                </details>
               </div>
-              <div id="mbCandidates"></div>
               <div class="modal-actions">
                 <button class="btn" id="mbSave">保存</button>
                 <span class="tm-status" id="mbStatus"></span>
@@ -881,8 +960,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261113zc"></script>
-      <script src="nav.js?v=20261113zc"></script>
+    <script src="settings.js?v=20261116a"></script>
+      <script src="nav.js?v=20261116a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

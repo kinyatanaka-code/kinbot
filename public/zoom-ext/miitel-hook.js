@@ -27,21 +27,96 @@
   const noteWrite = (method, u, body) => { try { const m0 = String(method || "GET").toUpperCase(); if (m0 === "GET") return; const U = new URL(String(u), location.href); if (!/\/api\//.test(U.pathname)) return;
       let keys = ""; try { const o = typeof body === "string" ? JSON.parse(body) : null; if (o && typeof o === "object") keys = Object.entries(o).map(([k, v]) => `${k}=${/url|link|title|name|meeting/i.test(k) ? String(v).slice(0, 60) : typeof v}`).join("&"); } catch { keys = typeof body; }
       window.postMessage({ __kbMiitelSeen: true, path: `[${m0}] ${U.pathname}${keys ? ` {${keys}}` : ""}`, page: location.pathname }, "*"); } catch {} };
+  // ===== 過去の会議を読む：会議履歴一覧の頼み方を覚えて、ページをめくる（2026-11-15 田中さん「3月1日までの会議を全部」）=====
+  let lastList = null;
+  const hdrObj = (h) => { const o = {}; try { if (!h) return o; if (h instanceof Headers) h.forEach((v, k) => { o[k] = v; }); else if (Array.isArray(h)) h.forEach(([k, v]) => { o[k] = v; }); else Object.assign(o, h); } catch {} return o; };
   const of = window.fetch;
   window.fetch = async function (...a) {
+    try { const u0 = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; if (RE_LIST.test(u0)) { const o0 = a[1] || {}; lastList = { url: new URL(u0, location.href).href, method: String(o0.method || (a[0] && a[0].method) || "GET").toUpperCase(), body: typeof o0.body === "string" ? o0.body : null, headers: { ...hdrObj(a[0] && a[0].headers), ...hdrObj(o0.headers) }, cred: o0.credentials || "same-origin", at: Date.now() }; } } catch {}
     try { const o0 = a[1] || {}; noteWrite(o0.method || (a[0] && a[0].method), typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || "", o0.body); } catch {}
     const r = await of.apply(this, a);
+    try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; const o0 = a[1] || {};
+      if (/\/api\//.test(u) && !RE.test(u) && /json/i.test(r.headers.get("content-type") || "")) r.clone().text().then((t) => maybeList({ url: new URL(u, location.href).href, method: String(o0.method || (a[0] && a[0].method) || "GET").toUpperCase(), body: typeof o0.body === "string" ? o0.body : null, headers: { ...hdrObj(a[0] && a[0].headers), ...hdrObj(o0.headers) }, cred: o0.credentials || "same-origin" }, t)).catch(() => {}); } catch {}
     try { const u = typeof a[0] === "string" ? a[0] : (a[0] && a[0].url) || ""; note(u); if (RE.test(u) || RE_LIST.test(u)) r.clone().text().then((t) => send(u, t)).catch(() => {}); } catch {}
     return r;
   };
   const oo = XMLHttpRequest.prototype.open, os = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbU = u; note(u); return oo.call(this, m, u, ...rest); };
-  const oo3 = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbM = m; return oo3.call(this, m, u, ...rest); };
+  const oo3 = XMLHttpRequest.prototype.open; XMLHttpRequest.prototype.open = function (m, u, ...rest) { this.__kbM = m; this.__kbH = {}; return oo3.call(this, m, u, ...rest); };
+  const osh = XMLHttpRequest.prototype.setRequestHeader; XMLHttpRequest.prototype.setRequestHeader = function (k, v) { try { if (this.__kbH) this.__kbH[k] = v; } catch {} return osh.call(this, k, v); };
   XMLHttpRequest.prototype.send = function (...a) {
     try { noteWrite(this.__kbM, this.__kbU, a[0]); } catch {}
+    try { const xr = this; const u1 = String(this.__kbU || ""); if (/\/api\//.test(u1) && !RE.test(u1)) { const info = { url: new URL(u1, location.href).href, method: String(this.__kbM || "GET").toUpperCase(), body: typeof a[0] === "string" ? a[0] : null, headers: { ...(this.__kbH || {}) }, cred: this.withCredentials ? "include" : "same-origin" };
+        this.addEventListener("load", () => { try { if (!xr.responseType || xr.responseType === "text") maybeList(info, xr.responseText); else if (xr.responseType === "json") maybeList(info, JSON.stringify(xr.response)); } catch {} }); } } catch {}
+    try { if (RE_LIST.test(String(this.__kbU || ""))) lastList = { url: new URL(String(this.__kbU), location.href).href, method: String(this.__kbM || "GET").toUpperCase(), body: typeof a[0] === "string" ? a[0] : null, headers: { ...(this.__kbH || {}) }, cred: this.withCredentials ? "include" : "same-origin", at: Date.now() }; } catch {}
     try { if (RE.test(String(this.__kbU || "")) || RE_LIST.test(String(this.__kbU || ""))) this.addEventListener("load", () => { try { if (!this.responseType || this.responseType === "text" || this.responseType === "json") send(this.__kbU, this.responseType === "json" ? JSON.stringify(this.response) : this.responseText); } catch {} }); } catch {}
     return os.apply(this, a);
   };
+  const isObj = (x) => x && typeof x === "object" && !Array.isArray(x);
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const itemId = (x) => String(x.video_id || x.videoId || x.id || x.uuid || "");
+  const itemAt = (x) => x.starts_at || x.started_at || x.start_at || x.startsAt || x.startedAt || x.startAt || x.start_time || x.started_time || x.date || x.created_at || x.createdAt;
+  // 会議らしい並び（会議の id と題名と日時がある物が並ぶ）を返した頼みを、一覧として覚える
+  function maybeList(info, text) { try { if (!text || text.length > 8000000 || !/^\s*[{[]/.test(text)) return; const j = JSON.parse(text); const arr = findArr(j); if (!arr || !arr.length) return;
+      const ok = arr.filter((x) => isObj(x) && UUID.test(itemId(x)) && (x.title || x.name) && !isNaN(Date.parse(itemAt(x)))).length; if (ok < Math.max(1, arr.length * 0.6)) return;
+      lastList = { ...info, at: Date.now() };
+      if (!RE_LIST.test(info.url)) window.postMessage({ __kbMiitel: true, kind: "list", detailId: "", videoId: "list", url: info.url.split("?")[0], text, title: document.title }, "*");
+    } catch {} }
+  const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => isObj(x) && itemId(x))) return o; if (!isObj(o) || d > 4) return null; for (const v of Object.values(o)) { const r = findArr(v, d + 1); if (r) return r; } return null; };
+  const PAGE = /^(page|page_number|pageNumber|current_page|currentPage|p)$/i, OFF = /^(offset|from|start|skip)$/i, SIZE = /^(per_page|perPage|limit|size|page_size|pageSize|per)$/i;
+  const prg = (o) => window.postMessage({ __kbMtBack: true, ...o }, "*");
+  let backRunning = false, backStop = false;
+  async function backfill(until) {
+    if (backRunning) return; if (!lastList) { prg({ error: "会議の一覧が見えていません。会議履歴一覧を開き直して（F5）、一覧が出てから押してください" }); return; }
+    backRunning = true; backStop = false;
+    const L = lastList; const lim = new Date(until + "T00:00:00+09:00").getTime();
+    let body0 = null; try { body0 = L.body ? JSON.parse(L.body) : null; } catch {}
+    // 本文（JSON）の中の項目を、入れ子も含めて「道」で探す
+    const paths = (o, pre = [], out = [], d = 0) => { if (!isObj(o) || d > 3) return out; for (const [k, v] of Object.entries(o)) { const pth = [...pre, k]; if (isObj(v)) paths(v, pth, out, d + 1); else out.push({ b: pth, k, v }); } return out; };
+    const U0 = new URL(L.url); const qk = [...U0.searchParams.keys()]; const bp = paths(body0);
+    const findK = (re) => { const q = qk.find((k) => re.test(k)); if (q) return { q, v: U0.searchParams.get(q) }; const b = bp.find((x) => re.test(x.k)); return b ? { b: b.b, v: b.v } : null; };
+    const build = (sets) => { const U = new URL(L.url); let b = body0 ? JSON.parse(JSON.stringify(body0)) : null;
+      for (const [f, v] of sets) { if (!f) continue; if (f.q) U.searchParams.set(f.q, String(v)); else if (f.b && b) { let o = b; for (const k of f.b.slice(0, -1)) o = o[k] = o[k] ?? {}; o[f.b[f.b.length - 1]] = v; } else if (f.qnew) U.searchParams.set(f.qnew, String(v)); else if (f.bnew && b) b[f.bnew] = v; }
+      return { url: U.href, body: L.method === "GET" || L.method === "HEAD" ? undefined : b ? JSON.stringify(b) : L.body }; };
+    const fetchP = async (sets) => { const x = build(sets); const ac = new AbortController(); const tm = setTimeout(() => ac.abort(), 60000);
+      try { const r = await of(x.url, { method: L.method, headers: L.headers, body: x.body, credentials: L.cred, signal: ac.signal }); if (!r.ok) throw new Error(`MiiTel から読めませんでした（${r.status}）`); const text = await r.text(); let j = null; try { j = JSON.parse(text); } catch {} return { url: x.url, text, j, arr: (j && findArr(j)) || [] }; } finally { clearTimeout(tm); } };
+    const ids = new Set(); const newOf = (arr) => arr.filter((x) => !ids.has(itemId(x)));
+    const dateOf = (x) => { const t = Date.parse(itemAt(x)); return isNaN(t) ? null : t; };
+    const SZ = findK(SIZE); const size = SZ ? 100 : null; const base = SZ ? [[SZ, 100]] : [];
+    let got = 0, pages = 0, oldest = null, mode = "";
+    const take = (pg) => { const nw = newOf(pg.arr); nw.forEach((x) => ids.add(itemId(x))); if (!nw.length) return 0;
+      window.postMessage({ __kbMiitel: true, kind: "list", detailId: "", videoId: "list", url: pg.url.split("?")[0], text: pg.text, title: document.title }, "*");
+      got += nw.length; pages++; const ds = nw.map(dateOf).filter((t) => t != null); if (ds.length) oldest = Math.min(...ds, oldest ?? Infinity); prg({ got, pages, oldest, mode }); return nw.length; };
+    // 返事の中の「次のページの印」（cursor・next_token など）
+    const nextTok = (j, d = 0) => { if (!isObj(j) || d > 3) return null; for (const [k, v] of Object.entries(j)) { if (/(next|cursor|token|after|continuation)/i.test(k) && !/prev|before|has_|hasNext|total|count/i.test(k) && (typeof v === "string" || typeof v === "number") && String(v)) return { k, v }; } for (const v of Object.values(j)) { const r = nextTok(v, d + 1); if (r) return r; } return null; };
+    const diag = () => ({ path: U0.pathname, q: qk.join(","), b: bp.map((x) => x.b.join(".")).join(","), res: lastJ ? Object.keys(lastJ).join(",") : "" });
+    let lastJ = null;
+    try {
+      let first = null; try { first = await fetchP(base); } catch (e) { if (SZ) first = await fetchP([]); else throw e; }
+      lastJ = first.j; take(first); if (!first.arr.length) throw new Error("一覧が空でした");
+      const per = first.arr.length;
+      // ① 分かるめくり方：page → offset → 次のページの印 → 日付の範囲。② 分からなければ、よくある名前を試して、新しい会議が出たものを使う
+      const PG = findK(PAGE), OF = findK(OFF), DT = findK(/(to|end|until|before|lte|max)[_A-Z]?(date|at|time)|(date|time|at)_?(to|end|lte|before|until)$|^to$|^end$|^until$/i);
+      const tries = [];
+      if (PG) tries.push({ mode: "page", step: (n, pg) => [[PG, (Number(PG.v) === 0 ? 0 : 1) + n]] });
+      if (OF) tries.push({ mode: "offset", step: (n) => [[OF, n * per]] });
+      tries.push({ mode: "cursor", step: (n, prev) => { const t = nextTok(prev.j); if (!t) return null; const rk = qk.find((k) => /(cursor|token|after|next)/i.test(k)) || bp.find((x) => /(cursor|token|after|next)/i.test(x.k)); const f = rk ? (typeof rk === "string" ? { q: rk } : { b: rk.b }) : (body0 ? { bnew: t.k.replace(/^next_?/i, "") || "cursor" } : { qnew: t.k.replace(/^next_?/i, "") || "cursor" }); return [[f, t.v]]; } });
+      if (DT) tries.push({ mode: "date", step: (n, prev) => { const ds = prev.arr.map(dateOf).filter((t) => t != null); if (!ds.length) return null; const t = Math.min(...ds) - 1000; return [[DT, /^\d+$/.test(String(DT.v)) ? (String(DT.v).length > 11 ? t : Math.floor(t / 1000)) : new Date(t).toISOString()]]; } });
+      for (const k of ["page", "page_number", "pageNumber", "current_page", "pageNo", "p"]) tries.push({ mode: `page?${k}`, step: (n) => [[body0 ? { bnew: k } : { qnew: k }, 1 + n]] });
+      for (const k of ["offset", "from", "skip", "start"]) tries.push({ mode: `offset?${k}`, step: (n) => [[body0 ? { bnew: k } : { qnew: k }, n * per]] });
+      let prev = first, chosen = null;
+      for (const t of tries) { if (backStop) break; const st = t.step(1, prev); if (!st) continue; let pg; try { pg = await fetchP([...base, ...st]); } catch { continue; } if (newOf(pg.arr).length) { chosen = t; mode = t.mode; take(pg); prev = pg; break; } }
+      if (!chosen) { prg({ done: true, got, pages, oldest, one: true, diag: diag() }); return; }
+      for (let n = 2; n < 600 && !backStop; n++) {
+        if (oldest != null && oldest < lim) break;
+        await new Promise((res) => setTimeout(res, 700));   // MiiTel に負担をかけないよう、少し間をあける
+        const st = chosen.step(n, prev); if (!st) break; const pg = await fetchP([...base, ...st]); lastJ = pg.j; if (!pg.arr.length || !take(pg)) break; prev = pg;
+      }
+      prg({ done: true, got, pages, oldest, stopped: backStop, mode });
+    } catch (e) { prg({ error: String(e && e.message || e), got, pages, oldest, diag: diag() }); }
+    finally { backRunning = false; }
+  }
+  window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return; if (d.__kbMtBackRun) backfill(d.until || "2026-03-01"); if (d.__kbMtBackStop) backStop = true; if (d.__kbMtBackAsk) prg({ ready: !!lastList, url: lastList ? lastList.url.replace(/\?.*$/, "") : "" }); });
   // ===== 録画の取り込み（#kbGrabVideo で開かれたとき）（2026-11-12）=====
   let tk = "", KB = "", grabbing = false;
   window.addEventListener("message", (e) => { const d = e.data; if (d && d.__kbExtToken && e.source === window) { tk = d.__kbExtToken; KB = d.kb; } });

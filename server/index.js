@@ -22,7 +22,7 @@ import { pickCloser, isPersonFree, commitAssignment, rotationStatus, setNextClos
          getRotationConfig, loadTeamContext, balanceRange, nextOrderFor } from "./rotation.js";
 import { sendApoMail, sendTestApoMail, runReminderSweep, listTomorrowReminders, getApoMailConfig,
          DEFAULT_CONFIRM_SUBJECT, DEFAULT_CONFIRM_BODY,
-         DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines } from "./apomail.js";
+         DEFAULT_REMINDER_SUBJECT, DEFAULT_REMINDER_BODY, stripRetiredLines, familyName as mcFamilyName } from "./apomail.js";
 import { startKasasagi, getKasasagi, stopKasasagi, feedTranscript, kasasagiInfo,
          buildScript, buildReport, faceState, SLIDE_LABELS } from "./kasasagi.js";
 import { notifyAssigned, notifyAssignFailed, notifyMailDraft, notifyChat, notifyAll, notifyPerson, notifyTargets, chatWebhookUrl, chatInfo, NOTIFY_KINDS, notifyDisabledSet } from "./chat.js";
@@ -278,7 +278,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -710,7 +710,7 @@ import { notionConfigured, notionStatus, createMeetingPage, createReportPage } f
 import { pdfToText, urlToText, officeToText } from "./ingest.js";
 import { indexKnowledge, embeddingsAvailable, retrieve } from "./retrieval.js";
 import { readDocument, describeForChat, readerAvailable, readWhiteboard, readShiftCalendar } from "./ai_read.js";
-import { mountMcpServer, mountMcpEndpoint } from "./mcp.js";
+import { mountMcpServer, mountMcpEndpoint, mcpHooks } from "./mcp.js";
 import { mountGptActions } from "./gpt_actions.js";
 import { mountOauthServer, oauthTokenUser } from "./oauth.js";
 import {
@@ -775,7 +775,7 @@ import {
   describeContactRolePicklist,
   fillEmptyFields,
   createTaskIdempotent, createOpportunity, firstOpportunityStage, snapshotLead, deleteRecord, isFreshlyCreated,
-  sfUpdateRecord, sfCreateRecord } from "./salesforce.js";
+  sfUpdateRecord, sfCreateRecord, sfPatchRaw, sfValidationRules } from "./salesforce.js";
 import {
   authEnabled,
   getUser,
@@ -918,6 +918,8 @@ const OPEN_PATHS = new Set([
   // ライブ中継サーバーが「配信の宛先」を聞きに来る窓口。
   // 中継サーバーはログインできないので、ここは合言葉（RELAY_SECRET）だけで通す。
   "/api/live/relay-dest",
+  // 拡張機能の自動更新（パソコンの更新係が読む。合言葉 x-kb-ext で守る）（2026-11-15）
+  "/api/ext/pkg/version", "/api/ext/pkg/zip", "/api/ext/pkg/updater.ps1",
 ]);
 if (!authEnabled()) {
   console.warn("[警告] アカウント未設定。誰でも操作できます。公開時は DATABASE_URL を設定し登録制にしてください。");
@@ -982,6 +984,8 @@ app.use(async (req, res, next) => {
   if (OPEN_PATHS.has(req.path) || req.path.startsWith("/j/")) return next();
   // 拡張機能（kinbot-ext）から MiiTel の文字起こし・議事録・録画を送る道。kinbot のログインの代わりに、拡張機能の合言葉（x-kb-ext）で守る（2026-11-12）
   if (req.path.startsWith("/api/mochica/miitel/ext/")) return next();
+  // 拡張機能が Bales の画面から読んだリストを送る道（合言葉 x-kb-ext で守る）（2026-11-15）
+  if (req.path.startsWith("/api/mochica/bales/ext/")) return next();
   // お客様が開くページ（日程調整）は、ログインなしで通す
   if (/^\/b\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
   // 転送URL（お客様が踏むので認証なし）
@@ -4136,7 +4140,9 @@ async function dailyWorkingMembers(dayStr) {
     if (gcalOwner) {
       const members = await listMembers().catch(() => []);
       const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((x) => x.trim()).filter(Boolean);
-      const sales = (members || []).filter((m) => (Array.isArray(m.roles) && m.roles.includes("closer")) || salesNames.some((n) => String(m.name || "").includes(n)));
+      // 田中欽也はデイリー目標に出さない（2026-11-16 田中さん「kincall のデイリー目標から田中欽也を消しといて」）
+      const sales = (members || []).filter((m) => (Array.isArray(m.roles) && m.roles.includes("closer")) || salesNames.some((n) => String(m.name || "").includes(n)))
+        .filter((m) => !String(m.name || "").replace(/[\s　]/g, "").includes("田中欽也"));
       for (const m of sales) {
         const email = String(m.email || "").toLowerCase(); if (!email) continue;
         const tanaka = String(m.name || "").replace(/[\s　]/g, "").includes("田中欽也");
@@ -5462,7 +5468,17 @@ async function kbGuessIndustry(user, company, { website = "" } = {}) {
   } catch { return ""; }
 }
 const _kbIndGuess = new Map();
-globalThis.kbIndustry = { options: (u) => kbIndustryOptions(u), guess: (u, c, o) => kbGuessIndustry(u, c, o) };   // Claude のコネクタ（mcp.js）から使う
+// 従業員数を調べる：kincall のリスト → SF の取引先・gBizINFO・ネットの順（lookupCompanyInfo と同じ）。数字が取れなければ 0（2026-11-16 田中さん：従業員数も必須）
+async function kbGuessEmployees(user, company, { website = "" } = {}) {
+  try {
+    if (!company) return 0;
+    const ci = await lookupCompanyInfo(company, "", user, website ? `会社URL：${website}` : "").catch(() => null);
+    const n = parseInt(String((ci && ci.employees) || "").replace(/[^\d]/g, ""), 10);
+    console.log(`[従業員数] ${company} → ${n || "（分からず）"}`);
+    return n > 0 && n < 1000000 ? n : 0;
+  } catch { return 0; }
+}
+globalThis.kbIndustry = { options: (u) => kbIndustryOptions(u), guess: (u, c, o) => kbGuessIndustry(u, c, o), employees: (u, c, o) => kbGuessEmployees(u, c, o) };   // Claude のコネクタ（mcp.js）から使う
 // リードに業種が無ければ入れる：画面で選んだもの → SF の取引先 → AI の見立て。入れた（または元からあった）業種を返す
 async function kbEnsureLeadIndustry(user, leadId, company, { pick = "", website = "" } = {}) {
   const lid = String(leadId || "").replace(/[^a-zA-Z0-9]/g, ""); if (!lid) return "";
@@ -14750,6 +14766,51 @@ app.post("/api/kinxs/auto-tasks/run", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 拡張機能（kinbot-ext）の版。設定の「拡張機能」に出す（2026-11-11）
+// ===== 拡張機能の自動更新（2026-11-15 田中さん「拡張機能の最新を自動で入れたい」）=====
+//   パソコンの「更新係」（Windows のタスクで15分ごとに動く小さな PowerShell）が、新しい版があれば zip を取ってきて
+//   拡張機能のフォルダ（%LOCALAPPDATA%\kinbot-ext）に上書きする。拡張機能は自分のフォルダの版が変わったら自分で読み込み直す。
+const extVer = () => { try { return JSON.parse(fs.readFileSync(path.join(process.cwd(), "public/zoom-ext/manifest.json"), "utf8")).version; } catch { return ""; } };
+const extTok = async (req) => { const t = String(req.headers["x-kb-ext"] || req.query.t || ""); if (!t) return ""; req.headers["x-kb-ext"] = t; return mcExtUser(req); };
+app.get("/api/ext/pkg/version", async (req, res) => { if (!(await extTok(req))) return res.status(401).json({ error: "合言葉が違います" }); res.json({ ok: true, version: extVer() }); });
+app.get("/api/ext/pkg/zip", async (req, res) => { if (!(await extTok(req))) return res.status(401).json({ error: "合言葉が違います" }); res.setHeader("content-type", "application/zip"); res.sendFile(path.join(process.cwd(), "public/kinbot-ext.zip")); });
+const extUpdaterPs1 = (tok, base) => [
+  "# kinbot-ext updater (kinbot). Runs every 15 min from Task Scheduler. ASCII only.",
+  "$ErrorActionPreference = 'Stop'",
+  `$T = '${tok}'; $B = '${base}'`,
+  "$Dest = Join-Path $env:LOCALAPPDATA 'kinbot-ext'",
+  "$Dir = Join-Path $env:LOCALAPPDATA 'kinbot-ext-updater'; New-Item -ItemType Directory -Force -Path $Dir | Out-Null",
+  "$Log = Join-Path $Dir 'update.log'",
+  "try {",
+  "  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12",
+  "  $v = (Invoke-RestMethod -UseBasicParsing -Uri \"$B/api/ext/pkg/version\" -Headers @{ 'x-kb-ext' = $T }).version",
+  "  $have = ''; $mf = Join-Path $Dest 'manifest.json'",
+  "  if (Test-Path $mf) { $have = (Get-Content $mf -Raw -Encoding UTF8 | ConvertFrom-Json).version }",
+  "  if ($v -and $v -ne $have) {",
+  "    $zip = Join-Path $env:TEMP 'kinbot-ext-new.zip'",
+  "    Invoke-WebRequest -UseBasicParsing -Uri \"$B/api/ext/pkg/zip\" -Headers @{ 'x-kb-ext' = $T } -OutFile $zip",
+  "    $tmp = Join-Path $env:TEMP ('kinbot-ext-' + [guid]::NewGuid().ToString())",
+  "    Expand-Archive -Path $zip -DestinationPath $tmp -Force",
+  "    $src = Join-Path $tmp 'kinbot-ext'; if (-not (Test-Path $src)) { $src = $tmp }",
+  "    New-Item -ItemType Directory -Force -Path $Dest | Out-Null",
+  "    Get-ChildItem -Path $src | Where-Object { $_.Name -ne 'manifest.json' } | Copy-Item -Destination $Dest -Recurse -Force",
+  "    Copy-Item -Path (Join-Path $src 'manifest.json') -Destination $Dest -Force",
+  "    Remove-Item $tmp -Recurse -Force; Remove-Item $zip -Force",
+  "    Add-Content $Log ('{0} updated {1} -> {2}' -f (Get-Date), $have, $v)",
+  "  }",
+  "} catch { Add-Content $Log ('{0} error {1}' -f (Get-Date), $_.Exception.Message) }",
+].join("\r\n") + "\r\n";
+app.get("/api/ext/pkg/updater.ps1", async (req, res) => { const u = await extTok(req); if (!u) return res.status(401).send("# bad token"); res.setHeader("content-type", "text/plain; charset=utf-8"); res.send(extUpdaterPs1(String(req.headers["x-kb-ext"]), `https://${req.get("host")}`)); });
+// 設定の「自動で更新する」で配るファイル：1回ダブルクリックで、更新係を置いて、15分ごとのタスクに登録し、いまの版を入れる
+app.get("/api/ext/updater.cmd", async (req, res) => {
+  if (!req.user) return res.status(401).send("ログインしてください");
+  const tok = await mcExtToken(req.user); const base = `https://${req.get("host")}`;
+  const cmd = ["@echo off", "chcp 65001 >nul", "set D=%LOCALAPPDATA%\\kinbot-ext-updater", "mkdir \"%D%\" 2>nul",
+    `powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest -UseBasicParsing -Uri '${base}/api/ext/pkg/updater.ps1' -Headers @{'x-kb-ext'='${tok}'} -OutFile '%D%\\update.ps1'"`,
+    "powershell -NoProfile -ExecutionPolicy Bypass -File \"%D%\\update.ps1\"",
+    "schtasks /Create /F /SC MINUTE /MO 15 /TN \"kinbot-ext-update\" /TR \"powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \\\"%D%\\update.ps1\\\"\"",
+    "echo.", "echo kinbot-ext: %LOCALAPPDATA%\\kinbot-ext", "echo Chrome: chrome://extensions / Load unpacked / choose this folder (first time only)", "explorer \"%LOCALAPPDATA%\\kinbot-ext\"", "pause", ""].join("\r\n");
+  res.setHeader("content-type", "application/octet-stream"); res.setHeader("content-disposition", "attachment; filename=kinbot-ext-autoupdate.cmd"); res.send(cmd);
+});
 app.get("/api/ext/version", (req, res) => { try { const m = JSON.parse(fs.readFileSync(path.join(process.cwd(), "public/zoom-ext/manifest.json"), "utf8")); res.json({ ok: true, name: m.name, version: m.version }); } catch (e) { res.json({ ok: false, error: e.message }); } });
 app.get("/api/kinxs/people", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" }); res.json({ ok: true, me: String(req.user || "").toLowerCase(), items: await kxPeople() }); }
@@ -26676,9 +26737,11 @@ async function mcExtUser(req) {
 app.get("/api/mochica/miitel/ext/todo", async (req, res) => {
   try {
     const user = await mcExtUser(req); if (!user) return res.status(401).json({ error: "合言葉が違います" });
-    const rows = await mcMiitelTodo(Math.max(1, Math.min(20, Number(req.query.limit) || 6)));
-    const urls = ["https://mochica.app.miitel.com/app/video", ...rows.map((r) => `${r.url || `https://mochica.app.miitel.com/app/video/${r.id}`}${r.hv ? "" : "#kbGrabVideo"}`)];
-    res.json({ ok: true, urls });
+    const nv = req.query.novideo === "1"; const skip = String(req.query.skip || "").split(",").filter((x) => /^[0-9a-f-]{20,}$/i.test(x)).slice(0, 500);
+    const rows = await mcMiitelTodo(Math.max(1, Math.min(20, Number(req.query.limit) || 6)), { days: Number(req.query.days) || 60, novideo: nv, skip });
+    const urls = [...(nv ? [] : ["https://mochica.app.miitel.com/app/video"]), ...rows.map((r) => `${r.url || `https://mochica.app.miitel.com/app/video/${r.id}`}${r.hv || nv ? "" : "#kbGrabVideo"}`)];
+    let left = null; if (nv) left = await mcMiitelTodoCount(Number(req.query.days) || 60).catch(() => null);
+    res.json({ ok: true, urls, left });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.get("/api/mochica/miitel/ext-token", async (req, res) => { try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, token: await mcExtToken(req.user) }); } catch (e) { res.status(500).json({ error: e.message }); } });
@@ -26750,8 +26813,8 @@ app.post(["/api/mochica/miitel/capture", "/api/mochica/miitel/ext/capture"], exp
       if (kind === "list") {
         const findArr = (o, d = 0) => { if (Array.isArray(o) && o.some((x) => x && typeof x === "object" && (x.id || x.video_id))) return o; if (!o || typeof o !== "object" || d > 4) return []; for (const x of Object.values(o)) { const a = findArr(x, d + 1); if (a.length) return a; } return []; };
         for (const x of findArr(body).slice(0, 500)) {
-          const id = String(x.video_id || x.id || "").trim(); if (!/^[0-9a-f-]{20,}$/i.test(id)) continue;
-          const st = x.starts_at || x.started_at || x.start_at || null;
+          const id = String(x.video_id || x.videoId || x.id || x.uuid || "").trim(); if (!/^[0-9a-f-]{20,}$/i.test(id)) continue;
+          const st = x.starts_at || x.started_at || x.start_at || x.startsAt || x.startedAt || x.startAt || x.start_time || x.started_time || null;   // 新しい会議履歴一覧（video-list）の名前も（2026-11-15）
           // 会議でないもの（人・タグ・キーワードなど）を拾わない：題名と開始の日時がある会議だけ
           if (!String(x.title || "").trim() || !st || isNaN(Date.parse(st))) continue;
           const host = (x.host && (x.host.name || x.host.email)) || x.host_name || (x.owner && x.owner.name) || String(x.title || "").replace(/\s*のミーティング.*$/, "").replace(/^ネオキャリア/, "").replace(/のパーソナルミーティングルーム$/, "");
@@ -26860,6 +26923,244 @@ app.get("/api/mochica/bales/summary", async (req, res) => {
     const d = await mcBalesGet(owner, !!req.query.fresh); res.json({ ok: true, at: d.at, opps: d.opps, accounts: d.accounts, lost: d.lost, won: d.won, sample: d.rows.filter((r) => r["LostOpp_lostdate__c"] && r["Client_Current_Status__c"]).slice(0, 3) });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== Bales のリスト：拡張機能が Bales の画面（一覧）から読んだ行を受け取る（2026-11-15 田中さん「Bales のリストを全部 kinbot に」）=====
+//   CSV は2000件まで・API は無いので、拡張機能が Bales の画面が取ってくる一覧のデータを横で受け取り、最後のページまでめくって送る。
+//   送ってくる形：{ listKey, name, src, total, start:true } → { listKey, rows:[{…}], total } を何回か → { listKey, done:true, error }
+const mcBalesFlat = (o) => {
+  // 入れ子は「親.子」の列に平らにする（Bales の項目の名前のまま）。長すぎる値は切る
+  // 入れ子は5段まで平らにする。それより深いものは「名前」があれば名前、無ければ JSON（2026-11-15：担当が JSON のまま出ていた）
+  const out = {}; const walk = (v, k, d) => {
+    if (Object.keys(out).length > 500) return;
+    if (v == null) { if (k) out[k] = ""; return; }
+    if (Array.isArray(v)) { if (v.every((x) => x == null || typeof x !== "object")) out[k] = v.filter((x) => x != null).join("、").slice(0, 500); else if (d < 5) v.slice(0, 5).forEach((x, i) => walk(x, `${k}.${i}`, d + 1)); return; }
+    if (typeof v === "object") { if (d >= 5) { out[k] = v.name != null ? String(v.name).slice(0, 500) : JSON.stringify(v).slice(0, 500); return; } for (const [kk, vv] of Object.entries(v)) walk(vv, k ? `${k}.${kk}` : kk, d + 1); return; }
+    out[k] = String(v).slice(0, 500);
+  };
+  walk(o, "", 0); return out;
+};
+// 行の印：Bales のリード一覧（camelCase）は "id" が無く callTargetId がリードの番号。これを先に使う（2026-11-16：
+//   無いと中身全体のハッシュになり、最終コール日時などが変わるたびに別の行扱い→ SF との結びつきが 0 に戻っていた）
+const mcBalesRowKey = (r) => { for (const k of ["callTargetId", "call_target_id", "id", "leadId", "lead_id", "uuid", "_id", "salesforceId", "SalesforceID"]) if (r[k]) return String(r[k]).slice(0, 120); return crypto.createHash("sha1").update(JSON.stringify(r)).digest("hex"); };
+const mcBalesKeyOk = (k) => String(k || "").replace(/[^\w:.\-ぁ-んァ-ヶ一-龠ー（）()\s]/g, "").slice(0, 120);
+app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (req, res) => {
+  try {
+    if (!(await mcExtUser(req))) return res.status(401).json({ error: "kinbot の合言葉がありません。kinbot の画面を一度開いてから、もう一度押してください" });
+    const b = req.body || {};
+    // 取り込めないときの手がかり（拡張機能の版・ページ・見えた通り道の名前と件数）を最後の1回分だけ残す（2026-11-15）
+    if (b.diag) { const g = b.diag; const clean = (x) => String(x ?? "").slice(0, 160);
+      await saveSettings({ mcBalesDiag: { at: Date.now(), by: await mcExtUser(req), ver: clean(g.ver), href: clean(g.href), nohook: !!g.nohook,
+        cands: (Array.isArray(g.cands) ? g.cands : []).slice(0, 15).map((c) => ({ ep: clean(c.ep), n: Number(c.n) || 0, total: c.total ?? null, pager: clean(c.pager), keys: (Array.isArray(c.keys) ? c.keys : []).slice(0, 12).map(clean) })),
+        seen: (Array.isArray(g.seen) ? g.seen : []).slice(0, 40).map((x) => ({ ep: clean(x.ep), ct: clean(x.ct), status: Number(x.status) || 0, len: Number(x.len) || 0, arr: Number(x.arr) })) } }).catch(() => {});
+      return res.json({ ok: true }); }
+    if (b.writeDiag) { await saveSettings({ mcBalesWriteDiag: { at: Date.now(), ok: !!b.writeDiag.ok, mode: String(b.writeDiag.mode || "").slice(0, 40), reason: String(b.writeDiag.reason || "").slice(0, 300), shape: JSON.stringify(b.writeDiag.shape ?? null).slice(0, 8000), url: String(b.writeDiag.url || "").slice(0, 300), method: String(b.writeDiag.method || "").slice(0, 10) } }).catch(() => {}); return res.json({ ok: true }); }
+    // 見張り（架電の記録など）：新しい行を受け取り、いくつ新しかったかを返す（拡張機能は新しい行が無くなったらめくるのをやめる）
+    if (b.feed) { const feed = mcBalesKeyOk(b.feed); if (!feed) return res.status(400).json({ error: "見張りの印がありません" });
+      const view = Array.isArray(b.view) ? b.view.slice(0, 40).map((v) => ({ label: String(v.label || "").slice(0, 40), key: String(v.key || "").slice(0, 200) })).filter((v) => v.label && v.key) : null;
+      const rows = []; const seen = new Set(); for (const r0 of (Array.isArray(b.rows) ? b.rows : []).slice(0, 2000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = mcBalesRowKey(d); if (seen.has(k)) continue; seen.add(k); rows.push({ k, d }); }
+      const r = await mcFeedUpsert(feed, { name: b.name ? String(b.name).slice(0, 60) : null, src: b.src ? String(b.src).slice(0, 300) : null, view: view && view.length ? view : null, by: await mcExtUser(req) }, rows);
+      if (b.done) await mcFeedSynced(feed, Number(b.newTotal) || 0);
+      return res.json({ ok: true, ...r }); }
+    const listKey = mcBalesKeyOk(b.listKey); if (!listKey) return res.status(400).json({ error: "リストの印がありません" });
+    // Bales への書き込み：書く値（SF の失注情報など＝MC_BALES_FIELDS のラベルと API 名と値）を渡す／書いた印を受け取る（2026-11-15）
+    if (b.writeTodo) { const t = await mcBalesWriteTodo(listKey, b.limit, b.only || "");
+      const items = t.items.map((x) => ({ id: x.id, vals: MC_BALES_FIELDS.map(([lbl, api]) => [lbl, api, x.lead && x.lead[lbl] != null ? String(x.lead[lbl]) : ""]).filter((v) => v[2] !== "") }));
+      return res.json({ ok: true, items, left: t.left, all: t.all, none: !!t.none }); }
+    if (Array.isArray(b.written)) return res.json({ ok: true, n: await mcBalesWritten(listKey, b.written.slice(0, 500).map((x) => ({ k: String(x.id).slice(0, 120), e: String(x.err || "").slice(0, 300) }))) });
+    // 詳しい中身：まだのリードを渡す／読んだ中身を受け取る（2026-11-15 田中さん「架電履歴もカスタム情報も全部」）
+    if (b.todo) return res.json({ ok: true, ...(await mcBalesTodo(listKey, b.limit)) });
+    if (Array.isArray(b.details)) { const items = b.details.slice(0, 100).filter((x) => x && x.id != null).map((x) => { let d = x.detail || {}; let t = JSON.stringify(d); if (t.length > 600000) d = { _cut: true, keys: Object.keys(d) }; return { k: String(x.id).slice(0, 120), d }; });
+      return res.json({ ok: true, n: await mcBalesSetDetail(listKey, items) }); }
+    const total = Number.isFinite(Number(b.total)) && b.total !== null && b.total !== "" ? Number(b.total) : null;
+    if (b.start) { const view = Array.isArray(b.view) ? b.view.slice(0, 40).map((v) => ({ label: String(v.label || "").slice(0, 40), key: String(v.key || "").slice(0, 200) })).filter((v) => v.label && v.key) : null;
+      await mcBalesStart({ listKey, name: String(b.name || listKey).slice(0, 120), src: String(b.src || "").slice(0, 300), total, view }); }
+    let n = 0;
+    if (Array.isArray(b.rows) && b.rows.length) {
+      const seen = new Set(); const rows = [];
+      for (const r0 of b.rows.slice(0, 5000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = mcBalesRowKey(d); if (seen.has(k)) continue; seen.add(k); const rs = JSON.stringify(r0); rows.push({ k, d, r: rs.length < 300000 ? r0 : null }); }
+      n = await mcBalesAddRows(listKey, rows, total);
+    }
+    let count = null; if (b.done) count = await mcBalesFinish(listKey, b.error || "");
+    res.json({ ok: true, n, count });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 一覧の列：Bales のリード一覧なら「会社名・電話番号・担当者名」をいつも先頭に（2026-11-16 田中さん）。
+//   画面から覚えた列は、見出しが日付・数字（＝見出しでなく1行目の中身を読んでしまった）なら使わない
+// 起動のあと1回：取り込み直しで 0 に見えていた SF との結びつき・詳しい中身を、前の行から写し戻す（2026-11-16）
+setTimeout(async () => { try { for (const l of await mcBalesLists()) { const co = await mcBalesCarryOver(l.list_key); console.log(`[Bales] ${l.list_key} 写し戻し：SF ${co.sf}・詳しい中身 ${co.detail}・書き込み ${co.written}`); } } catch (e) { console.warn("[Bales] 写し戻し失敗:", e.message); } }, 60000);
+//   ＋「最終活動日・最終活動タイプ・最終活動コメント・所有者」も（2026-11-16 田中さん）
+const MC_BALES_BASE_VIEW = [{ label: "会社名", key: "companyName" }, { label: "電話番号", key: "companyTel1" }, { label: "担当者名", key: "targetName" },
+  { label: "最終活動日", key: "lastActivityAt" }, { label: "最終活動タイプ", key: "lastActivityTypeText" }, { label: "最終活動コメント", key: "lastActivityComment" }, { label: "所有者", key: "operatorName" }];
+function mcBalesViewFix(l) {
+  const v = Array.isArray(l.view) ? l.view : [];
+  const bad = v.some((x) => /^\d{1,2}\/\d{1,2}/.test(String(x.label || "")) || /^[\d,.:\s]+$/.test(String(x.label || "")));
+  const keys = new Set((Array.isArray(l.cols) ? l.cols : []).map((c) => c.key));
+  // Bales のリード一覧なら（項目の一覧が空でも、bales: のリストなら）いつもの列にする。項目名が snake_case のときはそちらを使う
+  const snake = (k) => k.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase()).replace(/(\D)(\d)/g, "$1_$2");
+  const isBales = keys.has("companyName") || keys.has("company_name") || String(l.list_key || "").startsWith("bales:");
+  if (!isBales) return bad ? { ...l, view: null } : l;
+  const pickKey = (k) => (keys.has(k) || !keys.size ? k : keys.has(snake(k)) ? snake(k) : keys.has(snake(k).replace(/_(\d)/g, "$1")) ? snake(k).replace(/_(\d)/g, "$1") : k);
+  const base = MC_BALES_BASE_VIEW.map((b) => ({ ...b, key: b.key === "companyTel1" && !keys.has("companyTel1") && !keys.has("company_tel1") && keys.has("personalTel") ? "personalTel" : pickKey(b.key) }));
+  const rest = bad ? [] : v.filter((x) => !base.some((b) => b.key === x.key || b.label === x.label));
+  return { ...l, view: [...base, ...rest] };
+}
+app.get("/api/mochica/bales/lists", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const st = await getSettings().catch(() => ({})); res.json({ ok: true, items: (await mcBalesLists()).map(mcBalesViewFix), diag: st.mcBalesDiag || null, wdiag: st.mcBalesWriteDiag || null }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/lists/:key/rows", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    res.json({ ok: true, ...(await mcBalesRows(String(req.params.key), { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: req.query.offset, limit: req.query.limit })) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcBalesRow(String(req.params.key), String(req.params.rid)); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, ...r }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ===== Bales のリードを SF と結びつける（2026-11-15 田中さん「2万件のリードを SF と紐付けて、過去の商談履歴を見られるように」）=====
+//   Bales の SalesforceID＝SF の「Mochica（リード）」の ID（00Q…）。どの項目に入っているかは、値の形（00Q…）で見つける。
+//   リード → 取引先（コンバート先、または失注商談の取引先）→ その取引先の商談すべて、の順に読み、行ごとに sf として残す。
+const _mcBalesSfJob = new Map();   // list_key → { running, step, done, total, error }
+const MC_SF_ID = /^00Q[0-9A-Za-z]{12}([0-9A-Za-z]{3})?$/;
+async function mcBalesSfLink(owner, listKey) {
+  const job = { running: true, step: "Bales の行を読んでいます", done: 0, total: 0, error: "", at: Date.now(), pct: 0, no: 1, of: 6 }; _mcBalesSfJob.set(listKey, job);
+  // 段階ごとの％の幅（全体を 0〜100 に）：1 行を読む／2 会社名で探す／3 リード／4 取引先／5 過去の商談／6 kinbot に書く
+  const SPAN = { 1: [0, 3], 2: [3, 40], 3: [40, 60], 4: [60, 65], 5: [65, 92], 6: [92, 100] };
+  const P = (no, frac, step) => { const [a, b] = SPAN[no]; job.no = no; job.pct = Math.round(a + (b - a) * Math.max(0, Math.min(1, frac || 0))); if (step) job.step = step; };
+  try {
+    const rows = await mcBalesRowsForSf(listKey); job.total = rows.length;
+    // ① SalesforceID（00Q…）：一覧の項目にあればその項目、無ければ元の形・詳しい中身のどこかから
+    const cnt = {}; for (const r of rows.slice(0, 3000)) for (const [k, v] of Object.entries(r.data || {})) if (MC_SF_ID.test(String(v || "").trim())) cnt[k] = (cnt[k] || 0) + 1;
+    const sfKey = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+    const idOf = new Map(), howOf = new Map();
+    for (const r of rows) { const v = String((sfKey && (r.data || {})[sfKey]) || r.sfid || "").trim(); if (MC_SF_ID.test(v)) { idOf.set(r.row_key, v.slice(0, 15)); howOf.set(r.row_key, "SalesforceID"); } }
+    // ② 無いリードは、SF の「Mochica（リード）」を会社名で探して、そのリードの ID を使う（電話番号が合えばそちらを優先）（2026-11-15 田中さん）
+    const rest = rows.filter((r) => !idOf.has(r.row_key));
+    if (rest.length) {
+      P(2, 0, `SF の Mochica リードを読んでいます（会社名で探す ${rest.length.toLocaleString()}件のため）`);
+      const lst = (await mcBalesLists()).find((x) => x.list_key === listKey) || {};
+      const vk = (re) => ((lst.view || []).find((v) => re.test(v.label)) || {}).key;
+      const keys0 = Object.keys((rows[0] && rows[0].data) || {});
+      const coK = vk(/^会社名$/) || keys0.find((k) => /^(companyName|company_name|company\.name|corporateName)$/i.test(k)) || keys0.find((k) => /company/i.test(k) && /name/i.test(k));
+      const telK = vk(/電話/) || keys0.find((k) => /^(phone|tel|phoneNumber|phone_number|telephone)$/i.test(k)) || keys0.find((k) => /(phone|tel)/i.test(k));
+      const nz = (t) => String(t || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人社団|医療法人財団|医療法人|学校法人|特定非営利活動法人|NPO法人|\(株\)|\(有\)|㈱|㈲/g, "").replace(/[\s・,，.。、()（）「」『』【】\-‐_/]/g, "").toLowerCase();   // 「ー」は消さない（カタカナの社名が短くなりすぎるため）
+      const tn = (t) => String(t || "").replace(/[^0-9]/g, "").replace(/^81/, "0");
+      if (coK) {
+        const all = await sfQueryAll(owner, "SELECT Id, Company, Phone, LastModifiedDate FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company != null ORDER BY LastModifiedDate DESC", 150000,
+          (n, t) => P(2, t ? (n / t) * 0.9 : 0, `SF の Mochica リードを読んでいます（${n.toLocaleString()}${t ? ` / ${t.toLocaleString()}` : ""}件）`));
+        P(2, 0.92, `会社名で照らし合わせています（${rest.length.toLocaleString()}件）`);
+        const byCo = new Map(); for (const l of all) { const k = nz(l.Company); if (k.length < 2) continue; const a = byCo.get(k) || []; a.push(l); byCo.set(k, a); }
+        for (const r of rest) {
+          const k = nz((r.data || {})[coK]); if (k.length < 2) continue; const cands = byCo.get(k); if (!cands) continue;
+          const t = telK ? tn((r.data || {})[telK]) : ""; const byTel = t.length >= 9 ? cands.find((l) => tn(l.Phone) === t) : null;
+          const hit = byTel || cands[0]; idOf.set(r.row_key, String(hit.Id).slice(0, 15)); howOf.set(r.row_key, byTel ? "会社名と電話" : "会社名");
+        }
+      }
+    }
+    if (!idOf.size) throw new Error("SalesforceID も、会社名が同じ SF の Mochica リードも見つかりませんでした");
+    const ids = [...new Set(idOf.values())];
+    P(3, 0, "SF のリードを読んでいます");
+    const f = MC_BALES_FIELDS.map(([, api]) => api).join(", ");
+    const leads = new Map();
+    for (let i = 0; i < ids.length; i += 300) {
+      const part = ids.slice(i, i + 300);
+      const recs = await sfQueryAll(owner, `SELECT Id, Name, Company, Status, Owner.Name, IsConverted, ConvertedAccountId, ConvertedOpportunityId, CreatedDate, LastModifiedDate, ${f} FROM Lead WHERE Id IN (${part.map((x) => `'${x}'`).join(",")})`, 400);
+      for (const l of recs) leads.set(String(l.Id).slice(0, 15), l);
+      job.done = Math.min(ids.length, i + 300); P(3, job.done / ids.length, `SF のリードの中身を読んでいます（${job.done.toLocaleString()} / ${ids.length.toLocaleString()}件）`);
+    }
+    // 取引先：コンバート先。無ければ失注商談の取引先
+    P(4, 0, "取引先を探しています");
+    const lostIds = [...new Set([...leads.values()].map((l) => l.LostOppID__c).filter((x) => /^006/.test(String(x || ""))).map((x) => String(x).slice(0, 15)))];
+    const lostAcc = new Map();
+    for (let i = 0; i < lostIds.length; i += 300) { const recs = await sfQueryAll(owner, `SELECT Id, AccountId FROM Opportunity WHERE Id IN (${lostIds.slice(i, i + 300).map((x) => `'${x}'`).join(",")})`, 400).catch(() => []); for (const o of recs) lostAcc.set(String(o.Id).slice(0, 15), o.AccountId); P(4, Math.min(lostIds.length, i + 300) / Math.max(1, lostIds.length), `取引先を探しています（失注商談 ${Math.min(lostIds.length, i + 300).toLocaleString()} / ${lostIds.length.toLocaleString()}）`); }
+    const accOf = (l) => l.ConvertedAccountId || (l.LostOppID__c ? lostAcc.get(String(l.LostOppID__c).slice(0, 15)) : null) || null;
+    const accIds = [...new Set([...leads.values()].map(accOf).filter(Boolean))];
+    P(5, 0, "過去の商談を読んでいます");
+    const opps = new Map();
+    for (let i = 0; i < accIds.length; i += 200) {
+      const recs = await sfQueryAll(owner, `SELECT Id, Name, AccountId, Account.Name, RecordType.Name, StageName, CreatedDate, CloseDate, appointment__c, order_date__c, Amount, owner_text__c, Owner.Name, Loss_Reason__c, Loss_Reason1__c, order_reason_detail__c, Internship_apo__c FROM Opportunity WHERE AccountId IN (${accIds.slice(i, i + 200).map((x) => `'${x}'`).join(",")}) ORDER BY CreatedDate DESC`, 20000);
+      for (const o of recs) { const a = opps.get(o.AccountId) || []; a.push(o); opps.set(o.AccountId, a); }
+      P(5, Math.min(accIds.length, i + 200) / Math.max(1, accIds.length), `過去の商談を読んでいます（取引先 ${Math.min(accIds.length, i + 200).toLocaleString()} / ${accIds.length.toLocaleString()}）`);
+    }
+    // 行ごとにまとめて書く
+    P(6, 0, "kinbot に書いています");
+    const d10 = (v) => (v ? String(v).slice(0, 10) : "");
+    const items = []; let linked = 0;
+    for (const r of rows) {
+      const id = idOf.get(r.row_key); const l = id ? leads.get(id) : null;
+      if (!l) { items.push({ k: r.row_key, d: { none: true, id: id || "" } }); continue; }
+      linked++;
+      const aid = accOf(l); const os = (aid && opps.get(aid)) || [];
+      const lead = { id: l.Id, name: l.Name || "", company: l.Company || "", status: l.Status || "", owner: (l.Owner && l.Owner.Name) || "", converted: !!l.IsConverted, created: d10(l.CreatedDate) };
+      for (const [lbl, api] of MC_BALES_FIELDS) { const v = l[api]; if (v != null && v !== "") lead[lbl] = String(v).replace(/\s+/g, " ").slice(0, 400); }
+      const op = os.slice(0, 30).map((o) => ({ id: o.Id, name: o.Name || "", type: (o.RecordType && o.RecordType.Name) || "", stage: o.StageName || "", date: d10(o.appointment__c || o.CreatedDate), close: d10(o.order_date__c || o.CloseDate), owner: o.owner_text__c || (o.Owner && o.Owner.Name) || "", apo: o.Internship_apo__c || "", lost: [o.Loss_Reason__c, o.Loss_Reason1__c].filter(Boolean).join("／"), detail: String(o.order_reason_detail__c || "").replace(/\s+/g, " ").slice(0, 200) }));
+      const sum = { n: os.length, last: op[0] ? op[0].stage : "", lastDate: op[0] ? op[0].date : "", won: os.some((o) => /^0[6-8]/.test(o.StageName || "") || /受注/.test(o.StageName || "")), lost: os.some((o) => /失注/.test(o.StageName || "")), status: lead.status };
+      items.push({ k: r.row_key, d: { how: howOf.get(r.row_key) || "", lead, accountId: aid || "", account: (os[0] && os[0].Account && os[0].Account.Name) || "", opps: op, sum } });
+    }
+    for (let i = 0; i < items.length; i += 1000) { await mcBalesSetSf(listKey, items.slice(i, i + 1000)); P(6, Math.min(items.length, i + 1000) / items.length, `kinbot に書いています（${Math.min(items.length, i + 1000).toLocaleString()} / ${items.length.toLocaleString()}件）`); }
+    const info = { at: Date.now(), key: sfKey, withId: idOf.size, byId: [...howOf.values()].filter((x) => x === "SalesforceID").length, byName: [...howOf.values()].filter((x) => x !== "SalesforceID").length, linked, accounts: accIds.length, withOpps: items.filter((x) => x.d.sum && x.d.sum.n).length };
+    await mcBalesSfInfo(listKey, info);
+    Object.assign(job, { running: false, step: "終わりました", done: rows.length, info, pct: 100, no: 6 });
+    await saveSettings({ mcBalesSfRun: null }).catch(() => {});
+    console.log(`[bales sf] ${listKey}：SalesforceID あり ${idOf.size}・SF で見つかった ${linked}・過去の商談あり ${info.withOpps}`);
+  } catch (e) { Object.assign(job, { running: false, error: String(e.message || e).slice(0, 300) }); await saveSettings({ mcBalesSfRun: null }).catch(() => {}); console.log(`[bales sf] 止まりました：${e.message}`); }
+}
+// 起動したとき：SF との結びつけが途中で止まっていたら（2時間以内）、最初からやり直す（2026-11-15 デプロイで 83% で止まった）
+setTimeout(async () => { try { const st = await getSettings(); const r = st.mcBalesSfRun; if (r && r.key && r.owner && Date.now() - r.at < 2 * 3600000) { console.log(`[bales sf] 起動したので、止まっていた結びつけをやり直します：${r.key}`); mcBalesSfLink(r.owner, r.key); } } catch {} }, 30000);
+app.post("/api/mochica/bales/lists/:key/sf-link", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const key = String(req.params.key);
+    const j = _mcBalesSfJob.get(key); if (j && j.running) return res.json({ ok: true, job: j });
+    const owner = await pickSfUser(req.user, req); if (!owner) return res.status(400).json({ error: "SF につながっている人が見つかりません。設定の外部連携で SF につないでください" });
+    // kinbot が途中で再起動しても（デプロイなど）、起動したらやり直せるように覚えておく
+    await saveSettings({ mcBalesSfRun: { key, owner, at: Date.now() } }).catch(() => {});
+    mcBalesSfLink(owner, key); res.json({ ok: true, started: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/lists/:key/sf-link", async (req, res) => {
+  if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const key = String(req.params.key); let job = _mcBalesSfJob.get(key) || null;
+  // 再起動のあと、やり直し待ちのとき
+  if (!job) { const st = await getSettings().catch(() => ({})); const r = st.mcBalesSfRun; if (r && r.key === key && Date.now() - r.at < 2 * 3600000) job = { running: true, pct: 0, no: 1, of: 6, step: "kinbot が再起動したので、まもなく最初からやり直します", at: r.at }; }
+  res.json({ ok: true, job });
+});
+app.get("/api/mochica/bales/feeds", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcFeedList() }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 見張りの1日分（日本時間の日付）。時刻の項目（見出しが「日時」などのもの）で絞る。無ければ kinbot が最初に見た時刻で
+app.get("/api/mochica/bales/feeds/:f/day", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const f = String(req.params.f); const fd = (await mcFeedList()).find((x) => x.feed === f); if (!fd) return res.status(404).json({ error: "見張りが見つかりません" });
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    let tk = String(req.query.tkey || ((fd.view || []).find((v) => /日時|時刻|開始|架電日|日付|作成/.test(v.label)) || {}).key || "");
+    // 見出しが分からないときは、中身から日時の項目を探す（架電・開始・作成…の順に）（2026-11-15）
+    if (!tk) { const smp = await mcFeedRange(f, "", new Date(Date.now() - 400 * 86400000).toISOString(), new Date(Date.now() + 86400000).toISOString()).catch(() => []); const d1 = (smp[0] && smp[0].data) || {};
+      const iso = Object.keys(d1).filter((k) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(d1[k] || "")));
+      tk = iso.find((k) => /call/i.test(k)) || iso.find((k) => /(start|begin)/i.test(k)) || iso.find((k) => /created/i.test(k)) || iso[0] || ""; }
+    const d0 = new Date(`${day}T00:00:00+09:00`); const from = new Date(d0.getTime() - 86400000).toISOString().slice(0, 10), to = new Date(d0.getTime() + 2 * 86400000).toISOString().slice(0, 10);
+    const rows = await mcFeedRange(f, tk, tk ? from : new Date(d0.getTime() - 86400000).toISOString(), tk ? to : new Date(d0.getTime() + 2 * 86400000).toISOString());
+    const jst = (v) => { const t = new Date(v); return isNaN(t) ? "" : new Date(t.getTime() + 9 * 3600000).toISOString().slice(0, 10); };
+    const items = rows.filter((r) => jst(tk ? (r.data || {})[tk] : r.first_at) === day).map((r) => r.data);
+    res.json({ ok: true, day, tkey: tk, feed: fd, items });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/mochica/bales/feeds/:f", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); await mcFeedDelete(String(req.params.f)); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete("/api/mochica/bales/lists/:key", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, rows: await mcBalesDelete(String(req.params.key)) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/lists/:key/values", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, items: await mcBalesValues(String(req.params.key), String(req.query.col || "")) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/bales/lists/:key/csv", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const key = String(req.params.key); const l = (await mcBalesLists()).find((x) => x.list_key === key); if (!l) return res.status(404).json({ error: "リストが見つかりません" });
+    const cols = (l.cols || []).map((c) => c.key); const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [cols.map(q).join(",")];
+    for (let off = 0; ; off += 5000) { const r = await mcBalesRows(key, { q: String(req.query.q || ""), col: String(req.query.col || ""), val: String(req.query.val ?? ""), offset: off, limit: 5000 }); for (const d of r.rows) lines.push(cols.map((c) => q(d[c])).join(",")); if (r.rows.length < 5000) break; }
+    res.setHeader("content-type", "text/csv; charset=utf-8"); res.setHeader("content-disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`Bales_${l.name || key}.csv`)}`);
+    res.send("﻿" + lines.join("\r\n"));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/bales/export.csv", async (req, res) => {
   try { if (!req.user) return res.status(401).send("ログインしてください"); const owner = await pickSfUser(req.user, req);
     const d = await mcBalesGet(owner, !!req.query.fresh); const cols = Object.keys(d.rows[0] || { SalesforceID: "" });
@@ -26871,9 +27172,17 @@ app.get("/api/mochica/bales/export.csv", async (req, res) => {
 // ===== MOCHICA：MiiTel の会議を、MOCHICA のメンバーのカレンダーの予定と突き合わせる（2026-11-13 田中さん）=====
 //   開始の時刻が近い（±20分）予定のタイトルから会社名を取り（kinbot と同じ companyFromTitle）、SF の Mochica（リード）・取引先に結びつける
 const _mcCalCache = new Map();   // email -> { at, evs }
-async function mcCalEvents(email) {
+const _mcCalStat = new Map();
+async function mcCalEvents(email, reader = "") {
   const hit = _mcCalCache.get(email); if (hit && Date.now() - hit.at < 10 * 60000) return hit.evs;
-  const evs = await listCalendarEvents(email, "primary", { timeMin: new Date(Date.now() - 30 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() }).catch(() => []);
+  const range = { timeMin: new Date(Date.now() - 60 * 86400000).toISOString(), timeMax: new Date(Date.now() + 86400000).toISOString() };
+  // 本人が Google とつないでいなくても読めるように、つないでいる人（カレンダーを読む代表者など）から本人のカレンダーを読む（2026-11-14）
+  // 読めたかどうか・どこから読んだかを残す（見つからなかった理由に出す）（2026-11-15）
+  let how = "本人の連携"; let err1 = "", err2 = "";
+  let evs = await listCalendarEvents(email, "primary", range).catch((e) => { err1 = String(e.message || e).slice(0, 80); return null; });
+  if ((!evs || !evs.length) && reader && reader !== email) { how = "代表者の連携"; evs = await listCalendarEvents(reader, email, range).catch((e) => { err2 = String(e.message || e).slice(0, 80); return null; }); }
+  const ok = !!evs; evs = evs || [];
+  _mcCalStat.set(email, { ok, how: ok ? how : "", n: evs.length, err: ok ? "" : (err1 || err2 || "") });
   _mcCalCache.set(email, { at: Date.now(), evs }); return evs;
 }
 async function mcMembers(hosts = []) {
@@ -26885,50 +27194,623 @@ async function mcMembers(hosts = []) {
     for (const u of us) if (nz(u.name).startsWith(sur) && !out.some((o) => o.email === String(u.email || "").toLowerCase())) out.push({ name: u.name, email: String(u.email || "").toLowerCase() }); }
   return out;
 }
-async function mcCalMatchOne(r, members, owner) {
+// MOCHICA の商談の予定の見分け方（2026-11-14 田中さん）：
+//   ・【新/ヒ】【新/再提案】で始まる予定（例：【新/ヒ】福井商談_東邦コンサルタント株式会社_川瀬様）
+//   ・「○○株式会社：○○様」「株式会社○○：○○様」の形の予定
+//   これ以外の予定（【】が付いていても）は、自動では商談の予定にしない（画面で選べば使える）
+const MC_CORP = "(?:株式会社|有限会社|合同会社|合名会社|合資会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人|学校法人|特定非営利活動法人|NPO法人)";
+function mcIsDealTitle(t) {
+  const x = String(t || "").normalize("NFKC");
+  if (mcIsStrongDeal(x)) return true;
+  // 頭が【…】で「…様」で終わる予定も商談として拾う（例：【デモ確認・提案】八尾隣保館　百瀬様）。
+  // 本炭さんのカレンダーで、録画の時間の予定がこの形だったため（2026-11-15）。【新/ヒ】などがあればそちらを優先する
+  return /^\s*【[^】]{1,20}】.{2,}(様|さま)\s*$/.test(x.trim());
+}
+// いちばん確かな商談の形（【新/ヒ】【新/再提案】・「会社：人様」）
+function mcIsStrongDeal(t) {
+  const x = String(t || "").normalize("NFKC");
+  if (/【\s*新\s*\/\s*(ヒ|再提案)\s*】/.test(x)) return true;
+  // 「会社：人様」の形（法人の言葉が無くてもよい。例：エコーデリカ：高橋様、TJS：採用ご担当者様）（2026-11-15）
+  return /[^:：\s]{2,40}\s*[:：]\s*[^:：]{1,20}(様|さま)\s*$/.test(x.trim());
+}
+// 予定のタイトルから会社名を読む。「_」区切りや「会社：人様」の形も読めるようにしてから、kinbot と同じ companyFromTitle に渡す
+function mcCoFromTitle(t) {
+  let x = String(t || "").normalize("NFKC").replace(/【[^】]*】/g, " ").replace(/[〇○●◎◯☆★◆◇■□]+/g, " ");   // 予定の頭の「〇」などの印は会社名に入れない（2026-11-14）
+  const ci = x.search(/[:：]/); if (ci > 0 && /(様|さま)\s*$/.test(x)) { const head = x.slice(0, ci).replace(/[_＿]+/g, " ").trim(); const w = head.split(/\s+/); const hit = w.find((y) => new RegExp(MC_CORP).test(y)); return hit ? companyFromTitle(hit) : (w[w.length - 1] || head); }
+  x = x.replace(/[_＿]+/g, " ").replace(/\s+/g, " ").trim();
+  // 「福井商談 東邦コンサルタント株式会社 川瀬様」のように前に別の言葉があるときは、法人の言葉を含むかたまりを選ぶ
+  const part = x.split(" ").find((w) => new RegExp(MC_CORP).test(w));
+  return companyFromTitle(part || x);
+}
+// 会社名から、SF の Mochica（リード）と取引先を探す
+async function mcSfFor(company, owner) {
+  try {
+    const q = String(company || "").replace(/'/g, "\\'"); if (!q || q === "(無題)") return {};
+    const ld = await sfQuery(owner, `SELECT Id, Company FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company = '${q}' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
+    const ac = await sfQuery(owner, `SELECT Id, Name FROM Account WHERE Name = '${q}' LIMIT 1`).catch(() => null);
+    return { leadId: ld && ld.records && ld.records[0] ? ld.records[0].Id : "", accountId: ac && ac.records && ac.records[0] ? ac.records[0].Id : "" };
+  } catch { return {}; }
+}
+async function mcCalMatchOne(r, members, owner, ctx = {}) {
   const st = new Date(r.started_at).getTime(); if (!st) return null;
+  const en = st + Math.max(10 * 60, Number(r.duration_sec) || 30 * 60) * 1000;   // 録画の終わり（長さが無ければ30分）
   const nz = (v) => String(v || "").replace(/[\s　]/g, "");
   // 主催の名前で、まずその人のカレンダーを見る。分からなければ MOCHICA のメンバー全員
   const host = nz(String(r.host && r.host !== "オーナー" ? r.host : String(r.title || "").replace(/^ネオキャリア/, "").replace(/のパーソナルミーティングルーム$/, "").replace(/\s*のミーティング$/, "")).split(/[\s　]/)[0]);
-  const first = members.filter((m) => host && host !== "オーナー" && nz(m.name).startsWith(host));
-  const order = [...first, ...members.filter((m) => !first.includes(m))];
-  let best = null;
+  // 参加者の中の kinbot の人（2026-11-14）を先に、次に主催の苗字が合う人
+  const repEmails = new Set(((ctx.repOf && ctx.repOf(r.participants)) || []).map((x) => x.email));
+  for (const e of repEmails) if (!members.some((m) => m.email === e)) { const rp = ((ctx.repOf && ctx.repOf(r.participants)) || []).find((x) => x.email === e); if (rp) members = [...members, { name: rp.name, email: rp.email }]; }
+  // 画面で選んだ担当がいれば、その人を一番に
+  if (r.mrep && r.mrep.email) { repEmails.add(String(r.mrep.email).toLowerCase()); if (!members.some((m) => m.email === String(r.mrep.email).toLowerCase())) members = [...members, { name: r.mrep.name || r.mrep.email, email: String(r.mrep.email).toLowerCase() }]; }
+  const first = members.filter((m) => repEmails.has(m.email) || (host && host !== "オーナー" && nz(m.name).startsWith(host)));
+  // 担当（参加者の kinbot の人・主催の苗字の人）が分かれば、その人のカレンダーだけを見る（2026-11-15：ほかの人の予定を拾って題名が違っていた）。
+  // 分からないときだけほかのメンバーも見るが、そのときは予定の題名に、参加者（お客様）の名前が入っているものに限る
+  const others = first.length ? [] : members;
+  const neo = (n) => /ネオキャリア|neo-?career/i.test(n) || members.some((m) => { const f = nz(m.name).slice(0, 2); return f && nz(n).startsWith(f) && nz(n).length <= nz(m.name).length + 1; });
+  const guestTokens = String(r.participants || "").split(/[,、，;／\/\n]+/).map((x) => nz(x).replace(/(様|さま|さん)$/, "")).filter((x) => x.length >= 2 && !/^[\w.-]+$/.test(x) && !neo(x));
+  const titleHasGuest = (t) => { const tt = nz(t); return guestTokens.some((g) => tt.includes(g) || (g.length >= 3 && tt.includes(g.slice(0, 2)))); };
+  const order = [...first, ...others];
+  let best = null; const near = [];
   for (const m of order) {
-    const evs = await mcCalEvents(m.email);
+    const evs = await mcCalEvents(m.email, ctx.reader);
     for (const ev of evs) {
-      if (ev.allDay || !ev.start) continue; const d = Math.abs(new Date(ev.start).getTime() - st); if (d > 20 * 60000) continue;
-      if (/休憩|ランチ|移動|ブロック|作業|朝会|夕会|MTG枠|社内/.test(ev.title || "")) continue;
-      const score = d + (ev.url && /zoom|meet|teams/i.test(ev.url) ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000);
-      if (!best || score < best.score) best = { score, ev, m };
+      if (ev.allDay || !ev.start) continue;
+      // 録画している時間に重なる予定、または開始が前後20分の予定（2026-11-14 田中さん：録画の時間の予定にする）
+      const es = new Date(ev.start).getTime(), ee = ev.end ? new Date(ev.end).getTime() : es + 30 * 60000;
+      const d = Math.abs(es - st); const overlap = Math.min(ee, en) - Math.max(es, st);
+      if (d > 20 * 60000 && overlap < 5 * 60000) continue;
+      const t = String(ev.title || "");
+      if (near.length < 4) near.push(`${m.name}「${t.slice(0, 30) || "（題名なし）"}」`);
+      // 商談の予定の形（【新/ヒ】【新/再提案】、「会社：人様」）だけを使う（2026-11-14 田中さん「【】の予定よりは…」）
+      if (!mcIsDealTitle(t)) continue;
+      if (!first.includes(m) && !titleHasGuest(t)) continue;   // 担当でない人の予定は、お客様の名前が入っているときだけ
+      const bracket = true;
+      const score = Math.min(d, 60 * 60000) + (overlap > 0 ? 0 : 10 * 60000) + (first.includes(m) ? 0 : 5 * 60000) + (mcIsStrongDeal(t) ? 0 : 15 * 60000);
+      if (!best || score < best.score) best = { score, ev, m, bracket };
     }
-    if (best && first.includes(m) && best.score < 10 * 60000) break;
+    if (best && best.bracket && first.includes(m) && best.score < 25 * 60000) break;
   }
-  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); return { none: true, reason: `開始の前後20分にカレンダーの予定が見つかりませんでした（見たカレンダー：${tried || "なし"}）`, at: Date.now() }; }
-  const title = best.ev.title || ""; const company = companyFromTitle(title);
-  let sf = {};
-  try {
-    const q = String(company || "").replace(/'/g, "\\'"); if (q && q !== "(無題)") {
-      const ld = await sfQuery(owner, `SELECT Id, Company FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company = '${q}' ORDER BY LastModifiedDate DESC LIMIT 1`).catch(() => null);
-      const ac = await sfQuery(owner, `SELECT Id, Name FROM Account WHERE Name = '${q}' LIMIT 1`).catch(() => null);
-      sf = { leadId: ld && ld.records && ld.records[0] ? ld.records[0].Id : "", accountId: ac && ac.records && ac.records[0] ? ac.records[0].Id : "" };
-    }
-  } catch {}
-  return { title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, sf, at: Date.now() };
+  if (!best) { const tried = order.slice(0, 6).map((m) => m.name).join("・"); const readInfo = order.slice(0, 6).map((m) => { const st = _mcCalStat.get(m.email); return st ? (st.ok ? `${m.name}＝${st.how}で${st.n}件` : `${m.name}＝読めない（${st.err || "Google 未連携か、共有されていない"}）`) : m.name; }).join("・"); return { none: true, v: 7, reason: `録画の時間に商談の予定（【新/ヒ】【新/再提案】・「会社：○○様」・「【…】○○様」）が見つかりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() }; }
+  const title = best.ev.title || ""; const company = mcCoFromTitle(title);
+  const sf = await mcSfFor(company, owner);
+  return { v: 7, title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company, bracket: !!best.bracket, sf, at: Date.now() };
 }
 let _mcCalRunning = false;
 async function mcCalMatchRun(owner) {
   if (_mcCalRunning) return 0; _mcCalRunning = true; let n = 0;
-  try { const rows = await mcMiitelNeedCal(40); if (!rows.length) return 0; const members = await mcMembers(rows.map((r) => r.host || r.title)); if (!members.length) return 0;
-    for (const r of rows) { const c = await mcCalMatchOne(r, members, owner).catch((e) => ({ none: true, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, at: Date.now() } } }); if (c && !c.none) n++; }
+  try { const rows = await mcMiitelNeedCal(40); if (!rows.length) return 0; const members = await mcMembers(rows.map((r) => r.host || r.title)); const repOf = await mcRepIndex().catch(() => null); const st0 = await getSettings().catch(() => ({})); const ctx = { repOf, reader: String(st0.apoScanOwner || st0.apoInviteOwner || owner || "").toLowerCase() }; if (!members.length && !repOf) return 0;
+    for (const r of rows) { const c = await mcCalMatchOne(r, members, owner, ctx).catch((e) => ({ none: true, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, at: Date.now() } } }); if (c && !c.none) n++; }
   } finally { _mcCalRunning = false; } return n;
 }
 setInterval(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || ""; await mcCalMatchRun(o || (await pickSfUser("").catch(() => ""))); } catch {} }, 15 * 60 * 1000);
+// 起動したら、カレンダーの照合をすぐに最後までやり直す（15分を待たない）（2026-11-15 田中さん「今やり直して」）。
+//   決め方を変えた版を上げたとき、全部そろうまで待たなくてよいように。40件ずつ、なくなるまで（多くても20回）
+setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); const o = (st.kxLetterSheet && st.kxLetterSheet.owner) || process.env.SF_PROXY_USER || "";
+  const owner = o || (await pickSfUser("").catch(() => "")); let total = 0;
+  for (let k = 0; k < 20; k++) { const n = await mcCalMatchRun(owner).catch(() => 0); total += n || 0; if (!n) break; }
+  console.log(`[mochica cal] 起動時のやり直し：${total}件`); } catch (e) { console.error("[mochica cal] 起動時のやり直し", e.message); } }, 20000);
+// ===== MOCHICA の SF 連携：ステージごとの項目を、議事録から AI で埋めて、SF の「新規」の商談に書く（2026-11-13 田中さん）=====
+//   項目は SF の画面の「項目の名前（ラベル）」で決め、SF の項目の説明（describe）から本当の項目名・型・選択肢を当てる。
+//   必須：SF の入力チェックで止められた項目を、ステージごとに覚えて（settings.mcSfRequired）、次から空なら書く前に止める
+const MC_STAGE_DEF = [
+  { key: "01", label: "SS01：アポ獲得", re: /^01/, fields: ["IS⇒FS案件パス内容", "SS01昇格日", "アポ獲得日", "初回アポ設定日", "顧客の現状", "初回商談対応者", "金額の合意", "採用人数(MO)", "接触人数(MO)", "利用目的", "利用目的詳細", "3か月以内の意思決定の合意", "活用想定時期", "活用想定時期詳細"] },
+  { key: "02", label: "SS02：有効商談(3ヶ月以内検討)", re: /^02/, fields: ["SS02昇格日", "フロント担当者(先方)", "初回提案商品", "初回提案商品（その他）", "商談メモ", "顧客の課題感", "学生管理の方法", "学生管理方法詳細", "利用中ATS", "利用中ATS利用開始年", "利用中ATS利用開始月", "利用中ATS更新予定月", "競合他社", "競合ATS利用開始日", "母集団形成の方法", "母集団形成の手法", "次回提案形式"] },
+  { key: "03", label: "SS03：担当者合意", re: /^03/, fields: ["SS03昇格日", "企画決定者同席チェック", "決裁フロー", "企画決定者提案予定日", "企画決定者の重視ポイント", "企画決定者への提案形式"] },
+  { key: "04", label: "SS04：企画決定者合意", re: /^04/, fields: ["SS04昇格日", "役員等への稟議等に必要な書類"] },
+  { key: "05", label: "SS05：決裁者合意", re: /^05/, fields: ["目標用_SS05昇格日", "申込書回収想定日"] },
+  { key: "06", label: "SS06：申込書回収完了", re: /^06/, fields: ["SS06昇格日", "☆受失注日", "サーカスNO(メディア用)", "ATS利用状況"] },
+  { key: "99", label: "SS99：失注", re: /^99/, fields: ["☆受失注日", "受失注理由(大項目)", "受失注理由（中項目）", "受失注理由(小項目)", "受失注理由詳細", "バッティング負け競合", "バッティング負け競合更新予定日", "失注後次回アクション日", "ATS利用状況"] },
+  { key: "08", label: "SS08：受注処理完了", re: /^08/, fields: ["導入フォロー担当者", "RI営業担当者", "【LINE】有料プラン利用開始希望日", "コメント", "有料稼働（終了日）", "契約月数", "オンボーディング作成"] },
+];
+const _mcOppDesc = { at: 0, p: null };
+async function mcOppDescribe(owner) { if (_mcOppDesc.p && Date.now() - _mcOppDesc.at < 3600000) return _mcOppDesc.p; _mcOppDesc.at = Date.now(); _mcOppDesc.p = describeObject(owner, "Opportunity").catch((e) => { _mcOppDesc.p = null; throw e; }); return _mcOppDesc.p; }
+const mcLblKey = (v) => String(v || "").normalize("NFKC").replace(/[\s　（）()_・]/g, "").toLowerCase();
+function mcTranscriptText(p) {
+  const out = []; const walk = (o, d) => { if (d > 6 || o == null) return; if (Array.isArray(o)) { for (const x of o) { if (x && typeof x === "object") { const t = x.text || x.phrase || x.content || x.sentence; const sp = x.speaker_name || (x.speaker && (x.speaker.name || x.speaker)) || x.name || ""; if (t) out.push(`${sp ? sp + "：" : ""}${t}`); else walk(x, d + 1); } } return; } if (typeof o === "object") for (const v of Object.values(o)) walk(v, d + 1); };
+  walk(p.mt_phrases || (p.video && p.video.transcript) || [], 0); return out.join("\n");
+}
+async function mcFindOpp(owner, row) {
+  const cal = row && row.payload && row.payload.mt_cal; const aid = cal && cal.sf && cal.sf.accountId;
+  const cols = "Id, Name, StageName, AccountId, Account.Name, CloseDate";
+  // 画面で結びつけた SF の商談があれば、それを使う（kinbot と同じ）。解除したときは自動でも探さない（2026-11-14）
+  const lk = row && row.payload && row.payload.mt_sfopp;
+  if (lk && lk.none) return null;
+  if (lk && lk.id) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Id = '${String(lk.id).replace(/[^A-Za-z0-9]/g, "")}' LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return { ...d.records[0], _linked: true }; }
+  // 会社のカードで結びつけた商談（2026-11-14）
+  { const cm = ((await getSettings().catch(() => ({}))).mcCoSf || {})[mcCoKeyN(cal && cal.company)];
+    if (cm && cm.oppId) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Id = '${String(cm.oppId).replace(/[^A-Za-z0-9]/g, "")}' LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return { ...d.records[0], _linked: true, _byCompany: true }; } }
+  if (aid) { const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE AccountId = '${String(aid).replace(/[^A-Za-z0-9]/g, "")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null); if (d && d.records && d.records[0]) return d.records[0]; }
+  const co = cal && cal.company && cal.company !== "(無題)" ? cal.company : ""; if (!co) return null;
+  const d = await sfQuery(owner, `SELECT ${cols} FROM Opportunity WHERE Account.Name = '${co.replace(/'/g, "\\'")}' AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 1`).catch(() => null);
+  return d && d.records && d.records[0] ? d.records[0] : null;
+}
+// SF の入力チェックの式から「どのステージで、どの項目が空だと止められるか」を読む（2026-11-13 田中さん「API から取る仕組みに」）
+//   例：AND(ISPICKVAL(StageName, "99：失注"), ISBLANK(order_date__c)) → 99 で order_date__c が必須
+//   ステージの番号の比較（VALUE(LEFT(TEXT(StageName),2)) >= 2 など）も読む。レコードタイプの条件があれば「新規」に関係するものだけ
+const _mcVr = { at: 0, p: null };
+async function mcRequiredFromRules(owner) {
+  if (_mcVr.p && Date.now() - _mcVr.at < 6 * 3600000) return _mcVr.p;
+  _mcVr.at = Date.now(); _mcVr.p = (async () => {
+    const rules = await sfValidationRules(owner, "Opportunity");
+    const keys = ["01", "02", "03", "04", "05", "06", "08", "99"]; const map = Object.fromEntries(keys.map((k) => [k, new Set()])); const why = {};
+    for (const r of rules) {
+      const f = String(r.formula || ""); if (!f) continue;
+      const rt = f.match(/RecordType\.(?:Name|DeveloperName)\s*[=<>!]+\s*["']([^"']+)["']/gi); if (rt && !rt.some((x) => /新規/.test(x))) continue;
+      const blanks = [...f.matchAll(/(?:ISBLANK|ISNULL)\(\s*([A-Za-z0-9_]+)\s*\)|LEN\(\s*(?:TEXT\()?\s*([A-Za-z0-9_]+)\s*\)?\s*\)\s*(?:=|<)\s*[01]|ISPICKVAL\(\s*([A-Za-z0-9_]+)\s*,\s*["']{2}\s*\)/gi)].map((m) => m[1] || m[2] || m[3]).filter((x) => x && x !== "StageName");
+      if (!blanks.length) continue;
+      let st = [...f.matchAll(/(?:ISPICKVAL\(\s*StageName\s*,|TEXT\(\s*StageName\s*\)\s*=)\s*["'](\d{2})/gi)].map((m) => m[1]);
+      const ge = f.match(/VALUE\(\s*LEFT\(\s*TEXT\(\s*StageName\s*\)\s*,\s*2\s*\)\s*\)\s*(>=|>)\s*(\d+)/i); if (ge) { const n = Number(ge[2]) + (ge[1] === ">" ? 1 : 0); st = st.concat(keys.filter((k) => Number(k) >= n && k !== "99")); }
+      if (!st.length) continue;
+      for (const k of new Set(st)) if (map[k]) for (const b of blanks) { map[k].add(b); (why[`${k}:${b}`] = why[`${k}:${b}`] || []).push(r.message || r.name); }
+    }
+    return { req: Object.fromEntries(Object.entries(map).map(([k, v]) => [k, [...v]])), why, count: rules.length };
+  })().catch((e) => { _mcVr.p = null; throw e; });
+  return _mcVr.p;
+}
+// ===== MOCHICA の SF 連携：kinbot と同じく、SF の商談を探して結びつける・活動記録を書く（2026-11-14 田中さん）=====
+app.get("/api/mochica/sf/search", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const q = String(req.query.q || "").trim().replace(/[%_\\']/g, "").slice(0, 80); if (!q) return res.json({ ok: true, items: [] });
+    const d = await sfQuery(owner, `SELECT Id, Name, StageName, CloseDate, Account.Name, RecordType.Name, Owner.Name FROM Opportunity WHERE Name LIKE '%${q}%' OR Account.Name LIKE '%${q}%' ORDER BY CreatedDate DESC LIMIT 20`);
+    res.json({ ok: true, items: (d && d.records) || [] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/miitel/meetings/:id/sfopp", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); if (!(await mcMiitelGet(id))) return res.status(404).json({ error: "見つかりません" });
+    const oppId = String((req.body && req.body.oppId) || "").replace(/[^A-Za-z0-9]/g, "");
+    await mcMiitelSave({ id, payload: { mt_sfopp: oppId ? { id: oppId, by: req.user, at: Date.now() } : { none: true, by: req.user, at: Date.now() } } });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 活動記録：結びつけた商談に、SF の活動（ToDo）として書く。活動種別は「商談」、状況は「完了」
+app.post("/api/mochica/sf/activity", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const b = req.body || {}; const oppId = String(b.oppId || "").replace(/[^A-Za-z0-9]/g, ""); if (!oppId) return res.status(400).json({ error: "SF の商談を先に結びつけてください" });
+    const fn = await taskFieldNames(owner).catch(() => ({}));
+    const done = (fn.statusPicklist || []).find((v) => /^(完了|済|Completed|Closed)/i.test(String(v).trim())) || "完了";
+    const data = { WhatId: oppId, Subject: String(b.subject || "商談").slice(0, 250), Description: String(b.description || "").slice(0, 31000), ActivityDate: /^\d{4}-\d{2}-\d{2}$/.test(String(b.date || "")) ? b.date : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10), Status: done };
+    if (fn.actKind) data[fn.actKind] = String(b.kind || "商談");
+    const r = await sfCreateRecord(owner, "Task", data);
+    const vid = String(b.vid || ""); if (vid) await mcMiitelSave({ id: vid, payload: { mt_sfact: { id: (r && (r.id || r.Id)) || "", at: Date.now(), by: req.user } } }).catch(() => {});
+    console.log(`[mochica sf] 活動記録を書きました：${oppId} by ${req.user}`);
+    res.json({ ok: true, id: (r && (r.id || r.Id)) || "" });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 担当を画面で直す（kinbot のアカウントから選ぶ）。参加者から決めたものより先に使う
+app.get("/api/mochica/reps", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const mc = await mcMochicaSet();
+    const us = (await listUsers().catch(() => [])).filter((u) => u && u.email).map((u) => ({ email: String(u.email).toLowerCase(), name: String(u.name || u.email), mochica: mc.has(String(u.email).toLowerCase()) }));
+    us.sort((a, b) => (b.mochica - a.mochica) || a.name.localeCompare(b.name, "ja"));
+    res.json({ ok: true, items: us });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); if (!(await mcMiitelGet(id))) return res.status(404).json({ error: "見つかりません" });
+    const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+    const u = email ? (await listUsers().catch(() => [])).find((x) => String(x.email || "").toLowerCase() === email) : null;
+    if (email && !u) return res.status(400).json({ error: "その人の kinbot アカウントが見つかりません" });
+    await mcMiitelSave({ id, payload: { mt_rep: u ? { email, name: String(u.name || email), manual: true, by: req.user, at: Date.now() } : {} } });
+    res.json({ ok: true, rep: u ? { email, name: u.name || email } : null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 活動記録の「商談から読み取る」：MiiTel の会議の要約・文字起こしから、活動種別・次回アクション種別・日を読む（kinbot の field-suggest と同じ考え方）
+app.post("/api/mochica/sf/task-suggest", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {}; const row = await mcMiitelGet(String(b.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    const p = row.payload || {}; const fields = (Array.isArray(b.fields) ? b.fields : []).filter((f) => f && f.api).slice(0, 12);
+    const m = { summary: (p.mt_review && p.mt_review.summary) || "", transcript: mcTranscriptText(p).slice(0, 40000), created_at: row.started_at || row.received_at };
+    const values = await extractSfTaskValues(m, fields);
+    res.json({ ok: true, values });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 過去の活動：結びつけた商談の活動だけでなく、その会社（取引先）の活動もまとめて SF から読む（2026-11-14 田中さん「過去の活動も SF から読み取るように」）
+//   MOCHICA の新しい商談には活動がまだ無く、これまでのやりとりは取引先責任者や前の商談・オンボーディングに付いているため。
+//   Integration（自動の連携ユーザー）の記録は数が多いので、ふだんは隠して件数だけ返す（all=1 で出す）
+app.get("/api/mochica/sf/tasks", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const oppId = String(req.query.oppId || "").replace(/[^A-Za-z0-9]/g, ""); if (!oppId) return res.status(400).json({ error: "商談が結びついていません" });
+    const o = await sfQuery(owner, `SELECT AccountId FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`).catch(() => null);
+    const aid = o && o.records && o.records[0] && o.records[0].AccountId ? String(o.records[0].AccountId).replace(/[^A-Za-z0-9]/g, "") : "";
+    const fn = await taskFieldNames(owner).catch(() => ({}));
+    const extra = [fn.actKind, fn.nextKind, fn.nextDate].filter(Boolean).join(", ");
+    const where = aid ? `(WhatId = '${oppId}' OR AccountId = '${aid}')` : `WhatId = '${oppId}'`;
+    const d = await sfQuery(owner, `SELECT Id, Subject, Status, IsClosed, ActivityDate, Description, CreatedDate, Owner.Name, What.Name, Who.Name, WhatId${extra ? ", " + extra : ""} FROM Task WHERE ${where} ORDER BY ActivityDate DESC NULLS LAST, CreatedDate DESC LIMIT 80`);
+    const all = (d.records || []).map((t) => ({ id: t.Id, subject: t.Subject, status: t.Status, isClosed: !!t.IsClosed, activityDate: t.ActivityDate, description: t.Description, createdDate: t.CreatedDate,
+      owner: (t.Owner && t.Owner.Name) || "", where: t.WhatId === oppId ? "この商談" : ((t.What && t.What.Name) || (t.Who && t.Who.Name) || ""),
+      actKind: fn.actKind ? t[fn.actKind] || "" : "", nextKind: fn.nextKind ? t[fn.nextKind] || "" : "", nextDate: fn.nextDate ? t[fn.nextDate] || "" : "" }));
+    const isAuto = (t) => /^Integration\b/i.test(t.owner);
+    const showAll = req.query.all === "1";
+    res.json({ ok: true, tasks: showAll ? all : all.filter((t) => !isAuto(t)), hiddenAuto: showAll ? 0 : all.filter(isAuto).length, account: !!aid });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 会社のカードから SF の商談を結びつける（2026-11-14 田中さん「SF を会社カードから紐づけできるように」）。
+//   settings.mcCoSf に会社名（空白を除いた形）ごとに置く。その会社の商談は、商談ごとに結びつけていなければ、これを使う
+const mcCoKeyN = (v) => String(v || "").normalize("NFKC").replace(/[\s　]/g, "");
+// 会社のカードの「SF: ステージ／SF未紐付け」の札（kinbot の商談履歴と同じ）（2026-11-14 田中さん）。
+//   会社のカードで結びつけた商談があればそのステージ、無ければ SF の「新規」の商談を会社名で探して、いちばん新しいもののステージ
+app.post("/api/mochica/co-sf-status", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const cos = [...new Set((Array.isArray(req.body && req.body.companies) ? req.body.companies : []).map((c) => String(c || "").trim()).filter((c) => c && c !== "（会社名なし）"))].slice(0, 120);
+    const map = ((await getSettings().catch(() => ({}))).mcCoSf) || {}; const out = {};
+    const q = (v) => `'${String(v).replace(/\\/g, "").replace(/'/g, "\\'")}'`;
+    const linkedIds = cos.map((c) => map[mcCoKeyN(c)] && map[mcCoKeyN(c)].oppId).filter(Boolean).map((x) => String(x).replace(/[^A-Za-z0-9]/g, ""));
+    const stageById = {};
+    if (linkedIds.length) { const d = await sfQuery(owner, `SELECT Id, StageName FROM Opportunity WHERE Id IN (${linkedIds.map(q).join(",")})`).catch(() => null); for (const r of (d && d.records) || []) stageById[r.Id] = r.StageName || ""; }
+    const rest = cos.filter((c) => !(map[mcCoKeyN(c)] && map[mcCoKeyN(c)].oppId));
+    const autoBy = {};
+    for (let i = 0; i < rest.length; i += 40) { const part = rest.slice(i, i + 40);
+      const d = await sfQuery(owner, `SELECT Id, Name, StageName, Account.Name FROM Opportunity WHERE Account.Name IN (${part.map(q).join(",")}) AND RecordType.Name = '新規' ORDER BY CreatedDate DESC LIMIT 400`).catch(() => null);
+      for (const r of (d && d.records) || []) { const k = mcCoKeyN(r.Account && r.Account.Name); if (!autoBy[k]) autoBy[k] = r; } }
+    for (const c of cos) { const lk = map[mcCoKeyN(c)];
+      if (lk && lk.oppId) out[c] = { company: c, linked: true, oppId: lk.oppId, name: lk.oppName, stage: stageById[lk.oppId] ?? lk.stage ?? "" };
+      else { const a = autoBy[mcCoKeyN(c)]; out[c] = a ? { company: c, linked: false, auto: true, oppId: a.Id, name: a.Name, stage: a.StageName || "" } : { company: c, linked: false }; } }
+    res.json({ ok: true, byCompany: out });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 会社名を直す（会社の概要で）：その会社名の商談をまとめて新しい会社名にし、SF のリード・取引先も探し直す。会社の SF の結びつきも移す（2026-11-14 田中さん）
+app.post("/api/mochica/co-rename", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const from = String((req.body && req.body.from) || "").trim(), to = String((req.body && req.body.to) || "").trim().slice(0, 120);
+    if (!from || !to) return res.status(400).json({ error: "会社名が空です" });
+    if (from === to) return res.json({ ok: true, n: 0 });
+    const rows = (await mcMiitelList(2000)).filter((r) => r.cal && mcCoKeyN(r.cal.company) === mcCoKeyN(from));
+    const sf = await mcSfFor(to, owner);
+    for (const r of rows) await mcMiitelSave({ id: r.id, payload: { mt_cal: { ...r.cal, company: to, sf, manual: true, renamedFrom: from, by: req.user, at: Date.now() } } });
+    const st = await getSettings().catch(() => ({})); const map = { ...(st.mcCoSf || {}) };
+    if (map[mcCoKeyN(from)] && !map[mcCoKeyN(to)]) { map[mcCoKeyN(to)] = { ...map[mcCoKeyN(from)], company: to }; delete map[mcCoKeyN(from)]; await saveSettings({ mcCoSf: map }); }
+    console.log(`[mochica] 会社名を直しました：${from} → ${to}（${rows.length}件） by ${req.user}`);
+    res.json({ ok: true, n: rows.length, sf });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/co-sf", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const map = ((await getSettings().catch(() => ({}))).mcCoSf) || {}; res.json({ ok: true, link: map[mcCoKeyN(req.query.company)] || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/co-sf", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const b = req.body || {}; const key = mcCoKeyN(b.company); if (!key) return res.status(400).json({ error: "会社名がありません" });
+    const map = { ...(((await getSettings().catch(() => ({}))).mcCoSf) || {}) };
+    const oppId = String(b.oppId || "").replace(/[^A-Za-z0-9]/g, "");
+    if (!oppId) { delete map[key]; await saveSettings({ mcCoSf: map }); return res.json({ ok: true, link: null }); }
+    const d = await sfQuery(owner, `SELECT Id, Name, StageName, AccountId, Account.Name FROM Opportunity WHERE Id = '${oppId}' LIMIT 1`);
+    const o = d && d.records && d.records[0]; if (!o) return res.status(404).json({ error: "SF の商談が見つかりません" });
+    map[key] = { company: String(b.company).slice(0, 120), oppId: o.Id, oppName: o.Name, stage: o.StageName || "", accountId: o.AccountId || "", accountName: (o.Account && o.Account.Name) || "", by: req.user, at: Date.now() };
+    await saveSettings({ mcCoSf: map }); res.json({ ok: true, link: map[key] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// SF 連携の中身（結びついた商談・ステージごとの項目・いまの値・必須）。画面と Claude（kinbot コネクタ）の両方で使う（2026-11-14）
+async function mcSfFormData(owner, row) {
+    const desc = await mcOppDescribe(owner); const all = (desc.fields || []);
+    const byLbl = new Map(all.map((f) => [mcLblKey(f.label), f]));
+    const stageField = all.find((f) => f.name === "StageName"); const stages = (stageField && stageField.picklistValues || []).filter((o) => o.active).map((o) => o.value);
+    const opp = await mcFindOpp(owner, row);
+    const names = new Set(); const defs = MC_STAGE_DEF.map((st) => ({ key: st.key, label: st.label, stageValue: stages.find((v) => st.re.test(v)) || "", fields: st.fields.map((lbl) => { const f = byLbl.get(mcLblKey(lbl)); if (f) names.add(f.name); return f ? { label: f.label, name: f.name, type: f.type, options: (f.picklistValues || []).filter((o) => o.active).map((o) => o.value), length: f.length || 0, updateable: !!f.updateable } : { label: lbl, name: "", missing: true }; }) }));
+    let cur = {}; if (opp && names.size) { const d = await sfQuery(owner, `SELECT ${[...names].join(", ")} FROM Opportunity WHERE Id = '${opp.Id}'`).catch(() => null); cur = (d && d.records && d.records[0]) || {}; }
+    const learned = ((await getSettings().catch(() => ({}))).mcSfRequired) || {};
+    let fromRules = { req: {}, why: {}, count: 0 }, rulesErr = ""; try { fromRules = await mcRequiredFromRules(owner); } catch (e) { rulesErr = String(e.message || e).slice(0, 160); }
+    const reqd = {}; for (const k of new Set([...Object.keys(learned), ...Object.keys(fromRules.req || {})])) reqd[k] = [...new Set([...(learned[k] || []), ...((fromRules.req || {})[k] || [])])];
+    return { ok: true, opp, stages, defs, current: cur, required: reqd, requiredWhy: fromRules.why || {}, rulesCount: fromRules.count || 0, rulesErr, sfBase: "https://ap10.lightning.force.com" };
+}
+// Claude（kinbot コネクタ）から MOCHICA の商談を読む・SF を直すための道具（2026-11-14 田中さん「MOCHICA でもクロードから文字起こしを引っ張ってきたり SF の更新ができたりしたい」）
+mcpHooks.mochica = { setTitle: (id, b, user) => mcSetTitle(id, b, user), transcriptText: (p) => mcTranscriptText(p), repIndex: () => mcRepIndex(), sfFormData: (owner, row) => mcSfFormData(owner, row), pickSfUser: (u) => pickSfUser(u), coKey: (v) => mcCoKeyN(v), settings: () => getSettings() };
+// SF の項目の形（describe）と入力チェックは、起動して少ししたら先に読んでおき、50分ごとに読み直す（会社カードの SF の欄を速く出すため）（2026-11-15）
+const mcSfWarm = async () => { try { const op = await sfOperator(); if (!op) return; await mcOppDescribe(op).catch(() => {}); await mcRequiredFromRules(op).catch(() => {}); } catch {} };
+setTimeout(mcSfWarm, 45000); setInterval(() => { _mcOppDesc.at = 0; mcSfWarm(); }, 50 * 60000);
+
+// ===== 商談の取引先に「業種」「従業員数」を必ず入れる見張り（2026-11-16 田中さん「業種と従業員数は商談をつくるときの必須にする。100%」）=====
+//   kinbot の立ち上げ画面と Claude では必須にしたが、SF の画面で直接つくる商談は止められない。
+//   そこで平日 9〜20 時に 30 分ごと、直近 14 日につくられた商談の取引先で空のものを探し、調べて入れる。
+//   調べても分からなかったものは、商談の担当に Google Chat で「SF で入れてください」と1回だけ知らせる。
+const ACCT_FILL_DAYS = 14, ACCT_FILL_MAX = 20;
+let _acctFill = { running: false, at: 0, last: null };
+async function acctFillRun({ force = false } = {}) {
+  if (_acctFill.running) return _acctFill.last;
+  const jst = new Date(Date.now() + 9 * 3600 * 1000); const h = jst.getUTCHours(), dow = jst.getUTCDay();
+  if (!force && (dow === 0 || dow === 6 || h < 9 || h >= 20)) return null;
+  const op = await sfOperator(); if (!op) return null;
+  _acctFill.running = true;
+  const out = { at: new Date().toISOString(), checked: 0, industry: 0, employees: 0, left: [], errors: [] };
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const tried = { ...(st.acctFillTried || {}) };   // 取引先ID → { at, n, told }（何度も調べ直さない・知らせるのは1回）
+    const d = await sfQuery(op, `SELECT Id, AccountId, Account.Name, Account.Industry, Account.NumberOfEmployees, Account.Website, Owner.Name, Owner.Email, Name FROM Opportunity WHERE CreatedDate = LAST_N_DAYS:${ACCT_FILL_DAYS} AND AccountId != null AND (Account.Industry = null OR Account.NumberOfEmployees = null) ORDER BY CreatedDate DESC LIMIT 200`);
+    const seen = new Set(); const todo = [];
+    for (const o of (d && d.records) || []) { if (seen.has(o.AccountId)) continue; seen.add(o.AccountId); todo.push(o); }
+    const now = Date.now(); let n = 0;
+    for (const o of todo) {
+      const t = tried[o.AccountId] || { at: 0, n: 0, told: false };
+      if (n >= ACCT_FILL_MAX) break;
+      if (t.n >= 3 || now - t.at < 6 * 3600000) { out.left.push({ account: o.Account.Name, owner: o.Owner && o.Owner.Name, needIndustry: !o.Account.Industry, needEmployees: !(Number(o.Account.NumberOfEmployees) > 0) }); continue; }
+      n++; out.checked++;
+      const a = o.Account || {}; const f = {};
+      if (!a.Industry) { const g = await kbGuessIndustry(op, a.Name, { website: a.Website || "" }).catch(() => ""); if (g) f.Industry = g; }
+      if (!(Number(a.NumberOfEmployees) > 0)) { const e = await kbGuessEmployees(op, a.Name, { website: a.Website || "" }).catch(() => 0); if (e) f.NumberOfEmployees = e; }
+      if (Object.keys(f).length) {
+        try { await sfUpdateRecord(op, "Account", o.AccountId, f); if (f.Industry) out.industry++; if (f.NumberOfEmployees) out.employees++; console.log(`[取引先の補完] ${a.Name} ← ${Object.entries(f).map(([k, v]) => `${k}=${v}`).join(" ")}`); }
+        catch (e) { out.errors.push(`${a.Name}：${String(e.message || e).slice(0, 120)}`); }
+      }
+      const needI = !a.Industry && !f.Industry, needE = !(Number(a.NumberOfEmployees) > 0) && !f.NumberOfEmployees;
+      tried[o.AccountId] = { at: now, n: t.n + 1, told: t.told };
+      if (needI || needE) {
+        out.left.push({ account: a.Name, owner: o.Owner && o.Owner.Name, needIndustry: needI, needEmployees: needE });
+        const mail = o.Owner && o.Owner.Email;
+        if (!t.told && mail && st.acctFillNotify === true) {   // 担当への知らせは、田中さんが「知らせてよい」と決めてから（設定 acctFillNotify）
+          const what = [needI ? "業種" : "", needE ? "従業員数" : ""].filter(Boolean).join("と");
+          const msg = `【SF】「${a.Name}」の取引先に${what}が入っていません。kinbot で調べても分かりませんでした。\n商談をつくるときの必須なので、会社のサイトや求人で確かめて SF の取引先に入れてください。\nhttps://ap10.lightning.force.com/lightning/r/Account/${o.AccountId}/view`;
+          const r = await notifyPerson(mail, msg).catch(() => ({ ok: false }));
+          if (r && r.ok) tried[o.AccountId].told = true;
+        }
+      } else delete tried[o.AccountId];
+    }
+    // 14日より古い記録は捨てる（設定を大きくしない）
+    for (const [k, v] of Object.entries(tried)) if (now - (v.at || 0) > ACCT_FILL_DAYS * 86400000) delete tried[k];
+    await saveSettings({ acctFillTried: tried, acctFillLast: { ...out, left: out.left.slice(0, 50) } }).catch(() => {});
+    console.log(`[取引先の補完] 見た ${out.checked} 社・業種 ${out.industry}・従業員数 ${out.employees}・残り ${out.left.length}`);
+  } catch (e) { out.errors.push(String(e.message || e).slice(0, 200)); console.warn("[取引先の補完] 失敗:", e.message); }
+  finally { _acctFill.running = false; _acctFill.at = Date.now(); _acctFill.last = out; }
+  return out;
+}
+setTimeout(() => acctFillRun().catch(() => {}), 120000); setInterval(() => acctFillRun().catch(() => {}), 30 * 60000);
+// いまの様子を見る・すぐ動かす（管理者）
+app.get("/api/sf/account-fill", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const st = await getSettings().catch(() => ({})); res.json({ ok: true, running: _acctFill.running, last: _acctFill.last || st.acctFillLast || null }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/sf/account-fill/run", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); acctFillRun({ force: true }).catch(() => {}); res.json({ ok: true, started: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/mochica/sf/form", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const row = await mcMiitelGet(String(req.query.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    // 会社のカードから開いたときは、会社で結びつけた SF の商談を使う（商談ごとの結びつきは見ない）（2026-11-15）
+    if (req.query.co === "1" && row.payload) { const pl = { ...row.payload }; delete pl.mt_sfopp; row.payload = pl; }
+    res.json(await mcSfFormData(owner, row));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/sf/fill", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const b = req.body || {}; const row = await mcMiitelGet(String(b.vid || "")); if (!row) return res.status(404).json({ error: "会議が見つかりません" });
+    const fields = (Array.isArray(b.fields) ? b.fields : []).filter((f) => f && f.name).slice(0, 40);
+    const tr = mcTranscriptText(row.payload || {}).slice(0, 60000); if (!tr) return res.status(400).json({ error: "この会議には文字起こしがまだありません" });
+    const cal = (row.payload || {}).mt_cal || {}; const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); const mdate = row.started_at ? new Date(new Date(row.started_at).getTime() + 9 * 3600000).toISOString().slice(0, 10) : today;
+    const spec = fields.map((f) => `- ${f.name}（${f.label}／${f.type}${f.options && f.options.length ? `／選択肢：${f.options.join("|")}` : ""}）`).join("\n");
+    const sys = "あなたは MOCHICA（新卒採用の LINE ツール）の営業アシスタントです。商談の文字起こしだけを根拠に、Salesforce の商談の項目を埋めます。文字起こしに無いことは書かず、その項目は出しません。選択肢のある項目は選択肢の文字列そのままにします。日付は YYYY-MM-DD、チェックは true/false、数値は数字だけ。テキストは簡潔に（商談メモ・顧客の現状は箇条書きで、要点を落とさない）。出力は {\"項目名\": 値} の JSON だけ。";
+    const out = await callLLMPublic(sys, `商談：${cal.title || row.title || ""}（${mdate}、会社：${cal.company || ""}）\n今日：${today}\n\n埋める項目：\n${spec}\n\n文字起こし：\n${tr}`, 3000, { provider: "anthropic" });
+    let vals = {}; try { vals = typeof out === "string" ? JSON.parse(String(out).replace(/^```json|```$/g, "").trim()) : out || {}; } catch { vals = {}; }
+    const ok = new Set(fields.map((f) => f.name)); for (const k of Object.keys(vals)) if (!ok.has(k)) delete vals[k];
+    // 昇格日は、この会議の日付を入れる（文字起こしに無くても）
+    for (const f of fields) if (/昇格日/.test(f.label) && !vals[f.name]) vals[f.name] = mdate;
+    res.json({ ok: true, values: vals });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mochica/sf/save", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const owner = await pickSfUser(req.user, req);
+    const b = req.body || {}; const oppId = String(b.oppId || "").replace(/[^A-Za-z0-9]/g, ""); if (!oppId) return res.status(400).json({ error: "商談がありません" });
+    const key = String(b.stageKey || ""); const fields = { ...(b.fields || {}) }; for (const k of Object.keys(fields)) if (fields[k] === "" || fields[k] == null) delete fields[k];
+    if (b.stageValue) fields.StageName = String(b.stageValue);
+    // 覚えている必須が空なら、書く前に止める
+    const st = await getSettings().catch(() => ({})); let fr = []; try { fr = ((await mcRequiredFromRules(owner)).req || {})[key] || []; } catch {} const reqd = [...new Set([...((st.mcSfRequired && st.mcSfRequired[key]) || []), ...fr])];
+    const lack = reqd.filter((n) => fields[n] == null && !(b.current && b.current[n] != null && b.current[n] !== ""));
+    if (lack.length) return res.json({ ok: false, needs: lack, errors: [{ message: "このステージで必須の項目が空です。入れてから書いてください。", fields: lack }] });
+    const r = await sfPatchRaw(owner, "Opportunity", oppId, fields);
+    if (!r.ok) {
+      // SF の入力チェックで止められた項目を、このステージの必須として覚える
+      const nf = [...new Set(r.errors.flatMap((e) => e.fields || []))];
+      if (nf.length && key) { const m = { ...(st.mcSfRequired || {}) }; m[key] = [...new Set([...(m[key] || []), ...nf])]; await saveSettings({ mcSfRequired: m }).catch(() => {}); }
+      return res.json({ ok: false, needs: nf, errors: r.errors });
+    }
+    if (b.vid) await mcMiitelSave({ id: String(b.vid), kind: "SF に記録", payload: { mt_sf: { oppId, stage: fields.StageName || "", at: Date.now(), by: req.user } } }).catch(() => {});
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// MiiTel の参加者から、kinbot のアカウントの人を商談者として見つける（2026-11-14 田中さん）。
+//   MiiTel の主催者は共有の「オーナー」なので、だれの商談か分からない。参加者の名前で決める。
+//   ① 参加者の名前が kinbot のアカウントの名前と同じ（空白は見ない）
+//   ② 参加者が「ネオキャリア＋苗字」（例：ネオキャリア 山下）なら、その苗字の kinbot のアカウント
+//   お客様と苗字が同じになることがあるので、苗字だけの参加者（「山下」）では決めない。
+//   同じ苗字の人が何人もいるときは、MOCHICA のメンバーを先にし、それでも1人に決まらなければ決めない。
+// MOCHICA のメンバー（メール）の決め方（2026-11-16 田中さん「植野・江田・佐藤・中澤など MOCHICA じゃないメンバーもいる」）：
+//   ① 担当→チームの対応（rep_team_mapping）の事業が決まっていれば、それに従う（MOCHICA なら入れる・DOC なら入れない）
+//   ② 決まっていなければ、メンバー管理の事業が MOCHICA だけの人（DOC と両方付いている人は入れない）
+async function mcMochicaSet() {
+  const nz = (v) => String(v || "").replace(/[\s\u3000]/g, "");
+  const prod = await listRepProducts().catch(() => ({})); const pmap = new Map(Object.entries(prod || {}).map(([n, p]) => [nz(n), p]));
+  const us = await listUsers().catch(() => []); const nameOf = new Map(us.map((u) => [String(u.email || "").toLowerCase(), u.name]));
+  const out = new Set();
+  for (const m of await listMembers().catch(() => [])) {
+    const email = String(m.email || "").toLowerCase(); if (!email) continue;
+    const p = pmap.get(nz(m.name)) || pmap.get(nz(nameOf.get(email)));
+    const biz = Array.isArray(m.businesses) ? m.businesses : [];
+    if (p ? p === "MOCHICA" : (biz.includes("MOCHICA") && !biz.includes("DOC"))) out.add(email);
+  }
+  return out;
+}
+async function mcRepIndex() {
+  const norm = (v) => String(v || "").replace(/[\s\u3000]+/g, "").trim();
+  const users = (await listUsers().catch(() => [])).filter((u) => u && u.email && String(u.name || "").trim());
+  const mochica = await mcMochicaSet();
+  const byName = new Map(), byFam = new Map();
+  for (const u of users) {
+    const rep = { email: String(u.email).toLowerCase(), name: String(u.name).trim() };
+    byName.set(norm(rep.name), rep);
+    const f = norm(mcFamilyName(rep.name)); if (!f) continue;
+    if (!byFam.has(f)) byFam.set(f, []); byFam.get(f).push(rep);
+  }
+  const pick = (list) => { if (!list || !list.length) return null; if (list.length === 1) return list[0]; const mc = list.filter((r) => mochica.has(r.email)); return mc.length === 1 ? mc[0] : null; };
+  const fn = (participants) => {
+    const ps = String(participants || "").split(/[,、，;／\/\n]+/).map((p) => p.trim()).filter(Boolean).slice(0, 30);
+    const reps = [];
+    for (const p of ps) {
+      const n = norm(p).replace(/(様|さん)$/, "");
+      let hit = byName.get(n) || null;
+      if (!hit) { const m = n.match(/^(?:株式会社)?ネオキャリア(?:株式会社)?[・:：\-]?(.{1,4})$/) || n.match(/^([^（(]{1,4})[（(]?(?:株式会社)?ネオキャリア[)）]?$/); if (m) hit = pick(byFam.get(m[1])); }
+      if (hit && !reps.some((r) => r.email === hit.email)) reps.push(hit);
+    }
+    // MOCHICA のメンバーを先に（DOC の人など MOCHICA 以外も参加するため、MOCHICA の人の商談として取る）（2026-11-16 田中さん）
+    return reps.map((r) => ({ ...r, mochica: mochica.has(r.email) })).sort((x, y) => (y.mochica - x.mochica));
+  };
+  return Object.assign(fn, { mochica });
+}
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    const items = await mcMiitelList(200);
+    const items0 = await mcMiitelList(5000);   // 前は新しい200件だけだった。MiiTel の過去の会議（3/1〜・1600件以上）も全部出す（2026-11-16 田中さん「読み込まれているのに商談の数が変わらない」）
+    const repOf = await mcRepIndex().catch(() => () => []);
+    const coSf = ((await getSettings().catch(() => ({}))).mcCoSf) || {};
+    const items1 = items0.map((m) => (m.cal && coSf[mcCoKeyN(m.cal.company)] ? { ...m, cosf: coSf[mcCoKeyN(m.cal.company)] } : m)).map((m) => { if (m.mrep && m.mrep.email) return { ...m, rep: m.mrep, reps: [m.mrep], manualRep: true };   // 画面で決めた担当がいちばん
+      const reps = repOf(m.participants); return reps.length ? { ...m, rep: reps[0], reps } : m; });
+    // ここには MOCHICA のメンバーの商談だけを出す（2026-11-16 田中さん）。参加者に MOCHICA の人がいなければ出さない（画面で担当を決めたものは出す）。
+    //   （画面で決めた担当も MOCHICA のメンバーのときだけ）MOCHICA のメンバーが1人も登録されていないときは、今までどおり全部出す（消えたように見えないように）
+    const mcSet = (repOf && repOf.mochica) || new Set();
+    const items = mcSet.size ? items1.filter((m) => m.rep && mcSet.has(String(m.rep.email || "").toLowerCase())) : items1;
+    // 一緒に参加した MOCHICA 以外の人（DOC など）のカードにも出ていたので、reps も MOCHICA の人だけにする（画面は reps の全員のカードに出す）
+    if (mcSet.size) for (const m of items) if (Array.isArray(m.reps)) m.reps = m.reps.filter((r) => mcSet.has(String(r.email || "").toLowerCase()));   // 画面で決めた担当でも MOCHICA の人でなければ出さない
+    const hidden = items1.length - items.length;
     const owner = await pickSfUser(req.user, req).catch(() => req.user); mcCalMatchRun(owner).catch(() => {});   // まだのものは裏で突き合わせる
-    res.json({ ok: true, items }); }
+    res.json({ ok: true, items, hidden, mochicaMembers: mcSet.size }); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+// MOCHICA の商談も、kinbot と同じく「商談の段階」（ヒアリング・デモ・質疑・懸念…）に分ける（2026-11-14 田中さん）。
+//   文字起こしの形は MiiTel の届き方でまちまちなので、画面で読みそろえたもの（{s:話した人, t:言葉, at:秒}）を送ってもらう。
+//   できた段階は payload.mt_chapters に置き、次からは作らずに出す。force で作り直す。
+app.post("/api/mochica/miitel/meetings/:id/chapters", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || "");
+    const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const old = row.payload && row.payload.mt_chapters;
+    if (old && Array.isArray(old.chapters) && old.chapters.length && !(req.body && req.body.force)) return res.json({ chapters: old.chapters });
+    const lines = (Array.isArray(req.body && req.body.tr) ? req.body.tr : []).slice(0, 4000)
+      .map((u) => ({ speaker: { name: String((u && u.s) || "").slice(0, 40) }, text: String((u && u.t) || "").slice(0, 400), off: Number.isFinite(+(u && u.at)) && u.at !== null ? +u.at : undefined }))
+      .filter((u) => u.text);
+    if (lines.length < 6) return res.json({ chapters: [], reason: "文字起こしが短いので、段階に分けられません" });
+    const raw = await splitPhases({ transcript: lines, repName: String((req.body && req.body.rep) || "") });
+    const chapters = buildChapters(lines, raw);
+    await mcMiitelSave({ id, payload: { mt_chapters: { chapters, at: Date.now(), by: req.user } } });
+    res.json({ chapters });
+  } catch (e) { console.error("[mochica chapters]", e.message); res.status(502).json({ error: e.message }); }
+});
+// MOCHICA の商談の要約（＋営業フィードバック）。kinbot の商談履歴と同じ作り（analyzeMeeting）で作る（2026-11-14 田中さん「要約もつくるか」）。
+//   画面で読みそろえた文字起こしを受け取り、payload.mt_review に置く。次からは作らずに出す。force で作り直す。
+app.post("/api/mochica/miitel/meetings/:id/summary", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || "");
+    const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const old = row.payload && row.payload.mt_review;
+    if (old && old.summary && Object.keys(old.summary).length && !(req.body && req.body.force)) return res.json(old);
+    const tr = (Array.isArray(req.body && req.body.tr) ? req.body.tr : []).slice(0, 4000).map((u) => ({ s: String((u && u.s) || "").slice(0, 40), t: String((u && u.t) || "").slice(0, 600) })).filter((u) => u.t);
+    if (tr.length < 6) return res.status(400).json({ error: "文字起こしが短いので、要約を作れません" });
+    const text = tr.map((u) => `${u.s || "話者"}: ${u.t}`).join("\n");
+    const speakers = [...new Set(tr.map((u) => u.s).filter(Boolean))].slice(0, 12);
+    const dateStr = row.started_at ? new Date(new Date(row.started_at).getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "";
+    const r = await analyzeMeeting({ transcript: text, repName: String((req.body && req.body.rep) || ""), dateStr, speakers });
+    const review = { summary: r.summary || {}, feedback: r.feedback || {}, at: Date.now(), by: req.user };
+    await mcMiitelSave({ id, payload: { mt_review: review } });
+    res.json(review);
+  } catch (e) { console.error("[mochica summary]", e.message); res.status(502).json({ error: e.message }); }
+});
+// 商談の題名を、Google カレンダーの予定から選ぶ・自分で直す（kinbot の商談履歴と同じ）（2026-11-14 田中さん）
+//   候補：その日の、参加者の kinbot の人・主催の苗字の人・MOCHICA のメンバー・開いている本人のカレンダーの予定。商談の形の予定と、録画の時間に近いものを上に
+app.get("/api/mochica/miitel/meetings/:id/cal-cands", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const row = await mcMiitelGet(String(req.params.id || "")); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const st = row.started_at ? new Date(row.started_at).getTime() : Date.now();
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || "")) ? String(req.query.date) : new Date(st + 9 * 3600000).toISOString().slice(0, 10);
+    const d0 = Date.parse(day + "T00:00:00+09:00"), d1 = d0 + 86400000;
+    const repOf = await mcRepIndex().catch(() => null);
+    const reps = (repOf && repOf(row.participants)) || [];
+    const ms = [...reps, ...(await mcMembers([row.host || row.title]).catch(() => []))];
+    const me = String(req.user).toLowerCase(); if (!ms.some((m) => m.email === me)) ms.push({ email: me, name: (await listUsers().catch(() => [])).find((u) => String(u.email || "").toLowerCase() === me)?.name || me });
+    const seen = new Set(); const people = ms.filter((m) => m && m.email && !seen.has(m.email) && seen.add(m.email)).slice(0, 14);
+    const s0 = await getSettings().catch(() => ({})); const reader = String(s0.apoScanOwner || s0.apoInviteOwner || req.user || "").toLowerCase();
+    // 60日より前の日は、本人のつないだカレンダーから直接その日を読む
+    const old = d0 < Date.now() - 59 * 86400000;
+    const out = []; const seenEv = new Set();
+    for (const m of people) {
+      let evs = [];
+      if (old) { evs = await listCalendarEvents(m.email, "primary", { timeMin: new Date(d0).toISOString(), timeMax: new Date(d1).toISOString() }).catch(() => null) || await listCalendarEvents(reader, m.email, { timeMin: new Date(d0).toISOString(), timeMax: new Date(d1).toISOString() }).catch(() => []); }
+      else evs = await mcCalEvents(m.email, reader);
+      for (const ev of evs || []) {
+        if (ev.allDay || !ev.start) continue; const es = new Date(ev.start).getTime(); if (es < d0 || es >= d1) continue;
+        const k = (ev.title || "") + "|" + ev.start; if (seenEv.has(k)) continue; seenEv.add(k);
+        out.push({ title: ev.title || "", start: ev.start, end: ev.end || null, eventId: ev.id || "", owner: m.email, ownerName: m.name, deal: mcIsDealTitle(ev.title), near: Math.round(Math.abs(es - st) / 60000) });
+      }
+    }
+    out.sort((a, b) => (b.deal - a.deal) || (a.near - b.near));
+    res.json({ ok: true, date: day, people: people.map((p) => p.name), events: out.slice(0, 60) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 商談の題名（と会社名）を手で決める。画面と Claude（kinbot コネクタの set_meeting_title）の両方で使う（2026-11-15 田中さん）
+async function mcSetTitle(id, b, user, req = null) {
+    const row = await mcMiitelGet(String(id || "")); if (!row) throw Object.assign(new Error("見つかりません"), { status: 404 });
+    const title = String((b && b.title) || "").trim().slice(0, 200);
+    if (!title) throw Object.assign(new Error("題名が空です"), { status: 400 });
+    const owner = await pickSfUser(user, req).catch(() => user);
+    const company = String(b.company || "").trim().slice(0, 120) || mcCoFromTitle(title);
+    const prev = (row.payload && row.payload.mt_cal) || {};
+    const cal = { v: 3, manual: true, title, start: b.start || prev.start || null, owner: b.owner || prev.owner || "", ownerName: b.ownerName || prev.ownerName || "", eventId: b.eventId || "", company, sf: await mcSfFor(company, owner), by: user, at: Date.now() };
+    await mcMiitelSave({ id, payload: { mt_cal: cal } });
+    return cal;
+}
+app.post("/api/mochica/miitel/meetings/:id/cal", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const cal = await mcSetTitle(String(req.params.id || ""), req.body || {}, req.user, req);
+    res.json({ ok: true, cal });
+  } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+});
+// ===== 御礼メール：kinbot の商談履歴と同じ作り（型・商談回数・資料URL → 本文と確認事項）（2026-11-14 田中さん「DOC とまったく同じことができるように」）=====
+//   担当（画面で選んだ人、なければ参加者から決めた人）の名前・登録リンク・御礼メールのプロンプトを使う
+app.post("/api/mochica/miitel/meetings/:id/thanks", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const tr = (Array.isArray(b.tr) ? b.tr : []).slice(0, 4000).map((u) => `${String((u && u.s) || "").slice(0, 40)}: ${String((u && u.t) || "").slice(0, 600)}`).filter((x) => x.length > 2);
+    const transcript = tr.join("\n"); if (!transcript.trim()) return res.status(400).json({ error: "この商談には文字起こしがありません" });
+    const repEmail = String(b.repEmail || "").toLowerCase() || String(req.user).toLowerCase();
+    const s = await getUserSettings(repEmail).catch(() => ({}));
+    const mine = repEmail === String(req.user).toLowerCase() ? s : await getUserSettings(req.user).catch(() => ({}));
+    const staffName = String(b.repName || "").trim() || (await displayNameOf(repEmail).catch(() => "")) || "";
+    const zoomUrl = String(s.myZoomLink || "").trim(); const zoomId = zoomUrl ? (zoomMeetingId(zoomUrl) || "") : "";
+    const company = String((row.payload && row.payload.mt_cal && row.payload.mt_cal.company) || "").trim();
+    let docUrls = String(b.docUrls || "").trim();
+    if (!docUrls && company) { try { const dl = await docLinksForCompany(company, 5); const base = String(process.env.PUBLIC_URL || "").replace(/\/+$/, ""); docUrls = dl.map((d) => `${fixMojibake(d.doc_name)}：${base}/d/${d.slug}`).join("\n"); } catch {} }
+    const prompt = typeof s.thanksPrompt === "string" && s.thanksPrompt.trim() ? s.thanksPrompt : (typeof mine.thanksPrompt === "string" ? mine.thanksPrompt : "");
+    const r = await generateThanksMail({ transcript, meetingType: String(b.meetingType || "").trim(), meetingCount: String(b.meetingCount || "").trim(), staffName, zoomUrl, zoomId, docUrls, prompt });
+    const out = { ok: true, mail_body: r.mail_body || "", warnings: r.warnings || "", meeting_type: r.meeting_type, meeting_count: r.meeting_count, staff_name: staffName, company, docUrls };
+    await mcMiitelSave({ id, payload: { mt_thanks: { ...out, at: Date.now(), by: req.user } } }).catch(() => {});
+    res.json(out);
+  } catch (e) { console.error("[mochica thanks]", e.message); res.status(502).json({ error: e.message }); }
+});
+// Gmail の過去のやり取りを探す（開いている本人の Gmail）。kinbot の商談履歴の「取得」と同じ考え方
+app.get("/api/mochica/gmail-threads", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    if (!(await gcalConnected(req.user).catch(() => false))) return res.json({ connected: false, threads: [] });
+    const ready = await gmailReady(req.user); if (!ready.ok) return res.json({ connected: true, needScope: true, threads: [] });
+    const q = String(req.query.q || "").trim().slice(0, 120); if (!q) return res.json({ connected: true, needQuery: true, threads: [] });
+    const threads = await gmailSearchThreads(req.user, q, 10).catch(() => []);
+    threads.sort((a, b) => (Date.parse(b.date || "") || 0) - (Date.parse(a.date || "") || 0));
+    const me = String(req.user || "").toLowerCase();
+    for (const t of threads) { const fa = parseEmailAddr(t.from).toLowerCase(); t.返信先 = fa && fa !== me ? (t.replyTo || t.from) : t.to; }
+    res.json({ connected: true, query: q, threads });
+  } catch (e) { if (e.needScope) return res.json({ connected: true, needScope: true, threads: [] }); res.status(502).json({ error: e.message }); }
+});
+// AI分析（温度感・BANT・スコア・購買シグナル・コーチング）：kinbot の「AI分析を作る」と同じ（analyzeDeep）。payload.mt_deep に置く（2026-11-14）
+app.post("/api/mochica/miitel/meetings/:id/deep", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const id = String(req.params.id || ""); const row = await mcMiitelGet(id); if (!row) return res.status(404).json({ error: "見つかりません" });
+    const b = req.body || {};
+    const text = (Array.isArray(b.tr) ? b.tr : []).slice(0, 4000).map((u) => `${String((u && u.s) || "話者").slice(0, 40)}: ${String((u && u.t) || "").slice(0, 600)}`).join("\n").slice(-12000);
+    if (!text.trim()) return res.status(400).json({ error: "文字起こしがありません" });
+    const analysis = await analyzeDeep({ transcript: text, repName: String(b.rep || "") });
+    await mcMiitelSave({ id, payload: { mt_deep: { ...analysis, at: Date.now(), by: req.user } } });
+    res.json(analysis);
+  } catch (e) { console.error("[mochica deep]", e.message); res.status(502).json({ error: e.message }); }
 });
 app.get("/api/mochica/miitel/meetings/:id", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const r = await mcMiitelGet(req.params.id); if (!r) return res.status(404).json({ error: "見つかりません" }); res.json({ ok: true, item: r }); }
@@ -30967,8 +31849,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-13zc MOCHICA の商談：カレンダーとの突き合わせを強く（主催の苗字は題名からも取る、MOCHICA のメンバー以外でも苗字が合う人のカレンダーを見る、見つからなかったものも1時間おきにやり直す、理由を出す）。";
+const BUILD_TAG = "2026-11-16J Bales のリスト：どの取り込みでも列を「会社名・電話番号・担当者名（名前）・最終活動…・所有者」に（前に選んだ表示項目はいったん忘れる）。／2026-11-16I Bales の書き込み方を覚えるとき、Firebase（googleapis）への送信も「kinbot」入りなら見る（kinbot-ext 2.2.4）。／2026-11-16H Bales のリスト：列に最終活動日・最終活動タイプ・最終活動コメント・所有者も。／2026-11-16G Bales のリスト：列を「会社名・電話番号・担当者名」から。行の印を callTargetId にして、取り込み直しても SF との結びつき・詳しい中身が消えないように（消えていた分は前の行から写し戻す）。／2026-11-16F kincall のデイリー目標から田中欽也を外した。／2026-11-16E MOCHICA の商談：一緒に参加した MOCHICA 以外の人（植野さんなど）のカードにも同じ商談を出していたのをやめた。／2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
+  "SF：商談の取引先の業種・従業員数を必須に（立ち上げ・Claude・SF直接の商談は自動で補う）",
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",
   "アポの通話の録音の要約と会話を、商談予定のカレンダーに自動で入れる",
@@ -31620,7 +32503,7 @@ const LEAD_WANT = [
   { key: "city",      label: "市区郡",               re: /市区郡|市区町村|City/i,     apis: ["City"] },
   { key: "address",   label: "町名・番地",           re: /住所|Street/i,              apis: ["Street"] },
   { key: "postal",    label: "郵便番号",             re: /郵便番号|PostalCode/i,      apis: ["PostalCode"] },
-  { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"] },
+  { key: "employees", label: "会社従業員数",         re: /従業員/,                    apis: ["NumberOfEmployees"], req: true },   // 2026-11-16 田中さん：業種と従業員数は商談をつくるときの必須
   { key: "industry",  label: "業種",                 re: /^業種$|Industry/i,          apis: ["Industry"], req: true },   // 2026-11-12 田中さん：取引先の業種もアポの立ち上げで入れる
 ];
 
@@ -32282,6 +33165,13 @@ app.post("/api/salesforce/leads/:id/convert", async (req, res) => {
       const ld = await sfQuery(req.user, `SELECT Industry FROM Lead WHERE Id = '${lid}'`).then((d) => d?.records?.[0]).catch(() => null);
       if (ld && !ld.Industry) return res.status(400).json({ error: "業種を選んでください（業種なしでは立ち上げられません）" });
     }
+    // 従業員数も必須（2026-11-16 田中さん）。画面で入れていなければ、リードに入っているかを見る
+    if (!(Number(fields.NumberOfEmployees) > 0)) {
+      delete fields.NumberOfEmployees;
+      const lid = String(req.params.id).replace(/[^a-zA-Z0-9]/g, "");
+      const ld = await sfQuery(req.user, `SELECT NumberOfEmployees FROM Lead WHERE Id = '${lid}'`).then((d) => d?.records?.[0]).catch(() => null);
+      if (ld && !(Number(ld.NumberOfEmployees) > 0)) return res.status(400).json({ error: "従業員数を入れてください（従業員数なしでは立ち上げられません）。分からないときは「会社情報を自動で入れる」を押すか、会社のサイト・求人で確かめてください" });
+    }
     if (Object.keys(fields).length) await updateLead(req.user, req.params.id, fields);
     // 「アポ獲得日」が空だとコンバートで弾かれる。画面で入れていなければ今日を入れる。
     try {
@@ -32452,7 +33342,8 @@ app.get("/api/salesforce/opportunity-layout", async (req, res) => {
 // Task（活動）の項目定義を返す（活動記録フォームを実項目ベースで作るため）
 app.get("/api/salesforce/task-describe", async (req, res) => {
   try {
-    const desc = await describeTask(req.user);
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
+    const desc = await describeTask(sfU);
     const fields = (desc.fields || []).map(f => ({
       name: f.name, label: f.label, type: f.type,
       updateable: f.updateable, createable: f.createable, custom: f.custom,
@@ -32489,6 +33380,7 @@ async function taskFieldNames(owner) {
 
 app.post("/api/salesforce/task", async (req, res) => {
   try {
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
     const { opportunityId, fields, subject, type, description, status, activityDate } = req.body || {};
     if (!opportunityId) return res.status(400).json({ error: "商談IDが必要です" });
     const data = { WhatId: opportunityId };
@@ -32499,13 +33391,15 @@ app.post("/api/salesforce/task", async (req, res) => {
     if (description !== undefined && data.Description === undefined) data.Description = description;
     if (status && data.Status === undefined) data.Status = status;
     if (activityDate && data.ActivityDate === undefined) data.ActivityDate = activityDate;
+    // 代理アカウントで書くときは、だれが記録したかを説明の頭に残す（2026-11-14）
+    { const by = await sfByName(req, sfU).catch(() => ""); if (by && typeof data.Description === "string" && !data.Description.startsWith("記録した人")) data.Description = `記録した人：${by}（kinbot から代理で記録）\n${data.Description}`; }
     // 既定値
     if (!data.Subject) data.Subject = "[kinbot] 活動記録";
     // 次回アクションが入っている活動は「未着手」で作る。
     // そうしないと、やることが残っているのに最初から完了扱いになり、
     // 過去の活動のチェックが意味を持たなくなる。
     if (!data.Status) {
-      const fn = await taskFieldNames(req.user).catch(() => ({}));
+      const fn = await taskFieldNames(sfU).catch(() => ({}));
       const hasNext =
         (fn.nextKind && data[fn.nextKind]) || (fn.nextDate && data[fn.nextDate]);
       const list = fn.statusPicklist || [];
@@ -32524,7 +33418,7 @@ app.post("/api/salesforce/task", async (req, res) => {
     // 活動種別が「商談」で、次回アクション（種別・日）が入っているときは、2つに分けて記録する：
     //   ・商談の記録：活動種別（商談）と説明だけ。次回アクションは付けない。
     //   ・ネクストアクション：次回アクション種別・日を、別のネクストアクションの活動として記録。
-    const fn = await taskFieldNames(req.user).catch(() => ({}));
+    const fn = await taskFieldNames(sfU).catch(() => ({}));
     const 活動種別値 = fn.actKind ? String(data[fn.actKind] || "") : "";
     const 次回種別 = fn.nextKind ? data[fn.nextKind] : "";
     const 次回日 = fn.nextDate ? data[fn.nextDate] : "";
@@ -32538,9 +33432,9 @@ app.post("/api/salesforce/task", async (req, res) => {
       shodan.Subject = shodan.Subject || "[kinbot] 商談";
       const list = (fn.statusPicklist || []);
       shodan.Status = list.find((v) => /^(完了|済|Completed|Closed)/i.test(String(v).trim())) || "完了";
-      const t1 = await createTask(req.user, shodan);
+      const t1 = await createTask(sfU, shodan);
       const t1id = t1 && (t1.id || t1.Id);
-      if (t1id) { try { await updateTask(req.user, t1id, shodan); } catch {} }
+      if (t1id) { try { await updateTask(sfU, t1id, shodan); } catch {} }
 
       // (2) ネクストアクションの記録（活動種別＝ネクストアクション・次回アクション種別/日・未着手で作る）
       const na = { WhatId: opportunityId, Subject: "[kinbot] ネクストアクション" };
@@ -32550,18 +33444,18 @@ app.post("/api/salesforce/task", async (req, res) => {
       na.ActivityDate = 次回日 || data.ActivityDate;
       na.Status = list.find((v) => /^(未着手|未完了|未対応|未実施|オープン|Not Started|Open)/i.test(String(v).trim())) ||
                   list.find((v) => /^(未|Not|Open)/i.test(String(v).trim())) || "未着手";
-      const t2 = await createTask(req.user, na);
+      const t2 = await createTask(sfU, na);
       const t2id = t2 && (t2.id || t2.Id);
-      if (t2id) { try { await updateTask(req.user, t2id, na); } catch {} }
+      if (t2id) { try { await updateTask(sfU, t2id, na); } catch {} }
 
       return res.json({ ok: true, task: t1, nextAction: t2, split: true });
     }
 
-    const task = await createTask(req.user, data); // 存在しない項目は自動で外して再送
+    const task = await createTask(sfU, data); // 存在しない項目は自動で外して再送
     // 作成時に入らなかった項目（活動種別などのカスタム項目）を、後追いのupdateで確実に反映する
     const taskId = task && (task.id || task.Id);
     if (taskId) {
-      try { await updateTask(req.user, taskId, data); }
+      try { await updateTask(sfU, taskId, data); }
       catch (e) { console.warn("[sf task] 後追いupdate失敗", e.message); }
     }
     res.json({ ok: true, task });
@@ -32928,7 +33822,8 @@ async function recordSfStats(user, { filled, activityCreated }) {
 // 活動（Task）を更新
 app.patch("/api/salesforce/task/:id", async (req, res) => {
   try {
-    await updateTask(req.user, req.params.id, req.body || {});
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
+    await updateTask(sfU, req.params.id, req.body || {});
     res.json({ ok: true });
   } catch (e) { sfErrorResponse(res, e); }
 });
@@ -32936,7 +33831,8 @@ app.patch("/api/salesforce/task/:id", async (req, res) => {
 // 活動（Task）を削除
 app.delete("/api/salesforce/task/:id", async (req, res) => {
   try {
-    await deleteTask(req.user, req.params.id);
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
+    await deleteTask(sfU, req.params.id);
     res.json({ ok: true });
   } catch (e) { sfErrorResponse(res, e); }
 });
@@ -32951,14 +33847,15 @@ app.get("/api/salesforce/task-field-names", async (req, res) => {
 
 app.get("/api/salesforce/tasks", async (req, res) => {
   try {
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
     const oppId = String(req.query.opportunityId || "").replace(/[^a-zA-Z0-9]/g, "");
     if (!oppId) return res.status(400).json({ error: "opportunityIdが必要です" });
-    const fn = await taskFieldNames(req.user);
+    const fn = await taskFieldNames(sfU);
     // 次回アクションの種別・日も一緒に取る（過去の活動で別々に見せるため）
     const extra = [fn.actKind, fn.nextKind, fn.nextDate].filter(Boolean).join(", ");
     const soql = `SELECT Id, Subject, Status, IsClosed, ActivityDate, Description, CreatedDate, Owner.Name` +
       `${extra ? ", " + extra : ""} FROM Task WHERE WhatId = '${oppId}' ORDER BY CreatedDate DESC LIMIT 30`;
-    const data = await sfQuery(req.user, soql);
+    const data = await sfQuery(sfU, soql);
     const tasks = (data.records || []).map((t) => ({
       id: t.Id, subject: t.Subject, status: t.Status, isClosed: !!t.IsClosed,
       activityDate: t.ActivityDate, description: t.Description,
@@ -33025,9 +33922,10 @@ app.post("/api/salesforce/next-action", async (req, res) => {
 // 活動のチェックを入れる／外す（Salesforceの状況を完了・未着手に切り替える）
 app.put("/api/salesforce/task/:id/status", async (req, res) => {
   try {
+    const sfU = await sfActor(req);   // SF をつないでいない人（MOCHICA など）は代理アカウントで（2026-11-14）
     const id = String(req.params.id || "").replace(/[^a-zA-Z0-9]/g, "");
     if (!id) return res.status(400).json({ error: "活動IDが必要です" });
-    const fn = await taskFieldNames(req.user);
+    const fn = await taskFieldNames(sfU);
     const done = req.body?.done !== false;
     // 組織の選択肢から、完了／未着手にあたる値を選ぶ
     // 状況の選択肢は組織ごとに違う（完了／未着手／未完了／未対応／Completed など）。
@@ -33042,8 +33940,8 @@ app.put("/api/salesforce/task/:id/status", async (req, res) => {
       list.find((v) => /完了|Completed/i.test(String(v)) && !/^未/.test(String(v).trim())) ||
       "完了";
     const value = done ? findDone() : findOpen();
-    await updateTask(req.user, id, { Status: value });
-    console.log(`[sf-task] ${id} の状況を「${value}」にしました by ${req.user}`);
+    await updateTask(sfU, id, { Status: value });
+    console.log(`[sf-task] ${id} の状況を「${value}」にしました by ${sfU}`);
     res.json({ ok: true, status: value });
   } catch (e) { sfErrorResponse(res, e); }
 });
@@ -35876,6 +36774,28 @@ app.put("/api/apo/rotation-config", async (req, res) => {
 // ===== メンバー管理 =====
 // 事業（DOC/MOCHICA）・チーム・役割（クローザー／インサイド／予備）をここで一括管理し、
 // 保存時に closer_rotation・interns・rep_team_mapping へ同期する。
+// 管理者が、ほかの人の kinbot のアカウントをまとめて作る（2026-11-14 田中さん「4人のアカウントを作ってほしい」）。
+//   登録の画面（/api/register）は作った人でログインし直してしまうので、ここでは作るだけにする。
+//   パスワードは保存の前に暗号化（registerUser と同じ）。ログには出さない。最初のログインのあとで本人に変えてもらう。
+app.post("/api/admin/accounts", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけが作れます" });
+    const b = req.body || {};
+    const pw = String(b.password || "");
+    if (pw.length < 8) return res.status(400).json({ error: "パスワードは8文字以上にしてください" });
+    const list = (Array.isArray(b.accounts) ? b.accounts : []).slice(0, 50);
+    if (!list.length) return res.status(400).json({ error: "作る人がいません" });
+    const results = [];
+    for (const a of list) {
+      const email = String(a.email || "").trim().toLowerCase();
+      const name = String(a.name || "").trim().slice(0, 60);
+      const r = await registerUser({ email, password: pw, displayName: name, code: process.env.SIGNUP_CODE || "" }).catch((e) => ({ error: e.message }));
+      results.push({ email, name, ok: !!r.ok, error: r.error || "" });
+    }
+    console.log(`[accounts] ${req.user} がアカウントを作りました：${results.filter((x) => x.ok).map((x) => x.email).join("・") || "なし"}`);
+    res.json({ ok: true, results });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/members", async (req, res) => {
   try {
     const [members, candidates] = await Promise.all([listMembers(), memberCandidates()]);

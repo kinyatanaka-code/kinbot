@@ -579,6 +579,7 @@ function showIntegDetail(name) {
   if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
   if (name === "chatgpt") { initGptConnector(); }
   if (name === "zoomphone") { loadZoomPane(); }
+  if (name === "salesforce") { loadMcConfig(); }
 }
 (function () {
   const grid = document.getElementById("integGrid");
@@ -592,6 +593,7 @@ function showIntegDetail(name) {
 })();
 // 各連携カードに、接続済み/未接続の状態バッジを反映する
 async function refreshIntegStates() {
+  loadMcConfig();
   // Google連携
   try {
     const r = await fetch("/api/calendar/status");
@@ -692,6 +694,46 @@ async function loadZoomPane() {
     } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
     finally { sy.disabled = false; }
   });
+})();
+
+// ===== MOCHICA の連携（MiiTel・Bales・SF のきまり）=====
+// kinbot for MOCHICA の設定も、この画面1つにまとめた（2026-11-14 田中さん）。
+// 値は /api/mochica/config に置く。鍵は末尾4文字しか返ってこない。
+async function loadMcConfig() {
+  const $ = (id) => document.getElementById(id);
+  try {
+    const r = await fetch("/api/mochica/config", { credentials: "include" });
+    const c = await r.json();
+    if (!r.ok) throw new Error(c.error || r.status);
+    if (c.hook) { if ($("mhUrl")) $("mhUrl").value = c.hook.url || ""; if ($("mhHead")) $("mhHead").value = c.hook.header || ""; }
+    if ($("baKey")) { $("baKey").value = ""; $("baKey").placeholder = c.bales.keyLast4 ? `保存済み（****${c.bales.keyLast4}）。変えるときだけ入れる` : "Bales から API のキーをもらえたら"; }
+    if ($("baNote")) $("baNote").value = c.bales.note || "";
+    if ($("sfLead")) $("sfLead").value = c.sf.leadType || "";
+    if ($("sfOpp")) $("sfOpp").value = c.sf.oppPrefix || "";
+    window.__mcConf = c;
+    setIntegState("bales", c.bales.keyLast4 ? "キー保存済み" : "CSVで連携", !!c.bales.keyLast4);
+  } catch (e) {
+    document.querySelectorAll("[data-mcsaved]").forEach((x) => { x.hidden = false; x.textContent = "読めませんでした：" + e.message; });
+  }
+}
+(function () {
+  document.querySelectorAll("[data-mcsave]").forEach((b) => b.addEventListener("click", async () => {
+    const v = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ""; };
+    const c = window.__mcConf || { miitel: {}, bales: {}, sf: {} };
+    const body = { miitel: { domain: (c.miitel && c.miitel.domain) || "" },
+      bales: { note: v("baNote"), ...(v("baKey") ? { key: v("baKey") } : {}) },
+      sf: { leadType: v("sfLead"), oppPrefix: v("sfOpp") } };
+    const msg = b.parentElement && b.parentElement.querySelector("[data-mcsaved]");
+    b.disabled = true;
+    try {
+      const r = await fetch("/api/mochica/config", { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || r.status);
+      if (msg) { msg.hidden = false; msg.textContent = "保存しました"; }
+      loadMcConfig();
+    } catch (e) { if (msg) { msg.hidden = false; msg.textContent = "保存できませんでした：" + e.message; } }
+    finally { b.disabled = false; }
+  }));
 })();
 
 function setIntegState(key, label, ok) {
@@ -1007,10 +1049,11 @@ function mbRender() {
     box.innerHTML = '<p class="note">まだ誰も登録されていません。下の欄から追加してください。</p>';
   } else {
     box.innerHTML = "";
-    mbState.members.forEach((m, i) => {
+    // 1人分の行を作る（DOC と MOCHICA の両方の人は、両方のグループに出す）
+    const build = (m, i, gk) => {
       const p = m.profile || {};
       const row = document.createElement("div");
-      row.className = "mb-row" + (m.active === false ? " mb-off" : "");
+      row.className = "mb-row mb-row-" + gk + (m.active === false ? " mb-off" : "");
       row.draggable = true;
       row.innerHTML =
         `<div class="mb-main">
@@ -1027,7 +1070,7 @@ function mbRender() {
            <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
            <button type="button" class="btn ghost mb-sig">署名</button>
            <button type="button" class="btn ghost mb-gcopy">Google連携リンク</button>
-           <span class="mb-gstatus note">${(mbState.gLinks && mbState.gLinks[String(m.email || "").trim().toLowerCase()] || {}).connected ? "🟢 Google連携済み" : "⚪ Google未連携"}</span>
+           ${(mbState.gLinks && mbState.gLinks[String(m.email || "").trim().toLowerCase()] || {}).connected ? '<span class="mb-gstatus mb-g-on">Google連携済み</span>' : '<span class="mb-gstatus">Google未連携</span>'}
            <button type="button" class="btn ghost mb-del">外す</button>
          </div>
          <div class="mb-sigbox" hidden>
@@ -1079,6 +1122,7 @@ function mbRender() {
       row.querySelectorAll(".mb-biz").forEach((c) => c.addEventListener("change", (e) => {
         const v = e.target.dataset.v;
         m.businesses = e.target.checked ? [...new Set([...m.businesses, v])] : m.businesses.filter((x) => x !== v);
+        mbRender();   // 事業を変えたら、そのグループのカードへ移す
       }));
       row.querySelectorAll(".mb-role").forEach((c) => c.addEventListener("change", (e) => {
         const v = e.target.dataset.v;
@@ -1087,7 +1131,7 @@ function mbRender() {
       }));
       q(".mb-del").addEventListener("click", () => {
         if (!confirm(`${m.name || m.email} をメンバーから外します。よろしいですか？（保存を押すまで反映されません）`)) return;
-        mbState.members.splice(i, 1); mbRender();
+        mbState.members.splice(i, 1); mbState.editObj = null; mbRender();
       });
 
       row.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", String(i)); row.classList.add("mb-drag"); });
@@ -1101,17 +1145,90 @@ function mbRender() {
         mbState.members.splice(i, 0, moved);
         mbRender();
       });
-      box.appendChild(row);
-    });
+      return row;
+    };
+    // DOC・MOCHICA・その他のグループのカードに分けて並べる（2026-11-14 田中さん：色は DOC=緑・MOCHICA=水色・その他=黄緑）
+    const GROUPS = [
+      { k: "doc", label: "DOC", has: (m) => m.businesses.includes("DOC") },
+      { k: "mochica", label: "MOCHICA", has: (m) => m.businesses.includes("MOCHICA") },
+      { k: "other", label: "その他", has: (m) => !m.businesses.includes("DOC") && !m.businesses.includes("MOCHICA") },
+    ];
+    // 外部連携と同じく、最初は3枚のカードだけ。押すとそのグループの人の一覧を開く（2026-11-14 田中さん）
+    const ICON = '<svg viewBox="0 0 48 48" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="12" fill="currentColor"/><circle cx="19" cy="19" r="5.5" fill="#fff"/><path d="M9.5 34c.8-5.2 4.8-8.5 9.5-8.5s8.7 3.3 9.5 8.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="31.5" cy="20.5" r="4.3" fill="#fff" opacity=".8"/><path d="M28.5 27.2c1-.4 2-.6 3-.6 3.9 0 6.9 2.8 7.5 7.1" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" opacity=".8"/></svg>';
+    const cur = GROUPS.find((g) => g.k === mbState.view);
+    if (!cur) {
+      const grid = document.createElement("div");
+      grid.className = "mb-tiles";
+      for (const g of GROUPS) {
+        const list = mbState.members.filter((m) => g.has(m));
+        const on = list.filter((m) => m.active !== false).length;
+        const rc = (r) => list.filter((m) => m.active !== false && m.roles.includes(r)).length;
+        const t = document.createElement("button");
+        t.type = "button";
+        t.className = "mb-tile mb-grp-" + g.k;
+        t.innerHTML = `<span class="mb-tile-ico">${ICON}</span><span class="mb-tile-name">${g.label}</span>
+          <span class="mb-tile-n">在籍 ${on}名${list.length > on ? `・休み ${list.length - on}名` : ""}</span>
+          <span class="mb-tile-sub">クローザー ${rc("closer")}・インサイド ${rc("inside")}・CS ${rc("cs")}</span>`;
+        t.addEventListener("click", () => { mbState.view = g.k; mbRender(); });
+        grid.appendChild(t);
+      }
+      box.appendChild(grid);
+    } else if (mbState.editObj && mbState.members.includes(mbState.editObj)) {
+      // 1人を開いたとき：その人だけを、いままでの入力の形で直す
+      const g = cur;
+      const m = mbState.editObj, i = mbState.members.indexOf(m);
+      const back = document.createElement("button");
+      back.type = "button"; back.className = "integ-back mb-back"; back.textContent = `← ${g.label} のメンバーに戻る`;
+      back.addEventListener("click", () => { mbState.editObj = null; mbRender(); });
+      box.appendChild(back);
+      const card = document.createElement("section");
+      card.className = "mb-grp mb-grp-" + g.k;
+      card.innerHTML = `<div class="mb-grp-h"><span class="mb-grp-dot"></span><b>${g.label}</b><span class="mb-grp-n">${mbEsc(m.name || m.email)}</span></div><div class="mb-grp-body"></div>`;
+      card.querySelector(".mb-grp-body").appendChild(build(m, i, g.k));
+      box.appendChild(card);
+    } else {
+      // グループを開いたとき：メンバーもカードで並べる。押すとその人を直す画面になる（2026-11-14 田中さん）
+      mbState.editObj = null;
+      const g = cur;
+      const list = mbState.members.map((m, i) => ({ m, i })).filter(({ m }) => g.has(m));
+      const on = list.filter(({ m }) => m.active !== false).length;
+      const back = document.createElement("button");
+      back.type = "button"; back.className = "integ-back mb-back"; back.textContent = "← グループの一覧に戻る";
+      back.addEventListener("click", () => { mbState.view = null; mbRender(); });
+      box.appendChild(back);
+      const card = document.createElement("section");
+      card.className = "mb-grp mb-grp-" + g.k;
+      card.innerHTML = `<div class="mb-grp-h"><span class="mb-grp-dot"></span><b>${g.label}</b><span class="mb-grp-n">在籍 ${on}名${list.length > on ? `・休み ${list.length - on}名` : ""}</span></div>
+        <div class="mb-grp-body mb-cards"></div>`;
+      const body = card.querySelector(".mb-grp-body");
+      if (!list.length) { body.classList.remove("mb-cards"); body.innerHTML = `<p class="note mb-grp-empty">${g.k === "other" ? "DOC にも MOCHICA にも入っていない人はいません。" : `まだ ${g.label} の人はいません。下の欄から追加すると、${g.label} の人として入ります。`}</p>`; }
+      for (const { m } of list) {
+        const c = document.createElement("button");
+        c.type = "button";
+        c.className = "mb-card" + (m.active === false ? " mb-off" : "");
+        const roles = Object.keys(ROLE_LABEL).filter((r) => m.roles.includes(r));
+        const both = m.businesses.includes("DOC") && m.businesses.includes("MOCHICA");
+        c.innerHTML = `<span class="mb-card-top"><span class="mb-av">${mbEsc(String(m.name || m.email || "?").trim().charAt(0))}</span>
+            <span class="mb-card-nm"><b>${mbEsc(m.name || "(名前なし)")}</b><small>${mbEsc(m.team || "チームなし")}</small></span>
+            ${m.active === false ? '<span class="mb-card-off">休み</span>' : ""}</span>
+          <span class="mb-card-mail">${mbEsc(m.email)}</span>
+          <span class="mb-card-roles">${roles.length ? roles.map((r) => `<span class="mb-rc mb-rc-${r}">${mbEsc(ROLE_LABEL[r])}</span>`).join("") : '<span class="mb-rc mb-rc-none">役割なし</span>'}${both ? `<span class="mb-rc mb-rc-both">${g.k === "doc" ? "MOCHICA も" : "DOC も"}</span>` : ""}</span>`;
+        c.addEventListener("click", () => { mbState.editObj = m; mbRender(); });
+        body.appendChild(c);
+      }
+      box.appendChild(card);
+    }
   }
 
   // 内訳のまとめ
   const count = (r) => mbState.members.filter((m) => m.active !== false && m.roles.includes(r)).length;
-  const sum = document.createElement("p");
-  sum.className = "note mb-sum";
-  sum.innerHTML = `在籍 <b>${mbState.members.filter((m) => m.active !== false).length}</b>名` +
-    `／クローザー <b>${count("closer")}</b>名・インサイド <b>${count("inside")}</b>名・予備 <b>${count("fallback")}</b>名・CS <b>${count("cs")}</b>名` +
-    `／チーム <b>${teamNames.length}</b>`;
+  // 内訳は小さな札で並べる（2026-11-14 田中さん：スマートに）
+  const sum = document.createElement("div");
+  sum.className = "mb-sum";
+  const chip = (k, l, n) => `<span class="mb-sc mb-sc-${k}">${l}<b>${n}</b></span>`;
+  sum.innerHTML = chip("all", "在籍", mbState.members.filter((m) => m.active !== false).length) +
+    chip("closer", "クローザー", count("closer")) + chip("inside", "インサイド", count("inside")) +
+    chip("fallback", "予備", count("fallback")) + chip("cs", "CS", count("cs")) + chip("team", "チーム", teamNames.length);
   box.appendChild(sum);
 
   // 未登録の候補
@@ -1119,8 +1236,8 @@ function mbRender() {
   if (cand) {
     const rest = mbState.candidates.filter((c) => !mbState.members.some((m) => m.email === c.email));
     cand.innerHTML = rest.length
-      ? `<p class="note">未登録の人がいます：${rest.map((c) =>
-          `<button type="button" class="btn ghost mb-quick" data-e="${mbEsc(c.email)}" data-n="${mbEsc(c.name)}">${mbEsc(c.name)} を追加</button>`).join(" ")}</p>`
+      ? `<div class="mb-cand"><span class="mb-add-l">未登録の人</span>${rest.map((c) =>
+          `<button type="button" class="mb-quick" data-e="${mbEsc(c.email)}" data-n="${mbEsc(c.name)}" title="${mbEsc(c.email)} を追加"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>${mbEsc(c.name)}</button>`).join("")}</div>`
       : "";
     cand.querySelectorAll(".mb-quick").forEach((b) => b.addEventListener("click", () => {
       mbAddMember(b.dataset.n, b.dataset.e);
@@ -1134,8 +1251,11 @@ function mbAddMember(name, email) {
   if (mbState.members.some((m) => m.email === e)) { mbSay("すでに登録されています", 3000); return; }
   mbState.members.push({
     email: e, name: String(name || "").trim() || e,
-    businesses: [], team: "", roles: [], active: true, daily_cap: null, profile: {},
+    businesses: mbState.view === "doc" ? ["DOC"] : mbState.view === "mochica" ? ["MOCHICA"] : [],
+    team: "", roles: [], active: true, daily_cap: null, profile: {},
   });
+  // グループを開いているときは、足した人をそのまま開いて役割を選んでもらう
+  if (mbState.view) mbState.editObj = mbState.members[mbState.members.length - 1];
   mbRender();
   mbSay("追加しました。役割を選んで［保存］を押してください", 5000);
 }
@@ -3290,7 +3410,8 @@ if (document.getElementById("sfProxy")) {
 (async function () {
   const el = document.getElementById("extVer"); if (!el) return;
   try { const d = await (await fetch("/api/ext/version")).json(); const have = document.documentElement.dataset.kbExtVer || (document.documentElement.dataset.kxMwExt ? "1.3.2 以前" : "");
-    el.textContent = `新しい版：${d.version || "?"}${have ? `／このChromeに入っている版：${have}` : "／このChromeには入っていないか、古い版です"}`; } catch {}
+    el.textContent = `新しい版：${d.version || "?"}${have ? `／このChromeに入っている版：${have}` : "／このChromeには入っていないか、古い版です"}`;
+    setIntegState("kinbotext", have ? `入っている ${have}` : "まだ入っていない", !!have); } catch {}
 })();
 
 // メールワイズの読み取り状況（2026-11-11）
@@ -3302,6 +3423,7 @@ async function loadMwStatus() {
     const diagHtml = dg ? `<div style="background:#F4F8F6;border-radius:10px;padding:8px 10px;margin-bottom:8px">拡張機能の様子：最後に動いた <b>${t(dg.at)}</b>／メールアプリ <b>${dg.apps}</b>個／直近2日の行 <b>${dg.rows}</b>件（まだ読んでいない ${dg.newRows}件・読んだ ${dg.read}件）／kinbot に送った <b>${dg.sent}</b>件${dg.err ? `<br><span style="color:#B4441F">${escapeHtml(dg.err)}</span>` : ""}</div>`
       : (document.documentElement.dataset.kbExtVer ? '<div style="background:#FFF6F2;border-radius:10px;padding:8px 10px;margin-bottom:8px;color:#A2480C">拡張機能はまだ一度もメールワイズを読んでいません。メールワイズのタブを開き直してください（開いてから15秒後に読みます）。</div>' : (document.documentElement.dataset.kxMwExt ? '<div style="background:#FFF6F2;border-radius:10px;padding:8px 10px;margin-bottom:8px;color:#A2480C">このページは、古い拡張機能のまま開かれています。拡張機能を入れ直したあとは、<b>この画面を開き直して（F5）</b>ください。前の拡張機能（「kincall」など）が残っていれば、拡張機能の画面で削除してください。</div>'
         : '<div style="background:#FFF6F2;border-radius:10px;padding:8px 10px;margin-bottom:8px;color:#A2480C">この画面から kinbot-ext が見えません。拡張機能を入れた・入れ直したあとは、<b>この画面を開き直して（F5）</b>ください。拡張機能の画面で kinbot-ext が「オン」になっているかも見てください。</div>'));
+    setIntegState("mailwise", d.last ? `最後 ${t(d.last)}` : "まだ届いていない", !!d.last);
     box.innerHTML = diagHtml + `<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px"><span>最後に受け取った：<b>${t(d.last)}</b></span><span>この24時間：<b>${d.day}</b>通（会社に結びついた ${d.matched}通）</span><span>これまで：${d.total}通</span></div>` +
       (d.recent && d.recent.length ? `<table class="integ-tbl" style="width:100%;border-collapse:collapse;font-size:12.5px"><tr style="text-align:left;color:#6A7A72"><th>受け取り</th><th>メールアプリ</th><th>件名</th><th>会社</th><th>持ち主</th></tr>${d.recent.map((r) => `<tr style="border-top:1px solid #EEF3F0"><td>${t(r.at)}</td><td>${escapeHtml(r.space || "")}</td><td>${escapeHtml(r.subject || "")}</td><td>${r.account_name ? escapeHtml(r.account_name) : '<span style="color:#A2480C">結びつかず</span>'}</td><td>${escapeHtml(String(r.owner || "").split("@")[0])}</td></tr>`).join("")}</table>`
         : '<div style="color:#A2480C">まだ1通も届いていません。メールワイズのタブを開いて（ログインしたまま）、1分ほど待ってから「読み直す」を押してください。</div>');
@@ -3312,6 +3434,59 @@ async function loadMwStatus() {
   const b = document.getElementById("mwRunTasks"); if (b) b.addEventListener("click", async () => { b.disabled = true; b.textContent = "作っています…";
     try { const d = await (await fetch("/api/kinxs/auto-tasks/run", { method: "POST" })).json(); if (d.error) throw new Error(d.error); const made = (d.results || []).reduce((a, x) => a + (x.made || 0), 0); const read = (d.results || []).reduce((a, x) => a + (x.read || 0), 0); alert(`読んだもの：${read}件／作ったタスク：${made}件`); }
     catch (e) { alert(e.message); } b.disabled = false; b.textContent = "今すぐタスクを作る"; });
-  document.querySelectorAll('[data-tab="ext"]').forEach((x) => x.addEventListener("click", () => setTimeout(loadMwStatus, 50)));
+  document.querySelectorAll('[data-tab="ext"]').forEach((x) => x.addEventListener("click", () => { showExtGrid(); setTimeout(loadMwStatus, 50); }));
   if (location.hash === "#ext") setTimeout(loadMwStatus, 300);
+})();
+
+// ===== 拡張機能タブ：カードの一覧 ⇄ 各カードの中身（外部連携と同じ作り）（2026-11-14 田中さん）=====
+// MiiTel・Bales・メールワイズは拡張機能で動くので、外部連携からここへ移した。
+function showExtGrid() {
+  const grid = document.getElementById("extGrid"), detail = document.getElementById("extDetail");
+  if (grid) grid.hidden = false;
+  if (detail) detail.hidden = true;
+  document.querySelectorAll(".ext-inner").forEach((p) => (p.hidden = true));
+  loadMcConfig();
+}
+function showExtDetail(k) {
+  const grid = document.getElementById("extGrid"), detail = document.getElementById("extDetail");
+  if (grid) grid.hidden = true;
+  if (detail) detail.hidden = false;
+  document.querySelectorAll(".ext-inner").forEach((p) => (p.hidden = p.dataset.ext !== k));
+  if (k === "miitel" || k === "bales") loadMcConfig();
+  if (k === "mailwise") loadMwStatus();
+}
+(function () {
+  document.querySelectorAll("#extGrid .integ-card").forEach((c) => c.addEventListener("click", () => showExtDetail(c.dataset.ext)));
+  const back = document.getElementById("extBack"); if (back) back.addEventListener("click", showExtGrid);
+})();
+
+// ===== 管理者：kinbot のアカウントをまとめて作る（2026-11-14 田中さん）=====
+(function () {
+  const box = document.getElementById("mbAcct"); if (!box) return;
+  fetch("/api/me").then((r) => r.json()).then((me) => {
+    if (me && (me.admin || /^kinya\.tanaka@/i.test(String(me.username || me.email || "")))) box.hidden = false;
+  }).catch(() => {});
+  const go = document.getElementById("mbAcctGo");
+  go.addEventListener("click", async () => {
+    const res = document.getElementById("mbAcctRes");
+    const pw = document.getElementById("mbAcctPw").value;
+    // 「名前 メール」の行を読む。メールは @ を含む語、残りを名前にする
+    const accounts = document.getElementById("mbAcctList").value.split(/\n+/).map((l) => l.trim()).filter(Boolean).map((l) => {
+      const parts = l.split(/[\s　,，]+/).filter(Boolean);
+      const email = parts.find((x) => x.includes("@")) || "";
+      return { email, name: parts.filter((x) => x !== email).join(" ") };
+    }).filter((a) => a.email);
+    if (!accounts.length) { res.textContent = "「名前 メールアドレス」を1行に1人ずつ入れてください。"; return; }
+    if (String(pw).length < 8) { res.textContent = "パスワードは8文字以上にしてください。"; return; }
+    if (!confirm(`${accounts.length}人のアカウントを作ります。よろしいですか？\n${accounts.map((a) => `${a.name} ${a.email}`).join("\n")}`)) return;
+    go.disabled = true; res.textContent = "作っています…";
+    try {
+      const r = await fetch("/api/admin/accounts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ accounts, password: pw }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.status);
+      res.innerHTML = d.results.map((x) => `${mbEsc(x.name || "")} ${mbEsc(x.email)}：${x.ok ? "<b>作りました</b>" : `<span style="color:#A2480C">${mbEsc(x.error)}</span>`}`).join("<br>");
+      document.getElementById("mbAcctPw").value = "";
+    } catch (e) { res.textContent = "作れませんでした：" + e.message; }
+    finally { go.disabled = false; }
+  });
 })();

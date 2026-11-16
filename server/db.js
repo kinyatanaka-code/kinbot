@@ -8706,8 +8706,15 @@ export async function syncMembersToLegacy() {
       return { ...out, skipped: true };
     }
 
+    // MOCHICA だけの人は、DOC のアポ振り分け（クローザーの順番・インサイドのカレンダー照合）に入れない。
+    // 入れると、MOCHICA のインサイドのカレンダーまで読んで、アポを自動で割り振ってしまった（2026-11-14 田中さん「暴走した」）。
+    // MOCHICA は kinbot for MOCHICA の別の箱で扱う。DOC が付いている人と、事業が未設定の人（今までどおり）だけを入れる。
+    const forDocApo = (m) => { const b = Array.isArray(m.businesses) ? m.businesses : []; return !b.length || b.includes("DOC"); };
+    const skipped = members.filter((m) => !forDocApo(m) && (m.roles.includes("closer") || m.roles.includes("fallback") || m.roles.includes("inside")));
+    if (skipped.length) console.log(`[members] MOCHICA だけの人はアポ振り分けに入れません：${skipped.map((m) => m.name || m.email).join("・")}`);
+
     // --- クローザー（closer / fallback） ---
-    const closers = members.filter((m) => m.roles.includes("closer") || m.roles.includes("fallback"));
+    const closers = members.filter((m) => forDocApo(m) && (m.roles.includes("closer") || m.roles.includes("fallback")));
     for (let i = 0; i < closers.length; i++) {
       const m = closers[i];
       await pool.query(
@@ -8725,7 +8732,7 @@ export async function syncMembersToLegacy() {
     out.closers = closers.length;
 
     // --- インサイド（アポ獲得者） ---
-    const insides = members.filter((m) => m.roles.includes("inside"));
+    const insides = members.filter((m) => forDocApo(m) && m.roles.includes("inside"));
     for (const m of insides) {
       await pool.query(
         `INSERT INTO interns (email, name) VALUES ($1,$2)
@@ -12726,7 +12733,7 @@ export async function mcMiitelSave(ev) {
 }
 export async function mcMiitelList(limit = 100) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload->'mt_cal' AS cal, (payload ? 'mt_video') AS has_video, ((payload ? 'mt_phrases') OR COALESCE(transcript_len,0) > 0) AS has_tr FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, received_at, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload->'mt_cal' AS cal, payload->'mt_rep' AS mrep, (payload ? 'mt_video') AS has_video, ((payload ? 'mt_phrases') OR COALESCE(transcript_len,0) > 0) AS has_tr FROM mochica_miitel_events ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 export async function mcMiitelGet(id) {
   if (!pool) return null; await ensureMcMiitel();
@@ -12752,12 +12759,17 @@ export async function mcMiitelCleanJunk() {
 }
 
 // MOCHICA：拡張機能に「次に読む会議」を渡す（文字起こしか録画がまだのもの・60日以内・新しい順）（2026-11-12）
-export async function mcMiitelTodo(limit = 10) {
+export async function mcMiitelTodo(limit = 10, { days = 60, novideo = false, skip = [] } = {}) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, url, COALESCE(transcript_len,0) AS tl, (payload ? 'mt_video') AS hv FROM mochica_miitel_events
-    WHERE ((COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases')) OR NOT (payload ? 'mt_video')) AND COALESCE(started_at, received_at) > now() - interval '60 days' AND COALESCE(title,'') <> ''
-      AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3
-    ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  // novideo：過去の会議をまとめて読むときは、録画は後回しにして文字起こし・議事録だけ（2026-11-15）
+  // 何度開いても文字起こしが取れない会議（短い・録音なし）で止まらないよう、2回まで（mt_tr_try）
+  const need = novideo ? `(COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND COALESCE((payload->>'mt_tr_try')::int, 0) < 2)` : `((COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases')) OR NOT (payload ? 'mt_video'))`;
+  const rows = (await pool.query(`SELECT id, url, COALESCE(transcript_len,0) AS tl, (payload ? 'mt_video') AS hv FROM mochica_miitel_events
+    WHERE ${need} AND COALESCE(started_at, received_at) > now() - make_interval(days => $2) AND COALESCE(title,'') <> ''
+      AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3 AND NOT (id = ANY($3::text[]))
+    ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit, Math.max(1, Math.min(400, Number(days) || 60)), skip]).catch(() => ({ rows: [] }))).rows;
+  if (novideo && rows.length) await pool.query(`UPDATE mochica_miitel_events SET payload = jsonb_set(COALESCE(payload,'{}'::jsonb), '{mt_tr_try}', to_jsonb(COALESCE((payload->>'mt_tr_try')::int, 0) + 1)) WHERE id = ANY($1::text[])`, [rows.map((r) => r.id)]).catch(() => {});
+  return rows;
 }
 
 // kinXs 企業の詳細「採用状況」（議事録から読み取ったもの）（2026-11-13）
@@ -12767,9 +12779,10 @@ export async function kxHiringGetDb(id) { if (!pool) return null; await kxHiring
 export async function kxHiringSaveDb(id, data, sources, by) { if (!pool) return; await kxHiringEnsure(); await pool.query(`INSERT INTO kinxs_hiring (account_id, data, sources, updated_at, updated_by) VALUES ($1,$2,$3,now(),$4) ON CONFLICT (account_id) DO UPDATE SET data=EXCLUDED.data, sources=EXCLUDED.sources, updated_at=now(), updated_by=EXCLUDED.updated_by`, [id, JSON.stringify(data || {}), JSON.stringify(sources || []), by || ""]).catch(() => {}); }
 
 // MOCHICA：カレンダーとまだ突き合わせていない会議（2026-11-13）
+// 3/1 からの過去の会議もカレンダーと突き合わせる（2026-11-16：MiiTel の過去の会議 1600件を読んだため 60日→300日）。60日より前で見つからなかったものは、1時間ごとでなく7日ごとに試し直す
 export async function mcMiitelNeedCal(limit = 40) {
   if (!pool) return []; await ensureMcMiitel();
-  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '60 days' AND (NOT (payload ? 'mt_cal') OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - 3600000))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec, payload->'mt_rep' AS mrep FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '300 days' AND COALESCE(payload->'mt_cal'->>'manual','') <> 'true' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '7' OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - (CASE WHEN started_at > now() - interval '60 days' THEN 3600000 ELSE 7 * 86400000 END)))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 
 // SF の立ち上げ：kincall の架電先から、会社の従業員数・業種を探す（2026-11-13 田中さん「従業員数は基本 kincall の情報から」）
@@ -12793,4 +12806,204 @@ export async function findCallTargetCompanyInfo({ company = "", email = "", phon
 export async function mcMiitelFixTrLen() {
   if (!pool) return 0; await ensureMcMiitel();
   try { const r = await pool.query(`UPDATE mochica_miitel_events SET transcript_len = 1 WHERE COALESCE(transcript_len,0) = 0 AND payload ? 'mt_phrases'`); return r.rowCount || 0; } catch { return 0; }
+}
+
+// ===== Bales のリスト（拡張機能が Bales の画面から読んだもの）（2026-11-15 田中さん「Bales のリストを全部 kinbot に」）=====
+//   Bales は CSV が2000件まで・API なし。拡張機能が Bales の画面の一覧のデータを横で受け取り、最後のページまでめくって送ってくる。
+//   取り込み直したときに一覧から消えた行は消さずに残し（run_at が古いまま）、画面には今回の取り込みの行だけを出す
+let _mcBalesInit = false;
+async function ensureMcBales() {
+  if (!pool || _mcBalesInit) return; _mcBalesInit = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_lists (
+    list_key TEXT PRIMARY KEY, name TEXT, src TEXT, status TEXT, total INT, got INT DEFAULT 0, count INT DEFAULT 0,
+    cols JSONB, run_at TIMESTAMPTZ, done_at TIMESTAMPTZ, prev_count INT, error TEXT)`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_rows (
+    seq BIGSERIAL, list_key TEXT, row_key TEXT, data JSONB, run_at TIMESTAMPTZ, PRIMARY KEY (list_key, row_key))`).catch(() => {});
+  // 元の形のまま（raw）と、リード1件ずつの詳しい中身（架電履歴・カスタム情報など：detail）も持つ（2026-11-15 田中さん「全部取り込みたい」）
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS raw JSONB`).catch(() => {});
+  // Bales の一覧の見出しと、データの項目の結びつき（[{label, key}]。拡張機能が画面の表から見つける）
+  await pool.query(`ALTER TABLE mochica_bales_lists ADD COLUMN IF NOT EXISTS view JSONB`).catch(() => {});
+  // SF との結びつき（リード・取引先・過去の商談）（2026-11-15 田中さん「2万件のリードを SF と紐付けて過去商談履歴を見たい」）
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS sf JSONB`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS sf_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_lists ADD COLUMN IF NOT EXISTS sf_info JSONB`).catch(() => {});
+  // Bales に書き込んだ印（SF の失注情報などをカスタム情報へ）（2026-11-15）
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS w_at TIMESTAMPTZ`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS w_err TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail JSONB`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS detail_at TIMESTAMPTZ`).catch(() => {});
+}
+export async function mcBalesStart({ listKey, name, src, total, view = null }) {
+  if (!pool) return null; await ensureMcBales();
+  const r = await pool.query(`INSERT INTO mochica_bales_lists (list_key, name, src, status, total, got, run_at, error)
+    VALUES ($1,$2,$3,'running',$4,0,date_trunc('milliseconds', now()),NULL)
+    ON CONFLICT (list_key) DO UPDATE SET name=EXCLUDED.name, src=EXCLUDED.src, status='running', total=EXCLUDED.total, got=0, run_at=EXCLUDED.run_at, error=NULL, prev_count=mochica_bales_lists.count
+    RETURNING run_at`, [listKey, name, src, total]);
+  if (Array.isArray(view) && view.length) await pool.query(`UPDATE mochica_bales_lists SET view=$2 WHERE list_key=$1`, [listKey, JSON.stringify(view.slice(0, 40))]);
+  return r.rows[0].run_at;
+}
+export async function mcBalesAddRows(listKey, rows, total) {
+  if (!pool) return 0; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) throw new Error("先に取り込みを始めてください");
+  if (rows.length) await pool.query(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at, raw)
+    SELECT $1, x.k, x.d, $2, x.r FROM jsonb_to_recordset($3::jsonb) AS x(k text, d jsonb, r jsonb)
+    ON CONFLICT (list_key, row_key) DO UPDATE SET data=EXCLUDED.data, run_at=EXCLUDED.run_at, raw=EXCLUDED.raw`, [listKey, l.run_at, JSON.stringify(rows)]);
+  await pool.query(`UPDATE mochica_bales_lists SET got=got+$2, total=COALESCE($3,total) WHERE list_key=$1`, [listKey, rows.length, total ?? null]);
+  return rows.length;
+}
+// 取り込み直した行に、前の行（同じリード番号）の SF との結びつき・詳しい中身・書き込みの記録を写す（2026-11-16）
+//   行の印が中身のハッシュだったころの行は、中身が変わると別の行になり、結びつきが 0 に見えていた
+export async function mcBalesCarryOver(listKey) {
+  if (!pool) return 0; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return 0;
+  // 前の取り込み（call_targets の snake_case）は id がリード番号だった → それも使う
+  const cid = (a) => `COALESCE(NULLIF(${a}.data->>'callTargetId',''), NULLIF(${a}.data->>'call_target_id',''), NULLIF(${a}.data->>'id',''))`;
+  const a = await pool.query(`UPDATE mochica_bales_rows cur SET sf=o.sf, sf_at=o.sf_at FROM (
+      SELECT DISTINCT ON (${cid("r")}) ${cid("r")} AS cid, r.sf, r.sf_at FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.sf IS NOT NULL AND ${cid("r")} IS NOT NULL ORDER BY ${cid("r")}, r.sf_at DESC NULLS LAST) o
+    WHERE cur.list_key=$1 AND cur.run_at=$2 AND cur.sf IS NULL AND ${cid("cur")} = o.cid`, [listKey, l.run_at]);
+  const b = await pool.query(`UPDATE mochica_bales_rows cur SET detail=o.detail, detail_at=o.detail_at FROM (
+      SELECT DISTINCT ON (${cid("r")}) ${cid("r")} AS cid, r.detail, r.detail_at FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.detail_at IS NOT NULL AND ${cid("r")} IS NOT NULL ORDER BY ${cid("r")}, r.detail_at DESC NULLS LAST) o
+    WHERE cur.list_key=$1 AND cur.run_at=$2 AND cur.detail_at IS NULL AND ${cid("cur")} = o.cid`, [listKey, l.run_at]);
+  const c = await pool.query(`UPDATE mochica_bales_rows cur SET w_at=o.w_at, w_err=o.w_err FROM (
+      SELECT DISTINCT ON (${cid("r")}) ${cid("r")} AS cid, r.w_at, r.w_err FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.w_at IS NOT NULL AND ${cid("r")} IS NOT NULL ORDER BY ${cid("r")}, r.w_at DESC NULLS LAST) o
+    WHERE cur.list_key=$1 AND cur.run_at=$2 AND cur.w_at IS NULL AND ${cid("cur")} = o.cid`, [listKey, l.run_at]);
+  return { sf: a.rowCount, detail: b.rowCount, written: c.rowCount };
+}
+export async function mcBalesFinish(listKey, error = "") {
+  if (!pool) return null; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return null;
+  try { const co = await mcBalesCarryOver(listKey); if (co) console.log(`[Bales] ${listKey} 前の行から写した：SF ${co.sf}・詳しい中身 ${co.detail}・書き込み ${co.written}`); } catch (e) { console.warn("[Bales] 写し戻し失敗:", e.message); }
+  const n = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0].count);
+  // 列：今回の行でよく埋まっている順
+  const cols = (await pool.query(`SELECT k, count(*) AS n FROM (SELECT data FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 LIMIT 3000) t, jsonb_each_text(t.data) AS e(k, v)
+    WHERE COALESCE(v,'') <> '' GROUP BY k ORDER BY n DESC LIMIT 400`, [listKey, l.run_at])).rows.map((r) => ({ key: r.k, n: Number(r.n) }));
+  await pool.query(`UPDATE mochica_bales_lists SET status=$2, count=$3, cols=$4, done_at=now(), error=NULLIF($5,'') WHERE list_key=$1`, [listKey, error ? "error" : "done", n, JSON.stringify(cols), String(error || "").slice(0, 300)]);
+  return n;
+}
+export async function mcBalesLists() {
+  if (!pool) return []; await ensureMcBales();
+  return (await pool.query(`SELECT l.list_key, l.name, l.src, l.status, l.total, l.got, l.count, l.prev_count, l.cols, l.view, l.run_at, l.done_at, l.error,
+    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.detail_at IS NOT NULL) AS detail_n,
+    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.sf IS NOT NULL AND r.sf ? 'lead') AS sf_n, l.sf_info,
+    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.w_at IS NOT NULL AND r.w_err IS NULL) AS w_n
+    FROM mochica_bales_lists l ORDER BY l.run_at DESC NULLS LAST`)).rows;
+}
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100 } = {}) {
+  if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
+  const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
+  if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
+  if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
+  const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
+  p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
+  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY seq LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __sf: r.sfs || null }));
+  return { total, rows };
+}
+export async function mcBalesValues(listKey, col) {
+  if (!pool) return []; await ensureMcBales();
+  return (await pool.query(`SELECT r.data->>$2 AS v, count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
+    WHERE r.list_key=$1 AND COALESCE(r.data->>$2,'') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+}
+// Bales のリストを消す（画面の「消す」から。リストと、その行を全部）（2026-11-15 田中さん「消せるように」）
+export async function mcBalesDelete(listKey) {
+  if (!pool) return 0; await ensureMcBales();
+  const r = await pool.query(`DELETE FROM mochica_bales_rows WHERE list_key=$1`, [listKey]);
+  await pool.query(`DELETE FROM mochica_bales_lists WHERE list_key=$1`, [listKey]);
+  return r.rowCount;
+}
+
+// 詳しい中身がまだのリード（拡張機能が順に読む）
+export async function mcBalesTodo(listKey, limit = 60) {
+  if (!pool) return { ids: [], left: 0 }; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { ids: [], left: 0, none: true };
+  const ids = (await pool.query(`SELECT row_key FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND detail_at IS NULL ORDER BY seq LIMIT $3`, [listKey, l.run_at, Math.min(Number(limit) || 60, 300)])).rows.map((r) => r.row_key);
+  const c = (await pool.query(`SELECT count(*) FILTER (WHERE detail_at IS NULL)::int AS left, count(*)::int AS all FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0];
+  return { ids, left: c.left, all: c.all };
+}
+export async function mcBalesSetDetail(listKey, items) {
+  if (!pool || !items.length) return 0; await ensureMcBales();
+  const r = await pool.query(`UPDATE mochica_bales_rows r SET detail=x.d, detail_at=now() FROM jsonb_to_recordset($2::jsonb) AS x(k text, d jsonb) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items)]);
+  return r.rowCount;
+}
+export async function mcBalesRow(listKey, rowKey) {
+  if (!pool) return null; await ensureMcBales();
+  return (await pool.query(`SELECT data, raw, detail, detail_at, sf, sf_at FROM mochica_bales_rows WHERE list_key=$1 AND row_key=$2`, [listKey, rowKey])).rows[0] || null;
+}
+
+// SF と結びつける：今の取り込みの行（row_key と data）を渡す／結果を書く／進み具合を残す
+export async function mcBalesRowsForSf(listKey) {
+  if (!pool) return []; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return [];
+  // 一覧の項目に無くても、元の形や詳しい中身のどこかに SalesforceID（00Q…）があれば拾う
+  return (await pool.query(`SELECT row_key, data, (regexp_match(COALESCE(raw::text,'') || COALESCE(detail::text,''), '"(00Q[0-9A-Za-z]{15}|00Q[0-9A-Za-z]{12})"'))[1] AS sfid
+    FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 ORDER BY seq`, [listKey, l.run_at])).rows;
+}
+export async function mcBalesSetSf(listKey, items) {
+  if (!pool || !items.length) return 0; await ensureMcBales();
+  const r = await pool.query(`UPDATE mochica_bales_rows r SET sf=x.d, sf_at=now() FROM jsonb_to_recordset($2::jsonb) AS x(k text, d jsonb) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items)]);
+  return r.rowCount;
+}
+export async function mcBalesSfInfo(listKey, info) {
+  if (!pool) return; await ensureMcBales();
+  await pool.query(`UPDATE mochica_bales_lists SET sf_info=$2 WHERE list_key=$1`, [listKey, JSON.stringify(info)]);
+}
+
+// Bales に書き込む：まだ書いていない、SF と結びついたリード（id と SF のリード）を渡す／書いた印を付ける
+export async function mcBalesWriteTodo(listKey, limit = 40, only = "") {
+  if (!pool) return { items: [], left: 0 }; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { items: [], left: 0, none: true };
+  const p = [listKey, l.run_at]; let w = `list_key=$1 AND run_at=$2 AND sf IS NOT NULL AND sf ? 'lead'`;
+  if (only) { p.push(String(only)); w += ` AND row_key=$${p.length}`; } else w += ` AND w_at IS NULL`;
+  p.push(Math.min(Number(limit) || 40, 200));
+  const items = (await pool.query(`SELECT row_key, sf->'lead' AS lead FROM mochica_bales_rows WHERE ${w} ORDER BY seq LIMIT $${p.length}`, p)).rows.map((r) => ({ id: r.row_key, lead: r.lead }));
+  const c = (await pool.query(`SELECT count(*) FILTER (WHERE w_at IS NULL)::int AS left, count(*)::int AS all FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND sf IS NOT NULL AND sf ? 'lead'`, [listKey, l.run_at])).rows[0];
+  return { items, left: c.left, all: c.all };
+}
+export async function mcBalesWritten(listKey, items) {
+  if (!pool || !items.length) return 0; await ensureMcBales();
+  const r = await pool.query(`UPDATE mochica_bales_rows r SET w_at=now(), w_err=NULLIF(x.e,'') FROM jsonb_to_recordset($2::jsonb) AS x(k text, e text) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items)]);
+  return r.rowCount;
+}
+
+// ===== Bales の見張り（平日10〜19時に拡張機能が新しい分を読む。架電の記録など）（2026-11-15 田中さん「その日にどこに架電したか・結果を分析したい」）=====
+let _mcFeedInit = false;
+async function ensureMcFeed() {
+  if (!pool || _mcFeedInit) return; _mcFeedInit = true;
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_feeds (feed TEXT PRIMARY KEY, name TEXT, src TEXT, view JSONB, last_sync TIMESTAMPTZ, last_new INT, total INT DEFAULT 0, by_user TEXT)`).catch(() => {});
+  await pool.query(`CREATE TABLE IF NOT EXISTS mochica_bales_feed_rows (feed TEXT, row_key TEXT, data JSONB, first_at TIMESTAMPTZ DEFAULT now(), seen_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (feed, row_key))`).catch(() => {});
+}
+export async function mcFeedUpsert(feed, { name, src, view, by }, rows) {
+  if (!pool) return { n: 0, nw: 0 }; await ensureMcFeed();
+  await pool.query(`INSERT INTO mochica_bales_feeds (feed, name, src, view, by_user) VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT (feed) DO UPDATE SET name=COALESCE(EXCLUDED.name, mochica_bales_feeds.name), src=COALESCE(EXCLUDED.src, mochica_bales_feeds.src), view=COALESCE(EXCLUDED.view, mochica_bales_feeds.view)`, [feed, name || null, src || null, view ? JSON.stringify(view) : null, by || null]);
+  let nw = 0;
+  if (rows.length) {
+    const r = await pool.query(`INSERT INTO mochica_bales_feed_rows (feed, row_key, data) SELECT $1, x.k, x.d FROM jsonb_to_recordset($2::jsonb) AS x(k text, d jsonb)
+      ON CONFLICT (feed, row_key) DO UPDATE SET data=EXCLUDED.data, seen_at=now() RETURNING (xmax = 0) AS ins`, [feed, JSON.stringify(rows)]);
+    nw = r.rows.filter((x) => x.ins).length;
+  }
+  return { n: rows.length, nw };
+}
+export async function mcFeedSynced(feed, nw) {
+  if (!pool) return; await ensureMcFeed();
+  await pool.query(`UPDATE mochica_bales_feeds SET last_sync=now(), last_new=$2, total=(SELECT count(*) FROM mochica_bales_feed_rows WHERE feed=$1) WHERE feed=$1`, [feed, nw]);
+}
+export async function mcFeedList() {
+  if (!pool) return []; await ensureMcFeed();
+  return (await pool.query(`SELECT feed, name, src, view, last_sync, last_new, total FROM mochica_bales_feeds ORDER BY name`)).rows;
+}
+export async function mcFeedRange(feed, key, from, to) {
+  if (!pool) return []; await ensureMcFeed();
+  return (await pool.query(`SELECT data, first_at FROM mochica_bales_feed_rows WHERE feed=$1 AND ((data->>$2) BETWEEN $3 AND $4 OR ($2 = '' AND first_at BETWEEN $3::timestamptz AND $4::timestamptz)) LIMIT 20000`, [feed, key || "", from, to])).rows;
+}
+export async function mcFeedDelete(feed) {
+  if (!pool) return; await ensureMcFeed();
+  await pool.query(`DELETE FROM mochica_bales_feed_rows WHERE feed=$1`, [feed]); await pool.query(`DELETE FROM mochica_bales_feeds WHERE feed=$1`, [feed]);
+}
+
+// まとめて読むときの残り（文字起こし・議事録がまだで、2回まで試していない会議）
+export async function mcMiitelTodoCount(days = 60) {
+  if (!pool) return 0; await ensureMcMiitel();
+  return Number((await pool.query(`SELECT count(*) FROM mochica_miitel_events WHERE COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND COALESCE((payload->>'mt_tr_try')::int, 0) < 2
+    AND COALESCE(started_at, received_at) > now() - make_interval(days => $1) AND COALESCE(title,'') <> ''`, [Math.max(1, Math.min(400, Number(days) || 60))])).rows[0].count);
 }

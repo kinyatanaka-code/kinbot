@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
-<link rel="stylesheet" href="/style.css?v=20261113zc" />
+<link rel="stylesheet" href="/style.css?v=20261116c" />
 <style>
   .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
   .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
@@ -50,11 +50,27 @@
   .mt-wrap{display:grid;grid-template-columns:300px minmax(0,1fr);gap:14px;height:calc(100vh - 120px);min-height:520px;}
   .mt-side{display:flex;flex-direction:column;min-height:0;background:#F2FAFB;border:1px solid #D9ECEE;border-radius:16px;padding:12px;}
   .mt-side-h{display:flex;align-items:baseline;gap:8px;padding:2px 4px 8px;} .mt-side-h b{font-size:14px;color:#12292C;} .mt-n{font-size:12px;color:#5C7377;}
-  .mt-q{height:36px;border:1px solid #CFE6E9;border-radius:10px;padding:0 12px;font:inherit;font-size:13px;margin-bottom:10px;background:#fff;}
-  .mt-q:focus{outline:2px solid #5EEAD4;border-color:#0E9AA7;}
+  .mt-find{display:flex;align-items:center;gap:8px;width:min(340px,38vw);height:40px;border:1.5px solid #9FD9DF;border-radius:12px;padding:0 12px;background:#fff;color:#0E9AA7;box-shadow:0 2px 8px rgba(14,154,167,.10);}
+  .mt-find:focus-within{border-color:#0E9AA7;box-shadow:0 0 0 3px rgba(94,234,212,.35);}
+  .mt-q{flex:1;min-width:0;height:36px;border:0;padding:0;font:inherit;font-size:13.5px;background:transparent;outline:none;color:#12292C;}
+
   .mt-list{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px;}
   .mt-pcard{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #DDEEF0;border-radius:14px;padding:12px 14px;cursor:pointer;transition:border-color .15s, box-shadow .15s;}
   .mt-pcard:hover{border-color:#5EC7CF;box-shadow:0 4px 14px rgba(14,154,167,.12);}
+  .mt-gmt{display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;cursor:pointer;font:inherit;} .mt-gmt b{font-size:13px;color:#12292C;} .mt-gmt > span{font-size:12px;color:#5C7377;} .mt-gmt.on{border-color:#0E9AA7;background:#EAF8F9;}
+  .mt-deep{margin-top:18px;padding-top:14px;border-top:1px dashed #CFE6E9;} .mt-deep-h{display:flex;align-items:center;gap:10px;margin-bottom:10px;} .mt-deep-h b{font-size:15px;color:#12292C;} .mt-deep-h span{font-size:12px;color:#5C7377;} .mt-deep-h button{margin-left:auto;}
+  .mt-ovname{display:flex;align-items:center;gap:10px;margin-bottom:14px;} .mt-coin{flex:1;min-width:0;font:inherit;font-size:20px;font-weight:800;color:#12292C;border:1px solid transparent;border-radius:10px;padding:4px 8px;margin:0 0 0 -8px !important;background:transparent;} .mt-coin:hover{border-color:#D9ECEE;background:#fff;} .mt-coin:focus{outline:none;border-color:#0E9AA7;background:#fff;box-shadow:0 0 0 3px rgba(94,234,212,.3);}
+  .mt-cotags{display:flex;flex-wrap:wrap;gap:6px;margin-top:5px;} .mt-cotags .acard-sf{margin-left:0;}
+  .mt-cshare{display:inline-flex;align-items:center;font-size:11px;font-weight:700;color:#0E6B4E;background:#fff;border:1px solid #CFE3D9;border-radius:99px;padding:2px 9px;cursor:pointer;} .mt-cshare:hover{background:#E1F5EE;}
+  /* 会社の概要（kinbot の会社カードと同じ中身）（2026-11-14） */
+  .mt-ov{padding:4px 2px;} .mt-ov-links{display:flex;gap:8px;flex-wrap:wrap;margin:-6px 0 12px;}
+  .mt-ovm{display:grid;grid-template-columns:120px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;border:0;background:#fff;border-radius:10px;padding:9px 10px;margin-bottom:4px;cursor:pointer;font:inherit;font-size:13px;}
+  .mt-ovm:hover{background:#EAF8F9;} .mt-ovm .d{font-size:12px;font-weight:800;color:#5C7377;} .mt-ovm .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#12292C;font-weight:700;} .mt-ovm .h{font-size:11.5px;color:#5C7377;}
+  .mt-prg{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 16px;} .mt-pr{display:flex;flex-direction:column;gap:2px;font-size:13px;min-width:0;} .mt-pr span{font-size:11px;font-weight:700;color:#5C7377;} .mt-pr b{font-weight:700;color:#12292C;overflow-wrap:anywhere;} .mt-pr b a{color:#0B6E78;} .mt-pr.wide{margin-top:10px;} .mt-pr.wide b{font-weight:500;line-height:1.7;}
+  .mt-who-co{cursor:pointer;border-radius:12px;} .mt-who-co:hover{background:#E3F6F8;} .mt-who-co .go{margin-left:auto;font-size:11.5px;font-weight:800;color:#0E9AA7;white-space:nowrap;}
+  /* 会社のカード（担当の中）：頭の印は丸くして、担当のカードと見分ける（2026-11-14） */
+  .mt-pcard.mt-cocard .av{border-radius:50%;background:#0E9AA7;color:#fff;font-size:13px;}
+  .mt-cocard.none{background:#F7FBFB;} .mt-pcard.mt-cocard.none .av{background:#D9ECEE;color:#5C7377;} .mt-cocard.none .nm b{color:#5C7377;}
   .mt-pcard .av,.mt-who .av{flex:0 0 auto;width:34px;height:34px;border-radius:10px;background:#E1F5F7;color:#0B6E78;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;}
   .mt-pcard .nm{display:flex;flex-direction:column;min-width:0;flex:1;} .mt-pcard .nm b{font-size:14px;color:#12292C;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .mt-pcard .nm small{font-size:11.5px;color:#5C7377;margin-top:2px;}
   .mt-pcard .go{color:#9AB3B6;font-size:18px;}
@@ -78,7 +94,76 @@
   .mt-grab{border:0;background:#fff;color:#0B6E78;font:inherit;font-weight:800;border-radius:10px;padding:9px 18px;cursor:pointer;font-size:13px;} .mt-grab:disabled{opacity:.7;cursor:default;}
   .mt-diag-w{position:relative;}
   .mt-diag-pop{position:absolute;right:0;top:42px;width:min(460px,80vw);max-height:60vh;overflow:auto;background:#fff;border:1px solid #D9ECEE;border-radius:12px;box-shadow:0 12px 32px rgba(15,61,68,.18);padding:12px 14px;font-size:11.5px;color:#3F5A5E;z-index:40;}
+  .mc-settings{padding:0 !important;}
+  .mc-settings .set-card h3{display:flex;align-items:center;gap:8px;} .mc-settings .set-card h3 svg{flex:0 0 auto;}
+  .mc-settings .integ-card .integ-icon svg{display:block;}
+  .mc-integ-detail{display:flex;flex-direction:column;gap:12px;}
+  .mc-settings .mc-steps{margin:6px 0 0 18px;font-size:13px;line-height:1.8;}
+  .mt-sf{display:flex;flex-direction:column;gap:10px;}
+  .mt-sf-top{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;justify-content:space-between;} .mt-sf-top b a{color:#0B6E78;text-decoration:none;} .mt-sf-top small{display:block;font-size:11.5px;color:#5C7377;margin-top:2px;}
+  .mt-sf-st{display:flex;flex-direction:column;font-size:11.5px;color:#5C7377;font-weight:700;gap:3px;} .mt-sf-st select{height:34px;border:1px solid #CFE6E9;border-radius:9px;padding:0 8px;font:inherit;font-size:13px;}
+  /* 項目は縦に1列で並べる（2026-11-14 田中さん：kinbot のように縦に） */
+  .mt-sf-grid,.mt-sf-vert{display:flex;flex-direction:column;gap:12px;}
+  .mt-sf-find{display:flex;gap:8px;} .mt-sf-find input{flex:1;min-width:0;height:40px;border:1px solid #CFE6E9;border-radius:10px;padding:0 12px;font:inherit;font-size:13.5px;} .mt-sf-find input:focus{outline:2px solid #5EEAD4;border-color:#0E9AA7;}
+  .mt-sf-res{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;}
+  .mt-sf-cand{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;border:1px solid #DDEEF0;border-radius:12px;background:#F7FBFB;padding:10px 14px;cursor:pointer;font:inherit;}
+  .mt-sf-cand:hover{border-color:#5EC7CF;background:#fff;} .mt-sf-cand b{font-size:13.5px;color:#12292C;} .mt-sf-cand small{font-size:11.5px;color:#5C7377;}
+  .mt-sf-linked{display:flex;align-items:flex-start;gap:10px;border:1px solid #9FD9DF;background:#EAF8F9;border-radius:12px;padding:12px 14px;}
+  .mt-sf-linked > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;} .mt-sf-linked b a{color:#0B6E78;text-decoration:none;font-size:14px;} .mt-sf-linked small{font-size:11.5px;color:#5C7377;}
+  .mt-sf-unlink{border:1px solid #CFE6E9;background:#fff;color:#5C7377;border-radius:8px;font:inherit;font-size:11.5px;padding:3px 10px;cursor:pointer;}
+  .mt-cosf-up{margin-top:12px;display:flex;flex-direction:column;gap:10px;} .mt-sf-base{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5C7377;} .mt-sf-base select{flex:1;min-width:0;border:1px solid #CFE6EA;border-radius:10px;padding:7px 9px;font:inherit;font-size:13px;color:#0F3D44;background:#fff;}
+  .bl-wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;align-items:start;}
+  .bl-side{background:#F2FAFB;border:1px solid #DDEFF2;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:8px;}
+  .bl-side-h{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#0F3D44;} .bl-side-h span{font-size:11px;color:#5C7377;}
+  .bl-card{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;background:#fff;border:1px solid #DDEFF2;border-radius:14px;padding:10px 12px;cursor:pointer;font:inherit;color:#0F3D44;} .bl-card b{font-size:13px;} .bl-card small{font-size:11px;color:#5C7377;} .bl-card.on{border:1.5px solid #0E9AA7;box-shadow:0 2px 8px rgba(14,154,167,.12);}
+  .bl-tag{font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;background:#DDF5F7;color:#0B6E78;} .bl-tag.w{background:#FDF0D8;color:#8A5A00;}
+  .bl-run{background:#fff;border:1px dashed #9FD9DF;border-radius:14px;padding:10px 12px;font-size:12px;color:#0F3D44;display:flex;flex-direction:column;gap:3px;} .bl-run small{color:#5C7377;font-size:11px;}
+  .bl-bar{height:6px;background:#DDF5F7;border-radius:3px;overflow:hidden;} .bl-bar i{display:block;height:6px;background:#0E9AA7;}
+  .bl-how{font-size:11px;color:#5C7377;line-height:1.6;border-top:1px solid #DDEFF2;padding-top:8px;} .bl-how b{display:block;color:#0B6E78;font-size:12px;}
+  .bl-main{background:#fff;border:1px solid #DDEFF2;border-radius:16px;padding:16px;min-width:0;} .bl-empty{color:#5C7377;font-size:13px;padding:30px 10px;text-align:center;}
+  .bl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;} .bl-head h3{margin:0;font-size:17px;color:#0F3D44;} .bl-head small{font-size:11px;color:#5C7377;} .bl-acts{display:flex;gap:6px;} .bl-acts a{text-decoration:none;}
+  .bl-mets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0;} .bl-mets div{background:#F2FAFB;border-radius:12px;padding:10px 12px;} .bl-mets small{display:block;font-size:11px;color:#5C7377;} .bl-mets b{font-size:20px;color:#0F3D44;}
+  .bl-find{display:flex;gap:8px;margin-bottom:8px;} .bl-find input{flex:1;min-width:0;height:36px;border:1px solid #CFE6EA;border-radius:10px;padding:0 10px;font:inherit;} .bl-find select{height:36px;border:1px solid #CFE6EA;border-radius:10px;padding:0 8px;font:inherit;max-width:220px;}
+  .bl-tbl{overflow-x:auto;} .bl-tbl table{width:100%;border-collapse:collapse;font-size:12px;} .bl-tbl th{text-align:left;color:#5C7377;font-weight:700;padding:7px 8px;border-bottom:1px solid #DDEFF2;white-space:nowrap;} .bl-tbl td{padding:7px 8px;border-bottom:1px solid #EEF6F7;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;color:#0F3D44;}
+  .bl-del{color:#B4442E!important;} .bl-mt{border:0;background:none;padding:0 4px 0 0;cursor:pointer;vertical-align:-2px;} .bl-pg{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#5C7377;}
+  .bl-mets{grid-template-columns:repeat(5,minmax(0,1fr))!important;}
+  .bl-prog{display:flex;align-items:center;gap:10px;max-width:520px;} .bl-prog .bl-bar{flex:1;height:8px;} .bl-prog .bl-bar i{height:8px;transition:width .5s;} .bl-prog b{font-size:13px;color:#0B6E78;min-width:38px;} .bl-sfst small{display:block;color:#5C7377;font-size:11px;margin-top:3px;}
+  .bl-rcs{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;} .bl-rc{display:inline-block;font-size:11px;border-radius:99px;padding:2px 8px;background:#DDF5F7;color:#0B6E78;margin:1px 3px 1px 0;white-space:nowrap;} .bl-rc b{font-weight:700;}
+  .bl-hours{display:flex;gap:6px;align-items:flex-end;height:96px;margin-top:6px;padding:6px 4px;background:#F2FAFB;border-radius:12px;} .bl-hours div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:2px;} .bl-hours i{display:block;width:70%;background:#0E9AA7;border-radius:4px 4px 0 0;min-height:2px;} .bl-hours b{font-size:10px;color:#0B6E78;} .bl-hours small{font-size:10px;color:#5C7377;}
+  .bl-date{height:34px;border:1px solid #CFE6EA;border-radius:10px;padding:0 8px;font:inherit;} .bl-row.on td{background:#DDF5F7;}
+  .bl-sfst{font-size:12px;color:#0B6E78;margin-top:6px;min-height:0;} .bl-sfst:empty{display:none;}
+  .bl-sfc{display:inline-block;font-size:11px;font-weight:700;border-radius:99px;padding:2px 8px;background:#DDF5F7;color:#0B6E78;white-space:nowrap;} .bl-sfc.won{background:#E1F5EE;color:#085041;} .bl-sfc.lost{background:#FDF0D8;color:#8A5A00;}
+  .bl-sflinks{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;} .bl-sflinks a{text-decoration:none;} .bl-sub{display:block;font-size:10px;color:#9AB0B3;} .bl-row{cursor:pointer;} .bl-row:hover td{background:#F2FAFB;}
+  .bl-sheet-bg{position:fixed;inset:0;background:rgba(15,61,68,.28);z-index:900;display:flex;justify-content:flex-end;} .bl-sheet{position:relative;width:min(760px,96vw);height:100%;background:#fff;box-shadow:-8px 0 28px rgba(15,61,68,.18);overflow:auto;border-radius:16px 0 0 16px;}
+  .bl-sheet-in{padding:22px 22px 40px;} .bl-sheet h3{margin:0 0 4px;font-size:18px;color:#0F3D44;} .bl-sheet h3 small{font-size:13px;color:#5C7377;font-weight:500;margin-left:4px;} .bl-x{position:absolute;right:14px;top:12px;border:0;background:none;font-size:22px;color:#5C7377;cursor:pointer;}
+  .bl-sec{border:1px solid #DDEFF2;border-radius:12px;padding:8px 12px;margin-top:10px;} .bl-sec summary{cursor:pointer;font-weight:700;color:#0B6E78;font-size:13px;} .bl-sec summary small{font-weight:500;color:#5C7377;margin-left:6px;} .bl-h4{margin-top:18px;font-weight:700;color:#0F3D44;font-size:14px;} .bl-h4 small{font-weight:500;color:#5C7377;font-size:11px;margin-left:6px;}
+  .bl-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 14px;margin-top:8px;} .bl-kv div{min-width:0;border-bottom:1px solid #EEF6F7;padding-bottom:4px;} .bl-kv small{display:block;font-size:11px;color:#5C7377;} .bl-kv small i{font-style:normal;color:#9AB0B3;} .bl-kv span{font-size:13px;color:#0F3D44;word-break:break-all;}
+  .bl-cf{width:100%;height:36px;border:1px solid #CFE6EA;border-radius:10px;padding:0 10px;font:inherit;margin:8px 0;} .bl-cols{display:flex;flex-direction:column;gap:2px;max-height:60vh;overflow:auto;} .bl-cols label{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #EEF6F7;font-size:13px;cursor:pointer;} .bl-cols label span{flex:1;min-width:0;} .bl-cols label span small{display:block;color:#9AB0B3;font-size:11px;} .bl-cols label>small{color:#5C7377;font-size:11px;}
+  .bl-diag{margin-top:14px;background:#F2FAFB;border-radius:12px;padding:12px;font-size:12px;color:#5C7377;line-height:1.7;text-align:left;} .bl-diag b{display:block;color:#0B6E78;font-size:13px;} .bl-dl{margin-top:6px;font-family:ui-monospace,monospace;font-size:11px;color:#0F3D44;} .bl-dl small{display:block;color:#5C7377;}
+  @media (max-width:820px){.bl-wrap{grid-template-columns:1fr;}}
+  .mt-sf-sub{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:#F2FAFB;border-radius:12px;padding:4px;}
+  .mt-sf-sub button{border:0;background:transparent;border-radius:9px;padding:9px;font:inherit;font-size:13px;font-weight:800;color:#5C7377;cursor:pointer;} .mt-sf-sub button.on{background:#fff;color:#0B6E78;box-shadow:0 1px 4px rgba(15,61,68,.10);}
+  .mt-sf-f{display:flex;flex-direction:column;gap:4px;font-size:12px;} .mt-sf-f span{font-weight:700;color:#3F5A5E;} .mt-sf-f .req{font-style:normal;margin-left:6px;font-size:10.5px;color:#fff;background:#D14B2B;border-radius:99px;padding:0 6px;}
+  .mt-sf-f input,.mt-sf-f select,.mt-sf-f textarea{border:1px solid #CFE6E9;border-radius:9px;padding:7px 9px;font:inherit;font-size:13px;background:#fff;} .mt-sf-f textarea{resize:vertical;}
+  .mt-sf-f.ai input,.mt-sf-f.ai select,.mt-sf-f.ai textarea{background:#F0FBF7;border-color:#7FD3B6;} .mt-sf-f.bad input,.mt-sf-f.bad select,.mt-sf-f.bad textarea{border-color:#D14B2B;box-shadow:0 0 0 2px rgba(209,75,43,.15);}
+  .mt-sf-f.miss small{color:#A2480C;} .mt-sf-f .chk{display:flex;align-items:center;gap:6px;font-weight:600;}
+  .mt-sf-err{background:#FDECE7;border:1px solid #F3C1B3;color:#8A2E12;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.7;}
+  .mt-sf-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
   .mt-title{display:flex;align-items:center;gap:10px;margin:14px 0 10px;flex-wrap:wrap;} .mt-title h2{font-size:17px;margin:0;color:#12292C;flex:1;min-width:0;}
+  .mt-repsel{font:inherit;font-size:13px;font-weight:800;color:#12292C;border:1px solid #D9ECEE;border-radius:9px;padding:4px 8px;background:#fff;max-width:100%;cursor:pointer;} .mt-repsel:focus{outline:2px solid #5EEAD4;}
+  /* 商談名：直せる欄とカレンダーから選ぶボタン（2026-11-14） */
+  .mt-tw{position:relative;display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
+  .mt-tin{flex:1;min-width:0;font:inherit;font-size:17px;font-weight:800;color:#12292C;border:1px solid transparent;border-radius:10px;padding:6px 8px;background:transparent;}
+  .mt-tin:hover{border-color:#D9ECEE;background:#fff;} .mt-tin:focus{outline:none;border-color:#0E9AA7;background:#fff;box-shadow:0 0 0 3px rgba(94,234,212,.3);}
+  .mt-calbtn{flex:0 0 auto;width:34px;height:34px;border-radius:10px;border:1px solid #CFE6E9;background:#fff;color:#0E9AA7;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;}
+  .mt-calbtn:hover{background:#E3F6F8;}
+  .mt-calp{position:absolute;left:0;top:44px;z-index:30;width:min(520px,90vw);background:#fff;border:1px solid #D9ECEE;border-radius:14px;box-shadow:0 14px 36px rgba(15,61,68,.18);padding:10px;}
+  .mt-calbar{display:flex;align-items:center;gap:6px;margin-bottom:8px;} .mt-calbar button{width:30px;height:30px;border-radius:8px;border:1px solid #D9ECEE;background:#fff;cursor:pointer;color:#0B6E78;font-weight:800;} .mt-calbar input{height:30px;border:1px solid #D9ECEE;border-radius:8px;padding:0 8px;font:inherit;font-size:13px;}
+  .mt-calist{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;}
+  .mt-calrow{display:flex;align-items:flex-start;gap:10px;text-align:left;border:0;background:transparent;border-radius:10px;padding:8px 10px;cursor:pointer;font:inherit;}
+  .mt-calrow:hover{background:#F2FAFB;} .mt-calrow .tm{flex:0 0 42px;font-size:12px;font-weight:800;color:#5C7377;padding-top:1px;}
+  .mt-calrow .nm{display:flex;flex-direction:column;font-size:13px;color:#12292C;min-width:0;} .mt-calrow .nm small{font-size:11px;color:#5C7377;margin-top:2px;}
+  .mt-calrow.deal{background:#EAF8F9;} .mt-calrow.deal .nm{font-weight:800;}
   .mt-btn{height:34px;border:0;border-radius:10px;background:#0E9AA7;color:#fff;font:inherit;font-size:12.5px;font-weight:800;padding:0 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;}
   .mt-btn.ghost{background:#fff;color:#0B6E78;border:1px solid #CFE6E9;}
   .mt-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px 14px;font-size:12.5px;margin-bottom:12px;}
@@ -96,8 +181,8 @@
 <div class="app">
   <nav class="sidebar">
     <div class="side-brand"><span class="brand-mark"></span><span>kinbot<small class="mc-for">for MOCHICA</small></span></div>
-    <a class="side-item active" data-go="home"><span class="side-ico ico-home"></span><span class="side-label">ホーム</span></a>
-    <a class="side-item" data-go="mtg"><span class="side-ico ico-rec"></span><span class="side-label">商談（MiiTel）</span></a>
+    <!-- ホームは一旦しまう（2026-11-15 田中さん「ホームは一旦消して」）。開いたときは商談から -->
+    <a class="side-item active" data-go="mtg"><span class="side-ico ico-rec"></span><span class="side-label">商談（MiiTel）</span></a>
     <a class="side-item" data-go="list"><span class="side-ico ico-assign"></span><span class="side-label">リスト（Bales Cloud）</span></a>
     <a class="side-item" data-go="call"><span class="side-ico ico-phone"></span><span class="side-label">架電（Zoom Phone）</span></a>
     <a class="side-item" data-go="apo"><span class="side-ico ico-apo"></span><span class="side-label">アポイント</span></a>
@@ -109,7 +194,7 @@
     <header class="topbar">
       <div class="brand"><img class="topbar-bot" src="/kinbot-mochica.svg" alt="" /><span class="brand-name" id="mcTitle">ホーム</span></div>
       <span style="font-size:12px;font-weight:800;color:#0B6E78;background:#DDF5F7;border-radius:99px;padding:3px 10px;">準備中</span>
-      <div class="mc-head-r" id="mcHeadR" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px"><span id="mtAutoSt" class="mc-note" style="margin:0;font-size:12px"></span><div class="mt-diag-w"><button type="button" class="mt-btn ghost" id="mtDiagBtn" aria-expanded="false">拡張機能の様子 ▾</button><div class="mt-diag-pop" id="mtDiagPop" hidden><div id="mtDiagBody" style="line-height:1.6;word-break:break-all">—</div></div></div><button type="button" id="mtRead" class="mt-btn">MiiTel から今すぐ読む</button></div>
+      <div class="mc-head-r" id="mcHeadR" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px"><!-- 探す欄はヘッダーに（2026-11-14 田中さん） --><label class="mt-find"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><input id="mtQ" class="mt-q" type="search" name="mc-mt-find" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="会社・会議名・担当で探す" /></label><span id="mtAutoSt" class="mc-note" style="margin:0;font-size:12px"></span><div class="mt-diag-w"><button type="button" class="mt-btn ghost" id="mtDiagBtn" aria-expanded="false">拡張機能の様子 ▾</button><div class="mt-diag-pop" id="mtDiagPop" hidden><div id="mtDiagBody" style="line-height:1.6;word-break:break-all">—</div></div></div><button type="button" id="mtRead" class="mt-btn">MiiTel から今すぐ読む</button></div>
     </header>
     <div class="mc-main">
 <section data-pane="home">
@@ -129,14 +214,16 @@
         <aside class="mt-side">
           <div class="mt-side-h"><b>商談</b><span id="mtCount" class="mt-n"></span></div>
           
-          <input id="mtQ" class="mt-q" type="search" name="mc-mt-find" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="会議名・担当で探す" />
           <div id="mtList" class="mt-list"><div class="mc-note" style="padding:10px">読み込んでいます…</div></div>
         </aside>
         <div class="mt-main" id="mtMain"><div class="mt-empty">左の商談を選ぶと、ここに中身が出ます。</div></div>
       </div>
     </section>
     <section data-pane="list" hidden>
-      <div class="mc-box"><h2>Bales に SF の情報を入れる</h2>
+      <!-- Bales のリスト（拡張機能で Bales の画面から取り込んだもの）（2026-11-15 田中さん） -->
+      <div id="mcBalesView"><div class="mc-note">読み込んでいます…</div></div>
+      <!-- 「Bales に SF の情報を入れる」は一旦しまう（2026-11-15 田中さん「ここは一旦無くして」）。中身と API は残している -->
+      <div class="mc-box" style="display:none"><h2>Bales に SF の情報を入れる</h2>
         <p class="mc-note">Bales のカスタム情報（失注商談失注日・失注理由 大/中/詳細/小・失注前ステージ・顧客の現状・利用中ATS・採用人数 など21項目）は、SF の「Mochica（リード）」の同じ名前の項目です。Bales の <b>SalesforceID（00Q…）</b>＝SF のリードの ID なので、SF のリードの値を、そのまま Bales に入れるファイルを作ります。</p>
         <div style="display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap"><label class="mc-note" style="margin:0">対象：<select id="mcBalesScope" class="mt-q" style="height:34px;margin:0"><option value="lost">SF の失注の情報があるリード（約1.4万件）</option><option value="all">SF の Mochica（リード）全部（約8.7万件・Bales に無いものも含む）</option></select></label><button type="button" class="mt-btn" id="mcBalesRun">集計する</button><a class="mt-btn ghost" id="mcBalesCsv" href="/api/mochica/bales/leads.csv" style="display:none">取り込み用ファイル（CSV）をダウンロード</a></div>
         <div id="mcBalesSum" class="mc-note" style="margin-top:10px">「集計する」を押すと、SF のリードを読み込みます（1〜2分かかります）。</div>
@@ -150,33 +237,15 @@
       <p class="mc-note">DOC の商談の議事録は、商談履歴で見られます（直したり、DOC の Salesforce に書いたりはしません）。</p>
       <p style="margin-top:12px"><a class="mc-btn" style="display:inline-flex;align-items:center;text-decoration:none" href="/history.html" target="_blank" rel="noopener">DOC の商談履歴を開く ↗</a></p></div></section>
     <section data-pane="settings" hidden>
-      <div class="mc-box"><h2>MiiTel の会議履歴を受け取る（Outgoing Webhook）</h2>
-        <p class="mc-note">MiiTel Admin → 外部連携 → Outgoing Webhook → 「会議履歴」タブ → 連携設定を追加 で、次の2つを入れてください。送るタイミングは「会議履歴の音声分析完了時」と、使えれば「議事録作成完了時」「文字起こし要約完了時」も選びます。</p>
-        <div class="mc-form" style="margin-top:10px"><label>URL</label><input id="mhUrl" readonly onclick="this.select()" />
-          <label>追加ヘッダー</label><input id="mhHead" readonly onclick="this.select()" placeholder="管理者だけが見られます" /></div>
-        <p class="mc-note" style="margin-top:8px">追加ヘッダーは合言葉です。ほかの人に見せないでください。</p></div>
-      <div class="mc-box"><h2>MiiTel の文字起こし・議事録の読み込み</h2>
-        <p class="mc-note">MiiTel には外から読む鍵（API）が無いので、<b>営業担当それぞれの Chrome</b> で読みます。パスワードは kinbot に入れません。</p>
-        <ol class="mc-steps" style="margin-top:6px">
-          <li>各自の Chrome に拡張機能 <b>kinbot-ext（1.4.0 以上）</b>を入れる（kinbot の設定 → 拡張機能）</li>
-          <li>その Chrome で、自分の MiiTel のアカウントでログインしておく</li>
-          <li>MiiTel で会議のページを開くと、その会議の文字起こし・議事録が自動で kinbot に入る。まとめて入れるときは「商談（MiiTel）」の「MiiTel から文字起こし・議事録を読む」</li>
-        </ol>
-        <input id="miDomain" type="hidden" /><input id="miToken" type="hidden" /><span id="stMiitel" hidden></span></div>
-      <div class="mc-box"><h2>Bales Cloud <span class="mc-tag" id="stBales">—</span></h2>
-        <div class="mc-form"><label>API のキー</label><input id="baKey" type="text" class="mc-secret" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="管理画面の「連携」「API」で発行したもの" />
-          <label>メモ</label><input id="baNote" placeholder="アカウント名など（任意）" /></div></div>
-      <div class="mc-box"><h2>Salesforce（MOCHICA のきまり）</h2>
-        <div class="mc-form"><label>リードの種別</label><input id="sfLead" placeholder="MOCHICAリード" />
-          <label>新規の商談名の頭</label><input id="sfOpp" placeholder="例：MOCHICA_新規_" /></div>
-        <p class="mc-note" style="margin-top:8px">ステージの並びは、つないだあと Salesforce から読みます。</p></div>
-      <p><button class="mc-btn" id="mcSave">保存する</button> <span id="mcSaved" class="mc-note"></span></p>
-      <p class="mc-note">キーは kinbot のサーバーにだけ置き、画面には末尾の4文字しか出しません。保存できるのは管理者だけです。</p>
+      <!-- 設定は kinbot と同じ画面を使う（2026-11-14 田中さん：設定画面は1つにする）。MiiTel・Bales は「外部連携」にある -->
+      <iframe id="mcSetFrame" title="設定" data-src="/settings.html?embed=1&amp;app=mochica&amp;tab=integrations" style="width:100%;height:calc(100vh - 96px);min-height:560px;border:0;background:transparent;display:block"></iframe>
     </section>
       </div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mochica.js?v=20261113zc"></script>
+  <script src="/mcbales.js?v=20261116j"></script>
+  <script src="/caseshare.js?v=20261116c"></script>
+  <script src="/mochica.js?v=20261116c"></script>
 </body>
 </html>

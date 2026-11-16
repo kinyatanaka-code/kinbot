@@ -43,7 +43,7 @@
     document.querySelectorAll(".kbcs-bg").forEach((n) => n.remove());
     const bg = document.createElement("div"); bg.className = "kbcs-bg";
     const radio = (name, list, val) => list.map((v) => `<label class="kbcs-opt"><input type="radio" name="${name}" value="${esc(v)}" ${v === val ? "checked" : ""}>${esc(v)}</label>`).join("");
-    const fields = [["company", "クライアント企業名（事業所名）", p.company || ""], ["url", "企業URL（HP）", url || "https://example.com/"], ["person", "先方担当者名", p.person || ""], ["phone", "先方の電話番号", p.phone || ""], ["email", "先方のメールアドレス", p.email || ""], ["job", "募集職種", p.job || "詳細不明"], ["place", "募集勤務地", pref], ["to", "共有先となる営業担当の指定有無", "指定なし"], ["date", "商談予定日時", ""], ["price", "希望採用/稼働単価", ""]];
+    const fields = [["company", "クライアント企業名（事業所名）", p.company || ""], ["url", "企業URL（HP）", url || "https://example.com/"], ["person", "先方担当者名", p.person || ""], ["phone", "先方の電話番号", p.phone || ""], ["email", "先方のメールアドレス", p.email || ""], ["job", "募集職種", p.job || "詳細不明"], ["place", "募集勤務地", pref], ["to", "共有先となる営業担当の指定有無", ""], ["date", "商談予定日時", ""], ["price", "希望採用/稼働単価", ""]];
     // 商談予定日時：カレンダーで選ぶ。最初は、その商談の日時（2026-11-08 田中さん）
     const dt0 = p.date ? new Date(p.date) : null; const ok0 = dt0 && !isNaN(dt0);
     const pad = (n) => String(n).padStart(2, "0");
