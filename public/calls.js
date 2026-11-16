@@ -9698,7 +9698,7 @@ async function edEnrichEmployees(mode) {
     const remain = blanks().length;
     if (st) st.textContent = (_edEnrichStop ? "止めました" : "終わりました") + `：入った ${totalGot}・取れず「-」 ${_edEnrichStop ? "" : (edFiltered().filter((r)=>String(_edg(r,"従業員数","employees"))==="-").length)}・残り ${remain}（${srcStr(bySrc)}）`;
   } catch (e) { if (st) st.textContent = "失敗：" + e.message; }
-  finally { _edEnrichRunning = false; _edEnrichStop = false; if (btn) btn.textContent = "従業員数を自動取得"; }
+  finally { _edEnrichRunning = false; _edEnrichStop = false; if (btn) btn.textContent = "従業員数"; }
 }
 async function edEnrichHires() {
   const g = _edg;
@@ -9929,7 +9929,7 @@ function edFillExtractOwner() {
   const cur = sel.value;
   const opts = (_edMembers || []).filter((m) => !["goldfly32@gmail.com"].includes(String(m.email || "").toLowerCase()))
     .map((m) => `<option value="${esc(m.email)}">${esc(m.name || m.email)} の所有にする（担当も${esc(m.name || m.email)}に）</option>`).join("");
-  sel.innerHTML = `<option value="">抜き出し先：自分の所有（担当はそのまま）</option>` + opts;
+  sel.innerHTML = `<option value="">抜き出し先：自分の所有</option>` + opts;   // 短く（担当はそのまま、はボタンの説明に書いてある）
   if (cur) sel.value = cur;
 }
 // 絞り込んで表示中の行を、新しい1つのリストへ移して抜き出す（担当は保持 or 選んだメンバーへ）
@@ -9973,7 +9973,7 @@ async function edEnrichIndustryBtn() {
     const r = await edEnrichIndustry(targets, (d, g) => { if (st) st.textContent = `業種を調べています… ${d}/${targets.length}（${g}社わかりました）`; if (d % 24 === 0) edRender(); });
     if (st) st.textContent = `業種を調べました：${r.got}/${targets.length}社${_edIndStop ? "（途中で止めました）" : ""}`;
   } catch (e) { if (st) st.textContent = "業種を調べられませんでした：" + e.message; }
-  finally { _edIndRunning = false; if (btn) btn.textContent = "業種を自動取得"; edBuildTable(); edRender(); }
+  finally { _edIndRunning = false; if (btn) btn.textContent = "業種"; edBuildTable(); edRender(); }
 }
 async function edIndustrySplit() {
   if (_edIndRunning) { _edIndStop = true; return; }   // 調べている途中にもう一度押したら止める
@@ -9985,7 +9985,7 @@ async function edIndustrySplit() {
     const st = $("edEnrichSt"); _edIndStop = false; _edIndRunning = true;
     const b = $("edIndSplit"); if (b) b.textContent = "調べるのを止める";
     try { const r = await edEnrichIndustry(blank, (d, g) => { if (st) st.textContent = `業種を調べています… ${d}/${blank.length}（${g}社わかりました）`; }); if (st) st.textContent = `業種を調べました：${r.got}/${blank.length}社${_edIndStop ? "（途中で止めました）" : ""}`; }
-    finally { _edIndRunning = false; if (b) b.textContent = "業界ごとにリストへ分ける"; edRender(); }
+    finally { _edIndRunning = false; if (b) b.textContent = "業界ごとに分ける"; edRender(); }
   }
   const groups = new Map(ED_INDUSTRIES.map((x) => [x.name, []]));
   for (const r of rows) { const k = edIndustryOf(r); if (k) groups.get(k).push(r); }
@@ -10251,9 +10251,12 @@ function edRenderBody() {
   const rows = edFiltered();
   if ($("edCount")) $("edCount").textContent = `${rows.length.toLocaleString()} / ${_edRows.length.toLocaleString()}件`;
   if ($("edNurN")) $("edNurN").textContent = rows.length.toLocaleString();
-  if ($("edExtract")) { $("edExtract").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件を新リストに抜き出す`; $("edExtract").disabled = rows.length === 0; }
-  if ($("edMoveBtn")) { $("edMoveBtn").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件をほかのリストへ移す`; $("edMoveBtn").disabled = rows.length === 0; }
-  if ($("edStageBtn")) { $("edStageBtn").textContent = `絞り込んだ ${rows.length.toLocaleString()} 件のステージを変える`; $("edStageBtn").disabled = rows.length === 0; }
+  // 件数は「絞り込んだ ○ 件を」の1か所にだけ出し、ボタンは短く（2026-11-16 田中さん「この辺醜い」）
+  if ($("edBulkN")) $("edBulkN").textContent = rows.length.toLocaleString();
+  if ($("edExtract")) { $("edExtract").textContent = "新リストに抜き出す"; $("edExtract").disabled = rows.length === 0; }
+  if ($("edMoveBtn")) { $("edMoveBtn").textContent = "移す"; $("edMoveBtn").disabled = rows.length === 0; }
+  if ($("edStageBtn")) { $("edStageBtn").textContent = "ステージを変える"; $("edStageBtn").disabled = rows.length === 0; }
+  if ($("edIndSplit")) $("edIndSplit").disabled = rows.length === 0;
   const tb = $("edTbody"); if (!tb) return;
   tb.innerHTML = rows.length
     ? rows.map((r) => {

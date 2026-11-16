@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&display=swap" />
-    <link rel="stylesheet" href="style.css?v=20261116a" />
+    <link rel="stylesheet" href="style.css?v=20261116b" />
   </head>
   <body class="kc-body">
     <div class="app">
@@ -476,27 +476,26 @@
                 <button type="button" class="nm-back" id="edBack">← 選び直す</button>
                 <div class="nm-detail-title" id="edTableTitle">リスト編集</div>
               </div>
-              <div id="edFilterBar" hidden style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;border-top:1px solid #e6ece9;padding-top:10px">
-                <span class="note" style="margin:0;font-size:11px">絞り込みは各列の見出しにあります</span>
-                <button type="button" class="btn ghost" id="edEnrichEmp" title="空欄の会社を、まず無料（SF→gBiz→公式サイト）で埋め、それでも空いた分だけWeb検索（Brave→Gemini）で埋めます">従業員数を自動取得</button>
-                <button type="button" class="btn ghost" id="edEnrichMedia" title="表示中で空欄の会社を、Web検索で有料求人サイトの掲載を調べてタグ付け">媒体掲載を自動取得</button>
-                <button type="button" class="btn ghost" id="edEnrichInd" title="表示中で業種が空の会社を、gBiz・公式サイト・Web検索・求人媒体から調べて入れる（もう一度押すと止める）">業種を自動取得</button>
-                <button type="button" class="btn ghost" id="edEnrichHire" title="表示中で空欄の会社を、Web検索で採用予定人数を調べて入れる">採用人数を自動取得</button>
-                <button type="button" class="btn ghost" id="edCsvOut" title="表示中の一覧をCSVで書き出す">CSV書き出し</button>
-                <button type="button" class="btn ghost" id="edCsvIn" title="編集したCSVを取り込んで反映（リードIDで突合）">CSV取り込み</button>
-                <button type="button" class="btn ghost" id="edDedupe" title="同じリード（リードIDが同じ、または会社・担当・電話が同じ）が重複している場合、履歴の多い1件を残して他を削除します">重複を削除</button>
-                <button type="button" class="btn ghost" id="edDedupeAcross" title="ほかのリストにも同じ会社（会社名か電話番号が同じ）がある場合、このリストから省きます">ほかのリストとの重複を省く</button>
-                <select id="edExtractOwner" class="kc-input" style="max-width:220px" title="抜き出した新リストの所有者。メンバーを選ぶと担当もそのメンバーにそろえます"><option value="">抜き出し先：自分の所有（担当はそのまま）</option></select>
-                <button type="button" class="btn" id="edExtract" title="いま絞り込んで表示している行を、元のリストから移して、新しい1つのリストにまとめます（担当はそのまま）">絞り込んだ分を新リストに抜き出す</button>
-                <button type="button" class="btn ghost" id="edIndSplit" title="絞り込んだ分を、業種・会社名から ディーラー・不動産・飲食・ホテル に分けて、それぞれのリストへ移します（移す前に件数を確かめられます）">業界ごとにリストへ分ける</button>
-                <select id="edStageTo" class="kc-input" style="max-width:200px" title="絞り込んだ分のステージを、まとめてこのステージにする"><option value="">ステージを選ぶ…</option></select>
-                <button type="button" class="btn ghost" id="edStageBtn" title="いま絞り込んで表示している行のステージを、選んだステージにまとめて変えます（Salesforceのリードの状況にも入れます）">絞り込んだ分のステージを変える</button>
-                <select id="edMoveTo" class="kc-input" style="max-width:240px" title="絞り込んだ分を移す先のリスト"><option value="">移す先のリストを選ぶ…</option></select>
-                <button type="button" class="btn ghost" id="edMoveBtn" title="いま絞り込んで表示している行を、元のリストから選んだリストへ移します（担当はそのまま）">絞り込んだ分をほかのリストへ移す</button>
+              <!-- 2026-11-16 田中さん「この辺醜い」：道具を「一覧を整える」と「絞り込んだ分をまとめて」の2段に分け、選ぶ欄とボタンをくっつけた -->
+              <div id="edFilterBar" class="ed-bar" hidden>
+                <div class="ed-bar-row">
+                  <span class="ed-bar-lb">一覧を整える</span>
+                  <div class="ed-tg"><span class="ed-tg-lb">自動取得</span><button type="button" class="ed-tb" id="edEnrichEmp" title="空欄の会社を、まず無料（SF→gBiz→公式サイト）で埋め、それでも空いた分だけWeb検索（Brave→Gemini）で埋めます">従業員数</button><button type="button" class="ed-tb" id="edEnrichInd" title="表示中で業種が空の会社を、gBiz・公式サイト・Web検索・求人媒体から調べて入れる（もう一度押すと止める）">業種</button><button type="button" class="ed-tb" id="edEnrichMedia" title="表示中で空欄の会社を、Web検索で有料求人サイトの掲載を調べてタグ付け">媒体掲載</button><button type="button" class="ed-tb" id="edEnrichHire" title="表示中で空欄の会社を、Web検索で採用予定人数を調べて入れる">採用人数</button></div>
+                  <div class="ed-tg"><span class="ed-tg-lb">CSV</span><button type="button" class="ed-tb" id="edCsvOut" title="表示中の一覧をCSVで書き出す">書き出し</button><button type="button" class="ed-tb" id="edCsvIn" title="編集したCSVを取り込んで反映（リードIDで突合）">取り込み</button></div>
+                  <div class="ed-tg"><span class="ed-tg-lb">重複</span><button type="button" class="ed-tb" id="edDedupe" title="同じリード（リードIDが同じ、または会社・担当・電話が同じ）が重複している場合、履歴の多い1件を残して他を削除します">このリスト内</button><button type="button" class="ed-tb" id="edDedupeAcross" title="ほかのリストにも同じ会社（会社名か電話番号が同じ）がある場合、このリストから省きます">ほかのリストと</button></div>
+                  <span class="rev-status ed-bar-st" id="edEnrichSt"></span>
+                </div>
+                <div class="ed-bar-row ed-bulk">
+                  <span class="ed-bar-lb">絞り込んだ <b id="edBulkN">0</b> 件を</span>
+                  <div class="ed-ag"><select id="edExtractOwner" class="ed-as" title="抜き出した新リストの所有者。メンバーを選ぶと担当もそのメンバーにそろえます"><option value="">抜き出し先：自分の所有</option></select><button type="button" class="ed-ab ed-ab-main" id="edExtract" title="いま絞り込んで表示している行を、元のリストから移して、新しい1つのリストにまとめます（担当はそのまま）">絞り込んだ分を新リストに抜き出す</button></div>
+                  <div class="ed-ag"><select id="edMoveTo" class="ed-as" title="絞り込んだ分を移す先のリスト"><option value="">移す先のリストを選ぶ…</option></select><button type="button" class="ed-ab" id="edMoveBtn" title="いま絞り込んで表示している行を、元のリストから選んだリストへ移します（担当はそのまま）">絞り込んだ分をほかのリストへ移す</button></div>
+                  <div class="ed-ag"><select id="edStageTo" class="ed-as" title="絞り込んだ分のステージを、まとめてこのステージにする"><option value="">ステージを選ぶ…</option></select><button type="button" class="ed-ab" id="edStageBtn" title="いま絞り込んで表示している行のステージを、選んだステージにまとめて変えます（Salesforceのリードの状況にも入れます）">絞り込んだ分のステージを変える</button></div>
+                  <button type="button" class="ed-ab ed-ab-solo" id="edIndSplit" title="絞り込んだ分を、業種・会社名から ディーラー・不動産・飲食・ホテル に分けて、それぞれのリストへ移します（移す前に件数を確かめられます）">業界ごとに分ける</button>
+                  <span class="ed-bar-cnt" id="edCount"></span>
+                </div>
+                <div class="ed-bar-api" id="edEnrichApi"></div>
+                <div class="ed-bar-hint">絞り込みは、表の各列の見出しにあります</div>
                 <input type="file" id="edCsvFile" accept=".csv,text/csv" hidden />
-                <span class="note" id="edCount" style="margin:0"></span>
-                <span class="rev-status" id="edEnrichSt" style="margin:0"></span>
-                <span class="note" id="edEnrichApi" style="width:100%;margin:2px 0 0;font-size:11px"></span>
               </div>
               <div id="edTable"></div>
               </div>
@@ -653,10 +652,10 @@
         </main>
       </div>
     </div>
-    <script src="sf-data.js?v=20261116a"></script>
-    <script src="caseshare.js?v=20261116a"></script>
-    <script src="calls.js?v=20261116a"></script>
-    <script src="nav.js?v=20261116a"></script>
+    <script src="sf-data.js?v=20261116b"></script>
+    <script src="caseshare.js?v=20261116b"></script>
+    <script src="calls.js?v=20261116b"></script>
+    <script src="nav.js?v=20261116b"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

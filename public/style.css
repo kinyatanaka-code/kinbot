@@ -7300,3 +7300,35 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 
 /* SF商談の立ち上げの窓：業種の選択（2026-11-12） */
 .ap-lc-f select, .csf-f select { width: 100%; height: 36px; border: 1px solid #d7e3dd; border-radius: 9px; padding: 0 8px; font: inherit; font-size: 13px; background: #fff; }
+
+/* ===== リスト編集の道具（2026-11-16 田中さん「この辺醜い」）：2段にまとめ、選ぶ欄とボタンをくっつける ===== */
+.ed-bar { display:flex; flex-direction:column; gap:8px; margin:0 0 10px; padding:10px 12px; background:#f6faf8; border:1px solid #e1ebe6; border-radius:12px; }
+.ed-bar[hidden] { display:none; }
+.ed-bar-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.ed-bar-lb { font-size:11.5px; font-weight:700; color:#5B6B63; min-width:92px; white-space:nowrap; }
+.ed-bar-lb b { color:#0d5b47; font-size:13px; }
+.ed-tg { display:inline-flex; align-items:center; background:#fff; border:1px solid #dbe7e1; border-radius:999px; padding:2px; gap:1px; }
+.ed-tg-lb { font-size:10.5px; color:#8a9a92; padding:0 6px 0 8px; white-space:nowrap; }
+.ed-tb { border:0; background:transparent; color:#0d5b47; font-size:12px; font-weight:600; padding:4px 10px; border-radius:999px; cursor:pointer; white-space:nowrap; }
+.ed-tb:hover { background:#e7f4ee; }
+.ed-ag { display:inline-flex; align-items:stretch; border:1px solid #cfe0d8; border-radius:9px; overflow:hidden; background:#fff; }
+.ed-as { border:0; background:#fff; font-size:12px; color:#173a30; padding:5px 6px; max-width:190px; outline:none; }
+.ed-ab { border:0; border-left:1px solid #cfe0d8; background:#eef7f2; color:#0d5b47; font-size:12px; font-weight:700; padding:5px 12px; cursor:pointer; white-space:nowrap; }
+.ed-ab:hover:not(:disabled) { background:#dcefe6; }
+.ed-ab:disabled { color:#a9b8b1; cursor:default; }
+.ed-ab-main { background:#1d9e75; color:#fff; border-left-color:#1d9e75; }
+.ed-ab-main:hover:not(:disabled) { background:#0d5b47; }
+.ed-ab-solo { border:1px solid #cfe0d8; border-radius:9px; background:#fff; }
+.ed-bar-cnt { margin-left:auto; font-size:11px; color:#8a9a92; white-space:nowrap; }
+.ed-bar-st { margin:0; font-size:11.5px; }
+.ed-bar-api, .ed-bar-hint { font-size:10.5px; color:#8a9a92; }
+.ed-bar-api:empty { display:none; }
+/* 見出しの絞り込み：下限〜上限を1行に収める */
+.ed-table .ed-empf { flex-wrap:nowrap; gap:3px; }
+.ed-table .ed-empf .ed-emp-in { width:46px; max-width:46px; padding:3px 4px; }
+.ed-table .ed-lostf { gap:4px; }
+.ed-table .ed-lostf .ed-empf small { width:30px; }
+.ed-table .ed-dash { white-space:nowrap; font-size:10.5px; color:#5B6B63; display:inline-flex; align-items:center; gap:2px; }
+.ed-table th:has(.ed-empf) { min-width:150px; }
+.ed-table .ed-empf:has(.ed-dash) { flex-wrap:wrap; }
+.ed-table .ed-empf .ed-dash { flex-basis:100%; }
