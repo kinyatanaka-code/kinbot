@@ -9,6 +9,7 @@
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
+    if ($("mcWip")) $("mcWip").hidden = !["list", "call", "apo"].includes(k);   // 商談は使える状態なので「準備中」を出さない（2026-11-16）
     // 設定は kinbot と同じ画面を中に開く（開いたときに初めて読む）（2026-11-14）
     if (k === "settings") { const f = $("mcSetFrame"); if (f && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
     if (k === "mtg") loadMeetings();
