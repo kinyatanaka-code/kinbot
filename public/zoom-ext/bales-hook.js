@@ -334,10 +334,27 @@
     for (const k of ["offset", "skip", "start"]) { try { if (await tryQ(k, c.n)) return { where: "q", k, kind: "offset" }; } catch {} }
     return null;
   }
+  // リードの一覧（call_targets）を見張るときは「最終架電日時の新しい順」で読む（2026-11-16 田中さん「なんで1件しか読み取れてないの」：
+  //   一覧が作成順のままだと、今日かけたリードが後ろのページにあって見えなかった）。並べ方の頼み方を Bales に試して見つける
+  const tOf = (x) => String((x && (x.lastCalledAt || x.last_called_at)) || "");
+  const isDesc = (arr) => { const ts = arr.map(tOf).filter(Boolean); if (ts.length < 3) return false; for (let i = 1; i < ts.length; i++) if (ts[i] > ts[i - 1]) return false; return true; };
+  async function findSort(f) {
+    try {
+      const U0 = new URL(f.url); const base = await authFetch(U0.href, { method: f.method }).then((r) => r.json()).catch(() => null); const a0 = (base && getAt(base, f.path)) || [];
+      if (!a0.some((x) => tOf(x))) return null; if (isDesc(a0)) return {};
+      const max0 = a0.map(tOf).filter(Boolean).sort().pop() || "";
+      const tries = [{ sort: "-last_called_at" }, { sort: "last_called_at", order: "desc" }, { sort: "last_called_at", direction: "desc" }, { sort_key: "last_called_at", sort_order: "desc" }, { sortKey: "lastCalledAt", sortOrder: "desc" }, { sortBy: "lastCalledAt", sortOrder: "desc" }, { order_by: "last_called_at", order: "desc" }, { "sort[last_called_at]": "desc" }, { "order[last_called_at]": "desc" }, { sort: "lastCalledAt", order: "desc" }];
+      for (const q of tries) { const U = new URL(f.url); for (const [k, v] of Object.entries(q)) U.searchParams.set(k, v);
+        const r = await authFetch(U.href, { method: f.method }).catch(() => null); if (!r || !r.ok) continue; const a = getAt(await r.json().catch(() => null), f.path) || [];
+        if (a.length >= 3 && isDesc(a) && tOf(a[0]) >= max0) return q; await sleep(200); }
+    } catch {}
+    return null;
+  }
   async function addFeed(name) {
     const c = mainCand(); if (!c) return { ok: false, error: "この画面の一覧のデータが見えていません。一覧が出てから押してください" };
     const pager = await findPager(c);
     const f = { key: "feed:" + String(name || "見張り").slice(0, 40), name: String(name || "見張り").slice(0, 40), url: c.url, method: c.method, body: c.body, path: c.path, n: c.n, full: true, pager, view: learnView(c), page: location.pathname + location.search, at: Date.now() };
+    if ((c.arr || []).some((x) => tOf(x))) { f.sortQ = await findSort(f); f.sortChecked = true; }
     feeds = feeds.filter((x) => x.key !== f.key); feeds.push(f); saveFeeds();
     const r = await toKinbot({ feed: f.key, name: f.name, src: String(c.url).split("?")[0], view: f.view, rows: (c.arr || []).slice(0, 100) });
     setTimeout(() => syncFeeds("登録したので最初の読み込み"), 300);
@@ -350,10 +367,13 @@
       for (const f of feeds) {
         let nwAll = 0, pages = 0, err = "";
         try {
+          // 前に登録した見張りにも、並べ方を一度だけ探して付ける
+          if (!f.sortChecked && /call_targets(\?|$)/.test(String(f.url).split("#")[0])) { f.sortQ = await findSort(f); f.sortChecked = true; f.full = true; saveFeeds(); }
+          const today0 = new Date(Date.now() + 9 * 3600000 - 86400000).toISOString().slice(0, 10);   // 昨日（日本時間）より前の架電まで来たら止める
           // 登録して最初の1回は、新しい行が無いページでも最後まで（最大100ページ）読む。あとは新しい行が無くなったら終わり
           const maxP = f.full ? 100 : 40;
           for (let p = 0; p < maxP; p++) {
-            const U = new URL(f.url); let body = f.body;
+            const U = new URL(f.url); let body = f.body; if (f.sortQ) for (const [k, v] of Object.entries(f.sortQ)) U.searchParams.set(k, v);
             if (f.pager) { if (f.pager.kind === "page") { if (f.pager.where === "q" && f.pager.k) U.searchParams.set(f.pager.k, String((f.pager.base ?? 1) + p)); }
               else if (f.pager.where === "q" && f.pager.k) U.searchParams.set(f.pager.k, String(p * (f.n || 100))); }
             else if (p > 0) break;
@@ -363,11 +383,13 @@
             const arr = getAt(await r.json(), f.path) || []; if (!arr.length) break; pages++;
             const k = await toKinbot({ feed: f.key, rows: arr }); if (!k.ok) throw new Error(k.error || "kinbot に送れませんでした");
             nwAll += k.nw || 0; if (!k.nw && !f.full) break;   // 新しい行が無いページまで来たら終わり
+            // 最終架電日時の新しい順に読めているときは、昨日より前の架電だけのページまで来たら終わり（全部のリードは読まない）
+            if (f.sortQ && arr.every((x) => !tOf(x) || tOf(x).slice(0, 10) < today0)) break;
             await sleep(400);
           }
         } catch (e) { err = String(e && e.message || e); }
         if (f.full && !err) { f.full = false; saveFeeds(); }
-        await toKinbot({ feed: f.key, rows: [], done: true, newTotal: nwAll }).catch(() => {});
+        await toKinbot({ feed: f.key, rows: [], done: true, newTotal: nwAll, sort: f.sortChecked ? (f.sortQ ? "ok" : "none") : "" }).catch(() => {});
         out.push({ name: f.name, nw: nwAll, pages, err });
       }
     } finally { syncing = false; }
