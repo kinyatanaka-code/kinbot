@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261117t" />
+    <link rel="stylesheet" href="style.css?v=20261117u" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1087,6 +1087,13 @@
   .pl-card.editing .pl-row{grid-template-columns:1fr 28px;grid-template-areas:"w d" "u u" "m m";padding:8px;border:1px solid #E6F0EB;border-radius:10px;background:#F8FBFA;}
   .pl-card.editing .pl-row [data-plc="where"]{grid-area:w;} .pl-card.editing .pl-row [data-plc="url"]{grid-area:u;} .pl-card.editing .pl-row [data-plc="memo"]{grid-area:m;} .pl-card.editing .pl-row [data-plc-del]{grid-area:d;}
   .pl-cards.pl-scroll{overflow-y:auto;overscroll-behavior:contain;align-content:start;padding:2px 6px 12px 2px;margin-right:-6px;scrollbar-width:thin;}
+  /* 掲載先一覧：上のヘッダーとの間をつめる・検索は販売区分のとなりに小さく（2026-11-17 田中さん） */
+  #vPub{margin-top:-12px;padding-top:0;} #vPub > .kx-head{display:none;}
+  .pl-tools{margin-bottom:8px;}
+  .pl-q{display:inline-flex;align-items:center;gap:6px;height:34px;box-sizing:border-box;border:1px solid #cfe0d8;background:#fff;border-radius:999px;padding:0 12px;color:#6A7A72;cursor:text;}
+  .pl-q:focus-within{border-color:#1d9e75;box-shadow:0 0 0 2px rgba(29,158,117,.15);color:#1d9e75;}
+  .pl-q input{border:0;outline:0;background:transparent;font:inherit;font-size:13px;width:190px;min-width:0 !important;padding:0;color:#173a30;}
+  .pl-stat{margin-bottom:10px;}
   .pl-body{display:flex;flex-direction:column;gap:6px;} .pl-body .pl-empty{width:100%;}
   .pl-eact{display:flex;gap:6px;align-items:center;margin-top:4px;}
 </style>
@@ -1232,7 +1239,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261117t" defer></script>
-    <script src="kinxs.js?v=20261117t"></script>
+    <script src="kbchat.js?v=20261117u" defer></script>
+    <script src="kinxs.js?v=20261117u"></script>
   </body>
 </html>
