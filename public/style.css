@@ -7403,6 +7403,8 @@ body:has(.kc-rec3) .kc-modal-back.kc-rec3-back { padding-left: 16px !important; 
 .kc3-sel { max-width:180px; height:28px; font-size:12px; }
 .kc3-list { background:#fff; border:1px solid #e1ebe6; border-radius:12px; overflow:hidden; }
 .kc3-row[hidden], .kc3-q button[hidden] { display:none !important; }
+.kc3-ct { font-size:12px; font-weight:700; color:#173a30; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }   /* 採用担当者の名前（2026-11-17） */
+.kc3-ct small { font-weight:500; color:#8FA39A; margin-left:5px; font-size:10.5px; } .kc3-ct.none { color:#B7C4BE; font-weight:500; }
 .kc3-row.kc3-stay { opacity:.45; }   /* いまの札から外れた行（押したあとも、その場に残す） */
 /* 電話フォローだけの会社の検索（2026-11-17） */
 .kc3-q { display:inline-flex; align-items:center; gap:5px; border:1px solid #cfe0d8; background:#fff; border-radius:999px; padding:3px 10px; color:#6A7A72; margin-left:4px; }
