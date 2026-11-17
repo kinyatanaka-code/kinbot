@@ -3,7 +3,7 @@
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const api = async (u, o = {}) => { const r = await fetch(u, { credentials: "include", headers: { "content-type": "application/json" }, ...o }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; };
-  const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電", apo: "アポ（カレンダー）", doc: "DOC の議事録", settings: "設定" };
+  const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電", apo: "アポ（カレンダー）", dash: "ダッシュボード", doc: "DOC の議事録", settings: "設定" };
   const go = (k) => {
     if (!TITLES[k] || k === "home") k = "mtg";   // ホームは一旦しまっている（2026-11-15）
     if (window.__mcCallOnly) k = "call";   // インターン（kincall だけのアカウント）は架電だけ（2026-11-16）
@@ -13,6 +13,8 @@
     if ($("mcWip")) $("mcWip").hidden = !["list", "call", "apo"].includes(k);   // 商談は使える状態なので「準備中」を出さない（2026-11-16）
     // 設定は kinbot と同じ画面を中に開く（開いたときに初めて読む）（2026-11-14）
     if (k === "settings") { const f = $("mcSetFrame"); if (f && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
+    // ダッシュボードも開いたときに初めて読む（SF などを読むので、使わない人に待ち時間をかけない）（2026-11-17）
+    if (k === "dash") { const f = $("mcDashFrame"); if (f && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src); }
     if (k === "mtg") loadMeetings();
     if (k === "list" && window.mcBalesView) window.mcBalesView();   // Bales のリスト（2026-11-15）
     if (k === "call" && window.mcCallView) window.mcCallView();   // 架電（2026-11-16 新しく作成）

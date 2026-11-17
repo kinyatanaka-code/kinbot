@@ -24,7 +24,8 @@ async function getToken() {
   return _tok.token;
 }
 
-async function zoomGet(path, params = {}) {
+// ダッシュボード（mcdash.js）が1か月分の発信をめくって読むので外に出す（2026-11-17）
+export async function zoomGet(path, params = {}) {
   const token = await getToken();
   const url = new URL(`https://api.zoom.us/v2${path}`);
   for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);

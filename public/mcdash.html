@@ -1,0 +1,971 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商談プロセスダッシュボード</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f6f9;--panel:#fff;--ink:#1b2430;--ink2:#5b6675;--ink3:#8a94a3;--line:#e3e7ee;--soft:#f0f3f7;
+  --new:#2f6fed;--new-soft:#e5eefe;--carry:#e8930c;--carry-soft:#fdf1dc;
+  --good:#16a36a;--good-soft:#e2f6ec;--warn:#d99a00;--warn-soft:#fff5d6;--bad:#d64545;--bad-soft:#fde8e8;
+  --radius:12px;--shadow:0 1px 2px rgba(20,30,50,.06),0 2px 8px rgba(20,30,50,.04);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans JP",system-ui,sans-serif;font-size:14px;line-height:1.5}
+.num{font-family:Inter,"Noto Sans JP",sans-serif;font-variant-numeric:tabular-nums}
+header.top{position:sticky;top:0;z-index:20;background:#1b2430;color:#fff}
+.top-inner{max-width:1400px;margin:0 auto;padding:10px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand{font-weight:700;font-size:16px}.brand small{display:block;font-weight:400;font-size:11px;opacity:.65}
+.top-meta{display:flex;gap:6px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.chip{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:3px 10px;font-size:11px;white-space:nowrap}
+.chip.ok::before{content:"● ";color:#4ade80}.chip.ng::before{content:"● ";color:#f87171}.chip.part::before{content:"● ";color:#fbbf24}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.btn:hover{background:var(--soft)}
+select,input[type=number],input[type=text]{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px;background:var(--panel);color:var(--ink)}
+nav.tabs{background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:54px;z-index:15}
+.tabs-inner{max-width:1400px;margin:0 auto;padding:0 20px;display:flex;gap:4px;overflow-x:auto}
+.tabs a{padding:11px 14px;color:var(--ink2);text-decoration:none;font-weight:500;font-size:13px;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs a.on{color:var(--ink);border-color:var(--ink)}
+main{max-width:1400px;margin:0 auto;padding:20px}
+section{margin-bottom:28px;scroll-margin-top:110px}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin:0 0 12px;flex-wrap:wrap}
+.sec-h h2{font-size:17px;margin:0}.sec-h .sub{color:var(--ink3);font-size:12px}
+.sec-h .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.pad{padding:16px}
+.grid{display:grid;gap:12px}
+.muted{color:var(--ink3)}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;color:var(--ink3);font-weight:500;background:var(--soft);position:sticky;top:0;z-index:1}
+td.r,th.r{text-align:right}td.c,th.c{text-align:center}
+tbody tr:hover{background:#fafbfd}
+.scroll{overflow-x:auto}
+.pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:11px;font-weight:500;white-space:nowrap}
+.pill.new{background:var(--new-soft);color:var(--new)}.pill.carry{background:var(--carry-soft);color:#a8650a}
+.pill.good{background:var(--good-soft);color:var(--good)}.pill.warn{background:var(--warn-soft);color:#946a00}.pill.bad{background:var(--bad-soft);color:var(--bad)}.pill.gray{background:var(--soft);color:var(--ink2)}
+.legend{display:flex;gap:12px;font-size:12px;color:var(--ink2);align-items:center;flex-wrap:wrap}
+.dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.dot.new{background:var(--new)}.dot.carry{background:var(--carry)}
+.bar{position:relative;height:10px;background:var(--soft);border-radius:999px;min-width:110px}
+.bar .seg{position:absolute;top:0;height:100%}
+.bar .seg.new{background:var(--new)}.bar .seg.carry{background:var(--carry)}.bar .seg.one{background:#64748b}
+.bar .goal{position:absolute;top:-3px;width:2px;height:16px;background:var(--ink)}
+/* alerts */
+.alerts{grid-template-columns:repeat(3,1fr)}
+.alert{padding:14px 16px;border-left:4px solid var(--bad)}
+.alert.warn{border-left-color:var(--warn)}
+.alert .rank{font-size:11px;color:var(--ink3)}
+.alert h3{margin:2px 0 6px;font-size:15px}
+.alert .gap{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink2);margin-bottom:8px}
+.alert .gap b{font-size:18px;color:var(--ink);font-family:Inter}
+.cause{display:flex;gap:8px;align-items:flex-start;font-size:12px;padding:6px 0;border-top:1px dashed var(--line)}
+.cause .tag{flex:none;width:44px;text-align:center;border-radius:6px;font-size:11px;font-weight:700;padding:1px 0}
+.tag.vol{background:#ede9fe;color:#6d28d9}.tag.rate{background:var(--bad-soft);color:var(--bad)}.tag.stay{background:var(--warn-soft);color:#946a00}.tag.lost{background:#e2e8f0;color:#334155}
+/* forecast */
+.fc{grid-template-columns:1.1fr 1fr}
+.fc-big{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end}
+.fc-big .v{font-size:34px;font-weight:700;line-height:1.1}
+.fc-big .l{font-size:12px;color:var(--ink2)}
+.hist{display:flex;align-items:flex-end;gap:2px;height:90px;margin-top:14px;position:relative}
+.hist div{flex:1;background:#cbd5e1;border-radius:3px 3px 0 0;position:relative}
+.hist div.hit{background:var(--good)}
+.hist-x{display:flex;gap:2px;font-size:10px;color:var(--ink3)}.hist-x span{flex:1;text-align:center}
+.basis{font-size:12px;color:var(--ink2);background:var(--soft);border-radius:8px;padding:10px 12px;margin-top:12px}
+/* funnel */
+.step{display:flex;align-items:center;gap:8px}
+.step b{display:inline-grid;place-items:center;min-width:30px;height:22px;padding:0 6px;border-radius:6px;background:#1b2430;color:#fff;font-family:Inter;font-size:11px}
+.step.up b{background:#64748b}
+.src{font-size:10px;color:var(--ink3)}
+tr.na td{color:var(--ink3)}
+tr.bn{background:#fff6f6}
+tr.bn td:first-child{box-shadow:inset 3px 0 0 var(--bad)}
+.diff.neg{color:var(--bad);font-weight:600}.diff.pos{color:var(--good);font-weight:600}
+/* matrix */
+.mx td.cell{text-align:center;font-family:Inter;font-size:13px}
+.mx td.cell small{display:block;font-size:10px;color:var(--ink3);font-family:"Noto Sans JP"}
+.m0{background:var(--bad-soft)}.m1{background:var(--warn-soft)}.m2{background:#dcf3e7}
+.mx tbody tr{cursor:pointer}
+/* biweek */
+.seg-ctrl{display:inline-flex;background:var(--soft);border-radius:8px;padding:3px}
+.seg-ctrl button{border:0;background:transparent;font:inherit;font-size:12px;padding:5px 12px;border-radius:6px;cursor:pointer;color:var(--ink2)}
+.seg-ctrl button.on{background:var(--panel);color:var(--ink);box-shadow:var(--shadow);font-weight:500}
+.bw-cards{grid-template-columns:repeat(6,1fr)}
+.bw-card{padding:12px}
+.bw-card .nums{display:flex;align-items:baseline;gap:4px;margin:4px 0 6px}
+.bw-card .nums .a{font-size:24px;font-weight:700}
+.bw-card .split{display:flex;justify-content:space-between;font-size:11px;color:var(--ink2);margin-top:6px}
+/* heat */
+.heat{display:grid;gap:3px}
+.heat .hc{height:30px;border-radius:5px;display:grid;place-items:center;font-size:11px;font-family:Inter;font-weight:600}
+.heat .hh{font-size:10px;color:var(--ink3);text-align:center;line-height:1.2}
+.heat .hl{font-size:12px;display:flex;align-items:center}
+.h0{background:var(--bad-soft);color:var(--bad)}.h1{background:var(--warn-soft);color:#946a00}.h2{background:#c9eedb;color:#0e7a4e}.h3{background:var(--good);color:#fff}
+.hf{background:repeating-linear-gradient(45deg,var(--soft),var(--soft) 4px,#fff 4px,#fff 8px);color:var(--ink3);font-weight:400!important}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.stall.hi{color:var(--bad);font-weight:600}.stall.mid{color:#a8650a;font-weight:600}
+.pbar{display:inline-block;width:60px;height:6px;background:var(--soft);border-radius:3px;vertical-align:middle;margin-right:6px;overflow:hidden}
+.pbar i{display:block;height:100%;background:var(--good)}
+/* drawer */
+.drawer-bg{position:fixed;inset:0;background:rgba(15,20,30,.35);display:none;z-index:50}
+.drawer{position:fixed;top:0;right:0;height:100%;width:min(460px,100%);background:var(--panel);z-index:51;transform:translateX(100%);transition:transform .2s;display:flex;flex-direction:column}
+.drawer.open{transform:none}.drawer-bg.open{display:block}
+.drawer header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center}
+.drawer header h3{margin:0;font-size:15px}
+.drawer .body{padding:16px 20px;overflow:auto;flex:1}
+.fh{font-size:12px;font-weight:700;margin:16px 0 8px;color:var(--ink2)}
+.frow{display:grid;grid-template-columns:1fr 100px;gap:8px;align-items:center;margin-bottom:6px;font-size:13px}
+.frow input,.frow select{width:100%}
+.note{font-size:11px;color:var(--ink3)}
+@media (max-width:1100px){.alerts,.fc{grid-template-columns:1fr}.bw-cards{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:720px){main{padding:16px}.top-inner,.tabs-inner{padding-left:16px;padding-right:16px}.bw-cards{grid-template-columns:repeat(2,1fr)}nav.tabs{position:relative;top:0}}
+</style>
+</head>
+<style>
+.views{display:inline-flex;background:rgba(255,255,255,.1);border-radius:9px;padding:3px;gap:2px}
+.views a{color:#cbd5e1;text-decoration:none;font-size:13px;padding:6px 14px;border-radius:7px;font-weight:500}
+.views a.on{background:#fff;color:#1b2430}
+.kpis{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+.kpi{padding:14px 16px}.kpi .lbl{color:var(--ink2);font-size:12px}
+.kpi .val{font-size:26px;font-weight:700;margin-top:2px;line-height:1.2}.kpi .val small{font-size:13px;color:var(--ink3);font-weight:500}
+.kpi .foot{font-size:12px;color:var(--ink2);margin-top:6px}
+.bwm th.grp{text-align:center;border-left:2px solid var(--line)}
+.bwm td.cell{text-align:center;font-family:Inter;font-size:13px;min-width:62px}
+.bwm td.cell small{display:block;font-size:10px;color:var(--ink3);font-family:"Noto Sans JP"}
+.bwm td.first{border-left:2px solid var(--line)}
+.bwm tr.total td{font-weight:700;background:var(--soft)}
+.fut{background:repeating-linear-gradient(45deg,var(--soft),var(--soft) 4px,#fff 4px,#fff 8px);color:var(--ink3)}
+.dimtabs{margin-bottom:10px}
+.wr{display:flex;align-items:center;gap:6px}
+.wr .b{height:8px;border-radius:4px;background:var(--new)}
+.wr .b.w{background:var(--good)}
+.up{color:var(--good);font-weight:600}.down{color:var(--bad);font-weight:600}
+.memo{max-width:320px;white-space:normal;font-size:12px;color:var(--ink2);line-height:1.4}
+.notice{border:1px dashed var(--ink3);border-radius:10px;padding:12px 14px;font-size:13px;color:var(--ink2);background:#fbfcfe}
+.view{display:none}.view.on{display:block}
+.subtabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:-4px 0 18px}
+.subtabs a{padding:10px 16px;color:var(--ink2);text-decoration:none;font-weight:600;font-size:14px;border-bottom:3px solid transparent}
+.subtabs a.on{color:var(--ink);border-color:var(--ink)}
+.bizpane,.salespane{display:none}.bizpane.on,.salespane.on{display:block}
+table.tot td.cell,table.con td.cell{text-align:center;font-family:Inter;font-size:13px;min-width:58px}
+table.tot td.cell small,table.con td.cell small{display:block;font-size:10px;color:var(--ink3);font-family:"Noto Sans JP"}
+table.tot .mcol{border-right:2px solid var(--line);background-clip:padding-box;font-weight:700}
+table.tot th.today{background:#e8eefc;color:var(--ink)}
+tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5px 10px}
+.sbar{display:grid;grid-template-columns:230px 1fr;gap:10px;align-items:center;margin-bottom:8px}
+.sbar .sl{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sbar .st{display:flex;height:26px;border-radius:6px;overflow:hidden;background:var(--soft)}
+.sbar .st i{display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-style:normal;white-space:nowrap;overflow:hidden;border-right:1px solid #fff}
+.shb{display:block;height:4px;background:var(--soft);border-radius:2px;margin-top:3px;overflow:hidden}.shb i{display:block;height:100%}
+@media (max-width:720px){.sbar{grid-template-columns:1fr}}
+.eq{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap}
+.eqb{flex:1;min-width:120px;border-radius:10px;padding:10px 12px;background:var(--soft);border:2px solid transparent}
+.eqb .l{font-size:11px;color:var(--ink2)}.eqb .v{font-size:22px;font-weight:700}.eqb .s{font-size:10px;color:var(--ink3)}
+.eqb.worst{border-color:var(--bad)}
+.op{display:flex;align-items:center;font-size:18px;color:var(--ink3)}
+.two{display:grid;gap:12px;grid-template-columns:1fr 1fr}
+@media (max-width:1100px){.two{grid-template-columns:1fr}}
+</style>
+<body>
+<header class="top"><div class="top-inner">
+  <div class="brand">商談プロセスダッシュボード<small id="brandSub"></small></div>
+  <nav class="views" id="views"><a href="#biz" data-v="biz">事業</a><a href="#sales" data-v="sales">セールス</a><a href="#is" data-v="is">インサイド</a></nav>
+  <div class="top-meta" id="srcChips"></div>
+  <select id="personSel" title="表示対象"></select>
+  <span class="chip" id="fetchedAt"></span><button class="btn" id="mcRefresh" title="SF・Zoom Phone・シフト表を読み直す">更新</button><button class="btn" id="openSettings">計画設定</button>
+</div></header>
+
+<main>
+<!-- ============ 事業 ============ -->
+<div class="view" id="v-biz">
+  <div class="subtabs" id="bizTabs"><a href="#biz" data-t="sum">サマリー</a><a href="#biz-total" data-t="total">全体の数字</a><a href="#biz-contrib" data-t="contrib">個人の貢献</a><a href="#biz-quality" data-t="quality">データの抜け</a></div>
+
+  <!-- 全体の数字 -->
+  <div class="bizpane" id="biz-total">
+    <section><div class="sec-h"><h2>全体の数字（全工程）</h2><span class="sub" id="totSub"></span>
+      <div class="right">
+        <div class="seg-ctrl" id="totGran"><button data-v="week" class="on">週別</button><button data-v="day">日別</button></div>
+        <div class="seg-ctrl" id="totMode"><button data-v="count" class="on">件数</button><button data-v="rate">通過率</button></div>
+      </div></div>
+      <div class="panel scroll"><table class="tot" id="totTable"></table></div>
+      <p class="note" style="margin-top:8px">セル = 実績 / 計画。色は計画比（赤 80%未満・黄 80〜99%・緑 100%以上）。進行中の週・今日は本日までの計画と比べています。斜線 = これからの計画。計画は受注目標から逆算した必要量（インサイドの工程は前月の通過率、02以降は直近6か月の実績で逆算）。</p>
+    </section>
+  </div>
+
+  <!-- 個人の貢献 -->
+  <div class="bizpane" id="biz-contrib">
+    <section><div class="sec-h"><h2>個人の貢献</h2><span class="sub" id="conSub"></span>
+      <div class="right"><div class="seg-ctrl" id="conPer"><button data-v="month" class="on">月</button><button data-v="week">週</button><button data-v="day">デイリー</button></div><select id="conSel"></select></div></div>
+      <div class="panel pad"><div id="conBars"></div></div>
+    </section>
+    <section><div class="sec-h"><h2>インサイド（8名）</h2><span class="sub">セル = 件数・全体に占める割合。色は本人のシフト計画との比較。アポ・SQLは SF のアポ獲得者で割り振り（未入力は別行）</span></div>
+      <div class="panel scroll"><table class="con" id="conIs"></table></div></section>
+    <section><div class="sec-h"><h2>セールス（3名）</h2><span class="sub">セル = 件数・全体に占める割合。色は本人の受注目標から逆算した計画との比較</span></div>
+      <div class="panel scroll"><table class="con" id="conSales"></table></div></section>
+    <section><div class="sec-h"><h2>隔週 × 個人の計画差</h2><span class="sub">セル = 実績 / 計画（進行中の隔週は本日までの按分）</span></div>
+      <div class="grid">
+        <div class="panel"><div class="pad" style="padding-bottom:4px"><strong>セールス</strong></div><div class="scroll" id="bizBwSales"></div></div>
+        <div class="panel"><div class="pad" style="padding-bottom:4px"><strong>インサイド</strong></div><div class="scroll" id="bizBwIs"></div></div>
+      </div></section>
+  </div>
+
+  <!-- データの抜け：数字の精度は SF の入力しだい。抜けている項目を担当ごとに出して、SF を直す入口にする -->
+  <div class="bizpane" id="biz-quality">
+    <section><div class="sec-h"><h2>データの抜け（SF）</h2><span class="sub">対象：今月作成の新規商談と、進行中の新規商談（セールス3名）。直すのは SF で（kinbot は読むだけ）</span></div>
+      <div class="panel scroll"><table class="con" id="qOwner"></table></div></section>
+    <section><div class="sec-h"><h2>抜けのある案件</h2><span class="sub" id="qCount"></span>
+      <div class="right"><select id="qField"></select></div></div>
+      <div class="panel scroll" style="max-height:620px"><table id="qDeals"></table></div></section>
+  </div>
+
+  <!-- サマリー -->
+  <div class="bizpane" id="biz-sum">
+  <section><div class="sec-h"><h2>サマリー</h2><span class="sub" id="bizSub"></span>
+    <div class="right legend"><span><i class="dot new"></i>当月発生</span><span><i class="dot carry"></i>前月以前からの繰越</span></div></div>
+    <div class="kpis" id="bizKpis"></div></section>
+  <section><div class="sec-h"><h2>問題が起きている工程</h2><span class="sub">本日時点の計画との差。受注への影響が大きい順</span></div>
+    <div class="grid alerts" id="bizAlerts"></div></section>
+  <section><div class="sec-h"><h2>全工程ファネル</h2><span class="sub" id="bizFunSub"></span></div>
+    <div class="panel scroll"><table id="bizFunnel"></table></div></section>
+  <section><div class="sec-h"><h2>今月の受注予測</h2></div><div class="grid fc">
+    <div class="panel pad" id="bizFc"></div>
+    <div class="panel"><div class="pad" style="padding-bottom:6px"><strong>予測に効いている案件</strong></div><div class="scroll" style="max-height:330px"><table id="bizFcDeals"></table></div></div></div></section>
+  </div>
+</div>
+
+<!-- ============ セールス ============ -->
+<div class="view" id="v-sales">
+  <div class="subtabs" id="salesTabs"><a href="#sales" data-t="sum">サマリー</a><a href="#sales-total" data-t="total">全体の数字</a><a href="#sales-contrib" data-t="contrib">個人の貢献</a><a href="#sales-ana" data-t="ana">商談分析</a></div>
+  <div class="salespane" id="sales-total">
+    <section><div class="sec-h"><h2>全体の数字（セールス）</h2><span class="sub" id="sTotSub"></span>
+      <div class="right"><div class="seg-ctrl" id="sTotGran"><button data-v="week" class="on">週別</button><button data-v="day">日別</button></div><div class="seg-ctrl" id="sTotMode"><button data-v="count" class="on">件数</button><button data-v="rate">通過率</button></div></div></div>
+      <div class="panel scroll"><table class="tot" id="sTotTable"></table></div>
+      <p class="note" style="margin-top:8px">セル = 実績 / 計画。色は計画比（赤 80%未満・黄 80〜99%・緑 100%以上）。進行中の週・今日は本日までの計画と比べています。斜線 = これからの計画。計画はセールスの受注目標から直近6か月の転換率で逆算。</p></section>
+    <section><div class="sec-h"><h2>パイプライン（ステージ別の進行中案件）</h2><span class="sub">週末時点で各ステージに滞在していた進行中の案件数</span></div>
+      <div class="panel scroll"><table class="tot" id="sPipe"></table></div></section>
+  </div>
+  <div class="salespane" id="sales-contrib">
+    <section><div class="sec-h"><h2>個人の貢献（セールス）</h2><span class="sub" id="sConSub"></span>
+      <div class="right"><div class="seg-ctrl" id="sConPer"><button data-v="month" class="on">月</button><button data-v="week">週</button><button data-v="day">デイリー</button></div><select id="sConSel"></select></div></div>
+      <div class="panel pad"><div id="sConBars"></div></div></section>
+    <section><div class="sec-h"><h2>担当別</h2><span class="sub">セル = 件数・全体に占める割合。色は本人の受注目標から逆算した計画との比較。行クリックでその人のサマリーへ</span></div>
+      <div class="panel scroll"><table class="con" id="sConTable"></table></div></section>
+    <section><div class="sec-h"><h2>隔週 × 個人の計画差</h2><span class="sub">セル = 実績 / 計画（進行中の隔週は本日までの按分）</span></div><div class="panel scroll" id="salesBw"></div></section>
+  </div>
+  <div class="salespane" id="sales-sum">
+  <section><div class="sec-h"><h2 id="salesTitle"></h2><span class="sub" id="salesSub"></span></div>
+    <div class="kpis" id="salesKpis"></div></section>
+  <section><div class="sec-h"><h2>問題が起きている工程</h2></div><div class="grid alerts" id="salesAlerts"></div></section>
+  <section><div class="sec-h"><h2>隔週の状態</h2><span class="sub" id="bwSub"></span><div class="right"><div class="seg-ctrl" id="bwTabs"></div></div></div>
+    <div class="grid bw-cards" id="bwCards"></div></section>
+  <section><div class="sec-h"><h2>今月の受注予測</h2></div><div class="grid fc">
+    <div class="panel pad" id="salesFc"></div>
+    <div class="panel"><div class="pad" style="padding-bottom:6px"><strong>予測に効いている案件</strong></div><div class="scroll" style="max-height:330px"><table id="salesFcDeals"></table></div></div></div></section>
+  </div>
+  <div class="salespane" id="sales-ana">
+  <section><div class="sec-h"><h2>商談の中身の分析</h2><span class="sub" id="anaSub"></span>
+    <div class="right"><select id="anaPeriod"><option value="6">直近6か月の作成分</option><option value="3">直近3か月</option><option value="1">当月</option></select></div></div>
+    <div class="panel pad">
+      <div class="seg-ctrl dimtabs" id="dimTabs"></div>
+      <div class="scroll"><table id="dimTable"></table></div>
+    </div>
+    <div class="two" style="margin-top:12px">
+      <div class="panel"><div class="pad" style="padding-bottom:4px"><strong>失注理由 × 失注した段階</strong></div><div class="scroll"><table id="lossTable"></table></div></div>
+      <div class="panel"><div class="pad" style="padding-bottom:4px"><strong>失注理由（詳細）上位</strong></div><div class="scroll"><table id="loss1Table"></table></div></div>
+    </div></section>
+  <section><div class="sec-h"><h2>商談カルテ（案件一覧）</h2><span class="sub" id="dealCount"></span>
+    <div class="right filters">
+      <div class="seg-ctrl" id="dOrigin"><button data-v="all" class="on">すべて</button><button data-v="new">当月</button><button data-v="carry">繰越</button></div>
+      <select id="dStage"><option value="all">全ステージ</option></select>
+      <select id="dStatus"><option value="open">進行中</option><option value="won">受注</option><option value="lost">失注</option><option value="all">すべて</option></select>
+      <select id="dFlag"><option value="all">すべて</option><option value="stay">滞留のみ</option><option value="stale">長期放置のみ</option></select>
+      <input type="text" id="dSearch" placeholder="企業名で検索">
+    </div></div>
+    <div class="panel scroll" style="max-height:620px"><table id="dealTable"></table></div></section>
+  </div>
+</div>
+
+<!-- ============ インサイド ============ -->
+<div class="view" id="v-is">
+  <section><div class="sec-h"><h2>インサイドセールス（テレアポ科学モデル v1）</h2>
+    <div class="right"><div class="seg-ctrl" id="isPer"><button data-v="month" class="on">月</button><button data-v="bw">隔週</button><button data-v="day">デイリー</button></div><select id="isPerSel"></select></div></div>
+    <div class="notice" id="isNote"></div></section>
+  <section><div class="sec-h"><h2 id="isTitle"></h2><span class="sub" id="isSub"></span></div>
+    <div class="panel pad"><div class="sm-eq" id="isEq"></div></div>
+    <div class="kpis" id="isKpis" style="margin-top:12px"></div></section>
+  <section><div class="sec-h"><h2>チーム全体と個人（蓋開け）</h2><span class="sub">色 = 前月のチーム実績との比較（赤 80%未満・黄 80〜99%・緑 100%以上）。行クリックでその人に切り替え</span></div>
+    <div class="panel scroll"><table class="bwm" id="isPeople"></table></div></section>
+  <section><div class="sec-h"><h2>日次の推移</h2><span class="sub">セル = 発信数（色はシフト時間×1時間あたり目標との比較。「休」はシフトなし）</span></div><div class="panel pad scroll"><div class="heat" id="isHeat"></div></div></section>
+  <section><div class="sec-h"><h2>分かれ道（層C）と標準手順の指標 K1〜K6</h2><span class="sub">通話の文字起こしを読み取ると計測できる。いまは基準と目標のみ</span></div><div class="panel scroll"><table id="isK"></table></div></section>
+  <section><div class="sec-h"><h2>アポの質と ICP（直近6か月）</h2><span class="sub" id="icpSub"></span></div><div class="panel scroll"><table id="isQuality"></table></div></section>
+</div>
+<p class="note" id="footNote" style="max-width:1400px;margin:0 auto;padding:0 20px 30px"></p>
+</main>
+
+<div class="drawer-bg" id="drawerBg"></div>
+<aside class="drawer" id="drawer"><header><h3>計画設定</h3><button class="btn" id="closeSettings" style="margin-left:auto">閉じる</button></header><div class="body" id="settingsBody"></div></aside>
+
+<script>
+let DATA = /*__DATA__*/null;
+</script>
+<script>
+// 画面の本体。DATA（サーバーの /api/mcdash/data か、手元の build.py が埋め込んだもの）がそろってから動かす
+function __main(){
+/* ================= 基本 ================= */
+const AS_OF=DATA.asOf, [AY,AM]=AS_OF.split('-').map(Number), MONTH=AS_OF.slice(0,7), M_START=`${MONTH}-01`;
+const M_END=(()=>{const d=new Date(AY,AM,0);return `${MONTH}-${String(d.getDate()).padStart(2,'0')}`;})();
+const HOLIDAYS=new Set(DATA.holidays||[]);
+const pad=n=>String(n).padStart(2,'0');
+const toS=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const toD=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d);};
+const md=s=>{if(!s)return '—';const [,m,d]=s.split('-').map(Number);return `${m}/${d}`;};
+const DOW=['日','月','火','水','木','金','土'], dow=s=>DOW[toD(s).getDay()];
+const daysBetween=(a,b)=>Math.round((toD(b)-toD(a))/864e5);
+const addMonths=(s,n)=>{const d=toD(s);d.setMonth(d.getMonth()+n);return toS(d);};
+const isWd=s=>{const g=toD(s).getDay();return g>0&&g<6&&!HOLIDAYS.has(s);};
+const WORKDAYS=[];for(let d=toD(M_START);toS(d)<=M_END;d.setDate(d.getDate()+1)){const s=toS(d);if(isWd(s))WORKDAYS.push(s);}
+const WD=WORKDAYS.length, ELAPSED=WORKDAYS.filter(s=>s<=AS_OF).length, PROG=ELAPSED/WD;
+const inM=s=>s&&s>=M_START&&s<=AS_OF;
+const fmt1=x=>(Math.round(x*10)/10).toFixed(1);
+const fmtN=x=>x>=100?Math.round(x).toLocaleString():fmt1(x);
+const pctS=x=>isFinite(x)?Math.round(x*100)+'%':'—';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const norm=s=>String(s||'').replace(/[\s　]/g,'');
+const code=s=>{const m=String(s||'').match(/^(\d\d)/);return m?(m[1]==='11'?'08':m[1]):null;};
+
+/* ================= 名簿 ================= */
+const SALES=DATA.roster.sales;           // [{key,name}]
+const IS=DATA.roster.is;                 // [{zoom,sf,name}]
+const SALES_KEYS=SALES.map(p=>p.key);
+const salesName=k=>(SALES.find(p=>p.key===k)||{}).name||k;
+const isBySf=Object.fromEntries(IS.map(p=>[p.sf,p]));
+
+/* ================= SF 案件 ================= */
+const SF_ORDER=['01','02','03','04','05','06','08'];
+const SF_NAME={'01':'アポ獲得','02':'案件化','03':'担当者合意','04':'企画決定者合意','05':'決裁者合意','06':'申込書回収','08':'受注'};
+const STALE_BEFORE=DATA.staleBefore;
+const DET=DATA.detail?.deals||{};
+const det=id=>DET[id]||DET[id.slice(0,15)]||{};
+const deals=(DATA.sf.deals||[]).filter(d=>SALES_KEYS.includes(norm(d.owner))).map(d=>{
+  const hist={};(d.history||[]).forEach(h=>{const c=code(h.stage);if(SF_ORDER.includes(c)&&(!hist[c]||h.date<hist[c]))hist[c]=h.date;});
+  const reach={};let mn=null;for(let i=SF_ORDER.length-1;i>=0;i--){const c=SF_ORDER[i];if(hist[c]&&(!mn||hist[c]<mn))mn=hist[c];if(mn)reach[c]=mn;}
+  if(!reach['01'])reach['01']=d.created;
+  const st=code(d.stage);
+  const cur=d.status==='lost'?(SF_ORDER.filter(c=>reach[c]).pop()||'01'):(SF_ORDER.includes(st)?st:(SF_ORDER.filter(c=>reach[c]).pop()||'01'));
+  const lostDate=d.status==='lost'?((d.history||[]).filter(h=>code(h.stage)==='99').map(h=>h.date).sort()[0]||d.lastModified):null;
+  const x=det(d.id);
+  return {...d,owner:norm(d.owner),cur,reach,lostDate,x,apo:norm(x.apoSetter),appt:x.appointment||null,
+    lastMove:SF_ORDER.map(c=>reach[c]).filter(Boolean).sort().pop()||d.created,
+    origin:d.created>=M_START?'new':'carry',stay:daysBetween(reach[cur]||d.created,AS_OF),
+    stale:d.status==='open'&&(d.lastModified||'')<STALE_BEFORE};
+});
+
+/* 過去実績（担当3名、作成日ベース）*/
+const HIST_FROM=addMonths(M_START,-6);
+const histDeals=Object.values(DET).filter(x=>SALES_KEYS.includes(norm(x.owner))).map(x=>{
+  const top=x.isWon?'08':[code(x.stage),code(x.lostBeforeStage)].filter(c=>c&&c!=='99').sort().pop()||'01';
+  return {...x,ownerK:norm(x.owner),apo:norm(x.apoSetter),top,won:!!x.isWon,closed:!!x.isClosed,reached:c=>SF_ORDER.indexOf(top)>=SF_ORDER.indexOf(c)};
+});
+const H=(()=>{const base=histDeals.filter(x=>x.created>=HIST_FROM&&x.created<M_START);const reached={};SF_ORDER.forEach(c=>reached[c]=base.filter(x=>x.reached(c)).length);return {n:base.length,reached};})();
+const histRate=(a,b)=>H.reached[a]?H.reached[b]/H.reached[a]:0;
+const AVG_DAYS=Object.assign({'05-06':5,'06-08':5},DATA.sf.historical.team.avgDays||{});
+const nextC=c=>SF_ORDER[SF_ORDER.indexOf(c)+1];
+const avgStage=c=>AVG_DAYS[`${c}-${nextC(c)}`]||10;
+function avgToWon(c){let s=0;for(let k=SF_ORDER.indexOf(c);k<SF_ORDER.length-1;k++)s+=AVG_DAYS[`${SF_ORDER[k]}-${SF_ORDER[k+1]}`]??7;return Math.max(s,1);}
+const pWin=c=>H.reached[c]?H.reached['08']/H.reached[c]:0;
+
+/* 架電 */
+const CALLS=DATA.calls?.byOwnerDay||{};
+const CONN_IDX={10:1,30:2,60:3};
+
+/* ================= 設定 ================= */
+const histMonthlyWon=H.reached['08']/6;
+const S={target:Math.max(1,Math.round(histMonthlyWon)),connSec:60,excludeStale:true,callsPerHour:17,apoHours:DATA.shifts?.apoTargetHours||3,rateOverride:{},
+  closerTargets:(()=>{const t={};const w=SALES_KEYS.map(k=>histDeals.filter(x=>x.ownerK===k&&x.won&&x.created>=HIST_FROM).length+1);const tot=w.reduce((a,b)=>a+b,0);SALES_KEYS.forEach((k,i)=>t[k]=Math.round(Math.max(1,Math.round(histMonthlyWon))*w[i]/tot*10)/10);return t;})()};
+try{const sv=JSON.parse(localStorage.getItem('spd4-'+MONTH)||'null');if(sv)Object.assign(S,sv);}catch(e){}
+const saveS=()=>{try{localStorage.setItem('spd4-'+MONTH,JSON.stringify(S));}catch(e){}};
+
+/* ================= 工程 ================= */
+const STEPS=[
+ {k:'icp',no:'—',name:'ICP（アプローチ企業）',src:'【デモ定義】今月はじめて架電した企業数（番号単位）',up:1,demo:1},
+ {k:'mql',no:'—',name:'MQL',src:'【デモ定義】ICPのうち10秒以上つながった企業数',up:1,demo:1},
+ {k:'call',no:'—',name:'コール数',src:'Zoom Phone 発信数（インサイド8名）',up:1},
+ {k:'conn',no:'—',name:'接続数',src:'Zoom Phone 通話時間で判定（計画設定で秒数変更）',up:1},
+ {k:'hot',no:'—',name:'ホットリスト',src:'【デモ定義】3分以上話せた企業数',up:1,demo:1},
+ {k:'appo',no:'—',name:'アポ獲得',src:'SF 新規商談の作成（01到達）',up:1,sf:'01'},
+ {k:'sql',no:'—',name:'SQL（ICP適合アポ）',src:'品質の指標。【デモ定義】アポのうちICPに合うもの（採用人数（目標）6名以上・接触50人以上・従業員100名以上・新卒・IT/官公庁除外）',up:1,demo:1},
+ {k:'set',no:'—',name:'商談設定',src:'アポのうち SF に商談日が入っているもの',up:1},
+ {k:'s01',no:'01',name:'商談実施',src:'商談設定のうち商談日が本日以前（「未商談」で失注したものを除く）'},
+ {k:'s02',no:'02',name:'案件化',src:'SF 02到達',sf:'02'},
+ {k:'s03',no:'03',name:'担当者合意',src:'SF 03到達',sf:'03'},
+ {k:'s04',no:'04',name:'企画決定者合意',src:'SF 04到達',sf:'04'},
+ {k:'s05',no:'05',name:'決裁者合意',src:'SF 05到達',sf:'05'},
+ {k:'won',no:'08',name:'受注',src:'SF 08到達',sf:'08'},
+];
+const SI=Object.fromEntries(STEPS.map((s,i)=>[s.k,i]));
+const FLOW=['icp','mql','call','conn','hot','appo','set','s01','s02','s03','s04','s05','won'];   // SQL は品質の指標としてアポの横に置く（流れには入れない）
+const prevOf=k=>k==='sql'?'appo':FLOW[FLOW.indexOf(k)-1];
+const UP_RATE_KEYS=['mql','call','conn','hot','appo','sql','set','s01'];
+const RATE_LABEL={mql:'ICP → MQL',call:'MQL → コール（1社あたりコール数）',conn:'コール → 接続',hot:'接続 → ホット',appo:'ホット → アポ',sql:'アポのうち SQL（ICP適合）',set:'アポ → 商談設定',s01:'商談設定 → 実施'};
+/* 計画の転換率の初期値 = 前月の実績 */
+/* ICP（ユーザー定義）：採用人数（目標）6名以上・学生接触50人以上・従業員100名以上・新卒採用あり。IT系と官公庁は除外
+   未入力の条件があるものは「情報不足」 */
+const ICP_EXCL=/IT|ＩＴ|ソフトウェア|インターネット|情報処理|情報サービス|情報通信|官公庁|自治体|行政/;
+const recLow=x=>{if(x.recruitersNum!=null&&x.recruitersNum!=='')return +x.recruitersNum;const m=String(x.recruiters||'').match(/(\d+)/);return m?+m[1]:null;};
+const has=v=>v!=null&&v!=='';
+function icpEval(x){const c=[];const r=recLow(x);
+  c.push(r==null?null:r>=6);
+  c.push(has(x.contacts)?+x.contacts>=50:null);
+  c.push(has(x.employees)?+x.employees>=100:null);
+  c.push(/新卒/.test(x.purpose||'')||(has(x.contacts)&&+x.contacts>0)?true:null);
+  c.push(x.industry?!ICP_EXCL.test(x.industry):null);
+  return c.includes(false)?'ng':c.includes(null)?'unknown':'ok';}
+const isSql=x=>icpEval(x)==='ok';   // 【デモ定義】SQL＝ICPに合うアポ
+const PREV=(()=>{if(!S.rateOverride)S.rateOverride={};const pm=addMonths(M_START,-1),pe=addMonths(M_START,0);const sum=new Array(8).fill(0);
+  IS.forEach(p=>Object.entries((DATA.callsPrev?.byOwnerDay||{})[p.zoom]||{}).forEach(([d,v])=>{if(d>=pm&&d<pe)v.forEach((x,i)=>sum[i]+=x);}));
+  const ci=CONN_IDX[S.connSec]||3;const ap=histDeals.filter(x=>x.created>=pm&&x.created<pe);
+  const sql=ap.filter(isSql);const set=ap.filter(x=>x.appointment);
+  const s01=set.filter(x=>x.appointment<=AS_OF&&!/未商談/.test(x.lossReason1||''));
+  const v={icp:sum[5],mql:sum[6],call:sum[0],conn:sum[ci],hot:sum[7],appo:ap.length,sql:sql.length,set:set.length,s01:s01.length};
+  const r={};UP_RATE_KEYS.forEach(k=>{const pk=prevOf(k);r[k]=v[pk]?v[k]/v[pk]:null;});return {v,r,label:pm.slice(0,7)};})();
+const rate=k=>S.rateOverride?.[k]??PREV.r[k]??0.5;
+const planRates=()=>{const R={};UP_RATE_KEYS.forEach(k=>R[k]=rate(k));R.s02=histRate('01','02')/(R.set*R.s01||1);R.s03=histRate('02','03');R.s04=histRate('03','04');R.s05=histRate('04','05');R.won=histRate('05','08');return R;};
+function rateBetween(a,b,R){let m=1;for(let j=FLOW.indexOf(a)+1;j<=FLOW.indexOf(b);j++)m*=R[FLOW[j]]??1;return m;}
+function monthPlan(target){const R=planRates(),P={won:target};for(let i=FLOW.length-1;i>0;i--)P[FLOW[i-1]]=P[FLOW[i]]/(R[FLOW[i]]||1);P.sql=P.appo*R.sql;return P;}
+const rateFrom=(a,b,R)=>b==='sql'?R.sql:rateBetween(a,b,R);
+/* シフト */
+const SHIFTS=DATA.shifts?.shifts||{}, SHIFT_H=DATA.shifts?.hoursByType||{};
+const shiftH=(p,d)=>{const t=(SHIFTS[p.name]||{})[d];return t&&t!=='off'?(SHIFT_H[t]??5):0;};
+const hoursBetween=(p,from,to)=>WORKDAYS.filter(d=>d>=from&&d<=to).reduce((a,d)=>a+shiftH(p,d),0);
+
+/* scope: {t:'team'|'sales'|'is', k} */
+const TEAM={t:'team'};
+const dealsOf=sc=>sc.t==='sales'?deals.filter(d=>d.owner===sc.k):sc.t==='is'?deals.filter(d=>d.apo===sc.k):deals;
+function calls(sc,from,to){const o={call:0,conn:0,icp:0,mql:0,hot:0};const ci=CONN_IDX[S.connSec]||3;
+  IS.forEach(p=>{if(sc.t==='is'&&p.sf!==sc.k)return;Object.entries(CALLS[p.zoom]||{}).forEach(([d,v])=>{if(d>=from&&d<=to){o.call+=v[0];o.conn+=v[ci];o.icp+=v[5]||0;o.mql+=v[6]||0;o.hot+=v[7]||0;}});});return o;}
+function actual(k,sc,from=M_START,to=AS_OF){
+  if(['icp','mql','call','conn','hot'].includes(k)){if(sc.t==='sales')return null;return {n:calls(sc,from,to)[k],c:0,one:1};}
+  const st=STEPS[SI[k]];
+  if(sc.t==='is'&&k!=='appo'&&k!=='sql')return null;
+  if(k==='sql'||k==='set'||k==='s01'){
+    const ds=dealsOf(sc).filter(d=>d.reach['01']>=from&&d.reach['01']<=to&&(k==='sql'?isSql(d.x):d.appt)&&(k!=='s01'||(d.appt<=AS_OF&&!/未商談/.test(d.x.lossReason1||''))));
+    return {n:ds.filter(d=>d.origin==='new').length,c:ds.filter(d=>d.origin==='carry').length};}
+  if(st.sf){const ds=dealsOf(sc).filter(d=>d.reach[st.sf]&&d.reach[st.sf]>=from&&d.reach[st.sf]<=to);return {n:ds.filter(d=>d.origin==='new').length,c:ds.filter(d=>d.origin==='carry').length};}
+  return null;
+}
+/* インサイドのシフト計画（時間 × 時間あたり目標）*/
+function isPlanHours(h){const R=planRates();const call=h*S.callsPerHour;return {icp:call/(R.mql*R.call),mql:call/R.call,call,conn:call*R.conn,hot:call*R.conn*R.hot,appo:h/S.apoHours,sql:h/S.apoHours*R.sql};}
+const isP=k=>IS.find(p=>p.sf===k);
+function planOf(sc){
+  if(sc.t==='team')return monthPlan(S.target);
+  if(sc.t==='sales'){const P=monthPlan(S.closerTargets[sc.k]||0);['icp','mql','call','conn','hot'].forEach(k=>delete P[k]);return P;}
+  return isPlanHours(hoursBetween(isP(sc.k),M_START,M_END));
+}
+/* 期間の計画（インサイドはシフト時間、それ以外は営業日で按分）*/
+function planBetween(sc,k,from,to){
+  if(sc.t==='is'){const v=isPlanHours(hoursBetween(isP(sc.k),from,to))[k];return v??null;}
+  const P=planOf(sc)[k];if(P==null)return null;return P*WORKDAYS.filter(d=>d>=from&&d<=to).length/WD;
+}
+
+/* ================= 予測 ================= */
+const remainDays=()=>daysBetween(AS_OF,M_END);
+function dealProb(d){if(d.status!=='open'||(S.excludeStale&&d.stale))return 0;const pw=pWin(d.cur);if(!pw)return 0;
+  const tf=1-Math.exp(-remainDays()/avgToWon(d.cur));const a=avgStage(d.cur);const sf=d.stay>a*3?0.3:d.stay>a*2?0.6:1;return Math.min(0.99,pw*tf*sf);}
+function forecast(sc){const ds=dealsOf(sc);const won=ds.filter(d=>inM(d.reach['08'])).length;
+  const open=ds.filter(d=>d.status==='open').map(d=>({d,p:dealProb(d)})).filter(x=>x.p>0).sort((a,b)=>b.p-a.p);
+  let seed=12345;const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff;};
+  const N=3000,sims=[];for(let i=0;i<N;i++){let s=0;for(const x of open)if(rnd()<x.p)s++;sims.push(s+won);}sims.sort((a,b)=>a-b);
+  const q=p=>sims[Math.min(N-1,Math.floor(p*N))];return {won,open,p10:q(.1),p50:q(.5),p90:q(.9),sims};}
+
+/* ================= 差分と原因 ================= */
+function analyze(sc){
+  const MP=planOf(sc),R=planRates();
+  const rows=STEPS.map(st=>{const a=actual(st.k,sc),mp=MP[st.k];if(!a||mp==null)return {st,a,mp:mp??null};
+    const ptd=planBetween(sc,st.k,M_START,AS_OF),tot=a.n+a.c,gap=tot-ptd;return {st,a,mp,ptd,tot,gap,ratio:ptd?tot/ptd:null};});
+  rows.forEach(r=>{if(r.gap==null||!FLOW.includes(r.st.k))return;r.impact=r.gap*rateBetween(r.st.k,'won',R);});
+  rows.forEach(r=>{if(r.gap==null||r.gap>=0)return;const k=r.st.k,oi=FLOW.indexOf(k),causes=[];
+    if(k==='sql'){const ap=dealsOf(sc).filter(d=>d.reach['01']>=M_START&&d.reach['01']<=AS_OF);const ev=ap.map(d=>icpEval(d.x));r.causes=[{t:'rate',label:'質',text:`今月のアポ ${ap.length}件のうち ICP外 ${ev.filter(e=>e==='ng').length}件・情報不足（SF未入力）${ev.filter(e=>e==='unknown').length}件`,w:0}];return;}
+    const prev=FLOW.slice(0,oi).reverse().map(x=>rows[SI[x]]).find(x=>x&&x.tot!=null);const rk=prev?rateBetween(prev.st.k,k,R):null;
+    if(prev&&prev.ratio!=null&&prev.ratio<0.9){const inh=prev.gap*rk;causes.push({t:'vol',label:'量',text:`前工程「${prev.st.name}」が計画比 ${pctS(prev.ratio)}。その不足で約 ${fmt1(-inh)}件分の不足が流れてきている`,w:-inh});}
+    if(prev&&prev.tot>0&&rk){const cr=r.tot/prev.tot;if(cr<rk*0.8)causes.push({t:'rate',label:'率',text:`「${prev.st.name}」→この工程の通過 ${pctS(cr)}（計画 ${pctS(rk)}）。約 ${fmt1(prev.tot*rk-r.tot)}件少ない`,w:prev.tot*rk-r.tot});}
+    const st=r.st;if(st.sf&&st.sf!=='01'){const pc=SF_ORDER[SF_ORDER.indexOf(st.sf)-1],avg=AVG_DAYS[`${pc}-${st.sf}`]||10,hr=histRate(pc,st.sf);
+      const stuck=dealsOf(sc).filter(d=>d.status==='open'&&d.cur===pc&&!d.stale&&d.stay>avg*1.5);
+      if(stuck.length)causes.push({t:'stay',label:'滞留',text:`「${SF_NAME[pc]}」で平均（${fmt1(avg)}日）の1.5倍以上止まっている案件 ${stuck.length}件（繰越 ${stuck.filter(d=>d.origin==='carry').length}）。動けば約 ${fmt1(stuck.length*hr)}件分`,w:stuck.length*hr,link:1});
+      const lost=dealsOf(sc).filter(d=>d.status==='lost'&&inM(d.lostDate)&&d.cur===pc);
+      if(lost.length){const rs={};lost.forEach(d=>{const r=d.x.lossReason||'未入力';rs[r]=(rs[r]||0)+1;});const top=Object.entries(rs).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([a,b])=>`${a} ${b}`).join('、');
+        causes.push({t:'lost',label:'失注',text:`「${SF_NAME[pc]}」から今月 ${lost.length}件失注（主な理由：${top}）`,w:lost.length*hr});}}
+    if(!causes.length)causes.push({t:'rate',label:'率',text:'前工程の量は足りているが、この工程への到達が計画を下回っている',w:0});
+    r.causes=causes.sort((a,b)=>b.w-a.w);});
+  return {rows,MP};
+}
+
+/* ================= 部品 ================= */
+const pill=(c,t)=>`<span class="pill ${c}">${t}</span>`;
+const judge=r=>r==null?['gray','—']:r>=1?['good','計画以上']:r>=0.8?['warn','やや遅れ']:['bad','要対策'];
+const cellCls=r=>r==null?'':r>=1?'m2':r>=0.8?'m1':'m0';
+function bar(n,c,goal,one){const max=Math.max(n+c,goal||0,1)*1.1;return `<div class="bar"><div class="seg ${one?'one':'new'}" style="left:0;width:${n/max*100}%;border-radius:999px 0 0 999px"></div><div class="seg carry" style="left:${n/max*100}%;width:${c/max*100}%"></div>${goal!=null?`<div class="goal" style="left:${goal/max*100}%"></div>`:''}</div>`;}
+const stepHtml=st=>`<span class="step ${st.up?'up':''}"><b>${st.no}</b><span>${st.name}</span></span>`;
+const $=id=>document.getElementById(id);
+
+function kpi(lbl,val,foot,extra=''){return `<div class="panel kpi"><div class="lbl">${lbl}</div><div class="val num">${val}</div>${extra}<div class="foot">${foot}</div></div>`;}
+function rowOf(A,k){return A.rows[SI[k]];}
+function kpiStep(A,k,label){const r=rowOf(A,k);if(!r||r.tot==null)return '';const [c,l]=judge(r.ratio);
+  return kpi(label,`${r.tot}<small> / ${fmtN(r.ptd)}</small>`,`${pill(c,l)} 月計画 ${fmtN(r.mp)}${r.a.one?'':`／当月 ${r.a.n}・繰越 ${r.a.c}`}`,bar(r.a.n,r.a.c,r.ptd,r.a.one));}
+
+function renderAlerts(el,A){
+  const bad=A.rows.filter(r=>r.gap!=null&&r.gap<0&&r.ratio!=null&&r.ratio<0.95&&r.st.k!=='call'&&r.st.k!=='set').sort((a,b)=>(a.impact??a.gap)-(b.impact??b.gap)).slice(0,3);
+  $(el).innerHTML=bad.length?bad.map((r,i)=>`<div class="panel alert ${r.ratio>=0.8?'warn':''}"><div class="rank">ワースト${i+1}　${stepHtml(r.st)}</div>
+    <h3>${r.st.name}：計画比 ${pctS(r.ratio)}</h3>
+    <div class="gap"><span>実績 <b>${r.tot}</b></span><span>計画 <b>${fmtN(r.ptd)}</b></span><span>差分 <b style="color:var(--bad)">${fmtN(r.gap)}</b></span>${r.impact!=null?`<span>受注への影響 <b style="color:var(--bad)">${fmt1(r.impact)}件</b></span>`:''}</div>
+    ${(r.causes||[]).map(c=>`<div class="cause"><span class="tag ${c.t}">${c.label}</span><span>${esc(c.text)}${c.link?' <a href="#sales" class="muted" data-stay="1">→ 案件を見る</a>':''}</span></div>`).join('')}</div>`).join('')
+    :`<div class="panel pad">計画を大きく下回っている工程はありません。</div>`;
+}
+
+function renderForecast(el,elDeals,sc,target){
+  const F=forecast(sc),hit=target!=null?F.sims.filter(s=>s>=target).length/F.sims.length:null;
+  const mx=Math.max(...F.sims,Math.ceil(target||0));const bins=new Array(mx+1).fill(0);F.sims.forEach(s=>bins[s]++);const bm=Math.max(...bins);
+  $(el).innerHTML=`<div class="fc-big"><div><div class="l">受注済み</div><div class="v num">${F.won}</div></div>
+    <div><div class="l">着地予測（中央値）</div><div class="v num">${F.p50}</div></div>
+    <div><div class="l">予測レンジ（80%）</div><div class="v num" style="font-size:24px">${F.p10}〜${F.p90}</div></div>
+    ${target!=null?`<div><div class="l">目標 ${fmt1(target)}件 の達成確率</div><div class="v num" style="color:${hit>=.7?'var(--good)':hit>=.4?'var(--warn)':'var(--bad)'}">${pctS(hit)}</div></div>`:''}</div>
+    <div class="hist">${bins.map((b,i)=>`<div class="${target!=null&&i>=target?'hit':''}" style="height:${b/bm*100}%" title="${i}件：${pctS(b/F.sims.length)}"></div>`).join('')}</div>
+    <div class="hist-x">${bins.map((b,i)=>`<span>${i}</span>`).join('')}</div>
+    <div class="basis"><b>根拠</b>：進行中 ${F.open.length}件ごとに「現ステージからの受注率（直近6か月・担当3名：${SF_ORDER.slice(0,6).map(c=>`${c} ${pctS(pWin(c))}`).join('・')}）× 残り${remainDays()}日で決着する確率 × 滞留補正」を積み上げ、3,000回シミュレーション。${S.excludeStale?`最終更新が${md(STALE_BEFORE)}より前の長期放置は除外。`:''}完璧な精度は出せないため幅で示します。</div>`;
+  $(elDeals).innerHTML=`<thead><tr><th>企業名</th><th>担当</th><th>現ステージ</th><th class="r">滞留</th><th>今月受注確率</th></tr></thead><tbody>`+F.open.slice(0,25).map(x=>`<tr><td>${esc(x.d.company)}</td><td>${esc(salesName(x.d.owner))}</td><td>${x.d.cur} ${SF_NAME[x.d.cur]}</td><td class="r num">${x.d.stay}日</td><td><span class="pbar"><i style="width:${x.p*100}%"></i></span><span class="num">${pctS(x.p)}</span></td></tr>`).join('')+'</tbody>';
+}
+
+function renderFunnel(el,A,sc){
+  const R=planRates();const bn=A.rows.filter(r=>r.impact!=null&&r.impact<0).sort((a,b)=>a.impact-b.impact)[0]?.st.k;
+  let h=`<thead><tr><th>工程</th><th class="r">月計画</th><th class="r">本日時点の計画</th><th class="r">実績</th><th style="min-width:150px">実績（当月＋繰越）と計画</th><th class="r">差分</th><th class="c">判定</th><th class="r">受注への影響</th><th class="r">通過率 計画→実績</th><th>データ</th></tr></thead><tbody>`;
+  A.rows.forEach((r,i)=>{const st=r.st;
+    if(!r.a||r.mp==null){h+=`<tr class="na"><td>${stepHtml(st)}</td><td class="r">—</td><td class="r">—</td><td class="r">—</td><td></td><td></td><td class="c">${pill('gray','未連携')}</td><td></td><td></td><td class="src">${esc(st.src||'SFでの定義確定後に接続')}</td></tr>`;return;}
+    const [c,l]=judge(r.ratio);const pv=A.rows.slice(0,i).reverse().find(x=>x.tot!=null&&(st.k==='sql'?x.st.k==='appo':x.st.k!=='sql'));
+    const rb=pv?rateFrom(pv.st.k,st.k,R):null;
+    h+=`<tr class="${st.k===bn?'bn':''}"><td>${stepHtml(st)}</td><td class="r num">${fmtN(r.mp)}</td><td class="r num">${fmtN(r.ptd)}${st.fwd?'<span class="muted">（月）</span>':''}</td>
+      <td class="r num"><b>${r.tot}</b>${r.a.one?'':` <span class="muted">(${r.a.n}/${r.a.c})</span>`}</td><td>${bar(r.a.n,r.a.c,r.ptd,r.a.one)}</td>
+      <td class="r num diff ${r.gap<0?'neg':'pos'}">${r.gap>0?'+':''}${fmtN(r.gap)}</td><td class="c">${pill(c,l)}</td>
+      <td class="r num diff ${r.impact<0?'neg':''}">${r.impact!=null?(r.impact>0?'+':'')+fmt1(r.impact):'—'}</td>
+      <td class="r num">${rb&&pv.tot?(st.k==='call'?`${fmt1(rb)}回 → <b>${fmt1(r.tot/pv.tot)}回</b>`:`${pctS(rb)} → <b>${pctS(r.tot/pv.tot)}</b>`):'—'}</td><td class="src">${st.demo?pill('warn','デモ')+' ':''}${esc(st.src)}</td></tr>`;});
+  $(el).innerHTML=h+'</tbody>';
+}
+
+/* 隔週 */
+const WEEKS=[];WORKDAYS.forEach(s=>{const d=toD(s);const mon=new Date(d);mon.setDate(d.getDate()-((d.getDay()+6)%7));const k=toS(mon);let w=WEEKS.find(w=>w.k===k);if(!w){w={k,days:[]};WEEKS.push(w);}w.days.push(s);});
+const BW=[];for(let i=0;i<WEEKS.length;i+=2){const ws=WEEKS.slice(i,i+2);if(ws.length===1&&BW.length){BW[BW.length-1].days.push(...ws[0].days);continue;}BW.push({days:ws.flatMap(w=>w.days)});}
+BW.forEach((b,i)=>{b.label=`第${i+1}隔週`;b.start=b.days[0];b.end=b.days[b.days.length-1];b.el=b.days.filter(s=>s<=AS_OF).length;});
+
+function bwMatrix(el,people,metrics){
+  // people: [{label,sc}] ; metrics: [{k,label}]
+  let h=`<table class="bwm"><thead><tr><th rowspan="2">担当</th>${BW.map(b=>`<th class="grp" colspan="${metrics.length}">${b.label}（${md(b.start)}〜${md(b.end)}）${b.start>AS_OF?'・未開始':b.end>=AS_OF?`・${b.el}/${b.days.length}日経過`:''}</th>`).join('')}</tr>
+    <tr>${BW.map(()=>metrics.map((m,i)=>`<th class="c" ${i===0?'style="border-left:2px solid var(--line)"':''}>${m.label}</th>`).join('')).join('')}</tr></thead><tbody>`;
+  const rows=[...people.map(p=>({...p})),{label:'合計',sc:null,total:1}];
+  rows.forEach(p=>{h+=`<tr class="${p.total?'total':''}" ${p.sc&&p.sc.k?`data-sc="${p.sc.t}|${esc(p.sc.k)}"`:''} style="${p.sc?'cursor:pointer':''}"><td>${esc(p.label)}</td>`;
+    BW.forEach(b=>metrics.forEach((m,i)=>{
+      let a=0,g=0;const scs=p.total?people.map(x=>x.sc):[p.sc];
+      scs.forEach(sc=>{const to=b.end<AS_OF?b.end:AS_OF;const x=b.start>AS_OF?null:actual(m.k,sc,b.start,to);if(x)a+=x.n+x.c;const P=planBetween(sc,m.k,b.start,b.start>AS_OF?b.end:to);if(P!=null)g+=P;});
+      const fut=b.start>AS_OF;const r=g?a/g:null;
+      h+=fut?`<td class="cell fut ${i===0?'first':''}">—<small>計画 ${fmtN(g? g:0)}</small></td>`
+        :`<td class="cell ${cellCls(r)} ${i===0?'first':''}">${a}<small>/ ${fmtN(g)}</small></td>`;}));
+    h+='</tr>';});
+  $(el).innerHTML=h+'</tbody></table>';
+}
+// 未開始の隔週は全日数の計画を出すため、bwMatrix 内で b.days.length を使用
+
+/* ================= 事業 ================= */
+function renderBiz(){
+  document.querySelectorAll('.bizpane').forEach(p=>p.classList.toggle('on',p.id==='biz-'+state.bizTab));
+  document.querySelectorAll('#bizTabs a').forEach(a=>a.classList.toggle('on',a.dataset.t===state.bizTab));
+  if(state.bizTab==='total')renderBizTotal();else if(state.bizTab==='contrib')renderBizContrib();else if(state.bizTab==='quality')renderBizQuality();else renderBizSum();
+}
+
+/* ---- 全体の数字（工程 × 週／日）---- */
+const GROUPS=[{l:'インサイド',ks:['icp','mql','call','conn','hot','appo','sql']},{l:'セールス',ks:['set','s01','s02','s03','s04','s05','won']}];
+function teamA(k,from,to){const a=actual(k,TEAM,from,to);return a?a.n+a.c:null;}
+function renderBizTotal(){renderTotal({table:'totTable',sub:'totSub',groups:GROUPS,gran:state.totGran,mode:state.totMode,label:`チーム全体（インサイド${IS.length}名・セールス${SALES.length}名）／受注目標 ${S.target}件／${ELAPSED}/${WD}営業日経過`});}
+function renderTotal(cfg){
+  const R=planRates();const gran=cfg.gran,mode=cfg.mode;
+  const cols=[{l:`${AM}月 計`,from:M_START,to:M_END,month:1},...(gran==='week'?WEEKS.map((w,i)=>({l:`第${i+1}週<br><span class="muted">${md(w.days[0])}〜${md(w.days[w.days.length-1])}</span>`,from:w.days[0],to:w.days[w.days.length-1]})):WORKDAYS.map(d=>({l:`${md(d)}<br><span class="muted">${dow(d)}</span>`,from:d,to:d})))];
+  $(cfg.sub).textContent=cfg.label;
+  const cls=r=>r==null||!isFinite(r)?'':r>=1?'m2':r>=0.8?'m1':'m0';
+  let h=`<thead><tr><th>工程</th>${cols.map((c,i)=>`<th class="c ${i===0?'mcol':''} ${c.from<=AS_OF&&c.to>=AS_OF&&!c.month?'today':''}">${c.l}</th>`).join('')}</tr></thead><tbody>`;
+  cfg.groups.forEach(g=>{
+    h+=`<tr class="grp"><td colspan="${cols.length+1}">${g.l}</td></tr>`;
+    g.ks.forEach((k,ki)=>{const st=STEPS[SI[k]];const prevK=prevOf(k);
+      h+=`<tr><td>${stepHtml(st)}${st.demo?' '+pill('warn','デモ'):''}</td>`;
+      cols.forEach((c,i)=>{const fut=c.from>AS_OF;const to=c.to<AS_OF?c.to:AS_OF;
+        if(mode==='rate'){
+          if(!prevK){h+=`<td class="cell muted ${i===0?'mcol':''}">—</td>`;return;}
+          const pr=rateFrom(prevK,k,R);
+          if(fut){h+=`<td class="cell fut ${i===0?'mcol':''}">${k==='call'?fmt1(pr)+'回':pctS(pr)}</td>`;return;}
+          const a=teamA(k,c.from,to),b=teamA(prevK,c.from,to);const v=b?a/b:null;
+          h+=`<td class="cell ${cls(v!=null&&pr?v/pr:null)} ${i===0?'mcol':''}">${v==null?'—':k==='call'?fmt1(v)+'回':pctS(v)}<small>計画 ${k==='call'?fmt1(pr):pctS(pr)}</small></td>`;return;}
+        const pAll=planBetween(TEAM,k,c.from,c.to);
+        if(fut){h+=`<td class="cell fut ${i===0?'mcol':''}">—<small>計画 ${fmtN(pAll||0)}</small></td>`;return;}
+        const a=teamA(k,c.from,to),p=planBetween(TEAM,k,c.from,to);
+        h+=`<td class="cell ${cls(p?a/p:null)} ${i===0?'mcol':''}" title="${st.name} 実績${a} / 本日までの計画${fmtN(p)}（期間全体 ${fmtN(pAll)}）">${a.toLocaleString()}<small>/ ${fmtN(p)}</small></td>`;});
+      h+='</tr>';});
+  });
+  $(cfg.table).innerHTML=h+'</tbody>';
+}
+
+/* ---- 個人の貢献 ---- */
+const PCOL=['#2f6fed','#e8930c','#16a36a','#d64545','#7c3aed','#0891b2','#db2777','#65a30d','#475569','#b45309','#0f766e'];
+function conRange(){if(state.conPer==='week'){const w=WEEKS[state.conWeek];const e=w.days[w.days.length-1];return [w.days[0],e<AS_OF?e:AS_OF,`第${state.conWeek+1}週（${md(w.days[0])}〜${md(e)}）`];}
+  if(state.conPer==='day')return [state.conDay,state.conDay,`${md(state.conDay)}（${dow(state.conDay)}）`];return [M_START,AS_OF,`${AM}月（${md(M_START)}〜${md(AS_OF)}）`];}
+function periodSel(sel){sel.style.display=state.conPer==='month'?'none':'';document.querySelectorAll('#conPer button,#sConPer button').forEach(b=>b.classList.toggle('on',b.dataset.v===state.conPer));
+  if(state.conPer==='week')sel.innerHTML=WEEKS.filter(w=>w.days[0]<=AS_OF).map((w,i)=>`<option value="${i}" ${i===state.conWeek?'selected':''}>第${i+1}週（${md(w.days[0])}〜${md(w.days[w.days.length-1])}）</option>`).join('');
+  if(state.conPer==='day')sel.innerHTML=WORKDAYS.filter(d=>d<=AS_OF).reverse().map(d=>`<option value="${d}" ${d===state.conDay?'selected':''}>${md(d)}（${dow(d)}）</option>`).join('');
+}
+function renderBizContrib(){
+  periodSel($('conSel'));
+  const [from,to,label]=conRange();$('conSub').textContent=label;
+  const cls=r=>r==null||!isFinite(r)?'':r>=1?'m2':r>=0.8?'m1':'m0';
+  const isRows=IS.map((p,i)=>({name:p.name,sc:{t:'is',k:p.sf},col:PCOL[i]}));
+  const saRows=SALES.map((p,i)=>({name:p.name,sc:{t:'sales',k:p.key},col:PCOL[8+i]}));
+  const val=(k,sc)=>{const a=actual(k,sc,from,to);return a?a.n+a.c:0;};
+  conBars('conBars',[{k:'call',rows:isRows},{k:'conn',rows:isRows},{k:'appo',rows:isRows,un:1},{k:'s01',rows:saRows},{k:'s02',rows:saRows},{k:'won',rows:saRows}],[...isRows,...saRows],from,to,val);
+  const table=(el,rows,ks,un)=>conTable(el,rows,ks,un,from,to);
+  table('conIs',isRows,['icp','mql','call','conn','hot','appo','sql'],1);
+  table('conSales',saRows,['set','s01','s02','s03','s04','s05','won'],0);
+  bwMatrix('bizBwSales',SALES.map(p=>({label:p.name,sc:{t:'sales',k:p.key}})),[{k:'s01',label:'商談実施'},{k:'s02',label:'案件化'},{k:'s03',label:'03+'},{k:'won',label:'受注'}]);
+  bwMatrix('bizBwIs',IS.map(p=>({label:p.name,sc:{t:'is',k:p.sf}})),[{k:'call',label:'コール'},{k:'conn',label:'接続'},{k:'appo',label:'アポ'}]);
+}
+function conBars(el,bars,legend,from,to,val){
+  $(el).innerHTML=bars.map(b=>{const st=STEPS[SI[b.k]];const team=teamA(b.k,from,to)||0;const vs=b.rows.map(r=>({r,v:val(b.k,r.sc)}));const un=b.un?Math.max(0,team-vs.reduce((a,x)=>a+x.v,0)):0;
+    return `<div class="sbar"><div class="sl">${stepHtml(st)}<b class="num">${team.toLocaleString()}</b></div><div class="st">${team?vs.filter(x=>x.v).map(x=>`<i style="width:${x.v/team*100}%;background:${x.r.col}" title="${esc(x.r.name)} ${x.v}（${pctS(x.v/team)}）">${x.v/team>=0.07?esc(x.r.name):''}</i>`).join('')+(un?`<i style="width:${un/team*100}%;background:#cbd5e1;color:#475569" title="アポ獲得者 未入力 ${un}">${un/team>=0.07?'未入力':''}</i>`:''):'<span class="muted" style="font-size:12px;padding-left:6px">実績なし</span>'}</div></div>`;}).join('')+
+    `<div class="legend" style="margin-top:8px">${legend.map(r=>`<span><i class="dot" style="background:${r.col}"></i>${esc(r.name)}</span>`).join('')}${bars.some(b=>b.un)?'<span><i class="dot" style="background:#cbd5e1"></i>アポ獲得者 未入力</span>':''}</div>`;
+}
+function conTable(el,rows,ks,un,from,to){
+  const cls=r=>r==null||!isFinite(r)?'':r>=1?'m2':r>=0.8?'m1':'m0';const val=(k,sc)=>{const a=actual(k,sc,from,to);return a?a.n+a.c:0;};
+  {
+    const team=Object.fromEntries(ks.map(k=>[k,teamA(k,from,to)||0]));
+    let h=`<thead><tr><th>担当</th>${ks.map(k=>`<th class="c">${STEPS[SI[k]].no!=='—'?STEPS[SI[k]].no+' ':''}${STEPS[SI[k]].name}</th>`).join('')}</tr></thead><tbody>`;
+    h+=`<tr class="total"><td>チーム全体</td>${ks.map(k=>`<td class="cell">${team[k].toLocaleString()}<small>100%</small></td>`).join('')}</tr>`;
+    rows.forEach(r=>{h+=`<tr data-sc="${r.sc.t}|${esc(r.sc.k)}" style="cursor:pointer"><td><i class="dot" style="background:${r.col}"></i>${esc(r.name)}</td>`+ks.map(k=>{const v=val(k,r.sc);const p=planBetween(r.sc,k,from,to);const sh=team[k]?v/team[k]:0;
+      return `<td class="cell ${p?cls(v/p):''}" title="${esc(r.name)} ${v} / 計画 ${p==null?'—':fmtN(p)}">${v.toLocaleString()}<small>${pctS(sh)}${p?`｜計画比 ${pctS(v/p)}`:''}</small><span class="shb"><i style="width:${sh*100}%;background:${r.col}"></i></span></td>`;}).join('')+'</tr>';});
+    if(un){h+=`<tr><td class="muted">アポ獲得者 未入力</td>`+ks.map(k=>{if(!['appo','sql'].includes(k))return '<td></td>';const s=rows.reduce((a,r)=>a+val(k,r.sc),0);const v=Math.max(0,team[k]-s);return `<td class="cell muted">${v}<small>${pctS(team[k]?v/team[k]:0)}</small></td>`;}).join('')+'</tr>';}
+    $(el).innerHTML=h+'</tbody>';}
+}
+
+/* ---- データの抜け ---- */
+const QF=[
+ {k:'apo',l:'アポ獲得者',f:d=>!!d.x.apoSetter,only:d=>d.origin==='new',why:'インサイドのアポ数・アポの質が数えられない'},
+ {k:'appt',l:'商談日',f:d=>!!d.appt,why:'商談設定・商談実施が数えられない'},
+ {k:'rec',l:'採用人数',f:d=>has(d.x.recruiters)||has(d.x.recruitersNum),why:'ICP（SQL）を判定できない'},
+ {k:'con',l:'接触人数',f:d=>has(d.x.contacts),why:'ICP（SQL）を判定できない'},
+ {k:'emp',l:'従業員数（取引先）',f:d=>has(d.x.employees),why:'ICP（SQL）を判定できない'},
+ {k:'ind',l:'業種（取引先）',f:d=>!!d.x.industry,why:'IT・官公庁の除外ができない'},
+ {k:'loss',l:'失注理由',f:d=>!!d.x.lossReason,only:d=>d.status==='lost'&&inM(d.lostDate),why:'失注の分析ができない'},
+];
+const sfLink=d=>DATA.sfBase?`<a href="${DATA.sfBase}/lightning/r/Opportunity/${d.id}/view" target="_blank" rel="noopener">${esc(d.company)}</a>`:esc(d.company);
+function renderBizQuality(){
+  const base=deals.filter(d=>d.origin==='new'||(d.status==='open'&&!d.stale));
+  const cls=r=>r==null?'':r>=0.95?'m2':r>=0.8?'m1':'m0';
+  const rows=[{name:'チーム全体',ds:base},...SALES.map(p=>({name:p.name,ds:base.filter(d=>d.owner===p.key)}))];
+  $('qOwner').innerHTML=`<thead><tr><th>担当</th><th class="r">対象</th>${QF.map(q=>`<th class="c">${q.l}</th>`).join('')}</tr></thead><tbody>`+
+    rows.map((r,i)=>`<tr class="${i===0?'total':''}"><td>${esc(r.name)}</td><td class="r num">${r.ds.length}</td>${QF.map(q=>{const t=r.ds.filter(d=>!q.only||q.only(d));const miss=t.filter(d=>!q.f(d)).length;const fill=t.length?1-miss/t.length:null;
+      return `<td class="cell ${cls(fill)}" title="${esc(q.why)}">${t.length?`${miss}件 未入力`:'—'}<small>${t.length?`入力率 ${pctS(fill)}（${t.length}件中）`:''}</small></td>`;}).join('')}</tr>`).join('')+
+    `<tr><td colspan="${QF.length+2}" class="muted" style="white-space:normal">抜けると困ること：${QF.map(q=>`${q.l}＝${q.why}`).join('／')}</td></tr></tbody>`;
+  const sel=$('qField');if(!sel.options.length){sel.innerHTML='<option value="all">すべての抜け</option>'+QF.map(q=>`<option value="${q.k}">${q.l}が未入力</option>`).join('');sel.onchange=renderBizQuality;}
+  const fk=sel.value||'all';
+  const list=base.map(d=>({d,miss:QF.filter(q=>(!q.only||q.only(d))&&!q.f(d)&&(fk==='all'||q.k===fk))})).filter(x=>x.miss.length).sort((a,b)=>b.miss.length-a.miss.length||(a.d.created<b.d.created?1:-1));
+  $('qCount').textContent=`${list.length}件`;
+  $('qDeals').innerHTML=`<thead><tr><th>企業名（SF）</th><th>担当</th><th>区分</th><th>作成日</th><th>現ステージ</th><th>未入力の項目</th></tr></thead><tbody>`+
+    list.map(x=>`<tr><td>${sfLink(x.d)}</td><td>${esc(salesName(x.d.owner))}</td><td>${pill(x.d.origin,x.d.origin==='new'?'当月':'繰越')}</td><td class="num">${x.d.created}</td><td>${x.d.cur} ${SF_NAME[x.d.cur]}</td><td>${x.miss.map(q=>pill('bad',q.l)).join(' ')}</td></tr>`).join('')+'</tbody>';
+}
+
+function renderBizSum(){
+  const A=analyze(TEAM),F=forecast(TEAM);
+  $('bizSub').textContent=`セールス${SALES.length}名・インサイド${IS.length}名／${AY}年${AM}月 ${ELAPSED}/${WD}営業日経過`;
+  const open=deals.filter(d=>d.status==='open'&&!d.stale);const stuck=open.filter(d=>d.stay>avgStage(d.cur)*1.5);
+  const won=rowOf(A,'won');
+  $('bizKpis').innerHTML=
+    kpi('受注 実績 / 本日時点の計画',`${won.tot}<small> / ${fmt1(won.ptd)}（月 ${S.target}）</small>`,`着地予測 <b>${F.p50}件</b>（${F.p10}〜${F.p90}）`,bar(won.a.n,won.a.c,won.ptd))+
+    kpiStep(A,'appo','アポ獲得')+kpiStep(A,'s01','01 商談実施')+kpiStep(A,'s02','02 案件化')+
+    kpi('進行中パイプライン',`${open.length}<small> 件</small>`,`${pill('new','当月 '+open.filter(d=>d.origin==='new').length)} ${pill('carry','繰越 '+open.filter(d=>d.origin==='carry').length)}`)+
+    kpi('滞留案件（平均の1.5倍超）',`<span style="color:${stuck.length?'var(--bad)':'inherit'}">${stuck.length}</span><small> 件</small>`,`うち繰越 ${stuck.filter(d=>d.origin==='carry').length}件`)+
+    kpiStep(A,'call','コール数（インサイド）')+kpiStep(A,'conn',`接続数（${S.connSec}秒以上）`);
+  renderAlerts('bizAlerts',A);
+  const capCall=IS.reduce((a,p)=>a+planBetween({t:'is',k:p.sf},'call',M_START,M_END),0),capAppo=IS.reduce((a,p)=>a+planBetween({t:'is',k:p.sf},'appo',M_START,M_END),0);
+  $('bizFunSub').innerHTML=`受注目標 ${S.target}件から逆算した必要量との差（上流は前月 ${PREV.label} の転換率、02以降は直近6か月の実績）。<b>インサイドのシフト計画</b>：コール ${Math.round(capCall).toLocaleString()}件・アポ ${fmt1(capAppo)}件／月 → 必要量に対しコール ${pctS(capCall/A.MP.call)}・アポ ${pctS(capAppo/A.MP.appo)}`;
+  renderFunnel('bizFunnel',A,TEAM);
+  renderForecast('bizFc','bizFcDeals',TEAM,S.target);
+}
+
+/* ================= セールス ================= */
+const state={view:'biz',sales:'all',is:'all',bw:Math.max(0,BW.findIndex(b=>AS_OF>=b.start&&AS_OF<=b.end)),dim:'leadSource',period:6,dOrigin:'all',dStage:'all',dStatus:'open',dFlag:'all',dSearch:'',isPer:'month',isBw:Math.max(0,BW.findIndex(b=>AS_OF>=b.start&&AS_OF<=b.end)),isDay:WORKDAYS.filter(d=>d<=AS_OF).pop(),bizTab:'sum',salesTab:'sum',sTotGran:'week',sTotMode:'count',totGran:'week',totMode:'count',conPer:'month',conWeek:Math.max(0,WEEKS.findIndex(w=>w.days.includes(AS_OF)||w.days[0]>AS_OF)),conDay:WORKDAYS.filter(d=>d<=AS_OF).pop()};
+const salesSc=()=>state.sales==='all'?{t:'salesAll'}:{t:'sales',k:state.sales};
+const scForSales=()=>state.sales==='all'?TEAM:{t:'sales',k:state.sales};
+const DIMS=[
+ {k:'leadSource',label:'流入経路',f:x=>x.leadSource||'未入力'},
+ {k:'industry',label:'業種',f:x=>x.industry||'未入力'},
+ {k:'emp',label:'従業員規模',f:x=>{const n=+x.employees;if(!x.employees&&x.employees!==0)return '未入力';return n<100?'〜99名':n<300?'100〜299名':n<1000?'300〜999名':'1000名〜';}},
+ {k:'recruiters',label:'採用人数（目標）',f:x=>x.recruiters||'未入力'},
+ {k:'ats',label:'利用中ATS',f:x=>!x.ats?'未入力':/無し|なし/.test(x.ats)?'ATSなし':x.ats},
+ {k:'competitor',label:'競合',f:x=>x.competitor||'未入力'},
+ {k:'apo',label:'アポ獲得者（インサイド）',f:x=>isBySf[x.apo]?.name||(x.apo?'その他':'未入力')},
+ {k:'owner',label:'商談担当',f:x=>salesName(x.ownerK)},
+];
+function anaBase(){const from=state.period===1?M_START:addMonths(M_START,-state.period);const to=state.period===1?AS_OF:addMonths(M_START,0);
+  return histDeals.filter(x=>x.created>=from&&x.created<(state.period===1?'9999':to)&&(state.sales==='all'||x.ownerK===state.sales));}
+function renderAnalysis(){
+  const base=anaBase();const D=DIMS.find(d=>d.k===state.dim);
+  $('dimTabs').innerHTML=DIMS.map(d=>`<button data-k="${d.k}" class="${d.k===state.dim?'on':''}">${d.label}</button>`).join('');
+  const tot={n:base.length,p02:base.filter(x=>x.reached('02')).length,w:base.filter(x=>x.won).length,closed:base.filter(x=>x.closed).length};
+  $('anaSub').textContent=`対象 ${tot.n}件（${state.sales==='all'?'セールス3名':salesName(state.sales)}）／全体の案件化率 ${pctS(tot.p02/tot.n)}・受注率 ${pctS(tot.w/tot.n)}`;
+  const g={};base.forEach(x=>{const v=D.f(x);(g[v]=g[v]||[]).push(x);});
+  const rows=Object.entries(g).map(([v,xs])=>({v,n:xs.length,p02:xs.filter(x=>x.reached('02')).length/xs.length,p03:xs.filter(x=>x.reached('03')).length/xs.length,w:xs.filter(x=>x.won).length,open:xs.filter(x=>!x.closed).length})).sort((a,b)=>b.n-a.n);
+  const b02=tot.p02/tot.n,bw=tot.w/tot.n;const mx=Math.max(...rows.map(r=>r.w/r.n),bw,0.01);
+  const cmp=(v,b)=>v-b>=0.05?'up':b-v>=0.05?'down':'';
+  $('dimTable').innerHTML=`<thead><tr><th>${D.label}</th><th class="r">件数</th><th class="r">進行中</th><th class="r">案件化率（02+）</th><th class="r">03到達率</th><th class="r">受注</th><th>受注率</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr style="${r.n<5?'opacity:.55':''}"><td>${esc(r.v)}</td><td class="r num">${r.n}</td><td class="r num">${r.open}</td><td class="r num ${r.n>=5?cmp(r.p02,b02):''}">${pctS(r.p02)}</td><td class="r num">${pctS(r.p03)}</td><td class="r num">${r.w}</td>
+      <td><div class="wr"><div class="b w" style="width:${r.w/r.n/mx*120}px"></div><span class="num ${r.n>=5?cmp(r.w/r.n,bw):''}">${pctS(r.w/r.n)}</span></div></td></tr>`).join('')+
+    `<tr class="total"><td><b>全体</b></td><td class="r num">${tot.n}</td><td></td><td class="r num">${pctS(b02)}</td><td></td><td class="r num">${tot.w}</td><td class="num">${pctS(bw)}</td></tr></tbody>`;
+  // 失注
+  const lost=base.filter(x=>x.closed&&!x.won);const stg=['01','02','03','04','05'];const lr={};
+  lost.forEach(x=>{const r=x.lossReason||'未入力';lr[r]=lr[r]||{t:0};const s=x.top;lr[r][s]=(lr[r][s]||0)+1;lr[r].t++;});
+  const lrs=Object.entries(lr).sort((a,b)=>b[1].t-a[1].t);const mxc=Math.max(1,...lrs.flatMap(([,v])=>stg.map(s=>v[s]||0)));
+  $('lossTable').innerHTML=`<thead><tr><th>失注理由</th><th class="r">計</th>${stg.map(s=>`<th class="c">${s} ${SF_NAME[s]}で</th>`).join('')}</tr></thead><tbody>`+
+    lrs.map(([r,v])=>`<tr><td>${esc(r)}</td><td class="r num"><b>${v.t}</b></td>${stg.map(s=>{const n=v[s]||0;return `<td class="c num" style="background:rgba(214,69,69,${n/mxc*0.5})">${n||''}</td>`;}).join('')}</tr>`).join('')+`</tbody>`;
+  const l1={};lost.forEach(x=>{const r=x.lossReason1||'未入力';l1[r]=(l1[r]||0)+1;});
+  $('loss1Table').innerHTML=`<thead><tr><th>失注理由（詳細）</th><th class="r">件数</th><th class="r">構成比</th></tr></thead><tbody>`+Object.entries(l1).sort((a,b)=>b[1]-a[1]).slice(0,15).map(([r,n])=>`<tr><td>${esc(r)}</td><td class="r num">${n}</td><td class="r num">${pctS(n/lost.length)}</td></tr>`).join('')+'</tbody>';
+}
+function renderSalesBw(){
+  const sc=scForSales();const b=BW[state.bw];const MP=planOf(sc);
+  $('bwTabs').innerHTML=BW.map((x,i)=>`<button data-i="${i}" class="${i===state.bw?'on':''}">${x.label}（${md(x.start)}〜${md(x.end)}）</button>`).join('');
+  $('bwSub').textContent=`${b.days.length}営業日（経過 ${b.el}日）`;
+  const until=b.end<AS_OF?b.end:AS_OF;
+  $('bwCards').innerHTML=['s01','s02','s03','s04','s05','won'].map(k=>{const st=STEPS[SI[k]];const g=MP[k]!=null?MP[k]*b.days.length/WD:null;
+    const a=b.start>AS_OF?{n:0,c:0}:actual(k,sc,b.start,until);const exp=g!=null?g*b.el/b.days.length:null;const [c,l]=b.start>AS_OF?['gray','未開始']:judge(exp?(a.n+a.c)/exp:null);
+    return `<div class="panel bw-card"><div style="display:flex;justify-content:space-between;align-items:center">${stepHtml(st)}${pill(c,l)}</div><div class="nums"><span class="a num">${a.n+a.c}</span><span class="muted num">/ ${g!=null?fmt1(g):'—'}</span></div>${bar(a.n,a.c,exp)}<div class="split"><span><i class="dot new"></i>当月 <b>${a.n}</b></span><span><i class="dot carry"></i>繰越 <b>${a.c}</b></span></div></div>`;}).join('');
+  bwMatrix('salesBw',SALES.map(p=>({label:p.name,sc:{t:'sales',k:p.key}})),[{k:'appo',label:'アポ'},{k:'s01',label:'商談実施'},{k:'s02',label:'案件化'},{k:'s03',label:'03'},{k:'s04',label:'04'},{k:'s05',label:'05'},{k:'won',label:'受注'}]);
+}
+function renderDeals(){
+  let L=dealsOf(scForSales()).filter(d=>(state.dOrigin==='all'||d.origin===state.dOrigin)&&(state.dStage==='all'||d.cur===state.dStage)&&(state.dStatus==='all'||d.status===state.dStatus)&&(!state.dSearch||String(d.company).includes(state.dSearch)));
+  if(state.dFlag==='stale')L=L.filter(d=>d.stale);if(state.dFlag==='stay')L=L.filter(d=>d.status==='open'&&!d.stale&&d.stay>avgStage(d.cur)*1.5);
+  L.sort((a,b)=>(a.stale-b.stale)||(b.stay-a.stay));$('dealCount').textContent=`${L.length}件`;
+  const st={open:['gray','進行中'],won:['good','受注'],lost:['bad','失注']};
+  $('dealTable').innerHTML=`<thead><tr><th>企業名</th><th>担当</th><th>区分</th><th>現ステージ</th><th>プロセス</th><th>商談日</th><th class="r">滞留</th><th>今月受注確率</th><th>流入</th><th>採用人数</th><th>ATS</th><th>アポ獲得者</th><th>ネクスト／失注理由</th><th>商談メモ</th><th>状態</th></tr></thead><tbody>`+
+    L.map(d=>{const a=avgStage(d.cur),sc=d.status!=='open'?'':d.stay>a*2?'hi':d.stay>a*1.5?'mid':'',p=dealProb(d),x=d.x;
+      const prog=SF_ORDER.map(c=>`<span title="${c} ${SF_NAME[c]}${d.reach[c]?'：'+d.reach[c]:''}" style="display:inline-block;width:11px;height:6px;border-radius:2px;margin-right:2px;background:${d.reach[c]?(d.reach[c]<M_START?'var(--carry)':'var(--new)'):'var(--line)'}"></span>`).join('');
+      return `<tr><td><b>${sfLink(d)}</b></td><td>${esc(salesName(d.owner))}</td><td>${pill(d.origin,d.origin==='new'?'当月':'繰越')}</td><td>${d.cur} ${SF_NAME[d.cur]}</td><td>${prog}</td><td class="num">${md(d.appt)}</td>
+      <td class="r num stall ${sc}">${d.status==='open'?d.stay+'日':'—'}</td><td>${d.status==='open'?`<span class="pbar"><i style="width:${p*100}%"></i></span><span class="num">${pctS(p)}</span>`:'—'}</td>
+      <td>${esc(x.leadSource||'')}</td><td>${esc(x.recruiters||'')}</td><td>${esc(x.ats||'')}</td><td>${esc(isBySf[d.apo]?.name||x.apoSetter||'')}</td>
+      <td class="memo">${esc(d.status==='lost'?(x.lossReason1||x.lossReason||''):(x.nextStep||''))}</td><td class="memo" title="${esc(x.memo||'')}">${esc((x.memo||'').slice(0,70))}${(x.memo||'').length>70?'…':''}</td>
+      <td>${pill(st[d.status][0],st[d.status][1])}${d.stale?' '+pill('gray','長期放置'):''}</td></tr>`;}).join('')+'</tbody>';
+}
+function renderSales(){
+  document.querySelectorAll('.salespane').forEach(p=>p.classList.toggle('on',p.id==='sales-'+state.salesTab));
+  document.querySelectorAll('#salesTabs a').forEach(a=>a.classList.toggle('on',a.dataset.t===state.salesTab));
+  if(state.salesTab==='total')renderSalesTotal();else if(state.salesTab==='contrib')renderSalesContrib();else if(state.salesTab==='ana'){renderAnalysis();renderDeals();}else renderSalesSum();
+}
+function renderSalesTotal(){
+  renderTotal({table:'sTotTable',sub:'sTotSub',groups:[{l:'セールス',ks:['appo','sql','set','s01','s02','s03','s04','s05','won']}],gran:state.sTotGran,mode:state.sTotMode,
+    label:`セールス${SALES.length}名の合計／受注目標 ${S.target}件／${ELAPSED}/${WD}営業日経過`});
+  // パイプライン：各週の終わり（進行中の週は本日）に各ステージにいた進行中案件
+  const cols=WEEKS.map((w,i)=>({l:`第${i+1}週末<br><span class="muted">${md(w.days[0]>AS_OF||w.days[w.days.length-1]<AS_OF?w.days[w.days.length-1]:AS_OF)}</span>`,d:w.days[w.days.length-1]<AS_OF?w.days[w.days.length-1]:AS_OF,fut:w.days[0]>AS_OF}));
+  const at=(d,day)=>{if(d.created>day)return null;if(d.reach['08']&&d.reach['08']<=day)return null;if(d.lostDate&&d.lostDate<=day)return null;if(d.stale&&d.lastModified<=day)return null;return SF_ORDER.filter(c=>d.reach[c]&&d.reach[c]<=day).pop()||'01';};
+  const stg=['01','02','03','04','05','06'];
+  const cnt=cols.map(c=>{const o={};stg.forEach(x=>o[x]={n:0,c:0});if(!c.fut)deals.forEach(d=>{const st=at(d,c.d);if(st&&o[st])o[st][d.origin==='new'?'n':'c']++;});return o;});
+  $('sPipe').innerHTML=`<thead><tr><th>ステージ</th>${cols.map(c=>`<th class="c">${c.l}</th>`).join('')}</tr></thead><tbody>`+
+    stg.map(x=>`<tr><td>${stepHtml({no:x,name:SF_NAME[x]})}</td>${cols.map((c,i)=>c.fut?'<td class="cell fut">—</td>':`<td class="cell">${cnt[i][x].n+cnt[i][x].c}<small>当月 ${cnt[i][x].n}・繰越 ${cnt[i][x].c}</small></td>`).join('')}</tr>`).join('')+
+    `<tr class="total"><td>合計</td>${cols.map((c,i)=>c.fut?'<td class="cell fut">—</td>':`<td class="cell">${stg.reduce((a,x)=>a+cnt[i][x].n+cnt[i][x].c,0)}</td>`).join('')}</tr></tbody>`;
+}
+function renderSalesContrib(){
+  periodSel($('sConSel'));const [from,to,label]=conRange();$('sConSub').textContent=label;
+  const rows=SALES.map((p,i)=>({name:p.name,sc:{t:'sales',k:p.key},col:PCOL[8+i]}));
+  const val=(k,sc)=>{const a=actual(k,sc,from,to);return a?a.n+a.c:0;};
+  conBars('sConBars',['appo','set','s01','s02','s03','won'].map(k=>({k,rows})),rows,from,to,val);
+  conTable('sConTable',rows,['appo','sql','set','s01','s02','s03','s04','s05','won'],0,from,to);
+  renderSalesBw();
+}
+function renderSalesSum(){
+  const sc=scForSales(),A=analyze(sc),nm=state.sales==='all'?'セールス全体':salesName(state.sales);
+  const T=state.sales==='all'?S.target:S.closerTargets[state.sales];
+  $('salesTitle').textContent=nm;$('salesSub').textContent=`受注目標 ${fmt1(T)}件／${ELAPSED}/${WD}営業日経過`;
+  const F=forecast(sc),open=dealsOf(sc).filter(d=>d.status==='open'&&!d.stale),won=rowOf(A,'won');
+  $('salesKpis').innerHTML=kpi('受注 実績 / 本日時点の計画',`${won.tot}<small> / ${fmt1(won.ptd)}</small>`,`着地予測 <b>${F.p50}件</b>（${F.p10}〜${F.p90}）`,bar(won.a.n,won.a.c,won.ptd))+
+    kpiStep(A,'s01','01 商談実施')+kpiStep(A,'s02','02 案件化')+kpiStep(A,'s03','03 担当者合意')+
+    kpi('進行中',`${open.length}<small> 件</small>`,`${pill('new','当月 '+open.filter(d=>d.origin==='new').length)} ${pill('carry','繰越 '+open.filter(d=>d.origin==='carry').length)}`)+
+    kpi('今後の商談予定',`${dealsOf(sc).filter(d=>d.appt&&d.appt>AS_OF&&d.appt<=M_END).length}<small> 件</small>`,'今月末までの商談日');
+  renderAlerts('salesAlerts',A);renderSalesBw();renderForecast('salesFc','salesFcDeals',sc,T);
+}
+
+/* ================= インサイド ================= */
+/* テレアポ科学モデル v1（kinbot/docs/teleapo-science-model.md）の層A：
+   アポ/日 ＝ 発信/日 × 応答率 × 担当者到達率 × 2分超継続率 × 打診率 × 打診→アポ率
+   通話ログでは打診が分からないため、最後の2つはまとめて「2分超→アポ」で出す。 */
+const TSM={version:'1.0',base:{dpd:80.3,answer:.787,person:.569,over2m:.483,ask:.573,askToAppo:.138,appoPerDay:1.38,period:'10/1〜11/6（内線814・文字起こし判定）'},
+  kpis:[['K1','2分超の会話の打診率',.578,.80,'高いほど良い'],['K2','打診の前に相手が「問題ない」と言った割合',.234,.15,'低いほど良い'],['K3','打診の前に課題を決めつける問いをした割合',.432,.20,'低いほど良い'],
+        ['K4','時期の返事に日付を出し直した割合',.52,.90,'高いほど良い'],['K5','最初の返事が「時期」か「受諾」だった割合',.369,null,'高いほど良い'],['K6','アポなしの担当者通話で日付つきの次回を約束した割合',.24,.60,'高いほど良い']],
+  points:[['1','打診したか','2分話したら打診する','打診時の率 − 0.3%','B'],['2','打診の前の掘り方','課題を決めつけて聞かない。「問題ない」の前に打診','「問題ない」でアポ半分','B'],
+          ['3','「時期」の返事への返し','その場で週をずらした日付か2択を出し直す','27.7% − 2%','B'],['3','「要否」の返事への返し','切り口を軽くして1回だけ言い直す','4% − 2%','C'],['4','アポなしの終わり方','決める時期の2〜4週前の週を2択で決めて終える','8.2% − 1%','C']]};
+const FACT=[{k:'dpd',l:'発信/日',f:v=>fmt1(v)},{k:'answer',l:'応答率',f:pctS},{k:'person',l:'担当者到達率（推定）',f:pctS},{k:'over2m',l:'2分超継続率',f:pctS},{k:'conv',l:'2分超→アポ',f:v=>(v*100).toFixed(1)+'%'}];
+function isStats(people,from,to,src){const o={dials:0,ans:0,p30:0,o120:0,appo:0,hours:0,sdays:0};
+  people.forEach(p=>{const days=(src||CALLS)[p.zoom]||{};Object.entries(days).forEach(([d,v])=>{if(d>=from&&d<=to){o.dials+=v[0];o.ans+=v[8]||0;o.p30+=v[2];o.o120+=v[9]||0;}});
+    if(!src){WORKDAYS.filter(d=>d>=from&&d<=to&&d<=AS_OF).forEach(d=>{o.hours+=shiftH(p,d);if((days[d]||[0])[0]>0)o.sdays++;});}
+    o.appo+=(src?histDeals:deals).filter(x=>(src?x.apo:x.apo)===p.sf&&(src?x.created:x.reach['01'])>=from&&(src?x.created:x.reach['01'])<=to).length;});
+  if(src){o.sdays=new Set(people.flatMap(p=>Object.keys((src[p.zoom])||{}).filter(d=>d>=from&&d<=to).map(d=>p.zoom+d))).size;}
+  o.dpd=o.dials/Math.max(1,o.sdays);o.answer=o.ans/Math.max(1,o.dials);o.person=o.p30/Math.max(1,o.ans);o.over2m=o.o120/Math.max(1,o.p30);o.conv=o.appo/Math.max(1,o.o120);
+  o.appoPerDay=o.appo/Math.max(1,o.sdays);return o;}
+const PREV_IS=(()=>{const pm=addMonths(M_START,-1);return isStats(IS,pm,addMonths(M_START,0).replace(/-01$/,'-00'),DATA.callsPrev?.byOwnerDay||{});})();
+/* 段ごとに「前月並みだったらアポが何件増えたか」 */
+function lostBy(o,ref){const E=x=>x.sdays*x.dpd*x.answer*x.person*x.over2m*x.conv;const e=E(o);
+  return FACT.map(f=>{const y={...o,[f.k]:ref[f.k]};return {f,gain:E(y)-e,ratio:ref[f.k]?o[f.k]/ref[f.k]:null};}).sort((a,b)=>b.gain-a.gain);}
+function isRange(){if(state.isPer==='bw'){const b=BW[state.isBw];return [b.start,b.end<AS_OF?b.end:AS_OF,`${b.label}（${md(b.start)}〜${md(b.end)}）`];}
+  if(state.isPer==='day')return [state.isDay,state.isDay,`${md(state.isDay)}（${dow(state.isDay)}）`];return [M_START,AS_OF,`${AM}月（${md(M_START)}〜${md(AS_OF)}）`];}
+function renderIs(){
+  const people=state.is==='all'?IS:IS.filter(p=>p.sf===state.is);
+  const [from,to,plabel]=isRange();
+  const sel=$('isPerSel');sel.style.display=state.isPer==='month'?'none':'';
+  if(state.isPer==='bw')sel.innerHTML=BW.map((b,i)=>`<option value="${i}" ${i===state.isBw?'selected':''}>${b.label}（${md(b.start)}〜${md(b.end)}）</option>`).join('');
+  if(state.isPer==='day')sel.innerHTML=WORKDAYS.filter(d=>d<=AS_OF).reverse().map(d=>`<option value="${d}" ${d===state.isDay?'selected':''}>${md(d)}（${dow(d)}）</option>`).join('');
+  $('isNote').innerHTML=`<b>構造方程式（層A）</b>：アポ/日 ＝ 発信/日 × 応答率 × 担当者到達率 × 2分超継続率 × 打診率 × 打診→アポ率。打診は通話ログでは分からないため、最後の2つはまとめて「2分超→アポ」で出しています。
+    比べる相手は<b>前月（${PREV_IS?addMonths(M_START,-1).slice(0,7):''}）の同じ基準のチーム実績</b>です。モデルの基準値（${TSM.base.period}）は文字起こしで判定した数字なので参考として並べています。
+    <br>通話時間による判定：応答＝キャンセル・不在以外、担当者到達（推定）＝30秒以上、2分超＝120秒以上。アポ＝SFのアポ獲得者が入力された新規商談（入力漏れは数えられません）。`;
+  const o=isStats(people,from,to),P=PREV_IS;
+  const nm=state.is==='all'?'インサイド全体':people[0].name;$('isTitle').textContent=`${nm}｜${plabel}`;
+  $('isSub').textContent=`${people.length}名／シフト ${o.hours}時間・${o.sdays}人日`;
+  const cls=r=>r==null||!isFinite(r)?'':r>=1?'m2':r>=0.8?'m1':'m0';
+  const L=lostBy(o,P);const top=L[0];
+  $('isEq').innerHTML=`<div class="eq">
+    <div class="eqb ${cls(P.appoPerDay?o.appoPerDay/P.appoPerDay:null)}"><div class="l">アポ/日（1人）</div><div class="v num">${o.appoPerDay.toFixed(2)}</div><div class="s">前月 ${P.appoPerDay.toFixed(2)}｜モデル ${TSM.base.appoPerDay}</div></div><div class="op">＝</div>
+    ${FACT.map((f,i)=>`${i?'<div class="op">×</div>':''}<div class="eqb ${cls(P[f.k]?o[f.k]/P[f.k]:null)} ${top&&top.gain>0&&top.f.k===f.k?'worst':''}"><div class="l">${f.l}</div><div class="v num">${f.f(o[f.k])}</div><div class="s">前月 ${f.f(P[f.k])}｜モデル ${f.k==='conv'?(TSM.base.ask*TSM.base.askToAppo*100).toFixed(1)+'%':f.k==='dpd'?TSM.base.dpd:pctS(TSM.base[f.k])}</div></div>`).join('')}
+  </div>
+  <div class="basis" style="margin-top:12px">${top&&top.gain>0.05?`<b>いちばん効いている段：${top.f.l}</b>（前月比 ${pctS(top.ratio)}）。この段が前月並みなら、この期間のアポは約 <b>+${fmt1(top.gain)}件</b>。次点：${L.slice(1,3).filter(x=>x.gain>0.05).map(x=>`${x.f.l} +${fmt1(x.gain)}件`).join('、')||'なし'}`:'どの段も前月並み以上です。'}</div>`;
+  const gD=o.hours*S.callsPerHour,gA=o.hours/S.apoHours;const j=r=>{const [c,l]=judge(r);return pill(c,l);};
+  const apoAll=deals.filter(d=>d.reach['01']>=from&&d.reach['01']<=to);const filled=apoAll.filter(d=>d.apo).length;
+  $('isKpis').innerHTML=kpi('発信数 / シフト計画',`${o.dials.toLocaleString()}<small> / ${Math.round(gD).toLocaleString()}</small>`,`${j(o.dials/gD)} 1時間あたり ${fmt1(o.dials/Math.max(1,o.hours))}件（目標 ${S.callsPerHour}）`,bar(o.dials,0,gD,1))+
+    kpi('2分超の会話',`${o.o120}<small> 件</small>`,`発信の ${pctS(o.o120/Math.max(1,o.dials))}（前月 ${pctS(P.o120/Math.max(1,P.dials))}）`)+
+    kpi('アポ / シフト計画',`${o.appo}<small> / ${fmt1(gA)}</small>`,`${j(o.appo/gA)} ${S.apoHours}時間に1件が目標`,bar(o.appo,0,gA,1))+
+    kpi('アポ獲得者の入力率（SF）',`${pctS(filled/Math.max(1,apoAll.length))}`,`この期間の新規商談 ${apoAll.length}件中 ${filled}件。未入力だとアポが数えられない`);
+  // チーム全体と個人
+  const rowsP=[{name:'チーム全体',ps:IS,team:1},...IS.map(p=>({name:p.name,ps:[p],sf:p.sf}))];
+  $('isPeople').innerHTML=`<thead><tr><th>担当</th><th class="r">シフト</th><th class="r">発信</th><th class="r">発信/時間</th>${FACT.slice(1).map(f=>`<th class="c">${f.l}</th>`).join('')}<th class="r">2分超</th><th class="r">アポ</th><th class="c">アポ計画比</th><th>いちばん効いている段</th></tr></thead><tbody>`+
+    rowsP.map(r=>{const x=isStats(r.ps,from,to);const t=lostBy(x,P)[0];const ga=x.hours/S.apoHours;
+      return `<tr class="${r.team?'total':''}" ${r.sf?`data-sc="is|${esc(r.sf)}"`:''} style="${r.sf?'cursor:pointer':''}${state.is===r.sf?';background:#f2f6ff':''}"><td>${esc(r.name)}</td><td class="r num">${x.hours}h</td><td class="r num">${x.dials.toLocaleString()}</td>
+      <td class="cell r num ${x.hours?cls(x.dials/x.hours/S.callsPerHour):''}">${x.hours?fmt1(x.dials/x.hours):'—'}</td>
+      ${FACT.slice(1).map(f=>`<td class="cell ${x.dials?cls(P[f.k]?x[f.k]/P[f.k]:null):''}">${x.dials?f.f(x[f.k]):'—'}</td>`).join('')}
+      <td class="r num">${x.o120}</td><td class="r num">${x.appo}</td><td class="cell ${ga?cls(x.appo/ga):''}">${ga?pctS(x.appo/ga):'—'}</td>
+      <td>${x.dials&&t&&t.gain>0.05?`${t.f.l} <span class="muted">+${fmt1(t.gain)}件</span>`:'<span class="muted">—</span>'}</td></tr>`;}).join('')+'</tbody>';
+  // 層C・K
+  $('isK').innerHTML=`<thead><tr><th>ID</th><th>指標（標準手順 v1）</th><th class="r">基準（10/1〜11/5）</th><th class="r">目標</th><th class="c">今期</th></tr></thead><tbody>`+
+    TSM.kpis.map(k=>`<tr><td><b>${k[0]}</b></td><td>${k[1]} <span class="muted">（${k[4]}）</span></td><td class="r num">${pctS(k[2])}</td><td class="r num">${k[3]==null?'—':pctS(k[3])}</td><td class="c">${pill('gray','未計測')}</td></tr>`).join('')+
+    `<tr class="total"><td colspan="5">分かれ道（問題の場所）：推奨の動きと、失ったアポの見込み</td></tr>`+
+    TSM.points.map(p=>`<tr><td>${p[0]}</td><td><b>${p[1]}</b>：${p[2]}</td><td class="r">${p[3]}</td><td class="r">根拠 ${p[4]}</td><td class="c">${pill('gray','未計測')}</td></tr>`).join('')+
+    `<tr><td colspan="5" class="muted" style="white-space:normal">今期の値は、Zoom Phone の文字起こしを kinbot の <code>/api/teleapo/diagnose</code> で読み取ると出せます（AIの読み取りは未接続）。</td></tr></tbody>`;
+  // 日次
+  const el=$('isHeat');el.style.gridTemplateColumns=`110px repeat(${WD},minmax(34px,1fr)) 64px`;
+  let h='<div></div>'+WORKDAYS.map(s=>`<div class="hh" style="${s===AS_OF?'color:var(--ink);font-weight:700':''}">${md(s)}<br>${dow(s)}</div>`).join('')+'<div class="hh">1時間あたり</div>';
+  IS.forEach(p=>{const days=CALLS[p.zoom]||{};h+=`<div class="hl">${esc(p.name)}</div>`;let sum=0,hh=0;
+    WORKDAYS.forEach(s=>{const sh=shiftH(p,s);const g=sh*S.callsPerHour;const v=(days[s]||[0])[0];
+      if(s>AS_OF){h+=`<div class="hc hf" title="${md(s)} シフト${sh}h">${sh?Math.round(g):'休'}</div>`;return;}
+      sum+=v;hh+=sh;
+      if(!sh){h+=`<div class="hc" style="background:var(--soft);color:var(--ink3)" title="${md(s)} シフトなし ${v}件">${v||'休'}</div>`;return;}
+      const r=v/g;h+=`<div class="hc ${v===0?'h0':r<1?'h1':r<1.5?'h2':'h3'}" title="${md(s)} ${v}件 / 目標${Math.round(g)}（シフト${sh}h）">${v}</div>`;});
+    h+=`<div class="hc num" style="background:var(--soft)">${hh?fmt1(sum/hh):'—'}</div>`;});
+  el.innerHTML=h;
+  // アポの質
+  const base=histDeals.filter(x=>x.created>=addMonths(M_START,-6));
+  $('icpSub').textContent='ICP＝採用人数（目標）6名以上・学生接触50人以上・従業員100名以上・新卒採用あり（IT系・官公庁は除外）。SFの項目で判定し、未入力の条件があるものは「情報不足」';
+  const qrow=(name,xs,team)=>{if(!xs.length)return `<tr><td>${esc(name)}</td><td class="r num">0</td><td colspan="7" class="muted">アポ獲得者の入力なし</td></tr>`;
+    const ic={ok:0,ng:0,unknown:0};xs.forEach(x=>ic[icpEval(x)]++);const okx=xs.filter(x=>icpEval(x)==='ok');
+    return `<tr class="${team?'total':''}"><td>${esc(name)}</td><td class="r num">${xs.length}</td><td class="r num">${pctS(ic.ok/xs.length)}</td><td class="r num">${ic.ng}</td><td class="r num muted">${ic.unknown}</td>
+      <td class="r num">${pctS(xs.filter(x=>x.reached('02')).length/xs.length)}</td><td class="r num">${okx.length?pctS(okx.filter(x=>x.reached('02')).length/okx.length):'—'}</td><td class="r num">${xs.filter(x=>x.won).length}</td><td class="r num">${pctS(xs.filter(x=>x.won).length/xs.length)}</td></tr>`;};
+  $('isQuality').innerHTML=`<thead><tr><th>アポ獲得者</th><th class="r">アポ数</th><th class="r">ICP適合率</th><th class="r">ICP外</th><th class="r">情報不足</th><th class="r">案件化率（02+）</th><th class="r">うちICP適合の案件化率</th><th class="r">受注</th><th class="r">受注率</th></tr></thead><tbody>`+
+    qrow('チーム全体',base.filter(x=>IS.some(p=>p.sf===x.apo)),1)+IS.map(p=>qrow(p.name,base.filter(x=>x.apo===p.sf))).join('')+
+    qrow('（参考）セールス3名の全アポ',base,0)+'</tbody>';
+}
+
+/* ================= 設定・切替 ================= */
+function renderSettings(){
+  $('settingsBody').innerHTML=`<div class="fh">チームの受注目標</div><div class="frow"><span>今月の受注目標（件）</span><input type="number" data-s="target" value="${S.target}" min="0"></div>
+   <div class="note">初期値はセールス3名の直近6か月の月平均受注（${fmt1(histMonthlyWon)}件）</div>
+   <div class="fh">セールスごとの受注目標（件）</div>${SALES.map(p=>`<div class="frow"><span>${esc(p.name)}</span><input type="number" data-c="${esc(p.key)}" value="${S.closerTargets[p.key]??0}" min="0" step="0.5"></div>`).join('')}
+   <div class="fh">インサイド</div>
+   <div class="frow"><span>シフト1時間あたりのコール目標</span><input type="number" data-s="callsPerHour" value="${S.callsPerHour}" min="0"></div>
+   <div class="frow"><span>アポ1件あたりのシフト時間</span><input type="number" data-s="apoHours" value="${S.apoHours}" min="0.5" step="0.5"></div>
+   <div class="frow"><span>接続とみなす通話時間</span><select data-s="connSec">${[10,30,60].map(v=>`<option value="${v}" ${S.connSec==v?'selected':''}>${v}秒以上</option>`).join('')}</select></div>
+   <div class="note">シフトは「MOCHICAインターン用シフト データ」から。${esc(DATA.shifts?.typeNote||'')}</div>
+   <div class="fh">上流の計画転換率（空欄 = 前月 ${PREV.label} の実績）</div>
+   ${UP_RATE_KEYS.map(k=>{const isX=k==='call';const pv=PREV.r[k];const ov=S.rateOverride[k];return `<div class="frow"><span>${RATE_LABEL[k]}<br><span class="note">前月 ${pv==null?'—':isX?fmt1(pv)+'回':pctS(pv)}</span></span><input type="number" data-o="${k}" placeholder="${pv==null?'':isX?fmt1(pv):Math.round(pv*1000)/10}" value="${ov==null?'':isX?ov:Math.round(ov*1000)/10}" step="0.1"></div>`;}).join('')}
+   <div class="fh">商談以降の転換率（直近6か月・自動）</div><div class="note">${['01-02','02-03','03-04','04-05','05-08'].map(p=>{const [a,b]=p.split('-');return `${a}→${b}：${pctS(histRate(a,b))}（${H.reached[b]}/${H.reached[a]}）`;}).join('<br>')}</div>
+   <div class="fh">予測</div><div class="frow"><span>長期放置（最終更新 ${md(STALE_BEFORE)} より前）</span><select data-s="excludeStale"><option value="1" ${S.excludeStale?'selected':''}>除外</option><option value="0" ${!S.excludeStale?'selected':''}>含める</option></select></div>
+   <div style="margin-top:16px"><button class="btn" id="resetS">初期値に戻す</button></div>`;
+}
+function renderPersonSel(){
+  const sel=$('personSel');
+  if(state.view==='biz'){sel.style.display='none';return;}sel.style.display='';
+  if(state.view==='sales'){sel.innerHTML=`<option value="all">セールス全体</option>`+SALES.map(p=>`<option value="${esc(p.key)}">${esc(p.name)}</option>`).join('');sel.value=state.sales;}
+  else{sel.innerHTML=`<option value="all">インサイド全体</option>`+IS.map(p=>`<option value="${esc(p.sf)}">${esc(p.name)}</option>`).join('');sel.value=state.is;}
+}
+function render(){
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+state.view));
+  document.querySelectorAll('#views a').forEach(a=>a.classList.toggle('on',a.dataset.v===state.view));
+  renderPersonSel();
+  if(state.view==='biz')renderBiz();else if(state.view==='sales')renderSales();else renderIs();
+}
+function fromHash(){const h=location.hash.slice(1);let m=h.match(/^biz-(total|contrib|quality)$/);if(m){state.view='biz';state.bizTab=m[1];return;}m=h.match(/^sales-(total|contrib|ana)$/);if(m){state.view='sales';state.salesTab=m[1];return;}state.view=['biz','sales','is'].includes(h)?h:'biz';if(state.view==='biz')state.bizTab='sum';if(state.view==='sales')state.salesTab='sum';}
+
+$('brandSub').textContent=`${AY}年${AM}月／データ基準日 ${md(AS_OF)}（${dow(AS_OF)}）`;
+{const t=DATA.fetchedAt?new Date(DATA.fetchedAt):null;$('fetchedAt').textContent=t?`取得 ${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`:'';}
+$('mcRefresh').onclick=()=>{location.href=location.pathname+'?refresh=1'+location.hash;};
+{const ng=Object.entries(DATA.sources||{}).filter(([k,v])=>v.status!=='ok');if(ng.length){const b=document.createElement('div');b.className='panel pad';b.style.cssText='border-left:4px solid var(--bad);margin-bottom:16px;font-size:13px';b.innerHTML='<b>読めていないデータがあります</b><br>'+ng.map(([k,v])=>esc(k)+'：'+esc(v.note||'')).join('<br>');document.querySelector('main').prepend(b);}}
+$('srcChips').innerHTML=Object.entries(DATA.sources||{}).map(([k,v])=>`<span class="chip ${v.status}" title="${esc(v.note||'')}">${esc(k)}${v.status==='ok'?'':' 未取得'}</span>`).join('');
+$('footNote').innerHTML=(DATA.notes||[]).map(esc).join('<br>');
+$('dStage').innerHTML+=SF_ORDER.map(c=>`<option value="${c}">${c} ${SF_NAME[c]}</option>`).join('');
+renderSettings();fromHash();render();
+window.addEventListener('hashchange',()=>{fromHash();render();window.scrollTo(0,0);});
+$('personSel').onchange=e=>{state[state.view]=e.target.value;render();};
+document.body.addEventListener('click',e=>{
+  const tr=e.target.closest('tr[data-sc]');if(tr){const [t,k]=tr.dataset.sc.split('|');if(t==='sales'){state.sales=k;location.hash='sales';render();}else{state.is=k;location.hash='is';render();}return;}
+  const st=e.target.closest('a[data-stay]');if(st){state.dFlag='stay';state.dStatus='open';$('dFlag').value='stay';$('dStatus').value='open';setTimeout(()=>$('dealTable').scrollIntoView({behavior:'smooth'}),50);}
+});
+$('bwTabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;state.bw=+b.dataset.i;renderSalesBw();};
+$('dimTabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;state.dim=b.dataset.k;renderAnalysis();};
+$('anaPeriod').onchange=e=>{state.period=+e.target.value;renderAnalysis();};
+function segOn(id,prop,fn){$(id).onclick=e=>{const b=e.target.closest('button');if(!b)return;state[prop]=b.dataset.v;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));fn();};}
+segOn('totGran','totGran',renderBizTotal);segOn('totMode','totMode',renderBizTotal);segOn('conPer','conPer',renderBizContrib);
+segOn('sTotGran','sTotGran',renderSalesTotal);segOn('sTotMode','sTotMode',renderSalesTotal);segOn('sConPer','conPer',renderSalesContrib);
+$('sConSel').onchange=e=>{if(state.conPer==='week')state.conWeek=+e.target.value;else state.conDay=e.target.value;renderSalesContrib();};
+$('conSel').onchange=e=>{if(state.conPer==='week')state.conWeek=+e.target.value;else state.conDay=e.target.value;renderBizContrib();};
+$('isPer').onclick=e=>{const b=e.target.closest('button');if(!b)return;state.isPer=b.dataset.v;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderIs();};
+$('isPerSel').onchange=e=>{if(state.isPer==='bw')state.isBw=+e.target.value;else state.isDay=e.target.value;renderIs();};
+$('dOrigin').onclick=e=>{const b=e.target.closest('button');if(!b)return;state.dOrigin=b.dataset.v;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));renderDeals();};
+['dStage','dStatus','dFlag'].forEach(id=>$(id).onchange=e=>{state[id]=e.target.value;renderDeals();});
+$('dSearch').oninput=e=>{state.dSearch=e.target.value.trim();renderDeals();};
+const drawer=$('drawer'),bg=$('drawerBg'),tg=o=>{drawer.classList.toggle('open',o);bg.classList.toggle('open',o);};
+$('openSettings').onclick=()=>tg(true);$('closeSettings').onclick=()=>tg(false);bg.onclick=()=>tg(false);
+drawer.addEventListener('change',e=>{const t=e.target;
+  if(t.dataset.s==='excludeStale')S.excludeStale=t.value==='1';else if(t.dataset.s==='connSec')S.connSec=+t.value;else if(t.dataset.s)S[t.dataset.s]=Math.max(0,+t.value||0);
+  if(t.dataset.o){const k=t.dataset.o;if(t.value==='')delete S.rateOverride[k];else S.rateOverride[k]=k==='call'?Math.max(0.1,+t.value):Math.max(0.001,+t.value/100);}
+  if(t.dataset.s==='connSec'){saveS();location.reload();return;}
+  if(t.dataset.c)S.closerTargets[t.dataset.c]=Math.max(0,+t.value||0);saveS();render();});
+drawer.addEventListener('click',e=>{if(e.target.id==='resetS'){try{localStorage.removeItem('spd4-'+MONTH);}catch(_){}location.reload();}});
+}
+(async () => {
+  if (!DATA) {
+    const box = document.querySelector('main');
+    const keep = box.innerHTML;
+    box.innerHTML = '<div class="panel pad" id="mcLoading">データを読んでいます（SF・Zoom Phone・シフト表）… 初回は1分ほどかかることがあります。</div>';
+    try {
+      const q = new URLSearchParams(location.search);
+      const r = await fetch('/api/mcdash/data' + (q.get('refresh') ? '?refresh=1' : ''), { credentials: 'include' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) throw Object.assign(new Error(j.error || ('読み込みに失敗しました（' + r.status + '）')), { sources: j.sources });
+      DATA = j;
+      if (q.get('refresh')) history.replaceState(null, '', location.pathname + location.hash);
+      box.innerHTML = keep;
+    } catch (e) {
+      box.innerHTML = '<div class="panel pad" style="border-left:4px solid var(--bad)"><b>ダッシュボードのデータを読めませんでした</b><br>' + String(e.message).replace(/[<>&]/g, '') +
+        '<br><span class="muted">時間をおいて「更新」を押してください。続くときは福井さんに連絡してください。</span></div>';
+      return;
+    }
+  }
+  __main();
+})();
+</script>
+</body>
+</html>
