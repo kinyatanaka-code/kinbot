@@ -3787,6 +3787,15 @@ export async function getOauthTokenByRefresh(refresh_token) {
   const { rows } = await pool.query(`SELECT * FROM oauth_tokens WHERE refresh_token=$1`, [refresh_token]);
   return rows[0] || null;
 }
+// Claude のスキル用に発行した合言葉（client_id で見分ける）を、人ごとに見る・消す（2026-11-17）
+export async function listOauthTokensFor(owner, client_id) {
+  if (!pool) return [];
+  return (await pool.query(`SELECT created_at, expires_at FROM oauth_tokens WHERE owner=$1 AND client_id=$2 AND expires_at > now() ORDER BY created_at DESC`, [owner, client_id])).rows;
+}
+export async function deleteOauthTokensFor(owner, client_id) {
+  if (!pool) return 0;
+  try { return (await pool.query(`DELETE FROM oauth_tokens WHERE owner=$1 AND client_id=$2`, [owner, client_id])).rowCount; } catch { return 0; }
+}
 export async function deleteOauthToken(access_token) {
   if (!pool) return;
   try { await pool.query(`DELETE FROM oauth_tokens WHERE access_token=$1`, [access_token]); } catch {}

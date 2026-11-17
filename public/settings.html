@@ -20,6 +20,7 @@
   .cc-conn-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;} .cc-conn-h b{font-size:14px;} .cc-conn-h span{font-size:12px;color:#5A6B63;}
 
   /* プロンプト設定の DOC / MOCHICA（2026-11-17） */
+  .skill-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 6px;}
   .pbiz-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;}
   .pbiz{display:inline-flex;padding:3px;border-radius:12px;background:#EAF3EF;border:1px solid #D6E6DF;}
   .pbiz button{border:0;background:transparent;padding:7px 18px;border-radius:9px;font:inherit;font-size:13px;font-weight:800;color:#4F6B60;cursor:pointer;}
@@ -33,7 +34,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261117zb" />
+    <link rel="stylesheet" href="style.css?v=20261118a" />
   </head>
   <body>
     <div class="app">
@@ -574,6 +575,21 @@
               </div>
             </div>
 
+            <div class="set-card" id="skillCard">
+              <h3>カスタムコネクタが使えない Claude でつなぐ（スキル）</h3>
+              <p class="note">会社の設定でカスタムコネクタが使えない Claude でも、<b>スキル</b>として入れれば、kinbot・kincall・kinXs・Salesforce を読んだり更新したりできます。中身はコネクタと同じで、<b>あなたの権限</b>で動きます。</p>
+              <div class="apidoc-h">入れ方</div>
+              <ol class="cc-steps">
+                <li>下の「スキルをダウンロード」を押す（kinbot-skill.zip。<b>あなた専用の合言葉入り</b>なので、人に渡さない）</li>
+                <li>Claude の設定 →「機能」→「スキル」で、zip をアップロードしてオンにする</li>
+                <li>同じ「機能」で「コード実行とファイル作成」がオンになっているか見る</li>
+                <li>組織の管理者に、コード実行の通信の許可（ネットワークの許可ドメイン）へ <code id="skillHost">kinbot のドメイン</code> を足してもらう（足していないと「接続できません」になります）</li>
+                <li>チャットで「kinbot で今月の受注を教えて」「SF のこの商談を〇〇に更新して」のように話しかける（更新の前には、Claude が内容を確かめます）</li>
+              </ol>
+              <div class="skill-row"><button class="btn primary" id="skillDl" type="button">スキルをダウンロード</button><button class="btn" id="skillOff" type="button" hidden>合言葉を無効にする</button><span class="note" id="skillSt"></span></div>
+              <p class="note">ダウンロードし直すと、前の zip の合言葉は使えなくなります（入れ直してください）。合言葉の期限は180日です。</p>
+            </div>
+
             <details class="set-card cc-collapsible">
               <summary><h3 class="cc-collapsible-title">Claude Code などで分析する（APIトークン）</h3></summary>
               <p class="note">発行済みのAPIトークンを使うと、Claude Code やターミナルから商談データを取得して分析できます。トークンは Railway の環境変数 <code>API_TOKENS</code> で発行します。よく使うトークンをここに貼っておくと、下のコード例に自動で差し込まれてコピーしやすくなります。</p>
@@ -992,8 +1008,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261117zb"></script>
-      <script src="nav.js?v=20261117zb"></script>
+    <script src="settings.js?v=20261118a"></script>
+      <script src="nav.js?v=20261118a"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

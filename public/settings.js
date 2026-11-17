@@ -3582,3 +3582,31 @@ function showExtDetail(k) {
   }));
   paint();
 })();
+
+// ===== Claude のスキルで kinbot につなぐ（2026-11-18）=====
+//   その人専用の合言葉が入った zip をダウンロードする。いまの合言葉の有効・期限を出し、無効にもできる
+(function () {
+  const dl = document.getElementById("skillDl"); if (!dl) return;
+  const off = document.getElementById("skillOff"), st = document.getElementById("skillSt"), host = document.getElementById("skillHost");
+  if (host) host.textContent = location.host;
+  const fmt = (t) => { if (!t) return ""; const d = new Date(t); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; };
+  const load = async () => {
+    try { const d = await (await fetch("/api/me/claude-skill")).json(); off.hidden = !d.active; st.textContent = d.active ? `いまの合言葉：${fmt(d.createdAt)} に作成・${fmt(d.expiresAt)} まで有効` : "まだ作っていません"; } catch { st.textContent = ""; }
+  };
+  dl.addEventListener("click", async () => {
+    dl.disabled = true; st.textContent = "作っています…";
+    try {
+      const r = await fetch("/api/me/claude-skill/zip", { method: "POST" });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `作れませんでした（${r.status}）`); }
+      const blob = await r.blob(); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "kinbot-skill.zip"; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      await load(); st.textContent = "ダウンロードしました。Claude の設定 →「機能」→「スキル」でアップロードしてください。" ;
+    } catch (e) { st.textContent = e.message; }
+    dl.disabled = false;
+  });
+  off.addEventListener("click", async () => {
+    if (!confirm("いまのスキルの合言葉を無効にします。Claude に入れたスキルは使えなくなります。よいですか？")) return;
+    try { await fetch("/api/me/claude-skill", { method: "DELETE" }); await load(); st.textContent = "無効にしました"; } catch (e) { st.textContent = e.message; }
+  });
+  load();
+})();
