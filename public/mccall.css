@@ -5,6 +5,8 @@
   --c-doc:#1d9e75;--c-doc-soft:#E3F4EC;--c-danger:#B4441F;--c-danger-soft:#FDECE6;--c-warn:#A2480C;--c-warn-soft:#FFF1E6;--c-sf:#2563A8;--c-sf-soft:#E8F0FA;
   display:flex;flex-direction:column;gap:8px;height:calc(100vh - 116px);min-height:560px;color:var(--c-ink);font-size:13.5px;}
 .mcc *{box-sizing:border-box;}
+/* display:flex などを付けた部品でも hidden で必ず隠れるように（隠した管理の欄が高さを半分取っていた） */
+.mcc [hidden]{display:none !important;}
 .mcc-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
 .mcc-tabs{display:flex;gap:4px;background:#fff;border:1px solid var(--c-line);border-radius:12px;padding:4px;}
 .mcc-tabs button{border:0;background:none;border-radius:8px;padding:8px 14px;font:inherit;font-size:13px;font-weight:800;color:var(--c-muted);cursor:pointer;}
@@ -55,7 +57,8 @@
 .mcc-badge.doc{background:var(--c-doc-soft);color:#0d5b47;} .mcc-badge.danger{background:var(--c-danger-soft);color:var(--c-danger);}
 .mcc-badge.hot{background:#FDE8E1;color:#B4441F;} .mcc-badge.warm{background:var(--c-warn-soft);color:var(--c-warn);} .mcc-badge.cold{background:var(--c-bg);color:var(--c-muted);}
 .mcc-badge.sf{background:var(--c-sf-soft);color:var(--c-sf);}
-.mcc-phone{display:flex;align-items:center;gap:8px;border:1px solid var(--c-line);border-radius:12px;padding:8px 12px;margin-bottom:8px;}
+.mcc-phone{display:flex;align-items:center;gap:8px;border:1px solid var(--c-line);border-radius:12px;padding:8px 12px;margin-bottom:8px;text-decoration:none;color:var(--c-ink);}
+.mcc-phone:hover{border-color:var(--c-accent);}
 .mcc-phone .n{flex:1;min-width:0;} .mcc-phone .n b{display:block;font-size:15px;letter-spacing:.02em;}
 .mcc-phone .n small{display:block;font-size:11.5px;color:var(--c-muted);}
 .mcc-phone .rate{font-size:11.5px;font-weight:800;color:var(--c-deep);white-space:nowrap;}
@@ -73,10 +76,10 @@
 .mcc-choices{display:grid;gap:8px;}
 .mcc-choices.two{grid-template-columns:1fr 1fr;}
 .mcc-field{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:800;color:var(--c-muted);}
-.mcc-field input,.mcc-field textarea{border:1px solid var(--c-line);border-radius:10px;padding:8px 12px;font:inherit;font-size:13.5px;color:var(--c-ink);background:#fff;}
+.mcc-field input,.mcc-field textarea{min-width:0;width:100%;border:1px solid var(--c-line);border-radius:10px;padding:8px 12px;font:inherit;font-size:13.5px;color:var(--c-ink);background:#fff;}
 .mcc-field input:focus,.mcc-field textarea:focus,.mcc-sel:focus{outline:2px solid var(--c-accent);outline-offset:1px;border-color:var(--c-accent);}
 .mcc-field textarea{min-height:72px;resize:vertical;}
-.mcc-gateform{display:grid;grid-template-columns:1fr 1fr;gap:8px;background:var(--c-bg);border-radius:12px;padding:12px;margin-top:8px;}
+.mcc-gateform{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;background:var(--c-bg);border-radius:12px;padding:12px;margin-top:8px;}
 .mcc-gateform .full{grid-column:1/-1;}
 .mcc-next{font-size:13px;font-weight:700;color:var(--c-ink);margin:12px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .mcc-foot{position:sticky;bottom:-16px;background:#fff;padding:12px 0 0;margin-top:12px;border-top:1px solid var(--c-line);display:flex;gap:8px;align-items:center;}

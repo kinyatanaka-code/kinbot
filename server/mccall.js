@@ -142,6 +142,37 @@ export function registerMcCall(app, deps) {
     const to = new Promise((ok) => setTimeout(() => ok(null), 5000));
     return (await Promise.race([run, to])) || [];
   }
+  // 1件の記録を SF の活動（Task）に書く。結果は mc_call_logs の sf_task_id / sf_err に残す。
+  //   SF のリードと結びついていない会社は書けないので「nolead」と残す（黙って書かないままにしない＝ルール5）。
+  //   書き直し（/api/mccall/sf-retry）でも同じものを使う
+  async function sfWrite(req, logId) {
+    const g = (await P().query(`SELECT g.*, c.sf_lead_id FROM mc_call_logs g JOIN mc_call_leads c ON c.id=g.lead_id WHERE g.id=$1`, [logId])).rows[0];
+    if (!g || g.undone || g.sf_task_id) return;
+    if (!g.sf_lead_id || !/^00Q[0-9A-Za-z]{12,15}$/.test(g.sf_lead_id)) {
+      await P().query(`UPDATE mc_call_logs SET sf_err='nolead' WHERE id=$1`, [logId]); return;
+    }
+    try {
+      const owner = await sfActor(req);
+      const names = await nameMap();
+      const d = new Date(new Date(g.created_at).getTime() + 9 * 3600e3).toISOString().slice(0, 10);
+      const gt = g.gate || {}; const who = String(g.caller || "").toLowerCase();
+      const t = await createTask(owner, {
+        WhoId: g.sf_lead_id, Subject: `[MOCHICA 架電] ${outcomeLabel(g.outcome)}`, Type: "Call", Status: "完了", ActivityDate: d,
+        Description: [`記録した人：${names.get(who) || who}（kinbot for MOCHICA）`, `到達：${(REACH[g.reach] || {}).label || g.reach}`, `結果：${outcomeLabel(g.outcome)}${g.reason ? `（${g.reason}）` : ""}`,
+          gt.name || gt.hours || gt.direct ? `受付で聞けたこと：${[gt.name && `担当 ${gt.name}`, gt.hours && `在席 ${gt.hours}`, gt.direct && `直通 ${gt.direct}`].filter(Boolean).join("・")}` : "",
+          g.apo_at ? `アポ：${jstText(g.apo_at)}` : "", g.next_at ? `次回：${jstText(g.next_at)}` : "", g.memo ? `メモ：${g.memo}` : "",
+          g.cross_from ? `部署をまたいだ架電（${g.cross_from} のリード）` : ""].filter(Boolean).join("\n"),
+      });
+      if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
+      await P().query(`UPDATE mc_call_logs SET sf_task_id=$2, sf_err=NULL WHERE id=$1`, [logId, t.id]);
+    } catch (e) {
+      console.error("[mccall] SF の活動を書けませんでした", logId, e.message);
+      await P().query(`UPDATE mc_call_logs SET sf_err=$2 WHERE id=$1`, [logId, String(e.message).slice(0, 300)]).catch(() => {});
+    }
+  }
+  // SF に書けていない記録（書いている途中で止まった＝2分たっても結果が無いものも含む）。nolead は別に数える
+  const SF_FAIL = `NOT g.undone AND g.sf_task_id IS NULL AND COALESCE(g.sf_err,'') <> 'nolead' AND (g.sf_err IS NOT NULL OR g.created_at < now() - interval '2 minutes')`;
+
   const adminOnly = (fn) => guard(async (req, res) => { if (!isAdmin(req)) return res.status(403).json({ error: "リストの管理は管理者だけができます" }); await fn(req, res); });
 
   // 自分がかけてよいリスト（メンバー指定なし＝MOCHICA のメンバー全員。管理者はすべて見える）
@@ -359,25 +390,8 @@ export function registerMcCall(app, deps) {
     await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), locked_by=NULL WHERE id=$1`,
       [id, outcome, nextAt, why, done, gate]);
     res.json({ ok: true, logId: log.id, nextAt, why, done });
-    // SF の活動（リードに付ける）。代理アカウントでも書ける。失敗しても架電の記録は残る
-    if (lead.sf_lead_id && /^00Q/.test(lead.sf_lead_id)) {
-      (async () => {
-        try {
-          const owner = await sfActor(req);
-          const names = await nameMap();
-          const d = new Date(now.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
-          const g = gate || {};
-          const t = await createTask(owner, {
-            WhoId: lead.sf_lead_id, Subject: `[MOCHICA 架電] ${outcomeLabel(outcome)}`, Type: "Call", Status: "完了", ActivityDate: d,
-            Description: [`記録した人：${names.get(u) || u}（kinbot for MOCHICA）`, `到達：${REACH[reach].label}`, `結果：${outcomeLabel(outcome)}${reason ? `（${reason}）` : ""}`,
-              g.name || g.hours || g.direct ? `受付で聞けたこと：${[g.name && `担当 ${g.name}`, g.hours && `在席 ${g.hours}`, g.direct && `直通 ${g.direct}`].filter(Boolean).join("・")}` : "",
-              apoAt ? `アポ：${jstText(apoAt)}` : "", nextAt ? `次回：${jstText(nextAt)}` : "", b.memo ? `メモ：${clip(b.memo, 2000)}` : "",
-              lead.cross_from ? `部署をまたいだ架電（${lead.cross_from} のリード）` : ""].filter(Boolean).join("\n"),
-          });
-          await P().query(`UPDATE mc_call_logs SET sf_task_id=$2 WHERE id=$1`, [log.id, t && t.id]);
-        } catch (e) { await P().query(`UPDATE mc_call_logs SET sf_err=$2 WHERE id=$1`, [log.id, String(e.message).slice(0, 300)]).catch(() => {}); }
-      })();
-    }
+    // SF の活動（リードに付ける）。代理アカウントでも書ける。失敗しても架電の記録は残り、画面の知らせから書き直せる
+    sfWrite(req, log.id).catch(() => {});
   }));
 
   // 元に戻す（記録した本人が15分以内。管理者はいつでも）
@@ -402,7 +416,18 @@ export function registerMcCall(app, deps) {
         count(*) FILTER (WHERE cross_from IS NOT NULL) AS cross FROM mc_call_logs WHERE NOT undone AND created_at >= $1 GROUP BY caller`, [jstDayStart()])).rows
       .map((r) => ({ email: r.caller, name: names.get(String(r.caller || "").toLowerCase()) || r.caller, calls: +r.calls, person: +r.person, apo: +r.apo, cross: +r.cross }));
     const mine = rows.find((r) => String(r.email || "").toLowerCase() === me(req)) || { calls: 0, person: 0, apo: 0, cross: 0 };
-    res.json({ ok: true, me: mine, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null });
+    // 今日の自分の記録のうち SF に書けていない数（画面の上の知らせに出す）
+    const sf = (await P().query(`SELECT count(*) FILTER (WHERE ${SF_FAIL}) AS fail, count(*) FILTER (WHERE NOT g.undone AND g.sf_err='nolead') AS nolead,
+        (array_agg(g.sf_err ORDER BY g.created_at DESC) FILTER (WHERE ${SF_FAIL} AND g.sf_err IS NOT NULL))[1] AS last_err
+      FROM mc_call_logs g WHERE g.caller=$1 AND g.created_at >= $2`, [me(req), jstDayStart()])).rows[0];
+    res.json({ ok: true, me: mine, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null, sf: { fail: +sf.fail, nolead: +sf.nolead, lastErr: sf.last_err || "" } });
+  }));
+  // SF に書けなかった今日の自分の記録を書き直す（画面の知らせのボタンから）
+  app.post("/api/mccall/sf-retry", guard(async (req, res) => {
+    const ids = (await P().query(`SELECT g.id FROM mc_call_logs g WHERE g.caller=$1 AND g.created_at >= $2 AND ${SF_FAIL} ORDER BY g.id LIMIT 30`, [me(req), jstDayStart()])).rows.map((r) => r.id);
+    for (const id of ids) await sfWrite(req, id);
+    const left = ids.length ? +(await P().query(`SELECT count(*) FROM mc_call_logs g WHERE g.id = ANY($1) AND ${SF_FAIL}`, [ids])).rows[0].count : 0;
+    res.json({ ok: true, tried: ids.length, left });
   }));
   app.get("/api/mccall/meta", guard(async (req, res) => {
     res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, admin: isAdmin(req), me: me(req) });
