@@ -268,11 +268,11 @@ document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach
     g.classList.toggle("open", open);
     const tg = g.querySelector(".kx-grp-tg"); if (!tg) return;
     tg.setAttribute("aria-expanded", open ? "true" : "false");
-    tg.addEventListener("click", (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const on = !g.classList.contains("open"); g.classList.toggle("open", on); tg.setAttribute("aria-expanded", on ? "true" : "false");
-      saved[g.dataset.grp] = on; try { localStorage.setItem("kxNavOpen", JSON.stringify(saved)); } catch {}
-    });
+    const setOpen = (on) => { g.classList.toggle("open", on); tg.setAttribute("aria-expanded", on ? "true" : "false"); saved[g.dataset.grp] = on; try { localStorage.setItem("kxNavOpen", JSON.stringify(saved)); } catch {} };
+    tg.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); setOpen(!g.classList.contains("open")); });
+    // カーソルを合わせたら開く。閉じるのは矢印のクリックだけ（2026-11-17 田中さん「カーソルを合わせたらタブが開かれるように／閉じるときはクリックで」）。
+    //   マウスが無い画面（スマホ）では動かない
+    if (window.matchMedia && window.matchMedia("(hover: hover)").matches) g.querySelector(".kx-grp-h").addEventListener("mouseenter", () => { if (!g.classList.contains("open")) setOpen(true); });
   });
 })();
 if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
