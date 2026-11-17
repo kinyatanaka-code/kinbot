@@ -2322,6 +2322,18 @@ function kxPubCard(x) {
     <div class="pl-cf">${x.channel ? `<span class="pl-tag">${esc(x.channel)}</span>` : ""}<span>受注 ${esc(x.fs || "—")}</span><span>CS ${esc(x.cs || "—")}</span>${pls.length ? `<span class="pl-n">${pls.length}か所</span>` : ""}</div>
   </article>`;
 }
+// 掲載先一覧のカードの所の高さ：画面の下まで（スマホはページごとスクロールのまま）
+function plFit() {
+  const el = document.querySelector("#vPubBody .pl-cards"); if (!el) return;
+  if (window.innerWidth < 860) { el.style.maxHeight = ""; el.classList.remove("pl-scroll"); return; }
+  const top = el.getBoundingClientRect().top + window.scrollY;
+  let h = Math.max(260, window.innerHeight - top - 16);
+  el.style.maxHeight = `${h}px`; el.classList.add("pl-scroll");
+  // 下の余白のぶんページがまだはみ出すなら、そのぶん縮めて、ページ自体は動かないようにする
+  const over = document.documentElement.scrollHeight - window.innerHeight;
+  if (over > 0 && h - over >= 260) { h -= over; el.style.maxHeight = `${h}px`; }
+}
+if (!window.__plFitOn) { window.__plFitOn = true; window.addEventListener("resize", () => plFit()); }
 async function renderPub() {
   const box = $("vPubBody"); if (!box) return;
   if ($("kxPageName")) $("kxPageName").textContent = "掲載先一覧";
@@ -2349,12 +2361,16 @@ async function renderPub() {
       <input class="kx-in" data-pq placeholder="会社名・掲載先・担当で探す" value="${esc(st.q)}" /></div>
       ${cntList.length ? `<div class="pl-stat"><span class="pl-stat-h">掲載先ごとの社数</span>${cntList.map(([k, n]) => `<button type="button" class="pl-sc ${st.pl === k ? "on" : ""}" data-psel="${esc(k)}" title="${esc(k)} に載せている会社だけを出す"><span>${esc(k)}</span><b>${n}</b>社</button>`).join("")}${st.pl ? `<button type="button" class="pl-sc-clr" data-psel="">しぼりこみを外す</button>` : ""}</div>` : ""}
       <div class="pl-cards">${list.length ? list.map(kxPubCard).join("") : `<div class="kx-empty" style="grid-column:1/-1">${st.tab === "has" ? "まだ掲載先が入っている会社はありません。会社の詳しい画面の「掲載先」で入れてください" : "当てはまる会社はありません"}</div>`}</div>`;
-    box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; draw(); }));
-    const ch = box.querySelector("[data-pch]"); if (ch) ch.addEventListener("change", () => { st.ch = ch.value; draw(); });
-    const qi = box.querySelector("[data-pq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; draw(); const n = box.querySelector("[data-pq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
+    box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; st.top = 0; draw(); }));
+    const ch = box.querySelector("[data-pch]"); if (ch) ch.addEventListener("change", () => { st.ch = ch.value; st.top = 0; draw(); });
+    const qi = box.querySelector("[data-pq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; st.top = 0; draw(); const n = box.querySelector("[data-pq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
     box.querySelectorAll("[data-pco]").forEach((b) => b.addEventListener("click", () => openDetail(b.dataset.pco)));
-    box.querySelectorAll("[data-psel]").forEach((b) => b.addEventListener("click", () => { st.pl = st.pl === b.dataset.psel ? "" : b.dataset.psel; draw(); }));
+    box.querySelectorAll("[data-psel]").forEach((b) => b.addEventListener("click", () => { st.pl = st.pl === b.dataset.psel ? "" : b.dataset.psel; st.top = 0; draw(); }));
     box.querySelectorAll("[data-ped]").forEach((b) => b.addEventListener("click", () => editCard(b.dataset.ped)));
+    // 画面は固定して、カードの所だけスクロール（2026-11-17 田中さん「画面固定でスクロールできるようにしたい」）。
+    //   描き直しても見ていた位置に戻す（先に高さを決めてから位置を戻す。逆だと一番上に戻ってしまう）
+    const cards = box.querySelector(".pl-cards");
+    if (cards) { plFit(); cards.scrollTop = st.top || 0; cards.addEventListener("scroll", () => { st.top = cards.scrollTop; }, { passive: true }); }
   };
   // 一覧のカードの中で、そのまま掲載先を直す・足す（2026-11-17 田中さん「一覧からそのまま掲載先をいれられるように」）。
   //   会社の詳しい画面と同じ入れ方（どこ・URL・メモ、×で行を消す）。保存はその会社の掲載先だけを書きかえる
