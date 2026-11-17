@@ -2424,7 +2424,7 @@ function kxVoiceRow(v, withCo) {
       <details class="vc-src"><summary>${v.sourceBot ? `${esc(d0(v.sourceAt))}の議事録から` : "手で追加"}</summary>${v.quote ? `<div class="vc-q">「${esc(v.quote)}」</div>` : ""}<div class="vc-m">${esc(src)}${done && v.resolvedBy ? `　解決：${esc(v.resolvedBy)} ${esc(d0(v.resolvedAt))}` : ""}</div></details>
     </div>
     <div class="vc-side">
-      <button type="button" class="vc-p p${esc(v.priority || "無")}" data-vc-pri title="優先度は CS がつけます。押すたびに 高→中→低→未設定">${v.priority ? `優先度 ${esc(v.priority)}` : "優先度"}</button>
+      ${/* 優先度は出さない（2026-11-17 田中さん「優先度とかは別にいらないかな」）。つけた値はデータには残す */ ""}
       <button type="button" class="vc-ok ${done ? "on" : ""}" data-vc-ck title="${done ? "未解決に戻す" : "解決したら押す"}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>${done ? "解決済み" : "解決"}</button>
     </div></div>`;
 }
@@ -2446,7 +2446,7 @@ async function kxVoiceMount(bg) {
     box.innerHTML = `<div class="lb" style="display:flex;align-items:center;gap:8px">要望・問い合わせ<span class="kx-src">サービスへの要望・できる？の問い合わせ（議事録から自動＋手入力）</span><span class="kx-note">未解決 ${open.length}件</span>
         <span style="margin-left:auto;display:flex;gap:6px">${done.length ? `<button type="button" class="hp-b" data-vc-showdone>${showDone ? "解決済みを隠す" : `解決済みも見る（${done.length}）`}</button>` : ""}<button type="button" class="hp-b" data-vc-scan>議事録から読む</button></span></div>
       ${list.length ? list.map((v) => kxVoiceRow(v, false)).join("") : `<div class="kx-note">${items.length ? "未解決の要望・問い合わせはありません" : "まだありません。議事録が入ると、1時間ごとに自動で拾います（すぐ見たいときは「議事録から読む」）。"}</div>`}
-      <div class="vc-add"><select class="kx-in" data-vc-kind style="width:auto"><option>要望</option><option>問い合わせ</option></select><select class="kx-in" data-vc-pnew style="width:auto"><option value="">優先度：未設定</option><option>高</option><option>中</option><option>低</option></select><input class="kx-in" data-vc-title placeholder="手で足す（例：応募者の一覧を CSV で出したい）" /><button type="button" class="kx-btn" data-vc-add>追加</button></div>
+      <div class="vc-add"><select class="kx-in" data-vc-kind style="width:auto"><option>要望</option><option>問い合わせ</option></select><input class="kx-in" data-vc-title placeholder="手で足す（例：応募者の一覧を CSV で出したい）" /><button type="button" class="kx-btn" data-vc-add>追加</button></div>
       <span class="kx-note" data-vc-st></span>`;
     kxVoiceWire(box, items, draw);
     const sd = box.querySelector("[data-vc-showdone]"); if (sd) sd.onclick = () => { showDone = !showDone; draw(); };
@@ -2454,7 +2454,7 @@ async function kxVoiceMount(bg) {
       try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/voices/scan`, { method: "POST" }); if (!r.ok) throw new Error(r.reason || "読めませんでした"); await load(); box.querySelector("[data-vc-st]").textContent = r.read ? `議事録を${r.read}件読み、${r.added}件を拾いました${r.rest ? `（まだ読んでいない議事録が${r.rest}件あります。もう一度押すと続きを読みます）` : ""}` : "新しい議事録はありませんでした"; }
       catch (er) { box.querySelector("[data-vc-st]").textContent = er.message; b.disabled = false; } };
     box.querySelector("[data-vc-add]").onclick = async () => { const t = box.querySelector("[data-vc-title]").value.trim(); if (!t) return;
-      try { await api("/api/kinxs/voices", { method: "POST", body: JSON.stringify({ accountId: id, kind: box.querySelector("[data-vc-kind]").value, priority: box.querySelector("[data-vc-pnew]").value, title: t }) }); await load(); } catch (e) { alert(e.message); } };
+      try { await api("/api/kinxs/voices", { method: "POST", body: JSON.stringify({ accountId: id, kind: box.querySelector("[data-vc-kind]").value, title: t }) }); await load(); } catch (e) { alert(e.message); } };
   };
   const load = async () => { try { items = (await api(`/api/kinxs/voices?account=${encodeURIComponent(id)}`)).items || []; } catch { items = []; } draw(); };
   await load();
@@ -2467,24 +2467,22 @@ async function renderVoices() {
   let items = [];
   try { items = (await api("/api/kinxs/voices")).items || []; } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; }
   const st = window.__vc || (window.__vc = { tab: "open", kind: "", pri: "", q: "", top: 0 });
-  // 並び：優先度（高→中→低→未設定）→ 新しい順。会社ごとにはまとめず、1件1枚で並べる（2026-11-17 田中さん「要望ごとに並べて欲しい」）
+  // 並び：新しい順。会社ごとにはまとめず、1件1枚で並べる（2026-11-17 田中さん「要望ごとに並べて欲しい」）
   const PR = { 高: 0, 中: 1, 低: 2 };
-  const ord = (a, b) => ((PR[a.priority] ?? 3) - (PR[b.priority] ?? 3)) || String(b.sourceAt || b.createdAt || "").localeCompare(String(a.sourceAt || a.createdAt || ""));
+  const ord = (a, b) => String(b.sourceAt || b.createdAt || "").localeCompare(String(a.sourceAt || a.createdAt || ""));   // 新しい順だけ（優先度は使わない）
   const draw = () => {
     const q = st.q.trim().toLowerCase();
-    const base = items.filter((v) => (!st.pri || (st.pri === "無" ? !v.priority : v.priority === st.pri)) && (!q || [v.title, v.detail, v.quote, v.company].join(" ").toLowerCase().includes(q)));
+    const base = items.filter((v) => (!q || [v.title, v.detail, v.quote, v.company].join(" ").toLowerCase().includes(q)));
     const byTab = base.filter((v) => st.tab === "all" || (st.tab === "open" ? v.status !== "解決" : v.status === "解決"));
     const list = byTab.filter((v) => !st.kind || v.kind === st.kind).sort(ord);
     const cnt = (f) => base.filter(f).length;
     const kc = (k) => byTab.filter((v) => !k || v.kind === k).length;
     box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["open", `未解決（${cnt((v) => v.status !== "解決")}）`], ["done", `解決済み（${cnt((v) => v.status === "解決")}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-vt="${k}">${l}</button>`).join("")}</div>
         <div class="vc-kinds">${[["", "すべて"], ["要望", "要望"], ["問い合わせ", "問い合わせ"]].map(([k, l]) => `<button type="button" class="vc-kb ${k === "問い合わせ" ? "q" : k ? "r" : ""} ${st.kind === k ? "on" : ""}" data-vk="${k}">${k ? KX_VC_ICO[k] : ""}${l}<b>${kc(k)}</b></button>`).join("")}</div>
-        <select class="kx-in" data-vp style="width:auto"><option value="">優先度：すべて</option>${[["高", "高"], ["中", "中"], ["低", "低"], ["無", "未設定"]].map(([k, l]) => `<option value="${k}" ${st.pri === k ? "selected" : ""}>${l}</option>`).join("")}</select>
         <label class="pl-q" title="内容・会社名で探す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input data-vq placeholder="内容・会社名" value="${esc(st.q)}" aria-label="内容・会社名で探す" /></label></div>
       <div class="vc-grid">${list.length ? list.map((v) => `<section class="vc-card one">${kxVoiceRow(v, true)}</section>`).join("") : `<div class="kx-empty" style="grid-column:1/-1">${items.length ? "当てはまるものはありません" : "まだありません。議事録が入った会社から、1時間ごとに自動で拾います（会社の詳しい画面の議事録タブの「議事録から読む」ですぐ読めます）。"}</div>`}</div>`;
     box.querySelectorAll("[data-vt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.vt; st.top = 0; draw(); }));
     box.querySelectorAll("[data-vk]").forEach((b) => b.addEventListener("click", () => { st.kind = b.dataset.vk; st.top = 0; draw(); }));
-    box.querySelector("[data-vp]").addEventListener("change", (e) => { st.pri = e.target.value; st.top = 0; draw(); });
     const qi = box.querySelector("[data-vq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; st.top = 0; draw(); const n = box.querySelector("[data-vq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
     kxVoiceWire(box, items, draw);
     // 画面は固定して、カードの所だけスクロール（掲載先一覧と同じ）。描き直しても見ていた位置に戻す
