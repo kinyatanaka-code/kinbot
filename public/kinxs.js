@@ -2111,7 +2111,7 @@ function renderCallV2() {
     // この画面だけの会社の検索（2026-11-17 田中さん「全体の検索とは別で企業検索できるように」）：会社名・電話番号・担当で。全角・半角・ハイフンの違いは見ない
     const kq = String(kc.f.q || "").normalize("NFKC").toLowerCase().replace(/[\s\-ー－]/g, "");
     const hitQ = (r) => !kq || [r.name, kxSurname(r.cs) || "", (kc.inf && kc.inf[r.id] && kc.inf[r.id].phone) || ""].join(" ").normalize("NFKC").toLowerCase().replace(/[\s\-ー－]/g, "").includes(kq);
-    const rows = rows0.filter((r) => (!kc.f.reason || r.reason === kc.f.reason) && (!kc.f.cs || (kxSurname(r.cs) || "未定") === kc.f.cs) && (!kc.f.st || r.status === kc.f.st) && hitQ(r));
+    const rows = rows0.filter((r) => (!kc.f.reason || r.reason === kc.f.reason) && (!kc.f.cs || (kxSurname(r.cs) || "未定") === kc.f.cs) && (!kc.f.st || r.status === kc.f.st));
     const eff = rows0.filter((r) => r.status !== "対象外"); const dn = eff.filter((r) => r.status === "完了").length; const pct = eff.length ? Math.round((dn / eff.length) * 100) : 0;
     const ST = ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"];
     const needIds = rows0.map((r) => r.id).filter((id) => !(kc.inf && kc.inf[id]));
@@ -2119,7 +2119,18 @@ function renderCallV2() {
     // 案A（2026-11-16 田中さん「みにくいよね」→「案Aでつくってほしい」）：上に進み具合の帯と絞り込みの札、下に1社1行の「かける順」。
     //   ステータスは並んだボタンを押すだけ、結果は色の点、メモ・NA日は行を押したときだけ開く。12か月のタブはやめて、月はヘッダーの ‹ › で
     const ORD = { "未対応": 0, "架電済み（不在）": 1, "対応中": 2, "完了": 3, "対象外": 4 };
-    const list = rows.slice().sort((a, b) => (ORD[a.status] ?? 9) - (ORD[b.status] ?? 9) || String(a.name).localeCompare(String(b.name), "ja"));
+    // 並びは、札（かける・担当など）や月を変えたときだけ決め直す（2026-11-17 田中さん「完了したら消えて、他の企業も押しちゃう」）。
+    //   ボタンを押しても行は同じ場所に残り、いまの札から外れた行は薄くするだけ。札を押し直すか開き直すと消える
+    const rk = (r) => `${r.id}|${r.me.key}`;
+    const sortF = (a, b) => (ORD[a.status] ?? 9) - (ORD[b.status] ?? 9) || String(a.name).localeCompare(String(b.name), "ja");
+    const fkey = `${kc.ym}|${kc.f.st}|${kc.f.cs}|${kc.f.reason}`;
+    let list;
+    if (kc.frozen && kc.frozen.key === fkey) {
+      const byK = new Map(rows0.map((r) => [rk(r), r])); const seen = new Set(kc.frozen.ids);
+      list = kc.frozen.ids.map((k) => byK.get(k)).filter(Boolean).concat(rows.filter((r) => !seen.has(rk(r))).sort(sortF));
+    } else { list = rows.slice().sort(sortF); kc.frozen = { key: fkey, ids: list.map(rk) }; }
+    const inF = new Set(rows.map(rk)); const stays = list.filter((r) => !inF.has(rk(r))).length;
+    const qOf = (r) => [r.name, kxSurname(r.cs) || "", (kc.inf && kc.inf[r.id] && kc.inf[r.id].phone) || ""].join(" ").normalize("NFKC").toLowerCase().replace(/[\s\-ー－]/g, "");
     const cnt = (st) => rows0.filter((r) => r.status === st).length;
     const w = (n) => (eff.length ? (n / eff.length) * 100 : 0);
     const reasons = [...new Set(rows0.map((r) => r.reason))];
@@ -2133,18 +2144,19 @@ function renderCallV2() {
       <section class="kc3-top"><span class="kc3-lb">${Number(kc.ym.slice(5))}月・${esc(reasons.join("・") || "電話フォロー")}</span><span class="kc3-big">完了 ${dn}<small> / ${eff.length}社</small></span>
         <span class="kc3-bar" title="完了 ${dn}・対応中 ${cnt("対応中")}・不在 ${cnt("架電済み（不在）")}"><i style="width:${w(dn)}%;background:#1D9E75"></i><i style="width:${w(cnt("対応中"))}%;background:#5DCAA5"></i><i style="width:${w(cnt("架電済み（不在）"))}%;background:#EF9F27"></i></span><b class="kc3-pct">${pct}%</b></section>
       <div class="kc3-chips">${[["未対応", "かける"], ["架電済み（不在）", "不在（再架電）"], ...(cnt("対応中") ? [["対応中", "対応中"]] : []), ["完了", "完了"], ["対象外", "対象外"]].map(([st, lb]) => `<button type="button" class="kc3-chip ${kc.f.st === st ? "on" : ""}" data-kc-st="${esc(st)}">${lb} <b>${cnt(st)}</b></button>`).join("")}
-        <label class="kc3-q"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></svg><input data-kc-q value="${esc(kc.f.q || "")}" placeholder="この中の会社を探す（会社名・電話）" />${kc.f.q ? `<button type="button" data-kc-qx title="消す" aria-label="検索を消す">×</button>` : ""}</label>
+        <label class="kc3-q"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></svg><input data-kc-q value="${esc(kc.f.q || "")}" placeholder="この中の会社を探す（会社名・電話）" /><button type="button" data-kc-qx title="消す" aria-label="検索を消す" ${kc.f.q ? "" : "hidden"}>×</button></label>
         <span class="kc3-sp"></span>${csN.map(([n, c]) => `<button type="button" class="kc3-chip ${kc.f.cs === n ? "on" : ""}" data-kc-cs="${esc(n)}">${esc(n)} <b>${c}</b></button>`).join("")}
         ${reasons.length > 1 ? `<select class="kx-in kc3-sel" data-kc-f="reason"><option value="">電話の理由：すべて</option>${reasons.map((x) => `<option ${kc.f.reason === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>` : ""}</div>
       <div class="kc3-list">${list.map((r) => { const op = kc.open === r.id; const ph = kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? kxTelLink(kc.inf[r.id].phone) : '<span class="kx-note">電話番号なし</span>') : '<span class="kx-note">…</span>';
-          return `<div class="kc3-row ${op ? "op" : ""} st-${ORD[r.status] ?? 9}" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}">
+          return `<div class="kc3-row ${op ? "op" : ""} st-${ORD[r.status] ?? 9} ${inF.has(rk(r)) ? "" : "kc3-stay"}" data-id="${esc(r.id)}" data-mkey="${esc(r.me.key)}" data-q="${esc(qOf(r))}" ${hitQ(r) ? "" : "hidden"}>
           <div class="kc3-co" data-kc-toggle role="button" tabindex="0"><b>${kxLogoMini(r)}<span data-open="${esc(r.id)}" class="kc3-name" title="会社の詳しい情報を開く">${esc(r.name)}</span></b><small>${esc(kxSurname(r.cs) || "担当未定")}${reasons.length > 1 ? `・${esc(r.reason)}` : ""}・${esc(last(r))}</small></div>
           <div class="kc3-tel">${ph}</div>
           <div class="kc3-seg">${STB.map(([st, lb]) => `<button type="button" class="${r.status === st ? "on s" + ORD[st] : ""}" data-kc-set="${esc(st)}">${lb}${st === "架電済み（不在）" && r.calls ? ` ×${r.calls}` : ""}</button>`).join("")}</div>
           <div class="kc3-res" title="話してみた結果（もう一度押すと消えます）"><small>結果</small>${RES.map(([v, c]) => `<button type="button" class="${r.result === v ? "on" : ""}" style="--c:${c}" data-kc-res="${esc(v)}" title="話した結果：${v}"><i></i>${v === "懸念あり" ? "懸念" : v}</button>`).join("")}</div>
           <button type="button" class="kc3-more" data-kc-toggle aria-label="メモ・NA日を開く"><svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M6 8l4 4 4-4" stroke="#0d5b47" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
           ${op ? `<div class="kc3-ed"><input class="kx-in" data-f="memo" value="${esc(r.memo)}" placeholder="話したこと・次のアクション" /><label>NA日<input type="date" class="kx-in" data-f="na_date" value="${esc(r.naDate || "")}" /></label><span class="kx-note">架電 ${r.calls || 0}回${r.lastCall ? `（最後 ${esc(r.lastCall.slice(5).replace("-", "/"))}）` : ""}</span><button type="button" class="kc3-x" data-kc-set="対象外">対象外にする</button></div>` : ""}
-        </div>`; }).join("") || '<div class="kx-empty">この月の電話の対象はありません</div>'}</div>
+        </div>`; }).join("")}<div class="kx-empty" data-kc-empty ${list.some(hitQ) ? "hidden" : ""}>${list.length ? "当てはまる会社はありません" : "この月の電話の対象はありません"}</div></div>
+      ${stays ? `<div class="kx-note" style="margin-top:4px">薄くなっている${stays}社は、いまの札から外れた会社です（押し間違えないよう、その場に残しています）。札を押し直すと消えます。</div>` : ""}
       <div class="kx-note kc3-legend">「結果」は話してみた手ごたえ（良好・普通・懸念あり）です。「不在」を押すと架電の回数が1つ増えます。行（または右の ⌄）を押すとメモ・NA日が開き、会社名を押すと会社の詳しい情報が開きます。変えるとすぐ保存し、企業詳細の記録にも入ります。</div>`;
   }
   // ヘッダー：月別進捗表／企業ごとの進捗、期の選択 or 月の送り、CSV
@@ -2169,11 +2181,16 @@ function renderCallV2() {
   box.querySelectorAll("[data-kc-ym]").forEach((b) => b.addEventListener("click", async () => { kc.ym = b.dataset.kcYm; kc.tab = "co"; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => null); renderCallV2(); }));
   scope.querySelectorAll("[data-kc-m]").forEach((b) => b.addEventListener("click", async () => { kc.ym = kxYmAdd(kc.ym, Number(b.dataset.kcM)); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => null); renderCallV2(); }));
   box.querySelectorAll("[data-kc-st]").forEach((b) => b.addEventListener("click", () => { kc.f.st = kc.f.st === b.dataset.kcSt ? "" : b.dataset.kcSt; renderCallV2(); }));
-  { const qi = box.querySelector("[data-kc-q]");
-    if (qi) { let t = null;
-      qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { kc.f.q = qi.value; kc.listTop = 0; renderCallV2(); const n = box.querySelector("[data-kc-q]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 200); });
-      qi.addEventListener("keydown", (e) => { if (e.key === "Escape") { kc.f.q = ""; renderCallV2(); } }); }
-    const qx = box.querySelector("[data-kc-qx]"); if (qx) qx.addEventListener("click", () => { kc.f.q = ""; renderCallV2(); }); }
+  // この画面だけの会社の検索：描き直すと日本語の変換が切れるので、行を隠すだけにする（2026-11-17 田中さん「文字入力へんになる」）
+  { const qi = box.querySelector("[data-kc-q]"), qx = box.querySelector("[data-kc-qx]");
+    const apply = () => {
+      kc.f.q = qi.value; const k = String(qi.value || "").normalize("NFKC").toLowerCase().replace(/[\s\-ー－]/g, ""); let n = 0;
+      box.querySelectorAll(".kc3-row[data-q]").forEach((row) => { const hit = !k || row.dataset.q.includes(k); row.hidden = !hit; if (hit) n++; });
+      const em = box.querySelector("[data-kc-empty]"); if (em) em.hidden = n > 0; if (qx) qx.hidden = !qi.value;
+    };
+    if (qi) { qi.addEventListener("input", (e) => { if (e.isComposing) return; apply(); }); qi.addEventListener("compositionend", apply);
+      qi.addEventListener("keydown", (e) => { if (e.key === "Escape" && !e.isComposing) { qi.value = ""; apply(); } }); }
+    if (qx) qx.addEventListener("click", () => { qi.value = ""; apply(); qi.focus(); }); }
   box.querySelectorAll("[data-kc-f]").forEach((s) => s.addEventListener("change", () => { kc.f[s.dataset.kcF] = s.value; renderCallV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
   box.querySelectorAll("[data-kc-cs]").forEach((b) => b.addEventListener("click", () => { kc.f.cs = kc.f.cs === b.dataset.kcCs ? "" : b.dataset.kcCs; renderCallV2(); }));
