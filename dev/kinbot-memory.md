@@ -2716,3 +2716,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-17 田中さん「（掲載先一覧）画面固定でスクロールできるようにしたい」→ 上の切り替え・検索・社数は固定、カードの所だけスクロール（plFit。描き直しても位置を戻す、切り替え・検索では頭に戻る）。スマホはページごと。
 - 2026-11-17 田中さん「上のヘッダーとの間の空白をなくしたい／検索は販売区分のとなりに虫眼鏡アイコンでしまって」→ 掲載先一覧の上の余白をつめ、検索を販売区分のとなりの小さな丸い枠（虫眼鏡つき）に。
 - 2026-11-17 田中さん「空間URLがないわけないよね」→ 自動更新の一覧の空間URLは ar_url だけを見ていて全社「未登録」だった。手で入れていなければ kinXs の会社の DOC VR（info.vr_url／aticoti の prod_url）を使う（arUrlOf）。解約フォームの企業の照合・重複チェックも同じ。
+- 2026-11-17 田中さん「プロンプト設定はDOCとMOCHICAでわけてほしい。MOCHICAの場合はforMOCHICAで反映」→ 設定のプロンプト設定に DOC/MOCHICA の切りかえ（?app=mochica で開くと最初から MOCHICA）。保存先は checkItemsMochica・customPromptMochica（チーム）、thanksPromptMochica・thanksExamplesMochica（人ごと）。kinbot for MOCHICA の要約は MOCHICA の要約の指示があればその指示どおり（formatted）、御礼メールは MOCHICA の指示＋例文。MOCHICA は DOC の指示を使わない（未設定なら既定）。

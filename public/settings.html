@@ -18,6 +18,14 @@
       .integ-h{display:flex;align-items:center;gap:8px;} .integ-h svg{flex:0 0 auto;}
       .cc-conn{margin-top:12px;padding-top:10px;border-top:1px dashed #CFE3D9;} .cc-conn:first-of-type{border-top:0;}
   .cc-conn-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;} .cc-conn-h b{font-size:14px;} .cc-conn-h span{font-size:12px;color:#5A6B63;}
+
+  /* プロンプト設定の DOC / MOCHICA（2026-11-17） */
+  .pbiz-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;}
+  .pbiz{display:inline-flex;padding:3px;border-radius:12px;background:#EAF3EF;border:1px solid #D6E6DF;}
+  .pbiz button{border:0;background:transparent;padding:7px 18px;border-radius:9px;font:inherit;font-size:13px;font-weight:800;color:#4F6B60;cursor:pointer;}
+  .pbiz button.on{background:#fff;color:#0d5b47;box-shadow:0 1px 3px rgba(13,91,71,.18);}
+  .pbiz button[data-pbiz="mochica"].on{color:#0B6E78;}
+  .pbiz-note{font-size:12px;color:#5C7068;}
 </style>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
@@ -25,7 +33,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261117u" />
+    <link rel="stylesheet" href="style.css?v=20261117v" />
   </head>
   <body>
     <div class="app">
@@ -790,6 +798,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
           </div>
 
           <div class="set-pane" data-pane="ai" hidden>
+            <div class="pbiz-bar"><div class="pbiz" id="promptBiz" role="group" aria-label="どちらのプロンプトを直すか"><button type="button" data-pbiz="doc">DOC</button><button type="button" data-pbiz="mochica">MOCHICA</button></div><span class="pbiz-note" id="promptBizNote"></span></div>
             <div class="subtabs" id="aiSubtabs">
               <button class="subtab active" data-sub="check">チェック項目</button>
               <button class="subtab" data-sub="summary">要約の指示</button>
@@ -983,8 +992,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261117u"></script>
-      <script src="nav.js?v=20261117u"></script>
+    <script src="settings.js?v=20261117v"></script>
+      <script src="nav.js?v=20261117v"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

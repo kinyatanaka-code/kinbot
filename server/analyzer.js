@@ -15,10 +15,11 @@ export const DEFAULT_CHECK_ITEMS = [
   "現状・競合（既存の取り組み/比較対象）",
   "次のステップ（合意）",
 ];
-export async function getCheckItems() {
+// biz="mochica" のときは MOCHICA 用（checkItemsMochica）。DOC と MOCHICA でプロンプト設定を分ける（2026-11-17 田中さん）
+export async function getCheckItems(biz = "") {
   try {
     const s = await getSettings();
-    const a = s && s.checkItems;
+    const a = s && (biz === "mochica" ? s.checkItemsMochica : s.checkItems);
     return Array.isArray(a) && a.length ? a.slice(0, 15) : DEFAULT_CHECK_ITEMS;
   } catch {
     return DEFAULT_CHECK_ITEMS;
@@ -34,10 +35,11 @@ export async function getSummaryPrompt() {
 }
 
 // カスタム分析プロンプト（設定でユーザーが貼り付けた任意のプロンプト。空なら機能オフ）
-export async function getCustomPrompt() {
+export async function getCustomPrompt(biz = "") {
   try {
     const s = await getSettings();
-    return s && typeof s.customPrompt === "string" ? s.customPrompt.trim() : "";
+    const k = biz === "mochica" ? "customPromptMochica" : "customPrompt";   // MOCHICA は MOCHICA 用だけを見る（DOC の指示は使わない）
+    return s && typeof s[k] === "string" ? s[k].trim() : "";
   } catch { return ""; }
 }
 

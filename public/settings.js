@@ -1,3 +1,10 @@
+// ===== プロンプト設定の DOC / MOCHICA の切りかえ（2026-11-17 田中さん「プロンプト設定はDOCとMOCHICAでわけてほしい」）=====
+//   MOCHICA を選ぶと、チェック項目・要約の指示・御礼メール（指示・例文）を MOCHICA 用として読み書きする（kinbot for MOCHICA で使う）。
+//   選んだほうはこのブラウザで覚える。どちらかは ?biz=mochica でも開ける
+let PROMPT_BIZ = (() => { try { const qs = new URLSearchParams(location.search); const q = qs.get("biz"); if (q) return q === "mochica" ? "mochica" : "doc";
+  /* kinbot for MOCHICA の中から開いたときは、はじめから MOCHICA 用 */ if (qs.get("app") === "mochica") return "mochica"; return localStorage.getItem("kbPromptBiz") === "mochica" ? "mochica" : "doc"; } catch { return "doc"; } })();
+const PROMPT_RELOAD = [];
+function promptQ() { return PROMPT_BIZ === "mochica" ? "?biz=mochica" : ""; }
 // 通知（トーストが使えないときはダイアログ）
 function kbNotify(msg) { if (window.kbToast) window.kbToast(msg); else alert(msg); }
 
@@ -471,7 +478,7 @@ function renderThanksEditor() {
 }
 async function loadThanks() {
   try {
-    thanksData = await (await fetch("/api/thanks-examples")).json();
+    thanksData = await (await fetch("/api/thanks-examples" + promptQ())).json();
     if (!thanksData || typeof thanksData !== "object") thanksData = {};
   } catch {
     thanksData = {};
@@ -494,7 +501,7 @@ if (saveThanksBtn) {
   saveThanksBtn.addEventListener("click", async () => {
     thanksData = collectThanks();
     try {
-      await fetch("/api/thanks-examples", {
+      await fetch("/api/thanks-examples" + promptQ(), {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ examples: thanksData }),
@@ -1651,7 +1658,7 @@ async function loadThanksPrompt() {
   if (!ta) return;
   ta.value = "読み込み中…";
   try {
-    const d = await (await fetch("/api/thanks-prompt")).json();
+    const d = await (await fetch("/api/thanks-prompt" + promptQ())).json();
     thanksPromptDefault = d.defaultPrompt || "";
     ta.value = d.prompt || "";
     if (state) state.textContent = d.isDefault ? "現在：既定の文面のまま（未編集）" : "現在：カスタム編集済み";
@@ -1672,7 +1679,7 @@ async function loadThanksPrompt() {
     if (!text.trim()) { if (st) st.textContent = "空のままでは保存できません（既定に戻す場合は右のボタンを使ってください）"; return; }
     if (st) st.textContent = "保存中…";
     try {
-      const r = await fetch("/api/thanks-prompt", {
+      const r = await fetch("/api/thanks-prompt" + promptQ(), {
         method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: text }),
       });
       if (!r.ok) throw new Error("保存に失敗");
@@ -1685,7 +1692,7 @@ async function loadThanksPrompt() {
     if (!confirm("カスタム編集を破棄して、既定の文面に戻します。よろしいですか？")) return;
     if (st) st.textContent = "戻しています…";
     try {
-      await fetch("/api/thanks-prompt", {
+      await fetch("/api/thanks-prompt" + promptQ(), {
         method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "" }),
       });
       ta.value = thanksPromptDefault;
@@ -2186,12 +2193,12 @@ loadKnowledge();
 
   async function load() {
     try {
-      const d = await (await fetch("/api/check-items")).json();
+      const d = await (await fetch("/api/check-items" + promptQ())).json();
       ta.value = (d.items && d.items.length ? d.items : DEFAULTS).join("\n");
     } catch { ta.value = DEFAULTS.join("\n"); }
   }
   async function save(items) {
-    const r = await fetch("/api/check-items", {
+    const r = await fetch("/api/check-items" + promptQ(), {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ items }),
@@ -2205,7 +2212,7 @@ loadKnowledge();
     save(items);
   });
   if (resetBtn) resetBtn.addEventListener("click", () => save(DEFAULTS));
-  load();
+  load(); PROMPT_RELOAD.push(load);
 })();
 
 // ===== 商談履歴の要約プロンプト（チーム共有） =====
@@ -2238,10 +2245,10 @@ loadKnowledge();
   const saved = document.getElementById("customPromptSaved");
   if (!ta || !saveBtn) return;
   async function load() {
-    try { const d = await (await fetch("/api/custom-prompt")).json(); ta.value = d.prompt || ""; } catch {}
+    try { const d = await (await fetch("/api/custom-prompt" + promptQ())).json(); ta.value = d.prompt || ""; } catch {}
   }
   async function save(val) {
-    const r = await fetch("/api/custom-prompt", {
+    const r = await fetch("/api/custom-prompt" + promptQ(), {
       method: "PUT", headers: { "content-type": "application/json" },
       body: JSON.stringify({ prompt: val }),
     });
@@ -2249,7 +2256,7 @@ loadKnowledge();
   }
   saveBtn.addEventListener("click", () => save(ta.value));
   if (clearBtn) clearBtn.addEventListener("click", () => { ta.value = ""; save(""); });
-  load();
+  load(); PROMPT_RELOAD.push(load);
 })();
 
 // ===== Notion連携 =====
@@ -3558,4 +3565,20 @@ function showExtDetail(k) {
     } catch (e) { res.textContent = "作れませんでした：" + e.message; }
     finally { go.disabled = false; }
   });
+})();
+
+// DOC / MOCHICA のボタン
+(function () {
+  const box = document.getElementById("promptBiz"); if (!box) return;
+  const paint = () => {
+    box.querySelectorAll("[data-pbiz]").forEach((b) => { const on = b.dataset.pbiz === PROMPT_BIZ; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
+    const note = document.getElementById("promptBizNote");
+    if (note) note.textContent = PROMPT_BIZ === "mochica" ? "いま MOCHICA 用を直しています。kinbot for MOCHICA の要約・御礼メールに使われます（DOC には使われません）。" : "いま DOC 用を直しています。kinbot（DOC）の商談に使われます。";
+  };
+  box.querySelectorAll("[data-pbiz]").forEach((b) => b.addEventListener("click", () => {
+    if (PROMPT_BIZ === b.dataset.pbiz) return;
+    PROMPT_BIZ = b.dataset.pbiz; try { if (!/app=mochica/.test(location.search)) localStorage.setItem("kbPromptBiz", PROMPT_BIZ); } catch {}
+    paint(); PROMPT_RELOAD.forEach((f) => { try { f(); } catch {} }); loadThanks(); loadThanksPrompt();
+  }));
+  paint();
 })();
