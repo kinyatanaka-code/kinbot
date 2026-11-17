@@ -587,7 +587,7 @@ function kxCoPane(d) {
         ${head(`先方の担当者 ${tag("contacts")}`, true)}
         <div class="kx-view">${contacts.length ? contacts.map((c) => `<div class="kx-person"><div class="av">${esc((c.name || "？").slice(0, 1))}</div><div style="min-width:0"><div class="nm">${esc(c.name || "（お名前なし）")}${c.title ? `<span>${esc(c.title)}</span>` : ""}</div><div class="ct">${c.phone ? val(c.phone, "tel") : ""}${c.email ? `　✉ ${val(c.email, "mail")}` : ""}</div></div></div>`).join("") : '<span class="kx-none">未登録</span>'}</div>
         <div class="kx-editbox">
-          <div data-ct-rows>${(contacts.length ? contacts : [{}]).map((c) => `<div class="kx-ct"><input class="kx-in" data-ct="name" value="${esc(c.name || "")}" placeholder="お名前" /><input class="kx-in" data-ct="title" value="${esc(c.title || "")}" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" value="${esc(c.phone || "")}" placeholder="電話番号" /><input class="kx-in" data-ct="email" value="${esc(c.email || "")}" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`).join("")}</div>
+          <div data-ct-rows>${(contacts.length ? contacts : [{}]).map((c) => `<div class="kx-ct" data-sfid="${esc(c.sf_id || "")}"><input class="kx-in" data-ct="name" value="${esc(c.name || "")}" placeholder="お名前" /><input class="kx-in" data-ct="title" value="${esc(c.title || "")}" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" value="${esc(c.phone || "")}" placeholder="電話番号" /><input class="kx-in" data-ct="email" value="${esc(c.email || "")}" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`).join("")}</div>
           <div class="kx-edact"><button type="button" class="hp-b" data-ct-add style="margin-right:auto">＋ 担当者を追加</button><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
         </div>
       </section>
@@ -870,7 +870,7 @@ async function openDetail(id, reuse) {
     // 直した欄に加えて、SF にも手入力にも無い値（メールのドメイン・CS連携などから出していた値）も、そのまま保存して SF に書く（2026-11-12 田中さん）
     const info = {}; bg.querySelectorAll("[data-info]").forEach((el) => { const sk = String(el.dataset.src || ""); if (el.value !== el.defaultValue || (el.value.trim() && sk && !/^(SF|手入力)/.test(sk))) info[el.dataset.info] = el.value; });
     const ctSec = bg.querySelector("[data-ct-rows]") && bg.querySelector("[data-ct-rows]").closest("[data-sec]");
-    if (ctSec && ctSec.classList.contains("editing")) info.contacts = [...bg.querySelectorAll(".kx-ct")].map((r) => ({ name: r.querySelector('[data-ct="name"]').value, title: r.querySelector('[data-ct="title"]').value, phone: r.querySelector('[data-ct="phone"]').value, email: r.querySelector('[data-ct="email"]').value }));
+    if (ctSec && ctSec.classList.contains("editing")) info.contacts = [...bg.querySelectorAll(".kx-ct")].map((r) => ({ name: r.querySelector('[data-ct="name"]').value, title: r.querySelector('[data-ct="title"]').value, phone: r.querySelector('[data-ct="phone"]').value, email: r.querySelector('[data-ct="email"]').value, sf_id: r.dataset.sfid || "" }));
     const plSec = plBox && plBox.closest("[data-sec]");
     if (plSec && plSec.classList.contains("editing")) {
       const rows = [...plBox.querySelectorAll(".pl-row")].map((r) => ({ where: r.querySelector('[data-plc="where"]').value.trim(), url: r.querySelector('[data-plc="url"]').value.trim(), memo: r.querySelector('[data-plc="memo"]').value.trim() })).filter((p) => p.where || p.url);
