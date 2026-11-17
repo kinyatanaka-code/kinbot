@@ -806,7 +806,7 @@ async function openDetail(id, reuse) {
     const scroll = (bg.querySelector(".kx-drawer") || {}).scrollTop || 0;
     await openDetail(id, { bg, tab, scroll, msg });
   };
-  const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else if (VIEW === "home") return; else if (VIEW === "missing") return; else await load(); };
+  const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else if (VIEW === "pub") return renderPub(); else if (VIEW === "home") return; else if (VIEW === "missing") return; else await load(); };
   const put = async (body, redraw = true) => { try { const r0 = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {});
       // 情報不足（ホームの枠・情報不足のページ）も読み直す（2026-11-10 久野さん）
       if (typeof kh2 !== "undefined" && kh2 && VIEW === "home") api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
@@ -2269,7 +2269,7 @@ async function renderPub() {
     box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; draw(); }));
     const ch = box.querySelector("[data-pch]"); if (ch) ch.addEventListener("change", () => { st.ch = ch.value; draw(); });
     const qi = box.querySelector("[data-pq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; draw(); const n = box.querySelector("[data-pq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
-    box.querySelectorAll("[data-pco]").forEach((b) => b.addEventListener("click", () => openCo(b.dataset.pco)));
+    box.querySelectorAll("[data-pco]").forEach((b) => b.addEventListener("click", () => openDetail(b.dataset.pco)));
   };
   draw();
 }
