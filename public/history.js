@@ -2829,7 +2829,7 @@ function setupRecordingPlayer(drec, d, meeting) {
          ? "Googleドライブの録画を再生しています。ホーム画面に戻っても音声は続きます。"
          : "ドライブへの保存中です（書き出しが終わり次第、自動で切り替わります）。"}</span>
        ${d && d.source !== "drive" ? `<button type="button" class="rec-open" id="recToDrive">いますぐドライブに保存</button>` : ""}
-       <button type="button" class="rec-open" id="recShare">共有リンクを作る</button>
+       <button type="button" class="rec-open" id="recShare">${d && d.driveLink ? "共有リンクをコピー" : "共有リンクを作る"}</button>
        ${d && d.driveLink ? `<a class="rec-open" href="${escapeHtml(d.driveLink)}" target="_blank" rel="noopener">ドライブで開く</a>` : ""}
        ${isHls ? "" : `<a class="rec-open" href="${escapeHtml(url)}" target="_blank" rel="noopener">別タブで開く</a>`}
      </div>`;
@@ -2840,6 +2840,21 @@ function setupRecordingPlayer(drec, d, meeting) {
   // kinbotのアカウントが無い人にも見せる共有リンク
   const shareBtn = drec.querySelector("#recShare");
   if (shareBtn) shareBtn.addEventListener("click", async () => {
+    // ドライブに入っている録画は、そのドライブのリンクをコピーするだけにする（2026-11-17 田中さん「格納されているドライブのリンクをコピーされる感じでいい」）。
+    //   見られるかどうかはドライブの共有設定のとおり。コピーできないブラウザでは、リンクを枠に出して手でコピーできるようにする
+    if (d && d.driveLink) {
+      const link = d.driveLink;
+      const done = () => { shareBtn.textContent = "コピーしました"; if (window.kbToast) window.kbToast("ドライブのリンクをコピーしました"); setTimeout(() => { shareBtn.textContent = "共有リンクをコピー"; }, 2000); };
+      try { await navigator.clipboard.writeText(link); done(); }
+      catch {
+        if (!shareBtn.parentElement.querySelector(".rec-share")) {
+          const box = document.createElement("div"); box.className = "rec-share";
+          box.innerHTML = `<input type="text" class="rec-share-url" value="${escapeHtml(link)}" readonly /><div class="rec-share-note">コピーできませんでした。リンクを選んでコピーしてください。</div>`;
+          shareBtn.parentElement.appendChild(box); box.querySelector("input").select();
+        }
+      }
+      return;
+    }
     shareBtn.disabled = true;
     shareBtn.textContent = "作成中…";
     try {
