@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261117x" />
+    <link rel="stylesheet" href="style.css?v=20261117y" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1099,6 +1099,38 @@
 
   /* 納品前のタグ（2026-11-17） */
   .kx-chtag.predeliv{background:#FFF1E0;color:#B8641A;border:1px solid #F5D3A8;font-weight:800;}
+
+  /* 要望・問い合わせを見やすく（2026-11-17 田中さん）：会社ごとのカード、種類の印、右に優先度と解決 */
+  #vVoice{margin-top:-12px;padding-top:0;} #vVoice > .kx-head{display:none;}
+  .vc-kinds{display:inline-flex;gap:4px;}
+  .vc-kb{display:inline-flex;align-items:center;gap:5px;height:34px;padding:0 12px;border-radius:999px;border:1px solid #D6E6DF;background:#fff;color:#3E5A50;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;}
+  .vc-kb b{font-size:12px;color:#0d5b47;background:#EEF6F2;border-radius:99px;padding:0 7px;}
+  .vc-kb.r svg{color:#1d9e75;} .vc-kb.q svg{color:#2B6CB0;}
+  .vc-kb.on{background:#0d5b47;border-color:#0d5b47;color:#fff;} .vc-kb.on b{background:rgba(255,255,255,.18);color:#fff;} .vc-kb.on svg{color:#B6E25C;}
+  .vc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));gap:12px;align-items:start;}
+  .vc-grid.vc-scroll{overflow-y:auto;overscroll-behavior:contain;align-content:start;padding:2px 6px 12px 2px;margin-right:-6px;scrollbar-width:thin;}
+  .vc-card{background:#fff;border:1px solid #E1EBE6;border-radius:16px;padding:12px 14px 6px;box-shadow:0 1px 2px rgba(13,91,71,.04);}
+  .vc-ch{display:flex;align-items:center;gap:8px;padding-bottom:8px;border-bottom:1px solid #EEF3F0;}
+  .vc-ch .pl-co{font-size:14.5px;flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .vc-cn{display:flex;gap:4px;flex:none;}
+  .vc-row{display:flex;gap:10px;align-items:flex-start;padding:10px 2px;border-bottom:1px solid #F1F5F3;}
+  .vc-row:last-child{border-bottom:0;}
+  .vc-ico{flex:none;width:30px;height:30px;border-radius:9px;background:#E1F5EE;color:#1d9e75;display:flex;align-items:center;justify-content:center;margin-top:1px;}
+  .vc-ico.q{background:#E6EEFB;color:#2B6CB0;}
+  .vc-main{flex:1;min-width:0;}
+  .vc-t{font-weight:800;font-size:14px;line-height:1.45;color:#173a30;}
+  .vc-d{font-size:12.5px;line-height:1.55;color:#4F6158;margin-top:3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .vc-src{margin-top:4px;} .vc-src summary{cursor:pointer;font-size:11px;color:#8FA39A;list-style:none;display:inline-flex;align-items:center;gap:4px;}
+  .vc-src summary::-webkit-details-marker{display:none;} .vc-src summary::before{content:"";width:0;height:0;border-left:4px solid #8FA39A;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform .15s;}
+  .vc-src[open] summary::before{transform:rotate(90deg);} .vc-main:has(.vc-src[open]) .vc-d{-webkit-line-clamp:unset;}
+  .vc-q{font-size:12px;color:#5C7068;margin-top:4px;border-left:3px solid #CFE6DC;padding:2px 0 2px 8px;}
+  .vc-m{font-size:11px;color:#8FA39A;margin-top:3px;}
+  .vc-side{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+  .vc-p{height:24px !important;padding:0 9px !important;border-radius:99px !important;font-size:11.5px !important;}
+  .vc-ok{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 11px;border-radius:99px;border:1px solid #CFE0D8;background:#fff;color:#0d5b47;font:inherit;font-size:12px;font-weight:800;cursor:pointer;}
+  .vc-ok:hover{background:#E1F5EE;border-color:#5DCAA5;} .vc-ok.on{background:#0d5b47;border-color:#0d5b47;color:#fff;}
+  .vc-row.done{opacity:.6;} .vc-row.done .vc-t{text-decoration:line-through;}
+  @media (max-width:860px){ .vc-grid{grid-template-columns:1fr;} .vc-kinds{flex-wrap:wrap;} }
 </style>
 </head>
   <body>
@@ -1242,7 +1274,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261117x" defer></script>
-    <script src="kinxs.js?v=20261117x"></script>
+    <script src="kbchat.js?v=20261117y" defer></script>
+    <script src="kinxs.js?v=20261117y"></script>
   </body>
 </html>

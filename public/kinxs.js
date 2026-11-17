@@ -2405,19 +2405,33 @@ async function renderPub() {
 }
 if (VIEW === "pub") renderPub();
 // ===== 要望・問い合わせ（2026-11-17 久野さん「その企業からもらっている開発要望や問い合わせ事項について議事録からまとまって入る欄・解決したら消せるチェック・まとめた表」）=====
+// 1件の行（2026-11-17 田中さん「要望をもっと見やすく」）：左に種類の印（要望＝電球・問い合わせ＝はてな）、まん中に題と中身（2行まで）、
+//   右に優先度と「解決」。先方の言葉と出どころは「根拠」を開いたときだけ出す
+const KX_VC_ICO = {
+  要望: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z"/></svg>',
+  問い合わせ: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
+};
 function kxVoiceRow(v, withCo) {
   const d0 = (t) => { if (!t) return ""; const d = new Date(new Date(t).getTime() + 9 * 3600000); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
-  const src = v.sourceBot ? `議事録 ${d0(v.sourceAt)}「${v.sourceTitle || ""}」から` : `手で追加（${v.createdBy || ""} ${d0(v.createdAt)}）`;
-  return `<div class="vc-row ${v.status === "解決" ? "done" : ""}" data-vc="${v.id}"><input type="checkbox" class="vc-ck" data-vc-ck ${v.status === "解決" ? "checked" : ""} title="解決したらチェック" />
-    <div style="min-width:0;flex:1"><div><button type="button" class="vc-p p${esc(v.priority || "無")}" data-vc-pri title="優先度は CS がつけます。押すたびに 高→中→低→未設定">${esc(v.priority || "優先度")}</button> <span class="vc-k ${v.kind === "問い合わせ" ? "q" : ""}">${esc(v.kind)}</span>${withCo ? `<button type="button" class="pl-co" data-vc-co="${esc(v.accountId)}" style="font-size:12px">${esc(v.company || "（会社）")}</button>` : ""}</div>
-      <div class="vc-t">${esc(v.title)}</div>${v.detail ? `<div class="vc-d">${esc(v.detail)}</div>` : ""}${v.quote ? `<div class="vc-q">「${esc(v.quote)}」</div>` : ""}
-      <div class="vc-m">${esc(src)}${v.status === "解決" && v.resolvedBy ? `　解決：${esc(v.resolvedBy)} ${esc(d0(v.resolvedAt))}` : ""}</div></div></div>`;
+  const src = v.sourceBot ? `議事録 ${d0(v.sourceAt)}「${v.sourceTitle || ""}」` : `手で追加（${v.createdBy || ""} ${d0(v.createdAt)}）`;
+  const q = v.kind === "問い合わせ"; const done = v.status === "解決";
+  return `<div class="vc-row ${done ? "done" : ""}" data-vc="${v.id}">
+    <span class="vc-ico ${q ? "q" : ""}" title="${esc(v.kind)}">${KX_VC_ICO[v.kind] || KX_VC_ICO["要望"]}</span>
+    <div class="vc-main">
+      <div class="vc-t">${esc(v.title)}</div>
+      ${v.detail ? `<div class="vc-d">${esc(v.detail)}</div>` : ""}
+      <details class="vc-src"><summary>${v.sourceBot ? `${esc(d0(v.sourceAt))}の議事録から` : "手で追加"}</summary>${v.quote ? `<div class="vc-q">「${esc(v.quote)}」</div>` : ""}<div class="vc-m">${esc(src)}${done && v.resolvedBy ? `　解決：${esc(v.resolvedBy)} ${esc(d0(v.resolvedAt))}` : ""}</div></details>
+    </div>
+    <div class="vc-side">
+      <button type="button" class="vc-p p${esc(v.priority || "無")}" data-vc-pri title="優先度は CS がつけます。押すたびに 高→中→低→未設定">${v.priority ? `優先度 ${esc(v.priority)}` : "優先度"}</button>
+      <button type="button" class="vc-ok ${done ? "on" : ""}" data-vc-ck title="${done ? "未解決に戻す" : "解決したら押す"}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>${done ? "解決済み" : "解決"}</button>
+    </div></div>`;
 }
 async function kxVoicePatch(id, body) { return api(`/api/kinxs/voices/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }); }
 function kxVoiceWire(root, items, redraw) {
   root.querySelectorAll("[data-vc]").forEach((row) => {
     const v = items.find((y) => String(y.id) === row.dataset.vc); if (!v) return;
-    const ck = row.querySelector("[data-vc-ck]"); if (ck) ck.addEventListener("change", async () => { try { const r = await kxVoicePatch(v.id, { status: ck.checked ? "解決" : "未解決" }); Object.assign(v, r.item || {}); redraw(); } catch (e) { alert(e.message); ck.checked = !ck.checked; } });
+    const ck = row.querySelector("[data-vc-ck]"); if (ck) ck.addEventListener("click", async () => { ck.disabled = true; try { const r = await kxVoicePatch(v.id, { status: v.status === "解決" ? "未解決" : "解決" }); Object.assign(v, r.item || {}); redraw(); } catch (e) { alert(e.message); ck.disabled = false; } });
     const pr = row.querySelector("[data-vc-pri]"); if (pr) pr.addEventListener("click", async () => { const nx = { "": "高", 高: "中", 中: "低", 低: "" }[v.priority || ""]; try { const r = await kxVoicePatch(v.id, { priority: nx }); Object.assign(v, r.item || {}); redraw(); } catch (e) { alert(e.message); } });
     const co = row.querySelector("[data-vc-co]"); if (co) co.addEventListener("click", () => openDetail(co.dataset.vcCo));
   });
@@ -2451,24 +2465,47 @@ async function renderVoices() {
   box.innerHTML = '<div class="kx-empty">読み込み中…</div>';
   let items = [];
   try { items = (await api("/api/kinxs/voices")).items || []; } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; }
-  const st = window.__vc || (window.__vc = { tab: "open", kind: "", pri: "", q: "" });
+  const st = window.__vc || (window.__vc = { tab: "open", kind: "", pri: "", q: "", top: 0 });
+  // 並び：優先度（高→中→低→未設定）→ 新しい順。会社ごとにまとめ、件数の多い会社から
+  const PR = { 高: 0, 中: 1, 低: 2 };
+  const ord = (a, b) => ((PR[a.priority] ?? 3) - (PR[b.priority] ?? 3)) || String(b.sourceAt || b.createdAt || "").localeCompare(String(a.sourceAt || a.createdAt || ""));
   const draw = () => {
     const q = st.q.trim().toLowerCase();
-    const base = items.filter((v) => (!st.kind || v.kind === st.kind) && (!st.pri || (st.pri === "無" ? !v.priority : v.priority === st.pri)) && (!q || [v.title, v.detail, v.quote, v.company].join(" ").toLowerCase().includes(q)));
-    const list = base.filter((v) => st.tab === "all" || (st.tab === "open" ? v.status !== "解決" : v.status === "解決"));
+    const base = items.filter((v) => (!st.pri || (st.pri === "無" ? !v.priority : v.priority === st.pri)) && (!q || [v.title, v.detail, v.quote, v.company].join(" ").toLowerCase().includes(q)));
+    const byTab = base.filter((v) => st.tab === "all" || (st.tab === "open" ? v.status !== "解決" : v.status === "解決"));
+    const list = byTab.filter((v) => !st.kind || v.kind === st.kind).sort(ord);
     const cnt = (f) => base.filter(f).length;
+    const groups = new Map(); for (const v of list) { const k = v.accountId || v.company || "?"; if (!groups.has(k)) groups.set(k, { id: v.accountId, name: v.company || "（会社）", rows: [] }); groups.get(k).rows.push(v); }
+    const gl = [...groups.values()].sort((a, b) => ((PR[a.rows[0].priority] ?? 3) - (PR[b.rows[0].priority] ?? 3)) || b.rows.length - a.rows.length);
+    const kc = (k) => byTab.filter((v) => !k || v.kind === k).length;
     box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["open", `未解決（${cnt((v) => v.status !== "解決")}）`], ["done", `解決済み（${cnt((v) => v.status === "解決")}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-vt="${k}">${l}</button>`).join("")}</div>
-        <select class="kx-in" data-vk style="width:auto"><option value="">種類：すべて</option>${KX_VC_KINDS.map((k) => `<option ${st.kind === k ? "selected" : ""}>${k}</option>`).join("")}</select>
+        <div class="vc-kinds">${[["", "すべて"], ["要望", "要望"], ["問い合わせ", "問い合わせ"]].map(([k, l]) => `<button type="button" class="vc-kb ${k === "問い合わせ" ? "q" : k ? "r" : ""} ${st.kind === k ? "on" : ""}" data-vk="${k}">${k ? KX_VC_ICO[k] : ""}${l}<b>${kc(k)}</b></button>`).join("")}</div>
         <select class="kx-in" data-vp style="width:auto"><option value="">優先度：すべて</option>${[["高", "高"], ["中", "中"], ["低", "低"], ["無", "未設定"]].map(([k, l]) => `<option value="${k}" ${st.pri === k ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <input class="kx-in" data-vq placeholder="内容・会社名で探す" value="${esc(st.q)}" /></div>
-      <div class="kx-sec">${list.length ? list.map((v) => kxVoiceRow(v, true)).join("") : `<div class="kx-empty">${items.length ? "当てはまるものはありません" : "まだありません。議事録が入った会社から、1時間ごとに自動で拾います（会社の詳しい画面の議事録タブの「議事録から読む」ですぐ読めます）。"}</div>`}</div>`;
-    box.querySelectorAll("[data-vt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.vt; draw(); }));
-    box.querySelector("[data-vk]").addEventListener("change", (e) => { st.kind = e.target.value; draw(); });
-    box.querySelector("[data-vp]").addEventListener("change", (e) => { st.pri = e.target.value; draw(); });
-    const qi = box.querySelector("[data-vq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; draw(); const n = box.querySelector("[data-vq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
+        <label class="pl-q" title="内容・会社名で探す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input data-vq placeholder="内容・会社名" value="${esc(st.q)}" aria-label="内容・会社名で探す" /></label></div>
+      <div class="vc-grid">${gl.length ? gl.map((g) => `<section class="vc-card">
+          <header class="vc-ch"><button type="button" class="pl-co" data-vc-co="${esc(g.id || "")}" title="会社の詳しい画面を開く">${esc(g.name)}</button>
+            <span class="vc-cn">${["要望", "問い合わせ"].map((k) => { const n = g.rows.filter((v) => v.kind === k).length; return n ? `<span class="vc-k ${k === "問い合わせ" ? "q" : ""}">${k} ${n}</span>` : ""; }).join("")}</span></header>
+          ${g.rows.map((v) => kxVoiceRow(v, false)).join("")}</section>`).join("") : `<div class="kx-empty" style="grid-column:1/-1">${items.length ? "当てはまるものはありません" : "まだありません。議事録が入った会社から、1時間ごとに自動で拾います（会社の詳しい画面の議事録タブの「議事録から読む」ですぐ読めます）。"}</div>`}</div>`;
+    box.querySelectorAll("[data-vt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.vt; st.top = 0; draw(); }));
+    box.querySelectorAll("[data-vk]").forEach((b) => b.addEventListener("click", () => { st.kind = b.dataset.vk; st.top = 0; draw(); }));
+    box.querySelector("[data-vp]").addEventListener("change", (e) => { st.pri = e.target.value; st.top = 0; draw(); });
+    const qi = box.querySelector("[data-vq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; st.top = 0; draw(); const n = box.querySelector("[data-vq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
+    box.querySelectorAll(".vc-ch [data-vc-co]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.vcCo) openDetail(b.dataset.vcCo); }));
     kxVoiceWire(box, items, draw);
+    // 画面は固定して、カードの所だけスクロール（掲載先一覧と同じ）。描き直しても見ていた位置に戻す
+    const grid = box.querySelector(".vc-grid");
+    if (grid) { kxFitScroll(grid, "vc-scroll"); grid.scrollTop = st.top || 0; grid.addEventListener("scroll", () => { st.top = grid.scrollTop; }, { passive: true }); }
   };
+  if (!window.__vcFitOn) { window.__vcFitOn = true; window.addEventListener("resize", () => { const g = document.querySelector("#vVoiceBody .vc-grid"); if (g) kxFitScroll(g, "vc-scroll"); }); }
   draw();
+}
+// 一覧の所の高さを画面の下までにして、そこだけスクロールさせる（スマホはページごと）
+function kxFitScroll(el, cls) {
+  if (!el) return;
+  if (window.innerWidth < 860) { el.style.maxHeight = ""; el.classList.remove(cls); return; }
+  const top = el.getBoundingClientRect().top + window.scrollY;
+  let h = Math.max(260, window.innerHeight - top - 16); el.style.maxHeight = `${h}px`; el.classList.add(cls);
+  const over = document.documentElement.scrollHeight - window.innerHeight; if (over > 0 && h - over >= 260) { h -= over; el.style.maxHeight = `${h}px`; }
 }
 const KX_VC_KINDS = ["要望", "問い合わせ"];
 if (VIEW === "voice") renderVoices();
