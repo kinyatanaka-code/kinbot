@@ -6227,7 +6227,7 @@ function renderApoList(box, title, d, withGroup) {
     .map(([n, c]) => `<span class="kc-apo-who">${esc(n)} <b>${c}</b></span>`).join("");
   const stageChip = (s2) => {
     if (!s2) return `<span class="st-chip none">SFに商談なし</span>`;
-    const cls = /受注処理完了/.test(s2) ? "won" : /04/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
+    const cls = (/^\s*0?[68]\s*[:：]/.test(s2) || /申込書回収|受注処理完了/.test(s2)) ? "won" : /04|05|決裁者合意/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
     return `<span class="st-chip ${cls}">${esc(s2)}</span>`;
   };
   const rowsHtml = (d.items || []).map((x) => `<tr>
@@ -6308,7 +6308,7 @@ async function openGroupDetail(gid, card) {
     const lists = (d.lists || []).map((L) =>
       `<tr><td class="kc-g-name">${esc(L.list_name)}</td><td class="kc-g-n">${L["コール"]}</td><td class="kc-g-n">${L["接触"]}（${esc(L["接触率"])}）</td><td class="kc-g-n">${L["アポ"]}（${esc(L["アポ率"])}）</td></tr>`).join("");
     const stageChip = (s2) => {
-      const cls = /受注処理完了/.test(s2) ? "won" : /04/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
+      const cls = (/^\s*0?[68]\s*[:：]/.test(s2) || /申込書回収|受注処理完了/.test(s2)) ? "won" : /04|05|決裁者合意/.test(s2) ? "mid" : /03/.test(s2) ? "kpi" : /02/.test(s2) ? "ok" : /01/.test(s2) ? "apo" : "none";
       return `<span class="st-chip ${cls}">${esc(s2)}</span>`;
     };
     const comps = (d.companies || []).map((c) =>
