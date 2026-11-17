@@ -12402,7 +12402,7 @@ async function ensureAutoRenew() {
 export async function arList() {
   if (!pool) return []; await ensureAutoRenew();
   await ensureArSync();
-  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name, ar_cs, ar_url
+  const { rows } = await pool.query(`SELECT account_id AS id, name, ar_plan, ar_no, ar_start, ar_end, ar_product, ar_status, ar_cancel_applied, ar_cancel_wish, ar_cancel_month, ar_applicant, ar_contact, ar_months, ar_note, cs_name, ar_cs, ar_url, info->>'vr_url' AS info_vr, info->>'prod_url' AS info_prod
     FROM kinxs_accounts WHERE COALESCE(ar_plan,'') <> '' ORDER BY ar_start NULLS LAST, name`);
   return rows;
 }
