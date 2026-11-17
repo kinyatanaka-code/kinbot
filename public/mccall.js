@@ -16,12 +16,13 @@
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>',
     skip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5l9 7-9 7z"/><path d="M19 5v14"/></svg>',
     help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M4 7l8 6 8-6"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
   };
 
   const S = { meta: null, admin: false, tab: "call", lists: [], listId: parseInt(ls.get("mcc_list") || "0", 10) || 0, queue: [], later: 0,
     d: null, cache: new Map(), f: null, notices: [], ni: 0, toast: null, busy: false, mounted: false };
-  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "" }, phone: "" });
+  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "" }, phone: "" });
 
   // MOCHICA は Zoom Phone で架電する決まりなので、いつも Zoom アプリで発信する
   // （kinbot の Zoom 連携の状態を読む API は、インターンのアカウントでは開けないため見ない）
@@ -194,10 +195,12 @@
       <div class="mcc-callrow">
         ${ph ? `<a class="mcc-btn primary big" href="${callHref(ph)}" id="mccDial" aria-keyshortcuts="C">${ICO.phone}${esc(ph)} にかける<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">C</span></a>` : `<span class="mcc-note">電話番号がありません</span>`}
         <button class="mcc-btn" id="mccSkip" aria-keyshortcuts="S">${ICO.skip}飛ばす<span class="mcc-key">S</span></button>
+        <button class="mcc-btn" id="mccDoc">${ICO.mail}資料を送る</button>
       </div>
       <div class="mcc-step">${f.step === "reach" ? "どこまで届きましたか" : `<button class="mcc-btn" id="mccBack" style="height:28px;padding:0 8px" aria-keyshortcuts="Backspace">${ICO.back}戻る</button><span class="crumb">${esc(crumb())}</span>`}</div>
       ${cs.length ? `<div class="mcc-choices ${cs.length > 4 ? "two" : ""}">${cs.map((c, i) => `<button class="mcc-choice ${c.cls || ""}" data-c="${esc(c.k)}" data-l="${esc(c.label)}" aria-keyshortcuts="${i + 1}"><span class="mcc-key">${i + 1}</span><span>${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</span></button>`).join("")}</div>` : ""}
-      ${f.step === "apo" ? `<label class="mcc-field">アポの日時（必須）<input type="datetime-local" id="mccApo" value="${esc(f.apoAt)}" /></label>` : ""}
+      ${f.step === "apo" ? slotsHtml() + `<label class="mcc-field" style="margin-top:8px">アポの日時（必須。おすすめを押すと入ります）<input type="datetime-local" id="mccApo" value="${esc(f.apoAt)}" /></label>${f.apoWho ? `<p class="mcc-note">この時間に空いているクローザー：${esc(f.apoWho)}</p>` : ""}` : ""}
+      ${f.outcome === "doc_send" ? `<div class="mcc-next">資料はまだ送っていません。<button class="mcc-chip" id="mccDocNow">資料を送る</button></div>` : ""}
       ${f.step === "ready" || f.step === "apo" ? `<div class="mcc-next" id="mccNextTx">${nextText()}${AUTO.has(f.outcome) && !f.noRetry && !f.nextAt ? ` <button class="mcc-chip" id="mccNoRetry">自動の掛け直しをやめる</button>` : ""}</div>
         ${f.outcome !== "callback_req" ? `<div class="mcc-chips">${laterChips().map(([l, dd]) => `<button class="mcc-chip" data-later="${dd.toISOString()}" data-ll="${esc(l)}" aria-pressed="${f.nextAt === dd.toISOString()}">${esc(l)}</button>`).join("")}${f.nextAt ? `<button class="mcc-chip" data-later="">時刻を外す</button>` : ""}</div>` : ""}` : ""}
       ${showGate ? `<div class="mcc-gateform" aria-label="受付で聞けたこと">
@@ -211,9 +214,14 @@
     c.querySelectorAll("[data-c]").forEach((b) => b.addEventListener("click", () => choose(b.dataset.c, b.dataset.l)));
     const bk = $("mccBack"); if (bk) bk.addEventListener("click", back);
     $("mccSkip").addEventListener("click", skip);
+    $("mccDoc").addEventListener("click", sendDoc);
+    const dn = $("mccDocNow"); if (dn) dn.addEventListener("click", sendDoc);
+    c.querySelectorAll("[data-slot]").forEach((b) => b.addEventListener("click", () => { S.f.apoAt = toLocalInput(b.dataset.slot); S.f.apoWho = b.dataset.who || ""; drawCenter(); }));
+    const sd = $("mccSlotDay"); if (sd) sd.addEventListener("change", () => { S.slotDay = sd.value; loadSlotDay(sd.value); });
+    if (S.f.step === "apo" && !S.slots) loadSlots();
     $("mccRec").addEventListener("click", record);
     const dial = $("mccDial"); if (dial) dial.addEventListener("click", () => { S.f.phone = ph; });
-    const apo = $("mccApo"); if (apo) { apo.addEventListener("input", () => { S.f.apoAt = apo.value; refreshFoot(); }); apo.addEventListener("keydown", (e) => { if (e.key === "Enter" && ready()) { e.preventDefault(); record(); } }); setTimeout(() => apo.focus(), 0); }
+    const apo = $("mccApo"); if (apo) { apo.addEventListener("input", () => { S.f.apoAt = apo.value; S.f.apoWho = ""; refreshFoot(); }); apo.addEventListener("keydown", (e) => { if (e.key === "Enter" && ready()) { e.preventDefault(); record(); } }); setTimeout(() => apo.focus(), 0); }
     const nr = $("mccNoRetry"); if (nr) nr.addEventListener("click", () => { S.f.noRetry = true; drawCenter(); });
     c.querySelectorAll("[data-later]").forEach((b) => b.addEventListener("click", () => { S.f.nextAt = b.dataset.later; S.f.nextLabel = b.dataset.ll || ""; S.f.noRetry = !b.dataset.later ? S.f.noRetry : false; drawCenter(); }));
     c.querySelectorAll("[data-hr]").forEach((b) => b.addEventListener("click", () => { S.f.gate.hours = S.f.gate.hours === b.dataset.hr ? "" : b.dataset.hr; saveGate(); drawCenter(); }));
@@ -243,11 +251,72 @@
     drawCenter();
   }
 
+  // ---- アポのおすすめ日時（MOCHICA のクローザーの空きから）（2026-11-17）----
+  //   一度読んだら5分は使い回す（会社ごとに読み直すとカレンダーを何度も読んで遅くなるため）
+  const toLocalInput = (iso) => { const d = new Date(iso); const p2 = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+  async function loadSlots() {
+    if (S.slotsAt && Date.now() - S.slotsAt < 5 * 60e3 && S.slots) return;
+    S.slots = { loading: true }; drawSlotsBox();
+    try { const j = await api("/api/mccall/slots"); S.slots = j; S.slotsAt = Date.now(); }
+    catch (e) { S.slots = { error: e.message }; }
+    drawSlotsBox();
+  }
+  async function loadSlotDay(date) {
+    if (!date) { S.dayOut = null; return drawSlotsBox(); }
+    S.dayOut = { loading: true }; drawSlotsBox();
+    try { S.dayOut = await api(`/api/mccall/slots/day?date=${encodeURIComponent(date)}`); } catch (e) { S.dayOut = { error: e.message }; }
+    drawSlotsBox();
+  }
+  const slotChip = (x) => `<button class="mcc-chip" data-slot="${esc(x.at)}" data-who="${esc((x.free || []).join("・"))}" aria-pressed="${S.f.apoAt === toLocalInput(x.at)}" title="${esc((x.free || []).join("・"))}">${esc(x.md)}（${esc(x.dow)}）${esc(x.time)}<small style="font-weight:600;color:inherit;opacity:.75">${x.freeN}/${x.total}人</small></button>`;
+  function slotsHtml() {
+    const o = S.slots; const d = S.dayOut;
+    let main;
+    if (!o || o.loading) main = '<p class="mcc-note">クローザーの空きを読んでいます…</p>';
+    else if (o.error) main = `<p class="mcc-note" style="color:var(--c-danger)">空きを読めませんでした：${esc(o.error)}</p>`;
+    else if (!o.slots.length) main = `<p class="mcc-note">${esc(o.reason || "2週間のうちに空いている枠がありません")}</p>`;
+    else main = `<div class="mcc-chips">${o.slots.map(slotChip).join("")}</div>${o.unread && o.unread.length ? `<p class="mcc-note">カレンダーを読めなかった人：${esc(o.unread.join("・"))}</p>` : ""}`;
+    let day = "";
+    if (d && d.loading) day = '<p class="mcc-note">読んでいます…</p>';
+    else if (d && d.error) day = `<p class="mcc-note" style="color:var(--c-danger)">${esc(d.error)}</p>`;
+    else if (d) day = d.slots.length ? `<div class="mcc-chips">${d.slots.map(slotChip).join("")}</div>` : `<p class="mcc-note">${esc(d.reason || "この日は空いている時間がありません")}</p>`;
+    return `<div id="mccSlots"><div class="mcc-step" style="margin-top:12px">おすすめの日時（MOCHICA のクローザーの空き・人数は空いている人）</div>${main}
+      <div class="mcc-next" style="margin-top:8px">ほかの日：<input type="date" id="mccSlotDay" class="mcc-sel" style="height:32px" value="${esc(S.slotDay || "")}" /></div>${day}</div>`;
+  }
+  // 空きを読み終えたら、その欄だけ描き直す（入力中のメモなどを消さないため）
+  function drawSlotsBox() { if (S.f && S.f.step === "apo" && $("mccSlots")) drawCenter(); }
+
+  // ---- 資料送付（2026-11-17）：確かめてから、本人の Gmail で送る ----
+  async function sendDoc() {
+    if (!S.d) return; const L = S.d.lead;
+    let pv;
+    try { pv = await post(`/api/mccall/leads/${L.id}/doc/preview`, {}); } catch (e) { setNotice([{ kind: "danger", text: `資料を送る準備ができませんでした：${e.message}` }]); return; }
+    const w = dialog(`資料を送る：${pv.company}`, pv.google ? "中身を確かめてから「送る」を押してください。あなたの Gmail から送ります。" : "あなたの Google 連携がまだなので送れません。設定 → 外部連携 → Google でつないでください。", "送る", async (w) => {
+      const v = (id) => w.querySelector(id).value;
+      const r = await post(`/api/mccall/leads/${L.id}/doc/send`, { to: v("#mccDTo").trim(), cc: v("#mccDCc").trim(), subject: v("#mccDSub").trim(), body: v("#mccDBody"), docId: v("#mccDDoc") });
+      toast(`資料を ${r.to} に送りました${r.sf ? `（${r.sf}）` : ""}`);
+      S.cache.delete(L.id); try { const d = await api(`/api/mccall/leads/${L.id}`); if (S.d && S.d.lead.id === L.id) { S.d = d; drawRight(); } } catch {}
+    }, `<div style="display:grid;gap:8px;margin-top:12px">
+        <label class="mcc-field">資料<select class="mcc-sel" id="mccDDoc" style="max-width:none">${pv.docs.map((d) => `<option value="${esc(d.id)}"${d.id === pv.docId ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select></label>
+        ${pv.warn ? `<p class="mcc-note" style="color:var(--c-warn)">${esc(pv.warn)}</p>` : ""}
+        <label class="mcc-field">宛先<input id="mccDTo" type="email" value="${esc(pv.to)}" autocomplete="off" /></label>
+        <label class="mcc-field">CC（なくてよい）<input id="mccDCc" value="${esc(pv.cc)}" autocomplete="off" /></label>
+        <label class="mcc-field">件名<input id="mccDSub" value="${esc(pv.subject)}" /></label>
+        <label class="mcc-field">本文<textarea id="mccDBody" style="min-height:200px">${esc(pv.body)}</textarea></label>
+        <p class="mcc-note">本文の {URL} には、「送る」を押したときに doc-room でこの会社用に作るルームの URL が入ります（だれがいつ開いたかは doc-room で分かります）。</p></div>`);
+    if (!pv.google) { const ok = w.querySelector("[data-ok]"); ok.disabled = true; }
+    // 資料を変えたら、件名・本文を作り直す（宛先と CC は書いたまま残す）
+    w.querySelector("#mccDDoc").addEventListener("change", async (e) => {
+      try { const n = await post(`/api/mccall/leads/${L.id}/doc/preview`, { docId: e.target.value }); pv = n;
+        w.querySelector("#mccDSub").value = n.subject; w.querySelector("#mccDBody").value = n.body;
+      } catch (err) { toast(`資料を切り替えられませんでした：${err.message}`); }
+    });
+  }
+
   async function record() {
     if (!S.d || !ready() || S.busy) return; S.busy = true;
     const f = S.f; const L = S.d.lead; const company = L.company;
     const gate = { name: f.gate.name || (L.gate && L.gate.name) || "", hours: f.gate.hours || (L.gate && L.gate.hours) || "", direct: f.gate.direct || (L.gate && L.gate.direct) || "" };
-    const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, memo: f.memo, phone: f.phone || L.phone, gate, noRetry: f.noRetry,
+    const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, apoWho: f.outcome === "apo" ? f.apoWho : "", memo: f.memo, phone: f.phone || L.phone, gate, noRetry: f.noRetry,
       nextAt: f.nextAt || null, apoAt: f.apoAt ? new Date(f.apoAt).toISOString() : null };
     try {
       const j = await post(`/api/mccall/leads/${L.id}/log`, body);
@@ -378,18 +447,34 @@
       box.innerHTML = `
         <div class="mcc-card"><h2>架電リスト</h2>
           <p class="mcc-note">ここで作ったリストは MOCHICA だけのものです。DOC の kincall のリストとは混ざりません。メンバーを選ばないと、MOCHICA のメンバー全員がかけられます。</p>
-          <div style="margin:12px 0"><button class="mcc-btn primary" id="mccNew">新しいリストを作る</button></div>
+          <div style="margin:12px 0"><button class="mcc-btn primary" id="mccNew">新しいリストを作る</button> <button class="mcc-btn" id="mccTpl">資料送付のひな形</button></div>
           ${S.lists.length ? `<table class="mcc-tbl"><thead><tr><th>リスト</th><th>メンバー</th><th class="num">残り</th><th class="num">今かける</th><th class="num">DOC から</th><th></th></tr></thead><tbody>
             ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>
-              <td style="white-space:nowrap"><button class="mcc-btn" data-bales="${l.id}">Bales から足す</button> <button class="mcc-btn" data-doc="${l.id}" style="color:#0d5b47">DOC から持ってくる</button> <button class="mcc-btn" data-mem="${l.id}">メンバー</button> <button class="mcc-btn danger" data-close="${l.id}">閉じる</button></td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだリストがありません。</p>'}
+              <td style="white-space:nowrap"><button class="mcc-btn" data-bales="${l.id}">Bales から足す</button> <button class="mcc-btn" data-doc="${l.id}" style="color:#0d5b47">DOC から持ってくる</button> <button class="mcc-btn" data-mem="${l.id}">メンバー</button> <button class="mcc-btn primary" data-leads="${l.id}">割り振る・移す</button> <button class="mcc-btn danger" data-close="${l.id}">閉じる</button></td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだリストがありません。</p>'}
         </div>
         <div class="mcc-card"><h2>今日の数字（全員）</h2>${all.length ? `<table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">部署をまたいだ架電</th></tr></thead><tbody>${all.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.calls}</td><td class="num">${r.person}</td><td class="num">${r.apo}</td><td class="num">${r.cross}</td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">今日はまだ記録がありません。</p>'}</div>`;
       $("mccNew").addEventListener("click", () => listDialog());
+      $("mccTpl").addEventListener("click", tplDialog);
       box.querySelectorAll("[data-mem]").forEach((b) => b.addEventListener("click", () => listDialog(S.lists.find((l) => l.id === +b.dataset.mem))));
       box.querySelectorAll("[data-bales]").forEach((b) => b.addEventListener("click", () => balesDialog(+b.dataset.bales)));
       box.querySelectorAll("[data-doc]").forEach((b) => b.addEventListener("click", () => docDialog(+b.dataset.doc)));
+      box.querySelectorAll("[data-leads]").forEach((b) => b.addEventListener("click", () => drawLeads(S.lists.find((l) => l.id === +b.dataset.leads))));
       box.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dialog("このリストを閉じますか", "閉じると、だれの「かける」にも出なくなります。記録は消えません。", "閉じる", async () => { await api(`/api/mccall/lists/${b.dataset.close}`, { method: "PATCH", body: JSON.stringify({ closed: true }) }); drawLists(); })));
     } catch (e) { box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; }
+  }
+  // 資料送付のひな形（MOCHICA 専用。DOC の資料送付の設定とは別）（2026-11-17）
+  async function tplDialog() {
+    let c; try { c = await api("/api/mccall/doc-settings"); } catch (e) { toast(e.message); return; }
+    dialog("資料送付のひな形（MOCHICA）", "差し込み：{担当者} {会社名} {差出人} {資料名} {URL}。DOC の資料送付の設定は変わりません。", "保存する", async (w) => {
+      const v = (id) => w.querySelector(id).value;
+      await api("/api/mccall/doc-settings", { method: "PUT", body: JSON.stringify({ subject: v("#mccTSub"), body: v("#mccTBody"), defaultDocId: v("#mccTDoc"), cc: v("#mccTCc") }) });
+      toast("資料送付のひな形を保存しました");
+    }, `<div style="display:grid;gap:8px;margin-top:12px">
+      ${c.docErr ? `<p class="mcc-note" style="color:var(--c-warn)">doc-room の資料一覧を読めませんでした：${esc(c.docErr)}</p>` : ""}
+      <label class="mcc-field">いつも使う資料（doc-room に登録した資料）<select class="mcc-sel" id="mccTDoc" style="max-width:none"><option value="">（いちばん上の資料）</option>${c.docs.map((d) => `<option value="${esc(d.id)}"${String(d.id) === String(c.defaultDocId) ? "selected" : ""}>${esc(d.name)}</option>`).join("")}</select></label>
+      <label class="mcc-field">いつも入れる CC（空のままなら入れない）<input id="mccTCc" value="${esc(c.cc)}" autocomplete="off" /></label>
+      <label class="mcc-field">件名<input id="mccTSub" value="${esc(c.subject)}" /></label>
+      <label class="mcc-field">本文<textarea id="mccTBody" style="min-height:200px">${esc(c.body)}</textarea></label></div>`);
   }
   async function listDialog(l) {
     let reps = []; try { reps = (await api("/api/mochica/reps")).items || []; } catch {}
@@ -422,6 +507,49 @@
       toast(`DOC から ${r.added}件 持ってきました${r.banned ? `（アプローチ禁止 ${r.banned}件は外しました）` : ""}`); drawLists();
     }, `<label class="mcc-field" style="margin-top:12px">DOC のリスト<select class="mcc-sel" id="mccDl" style="max-width:none">${dl.map((x) => `<option value="${x.id}">${esc(x.name)}（残り ${x.open}件）</option>`).join("")}</select></label>
       <label class="mcc-field" style="margin-top:8px">理由（必須）<textarea id="mccDr" placeholder="例：DOC で失注した企業に MOCHICA を提案するため"></textarea></label>`);
+  }
+  // リードの割り振り・他のリストへ移す（2026-11-17 福井さん。kincall で多く使われていた2つを MOCHICA にも）
+  // 選んだものだけが対象。割り振りだけは、選ばなければリストの残り全部を分ける（kincall の「複数人に分ける」と同じ使い方）。
+  async function drawLeads(l) {
+    if (!l) return;
+    const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`;
+    let j, reps = [];
+    try { [j, reps] = await Promise.all([api(`/api/mccall/lists/${l.id}/leads`), api("/api/mochica/reps").then((r) => r.items || []).catch(() => [])]); }
+    catch (e) { box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; return; }
+    // 配れる人＝このリストのメンバー（決まっていなければ MOCHICA の人）。それ以外に配ると、その人の「かける」にリストが出ない
+    const mem = (l.members || []).map((x) => String(x).toLowerCase());
+    const who = mem.length ? reps.filter((r) => mem.includes(String(r.email).toLowerCase())) : reps.filter((r) => r.mochica);
+    const others = S.lists.filter((x) => x.id !== l.id);
+    const sel = new Set();
+    box.innerHTML = `<div class="mcc-card">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="mcc-btn" id="mccLdBack">${ICO.back}リストの一覧へ</button><h2 style="margin:0">「${esc(l.name)}」のリード</h2><span class="mcc-note" style="margin:0">残り ${j.total}件${j.total > j.items.length ? `（上から ${j.items.length}件を表示）` : ""}</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0"><span class="mcc-note" id="mccLdN" style="margin:0">選んでいません（割り振りは残り全部が対象）</span>
+          <button class="mcc-btn primary" id="mccLdAssign">複数人に分ける</button><button class="mcc-btn" id="mccLdMove" ${others.length ? "" : 'disabled title="ほかに開いているリストがありません"'}>選んだリードを他のリストへ移す</button></div>
+        ${j.items.length ? `<table class="mcc-tbl"><thead><tr><th><input type="checkbox" id="mccLdAll" aria-label="全部選ぶ" /></th><th>会社</th><th>担当者</th><th>温度</th><th class="num">回数</th><th>前回</th><th>割り振り</th></tr></thead><tbody>
+          ${j.items.map((r) => `<tr><td><input type="checkbox" data-ld="${r.id}" aria-label="${esc(r.company || "")}を選ぶ" /></td><td>${esc(r.company || "")}</td><td>${esc(r.person || "")}</td><td>${hotBadge(r.hot)}</td><td class="num">${r.attempts || 0}</td><td>${esc(r.outcome || "")}</td><td>${esc(r.assigned || "")}</td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">終わっていないリードがありません。</p>'}</div>`;
+    const cnt = () => { $("mccLdN").textContent = sel.size ? `${sel.size}件 選んでいます` : "選んでいません（割り振りは残り全部が対象）"; };
+    box.querySelectorAll("[data-ld]").forEach((c) => c.addEventListener("change", () => { c.checked ? sel.add(+c.dataset.ld) : sel.delete(+c.dataset.ld); cnt(); }));
+    const all = $("mccLdAll"); if (all) all.addEventListener("change", () => { box.querySelectorAll("[data-ld]").forEach((c) => { c.checked = all.checked; all.checked ? sel.add(+c.dataset.ld) : sel.delete(+c.dataset.ld); }); cnt(); });
+    $("mccLdBack").addEventListener("click", drawLists);
+    $("mccLdAssign").addEventListener("click", () => {
+      const n = sel.size || j.total;
+      const w = dialog("複数人に分ける", `${sel.size ? "選んだ" : "残り全部の"} ${n}件を、選んだ人で均等に分けます（ホットなリードが偏らないよう交互に配ります）。だれも選ばずに進むと、割り振りを外して全員がかけられる状態に戻します。`, "分ける", async (w) => {
+        const members = [...w.querySelectorAll("[data-m][aria-pressed=true]")].map((b) => b.dataset.m);
+        const r = await post(`/api/mccall/lists/${l.id}/assign`, { members, leadIds: [...sel] });
+        toast(r.per && r.per.length ? `${r.assigned}件を分けました：${r.per.map((p) => `${p.name} ${p.n}件`).join("・")}` : `${r.cleared}件の割り振りを外しました`);
+        drawLeads(l);
+      }, who.length ? `<div class="mcc-field" style="margin-top:12px">分ける人<div class="mcc-members">${who.map((r) => `<button class="mcc-chip" data-m="${esc(r.email)}" aria-pressed="false">${esc(r.name)}</button>`).join("")}</div></div>`
+        : '<p class="mcc-note" style="margin-top:12px">配れる人がいません。先に「メンバー」でこのリストのメンバーを選んでください。</p>');
+      w.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") === "true" ? "false" : "true")));
+    });
+    $("mccLdMove").addEventListener("click", () => {
+      if (!sel.size) { toast("移すリードを、左のチェックで選んでください"); return; }
+      dialog("選んだリードを他のリストへ移す", `${sel.size}件を移します。移したリードの割り振りは外れます（移し先のメンバーがかけます）。これまでの架電の記録は消えません。移し先に同じリードがあるものは移しません。`, "移す", async (w) => {
+        const r = await post(`/api/mccall/lists/${l.id}/move`, { toListId: w.querySelector("#mccLdTo").value, leadIds: [...sel] });
+        toast(`${r.moved}件 移しました${r.skipped ? `（移し先に同じリードがある ${r.skipped}件は移していません）` : ""}`);
+        await loadLists(); drawLeads(S.lists.find((x) => x.id === l.id) || l);
+      }, `<label class="mcc-field" style="margin-top:12px">移し先のリスト<select class="mcc-sel" id="mccLdTo" style="max-width:none">${others.map((x) => `<option value="${x.id}">${esc(x.name)}（残り ${x.open}件）</option>`).join("")}</select></label>`);
+    });
   }
   async function drawCross() {
     const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`;

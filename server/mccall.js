@@ -13,7 +13,9 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   不在は同じ日のうちに自動で掛け直しに回す（解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, loadApproachBans } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
+import { listCalendarEvents, gmailSend, isConnected as googleConnected } from "./google.js";
+import { fixMojibake } from "./docs.js";
 import { createTask, deleteTask, sfQuery } from "./salesforce.js";
 
 const BIZ = "MOCHICA";
@@ -60,6 +62,12 @@ async function ensure() {
       created_at TIMESTAMPTZ DEFAULT now())`);
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_call_logs_lead ON mc_call_logs(lead_id, created_at DESC)`);
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_call_logs_day ON mc_call_logs(created_at)`);
+    // アポのおすすめ日時で選んだ「その時間に空いていたクローザー」（2026-11-17）
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS apo_who TEXT`);
+    // 資料送付の記録。架電の記録（mc_call_logs）に入れるとコール数に数えてしまうので別にする（2026-11-17）
+    await q(`CREATE TABLE IF NOT EXISTS mc_doc_sends (
+      id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT, url TEXT, doc_name TEXT,
+      sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
     await q(`CREATE TABLE IF NOT EXISTS mc_cross_moves (
       id SERIAL PRIMARY KEY, from_biz TEXT, to_biz TEXT, from_ref TEXT, from_name TEXT, to_list_id INT,
       count INT, reason TEXT, by_user TEXT, at TIMESTAMPTZ DEFAULT now())`);
@@ -160,7 +168,7 @@ export function registerMcCall(app, deps) {
         WhoId: g.sf_lead_id, Subject: `[MOCHICA 架電] ${outcomeLabel(g.outcome)}`, Type: "Call", Status: "完了", ActivityDate: d,
         Description: [`記録した人：${names.get(who) || who}（kinbot for MOCHICA）`, `到達：${(REACH[g.reach] || {}).label || g.reach}`, `結果：${outcomeLabel(g.outcome)}${g.reason ? `（${g.reason}）` : ""}`,
           gt.name || gt.hours || gt.direct ? `受付で聞けたこと：${[gt.name && `担当 ${gt.name}`, gt.hours && `在席 ${gt.hours}`, gt.direct && `直通 ${gt.direct}`].filter(Boolean).join("・")}` : "",
-          g.apo_at ? `アポ：${jstText(g.apo_at)}` : "", g.next_at ? `次回：${jstText(g.next_at)}` : "", g.memo ? `メモ：${g.memo}` : "",
+          g.apo_at ? `アポ：${jstText(g.apo_at)}${g.apo_who ? `（その時間に空いていたクローザー：${g.apo_who}）` : ""}` : "", g.next_at ? `次回：${jstText(g.next_at)}` : "", g.memo ? `メモ：${g.memo}` : "",
           g.cross_from ? `部署をまたいだ架電（${g.cross_from} のリード）` : ""].filter(Boolean).join("\n"),
       });
       if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
@@ -206,6 +214,56 @@ export function registerMcCall(app, deps) {
     if (Array.isArray(b.members)) await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [id, b.members.map((x) => String(x).toLowerCase()).slice(0, 200)]);
     if (b.closed != null) await P().query(`UPDATE mc_call_lists SET closed=$2 WHERE id=$1`, [id, !!b.closed]);
     res.json({ ok: true });
+  }));
+
+  // ---- リードの割り振り・他のリストへ移す（2026-11-17 福井さん。kinbot の利用状況で kincall の
+  //      「複数人に分ける／この人たちに割り振る」約830回・「他のリストへ移す」85回/30日 と多く使われていたため） ----
+  // かける順番（/queue）は assigned_to が空か自分のものだけ出すので、ここで assigned_to を埋めれば担当ごとに分かれる。
+  const leadIdsOf = (b) => (Array.isArray(b && b.leadIds) ? b.leadIds.map((x) => parseInt(x, 10)).filter((x) => x > 0).slice(0, 5000) : []);
+  app.get("/api/mccall/lists/:id/leads", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const names = await nameMap();
+    const rows = (await P().query(`SELECT id, company, person, hot, attempts, last_outcome, next_at, assigned_to FROM mc_call_leads
+      WHERE list_id=$1 AND NOT done ORDER BY COALESCE(hot,0) DESC, id LIMIT 3000`, [id])).rows;
+    const total = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id=$1 AND NOT done`, [id])).rows[0].count;
+    res.json({ ok: true, total, items: rows.map((r) => ({ ...r, outcome: outcomeLabel(r.last_outcome), assigned: r.assigned_to ? names.get(r.assigned_to) || r.assigned_to : "" })) });
+  }));
+  // 選んだリード（選ばなければ、このリストの終わっていないリード全部）を、選んだ人で均等に分ける。
+  // ホットな順に1件ずつ交互に配る（先頭からまとめて配るとホットが1人に偏るため）。だれも選ばなければ担当を外す。
+  app.post("/api/mccall/lists/:id/assign", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const l = (await P().query(`SELECT members FROM mc_call_lists WHERE id=$1`, [id])).rows[0];
+    if (!l) return res.status(404).json({ error: "リストが見つかりません" });
+    const members = [...new Set((Array.isArray(b.members) ? b.members : []).map((x) => String(x).toLowerCase().trim()).filter(Boolean))].slice(0, 100);
+    // リストにメンバーが決まっているのに、その外の人に配ると、その人の「かける」にリストが出ず宙に浮く
+    if (l.members && l.members.length) {
+      const out = members.filter((m) => !l.members.map((x) => String(x).toLowerCase()).includes(m));
+      if (out.length) return res.status(400).json({ error: "このリストのメンバーに入っていない人がいます。先に「メンバー」で足してください" });
+    }
+    const ids = leadIdsOf(b);
+    const rows = (await P().query(`SELECT id FROM mc_call_leads WHERE list_id=$1 AND NOT done ${ids.length ? "AND id = ANY($2)" : ""} ORDER BY COALESCE(hot,0) DESC, id`, ids.length ? [id, ids] : [id])).rows;
+    if (!rows.length) return res.status(400).json({ error: "分けるリードがありません（終わったリードは分けません）" });
+    if (!members.length) {
+      const x = await P().query(`UPDATE mc_call_leads SET assigned_to=NULL WHERE id = ANY($1)`, [rows.map((r) => r.id)]);
+      return res.json({ ok: true, cleared: x.rowCount, per: [] });
+    }
+    const buckets = members.map(() => []);
+    rows.forEach((r, i) => buckets[i % members.length].push(r.id));
+    for (let i = 0; i < members.length; i++) if (buckets[i].length) await P().query(`UPDATE mc_call_leads SET assigned_to=$2 WHERE id = ANY($1)`, [buckets[i], members[i]]);
+    const names = await nameMap();
+    res.json({ ok: true, assigned: rows.length, per: members.map((m, i) => ({ name: names.get(m) || m, n: buckets[i].length })) });
+  }));
+  // 選んだリードを他の開いているリストへ移す。移し先に同じリードがあるものは二重にしないため移さず、件数を返す。
+  // 担当は外す（移し先のメンバーでない人に付いたままだと、だれの順番にも出なくなるため）。過去の架電記録はそのまま残す。
+  app.post("/api/mccall/lists/:id/move", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const to = parseInt(b.toListId, 10); const ids = leadIdsOf(b);
+    if (!ids.length) return res.status(400).json({ error: "移すリードを選んでください" });
+    if (!to || to === id) return res.status(400).json({ error: "移し先のリストを選んでください" });
+    const t = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE id=$1`, [to])).rows[0];
+    if (!t || t.closed) return res.status(400).json({ error: "移し先のリストが見つからないか、閉じています" });
+    const x = await P().query(`UPDATE mc_call_leads c SET list_id=$2, assigned_to=NULL, locked_by=NULL, locked_at=NULL
+      WHERE c.list_id=$1 AND c.id = ANY($3) AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id=$2 AND d.src=c.src AND d.src_key=c.src_key)`, [id, to, ids]);
+    res.json({ ok: true, moved: x.rowCount, skipped: ids.length - x.rowCount });
   }));
 
   // Bales のリストから写す（同じリードがほかの開いている MOCHICA のリストにあれば入れない＝二重にかけない）
@@ -326,7 +384,7 @@ export function registerMcCall(app, deps) {
     }
     // これまで：MOCHICA の架電・Bales の活動・SF の商談を1本の時系列に
     const tl = logs.map((g) => ({ at: g.created_at, src: "kinbot", who: names.get(String(g.caller || "").toLowerCase()) || g.caller, title: outcomeLabel(g.outcome) + (g.reason ? `（${g.reason}）` : ""),
-      text: [g.memo, g.gate && (g.gate.name || g.gate.hours || g.gate.direct) ? `受付で聞けたこと：${[g.gate.name && `担当 ${g.gate.name}`, g.gate.hours && `在席 ${g.gate.hours}`, g.gate.direct && `直通 ${g.gate.direct}`].filter(Boolean).join("・")}` : "", g.next_at ? `次回 ${jstText(g.next_at)}` : "", g.apo_at ? `アポ ${jstText(g.apo_at)}` : ""].filter(Boolean).join("\n"),
+      text: [g.memo, g.gate && (g.gate.name || g.gate.hours || g.gate.direct) ? `受付で聞けたこと：${[g.gate.name && `担当 ${g.gate.name}`, g.gate.hours && `在席 ${g.gate.hours}`, g.gate.direct && `直通 ${g.gate.direct}`].filter(Boolean).join("・")}` : "", g.next_at ? `次回 ${jstText(g.next_at)}` : "", g.apo_at ? `アポ ${jstText(g.apo_at)}${g.apo_who ? `（空いていたクローザー：${g.apo_who}）` : ""}` : ""].filter(Boolean).join("\n"),
       reach: g.reach, cross: !!g.cross_from, logId: g.id, mine: String(g.caller || "").toLowerCase() === u && Date.now() - new Date(g.created_at).getTime() < 15 * 60e3 }));
     const dateOf = (o) => { for (const v of Object.values(o || {})) if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v; return null; };
     const textOf = (o) => { for (const [k, v] of Object.entries(o || {})) if (/comment|memo|content|note|body|text/i.test(k) && typeof v === "string" && v.trim()) return v; return ""; };
@@ -342,7 +400,11 @@ export function registerMcCall(app, deps) {
     // SF の活動（DOC やほかの人の架電・メモ）も同じ時系列に。リードがコンバート済みなら取引先側の活動も読む。
     // kinbot for MOCHICA から書いた Task は上の kinbot の記録と同じものなので、二重に出さないよう外す。
     // SF が遅い・落ちているときでも画面は開けるように、待つのは数秒だけにする
-    for (const t of await sfTasks(req, lead.sf_lead_id || (sf && sf.lead && sf.lead.id), new Set(logs.map((g) => g.sf_task_id).filter(Boolean)))) tl.push(t);
+    // 資料送付も同じ時系列に出す（SF に書いた活動は下の SF の読み込みで二重にならないよう外す）
+    const sends = (await P().query(`SELECT * FROM mc_doc_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
+    for (const s of sends) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "資料送付",
+      text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, s.doc_name ? `資料：${s.doc_name}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
+    for (const t of await sfTasks(req, lead.sf_lead_id || (sf && sf.lead && sf.lead.id), new Set([...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id)].filter(Boolean)))) tl.push(t);
     tl.sort((a, b) => new Date(b.at) - new Date(a.at));
     res.json({ ok: true, lead: { ...lead, data }, ban, phones, docAlso, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
@@ -387,6 +449,7 @@ export function registerMcCall(app, deps) {
     const log = (await P().query(`INSERT INTO mc_call_logs (lead_id, list_id, caller, phone, reach, outcome, reason, gate, memo, next_at, apo_at, cross_from, prev)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, created_at`,
       [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev])).rows[0];
+    if (outcome === "apo" && b.apoWho) await P().query(`UPDATE mc_call_logs SET apo_who=$2 WHERE id=$1`, [log.id, clip(b.apoWho, 80)]);
     await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), locked_by=NULL WHERE id=$1`,
       [id, outcome, nextAt, why, done, gate]);
     res.json({ ok: true, logId: log.id, nextAt, why, done });
@@ -428,6 +491,204 @@ export function registerMcCall(app, deps) {
     for (const id of ids) await sfWrite(req, id);
     const left = ids.length ? +(await P().query(`SELECT count(*) FROM mc_call_logs g WHERE g.id = ANY($1) AND ${SF_FAIL}`, [ids])).rows[0].count : 0;
     res.json({ ok: true, tried: ids.length, left });
+  }));
+  // ===== 資料送付（2026-11-17 福井さん）=====
+  //   DOC の kincall と同じく「確かめてから送る」の2段。資料は資料トラッキングの URL（だれがいつ開いたか分かる）。
+  //   本人の Gmail で送り、SF のリードに活動（メール）を残す（正本は SF）。CC は既定で入れない（福井さんの決定）。
+  //   ひな形・既定の資料は MOCHICA 専用の設定（mcDocSend…）にして、DOC の資料送付の設定は変えない。
+  const MC_DOC_SUBJECT = "資料のご送付（{資料名}）";
+  const MC_DOC_BODY = "{担当者}様\n\nお世話になっております。MOCHICA の{差出人}です。\n先ほどお電話にてご案内した資料をお送りいたします。\n下記の URL よりご確認ください。\n\n{URL}\n\nご不明な点がございましたら、お気軽にご連絡ください。\n何卒よろしくお願いいたします。";
+  const isMail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(v || "").trim());
+  // リードのメールアドレス：mail の付く項目 → 値の形 → SF のリードの項目、の順に探す
+  function emailOf(data = {}, sf = null) {
+    const vals = Object.entries(data || {}).filter(([, v]) => typeof v === "string");
+    const byKey = vals.find(([k, v]) => /mail/i.test(k) && isMail(v)); if (byKey) return byKey[1].trim();
+    const any = vals.find(([, v]) => isMail(v)); if (any) return any[1].trim();
+    if (sf && sf.lead) { const e = Object.values(sf.lead).find((v) => isMail(v)); if (e) return String(e).trim(); }
+    return "";
+  }
+  async function leadFor(req, id) {
+    const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    if (!lead) { const e = new Error("このリードは見つかりません"); e.status = 404; throw e; }
+    if (!(await myListIds(req)).includes(lead.list_id)) { const e = new Error("このリストはあなたの担当ではありません"); e.status = 403; throw e; }
+    let data = {}, sf = null;
+    if (lead.src === "bales") {
+      const [lk, rk] = String(lead.src_key).split("|");
+      const r = (await P().query(`SELECT data, sf FROM mochica_bales_rows WHERE list_key=$1 AND row_key=$2`, [lk, rk]).catch(() => ({ rows: [] }))).rows[0];
+      if (r) { data = r.data || {}; sf = r.sf || null; }
+    } else if (lead.src === "doc") {
+      const t = (await P().query(`SELECT email FROM call_targets WHERE id=$1`, [parseInt(lead.src_key, 10)]).catch(() => ({ rows: [] }))).rows[0];
+      if (t) data = t;
+    }
+    return { lead, data, sf };
+  }
+  async function docSettings() {
+    const st = await getSettings().catch(() => ({}));
+    return { subject: st.mcDocSendSubject || MC_DOC_SUBJECT, body: st.mcDocSendBody || MC_DOC_BODY, defaultDocId: st.mcDocDefaultId || "", cc: st.mcDocSendCc || "" };
+  }
+  // ---- doc-room（2026-11-17 福井さん）：MOCHICA の資料は doc-room の「会社ごとのルーム」で送る ----
+  //   kinbot の資料トラッキングではなく doc-room（https://doc-room.vercel.app/console/）にそろえる。
+  //   閲覧の通知・分析も doc-room 側で見る。管理キーは Railway の環境変数 DOC_ROOM_KEY（コードに書かない）。
+  //   ルームは「送る」を押したときだけ作る（確かめるだけ・資料を切り替えただけで空のルームが増えないように）。
+  const DOC_ROOM = String(process.env.DOC_ROOM_URL || "https://doc-room.vercel.app").replace(/\/+$/, "");
+  async function docRoom(method, path, body) {
+    const key = process.env.DOC_ROOM_KEY;
+    if (!key) { const e = new Error("doc-room の管理キー（DOC_ROOM_KEY）がサーバーに設定されていません。管理者に設定を頼んでください"); e.status = 500; throw e; }
+    const r = await fetch(DOC_ROOM + path, { method, headers: { authorization: `Bearer ${key}`, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20000) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(`doc-room：${j.message || j.error || `エラー（${r.status}）`}`); e.status = r.status === 401 ? 500 : 502; throw e; }
+    return j;
+  }
+  let roomDocsCache = { at: 0, docs: [] };
+  async function roomDocs() {
+    if (Date.now() - roomDocsCache.at < 60e3 && roomDocsCache.docs.length) return roomDocsCache.docs;
+    const docs = ((await docRoom("GET", "/admin/documents")).documents || []).map((d) => ({ id: String(d.id), name: String(d.title || d.id), kind: d.kind || "" }));
+    roomDocsCache = { at: Date.now(), docs };
+    return docs;
+  }
+  app.get("/api/mccall/doc-settings", guard(async (req, res) => {
+    let docs = [], docErr = "";
+    try { docs = await roomDocs(); } catch (e) { docErr = e.message; }
+    res.json({ ok: true, ...(await docSettings()), admin: isAdmin(req), docs: docs.map((d) => ({ id: d.id, name: d.name })), docErr });
+  }));
+  app.put("/api/mccall/doc-settings", adminOnly(async (req, res) => {
+    const b = req.body || {}; const patch = {};
+    if (b.subject !== undefined) patch.mcDocSendSubject = clip(b.subject, 300);
+    if (b.body !== undefined) patch.mcDocSendBody = String(b.body || "").slice(0, 4000);
+    if (b.defaultDocId !== undefined) patch.mcDocDefaultId = String(b.defaultDocId || "");
+    if (b.cc !== undefined) patch.mcDocSendCc = String(b.cc || "").split(/[,\s、]+/).filter(isMail).join(", ");
+    await saveSettings(patch); res.json({ ok: true });
+  }));
+  // 送る前の中身（宛先・件名・本文）。本文の {URL} は残しておき、「送る」で doc-room のルームを作ってから差し替える
+  app.post("/api/mccall/leads/:id/doc/preview", guard(async (req, res) => {
+    try {
+      const { lead, data, sf } = await leadFor(req, parseInt(req.params.id, 10));
+      const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
+      if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、資料は送れません` });
+      const docs = await roomDocs();
+      if (!docs.length) return res.status(400).json({ error: "送れる資料がまだ doc-room に登録されていません。doc-room の管理画面（/console/）で資料を登録してください" });
+      const conf = await docSettings();
+      const want = String((req.body && req.body.docId) || conf.defaultDocId || "");
+      const doc = docs.find((d) => d.id === want) || docs[0];
+      const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
+      const to = emailOf(data, sf);
+      const sender = (await nameMap()).get(me(req)) || "";
+      const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人\}/g, sender).replace(/\{資料名\}/g, doc.name || "ご案内資料");
+      res.json({ ok: true, to, cc: conf.cc, company, person, subject: fill(conf.subject), body: fill(conf.body), docId: doc.id, docName: doc.name,
+        docs: docs.map((d) => ({ id: d.id, name: d.name })), google: await googleConnected(me(req)).catch(() => false),
+        warn: to ? "" : "この会社のメールアドレスが見つかりませんでした。宛先を入れてください" });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+  app.post("/api/mccall/leads/:id/doc/send", guard(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10); const { lead } = await leadFor(req, id); const b = req.body || {}; const u = me(req);
+      const to = String(b.to || "").trim(); const subject = clip(b.subject, 300); let body = String(b.body || "").slice(0, 8000);
+      const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
+      if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、資料は送れません` });
+      if (!isMail(to)) return res.status(400).json({ error: "宛先のメールアドレスを正しく入れてください" });
+      if (!subject || !body) return res.status(400).json({ error: "件名と本文を入れてください" });
+      if (!(await googleConnected(u).catch(() => false))) return res.status(400).json({ error: "あなたの Google 連携がまだです。設定 → 外部連携 → Google でつないでから、もう一度送ってください" });
+      const cc = [...new Set(String(b.cc || "").split(/[,\s、]+/).filter(isMail).map((x) => x.toLowerCase()))].filter((x) => x !== to.toLowerCase() && x !== u).join(", ");
+      // doc-room にこの会社のルームを作る。作れなければメールは送らない（URL の無いメールを出さない）
+      const doc = (await roomDocs()).find((d) => d.id === String(b.docId || ""));
+      if (!doc) return res.status(400).json({ error: "選んだ資料が doc-room に見つかりません。画面を開き直して、資料を選び直してください" });
+      const sender = (await nameMap()).get(u) || u;
+      let room;
+      try {
+        room = await docRoom("POST", "/admin/rooms", { company_name: String(lead.company || "").trim(), contact_name: String((lead.gate && lead.gate.name) || lead.person || "").trim() || null,
+          owner: sender, message: null, cta_url: null, expires_days: 30, sf_opportunity_id: null, sf_account_id: null,
+          items: [{ document_id: doc.id, downloadable: doc.kind === "summary" }] });
+      } catch (e) { return res.status(e.status || 502).json({ error: `資料のルームを作れなかったので、メールは送っていません（${e.message}）` }); }
+      const url = String(room && room.url || "");
+      if (!url) return res.status(502).json({ error: "doc-room からルームの URL が返ってこなかったので、メールは送っていません" });
+      const docName = doc.name;
+      // {URL} を消してしまっていても、URL の無いメールにならないよう末尾に足す
+      body = /\{URL\}/.test(body) ? body.replace(/\{URL\}/g, url) : `${body}\n\n${url}`;
+      try { await gmailSend(u, { to, subject, bodyText: body, cc }); }
+      catch (e) { return res.status(500).json({ error: e.needScope ? "Gmail で送る許可がありません。設定 → 外部連携 → Google を一度外して、もう一度つなぎ、Gmail の項目を許可してください" : `送れませんでした：${String(e.message).slice(0, 120)}` }); }
+      const row = (await P().query(`INSERT INTO mc_doc_sends (lead_id, sender, to_addr, cc, subject, url, doc_name) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        [id, u, to, cc || null, subject, clip(url, 300), clip(docName, 200)])).rows[0];
+      // SF のリードに「資料送付」の活動を残す。書けなかったら sf_err に残し、画面にも返す（黙って失敗しない＝ルール5）
+      let sfNote = "";
+      if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) {
+        try {
+          const t = await createTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 資料送付", Type: "Email", Status: "完了",
+            ActivityDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
+            Description: [`送った人：${(await nameMap()).get(u) || u}（kinbot for MOCHICA）`, `宛先：${to}`, cc ? `CC：${cc}` : "", `件名：${subject}`, `資料：${docName}（doc-room）${url}`].filter(Boolean).join("\n") });
+          if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
+          await P().query(`UPDATE mc_doc_sends SET sf_task_id=$2 WHERE id=$1`, [row.id, t.id]);
+        } catch (e) { sfNote = "メールは送りましたが、SF の活動には書けませんでした"; await P().query(`UPDATE mc_doc_sends SET sf_err=$2 WHERE id=$1`, [row.id, String(e.message).slice(0, 300)]).catch(() => {}); }
+      } else sfNote = "SF のリードと結びついていないので、SF には残していません（kinbot にだけ残ります）";
+      res.json({ ok: true, to, sf: sfNote });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+
+  // ===== アポのおすすめ日時（2026-11-17 福井さん）=====
+  //   MOCHICA のクローザー（メンバー管理で事業が MOCHICA・役割がクローザー）のカレンダーの空きから選ぶ。
+  //   DOC の kincall の候補日（DOC のクローザー）は使わない（DOC の人が出ないように）。
+  //   空きの見方は DOC とそろえる：終日・参加しない予定・「リスケ」「キャンセル」は空きとみなす。
+  async function mcClosers() {
+    const ms = await listMembers().catch(() => []);
+    return ms.filter((m) => m.email && m.active !== false && (m.businesses || []).includes("MOCHICA") && (m.roles || []).includes("closer"))
+      .map((m) => ({ email: String(m.email).toLowerCase(), name: m.name || m.email }));
+  }
+  // カレンダーを読める人（Google 連携済み）を、自分 → アポを読む係 → クローザー本人 の順に探す
+  async function busyOf(req, members, timeMin, timeMax) {
+    const st = await getSettings().catch(() => ({}));
+    const owners = [...new Set([me(req), String(st.apoScanOwner || "").toLowerCase(), ...members.map((m) => m.email), String(st.calendarOwner || "").toLowerCase()].filter(Boolean))];
+    let reader = "";
+    for (const o of owners) { try { await listCalendarEvents(o, members[0].email, { timeMin, timeMax }); reader = o; break; } catch {} }
+    if (!reader) return null;
+    const busy = new Map();
+    await Promise.all(members.map(async (m) => {
+      try {
+        const arr = [];
+        for (const e of (await listCalendarEvents(reader, m.email, { timeMin, timeMax })) || []) {
+          if (e.allDay || e.selfResponse === "declined" || /リスケ|キャンセル/.test(String(e.title || ""))) continue;
+          const s0 = Date.parse(e.start), e0 = Date.parse(e.end); if (!isNaN(s0) && !isNaN(e0) && e0 > s0) arr.push([s0, e0]);
+        }
+        busy.set(m.email, arr);
+      } catch { busy.set(m.email, null); }   // 読めなかった人は「空き」と数えない
+    }));
+    return busy;
+  }
+  const freeAt = (busy, members, t, mins) => members.filter((m) => { const b = busy.get(m.email); return Array.isArray(b) && !b.some(([bs, be]) => bs < t + mins * 60e3 && be > t); }).map((m) => m.name);
+  const slotOut = (t, free, total) => { const j = new Date(t + 9 * 3600e3); return { at: new Date(t).toISOString(), md: `${j.getUTCMonth() + 1}/${j.getUTCDate()}`, dow: "日月火水木金土"[j.getUTCDay()], time: `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`, band: j.getUTCHours() < 12 ? "午前" : "午後", free, freeN: free.length, total }; };
+  // おすすめ：翌営業日から2週間、平日 10〜18時の1時間枠。空いている人の多い日を週ごとに3日、その日の午前・午後で一番空いている枠を1つずつ
+  app.get("/api/mccall/slots", guard(async (req, res) => {
+    const members = await mcClosers();
+    if (!members.length) return res.json({ ok: true, slots: [], members: [], reason: "MOCHICA のクローザーが決まっていません。設定 → メンバー管理で、事業 MOCHICA・役割 クローザーを付けてください" });
+    const now = Date.now(); const busy = await busyOf(req, members, new Date(now).toISOString(), new Date(now + 16 * 86400e3).toISOString());
+    if (!busy) return res.json({ ok: true, slots: [], members: members.map((m) => m.name), reason: "カレンダーの空きを読めませんでした。自分かクローザーの Google 連携を確かめてください" });
+    const today = jstDayStart(new Date(now)).getTime(); const days = [];
+    for (let d = 1; d <= 15; d++) {
+      const day = today + d * 86400e3; const wd = new Date(day + 9 * 3600e3).getUTCDay(); if (wd === 0 || wd === 6) continue;
+      const slots = []; for (let h = 10; h < 18; h++) { const t = day + h * 3600e3; slots.push({ t, h, free: freeAt(busy, members, t, 60) }); }
+      days.push({ day, week: d <= 7 ? 1 : 2, best: Math.max(...slots.map((s) => s.free.length)), slots });
+    }
+    const pick = (w) => days.filter((x) => x.week === w && x.best > 0).sort((a, b) => (b.best - a.best) || (a.day - b.day)).slice(0, 3);
+    const out = [];
+    for (const d of [...pick(1), ...pick(2)]) for (const cond of [(h) => h < 12, (h) => h >= 13]) {
+      const s = d.slots.filter((x) => cond(x.h) && x.free.length).sort((a, b) => (b.free.length - a.free.length) || (a.h - b.h))[0];
+      if (s) out.push(slotOut(s.t, s.free, members.length));
+    }
+    out.sort((a, b) => new Date(a.at) - new Date(b.at));
+    res.json({ ok: true, slots: out.slice(0, 12), members: members.map((m) => m.name), unread: members.filter((m) => busy.get(m.email) === null).map((m) => m.name) });
+  }));
+  // 選んだ1日の空き（30分きざみ・9〜19時・商談の長さ分まるごと空いている人）
+  app.get("/api/mccall/slots/day", guard(async (req, res) => {
+    const date = String(req.query.date || ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "日付が正しくありません" });
+    const mins = Math.max(15, Math.min(240, parseInt(req.query.minutes, 10) || 60));
+    const members = await mcClosers();
+    if (!members.length) return res.json({ ok: true, slots: [], reason: "MOCHICA のクローザーが決まっていません" });
+    const day = Date.parse(`${date}T00:00:00+09:00`);
+    const busy = await busyOf(req, members, new Date(day).toISOString(), new Date(day + 86400e3).toISOString());
+    if (!busy) return res.json({ ok: true, slots: [], reason: "カレンダーの空きを読めませんでした" });
+    const out = [];
+    for (let t = day + 9 * 3600e3; t + mins * 60e3 <= day + 19 * 3600e3; t += 30 * 60e3) {
+      if (t < Date.now() + 30 * 60e3) continue; const free = freeAt(busy, members, t, mins); if (free.length) out.push(slotOut(t, free, members.length));
+    }
+    res.json({ ok: true, slots: out, members: members.map((m) => m.name) });
   }));
   app.get("/api/mccall/meta", guard(async (req, res) => {
     res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, admin: isAdmin(req), me: me(req) });
