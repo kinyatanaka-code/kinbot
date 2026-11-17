@@ -2130,7 +2130,7 @@ function renderCallV2() {
     if (kc.frozen && kc.frozen.key === fkey) {
       const byK = new Map(rows0.map((r) => [rk(r), r])); const seen = new Set(kc.frozen.ids);
       list = kc.frozen.ids.map((k) => byK.get(k)).filter(Boolean).concat(rows.filter((r) => !seen.has(rk(r))).sort(sortF));
-    } else { list = rows.slice().sort(sortF); kc.frozen = { key: fkey, ids: list.map(rk) }; }
+    } else { list = rows.slice().sort(sortF); kc.frozen = { key: fkey, ids: list.map(rk) }; kc.listTop = 0; }   // 札や月を変えたら一覧の頭から
     const inF = new Set(rows.map(rk)); const stays = list.filter((r) => !inF.has(rk(r))).length;
     const qOf = (r) => [r.name, kxSurname(r.cs) || "", (kc.inf && kc.inf[r.id] && kc.inf[r.id].phone) || "", (kc.inf && kc.inf[r.id] && kc.inf[r.id].contact) || ""].join(" ").normalize("NFKC").toLowerCase().replace(/[\s\-ー－]/g, "");
     const cnt = (st) => rows0.filter((r) => r.status === st).length;
@@ -2205,7 +2205,9 @@ function renderCallV2() {
   // 画面は固定して、企業の一覧だけをスクロール（2026-11-16 田中さん）：一覧の高さを「画面の下まで」に合わせる。
   //   描き直す（ボタンを押す）たびに一覧が作り直されるので、スクロールの位置を覚えておいて戻す。スマホは今までどおり画面ごと
   { const lst = box.querySelector(".kc3-list");
-    if (lst) { lst.scrollTop = kc.listTop || 0; lst.addEventListener("scroll", () => { kc.listTop = lst.scrollTop; }, { passive: true }); kc3Fit(); } }
+    // 先に高さを決めてから位置を戻す（2026-11-17 田中さん「ボタンを押したら画面が切り替わって、企業が下にいく」）。
+    //   逆の順だと、まだスクロールできない一覧に位置を入れることになり、いつも一番上に戻ってしまっていた
+    if (lst) { kc3Fit(); lst.scrollTop = kc.listTop || 0; lst.addEventListener("scroll", () => { kc.listTop = lst.scrollTop; }, { passive: true }); } }
   box.querySelectorAll(".kc3-row[data-id]").forEach((row) => {
     const id = row.dataset.id, mkey = row.dataset.mkey; const r = kcRow(id, mkey) || {};
     row.querySelectorAll("[data-kc-toggle]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-open]")) return; kc.open = kc.open === id ? "" : id; renderCallV2(); }));
