@@ -13260,7 +13260,7 @@ export async function kxVoiceAdd(v) {
   if (!pool) return null; await ensureKxVoices();
   const { rows } = await pool.query(`INSERT INTO kinxs_voices (account_id, kind, title, detail, quote, priority, source_bot, source_title, source_at, manual, created_by, dedupe_key)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (dedupe_key) DO NOTHING RETURNING *`,
-    [String(v.accountId), v.kind || "要望", String(v.title || "").slice(0, 120), String(v.detail || "").slice(0, 1000), String(v.quote || "").slice(0, 300), v.priority || "中",
+    [String(v.accountId), v.kind || "要望", String(v.title || "").slice(0, 120), String(v.detail || "").slice(0, 1000), String(v.quote || "").slice(0, 300), v.priority || "",
       v.sourceBot || null, v.sourceTitle || null, v.sourceAt || null, !!v.manual, v.createdBy || null, v.key || `m:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`]);
   return rows[0] || null;
 }
