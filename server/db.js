@@ -13245,6 +13245,8 @@ function ensureKxVoices() {
     await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_voices (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, title TEXT, detail TEXT, quote TEXT, priority TEXT, status TEXT DEFAULT '未解決',
       source_bot TEXT, source_title TEXT, source_at TIMESTAMPTZ, manual BOOLEAN DEFAULT false, created_by TEXT, resolved_by TEXT, resolved_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT now(), dedupe_key TEXT UNIQUE)`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS kinxs_voices_acc ON kinxs_voices (account_id)`).catch(() => {});
+    // 中身の分類（AI面接官・管理画面 など）。似た要望をまとめて見るため（2026-11-17 田中さん）
+    await pool.query(`ALTER TABLE kinxs_voices ADD COLUMN IF NOT EXISTS category TEXT`).catch(() => {});
     await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_voice_scans (bot_id TEXT PRIMARY KEY, account_id TEXT, n INT DEFAULT 0, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
   })();
   return _kxVoiceP;
@@ -13258,16 +13260,16 @@ export async function kxVoiceList({ accountId = "", status = "" } = {}) {
 }
 export async function kxVoiceAdd(v) {
   if (!pool) return null; await ensureKxVoices();
-  const { rows } = await pool.query(`INSERT INTO kinxs_voices (account_id, kind, title, detail, quote, priority, source_bot, source_title, source_at, manual, created_by, dedupe_key)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (dedupe_key) DO NOTHING RETURNING *`,
+  const { rows } = await pool.query(`INSERT INTO kinxs_voices (account_id, kind, title, detail, quote, priority, source_bot, source_title, source_at, manual, created_by, dedupe_key, category)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (dedupe_key) DO NOTHING RETURNING *`,
     [String(v.accountId), v.kind || "要望", String(v.title || "").slice(0, 120), String(v.detail || "").slice(0, 1000), String(v.quote || "").slice(0, 300), v.priority || "",
-      v.sourceBot || null, v.sourceTitle || null, v.sourceAt || null, !!v.manual, v.createdBy || null, v.key || `m:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`]);
+      v.sourceBot || null, v.sourceTitle || null, v.sourceAt || null, !!v.manual, v.createdBy || null, v.key || `m:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`, v.category || null]);
   return rows[0] || null;
 }
 export async function kxVoiceSet(id, patch = {}) {
   if (!pool) return null; await ensureKxVoices();
   const sets = [], vals = [];
-  for (const k of ["status", "priority", "kind", "title", "detail", "resolved_by", "resolved_at"]) if (patch[k] !== undefined) { vals.push(patch[k]); sets.push(`${k} = $${vals.length}`); }
+  for (const k of ["status", "priority", "kind", "title", "detail", "resolved_by", "resolved_at", "category"]) if (patch[k] !== undefined) { vals.push(patch[k]); sets.push(`${k} = $${vals.length}`); }
   if (!sets.length) return null;
   vals.push(Number(id));
   return (await pool.query(`UPDATE kinxs_voices SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals)).rows[0] || null;
