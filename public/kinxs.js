@@ -258,11 +258,28 @@ const KX_TEST = (() => { try { return localStorage.getItem("kxTest") === "1"; } 
 const kxUsersUrl = () => `/api/kinxs/users${KX_TEST ? "?test=1" : ""}`;
 const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub", voice: "voice" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
+// メニューの親子：いまのページがある組は開いておく。矢印で開け閉めしたら、このブラウザで覚えておく（2026-11-17）
+(function kxNavGroups() {
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem("kxNavOpen") || "{}") || {}; } catch {}
+  document.querySelectorAll(".kx-grp").forEach((g) => {
+    const has = !!g.querySelector(`.kx-nav[data-view="${VIEW}"]`);
+    g.classList.toggle("has-on", has);
+    const open = has || saved[g.dataset.grp] === true;
+    g.classList.toggle("open", open);
+    const tg = g.querySelector(".kx-grp-tg"); if (!tg) return;
+    tg.setAttribute("aria-expanded", open ? "true" : "false");
+    tg.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const on = !g.classList.contains("open"); g.classList.toggle("open", on); tg.setAttribute("aria-expanded", on ? "true" : "false");
+      saved[g.dataset.grp] = on; try { localStorage.setItem("kxNavOpen", JSON.stringify(saved)); } catch {}
+    });
+  });
+})();
 if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "DOC更新管理", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "DOC更新管理";
+$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "年間更新", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "DOC更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = !["renew", "list"].includes(VIEW);
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
@@ -2524,7 +2541,7 @@ if (window.KX_COPY) {
   if (nav && nav.parentElement && !document.getElementById("kcsSet")) {
     const a = document.createElement("a"); a.id = "kcsSet"; a.className = "kx-nav"; a.href = "/kincs/settings";
     a.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>設定`;
-    nav.parentElement.insertBefore(a, nav.nextSibling);
+    const at = nav.closest(".kx-grp") || nav; at.parentElement.insertBefore(a, at.nextSibling);
   }
 }
 
@@ -2877,7 +2894,7 @@ async function arExcel() {
   X.writeFile(wb, `${KX_TEST ? "テスト_" : ""}DOC自動更新_${d.ym.slice(0, 4)}年${Number(d.ym.slice(5, 7))}月分_${stamp}出力${ver > 1 ? `_第${ver}版` : ""}.xlsx`);
   arLoad();
 }
-if (VIEW === "ar") { if ($("kxPageName")) $("kxPageName").textContent = "DOC自動更新"; arLoad(); }
+if (VIEW === "ar") { if ($("kxPageName")) $("kxPageName").textContent = "自動更新"; arLoad(); }
 
 // ===================== メール配信（一斉配信・返信）（2026-11-10 田中さん）=====================
 const ml = { users: null, sel: new Set(), targets: [], drafts: {}, prompt: "", results: {} };

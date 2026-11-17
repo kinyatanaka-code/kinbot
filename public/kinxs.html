@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261117o" />
+    <link rel="stylesheet" href="style.css?v=20261117p" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1034,23 +1034,51 @@
   }
   @media (min-width:861px) and (max-height:820px){ .kx-side .kx-nav{padding:8px 14px !important;font-size:14px !important;} .kx-brand{padding-bottom:8px !important;} .kx-stools{margin-top:6px !important;padding-top:8px !important;} }
   @media (min-width:861px) and (max-height:700px){ .kx-side .kx-nav{padding:6px 14px !important;font-size:13.5px !important;} }
+
+  /* メニューの親子（2026-11-17）：子は少し右に寄せて小さく。矢印で開け閉めできる */
+  .kx-grp-h{position:relative;}
+  .kx-grp-h > .kx-nav{padding-right:34px !important;}
+  .kx-grp-tg{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:#A9C4B8;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;}
+  .kx-grp-tg:hover{background:rgba(255,255,255,.1);color:#fff;}
+  .kx-grp-tg svg{transition:transform .15s;}
+  .kx-grp.open .kx-grp-tg svg{transform:rotate(180deg);}
+  .kx-sub{display:none;margin:2px 0 4px 22px;padding-left:10px;border-left:1px solid rgba(255,255,255,.18);}
+  .kx-grp.open .kx-sub{display:flex;flex-direction:column;gap:1px;}
+  .kx-side .kx-sub .kx-nav.kx-subnav{padding:7px 12px !important;font-size:13px !important;font-weight:600;color:#B9CEC5;}
+  .kx-side .kx-sub .kx-nav.kx-subnav.on{color:#fff;}
+  .kx-side .kx-grp.has-on > .kx-grp-h > .kx-nav:not(.on){color:#fff;background:rgba(255,255,255,.06);}
+  @media (max-width:860px){ .kx-grp,.kx-grp-h,.kx-sub,.kx-grp.open .kx-sub{display:contents;} .kx-grp-tg{display:none;} .kx-grp-only{display:none !important;} .kx-side .kx-sub .kx-nav.kx-subnav{font-size:14px !important;} }
 </style>
 </head>
   <body>
     <div class="kx-app">
       <nav class="kx-side" aria-label="kinXsのメニュー">
         <a class="kx-brand" href="/kinxs?p=home"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
+        <!-- メニューは親子でまとめる（2026-11-17 田中さん「メニューの項目が多くなってきたからまとめたい」）。
+             子は、親か子のページにいるときと、右の矢印で開いたときだけ出す -->
         <a class="kx-nav" data-view="home" href="/kinxs?p=home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>ホーム</a>
-        <a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h7A1.5 1.5 0 0 1 14 5.5V21"/><path d="M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21"/><path d="M2.5 21h19"/><path d="M7.5 8h3M7.5 11.5h3M7.5 15h3M16.5 14h1M16.5 17h1"/></svg>ユーザー一覧</a>
-      
-        <a class="kx-nav" data-view="pub" href="/kinxs?p=pub"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17"/><path d="M12 3.5c2.6 2.4 3.8 5.3 3.8 8.5s-1.2 6.1-3.8 8.5c-2.6-2.4-3.8-5.3-3.8-8.5s1.2-6.1 3.8-8.5z"/></svg>掲載先一覧</a>
+        <div class="kx-grp" data-grp="list">
+          <div class="kx-grp-h"><a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h7A1.5 1.5 0 0 1 14 5.5V21"/><path d="M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21"/><path d="M2.5 21h19"/><path d="M7.5 8h3M7.5 11.5h3M7.5 15h3M16.5 14h1M16.5 17h1"/></svg>ユーザー一覧</a><button type="button" class="kx-grp-tg" aria-label="下の項目を開く・閉じる" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+          <div class="kx-sub">
+            <a class="kx-nav kx-subnav" data-view="pub" href="/kinxs?p=pub">掲載先一覧</a>
+            <a class="kx-nav kx-subnav" data-view="board" href="/kinxs?p=board">フェーズ別</a>
+            <a class="kx-nav kx-subnav" data-view="trend" href="/kinxs?p=trend">傾向分析</a>
+          </div>
+        </div>
+        <div class="kx-grp" data-grp="renew">
+          <div class="kx-grp-h"><a class="kx-nav kx-grp-only" href="/kinxs?p=renew"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>更新管理</a><button type="button" class="kx-grp-tg" aria-label="下の項目を開く・閉じる" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+          <div class="kx-sub">
+            <a class="kx-nav kx-subnav" data-view="renew" href="/kinxs?p=renew">年間更新</a>
+            <a class="kx-nav kx-subnav" data-view="ar" href="/kinxs?p=ar">自動更新</a>
+          </div>
+        </div>
+        <div class="kx-grp" data-grp="plan">
+          <div class="kx-grp-h"><a class="kx-nav" data-view="plan" href="/kinxs?p=plan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 14h3M13 14h3M8 17h3"/></svg>年間施策</a><button type="button" class="kx-grp-tg" aria-label="下の項目を開く・閉じる" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+          <div class="kx-sub">
+            <a class="kx-nav kx-subnav" data-view="call" href="/kinxs?p=call">電話フォロー</a>
+          </div>
+        </div>
         <a class="kx-nav" data-view="voice" href="/kinxs?p=voice"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/><path d="M8 10h8M8 13h5"/></svg>要望・問い合わせ</a>
-        <a class="kx-nav" data-view="renew" href="/kinxs?p=renew"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>DOC更新管理</a>
-        <a class="kx-nav" data-view="ar" href="/kinxs?p=ar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/><path d="M9 12h6M12 9v6"/></svg>DOC自動更新</a>
-        <a class="kx-nav" data-view="board" href="/kinxs?p=board"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="11" rx="1.5"/><rect x="17" y="4" width="4" height="7" rx="1.5"/></svg>フェーズ別</a>
-        <a class="kx-nav" data-view="plan" href="/kinxs?p=plan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 14h3M13 14h3M8 17h3"/></svg>年間施策</a>
-        <a class="kx-nav" data-view="call" href="/kinxs?p=call"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"/></svg>電話フォロー</a>
-        <a class="kx-nav" data-view="trend" href="/kinxs?p=trend"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>傾向分析</a>
         <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携（回収MTG）</a>
         <a class="kx-nav" data-view="mail" href="/kinxs?p=mail" hidden style="display:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6 8.5-6"/></svg>メール配信</a>
         <a class="kx-nav kx-back" href="/home.html"><img src="/kinbot.svg" alt="" width="18" height="18" style="border-radius:5px" />kinbot<span class="kx-back-tag">戻る</span></a>
@@ -1163,7 +1191,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261117o" defer></script>
-    <script src="kinxs.js?v=20261117o"></script>
+    <script src="kbchat.js?v=20261117p" defer></script>
+    <script src="kinxs.js?v=20261117p"></script>
   </body>
 </html>
