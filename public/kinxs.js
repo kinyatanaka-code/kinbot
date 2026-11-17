@@ -256,9 +256,9 @@ $("kxSync").addEventListener("click", async () => {
 // テスト用の会社を出すか（このブラウザだけ。DOC自動更新の上の「🧪 テスト」で切りかえ）（2026-11-10）
 const KX_TEST = (() => { try { return localStorage.getItem("kxTest") === "1"; } catch { return false; } })();
 const kxUsersUrl = () => `/api/kinxs/users${KX_TEST ? "?test=1" : ""}`;
-const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call" })[new URLSearchParams(location.search).get("p")] || "home";
+const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call";
+if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
@@ -600,6 +600,16 @@ function kxCoPane(d) {
       </section>
       <!-- ヘルプサイトのカードは、UI刷新（2026-11-04 久野さんの要望書）で外した -->
       <section class="kx-c2" data-sec>
+        ${head("掲載先", true)}
+        <div class="kx-view">${(f.places || []).length ? `<div>${f.places.map((p) => kxPlaceChip(p, true)).join("")}</div>` : '<span class="kx-none">まだ入っていません（「編集」で、どこに掲載しているかを入れられます）</span>'}</div>
+        <div class="kx-editbox">
+          <div class="kx-note" style="margin-bottom:6px">どこに掲載しているか（採用サイト・マイナビ・Instagram など）と、そのページの URL。何件でも入れられます</div>
+          <div data-plc-rows>${((f.places || []).length ? f.places : [{}]).map((p) => kxPlaceRow(p)).join("")}</div>
+          <datalist id="kxPlaceList">${KX_PLACES.map((t) => `<option value="${esc(t)}"></option>`).join("")}</datalist>
+          <div class="kx-edact"><button type="button" class="hp-b" data-plc-add style="margin-right:auto">＋ 掲載先を追加</button><button type="button" class="hp-b" data-cancel>やめる</button><button type="button" class="kx-btn kx-pri" data-save-info>保存</button></div>
+        </div>
+      </section>
+      <section class="kx-c2" data-sec>
         ${head("DOC", true)}
         <div class="kx-view"><div class="kx-dl"><span>VR</span><div>${val(f.vrUrl, "url")} ${tag("vrUrl")}</div><span>AI<br><small>候補者画面</small></span><div>${val(f.aiUrl, "url")} ${tag("aiUrl")}</div><span>AI<br><small>管理画面</small></span><div>${val(f.adminUrl || "https://casual-interview-api.brainverse-ai.com/", "url")} <span class="kx-none">（全社共通）</span></div></div></div>
         <div class="kx-editbox kx-form">
@@ -847,12 +857,22 @@ async function openDetail(id, reuse) {
   const ctRow = () => `<div class="kx-ct"><input class="kx-in" data-ct="name" placeholder="お名前" /><input class="kx-in" data-ct="title" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" placeholder="電話番号" /><input class="kx-in" data-ct="email" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`;
   const wireCt = () => bg.querySelectorAll("[data-ct-del]").forEach((b) => { b.onclick = () => { b.closest(".kx-ct").remove(); if (!ctBox.querySelector(".kx-ct")) { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); } }; });
   if (ctBox) { wireCt(); bg.querySelector("[data-ct-add]").addEventListener("click", () => { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); }); }
+  // 掲載先の行（2026-11-17 久野さん）
+  const plBox = bg.querySelector("[data-plc-rows]");
+  const wirePl = () => bg.querySelectorAll("[data-plc-del]").forEach((b) => { b.onclick = () => { b.closest(".pl-row").remove(); if (!plBox.querySelector(".pl-row")) { plBox.insertAdjacentHTML("beforeend", kxPlaceRow({})); wirePl(); } }; });
+  if (plBox) { wirePl(); bg.querySelector("[data-plc-add]").addEventListener("click", () => { plBox.insertAdjacentHTML("beforeend", kxPlaceRow({})); wirePl(); }); }
   bg.querySelectorAll("[data-save-info]").forEach((b) => b.addEventListener("click", () => {
     // 直した欄だけを保存する（SFから来た値をそのまま手入力として残さないため）
     // 直した欄に加えて、SF にも手入力にも無い値（メールのドメイン・CS連携などから出していた値）も、そのまま保存して SF に書く（2026-11-12 田中さん）
     const info = {}; bg.querySelectorAll("[data-info]").forEach((el) => { const sk = String(el.dataset.src || ""); if (el.value !== el.defaultValue || (el.value.trim() && sk && !/^(SF|手入力)/.test(sk))) info[el.dataset.info] = el.value; });
     const ctSec = bg.querySelector("[data-ct-rows]") && bg.querySelector("[data-ct-rows]").closest("[data-sec]");
     if (ctSec && ctSec.classList.contains("editing")) info.contacts = [...bg.querySelectorAll(".kx-ct")].map((r) => ({ name: r.querySelector('[data-ct="name"]').value, title: r.querySelector('[data-ct="title"]').value, phone: r.querySelector('[data-ct="phone"]').value, email: r.querySelector('[data-ct="email"]').value }));
+    const plSec = plBox && plBox.closest("[data-sec]");
+    if (plSec && plSec.classList.contains("editing")) {
+      const rows = [...plBox.querySelectorAll(".pl-row")].map((r) => ({ where: r.querySelector('[data-plc="where"]').value.trim(), url: r.querySelector('[data-plc="url"]').value.trim(), memo: r.querySelector('[data-plc="memo"]').value.trim() })).filter((p) => p.where || p.url);
+      const bad = rows.find((p) => p.url && !/^https?:\/\//i.test(p.url)); if (bad) { alert(`URL は https:// から入れてください（${bad.url}）`); return; }
+      info.places = rows;
+    }
     if (!Object.keys(info).length) { b.closest("[data-sec]")?.classList.remove("editing"); return; }
     put({ info });
   }));
@@ -2217,6 +2237,43 @@ function kpWireTargets(box, me) {
   const ot = box.querySelector("[data-dl-out]"); if (ot) ot.addEventListener("click", () => bulk("対象外"));
 }
 if (VIEW === "trend") { if ($("kxPageName")) $("kxPageName").textContent = "傾向分析"; renderTrendV2(); }
+// ===== 掲載先（2026-11-17 久野さん「どこに掲載しているかを記載する枠と、直販が見やすい場所にそれを一覧に」）=====
+const KX_PLACES = ["自社の採用サイト", "コーポレートサイト", "マイナビ", "リクナビ", "キャリタス", "ワンキャリア", "Indeed", "求人ボックス", "ハローワーク", "Instagram", "X（旧Twitter）", "TikTok", "YouTube", "LINE", "会社説明会の資料", "メール・スカウト", "その他"];
+function kxPlaceRow(p) {
+  return `<div class="pl-row"><input class="kx-in" data-plc="where" list="kxPlaceList" value="${esc((p && p.where) || "")}" placeholder="どこ（例：採用サイト）" /><input class="kx-in" data-plc="url" value="${esc((p && p.url) || "")}" placeholder="https://（掲載しているページ）" /><input class="kx-in" data-plc="memo" value="${esc((p && p.memo) || "")}" placeholder="メモ（どのページのどこに など）" /><button type="button" class="hp-b" data-plc-del title="この行を消す" aria-label="この行を消す">×</button></div>`;
+}
+function kxPlaceChip(p, withMemo) {
+  const lab = esc(p.where || "掲載先"); const memo = withMemo && p.memo ? ` <small>${esc(p.memo)}</small>` : "";
+  return p.url ? `<a class="pl-chip" href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.url)}">${lab}${memo} ↗</a>` : `<span class="pl-chip">${lab}${memo}</span>`;
+}
+async function renderPub() {
+  const box = $("vPubBody"); if (!box) return;
+  if ($("kxPageName")) $("kxPageName").textContent = "掲載先一覧";
+  box.innerHTML = '<div class="kx-empty">読み込み中…</div>';
+  let d; try { d = await api(kxUsersUrl()); } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; }
+  const all = (d.items || []).filter((x) => !x.archived && kxHasDoc(x));
+  const st = window.__pub || (window.__pub = { tab: "has", q: "", ch: "" });
+  const draw = () => {
+    const q = st.q.trim().toLowerCase();
+    const base = all.filter((x) => (!st.ch || x.channel === st.ch) && (!q || [x.name, x.cs, x.fs, ...(x.places || []).map((p) => `${p.where} ${p.url} ${p.memo}`)].join(" ").toLowerCase().includes(q)));
+    const has = base.filter((x) => (x.places || []).length), none = base.filter((x) => !(x.places || []).length && (x.publishedOn || x.label === "利用中"));
+    const list = st.tab === "has" ? has : st.tab === "none" ? none : base;
+    list.sort((a, b) => String(b.publishedOn || "").localeCompare(String(a.publishedOn || "")) || String(a.name).localeCompare(String(b.name), "ja"));
+    const chs = [...new Set(all.map((x) => x.channel).filter(Boolean))];
+    box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["has", `掲載先あり（${has.length}）`], ["none", `掲載済みで未記入（${none.length}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-pt="${k}">${l}</button>`).join("")}</div>
+      ${chs.length ? `<select class="kx-in" data-pch style="width:auto"><option value="">販売区分：すべて</option>${chs.map((c) => `<option ${st.ch === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>` : ""}
+      <input class="kx-in" data-pq placeholder="会社名・掲載先・担当で探す" value="${esc(st.q)}" /></div>
+      <div class="v2-rt-wrap"><table class="v2-rt pl-tbl"><thead><tr><th>会社名</th><th>掲載先</th><th>掲載日</th><th>販売区分</th><th>受注者</th><th>CS担当</th></tr></thead><tbody>
+      ${list.length ? list.map((x) => `<tr><td><button type="button" class="pl-co" data-pco="${esc(x.id)}">${esc(x.name)}</button></td><td>${(x.places || []).length ? x.places.map((p) => kxPlaceChip(p, false)).join("") : '<span class="kx-none">未記入</span>'}</td><td>${esc(x.publishedOn ? x.publishedOn.replace(/-/g, "/") : "—")}</td><td>${esc(x.channel || "—")}</td><td>${esc(x.fs || "—")}</td><td>${esc(x.cs || "—")}</td></tr>`).join("") : `<tr><td colspan="6" class="kx-empty">${st.tab === "has" ? "まだ掲載先が入っている会社はありません。会社の詳しい画面の「掲載先」で入れてください" : "当てはまる会社はありません"}</td></tr>`}
+      </tbody></table></div>`;
+    box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; draw(); }));
+    const ch = box.querySelector("[data-pch]"); if (ch) ch.addEventListener("change", () => { st.ch = ch.value; draw(); });
+    const qi = box.querySelector("[data-pq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; draw(); const n = box.querySelector("[data-pq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
+    box.querySelectorAll("[data-pco]").forEach((b) => b.addEventListener("click", () => openCo(b.dataset.pco)));
+  };
+  draw();
+}
+if (VIEW === "pub") renderPub();
 
 // ===================== 動きの仕上げ（2026-11-04 田中さん：1 カウントアップ・2 浮くカード・3 脈打つアラート・5 読み込みの光・6 完了のチェック）=====================
 // 5 読み込み中は、カードの形のまま光が流れる仮の形
