@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261117r" />
+    <link rel="stylesheet" href="style.css?v=20261117s" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1073,6 +1073,21 @@
   .pl-cf{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;font-size:11.5px;color:#6B7D75;padding-top:8px;border-top:1px solid #EEF3F0;margin-top:auto;}
   .pl-tag{font-weight:700;color:#0d5b47;background:#EEF6F2;border-radius:6px;padding:1px 7px;}
   .pl-n{margin-left:auto;font-weight:700;color:#0F6E56;}
+
+  /* 掲載先一覧：社数の帯・カードの中で直す（2026-11-17） */
+  .pl-stat{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 12px;padding:10px 12px;background:#fff;border:1px solid #E1EBE6;border-radius:14px;}
+  .pl-stat-h{font-size:12px;font-weight:800;color:#0d5b47;margin-right:4px;}
+  .pl-sc{display:inline-flex;align-items:baseline;gap:4px;padding:4px 10px;border-radius:99px;border:1px solid #D6E6DF;background:#F6FAF8;color:#2E4A40;font:inherit;font-size:12px;cursor:pointer;}
+  .pl-sc b{font-size:14px;color:#0d5b47;} .pl-sc:hover{border-color:#5DCAA5;}
+  .pl-sc.on{background:#0d5b47;border-color:#0d5b47;color:#fff;} .pl-sc.on b{color:#B6E25C;}
+  .pl-sc-clr{border:0;background:none;color:#1d9e75;font:inherit;font-size:12px;font-weight:700;cursor:pointer;text-decoration:underline;}
+  .pl-edb{flex:none;width:28px;height:28px;border-radius:8px;border:1px solid #DCE9E3;background:#fff;color:#1d9e75;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;}
+  .pl-edb:hover{background:#E1F5EE;border-color:#5DCAA5;}
+  .pl-card.editing{border-color:#5DCAA5;box-shadow:0 0 0 3px rgba(93,202,165,.18);} .pl-card.editing .pl-edb{display:none;}
+  .pl-card.editing .pl-row{grid-template-columns:1fr 28px;grid-template-areas:"w d" "u u" "m m";padding:8px;border:1px solid #E6F0EB;border-radius:10px;background:#F8FBFA;}
+  .pl-card.editing .pl-row [data-plc="where"]{grid-area:w;} .pl-card.editing .pl-row [data-plc="url"]{grid-area:u;} .pl-card.editing .pl-row [data-plc="memo"]{grid-area:m;} .pl-card.editing .pl-row [data-plc-del]{grid-area:d;}
+  .pl-body{display:flex;flex-direction:column;gap:6px;} .pl-body .pl-empty{width:100%;}
+  .pl-eact{display:flex;gap:6px;align-items:center;margin-top:4px;}
 </style>
 </head>
   <body>
@@ -1216,7 +1231,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261117r" defer></script>
-    <script src="kinxs.js?v=20261117r"></script>
+    <script src="kbchat.js?v=20261117s" defer></script>
+    <script src="kinxs.js?v=20261117s"></script>
   </body>
 </html>
