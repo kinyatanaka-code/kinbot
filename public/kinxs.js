@@ -256,9 +256,9 @@ $("kxSync").addEventListener("click", async () => {
 // テスト用の会社を出すか（このブラウザだけ。DOC自動更新の上の「🧪 テスト」で切りかえ）（2026-11-10）
 const KX_TEST = (() => { try { return localStorage.getItem("kxTest") === "1"; } catch { return false; } })();
 const kxUsersUrl = () => `/api/kinxs/users${KX_TEST ? "?test=1" : ""}`;
-const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub" })[new URLSearchParams(location.search).get("p")] || "home";
+const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub", voice: "voice" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
-if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub";
+if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
@@ -758,6 +758,7 @@ async function openDetail(id, reuse) {
       ${x.manual ? `<button type="button" class="kx-btn" data-del-user style="color:#8C1F1F;border-color:#F0C2BE">このユーザーを消す（手で追加したもの）</button>` : `<a class="kx-btn" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none" href="https://neo-media.my.salesforce.com/lightning/r/Account/${encodeURIComponent(x.id)}/view" target="_blank" rel="noopener">SFの取引先を開く ↗</a>`}
     </div>
     <div data-pane="tl" hidden style="display:flex;flex-direction:column;gap:12px">
+      <section class="kx-sec" data-voice-box="${esc(x.id)}"><div class="lb">要望・問い合わせ</div><div class="kx-note">読み込み中…</div></section>
       ${kxSummarySection(x)}
       <div class="kx-sec"><div class="lb">電話・メールなど（議事録のない接触）を記録する</div>
         <div style="display:flex;gap:8px"><select class="kx-in" data-ctype style="max-width:110px"><option>電話</option><option>メール</option><option>Chat</option><option>商談</option><option>その他</option></select><input class="kx-in" data-ctext placeholder="話した内容を短く" /><button type="button" class="kx-btn" data-add-contact style="white-space:nowrap">記録する</button></div></div>
@@ -806,7 +807,7 @@ async function openDetail(id, reuse) {
     const scroll = (bg.querySelector(".kx-drawer") || {}).scrollTop || 0;
     await openDetail(id, { bg, tab, scroll, msg });
   };
-  const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else if (VIEW === "pub") return renderPub(); else if (VIEW === "home") return; else if (VIEW === "missing") return; else await load(); };
+  const refresh = async () => { if (VIEW === "list") await loadList(); else if (VIEW === "board") await loadBoard(); else if (VIEW === "pub") return renderPub(); else if (VIEW === "voice") return renderVoices(); else if (VIEW === "home") return; else if (VIEW === "missing") return; else await load(); };
   const put = async (body, redraw = true) => { try { const r0 = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }); refresh().catch(() => {});
       // 情報不足（ホームの枠・情報不足のページ）も読み直す（2026-11-10 久野さん）
       if (typeof kh2 !== "undefined" && kh2 && VIEW === "home") api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
@@ -857,6 +858,7 @@ async function openDetail(id, reuse) {
   const ctRow = () => `<div class="kx-ct"><input class="kx-in" data-ct="name" placeholder="お名前" /><input class="kx-in" data-ct="title" placeholder="部署・役職" /><input class="kx-in" data-ct="phone" placeholder="電話番号" /><input class="kx-in" data-ct="email" placeholder="メールアドレス" /><button type="button" class="hp-b" data-ct-del>消す</button></div>`;
   const wireCt = () => bg.querySelectorAll("[data-ct-del]").forEach((b) => { b.onclick = () => { b.closest(".kx-ct").remove(); if (!ctBox.querySelector(".kx-ct")) { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); } }; });
   if (ctBox) { wireCt(); bg.querySelector("[data-ct-add]").addEventListener("click", () => { ctBox.insertAdjacentHTML("beforeend", ctRow()); wireCt(); }); }
+  kxVoiceMount(bg);
   // 掲載先の行（2026-11-17 久野さん）
   const plBox = bg.querySelector("[data-plc-rows]");
   const wirePl = () => bg.querySelectorAll("[data-plc-del]").forEach((b) => { b.onclick = () => { b.closest(".pl-row").remove(); if (!plBox.querySelector(".pl-row")) { plBox.insertAdjacentHTML("beforeend", kxPlaceRow({})); wirePl(); } }; });
@@ -2274,6 +2276,74 @@ async function renderPub() {
   draw();
 }
 if (VIEW === "pub") renderPub();
+// ===== 要望・問い合わせ（2026-11-17 久野さん「その企業からもらっている開発要望や問い合わせ事項について議事録からまとまって入る欄・解決したら消せるチェック・まとめた表」）=====
+function kxVoiceRow(v, withCo) {
+  const d0 = (t) => { if (!t) return ""; const d = new Date(new Date(t).getTime() + 9 * 3600000); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+  const src = v.sourceBot ? `議事録 ${d0(v.sourceAt)}「${v.sourceTitle || ""}」から` : `手で追加（${v.createdBy || ""} ${d0(v.createdAt)}）`;
+  return `<div class="vc-row ${v.status === "解決" ? "done" : ""}" data-vc="${v.id}"><input type="checkbox" class="vc-ck" data-vc-ck ${v.status === "解決" ? "checked" : ""} title="解決したらチェック" />
+    <div style="min-width:0;flex:1"><div><button type="button" class="vc-p p${esc(v.priority)}" data-vc-pri title="押すと優先度が変わります（高→中→低）">${esc(v.priority)}</button> <span class="vc-k ${v.kind === "問い合わせ" ? "q" : ""}">${esc(v.kind)}</span>${withCo ? `<button type="button" class="pl-co" data-vc-co="${esc(v.accountId)}" style="font-size:12px">${esc(v.company || "（会社）")}</button>` : ""}</div>
+      <div class="vc-t">${esc(v.title)}</div>${v.detail ? `<div class="vc-d">${esc(v.detail)}</div>` : ""}${v.quote ? `<div class="vc-q">「${esc(v.quote)}」</div>` : ""}
+      <div class="vc-m">${esc(src)}${v.status === "解決" && v.resolvedBy ? `　解決：${esc(v.resolvedBy)} ${esc(d0(v.resolvedAt))}` : ""}</div></div></div>`;
+}
+async function kxVoicePatch(id, body) { return api(`/api/kinxs/voices/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }); }
+function kxVoiceWire(root, items, redraw) {
+  root.querySelectorAll("[data-vc]").forEach((row) => {
+    const v = items.find((y) => String(y.id) === row.dataset.vc); if (!v) return;
+    const ck = row.querySelector("[data-vc-ck]"); if (ck) ck.addEventListener("change", async () => { try { const r = await kxVoicePatch(v.id, { status: ck.checked ? "解決" : "未解決" }); Object.assign(v, r.item || {}); redraw(); } catch (e) { alert(e.message); ck.checked = !ck.checked; } });
+    const pr = row.querySelector("[data-vc-pri]"); if (pr) pr.addEventListener("click", async () => { const nx = { 高: "中", 中: "低", 低: "高" }[v.priority] || "中"; try { const r = await kxVoicePatch(v.id, { priority: nx }); Object.assign(v, r.item || {}); redraw(); } catch (e) { alert(e.message); } });
+    const co = row.querySelector("[data-vc-co]"); if (co) co.addEventListener("click", () => openDetail(co.dataset.vcCo));
+  });
+}
+// 会社の詳しい画面（議事録タブ）の欄
+async function kxVoiceMount(bg) {
+  const box = bg.querySelector("[data-voice-box]"); if (!box) return;
+  const id = box.dataset.voiceBox; let items = []; let showDone = false;
+  const draw = () => {
+    const open = items.filter((v) => v.status !== "解決"), done = items.filter((v) => v.status === "解決"); const list = showDone ? items : open;
+    box.innerHTML = `<div class="lb" style="display:flex;align-items:center;gap:8px">要望・問い合わせ<span class="kx-src">自動（議事録から）＋手入力</span><span class="kx-note">未解決 ${open.length}件</span>
+        <span style="margin-left:auto;display:flex;gap:6px">${done.length ? `<button type="button" class="hp-b" data-vc-showdone>${showDone ? "解決済みを隠す" : `解決済みも見る（${done.length}）`}</button>` : ""}<button type="button" class="hp-b" data-vc-scan>議事録から読む</button></span></div>
+      ${list.length ? list.map((v) => kxVoiceRow(v, false)).join("") : `<div class="kx-note">${items.length ? "未解決の要望・問い合わせはありません" : "まだありません。議事録が入ると、1時間ごとに自動で拾います（すぐ見たいときは「議事録から読む」）。"}</div>`}
+      <div class="vc-add"><select class="kx-in" data-vc-kind style="width:auto"><option>要望</option><option>問い合わせ</option></select><select class="kx-in" data-vc-pnew style="width:auto"><option>中</option><option>高</option><option>低</option></select><input class="kx-in" data-vc-title placeholder="手で足す（例：応募者の一覧を CSV で出したい）" /><button type="button" class="kx-btn" data-vc-add>追加</button></div>
+      <span class="kx-note" data-vc-st></span>`;
+    kxVoiceWire(box, items, draw);
+    const sd = box.querySelector("[data-vc-showdone]"); if (sd) sd.onclick = () => { showDone = !showDone; draw(); };
+    box.querySelector("[data-vc-scan]").onclick = async (e) => { const b = e.currentTarget; b.disabled = true; box.querySelector("[data-vc-st]").textContent = "議事録を読んでいます…（1件30秒ほど）";
+      try { const r = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}/voices/scan`, { method: "POST" }); if (!r.ok) throw new Error(r.reason || "読めませんでした"); await load(); box.querySelector("[data-vc-st]").textContent = r.read ? `議事録を${r.read}件読み、${r.added}件を拾いました${r.rest ? `（まだ読んでいない議事録が${r.rest}件あります。もう一度押すと続きを読みます）` : ""}` : "新しい議事録はありませんでした"; }
+      catch (er) { box.querySelector("[data-vc-st]").textContent = er.message; b.disabled = false; } };
+    box.querySelector("[data-vc-add]").onclick = async () => { const t = box.querySelector("[data-vc-title]").value.trim(); if (!t) return;
+      try { await api("/api/kinxs/voices", { method: "POST", body: JSON.stringify({ accountId: id, kind: box.querySelector("[data-vc-kind]").value, priority: box.querySelector("[data-vc-pnew]").value, title: t }) }); await load(); } catch (e) { alert(e.message); } };
+  };
+  const load = async () => { try { items = (await api(`/api/kinxs/voices?account=${encodeURIComponent(id)}`)).items || []; } catch { items = []; } draw(); };
+  await load();
+}
+// 会社をまたいだ表
+async function renderVoices() {
+  const box = $("vVoiceBody"); if (!box) return;
+  if ($("kxPageName")) $("kxPageName").textContent = "要望・問い合わせ";
+  box.innerHTML = '<div class="kx-empty">読み込み中…</div>';
+  let items = [];
+  try { items = (await api("/api/kinxs/voices")).items || []; } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; }
+  const st = window.__vc || (window.__vc = { tab: "open", kind: "", pri: "", q: "" });
+  const draw = () => {
+    const q = st.q.trim().toLowerCase();
+    const base = items.filter((v) => (!st.kind || v.kind === st.kind) && (!st.pri || v.priority === st.pri) && (!q || [v.title, v.detail, v.quote, v.company].join(" ").toLowerCase().includes(q)));
+    const list = base.filter((v) => st.tab === "all" || (st.tab === "open" ? v.status !== "解決" : v.status === "解決"));
+    const cnt = (f) => base.filter(f).length;
+    box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["open", `未解決（${cnt((v) => v.status !== "解決")}）`], ["done", `解決済み（${cnt((v) => v.status === "解決")}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-vt="${k}">${l}</button>`).join("")}</div>
+        <select class="kx-in" data-vk style="width:auto"><option value="">種類：すべて</option>${KX_VC_KINDS.map((k) => `<option ${st.kind === k ? "selected" : ""}>${k}</option>`).join("")}</select>
+        <select class="kx-in" data-vp style="width:auto"><option value="">優先度：すべて</option>${["高", "中", "低"].map((k) => `<option ${st.pri === k ? "selected" : ""}>${k}</option>`).join("")}</select>
+        <input class="kx-in" data-vq placeholder="内容・会社名で探す" value="${esc(st.q)}" /></div>
+      <div class="kx-sec">${list.length ? list.map((v) => kxVoiceRow(v, true)).join("") : `<div class="kx-empty">${items.length ? "当てはまるものはありません" : "まだありません。議事録が入った会社から、1時間ごとに自動で拾います（会社の詳しい画面の議事録タブの「議事録から読む」ですぐ読めます）。"}</div>`}</div>`;
+    box.querySelectorAll("[data-vt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.vt; draw(); }));
+    box.querySelector("[data-vk]").addEventListener("change", (e) => { st.kind = e.target.value; draw(); });
+    box.querySelector("[data-vp]").addEventListener("change", (e) => { st.pri = e.target.value; draw(); });
+    const qi = box.querySelector("[data-vq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; draw(); const n = box.querySelector("[data-vq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
+    kxVoiceWire(box, items, draw);
+  };
+  draw();
+}
+const KX_VC_KINDS = ["要望", "問い合わせ"];
+if (VIEW === "voice") renderVoices();
 
 // ===================== 動きの仕上げ（2026-11-04 田中さん：1 カウントアップ・2 浮くカード・3 脈打つアラート・5 読み込みの光・6 完了のチェック）=====================
 // 5 読み込み中は、カードの形のまま光が流れる仮の形

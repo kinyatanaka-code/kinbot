@@ -13234,3 +13234,49 @@ export async function fixPersonOwnerSwap(listId = null) {
       FROM c WHERE t.id = c.id`, [listId]);
   return r.rowCount;
 }
+
+// ===== kinXs：会社からの要望・問い合わせ（2026-11-17 久野さん「議事録からまとまって入る欄・解決したら消せるチェック・まとめた表」）=====
+//   kinxs_voices：1件＝1つの要望か問い合わせ。議事録（source_bot）から AI が拾ったものと、手で足したもの（manual）
+//   kinxs_voice_scans：読んだ議事録の印（同じ議事録を何度も読んで同じ要望を増やさないため）
+let _kxVoiceP = null;
+function ensureKxVoices() {
+  if (!pool) return Promise.resolve();
+  if (!_kxVoiceP) _kxVoiceP = (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_voices (id SERIAL PRIMARY KEY, account_id TEXT, kind TEXT, title TEXT, detail TEXT, quote TEXT, priority TEXT, status TEXT DEFAULT '未解決',
+      source_bot TEXT, source_title TEXT, source_at TIMESTAMPTZ, manual BOOLEAN DEFAULT false, created_by TEXT, resolved_by TEXT, resolved_at TIMESTAMPTZ, created_at TIMESTAMPTZ DEFAULT now(), dedupe_key TEXT UNIQUE)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS kinxs_voices_acc ON kinxs_voices (account_id)`).catch(() => {});
+    await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_voice_scans (bot_id TEXT PRIMARY KEY, account_id TEXT, n INT DEFAULT 0, at TIMESTAMPTZ DEFAULT now())`).catch(() => {});
+  })();
+  return _kxVoiceP;
+}
+export async function kxVoiceList({ accountId = "", status = "" } = {}) {
+  if (!pool) return []; await ensureKxVoices();
+  const p = [], w = ["1=1"];
+  if (accountId) { p.push(String(accountId)); w.push(`account_id = $${p.length}`); }
+  if (status) { p.push(status); w.push(`status = $${p.length}`); }
+  return (await pool.query(`SELECT * FROM kinxs_voices WHERE ${w.join(" AND ")} ORDER BY (status = '未解決') DESC, CASE priority WHEN '高' THEN 0 WHEN '中' THEN 1 ELSE 2 END, COALESCE(source_at, created_at) DESC LIMIT 2000`, p)).rows;
+}
+export async function kxVoiceAdd(v) {
+  if (!pool) return null; await ensureKxVoices();
+  const { rows } = await pool.query(`INSERT INTO kinxs_voices (account_id, kind, title, detail, quote, priority, source_bot, source_title, source_at, manual, created_by, dedupe_key)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (dedupe_key) DO NOTHING RETURNING *`,
+    [String(v.accountId), v.kind || "要望", String(v.title || "").slice(0, 120), String(v.detail || "").slice(0, 1000), String(v.quote || "").slice(0, 300), v.priority || "中",
+      v.sourceBot || null, v.sourceTitle || null, v.sourceAt || null, !!v.manual, v.createdBy || null, v.key || `m:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`]);
+  return rows[0] || null;
+}
+export async function kxVoiceSet(id, patch = {}) {
+  if (!pool) return null; await ensureKxVoices();
+  const sets = [], vals = [];
+  for (const k of ["status", "priority", "kind", "title", "detail", "resolved_by", "resolved_at"]) if (patch[k] !== undefined) { vals.push(patch[k]); sets.push(`${k} = $${vals.length}`); }
+  if (!sets.length) return null;
+  vals.push(Number(id));
+  return (await pool.query(`UPDATE kinxs_voices SET ${sets.join(", ")} WHERE id = $${vals.length} RETURNING *`, vals)).rows[0] || null;
+}
+export async function kxVoiceScanned(botIds = []) {
+  if (!pool || !botIds.length) return new Set(); await ensureKxVoices();
+  return new Set((await pool.query(`SELECT bot_id FROM kinxs_voice_scans WHERE bot_id = ANY($1)`, [botIds.map(String)])).rows.map((r) => r.bot_id));
+}
+export async function kxVoiceMarkScanned(botId, accountId, n) {
+  if (!pool) return; await ensureKxVoices();
+  await pool.query(`INSERT INTO kinxs_voice_scans (bot_id, account_id, n) VALUES ($1,$2,$3) ON CONFLICT (bot_id) DO UPDATE SET account_id = EXCLUDED.account_id, n = EXCLUDED.n, at = now()`, [String(botId), String(accountId), Number(n) || 0]);
+}
