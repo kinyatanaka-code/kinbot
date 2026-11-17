@@ -2299,6 +2299,28 @@ function kxPlaceChip(p, withMemo) {
   const lab = esc(p.where || "掲載先"); const memo = withMemo && p.memo ? ` <small>${esc(p.memo)}</small>` : "";
   return p.url ? `<a class="pl-chip" href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.url)}">${lab}${memo} ↗</a>` : `<span class="pl-chip">${lab}${memo}</span>`;
 }
+// 掲載先一覧はカードで並べる（2026-11-17 田中さん「掲載一覧を仕上げたい」→「見た目をカード型に」）。
+//   1社1枚。上に会社（ロゴ・名前・掲載日）、まん中に掲載先（どこ・ページのドメイン・メモ）、下に販売区分・受注者・CS担当
+function kxPubCard(x) {
+  const ini = String(x.name || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|学校法人|公益社団法人|公益財団法人)\s*/, "").slice(0, 1) || "？";
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+  const pls = x.places || [];
+  const plHtml = pls.length ? `<ul class="pl-cl">${pls.map((p) => {
+      const h = p.url ? host(p.url) : "";
+      const inner = `<span class="pl-w">${esc(p.where || "掲載先")}</span>${h ? `<span class="pl-h">${esc(h)}</span>` : ""}${p.memo ? `<span class="pl-m">${esc(p.memo)}</span>` : ""}`;
+      return `<li>${p.url ? `<a class="pl-li" href="${esc(p.url)}" target="_blank" rel="noopener" title="${esc(p.url)}">${inner}<svg class="pl-go" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></a>` : `<div class="pl-li nolink">${inner}</div>`}</li>`;
+    }).join("")}</ul>`
+    : `<button type="button" class="pl-empty" data-pco="${esc(x.id)}">まだ入っていません<span>押して入れる</span></button>`;
+  const pm = String(x.publishedOn || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const pub = pm ? `${Number(pm[1]) === new Date().getFullYear() ? "" : `${pm[1]}/`}${Number(pm[2])}/${Number(pm[3])}` : "";
+  return `<article class="pl-card ${pls.length ? "" : "none"}">
+    <div class="pl-ch"><span class="pl-lg">${x.logo ? `<img src="${esc(x.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()" />` : ""}<b>${esc(ini)}</b></span>
+      <button type="button" class="pl-co" data-pco="${esc(x.id)}" title="会社の詳しい画面を開く">${esc(x.name)}</button>
+      ${pub ? `<span class="pl-pub" title="掲載日 ${esc(x.publishedOn)}">掲載 ${esc(pub)}</span>` : ""}</div>
+    ${plHtml}
+    <div class="pl-cf">${x.channel ? `<span class="pl-tag">${esc(x.channel)}</span>` : ""}<span>受注 ${esc(x.fs || "—")}</span><span>CS ${esc(x.cs || "—")}</span>${pls.length ? `<span class="pl-n">${pls.length}か所</span>` : ""}</div>
+  </article>`;
+}
 async function renderPub() {
   const box = $("vPubBody"); if (!box) return;
   if ($("kxPageName")) $("kxPageName").textContent = "掲載先一覧";
@@ -2316,9 +2338,7 @@ async function renderPub() {
     box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["has", `掲載先あり（${has.length}）`], ["none", `掲載済みで未記入（${none.length}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-pt="${k}">${l}</button>`).join("")}</div>
       ${chs.length ? `<select class="kx-in" data-pch style="width:auto"><option value="">販売区分：すべて</option>${chs.map((c) => `<option ${st.ch === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>` : ""}
       <input class="kx-in" data-pq placeholder="会社名・掲載先・担当で探す" value="${esc(st.q)}" /></div>
-      <div class="v2-rt-wrap"><table class="v2-rt pl-tbl"><thead><tr><th>会社名</th><th>掲載先</th><th>掲載日</th><th>販売区分</th><th>受注者</th><th>CS担当</th></tr></thead><tbody>
-      ${list.length ? list.map((x) => `<tr><td><button type="button" class="pl-co" data-pco="${esc(x.id)}">${esc(x.name)}</button></td><td>${(x.places || []).length ? x.places.map((p) => kxPlaceChip(p, false)).join("") : '<span class="kx-none">未記入</span>'}</td><td>${esc(x.publishedOn ? x.publishedOn.replace(/-/g, "/") : "—")}</td><td>${esc(x.channel || "—")}</td><td>${esc(x.fs || "—")}</td><td>${esc(x.cs || "—")}</td></tr>`).join("") : `<tr><td colspan="6" class="kx-empty">${st.tab === "has" ? "まだ掲載先が入っている会社はありません。会社の詳しい画面の「掲載先」で入れてください" : "当てはまる会社はありません"}</td></tr>`}
-      </tbody></table></div>`;
+      <div class="pl-cards">${list.length ? list.map(kxPubCard).join("") : `<div class="kx-empty" style="grid-column:1/-1">${st.tab === "has" ? "まだ掲載先が入っている会社はありません。会社の詳しい画面の「掲載先」で入れてください" : "当てはまる会社はありません"}</div>`}</div>`;
     box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; draw(); }));
     const ch = box.querySelector("[data-pch]"); if (ch) ch.addEventListener("change", () => { st.ch = ch.value; draw(); });
     const qi = box.querySelector("[data-pq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; draw(); const n = box.querySelector("[data-pq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
