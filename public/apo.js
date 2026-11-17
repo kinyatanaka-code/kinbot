@@ -1058,19 +1058,21 @@ async function loadApo() {
 async function loadSfStatus() {
   const slugs = (apState.appts || []).map((a) => a.slug).filter(Boolean);
   if (!slugs.length) return;
-  try {
-    const r = await fetch("/api/apo/sf-status", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ slugs }),
-    });
-    const d = await r.json();
-    const bySlug = (r.ok && d && d.bySlug) ? d.bySlug : null;
-    for (const a of apState.appts) a.sf = bySlug ? (bySlug[a.slug] || null) : null;
-    renderApo();
-  } catch {
-    for (const a of apState.appts) a.sf = null;
-    renderApo();
+  // 100件ずつに分けて聞く（2026-11-17 田中さん「06に上がっているはずなのに」）。
+  //   サーバーは1回に200件までしか見ないので、アポが多い日は201件目から先が全部「SF：未接続」になっていた
+  const bySlug = {}; let ok = false;
+  for (let k = 0; k < slugs.length; k += 100) {
+    try {
+      const r = await fetch("/api/apo/sf-status", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slugs: slugs.slice(k, k + 100) }),
+      });
+      const d = await r.json();
+      if (r.ok && d && d.bySlug) { Object.assign(bySlug, d.bySlug); ok = true; }
+    } catch { /* この100件が読めなくても、ほかは出す */ }
   }
+  for (const a of apState.appts) a.sf = ok ? (bySlug[a.slug] || null) : null;
+  renderApo();
 }
 // ===== 今動いているビルドの表示 =====
 // 「アップロードしたのに機能が出てこない」ときに、まずここを見れば反映されたか分かる。
