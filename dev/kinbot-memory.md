@@ -2719,3 +2719,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-17 田中さん「プロンプト設定はDOCとMOCHICAでわけてほしい。MOCHICAの場合はforMOCHICAで反映」→ 設定のプロンプト設定に DOC/MOCHICA の切りかえ（?app=mochica で開くと最初から MOCHICA）。保存先は checkItemsMochica・customPromptMochica（チーム）、thanksPromptMochica・thanksExamplesMochica（人ごと）。kinbot for MOCHICA の要約は MOCHICA の要約の指示があればその指示どおり（formatted）、御礼メールは MOCHICA の指示＋例文。MOCHICA は DOC の指示を使わない（未設定なら既定）。
 - 2026-11-17 田中さん「納品前の企業はタグ付けてほしい」→ ユーザー一覧のカードに「納品前」タグ（delivered=false＝検収書未回収。前からの契約・解約・キャンセル・アーカイブは付けない）。
 - 2026-11-17 田中さん「サンフレンズとメールしたり、あさか会とメールしたりしたのに自動ではいってなくない？」→ 原因①自動タスクは届いたメールだけで、自分が送ったメール（約束）は読んでいなかった ②ホームの返信待ちメールは担当会社の先頭25ドメインしか探しておらず（田中さんは45）、あさか会が対象外。送ったメールも宛先で会社を当てて読むように、ドメインは20ずつに分けて全部探すように。/api/kinxs/auto-tasks/run に {me:true, hours} で自分だけさかのぼれる。
+- 2026-11-17 追加：田中さん（kinya.tanaka）が users 表に無く kxPeople に入っていなかったため、1時間ごとの自動タスクが田中さんの分だけ一度も動いていなかった。kxPeople に AI_OWNER_EMAIL と CS連携のメンバーを足した。
