@@ -2074,7 +2074,7 @@ function renderPlanV2() {
 window.addEventListener("resize", () => { if (VIEW === "plan" && kp.data) renderPlanV2(); });
 
 // ---------- 電話フォロー ----------
-let kc = { tab: "month", period: null, data: null, ym: kxNowYm(), plan: null, f: { reason: "", cs: "", st: "" } };
+let kc = { tab: "month", period: null, data: null, ym: kxNowYm(), plan: null, f: { reason: "", cs: "", st: "", q: "" } };
 async function kcLoad() {
   try { kc.data = await api(`/api/kinxs/calls${kc.period ? `?period=${kc.period}` : ""}`); kc.period = kc.data.period; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`); } catch (e) { const b = $("vCallBody"); if (b) b.innerHTML = `<div class="kx-empty">読み込めませんでした：${esc(e.message)}</div>`; return; }
   renderCallV2();
@@ -2108,7 +2108,10 @@ function renderCallV2() {
   } else {
     const ms = ((kc.plan && kc.plan.measures) || []).filter((x) => x.call);
     const rows0 = ms.flatMap((x) => x.rows.map((r) => ({ ...r, reason: x.reason, me: x })));
-    const rows = rows0.filter((r) => (!kc.f.reason || r.reason === kc.f.reason) && (!kc.f.cs || (kxSurname(r.cs) || "未定") === kc.f.cs) && (!kc.f.st || r.status === kc.f.st));
+    // この画面だけの会社の検索（2026-11-17 田中さん「全体の検索とは別で企業検索できるように」）：会社名・電話番号・担当で。全角・半角・ハイフンの違いは見ない
+    const kq = String(kc.f.q || "").normalize("NFKC").toLowerCase().replace(/[\s\-ー－]/g, "");
+    const hitQ = (r) => !kq || [r.name, kxSurname(r.cs) || "", (kc.inf && kc.inf[r.id] && kc.inf[r.id].phone) || ""].join(" ").normalize("NFKC").toLowerCase().replace(/[\s\-ー－]/g, "").includes(kq);
+    const rows = rows0.filter((r) => (!kc.f.reason || r.reason === kc.f.reason) && (!kc.f.cs || (kxSurname(r.cs) || "未定") === kc.f.cs) && (!kc.f.st || r.status === kc.f.st) && hitQ(r));
     const eff = rows0.filter((r) => r.status !== "対象外"); const dn = eff.filter((r) => r.status === "完了").length; const pct = eff.length ? Math.round((dn / eff.length) * 100) : 0;
     const ST = ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"];
     const needIds = rows0.map((r) => r.id).filter((id) => !(kc.inf && kc.inf[id]));
@@ -2130,6 +2133,7 @@ function renderCallV2() {
       <section class="kc3-top"><span class="kc3-lb">${Number(kc.ym.slice(5))}月・${esc(reasons.join("・") || "電話フォロー")}</span><span class="kc3-big">完了 ${dn}<small> / ${eff.length}社</small></span>
         <span class="kc3-bar" title="完了 ${dn}・対応中 ${cnt("対応中")}・不在 ${cnt("架電済み（不在）")}"><i style="width:${w(dn)}%;background:#1D9E75"></i><i style="width:${w(cnt("対応中"))}%;background:#5DCAA5"></i><i style="width:${w(cnt("架電済み（不在）"))}%;background:#EF9F27"></i></span><b class="kc3-pct">${pct}%</b></section>
       <div class="kc3-chips">${[["未対応", "かける"], ["架電済み（不在）", "不在（再架電）"], ...(cnt("対応中") ? [["対応中", "対応中"]] : []), ["完了", "完了"], ["対象外", "対象外"]].map(([st, lb]) => `<button type="button" class="kc3-chip ${kc.f.st === st ? "on" : ""}" data-kc-st="${esc(st)}">${lb} <b>${cnt(st)}</b></button>`).join("")}
+        <label class="kc3-q"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></svg><input data-kc-q value="${esc(kc.f.q || "")}" placeholder="この中の会社を探す（会社名・電話）" />${kc.f.q ? `<button type="button" data-kc-qx title="消す" aria-label="検索を消す">×</button>` : ""}</label>
         <span class="kc3-sp"></span>${csN.map(([n, c]) => `<button type="button" class="kc3-chip ${kc.f.cs === n ? "on" : ""}" data-kc-cs="${esc(n)}">${esc(n)} <b>${c}</b></button>`).join("")}
         ${reasons.length > 1 ? `<select class="kx-in kc3-sel" data-kc-f="reason"><option value="">電話の理由：すべて</option>${reasons.map((x) => `<option ${kc.f.reason === x ? "selected" : ""}>${esc(x)}</option>`).join("")}</select>` : ""}</div>
       <div class="kc3-list">${list.map((r) => { const op = kc.open === r.id; const ph = kc.inf && kc.inf[r.id] ? (kc.inf[r.id].phone ? kxTelLink(kc.inf[r.id].phone) : '<span class="kx-note">電話番号なし</span>') : '<span class="kx-note">…</span>';
@@ -2165,6 +2169,11 @@ function renderCallV2() {
   box.querySelectorAll("[data-kc-ym]").forEach((b) => b.addEventListener("click", async () => { kc.ym = b.dataset.kcYm; kc.tab = "co"; kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => null); renderCallV2(); }));
   scope.querySelectorAll("[data-kc-m]").forEach((b) => b.addEventListener("click", async () => { kc.ym = kxYmAdd(kc.ym, Number(b.dataset.kcM)); kc.plan = await api(`/api/kinxs/plan?ym=${kc.ym}`).catch(() => null); renderCallV2(); }));
   box.querySelectorAll("[data-kc-st]").forEach((b) => b.addEventListener("click", () => { kc.f.st = kc.f.st === b.dataset.kcSt ? "" : b.dataset.kcSt; renderCallV2(); }));
+  { const qi = box.querySelector("[data-kc-q]");
+    if (qi) { let t = null;
+      qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { kc.f.q = qi.value; kc.listTop = 0; renderCallV2(); const n = box.querySelector("[data-kc-q]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 200); });
+      qi.addEventListener("keydown", (e) => { if (e.key === "Escape") { kc.f.q = ""; renderCallV2(); } }); }
+    const qx = box.querySelector("[data-kc-qx]"); if (qx) qx.addEventListener("click", () => { kc.f.q = ""; renderCallV2(); }); }
   box.querySelectorAll("[data-kc-f]").forEach((s) => s.addEventListener("change", () => { kc.f[s.dataset.kcF] = s.value; renderCallV2(); }));
   box.querySelectorAll("[data-open]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.open)));
   box.querySelectorAll("[data-kc-cs]").forEach((b) => b.addEventListener("click", () => { kc.f.cs = kc.f.cs === b.dataset.kcCs ? "" : b.dataset.kcCs; renderCallV2(); }));
