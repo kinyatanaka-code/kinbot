@@ -812,6 +812,8 @@ async function openDetail(id, reuse) {
       // 情報不足（ホームの枠・情報不足のページ）も読み直す（2026-11-10 久野さん）
       if (typeof kh2 !== "undefined" && kh2 && VIEW === "home") api("/api/kinxs/missing").then((d) => { kh2.miss = d; renderHomeV2(); }).catch(() => {});
       if (VIEW === "missing" && typeof loadMissing === "function") loadMissing(false); // 担当者を SF の取引先責任者に入れた結果も知らせる（2026-11-17）
+      // 電話フォローの画面に出している担当者名・電話も読み直す（2026-11-17 田中さん「担当者名はいっているのに」）
+      try { if (body && body.info && typeof kc !== "undefined" && kc.inf) { delete kc.inf[id]; if (VIEW === "call") renderCallV2(); } } catch {}
       const sc = r0 && r0.sfContacts; const scMsg = sc ? (sc.error ? `保存しました（SFの取引先責任者には入れられませんでした：${sc.error}）` : (sc.created.length || sc.updated.length) ? `保存して、SFの取引先責任者に${sc.created.length ? `${sc.created.length}人追加` : ""}${sc.created.length && sc.updated.length ? "・" : ""}${sc.updated.length ? `${sc.updated.length}人更新` : ""}しました` : "") : "";
       if (redraw) await again(scMsg || (r0 && r0.logoRefetched ? "保存して、新しいHPからロゴを取り直しました" : undefined)); } catch (e) { alert(e.message); } };
   if (!bg.dataset.wired) { bg.dataset.wired = "1"; bg.addEventListener("click", (e) => { if (e.target === bg) bg.remove(); }); }
