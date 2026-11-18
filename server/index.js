@@ -15815,8 +15815,10 @@ ${files.map((f) => `・${f.name}：${f.label}${f.link ? `\n  ${f.link}` : ""}`).
 
 ■ kinbot に更新を頼む（Salesforce のフェーズなど）
 次のようなリンクを開くと、kinbot の画面で「いま → 変えたあと」を確かめて、「この内容で更新する」を押すと更新されます（開いただけでは変わりません）。
-${PUBLIC_URL || "（kinbot の URL）"}/gem?t=会社：株式会社〇〇%0Aフェーズ：99：失注%0A大項目：ニーズ・優先度不足%0A中項目：初回商談リスケ
-
+${PUBLIC_URL || "（kinbot の URL）"}/gem?id=商談ID&s=フェーズのコード&r=失注理由のコード
+・リンクには英数字だけを入れます（日本語を入れると途中で切れます）。コードは「Salesforce｜更新するときに選ぶ値」にあります。
+・${PUBLIC_URL || "（kinbot の URL）"}/gem を開いて、次のような本文を貼っても頼めます：
+  会社：株式会社〇〇（か 商談ID：006…）／フェーズ：99：失注／大項目：…／中項目：…（1行に1項目）
 ・本文は1行に1項目。「会社：〇〇」の代わりに「商談ID：006…」でも書けます（進行中の商談が2件以上なら画面で選べます）。
 ・書ける項目：フェーズ／大項目／中項目／小項目（失注理由）／受失注理由詳細／完了予定日／受失注日／次回アクション日
 ・選ぶ値は「Salesforce｜更新するときに選ぶ値」からそのまま写してください。
@@ -15896,9 +15898,14 @@ async function gemExport({ force = false } = {}) {
         try {
           const st = new Map(); for (const o of recs) if (o.StageName) st.set(o.StageName, (st.get(o.StageName) || 0) + 1);
           const lr = await sfQuery(sfU, "SELECT Loss_Reason__c, Loss_Reason1__c, Loss_Reason2__c, COUNT(Id) n FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND StageName LIKE '%失注%' AND CloseDate = LAST_N_DAYS:730 GROUP BY Loss_Reason__c, Loss_Reason1__c, Loss_Reason2__c ORDER BY COUNT(Id) DESC LIMIT 200");
-          const lines = ["項目,項目のAPI名,値,大項目,中項目,小項目,これまでの件数", ...[...st.entries()].sort().map(([v, n]) => `フェーズ,StageName,${cell(v)},,,,${n}`),
-            ...((lr && lr.records) || []).filter((r) => r.Loss_Reason__c).map((r) => `失注理由の組み合わせ,Loss_Reason__c／Loss_Reason1__c／Loss_Reason2__c,,${cell(r.Loss_Reason__c)},${cell(r.Loss_Reason1__c || "")},${cell(r.Loss_Reason2__c || "")},${r.n || r.expr0 || ""}`)];
-          files.push({ path: "salesforce/picklists.csv", label: "更新するときに選ぶ値（フェーズ・失注理由の大／中／小項目の組み合わせ）", content: lines.join("\n") });
+          // リンクに日本語を入れると Gemini がリンクを途中で切る（「…?t=会社」で切れて Google 検索になった・2026-11-18）。
+          //   そこで、リンクには英数字の「コード」だけを入れる：フェーズは先頭の番号（99 など）、失注理由の組み合わせは R＋短い印
+          const stCodes = {}; for (const v of [...st.keys()].sort()) { const base = (String(v).match(/^\s*(\d{1,3})/) || [])[1] || "x"; let c = base; for (let i = 0; stCodes[c]; i++) c = `${base}${"abcdefghij"[i] || i}`; stCodes[c] = v; }
+          const rsCodes = {}; for (const r of ((lr && lr.records) || []).filter((r) => r.Loss_Reason__c)) { const trio = [r.Loss_Reason__c, r.Loss_Reason1__c || "", r.Loss_Reason2__c || ""]; rsCodes[`R${crypto.createHash("sha1").update(trio.join("|")).digest("hex").slice(0, 5)}`] = { trio, n: r.n || r.expr0 || "" }; }
+          const lines = ["項目,コード（リンクに入れる）,値,大項目,中項目,小項目,これまでの件数", ...Object.entries(stCodes).map(([c, v]) => `フェーズ,${c},${cell(v)},,,,${st.get(v)}`),
+            ...Object.entries(rsCodes).map(([c, { trio, n }]) => `失注理由の組み合わせ,${c},,${cell(trio[0])},${cell(trio[1])},${cell(trio[2])},${n}`)];
+          files.push({ path: "salesforce/picklists.csv", label: "更新するときに選ぶ値（フェーズ・失注理由の大／中／小項目の組み合わせ）とリンク用のコード", content: lines.join("\n") });
+          await gemSaveCfg({ codes: { stages: stCodes, reasons: Object.fromEntries(Object.entries(rsCodes).map(([c, x]) => [c, x.trio])) } });
         } catch (e) { errs.push(`選ぶ値：${e.message}`); }
       } else errs.push("Salesforce の商談：SF につながる人がいません");
     } catch (e) { errs.push(`Salesforce の商談：${e.message}`); }
@@ -15999,7 +16006,18 @@ app.post("/api/gemini-bridge/request", async (req, res) => {
     if (req.viaToken) return res.status(403).json({ error: "kinbot の画面から使ってください" });
     const email = String(req.user || "").toLowerCase();
     const text = String((req.body && req.body.text) || "").replace(/[“”]/g, '"').slice(0, 4000);
-    const reqs = gemParseLines(text);
+    let reqs = gemParseLines(text);
+    // 英数字だけのリンク（/gem?id=006…&s=99&r=Rxxxxx）：コードを、ドライブの「更新するときに選ぶ値」と同じ値にもどす
+    const b = req.body || {}; const id0 = String(b.id || "").match(/^006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/) ? String(b.id) : "";
+    if (!reqs && (id0 || b.s || b.r)) {
+      const { cfg: cc } = await gemCfg(); const codes = cc.codes || { stages: {}, reasons: {} }; const fields = {}; const bad = [];
+      if (b.s) { const v = codes.stages[String(b.s).trim()]; if (v) fields.StageName = v; else bad.push(`フェーズのコード「${b.s}」`); }
+      if (b.r) { const t = codes.reasons[String(b.r).trim()]; if (t) { fields.Loss_Reason__c = t[0]; if (t[1]) fields.Loss_Reason1__c = t[1]; if (t[2]) fields.Loss_Reason2__c = t[2]; } else bad.push(`失注理由のコード「${b.r}」`); }
+      for (const [k, f] of [["cd", "CloseDate"], ["od", "order_date__c"], ["nd", "LostOpp_nextactiondate__c"]]) { const v = String(b[k] || "").replace(/\//g, "-"); if (/^\d{4}-\d{2}-\d{2}$/.test(v)) fields[f] = v; }
+      if (bad.length) return res.status(400).json({ error: `${bad.join("・")}が見つかりません。ドライブの「Salesforce｜更新するときに選ぶ値」のコードを使ってください（1時間ごとに新しくなります）。` });
+      if (!id0) return res.status(400).json({ error: "商談ID（id=006…）がリンクに入っていません。下の欄に「会社：〇〇」と書いて確かめ直してください。" });
+      if (Object.keys(fields).length) reqs = [{ tool: "sf_update", args: { sobject: "Opportunity", id: id0, fields } }];
+    }
     if (!reqs || !reqs.length) return res.status(400).json({ error: "依頼の書き方がちがいます。1行目に「商談ID：006…」か「会社：〇〇」、そのあとに「フェーズ：…」などを書いてください。" });
     const r = reqs[0];
     if (!r.args.id) {
@@ -16144,18 +16162,20 @@ ${(cfg.driveFiles || []).length ? `\nファイル：\n${cfg.driveFiles.map((f) =
 3. 数字や名前は、ファイルにあるとおり正確に答える。無いものは推測しない。書き出した時刻より新しいことは分からない、と伝える。
 
 ## kinbot に更新を頼むとき（Salesforce のフェーズなど）
-1. フェーズや失注理由の値は「Salesforce｜更新するときに選ぶ値」から、一字一句そのまま写す。項目名や値を作らない。商談ID はユーザーに聞かない：「Salesforce｜商談（クロス）」で分かればその Id を、分からなければ「会社：〇〇（会社名）」と書く（進行中の商談が2件以上なら、kinbot の画面で選べる）。
-2. 依頼の本文を、次の形で作る（1件の商談につき1つ）：
-   会社：株式会社〇〇　（商談ID が分かるときは「商談ID：006…」）
+リンクには**英数字だけ**を入れる（日本語を入れるとリンクが途中で切れて開けない）。
+1. 商談ID は「Salesforce｜商談（クロス）」の Id の列から探す（会社名の列で探す）。ユーザーには聞かない。
+2. フェーズと失注理由は「Salesforce｜更新するときに選ぶ値」の **コード** の列を使う（フェーズは 99 などの番号、失注理由の大／中／小の組み合わせは R で始まるコード）。
+3. 何をどう変えるか（会社名・いま→変えたあと）をユーザーに見せ、次のリンクを1つ出して「押すと kinbot の画面で確かめて更新できます」と伝える：
+   ${base}/gem?id=商談ID&s=フェーズのコード&r=失注理由のコード
+   例：${base}/gem?id=006Q900001O0NfrIAF&s=99&r=R1a2b3
+   日付も変えるときは &cd=完了予定日 &od=受失注日 &nd=失注後次回アクション日 を足す（YYYY-MM-DD）。
+4. 商談ID が見つからないときは、リンクは ${base}/gem だけにし、次の本文をコードブロックで出して「コピーして、開いた画面の『コピーした本文を貼る』を押してください」と伝える：
+   会社：株式会社〇〇
    フェーズ：99：失注
    大項目：ニーズ・優先度不足
    中項目：初回商談リスケ
-   （書ける項目：フェーズ／大項目／中項目／小項目／受失注理由詳細／完了予定日／受失注日／次回アクション日）
-3. メールは送らない・下書きも作らない（会社の設定でできない）。代わりに、次のリンクを1つ出して「押すと kinbot の画面で中身を確かめて更新できます」と伝える：
-   ${base}/gem?t=（2の本文。改行は %0A に、空白は %20 にする。ほかの文字はそのままでよい）
-   例：${base}/gem?t=会社：株式会社アップガレージグループ%0Aフェーズ：99：失注%0A大項目：ニーズ・優先度不足%0A中項目：初回商談リスケ
-4. リンクがうまく開けないと言われたら、${base}/gem を開いて、2の本文を「依頼の本文」の欄に貼ってもらう。
-5. 消す・一度にたくさん変える依頼はしない。リンクを開いただけでは何も変わらず、本人が画面で「この内容で更新する」を押したときだけ変わる。
+   （値は「更新するときに選ぶ値」から一字一句写す。書ける項目：フェーズ／大項目／中項目／小項目／受失注理由詳細／完了予定日／受失注日／次回アクション日）
+5. メールは送らない・下書きも作らない（会社の設定でできない）。消す・一度にたくさん変える依頼はしない。リンクを開いただけでは何も変わらず、本人が画面で「この内容で更新する」を押したときだけ変わる。
 
 ## 守ること
 - 更新は、リンクを押した人の kinbot の権限で動く（kinbot にログインしていて、Salesforce の更新が許されている人だけ）。

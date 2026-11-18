@@ -7,12 +7,15 @@
   // 項目の名前を、人が読める言葉にする
   const LABEL = { StageName: "フェーズ", Loss_Reason__c: "失注理由（大項目）", Loss_Reason1__c: "失注理由（中項目）", Loss_Reason2__c: "失注理由（小項目）", order_reason_detail__c: "受失注理由詳細", CloseDate: "完了予定日", order_date__c: "受失注日", LostOpp_nextactiondate__c: "失注後次回アクション日" };
   const msg = (t, kind = "") => { const m = $("gqMsg"); m.textContent = t; m.className = `gq-msg ${kind}`; };
-  let text = new URLSearchParams(location.search).get("t") || "";
+  const qp = new URLSearchParams(location.search);
+  let text = qp.get("t") || "";
+  // 英数字だけのリンク（id・s・r など）。日本語を入れると Gemini がリンクを途中で切るため（2026-11-18）
+  let codes = {}; for (const k of ["id", "s", "r", "cd", "od", "nd"]) if (qp.get(k)) codes[k] = qp.get(k);
   $("gqText").value = text;
-  if (!text) $("gqRaw").open = true;
+  if (!text && !Object.keys(codes).length) $("gqRaw").open = true;
 
   async function call(run) {
-    const r = await fetch("/api/gemini-bridge/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, run }) });
+    const r = await fetch("/api/gemini-bridge/request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, run, ...codes }) });
     if (r.status === 401) { location.href = `/login.html?next=${encodeURIComponent(encodeURIComponent(location.pathname + location.search))}`; return null; }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `うまくいきませんでした（${r.status}）`);
@@ -20,7 +23,10 @@
   }
   async function load() {
     msg(""); $("gqBody").textContent = "確かめています…";
-    if (!text.trim()) { $("gqBody").textContent = "依頼の本文がありません。下の欄に「会社：〇〇」「フェーズ：…」のように書いてください。"; return; }
+    if (!text.trim() && !Object.keys(codes).length) { $("gqBody").innerHTML = `依頼の本文がありません。Gemini が出した本文をコピーして、下の欄に貼ってください。<div class="gq-btns" style="margin-top:10px"><button class="gq-btn" id="gqPaste" type="button">コピーした本文を貼る</button></div>`;
+      // クリップボードから読む（ブラウザが「許可しますか」と聞くことがある）
+      $("gqPaste").addEventListener("click", async () => { try { const t = await navigator.clipboard.readText(); if (!t.trim()) throw new Error(); $("gqText").value = t; text = t; load(); } catch { msg("読み取れませんでした。下の欄に貼り付けて「この本文で確かめ直す」を押してください。", "err"); $("gqRaw").open = true; } });
+      return; }
     let j; try { j = await call(false); } catch (e) { $("gqBody").textContent = ""; msg(e.message, "err"); $("gqRaw").open = true; return; }
     if (!j) return;
     if (j.choose) {
@@ -28,7 +34,7 @@
       $("gqBody").innerHTML = `<p class="gq-sub">進行中の商談が${j.choose.length}件あります。更新するものを選んでください。</p><ul class="gq-choose">${j.choose.map((o) => `<li data-id="${esc(o.id)}"><b>${esc(o.account)}</b>　${esc(o.stage)}　${esc(o.owner)}<br>${esc(o.name)}</li>`).join("")}</ul>`;
       $("gqBody").querySelectorAll("li[data-id]").forEach((li) => li.addEventListener("click", () => {
         text = `商談ID：${li.dataset.id}\n` + text.split("\n").filter((l) => !/^\s*[・\-*]?\s*(会社|会社名|企業|企業名|取引先|取引先名)\s*[:：]/.test(l)).join("\n");
-        $("gqText").value = text; load();
+        $("gqText").value = text; codes = {}; load();
       }));
       return;
     }
@@ -42,6 +48,6 @@
       catch (e) { msg(`更新できませんでした：${e.message}`, "err"); $("gqRun").disabled = false; }
     });
   }
-  $("gqReload").addEventListener("click", () => { text = $("gqText").value; load(); });
+  $("gqReload").addEventListener("click", () => { text = $("gqText").value; if (text.trim()) codes = {}; load(); });
   load();
 })();
