@@ -1857,3 +1857,55 @@ export async function driveUploadFile(owner, { path: fpath, name, mimeType = "vi
   return { fileId: pd.id, link: pd.webViewLink || "", size };
 }
 
+
+// Gemini 用：kinbot のデータを、ドライブのスプレッドシート／ドキュメントとして置く（2026-11-18 田中さん）。
+//   Gemini は GitHub のリポジトリを付けても「ファイルの一覧だけ」で中身を読めなかった。ドライブのファイルなら読めるので、こちらに置く。
+//   毎回あたらしく作ると URL が変わって Gemini に付け直しになるので、前に作ったファイルの中身だけを入れ替える（fileId を保つ）
+export async function driveEnsureFolderId(owner, name, folderId = "") {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません（設定からGoogle連携をしてください）");
+  const H = { Authorization: `Bearer ${token}` };
+  if (folderId) {
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?fields=id,trashed`, { headers: H });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && !d.trashed) return folderId;
+  }
+  const mk = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ name, mimeType: "application/vnd.google-apps.folder" }) });
+  const md = await mk.json().catch(() => ({}));
+  if (!mk.ok || !md.id) throw new Error(`ドライブにフォルダを作れませんでした（${mk.status}）：${JSON.stringify(md).slice(0, 160)}`);
+  return md.id;
+}
+// kind：sheet（CSV → スプレッドシート）／doc（文章 → ドキュメント）
+export async function driveSyncConverted(owner, { name, text, kind = "sheet", fileId = "", folderId = "" }) {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const H = { Authorization: `Bearer ${token}` };
+  const target = kind === "doc" ? "application/vnd.google-apps.document" : "application/vnd.google-apps.spreadsheet";
+  const src = kind === "doc" ? "text/plain; charset=UTF-8" : "text/csv; charset=UTF-8";
+  const data = Buffer.from(String(text || ""), "utf8");
+  // 1) 前のファイルがあれば、中身だけ入れ替える（URL はそのまま）
+  if (fileId) {
+    const up = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(fileId)}?uploadType=media&fields=id,webViewLink,trashed`, { method: "PATCH", headers: { ...H, "content-type": src }, body: data });
+    const ud = await up.json().catch(() => ({}));
+    if (up.ok && ud.id && !ud.trashed) return { fileId: ud.id, link: ud.webViewLink || "" };
+  }
+  // 2) 無ければ（消された・はじめて）、あたらしく作る
+  const boundary = `gm${Date.now().toString(36)}`;
+  const meta = JSON.stringify({ name, mimeType: target, ...(folderId ? { parents: [folderId] } : {}) });
+  const body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\ncontent-type: ${src}\r\n\r\n`),
+    data, Buffer.from(`\r\n--${boundary}--`),
+  ]);
+  const cr = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", { method: "POST", headers: { ...H, "content-type": `multipart/related; boundary=${boundary}` }, body });
+  const cd = await cr.json().catch(() => ({}));
+  if (!cr.ok || !cd.id) throw new Error(`ドライブに置けませんでした（${cr.status}）：${JSON.stringify(cd).slice(0, 160)}`);
+  return { fileId: cd.id, link: cd.webViewLink || "" };
+}
+// 決めた人だけが見られるように共有する（通知メールは送らない）。フォルダに付ければ中のファイルにも効く
+export async function driveShareUser(owner, fileId, email, role = "reader") {
+  const token = await driveAccessToken(owner);
+  if (!token) throw new Error("Googleが連携されていません");
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions?sendNotificationEmail=false`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ role, type: "user", emailAddress: email }) });
+  if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error(`共有できませんでした（${email}・${r.status}）：${t.slice(0, 120)}`); }
+  return true;
+}

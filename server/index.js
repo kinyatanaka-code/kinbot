@@ -712,7 +712,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -15764,13 +15764,65 @@ issue の本文に、次の形の JSON を \`\`\`json と \`\`\` で囲んで入
 - 動くのは、kinbot に登録された GitHub アカウントが作った issue だけです。
 `;
 }
+// ドライブへの書き出し（2026-11-18 田中さん）。表はスプレッドシート、説明はドキュメントにする。
+//   置き場所は、書き出す人（kinbot のアカウント）のマイドライブの「kinbot（Gemini 用）」フォルダ。
+//   見られるのは、設定で決めた人だけ（会社全体には共有しない。商談の中身が入っているため）
+const GEM_DRIVE_NAMES = {
+  "README.md": "kinbot｜はじめに読む（説明と更新の頼み方）",
+  "kinbot/deals.csv": "kinbot｜案件", "kinbot/meetings.csv": "kinbot｜録音した商談", "kinbot/tools.md": "kinbot｜更新を頼むときの道具",
+  "kincall/call_stats.csv": "kincall｜架電の実績", "kincall/appointments.csv": "kincall｜アポ", "kincall/lists.csv": "kincall｜架電リスト",
+  "kinxs/users.csv": "kinXs｜導入企業", "kinxs/renewals.csv": "kinXs｜更新管理", "kinxs/tasks.csv": "kinXs｜やること",
+  "salesforce/opportunities_cross.csv": "Salesforce｜商談（クロス）", "salesforce/opportunities_cross_counts.csv": "Salesforce｜商談（クロス）の件数",
+};
+function gemDriveReadme(repo, at, files) {
+  return `kinbot のデータ（Gemini 用）
+
+このフォルダのファイルは kinbot が1時間ごとに自動で書き直しています（最後に書き出した時刻：${at} 日本時間）。手で直さないでください（次の書き出しで消えます）。
+ファイルの URL は変わりません。Gemini には、このフォルダのファイルを @ で付けて読ませてください。
+
+■ ファイル
+${files.map((f) => `・${f.name}：${f.label}${f.link ? `\n  ${f.link}` : ""}`).join("\n")}
+
+■ kinbot に何かをしてもらう（Salesforce の更新など）
+${repo ? `GitHub のリポジトリ ${repo} に issue を作ると、kinbot が1分ほどで実行し、結果を issue に書いて閉じます。
+issue の本文に、次の形の JSON を \`\`\`json と \`\`\` で囲んで入れてください（1つの issue で5つまで）。
+
+{"requests":[{"tool":"sf_update","args":{"sobject":"Opportunity","id":"006xxxxxxxxxxxxxxx","fields":{"StageName":"06:申し込み書回収"}}}]}
+
+・使える道具と入れる値は「kinbot｜更新を頼むときの道具」にあります。
+・ここに無い Salesforce の項目やほかの事業部の商談は、issue で sf_query（SOQL の SELECT）を頼むと調べられます。
+・書きかえる前に、必ず内容を人に確かめてから issue を作ってください。
+・動くのは、kinbot に登録された GitHub アカウントが作った issue だけです。` : "（いまは、更新の依頼のしくみは止めています）"}
+`;
+}
+async function gemDriveExport(user, cfg, files, at) {
+  const folderId = await driveEnsureFolderId(user, "kinbot（Gemini 用）", cfg.driveFolderId || "");
+  const prev = new Map((Array.isArray(cfg.driveFiles) ? cfg.driveFiles : []).map((f) => [f.path, f]));
+  const out = [];
+  // README はほかのファイルの URL を載せたいので、最後に作る
+  for (const f of files.filter((x) => x.path !== "README.md")) {
+    const kind = /\.csv$/.test(f.path) ? "sheet" : "doc";
+    const r = await driveSyncConverted(user, { name: GEM_DRIVE_NAMES[f.path] || `kinbot｜${f.path}`, text: f.content, kind, fileId: (prev.get(f.path) || {}).fileId || "", folderId });
+    out.push({ path: f.path, name: GEM_DRIVE_NAMES[f.path] || f.path, label: f.label, fileId: r.fileId, link: r.link });
+  }
+  const rd = await driveSyncConverted(user, { name: GEM_DRIVE_NAMES["README.md"], text: gemDriveReadme(cfg.repo || "", at, out), kind: "doc", fileId: (prev.get("README.md") || {}).fileId || "", folderId });
+  out.unshift({ path: "README.md", name: GEM_DRIVE_NAMES["README.md"], label: "説明", fileId: rd.fileId, link: rd.link });
+  // 見る人：設定の「ドライブを見る人」＋ GitHub の登録の人。フォルダに付ければ中のファイルにも効く。前に付けた人には付け直さない
+  const me = String(user).toLowerCase();
+  const want = [...new Set([...(Array.isArray(cfg.driveReaders) ? cfg.driveReaders : []), ...Object.values(cfg.map || {})].map((e) => String(e || "").trim().toLowerCase()).filter((e) => /@/.test(e) && e !== me))];
+  const done = new Set(Array.isArray(cfg.driveSharedTo) && cfg.driveFolderId === folderId ? cfg.driveSharedTo : []);
+  for (const e of want) { if (done.has(e)) continue; try { await driveShareUser(user, folderId, e); done.add(e); } catch (err) { console.warn("[gemini] ドライブの共有", err.message); } }
+  return { folderId, files: out, sharedTo: [...done] };
+}
 // 書き出し
 let _gemBusy = false;
 async function gemExport({ force = false } = {}) {
   if (_gemBusy) return { ok: false, reason: "書き出し中です" }; _gemBusy = true;
   try {
     const { cfg, token } = await gemCfg();
-    if (!token || !cfg.repo) return { ok: false, reason: "リポジトリと GitHub の合言葉が入っていません" };
+    // GitHub が無くても、ドライブへの書き出しだけで動く（2026-11-18：Gemini は GitHub の中身を読めなかったため、読むのはドライブにした）
+    const useGh = !!(token && cfg.repo); const useDrive = cfg.drive !== false;
+    if (!useGh && !useDrive) return { ok: false, reason: "書き出し先（ドライブか GitHub）がありません" };
     if (!cfg.enabled && !force) return { ok: false, reason: "止めています" };
     const user = cfg.owner || aiOwnerEmail(); if (!user) return { ok: false, reason: "書き出す人（kinbot のアカウント）が決まっていません" };
     const now = new Date(); const ym1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)); const m6 = new Date(now.getTime() - 183 * 86400000);
@@ -15819,10 +15871,16 @@ async function gemExport({ force = false } = {}) {
     const at = gemJst(now);
     files.push({ path: "README.md", label: "", content: gemReadme(cfg.repo, at, files.filter((f) => f.label)) });
     const total = files.reduce((n, f) => n + f.content.length, 0);
-    const sha = await gemCommit(token, cfg.repo, files.map(({ path, content }) => ({ path, content })), `kinbot：データの書き出し（${at}・約${Math.round(total / 1000)}千字）`, { replace: true });
-    await gemSaveCfg({ lastExportAt: now.toISOString(), lastExportError: errs.join(" ／ ").slice(0, 500), lastExportFiles: files.length, lastSha: sha });
-    console.log(`[gemini] GitHub に書き出しました：${cfg.repo} ${files.length}ファイル・約${Math.round(total / 1000)}千字${errs.length ? `（読めなかったもの ${errs.length}）` : ""}`);
-    return { ok: true, files: files.length, chars: total, errors: errs };
+    let sha = cfg.lastSha || "";
+    if (useGh) {
+      try { sha = await gemCommit(token, cfg.repo, files.map(({ path, content }) => ({ path, content })), `kinbot：データの書き出し（${at}・約${Math.round(total / 1000)}千字）`, { replace: true }); }
+      catch (e) { errs.push(`GitHub：${e.message}`); }
+    }
+    let drive = null;
+    if (useDrive) { try { drive = await gemDriveExport(user, cfg, files, at); } catch (e) { errs.push(`ドライブ：${e.message}`); } }
+    await gemSaveCfg({ lastExportAt: now.toISOString(), lastExportError: errs.join(" ／ ").slice(0, 500), lastExportFiles: files.length, lastSha: sha, ...(drive ? { driveFolderId: drive.folderId, driveFiles: drive.files, driveSharedTo: drive.sharedTo } : {}) });
+    console.log(`[gemini] 書き出しました：${useGh ? `GitHub ${cfg.repo}・` : ""}${drive ? `ドライブ ${drive.files.length}ファイル・` : ""}約${Math.round(total / 1000)}千字${errs.length ? `（読めなかったもの ${errs.length}）` : ""}`);
+    return { ok: true, files: files.length, chars: total, errors: errs, drive: drive ? { folder: `https://drive.google.com/drive/folders/${drive.folderId}`, files: drive.files.length } : null };
   } catch (e) { await gemSaveCfg({ lastExportAt: new Date().toISOString(), lastExportError: e.message }).catch(() => {}); console.warn("[gemini] 書き出し", e.message); return { ok: false, reason: e.message }; }
   finally { _gemBusy = false; }
 }
@@ -15868,7 +15926,8 @@ setInterval(() => { gemExport().catch(() => {}); }, 60 * 60 * 1000).unref?.();
 // 設定の画面から読む・直す（直すのは管理者だけ。合言葉は画面に返さない）
 app.get("/api/gemini-bridge", async (req, res) => {
   try { const { cfg, token } = await gemCfg(); res.json({ ok: true, canEdit: isAiOwner(req), repo: cfg.repo || "", owner: cfg.owner || aiOwnerEmail() || "", enabled: !!cfg.enabled, hasToken: !!token, map: isAiOwner(req) ? (cfg.map || {}) : undefined,
-    lastExportAt: cfg.lastExportAt || null, lastExportError: cfg.lastExportError || "", lastExportFiles: cfg.lastExportFiles || 0, lastIssueAt: cfg.lastIssueAt || null, lastIssueError: cfg.lastIssueError || "", issueLog: isAiOwner(req) ? (cfg.issueLog || []).slice(0, 10) : undefined }); }
+    lastExportAt: cfg.lastExportAt || null, lastExportError: cfg.lastExportError || "", lastExportFiles: cfg.lastExportFiles || 0,
+    drive: cfg.drive !== false, driveFolder: cfg.driveFolderId ? `https://drive.google.com/drive/folders/${cfg.driveFolderId}` : "", driveFiles: (Array.isArray(cfg.driveFiles) ? cfg.driveFiles : []).map((f) => ({ name: f.name, link: f.link })), driveReaders: isAiOwner(req) ? (cfg.driveReaders || []) : undefined, lastIssueAt: cfg.lastIssueAt || null, lastIssueError: cfg.lastIssueError || "", issueLog: isAiOwner(req) ? (cfg.issueLog || []).slice(0, 10) : undefined }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/gemini-bridge", async (req, res) => {
@@ -15878,6 +15937,9 @@ app.put("/api/gemini-bridge", async (req, res) => {
     if (b.repo !== undefined) { const r = String(b.repo || "").trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, ""); if (r && !/^[\w.-]+\/[\w.-]+$/.test(r)) return res.status(400).json({ error: "リポジトリは「持ち主/名前」の形で入れてください" }); patch.repo = r; }
     if (b.owner !== undefined) patch.owner = String(b.owner || "").trim().toLowerCase();
     if (b.enabled !== undefined) patch.enabled = !!b.enabled;
+    if (b.drive !== undefined) patch.drive = !!b.drive;
+    // ドライブのフォルダを見られる人（メールアドレス。改行・カンマ区切り）
+    if (b.driveReaders !== undefined) { const arr = (Array.isArray(b.driveReaders) ? b.driveReaders : String(b.driveReaders || "").split(/[\s,、，]+/)).map((e) => String(e).trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)); patch.driveReaders = [...new Set(arr)].slice(0, 50); }
     if (b.map !== undefined && b.map && typeof b.map === "object") { const m = {}; for (const [k, v] of Object.entries(b.map)) { const kk = String(k).trim().replace(/^@/, "").toLowerCase(); const vv = String(v || "").trim().toLowerCase(); if (kk && /@/.test(vv)) m[kk] = vv; } patch.map = m; }
     if (Object.keys(patch).length) await gemSaveCfg(patch);
     if (typeof b.token === "string" && b.token.trim()) await saveSettings({ gemBridgeToken: b.token.trim() });
@@ -15920,16 +15982,16 @@ app.get("/api/gemini-bridge/skill", async (req, res) => {
     const { cfg } = await gemCfg(); const repo = cfg.repo || "（管理者が設定したリポジトリ）";
     const md = `---
 name: kinbot-gemini
-description: ネオキャリアの営業支援 kinbot・kincall・kinXs と Salesforce のデータを、GitHub のリポジトリ ${repo} から読み、issue で kinbot に更新を頼む。商談・アポ・架電・受注・導入企業・Salesforce の確認や更新を頼まれたら使う。
+description: ネオキャリアの営業支援 kinbot・kincall・kinXs と Salesforce のデータを、Google ドライブの「kinbot（Gemini 用）」フォルダのスプレッドシートから読み、更新は GitHub の issue で kinbot に頼む。商談・アポ・架電・受注・導入企業・Salesforce の確認や更新を頼まれたら使う。
 ---
 
 # kinbot（Gemini 用）
 
-kinbot のデータは、GitHub の非公開リポジトリ **${repo}** に1時間ごとに書き出されています。
-
+kinbot のデータは、Google ドライブの **「kinbot（Gemini 用）」フォルダ** に、1時間ごとにスプレッドシートとして書き出されています（ファイルの URL は変わりません）。
+${(cfg.driveFiles || []).length ? `\nファイル：\n${cfg.driveFiles.map((f) => `- ${f.name}：${f.link}`).join("\n")}\n` : ""}
 ## 読むとき
-1. このチャットに ${repo} のリポジトリが付いていなければ、ユーザーに「GitHub から ${repo} をチャットに付けてください」と頼む。
-2. まず README.md を読み、どのファイルに何があるかを見る（最後に書き出した時刻も書いてある）。
+1. 必要なファイルがこのチャットに付いていなければ、ユーザーに「@ で Google ドライブの『ファイル名』を付けてください」と頼む（ファイル名は「kinbot｜案件」「Salesforce｜商談（クロス）」のように始まる）。
+2. 何がどこにあるか分からないときは、まず「kinbot｜はじめに読む（説明と更新の頼み方）」を読む（最後に書き出した時刻も書いてある）。
 3. 数字や名前は、ファイルにあるとおり正確に答える。無いものは推測しない。書き出した時刻より新しいことは分からない、と伝える。
 
 ## kinbot に更新を頼むとき（Salesforce の更新など）
@@ -15938,8 +16000,8 @@ kinbot のデータは、GitHub の非公開リポジトリ **${repo}** に1時�
    \`\`\`json
    {"requests":[{"tool":"sf_update","args":{"sobject":"Opportunity","id":"006…","fields":{"StageName":"06:申し込み書回収"}}}]}
    \`\`\`
-3. 使える道具と入れる値は、リポジトリの kinbot/tools.md に書いてある。ID などはリポジトリのデータから正確に取る。
-4. kinbot が1分ほどで実行し、結果を issue のコメントに書いて閉じる。調べもの（sf_query など）の結果は answers/issue-番号.md にも入る（リポジトリを付け直すと読める）。
+3. 使える道具と入れる値は、ドライブの「kinbot｜更新を頼むときの道具」に書いてある。ID などはドライブのデータから正確に取る。
+4. kinbot が1分ほどで実行し、結果を issue のコメントに書いて閉じる。調べもの（sf_query など）の結果も、その issue のコメントに入る。
 5. 消す・一度にたくさん変える依頼はしない。
 
 ## 守ること
@@ -33265,11 +33327,11 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
-  "Gemini：GitHub 経由で読む・issue で更新を頼む",
+  "Gemini：Google ドライブのスプレッドシートで読む・GitHub の issue で更新を頼む",
   "Gemini のカスタムアプリで kinbot につなぐ",
   "Claude のスキルで kinbot につなぐ（コネクタ不要）",
   "kinXs：要望・問い合わせを中身の分類ごとに",

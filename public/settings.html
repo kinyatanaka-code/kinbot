@@ -26,7 +26,10 @@
   .gb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 14px;margin:8px 0 12px;}
   .gb-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#3E5A50;}
   .gb-grid .gb-chk{flex-direction:row;align-items:center;gap:6px;}
-  #gbMap{width:100%;box-sizing:border-box;font-family:inherit;}
+  #gbMap,#gbReaders{width:100%;box-sizing:border-box;font-family:inherit;}
+  .gb-files{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0;}
+  .gb-files a{font-size:12px;padding:4px 10px;border-radius:999px;background:#e8f5ef;color:#0d5b47;text-decoration:none;border:1px solid #5DCAA5;}
+  .gb-files a:hover{background:#d3efe3;}
   .gb-log{font-size:12px;color:#5C7068;margin-top:8px;line-height:1.7;}
   .skill-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 6px;}
   .pbiz-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;}
@@ -42,7 +45,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118e" />
+    <link rel="stylesheet" href="style.css?v=20261118f" />
   </head>
   <body>
     <div class="app">
@@ -562,17 +565,18 @@
 
               <div class="set-pane-inner" data-integ="gemini" hidden>
             <div class="set-card" id="gbCard">
-              <h3>Gemini でつなぐ（GitHub 経由）</h3>
-              <p class="note">Gemini のスキルはインターネットに出られず、会社によってはカスタムアプリも使えません。そこで <b>GitHub</b> を間にはさみます。kinbot が1時間ごとに、商談・アポ・架電・kinXs・Salesforce の状況を GitHub の<b>非公開リポジトリ</b>に書き出します。Gemini はそれを読んで答えます。Salesforce の更新などは、Gemini が作る <b>issue</b> を kinbot が1分ほどで実行します。</p>
+              <h3>Gemini でつなぐ（Google ドライブ ＋ GitHub）</h3>
+              <p class="note">Gemini のスキルはインターネットに出られず、会社によってはカスタムアプリも使えません。そこで kinbot が1時間ごとに、商談・アポ・架電・kinXs・Salesforce の状況を <b>Google ドライブの「kinbot（Gemini 用）」フォルダ</b>にスプレッドシートで書き出します。Gemini はそれを読んで答えます。Salesforce の更新などは、Gemini が GitHub の非公開リポジトリに作る <b>issue</b> を kinbot が1分ほどで実行します。</p>
               <div class="apidoc-h">使う人がやること</div>
               <ol class="cc-steps">
-                <li>Gemini の設定で GitHub をつなぐ（GitHub のアカウントでログイン）。issue を作るには、Google Workspace の「GitHub integration」アプリも入れる</li>
+                <li>管理者に、ドライブのフォルダを見られるようにしてもらう（下の「ドライブを見る人」にメールアドレスを入れる）</li>
                 <li>下の「Gemini のスキルをダウンロード」を押し、SKILL.md を Gemini の「スキル」でアップロードする</li>
-                <li>管理者に、自分の GitHub アカウント名を kinbot に登録してもらう（登録した人の issue だけ動きます）</li>
-                <li>Gemini のチャットに、GitHub から <code id="gbRepoName">（リポジトリ）</code> を付けて、「今月の受注を教えて」「この商談を06にして」のように話しかける</li>
+                <li>Gemini のチャットで、@ から Google ドライブのファイル（「kinbot｜案件」「Salesforce｜商談（クロス）」など）を付けて、「今月の受注を教えて」のように話しかける</li>
+                <li>更新もしたい人だけ：Gemini の設定で GitHub をつなぎ、管理者に GitHub のアカウント名を登録してもらう（登録した人の issue だけ動きます）</li>
               </ol>
               <div class="skill-row"><a class="btn primary" id="gbSkill" href="/api/gemini-bridge/skill" download="SKILL.md">Gemini のスキルをダウンロード</a><span class="note" id="gbState"></span></div>
-              <p class="note">中身はチャットに付けた時点のものです。新しい数字を見たいときは、リポジトリを付け直してください。issue の結果は、issue のコメントと answers/ に入ります。</p>
+              <div class="gb-files" id="gbFiles"></div>
+              <p class="note">ファイルの URL は変わらず、中身だけが1時間ごとに新しくなります。更新を頼むリポジトリ：<code id="gbRepoName">（リポジトリ）</code></p>
 
               <div class="gb-admin" id="gbAdmin" hidden>
                 <div class="apidoc-h">管理者の設定</div>
@@ -587,6 +591,9 @@
                   <label>書き出す人（この人に見える範囲を書き出す）<input class="sf-input" id="gbOwner" placeholder="kinbot のメールアドレス" /></label>
                   <label class="gb-chk"><input type="checkbox" id="gbOn" /> 書き出し・issue の実行を動かす</label>
                 </div>
+                <label class="gb-chk"><input type="checkbox" id="gbDrive" /> Google ドライブにも書き出す（書き出す人のマイドライブの「kinbot（Gemini 用）」フォルダ）</label>
+                <div class="apidoc-h">ドライブを見る人（メールアドレス。1行に1人。会社全体には共有しません）</div>
+                <textarea class="sf-input" id="gbReaders" rows="3" placeholder="例：ryota.nakazawa@neo-career.co.jp"></textarea>
                 <div class="apidoc-h">GitHub アカウント → kinbot のアカウント（issue を動かせる人）</div>
                 <textarea class="sf-input" id="gbMap" rows="4" placeholder="1行に1人：GitHubのアカウント名 kinbotのメールアドレス&#10;例：goldfly32-ux kinya.tanaka@neo-career.co.jp"></textarea>
                 <div class="skill-row"><button class="btn primary" id="gbSave" type="button">保存</button><button class="btn" id="gbTest" type="button">つながるか確かめる</button><button class="btn" id="gbExport" type="button">今すぐ書き出す</button><span class="note" id="gbMsg"></span></div>
@@ -1074,8 +1081,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261118e"></script>
-      <script src="nav.js?v=20261118e"></script>
+    <script src="settings.js?v=20261118f"></script>
+      <script src="nav.js?v=20261118f"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

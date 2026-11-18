@@ -3648,18 +3648,23 @@ async function gbLoad() {
   let d = {}; try { d = await (await fetch("/api/gemini-bridge")).json(); } catch { return; }
   const fmt = (t) => { if (!t) return "まだ"; const x = new Date(t); return `${x.getMonth() + 1}/${x.getDate()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`; };
   if ($("gbRepoName")) $("gbRepoName").textContent = d.repo || "（管理者がまだ設定していません）";
-  if ($("gbState")) $("gbState").textContent = d.repo ? `書き出し：${fmt(d.lastExportAt)}${d.lastExportError ? `（一部エラー：${d.lastExportError}）` : ""}${d.enabled ? "" : "・いまは止めています"}` : "管理者がまだ設定していません";
-  setIntegState("gemini", d.enabled && d.repo && d.hasToken ? "接続済み" : "未設定", d.enabled && d.repo && d.hasToken);
+  if ($("gbState")) $("gbState").textContent = d.lastExportAt ? `書き出し：${fmt(d.lastExportAt)}${d.lastExportError ? `（一部エラー：${d.lastExportError}）` : ""}${d.enabled ? "" : "・いまは止めています"}` : "まだ書き出していません";
+  // ドライブのファイルへのリンク（見られない人が押すと「アクセス権が必要」になる。そのときは管理者に頼む）
+  const esc = (t) => String(t || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  if ($("gbFiles")) $("gbFiles").innerHTML = (d.driveFolder ? `<a href="${esc(d.driveFolder)}" target="_blank" rel="noopener">フォルダを開く</a>` : "") + (d.driveFiles || []).filter((f) => f.link).map((f) => `<a href="${esc(f.link)}" target="_blank" rel="noopener">${esc(f.name)}</a>`).join("");
+  const ready = d.enabled && (d.driveFolder || (d.repo && d.hasToken));
+  setIntegState("gemini", ready ? "接続済み" : "未設定", !!ready);
   const adm = $("gbAdmin"); if (!adm) return; adm.hidden = !d.canEdit; if (!d.canEdit) return;
   $("gbRepo").value = d.repo || ""; $("gbOwner").value = d.owner || ""; $("gbOn").checked = !!d.enabled;
   $("gbToken").placeholder = d.hasToken ? "設定済み（変えるときだけ入れる）" : "github_pat_…";
   $("gbMap").value = Object.entries(d.map || {}).map(([k, v]) => `${k} ${v}`).join("\n");
+  $("gbDrive").checked = d.drive !== false; $("gbReaders").value = (d.driveReaders || []).join("\n");
   $("gbLog").innerHTML = (d.issueLog || []).length ? "最近の issue：<br>" + d.issueLog.map((x) => `#${x.n} ${fmt(x.at)} ${x.who} ${x.ok ? "できた" : "できなかった"}（${String(x.msg || "").replace(/[<>&]/g, "")}）`).join("<br>") : (d.lastIssueError ? `issue を読めませんでした：${String(d.lastIssueError).replace(/[<>&]/g, "")}` : "");
   if (adm._wired) return; adm._wired = true;
   const msg = (t) => { $("gbMsg").textContent = t; };
   $("gbSave").addEventListener("click", async () => {
     const map = {}; for (const line of $("gbMap").value.split(/\n/)) { const [k, v] = line.trim().split(/[\s,，]+/); if (k && v) map[k] = v; }
-    const body = { repo: $("gbRepo").value, owner: $("gbOwner").value, enabled: $("gbOn").checked, map }; if ($("gbToken").value.trim()) body.token = $("gbToken").value.trim();
+    const body = { repo: $("gbRepo").value, owner: $("gbOwner").value, enabled: $("gbOn").checked, map, drive: $("gbDrive").checked, driveReaders: $("gbReaders").value }; if ($("gbToken").value.trim()) body.token = $("gbToken").value.trim();
     msg("保存しています…");
     try { const r = await fetch("/api/gemini-bridge", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); $("gbToken").value = ""; msg("保存しました"); gbLoad(); } catch (e) { msg(`保存できませんでした：${e.message}`); }
   });
@@ -3669,7 +3674,7 @@ async function gbLoad() {
   });
   $("gbExport").addEventListener("click", async () => {
     msg("書き出しています（1〜2分）…"); $("gbExport").disabled = true;
-    try { const r = await fetch("/api/gemini-bridge/export", { method: "POST" }); const j = await r.json(); if (!j.ok) throw new Error(j.reason || j.error); msg(`書き出しました（${j.files}ファイル${j.errors && j.errors.length ? `・読めなかったもの ${j.errors.length}` : ""}）`); gbLoad(); } catch (e) { msg(`書き出せませんでした：${e.message}`); }
+    try { const r = await fetch("/api/gemini-bridge/export", { method: "POST" }); const j = await r.json(); if (!j.ok) throw new Error(j.reason || j.error); msg(`書き出しました（${j.files}ファイル${j.drive ? "・ドライブにも置きました" : ""}${j.errors && j.errors.length ? `・うまくいかなかったもの：${j.errors.join(" ／ ")}` : ""}）`); gbLoad(); } catch (e) { msg(`書き出せませんでした：${e.message}`); }
     $("gbExport").disabled = false;
   });
 }
