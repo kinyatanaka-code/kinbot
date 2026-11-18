@@ -16,7 +16,10 @@
 import { dbPool, listUsers, approachBanHit, approachBanHitSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
 import { listCalendarEvents, gmailSend, isConnected as googleConnected } from "./google.js";
 import { fixMojibake } from "./docs.js";
-import { createTask, deleteTask, sfQuery } from "./salesforce.js";
+import { createTask, deleteTask, sfQuery, sfUpdateRecord } from "./salesforce.js";
+import { judgeHot } from "./mchot.js";
+import { lookupMynavi } from "./analyzer.js";
+import { fetchPageText } from "./companyenrich.js";
 
 const BIZ = "MOCHICA";
 
@@ -64,6 +67,14 @@ async function ensure() {
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_call_logs_day ON mc_call_logs(created_at)`);
     // アポのおすすめ日時で選んだ「その時間に空いていたクローザー」（2026-11-17）
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS apo_who TEXT`);
+    // 担当者と話せたときに聞いたこと（検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数）（2026-11-18 福井さん）
+    //   リードには最新の値、記録にはそのとき聞いた値を残す（元に戻すで前の値へ戻せるように）
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS hearing JSONB`);
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS hearing JSONB`);
+    // SF のリードの項目（検討開始時期・採用人数・顧客の課題感）を書けなかったとき。黙って失敗しない（ルール5）
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_lead_err TEXT`);
+    // マイナビ（新卒）の掲載の有無と中身。会社ごとに1回だけ調べて持っておく（同じ会社を何度も検索しないため）
+    await q(`CREATE TABLE IF NOT EXISTS mc_mynavi (ckey TEXT PRIMARY KEY, company TEXT, data JSONB, at TIMESTAMPTZ DEFAULT now())`);
     // 資料送付の記録。架電の記録（mc_call_logs）に入れるとコール数に数えてしまうので別にする（2026-11-17）
     await q(`CREATE TABLE IF NOT EXISTS mc_doc_sends (
       id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT, url TEXT, doc_name TEXT,
@@ -128,6 +139,80 @@ function oneLine(log, gate, names) {
   return parts.join(" → ");
 }
 
+// 会社名を比べるための形（全角半角・空白・株式会社などの違いをならす）。マイナビの調べ結果を会社ごとに持つのに使う
+export function companyKey(name) {
+  return String(name || "").normalize("NFKC").toLowerCase()
+    .replace(/株式会社|有限会社|合同会社|合資会社|合名会社|\(株\)|\(有\)|\(同\)|㈱|㈲/g, "")
+    .replace(/[\s・,.、。'"「」()（）\-ー‐]/g, "");
+}
+
+// ---- マイナビの調べ（2026-11-18 福井さん「リードのマイナビ掲載有無及びマイナビ情報の反映」。Web検索で自動・取込時にまとめて） ----
+//   取り込んだ会社を順番に調べる（同時に2社まで。検索とAIの費用・速さを抑える）。
+//   掲載ありは30日、見つからないは14日、失敗は1時間たったら調べ直す。
+//   検索の鍵が無い・失敗したときは「失敗」として残して画面に出す（「見つからない」と取り違えない＝ルール5）
+const MYNAVI_TTL = { listed: 30 * 86400e3, notfound: 14 * 86400e3, error: 3600e3 };
+const _mnQueue = new Map(); let _mnRunning = 0;
+async function mynaviCheck(ckey, company) {
+  try {
+    if (!process.env.BRAVE_API_KEY) throw new Error("Web検索の鍵（BRAVE_API_KEY）が設定されていません");
+    const d = await lookupMynavi(company, fetchPageText);
+    await P().query(`INSERT INTO mc_mynavi (ckey, company, data, at) VALUES ($1,$2,$3,now()) ON CONFLICT (ckey) DO UPDATE SET company=$2, data=$3, at=now()`, [ckey, company, d]);
+  } catch (e) {
+    console.error("[mccall] マイナビを調べられませんでした", company, e.message);
+    await P().query(`INSERT INTO mc_mynavi (ckey, company, data, at) VALUES ($1,$2,$3,now()) ON CONFLICT (ckey) DO UPDATE SET data=$3, at=now()`,
+      [ckey, company, { status: "error", error: String(e.message).slice(0, 200), checkedAt: new Date().toISOString() }]).catch(() => {});
+  }
+}
+function mynaviPump() {
+  while (_mnRunning < 2 && _mnQueue.size) {
+    const [ckey, company] = _mnQueue.entries().next().value; _mnQueue.delete(ckey); _mnRunning++;
+    mynaviCheck(ckey, company).finally(() => { _mnRunning--; mynaviPump(); });
+  }
+}
+// まだ調べていない・古くなった会社だけ順番に入れる
+export async function mynaviEnqueue(companies) {
+  const m = new Map(); for (const c of companies) { const k = companyKey(c); if (k && k.length >= 2 && !m.has(k)) m.set(k, String(c).trim()); }
+  if (!m.size) return 0;
+  const have = (await P().query(`SELECT ckey, data->>'status' AS st, at FROM mc_mynavi WHERE ckey = ANY($1)`, [[...m.keys()]])).rows;
+  const fresh = new Set(have.filter((r) => Date.now() - new Date(r.at).getTime() < (MYNAVI_TTL[r.st] || 0)).map((r) => r.ckey));
+  let n = 0; for (const [k, c] of m) if (!fresh.has(k) && !_mnQueue.has(k)) { _mnQueue.set(k, c); n++; }
+  mynaviPump(); return n;
+}
+async function mynaviOf(company) {
+  const k = companyKey(company); if (!k) return null;
+  const r = (await P().query(`SELECT data, at FROM mc_mynavi WHERE ckey=$1`, [k]).catch(() => ({ rows: [] }))).rows[0];
+  if (!r || Date.now() - new Date(r.at).getTime() >= (MYNAVI_TTL[(r.data || {}).status] || 0)) { await mynaviEnqueue([company]).catch(() => {}); }
+  if (!r) return { status: "checking" };
+  return _mnQueue.has(k) && (r.data || {}).status === "error" ? { status: "checking" } : r.data;
+}
+
+// ---- ヒアリング（2026-11-18 福井さん「検討時期・採用ニーズの明記／接触人数・採用目標人数のヒヤリング」） ----
+//   検討時期は SF の「検討開始時期」と同じ 1月〜12月（SF の選択肢に合わせる。未定も残せる）。
+//   接触人数は「説明会・面接の参加人数」（福井さん決定）。人数は数字だけにして、あとで集計できるようにする
+const MONTHS = Array.from({ length: 12 }, (_, i) => `${i + 1}月`);
+const intOrNull = (v) => { const n = parseInt(String(v ?? "").normalize("NFKC").replace(/[^0-9]/g, ""), 10); return Number.isFinite(n) && n >= 0 && n < 1e6 ? n : null; };
+export function cleanHearing(h = {}) {
+  const when = String(h.when || "").trim();
+  const o = { when: MONTHS.includes(when) || when === "未定" ? when : "", need: clip(h.need, 400), contact: intOrNull(h.contact), target: intOrNull(h.target) };
+  return o.when || o.need || o.contact != null || o.target != null ? o : null;
+}
+// 前の値に、新しく聞けた項目だけを重ねる（空のまま記録しても、前に聞いた値を消さないため）
+function mergeHearing(old, neu) {
+  if (!neu) return old || null; const o = { ...(old || {}) };
+  for (const k of ["when", "need", "contact", "target"]) if (neu[k] !== "" && neu[k] != null) o[k] = neu[k];
+  return o;
+}
+export function hearingLines(h) {
+  if (!h) return [];
+  return [h.when && `検討時期：${h.when}`, h.need && `採用ニーズ：${h.need}`, h.contact != null && `説明会・面接の参加人数：${h.contact}名`, h.target != null && `採用目標人数：${h.target}名`].filter(Boolean);
+}
+// 採用目標人数 → SF の「採用人数(選択リスト)」の選択肢
+export function hiresBucket(n) {
+  if (n == null || n <= 0) return null;
+  const B = [[2, "1～2名"], [5, "3～5名"], [10, "6～10名"], [15, "11～15名"], [20, "16～20名"], [25, "21～25名"], [30, "26～30名"], [35, "31～35名"], [40, "36～40名"], [45, "41～45名"], [50, "46～50名"], [100, "51～100名"], [200, "101～200名"], [300, "201～300名"]];
+  for (const [max, v] of B) if (n <= max) return v; return "301名～";
+}
+
 export function registerMcCall(app, deps) {
   const { isAdmin, sfActor, mochicaSet } = deps;
   const isMcIntern = deps.isMcIntern || (async () => false);
@@ -169,14 +254,38 @@ export function registerMcCall(app, deps) {
         WhoId: g.sf_lead_id, Subject: `[MOCHICA 架電] ${outcomeLabel(g.outcome)}`, Type: "Call", Status: "完了", ActivityDate: d,
         Description: [`記録した人：${names.get(who) || who}（kinbot for MOCHICA）`, `到達：${(REACH[g.reach] || {}).label || g.reach}`, `結果：${outcomeLabel(g.outcome)}${g.reason ? `（${g.reason}）` : ""}`,
           gt.name || gt.hours || gt.direct ? `受付で聞けたこと：${[gt.name && `担当 ${gt.name}`, gt.hours && `在席 ${gt.hours}`, gt.direct && `直通 ${gt.direct}`].filter(Boolean).join("・")}` : "",
+          ...hearingLines(g.hearing),
           g.apo_at ? `アポ：${jstText(g.apo_at)}${g.apo_who ? `（その時間に空いていたクローザー：${g.apo_who}）` : ""}` : "", g.next_at ? `次回：${jstText(g.next_at)}` : "", g.memo ? `メモ：${g.memo}` : "",
           g.cross_from ? `部署をまたいだ架電（${g.cross_from} のリード）` : ""].filter(Boolean).join("\n"),
       });
       if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
       await P().query(`UPDATE mc_call_logs SET sf_task_id=$2, sf_err=NULL WHERE id=$1`, [logId, t.id]);
+      await sfLeadHearing(owner, g, d);
     } catch (e) {
       console.error("[mccall] SF の活動を書けませんでした", logId, e.message);
       await P().query(`UPDATE mc_call_logs SET sf_err=$2 WHERE id=$1`, [logId, String(e.message).slice(0, 300)]).catch(() => {});
+    }
+  }
+  // ヒアリングで聞けたことを SF のリードの項目にも入れる（正本は SF。ルール3）。
+  //   検討開始時期・採用人数はそのまま上書き、顧客の課題感は「【日付 架電】〜」を頭に足す（これまでの集約を消さないため）。
+  //   接触人数は SF に合う項目が無いので活動の本文だけに残す。失敗は sf_lead_err に残して画面に出す
+  async function sfLeadHearing(owner, g, day) {
+    const h = g.hearing; if (!h) return;
+    const f = {};
+    if (MONTHS.includes(h.when)) f.Start_Considering_Date__c = h.when;
+    const hb = hiresBucket(h.target); if (hb) f.Number_of_hires__c = hb;
+    try {
+      if (h.need) {
+        const cur = (((await sfQuery(owner, `SELECT Client_Issue__c FROM Lead WHERE Id='${g.sf_lead_id}'`)).records || [])[0] || {}).Client_Issue__c || "";
+        const line = `【${day.replace(/-/g, "/")} 架電】${h.need}`;
+        if (!cur.includes(line)) f.Client_Issue__c = `${line}${cur ? `\n${cur}` : ""}`.slice(0, 32000);
+      }
+      if (!Object.keys(f).length) return;
+      await sfUpdateRecord(owner, "Lead", g.sf_lead_id, f);
+      await P().query(`UPDATE mc_call_logs SET sf_lead_err=NULL WHERE id=$1`, [g.id]);
+    } catch (e) {
+      console.error("[mccall] SF のリードの項目を書けませんでした", g.id, e.message);
+      await P().query(`UPDATE mc_call_logs SET sf_lead_err=$2 WHERE id=$1`, [g.id, String(e.message).slice(0, 300)]).catch(() => {});
     }
   }
   // SF に書けていない記録（書いている途中で止まった＝2分たっても結果が無いものも含む）。nolead は別に数える
@@ -288,6 +397,7 @@ export function registerMcCall(app, deps) {
         [id, `${key}|${r.row_key}`, f.company, f.phone, f.person, r.lid || null, r.hot]);
       added += x.rowCount;
     }
+    mynaviEnqueue(rows.map((r) => fromBales(r.data || {}).company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     res.json({ ok: true, added, banned, skipped: rows.length - added - banned });
   }));
 
@@ -316,6 +426,7 @@ export function registerMcCall(app, deps) {
       added += x.rowCount;
     }
     await P().query(`UPDATE mc_cross_moves SET count=$2 WHERE id=$1`, [mv.id, added]);
+    mynaviEnqueue(ts.map((t) => t.company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     res.json({ ok: true, added, banned, skipped: ts.length - added - banned, moveId: mv.id });
   }));
 
@@ -388,7 +499,7 @@ export function registerMcCall(app, deps) {
     // これまで：MOCHICA の架電・Bales の活動・SF の商談を1本の時系列に
     const tl = logs.map((g) => ({ at: g.created_at, src: "kinbot", who: names.get(String(g.caller || "").toLowerCase()) || g.caller, title: outcomeLabel(g.outcome) + (g.reason ? `（${g.reason}）` : ""),
       text: [g.memo, g.gate && (g.gate.name || g.gate.hours || g.gate.direct) ? `受付で聞けたこと：${[g.gate.name && `担当 ${g.gate.name}`, g.gate.hours && `在席 ${g.gate.hours}`, g.gate.direct && `直通 ${g.gate.direct}`].filter(Boolean).join("・")}` : "", g.next_at ? `次回 ${jstText(g.next_at)}` : "", g.apo_at ? `アポ ${jstText(g.apo_at)}${g.apo_who ? `（空いていたクローザー：${g.apo_who}）` : ""}` : ""].filter(Boolean).join("\n"),
-      reach: g.reach, cross: !!g.cross_from, logId: g.id, mine: String(g.caller || "").toLowerCase() === u && Date.now() - new Date(g.created_at).getTime() < 15 * 60e3 }));
+      memo: g.memo || "", reach: g.reach, cross: !!g.cross_from, logId: g.id, mine: String(g.caller || "").toLowerCase() === u && Date.now() - new Date(g.created_at).getTime() < 15 * 60e3 }));
     const dateOf = (o) => { for (const v of Object.values(o || {})) if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v; return null; };
     const textOf = (o) => { for (const [k, v] of Object.entries(o || {})) if (/comment|memo|content|note|body|text/i.test(k) && typeof v === "string" && v.trim()) return v; return ""; };
     const typeOf = (o) => { for (const [k, v] of Object.entries(o || {})) if (/(type|result|status).*(text|name)|actiontype/i.test(k) && typeof v === "string") return v; return ""; };
@@ -409,7 +520,25 @@ export function registerMcCall(app, deps) {
       text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, s.doc_name ? `資料：${s.doc_name}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
     for (const t of await sfTasks(req, lead.sf_lead_id || (sf && sf.lead && sf.lead.id), new Set([...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id)].filter(Boolean)))) tl.push(t);
     tl.sort((a, b) => new Date(b.at) - new Date(a.at));
-    res.json({ ok: true, lead: { ...lead, data }, ban, phones, docAlso, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
+    // ひと目で（2026-11-18 福井さん「検討時期・採用ニーズ・過去架電内容が架電時に調べなくても一目でわかるように」）
+    //   SF の決まった項目はそのまま出し、言葉は新しい記録から順に読んで最初に当たった1文を出す（いちばん新しい状況を見せるため）。
+    //   kinbot の記録は自動で足した「次回 〇/〇」などで時期と取り違えないよう、メモだけを読む
+    const glance = (() => {
+      const L = (sf && sf.lead) || {};
+      const sfv = (labels) => labels.map((k) => [k, String(L[k] ?? "").trim()]).filter(([, v]) => v);
+      const hit = (key) => {
+        for (const t of tl) { const s = t.src === "kinbot" ? t.memo : t.text; if (!s) continue; const j = judgeHot({ comment: s }, null)[key]; if (j.st) return { st: j.st, why: j.why, at: t.at, src: t.src, who: t.who || "" }; }
+        const j = judgeHot(data, null)[key]; return j.st ? { st: j.st, why: j.why, at: null, src: lead.src === "doc" ? "DOC" : "Bales", who: "" } : null;
+      };
+      // 架電で聞いたヒアリングをいちばん上に（いちばん新しく、本人から聞いた値なので）
+      const H = lead.hearing || {}; const kv = (arr) => arr.filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]);
+      const by = H.at ? { at: H.at, who: names.get(String(H.by || "").toLowerCase()) || H.by || "" } : null;
+      return { need: { kb: kv([["採用ニーズ", H.need], ["採用目標人数", H.target != null ? `${H.target}名` : ""], ["説明会・面接の参加人数", H.contact != null ? `${H.contact}名` : ""]]), by, sf: sfv(["顧客の課題感", "顧客の現状", "採用人数(選択リスト)", "利用中ATS"]), hit: hit("need") },
+        when: { kb: kv([["検討時期", H.when]]), by, sf: sfv(["検討開始時期", "現利用サービス更新予定月"]), hit: hit("when") } };
+    })();
+    for (const t of tl) delete t.memo;
+    const mynavi = await mynaviOf(lead.company).catch(() => null);
+    res.json({ ok: true, lead: { ...lead, data }, ban, phones, docAlso, glance, mynavi, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す
@@ -420,6 +549,16 @@ export function registerMcCall(app, deps) {
   app.post("/api/mccall/leads/:id/gate", guard(async (req, res) => {
     const g = req.body || {}; const gate = { name: clip(g.name, 40), hours: clip(g.hours, 30), direct: clip(g.direct, 30), at: new Date().toISOString(), by: me(req) };
     await P().query(`UPDATE mc_call_leads SET gate=$2 WHERE id=$1`, [parseInt(req.params.id, 10), gate]); res.json({ ok: true, gate });
+  }));
+  // ヒアリングで聞けたことだけを残す（欄を離れたら自動で保存。SF へは「記録して次へ」のときに書く）
+  app.post("/api/mccall/leads/:id/hearing", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const lead = (await P().query(`SELECT list_id, hearing FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
+    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    const h = mergeHearing(lead.hearing, cleanHearing(req.body || {}));
+    if (h) { h.at = new Date().toISOString(); h.by = me(req); }
+    await P().query(`UPDATE mc_call_leads SET hearing=$2 WHERE id=$1`, [id, h]); res.json({ ok: true, hearing: h });
   }));
   // 自動の掛け直しを解除する
   app.post("/api/mccall/leads/:id/clear-next", guard(async (req, res) => {
@@ -448,13 +587,17 @@ export function registerMcCall(app, deps) {
     if (!nextAt && AUTO_RETRY.has(outcome) && !b.noRetry) { const r = autoRetryAt(now, (gate && gate.hours) || (lead.gate && lead.gate.hours)); nextAt = r.at; why = r.why; }
     if (outcome === "callback_req" && !nextAt) return res.status(400).json({ error: "掛け直す時刻を選んでください" });
     const done = FINAL.has(outcome) || (outcome === "doc_send" && !nextAt);
-    const prev = { next_at: lead.next_at, next_why: lead.next_why, last_at: lead.last_at, last_outcome: lead.last_outcome, attempts: lead.attempts, done: lead.done, gate: lead.gate };
+    const prev = { next_at: lead.next_at, next_why: lead.next_why, last_at: lead.last_at, last_outcome: lead.last_outcome, attempts: lead.attempts, done: lead.done, gate: lead.gate, hearing: lead.hearing };
+    // ヒアリングは担当者と話せたときだけ記録に付ける（受付・不在で前の値が SF に二重に書かれないように）
+    const hNew = reach === "person" ? cleanHearing(b.hearing || {}) : null;
+    const hearing = hNew ? { ...mergeHearing(lead.hearing, hNew), at: now.toISOString(), by: u } : null;
     const log = (await P().query(`INSERT INTO mc_call_logs (lead_id, list_id, caller, phone, reach, outcome, reason, gate, memo, next_at, apo_at, cross_from, prev)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id, created_at`,
       [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev])).rows[0];
     if (outcome === "apo" && b.apoWho) await P().query(`UPDATE mc_call_logs SET apo_who=$2 WHERE id=$1`, [log.id, clip(b.apoWho, 80)]);
-    await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), locked_by=NULL WHERE id=$1`,
-      [id, outcome, nextAt, why, done, gate]);
+    if (hearing) await P().query(`UPDATE mc_call_logs SET hearing=$2 WHERE id=$1`, [log.id, hearing]);
+    await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), hearing=COALESCE($7, hearing), locked_by=NULL WHERE id=$1`,
+      [id, outcome, nextAt, why, done, gate, hearing]);
     res.json({ ok: true, logId: log.id, nextAt, why, done });
     // SF の活動（リードに付ける）。代理アカウントでも書ける。失敗しても架電の記録は残り、画面の知らせから書き直せる
     sfWrite(req, log.id).catch(() => {});
@@ -468,8 +611,8 @@ export function registerMcCall(app, deps) {
     if (!mine && !isAdmin(req)) return res.status(403).json({ error: "記録してから15分を過ぎたので取り消せません。管理者に頼んでください" });
     const p = g.prev || {};
     await P().query(`UPDATE mc_call_logs SET undone=true WHERE id=$1`, [g.id]);
-    await P().query(`UPDATE mc_call_leads SET next_at=$2, next_why=$3, last_at=$4, last_outcome=$5, attempts=GREATEST(COALESCE($6,0),0), done=COALESCE($7,false), gate=$8 WHERE id=$1`,
-      [g.lead_id, p.next_at || null, p.next_why || null, p.last_at || null, p.last_outcome || null, p.attempts, p.done, p.gate || null]);
+    await P().query(`UPDATE mc_call_leads SET next_at=$2, next_why=$3, last_at=$4, last_outcome=$5, attempts=GREATEST(COALESCE($6,0),0), done=COALESCE($7,false), gate=$8${g.hearing ? ", hearing=$9" : ""} WHERE id=$1`,
+      [g.lead_id, p.next_at || null, p.next_why || null, p.last_at || null, p.last_outcome || null, p.attempts, p.done, p.gate || null, ...(g.hearing ? [p.hearing || null] : [])]);
     let sf = "";
     if (g.sf_task_id) { try { await deleteTask(await sfActor(req), g.sf_task_id); sf = "SF の活動も消しました"; } catch (e) { sf = `SF の活動は消せませんでした（${String(e.message).slice(0, 80)}）`; } }
     res.json({ ok: true, leadId: g.lead_id, sf });
@@ -483,10 +626,10 @@ export function registerMcCall(app, deps) {
       .map((r) => ({ email: r.caller, name: names.get(String(r.caller || "").toLowerCase()) || r.caller, calls: +r.calls, person: +r.person, apo: +r.apo, cross: +r.cross }));
     const mine = rows.find((r) => String(r.email || "").toLowerCase() === me(req)) || { calls: 0, person: 0, apo: 0, cross: 0 };
     // 今日の自分の記録のうち SF に書けていない数（画面の上の知らせに出す）
-    const sf = (await P().query(`SELECT count(*) FILTER (WHERE ${SF_FAIL}) AS fail, count(*) FILTER (WHERE NOT g.undone AND g.sf_err='nolead') AS nolead,
+    const sf = (await P().query(`SELECT count(*) FILTER (WHERE ${SF_FAIL}) AS fail, count(*) FILTER (WHERE NOT g.undone AND g.sf_err='nolead') AS nolead, count(*) FILTER (WHERE NOT g.undone AND g.sf_lead_err IS NOT NULL) AS leaderr,
         (array_agg(g.sf_err ORDER BY g.created_at DESC) FILTER (WHERE ${SF_FAIL} AND g.sf_err IS NOT NULL))[1] AS last_err
       FROM mc_call_logs g WHERE g.caller=$1 AND g.created_at >= $2`, [me(req), jstDayStart()])).rows[0];
-    res.json({ ok: true, me: mine, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null, sf: { fail: +sf.fail, nolead: +sf.nolead, lastErr: sf.last_err || "" } });
+    res.json({ ok: true, me: mine, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null, sf: { fail: +sf.fail, nolead: +sf.nolead, leadErr: +sf.leaderr, lastErr: sf.last_err || "" } });
   }));
   // SF に書けなかった今日の自分の記録を書き直す（画面の知らせのボタンから）
   app.post("/api/mccall/sf-retry", guard(async (req, res) => {

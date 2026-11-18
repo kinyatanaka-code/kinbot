@@ -53,7 +53,10 @@ const OPP_FIELDS = "Id, Name, Account.Name, Owner.Name, StageName, CreatedDate, 
 async function loadSf(sfQueryAll, owner, asOf) {
   const mStart = monthStart(asOf), histFrom = addMonths(mStart, -6);
   const where = `RecordType.Name = '新規' AND (CreatedDate >= ${histFrom}T00:00:00+09:00 OR IsClosed = false OR LastModifiedDate >= ${mStart}T00:00:00+09:00)`;
-  const opps = await sfQueryAll(owner, `SELECT ${OPP_FIELDS} FROM Opportunity WHERE ${where}`, 20000);
+  // 主キャンペーンソース（Campaign.Name）が読めない環境でもダッシュボード全体は止めない
+  let opps;
+  try { opps = await sfQueryAll(owner, `SELECT ${OPP_FIELDS}, Campaign.Name FROM Opportunity WHERE ${where}`, 20000); }
+  catch (e) { console.warn("[mcdash] 主キャンペーンソースを取れませんでした:", e.message); opps = await sfQueryAll(owner, `SELECT ${OPP_FIELDS} FROM Opportunity WHERE ${where}`, 20000); }
   const hist = await sfQueryAll(owner, `SELECT OpportunityId, StageName, CreatedDate FROM OpportunityHistory WHERE Opportunity.${where.replace(/\(CreatedDate/, "(Opportunity.CreatedDate").replace(/OR IsClosed/, "OR Opportunity.IsClosed").replace(/OR LastModifiedDate/, "OR Opportunity.LastModifiedDate")} ORDER BY CreatedDate`, 80000);
   const byOpp = new Map();
   for (const h of hist) { const c = stageCode(h.StageName); if (!c) continue; const a = byOpp.get(h.OpportunityId) || []; a.push({ stage: c, date: jst(h.CreatedDate) }); byOpp.set(h.OpportunityId, a); }
@@ -65,7 +68,7 @@ async function loadSf(sfQueryAll, owner, asOf) {
     const status = o.IsWon ? "won" : o.IsClosed ? "lost" : "open";
     detail[o.Id] = {
       company: o.Account?.Name || o.Name, owner: o.Owner?.Name || "", stage: o.StageName, created, closeDate: o.CloseDate,
-      isClosed: !!o.IsClosed, isWon: !!o.IsWon, amount: o.Amount, leadSource: o.LeadSource, lossReason: o.Loss_Reason__c, lossReason1: o.Loss_Reason1__c,
+      isClosed: !!o.IsClosed, isWon: !!o.IsWon, amount: o.Amount, leadSource: o.LeadSource, campaign: o.Campaign?.Name || null, lossReason: o.Loss_Reason__c, lossReason1: o.Loss_Reason1__c,
       lostBeforeStage: o.Lost_before_stage__c, recruiters: o.employee__c, recruitersNum: num(o.employee2__c), contacts: num(o.contact2__c), purpose: o.purpose_of_use__c,
       ats: o.ATS__c, competitor: o.Conflict__c, industry: o.Account?.Industry || null, employees: num(o.Account?.NumberOfEmployees),
       apoSetter: o.Internship_apo__c, appointment: dateOnly(o.appointment__c), nextStep: o.nextstep_2__c, memo: o.negotiation_memo__c ? memoClean(o.negotiation_memo__c) : null,

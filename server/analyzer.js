@@ -738,6 +738,44 @@ export async function lookupJobMedia(companyName) {
   return { found: media.length > 0, media };
 }
 
+// マイナビ（新卒・job.mynavi.jp）の掲載の有無と中身（2026-11-18 福井さん「リードのマイナビ掲載有無及びマイナビ情報の反映」）。
+//   MOCHICA は新卒採用の道具なので、中途の『マイナビ転職』ではなく新卒の『マイナビ』を見る。
+//   job.mynavi.jp の企業ページの URL が検索で見つかったときだけ「掲載あり」。見つからないのは「見つからない」であって
+//   「掲載なし」とは言い切らない（検索で漏れることがあるため。画面でもそう出す）。
+//   ページが読めればページの本文、読めなければ検索の抜粋から、年度・職種・採用予定人数・勤務地・プレエントリー数を抜き出す
+export async function lookupMynavi(companyName, fetchPage) {
+  const name = String(companyName || "").trim();
+  if (!name) return { status: "none" };
+  const [a, b] = await Promise.all([
+    braveResearch(`site:job.mynavi.jp ${name}`, 6),
+    braveResearch(`${name} マイナビ 新卒 採用予定人数`, 6),
+  ]);
+  const research = [a, b].filter(Boolean).join("\n");
+  const urls = [...new Set((research.match(/https?:\/\/job\.mynavi\.jp\/[^\s"'<>]+/g) || []))];
+  if (!urls.length) return { status: "notfound", checkedAt: new Date().toISOString() };
+  // 企業ページ（/corp…/outline.html など）を優先して1枚だけ読む
+  const page = urls.find((u) => /\/corp\d+\/outline/.test(u)) || urls.find((u) => /\/corp\d+/.test(u)) || urls[0];
+  let text = "";
+  if (typeof fetchPage === "function") { try { text = String((await fetchPage(page)) || "").slice(0, 7000); } catch {} }
+  const schema = { type: "object", properties: {
+    same_company: { type: "boolean" }, url: { type: "string" }, years: { type: "array", items: { type: "string" } },
+    jobs: { type: "array", items: { type: "string" } }, planned_hires: { type: "string" }, area: { type: "string" },
+    pre_entry: { type: "string" }, industry: { type: "string" }, note: { type: "string" },
+  }, required: ["same_company"] };
+  const sys = "あなたは新卒採用サイト『マイナビ』（job.mynavi.jp）の掲載内容を読み取るアシスタントです。与えた検索結果とページ本文だけを根拠にし、推測で埋めないこと。" +
+    "same_company：指定の会社と同じ会社のページか（社名が別会社・グループ会社なら false）。years：掲載年度（例『2027』『2026』。マイナビ2027 なら 2027）。" +
+    "jobs：募集職種（最大5つ）。planned_hires：採用予定人数（例『10名』『11～15名』）。area：主な勤務地。pre_entry：プレエントリー候補リスト登録人数（ページに書いてあれば）。" +
+    "industry：業種。note：採用で目立つこと1文（説明会の時期など）。分からない項目は空にする。出力は指定JSONのみ。";
+  const user = `会社名: ${name}\n読んだページ: ${page}\n\n検索結果:\n"""\n${research.slice(0, 4000)}\n"""\n\nページ本文:\n"""\n${text || "(読めませんでした)"}\n"""`;
+  const o = parseJson(await callLLM(sys, user, 700, { schema, provider: "gemini", model: "gemini-2.5-flash-lite" })) || {};
+  if (o.same_company === false) return { status: "notfound", checkedAt: new Date().toISOString(), note: "マイナビで見つかったのは別の会社のページでした" };
+  const s = (v, n = 80) => String(v || "").trim().slice(0, n);
+  const url = /^https?:\/\/job\.mynavi\.jp\//.test(String(o.url || "")) ? s(o.url, 300) : page;
+  return { status: "listed", url, years: (Array.isArray(o.years) ? o.years : []).map((y) => s(y, 8)).filter(Boolean).slice(0, 3),
+    jobs: (Array.isArray(o.jobs) ? o.jobs : []).map((j) => s(j, 40)).filter(Boolean).slice(0, 5), plannedHires: s(o.planned_hires, 30), area: s(o.area, 60),
+    preEntry: s(o.pre_entry, 30), industry: s(o.industry, 40), note: s(o.note, 120), checkedAt: new Date().toISOString() };
+}
+
 // 業界・設立日・本社所在地をまとめてWeb検索で調べる（gBizINFOに無い項目を補完するため）。
 // 従業員数と同じく「Webで確認できた場合のみ返す。無ければ found:false」の厳格版。
 // which: 求める項目名 ["industry","founded","location"] を指定。省略時は全部。

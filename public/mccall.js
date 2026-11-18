@@ -22,7 +22,7 @@
 
   const S = { meta: null, admin: false, tab: "call", lists: [], listId: parseInt(ls.get("mcc_list") || "0", 10) || 0, queue: [], later: 0,
     d: null, cache: new Map(), f: null, notices: [], ni: 0, toast: null, busy: false, mounted: false };
-  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "" }, phone: "" });
+  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "" }, hearing: {}, phone: "" });
 
   // MOCHICA は Zoom Phone で架電する決まりなので、いつも Zoom アプリで発信する
   // （kinbot の Zoom 連携の状態を読む API は、インターンのアカウントでは開けないため見ない）
@@ -124,6 +124,31 @@
   // 新しい企業を開いたら3列とも上から見せる（前の企業でスクロールした位置のままだと「前回」が隠れる）
   function drawAll() { drawLeft(); drawCenter(); drawRight(); drawNotices(); ["mccLeft", "mccCenter", "mccRight"].forEach((id) => { const e = $(id); if (e) e.scrollTop = 0; }); }
 
+  // ひと目で：採用ニーズ・検討時期・前回までの架電（2026-11-18 福井さん「架電時に調べなくても一目でわかるように」）
+  //   ニーズと時期は SF の項目＋過去の記録の文から見つけた1文（出どころと日付つき）。無ければ「まだ聞けていない」と聞くことを促す
+  function glanceHtml(d) {
+    const g = d.glance || {};
+    const row = (lbl, x, ask) => { x = x || {}; const h = x.hit; const st = (x.kb && x.kb.length) || (x.sf && x.sf.length) || (h && h.st === "あり") ? "ok" : h && h.st === "なし" ? "no" : "yet";
+      const body = [x.kb && x.kb.length ? `<div><small>架電で聞いた${x.by ? ` ${esc(day(x.by.at))} ${esc(x.by.who)}` : ""}</small>${x.kb.map(([k, v]) => k === "採用ニーズ" || k === "検討時期" ? esc(v) : `${esc(k.replace("説明会・面接の参加人数", "説明会・面接の参加"))} ${esc(v)}`).join("／")}</div>` : "", ...(x.sf || []).map(([k, v]) => `<div><small>SF ${esc(k)}</small>${esc(v)}</div>`),
+        h ? `<div><small>${esc(h.src)}${h.at ? ` ${esc(day(h.at))}` : ""}${h.who ? ` ${esc(h.who)}` : ""}${h.st === "なし" ? "（無いと言われた）" : ""}</small>「${esc(h.why)}」</div>` : ""].join("");
+      return `<div class="mcc-gl-row ${st}"><b>${lbl}</b><div>${body || `<span class="mcc-gl-yet">まだ聞けていません。${ask}</span>`}</div></div>`; };
+    const calls = (d.timeline || []).filter((t) => (t.src === "kinbot" && t.title !== "資料送付") || t.src === "Bales" || (t.src === "SF" && /^架電/.test(t.title))).slice(0, 3);
+    return `<div class="mcc-glance"><h3>ひと目で</h3>
+      ${row("採用ニーズ", g.need, "採用で困っていること・人数を聞く")}${row("検討時期", g.when, "いつ頃から考えるか・更新月を聞く")}
+      ${mynaviHtml(d.mynavi)}
+      <div class="mcc-gl-row calls"><b>前回までの架電</b><div>${calls.length ? calls.map((t) => `<div><small>${esc(t.src === "SF" ? day(t.at) : tm(t.at))} ${esc(t.who || "")}</small><span class="r">${esc(t.title)}</span>${t.text ? `<span class="m">${esc(t.text)}</span>` : ""}</div>`).join("") : '<span class="mcc-gl-yet">まだかけていません</span>'}</div></div></div>`;
+  }
+  // マイナビ（新卒）の掲載（2026-11-18 福井さん）。取込時に Web 検索で調べた結果。
+  //   「見つからない」は掲載なしと言い切らない（検索で漏れることがある）。調べられなかったときは理由を出す（黙らない）
+  function mynaviHtml(m) {
+    if (!m) return "";
+    const head = (cls, t) => `<div class="mcc-gl-row ${cls}"><b>マイナビ</b><div>${t}</div></div>`;
+    if (m.status === "checking") return head("yet", '<span class="mcc-gl-yet">調べています（少しあとで開き直すと出ます）</span>');
+    if (m.status === "error") return head("no", `<span class="mcc-gl-yet">調べられませんでした：${esc(m.error || "")}</span>`);
+    if (m.status !== "listed") return head("yet", `<span class="mcc-gl-yet">マイナビ（新卒）の掲載は見つかりませんでした${m.note ? `（${esc(m.note)}）` : ""}。掲載していないとは限らないので、話せたら聞いてください</span>`);
+    const kv = [["掲載年度", (m.years || []).map((y) => `${y}卒`).join("・")], ["採用予定人数", m.plannedHires], ["職種", (m.jobs || []).join("・")], ["勤務地", m.area], ["プレエントリー", m.preEntry], ["業種", m.industry], ["ひとこと", m.note]].filter(([, v]) => v);
+    return head("ok", `<div><small>掲載あり${m.checkedAt ? `（${esc(day(m.checkedAt))} に確認）` : ""}${m.url ? ` <a href="${esc(m.url)}" target="_blank" rel="noopener">ページを開く</a>` : ""}</small>${kv.map(([k, v]) => `<span class="mcc-mn"><em>${esc(k)}</em>${esc(v)}</span>`).join("")}</div>`);
+  }
   function hotBadge(h) { const n = Number(h || 0); return n >= 3 ? '<span class="mcc-badge hot">ホット</span>' : n === 2 ? '<span class="mcc-badge warm">ウォーム</span>' : '<span class="mcc-badge cold">コールド</span>'; }
   function drawLeft() {
     const d = S.d; if (!d) return; const L = d.lead; const g = L.gate || {};
@@ -137,6 +162,7 @@
       <p class="mcc-co">${esc(L.company || "会社名なし")}</p>
       <div class="mcc-person">${esc(g.name || L.person || "担当者名はまだ分かりません")}${g.name && L.person && g.name !== L.person ? `<small style="color:var(--c-muted);font-weight:600">（リストでは ${esc(L.person)}）</small>` : ""}</div>
       <div class="mcc-badges">${hotBadge(L.hot)}${L.cross_from ? `<span class="mcc-badge doc">${esc(L.cross_from)} から（部署をまたぐ）</span>` : ""}${d.ban ? '<span class="mcc-badge danger">アプローチ禁止</span>' : ""}${sum && sum.n ? `<span class="mcc-badge sf">SF の商談 ${sum.n}件${sum.won ? "・受注あり" : sum.lost ? "・失注あり" : ""}</span>` : ""}<span class="mcc-badge">${L.attempts}回目</span></div>
+      ${glanceHtml(d)}
       <h3>電話番号（押すと発信）</h3>
       ${d.phones.length ? d.phones.map((p, i) => `<a class="mcc-phone ${p.invalid ? "bad" : ""} ${digits(p.number) === digits(S.f && S.f.phone) ? "cur" : ""}" href="${callHref(p.number)}" data-ph="${esc(p.number)}">
         <span class="n"><b>${esc(p.number)}</b><small>${esc(p.label)}${p.lastAt ? `・前回 ${esc(p.last)} ${esc(p.lastAt)}` : ""}</small></span>
@@ -207,6 +233,7 @@
         <label class="mcc-field">担当者の名前<input id="mccGName" value="${esc(f.gate.name || (L.gate && L.gate.name) || "")}" autocomplete="off" /></label>
         <label class="mcc-field">直通・内線<input id="mccGDirect" value="${esc(f.gate.direct || (L.gate && L.gate.direct) || "")}" autocomplete="off" inputmode="tel" /></label>
         <div class="mcc-field full">いる時間<div class="mcc-chips">${["午前", "昼", "午後", "夕方"].map((h) => `<button class="mcc-chip" data-hr="${h}" aria-pressed="${(f.gate.hours || (L.gate && L.gate.hours)) === h}">${h}</button>`).join("")}</div></div></div>` : ""}
+      ${f.reach === "person" ? hearingHtml(f, L) : ""}
       <label class="mcc-field" style="margin-top:12px">メモ（任意。Ctrl+Enter で記録）<textarea id="mccMemo" placeholder="話したこと・次に聞くこと">${esc(f.memo)}</textarea></label>
       <div class="mcc-foot"><button class="mcc-btn primary big" id="mccRec" ${ready() ? "" : "disabled"} aria-keyshortcuts="Enter">記録して次へ<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">Enter</span></button>
         <span class="hint">${ready() ? "Enter で記録（押してもよい）" : f.step === "apo" ? "日時を入れてください" : "数字キーかクリックで選べます"}</span></div>`;
@@ -226,8 +253,29 @@
     c.querySelectorAll("[data-later]").forEach((b) => b.addEventListener("click", () => { S.f.nextAt = b.dataset.later; S.f.nextLabel = b.dataset.ll || ""; S.f.noRetry = !b.dataset.later ? S.f.noRetry : false; drawCenter(); }));
     c.querySelectorAll("[data-hr]").forEach((b) => b.addEventListener("click", () => { S.f.gate.hours = S.f.gate.hours === b.dataset.hr ? "" : b.dataset.hr; saveGate(); drawCenter(); }));
     const m = $("mccMemo"); m.addEventListener("input", () => { S.f.memo = m.value; });
+    // ヒアリング：月は押すだけ。文字・人数は欄を離れたら保存（記録を押す前に別の会社へ移っても消えないように）
+    c.querySelectorAll("[data-hw]").forEach((b) => b.addEventListener("click", () => { S.f.hearing.when = hv("when") === b.dataset.hw ? "" : b.dataset.hw; saveHearing(); drawCenter(); }));
+    [["mccHNeed", "need"], ["mccHContact", "contact"], ["mccHTarget", "target"]].forEach(([id, k]) => { const i = $(id); if (!i) return; i.addEventListener("input", () => { S.f.hearing[k] = i.value; }); i.addEventListener("blur", saveHearing); });
     // 受付で聞けたことは、欄を離れたら自動で保存（「保存」ボタンを押し忘れて消えることがないように）
     [["mccGName", "name"], ["mccGDirect", "direct"]].forEach(([id, k]) => { const i = $(id); if (!i) return; i.addEventListener("input", () => { S.f.gate[k] = i.value; }); i.addEventListener("blur", saveGate); });
+  }
+  // ヒアリング（2026-11-18 福井さん）：検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数。
+  //   前に聞いた値を最初から入れておき、変わったところだけ直せばよいようにする。SF のリードの項目にも入る
+  const hv = (k) => { const v = S.f.hearing[k]; if (v != null && v !== "") return String(v); const H = (S.d && S.d.lead.hearing) || {}; return H[k] != null ? String(H[k]) : ""; };
+  function hearingHtml(f, L) {
+    const H = L.hearing || {};
+    return `<div class="mcc-gateform mcc-hearing" aria-label="ヒアリング">
+      <div class="mcc-field full">検討時期（SF の検討開始時期に入ります）<div class="mcc-chips">${[...Array.from({ length: 12 }, (_, i) => `${i + 1}月`), "未定"].map((m) => `<button class="mcc-chip" data-hw="${m}" aria-pressed="${hv("when") === m}">${m}</button>`).join("")}</div></div>
+      <label class="mcc-field full">採用ニーズ（困っていること・ほしい人）<input id="mccHNeed" value="${esc(hv("need"))}" autocomplete="off" placeholder="例：母集団が足りない／27卒で介護職を10名" /></label>
+      <label class="mcc-field">説明会・面接の参加人数<input id="mccHContact" value="${esc(hv("contact"))}" inputmode="numeric" autocomplete="off" placeholder="名" /></label>
+      <label class="mcc-field">採用目標人数<input id="mccHTarget" value="${esc(hv("target"))}" inputmode="numeric" autocomplete="off" placeholder="名" /></label>
+      ${H.at ? `<p class="mcc-note full">前に聞いた日：${esc(day(H.at))}</p>` : ""}</div>`;
+  }
+  const hearingBody = () => ({ when: hv("when"), need: hv("need"), contact: hv("contact"), target: hv("target") });
+  async function saveHearing() {
+    if (!S.d) return; const L = S.d.lead; const h = hearingBody();
+    if (!h.when && !h.need && !h.contact && !h.target) return;
+    try { const j = await post(`/api/mccall/leads/${L.id}/hearing`, h); L.hearing = j.hearing; S.cache.delete(L.id); } catch (e) { setNotice([{ kind: "danger", text: `ヒアリングを保存できませんでした：${e.message}` }]); }
   }
   function refreshFoot() { const b = $("mccRec"); if (b) b.disabled = !ready(); }
   async function saveGate() {
@@ -316,7 +364,7 @@
     if (!S.d || !ready() || S.busy) return; S.busy = true;
     const f = S.f; const L = S.d.lead; const company = L.company;
     const gate = { name: f.gate.name || (L.gate && L.gate.name) || "", hours: f.gate.hours || (L.gate && L.gate.hours) || "", direct: f.gate.direct || (L.gate && L.gate.direct) || "" };
-    const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, apoWho: f.outcome === "apo" ? f.apoWho : "", memo: f.memo, phone: f.phone || L.phone, gate, noRetry: f.noRetry,
+    const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, apoWho: f.outcome === "apo" ? f.apoWho : "", memo: f.memo, phone: f.phone || L.phone, gate, noRetry: f.noRetry, hearing: f.reach === "person" ? hearingBody() : null,
       nextAt: f.nextAt || null, apoAt: f.apoAt ? new Date(f.apoAt).toISOString() : null };
     try {
       const j = await post(`/api/mccall/leads/${L.id}/log`, body);
@@ -371,6 +419,7 @@
     const sf = S.sf;
     if (sf && sf.fail) ns.unshift({ kind: "danger", text: `今日の記録 ${sf.fail}件が SF に書けていません${sf.lastErr ? `（${sf.lastErr}）` : ""}。kinbot には残っています`,
       act: { label: "SF に書き直す", fn: async () => { const r = await post("/api/mccall/sf-retry"); toast(r.left ? `${r.tried - r.left}件書けました。${r.left}件はまだ書けません。続くときは管理者に知らせてください` : `${r.tried}件を SF に書きました`); await loadStats(); } } });
+    if (sf && sf.leadErr) ns.unshift({ kind: "danger", text: `今日のヒアリング ${sf.leadErr}件が SF のリードの項目（検討開始時期・採用人数・顧客の課題感）に書けていません。活動の本文と kinbot には残っています。続くときは管理者に知らせてください` });
     if (d && !(d.lead.sf_lead_id || (d.sf && d.sf.lead && d.sf.lead.id))) ns.push({ kind: "info", text: "この会社は SF のリードと結びついていないので、記録は kinbot にだけ残ります（SF の活動には出ません）" });
     const due = S.queue.filter((x) => x.next_at).length;
     if (due > 1) ns.push({ kind: "info", text: `掛け直しの時刻が来た会社が ${due}件あります（先に並べています）` });

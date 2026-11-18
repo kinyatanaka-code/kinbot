@@ -699,7 +699,8 @@ const state={view:'biz',sales:'all',is:'all',bw:Math.max(0,BW.findIndex(b=>AS_OF
 const salesSc=()=>state.sales==='all'?{t:'salesAll'}:{t:'sales',k:state.sales};
 const scForSales=()=>state.sales==='all'?TEAM:{t:'sales',k:state.sales};
 const DIMS=[
- {k:'leadSource',label:'流入経路',f:x=>x.leadSource||'未入力'},
+ {k:'leadSource',label:'リードソース',f:x=>x.leadSource||'未入力'},
+ {k:'campaign',label:'主キャンペーンソース',f:x=>x.campaign||'未入力'},
  {k:'industry',label:'業種',f:x=>x.industry||'未入力'},
  {k:'emp',label:'従業員規模',f:x=>{const n=+x.employees;if(!x.employees&&x.employees!==0)return '未入力';return n<100?'〜99名':n<300?'100〜299名':n<1000?'300〜999名':'1000名〜';}},
  {k:'recruiters',label:'採用人数（目標）',f:x=>x.recruiters||'未入力'},
@@ -747,12 +748,12 @@ function renderDeals(){
   if(state.dFlag==='stale')L=L.filter(d=>d.stale);if(state.dFlag==='stay')L=L.filter(d=>d.status==='open'&&!d.stale&&d.stay>avgStage(d.cur)*1.5);
   L.sort((a,b)=>(a.stale-b.stale)||(b.stay-a.stay));$('dealCount').textContent=`${L.length}件`;
   const st={open:['gray','進行中'],won:['good','受注'],lost:['bad','失注']};
-  $('dealTable').innerHTML=`<thead><tr><th>企業名</th><th>担当</th><th>区分</th><th>現ステージ</th><th>プロセス</th><th>商談日</th><th class="r">滞留</th><th>今月受注確率</th><th>流入</th><th>採用人数</th><th>ATS</th><th>アポ獲得者</th><th>ネクスト／失注理由</th><th>商談メモ</th><th>状態</th></tr></thead><tbody>`+
+  $('dealTable').innerHTML=`<thead><tr><th>企業名</th><th>担当</th><th>区分</th><th>現ステージ</th><th>プロセス</th><th>商談日</th><th class="r">滞留</th><th>今月受注確率</th><th>リードソース</th><th>主キャンペーン</th><th>採用人数</th><th>ATS</th><th>アポ獲得者</th><th>ネクスト／失注理由</th><th>商談メモ</th><th>状態</th></tr></thead><tbody>`+
     L.map(d=>{const a=avgStage(d.cur),sc=d.status!=='open'?'':d.stay>a*2?'hi':d.stay>a*1.5?'mid':'',p=dealProb(d),x=d.x;
       const prog=SF_ORDER.map(c=>`<span title="${c} ${SF_NAME[c]}${d.reach[c]?'：'+d.reach[c]:''}" style="display:inline-block;width:11px;height:6px;border-radius:2px;margin-right:2px;background:${d.reach[c]?(d.reach[c]<M_START?'var(--carry)':'var(--new)'):'var(--line)'}"></span>`).join('');
       return `<tr><td><b>${sfLink(d)}</b></td><td>${esc(salesName(d.owner))}</td><td>${pill(d.origin,d.origin==='new'?'当月':'繰越')}</td><td>${d.cur} ${SF_NAME[d.cur]}</td><td>${prog}</td><td class="num">${md(d.appt)}</td>
       <td class="r num stall ${sc}">${d.status==='open'?d.stay+'日':'—'}</td><td>${d.status==='open'?`<span class="pbar"><i style="width:${p*100}%"></i></span><span class="num">${pctS(p)}</span>`:'—'}</td>
-      <td>${esc(x.leadSource||'')}</td><td>${esc(x.recruiters||'')}</td><td>${esc(x.ats||'')}</td><td>${esc(isBySf[d.apo]?.name||x.apoSetter||'')}</td>
+      <td>${esc(x.leadSource||'')}</td><td>${esc(x.campaign||'')}</td><td>${esc(x.recruiters||'')}</td><td>${esc(x.ats||'')}</td><td>${esc(isBySf[d.apo]?.name||x.apoSetter||'')}</td>
       <td class="memo">${esc(d.status==='lost'?(x.lossReason1||x.lossReason||''):(x.nextStep||''))}</td><td class="memo" title="${esc(x.memo||'')}">${esc((x.memo||'').slice(0,70))}${(x.memo||'').length>70?'…':''}</td>
       <td>${pill(st[d.status][0],st[d.status][1])}${d.stale?' '+pill('gray','長期放置'):''}</td></tr>`;}).join('')+'</tbody>';
 }

@@ -694,6 +694,10 @@ function mccallMock(p) {
   if (m) {
     const l = MC_LEADS.find((x) => x.id === +m[1]) || MC_LEADS[0];
     return { ok: true, lead: { ...l, list_id: 1, src: l.cross_from ? "doc" : "bales", data: l.cross_from ? { list_name: "DOC 9月 失注", assigned_to: "植野 大輔", industry: "小売" } : { lastActivityAt: "2026-11-14T06:30:00Z", lastActivityTypeText: "コール", operatorName: "大沢" } },
+      // マイナビ・ヒアリングの見た目確認用（2026-11-18）。1件目は掲載あり、2件目は見つからない、ほかは調べ中
+      mynavi: l.id === MC_LEADS[0].id ? { status: "listed", url: "https://job.mynavi.jp/27/pc/search/corp000000/outline.html", years: ["2027", "2026"], jobs: ["介護職", "生活相談員"], plannedHires: "11～15名", area: "東京都・埼玉県", preEntry: "1,240名", industry: "福祉・介護", note: "3月から会社説明会を毎週開催", checkedAt: "2026-11-18T01:00:00Z" }
+        : l.id === MC_LEADS[1].id ? { status: "notfound", checkedAt: "2026-11-18T01:00:00Z" } : { status: "checking" },
+      glance: { need: { kb: [["採用ニーズ", "母集団が足りない"], ["採用目標人数", "12名"], ["説明会・面接の参加人数", "30名"]], by: { at: "2026-11-14T06:30:00Z", who: "福井聖" }, sf: [], hit: null }, when: { kb: [["検討時期", "3月"]], by: { at: "2026-11-14T06:30:00Z", who: "福井聖" }, sf: [], hit: null } },
       ban: null, docAlso: l.id === 3 ? [{ list: "doda 掲載中", assigned_to: "田中 遼" }] : [],
       phones: [{ label: "代表", number: l.phone, digits: l.phone.replace(/\D/g, ""), n: 4, reached: 1, invalid: false, last: "担当者が不在", lastAt: "11/14 15:30" },
         { label: "電話2", number: "03-5555-0000", digits: "0355550000", n: 2, reached: 0, invalid: true, last: "番号が使えない", lastAt: "11/10 11:00" }],
