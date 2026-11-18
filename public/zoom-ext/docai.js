@@ -157,6 +157,12 @@
   // 「企業を選択」を切りかえる：開く → 名前を打って絞る → 選ぶ
   // どの場面で URL・右の題・左の会社が変わったかを残す（2026-11-18：2社目で前の会社にもどる原因を見るため）
   const trace = []; const tr = (step) => { if (trace.length < 400) trace.push({ t: Math.round(performance.now()), step, url: location.search.slice(0, 120), title: mainTitle().slice(0, 30), side: companyNow() }); };
+  // チャット管理の「更新」ボタン。会社を切りかえたあと、表の中身（前の会社の一覧）が残っていて、
+  //   行を押すと前の会社のチャットが選ばれていた（2026-11-18 足あと：2社目の行0を押すと、右が1社目にもどる）。押して一覧を作り直してもらう
+  async function clickRefresh() {
+    const b = [...document.querySelectorAll('[data-testid="stButton"] button, button')].find((x) => /更新/.test(x.textContent || "") && x.offsetParent !== null && !x.closest("#kbDocAiBox"));
+    if (!b) return false; press(b); await sleep(500); await quiet(1500); tr("更新を押した"); return true;
+  }
   let lastSel = { typed: "", seen: [] };
   // 管理画面は、アドレス（URL）の ?company= と ?session_id= を見て右の画面を作っている。行を選ぶとその会社・チャットが URL に入り、
   //   左で会社を切りかえても URL の方が勝って、右が前の会社のままになっていた（2026-11-18 診断：回答レビューのチャットがずっと同じだった）。
@@ -303,6 +309,7 @@
         if (!(await selectCompany(c.company))) { skipped++; log.push(`${c.company}：「企業を選択」で選べませんでした（打った文字「${lastSel.typed}」・見えた候補 ${lastSel.seen.slice(0, 3).join("／") || "なし"}）`); results.push({ company: c.company, ok: false, why: "選べない", seen: lastSel.seen, typed: lastSel.typed }); if (ci === 0 && list.length === 1) await diag("企業を選択で選べない"); continue; }
         tr(`${c.company}を選んだあと`);
         if (ci > 0 || !titleOk(c, "")) { await goChatPage(true); setUrlCompany(c.company); }
+        if (ci > 0) { await openTab("チャットセッション"); await clickRefresh(); }
         tr(`${c.company}のチャット管理を開いたあと`);
         await openTab("チャットセッション"); await quiet(1200);
         // 企業を切りかえても、右の画面が前の会社のままのことがあった（2026-11-18：ジェイグループの画面のまま、復建技術コンサルタントとして保存していた）。
@@ -316,7 +323,14 @@
           paint(ci, `${c.name || c.company}：${i + 1}/${n} 件目を読んでいます`);
           if (onlyNew && i > 0) { await toggleRow(i, "peek"); const rid = rowId(i); if (rid && known.has(rid.slice(0, 8))) break; }
           if (!titleOk(c, "")) { log.push(`${c.company}：途中で右の画面が「${mainTitle()}」に変わったので止めました`); break; }
-          const r = await readRow(i, prev, c.company);
+          let r = await readRow(i, prev, c.company);
+          if (!titleOk(c, "")) {
+            // 右が前の会社にもどった：その会社の選びなおし → 更新 → もう一度この行
+            tr(`行${i}で右が「${mainTitle()}」にもどった`);
+            await selectCompany(c.company); await goChatPage(true); setUrlCompany(c.company); await openTab("チャットセッション"); await clickRefresh();
+            if (titleOk(c, "")) r = await readRow(i, prev, c.company);
+            if (!titleOk(c, "")) { log.push(`${c.company}：行を選ぶと右の画面が「${mainTitle()}」にもどるので止めました`); break; }
+          }
           if (r.skip) { if (i === 0) { log.push(`${c.company}：チャットの表が見つかりませんでした`); await diag("表が見つからない・押せない"); } break; }
           if (r.fail) { failRow++; failed++; if (failRow >= 2) { log.push(`${c.company}：表のチェックを押せませんでした`); await diag("表の行を選べない"); break; } continue; }
           prev = r.label;
