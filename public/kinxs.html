@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118n" />
+    <link rel="stylesheet" href="style.css?v=20261118o" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1163,6 +1163,8 @@
   .kx-dq-card .st{color:#5b6b66;font-size:12px;margin:2px 0 6px}
   .kx-dq-card .q{font-size:12.5px;line-height:1.6;border-left:3px solid #5DCAA5;padding-left:8px;margin-top:4px}
   /* 候補者の質問（全社）の見た目（2026-11-18 作り直し） */
+  /* 横に広い画面でも離れすぎないよう、全体の幅をしぼる（2026-11-18 田中さん「画面はなれすぎ」） */
+  #vDocAiBody{max-width:1180px}
   .dq-top{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
   .dq-kpi{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #d7e8e0;border-radius:14px;padding:10px 16px;min-width:130px}
   .dq-kpi .ic{width:34px;height:34px;border-radius:10px;background:#e8f5ef;color:#1d9e75;display:flex;align-items:center;justify-content:center}
@@ -1170,11 +1172,11 @@
   .dq-kpi small{font-size:11.5px;color:#5b6b66}
   .dq-q{margin-left:auto;display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #d7e8e0;border-radius:999px;padding:7px 14px;color:#5b6b66;min-width:260px}
   .dq-q input{border:0;outline:0;font:inherit;font-size:13px;flex:1;background:transparent}
-  .dq-cols{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
+  .dq-cols{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:16px;align-items:start}
   @media (max-width:1100px){.dq-cols{grid-template-columns:1fr}}
   .dq-h{display:flex;align-items:baseline;gap:8px;font-weight:700;font-size:14px;color:#0d5b47;margin:0 2px 8px}
   .dq-h span{font-weight:400;font-size:12px;color:#5b6b66}
-  .dq-cos{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .dq-cos{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
   .dq-co{background:#fff;border:1px solid #d7e8e0;border-radius:16px;padding:14px 16px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
   .dq-co:hover{border-color:#5DCAA5;box-shadow:0 4px 14px rgba(13,91,71,.08)}
   .dq-co.nolink{cursor:default}
@@ -1351,7 +1353,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261118n" defer></script>
-    <script src="kinxs.js?v=20261118n"></script>
+    <script src="kbchat.js?v=20261118o" defer></script>
+    <script src="kinxs.js?v=20261118o"></script>
   </body>
 </html>
