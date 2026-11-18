@@ -42,7 +42,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118c" />
+    <link rel="stylesheet" href="style.css?v=20261118d" />
   </head>
   <body>
     <div class="app">
@@ -629,13 +629,13 @@
                   <li>接続後、チャットで「kinbotの今月の実績を教えて」「kincallの今週のコール数は？」「kinXsで更新月が近い会社は？」のように話しかける</li>
                 </ol>
                 <div class="cc-conn"><div class="cc-conn-h"><b>kinbot</b><span>商談・案件・議事録・Salesforce</span></div>
-                <pre class="apidoc-code"><code id="mcpUrlAdmin">https://kinbot-production-225f.up.railway.app/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <pre class="apidoc-code"><code id="mcpUrlAdmin" data-share-path="/mcp">読み込み中…</code></pre>
                 <button class="btn" id="mcpUrlAdminCopy" type="button">URLをコピー</button></div>
                 <div class="cc-conn"><div class="cc-conn-h"><b>kincall</b><span>架電の記録・実績・アポ・リスト</span></div>
-                <pre class="apidoc-code"><code id="mcpUrlKincall">https://kinbot-production-225f.up.railway.app/kincall/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <pre class="apidoc-code"><code id="mcpUrlKincall" data-share-path="/kincall/mcp">読み込み中…</code></pre>
                 <button class="btn" data-mcp-copy="mcpUrlKincall" type="button">URLをコピー</button></div>
                 <div class="cc-conn"><div class="cc-conn-h"><b>kinXs</b><span>ユーザー（導入企業）・更新管理・ホームのやること・ステータスの書きかえ</span></div>
-                <pre class="apidoc-code"><code id="mcpUrlKinxs">https://kinbot-production-225f.up.railway.app/kinxs/mcp?token=kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <pre class="apidoc-code"><code id="mcpUrlKinxs" data-share-path="/kinxs/mcp">読み込み中…</code></pre>
                 <button class="btn" data-mcp-copy="mcpUrlKinxs" type="button">URLをコピー</button></div>
                 <p class="note cc-warn">⚠️ このURLには全社員分のデータを読める管理者トークンが含まれています。社内の関係者以外には共有しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
               </div>
@@ -714,7 +714,7 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
                 <button class="btn" id="gptSchemaUrlCopy" type="button">URLをコピー</button>
 
                 <div class="apidoc-h">② APIトークン（認証の「APIキー」欄に貼る）</div>
-                <pre class="apidoc-code"><code id="gptToken">kbt_7bcaf98705c30c3655a8b17dbbd85a0e359aba8b68e3f507</code></pre>
+                <pre class="apidoc-code"><code id="gptToken" data-share-token>読み込み中…</code></pre>
                 <button class="btn" id="gptTokenCopy" type="button">トークンをコピー</button>
 
                 <p class="note cc-warn">⚠️ このトークンは全社員分のデータを読める管理者トークンです。作ったGPTは必ず「自分のみ」か「リンクを知っている人（社内限定）」で共有し、社外に公開しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
@@ -1074,8 +1074,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261118c"></script>
-      <script src="nav.js?v=20261118c"></script>
+    <script src="settings.js?v=20261118d"></script>
+      <script src="nav.js?v=20261118d"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

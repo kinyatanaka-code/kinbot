@@ -3673,3 +3673,14 @@ async function gbLoad() {
     $("gbExport").disabled = false;
   });
 }
+
+// ===== みんなで使うコネクタの合言葉を、画面を開いたときにサーバーから入れる（2026-11-18）=====
+//   前は合言葉を画面のファイルにそのまま書いていて、GitHub（公開だった）からも見えていた。ファイルには書かず、ログインした人にだけサーバーから渡す
+(async function () {
+  const els = document.querySelectorAll("[data-share-path], [data-share-token]"); if (!els.length) return;
+  let d = {}; try { d = await (await fetch("/api/connector-share")).json(); } catch {}
+  els.forEach((el) => {
+    if (!d.token) { el.textContent = d.error || "（まだ設定されていません。管理者に聞いてください）"; return; }
+    el.textContent = el.hasAttribute("data-share-token") ? d.token : `${location.origin}${el.dataset.sharePath}?token=${d.token}`;
+  });
+})();
