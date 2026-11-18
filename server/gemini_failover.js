@@ -151,7 +151,7 @@ function featureFromStack() {
   const out = [];
   for (const line of st.split("\n").slice(1)) {
     const m = line.match(/at (?:async )?([^\s(]+)? ?\(?(?:file:\/\/)?[^()]*?\/server\/([\w.-]+\.js):\d+:\d+\)?/); if (!m) continue;
-    const fn = m[1] || ""; const file = m[2];
+    const fn = /^file:|^\//.test(m[1] || "") ? "" : (m[1] || ""); const file = m[2];   // 名前の無い関数（「at file:///app/…」）はとばす
     if (file === "gemini_failover.js" || !fn || GENERIC.has(fn) || /^call[A-Z]/.test(fn) || /anonymous/.test(fn)) continue;
     const name = fn.replace(/^Object\./, "").replace(/^async /, "");
     if (!out.length || out[out.length - 1] !== name) out.push(name);
