@@ -2535,18 +2535,43 @@ async function renderAccess() {
 let kxAccQ = "";
 // ===== DOC連携「候補者の質問」：全部の会社のまとめ（2026-11-18 田中さん）=====
 async function renderDocAiAll() {
+  // 見やすく作り直し（2026-11-18 田中さん「デザインきもい・もっと見やすく」）：
+  //   上に数字の札、左に会社のカード（多い順にならべ、よく聞かれる質問3つ）、右に全社のよく聞かれることの順位。上の欄で絞りこめる
   const box = $("vDocAiBody"); if (!box) return;
   box.innerHTML = '<div class="kx-note">読み込んでいます…</div>';
   let d; try { d = await api("/api/kinxs/docai/summary"); } catch (e) { box.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; }
   const day = (t) => { if (!t) return ""; const x = new Date(new Date(t).getTime() + 9 * 3600000); return `${x.getUTCMonth() + 1}/${x.getUTCDate()}`; };
-  if (!d.companies.length) { box.innerHTML = `<div class="kx-note">まだ候補者のチャットが入っていません。kinbot の拡張機能（2.2.7 以上）を入れたパソコンで、<a href="https://casual-interview-api.brainverse-ai.com/" target="_blank" rel="noopener">管理画面</a>のチャット管理を開き、チャットを選んで「回答レビュー」を開くと、自動でここに入ります。</div>`; return; }
-  box.innerHTML = `<div class="kx-note" style="margin-bottom:10px">${d.companies.length}社・チャット ${d.chats} 件</div>
-    ${d.top.length ? `<div class="kx-sec" style="margin-bottom:12px"><div class="lb">よく聞かれること（全社）</div><div class="kx-docai-top">${d.top.slice(0, 15).map((t) => `<div><span>${esc(t.q)}</span><span class="kx-note">${t.companies}社</span>${t.n > 1 ? `<b>${t.n}</b>` : ""}</div>`).join("")}</div></div>` : ""}
-    <div class="kx-dq-grid">${d.companies.map((c) => `<div class="kx-dq-card" ${c.account ? `data-dq-id="${esc(c.account.id)}"` : ""} title="${c.account ? "押すと会社の詳細の「候補者の質問」を開きます" : "kinXs の会社と結びついていません（会社の「AI 候補者画面」の URL を入れてください）"}">
-      <div class="co">${esc(c.account ? c.account.name : c.company)}</div><div class="st">チャット ${c.chats} 件・質問 ${c.questions} 件・最後 ${esc(day(c.last))}${c.account ? "" : "　｜　kinXs の会社と未連携"}</div>
-      ${c.top.map((t) => `<div class="q">${esc(t.q)}${t.n > 1 ? `（${t.n}）` : ""}</div>`).join("")}</div>`).join("")}</div>`;
-  box.querySelectorAll("[data-dq-id]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.dqId, { tab: "docai" })));
+  if (!d.companies.length) { box.innerHTML = `<div class="dq-empty">まだ候補者のチャットが入っていません。kinbot の拡張機能を入れたパソコンで <a href="https://casual-interview-api.brainverse-ai.com/" target="_blank" rel="noopener">管理画面</a> を開き、右下の「kinXs に全部取り込む」を押すと入ります。</div>`; return; }
+  const qTotal = d.companies.reduce((n, c) => n + c.questions, 0);
+  const ICO = { co: '<path d="M4 21V6.5A1.5 1.5 0 0 1 5.5 5h7A1.5 1.5 0 0 1 14 6.5V21M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21M2.5 21h19"/>', chat: '<path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5z"/>', q: '<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.5v.4M12 16.6v.1"/>' };
+  const svg = (k) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICO[k]}</svg>`;
+  const kpi = (k, l, v) => `<div class="dq-kpi"><span class="ic">${svg(k)}</span><div><b>${v}</b><small>${l}</small></div></div>`;
+  const draw = () => {
+    const q = (kxDqQ || "").trim().toLowerCase();
+    const hit = (t) => !q || String(t || "").toLowerCase().includes(q);
+    const cos = d.companies.filter((c) => hit(c.account ? c.account.name : c.company) || c.top.some((t) => hit(t.q))).sort((a, b) => b.questions - a.questions);
+    const top = d.top.filter((t) => hit(t.q));
+    const max = Math.max(1, ...top.map((t) => t.n));
+    $("dqBody").innerHTML = `<div class="dq-cols">
+      <section><div class="dq-h">会社ごと<span>${cos.length}社</span></div>
+        <div class="dq-cos">${cos.map((c) => `<article class="dq-co ${c.account ? "" : "nolink"}" ${c.account ? `data-dq-id="${esc(c.account.id)}"` : ""} title="${c.account ? "押すと、この会社の「候補者の質問」を開きます" : "kinXs の会社と結びついていません（会社の「AI 候補者画面」の URL を入れると結びつきます）"}">
+          <div class="nm">${esc(c.account ? c.account.name : c.company)}</div>
+          <div class="st"><span>チャット <b>${c.chats}</b></span><span>質問 <b>${c.questions}</b></span><span class="dt">最後 ${esc(day(c.last))}</span>${c.account ? "" : '<span class="warn">kinXs と未連携</span>'}</div>
+          <ol>${c.top.map((t) => `<li><span>${esc(t.q)}</span>${t.n > 1 ? `<em>${t.n}</em>` : ""}</li>`).join("") || '<li class="none">質問はまだありません</li>'}</ol>
+        </article>`).join("") || '<div class="dq-empty">合う会社がありません</div>'}</div></section>
+      <aside><div class="dq-h">よく聞かれること<span>全社</span></div>
+        <div class="dq-rank">${top.slice(0, 30).map((t, i) => `<div class="r"><span class="no">${i + 1}</span><div class="tx"><span>${esc(t.q)}</span><i style="width:${Math.round((t.n / max) * 100)}%"></i></div><span class="ct">${t.n}回${t.companies > 1 ? `・${t.companies}社` : ""}</span></div>`).join("") || '<div class="dq-empty">合う質問がありません</div>'}</div></aside>
+    </div>`;
+    $("dqBody").querySelectorAll("[data-dq-id]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.dqId, { tab: "docai" })));
+  };
+  box.innerHTML = `<div class="dq-top">${kpi("co", "会社", d.companies.length)}${kpi("chat", "チャット", d.chats)}${kpi("q", "質問", qTotal)}
+      <label class="dq-q"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input data-dq-q placeholder="会社名・質問で絞りこむ" value="${esc(kxDqQ)}" /></label></div>
+    <div id="dqBody"></div>`;
+  const qi = box.querySelector("[data-dq-q]"); qi.addEventListener("input", () => { kxDqQ = qi.value; draw(); });
+  draw();
 }
+let kxDqQ = "";
+
 
 // ===================== 動きの仕上げ（2026-11-04 田中さん：1 カウントアップ・2 浮くカード・3 脈打つアラート・5 読み込みの光・6 完了のチェック）=====================
 // 5 読み込み中は、カードの形のまま光が流れる仮の形

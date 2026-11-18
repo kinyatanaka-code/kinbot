@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118m" />
+    <link rel="stylesheet" href="style.css?v=20261118n" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1140,7 +1140,7 @@
   /* 候補者の質問（DOC の AI のチャット・2026-11-18） */
   .kx-docai-top{display:flex;flex-direction:column;gap:4px;margin-top:6px}
   .kx-docai-top>div{display:flex;align-items:center;gap:8px;background:#f3f7f5;border-radius:10px;padding:6px 10px;font-size:12.5px}
-  .kx-docai-top>div span{flex:1;min-width:0}
+  .kx-docai-top>div span{min-width:0}
   .kx-docai-top>div b{background:#1d9e75;color:#fff;border-radius:999px;font-size:11px;padding:1px 8px}
   .kx-docai-c{margin-top:6px}
   .kx-docai-prof{background:#f3f7f5;border-radius:10px;padding:8px 10px;font-size:12px;line-height:1.7;margin:8px 0}
@@ -1162,6 +1162,42 @@
   .kx-dq-card .co{color:#1d9e75;font-size:12px;font-weight:700}
   .kx-dq-card .st{color:#5b6b66;font-size:12px;margin:2px 0 6px}
   .kx-dq-card .q{font-size:12.5px;line-height:1.6;border-left:3px solid #5DCAA5;padding-left:8px;margin-top:4px}
+  /* 候補者の質問（全社）の見た目（2026-11-18 作り直し） */
+  .dq-top{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .dq-kpi{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #d7e8e0;border-radius:14px;padding:10px 16px;min-width:130px}
+  .dq-kpi .ic{width:34px;height:34px;border-radius:10px;background:#e8f5ef;color:#1d9e75;display:flex;align-items:center;justify-content:center}
+  .dq-kpi b{display:block;font-size:20px;line-height:1.1;color:#0d5b47}
+  .dq-kpi small{font-size:11.5px;color:#5b6b66}
+  .dq-q{margin-left:auto;display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #d7e8e0;border-radius:999px;padding:7px 14px;color:#5b6b66;min-width:260px}
+  .dq-q input{border:0;outline:0;font:inherit;font-size:13px;flex:1;background:transparent}
+  .dq-cols{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:16px;align-items:start}
+  @media (max-width:1100px){.dq-cols{grid-template-columns:1fr}}
+  .dq-h{display:flex;align-items:baseline;gap:8px;font-weight:700;font-size:14px;color:#0d5b47;margin:0 2px 8px}
+  .dq-h span{font-weight:400;font-size:12px;color:#5b6b66}
+  .dq-cos{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .dq-co{background:#fff;border:1px solid #d7e8e0;border-radius:16px;padding:14px 16px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .dq-co:hover{border-color:#5DCAA5;box-shadow:0 4px 14px rgba(13,91,71,.08)}
+  .dq-co.nolink{cursor:default}
+  .dq-co .nm{font-weight:700;font-size:14px;color:#1f2d29;line-height:1.4}
+  .dq-co .st{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 10px}
+  .dq-co .st span{font-size:11.5px;color:#33413d;background:#f3f7f5;border-radius:999px;padding:2px 9px}
+  .dq-co .st b{color:#0d5b47}
+  .dq-co .st .dt{background:transparent;color:#8a9893}
+  .dq-co .st .warn{background:#fff4e6;color:#9a5a12}
+  .dq-co ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  .dq-co li{display:flex;align-items:flex-start;gap:8px;font-size:13px;line-height:1.5;color:#33413d;padding-left:10px;border-left:3px solid #5DCAA5}
+  .dq-co li span{flex:1;min-width:0}
+  .dq-co li em{font-style:normal;font-size:11px;font-weight:700;color:#fff;background:#1d9e75;border-radius:999px;padding:0 7px}
+  .dq-co li.none{border-left-color:#e6efeb;color:#8a9893}
+  .dq-rank{background:#fff;border:1px solid #d7e8e0;border-radius:16px;padding:6px 6px}
+  .dq-rank .r{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px}
+  .dq-rank .r+.r{border-top:1px solid #f0f5f3}
+  .dq-rank .no{width:22px;height:22px;border-radius:7px;background:#e8f5ef;color:#0d5b47;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+  .dq-rank .r:nth-child(-n+3) .no{background:#1d9e75;color:#fff}
+  .dq-rank .tx{flex:1;min-width:0;font-size:13px;color:#1f2d29;line-height:1.45}
+  .dq-rank .tx i{display:block;height:3px;border-radius:2px;background:#5DCAA5;margin-top:4px;opacity:.6}
+  .dq-rank .ct{font-size:11.5px;color:#5b6b66;white-space:nowrap}
+  .dq-empty{background:#fff;border:1px dashed #cfe6dc;border-radius:14px;padding:18px;color:#5b6b66;font-size:13px}
 </style>
 </head>
   <body>
@@ -1315,7 +1351,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261118m" defer></script>
-    <script src="kinxs.js?v=20261118m"></script>
+    <script src="kbchat.js?v=20261118n" defer></script>
+    <script src="kinxs.js?v=20261118n"></script>
   </body>
 </html>
