@@ -167,7 +167,8 @@
   // 管理画面は、アドレス（URL）の ?company= と ?session_id= を見て右の画面を作っている。行を選ぶとその会社・チャットが URL に入り、
   //   左で会社を切りかえても URL の方が勝って、右が前の会社のままになっていた（2026-11-18 診断：回答レビューのチャットがずっと同じだった）。
   //   読み込み直さずに URL だけを書きかえておくと、次に画面が動いたときに Streamlit がそれを読む
-  function setUrlCompany(co) { try { history.replaceState(history.state, "", `${location.pathname}?company=${encodeURIComponent(co)}`); } catch {} }
+  // 2026-11-18 田中さん：URL の書きかえはやめる（手でやるときは書きかえない）。別のページを開いてチャット管理にもどると、URL もきれいになる
+  function setUrlCompany() {}
   async function selectCompany(co) {
     setUrlCompany(co);
     if (companyNow() === co) return true;
@@ -308,8 +309,8 @@
         paint(ci, `${c.name || c.company}（${c.company}）を開いています…`);
         if (!(await selectCompany(c.company))) { skipped++; log.push(`${c.company}：「企業を選択」で選べませんでした（打った文字「${lastSel.typed}」・見えた候補 ${lastSel.seen.slice(0, 3).join("／") || "なし"}）`); results.push({ company: c.company, ok: false, why: "選べない", seen: lastSel.seen, typed: lastSel.typed }); if (ci === 0 && list.length === 1) await diag("企業を選択で選べない"); continue; }
         tr(`${c.company}を選んだあと`);
-        if (ci > 0 || !titleOk(c, "")) { await goChatPage(true); setUrlCompany(c.company); }
-        if (ci > 0) { await openTab("チャットセッション"); await clickRefresh(); }
+        // 会社を選んだら、別のページ（ダッシュボード）へ行って、チャット管理にもどる（田中さん「会社選んで別のタブにいってまたチャット管理にもどってほしい」）。「更新」は押さない
+        await goChatPage(true); await sleep(800); await quiet(1500);
         tr(`${c.company}のチャット管理を開いたあと`);
         await openTab("チャットセッション"); await quiet(1200);
         // 企業を切りかえても、右の画面が前の会社のままのことがあった（2026-11-18：ジェイグループの画面のまま、復建技術コンサルタントとして保存していた）。
@@ -327,7 +328,7 @@
           if (!titleOk(c, "")) {
             // 右が前の会社にもどった：その会社の選びなおし → 更新 → もう一度この行
             tr(`行${i}で右が「${mainTitle()}」にもどった`);
-            await selectCompany(c.company); await goChatPage(true); setUrlCompany(c.company); await openTab("チャットセッション"); await clickRefresh();
+            await selectCompany(c.company); await goChatPage(true); await sleep(800); await quiet(1500); await openTab("チャットセッション");
             if (titleOk(c, "")) r = await readRow(i, prev, c.company);
             if (!titleOk(c, "")) { log.push(`${c.company}：行を選ぶと右の画面が「${mainTitle()}」にもどるので止めました`); break; }
           }
