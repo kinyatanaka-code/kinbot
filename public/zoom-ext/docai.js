@@ -144,17 +144,31 @@
     a.click(); await sleep(600); await quiet(1500); return !!tabBtn("チャットセッション");
   }
   // 「企業を選択」を切りかえる：開く → 名前を打って絞る → 選ぶ
+  let lastSel = { typed: "", seen: [] };
   async function selectCompany(co) {
     if (companyNow() === co) return true;
     const box = selectBoxOf("企業を選択"); if (!box) return false;
     const inp = box.querySelector('input[role="combobox"], input');
     const ctl = box.querySelector('[role="group"]') || inp;
     press(ctl); if (inp) { press(inp); inp.focus(); } await sleep(400);
-    // 名前を打って候補を絞る（会社が多いと、見えている候補しか画面に無いため）
-    if (inp) { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(inp, co); inp.dispatchEvent(new Event("input", { bubbles: true })); await sleep(700); }
-    const opts = [...document.querySelectorAll('[role="option"], [data-baseweb="menu"] li, [role="listbox"] li')];
-    const hit = opts.find((o) => norm(o.textContent).toLowerCase() === co) || opts.find((o) => norm(o.textContent).toLowerCase().includes(co));
-    if (!hit) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (inp) inp.blur(); return false; }
+    // 名前を打って候補を絞る（会社が多いと、見えている候補しか画面に無いため）。
+    //   ふつうに打ったのと同じ動きになる insertText を先に使い、だめなら値を直接入れる（2026-11-18：一部の会社しか選べなかった）
+    if (inp) {
+      inp.select && inp.select();
+      let typed = false; try { typed = document.execCommand("insertText", false, co); } catch {}
+      if (!typed || inp.value !== co) { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(inp, co); inp.dispatchEvent(new Event("input", { bubbles: true })); }
+      await sleep(800);
+    }
+    const optsNow = () => [...document.querySelectorAll('[role="option"], [data-baseweb="menu"] li, [role="listbox"] li')];
+    const find = () => { const os = optsNow(); return os.find((o) => norm(o.textContent).toLowerCase() === co) || os.find((o) => norm(o.textContent).toLowerCase().includes(co)); };
+    let hit = find();
+    // まだ見つからなければ、候補の一覧を下へ送りながら探す（一覧は見えている分しか画面に無い）
+    if (!hit) {
+      const lb = document.querySelector('[role="listbox"]'); const sc = lb && ([lb, ...lb.querySelectorAll("div")].find((e) => e.scrollHeight > e.clientHeight + 10) || lb);
+      for (let k = 0; sc && k < 60 && !hit; k++) { const before = sc.scrollTop; sc.scrollTop += Math.max(100, sc.clientHeight - 40); sc.dispatchEvent(new Event("scroll", { bubbles: true })); await sleep(150); hit = find(); if (sc.scrollTop === before) break; }
+    }
+    lastSel = { typed: inp ? inp.value : "", seen: optsNow().slice(0, 8).map((o) => norm(o.textContent).slice(0, 30)) };
+    if (!hit) { if (inp) inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (inp) inp.blur(); await sleep(300); return false; }
     press(hit); hit.click && hit.click();
     await sleep(800); await quiet(1500);
     return companyNow() === co;
@@ -257,22 +271,22 @@
     };
   };
   async function crawl(list, onlyNew) {
-    crawling = true; stop = false; let saved = 0, skipped = 0, failed = 0; const log = [];
+    crawling = true; stop = false; let saved = 0, skipped = 0, failed = 0; const log = []; const results = [];
     const paint = (i, msg) => { show(`<div style="font-size:12px;color:#5b6b66">${i}/${list.length}社　保存 ${saved}件・とばした会社 ${skipped}</div>${bar(list.length ? i / list.length : 0)}<div style="font-size:12.5px">${msg}</div><button type="button" data-stop style="margin-top:8px;border:1px solid #e7b37a;background:#fff;color:#7a4310;border-radius:9px;padding:5px 12px;cursor:pointer">止める</button>${log.length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:90px;overflow:auto">${log.slice(-6).join("<br>")}</div>` : ""}`); const s = box.querySelector("[data-stop]"); if (s) s.onclick = () => { stop = true; s.disabled = true; s.textContent = "止めています…"; }; };
     try {
       if (!(await goChatPage())) { await diag("チャット管理のページへ行けない"); throw new Error("チャット管理のページが見つかりませんでした（左のメニューの「チャット管理」を開いてから押してください）"); }
       for (let ci = 0; ci < list.length && !stop; ci++) {
         const c = list[ci]; const known = new Set((c.known || []).map((k) => String(k).slice(0, 8))); if (ci === 0) prevTitle = "";
         paint(ci, `${c.name || c.company}（${c.company}）を開いています…`);
-        if (!(await selectCompany(c.company))) { skipped++; log.push(`${c.company}：「企業を選択」にありませんでした`); if (ci === 0 && list.length === 1) await diag("企業を選択で選べない"); continue; }
+        if (!(await selectCompany(c.company))) { skipped++; log.push(`${c.company}：「企業を選択」で選べませんでした（打った文字「${lastSel.typed}」・見えた候補 ${lastSel.seen.slice(0, 3).join("／") || "なし"}）`); results.push({ company: c.company, ok: false, why: "選べない", seen: lastSel.seen, typed: lastSel.typed }); if (ci === 0 && list.length === 1) await diag("企業を選択で選べない"); continue; }
         if (ci > 0 || !titleOk(c, "")) await goChatPage(true);
         await openTab("チャットセッション"); await quiet(1200);
         // 企業を切りかえても、右の画面が前の会社のままのことがあった（2026-11-18：ジェイグループの画面のまま、復建技術コンサルタントとして保存していた）。
         //   右の題（〇〇 チャット管理）が、その会社の名前になっているかを確かめる。ちがえば「チャット管理」を開き直し、それでもちがえば、その会社はとばす
         if (!titleOk(c, prevTitle)) { await goChatPage(true); await openTab("チャットセッション"); await quiet(1500); }
-        if (!titleOk(c, prevTitle)) { skipped++; log.push(`${c.company}：右の画面が「${mainTitle() || "？"}」のまま切りかわりませんでした`); await diag("会社を切りかえても右の画面が変わらない"); continue; }
+        if (!titleOk(c, prevTitle)) { skipped++; results.push({ company: c.company, ok: false, why: "右の画面が切りかわらない", title: mainTitle(), name: c.name }); log.push(`${c.company}：右の画面が「${mainTitle() || "？"}」のまま切りかわりませんでした`); await diag("会社を切りかえても右の画面が変わらない"); continue; }
         prevTitle = mainTitle();
-        const n = Math.min(totalRows(), 300);
+        const n = Math.min(totalRows(), 300); const saved0 = saved; results.push({ company: c.company, ok: true, rows: n, title: prevTitle });
         let prev = reviewLabel(document.body); let failRow = 0;
         for (let i = 0; i < n && !stop; i++) {
           paint(ci, `${c.name || c.company}：${i + 1}/${n} 件目を読んでいます`);
@@ -286,6 +300,7 @@
           if (onlyNew && known.has(r.label.slice(0, 8))) break;   // 前に読んだチャットまで来た（一覧は新しい順）
         }
       }
+      kb("/api/kinxs/docai/diag", "POST", { why: "取り込みの結果", ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), saved, skipped, failed, results: results.slice(0, 60), log: log.slice(-40) }).catch(() => {});
       show(`<div style="color:${C.deep};font-weight:700">${stop ? "止めました" : "終わりました"}</div><div style="font-size:12.5px;margin-top:4px">保存 ${saved}件・とばした会社 ${skipped}社${failed ? `・読めなかった行 ${failed}` : ""}</div>${log.length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:120px;overflow:auto">${log.slice(-10).join("<br>")}</div>` : ""}<div style="font-size:11.5px;color:#5b6b66;margin-top:6px">kinXs の「DOC連携 → 候補者の質問」で見られます。</div>`);
     } catch (e) { show(`<div style="color:#7a4310">${e.message}</div>`); }
     finally { crawling = false; }
