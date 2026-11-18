@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>kinbot への依頼（Gemini から）</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <meta name="theme-color" content="#0d5b47" />
+    <link rel="stylesheet" href="style.css?v=20261118h" />
+    <style>
+      /* Gemini のリンクから開く、確かめて押すだけの画面。ほかの画面のメニューは出さない（迷わないように） */
+      body{background:#f3f7f5;margin:0;}
+      .gq-wrap{max-width:640px;margin:32px auto;padding:0 16px;}
+      .gq-card{background:#fff;border:1px solid #d7e8e0;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(16,40,34,.05);}
+      .gq-head{display:flex;align-items:center;gap:10px;margin:0 0 6px;font-size:18px;color:#0d5b47;}
+      .gq-sub{color:#5b6b66;font-size:13px;margin:0 0 16px;}
+      .gq-opp{background:#f3f7f5;border-radius:12px;padding:10px 14px;margin:0 0 14px;font-size:14px;line-height:1.7;}
+      .gq-opp b{color:#0d5b47;}
+      .gq-tbl{width:100%;border-collapse:collapse;font-size:14px;margin:0 0 16px;}
+      .gq-tbl th,.gq-tbl td{text-align:left;padding:8px 6px;border-bottom:1px solid #e6efeb;vertical-align:top;}
+      .gq-tbl th{color:#5b6b66;font-weight:600;font-size:12px;}
+      .gq-after{color:#0d5b47;font-weight:700;}
+      .gq-before{color:#8a9893;}
+      .gq-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+      .gq-btn{border:0;border-radius:999px;padding:10px 20px;font-size:14px;cursor:pointer;background:#1d9e75;color:#fff;font-weight:600;}
+      .gq-btn:disabled{opacity:.5;cursor:default;}
+      .gq-btn.sub{background:#e8f5ef;color:#0d5b47;}
+      .gq-msg{font-size:13px;margin-top:12px;white-space:pre-wrap;}
+      .gq-msg.err{color:#b3261e;}
+      .gq-msg.ok{color:#0d5b47;font-weight:600;}
+      .gq-choose{list-style:none;padding:0;margin:0 0 14px;}
+      .gq-choose li{border:1px solid #d7e8e0;border-radius:12px;padding:10px 14px;margin-bottom:8px;cursor:pointer;font-size:13px;line-height:1.6;}
+      .gq-choose li:hover{border-color:#5DCAA5;background:#f3fbf7;}
+      details.gq-raw{margin-top:16px;font-size:12px;color:#5b6b66;}
+      details.gq-raw textarea{width:100%;box-sizing:border-box;min-height:110px;font-family:inherit;font-size:13px;border:1px solid #d7e8e0;border-radius:10px;padding:8px;margin-top:6px;}
+    </style>
+  </head>
+  <body>
+    <div class="gq-wrap">
+      <div class="gq-card">
+        <h1 class="gq-head">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="7" fill="#e8f5ef"/><path d="M12 6.5c.6 2.6 2 4 4.5 4.5-2.5.5-3.9 1.9-4.5 4.5-.6-2.6-2-4-4.5-4.5 2.5-.5 3.9-1.9 4.5-4.5z" fill="#1d9e75"/><circle cx="17" cy="16.5" r="1.4" fill="#5DCAA5"/></svg>
+          Salesforce の更新（Gemini からの依頼）
+        </h1>
+        <p class="gq-sub">中身を確かめて「この内容で更新する」を押したときだけ変わります。開いただけでは何も変わりません。</p>
+        <div id="gqBody">読み込んでいます…</div>
+        <div class="gq-msg" id="gqMsg"></div>
+        <details class="gq-raw" id="gqRaw">
+          <summary>依頼の本文を見る・直す</summary>
+          <textarea id="gqText"></textarea>
+          <div class="gq-btns" style="margin-top:8px"><button class="gq-btn sub" id="gqReload" type="button">この本文で確かめ直す</button></div>
+        </details>
+      </div>
+    </div>
+    <script src="gemreq.js?v=20261118h"></script>
+  </body>
+</html>
