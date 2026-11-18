@@ -13327,3 +13327,8 @@ export async function kxDocAiAll() {
   if (!pool) return []; await ensureKxDocAi();
   return (await pool.query(`SELECT company_id, session_key, qa, first_at, updated_at FROM kinxs_docai_chats ORDER BY first_at DESC LIMIT 5000`)).rows;
 }
+export async function kxDocAiKeys() {
+  if (!pool) return new Map(); await ensureKxDocAi();
+  const m = new Map(); for (const r of (await pool.query(`SELECT company_id, session_key FROM kinxs_docai_chats`)).rows) { if (!m.has(r.company_id)) m.set(r.company_id, []); m.get(r.company_id).push(r.session_key); }
+  return m;
+}
