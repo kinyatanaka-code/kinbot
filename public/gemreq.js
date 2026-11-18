@@ -23,9 +23,11 @@
   }
   async function load() {
     msg(""); $("gqBody").textContent = "確かめています…";
-    if (!text.trim() && !Object.keys(codes).length) { $("gqBody").innerHTML = `依頼の本文がありません。Gemini が出した本文をコピーして、下の欄に貼ってください。<div class="gq-btns" style="margin-top:10px"><button class="gq-btn" id="gqPaste" type="button">コピーした本文を貼る</button></div>`;
+    if (!text.trim() && !Object.keys(codes).length) { $("gqBody").innerHTML = `Gemini の答え（本文やリンク）をコピーしてから、下のボタンを押してください。答えを丸ごとコピーしても大丈夫です。<div class="gq-btns" style="margin-top:10px"><button class="gq-btn" id="gqPaste" type="button">コピーした本文を貼る</button></div>`;
       // クリップボードから読む（ブラウザが「許可しますか」と聞くことがある）
-      $("gqPaste").addEventListener("click", async () => { try { const t = await navigator.clipboard.readText(); if (!t.trim()) throw new Error(); $("gqText").value = t; text = t; load(); } catch { msg("読み取れませんでした。下の欄に貼り付けて「この本文で確かめ直す」を押してください。", "err"); $("gqRaw").open = true; } });
+      $("gqPaste").addEventListener("click", () => fromClipboard(true));
+      // 前に「許可」してあれば、押さなくても自動で読む（Gemini でコピー → この画面を開く、だけで済むように）
+      try { const st = await navigator.permissions.query({ name: "clipboard-read" }); if (st.state === "granted") fromClipboard(false); } catch {}
       return; }
     let j; try { j = await call(false); } catch (e) { $("gqBody").textContent = ""; msg(e.message, "err"); $("gqRaw").open = true; return; }
     if (!j) return;
@@ -48,6 +50,21 @@
       catch (e) { msg(`更新できませんでした：${e.message}`, "err"); $("gqRun").disabled = false; }
     });
   }
-  $("gqReload").addEventListener("click", () => { text = $("gqText").value; if (text.trim()) codes = {}; load(); });
+  // Gemini の答えを丸ごとコピーして貼ってもよい。中にリンク（/gem?id=…）があればそれを使い、無ければ「会社：」などの行を読む
+  //   （2026-11-18：Gemini はリンクを押すと Google 検索に飛ばすので、リンクは押さずにコピーして持ってくる形にした）
+  function useText(t) {
+    const m = String(t || "").match(/\/gem\?([^\s）)】」"'<>]+)/);
+    if (m) {
+      const p = new URLSearchParams(m[1]); const c = {}; for (const k of ["id", "s", "r", "cd", "od", "nd"]) if (p.get(k)) c[k] = p.get(k);
+      if (c.id) { codes = c; text = ""; $("gqText").value = t; return load(); }
+      if (p.get("t") && !/^\s*[・\-*]?\s*(会社|商談ID|フェーズ)\s*[:：]/m.test(t)) t = p.get("t");
+    }
+    codes = {}; text = t; $("gqText").value = t; load();
+  }
+  async function fromClipboard(loud) {
+    try { const t = await navigator.clipboard.readText(); if (!t.trim()) throw new Error(); useText(t); }
+    catch { if (loud) { msg("読み取れませんでした。下の欄に貼り付けて「この本文で確かめ直す」を押してください。", "err"); $("gqRaw").open = true; } }
+  }
+  $("gqReload").addEventListener("click", () => useText($("gqText").value));
   load();
 })();
