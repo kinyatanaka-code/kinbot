@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "kinbot-ext",
-  "version": "2.2.7",
+  "version": "2.2.8",
   "description": "kinbot の拡張機能：kincall の Zoom アカウントのサインイン補助、kinXs の下書きをメールワイズへ入れる、メールワイズのメールを読んで kinXs のタスク作りに使う、MiiTel・Bales Cloud の画面から kinbot に取り込む、NeoSTAGE の取引申請の欄を SF から埋める、DOC の AI の管理画面で開いた候補者のチャットを kinXs に貯める（ネオキャリア社内用）。",
   "permissions": [
     "storage",

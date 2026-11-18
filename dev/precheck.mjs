@@ -76,6 +76,13 @@ if (existsSync(join(ROOT, "package-lock.json"))) warn("package-lock.json が作�
 const mojibake = listFiles(ROOT, [".md", ".html", ".js"]).filter((f) => /#U[0-9a-fA-F]{4}/.test(f));
 if (mojibake.length) warn(`文字化け名(#U…)のファイル ${mojibake.length}件（pushには含めないこと）: ${mojibake.map((x) => x.replace(ROOT + "/", "")).slice(0, 3).join(", ")}`);
 if (!existsSync(join(ROOT, "package-lock.json")) && !mojibake.length) ok("混入ファイルなし");
+// ぶつかった印（<<<<<<< ／ >>>>>>>）の残り。2026-11-18 に merge で残って、サーバーが起動しなくなったため
+{
+  const files = [...listFiles(join(ROOT, "server"), [".js", ".mjs", ".json", ".md"]), ...listFiles(join(ROOT, "public"), [".js", ".html", ".css", ".json"]), join(ROOT, "dev", "kinbot-memory.md")].filter((f) => existsSync(f) && !/node_modules/.test(f));
+  const bad = files.filter((f) => { try { return /^(<{7} |>{7} |={7}$)/m.test(readFileSync(f, "utf8")); } catch { return false; } });
+  if (bad.length) fail(`ぶつかった印（<<<<<<< ／ ======= ／ >>>>>>>）が残っています：${bad.map((x) => x.replace(ROOT + "/", "")).slice(0, 5).join(", ")}（両方の直しを残して印を消す）`);
+  else ok("ぶつかった印なし");
+}
 
 // 5) BUILD_TAG の存在
 console.log("[5] BUILD_TAG");

@@ -221,3 +221,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   })();
   return true;
 });
+
+// DOC の AI の自動取り込みが使う kinbot の窓口（/api/kinxs/docai/ の下だけ通す）
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-docai-api") return;
+  (async () => {
+    try {
+      const path = String(msg.path || ""); if (!/^\/api\/kinxs\/docai\/[a-z]+$/.test(path)) return reply({ ok: false, error: "使えない窓口です" });
+      const r = await fetch(`https://kinbot-production-225f.up.railway.app${path}`, { method: msg.method === "POST" ? "POST" : "GET", credentials: "include", redirect: "manual", headers: { "content-type": "application/json" }, body: msg.method === "POST" ? JSON.stringify(msg.body || {}) : undefined });
+      if (r.type === "opaqueredirect" || r.status === 401) return reply({ ok: false, error: "kinbot にログインしてから、もう一度押してください" });
+      const j = await r.json().catch(() => ({}));
+      reply(r.ok ? { ok: true, ...j } : { ok: false, error: j.error || `（${r.status}）` });
+    } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
+  })();
+  return true;
+});
