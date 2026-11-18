@@ -42,13 +42,16 @@
   function selectBoxOf(word) { return [...document.querySelectorAll('[data-testid="stSelectbox"]')].find((x) => (x.textContent || "").includes(word)); }
   function companyNow() {
     const sel = selectBoxOf("企業を選択");
+    // いまの Streamlit の選択欄は、文字を打てる欄（input role=combobox）に選んだ値が入っている（2026-11-18 画面の作りを見て直した）
+    const inp = sel && sel.querySelector('input[role="combobox"], input');
     const v = sel && sel.querySelector('[data-baseweb="select"]');
-    const t = v ? norm(v.textContent) : "";
+    const t = inp && inp.value ? norm(inp.value) : v ? norm(v.textContent) : "";
     const m = t.match(/[a-z0-9_-]{3,}/i);
     return m ? m[0].toLowerCase() : (new URLSearchParams(location.search).get("company") || "").toLowerCase();
   }
   // いま見えているタブの中身（Streamlit のタブは、見えていない方も画面の中に残っている）
-  function activePanel() { return [...document.querySelectorAll('[role="tabpanel"]')].find((p) => !p.hidden && p.offsetParent !== null && (p.textContent || "").includes("回答レビュー")) || null; }
+  const PANELS = '[data-testid="stTabPanel"], [role="tabpanel"]';
+  function activePanel() { return [...document.querySelectorAll(PANELS)].find((p) => !p.hidden && p.offsetParent !== null && (p.textContent || "").includes("回答レビュー")) || null; }
   function reviewLabel(root) { const t = (root || document.body).textContent || ""; return ((t.match(/セッション\s*[:：]\s*([0-9a-f]{6,}[0-9a-f-]*)/i) || [])[1] || "").toLowerCase(); }
   function readReview(root) {
     root = root || document.body;
@@ -108,8 +111,9 @@
     el.dispatchEvent(new PointerEvent("pointerup", { ...o, buttons: 0 })); el.dispatchEvent(new MouseEvent("mouseup", { ...o, buttons: 0 })); el.dispatchEvent(new MouseEvent("click", { ...o, buttons: 0 }));
     return true;
   }
-  const tabBtn = (word) => [...document.querySelectorAll('button[role="tab"]')].find((b) => (b.textContent || "").includes(word));
-  async function openTab(word) { const b = tabBtn(word); if (!b) return false; if (b.getAttribute("aria-selected") !== "true") { b.click(); await sleep(500); } return true; }
+  // タブは data-testid="stTab"（role="tab" ではなかった）
+  const tabBtn = (word) => [...document.querySelectorAll('[data-testid="stTab"], button[role="tab"]')].find((b) => (b.textContent || "").includes(word));
+  async function openTab(word) { const b = tabBtn(word); if (!b) return false; if (b.getAttribute("aria-selected") !== "true") { press(b); await sleep(600); } return true; }
   // 左のメニューの「チャット管理」へ（ページは読み込み直さない）
   async function goChatPage() {
     if (tabBtn("チャットセッション")) return true;
@@ -120,11 +124,12 @@
   async function selectCompany(co) {
     if (companyNow() === co) return true;
     const box = selectBoxOf("企業を選択"); if (!box) return false;
-    const ctl = box.querySelector('[data-baseweb="select"] > div') || box.querySelector('[data-baseweb="select"]');
-    press(ctl); await sleep(400);
-    const inp = box.querySelector("input");
-    if (inp) { inp.focus(); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(inp, co); inp.dispatchEvent(new Event("input", { bubbles: true })); await sleep(500); }
-    const opts = [...document.querySelectorAll('[role="option"], [data-baseweb="menu"] li')];
+    const inp = box.querySelector('input[role="combobox"], input');
+    const ctl = box.querySelector('[role="group"]') || inp;
+    press(ctl); if (inp) { press(inp); inp.focus(); } await sleep(400);
+    // 名前を打って候補を絞る（会社が多いと、見えている候補しか画面に無いため）
+    if (inp) { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set; set.call(inp, co); inp.dispatchEvent(new Event("input", { bubbles: true })); await sleep(700); }
+    const opts = [...document.querySelectorAll('[role="option"], [data-baseweb="menu"] li, [role="listbox"] li')];
     const hit = opts.find((o) => norm(o.textContent).toLowerCase() === co) || opts.find((o) => norm(o.textContent).toLowerCase().includes(co));
     if (!hit) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); if (inp) inp.blur(); return false; }
     press(hit); hit.click && hit.click();
@@ -134,22 +139,28 @@
   // チャットの一覧の表（キャンバスで描かれている）。行の高さ・見出しの高さは Streamlit の決まり（35px）
   const ROW = 35, HEAD = 35;
   function grid() {
-    const p = [...document.querySelectorAll('[role="tabpanel"]')].find((x) => (x.textContent || "").includes("セッションが見つかりました") && x.offsetParent !== null) || document;
+    const p = [...document.querySelectorAll(PANELS)].find((x) => (x.textContent || "").includes("セッションが見つかりました") && x.offsetParent !== null) || document;
     const g = p.querySelector('[data-testid="stDataFrame"], [data-testid="stDataFrameResizable"], [data-testid="stDataEditor"]');
     if (!g) return null;
     const sc = g.querySelector(".dvn-scroller") || g.querySelector('[class*="scroller"]');
-    const cv = g.querySelector("canvas");
-    return { g, sc, cv };
+    const cvs = [...g.querySelectorAll("canvas")]; const cv = g.querySelector('[data-testid="data-grid-canvas"]') || cvs[0];
+    // 見出しの高さ：見出し用のキャンバス（2つめ・高さ36くらい）があればその高さ
+    const hc = cvs.find((c) => c !== cv && c.getBoundingClientRect().height > 20 && c.getBoundingClientRect().height < 60);
+    return { g, sc, cv, head: hc ? hc.getBoundingClientRect().height : HEAD };
   }
+  // 表の文字は、目に見えない読み上げ用の表（glide-cell-列-行）にも入っている。1列目がセッションID（頭だけ）
+  const rowId = (i) => { const c = document.querySelector(`[data-testid="glide-cell-1-${i}"]`); return c ? norm(c.textContent).replace(/[.…]+$/, "").toLowerCase() : ""; };
   const totalRows = () => { const m = (document.body.innerText || "").match(/(\d+)\s*件のセッションが見つかりました/); return m ? Number(m[1]) : 0; };
   // 表の i 行目のチェック（左端）を押す。見えていなければ表を動かしてから押す
   async function toggleRow(i, how) {
     const G = grid(); if (!G || !G.cv) return false;
     if (G.sc) { const want = Math.max(0, (i - 3) * ROW); if (Math.abs(G.sc.scrollTop - want) > ROW * 2 || G.sc.scrollTop > i * ROW) { G.sc.scrollTop = want; G.sc.dispatchEvent(new Event("scroll", { bubbles: true })); await sleep(350); } }
+    if (how === "peek") return true;
     const base = (G.sc || G.cv).getBoundingClientRect(); const top = G.sc ? G.sc.scrollTop : 0;
-    const x = base.left + 16; const y = base.top + HEAD + i * ROW - top + ROW / 2;
+    const x = base.left + 16; const y = base.top + G.head + i * ROW - top + ROW / 2;
     if (y > base.bottom - 4) return false;
-    const el = how === "canvas" ? G.cv : document.elementFromPoint(x, y);
+    // 表は、上にかぶさっている「動かす枠」（.dvn-scroller）で押されたことを受け取る
+    const el = how === "scroller" ? (G.sc || G.cv) : document.elementFromPoint(x, y);
     return press(el, x, y);
   }
   // 1件読む：行を押す → 回答レビューが変わるのを待つ → 読む → 送る → 行をもう一度押して外す
@@ -161,7 +172,7 @@
     let label = reviewLabel(document.body);
     if (!label || label === prevLabel) {
       // 押し方を変えてもう一度（キャンバスへ直接）
-      if (how === "point") { how = "canvas"; await toggleRow(i, how); await sleep(400); await quiet(1200); label = reviewLabel(document.body); if (!label || label === prevLabel) how = "point"; }
+      if (how === "point") { how = "scroller"; await toggleRow(i, how); await sleep(400); await quiet(1200); label = reviewLabel(document.body); if (!label || label === prevLabel) how = "point"; }
       if (!label || label === prevLabel) return { fail: true };
     }
     await openTab("回答レビュー"); await sleep(300);
@@ -177,9 +188,9 @@
     const outline = (el, depth = 0) => { if (!el || depth > 7) return ""; const tid = el.getAttribute && el.getAttribute("data-testid"); const role = el.getAttribute && el.getAttribute("role"); const cls = String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className || "").split(/\s+/).filter((c) => /dvn|gdg|scroller|glide|st/.test(c)).slice(0, 3).join("."); const r = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
       return `${"  ".repeat(depth)}<${el.tagName.toLowerCase()}${tid ? ` tid=${tid}` : ""}${role ? ` role=${role}` : ""}${cls ? ` .${cls}` : ""} ${Math.round(r.width)}x${Math.round(r.height)}${el.scrollHeight > el.clientHeight + 5 ? ` scroll=${el.scrollTop}/${el.scrollHeight}` : ""}>\n${[...el.children].slice(0, 12).map((c) => outline(c, depth + 1)).join("")}`; };
     const testids = [...new Set([...document.querySelectorAll("[data-testid]")].map((e) => e.getAttribute("data-testid")))];
-    const tabs = [...document.querySelectorAll('button[role="tab"]')].map((b) => `${norm(b.textContent)}:${b.getAttribute("aria-selected")}`);
+    const tabs = [...document.querySelectorAll('[data-testid="stTab"], button[role="tab"]')].map((b) => `${norm(b.textContent)}:${b.getAttribute("aria-selected")}`);
     const sb = selectBoxOf("企業を選択");
-    await kb("/api/kinxs/docai/diag", "POST", { why, ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), href: location.pathname, company: companyNow(), rows: totalRows(), how, testids, tabs, grid: G ? outline(G.g) : "（表が見つからない）", select: sb ? outline(sb) : "（企業を選択が見つからない）", options: [...document.querySelectorAll('[role="option"]')].slice(0, 5).map((o) => norm(o.textContent).slice(0, 30)) });
+    await kb("/api/kinxs/docai/diag", "POST", { why, ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), href: location.pathname, company: companyNow(), rows: totalRows(), how, cells: [0, 1, 2, 3].map(rowId), label: reviewLabel(document.body), head: G ? G.head : 0, tabAttrs: [...document.querySelectorAll('[data-testid="stTab"]')].slice(0, 6).map((b) => `${b.tagName}:${b.getAttribute("role")}:${b.getAttribute("aria-selected")}`), testids, tabs, grid: G ? outline(G.g) : "（表が見つからない）", select: sb ? outline(sb) : "（企業を選択が見つからない）", options: [...document.querySelectorAll('[role="option"]')].slice(0, 5).map((o) => norm(o.textContent).slice(0, 30)) });
   }
 
   // ===== 右下のボタンと窓 =====
@@ -222,6 +233,7 @@
         let prev = reviewLabel(document.body); let failRow = 0;
         for (let i = 0; i < n && !stop; i++) {
           paint(ci, `${c.name || c.company}：${i + 1}/${n} 件目を読んでいます`);
+          if (onlyNew && i > 0) { await toggleRow(i, "peek"); const rid = rowId(i); if (rid && known.has(rid.slice(0, 8))) break; }
           const r = await readRow(i, prev);
           if (r.skip) break;
           if (r.fail) { failRow++; failed++; if (failRow >= 2) { log.push(`${c.company}：表のチェックを押せませんでした`); await diag("表の行を選べない"); break; } continue; }
