@@ -13336,3 +13336,11 @@ export async function kxDocAiRaw(companyId, key) {
   if (!pool) return null; await ensureKxDocAi();
   return (await pool.query(`SELECT company_id, session_key, profile, qa, raw, updated_at FROM kinxs_docai_chats WHERE company_id = $1 AND ($2 = '' OR session_key = $2) ORDER BY updated_at DESC LIMIT 1`, [String(companyId), String(key || "")])).rows[0] || null;
 }
+export async function kxDocAiNoQa() {
+  if (!pool) return []; await ensureKxDocAi();
+  return (await pool.query(`SELECT company_id, session_key, raw FROM kinxs_docai_chats WHERE jsonb_array_length(COALESCE(qa, '[]'::jsonb)) = 0 AND raw LIKE '%質問%' LIMIT 2000`)).rows;
+}
+export async function kxDocAiSetQa(companyId, key, qa) {
+  if (!pool) return; await ensureKxDocAi();
+  await pool.query(`UPDATE kinxs_docai_chats SET qa = $3 WHERE company_id = $1 AND session_key = $2`, [companyId, key, JSON.stringify(qa || [])]);
+}
