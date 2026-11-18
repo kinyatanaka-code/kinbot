@@ -170,7 +170,7 @@
       <h3>受付で聞けたこと</h3>
       <div class="mcc-gate">${g.name || g.hours || g.direct ? `${g.name ? `担当者：<b>${esc(g.name)}</b><br>` : ""}${g.hours ? `いる時間：<b>${esc(g.hours)}</b><br>` : ""}${g.direct ? `直通・内線：<b>${esc(g.direct)}</b>` : ""}` : '<span style="color:var(--c-muted)">まだありません。受付につながったら、中央で2タップで残せます。</span>'}</div>
       ${sfRows.length ? `<h3>SF のリード</h3>${kv(sfRows.map(([k, v]) => [nk[k] || k, v]))}` : ""}
-      ${bales.length ? `<h3>${L.src === "doc" ? "DOC のリスト" : "Bales"}</h3>${kv(bales)}` : ""}`;
+      ${L.src === "csv" ? (Object.keys(data).length ? `<h3>CSV の列</h3>${kv(Object.entries(data).slice(0, 30))}` : "") : bales.length ? `<h3>${L.src === "doc" ? "DOC のリスト" : "Bales"}</h3>${kv(bales)}` : ""}`;
     $("mccLeft").querySelectorAll("[data-ph]").forEach((a) => a.addEventListener("click", () => { S.f.phone = a.dataset.ph; drawLeft(); }));
   }
 
@@ -500,7 +500,7 @@
           <div style="margin:12px 0"><button class="mcc-btn primary" id="mccNew">新しいリストを作る</button> <button class="mcc-btn" id="mccTpl">資料送付のひな形</button></div>
           ${S.lists.length ? `<table class="mcc-tbl"><thead><tr><th>リスト</th><th>メンバー</th><th class="num">残り</th><th class="num">今かける</th><th class="num">DOC から</th><th></th></tr></thead><tbody>
             ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>
-              <td style="white-space:nowrap"><button class="mcc-btn" data-bales="${l.id}">Bales から足す</button> <button class="mcc-btn" data-doc="${l.id}" style="color:#0d5b47">DOC から持ってくる</button> <button class="mcc-btn" data-mem="${l.id}">メンバー</button> <button class="mcc-btn primary" data-leads="${l.id}">割り振る・移す</button> <button class="mcc-btn danger" data-close="${l.id}">閉じる</button></td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだリストがありません。</p>'}
+              <td style="white-space:nowrap"><button class="mcc-btn" data-bales="${l.id}">Bales から足す</button> <button class="mcc-btn" data-csv="${l.id}">CSV から足す</button><button class="mcc-btn" data-doc="${l.id}" style="color:#0d5b47">DOC から持ってくる</button> <button class="mcc-btn" data-mem="${l.id}">メンバー</button> <button class="mcc-btn primary" data-leads="${l.id}">割り振る・移す</button> <button class="mcc-btn danger" data-close="${l.id}">閉じる</button></td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだリストがありません。</p>'}
         </div>
         <div class="mcc-card"><h2>今日の数字（全員）</h2>${all.length ? `<table class="mcc-tbl"><thead><tr><th>名前</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">部署をまたいだ架電</th></tr></thead><tbody>${all.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.calls}</td><td class="num">${r.person}</td><td class="num">${r.apo}</td><td class="num">${r.cross}</td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">今日はまだ記録がありません。</p>'}</div>`;
       $("mccNew").addEventListener("click", () => listDialog());
@@ -508,6 +508,7 @@
       box.querySelectorAll("[data-mem]").forEach((b) => b.addEventListener("click", () => listDialog(S.lists.find((l) => l.id === +b.dataset.mem))));
       box.querySelectorAll("[data-bales]").forEach((b) => b.addEventListener("click", () => balesDialog(+b.dataset.bales)));
       box.querySelectorAll("[data-doc]").forEach((b) => b.addEventListener("click", () => docDialog(+b.dataset.doc)));
+      box.querySelectorAll("[data-csv]").forEach((b) => b.addEventListener("click", () => csvDialog(+b.dataset.csv)));
       box.querySelectorAll("[data-leads]").forEach((b) => b.addEventListener("click", () => drawLeads(S.lists.find((l) => l.id === +b.dataset.leads))));
       box.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dialog("このリストを閉じますか", "閉じると、だれの「かける」にも出なくなります。記録は消えません。", "閉じる", async () => { await api(`/api/mccall/lists/${b.dataset.close}`, { method: "PATCH", body: JSON.stringify({ closed: true }) }); drawLists(); })));
     } catch (e) { box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; }
@@ -529,7 +530,7 @@
   async function listDialog(l) {
     let reps = []; try { reps = (await api("/api/mochica/reps")).items || []; } catch {}
     const sel = new Set((l && l.members) || []);
-    const w = dialog(l ? `「${l.name}」のメンバー` : "新しいリスト", l ? "かけられる人を選びます。だれも選ばないと MOCHICA のメンバー全員です。" : "名前を付けて、かけられる人を選びます。リードはあとで Bales か DOC から足します。", l ? "保存する" : "作る", async (w) => {
+    const w = dialog(l ? `「${l.name}」のメンバー` : "新しいリスト", l ? "かけられる人を選びます。だれも選ばないと MOCHICA のメンバー全員です。" : "名前を付けて、かけられる人を選びます。リードはあとで Bales・CSV・DOC から足します。", l ? "保存する" : "作る", async (w) => {
       const name = w.querySelector("#mccLName") ? w.querySelector("#mccLName").value.trim() : l.name;
       const members = [...w.querySelectorAll("[data-m][aria-pressed=true]")].map((b) => b.dataset.m);
       if (!name) throw new Error("リストの名前を入れてください");
@@ -548,6 +549,68 @@
       <label class="mcc-field" style="margin-top:8px">どれを足すか<select class="mcc-sel" id="mccBh" style="max-width:none"><option value="">すべて（ホットな順）</option><option value="warm+">ウォーム以上だけ</option><option value="hot">ホットだけ</option></select></label>
       <label class="mcc-field" style="margin-top:8px">件数（最大 5000）<input id="mccBn" type="number" min="1" max="5000" value="300" /></label>`
       : '<p class="mcc-note" style="margin-top:12px">Bales のリストがまだありません。「リスト（Bales Cloud）」で取り込んでください。</p>');
+  }
+  // CSV から足す（2026-11-18）。ファイルはブラウザで読み、見出しの名前で列を見分けて送る。
+  // Excel で保存した CSV は Shift_JIS のことが多いので、UTF-8 で読めない文字があれば読み直す。
+  const CSV_COLS = {
+    company: /^(会社名|企業名|社名|法人名|会社|company|companyname|account)$/i,
+    phone: /^(電話番号|電話|代表電話|代表番号|tel|phone|電話番号1|companytel1)$/i,
+    person: /^(担当者名|担当者|氏名|名前|person|name|contact|targetname)$/i,
+    sfLeadId: /^(リードid|sfリードid|salesforceid|leadid|sfid|id)$/i,
+  };
+  function parseCsv(text) {
+    const sep = (text.split(/\r?\n/, 1)[0] || "").includes("\t") ? "\t" : ",";
+    const rows = []; let row = [], cell = "", q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; continue; }
+      if (ch === '"') q = true;
+      else if (ch === sep) { row.push(cell); cell = ""; }
+      else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.map((r) => r.map((c) => c.trim())).filter((r) => r.some(Boolean));
+  }
+  async function readCsvFile(file) {
+    const buf = await file.arrayBuffer();
+    let t = new TextDecoder("utf-8").decode(buf);
+    if (t.includes("�")) { try { t = new TextDecoder("shift_jis").decode(buf); } catch {} }
+    return t.replace(/^﻿/, "");
+  }
+  function csvToLeads(table) {
+    const head = table[0].map((h) => h.normalize("NFKC").replace(/[\s_]/g, ""));
+    const idx = {}; for (const [k, re] of Object.entries(CSV_COLS)) { const i = head.findIndex((h) => re.test(h)); if (i >= 0) idx[k] = i; }
+    // 見出しが無い CSV は、kincall と同じ「会社名・担当者名・電話番号」の順とみなす
+    const hasHead = idx.company != null || idx.phone != null;
+    const map = hasHead ? idx : { company: 0, person: 1, phone: 2 };
+    const used = new Set(Object.values(map));
+    const body = hasHead ? table.slice(1) : table;
+    const leads = body.map((r) => {
+      const extra = {}; if (hasHead) table[0].forEach((h, i) => { if (!used.has(i) && h && r[i]) extra[h] = r[i]; });
+      return { company: r[map.company] || "", phone: r[map.phone] || "", person: map.person != null ? r[map.person] || "" : "", sfLeadId: map.sfLeadId != null ? r[map.sfLeadId] || "" : "", extra };
+    }).filter((x) => x.company || x.phone);
+    return { leads, hasHead, found: Object.keys(idx) };
+  }
+  function csvDialog(listId) {
+    let parsed = null;
+    const w = dialog("CSV から足す", "1行1社。見出しに「会社名」「電話番号」「担当者名」「リードID」があれば自動で見分けます（見出しが無ければ 会社名・担当者名・電話番号 の順）。ほかの列は詳細に残ります。ほかの開いている MOCHICA のリストにある番号と、アプローチ禁止の会社は足しません。", "足す", async () => {
+      if (!parsed || !parsed.leads.length) throw new Error("CSV ファイルを選んでください（読める行がありません）");
+      if (parsed.leads.length > 5000) throw new Error(`一度に足せるのは 5000件までです（${parsed.leads.length}件あります）。分けて読み込んでください`);
+      const r = await post(`/api/mccall/lists/${listId}/from-csv`, { rows: parsed.leads });
+      toast(`${r.added}件 足しました${r.dup ? `・ほかのリストにある／重なった ${r.dup}件は外しました` : ""}${r.banned ? `・アプローチ禁止 ${r.banned}件は外しました` : ""}${r.bad ? `・会社名も電話番号も無い ${r.bad}件は読めませんでした` : ""}${r.nolead ? `。うち ${r.nolead}件は SF のリードIDが無いため、架電結果は SF に書かれません` : ""}`);
+      drawLists();
+    }, `<label class="mcc-field" style="margin-top:12px">CSV ファイル<input type="file" id="mccCsvF" accept=".csv,.tsv,.txt,text/csv" /></label><p class="mcc-note" id="mccCsvP" style="margin-top:6px"></p>`);
+    w.querySelector("#mccCsvF").addEventListener("change", async (e) => {
+      const p = w.querySelector("#mccCsvP"); const f = e.target.files[0]; parsed = null; if (!f) { p.textContent = ""; return; }
+      try {
+        const table = parseCsv(await readCsvFile(f));
+        if (!table.length) { p.textContent = "中身が空です"; return; }
+        parsed = csvToLeads(table);
+        const ex = parsed.leads[0];
+        p.textContent = `${parsed.leads.length}件 読めました${parsed.hasHead ? "" : "（見出しなしとして読みました）"}${parsed.hasHead && !parsed.found.includes("phone") ? "。電話番号の列が見つかりません" : ""}${ex ? `。1件目：${ex.company || "会社名なし"} / ${ex.phone || "電話番号なし"}${ex.person ? ` / ${ex.person}` : ""}` : ""}`;
+      } catch (err) { p.textContent = `読めませんでした：${err.message}`; }
+    });
   }
   async function docDialog(listId) {
     let dl = []; try { dl = (await api("/api/mccall/doc/lists")).items || []; } catch (e) { toast(e.message); return; }

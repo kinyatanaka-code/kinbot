@@ -401,6 +401,40 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true, added, banned, skipped: rows.length - added - banned });
   }));
 
+  // CSV から足す（2026-11-18 福井さん「架電リストをcsvからアップロードできるように」）。
+  //   CSV はブラウザで読んで、行ごとに { company, phone, person, sfLeadId, extra } にして送ってくる。
+  //   同じ電話番号（無ければ会社名）が、ほかの開いている MOCHICA のリストでまだ終わっていなければ入れない＝二重にかけない。
+  //   SF のリードIDが無い行は架電結果を SF に書けない（nolead）ので、件数を返して画面で知らせる（ルール5）。
+  app.post("/api/mccall/lists/:id/from-csv", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const l = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE id=$1`, [id])).rows[0];
+    if (!l || l.closed) return res.status(404).json({ error: "リストが見つからないか、閉じています" });
+    const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 5000);
+    if (!rows.length) return res.status(400).json({ error: "CSV に読める行がありません" });
+    const ckey = (s) => String(s || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)|[\s　・.,、。]/g, "").toLowerCase();
+    const open = (await P().query(`SELECT c.phone, c.company FROM mc_call_leads c JOIN mc_call_lists x ON x.id=c.list_id WHERE x.biz=$1 AND NOT x.closed AND NOT c.done AND c.list_id <> $2`, [BIZ, id])).rows;
+    const seenPh = new Set(open.map((r) => digits(r.phone)).filter((x) => x.length >= 9));
+    const seenCo = new Set(open.map((r) => ckey(r.company)).filter(Boolean));
+    await loadApproachBans().catch(() => {});
+    let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0; const companies = [];
+    for (const r of rows) {
+      const company = clip(r.company, 200), phone = clip(r.phone, 40), person = clip(r.person, 100);
+      const ph = digits(phone), ck = ckey(company);
+      if (!company && ph.length < 9) { bad++; continue; }
+      if ((ph.length >= 9 && seenPh.has(ph)) || (ph.length < 9 && ck && seenCo.has(ck))) { dup++; continue; }
+      const lid = /^00Q[0-9A-Za-z]{12,15}$/.test(String(r.sfLeadId || "").trim()) ? String(r.sfLeadId).trim() : null;
+      if (approachBanHitSync({ company, phone, leadId: lid })) { banned++; continue; }
+      const extra = {}; if (r.extra && typeof r.extra === "object") for (const [k, v] of Object.entries(r.extra).slice(0, 60)) { const kk = clip(k, 60), vv = clip(v, 1000); if (kk && vv) extra[kk] = vv; }
+      const x = await P().query(`INSERT INTO mc_call_leads (list_id, src, src_key, company, phone, person, sf_lead_id, data) VALUES ($1,'csv',$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
+        [id, ph.length >= 9 ? ph : `co:${ck}`, company, phone, person, lid, extra]);
+      if (!x.rowCount) { dup++; continue; }
+      added++; if (!lid) nolead++; companies.push(company);
+      if (ph.length >= 9) seenPh.add(ph); else if (ck) seenCo.add(ck);
+    }
+    mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
+    res.json({ ok: true, added, banned, dup, bad, nolead });
+  }));
+
   // DOC の kincall のリスト一覧（読むだけ）。管理者がリードを持ってくるときに選ぶ
   app.get("/api/mccall/doc/lists", adminOnly(async (req, res) => {
     const rows = (await P().query(`SELECT l.id, l.name, l.owner, count(t.id) FILTER (WHERE NOT t.done) AS open
@@ -476,7 +510,7 @@ export function registerMcCall(app, deps) {
       const t = (await P().query(`SELECT t.company, t.person, t.phone, t.email, t.industry, t.stage, t.status, t.memo, t.assigned_to, l.name AS list_name
         FROM call_targets t LEFT JOIN call_lists l ON l.id=t.list_id WHERE t.id=$1`, [parseInt(lead.src_key, 10)]).catch(() => ({ rows: [] }))).rows[0];
       if (t) data = { ...t, assigned_to: names.get(String(t.assigned_to || "").toLowerCase()) || t.assigned_to };
-    }
+    } else if (lead.src === "csv") data = lead.data || {};
     const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
     const logs = (await P().query(`SELECT * FROM mc_call_logs WHERE lead_id=$1 AND NOT undone ORDER BY created_at DESC LIMIT 50`, [id])).rows;
     // 番号ごとの「つながった実績」（MOCHICA の記録すべてから。リードが変わっても番号で数える）
