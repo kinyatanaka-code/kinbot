@@ -279,7 +279,7 @@ if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "年間更新", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）", access: "アクセス分析", docai: "候補者の質問", voice: "要望・問い合わせ" })[VIEW] || "DOC更新管理";
+$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "年間更新", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携", access: "アクセス分析", docai: "候補者の質問", voice: "要望・問い合わせ" })[VIEW] || "DOC更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = !["renew", "list"].includes(VIEW);
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
