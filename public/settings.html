@@ -20,6 +20,14 @@
   .cc-conn-h{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;} .cc-conn-h b{font-size:14px;} .cc-conn-h span{font-size:12px;color:#5A6B63;}
 
   /* プロンプト設定の DOC / MOCHICA（2026-11-17） */
+  .integ-card .integ-icon.integ-icon-gemini{background:linear-gradient(135deg,#1d9e75,#0d5b47);border-color:#0d5b47;}
+  #gbSkill{text-decoration:none;}
+  .gb-admin{margin-top:16px;padding-top:14px;border-top:1px dashed #D6E6DF;}
+  .gb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px 14px;margin:8px 0 12px;}
+  .gb-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:700;color:#3E5A50;}
+  .gb-grid .gb-chk{flex-direction:row;align-items:center;gap:6px;}
+  #gbMap{width:100%;box-sizing:border-box;font-family:inherit;}
+  .gb-log{font-size:12px;color:#5C7068;margin-top:8px;line-height:1.7;}
   .skill-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 6px;}
   .pbiz-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;}
   .pbiz{display:inline-flex;padding:3px;border-radius:12px;background:#EAF3EF;border:1px solid #D6E6DF;}
@@ -34,7 +42,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118b" />
+    <link rel="stylesheet" href="style.css?v=20261118c" />
   </head>
   <body>
     <div class="app">
@@ -381,6 +389,13 @@
                 <span class="integ-name">Claude.aiで会話</span>
                 <span class="integ-state integ-state-ok">利用可能</span>
               </button>
+              <button class="integ-card" data-integ="gemini">
+                <span class="integ-icon integ-icon-gemini">
+                  <svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><path fill="#fff" d="M24 5c1.2 9.6 9.4 17.8 19 19-9.6 1.2-17.8 9.4-19 19-1.2-9.6-9.4-17.8-19-19C14.6 22.8 22.8 14.6 24 5z"/></svg>
+                </span>
+                <span class="integ-name">Gemini</span>
+                <span class="integ-state" id="integState-gemini">未設定</span>
+              </button>
               <button class="integ-card" data-integ="chatgpt">
                 <span class="integ-icon integ-icon-gpt">
                   <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -545,6 +560,57 @@
             </div>
               </div>
 
+              <div class="set-pane-inner" data-integ="gemini" hidden>
+            <div class="set-card" id="gbCard">
+              <h3>Gemini でつなぐ（GitHub 経由）</h3>
+              <p class="note">Gemini のスキルはインターネットに出られず、会社によってはカスタムアプリも使えません。そこで <b>GitHub</b> を間にはさみます。kinbot が1時間ごとに、商談・アポ・架電・kinXs・Salesforce の状況を GitHub の<b>非公開リポジトリ</b>に書き出します。Gemini はそれを読んで答えます。Salesforce の更新などは、Gemini が作る <b>issue</b> を kinbot が1分ほどで実行します。</p>
+              <div class="apidoc-h">使う人がやること</div>
+              <ol class="cc-steps">
+                <li>Gemini の設定で GitHub をつなぐ（GitHub のアカウントでログイン）。issue を作るには、Google Workspace の「GitHub integration」アプリも入れる</li>
+                <li>下の「Gemini のスキルをダウンロード」を押し、SKILL.md を Gemini の「スキル」でアップロードする</li>
+                <li>管理者に、自分の GitHub アカウント名を kinbot に登録してもらう（登録した人の issue だけ動きます）</li>
+                <li>Gemini のチャットに、GitHub から <code id="gbRepoName">（リポジトリ）</code> を付けて、「今月の受注を教えて」「この商談を06にして」のように話しかける</li>
+              </ol>
+              <div class="skill-row"><a class="btn primary" id="gbSkill" href="/api/gemini-bridge/skill" download="SKILL.md">Gemini のスキルをダウンロード</a><span class="note" id="gbState"></span></div>
+              <p class="note">中身はチャットに付けた時点のものです。新しい数字を見たいときは、リポジトリを付け直してください。issue の結果は、issue のコメントと answers/ に入ります。</p>
+
+              <div class="gb-admin" id="gbAdmin" hidden>
+                <div class="apidoc-h">管理者の設定</div>
+                <ol class="cc-steps">
+                  <li>GitHub で<b>非公開</b>のリポジトリを1つ作る（例：kinbot-gemini）。中身は空でよい</li>
+                  <li>GitHub の「Fine-grained personal access token」を作る。対象はそのリポジトリだけ、権限は「Contents：読み書き」「Issues：読み書き」</li>
+                  <li>下にリポジトリと合言葉を入れて「保存」→「つながるか確かめる」→「今すぐ書き出す」</li>
+                </ol>
+                <div class="gb-grid">
+                  <label>リポジトリ<input class="sf-input" id="gbRepo" placeholder="持ち主/名前（例：kinyatanaka-code/kinbot-gemini）" /></label>
+                  <label>GitHub の合言葉（トークン）<input class="sf-input" id="gbToken" type="password" placeholder="github_pat_…（入れたときだけ上書き）" autocomplete="off" /></label>
+                  <label>書き出す人（この人に見える範囲を書き出す）<input class="sf-input" id="gbOwner" placeholder="kinbot のメールアドレス" /></label>
+                  <label class="gb-chk"><input type="checkbox" id="gbOn" /> 書き出し・issue の実行を動かす</label>
+                </div>
+                <div class="apidoc-h">GitHub アカウント → kinbot のアカウント（issue を動かせる人）</div>
+                <textarea class="sf-input" id="gbMap" rows="4" placeholder="1行に1人：GitHubのアカウント名 kinbotのメールアドレス&#10;例：goldfly32-ux kinya.tanaka@neo-career.co.jp"></textarea>
+                <div class="skill-row"><button class="btn primary" id="gbSave" type="button">保存</button><button class="btn" id="gbTest" type="button">つながるか確かめる</button><button class="btn" id="gbExport" type="button">今すぐ書き出す</button><span class="note" id="gbMsg"></span></div>
+                <div class="gb-log" id="gbLog"></div>
+              </div>
+            </div>
+
+            <div class="set-card" id="gemCard">
+              <h3>カスタムアプリが使える Gemini でつなぐ（URL）</h3>
+              <p class="note">Gemini（gemini.google.com）からも、kinbot・kincall・kinXs・Salesforce を読んだり更新したりできます。<b>あなた専用の URL</b> を作って、Gemini に貼るだけです。あなたの権限で動きます。</p>
+              <div class="apidoc-h">入れ方</div>
+              <ol class="cc-steps">
+                <li>下の「Gemini 用の URL を作る」を押す（<b>あなた専用の合言葉入り</b>なので、人に渡さない）</li>
+                <li>パソコンで gemini.google.com を開き、設定 →「接続済みアプリ（Connected Apps）」→「カスタムアプリを追加（Add a custom app）」を開く</li>
+                <li>コピーした URL を貼って「次へ」→ 画面の案内どおりに許可する。kincall・kinXs も使うときは、それぞれ追加する</li>
+                <li>Gemini のチャットで「kinbot で今月の受注を教えて」のように話しかける</li>
+              </ol>
+              <div class="skill-row"><button class="btn primary" id="gemMake" type="button">Gemini 用の URL を作る</button><button class="btn" id="gemOff" type="button" hidden>URL を無効にする</button><span class="note" id="gemSt"></span></div>
+              <div id="gemUrls" hidden></div>
+              <p class="note">作り直すと、前の URL は使えなくなります（Gemini に入れ直してください）。期限は180日です。会社の Google アカウントでは、管理者がカスタムアプリを止めていることがあります。</p>
+            </div>
+
+              </div>
+
               <div class="set-pane-inner" data-integ="claudecode" hidden>
             <div class="set-card">
               <h3>Claude.aiのチャットで会話する（コネクタ）</h3>
@@ -573,21 +639,6 @@
                 <button class="btn" data-mcp-copy="mcpUrlKinxs" type="button">URLをコピー</button></div>
                 <p class="note cc-warn">⚠️ このURLには全社員分のデータを読める管理者トークンが含まれています。社内の関係者以外には共有しないでください。人数が増える・退職者が出るなどのタイミングで、Railwayの <code>API_TOKENS</code> からこのトークンを見直してください。</p>
               </div>
-            </div>
-
-            <div class="set-card" id="gemCard">
-              <h3>Gemini でつなぐ</h3>
-              <p class="note">Gemini（gemini.google.com）からも、kinbot・kincall・kinXs・Salesforce を読んだり更新したりできます。<b>あなた専用の URL</b> を作って、Gemini に貼るだけです。あなたの権限で動きます。</p>
-              <div class="apidoc-h">入れ方</div>
-              <ol class="cc-steps">
-                <li>下の「Gemini 用の URL を作る」を押す（<b>あなた専用の合言葉入り</b>なので、人に渡さない）</li>
-                <li>パソコンで gemini.google.com を開き、設定 →「接続済みアプリ（Connected Apps）」→「カスタムアプリを追加（Add a custom app）」を開く</li>
-                <li>コピーした URL を貼って「次へ」→ 画面の案内どおりに許可する。kincall・kinXs も使うときは、それぞれ追加する</li>
-                <li>Gemini のチャットで「kinbot で今月の受注を教えて」のように話しかける</li>
-              </ol>
-              <div class="skill-row"><button class="btn primary" id="gemMake" type="button">Gemini 用の URL を作る</button><button class="btn" id="gemOff" type="button" hidden>URL を無効にする</button><span class="note" id="gemSt"></span></div>
-              <div id="gemUrls" hidden></div>
-              <p class="note">作り直すと、前の URL は使えなくなります（Gemini に入れ直してください）。期限は180日です。会社の Google アカウントでは、管理者がカスタムアプリを止めていることがあります。</p>
             </div>
 
             <div class="set-card" id="skillCard">
@@ -1023,8 +1074,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261118b"></script>
-      <script src="nav.js?v=20261118b"></script>
+    <script src="settings.js?v=20261118c"></script>
+      <script src="nav.js?v=20261118c"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

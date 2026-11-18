@@ -653,6 +653,7 @@ function showIntegDetail(name) {
   document.querySelectorAll(".set-pane-inner").forEach((p) => (p.hidden = p.dataset.integ !== name));
   if (name === "status") { loadIntegrations(); loadRecallStatus(); }
   if (name === "claudecode") { fillApiBaseUrl(); initCcToken(); }
+  if (name === "gemini") { gbLoad(); }
   if (name === "chatgpt") { initGptConnector(); }
   if (name === "zoomphone") { loadZoomPane(); }
   if (name === "salesforce") { loadMcConfig(); }
@@ -696,6 +697,8 @@ async function refreshIntegStates() {
   } catch {}
   // Zoom Phone連携
   refreshZoomState();
+  // Gemini（GitHub 経由）
+  try { const d = await (await fetch("/api/gemini-bridge")).json(); setIntegState("gemini", d.enabled && d.repo && d.hasToken ? "接続済み" : "未設定", d.enabled && d.repo && d.hasToken); } catch {}
 }
 // Zoom Phone：カードのバッジと詳細画面
 async function zpFetchStatus() {
@@ -3637,3 +3640,36 @@ function showExtDetail(k) {
   });
   load();
 })();
+
+// ===== Gemini と GitHub でつなぐ（2026-11-18）=====
+//   みんな：スキル（SKILL.md）をダウンロードして Gemini に入れる。管理者：リポジトリ・GitHub の合言葉・書き出す人・GitHub アカウントの登録
+async function gbLoad() {
+  const $ = (id) => document.getElementById(id);
+  let d = {}; try { d = await (await fetch("/api/gemini-bridge")).json(); } catch { return; }
+  const fmt = (t) => { if (!t) return "まだ"; const x = new Date(t); return `${x.getMonth() + 1}/${x.getDate()} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`; };
+  if ($("gbRepoName")) $("gbRepoName").textContent = d.repo || "（管理者がまだ設定していません）";
+  if ($("gbState")) $("gbState").textContent = d.repo ? `書き出し：${fmt(d.lastExportAt)}${d.lastExportError ? `（一部エラー：${d.lastExportError}）` : ""}${d.enabled ? "" : "・いまは止めています"}` : "管理者がまだ設定していません";
+  setIntegState("gemini", d.enabled && d.repo && d.hasToken ? "接続済み" : "未設定", d.enabled && d.repo && d.hasToken);
+  const adm = $("gbAdmin"); if (!adm) return; adm.hidden = !d.canEdit; if (!d.canEdit) return;
+  $("gbRepo").value = d.repo || ""; $("gbOwner").value = d.owner || ""; $("gbOn").checked = !!d.enabled;
+  $("gbToken").placeholder = d.hasToken ? "設定済み（変えるときだけ入れる）" : "github_pat_…";
+  $("gbMap").value = Object.entries(d.map || {}).map(([k, v]) => `${k} ${v}`).join("\n");
+  $("gbLog").innerHTML = (d.issueLog || []).length ? "最近の issue：<br>" + d.issueLog.map((x) => `#${x.n} ${fmt(x.at)} ${x.who} ${x.ok ? "できた" : "できなかった"}（${String(x.msg || "").replace(/[<>&]/g, "")}）`).join("<br>") : (d.lastIssueError ? `issue を読めませんでした：${String(d.lastIssueError).replace(/[<>&]/g, "")}` : "");
+  if (adm._wired) return; adm._wired = true;
+  const msg = (t) => { $("gbMsg").textContent = t; };
+  $("gbSave").addEventListener("click", async () => {
+    const map = {}; for (const line of $("gbMap").value.split(/\n/)) { const [k, v] = line.trim().split(/[\s,，]+/); if (k && v) map[k] = v; }
+    const body = { repo: $("gbRepo").value, owner: $("gbOwner").value, enabled: $("gbOn").checked, map }; if ($("gbToken").value.trim()) body.token = $("gbToken").value.trim();
+    msg("保存しています…");
+    try { const r = await fetch("/api/gemini-bridge", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); const j = await r.json(); if (!r.ok) throw new Error(j.error); $("gbToken").value = ""; msg("保存しました"); gbLoad(); } catch (e) { msg(`保存できませんでした：${e.message}`); }
+  });
+  $("gbTest").addEventListener("click", async () => {
+    msg("確かめています…");
+    try { const r = await fetch("/api/gemini-bridge/test", { method: "POST" }); const j = await r.json(); if (!r.ok) throw new Error(j.error); msg(`つながりました（${j.private ? "非公開" : "公開！非公開にしてください"}・書き込み${j.perms && j.perms.push ? "できる" : "できない？"}）`); } catch (e) { msg(`つながりません：${e.message}`); }
+  });
+  $("gbExport").addEventListener("click", async () => {
+    msg("書き出しています（1〜2分）…"); $("gbExport").disabled = true;
+    try { const r = await fetch("/api/gemini-bridge/export", { method: "POST" }); const j = await r.json(); if (!j.ok) throw new Error(j.reason || j.error); msg(`書き出しました（${j.files}ファイル${j.errors && j.errors.length ? `・読めなかったもの ${j.errors.length}` : ""}）`); gbLoad(); } catch (e) { msg(`書き出せませんでした：${e.message}`); }
+    $("gbExport").disabled = false;
+  });
+}

@@ -15628,6 +15628,224 @@ async function kinxsMcpCall(name, args, req) {
   }
   throw new Error(`知らない道具です：${name}`);
 }
+// ===== Gemini と GitHub でつなぐ（2026-11-18 田中さん「githubとは連携できるからそれでなんかうまくできないか」「この形でつくって！外部連携でジェミニのアイコンつくってそこに格納して」）=====
+//   Gemini のスキルはインターネットに出られず、カスタムアプリは会社で止められている。Gemini は GitHub の非公開リポジトリを「読む」ことと、issue を「作る」ことはできる。そこで：
+//   ・読む：kinbot が1時間ごとに、商談・アポ・架電・kinXs・SF の状況を非公開リポジトリに書き出す（Gemini はチャットにそのリポジトリを付けて読む）
+//   ・書く：Gemini が決まった書き方の issue を作る → kinbot が1分ごとに見て実行（SF の更新など）→ 結果を issue に書いて閉じる
+//   動かすのは、kinbot に登録した GitHub アカウントが作った issue だけ。その人の kinbot の権限で動く。消す道具・アカウントを作る道具は使わせない
+const GEM_GH_API = "https://api.github.com";
+const GEM_BLOCK_TOOLS = new Set(["create_kinbot_accounts", "mochica_miitel_import"]);   // issue からは使わせない
+const gemAdminOf = (email) => { const e = String(email || "").toLowerCase(); return String(process.env.ADMIN_EMAILS || "").split(",").map((x) => x.trim().toLowerCase()).includes(e) || e === String(aiOwnerEmail() || "").toLowerCase(); };
+async function gemCfg() { const st = await getSettings().catch(() => ({})); return { cfg: st.gemBridge || {}, token: st.gemBridgeToken || "" }; }
+async function gemSaveCfg(patch) { const { cfg } = await gemCfg(); await saveSettings({ gemBridge: { ...cfg, ...patch } }); }
+async function gemGh(token, path, opt = {}) {
+  const r = await fetch(`${GEM_GH_API}${path}`, { ...opt, headers: { accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", authorization: `Bearer ${token}`, "user-agent": "kinbot-gemini-bridge", ...(opt.body ? { "content-type": "application/json" } : {}) } });
+  const txt = await r.text(); let d = null; try { d = txt ? JSON.parse(txt) : null; } catch { d = txt; }
+  if (!r.ok) { const e = new Error(`GitHub ${r.status}：${(d && d.message) || String(txt).slice(0, 120)}`); e.status = r.status; throw e; }
+  return d;
+}
+// kinbot の道具（コネクタと同じもの）を、その人のまま同じサーバーの中で呼ぶ
+const GEM_MCP_PATHS = { kinbot: "/mcp", kincall: "/kincall/mcp", kinxs: "/kinxs/mcp" };
+async function gemRpc(server, method, params, user) {
+  const r = await fetch(`http://127.0.0.1:${PORT}${GEM_MCP_PATHS[server]}`, { method: "POST", headers: { "content-type": "application/json", "x-kb-self": KB_SELF_SECRET, "x-kb-self-user": String(user), "x-kb-self-admin": gemAdminOf(user) ? "1" : "0" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || {} }) });
+  const d = await r.json().catch(() => ({}));
+  if (d && d.error) throw new Error(d.error.message || "kinbot のエラー");
+  return (d && d.result) || {};
+}
+async function gemToolMap(user) {
+  const map = new Map();
+  for (const sv of Object.keys(GEM_MCP_PATHS)) { try { for (const t of (await gemRpc(sv, "tools/list", {}, user)).tools || []) map.set(t.name, { server: sv, tool: t }); } catch {} }
+  return map;
+}
+async function gemCall(name, args, user, toolMap) {
+  const tm = toolMap || await gemToolMap(user); const hit = tm.get(name);
+  if (!hit) throw new Error(`「${name}」という道具はありません`);
+  const res = await gemRpc(hit.server, "tools/call", { name, arguments: args || {} }, user);
+  const text = (res.content || []).map((c) => (c.type === "text" ? c.text : JSON.stringify(c))).join("\n");
+  if (res.isError) throw new Error(text.slice(0, 800) || "道具がエラーを返しました");
+  return text;
+}
+// いくつかのファイルを、1回のコミットでまとめてリポジトリに入れる（空のリポジトリなら最初に README を作る）
+async function gemCommit(token, repo, files, message) {
+  const info = await gemGh(token, `/repos/${repo}`); const br = info.default_branch || "main";
+  let head = null;
+  try { head = (await gemGh(token, `/repos/${repo}/git/ref/heads/${br}`)).object.sha; }
+  catch (e) { if (e.status !== 404 && e.status !== 409) throw e; await gemGh(token, `/repos/${repo}/contents/README.md`, { method: "PUT", body: JSON.stringify({ message: "kinbot：はじめのファイル", content: Buffer.from("# kinbot\n").toString("base64"), branch: br }) }); head = (await gemGh(token, `/repos/${repo}/git/ref/heads/${br}`)).object.sha; }
+  const baseTree = (await gemGh(token, `/repos/${repo}/git/commits/${head}`)).tree.sha;
+  const tree = await gemGh(token, `/repos/${repo}/git/trees`, { method: "POST", body: JSON.stringify({ base_tree: baseTree, tree: files.map((f) => ({ path: f.path, mode: "100644", type: "blob", content: f.content })) }) });
+  const cm = await gemGh(token, `/repos/${repo}/git/commits`, { method: "POST", body: JSON.stringify({ message, tree: tree.sha, parents: [head] }) });
+  await gemGh(token, `/repos/${repo}/git/refs/heads/${br}`, { method: "PATCH", body: JSON.stringify({ sha: cm.sha }) });
+  return cm.sha;
+}
+const gemJst = (d = new Date()) => new Date(d.getTime() + 9 * 3600000).toISOString().replace("T", " ").slice(0, 16);
+const gemYmd = (d) => new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+const gemCap = (s, n = 6_000_000) => (s.length > n ? `${s.slice(0, n)}\n…（長いので ${n} 文字で切りました）` : s);
+function gemReadme(repo, at, files) {
+  return `# kinbot のデータ（Gemini 用）
+
+このリポジトリは kinbot が自動で書き出しています（最後に書き出した時刻：${at} 日本時間・1時間ごと）。**手で直さないでください。**
+中身はチャットに付けた時点のものです。新しい数字を見たいときは、リポジトリを付け直してください。
+
+## ファイル
+${files.map((f) => `- \`${f.path}\`：${f.label}`).join("\n")}
+
+## kinbot に何かをしてもらう（Salesforce の更新など）
+このリポジトリ（${repo}）に **issue** を作ると、kinbot が1分ほどで実行し、結果を issue に書いて閉じます。
+issue の本文に、次の形の JSON を \`\`\`json と \`\`\` で囲んで入れてください（1つの issue で5つまで）。
+
+\`\`\`json
+{"requests":[{"tool":"sf_update","args":{"sobject":"Opportunity","id":"006xxxxxxxxxxxxxxx","fields":{"StageName":"06:申し込み書回収"}}}]}
+\`\`\`
+
+- 使える道具と入れる値は \`kinbot/tools.md\` にあります。
+- 調べもの（sf_query など）の結果は issue のコメントと \`answers/issue-番号.md\` に入ります。
+- 書きかえる前に、必ず内容を人に確かめてから issue を作ってください。
+- 動くのは、kinbot に登録された GitHub アカウントが作った issue だけです。
+`;
+}
+// 書き出し
+let _gemBusy = false;
+async function gemExport({ force = false } = {}) {
+  if (_gemBusy) return { ok: false, reason: "書き出し中です" }; _gemBusy = true;
+  try {
+    const { cfg, token } = await gemCfg();
+    if (!token || !cfg.repo) return { ok: false, reason: "リポジトリと GitHub の合言葉が入っていません" };
+    if (!cfg.enabled && !force) return { ok: false, reason: "止めています" };
+    const user = cfg.owner || aiOwnerEmail(); if (!user) return { ok: false, reason: "書き出す人（kinbot のアカウント）が決まっていません" };
+    const now = new Date(); const ym1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)); const m6 = new Date(now.getTime() - 183 * 86400000);
+    const tm = await gemToolMap(user);
+    const jobs = [
+      ["kinbot/deals.json", "案件（直近6か月に初回商談があったもの）", "list_deals", { from: gemYmd(m6) }],
+      ["kinbot/meetings.json", "録音した商談の一覧（要約・分析つき）", "list_meetings", {}],
+      ["salesforce/opportunities.json", "Salesforce の商談（直近90日に動いたもの）", "sf_query", { soql: "SELECT Id, Name, Account.Name, StageName, Owner.Name, CloseDate, order_date__c, Amount, RecordType.Name, LastModifiedDate FROM Opportunity WHERE LastModifiedDate = LAST_N_DAYS:90 ORDER BY LastModifiedDate DESC LIMIT 2000" }],
+      ["kincall/call_stats.json", "架電の実績（先月から今日まで・日×人×結果）", "list_call_stats", { from: gemYmd(ym1) }],
+      ["kincall/appointments.json", "アポ（先月から今日までに取ったもの）", "list_apo_appointments", { from: gemYmd(ym1) }],
+      ["kincall/lists.json", "架電リストの進み具合", "list_call_lists_overview", {}],
+      ["kinxs/users.json", "kinXs の導入企業（ユーザー）一覧", "list_users", {}],
+      ["kinxs/renewals.json", "kinXs の更新管理", "list_renewals", {}],
+      ["kinxs/tasks.json", "kinXs のやること", "list_tasks", {}],
+    ];
+    const files = []; const errs = [];
+    for (const [path, label, tool, args] of jobs) {
+      if (!tm.has(tool)) continue;
+      try { files.push({ path, label, content: gemCap(await gemCall(tool, args, user, tm)) }); } catch (e) { errs.push(`${tool}：${e.message}`); }
+    }
+    // 道具の一覧（issue で使えるもの・入れる値）
+    const tl = [...tm.values()].filter((x) => !GEM_BLOCK_TOOLS.has(x.tool.name)).map((x) => `### ${x.tool.name}（${x.server}）\n${String(x.tool.description || "").trim()}\n\n入れる値：\n\`\`\`json\n${JSON.stringify((x.tool.inputSchema || {}).properties || {}, null, 1)}\n\`\`\``).join("\n\n");
+    files.push({ path: "kinbot/tools.md", label: "issue で使える道具と入れる値", content: `# issue で使える道具\n\n${tl}\n` });
+    const at = gemJst(now);
+    files.push({ path: "README.md", label: "", content: gemReadme(cfg.repo, at, files.filter((f) => f.label)) });
+    const sha = await gemCommit(token, cfg.repo, files.map(({ path, content }) => ({ path, content })), `kinbot：データの書き出し（${at}）`);
+    await gemSaveCfg({ lastExportAt: now.toISOString(), lastExportError: errs.join(" ／ ").slice(0, 500), lastExportFiles: files.length, lastSha: sha });
+    console.log(`[gemini] GitHub に書き出しました：${cfg.repo} ${files.length}ファイル${errs.length ? `（読めなかったもの ${errs.length}）` : ""}`);
+    return { ok: true, files: files.length, errors: errs };
+  } catch (e) { await gemSaveCfg({ lastExportAt: new Date().toISOString(), lastExportError: e.message }).catch(() => {}); console.warn("[gemini] 書き出し", e.message); return { ok: false, reason: e.message }; }
+  finally { _gemBusy = false; }
+}
+// issue の依頼を実行する
+function gemParseReq(body) {
+  const s = String(body || ""); const m = s.match(/```json\s*([\s\S]*?)```/i) || s.match(/(\{[\s\S]*\})/);
+  if (!m) return null; let j; try { j = JSON.parse(m[1]); } catch { return null; }
+  const list = Array.isArray(j.requests) ? j.requests : j.tool ? [j] : Array.isArray(j) ? j : [];
+  return list.filter((x) => x && typeof x.tool === "string").slice(0, 5).map((x) => ({ tool: x.tool.trim(), args: x.args && typeof x.args === "object" ? x.args : {} }));
+}
+let _gemIssueBusy = false;
+async function gemIssues() {
+  if (_gemIssueBusy) return; _gemIssueBusy = true;
+  try {
+    const { cfg, token } = await gemCfg(); if (!cfg.enabled || !token || !cfg.repo) return;
+    const map = Object.fromEntries(Object.entries(cfg.map || {}).map(([k, v]) => [k.toLowerCase(), String(v || "").toLowerCase()]));
+    const list = (await gemGh(token, `/repos/${cfg.repo}/issues?state=open&per_page=20&sort=created&direction=asc`)).filter((i) => !i.pull_request);
+    const log = Array.isArray(cfg.issueLog) ? cfg.issueLog : [];
+    for (const is of list) {
+      const who = String((is.user && is.user.login) || "").toLowerCase(); const email = map[who];
+      const say = async (msg, close = true) => { await gemGh(token, `/repos/${cfg.repo}/issues/${is.number}/comments`, { method: "POST", body: JSON.stringify({ body: msg }) }); if (close) await gemGh(token, `/repos/${cfg.repo}/issues/${is.number}`, { method: "PATCH", body: JSON.stringify({ state: "closed" }) }); };
+      if (!email) { await say(`kinbot：この GitHub アカウント（${who}）は kinbot に登録されていないので、実行しませんでした。kinbot の設定 → 連携 → Gemini で、管理者に登録してもらってください。`); log.unshift({ n: is.number, at: new Date().toISOString(), who, ok: false, msg: "登録されていないアカウント" }); continue; }
+      const reqs = gemParseReq(is.body);
+      if (!reqs || !reqs.length) { await say("kinbot：本文に依頼（```json の中の {\"requests\":[{\"tool\":…,\"args\":{…}}]}）が見つからなかったので、何もしていません。書き方は README.md を見てください。"); log.unshift({ n: is.number, at: new Date().toISOString(), who: email, ok: false, msg: "書き方がちがう" }); continue; }
+      const tm = await gemToolMap(email); const out = []; let allOk = true; const files = [];
+      for (const r of reqs) {
+        if (GEM_BLOCK_TOOLS.has(r.tool)) { out.push(`### ${r.tool}\n使えない道具です（issue からは動かしません）`); allOk = false; continue; }
+        try { const t = await gemCall(r.tool, r.args, email, tm); out.push(`### ${r.tool} — できました\n\`\`\`\n${t.slice(0, 20000)}\n\`\`\``); files.push(`## ${r.tool}\n\n\`\`\`json\n${JSON.stringify(r.args)}\n\`\`\`\n\n${t}`); }
+        catch (e) { allOk = false; out.push(`### ${r.tool} — できませんでした\n${e.message}`); }
+      }
+      // 調べものの結果は、リポジトリにも置く（Gemini は付け直すと読める）
+      if (files.length) await gemCommit(token, cfg.repo, [{ path: `answers/issue-${is.number}.md`, content: gemCap(`# issue #${is.number}：${is.title}\n\n依頼した人：${email}（${gemJst()}）\n\n${files.join("\n\n")}`) }], `kinbot：issue #${is.number} の結果`).catch(() => {});
+      await say(`kinbot（${email} として実行・${gemJst()}）\n\n${out.join("\n\n")}`.slice(0, 60000));
+      log.unshift({ n: is.number, at: new Date().toISOString(), who: email, ok: allOk, msg: reqs.map((r) => r.tool).join("・") });
+      console.log(`[gemini] issue #${is.number} を実行しました（${email}）：${reqs.map((r) => r.tool).join("・")}`);
+    }
+    if (list.length) await gemSaveCfg({ issueLog: log.slice(0, 30), lastIssueAt: new Date().toISOString(), lastIssueError: "" });
+  } catch (e) { await gemSaveCfg({ lastIssueError: e.message }).catch(() => {}); console.warn("[gemini] issue", e.message); }
+  finally { _gemIssueBusy = false; }
+}
+setInterval(() => { gemIssues().catch(() => {}); }, 60 * 1000).unref?.();
+setInterval(() => { gemExport().catch(() => {}); }, 60 * 60 * 1000).unref?.();
+// 設定の画面から読む・直す（直すのは管理者だけ。合言葉は画面に返さない）
+app.get("/api/gemini-bridge", async (req, res) => {
+  try { const { cfg, token } = await gemCfg(); res.json({ ok: true, canEdit: !!req.isAdmin, repo: cfg.repo || "", owner: cfg.owner || aiOwnerEmail() || "", enabled: !!cfg.enabled, hasToken: !!token, map: req.isAdmin ? (cfg.map || {}) : undefined,
+    lastExportAt: cfg.lastExportAt || null, lastExportError: cfg.lastExportError || "", lastExportFiles: cfg.lastExportFiles || 0, lastIssueAt: cfg.lastIssueAt || null, lastIssueError: cfg.lastIssueError || "", issueLog: req.isAdmin ? (cfg.issueLog || []).slice(0, 10) : undefined }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.put("/api/gemini-bridge", async (req, res) => {
+  try {
+    if (!req.isAdmin || req.viaToken) return res.status(403).json({ error: "管理者だけが直せます（kinbot の画面から）" });
+    const b = req.body || {}; const patch = {};
+    if (b.repo !== undefined) { const r = String(b.repo || "").trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, ""); if (r && !/^[\w.-]+\/[\w.-]+$/.test(r)) return res.status(400).json({ error: "リポジトリは「持ち主/名前」の形で入れてください" }); patch.repo = r; }
+    if (b.owner !== undefined) patch.owner = String(b.owner || "").trim().toLowerCase();
+    if (b.enabled !== undefined) patch.enabled = !!b.enabled;
+    if (b.map !== undefined && b.map && typeof b.map === "object") { const m = {}; for (const [k, v] of Object.entries(b.map)) { const kk = String(k).trim().replace(/^@/, "").toLowerCase(); const vv = String(v || "").trim().toLowerCase(); if (kk && /@/.test(vv)) m[kk] = vv; } patch.map = m; }
+    if (Object.keys(patch).length) await gemSaveCfg(patch);
+    if (typeof b.token === "string" && b.token.trim()) await saveSettings({ gemBridgeToken: b.token.trim() });
+    if (b.token === "") await saveSettings({ gemBridgeToken: "" });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// つながるか確かめる・今すぐ書き出す
+app.post("/api/gemini-bridge/test", async (req, res) => {
+  try { if (!req.isAdmin) return res.status(403).json({ error: "管理者だけ" }); const { cfg, token } = await gemCfg(); if (!token || !cfg.repo) return res.status(400).json({ error: "リポジトリと合言葉を入れてください" });
+    const info = await gemGh(token, `/repos/${cfg.repo}`); res.json({ ok: true, private: !!info.private, perms: info.permissions || {} }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post("/api/gemini-bridge/export", async (req, res) => {
+  try { if (!req.isAdmin) return res.status(403).json({ error: "管理者だけ" }); res.json(await gemExport({ force: true })); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// Gemini のスキル（SKILL.md）。リポジトリの名前と使い方を書いたもの。合言葉は入っていない
+app.get("/api/gemini-bridge/skill", async (req, res) => {
+  try {
+    const { cfg } = await gemCfg(); const repo = cfg.repo || "（管理者が設定したリポジトリ）";
+    const md = `---
+name: kinbot-gemini
+description: ネオキャリアの営業支援 kinbot・kincall・kinXs と Salesforce のデータを、GitHub のリポジトリ ${repo} から読み、issue で kinbot に更新を頼む。商談・アポ・架電・受注・導入企業・Salesforce の確認や更新を頼まれたら使う。
+---
+
+# kinbot（Gemini 用）
+
+kinbot のデータは、GitHub の非公開リポジトリ **${repo}** に1時間ごとに書き出されています。
+
+## 読むとき
+1. このチャットに ${repo} のリポジトリが付いていなければ、ユーザーに「GitHub から ${repo} をチャットに付けてください」と頼む。
+2. まず README.md を読み、どのファイルに何があるかを見る（最後に書き出した時刻も書いてある）。
+3. 数字や名前は、ファイルにあるとおり正確に答える。無いものは推測しない。書き出した時刻より新しいことは分からない、と伝える。
+
+## kinbot に更新を頼むとき（Salesforce の更新など）
+1. 何をどう変えるかを、ユーザーにはっきり見せて「この内容で依頼してよいか」を聞く。「はい」と言われるまで issue は作らない。
+2. ${repo} に issue を作る。題は「kinbot依頼：〇〇」。本文に次の形の JSON を \`\`\`json と \`\`\` で囲んで入れる（1つの issue で5つまで）：
+   \`\`\`json
+   {"requests":[{"tool":"sf_update","args":{"sobject":"Opportunity","id":"006…","fields":{"StageName":"06:申し込み書回収"}}}]}
+   \`\`\`
+3. 使える道具と入れる値は、リポジトリの kinbot/tools.md に書いてある。ID などはリポジトリのデータから正確に取る。
+4. kinbot が1分ほどで実行し、結果を issue のコメントに書いて閉じる。調べもの（sf_query など）の結果は answers/issue-番号.md にも入る（リポジトリを付け直すと読める）。
+5. 消す・一度にたくさん変える依頼はしない。
+
+## 守ること
+- 依頼は、kinbot に登録された GitHub アカウントでしか動かない。「登録されていない」と返ってきたら、kinbot の管理者に登録を頼むよう伝える。
+`;
+    res.setHeader("content-type", "text/markdown; charset=utf-8");
+    res.setHeader("content-disposition", 'attachment; filename="SKILL.md"');
+    res.end(md);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // ===== Claude のスキルで kinbot につなぐ（2026-11-18 田中さん「コネクタしないで kinbot と接続できるようにしたい。マネージャーの Claude はカスタムコネクタが制限されている」）=====
 //   その人専用の合言葉（180日）を入れたスキルの zip を渡す。Claude のコード実行から、コネクタと同じ道具（/mcp・/kincall/mcp・/kinxs/mcp）を呼ぶ。
 //   つないだ人の権限で動く。ダウンロードし直すと前の合言葉は使えなくなる。無効にもできる
@@ -32931,8 +33149,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18B Gemini でつなぐ（設定 → 連携 → Claude から、その人専用の合言葉付き URL を作って Gemini のカスタムアプリに貼る）。／2026-11-18A Claude のスキルで kinbot につなぐ（カスタムコネクタが使えない人向け。設定 → 連携 → Claude からその人専用の合言葉入り zip をダウンロード）。／2026-11-17AJ kinXs 要望・問い合わせを中身の似たもの同士でまとめる（AI が分類：AI面接官・管理画面・通知 など）。／2026-11-17AI kinXs 要望・問い合わせ：優先度を出さない（並びは新しい順）。／2026-11-17AH kinXs 要望・問い合わせは会社ごとにまとめず1件1枚で並べる（会社名は各カードの上）。／2026-11-17AG kinXs 要望・問い合わせを見やすく（会社ごとのカード・種類の印・右に優先度と解決・根拠は開いたときだけ・画面固定）。／2026-11-17AF kinXs 左のメニュー：親にカーソルを合わせると子が開く（閉じるのは矢印のクリック）。／2026-11-17AE kinXs 自動タスク：インターンの名簿に入っている田中さん・CSメンバーも外さない。／2026-11-17AD kinXs 自動タスク：メンバー表に無い田中さん・CS連携のメンバーも対象に（田中さんの分が動いていなかった）。／2026-11-17AC kinXs 自動タスク：自分が送ったメール（宛先で会社を当てる）も読む／ホームの返信待ちメールは担当の会社を全部探す（前は先頭25ドメインだけ）。／2026-11-17AB kinXs ユーザー一覧：納品前の会社に「納品前」のタグ。／2026-11-17AA プロンプト設定を DOC と MOCHICA で分けた（チェック項目・要約の指示・御礼メールの指示と例文）。MOCHICA の要約・御礼メールは MOCHICA 用を使う。／2026-11-17Z 自動更新の空間URLは、手で入れていなければ会社の DOC の VR（aticoti）を使う（解約フォームの照合にも）。／2026-11-17Y kinXs 掲載先一覧：上のヘッダーとの間をつめた・検索は販売区分のとなりに虫眼鏡つきで小さく。／2026-11-17X kinXs 掲載先一覧：画面は固定でカードの所だけスクロール。／2026-11-17W kinXs 掲載先一覧：カードの中でそのまま掲載先を直す・足す／掲載先ごとの社数（押すとしぼる）。／2026-11-17V kinXs 掲載先一覧をカード型に（会社ごとに掲載先・ドメイン・メモ、未記入は押して入れる）。／2026-11-17U kinXs 更新管理の中は「自動更新」を上に（親を押すと自動更新）。／2026-11-17T kinXs 左のメニューを親子にまとめた（ユーザー一覧＞掲載先一覧・フェーズ別・傾向分析／更新管理＞年間更新・自動更新／年間施策＞電話フォロー）。／2026-11-17S kinXs 電話フォロー：kinXs で入れた担当者名が、SF のキャッシュがあるあいだも出るように（前は30分出なかった）。／2026-11-17R 録画の「共有リンク」はドライブに入っていればそのドライブのリンクをコピーする。／2026-11-17Q アワードの受注数は SF の受注日（order_date__c）で数える（前は完了予定日＝月末で数えて今月が0件だった）。アポ一覧の SF 状態は100件ずつ聞く（201件目からが未接続になっていた）。／2026-11-17P kinXs 電話フォロー：ボタンを押しても一覧が一番上に戻らない（スクロールの位置を戻す順を直した）。／2026-11-17O kinXs 先方の担当者を直すと、SF の同じ取引先責任者も直る（sf_id で覚える。名前・役職・電話・メール）。／2026-11-17N kinXs 先方の担当者を保存すると、SF の取引先責任者にも入る（メール→名前で探して直す／いなければ作る／消さない）。／kinXs 電話フォロー：採用担当者の名前は、会社の詳しい画面の「先方の担当者」（kinXs で入れた人）を先に使う。／2026-11-17L kinXs 電話フォロー：行の電話番号の上に採用担当者の名前（SF の取引先責任者・役職）を出し、検索でも探せるように。／2026-11-17K kinXs のコネクタ：会社の詳細などで「ログインが必要です」になるのを直した（中の呼び出しをトークンではなくサーバー内の合言葉で）。／2026-11-17J kinXs 要望・問い合わせ：保存のときの既定の優先度「中」をやめ、未設定に（AI が拾った分は1回だけ未設定に戻す）。／2026-11-17I kinXs 要望・問い合わせ：拾うのはサービスへの要望と「これってできるの？」だけに。優先度は AI がつけず CS がつける（未設定→高→中→低）。今日拾った分は新しいルールで拾い直す（久野さん）。／2026-11-17J for MOCHICA の架電：キー操作（1〜9・Enter・Backspace・C・S・Z・?）を戻した（クリックでもすべて操作できる）。SF の書き直し・準備中を外したのはそのまま。／2026-11-17I 福井：MOCHICA の架電を実用に。操作はクリックだけ（キー割り当てを外した）。SF の活動に書けなかった記録を今日の分だけ数えて画面の一番上に赤で出し「SF に書き直す」で書き直せる。SF のリードと結びついていない会社は「kinbot にだけ残る」と知らせる。架電の「準備中」を外した。／2026-11-17H kinXs 電話フォロー：検索は描き直さず行を隠すだけに（日本語の変換が切れない）。完了などを押しても行はその場に残し、いまの札から外れた行は薄くする（押し間違いを防ぐ）。／2026-11-17G kinXs 電話フォロー：上の全体検索とは別に、この画面だけの会社の検索（会社名・電話・担当）を札の並びに足した。／2026-11-17F kinXs 要望・問い合わせ：受注より前の商談の議事録は読まない（受注してからの議事録だけ）。／2026-11-17E kinXs：会社からの要望・問い合わせ。議事録（文字起こし）から AI が拾い、会社の議事録タブに「要望・問い合わせ」の欄（解決のチェック・手で足す・今すぐ読む）、サイドメニューに会社をまたいだ一覧の表（未解決・優先度・種類で絞る）。DOC起票への連携はまだ（久野さんの要望）。／2026-11-17D kinXs：会社の詳しい画面に「掲載先」（どこ・URL・メモを何件でも）を足し、サイドメニューに「掲載先一覧」（掲載先あり／掲載済みで未記入／すべて・販売区分で絞る）を新設（久野さんの要望）。／2026-11-17C ロボの要望：同じ人が10分以内に続けて送った要望は1件のメモにまとめ、通知は最後から3分待って1回だけ。「開発要望」だけのような中身の無いものは残さず聞き返す。／2026-11-17B 架電のファネル：「05 決裁者合意」を MID に入れるのをやめた（前のとおり 04 だけ）。受注は 06・08 のまま。／2026-11-17A 架電のファネル（リスト別・グループ別・作り手別）の受注を「06 申込書回収完了」か「08 受注処理完了」に（前は 08 だけ）。MID に「05 決裁者合意」も入れる。／2026-11-17A 福井：kinbot for MOCHICA にダッシュボード（サイドバー）。開くたびに SF の新規商談・ステージ履歴、Zoom Phone の発信、インターンのシフト表を読み、事業（サマリー・全体の数字・個人の貢献・データの抜け）／セールス（サマリー・全体の数字・個人の貢献・商談分析）／インサイド（テレアポ科学モデル v1 の構造方程式）を出す。データ源ごとの成否・0件は赤で出す。MOCHICA のメンバーだけ見られる。／2026-11-16AR NeoSTAGE（取引申請）の自動入力：拡張機能が企業検索・事業所新規・部署新規の画面に「kinbot から入れる」を出し、SF の取引先を選ぶと、SF・gBizINFO から社名・法人格・半角カナ・郵便番号・住所・電話・URL・代表者・設立・資本金・従業員数・部署・担当者（3人まで）を見出しで探して入れる。申請は押さない（kinbot-ext 2.2.6）。／2026-11-16AQ 福井：テレアポ科学モデル v1 の API（/api/teleapo/model・diagnose・aggregate）。文字起こしから打診の有無・打診前の相手の発言・最初の返事・返し方・終わり方を AI が引用つきで読み取り、判定はコードで行う。分かれ道ごとに実測のアポ率と比べた「失ったアポの見込み」を出し、いちばん大きい所を問題の場所にする。時間許諾・最初の打診の形・「覚えてますか」など差が出なかった項目は減点しない。画面への組み込みはまだ。／2026-11-16AP 福井：MOCHICA の架電（テレアポ）を新設（mc_call_* の表・キーボード記録・同日自動掛け直し・部署をまたいだ記録・リード画面の「これまで」に SF の活動も1本の時系列で）。アプローチ禁止企業を取り込み・一覧・記録・資料送付のすべてでサーバー側ではじく（SF の Ban_Type__c を1時間ごとに同期＋設定で手動登録）。MOCHICA の商談と SF の照合を強化（版8：MiiTel 参加者の [object Object] を修正、題名・メールのドメイン・参加者名・文字起こしから会社名を探す）。／2026-11-16AO MOCHICA にも kinbot のロボ（左上の顔を押すと相談できる窓）。MOCHICA の顔・題名で開き、MOCHICA の画面から聞いたことをサーバーに伝える。／2026-11-16AH2 ログインとパスワードの再発行の画面に「パスワードを表示」ボタン。／2026-11-16AN kinXs 電話フォロー：行の「対応中」ボタンをなくし（上の札は対応中の会社があるときだけ）、結果の色の点に「結果　良好・普通・懸念」と文字を付けた。／2026-11-16AM kinXs 電話フォロー（企業ごとの進捗）：上の帯と札は固定し、企業の一覧だけをスクロール（押してもスクロールの位置は戻らない）。／2026-11-16AL 更新の通知に「だれの開発か（👤）」を出す（コミットの「開発: 名前」、無ければ GitHub の作者から）。／2026-11-16AK 福井聖さんも「他メンバーとして操作」できるように。MOCHICA のサイドメニューにも切り替えボタンと、切り替え中の帯（元のアカウントに戻る）を付けた。／2026-11-16AJ kinXs DOC自動更新：前からある申請の紐付け状態は「紐付け済」と出す・表の札を折り返さない。／2026-11-16AI kinXs DOC自動更新：解約フォーム連携の改修（改修指示書）。停止月を「1〜15日の申請は翌月・16日以降は翌々月」に（今ある解約予定も1回計算し直す）。空間URLを契約に持たせ、申請はURL→企業名の順で紐付け（候補を最大5件）。解約フォームのタブを申請一覧（未確認／確認済・紐付け状態・期限超過）と申請詳細（判定結果・紐付けの変更・メモ・自動返信の結果）に。自動返信は新しい文面。画面の一番上に濃い赤の「新しい解約申請」アラート、タブとサイドメニューに未確認の数。／2026-11-16AH ログイン画面に「パスワードの再発行」：メールを入れて同じアドレスの Google アカウントで本人確認すると、新しいパスワードを決められる（15分・1回限り）。メールだけ登録されていて新規登録できない人のため。／2026-11-16AG kinXs 電話フォローの企業ごとの進捗を案A に：上に進み具合の帯と札（状態・担当で絞る）、1社1行で状態はボタン、結果は色の点、メモ・NA日は行を押すと開く。／2026-11-16AF kinXs お手紙・電話フォロー：納品前の会社でも、その月にお手紙を送った会社は対象に入れる。／2026-11-16AF kinbot for MOCHICA の Bales のリスト：架電のホットリスト化（担当者名・ニーズ・検討時期の3つがそろえばホット、2つでウォーム）。表にホット度の列と絞り込み・並べ替え、CSV にも。／2026-11-16AE kinXs 電話フォロー：確かめ用に、試しに読んだとき送付済みで当たった会社の一覧も返す。／2026-11-16AD kinXs 電話フォロー：シートの見出しの行の見つけ方を直した（中身の行を見出しにしていた）。／2026-11-16AC kinXs 電話フォロー：手紙を送ったかを「送付済み」の列（H列）で見る（前は B 列の送付記載完了で、128社のうち106社しか入らなかった）。／2026-11-16AB kinXs 電話フォロー：「手紙送付リスト」の電話の結果の列（ステータス・結果・メモ・NA日・架電日）も見出しから探して読み、架電済み・対応中・完了・良好などに入れる。／2026-11-16AA 商談一覧：選んでまとめて消せるように（田中さんだけ）。／2026-11-16Z kinXs ホーム：検収書は「今月が回収月の会社」を出す（未回収に加えて、今月回収した会社も済みとして並べる）。／2026-11-16Y 更新の通知をコンパクトに（今回の直しの1行・コミット・時刻だけ）。／2026-11-16X kinXs：10月より前に受注した（納品後とみなす）会社に「検収書が未回収のまま接触途絶」を出さない。回収済み（自動）・対象外は回収済みとして扱う。／2026-11-16W kinXs：検収書 未回収を、回収予定月が空の会社も（受注の翌月とみなして）数える。アラートは予定月の2週間前から。／2026-11-16V 商談予定（カレンダー）の説明に「アポ獲得日」を入れる。／2026-11-16U MOCHICA：商談の「準備中」を外し、リスト・架電・アポイントに「準備中」を付けた。／2026-11-16T ふたりで直すための決まり（CLAUDE.md）と安全に上げる dev/safe-push.sh。zip のフォルダからは上げない。／2026-11-16S Bales への書き込み・リードの SF 欄：失注商談の商談ID も商談名にする。／2026-11-16R Bales への書き込み・リードの SF 欄：失注商談所有者などの SF ユーザーID を名前にする。／2026-11-16Q Bales の見張り：リードの一覧を最終架電日時の新しい順で読み（並べ方を自動で探す）、昨日より前まで来たら止める。1回の架電を「リード番号＠最終架電日時」で1行に（kinbot-ext 2.2.5）。／2026-11-16P Bales への書き込み：拡張機能に渡すリードの印を Bales のリード番号（callTargetId）にした（中身のハッシュで書こうとして失敗していた）。／2026-11-16O Claude の Bales の道具で、書き込み方の覚え・取り込みの様子も見られるように。／2026-11-16N アポ通知・週ラップ：月の手補正（記録に出ないアポを足す分）を毎週「今週」に足していたのを、その分の日付の週にだけ足すように（11/16 今週が1件多かった）。／2026-11-16M kincall のリスト編集：移す先のリスト・抜き出し先を打って探せるように。／2026-11-16L kincall：取り込みで担当者（相手の人）にリード所有者が入っていた行を直し、CSV の列の見つけ方を「担当者名」優先・所有者の列は使わないように。／2026-11-16K kincall のリスト編集：道具を「一覧を整える」「絞り込んだ ○ 件を」の2段にまとめ、選ぶ欄とボタンをくっつけた。失注回数・従業員数の下限〜上限を1行に。／2026-11-16J Bales のリスト：どの取り込みでも列を「会社名・電話番号・担当者名（名前）・最終活動…・所有者」に（前に選んだ表示項目はいったん忘れる）。／2026-11-16I Bales の書き込み方を覚えるとき、Firebase（googleapis）への送信も「kinbot」入りなら見る（kinbot-ext 2.2.4）。／2026-11-16H Bales のリスト：列に最終活動日・最終活動タイプ・最終活動コメント・所有者も。／2026-11-16G Bales のリスト：列を「会社名・電話番号・担当者名」から。行の印を callTargetId にして、取り込み直しても SF との結びつき・詳しい中身が消えないように（消えていた分は前の行から写し戻す）。／2026-11-16F kincall のデイリー目標から田中欽也を外した。／2026-11-16E MOCHICA の商談：一緒に参加した MOCHICA 以外の人（植野さんなど）のカードにも同じ商談を出していたのをやめた。／2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
+const BUILD_TAG = "2026-11-18C Gemini と GitHub でつなぐ（1時間ごとに非公開リポジトリへ書き出し・issue の依頼を1分ごとに実行・設定 → 連携 → Gemini）。／2026-11-18B Gemini でつなぐ（設定 → 連携 → Claude から、その人専用の合言葉付き URL を作って Gemini のカスタムアプリに貼る）。／2026-11-18A Claude のスキルで kinbot につなぐ（カスタムコネクタが使えない人向け。設定 → 連携 → Claude からその人専用の合言葉入り zip をダウンロード）。／2026-11-17AJ kinXs 要望・問い合わせを中身の似たもの同士でまとめる（AI が分類：AI面接官・管理画面・通知 など）。／2026-11-17AI kinXs 要望・問い合わせ：優先度を出さない（並びは新しい順）。／2026-11-17AH kinXs 要望・問い合わせは会社ごとにまとめず1件1枚で並べる（会社名は各カードの上）。／2026-11-17AG kinXs 要望・問い合わせを見やすく（会社ごとのカード・種類の印・右に優先度と解決・根拠は開いたときだけ・画面固定）。／2026-11-17AF kinXs 左のメニュー：親にカーソルを合わせると子が開く（閉じるのは矢印のクリック）。／2026-11-17AE kinXs 自動タスク：インターンの名簿に入っている田中さん・CSメンバーも外さない。／2026-11-17AD kinXs 自動タスク：メンバー表に無い田中さん・CS連携のメンバーも対象に（田中さんの分が動いていなかった）。／2026-11-17AC kinXs 自動タスク：自分が送ったメール（宛先で会社を当てる）も読む／ホームの返信待ちメールは担当の会社を全部探す（前は先頭25ドメインだけ）。／2026-11-17AB kinXs ユーザー一覧：納品前の会社に「納品前」のタグ。／2026-11-17AA プロンプト設定を DOC と MOCHICA で分けた（チェック項目・要約の指示・御礼メールの指示と例文）。MOCHICA の要約・御礼メールは MOCHICA 用を使う。／2026-11-17Z 自動更新の空間URLは、手で入れていなければ会社の DOC の VR（aticoti）を使う（解約フォームの照合にも）。／2026-11-17Y kinXs 掲載先一覧：上のヘッダーとの間をつめた・検索は販売区分のとなりに虫眼鏡つきで小さく。／2026-11-17X kinXs 掲載先一覧：画面は固定でカードの所だけスクロール。／2026-11-17W kinXs 掲載先一覧：カードの中でそのまま掲載先を直す・足す／掲載先ごとの社数（押すとしぼる）。／2026-11-17V kinXs 掲載先一覧をカード型に（会社ごとに掲載先・ドメイン・メモ、未記入は押して入れる）。／2026-11-17U kinXs 更新管理の中は「自動更新」を上に（親を押すと自動更新）。／2026-11-17T kinXs 左のメニューを親子にまとめた（ユーザー一覧＞掲載先一覧・フェーズ別・傾向分析／更新管理＞年間更新・自動更新／年間施策＞電話フォロー）。／2026-11-17S kinXs 電話フォロー：kinXs で入れた担当者名が、SF のキャッシュがあるあいだも出るように（前は30分出なかった）。／2026-11-17R 録画の「共有リンク」はドライブに入っていればそのドライブのリンクをコピーする。／2026-11-17Q アワードの受注数は SF の受注日（order_date__c）で数える（前は完了予定日＝月末で数えて今月が0件だった）。アポ一覧の SF 状態は100件ずつ聞く（201件目からが未接続になっていた）。／2026-11-17P kinXs 電話フォロー：ボタンを押しても一覧が一番上に戻らない（スクロールの位置を戻す順を直した）。／2026-11-17O kinXs 先方の担当者を直すと、SF の同じ取引先責任者も直る（sf_id で覚える。名前・役職・電話・メール）。／2026-11-17N kinXs 先方の担当者を保存すると、SF の取引先責任者にも入る（メール→名前で探して直す／いなければ作る／消さない）。／kinXs 電話フォロー：採用担当者の名前は、会社の詳しい画面の「先方の担当者」（kinXs で入れた人）を先に使う。／2026-11-17L kinXs 電話フォロー：行の電話番号の上に採用担当者の名前（SF の取引先責任者・役職）を出し、検索でも探せるように。／2026-11-17K kinXs のコネクタ：会社の詳細などで「ログインが必要です」になるのを直した（中の呼び出しをトークンではなくサーバー内の合言葉で）。／2026-11-17J kinXs 要望・問い合わせ：保存のときの既定の優先度「中」をやめ、未設定に（AI が拾った分は1回だけ未設定に戻す）。／2026-11-17I kinXs 要望・問い合わせ：拾うのはサービスへの要望と「これってできるの？」だけに。優先度は AI がつけず CS がつける（未設定→高→中→低）。今日拾った分は新しいルールで拾い直す（久野さん）。／2026-11-17J for MOCHICA の架電：キー操作（1〜9・Enter・Backspace・C・S・Z・?）を戻した（クリックでもすべて操作できる）。SF の書き直し・準備中を外したのはそのまま。／2026-11-17I 福井：MOCHICA の架電を実用に。操作はクリックだけ（キー割り当てを外した）。SF の活動に書けなかった記録を今日の分だけ数えて画面の一番上に赤で出し「SF に書き直す」で書き直せる。SF のリードと結びついていない会社は「kinbot にだけ残る」と知らせる。架電の「準備中」を外した。／2026-11-17H kinXs 電話フォロー：検索は描き直さず行を隠すだけに（日本語の変換が切れない）。完了などを押しても行はその場に残し、いまの札から外れた行は薄くする（押し間違いを防ぐ）。／2026-11-17G kinXs 電話フォロー：上の全体検索とは別に、この画面だけの会社の検索（会社名・電話・担当）を札の並びに足した。／2026-11-17F kinXs 要望・問い合わせ：受注より前の商談の議事録は読まない（受注してからの議事録だけ）。／2026-11-17E kinXs：会社からの要望・問い合わせ。議事録（文字起こし）から AI が拾い、会社の議事録タブに「要望・問い合わせ」の欄（解決のチェック・手で足す・今すぐ読む）、サイドメニューに会社をまたいだ一覧の表（未解決・優先度・種類で絞る）。DOC起票への連携はまだ（久野さんの要望）。／2026-11-17D kinXs：会社の詳しい画面に「掲載先」（どこ・URL・メモを何件でも）を足し、サイドメニューに「掲載先一覧」（掲載先あり／掲載済みで未記入／すべて・販売区分で絞る）を新設（久野さんの要望）。／2026-11-17C ロボの要望：同じ人が10分以内に続けて送った要望は1件のメモにまとめ、通知は最後から3分待って1回だけ。「開発要望」だけのような中身の無いものは残さず聞き返す。／2026-11-17B 架電のファネル：「05 決裁者合意」を MID に入れるのをやめた（前のとおり 04 だけ）。受注は 06・08 のまま。／2026-11-17A 架電のファネル（リスト別・グループ別・作り手別）の受注を「06 申込書回収完了」か「08 受注処理完了」に（前は 08 だけ）。MID に「05 決裁者合意」も入れる。／2026-11-17A 福井：kinbot for MOCHICA にダッシュボード（サイドバー）。開くたびに SF の新規商談・ステージ履歴、Zoom Phone の発信、インターンのシフト表を読み、事業（サマリー・全体の数字・個人の貢献・データの抜け）／セールス（サマリー・全体の数字・個人の貢献・商談分析）／インサイド（テレアポ科学モデル v1 の構造方程式）を出す。データ源ごとの成否・0件は赤で出す。MOCHICA のメンバーだけ見られる。／2026-11-16AR NeoSTAGE（取引申請）の自動入力：拡張機能が企業検索・事業所新規・部署新規の画面に「kinbot から入れる」を出し、SF の取引先を選ぶと、SF・gBizINFO から社名・法人格・半角カナ・郵便番号・住所・電話・URL・代表者・設立・資本金・従業員数・部署・担当者（3人まで）を見出しで探して入れる。申請は押さない（kinbot-ext 2.2.6）。／2026-11-16AQ 福井：テレアポ科学モデル v1 の API（/api/teleapo/model・diagnose・aggregate）。文字起こしから打診の有無・打診前の相手の発言・最初の返事・返し方・終わり方を AI が引用つきで読み取り、判定はコードで行う。分かれ道ごとに実測のアポ率と比べた「失ったアポの見込み」を出し、いちばん大きい所を問題の場所にする。時間許諾・最初の打診の形・「覚えてますか」など差が出なかった項目は減点しない。画面への組み込みはまだ。／2026-11-16AP 福井：MOCHICA の架電（テレアポ）を新設（mc_call_* の表・キーボード記録・同日自動掛け直し・部署をまたいだ記録・リード画面の「これまで」に SF の活動も1本の時系列で）。アプローチ禁止企業を取り込み・一覧・記録・資料送付のすべてでサーバー側ではじく（SF の Ban_Type__c を1時間ごとに同期＋設定で手動登録）。MOCHICA の商談と SF の照合を強化（版8：MiiTel 参加者の [object Object] を修正、題名・メールのドメイン・参加者名・文字起こしから会社名を探す）。／2026-11-16AO MOCHICA にも kinbot のロボ（左上の顔を押すと相談できる窓）。MOCHICA の顔・題名で開き、MOCHICA の画面から聞いたことをサーバーに伝える。／2026-11-16AH2 ログインとパスワードの再発行の画面に「パスワードを表示」ボタン。／2026-11-16AN kinXs 電話フォロー：行の「対応中」ボタンをなくし（上の札は対応中の会社があるときだけ）、結果の色の点に「結果　良好・普通・懸念」と文字を付けた。／2026-11-16AM kinXs 電話フォロー（企業ごとの進捗）：上の帯と札は固定し、企業の一覧だけをスクロール（押してもスクロールの位置は戻らない）。／2026-11-16AL 更新の通知に「だれの開発か（👤）」を出す（コミットの「開発: 名前」、無ければ GitHub の作者から）。／2026-11-16AK 福井聖さんも「他メンバーとして操作」できるように。MOCHICA のサイドメニューにも切り替えボタンと、切り替え中の帯（元のアカウントに戻る）を付けた。／2026-11-16AJ kinXs DOC自動更新：前からある申請の紐付け状態は「紐付け済」と出す・表の札を折り返さない。／2026-11-16AI kinXs DOC自動更新：解約フォーム連携の改修（改修指示書）。停止月を「1〜15日の申請は翌月・16日以降は翌々月」に（今ある解約予定も1回計算し直す）。空間URLを契約に持たせ、申請はURL→企業名の順で紐付け（候補を最大5件）。解約フォームのタブを申請一覧（未確認／確認済・紐付け状態・期限超過）と申請詳細（判定結果・紐付けの変更・メモ・自動返信の結果）に。自動返信は新しい文面。画面の一番上に濃い赤の「新しい解約申請」アラート、タブとサイドメニューに未確認の数。／2026-11-16AH ログイン画面に「パスワードの再発行」：メールを入れて同じアドレスの Google アカウントで本人確認すると、新しいパスワードを決められる（15分・1回限り）。メールだけ登録されていて新規登録できない人のため。／2026-11-16AG kinXs 電話フォローの企業ごとの進捗を案A に：上に進み具合の帯と札（状態・担当で絞る）、1社1行で状態はボタン、結果は色の点、メモ・NA日は行を押すと開く。／2026-11-16AF kinXs お手紙・電話フォロー：納品前の会社でも、その月にお手紙を送った会社は対象に入れる。／2026-11-16AF kinbot for MOCHICA の Bales のリスト：架電のホットリスト化（担当者名・ニーズ・検討時期の3つがそろえばホット、2つでウォーム）。表にホット度の列と絞り込み・並べ替え、CSV にも。／2026-11-16AE kinXs 電話フォロー：確かめ用に、試しに読んだとき送付済みで当たった会社の一覧も返す。／2026-11-16AD kinXs 電話フォロー：シートの見出しの行の見つけ方を直した（中身の行を見出しにしていた）。／2026-11-16AC kinXs 電話フォロー：手紙を送ったかを「送付済み」の列（H列）で見る（前は B 列の送付記載完了で、128社のうち106社しか入らなかった）。／2026-11-16AB kinXs 電話フォロー：「手紙送付リスト」の電話の結果の列（ステータス・結果・メモ・NA日・架電日）も見出しから探して読み、架電済み・対応中・完了・良好などに入れる。／2026-11-16AA 商談一覧：選んでまとめて消せるように（田中さんだけ）。／2026-11-16Z kinXs ホーム：検収書は「今月が回収月の会社」を出す（未回収に加えて、今月回収した会社も済みとして並べる）。／2026-11-16Y 更新の通知をコンパクトに（今回の直しの1行・コミット・時刻だけ）。／2026-11-16X kinXs：10月より前に受注した（納品後とみなす）会社に「検収書が未回収のまま接触途絶」を出さない。回収済み（自動）・対象外は回収済みとして扱う。／2026-11-16W kinXs：検収書 未回収を、回収予定月が空の会社も（受注の翌月とみなして）数える。アラートは予定月の2週間前から。／2026-11-16V 商談予定（カレンダー）の説明に「アポ獲得日」を入れる。／2026-11-16U MOCHICA：商談の「準備中」を外し、リスト・架電・アポイントに「準備中」を付けた。／2026-11-16T ふたりで直すための決まり（CLAUDE.md）と安全に上げる dev/safe-push.sh。zip のフォルダからは上げない。／2026-11-16S Bales への書き込み・リードの SF 欄：失注商談の商談ID も商談名にする。／2026-11-16R Bales への書き込み・リードの SF 欄：失注商談所有者などの SF ユーザーID を名前にする。／2026-11-16Q Bales の見張り：リードの一覧を最終架電日時の新しい順で読み（並べ方を自動で探す）、昨日より前まで来たら止める。1回の架電を「リード番号＠最終架電日時」で1行に（kinbot-ext 2.2.5）。／2026-11-16P Bales への書き込み：拡張機能に渡すリードの印を Bales のリード番号（callTargetId）にした（中身のハッシュで書こうとして失敗していた）。／2026-11-16O Claude の Bales の道具で、書き込み方の覚え・取り込みの様子も見られるように。／2026-11-16N アポ通知・週ラップ：月の手補正（記録に出ないアポを足す分）を毎週「今週」に足していたのを、その分の日付の週にだけ足すように（11/16 今週が1件多かった）。／2026-11-16M kincall のリスト編集：移す先のリスト・抜き出し先を打って探せるように。／2026-11-16L kincall：取り込みで担当者（相手の人）にリード所有者が入っていた行を直し、CSV の列の見つけ方を「担当者名」優先・所有者の列は使わないように。／2026-11-16K kincall のリスト編集：道具を「一覧を整える」「絞り込んだ ○ 件を」の2段にまとめ、選ぶ欄とボタンをくっつけた。失注回数・従業員数の下限〜上限を1行に。／2026-11-16J Bales のリスト：どの取り込みでも列を「会社名・電話番号・担当者名（名前）・最終活動…・所有者」に（前に選んだ表示項目はいったん忘れる）。／2026-11-16I Bales の書き込み方を覚えるとき、Firebase（googleapis）への送信も「kinbot」入りなら見る（kinbot-ext 2.2.4）。／2026-11-16H Bales のリスト：列に最終活動日・最終活動タイプ・最終活動コメント・所有者も。／2026-11-16G Bales のリスト：列を「会社名・電話番号・担当者名」から。行の印を callTargetId にして、取り込み直しても SF との結びつき・詳しい中身が消えないように（消えていた分は前の行から写し戻す）。／2026-11-16F kincall のデイリー目標から田中欽也を外した。／2026-11-16E MOCHICA の商談：一緒に参加した MOCHICA 以外の人（植野さんなど）のカードにも同じ商談を出していたのをやめた。／2026-11-16D MOCHICA のメンバーの決め方を厳しく：担当→チームの対応の事業が MOCHICA の人、無ければメンバー管理の事業が MOCHICA だけの人（DOC と両方の人は入れない）。画面で決めた担当でも MOCHICA 以外は出さない。／2026-11-16C MOCHICA の商談：参加者に MOCHICA 以外（DOC など）がいても MOCHICA のメンバーを担当に。MOCHICA のメンバーが参加していない会議は出さない。／2026-11-16B MOCHICA の商談：新しい200件しか出していなかったのを全部（MiiTel の過去の会議 3/1〜）出す。カレンダーとの突き合わせも300日前までに広げた。／2026-11-16A 業種と従業員数を商談をつくるときの必須に：SF立ち上げ画面とサーバーで従業員数も必須、Claude（コネクタ）で商談を作る・直すときも取引先の従業員数を調べて入れる（分からなければ止める）。SF で直接つくった商談も、平日9〜20時に30分ごと直近14日の取引先の空欄を調べて入れる見張りを足した。／2026-11-15H MOCHICA：ホームをしまって商談から開く。会社カードの SF の欄は会議の中身を待たずに読み始め、SF の項目の形は先に読んでおく。／2026-11-15G MiiTel の文字起こしをまとめて読むとき、1件ずつの進み具合・残りの件数と時間を出す（kinbot-ext 2.2.3）。／2026-11-15F MiiTel の過去の会議：めくり方を page・offset・次のページの印（cursor）・日付の範囲の順に試し、新しい会議が出たやり方で続ける。見つからなければ手がかりを出す（kinbot-ext 2.2.2）。／2026-11-15E MiiTel：新しい会議履歴一覧（/app/video-list）でも「過去の会議を読む」を出し、一覧は中身（会議の id・題名・日時）で見つける（kinbot-ext 2.2.1）。／2026-11-15D MiiTel：会議履歴一覧をページをめくって過去の会議（既定 3/1 まで）を読み、続けて文字起こし・議事録も裏で順に読む（kinbot-ext 2.2.0）。／2026-11-15C Bales のリストの表：見出しの結びつきが無いときの推測で、色やコードの項目（uranus など）より「…name」を選ぶ。／2026-11-15B Bales：失敗した保存・Bales のエラーも見えるように、div の表の見出しも読む、見張りは登録したらすぐ読む、時刻の項目を中身から探す（kinbot-ext 2.1.1）。／2026-11-15A 拡張機能の自動更新：パソコンの更新係（15分ごと）が新しい zip をフォルダに入れ、拡張機能は版が変わったら自分で読み込み直す（kinbot-ext 2.1.0）。／2026-11-15z Bales で覚えたもの（読み方・見張り・書き込み方）を拡張機能の保存場所にも残す（Bales に再ログインで消えないように）（kinbot-ext 2.0.3）。／2026-11-15y Bales のパネルを画面の高さに収め、欄ごとに開閉（kinbot-ext 2.0.2）。／2026-11-15x Bales の SF 結びつけが再起動で止まっても、起動後に自動でやり直す。画面も止まったままにしない。／2026-11-15w Bales の保存が見えない件：Request や Blob の本文も読み、Datadog などの送信は除き、WebSocket も見る（kinbot-ext 2.0.1）。／2026-11-15v Bales の見張り（平日10〜19時に10分ごと、拡張機能が見張る画面の新しい行を読む）と、架電の記録の日別の分析画面。MiiTel の自動も平日10〜19時だけに（kinbot-ext 2.0.0）。／2026-11-15u Bales の書き込み方を覚えるとき、JSON 以外（フォーム・FormData）や <p>kinbot</p> のような値も拾う。見えた保存を表示（kinbot-ext 1.9.1）。／2026-11-15t Bales の SF 結びつけに進み具合（全体の％・段階・件数・経過時間）を出した。／2026-11-15s Bales のリードを SF と結びつけるとき、SalesforceID が無ければ SF の Mochica リードを会社名（電話が合えば優先）で探して ID を使う。／2026-11-15r kinbot から Bales のカスタム情報に SF の失注情報などを書き込む（拡張機能が保存の頼み方を覚える・1件試し・全部）。kinbot-ext 1.9.0。／2026-11-15q Bales のリードを SF（Mochica リード→取引先→過去の商談）と結びつけ、表とリードの中身で過去の商談履歴を見られるようにした。／2026-11-15p Bales：拡張機能が Bales の一覧の見出しと中身をデータの項目に結びつけ、kinbot の表を Bales の一覧と同じ並び・中身で出す（kinbot-ext 1.8.1）。／2026-11-15o MCP に Bales のリードを読む道具（mochica_bales_leads）を足した。／2026-11-15n Bales：リードの全項目（入れ子も）・元の形・詳しい中身（架電履歴・カスタム情報など）を取り込む。リード1件のページで読み方を覚え、全リードを順に読む（続きから再開）。kinbot に表示項目選びとリードの中身の画面（kinbot-ext 1.8.0）。／2026-11-15m Bales：リード一覧（call_targets）を自動で選び、1ページ目に page が無くてもめくり方を探す。取り込んだリストを消せるようにした（kinbot-ext 1.7.4）。／2026-11-15l 拡張機能の裏で、扱わない頼みにも先に「だめ」と返していたのをやめた（Bales の取り込みが返事待ちで止まる原因）。kinbot-ext 1.7.3。／2026-11-15k Bales の取り込みが「取り込んでいます…」で止まる件：Bales の API（別のドメイン）に Cookie 付きで頼んでいたのを元と同じにし、待ち時間・進み具合・つながらないときの案内を足した（kinbot-ext 1.7.2）。／2026-11-15j Bales の取り込み：拡張機能が見た様子を kinbot に残して画面に出す・JSON の拾い方をゆるめる（kinbot-ext 1.7.1）。「Bales に SF の情報を入れる」をしまう。／2026-11-15i Bales のリストを拡張機能（kinbot-ext 1.7.0）で Bales の画面から全部取り込み、MOCHICA の「リスト（Bales Cloud）」で見られるようにした。／2026-11-15h MOCHICA で担当カードを選んでも一番上の商談を開かない（会社カード→商談の順）。／2026-11-15g MOCHICA の商談カードの SF タグと会社カードの「SF の取引先」をなくし、会社URL（gBizINFO→SF取引先→検索）を出す。／2026-11-15f MOCHICA の SF 更新（活動記録・ステージ・項目更新）を会社のカードに移し、商談の SF連携タブをなくした。／2026-11-15e MOCHICA のカレンダー照合で「【デモ確認・提案】会社　人様」のような【…】＋様の予定も商談として拾う（【新/ヒ】などを優先）。／2026-11-15d MOCHICA のカレンダー照合で、見つからなかったときに「どこから何件読めたか」「その時間にあった予定」を残す（版6でやり直し）。";
 const BUILD_FEATURES = [
+  "Gemini：GitHub 経由で読む・issue で更新を頼む",
   "Gemini のカスタムアプリで kinbot につなぐ",
   "Claude のスキルで kinbot につなぐ（コネクタ不要）",
   "kinXs：要望・問い合わせを中身の分類ごとに",
