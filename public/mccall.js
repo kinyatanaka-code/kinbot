@@ -447,6 +447,7 @@
       box.innerHTML = `
         <div class="mcc-card"><h2>架電リスト</h2>
           <p class="mcc-note">ここで作ったリストは MOCHICA だけのものです。DOC の kincall のリストとは混ざりません。メンバーを選ばないと、MOCHICA のメンバー全員がかけられます。</p>
+          <p class="mcc-note">リストを管理できる人：${esc(((S.meta && S.meta.admins) || []).join("・") || "（田中さん・kinbot の管理者だけ）")}</p>
           <div style="margin:12px 0"><button class="mcc-btn primary" id="mccNew">新しいリストを作る</button> <button class="mcc-btn" id="mccTpl">資料送付のひな形</button></div>
           ${S.lists.length ? `<table class="mcc-tbl"><thead><tr><th>リスト</th><th>メンバー</th><th class="num">残り</th><th class="num">今かける</th><th class="num">DOC から</th><th></th></tr></thead><tbody>
             ${S.lists.map((l) => `<tr><td><b>${esc(l.name)}</b></td><td>${l.members && l.members.length ? `${l.members.length}人` : "MOCHICA 全員"}</td><td class="num">${l.open} / ${l.total}</td><td class="num">${l.now}</td><td class="num">${l.cross || ""}</td>

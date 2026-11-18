@@ -694,6 +694,8 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true, slots: out, members: members.map((m) => m.name) });
   }));
   app.get("/api/mccall/meta", guard(async (req, res) => {
-    res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, admin: isAdmin(req), me: me(req) });
+    // 管理者の画面には、いま管理者として扱っている人の名前も返す（苗字で照合しているので、漏れや取り違えを見えるように）
+    const admins = isAdmin(req) && deps.adminNames ? await deps.adminNames().catch(() => []) : [];
+    res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, admin: isAdmin(req), admins, me: me(req) });
   }));
 }
