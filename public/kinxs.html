@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118p" />
+    <link rel="stylesheet" href="style.css?v=20261118q" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1007,7 +1007,8 @@
   #kh2 .h2-hero .h2-leg{width:100%;margin-top:2px;}
   #kh2 .h2-hero::after{width:96px;height:96px;right:-24px;top:-24px;}
   #kh2 .h2-card{flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:9px 14px;border-radius:14px;}
-  #kh2 .h2-card .l{font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  /* 名前は1行目にまるごと出す（数字と同じ行だと「稼…」「先月…」と切れていた・2026-11-18） */
+  #kh2 .h2-card .l{font-size:12px;flex:1 1 calc(100% - 20px);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   #kh2 .h2-card .v{font-size:26px;order:3;}
   #kh2 .h2-card .v small{font-size:12px;}
   #kh2 .h2-card .h2-d{order:4;}
@@ -1353,7 +1354,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261118p" defer></script>
-    <script src="kinxs.js?v=20261118p"></script>
+    <script src="kbchat.js?v=20261118q" defer></script>
+    <script src="kinxs.js?v=20261118q"></script>
   </body>
 </html>
