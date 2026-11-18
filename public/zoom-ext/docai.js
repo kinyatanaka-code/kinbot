@@ -139,8 +139,10 @@
   // チャットの一覧の表（キャンバスで描かれている）。行の高さ・見出しの高さは Streamlit の決まり（35px）
   const ROW = 35, HEAD = 35;
   function grid() {
-    const p = [...document.querySelectorAll(PANELS)].find((x) => (x.textContent || "").includes("セッションが見つかりました") && x.offsetParent !== null) || document;
-    const g = p.querySelector('[data-testid="stDataFrame"], [data-testid="stDataFrameResizable"], [data-testid="stDataEditor"]');
+    // 画面に見えている表を使う（ほかのタブにも表があり、見えていない表を選ぶと押せない・2026-11-18）
+    const vis = (e) => { const r = e.getBoundingClientRect(); return r.width > 50 && r.height > 50; };
+    const all = [...document.querySelectorAll('[data-testid="stDataFrame"], [data-testid="stDataEditor"]')].filter(vis);
+    const g = all.find((x) => { const p = x.closest(PANELS); return p && (p.textContent || "").includes("セッションが見つかりました"); }) || all[0];
     if (!g) return null;
     const sc = g.querySelector(".dvn-scroller") || g.querySelector('[class*="scroller"]');
     const cvs = [...g.querySelectorAll("canvas")]; const cv = g.querySelector('[data-testid="data-grid-canvas"]') || cvs[0];
@@ -170,10 +172,12 @@
     if (!(await toggleRow(i, how))) return { skip: true };
     await sleep(400); await quiet(1200);
     let label = reviewLabel(document.body);
-    if (!label || label === prevLabel) {
+    // 押した行のセッションID（表の文字）と、回答レビューのセッションが合えば成功（前と同じチャットでも）
+    const want = rowId(i).slice(0, 8); const okRow = () => !!label && (want ? label.slice(0, 8) === want : label !== prevLabel);
+    if (!okRow()) {
       // 押し方を変えてもう一度（キャンバスへ直接）
-      if (how === "point") { how = "scroller"; await toggleRow(i, how); await sleep(400); await quiet(1200); label = reviewLabel(document.body); if (!label || label === prevLabel) how = "point"; }
-      if (!label || label === prevLabel) return { fail: true };
+      if (how === "point") { how = "scroller"; await toggleRow(i, how); await sleep(400); await quiet(1200); label = reviewLabel(document.body); if (!okRow()) how = "point"; }
+      if (!okRow()) return { fail: true };
     }
     await openTab("回答レビュー"); await sleep(300);
     const d = readReview(activePanel() || document.body);
@@ -235,7 +239,7 @@
           paint(ci, `${c.name || c.company}：${i + 1}/${n} 件目を読んでいます`);
           if (onlyNew && i > 0) { await toggleRow(i, "peek"); const rid = rowId(i); if (rid && known.has(rid.slice(0, 8))) break; }
           const r = await readRow(i, prev);
-          if (r.skip) break;
+          if (r.skip) { if (i === 0) { log.push(`${c.company}：チャットの表が見つかりませんでした`); await diag("表が見つからない・押せない"); } break; }
           if (r.fail) { failRow++; failed++; if (failRow >= 2) { log.push(`${c.company}：表のチェックを押せませんでした`); await diag("表の行を選べない"); break; } continue; }
           prev = r.label;
           if (r.r && r.r.ok) saved++; else log.push(`${c.company} ${r.label.slice(0, 8)}：${(r.r && r.r.error) || "送れませんでした"}`);
