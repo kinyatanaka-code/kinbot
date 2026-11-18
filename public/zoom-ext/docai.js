@@ -306,7 +306,19 @@
   const getRun = () => new Promise((r) => { try { chrome.storage.local.get([RUN], (st) => r((st && st[RUN]) || null)); } catch { r(null); } });
   const setRun = (v) => new Promise((r) => { try { chrome.storage.local.set({ [RUN]: v }, () => r()); } catch { r(); } });
   const delRun = () => new Promise((r) => { try { chrome.storage.local.remove([RUN], () => r()); } catch { r(); } });
-  const openCompany = (co) => { location.assign(`${location.origin}/chat_curator?company=${encodeURIComponent(co)}`); };
+  // ページを読み込み直すとログインし直しになる（2026-11-18 田中さん）。なので、読み込み直さずに、管理画面の中のページ移動として
+  //   「ダッシュボード → chat_curator?company=企業ID」と動かす（ブラウザの「戻る・進む」と同じ合図＝popstate を送ると、Streamlit がそのページを開く）
+  async function spaGo(path) {
+    try { history.pushState(history.state, "", path); window.dispatchEvent(new PopStateEvent("popstate", { state: history.state })); } catch {}
+    await sleep(700); await quiet(1500, 15000);
+  }
+  async function openCompany(co) {
+    tr(`${co}をページ移動で開く`);
+    await spaGo("/dashboard");
+    await spaGo(`/chat_curator?company=${encodeURIComponent(co)}`);
+    tr(`${co}を開いたあと`);
+    setTimeout(() => { resume().catch(() => {}); }, 300);
+  }
   const isLogin = () => { const t = document.body ? document.body.innerText || "" : ""; return /パスワード/.test(t) && /ログイン/.test(t) && !/チャット管理|ダッシュボード/.test(t); };
   async function crawl(list, onlyNew) {
     if (!list.length) return;
@@ -316,7 +328,12 @@
   }
   const esc0 = (t) => String(t || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
   // ページを開いたら、続きがあるかを見る
+  let resuming = false;
   async function resume() {
+    if (resuming) return; resuming = true;
+    try { await resume0(); } finally { resuming = false; }
+  }
+  async function resume0() {
     const run = await getRun(); if (!run || !Array.isArray(run.list)) return;
     if (Date.now() - (run.at || run.started) > 30 * 60 * 1000) { await delRun(); return; }   // 30分さわっていない取り込みは、もう続けない
     crawling = true; box.hidden = false;
@@ -332,6 +349,7 @@
       await openTab("チャットセッション"); await quiet(1200);
       if (!titleOk(c, "")) {
         if (run.tries < 1) { run.tries++; run.at = Date.now(); await setRun(run); openCompany(c.company); return; }   // もう1回だけ開き直す
+        if (run.tries < 2) { run.tries++; run.at = Date.now(); await setRun(run); await selectCompany(c.company); await goChatPage(true); await sleep(800); await quiet(1500); setTimeout(() => { resume().catch(() => {}); }, 300); return; }
         run.skipped++; results.push({ company: c.company, ok: false, why: "開いても右の画面がその会社にならない", title: mainTitle(), name: c.name }); log.push(`${c.company}：開いても右の画面が「${mainTitle() || "？"}」でした`); await next(); return;
       }
       const known = new Set((c.known || []).map((k) => String(k).slice(0, 8)));
