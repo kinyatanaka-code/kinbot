@@ -118,9 +118,20 @@
   // タブは data-testid="stTab"（role="tab" ではなかった）
   const tabBtn = (word) => [...document.querySelectorAll('[data-testid="stTab"], button[role="tab"]')].find((b) => (b.textContent || "").includes(word));
   async function openTab(word) { const b = tabBtn(word); if (!b) return false; if (b.getAttribute("aria-selected") !== "true") { press(b); await sleep(600); } return true; }
-  // 左のメニューの「チャット管理」へ（ページは読み込み直さない）
-  async function goChatPage() {
-    if (tabBtn("チャットセッション")) return true;
+  // 右の画面の題（「株式会社〇〇 チャット管理」）から、いま右に出ている会社の名前を読む
+  function mainTitle() { const h = [...document.querySelectorAll("h1, h2")].map((e) => norm(e.textContent)).find((t) => /チャット管理$/.test(t)); return h ? h.replace(/\s*チャット管理$/, "").replace(/^[^\p{L}\p{N}]+/u, "") : ""; }
+  const nameKey = (t) => String(t || "").replace(/株式会社|（株）|\(株\)|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|[\s　・．.]/g, "").toLowerCase();
+  // 会社の名前（kinXs）と右の題が合っているか。名前が無いときは、前の会社の題から変わったかで見る
+  let prevTitle = "";
+  function titleOk(c, prev) {
+    const t = nameKey(mainTitle()); if (!t) return false;
+    const n = nameKey(c.name);
+    if (n && n.length >= 2) return t.includes(n) || n.includes(t);
+    return !prev || t !== nameKey(prev);
+  }
+  // 左のメニューの「チャット管理」へ（ページは読み込み直さない）。force のときは、いま開いていても開き直す
+  async function goChatPage(force) {
+    if (!force && tabBtn("チャットセッション")) return true;
     const a = [...document.querySelectorAll('a[href*="chat_curator"], [data-testid="stSidebarNavLink"]')].find((x) => /chat_curator/.test(x.getAttribute("href") || "") || /チャット管理/.test(x.textContent || ""));
     if (!a) return false; a.click(); await quiet(1500); return !!tabBtn("チャットセッション");
   }
@@ -234,7 +245,7 @@
     box.querySelector("[data-go]").onclick = () => {
       const mode = box.querySelector('input[name="kbda"]:checked').value; const n = Math.max(1, Math.min(cos.length, Number(box.querySelector("[data-n]").value) || 10));
       const onlyNew = box.querySelector('input[name="kbdm"]:checked').value === "new";
-      crawl(mode === "cur" ? [{ company: cur, name: cur, known: (cos.find((c) => c.company === cur) || {}).known || [] }] : cos.slice(0, n), onlyNew);
+      crawl(mode === "cur" ? [{ company: cur, name: (cos.find((c) => c.company === cur) || {}).name || "", known: (cos.find((c) => c.company === cur) || {}).known || [] }] : cos.slice(0, n), onlyNew);
     };
   };
   async function crawl(list, onlyNew) {
@@ -243,15 +254,21 @@
     try {
       if (!(await goChatPage())) { await diag("チャット管理のページへ行けない"); throw new Error("チャット管理のページが見つかりませんでした（左のメニューの「チャット管理」を開いてから押してください）"); }
       for (let ci = 0; ci < list.length && !stop; ci++) {
-        const c = list[ci]; const known = new Set((c.known || []).map((k) => String(k).slice(0, 8)));
+        const c = list[ci]; const known = new Set((c.known || []).map((k) => String(k).slice(0, 8))); if (ci === 0) prevTitle = "";
         paint(ci, `${c.name || c.company}（${c.company}）を開いています…`);
         if (!(await selectCompany(c.company))) { skipped++; log.push(`${c.company}：「企業を選択」にありませんでした`); if (ci === 0 && list.length === 1) await diag("企業を選択で選べない"); continue; }
         await openTab("チャットセッション"); await quiet(1200);
+        // 企業を切りかえても、右の画面が前の会社のままのことがあった（2026-11-18：ジェイグループの画面のまま、復建技術コンサルタントとして保存していた）。
+        //   右の題（〇〇 チャット管理）が、その会社の名前になっているかを確かめる。ちがえば「チャット管理」を開き直し、それでもちがえば、その会社はとばす
+        if (!titleOk(c, prevTitle)) { await goChatPage(true); await openTab("チャットセッション"); await quiet(1500); }
+        if (!titleOk(c, prevTitle)) { skipped++; log.push(`${c.company}：右の画面が「${mainTitle() || "？"}」のまま切りかわりませんでした`); await diag("会社を切りかえても右の画面が変わらない"); continue; }
+        prevTitle = mainTitle();
         const n = Math.min(totalRows(), 300);
         let prev = reviewLabel(document.body); let failRow = 0;
         for (let i = 0; i < n && !stop; i++) {
           paint(ci, `${c.name || c.company}：${i + 1}/${n} 件目を読んでいます`);
           if (onlyNew && i > 0) { await toggleRow(i, "peek"); const rid = rowId(i); if (rid && known.has(rid.slice(0, 8))) break; }
+          if (!titleOk(c, "")) { log.push(`${c.company}：途中で右の画面が「${mainTitle()}」に変わったので止めました`); break; }
           const r = await readRow(i, prev);
           if (r.skip) { if (i === 0) { log.push(`${c.company}：チャットの表が見つかりませんでした`); await diag("表が見つからない・押せない"); } break; }
           if (r.fail) { failRow++; failed++; if (failRow >= 2) { log.push(`${c.company}：表のチェックを押せませんでした`); await diag("表の行を選べない"); break; } continue; }

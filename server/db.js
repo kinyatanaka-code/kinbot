@@ -13348,3 +13348,14 @@ export async function kxDocAiLast() {
   if (!pool) return new Map(); await ensureKxDocAi();
   return new Map((await pool.query(`SELECT company_id, MAX(updated_at) AS last FROM kinxs_docai_chats GROUP BY company_id`)).rows.map((r) => [r.company_id, r.last]));
 }
+// 同じチャット（セッションIDは会社をまたいで重ならない）が2つの会社に入っていたら、あとから入った方を消す。
+//   拡張機能が、右の画面が前の会社のまま次の会社として保存してしまった分（2026-11-18）。先に入った方は残す
+export async function kxDocAiDedupe() {
+  if (!pool) return 0; await ensureKxDocAi();
+  const r = await pool.query(`DELETE FROM kinxs_docai_chats a USING kinxs_docai_chats b WHERE a.session_key = b.session_key AND a.company_id <> b.company_id AND (a.first_at > b.first_at OR (a.first_at = b.first_at AND a.company_id > b.company_id))`);
+  return r.rowCount;
+}
+export async function kxDocAiOther(companyId, key) {
+  if (!pool) return null; await ensureKxDocAi();
+  return (await pool.query(`SELECT company_id FROM kinxs_docai_chats WHERE session_key = $1 AND company_id <> $2 LIMIT 1`, [key, companyId])).rows[0]?.company_id || null;
+}
