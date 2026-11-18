@@ -155,6 +155,8 @@
     a.click(); await sleep(600); await quiet(1500); return !!tabBtn("チャットセッション");
   }
   // 「企業を選択」を切りかえる：開く → 名前を打って絞る → 選ぶ
+  // どの場面で URL・右の題・左の会社が変わったかを残す（2026-11-18：2社目で前の会社にもどる原因を見るため）
+  const trace = []; const tr = (step) => { if (trace.length < 400) trace.push({ t: Math.round(performance.now()), step, url: location.search.slice(0, 120), title: mainTitle().slice(0, 30), side: companyNow() }); };
   let lastSel = { typed: "", seen: [] };
   // 管理画面は、アドレス（URL）の ?company= と ?session_id= を見て右の画面を作っている。行を選ぶとその会社・チャットが URL に入り、
   //   左で会社を切りかえても URL の方が勝って、右が前の会社のままになっていた（2026-11-18 診断：回答レビューのチャットがずっと同じだった）。
@@ -220,10 +222,14 @@
   }
   // 1件読む：行を押す → 回答レビューが変わるのを待つ → 読む → 送る → 行をもう一度押して外す
   let how = "point";
-  async function readRow(i, prevLabel) {
+  async function readRow(i, prevLabel, co) {
     await openTab("チャットセッション");
+    // 行を押すと管理画面は URL を読み直すので、押す前に URL の会社をいまの会社にそろえておく（前の会社のチャットの ID が残っていると、前の会社にもどる）
+    if (co) setUrlCompany(co);
+    tr(`行${i}を押す前`);
     if (!(await toggleRow(i, how))) return { skip: true };
     await sleep(400); await quiet(1200);
+    tr(`行${i}を押したあと`);
     let label = reviewLabel(document.body);
     // 押した行のセッションID（表の文字）と、回答レビューのセッションが合えば成功（前と同じチャットでも）
     const want = rowId(i).slice(0, 8); const okRow = () => !!label && (want ? label.slice(0, 8) === want : label !== prevLabel);
@@ -232,7 +238,7 @@
       if (how === "point") { how = "scroller"; await toggleRow(i, how); await sleep(400); await quiet(1200); label = reviewLabel(document.body); if (!okRow()) how = "point"; }
       if (!okRow()) return { fail: true };
     }
-    await openTab("回答レビュー"); await sleep(300);
+    const tabOk = await openTab("回答レビュー"); await sleep(300); tr(`回答レビュー${tabOk ? "を開いた" : "が開けない"}`);
     // AI の答えは、いまは要らない（2026-11-18 田中さん「AIの答えは一旦いらない」）。質問の題だけなら折りたたみを開かずに読めるので速い
     const d = readReview(activePanel() || document.body);
     const r = d ? await send(d) : { ok: false, error: "読めませんでした" };
@@ -295,7 +301,9 @@
         const c = list[ci]; const known = new Set((c.known || []).map((k) => String(k).slice(0, 8))); if (ci === 0) prevTitle = "";
         paint(ci, `${c.name || c.company}（${c.company}）を開いています…`);
         if (!(await selectCompany(c.company))) { skipped++; log.push(`${c.company}：「企業を選択」で選べませんでした（打った文字「${lastSel.typed}」・見えた候補 ${lastSel.seen.slice(0, 3).join("／") || "なし"}）`); results.push({ company: c.company, ok: false, why: "選べない", seen: lastSel.seen, typed: lastSel.typed }); if (ci === 0 && list.length === 1) await diag("企業を選択で選べない"); continue; }
-        if (ci > 0 || !titleOk(c, "")) await goChatPage(true);
+        tr(`${c.company}を選んだあと`);
+        if (ci > 0 || !titleOk(c, "")) { await goChatPage(true); setUrlCompany(c.company); }
+        tr(`${c.company}のチャット管理を開いたあと`);
         await openTab("チャットセッション"); await quiet(1200);
         // 企業を切りかえても、右の画面が前の会社のままのことがあった（2026-11-18：ジェイグループの画面のまま、復建技術コンサルタントとして保存していた）。
         //   右の題（〇〇 チャット管理）が、その会社の名前になっているかを確かめる。ちがえば「チャット管理」を開き直し、それでもちがえば、その会社はとばす
@@ -308,7 +316,7 @@
           paint(ci, `${c.name || c.company}：${i + 1}/${n} 件目を読んでいます`);
           if (onlyNew && i > 0) { await toggleRow(i, "peek"); const rid = rowId(i); if (rid && known.has(rid.slice(0, 8))) break; }
           if (!titleOk(c, "")) { log.push(`${c.company}：途中で右の画面が「${mainTitle()}」に変わったので止めました`); break; }
-          const r = await readRow(i, prev);
+          const r = await readRow(i, prev, c.company);
           if (r.skip) { if (i === 0) { log.push(`${c.company}：チャットの表が見つかりませんでした`); await diag("表が見つからない・押せない"); } break; }
           if (r.fail) { failRow++; failed++; if (failRow >= 2) { log.push(`${c.company}：表のチェックを押せませんでした`); await diag("表の行を選べない"); break; } continue; }
           prev = r.label;
@@ -316,7 +324,7 @@
           if (onlyNew && known.has(r.label.slice(0, 8))) break;   // 前に読んだチャットまで来た（一覧は新しい順）
         }
       }
-      kb("/api/kinxs/docai/diag", "POST", { why: "取り込みの結果", ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), saved, skipped, failed, results: results.slice(0, 60), log: log.slice(-40) }).catch(() => {});
+      kb("/api/kinxs/docai/diag", "POST", { why: "取り込みの結果", ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), saved, skipped, failed, results: results.slice(0, 60), log: log.slice(-40), trace: trace.slice(-200) }).catch(() => {});
       show(`<div style="color:${C.deep};font-weight:700">${stop ? "止めました" : "終わりました"}</div><div style="font-size:12.5px;margin-top:4px">保存 ${saved}件・とばした会社 ${skipped}社${failed ? `・読めなかった行 ${failed}` : ""}</div>${log.length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:120px;overflow:auto">${log.slice(-10).join("<br>")}</div>` : ""}<div style="font-size:11.5px;color:#5b6b66;margin-top:6px">kinXs の「DOC連携 → 候補者の質問」で見られます。</div>`);
     } catch (e) { show(`<div style="color:#7a4310">${e.message}</div>`); }
     finally { crawling = false; }
