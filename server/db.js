@@ -12823,6 +12823,12 @@ export async function mcMiitelNeedCal(limit = 40) {
 }
 
 // MiiTel の webhook で参加者が「[object Object]」で入った会議・長さが空の会議（payload から直すため）（2026-11-16）
+// 画面で手で決めた照合（manual）で、会社名はあるのに SF が空のもの（2026-11-18：手で決めたときの SF の照会が黙って失敗していた）。
+//   題名・会社名は人が決めたものなので変えず、SF の結びつきだけを足すために読む。6時間ごとに試し直す
+export async function mcMiitelManualNoSf(limit = 40) {
+  if (!pool) return []; await ensureMcMiitel();
+  return (await pool.query(`SELECT id, payload->'mt_cal' AS cal FROM mochica_miitel_events WHERE COALESCE(payload->'mt_cal'->>'manual','') = 'true' AND COALESCE(payload->'mt_cal'->>'company','') <> '' AND COALESCE(payload->'mt_cal'->'sf'->>'leadId','') = '' AND COALESCE(payload->'mt_cal'->'sf'->>'accountId','') = '' AND COALESCE((payload->'mt_cal'->>'sfAt')::bigint, 0) < (extract(epoch from now()) * 1000 - 6 * 3600000) ORDER BY started_at DESC NULLS LAST LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+}
 export async function mcMiitelBrokenParts(limit = 100) {
   if (!pool) return []; await ensureMcMiitel();
   return (await pool.query(`SELECT id, participants, duration_sec, payload - 'mt_phrases' - 'mt_summary' - 'mt_media' - 'mt_cal' AS payload FROM mochica_miitel_events WHERE (participants LIKE '%[object Object]%' OR (duration_sec IS NULL AND (payload ? 'video' OR payload ? 'meeting' OR payload ? 'data'))) AND NOT (payload ? 'mt_pfix') ORDER BY started_at DESC NULLS LAST LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
