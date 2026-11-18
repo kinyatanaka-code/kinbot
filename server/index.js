@@ -15714,7 +15714,7 @@ async function gemCall(name, args, user, toolMap) {
   return text;
 }
 // いくつかのファイルを、1回のコミットでまとめてリポジトリに入れる（空のリポジトリなら最初に README を作る）
-async function gemCommit(token, repo, files, message) {
+async function gemCommit(token, repo, files, message, opt = {}) {
   const info = await gemGh(token, `/repos/${repo}`); const br = info.default_branch || "main";
   let head = null;
   try { head = (await gemGh(token, `/repos/${repo}/git/ref/heads/${br}`)).object.sha; }
@@ -15722,11 +15722,16 @@ async function gemCommit(token, repo, files, message) {
   const baseTree = (await gemGh(token, `/repos/${repo}/git/commits/${head}`)).tree.sha;
   // 大きいファイル（商談すべての CSV など）は、先に1つずつ blob にしてから木に入れる（木の中に直接入れられる大きさには限りがあるため）
   const entries = [];
+  // replace のとき：前の書き出しのファイルは消して入れ替える（answers/ の調べものの結果だけは残す）。消さないと古い大きいファイルが残り、Gemini が読みきれない
+  if (opt.replace) {
+    const old = await gemGh(token, `/repos/${repo}/git/trees/${baseTree}?recursive=1`);
+    for (const t of (old.tree || [])) if (t.type === "blob" && t.path.startsWith("answers/")) entries.push({ path: t.path, mode: t.mode, type: "blob", sha: t.sha });
+  }
   for (const f of files) {
     if (Buffer.byteLength(f.content, "utf8") > 300_000) { const bl = await gemGh(token, `/repos/${repo}/git/blobs`, { method: "POST", body: JSON.stringify({ content: Buffer.from(f.content, "utf8").toString("base64"), encoding: "base64" }) }); entries.push({ path: f.path, mode: "100644", type: "blob", sha: bl.sha }); }
     else entries.push({ path: f.path, mode: "100644", type: "blob", content: f.content });
   }
-  const tree = await gemGh(token, `/repos/${repo}/git/trees`, { method: "POST", body: JSON.stringify({ base_tree: baseTree, tree: entries }) });
+  const tree = await gemGh(token, `/repos/${repo}/git/trees`, { method: "POST", body: JSON.stringify(opt.replace ? { tree: entries } : { base_tree: baseTree, tree: entries }) });
   const cm = await gemGh(token, `/repos/${repo}/git/commits`, { method: "POST", body: JSON.stringify({ message, tree: tree.sha, parents: [head] }) });
   await gemGh(token, `/repos/${repo}/git/refs/heads/${br}`, { method: "PATCH", body: JSON.stringify({ sha: cm.sha }) });
   return cm.sha;
@@ -15752,6 +15757,8 @@ issue の本文に、次の形の JSON を \`\`\`json と \`\`\` で囲んで入
 \`\`\`
 
 - 使える道具と入れる値は \`kinbot/tools.md\` にあります。
+- Salesforce のクロス以外（ほかの事業部）の商談や、ここに無い項目は、issue で \`sf_query\`（SOQL の SELECT）を頼むと調べられます。
+- Salesforce のクロス以外（ほかの事業部）の商談や、ここに無い項目は、issue で \`sf_query\`（SOQL の SELECT）を頼むと調べられます。
 - 調べもの（sf_query など）の結果は issue のコメントと \`answers/issue-番号.md\` に入ります。
 - 書きかえる前に、必ず内容を人に確かめてから issue を作ってください。
 - 動くのは、kinbot に登録された GitHub アカウントが作った issue だけです。
@@ -15768,47 +15775,48 @@ async function gemExport({ force = false } = {}) {
     const user = cfg.owner || aiOwnerEmail(); if (!user) return { ok: false, reason: "書き出す人（kinbot のアカウント）が決まっていません" };
     const now = new Date(); const ym1 = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)); const m6 = new Date(now.getTime() - 183 * 86400000);
     const tm = await gemToolMap(user);
+    // Gemini が一度に読める量には限りがある（前は全部で約1,000万字になり「エラーが発生しました(13)」で読めなかった・2026-11-18）。
+    //   そこで JSON をやめ、要る列だけの CSV にして、全部で数十万字におさえる。くわしいことは issue で道具を呼べば調べられる
+    const cell = (v, n = 80) => { let t = v === null || v === undefined ? "" : typeof v === "object" ? "" : String(v); t = t.replace(/[\r\n]+/g, " ").trim(); if (t.length > n) t = t.slice(0, n) + "…"; return /[",]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const d10 = (v) => String(v || "").slice(0, 10);
+    const csv = (rows, cols) => "\ufeff" + [cols.map((c) => c[0]).join(","), ...rows.map((r) => cols.map(([, f, n]) => cell(f(r), n)).join(","))].join("\n");
+    const arrOf = (t) => { let j; try { j = JSON.parse(t); } catch { return null; } return Array.isArray(j) ? j : (Object.values(j || {}).find(Array.isArray) || null); };
+    // そのほかの表：文字と数字の列だけを、短くして出す
+    const flat = (rows) => { const ks = []; for (const r of rows.slice(0, 50)) for (const [k, v] of Object.entries(r || {})) if ((typeof v !== "object" || v === null) && !ks.includes(k)) ks.push(k); return csv(rows, ks.map((k) => [k, (r) => r[k], 60])); };
     const jobs = [
-      ["kinbot/deals.json", "案件（直近6か月に初回商談があったもの）", "list_deals", { from: gemYmd(m6) }],
-      ["kinbot/meetings.json", "録音した商談の一覧（要約・分析つき）", "list_meetings", {}],
-      ["salesforce/opportunities.json", "Salesforce の商談（直近90日に動いたもの）", "sf_query", { soql: "SELECT Id, Name, Account.Name, StageName, Owner.Name, CloseDate, order_date__c, Amount, RecordType.Name, LastModifiedDate FROM Opportunity WHERE LastModifiedDate = LAST_N_DAYS:90 ORDER BY LastModifiedDate DESC LIMIT 2000" }],
-      ["kincall/call_stats.json", "架電の実績（先月から今日まで・日×人×結果）", "list_call_stats", { from: gemYmd(ym1) }],
-      ["kincall/appointments.json", "アポ（先月から今日までに取ったもの）", "list_apo_appointments", { from: gemYmd(ym1) }],
-      ["kincall/lists.json", "架電リストの進み具合", "list_call_lists_overview", {}],
-      ["kinxs/users.json", "kinXs の導入企業（ユーザー）一覧", "list_users", {}],
-      ["kinxs/renewals.json", "kinXs の更新管理", "list_renewals", {}],
-      ["kinxs/tasks.json", "kinXs のやること", "list_tasks", {}],
+      ["kinbot/deals.csv", "案件（直近6か月に初回商談があったもの）", "list_deals", { from: gemYmd(m6) }, (rows) => csv(rows, [["案件id", (r) => r.deal_id], ["会社", (r) => r.company_name], ["担当", (r) => r.owner], ["初回商談日", (r) => d10(r.first_meeting_date)], ["状態", (r) => r.status], ["受注日", (r) => d10(r.won_at)], ["更新日", (r) => d10(r.updated_at)]])],
+      ["kinbot/meetings.csv", "録音した商談（新しい300件・要約は短く）", "list_meetings", {}, (rows) => csv(rows, [["商談id", (r) => r.bot_id], ["日付", (r) => d10(r.created_at)], ["題", (r) => r.title], ["担当", (r) => r.owner_name || r.rep_name], ["回", (r) => r.round_no], ["種類", (r) => r.deal_kind], ["アポ獲得者", (r) => r.apo_setter], ["要約", (r) => { const sm = r.summary || {}; return typeof sm === "string" ? sm : (sm.overview || sm.formatted || (Array.isArray(sm.key_points) ? sm.key_points.join(" ／ ") : "")); }, 160]])],
+      ["kincall/call_stats.csv", "架電の実績（先月から今日まで・日×人×結果）", "list_call_stats", { from: gemYmd(ym1) }, flat],
+      ["kincall/appointments.csv", "アポ（先月から今日までに取ったもの）", "list_apo_appointments", { from: gemYmd(ym1) }, (rows) => csv(rows, [["会社", (r) => r["会社"]], ["商談名", (r) => r["商談名"]], ["獲得者", (r) => r["獲得者"]], ["現担当", (r) => r["現担当"]], ["商談予定日", (r) => d10(r["商談予定日"])], ["取得日", (r) => d10(r["取得日"])]])],
+      ["kincall/lists.csv", "架電リストの進み具合", "list_call_lists_overview", {}, flat],
+      ["kinxs/users.csv", "kinXs の導入企業（ユーザー）一覧", "list_users", {}, (rows) => csv(rows, [["id", (r) => r.id], ["会社", (r) => r.name], ["フェーズ", (r) => r.phase], ["ランク", (r) => r.rank], ["更新月", (r) => r.renewMonth], ["CS", (r) => r.cs], ["受注者", (r) => r.fs], ["初回", (r) => r.firstBooked], ["次回アクション", (r) => r.nextAction, 50], ["期日", (r) => r.nextActionDue], ["利用", (r) => r.usage]])],
+      ["kinxs/renewals.csv", "kinXs の更新管理", "list_renewals", {}, flat],
+      ["kinxs/tasks.csv", "kinXs のやること", "list_tasks", {}, flat],
     ];
     const files = []; const errs = [];
-    for (const [path, label, tool, args] of jobs) {
+    for (const [path, label, tool, args, conv] of jobs) {
       if (!tm.has(tool)) continue;
-      try { files.push({ path, label, content: gemCap(await gemCall(tool, args, user, tm)) }); } catch (e) { errs.push(`${tool}：${e.message}`); }
+      try { const t = await gemCall(tool, args, user, tm); const rows = arrOf(t); files.push({ path, label: rows ? `${label}・${rows.length}件` : label, content: rows ? conv(rows) : gemCap(t, 100000) }); } catch (e) { errs.push(`${tool}：${e.message}`); }
     }
-    // Salesforce の商談を全部（2026-11-18 田中さん「直近90日じゃなくって全部はよみとれないのかな」）。約4.8万件あるので、JSON ではなく小さな CSV にして、作った年ごとのファイルに分ける
+    // Salesforce の商談（2026-11-18 田中さん「直近90日じゃなくって全部はよみとれないのかな」）。全部（約4.8万件）は Gemini に入りきらないので、
+    //   DOC・MOCHICA の「クロス」の商談は全部、要る列だけで入れる。ほかの事業部の商談は issue の sf_query で調べる
     try {
       const sfU = await pickSfUser(user).catch(() => "");
       if (sfU) {
-        const recs = await sfQueryAll(sfU, "SELECT Id, Name, AccountId, Account.Name, StageName, RecordType.Name, Owner.Name, salestype__c, CloseDate, order_date__c, Amount, Loss_Reason__c, CreatedDate, LastModifiedDate FROM Opportunity ORDER BY CreatedDate", 120000);
-        const cell = (v) => { const t = v === null || v === undefined ? "" : String(v); return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-        const head = ["Id", "商談名", "取引先Id", "取引先名", "フェーズ", "レコードタイプ", "所有者", "販売区分", "完了予定日", "受注日", "金額", "失注理由", "作成日", "最終更新日"];
-        const byYear = new Map();
-        for (const o of recs) {
-          const y = String(o.CreatedDate || "").slice(0, 4) || "不明";
-          const row = [o.Id, o.Name, o.AccountId, o.Account && o.Account.Name, o.StageName, o.RecordType && o.RecordType.Name, o.Owner && o.Owner.Name, o.salestype__c, o.CloseDate, o.order_date__c, o.Amount, o.Loss_Reason__c, String(o.CreatedDate || "").slice(0, 10), String(o.LastModifiedDate || "").slice(0, 10)].map(cell).join(",");
-          if (!byYear.has(y)) byYear.set(y, []); byYear.get(y).push(row);
-        }
-        for (const [y, rows] of [...byYear.entries()].sort()) files.push({ path: `salesforce/opportunities_all/${y}.csv`, label: `Salesforce の商談すべて（${y}年に作ったもの・${rows.length}件・CSV）`, content: "\ufeff" + [head.join(","), ...rows].join("\n") });
-      } else errs.push("Salesforce の商談すべて：SF につながる人がいません");
-    } catch (e) { errs.push(`Salesforce の商談すべて：${e.message}`); }
+        const recs = await sfQueryAll(sfU, "SELECT Id, Account.Name, StageName, Owner.Name, salestype__c, CloseDate, order_date__c, CreatedDate FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC", 30000);
+        files.push({ path: "salesforce/opportunities_cross.csv", label: `Salesforce の商談（クロス＝DOC・MOCHICA の全部・${recs.length}件）`, content: csv(recs, [["Id", (o) => o.Id], ["取引先", (o) => o.Account && o.Account.Name, 40], ["フェーズ", (o) => o.StageName], ["所有者", (o) => o.Owner && o.Owner.Name], ["販売区分", (o) => o.salestype__c], ["完了予定日", (o) => o.CloseDate], ["受注日", (o) => o.order_date__c], ["作成日", (o) => d10(o.CreatedDate)]]) });
+      } else errs.push("Salesforce の商談：SF につながる人がいません");
+    } catch (e) { errs.push(`Salesforce の商談：${e.message}`); }
     // 道具の一覧（issue で使えるもの・入れる値）
-    const tl = [...tm.values()].filter((x) => !GEM_BLOCK_TOOLS.has(x.tool.name)).map((x) => `### ${x.tool.name}（${x.server}）\n${String(x.tool.description || "").trim()}\n\n入れる値：\n\`\`\`json\n${JSON.stringify((x.tool.inputSchema || {}).properties || {}, null, 1)}\n\`\`\``).join("\n\n");
+    const tl = [...tm.values()].filter((x) => !GEM_BLOCK_TOOLS.has(x.tool.name)).map((x) => { const pr = (x.tool.inputSchema || {}).properties || {}; const rq = new Set((x.tool.inputSchema || {}).required || []); return `### ${x.tool.name}\n${String(x.tool.description || "").trim().slice(0, 300)}\n入れる値：${Object.entries(pr).map(([k, v]) => `${k}${rq.has(k) ? "（必須）" : ""}＝${String((v && v.description) || (v && v.type) || "").slice(0, 80)}`).join("／") || "なし"}`; }).join("\n\n");
     files.push({ path: "kinbot/tools.md", label: "issue で使える道具と入れる値", content: `# issue で使える道具\n\n${tl}\n` });
     const at = gemJst(now);
     files.push({ path: "README.md", label: "", content: gemReadme(cfg.repo, at, files.filter((f) => f.label)) });
-    const sha = await gemCommit(token, cfg.repo, files.map(({ path, content }) => ({ path, content })), `kinbot：データの書き出し（${at}）`);
+    const total = files.reduce((n, f) => n + f.content.length, 0);
+    const sha = await gemCommit(token, cfg.repo, files.map(({ path, content }) => ({ path, content })), `kinbot：データの書き出し（${at}・約${Math.round(total / 1000)}千字）`, { replace: true });
     await gemSaveCfg({ lastExportAt: now.toISOString(), lastExportError: errs.join(" ／ ").slice(0, 500), lastExportFiles: files.length, lastSha: sha });
-    console.log(`[gemini] GitHub に書き出しました：${cfg.repo} ${files.length}ファイル${errs.length ? `（読めなかったもの ${errs.length}）` : ""}`);
-    return { ok: true, files: files.length, errors: errs };
+    console.log(`[gemini] GitHub に書き出しました：${cfg.repo} ${files.length}ファイル・約${Math.round(total / 1000)}千字${errs.length ? `（読めなかったもの ${errs.length}）` : ""}`);
+    return { ok: true, files: files.length, chars: total, errors: errs };
   } catch (e) { await gemSaveCfg({ lastExportAt: new Date().toISOString(), lastExportError: e.message }).catch(() => {}); console.warn("[gemini] 書き出し", e.message); return { ok: false, reason: e.message }; }
   finally { _gemBusy = false; }
 }
@@ -33231,7 +33239,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
