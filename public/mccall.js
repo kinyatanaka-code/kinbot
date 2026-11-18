@@ -55,7 +55,7 @@
     window.addEventListener("beforeunload", () => { if (S.d) navigator.sendBeacon && navigator.sendBeacon(`/api/mccall/leads/${S.d.lead.id}/release`); });
   }
   function drawTabs() {
-    const tabs = [["call", "かける"], ["report", "レポート"]].concat(S.admin ? [["measures", "施策"], ["leads", "リード管理"], ["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]] : []);
+    const tabs = [["call", "かける"], ["report", "レポート"], ["insight", "数字"]].concat(S.admin ? [["measures", "施策"], ["leads", "リード管理"], ["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]] : []);
     $("mccTabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" data-t="${k}">${l}</button>`).join("");
     $("mccTabs").querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.t)));
     if (tabs.length === 1) $("mccTabs").hidden = true;
@@ -63,7 +63,7 @@
   function setTab(t) {
     S.tab = t; S.ldBack = null; drawTabs();
     $("mccCall").hidden = t !== "call"; $("mccAdmin").hidden = t === "call"; $("mccList").hidden = t !== "call"; $("mccNotice").hidden = t !== "call";
-    if (t === "leads") drawHub(); if (t === "lists") drawLists(); if (t === "cross") drawCross(); if (t === "measures") drawMeasures(); if (t === "report") drawReport();
+    if (t === "leads") drawHub(); if (t === "lists") drawLists(); if (t === "cross") drawCross(); if (t === "measures") drawMeasures(); if (t === "report") drawReport(); if (t === "insight") drawInsight();
   }
 
   async function start() {
@@ -83,9 +83,17 @@
   }
   async function loadStats() {
     try { const j = await api("/api/mccall/stats"); const m = j.me;
-      $("mccStats").innerHTML = `<span><b>${m.calls}</b>コール</span><span><b>${m.person}</b>担当者と話せた</span><span class="apo"><b>${m.apo}</b>アポ</span>`; S.allStats = j.all;
+      $("mccStats").innerHTML = `<span><b>${m.calls}</b>コール</span><span><b>${m.person}</b>担当者と話せた</span><span class="apo"><b>${m.apo}</b>アポ</span>${hourBandChip(j.slot)}`; S.allStats = j.all;
       S.sf = j.sf || null; drawNotices();
     } catch { $("mccStats").innerHTML = `<span>今日の数字を読めませんでした</span>`; }
+  }
+  // いまの時間帯が、つながりやすいか（MOCHICA の記録＋資料の目安から。数字タブで中身を見られる）
+  function hourBandChip(sl) {
+    if (!sl) return "";
+    if (sl.tier !== "off" && (typeof sl.lift !== "number" || typeof sl.rate !== "number")) return "";
+    if (sl.tier === "off") return `<span class="mcc-slot off" title="掛ける時間帯は 9〜18時です">いまは時間外</span>`;
+    const t = { good: "いまは つながりやすい時間帯", normal: "いまは ふつうの時間帯", low: "いまは つながりにくい時間帯" }[sl.tier];
+    return `<span class="mcc-slot ${sl.tier}" title="${sl.hour}時台の担当者と話せる割合 ${Math.round(sl.rate * 100)}%（平均の${sl.lift.toFixed(2)}倍）。詳しくは「数字」のタブ">${t}</span>`;
   }
   async function loadQueue(openFirst) {
     try {
@@ -298,9 +306,30 @@
   function nextText() {
     const f = S.f;
     if (f.nextAt) return `次は <b>${esc(tm(f.nextAt))}</b> に掛け直し（${esc(f.nextLabel || "選んだ時刻")}）`;
-    if (AUTO.has(f.outcome) && !f.noRetry) return `次は <b>自動で掛け直し</b>（${f.gate.hours || (S.d.lead.gate && S.d.lead.gate.hours) ? "受付で聞いたいる時間に" : "同じ日のうちに。つながりやすいため"}）`;
+    if (AUTO.has(f.outcome) && !f.noRetry) {
+      const c = S.d.cadence;
+      if (c && c.next && c.next.parked) return `これで${c.streak + 1}回続けて届きません。<b>いったん休ませて ${esc(day(c.next.at))} ごろに再開</b>します`;
+      if (f.gate.hours || (S.d.lead.gate && S.d.lead.gate.hours) || !c || !c.next) return `次は <b>自動で掛け直し</b>（受付で聞いたいる時間に）`;
+      return `次は <b>${esc(tm(c.next.at))}</b> に自動で掛け直し（${c.streak + 1}/${c.max}回目。前回と違う時間帯・1〜2日あけます）`;
+    }
     if (["invalid", "apo", "reject"].includes(f.outcome)) return "この会社は、このリストではこれで終わりです";
     return "次の掛け直しはありません";
+  }
+  // この1本で確定させること（MOCHICA 科学化：1本の勝ち負けは「アポが取れたか」ではなく「何を確定できたか」で見る。不在でも担当者名・いる時間が取れれば前進）
+  //   ひと目での空欄から作る。聞くことを増やしすぎないよう3つまで。届いていない回数が増えたら、電話以外の接点（資料送付）も勧める
+  function planHtml(d) {
+    const L = d.lead, g = d.glance || {}, gate = L.gate || {}, c = d.cadence || {};
+    const has = (x) => x && ((x.kb && x.kb.length) || (x.sf && x.sf.length) || (x.hit && x.hit.st === "あり"));
+    const goals = [];
+    if (!(gate.name || L.person)) goals.push("担当者の名前");
+    if (!has(g.when)) goals.push("検討時期");
+    if (!has(g.need)) goals.push("採用で困っていること");
+    if (!gate.hours) goals.push("担当者のいる時間");
+    const lines = [];
+    if (goals.length) lines.push(`<b>この1本で確定させること</b>：${goals.slice(0, 3).map(esc).join("・")}<small>（つながらなくても、受付で聞けたら前進です）</small>`);
+    if (c.streak) lines.push(`担当者に届いていない回数：<b>${c.streak}回続き</b>（上限${c.max}回）${c.streak >= 3 ? "。電話だけでなく、資料送付（メール）で先に接点を作ると、つながりやすくなります" : ""}`);
+    if (c.parked) lines.push("一度休ませてから再開した会社です。前回までと時期が変わっている可能性があります");
+    return lines.length ? `<div class="mcc-plan">${lines.map((x) => `<div>${x}</div>`).join("")}</div>` : "";
   }
   function drawCenter() {
     const d = S.d; if (!d) return; const f = S.f; const L = d.lead;
@@ -310,6 +339,7 @@
     const canPick = f.dialed || isInbound(L.id);
     $("mccCenter").innerHTML = `
       <div class="mcc-sum"><small>前回</small>${d.summary ? esc(d.summary) : "この会社に kinbot から架電した記録はまだありません"}</div>
+      ${planHtml(d)}
       <div class="mcc-callrow">
         ${ph ? `<a class="mcc-btn primary big" href="${callHref(ph)}" id="mccDial" aria-keyshortcuts="C">${ICO.phone}${esc(ph)} にかける<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">C</span></a>` : `<span class="mcc-note">電話番号がありません</span>`}
         <button class="mcc-btn" id="mccSkip" aria-keyshortcuts="S">${ICO.skip}飛ばす<span class="mcc-key">S</span></button>
@@ -1445,6 +1475,40 @@
         <div class="mcc-card"><h2>部署をまたいだ架電（新しい順）</h2>${j.calls.length ? `<table class="mcc-tbl"><thead><tr><th>いつ</th><th>だれが</th><th>会社</th><th>結果</th><th>元の DOC のリスト</th></tr></thead><tbody>
           ${j.calls.map((c) => `<tr><td>${esc(tm(c.created_at))}</td><td>${esc(c.caller)}</td><td>${esc(c.company)}</td><td>${esc(c.outcome)}</td><td>${esc(c.from_name || "")}</td></tr>`).join("")}</tbody></table>` : '<p class="mcc-note">まだありません。</p>'}</div>`;
     } catch (e) { box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; }
+  }
+
+  // ---- 数字：科学的に確かめる画面（時間帯・目安との比較・何回目でアポが取れたか） ----
+  //   目安の数字は資料（B2B のコールドコール）のもの。MOCHICA の数字がこれと違うのは異常ではなく、自分たちの数字で判断するための基準線
+  const pc = (a, b) => (b ? `${(a / b * 100).toFixed(1)}%` : "—");
+  async function drawInsight() {
+    const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`;
+    try { renderInsight(box, await api("/api/mccall/insight")); } catch (e) { box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; }   // 中身が足りない応答でも「読み込んでいます」のまま止まらないように
+  }
+  function renderInsight(box, j) {
+    const row = (lbl, r) => { const ar = r.calls ? r.apo / r.calls : 0; const tag = !r.calls ? "" : ar >= j.bench.top ? '<span class="mcc-tag good">上位の水準</span>' : ar >= j.bench.avg[0] ? '<span class="mcc-tag ok">平均の水準</span>' : '<span class="mcc-tag low">平均より下</span>';
+      return `<tr><td>${esc(lbl)}</td><td class="num">${r.calls}</td><td class="num">${pc(r.person, r.calls)}</td><td class="num">${r.apo}</td><td class="num">${pc(r.apo, r.calls)}</td><td class="num">${pc(r.apo, r.person)}</td><td>${tag}</td></tr>`; };
+    j.hours = j.hours || [];
+    const maxRate = Math.max(...j.hours.map((h) => h.rate), 0.01);
+    const bestH = j.hours.slice().sort((a, b) => b.rate - a.rate)[0];
+    const att = j.byAttempt || []; const late = att.filter((a) => a.n >= 6).reduce((x, a) => x + a.apo, 0); const all = att.reduce((x, a) => x + a.apo, 0);
+    box.innerHTML = `
+      <div class="mcc-card"><h2>直近14日と、資料の目安</h2>
+        <table class="mcc-tbl"><thead><tr><th></th><th class="num">コール</th><th class="num">担当者と話せた率</th><th class="num">アポ</th><th class="num">コール→アポ</th><th class="num">担当者と話せた→アポ</th><th>目安との比較</th></tr></thead><tbody>
+          ${row("あなた", j.me)}${j.team ? row("MOCHICA 全体", j.team) : ""}${(j.people || []).map((p) => row(p.name, p)).join("")}</tbody></table>
+        <p class="mcc-note">目安（資料：B2B のコールドコール→商談化）：平均 ${Math.round(j.bench.avg[0] * 100)}〜${Math.round(j.bench.avg[1] * 100)}%、上位 ${Math.round(j.bench.top * 100)}%以上。数字は日によって大きくぶれるので、日ごとではなく14日のかたまりで見てください。</p></div>
+      <div class="mcc-card"><h2>つながりやすい時間帯（日本時間・担当者と話せた割合）</h2>
+        <div class="mcc-hours">${j.hours.map((h) => `<div class="mcc-hr ${bestH && h.hour === bestH.hour ? "best" : ""}" title="${h.hour}時台：${h.calls}件中 ${h.person}件 担当者と話せた${h.prior ? "（資料の目安で補正）" : ""}"><i style="height:${Math.round(h.rate / maxRate * 100)}%"></i><b>${Math.round(h.rate * 100)}%</b><span>${h.hour}時</span><small>${h.calls}件</small></div>`).join("")}</div>
+        <p class="mcc-note">直近90日の記録（${j.baseCalls}件）から出しています。記録が少ない時間帯は、資料の目安（始業直後と終業前が平均より約47%つながりやすい）を「事前の見立て」として足して、極端な数字に振れないようにしています。記録が増えるほど、自分たちの実測が優先されます。掛け直しの時刻は、前回と違う時間帯のうち、ここでいちばん高い時間に自動で入ります。</p></div>
+      <div class="mcc-card"><h2>何回目の架電で、担当者と話せた・アポが取れたか（直近90日）</h2>
+        ${att.length ? `<table class="mcc-tbl"><thead><tr><th>その会社への</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">アポ率</th></tr></thead><tbody>
+          ${att.map((a) => `<tr><td>${a.n}回目${a.n >= 10 ? "以降" : ""}</td><td class="num">${a.calls}</td><td class="num">${a.person}（${pc(a.person, a.calls)}）</td><td class="num">${a.apo}</td><td class="num">${pc(a.apo, a.calls)}</td></tr>`).join("")}</tbody></table>
+        <p class="mcc-note">アポのうち <b>${all ? Math.round(late / all * 100) : 0}%</b> が6回目以降の架電で取れています（資料では93%）。6回目以降も取れているなら、1〜2回で諦めない掛け直しに価値があります。逆に、6回目以降がほとんど取れないなら、上限（いま ${j.cadence.max}回）を減らす根拠になります。</p>` : '<p class="mcc-note">まだ記録がありません。</p>'}</div>
+      <div class="mcc-card"><h2>いまの掛け直しのきまり</h2>
+        <ul class="mcc-rules"><li>担当者に届かなかったら、<b>${j.cadence.gapDays[0]}営業日後</b>（6回目以降は${j.cadence.gapDays[j.cadence.gapDays.length - 1]}営業日後）に、<b>前回と違う時間帯</b>のうち、つながりやすい時間に自動で掛け直します。</li>
+          <li>受付で「いる時間」を聞けたときは、その時間を優先します。</li>
+          <li>届かないまま <b>${j.cadence.max}回</b> 続いたら、いったん休ませて <b>${j.cadence.parkDays}日後</b>に再開します（時期が動くのを待つため。「終わり」にはしません）。</li>
+          <li>担当者と話せたら、数え直しになります。「自動の掛け直しをやめる」で、会社ごとに止めることもできます。</li></ul>
+        <p class="mcc-note">いま、休ませている会社：<b>${j.parked}</b>件／3回以上続けて届いていない会社：<b>${j.streak3}</b>件（あなたがかけられるリストの中）</p></div>`;
   }
 
   window.mcCallView = start;

@@ -297,7 +297,7 @@ tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5
     <div class="kpis" id="isKpis" style="margin-top:12px"></div></section>
   <section><div class="sec-h"><h2>チーム全体と個人（蓋開け）</h2><span class="sub">色 = 前月のチーム実績との比較（赤 80%未満・黄 80〜99%・緑 100%以上）。行クリックでその人に切り替え</span></div>
     <div class="panel scroll"><table class="bwm" id="isPeople"></table></div></section>
-  <section><div class="sec-h"><h2>日次の推移</h2><span class="sub">セル = 発信数（色はシフト時間×1時間あたり目標との比較。「休」はシフトなし）</span></div><div class="panel pad scroll"><div class="heat" id="isHeat"></div></div></section>
+  <section><div class="sec-h"><h2>日次の推移</h2><span class="sub">セル = 架電数（架電画面の記録・色はシフト時間×1時間あたり目標との比較。「休」はシフトなし）</span></div><div class="panel pad scroll"><div class="heat" id="isHeat"></div></div></section>
   <section><div class="sec-h"><h2>分かれ道（層C）と標準手順の指標 K1〜K6</h2><span class="sub">通話の文字起こしを読み取ると計測できる。いまは基準と目標のみ</span></div><div class="panel scroll"><table id="isK"></table></div></section>
   <section><div class="sec-h"><h2>アポの質と ICP（直近6か月）</h2><span class="sub" id="icpSub"></span></div><div class="panel scroll"><table id="isQuality"></table></div></section>
 </div>
@@ -377,23 +377,27 @@ function avgToWon(c){let s=0;for(let k=SF_ORDER.indexOf(c);k<SF_ORDER.length-1;k
 const pWin=c=>H.reached[c]?H.reached['08']/H.reached[c]:0;
 
 /* 架電 */
+/* インサイドの数字は、架電画面に記録した結果（DATA.log）を数える。Zoom Phone（CALLS）は通話秒数の参考と、記録もれの確認だけに使う */
 const CALLS=DATA.calls?.byOwnerDay||{};
-const CONN_IDX={10:1,30:2,60:3};
+const LOG=DATA.log?.byOwnerDay||{};
+const LI=Object.fromEntries((DATA.log?.cols||[]).map((c,i)=>[c,i]));   // 列の名前→位置（サーバーの LOG_COLS と同じ）
+const LOGN=(DATA.log?.cols||[]).length;
+const lg=(v,k)=>(v&&v[LI[k]])||0;
 
 /* ================= 設定 ================= */
 const histMonthlyWon=H.reached['08']/6;
-const S={target:Math.max(1,Math.round(histMonthlyWon)),connSec:60,excludeStale:true,callsPerHour:17,apoHours:DATA.shifts?.apoTargetHours||3,rateOverride:{},
+const S={target:Math.max(1,Math.round(histMonthlyWon)),excludeStale:true,callsPerHour:17,apoHours:DATA.shifts?.apoTargetHours||3,rateOverride:{},
   closerTargets:(()=>{const t={};const w=SALES_KEYS.map(k=>histDeals.filter(x=>x.ownerK===k&&x.won&&x.created>=HIST_FROM).length+1);const tot=w.reduce((a,b)=>a+b,0);SALES_KEYS.forEach((k,i)=>t[k]=Math.round(Math.max(1,Math.round(histMonthlyWon))*w[i]/tot*10)/10);return t;})()};
 try{const sv=JSON.parse(localStorage.getItem('spd4-'+MONTH)||'null');if(sv)Object.assign(S,sv);}catch(e){}
 const saveS=()=>{try{localStorage.setItem('spd4-'+MONTH,JSON.stringify(S));}catch(e){}};
 
 /* ================= 工程 ================= */
 const STEPS=[
- {k:'icp',no:'—',name:'ICP（アプローチ企業）',src:'【デモ定義】今月はじめて架電した企業数（番号単位）',up:1,demo:1},
- {k:'mql',no:'—',name:'MQL',src:'【デモ定義】ICPのうち10秒以上つながった企業数',up:1,demo:1},
- {k:'call',no:'—',name:'コール数',src:'Zoom Phone 発信数（インサイド8名）',up:1},
- {k:'conn',no:'—',name:'接続数',src:'Zoom Phone 通話時間で判定（計画設定で秒数変更）',up:1},
- {k:'hot',no:'—',name:'ホットリスト',src:'【デモ定義】3分以上話せた企業数',up:1,demo:1},
+ {k:'icp',no:'—',name:'ICP（アプローチ企業）',src:'【デモ定義】今月はじめて架電した企業数（架電画面の記録・リード単位）',up:1,demo:1},
+ {k:'mql',no:'—',name:'MQL',src:'【デモ定義】ICPのうち、受付か担当者までつながった企業数（架電画面の記録）',up:1,demo:1},
+ {k:'call',no:'—',name:'コール数',src:'架電画面に記録した架電数（インサイド8名・元に戻した記録は除く）',up:1},
+ {k:'conn',no:'—',name:'接続数',src:'担当者と話せた記録の数（架電画面の結果が「担当者と話せた」）',up:1},
+ {k:'hot',no:'—',name:'ホットリスト',src:'【デモ定義】担当者と話せて、検討時期（月）と採用ニーズを聞けた企業数（架電画面のヒアリング）',up:1,demo:1},
  {k:'appo',no:'—',name:'アポ獲得',src:'SF 新規商談の作成（01到達）',up:1,sf:'01'},
  {k:'sql',no:'—',name:'SQL（ICP適合アポ）',src:'品質の指標。【デモ定義】アポのうちICPに合うもの（採用人数（目標）6名以上・接触50人以上・従業員100名以上・新卒・IT/官公庁除外）',up:1,demo:1},
  {k:'set',no:'—',name:'商談設定',src:'アポのうち SF に商談日が入っているもの',up:1},
@@ -423,12 +427,12 @@ function icpEval(x){const c=[];const r=recLow(x);
   c.push(x.industry?!ICP_EXCL.test(x.industry):null);
   return c.includes(false)?'ng':c.includes(null)?'unknown':'ok';}
 const isSql=x=>icpEval(x)==='ok';   // 【デモ定義】SQL＝ICPに合うアポ
-const PREV=(()=>{if(!S.rateOverride)S.rateOverride={};const pm=addMonths(M_START,-1),pe=addMonths(M_START,0);const sum=new Array(8).fill(0);
-  IS.forEach(p=>Object.entries((DATA.callsPrev?.byOwnerDay||{})[p.zoom]||{}).forEach(([d,v])=>{if(d>=pm&&d<pe)v.forEach((x,i)=>sum[i]+=x);}));
-  const ci=CONN_IDX[S.connSec]||3;const ap=histDeals.filter(x=>x.created>=pm&&x.created<pe);
+const PREV=(()=>{if(!S.rateOverride)S.rateOverride={};const pm=addMonths(M_START,-1),pe=addMonths(M_START,0);const sum=new Array(LOGN).fill(0);
+  IS.forEach(p=>Object.entries(LOG[p.zoom]||{}).forEach(([d,v])=>{if(d>=pm&&d<pe)v.forEach((x,i)=>sum[i]+=x);}));
+  const ap=histDeals.filter(x=>x.created>=pm&&x.created<pe);
   const sql=ap.filter(isSql);const set=ap.filter(x=>x.appointment);
   const s01=set.filter(x=>x.appointment<=AS_OF&&!/未商談/.test(x.lossReason1||''));
-  const v={icp:sum[5],mql:sum[6],call:sum[0],conn:sum[ci],hot:sum[7],appo:ap.length,sql:sql.length,set:set.length,s01:s01.length};
+  const v={icp:sum[LI.uniq],mql:sum[LI.uniqReached],call:sum[LI.calls],conn:sum[LI.person],hot:sum[LI.uniqHot],appo:ap.length,sql:sql.length,set:set.length,s01:s01.length};
   const r={};UP_RATE_KEYS.forEach(k=>{const pk=prevOf(k);r[k]=v[pk]?v[k]/v[pk]:null;});return {v,r,label:pm.slice(0,7)};})();
 const rate=k=>S.rateOverride?.[k]??PREV.r[k]??0.5;
 const planRates=()=>{const R={};UP_RATE_KEYS.forEach(k=>R[k]=rate(k));R.s02=histRate('01','02')/(R.set*R.s01||1);R.s03=histRate('02','03');R.s04=histRate('03','04');R.s05=histRate('04','05');R.won=histRate('05','08');return R;};
@@ -443,8 +447,8 @@ const hoursBetween=(p,from,to)=>WORKDAYS.filter(d=>d>=from&&d<=to).reduce((a,d)=
 /* scope: {t:'team'|'sales'|'is', k} */
 const TEAM={t:'team'};
 const dealsOf=sc=>sc.t==='sales'?deals.filter(d=>d.owner===sc.k):sc.t==='is'?deals.filter(d=>d.apo===sc.k):deals;
-function calls(sc,from,to){const o={call:0,conn:0,icp:0,mql:0,hot:0};const ci=CONN_IDX[S.connSec]||3;
-  IS.forEach(p=>{if(sc.t==='is'&&p.sf!==sc.k)return;Object.entries(CALLS[p.zoom]||{}).forEach(([d,v])=>{if(d>=from&&d<=to){o.call+=v[0];o.conn+=v[ci];o.icp+=v[5]||0;o.mql+=v[6]||0;o.hot+=v[7]||0;}});});return o;}
+function calls(sc,from,to){const o={call:0,conn:0,icp:0,mql:0,hot:0};
+  IS.forEach(p=>{if(sc.t==='is'&&p.sf!==sc.k)return;Object.entries(LOG[p.zoom]||{}).forEach(([d,v])=>{if(d>=from&&d<=to){o.call+=lg(v,'calls');o.conn+=lg(v,'person');o.icp+=lg(v,'uniq');o.mql+=lg(v,'uniqReached');o.hot+=lg(v,'uniqHot');}});});return o;}
 function actual(k,sc,from=M_START,to=AS_OF){
   if(['icp','mql','call','conn','hot'].includes(k)){if(sc.t==='sales')return null;return {n:calls(sc,from,to)[k],c:0,one:1};}
   const st=STEPS[SI[k]];
@@ -686,7 +690,7 @@ function renderBizSum(){
     kpiStep(A,'appo','アポ獲得')+kpiStep(A,'s01','01 商談実施')+kpiStep(A,'s02','02 案件化')+
     kpi('進行中パイプライン',`${open.length}<small> 件</small>`,`${pill('new','当月 '+open.filter(d=>d.origin==='new').length)} ${pill('carry','繰越 '+open.filter(d=>d.origin==='carry').length)}`)+
     kpi('滞留案件（平均の1.5倍超）',`<span style="color:${stuck.length?'var(--bad)':'inherit'}">${stuck.length}</span><small> 件</small>`,`うち繰越 ${stuck.filter(d=>d.origin==='carry').length}件`)+
-    kpiStep(A,'call','コール数（インサイド）')+kpiStep(A,'conn',`接続数（${S.connSec}秒以上）`);
+    kpiStep(A,'call','コール数（インサイド）')+kpiStep(A,'conn','接続数（担当者と話せた）');
   renderAlerts('bizAlerts',A);
   const capCall=IS.reduce((a,p)=>a+planBetween({t:'is',k:p.sf},'call',M_START,M_END),0),capAppo=IS.reduce((a,p)=>a+planBetween({t:'is',k:p.sf},'appo',M_START,M_END),0);
   $('bizFunSub').innerHTML=`受注目標 ${S.target}件から逆算した必要量との差（上流は前月 ${PREV.label} の転換率、02以降は直近6か月の実績）。<b>インサイドのシフト計画</b>：コール ${Math.round(capCall).toLocaleString()}件・アポ ${fmt1(capAppo)}件／月 → 必要量に対しコール ${pctS(capCall/A.MP.call)}・アポ ${pctS(capAppo/A.MP.appo)}`;
@@ -796,24 +800,29 @@ function renderSalesSum(){
 
 /* ================= インサイド ================= */
 /* テレアポ科学モデル v1（kinbot/docs/teleapo-science-model.md）の層A：
-   アポ/日 ＝ 発信/日 × 応答率 × 担当者到達率 × 2分超継続率 × 打診率 × 打診→アポ率
-   通話ログでは打診が分からないため、最後の2つはまとめて「2分超→アポ」で出す。 */
+   モデルの式は アポ/日 ＝ 発信/日 × 応答率 × 担当者到達率 × 2分超継続率 × 打診率 × 打診→アポ率。
+   ここでは架電画面の記録で組むため、2分超継続率・打診率・打診→アポ率は「担当者→アポ」にまとめて出す（記録に通話の長さと打診が無いため）。 */
 const TSM={version:'1.0',base:{dpd:80.3,answer:.787,person:.569,over2m:.483,ask:.573,askToAppo:.138,appoPerDay:1.38,period:'10/1〜11/6（内線814・文字起こし判定）'},
   kpis:[['K1','2分超の会話の打診率',.578,.80,'高いほど良い'],['K2','打診の前に相手が「問題ない」と言った割合',.234,.15,'低いほど良い'],['K3','打診の前に課題を決めつける問いをした割合',.432,.20,'低いほど良い'],
         ['K4','時期の返事に日付を出し直した割合',.52,.90,'高いほど良い'],['K5','最初の返事が「時期」か「受諾」だった割合',.369,null,'高いほど良い'],['K6','アポなしの担当者通話で日付つきの次回を約束した割合',.24,.60,'高いほど良い']],
   points:[['1','打診したか','2分話したら打診する','打診時の率 − 0.3%','B'],['2','打診の前の掘り方','課題を決めつけて聞かない。「問題ない」の前に打診','「問題ない」でアポ半分','B'],
           ['3','「時期」の返事への返し','その場で週をずらした日付か2択を出し直す','27.7% − 2%','B'],['3','「要否」の返事への返し','切り口を軽くして1回だけ言い直す','4% − 2%','C'],['4','アポなしの終わり方','決める時期の2〜4週前の週を2択で決めて終える','8.2% − 1%','C']]};
-const FACT=[{k:'dpd',l:'発信/日',f:v=>fmt1(v)},{k:'answer',l:'応答率',f:pctS},{k:'person',l:'担当者到達率（推定）',f:pctS},{k:'over2m',l:'2分超継続率',f:pctS},{k:'conv',l:'2分超→アポ',f:v=>(v*100).toFixed(1)+'%'}];
-function isStats(people,from,to,src){const o={dials:0,ans:0,p30:0,o120:0,appo:0,hours:0,sdays:0};
-  people.forEach(p=>{const days=(src||CALLS)[p.zoom]||{};Object.entries(days).forEach(([d,v])=>{if(d>=from&&d<=to){o.dials+=v[0];o.ans+=v[8]||0;o.p30+=v[2];o.o120+=v[9]||0;}});
-    if(!src){WORKDAYS.filter(d=>d>=from&&d<=to&&d<=AS_OF).forEach(d=>{o.hours+=shiftH(p,d);if((days[d]||[0])[0]>0)o.sdays++;});}
-    o.appo+=(src?histDeals:deals).filter(x=>(src?x.apo:x.apo)===p.sf&&(src?x.created:x.reach['01'])>=from&&(src?x.created:x.reach['01'])<=to).length;});
-  if(src){o.sdays=new Set(people.flatMap(p=>Object.keys((src[p.zoom])||{}).filter(d=>d>=from&&d<=to).map(d=>p.zoom+d))).size;}
-  o.dpd=o.dials/Math.max(1,o.sdays);o.answer=o.ans/Math.max(1,o.dials);o.person=o.p30/Math.max(1,o.ans);o.over2m=o.o120/Math.max(1,o.p30);o.conv=o.appo/Math.max(1,o.o120);
+/* 構造方程式は、架電画面に記録した結果で組む（4つの掛け算がそのままアポ数になる）：
+   アポ/日 ＝ 架電/日 × つながった率 × 担当者到達率 × 担当者→アポ率
+   つながった＝受付か担当者まで届いた記録、担当者＝担当者と話せた記録、アポ＝アポ獲得の記録 */
+const FACT=[{k:'dpd',l:'架電/日',f:v=>fmt1(v)},{k:'answer',l:'つながった率',f:pctS},{k:'person',l:'担当者到達率',f:pctS},{k:'conv',l:'担当者→アポ',f:v=>(v*100).toFixed(1)+'%'}];
+/* prev=true は前月と比べる基準の集計（シフトが無いので稼働日数は「記録のある日」を数える） */
+function isStats(people,from,to,prev){const o={dials:0,ans:0,per:0,appo:0,appoSf:0,zoomDials:0,hours:0,sdays:0};const active=new Set();
+  people.forEach(p=>{const days=LOG[p.zoom]||{};Object.entries(days).forEach(([d,v])=>{if(d>=from&&d<=to){o.dials+=lg(v,'calls');o.ans+=lg(v,'reached');o.per+=lg(v,'person');o.appo+=lg(v,'apo');if(lg(v,'calls')>0)active.add(p.zoom+d);}});
+    Object.entries(CALLS[p.zoom]||{}).forEach(([d,v])=>{if(d>=from&&d<=to)o.zoomDials+=v[0]||0;});
+    if(!prev)WORKDAYS.filter(d=>d>=from&&d<=to&&d<=AS_OF).forEach(d=>{o.hours+=shiftH(p,d);});
+    o.appoSf+=(prev?histDeals:deals).filter(x=>x.apo===p.sf&&(prev?x.created:x.reach['01'])>=from&&(prev?x.created:x.reach['01'])<=to).length;});
+  o.sdays=active.size;
+  o.dpd=o.dials/Math.max(1,o.sdays);o.answer=o.ans/Math.max(1,o.dials);o.person=o.per/Math.max(1,o.ans);o.conv=o.appo/Math.max(1,o.per);
   o.appoPerDay=o.appo/Math.max(1,o.sdays);return o;}
-const PREV_IS=(()=>{const pm=addMonths(M_START,-1);return isStats(IS,pm,addMonths(M_START,0).replace(/-01$/,'-00'),DATA.callsPrev?.byOwnerDay||{});})();
+const PREV_IS=(()=>{const pm=addMonths(M_START,-1);return isStats(IS,pm,addMonths(M_START,0).replace(/-01$/,'-00'),true);})();
 /* 段ごとに「前月並みだったらアポが何件増えたか」 */
-function lostBy(o,ref){const E=x=>x.sdays*x.dpd*x.answer*x.person*x.over2m*x.conv;const e=E(o);
+function lostBy(o,ref){const E=x=>x.sdays*x.dpd*x.answer*x.person*x.conv;const e=E(o);
   return FACT.map(f=>{const y={...o,[f.k]:ref[f.k]};return {f,gain:E(y)-e,ratio:ref[f.k]?o[f.k]/ref[f.k]:null};}).sort((a,b)=>b.gain-a.gain);}
 function isRange(){if(state.isPer==='bw'){const b=BW[state.isBw];return [b.start,b.end<AS_OF?b.end:AS_OF,`${b.label}（${md(b.start)}〜${md(b.end)}）`];}
   if(state.isPer==='day')return [state.isDay,state.isDay,`${md(state.isDay)}（${dow(state.isDay)}）`];return [M_START,AS_OF,`${AM}月（${md(M_START)}〜${md(AS_OF)}）`];}
@@ -823,9 +832,10 @@ function renderIs(){
   const sel=$('isPerSel');sel.style.display=state.isPer==='month'?'none':'';
   if(state.isPer==='bw')sel.innerHTML=BW.map((b,i)=>`<option value="${i}" ${i===state.isBw?'selected':''}>${b.label}（${md(b.start)}〜${md(b.end)}）</option>`).join('');
   if(state.isPer==='day')sel.innerHTML=WORKDAYS.filter(d=>d<=AS_OF).reverse().map(d=>`<option value="${d}" ${d===state.isDay?'selected':''}>${md(d)}（${dow(d)}）</option>`).join('');
-  $('isNote').innerHTML=`<b>構造方程式（層A）</b>：アポ/日 ＝ 発信/日 × 応答率 × 担当者到達率 × 2分超継続率 × 打診率 × 打診→アポ率。打診は通話ログでは分からないため、最後の2つはまとめて「2分超→アポ」で出しています。
-    比べる相手は<b>前月（${PREV_IS?addMonths(M_START,-1).slice(0,7):''}）の同じ基準のチーム実績</b>です。モデルの基準値（${TSM.base.period}）は文字起こしで判定した数字なので参考として並べています。
-    <br>通話時間による判定：応答＝キャンセル・不在以外、担当者到達（推定）＝30秒以上、2分超＝120秒以上。アポ＝SFのアポ獲得者が入力された新規商談（入力漏れは数えられません）。`;
+  $('isNote').innerHTML=`<b>構造方程式（層A）</b>：アポ/日 ＝ 架電/日 × つながった率 × 担当者到達率 × 担当者→アポ率。すべて<b>架電画面に記録した結果</b>を数えます（元に戻した記録は除く）。
+    比べる相手は<b>前月（${PREV_IS?addMonths(M_START,-1).slice(0,7):''}）の同じ基準のチーム実績</b>です。モデルの基準値（${TSM.base.period}）は文字起こしで判定した数字なので参考として並べています（モデルの「担当者→アポ」は 2分超継続率 × 打診率 × 打診→アポ率 を掛けたもの）。
+    <br>数え方：つながった＝結果が「受付まで」か「担当者と話せた」（応答なし・話し中・留守電・番号NGは含めない）、担当者＝「担当者と話せた」、アポ＝「アポ獲得」。通話の長さは記録に無いので、2分超の会話は出していません。
+    <br>SF の商談に反映されたアポ（アポ獲得者が入力された新規商談）は下のカードで並べて確かめられます。`;
   const o=isStats(people,from,to),P=PREV_IS;
   const nm=state.is==='all'?'インサイド全体':people[0].name;$('isTitle').textContent=`${nm}｜${plabel}`;
   $('isSub').textContent=`${people.length}名／シフト ${o.hours}時間・${o.sdays}人日`;
@@ -833,23 +843,24 @@ function renderIs(){
   const L=lostBy(o,P);const top=L[0];
   $('isEq').innerHTML=`<div class="eq">
     <div class="eqb ${cls(P.appoPerDay?o.appoPerDay/P.appoPerDay:null)}"><div class="l">アポ/日（1人）</div><div class="v num">${o.appoPerDay.toFixed(2)}</div><div class="s">前月 ${P.appoPerDay.toFixed(2)}｜モデル ${TSM.base.appoPerDay}</div></div><div class="op">＝</div>
-    ${FACT.map((f,i)=>`${i?'<div class="op">×</div>':''}<div class="eqb ${cls(P[f.k]?o[f.k]/P[f.k]:null)} ${top&&top.gain>0&&top.f.k===f.k?'worst':''}"><div class="l">${f.l}</div><div class="v num">${f.f(o[f.k])}</div><div class="s">前月 ${f.f(P[f.k])}｜モデル ${f.k==='conv'?(TSM.base.ask*TSM.base.askToAppo*100).toFixed(1)+'%':f.k==='dpd'?TSM.base.dpd:pctS(TSM.base[f.k])}</div></div>`).join('')}
+    ${FACT.map((f,i)=>`${i?'<div class="op">×</div>':''}<div class="eqb ${cls(P[f.k]?o[f.k]/P[f.k]:null)} ${top&&top.gain>0&&top.f.k===f.k?'worst':''}"><div class="l">${f.l}</div><div class="v num">${f.f(o[f.k])}</div><div class="s">前月 ${f.f(P[f.k])}｜モデル ${f.k==='conv'?(TSM.base.over2m*TSM.base.ask*TSM.base.askToAppo*100).toFixed(1)+'%':f.k==='dpd'?TSM.base.dpd:pctS(TSM.base[f.k])}</div></div>`).join('')}
   </div>
   <div class="basis" style="margin-top:12px">${top&&top.gain>0.05?`<b>いちばん効いている段：${top.f.l}</b>（前月比 ${pctS(top.ratio)}）。この段が前月並みなら、この期間のアポは約 <b>+${fmt1(top.gain)}件</b>。次点：${L.slice(1,3).filter(x=>x.gain>0.05).map(x=>`${x.f.l} +${fmt1(x.gain)}件`).join('、')||'なし'}`:'どの段も前月並み以上です。'}</div>`;
   const gD=o.hours*S.callsPerHour,gA=o.hours/S.apoHours;const j=r=>{const [c,l]=judge(r);return pill(c,l);};
   const apoAll=deals.filter(d=>d.reach['01']>=from&&d.reach['01']<=to);const filled=apoAll.filter(d=>d.apo).length;
-  $('isKpis').innerHTML=kpi('発信数 / シフト計画',`${o.dials.toLocaleString()}<small> / ${Math.round(gD).toLocaleString()}</small>`,`${j(o.dials/gD)} 1時間あたり ${fmt1(o.dials/Math.max(1,o.hours))}件（目標 ${S.callsPerHour}）`,bar(o.dials,0,gD,1))+
-    kpi('2分超の会話',`${o.o120}<small> 件</small>`,`発信の ${pctS(o.o120/Math.max(1,o.dials))}（前月 ${pctS(P.o120/Math.max(1,P.dials))}）`)+
-    kpi('アポ / シフト計画',`${o.appo}<small> / ${fmt1(gA)}</small>`,`${j(o.appo/gA)} ${S.apoHours}時間に1件が目標`,bar(o.appo,0,gA,1))+
-    kpi('アポ獲得者の入力率（SF）',`${pctS(filled/Math.max(1,apoAll.length))}`,`この期間の新規商談 ${apoAll.length}件中 ${filled}件。未入力だとアポが数えられない`);
+  $('isKpis').innerHTML=kpi('架電数（記録） / シフト計画',`${o.dials.toLocaleString()}<small> / ${Math.round(gD).toLocaleString()}</small>`,`${j(o.dials/gD)} 1時間あたり ${fmt1(o.dials/Math.max(1,o.hours))}件（目標 ${S.callsPerHour}）`,bar(o.dials,0,gD,1))+
+    kpi('担当者と話せた',`${o.per.toLocaleString()}<small> 件</small>`,`架電の ${pctS(o.per/Math.max(1,o.dials))}（前月 ${pctS(P.per/Math.max(1,P.dials))}）`)+
+    kpi('アポ（記録） / シフト計画',`${o.appo}<small> / ${fmt1(gA)}</small>`,`${j(o.appo/gA)} ${S.apoHours}時間に1件が目標`,bar(o.appo,0,gA,1))+
+    kpi('アポ：記録 → SF の商談',`${o.appo}<small> → ${o.appoSf}</small>`,`記録したアポ ${o.appo}件のうち、SF にアポ獲得者つきの新規商談が立っているのは ${o.appoSf}件。差は商談の作り忘れ・獲得者の入力漏れ（入力率 ${pctS(filled/Math.max(1,apoAll.length))}）`)+
+    kpi('架電の記録率（Zoom 発信に対して）',`${o.zoomDials?pctS(o.dials/o.zoomDials):'—'}`,`Zoom Phone の発信 ${o.zoomDials.toLocaleString()}件のうち、結果を記録した ${o.dials.toLocaleString()}件。低いほど数字が実態より少ない`);
   // チーム全体と個人
   const rowsP=[{name:'チーム全体',ps:IS,team:1},...IS.map(p=>({name:p.name,ps:[p],sf:p.sf}))];
-  $('isPeople').innerHTML=`<thead><tr><th>担当</th><th class="r">シフト</th><th class="r">発信</th><th class="r">発信/時間</th>${FACT.slice(1).map(f=>`<th class="c">${f.l}</th>`).join('')}<th class="r">2分超</th><th class="r">アポ</th><th class="c">アポ計画比</th><th>いちばん効いている段</th></tr></thead><tbody>`+
+  $('isPeople').innerHTML=`<thead><tr><th>担当</th><th class="r">シフト</th><th class="r">架電</th><th class="r">架電/時間</th>${FACT.slice(1).map(f=>`<th class="c">${f.l}</th>`).join('')}<th class="r">担当者</th><th class="r">アポ</th><th class="c">アポ計画比</th><th>いちばん効いている段</th></tr></thead><tbody>`+
     rowsP.map(r=>{const x=isStats(r.ps,from,to);const t=lostBy(x,P)[0];const ga=x.hours/S.apoHours;
       return `<tr class="${r.team?'total':''}" ${r.sf?`data-sc="is|${esc(r.sf)}"`:''} style="${r.sf?'cursor:pointer':''}${state.is===r.sf?';background:#f2f6ff':''}"><td>${esc(r.name)}</td><td class="r num">${x.hours}h</td><td class="r num">${x.dials.toLocaleString()}</td>
       <td class="cell r num ${x.hours?cls(x.dials/x.hours/S.callsPerHour):''}">${x.hours?fmt1(x.dials/x.hours):'—'}</td>
       ${FACT.slice(1).map(f=>`<td class="cell ${x.dials?cls(P[f.k]?x[f.k]/P[f.k]:null):''}">${x.dials?f.f(x[f.k]):'—'}</td>`).join('')}
-      <td class="r num">${x.o120}</td><td class="r num">${x.appo}</td><td class="cell ${ga?cls(x.appo/ga):''}">${ga?pctS(x.appo/ga):'—'}</td>
+      <td class="r num">${x.per}</td><td class="r num">${x.appo}</td><td class="cell ${ga?cls(x.appo/ga):''}">${ga?pctS(x.appo/ga):'—'}</td>
       <td>${x.dials&&t&&t.gain>0.05?`${t.f.l} <span class="muted">+${fmt1(t.gain)}件</span>`:'<span class="muted">—</span>'}</td></tr>`;}).join('')+'</tbody>';
   // 層C・K
   $('isK').innerHTML=`<thead><tr><th>ID</th><th>指標（標準手順 v1）</th><th class="r">基準（10/1〜11/5）</th><th class="r">目標</th><th class="c">今期</th></tr></thead><tbody>`+
@@ -860,8 +871,8 @@ function renderIs(){
   // 日次
   const el=$('isHeat');el.style.gridTemplateColumns=`110px repeat(${WD},minmax(34px,1fr)) 64px`;
   let h='<div></div>'+WORKDAYS.map(s=>`<div class="hh" style="${s===AS_OF?'color:var(--ink);font-weight:700':''}">${md(s)}<br>${dow(s)}</div>`).join('')+'<div class="hh">1時間あたり</div>';
-  IS.forEach(p=>{const days=CALLS[p.zoom]||{};h+=`<div class="hl">${esc(p.name)}</div>`;let sum=0,hh=0;
-    WORKDAYS.forEach(s=>{const sh=shiftH(p,s);const g=sh*S.callsPerHour;const v=(days[s]||[0])[0];
+  IS.forEach(p=>{const days=LOG[p.zoom]||{};h+=`<div class="hl">${esc(p.name)}</div>`;let sum=0,hh=0;
+    WORKDAYS.forEach(s=>{const sh=shiftH(p,s);const g=sh*S.callsPerHour;const v=lg(days[s],'calls');
       if(s>AS_OF){h+=`<div class="hc hf" title="${md(s)} シフト${sh}h">${sh?Math.round(g):'休'}</div>`;return;}
       sum+=v;hh+=sh;
       if(!sh){h+=`<div class="hc" style="background:var(--soft);color:var(--ink3)" title="${md(s)} シフトなし ${v}件">${v||'休'}</div>`;return;}
@@ -888,7 +899,6 @@ function renderSettings(){
    <div class="fh">インサイド</div>
    <div class="frow"><span>シフト1時間あたりのコール目標</span><input type="number" data-s="callsPerHour" value="${S.callsPerHour}" min="0"></div>
    <div class="frow"><span>アポ1件あたりのシフト時間</span><input type="number" data-s="apoHours" value="${S.apoHours}" min="0.5" step="0.5"></div>
-   <div class="frow"><span>接続とみなす通話時間</span><select data-s="connSec">${[10,30,60].map(v=>`<option value="${v}" ${S.connSec==v?'selected':''}>${v}秒以上</option>`).join('')}</select></div>
    <div class="note">シフトは「MOCHICAインターン用シフト データ」から。${esc(DATA.shifts?.typeNote||'')}</div>
    <div class="fh">上流の計画転換率（空欄 = 前月 ${PREV.label} の実績）</div>
    ${UP_RATE_KEYS.map(k=>{const isX=k==='call';const pv=PREV.r[k];const ov=S.rateOverride[k];return `<div class="frow"><span>${RATE_LABEL[k]}<br><span class="note">前月 ${pv==null?'—':isX?fmt1(pv)+'回':pctS(pv)}</span></span><input type="number" data-o="${k}" placeholder="${pv==null?'':isX?fmt1(pv):Math.round(pv*1000)/10}" value="${ov==null?'':isX?ov:Math.round(ov*1000)/10}" step="0.1"></div>`;}).join('')}
@@ -940,9 +950,8 @@ $('dSearch').oninput=e=>{state.dSearch=e.target.value.trim();renderDeals();};
 const drawer=$('drawer'),bg=$('drawerBg'),tg=o=>{drawer.classList.toggle('open',o);bg.classList.toggle('open',o);};
 $('openSettings').onclick=()=>tg(true);$('closeSettings').onclick=()=>tg(false);bg.onclick=()=>tg(false);
 drawer.addEventListener('change',e=>{const t=e.target;
-  if(t.dataset.s==='excludeStale')S.excludeStale=t.value==='1';else if(t.dataset.s==='connSec')S.connSec=+t.value;else if(t.dataset.s)S[t.dataset.s]=Math.max(0,+t.value||0);
+  if(t.dataset.s==='excludeStale')S.excludeStale=t.value==='1';else if(t.dataset.s)S[t.dataset.s]=Math.max(0,+t.value||0);
   if(t.dataset.o){const k=t.dataset.o;if(t.value==='')delete S.rateOverride[k];else S.rateOverride[k]=k==='call'?Math.max(0.1,+t.value):Math.max(0.001,+t.value/100);}
-  if(t.dataset.s==='connSec'){saveS();location.reload();return;}
   if(t.dataset.c)S.closerTargets[t.dataset.c]=Math.max(0,+t.value||0);saveS();render();});
 drawer.addEventListener('click',e=>{if(e.target.id==='resetS'){try{localStorage.removeItem('spd4-'+MONTH);}catch(_){}location.reload();}});
 }
@@ -950,7 +959,7 @@ drawer.addEventListener('click',e=>{if(e.target.id==='resetS'){try{localStorage.
   if (!DATA) {
     const box = document.querySelector('main');
     const keep = box.innerHTML;
-    box.innerHTML = '<div class="panel pad" id="mcLoading">データを読んでいます（SF・Zoom Phone・シフト表）… 初回は1分ほどかかることがあります。</div>';
+    box.innerHTML = '<div class="panel pad" id="mcLoading">データを読んでいます（SF・Zoom Phone・架電の記録・シフト表）… 初回は1分ほどかかることがあります。</div>';
     try {
       const q = new URLSearchParams(location.search);
       const r = await fetch('/api/mcdash/data' + (q.get('refresh') ? '?refresh=1' : ''), { credentials: 'include' });

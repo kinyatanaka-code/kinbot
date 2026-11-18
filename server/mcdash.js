@@ -7,11 +7,15 @@
 //
 // 返す形は public/mcdash.html がそのまま使う DATA（手元の dashboard/build.py と同じ形）。
 //   sf.deals（今月に関係する新規商談＋ステージ履歴）、detail.deals（直近6か月の新規商談の項目）、
-//   calls / callsPrev（Zoom Phone の発信を担当者×日に集計）、shifts（インターンのシフト）、sources（データ源ごとの成否）
+//   log（架電画面に記録した結果を担当者×日に集計。インサイドのコール・接続・担当者到達・アポ・ホットの正本。server/mcdashlog.js）、
+//   calls / callsPrev（Zoom Phone の発信を担当者×日に集計。通話秒数の参考と、記録もれの確認だけに使う）、
+//   shifts（インターンのシフト）、sources（データ源ごとの成否）
 //
 // 黙った失敗を作らない：データ源ごとに ok / ng とエラーの文、0件のときも sources に残し、画面は赤で出す。
 
 import { zoomPhoneConfigured, zoomPhoneUsers, zoomGet } from "./zoomphone.js";
+import { dbPool, listUsers } from "./db.js";
+import { aggregateLogs, whoOf } from "./mcdashlog.js";
 
 // 対象メンバー（2026-11-16 福井さん指定）。key/sf は SF の氏名（空白なし）、zoom は Zoom の表示名（空白なし）
 export const MCDASH_ROSTER = {
@@ -154,6 +158,32 @@ function aggregateCalls(rows, label) {
   return { source: "zoom_phone", period: label, cols: ["calls", "ge10", "ge30", "ge60", "ge180", "uniq", "uniq10", "uniq180", "answered", "ge120"], byOwnerDay: by };
 }
 
+// ───────────── 架電の記録（kinbot for MOCHICA の架電画面） ─────────────
+// インサイドのコール・接続・担当者到達・アポ・ホットは、Zoom の通話秒数からの推定ではなく、
+// 架電画面に記録した結果（mc_call_logs）を数える（2026-11-19 福井「ダッシュボードの数字を実際の架電結果に」）。
+// 元に戻した記録（undone）は数えない。集計の中身は server/mcdashlog.js。
+async function loadCallLogs(from, to) {
+  const pool = dbPool();
+  if (!pool) throw new Error("データベースにつながっていません");
+  const has = (await pool.query(`SELECT to_regclass('public.mc_call_logs') AS t`)).rows[0]?.t;
+  if (!has) return { empty: true, rows: [] };
+  const rows = (await pool.query(
+    `SELECT caller, lead_id, reach, outcome, hearing, to_char(created_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM-DD') AS day
+       FROM mc_call_logs
+      WHERE NOT undone AND biz = 'MOCHICA' AND created_at >= $1::timestamptz AND created_at < $2::timestamptz
+      ORDER BY created_at`,
+    [`${from}T00:00:00+09:00`, `${addDays(to, 1)}T00:00:00+09:00`])).rows;
+  return { empty: false, rows };
+}
+// メール → 名前の候補（kinbot の利用者名・Zoom Phone の表示名）。名簿の人に結びつけるのに使う
+async function emailNames() {
+  const m = new Map();
+  const add = (e, n) => { const k = String(e || "").toLowerCase(); if (!k || !n) return; const a = m.get(k) || []; if (!a.includes(n)) a.push(n); m.set(k, a); };
+  for (const u of await listUsers().catch(() => [])) add(u && u.email, u && u.name);
+  for (const [e, n] of (await zoomNameMap().catch(() => new Map()))) add(e, n);
+  return m;
+}
+
 // ───────────── シフト ─────────────
 async function loadShifts(readSheet, asOf) {
   const [rows, types, sets] = await Promise.all([
@@ -208,6 +238,24 @@ async function build(deps) {
       sources["Zoom Phone"] = { status: isN ? "ok" : "ng", at: new Date().toISOString(), note: isN ? `今月の発信 ${cur.length}件（インサイド8名 ${isN}件）・前月 ${prev.length}件` : `インサイド8名の発信が0件でした（全体 ${cur.length}件）。名前の対応を確認してください` };
     } catch (e) { sources["Zoom Phone"] = { status: "ng", at: new Date().toISOString(), note: "Zoom Phone を読めませんでした：" + e.message }; }
   }
+  // 架電の記録（インサイドの数字の正本）。読めなかったときは sources に残し、Zoom の推定で黙って埋めない
+  let log = null;
+  try {
+    const { empty, rows } = await loadCallLogs(pmStart, asOf);
+    if (empty) sources["架電記録"] = { status: "ng", at: new Date().toISOString(), note: "MOCHICA の架電画面の記録の表がまだありません（1件も記録されていません）" };
+    else {
+      const names = await emailNames();
+      const tagged = rows.map((r) => ({ day: r.day, caller: (names.get(String(r.caller || "").toLowerCase()) || [])[0] || r.caller, who: whoOf(r.caller, deps.roster.is, names),
+        leadId: r.lead_id, reach: r.reach, outcome: r.outcome, hearing: r.hearing }));
+      log = aggregateLogs(tagged, `${pmStart.slice(0, 7)}〜${asOf.slice(0, 7)}`);
+      const isN = deps.roster.is.reduce((a, p) => a + Object.values(log.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);
+      const un = Object.entries(log.unmatched).sort((x, y) => y[1] - x[1]);
+      const unN = un.reduce((a, [, n]) => a + n, 0);
+      sources["架電記録"] = { status: isN ? "ok" : "ng", at: new Date().toISOString(),
+        note: (isN ? `前月〜今日の記録 ${log.total}件（インサイド8名 ${isN}件）` : `インサイド8名の記録が0件でした（全体 ${log.total}件）。名前の対応を確認してください`)
+          + (unN ? `。名簿にない人の記録 ${unN}件は数えていません（${un.slice(0, 4).map(([k, n]) => `${k} ${n}件`).join("・")}${un.length > 4 ? "…" : ""}）` : "") };
+    }
+  } catch (e) { sources["架電記録"] = { status: "ng", at: new Date().toISOString(), note: "架電の記録を読めませんでした：" + e.message }; }
   // シフト
   let shifts = null;
   try {
@@ -216,11 +264,12 @@ async function build(deps) {
     sources["シフト"] = { status: n ? "ok" : "ng", at: new Date().toISOString(), note: n ? `今月のシフト ${n}件（${Object.keys(shifts.shifts).length}名）` : "今月のシフトが0件でした" };
   } catch (e) { sources["シフト"] = { status: "ng", at: new Date().toISOString(), note: "シフト表を読めませんでした（福井さんの Google 連携）：" + e.message }; }
   let sfBase = ""; try { sfBase = String((await deps.sfInfo(owner))?.instanceUrl || "").replace(/\/+$/, ""); } catch {}
+  notes.push("※ インサイドのコール・接続・担当者到達・アポ（記録）・ホットは、架電画面に記録した結果を数えています（元に戻した記録は除く。Zoom の通話秒数からの推定はやめました）。");
   notes.push("※ ICP・MQL・ホットリスト・SQL は【デモ定義】。SFで定義が確定したら差し替える。商談設定・商談実施は SF の商談日（appointment__c）で判定。");
   notes.push("※ インサイドの計画はシフト表の勤務時間 × 1時間あたりの目標。アポは設定シートの「アポ目標時間」。");
   notes.push("※ インサイドのアポ数は SF の「アポ獲得者」（Internship_apo__c）が入力された案件のみ。入力率が低いと実態より少なく出ます。");
   return { asOf, fetchedAt: new Date().toISOString(), buildMs: Date.now() - t0, holidays: HOLIDAYS, staleBefore: addMonths(mStart, -3), roster: deps.roster,
-    sf: sfPart.sf, detail: sfPart.detail, calls, callsPrev, shifts, sources, notes, sfBase };
+    sf: sfPart.sf, detail: sfPart.detail, calls, callsPrev, log, shifts, sources, notes, sfBase };
 }
 
 export function registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, readSheet, mochicaSet, isAdmin }) {

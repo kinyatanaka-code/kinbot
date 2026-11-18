@@ -12,7 +12,7 @@
 //
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
-//   不在は同じ日のうちに自動で掛け直しに回す（解除できる）。記録の取り消しは「元に戻す」で行う。
+//   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
 import { dbPool, listUsers, approachBanHit, approachBanHitSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected } from "./google.js";
 import { fixMojibake } from "./docs.js";
@@ -22,6 +22,7 @@ import { lookupMynavi } from "./analyzer.js";
 import { fetchPageText } from "./companyenrich.js";
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
+import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
 
 const BIZ = "MOCHICA";
 
@@ -32,7 +33,7 @@ export const REACH = {
   person: { label: "担当者と話せた", outcomes: { apo: "アポ獲得", doc_send: "資料を送る", follow: "また話す（フォロー）", reject: "断られた" } },
 };
 export const REJECT_REASONS = ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"];
-// 同じ日のうちに掛け直す結果（つながらなかった・担当者がいなかった）
+// 自動で掛け直す結果（つながらなかった・担当者がいなかった）。届かなかった回数 miss_streak もこの結果だけを数える
 const AUTO_RETRY = new Set(["no_answer", "busy", "voicemail", "absent"]);
 // これ以上かけない結果
 const FINAL = new Set(["invalid", "apo", "reject"]);
@@ -73,6 +74,26 @@ async function ensure() {
     //   リードには最新の値、記録にはそのとき聞いた値を残す（元に戻すで前の値へ戻せるように）
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS hearing JSONB`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS hearing JSONB`);
+    // 掛け直しの型（2026-11-19 福井さん「科学的にアポが取れる架電に」）：担当者に届かないまま続けた回数と、休ませた日時。
+    //   列を足す最初の1回だけ、いまある記録から「直近の連続不通の回数」を数えて入れる（既存の会社が0回から数え直しにならないように）。
+    //   入れる上限は「上限−1」にして、いきなり全部が休みに入らないようにする
+    const hasStreak = (await q(`SELECT 1 FROM information_schema.columns WHERE table_name='mc_call_leads' AND column_name='miss_streak'`)).rowCount > 0;
+    const addCols = [`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS miss_streak INT NOT NULL DEFAULT 0`, `ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS parked_at TIMESTAMPTZ`];
+    if (hasStreak) { for (const s of addCols) await q(s); }
+    else {
+      const c = await P().connect();
+      try {
+        await c.query("BEGIN");
+        for (const s of addCols) await c.query(s);
+        await c.query(`UPDATE mc_call_leads c SET miss_streak = LEAST(x.n, ${CADENCE.maxMiss - 1}) FROM (
+            SELECT g.lead_id, count(*) AS n FROM mc_call_logs g
+            WHERE NOT g.undone AND g.outcome IN ('no_answer','busy','voicemail','absent')
+              AND g.created_at > COALESCE((SELECT max(p.created_at) FROM mc_call_logs p WHERE p.lead_id=g.lead_id AND NOT p.undone AND p.reach='person'), 'epoch'::timestamptz)
+            GROUP BY g.lead_id) x WHERE x.lead_id = c.id AND NOT c.done`);
+        await c.query("COMMIT");
+      } catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; }
+      finally { c.release(); }
+    }
     // SF のリードの項目（検討開始時期・採用人数・顧客の課題感）を書けなかったとき。黙って失敗しない（ルール5）
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_lead_err TEXT`);
     // マイナビ（新卒）の掲載の有無と中身。会社ごとに1回だけ調べて持っておく（同じ会社を何度も検索しないため）
@@ -108,26 +129,6 @@ async function ensure() {
     await ensurePlay(q);
   })().catch((e) => { _ready = null; throw e; });
   return _ready;
-}
-
-// 日本時間の「今日の0時」
-function jstDayStart(d = new Date()) {
-  const j = new Date(d.getTime() + 9 * 3600e3); j.setUTCHours(0, 0, 0, 0); return new Date(j.getTime() - 9 * 3600e3);
-}
-function jstAt(base, h, m) { const s = jstDayStart(base); return new Date(s.getTime() + (h * 60 + m) * 60e3); }
-function nextWeekday(d) { let x = new Date(d.getTime() + 86400e3); while ([0, 6].includes(new Date(x.getTime() + 9 * 3600e3).getUTCDay())) x = new Date(x.getTime() + 86400e3); return x; }
-// 不在のときの掛け直しの時刻。受付で「いる時間」を聞けていればそこへ。無ければ2時間後（夕方を過ぎるなら次の平日の朝）
-const SLOT = { 午前: [10, 0], 昼: [12, 30], 午後: [14, 0], 夕方: [17, 0] };
-export function autoRetryAt(now, hours) {
-  const slot = SLOT[String(hours || "").replace(/\s/g, "")] || null;
-  if (slot) {
-    const t = jstAt(now, slot[0], slot[1]);
-    if (t.getTime() - now.getTime() > 30 * 60e3) return { at: t, why: `受付で聞いた「${hours}」に掛け直し` };
-    return { at: jstAt(nextWeekday(now), slot[0], slot[1]), why: `受付で聞いた「${hours}」（次の平日）に掛け直し` };
-  }
-  const t = new Date(now.getTime() + 2 * 3600e3);
-  if (t.getTime() <= jstAt(now, 18, 30).getTime()) return { at: t, why: "同じ日のうちに掛け直すとつながりやすいため、2時間後に掛け直し" };
-  return { at: jstAt(nextWeekday(now), 10, 0), why: "今日はもう遅いので、次の平日の朝に掛け直し" };
 }
 
 // Bales の行から、会社名・電話・担当者を取り出す（camelCase と snake_case の両方がある）
@@ -498,6 +499,21 @@ export function registerMcCall(app, deps) {
   const SF_FAIL = `NOT g.undone AND g.sf_task_id IS NULL AND COALESCE(g.sf_err,'') <> 'nolead' AND (g.sf_err IS NOT NULL OR g.created_at < now() - interval '2 minutes')`;
 
   const adminOnly = (fn) => guard(async (req, res) => { if (!isAdmin(req)) return res.status(403).json({ error: "リストの管理は管理者だけができます" }); await fn(req, res); });
+
+  // 時間帯ごとのつながりやすさ（MOCHICA の直近90日の記録から。掛け直しの時刻の選び方と、画面の「いま」に使う）。
+  //   記録のたびに数え直すと重いので10分だけ覚えておく。数えられなかったときは資料の目安だけで進める（架電は止めない）
+  let _rates = null;
+  async function ratesNow() {
+    if (_rates && Date.now() - _rates.at < 10 * 60e3) return _rates.v;
+    let v;
+    try {
+      const rows = (await P().query(`SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Tokyo')::int AS hour, count(*) AS calls,
+          count(*) FILTER (WHERE reach='person') AS person, count(*) FILTER (WHERE outcome='apo') AS apo
+        FROM mc_call_logs WHERE NOT undone AND biz=$1 AND created_at >= now() - interval '90 days' GROUP BY 1`, [BIZ])).rows;
+      v = hourRates(rows);
+    } catch (e) { console.error("[mccall] 時間帯ごとの数字を読めませんでした", e.message); v = hourRates([]); }
+    _rates = { at: Date.now(), v }; return v;
+  }
 
   // 自分がかけてよいリスト（メンバー指定なし＝MOCHICA のメンバー全員。管理者はすべて見える）
   // withStock：保管のリスト（BALES から移したものなど）も入れる。管理者のリスト管理の画面だけ。かける順番・一覧には出さない
@@ -1177,10 +1193,14 @@ export function registerMcCall(app, deps) {
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
+    // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
+    const rankOrder = `(next_at IS NOT NULL) DESC, COALESCE(next_why = $3, false) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 企業調査が終わった会社だけを出す（架電者が調べなくてよいように）。まだの会社は先に調べるよう頼んでおく
     const gate = researchGate();
-    const items = (await P().query(`SELECT id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from FROM mc_call_leads
-      WHERE ${base}${gate ? " AND research_at IS NOT NULL" : ""} ORDER BY ${order} LIMIT 60`, [use, u])).rows;
+    const cand = (await P().query(`SELECT id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate FROM mc_call_leads
+      WHERE ${base}${gate ? " AND research_at IS NOT NULL" : ""} ORDER BY ${rankOrder} LIMIT 300`, [use, u, WHY_HUMAN])).rows;
+    // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
+    const items = rankQueue(cand).slice(0, 60).map(({ hearing, gate: _g, ...x }) => x);
     let researching = 0;
     if (gate) {
       const wait = (await P().query(`SELECT id FROM mc_call_leads WHERE ${base} AND research_at IS NULL ORDER BY ${order} LIMIT 12`, [use, u])).rows.map((r) => r.id);
@@ -1188,7 +1208,7 @@ export function registerMcCall(app, deps) {
       researching = wait.length ? +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE ${base} AND research_at IS NULL`, [use, u])).rows[0].count : 0;
     }
     const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2`, [use, jstAt(new Date(), 23, 59)])).rows[0].count;
-    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome) })), later: +later, noTalk, researching });
+    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching });
   }));
 
   // ---- 1社の中身（開くとほかの人の順番から外す） ----
@@ -1278,7 +1298,10 @@ export function registerMcCall(app, deps) {
     // トーク（リストごと・A/B は会社ごとに決まった1本）。記録にどの版で話したかを残す（2026-11-20 福井さん）
     const talk = await talkForLead(lead).catch(() => null);
     const script = talk ? talk.body : "";
-    res.json({ ok: true, lead: { ...lead, data }, script, talk, ban, phones, docAlso, glance, mynavi, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
+    // 掛け直しの型：何回続けて届かなかったか／次に不在だった場合にいつ掛け直しになるか（記録の前に画面で見せる）
+    const streak = lead.miss_streak || 0;
+    const cadence = { streak, max: CADENCE.maxMiss, parked: !!lead.parked_at, next: nextMissAt({ streak: streak + 1, gateHours: (lead.gate || {}).hours, rates: await ratesNow() }) };
+    res.json({ ok: true, lead: { ...lead, data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す
@@ -1389,12 +1412,19 @@ export function registerMcCall(app, deps) {
     const gate = b.gate && (b.gate.name || b.gate.hours || b.gate.direct) ? { name: clip(b.gate.name, 40), hours: clip(b.gate.hours, 30), direct: clip(b.gate.direct, 30), at: new Date().toISOString(), by: u } : null;
     const now = new Date();
     // 次にかける時刻：人が選んだもの → 自動の掛け直し → なし
-    let nextAt = b.nextAt ? new Date(b.nextAt) : null, why = nextAt ? "記録した人が決めた時刻" : null;
+    let nextAt = b.nextAt ? new Date(b.nextAt) : null, why = nextAt ? WHY_HUMAN : null;
     if (nextAt && isNaN(nextAt)) { nextAt = null; why = null; }
-    if (!nextAt && AUTO_RETRY.has(outcome) && !b.noRetry) { const r = autoRetryAt(now, (gate && gate.hours) || (lead.gate && lead.gate.hours)); nextAt = r.at; why = r.why; }
+    // 担当者に届かないまま続けた回数（担当者と話せたら 0 に戻る。受付で断られた・掛け直しの指定は数えない）
+    let streak = lead.miss_streak || 0, parkedAt = null;
+    if (reach === "person") streak = 0; else if (AUTO_RETRY.has(outcome)) streak += 1;
+    if (!nextAt && AUTO_RETRY.has(outcome) && !b.noRetry) {
+      const r = nextMissAt({ now, streak, gateHours: (gate && gate.hours) || (lead.gate && lead.gate.hours), rates: await ratesNow() });
+      nextAt = r.at; why = r.why;
+      if (r.parked) { streak = 0; parkedAt = now; }   // 上限まで届かなかった会社は一度休ませ、次の周回を0から数える
+    }
     if (outcome === "callback_req" && !nextAt) return res.status(400).json({ error: "掛け直す時刻を選んでください" });
     const done = FINAL.has(outcome) || (outcome === "doc_send" && !nextAt);
-    const prev = { next_at: lead.next_at, next_why: lead.next_why, last_at: lead.last_at, last_outcome: lead.last_outcome, attempts: lead.attempts, done: lead.done, gate: lead.gate, hearing: lead.hearing };
+    const prev = { next_at: lead.next_at, next_why: lead.next_why, last_at: lead.last_at, last_outcome: lead.last_outcome, attempts: lead.attempts, done: lead.done, gate: lead.gate, hearing: lead.hearing, miss_streak: lead.miss_streak || 0, parked_at: lead.parked_at || null };
     // ヒアリングは担当者と話せたときだけ記録に付ける（受付・不在で前の値が SF に二重に書かれないように）
     const hNew = reach === "person" ? cleanHearing(b.hearing || {}) : null;
     const hearing = hNew ? { ...mergeHearing(lead.hearing, hNew), at: now.toISOString(), by: u } : null;
@@ -1406,9 +1436,9 @@ export function registerMcCall(app, deps) {
     // どのトーク（版）で話したか。そのリストのトークのときだけ残す（別のリストのトークと取り違えないため）
     const talkId = parseInt(b.talkId, 10);
     if (talkId) await P().query(`UPDATE mc_call_logs g SET talk_id=t.id FROM mc_call_talks t WHERE g.id=$1 AND t.id=$2 AND t.list_id=$3`, [log.id, talkId, lead.list_id]);
-    await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), hearing=COALESCE($7, hearing), locked_by=NULL WHERE id=$1`,
-      [id, outcome, nextAt, why, done, gate, hearing]);
-    res.json({ ok: true, logId: log.id, nextAt, why, done });
+    await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), hearing=COALESCE($7, hearing), miss_streak=$8, parked_at=$9, locked_by=NULL WHERE id=$1`,
+      [id, outcome, nextAt, why, done, gate, hearing, streak, parkedAt]);
+    res.json({ ok: true, logId: log.id, nextAt, why, done, parked: !!parkedAt });
     // SF の活動（リードに付ける）。代理アカウントでも書ける。失敗しても架電の記録は残り、画面の知らせから書き直せる
     sfWrite(req, log.id).catch(() => {});
   }));
@@ -1421,8 +1451,8 @@ export function registerMcCall(app, deps) {
     if (!mine && !isAdmin(req)) return res.status(403).json({ error: "記録してから15分を過ぎたので取り消せません。管理者に頼んでください" });
     const p = g.prev || {};
     await P().query(`UPDATE mc_call_logs SET undone=true WHERE id=$1`, [g.id]);
-    await P().query(`UPDATE mc_call_leads SET next_at=$2, next_why=$3, last_at=$4, last_outcome=$5, attempts=GREATEST(COALESCE($6,0),0), done=COALESCE($7,false), gate=$8${g.hearing ? ", hearing=$9" : ""} WHERE id=$1`,
-      [g.lead_id, p.next_at || null, p.next_why || null, p.last_at || null, p.last_outcome || null, p.attempts, p.done, p.gate || null, ...(g.hearing ? [p.hearing || null] : [])]);
+    await P().query(`UPDATE mc_call_leads SET next_at=$2, next_why=$3, last_at=$4, last_outcome=$5, attempts=GREATEST(COALESCE($6,0),0), done=COALESCE($7,false), gate=$8, miss_streak=COALESCE($9,0), parked_at=$10${g.hearing ? ", hearing=$11" : ""} WHERE id=$1`,
+      [g.lead_id, p.next_at || null, p.next_why || null, p.last_at || null, p.last_outcome || null, p.attempts, p.done, p.gate || null, p.miss_streak, p.parked_at || null, ...(g.hearing ? [p.hearing || null] : [])]);
     let sf = "";
     if (g.sf_task_id) { try { await deleteTask(await sfActor(req), g.sf_task_id); sf = "SF の活動も消しました"; } catch (e) { sf = `SF の活動は消せませんでした（${String(e.message).slice(0, 80)}）`; } }
     res.json({ ok: true, leadId: g.lead_id, sf });
@@ -1439,7 +1469,37 @@ export function registerMcCall(app, deps) {
     const sf = (await P().query(`SELECT count(*) FILTER (WHERE ${SF_FAIL}) AS fail, count(*) FILTER (WHERE NOT g.undone AND g.sf_err='nolead') AS nolead, count(*) FILTER (WHERE NOT g.undone AND g.sf_lead_err IS NOT NULL) AS leaderr,
         (array_agg(g.sf_err ORDER BY g.created_at DESC) FILTER (WHERE ${SF_FAIL} AND g.sf_err IS NOT NULL))[1] AS last_err
       FROM mc_call_logs g WHERE g.caller=$1 AND g.created_at >= $2`, [me(req), jstDayStart()])).rows[0];
-    res.json({ ok: true, me: mine, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null, sf: { fail: +sf.fail, nolead: +sf.nolead, leadErr: +sf.leaderr, lastErr: sf.last_err || "" } });
+    res.json({ ok: true, me: mine, all: isAdmin(req) ? rows.sort((a, b) => b.calls - a.calls) : null, sf: { fail: +sf.fail, nolead: +sf.nolead, leadErr: +sf.leaderr, lastErr: sf.last_err || "" }, slot: slotNow(await ratesNow()) });
+  }));
+
+  // ---- 数字の見方（科学的に確かめる道具）：時間帯ごとのつながりやすさ・直近14日と目安・何回目の架電でアポが取れたか ----
+  //   「6回以上掛けると取れる」という資料の主張が、自分たちの記録でも成り立つかを確かめるための表（何回目か × アポ）。
+  //   何回目かの数え方：その会社への記録を古い順に並べた順番。直近90日の記録だけを出すが、順番は元に戻した記録を除く全期間で数える
+  let _att = null;
+  async function byAttempt() {
+    if (_att && Date.now() - _att.at < 5 * 60e3) return _att.v;
+    const v = (await P().query(`SELECT LEAST(n, 10) AS n, count(*) AS calls, count(*) FILTER (WHERE reach='person') AS person, count(*) FILTER (WHERE outcome='apo') AS apo FROM (
+        SELECT reach, outcome, created_at, row_number() OVER (PARTITION BY lead_id ORDER BY created_at, id) AS n FROM mc_call_logs WHERE NOT undone AND biz=$1) x
+      WHERE created_at >= now() - interval '90 days' GROUP BY 1 ORDER BY 1`, [BIZ])).rows.map((r) => ({ n: +r.n, calls: +r.calls, person: +r.person, apo: +r.apo }));
+    _att = { at: Date.now(), v }; return v;
+  }
+  const rateOf = (r) => ({ calls: +r.calls || 0, person: +r.person || 0, apo: +r.apo || 0 });
+  app.get("/api/mccall/insight", guard(async (req, res) => {
+    const names = await nameMap(); const admin = isAdmin(req);
+    const per = (await P().query(`SELECT caller, count(*) AS calls, count(*) FILTER (WHERE reach='person') AS person, count(*) FILTER (WHERE outcome='apo') AS apo
+      FROM mc_call_logs WHERE NOT undone AND biz=$1 AND created_at >= now() - interval '14 days' GROUP BY caller`, [BIZ])).rows;
+    const mineRow = per.find((r) => String(r.caller || "").toLowerCase() === me(req));
+    const sum = (rows) => rows.reduce((a, r) => ({ calls: a.calls + +r.calls, person: a.person + +r.person, apo: a.apo + +r.apo }), { calls: 0, person: 0, apo: 0 });
+    // 休ませている会社・3回以上続けて届いていない会社（自分がかけられるリストの中で）
+    const ids = await myListIds(req);
+    const st = ids.length ? (await P().query(`SELECT count(*) FILTER (WHERE parked_at IS NOT NULL AND next_at > now()) AS parked, count(*) FILTER (WHERE miss_streak >= 3) AS streak3
+      FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done`, [ids])).rows[0] : { parked: 0, streak3: 0 };
+    const rates = await ratesNow();
+    res.json({ ok: true, slot: slotNow(rates), hours: rates.hours, base: rates.base, baseCalls: rates.calls,
+      me: rateOf(mineRow || {}), team: admin ? sum(per) : null,
+      people: admin ? per.map((r) => ({ name: names.get(String(r.caller || "").toLowerCase()) || r.caller, ...rateOf(r) })).sort((a, b) => b.calls - a.calls) : null,
+      byAttempt: await byAttempt(), parked: +st.parked, streak3: +st.streak3,
+      cadence: { max: CADENCE.maxMiss, gapDays: CADENCE.gapDays, parkDays: CADENCE.parkDays }, bench: BENCH });
   }));
   // SF に書けなかった今日の自分の記録を書き直す（画面の知らせのボタンから）
   app.post("/api/mccall/sf-retry", guard(async (req, res) => {
