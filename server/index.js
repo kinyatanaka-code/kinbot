@@ -15794,6 +15794,7 @@ ${files.map((f) => `・${f.name}：${f.label}${f.link ? `\n  ${f.link}` : ""}`).
 中項目：初回商談リスケ
 
 ・書ける項目：フェーズ／大項目／中項目／小項目（失注理由）／受失注理由詳細／完了予定日／受失注日／次回アクション日
+・商談ID の代わりに「会社：〇〇」でも頼めます（その会社の進行中のクロスの商談が1件だけのとき。2件以上なら候補を返信します）。
 ・商談ID は「Salesforce｜商談（クロス）」の Id の列から、選ぶ値は「Salesforce｜更新するときに選ぶ値」からそのまま写してください。
 ・ほかの道具を使うときは、本文に {"requests":[{"tool":"道具の名前","args":{…}}]} の JSON を入れます（道具は「kinbot｜更新を頼むときの道具」）。
 ${repo ? `・GitHub のリポジトリ ${repo} に issue を作っても、同じように頼めます（登録した GitHub アカウントだけ）。\n` : ""}`;
@@ -15945,14 +15946,16 @@ const GEM_LINE_FIELDS = [
   [/^(失注後次回アクション日|次回アクション日)$/, "LostOpp_nextactiondate__c"],
 ];
 function gemParseLines(body) {
-  const s = String(body || "").replace(/\r/g, ""); let id = ""; const fields = {};
+  const s = String(body || "").replace(/\r/g, ""); let id = ""; let company = ""; const fields = {};
   for (const line of s.split("\n")) {
     const m = line.match(/^\s*[・\-*]?\s*([^:：]{1,20})\s*[:：]\s*(.+?)\s*$/); if (!m) continue;
     const k = m[1].trim(); const v = m[2].trim().slice(0, 255); if (!v) continue;
     if (/^(商談)?id$|^商談ID$|^SFID$/i.test(k)) { const idm = v.match(/\b006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\b/); if (idm) id = idm[0]; continue; }
+    // 商談ID が分からなくても、会社名で頼めるようにする（2026-11-18 田中さん「毎回IDいれなきゃいけない？」）。進行中の商談が1件に決まるときだけ動く
+    if (/^(会社|会社名|企業|企業名|取引先|取引先名)$/.test(k)) { company = v.slice(0, 80); continue; }
     const f = GEM_LINE_FIELDS.find(([re]) => re.test(k)); if (f) fields[f[1]] = /Date|date__c$/.test(f[1]) ? v.replace(/\//g, "-").slice(0, 10) : v;
   }
-  return id && Object.keys(fields).length ? [{ tool: "sf_update", args: { sobject: "Opportunity", id, fields } }] : null;
+  return (id || company) && Object.keys(fields).length ? [{ tool: "sf_update", args: { sobject: "Opportunity", id, fields }, ...(id ? {} : { company }) }] : null;
 }
 let _gemMailBusy = false;
 async function gemMail() {
@@ -15977,6 +15980,18 @@ async function gemMail() {
           const tm = await gemToolMap(email);
           for (const r of reqs) {
             if (GEM_BLOCK_TOOLS.has(r.tool)) { out.push(`■ ${r.tool}\n使えない道具です（メールからは動かしません）`); allOk = false; continue; }
+            if (r.company && !(r.args && r.args.id)) {
+              // 会社名から、進行中のクロスの商談を探す。1件に決まらなければ実行せず、候補を返す
+              try {
+                const sfU = await pickSfUser(email).catch(() => ""); if (!sfU) throw new Error("Salesforce につながる人がいません");
+                const q = String(r.company).replace(/^(株式会社|有限会社|合同会社)|(株式会社|有限会社|合同会社)$/g, "").trim().replace(/\\/g, "").replace(/'/g, "\\'").replace(/[%_]/g, "");
+                if (q.length < 2) throw new Error("会社名が短すぎます");
+                const rs = await sfQuery(sfU, `SELECT Id, Name, StageName, Owner.Name, Account.Name FROM Opportunity WHERE IsClosed = false AND RecordType.Name LIKE '%クロス%' AND Account.Name LIKE '%${q}%' ORDER BY CreatedDate DESC LIMIT 10`);
+                const recs = (rs && rs.records) || [];
+                if (recs.length !== 1) { allOk = false; out.push(recs.length ? `■ ${r.tool} — まだ実行していません\n「${r.company}」の進行中の商談が${recs.length}件あります。どれか1つの商談ID を「商談ID：」に入れて、もう一度送ってください。\n${recs.map((o) => `・${o.Id}　${(o.Account && o.Account.Name) || ""}　${o.StageName}　${(o.Owner && o.Owner.Name) || ""}　${o.Name}`).join("\n")}` : `■ ${r.tool} — できませんでした\n「${r.company}」の進行中のクロスの商談が見つかりません。会社名を見直すか、商談ID を入れてください。`); continue; }
+                r.args = { ...r.args, id: recs[0].Id };
+              } catch (e) { allOk = false; out.push(`■ ${r.tool} — できませんでした\n会社名から商談を探せませんでした：${e.message}`); continue; }
+            }
             try { const t = await gemCall(r.tool, r.args, email, tm); out.push(`■ ${r.tool} — できました\n${JSON.stringify(r.args)}\n${t.slice(0, 6000)}`); }
             catch (e) { allOk = false; out.push(`■ ${r.tool} — できませんでした\n${JSON.stringify(r.args)}\n${e.message}`); }
           }
@@ -16066,14 +16081,14 @@ ${(cfg.driveFiles || []).length ? `\nファイル：\n${cfg.driveFiles.map((f) =
 3. 数字や名前は、ファイルにあるとおり正確に答える。無いものは推測しない。書き出した時刻より新しいことは分からない、と伝える。
 
 ## kinbot に更新を頼むとき（Salesforce のフェーズなど）
-1. 商談ID は「Salesforce｜商談（クロス）」の Id の列から、フェーズや失注理由の値は「Salesforce｜更新するときに選ぶ値」から、一字一句そのまま写す。項目名や値を作らない。
+1. フェーズや失注理由の値は「Salesforce｜更新するときに選ぶ値」から、一字一句そのまま写す。項目名や値を作らない。商談ID はユーザーに聞かない：「Salesforce｜商談（クロス）」で分かればその Id を、分からなければ「商談ID：」の行の代わりに「会社：〇〇（会社名）」と書く（進行中の商談が1件なら kinbot が見つける。2件以上なら候補が返信される）。
 2. 何をどう変えるかを、ユーザーにはっきり見せて「この内容で依頼してよいか」を聞く。
 3. 「はい」と言われたら、Gmail で **ユーザー自身のアドレスあて** のメールの下書きを作る。件名は「kinbot依頼：〇〇（会社名）」。本文は次の形（1通で1件の商談）：
    商談ID：006xxxxxxxxxxxxxxx
    フェーズ：99：失注
    大項目：ニーズ・優先度不足
    中項目：初回商談リスケ
-   （書ける項目：フェーズ／大項目／中項目／小項目／受失注理由詳細／完了予定日／受失注日／次回アクション日）
+   （商談ID が分からなければ、1行目を「会社：株式会社〇〇」にする。書ける項目：フェーズ／大項目／中項目／小項目／受失注理由詳細／完了予定日／受失注日／次回アクション日）
 4. ユーザーが送信を押すと、kinbot が1分ほどで実行し、同じスレッドに「できました／できませんでした」を返信する。
 5. ほかの道具（sf_query など）を使うときは、本文に {"requests":[{"tool":"道具の名前","args":{…}}]} の JSON を入れる（道具は「kinbot｜更新を頼むときの道具」）。
 6. 消す・一度にたくさん変える依頼はしない。
@@ -33401,7 +33416,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
