@@ -79,6 +79,20 @@ async function ensure() {
     await q(`CREATE TABLE IF NOT EXISTS mc_doc_sends (
       id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT, url TEXT, doc_name TEXT,
       sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
+    // BALES CLOUD でできたことを架電画面でも（2026-11-18 福井さん）：
+    //   架電者が直した会社の情報（追加の番号・複数の担当者・メール）。元のデータ（Bales/CSV/DOC）は変えず、ここに重ねる
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS info JSONB`);
+    //   リストごとのトークスクリプト（管理者が書き、架電中は右の列の上に折りたたんで出す）
+    await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS script TEXT`);
+    // リードの重複を絶対に起こさない（2026-11-18 福井さん）：電話番号・会社名・メールアドレスのどれか1つでも同じなら同じリード。
+    //   終わったリード・閉じたリストも含め MOCHICA 全体で1件だけ。鍵（種類・値）を主キーにして、データベースが二重を断る。
+    //   すでに入っていた重複は消さずに dup_of（先に入っていたリード）を付けて、かける順番から外す。
+    //   管理者が「別の会社として残す」を押したもの（同じ代表番号のグループ会社など）は dup_ok で、重複の判定から外す
+    await q(`CREATE TABLE IF NOT EXISTS mc_lead_keys (kind TEXT NOT NULL, k TEXT NOT NULL, lead_id INT NOT NULL, PRIMARY KEY (kind, k))`);
+    await q(`CREATE INDEX IF NOT EXISTS ix_mc_lead_keys_lead ON mc_lead_keys(lead_id)`);
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS dup_of INT`);
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS dup_ok BOOLEAN NOT NULL DEFAULT false`);
+    await backfillLeadKeys();
     await q(`CREATE TABLE IF NOT EXISTS mc_cross_moves (
       id SERIAL PRIMARY KEY, from_biz TEXT, to_biz TEXT, from_ref TEXT, from_name TEXT, to_list_id INT,
       count INT, reason TEXT, by_user TEXT, at TIMESTAMPTZ DEFAULT now())`);
@@ -119,6 +133,9 @@ function phonesOf(lead, data = {}) {
   const NAMES = { companyTel1: "代表", company_tel1: "代表", companyTel2: "電話2", company_tel2: "電話2", personalTel: "担当者直通", personal_tel: "担当者直通" };
   for (const [k, v] of Object.entries(data || {})) if (/tel|phone/i.test(k) && typeof v !== "object") add(NAMES[k] || k, v);
   if (lead.gate && lead.gate.direct) add("受付で聞いた直通", lead.gate.direct);
+  const info = lead.info || {};
+  for (const p of info.phones || []) add(p.label || "追加の番号", p.number);
+  for (const c of info.contacts || []) if (c.phone) add(`担当者 ${c.name || ""}${c.role ? `（${c.role}）` : ""}`.trim(), c.phone);
   return out;
 }
 
@@ -144,6 +161,118 @@ export function companyKey(name) {
   return String(name || "").normalize("NFKC").toLowerCase()
     .replace(/株式会社|有限会社|合同会社|合資会社|合名会社|\(株\)|\(有\)|\(同\)|㈱|㈲/g, "")
     .replace(/[\s・,.、。'"「」()（）\-ー‐]/g, "");
+}
+
+// ---- リードの重複の鍵（2026-11-18 福井さん「リードの重複が絶対に起こらないルール」） ----
+//   同じリード＝「会社名が同じ」かつ「電話番号・メールアドレス・Web ページ・法人番号のどれか1つが同じ」（福井さん決定）。
+//   会社名だけでは決めない（同じ名前の別の会社を止めてしまうため）。番号などだけでも決めない（グループ会社の代表番号など）。
+//   なので鍵は「会社名｜値」の組み合わせ。会社名が無い・4つのどれも無いリードは、鍵が作れず判定できない（入れるが、件数を知らせる）。
+//   電話は数字だけ（+81 は 0 に）で9桁以上、メールは小文字、Web はドメイン（www. を外す）、法人番号は13桁
+const MAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+export function phoneKey(v) { let d = digits(v); if (/^81\d{9,10}$/.test(d)) d = "0" + d.slice(2); return d.length >= 9 ? d : ""; }
+// 元のデータ（Bales/CSV/DOC）は、項目の名前で読む。担当者・所有者・作成者などの項目と社内のドメインは、
+// うちの人のメールや URL なので使わない（使うと関係ないリードどうしが同じ鍵になる）
+const OWN_FIELD = /operator|owner|user|staff|creat|updat|setter|rep_|sender|担当|所有|作成|更新/i;
+const OWN_DOMAIN = /(^|[@.])(neo-career|c-career|neocareer)\./i;
+const SERVICE_HOST = /(^|\.)(balescloud|bales|salesforce|force|lightning|mynavi|rikunabi|doda|google|googleusercontent|zoom|vercel|railway|doc-room|miitel|linkedin|facebook|twitter|x|instagram|wantedly|indeed)\./i;
+const WEB_FIELD = /url|web|hp$|homepage|site|ホームページ|サイト/i;
+const CORP_FIELD = /法人番号|corporate_?number|houjin|corp_?no/i;
+export function webKey(v) {
+  let s = String(v || "").trim().toLowerCase(); if (!s || MAIL_RE.test(s)) return "";
+  if (!/^https?:\/\//.test(s)) { if (!/^[a-z0-9.-]+\.[a-z]{2,}/.test(s)) return ""; s = "http://" + s; }
+  try { const h = new URL(s).hostname.replace(/^www\./, ""); return /\./.test(h) && !OWN_DOMAIN.test(h) && !SERVICE_HOST.test(h) ? h : ""; } catch { return ""; }
+}
+export function corpKey(v) { const d = digits(v); return d.length === 13 ? d : ""; }
+function fieldsIn(o, re) { const out = []; for (const [k, v] of Object.entries(o || {})) if ((typeof v === "string" || typeof v === "number") && re.test(k) && !OWN_FIELD.test(k)) out.push(String(v)); return out; }
+export function leadKeys({ company, phone, info, data } = {}) {
+  const co = companyKey(company); if (co.length < 2) return [];
+  const I = info || {}; const m = new Map();
+  const add = (kind, v) => { if (v) m.set(`${kind}\u0000${co}|${v}`, { kind, k: `${co}|${v}` }); };
+  for (const p of [phone, ...(I.phones || []).map((x) => x.number), ...(I.contacts || []).map((x) => x.phone)]) add("tel", phoneKey(p));
+  for (const e of [I.email, ...(I.contacts || []).map((x) => x.email), ...fieldsIn(data, /mail|メール/i)]) { const x = String(e || "").trim().toLowerCase(); if (MAIL_RE.test(x) && !OWN_DOMAIN.test(x)) add("mail", x); }
+  for (const w of [I.web, ...fieldsIn(data, WEB_FIELD)]) add("web", webKey(w));
+  for (const c of [I.corp, ...fieldsIn(data, CORP_FIELD)]) add("corp", corpKey(c));
+  return [...m.values()];
+}
+// 使わないと決めた鍵（過去分の登録で21件以上のリードに出たもの）。kind を「ign:種類」にして同じ表に置く
+async function dropIgnored(db, keys) {
+  if (!keys.length) return keys;
+  const ig = new Set((await db.query(`SELECT kind, k FROM mc_lead_keys WHERE kind = ANY($1) AND k = ANY($2)`, [[...new Set(keys.map((x) => `ign:${x.kind}`))], keys.map((x) => x.k)])).rows.map((r) => `${r.kind.slice(4)}\u0000${r.k}`));
+  return ig.size ? keys.filter((x) => !ig.has(`${x.kind}\u0000${x.k}`)) : keys;
+}
+const KEY_LABEL = { tel: "会社名と電話番号", mail: "会社名とメールアドレス", web: "会社名と Web ページ", corp: "会社名と法人番号" };
+// 鍵がほかのリードに使われていれば、その1件を返す（自分のものは除く）
+async function keyHit(db, keys, selfId = 0) {
+  if (!keys.length) return null;
+  const r = (await db.query(`SELECT x.kind, x.k, x.lead_id, c.company, l.name AS list FROM mc_lead_keys x JOIN unnest($1::text[], $2::text[]) AS u(kind, k) ON u.kind=x.kind AND u.k=x.k
+    LEFT JOIN mc_call_leads c ON c.id=x.lead_id LEFT JOIN mc_call_lists l ON l.id=c.list_id WHERE x.lead_id <> $3 LIMIT 1`, [keys.map((x) => x.kind), keys.map((x) => x.k), selfId])).rows[0];
+  return r || null;
+}
+export function dupSamples() { const a = []; return { push(company, h) { if (a.length < 5 && h && h.company) a.push(`${company || "（名前なし）"}：${dupText(h)}`); }, list: a }; }
+export function dupText(h) { return h ? `${KEY_LABEL[h.kind] || h.kind}が「${h.company || "（名前なし）"}」${h.list ? `（リスト「${h.list}」）` : ""}と同じ` : ""; }
+// リードを1件入れる。鍵の確かめ・リードの追加・鍵の登録を1つのまとまり（トランザクション）で行うので、
+// 同時に2人が取り込んでも二重には入らない（2人目は主キーで断られて、まるごと取り消される）
+export async function addLeadUnique(cols, ctx = {}) {
+  let keys = leadKeys({ company: cols.company, phone: cols.phone, info: cols.info, data: ctx.data });
+  const c = await P().connect();
+  try {
+    await c.query("BEGIN");
+    keys = await dropIgnored(c, keys);
+    const hit = await keyHit(c, keys);
+    if (hit) { await c.query("ROLLBACK"); return { added: false, dup: hit }; }
+    const names = Object.keys(cols);
+    const row = (await c.query(`INSERT INTO mc_call_leads (${names.join(",")}) VALUES (${names.map((_, i) => `$${i + 1}`).join(",")}) ON CONFLICT DO NOTHING RETURNING id`, names.map((n) => cols[n]))).rows[0];
+    if (!row) { await c.query("ROLLBACK"); return { added: false, dup: { kind: "src" } }; }
+    if (keys.length) await c.query(`INSERT INTO mc_lead_keys (kind, k, lead_id) SELECT a, b, $3 FROM unnest($1::text[], $2::text[]) AS u(a, b)`, [keys.map((x) => x.kind), keys.map((x) => x.k), row.id]);
+    await c.query("COMMIT");
+    return { added: true, id: row.id, nokey: !keys.length };
+  } catch (e) {
+    await c.query("ROLLBACK").catch(() => {});
+    if (e.code === "23505") return { added: false, dup: { kind: "race" } };
+    throw e;
+  } finally { c.release(); }
+}
+// 鍵の表を作る前から入っていたリードの鍵を、古い順（id の小さい順）に登録する（1回だけ）。
+// 後から入った重複には dup_of を付けて、かける順番から外す（消さない）
+async function backfillLeadKeys() {
+  const done = (await P().query(`SELECT 1 FROM mc_lead_keys WHERE kind='_v' AND k='2'`)).rows.length;
+  if (done) return;
+  if ((await P().query(`SELECT 1 FROM mc_lead_keys WHERE kind='_v' AND k='1'`)).rows.length) {
+    await P().query(`DELETE FROM mc_lead_keys`);
+    await P().query(`UPDATE mc_call_leads SET dup_of=NULL WHERE dup_of IS NOT NULL`);
+  }
+  const base = `SELECT c.id, c.company, c.phone, c.info, c.data, c.dup_ok FROM mc_call_leads c`;
+  let rows;
+  // Bales・DOC の元のデータのメールも鍵にする（表が無い環境では、kinbot に持っているものだけで登録する）
+  try {
+    rows = (await P().query(`SELECT c.id, c.company, c.phone, c.info, COALESCE(c.data, '{}'::jsonb) || COALESCE(r.data, '{}'::jsonb) || COALESCE(jsonb_build_object('email', t.email), '{}'::jsonb) AS data, c.dup_ok
+      FROM mc_call_leads c
+      LEFT JOIN mochica_bales_rows r ON c.src='bales' AND r.list_key=split_part(c.src_key,'|',1) AND r.row_key=substr(c.src_key, strpos(c.src_key,'|')+1)
+      LEFT JOIN call_targets t ON c.src='doc' AND t.id::text=c.src_key ORDER BY c.id`)).rows;
+  } catch (e) { console.error("[mccall] 重複の鍵：元のデータを読めなかったので kinbot の分だけで登録します", e.message); rows = (await P().query(`${base} ORDER BY c.id`)).rows; }
+  // 同じ鍵が21件以上のリードに出るものは、社内のメール・コールセンターの番号などの見込みが高いので鍵にしない（ログに残す）
+  const freq = new Map(); const keysOf = new Map();
+  for (const r of rows) { const ks = leadKeys(r); keysOf.set(r.id, ks); for (const x of ks) { const kk = `${x.kind}\u0000${x.k}`; freq.set(kk, (freq.get(kk) || 0) + 1); } }
+  const wide = [...freq.entries()].filter(([, n]) => n > 20);
+  if (wide.length) console.error(`[mccall] 重複の鍵：21件以上のリードに出る鍵 ${wide.length}個は使いません`, wide.slice(0, 10).map(([kk, n]) => `${kk.replace("\u0000", ":")}=${n}`).join(", "));
+  const wideSet = new Set(wide.map(([kk]) => kk));
+  if (wide.length) { const sp = wide.map(([kk]) => kk.split("\u0000"));
+    await P().query(`INSERT INTO mc_lead_keys (kind, k, lead_id) SELECT 'ign:' || a, b, 0 FROM unnest($1::text[], $2::text[]) AS u(a, b) ON CONFLICT DO NOTHING`, [sp.map((x) => x[0]), sp.map((x) => x[1])]); }
+  const owner = new Map(); const dups = [];
+  for (const r of rows) {
+    const keys = keysOf.get(r.id).filter((x) => !wideSet.has(`${x.kind}\u0000${x.k}`));
+    const first = keys.map((x) => owner.get(`${x.kind}\u0000${x.k}`)).find(Boolean);
+    if (first && !r.dup_ok) { dups.push([r.id, first]); continue; }
+    for (const x of keys) { const kk = `${x.kind}\u0000${x.k}`; if (!owner.has(kk)) owner.set(kk, r.id); }
+  }
+  const ent = [...owner.entries()].map(([kk, id]) => { const [kind, k] = kk.split("\u0000"); return { kind, k, id }; });
+  for (let i = 0; i < ent.length; i += 5000) {
+    const s = ent.slice(i, i + 5000);
+    await P().query(`INSERT INTO mc_lead_keys (kind, k, lead_id) SELECT * FROM unnest($1::text[], $2::text[], $3::int[]) ON CONFLICT DO NOTHING`, [s.map((x) => x.kind), s.map((x) => x.k), s.map((x) => x.id)]);
+  }
+  if (dups.length) await P().query(`UPDATE mc_call_leads c SET dup_of=u.f FROM unnest($1::int[], $2::int[]) AS u(id, f) WHERE c.id=u.id`, [dups.map((d) => d[0]), dups.map((d) => d[1])]);
+  await P().query(`INSERT INTO mc_lead_keys (kind, k, lead_id) VALUES ('_v','2',0) ON CONFLICT DO NOTHING`);
+  console.log(`[mccall] 重複の鍵を登録しました（リード ${rows.length}件・鍵 ${ent.length}個・重複で止めたリード ${dups.length}件）`);
 }
 
 // ---- マイナビの調べ（2026-11-18 福井さん「リードのマイナビ掲載有無及びマイナビ情報の反映」。Web検索で自動・取込時にまとめて） ----
@@ -311,7 +440,7 @@ export function registerMcCall(app, deps) {
         count(c.id) AS total, count(c.id) FILTER (WHERE NOT c.done) AS open,
         count(c.id) FILTER (WHERE NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())) AS now,
         count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross
-      FROM mc_call_lists l LEFT JOIN mc_call_leads c ON c.list_id=l.id WHERE l.id = ANY($1) GROUP BY l.id ORDER BY l.created_at DESC`, [ids])).rows : [];
+      FROM mc_call_lists l LEFT JOIN mc_call_leads c ON c.list_id=l.id AND c.dup_of IS NULL WHERE l.id = ANY($1) GROUP BY l.id ORDER BY l.created_at DESC`, [ids])).rows : [];
     res.json({ ok: true, admin: isAdmin(req), items: rows.map((r) => ({ ...r, total: +r.total, open: +r.open, now: +r.now, cross: +r.cross })) });
   }));
   app.post("/api/mccall/lists", adminOnly(async (req, res) => {
@@ -325,7 +454,76 @@ export function registerMcCall(app, deps) {
     if (b.name != null) await P().query(`UPDATE mc_call_lists SET name=$2 WHERE id=$1`, [id, clip(b.name, 80) || "名前なし"]);
     if (Array.isArray(b.members)) await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [id, b.members.map((x) => String(x).toLowerCase()).slice(0, 200)]);
     if (b.closed != null) await P().query(`UPDATE mc_call_lists SET closed=$2 WHERE id=$1`, [id, !!b.closed]);
+    if (b.script != null) await P().query(`UPDATE mc_call_lists SET script=$2 WHERE id=$1`, [id, String(b.script).slice(0, 20000) || null]);
     res.json({ ok: true });
+  }));
+  // トークスクリプト（架電者も読む。管理者は上の PATCH で書く）
+  app.get("/api/mccall/lists/:id/script", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!(await myListIds(req)).includes(id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    const r = (await P().query(`SELECT name, script FROM mc_call_lists WHERE id=$1`, [id])).rows[0];
+    res.json({ ok: true, name: r ? r.name : "", script: (r && r.script) || "" });
+  }));
+
+  // ---- リストの一覧（BALES の一覧画面のかわり。2026-11-18 福井さん） ----
+  //   架電者が会社名・電話・担当者で探し、状態・温度・前回の結果で絞って、好きなリードを開けるように。
+  //   見えるのは自分がかけてよいリストのうち、担当が空か自分のもの（管理者はすべて）。かける順番（/queue）と同じ考え方
+  const BROWSE_SORT = { hot: "COALESCE(c.hot,0) DESC, c.id", last: "c.last_at DESC NULLS LAST, c.id", attempts: "c.attempts DESC, c.id", fewest: "c.attempts, COALESCE(c.hot,0) DESC, c.id", company: "c.company, c.id", next: "c.next_at NULLS LAST, c.id" };
+  app.get("/api/mccall/browse", guard(async (req, res) => {
+    const ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
+    const use = listId ? ids.filter((x) => x === listId) : ids;
+    if (!use.length) return res.json({ ok: true, items: [], total: 0 });
+    const w = ["c.list_id = ANY($1)", "c.dup_of IS NULL"]; const p = [use];
+    if (!isAdmin(req)) { p.push(me(req)); w.push(`(c.assigned_to IS NULL OR c.assigned_to=$${p.length})`); }
+    const st = String(req.query.st || "open");
+    if (st === "open") w.push("NOT c.done"); else if (st === "now") w.push("NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())");
+    else if (st === "later") w.push("NOT c.done AND c.next_at > now()"); else if (st === "never") w.push("NOT c.done AND c.attempts = 0");
+    else if (st === "done") w.push("c.done");
+    const hot = parseInt(req.query.hot, 10); if (hot >= 1 && hot <= 3) { p.push(hot); w.push(`COALESCE(c.hot,0) >= $${p.length}`); }
+    const oc = String(req.query.outcome || ""); if (oc && outcomeLabel(oc) !== oc) { p.push(oc); w.push(`c.last_outcome = $${p.length}`); }
+    const q = String(req.query.q || "").normalize("NFKC").trim().slice(0, 60);
+    if (q) {
+      const dq = digits(q);
+      p.push(`%${q.replace(/[%_\\]/g, (m) => "\\" + m)}%`); const a = p.length;
+      const ors = [`c.company ILIKE $${a}`, `c.person ILIKE $${a}`, `c.gate->>'name' ILIKE $${a}`, `c.info::text ILIKE $${a}`];
+      if (dq.length >= 3) { p.push(`%${dq}%`); ors.push(`regexp_replace(COALESCE(c.phone,''),'[^0-9]','','g') LIKE $${p.length}`); }
+      w.push(`(${ors.join(" OR ")})`);
+    }
+    const where = w.join(" AND ");
+    const total = +(await P().query(`SELECT count(*) FROM mc_call_leads c WHERE ${where}`, p)).rows[0].count;
+    const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
+    const rows = (await P().query(`SELECT c.id, c.list_id, l.name AS list, c.company, c.person, c.phone, c.hot, c.attempts, c.last_at, c.last_outcome, c.next_at, c.done, c.assigned_to, c.cross_from,
+        c.gate->>'name' AS gate_name, (c.locked_by IS NOT NULL AND c.locked_by <> $${p.length + 1} AND c.locked_at > now() - interval '10 minutes') AS busy
+      FROM mc_call_leads c JOIN mc_call_lists l ON l.id=c.list_id WHERE ${where} ORDER BY ${BROWSE_SORT[req.query.sort] || BROWSE_SORT.hot} LIMIT 100 OFFSET ${page * 100}`, [...p, me(req)])).rows;
+    const names = await nameMap();
+    res.json({ ok: true, total, page, items: rows.map((r) => ({ ...r, outcome: outcomeLabel(r.last_outcome), assigned: r.assigned_to ? names.get(r.assigned_to) || r.assigned_to : "" })) });
+  }));
+
+  // ---- レポート（期間・人・リスト・日ごと）（2026-11-18 福井さん。BALES のレポートのかわり） ----
+  //   数えるのは kinbot for MOCHICA で記録した架電だけ（Bales で記録した過去の架電は入らない）。取り消した記録は数えない。
+  //   管理者は全員分、ほかの人は自分の分だけ
+  app.get("/api/mccall/report", guard(async (req, res) => {
+    const dayOf = (s, def) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 9 * 3600e3) : def; };
+    const from = dayOf(req.query.from, jstDayStart(new Date(Date.now() - 6 * 86400e3)));
+    const to = new Date(dayOf(req.query.to, jstDayStart()).getTime() + 86400e3);
+    if (to - from > 370 * 86400e3 || to <= from) return res.status(400).json({ error: "期間は1日から1年までで選んでください" });
+    const by = ["user", "list", "day"].includes(req.query.by) ? req.query.by : "user";
+    const key = { user: "g.caller", list: "g.list_id::text", day: "to_char(g.created_at AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD')" }[by];
+    const p = [from, to]; let w = "NOT g.undone AND g.created_at >= $1 AND g.created_at < $2";
+    if (!isAdmin(req)) { p.push(me(req)); w += ` AND g.caller=$${p.length}`; }
+    const listId = parseInt(req.query.list, 10); if (listId) { p.push(listId); w += ` AND g.list_id=$${p.length}`; }
+    const cols = `count(*) AS calls, count(*) FILTER (WHERE g.reach <> 'none') AS reached, count(*) FILTER (WHERE g.reach='person') AS person,
+      count(*) FILTER (WHERE g.outcome='apo') AS apo, count(*) FILTER (WHERE g.outcome='doc_send') AS doc, count(*) FILTER (WHERE g.outcome='follow') AS follow,
+      count(*) FILTER (WHERE g.outcome='reject') AS reject, count(*) FILTER (WHERE g.cross_from IS NOT NULL) AS cross, count(DISTINCT g.lead_id) AS leads`;
+    const num = (r) => { const o = {}; for (const k of ["calls", "reached", "person", "apo", "doc", "follow", "reject", "cross", "leads"]) o[k] = +r[k]; return o; };
+    const rows = (await P().query(`SELECT ${key} AS k, ${cols} FROM mc_call_logs g WHERE ${w} GROUP BY 1 ORDER BY 1`, p)).rows;
+    const tot = (await P().query(`SELECT ${cols} FROM mc_call_logs g WHERE ${w}`, p)).rows[0];
+    const reasons = (await P().query(`SELECT g.reason AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='reject' GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k || "（理由なし）", n: +r.n }));
+    const names = await nameMap();
+    const lists = by === "list" ? new Map((await P().query(`SELECT id::text AS id, name FROM mc_call_lists`)).rows.map((r) => [r.id, r.name])) : null;
+    const label = (k) => by === "user" ? names.get(String(k || "").toLowerCase()) || k : by === "list" ? lists.get(k) || `リスト ${k}` : k;
+    res.json({ ok: true, by, from, to, all: isAdmin(req), total: num(tot), reasons,
+      rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 
   // ---- リードの割り振り・他のリストへ移す（2026-11-17 福井さん。kinbot の利用状況で kincall の
@@ -335,8 +533,8 @@ export function registerMcCall(app, deps) {
   app.get("/api/mccall/lists/:id/leads", adminOnly(async (req, res) => {
     const id = parseInt(req.params.id, 10); const names = await nameMap();
     const rows = (await P().query(`SELECT id, company, person, hot, attempts, last_outcome, next_at, assigned_to FROM mc_call_leads
-      WHERE list_id=$1 AND NOT done ORDER BY COALESCE(hot,0) DESC, id LIMIT 3000`, [id])).rows;
-    const total = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id=$1 AND NOT done`, [id])).rows[0].count;
+      WHERE list_id=$1 AND NOT done AND dup_of IS NULL ORDER BY COALESCE(hot,0) DESC, id LIMIT 3000`, [id])).rows;
+    const total = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id=$1 AND NOT done AND dup_of IS NULL`, [id])).rows[0].count;
     res.json({ ok: true, total, items: rows.map((r) => ({ ...r, outcome: outcomeLabel(r.last_outcome), assigned: r.assigned_to ? names.get(r.assigned_to) || r.assigned_to : "" })) });
   }));
   // 選んだリード（選ばなければ、このリストの終わっていないリード全部）を、選んだ人で均等に分ける。
@@ -352,7 +550,7 @@ export function registerMcCall(app, deps) {
       if (out.length) return res.status(400).json({ error: "このリストのメンバーに入っていない人がいます。先に「メンバー」で足してください" });
     }
     const ids = leadIdsOf(b);
-    const rows = (await P().query(`SELECT id FROM mc_call_leads WHERE list_id=$1 AND NOT done ${ids.length ? "AND id = ANY($2)" : ""} ORDER BY COALESCE(hot,0) DESC, id`, ids.length ? [id, ids] : [id])).rows;
+    const rows = (await P().query(`SELECT id FROM mc_call_leads WHERE list_id=$1 AND NOT done AND dup_of IS NULL ${ids.length ? "AND id = ANY($2)" : ""} ORDER BY COALESCE(hot,0) DESC, id`, ids.length ? [id, ids] : [id])).rows;
     if (!rows.length) return res.status(400).json({ error: "分けるリードがありません（終わったリードは分けません）" });
     if (!members.length) {
       const x = await P().query(`UPDATE mc_call_leads SET assigned_to=NULL WHERE id = ANY($1)`, [rows.map((r) => r.id)]);
@@ -389,16 +587,15 @@ export function registerMcCall(app, deps) {
       AND NOT EXISTS (SELECT 1 FROM mc_call_leads c JOIN mc_call_lists x ON x.id=c.list_id WHERE NOT x.closed AND NOT c.done AND c.src='bales' AND c.src_key = $1::text || '|' || mochica_bales_rows.row_key)
       ORDER BY COALESCE(hot,0) DESC, seq LIMIT $3`, [key, l.run_at, lim])).rows;
     await loadApproachBans().catch(() => {});
-    let added = 0, banned = 0;
+    let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples();
     for (const r of rows) {
       const f = fromBales(r.data || {});
       if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { banned++; continue; }
-      const x = await P().query(`INSERT INTO mc_call_leads (list_id, src, src_key, company, phone, person, sf_lead_id, hot) VALUES ($1,'bales',$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
-        [id, `${key}|${r.row_key}`, f.company, f.phone, f.person, r.lid || null, r.hot]);
-      added += x.rowCount;
+      const x = await addLeadUnique({ list_id: id, src: "bales", src_key: `${key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot }, { data: r.data });
+      if (x.added) { added++; if (x.nokey) nokey++; } else if (x.bad) bad++; else { dup++; ex.push(f.company, x.dup); }
     }
     mynaviEnqueue(rows.map((r) => fromBales(r.data || {}).company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
-    res.json({ ok: true, added, banned, skipped: rows.length - added - banned });
+    res.json({ ok: true, added, banned, dup, bad, nokey, skipped: dup, examples: ex.list });
   }));
 
   // CSV から足す（2026-11-18 福井さん「架電リストをcsvからアップロードできるように」）。
@@ -411,28 +608,22 @@ export function registerMcCall(app, deps) {
     if (!l || l.closed) return res.status(404).json({ error: "リストが見つからないか、閉じています" });
     const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 5000);
     if (!rows.length) return res.status(400).json({ error: "CSV に読める行がありません" });
-    const ckey = (s) => String(s || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|\(株\)|\(有\)|[\s　・.,、。]/g, "").toLowerCase();
-    const open = (await P().query(`SELECT c.phone, c.company FROM mc_call_leads c JOIN mc_call_lists x ON x.id=c.list_id WHERE x.biz=$1 AND NOT x.closed AND NOT c.done AND c.list_id <> $2`, [BIZ, id])).rows;
-    const seenPh = new Set(open.map((r) => digits(r.phone)).filter((x) => x.length >= 9));
-    const seenCo = new Set(open.map((r) => ckey(r.company)).filter(Boolean));
     await loadApproachBans().catch(() => {});
-    let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0; const companies = [];
+    let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0, nokey = 0; const companies = []; const ex = dupSamples();
     for (const r of rows) {
       const company = clip(r.company, 200), phone = clip(r.phone, 40), person = clip(r.person, 100);
-      const ph = digits(phone), ck = ckey(company);
+      const ph = digits(phone), ck = companyKey(company);
       if (!company && ph.length < 9) { bad++; continue; }
-      if ((ph.length >= 9 && seenPh.has(ph)) || (ph.length < 9 && ck && seenCo.has(ck))) { dup++; continue; }
       const lid = /^00Q[0-9A-Za-z]{12,15}$/.test(String(r.sfLeadId || "").trim()) ? String(r.sfLeadId).trim() : null;
       if (approachBanHitSync({ company, phone, leadId: lid })) { banned++; continue; }
       const extra = {}; if (r.extra && typeof r.extra === "object") for (const [k, v] of Object.entries(r.extra).slice(0, 60)) { const kk = clip(k, 60), vv = clip(v, 1000); if (kk && vv) extra[kk] = vv; }
-      const x = await P().query(`INSERT INTO mc_call_leads (list_id, src, src_key, company, phone, person, sf_lead_id, data) VALUES ($1,'csv',$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
-        [id, ph.length >= 9 ? ph : `co:${ck}`, company, phone, person, lid, extra]);
-      if (!x.rowCount) { dup++; continue; }
-      added++; if (!lid) nolead++; companies.push(company);
-      if (ph.length >= 9) seenPh.add(ph); else if (ck) seenCo.add(ck);
+      const x = await addLeadUnique({ list_id: id, src: "csv", src_key: ph.length >= 9 ? ph : `co:${ck}`, company, phone, person, sf_lead_id: lid, data: extra }, { data: extra });
+      if (x.bad) { bad++; continue; }
+      if (!x.added) { dup++; ex.push(company, x.dup); continue; }
+      added++; if (!lid) nolead++; if (x.nokey) nokey++; companies.push(company);
     }
     mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
-    res.json({ ok: true, added, banned, dup, bad, nolead });
+    res.json({ ok: true, added, banned, dup, bad, nolead, nokey, examples: ex.list });
   }));
 
   // DOC の kincall のリスト一覧（読むだけ）。管理者がリードを持ってくるときに選ぶ
@@ -448,20 +639,19 @@ export function registerMcCall(app, deps) {
     if (!docId) return res.status(400).json({ error: "DOC のリストを選んでください" });
     if (!reason) return res.status(400).json({ error: "部署をまたぐ理由を入れてください（あとで一覧に残ります）" });
     const dl = (await P().query(`SELECT id, name FROM call_lists WHERE id=$1`, [docId])).rows[0]; if (!dl) return res.status(404).json({ error: "DOC のリストが見つかりません" });
-    const ts = (await P().query(`SELECT id, company, person, phone, lead_id FROM call_targets WHERE list_id=$1 AND NOT done ORDER BY sort_order, id LIMIT 5000`, [docId])).rows;
+    const ts = (await P().query(`SELECT id, company, person, phone, email, lead_id FROM call_targets WHERE list_id=$1 AND NOT done ORDER BY sort_order, id LIMIT 5000`, [docId])).rows;
     await loadApproachBans().catch(() => {});
     const mv = (await P().query(`INSERT INTO mc_cross_moves (from_biz, to_biz, from_ref, from_name, to_list_id, count, reason, by_user) VALUES ('DOC',$1,$2,$3,$4,0,$5,$6) RETURNING id`,
       [BIZ, String(docId), dl.name, id, reason, me(req)])).rows[0];
-    let added = 0, banned = 0;
+    let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples();
     for (const t of ts) {
       if (approachBanHitSync({ company: t.company, phone: t.phone, leadId: t.lead_id })) { banned++; continue; }
-      const x = await P().query(`INSERT INTO mc_call_leads (list_id, src, src_key, company, phone, person, sf_lead_id, cross_from, cross_id) VALUES ($1,'doc',$2,$3,$4,$5,$6,'DOC',$7) ON CONFLICT DO NOTHING`,
-        [id, String(t.id), t.company, t.phone, t.person, t.lead_id || null, mv.id]);
-      added += x.rowCount;
+      const x = await addLeadUnique({ list_id: id, src: "doc", src_key: String(t.id), company: t.company, phone: t.phone, person: t.person, sf_lead_id: t.lead_id || null, cross_from: "DOC", cross_id: mv.id }, { data: { email: t.email } });
+      if (x.added) { added++; if (x.nokey) nokey++; } else if (x.bad) bad++; else { dup++; ex.push(t.company, x.dup); }
     }
     await P().query(`UPDATE mc_cross_moves SET count=$2 WHERE id=$1`, [mv.id, added]);
     mynaviEnqueue(ts.map((t) => t.company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
-    res.json({ ok: true, added, banned, skipped: ts.length - added - banned, moveId: mv.id });
+    res.json({ ok: true, added, banned, dup, bad, nokey, skipped: dup, examples: ex.list, moveId: mv.id });
   }));
 
   // 部署をまたいだ記録（持ってきた履歴と、そのリードへの架電の数）
@@ -485,10 +675,10 @@ export function registerMcCall(app, deps) {
     if (!use.length) return res.json({ ok: true, items: [], later: 0 });
     const u = me(req);
     const items = (await P().query(`SELECT id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from FROM mc_call_leads
-      WHERE list_id = ANY($1) AND NOT done AND (next_at IS NULL OR next_at <= now())
+      WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
         AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')
       ORDER BY (next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id LIMIT 60`, [use, u])).rows;
-    const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND next_at > now() AND next_at < $2`, [use, jstAt(new Date(), 23, 59)])).rows[0].count;
+    const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2`, [use, jstAt(new Date(), 23, 59)])).rows[0].count;
     res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome) })), later: +later });
   }));
 
@@ -572,7 +762,9 @@ export function registerMcCall(app, deps) {
     })();
     for (const t of tl) delete t.memo;
     const mynavi = await mynaviOf(lead.company).catch(() => null);
-    res.json({ ok: true, lead: { ...lead, data }, ban, phones, docAlso, glance, mynavi, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
+    // トークスクリプト（リストごと）。右の列の上に折りたたんで出す
+    const script = ((await P().query(`SELECT script FROM mc_call_lists WHERE id=$1`, [lead.list_id]).catch(() => ({ rows: [] }))).rows[0] || {}).script || "";
+    res.json({ ok: true, lead: { ...lead, data }, script, ban, phones, docAlso, glance, mynavi, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す
@@ -598,6 +790,72 @@ export function registerMcCall(app, deps) {
   app.post("/api/mccall/leads/:id/clear-next", guard(async (req, res) => {
     await P().query(`UPDATE mc_call_leads SET next_at=NULL, next_why=NULL WHERE id=$1`, [parseInt(req.params.id, 10)]); res.json({ ok: true });
   }));
+  // 会社・担当者の情報を直す（2026-11-18 福井さん。BALES のように架電画面で直せるように）。
+  //   会社名・担当者名・代表電話は kinbot のリードを直接直す（Bales/CSV/DOC の元のデータは変えない）。
+  //   追加の番号・ほかの担当者・メールは info に持つ。番号は数字が9桁以上のものだけ残す（押して発信できない番号を増やさない）
+  app.patch("/api/mccall/leads/:id", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const lead = (await P().query(`SELECT list_id, company, person, phone, info, dup_of FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
+    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    const company = b.company != null ? clip(b.company, 200) : lead.company;
+    if (!company) return res.status(400).json({ error: "会社名は空にできません" });
+    const phone = b.phone != null ? clip(b.phone, 40) : lead.phone;
+    if (phone && digits(phone).length < 9) return res.status(400).json({ error: "代表電話は数字9桁以上で入れてください" });
+    const isMail = (v) => /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(v);
+    const email = clip(b.email, 120); if (email && !isMail(email)) return res.status(400).json({ error: "メールアドレスの形が正しくありません" });
+    const phones = (Array.isArray(b.phones) ? b.phones : []).slice(0, 10).map((x) => ({ label: clip(x && x.label, 30), number: clip(x && x.number, 40) })).filter((x) => digits(x.number).length >= 9);
+    const contacts = (Array.isArray(b.contacts) ? b.contacts : []).slice(0, 10).map((x) => ({ name: clip(x && x.name, 60), role: clip(x && x.role, 60), phone: clip(x && x.phone, 40), email: clip(x && x.email, 120) }))
+      .filter((x) => x.name || x.phone || x.email);
+    const bad = contacts.find((x) => (x.phone && digits(x.phone).length < 9) || (x.email && !isMail(x.email)));
+    if (bad) return res.status(400).json({ error: `担当者「${bad.name || "名前なし"}」の電話（数字9桁以上）かメールの形が正しくありません` });
+    const web = clip(b.web, 300); if (web && !webKey(web)) return res.status(400).json({ error: "Web ページは https://〜 の形で入れてください（Bales や SF などのサービスのページは入れられません）" });
+    const corp = clip(b.corp, 20); if (corp && !corpKey(corp)) return res.status(400).json({ error: "法人番号は13桁の数字で入れてください" });
+    const info = { email, web, corp, phones, contacts, at: new Date().toISOString(), by: me(req) };
+    // 重複の鍵も直す：新しい会社名＋（電話・メール・Web・法人番号）がほかのリードのものなら断る（重複を作らない）。
+    //   鍵は元のデータ（Bales/CSV/DOC）も含めて作り直す（会社名を直したら、元のデータのメールなどの鍵も新しい会社名で付け直すため）
+    const orig = await leadFor(req, id).catch(() => ({ data: {} }));
+    let neu = leadKeys({ company, phone, info, data: orig.data });
+    const c = await P().connect();
+    try {
+      await c.query("BEGIN");
+      if (!lead.dup_of) {
+        neu = await dropIgnored(c, neu);
+        const hit = await keyHit(c, neu, id);
+        if (hit) { await c.query("ROLLBACK"); return res.status(400).json({ error: `保存できません：${dupText(hit)}です（リードの重複は作れません）。同じ会社なら、そちらのリードを使ってください` }); }
+        await c.query(`DELETE FROM mc_lead_keys WHERE lead_id=$1 AND kind NOT LIKE 'ign:%' AND kind <> '_v'`, [id]);
+        if (neu.length) await c.query(`INSERT INTO mc_lead_keys (kind, k, lead_id) SELECT a, b, $3 FROM unnest($1::text[], $2::text[]) AS u(a, b) ON CONFLICT DO NOTHING`, [neu.map((x) => x.kind), neu.map((x) => x.k), id]);
+      }
+      await c.query(`UPDATE mc_call_leads SET company=$2, person=$3, phone=$4, info=$5 WHERE id=$1`, [id, company, b.person != null ? clip(b.person, 100) : lead.person, phone, info]);
+      await c.query("COMMIT");
+    } catch (e) {
+      await c.query("ROLLBACK").catch(() => {});
+      if (e.code === "23505") return res.status(409).json({ error: "同じときにほかの人が同じ会社・番号を入れたので保存できませんでした。もう一度開き直してください" });
+      throw e;
+    } finally { c.release(); }
+    res.json({ ok: true });
+  }));
+
+  // ---- 重複で止めたリード（管理者）（2026-11-18） ----
+  //   鍵の表を作る前から入っていた重複。消さずに止めてあるので、管理者が見て決める
+  app.get("/api/mccall/dups", adminOnly(async (req, res) => {
+    const rows = (await P().query(`SELECT c.id, c.company, c.phone, c.attempts, c.last_outcome, l.name AS list, o.id AS oid, o.company AS ocompany, o.phone AS ophone, ol.name AS olist, o.done AS odone, o.last_outcome AS oout
+      FROM mc_call_leads c JOIN mc_call_lists l ON l.id=c.list_id LEFT JOIN mc_call_leads o ON o.id=c.dup_of LEFT JOIN mc_call_lists ol ON ol.id=o.list_id
+      WHERE c.dup_of IS NOT NULL ORDER BY c.id DESC LIMIT 500`)).rows;
+    res.json({ ok: true, items: rows.map((r) => ({ ...r, outcome: outcomeLabel(r.last_outcome), oout: outcomeLabel(r.oout) })) });
+  }));
+  // 「別の会社として残す」：同じ代表番号のグループ会社などで、本当に別の会社だったとき。
+  //   空いている鍵だけをこのリードに付ける（先のリードの鍵は取らない）。かける順番に戻る
+  app.post("/api/mccall/leads/:id/not-dup", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const l = (await P().query(`SELECT company, phone, info, data FROM mc_call_leads WHERE id=$1 AND dup_of IS NOT NULL`, [id])).rows[0];
+    if (!l) return res.status(404).json({ error: "このリードは重複で止めたものではありません" });
+    const keys = leadKeys(l);
+    await P().query(`INSERT INTO mc_lead_keys (kind, k, lead_id) SELECT a, b, $3 FROM unnest($1::text[], $2::text[]) AS u(a, b) ON CONFLICT DO NOTHING`, [keys.map((x) => x.kind), keys.map((x) => x.k), id]);
+    await P().query(`UPDATE mc_call_leads SET dup_of=NULL, dup_ok=true WHERE id=$1`, [id]);
+    console.log(`[mccall] 重複で止めたリード ${id} を別の会社として残しました（${me(req)}）`);
+    res.json({ ok: true });
+  }));
 
   // ---- 記録する ----
   app.post("/api/mccall/leads/:id/log", guard(async (req, res) => {
@@ -605,6 +863,7 @@ export function registerMcCall(app, deps) {
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
     if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (lead.dup_of) return res.status(403).json({ error: "重複で止めたリードなので記録できません（ほかのリードと会社名が同じで、電話・メール・Web ページ・法人番号のどれかも同じ）。管理者に知らせてください" });
     const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
     if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため記録できません（理由：${ban.reason || "アプローチ禁止"}）` });
     const reach = String(b.reach || ""); const outcome = String(b.outcome || "");
@@ -751,7 +1010,9 @@ export function registerMcCall(app, deps) {
       const want = String((req.body && req.body.docId) || conf.defaultDocId || "");
       const doc = docs.find((d) => d.id === want) || docs[0];
       const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
-      const to = emailOf(data, sf);
+      // 架電画面で直したメール（いちばん新しく、人が確かめた値）を先に使う
+      const inf = lead.info || {};
+      const to = inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
       const sender = (await nameMap()).get(me(req)) || "";
       const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人\}/g, sender).replace(/\{資料名\}/g, doc.name || "ご案内資料");
       res.json({ ok: true, to, cc: conf.cc, company, person, subject: fill(conf.subject), body: fill(conf.body), docId: doc.id, docName: doc.name,

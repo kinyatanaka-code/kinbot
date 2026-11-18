@@ -140,3 +140,29 @@
 /* マイナビの中身は「見出し 値」を詰めて並べる（ひと目でが縦に伸びすぎないように）（2026-11-18） */
 .mcc-mn{display:inline-block;margin:0 10px 2px 0;}
 .mcc-mn em{font-style:normal;color:var(--c-muted);font-size:11px;margin-right:4px;}
+/* BALES でできたことを架電画面でも（2026-11-18）：情報の編集・トークスクリプト・一覧・レポート */
+.mcc-edit{height:26px;padding:0 8px;font-size:12px;vertical-align:middle;margin-left:6px;}
+.mcc-edit svg{width:14px;height:14px;}
+.mcc-contacts{display:grid;gap:4px;margin:8px 0;padding:8px 12px;border:1px solid var(--c-line);border-radius:12px;font-size:13px;}
+.mcc-contacts small{color:var(--c-muted);font-weight:700;margin:0 6px;}
+.mcc-contacts span{color:var(--c-muted);margin-left:6px;}
+.mcc-erow{display:grid;grid-template-columns:1fr 1fr auto;gap:6px;margin-bottom:6px;}
+.mcc-erow.four{grid-template-columns:1fr 1fr 1fr 1.3fr auto;}
+.mcc-erow input{min-width:0;border:1px solid var(--c-line);border-radius:10px;padding:6px 10px;font:inherit;font-size:13px;}
+.mcc-script{border:1px solid #5DCAA5;background:#f2fbf7;border-radius:12px;margin-bottom:12px;}
+.mcc-script summary{cursor:pointer;padding:8px 12px;font-size:12px;font-weight:800;color:#0d5b47;}
+.mcc-script .body{padding:0 12px 12px;white-space:pre-wrap;font-size:13px;line-height:1.7;max-height:40vh;overflow:auto;}
+.mcc-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 12px;}
+.mcc-filters .mcc-q{min-width:220px;flex:1;}
+.mcc-tblwrap{overflow-x:auto;}
+.mcc-browse tbody tr{cursor:pointer;}
+.mcc-browse tbody tr:hover,.mcc-browse tbody tr:focus{background:#f2fbf7;outline:none;}
+.mcc-browse tr.done{color:var(--c-muted);}
+.mcc-tbl small{color:var(--c-muted);font-weight:600;}
+.mcc-tbl tr.sum td{font-weight:800;border-top:2px solid var(--c-line);}
+.mcc-tbl td.apo{color:#0d5b47;font-weight:800;}
+.mcc-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px;}
+.mcc-kpis > div{border:1px solid var(--c-line);border-radius:12px;padding:8px 12px;}
+.mcc-kpis small{display:block;font-size:11px;font-weight:700;color:var(--c-muted);}
+.mcc-kpis b{font-size:20px;}
+.mcc-kpis .apo b{color:#0d5b47;}

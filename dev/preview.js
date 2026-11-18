@@ -690,10 +690,17 @@ function mccallMock(p) {
   if (p === "/api/mccall/cross") return { ok: true, moves: [{ at: "2026-11-15T01:00:00Z", by: "田中欽也", from_name: "DOC 9月 失注", to_name: "DOC 失注から MOCHICA 提案", count: 40, calls: 6, apo: 1, reason: "DOC で失注した企業に MOCHICA を提案するため" }],
     calls: [{ created_at: "2026-11-16T02:10:00Z", caller: "江田 直人", company: "合同会社サンライズ", outcome: "担当者が不在", from_name: "DOC 9月 失注" }] };
   if (p === "/api/mccall/doc/lists") return { ok: true, items: [{ id: 11, name: "DOC 9月 失注", open: 112 }, { id: 12, name: "doda 掲載中", open: 840 }] };
+  // 一覧・レポート・スクリプトの見た目確認用（2026-11-18）
+  if (p === "/api/mccall/browse") return { ok: true, total: MC_LEADS.length, page: 0, items: MC_LEADS.map((l) => ({ id: l.id, list: "11月 ホット企業", company: l.company, person: l.person, hot: l.hot, attempts: l.attempts, outcome: l.attempts ? "担当者が不在" : "", last_at: l.attempts ? "2026-11-14T06:30:00Z" : null, next_at: l.next_at || null, done: false, cross_from: l.cross_from, gate_name: l.gate && l.gate.name, assigned: l.id === 2 ? "江田 直人" : "", busy: l.id === 3 })) };
+  if (p === "/api/mccall/report") { const r = (label, calls, reached, person, apo) => ({ key: label, label, calls, leads: Math.round(calls * 0.8), reached, person, apo, doc: 2, follow: 3, reject: 4, cross: 1 });
+    const rows = [r("田中欽也", 210, 96, 41, 6), r("江田 直人", 180, 70, 30, 3)];
+    return { ok: true, by: "user", all: true, rows, total: rows.reduce((a, x) => { for (const k of ["calls", "leads", "reached", "person", "apo", "doc", "follow", "reject", "cross"]) a[k] = (a[k] || 0) + x[k]; return a; }, {}), reasons: [{ k: "今は必要ない", n: 5 }, { k: "他社を使っている", n: 3 }] }; }
+  const SCRIPT = "【受付】\n株式会社ネオキャリアの〇〇です。{会社名}の新卒採用のご担当者様はいらっしゃいますか。\n\n【担当者】\n{担当者}様、突然のお電話失礼いたします。27卒の採用で、説明会の参加人数についてお伺いしたく…";
+  if (/^\/api\/mccall\/lists\/\d+\/script$/.test(p)) return { ok: true, name: "11月 ホット企業", script: SCRIPT };
   let m = p.match(/^\/api\/mccall\/leads\/(\d+)$/);
   if (m) {
     const l = MC_LEADS.find((x) => x.id === +m[1]) || MC_LEADS[0];
-    return { ok: true, lead: { ...l, list_id: 1, src: l.cross_from ? "doc" : "bales", data: l.cross_from ? { list_name: "DOC 9月 失注", assigned_to: "植野 大輔", industry: "小売" } : { lastActivityAt: "2026-11-14T06:30:00Z", lastActivityTypeText: "コール", operatorName: "大沢" } },
+    return { ok: true, script: SCRIPT, lead: { ...l, list_id: 1, info: l.id === 1 ? { email: "machida@example.jp", phones: [], contacts: [{ name: "佐藤", role: "人事課長", phone: "", email: "" }] } : null, src: l.cross_from ? "doc" : "bales", data: l.cross_from ? { list_name: "DOC 9月 失注", assigned_to: "植野 大輔", industry: "小売" } : { lastActivityAt: "2026-11-14T06:30:00Z", lastActivityTypeText: "コール", operatorName: "大沢" } },
       // マイナビ・ヒアリングの見た目確認用（2026-11-18）。1件目は掲載あり、2件目は見つからない、ほかは調べ中
       mynavi: l.id === MC_LEADS[0].id ? { status: "listed", url: "https://job.mynavi.jp/27/pc/search/corp000000/outline.html", years: ["2027", "2026"], jobs: ["介護職", "生活相談員"], plannedHires: "11～15名", area: "東京都・埼玉県", preEntry: "1,240名", industry: "福祉・介護", note: "3月から会社説明会を毎週開催", checkedAt: "2026-11-18T01:00:00Z" }
         : l.id === MC_LEADS[1].id ? { status: "notfound", checkedAt: "2026-11-18T01:00:00Z" } : { status: "checking" },
