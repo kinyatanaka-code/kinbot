@@ -13323,3 +13323,7 @@ export async function kxDocAiCounts() {
   if (!pool) return {}; await ensureKxDocAi();
   return Object.fromEntries((await pool.query(`SELECT company_id, COUNT(*)::int n FROM kinxs_docai_chats GROUP BY company_id`)).rows.map((r) => [r.company_id, r.n]));
 }
+export async function kxDocAiAll() {
+  if (!pool) return []; await ensureKxDocAi();
+  return (await pool.query(`SELECT company_id, session_key, qa, first_at, updated_at FROM kinxs_docai_chats ORDER BY first_at DESC LIMIT 5000`)).rows;
+}

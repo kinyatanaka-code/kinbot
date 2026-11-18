@@ -256,7 +256,7 @@ $("kxSync").addEventListener("click", async () => {
 // テスト用の会社を出すか（このブラウザだけ。DOC自動更新の上の「🧪 テスト」で切りかえ）（2026-11-10）
 const KX_TEST = (() => { try { return localStorage.getItem("kxTest") === "1"; } catch { return false; } })();
 const kxUsersUrl = () => `/api/kinxs/users${KX_TEST ? "?test=1" : ""}`;
-const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub", voice: "voice" })[new URLSearchParams(location.search).get("p")] || "home";
+const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub", voice: "voice", access: "access", docai: "docai" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
 // メニューの親子：いまのページがある組は開いておく。矢印で開け閉めしたら、このブラウザで覚えておく（2026-11-17）
 (function kxNavGroups() {
@@ -275,11 +275,11 @@ document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach
     if (window.matchMedia && window.matchMedia("(hover: hover)").matches) g.querySelector(".kx-grp-h").addEventListener("mouseenter", () => { if (!g.classList.contains("open")) setOpen(true); });
   });
 })();
-if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
+if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vAccess")) $("vAccess").hidden = VIEW !== "access"; if ($("vDocAi")) $("vDocAi").hidden = VIEW !== "docai"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "年間更新", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）" })[VIEW] || "DOC更新管理";
+$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "年間更新", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）", access: "アクセス分析", docai: "候補者の質問", voice: "要望・問い合わせ" })[VIEW] || "DOC更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = !["renew", "list"].includes(VIEW);
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
@@ -2513,6 +2513,40 @@ function kxFitScroll(el, cls) {
 }
 const KX_VC_KINDS = ["要望", "問い合わせ"];
 if (VIEW === "voice") renderVoices();
+if (VIEW === "access") renderAccess();
+if (VIEW === "docai") renderDocAiAll();
+// ===== DOC連携「アクセス分析」：会社×月のアクセス数（2026-11-18 田中さん）=====
+//   0件は赤、5件以上（レイヤーA）は緑。会社の行を押すと、その会社の詳細を開く
+async function renderAccess() {
+  const box = $("vAccessBody"); if (!box) return;
+  box.innerHTML = '<div class="kx-note">読み込んでいます…</div>';
+  let d; try { d = await api("/api/kinxs/access/summary"); } catch (e) { box.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; }
+  if (!d.rows.length) { box.innerHTML = '<div class="kx-note">まだアクセス数が入っていません。「年間施策」の右の「アクセス数」に CSV（会社名,月,アクセス数）を貼って取り込んでください。</div>'; return; }
+  const ms = d.months; const last = ms[ms.length - 1];
+  const q = (kxAccQ || "").trim();
+  const rows = d.rows.filter((r) => !q || r.name.includes(q));
+  const zero = d.rows.filter((r) => (r.counts[last] || 0) === 0).length; const a5 = d.rows.filter((r) => (r.counts[last] || 0) >= 5).length;
+  box.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="kx-note">${esc(last)}：${d.rows.length}社　｜　5件以上 <b style="color:#0d5b47">${a5}</b>社　｜　0件 <b style="color:#c0583a">${zero}</b>社</span><input class="kx-in" data-acc-q placeholder="会社名で探す" value="${esc(q)}" style="margin-left:auto;width:220px" /></div>
+    <div class="kx-acc-wrap"><table class="kx-acc"><thead><tr><th>会社</th>${ms.map((m) => `<th>${esc(m.slice(2).replace("-", "/"))}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr data-acc-id="${esc(r.id)}"><td>${esc(r.name)}</td>${ms.map((m) => { const v = r.counts[m]; return v === undefined ? "<td>—</td>" : `<td class="${v === 0 ? "z" : v >= 5 ? "a" : ""}">${v}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const qi = box.querySelector("[data-acc-q]"); qi.addEventListener("input", () => { kxAccQ = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { renderAccess().then(() => { const n = box.querySelector("[data-acc-q]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 300); });
+  box.querySelectorAll("tr[data-acc-id]").forEach((tr) => tr.addEventListener("click", () => openDetail(tr.dataset.accId)));
+}
+let kxAccQ = "";
+// ===== DOC連携「候補者の質問」：全部の会社のまとめ（2026-11-18 田中さん）=====
+async function renderDocAiAll() {
+  const box = $("vDocAiBody"); if (!box) return;
+  box.innerHTML = '<div class="kx-note">読み込んでいます…</div>';
+  let d; try { d = await api("/api/kinxs/docai/summary"); } catch (e) { box.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; }
+  const day = (t) => { if (!t) return ""; const x = new Date(new Date(t).getTime() + 9 * 3600000); return `${x.getUTCMonth() + 1}/${x.getUTCDate()}`; };
+  if (!d.companies.length) { box.innerHTML = `<div class="kx-note">まだ候補者のチャットが入っていません。kinbot の拡張機能（2.2.7 以上）を入れたパソコンで、<a href="https://casual-interview-api.brainverse-ai.com/" target="_blank" rel="noopener">管理画面</a>のチャット管理を開き、チャットを選んで「回答レビュー」を開くと、自動でここに入ります。</div>`; return; }
+  box.innerHTML = `<div class="kx-note" style="margin-bottom:10px">${d.companies.length}社・チャット ${d.chats} 件</div>
+    ${d.top.length ? `<div class="kx-sec" style="margin-bottom:12px"><div class="lb">よく聞かれること（全社）</div><div class="kx-docai-top">${d.top.slice(0, 15).map((t) => `<div><span>${esc(t.q)}</span><span class="kx-note">${t.companies}社</span>${t.n > 1 ? `<b>${t.n}</b>` : ""}</div>`).join("")}</div></div>` : ""}
+    <div class="kx-dq-grid">${d.companies.map((c) => `<div class="kx-dq-card" ${c.account ? `data-dq-id="${esc(c.account.id)}"` : ""} title="${c.account ? "押すと会社の詳細の「候補者の質問」を開きます" : "kinXs の会社と結びついていません（会社の「AI 候補者画面」の URL を入れてください）"}">
+      <div class="co">${esc(c.account ? c.account.name : c.company)}</div><div class="st">チャット ${c.chats} 件・質問 ${c.questions} 件・最後 ${esc(day(c.last))}${c.account ? "" : "　｜　kinXs の会社と未連携"}</div>
+      ${c.top.map((t) => `<div class="q">${esc(t.q)}${t.n > 1 ? `（${t.n}）` : ""}</div>`).join("")}</div>`).join("")}</div>`;
+  box.querySelectorAll("[data-dq-id]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.dqId, { tab: "docai" })));
+}
 
 // ===================== 動きの仕上げ（2026-11-04 田中さん：1 カウントアップ・2 浮くカード・3 脈打つアラート・5 読み込みの光・6 完了のチェック）=====================
 // 5 読み込み中は、カードの形のまま光が流れる仮の形
