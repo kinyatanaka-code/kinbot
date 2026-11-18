@@ -29000,7 +29000,8 @@ app.post("/api/mochica/sf/activity", async (req, res) => {
 // 担当を画面で直す（kinbot のアカウントから選ぶ）。参加者から決めたものより先に使う
 app.get("/api/mochica/reps", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    const mc = await mcMochicaSet();
+    // MOCHICA のメンバー＝ダッシュボードに出る人（営業・インサイド）と架電の管理者（2026-11-18 福井さん「ダッシュボードのメンバー中心で」）
+    const mc = await mcCallMembers();
     const us = (await listUsers().catch(() => [])).filter((u) => u && u.email).map((u) => ({ email: String(u.email).toLowerCase(), name: String(u.name || u.email), mochica: mc.has(String(u.email).toLowerCase()) }));
     // MOCHICA のインターン（インサイド8名など）も MOCHICA の人として並べ、印を付ける（架電リストのメンバー・割り振りで選べるように）（2026-11-18）
     for (const x of us) { if ((await internAccess(x.email).catch(() => ({}))).mc) { x.intern = true; x.mochica = true; } }
@@ -29008,13 +29009,26 @@ app.get("/api/mochica/reps", async (req, res) => {
     res.json({ ok: true, items: us });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 架電で「MOCHICA のメンバー」とする人：ダッシュボードの名簿（営業3名・インサイド8名）に名前がある人と、架電の管理者
+//   メンバー設定の「事業」は兼任などで当てにならないため、ダッシュボードの名簿を正とする（2026-11-18）
+let _mcMembers = null;
+async function mcCallMembers() {
+  if (_mcMembers && Date.now() - _mcMembers.at < 60 * 1000) return _mcMembers.v;
+  const nz = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+  const names = new Set([...MCDASH_ROSTER.sales.map((p) => nz(p.key)), ...MCDASH_ROSTER.is.flatMap((p) => [nz(p.sf), nz(p.zoom)])].filter(Boolean));
+  const v = new Set((await mcCallAdmins().catch(() => new Map())).keys());
+  const [members, users] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]);
+  for (const x of [...(users || []), ...(members || [])]) { const e = String(x.email || "").toLowerCase(); if (e && names.has(nz(x.name))) v.add(e); }
+  _mcMembers = { at: Date.now(), v };
+  return v;
+}
 // MOCHICA の架電（テレアポ）。表も画面も DOC の kincall とは別。DOC の表は管理者がリードを持ってくるときに読むだけ（2026-11-16）
 // MOCHICA の架電の管理者かどうかは、先にここで調べて req に載せておく（mccall.js の isAdmin は待てない作りのため）
 app.use("/api/mccall", async (req, res, next) => {
   try { req.mcCallAdmin = !!req.user && (await mcCallAdmins()).has(String(req.user).toLowerCase()); } catch { req.mcCallAdmin = false; }
   next();
 });
-registerMcCall(app, { isAdmin: (req) => isAiOwner(req) || !!req.mcCallAdmin, adminNames: async () => [...(await mcCallAdmins()).values()], sfActor, mochicaSet: mcMochicaSet, isMcIntern: async (e) => !!(await internAccess(e).catch(() => ({}))).mc });
+registerMcCall(app, { isAdmin: (req) => isAiOwner(req) || !!req.mcCallAdmin, adminNames: async () => [...(await mcCallAdmins()).values()], sfActor, mochicaSet: mcCallMembers, isMcIntern: async (e) => !!(await internAccess(e).catch(() => ({}))).mc });
 registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, readSheet, mochicaSet: mcMochicaSet, isAdmin: isAiOwner });
 registerTeleapoScience(app);
 app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
@@ -33506,7 +33520,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18R Gemini はリンクを押すと Google 検索に飛ばすので、リンクはコードブロックで出してコピーしてもらう形に。kinbot の /gem は、コピーした Gemini の答え（リンクでも本文でも）を貼るだけで読む（許可済みなら開くだけで自動で読む）。／2026-11-18Q（版の印の直し）／2026-11-18P Gemini のリンク：日本語を入れると Gemini がリンクを途中で切るので、英数字だけのリンク（/gem?id=商談ID&s=99&r=R…）に。「選ぶ値」にコードの列。／2026-11-18K for MOCHICA の架電：リストの管理者を正社員（福井・本炭・餌取・齊藤・北川・山田）に広げる（苗字で照合・インターンと DOC だけの人は除く・MCCALL_ADMIN_EMAILS で追加可）。管理画面に管理者の名前を出す。／2026-11-18O Gemini から更新：会社の設定で Gemini はメールを送れない（PERMISSION_DENIED）ので、kinbot の確認画面へのリンク（/gem?t=依頼の本文）を出してもらい、押した人が「いま→変えたあと」を見て「更新する」を押す形に。／2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18R for MOCHICA の架電：MOCHICA のメンバーをダッシュボードの名簿（営業・インサイド）と管理者にする。リストを作る画面などの実行ボタンが見えなかったのを直す。／2026-11-18R Gemini はリンクを押すと Google 検索に飛ばすので、リンクはコードブロックで出してコピーしてもらう形に。kinbot の /gem は、コピーした Gemini の答え（リンクでも本文でも）を貼るだけで読む（許可済みなら開くだけで自動で読む）。／2026-11-18Q（版の印の直し）／2026-11-18P Gemini のリンク：日本語を入れると Gemini がリンクを途中で切るので、英数字だけのリンク（/gem?id=商談ID&s=99&r=R…）に。「選ぶ値」にコードの列。／2026-11-18K for MOCHICA の架電：リストの管理者を正社員（福井・本炭・餌取・齊藤・北川・山田）に広げる（苗字で照合・インターンと DOC だけの人は除く・MCCALL_ADMIN_EMAILS で追加可）。管理画面に管理者の名前を出す。／2026-11-18O Gemini から更新：会社の設定で Gemini はメールを送れない（PERMISSION_DENIED）ので、kinbot の確認画面へのリンク（/gem?t=依頼の本文）を出してもらい、押した人が「いま→変えたあと」を見て「更新する」を押す形に。／2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
@@ -38536,7 +38550,7 @@ app.put("/api/members", async (req, res) => {
   // 役割を変えたら、覚えていた「kincallだけ」の判定を捨てる。
   // （5分待たないと反映されない、という状態を防ぐ）
   _kcOnly.clear();
-  _internAccess.clear(); _internSrc = null; _mcAdmins = null;
+  _internAccess.clear(); _internSrc = null; _mcAdmins = null; _mcMembers = null;
   try {
     const list = Array.isArray(req.body?.members) ? req.body.members : [];
     // 同じメールアドレスが二重に入っていないか確認する
