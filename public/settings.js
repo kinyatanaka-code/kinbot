@@ -3680,7 +3680,8 @@ async function gbLoad() {
   const els = document.querySelectorAll("[data-share-path], [data-share-token]"); if (!els.length) return;
   let d = {}; try { d = await (await fetch("/api/connector-share")).json(); } catch {}
   els.forEach((el) => {
-    if (!d.token) { el.textContent = d.error || "（まだ設定されていません。管理者に聞いてください）"; return; }
+    // みんな用の合言葉が無いときは、合言葉なしの URL を出す（Claude.ai などは、つなぐときに kinbot のログインが出て、その人の権限でつながる）
+    if (!d.token) { el.textContent = el.hasAttribute("data-share-token") ? "（いまは使えません。管理者に聞いてください）" : `${location.origin}${el.dataset.sharePath}`; return; }
     el.textContent = el.hasAttribute("data-share-token") ? d.token : `${location.origin}${el.dataset.sharePath}?token=${d.token}`;
   });
 })();
