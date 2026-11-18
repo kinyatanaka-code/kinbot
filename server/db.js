@@ -13368,3 +13368,27 @@ export async function kxDocAiFixMeihou() {
     AND NOT EXISTS (SELECT 1 FROM kinxs_docai_chats x WHERE x.company_id = 'neocareer' AND x.session_key = kinxs_docai_chats.session_key)`);
   return r.rowCount;
 }
+
+// ===== AI（Gemini）の使用量を、機能ごと・日ごとに貯める（2026-11-18 田中さん「機能ごとの使用量数えて欲しい」）=====
+let _aiUseP = null;
+function ensureAiUsage() {
+  if (!pool) return Promise.resolve();
+  if (!_aiUseP) _aiUseP = pool.query(`CREATE TABLE IF NOT EXISTS ai_usage (day DATE NOT NULL, feature TEXT NOT NULL, via TEXT NOT NULL DEFAULT '', model TEXT NOT NULL,
+    calls INT DEFAULT 0, in_text BIGINT DEFAULT 0, in_audio BIGINT DEFAULT 0, in_other BIGINT DEFAULT 0, out_tokens BIGINT DEFAULT 0, thoughts BIGINT DEFAULT 0, search INT DEFAULT 0, errors INT DEFAULT 0,
+    PRIMARY KEY (day, feature, via, model))`).catch(() => {});
+  return _aiUseP;
+}
+export async function aiUsageAdd(rows = []) {
+  if (!pool || !rows.length) return 0; await ensureAiUsage();
+  for (const r of rows) {
+    await pool.query(`INSERT INTO ai_usage (day, feature, via, model, calls, in_text, in_audio, in_other, out_tokens, thoughts, search, errors) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      ON CONFLICT (day, feature, via, model) DO UPDATE SET calls = ai_usage.calls + EXCLUDED.calls, in_text = ai_usage.in_text + EXCLUDED.in_text, in_audio = ai_usage.in_audio + EXCLUDED.in_audio,
+      in_other = ai_usage.in_other + EXCLUDED.in_other, out_tokens = ai_usage.out_tokens + EXCLUDED.out_tokens, thoughts = ai_usage.thoughts + EXCLUDED.thoughts, search = ai_usage.search + EXCLUDED.search, errors = ai_usage.errors + EXCLUDED.errors`,
+      [r.day, String(r.feature).slice(0, 80), String(r.via || "").slice(0, 80), String(r.model).slice(0, 60), r.calls, r.inText, r.inAudio, r.inOther, r.out, r.thoughts, r.search, r.errors]);
+  }
+  return rows.length;
+}
+export async function aiUsageList(days = 30) {
+  if (!pool) return []; await ensureAiUsage();
+  return (await pool.query(`SELECT to_char(day, 'YYYY-MM-DD') AS day, feature, via, model, calls, in_text, in_audio, in_other, out_tokens, thoughts, search, errors FROM ai_usage WHERE day >= (now() AT TIME ZONE 'Asia/Tokyo')::date - $1::int ORDER BY day DESC`, [Math.max(1, Math.min(400, Number(days) || 30))])).rows;
+}

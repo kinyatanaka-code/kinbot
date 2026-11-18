@@ -140,9 +140,69 @@ async function sendWithBusyRetry(url, init) {
 }
 
 const _fetch = globalThis.fetch;
+
+// ───── 機能ごとの使用量を数える（2026-11-18 田中さん「機能ごとの使用量数えて欲しい」）─────
+//   どの機能が呼んだかは、呼び出しの道すじ（スタック）から、Gemini を呼ぶ共通の部品をとばした最初の関数名で決める。
+//   返事の usageMetadata（入力・出力・思考のトークン数、音声かどうか）を足していき、index.js が数分ごとに DB へ移す
+const GENERIC = new Set(["fetch", "globalThis.fetch", "routed", "sendWithBusyRetry", "callGemini", "callGeminiOnce", "callOnce", "callLLM", "callLLMPublic", "withRetry", "fetchWithTimeout",
+  "judgeWithRetry", "generate", "geminiGrounded", "viaGroq", "Promise.all", "new Promise", "Object.<anonymous>", "process.processTicksAndRejections", "runMicrotasks", "Array.map", "Timeout._onTimeout", "listOnTimeout", "process.processTimers"]);
+function featureFromStack() {
+  const lim = Error.stackTraceLimit; Error.stackTraceLimit = 40; const st = String(new Error().stack || ""); Error.stackTraceLimit = lim;
+  const out = [];
+  for (const line of st.split("\n").slice(1)) {
+    const m = line.match(/at (?:async )?([^\s(]+)? ?\(?(?:file:\/\/)?[^()]*?\/server\/([\w.-]+\.js):\d+:\d+\)?/); if (!m) continue;
+    const fn = m[1] || ""; const file = m[2];
+    if (file === "gemini_failover.js" || !fn || GENERIC.has(fn) || /^call[A-Z]/.test(fn) || /anonymous/.test(fn)) continue;
+    const name = fn.replace(/^Object\./, "").replace(/^async /, "");
+    if (!out.length || out[out.length - 1] !== name) out.push(name);
+    if (out.length >= 2) break;
+  }
+  return { feature: out[0] || "（不明）", via: out[1] || "" };
+}
+const _usage = new Map();
+const jstDay = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+function addUsage(meta, um, modelVersion, err) {
+  const model = String(modelVersion || meta.model || "").replace(/^models\//, "") || "（不明）";
+  const key = `${jstDay()}|${meta.feature}|${meta.via}|${model}`;
+  const a = _usage.get(key) || { day: jstDay(), feature: meta.feature, via: meta.via, model, calls: 0, inText: 0, inAudio: 0, inOther: 0, out: 0, thoughts: 0, search: 0, errors: 0 };
+  a.calls++; if (meta.search) a.search++; if (err) a.errors++;
+  if (um) {
+    const det = Array.isArray(um.promptTokensDetails) ? um.promptTokensDetails : null;
+    if (det && det.length) { for (const d of det) { const n = Number(d.tokenCount) || 0; const mo = String(d.modality || "").toUpperCase(); if (mo === "AUDIO") a.inAudio += n; else if (mo === "TEXT") a.inText += n; else a.inOther += n; } }
+    else a.inText += Number(um.promptTokenCount) || 0;
+    a.out += Number(um.candidatesTokenCount) || 0; a.thoughts += Number(um.thoughtsTokenCount) || 0;
+  }
+  _usage.set(key, a);
+}
+// index.js が DB へ移すときに呼ぶ（中身を渡して空にする）
+export function geminiUsageDrain() { const rows = [..._usage.values()]; _usage.clear(); return rows; }
+function trackResponse(meta, res) {
+  try {
+    if (!res) return;
+    if (!res.ok) { addUsage(meta, null, "", true); return; }
+    const c = res.clone();
+    if (/alt=sse/.test(meta.url)) {
+      c.text().then((t) => { let um = null, mv = ""; for (const line of t.split("\n")) { const m = line.match(/^data:\s*(\{.*\})\s*$/); if (!m) continue; try { const j = JSON.parse(m[1]); if (j.usageMetadata) um = j.usageMetadata; if (j.modelVersion) mv = j.modelVersion; } catch {} } addUsage(meta, um, mv); }).catch(() => addUsage(meta, null, ""));
+    } else {
+      c.json().then((j) => addUsage(meta, j && j.usageMetadata, j && j.modelVersion)).catch(() => addUsage(meta, null, ""));
+    }
+  } catch {}
+}
+
 globalThis.fetch = async function (input, init) {
   const url = typeof input === "string" ? input : (input && input.url) || "";
   if (!url.includes(HOST)) return _fetch(input, init);
+  // 数えるのは、文章・音声を作らせる呼び出しと、ベクトル化（埋め込み）
+  if (!/:(generateContent|streamGenerateContent|embedContent|batchEmbedContents)\b/.test(url)) return routed(input, init);
+  const body = init && init.body;
+  const meta = { ...featureFromStack(), url, model: (url.match(/\/models\/([^:\/?]+):/) || [])[1] || "", search: typeof body === "string" && /google_?[sS]earch/.test(body) };
+  let res;
+  try { res = await routed(input, init); } catch (e) { addUsage(meta, null, "", true); throw e; }
+  trackResponse(meta, res);
+  return res;
+};
+async function routed(input, init) {
+  const url = typeof input === "string" ? input : (input && input.url) || "";
   // 文章だけの処理はGroqへ（失敗したらGeminiに送る）。
   // ただし長い文章（商談の要約など）はGroqの無料枠（1回・1分あたりの量）に入らないので、最初からGeminiに送る。
   if (textViaGroqOn() && typeof input === "string") {
@@ -171,7 +231,7 @@ globalThis.fetch = async function (input, init) {
   useBackupUntil = Date.now() + HOLD_MS;
   console.warn(`[Gemini] いつものキーで ${res.status} のため、予備のキー（GEMINI_API_KEY_BACKUP）に切り替えます（30分）`);
   return sendWithBusyRetry(swapKey(url, main, backup), init);
-};
+}
 
 // 使う人に見せるエラー文：支払い停止（dunning / billing）のときは、技術的な英文ではなく理由がわかる文にする
 export function geminiErrorText(status, text) {

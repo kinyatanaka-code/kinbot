@@ -431,6 +431,7 @@ function render(d) {
           </span>
         </div>
         <div class="ai-ctlmsg" id="aiCtlMsg"></div>
+        <a href="/ai-usage.html" style="display:inline-block;margin-top:6px;font-size:12.5px;color:#0d5b47;font-weight:600">AI（Gemini）の使用量を機能ごとに見る ›</a>
         <div class="ai-chat mini" id="aiChat"></div>
       </div>
     </div>

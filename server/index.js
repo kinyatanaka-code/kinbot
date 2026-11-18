@@ -1,6 +1,6 @@
 // server/index.js
 import "dotenv/config";
-import { geminiFailoverStatus, setTextViaGroq, groqRouteStats, geminiBusyStats } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
+import { geminiFailoverStatus, setTextViaGroq, groqRouteStats, geminiBusyStats, geminiUsageDrain } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
 import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -588,7 +588,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arInboxUnconfirmed, kxVoiceList, kxVoiceAdd, kxVoiceSet, kxVoiceScanned, kxVoiceMarkScanned, kxDocAiSave, kxDocAiList, kxDocAiCounts, kxDocAiAll, kxDocAiKeys, kxDocAiRaw, kxDocAiNoQa, kxDocAiSetQa, kxDocAiLast, kxDocAiDedupe, kxDocAiOther, kxDocAiFixMeihou, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arInboxUnconfirmed, kxVoiceList, kxVoiceAdd, kxVoiceSet, kxVoiceScanned, kxVoiceMarkScanned, kxDocAiSave, kxDocAiList, kxDocAiCounts, kxDocAiAll, kxDocAiKeys, kxDocAiRaw, kxDocAiNoQa, kxDocAiSetQa, kxDocAiLast, kxDocAiDedupe, kxDocAiOther, kxDocAiFixMeihou, aiUsageAdd, aiUsageList, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -24226,6 +24226,57 @@ app.post("/api/ai/chat", async (req, res) => {
 
 // キツツキ（CEO）と会話する ここまで
 
+// ===== AI（Gemini）の使用量：機能ごと（2026-11-18 田中さん「機能ごとの使用量数えて欲しい」）=====
+//   gemini_failover.js が呼ぶたびに数えたものを、2分ごとに DB（ai_usage）へ移す。金額は Google の公開の値段からの目安
+setInterval(() => { const rows = geminiUsageDrain(); if (rows.length) aiUsageAdd(rows).catch((e) => console.warn("[AI使用量]", e.message)); }, 2 * 60 * 1000).unref?.();
+// 1M トークンあたりの値段（USD・2026-11 の Google の値段表）。[入力（文字・画像）, 入力（音声）, 出力（思考を含む）]
+const AI_PRICE = [
+  [/flash-lite/, [0.10, 0.30, 0.40]], [/tts/, [0.50, 0.50, 10.00]], [/gemini-3[\d.]*-pro|gemini-3-pro/, [2.00, 2.00, 12.00]], [/gemini-3[\d.]*-flash|gemini-3-flash/, [0.50, 1.00, 3.00]],
+  [/2\.5-pro/, [1.25, 1.25, 10.00]], [/2\.0-flash/, [0.10, 0.70, 0.40]], [/embedding/, [0.15, 0.15, 0]], [/^groq:/, [0, 0, 0]], [/flash/, [0.30, 1.00, 2.50]],
+];
+const AI_USD_JPY = Number(process.env.AI_USD_JPY || 150);
+function aiCostUsd(r) {
+  const p = (AI_PRICE.find(([re]) => re.test(String(r.model || ""))) || [null, [0.30, 1.00, 2.50]])[1];
+  return ((Number(r.in_text) + Number(r.in_other)) * p[0] + Number(r.in_audio) * p[1] + (Number(r.out_tokens) + Number(r.thoughts)) * p[2]) / 1e6;
+}
+// 機能の名前（関数の名前 → 人が分かる言葉）。無いものは関数の名前のまま出す
+const AI_FEATURE_LABEL = {
+  analyzeMeeting: "商談の要約（録音のあと）", analyze: "商談中のリアルタイム分析", analyzeDeep: "商談の深い分析", judgePhase: "商談のフェーズ判定", splitPhases: "商談の段階分け",
+  extractFirstMeeting: "初回商談の項目の読み取り", extractReMeeting: "再商談の項目の読み取り", extractQaPairs: "商談の Q&A の抜き出し", classifyMeetingKind: "商談の種類の判定", runCustomAnalysis: "カスタムの分析（プロンプト設定）",
+  generateThanks: "お礼メールの下書き", generateThanksMail: "お礼メールの下書き", judgeThanksType: "お礼メールの種類の判定", extractKickoff: "キックオフ（回収MTG）の読み取り",
+  transcribeAudio: "録音の文字起こし（Gemini）", summarizeCallRecording: "架電の録音の要約", guessCallResult: "架電の結果の推定", guessCallReason: "架電の理由の推定",
+  lookupEmployeeCount: "会社の従業員数を調べる（検索）", lookupHiringCount: "会社の採用人数を調べる（検索）", lookupJobMedia: "会社の求人媒体を調べる（検索）", lookupBusinessHours: "会社の営業時間を調べる（検索）",
+  lookupCompanyBasics: "会社の基本情報を調べる（検索）", lookupMynavi: "マイナビの掲載を調べる", enrichCompany: "会社の情報を補う", enrichCompanyAttributes: "会社の属性を補う",
+  chatWithData: "AI チャット（kinbot に質問）", answerQuestion: "商談中の質問への答え", freeAnalyze: "自由分析", buildBrief: "商談前のブリーフ", analyzeTendency: "傾向分析", analyzeSet: "まとめて分析",
+  analyzeWinLoss: "受注・失注の分析", analyzeWinPatterns: "受注パターンの分析", extractLostSignals: "失注の兆しの読み取り", extractFeatureCTags: "商談のタグ付け", generateFeatureCInsights: "インサイトの生成",
+  readDocument: "資料の読み取り（PDF・画像）", readWhiteboard: "ホワイトボードの写真の読み取り", readShiftCalendar: "シフト表の読み取り", describeForChat: "チャットに付けたファイルの読み取り",
+  embedBatch: "社内ナレッジのベクトル化", embedOne: "社内ナレッジの検索（ベクトル化）", indexKnowledge: "社内ナレッジの登録",
+};
+app.get("/api/ai/usage", async (req, res) => {
+  try {
+    if (!isAiOwner(req) && !req.isAdmin) return res.status(403).json({ error: "管理者だけが見られます" });
+    // 画面を開いた時点の、まだ DB に入っていない分も先に入れる
+    const pend = geminiUsageDrain(); if (pend.length) await aiUsageAdd(pend).catch(() => {});
+    const days = Math.max(1, Math.min(90, Number(req.query.days) || 30));
+    const rows = await aiUsageList(days);
+    const byF = new Map(); const byDay = new Map(); const byModel = new Map(); const searchDay = new Map();
+    for (const r of rows) {
+      const usd = aiCostUsd(r); const k = r.feature;
+      const f = byF.get(k) || { feature: k, label: AI_FEATURE_LABEL[k] || k, calls: 0, tokensIn: 0, tokensAudio: 0, tokensOut: 0, usd: 0, search: 0, errors: 0, via: new Map(), models: new Set() };
+      f.calls += r.calls; f.tokensIn += Number(r.in_text) + Number(r.in_other); f.tokensAudio += Number(r.in_audio); f.tokensOut += Number(r.out_tokens) + Number(r.thoughts); f.usd += usd; f.search += r.search; f.errors += r.errors; f.models.add(r.model);
+      if (r.via) f.via.set(r.via, (f.via.get(r.via) || 0) + r.calls);
+      byF.set(k, f);
+      const d = byDay.get(r.day) || { day: r.day, usd: 0, calls: 0 }; d.usd += usd; d.calls += r.calls; byDay.set(r.day, d);
+      const m = byModel.get(r.model) || { model: r.model, usd: 0, calls: 0 }; m.usd += usd; m.calls += r.calls; byModel.set(r.model, m);
+      searchDay.set(r.day, (searchDay.get(r.day) || 0) + r.search);
+    }
+    // Google 検索つき：1日 1,500 回までは無料、それをこえた分は 1,000 回で 35 USD（Gemini 2.5）
+    const searchUsd = [...searchDay.values()].reduce((n, c) => n + Math.max(0, c - 1500) * 0.035, 0);
+    const features = [...byF.values()].map((f) => ({ ...f, via: [...f.via.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([v, n]) => ({ via: v, label: AI_FEATURE_LABEL[v] || v, calls: n })), models: [...f.models] })).sort((a, b) => b.usd - a.usd);
+    const total = features.reduce((n, f) => n + f.usd, 0) + searchUsd;
+    res.json({ ok: true, days, since: rows.length ? rows[rows.length - 1].day : null, rate: AI_USD_JPY, totalUsd: total, searchUsd, features, daily: [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)), models: [...byModel.values()].sort((a, b) => b.usd - a.usd) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // 頭脳（LLM）の接続状況：どのプロバイダのAPIキーが入っているか（Railwayの環境変数を確認できる）。
 app.get("/api/ai/llm-status", async (req, res) => {
   try {
@@ -33631,7 +33682,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18g 候補者の質問：同じチャットの中の同じ質問は1つにする（上書き）。画面が横に離れすぎないよう、幅をしぼって会社のカードとよく聞かれることを並べる。／2026-11-18f 候補者の質問：「.」だけのような短い質問は、よく聞かれることに数えない。／2026-11-18e kinXs「候補者の質問」の見た目を作り直す（上に数字の札・左に会社のカード・右によく聞かれることの順位・絞りこみ）。／2026-11-18d DOC の AI：最初の取り込みで「明豊建設」として入った29件は、セッションIDからネオキャリアのチャットと分かったので付け直す（1回だけ）。／2026-11-18c 拡張機能（2.2.14）：会社を切りかえたら、いったんダッシュボードを開いてから「チャット管理」を開き直す（田中さんの案）。／2026-11-18b 拡張機能（2.2.13）：DOC の AI の取り込みで、企業を切りかえても右の画面が前の会社のまま、ちがう会社として保存していた → 右の題（〇〇 チャット管理）と会社名が合うかを確かめ、合わなければ開き直す・だめならとばす。kinbot 側も同じチャットを2社に入れない（あとから入った方を消す）。／2026-11-18a 拡張機能（2.2.12）：DOC の AI の取り込みで、何社読むかを決められる（まだ読んでいない会社 → 前に読んだのが古い会社の順）。「新しいチャットだけ」を「前回の続きだけ／全部読み直す」に。AI の答えは読まない（速く）。／2026-11-18Z DOC の AI：前に質問0件で保存したチャットを、残してある文から読み直す（質問の題は出る。答えは拡張機能 2.2.11 で読み直すと入る）。／2026-11-18Y 拡張機能（2.2.11）：DOC の AI の質問が0件 → 題の前のアイコンの文字で「質問1:」を拾えていなかった。題のどこにあっても拾う・折りたたみを開いてから読む・書きかえ欄の答えも読む。kinbot 側でも回答レビューの文から「質問N:」で切って拾う。質問0件のチャットは「読んだ」に数えない（もう一度読む）。／2026-11-18X 拡張機能（2.2.10）：DOC の AI の自動取り込みで 0件で終わる → 見えていないタブの表を選んでいたので、画面に見えている表を使う。押した行のセッションIDと回答レビューが合えば成功とみる。／2026-11-18W 拡張機能（2.2.9）：DOC の AI の自動取り込みを、管理画面の実際の作りに合わせて直す（タブは stTab・企業の選択欄は文字の欄・表は上の枠で押す・見出しの高さを測る）。／2026-11-18V 拡張機能（2.2.8）：DOC の AI 管理画面の右下「kinXs に全部取り込む」で、企業を自動で切りかえ・チャットを1件ずつ選んで回答レビューを読み、全部 kinXs に送る（新しいものだけも可・うまくいかないときは画面の作りを kinbot に送る）。精度チェックにぶつかった印の検査。／2026-11-18U（福井さんの merge に残っていた衝突の印を直す・両方の文を残す）／2026-11-18T kinXs のメニューに「DOC連携」（アクセス分析・候補者の質問・要望・問い合わせ）。アクセス分析＝取り込んだ月間アクセス数の会社×月の表、候補者の質問＝全社のまとめ（よく聞かれること・会社ごと）。／2026-11-18S kinXs「候補者の質問」：拡張機能（2.2.7）が DOC の AI 管理画面の「回答レビュー」を開いたときに、候補者のプロフィールと質問・AI の答えを自動で読んで kinXs に貯める（企業ID＝AI 候補者画面の URL の最後）。企業の詳細に「候補者の質問」タブ（よく聞かれること・チャットごと）。／2026-11-18R for MOCHICA の架電：MOCHICA のメンバーをダッシュボードの名簿（営業・インサイド）と管理者にする。リストを作る画面などの実行ボタンが見えなかったのを直す。／2026-11-18R Gemini はリンクを押すと Google 検索に飛ばすので、リンクはコードブロックで出してコピーしてもらう形に。kinbot の /gem は、コピーした Gemini の答え（リンクでも本文でも）を貼るだけで読む（許可済みなら開くだけで自動で読む）。／2026-11-18Q（版の印の直し）／2026-11-18P Gemini のリンク：日本語を入れると Gemini がリンクを途中で切るので、英数字だけのリンク（/gem?id=商談ID&s=99&r=R…）に。「選ぶ値」にコードの列。／2026-11-18K for MOCHICA の架電：リストの管理者を正社員（福井・本炭・餌取・齊藤・北川・山田）に広げる（苗字で照合・インターンと DOC だけの人は除く・MCCALL_ADMIN_EMAILS で追加可）。管理画面に管理者の名前を出す。／2026-11-18O Gemini から更新：会社の設定で Gemini はメールを送れない（PERMISSION_DENIED）ので、kinbot の確認画面へのリンク（/gem?t=依頼の本文）を出してもらい、押した人が「いま→変えたあと」を見て「更新する」を押す形に。／2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る／2026-11-18T for MOCHICA の架電：担当者と話せたらヒアリング欄（検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数）。記録で SF のリード（検討開始時期・採用人数・顧客の課題感）と活動に書く。リードのマイナビ（新卒）掲載の有無と中身を Web 検索で自動取得し、ひと目でに出す";
+const BUILD_TAG = "2026-11-18h AI（Gemini）の使用量を機能ごとに数える（呼び出しの道すじから機能名・トークン数・音声・Google検索の回数・目安の金額）。画面は /ai-usage.html。／2026-11-18g 候補者の質問：同じチャットの中の同じ質問は1つにする（上書き）。画面が横に離れすぎないよう、幅をしぼって会社のカードとよく聞かれることを並べる。／2026-11-18f 候補者の質問：「.」だけのような短い質問は、よく聞かれることに数えない。／2026-11-18e kinXs「候補者の質問」の見た目を作り直す（上に数字の札・左に会社のカード・右によく聞かれることの順位・絞りこみ）。／2026-11-18d DOC の AI：最初の取り込みで「明豊建設」として入った29件は、セッションIDからネオキャリアのチャットと分かったので付け直す（1回だけ）。／2026-11-18c 拡張機能（2.2.14）：会社を切りかえたら、いったんダッシュボードを開いてから「チャット管理」を開き直す（田中さんの案）。／2026-11-18b 拡張機能（2.2.13）：DOC の AI の取り込みで、企業を切りかえても右の画面が前の会社のまま、ちがう会社として保存していた → 右の題（〇〇 チャット管理）と会社名が合うかを確かめ、合わなければ開き直す・だめならとばす。kinbot 側も同じチャットを2社に入れない（あとから入った方を消す）。／2026-11-18a 拡張機能（2.2.12）：DOC の AI の取り込みで、何社読むかを決められる（まだ読んでいない会社 → 前に読んだのが古い会社の順）。「新しいチャットだけ」を「前回の続きだけ／全部読み直す」に。AI の答えは読まない（速く）。／2026-11-18Z DOC の AI：前に質問0件で保存したチャットを、残してある文から読み直す（質問の題は出る。答えは拡張機能 2.2.11 で読み直すと入る）。／2026-11-18Y 拡張機能（2.2.11）：DOC の AI の質問が0件 → 題の前のアイコンの文字で「質問1:」を拾えていなかった。題のどこにあっても拾う・折りたたみを開いてから読む・書きかえ欄の答えも読む。kinbot 側でも回答レビューの文から「質問N:」で切って拾う。質問0件のチャットは「読んだ」に数えない（もう一度読む）。／2026-11-18X 拡張機能（2.2.10）：DOC の AI の自動取り込みで 0件で終わる → 見えていないタブの表を選んでいたので、画面に見えている表を使う。押した行のセッションIDと回答レビューが合えば成功とみる。／2026-11-18W 拡張機能（2.2.9）：DOC の AI の自動取り込みを、管理画面の実際の作りに合わせて直す（タブは stTab・企業の選択欄は文字の欄・表は上の枠で押す・見出しの高さを測る）。／2026-11-18V 拡張機能（2.2.8）：DOC の AI 管理画面の右下「kinXs に全部取り込む」で、企業を自動で切りかえ・チャットを1件ずつ選んで回答レビューを読み、全部 kinXs に送る（新しいものだけも可・うまくいかないときは画面の作りを kinbot に送る）。精度チェックにぶつかった印の検査。／2026-11-18U（福井さんの merge に残っていた衝突の印を直す・両方の文を残す）／2026-11-18T kinXs のメニューに「DOC連携」（アクセス分析・候補者の質問・要望・問い合わせ）。アクセス分析＝取り込んだ月間アクセス数の会社×月の表、候補者の質問＝全社のまとめ（よく聞かれること・会社ごと）。／2026-11-18S kinXs「候補者の質問」：拡張機能（2.2.7）が DOC の AI 管理画面の「回答レビュー」を開いたときに、候補者のプロフィールと質問・AI の答えを自動で読んで kinXs に貯める（企業ID＝AI 候補者画面の URL の最後）。企業の詳細に「候補者の質問」タブ（よく聞かれること・チャットごと）。／2026-11-18R for MOCHICA の架電：MOCHICA のメンバーをダッシュボードの名簿（営業・インサイド）と管理者にする。リストを作る画面などの実行ボタンが見えなかったのを直す。／2026-11-18R Gemini はリンクを押すと Google 検索に飛ばすので、リンクはコードブロックで出してコピーしてもらう形に。kinbot の /gem は、コピーした Gemini の答え（リンクでも本文でも）を貼るだけで読む（許可済みなら開くだけで自動で読む）。／2026-11-18Q（版の印の直し）／2026-11-18P Gemini のリンク：日本語を入れると Gemini がリンクを途中で切るので、英数字だけのリンク（/gem?id=商談ID&s=99&r=R…）に。「選ぶ値」にコードの列。／2026-11-18K for MOCHICA の架電：リストの管理者を正社員（福井・本炭・餌取・齊藤・北川・山田）に広げる（苗字で照合・インターンと DOC だけの人は除く・MCCALL_ADMIN_EMAILS で追加可）。管理画面に管理者の名前を出す。／2026-11-18O Gemini から更新：会社の設定で Gemini はメールを送れない（PERMISSION_DENIED）ので、kinbot の確認画面へのリンク（/gem?t=依頼の本文）を出してもらい、押した人が「いま→変えたあと」を見て「更新する」を押す形に。／2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る／2026-11-18T for MOCHICA の架電：担当者と話せたらヒアリング欄（検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数）。記録で SF のリード（検討開始時期・採用人数・顧客の課題感）と活動に書く。リードのマイナビ（新卒）掲載の有無と中身を Web 検索で自動取得し、ひと目でに出す";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
