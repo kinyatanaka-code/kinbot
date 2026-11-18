@@ -591,7 +591,7 @@ async function loadBans() {
   // kincallのみの人は、自分の設定（外部連携＝Google・アカウント・登録リンク）だけ開ける。
   // 管理者向けのタブ・カードは隠す。
   fetch("/api/me").then((r) => r.json()).then((me) => {
-    if (!me || !me.kincallOnly) return;
+    if (!me || !(me.kincallOnly || me.mcIntern)) return;   // MOCHICA のインターンも同じ（2026-11-18）
     const allow = new Set(["integrations", "account", "links"]);
     menu.querySelectorAll(".set-menu-item").forEach((t) => {
       if (!allow.has(t.dataset.tab)) t.hidden = true;

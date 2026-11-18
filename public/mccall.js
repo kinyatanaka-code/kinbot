@@ -486,7 +486,7 @@
       if (l) await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ members }) }); else await post("/api/mccall/lists", { name, members });
       drawLists();
     }, `${l ? "" : `<label class="mcc-field" style="margin-top:12px">リストの名前<input id="mccLName" autocomplete="off" /></label>`}
-      <div class="mcc-field" style="margin-top:12px">メンバー（MOCHICA の人が先に並びます）<div class="mcc-members">${reps.map((r) => `<button class="mcc-chip" data-m="${esc(r.email)}" aria-pressed="${sel.has(r.email)}">${esc(r.name)}${r.mochica ? "" : "（MOCHICA 以外）"}</button>`).join("")}</div></div>`);
+      <div class="mcc-field" style="margin-top:12px">メンバー（MOCHICA の人が先に並びます）<div class="mcc-members">${reps.map((r) => `<button class="mcc-chip" data-m="${esc(r.email)}" aria-pressed="${sel.has(r.email)}">${esc(r.name)}${r.intern ? "（インターン）" : r.mochica ? "" : "（MOCHICA 以外）"}</button>`).join("")}</div></div>`);
     w.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") === "true" ? "false" : "true")));
   }
   async function balesDialog(listId) {
@@ -538,7 +538,7 @@
         const r = await post(`/api/mccall/lists/${l.id}/assign`, { members, leadIds: [...sel] });
         toast(r.per && r.per.length ? `${r.assigned}件を分けました：${r.per.map((p) => `${p.name} ${p.n}件`).join("・")}` : `${r.cleared}件の割り振りを外しました`);
         drawLeads(l);
-      }, who.length ? `<div class="mcc-field" style="margin-top:12px">分ける人<div class="mcc-members">${who.map((r) => `<button class="mcc-chip" data-m="${esc(r.email)}" aria-pressed="false">${esc(r.name)}</button>`).join("")}</div></div>`
+      }, who.length ? `<div class="mcc-field" style="margin-top:12px">分ける人<div class="mcc-members">${who.map((r) => `<button class="mcc-chip" data-m="${esc(r.email)}" aria-pressed="false">${esc(r.name)}${r.intern ? "（インターン）" : ""}</button>`).join("")}</div></div>`
         : '<p class="mcc-note" style="margin-top:12px">配れる人がいません。先に「メンバー」でこのリストのメンバーを選んでください。</p>');
       w.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") === "true" ? "false" : "true")));
     });

@@ -130,6 +130,7 @@ function oneLine(log, gate, names) {
 
 export function registerMcCall(app, deps) {
   const { isAdmin, sfActor, mochicaSet } = deps;
+  const isMcIntern = deps.isMcIntern || (async () => false);
   const me = (req) => String(req.user || "").toLowerCase();
   const guard = (fn) => async (req, res) => {
     try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); await ensure(); await fn(req, res); }
@@ -188,8 +189,10 @@ export function registerMcCall(app, deps) {
     const u = me(req);
     const rows = (await P().query(`SELECT id, members FROM mc_call_lists WHERE biz=$1 AND NOT closed`, [BIZ])).rows;
     if (isAdmin(req)) return rows.map((r) => r.id);
+    // MOCHICA のインターン（インサイド8名など）も「MOCHICA 全員」のリストに入る（2026-11-18）
     const mc = await mochicaSet().catch(() => new Set());
-    return rows.filter((r) => (r.members && r.members.length ? r.members.map((x) => String(x).toLowerCase()).includes(u) : mc.has(u))).map((r) => r.id);
+    const all = mc.has(u) || (await isMcIntern(u).catch(() => false));
+    return rows.filter((r) => (r.members && r.members.length ? r.members.map((x) => String(x).toLowerCase()).includes(u) : all)).map((r) => r.id);
   }
 
   // ---- リスト ----

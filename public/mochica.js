@@ -6,7 +6,7 @@
   const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト（Bales Cloud）", call: "架電", apo: "アポ（カレンダー）", dash: "ダッシュボード", doc: "DOC の議事録", settings: "設定" };
   const go = (k) => {
     if (!TITLES[k] || k === "home") k = "mtg";   // ホームは一旦しまっている（2026-11-15）
-    if (window.__mcCallOnly) k = "call";   // インターン（kincall だけのアカウント）は架電だけ（2026-11-16）
+    if (window.__mcCallOnly && k !== "settings") k = "call";   // インターンは架電（と自分の設定）だけ（2026-11-16・11-18）
     document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== k; });
     document.querySelectorAll(".side-item[data-go]").forEach((a) => a.classList.toggle("active", a.dataset.go === k));
     $("mcTitle").textContent = TITLES[k]; if (location.hash !== "#" + k) history.replaceState(null, "", "#" + k);
@@ -631,7 +631,8 @@
   // 下の段：頭文字の丸アイコン・名前・設定（歯車）・ログアウト（kinbot と同じ作り）
   fetch("/api/me", { credentials: "include" }).then((r) => r.json()).then((me) => {
     // kincall だけのアカウント（インターン）は、ほかの MOCHICA の画面を開けないので架電だけを出す（2026-11-16）
-    if (me && me.kincallOnly) { window.__mcCallOnly = true; document.querySelectorAll(".side-item[data-go]").forEach((a) => { if (a.dataset.go !== "call") a.hidden = true; }); go("call"); }
+    // インターン生（kincall だけ・MOCHICA のインサイド8名）は架電と設定だけを出す（2026-11-16・11-18）。設定は Google・Zoom の連携に使う
+    if (me && (me.kincallOnly || me.mcIntern)) { window.__mcCallOnly = true; document.querySelectorAll(".side-item[data-go]").forEach((a) => { if (a.dataset.go !== "call") a.hidden = true; }); go("call"); }
     const who = $("who"); if (!who || !me) return; const name = me.name || me.username || "";
     who.textContent = name ? name + (me.admin ? "（管理者）" : "") : ""; who.title = me.username || "";
     const foot = who.parentElement;

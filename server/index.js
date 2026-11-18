@@ -32,7 +32,7 @@ import { zoomPresence, zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomP
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
-import { registerMcDash } from "./mcdash.js";   // kinbot for MOCHICA のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // kinbot for MOCHICA の架電（DOC の kincall とは別の表）（2026-11-16）
+import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // kinbot for MOCHICA のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // kinbot for MOCHICA の架電（DOC の kincall とは別の表）（2026-11-16）
 import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
 import { buildSlots, stillFree } from "./booking.js";
@@ -857,6 +857,43 @@ const app = express();
 app.get("/healthz", (req, res) => res.status(200).type("text/plain").send("ok"));
 
 // --- 個人アカウント認証（Cookieセッション） ---
+// インターン生がどちらの事業の架電を使えるか（2026-11-18 福井さん「MOCHICA と混ざらないように」「インターン生は架電に必要なタブだけ」）
+//   MOCHICA のインターン … ダッシュボードのインサイド8名（MCDASH_ROSTER.is）か、メンバー設定で「kincallだけ」＋事業に MOCHICA がある人
+//   DOC のインターン     … 「kincallだけ」で、事業に DOC がある人（事業が空のときは今までどおり DOC。ただし上の8名は MOCHICA 専用）
+//   両方に当てはまる人（兼任）は両方の架電画面だけを開ける。管理者は対象外。
+const _internAccess = new Map();
+let _internSrc = null;
+async function internAccess(email) {
+  const k = String(email || "").toLowerCase();
+  if (!k) return { doc: false, mc: false };
+  const hit = _internAccess.get(k);
+  if (hit && Date.now() - hit.at < 30 * 1000) return hit.v;
+  let v = { doc: false, mc: false };
+  try {
+    const nz = (s) => String(s || "").normalize("NFKC").replace(/[\s　]/g, "");
+    const roster = new Set(MCDASH_ROSTER.is.flatMap((p) => [nz(p.sf), nz(p.zoom)]).filter(Boolean));
+    // 名簿はまとめて1回だけ読む（/api/mochica/reps で全員ぶん判定するため）
+    if (!_internSrc || Date.now() - _internSrc.at > 30 * 1000) {
+      _internSrc = { at: Date.now(), p: Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]) };
+    }
+    const [members, users] = await _internSrc.p;
+    const m = (members || []).find((x) => String(x.email || "").toLowerCase() === k);
+    const u = (users || []).find((x) => String(x.email || "").toLowerCase() === k);
+    const inRoster = roster.has(nz(u && u.name)) || roster.has(nz(m && m.name));
+    const kc = !!(m && Array.isArray(m.roles) && m.roles.includes("kincall"));
+    const biz = m && Array.isArray(m.businesses) ? m.businesses : [];
+    v = { mc: inRoster || (kc && biz.includes("MOCHICA")), doc: kc && (biz.includes("DOC") || (!biz.length && !inRoster)) };
+  } catch {}
+  _internAccess.set(k, { at: Date.now(), v });
+  return v;
+}
+// MOCHICA のインターンが開ける所：MOCHICA の架電画面と、その画面で使う API・ファイルだけ（DOC の kincall の表には触れない）
+function isMcInternPath(p) {
+  return p === "/mochica" || p === "/mochica.html" || p.startsWith("/api/mccall/") ||
+    p === "/api/me" || p === "/api/logout" || p === "/logout" ||
+    /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p) || p.startsWith("/zoom-ext/");
+}
+
 // その人が「kincallだけ」の役割かどうか
 const _kcOnly = new Map();
 async function isKincallOnly(email) {
@@ -880,8 +917,7 @@ function isKincallPath(p) {
     p === "/kincall.svg" || p === "/style.css" || p === "/nav.js" || p === "/icon.svg" ||
     p === "/api/me" || p === "/api/logout" ||
     p.startsWith("/api/calls/") || p === "/api/calls" ||
-    // MOCHICA のインターンも MOCHICA の架電画面だけは使えるように（2026-11-16）。ほかの MOCHICA の API（/api/mochica/）は開けない
-    p === "/mochica" || p === "/mochica.html" || p.startsWith("/api/mccall/") ||
+    // MOCHICA の架電（/mochica・/api/mccall/）はここに入れない。MOCHICA のインターンかどうかで別に判定する（internAccess・2026-11-18）
     // 画面で読むファイル（.js：案件共有など）・Zoomの拡張機能の zip も（2026-11-09：インターン生がダウンロードすると HTML になっていた）
     /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p) || p.startsWith("/zoom-ext/");
 }
@@ -1088,6 +1124,11 @@ app.use(async (req, res, next) => {
       // クローザーが操作しているときも、その人の権限で動けるようにする
       else if (await isCloserUser(操作者).catch(() => false)) { req.actingCloser = true; req.kincallOnly = false; }
     }
+    // インターン生：どちらの事業の架電を開けるか（管理者・クローザーが操作しているときは縛らない）
+    const ia = u.admin || req.isAdmin || req.actingCloser ? { doc: false, mc: false } : await internAccess(u.username).catch(() => ({ doc: false, mc: false }));
+    req.mcIntern = ia.mc;
+    req.internDoc = ia.doc;
+    if (ia.mc) req.kincallOnly = ia.doc;   // MOCHICA だけのインターンは DOC の kincall を開けない
     // kincs だけの人：kincs の画面と、その画面で使う API・ファイルだけ（2026-11-08 田中さん）
     req.kincsOnly = !u.admin && !req.impersonatorFrom && (await isKincsOnlyUser(u.username).catch(() => false));
     if (req.kincsOnly) {
@@ -1102,9 +1143,14 @@ app.use(async (req, res, next) => {
     }
     // 代理ログイン中は、元のアカウントに戻る道を必ず開けておく
     const 戻る道 = req.path === "/api/impersonate/stop" || req.path === "/api/me";
-    if (req.kincallOnly && !isKincallPath(req.path) && !isKincallSelfSettingPath(req.path) && !戻る道) {
-      if (req.path.startsWith("/api/")) return res.status(403).json({ error: "この操作はできません" });
-      return res.redirect("/kincall");
+    // インターン生は架電に要る所だけ。DOC の人は kincall、MOCHICA の人は MOCHICA の架電、兼任は両方（2026-11-18）
+    if (req.kincallOnly || req.mcIntern) {
+      const p = req.path;
+      const ok = 戻る道 || isKincallSelfSettingPath(p) || (req.kincallOnly && isKincallPath(p)) || (req.mcIntern && isMcInternPath(p));
+      if (!ok) {
+        if (p.startsWith("/api/")) return res.status(403).json({ error: "この操作はできません（インターン生は架電の画面だけ使えます）" });
+        return res.redirect(req.kincallOnly ? "/kincall" : "/mochica#call");
+      }
     }
     return next();
   }
@@ -1301,6 +1347,8 @@ app.get("/api/me", async (req, res) => {
     owner: String(req.user || "").toLowerCase() === aiOwnerEmail(),   // 田中さんだけの操作（商談をまとめて消す など）（2026-11-16）
     // 「kincallだけ」の人（インターン生など）
     kincallOnly: !!req.kincallOnly,
+    // インターン生がどちらの架電を使えるか（MOCHICA の画面はこれで架電と設定だけにする）（2026-11-18）
+    mcIntern: !!req.mcIntern, internDoc: !!req.internDoc,
     canHideLists: canHideLists(req) || closer,   // リストの表示・非表示を変えられるか（クローザーも可）
     // クローザー（リスト追加ができる）
     closer: closer || !!req.isAdmin || isAlwaysCloser(req.user),
@@ -28684,12 +28732,14 @@ app.get("/api/mochica/reps", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const mc = await mcMochicaSet();
     const us = (await listUsers().catch(() => [])).filter((u) => u && u.email).map((u) => ({ email: String(u.email).toLowerCase(), name: String(u.name || u.email), mochica: mc.has(String(u.email).toLowerCase()) }));
-    us.sort((a, b) => (b.mochica - a.mochica) || a.name.localeCompare(b.name, "ja"));
+    // MOCHICA のインターン（インサイド8名など）も MOCHICA の人として並べ、印を付ける（架電リストのメンバー・割り振りで選べるように）（2026-11-18）
+    for (const x of us) { if ((await internAccess(x.email).catch(() => ({}))).mc) { x.intern = true; x.mochica = true; } }
+    us.sort((a, b) => (b.mochica - a.mochica) || ((b.intern ? 1 : 0) - (a.intern ? 1 : 0)) || a.name.localeCompare(b.name, "ja"));
     res.json({ ok: true, items: us });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // MOCHICA の架電（テレアポ）。表も画面も DOC の kincall とは別。DOC の表は管理者がリードを持ってくるときに読むだけ（2026-11-16）
-registerMcCall(app, { isAdmin: isAiOwner, sfActor, mochicaSet: mcMochicaSet });
+registerMcCall(app, { isAdmin: isAiOwner, sfActor, mochicaSet: mcMochicaSet, isMcIntern: async (e) => !!(await internAccess(e).catch(() => ({}))).mc });
 registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, readSheet, mochicaSet: mcMochicaSet, isAdmin: isAiOwner });
 registerTeleapoScience(app);
 app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
@@ -33181,7 +33231,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
@@ -38211,6 +38261,7 @@ app.put("/api/members", async (req, res) => {
   // 役割を変えたら、覚えていた「kincallだけ」の判定を捨てる。
   // （5分待たないと反映されない、という状態を防ぐ）
   _kcOnly.clear();
+  _internAccess.clear(); _internSrc = null;
   try {
     const list = Array.isArray(req.body?.members) ? req.body.members : [];
     // 同じメールアドレスが二重に入っていないか確認する
