@@ -292,7 +292,7 @@
       ${L(`<input type="radio" name="kbdm" value="new" checked style="margin-top:3px"> <span>前回の続きだけ<br><small style="color:#5b6b66">一覧の新しい方から読み、前に読んだチャットまで来たら次の会社へ（速い）</small></span>`)}
       ${L(`<input type="radio" name="kbdm" value="all" style="margin-top:3px"> <span>全部読み直す<br><small style="color:#5b6b66">前に読んだチャットも読む（時間がかかる）</small></span>`)}
       <button type="button" data-go style="margin-top:10px;width:100%;border:0;border-radius:10px;background:${C.main};color:#fff;font-weight:700;padding:9px;cursor:pointer">取り込みを始める</button>
-      <div style="color:#5b6b66;font-size:11.5px;margin-top:6px">会社ごとにページを開き直して読みます（ログインはそのまま）。終わるまで、このタブはさわらずに置いておいてください（ほかのタブは使えます）。1社で1〜3分ほどかかります。</div>`);
+      <div style="color:#5b6b66;font-size:11.5px;margin-top:6px">会社ごとに、左の企業を選んでチャット管理を開き直して読みます（ページの読み込み直しはしないので、ログインはそのまま）。終わるまで、このタブはさわらずに置いておいてください（ほかのタブは使えます）。1社で1〜3分ほどかかります。</div>`);
     box.querySelector("[data-go]").onclick = () => {
       const mode = box.querySelector('input[name="kbda"]:checked').value; const n = Math.max(1, Math.min(cos.length, Number(box.querySelector("[data-n]").value) || 10));
       const onlyNew = box.querySelector('input[name="kbdm"]:checked').value === "new";
@@ -318,6 +318,15 @@
     await selectCompany(co); await goChatPage(true); await sleep(800); await quiet(1500);
     tr(`${co}を開いたあと`);
     setTimeout(() => { resume().catch(() => {}); }, 300);
+  }
+  // 2.2.22 の直しで消えてしまっていた（2026-11-19 田中さん「ボタン押しても動かない」）のを戻す
+  const isLogin = () => { const t = document.body ? document.body.innerText || "" : ""; return /パスワード/.test(t) && /ログイン/.test(t) && !/チャット管理|ダッシュボード/.test(t); };
+  const esc0 = (t) => String(t || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  async function crawl(list, onlyNew) {
+    if (!list.length) return;
+    await setRun({ list, i: 0, onlyNew, saved: 0, skipped: 0, failed: 0, log: [], results: [], tries: 0, started: Date.now(), at: Date.now(), stop: false });
+    show(`<div style="font-size:12.5px">${esc0(list[0].name || list[0].company)} を開きます…</div>`);
+    openCompany(list[0].company);
   }
   let resuming = false;
   async function resume() {
