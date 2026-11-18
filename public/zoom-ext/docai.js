@@ -67,7 +67,7 @@
       // 中身：文の塊に加えて、書きかえ用の欄（textarea）に入っている答えも読む
       const tas = [...body.querySelectorAll("textarea")].map((x) => norm(x.value)).filter(Boolean);
       if (/プロフィール/.test(title)) profile = { title, lines };
-      else if (qm) qa.push({ q: norm(qm[1]).replace(/[.…]+$/, ""), a: [...lines, ...tas.filter((x) => !lines.includes(x))].join("\n") });
+      else if (qm) qa.push({ q: norm(qm[1]).replace(/[.…]+$/, ""), a: "" });   // 答えは入れない（田中さん「一旦いらない」）
     }
     const all = root.innerText || root.textContent || ""; const i = all.indexOf("回答レビュー");
     return { company: companyNow(), sessionId: "", sessionLabel: label, profile, qa, raw: i >= 0 ? all.slice(i, i + 30000) : all.slice(0, 30000), url: location.href.split("#")[0] };
@@ -184,9 +184,7 @@
       if (!okRow()) return { fail: true };
     }
     await openTab("回答レビュー"); await sleep(300);
-    // 閉じている折りたたみを開いてから読む（閉じたままだと中の文が読めないことがあるため）
-    for (const sm of (activePanel() || document).querySelectorAll('[data-testid="stExpander"] details:not([open]) > summary')) { sm.click(); await sleep(120); }
-    await quiet(600, 4000);
+    // AI の答えは、いまは要らない（2026-11-18 田中さん「AIの答えは一旦いらない」）。質問の題だけなら折りたたみを開かずに読めるので速い
     const d = readReview(activePanel() || document.body);
     const r = d ? await send(d) : { ok: false, error: "読めませんでした" };
     await openTab("チャットセッション");
@@ -221,14 +219,23 @@
     show(`<div style="color:#5b6b66">会社の一覧を kinbot から読んでいます…</div>`);
     const r = await kb("/api/kinxs/docai/companies");
     if (!r.ok) { show(`<div style="color:#7a4310">${r.error || "読めませんでした"}</div>`); return; }
-    const cos = r.companies || []; const cur = companyNow();
-    show(`<div style="color:#5b6b66;font-size:12px">kinXs で「AI 候補者画面」の URL が入っている会社：${cos.length}社</div>
-      <label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:12.5px"><input type="radio" name="kbda" value="all" checked> 全部の会社（${cos.length}社）</label>
-      <label style="display:flex;gap:6px;align-items:center;font-size:12.5px"><input type="radio" name="kbda" value="cur"> いま選んでいる会社だけ（${cur || "未選択"}）</label>
-      <label style="display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12.5px"><input type="checkbox" data-new checked> 新しいチャットだけ（前に読んだところで止める）</label>
+    const cos = r.companies || []; const cur = companyNow(); const fresh = cos.filter((c) => !c.known.length).length;
+    // 会社は「まだ1件も読んでいない会社 → 前に読んだのが古い会社」の順（kinbot が並べて返す）。何社読むかを決めて、上から読む
+    const L = (t) => `<label style="display:flex;gap:6px;align-items:flex-start;font-size:12.5px;margin-top:4px">${t}</label>`;
+    show(`<div style="color:#5b6b66;font-size:12px">kinXs で「AI 候補者画面」の URL が入っている会社：${cos.length}社（まだ読んでいない会社 ${fresh}社）</div>
+      <div style="font-weight:700;font-size:12.5px;margin-top:10px;color:${C.deep}">どの会社を読むか</div>
+      ${L(`<input type="radio" name="kbda" value="n" checked style="margin-top:3px"> <span>まだ読んでいない会社から <input type="number" data-n min="1" max="${cos.length}" value="${Math.min(10, cos.length)}" style="width:52px;border:1px solid #cfe6dc;border-radius:6px;padding:1px 4px"> 社</span>`)}
+      ${L(`<input type="radio" name="kbda" value="cur" style="margin-top:3px"> <span>いま選んでいる会社だけ（${cur || "未選択"}）</span>`)}
+      <div style="font-weight:700;font-size:12.5px;margin-top:10px;color:${C.deep}">1社の中で、どのチャットを読むか</div>
+      ${L(`<input type="radio" name="kbdm" value="new" checked style="margin-top:3px"> <span>前回の続きだけ<br><small style="color:#5b6b66">一覧の新しい方から読み、前に読んだチャットまで来たら次の会社へ（速い）</small></span>`)}
+      ${L(`<input type="radio" name="kbdm" value="all" style="margin-top:3px"> <span>全部読み直す<br><small style="color:#5b6b66">前に読んだチャットも読む（時間がかかる）</small></span>`)}
       <button type="button" data-go style="margin-top:10px;width:100%;border:0;border-radius:10px;background:${C.main};color:#fff;font-weight:700;padding:9px;cursor:pointer">取り込みを始める</button>
-      <div style="color:#5b6b66;font-size:11.5px;margin-top:6px">画面を自動で操作します。終わるまで、このタブはさわらずに置いておいてください（ほかのタブは使えます）。</div>`);
-    box.querySelector("[data-go]").onclick = () => { const all = box.querySelector('input[name="kbda"]:checked').value === "all"; crawl(all ? cos : [{ company: cur, name: cur, known: (cos.find((c) => c.company === cur) || {}).known || [] }], box.querySelector("[data-new]").checked); };
+      <div style="color:#5b6b66;font-size:11.5px;margin-top:6px">画面を自動で操作します。終わるまで、このタブはさわらずに置いておいてください（ほかのタブは使えます）。1社で1〜3分ほどかかります。</div>`);
+    box.querySelector("[data-go]").onclick = () => {
+      const mode = box.querySelector('input[name="kbda"]:checked').value; const n = Math.max(1, Math.min(cos.length, Number(box.querySelector("[data-n]").value) || 10));
+      const onlyNew = box.querySelector('input[name="kbdm"]:checked').value === "new";
+      crawl(mode === "cur" ? [{ company: cur, name: cur, known: (cos.find((c) => c.company === cur) || {}).known || [] }] : cos.slice(0, n), onlyNew);
+    };
   };
   async function crawl(list, onlyNew) {
     crawling = true; stop = false; let saved = 0, skipped = 0, failed = 0; const log = [];

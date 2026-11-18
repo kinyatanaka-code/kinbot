@@ -13344,3 +13344,7 @@ export async function kxDocAiSetQa(companyId, key, qa) {
   if (!pool) return; await ensureKxDocAi();
   await pool.query(`UPDATE kinxs_docai_chats SET qa = $3 WHERE company_id = $1 AND session_key = $2`, [companyId, key, JSON.stringify(qa || [])]);
 }
+export async function kxDocAiLast() {
+  if (!pool) return new Map(); await ensureKxDocAi();
+  return new Map((await pool.query(`SELECT company_id, MAX(updated_at) AS last FROM kinxs_docai_chats GROUP BY company_id`)).rows.map((r) => [r.company_id, r.last]));
+}
