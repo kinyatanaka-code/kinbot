@@ -34,7 +34,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118a" />
+    <link rel="stylesheet" href="style.css?v=20261118b" />
   </head>
   <body>
     <div class="app">
@@ -575,6 +575,21 @@
               </div>
             </div>
 
+            <div class="set-card" id="gemCard">
+              <h3>Gemini でつなぐ</h3>
+              <p class="note">Gemini（gemini.google.com）からも、kinbot・kincall・kinXs・Salesforce を読んだり更新したりできます。<b>あなた専用の URL</b> を作って、Gemini に貼るだけです。あなたの権限で動きます。</p>
+              <div class="apidoc-h">入れ方</div>
+              <ol class="cc-steps">
+                <li>下の「Gemini 用の URL を作る」を押す（<b>あなた専用の合言葉入り</b>なので、人に渡さない）</li>
+                <li>パソコンで gemini.google.com を開き、設定 →「接続済みアプリ（Connected Apps）」→「カスタムアプリを追加（Add a custom app）」を開く</li>
+                <li>コピーした URL を貼って「次へ」→ 画面の案内どおりに許可する。kincall・kinXs も使うときは、それぞれ追加する</li>
+                <li>Gemini のチャットで「kinbot で今月の受注を教えて」のように話しかける</li>
+              </ol>
+              <div class="skill-row"><button class="btn primary" id="gemMake" type="button">Gemini 用の URL を作る</button><button class="btn" id="gemOff" type="button" hidden>URL を無効にする</button><span class="note" id="gemSt"></span></div>
+              <div id="gemUrls" hidden></div>
+              <p class="note">作り直すと、前の URL は使えなくなります（Gemini に入れ直してください）。期限は180日です。会社の Google アカウントでは、管理者がカスタムアプリを止めていることがあります。</p>
+            </div>
+
             <div class="set-card" id="skillCard">
               <h3>カスタムコネクタが使えない Claude でつなぐ（スキル）</h3>
               <p class="note">会社の設定でカスタムコネクタが使えない Claude でも、<b>スキル</b>として入れれば、kinbot・kincall・kinXs・Salesforce を読んだり更新したりできます。中身はコネクタと同じで、<b>あなたの権限</b>で動きます。</p>
@@ -1008,8 +1023,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261118a"></script>
-      <script src="nav.js?v=20261118a"></script>
+    <script src="settings.js?v=20261118b"></script>
+      <script src="nav.js?v=20261118b"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

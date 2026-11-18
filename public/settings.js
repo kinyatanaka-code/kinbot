@@ -3610,3 +3610,30 @@ function showExtDetail(k) {
   });
   load();
 })();
+
+// ===== Gemini でつなぐ（2026-11-18）=====
+//   その人専用の合言葉付きの URL（kinbot・kincall・kinXs）を作ってコピーできるようにする。URL は作ったときだけ見せる（あとから見直せない）
+(function () {
+  const mk = document.getElementById("gemMake"); if (!mk) return;
+  const off = document.getElementById("gemOff"), st = document.getElementById("gemSt"), box = document.getElementById("gemUrls");
+  const fmt = (t) => { if (!t) return ""; const d = new Date(t); return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`; };
+  const load = async () => { try { const d = await (await fetch("/api/me/gemini-link")).json(); off.hidden = !d.active; if (!box.hidden) return; st.textContent = d.active ? `いまの URL：${fmt(d.createdAt)} に作成・${fmt(d.expiresAt)} まで有効` : "まだ作っていません"; } catch {} };
+  mk.addEventListener("click", async () => {
+    if (!off.hidden && !confirm("作り直すと、いま Gemini に入れている URL は使えなくなります。作り直しますか？")) return;
+    mk.disabled = true; st.textContent = "作っています…";
+    try {
+      const r = await fetch("/api/me/gemini-link", { method: "POST" }); const d = await r.json(); if (!r.ok) throw new Error(d.error || "作れませんでした");
+      const rows = [["kinbot", "商談・議事録・Salesforce"], ["kincall", "架電・アポ・リスト"], ["kinxs", "導入企業・更新・やること"]];
+      box.innerHTML = rows.map(([k, l]) => `<div class="cc-conn"><div class="cc-conn-h"><b>${k === "kinxs" ? "kinXs" : k}</b><span>${l}</span></div><pre class="apidoc-code"><code>${d.urls[k]}</code></pre><button class="btn" type="button" data-gem-copy="${k}">URLをコピー</button></div>`).join("");
+      box.hidden = false;
+      box.querySelectorAll("[data-gem-copy]").forEach((b) => b.addEventListener("click", async () => { try { await navigator.clipboard.writeText(d.urls[b.dataset.gemCopy]); b.textContent = "コピーしました"; } catch { b.textContent = "コピーできませんでした"; } setTimeout(() => (b.textContent = "URLをコピー"), 1500); }));
+      off.hidden = false; st.textContent = "作りました。この URL はこの画面を閉じると見られません。いま Gemini に貼ってください。";
+    } catch (e) { st.textContent = e.message; }
+    mk.disabled = false;
+  });
+  off.addEventListener("click", async () => {
+    if (!confirm("Gemini 用の URL を無効にします。Gemini に入れたカスタムアプリは使えなくなります。よいですか？")) return;
+    try { await fetch("/api/me/gemini-link", { method: "DELETE" }); box.hidden = true; box.innerHTML = ""; await load(); st.textContent = "無効にしました"; } catch (e) { st.textContent = e.message; }
+  });
+  load();
+})();
