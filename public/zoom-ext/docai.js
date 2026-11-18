@@ -132,8 +132,16 @@
   // 左のメニューの「チャット管理」へ（ページは読み込み直さない）。force のときは、いま開いていても開き直す
   async function goChatPage(force) {
     if (!force && tabBtn("チャットセッション")) return true;
-    const a = [...document.querySelectorAll('a[href*="chat_curator"], [data-testid="stSidebarNavLink"]')].find((x) => /chat_curator/.test(x.getAttribute("href") || "") || /チャット管理/.test(x.textContent || ""));
-    if (!a) return false; a.click(); await quiet(1500); return !!tabBtn("チャットセッション");
+    const links = [...document.querySelectorAll('a[href], [data-testid="stSidebarNavLink"]')];
+    const a = links.find((x) => /chat_curator/.test(x.getAttribute("href") || "") || /チャット管理/.test(x.textContent || ""));
+    if (!a) return false;
+    // 会社を切りかえたあとは、いったん別のページを開いてから「チャット管理」を開き直す（田中さん「別のタブ押してチャット管理おした方がいいかも」）。
+    //   同じページのままだと、右の画面が前の会社のまま残ることがあったため。別のページは、見るだけのダッシュボード（なければヘルプ）
+    if (force) {
+      const other = links.find((x) => x !== a && /ダッシュボード/.test(x.textContent || "")) || links.find((x) => x !== a && /ヘルプ|サービス案内/.test(x.textContent || ""));
+      if (other) { other.click(); await sleep(600); await quiet(1500); }
+    }
+    a.click(); await sleep(600); await quiet(1500); return !!tabBtn("チャットセッション");
   }
   // 「企業を選択」を切りかえる：開く → 名前を打って絞る → 選ぶ
   async function selectCompany(co) {
@@ -257,6 +265,7 @@
         const c = list[ci]; const known = new Set((c.known || []).map((k) => String(k).slice(0, 8))); if (ci === 0) prevTitle = "";
         paint(ci, `${c.name || c.company}（${c.company}）を開いています…`);
         if (!(await selectCompany(c.company))) { skipped++; log.push(`${c.company}：「企業を選択」にありませんでした`); if (ci === 0 && list.length === 1) await diag("企業を選択で選べない"); continue; }
+        if (ci > 0 || !titleOk(c, "")) await goChatPage(true);
         await openTab("チャットセッション"); await quiet(1200);
         // 企業を切りかえても、右の画面が前の会社のままのことがあった（2026-11-18：ジェイグループの画面のまま、復建技術コンサルタントとして保存していた）。
         //   右の題（〇〇 チャット管理）が、その会社の名前になっているかを確かめる。ちがえば「チャット管理」を開き直し、それでもちがえば、その会社はとばす
