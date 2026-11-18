@@ -15894,6 +15894,26 @@ app.post("/api/gemini-bridge/test", async (req, res) => {
 app.post("/api/gemini-bridge/export", async (req, res) => {
   try { if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけ" }); res.json(await gemExport({ force: true })); } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// どの形のファイルなら Gemini が中身を読めるかを確かめる（2026-11-18：CSV・Markdown が「ファイル名だけで中身が読めない」と言われたため）。
+//   同じ中身を .csv・.md・.txt・.json・.js・.py で置き、Gemini にどれが読めるか聞く。本物のデータは入れない
+app.post("/api/gemini-bridge/probe", async (req, res) => {
+  try {
+    if (!isAiOwner(req)) return res.status(403).json({ error: "管理者だけ" });
+    const { cfg, token } = await gemCfg(); if (!token || !cfg.repo) return res.status(400).json({ error: "リポジトリと合言葉を入れてください" });
+    const rows = [["会社", "担当", "フェーズ"], ["テスト株式会社A", "田中", "01：アポ獲得"], ["テスト株式会社B", "江田", "06:申し込み書回収"]];
+    const word = "合言葉：みかん";
+    const files = [
+      { path: "probe/test.csv", content: `${rows.map((r) => r.join(",")).join("\n")}\n${word}（csv）\n` },
+      { path: "probe/test.md", content: `# テスト\n\n| ${rows[0].join(" | ")} |\n|---|---|---|\n${rows.slice(1).map((r) => `| ${r.join(" | ")} |`).join("\n")}\n\n${word}（md）\n` },
+      { path: "probe/test.txt", content: `${rows.map((r) => r.join("\t")).join("\n")}\n${word}（txt）\n` },
+      { path: "probe/test.json", content: JSON.stringify({ note: `${word}（json）`, rows }, null, 1) },
+      { path: "probe/test.js", content: `// ${word}（js）\nexport const rows = ${JSON.stringify(rows)};\n` },
+      { path: "probe/test.py", content: `# ${word}（py）\nROWS = ${JSON.stringify(rows)}\n` },
+    ];
+    await gemCommit(token, cfg.repo, files, "kinbot：Gemini が読める形を確かめるテスト");
+    res.json({ ok: true, files: files.map((f) => f.path) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // Gemini のスキル（SKILL.md）。リポジトリの名前と使い方を書いたもの。合言葉は入っていない
 app.get("/api/gemini-bridge/skill", async (req, res) => {
   try {
@@ -33245,7 +33265,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
