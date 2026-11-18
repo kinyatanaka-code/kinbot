@@ -117,10 +117,21 @@
   }
   // タブは data-testid="stTab"（role="tab" ではなかった）
   const tabBtn = (word) => [...document.querySelectorAll('[data-testid="stTab"], button[role="tab"]')].find((b) => (b.textContent || "").includes(word));
-  async function openTab(word) { const b = tabBtn(word); if (!b) return false; if (b.getAttribute("aria-selected") !== "true") { press(b); await sleep(600); } return true; }
+  async function openTab(word) {
+    for (let k = 0; k < 3; k++) {
+      const b = tabBtn(word); if (!b) return false;
+      const sel = () => (tabBtn(word) || b).getAttribute("aria-selected") === "true";
+      if (sel()) return true;
+      // タブは DIV（role=tab）。押す・離す・クリックを送り、だめなら中の文字のところでも押す
+      press(b); await sleep(300); if (sel()) { await sleep(300); return true; }
+      try { b.click(); } catch {} const inner = b.querySelector("p, span, div"); if (inner) press(inner);
+      await sleep(500); if (sel()) return true;
+    }
+    return false;
+  }
   // 右の画面の題（「株式会社〇〇 チャット管理」）から、いま右に出ている会社の名前を読む
   function mainTitle() { const h = [...document.querySelectorAll("h1, h2")].map((e) => norm(e.textContent)).find((t) => /チャット管理$/.test(t)); return h ? h.replace(/\s*チャット管理$/, "").replace(/^[^\p{L}\p{N}]+/u, "") : ""; }
-  const nameKey = (t) => String(t || "").replace(/株式会社|（株）|\(株\)|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|[\s　・．.]/g, "").toLowerCase();
+  const nameKey = (t) => String(t || "").normalize("NFKC").replace(/株式会社|（株）|\(株\)|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|[\s　・．.]/g, "").toLowerCase();
   // 会社の名前（kinXs）と右の題が合っているか。名前が無いときは、前の会社の題から変わったかで見る
   let prevTitle = "";
   function titleOk(c, prev) {
@@ -145,7 +156,12 @@
   }
   // 「企業を選択」を切りかえる：開く → 名前を打って絞る → 選ぶ
   let lastSel = { typed: "", seen: [] };
+  // 管理画面は、アドレス（URL）の ?company= と ?session_id= を見て右の画面を作っている。行を選ぶとその会社・チャットが URL に入り、
+  //   左で会社を切りかえても URL の方が勝って、右が前の会社のままになっていた（2026-11-18 診断：回答レビューのチャットがずっと同じだった）。
+  //   読み込み直さずに URL だけを書きかえておくと、次に画面が動いたときに Streamlit がそれを読む
+  function setUrlCompany(co) { try { history.replaceState(history.state, "", `${location.pathname}?company=${encodeURIComponent(co)}`); } catch {} }
   async function selectCompany(co) {
+    setUrlCompany(co);
     if (companyNow() === co) return true;
     const box = selectBoxOf("企業を選択"); if (!box) return false;
     const inp = box.querySelector('input[role="combobox"], input');
@@ -189,7 +205,7 @@
   }
   // 表の文字は、目に見えない読み上げ用の表（glide-cell-列-行）にも入っている。1列目がセッションID（頭だけ）
   const rowId = (i) => { const c = document.querySelector(`[data-testid="glide-cell-1-${i}"]`); return c ? norm(c.textContent).replace(/[.…]+$/, "").toLowerCase() : ""; };
-  const totalRows = () => { const m = (document.body.innerText || "").match(/(\d+)\s*件のセッションが見つかりました/); return m ? Number(m[1]) : 0; };
+  const totalRows = () => { const m = (document.body.innerText || "").match(/(\d+)\s*件のセッションが見つかりました/) || (document.body.textContent || "").match(/(\d+)\s*件のセッションが見つかりました/); return m ? Number(m[1]) : 0; };
   // 表の i 行目のチェック（左端）を押す。見えていなければ表を動かしてから押す
   async function toggleRow(i, how) {
     const G = grid(); if (!G || !G.cv) return false;
