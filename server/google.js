@@ -1909,3 +1909,30 @@ export async function driveShareUser(owner, fileId, email, role = "reader") {
   if (!r.ok) { const t = await r.text().catch(() => ""); throw new Error(`共有できませんでした（${email}・${r.status}）：${t.slice(0, 120)}`); }
   return true;
 }
+
+// Gemini からの更新の依頼（2026-11-18 田中さん「Gemini から SF の Stage を更新できるようにしたい」）。
+//   Gemini は GitHub に issue を作れなかった。代わりに「自分あてに件名『kinbot依頼』のメールを送る」形にする。
+//   その人の送信済みの中だけを見るので、本人が送ったものに限られる（なりすましのメールでは動かない）
+export async function gmailFindSentRequests(owner, { subjectWord = "kinbot依頼", days = 2, max = 10 } = {}) {
+  const token = await accessToken(owner);
+  if (!token) return [];
+  const H = { Authorization: `Bearer ${token}` };
+  const q = `in:sent subject:"${subjectWord}" newer_than:${days}d`;
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=${max}`, { headers: H });
+  if (!res.ok) throw new Error(`Gmail ${res.status}`);
+  const d = await res.json().catch(() => ({}));
+  const out = [];
+  for (const m of d.messages || []) {
+    const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, { headers: H });
+    if (!r.ok) continue;
+    const msg = await r.json().catch(() => null); if (!msg) continue;
+    const h = msg.payload && msg.payload.headers;
+    out.push({
+      id: msg.id, threadId: msg.threadId, labels: msg.labelIds || [], at: Number(msg.internalDate || 0),
+      subject: headerVal(h, "Subject"), from: headerVal(h, "From"), kinbot: headerVal(h, "X-Kinbot"),
+      messageIdHeader: headerVal(h, "Message-ID") || headerVal(h, "Message-Id"), references: headerVal(h, "References"),
+      body: extractBody(msg.payload).slice(0, 8000),
+    });
+  }
+  return out;
+}

@@ -712,7 +712,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser, gmailFindSentRequests } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -15772,7 +15772,7 @@ const GEM_DRIVE_NAMES = {
   "kinbot/deals.csv": "kinbot｜案件", "kinbot/meetings.csv": "kinbot｜録音した商談", "kinbot/tools.md": "kinbot｜更新を頼むときの道具",
   "kincall/call_stats.csv": "kincall｜架電の実績", "kincall/appointments.csv": "kincall｜アポ", "kincall/lists.csv": "kincall｜架電リスト",
   "kinxs/users.csv": "kinXs｜導入企業", "kinxs/renewals.csv": "kinXs｜更新管理", "kinxs/tasks.csv": "kinXs｜やること",
-  "salesforce/opportunities_cross.csv": "Salesforce｜商談（クロス）", "salesforce/opportunities_cross_counts.csv": "Salesforce｜商談（クロス）の件数",
+  "salesforce/opportunities_cross.csv": "Salesforce｜商談（クロス）", "salesforce/opportunities_cross_counts.csv": "Salesforce｜商談（クロス）の件数", "salesforce/picklists.csv": "Salesforce｜更新するときに選ぶ値",
 };
 function gemDriveReadme(repo, at, files) {
   return `kinbot のデータ（Gemini 用）
@@ -15783,17 +15783,20 @@ function gemDriveReadme(repo, at, files) {
 ■ ファイル
 ${files.map((f) => `・${f.name}：${f.label}${f.link ? `\n  ${f.link}` : ""}`).join("\n")}
 
-■ kinbot に何かをしてもらう（Salesforce の更新など）
-${repo ? `GitHub のリポジトリ ${repo} に issue を作ると、kinbot が1分ほどで実行し、結果を issue に書いて閉じます。
-issue の本文に、次の形の JSON を \`\`\`json と \`\`\` で囲んで入れてください（1つの issue で5つまで）。
+■ kinbot に更新を頼む（Salesforce のフェーズなど）
+自分あてに、件名に「kinbot依頼」を入れたメールを送ると、kinbot が1分ほどで実行し、同じスレッドに結果を返信します。
+送れるのは、kinbot の設定で「Gemini を使う人」に入っている人だけです。送信ボタンを押す前に、中身をよく確かめてください。
 
-{"requests":[{"tool":"sf_update","args":{"sobject":"Opportunity","id":"006xxxxxxxxxxxxxxx","fields":{"StageName":"06:申し込み書回収"}}}]}
+本文の書き方（1通で1件の商談）：
+商談ID：006xxxxxxxxxxxxxxx
+フェーズ：99：失注
+大項目：ニーズ・優先度不足
+中項目：初回商談リスケ
 
-・使える道具と入れる値は「kinbot｜更新を頼むときの道具」にあります。
-・ここに無い Salesforce の項目やほかの事業部の商談は、issue で sf_query（SOQL の SELECT）を頼むと調べられます。
-・書きかえる前に、必ず内容を人に確かめてから issue を作ってください。
-・動くのは、kinbot に登録された GitHub アカウントが作った issue だけです。` : "（いまは、更新の依頼のしくみは止めています）"}
-`;
+・書ける項目：フェーズ／大項目／中項目／小項目（失注理由）／受失注理由詳細／完了予定日／受失注日／次回アクション日
+・商談ID は「Salesforce｜商談（クロス）」の Id の列から、選ぶ値は「Salesforce｜更新するときに選ぶ値」からそのまま写してください。
+・ほかの道具を使うときは、本文に {"requests":[{"tool":"道具の名前","args":{…}}]} の JSON を入れます（道具は「kinbot｜更新を頼むときの道具」）。
+${repo ? `・GitHub のリポジトリ ${repo} に issue を作っても、同じように頼めます（登録した GitHub アカウントだけ）。\n` : ""}`;
 }
 async function gemDriveExport(user, cfg, files, at) {
   const folderId = await driveEnsureFolderId(user, "kinbot（Gemini 用）", cfg.driveFolderId || "");
@@ -15863,6 +15866,14 @@ async function gemExport({ force = false } = {}) {
         files.push({ path: "salesforce/opportunities_cross.csv", label: `Salesforce の商談（クロス＝DOC・MOCHICA。進行中は全部＋閉じたものは直近12か月・${pick.length}件／全${recs.length}件）`, content: csv(pick, [["Id", (o) => o.Id], ["取引先", (o) => o.Account && o.Account.Name, 30], ["フェーズ", (o) => o.StageName, 20], ["所有者", (o) => o.Owner && o.Owner.Name], ["販売区分", (o) => o.salestype__c], ["完了予定日", (o) => o.CloseDate], ["受注日", (o) => o.order_date__c], ["作成日", (o) => d10(o.CreatedDate)]]) });
         const agg = new Map(); for (const o of recs) { const k = `${String(o.CreatedDate || "").slice(0, 4)}\t${o.StageName || ""}\t${(o.Owner && o.Owner.Name) || ""}`; agg.set(k, (agg.get(k) || 0) + 1); }
         files.push({ path: "salesforce/opportunities_cross_counts.csv", label: `Salesforce の商談（クロス）の全期間の件数（作った年×フェーズ×所有者）`, content: ["作成年,フェーズ,所有者,件数", ...[...agg.entries()].sort().map(([k, n]) => `${k.split("\t").map((x) => cell(x)).join(",")},${n}`)].join("\n") });
+        // 更新を頼むときに選ぶ値（フェーズと失注理由の組み合わせ）。Gemini が項目名や値を当てずっぽうで書かないように（2026-11-18）
+        try {
+          const st = new Map(); for (const o of recs) if (o.StageName) st.set(o.StageName, (st.get(o.StageName) || 0) + 1);
+          const lr = await sfQuery(sfU, "SELECT Loss_Reason__c, Loss_Reason1__c, Loss_Reason2__c, COUNT(Id) n FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' AND StageName LIKE '%失注%' AND CloseDate = LAST_N_DAYS:730 GROUP BY Loss_Reason__c, Loss_Reason1__c, Loss_Reason2__c ORDER BY COUNT(Id) DESC LIMIT 200");
+          const lines = ["項目,項目のAPI名,値,大項目,中項目,小項目,これまでの件数", ...[...st.entries()].sort().map(([v, n]) => `フェーズ,StageName,${cell(v)},,,,${n}`),
+            ...((lr && lr.records) || []).filter((r) => r.Loss_Reason__c).map((r) => `失注理由の組み合わせ,Loss_Reason__c／Loss_Reason1__c／Loss_Reason2__c,,${cell(r.Loss_Reason__c)},${cell(r.Loss_Reason1__c || "")},${cell(r.Loss_Reason2__c || "")},${r.n || r.expr0 || ""}`)];
+          files.push({ path: "salesforce/picklists.csv", label: "更新するときに選ぶ値（フェーズ・失注理由の大／中／小項目の組み合わせ）", content: lines.join("\n") });
+        } catch (e) { errs.push(`選ぶ値：${e.message}`); }
       } else errs.push("Salesforce の商談：SF につながる人がいません");
     } catch (e) { errs.push(`Salesforce の商談：${e.message}`); }
     // 道具の一覧（issue で使えるもの・入れる値）
@@ -15922,6 +15933,66 @@ async function gemIssues() {
   finally { _gemIssueBusy = false; }
 }
 setInterval(() => { gemIssues().catch(() => {}); }, 60 * 1000).unref?.();
+// ===== メールで更新を頼む（2026-11-18 田中さん「Gemini から SF の Stage を更新できるようにしたい」）=====
+//   Gemini は GitHub に issue を作れなかった。Gemini はメールの下書きなら作れるので、
+//   「自分あてに、件名に『kinbot依頼』を入れたメールを送る」→ kinbot が1分ほどで実行し、同じスレッドに結果を返す。
+//   見るのはその人の「送信済み」だけ。本人が送ったメールに限られ、送信ボタンを押すことが「この内容でよい」の確認になる
+// 本文は JSON（issue と同じ形）か、「商談ID：006…」「フェーズ：99：失注」のような行で書ける（人が書いても分かる形）
+const GEM_LINE_FIELDS = [
+  [/^(フェーズ|ステージ|stage(name)?)$/i, "StageName"], [/^(失注理由|受失注理由)?[（(]?大(項目)?[）)]?$|^大項目$/, "Loss_Reason__c"],
+  [/^(失注理由|受失注理由)?[（(]?中(項目)?[）)]?$|^中項目$/, "Loss_Reason1__c"], [/^(失注理由|受失注理由)?[（(]?小(項目)?[）)]?$|^小項目$/, "Loss_Reason2__c"],
+  [/^(受失注理由詳細|理由詳細|詳細)$/, "order_reason_detail__c"], [/^(完了予定日|closedate)$/i, "CloseDate"], [/^(受失注日|受注日|失注日)$/, "order_date__c"],
+  [/^(失注後次回アクション日|次回アクション日)$/, "LostOpp_nextactiondate__c"],
+];
+function gemParseLines(body) {
+  const s = String(body || "").replace(/\r/g, ""); let id = ""; const fields = {};
+  for (const line of s.split("\n")) {
+    const m = line.match(/^\s*[・\-*]?\s*([^:：]{1,20})\s*[:：]\s*(.+?)\s*$/); if (!m) continue;
+    const k = m[1].trim(); const v = m[2].trim().slice(0, 255); if (!v) continue;
+    if (/^(商談)?id$|^商談ID$|^SFID$/i.test(k)) { const idm = v.match(/\b006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?\b/); if (idm) id = idm[0]; continue; }
+    const f = GEM_LINE_FIELDS.find(([re]) => re.test(k)); if (f) fields[f[1]] = /Date|date__c$/.test(f[1]) ? v.replace(/\//g, "-").slice(0, 10) : v;
+  }
+  return id && Object.keys(fields).length ? [{ tool: "sf_update", args: { sobject: "Opportunity", id, fields } }] : null;
+}
+let _gemMailBusy = false;
+async function gemMail() {
+  if (_gemMailBusy) return; _gemMailBusy = true;
+  try {
+    const { cfg } = await gemCfg(); if (!cfg.enabled || cfg.mail === false) return;
+    // 動かせる人：書き出す人＋「Gemini を使う人」＋ GitHub の登録の人
+    const people = [...new Set([cfg.owner || aiOwnerEmail(), ...(Array.isArray(cfg.driveReaders) ? cfg.driveReaders : []), ...Object.values(cfg.map || {})].map((e) => String(e || "").trim().toLowerCase()).filter((e) => /@/.test(e)))];
+    // はじめて動いたときより前のメールは実行しない（昔のメールを急に動かさない）
+    const since = cfg.mailSince ? Date.parse(cfg.mailSince) : Date.now(); if (!cfg.mailSince) await gemSaveCfg({ mailSince: new Date(since).toISOString() });
+    const done = new Set(Array.isArray(cfg.mailDone) ? cfg.mailDone : []); const log = Array.isArray(cfg.issueLog) ? cfg.issueLog : []; let changed = false;
+    for (const email of people) {
+      let msgs = []; try { msgs = await gmailFindSentRequests(email); } catch { continue; }
+      for (const m of msgs) {
+        if (done.has(m.id) || m.at < since || m.kinbot || /^\s*(re|fw|fwd)\s*[:：]/i.test(m.subject || "")) continue;
+        done.add(m.id); changed = true;
+        const body = String(m.body || "").replace(/[“”]/g, '"').replace(/&quot;/g, '"');
+        const reqs = gemParseReq(body) || gemParseLines(body);
+        let out = []; let allOk = true;
+        if (!reqs || !reqs.length) { out.push("本文に依頼が見つからなかったので、何もしていません。\n\n書き方の例：\n商談ID：006xxxxxxxxxxxxxxx\nフェーズ：99：失注\n大項目：ニーズ・優先度不足\n中項目：初回商談リスケ"); allOk = false; }
+        else {
+          const tm = await gemToolMap(email);
+          for (const r of reqs) {
+            if (GEM_BLOCK_TOOLS.has(r.tool)) { out.push(`■ ${r.tool}\n使えない道具です（メールからは動かしません）`); allOk = false; continue; }
+            try { const t = await gemCall(r.tool, r.args, email, tm); out.push(`■ ${r.tool} — できました\n${JSON.stringify(r.args)}\n${t.slice(0, 6000)}`); }
+            catch (e) { allOk = false; out.push(`■ ${r.tool} — できませんでした\n${JSON.stringify(r.args)}\n${e.message}`); }
+          }
+        }
+        // 結果は同じスレッドに返す（X-Kinbot の印を付け、次に読んだときに依頼とまちがえないようにする）
+        try { await gmailSend(email, { to: email, subject: `Re: ${m.subject}`, bodyText: `kinbot（${email} として実行・${gemJst()}）\n\n${out.join("\n\n")}`.slice(0, 30000), threadId: m.threadId, inReplyTo: m.messageIdHeader, references: [m.references, m.messageIdHeader].filter(Boolean).join(" "), extraHeaders: { "X-Kinbot": "result" } }); }
+        catch (e) { console.warn("[gemini] メールの返事", e.message); }
+        log.unshift({ n: "mail", at: new Date().toISOString(), who: email, ok: allOk, msg: reqs ? reqs.map((r) => r.tool).join("・") : "書き方がちがう" });
+        console.log(`[gemini] メールの依頼を実行しました（${email}）：${reqs ? reqs.map((r) => r.tool).join("・") : "依頼なし"}`);
+      }
+    }
+    if (changed) await gemSaveCfg({ mailDone: [...done].slice(-300), issueLog: log.slice(0, 30), lastMailAt: new Date().toISOString(), lastMailError: "" });
+  } catch (e) { await gemSaveCfg({ lastMailError: e.message }).catch(() => {}); console.warn("[gemini] メール", e.message); }
+  finally { _gemMailBusy = false; }
+}
+setInterval(() => { gemMail().catch(() => {}); }, 60 * 1000).unref?.();
 setInterval(() => { gemExport().catch(() => {}); }, 60 * 60 * 1000).unref?.();
 // 設定の画面から読む・直す（直すのは管理者だけ。合言葉は画面に返さない）
 app.get("/api/gemini-bridge", async (req, res) => {
@@ -15982,7 +16053,7 @@ app.get("/api/gemini-bridge/skill", async (req, res) => {
     const { cfg } = await gemCfg(); const repo = cfg.repo || "（管理者が設定したリポジトリ）";
     const md = `---
 name: kinbot-gemini
-description: ネオキャリアの営業支援 kinbot・kincall・kinXs と Salesforce のデータを、Google ドライブの「kinbot（Gemini 用）」フォルダのスプレッドシートから読み、更新は GitHub の issue で kinbot に頼む。商談・アポ・架電・受注・導入企業・Salesforce の確認や更新を頼まれたら使う。
+description: ネオキャリアの営業支援 kinbot・kincall・kinXs と Salesforce のデータを、Google ドライブの「kinbot（Gemini 用）」フォルダのスプレッドシートから読み、更新は自分あての「kinbot依頼」メールで kinbot に頼む。商談・アポ・架電・受注・導入企業・Salesforce の確認や更新を頼まれたら使う。
 ---
 
 # kinbot（Gemini 用）
@@ -15994,18 +16065,21 @@ ${(cfg.driveFiles || []).length ? `\nファイル：\n${cfg.driveFiles.map((f) =
 2. 何がどこにあるか分からないときは、まず「kinbot｜はじめに読む（説明と更新の頼み方）」を読む（最後に書き出した時刻も書いてある）。
 3. 数字や名前は、ファイルにあるとおり正確に答える。無いものは推測しない。書き出した時刻より新しいことは分からない、と伝える。
 
-## kinbot に更新を頼むとき（Salesforce の更新など）
-1. 何をどう変えるかを、ユーザーにはっきり見せて「この内容で依頼してよいか」を聞く。「はい」と言われるまで issue は作らない。
-2. ${repo} に issue を作る。題は「kinbot依頼：〇〇」。本文に次の形の JSON を \`\`\`json と \`\`\` で囲んで入れる（1つの issue で5つまで）：
-   \`\`\`json
-   {"requests":[{"tool":"sf_update","args":{"sobject":"Opportunity","id":"006…","fields":{"StageName":"06:申し込み書回収"}}}]}
-   \`\`\`
-3. 使える道具と入れる値は、ドライブの「kinbot｜更新を頼むときの道具」に書いてある。ID などはドライブのデータから正確に取る。
-4. kinbot が1分ほどで実行し、結果を issue のコメントに書いて閉じる。調べもの（sf_query など）の結果も、その issue のコメントに入る。
-5. 消す・一度にたくさん変える依頼はしない。
+## kinbot に更新を頼むとき（Salesforce のフェーズなど）
+1. 商談ID は「Salesforce｜商談（クロス）」の Id の列から、フェーズや失注理由の値は「Salesforce｜更新するときに選ぶ値」から、一字一句そのまま写す。項目名や値を作らない。
+2. 何をどう変えるかを、ユーザーにはっきり見せて「この内容で依頼してよいか」を聞く。
+3. 「はい」と言われたら、Gmail で **ユーザー自身のアドレスあて** のメールの下書きを作る。件名は「kinbot依頼：〇〇（会社名）」。本文は次の形（1通で1件の商談）：
+   商談ID：006xxxxxxxxxxxxxxx
+   フェーズ：99：失注
+   大項目：ニーズ・優先度不足
+   中項目：初回商談リスケ
+   （書ける項目：フェーズ／大項目／中項目／小項目／受失注理由詳細／完了予定日／受失注日／次回アクション日）
+4. ユーザーが送信を押すと、kinbot が1分ほどで実行し、同じスレッドに「できました／できませんでした」を返信する。
+5. ほかの道具（sf_query など）を使うときは、本文に {"requests":[{"tool":"道具の名前","args":{…}}]} の JSON を入れる（道具は「kinbot｜更新を頼むときの道具」）。
+6. 消す・一度にたくさん変える依頼はしない。
 
 ## 守ること
-- 依頼は、kinbot に登録された GitHub アカウントでしか動かない。「登録されていない」と返ってきたら、kinbot の管理者に登録を頼むよう伝える。
+- メールの依頼は、kinbot の設定で「Gemini を使う人」に入っている人が、自分あてに送ったときだけ動く。返信が来ないときは、kinbot の管理者に登録を頼むよう伝える。
 `;
     res.setHeader("content-type", "text/markdown; charset=utf-8");
     res.setHeader("content-disposition", 'attachment; filename="SKILL.md"');
@@ -33327,11 +33401,11 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
-  "Gemini：Google ドライブのスプレッドシートで読む・GitHub の issue で更新を頼む",
+  "Gemini：Google ドライブのスプレッドシートで読む・自分あての「kinbot依頼」メール（か GitHub の issue）で更新を頼む",
   "Gemini のカスタムアプリで kinbot につなぐ",
   "Claude のスキルで kinbot につなぐ（コネクタ不要）",
   "kinXs：要望・問い合わせを中身の分類ごとに",
