@@ -206,3 +206,18 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   })();
   return true;
 });
+
+// ===== DOC の AI（次面談話）の管理画面で読んだチャットを、kinXs に送る（2026-11-18 田中さん）=====
+//   kinbot にログインしているブラウザのクッキーで送る（合言葉は持たない）。ログインしていなければ、そう返す
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-docai-capture") return;
+  (async () => {
+    try {
+      const r = await fetch("https://kinbot-production-225f.up.railway.app/api/kinxs/docai/capture", { method: "POST", credentials: "include", redirect: "manual", headers: { "content-type": "application/json" }, body: JSON.stringify(msg.payload || {}) });
+      if (r.type === "opaqueredirect" || r.status === 401) return reply({ ok: false, error: "kinbot にログインしてから、もう一度開いてください" });
+      const j = await r.json().catch(() => ({}));
+      reply(r.ok ? { ok: true, ...j } : { ok: false, error: j.error || `（${r.status}）` });
+    } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
+  })();
+  return true;
+});

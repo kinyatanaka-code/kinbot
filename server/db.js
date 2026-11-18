@@ -13291,3 +13291,39 @@ export async function kxVoiceMarkScanned(botId, accountId, n) {
   if (!pool) return; await ensureKxVoices();
   await pool.query(`INSERT INTO kinxs_voice_scans (bot_id, account_id, n) VALUES ($1,$2,$3) ON CONFLICT (bot_id) DO UPDATE SET account_id = EXCLUDED.account_id, n = EXCLUDED.n, at = now()`, [String(botId), String(accountId), Number(n) || 0]);
 }
+
+// ===== kinXs：DOC の AI（次面談話）の候補者チャット（2026-11-18 田中さん「管理画面の質問内容を kinXs にまとめたい」）=====
+//   管理画面には API が無いので、拡張機能が「回答レビュー」を開いたときに中身を読んで送ってくる。
+//   1行＝1つのチャット（企業ID＋セッションの頭8文字）。同じチャットを開き直したら上書きする（増やさない）
+let _kxDocAiP = null;
+function ensureKxDocAi() {
+  if (!pool) return Promise.resolve();
+  if (!_kxDocAiP) _kxDocAiP = (async () => {
+    await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_docai_chats (company_id TEXT NOT NULL, session_key TEXT NOT NULL, session_id TEXT, profile JSONB, qa JSONB, raw TEXT,
+      url TEXT, sent_by TEXT, first_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now(), PRIMARY KEY (company_id, session_key))`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS kinxs_docai_co ON kinxs_docai_chats (company_id)`).catch(() => {});
+  })();
+  return _kxDocAiP;
+}
+export async function kxDocAiSave(c) {
+  if (!pool) return null; await ensureKxDocAi();
+  const { rows } = await pool.query(`INSERT INTO kinxs_docai_chats (company_id, session_key, session_id, profile, qa, raw, url, sent_by)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    ON CONFLICT (company_id, session_key) DO UPDATE SET session_id = COALESCE(EXCLUDED.session_id, kinxs_docai_chats.session_id), profile = EXCLUDED.profile, qa = EXCLUDED.qa,
+      raw = EXCLUDED.raw, url = EXCLUDED.url, sent_by = EXCLUDED.sent_by, updated_at = now()
+    RETURNING company_id, session_key, (xmax = 0) AS inserted`,
+    [c.companyId, c.sessionKey, c.sessionId || null, JSON.stringify(c.profile || {}), JSON.stringify(c.qa || []), c.raw || "", c.url || "", c.sentBy || ""]);
+  return rows[0] || null;
+}
+export async function kxDocAiList(companyId) {
+  if (!pool) return []; await ensureKxDocAi();
+  return (await pool.query(`SELECT company_id, session_key, session_id, profile, qa, sent_by, first_at, updated_at FROM kinxs_docai_chats WHERE company_id = $1 ORDER BY first_at DESC LIMIT 500`, [String(companyId)])).rows;
+}
+export async function kxDocAiCounts() {
+  if (!pool) return {}; await ensureKxDocAi();
+  return Object.fromEntries((await pool.query(`SELECT company_id, COUNT(*)::int n FROM kinxs_docai_chats GROUP BY company_id`)).rows.map((r) => [r.company_id, r.n]));
+}
+export async function kxDocAiAll() {
+  if (!pool) return []; await ensureKxDocAi();
+  return (await pool.query(`SELECT company_id, session_key, qa, first_at, updated_at FROM kinxs_docai_chats ORDER BY first_at DESC LIMIT 5000`)).rows;
+}

@@ -588,7 +588,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arInboxUnconfirmed, kxVoiceList, kxVoiceAdd, kxVoiceSet, kxVoiceScanned, kxVoiceMarkScanned, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arInboxUnconfirmed, kxVoiceList, kxVoiceAdd, kxVoiceSet, kxVoiceScanned, kxVoiceMarkScanned, kxDocAiSave, kxDocAiList, kxDocAiCounts, kxDocAiAll, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -17717,6 +17717,67 @@ async function kxHiringMake(id, user) {
   await kxHiringSaveDb(id, data, sources, user);
   return { data, sources, updated_at: new Date().toISOString() };
 }
+// ===== DOC の AI（次面談話）の候補者チャットを kinXs に貯める（2026-11-18 田中さん）=====
+//   管理画面（casual-interview-api.brainverse-ai.com）は API が無い作り。拡張機能が「回答レビュー」を開いたときに中身を読んで、ここへ送ってくる。
+//   企業ID は、kinXs の「AI 候補者画面」の URL の最後（例：…brainverse-ai.com/fukkengijutsuconsultants）と同じ
+const docAiCo = (v) => String(v || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 60);
+const docAiClip = (v, n) => String(v === null || v === undefined ? "" : v).replace(/\u0000/g, "").slice(0, n);
+app.post("/api/kinxs/docai/capture", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "kinXs を使える人だけが送れます" });
+    const b = req.body || {};
+    const companyId = docAiCo(b.company); if (!companyId) return res.status(400).json({ error: "企業ID が分かりませんでした（管理画面で企業を選んでください）" });
+    const sid = docAiClip(b.sessionId, 80).replace(/[^A-Za-z0-9-]/g, "");
+    const key = (sid || docAiClip(b.sessionLabel, 40).replace(/[^A-Za-z0-9-]/g, "")).slice(0, 8).toLowerCase();
+    if (key.length < 6) return res.status(400).json({ error: "どのチャットか（セッションID）が分かりませんでした" });
+    const qa = (Array.isArray(b.qa) ? b.qa : []).slice(0, 60).map((x) => ({ q: docAiClip(x && x.q, 500), a: docAiClip(x && x.a, 4000) })).filter((x) => x.q || x.a);
+    const profile = { title: docAiClip(b.profile && b.profile.title, 200), lines: (Array.isArray(b.profile && b.profile.lines) ? b.profile.lines : []).slice(0, 40).map((l) => docAiClip(l, 300)) };
+    if (!qa.length && !profile.lines.length) return res.status(400).json({ error: "チャットの中身が読めませんでした" });
+    const r = await kxDocAiSave({ companyId, sessionKey: key, sessionId: sid.length >= 20 ? sid : null, profile, qa, raw: docAiClip(b.raw, 40000), url: docAiClip(b.url, 400).replace(/[?&](token|auth|key)=[^&]*/gi, ""), sentBy: req.user });
+    res.json({ ok: true, company: companyId, session: key, inserted: !!(r && r.inserted), questions: qa.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/kinxs/docai/chats", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const companyId = docAiCo(req.query.company); if (!companyId) return res.json({ ok: true, company: "", chats: [] });
+    res.json({ ok: true, company: companyId, chats: await kxDocAiList(companyId) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// DOC連携「候補者の質問」：全部の会社をまとめて見る（2026-11-18 田中さん「DOC連携というメニュー」）
+app.get("/api/kinxs/docai/summary", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const rows = await kxDocAiAll();
+    // 企業ID → kinXs の会社（「AI 候補者画面」の URL の最後で引く）
+    const accs = (await kinxsList()).filter((r) => !r.merged_into); const byCo = new Map();
+    for (const r of accs) { const i = r.info || {}; const u = i.ai_url || (i.prod_url && !/aticoti/i.test(i.prod_url) ? i.prod_url : ""); const m = /brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(String(u || "")); if (m) byCo.set(docAiCo(m[1]), { id: r.account_id, name: r.name_override || r.name || "" }); }
+    const cos = new Map(); const all = new Map();
+    for (const r of rows) {
+      const c = cos.get(r.company_id) || { company: r.company_id, chats: 0, questions: 0, last: null, qs: new Map() };
+      c.chats++; const t = String(r.first_at instanceof Date ? r.first_at.toISOString() : r.first_at || ""); if (!c.last || t > c.last) c.last = t;
+      for (const x of (Array.isArray(r.qa) ? r.qa : [])) { const q = String(x.q || "").trim(); if (!q) continue; c.questions++; c.qs.set(q, (c.qs.get(q) || 0) + 1); const a = all.get(q) || { q, n: 0, cos: new Set() }; a.n++; a.cos.add(r.company_id); all.set(q, a); }
+      cos.set(r.company_id, c);
+    }
+    const companies = [...cos.values()].map((c) => ({ company: c.company, account: byCo.get(c.company) || null, chats: c.chats, questions: c.questions, last: c.last, top: [...c.qs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([q, n]) => ({ q, n })) }))
+      .sort((a, b) => String(b.last || "").localeCompare(String(a.last || "")));
+    const top = [...all.values()].sort((a, b) => b.n - a.n).slice(0, 30).map((a) => ({ q: a.q, n: a.n, companies: a.cos.size }));
+    res.json({ ok: true, companies, top, chats: rows.length });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// DOC連携「アクセス分析」：取り込んだ月間アクセス数を、会社×月の表で見る（2026-11-18）
+app.get("/api/kinxs/access/summary", async (req, res) => {
+  try {
+    if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
+    const list = await kxAccessList(); const accs = (await kinxsList()).filter((r) => !r.merged_into);
+    const nameOf = new Map(accs.map((r) => [r.account_id, r.name_override || r.name || ""]));
+    const by = new Map(); const yms = new Set();
+    for (const r of list) { yms.add(r.ym); const o = by.get(r.account_id) || {}; o[r.ym] = Number(r.count) || 0; by.set(r.account_id, o); }
+    const months = [...yms].sort().slice(-12);
+    const rows = [...by.entries()].map(([id, counts]) => ({ id, name: nameOf.get(id) || id, counts })).sort((a, b) => (b.counts[months[months.length - 1]] || 0) - (a.counts[months[months.length - 1]] || 0));
+    res.json({ ok: true, months, rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/kinxs/accounts/:id/hiring", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -33520,7 +33581,11 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
+<<<<<<< HEAD
 const BUILD_TAG = "2026-11-18T for MOCHICA の架電：担当者と話せたらヒアリング欄（検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数）。記録で SF のリード（検討開始時期・採用人数・顧客の課題感）と活動に書く。リードのマイナビ（新卒）掲載の有無と中身を Web 検索で自動取得し、ひと目でに出す";
+=======
+const BUILD_TAG = "2026-11-18T kinXs のメニューに「DOC連携」（アクセス分析・候補者の質問・要望・問い合わせ）。アクセス分析＝取り込んだ月間アクセス数の会社×月の表、候補者の質問＝全社のまとめ（よく聞かれること・会社ごと）。／2026-11-18S kinXs「候補者の質問」：拡張機能（2.2.7）が DOC の AI 管理画面の「回答レビュー」を開いたときに、候補者のプロフィールと質問・AI の答えを自動で読んで kinXs に貯める（企業ID＝AI 候補者画面の URL の最後）。企業の詳細に「候補者の質問」タブ（よく聞かれること・チャットごと）。／2026-11-18R for MOCHICA の架電：MOCHICA のメンバーをダッシュボードの名簿（営業・インサイド）と管理者にする。リストを作る画面などの実行ボタンが見えなかったのを直す。／2026-11-18R Gemini はリンクを押すと Google 検索に飛ばすので、リンクはコードブロックで出してコピーしてもらう形に。kinbot の /gem は、コピーした Gemini の答え（リンクでも本文でも）を貼るだけで読む（許可済みなら開くだけで自動で読む）。／2026-11-18Q（版の印の直し）／2026-11-18P Gemini のリンク：日本語を入れると Gemini がリンクを途中で切るので、英数字だけのリンク（/gem?id=商談ID&s=99&r=R…）に。「選ぶ値」にコードの列。／2026-11-18K for MOCHICA の架電：リストの管理者を正社員（福井・本炭・餌取・齊藤・北川・山田）に広げる（苗字で照合・インターンと DOC だけの人は除く・MCCALL_ADMIN_EMAILS で追加可）。管理画面に管理者の名前を出す。／2026-11-18O Gemini から更新：会社の設定で Gemini はメールを送れない（PERMISSION_DENIED）ので、kinbot の確認画面へのリンク（/gem?t=依頼の本文）を出してもらい、押した人が「いま→変えたあと」を見て「更新する」を押す形に。／2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+>>>>>>> f1be7ea65147e4d4886c7264571550ef47c690e6
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
