@@ -13359,3 +13359,12 @@ export async function kxDocAiOther(companyId, key) {
   if (!pool) return null; await ensureKxDocAi();
   return (await pool.query(`SELECT company_id FROM kinxs_docai_chats WHERE session_key = $1 AND company_id <> $2 LIMIT 1`, [key, companyId])).rows[0]?.company_id || null;
 }
+// 1回だけの直し（2026-11-18）：拡張機能が、右の画面がネオキャリアのまま「明豊建設」として保存した29件を、ネオキャリアに付け直す。
+//   セッションIDがネオキャリアの一覧（ad935ca2・ef1b6ec3…）と同じだったので、ネオキャリアのチャットと分かっている。消さずに付け直すだけ
+export async function kxDocAiFixMeihou() {
+  if (!pool) return 0; await ensureKxDocAi();
+  const r = await pool.query(`UPDATE kinxs_docai_chats SET company_id = 'neocareer' WHERE company_id = 'meihou_construction'
+    AND first_at >= '2026-11-18T07:20:00Z' AND first_at < '2026-11-18T07:40:00Z'
+    AND NOT EXISTS (SELECT 1 FROM kinxs_docai_chats x WHERE x.company_id = 'neocareer' AND x.session_key = kinxs_docai_chats.session_key)`);
+  return r.rowCount;
+}
