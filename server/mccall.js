@@ -14,7 +14,7 @@
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   不在は同じ日のうちに自動で掛け直しに回す（解除できる）。記録の取り消しは「元に戻す」で行う。
 import { dbPool, listUsers, approachBanHit, approachBanHitSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
-import { listCalendarEvents, gmailSend, isConnected as googleConnected } from "./google.js";
+import { freeBusy, gmailSend, isConnected as googleConnected } from "./google.js";
 import { fixMojibake } from "./docs.js";
 import { createTask, deleteTask, sfQuery, sfUpdateRecord } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
@@ -812,25 +812,29 @@ export function registerMcCall(app, deps) {
     return ms.filter((m) => m.email && m.active !== false && (m.businesses || []).includes("MOCHICA") && (m.roles || []).includes("closer"))
       .map((m) => ({ email: String(m.email).toLowerCase(), name: m.name || m.email }));
   }
-  // カレンダーを読める人（Google 連携済み）を、自分 → アポを読む係 → クローザー本人 の順に探す
+  // クローザーの Google カレンダーの「埋まっている時間」を読む（2026-11-18 福井さん「クローザーのグーグルカレンダーの空き日程に」）
+  //   1) クローザー本人が Google 連携していれば、本人の権限で本人のカレンダーを読む（非公開の予定も漏れない）
+  //   2) まだの人は、連携済みの人（自分・アポを読む係・ほかのクローザー）の権限で FreeBusy を読む
+  //      FreeBusy は予定の中身を見ないので、詳細を非公開にしているカレンダーでも空きだけは分かる
+  //   予定の「辞退」「予定なし（空き）」扱いは Google 側で除かれる。読めなかった人は「空き」と数えない
   async function busyOf(req, members, timeMin, timeMax) {
-    const st = await getSettings().catch(() => ({}));
-    const owners = [...new Set([me(req), String(st.apoScanOwner || "").toLowerCase(), ...members.map((m) => m.email), String(st.calendarOwner || "").toLowerCase()].filter(Boolean))];
-    let reader = "";
-    for (const o of owners) { try { await listCalendarEvents(o, members[0].email, { timeMin, timeMax }); reader = o; break; } catch {} }
-    if (!reader) return null;
     const busy = new Map();
+    const take = (m, cal) => { if (!cal || (cal.errors && cal.errors.length)) return false;
+      busy.set(m.email, cal.busy.map((x) => [Date.parse(x.start), Date.parse(x.end)]).filter(([s0, e0]) => !isNaN(s0) && !isNaN(e0) && e0 > s0)); return true; };
     await Promise.all(members.map(async (m) => {
-      try {
-        const arr = [];
-        for (const e of (await listCalendarEvents(reader, m.email, { timeMin, timeMax })) || []) {
-          if (e.allDay || e.selfResponse === "declined" || /リスケ|キャンセル/.test(String(e.title || ""))) continue;
-          const s0 = Date.parse(e.start), e0 = Date.parse(e.end); if (!isNaN(s0) && !isNaN(e0) && e0 > s0) arr.push([s0, e0]);
-        }
-        busy.set(m.email, arr);
-      } catch { busy.set(m.email, null); }   // 読めなかった人は「空き」と数えない
+      try { take(m, (await freeBusy(m.email, [m.email], timeMin, timeMax))[m.email]); } catch {}
     }));
-    return busy;
+    let rest = members.filter((m) => !busy.has(m.email));
+    if (rest.length) {
+      const st = await getSettings().catch(() => ({}));
+      const readers = [...new Set([me(req), String(st.apoScanOwner || "").toLowerCase(), String(st.calendarOwner || "").toLowerCase(), ...members.map((m) => m.email)].filter(Boolean))];
+      for (const r of readers) {
+        if (!rest.length) break;
+        try { const fb = await freeBusy(r, rest.map((m) => m.email), timeMin, timeMax); rest = rest.filter((m) => !take(m, fb[m.email])); } catch {}
+      }
+    }
+    for (const m of rest) busy.set(m.email, null);
+    return members.some((m) => Array.isArray(busy.get(m.email))) ? busy : null;
   }
   const freeAt = (busy, members, t, mins) => members.filter((m) => { const b = busy.get(m.email); return Array.isArray(b) && !b.some(([bs, be]) => bs < t + mins * 60e3 && be > t); }).map((m) => m.name);
   const slotOut = (t, free, total) => { const j = new Date(t + 9 * 3600e3); return { at: new Date(t).toISOString(), md: `${j.getUTCMonth() + 1}/${j.getUTCDate()}`, dow: "日月火水木金土"[j.getUTCDay()], time: `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`, band: j.getUTCHours() < 12 ? "午前" : "午後", free, freeN: free.length, total }; };
