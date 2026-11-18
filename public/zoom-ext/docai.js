@@ -62,8 +62,12 @@
       const title = norm((sum.querySelector('[data-testid="stMarkdownContainer"]') || sum).textContent);
       const body = ex.querySelector('[data-testid="stExpanderDetails"]') || ex;
       const lines = blockText(body).filter((l) => l !== title);
+      // 題の前にアイコンの文字（絵文字や「chat」など）が付くので、「質問1:」は題のどこにあっても拾う（2026-11-18 質問が0件だった）
+      const qm = title.match(/質問\s*\d+\s*[:：]\s*([\s\S]*)$/);
+      // 中身：文の塊に加えて、書きかえ用の欄（textarea）に入っている答えも読む
+      const tas = [...body.querySelectorAll("textarea")].map((x) => norm(x.value)).filter(Boolean);
       if (/プロフィール/.test(title)) profile = { title, lines };
-      else if (/^質問\s*\d+/.test(title)) qa.push({ q: title.replace(/^質問\s*\d+\s*[:：]\s*/, ""), a: lines.join("\n") });
+      else if (qm) qa.push({ q: norm(qm[1]).replace(/[.…]+$/, ""), a: [...lines, ...tas.filter((x) => !lines.includes(x))].join("\n") });
     }
     const all = root.innerText || root.textContent || ""; const i = all.indexOf("回答レビュー");
     return { company: companyNow(), sessionId: "", sessionLabel: label, profile, qa, raw: i >= 0 ? all.slice(i, i + 30000) : all.slice(0, 30000), url: location.href.split("#")[0] };
@@ -180,6 +184,9 @@
       if (!okRow()) return { fail: true };
     }
     await openTab("回答レビュー"); await sleep(300);
+    // 閉じている折りたたみを開いてから読む（閉じたままだと中の文が読めないことがあるため）
+    for (const sm of (activePanel() || document).querySelectorAll('[data-testid="stExpander"] details:not([open]) > summary')) { sm.click(); await sleep(120); }
+    await quiet(600, 4000);
     const d = readReview(activePanel() || document.body);
     const r = d ? await send(d) : { ok: false, error: "読めませんでした" };
     await openTab("チャットセッション");
