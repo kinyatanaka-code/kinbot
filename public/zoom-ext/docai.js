@@ -308,26 +308,17 @@
   const delRun = () => new Promise((r) => { try { chrome.storage.local.remove([RUN], () => r()); } catch { r(); } });
   // ページを読み込み直すとログインし直しになる（2026-11-18 田中さん）。なので、読み込み直さずに、管理画面の中のページ移動として
   //   「ダッシュボード → chat_curator?company=企業ID」と動かす（ブラウザの「戻る・進む」と同じ合図＝popstate を送ると、Streamlit がそのページを開く）
-  async function spaGo(path) {
-    try { history.pushState(history.state, "", path); window.dispatchEvent(new PopStateEvent("popstate", { state: history.state })); } catch {}
-    await sleep(700); await quiet(1500, 15000);
-  }
+  // 送る中身の差しかえ（docai-hook.js）に、いま読む会社を知らせる。空にすると差しかえをやめる
+  const setTarget = (co) => { try { window.postMessage({ __kbDocAiTarget: co || "" }, "*"); } catch {} };
+  window.addEventListener("message", (e) => { const d = e.data; if (e.source === window && d && d.__kbDocAiHookLog) tr(`差しかえ：${String(d.__kbDocAiHookLog).slice(0, 120)}`); });
+  // 会社を開く：差しかえる会社を決める → 左の「企業を選択」→ ダッシュボード → チャット管理（ページは読み込み直さない）
   async function openCompany(co) {
-    tr(`${co}をページ移動で開く`);
-    await spaGo("/dashboard");
-    await spaGo(`/chat_curator?company=${encodeURIComponent(co)}`);
+    tr(`${co}を開く`);
+    setTarget(co);
+    await selectCompany(co); await goChatPage(true); await sleep(800); await quiet(1500);
     tr(`${co}を開いたあと`);
     setTimeout(() => { resume().catch(() => {}); }, 300);
   }
-  const isLogin = () => { const t = document.body ? document.body.innerText || "" : ""; return /パスワード/.test(t) && /ログイン/.test(t) && !/チャット管理|ダッシュボード/.test(t); };
-  async function crawl(list, onlyNew) {
-    if (!list.length) return;
-    await setRun({ list, i: 0, onlyNew, saved: 0, skipped: 0, failed: 0, log: [], results: [], tries: 0, started: Date.now(), stop: false });
-    show(`<div style="font-size:12.5px">${esc0(list[0].name || list[0].company)} を開きます…</div>`);
-    openCompany(list[0].company);
-  }
-  const esc0 = (t) => String(t || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
-  // ページを開いたら、続きがあるかを見る
   let resuming = false;
   async function resume() {
     if (resuming) return; resuming = true;
@@ -338,6 +329,7 @@
     if (Date.now() - (run.at || run.started) > 30 * 60 * 1000) { await delRun(); return; }   // 30分さわっていない取り込みは、もう続けない
     crawling = true; box.hidden = false;
     const c = run.list[run.i]; if (!c) { await finish(run); return; }
+    setTarget(c.company);
     const log = run.log; const results = run.results;
     const paint = (msg) => { show(`<div style="font-size:12px;color:#5b6b66">${run.i}/${run.list.length}社　保存 ${run.saved}件・とばした会社 ${run.skipped}</div>${bar(run.list.length ? run.i / run.list.length : 0)}<div style="font-size:12.5px">${msg}</div><button type="button" data-stop style="margin-top:8px;border:1px solid #e7b37a;background:#fff;color:#7a4310;border-radius:9px;padding:5px 12px;cursor:pointer">止める</button>${log.length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:90px;overflow:auto">${log.slice(-6).map(esc0).join("<br>")}</div>` : ""}`); const sb = box.querySelector("[data-stop]"); if (sb) sb.onclick = async () => { stop = true; sb.disabled = true; sb.textContent = "止めています…"; const r2 = await getRun(); if (r2) await setRun({ ...r2, stop: true }); }; };
     const next = async () => { run.i++; run.tries = 0; run.at = Date.now(); if (stop || run.stop || run.i >= run.list.length) { await finish(run); return; } await setRun(run); openCompany(run.list[run.i].company); };
@@ -349,7 +341,6 @@
       await openTab("チャットセッション"); await quiet(1200);
       if (!titleOk(c, "")) {
         if (run.tries < 1) { run.tries++; run.at = Date.now(); await setRun(run); openCompany(c.company); return; }   // もう1回だけ開き直す
-        if (run.tries < 2) { run.tries++; run.at = Date.now(); await setRun(run); await selectCompany(c.company); await goChatPage(true); await sleep(800); await quiet(1500); setTimeout(() => { resume().catch(() => {}); }, 300); return; }
         run.skipped++; results.push({ company: c.company, ok: false, why: "開いても右の画面がその会社にならない", title: mainTitle(), name: c.name }); log.push(`${c.company}：開いても右の画面が「${mainTitle() || "？"}」でした`); await next(); return;
       }
       const known = new Set((c.known || []).map((k) => String(k).slice(0, 8)));
@@ -359,7 +350,11 @@
         paint(`${esc0(c.name || c.company)}：${i + 1}/${n} 件目を読んでいます`);
         if (run.onlyNew && i > 0) { await toggleRow(i, "peek"); const rid = rowId(i); if (rid && known.has(rid.slice(0, 8))) break; }
         const r = await readRow(i, prev, c.company);
-        if (!titleOk(c, "")) { log.push(`${c.company}：行を選ぶと右の画面が「${mainTitle()}」に変わったので、この会社は止めました`); break; }
+        if (!titleOk(c, "")) {
+          tr(`行${i}で右が「${mainTitle()}」になった`);
+          if (run.tries < 2) { run.tries++; run.at = Date.now(); await setRun(run); openCompany(c.company); return; }   // 開き直して、この会社を続きから
+          log.push(`${c.company}：行を選ぶと右の画面が「${mainTitle()}」に変わったので、この会社は止めました`); break;
+        }
         if (r.skip) { if (i === 0) { log.push(`${c.company}：チャットの表が見つかりませんでした`); await diag("表が見つからない・押せない"); } break; }
         if (r.fail) { failRow++; run.failed++; if (failRow >= 2) { log.push(`${c.company}：表のチェックを押せませんでした`); await diag("表の行を選べない"); break; } continue; }
         prev = r.label;
@@ -371,7 +366,7 @@
     } catch (e) { run.log.push(`止まりました：${e.message}`); await finish(run); }
   }
   async function finish(run) {
-    await delRun(); crawling = false;
+    await delRun(); crawling = false; setTarget("");
     kb("/api/kinxs/docai/diag", "POST", { why: "取り込みの結果", ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), saved: run.saved, skipped: run.skipped, failed: run.failed, results: (run.results || []).slice(0, 60), log: (run.log || []).slice(-40), trace: trace.slice(-200) }).catch(() => {});
     box.hidden = false;
     show(`<div style="color:${C.deep};font-weight:700">${run.stop || stop ? "止めました" : "終わりました"}</div><div style="font-size:12.5px;margin-top:4px">${Math.min(run.i, run.list.length)}社を見ました・保存 ${run.saved}件・とばした会社 ${run.skipped}社${run.failed ? `・読めなかった行 ${run.failed}` : ""}</div>${(run.log || []).length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:120px;overflow:auto">${run.log.slice(-10).map(esc0).join("<br>")}</div>` : ""}<div style="font-size:11.5px;color:#5b6b66;margin-top:6px">kinXs の「DOC連携 → 候補者の質問」で見られます。</div>`);
