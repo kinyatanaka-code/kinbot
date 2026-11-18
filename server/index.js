@@ -15779,13 +15779,13 @@ async function gemExport({ force = false } = {}) {
     //   そこで JSON をやめ、要る列だけの CSV にして、全部で数十万字におさえる。くわしいことは issue で道具を呼べば調べられる
     const cell = (v, n = 80) => { let t = v === null || v === undefined ? "" : typeof v === "object" ? "" : String(v); t = t.replace(/[\r\n]+/g, " ").trim(); if (t.length > n) t = t.slice(0, n) + "…"; return /[",]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
     const d10 = (v) => String(v || "").slice(0, 10);
-    const csv = (rows, cols) => "\ufeff" + [cols.map((c) => c[0]).join(","), ...rows.map((r) => cols.map(([, f, n]) => cell(f(r), n)).join(","))].join("\n");
+    const csv = (rows, cols) => [cols.map((c) => c[0]).join(","), ...rows.map((r) => cols.map(([, f, n]) => cell(f(r), n)).join(","))].join("\n");
     const arrOf = (t) => { let j; try { j = JSON.parse(t); } catch { return null; } return Array.isArray(j) ? j : (Object.values(j || {}).find(Array.isArray) || null); };
     // そのほかの表：文字と数字の列だけを、短くして出す
     const flat = (rows) => { const ks = []; for (const r of rows.slice(0, 50)) for (const [k, v] of Object.entries(r || {})) if ((typeof v !== "object" || v === null) && !ks.includes(k)) ks.push(k); return csv(rows, ks.map((k) => [k, (r) => r[k], 60])); };
     const jobs = [
       ["kinbot/deals.csv", "案件（直近6か月に初回商談があったもの）", "list_deals", { from: gemYmd(m6) }, (rows) => csv(rows, [["案件id", (r) => r.deal_id], ["会社", (r) => r.company_name], ["担当", (r) => r.owner], ["初回商談日", (r) => d10(r.first_meeting_date)], ["状態", (r) => r.status], ["受注日", (r) => d10(r.won_at)], ["更新日", (r) => d10(r.updated_at)]])],
-      ["kinbot/meetings.csv", "録音した商談（新しい300件・要約は短く）", "list_meetings", {}, (rows) => csv(rows, [["商談id", (r) => r.bot_id], ["日付", (r) => d10(r.created_at)], ["題", (r) => r.title], ["担当", (r) => r.owner_name || r.rep_name], ["回", (r) => r.round_no], ["種類", (r) => r.deal_kind], ["アポ獲得者", (r) => r.apo_setter], ["要約", (r) => { const sm = r.summary || {}; return typeof sm === "string" ? sm : (sm.overview || sm.formatted || (Array.isArray(sm.key_points) ? sm.key_points.join(" ／ ") : "")); }, 160]])],
+      ["kinbot/meetings.csv", "録音した商談（新しい300件・要約は短く）", "list_meetings", {}, (rows) => csv(rows, [["商談id", (r) => r.bot_id], ["日付", (r) => d10(r.created_at)], ["題", (r) => r.title], ["担当", (r) => r.owner_name || r.rep_name], ["回", (r) => r.round_no], ["種類", (r) => r.deal_kind], ["アポ獲得者", (r) => r.apo_setter], ["要約", (r) => { const sm = r.summary || {}; return typeof sm === "string" ? sm : (sm.overview || sm.formatted || (Array.isArray(sm.key_points) ? sm.key_points.join(" ／ ") : "")); }, 100]])],
       ["kincall/call_stats.csv", "架電の実績（先月から今日まで・日×人×結果）", "list_call_stats", { from: gemYmd(ym1) }, flat],
       ["kincall/appointments.csv", "アポ（先月から今日までに取ったもの）", "list_apo_appointments", { from: gemYmd(ym1) }, (rows) => csv(rows, [["会社", (r) => r["会社"]], ["商談名", (r) => r["商談名"]], ["獲得者", (r) => r["獲得者"]], ["現担当", (r) => r["現担当"]], ["商談予定日", (r) => d10(r["商談予定日"])], ["取得日", (r) => d10(r["取得日"])]])],
       ["kincall/lists.csv", "架電リストの進み具合", "list_call_lists_overview", {}, flat],
@@ -15803,8 +15803,14 @@ async function gemExport({ force = false } = {}) {
     try {
       const sfU = await pickSfUser(user).catch(() => "");
       if (sfU) {
-        const recs = await sfQueryAll(sfU, "SELECT Id, Account.Name, StageName, Owner.Name, salestype__c, CloseDate, order_date__c, CreatedDate FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC", 30000);
-        files.push({ path: "salesforce/opportunities_cross.csv", label: `Salesforce の商談（クロス＝DOC・MOCHICA の全部・${recs.length}件）`, content: csv(recs, [["Id", (o) => o.Id], ["取引先", (o) => o.Account && o.Account.Name, 40], ["フェーズ", (o) => o.StageName], ["所有者", (o) => o.Owner && o.Owner.Name], ["販売区分", (o) => o.salestype__c], ["完了予定日", (o) => o.CloseDate], ["受注日", (o) => o.order_date__c], ["作成日", (o) => d10(o.CreatedDate)]]) });
+        // 8万字前後でも Gemini が中身を読めず「ファイルの一覧だけ」になったので（2026-11-18）、さらにしぼる：
+        //   ・進行中（まだ閉じていない）の商談は全部 ・閉じた商談は直近12か月 ・全期間は「年×フェーズ×所有者」の件数の表にまとめる
+        const recs = await sfQueryAll(sfU, "SELECT Id, Account.Name, StageName, Owner.Name, salestype__c, CloseDate, order_date__c, CreatedDate, IsClosed FROM Opportunity WHERE RecordType.Name LIKE '%クロス%' ORDER BY CreatedDate DESC", 30000);
+        const y1 = new Date(now.getTime() - 365 * 86400000).toISOString().slice(0, 10);
+        const pick = recs.filter((o) => !o.IsClosed || String(o.CloseDate || "") >= y1 || String(o.order_date__c || "") >= y1);
+        files.push({ path: "salesforce/opportunities_cross.csv", label: `Salesforce の商談（クロス＝DOC・MOCHICA。進行中は全部＋閉じたものは直近12か月・${pick.length}件／全${recs.length}件）`, content: csv(pick, [["Id", (o) => o.Id], ["取引先", (o) => o.Account && o.Account.Name, 30], ["フェーズ", (o) => o.StageName, 20], ["所有者", (o) => o.Owner && o.Owner.Name], ["販売区分", (o) => o.salestype__c], ["完了予定日", (o) => o.CloseDate], ["受注日", (o) => o.order_date__c], ["作成日", (o) => d10(o.CreatedDate)]]) });
+        const agg = new Map(); for (const o of recs) { const k = `${String(o.CreatedDate || "").slice(0, 4)}\t${o.StageName || ""}\t${(o.Owner && o.Owner.Name) || ""}`; agg.set(k, (agg.get(k) || 0) + 1); }
+        files.push({ path: "salesforce/opportunities_cross_counts.csv", label: `Salesforce の商談（クロス）の全期間の件数（作った年×フェーズ×所有者）`, content: ["作成年,フェーズ,所有者,件数", ...[...agg.entries()].sort().map(([k, n]) => `${k.split("\t").map((x) => cell(x)).join(",")},${n}`)].join("\n") });
       } else errs.push("Salesforce の商談：SF につながる人がいません");
     } catch (e) { errs.push(`Salesforce の商談：${e.message}`); }
     // 道具の一覧（issue で使えるもの・入れる値）
@@ -33239,7 +33245,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
+const BUILD_TAG = "2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る";
 const BUILD_FEATURES = [
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
