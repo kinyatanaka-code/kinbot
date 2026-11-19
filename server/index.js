@@ -32752,7 +32752,8 @@ app.post("/api/zoom/webhook", async (req, res) => {
   // Zoomは3秒以内の200応答を期待するので、先に返してから処理する
   res.status(200).json({ ok: true });
   // MOCHICALL の折り返し：着信が鳴ったら、その会社の架電画面を着信した人に出す（2026-11-20 福井さん）
-  if (body.event === "phone.callee_ringing") { handleZoomPhoneEvent(body).catch((e) => console.error("[zoom] 着信の処理", e.message)); return; }
+  //   着信を受けた人に担当外の会社を開く権限を渡すので、署名を確かめられるとき（ZOOM_WEBHOOK_SECRET_TOKEN あり）だけ受ける
+  if (body.event === "phone.callee_ringing") { if (ZOOM_WEBHOOK_SECRET) handleZoomPhoneEvent(body).catch((e) => console.error("[zoom] 着信の処理", e.message)); return; }
   if (body.event !== "meeting.started") return;
   if (!CALENDAR_AUTO_JOIN) return; // 自動入室オフのときは何もしない（手動入室のみ）
   try {

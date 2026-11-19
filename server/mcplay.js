@@ -37,7 +37,9 @@ export async function ensurePlay(q) {
   await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS talk_id INT`);
   await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS rec JSONB`);
   await q(`CREATE TABLE IF NOT EXISTS mc_inbound (
-    id SERIAL PRIMARY KEY, email TEXT, number TEXT, lead_id INT, call_id TEXT UNIQUE, seen BOOLEAN NOT NULL DEFAULT false, at TIMESTAMPTZ DEFAULT now())`);
+    id SERIAL PRIMARY KEY, email TEXT, number TEXT, lead_id INT, call_id TEXT, seen BOOLEAN NOT NULL DEFAULT false, at TIMESTAMPTZ DEFAULT now())`);
+  // 同じ着信でも、グループで鳴った人ごとに1行（出た人がだれでも、その人の画面に出るように）
+  await q(`CREATE UNIQUE INDEX IF NOT EXISTS ux_mc_inbound_call ON mc_inbound(call_id, email)`);
   // これまでのトークスクリプト（リストに1本）を、トーク A の第1版として引き継ぐ（書いてあったものを消さない）
   await q(`INSERT INTO mc_call_talks (list_id, label, ver, body, created_by)
     SELECT l.id, 'A', 1, l.script, 'これまでのトークスクリプト' FROM mc_call_lists l
@@ -55,7 +57,8 @@ export async function talkForLead(lead) {
   let t = ts.find((x) => x.label === lead.talk_label);
   if (!t) {
     t = ts[lead.id % ts.length];
-    await P().query(`UPDATE mc_call_leads SET talk_label=$2 WHERE id=$1`, [lead.id, t.label]).catch(() => {});
+    // 1本しか無いうちは決めて残さない（あとで B を足したとき、まだ決まっていない会社を A/B に分けられるように）
+    if (ts.length > 1) await P().query(`UPDATE mc_call_leads SET talk_label=$2 WHERE id=$1`, [lead.id, t.label]).catch(() => {});
   }
   return { id: t.id, label: t.label, ver: t.ver, body: t.body, n: ts.length };
 }
@@ -115,8 +118,10 @@ export async function measures({ from, to, caller = null }) {
 const R_CONC = Math.max(1, parseInt(process.env.MCCALL_RESEARCH_CONC || "3", 10) || 3);
 const R_DAILY = Math.max(0, parseInt(process.env.MCCALL_RESEARCH_DAILY || "1200", 10) || 0);
 // 調べ終わったものだけを「かける」に出すか（調べが追いつかないときに、環境変数 MCCALL_RESEARCH_GATE=0 で一時的に外せる）
-export const researchGate = () => process.env.MCCALL_RESEARCH_GATE !== "0";
-let _rRunning = 0; let _rDay = ""; let _rCount = 0; const _rHot = new Set(); const _rBusy = new Set();
+//   1日の上限まで調べきったら、その日は調べ終わる前の会社も出す（上限で架電が止まらないように）
+let _rRunning = 0; let _rDay = ""; let _rCount = 0;
+export const researchGate = () => process.env.MCCALL_RESEARCH_GATE !== "0" && !(_rDay === jstDay() && _rCount >= R_DAILY);
+const _rHot = new Set(); const _rBusy = new Set();
 const jstDay = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 function siteOf(lead) {
   const I = lead.info || {}; if (I.web) return String(I.web);
@@ -250,7 +255,7 @@ export async function handleZoomPhoneEvent(body) {
   const email = await zoomUserEmail(callee);
   if (!email || !telKey(number)) return;
   const lead = await findLeadByPhone(number).catch(() => null);
-  await P().query(`INSERT INTO mc_inbound (email, number, lead_id, call_id) VALUES ($1,$2,$3,$4) ON CONFLICT (call_id) DO NOTHING`,
+  await P().query(`INSERT INTO mc_inbound (email, number, lead_id, call_id) VALUES ($1,$2,$3,$4) ON CONFLICT (call_id, email) DO NOTHING`,
     [email, clip(number, 40), lead ? lead.id : null, clip(o.call_id || `${number}:${Date.now()}`, 120)]);
 }
 export async function inboundFor(email) {
