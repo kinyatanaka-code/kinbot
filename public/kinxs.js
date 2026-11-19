@@ -2563,7 +2563,11 @@ async function renderDocAiAll() {
         <div class="dq-rank">${top.slice(0, 30).map((t, i) => `<div class="r"><span class="no">${i + 1}</span><div class="tx"><span>${esc(t.q)}</span><i style="width:${Math.round((t.n / max) * 100)}%"></i></div><span class="ct">${t.n}回${t.companies > 1 ? `・${t.companies}社` : ""}</span></div>`).join("") || '<div class="dq-empty">合う質問がありません</div>'}</div></aside>
     </div>`;
     $("dqBody").querySelectorAll("[data-dq-id]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.dqId, { tab: "docai" })));
+    dqFit();
   };
+  // 画面は止めたまま、会社のカードとよく聞かれることの中だけを動かす（2026-11-19 田中さん「ここも画面固定でスクロールできるように」）
+  const dqFit = () => { kxFitScroll(document.querySelector("#dqBody .dq-cos"), "dq-scroll"); kxFitScroll(document.querySelector("#dqBody .dq-rank"), "dq-scroll"); };
+  if (!window.__dqFitOn) { window.__dqFitOn = true; window.addEventListener("resize", () => { if (VIEW === "docai") dqFit(); }); }
   box.innerHTML = `<div class="dq-top">${kpi("co", "会社", d.companies.length)}${kpi("chat", "チャット", d.chats)}${kpi("q", "質問", qTotal)}
       <label class="dq-q"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input data-dq-q placeholder="会社名・質問で絞りこむ" value="${esc(kxDqQ)}" /></label></div>
     <div id="dqBody"></div>`;
