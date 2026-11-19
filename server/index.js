@@ -15621,7 +15621,7 @@ app.get("/api/kinxs/home/tasks", async (req, res) => {
       const { items } = await kinxsBuild();
       const nas = items.filter((x) => !x.archived && x.na).map((x) => ({ key: `na:${x.id}`, kind: "次回アクション", title: `${x.naType ? `【${x.naType}】` : ""}${x.na}`, account: x.name, accountId: x.id, due: x.naDue || "", status: "未着手", src: String(x.naSource || ""), owner: x.naOwner || "", ownerName: x.naOwner ? (pn.get(String(x.naOwner).toLowerCase()) || String(x.naOwner).split("@")[0]) : (kxSurnameSrv(x.cs) || x.cs || "") }));
       const all = [...nas, ...own].sort((a, b) => String(a.due || "9999").localeCompare(String(b.due || "9999")));
-      return res.json({ ok: true, user: "all", mine: false, all: true, items: all.slice(0, 200), total: all.length });
+      return res.json({ ok: true, user: "all", mine: false, all: true, items: all.slice(0, 500), total: all.length });
     }
     let u = String(req.user || "").toLowerCase();
     if (req.query.who) { const em = await kxAssigneeEmail(String(req.query.who)).catch(() => ""); if (em) u = em.toLowerCase(); }
@@ -16733,6 +16733,9 @@ async function kinxsReadNextAction(accountId, { force = false, doneText = "" } =
   if (doneList.some((d0) => simNa(ans.content, d0) >= 0.5)) return { ok: false, reason: "済ませたものと同じような内容しか読み取れませんでした" };
   const type = KX_NA_TYPES.includes(ans.type) ? ans.type : "その他";
   const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(ans.at || "")) ? `${String(ans.at).slice(0, 16)}:00+09:00` : null;
+  // もう過ぎた日の予定は、次回アクションとして入れない（2026-11-19 田中さん「多分復活しちゃってるから毎日へらない」：
+  //   済ませたあと、古い議事録・メールから過ぎた日の予定を読み直して、期限切れの次回アクションがまた増えていた）
+  if (at && at.slice(0, 10) < new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10)) return { ok: false, reason: "読み取れたのは、もう過ぎた日の予定でした", filled };
   const sug = { type, at, content: String(ans.content).slice(0, 120), basis: String(ans.basis || "").slice(0, 80), source: src, mailbox: usedOwner, read_at: new Date().toISOString() };
   const manual = r.na_text && !String(r.na_source || "").startsWith("auto");
   if (manual) { await kinxsUpdate(accountId, { na_suggest: sug }, "kinXs"); return { ok: true, applied: false, suggest: sug, filled }; }

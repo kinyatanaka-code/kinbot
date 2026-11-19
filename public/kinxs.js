@@ -1587,7 +1587,9 @@ async function kh2LoadTasks(who0) {
   if (my !== kh2LoadTasks.seq) return;
   // kinXs のお知らせ（期日が過ぎています・接触途絶など）は要アクション・会社のカードと重なるので、タスクには出さない（次回アクションそのものは出す）
   const items = (d.items || []).filter((t0) => t0.kind === "次回アクション" || !/^kinXs$/.test(String(t0.src || "")));
-  kh2.tkN = items.length; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = items.length;
+  // 数は本当の数（全員のときは 200 件までしか並べないので、並べた数だと毎日 200 のままに見えていた・2026-11-19）
+  const hidden0 = Math.max(0, (Number(d.total) || items.length) - (d.items || []).length);
+  kh2.tkN = items.length + hidden0; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN;
   // 期限を過ぎているタスクの数（2026-11-13 田中さん）
   { const td0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); kh2.tkOver = items.filter((t0) => t0.due && t0.due < td0).length; kh2.tkOverSet = new Set(items.filter((t0) => t0.due && t0.due < td0)); kxTkOverPaint(); }
   const box = $("kh2Tasks"); if (!box) return;
