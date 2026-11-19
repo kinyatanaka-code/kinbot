@@ -13398,3 +13398,8 @@ export async function aiUsageList(days = 30) {
   if (!pool) return []; await ensureAiUsage();
   return (await pool.query(`SELECT to_char(day, 'YYYY-MM-DD') AS day, feature, via, model, calls, in_text, in_audio, in_other, out_tokens, thoughts, search, errors FROM ai_usage WHERE day >= (now() AT TIME ZONE 'Asia/Tokyo')::date - $1::int ORDER BY day DESC`, [Math.max(1, Math.min(400, Number(days) || 30))])).rows;
 }
+// その会社の最近のタスクの題（済み・消したものも含む）。自動タスクで、済ませたものと同じ内容をまた作らないために使う（2026-11-19）
+export async function kxTaskRecentTitles(accountId, days = 60) {
+  if (!pool || !accountId) return []; await kxTaskInit();
+  return (await pool.query(`SELECT title, status, deleted FROM kinxs_tasks WHERE account_id = $1 AND created_at > now() - ($2::int || ' days')::interval ORDER BY created_at DESC LIMIT 200`, [String(accountId), Math.max(1, Number(days) || 60)])).rows;
+}

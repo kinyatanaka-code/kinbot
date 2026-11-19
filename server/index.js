@@ -281,7 +281,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -15120,6 +15120,11 @@ async function kxAssigneeEmail(v) {
 //   → 一度読んだものは飛ばす → 何も無ければAIを呼ばない → AI（ふだんは Gemini Flash-Lite）で「当社がやること」だけを取り出し → その人のタスクとして作る（同じものは二重に作らない）
 let _kxAutoBusy = false;
 const kxHash = (t) => crypto.createHash("sha1").update(String(t || "")).digest("hex").slice(0, 10);
+// 題の似かた（2文字ずつの重なりの割合）。次回アクションの「済ませたものと同じ」と同じ測り方
+function kxTitleSim(a, b) {
+  const bg = (t0) => { const x = String(t0 || "").normalize("NFKC").replace(/^【[^】]{0,8}】/, "").replace(/[\s、。・（）()「」【】]/g, ""); const out = new Set(); for (let i = 0; i < x.length - 1; i++) out.add(x.slice(i, i + 2)); return out; };
+  const A = bg(a), B = bg(b); if (!A.size || !B.size) return 0; let n = 0; for (const x of A) if (B.has(x)) n++; return n / Math.min(A.size, B.size);
+}
 async function kxAutoTasksFor(user, ctx, maps, hours = 2) {
   const u = String(user).toLowerCase(); const items = [];
   // メール
@@ -15165,6 +15170,13 @@ async function kxAutoTasksFor(user, ctx, maps, hours = 2) {
   for (const t of (out.tasks || []).slice(0, 30)) {
     const it = fresh.find((i) => i.ref === t.ref) || fresh.find((i) => i.accId === t.account_id); if (!it || !t.title) continue;
     const key = `auto:${it.ref}:${kxHash(t.title)}`; if (await kxTaskKeyExists(u, key)) continue;
+    // 済ませた（または消した・まだ残っている）タスクとよく似た内容は、また作らない（2026-11-19 田中さん「済にした内容がまた復活してくる」）。
+    //   同じメールの返信や同じ会議の要約から、題が少しちがうだけの同じタスクが作られていた。2文字ずつの重なりが5割以上なら同じとみなす
+    const recent = await kxTaskRecentTitles(it.accId, 60).catch(() => []);
+    if (recent.some((r0) => kxTitleSim(t.title, r0.title) >= 0.5)) continue;
+    // 次回アクション（いまのもの・済ませたもの）と同じ内容も、タスクにしない（同じことが2つ並んでいた）
+    const row0 = (ctx && ctx.rowBy && ctx.rowBy.get(it.accId)) || {};
+    if ([row0.na_text, ...String(row0.na_done || "").split("\n")].filter(Boolean).some((n0) => kxTitleSim(t.title, n0) >= 0.5)) continue;
     await kxTaskAdd(u, { key, title: String(t.title).slice(0, 200), account_id: it.accId, account_name: it.accName, due: /^\d{4}-\d{2}-\d{2}$/.test(String(t.due || "")) ? t.due : null, status: "未着手", src: it.kind === "メール" ? "メール（自動）" : it.kind === "メールワイズ" ? "メールワイズ（自動）" : "議事録（自動）", note: it.kind !== "議事録" ? `件名：${it.subject}` : `議事録：${(it.bot && it.bot.title) || ""}`, created_by: "kinXs（自動）" });
     made++;
   }
@@ -16715,7 +16727,9 @@ async function kinxsReadNextAction(accountId, { force = false, doneText = "" } =
   // 済ませたものと同じ・よく似た内容は入れない（2文字ずつの重なりが5割以上なら同じとみなす）（2026-11-12 復活の直し）
   const bg = (t0) => { const a = String(t0 || "").normalize("NFKC").replace(/[\s、。・（）()「」]/g, ""); const out = new Set(); for (let i = 0; i < a.length - 1; i++) out.add(a.slice(i, i + 2)); return out; };
   const simNa = (a, b) => { const A = bg(a), B = bg(b); if (!A.size || !B.size) return 0; let n = 0; for (const x of A) if (B.has(x)) n++; return n / Math.min(A.size, B.size); };
-  const doneList = [doneText, ...String(r.na_done || "").split("\n")].filter(Boolean);
+  // 済ませた次回アクションに加えて、その会社の済み（消した）タスクとも比べる（2026-11-19 田中さん「済にした内容がまた復活してくる」：タスクで済ませた内容が、次回アクションとしてまた出ていた）
+  const doneTasks = (await kxTaskRecentTitles(accountId, 60).catch(() => [])).filter((t0) => t0.deleted || /完了|済/.test(String(t0.status || ""))).map((t0) => t0.title);
+  const doneList = [doneText, ...String(r.na_done || "").split("\n"), ...doneTasks].filter(Boolean);
   if (doneList.some((d0) => simNa(ans.content, d0) >= 0.5)) return { ok: false, reason: "済ませたものと同じような内容しか読み取れませんでした" };
   const type = KX_NA_TYPES.includes(ans.type) ? ans.type : "その他";
   const at = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(ans.at || "")) ? `${String(ans.at).slice(0, 16)}:00+09:00` : null;
