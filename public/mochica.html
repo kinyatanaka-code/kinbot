@@ -9,7 +9,7 @@
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon-mochica.png" />
 <link rel="stylesheet" href="/style.css?v=20261116d" />
-<link rel="stylesheet" href="/mccall.css?v=20261120b" />
+<link rel="stylesheet" href="/mccall.css?v=20261120c" />
 <style>
   .side-brand .brand-mark{background-image:url("/shobo.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
   .side-brand > span:last-child{white-space:nowrap;}
@@ -253,7 +253,7 @@
     <!-- 架電（テレアポ）：DOC の kincall とは別に新しく作った画面（2026-11-16）。中身は mccall.js -->
     <section data-pane="call" hidden><div id="mcCallView"><div class="mc-note">読み込んでいます…</div></div></section>
     <!-- ダッシュボードは別ページ（mcdash.html）を中に開く。画面の部品の名前がぶつからないようにするため（2026-11-17） -->
-    <section data-pane="dash" hidden><iframe id="mcDashFrame" title="ダッシュボード" data-src="/mcdash.html?v=20261119b" style="width:100%;height:calc(100vh - 96px);min-height:600px;border:0;background:transparent;display:block"></iframe></section>
+    <section data-pane="dash" hidden><iframe id="mcDashFrame" title="ダッシュボード" data-src="/mcdash.html?v=20261120a" style="width:100%;height:calc(100vh - 96px);min-height:600px;border:0;background:transparent;display:block"></iframe></section>
     <section data-pane="apo" hidden><div class="mc-box"><h2>アポ（カレンダー）<span class="mc-tag wait">準備中</span></h2>
       <p class="mc-note">カレンダーのアポを読み、獲得者・商談の予定を一覧にします（DOC のアポ履歴の仕組みを使い回します）。</p></div></section>
     <section data-pane="doc" hidden><div class="mc-box"><h2>DOC の議事録（見るだけ）</h2>
@@ -273,7 +273,7 @@
   <script src="/caseshare.js?v=20261116c"></script>
   <!-- kinbot のロボ（左上の顔を押すと相談できる窓）を MOCHICA にも（2026-11-16 田中さん） -->
   <script src="/kbchat.js?v=20261119f" defer></script>
-  <script src="/mccall.js?v=20261120b"></script>
+  <script src="/mccall.js?v=20261120c"></script>
   <script src="/mochica.js?v=20261120a"></script>
 </body>
 </html>
