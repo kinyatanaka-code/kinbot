@@ -2400,6 +2400,67 @@ export async function summarizeCallRecording({ buf = null, mimeType = "audio/mpe
   }
   return { summary: "", result: "" };
 }
+// ===== MOCHICALL：架電の前の企業調査（2026-11-20 福井さん「調べなくても情報がまとまっている状態をすべてのリードで」） =====
+//   ASUMO の企業調査と同じ項目（事業概要・採用実態・推定採用課題・話の切り口・確かめたいこと）を1社1回だけ作る。
+//   分からないことは空にする（それらしい作り話で架電者を間違わせないため）。Web 検索が使えないときは、サイト本文と元データだけで作る
+const MC_RESEARCH_PROMPT = `あなたは新卒・中途の採用支援サービス（採用管理システム）のテレアポ担当のために、架電先の企業を下調べする係です。
+渡された材料（Web 検索の結果・企業サイトの本文・リストにあった情報）だけを根拠にします。材料に無いことは空文字 "" にし、推測で作らない。
+推定採用課題と話の切り口だけは材料からの推定でよいが、根拠の無いものは書かない。どれも短い日本語（1項目60字以内）。
+次の JSON だけを返す：
+{"biz":"事業概要","employees":"従業員数","location":"本社所在地","founded":"設立","hiring":"採用の実態（新卒/中途・募集の有無と時期）","roles":"募集職種","headcount":"採用人数（分かれば）","media":"使っている求人媒体・採用サイト","issue":"推定採用課題","hook":"話の切り口（最初の15秒で言う一言）","confirm":"電話で確かめたいこと","sources":["根拠にした URL"]}`;
+export async function researchMcLead({ company = "", website = "", siteText = "", hint = "" } = {}) {
+  const name = String(company || "").trim();
+  if (!name) return { status: "error", error: "会社名がありません" };
+  let web = "";
+  try {
+    web = await geminiGrounded(`「${name}」（${website ? `サイト: ${website}` : "公式サイトは不明"}）について、事業内容・従業員数・本社・設立と、採用の状況（新卒・中途の募集、募集職種、採用人数、使っている求人媒体）を、複数の Web 情報を照らし合わせて調べてください。出典 URL を必ず添え、分からないものは「不明」と書く。`, siteText);
+  } catch (e) { web = ""; }
+  const user = `会社名：${name}\nサイト：${website || "不明"}\n\nリストにあった情報：\n"""\n${String(hint || "").slice(0, 1500)}\n"""\n\n企業サイトの本文：\n"""\n${String(siteText || "（取れず）").slice(0, 6000)}\n"""\n\nWeb 検索の結果：\n"""\n${String(web || "（なし）").slice(0, 4500)}\n"""`;
+  const o = parseJson(await callLLM(MC_RESEARCH_PROMPT, user, 900, { provider: "gemini", model: "gemini-2.5-flash-lite" })) || {};
+  const s = (v) => String(v ?? "").replace(/^(不明|なし|-|null)$/i, "").trim().slice(0, 200);
+  const out = { biz: s(o.biz), employees: s(o.employees), location: s(o.location), founded: s(o.founded), hiring: s(o.hiring), roles: s(o.roles), headcount: s(o.headcount),
+    media: s(o.media), issue: s(o.issue), hook: s(o.hook), confirm: s(o.confirm), sources: (Array.isArray(o.sources) ? o.sources : []).map((x) => String(x || "").trim()).filter((x) => /^https?:\/\//.test(x)).slice(0, 5) };
+  const filled = ["biz", "employees", "hiring", "roles", "issue", "hook"].filter((k) => out[k]).length;
+  return { status: filled ? "ok" : "thin", web: !!web, ...out };
+}
+
+// ===== MOCHICALL：架電の録音から「自動音声の案内」と「トーク実施率」を読む（2026-11-20 福井さん） =====
+//   ivr：自動音声で流れた選択肢（「採用のご担当は2」など）。次にかける人が押す番号に迷わないように、その会社の画面に出す。
+//   adherence：担当者と話せた通話で、決めたトーク（施策）の流れのうち実際に話せた割合（0〜100）。担当者と話していない通話は null。
+//   出せないもの（録音が無い・聞き取れない）は null にして、0 と取り違えない
+export async function analyzeMcCallRecording({ buf = null, mimeType = "audio/mpeg", transcriptText = "", talk = "", reachedPerson = false } = {}) {
+  const key = String(process.env.GEMINI_API_KEY || "").trim();
+  if (!key) return null;
+  const t = String(transcriptText || "").trim();
+  if (!t && (!buf || !buf.length || buf.length > 18 * 1024 * 1024)) return null;
+  const prompt = `これは採用支援サービスのテレアポの通話です。次の2つを JSON で答えてください。
+1. ivr：通話の最初に自動音声のガイダンス（「〇〇の方は1を」など）が流れていれば、その選択肢をすべて [{"press":"押す番号","for":"何の窓口か"}] で。流れていなければ []。
+2. adherence：${reachedPerson && talk ? `担当者と話せた通話です。下の「決めたトーク」の要素（名乗り・用件・切り口・質問・アポの打診など）のうち、実際に話した割合を 0〜100 の整数で。missed に話さなかった要素を短く。` : "null（担当者と話していない、またはトークが無い）。missed は []。"}
+${reachedPerson && talk ? `\n決めたトーク：\n"""\n${String(talk).slice(0, 4000)}\n"""` : ""}`;
+  const parts = t ? [{ text: `${prompt}\n\n文字起こし：\n"""\n${t.slice(0, 12000)}\n"""` }]
+    : [{ text: prompt }, { inline_data: { mime_type: mimeType || "audio/mpeg", data: buf.toString("base64") } }];
+  const schema = { type: "OBJECT", properties: {
+    ivr: { type: "ARRAY", items: { type: "OBJECT", properties: { press: { type: "STRING" }, for: { type: "STRING" } }, required: ["press", "for"] } },
+    adherence: { type: "INTEGER", nullable: true }, missed: { type: "ARRAY", items: { type: "STRING" } } }, required: ["ivr"] };
+  const models = t ? ["gemini-2.5-flash-lite", "gemini-2.5-flash"] : [process.env.GEMINI_CALL_MODEL || "gemini-2.5-flash", "gemini-flash-latest"];
+  for (const m of models) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0, maxOutputTokens: 1024, responseMimeType: "application/json", responseSchema: schema, thinkingConfig: { thinkingBudget: 0 } } }),
+      });
+      if (!res.ok) continue;
+      const d = await res.json().catch(() => ({}));
+      const o = parseJson(((d.candidates || [])[0]?.content?.parts || []).map((p) => p.text || "").join(""));
+      if (!o) continue;
+      const ivr = (Array.isArray(o.ivr) ? o.ivr : []).map((x) => ({ press: String((x && x.press) || "").normalize("NFKC").trim().slice(0, 6), for: String((x && x.for) || "").trim().slice(0, 40) })).filter((x) => x.press && x.for).slice(0, 12);
+      const a = Number.isFinite(+o.adherence) && o.adherence !== null && reachedPerson && talk ? Math.max(0, Math.min(100, Math.round(+o.adherence))) : null;
+      return { ivr, adherence: a, missed: (Array.isArray(o.missed) ? o.missed : []).map((x) => String(x || "").slice(0, 60)).slice(0, 8) };
+    } catch {}
+  }
+  return null;
+}
+
 // 要約の文から、結果の選択肢を1つ選ぶ（キャッシュの要約を使うとき用・安いモデル）
 export async function guessCallResult(summary, options = []) {
   const opts = (options || []).map((x) => String(x || "").trim()).filter(Boolean).slice(0, 40);

@@ -32,6 +32,7 @@ import { zoomPresence, zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomP
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
+import { handleZoomPhoneEvent } from "./mcplay.js";
 import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // SHOBO のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // SHOBO の架電（DOC の kincall とは別の表）（2026-11-16）
 import { mcAuditMiddleware, registerMcAudit } from "./mcaudit.js";   // MOCHICA の書き込み操作を「いつ・だれが・何を」DBに残す（2026-11-19 福井さん）
 import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
@@ -32750,6 +32751,8 @@ app.post("/api/zoom/webhook", async (req, res) => {
   }
   // Zoomは3秒以内の200応答を期待するので、先に返してから処理する
   res.status(200).json({ ok: true });
+  // MOCHICALL の折り返し：着信が鳴ったら、その会社の架電画面を着信した人に出す（2026-11-20 福井さん）
+  if (body.event === "phone.callee_ringing") { handleZoomPhoneEvent(body).catch((e) => console.error("[zoom] 着信の処理", e.message)); return; }
   if (body.event !== "meeting.started") return;
   if (!CALENDAR_AUTO_JOIN) return; // 自動入室オフのときは何もしない（手動入室のみ）
   try {
@@ -34027,8 +34030,11 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20e SHOBO リストの会社まとめ：空だった「詳しい中身」をやめ、会社の情報・商談の状態・先方の担当者・組織・当社側の担当・架電履歴を Bales・SF・MOCHICALL から1枚に";
+const BUILD_TAG = "2026-11-20f MOCHICALL 施策＝リスト×トーク（A/B・版・トーク実施率）、企業調査が済んだ会社だけを出す、一覧と次の企業の先出しをなくす、発信してから結果、つながらない・現アナ・不在は押すと次へ、録音から自動音声の案内、折り返しの着信でその会社を開く";
 const BUILD_FEATURES = [
+  "MOCHICALL：施策＝リスト（売り先）×トーク（売り方）。トーク A/B/C・版を全架電に残し、施策タブで消化率・アポ率・トーク実施率を比べる。トークの無いリストはかけられない",
+  "MOCHICALL：企業調査（事業・採用の実態・推定採用課題・話の切り口）を裏で済ませた会社だけを出す。一覧タブと次の企業の先出しをなくし、発信してから結果を選ぶ。応答なし・話し中・留守電・現アナ・不在は押すと記録して次へ",
+  "MOCHICALL：Zoom Phone の録音から自動音声の案内（何番を押すか）を読み、次にかける人に出す。折り返しの着信（phone.callee_ringing）でその会社の架電画面を開く",
   "SHOBO リストの会社まとめ（会社の情報・商談の状態・先方の担当者・組織・当社側の担当・架電履歴）",
   "kinXs のコネクタ：候補者が AI に聞いた質問（新卒・中途で比べられる）",
   "kinXs のコネクタ：Claude から全部の項目を読み取り・分析・書き換え（export_users・list_fields・update_user・bulk_update_users）",

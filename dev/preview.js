@@ -712,7 +712,7 @@ function mcSourcesMock() {
 }
 
 const MC_REACH = {
-  none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "番号が使えない" } },
+  none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "現アナ（番号が使えない）" } },
   gate: { label: "受付まで", outcomes: { absent: "担当者が不在", blocked: "受付で断られた", callback_req: "掛け直しを指定された" } },
   person: { label: "担当者と話せた", outcomes: { apo: "アポ獲得", doc_send: "資料を送る", follow: "また話す（フォロー）", reject: "断られた" } },
 };
@@ -724,7 +724,13 @@ const MC_LEADS = [
 ];
 function mccallMock(p) {
   if (p === "/api/mccall/meta") return { ok: true, reach: MC_REACH, rejectReasons: ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"], admin: true, me: "kinya.tanaka@neo-career.co.jp" };
-  if (p === "/api/mccall/lists") return { ok: true, admin: true, items: [{ id: 1, name: "11月 ホット企業", members: [], total: 120, open: 98, now: 3, cross: 0 }, { id: 2, name: "DOC 失注から MOCHICA 提案", members: ["eda@neo-career.co.jp"], total: 40, open: 40, now: 0, cross: 40 }] };
+  if (p === "/api/mccall/inbound") return { ok: true, item: null };
+  if (p === "/api/mccall/measures") return { ok: true, research: { today: 312, daily: 1200, gate: true }, items: [
+    { id: 1, name: "11月 ホット企業", total: 120, touched: 86, researched: 118, talks: [
+      { talkId: 11, label: "A", ver: 2, active: true, calls: 84, reached: 50, person: 22, apo: 5, reject: 9, leads: 60, adherence: 78, adhN: 18 },
+      { talkId: 12, label: "B", ver: 1, active: true, calls: 79, reached: 47, person: 20, apo: 2, reject: 11, leads: 55, adherence: 64, adhN: 15 },
+      { talkId: 10, label: "A", ver: 1, active: false, calls: 120, reached: 70, person: 30, apo: 3, reject: 15, leads: 90, adherence: null, adhN: 0 }] }] };
+  if (p === "/api/mccall/lists") return { ok: true, admin: true, items: [{ id: 1, name: "11月 ホット企業", members: [], total: 120, open: 98, now: 3, cross: 0, talks: 2 }, { id: 2, name: "DOC 失注から MOCHICA 提案", members: ["eda@neo-career.co.jp"], total: 40, open: 40, now: 0, cross: 40 }] };
   if (p === "/api/mccall/stats") return { ok: true, me: { calls: 37, person: 9, apo: 2, cross: 1 }, all: [{ name: "田中欽也", calls: 37, person: 9, apo: 2, cross: 1 }, { name: "江田 直人", calls: 52, person: 11, apo: 1, cross: 0 }] };
   if (p === "/api/mccall/queue") return { ok: true, later: 4, items: MC_LEADS.map((l) => ({ id: l.id, company: l.company, person: l.person, hot: l.hot, attempts: l.attempts, next_at: l.next_at || null, next_why: l.next_why || null, cross_from: l.cross_from })) };
   if (p === "/api/mccall/cross") return { ok: true, moves: [{ at: "2026-11-15T01:00:00Z", by: "田中欽也", from_name: "DOC 9月 失注", to_name: "DOC 失注から MOCHICA 提案", count: 40, calls: 6, apo: 1, reason: "DOC で失注した企業に MOCHICA を提案するため" }],
@@ -736,6 +742,8 @@ function mccallMock(p) {
     const rows = [r("田中欽也", 210, 96, 41, 6), r("江田 直人", 180, 70, 30, 3)];
     return { ok: true, by: "user", all: true, rows, total: rows.reduce((a, x) => { for (const k of ["calls", "leads", "reached", "person", "apo", "doc", "follow", "reject", "cross"]) a[k] = (a[k] || 0) + x[k]; return a; }, {}), reasons: [{ k: "今は必要ない", n: 5 }, { k: "他社を使っている", n: 3 }] }; }
   const SCRIPT = "【受付】\n株式会社ネオキャリアの〇〇です。{会社名}の新卒採用のご担当者様はいらっしゃいますか。\n\n【担当者】\n{担当者}様、突然のお電話失礼いたします。27卒の採用で、説明会の参加人数についてお伺いしたく…";
+  if (/^\/api\/mccall\/lists\/\d+\/talks$/.test(p)) return { ok: true, labels: ["A", "B", "C"], talks: [{ id: 11, label: "A", ver: 2, body: SCRIPT }, { id: 12, label: "B", ver: 1, body: "（B）{担当者}様、27卒の説明会の歩留まりについて…" }],
+    history: [{ label: "A", ver: 2, active: true, calls: 84 }, { label: "A", ver: 1, active: false, calls: 120 }, { label: "B", ver: 1, active: true, calls: 79 }] };
   if (/^\/api\/mccall\/lists\/\d+\/script$/.test(p)) return { ok: true, name: "11月 ホット企業", script: SCRIPT };
   // 条件で割り振るの見た目確認用（2026-11-19）
   if (/^\/api\/mccall\/lists\/\d+\/leads$/.test(p)) return { ok: true, total: 98, items: MC_LEADS.map((l) => ({ id: l.id, company: l.company, person: l.person, hot: l.hot, attempts: l.attempts, outcome: "", assigned: "" })) };
@@ -757,7 +765,12 @@ function mccallMock(p) {
   let m = p.match(/^\/api\/mccall\/leads\/(\d+)$/);
   if (m) {
     const l = MC_LEADS.find((x) => x.id === +m[1]) || MC_LEADS[0];
-    return { ok: true, script: SCRIPT, lead: { ...l, list_id: 1, info: l.id === 1 ? { email: "machida@example.jp", phones: [], contacts: [{ name: "佐藤", role: "人事課長", phone: "", email: "" }] } : null, src: l.cross_from ? "doc" : "bales", data: l.cross_from ? { list_name: "DOC 9月 失注", assigned_to: "植野 大輔", industry: "小売" } : { lastActivityAt: "2026-11-14T06:30:00Z", lastActivityTypeText: "コール", operatorName: "大沢" } },
+    // 施策（トーク A/B）・企業調査・自動音声の見た目確認用（2026-11-20）
+    return { ok: true, script: SCRIPT, talk: { id: 11, label: l.id % 2 ? "A" : "B", ver: 2, body: SCRIPT, n: 2 }, lead: { ...l, list_id: 1,
+      research: l.id === MC_LEADS[1].id ? null : { status: "ok", at: "2026-11-20T01:00:00Z", biz: "東京・埼玉で特別養護老人ホームと訪問介護を12拠点運営", employees: "約420名", location: "東京都練馬区", founded: "1998年",
+        hiring: "新卒（介護職）と中途を通年で募集。27卒の説明会を開催中", roles: "介護職・生活相談員・看護職", headcount: "新卒10〜15名/年", media: "マイナビ・自社採用サイト",
+        issue: "拠点が増え、説明会から面接への歩留まりが下がっている可能性", hook: "27卒の介護職の説明会、参加から面接までの日程調整はどうされていますか", confirm: "応募の管理方法（Excel か ATS か）", sources: ["https://example.jp/company"] },
+      ivr: { [l.phone.replace(/\D/g, "")]: { items: [{ press: "1", for: "施設のご利用" }, { press: "2", for: "採用・人事" }, { press: "3", for: "その他" }], at: "2026-11-19T03:00:00Z" } }, info: l.id === 1 ? { email: "machida@example.jp", phones: [], contacts: [{ name: "佐藤", role: "人事課長", phone: "", email: "" }] } : null, src: l.cross_from ? "doc" : "bales", data: l.cross_from ? { list_name: "DOC 9月 失注", assigned_to: "植野 大輔", industry: "小売" } : { lastActivityAt: "2026-11-14T06:30:00Z", lastActivityTypeText: "コール", operatorName: "大沢" } },
       // マイナビ・ヒアリングの見た目確認用（2026-11-18）。1件目は掲載あり、2件目は見つからない、ほかは調べ中
       mynavi: l.id === MC_LEADS[0].id ? { status: "listed", url: "https://job.mynavi.jp/27/pc/search/corp000000/outline.html", years: ["2027", "2026"], jobs: ["介護職", "生活相談員"], plannedHires: "11～15名", area: "東京都・埼玉県", preEntry: "1,240名", industry: "福祉・介護", note: "3月から会社説明会を毎週開催", checkedAt: "2026-11-18T01:00:00Z" }
         : l.id === MC_LEADS[1].id ? { status: "notfound", checkedAt: "2026-11-18T01:00:00Z" } : { status: "checking" },

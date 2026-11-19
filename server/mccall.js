@@ -21,12 +21,13 @@ import { judgeHot } from "./mchot.js";
 import { lookupMynavi } from "./analyzer.js";
 import { fetchPageText } from "./companyenrich.js";
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
+import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 
 const BIZ = "MOCHICA";
 
 // 到達の段階と、その中身。key は画面とサーバーで同じものを使う
 export const REACH = {
-  none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "番号が使えない" } },
+  none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "現アナ（番号が使えない）" } },
   gate: { label: "受付まで", outcomes: { absent: "担当者が不在", blocked: "受付で断られた", callback_req: "掛け直しを指定された" } },
   person: { label: "担当者と話せた", outcomes: { apo: "アポ獲得", doc_send: "資料を送る", follow: "また話す（フォロー）", reject: "断られた" } },
 };
@@ -103,6 +104,8 @@ async function ensure() {
     await q(`CREATE TABLE IF NOT EXISTS mc_cross_moves (
       id SERIAL PRIMARY KEY, from_biz TEXT, to_biz TEXT, from_ref TEXT, from_name TEXT, to_list_id INT,
       count INT, reason TEXT, by_user TEXT, at TIMESTAMPTZ DEFAULT now())`);
+    // 施策（リスト×トーク）・企業調査・録音の読み取り・折り返しの着信（2026-11-20 福井さん）。mcplay.js
+    await ensurePlay(q);
   })().catch((e) => { _ready = null; throw e; });
   return _ready;
 }
@@ -417,6 +420,7 @@ export function segWhere(filters, p) {
 
 export function registerMcCall(app, deps) {
   const { isAdmin, sfActor, mochicaSet } = deps;
+  startPlayPumps();
   const isMcIntern = deps.isMcIntern || (async () => false);
   const me = (req) => String(req.user || "").toLowerCase();
   const guard = (fn) => async (req, res) => {
@@ -513,9 +517,10 @@ export function registerMcCall(app, deps) {
     const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key,
         count(c.id) AS total, count(c.id) FILTER (WHERE NOT c.done) AS open,
         count(c.id) FILTER (WHERE NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())) AS now,
-        count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross
+        count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross,
+        (SELECT count(*) FROM mc_call_talks t WHERE t.list_id=l.id AND t.active) AS talks
       FROM mc_call_lists l LEFT JOIN mc_call_leads c ON c.list_id=l.id AND c.dup_of IS NULL WHERE l.id = ANY($1) GROUP BY l.id ORDER BY l.created_at DESC`, [ids])).rows : [];
-    res.json({ ok: true, admin: isAdmin(req), items: rows.map((r) => ({ ...r, total: +r.total, open: +r.open, now: +r.now, cross: +r.cross })) });
+    res.json({ ok: true, admin: isAdmin(req), items: rows.map((r) => ({ ...r, total: +r.total, open: +r.open, now: +r.now, cross: +r.cross, talks: +r.talks })) });
   }));
   app.post("/api/mccall/lists", adminOnly(async (req, res) => {
     const name = clip(req.body && req.body.name, 80); if (!name) return res.status(400).json({ error: "リストの名前を入れてください" });
@@ -538,6 +543,32 @@ export function registerMcCall(app, deps) {
     if (!(await myListIds(req)).includes(id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     const r = (await P().query(`SELECT name, script FROM mc_call_lists WHERE id=$1`, [id])).rows[0];
     res.json({ ok: true, name: r ? r.name : "", script: (r && r.script) || "" });
+  }));
+
+  // ---- トーク（売り方）。リストごとに A/B/C の3本まで。直すたびに版を残す（2026-11-20 福井さん） ----
+  app.get("/api/mccall/lists/:id/talks", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const hist = (await P().query(`SELECT t.label, t.ver, t.active, t.created_by, t.created_at, count(g.id) AS calls
+      FROM mc_call_talks t LEFT JOIN mc_call_logs g ON g.talk_id=t.id AND NOT g.undone WHERE t.list_id=$1 GROUP BY t.id ORDER BY t.label, t.ver DESC`, [id])).rows;
+    res.json({ ok: true, labels: TALK_LABELS, talks: await activeTalks(id), history: hist.map((h) => ({ ...h, calls: +h.calls })) });
+  }));
+  app.put("/api/mccall/lists/:id/talks", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    const talks = await saveTalks(id, (req.body || {}).talks, me(req));
+    res.json({ ok: true, talks });
+  }));
+  // ---- 施策（リスト×トーク×版）の数字。管理者は全員分、ほかの人は自分の分 ----
+  app.get("/api/mccall/measures", guard(async (req, res) => {
+    const dayOf = (s, def) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 9 * 3600e3) : def; };
+    const from = dayOf(req.query.from, jstDayStart(new Date(Date.now() - 29 * 86400e3)));
+    const to = new Date(dayOf(req.query.to, jstDayStart()).getTime() + 86400e3);
+    if (to - from > 370 * 86400e3 || to <= from) return res.status(400).json({ error: "期間は1日から1年までで選んでください" });
+    res.json({ ok: true, from, to, all: isAdmin(req), research: researchState(), items: await measures({ from, to, caller: isAdmin(req) ? null : me(req) }) });
+  }));
+  // ---- 折り返しの着信（画面が数秒おきに見る） ----
+  app.get("/api/mccall/inbound", guard(async (req, res) => { res.json({ ok: true, item: await inboundFor(me(req)) }); }));
+  app.post("/api/mccall/inbound/:id/seen", guard(async (req, res) => {
+    await P().query(`UPDATE mc_inbound SET seen=true WHERE id=$1 AND email=$2`, [parseInt(req.params.id, 10), me(req)]); res.json({ ok: true });
   }));
 
   // ---- リストの一覧（BALES の一覧画面のかわり。2026-11-18 福井さん） ----
@@ -1136,15 +1167,28 @@ export function registerMcCall(app, deps) {
   // 掛け直しの時刻が来たもの → まだかけていないホットな順 → 回数の少ない順。ほかの人が開いている（10分以内）ものは飛ばす
   app.get("/api/mccall/queue", guard(async (req, res) => {
     const ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
-    const use = listId ? ids.filter((x) => x === listId) : ids;
-    if (!use.length) return res.json({ ok: true, items: [], later: 0 });
+    const asked = listId ? ids.filter((x) => x === listId) : ids;
+    // 売り先（リスト）と売り方（トーク）はセット。トークの無いリストは「かける」に出さない（2026-11-20 福井さん）
+    const withTalk = await listsWithTalk(asked);
+    const use = asked.filter((x) => withTalk.has(x));
+    const noTalk = asked.length > use.length ? (await P().query(`SELECT name FROM mc_call_lists WHERE id = ANY($1) AND NOT closed AND NOT stock`, [asked.filter((x) => !withTalk.has(x))])).rows.map((r) => r.name) : [];
+    if (!use.length) return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0 });
     const u = me(req);
+    const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
+        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')`;
+    const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
+    // 企業調査が終わった会社だけを出す（架電者が調べなくてよいように）。まだの会社は先に調べるよう頼んでおく
+    const gate = researchGate();
     const items = (await P().query(`SELECT id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from FROM mc_call_leads
-      WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
-        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')
-      ORDER BY (next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id LIMIT 60`, [use, u])).rows;
+      WHERE ${base}${gate ? " AND research_at IS NOT NULL" : ""} ORDER BY ${order} LIMIT 60`, [use, u])).rows;
+    let researching = 0;
+    if (gate) {
+      const wait = (await P().query(`SELECT id FROM mc_call_leads WHERE ${base} AND research_at IS NULL ORDER BY ${order} LIMIT 12`, [use, u])).rows.map((r) => r.id);
+      researchSoon(wait);
+      researching = wait.length ? +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE ${base} AND research_at IS NULL`, [use, u])).rows[0].count : 0;
+    }
     const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2`, [use, jstAt(new Date(), 23, 59)])).rows[0].count;
-    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome) })), later: +later });
+    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome) })), later: +later, noTalk, researching });
   }));
 
   // ---- 1社の中身（開くとほかの人の順番から外す） ----
@@ -1152,7 +1196,8 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10); const u = me(req);
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません（リストから外された可能性があります）" });
-    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    const viaInbound = await inboundAllows(u, id, req.query.inbound).catch(() => false);
+    if (!viaInbound && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (req.query.lock === "1") await P().query(`UPDATE mc_call_leads SET locked_by=$2, locked_at=now() WHERE id=$1`, [id, u]);
     const names = await nameMap();
     // 元のデータ（Bales は最新の取り込みを読む。DOC は call_targets を読むだけ）
@@ -1230,9 +1275,10 @@ export function registerMcCall(app, deps) {
     })();
     for (const t of tl) delete t.memo;
     const mynavi = await mynaviOf(lead.company).catch(() => null);
-    // トークスクリプト（リストごと）。右の列の上に折りたたんで出す
-    const script = ((await P().query(`SELECT script FROM mc_call_lists WHERE id=$1`, [lead.list_id]).catch(() => ({ rows: [] }))).rows[0] || {}).script || "";
-    res.json({ ok: true, lead: { ...lead, data }, script, ban, phones, docAlso, glance, mynavi, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
+    // トーク（リストごと・A/B は会社ごとに決まった1本）。記録にどの版で話したかを残す（2026-11-20 福井さん）
+    const talk = await talkForLead(lead).catch(() => null);
+    const script = talk ? talk.body : "";
+    res.json({ ok: true, lead: { ...lead, data }, script, talk, ban, phones, docAlso, glance, mynavi, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す
@@ -1249,7 +1295,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10);
     const lead = (await P().query(`SELECT list_id, hearing FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await inboundAllows(me(req), id, (req.body || {}).inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     const h = mergeHearing(lead.hearing, cleanHearing(req.body || {}));
     if (h) { h.at = new Date().toISOString(); h.by = me(req); }
     await P().query(`UPDATE mc_call_leads SET hearing=$2 WHERE id=$1`, [id, h]); res.json({ ok: true, hearing: h });
@@ -1330,7 +1376,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10); const b = req.body || {}; const u = me(req);
     const lead = (await P().query(`SELECT * FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
-    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!(await inboundAllows(u, id, b.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (lead.dup_of) return res.status(403).json({ error: "重複で止めたリードなので記録できません（ほかのリードと会社名が同じで、電話・メール・Web ページ・法人番号のどれかも同じ）。管理者に知らせてください" });
     const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
     if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため記録できません（理由：${ban.reason || "アプローチ禁止"}）` });
@@ -1357,6 +1403,9 @@ export function registerMcCall(app, deps) {
       [id, lead.list_id, u, clip(b.phone || lead.phone, 40), reach, outcome, reason || null, gate, clip(b.memo, 2000) || null, nextAt, apoAt, lead.cross_from, prev])).rows[0];
     if (outcome === "apo" && b.apoWho) await P().query(`UPDATE mc_call_logs SET apo_who=$2 WHERE id=$1`, [log.id, clip(b.apoWho, 80)]);
     if (hearing) await P().query(`UPDATE mc_call_logs SET hearing=$2 WHERE id=$1`, [log.id, hearing]);
+    // どのトーク（版）で話したか。そのリストのトークのときだけ残す（別のリストのトークと取り違えないため）
+    const talkId = parseInt(b.talkId, 10);
+    if (talkId) await P().query(`UPDATE mc_call_logs g SET talk_id=t.id FROM mc_call_talks t WHERE g.id=$1 AND t.id=$2 AND t.list_id=$3`, [log.id, talkId, lead.list_id]);
     await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), hearing=COALESCE($7, hearing), locked_by=NULL WHERE id=$1`,
       [id, outcome, nextAt, why, done, gate, hearing]);
     res.json({ ok: true, logId: log.id, nextAt, why, done });

@@ -261,3 +261,18 @@
 .mg-prev:empty{display:none;}
 .mg-prev{border-top:1px solid var(--c-line);padding-top:8px;}
 .mcc-dlg [hidden]{display:none !important;}
+/* 施策・企業調査・自動音声（2026-11-20） */
+.mcc-research{border:1.5px solid #5DCAA5;border-radius:12px;padding:8px 12px;margin:12px 0 4px;background:#f2fbf7;}
+.mcc-research h3{margin:0 0 6px !important;color:#0d5b47;}
+.mcc-research .mcc-kv{margin:4px 0;}
+.mcc-research .mcc-note a{color:#0d5b47;margin-left:4px;}
+.mcc-hook{background:#fff;border-radius:10px;padding:6px 10px;margin-bottom:6px;font-weight:700;font-size:13.5px;line-height:1.6;}
+.mcc-hook small{display:block;font-size:11px;color:#1d9e75;font-weight:800;}
+.mcc-ivr{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;border:1.5px dashed #1d9e75;border-radius:12px;padding:8px 12px;margin:8px 0;font-size:13px;}
+.mcc-ivr b{color:#0d5b47;font-size:12px;}
+.mcc-ivr kbd{display:inline-block;min-width:20px;text-align:center;background:#0d5b47;color:#fff;border-radius:6px;padding:0 6px;margin-right:4px;font-weight:800;}
+.mcc-ivr small{color:var(--c-muted);font-size:11px;}
+.mcc-measure{border-top:1px solid var(--c-line);padding-top:12px;margin-top:12px;}
+.mcc-measure h3{margin:0 0 8px;}
+.mcc-tbl tr.best td{background:#f2fbf7;}
+.mcc-tbl tr.best td small{color:#0d5b47;font-weight:800;}
