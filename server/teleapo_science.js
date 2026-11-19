@@ -105,7 +105,8 @@ function normText(s) {
   return String(s || "").replace(/\[\d+s\]/g, "").replace(/[\s　、。，．,.!！?？「」『』（）()…・〜~ー－\-:："'’”]/g, "");
 }
 function quoteCoverage(quote, transcriptNorm) {
-  const q = normText(quote);
+  // 引用の中の（今日は無理）のような補足書きは原文に無いので、照合の前に外す
+  const q = normText(String(quote || "").replace(/（[^）]*）|\([^)]*\)/g, ""));
   if (!q) return null;
   if (q.length <= 4) return transcriptNorm.includes(q) ? 1 : 0;
   let hit = 0, all = 0;
@@ -160,6 +161,8 @@ export function diagnoseCall(ann, meta = {}) {
   const findings = [];
   const add = (point, dp, ev, why, quote = "") => {
     const P = POINTS[point];
+    // アポが取れた通話は落としたアポが無いので0にする（次に避けたい動きとして残すだけ）
+    if (appo && dp != null) { dp = 0; why = `（アポは取れた）${why}`; }
     findings.push({ point, label: P.label, order: P.order, lostAppo: dp == null ? null : round(Math.max(0, dp)), evidence: ev,
       weighted: dp == null ? null : round(Math.max(0, dp) * MODEL.evidence[ev].weight), why, quote, fix: P.fix });
   };
@@ -211,7 +214,7 @@ export function diagnoseCall(ann, meta = {}) {
   }
 
   findings.sort((x, y) => (y.weighted ?? -1) - (x.weighted ?? -1) || x.order - y.order);
-  const top = findings.find((f) => f.weighted != null && f.weighted > 0) || findings[0] || null;
+  const top = findings.find((f) => f.weighted != null && f.weighted > 0) || (appo ? null : findings[0] || null);
   return { callType, contact: true, over2m, asked, appo, stage: appo ? "アポ" : asked ? "打診まで" : over2m ? "2分超（打診なし）" : "担当者と話した（2分未満）",
     pActual: round(pActualOf(a, callType, over2m)), findings, top, gates: gatesOf(a, true, over2m), notes: listNotes(a) };
 }
