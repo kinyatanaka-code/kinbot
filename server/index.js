@@ -13963,14 +13963,27 @@ app.put("/api/kinxs/autorenew/:id", async (req, res) => {
     res.json({ ok: true, cancelMonth: patch.cancelMonth, urlDup });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// SF を「読むだけ」のときに使う人の順番：本人 → プロセスシートの持ち主 → 代わりの人 → 運用者（SF につながっている人だけ）。
+//   本人の SF に権限が無い（サーカスNo などの項目が見えない・商談が読めない）ときは、次の人の SF で読む
+//   （2026-11-19 田中さん「SFの権限がないひともサーカスNo.がみれるようにしたい」）。書き込みには使わない
+async function sfReadersFor(user) {
+  const out = []; const add = async (u) => { u = String(u || "").trim().toLowerCase(); if (u && u.includes("@") && !out.includes(u) && (await sfConnected(u).catch(() => false))) out.push(u); };
+  const st = await getSettings().catch(() => ({}));
+  await add(user); await add(st.psOwner); await add(st.sfProxyUser); await add(await sfOperator().catch(() => ""));
+  return out;
+}
 // サーカスの申込番号を SF の商談から読む（その取引先の商談で「サーカス」の項目が入っているもの、新しい順）（2026-11-09 田中さん）
 async function arCircusFromSf(accountId, user) {
   const acc = String(accountId || "").trim(); if (!/^001[A-Za-z0-9]{12,15}$/.test(acc)) return { items: [], note: "SFの取引先とつながっていない会社です" };
-  const st = await getSettings().catch(() => ({}));
-  const sfUser = await pickSfUser(user || st.psOwner || "").catch(() => ""); if (!sfUser) return { items: [], note: "SFにつながっていません" };
-  const cf = await csCircusField(sfUser); if (!cf) return { items: [], note: "SFの商談に「サーカス」の項目が見つかりませんでした" };
-  const r = await sfQuery(sfUser, `SELECT Id, Name, CloseDate, StageName, ${cf.api} FROM Opportunity WHERE AccountId = '${acc}' AND ${cf.api} != null ORDER BY CloseDate DESC LIMIT 20`).catch((e) => ({ records: [], error: e.message }));
-  return { field: cf.label, items: (r.records || []).map((o) => ({ no: String(o[cf.api] || "").trim(), opp: o.Name, oppId: o.Id, close: o.CloseDate, stage: o.StageName })).filter((x) => x.no), note: r.error || "" };
+  const readers = await sfReadersFor(user); if (!readers.length) return { items: [], note: "SFにつながっていません" };
+  let note = "SFの商談に「サーカス」の項目が見つかりませんでした";
+  for (const sfUser of readers) {
+    const cf = await csCircusField(sfUser); if (!cf) continue;   // この人の SF では項目が見えない → 次の人で
+    const r = await sfQuery(sfUser, `SELECT Id, Name, CloseDate, StageName, ${cf.api} FROM Opportunity WHERE AccountId = '${acc}' AND ${cf.api} != null ORDER BY CloseDate DESC LIMIT 20`).catch((e) => ({ records: [], error: e.message }));
+    if (r.error) { note = r.error; continue; }
+    return { field: cf.label, items: (r.records || []).map((o) => ({ no: String(o[cf.api] || "").trim(), opp: o.Name, oppId: o.Id, close: o.CloseDate, stage: o.StageName })).filter((x) => x.no), note: "" };
+  }
+  return { items: [], note };
 }
 // 企業情報の「販売区分（直販／社内代理店＝PS）」「サーカスNo」「初期費用の有無」（2026-11-11 CSヒアリング：初期費用は毎回SFで確かめていて手間）
 //   SFの受注した商談（DOCの商品が入っているもの）のうち一番新しいもので見る。初期費用＝アチコチバース（空間利用料）以外の商品（エントリープランなど）
@@ -13980,9 +13993,11 @@ app.get("/api/kinxs/accounts/:id/sales", async (req, res) => {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "できません" });
     const id = String(req.params.id || ""); if (!/^[0-9a-zA-Z]{15,18}$/.test(id)) return res.json({ ok: true, none: true });
     const hit = _kxSales.get(id); if (hit && Date.now() - hit.at < 10 * 60 * 1000 && req.query.fresh !== "1") return res.json(hit.data);
-    const st = await getSettings().catch(() => ({}));
-    const sfU = await pickSfUser(st.psOwner || req.user || "", req).catch(() => ""); if (!sfU) return res.json({ ok: true, error: "SFにつながっている人がいません" });
-    const r = await sfQuery(sfU, `SELECT Id, Name, CloseDate, salestype__c, SarcusNO__c, Amount, (SELECT Product2.Name, TotalPrice FROM OpportunityLineItems) FROM Opportunity WHERE AccountId = '${id}' AND IsWon = true ORDER BY CloseDate DESC LIMIT 20`);
+    // 読める人の SF で順に読む（本人に権限が無くても、ほかの人の SF でサーカスNo・販売区分を出す）（2026-11-19）
+    const readers = await sfReadersFor(req.user); if (!readers.length) return res.json({ ok: true, error: "SFにつながっている人がいません" });
+    let r = null, lastErr = "";
+    for (const sfU of readers) { try { r = await sfQuery(sfU, `SELECT Id, Name, CloseDate, salestype__c, SarcusNO__c, Amount, (SELECT Product2.Name, TotalPrice FROM OpportunityLineItems) FROM Opportunity WHERE AccountId = '${id}' AND IsWon = true ORDER BY CloseDate DESC LIMIT 20`); break; } catch (e) { lastErr = e.message; } }
+    if (!r) return res.json({ ok: false, error: lastErr || "SFを読めませんでした" });
     const isDoc = (n) => /アチコチ|ＤＯＣ|DOC|どこでもオープン|空間デザイン|エントリープラン|スタンダードプラン|ライトプラン/i.test(String(n || ""));
     const opps = (r.records || []).map((o) => ({ id: o.Id, name: o.Name, close: o.CloseDate, channel: o.salestype__c || "", circus: o.SarcusNO__c || "", items: ((o.OpportunityLineItems && o.OpportunityLineItems.records) || []).map((li) => ({ name: (li.Product2 && li.Product2.Name) || "", price: li.TotalPrice })) }));
     const doc = opps.filter((o) => o.items.some((it) => isDoc(it.name)));
@@ -33811,7 +33826,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-19m MOCHICAの全書き込み操作を監査ログ（mc_audit_log）に記録・MOCHICA架電のCSV取り込みを自動整形＋読み方の編集に対応。／2026-11-19k 拡張機能 2.2.27：DOC の AI の質問を毎日読む。取り込みの窓で「毎日（平日）○時を過ぎたら」に印を付けると、その時刻を過ぎた最初のときに管理画面を別の窓で開き、ログインして全部の会社の増えたチャットだけ読み、1分後に窓を閉じる（パスワードが無ければその窓で聞く）。／2026-11-19j 拡張機能 2.2.26：2段階認証は、確認コードの画面が出ているあいだメールを見つづけ、新しい確認コードのメールが来たらそれを入れ直して確認を押す（10分まで）。／2026-11-19i 拡張機能 2.2.25：DOC の AI の取り込みは、1社読むごとに管理画面のはじめのページを開き直してログインし直してから次の会社を読む（メール・パスワードは取り込みを始めるときに入れ、拡張機能の裏側の消える置き場だけに置く・確認コードは Gmail から自動）。／2026-11-19h 拡張機能 2.2.24：DOC の AI の管理画面（カジュアル面談エージェント）の2段階認証。確認コードの欄が出たら、kinbot が本人の Gmail に届いた確認コード（noreply@mail.brainverse-ai.com）を読み、拡張機能が欄に入れて確認を押す（/api/me/login-code。読めるのは決めた送り主だけ）。／2026-11-19g kinXs：タスクを消せるように（会社の詳しい画面のタスクとホームのタスクに、いつも見えるゴミ箱。次回アクションも消せる）。あわせて久野さんの要望：掲載先ありは掲載先ごとの社数のカードが最初の画面・「掲載済みで未記入」で［未掲載にする］・取り込みに「納品済み」（シートの納品日が選んだ月までの会社をキックオフ済み・納品メール送付済みに）。／2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
+const BUILD_TAG = "2026-11-19l kinXs：SF の権限が無い人（項目が見えない・商談が読めない・SF 未連携）でも、企業情報の販売区分・サーカスNo・初期費用と「SFの商談」のサーカスNoが出るように。本人の SF で読めなければ、プロセスシートの持ち主・代わりの人・運用者の SF で読む（読むだけ）。／2026-11-19m MOCHICAの全書き込み操作を監査ログ（mc_audit_log）に記録・MOCHICA架電のCSV取り込みを自動整形＋読み方の編集に対応。／2026-11-19k 拡張機能 2.2.27：DOC の AI の質問を毎日読む。取り込みの窓で「毎日（平日）○時を過ぎたら」に印を付けると、その時刻を過ぎた最初のときに管理画面を別の窓で開き、ログインして全部の会社の増えたチャットだけ読み、1分後に窓を閉じる（パスワードが無ければその窓で聞く）。／2026-11-19j 拡張機能 2.2.26：2段階認証は、確認コードの画面が出ているあいだメールを見つづけ、新しい確認コードのメールが来たらそれを入れ直して確認を押す（10分まで）。／2026-11-19i 拡張機能 2.2.25：DOC の AI の取り込みは、1社読むごとに管理画面のはじめのページを開き直してログインし直してから次の会社を読む（メール・パスワードは取り込みを始めるときに入れ、拡張機能の裏側の消える置き場だけに置く・確認コードは Gmail から自動）。／2026-11-19h 拡張機能 2.2.24：DOC の AI の管理画面（カジュアル面談エージェント）の2段階認証。確認コードの欄が出たら、kinbot が本人の Gmail に届いた確認コード（noreply@mail.brainverse-ai.com）を読み、拡張機能が欄に入れて確認を押す（/api/me/login-code。読めるのは決めた送り主だけ）。／2026-11-19g kinXs：タスクを消せるように（会社の詳しい画面のタスクとホームのタスクに、いつも見えるゴミ箱。次回アクションも消せる）。あわせて久野さんの要望：掲載先ありは掲載先ごとの社数のカードが最初の画面・「掲載済みで未記入」で［未掲載にする］・取り込みに「納品済み」（シートの納品日が選んだ月までの会社をキックオフ済み・納品メール送付済みに）。／2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
 const BUILD_FEATURES = [
   "拡張機能：DOC の AI の質問を毎日（平日）決めた時刻に、増えたところだけ自動で読む",
   "拡張機能：DOC の AI の取り込みで、1社ごとにログインし直して次の会社を読む（2段階認証も自動）",
