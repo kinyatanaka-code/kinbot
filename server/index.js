@@ -520,6 +520,7 @@ import {
   deleteSuspension,
   suspendedNow,
   listMembers,
+  memberHasRole,
   saveMembers,
   deleteMember,
   syncMembersToLegacy,
@@ -4329,7 +4330,7 @@ app.get("/api/home/inside-today", async (req, res) => {
     const norm = (s) => String(s || "").replace(/[\s　]/g, "");
     const inside = new Set();
     for (const it of interns) if (it.name) inside.add(norm(it.name));
-    for (const mm of members) if (Array.isArray(mm.roles) && mm.roles.includes("inside") && mm.name) inside.add(norm(mm.name));
+    for (const mm of members) if (memberHasRole(mm, "inside", "DOC") && mm.name) inside.add(norm(mm.name));
     const hhmm = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const jj = new Date(d.getTime() + 9 * 3600000); return `${pad(jj.getUTCHours())}:${pad(jj.getUTCMinutes())}`; };
     // 実施済み＝meetingsに入っている（録音済み）今日の商談。獲得者がインサイドのものだけ。
     const rows = ms.filter((m) => m.apo_setter && inside.has(norm(m.apo_setter)));
@@ -4418,7 +4419,8 @@ async function dailyWorkingMembers(dayStr) {
       const members = await listMembers().catch(() => []);
       const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((x) => x.trim()).filter(Boolean);
       // 田中欽也はデイリー目標に出さない（2026-11-16 田中さん「kincall のデイリー目標から田中欽也を消しといて」）
-      const sales = (members || []).filter((m) => (Array.isArray(m.roles) && m.roles.includes("closer")) || salesNames.some((n) => String(m.name || "").includes(n)))
+      // DOC のクローザーだけ（MOCHICA のセールスを DOC のデイリー目標に入れない）（2026-11-19 田中さん）
+      const sales = (members || []).filter((m) => memberHasRole(m, "closer", "DOC") || salesNames.some((n) => String(m.name || "").includes(n)))
         .filter((m) => !String(m.name || "").replace(/[\s　]/g, "").includes("田中欽也"));
       for (const m of sales) {
         const email = String(m.email || "").toLowerCase(); if (!email) continue;
@@ -5292,7 +5294,7 @@ async function checkValidDeals() {
     const insideNames = new Set(), insideEmails = new Set();
     try {
       for (const it of (await listInterns().catch(() => []))) { if (it.name) insideNames.add(_norm(it.name)); if (it.email) insideEmails.add(_norm(it.email)); }
-      for (const m of (await listMembers().catch(() => []))) { if (Array.isArray(m.roles) && m.roles.includes("inside")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
+      for (const m of (await listMembers().catch(() => []))) { if (memberHasRole(m, "inside", "DOC")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
     } catch {}
     const isInside = (c) => insideEmails.has(_norm(c.setter_email)) || insideNames.has(_norm(c.setter));
     for (const c of cands) {
@@ -5347,7 +5349,7 @@ async function checkDocDeals() {
     for (const u of (await listUsers().catch(() => []))) if (u.email) nameByEmail[String(u.email).toLowerCase()] = u.name || "";
     try {
       for (const it of (await listInterns().catch(() => []))) { if (it.name) insideNames.add(_norm(it.name)); if (it.email) insideEmails.add(_norm(it.email)); }
-      for (const m of (await listMembers().catch(() => []))) { if (Array.isArray(m.roles) && m.roles.includes("inside")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
+      for (const m of (await listMembers().catch(() => []))) { if (memberHasRole(m, "inside", "DOC")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
     } catch {}
     const isInside = (c) => insideEmails.has(_norm(c.setter_email)) || insideNames.has(_norm(c.setter));
     let notified = 0;
@@ -6927,7 +6929,7 @@ async function insideMembersForDistribute() {
   const list = await listMembers().catch(() => []);
   const interns = await listInterns().catch(() => []);
   const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
-  const isInside = (m) => (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase());
+  const isInside = (m) => memberHasRole(m, "inside", "DOC") || internSet.has(String(m.email || "").toLowerCase());
   const out = [];
   for (const m of (list || [])) {
     if (m.active === false) continue;
@@ -10124,7 +10126,7 @@ async function insideEmailSet() {
   for (const m of members || []) {
     const em = String(m.email || "").toLowerCase();
     if (!em) continue;
-    if ((Array.isArray(m.roles) && m.roles.includes("inside")) || iset.has(em)) s.add(em);
+    if (memberHasRole(m, "inside", "DOC") || iset.has(em)) s.add(em);
   }
   return s;
 }
@@ -10141,7 +10143,7 @@ async function reassignCloserLeadsToProxy(sfUser, leadIds, { dryRun = false } = 
   }
   const members = await listMembers().catch(() => []);
   const closerEmails = new Set(
-    (members || []).filter((m) => Array.isArray(m.roles) && m.roles.includes("closer"))
+    (members || []).filter((m) => memberHasRole(m, "closer", "DOC"))
       .map((m) => String(m.email || "").toLowerCase()).filter(Boolean));
   if (!closerEmails.size) return out;   // クローザーがいなければ何もしない
 
@@ -20930,7 +20932,7 @@ app.get("/api/calls/analysis", async (req, res) => {
     const internsList = await listInterns().catch(() => []);
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     const inside = (members || []).filter((mm) =>
-      (Array.isArray(mm.roles) && mm.roles.includes("inside")) || internSet.has(String(mm.email || "").toLowerCase()));
+      memberHasRole(mm, "inside", "DOC") || internSet.has(String(mm.email || "").toLowerCase()));
     const nameOf = new Map(inside.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
 
     const rows = await callAnalysis(from, to);
@@ -21118,9 +21120,9 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
       const nm = mm.name || mm.email || "";
       if (_nameHas(nm, _excludeNames)) return "";        // 実績・ダッシュボードから外す
       if (_nameHas(nm, _salesNames)) return "sales";     // 田中欽也はセールス
-      const roles = Array.isArray(mm.roles) ? mm.roles : [];
-      if (roles.includes("closer")) return "sales";
-      if (roles.includes("inside") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
+      // DOC の役割で見る（MOCHICA のセールスを DOC の実績に入れない）（2026-11-19）
+      if (memberHasRole(mm, "closer", "DOC")) return "sales";
+      if (memberHasRole(mm, "inside", "DOC") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
       return "";
     };
     const people = (members || []).map((mm) => ({ email: String(mm.email || "").toLowerCase(), name: mm.name || mm.email, role: roleOf(mm) }))
@@ -22593,7 +22595,7 @@ app.get("/api/calls/process", async (req, res) => {
     const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
     const members = await listMembers().catch(() => []);
     const closers = new Map();
-    for (const mm of members) { const em = String(mm.email || "").toLowerCase(); if ((Array.isArray(mm.roles) && mm.roles.includes("closer")) && em) closers.set(em, mm.name || mm.email); }
+    for (const mm of members) { const em = String(mm.email || "").toLowerCase(); if (memberHasRole(mm, "closer", "DOC") && em) closers.set(em, mm.name || mm.email); }
 
     // 記録あり商談（実施の突合用）：初回タイトルの録音あり商談を 会社名|商談日 の集合にする。
     const buildDone = async (from, to) => {
@@ -23726,7 +23728,7 @@ app.get("/api/calls/stats", async (req, res) => {
     const internsList = await listInterns().catch(() => []);
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     const inside = (members || []).filter((m) =>
-      (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase()));
+      memberHasRole(m, "inside", "DOC") || internSet.has(String(m.email || "").toLowerCase()));
     const insideSet = new Set(inside.map((m) => String(m.email || "").toLowerCase()).filter(Boolean));
     const nameOf = new Map(inside.map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
 
@@ -33742,8 +33744,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-18u MOCHICA の商談：画面で手で決めた照合で SF が空のものも、題名は変えずに SF の結びつきだけを足す（手で決めたときの SF の照会が黙って失敗していた）。／2026-11-18t MOCHICA の商談と SF の照合（版11）：SF の会社名と前後だけ違う会社が1社だけなら結びつける（鹿児島県農業協同組合→…連合会、コープいしかわ→生活協同組合コープいしかわ）。参加者の名前は語ごとに会社を探す（ＪＡ 十勝清水町・玉岡設計）。自社の人だけの会議は商談として数えない。過去の商談はすべて照合し直す。／2026-11-18s MOCHICA の商談と SF の照合（版10）：題名の会社名に付いた余計な言葉（デモ貸し・資料・キャリミキ・再提案・／人名・：人名・様）を落とす。「株式会社　熊本日日新聞社」のような空白も。MiiTel の参加者の「御国色素　黒瀬」のような「会社 人」の形からも会社を探す。題名の会社が SF に無いときも参加者の名前で探す。過去の商談はすべて照合し直す。／2026-11-18r MOCHICA の商談と SF の照合（版9）：カレンダーを会議の月ごとに読む（300日分を一度に読むと2500件で切れて直近の予定が落ちていた）。参加者の「ネオキャリア　餌取 鴻志」のようなフルネームからも担当を見分ける。過去の商談はすべて照合し直す。／2026-11-18q for MOCHICA の架電：リストに「CSV から足す」（見出しで会社名・電話番号・担当者名・リードIDを見分ける・Shift_JIS 可・ほかの開いているリストにある番号とアプローチ禁止は外す・リードIDが無い件数を知らせる）／2026-11-18p 拡張機能（2.2.21）：DOC の AI の取り込みで、URL を開き直すとログインし直しになる → 読み込み直さずに、管理画面の中のページ移動（pushState＋popstate）で ダッシュボード → chat_curator?company=企業ID に動かす。だめなら左の企業を選択でためす。／2026-11-18o 拡張機能（2.2.20）：DOC の AI の取り込みを、会社ごとに URL（chat_curator?company=企業ID）で開き直す形に（田中さんの案）。進み具合は chrome.storage に置き、開いたページで続きを読む。ログインの画面になったら止める。／2026-11-18n 拡張機能（2.2.19）：田中さんの手順に合わせる＝会社を選ぶ → ダッシュボード → チャット管理にもどる（毎回）。「更新」は押さない（押すと前の会社にもどる）・URL の書きかえもやめる。／2026-11-18m 拡張機能（2.2.18）：DOC の AI の取り込みで2社目以降の行を押すと1社目にもどる → 足あとで、URL と左の会社はそのままで右だけ1社目の先頭のチャット（f626ec87）にもどっていた＝前の会社の一覧が残っている。会社を切りかえたら「更新」を押して一覧を作り直す・もどったら選びなおして更新してやり直す。／2026-11-18l 拡張機能（2.2.17）：DOC の AI の取り込みで2社目が前の会社にもどる → 行を押す前にも URL の会社をそろえる・どの場面で URL・右の題・左の会社が変わったかの足あとを kinbot に残す。／2026-11-18k 拡張機能（2.2.16）：DOC の AI の取り込みで右の画面が前の会社のまま → 管理画面は URL の ?company= ?session_id= を見ていたので、会社を切りかえる前に URL を ?company=その会社 に書きかえる。タブ（DIV role=tab）を確実に押す。名前は全角半角をそろえて比べる。／2026-11-18j AI の使用量：名前の無い関数は機能名にしない・kinXs などの機能名を足す。／2026-11-18i 拡張機能（2.2.15）：DOC の AI の取り込みで一部の会社しか入らない → 企業を選択でふつうに打つのと同じ入れ方にし、見つからなければ候補を下へ送って探す。取り込みの結果（会社ごと・選べなかった理由）を kinbot に残す。／2026-11-18h AI（Gemini）の使用量を機能ごとに数える（呼び出しの道すじから機能名・トークン数・音声・Google検索の回数・目安の金額）。画面は /ai-usage.html。／2026-11-18g 候補者の質問：同じチャットの中の同じ質問は1つにする（上書き）。画面が横に離れすぎないよう、幅をしぼって会社のカードとよく聞かれることを並べる。／2026-11-18f 候補者の質問：「.」だけのような短い質問は、よく聞かれることに数えない。／2026-11-18e kinXs「候補者の質問」の見た目を作り直す（上に数字の札・左に会社のカード・右によく聞かれることの順位・絞りこみ）。／2026-11-18d DOC の AI：最初の取り込みで「明豊建設」として入った29件は、セッションIDからネオキャリアのチャットと分かったので付け直す（1回だけ）。／2026-11-18c 拡張機能（2.2.14）：会社を切りかえたら、いったんダッシュボードを開いてから「チャット管理」を開き直す（田中さんの案）。／2026-11-18b 拡張機能（2.2.13）：DOC の AI の取り込みで、企業を切りかえても右の画面が前の会社のまま、ちがう会社として保存していた → 右の題（〇〇 チャット管理）と会社名が合うかを確かめ、合わなければ開き直す・だめならとばす。kinbot 側も同じチャットを2社に入れない（あとから入った方を消す）。／2026-11-18a 拡張機能（2.2.12）：DOC の AI の取り込みで、何社読むかを決められる（まだ読んでいない会社 → 前に読んだのが古い会社の順）。「新しいチャットだけ」を「前回の続きだけ／全部読み直す」に。AI の答えは読まない（速く）。／2026-11-18Z DOC の AI：前に質問0件で保存したチャットを、残してある文から読み直す（質問の題は出る。答えは拡張機能 2.2.11 で読み直すと入る）。／2026-11-18Y 拡張機能（2.2.11）：DOC の AI の質問が0件 → 題の前のアイコンの文字で「質問1:」を拾えていなかった。題のどこにあっても拾う・折りたたみを開いてから読む・書きかえ欄の答えも読む。kinbot 側でも回答レビューの文から「質問N:」で切って拾う。質問0件のチャットは「読んだ」に数えない（もう一度読む）。／2026-11-18X 拡張機能（2.2.10）：DOC の AI の自動取り込みで 0件で終わる → 見えていないタブの表を選んでいたので、画面に見えている表を使う。押した行のセッションIDと回答レビューが合えば成功とみる。／2026-11-18W 拡張機能（2.2.9）：DOC の AI の自動取り込みを、管理画面の実際の作りに合わせて直す（タブは stTab・企業の選択欄は文字の欄・表は上の枠で押す・見出しの高さを測る）。／2026-11-18V 拡張機能（2.2.8）：DOC の AI 管理画面の右下「kinXs に全部取り込む」で、企業を自動で切りかえ・チャットを1件ずつ選んで回答レビューを読み、全部 kinXs に送る（新しいものだけも可・うまくいかないときは画面の作りを kinbot に送る）。精度チェックにぶつかった印の検査。／2026-11-18U（福井さんの merge に残っていた衝突の印を直す・両方の文を残す）／2026-11-18T kinXs のメニューに「DOC連携」（アクセス分析・候補者の質問・要望・問い合わせ）。アクセス分析＝取り込んだ月間アクセス数の会社×月の表、候補者の質問＝全社のまとめ（よく聞かれること・会社ごと）。／2026-11-18S kinXs「候補者の質問」：拡張機能（2.2.7）が DOC の AI 管理画面の「回答レビュー」を開いたときに、候補者のプロフィールと質問・AI の答えを自動で読んで kinXs に貯める（企業ID＝AI 候補者画面の URL の最後）。企業の詳細に「候補者の質問」タブ（よく聞かれること・チャットごと）。／2026-11-18R for MOCHICA の架電：MOCHICA のメンバーをダッシュボードの名簿（営業・インサイド）と管理者にする。リストを作る画面などの実行ボタンが見えなかったのを直す。／2026-11-18R Gemini はリンクを押すと Google 検索に飛ばすので、リンクはコードブロックで出してコピーしてもらう形に。kinbot の /gem は、コピーした Gemini の答え（リンクでも本文でも）を貼るだけで読む（許可済みなら開くだけで自動で読む）。／2026-11-18Q（版の印の直し）／2026-11-18P Gemini のリンク：日本語を入れると Gemini がリンクを途中で切るので、英数字だけのリンク（/gem?id=商談ID&s=99&r=R…）に。「選ぶ値」にコードの列。／2026-11-18K for MOCHICA の架電：リストの管理者を正社員（福井・本炭・餌取・齊藤・北川・山田）に広げる（苗字で照合・インターンと DOC だけの人は除く・MCCALL_ADMIN_EMAILS で追加可）。管理画面に管理者の名前を出す。／2026-11-18O Gemini から更新：会社の設定で Gemini はメールを送れない（PERMISSION_DENIED）ので、kinbot の確認画面へのリンク（/gem?t=依頼の本文）を出してもらい、押した人が「いま→変えたあと」を見て「更新する」を押す形に。／2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る／2026-11-18T for MOCHICA の架電：担当者と話せたらヒアリング欄（検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数）。記録で SF のリード（検討開始時期・採用人数・顧客の課題感）と活動に書く。リードのマイナビ（新卒）掲載の有無と中身を Web 検索で自動取得し、ひと目でに出す";
+const BUILD_TAG = "2026-11-19e メンバーの役割を事業ごと（DOC／MOCHICA）に分ける。DOC のデイリー目標・実績・アポ通知・配布・kincall の集計は DOC の役割だけを見る（MOCHICA のセールスが DOC の毎日の報告に入っていた）。／2026-11-18u MOCHICA の商談：画面で手で決めた照合で SF が空のものも、題名は変えずに SF の結びつきだけを足す（手で決めたときの SF の照会が黙って失敗していた）。／2026-11-18t MOCHICA の商談と SF の照合（版11）：SF の会社名と前後だけ違う会社が1社だけなら結びつける（鹿児島県農業協同組合→…連合会、コープいしかわ→生活協同組合コープいしかわ）。参加者の名前は語ごとに会社を探す（ＪＡ 十勝清水町・玉岡設計）。自社の人だけの会議は商談として数えない。過去の商談はすべて照合し直す。／2026-11-18s MOCHICA の商談と SF の照合（版10）：題名の会社名に付いた余計な言葉（デモ貸し・資料・キャリミキ・再提案・／人名・：人名・様）を落とす。「株式会社　熊本日日新聞社」のような空白も。MiiTel の参加者の「御国色素　黒瀬」のような「会社 人」の形からも会社を探す。題名の会社が SF に無いときも参加者の名前で探す。過去の商談はすべて照合し直す。／2026-11-18r MOCHICA の商談と SF の照合（版9）：カレンダーを会議の月ごとに読む（300日分を一度に読むと2500件で切れて直近の予定が落ちていた）。参加者の「ネオキャリア　餌取 鴻志」のようなフルネームからも担当を見分ける。過去の商談はすべて照合し直す。／2026-11-18q for MOCHICA の架電：リストに「CSV から足す」（見出しで会社名・電話番号・担当者名・リードIDを見分ける・Shift_JIS 可・ほかの開いているリストにある番号とアプローチ禁止は外す・リードIDが無い件数を知らせる）／2026-11-18p 拡張機能（2.2.21）：DOC の AI の取り込みで、URL を開き直すとログインし直しになる → 読み込み直さずに、管理画面の中のページ移動（pushState＋popstate）で ダッシュボード → chat_curator?company=企業ID に動かす。だめなら左の企業を選択でためす。／2026-11-18o 拡張機能（2.2.20）：DOC の AI の取り込みを、会社ごとに URL（chat_curator?company=企業ID）で開き直す形に（田中さんの案）。進み具合は chrome.storage に置き、開いたページで続きを読む。ログインの画面になったら止める。／2026-11-18n 拡張機能（2.2.19）：田中さんの手順に合わせる＝会社を選ぶ → ダッシュボード → チャット管理にもどる（毎回）。「更新」は押さない（押すと前の会社にもどる）・URL の書きかえもやめる。／2026-11-18m 拡張機能（2.2.18）：DOC の AI の取り込みで2社目以降の行を押すと1社目にもどる → 足あとで、URL と左の会社はそのままで右だけ1社目の先頭のチャット（f626ec87）にもどっていた＝前の会社の一覧が残っている。会社を切りかえたら「更新」を押して一覧を作り直す・もどったら選びなおして更新してやり直す。／2026-11-18l 拡張機能（2.2.17）：DOC の AI の取り込みで2社目が前の会社にもどる → 行を押す前にも URL の会社をそろえる・どの場面で URL・右の題・左の会社が変わったかの足あとを kinbot に残す。／2026-11-18k 拡張機能（2.2.16）：DOC の AI の取り込みで右の画面が前の会社のまま → 管理画面は URL の ?company= ?session_id= を見ていたので、会社を切りかえる前に URL を ?company=その会社 に書きかえる。タブ（DIV role=tab）を確実に押す。名前は全角半角をそろえて比べる。／2026-11-18j AI の使用量：名前の無い関数は機能名にしない・kinXs などの機能名を足す。／2026-11-18i 拡張機能（2.2.15）：DOC の AI の取り込みで一部の会社しか入らない → 企業を選択でふつうに打つのと同じ入れ方にし、見つからなければ候補を下へ送って探す。取り込みの結果（会社ごと・選べなかった理由）を kinbot に残す。／2026-11-18h AI（Gemini）の使用量を機能ごとに数える（呼び出しの道すじから機能名・トークン数・音声・Google検索の回数・目安の金額）。画面は /ai-usage.html。／2026-11-18g 候補者の質問：同じチャットの中の同じ質問は1つにする（上書き）。画面が横に離れすぎないよう、幅をしぼって会社のカードとよく聞かれることを並べる。／2026-11-18f 候補者の質問：「.」だけのような短い質問は、よく聞かれることに数えない。／2026-11-18e kinXs「候補者の質問」の見た目を作り直す（上に数字の札・左に会社のカード・右によく聞かれることの順位・絞りこみ）。／2026-11-18d DOC の AI：最初の取り込みで「明豊建設」として入った29件は、セッションIDからネオキャリアのチャットと分かったので付け直す（1回だけ）。／2026-11-18c 拡張機能（2.2.14）：会社を切りかえたら、いったんダッシュボードを開いてから「チャット管理」を開き直す（田中さんの案）。／2026-11-18b 拡張機能（2.2.13）：DOC の AI の取り込みで、企業を切りかえても右の画面が前の会社のまま、ちがう会社として保存していた → 右の題（〇〇 チャット管理）と会社名が合うかを確かめ、合わなければ開き直す・だめならとばす。kinbot 側も同じチャットを2社に入れない（あとから入った方を消す）。／2026-11-18a 拡張機能（2.2.12）：DOC の AI の取り込みで、何社読むかを決められる（まだ読んでいない会社 → 前に読んだのが古い会社の順）。「新しいチャットだけ」を「前回の続きだけ／全部読み直す」に。AI の答えは読まない（速く）。／2026-11-18Z DOC の AI：前に質問0件で保存したチャットを、残してある文から読み直す（質問の題は出る。答えは拡張機能 2.2.11 で読み直すと入る）。／2026-11-18Y 拡張機能（2.2.11）：DOC の AI の質問が0件 → 題の前のアイコンの文字で「質問1:」を拾えていなかった。題のどこにあっても拾う・折りたたみを開いてから読む・書きかえ欄の答えも読む。kinbot 側でも回答レビューの文から「質問N:」で切って拾う。質問0件のチャットは「読んだ」に数えない（もう一度読む）。／2026-11-18X 拡張機能（2.2.10）：DOC の AI の自動取り込みで 0件で終わる → 見えていないタブの表を選んでいたので、画面に見えている表を使う。押した行のセッションIDと回答レビューが合えば成功とみる。／2026-11-18W 拡張機能（2.2.9）：DOC の AI の自動取り込みを、管理画面の実際の作りに合わせて直す（タブは stTab・企業の選択欄は文字の欄・表は上の枠で押す・見出しの高さを測る）。／2026-11-18V 拡張機能（2.2.8）：DOC の AI 管理画面の右下「kinXs に全部取り込む」で、企業を自動で切りかえ・チャットを1件ずつ選んで回答レビューを読み、全部 kinXs に送る（新しいものだけも可・うまくいかないときは画面の作りを kinbot に送る）。精度チェックにぶつかった印の検査。／2026-11-18U（福井さんの merge に残っていた衝突の印を直す・両方の文を残す）／2026-11-18T kinXs のメニューに「DOC連携」（アクセス分析・候補者の質問・要望・問い合わせ）。アクセス分析＝取り込んだ月間アクセス数の会社×月の表、候補者の質問＝全社のまとめ（よく聞かれること・会社ごと）。／2026-11-18S kinXs「候補者の質問」：拡張機能（2.2.7）が DOC の AI 管理画面の「回答レビュー」を開いたときに、候補者のプロフィールと質問・AI の答えを自動で読んで kinXs に貯める（企業ID＝AI 候補者画面の URL の最後）。企業の詳細に「候補者の質問」タブ（よく聞かれること・チャットごと）。／2026-11-18R for MOCHICA の架電：MOCHICA のメンバーをダッシュボードの名簿（営業・インサイド）と管理者にする。リストを作る画面などの実行ボタンが見えなかったのを直す。／2026-11-18R Gemini はリンクを押すと Google 検索に飛ばすので、リンクはコードブロックで出してコピーしてもらう形に。kinbot の /gem は、コピーした Gemini の答え（リンクでも本文でも）を貼るだけで読む（許可済みなら開くだけで自動で読む）。／2026-11-18Q（版の印の直し）／2026-11-18P Gemini のリンク：日本語を入れると Gemini がリンクを途中で切るので、英数字だけのリンク（/gem?id=商談ID&s=99&r=R…）に。「選ぶ値」にコードの列。／2026-11-18K for MOCHICA の架電：リストの管理者を正社員（福井・本炭・餌取・齊藤・北川・山田）に広げる（苗字で照合・インターンと DOC だけの人は除く・MCCALL_ADMIN_EMAILS で追加可）。管理画面に管理者の名前を出す。／2026-11-18O Gemini から更新：会社の設定で Gemini はメールを送れない（PERMISSION_DENIED）ので、kinbot の確認画面へのリンク（/gem?t=依頼の本文）を出してもらい、押した人が「いま→変えたあと」を見て「更新する」を押す形に。／2026-11-18N Gemini のメール依頼：商談ID の代わりに「会社：〇〇」でも頼める（進行中のクロスの商談が1件のときだけ実行・2件以上は候補を返信）。／2026-11-18M Gemini から Salesforce を更新：自分あてに件名「kinbot依頼」のメールを送ると kinbot が実行して返信（送信済みだけを見る・本文は「商談ID：」「フェーズ：」の行か JSON）。ドライブに「更新するときに選ぶ値」も。／2026-11-18L Gemini 用の書き出しを Google ドライブにも（「kinbot（Gemini 用）」フォルダにスプレッドシートで・URL は変わらない・決めた人だけに共有）。GitHub のリポジトリは中身が読めなかったため。更新の依頼は issue のまま。／2026-11-18K Gemini が読めるファイルの形を確かめるテスト（probe/）。／2026-11-18J Gemini 用の書き出しをさらに小さく（SF は進行中＋直近12か月、全期間は件数の表に・BOM なし）。／2026-11-18I Gemini 用の書き出しを小さく（JSON→要る列だけの CSV・SF はクロスの全部・古いファイルは消して入れ替え）。前は約1,000万字で Gemini がエラー(13)。／2026-11-18I for MOCHICA の架電：インターン生（ダッシュボードのインサイド8名など）は MOCHICA の架電と自分の設定だけ・DOC の kincall の表には入れない。DOC だけのインターンは MOCHICA の架電に入れない。／2026-11-18H 設定のコネクタ URL：みんな用の合言葉が無いときは合言葉なしの URL（つなぐときにログイン）を出す。／2026-11-18G for MOCHICA の架電：資料送付を doc-room（会社ごとのルーム URL）で送る／2026-11-18T for MOCHICA の架電：担当者と話せたらヒアリング欄（検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数）。記録で SF のリード（検討開始時期・採用人数・顧客の課題感）と活動に書く。リードのマイナビ（新卒）掲載の有無と中身を Web 検索で自動取得し、ひと目でに出す";
 const BUILD_FEATURES = [
+  "メンバー：役割（クローザー・インサイド・予備・CS）を DOC と MOCHICA で別々に持つ。DOC の報告・集計は DOC の役割だけ",
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
   "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
   "Gemini：Google ドライブのスプレッドシートで読む・kinbot の確認画面へのリンク（/gem）か「kinbot依頼」メールで更新を頼む",
