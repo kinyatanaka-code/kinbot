@@ -64,18 +64,25 @@
     // 欄が消えた＝ログインできた（または前の画面に戻った）。次に出たら、また最初から待つ
     if (!inp) { if (shownAt) { shownAt = 0; until = 0; stopped = false; setTimeout(() => { if (!shownAt) hide(); }, 3000); } return; }
     if (stopped) return;
-    if (inp.value && inp.value === lastCode) return;          // 入れたあと、画面が変わるのを待っている
+    // 確認コードの画面が出ているあいだは、ずっとメールを見る。新しい確認コードのメールが来たら、それを入れ直す
+    //   （2026-11-19 田中さん「最新のメールが送られてきたらそれに入力しなおすように」：再送したときや、古いコードが入ったとき）。
+    //   入れてから3分（最初は画面が出てから3分）新しいメールが来なければ、知らせて、見に行く間を空ける（10分で止める）
     if (!shownAt) { shownAt = Date.now(); until = shownAt + WAIT_MS; say("メールの確認コードを待っています…"); }
-    if (Date.now() > until) { stopped = true; say("確認コードのメールが3分届きませんでした。手で入れてください", "ng"); return; }
+    if (Date.now() - shownAt > 10 * 60000) { stopped = true; say("10分たったので、確認コードを見に行くのをやめました。手で入れてください", "ng"); return; }
+    const late = Date.now() > until;
+    if (late && !lastCode) say("確認コードのメールがまだ届きません。届いたら入れます（手で入れてもかまいません）", "ng");
+    if (late && Date.now() - (tick.slowAt || 0) < 15000) return;   // 遅れているときは15秒おき
+    tick.slowAt = Date.now();
     busy = true;
     try {
       const r = await ask();
       if (!r.ok) { stopped = true; say(`確認コードを読めませんでした：${r.error}`, "ng"); return; }
-      // 前に入れたコード（間違いだったもの）より新しいメールだけを使う
-      if (!r.code || (r.code === lastCode && r.at <= lastAt)) return;
-      lastCode = r.code; lastAt = r.at || Date.now();
+      // いま入れてあるものより新しいメールのコードだけを使う（同じメールのコードは入れ直さない）
+      if (!r.code || (r.at || 0) <= lastAt) return;
+      const again = !!lastCode;
+      lastCode = r.code; lastAt = r.at || Date.now(); until = Date.now() + WAIT_MS;
       setVal(inp, r.code);
-      say("確認コードを入れました");
+      say(again ? "新しい確認コードのメールが来たので、入れ直しました" : "確認コードを入れました");
       setTimeout(() => {
         // Streamlit の欄は Enter かフォーカスが外れたときに値が決まる
         inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
