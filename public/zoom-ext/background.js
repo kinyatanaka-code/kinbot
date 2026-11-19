@@ -253,3 +253,14 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   })();
   return true;
 });
+
+// DOC の AI の取り込みでログインし直すときのメール・パスワード（2026-11-19 田中さん）。
+//   chrome.storage.session（Chrome を閉じると消える・ページからは読めない）にだけ置き、取り込みが終わったら消す。kinbot には送らない
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-docai-cred") return;
+  if (!sender || !sender.url || !/^https:\/\/casual-interview-api\.brainverse-ai\.com\//.test(sender.url)) { reply({}); return; }
+  const K = "kbDocAiCred";
+  if (msg.op === "set") { chrome.storage.session.set({ [K]: { email: String(msg.email || ""), pw: String(msg.pw || "") } }, () => reply({ ok: true })); return true; }
+  if (msg.op === "clear") { chrome.storage.session.remove([K], () => reply({ ok: true })); return true; }
+  chrome.storage.session.get([K], (st) => reply((st && st[K]) || {})); return true;
+});

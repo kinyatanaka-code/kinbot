@@ -291,10 +291,20 @@
       <div style="font-weight:700;font-size:12.5px;margin-top:10px;color:${C.deep}">1社の中で、どのチャットを読むか</div>
       ${L(`<input type="radio" name="kbdm" value="new" checked style="margin-top:3px"> <span>前回の続きだけ<br><small style="color:#5b6b66">一覧の新しい方から読み、前に読んだチャットまで来たら次の会社へ（速い）</small></span>`)}
       ${L(`<input type="radio" name="kbdm" value="all" style="margin-top:3px"> <span>全部読み直す<br><small style="color:#5b6b66">前に読んだチャットも読む（時間がかかる）</small></span>`)}
+      <div style="font-weight:700;font-size:12.5px;margin-top:10px;color:${C.deep}">ログインし直すときに使う（2社目から）</div>
+      <input type="email" data-em placeholder="管理画面のメールアドレス" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:4px;border:1px solid #cfe6dc;border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px">
+      <input type="password" data-pw placeholder="管理画面のパスワード" autocomplete="new-password" style="width:100%;box-sizing:border-box;margin-top:4px;border:1px solid #cfe6dc;border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px">
+      <small style="display:block;color:#5b6b66;font-size:11px;margin-top:3px">パスワードは、この取り込みの間だけ拡張機能の中に置きます（kinbot には送りません。Chrome を閉じると消えます）。確認コードはメールから自動で入れます。</small>
       <button type="button" data-go style="margin-top:10px;width:100%;border:0;border-radius:10px;background:${C.main};color:#fff;font-weight:700;padding:9px;cursor:pointer">取り込みを始める</button>
-      <div style="color:#5b6b66;font-size:11.5px;margin-top:6px">会社ごとに、左の企業を選んでチャット管理を開き直して読みます（ページの読み込み直しはしないので、ログインはそのまま）。終わるまで、このタブはさわらずに置いておいてください（ほかのタブは使えます）。1社で1〜3分ほどかかります。</div>`);
-    box.querySelector("[data-go]").onclick = () => {
+      <div style="color:#5b6b66;font-size:11.5px;margin-top:6px">1社読むごとに管理画面を開き直して、ログインし直してから次の会社を読みます（前の会社にもどってしまうのを防ぐため）。終わるまで、このタブはさわらずに置いておいてください（ほかのタブは使えます）。1社で1〜3分ほどかかります。</div>`);
+    { const em = box.querySelector("[data-em]"); try { chrome.storage.local.get(["kbDocAiEmail"], (st) => { if (st && st.kbDocAiEmail && !em.value) em.value = st.kbDocAiEmail; }); } catch {} }
+    box.querySelector("[data-go]").onclick = async () => {
       const mode = box.querySelector('input[name="kbda"]:checked').value; const n = Math.max(1, Math.min(cos.length, Number(box.querySelector("[data-n]").value) || 10));
+      // ログインし直しに使うメール・パスワード。メールは次も使えるように覚える。パスワードは拡張機能の裏側（Chrome を閉じると消える置き場）にだけ置く
+      const em = box.querySelector("[data-em]").value.trim(), pw = box.querySelector("[data-pw]").value;
+      if (mode !== "cur" && n > 1 && (!em || !pw) && !confirm("メールとパスワードが空です。2社目からのログインし直しは、Chrome に保存したパスワードが入るのを待ちます。入らないと止まります。このまま始めますか？")) return;
+      try { chrome.storage.local.set({ kbDocAiEmail: em }); } catch {}
+      await new Promise((r) => { try { chrome.runtime.sendMessage({ type: "kb-docai-cred", op: "set", email: em, pw }, () => r()); } catch { r(); } });
       const onlyNew = box.querySelector('input[name="kbdm"]:checked').value === "new";
       crawl(mode === "cur" ? [{ company: cur, name: (cos.find((c) => c.company === cur) || {}).name || "", known: (cos.find((c) => c.company === cur) || {}).known || [] }] : cos.slice(0, n), onlyNew);
     };
@@ -322,9 +332,18 @@
   // 2.2.22 の直しで消えてしまっていた（2026-11-19 田中さん「ボタン押しても動かない」）のを戻す
   const isLogin = () => { const t = document.body ? document.body.innerText || "" : ""; return /パスワード/.test(t) && /ログイン/.test(t) && !/チャット管理|ダッシュボード/.test(t); };
   const esc0 = (t) => String(t || "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
+  // 1社読んだら、管理画面のはじめのページを開き直してログインし直す（2026-11-19 田中さん「1社読み取ったらこのリンクを再度読み込んで、ログインをしなおす」）。
+  //   ページが変わるので、どこまで読んだかは chrome.storage に置き、開いたページで続きをする
+  const BASE = "https://casual-interview-api.brainverse-ai.com/";
+  async function relogin(run) {
+    run.phase = "relogin"; run.loginAt = Date.now(); run.at = Date.now(); await setRun(run);
+    setTarget(""); location.href = BASE;
+  }
+  // ログインできている＝左のメニュー（チャット管理など）が出ている
+  const loggedIn = () => !!document.querySelector('[data-testid="stSidebarNavLink"]') || [...document.querySelectorAll("a[href]")].some((a) => /chat_curator/.test(a.getAttribute("href") || "")) || !!selectBoxOf("企業を選択");
   async function crawl(list, onlyNew) {
     if (!list.length) return;
-    await setRun({ list, i: 0, onlyNew, saved: 0, skipped: 0, failed: 0, log: [], results: [], tries: 0, started: Date.now(), at: Date.now(), stop: false });
+    await setRun({ phase: "open", list, i: 0, onlyNew, saved: 0, skipped: 0, failed: 0, log: [], results: [], tries: 0, started: Date.now(), at: Date.now(), stop: false });
     show(`<div style="font-size:12.5px">${esc0(list[0].name || list[0].company)} を開きます…</div>`);
     openCompany(list[0].company);
   }
@@ -341,15 +360,27 @@
     setTarget(c.company);
     const log = run.log; const results = run.results;
     const paint = (msg) => { show(`<div style="font-size:12px;color:#5b6b66">${run.i}/${run.list.length}社　保存 ${run.saved}件・とばした会社 ${run.skipped}</div>${bar(run.list.length ? run.i / run.list.length : 0)}<div style="font-size:12.5px">${msg}</div><button type="button" data-stop style="margin-top:8px;border:1px solid #e7b37a;background:#fff;color:#7a4310;border-radius:9px;padding:5px 12px;cursor:pointer">止める</button>${log.length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:90px;overflow:auto">${log.slice(-6).map(esc0).join("<br>")}</div>` : ""}`); const sb = box.querySelector("[data-stop]"); if (sb) sb.onclick = async () => { stop = true; sb.disabled = true; sb.textContent = "止めています…"; const r2 = await getRun(); if (r2) await setRun({ ...r2, stop: true }); }; };
-    const next = async () => { run.i++; run.tries = 0; run.at = Date.now(); if (stop || run.stop || run.i >= run.list.length) { await finish(run); return; } await setRun(run); openCompany(run.list[run.i].company); };
+    const next = async () => { run.i++; run.tries = 0; run.at = Date.now(); if (stop || run.stop || run.i >= run.list.length) { await finish(run); return; } await relogin(run); };
+    // ログインし直しのあと：ログインできる（左にチャット管理が出る）まで待ってから、その会社を開く。
+    //   メール・パスワード・確認コードは twofa.js が入れる（ログインの画面は別の枠の中のこともあるため）
+    if (run.phase === "relogin" || isLogin()) {
+      paint(`${esc0(c.name || c.company)} を読むために、ログインし直しています…<br><small>確認コードはメールから自動で入れます</small>`);
+      if (run.phase !== "relogin") { run.phase = "relogin"; run.loginAt = Date.now(); await setRun(run); }
+      let ok = false;
+      for (let k = 0; k < 240 && !stop; k++) { if (loggedIn()) { ok = true; break; } const r1 = await getRun(); if (!r1 || r1.stop) break; await sleep(1000); }
+      if (!ok) { run.log.push("ログインし直せませんでした（4分待ちました）。ログインしてから、もう一度押してください"); await finish(run); return; }
+      run.phase = "open"; run.at = Date.now(); await setRun(run);
+      await sleep(1500); await quiet(1500);
+      openCompany(c.company); return;
+    }
     try {
       paint(`${esc0(c.name || c.company)}（${esc0(c.company)}）を開いています…`);
       // ページができあがるのを待つ（最大40秒）
       for (let k = 0; k < 40; k++) { if (isLogin() || (mainTitle() && (totalRows() > 0 || /0\s*件のセッション|セッションが見つかりません/.test(document.body.innerText || "")))) break; await sleep(1000); }
-      if (isLogin()) { run.log.push("ログインの画面になったので止めました（ログインしてから、もう一度押してください）"); await finish(run); return; }
+      if (isLogin()) { await relogin(run); return; }
       await openTab("チャットセッション"); await quiet(1200);
       if (!titleOk(c, "")) {
-        if (run.tries < 1) { run.tries++; run.at = Date.now(); await setRun(run); openCompany(c.company); return; }   // もう1回だけ開き直す
+        if (run.tries < 1) { run.tries++; run.at = Date.now(); await relogin(run); return; }   // もう1回だけ、ログインし直して開き直す
         run.skipped++; results.push({ company: c.company, ok: false, why: "開いても右の画面がその会社にならない", title: mainTitle(), name: c.name }); log.push(`${c.company}：開いても右の画面が「${mainTitle() || "？"}」でした`); await next(); return;
       }
       const known = new Set((c.known || []).map((k) => String(k).slice(0, 8)));
@@ -361,7 +392,7 @@
         const r = await readRow(i, prev, c.company);
         if (!titleOk(c, "")) {
           tr(`行${i}で右が「${mainTitle()}」になった`);
-          if (run.tries < 2) { run.tries++; run.at = Date.now(); await setRun(run); openCompany(c.company); return; }   // 開き直して、この会社を続きから
+          if (run.tries < 2) { run.tries++; run.at = Date.now(); await relogin(run); return; }   // ログインし直して、この会社を続きから
           log.push(`${c.company}：行を選ぶと右の画面が「${mainTitle()}」に変わったので、この会社は止めました`); break;
         }
         if (r.skip) { if (i === 0) { log.push(`${c.company}：チャットの表が見つかりませんでした`); await diag("表が見つからない・押せない"); } break; }
@@ -376,6 +407,7 @@
   }
   async function finish(run) {
     await delRun(); crawling = false; setTarget("");
+    try { chrome.runtime.sendMessage({ type: "kb-docai-cred", op: "clear" }, () => {}); } catch {}   // パスワードは取り込みが終わったら消す
     kb("/api/kinxs/docai/diag", "POST", { why: "取り込みの結果", ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), saved: run.saved, skipped: run.skipped, failed: run.failed, results: (run.results || []).slice(0, 60), log: (run.log || []).slice(-40), trace: trace.slice(-200) }).catch(() => {});
     box.hidden = false;
     show(`<div style="color:${C.deep};font-weight:700">${run.stop || stop ? "止めました" : "終わりました"}</div><div style="font-size:12.5px;margin-top:4px">${Math.min(run.i, run.list.length)}社を見ました・保存 ${run.saved}件・とばした会社 ${run.skipped}社${run.failed ? `・読めなかった行 ${run.failed}` : ""}</div>${(run.log || []).length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:120px;overflow:auto">${run.log.slice(-10).map(esc0).join("<br>")}</div>` : ""}<div style="font-size:11.5px;color:#5b6b66;margin-top:6px">kinXs の「DOC連携 → 候補者の質問」で見られます。</div>`);

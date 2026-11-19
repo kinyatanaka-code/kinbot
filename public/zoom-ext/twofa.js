@@ -46,7 +46,7 @@
   const say = (msg, tone) => {
     if (!badge) {
       badge = document.createElement("div");
-      badge.style.cssText = "position:fixed;right:16px;bottom:64px;z-index:2147483647;max-width:300px;padding:10px 14px;border-radius:14px;font:600 12.5px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.18);background:#fff;color:#0d5b47;border:1.5px solid #5DCAA5";
+      badge.style.cssText = "position:fixed;right:16px;top:16px;z-index:2147483647;max-width:300px;padding:10px 14px;border-radius:14px;font:600 12.5px/1.5 system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.18);background:#fff;color:#0d5b47;border:1.5px solid #5DCAA5";
       document.documentElement.appendChild(badge);
     }
     badge.style.borderColor = tone === "ng" ? "#E0A100" : "#5DCAA5";
@@ -84,6 +84,27 @@
       }, 300);
     } finally { busy = false; }
   };
-  setInterval(tick, POLL_MS);
-  setTimeout(tick, 800);
+  // ===== ログインし直し（DOC の AI の取り込みの途中だけ）（2026-11-19 田中さん「1社読んだら読み込み直してログインし直す」）=====
+  //   取り込みが「ログインし直し中」のときだけ、メールとパスワードを入れて［ログイン］を押す。ふだんのログインには手を出さない。
+  //   パスワードは取り込みを始めるときに入れたもの（拡張機能の裏側の、Chrome を閉じると消える置き場）。無ければ Chrome が入れたものをそのまま使う
+  let loginTries = 0, loginAt = 0;
+  const runNow = () => new Promise((ok) => { try { chrome.storage.local.get(["kbDocAiRun"], (st) => ok((st && st.kbDocAiRun) || null)); } catch { ok(null); } });
+  const cred = () => new Promise((ok) => { try { chrome.runtime.sendMessage({ type: "kb-docai-cred", op: "get" }, (r) => ok(r || {})); } catch { ok({}); } });
+  const loginTick = async () => {
+    if (busy || loginTries >= 3 || Date.now() - loginAt < 15000) return;
+    const ins = [...document.querySelectorAll("input")].filter((i) => visible(i) && !i.disabled);
+    const pw = ins.find((i) => i.type === "password"); if (!pw) return;
+    const run = await runNow(); if (!run || run.phase !== "relogin" || run.stop) return;
+    const em = ins.find((i) => i.type === "email" || /mail|メール/i.test(labelOf(i)));
+    const c = await cred();
+    if (em && c.email && em.value !== c.email) setVal(em, c.email);
+    if (c.pw) setVal(pw, c.pw);
+    const b = [...document.querySelectorAll("button, input[type=submit]")].find((x) => visible(x) && /ログイン|login|sign in/i.test(x.textContent || x.value || "") && !/できない|忘れ/.test(x.textContent || ""));
+    if (!b) { say("ログインのボタンが見つかりませんでした。手でログインしてください", "ng"); loginTries = 3; return; }
+    loginTries++; loginAt = Date.now();
+    say(loginTries > 1 ? "もう一度ログインしています…" : "ログインし直しています…");
+    setTimeout(() => b.click(), 300);
+  };
+  setInterval(() => { loginTick().catch(() => {}); tick(); }, POLL_MS);
+  setTimeout(() => { loginTick().catch(() => {}); tick(); }, 1200);
 })();
