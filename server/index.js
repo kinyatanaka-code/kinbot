@@ -713,7 +713,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser, gmailFindSentRequests } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser, gmailFindSentRequests, gmailFindLoginCode } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -15433,6 +15433,21 @@ app.post("/api/kinxs/tasks/state", async (req, res) => {
     if (del || st0 === "完了" || b.due !== undefined) r = await kxTaskUpdate(req.user, r.id, { ...(del ? { deleted: true } : {}), status: st0, ...(b.due !== undefined ? { due: /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null } : {}) });
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ログインの確認コード（2段階認証）を、ログイン中の本人の Gmail から読んで拡張機能に渡す（2026-11-19 田中さん）。
+//   どのメールでも読めると危ないので、決めたサイトの送り主だけ。本人のメールしか読まない（req.user の Google）
+const KB_LOGIN_CODE_SITES = {
+  brainverse: { from: "noreply@mail.brainverse-ai.com", subjectWord: "確認コード" },   // DOC の AI の管理画面（カジュアル面談エージェント）
+};
+app.get("/api/me/login-code", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "kinbot にログインしてください" });
+    const site = KB_LOGIN_CODE_SITES[String(req.query.site || "")];
+    if (!site) return res.status(400).json({ error: "このサイトの確認コードは読めません" });
+    const since = Math.max(Number(req.query.since) || 0, Date.now() - 15 * 60000);   // 有効期限（10分）を過ぎた古いコードは渡さない
+    const r = await gmailFindLoginCode(req.user, { ...site, sinceMs: since, minutes: 15 });
+    res.json({ ok: true, code: r ? r.code : null, at: r ? r.at : null });
+  } catch (e) { res.status(e.needScope ? 403 : 500).json({ error: e.needScope ? "Gmail を読む許可がありません。kinbot の設定から Google をつなぎ直してください" : e.message }); }
 });
 app.put("/api/kinxs/tasks/:id", async (req, res) => {
   try {
@@ -33791,8 +33806,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-19g kinXs：タスクを消せるように（会社の詳しい画面のタスクとホームのタスクに、いつも見えるゴミ箱。次回アクションも消せる）。あわせて久野さんの要望：掲載先ありは掲載先ごとの社数のカードが最初の画面・「掲載済みで未記入」で［未掲載にする］・取り込みに「納品済み」（シートの納品日が選んだ月までの会社をキックオフ済み・納品メール送付済みに）。／2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
+const BUILD_TAG = "2026-11-19h 拡張機能 2.2.24：DOC の AI の管理画面（カジュアル面談エージェント）の2段階認証。確認コードの欄が出たら、kinbot が本人の Gmail に届いた確認コード（noreply@mail.brainverse-ai.com）を読み、拡張機能が欄に入れて確認を押す（/api/me/login-code。読めるのは決めた送り主だけ）。／2026-11-19g kinXs：タスクを消せるように（会社の詳しい画面のタスクとホームのタスクに、いつも見えるゴミ箱。次回アクションも消せる）。あわせて久野さんの要望：掲載先ありは掲載先ごとの社数のカードが最初の画面・「掲載済みで未記入」で［未掲載にする］・取り込みに「納品済み」（シートの納品日が選んだ月までの会社をキックオフ済み・納品メール送付済みに）。／2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
 const BUILD_FEATURES = [
+  "拡張機能：DOC の AI の管理画面の2段階認証の確認コードを、本人の Gmail から自動で入れる",
   "kinXs：タスクを消す（ゴミ箱）・掲載先ごとの社数を最初の画面に・未掲載を選べる・シートから納品済みを取り込んでキックオフ・納品メール送付済みに",
   "メンバー：役割（クローザー・インサイド・予備・CS）を DOC と MOCHICA で別々に持つ。DOC の報告・集計は DOC の役割だけ",
   "for MOCHICA の架電：リードの重複を作らない（会社名＋電話・メール・Web・法人番号の鍵・過去も含めて1件）",

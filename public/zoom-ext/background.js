@@ -236,3 +236,20 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   })();
   return true;
 });
+
+// DOC の AI の管理画面の2段階認証：本人の Gmail に届いた確認コードを kinbot に聞く（2026-11-19 田中さん）。
+//   聞けるのは決めたサイト（brainverse）だけ。コードはどこにも残さない
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || msg.type !== "kb-login-code") return;
+  (async () => {
+    try {
+      if (msg.site !== "brainverse") return reply({ ok: false, error: "このサイトは使えません" });
+      const since = Math.max(0, Number(msg.since) || 0);
+      const r = await fetch(`https://kinbot-production-225f.up.railway.app/api/me/login-code?site=brainverse&since=${since}`, { credentials: "include", redirect: "manual" });
+      if (r.type === "opaqueredirect" || r.status === 401) return reply({ ok: false, error: "kinbot にログインしてから、もう一度ログインしてください" });
+      const j = await r.json().catch(() => ({}));
+      reply(r.ok ? { ok: true, code: j.code || null, at: j.at || null } : { ok: false, error: j.error || `（${r.status}）` });
+    } catch (e) { reply({ ok: false, error: String(e && e.message || e) }); }
+  })();
+  return true;
+});

@@ -1913,6 +1913,34 @@ export async function driveShareUser(owner, fileId, email, role = "reader") {
 // Gemini からの更新の依頼（2026-11-18 田中さん「Gemini から SF の Stage を更新できるようにしたい」）。
 //   Gemini は GitHub に issue を作れなかった。代わりに「自分あてに件名『kinbot依頼』のメールを送る」形にする。
 //   その人の送信済みの中だけを見るので、本人が送ったものに限られる（なりすましのメールでは動かない）
+// ログインの確認コード（2段階認証）をメールから読む（2026-11-19 田中さん「2段階認証を自動で入力する拡張機能」）。
+//   from で送り主をしぼり、sinceMs より後に届いたいちばん新しいメールの数字（4〜8けた）を返す。
+//   本文の「確認コード」の近くの数字を先に探し、無ければ本文の中の6けたの数字を使う
+export async function gmailFindLoginCode(owner, { from, subjectWord = "", sinceMs = 0, minutes = 30 } = {}) {
+  const token = await accessToken(owner);
+  if (!token) throw new Error("Google未連携です");
+  const H = { Authorization: `Bearer ${token}` };
+  const q = `from:${from}${subjectWord ? ` subject:"${subjectWord}"` : ""} newer_than:${Math.max(1, Math.ceil(minutes / 60))}h`;
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(q)}&maxResults=5`, { headers: H });
+  if (!res.ok) { const t = await res.text(); const e = new Error(`Gmail ${res.status}`); if (/insufficient|scope/i.test(t)) e.needScope = true; throw e; }
+  const d = await res.json().catch(() => ({}));
+  let best = null;
+  for (const m of d.messages || []) {
+    const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${m.id}?format=full`, { headers: H });
+    if (!r.ok) continue;
+    const msg = await r.json().catch(() => null); if (!msg) continue;
+    const at = Number(msg.internalDate || 0);
+    if (at < sinceMs || Date.now() - at > minutes * 60000) continue;
+    if (best && best.at >= at) continue;
+    const text = `${headerVal(msg.payload && msg.payload.headers, "Subject")}\n${extractBody(msg.payload) || msg.snippet || ""}`.normalize("NFKC");
+    const near = text.match(/(?:確認コード|認証コード|ワンタイム|コード|code)[^0-9]{0,60}?(?<![0-9])(\d{4,8})(?![0-9])/i);
+    const six = text.match(/(?<![0-9])(\d{6})(?![0-9])/);
+    const code = (near && near[1]) || (six && six[1]) || "";
+    if (code) best = { code, at, id: msg.id };
+  }
+  return best;
+}
+
 export async function gmailFindSentRequests(owner, { subjectWord = "kinbot依頼", days = 2, max = 10 } = {}) {
   const token = await accessToken(owner);
   if (!token) return [];
