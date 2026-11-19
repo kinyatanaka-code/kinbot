@@ -22,7 +22,7 @@
   };
 
   const S = { meta: null, admin: false, tab: "call", lists: [], listId: parseInt(ls.get("mcc_list") || "0", 10) || 0, queue: [], later: 0,
-    d: null, cache: new Map(), f: null, notices: [], ni: 0, toast: null, busy: false, mounted: false };
+    d: null, cache: new Map(), f: null, notices: [], ni: 0, toast: null, busy: false, mounted: false, src: null, reps: null, ldBack: null };
   const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "" }, hearing: {}, phone: "" });
 
   // MOCHICA は Zoom Phone で架電する決まりなので、いつも Zoom アプリで発信する
@@ -53,15 +53,15 @@
     window.addEventListener("beforeunload", () => { if (S.d) navigator.sendBeacon && navigator.sendBeacon(`/api/mccall/leads/${S.d.lead.id}/release`); });
   }
   function drawTabs() {
-    const tabs = [["call", "かける"], ["browse", "一覧"], ["report", "レポート"]].concat(S.admin ? [["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]] : []);
+    const tabs = [["call", "かける"], ["browse", "一覧"], ["report", "レポート"]].concat(S.admin ? [["leads", "リード管理"], ["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]] : []);
     $("mccTabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" data-t="${k}">${l}</button>`).join("");
     $("mccTabs").querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.t)));
     if (tabs.length === 1) $("mccTabs").hidden = true;
   }
   function setTab(t) {
-    S.tab = t; drawTabs();
+    S.tab = t; S.ldBack = null; drawTabs();
     $("mccCall").hidden = t !== "call"; $("mccAdmin").hidden = t === "call"; $("mccList").hidden = t !== "call"; $("mccNotice").hidden = t !== "call";
-    if (t === "lists") drawLists(); if (t === "cross") drawCross(); if (t === "browse") drawBrowse(); if (t === "report") drawReport();
+    if (t === "leads") drawHub(); if (t === "lists") drawLists(); if (t === "cross") drawCross(); if (t === "browse") drawBrowse(); if (t === "report") drawReport();
   }
 
   async function start() {
@@ -535,7 +535,7 @@
 
   // ---- 管理者：リストの管理 ----
   async function drawLists() {
-    const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`;
+    const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`; S.ldBack = null;
     try {
       await loadLists(); await loadStats();
       const all = S.allStats || [];
@@ -877,8 +877,11 @@
   }
   // リードの割り振り・他のリストへ移す（2026-11-17 福井さん。kincall で多く使われていた2つを MOCHICA にも）
   // 選んだものだけが対象。割り振りだけは、選ばなければリストの残り全部を分ける（kincall の「複数人に分ける」と同じ使い方）。
-  async function drawLeads(l) {
+  // back：戻る先（リード管理から開いたときはリード管理へ戻す。中で配り直したあとも同じ戻り先を使う）
+  async function drawLeads(l, back) {
     if (!l) return;
+    if (back) S.ldBack = back;
+    const goBack = S.ldBack || drawLists;
     const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`;
     let j, reps = [];
     try { [j, reps] = await Promise.all([api(`/api/mccall/lists/${l.id}/leads`), api("/api/mochica/reps").then((r) => r.items || []).catch(() => [])]); }
@@ -889,7 +892,7 @@
     const others = S.lists.filter((x) => x.id !== l.id);
     const sel = new Set();
     box.innerHTML = `<div class="mcc-card">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="mcc-btn" id="mccLdBack">${ICO.back}リストの一覧へ</button><h2 style="margin:0">「${esc(l.name)}」のリード</h2><span class="mcc-note" style="margin:0">残り ${j.total}件${j.total > j.items.length ? `（上から ${j.items.length}件を表示）` : ""}</span></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><button class="mcc-btn" id="mccLdBack">${ICO.back}${S.ldBack ? "リード管理へ" : "リストの一覧へ"}</button><h2 style="margin:0">「${esc(l.name)}」のリード</h2><span class="mcc-note" style="margin:0">残り ${j.total}件${j.total > j.items.length ? `（上から ${j.items.length}件を表示）` : ""}</span></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0"><span class="mcc-note" id="mccLdN" style="margin:0">選んでいません（割り振りは残り全部が対象）</span>
           <button class="mcc-btn primary" id="mccLdAssign">複数人に分ける</button><button class="mcc-btn primary" id="mccLdSeg">条件で割り振る</button><button class="mcc-btn" id="mccLdMove" ${others.length ? "" : 'disabled title="ほかに開いているリストがありません"'}>選んだリードを他のリストへ移す</button></div>
         ${j.items.length ? `<table class="mcc-tbl"><thead><tr><th><input type="checkbox" id="mccLdAll" aria-label="全部選ぶ" /></th><th>会社</th><th>担当者</th><th>温度</th><th class="num">回数</th><th>前回</th><th>割り振り</th></tr></thead><tbody>
@@ -897,7 +900,7 @@
     const cnt = () => { $("mccLdN").textContent = sel.size ? `${sel.size}件 選んでいます` : "選んでいません（割り振りは残り全部が対象）"; };
     box.querySelectorAll("[data-ld]").forEach((c) => c.addEventListener("change", () => { c.checked ? sel.add(+c.dataset.ld) : sel.delete(+c.dataset.ld); cnt(); }));
     const all = $("mccLdAll"); if (all) all.addEventListener("change", () => { box.querySelectorAll("[data-ld]").forEach((c) => { c.checked = all.checked; all.checked ? sel.add(+c.dataset.ld) : sel.delete(+c.dataset.ld); }); cnt(); });
-    $("mccLdBack").addEventListener("click", drawLists);
+    $("mccLdBack").addEventListener("click", () => goBack());
     $("mccLdAssign").addEventListener("click", () => {
       const n = sel.size || j.total;
       const w = dialog("複数人に分ける", `${sel.size ? "選んだ" : "残り全部の"} ${n}件を、選んだ人で均等に分けます（ホットなリードが偏らないよう交互に配ります）。だれも選ばずに進むと、割り振りを外して全員がかけられる状態に戻します。`, "分ける", async (w) => {
@@ -988,7 +991,8 @@
   //   リストの行のボタンを1つにまとめ（画面の中央は10個前後まで＝ルール7）、ここで足し方を選ぶ
   function addDialog(listId) {
     const l = S.lists.find((x) => x.id === listId) || { id: listId, name: "" };
-    const OPTS = [["sf", "SF から", "SF の MOCHICA のリード（コンバート前）を、ステータス・リードソース・失注の有無・最後の活動で絞って足す"],
+    const OPTS = [["type", "種類を選んで足す（SHOBO にあるリードから）", "BALES から移した保管のリストなどにあるリードを、取り込み元・リードソースごとの件数を見て選び、足す件数と担当まで決める（kincall の「ソースから配る」と同じ）"],
+      ["sf", "SF から", "SF の MOCHICA のリード（コンバート前）を、ステータス・リードソース・失注の有無・最後の活動で絞って足す"],
       ["bales", "BALES から", "BALES のリスト（拡張機能で取り込んだもの）から足す。BALES は解約予定なので、移したリストは「SHOBO から」で使う"],
       ["shobo", "SHOBO から", "SHOBO のほかのリスト（BALES から移した保管のリストなど）から、条件に合うリードをこのリストへ移す"],
       ["csv", "CSV から", "CSV のファイルを読み込んで足す"], ["doc", "DOC から（部署をまたぐ）", "DOC の kincall のリストから写す。理由を残す"]];
@@ -996,7 +1000,7 @@
       `<div style="display:grid;gap:8px;margin-top:12px">${OPTS.map(([k, t, d]) => `<button class="mcc-btn" data-src="${k}" style="height:auto;padding:10px 12px;text-align:left;display:block"><b>${esc(t)}</b><br><small class="mcc-note" style="margin:0">${esc(d)}</small></button>`).join("")}</div>`);
     w.querySelectorAll("[data-src]").forEach((b) => b.addEventListener("click", () => {
       w.remove(); S.dlg = null;
-      ({ sf: sfDialog, bales: balesDialog, shobo: shoboDialog, csv: csvDialog, doc: docDialog })[b.dataset.src](listId);
+      ({ type: (id) => giveDialog({ toList: id, pickTypes: true }), sf: sfDialog, bales: balesDialog, shobo: shoboDialog, csv: csvDialog, doc: docDialog })[b.dataset.src](listId);
     }));
   }
   // SF から足す：選んだ条件の件数を SF に聞いてから足す（SF は読むだけ）
@@ -1070,6 +1074,315 @@
       dialog(`「${l.name}」をかける対象にしますか`, `残り ${l.open}件が、メンバー（決めていなければ MOCHICA 全員）の「かける」に出るようになります。件数が多いときは、先に「中を見る・割り振る」で担当を決めるか、ほかのリストへ「SHOBO から」で必要な分だけ持っていくのがおすすめです。`, "かける対象にする", async () => {
         await api(`/api/mccall/lists/${l.id}`, { method: "PATCH", body: JSON.stringify({ stock: false }) }); toast("かける対象にしました"); drawLists(); }); }));
   }
+  // ---- リード管理（2026-11-20 福井さん「リードの種類がそれぞれ今何件あって、誰にどれだけ割り振っているのか分からない。kincall 準拠で」） ----
+  //   kincall のリスト管理の「リスト」タブ（人ごとの残り）＝メンバー別、「ソース」タブ（ソースごとの件数・担当別・アポ率・メンバーに配る）＝種類別。
+  //   種類＝取り込み元（SF・BALES・SHOBO（CSV）・DOC）× リードソース。アポ率は MOCHICALL で記録した架電だけ（Bales で記録した過去の架電は入らない）
+  const LH = { view: ls.get("mcc_lhv") === "type" ? "type" : "member", sel: "all", lv: ls.get("mcc_lhl") === "list" ? "list" : "member", who: "" };
+  const nf = (v) => Number(v || 0).toLocaleString();
+  const pctOf = (o) => (o && o.calls ? `${((o.apos / o.calls) * 100).toFixed(1)}%` : "—");
+  // アポ率の色：2%以上・0.5%以上・それ未満（kincall のソースのタブと同じ区切り）
+  const rcls = (o) => { if (!o || !o.calls) return ""; const v = (o.apos / o.calls) * 100; return v >= 2 ? "g" : v >= 0.5 ? "y" : "r"; };
+  const PAL = ["#0E9AA7", "#5DCAA5", "#85B7EB", "#AFA9EC", "#F0997B", "#FAC775", "#97C459", "#E58FB5"];
+  const ORG_C = { SF: "#2563A8", BALES: "#A2480C", "SHOBO（CSV）": "#0B6E78", DOC: "#1d9e75" };
+  async function loadHub() {
+    const [d, reps] = await Promise.all([api("/api/mccall/sources"), api("/api/mochica/reps").then((r) => r.items || []).catch(() => [])]);
+    S.src = d; S.reps = reps; return d;
+  }
+  const whoName = (e) => (!e ? "未割り当て" : (S.src && S.src.names[e]) || ((S.reps || []).find((r) => r.email === e) || {}).name || e);
+  const srcName = (k) => k.slice(k.indexOf("|") + 1);
+  const typeTitle = (k) => `${k.slice(0, k.indexOf("|"))} › ${srcName(k)}`;
+  // 選んでいるもの（all／o:取り込み元／s:取り込み元|リードソース）に、種類 k が入るか
+  const inSel = (sel, k) => sel === "all" || (sel.startsWith("o:") ? k.startsWith(`${sel.slice(2)}|`) : sel === `s:${k}`);
+  function selObj(d, sel) {
+    if (sel === "all") return { ...d.all, rt: d.rates.all, title: "すべてのリード" };
+    if (sel.startsWith("o:")) { const o = d.origins.find((x) => x.key === sel.slice(2)); return o && { ...o, rt: d.rates.byOrigin[o.key], title: `${o.key} から足したリード` }; }
+    const t = d.types.find((x) => `s:${x.key}` === sel); return t && { ...t, rt: d.rates.byType[t.key], title: `${t.origin} › ${t.source}` };
+  }
+  // 選んでいる種類が入っているリスト（種類×リストを足し合わせる）
+  function selLists(d, sel) {
+    const m = new Map();
+    for (const x of d.typeLists) {
+      if (!inSel(sel, x.type)) continue;
+      const o = m.get(x.id) || { id: x.id, name: x.name, stock: x.stock, n: 0, untouched: 0, dist: 0, by: {}, calls: 0, apos: 0 };
+      o.n += x.n; o.untouched += x.untouched; o.dist += x.dist; for (const [e, v] of Object.entries(x.by)) o.by[e] = (o.by[e] || 0) + v;
+      const r = d.rates.byList[`${x.type}#${x.id}`]; if (r) { o.calls += r.calls; o.apos += r.apos; }
+      m.set(x.id, o);
+    }
+    return [...m.values()].sort((a, b) => (a.stock - b.stock) || b.n - a.n);
+  }
+  async function drawHub() {
+    const box = $("mccAdmin"); if (!S.src) box.innerHTML = `<div class="mcc-card">リードを数えています…</div>`;
+    let d; try { d = await loadHub(); } catch (e) { box.innerHTML = `<div class="mcc-card">リードを数えられませんでした：${esc(e.message)}<br>少し待ってから、もう一度「リード管理」を押してください。</div>`; return; }
+    if (S.tab !== "leads") return;
+    const A = d.all;
+    box.innerHTML = `<div class="mcc-card">
+      <div class="mch-top"><h2>リード管理</h2>
+        <div class="mch-seg" role="tablist" aria-label="見せ方">${[["member", "メンバー別"], ["type", "種類別"]].map(([k, l]) => `<button role="tab" data-v="${k}" aria-selected="${LH.view === k}">${l}</button>`).join("")}</div>
+        <span class="mcc-sp"></span><button class="mcc-btn" id="mchReload">読み直す</button><button class="mcc-btn primary" id="mchGive">種類を選んで配る</button></div>
+      <div class="mcc-kpis">
+        <div><small>かける対象のリード</small><b>${nf(A.n)}</b></div>
+        <div><small>割り振り済み</small><b>${nf(A.n - A.free)}</b></div>
+        <div><small>未割り当て（リストのメンバー全員がかけられる）</small><b>${nf(A.free)}</b></div>
+        <div><small>まだかけていない</small><b>${nf(A.untouched)}</b></div>
+        <div><small>保管（だれの「かける」にも出ない）</small><b>${nf(A.stock)}</b></div>
+        <div class="apo"><small>アポ率（直近3か月）</small><b>${pctOf(d.rates.all)}</b></div>
+      </div>
+      ${d.pending ? `<p class="mcc-note mch-warn">種類をまだ計算していないリードが ${nf(d.pending)}件あり、いまは「不明」に数えています。裏で計算を続けているので、少したってから「読み直す」を押すと正しい種類に移ります。</p>` : ""}
+      <p class="mcc-note">数えているのは閉じていないリストの、終わっていないリードです（重複で止めたものは入れません）。アポ率は MOCHICALL で記録した架電だけで、Bales で記録した過去の架電は入りません。</p>
+      <div id="mchBody" style="margin-top:12px"></div></div>`;
+    box.querySelectorAll(".mch-top [data-v]").forEach((b) => b.addEventListener("click", () => { LH.view = b.dataset.v; ls.set("mcc_lhv", LH.view); drawHub(); }));
+    $("mchReload").addEventListener("click", () => { S.src = null; drawHub(); });
+    $("mchGive").addEventListener("click", () => giveDialog({ pickTypes: true }));
+    if (LH.view === "type") drawHubType(d); else drawHubMember(d);
+  }
+
+  // メンバー別（kincall の「リスト」タブの人のカード）：人ごとに、担当しているリードの数・今かけられる数・種類の内訳・アポ率
+  function drawHubMember(d) {
+    const body = $("mchBody"); if (!body) return;
+    const reps = S.reps || []; const byE = new Map(d.members.map((m) => [m.email, m]));
+    // 並べる人：MOCHICA のメンバー（0件の人も「まだ配っていない」と分かるように出す）＋担当を持っているほかの人
+    const ppl = new Map();
+    for (const r of reps) if (r.mochica) ppl.set(r.email, { email: r.email, name: r.name, intern: !!r.intern, mochica: true });
+    for (const m of d.members) if (!ppl.has(m.email)) { const r = reps.find((x) => x.email === m.email) || {}; ppl.set(m.email, { email: m.email, name: r.name || whoName(m.email), intern: !!r.intern, mochica: !!r.mochica }); }
+    const color = new Map(d.types.map((t, i) => [t.key, PAL[i % PAL.length]]));
+    const nOf = (e) => (byE.get(e) || {}).n || 0;
+    const card = (p) => {
+      const m = byE.get(p.email) || { n: 0, now: 0, untouched: 0, stock: 0, hidden: 0, byType: {} };
+      const rt = d.rates.all.mem[p.email];
+      const ts = Object.entries(m.byType).sort((a, b) => b[1] - a[1]);
+      const bar = ts.map(([k, v]) => `<span style="width:${(v / Math.max(1, m.n)) * 100}%;background:${color.get(k)}" title="${esc(typeTitle(k))} ${nf(v)}件"></span>`).join("");
+      const warn = [m.stock ? `保管のリストの担当 ${nf(m.stock)}件` : "", m.hidden ? `リストのメンバー外 ${nf(m.hidden)}件` : ""].filter(Boolean).join("・");
+      return `<button class="mch-card${LH.who === p.email ? " on" : ""}${m.n ? "" : " zero"}" data-who="${esc(p.email)}">
+        <span class="mch-cn">${esc(p.name)}${p.intern ? "<small>インターン</small>" : ""}</span>
+        <span class="mch-cz"><b>${nf(m.n)}</b><small>件</small><span class="mch-r ${rcls(rt)}" title="直近3か月のアポ率（MOCHICALL の記録）">${pctOf(rt)}</span></span>
+        <span class="mch-cs">今かける ${nf(m.now)}・未架電 ${nf(m.untouched)}</span>
+        <span class="mch-bar">${bar}</span>
+        <span class="mch-cs">${ts.length ? ts.slice(0, 2).map(([k, v]) => `${esc(srcName(k))} ${nf(v)}`).join("・") + (ts.length > 2 ? ` ほか${ts.length - 2}種類` : "") : "まだ配っていません"}</span>
+        ${warn ? `<span class="mch-cw">${esc(warn)}（かける画面に出ません）</span>` : ""}</button>`;
+    };
+    const free = `<button class="mch-card none${LH.who === "__free__" ? " on" : ""}" data-who="__free__"><span class="mch-cn">未割り当て</span>
+      <span class="mch-cz"><b>${nf(d.all.free)}</b><small>件</small></span><span class="mch-cs">リストのメンバーならだれでもかけられる</span><span class="mch-cs">配れる（いま開かれていない）${nf(d.all.dist)}</span></button>
+      <div class="mch-card none static"><span class="mch-cn">保管</span><span class="mch-cz"><b>${nf(d.all.stock)}</b><small>件</small></span><span class="mch-cs">BALES から移したリストなど。種類を選んでリストへ足すと配れる</span></div>`;
+    const all = [...ppl.values()];
+    const secs = [["MOCHICA（営業・管理）", all.filter((p) => p.mochica && !p.intern)], ["インターン", all.filter((p) => p.intern)], ["MOCHICA 以外で担当を持っている人", all.filter((p) => !p.mochica)]];
+    body.innerHTML = `<div class="mch-sec"><div class="mch-sh">全体</div><div class="mch-grid">${free}</div></div>` +
+      secs.filter(([, a]) => a.length).map(([l, a]) => `<div class="mch-sec"><div class="mch-sh">${esc(l)}<span>${nf(a.reduce((s, p) => s + nOf(p.email), 0))}件・${a.length}人</span></div><div class="mch-grid">${a.sort((x, y) => nOf(y.email) - nOf(x.email) || x.name.localeCompare(y.name, "ja")).map(card).join("")}</div></div>`).join("") +
+      `<div id="mchWho"></div>`;
+    body.querySelectorAll("[data-who]").forEach((b) => b.addEventListener("click", () => { LH.who = LH.who === b.dataset.who ? "" : b.dataset.who; drawHubMember(d); if (LH.who) { const w = $("mchWho"); if (w) w.scrollIntoView({ block: "nearest", behavior: "smooth" }); } }));
+    if (LH.who) drawWho(d);
+  }
+  // 1人（または未割り当て）の中身：種類ごと・リストごとの件数と、そこから配り直すボタン
+  function drawWho(d) {
+    const el = $("mchWho"); if (!el) return;
+    const isFree = LH.who === "__free__"; const key = isFree ? "" : LH.who;
+    const byT = new Map(), byL = new Map();
+    for (const x of d.typeLists) {
+      const v = x.by[key] || 0; if (!v || (isFree && x.stock)) continue;
+      if (!x.stock) byT.set(x.type, (byT.get(x.type) || 0) + v);
+      const o = byL.get(x.id) || { id: x.id, name: x.name, stock: x.stock, n: 0 }; o.n += v; byL.set(x.id, o);
+    }
+    const tot = [...byT.values()].reduce((a, x) => a + x, 0);
+    const tRows = [...byT.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => { const r = !isFree && d.rates.byType[k] ? d.rates.byType[k].mem[key] : null;
+      return `<tr><td>${esc(typeTitle(k))}</td><td class="num">${nf(v)}</td><td class="num">${isFree ? "" : `<span class="mch-r ${rcls(r)}">${pctOf(r)}</span>`}</td><td class="num"><button class="mch-mini" data-give="${esc(k)}">${isFree ? "配る" : "配り直す"}</button></td></tr>`; }).join("");
+    const lRows = [...byL.values()].sort((a, b) => (a.stock - b.stock) || b.n - a.n).map((l) => `<tr><td>${esc(l.name)}${l.stock ? ' <span class="mcc-badge">保管</span>' : ""}</td><td class="num">${nf(l.n)}</td><td class="num"><button class="mch-mini" data-open="${l.id}">中身を見る</button></td></tr>`).join("");
+    el.innerHTML = `<div class="mch-who"><div class="mch-dh"><span class="mch-dt">${esc(isFree ? "未割り当て" : whoName(key))}</span><span class="mcc-note">かける対象のリスト ${nf(tot)}件</span><span class="mcc-sp"></span>
+        <button class="mcc-btn primary" id="mchWhoGive">${isFree ? "メンバーに配る" : "ほかの人へ配り直す"}</button></div>
+      <div class="mch-two"><div><div class="mch-st">種類ごと</div>${tRows ? `<table class="mcc-tbl"><thead><tr><th>種類</th><th class="num">件数</th><th class="num">${isFree ? "" : "アポ率"}</th><th></th></tr></thead><tbody>${tRows}</tbody></table>` : '<p class="mcc-note">ありません。</p>'}</div>
+        <div><div class="mch-st">リストごと</div>${lRows ? `<table class="mcc-tbl"><thead><tr><th>リスト</th><th class="num">件数</th><th></th></tr></thead><tbody>${lRows}</tbody></table>` : '<p class="mcc-note">ありません。</p>'}</div></div></div>`;
+    $("mchWhoGive").addEventListener("click", () => giveDialog({ keys: ["all"], from: key }));
+    el.querySelectorAll("[data-give]").forEach((b) => b.addEventListener("click", () => giveDialog({ keys: [`s:${b.dataset.give}`], from: key })));
+    el.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openHubList(d, +b.dataset.open)));
+  }
+  // リード管理からリストの中身（割り振る・移す）を開く。戻るとリード管理に戻る
+  function openHubList(d, id) {
+    const l = d.lists.find((x) => x.id === id) || S.lists.find((x) => x.id === id); if (!l) return;
+    drawLeads({ ...l, ...(S.lists.find((x) => x.id === id) || {}) }, drawHub);
+  }
+
+  // 種類別（kincall の「ソース」タブ）：左に取り込み元とリードソース、右に選んだものの件数・担当別・月ごとのアポ率・リスト
+  function drawHubType(d) {
+    const body = $("mchBody"); if (!body) return;
+    if (!selObj(d, LH.sel)) LH.sel = "all";
+    const item = (sel, label, o, rt, cls) => `<button class="${cls}${LH.sel === sel ? " on" : ""}" data-sel="${esc(sel)}" title="${esc(label)}"><span class="mch-ln">${esc(label)}</span><span class="mch-lnum">${nf(o.n)}${o.stock ? `<small>保管 ${nf(o.stock)}</small>` : ""}</span><span class="mch-r ${rcls(rt)}">${pctOf(rt)}</span></button>`;
+    const left = item("all", "すべて", d.all, d.rates.all, "mch-gh") + d.origins.map((o) => `<div class="mch-og" style="--fc:${ORG_C[o.key] || "#5C7377"}">${item(`o:${o.key}`, o.key, o, d.rates.byOrigin[o.key], "mch-gh")}${
+      d.types.filter((t) => t.origin === o.key).map((t) => item(`s:${t.key}`, t.source, t, d.rates.byType[t.key], "mch-li")).join("")}</div>`).join("");
+    const o = selObj(d, LH.sel); const rt = o.rt; const R = d.rates;
+    // 担当別：件数（かける対象のリストで担当しているもの）とその人のアポ率。未割り当ては最後
+    const holders = { ...o.by }; Object.keys((rt && rt.mem) || {}).forEach((e) => { if (!(e in holders)) holders[e] = 0; });
+    const hs = Object.entries(holders).sort((a, b) => (a[0] ? 0 : 1) - (b[0] ? 0 : 1) || b[1] - a[1]);
+    const hmax = Math.max(1, ...hs.map((h) => h[1]));
+    const hRows = hs.map(([e, n]) => { const mr = e && rt ? rt.mem[e] : null;
+      return `<div class="mch-hb${e ? "" : " none"}"><span class="mch-hn" title="${esc(whoName(e))}">${esc(whoName(e))}</span><span class="mch-hbar"><i style="width:${Math.round((n / hmax) * 100)}%"></i></span><span class="mch-hc">${nf(n)}件</span><span class="mch-r ${rcls(mr)}">${e ? pctOf(mr) : ""}</span></div>`; }).join("");
+    const mv = R.months.map((ym) => (rt && rt.m[ym]) || null); const mmax = Math.max(0.001, ...mv.map((x) => (x && x.calls ? x.apos / x.calls : 0)));
+    const mBars = R.months.map((ym, i) => { const x = mv[i]; const v = x && x.calls ? x.apos / x.calls : 0;
+      return `<div class="mch-mc"><div class="mch-mb" style="height:${Math.max(3, Math.round((v / mmax) * 54))}px"></div><span>${Number(ym.slice(5))}月 ${pctOf(x)}</span><small>${x ? `${nf(x.apos)} / ${nf(x.calls)}コール` : "記録なし"}</small></div>`; }).join("");
+    const lsx = selLists(d, LH.sel);
+    const seg = `<span class="mch-seg sm">${[["member", "メンバー別"], ["list", "リスト別"]].map(([k, l]) => `<button data-lv="${k}" aria-selected="${LH.lv === k}">${l}</button>`).join("")}</span>`;
+    const lrt = (l) => (l.calls ? l : null);
+    // メンバー別：人ごとに、この種類で持っているリードと、そのリスト（kincall の srcMemberView）
+    const memberCards = () => {
+      const by = new Map();
+      for (const l of lsx) for (const [e, v] of Object.entries(l.by)) { if (!v) continue; const x = by.get(e) || { e, n: 0, ls: [] }; x.n += v; x.ls.push({ ...l, mine: v }); by.set(e, x); }
+      const arr = [...by.values()].sort((a, b) => (a.e ? 0 : 1) - (b.e ? 0 : 1) || b.n - a.n);
+      return arr.length ? `<div class="mch-mv">${arr.map((m) => { const mr = m.e && rt ? rt.mem[m.e] : null;
+        return `<div class="mch-mvc${m.e ? "" : " none"}"><div class="mch-mvh"><b>${esc(whoName(m.e))}</b><span><b>${nf(m.n)}</b>件・${m.ls.length}リスト</span><span class="mch-r ${rcls(mr)}">${m.e ? pctOf(mr) : ""}</span></div>
+          ${m.ls.sort((a, b) => b.mine - a.mine).map((l) => `<div class="mch-mvr"><span class="mch-mvn" title="${esc(l.name)}">${esc(l.name)}${l.stock ? ' <span class="mcc-badge">保管</span>' : ""}</span><span class="mch-mvk">${nf(l.mine)}件</span>
+            <span class="mch-mva"><button class="mch-mini" data-open="${l.id}">中身</button><button class="mch-mini" data-lgive="${l.id}" data-from="${esc(m.e)}">配る</button></span></div>`).join("")}</div>`; }).join("")}</div>` : '<p class="mcc-note">ありません。</p>';
+    };
+    // リスト別：リストごとに件数・未架電・配れる数と、だれが何件持っているかの帯（kincall のリストのカード）
+    const listCards = () => `<div class="mch-lcg">${lsx.map((l) => {
+      const ws = Object.entries(l.by).filter(([, v]) => v).sort((a, b) => b[1] - a[1]); const tot = Math.max(1, l.n);
+      const bar = ws.map(([e, v], i) => `<span title="${esc(whoName(e))} ${nf(v)}件" style="width:${(v / tot) * 100}%;background:${e ? PAL[i % PAL.length] : "#D3D1C7"}"></span>`).join("");
+      return `<div class="mch-lc"><div class="mch-lch"><b title="${esc(l.name)}">${esc(l.name)}</b>${l.stock ? '<span class="mcc-badge">保管</span>' : ""}<span class="mch-r ${rcls(lrt(l))}">${pctOf(lrt(l))}</span></div>
+        <div class="mch-lck"><span><b>${nf(l.n)}</b>件</span><span>未架電 ${nf(l.untouched)}</span><span>配れる ${nf(l.dist)}</span></div>
+        <div class="mch-bar">${bar}</div><div class="mch-lcw">${ws.slice(0, 3).map(([e, v]) => `${esc(whoName(e))} ${nf(v)}`).join("・")}${ws.length > 3 ? ` ほか${ws.length - 3}人` : ""}</div>
+        <div class="mch-lca"><button class="mch-mini" data-open="${l.id}">中身を見る</button><button class="mch-mini" data-lgive="${l.id}" data-from="">${l.stock ? "このリストからリストへ足す" : "このリストから配る"}</button></div></div>`; }).join("")}</div>`;
+    const H = o.hot;
+    body.innerHTML = `<div class="mch-wrap"><nav class="mch-left" aria-label="リードの種類">${left}</nav><div class="mch-right">
+      <div class="mch-dh"><span class="mch-dt">${esc(o.title)}</span><span class="mcc-sp"></span><button class="mcc-btn primary" id="mchSelGive">メンバーに配る</button></div>
+      <div class="mch-k">
+        <div><span>件数（かける対象）</span><b>${nf(o.n)}</b></div>
+        <div><span>アポ率（直近3か月）</span><b class="mch-r ${rcls(rt)}">${pctOf(rt)}</b><small>${rt && rt.calls ? `${nf(rt.apos)} / ${nf(rt.calls)}コール` : "MOCHICALL での記録なし"}</small></div>
+        <div><span>未架電</span><b>${nf(o.untouched)}</b></div>
+        <div><span>配れる未割り当て</span><b>${nf(o.dist)}</b></div>
+        <div><span>保管</span><b>${nf(o.stock)}</b><small>リストへ足すと配れる</small></div>
+      </div>
+      <div class="mcc-chips mch-hot"><span class="mcc-badge hot">ホット ${nf(H[0])}</span><span class="mcc-badge warm">ウォーム ${nf(H[1])}</span><span class="mcc-badge cold">コールド ${nf(H[2])}</span></div>
+      <div class="mch-st">担当別（担当しているリードの数と、その人のアポ率）</div>${hRows || '<p class="mcc-note">まだだれにも配っていません。</p>'}
+      <div class="mch-st">月ごとのアポ率</div><div class="mch-mo">${mBars}</div>
+      ${lsx.length ? `<div class="mch-st mch-st2">${LH.sel === "all" ? "リスト" : "この種類が入っているリスト"}（${lsx.length}本）${seg}</div>${LH.lv === "member" ? memberCards() : listCards()}` : ""}
+    </div></div>`;
+    body.querySelectorAll("[data-sel]").forEach((b) => b.addEventListener("click", () => { LH.sel = b.dataset.sel; drawHubType(d); }));
+    body.querySelectorAll("[data-lv]").forEach((b) => b.addEventListener("click", () => { LH.lv = b.dataset.lv; ls.set("mcc_lhl", LH.lv); drawHubType(d); }));
+    $("mchSelGive").addEventListener("click", () => giveDialog({ keys: [LH.sel] }));
+    body.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => openHubList(d, +b.dataset.open)));
+    body.querySelectorAll("[data-lgive]").forEach((b) => b.addEventListener("click", () => giveDialog({ keys: [LH.sel], list: +b.dataset.lgive, from: b.dataset.from })));
+  }
+
+  // 種類から配る・足す（kincall の「メンバーに配る」と同じ流れ：どこから → 何件 → 配り方 → 配る人 → 配分を見る → この配分で配る）。
+  //   o.keys：種類（all／o:…／s:…）。o.pickTypes：窓の中で種類を選ぶ（「種類を選んで配る」「リードを足す → 種類を選んで足す」）。
+  //   o.from：その人の担当分から配り直す。o.list：そのリストの中だけ。o.toList：入れるリストが決まっている（リードを足すから）。
+  //   配るだけのときはリストを動かさない（kincall と同じ）。保管のリストから出すときだけ、入れるリストへ移して担当を付ける
+  async function giveDialog(o = {}) {
+    let d = S.src;
+    if (!d) { try { d = await loadHub(); } catch (e) { toast(`リードを数えられませんでした：${e.message}`); return; } }
+    const reps = S.reps || [];
+    const fixedTo = o.toList || 0;
+    const L = o.list ? d.lists.find((x) => x.id === o.list) : null;
+    const stockSrc = !!(L && L.stock);
+    const live = d.lists.filter((l) => !l.stock);
+    const keys = (o.keys && o.keys.length ? o.keys : ["all"]).slice();
+    const pick = !!o.pickTypes;
+    // 種類をまだ選んでいないあいだは、全部の数を見せる（配るときは「種類を1つ以上選んで」で止める）
+    const keyHit = (k) => !keys.length || keys.includes("all") || keys.some((s) => inSel(s, k));
+    // 「どこから」ごとに、その種類 x（種類×リスト）から何件出せるか。件数は画面を開いたときの数で、正しい数は「配分を見る」で出る
+    const fromCount = (f, x) => {
+      if (x.id === fixedTo) return 0;
+      if (f.startsWith("who:")) return x.stock ? 0 : x.by[f.slice(4)] || 0;
+      if (f === "pool:any") return x.dist;
+      if (f === "pool:stock") return x.stock ? x.dist : 0;
+      return x.stock ? 0 : x.dist;
+    };
+    const inScope = (x) => keyHit(x.type) && (!o.list || x.id === o.list);
+    const sumFrom = (f) => d.typeLists.filter(inScope).reduce((a, x) => a + fromCount(f, x), 0);
+    let fromSel = o.from ? `who:${o.from}` : fixedTo || stockSrc ? "pool:stock" : "";
+    const title = fixedTo ? `「${(live.find((l) => l.id === fixedTo) || {}).name || ""}」にリードを足す` : o.from ? `${whoName(o.from)}さんの担当分を配り直す` : L ? `「${L.name}」から配る` : "種類を選んで配る";
+    const lead = fixedTo ? "種類を選ぶと、足せる件数がすぐ変わります。足したリードはこのリストへ移ります（だれも選ばなければ担当なしで入れ、リストのメンバー全員がかけられます）。"
+      : "配ったリードは担当が変わるだけで、リストは動きません（保管のリストから出すときだけ、入れるリストへ移します）。いま架電中のリードと終わったリードは配りません。";
+    const w = dialog(title, lead, "配分を見る", async (w) => {
+      const b = body(); if (!b.keys.length) throw new Error("種類を1つ以上選んでください");
+      if (!b.n) throw new Error("配る件数を入れてください");
+      if (needTo() && !b.toList) throw new Error("入れるリストを選んでください");
+      if (!b.toList && !b.members.length) throw new Error("配る人を選んでください");
+      if (!w.dataset.ok) {
+        const r = await post("/api/mccall/sources/distribute", { ...b, dryRun: true });
+        const short = r.plan.filter((p) => p.n < p.want);
+        w.querySelector("#mgPrev").innerHTML = `<p class="mcc-note" style="font-weight:700;color:var(--c-deep)">当てはまるのは ${nf(r.available)}件。そのうち ${nf(r.total)}件を${r.toList ? `「${esc(r.toList)}」へ入れて` : ""}配ります。</p>
+          ${r.plan.length ? `<table class="mcc-tbl"><thead><tr><th>配る人</th><th class="num">この種類のアポ率（直近60日）</th><th class="num">配る件数</th></tr></thead><tbody>${r.plan.map((p) => `<tr><td>${esc(p.name)}</td><td class="num">${p.rate == null ? "—" : `${p.rate}%`}<small> ${p.calls ? `${p.apos}/${p.calls}` : "記録なし"}</small></td><td class="num"><b>${nf(p.n)}</b>${p.n < p.want ? `<small> 予定 ${nf(p.want)}</small>` : ""}</td></tr>`).join("")}</tbody></table>` : ""}
+          ${r.unassigned ? `<p class="mcc-note">担当なしで入れる ${nf(r.unassigned)}件</p>` : ""}
+          ${short.length ? `<p class="mcc-note" style="color:var(--c-warn)">${esc(short.map((p) => p.name).join("・"))}さんには予定より少なくなります（リードのあるリストのメンバーに入っていないため）。先に「リストの管理 → メンバー」で足すと配れます。</p>` : ""}`;
+        // dialog() は押したボタンを止めたままにするので、続けて押せるように戻す
+        const ok = w.querySelector("[data-ok]"); ok.disabled = false;
+        if (!r.total) return false;
+        w.dataset.ok = "1"; ok.textContent = "この配分で配る"; return false;
+      }
+      const r = await post("/api/mccall/sources/distribute", b);
+      toast(`${nf(r.done)}件を配りました${r.toList ? `（「${r.toList}」へ入れました）` : ""}：${[...r.plan.filter((p) => p.done).map((p) => `${p.name} ${p.done}件`), r.unassigned ? `担当なし ${r.unassigned}件` : ""].filter(Boolean).join("・")}`);
+      S.src = null;
+      if (fixedTo || stockSrc) await loadLists().catch(() => {});
+      if (S.tab === "leads") drawHub(); else if (S.tab === "lists") drawLists();
+    }, `<div class="mg">
+      ${pick ? `<div class="mcc-field">種類（同じ取り込み元の中でいくつでも選べます。選んだもののどれかに当てはまるリードを配ります）<div class="mcc-chips mg-types" id="mgTypes"></div></div>` : `<p class="mcc-note mg-scope">種類：<b>${esc(keys.map((k) => (k === "all" ? "すべて" : k.startsWith("o:") ? k.slice(2) : typeTitle(k.slice(2)))).join("・"))}</b>${L ? `／リスト：<b>${esc(L.name)}</b>` : ""}</p>`}
+      <div class="mg-row"><label class="mcc-field">どこから<select class="mcc-sel" id="mgFrom"></select></label>
+        <label class="mcc-field n">何件<input type="number" id="mgN" min="1" max="5000" value="100" /></label>
+        <label class="mcc-field" id="mgToWrap">入れるリスト<select class="mcc-sel" id="mgTo"></select></label></div>
+      <div class="mg-row"><label class="mcc-note"><input type="radio" name="mgMode" value="equal" checked /> 均等に配る</label>
+        <label class="mcc-note"><input type="radio" name="mgMode" value="rate" /> この種類でのアポ率に応じて配る（直近60日）</label></div>
+      <div class="mcc-field">配る人${fixedTo ? "（選ばなければ担当なしで入れます）" : ""}<div id="mgWho"></div></div>
+      <div id="mgPrev" class="mg-prev"></div></div>`);
+    w.firstElementChild.classList.add("wide");
+    const $w = (s) => w.querySelector(s);
+    const fromV = () => fromSel;
+    // 保管のリストから出すときは、入れるリストが要る
+    const needTo = () => !!fixedTo || stockSrc || fromV().startsWith("pool:");
+    const toId = () => fixedTo || (needTo() ? +$w("#mgTo").value || 0 : 0);
+    function body() {
+      const f = fromV();
+      return { keys: keys.slice(), n: parseInt($w("#mgN").value, 10) || 0, mode: (w.querySelector('input[name="mgMode"]:checked') || {}).value || "equal",
+        members: [...w.querySelectorAll("[data-gm][aria-pressed=true]")].map((b) => b.dataset.gm),
+        from: f.startsWith("who:") ? f.slice(4) : "", pool: f === "pool:any" ? "any" : "stock", toList: toId(), list: o.list || 0 };
+    }
+    const reset = () => { delete w.dataset.ok; $w("[data-ok]").textContent = "配分を見る"; $w("#mgPrev").innerHTML = ""; const er = $w(".err"); if (er) er.remove(); };
+    function paintFrom() {
+      const st = sumFrom("pool:stock");
+      const opts = fixedTo ? [["pool:stock", `保管のリストの未割り当て（${nf(st)}件）`], ["pool:any", `ほかのリストの未割り当て・保管も含む（${nf(sumFrom("pool:any"))}件）`]]
+        : stockSrc ? [["pool:stock", `このリストの未割り当て（${nf(st)}件）`]]
+        : [["", `未割り当て（配れる ${nf(sumFrom(""))}件）`], ...(st ? [["pool:stock", `保管のリスト（${nf(st)}件。入れるリストへ移す）`]] : [])];
+      // 人の担当分から配り直す（リストへ足すときは出さない＝足すのは新しいリードだけにする）
+      if (!fixedTo && !stockSrc) {
+        const by = {};
+        for (const x of d.typeLists) if (inScope(x) && !x.stock) for (const [e, v] of Object.entries(x.by)) if (e && v) by[e] = (by[e] || 0) + v;
+        if (o.from && !(o.from in by)) by[o.from] = 0;
+        for (const [e, v] of Object.entries(by).sort((a, b) => b[1] - a[1])) opts.push([`who:${e}`, `${whoName(e)} の担当分（${nf(v)}件）`]);
+      }
+      if (!opts.some(([v]) => v === fromSel)) fromSel = opts[0][0];
+      $w("#mgFrom").innerHTML = opts.map(([v, l]) => `<option value="${esc(v)}" ${v === fromSel ? "selected" : ""}>${esc(l)}</option>`).join("");
+      $w("#mgToWrap").hidden = !needTo() || !!fixedTo;
+      if (!$w("#mgTo").options.length) $w("#mgTo").innerHTML = `<option value="">（選んでください）</option>` + live.map((l) => `<option value="${l.id}">${esc(l.name)}</option>`).join("");
+      paintWho();
+    }
+    // 配る人：入れる先（またはそのリスト）にメンバーが決まっていればその人だけ、決まっていなければ MOCHICA の人
+    function paintWho() {
+      const on = new Set([...w.querySelectorAll("[data-gm][aria-pressed=true]")].map((b) => b.dataset.gm));
+      const dest = d.lists.find((l) => l.id === (toId() || o.list || 0));
+      const mem = dest ? dest.members : [];
+      const cands = (mem.length ? reps.filter((r) => mem.includes(r.email)) : reps.filter((r) => r.mochica)).filter((r) => r.email !== (fromV().startsWith("who:") ? fromV().slice(4) : ""));
+      const grp = [["MOCHICA", cands.filter((r) => !r.intern)], ["インターン", cands.filter((r) => r.intern)]].filter(([, a]) => a.length);
+      $w("#mgWho").innerHTML = grp.length ? grp.map(([g, a]) => `<div class="mg-g">${g}</div><div class="mcc-members">${a.map((r) => `<button class="mcc-chip" data-gm="${esc(r.email)}" aria-pressed="${on.has(r.email)}">${esc(r.name)}</button>`).join("")}</div>`).join("")
+        : '<p class="mcc-note">配れる人がいません。入れるリストのメンバーを「リストの管理 → メンバー」で決めてください。</p>';
+      w.querySelectorAll("[data-gm]").forEach((b) => b.addEventListener("click", () => { b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") === "true" ? "false" : "true"); reset(); }));
+    }
+    // 種類のチップ（足せる数＝どこからに合わせた数）。取り込み元ごとにまとめる
+    function paintTypes() {
+      if (!pick) return;
+      const f = fromV();
+      const avail = (t) => d.typeLists.filter((x) => x.type === t.key && (!o.list || x.id === o.list)).reduce((a, x) => a + fromCount(f, x), 0);
+      $w("#mgTypes").innerHTML = d.origins.map((og) => `<div class="mg-og"><span class="mg-ogn" style="color:${ORG_C[og.key] || "#5C7377"}">${esc(og.key)}</span>${
+        d.types.filter((t) => t.origin === og.key).map((t) => { const k = `s:${t.key}`; const n = avail(t);
+          return `<button class="mcc-chip" data-gt="${esc(k)}" aria-pressed="${keys.includes(k)}" ${n || keys.includes(k) ? "" : "disabled"}>${esc(t.source)} <small>${nf(n)}</small></button>`; }).join("")}</div>`).join("");
+      w.querySelectorAll("[data-gt]").forEach((b) => b.addEventListener("click", () => {
+        const k = b.dataset.gt; const i = keys.indexOf(k); i >= 0 ? keys.splice(i, 1) : keys.push(k);
+        b.setAttribute("aria-pressed", i >= 0 ? "false" : "true"); paintFrom(); reset();
+      }));
+    }
+    if (pick) { keys.length = 0; (o.keys || []).forEach((k) => k !== "all" && keys.push(k)); }
+    paintFrom(); paintTypes();
+    $w("#mgFrom").addEventListener("change", () => { fromSel = $w("#mgFrom").value; paintFrom(); paintTypes(); reset(); });
+    $w("#mgTo").addEventListener("change", () => { paintWho(); reset(); });
+    w.querySelectorAll("#mgN, input[name=mgMode]").forEach((x) => x.addEventListener("input", reset));
+    w.querySelectorAll("input[name=mgMode]").forEach((x) => x.addEventListener("change", reset));
+  }
+
   async function drawCross() {
     const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`;
     try {

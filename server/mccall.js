@@ -352,19 +352,23 @@ export function hiresBucket(n) {
 // ---- 条件で割り振る（2026-11-19 福井さん「SHOBO のリスト管理を kinbot 準拠で」） ----
 // まだ属性を計算していない（または計算のしかたが古い）リードの seg を埋める。リストを開いたときに、そのリストの分だけ。
 //   Bales のリードは取り込んだ行（ホットの判定・SF のリード）、DOC のリードは kincall の行（ソース・業種・最後にかけた日時）も読む
-export async function refreshSeg(listId) {
+export async function refreshSeg(listId, { budgetMs = 0 } = {}) {
   // 1つのリストでも、いくつかのリストでも（SHOBO のほかのリストから持ってくるとき）
   const ids = (Array.isArray(listId) ? listId : [listId]).map((x) => parseInt(x, 10)).filter((x) => x > 0);
   if (!ids.length) return 0;
-  let n = 0;
+  let n = 0; const t0 = Date.now();
   for (let round = 0; round < 80; round++) {
+    // リード管理の画面（全リスト）は、BALES から移した2万件を一度に計算すると開くまで待たされるので、時間で区切って残りは次に回す
+    if (budgetMs && round > 0 && Date.now() - t0 > budgetMs) break;
+    // DOC の行との結びつけは CASE の中で数字にする。AND で並べるだけだと、Postgres が先に「k1|r1」のような BALES の鍵まで
+    // 数字にしようとして全体が失敗することがある（実行計画しだい。2026-11-20 全リストを数えるリード管理で見つけた）
     const rows = (await P().query(`SELECT c.id, c.src, c.company, c.phone, c.person, c.data, c.hearing,
         b.hot_d, b.sf->'lead' AS sf_lead, b.data AS b_data,
         t.source AS t_source, t.industry AS t_industry, t.status AS t_status, t.extra AS t_extra,
         (SELECT max(l.at) FROM call_logs l WHERE c.src='doc' AND l.target_id = t.id) AS t_last
       FROM mc_call_leads c
       LEFT JOIN mochica_bales_rows b ON c.src='bales' AND b.list_key = regexp_replace(c.src_key, '[|][^|]*$', '') AND b.row_key = regexp_replace(c.src_key, '^.*[|]', '')
-      LEFT JOIN call_targets t ON c.src='doc' AND c.src_key ~ '^[0-9]+$' AND t.id = c.src_key::int
+      LEFT JOIN call_targets t ON c.src='doc' AND t.id = (CASE WHEN c.src_key ~ '^[0-9]+$' THEN c.src_key::int END)
       WHERE c.list_id = ANY($1::int[]) AND (c.seg IS NULL OR COALESCE((c.seg->>'v')::int,0) < $2) ORDER BY c.id LIMIT 1000`, [ids, SEG_V])).rows;
     if (!rows.length) break;
     // Bales のリードは中身を mc_call_leads に持たず、取り込んだ行（mochica_bales_rows）を読む（架電画面と同じ）
@@ -724,6 +728,214 @@ export function registerMcCall(app, deps) {
     const x = await P().query(`UPDATE mc_call_leads c SET list_id=$2, assigned_to=NULL, locked_by=NULL, locked_at=NULL
       WHERE c.list_id=$1 AND c.id = ANY($3) AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id=$2 AND d.src=c.src AND d.src_key=c.src_key)`, [id, to, ids]);
     res.json({ ok: true, moved: x.rowCount, skipped: ids.length - x.rowCount });
+  }));
+
+  // ---- リード管理（2026-11-20 福井さん「リードの種類がそれぞれ今何件あって、誰にどれだけ割り振っているのか分からない。kincall 準拠で」） ----
+  //   kincall のリスト管理の「ソース」タブ（ソースごとの件数・担当別・アポ率・メンバーに配る）と「リスト」タブ（人ごとの残り）を MOCHICALL の形にしたもの。
+  //   種類＝取り込み元（SF・BALES・SHOBO（CSV）・DOC）× リードソース。式は「条件で割り振る」（SEG_DIMS）と同じものを使う（画面ごとに数が食い違わないように）。
+  //   数えるのは閉じていないリストの、終わっていない・重複で止めていないリード。保管のリストはだれの「かける」にも出ないので「保管」として別に数える。
+  const T_ORIGIN = SEG_DIMS.origin.sql, T_SOURCE = SEG_DIMS.source.sql;
+  // 画面から来た「どの種類か」→ WHERE。"all"／"o:取り込み元"／"s:取り込み元|リードソース" のどれか（いくつでも。どれかに当てはまるもの）。
+  //   取り込み元には「|」が入らないので、最初の「|」で分ける（リードソースの側に「|」があっても崩れない）。
+  //   全部を対象にするのは "all" をはっきり送ったときだけ。空や読めない指定は「どれにも当てはまらない」にする（うっかり全件を配らないため）
+  function scopeWhere(keys, p) {
+    const ks = (Array.isArray(keys) ? keys : [keys]).map((k) => String(k || "").slice(0, 200)).filter(Boolean).slice(0, 100);
+    if (ks.includes("all")) return "true";
+    const ors = [];
+    for (const k of ks) {
+      if (k.startsWith("o:")) { p.push(k.slice(2)); ors.push(`(${T_ORIGIN}) = $${p.length}`); }
+      else if (k.startsWith("s:")) { const i = k.indexOf("|"); if (i < 0) continue; p.push(k.slice(2, i)); const a = p.length; p.push(k.slice(i + 1)); ors.push(`((${T_ORIGIN}) = $${a} AND (${T_SOURCE}) = $${p.length})`); }
+    }
+    return ors.length ? `(${ors.join(" OR ")})` : "false";
+  }
+  // 種類の計算（seg）が終わっていないリードを、画面を待たせない範囲で埋める。残りは裏で続ける（同時に2つは走らせない）
+  let segFilling = null;
+  async function fillSeg(ids) {
+    await refreshSeg(ids, { budgetMs: 8000 });
+    const pend = +(await P().query(`SELECT count(*) FROM mc_call_leads c WHERE c.list_id = ANY($1) AND NOT c.done AND c.dup_of IS NULL AND (c.seg IS NULL OR COALESCE((c.seg->>'v')::int,0) < $2)`, [ids, SEG_V])).rows[0].count;
+    if (pend && !segFilling) segFilling = refreshSeg(ids).catch((e) => console.error("[mccall] 種類の計算を続けられませんでした", e.message)).finally(() => { segFilling = null; });
+    return pend;
+  }
+  app.get("/api/mccall/sources", adminOnly(async (req, res) => {
+    const lists = (await P().query(`SELECT id, name, stock, members FROM mc_call_lists WHERE biz=$1 AND NOT closed ORDER BY stock, created_at DESC`, [BIZ])).rows;
+    const ids = lists.map((l) => l.id);
+    const pending = ids.length ? await fillSeg(ids) : 0;
+    const rows = ids.length ? (await P().query(`SELECT ${T_ORIGIN} AS origin, ${T_SOURCE} AS source, c.list_id, lower(COALESCE(c.assigned_to,'')) AS who,
+        count(*) AS n,
+        count(*) FILTER (WHERE ${LAST_TS} IS NULL) AS untouched,
+        count(*) FILTER (WHERE c.next_at IS NULL OR c.next_at <= now()) AS nowc,
+        count(*) FILTER (WHERE COALESCE(c.hot,0) >= 3) AS hot3, count(*) FILTER (WHERE COALESCE(c.hot,0) = 2) AS hot2,
+        count(*) FILTER (WHERE c.locked_by IS NULL OR c.locked_at < now() - interval '10 minutes') AS unlocked
+      FROM mc_call_leads c WHERE c.list_id = ANY($1) AND NOT c.done AND c.dup_of IS NULL GROUP BY 1, 2, 3, 4`, [ids])).rows : [];
+    const lmap = new Map(lists.map((l) => [l.id, l]));
+    const blank = () => ({ n: 0, stock: 0, untouched: 0, free: 0, dist: 0, now: 0, hot: [0, 0, 0], by: {} });
+    // n・未架電・今かける・温度・担当別は「かける対象のリスト」の分だけ。保管は stock に件数だけ（配るときは入れるリストを選んで移す）
+    const addTo = (o, r, st) => {
+      const n = +r.n;
+      if (st) { o.stock += n; return; }
+      o.n += n; o.untouched += +r.untouched; o.now += +r.nowc;
+      o.hot[0] += +r.hot3; o.hot[1] += +r.hot2; o.hot[2] += n - +r.hot3 - +r.hot2;
+      if (!r.who) { o.free += n; o.dist += +r.unlocked; }
+      o.by[r.who] = (o.by[r.who] || 0) + n;
+    };
+    const all = { key: "all", ...blank() }; const origins = new Map(), types = new Map(), tl = new Map(), members = new Map();
+    for (const r of rows) {
+      const l = lmap.get(r.list_id); if (!l) continue; const st = !!l.stock; const k = `${r.origin}|${r.source}`;
+      if (!types.has(k)) types.set(k, { key: k, origin: r.origin, source: r.source, ...blank() });
+      if (!origins.has(r.origin)) origins.set(r.origin, { key: r.origin, ...blank() });
+      addTo(types.get(k), r, st); addTo(origins.get(r.origin), r, st); addTo(all, r, st);
+      // 種類 × リスト（保管のリストも。dist は未割り当てで、いま開かれていないもの）
+      const lk = `${k}#${l.id}`;
+      if (!tl.has(lk)) tl.set(lk, { type: k, id: l.id, name: l.name, stock: st, n: 0, untouched: 0, dist: 0, by: {} });
+      const x = tl.get(lk); x.n += +r.n; x.untouched += +r.untouched; if (!r.who) x.dist += +r.unlocked; x.by[r.who] = (x.by[r.who] || 0) + +r.n;
+      if (!r.who) continue;
+      // 人ごと。保管のリストの担当と、リストのメンバーに入っていない人の担当は、その人の「かける」に出ないので別に数えて知らせる
+      if (!members.has(r.who)) members.set(r.who, { email: r.who, n: 0, now: 0, untouched: 0, stock: 0, hidden: 0, byType: {} });
+      const m = members.get(r.who);
+      if (st) { m.stock += +r.n; continue; }
+      m.n += +r.n; m.now += +r.nowc; m.untouched += +r.untouched; m.byType[k] = (m.byType[k] || 0) + +r.n;
+      const mem = (l.members || []).map((e) => String(e).toLowerCase());
+      if (mem.length && !mem.includes(r.who)) m.hidden += +r.n;
+    }
+    // アポ率（直近3か月。MOCHICALL で記録した架電だけ）：種類・取り込み元・全体ごとに、人ごと・月ごとも。リストごとは「種類#リスト」
+    const nowJ = new Date(Date.now() + 9 * 3600e3);
+    const months = [2, 1, 0].map((k) => { const d = new Date(Date.UTC(nowJ.getUTCFullYear(), nowJ.getUTCMonth() - k, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`; });
+    const since = new Date(Date.UTC(+months[0].slice(0, 4), +months[0].slice(5) - 1, 1) - 9 * 3600e3);
+    const lr = (await P().query(`SELECT ${T_ORIGIN} AS origin, ${T_SOURCE} AS source, g.list_id, lower(COALESCE(g.caller,'')) AS caller,
+        to_char(g.created_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM') AS ym, count(*) AS calls, count(*) FILTER (WHERE g.outcome='apo') AS apos
+      FROM mc_call_logs g JOIN mc_call_leads c ON c.id = g.lead_id
+      WHERE NOT g.undone AND g.biz=$1 AND g.created_at >= $2 GROUP BY 1, 2, 3, 4, 5`, [BIZ, since])).rows;
+    const mk = () => ({ calls: 0, apos: 0, m: {}, mem: {} });
+    const add = (o, r) => {
+      const c = +r.calls, a = +r.apos; o.calls += c; o.apos += a;
+      const x = o.m[r.ym] || (o.m[r.ym] = { calls: 0, apos: 0 }); x.calls += c; x.apos += a;
+      if (r.caller) { const y = o.mem[r.caller] || (o.mem[r.caller] = { calls: 0, apos: 0 }); y.calls += c; y.apos += a; }
+    };
+    const R = { months, byType: {}, byOrigin: {}, all: mk(), byList: {} };
+    for (const r of lr) {
+      const k = `${r.origin}|${r.source}`;
+      add(R.byType[k] || (R.byType[k] = mk()), r); add(R.byOrigin[r.origin] || (R.byOrigin[r.origin] = mk()), r); add(R.all, r);
+      const b = R.byList[`${k}#${r.list_id}`] || (R.byList[`${k}#${r.list_id}`] = { calls: 0, apos: 0 }); b.calls += +r.calls; b.apos += +r.apos;
+    }
+    const names = await nameMap(); const nm = {};
+    for (const e of new Set([...members.keys(), ...lr.map((r) => r.caller)])) if (e) nm[e] = names.get(e) || e;
+    const ORD = SEG_DIMS.origin.order; const oi = (k) => { const i = ORD.indexOf(k); return i < 0 ? 99 : i; };
+    res.json({ ok: true, pending, all, names: nm, rates: R,
+      origins: [...origins.values()].sort((a, b) => oi(a.key) - oi(b.key)),
+      types: [...types.values()].sort((a, b) => (b.n + b.stock) - (a.n + a.stock)),
+      typeLists: [...tl.values()].sort((a, b) => b.n - a.n),
+      members: [...members.values()].sort((a, b) => b.n - a.n),
+      lists: lists.map((l) => ({ id: l.id, name: l.name, stock: !!l.stock, members: (l.members || []).map((e) => String(e).toLowerCase()) })) });
+  }));
+  // 種類から配る・足す（kincall の「ソースからメンバーに配る」と同じ考え方。先に dryRun で配分を見せてから配る）。
+  //   from：'' は未割り当てのもの、メールならその人の担当分。n 件まで。
+  //   mode：equal（均等）／rate（この種類での直近60日のアポ率に応じて。20コール未満の人は平均扱い・アポ率0でも平均の3割は配る＝kincall と同じ重み）。
+  //   toList なし：かける対象のリスト（保管でない）のリードの担当を書き換えるだけ（リストは動かさない＝kincall と同じ）。
+  //   toList あり：pool='stock'（既定）は保管のリストから、pool='any' は保管も含むほかのリストの未割り当てから、そのリストへ移して担当を付ける。
+  //     だれも選ばなければ担当なしで移す（「リードを足す」から種類を選んで足すとき）。
+  //   リストにメンバーが決まっているときは、その外の人には配らない（配ってもその人の「かける」に出ないため。配れなかった分は試算で見せる）。
+  //   いま架電中（10分以内に開いた）のリードは動かさない。並びは ホット → 最後にかけた日が古い順（条件で割り振る と同じ）
+  app.post("/api/mccall/sources/distribute", adminOnly(async (req, res) => {
+    const b = req.body || {};
+    const members = [...new Set((Array.isArray(b.members) ? b.members : []).map((x) => String(x).toLowerCase().trim()).filter(Boolean))].slice(0, 100);
+    const n = Math.max(0, Math.min(5000, parseInt(b.n, 10) || 0));
+    const mode = b.mode === "rate" ? "rate" : "equal";
+    const from = String(b.from || "").toLowerCase().trim();
+    const toList = parseInt(b.toList, 10) || 0, onlyList = parseInt(b.list, 10) || 0;
+    if (!n) return res.status(400).json({ error: "配る件数を入れてください" });
+    if (!toList && !members.length) return res.status(400).json({ error: "配る人を選んでください" });
+    const lists = (await P().query(`SELECT id, name, stock, members FROM mc_call_lists WHERE biz=$1 AND NOT closed`, [BIZ])).rows;
+    const lmap = new Map(lists.map((l) => [l.id, l]));
+    const dest = toList ? lmap.get(toList) : null;
+    if (toList && !dest) return res.status(400).json({ error: "入れるリストが見つからないか、閉じています" });
+    if (dest && dest.stock) return res.status(400).json({ error: "保管のリストには入れられません。かける対象のリストを選んでください" });
+    let src = lists.filter((l) => (toList ? l.id !== toList && (from || b.pool === "any" || l.stock) : !l.stock)).map((l) => l.id);
+    if (onlyList) src = src.filter((x) => x === onlyList);
+    if (!src.length) return res.status(400).json({ error: toList ? "持ってくる元のリストがありません（保管のリストが無いときは「ほかのリストの未割り当て」を選んでください）" : "配れるリードのあるリストがありません" });
+    await refreshSeg(src, { budgetMs: 8000 });
+    const p = [src];
+    const w = ["c.list_id = ANY($1::int[])", "NOT c.done", "c.dup_of IS NULL", "(c.locked_by IS NULL OR c.locked_at < now() - interval '10 minutes')", scopeWhere(b.keys, p)];
+    if (from) { p.push(from); w.push(`lower(COALESCE(c.assigned_to,'')) = $${p.length}`); } else w.push("c.assigned_to IS NULL");
+    if (toList) { p.push(toList); w.push(`NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id=$${p.length} AND d.src=c.src AND d.src_key=c.src_key)`); }
+    const where = w.join(" AND ");
+    const available = +(await P().query(`SELECT count(*) FROM mc_call_leads c WHERE ${where}`, p)).rows[0].count;
+    // 候補は多めに読む（リストのメンバーの決まりで配れない人がいると、先頭の n 件だけでは足りないため）
+    const cp = [...p, Math.min(20000, n * 4 + 200)];
+    const raw = (await P().query(`SELECT c.id, c.list_id, c.src, c.src_key FROM mc_call_leads c WHERE ${where}
+      ORDER BY COALESCE(c.hot,0) DESC, ${LAST_TS} NULLS FIRST, c.id LIMIT $${cp.length}`, cp)).rows;
+    // 移すときは、同じ元（src・src_key）のリードを2件同じリストへ入れない（入れると表の決まりで全部が失敗する）
+    const seen = new Set(); const cands = toList ? raw.filter((c) => { const k = `${c.src}|${c.src_key}`; if (seen.has(k)) return false; seen.add(k); return true; }) : raw;
+    // この種類での人ごとのアポ率（直近60日）
+    const rp = [BIZ, members.length ? members : ["-"]];
+    const rs = (await P().query(`SELECT lower(g.caller) AS caller, count(*) AS calls, count(*) FILTER (WHERE g.outcome='apo') AS apos
+      FROM mc_call_logs g JOIN mc_call_leads c ON c.id = g.lead_id
+      WHERE NOT g.undone AND g.biz=$1 AND lower(g.caller) = ANY($2::text[]) AND g.created_at > now() - interval '60 days' AND ${scopeWhere(b.keys, rp)} GROUP BY 1`, rp)).rows;
+    const rates = Object.fromEntries(rs.map((r) => [r.caller, { calls: +r.calls, apos: +r.apos, rate: +r.calls ? +r.apos / +r.calls : 0 }]));
+    let weights = members.map(() => 1);
+    if (mode === "rate") {
+      const rv = members.map((e) => (rates[e] && rates[e].calls >= 20 ? rates[e].rate : null));
+      const known = rv.filter((x) => x != null); const avg = known.length ? known.reduce((a, x) => a + x, 0) / known.length : 0;
+      weights = rv.map((x) => Math.max(avg * 0.3, x == null ? avg : x) || 1);
+    }
+    const total = Math.min(n, cands.length);
+    const sumW = weights.reduce((a, x) => a + x, 0) || 1;
+    const quota = weights.map((x) => Math.floor((total * x) / sumW));
+    let rest = total - quota.reduce((a, x) => a + x, 0);
+    const order = weights.map((x, i) => [x, i]).sort((a, c) => c[0] - a[0]).map((x) => x[1]);
+    for (let k = 0; rest > 0 && order.length; k++, rest--) quota[order[k % order.length]]++;
+    const okFor = (c, e) => { const l = lmap.get(toList || c.list_id); const mem = ((l && l.members) || []).map((x) => String(x).toLowerCase()); return !mem.length || mem.includes(e); };
+    const got = members.map(() => []); const none = [];
+    const left = (i) => quota[i] - got[i].length;
+    if (members.length) {
+      // 残りの枠の割合がいちばん大きい人へ1件ずつ（同じなら順番に）。ホットが1人に偏らず、メンバー外のリストのリードは配れる人へ回る
+      let rr = 0; const wait = [];
+      for (const c of cands) {
+        if (members.every((_, i) => left(i) <= 0)) break;
+        let best = -1, bestR = -1;
+        for (let j = 0; j < members.length; j++) {
+          const i = (rr + j) % members.length;
+          if (left(i) <= 0 || !okFor(c, members[i])) continue;
+          const ratio = left(i) / (quota[i] || 1); if (ratio > bestR) { best = i; bestR = ratio; }
+        }
+        if (best < 0) { if (wait.length < 500 && members.some((e) => okFor(c, e))) wait.push(c); continue; }
+        got[best].push(c); rr = (best + 1) % members.length;
+      }
+      // 入れ替え：枠がいっぱいの人しか受け取れないリード（メンバー限定のリスト）があり、ほかの人の枠が残っているときは、
+      //   いっぱいの人が持っている「だれでも受け取れるリード」を枠の残っている人へ回し、空いたところに入れる（配り残しを減らす）
+      for (const c of wait) {
+        const free = members.map((_, i) => i).filter((i) => left(i) > 0); if (!free.length) break;
+        let moved = false;
+        for (let i = 0; i < members.length && !moved; i++) {
+          if (!okFor(c, members[i])) continue;
+          for (const j of free) {
+            const k = got[i].findIndex((x) => okFor(x, members[j])); if (k < 0) continue;
+            got[j].push(got[i].splice(k, 1)[0]); got[i].push(c); moved = true; break;
+          }
+        }
+      }
+    } else for (const c of cands.slice(0, total)) none.push(c.id);
+    const names = await nameMap();
+    for (let i = 0; i < got.length; i++) got[i] = got[i].map((c) => c.id);
+    const plan = members.map((e, i) => ({ email: e, name: names.get(e) || e, n: got[i].length, want: quota[i],
+      rate: rates[e] ? Math.round(rates[e].rate * 1000) / 10 : null, calls: rates[e] ? rates[e].calls : 0, apos: rates[e] ? rates[e].apos : 0 }));
+    const assigned = plan.reduce((a, x) => a + x.n, 0) + none.length;
+    if (b.dryRun) return res.json({ ok: true, dryRun: true, available, total: assigned, plan, unassigned: none.length, toList: dest ? dest.name : "" });
+    if (!assigned) return res.status(400).json({ error: "配れるリードがありません。種類・どこから・入れるリストを見直してください" });
+    // 試算のあとに、ほかの人が開いた・配ったリードは動かさない（同じ条件をもう一度付けて書き換える）
+    const upd = async (ids, who) => {
+      if (!ids.length) return 0;
+      // 元のリスト（保管に移された・閉じたリストのものは外す）と種類も、もう一度確かめる
+      const q = [ids, who, from, src]; let set = "assigned_to=$2"; let more = ` AND c.list_id = ANY($4::int[]) AND ${scopeWhere(b.keys, q)}`;
+      if (toList) { q.push(toList); const t = q.length; set += `, list_id=$${t}, locked_by=NULL, locked_at=NULL`; more += ` AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id=$${t} AND d.src=c.src AND d.src_key=c.src_key)`; }
+      const x = await P().query(`UPDATE mc_call_leads c SET ${set} WHERE c.id = ANY($1::int[]) AND NOT c.done AND c.dup_of IS NULL AND lower(COALESCE(c.assigned_to,'')) = $3
+        AND (c.locked_by IS NULL OR c.locked_at < now() - interval '10 minutes')${more}`, q);
+      return x.rowCount;
+    };
+    let done = 0;
+    for (let i = 0; i < members.length; i++) { plan[i].done = await upd(got[i], members[i]); done += plan[i].done; }
+    const loose = await upd(none, null); done += loose;
+    console.log(`[mccall] 種類から配る：${done}件（${mode === "rate" ? "アポ率" : "均等"}・元：${from || (toList ? (b.pool === "any" ? "ほかのリストの未割り当て" : "保管") : "未割り当て")}${dest ? `・入れるリスト「${dest.name}」` : ""}）種類=${JSON.stringify(b.keys || []).slice(0, 200)} → ${[...plan.map((x) => `${x.name}${x.done}`), loose ? `担当なし${loose}` : ""].filter(Boolean).join("・")} by ${me(req)}`);
+    res.json({ ok: true, done, plan, unassigned: loose, available, toList: dest ? dest.name : "" });
   }));
 
   // Bales のリストから写す（同じリードがほかの開いている MOCHICA のリストにあれば入れない＝二重にかけない）

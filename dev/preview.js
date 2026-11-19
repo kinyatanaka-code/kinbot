@@ -671,6 +671,36 @@ function apiResponse(pathname, query) {
   return {};
 }
 
+// リード管理（/api/mccall/sources）のダミー：種類×リスト×担当の行から、サーバーと同じ形に組み立てる
+function mcSourcesMock() {
+  const E = "eda@neo-career.co.jp", M = "morita@neo-career.co.jp", T = "tanaka@neo-career.co.jp";
+  const lists = [{ id: 1, name: "11月 ホット企業", stock: false, members: [] }, { id: 2, name: "DOC 失注から MOCHICA 提案", stock: false, members: [E] },
+    { id: 7, name: "BALES：すべてのリード", stock: true, members: [] }, { id: 8, name: "BALES：展示会 2026", stock: true, members: [] }];
+  // [取り込み元, リードソース, リスト, 担当, 件数, 未架電]
+  const R = [["BALES", "BPOアウトバウンド", 1, E, 120, 40], ["BALES", "BPOアウトバウンド", 1, M, 95, 31], ["BALES", "BPOアウトバウンド", 1, "", 210, 150], ["BALES", "BPOアウトバウンド", 7, "", 8200, 6100],
+    ["BALES", "展示会", 1, E, 30, 12], ["BALES", "展示会", 8, "", 1460, 1300], ["BALES", "新卒リスト", 1, "", 64, 64], ["BALES", "新卒リスト", 7, "", 5300, 5000],
+    ["SF", "失注リサイクル", 1, M, 80, 10], ["SF", "失注リサイクル", 1, "", 140, 90], ["SF", "Web問い合わせ", 1, T, 12, 2], ["SF", "SF（ソースなし）", 1, "", 33, 33],
+    ["SHOBO（CSV）", "CSV 取り込み", 1, "", 48, 48], ["DOC", "DOC過去失注", 2, E, 40, 40], ["BALES", "Bales（ソースなし）", 7, "", 2100, 2000]];
+  const blank = () => ({ n: 0, stock: 0, untouched: 0, free: 0, dist: 0, now: 0, hot: [0, 0, 0], by: {} });
+  const add = (o, r, st) => { const [, , , who, n, u] = r; if (st) { o.stock += n; return; } o.n += n; o.untouched += u; o.now += Math.round(n * 0.8);
+    o.hot[0] += Math.round(n * 0.1); o.hot[1] += Math.round(n * 0.3); o.hot[2] += n - Math.round(n * 0.1) - Math.round(n * 0.3); if (!who) { o.free += n; o.dist += n; } o.by[who] = (o.by[who] || 0) + n; };
+  const all = { key: "all", ...blank() }, og = new Map(), ty = new Map(), tl = [], mem = new Map();
+  for (const r of R) {
+    const [o, s, lid, who, n, u] = r; const l = lists.find((x) => x.id === lid); const k = `${o}|${s}`;
+    if (!ty.has(k)) ty.set(k, { key: k, origin: o, source: s, ...blank() }); if (!og.has(o)) og.set(o, { key: o, ...blank() });
+    add(ty.get(k), r, l.stock); add(og.get(o), r, l.stock); add(all, r, l.stock);
+    tl.push({ type: k, id: lid, name: l.name, stock: l.stock, n, untouched: u, dist: who ? 0 : n, by: { [who]: n } });
+    if (who && !l.stock) { const m = mem.get(who) || { email: who, n: 0, now: 0, untouched: 0, stock: 0, hidden: who === T ? 12 : 0, byType: {} }; m.n += n; m.now += Math.round(n * 0.8); m.untouched += u; m.byType[k] = (m.byType[k] || 0) + n; mem.set(who, m); }
+  }
+  const rt = (c, a, mm) => ({ calls: c, apos: a, m: { "2026-09": { calls: Math.round(c * 0.3), apos: Math.round(a * 0.2) }, "2026-10": { calls: Math.round(c * 0.4), apos: Math.round(a * 0.4) }, "2026-11": { calls: Math.round(c * 0.3), apos: Math.round(a * 0.4) } }, mem: mm || {} });
+  const memR = { [E]: { calls: 220, apos: 4 }, [M]: { calls: 180, apos: 1 }, [T]: { calls: 30, apos: 0 } };
+  return { ok: true, pending: 0, all, names: { [E]: "江田 直人", [M]: "森田 彩", [T]: "田中 遼" },
+    origins: ["SF", "BALES", "SHOBO（CSV）", "DOC"].map((k) => og.get(k)), types: [...ty.values()].sort((a, b) => b.n + b.stock - a.n - a.stock), typeLists: tl, members: [...mem.values()], lists,
+    rates: { months: ["2026-09", "2026-10", "2026-11"], all: rt(430, 5, memR), byOrigin: { BALES: rt(300, 4, memR), SF: rt(110, 1, memR), DOC: rt(20, 0) },
+      byType: { "BALES|BPOアウトバウンド": rt(260, 4, memR), "SF|失注リサイクル": rt(100, 1, { [M]: { calls: 100, apos: 1 } }), "BALES|展示会": rt(40, 0, { [E]: { calls: 40, apos: 0 } }) },
+      byList: { "BALES|BPOアウトバウンド#1": { calls: 260, apos: 4 } } } };
+}
+
 const MC_REACH = {
   none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "番号が使えない" } },
   gate: { label: "受付まで", outcomes: { absent: "担当者が不在", blocked: "受付で断られた", callback_req: "掛け直しを指定された" } },
@@ -709,6 +739,10 @@ function mccallMock(p) {
         lastResult: { label: "前回の結果", items: it([["未架電", 40], ["担当者不在", 30], ["担当者接触：お断り", 18], ["応答なし", 10]]) },
         hot: { label: "ホット度", items: it([["ホット", 8], ["ウォーム", 30], ["コールド", 60]]) },
         lost: { label: "過去失注（SF の失注理由）", items: it([["失注なし", 80], ["他社決定", 10], ["時期", 8]]) } } }; }
+  // リード管理の見た目確認用（2026-11-20）
+  if (p === "/api/mccall/sources") return mcSourcesMock();
+  if (p === "/api/mccall/sources/distribute") return { ok: true, dryRun: true, available: 812, total: 200, unassigned: 0, toList: "",
+    plan: [{ email: "eda@neo-career.co.jp", name: "江田 直人", n: 100, want: 100, rate: 1.8, calls: 220, apos: 4 }, { email: "morita@neo-career.co.jp", name: "森田 彩", n: 70, want: 100, rate: null, calls: 0, apos: 0 }] };
   if (/^\/api\/mccall\/lists\/\d+\/assign$/.test(p)) return { ok: true, dryRun: true, matched: 98, assigned: 40, per: [{ name: "江田 直人", n: 20 }, { name: "森田 彩", n: 20 }] };
   let m = p.match(/^\/api\/mccall\/leads\/(\d+)$/);
   if (m) {
