@@ -61,7 +61,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   })();
   return true;
 });
-// MiiTel の会議のページを裏で1件ずつ開いて、文字起こし・議事録を読ませる（kinbot for MOCHICA の「MiiTel から読む」）（2026-11-12）
+// MiiTel の会議のページを裏で1件ずつ開いて、文字起こし・議事録を読ませる（SHOBO の「MiiTel から読む」）（2026-11-12）
 let kbMtCrawling = false;
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!msg || msg.type !== "kb-miitel-crawl") return;

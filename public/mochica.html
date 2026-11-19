@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>kinbot for MOCHICA</title>
+<title>SHOBO</title>
 <link rel="icon" href="/icon-mochica.svg" type="image/svg+xml" />
 <meta name="theme-color" content="#0E9AA7" />
 <link rel="icon" href="/favicon-mochica-32.png" sizes="32x32" type="image/png" />
@@ -11,8 +11,7 @@
 <link rel="stylesheet" href="/style.css?v=20261116d" />
 <link rel="stylesheet" href="/mccall.css?v=20261119a" />
 <style>
-  .mc-for{display:inline;font-size:12px;font-weight:800;color:#5EEAD4;letter-spacing:.02em;margin-left:5px;white-space:nowrap;}
-  .side-brand .brand-mark{background-image:url("/kinbot-mochica.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
+  .side-brand .brand-mark{background-image:url("/shobo.svg") !important;filter:drop-shadow(0 2px 6px rgba(94,234,212,.4)) !important;}
   .side-brand > span:last-child{white-space:nowrap;}
   .sidebar .side-item[data-go],.sidebar .side-set{cursor:pointer;}
   .mc-sw{display:flex;border:1px solid var(--line,#DCE7E1);border-radius:10px;overflow:hidden;background:#fff;margin-left:auto;}
@@ -34,7 +33,7 @@
   .mc-btn{height:36px;border:0;border-radius:10px;background:#0d5b47;color:#fff;font:inherit;font-size:13px;font-weight:800;padding:0 16px;cursor:pointer;}
   [data-pane][hidden]{display:none;}
 
-  /* kinbot for MOCHICA：基本の色を水色に（2026-11-12 田中さん） */
+  /* SHOBO：基本の色を水色に（2026-11-12 田中さん） */
   :root{--accent:#0E9AA7 !important;--accent-soft:#DDF5F7 !important;--bg:#F2F9FA !important;--panel-2:#F2FAFB !important;--line:#D9ECEE !important;--ink:#12292C !important;--muted:#5C7377 !important;}
   .sidebar{background:linear-gradient(180deg,#0F3D44 0%,#082429 100%) !important;}
   .sidebar .side-item{color:#A8E8EE !important;} .sidebar .side-item:hover{background:rgba(94,234,212,.10) !important;color:#fff !important;}
@@ -196,11 +195,11 @@
 <body>
 <div class="app">
   <nav class="sidebar">
-    <div class="side-brand"><span class="brand-mark"></span><span>kinbot<small class="mc-for">for MOCHICA</small></span></div>
+    <div class="side-brand"><span class="brand-mark"></span><span>SHOBO</span></div>
     <!-- ホームは一旦しまう（2026-11-15 田中さん「ホームは一旦消して」）。開いたときは商談から -->
     <a class="side-item active" data-go="mtg"><span class="side-ico ico-rec"></span><span class="side-label">商談（MiiTel）</span></a>
     <a class="side-item" data-go="list"><span class="side-ico ico-assign"></span><span class="side-label">リスト（Bales Cloud）</span></a>
-    <a class="side-item" data-go="call"><span class="side-ico ico-phone"></span><span class="side-label">架電</span></a>
+    <a class="side-item" data-go="call"><span class="side-ico ico-phone"></span><span class="side-label">MOCHICALL</span></a>
     <a class="side-item" data-go="apo"><span class="side-ico ico-apo"></span><span class="side-label">アポイント</span></a>
     <!-- ダッシュボード：商談プロセスの計画と実績のずれ。開くたびに SF・Zoom Phone・シフト表を読む（2026-11-17 福井） -->
     <a class="side-item" data-go="dash"><span class="side-ico ico-ana"></span><span class="side-label">ダッシュボード</span></a>
@@ -210,7 +209,7 @@
   </nav>
   <div class="main">
     <header class="topbar">
-      <div class="brand"><img class="topbar-bot" src="/kinbot-mochica.svg" alt="" /><span class="brand-name" id="mcTitle">ホーム</span></div>
+      <div class="brand"><img class="topbar-bot" src="/shobo.svg" alt="" /><span class="brand-name" id="mcTitle">ホーム</span></div>
       <!-- 「準備中」は リスト・アポイント だけに出す（2026-11-16 田中さん「商談の準備中は外して」・2026-11-17 架電も外した）。出し分けは mochica.js の go() -->
       <span id="mcWip" hidden style="font-size:12px;font-weight:800;color:#0B6E78;background:#DDF5F7;border-radius:99px;padding:3px 10px;">準備中</span>
       <div class="mc-head-r" id="mcHeadR" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px"><!-- 探す欄はヘッダーに（2026-11-14 田中さん） --><label class="mt-find"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><input id="mtQ" class="mt-q" type="search" name="mc-mt-find" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="会社・会議名・担当で探す" /></label><span id="mtAutoSt" class="mc-note" style="margin:0;font-size:12px"></span><div class="mt-diag-w"><button type="button" class="mt-btn ghost" id="mtDiagBtn" aria-expanded="false">拡張機能の様子 ▾</button><div class="mt-diag-pop" id="mtDiagPop" hidden><div id="mtDiagBody" style="line-height:1.6;word-break:break-all">—</div></div></div><button type="button" id="mtRead" class="mt-btn">MiiTel から今すぐ読む</button></div>

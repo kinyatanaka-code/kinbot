@@ -1834,7 +1834,7 @@ export async function driveUploadBuffer(owner, { name, mimeType = "application/p
 }
 
 // 大きなファイル（録画など）を、手元のファイルから少しずつ Google ドライブへ（再開できるアップロード）（2026-11-12 MOCHICA の MiiTel の録画）
-export async function driveUploadFile(owner, { path: fpath, name, mimeType = "video/mp2t", folderName = "kinbot for MOCHICA 録画" }) {
+export async function driveUploadFile(owner, { path: fpath, name, mimeType = "video/mp2t", folderName = "SHOBO 録画" }) {
   const fs = await import("fs");
   const token = await driveAccessToken(owner);
   if (!token) throw new Error("Googleが連携されていません");
@@ -1844,6 +1844,17 @@ export async function driveUploadFile(owner, { path: fpath, name, mimeType = "vi
     const q = `name='${String(folderName).replace(/'/g, "")}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
     const r = await fetch(`https://www.googleapis.com/drive/v3/files?${new URLSearchParams({ q, fields: "files(id)", spaces: "drive" })}`, { headers: H });
     const d = await r.json().catch(() => ({})); folderId = (d.files && d.files[0] && d.files[0].id) || "";
+    // 正式名称を SHOBO に変えた（2026-11-19 福井さん）。前の名前「kinbot for MOCHICA 録画」のフォルダがあれば、
+    // 新しく作らずにそのフォルダの名前を変えて使う（録画が2つのフォルダに分かれないように）。
+    if (!folderId && folderName === "SHOBO 録画") {
+      const oq = `name='kinbot for MOCHICA 録画' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+      const or = await fetch(`https://www.googleapis.com/drive/v3/files?${new URLSearchParams({ q: oq, fields: "files(id)", spaces: "drive" })}`, { headers: H });
+      const od = await or.json().catch(() => ({})); const oldId = (od.files && od.files[0] && od.files[0].id) || "";
+      if (oldId) {
+        const rn = await fetch(`https://www.googleapis.com/drive/v3/files/${oldId}?fields=id`, { method: "PATCH", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ name: folderName }) });
+        if (rn.ok) folderId = oldId; else console.warn("[drive] 録画フォルダの名前を SHOBO 録画 に変えられませんでした", rn.status);
+      }
+    }
     if (!folderId) { const mk = await fetch("https://www.googleapis.com/drive/v3/files?fields=id", { method: "POST", headers: { ...H, "content-type": "application/json" }, body: JSON.stringify({ name: folderName, mimeType: "application/vnd.google-apps.folder" }) }); const md = await mk.json().catch(() => ({})); folderId = md.id || ""; }
   } catch {}
   const size = fs.statSync(fpath).size;

@@ -1,4 +1,4 @@
-// kinbot for MOCHICA の架電（テレアポ）（2026-11-16 新しく作成。kincall の複製ではない）
+// SHOBO の架電（テレアポ）（2026-11-16 新しく作成。kincall の複製ではない）
 //
 // なぜ別に作ったか：
 //   DOC の kincall の表（call_lists / call_targets / call_logs）は、SF 監査・コール進捗の通知・デイリー目標・
@@ -79,7 +79,7 @@ async function ensure() {
     await q(`CREATE TABLE IF NOT EXISTS mc_doc_sends (
       id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT, url TEXT, doc_name TEXT,
       sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
-    // BALES CLOUD でできたことを架電画面でも（2026-11-18 福井さん）：
+    // BALES CLOUD でできたことをMOCHICALL でも（2026-11-18 福井さん）：
     //   架電者が直した会社の情報（追加の番号・複数の担当者・メール）。元のデータ（Bales/CSV/DOC）は変えず、ここに重ねる
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS info JSONB`);
     //   リストごとのトークスクリプト（管理者が書き、架電中は右の列の上に折りたたんで出す）
@@ -381,7 +381,7 @@ export function registerMcCall(app, deps) {
       const gt = g.gate || {}; const who = String(g.caller || "").toLowerCase();
       const t = await createTask(owner, {
         WhoId: g.sf_lead_id, Subject: `[MOCHICA 架電] ${outcomeLabel(g.outcome)}`, Type: "Call", Status: "完了", ActivityDate: d,
-        Description: [`記録した人：${names.get(who) || who}（kinbot for MOCHICA）`, `到達：${(REACH[g.reach] || {}).label || g.reach}`, `結果：${outcomeLabel(g.outcome)}${g.reason ? `（${g.reason}）` : ""}`,
+        Description: [`記録した人：${names.get(who) || who}（SHOBO）`, `到達：${(REACH[g.reach] || {}).label || g.reach}`, `結果：${outcomeLabel(g.outcome)}${g.reason ? `（${g.reason}）` : ""}`,
           gt.name || gt.hours || gt.direct ? `受付で聞けたこと：${[gt.name && `担当 ${gt.name}`, gt.hours && `在席 ${gt.hours}`, gt.direct && `直通 ${gt.direct}`].filter(Boolean).join("・")}` : "",
           ...hearingLines(g.hearing),
           g.apo_at ? `アポ：${jstText(g.apo_at)}${g.apo_who ? `（その時間に空いていたクローザー：${g.apo_who}）` : ""}` : "", g.next_at ? `次回：${jstText(g.next_at)}` : "", g.memo ? `メモ：${g.memo}` : "",
@@ -500,7 +500,7 @@ export function registerMcCall(app, deps) {
   }));
 
   // ---- レポート（期間・人・リスト・日ごと）（2026-11-18 福井さん。BALES のレポートのかわり） ----
-  //   数えるのは kinbot for MOCHICA で記録した架電だけ（Bales で記録した過去の架電は入らない）。取り消した記録は数えない。
+  //   数えるのは SHOBO で記録した架電だけ（Bales で記録した過去の架電は入らない）。取り消した記録は数えない。
   //   管理者は全員分、ほかの人は自分の分だけ
   app.get("/api/mccall/report", guard(async (req, res) => {
     const dayOf = (s, def) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]) - 9 * 3600e3) : def; };
@@ -736,7 +736,7 @@ export function registerMcCall(app, deps) {
     if (!tl.some((x) => x.src === "Bales") && (data.lastActivityAt || data.last_activity_at)) tl.push({ at: data.lastActivityAt || data.last_activity_at, src: "Bales", who: clip(data.operatorName || "", 40), title: clip(data.lastActivityTypeText || "最終活動", 60), text: clip(data.lastActivityComment || "", 600) });
     if (sf && Array.isArray(sf.opps)) for (const o of sf.opps.slice(0, 10)) if (o.date) tl.push({ at: o.date, src: "SF", who: o.owner || "", title: `商談：${o.stage || ""}`, text: clip(o.name, 200) });
     // SF の活動（DOC やほかの人の架電・メモ）も同じ時系列に。リードがコンバート済みなら取引先側の活動も読む。
-    // kinbot for MOCHICA から書いた Task は上の kinbot の記録と同じものなので、二重に出さないよう外す。
+    // SHOBO から書いた Task は上の kinbot の記録と同じものなので、二重に出さないよう外す。
     // SF が遅い・落ちているときでも画面は開けるように、待つのは数秒だけにする
     // 資料送付も同じ時系列に出す（SF に書いた活動は下の SF の読み込みで二重にならないよう外す）
     const sends = (await P().query(`SELECT * FROM mc_doc_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
@@ -790,7 +790,7 @@ export function registerMcCall(app, deps) {
   app.post("/api/mccall/leads/:id/clear-next", guard(async (req, res) => {
     await P().query(`UPDATE mc_call_leads SET next_at=NULL, next_why=NULL WHERE id=$1`, [parseInt(req.params.id, 10)]); res.json({ ok: true });
   }));
-  // 会社・担当者の情報を直す（2026-11-18 福井さん。BALES のように架電画面で直せるように）。
+  // 会社・担当者の情報を直す（2026-11-18 福井さん。BALES のように MOCHICALL で直せるように）。
   //   会社名・担当者名・代表電話は kinbot のリードを直接直す（Bales/CSV/DOC の元のデータは変えない）。
   //   追加の番号・ほかの担当者・メールは info に持つ。番号は数字が9桁以上のものだけ残す（押して発信できない番号を増やさない）
   app.patch("/api/mccall/leads/:id", guard(async (req, res) => {
@@ -1010,7 +1010,7 @@ export function registerMcCall(app, deps) {
       const want = String((req.body && req.body.docId) || conf.defaultDocId || "");
       const doc = docs.find((d) => d.id === want) || docs[0];
       const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
-      // 架電画面で直したメール（いちばん新しく、人が確かめた値）を先に使う
+      // MOCHICALL で直したメール（いちばん新しく、人が確かめた値）を先に使う
       const inf = lead.info || {};
       const to = inf.email || ((inf.contacts || []).find((c) => c.email) || {}).email || emailOf(data, sf);
       const sender = (await nameMap()).get(me(req)) || "";
@@ -1055,7 +1055,7 @@ export function registerMcCall(app, deps) {
         try {
           const t = await createTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 資料送付", Type: "Email", Status: "完了",
             ActivityDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
-            Description: [`送った人：${(await nameMap()).get(u) || u}（kinbot for MOCHICA）`, `宛先：${to}`, cc ? `CC：${cc}` : "", `件名：${subject}`, `資料：${docName}（doc-room）${url}`].filter(Boolean).join("\n") });
+            Description: [`送った人：${(await nameMap()).get(u) || u}（SHOBO）`, `宛先：${to}`, cc ? `CC：${cc}` : "", `件名：${subject}`, `資料：${docName}（doc-room）${url}`].filter(Boolean).join("\n") });
           if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
           await P().query(`UPDATE mc_doc_sends SET sf_task_id=$2 WHERE id=$1`, [row.id, t.id]);
         } catch (e) { sfNote = "メールは送りましたが、SF の活動には書けませんでした"; await P().query(`UPDATE mc_doc_sends SET sf_err=$2 WHERE id=$1`, [row.id, String(e.message).slice(0, 300)]).catch(() => {}); }

@@ -32,7 +32,7 @@ import { zoomPresence, zoomPhoneConfigured, zoomPhonePing, zoomPhoneUsers, zoomP
 import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar } from "./devnotes.js";
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
-import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // kinbot for MOCHICA のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // kinbot for MOCHICA の架電（DOC の kincall とは別の表）（2026-11-16）
+import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // SHOBO のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // SHOBO の架電（DOC の kincall とは別の表）（2026-11-16）
 import { mcAuditMiddleware, registerMcAudit } from "./mcaudit.js";   // MOCHICA の書き込み操作を「いつ・だれが・何を」DBに残す（2026-11-19 福井さん）
 import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
@@ -862,7 +862,7 @@ app.get("/healthz", (req, res) => res.status(200).type("text/plain").send("ok"))
 // インターン生がどちらの事業の架電を使えるか（2026-11-18 福井さん「MOCHICA と混ざらないように」「インターン生は架電に必要なタブだけ」）
 //   MOCHICA のインターン … ダッシュボードのインサイド8名（MCDASH_ROSTER.is）か、メンバー設定で「kincallだけ」＋事業に MOCHICA がある人
 //   DOC のインターン     … 「kincallだけ」で、事業に DOC がある人（事業が空のときは今までどおり DOC。ただし上の8名は MOCHICA 専用）
-//   両方に当てはまる人（兼任）は両方の架電画面だけを開ける。管理者は対象外。
+//   両方に当てはまる人（兼任）は両方の架電画面（DOC の kincall と MOCHICALL）だけを開ける。管理者は対象外。
 const _internAccess = new Map();
 let _internSrc = null;
 async function internAccess(email) {
@@ -916,7 +916,7 @@ async function mcCallAdmins() {
   _mcAdmins = { at: Date.now(), v };
   return v;
 }
-// MOCHICA のインターンが開ける所：MOCHICA の架電画面と、その画面で使う API・ファイルだけ（DOC の kincall の表には触れない）
+// MOCHICA のインターンが開ける所：MOCHICALL（SHOBO の架電画面）と、その画面で使う API・ファイルだけ（DOC の kincall の表には触れない）
 function isMcInternPath(p) {
   return p === "/mochica" || p === "/mochica.html" || p.startsWith("/api/mccall/") ||
     p === "/api/me" || p === "/api/logout" || p === "/logout" ||
@@ -23860,7 +23860,7 @@ app.post("/api/ask-bot", async (req, res) => {
     }
     const attachText = attach.length ? `\n\n【添えられたファイル】\n${attach.map((a) => `■${a.name}\n${a.text}`).join("\n\n")}` : "";
     if (!message.trim() && attach.length) message = "（添えたファイルを見てください）";
-    const r = await askBot({ message: `${fromMc ? "【kinbot for MOCHICA（MiiTel の商談・Bales Cloud のリスト・Zoom Phone）の画面から】\n" : ""}${message}${attachText}`.slice(0, 12000), history, callLLM: callLLMPublic });
+    const r = await askBot({ message: `${fromMc ? "【SHOBO（MiiTel の商談・Bales Cloud のリスト・Zoom Phone）の画面から】\n" : ""}${message}${attachText}`.slice(0, 12000), history, callLLM: callLLMPublic });
 
     let saved = null; let answer = r.answer;
     if (r.note) {
@@ -32844,7 +32844,7 @@ app.put("/api/sf-proxy", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// プロンプト設定は DOC と MOCHICA で分ける（2026-11-17 田中さん「プロンプト設定はDOCとMOCHICAでわけてほしい。MOCHICAの場合はforMOCHICAで反映」）。
+// プロンプト設定は DOC と MOCHICA で分ける（2026-11-17 田中さん「プロンプト設定はDOCとMOCHICAでわけてほしい。MOCHICAの場合はSHOBOで反映」）。
 //   ?biz=mochica（または本文の biz）のときは、MOCHICA 用の設定（名前の後ろに Mochica）を読み書きする
 const promptBiz = (req) => (String((req.query && req.query.biz) || (req.body && req.body.biz) || "").toLowerCase() === "mochica" ? "mochica" : "");
 const bizK = (req, k) => (promptBiz(req) === "mochica" ? `${k}Mochica` : k);
@@ -33826,17 +33826,18 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-19n kinXs：SF の権限が無い人（項目が見えない・商談が読めない・SF 未連携）でも、企業情報の販売区分・サーカスNo・初期費用と「SFの商談」のサーカスNoが出るように。本人の SF で読めなければ、プロセスシートの持ち主・代わりの人・運用者の SF で読む（読むだけ）。／2026-11-19m MOCHICAの全書き込み操作を監査ログ（mc_audit_log）に記録・MOCHICA架電のCSV取り込みを自動整形＋読み方の編集に対応。／2026-11-19k 拡張機能 2.2.27：DOC の AI の質問を毎日読む。取り込みの窓で「毎日（平日）○時を過ぎたら」に印を付けると、その時刻を過ぎた最初のときに管理画面を別の窓で開き、ログインして全部の会社の増えたチャットだけ読み、1分後に窓を閉じる（パスワードが無ければその窓で聞く）。／2026-11-19j 拡張機能 2.2.26：2段階認証は、確認コードの画面が出ているあいだメールを見つづけ、新しい確認コードのメールが来たらそれを入れ直して確認を押す（10分まで）。／2026-11-19i 拡張機能 2.2.25：DOC の AI の取り込みは、1社読むごとに管理画面のはじめのページを開き直してログインし直してから次の会社を読む（メール・パスワードは取り込みを始めるときに入れ、拡張機能の裏側の消える置き場だけに置く・確認コードは Gmail から自動）。／2026-11-19h 拡張機能 2.2.24：DOC の AI の管理画面（カジュアル面談エージェント）の2段階認証。確認コードの欄が出たら、kinbot が本人の Gmail に届いた確認コード（noreply@mail.brainverse-ai.com）を読み、拡張機能が欄に入れて確認を押す（/api/me/login-code。読めるのは決めた送り主だけ）。／2026-11-19g kinXs：タスクを消せるように（会社の詳しい画面のタスクとホームのタスクに、いつも見えるゴミ箱。次回アクションも消せる）。あわせて久野さんの要望：掲載先ありは掲載先ごとの社数のカードが最初の画面・「掲載済みで未記入」で［未掲載にする］・取り込みに「納品済み」（シートの納品日が選んだ月までの会社をキックオフ済み・納品メール送付済みに）。／2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
+const BUILD_TAG = "2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
 const BUILD_FEATURES = [
+  "名前：kinbot for MOCHICA を SHOBO に、MOCHICA の架電画面を MOCHICALL に（画面・案内・SF の記録・MCP の説明・Drive の録画フォルダ）",
   "拡張機能：DOC の AI の質問を毎日（平日）決めた時刻に、増えたところだけ自動で読む",
   "拡張機能：DOC の AI の取り込みで、1社ごとにログインし直して次の会社を読む（2段階認証も自動）",
   "拡張機能：DOC の AI の管理画面の2段階認証の確認コードを、本人の Gmail から自動で入れる",
   "kinXs：タスクを消す（ゴミ箱）・掲載先ごとの社数を最初の画面に・未掲載を選べる・シートから納品済みを取り込んでキックオフ・納品メール送付済みに",
   "メンバー：役割（クローザー・インサイド・予備・CS）を DOC と MOCHICA で別々に持つ。DOC の報告・集計は DOC の役割だけ",
-  "for MOCHICA の架電：リードの重複を作らない（会社名＋電話・メール・Web・法人番号の鍵・過去も含めて1件）",
-  "for MOCHICA の架電：一覧（検索・絞り込み・並べ替え）・トークスクリプト・会社情報の編集と複数番号・レポート（期間・人・リスト・日ごと）",
-  "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
-  "for MOCHICA の架電：リードを複数人に分ける・他のリストへ移す",
+  "SHOBO の架電：リードの重複を作らない（会社名＋電話・メール・Web・法人番号の鍵・過去も含めて1件）",
+  "SHOBO の架電：一覧（検索・絞り込み・並べ替え）・トークスクリプト・会社情報の編集と複数番号・レポート（期間・人・リスト・日ごと）",
+  "SHOBO の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",
+  "SHOBO の架電：リードを複数人に分ける・他のリストへ移す",
   "Gemini：Google ドライブのスプレッドシートで読む・kinbot の確認画面へのリンク（/gem）か「kinbot依頼」メールで更新を頼む",
   "Gemini のカスタムアプリで kinbot につなぐ",
   "Claude のスキルで kinbot につなぐ（コネクタ不要）",
@@ -33854,11 +33855,11 @@ const BUILD_FEATURES = [
   "kinXs：掲載先の欄と掲載先一覧（直販向け）",
   "NeoSTAGE（取引申請）の自動入力（kinbot-ext 2.2.6）",
   "テレアポ科学モデル v1：文字起こしから問題の場所（失ったアポの見込みが最大の分かれ道）を診断する API",
-  "for MOCHICA：商談と SF の照合を強化（メールのドメイン・参加者名・文字起こし・担当のリード）",
-  "for MOCHICA：架電（テレアポ）画面を新しく作成（キーボードで記録・2段の結果・同日の自動掛け直し・部署をまたいだ記録）",
+  "SHOBO：商談と SF の照合を強化（メールのドメイン・参加者名・文字起こし・担当のリード）",
+  "SHOBO：架電（テレアポ）画面を新しく作成（キーボードで記録・2段の結果・同日の自動掛け直し・部署をまたいだ記録）",
   "kincall：アプローチ禁止企業を取り込み・一覧・記録・資料送付のすべてで必ずはじく（SF の Ban_Type__c＋設定で手動登録）",
   "kinXs：解約フォーム連携（空間URLで紐付け・停止月の新ルール・申請一覧と詳細・未確認アラート）",
-  "for MOCHICA：Bales のリストをホットリスト化（担当者名・ニーズ・検討時期でホット／ウォーム／コールド）",
+  "SHOBO：Bales のリストをホットリスト化（担当者名・ニーズ・検討時期でホット／ウォーム／コールド）",
   "SF：商談の取引先の業種・従業員数を必須に（立ち上げ・Claude・SF直接の商談は自動で補う）",
   "kinXs：ユーザー一覧と要注意企業、企業ごとのフォロー履歴",
   "kinXs：更新管理（更新月×更新確度）。SFの計上から会社を自動で取り込む",

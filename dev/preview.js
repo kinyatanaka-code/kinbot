@@ -662,7 +662,7 @@ function apiResponse(pathname, query) {
   if (pathname.indexOf("/api/apo/invites/") === 0) return { ok: true };
   if (pathname.indexOf("/api/smart-links/") === 0 && pathname.endsWith("/mail")) return { ok: true, draft: true, to: "x@y.jp" };
   if (pathname.startsWith("/api/smart-links/")) return { ok: true, link: {}, mail: { ok: true } };
-  // kinbot for MOCHICA の架電（mccall.js）の見た目を確かめるためのダミー（2026-11-16）。/mochica.html#call で開く
+  // SHOBO の架電（mccall.js）の見た目を確かめるためのダミー（2026-11-16）。/mochica.html#call で開く
   if (pathname.startsWith("/api/mccall/")) return mccallMock(pathname);
   // ダッシュボードは本物の SF・Zoom Phone・シフト表を読むので、プレビューでは「読めなかった」画面を確かめる（2026-11-17）
   if (pathname === "/api/mcdash/data") return { error: "プレビューでは SF などを読みません（本番で確かめてください）" };

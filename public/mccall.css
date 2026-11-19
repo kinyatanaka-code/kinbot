@@ -1,4 +1,4 @@
-/* kinbot for MOCHICA の架電画面（2026-11-16 新しく作成）
+/* SHOBO の架電画面（MOCHICALL）（2026-11-16 新しく作成）
    決まり：ボタンの種類は3つだけ（.mcc-btn／.mcc-choice／.mcc-chip）。余白は 4 の倍数。色はここの変数だけを使う。
    上の知らせ欄は高さを固定して、知らせが増えても下の部品がずれないようにしている（押そうとした瞬間にボタンが動かない）。 */
 /* 色は確認ダイアログ（body 直下に出る .mcc-dlg）にも渡す。渡さないと実行ボタンが白文字・背景なしで見えなかった（2026-11-18） */
@@ -140,7 +140,7 @@
 /* マイナビの中身は「見出し 値」を詰めて並べる（ひと目でが縦に伸びすぎないように）（2026-11-18） */
 .mcc-mn{display:inline-block;margin:0 10px 2px 0;}
 .mcc-mn em{font-style:normal;color:var(--c-muted);font-size:11px;margin-right:4px;}
-/* BALES でできたことを架電画面でも（2026-11-18）：情報の編集・トークスクリプト・一覧・レポート */
+/* BALES でできたことをMOCHICALL でも（2026-11-18）：情報の編集・トークスクリプト・一覧・レポート */
 .mcc-edit{height:26px;padding:0 8px;font-size:12px;vertical-align:middle;margin-left:6px;}
 .mcc-edit svg{width:14px;height:14px;}
 .mcc-contacts{display:grid;gap:4px;margin:8px 0;padding:8px 12px;border:1px solid var(--c-line);border-radius:12px;font-size:13px;}

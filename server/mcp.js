@@ -154,12 +154,12 @@ const TOOLS = [
   },
   {
     name: "mochica_miitel_imported_ids",
-    description: "kinbot for MOCHICA に取り込み済みの MiiTel の会議（会議履歴）の ID の一覧を返す（読み取り）。MiiTel の過去の会議を取り込む前に呼び、ここにある ID は取り込まない（二重に入れない）。",
+    description: "SHOBO に取り込み済みの MiiTel の会議（会議履歴）の ID の一覧を返す（読み取り）。MiiTel の過去の会議を取り込む前に呼び、ここにある ID は取り込まない（二重に入れない）。",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "mochica_miitel_import",
-    description: "MiiTel の会議（会議履歴）を kinbot for MOCHICA に取り込む（書き込み）。MiiTel の MCP で読んだ過去の会議を、1回に10件まで入れる。id は MiiTel の会議の ID（URL の /video/ のあと）。transcript は文字起こし（[{speaker, text, start}] の配列か文字列）、minutes は議事録の本文。同じ id はまとめて1件になる（後から議事録だけ足すのも可）。取り込む前に mochica_miitel_imported_ids で取り込み済みを確かめる。",
+    description: "MiiTel の会議（会議履歴）を SHOBO に取り込む（書き込み）。MiiTel の MCP で読んだ過去の会議を、1回に10件まで入れる。id は MiiTel の会議の ID（URL の /video/ のあと）。transcript は文字起こし（[{speaker, text, start}] の配列か文字列）、minutes は議事録の本文。同じ id はまとめて1件になる（後から議事録だけ足すのも可）。取り込む前に mochica_miitel_imported_ids で取り込み済みを確かめる。",
     inputSchema: { type: "object", properties: { meetings: { type: "array", maxItems: 10, items: { type: "object", properties: {
       id: { type: "string", description: "MiiTel の会議の ID" }, title: { type: "string" }, started_at: { type: "string", description: "開始日時（ISO 8601）" },
       host: { type: "string", description: "主催者の名前かメール" }, participants: { type: "string", description: "参加者（名前を読点でつなぐ）" },
@@ -173,27 +173,27 @@ const TOOLS = [
   },
   {
     name: "mochica_bales_leads",
-    description: "kinbot for MOCHICA に取り込んだ Bales のリスト（リード）を読む（読み取り）。list を省くとリストの一覧と項目名（よく埋まっている順）を返す。list と id でリード1件の全項目・元の形・詳しい中身（架電履歴・カスタム情報など）を返す。q で会社名などを探せる。",
+    description: "SHOBO に取り込んだ Bales のリスト（リード）を読む（読み取り）。list を省くとリストの一覧と項目名（よく埋まっている順）を返す。list と id でリード1件の全項目・元の形・詳しい中身（架電履歴・カスタム情報など）を返す。q で会社名などを探せる。",
     inputSchema: { type: "object", properties: { list: { type: "string", description: "リストの印（例 bales:すべてのリード）" }, id: { type: "string", description: "リードの id（任意）" }, q: { type: "string", description: "探す言葉（任意）" }, limit: { type: "number", description: "最大件数（既定5・最大50）" }, full: { type: "boolean", description: "id のとき、元の形と詳しい中身を省かず返す（既定 true）" } } },
   },
   {
     name: "mochica_list_meetings",
-    description: "kinbot for MOCHICA の商談（MiiTel の会議）の一覧を返す（読み取り）。日付・会社名・担当で絞れる。各商談の id・題名（カレンダーの予定）・会社名・担当・日時・長さ・文字起こしの有無・SF の結びつきを返す。文字起こしや議事録は mochica_get_meeting で読む。",
+    description: "SHOBO の商談（MiiTel の会議）の一覧を返す（読み取り）。日付・会社名・担当で絞れる。各商談の id・題名（カレンダーの予定）・会社名・担当・日時・長さ・文字起こしの有無・SF の結びつきを返す。文字起こしや議事録は mochica_get_meeting で読む。",
     inputSchema: { type: "object", properties: { from: { type: "string", description: "この日から YYYY-MM-DD（任意）" }, to: { type: "string", description: "この日まで YYYY-MM-DD（任意）" }, company: { type: "string", description: "会社名の一部（任意）" }, rep: { type: "string", description: "担当の名前の一部かメール（任意）" }, limit: { type: "number", description: "最大件数（既定50・最大200）" } } },
   },
   {
     name: "mochica_get_meeting",
-    description: "kinbot for MOCHICA の商談（MiiTel の会議）を1件読む（読み取り）。文字起こし全文・MiiTel の議事録・kinbot の要約と営業フィードバック・AI分析・商談の段階・会社名・担当・参加者・SF のリード／取引先 ID を返す。id は mochica_list_meetings の id。",
+    description: "SHOBO の商談（MiiTel の会議）を1件読む（読み取り）。文字起こし全文・MiiTel の議事録・kinbot の要約と営業フィードバック・AI分析・商談の段階・会社名・担当・参加者・SF のリード／取引先 ID を返す。id は mochica_list_meetings の id。",
     inputSchema: { type: "object", properties: { id: { type: "string", description: "MiiTel の会議の ID" }, transcript: { type: "boolean", description: "文字起こし全文を含めるか（既定 true）" } }, required: ["id"] },
   },
   {
     name: "set_meeting_title",
-    description: "商談の題名を変える（書き込み）。kinbot for MOCHICA の商談（MiiTel の会議の id）と、kinbot（DOC）の商談（bot_id）のどちらにも使える。MOCHICA では題名から会社名を読み直し、SF のリード・取引先も探し直す（company を渡せば会社名はそれにする）。手で決めた題名は自動の決め直しで上書きされない。kinbot の商談は、自分の商談だけ変えられる（管理者は全部）。",
+    description: "商談の題名を変える（書き込み）。SHOBO の商談（MiiTel の会議の id）と、kinbot（DOC）の商談（bot_id）のどちらにも使える。MOCHICA では題名から会社名を読み直し、SF のリード・取引先も探し直す（company を渡せば会社名はそれにする）。手で決めた題名は自動の決め直しで上書きされない。kinbot の商談は、自分の商談だけ変えられる（管理者は全部）。",
     inputSchema: { type: "object", properties: { id: { type: "string", description: "MOCHICA の会議の id、または kinbot の商談の bot_id" }, title: { type: "string", description: "新しい題名" }, company: { type: "string", description: "会社名（任意。MOCHICA は空なら題名から読む、kinbot は空なら変えない）" } }, required: ["id", "title"] },
   },
   {
     name: "mochica_sf_form",
-    description: "kinbot for MOCHICA の商談に結びついた SF の商談（_新規_）と、ステージごとに入れる項目・いまの値・必須（SF の入力規則から読んだもの）を返す（読み取り）。SF を直すときは、これで項目の API 名と必須を確かめてから sf_update（sobject=Opportunity）で書く。必須が空のままステージを進めると SF に止められる。",
+    description: "SHOBO の商談に結びついた SF の商談（_新規_）と、ステージごとに入れる項目・いまの値・必須（SF の入力規則から読んだもの）を返す（読み取り）。SF を直すときは、これで項目の API 名と必須を確かめてから sf_update（sobject=Opportunity）で書く。必須が空のままステージを進めると SF に止められる。",
     inputSchema: { type: "object", properties: { id: { type: "string", description: "MiiTel の会議の ID" } }, required: ["id"] },
   },
   {
@@ -539,7 +539,7 @@ export async function callTool(name, args, req) {
     }
     case "mochica_get_meeting": {
       if (!req.user) throw new Error("ログインが必要です");
-      const id = String((args && args.id) || ""); const r = await mcMiitelGet(id); if (!r) throw new Error("その会議は kinbot for MOCHICA に入っていません");
+      const id = String((args && args.id) || ""); const r = await mcMiitelGet(id); if (!r) throw new Error("その会議は SHOBO に入っていません");
       const H = mcpHooks.mochica || {}; const p = r.payload || {}; const v = p.video || p.meeting || p.data || p;
       const cal = p.mt_cal && !p.mt_cal.none ? p.mt_cal : null;
       const repOf = H.repIndex ? await H.repIndex().catch(() => null) : null;
@@ -581,10 +581,10 @@ export async function callTool(name, args, req) {
     case "mochica_sf_form": {
       if (!req.user) throw new Error("ログインが必要です");
       const H = mcpHooks.mochica || {}; if (!H.sfFormData) throw new Error("いまは使えません（サーバーの準備中）");
-      const r = await mcMiitelGet(String((args && args.id) || "")); if (!r) throw new Error("その会議は kinbot for MOCHICA に入っていません");
+      const r = await mcMiitelGet(String((args && args.id) || "")); if (!r) throw new Error("その会議は SHOBO に入っていません");
       const owner = await sfOwnerFor(req);
       const d = await H.sfFormData(owner, r);
-      if (!d.opp) return { 結びついた商談: null, メモ: "この会議には SF の商談が結びついていません。会社名で sf_query（Opportunity）を探すか、kinbot for MOCHICA の画面で結びつけてください。" };
+      if (!d.opp) return { 結びついた商談: null, メモ: "この会議には SF の商談が結びついていません。会社名で sf_query（Opportunity）を探すか、SHOBO の画面で結びつけてください。" };
       return { 結びついた商談: { Id: d.opp.Id, 商談名: d.opp.Name, ステージ: d.opp.StageName, 取引先: d.opp.Account && d.opp.Account.Name, 完了予定日: d.opp.CloseDate },
         ステージの選択肢: d.stages, ステージごとの項目: (d.defs || []).map((x) => ({ 段階: x.label, ステージの値: x.stageValue, 項目: (x.fields || []).map((fl) => ({ 名前: fl.label, API名: fl.name, 型: fl.type, 選択肢: fl.options || undefined, いまの値: fl.name ? (d.current || {})[fl.name] ?? null : null, 必須: !!(fl.name && ((d.required || {})[x.key] || []).includes(fl.name)) })) })),
         書き方: "sf_update で sobject=Opportunity、id=上の Id、fields={API名: 値} を書く。ステージを進めるときは、その段階の必須の項目も一緒に入れる。" };

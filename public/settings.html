@@ -9,7 +9,7 @@
       html.kb-embed .sidebar, html.kb-embed .topbar, html.kb-embed .side-backdrop, html.kb-embed .kb-menu-btn, html.kb-embed .kb-menu, html.kb-embed .kb-sheet-back, html.kb-embed .kb-ver, html.kb-embed .live-banner { display: none !important; }
       html.kb-embed .main { margin-left: 0 !important; padding-left: 0 !important; }
       html.kb-embed body { background: transparent; }
-      /* kinbot for MOCHICA の中で開いたときは水色（中身は kinbot の設定と同じ）（2026-11-14） */
+      /* SHOBO の中で開いたときは水色（中身は kinbot の設定と同じ）（2026-11-14） */
       html.kb-mochica{--accent:#0E9AA7;--accent-soft:#DDF5F7;--panel-2:#F2FAFB;--line:#D9ECEE;}
       html.kb-mochica .set-menu-item.active{background:#DDF5F7 !important;color:#0B6E78 !important;}
       html.kb-mochica .btn:not(.ghost){background:#0E9AA7;border-color:#0E9AA7;}
@@ -45,7 +45,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261119e" />
+    <link rel="stylesheet" href="style.css?v=20261119f" />
   </head>
   <body>
     <div class="app">
@@ -255,7 +255,7 @@
               <ol class="note" style="padding-left:20px;line-height:1.9">
                 <li>各自の Chrome に拡張機能 <b>kinbot-ext</b> を入れる（この一覧の「kinbot-ext」に入れ方があります）</li>
                 <li>その Chrome で、自分の MiiTel のアカウントでログインしておく</li>
-                <li>20分ごとに自動で、新しい会議の文字起こし・議事録・録画が kinbot に入る。すぐ入れたいときは kinbot for MOCHICA の「商談（MiiTel）」の右上から読む</li>
+                <li>20分ごとに自動で、新しい会議の文字起こし・議事録・録画が kinbot に入る。すぐ入れたいときは SHOBO の「商談（MiiTel）」の右上から読む</li>
               </ol>
             </div>
               </div>
@@ -263,7 +263,7 @@
 
             <div class="set-card">
               <h3 class="integ-h"><svg viewBox="0 0 48 48" width="24" height="24" aria-hidden="true"><rect x="2" y="2" width="44" height="44" rx="11" fill="#0F6E6A"/><path d="M16 12h16v4c0 3.5-3.4 6.1-6 8 2.6 1.9 6 4.5 6 8v4H16v-4c0-3.5 3.4-6.1 6-8-2.6-1.9-6-4.5-6-8v-4z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="round"/><path d="M20 33.5h8" stroke="#7FE0D6" stroke-width="2.6" stroke-linecap="round"/></svg> Bales Cloud</h3>
-              <p class="note">Bales のカスタム情報は SF の「Mochica（リード）」と同じ項目です。SF の情報を Bales に入れるファイルは、kinbot for MOCHICA の「リスト（Bales Cloud）」で作れます。API のキーがもらえたら、ここに入れると自動で取り込めるようにします。</p>
+              <p class="note">Bales のカスタム情報は SF の「Mochica（リード）」と同じ項目です。SF の情報を Bales に入れるファイルは、SHOBO の「リスト（Bales Cloud）」で作れます。API のキーがもらえたら、ここに入れると自動で取り込めるようにします。</p>
               <label class="field"><span>API のキー</span><input id="baKey" type="text" autocomplete="off" data-lpignore="true" data-1p-ignore placeholder="Bales から API のキーをもらえたら" style="-webkit-text-security:disc" /></label>
               <label class="field"><span>メモ</span><input id="baNote" placeholder="アカウント名など（任意）" /></label>
               <div class="modal-actions"><button class="btn" data-mcsave>保存する</button><span class="saved" data-mcsaved></span></div>
@@ -515,7 +515,7 @@
             </div>
             <div class="set-card">
               <h3>MOCHICA のときのきまり</h3>
-              <p class="note">Salesforce の連携そのものは同じものを使います。ここでは kinbot for MOCHICA のときだけのきまりを決めます。</p>
+              <p class="note">Salesforce の連携そのものは同じものを使います。ここでは SHOBO のときだけのきまりを決めます。</p>
               <label class="field"><span>リードの種別</span><input id="sfLead" placeholder="Mochica（リード）" /></label>
               <label class="field"><span>新規の商談名の頭</span><input id="sfOpp" placeholder="例：_新規_" /></label>
               <div class="modal-actions"><button class="btn" data-mcsave>保存する</button><span class="saved" data-mcsaved></span></div>
@@ -1081,8 +1081,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261119e"></script>
-      <script src="nav.js?v=20261119e"></script>
+    <script src="settings.js?v=20261119f"></script>
+      <script src="nav.js?v=20261119f"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>

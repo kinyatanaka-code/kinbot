@@ -123,7 +123,7 @@
       return; }
     if (d.__kbBalesProg) { const m = box.querySelector("[data-m]"), bar = box.querySelector(".bar i"), go = box.querySelector("[data-go]");
       if (bar && d.total) bar.style.width = Math.min(100, Math.round((d.got || 0) / d.total * 100)) + "%";
-      if (m) m.textContent = d.error ? `止まりました：${d.error}（${d.got || 0}件までは kinbot に入っています）` : d.done ? `終わりました：${d.got}件を kinbot に入れました。${d.warn ? "\n" + d.warn : ""}\nkinbot for MOCHICA の「リスト（Bales Cloud）」で見られます。` : d.step ? d.step : `${d.got}件${d.total ? ` / ${d.total}件` : ""} 送りました…`;
+      if (m) m.textContent = d.error ? `止まりました：${d.error}（${d.got || 0}件までは kinbot に入っています）` : d.done ? `終わりました：${d.got}件を kinbot に入れました。${d.warn ? "\n" + d.warn : ""}\nSHOBO の「リスト（Bales Cloud）」で見られます。` : d.step ? d.step : `${d.got}件${d.total ? ` / ${d.total}件` : ""} 送りました…`;
       if (go && (d.done || d.error)) { go.disabled = false; go.textContent = "もう一度取り込む"; if (bar && d.done) bar.style.width = "100%"; } }
     // ページの中から kinbot へ送る頼み：拡張機能の裏（background）に渡す
     // 拡張機能を入れ直したあと、ページを読み込み直していないと chrome.runtime が使えない → すぐに知らせる（2026-11-15）

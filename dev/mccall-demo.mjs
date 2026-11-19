@@ -1,4 +1,4 @@
-// MOCHICA の架電画面のデモ HTML を作る（2026-11-16）
+// MOCHICALL（SHOBO の架電画面）のデモ HTML を作る（2026-11-16）
 //   本物の public/mccall.css と public/mccall.js をそのまま埋め込み、通信（fetch）だけをダミーに差し替える。
 //   サーバーもデータベースもいらない。できたファイルをブラウザで開くだけで、記録→次の企業への流れを試せる。
 //
@@ -150,7 +150,7 @@ ${css}
 </head>
 <body>
 <div class="demo-app">
-  <nav class="demo-side"><b>kinbot<small>for MOCHICA</small></b><span>商談（MiiTel）</span><span>リスト（Bales Cloud）</span><span class="on">架電</span><span>アポイント</span></nav>
+  <nav class="demo-side"><b>kinbot<small>SHOBO</small></b><span>商談（MiiTel）</span><span>リスト（Bales Cloud）</span><span class="on">架電</span><span>アポイント</span></nav>
   <main class="demo-main">
     <div class="demo-top"><h1>架電</h1><em>デモ（ダミーデータ・どこにも保存しません）</em><p>数字キーで選ぶ → Enter で記録して次へ。? でキーの一覧</p></div>
     <section data-pane="call"><div id="mcCallView"></div></section>

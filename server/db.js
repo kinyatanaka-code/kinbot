@@ -8776,7 +8776,7 @@ export async function syncMembersToLegacy() {
 
     // MOCHICA だけの人は、DOC のアポ振り分け（クローザーの順番・インサイドのカレンダー照合）に入れない。
     // 入れると、MOCHICA のインサイドのカレンダーまで読んで、アポを自動で割り振ってしまった（2026-11-14 田中さん「暴走した」）。
-    // MOCHICA は kinbot for MOCHICA の別の箱で扱う。DOC が付いている人と、事業が未設定の人（今までどおり）だけを入れる。
+    // MOCHICA は SHOBO の別の箱で扱う。DOC が付いている人と、事業が未設定の人（今までどおり）だけを入れる。
     const forDocApo = (m) => { const b = Array.isArray(m.businesses) ? m.businesses : []; return !b.length || b.includes("DOC"); };
     const skipped = members.filter((m) => !forDocApo(m) && (m.roles.includes("closer") || m.roles.includes("fallback") || m.roles.includes("inside")));
     // DOC の役割だけで見る（MOCHICA でクローザーの人を DOC の順番に入れない）（2026-11-19）

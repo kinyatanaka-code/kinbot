@@ -1,8 +1,8 @@
 // ===== プロンプト設定の DOC / MOCHICA の切りかえ（2026-11-17 田中さん「プロンプト設定はDOCとMOCHICAでわけてほしい」）=====
-//   MOCHICA を選ぶと、チェック項目・要約の指示・御礼メール（指示・例文）を MOCHICA 用として読み書きする（kinbot for MOCHICA で使う）。
+//   MOCHICA を選ぶと、チェック項目・要約の指示・御礼メール（指示・例文）を MOCHICA 用として読み書きする（SHOBO で使う）。
 //   選んだほうはこのブラウザで覚える。どちらかは ?biz=mochica でも開ける
 let PROMPT_BIZ = (() => { try { const qs = new URLSearchParams(location.search); const q = qs.get("biz"); if (q) return q === "mochica" ? "mochica" : "doc";
-  /* kinbot for MOCHICA の中から開いたときは、はじめから MOCHICA 用 */ if (qs.get("app") === "mochica") return "mochica"; return localStorage.getItem("kbPromptBiz") === "mochica" ? "mochica" : "doc"; } catch { return "doc"; } })();
+  /* SHOBO の中から開いたときは、はじめから MOCHICA 用 */ if (qs.get("app") === "mochica") return "mochica"; return localStorage.getItem("kbPromptBiz") === "mochica" ? "mochica" : "doc"; } catch { return "doc"; } })();
 const PROMPT_RELOAD = [];
 function promptQ() { return PROMPT_BIZ === "mochica" ? "?biz=mochica" : ""; }
 // 通知（トーストが使えないときはダイアログ）
@@ -776,7 +776,7 @@ async function loadZoomPane() {
 })();
 
 // ===== MOCHICA の連携（MiiTel・Bales・SF のきまり）=====
-// kinbot for MOCHICA の設定も、この画面1つにまとめた（2026-11-14 田中さん）。
+// SHOBO の設定も、この画面1つにまとめた（2026-11-14 田中さん）。
 // 値は /api/mochica/config に置く。鍵は末尾4文字しか返ってこない。
 async function loadMcConfig() {
   const $ = (id) => document.getElementById(id);
@@ -3612,7 +3612,7 @@ function showExtDetail(k) {
   const paint = () => {
     box.querySelectorAll("[data-pbiz]").forEach((b) => { const on = b.dataset.pbiz === PROMPT_BIZ; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); });
     const note = document.getElementById("promptBizNote");
-    if (note) note.textContent = PROMPT_BIZ === "mochica" ? "いま MOCHICA 用を直しています。kinbot for MOCHICA の要約・御礼メールに使われます（DOC には使われません）。" : "いま DOC 用を直しています。kinbot（DOC）の商談に使われます。";
+    if (note) note.textContent = PROMPT_BIZ === "mochica" ? "いま MOCHICA 用を直しています。SHOBO の要約・御礼メールに使われます（DOC には使われません）。" : "いま DOC 用を直しています。kinbot（DOC）の商談に使われます。";
   };
   box.querySelectorAll("[data-pbiz]").forEach((b) => b.addEventListener("click", () => {
     if (PROMPT_BIZ === b.dataset.pbiz) return;

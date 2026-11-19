@@ -19,9 +19,9 @@
     panel.hidden = true;
     panel.innerHTML = `
       <div class="kb-chat-head">
-        <img class="kb-chat-face" src="${IS_MC ? "/kinbot-mochica.svg" : "/kinbot.svg"}" alt="" />
+        <img class="kb-chat-face" src="${IS_MC ? "/shobo.svg" : "/kinbot.svg"}" alt="" />
         <div class="kb-chat-title">
-          <b>${IS_MC ? "kinbot for MOCHICA に聞く" : "kinbotに聞く"}</b>
+          <b>${IS_MC ? "SHOBO に聞く" : "kinbotに聞く"}</b>
           <span>使い方や、直してほしいことをどうぞ</span>
         </div>
         <span class="kb-chat-dot" aria-hidden="true"></span>
@@ -129,7 +129,7 @@
   // はじめに出す案内と、よく聞かれること
   function greet() {
     if (history.length) return;
-    say("bot", IS_MC ? "kinbot for MOCHICA の使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。" : "kinbotの使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。");
+    say("bot", IS_MC ? "SHOBO の使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。" : "kinbotの使い方をお答えします。\n直してほしいことや、うまくいかないことも教えてください（開発メモに残します）。");
     const tips = panel.querySelector("#kbChatTips");
     // MOCHICA の画面では、MOCHICA でよく聞かれそうなことを出す（DOC の話を出しても使えないので）
     const samples = IS_MC ? [

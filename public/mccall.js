@@ -1,4 +1,4 @@
-// kinbot for MOCHICA の架電画面（2026-11-16 新しく作成。kincall の複製ではない）
+// SHOBO の架電画面（MOCHICALL）（2026-11-16 新しく作成。kincall の複製ではない）
 //   左＝調べる（会社・番号ごとのつながった実績・受付で聞けたこと・SF）／中央＝操作（発信と2段の結果）／右＝これまで（1本の時系列）
 //   キーボードだけで1件を終えられる：1〜9 で選ぶ・Enter で記録して次へ・Backspace で戻る・C で発信・S で飛ばす・Z で元に戻す・? で一覧
 //   （2026-11-17 クリックだけにした版を、福井さんの指示でキー操作ありに戻した。クリックでもすべて操作できる）
@@ -176,7 +176,7 @@
     $("mccLeft").querySelectorAll("[data-ph]").forEach((a) => a.addEventListener("click", () => { S.f.phone = a.dataset.ph; drawLeft(); }));
     $("mccEdit").addEventListener("click", editDialog);
   }
-  // 架電画面で足した担当者とメール（2026-11-18 福井さん「会社・担当者情報の編集と複数番号」）
+  // MOCHICALL で足した担当者とメール（2026-11-18 福井さん「会社・担当者情報の編集と複数番号」）
   function contactsHtml(info) {
     const I = info || {}; const cs = I.contacts || [];
     if (!cs.length && !I.email && !I.web && !I.corp) return "";
@@ -667,7 +667,7 @@
       ${j.rows.length ? `<div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th>${{ user: "名前", list: "リスト", day: "日" }[j.by]}</th><th class="num">コール</th><th class="num">会社数</th><th class="num">つながった</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th><th class="num">部署をまたぐ</th></tr></thead>
         <tbody>${j.rows.map((r) => row(r.label, r)).join("")}${j.rows.length > 1 ? row("合計", T, "sum") : ""}</tbody></table></div>` : '<p class="mcc-note">この期間の記録はありません。</p>'}
       ${j.reasons.length ? `<h3 style="margin-top:16px">断られた理由</h3><div class="mcc-chips">${j.reasons.map((r) => `<span class="mcc-chip" style="cursor:default">${esc(r.k)} ${r.n}</span>`).join("")}</div>` : ""}
-      <p class="mcc-note" style="margin-top:12px">数えているのは kinbot の架電画面で記録したものだけです（Bales で記録した過去の架電は入りません）。取り消した記録は数えません。</p>`;
+      <p class="mcc-note" style="margin-top:12px">数えているのは MOCHICALL で記録したものだけです（Bales で記録した過去の架電は入りません）。取り消した記録は数えません。</p>`;
   }
   async function listDialog(l) {
     let reps = []; try { reps = (await api("/api/mochica/reps")).items || []; } catch {}
