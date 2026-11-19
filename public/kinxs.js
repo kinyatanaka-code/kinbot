@@ -1644,7 +1644,7 @@ async function kh2LoadTasks(who0) {
       const canMove = (t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (t0.id && /（自動）|Claude/.test(String(t0.src || "")));
       if (!canMove || !pp.length) return `<span class="who">${esc(nm)}</span>`;
       return `<label class="who h2-who" data-noopen title="押すとほかの人に移せます">${esc(nm || "担当")}<select data-tk-who="${i0}"><option value="">移す人を選ぶ</option>${pp.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === cur ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`; })();
-    return `<div class="h2-li h2-tkrow" data-tk="${i0}" ${t0.accountId ? `data-tk-open="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><span class="${dcls}">${dl}${em}</span><span class="co">${x ? kxLogoMini(x) : ""}<b>${esc(t0.account || "（会社なし）")}</b></span><span class="what">${esc(t0.title)}<small class="h2-src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</small></span>${who}<span class="h2-ops" data-noopen>${d.mine ? '<button type="button" class="h2-op done" data-tk-done title="済みにする">✓ 済み</button>' : ""}</span></div>`; };
+    return `<div class="h2-li h2-tkrow" data-tk="${i0}" ${t0.accountId ? `data-tk-open="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><span class="${dcls}">${dl}${em}</span><span class="co">${x ? kxLogoMini(x) : ""}<b>${esc(t0.account || "（会社なし）")}</b></span><span class="what">${esc(t0.title)}<small class="h2-src">${esc(t0.kind === "次回アクション" ? "次回アクション" : lbl(t0.src))}</small></span>${who}<span class="h2-ops" data-noopen>${d.mine ? '<button type="button" class="h2-op done" data-tk-done title="済みにする">✓ 済み</button>' : ""}${(t0.kind === "次回アクション" && t0.accountId) || (t0.id && !String(t0.key || "").startsWith("auto:")) || (d.mine && t0.key) ? '<button type="button" class="h2-del" data-tk-del title="このタスクを消す" aria-label="消す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7"/><path d="M6.5 7l.9 11.6c.1 1 .9 1.9 2 1.9h5.2c1 0 1.9-.8 2-1.9L17.5 7"/><path d="M10.3 11v5.5M13.7 11v5.5"/></svg></button>' : ""}</span></div>`; };
   box.innerHTML = `<div class="kx-note" style="padding:2px 4px 6px">${d.all ? "全員" : d.mine ? "自分" : esc(who)}のタスク（期限の近い順）</div><div class="h2-list">` + (items.length ? items.map((t0, i0) => row(t0, i0)).join("") : '<div class="kx-empty">タスクはありません 🎉</div>') + "</div>";
   box.querySelectorAll("[data-tk-open]").forEach((el) => el.addEventListener("click", (e) => { if (e.target.closest("[data-noopen], button, select, label")) return; openDetail(el.dataset.tkOpen); }));
   box.querySelectorAll("[data-tk-co]").forEach((b) => b.addEventListener("click", () => { if (b.dataset.tkCo) openDetail(b.dataset.tkCo); }));
@@ -1678,6 +1678,25 @@ async function kh2LoadTasks(who0) {
       else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: "完了" }) });
       if (typeof kxDoneToast === "function") kxDoneToast("済みにしました");
     } catch (err) { li.classList.remove("gone"); li.style.display = ""; b.classList.remove("on"); kh2.tkN += 1; if (nb) nb.textContent = kh2.tkN; alert(err.message); }
+  }));
+  kh2WireDel(box, items);
+}
+// 消す（2026-11-19 田中さん「タスクを削除できるようにして」）：済みと同じく、押したらすぐ行を消す。失敗したら戻す
+function kh2WireDel(box, items) {
+  box.querySelectorAll("[data-tk-del]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation(); const li = b.closest("[data-tk]"); if (!li || li.classList.contains("gone")) return;
+    const t0 = items[Number(li.dataset.tk)]; if (!t0) return;
+    if (!confirm(`「${t0.title}」を消しますか？`)) return;
+    li.classList.add("gone"); kh2.tkN = Math.max(0, (kh2.tkN || 1) - 1); const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN;
+    if (kh2.tkOverSet && kh2.tkOverSet.has(t0)) { kh2.tkOverSet.delete(t0); kh2.tkOver = Math.max(0, (kh2.tkOver || 1) - 1); kxTkOverPaint(); }
+    setTimeout(() => { li.style.display = "none"; }, 260);
+    try {
+      if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) });
+      // ほかの人のタスク（全員の一覧）も消せるように、会社のタスクは会社の窓口から消す（担当に関係なく消せる）
+      else if (t0.id && !String(t0.key || "").startsWith("auto:")) await api(t0.accountId ? `/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}/tasks/${t0.id}` : `/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ deleted: true }) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: t0.status || "未着手", deleted: true }) });
+      if (typeof kxDoneToast === "function") kxDoneToast("消しました");
+    } catch (err) { li.classList.remove("gone"); li.style.display = ""; kh2.tkN += 1; if (nb) nb.textContent = kh2.tkN; alert("消せませんでした：" + err.message); }
   }));
 }
 kh2LoadTasks.seq = 0;
@@ -3454,7 +3473,7 @@ async function kxCTaskMount(bg, x) {
             const nm = curP ? (kxSurname(curP.name) || curP.name) : (kxSurname(x.cs || "") || "CS未定");
             return ro ? `<span class="kx-tm-who" title="担当">${esc(nm)}</span>` : `<label class="kx-tm-who" title="次回アクションの担当を変える（ふだんはCS担当）">${esc(nm)}<select data-tm-naown="1">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === curEm ? "selected" : ""}>${esc(p0.name)}${p0.email === csEm ? "（CS担当）" : ""}</option>`).join("")}</select></label>`; })() : (ro || !t.id ? `<span class="kx-tm-who" title="担当">${esc(whoName(t.ownerName || t.owner))}</span>` : `<label class="kx-tm-who" title="担当を変える（託す）${t.byName ? `／${esc(whoName(t.byName))}さんが託した` : ""}">${esc(whoName(t.ownerName || t.owner))}<select data-tm-who="${i}">${people.map((p0) => `<option value="${esc(p0.email)}" ${p0.email === String(t.owner || "").toLowerCase() ? "selected" : ""}>${esc(p0.name)}</option>`).join("")}</select></label>`)}
         ${ro ? `<span class="kx-tm-due ${b}">${t.due ? md(t.due) : ""}</span>` : `<label class="kx-tm-due ${b}" title="期日を変える">${t.due ? `${md(t.due)}${t.time ? ` ${t.time}` : ""}${late ? `<em>${late}日過ぎ</em>` : ""}` : "期日"}${t.na ? `<input type="datetime-local" data-tm-due="${i}" value="${esc(t.due ? `${t.due}T${t.time || "10:00"}` : "")}">` : `<input type="date" data-tm-due="${i}" value="${esc(t.due || "")}">`}</label>`}
-        ${ro || t.na ? "" : `<button type="button" class="kx-tm-x" data-tm-del="${i}" title="消す" aria-label="消す">×</button>`}
+        ${ro ? "" : `<button type="button" class="kx-tm-x" data-tm-del="${i}" title="${t.na ? "次回アクションを消す" : "このタスクを消す"}" aria-label="消す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7"/><path d="M6.5 7l.9 11.6c.1 1 .9 1.9 2 1.9h5.2c1 0 1.9-.8 2-1.9L17.5 7"/><path d="M10.3 11v5.5M13.7 11v5.5"/></svg></button>`}
       </div>`;
     };
     const idx = new Map(list.map((t, i) => [t, i]));
@@ -3487,7 +3506,16 @@ async function kxCTaskMount(bg, x) {
       try { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_owner: sel.value === csEm ? "" : sel.value }) }); x.naOwner = sel.value === csEm ? "" : sel.value; load(); } catch (e) { alert(e.message); } }));
     box.querySelectorAll("[data-tm-who]").forEach((sel) => sel.addEventListener("change", async () => { const t = list[Number(sel.dataset.tmWho)];
       try { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks/${t.id}`, { method: "PUT", body: JSON.stringify({ assignee: sel.value }) }); load(); } catch (e) { alert(e.message); } }));
-    box.querySelectorAll("[data-tm-del]").forEach((b) => b.addEventListener("click", async () => { const t = list[Number(b.dataset.tmDel)]; if (!confirm(`「${t.title}」を消しますか？`)) return; try { await upd(t, { deleted: true }); load(); } catch (e) { alert(e.message); } }));
+    // 消す（2026-11-19 田中さん「タスクを削除できるようにして」）：ゴミ箱をいつも見えるように。次回アクションも消せる（空にする。消したものは次から自動で入れ直さない）
+    box.querySelectorAll("[data-tm-del]").forEach((b) => b.addEventListener("click", async () => { const t = list[Number(b.dataset.tmDel)];
+      if (!confirm(t.na ? `次回アクション「${t.title}」を消しますか？` : `「${t.title}」を消しますか？`)) return;
+      b.disabled = true;
+      try {
+        if (t.na) { await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) }); x.na = ""; x.naAt = ""; x.naDue = ""; }
+        else await upd(t, { deleted: true });
+        if (typeof kxDoneToast === "function") kxDoneToast("消しました");
+        load();
+      } catch (e) { b.disabled = false; alert(e.message); } }));
     box.querySelectorAll("[data-tm-na]").forEach((el) => { el.addEventListener("click", openNa); el.addEventListener("keydown", (e) => { if (e.key === "Enter") openNa(); }); });
     const fb = box.querySelector("[data-tm-fold]"); if (fb) fb.addEventListener("click", () => { open.done = !open.done; load(); });
   };
