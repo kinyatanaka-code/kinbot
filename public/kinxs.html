@@ -914,7 +914,8 @@
   .kx-tm-due{position:relative;display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:#4F6158;border:1px solid #E1E9E5;border-radius:8px;padding:4px 9px;white-space:nowrap;cursor:pointer;background:#fff;}
   .kx-tm-due:hover{border-color:#0E6B4E;} .kx-tm-due input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;} .kx-tm-due em{font-style:normal;font-size:10.5px;color:#fff;background:#D9542B;border-radius:6px;padding:0 5px;}
   .kx-tm-due.late{color:#B4441F;border-color:#F3D2B8;background:#FFF6F2;} .kx-tm-due.today{color:#A2480C;border-color:#F3D2B8;} .kx-tm-due.add{color:#6A7A72;}
-  .kx-tm-x{border:0;background:none;color:#A9B7B0;font-size:16px;cursor:pointer;padding:2px 4px;visibility:hidden;} .kx-tm-row:hover .kx-tm-x{visibility:visible;} .kx-tm-x:hover{color:#B4441F;}
+  .kx-tm-x{flex:none;width:30px;height:30px;border-radius:9px;border:1px solid #E3ECE7;background:#fff;color:#8FA39A;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;} .kx-tm-x:hover{color:#C43D3D;border-color:#F0C9C4;background:#FFF5F4;} .kx-tm-x:disabled{opacity:.5;}
+  .h2-del{width:28px;height:28px;border-radius:8px;border:1px solid #E3ECE7;background:#fff;color:#8FA39A;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;margin-left:4px;vertical-align:middle;} .h2-del:hover{color:#C43D3D;border-color:#F0C9C4;background:#FFF5F4;}
   .kx-tm-empty{padding:18px 12px;font-size:13px;color:#6A7A72;}
   .ar-st.ok{background:#E3F4EC;color:#0d5b47;} .ar-st.wait{background:#E8EEF7;color:#3B5B85;} .ar-next{color:#B4441F;background:#FDECE6;border-radius:6px;padding:1px 7px;font-size:12px;}
   .kx-a-st.skip i{background:repeating-linear-gradient(90deg,#E7C8B5 0 6px,#F6E6DB 6px 12px);} .kx-a-st.skip b,.kx-a-st.skip small{color:#A2480C;}
@@ -1097,6 +1098,21 @@
   .pl-stat{margin-bottom:10px;}
   .pl-body{display:flex;flex-direction:column;gap:6px;} .pl-body .pl-empty{width:100%;}
   .pl-eact{display:flex;gap:6px;align-items:center;margin-top:4px;}
+  /* 掲載先一覧：掲載先ごとの社数を最初の画面に（2026-11-19 久野さん）・未掲載の印 */
+  .pl-cards.pl-tiles{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));}
+  .pl-tile{display:flex;flex-direction:column;gap:8px;text-align:left;padding:14px 16px;border-radius:16px;border:1px solid #E1EBE6;background:#fff;font:inherit;color:#173a30;cursor:pointer;box-shadow:0 1px 2px rgba(13,91,71,.04);}
+  .pl-tile:hover{border-color:#5DCAA5;box-shadow:0 4px 14px rgba(13,91,71,.08);}
+  .pl-tile-h{display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px;color:#0d5b47;min-width:0;}
+  .pl-tile-h span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pl-tile-ic{flex:none;width:30px;height:30px;border-radius:10px;background:#E1F5EE;color:#1d9e75;display:flex;align-items:center;justify-content:center;}
+  .pl-tile-n{font-size:28px;font-weight:800;color:#0d5b47;line-height:1;} .pl-tile-n small{font-size:13px;margin-left:2px;color:#5C7068;}
+  .pl-tile-bar{height:6px;border-radius:99px;background:#EEF4F1;overflow:hidden;} .pl-tile-bar i{display:block;height:100%;background:#5DCAA5;border-radius:99px;}
+  .pl-tile-co{font-size:11.5px;color:#6B7D75;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pl-back{display:flex;align-items:center;gap:10px;margin:0 0 10px;}
+  .pl-back button{border:1px solid #D6E6DF;background:#fff;border-radius:99px;padding:5px 12px;font:inherit;font-size:12.5px;font-weight:700;color:#0d5b47;cursor:pointer;} .pl-back button:hover{border-color:#5DCAA5;}
+  .pl-back b{font-size:15px;color:#0d5b47;} .pl-back span{font-size:12.5px;color:#5C7068;}
+  .pl-nob{border:1px solid #F0D9B5;background:#FFF8EC;color:#A0620A;border-radius:99px;padding:2px 10px;font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;margin-left:auto;}
+  .pl-nob:hover{border-color:#E0A100;} .pl-nob.back{border-color:#D6E6DF;background:#F6FAF8;color:#0d5b47;}
 
   /* 納品前のタグ（2026-11-17） */
   .kx-chtag.predeliv{background:#FFF1E0;color:#B8641A;border:1px solid #F5D3A8;font-weight:800;}
@@ -1313,11 +1329,13 @@
               <div class="kx-note">kinbotにログインしている自分のGoogleアカウントで読みます。開けないときは、シートを自分に閲覧で共有してもらってください。アプリ（script.google.com）のURLではなく、アプリが使っているスプレッドシートのURLを貼ってください。</div>
             </div>
             <div class="kx-sec" style="background:#fff;display:none;flex-direction:column;gap:10px" id="imMapBox">
-              <div class="lb" style="font-size:13px">② どの列を使うか（見出しから自動で当てています）</div>
+              <div class="lb" style="font-size:13px">② 何を取り込むか・どの列を使うか（見出しから自動で当てています）</div>
+              <div class="kx-seg" id="imMode" role="tablist"><button type="button" class="on" data-im-mode="board">CS管理ボード（更新月・確度など）</button><button type="button" data-im-mode="delivered">納品済み（キックオフ・納品メール送付済みにする）</button></div>
+              <div class="kx-note" id="imDelBox" hidden>この月までに納品した会社を、キックオフ済み・納品メール送付済みにします <input type="month" class="kx-in" id="imDelBy" value="2026-09" style="width:auto;display:inline-block" /><br>キックオフ日がもう分かっている会社はその日のまま。分からない会社には納品日を入れます。ほかの項目（更新月・CS担当など）は変えません。</div>
               <div id="imMap" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px"></div>
-              <label class="kx-note"><input type="checkbox" id="imCreate" /> kinXsに無い会社は、新しくユーザーとして追加する（オフなら、一致した会社だけを直します）</label>
+              <label class="kx-note" id="imCreateL"><input type="checkbox" id="imCreate" /> kinXsに無い会社は、新しくユーザーとして追加する（オフなら、一致した会社だけを直します）</label>
               <div style="display:flex;gap:8px;align-items:center"><button type="button" class="kx-btn" id="imPreview">プレビュー</button><button type="button" class="kx-btn" id="imApply" style="background:#0E6B4E;color:#fff;border-color:#0E6B4E" disabled>この内容で反映する</button><span class="kx-note" id="imSt2"></span></div>
-              <div class="kx-note">反映した更新月は「手で決めた更新月」になり、SFの取り込みで上書きしません。確度は変えた履歴が残ります。</div>
+              <div class="kx-note" id="imBoardNote">反映した更新月は「手で決めた更新月」になり、SFの取り込みで上書きしません。確度は変えた履歴が残ります。</div>
             </div>
             <div class="kx-tablebox" id="imPrevBox" style="display:none"><div id="imPrev"></div></div>
           </div>

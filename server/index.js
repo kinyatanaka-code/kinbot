@@ -714,7 +714,7 @@ import {
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
   appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
-  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser, gmailFindSentRequests } from "./google.js";
+  writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser, gmailFindSentRequests, gmailFindLoginCode } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
 import { liveConfigured, createLiveStream, disableLiveStream, playbackUrl as livePlaybackUrl, liveInfo, liveStatus, cfCustomerCodeCheck, cleanupOldLiveInputs, relayMap, relayDestFor } from "./live.js";
@@ -14687,6 +14687,7 @@ async function kinxsBuild() {
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       // 掲載先（どこに掲載しているか）（2026-11-17 久野さんの要望：直販が見やすい一覧にも出す）
       places: Array.isArray((r.info || {}).places) ? r.info.places : [],
+      noPlace: !!(r.info || {}).no_place,   // 掲載先一覧で「未掲載」と決めた会社（2026-11-19 久野さん）
       actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", ksMonth: oldDeal ? "" : ksMonthEff, kenshuOn, kenshuSt: kenshu, delivered, endOn: ymd0(r.end_on),
       // 前月比のための日付（2026-11-04）：納品した日（検収書の回収日 → 10月より前の受注は受注日 → 自動で回収済みにしたものは受注日＋90日）・DOCを最初に受注した日
       deliveredOn: delivered ? (kenshuOn || (oldDeal ? bookedYmd0 : "") || (bookedYmd0 ? new Date(Date.parse(bookedYmd0 + "T00:00:00+09:00") + 90 * 86400000 + 9 * 3600000).toISOString().slice(0, 10) : "")) : "",
@@ -15436,6 +15437,21 @@ app.post("/api/kinxs/tasks/state", async (req, res) => {
     if (del || st0 === "完了" || b.due !== undefined) r = await kxTaskUpdate(req.user, r.id, { ...(del ? { deleted: true } : {}), status: st0, ...(b.due !== undefined ? { due: /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null } : {}) });
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ログインの確認コード（2段階認証）を、ログイン中の本人の Gmail から読んで拡張機能に渡す（2026-11-19 田中さん）。
+//   どのメールでも読めると危ないので、決めたサイトの送り主だけ。本人のメールしか読まない（req.user の Google）
+const KB_LOGIN_CODE_SITES = {
+  brainverse: { from: "noreply@mail.brainverse-ai.com", subjectWord: "確認コード" },   // DOC の AI の管理画面（カジュアル面談エージェント）
+};
+app.get("/api/me/login-code", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "kinbot にログインしてください" });
+    const site = KB_LOGIN_CODE_SITES[String(req.query.site || "")];
+    if (!site) return res.status(400).json({ error: "このサイトの確認コードは読めません" });
+    const since = Math.max(Number(req.query.since) || 0, Date.now() - 15 * 60000);   // 有効期限（10分）を過ぎた古いコードは渡さない
+    const r = await gmailFindLoginCode(req.user, { ...site, sinceMs: since, minutes: 15 });
+    res.json({ ok: true, code: r ? r.code : null, at: r ? r.at : null });
+  } catch (e) { res.status(e.needScope ? 403 : 500).json({ error: e.needScope ? "Gmail を読む許可がありません。kinbot の設定から Google をつなぎ直してください" : e.message }); }
 });
 app.put("/api/kinxs/tasks/:id", async (req, res) => {
   try {
@@ -16460,6 +16476,7 @@ const KX_IMPORT_GUESS = {
   name: /企業名|会社名|取引先|顧客名|法人名/, renew: /^更新月$|更新月(?![②2])/, renew2: /更新月[②2]/, rank: /確度|更新ラベル|更新確度|ランク/, cs: /CS担当|CS|担当CS/,
   product: /商品|プラン|契約内容/, start: /契約開始|開始日|利用開始/, end: /契約終了|終了日|満了|利用終了/, memo: /メモ|備考|特記/,
   prod: /本番サイト|本番URL|本番環境/,
+  delivered: /納品(?!メール)/,
 };
 function kxParseCsv(text) {
   const rows = []; let row = [], cur = "", q = false;
@@ -16529,6 +16546,44 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
     const byKey = new Map(); for (const a of accs) { const k = csCoKey(a.name || ""); if (k && !byKey.has(k)) byKey.set(k, a); }
     const cell = (r, k) => (map[k] == null || map[k] === "" ? "" : String((r || [])[Number(map[k])] ?? "").trim());
     const out = { matched: 0, created: 0, skipped: 0, items: [] };
+    // 納品済みの取り込み（2026-11-19 久野さん「納品されているかどうかの判別をこのシートから行う。2026年9月までに納品済みの企業は、キックオフ・納品メール送付済みのステータスに」）。
+    //   ほかの列（更新月・CS担当など）は触らない。会社を新しく足すこともしない（納品の印を付けるだけなので）
+    if (b.mode === "delivered") {
+      if (map.delivered == null || map.delivered === "") return res.status(400).json({ error: "納品の列を選んでください" });
+      const by = /^20\d{2}-\d{2}$/.test(String(b.deliveredBy || "")) ? String(b.deliveredBy) : "2026-09";
+      // キックオフ日がもう分かっている会社（手で入れた・CS連携・議事録）は、その日のまま。分からない会社だけ納品日を入れる
+      const { items: built } = await kinxsBuild().catch(() => ({ items: [] }));
+      const koOf = new Map(built.map((x) => [x.id, x.kickoffOn || ""]));
+      const mailOf = new Map(built.map((x) => [x.id, String(x.mail || "")]));
+      const md = (t) => t ? `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}` : "";
+      const seen = new Set();
+      for (const r of rows) {
+        const name = cell(r, "name"); if (!name) { out.skipped++; continue; }
+        const acc = byKey.get(csCoKey(name)) || null;
+        const raw = cell(r, "delivered");
+        // 納品の欄：日付（2026/9/12）→ その日。年月だけ（2026年9月）→ その月の1日。日付なし（済・完了・✓）→ 日付なしの納品済み
+        const day = kxYmd(raw), ym = day ? day.slice(0, 7) : kxRenewMonth(raw);
+        const doneMark = !ym && /済|完了|納品|✓|✔|〇|○|^true$|^yes$/i.test(String(raw).normalize("NFKC"));
+        const item = { name, match: acc ? acc.name : "", delivered: day || (ym ? ym : doneMark ? "済（日付なし）" : raw) };
+        if (!acc) { item.status = "見つからない（スキップ）"; out.skipped++; out.items.push(item); continue; }
+        if (!ym && !doneMark) { item.status = raw ? "納品の日付が読めない（スキップ）" : "納品の記入なし（スキップ）"; out.skipped++; out.items.push(item); continue; }
+        if (ym && ym > by) { item.status = `${Number(by.slice(5))}月より後の納品（スキップ）`; out.skipped++; out.items.push(item); continue; }
+        if (seen.has(acc.account_id)) { item.status = "同じ会社がシートに2回（スキップ）"; out.skipped++; out.items.push(item); continue; }
+        seen.add(acc.account_id);
+        const patch = {}; const did = [];
+        const ko = koOf.get(acc.account_id) || "";
+        if (ko) did.push(`キックオフ ${md(ko)}（そのまま）`);
+        else if (day || ym) { patch.kickoff_on = day || `${ym}-01`; did.push(`キックオフ ${md(patch.kickoff_on)}（納品日を入れる）`); }
+        else did.push("キックオフ日は分からないので入れない");
+        if (acc.mail_done === true || /^送付済み$/.test(mailOf.get(acc.account_id) || "")) did.push("納品メールはもう送付済み");
+        else { patch.mail_done = true; did.push("納品メールを送付済みに"); }
+        item.status = Object.keys(patch).length ? "一致" : "一致（もう反映済み）"; item.change = did.join("・");
+        out.items.push(item); out.matched++;
+        if (!dry && Object.keys(patch).length) await kinxsUpdate(acc.account_id, patch, req.user);
+      }
+      if (!dry) console.log(`[kinxs] 納品済みを取り込み（${by}まで）：一致 ${out.matched}・スキップ ${out.skipped} by ${req.user}`);
+      return res.json({ ok: true, mode: "delivered", ...out, items: out.items.slice(0, 1000) });
+    }
     for (const r of rows) {
       const name = cell(r, "name"); if (!name) { out.skipped++; continue; }
       const key = csCoKey(name);
@@ -18006,6 +18061,8 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
       const cur = { ...(r1.info || {}) };
       for (const k2 of ["website", "address", "phone", "vr_url", "ai_url", "site_url", "prod_url"]) if (k2 in b.info) cur[k2] = String(b.info[k2] || "").slice(0, 500);
       // 掲載先：どこ（採用サイト・マイナビなど）・URL・メモ を何件でも（20件まで）。URL は http(s) のものだけ（2026-11-17 久野さん）
+      // 未掲載（掲載済みの扱いだが、まだどこにも載せていない会社）。掲載先一覧の「掲載済みで未記入」から外す（2026-11-19 久野さん）
+      if ("no_place" in b.info) cur.no_place = !!b.info.no_place;
       if (Array.isArray(b.info.places)) cur.places = b.info.places.slice(0, 20).map((p) => ({ where: String((p && p.where) || "").trim().slice(0, 60), url: /^https?:\/\//i.test(String((p && p.url) || "").trim()) ? String(p.url).trim().slice(0, 500) : "", memo: String((p && p.memo) || "").trim().slice(0, 200) })).filter((p) => p.where || p.url);
       // sf_id：この人が SF のどの取引先責任者か。名前やメールを直しても同じ人を直せるように持っておく（2026-11-17）
       if (Array.isArray(b.info.contacts)) { kxOldCts = Array.isArray(cur.contacts) ? cur.contacts : []; cur.contacts = b.info.contacts.slice(0, 10).map((c) => ({ name: String(c.name || "").slice(0, 60), title: String(c.title || "").slice(0, 60), phone: String(c.phone || "").slice(0, 40), email: String(c.email || "").slice(0, 120), ...(/^003[0-9a-zA-Z]{12,15}$/.test(String(c.sf_id || "")) ? { sf_id: String(c.sf_id) } : {}) })).filter((c) => c.name || c.email || c.phone); }
@@ -33754,8 +33811,12 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-19h MOCHICAの全書き込み操作を監査ログ（mc_audit_log）に記録・MOCHICA架電のCSV取り込みを自動整形＋読み方の編集に対応・全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
+const BUILD_TAG = "2026-11-19m MOCHICAの全書き込み操作を監査ログ（mc_audit_log）に記録・MOCHICA架電のCSV取り込みを自動整形＋読み方の編集に対応。／2026-11-19k 拡張機能 2.2.27：DOC の AI の質問を毎日読む。取り込みの窓で「毎日（平日）○時を過ぎたら」に印を付けると、その時刻を過ぎた最初のときに管理画面を別の窓で開き、ログインして全部の会社の増えたチャットだけ読み、1分後に窓を閉じる（パスワードが無ければその窓で聞く）。／2026-11-19j 拡張機能 2.2.26：2段階認証は、確認コードの画面が出ているあいだメールを見つづけ、新しい確認コードのメールが来たらそれを入れ直して確認を押す（10分まで）。／2026-11-19i 拡張機能 2.2.25：DOC の AI の取り込みは、1社読むごとに管理画面のはじめのページを開き直してログインし直してから次の会社を読む（メール・パスワードは取り込みを始めるときに入れ、拡張機能の裏側の消える置き場だけに置く・確認コードは Gmail から自動）。／2026-11-19h 拡張機能 2.2.24：DOC の AI の管理画面（カジュアル面談エージェント）の2段階認証。確認コードの欄が出たら、kinbot が本人の Gmail に届いた確認コード（noreply@mail.brainverse-ai.com）を読み、拡張機能が欄に入れて確認を押す（/api/me/login-code。読めるのは決めた送り主だけ）。／2026-11-19g kinXs：タスクを消せるように（会社の詳しい画面のタスクとホームのタスクに、いつも見えるゴミ箱。次回アクションも消せる）。あわせて久野さんの要望：掲載先ありは掲載先ごとの社数のカードが最初の画面・「掲載済みで未記入」で［未掲載にする］・取り込みに「納品済み」（シートの納品日が選んだ月までの会社をキックオフ済み・納品メール送付済みに）。／2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
 const BUILD_FEATURES = [
+  "拡張機能：DOC の AI の質問を毎日（平日）決めた時刻に、増えたところだけ自動で読む",
+  "拡張機能：DOC の AI の取り込みで、1社ごとにログインし直して次の会社を読む（2段階認証も自動）",
+  "拡張機能：DOC の AI の管理画面の2段階認証の確認コードを、本人の Gmail から自動で入れる",
+  "kinXs：タスクを消す（ゴミ箱）・掲載先ごとの社数を最初の画面に・未掲載を選べる・シートから納品済みを取り込んでキックオフ・納品メール送付済みに",
   "メンバー：役割（クローザー・インサイド・予備・CS）を DOC と MOCHICA で別々に持つ。DOC の報告・集計は DOC の役割だけ",
   "for MOCHICA の架電：リードの重複を作らない（会社名＋電話・メール・Web・法人番号の鍵・過去も含めて1件）",
   "for MOCHICA の架電：一覧（検索・絞り込み・並べ替え）・トークスクリプト・会社情報の編集と複数番号・レポート（期間・人・リスト・日ごと）",
