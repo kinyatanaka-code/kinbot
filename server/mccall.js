@@ -16,10 +16,11 @@
 import { dbPool, listUsers, approachBanHit, approachBanHitSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected } from "./google.js";
 import { fixMojibake } from "./docs.js";
-import { createTask, deleteTask, sfQuery, sfUpdateRecord } from "./salesforce.js";
+import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
 import { lookupMynavi } from "./analyzer.js";
 import { fetchPageText } from "./companyenrich.js";
+import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 
 const BIZ = "MOCHICA";
 
@@ -92,6 +93,12 @@ async function ensure() {
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_lead_keys_lead ON mc_lead_keys(lead_id)`);
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS dup_of INT`);
     await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS dup_ok BOOLEAN NOT NULL DEFAULT false`);
+    // 条件で割り振るための属性（リードソース・都道府県・業界・業種・最終架電・ホットの条件・SF の過去失注）（2026-11-19 福井さん）。mcseg.js
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS seg JSONB`);
+    // 保管のリスト（2026-11-19）：BALES から移したリストなど。管理者には見えるが、だれの「かける」にも出ない。
+    //   ここから条件で今のリストへ持ってくる（SHOBO から足す）か、「かける対象にする」で出す。bales_key は移した元の BALES のリスト
+    await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS stock BOOLEAN NOT NULL DEFAULT false`);
+    await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS bales_key TEXT`);
     await backfillLeadKeys();
     await q(`CREATE TABLE IF NOT EXISTS mc_cross_moves (
       id SERIAL PRIMARY KEY, from_biz TEXT, to_biz TEXT, from_ref TEXT, from_name TEXT, to_list_id INT,
@@ -342,6 +349,68 @@ export function hiresBucket(n) {
   for (const [max, v] of B) if (n <= max) return v; return "301名～";
 }
 
+// ---- 条件で割り振る（2026-11-19 福井さん「SHOBO のリスト管理を kinbot 準拠で」） ----
+// まだ属性を計算していない（または計算のしかたが古い）リードの seg を埋める。リストを開いたときに、そのリストの分だけ。
+//   Bales のリードは取り込んだ行（ホットの判定・SF のリード）、DOC のリードは kincall の行（ソース・業種・最後にかけた日時）も読む
+export async function refreshSeg(listId) {
+  // 1つのリストでも、いくつかのリストでも（SHOBO のほかのリストから持ってくるとき）
+  const ids = (Array.isArray(listId) ? listId : [listId]).map((x) => parseInt(x, 10)).filter((x) => x > 0);
+  if (!ids.length) return 0;
+  let n = 0;
+  for (let round = 0; round < 80; round++) {
+    const rows = (await P().query(`SELECT c.id, c.src, c.company, c.phone, c.person, c.data, c.hearing,
+        b.hot_d, b.sf->'lead' AS sf_lead, b.data AS b_data,
+        t.source AS t_source, t.industry AS t_industry, t.status AS t_status, t.extra AS t_extra,
+        (SELECT max(l.at) FROM call_logs l WHERE c.src='doc' AND l.target_id = t.id) AS t_last
+      FROM mc_call_leads c
+      LEFT JOIN mochica_bales_rows b ON c.src='bales' AND b.list_key = regexp_replace(c.src_key, '[|][^|]*$', '') AND b.row_key = regexp_replace(c.src_key, '^.*[|]', '')
+      LEFT JOIN call_targets t ON c.src='doc' AND c.src_key ~ '^[0-9]+$' AND t.id = c.src_key::int
+      WHERE c.list_id = ANY($1::int[]) AND (c.seg IS NULL OR COALESCE((c.seg->>'v')::int,0) < $2) ORDER BY c.id LIMIT 1000`, [ids, SEG_V])).rows;
+    if (!rows.length) break;
+    // Bales のリードは中身を mc_call_leads に持たず、取り込んだ行（mochica_bales_rows）を読む（架電画面と同じ）
+    const items = rows.map((r) => ({ id: r.id, seg: segOf({ src: r.src, data: r.src === "bales" ? r.b_data : r.data, company: r.company, phone: r.phone, person: r.person, hearing: r.hearing, hotD: r.hot_d, sfLead: r.sf_lead,
+      doc: r.src === "doc" ? { source: r.t_source, industry: r.t_industry, status: r.t_status, extra: r.t_extra, last_at: r.t_last } : null }) }));
+    await P().query(`UPDATE mc_call_leads c SET seg = x.seg FROM jsonb_to_recordset($1::jsonb) AS x(id int, seg jsonb) WHERE c.id = x.id`, [JSON.stringify(items)]);
+    n += rows.length;
+    if (rows.length < 1000) break;
+  }
+  return n;
+}
+// 絞り込みの軸。値は SQL で出す（最終架電は日がたつと変わるので、保存せずにその場で数える）
+const LAST_TS = `GREATEST(c.last_at, NULLIF(c.seg->>'extLast','')::timestamptz)`;
+const OUTCOME_SQL = `CASE c.last_outcome ${Object.values(REACH).flatMap((r) => Object.entries(r.outcomes)).map(([k, v]) => `WHEN '${k}' THEN '${v}'`).join(" ")} ELSE c.last_outcome END`;
+export const SEG_DIMS = {
+  // どこから足したリードか（2026-11-19 福井さん「SF・BALES・SHOBO から」）。SHOBO＝CSV で SHOBO に直接入れたもの
+  origin: { label: "取り込み元", sql: `CASE c.src WHEN 'sf' THEN 'SF' WHEN 'bales' THEN 'BALES' WHEN 'csv' THEN 'SHOBO（CSV）' WHEN 'doc' THEN 'DOC' ELSE c.src END`, order: ["SF", "BALES", "SHOBO（CSV）", "DOC"] },
+  source: { label: "リードソース", sql: `COALESCE(NULLIF(c.seg->>'source',''),'不明')` },
+  stage: { label: "ステージ（BALES・SF・DOC）", sql: `COALESCE(NULLIF(c.seg->>'stage',''),'なし')` },
+  pref: { label: "都道府県", sql: `COALESCE(NULLIF(c.seg->>'pref',''),'不明')` },
+  gyokai: { label: "業界", sql: `COALESCE(NULLIF(c.seg->>'gyokai',''),'不明')` },
+  gyoshu: { label: "業種", sql: `COALESCE(NULLIF(c.seg->>'gyoshu',''),'不明')` },
+  last: { label: "最終架電", sql: `CASE WHEN ${LAST_TS} IS NULL THEN '未架電' WHEN ${LAST_TS} > now() - interval '7 days' THEN '7日以内'
+    WHEN ${LAST_TS} > now() - interval '30 days' THEN '8〜30日前' WHEN ${LAST_TS} > now() - interval '90 days' THEN '31〜90日前' ELSE '91日以上前' END`, order: ["未架電", "91日以上前", "31〜90日前", "8〜30日前", "7日以内"] },
+  lastResult: { label: "前回の結果", sql: `CASE WHEN c.last_at IS NOT NULL AND (NULLIF(c.seg->>'extLast','') IS NULL OR c.last_at >= (c.seg->>'extLast')::timestamptz) THEN ${OUTCOME_SQL}
+    ELSE COALESCE(NULLIF(c.seg->>'extResult',''),'未架電') END` },
+  hot: { label: "ホット度", sql: `CASE WHEN COALESCE(c.hot,0) >= 3 THEN 'ホット' WHEN COALESCE(c.hot,0) = 2 THEN 'ウォーム' ELSE 'コールド' END`, order: ["ホット", "ウォーム", "コールド"] },
+  lost: { label: "過去失注（SF の失注理由）", sql: `CASE WHEN jsonb_typeof(c.seg->'lost') = 'object' THEN COALESCE(NULLIF(c.seg->'lost'->>'reason',''),'理由なし') ELSE '失注なし' END` },
+};
+// ホットの条件（そろっているものだけに絞る）。SHOBO で聞いたこと（hearing）はその場で見る
+export const SEG_CONDS = {
+  name: { label: "担当者名が分かる", sql: `(c.seg->'conds' ? 'name')` },
+  need: { label: "ニーズを聞けた", sql: `(c.seg->'conds' ? 'need' OR COALESCE(c.hearing->>'need','') <> '')` },
+  when: { label: "検討時期を聞けた", sql: `(c.seg->'conds' ? 'when' OR COALESCE(c.hearing->>'when','') NOT IN ('','未定'))` },
+};
+// filters：{ source:[…], pref:[…], …, conds:["name",…] } → WHERE の部分。同じ軸の中は「どれか」、軸どうしは「すべて」
+export function segWhere(filters, p) {
+  const w = [];
+  for (const [k, d] of Object.entries(SEG_DIMS)) {
+    const v = Array.isArray(filters && filters[k]) ? filters[k].map((x) => String(x).slice(0, 80)).filter(Boolean).slice(0, 200) : [];
+    if (v.length) { p.push(v); w.push(`(${d.sql}) = ANY($${p.length}::text[])`); }
+  }
+  for (const c of Array.isArray(filters && filters.conds) ? filters.conds : []) if (SEG_CONDS[c]) w.push(SEG_CONDS[c].sql);
+  return w;
+}
+
 export function registerMcCall(app, deps) {
   const { isAdmin, sfActor, mochicaSet } = deps;
   const isMcIntern = deps.isMcIntern || (async () => false);
@@ -423,9 +492,10 @@ export function registerMcCall(app, deps) {
   const adminOnly = (fn) => guard(async (req, res) => { if (!isAdmin(req)) return res.status(403).json({ error: "リストの管理は管理者だけができます" }); await fn(req, res); });
 
   // 自分がかけてよいリスト（メンバー指定なし＝MOCHICA のメンバー全員。管理者はすべて見える）
-  async function myListIds(req) {
+  // withStock：保管のリスト（BALES から移したものなど）も入れる。管理者のリスト管理の画面だけ。かける順番・一覧には出さない
+  async function myListIds(req, withStock = false) {
     const u = me(req);
-    const rows = (await P().query(`SELECT id, members FROM mc_call_lists WHERE biz=$1 AND NOT closed`, [BIZ])).rows;
+    const rows = (await P().query(`SELECT id, members FROM mc_call_lists WHERE biz=$1 AND NOT closed AND (NOT stock OR $2)`, [BIZ, !!(withStock && isAdmin(req))])).rows;
     if (isAdmin(req)) return rows.map((r) => r.id);
     // MOCHICA のインターン（インサイド8名など）も「MOCHICA 全員」のリストに入る（2026-11-18）
     const mc = await mochicaSet().catch(() => new Set());
@@ -435,8 +505,8 @@ export function registerMcCall(app, deps) {
 
   // ---- リスト ----
   app.get("/api/mccall/lists", guard(async (req, res) => {
-    const ids = await myListIds(req);
-    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at,
+    const ids = await myListIds(req, req.query.stock === "1");
+    const rows = ids.length ? (await P().query(`SELECT l.id, l.name, l.note, l.members, l.created_at, l.stock, l.bales_key,
         count(c.id) AS total, count(c.id) FILTER (WHERE NOT c.done) AS open,
         count(c.id) FILTER (WHERE NOT c.done AND (c.next_at IS NULL OR c.next_at <= now())) AS now,
         count(c.id) FILTER (WHERE c.cross_from IS NOT NULL) AS cross
@@ -454,6 +524,7 @@ export function registerMcCall(app, deps) {
     if (b.name != null) await P().query(`UPDATE mc_call_lists SET name=$2 WHERE id=$1`, [id, clip(b.name, 80) || "名前なし"]);
     if (Array.isArray(b.members)) await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [id, b.members.map((x) => String(x).toLowerCase()).slice(0, 200)]);
     if (b.closed != null) await P().query(`UPDATE mc_call_lists SET closed=$2 WHERE id=$1`, [id, !!b.closed]);
+    if (b.stock != null) await P().query(`UPDATE mc_call_lists SET stock=$2 WHERE id=$1`, [id, !!b.stock]);
     if (b.script != null) await P().query(`UPDATE mc_call_lists SET script=$2 WHERE id=$1`, [id, String(b.script).slice(0, 20000) || null]);
     res.json({ ok: true });
   }));
@@ -550,17 +621,96 @@ export function registerMcCall(app, deps) {
       if (out.length) return res.status(400).json({ error: "このリストのメンバーに入っていない人がいます。先に「メンバー」で足してください" });
     }
     const ids = leadIdsOf(b);
-    const rows = (await P().query(`SELECT id FROM mc_call_leads WHERE list_id=$1 AND NOT done AND dup_of IS NULL ${ids.length ? "AND id = ANY($2)" : ""} ORDER BY COALESCE(hot,0) DESC, id`, ids.length ? [id, ids] : [id])).rows;
-    if (!rows.length) return res.status(400).json({ error: "分けるリードがありません（終わったリードは分けません）" });
+    // 条件で割り振る（filters）：kincall の「ソースから配る」「グループから配る」と同じく、条件に合うリードだけを、1人 per 件まで配る。
+    //   onlyFree…まだだれにも割り振っていないものだけ。dryRun…配らずに件数だけ返す（画面の「試算」）。
+    //   並びは ホット → 最後にかけた日が古い（かけていないものが先）→ 取り込んだ順。kincall の distributeGroupLeads と同じ「古いものから」
+    const filters = b.filters && typeof b.filters === "object" ? b.filters : null;
+    const per = Math.max(0, Math.min(5000, parseInt(b.per, 10) || 0));
+    if (filters) await refreshSeg(id);
+    const p = [id]; const w = ["c.list_id=$1", "NOT c.done", "c.dup_of IS NULL"];
+    if (ids.length) { p.push(ids); w.push(`c.id = ANY($${p.length})`); }
+    if (filters) w.push(...segWhere(filters, p));
+    if (b.onlyFree) w.push("c.assigned_to IS NULL");
+    const rows = (await P().query(`SELECT c.id FROM mc_call_leads c WHERE ${w.join(" AND ")}
+      ORDER BY COALESCE(c.hot,0) DESC, ${LAST_TS} NULLS FIRST, c.id`, p)).rows;
+    if (!rows.length) {
+      if (b.dryRun) return res.json({ ok: true, dryRun: true, matched: 0, assigned: 0, per: [] });
+      return res.status(400).json({ error: filters ? "条件に合うリードがありません。条件をゆるめてください" : "分けるリードがありません（終わったリードは分けません）" });
+    }
+    const names = await nameMap();
     if (!members.length) {
+      if (b.dryRun) return res.json({ ok: true, dryRun: true, matched: rows.length, cleared: rows.length, per: [] });
       const x = await P().query(`UPDATE mc_call_leads SET assigned_to=NULL WHERE id = ANY($1)`, [rows.map((r) => r.id)]);
       return res.json({ ok: true, cleared: x.rowCount, per: [] });
     }
+    // ホットな順に1件ずつ交互に配る（先頭からまとめて配るとホットが1人に偏るため）。per があればそこで止める
+    const take = per ? rows.slice(0, per * members.length) : rows;
     const buckets = members.map(() => []);
-    rows.forEach((r, i) => buckets[i % members.length].push(r.id));
+    take.forEach((r, i) => buckets[i % members.length].push(r.id));
+    const plan = members.map((m, i) => ({ name: names.get(m) || m, n: buckets[i].length }));
+    if (b.dryRun) return res.json({ ok: true, dryRun: true, matched: rows.length, assigned: take.length, per: plan });
     for (let i = 0; i < members.length; i++) if (buckets[i].length) await P().query(`UPDATE mc_call_leads SET assigned_to=$2 WHERE id = ANY($1)`, [buckets[i], members[i]]);
-    const names = await nameMap();
-    res.json({ ok: true, assigned: rows.length, per: members.map((m, i) => ({ name: names.get(m) || m, n: buckets[i].length })) });
+    if (filters) console.log(`[mccall] リスト${id}を条件で割り振り：${take.length}件（条件に合う${rows.length}件）→ ${plan.map((x) => `${x.name}${x.n}`).join("・")} 条件=${JSON.stringify(filters).slice(0, 300)} by ${me(req)}`);
+    res.json({ ok: true, matched: rows.length, assigned: take.length, per: plan });
+  }));
+  // 条件で割り振るときの、軸ごとの件数（残り・そのうちまだ割り振っていない数）。filters を渡すと、その条件で絞った中での件数
+  app.post("/api/mccall/lists/:id/segments", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    // pool：このリストではなく、SHOBO のほかのリスト（保管も含む）を数える＝「SHOBO から足す」の候補（2026-11-19）
+    const scope = b.pool ? await poolIds(id, b.from) : [id];
+    const filled = await refreshSeg(scope);
+    const filters = b.filters && typeof b.filters === "object" ? b.filters : {};
+    const base = poolBase(!!b.pool);
+    // 軸ごとに「その軸以外の条件」で数える（同じ軸の中で選び足せるように。EC サイトの絞り込みと同じ考え方）
+    const dims = {};
+    for (const [k, d] of Object.entries(SEG_DIMS)) {
+      const p = [scope]; const w = [...base, ...segWhere({ ...filters, [k]: [] }, p)];
+      const rows = (await P().query(`SELECT ${d.sql} AS v, count(*) AS n, count(*) FILTER (WHERE c.assigned_to IS NULL) AS free
+        FROM mc_call_leads c WHERE ${w.join(" AND ")} GROUP BY 1 ORDER BY 2 DESC LIMIT 120`, p)).rows.map((r) => ({ v: r.v, n: +r.n, free: +r.free }));
+      if (d.order) rows.sort((a, c) => d.order.indexOf(a.v) - d.order.indexOf(c.v));
+      dims[k] = { label: d.label, items: rows };
+    }
+    const p = [scope]; const w = [...base, ...segWhere({ ...filters, conds: [] }, p)];
+    const cr = (await P().query(`SELECT ${Object.entries(SEG_CONDS).map(([k, c]) => `count(*) FILTER (WHERE ${c.sql}) AS ${k}`).join(", ")} FROM mc_call_leads c WHERE ${w.join(" AND ")}`, p)).rows[0];
+    const conds = Object.entries(SEG_CONDS).map(([k, c]) => ({ k, label: c.label, n: +cr[k] }));
+    const p2 = [scope]; const w2 = [...base, ...segWhere(filters, p2)];
+    const t = (await P().query(`SELECT count(*) AS n, count(*) FILTER (WHERE c.assigned_to IS NULL) AS free,
+        count(*) FILTER (WHERE c.seg->>'prefBy' = '電話') AS pref_tel FROM mc_call_leads c WHERE ${w2.join(" AND ")}`, p2)).rows[0];
+    res.json({ ok: true, filled, matched: +t.n, free: +t.free, prefByTel: +t.pref_tel, dims, conds });
+  }));
+  // 「SHOBO から足す」の元：このリスト以外の、閉じていない MOCHICA のリスト（保管も含む）。from で絞れる
+  async function poolIds(id, from) {
+    const want = (Array.isArray(from) ? from : []).map((x) => parseInt(x, 10)).filter((x) => x > 0);
+    const rows = (await P().query(`SELECT id FROM mc_call_lists WHERE biz=$1 AND NOT closed AND id <> $2`, [BIZ, id])).rows.map((r) => r.id);
+    return want.length ? rows.filter((x) => want.includes(x)) : rows;
+  }
+  // 数える・選ぶときの決まり。持ってくるときは、いま架電中（10分以内に開いた）のリードは動かさない
+  const poolBase = (pool) => ["c.list_id = ANY($1::int[])", "NOT c.done", "c.dup_of IS NULL", ...(pool ? ["(c.locked_by IS NULL OR c.locked_at < now() - interval '10 minutes')"] : [])];
+
+  // SHOBO から足す（2026-11-19 福井さん「SF・BALES・SHOBO からリードを追加できる形式」）：
+  //   SHOBO のほかのリスト（BALES から移した保管のリストなど）から、条件に合うリードをこのリストへ移す。
+  //   リードは MOCHICA 全体で1件だけ（重複させない決まり）なので、写すのではなく移す。担当は外す。架電の記録はそのまま
+  app.post("/api/mccall/lists/:id/from-shobo", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const t = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE id=$1`, [id])).rows[0];
+    if (!t || t.closed) return res.status(404).json({ error: "リストが見つからないか、閉じています" });
+    const scope = await poolIds(id, b.from);
+    if (!scope.length) return res.status(400).json({ error: "持ってくる元のリストがありません" });
+    await refreshSeg(scope);
+    const lim = Math.max(1, Math.min(20000, parseInt(b.limit, 10) || 300));
+    const p = [scope]; const w = [...poolBase(true), ...segWhere(b.filters && typeof b.filters === "object" ? b.filters : {}, p)];
+    if (b.onlyFree) w.push("c.assigned_to IS NULL");
+    const where = w.join(" AND ");
+    const matched = +(await P().query(`SELECT count(*) FROM mc_call_leads c WHERE ${where}`, p)).rows[0].count;
+    if (b.dryRun) return res.json({ ok: true, dryRun: true, matched, moving: Math.min(matched, lim) });
+    if (!matched) return res.status(400).json({ error: "条件に合うリードがありません。条件をゆるめてください" });
+    p.push(id); const to = p.length; p.push(lim); const L = p.length;
+    const x = await P().query(`UPDATE mc_call_leads SET list_id=$${to}, assigned_to=NULL, locked_by=NULL, locked_at=NULL WHERE id IN (
+        SELECT c.id FROM mc_call_leads c WHERE ${where}
+          AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id=$${to} AND d.src=c.src AND d.src_key=c.src_key)
+        ORDER BY COALESCE(c.hot,0) DESC, ${LAST_TS} NULLS FIRST, c.id LIMIT $${L})`, p);
+    console.log(`[mccall] SHOBO のほかのリストから リスト${id} へ ${x.rowCount}件（条件に合う${matched}件）条件=${JSON.stringify(b.filters || {}).slice(0, 300)} by ${me(req)}`);
+    res.json({ ok: true, matched, moved: x.rowCount });
   }));
   // 選んだリードを他の開いているリストへ移す。移し先に同じリードがあるものは二重にしないため移さず、件数を返す。
   // 担当は外す（移し先のメンバーでない人に付いたままだと、だれの順番にも出なくなるため）。過去の架電記録はそのまま残す。
@@ -625,6 +775,109 @@ export function registerMcCall(app, deps) {
     mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     res.json({ ok: true, added, banned, dup, bad, nolead, nokey, examples: ex.list });
   }));
+
+  // ---- SF から足す（2026-11-19 福井さん「リードソースに SF も。SF・BALES・SHOBO からリードを追加できる形式」） ----
+  //   SF の MOCHICA のリード（コンバート前）を、ステータス・リードソース・失注の有無・最後の活動からの日数・会社名で絞って足す。
+  //   重複させない決まり（電話・会社名・メールのどれかが同じなら同じリード）とアプローチ禁止はほかの取り込みと同じ。
+  //   SF は読むだけ（書き換えない）。架電の結果は今までどおり sf_lead_id のリードへ活動として書く
+  app.get("/api/mccall/sf/options", adminOnly(async (req, res) => {
+    const owner = await sfActor(req);
+    const base = sfLeadWhere({});
+    const agg = async (f) => ((await sfQuery(owner, `SELECT ${f}, COUNT(Id) n FROM Lead WHERE ${base} GROUP BY ${f} ORDER BY COUNT(Id) DESC LIMIT 200`)).records || [])
+      .map((r) => ({ v: r[f] == null || r[f] === "" ? "（なし）" : String(r[f]), n: +r.n || 0 }));
+    const [status, source] = await Promise.all([agg("Status"), agg("LeadSource")]);
+    res.json({ ok: true, status, source, total: status.reduce((a, x) => a + x.n, 0) });
+  }));
+  app.post("/api/mccall/lists/:id/from-sf", adminOnly(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const l = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE id=$1`, [id])).rows[0];
+    if (!l || l.closed) return res.status(404).json({ error: "リストが見つからないか、閉じています" });
+    const owner = await sfActor(req);
+    const where = sfLeadWhere(b.filters || {});
+    const total = +((await sfQuery(owner, `SELECT COUNT() FROM Lead WHERE ${where}`)).totalSize || 0);
+    const lim = Math.max(1, Math.min(5000, parseInt(b.limit, 10) || 300));
+    if (b.dryRun) return res.json({ ok: true, dryRun: true, total, taking: Math.min(total, lim) });
+    if (!total) return res.status(400).json({ error: "条件に合う SF のリードがありません。条件をゆるめてください" });
+    // 最後の活動が古いものから（kincall の「最後にかけた日が古い順」と同じ考え方）
+    const recs = await sfQueryAll(owner, `SELECT ${SF_LEAD_FIELDS.join(", ")} FROM Lead WHERE ${where} ORDER BY LastActivityDate ASC NULLS FIRST, CreatedDate DESC LIMIT ${lim}`, lim);
+    await loadApproachBans().catch(() => {});
+    let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples(); const companies = [];
+    for (const rec of recs) {
+      const r = sfLeadRow(rec, judgeHot);
+      if (r.ban || approachBanHitSync({ company: r.company, phone: r.phone, leadId: r.sf_lead_id })) { banned++; continue; }
+      if (!r.company && digits(r.phone).length < 9) { bad++; continue; }
+      const x = await addLeadUnique({ list_id: id, src: "sf", src_key: String(rec.Id).slice(0, 18), company: r.company, phone: r.phone, person: r.person, sf_lead_id: r.sf_lead_id, hot: r.hot, data: r.data }, { data: r.data });
+      if (x.added) { added++; if (x.nokey) nokey++; companies.push(r.company); } else if (x.bad) bad++; else { dup++; ex.push(r.company, x.dup); }
+    }
+    mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
+    console.log(`[mccall] SF から リスト${id} へ ${added}件（読んだ${recs.length}・重複${dup}・禁止${banned}）条件=${JSON.stringify(b.filters || {}).slice(0, 300)} by ${me(req)}`);
+    res.json({ ok: true, total, read: recs.length, added, banned, dup, bad, nokey, examples: ex.list });
+  }));
+
+  // ---- BALES のリストを SHOBO へ移す（2026-11-19 福井さん「ゆくゆくは BALES は解約するので、BALES リストはすべて移行しておいて」） ----
+  //   BALES のリスト1つにつき SHOBO の「保管」のリストを1つ作り（名前は「BALES：元の名前」）、最新の取り込みの行をすべて入れる。
+  //   小さいリストから先に入れる（「すべてのリード」のような大きいリストを先に入れると、ほかのリストの会社が全部そちらに入ってしまうため）。
+  //   リードは MOCHICA 全体で1件だけなので、すでに SHOBO にある会社は入れない（重複として数える）。何度やり直しても増えない。
+  //   BALES で入れていた次の掛け直しの予約（nextActions）とかけた回数は引き継ぐ。架電の履歴・カスタム情報は mochica_bales_rows に
+  //   残っていて、架電画面のタイムラインはそこから読むので、BALES を解約しても見られる。
+  //   保管のリストはだれの「かける」にも出ない（いきなり2万件が順番に入らないように）。「SHOBO から足す」で条件を付けて今のリストへ持ってくる
+  let migrating = null;
+  async function migrateBales(by, dryRun) {
+    const lists = (await P().query(`SELECT b.list_key, b.name, b.run_at, b.status,
+        (SELECT count(*) FROM mochica_bales_rows r WHERE r.list_key=b.list_key AND r.run_at=b.run_at) AS n
+      FROM mochica_bales_lists b WHERE b.run_at IS NOT NULL ORDER BY 5, b.list_key`)).rows.map((r) => ({ ...r, n: +r.n }));
+    const out = [];
+    for (const bl of lists) {
+      const name = `BALES：${String(bl.name || bl.list_key).replace(/^bales:/, "")}`.slice(0, 80);
+      if (dryRun) { out.push({ list: name, rows: bl.n, status: bl.status }); continue; }
+      let dst = (await P().query(`SELECT id FROM mc_call_lists WHERE bales_key=$1 ORDER BY id LIMIT 1`, [bl.list_key])).rows[0];
+      if (!dst) dst = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by, stock, bales_key) VALUES ($1,$2,'{}',$3,true,$4) RETURNING id`,
+        [name, "BALES から移したリスト（保管）。「SHOBO から足す」で条件を付けて今のリストへ持ってくる", by, bl.list_key])).rows[0];
+      await loadApproachBans().catch(() => {});
+      let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0, after = 0;
+      for (;;) {
+        const rows = (await P().query(`SELECT seq, row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND seq > $3 ORDER BY seq LIMIT 500`, [bl.list_key, bl.run_at, after])).rows;
+        if (!rows.length) break;
+        for (const r of rows) {
+          after = r.seq; const d = r.data || {}; const f = fromBales(d);
+          if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { banned++; continue; }
+          const c = balesCarry(d);
+          const x = await addLeadUnique({ list_id: dst.id, src: "bales", src_key: `${bl.list_key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person,
+            sf_lead_id: r.lid || null, hot: r.hot, next_at: c.next_at, next_why: c.next_at ? "BALES で入れていた次のコールの予定" : null, attempts: c.attempts }, { data: d });
+          if (x.added) { added++; if (x.nokey) nokey++; } else if (x.bad) bad++; else dup++;
+        }
+      }
+      out.push({ list: name, listId: dst.id, rows: bl.n, added, dup, banned, bad, nokey });
+      console.log(`[mccall] BALES「${bl.name}」→ SHOBO「${name}」：${added}件（行${bl.n}・重複${dup}・禁止${banned}・読めない${bad}）`);
+    }
+    // 黙った失敗を作らない（ルール5）：行が0件の BALES のリストは知らせる
+    const empty = out.filter((x) => !x.rows).map((x) => x.list);
+    return { at: new Date().toISOString(), by, lists: out, empty, added: out.reduce((a, x) => a + (x.added || 0), 0) };
+  }
+  app.get("/api/mccall/bales/migrate", adminOnly(async (req, res) => {
+    const st = await getSettings().catch(() => ({}));
+    res.json({ ok: true, running: !!migrating, last: st.mcBalesMigrate || null, plan: await migrateBales(me(req), true) });
+  }));
+  app.post("/api/mccall/bales/migrate", adminOnly(async (req, res) => {
+    if (migrating) return res.status(409).json({ error: "いま移しています。終わるまで待ってください" });
+    migrating = migrateBales(me(req), false)
+      .then((r) => saveSettings({ mcBalesMigrate: r }).then(() => r))
+      .catch((e) => { console.error("[mccall] BALES の移行で失敗しました", e.message); return saveSettings({ mcBalesMigrate: { at: new Date().toISOString(), by: me(req), error: e.message } }); })
+      .finally(() => { migrating = null; });
+    res.json({ ok: true, started: true });
+  }));
+  // デプロイのあと1回だけ、だれも押さなくても移す（福井さん「移行しておいて」）。2回目からは画面の「もう一度移す」で（増えた分だけ入る）
+  setTimeout(async () => {
+    try {
+      if (!P()) return; await ensure();
+      const st = await getSettings().catch(() => null); if (!st || st.mcBalesMigrate) return;
+      if (migrating) return;
+      console.log("[mccall] BALES のリストを SHOBO へ移します（初回・自動）");
+      migrating = migrateBales("自動（初回）", false).then((r) => saveSettings({ mcBalesMigrate: r }))
+        .catch((e) => { console.error("[mccall] BALES の移行で失敗しました", e.message); return saveSettings({ mcBalesMigrate: { at: new Date().toISOString(), by: "自動（初回）", error: e.message } }); })
+        .finally(() => { migrating = null; });
+    } catch (e) { console.error("[mccall] BALES の移行を始められませんでした", e.message); }
+  }, 120e3).unref?.();
 
   // DOC の kincall のリスト一覧（読むだけ）。管理者がリードを持ってくるときに選ぶ
   app.get("/api/mccall/doc/lists", adminOnly(async (req, res) => {
@@ -700,7 +953,10 @@ export function registerMcCall(app, deps) {
       const t = (await P().query(`SELECT t.company, t.person, t.phone, t.email, t.industry, t.stage, t.status, t.memo, t.assigned_to, l.name AS list_name
         FROM call_targets t LEFT JOIN call_lists l ON l.id=t.list_id WHERE t.id=$1`, [parseInt(lead.src_key, 10)]).catch(() => ({ rows: [] }))).rows[0];
       if (t) data = { ...t, assigned_to: names.get(String(t.assigned_to || "").toLowerCase()) || t.assigned_to };
-    } else if (lead.src === "csv") data = lead.data || {};
+    } else if (lead.src === "csv" || lead.src === "sf") {
+      // SF から足したリードは、足したときの SF の中身を data に持っている（_ で始まる中の項目は画面に出さない）
+      data = Object.fromEntries(Object.entries(lead.data || {}).filter(([k]) => !k.startsWith("_")));
+    }
     const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
     const logs = (await P().query(`SELECT * FROM mc_call_logs WHERE lead_id=$1 AND NOT undone ORDER BY created_at DESC LIMIT 50`, [id])).rows;
     // 番号ごとの「つながった実績」（MOCHICA の記録すべてから。リードが変わっても番号で数える）
@@ -958,7 +1214,7 @@ export function registerMcCall(app, deps) {
     } else if (lead.src === "doc") {
       const t = (await P().query(`SELECT email FROM call_targets WHERE id=$1`, [parseInt(lead.src_key, 10)]).catch(() => ({ rows: [] }))).rows[0];
       if (t) data = t;
-    }
+    } else if (lead.src === "sf") data = lead.data || {};
     return { lead, data, sf };
   }
   async function docSettings() {

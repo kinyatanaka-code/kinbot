@@ -697,6 +697,19 @@ function mccallMock(p) {
     return { ok: true, by: "user", all: true, rows, total: rows.reduce((a, x) => { for (const k of ["calls", "leads", "reached", "person", "apo", "doc", "follow", "reject", "cross"]) a[k] = (a[k] || 0) + x[k]; return a; }, {}), reasons: [{ k: "今は必要ない", n: 5 }, { k: "他社を使っている", n: 3 }] }; }
   const SCRIPT = "【受付】\n株式会社ネオキャリアの〇〇です。{会社名}の新卒採用のご担当者様はいらっしゃいますか。\n\n【担当者】\n{担当者}様、突然のお電話失礼いたします。27卒の採用で、説明会の参加人数についてお伺いしたく…";
   if (/^\/api\/mccall\/lists\/\d+\/script$/.test(p)) return { ok: true, name: "11月 ホット企業", script: SCRIPT };
+  // 条件で割り振るの見た目確認用（2026-11-19）
+  if (/^\/api\/mccall\/lists\/\d+\/leads$/.test(p)) return { ok: true, total: 98, items: MC_LEADS.map((l) => ({ id: l.id, company: l.company, person: l.person, hot: l.hot, attempts: l.attempts, outcome: "", assigned: "" })) };
+  if (/^\/api\/mccall\/lists\/\d+\/segments$/.test(p)) { const it = (a) => a.map(([v, n]) => ({ v, n, free: Math.round(n * 0.7) }));
+    return { ok: true, matched: 98, free: 70, prefByTel: 41, conds: [{ k: "name", label: "担当者名が分かる", n: 61 }, { k: "need", label: "ニーズを聞けた", n: 12 }, { k: "when", label: "検討時期を聞けた", n: 7 }],
+      dims: { source: { label: "リードソース", items: it([["BPOアウトバウンド", 52], ["展示会", 21], ["CSV 取り込み", 15], ["新卒リスト", 10]]) },
+        pref: { label: "都道府県", items: it([["東京都", 34], ["大阪府", 18], ["神奈川県", 11], ["愛知県", 9], ["不明", 26]]) },
+        gyokai: { label: "業界", items: it([["医療，福祉", 30], ["情報通信業", 14], ["製造業", 12], ["不明", 42]]) },
+        gyoshu: { label: "業種", items: it([["介護", 18], ["保育", 9], ["ソフトウェア開発", 8], ["不明", 63]]) },
+        last: { label: "最終架電", items: it([["未架電", 40], ["91日以上前", 12], ["31〜90日前", 20], ["8〜30日前", 16], ["7日以内", 10]]) },
+        lastResult: { label: "前回の結果", items: it([["未架電", 40], ["担当者不在", 30], ["担当者接触：お断り", 18], ["応答なし", 10]]) },
+        hot: { label: "ホット度", items: it([["ホット", 8], ["ウォーム", 30], ["コールド", 60]]) },
+        lost: { label: "過去失注（SF の失注理由）", items: it([["失注なし", 80], ["他社決定", 10], ["時期", 8]]) } } }; }
+  if (/^\/api\/mccall\/lists\/\d+\/assign$/.test(p)) return { ok: true, dryRun: true, matched: 98, assigned: 40, per: [{ name: "江田 直人", n: 20 }, { name: "森田 彩", n: 20 }] };
   let m = p.match(/^\/api\/mccall\/leads\/(\d+)$/);
   if (m) {
     const l = MC_LEADS.find((x) => x.id === +m[1]) || MC_LEADS[0];
