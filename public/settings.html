@@ -45,7 +45,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261119g" />
+    <link rel="stylesheet" href="style.css?v=20261119h" />
   </head>
   <body>
     <div class="app">
@@ -187,6 +187,7 @@
             <div class="set-card">
               <h3>パスワードの変更</h3>
               <label class="field"><span>現在のパスワード</span><input id="accPwCur" type="password" autocomplete="current-password" /></label>
+              <p class="note" style="margin:-4px 0 6px">現在のパスワードが分からないとき（Google でログインしていた人・管理者が作ったアカウントの人）は <button type="button" class="btn ghost" id="accPwReset" style="padding:3px 10px;font-size:12px">Google で本人確認して作り直す</button></p>
               <label class="field"><span>新しいパスワード（8文字以上）</span><input id="accPwNew" type="password" autocomplete="new-password" /></label>
               <label class="field"><span>新しいパスワード（確認）</span><input id="accPwNew2" type="password" autocomplete="new-password" /></label>
               <div class="modal-actions">
@@ -1081,8 +1082,8 @@ curl -H "Authorization: Bearer <span class="cc-tok">&lt;トークン&gt;</span>"
         </main>
       </div>
     </div>
-    <script src="settings.js?v=20261119g"></script>
-      <script src="nav.js?v=20261119g"></script>
+    <script src="settings.js?v=20261119h"></script>
+      <script src="nav.js?v=20261119h"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
