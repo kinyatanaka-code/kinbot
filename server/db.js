@@ -13384,6 +13384,11 @@ export async function kxDocAiAll() {
   if (!pool) return []; await ensureKxDocAi();
   return (await pool.query(`SELECT company_id, session_key, qa, first_at, updated_at FROM kinxs_docai_chats ORDER BY first_at DESC LIMIT 5000`)).rows;
 }
+// コネクタで候補者の質問を読むとき用：プロフィール（区分・アンケートの答え）も付けて全部（2026-11-20）
+export async function kxDocAiAllFull() {
+  if (!pool) return [];
+  return (await pool.query(`SELECT company_id, session_key, profile, qa, first_at, updated_at FROM kinxs_docai_chats ORDER BY first_at DESC LIMIT 10000`)).rows;
+}
 export async function kxDocAiKeys() {
   if (!pool) return new Map(); await ensureKxDocAi();
   const m = new Map(); for (const r of (await pool.query(`SELECT company_id, session_key FROM kinxs_docai_chats WHERE jsonb_array_length(COALESCE(qa, '[]'::jsonb)) > 0`)).rows) { if (!m.has(r.company_id)) m.set(r.company_id, []); m.get(r.company_id).push(r.session_key); }

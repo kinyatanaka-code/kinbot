@@ -590,7 +590,7 @@ import {
   deleteRepTeam,
   listInterns,
   listInsideShifts,
-  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arInboxUnconfirmed, kxVoiceList, kxVoiceAdd, kxVoiceSet, kxVoiceScanned, kxVoiceMarkScanned, kxDocAiSave, kxDocAiList, kxDocAiCounts, kxDocAiAll, kxDocAiKeys, kxDocAiRaw, kxDocAiNoQa, kxDocAiSetQa, kxDocAiLast, kxDocAiDedupe, kxDocAiOther, kxDocAiFixMeihou, aiUsageAdd, aiUsageList, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
+  upsertInsideShift, setInsideShiftAbsent, setDocBundle, getDocBundleInfo, callSheet, callSheetFacets, callSheetSetAssigned, callSheetSetDone, callLogResultsByTargets, lastAddStats, callListAndGroup, zoomShareList, zoomShareUpsert, zoomShareRemove, zoomSharePass, zoomShareEmp, zoomCheckout, zoomRelease, zoomHeldBy, zoomCheckoutsBetween, zoomConfirm, isKincsOnlyUser, addKincsUser, listKincsUsers, kincsOverlayAll, kincsOverlayPatch, caseSharePrefillLocal, caseShareMeetingText, mergeCallListInto, setCallListsOrder, groupPoolCount, distributeGroupLeads, moveRecycleCToCold, ensureMemberSlotLists, bulkDeleteEmptyLists, autoGroupListsByName, listGroupNameOf, moApoLogsOn, apoOwnerByCompany, arList, arUpdate, arFindByNo, arRecon, arReconSet, arExportLog, arExports, arHistory, arInboxHas, arInboxAdd, arInboxList, arInboxGet, arInboxSet, arInboxUnconfirmed, kxVoiceList, kxVoiceAdd, kxVoiceSet, kxVoiceScanned, kxVoiceMarkScanned, kxDocAiSave, kxDocAiList, kxDocAiCounts, kxDocAiAll, kxDocAiAllFull, kxDocAiKeys, kxDocAiRaw, kxDocAiNoQa, kxDocAiSetQa, kxDocAiLast, kxDocAiDedupe, kxDocAiOther, kxDocAiFixMeihou, aiUsageAdd, aiUsageList, arSyncAccounts, arSyncApply, arSyncLog, arSyncLast, boxSummary, boxAdd, boxRemove, listBoxTargetsForMember, boxIdsOf, lastMemoLogs, lastCallLogs, kxActionsList, kxActionUpsert, kxAccessList, kxAccessSet,
   deleteInsideShiftsBetween,
   listShiftPersonNames,
   isShiftSubmitted,
@@ -15704,6 +15704,12 @@ const KINXS_TOOLS = [
     includeArchived: { type: "boolean", description: "アーカイブした会社も入れる" }, fields: { type: "array", items: { type: "string" }, description: "返す項目の名前（list_fields の export の名前。省略で全部）" },
     offset: { type: "number", description: "何社目から（0から）" }, limit: { type: "number", description: "何社まで（既定100・最大300）" },
   } } },
+  { name: "list_ai_questions", description: "DOC の AI（カジュアル面談エージェント）で、候補者が AI に聞いた質問を読む（読み取り）。チャット1件ごとに、会社・日時・候補者の区分（新卒／中途／アルバイト／不明。もとの「区分（職種）」の値も）・プロフィール（アンケートの答え）・質問の一覧を返す。会社・区分・言葉でしぼれる。answers:true で AI の答えも付く。多いときは offset・limit で分けて読む。", inputSchema: { type: "object", properties: {
+    company: { type: "string", description: "会社名（一部でよい）か DOC の企業ID（任意）" }, type: { type: "string", description: "新卒・中途・アルバイト・その他・不明（任意）" }, q: { type: "string", description: "質問に入っている言葉（任意）" },
+    answers: { type: "boolean", description: "AI の答えも付ける（長くなる）" }, profile: { type: "boolean", description: "プロフィールの行を付ける（既定 true）" },
+    offset: { type: "number" }, limit: { type: "number", description: "何チャットまで（既定100・最大300）" },
+  } } },
+  { name: "ai_question_summary", description: "候補者が AI に聞いた質問のまとめ（読み取り・分析用）。区分（新卒／中途／アルバイト／不明）ごと・会社ごとのチャット数と質問数、区分ごとのよく聞かれる質問（上位）を返す。新卒と中途の比べに使う。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社をしぼる（任意）" }, top: { type: "number", description: "よく聞かれる質問を何件まで（既定30）" } } } },
   { name: "bulk_update_users", description: "kinXs の会社をまとめて直す（書き込み・50社まで）。items に update_user と同じ形のもの（company と直したい項目）を並べる。1社ずつ直し、できた・できなかったを返す。", inputSchema: { type: "object", properties: { items: { type: "array", items: { type: "object" }, description: "[{company, …直したい項目}]" } }, required: ["items"] } },
 ];
 async function kxSelf(method, path, req, body) {
@@ -15754,6 +15760,57 @@ const KX_MCP_FIELDS = () => ({
   },
   update: "update_user の項目：" + [...KX_MCP_PASS, "phase", "rank"].join("・") + "。日付は YYYY-MM-DD、月は YYYY-MM、次回アクションの日時は YYYY-MM-DDTHH:MM。",
 });
+// ===== 候補者が DOC の AI に聞いた質問をコネクタで読む（2026-11-20 田中さん：新卒と中途で比べたい）=====
+//   区分は、プロフィールの「区分（職種）」の値と、アンケートの答えの項目（就活状況・卒業予定年月 → 新卒／転職理由・現職の役割 → 中途／バイト探し → アルバイト）で決める。
+//   「区分（職種）」は会社が自由に付ける名前（総合職・未設定 など）なので、値だけでは決めきれないことがあるため
+function docAiTypeOf(profile) {
+  const L = (profile && Array.isArray(profile.lines)) ? profile.lines.map((x) => String(x || "").normalize("NFKC").trim()) : [];
+  const i = L.indexOf("区分(職種)") >= 0 ? L.indexOf("区分(職種)") : L.indexOf("区分（職種）");
+  const raw = i >= 0 ? String(L[i + 1] || "") : "";
+  const keys = new Set(L.map((l) => (/^・([^:：]+)[:：]/.exec(l) || [])[1]).filter(Boolean));
+  let type = "";
+  if (/新卒|就活|学生|インターン/.test(raw)) type = "新卒";
+  else if (/中途|転職|キャリア|経験|正社員/.test(raw)) type = "中途";
+  else if (/アルバイト|パート|バイト/.test(raw)) type = "アルバイト";
+  else if (/フリーランス|業務委託/.test(raw)) type = "その他";
+  if (!type) {
+    if (["就活状況", "卒業予定年月", "学校名/学部名", "学生時代の経験"].some((k) => keys.has(k))) type = "新卒";
+    else if (["転職活動状況", "転職理由", "現職の役割", "直近のご経験職種"].some((k) => keys.has(k))) type = "中途";
+    else if (["バイト探しの状況", "希望シフト"].some((k) => keys.has(k))) type = "アルバイト";
+    else type = "不明";
+  }
+  return { type, raw: raw || "未設定" };
+}
+async function kxMcpAiQuestions(name, a) {
+  const rows = await kxDocAiAllFull();
+  // DOC の企業ID → kinXs の会社名（「AI 候補者画面」の URL の最後で引く。/api/kinxs/docai/summary と同じ）
+  const byCo = new Map();
+  for (const r of (await kinxsList()).filter((r0) => !r0.merged_into)) { const i = r.info || {}; const u = i.ai_url || (i.prod_url && !/aticoti/i.test(i.prod_url) ? i.prod_url : ""); const m = /brainverse-ai\.com\/([A-Za-z0-9_-]+)/.exec(String(u || "")); if (m) byCo.set(docAiCo(m[1]), { id: r.account_id, name: r.name_override || r.name || "" }); }
+  const coQ = String(a.company || "").trim(); const coKey = coQ ? csCoKey(coQ) : "";
+  const ymdhm = (v) => { const d = v instanceof Date ? v : new Date(v); return isNaN(d.getTime()) ? "" : new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 16).replace("T", " "); };
+  const okQ = (q) => String(q || "").replace(/[\s\p{P}\p{S}]/gu, "").length >= 2;   // 「.」だけのような質問は外す
+  let chats = rows.map((r) => { const acc = byCo.get(r.company_id) || null; const t = docAiTypeOf(r.profile); const qa = docAiUniq(r.qa).filter((x) => okQ(x.q));
+    return { company_id: r.company_id, company: acc ? acc.name : r.company_id, account_id: acc ? acc.id : "", key: r.session_key, at: ymdhm(r.first_at), type: t.type, category: t.raw, profile: (r.profile && r.profile.lines) || [], qa }; });
+  if (coQ) chats = chats.filter((c) => c.company_id === coQ.toLowerCase() || c.account_id === coQ || (c.company && (csCoKey(c.company) === coKey || c.company.includes(coQ))));
+  if (name === "ai_question_summary") {
+    const topN = Math.min(100, Math.max(5, Number(a.top) || 30));
+    const byType = {}; const byCompany = new Map();
+    for (const c of chats) {
+      const t = byType[c.type] || (byType[c.type] = { chats: 0, questions: 0, qs: new Map(), categories: {} });
+      t.chats++; t.questions += c.qa.length; t.categories[c.category] = (t.categories[c.category] || 0) + 1;
+      for (const x of c.qa) { const q = String(x.q).trim(); t.qs.set(q, (t.qs.get(q) || 0) + 1); }
+      const b = byCompany.get(c.company) || { company: c.company, chats: 0, questions: 0, types: {} }; b.chats++; b.questions += c.qa.length; b.types[c.type] = (b.types[c.type] || 0) + 1; byCompany.set(c.company, b);
+    }
+    return { chats: chats.length, howTypeIsDecided: "区分は、候補者のプロフィールの「区分（職種）」の値（新卒／転職・中途 など）と、アンケートの答えの項目（就活状況→新卒、転職理由→中途、バイト探し→アルバイト）で決めています。どちらも無いものは「不明」。",
+      byType: Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, { chats: v.chats, questions: v.questions, perChat: v.chats ? Math.round(v.questions / v.chats * 10) / 10 : 0, categories: v.categories, top: [...v.qs.entries()].sort((x, y) => y[1] - x[1]).slice(0, topN).map(([q, n]) => ({ q, n })) }])),
+      byCompany: [...byCompany.values()].sort((x, y) => y.chats - x.chats) };
+  }
+  if (a.type) chats = chats.filter((c) => c.type === String(a.type));
+  if (a.q) chats = chats.filter((c) => c.qa.some((x) => String(x.q).includes(String(a.q))));
+  const off = Math.max(0, Number(a.offset) || 0), lim = Math.min(300, Math.max(1, Number(a.limit) || 100));
+  const page = chats.slice(off, off + lim).map((c) => ({ company: c.company, company_id: c.company_id, at: c.at, type: c.type, category: c.category, ...(a.profile === false ? {} : { profile: c.profile }), questions: c.qa.map((x) => (a.answers ? { q: x.q, a: x.a } : x.q)) }));
+  return { total: chats.length, offset: off, count: page.length, next: off + page.length < chats.length ? off + page.length : null, chats: page };
+}
 async function kinxsMcpCall(name, args, req) {
   if (!(await canCs(req))) throw new Error("CS・FS・管理者だけが使えます");
   const a = args || {};
@@ -15805,6 +15862,7 @@ async function kinxsMcpCall(name, args, req) {
     return { ok: out.every((x) => x.ok), done: out.filter((x) => x.ok).length, failed: out.filter((x) => !x.ok).length, results: out };
   }
   if (name === "list_fields") return KX_MCP_FIELDS();
+  if (name === "list_ai_questions" || name === "ai_question_summary") return await kxMcpAiQuestions(name, a);
   if (name === "export_users") {
     const { items } = await kinxsBuild();
     const rows = await kinxsList().catch(() => []); const rowBy = new Map(rows.map((r0) => [r0.account_id, r0]));
@@ -33910,8 +33968,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20c kinXs のコネクタ：全部の項目を読む export_users（企業情報・先方の担当者・掲載先・接触の記録まで）・項目の地図 list_fields・update_user で画面で直せる項目を全部直せる・bulk_update_users（50社まで）。／2026-11-20b アポ一覧：MOCHICA のアポは DOC の kinbot のアポ一覧（全体・DOC）に出さない。上の「MOCHICA」を選んだときだけ出す。／2026-11-20a MOCHICALL：リード管理タブ（kincall 準拠。メンバー別＝人ごとの担当件数・今かける・種類の内訳、種類別＝取り込み元×リードソースごとの件数・保管・未架電・配れる数・担当別・月ごとのアポ率）と「種類を選んで配る・足す」（配分を見てから配る。保管のリストからは入れるリストへ移して配る）。前：2026-11-19t SHOBO：リードを SF・BALES・SHOBO から足す（SF のリードを条件で取り込み・SHOBO のほかのリストから条件で移す）／BALES のリストをすべて SHOBO の保管のリストへ移す（デプロイ後に自動で1回）。前：19r SHOBO：架電リストを条件で割り振る。／2026-11-19a MOCHICA の商談と SF の照合（版12）：リードが無くても商談が立ち上がっている会社は、商談名・商談の取引先名で探して取引先に結びつける（ヨシケイこうべ・奈良スバル自動車）。取引先名も前後だけ違う1社なら採る。60日より前の会議も7日ごとに試し直す。／2026-11-19r 設定：「現在のパスワードが分からないとき」に Google で本人確認して作り直すボタン（ログイン画面の「ログインできない場合」と同じ流れ）。／2026-11-19q MOCHICA：MiiTel の過去の会議をすべて読む（上限3650日・既定2020-01-01・一覧20000件・拡張機能2.2.29）。前：19p 設定：パスワード・トークンの欄に目のボタン（押すと入れた文字が見える・もう一度で隠す）。保存してあるパスワードは元に戻せない形なので見られない。／2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
+const BUILD_TAG = "2026-11-20d kinXs のコネクタ：候補者が DOC の AI に聞いた質問を読む list_ai_questions（会社・区分・言葉でしぼる・答えも）と、区分（新卒／中途／アルバイト／不明）ごと・会社ごとのまとめ ai_question_summary。／2026-11-20c kinXs のコネクタ：全部の項目を読む export_users（企業情報・先方の担当者・掲載先・接触の記録まで）・項目の地図 list_fields・update_user で画面で直せる項目を全部直せる・bulk_update_users（50社まで）。／2026-11-20b アポ一覧：MOCHICA のアポは DOC の kinbot のアポ一覧（全体・DOC）に出さない。上の「MOCHICA」を選んだときだけ出す。／2026-11-20a MOCHICALL：リード管理タブ（kincall 準拠。メンバー別＝人ごとの担当件数・今かける・種類の内訳、種類別＝取り込み元×リードソースごとの件数・保管・未架電・配れる数・担当別・月ごとのアポ率）と「種類を選んで配る・足す」（配分を見てから配る。保管のリストからは入れるリストへ移して配る）。前：2026-11-19t SHOBO：リードを SF・BALES・SHOBO から足す（SF のリードを条件で取り込み・SHOBO のほかのリストから条件で移す）／BALES のリストをすべて SHOBO の保管のリストへ移す（デプロイ後に自動で1回）。前：19r SHOBO：架電リストを条件で割り振る。／2026-11-19a MOCHICA の商談と SF の照合（版12）：リードが無くても商談が立ち上がっている会社は、商談名・商談の取引先名で探して取引先に結びつける（ヨシケイこうべ・奈良スバル自動車）。取引先名も前後だけ違う1社なら採る。60日より前の会議も7日ごとに試し直す。／2026-11-19r 設定：「現在のパスワードが分からないとき」に Google で本人確認して作り直すボタン（ログイン画面の「ログインできない場合」と同じ流れ）。／2026-11-19q MOCHICA：MiiTel の過去の会議をすべて読む（上限3650日・既定2020-01-01・一覧20000件・拡張機能2.2.29）。前：19p 設定：パスワード・トークンの欄に目のボタン（押すと入れた文字が見える・もう一度で隠す）。保存してあるパスワードは元に戻せない形なので見られない。／2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
 const BUILD_FEATURES = [
+  "kinXs のコネクタ：候補者が AI に聞いた質問（新卒・中途で比べられる）",
   "kinXs のコネクタ：Claude から全部の項目を読み取り・分析・書き換え（export_users・list_fields・update_user・bulk_update_users）",
   "MOCHICALL：リード管理（種類ごとの件数・だれに何件割り振っているか・アポ率）と、種類を選んで配る・リストに足す（kincall のソースから配ると同じ流れ）",
   "SHOBO：リードを SF・BALES・SHOBO から足す（取り込み元で絞り込み）。BALES のリストは SHOBO の保管のリストへすべて移す",
