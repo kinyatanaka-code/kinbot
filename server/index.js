@@ -29078,6 +29078,20 @@ async function mcSfResolve(owner, { company = "", domains = [], repName = "", lo
         const near = ls.filter((l) => { const c = mcCoCore(l.Company); return c.length >= 4 && (c.startsWith(core) || c.endsWith(core) || core.startsWith(c)); });
         const cores = [...new Set(near.map((l) => mcCoCore(l.Company)))];
         if (cores.length === 1) return done(mochiFirst(near)[0], null, "会社名（前後が違う）");
+        // 取引先の名前でも、前後だけ違う取引先が1社だけなら（「奈良スバル」→「奈良スバル自動車株式会社」）
+        const nearA = as.filter((x) => { const c = mcCoCore(x.Name); return c.length >= 4 && (c.startsWith(core) || c.endsWith(core) || core.startsWith(c)); });
+        if (new Set(nearA.map((x) => mcCoCore(x.Name))).size === 1) return done(null, nearA[0], "取引先名（前後が違う）");
+      }
+      // ⑤ リードが無くても、商談が立ち上がっていることがある（2026-11-19 福井さん「商談はリードじゃなくて商談が立ち上がっているかも」）。
+      //    商談名（「_新規_株式会社ヨシケイこうべ_01：…」）か商談の取引先名で探し、その取引先に結びつける
+      {
+        const os = await q(`SELECT Id, Name, AccountId, Account.Name FROM Opportunity WHERE (Name LIKE '%${like(key)}%' OR Account.Name LIKE '%${like(key)}%') AND AccountId != null ORDER BY CreatedDate DESC LIMIT 40`);
+        const accs = new Map(); for (const o of [...os].sort((x, y) => (/新規/.test(y.Name) ? 1 : 0) - (/新規/.test(x.Name) ? 1 : 0))) if (o.Account && !accs.has(o.AccountId)) accs.set(o.AccountId, { Id: o.AccountId, Name: o.Account.Name, opp: o.Id });
+        const list = [...accs.values()];
+        const ex = list.filter((x) => mcCoCore(x.Name) === core);
+        const nr = core.length >= 4 ? list.filter((x) => { const c = mcCoCore(x.Name); return c.length >= 4 && (c.startsWith(core) || c.endsWith(core) || core.startsWith(c)); }) : [];
+        const pick = ex.length && new Set(ex.map((x) => mcCoCore(x.Name))).size === 1 ? ex[0] : new Set(nr.map((x) => mcCoCore(x.Name))).size === 1 ? nr[0] : null;
+        if (pick) { const out = await done(null, pick, "商談（取引先）"); return { ...out, oppId: pick.opp || "" }; }
       }
     }
   }
@@ -29101,7 +29115,7 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
   const st = new Date(r.started_at).getTime(); if (!st) return null;
   const dur = Number(r.duration_sec) || 0;
   // 3分未満の会議は、つなぎ間違い・テストがほとんどなので商談として数えない（照合率の分母から外す）
-  if (dur && dur < 180) return { none: true, nodeal: true, v: 11, reason: "3分未満の会議なので、商談として数えません", at: Date.now() };
+  if (dur && dur < 180) return { none: true, nodeal: true, v: 12, reason: "3分未満の会議なので、商談として数えません", at: Date.now() };
   const en = st + Math.max(10 * 60, dur || 30 * 60) * 1000;   // 録画の本当の終わり（長さが分からないときだけ30分）
   const own = ctx.ownDoms || new Set(["neo-career.co.jp"]);
   const nz = (v) => String(v || "").replace(/[\s　]/g, "");
@@ -29145,29 +29159,29 @@ async function mcCalMatchOne(r, members, owner, ctx = {}) {
     let sf = await mcSfResolve(owner, { company, domains: [...best.evDoms, ...partDoms], repName, person: pm ? pm[1] : "", loose: true });
     // 題名の会社名で SF に無いときは、MiiTel の参加者の表示名でも探す（2026-11-18）
     if (!sf.leadId && !sf.accountId) for (const p of partList) { if (neo(p)) continue; const c = mcCoFromPart(p); if (!c) continue; const s2 = await mcSfResolve(owner, { company: c, repName, loose: true }); if (s2.leadId || s2.accountId) { sf = { ...s2, how: `${s2.how}（参加者「${p.slice(0, 20)}」）` }; break; } }
-    return { v: 11, how: "カレンダー", title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company: ((sf.leadId || sf.accountId) && sf.company) || company || "", bracket: best.lv === 2, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
+    return { v: 12, how: "カレンダー", title, start: best.ev.start, owner: best.m.email, ownerName: best.m.name, eventId: best.ev.id, company: ((sf.leadId || sf.accountId) && sf.company) || company || "", bracket: best.lv === 2, sf: { leadId: sf.leadId, accountId: sf.accountId, oppId: sf.oppId || "", how: sf.how, err: sf.err }, at: Date.now() };
   }
   // 予定が見つからないとき：MiiTel の参加者の表示名・メールから
   for (const p of partList) {
     if (neo(p)) continue; const c = mcCoFromPart(p); if (!c && !partDoms.length) continue;
     const sf = await mcSfResolve(owner, { company: c, domains: partDoms, repName, loose: true });
-    if (sf.leadId || sf.accountId) return { v: 11, how: "参加者の名前", title: `${sf.company}（MiiTel の参加者「${p.slice(0, 30)}」から）`, owner: (first[0] && first[0].email) || "", ownerName: repName, company: sf.company, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
+    if (sf.leadId || sf.accountId) return { v: 12, how: "参加者の名前", title: `${sf.company}（MiiTel の参加者「${p.slice(0, 30)}」から）`, owner: (first[0] && first[0].email) || "", ownerName: repName, company: sf.company, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
   }
   // 参加者が自社の人（kinbot の人・ネオキャリア）と議事録の道具だけの会議は、お客様がいないので商談として数えない（2026-11-18：
   //   本炭さん・北川さんのパーソナルミーティングルームの練習・打ち合わせが照合できない残りに入っていた）
   const guests = partList.filter((p) => !neo(p) && !(ctx.repOf && (ctx.repOf(p) || []).length) && !/(議事録|notes|tldv|zoom共有|^オーナー$|iphone|ipad|android)/i.test(String(p).normalize("NFKC")));
-  if (partList.length && !guests.length && !partDoms.length) return { none: true, nodeal: true, v: 11, reason: "参加者が自社の人だけなので、商談として数えません", at: Date.now() };
+  if (partList.length && !guests.length && !partDoms.length) return { none: true, nodeal: true, v: 12, reason: "参加者が自社の人だけなので、商談として数えません", at: Date.now() };
   // それでも無いとき：文字起こしから AI が会社名を読む（担当が持つリードを優先）
   if (!ctx.noAi) {
     const ai = await mcCoFromTranscript(r.id);
-    if (ai && ai.internal && !ai.company) return { none: true, nodeal: true, v: 11, reason: "文字起こしから、社内の会議と判断しました（商談として数えません）", at: Date.now() };
+    if (ai && ai.internal && !ai.company) return { none: true, nodeal: true, v: 12, reason: "文字起こしから、社内の会議と判断しました（商談として数えません）", at: Date.now() };
     if (ai && ai.company) {
       const sf = await mcSfResolve(owner, { company: ai.company, domains: partDoms, repName, loose: true });
-      return { v: 11, how: "文字起こし", title: `${sf.company || ai.company}（文字起こしから）`, owner: (first[0] && first[0].email) || "", ownerName: repName, company: sf.company || ai.company, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
+      return { v: 12, how: "文字起こし", title: `${sf.company || ai.company}（文字起こしから）`, owner: (first[0] && first[0].email) || "", ownerName: repName, company: sf.company || ai.company, sf: { leadId: sf.leadId, accountId: sf.accountId, how: sf.how, err: sf.err }, at: Date.now() };
     }
   }
   const readInfo = order.slice(0, 6).map((m) => { const s = _mcCalStat.get(m.email); return s ? (s.ok ? `${m.name}＝${s.how}で${s.n}件` : `${m.name}＝読めない（${s.err || "Google 未連携か、共有されていない"}）`) : m.name; }).join("・");
-  return { none: true, v: 11, reason: `予定・参加者の名前・文字起こしのどれからも会社が分かりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() };
+  return { none: true, v: 12, reason: `予定・参加者の名前・文字起こしのどれからも会社が分かりませんでした（カレンダー：${readInfo || "なし"}${near.length ? `／その時間の予定：${near.join("、")}` : "／その時間の予定はありませんでした"}）。題名の横のカレンダーから選べます`, at: Date.now() };
 }
 let _mcCalRunning = false;
 // 1回に lim 件。戻り値は「読んだ件数」（0 なら残りなし）
@@ -29183,7 +29197,7 @@ async function mcCalMatchRun(owner, lim = 40) {
     const members = await mcMembers(rows.map((r) => r.host || r.title)); const repOf = await mcRepIndex().catch(() => null); const st0 = await getSettings().catch(() => ({}));
     const us = await listUsers().catch(() => []); const ownDoms = new Set(["neo-career.co.jp", ...us.map((u) => mcDomOf(u.email, null)).filter(Boolean)]);
     const ctx = { repOf, ownDoms, reader: String(st0.apoScanOwner || st0.apoInviteOwner || owner || "").toLowerCase() }; if (!members.length && !repOf) return 0;
-    for (const r of rows) { n++; const c = await mcCalMatchOne(r, members, owner, ctx).catch((e) => ({ none: true, v: 11, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, v: 11, at: Date.now() } } }); if (c && !c.none) hit++; }
+    for (const r of rows) { n++; const c = await mcCalMatchOne(r, members, owner, ctx).catch((e) => ({ none: true, v: 12, reason: String(e.message || e).slice(0, 120), at: Date.now() })); await mcMiitelSave({ id: r.id, kind: "カレンダーと突き合わせ", payload: { mt_cal: c || { none: true, v: 12, at: Date.now() } } }); if (c && !c.none) hit++; }
     console.log(`[mochica cal] ${n}件を照合し、${hit}件で会社が分かりました`);
   } finally { _mcCalRunning = false; } return n;
 }
@@ -33826,7 +33840,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-19r 設定：「現在のパスワードが分からないとき」に Google で本人確認して作り直すボタン（ログイン画面の「ログインできない場合」と同じ流れ）。／2026-11-19q MOCHICA：MiiTel の過去の会議をすべて読む（上限3650日・既定2020-01-01・一覧20000件・拡張機能2.2.29）。前：19p 設定：パスワード・トークンの欄に目のボタン（押すと入れた文字が見える・もう一度で隠す）。保存してあるパスワードは元に戻せない形なので見られない。／2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
+const BUILD_TAG = "2026-11-19a MOCHICA の商談と SF の照合（版12）：リードが無くても商談が立ち上がっている会社は、商談名・商談の取引先名で探して取引先に結びつける（ヨシケイこうべ・奈良スバル自動車）。取引先名も前後だけ違う1社なら採る。60日より前の会議も7日ごとに試し直す。／2026-11-19r 設定：「現在のパスワードが分からないとき」に Google で本人確認して作り直すボタン（ログイン画面の「ログインできない場合」と同じ流れ）。／2026-11-19q MOCHICA：MiiTel の過去の会議をすべて読む（上限3650日・既定2020-01-01・一覧20000件・拡張機能2.2.29）。前：19p 設定：パスワード・トークンの欄に目のボタン（押すと入れた文字が見える・もう一度で隠す）。保存してあるパスワードは元に戻せない形なので見られない。／2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
 const BUILD_FEATURES = [
   "名前：kinbot for MOCHICA を SHOBO に、MOCHICA の架電画面を MOCHICALL に（画面・案内・SF の記録・MCP の説明・Drive の録画フォルダ）",
   "拡張機能：DOC の AI の質問を毎日（平日）決めた時刻に、増えたところだけ自動で読む",
