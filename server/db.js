@@ -13060,6 +13060,18 @@ export async function mcBalesRow(listKey, rowKey) {
   return (await pool.query(`SELECT data, raw, detail, detail_at, sf, sf_at FROM mochica_bales_rows WHERE list_key=$1 AND row_key=$2`, [listKey, rowKey])).rows[0] || null;
 }
 
+// 会社まとめの「MOCHICALL で掛けた履歴」：Bales の行・SF のリード・会社名のどれかで当たる架電を新しい順に（2026-11-20 福井）
+//   同じ会社が別のリストから入っていることがあるので、行の印だけでなく SF のリードと会社名でも拾う
+export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
+  if (!pool) return [];
+  try {
+    return (await pool.query(`SELECT g.created_at, g.caller, g.reach, g.outcome, g.reason, g.memo, g.next_at, g.apo_at, c.person
+      FROM mc_call_logs g JOIN mc_call_leads c ON c.id = g.lead_id
+      WHERE NOT g.undone AND (c.src_key = $1 OR (c.sf_lead_id IS NOT NULL AND c.sf_lead_id = ANY($2::text[])) OR ($3 <> '' AND c.company = $3))
+      ORDER BY g.created_at DESC LIMIT 50`, [srcKey, sfLeadIds, company])).rows;
+  } catch { return []; }   // MOCHICALL の表がまだ無いときも、会社まとめは開けるように
+}
+
 // SF と結びつける：今の取り込みの行（row_key と data）を渡す／結果を書く／進み具合を残す
 export async function mcBalesRowsForSf(listKey) {
   if (!pool) return []; await ensureMcBales();

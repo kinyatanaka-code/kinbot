@@ -104,6 +104,8 @@
   }
   // Bales のリストの画面から使う：MOCHICA の商談がある会社の名前／その会社カードを開く（2026-11-15）
   window.mcMeetingCompanies = async () => { if (!mtAll.length) await loadMeetings(); return [...new Set(mtAll.map((m) => coOf(m)).filter(Boolean))]; };
+  // リストの会社まとめに、その会社の MiiTel の商談を出すため（2026-11-20 福井）。会社名の合わせ方は呼ぶ側が決める
+  window.mcMeetingsOf = async (match) => { if (!mtAll.length) await loadMeetings(); return mtAll.filter((m) => match(coOf(m))).map((m) => ({ co: coKey(m), at: m.started_at || m.received_at || "", title: titleOf(m), host: hostsOf(m).join("・") })).sort((a, b) => String(b.at).localeCompare(String(a.at))); };
   window.mcOpenCompany = async (co) => { go("mtg"); if (!mtAll.length) await loadMeetings(); const m = mtAll.find((x) => coKey(x) === co); mtHost = m ? (hostsOf(m)[0] ?? null) : null; mtCo = co; mtSel = ""; mtDraw(); mtCompany(co); };
   async function loadMeetings() {
     try { const d = await api("/api/mochica/miitel/meetings"); mtHidden = d.hidden || 0; mtAll = (d.items || []).filter((m) => String(m.title || "").trim() || m.started_at || m.transcript_len); mtDraw(); }

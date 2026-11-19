@@ -132,7 +132,7 @@
     const fs = box.querySelector("[data-f]"); if (fs) fs.addEventListener("change", () => { fcol = fs.value ? stCol.key : ""; fval = fs.value; page = 0; detail(); });
     box.querySelectorAll("[data-pg]").forEach((b) => b.addEventListener("click", () => { page += Number(b.dataset.pg); detail(); }));
     box.querySelectorAll("[data-co]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); window.mcOpenCompany && window.mcOpenCompany(b.dataset.co); }));
-    box.querySelectorAll("[data-row]").forEach((tr) => tr.addEventListener("click", () => leadSheet(l, tr.dataset.row)));
+    box.querySelectorAll("[data-row]").forEach((tr) => tr.addEventListener("click", () => leadSheet(l, tr.dataset.row, r.rows.find((d) => d.__k === tr.dataset.row))));
     box.querySelector("[data-colsel]").addEventListener("click", () => colSheet(l));
     // SF と結びつける：サーバーで読んで書く（2万件で数分）。進み具合を見せて、終わったら読み直す
     box.querySelector("[data-sf]").addEventListener("click", async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = "結びつけています…";
@@ -168,40 +168,108 @@
     sh.querySelector("[data-csave]").addEventListener("click", () => { const ks = [...sh.querySelectorAll("input[type=checkbox]:checked")].map((x) => ({ key: x.value, label: x.dataset.lb })); try { localStorage.setItem(colsKey(l.list_key), JSON.stringify(ks.slice(0, 20))); } catch {} closeSheet(); detail(); });
     sh.querySelector("[data-creset]").addEventListener("click", () => { try { localStorage.removeItem(colsKey(l.list_key)); } catch {} closeSheet(); detail(); });
   }
-  // ===== リード1件の中身（取り込んだ項目すべて＋詳しい中身：架電履歴・カスタム情報など）=====
-  const TPLN = [[/activit|action|history|timeline|log/i, "活動・架電の履歴"], [/call/i, "架電"], [/custom/i, "カスタム情報"], [/mail/i, "メール"], [/tag/i, "タグ"], [/source/i, "リードソース"], [/stage/i, "リードステージ"], [/sequence/i, "シーケンス"], [/comment|note|memo/i, "コメント"], [/deal|opportunit|商談/i, "商談"], [/contact|person/i, "担当者"]];
-  const tplName = (k) => { for (const [re, n] of TPLN) if (re.test(k)) return `${n}（${k}）`; return k; };
-  const flat1 = (o, pre = "", out = {}, d = 0) => { if (o == null) return out; if (Array.isArray(o)) { if (o.every((x) => x == null || typeof x !== "object")) out[pre] = o.join("、"); else if (d < 3) o.slice(0, 3).forEach((x, i) => flat1(x, `${pre}.${i}`, out, d + 1)); return out; } if (typeof o === "object") { if (d >= 4) { out[pre] = o.name != null ? o.name : JSON.stringify(o).slice(0, 200); return out; } for (const [k, v] of Object.entries(o)) flat1(v, pre ? `${pre}.${k}` : k, out, d + 1); return out; } out[pre] = o; return out; };
-  const bigArr = (o, d = 0) => { if (Array.isArray(o)) return o.some((x) => x && typeof x === "object") ? o : null; if (!o || typeof o !== "object" || d > 4) return null; let b = null; for (const v of Object.values(o)) { const a = bigArr(v, d + 1); if (a && (!b || a.length > b.length)) b = a; } return b; };
-  const kvGrid = (o) => { const f = Object.entries(o).filter(([k, v]) => !/^__/.test(k) && v !== "" && v != null); return f.length ? `<div class="bl-kv">${f.map(([k, v]) => `<div><small title="${esc(k)}">${esc(labelOf(k))}${labelOf(k) !== k ? ` <i>${esc(k)}</i>` : ""}</small><span>${esc(String(v)).slice(0, 2000)}</span></div>`).join("")}</div>` : '<div class="mc-note">空です。</div>'; };
-  async function leadSheet(l, rid) {
+  // ===== 会社まとめ（2026-11-20 福井さん）=====
+  //   前は「取り込んだ全部の項目」と「詳しい中身」（Bales の読み先がほぼ 404 で空）を並べていて、ほとんど空白だった。
+  //   いまは、会社の情報・商談の状態・先方の担当者・組織・当社側の担当・架電の履歴を、Bales と SF と MOCHICALL から集めて1枚に出す。
+  //   値の無い項目は出さない（空欄を並べない）。
+  const SFL = "https://ap10.lightning.force.com/lightning/r";
+  const LEGAL = /(株式会社|有限会社|合同会社|合資会社|合名会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人社団|医療法人財団|医療法人|学校法人|宗教法人|特定非営利活動法人|NPO法人|地方独立行政法人|独立行政法人|国立大学法人|生活協同組合|農業協同組合|協同組合|信用金庫|弁護士法人|税理士法人|監査法人|司法書士法人|行政書士法人|社会保険労務士法人|\(株\)|\(有\))/;
+  const legalOf = (s) => { const m = String(s || "").normalize("NFKC").match(LEGAL); return m ? ({ "(株)": "株式会社", "(有)": "有限会社" }[m[1]] || m[1]) : ""; };
+  const has = (v) => v !== "" && v != null && v !== false;
+  // [見出し, 値, 値が HTML か] の並びを、値のあるものだけ2列で出す
+  const kv = (pairs) => { const f = pairs.filter(([, v]) => has(v)); return f.length ? `<div class="bl-kv">${f.map(([k, v, html]) => `<div><small>${esc(k)}</small><span>${html ? v : esc(v)}</span></div>`).join("")}</div>` : ""; };
+  const ln = (u) => (u ? `<a href="${esc(/^https?:/i.test(u) ? u : "http://" + u)}" target="_blank" rel="noopener">${esc(u)}</a>` : "");
+  const ymd = (s) => { if (!s) return ""; const x = new Date(s); return isNaN(x) ? String(s).slice(0, 10) : `${x.getFullYear()}/${x.getMonth() + 1}/${x.getDate()}`; };
+  const ymdhm = (s) => { if (!s) return ""; const x = new Date(s); return isNaN(x) ? String(s) : `${ymd(s)} ${String(x.getHours()).padStart(2, "0")}:${String(x.getMinutes()).padStart(2, "0")}`; };
+  const sec = (title, sub, body) => (body ? `<section class="bl-sec bl-co"><div class="bl-st">${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ""}</div>${body}</section>` : "");
+  const tbl = (heads, rows) => (rows.length ? `<div class="bl-tbl"><table><thead><tr>${heads.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((c) => `<tr>${c.map((x) => `<td title="${esc(String(x).replace(/<[^>]+>/g, ""))}">${x}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : "");
+  const chip = (t, cls = "") => (t ? `<span class="bl-chip ${cls}">${esc(t)}</span>` : "");
+  const stageCls = (s) => (/受注|^0[6-8]/.test(s || "") ? "won" : /失注|NG|ロスト/.test(s || "") ? "lost" : "");
+  async function leadSheet(l, rid, row) {
     const sh = sheet('<div class="mc-note">読み込んでいます…</div>');
     let r; try { r = await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/rows/${encodeURIComponent(rid)}`); } catch (e) { sh.innerHTML = `<div class="mc-note">読めませんでした：${esc(e.message)}</div>`; return; }
-    const d = r.data || {}; const coK = Object.keys(d).find((k) => labelOf(k) === "会社名"); const nmK = Object.keys(d).find((k) => labelOf(k) === "名前");
-    const det = r.detail || null;
-    const secs = det ? Object.entries(det).map(([k, v]) => { const arr = bigArr(v);
-        if (arr && arr.length) { const rows = arr.slice(0, 200).map((x) => flat1(x)); const ks = []; for (const x of rows.slice(0, 30)) for (const kk of Object.keys(x)) if (!ks.includes(kk) && !/(^|\.)(id|_id|uuid|client_id)$/i.test(kk)) ks.push(kk);
-          const show = ks.filter((kk) => rows.some((x) => x[kk] !== "" && x[kk] != null)).slice(0, 8);
-          return `<details class="bl-sec" open><summary>${esc(tplName(k))}<small>${arr.length}件</small></summary><div class="bl-tbl"><table><thead><tr>${show.map((kk) => `<th title="${esc(kk)}">${esc(labelOf(kk))}</th>`).join("")}</tr></thead><tbody>${rows.map((x) => `<tr>${show.map((kk) => `<td title="${esc(x[kk])}">${esc(x[kk])}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`; }
-        return `<details class="bl-sec"><summary>${esc(tplName(k))}</summary>${v && v._status ? `<div class="mc-note">読めませんでした（${v._status}）</div>` : kvGrid(flat1(v))}</details>`; }).join("") : '<div class="bl-diag">詳しい中身（架電履歴・カスタム情報など）はまだ取り込んでいません。Bales でリードを1件開いてから、右下の「kinbot に取り込む」→「詳しい中身も全部取り込む」を押すと入ります。</div>';
-    sh.innerHTML = `<h3>${esc(d[coK] || "リード")}${nmK && d[nmK] ? `<small>（${esc(d[nmK])}）</small>` : ""}</h3>
-      <a class="mt-btn ghost" style="text-decoration:none;display:inline-flex;margin:4px 0 10px" href="https://mochica.balescloud.jp/app/lead-list?callTargetId=${encodeURIComponent(rid)}" target="_blank" rel="noopener">Bales で開く ↗</a>
-      ${l.view && l.view.length ? `<details class="bl-sec" open><summary>Bales の一覧の項目</summary><div class="bl-kv">${l.view.map((v) => `<div><small>${esc(v.label)}</small><span>${esc(fmt(valOf(d, v.key))) || "-"}</span></div>`).join("")}</div></details>` : ""}
-      ${sfSec(r.sf)}
-      <details class="bl-sec"><summary>取り込んだ全部の項目<small>${Object.keys(d).filter((k) => !/^__/.test(k)).length}項目</small></summary>${kvGrid(d)}</details>
-      <div class="bl-h4">詳しい中身${r.detail_at ? `<small>${esc(dt(r.detail_at))} に取り込み</small>` : ""}</div>${secs}`;
+    const draw = (c, mts) => { if (!sheetEl || !sheetEl.contains(sh)) return; sh.innerHTML = companyHtml(rid, r, row, c, mts); bindSheet(sh); };
+    draw(null, null);
+    // SF と MiiTel は後から足す：Bales の分を先に見せて待たせない
+    const coName = String((r.data || {}).companyName || "");
+    const pc = api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/rows/${encodeURIComponent(rid)}/company`).catch((e) => ({ sfError: "読めませんでした：" + e.message, calls: [] }));
+    const pm = window.mcMeetingsOf && coName ? window.mcMeetingsOf((x) => !!x && coNorm(x) === coNorm(coName)).catch(() => []) : Promise.resolve([]);
+    const [c, mts] = await Promise.all([pc, pm]); draw(c, mts);
   }
-  const SFL = "https://ap10.lightning.force.com/lightning/r";
-  function sfSec(x) {
-    if (!x) return '<div class="bl-diag" style="margin-top:10px">SF とはまだ結びついていません。リストの上の「SF と結びつける」を押すと、SF のリードと過去の商談が入ります。</div>';
-    if (x.none) return `<div class="bl-diag" style="margin-top:10px">${x.id ? `SF のリード（${esc(x.id)}）が見つかりませんでした。` : "SalesforceID が無く、会社名が同じ Mochica リードも SF に見つかりませんでした。"}</div>`;
-    const L = x.lead || {}; const skip = new Set(["id", "name", "company", "status", "owner", "converted", "created"]);
-    return `<details class="bl-sec" open><summary>Salesforce<small>${x.how ? `${esc(x.how)}で結びつけ・` : ""}${x.opps && x.opps.length ? `過去の商談 ${x.sum.n}件` : "過去の商談なし"}</small></summary>
-      <div class="bl-sflinks"><a class="mt-btn ghost" href="${SFL}/Lead/${esc(L.id)}/view" target="_blank" rel="noopener">SF のリード ↗</a>${x.accountId ? `<a class="mt-btn ghost" href="${SFL}/Account/${esc(x.accountId)}/view" target="_blank" rel="noopener">取引先${x.account ? `（${esc(x.account)}）` : ""} ↗</a>` : ""}</div>
-      <div class="bl-kv"><div><small>リードの状態</small><span>${esc(L.status) || "-"}${L.converted ? "（コンバート済み）" : ""}</span></div><div><small>リードの所有者</small><span>${esc(L.owner) || "-"}</span></div>
-        ${Object.entries(L).filter(([k]) => !skip.has(k)).map(([k, v]) => `<div><small>${esc(k)}</small><span>${esc(v)}</span></div>`).join("")}</div>
-      ${x.opps && x.opps.length ? `<div class="bl-h4" style="margin-top:12px">過去の商談</div><div class="bl-tbl"><table><thead><tr><th>商談日</th><th>商談名</th><th>段階</th><th>担当</th><th>アポ獲得</th><th>失注理由</th></tr></thead><tbody>
-        ${x.opps.map((o) => `<tr><td>${esc(o.date)}</td><td><a href="${SFL}/Opportunity/${esc(o.id)}/view" target="_blank" rel="noopener">${esc(o.name)}</a>${o.type ? `<small class="bl-sub">${esc(o.type)}</small>` : ""}</td><td>${esc(o.stage)}</td><td>${esc(o.owner)}</td><td>${esc(o.apo)}</td><td title="${esc(o.detail)}">${esc(o.lost)}</td></tr>`).join("")}</tbody></table></div>` : ""}</details>`;
+  function bindSheet(sh) {
+    sh.querySelectorAll("[data-openco]").forEach((b) => b.addEventListener("click", () => { const co = b.dataset.openco; closeSheet(); if (window.mcOpenCompany) window.mcOpenCompany(co); }));
+  }
+  function companyHtml(rid, r, row, c, mts) {
+    const raw = r.raw || {}, d = r.data || {}; const B = { ...d, ...raw };
+    const L = (c && c.lead) || null, A = (c && c.account) || null; const H = (L && L.hear) || {};
+    const pick = (...v) => { const x = v.find(has); return x == null ? "" : x; };
+    const name = B.companyName || (L && L.company) || (A && A.name) || "（会社名なし）";
+    const legal = legalOf(name);
+    const arr = (v) => (Array.isArray(v) ? v : []);
+    const tags = arr(raw.freeTags).map((t) => t && t.text).filter(Boolean);
+    const srcs = arr(raw.leadSources).map((t) => t && t.name).filter(Boolean);
+    const camps = arr(raw.sfCampaigns).map((t) => t && t.name).filter(Boolean);
+    const nexts = arr(raw.nextActions).filter((x) => x && !x.isDone).sort((a, b) => String(a.reservedAt).localeCompare(String(b.reservedAt)));
+    const opps = (c && c.opps) || []; const last = opps[0] || null;
+    const group = (c && c.group) || [];
+    const calls = (c && c.calls) || [];
+    // ===== 見出し：会社名と、いまの状態がひと目で分かる札 =====
+    const hot = row && row.__hot ? `<span class="bl-hotc">${hotCell(row.__hot)}</span>` : "";
+    const head = `<h3>${esc(name)}</h3>
+      <div class="bl-chips">${chip(legal, "lg")}${chip(B.lastLeadStageName ? "Bales：" + B.lastLeadStageName : "")}${chip(L && L.status ? "SF リード：" + L.status : "")}${chip(A && A.status ? "取引先：" + A.status : "", stageCls(A && A.status))}${chip(last ? "最新の商談：" + last.stage : "", stageCls(last && last.stage))}${hot}</div>
+      <div class="bl-sflinks"><a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list?callTargetId=${encodeURIComponent(B.callTargetId || rid)}" target="_blank" rel="noopener">Bales ↗</a>${L ? `<a class="mt-btn ghost" href="${SFL}/Lead/${esc(L.id)}/view" target="_blank" rel="noopener">SF のリード ↗</a>` : ""}${A ? `<a class="mt-btn ghost" href="${SFL}/Account/${esc(A.id)}/view" target="_blank" rel="noopener">SF の取引先 ↗</a>` : ""}${mts && mts.length ? `<button type="button" class="mt-btn ghost" data-openco="${esc(mts[0].co)}">MiiTel の商談（${mts.length}件）</button>` : ""}</div>`;
+    // ===== 会社の情報 =====
+    const info = kv([["会社名", name], ["法人格", legal], ["代表電話", pick(B.companyTel1, A && A.phone, L && L.phone)], ["住所", pick(A && A.addr, B.companyAddress, L && L.addr)],
+      ["会社 URL", ln(pick(B.companyUrl, A && A.web, L && L.web)), true], ["業種", pick(A && A.industry, B.businessCategory, L && L.industry)], ["従業員数", pick(A && A.emp, B.numberOfEmployees, L && L.emp)],
+      ["法人番号", A && A.corpNo], ["採用ページ", ln(A && A.recruit), true], ["LINE の登録名", A && A.line], ["利用中の ATS", H["利用中ATS"]], ["採用人数", H["採用人数(選択リスト)"]], ["エントリー数", H["エントリー数"]],
+      ["今のサービスの更新月", H["現利用サービス更新予定月"]], ["リードの出どころ", [...srcs, L && L.source].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join("、")], ["SF キャンペーン", camps.join("、")], ["タグ", tags.join("、")],
+      ["アプローチ禁止", H["アプローチ禁止の種類"]], ["Bales に入った日", ymd(B.createdAt)], ["SF リードの作成日", L && L.created], ["取引先になった日", A && A.since]]);
+    // ===== 商談の状態 =====
+    const nx = nexts[0];
+    const state = kv([["Bales のステージ", B.lastLeadStageName ? `${B.lastLeadStageName}${has(B.lastLeadStageStayDays) ? `（${B.lastLeadStageStayDays}日目）` : ""}` : ""], ["SF リードの状態", L ? `${L.status}${L.converted ? "（コンバート済み）" : ""}` : ""],
+      ["取引先の状態", A && A.status], ["最新の商談", last ? `${last.stage}（${last.type ? last.type + "・" : ""}${last.date}）` : ""], ["商談の回数", opps.length ? `${opps.length}件` : ""],
+      ["架電の回数", has(B.callResultsCount) ? `${B.callResultsCount}回` : ""], ["最後の架電", B.lastCalledAt ? `${ymdhm(B.lastCalledAt)}　${B.callResult || ""}` : ""], ["最後のコメント", pick(B.lastCalledComment, B.lastActivityComment)],
+      ["次にやること", nx ? `${ymdhm(nx.reservedAt)}　${nx.name || ""}${nx.content ? "：" + nx.content : ""}${nx.owner && nx.owner.name ? `（${nx.owner.name}）` : ""}` : ""],
+      ["活動予定", [H["活動予定日時"], H["活動予定コメント"]].filter(Boolean).join("　")], ["顧客の現状", H["顧客の現状"]], ["顧客の課題感", H["顧客の課題感"]], ["検討開始時期", H["検討開始時期"]], ["ペンディング理由", H["ペンディング理由"]],
+      ["失注した日", H["失注商談失注日"] ? `${H["失注商談失注日"]}${H["失注商談失注前ステージ"] ? `（失注前：${H["失注商談失注前ステージ"]}）` : ""}` : ""],
+      ["失注理由", [H["失注商談失注理由大"], H["失注商談失注理由中"], H["失注商談失注理由小"]].filter(Boolean).join(" ／ ")], ["失注理由の詳細", H["失注商談失注理由詳細"]], ["負けた競合", H["失注商談バッティング負け競合"]], ["失注後の次のアクション", H["失注後次回アクション日"]]]);
+    const oppT = tbl(["商談日", "商談名", "事業", "段階", "担当", "アポ獲得", "失注理由"], opps.map((o) => [esc(o.date), `<a href="${SFL}/Opportunity/${esc(o.id)}/view" target="_blank" rel="noopener">${esc(o.name)}</a>`, esc(o.type), `<span class="bl-stg ${stageCls(o.stage)}">${esc(o.stage)}</span>`, esc(o.owner), esc(o.apo), esc([o.lost, o.detail].filter(Boolean).join("："))]));
+    // ===== 先方の担当者：Bales・SF のリード・同じ会社のほかのリード・取引先責任者を1つの表に（同じ名前は1行にまとめる）=====
+    const ppl = []; const nk = (s) => String(s || "").normalize("NFKC").replace(/\s|様|さん/g, "");
+    const add = (p) => {
+      const k = nk(p.name); const vague = !k || /^(ご?担当者?|採用担当|人事)$/.test(k);
+      if (vague && !p.phone && !p.email) return;
+      // Bales は名字だけ（志水）、SF はフルネーム（志水 亮介）のことが多いので、片方が片方の頭なら同じ人とみる
+      const same = (x) => { const a = nk(x.name); return a === k || (a.length >= 2 && k.length >= 2 && (a.startsWith(k) || k.startsWith(a))); };
+      const o = vague ? null : ppl.find(same);
+      if (o && k.length > nk(o.name).length) o.name = p.name;   // 長いほう（フルネーム）を残す
+      if (o) { for (const f of ["title", "dept", "phone", "email"]) if (!o[f] && p[f]) o[f] = p[f]; if (!o.src.includes(p.src)) o.src.push(p.src); } else ppl.push({ ...p, src: [p.src] });
+    };
+    add({ name: B.targetName, title: B.position, dept: B.department, phone: pick(B.personalTel, B.companyTel1), email: B.email, src: "Bales" });
+    if (L) add({ name: L.name, title: L.title, phone: L.phone || L.mobile, email: L.email, src: "SF リード" });
+    for (const o of (c && c.others) || []) add({ name: o.name, title: o.title, phone: o.phone, email: o.email, src: `SF リード（${o.status || "状態なし"}）` });
+    for (const o of (c && c.contacts) || []) add({ name: o.name, title: o.title, dept: o.dept, phone: o.phone, email: o.email, src: `取引先責任者${o.biz ? "（" + o.biz + "）" : ""}` });
+    const pplT = tbl(["名前", "役職", "部署", "電話", "メール", "出どころ"], ppl.map((p) => [esc(p.name || "（名前なし）"), esc(p.title), esc(p.dept), esc(p.phone), esc(p.email), esc(p.src.join("・"))]));
+    // ===== 組織：法人格・従業員数・部署・拠点・同じ法人のほかの事業の取引先 =====
+    const depts = [...new Set(ppl.map((p) => p.dept).filter(Boolean))];
+    const site = (() => { const m = String(name).normalize("NFKC").replace(LEGAL, " ").trim().match(/\s(\S.*)$/); return m ? m[1] : ""; })();   // 「法人名 ＋ 施設名」の施設名
+    const org = kv([["法人格", legal], ["従業員数", pick(A && A.emp, B.numberOfEmployees, L && L.emp)], ["事業所・施設", site], ["わかっている部署", depts.join("、")], ["わかっている役職", [...new Set(ppl.map((p) => p.title).filter(Boolean))].join("、")]]);
+    const grpT = group.length > 1 ? tbl(["事業", "取引先名", "状態", "担当"], group.map((g) => [esc(g.biz), `<a href="${SFL}/Account/${esc(g.id)}/view" target="_blank" rel="noopener">${esc(g.name)}</a>`, esc(g.status), esc(g.owner)])) : "";
+    // ===== 当社側の担当 =====
+    const ours = kv([["Bales の架電担当", B.operatorName], ["次の予定の担当", nx && nx.owner && nx.owner.name !== B.operatorName ? nx.owner.name : ""], ["SF リードの所有者", L && L.owner], ["取引先の所有者", A && A.owner],
+      ["商談の担当", [...new Set(opps.map((o) => o.owner).filter(Boolean))].join("、")], ["アポを取った人", [...new Set(opps.map((o) => o.apo).filter(Boolean))].join("、")], ["前の失注商談の所有者", H["失注商談所有者"]],
+      ["MOCHICALL で掛けた人", [...new Set(calls.map((x) => x.caller).filter(Boolean))].join("、")]]);
+    // ===== 架電の履歴（MOCHICALL）と MiiTel の商談 =====
+    const callT = tbl(["日時", "掛けた人", "相手", "つながり", "結果", "メモ", "次"], calls.map((x) => [esc(ymdhm(x.created_at)), esc(x.caller), esc(x.person), esc(x.reach), esc([x.outcome, x.reason].filter(Boolean).join("：")), esc(x.memo), esc(ymdhm(x.apo_at || x.next_at))]));
+    const mtT = mts && mts.length ? tbl(["日時", "商談", "担当"], mts.slice(0, 20).map((m) => [esc(ymdhm(m.at)), esc(m.title), esc(m.host)])) : "";
+    return `${head}${!c ? '<div class="mc-note" style="margin-top:6px">SF を読んでいます…</div>' : ""}${c && c.sfError ? `<div class="bl-diag" style="margin-top:8px">${esc(c.sfError)}</div>` : ""}
+      ${sec("会社の情報", "", info)}
+      ${sec("商談の状態", opps.length ? `SF の商談 ${opps.length}件` : c ? "SF の商談なし" : "", state + (oppT ? `<div class="bl-h4">商談の一覧</div>${oppT}` : ""))}
+      ${sec("先方の担当者", ppl.length ? `${ppl.length}人` : "", pplT)}
+      ${sec("組織", group.length > 1 ? `同じ法人の取引先 ${group.length}件` : "", org + (grpT ? `<div class="bl-h4">同じ法人のほかの事業</div>${grpT}` : ""))}
+      ${sec("当社側の担当", "", ours)}
+      ${sec("架電の履歴（MOCHICALL）", calls.length ? `${calls.length}件` : "", callT)}
+      ${sec("MiiTel の商談", mts && mts.length ? `${mts.length}件` : "", mtT)}`;
   }
   let sheetEl = null;
   function sheet(html) { closeSheet(); sheetEl = document.createElement("div"); sheetEl.className = "bl-sheet-bg"; sheetEl.innerHTML = `<div class="bl-sheet"><button type="button" class="bl-x" aria-label="閉じる">×</button><div class="bl-sheet-in">${html}</div></div>`;

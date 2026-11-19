@@ -146,6 +146,9 @@
   .bl-sheet-bg{position:fixed;inset:0;background:rgba(15,61,68,.28);z-index:900;display:flex;justify-content:flex-end;} .bl-sheet{position:relative;width:min(760px,96vw);height:100%;background:#fff;box-shadow:-8px 0 28px rgba(15,61,68,.18);overflow:auto;border-radius:16px 0 0 16px;}
   .bl-sheet-in{padding:22px 22px 40px;} .bl-sheet h3{margin:0 0 4px;font-size:18px;color:#0F3D44;} .bl-sheet h3 small{font-size:13px;color:#5C7377;font-weight:500;margin-left:4px;} .bl-x{position:absolute;right:14px;top:12px;border:0;background:none;font-size:22px;color:#5C7377;cursor:pointer;}
   .bl-sec{border:1px solid #DDEFF2;border-radius:12px;padding:8px 12px;margin-top:10px;} .bl-sec summary{cursor:pointer;font-weight:700;color:#0B6E78;font-size:13px;} .bl-sec summary small{font-weight:500;color:#5C7377;margin-left:6px;} .bl-h4{margin-top:18px;font-weight:700;color:#0F3D44;font-size:14px;} .bl-h4 small{font-weight:500;color:#5C7377;font-size:11px;margin-left:6px;}
+  /* 会社まとめ（2026-11-20）：状態の札と、項目ごとの区切り */
+  .bl-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px;align-items:center;} .bl-chip{font-size:12px;font-weight:700;color:#0B6E78;background:#DDF5F7;border-radius:99px;padding:3px 10px;} .bl-chip.lg{color:#0d5b47;background:#E3F4EC;} .bl-chip.won{color:#fff;background:#1d9e75;} .bl-chip.lost{color:#8A3B2E;background:#FBE9E5;}
+  .bl-co{padding:10px 14px 12px;} .bl-st{font-weight:800;color:#0d5b47;font-size:14px;} .bl-st small{font-weight:500;color:#5C7377;font-size:12px;margin-left:6px;} .bl-stg.won{color:#1d9e75;font-weight:700;} .bl-stg.lost{color:#B4513F;}
   .bl-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 14px;margin-top:8px;} .bl-kv div{min-width:0;border-bottom:1px solid #EEF6F7;padding-bottom:4px;} .bl-kv small{display:block;font-size:11px;color:#5C7377;} .bl-kv small i{font-style:normal;color:#9AB0B3;} .bl-kv span{font-size:13px;color:#0F3D44;word-break:break-all;}
   .bl-cf{width:100%;height:36px;border:1px solid #CFE6EA;border-radius:10px;padding:0 10px;font:inherit;margin:8px 0;} .bl-cols{display:flex;flex-direction:column;gap:2px;max-height:60vh;overflow:auto;} .bl-cols label{display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #EEF6F7;font-size:13px;cursor:pointer;} .bl-cols label span{flex:1;min-width:0;} .bl-cols label span small{display:block;color:#9AB0B3;font-size:11px;} .bl-cols label>small{color:#5C7377;font-size:11px;}
   .bl-diag{margin-top:14px;background:#F2FAFB;border-radius:12px;padding:12px;font-size:12px;color:#5C7377;line-height:1.7;text-align:left;} .bl-diag b{display:block;color:#0B6E78;font-size:13px;} .bl-dl{margin-top:6px;font-family:ui-monospace,monospace;font-size:11px;color:#0F3D44;} .bl-dl small{display:block;color:#5C7377;}
@@ -266,11 +269,11 @@
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-  <script src="/mcbales.js?v=20261119f"></script>
+  <script src="/mcbales.js?v=20261120a"></script>
   <script src="/caseshare.js?v=20261116c"></script>
   <!-- kinbot のロボ（左上の顔を押すと相談できる窓）を MOCHICA にも（2026-11-16 田中さん） -->
   <script src="/kbchat.js?v=20261119f" defer></script>
   <script src="/mccall.js?v=20261120a"></script>
-  <script src="/mochica.js?v=20261119f"></script>
+  <script src="/mochica.js?v=20261120a"></script>
 </body>
 </html>

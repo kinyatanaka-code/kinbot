@@ -282,7 +282,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -28860,6 +28860,65 @@ app.get("/api/mochica/bales/lists/:key/rows/:rid", async (req, res) => {
     res.json({ ok: true, ...r }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+// ===== 会社まとめ：リストから会社を開いたときに、その会社のことを1か所に集める（2026-11-20 福井さん）=====
+//   「詳しい中身」は Bales の読み先がほぼ 404 で空だったので、開いたときに SF を読みに行く形に変えた。
+//   SF のリード・同じ会社のほかのリード（担当者）・取引先・同じ法人のほかの事業の取引先（ParentAcct_ID18__c が同じ）・
+//   その全部の取引先責任者と商談、MOCHICALL で掛けた履歴をまとめて返す。読むのは1社分だけなので、その場で読む。
+app.get("/api/mochica/bales/lists/:key/rows/:rid/company", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const key = String(req.params.key), rid = String(req.params.rid);
+    const r = await mcBalesRow(key, rid); if (!r) return res.status(404).json({ error: "見つかりません" });
+    const d = r.data || {}, raw = r.raw || {};
+    const company = String(d.companyName || raw.companyName || "").trim();
+    const out = { ok: true, sfError: "", lead: null, others: [], account: null, group: [], contacts: [], opps: [], calls: [] };
+    let leadId = String((r.sf && r.sf.lead && r.sf.lead.id) || "");
+    if (!leadId) { const m = JSON.stringify(raw).match(/"(00Q[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?)"/); if (m) leadId = m[1]; }
+    out.calls = await mcCompanyCalls(`${key}|${rid}`, leadId ? [leadId, leadId.slice(0, 15)] : [], company);
+    const owner = await pickSfUser(req.user, req).catch(() => null);
+    if (!owner) { out.sfError = "SF につながっている人が見つかりません。設定の外部連携で SF につないでください"; return res.json(out); }
+    const esq = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    const nm = (o) => (o && o.Name) || "";
+    const d10 = (v) => (v ? String(v).slice(0, 10) : "");
+    try {
+      const LF = `Id, Name, Title, Company, Phone, MobilePhone, Email, Website, Industry, NumberOfEmployees, State, City, Street, LeadSource, Status, Owner.Name, IsConverted, ConvertedAccountId, CreatedDate, ${MC_BALES_FIELDS.map(([, api]) => api).join(", ")}`;
+      const L = leadId ? (await sfQueryAll(owner, `SELECT ${LF} FROM Lead WHERE Id = '${esq(leadId)}'`, 1))[0] : null;
+      if (L) {
+        const hear = {}; for (const [lbl, api] of MC_BALES_FIELDS) { const v = L[api]; if (v != null && v !== "") hear[lbl] = String(v).replace(/\s+/g, " ").slice(0, 400); }
+        const [nice] = await mcLeadNice([hear]);   // 失注商談の所有者などの ID を名前に
+        out.lead = { id: L.Id, name: L.Name || "", title: L.Title || "", company: L.Company || "", phone: L.Phone || "", mobile: L.MobilePhone || "", email: L.Email || "", web: L.Website || "", industry: L.Industry || "",
+          emp: L.NumberOfEmployees ?? "", addr: [L.State, L.City, L.Street && !String(L.City || "").includes(String(L.Street).slice(0, 4)) ? L.Street : ""].filter(Boolean).join(" "), source: L.LeadSource || "", status: L.Status || "",
+          owner: nm(L.Owner), converted: !!L.IsConverted, created: d10(L.CreatedDate), hear: nice || {} };
+      }
+      const coName = (L && L.Company) || company;
+      // 同じ会社のほかのリード：部署や担当者が別々に入っていることが多い
+      if (coName) out.others = (await sfQueryAll(owner, `SELECT Id, Name, Title, Phone, Email, Status, Owner.Name, LeadSource, LastModifiedDate FROM Lead WHERE RecordType.Name = 'Mochica（リード）' AND Company = '${esq(coName)}' ORDER BY LastModifiedDate DESC LIMIT 30`, 30))
+        .filter((x) => !L || x.Id !== L.Id).map((x) => ({ id: x.Id, name: x.Name || "", title: x.Title || "", phone: x.Phone || "", email: x.Email || "", status: x.Status || "", owner: nm(x.Owner), source: x.LeadSource || "", at: d10(x.LastModifiedDate) }));
+      // 取引先：結びつけ済み → コンバート先 → 失注商談の取引先 → 会社名が同じ Mochica の取引先、の順
+      let accId = String((r.sf && r.sf.accountId) || (L && L.ConvertedAccountId) || "");
+      if (!accId && L && /^006/.test(String(L.LostOppID__c || ""))) accId = String(((await sfQueryAll(owner, `SELECT AccountId FROM Opportunity WHERE Id = '${esq(L.LostOppID__c)}'`, 1))[0] || {}).AccountId || "");
+      if (!accId && coName) accId = String(((await sfQueryAll(owner, `SELECT Id FROM Account WHERE Name = '${esq(coName)}' AND RecordType.Name = 'Mochica' LIMIT 1`, 1))[0] || {}).Id || "");
+      if (accId) {
+        const AF = "Id, Name, Phone, Website, Industry, NumberOfEmployees, BillingState, BillingCity, BillingStreet, Owner.Name, RecordType.Name, acount_status__c, ParentAcct_ID18__c, corporatenumber__c, LINE_Registered_company_name__c, account_date__c, recruit_URL__c";
+        const A = (await sfQueryAll(owner, `SELECT ${AF} FROM Account WHERE Id = '${esq(accId)}'`, 1))[0];
+        const accOut = (a) => ({ id: a.Id, name: a.Name || "", biz: (a.RecordType && a.RecordType.Name) || "", status: a.acount_status__c || "", owner: nm(a.Owner), phone: a.Phone || "", web: a.Website || "", industry: a.Industry || "", emp: a.NumberOfEmployees ?? "",
+          addr: [a.BillingState, a.BillingCity, a.BillingStreet && !String(a.BillingCity || "").includes(String(a.BillingStreet).slice(0, 3)) ? a.BillingStreet : ""].filter(Boolean).join(" "), corpNo: a.corporatenumber__c || "", line: a.LINE_Registered_company_name__c || "", since: d10(a.account_date__c), recruit: a.recruit_URL__c || "" });
+        if (A) {
+          out.account = accOut(A);
+          // 同じ法人のほかの事業（BPO・DOC など）の取引先：組織のつながりを見るため
+          out.group = A.ParentAcct_ID18__c ? (await sfQueryAll(owner, `SELECT ${AF} FROM Account WHERE ParentAcct_ID18__c = '${esq(A.ParentAcct_ID18__c)}' LIMIT 20`, 20)).map(accOut) : [out.account];
+        }
+        const ids = (out.group.length ? out.group.map((a) => a.id) : [accId]).map((x) => `'${esq(x)}'`).join(",");
+        out.contacts = (await sfQueryAll(owner, `SELECT Id, Name, Title, Department, Phone, MobilePhone, Email, Owner.Name, Account.RecordType.Name, LastModifiedDate FROM Contact WHERE AccountId IN (${ids}) ORDER BY LastModifiedDate DESC LIMIT 50`, 50))
+          .map((c) => ({ id: c.Id, name: c.Name || "", title: c.Title || "", dept: c.Department || "", phone: c.Phone || c.MobilePhone || "", email: c.Email || "", owner: nm(c.Owner), biz: (c.Account && c.Account.RecordType && c.Account.RecordType.Name) || "", at: d10(c.LastModifiedDate) }));
+        out.opps = (await sfQueryAll(owner, `SELECT Id, Name, RecordType.Name, StageName, CreatedDate, CloseDate, appointment__c, order_date__c, Amount, owner_text__c, Owner.Name, Loss_Reason__c, Loss_Reason1__c, order_reason_detail__c, Internship_apo__c FROM Opportunity WHERE AccountId IN (${ids}) ORDER BY CreatedDate DESC LIMIT 50`, 50))
+          .map((o) => ({ id: o.Id, name: o.Name || "", type: (o.RecordType && o.RecordType.Name) || "", stage: o.StageName || "", date: d10(o.appointment__c || o.CreatedDate), close: d10(o.order_date__c || o.CloseDate), amount: o.Amount ?? "",
+            owner: o.owner_text__c || nm(o.Owner), apo: o.Internship_apo__c || "", lost: [o.Loss_Reason__c, o.Loss_Reason1__c].filter(Boolean).join("／"), detail: String(o.order_reason_detail__c || "").replace(/\s+/g, " ").slice(0, 300) }));
+      }
+    } catch (e) { out.sfError = "SF を読めませんでした：" + String(e.message || e).slice(0, 200); }
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 // ===== Bales のリードを SF と結びつける（2026-11-15 田中さん「2万件のリードを SF と紐付けて、過去の商談履歴を見られるように」）=====
 //   Bales の SalesforceID＝SF の「Mochica（リード）」の ID（00Q…）。どの項目に入っているかは、値の形（00Q…）で見つける。
 //   リード → 取引先（コンバート先、または失注商談の取引先）→ その取引先の商談すべて、の順に読み、行ごとに sf として残す。
@@ -33968,8 +34027,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20d kinXs のコネクタ：候補者が DOC の AI に聞いた質問を読む list_ai_questions（会社・区分・言葉でしぼる・答えも）と、区分（新卒／中途／アルバイト／不明）ごと・会社ごとのまとめ ai_question_summary。／2026-11-20c kinXs のコネクタ：全部の項目を読む export_users（企業情報・先方の担当者・掲載先・接触の記録まで）・項目の地図 list_fields・update_user で画面で直せる項目を全部直せる・bulk_update_users（50社まで）。／2026-11-20b アポ一覧：MOCHICA のアポは DOC の kinbot のアポ一覧（全体・DOC）に出さない。上の「MOCHICA」を選んだときだけ出す。／2026-11-20a MOCHICALL：リード管理タブ（kincall 準拠。メンバー別＝人ごとの担当件数・今かける・種類の内訳、種類別＝取り込み元×リードソースごとの件数・保管・未架電・配れる数・担当別・月ごとのアポ率）と「種類を選んで配る・足す」（配分を見てから配る。保管のリストからは入れるリストへ移して配る）。前：2026-11-19t SHOBO：リードを SF・BALES・SHOBO から足す（SF のリードを条件で取り込み・SHOBO のほかのリストから条件で移す）／BALES のリストをすべて SHOBO の保管のリストへ移す（デプロイ後に自動で1回）。前：19r SHOBO：架電リストを条件で割り振る。／2026-11-19a MOCHICA の商談と SF の照合（版12）：リードが無くても商談が立ち上がっている会社は、商談名・商談の取引先名で探して取引先に結びつける（ヨシケイこうべ・奈良スバル自動車）。取引先名も前後だけ違う1社なら採る。60日より前の会議も7日ごとに試し直す。／2026-11-19r 設定：「現在のパスワードが分からないとき」に Google で本人確認して作り直すボタン（ログイン画面の「ログインできない場合」と同じ流れ）。／2026-11-19q MOCHICA：MiiTel の過去の会議をすべて読む（上限3650日・既定2020-01-01・一覧20000件・拡張機能2.2.29）。前：19p 設定：パスワード・トークンの欄に目のボタン（押すと入れた文字が見える・もう一度で隠す）。保存してあるパスワードは元に戻せない形なので見られない。／2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
+const BUILD_TAG = "2026-11-20e SHOBO リストの会社まとめ：空だった「詳しい中身」をやめ、会社の情報・商談の状態・先方の担当者・組織・当社側の担当・架電履歴を Bales・SF・MOCHICALL から1枚に";
 const BUILD_FEATURES = [
+  "SHOBO リストの会社まとめ（会社の情報・商談の状態・先方の担当者・組織・当社側の担当・架電履歴）",
   "kinXs のコネクタ：候補者が AI に聞いた質問（新卒・中途で比べられる）",
   "kinXs のコネクタ：Claude から全部の項目を読み取り・分析・書き換え（export_users・list_fields・update_user・bulk_update_users）",
   "MOCHICALL：リード管理（種類ごとの件数・だれに何件割り振っているか・アポ率）と、種類を選んで配る・リストに足す（kincall のソースから配ると同じ流れ）",
