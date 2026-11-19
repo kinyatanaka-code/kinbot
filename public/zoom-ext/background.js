@@ -264,3 +264,50 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (msg.op === "clear") { chrome.storage.session.remove([K], () => reply({ ok: true })); return true; }
   chrome.storage.session.get([K], (st) => reply((st && st[K]) || {})); return true;
 });
+
+// ===== DOC の AI の質問を毎日読む（2026-11-19 田中さん「質問内容は毎日監視して、増えたところを読み取るようにしたい」）=====
+//   取り込みの窓で「毎日」に印を付けた人だけ（ほかの人のパソコンでは開かない）。決めた時刻（既定 9:00）を過ぎたら、その日に1回だけ、管理画面を別の窓で開いて、全部の会社の「増えたチャットだけ」を読む。
+//   窓は前に出さない（作業のじゃまをしない）。最小化や裏のタブにすると Chrome が動きを遅くするので、ふつうの窓で開く。
+//   ログインのパスワードは Chrome を閉じると消える置き場にあるもの。無ければ、開いた窓でパスワードを聞く
+const KB_DA_DAILY = "kbDocAiDaily";
+const KB_DA_BASE = "https://casual-interview-api.brainverse-ai.com/";
+const kbYmdLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+async function kbDocAiDailyCheck(force) {
+  try {
+    const st = await chrome.storage.local.get([KB_DA_DAILY, "kbDocAiRun"]);
+    const d = st[KB_DA_DAILY] || { on: false, time: "09:00" };
+    if (!d.on && !force) return { ok: false, why: "off" };
+    const now = new Date(); const today = kbYmdLocal(now);
+    const [hh, mm] = String(d.time || "09:00").split(":").map(Number);
+    if (!force && (now.getHours() * 60 + now.getMinutes() < (hh || 0) * 60 + (mm || 0) || d.lastDay === today)) return { ok: false, why: "not-yet" };
+    if (!force && (now.getDay() === 0 || now.getDay() === 6)) return { ok: false, why: "weekend" };   // 土日はしない
+    const run = st.kbDocAiRun;
+    if (run && Date.now() - (run.at || 0) < 30 * 60000) return { ok: false, why: "running" };     // 取り込み中
+    await chrome.storage.local.set({
+      [KB_DA_DAILY]: { ...d, lastDay: today },
+      kbDocAiRun: { phase: "relogin", auto: true, list: null, i: 0, onlyNew: true, saved: 0, skipped: 0, failed: 0, log: [], results: [], tries: 0, started: Date.now(), at: Date.now(), stop: false },
+    });
+    const w = await chrome.windows.create({ url: KB_DA_BASE, focused: false, state: "normal", width: 1280, height: 900 });
+    await chrome.storage.local.set({ kbDocAiAutoWin: w && w.id });
+    return { ok: true };
+  } catch (e) { return { ok: false, why: String(e && e.message || e) }; }
+}
+chrome.alarms.create("kb-docai-daily", { periodInMinutes: 15, delayInMinutes: 4 });
+chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === "kb-docai-daily") kbDocAiDailyCheck(false); });
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (!msg || !/^kb-docai-(daily|autodone)$/.test(msg.type)) return;
+  if (!sender || !sender.url || !/^https:\/\/casual-interview-api\.brainverse-ai\.com\//.test(sender.url)) { reply({}); return; }
+  (async () => {
+    if (msg.type === "kb-docai-daily") {
+      // 設定の読み書き（毎日するか・何時か）。force は「いまためしに回す」
+      if (msg.op === "set") { const st = await chrome.storage.local.get([KB_DA_DAILY]); await chrome.storage.local.set({ [KB_DA_DAILY]: { ...(st[KB_DA_DAILY] || {}), on: !!msg.on, time: /^\d{2}:\d{2}$/.test(msg.time || "") ? msg.time : "09:00" } }); }
+      const st = await chrome.storage.local.get([KB_DA_DAILY]);
+      return reply({ ok: true, daily: st[KB_DA_DAILY] || { on: false, time: "09:00" } });
+    }
+    // 毎日の取り込みが終わった：開いた窓を1分後に閉じる（自動で開いた窓のときだけ）
+    const st = await chrome.storage.local.get(["kbDocAiAutoWin"]); const wid = st.kbDocAiAutoWin;
+    if (wid && sender.tab && sender.tab.windowId === wid) setTimeout(() => { chrome.windows.remove(wid).catch(() => {}); chrome.storage.local.remove(["kbDocAiAutoWin"]); }, 60000);
+    reply({ ok: true });
+  })();
+  return true;
+});

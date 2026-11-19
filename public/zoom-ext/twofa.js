@@ -104,6 +104,7 @@
     const run = await runNow(); if (!run || run.phase !== "relogin" || run.stop) return;
     const em = ins.find((i) => i.type === "email" || /mail|メール/i.test(labelOf(i)));
     const c = await cred();
+    if (run.auto && !c.pw) return;   // 毎日の自動で、まだパスワードを聞いていない（管理画面の窓で聞く）
     if (em && c.email && em.value !== c.email) setVal(em, c.email);
     if (c.pw) setVal(pw, c.pw);
     const b = [...document.querySelectorAll("button, input[type=submit]")].find((x) => visible(x) && /ログイン|login|sign in/i.test(x.textContent || x.value || "") && !/できない|忘れ/.test(x.textContent || ""));

@@ -294,9 +294,14 @@
       <div style="font-weight:700;font-size:12.5px;margin-top:10px;color:${C.deep}">ログインし直すときに使う（2社目から）</div>
       <input type="email" data-em placeholder="管理画面のメールアドレス" autocomplete="off" style="width:100%;box-sizing:border-box;margin-top:4px;border:1px solid #cfe6dc;border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px">
       <input type="password" data-pw placeholder="管理画面のパスワード" autocomplete="new-password" style="width:100%;box-sizing:border-box;margin-top:4px;border:1px solid #cfe6dc;border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px">
-      <small style="display:block;color:#5b6b66;font-size:11px;margin-top:3px">パスワードは、この取り込みの間だけ拡張機能の中に置きます（kinbot には送りません。Chrome を閉じると消えます）。確認コードはメールから自動で入れます。</small>
+      <small style="display:block;color:#5b6b66;font-size:11px;margin-top:3px">パスワードは拡張機能の中にだけ置きます（kinbot には送りません）。この取り込みが終わると消します。「毎日」に印を付けたときは、Chrome を閉じるまで覚えます。確認コードはメールから自動で入れます。</small>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-top:10px"><input type="checkbox" data-daily> <span>毎日（平日） <input type="time" data-dtime value="09:00" style="border:1px solid #cfe6dc;border-radius:6px;padding:1px 4px"> を過ぎたら、増えたところだけ自動で読む</span></label>
       <button type="button" data-go style="margin-top:10px;width:100%;border:0;border-radius:10px;background:${C.main};color:#fff;font-weight:700;padding:9px;cursor:pointer">取り込みを始める</button>
       <div style="color:#5b6b66;font-size:11.5px;margin-top:6px">1社読むごとに管理画面を開き直して、ログインし直してから次の会社を読みます（前の会社にもどってしまうのを防ぐため）。終わるまで、このタブはさわらずに置いておいてください（ほかのタブは使えます）。1社で1〜3分ほどかかります。</div>`);
+    { const dc = box.querySelector("[data-daily]"), dt = box.querySelector("[data-dtime]");
+      const save = () => { try { chrome.runtime.sendMessage({ type: "kb-docai-daily", op: "set", on: dc.checked, time: dt.value }, () => {}); } catch {} };
+      try { chrome.runtime.sendMessage({ type: "kb-docai-daily", op: "get" }, (r) => { const d = (r && r.daily) || { on: false, time: "09:00" }; dc.checked = d.on === true; dt.value = d.time || "09:00"; }); } catch {}
+      dc.onchange = save; dt.onchange = save; }
     { const em = box.querySelector("[data-em]"); try { chrome.storage.local.get(["kbDocAiEmail"], (st) => { if (st && st.kbDocAiEmail && !em.value) em.value = st.kbDocAiEmail; }); } catch {} }
     box.querySelector("[data-go]").onclick = async () => {
       const mode = box.querySelector('input[name="kbda"]:checked').value; const n = Math.max(1, Math.min(cos.length, Number(box.querySelector("[data-n]").value) || 10));
@@ -341,6 +346,34 @@
   }
   // ログインできている＝左のメニュー（チャット管理など）が出ている
   const loggedIn = () => !!document.querySelector('[data-testid="stSidebarNavLink"]') || [...document.querySelectorAll("a[href]")].some((a) => /chat_curator/.test(a.getAttribute("href") || "")) || !!selectBoxOf("企業を選択");
+  // ログインできるまで待つ。メール・パスワード・確認コードは twofa.js が入れる。
+  //   パスワードが無いとき（毎日の自動で、Chrome を開き直したあと）は、この窓で聞く。人が入れるまで待つ（自動のときは3時間まで）
+  const credGet = () => new Promise((r) => { try { chrome.runtime.sendMessage({ type: "kb-docai-cred", op: "get" }, (x) => r(x || {})); } catch { r({}); } });
+  async function waitLogin(run, msg, paint0) {
+    if (run.phase !== "relogin") { run.phase = "relogin"; run.loginAt = Date.now(); await setRun(run); }
+    const draw = (m) => show(`<div style="font-size:12.5px">${m}<br><small style="color:#5b6b66">確認コードはメールから自動で入れます</small></div>`);
+    let asked = false; const t0 = Date.now(); let limit = 4 * 60000;
+    for (;;) {
+      if (loggedIn()) return true;
+      const r1 = await getRun(); if (!r1 || r1.stop || stop) { await finish(run); return false; }
+      const cr = await credGet();
+      if (!cr.pw && isLogin() && run.auto) {
+        limit = 3 * 3600000;
+        if (!asked) {
+          asked = true;
+          show(`<div style="font-size:12.5px;font-weight:700;color:${C.deep}">毎日の質問の取り込みの時間です</div><div style="font-size:12px;color:#5b6b66;margin:4px 0">ログインに使うメールとパスワードを入れてください（Chrome を閉じるまで覚えます。kinbot には送りません）</div>
+            <input type="email" data-em placeholder="メールアドレス" style="width:100%;box-sizing:border-box;margin-top:4px;border:1px solid #cfe6dc;border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px"><input type="password" data-pw placeholder="パスワード" autocomplete="new-password" style="width:100%;box-sizing:border-box;margin-top:4px;border:1px solid #cfe6dc;border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px">
+            <button type="button" data-ok style="margin-top:8px;width:100%;border:0;border-radius:10px;background:${C.main};color:#fff;font-weight:700;padding:8px;cursor:pointer">この内容でログインして読む</button>
+            <button type="button" data-skip style="margin-top:6px;width:100%;border:1px solid #e7b37a;border-radius:10px;background:#fff;color:#7a4310;padding:6px;cursor:pointer">今日はやめる</button>`);
+          const em = box.querySelector("[data-em]"); try { chrome.storage.local.get(["kbDocAiEmail"], (st) => { if (st && st.kbDocAiEmail && !em.value) em.value = st.kbDocAiEmail; }); } catch {}
+          box.querySelector("[data-ok]").onclick = () => { const e1 = em.value.trim(), p1 = box.querySelector("[data-pw]").value; if (!e1 || !p1) return; try { chrome.storage.local.set({ kbDocAiEmail: e1 }); chrome.runtime.sendMessage({ type: "kb-docai-cred", op: "set", email: e1, pw: p1 }, () => {}); } catch {} draw(msg); };
+          box.querySelector("[data-skip]").onclick = async () => { const r2 = await getRun(); if (r2) await setRun({ ...r2, stop: true }); stop = true; };
+        }
+      } else if (!asked || cr.pw) { if (paint0) paint0(`${msg}<br><small>確認コードはメールから自動で入れます</small>`); else draw(msg); }
+      if (Date.now() - t0 > limit) { run.log.push("ログインし直せませんでした（待ちきれませんでした）。ログインしてから、もう一度押してください"); await finish(run); return false; }
+      await sleep(2000);
+    }
+  }
   async function crawl(list, onlyNew) {
     if (!list.length) return;
     await setRun({ phase: "open", list, i: 0, onlyNew, saved: 0, skipped: 0, failed: 0, log: [], results: [], tries: 0, started: Date.now(), at: Date.now(), stop: false });
@@ -353,9 +386,20 @@
     try { await resume0(); } finally { resuming = false; }
   }
   async function resume0() {
-    const run = await getRun(); if (!run || !Array.isArray(run.list)) return;
-    if (Date.now() - (run.at || run.started) > 30 * 60 * 1000) { await delRun(); return; }   // 30分さわっていない取り込みは、もう続けない
+    const run = await getRun(); if (!run || (!Array.isArray(run.list) && !run.auto)) return;
+    if (Date.now() - (run.at || run.started) > (run.auto ? 4 * 60 : 30) * 60 * 1000) { await delRun(); return; }   // 長くさわっていない取り込みは、もう続けない
     crawling = true; box.hidden = false;
+    // 毎日の自動の取り込み（拡張機能が朝に開いた窓）：まずログインしてから、kinbot に会社の一覧を聞く。全部の会社の増えたところだけ読む
+    if (!Array.isArray(run.list)) {
+      const okLogin = await waitLogin(run, "毎日の取り込み：ログインしています…");
+      if (!okLogin) return;
+      const r = await kb("/api/kinxs/docai/companies");
+      if (!r.ok) { run.list = []; run.log.push(`会社の一覧を読めませんでした：${r.error || ""}`); await finish(run); return; }
+      run.list = (r.companies || []).map((x) => ({ company: x.company, name: x.name || "", known: x.known || [] }));
+      run.phase = "open"; run.at = Date.now(); await setRun(run);
+      if (!run.list.length) { await finish(run); return; }
+      openCompany(run.list[0].company); return;
+    }
     const c = run.list[run.i]; if (!c) { await finish(run); return; }
     setTarget(c.company);
     const log = run.log; const results = run.results;
@@ -364,11 +408,7 @@
     // ログインし直しのあと：ログインできる（左にチャット管理が出る）まで待ってから、その会社を開く。
     //   メール・パスワード・確認コードは twofa.js が入れる（ログインの画面は別の枠の中のこともあるため）
     if (run.phase === "relogin" || isLogin()) {
-      paint(`${esc0(c.name || c.company)} を読むために、ログインし直しています…<br><small>確認コードはメールから自動で入れます</small>`);
-      if (run.phase !== "relogin") { run.phase = "relogin"; run.loginAt = Date.now(); await setRun(run); }
-      let ok = false;
-      for (let k = 0; k < 240 && !stop; k++) { if (loggedIn()) { ok = true; break; } const r1 = await getRun(); if (!r1 || r1.stop) break; await sleep(1000); }
-      if (!ok) { run.log.push("ログインし直せませんでした（4分待ちました）。ログインしてから、もう一度押してください"); await finish(run); return; }
+      if (!(await waitLogin(run, `${esc0(c.name || c.company)} を読むために、ログインし直しています…`, paint))) return;
       run.phase = "open"; run.at = Date.now(); await setRun(run);
       await sleep(1500); await quiet(1500);
       openCompany(c.company); return;
@@ -407,10 +447,13 @@
   }
   async function finish(run) {
     await delRun(); crawling = false; setTarget("");
-    try { chrome.runtime.sendMessage({ type: "kb-docai-cred", op: "clear" }, () => {}); } catch {}   // パスワードは取り込みが終わったら消す
+    // パスワードは、手で始めた取り込みが終わったら消す。毎日の自動のぶんは、Chrome を閉じるまで覚えておく（毎朝聞かないため）
+    //   手で始めた取り込みでも、「毎日」に印があれば覚えたまま（次の朝に聞かないため）
+    if (!run.auto) { try { chrome.runtime.sendMessage({ type: "kb-docai-daily", op: "get" }, (r) => { if (!(r && r.daily && r.daily.on)) chrome.runtime.sendMessage({ type: "kb-docai-cred", op: "clear" }, () => {}); }); } catch {} }
+    else { try { chrome.runtime.sendMessage({ type: "kb-docai-autodone" }, () => {}); } catch {} }
     kb("/api/kinxs/docai/diag", "POST", { why: "取り込みの結果", ver: (() => { try { return chrome.runtime.getManifest().version; } catch { return ""; } })(), saved: run.saved, skipped: run.skipped, failed: run.failed, results: (run.results || []).slice(0, 60), log: (run.log || []).slice(-40), trace: trace.slice(-200) }).catch(() => {});
     box.hidden = false;
-    show(`<div style="color:${C.deep};font-weight:700">${run.stop || stop ? "止めました" : "終わりました"}</div><div style="font-size:12.5px;margin-top:4px">${Math.min(run.i, run.list.length)}社を見ました・保存 ${run.saved}件・とばした会社 ${run.skipped}社${run.failed ? `・読めなかった行 ${run.failed}` : ""}</div>${(run.log || []).length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:120px;overflow:auto">${run.log.slice(-10).map(esc0).join("<br>")}</div>` : ""}<div style="font-size:11.5px;color:#5b6b66;margin-top:6px">kinXs の「DOC連携 → 候補者の質問」で見られます。</div>`);
+    show(`<div style="color:${C.deep};font-weight:700">${run.stop || stop ? "止めました" : "終わりました"}</div><div style="font-size:12.5px;margin-top:4px">${Math.min(run.i, run.list.length)}社を見ました・保存 ${run.saved}件・とばした会社 ${run.skipped}社${run.failed ? `・読めなかった行 ${run.failed}` : ""}</div>${(run.log || []).length ? `<div style="font-size:11.5px;color:#7a4310;margin-top:6px;max-height:120px;overflow:auto">${run.log.slice(-10).map(esc0).join("<br>")}</div>` : ""}<div style="font-size:11.5px;color:#5b6b66;margin-top:6px">kinXs の「DOC連携 → 候補者の質問」で見られます。${run.auto ? "この窓は1分後に閉じます。" : ""}</div>`);
   }
   // Streamlit は画面をあとから書きかえるので、変化が落ち着いてから読む
   const obs = new MutationObserver(() => { clearTimeout(timer); timer = setTimeout(passive, 1800); });
