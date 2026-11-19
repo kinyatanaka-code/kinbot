@@ -116,7 +116,7 @@
     } catch (e) { prg({ error: String(e && e.message || e), got, pages, oldest, diag: diag() }); }
     finally { backRunning = false; }
   }
-  window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return; if (d.__kbMtBackRun) backfill(d.until || "2026-03-01"); if (d.__kbMtBackStop) backStop = true; if (d.__kbMtBackAsk) prg({ ready: !!lastList, url: lastList ? lastList.url.replace(/\?.*$/, "") : "" }); });
+  window.addEventListener("message", (e) => { const d = e.data; if (!d || e.source !== window) return; if (d.__kbMtBackRun) backfill(d.until || "2020-01-01"); if (d.__kbMtBackStop) backStop = true; if (d.__kbMtBackAsk) prg({ ready: !!lastList, url: lastList ? lastList.url.replace(/\?.*$/, "") : "" }); });
   // ===== 録画の取り込み（#kbGrabVideo で開かれたとき）（2026-11-12）=====
   let tk = "", KB = "", grabbing = false;
   window.addEventListener("message", (e) => { const d = e.data; if (d && d.__kbExtToken && e.source === window) { tk = d.__kbExtToken; KB = d.kb; } });

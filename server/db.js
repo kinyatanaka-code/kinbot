@@ -12845,6 +12845,7 @@ export async function mcMiitelCleanJunk() {
 }
 
 // MOCHICA：拡張機能に「次に読む会議」を渡す（文字起こしか録画がまだのもの・60日以内・新しい順）（2026-11-12）
+// 文字起こしを読みに行く期間の上限は3650日（2026-11-19 福井さん「直近だけでなく、過去参照できるすべての商談履歴を」。前の400日では古い会議を読みに行かなかった）
 export async function mcMiitelTodo(limit = 10, { days = 60, novideo = false, skip = [] } = {}) {
   if (!pool) return []; await ensureMcMiitel();
   // novideo：過去の会議をまとめて読むときは、録画は後回しにして文字起こし・議事録だけ（2026-11-15）
@@ -12853,7 +12854,7 @@ export async function mcMiitelTodo(limit = 10, { days = 60, novideo = false, ski
   const rows = (await pool.query(`SELECT id, url, COALESCE(transcript_len,0) AS tl, (payload ? 'mt_video') AS hv FROM mochica_miitel_events
     WHERE ${need} AND COALESCE(started_at, received_at) > now() - make_interval(days => $2) AND COALESCE(title,'') <> ''
       AND COALESCE((payload->>'mt_grab_fail')::int, 0) < 3 AND NOT (id = ANY($3::text[]))
-    ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit, Math.max(1, Math.min(400, Number(days) || 60)), skip]).catch(() => ({ rows: [] }))).rows;
+    ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit, Math.max(1, Math.min(3650, Number(days) || 60)), skip]).catch(() => ({ rows: [] }))).rows;
   if (novideo && rows.length) await pool.query(`UPDATE mochica_miitel_events SET payload = jsonb_set(COALESCE(payload,'{}'::jsonb), '{mt_tr_try}', to_jsonb(COALESCE((payload->>'mt_tr_try')::int, 0) + 1)) WHERE id = ANY($1::text[])`, [rows.map((r) => r.id)]).catch(() => {});
   return rows;
 }
@@ -12869,7 +12870,7 @@ export async function kxHiringSaveDb(id, data, sources, by) { if (!pool) return;
 export async function mcMiitelNeedCal(limit = 40) {
   if (!pool) return []; await ensureMcMiitel();
   // 版11（2026-11-18：前後だけ違う会社名・自社だけの会議）／版10（2026-11-18：題名の余計な言葉・参加者の「会社 人」）／版9（2026-11-18：カレンダーを月ごとに読む・担当のフルネーム）／版8（2026-11-16）：メールのドメイン・参加者名・文字起こしでも照合。会社名があるのに SF が空のものも6時間ごとに試し直す（SF の照会が黙って失敗していたため）
-  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec, payload->'mt_rep' AS mrep, payload->'mt_pmails' AS pemails FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '300 days' AND COALESCE(payload->'mt_cal'->>'manual','') <> 'true' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '11' OR (COALESCE(payload->'mt_cal'->>'none','') <> 'true' AND COALESCE(payload->'mt_cal'->'sf'->>'leadId','') = '' AND COALESCE(payload->'mt_cal'->'sf'->>'accountId','') = '' AND started_at > now() - interval '60 days' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - 6 * 3600000)) OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE(payload->'mt_cal'->>'nodeal','') <> 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - (CASE WHEN started_at > now() - interval '60 days' THEN 3600000 ELSE 7 * 86400000 END)))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
+  return (await pool.query(`SELECT id, title, started_at, host, participants, duration_sec, payload->'mt_rep' AS mrep, payload->'mt_pmails' AS pemails FROM mochica_miitel_events WHERE started_at IS NOT NULL AND started_at > now() - interval '3650 days' AND COALESCE(payload->'mt_cal'->>'manual','') <> 'true' AND (NOT (payload ? 'mt_cal') OR COALESCE(payload->'mt_cal'->>'v','') <> '11' OR (COALESCE(payload->'mt_cal'->>'none','') <> 'true' AND COALESCE(payload->'mt_cal'->'sf'->>'leadId','') = '' AND COALESCE(payload->'mt_cal'->'sf'->>'accountId','') = '' AND started_at > now() - interval '60 days' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - 6 * 3600000)) OR ((payload->'mt_cal'->>'none') = 'true' AND COALESCE(payload->'mt_cal'->>'nodeal','') <> 'true' AND COALESCE((payload->'mt_cal'->>'at')::bigint, 0) < (extract(epoch from now()) * 1000 - (CASE WHEN started_at > now() - interval '60 days' THEN 3600000 ELSE 7 * 86400000 END)))) ORDER BY started_at DESC LIMIT $1`, [limit]).catch(() => ({ rows: [] }))).rows;
 }
 
 // MiiTel の webhook で参加者が「[object Object]」で入った会議・長さが空の会議（payload から直すため）（2026-11-16）
@@ -13138,7 +13139,7 @@ export async function mcFeedDelete(feed) {
 export async function mcMiitelTodoCount(days = 60) {
   if (!pool) return 0; await ensureMcMiitel();
   return Number((await pool.query(`SELECT count(*) FROM mochica_miitel_events WHERE COALESCE(transcript_len,0)=0 AND NOT (payload ? 'mt_phrases') AND COALESCE((payload->>'mt_tr_try')::int, 0) < 2
-    AND COALESCE(started_at, received_at) > now() - make_interval(days => $1) AND COALESCE(title,'') <> ''`, [Math.max(1, Math.min(400, Number(days) || 60))])).rows[0].count);
+    AND COALESCE(started_at, received_at) > now() - make_interval(days => $1) AND COALESCE(title,'') <> ''`, [Math.max(1, Math.min(3650, Number(days) || 60))])).rows[0].count);
 }
 
 // ===== アプローチ禁止企業（2026-11-16）=====

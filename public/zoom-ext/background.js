@@ -171,7 +171,7 @@ async function kbMtBackfill(days) {
   await chrome.storage.local.set({ kbMtBackDet: { running: true, done, at: Date.now() } });
   try {
     const tk = (await kbTok()); if (!tk) throw new Error("no token");
-    for (let k = 0; k < 400 && !kbMtBackStop; k++) {
+    for (let k = 0; k < 3000 && !kbMtBackStop; k++) {
       while (kbMtCrawling) await new Promise((r) => setTimeout(r, 5000));   // 自動の読み込みが動いていれば待つ
       const r = await fetch(`https://kinbot-production-225f.up.railway.app/api/mochica/miitel/ext/todo?limit=10&novideo=1&days=${days}`, { headers: { "x-kb-ext": tk } });
       const j = await r.json().catch(() => null); const urls = (j && j.urls) || []; if (!urls.length) break;
@@ -184,7 +184,7 @@ async function kbMtBackfill(days) {
 }
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   if (!msg) return;
-  if (msg.type === "kb-miitel-backfill") { kbMtBackfill(Math.max(1, Math.min(400, Number(msg.days) || 260))); reply({ ok: true }); return true; }
+  if (msg.type === "kb-miitel-backfill") { kbMtBackfill(Math.max(1, Math.min(3650, Number(msg.days) || 3650))); reply({ ok: true }); return true; }
   if (msg.type === "kb-miitel-backfill-stop") { kbMtBackStop = true; reply({ ok: true }); return true; }
 });
 

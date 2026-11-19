@@ -35,7 +35,7 @@ window.addEventListener("message", async (e) => { const d = e.data; if (!d || !d
   document.documentElement.appendChild(css);
   const btn = document.createElement("button"); btn.id = "kbMtBackBtn"; btn.type = "button"; btn.textContent = "kinbot：過去の会議を読む";
   const box = document.createElement("div"); box.id = "kbMtBack"; box.hidden = true;
-  box.innerHTML = `<h4>過去の会議を kinbot に読む</h4><label style="font-size:12px;color:#5C7377">この日まで読む</label><input type="date" data-u value="2026-03-01">
+  box.innerHTML = `<h4>過去の会議を kinbot に読む</h4><label style="font-size:12px;color:#5C7377">この日まで読む</label><input type="date" data-u value="2020-01-01">
     <button class="go" type="button" data-run>① 会議の一覧を読む</button><button class="sub" type="button" data-stop hidden>止める</button><div class="bar"><i data-b></i></div><div class="msg" data-m>会議履歴一覧のページを、新しい方から順にめくって、会議を kinbot に入れます。</div>
     <div style="border-top:1px solid #DDEFF2;margin-top:10px;padding-top:8px"><h4>② 文字起こし・議事録も読む</h4><div class="msg" style="margin-top:0">①で入れた会議を、裏のタブで1件ずつ開いて読みます（1件15秒ほど・録画は後回し）。数時間かかります。Chrome は開いたままにしてください。</div>
     <button class="go" type="button" data-det>文字起こし・議事録を読み始める</button><button class="sub" type="button" data-dstop>止める</button><div class="msg" data-dm></div></div>`;
@@ -43,9 +43,9 @@ window.addEventListener("message", async (e) => { const d = e.data; if (!d || !d
   mount();
   const $ = (s) => box.querySelector(s);
   btn.onclick = () => { box.hidden = !box.hidden; if (!box.hidden) { window.postMessage({ __kbMtBackAsk: true }, "*"); showDet(); } };
-  $("[data-run]").onclick = () => { const u = $("[data-u]").value || "2026-03-01"; $("[data-run]").disabled = true; $("[data-run]").textContent = "読んでいます…"; $("[data-stop]").hidden = false; window.postMessage({ __kbMtBackRun: true, until: u }, "*"); };
+  $("[data-run]").onclick = () => { const u = $("[data-u]").value || "2020-01-01"; $("[data-run]").disabled = true; $("[data-run]").textContent = "読んでいます…"; $("[data-stop]").hidden = false; window.postMessage({ __kbMtBackRun: true, until: u }, "*"); };
   $("[data-stop]").onclick = () => window.postMessage({ __kbMtBackStop: true }, "*");
-  const until = () => new Date(($("[data-u]").value || "2026-03-01") + "T00:00:00+09:00").getTime();
+  const until = () => new Date(($("[data-u]").value || "2020-01-01") + "T00:00:00+09:00").getTime();
   window.addEventListener("message", (e) => { const d = e.data; if (!d || !d.__kbMtBack || e.source !== window) return;
     const fmtD = (t) => { const x = new Date(t); return `${x.getMonth() + 1}/${x.getDate()}`; };
     if (d.ready === false) { $("[data-m]").textContent = "会議の一覧がまだ見えていません。この画面を読み込み直して（F5）、一覧が出てから押してください。"; return; }

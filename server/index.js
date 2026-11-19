@@ -29612,7 +29612,7 @@ async function mcRepIndex() {
 }
 app.get("/api/mochica/miitel/meetings", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    const items0 = await mcMiitelList(5000);   // 前は新しい200件だけだった。MiiTel の過去の会議（3/1〜・1600件以上）も全部出す（2026-11-16 田中さん「読み込まれているのに商談の数が変わらない」）
+    const items0 = await mcMiitelList(20000);   // 2026-11-19 福井さん「過去参照できるすべての商談を」で 5000→20000。// 前は新しい200件だけだった。MiiTel の過去の会議（3/1〜・1600件以上）も全部出す（2026-11-16 田中さん「読み込まれているのに商談の数が変わらない」）
     const repOf = await mcRepIndex().catch(() => () => []);
     const coSf = ((await getSettings().catch(() => ({}))).mcCoSf) || {};
     const items1 = items0.map((m) => (m.cal && coSf[mcCoKeyN(m.cal.company)] ? { ...m, cosf: coSf[mcCoKeyN(m.cal.company)] } : m)).map((m) => { if (m.mrep && m.mrep.email) return { ...m, rep: m.mrep, reps: [m.mrep], manualRep: true };   // 画面で決めた担当がいちばん

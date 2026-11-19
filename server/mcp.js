@@ -591,7 +591,7 @@ export async function callTool(name, args, req) {
     }
     case "mochica_miitel_imported_ids": {
       if (!req.user) throw new Error("ログインが必要です");
-      const rows = globalThis.mcMiitel ? await globalThis.mcMiitel.list(5000) : [];
+      const rows = globalThis.mcMiitel ? await globalThis.mcMiitel.list(20000) : [];
       return { 件数: rows.length, ids: rows.map((r) => r.id) };
     }
     case "mochica_miitel_import": {
