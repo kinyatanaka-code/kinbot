@@ -297,6 +297,10 @@ tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5
     <div class="kpis" id="isKpis" style="margin-top:12px"></div></section>
   <section><div class="sec-h"><h2>チーム全体と個人（蓋開け）</h2><span class="sub">色 = 前月のチーム実績との比較（赤 80%未満・黄 80〜99%・緑 100%以上）。行クリックでその人に切り替え</span></div>
     <div class="panel scroll"><table class="bwm" id="isPeople"></table></div></section>
+  <section><div class="sec-h"><h2>インターン生のコールのペース（実通話時間とコール間隔）</h2><span class="sub" id="paceSub"></span></div>
+    <div class="notice" id="paceNote"></div>
+    <div class="kpis" id="paceKpis" style="margin-top:12px"></div>
+    <div class="panel scroll" style="margin-top:12px"><table class="bwm" id="isPace"></table></div></section>
   <section><div class="sec-h"><h2>日次の推移</h2><span class="sub">セル = 架電数（架電画面の記録・色はシフト時間×1時間あたり目標との比較。「休」はシフトなし）</span></div><div class="panel pad scroll"><div class="heat" id="isHeat"></div></div></section>
   <section><div class="sec-h"><h2>分かれ道（層C）と標準手順の指標 K1〜K6</h2><span class="sub">通話の文字起こしを読み取ると計測できる。いまは基準と目標のみ</span></div><div class="panel scroll"><table id="isK"></table></div></section>
   <section><div class="sec-h"><h2>アポの質と ICP（直近6か月）</h2><span class="sub" id="icpSub"></span></div><div class="panel scroll"><table id="isQuality"></table></div></section>
@@ -826,6 +830,41 @@ function lostBy(o,ref){const E=x=>x.sdays*x.dpd*x.answer*x.person*x.conv;const e
   return FACT.map(f=>{const y={...o,[f.k]:ref[f.k]};return {f,gain:E(y)-e,ratio:ref[f.k]?o[f.k]/ref[f.k]:null};}).sort((a,b)=>b.gain-a.gain);}
 function isRange(){if(state.isPer==='bw'){const b=BW[state.isBw];return [b.start,b.end<AS_OF?b.end:AS_OF,`${b.label}（${md(b.start)}〜${md(b.end)}）`];}
   if(state.isPer==='day')return [state.isDay,state.isDay,`${md(state.isDay)}（${dow(state.isDay)}）`];return [M_START,AS_OF,`${AM}月（${md(M_START)}〜${md(AS_OF)}）`];}
+/* コールのペース：Zoom Phone の通話から、実通話時間とコール間隔を出す。
+   集計の元は server/mcdashpace.js（同じ式。テストで画面の数字とサーバーの計算が一致することを確かめている）。
+   - 実通話時間＝応答があった通話の秒数（呼び出し音は含めない）。平均は応答した通話1本あたり
+   - コール間隔＝前の通話が終わってから次の発信まで。中央値が主役。30分より空いたものは休憩として平均・中央値から外す */
+const PACE=DATA.pace?.byOwnerDay||null;
+const PACE_BREAK=(DATA.pace?.breakMin||30)*60;
+const fmtDur=s=>{if(s==null||!isFinite(s))return '—';s=Math.round(s);if(s<60)return `${s}秒`;const m=Math.floor(s/60),r=s%60;if(m<60)return `${m}分${String(r).padStart(2,'0')}秒`;return `${Math.floor(m/60)}時間${String(m%60).padStart(2,'0')}分`;};
+function paceSummary(names,from,to){const o={calls:0,answered:0,talkSec:0,rePress:0,eg:[],sg:[]};
+  names.forEach(n=>Object.entries((PACE||{})[n]||{}).forEach(([d,v])=>{if(d<from||d>to)return;o.calls+=v.calls;o.answered+=v.answered;o.talkSec+=v.talkSec;o.rePress+=v.rePress;o.eg.push(...v.endGaps);o.sg.push(...v.startGaps);}));
+  const work=a=>a.filter(x=>x<=PACE_BREAK),mean=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:null;
+  const median=a=>{if(!a.length)return null;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
+  const ew=work(o.eg),sw=work(o.sg);
+  return {calls:o.calls,answered:o.answered,talkSec:o.talkSec,rePress:o.rePress,avgTalk:o.answered?o.talkSec/o.answered:null,talkPerCall:o.calls?o.talkSec/o.calls:null,
+    endMedian:median(ew),endMean:mean(ew),startMedian:median(sw),startMean:mean(sw),gaps:ew.length,breaks:o.eg.length-ew.length};}
+function renderPace(people,from,to,plabel){
+  const names=ps=>ps.map(p=>p.zoom);
+  if(!PACE){$('paceSub').textContent='';$('paceNote').textContent='Zoom Phone の通話を読めなかったため、実通話時間とコール間隔は出せません（上のデータ源を確認してください）。';$('paceKpis').innerHTML='';$('isPace').innerHTML='';return;}
+  const sel=paceSummary(names(people),from,to);
+  const pm=addMonths(M_START,-1),pe=addMonths(M_START,0).replace(/-01$/,'-00');const pv=paceSummary(names(people),pm,pe);
+  $('paceSub').textContent=`${people.length===1?people[0].name:'インサイド全体'}｜${plabel}｜Zoom Phone の通話記録より`;
+  $('paceNote').innerHTML=`<b>コール数</b>は Zoom Phone の発信数です（架電画面に記録した数とは別。差は上の「架電の記録率」）。<b>実通話時間</b>は、応答があった通話の秒数です（呼び出し音は含めません）。
+    <b>コール間隔</b>は、前の通話が終わってから次の発信を始めるまで。中央値を主に見ます。昼休みや会議で${PACE_BREAK/60}分より空いたものは「休憩」として別に数え、平均・中央値からは外します。
+    同じ番号へ${DATA.pace?.rePressSec||20}秒以内に掛け直したものは「押し直し」として別に数え、間隔には入れません。担当者・日をまたぐ間隔は数えません。応答しなかった発信は、呼び出し音の時間も間隔に含まれます。`;
+  const j=(a,b)=>b==null?'前月 —':`前月 ${fmtDur(b)}`;
+  $('paceKpis').innerHTML=kpi('コール数（Zoom 発信）',`${sel.calls.toLocaleString()}<small> 件</small>`,`通話が成立 ${sel.answered.toLocaleString()}件（${pctS(sel.answered/Math.max(1,sel.calls))}）｜前月 ${pctS(pv.answered/Math.max(1,pv.calls))}`)+
+    kpi('平均通話時間（実通話）',fmtDur(sel.avgTalk),`応答した通話1本あたり｜${j(sel.avgTalk,pv.avgTalk)}<br>通話時間の合計 ${fmtDur(sel.talkSec)}｜発信1本あたり ${fmtDur(sel.talkPerCall)}`)+
+    kpi('コール間隔（中央値）',fmtDur(sel.endMedian),`前の通話の終了→次の発信｜${j(sel.endMedian,pv.endMedian)}<br>平均 ${fmtDur(sel.endMean)}｜休憩（${PACE_BREAK/60}分超）${sel.breaks}回・押し直し ${sel.rePress}回`)+
+    kpi('発信ペース（発信→発信）',fmtDur(sel.startMedian),sel.startMedian?`前の発信→次の発信の中央値（通話時間を含む）｜つづけて掛けたとき約 ${fmt1(3600/sel.startMedian)}本/時`:'前の発信→次の発信の中央値（通話時間を含む）');
+  const rowsP=[{name:'チーム全体',ps:IS,team:1},...IS.map(p=>({name:p.name,ps:[p],sf:p.sf}))];
+  $('isPace').innerHTML=`<thead><tr><th>担当</th><th class="r">コール数</th><th class="r">通話成立</th><th class="r">通話時間（合計）</th><th class="r">平均通話時間</th><th class="r">発信あたり</th><th class="r">間隔（中央値）</th><th class="r">間隔（平均）</th><th class="r">発信→発信（中央値）</th><th class="r">休憩</th><th class="r">押し直し</th></tr></thead><tbody>`+
+    rowsP.map(r=>{const x=paceSummary(names(r.ps),from,to);
+      return `<tr class="${r.team?'total':''}" ${r.sf?`data-sc="is|${esc(r.sf)}"`:''} style="${r.sf?'cursor:pointer':''}${state.is===r.sf?';background:#f2f6ff':''}"><td>${esc(r.name)}</td><td class="r num">${x.calls.toLocaleString()}</td><td class="r num">${x.answered.toLocaleString()}<span class="muted"> ${x.calls?pctS(x.answered/x.calls):''}</span></td>
+      <td class="r num">${x.talkSec?fmtDur(x.talkSec):'—'}</td><td class="r num"><b>${fmtDur(x.avgTalk)}</b></td><td class="r num">${fmtDur(x.talkPerCall)}</td>
+      <td class="r num"><b>${fmtDur(x.endMedian)}</b></td><td class="r num">${fmtDur(x.endMean)}</td><td class="r num">${fmtDur(x.startMedian)}</td><td class="r num">${x.breaks}</td><td class="r num">${x.rePress}</td></tr>`;}).join('')+'</tbody>';
+}
 function renderIs(){
   const people=state.is==='all'?IS:IS.filter(p=>p.sf===state.is);
   const [from,to,plabel]=isRange();
@@ -862,6 +901,8 @@ function renderIs(){
       ${FACT.slice(1).map(f=>`<td class="cell ${x.dials?cls(P[f.k]?x[f.k]/P[f.k]:null):''}">${x.dials?f.f(x[f.k]):'—'}</td>`).join('')}
       <td class="r num">${x.per}</td><td class="r num">${x.appo}</td><td class="cell ${ga?cls(x.appo/ga):''}">${ga?pctS(x.appo/ga):'—'}</td>
       <td>${x.dials&&t&&t.gain>0.05?`${t.f.l} <span class="muted">+${fmt1(t.gain)}件</span>`:'<span class="muted">—</span>'}</td></tr>`;}).join('')+'</tbody>';
+  // コールのペース（実通話時間・コール間隔）
+  renderPace(people,from,to,plabel);
   // 層C・K
   $('isK').innerHTML=`<thead><tr><th>ID</th><th>指標（標準手順 v1）</th><th class="r">基準（10/1〜11/5）</th><th class="r">目標</th><th class="c">今期</th></tr></thead><tbody>`+
     TSM.kpis.map(k=>`<tr><td><b>${k[0]}</b></td><td>${k[1]} <span class="muted">（${k[4]}）</span></td><td class="r num">${pctS(k[2])}</td><td class="r num">${k[3]==null?'—':pctS(k[3])}</td><td class="c">${pill('gray','未計測')}</td></tr>`).join('')+

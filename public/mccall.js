@@ -25,7 +25,7 @@
 
   const S = { meta: null, admin: false, tab: "call", lists: [], listId: parseInt(ls.get("mcc_list") || "0", 10) || 0, queue: [], later: 0,
     d: null, cache: new Map(), f: null, notices: [], ni: 0, toast: null, busy: false, mounted: false, src: null, reps: null, ldBack: null };
-  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "" }, hearing: {}, phone: "", dialed: false });
+  const blankForm = () => ({ step: "reach", reach: "", outcome: "", reason: "", apoAt: "", apoWho: "", nextAt: "", nextLabel: "", noRetry: false, memo: "", gate: { name: "", hours: "", direct: "" }, hearing: {}, phone: "", dialed: false, picks: {} });
 
   // MOCHICA は Zoom Phone で架電する決まりなので、いつも Zoom アプリで発信する
   // （kinbot の Zoom 連携の状態を読む API は、インターンのアカウントでは開けないため見ない）
@@ -83,7 +83,7 @@
   }
   async function loadStats() {
     try { const j = await api("/api/mccall/stats"); const m = j.me;
-      $("mccStats").innerHTML = `<span><b>${m.calls}</b>コール</span><span><b>${m.person}</b>担当者と話せた</span><span class="apo"><b>${m.apo}</b>アポ</span>${hourBandChip(j.slot)}`; S.allStats = j.all;
+      $("mccStats").innerHTML = `<span><b>${m.calls}</b>コール</span><span><b>${m.person}</b>担当者と話せた</span><span class="apo"><b>${m.apo}</b>アポ</span><span class="fill" title="今日 SF のリードの項目を埋めた・直した数（アポ以外の貢献）"><b>${m.fills || 0}</b>SF 項目</span>${hourBandChip(j.slot)}`; S.allStats = j.all;
       S.sf = j.sf || null; drawNotices();
     } catch { $("mccStats").innerHTML = `<span>今日の数字を読めませんでした</span>`; }
   }
@@ -119,13 +119,14 @@
   // ---- 1社を開く（先読みしてあればすぐ出し、裏で最新を読み直す） ----
   async function open(id) {
     const cached = S.cache.get(id);
-    S.f = blankForm();
+    S.f = blankForm(); S.fill = null;
     if (cached) { S.d = cached; drawAll(); }
     else { $("mccCenter").innerHTML = `<div class="mcc-empty">読み込んでいます…</div>`; }
     try {
       const d = await api(`/api/mccall/leads/${id}?lock=1${S.inbound && S.inbound.leadId === id ? `&inbound=${S.inbound.id}` : ""}`); S.cache.delete(id);
       if (S.d && S.d.lead.id === id && cached) { S.d = d; drawLeft(); drawRight(); drawNotices(); } else { S.d = d; drawAll(); }
       S.f.phone = (d.phones[0] && d.phones[0].number) || d.lead.phone || "";
+      queueFill(0);
     } catch (e) { setNotice([{ kind: "danger", text: e.message }]); S.queue = S.queue.filter((x) => x.id !== id); }
     prefetch();
   }
@@ -357,7 +358,8 @@
         <label class="mcc-field">直通・内線<input id="mccGDirect" value="${esc(f.gate.direct || (L.gate && L.gate.direct) || "")}" autocomplete="off" inputmode="tel" /></label>
         <div class="mcc-field full">いる時間<div class="mcc-chips">${["午前", "昼", "午後", "夕方"].map((h) => `<button class="mcc-chip" data-hr="${h}" aria-pressed="${(f.gate.hours || (L.gate && L.gate.hours)) === h}">${h}</button>`).join("")}</div></div></div>` : ""}
       ${f.reach === "person" ? hearingHtml(f, L) : ""}
-      ${f.step === "reach" ? "" : `<label class="mcc-field" style="margin-top:12px">メモ（任意。Ctrl+Enter で記録）<textarea id="mccMemo" placeholder="話したこと・次に聞くこと">${esc(f.memo)}</textarea></label>`}
+      ${f.step === "reach" ? "" : `<label class="mcc-field" style="margin-top:12px">メモ（任意。Ctrl+Enter で記録）<textarea id="mccMemo" placeholder="話したこと・次に聞くこと（例：HRMOS 利用・3月更新・人事部長の山田様 yamada@〜）">${esc(f.memo)}</textarea></label>`}
+      ${f.step === "reach" ? "" : `<div id="mccFill"></div>`}
       <div class="mcc-foot" ${f.step === "reach" ? "hidden" : ""}><button class="mcc-btn primary big" id="mccRec" ${ready() ? "" : "disabled"} aria-keyshortcuts="Enter">記録して次へ<span class="mcc-key" style="background:rgba(255,255,255,.18);color:#fff;border-color:transparent">Enter</span></button>
         <span class="hint">${ready() ? "Enter で記録（押してもよい）" : f.step === "apo" ? "日時を入れてください" : "数字キーかクリックで選べます"}</span></div>`;
     const c = $("mccCenter");
@@ -375,12 +377,45 @@
     const nr = $("mccNoRetry"); if (nr) nr.addEventListener("click", () => { S.f.noRetry = true; drawCenter(); });
     c.querySelectorAll("[data-later]").forEach((b) => b.addEventListener("click", () => { S.f.nextAt = b.dataset.later; S.f.nextLabel = b.dataset.ll || ""; S.f.noRetry = !b.dataset.later ? S.f.noRetry : false; drawCenter(); }));
     c.querySelectorAll("[data-hr]").forEach((b) => b.addEventListener("click", () => { S.f.gate.hours = S.f.gate.hours === b.dataset.hr ? "" : b.dataset.hr; saveGate(); drawCenter(); }));
-    const m = $("mccMemo"); if (m) m.addEventListener("input", () => { S.f.memo = m.value; });
+    const m = $("mccMemo"); if (m) m.addEventListener("input", () => { S.f.memo = m.value; queueFill(); });
     // ヒアリング：月は押すだけ。文字・人数は欄を離れたら保存（記録を押す前に別の会社へ移っても消えないように）
     c.querySelectorAll("[data-hw]").forEach((b) => b.addEventListener("click", () => { S.f.hearing.when = hv("when") === b.dataset.hw ? "" : b.dataset.hw; saveHearing(); drawCenter(); }));
-    [["mccHNeed", "need"], ["mccHContact", "contact"], ["mccHTarget", "target"]].forEach(([id, k]) => { const i = $(id); if (!i) return; i.addEventListener("input", () => { S.f.hearing[k] = i.value; }); i.addEventListener("blur", saveHearing); });
+    [["mccHNeed", "need"], ["mccHContact", "contact"], ["mccHTarget", "target"]].forEach(([id, k]) => { const i = $(id); if (!i) return; i.addEventListener("input", () => { S.f.hearing[k] = i.value; queueFill(); }); i.addEventListener("blur", saveHearing); });
     // 受付で聞けたことは、欄を離れたら自動で保存（「保存」ボタンを押し忘れて消えることがないように）
-    [["mccGName", "name"], ["mccGDirect", "direct"]].forEach(([id, k]) => { const i = $(id); if (!i) return; i.addEventListener("input", () => { S.f.gate[k] = i.value; }); i.addEventListener("blur", saveGate); });
+    [["mccGName", "name"], ["mccGDirect", "direct"]].forEach(([id, k]) => { const i = $(id); if (!i) return; i.addEventListener("input", () => { S.f.gate[k] = i.value; queueFill(); }); i.addEventListener("blur", saveGate); });
+    drawFill(); queueFill();
+  }
+  // SF に入る項目（2026-11-20 福井さん「ASUMO のように架電内容から自動でリード情報を埋める」）：
+  //   書いた内容（ヒアリング・受付で聞けたこと・断り理由・メモ）から、SF のリードに入る項目を記録の前に下書きとして見せる。
+  //   空の項目を埋めるもの・ヒアリング欄で選んだ値は最初からチェック、メモから読んだ書き換えや担当者・メールの書き換えは人がチェックしたときだけ入る。
+  //   入った数は「レポート」でリストへの貢献として数える（アポが取れなくても評価できるように）
+  let fillTimer = null;
+  function queueFill(ms = 600) { clearTimeout(fillTimer); fillTimer = setTimeout(loadFill, ms); }
+  async function loadFill() {
+    if (!S.d || !S.f) return; const L = S.d.lead; const f = S.f;
+    const gate = { name: f.gate.name || (L.gate && L.gate.name) || "", direct: f.gate.direct || (L.gate && L.gate.direct) || "" };
+    const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, memo: f.memo, gate, hearing: f.reach === "person" ? hearingBody() : null };
+    const sig = JSON.stringify(body); if (S.fill && S.fill.leadId === L.id && S.fill.sig === sig) return;
+    S.fill = { ...(S.fill && S.fill.leadId === L.id ? S.fill : { plan: [], note: "" }), leadId: L.id, sig };
+    try { const j = await post(`/api/mccall/leads/${L.id}/sf-fill/preview`, body); if (!S.d || S.d.lead.id !== L.id || S.fill.sig !== sig) return; S.fill = { leadId: L.id, sig, plan: j.plan || [], note: j.note || "" }; }
+    catch (e) { if (S.fill && S.fill.sig === sig) S.fill = { leadId: L.id, sig, plan: [], note: `SF に入る項目を出せませんでした：${e.message}` }; }
+    drawFill();
+  }
+  const FILL_KIND = { new: ["新規", "new"], update: ["更新", "upd"], add: ["追記", "add"], same: ["SF と同じ", "same"] };
+  const fillOn = (p) => (Object.prototype.hasOwnProperty.call(S.f.picks, p.api) ? S.f.picks[p.api] : p.on);
+  function drawFill() {
+    const box = $("mccFill"); if (!box || !S.f) return;
+    const F = S.fill && S.d && S.fill.leadId === S.d.lead.id ? S.fill : null;
+    if (!F || (!F.plan.length && !F.note)) { box.innerHTML = ""; return; }
+    const n = F.plan.filter((p) => p.kind !== "same" && fillOn(p)).length;
+    box.innerHTML = `<div class="mcc-fill" aria-label="SF に入る項目">
+      <div class="mcc-fill-h"><b>SF に入る項目</b><span class="mcc-fill-n">${n}</span><small>記録すると SF のリードに入ります。チェックを外した項目は入れません</small></div>
+      ${F.note ? `<p class="mcc-note">${esc(F.note)}</p>` : ""}
+      ${F.plan.map((p) => { const [kl, kc] = FILL_KIND[p.kind] || [p.kind, ""]; const same = p.kind === "same";
+        return `<label class="mcc-fill-r ${kc}" title="読み取ったところ：${esc(p.why)}"><input type="checkbox" data-fill="${esc(p.api)}" ${same ? "disabled" : fillOn(p) ? "checked" : ""} />
+          <span class="k">${esc(p.label)}</span><span class="v">${esc(p.value)}${p.kind === "update" && p.cur ? `<small>今の SF：${esc(p.cur)}</small>` : ""}</span><span class="mcc-fill-b ${kc}">${kl}</span></label>`; }).join("")}
+    </div>`;
+    box.querySelectorAll("[data-fill]").forEach((c) => c.addEventListener("change", () => { S.f.picks[c.dataset.fill] = c.checked; drawFill(); }));
   }
   // ヒアリング（2026-11-18 福井さん）：検討時期・採用ニーズ・説明会/面接の参加人数・採用目標人数。
   //   前に聞いた値を最初から入れておき、変わったところだけ直せばよいようにする。SF のリードの項目にも入る
@@ -492,7 +527,7 @@
     const gate = { name: f.gate.name || (L.gate && L.gate.name) || "", hours: f.gate.hours || (L.gate && L.gate.hours) || "", direct: f.gate.direct || (L.gate && L.gate.direct) || "" };
     const body = { reach: f.reach, outcome: f.outcome, reason: f.reason, apoWho: f.outcome === "apo" ? f.apoWho : "", memo: f.memo, phone: f.phone || L.phone, gate, noRetry: f.noRetry, hearing: f.reach === "person" ? hearingBody() : null,
       nextAt: f.nextAt || null, apoAt: f.apoAt ? new Date(f.apoAt).toISOString() : null,
-      talkId: S.d.talk ? S.d.talk.id : null, inbound: isInbound(L.id) ? S.inbound.id : null };
+      talkId: S.d.talk ? S.d.talk.id : null, inbound: isInbound(L.id) ? S.inbound.id : null, sfPick: f.picks };
     try {
       const j = await post(`/api/mccall/leads/${L.id}/log`, body);
       const what = crumb();
@@ -744,12 +779,16 @@
     catch (e) { $("mccRres").innerHTML = `<p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
     const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : "—");
     const row = (lbl, r, cls = "") => `<tr class="${cls}"><td>${esc(lbl)}</td><td class="num">${r.calls}</td><td class="num">${r.leads}</td><td class="num">${r.reached}<small> ${pct(r.reached, r.calls)}</small></td><td class="num">${r.person}<small> ${pct(r.person, r.calls)}</small></td>
-      <td class="num apo">${r.apo}<small> ${pct(r.apo, r.calls)}</small></td><td class="num">${pct(r.apo, r.person)}</td><td class="num">${r.doc}</td><td class="num">${r.follow}</td><td class="num">${r.reject}</td><td class="num">${r.cross || ""}</td></tr>`;
+      <td class="num apo">${r.apo}<small> ${pct(r.apo, r.calls)}</small></td><td class="num">${pct(r.apo, r.person)}</td><td class="num">${r.doc}</td><td class="num">${r.follow}</td><td class="num">${r.reject}</td><td class="num">${r.cross || ""}</td>
+      <td class="num fill">${r.fill || 0}<small> ${r.calls ? (r.fill / r.calls).toFixed(2) : "—"}/コール</small></td><td class="num">${r.fillNew || 0}</td><td class="num">${r.fillFix || 0}</td><td class="num">${r.fillLeads || 0}</td><td class="num">${r.fillNoApo || 0}</td><td class="num">${r.invalid || 0}</td></tr>`;
     const T = j.total;
-    $("mccRres").innerHTML = `<div class="mcc-kpis"><div><small>コール</small><b>${T.calls}</b></div><div><small>つながった率</small><b>${pct(T.reached, T.calls)}</b></div><div><small>担当者と話せた率</small><b>${pct(T.person, T.calls)}</b></div><div class="apo"><small>アポ</small><b>${T.apo}</b></div><div class="apo"><small>アポ率（コールあたり）</small><b>${pct(T.apo, T.calls)}</b></div><div><small>担当者と話せたうちのアポ</small><b>${pct(T.apo, T.person)}</b></div></div>
-      ${j.rows.length ? `<div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th>${{ user: "名前", list: "リスト", day: "日" }[j.by]}</th><th class="num">コール</th><th class="num">会社数</th><th class="num">つながった</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th><th class="num">部署をまたぐ</th></tr></thead>
+    $("mccRres").innerHTML = `<div class="mcc-kpis"><div><small>コール</small><b>${T.calls}</b></div><div><small>つながった率</small><b>${pct(T.reached, T.calls)}</b></div><div><small>担当者と話せた率</small><b>${pct(T.person, T.calls)}</b></div><div class="apo"><small>アポ</small><b>${T.apo}</b></div><div class="apo"><small>アポ率（コールあたり）</small><b>${pct(T.apo, T.calls)}</b></div><div><small>担当者と話せたうちのアポ</small><b>${pct(T.apo, T.person)}</b></div>
+        <div class="fill" title="架電の内容から SF のリードの項目を埋めた・直した数"><small>SF 項目を埋めた</small><b>${T.fill || 0}</b></div><div class="fill"><small>うちアポ以外の架電で</small><b>${T.fillNoApo || 0}</b></div><div class="fill"><small>項目が埋まった会社</small><b>${T.fillLeads || 0}</b></div><div class="fill"><small>使えない番号を見つけた</small><b>${T.invalid || 0}</b></div></div>
+      ${j.rows.length ? `<div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th>${{ user: "名前", list: "リスト", day: "日" }[j.by]}</th><th class="num">コール</th><th class="num">会社数</th><th class="num">つながった</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th><th class="num">部署をまたぐ</th><th class="num fill" title="架電の内容から SF のリードの項目を埋めた・直した数（1項目＝1）">SF 項目</th><th class="num" title="空だった項目を埋めた">うち新規</th><th class="num" title="古い値を直した・課題感などに足した">うち更新</th><th class="num" title="項目を1つでも埋めた会社の数">会社</th><th class="num" title="アポにならなかった架電で埋めた数">アポ以外</th><th class="num" title="「番号が使えない」と記録した数">使えない番号</th></tr></thead>
         <tbody>${j.rows.map((r) => row(r.label, r)).join("")}${j.rows.length > 1 ? row("合計", T, "sum") : ""}</tbody></table></div>` : '<p class="mcc-note">この期間の記録はありません。</p>'}
       ${j.reasons.length ? `<h3 style="margin-top:16px">断られた理由</h3><div class="mcc-chips">${j.reasons.map((r) => `<span class="mcc-chip" style="cursor:default">${esc(r.k)} ${r.n}</span>`).join("")}</div>` : ""}
+      ${j.fields && j.fields.length ? `<h3 style="margin-top:16px">埋めた SF の項目</h3><div class="mcc-chips">${j.fields.map((r) => `<span class="mcc-chip" style="cursor:default">${esc(r.k)} ${r.n}</span>`).join("")}</div>` : ""}
+      <p class="mcc-note" style="margin-top:12px">SF 項目：架電の内容（ヒアリング・受付で聞けたこと・断り理由・メモ）から SF のリードに入れた項目の数です。空を埋めた・古い値を直した・課題感などに足したものを1項目1つで数え、SF と同じ値の確認は数えません。取り消した記録の分は外します。</p>
       <p class="mcc-note" style="margin-top:12px">数えているのは MOCHICALL で記録したものだけです（Bales で記録した過去の架電は入りません）。取り消した記録は数えません。</p>`;
   }
   async function listDialog(l) {

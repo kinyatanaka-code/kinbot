@@ -23,6 +23,8 @@ import { fetchPageText } from "./companyenrich.js";
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
+import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
+export { hiresBucket };
 
 const BIZ = "MOCHICA";
 
@@ -96,6 +98,17 @@ async function ensure() {
     }
     // SF のリードの項目（検討開始時期・採用人数・顧客の課題感）を書けなかったとき。黙って失敗しない（ルール5）
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_lead_err TEXT`);
+    // 架電の内容から SF のリードの項目を埋めた記録（2026-11-20 福井さん「アポが取れなくても、リストを埋めた・鮮度と精度を保った貢献を
+    //   SF の項目をどれだけ埋めたかで評価できるように」）。1行＝1項目。kind：new（空を埋めた）・update（古い値を直した）・add（長文に足した）。
+    //   SF と同じ値は書かないので行も作らない（何度かけても数が増えないように）。取り消した記録の分は undone で数えない。
+    //   sf_pick：記録した人が画面で選んだ「書く・書かない」。sf_fill_done：この記録の分を SF に書き終えた
+    await q(`CREATE TABLE IF NOT EXISTS mc_sf_fills (
+      id SERIAL PRIMARY KEY, log_id INT, lead_id INT, sf_lead_id TEXT, caller TEXT, field TEXT, label TEXT, kind TEXT, src TEXT,
+      old_val TEXT, new_val TEXT, undone BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ DEFAULT now())`);
+    await q(`CREATE INDEX IF NOT EXISTS ix_mc_sf_fills_log ON mc_sf_fills(log_id)`);
+    await q(`CREATE INDEX IF NOT EXISTS ix_mc_sf_fills_day ON mc_sf_fills(created_at)`);
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_pick JSONB`);
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_fill_done BOOLEAN NOT NULL DEFAULT false`);
     // マイナビ（新卒）の掲載の有無と中身。会社ごとに1回だけ調べて持っておく（同じ会社を何度も検索しないため）
     await q(`CREATE TABLE IF NOT EXISTS mc_mynavi (ckey TEXT PRIMARY KEY, company TEXT, data JSONB, at TIMESTAMPTZ DEFAULT now())`);
     // 資料送付の記録。架電の記録（mc_call_logs）に入れるとコール数に数えてしまうので別にする（2026-11-17）
@@ -346,12 +359,7 @@ export function hearingLines(h) {
   if (!h) return [];
   return [h.when && `検討時期：${h.when}`, h.need && `採用ニーズ：${h.need}`, h.contact != null && `説明会・面接の参加人数：${h.contact}名`, h.target != null && `採用目標人数：${h.target}名`].filter(Boolean);
 }
-// 採用目標人数 → SF の「採用人数(選択リスト)」の選択肢
-export function hiresBucket(n) {
-  if (n == null || n <= 0) return null;
-  const B = [[2, "1～2名"], [5, "3～5名"], [10, "6～10名"], [15, "11～15名"], [20, "16～20名"], [25, "21～25名"], [30, "26～30名"], [35, "31～35名"], [40, "36～40名"], [45, "41～45名"], [50, "46～50名"], [100, "51～100名"], [200, "101～200名"], [300, "201～300名"]];
-  for (const [max, v] of B) if (n <= max) return v; return "301名～";
-}
+// 採用目標人数 → SF の「採用人数(選択リスト)」の選択肢は server/mcsffill.js の hiresBucket（上で読み込んで、ここからも出している）
 
 // ---- 条件で割り振る（2026-11-19 福井さん「SHOBO のリスト管理を kinbot 準拠で」） ----
 // まだ属性を計算していない（または計算のしかたが古い）リードの seg を埋める。リストを開いたときに、そのリストの分だけ。
@@ -448,14 +456,17 @@ export function registerMcCall(app, deps) {
   //   書き直し（/api/mccall/sf-retry）でも同じものを使う
   async function sfWrite(req, logId) {
     const g = (await P().query(`SELECT g.*, c.sf_lead_id FROM mc_call_logs g JOIN mc_call_leads c ON c.id=g.lead_id WHERE g.id=$1`, [logId])).rows[0];
-    if (!g || g.undone || g.sf_task_id) return;
+    if (!g || g.undone || (g.sf_task_id && g.sf_fill_done)) return;
     if (!g.sf_lead_id || !/^00Q[0-9A-Za-z]{12,15}$/.test(g.sf_lead_id)) {
       await P().query(`UPDATE mc_call_logs SET sf_err='nolead' WHERE id=$1`, [logId]); return;
     }
-    try {
-      const owner = await sfActor(req);
+    let owner;
+    try { owner = await sfActor(req); }
+    catch (e) { await P().query(`UPDATE mc_call_logs SET ${g.sf_task_id ? "sf_lead_err" : "sf_err"}=$2 WHERE id=$1`, [logId, String(e.message).slice(0, 300)]).catch(() => {}); return; }
+    const d = new Date(new Date(g.created_at).getTime() + 9 * 3600e3).toISOString().slice(0, 10);
+    // 活動（Task）を先に書く。書き終えていれば（リードの項目だけ書き直すとき）飛ばす
+    if (!g.sf_task_id) try {
       const names = await nameMap();
-      const d = new Date(new Date(g.created_at).getTime() + 9 * 3600e3).toISOString().slice(0, 10);
       const gt = g.gate || {}; const who = String(g.caller || "").toLowerCase();
       const t = await createTask(owner, {
         WhoId: g.sf_lead_id, Subject: `[MOCHICA 架電] ${outcomeLabel(g.outcome)}`, Type: "Call", Status: "完了", ActivityDate: d,
@@ -467,32 +478,51 @@ export function registerMcCall(app, deps) {
       });
       if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
       await P().query(`UPDATE mc_call_logs SET sf_task_id=$2, sf_err=NULL WHERE id=$1`, [logId, t.id]);
-      await sfLeadHearing(owner, g, d);
     } catch (e) {
       console.error("[mccall] SF の活動を書けませんでした", logId, e.message);
       await P().query(`UPDATE mc_call_logs SET sf_err=$2 WHERE id=$1`, [logId, String(e.message).slice(0, 300)]).catch(() => {});
+      return;
     }
+    await sfLeadFill(owner, g, d);
   }
-  // ヒアリングで聞けたことを SF のリードの項目にも入れる（正本は SF。ルール3）。
-  //   検討開始時期・採用人数はそのまま上書き、顧客の課題感は「【日付 架電】〜」を頭に足す（これまでの集約を消さないため）。
-  //   接触人数は SF に合う項目が無いので活動の本文だけに残す。失敗は sf_lead_err に残して画面に出す
-  async function sfLeadHearing(owner, g, day) {
-    const h = g.hearing; if (!h) return;
-    const f = {};
-    if (MONTHS.includes(h.when)) f.Start_Considering_Date__c = h.when;
-    const hb = hiresBucket(h.target); if (hb) f.Number_of_hires__c = hb;
+  // SF のリードの今の値（埋める項目だけ）。下書きを出すたびに読むと SF の呼び出しが増えるので2分だけ覚える。書いたら忘れる
+  const _sfCur = new Map();
+  async function sfCurrent(owner, leadId, fresh = false) {
+    const c = _sfCur.get(leadId); if (!fresh && c && Date.now() - c.at < 120e3) return c.cur;
+    const cur = ((await sfQuery(owner, `SELECT ${FILL_SOQL_FIELDS.join(", ")} FROM Lead WHERE Id='${leadId}'`)).records || [])[0];
+    if (!cur) throw new Error("SF にこのリードが見つかりません（消されたか、統合された可能性があります）");
+    _sfCur.set(leadId, { at: Date.now(), cur }); if (_sfCur.size > 500) _sfCur.delete(_sfCur.keys().next().value);
+    return cur;
+  }
+  // 架電の内容（ヒアリング・受付で聞けたこと・断り理由・メモ）から埋める項目の候補。下書き（preview）と記録の両方で同じものを使う
+  const fillCands = ({ hearing, gate, reason, outcome, memo }) => [...readInputs({ hearing, gate, reason, outcome }), ...readMemo(memo, { outcome })];
+  // 架電の内容を SF のリードの項目に入れる（正本は SF。ルール3）。埋めた項目は1つずつ mc_sf_fills に残し、評価（レポート）に使う。
+  //   書く値は記録のときに SF の今の値と比べ直して決める（下書きを出してから記録するまでに、ほかの人が直していることがあるため）。
+  //   まとめて書けなければ1項目ずつ書き直し、書けなかった項目だけ sf_lead_err に残して画面に出す（黙って失敗しない＝ルール5）
+  async function sfLeadFill(owner, g, day) {
+    if (g.sf_fill_done) return;
+    const done = (err) => P().query(`UPDATE mc_call_logs SET sf_fill_done=$2, sf_lead_err=$3 WHERE id=$1`, [g.id, !err, err ? String(err).slice(0, 300) : null]).catch(() => {});
     try {
-      if (h.need) {
-        const cur = (((await sfQuery(owner, `SELECT Client_Issue__c FROM Lead WHERE Id='${g.sf_lead_id}'`)).records || [])[0] || {}).Client_Issue__c || "";
-        const line = `【${day.replace(/-/g, "/")} 架電】${h.need}`;
-        if (!cur.includes(line)) f.Client_Issue__c = `${line}${cur ? `\n${cur}` : ""}`.slice(0, 32000);
+      const cur = await sfCurrent(owner, g.sf_lead_id, true);
+      if (cur.IsConverted) return done(null);   // コンバート済みのリードは SF が書き換えを断る。活動だけ残す
+      const plan = planFills(fillCands({ hearing: g.hearing, gate: g.gate, reason: g.reason, outcome: g.outcome, memo: g.memo }), cur, { day });
+      const { fields, used } = pickedFields(plan, g.sf_pick || {});
+      if (!used.length) return done(null);
+      let ok = used, bad = [];
+      try { await sfUpdateRecord(owner, "Lead", g.sf_lead_id, fields); }
+      catch (e) {
+        ok = []; for (const u of used) {
+          try { await sfUpdateRecord(owner, "Lead", g.sf_lead_id, { [u.api]: u.send }); ok.push(u); }
+          catch (e2) { bad.push(`${u.label}（${String(e2.message).replace(/^SF update d+: /, "").slice(0, 80)}）`); }
+        }
       }
-      if (!Object.keys(f).length) return;
-      await sfUpdateRecord(owner, "Lead", g.sf_lead_id, f);
-      await P().query(`UPDATE mc_call_logs SET sf_lead_err=NULL WHERE id=$1`, [g.id]);
+      _sfCur.delete(g.sf_lead_id);
+      for (const u of ok) await P().query(`INSERT INTO mc_sf_fills (log_id, lead_id, sf_lead_id, caller, field, label, kind, src, old_val, new_val) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [g.id, g.lead_id, g.sf_lead_id, g.caller, u.api, u.label, u.kind, u.src, cur[u.api] == null ? null : String(cur[u.api]), String(u.send)]);
+      return done(bad.length ? `SF のリードの項目を書けませんでした：${bad.join("、")}` : null);
     } catch (e) {
       console.error("[mccall] SF のリードの項目を書けませんでした", g.id, e.message);
-      await P().query(`UPDATE mc_call_logs SET sf_lead_err=$2 WHERE id=$1`, [g.id, String(e.message).slice(0, 300)]).catch(() => {});
+      return done(e.message);
     }
   }
   // SF に書けていない記録（書いている途中で止まった＝2分たっても結果が無いものも含む）。nolead は別に数える
@@ -641,11 +671,23 @@ export function registerMcCall(app, deps) {
     const rows = (await P().query(`SELECT ${key} AS k, ${cols} FROM mc_call_logs g WHERE ${w} GROUP BY 1 ORDER BY 1`, p)).rows;
     const tot = (await P().query(`SELECT ${cols} FROM mc_call_logs g WHERE ${w}`, p)).rows[0];
     const reasons = (await P().query(`SELECT g.reason AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='reject' GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k || "（理由なし）", n: +r.n }));
+    // リストへの貢献（2026-11-20 福井さん「アポが取れなくても、ヒアリングでリストを埋めた・鮮度と精度を保った貢献を SF の項目をどれだけ埋めたかで」）
+    //   埋めた＝空の項目を埋めた／直した＝古い値を新しくした・長文に足した／会社＝項目を1つでも埋めた会社の数／アポ以外＝アポにならなかった架電で埋めた数／
+    //   使えない番号＝「番号が使えない」と記録した数（死んだ番号を見つけるのも精度の貢献）
+    const fcols = `count(f.id) AS fill, count(f.id) FILTER (WHERE f.kind='new') AS fill_new, count(f.id) FILTER (WHERE f.kind IN ('update','add')) AS fill_fix,
+      count(DISTINCT f.lead_id) AS fill_leads, count(f.id) FILTER (WHERE g.outcome <> 'apo') AS fill_noapo`;
+    const fnum = (r) => ({ fill: +(r && r.fill) || 0, fillNew: +(r && r.fill_new) || 0, fillFix: +(r && r.fill_fix) || 0, fillLeads: +(r && r.fill_leads) || 0, fillNoApo: +(r && r.fill_noapo) || 0 });
+    const fjoin = `FROM mc_sf_fills f JOIN mc_call_logs g ON g.id=f.log_id WHERE NOT f.undone AND ${w}`;
+    const frows = new Map((await P().query(`SELECT ${key} AS k, ${fcols} ${fjoin} GROUP BY 1`, p)).rows.map((r) => [String(r.k), fnum(r)]));
+    const ftot = fnum((await P().query(`SELECT ${fcols} ${fjoin}`, p)).rows[0]);
+    const inv = new Map((await P().query(`SELECT ${key} AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='invalid' GROUP BY 1`, p)).rows.map((r) => [String(r.k), +r.n]));
+    const fields = (await P().query(`SELECT f.label AS k, count(*) AS n ${fjoin} GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k, n: +r.n }));
+    const fx = (k) => ({ ...(frows.get(String(k)) || fnum(null)), invalid: inv.get(String(k)) || 0 });
     const names = await nameMap();
     const lists = by === "list" ? new Map((await P().query(`SELECT id::text AS id, name FROM mc_call_lists`)).rows.map((r) => [r.id, r.name])) : null;
     const label = (k) => by === "user" ? names.get(String(k || "").toLowerCase()) || k : by === "list" ? lists.get(k) || `リスト ${k}` : k;
-    res.json({ ok: true, by, from, to, all: isAdmin(req), total: num(tot), reasons,
-      rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
+    res.json({ ok: true, by, from, to, all: isAdmin(req), total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0) }, reasons, fields,
+      rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 
   // ---- リードの割り振り・他のリストへ移す（2026-11-17 福井さん。kinbot の利用状況で kincall の
@@ -1323,6 +1365,26 @@ export function registerMcCall(app, deps) {
     if (h) { h.at = new Date().toISOString(); h.by = me(req); }
     await P().query(`UPDATE mc_call_leads SET hearing=$2 WHERE id=$1`, [id, h]); res.json({ ok: true, hearing: h });
   }));
+  // SF に入る項目の下書き（記録する前に画面に出す）。記録の本文と同じもの（ヒアリング・受付・断り理由・メモ）を送ってもらい、
+  //   SF の今の値と比べて「新規・更新・追記・同じ」を返す。書くのは記録したとき（/log → sfWrite）だけで、ここでは書かない
+  app.post("/api/mccall/leads/:id/sf-fill/preview", guard(async (req, res) => {
+    const id = parseInt(req.params.id, 10); const b = req.body || {};
+    const lead = (await P().query(`SELECT list_id, sf_lead_id, hearing, gate FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+    if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
+    if (!(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
+    if (!lead.sf_lead_id || !/^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) return res.json({ ok: true, plan: [], note: "SF のリードと結びついていない会社なので、SF の項目には入りません" });
+    const reach = String(b.reach || ""); const outcome = String(b.outcome || "");
+    const hearing = reach === "person" ? mergeHearing(lead.hearing, cleanHearing(b.hearing || {})) : null;
+    const g = b.gate || {}; const gate = g.name || g.direct ? { name: clip(g.name, 40), direct: clip(g.direct, 30) } : null;
+    const cands = fillCands({ hearing, gate, reason: outcome === "reject" ? clip(b.reason, 60) : "", outcome, memo: clip(b.memo, 2000) });
+    const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+    if (!cands.length) return res.json({ ok: true, plan: [] });
+    let cur = null, note = "";
+    try { cur = await Promise.race([sfCurrent(await sfActor(req), lead.sf_lead_id), new Promise((_, ng) => setTimeout(() => ng(new Error("SF の返事が遅い")), 5000))]); }
+    catch (e) { note = `SF の今の値を読めませんでした（${String(e.message).slice(0, 60)}）。記録したときに比べ直します`; }
+    if (cur && cur.IsConverted) return res.json({ ok: true, plan: [], note: "このリードは SF でコンバート済みなので、リードの項目には入りません（活動は残ります）" });
+    res.json({ ok: true, plan: planFills(cands, cur || {}, { day }), note, known: !!cur });
+  }));
   // 自動の掛け直しを解除する
   app.post("/api/mccall/leads/:id/clear-next", guard(async (req, res) => {
     await P().query(`UPDATE mc_call_leads SET next_at=NULL, next_why=NULL WHERE id=$1`, [parseInt(req.params.id, 10)]); res.json({ ok: true });
@@ -1436,6 +1498,9 @@ export function registerMcCall(app, deps) {
     // どのトーク（版）で話したか。そのリストのトークのときだけ残す（別のリストのトークと取り違えないため）
     const talkId = parseInt(b.talkId, 10);
     if (talkId) await P().query(`UPDATE mc_call_logs g SET talk_id=t.id FROM mc_call_talks t WHERE g.id=$1 AND t.id=$2 AND t.list_id=$3`, [log.id, talkId, lead.list_id]);
+    // SF に入る項目のうち、記録した人が画面で「書く・書かない」を選んだもの（選んでいない項目は最初のチェックのまま書く）
+    const pick = {}; for (const [k, v] of Object.entries((b.sfPick && typeof b.sfPick === "object") ? b.sfPick : {})) if (FILL_APIS.includes(k)) pick[k] = !!v;
+    if (Object.keys(pick).length) await P().query(`UPDATE mc_call_logs SET sf_pick=$2 WHERE id=$1`, [log.id, pick]);
     await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), hearing=COALESCE($7, hearing), miss_streak=$8, parked_at=$9, locked_by=NULL WHERE id=$1`,
       [id, outcome, nextAt, why, done, gate, hearing, streak, parkedAt]);
     res.json({ ok: true, logId: log.id, nextAt, why, done, parked: !!parkedAt });
@@ -1455,6 +1520,16 @@ export function registerMcCall(app, deps) {
       [g.lead_id, p.next_at || null, p.next_why || null, p.last_at || null, p.last_outcome || null, p.attempts, p.done, p.gate || null, p.miss_streak, p.parked_at || null, ...(g.hearing ? [p.hearing || null] : [])]);
     let sf = "";
     if (g.sf_task_id) { try { await deleteTask(await sfActor(req), g.sf_task_id); sf = "SF の活動も消しました"; } catch (e) { sf = `SF の活動は消せませんでした（${String(e.message).slice(0, 80)}）`; } }
+    // この記録で埋めた SF のリードの項目：評価から外し、SF の値がこちらの書いたままなら前の値へ戻す（ほかの人が直したあとなら触らない）
+    const fills = (await P().query(`UPDATE mc_sf_fills SET undone=true WHERE log_id=$1 AND NOT undone RETURNING *`, [g.id])).rows;
+    if (fills.length) {
+      try {
+        const owner = await sfActor(req); const cur = await sfCurrent(owner, fills[0].sf_lead_id, true); const back = {};
+        for (const f of fills) if (cur[f.field] != null && String(cur[f.field]) === f.new_val) back[f.field] = f.field === "Retire_check__c" ? f.old_val === "true" : f.old_val == null || f.old_val === "" ? null : f.old_val;
+        if (Object.keys(back).length) { await sfUpdateRecord(owner, "Lead", fills[0].sf_lead_id, back); _sfCur.delete(fills[0].sf_lead_id); }
+        sf += `${sf ? "。" : ""}SF のリードの項目 ${Object.keys(back).length} 件を前の値に戻しました`;
+      } catch (e) { sf += `${sf ? "。" : ""}SF のリードの項目は戻せませんでした（${String(e.message).slice(0, 80)}）`; }
+    }
     res.json({ ok: true, leadId: g.lead_id, sf });
   }));
 
@@ -1464,7 +1539,10 @@ export function registerMcCall(app, deps) {
     const rows = (await P().query(`SELECT caller, count(*) AS calls, count(*) FILTER (WHERE reach='person') AS person, count(*) FILTER (WHERE outcome='apo') AS apo,
         count(*) FILTER (WHERE cross_from IS NOT NULL) AS cross FROM mc_call_logs WHERE NOT undone AND created_at >= $1 GROUP BY caller`, [jstDayStart()])).rows
       .map((r) => ({ email: r.caller, name: names.get(String(r.caller || "").toLowerCase()) || r.caller, calls: +r.calls, person: +r.person, apo: +r.apo, cross: +r.cross }));
-    const mine = rows.find((r) => String(r.email || "").toLowerCase() === me(req)) || { calls: 0, person: 0, apo: 0, cross: 0 };
+    // 今日 SF の項目を埋めた数（アポ以外の貢献。評価は /report）
+    const fl = new Map((await P().query(`SELECT caller, count(*) AS n FROM mc_sf_fills WHERE NOT undone AND created_at >= $1 GROUP BY caller`, [jstDayStart()])).rows.map((r) => [String(r.caller || "").toLowerCase(), +r.n]));
+    for (const r of rows) r.fills = fl.get(String(r.email || "").toLowerCase()) || 0;
+    const mine = rows.find((r) => String(r.email || "").toLowerCase() === me(req)) || { calls: 0, person: 0, apo: 0, cross: 0, fills: fl.get(me(req)) || 0 };
     // 今日の自分の記録のうち SF に書けていない数（画面の上の知らせに出す）
     const sf = (await P().query(`SELECT count(*) FILTER (WHERE ${SF_FAIL}) AS fail, count(*) FILTER (WHERE NOT g.undone AND g.sf_err='nolead') AS nolead, count(*) FILTER (WHERE NOT g.undone AND g.sf_lead_err IS NOT NULL) AS leaderr,
         (array_agg(g.sf_err ORDER BY g.created_at DESC) FILTER (WHERE ${SF_FAIL} AND g.sf_err IS NOT NULL))[1] AS last_err
@@ -1503,7 +1581,7 @@ export function registerMcCall(app, deps) {
   }));
   // SF に書けなかった今日の自分の記録を書き直す（画面の知らせのボタンから）
   app.post("/api/mccall/sf-retry", guard(async (req, res) => {
-    const ids = (await P().query(`SELECT g.id FROM mc_call_logs g WHERE g.caller=$1 AND g.created_at >= $2 AND ${SF_FAIL} ORDER BY g.id LIMIT 30`, [me(req), jstDayStart()])).rows.map((r) => r.id);
+    const ids = (await P().query(`SELECT g.id FROM mc_call_logs g WHERE g.caller=$1 AND g.created_at >= $2 AND (${SF_FAIL} OR (NOT g.undone AND g.sf_task_id IS NOT NULL AND g.sf_lead_err IS NOT NULL AND NOT g.sf_fill_done)) ORDER BY g.id LIMIT 30`, [me(req), jstDayStart()])).rows.map((r) => r.id);
     for (const id of ids) await sfWrite(req, id);
     const left = ids.length ? +(await P().query(`SELECT count(*) FROM mc_call_logs g WHERE g.id = ANY($1) AND ${SF_FAIL}`, [ids])).rows[0].count : 0;
     res.json({ ok: true, tried: ids.length, left });

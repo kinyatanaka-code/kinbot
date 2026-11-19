@@ -9,6 +9,7 @@
 //   sf.deals（今月に関係する新規商談＋ステージ履歴）、detail.deals（直近6か月の新規商談の項目）、
 //   log（架電画面に記録した結果を担当者×日に集計。インサイドのコール・接続・担当者到達・アポ・ホットの正本。server/mcdashlog.js）、
 //   calls / callsPrev（Zoom Phone の発信を担当者×日に集計。通話秒数の参考と、記録もれの確認だけに使う）、
+//   pace（Zoom Phone の通話から、実通話時間とコール間隔を担当者×日に集計。server/mcdashpace.js）、
 //   shifts（インターンのシフト）、sources（データ源ごとの成否）
 //
 // 黙った失敗を作らない：データ源ごとに ok / ng とエラーの文、0件のときも sources に残し、画面は赤で出す。
@@ -16,6 +17,7 @@
 import { zoomPhoneConfigured, zoomPhoneUsers, zoomGet } from "./zoomphone.js";
 import { dbPool, listUsers } from "./db.js";
 import { aggregateLogs, whoOf } from "./mcdashlog.js";
+import { paceRows, BREAK_MIN, RE_PRESS_SEC } from "./mcdashpace.js";
 
 // 対象メンバー（2026-11-16 福井さん指定）。key/sf は SF の氏名（空白なし）、zoom は Zoom の表示名（空白なし）
 export const MCDASH_ROSTER = {
@@ -126,7 +128,9 @@ async function zoomFetchRange(from, to) {
       const r = String(c.result || c.call_result || "");
       const a = s > 0 && !/cancel|no.?answer|reject|busy|miss|voicemail/i.test(r) ? 1 : 0;
       const n = String(c.callee_number || c.callee_did_number || (c.callee && c.callee.phone_number) || "");
-      const arr = out.get(day) || []; arr.push({ o, n, s, a }); out.set(day, arr);
+      // 発信の開始時刻（UNIX秒）。コール間隔（server/mcdashpace.js）を作るのに使う。読めなければ 0
+      const ts = Date.parse(c.date_time || c.start_time); const t = Number.isFinite(ts) ? Math.round(ts / 1000) : 0;
+      const arr = out.get(day) || []; arr.push({ o, n, s, a, t }); out.set(day, arr);
     }
     token = d.next_page_token || ""; if (!token) break;
   }
@@ -228,12 +232,14 @@ async function build(deps) {
     sources.SF = { status: sfPart.n ? "ok" : "ng", at: new Date().toISOString(), note: sfPart.n ? `新規商談 ${sfPart.n}件・ステージ履歴 ${sfPart.nHist}件` : "新規商談が0件でした（取り方を確認してください）" };
   } catch (e) { sources.SF = { status: "ng", at: new Date().toISOString(), note: "SF を読めませんでした：" + e.message }; throw Object.assign(new Error("SF を読めませんでした：" + e.message), { sources }); }
   // Zoom Phone
-  let calls = null, callsPrev = null;
+  let calls = null, callsPrev = null, pace = null;
   if (!zoomPhoneConfigured()) sources["Zoom Phone"] = { status: "ng", at: "", note: "Zoom Phone の接続設定がありません" };
   else {
     try {
       const cur = await zoomRows(mStart, asOf); const prev = await zoomRows(pmStart, addDays(mStart, -1));
       calls = aggregateCalls(cur, mStart.slice(0, 7)); callsPrev = aggregateCalls(prev, pmStart.slice(0, 7));
+      // 実通話時間とコール間隔（前月と今月を1つにまとめる。画面が期間で切り出す）
+      pace = { ...paceRows([...prev, ...cur]), source: "zoom_phone", period: `${pmStart.slice(0, 7)}〜${mStart.slice(0, 7)}`, breakMin: BREAK_MIN, rePressSec: RE_PRESS_SEC };
       const isN = deps.roster.is.reduce((a, p) => a + Object.values(calls.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);
       sources["Zoom Phone"] = { status: isN ? "ok" : "ng", at: new Date().toISOString(), note: isN ? `今月の発信 ${cur.length}件（インサイド8名 ${isN}件）・前月 ${prev.length}件` : `インサイド8名の発信が0件でした（全体 ${cur.length}件）。名前の対応を確認してください` };
     } catch (e) { sources["Zoom Phone"] = { status: "ng", at: new Date().toISOString(), note: "Zoom Phone を読めませんでした：" + e.message }; }
@@ -269,7 +275,7 @@ async function build(deps) {
   notes.push("※ インサイドの計画はシフト表の勤務時間 × 1時間あたりの目標。アポは設定シートの「アポ目標時間」。");
   notes.push("※ インサイドのアポ数は SF の「アポ獲得者」（Internship_apo__c）が入力された案件のみ。入力率が低いと実態より少なく出ます。");
   return { asOf, fetchedAt: new Date().toISOString(), buildMs: Date.now() - t0, holidays: HOLIDAYS, staleBefore: addMonths(mStart, -3), roster: deps.roster,
-    sf: sfPart.sf, detail: sfPart.detail, calls, callsPrev, log, shifts, sources, notes, sfBase };
+    sf: sfPart.sf, detail: sfPart.detail, calls, callsPrev, pace, log, shifts, sources, notes, sfBase };
 }
 
 export function registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, readSheet, mochicaSet, isAdmin }) {
