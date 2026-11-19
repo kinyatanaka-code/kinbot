@@ -3726,3 +3726,34 @@ async function gbLoad() {
     el.textContent = el.hasAttribute("data-share-token") ? d.token : `${location.origin}${el.dataset.sharePath}?token=${d.token}`;
   });
 })();
+
+// ===== パスワードの欄に「見る」ボタン（2026-11-19 田中さん「kinbotの設定でパスワードは見れるようにしたい」）=====
+//   入れている途中の文字を目のボタンで見られるようにする。保存してあるパスワードは暗号のような形（元に戻せない形）で
+//   しまってあるので、あとから見ることはできない（忘れたときは「ログインできない場合」から作り直す）。
+//   あとから出てくる欄にも付くように、画面の変化を見て付ける。もともと「表示」ボタンがある欄（ccToken）には付けない
+(function () {
+  const EYE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.6A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-3 3.7M6.6 6.6C3.9 8.4 2.5 12 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+  const wire = (inp) => {
+    if (inp._kbEye || inp.id === "ccToken" || inp.dataset.noeye != null) return;
+    inp._kbEye = true;
+    // 横に並んだ欄（flex）の中でも幅が変わらないように、欄の伸び方を外側に引きつぐ
+    const pcs = getComputedStyle(inp.parentNode); const inFlex = /flex|grid/.test(pcs.display);
+    const wrap = document.createElement("span");
+    wrap.style.cssText = `position:relative;display:block;min-width:0;${inFlex ? `flex:${getComputedStyle(inp).flex || "1 1 auto"}` : "width:100%"}`;
+    inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp);
+    inp.style.paddingRight = "38px"; inp.style.boxSizing = "border-box"; if (!inp.style.width) inp.style.width = "100%";
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "kb-eye"; b.title = "入れた文字を見る"; b.setAttribute("aria-label", "入れた文字を見る"); b.innerHTML = EYE;
+    b.style.cssText = "position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:#1d9e75;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0";
+    b.addEventListener("click", () => {
+      const show = inp.type === "password";
+      inp.type = show ? "text" : "password";
+      b.innerHTML = show ? EYE_OFF : EYE; b.title = show ? "隠す" : "入れた文字を見る"; b.setAttribute("aria-label", b.title);
+    });
+    wrap.appendChild(b);
+  };
+  const scan = () => document.querySelectorAll('input[type="password"]').forEach(wire);
+  scan();
+  new MutationObserver(() => scan()).observe(document.body, { childList: true, subtree: true });
+})();
