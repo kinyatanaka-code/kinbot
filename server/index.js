@@ -520,6 +520,7 @@ import {
   deleteSuspension,
   suspendedNow,
   listMembers,
+  memberHasRole,
   saveMembers,
   deleteMember,
   syncMembersToLegacy,
@@ -4329,7 +4330,7 @@ app.get("/api/home/inside-today", async (req, res) => {
     const norm = (s) => String(s || "").replace(/[\s　]/g, "");
     const inside = new Set();
     for (const it of interns) if (it.name) inside.add(norm(it.name));
-    for (const mm of members) if (Array.isArray(mm.roles) && mm.roles.includes("inside") && mm.name) inside.add(norm(mm.name));
+    for (const mm of members) if (memberHasRole(mm, "inside", "DOC") && mm.name) inside.add(norm(mm.name));
     const hhmm = (v) => { const d = new Date(v); if (isNaN(d.getTime())) return ""; const jj = new Date(d.getTime() + 9 * 3600000); return `${pad(jj.getUTCHours())}:${pad(jj.getUTCMinutes())}`; };
     // 実施済み＝meetingsに入っている（録音済み）今日の商談。獲得者がインサイドのものだけ。
     const rows = ms.filter((m) => m.apo_setter && inside.has(norm(m.apo_setter)));
@@ -4418,7 +4419,8 @@ async function dailyWorkingMembers(dayStr) {
       const members = await listMembers().catch(() => []);
       const salesNames = String(process.env.DASH_SALES_NAMES || "田中欽也").split(",").map((x) => x.trim()).filter(Boolean);
       // 田中欽也はデイリー目標に出さない（2026-11-16 田中さん「kincall のデイリー目標から田中欽也を消しといて」）
-      const sales = (members || []).filter((m) => (Array.isArray(m.roles) && m.roles.includes("closer")) || salesNames.some((n) => String(m.name || "").includes(n)))
+      // DOC のクローザーだけ（MOCHICA のセールスを DOC のデイリー目標に入れない）（2026-11-19 田中さん）
+      const sales = (members || []).filter((m) => memberHasRole(m, "closer", "DOC") || salesNames.some((n) => String(m.name || "").includes(n)))
         .filter((m) => !String(m.name || "").replace(/[\s　]/g, "").includes("田中欽也"));
       for (const m of sales) {
         const email = String(m.email || "").toLowerCase(); if (!email) continue;
@@ -5292,7 +5294,7 @@ async function checkValidDeals() {
     const insideNames = new Set(), insideEmails = new Set();
     try {
       for (const it of (await listInterns().catch(() => []))) { if (it.name) insideNames.add(_norm(it.name)); if (it.email) insideEmails.add(_norm(it.email)); }
-      for (const m of (await listMembers().catch(() => []))) { if (Array.isArray(m.roles) && m.roles.includes("inside")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
+      for (const m of (await listMembers().catch(() => []))) { if (memberHasRole(m, "inside", "DOC")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
     } catch {}
     const isInside = (c) => insideEmails.has(_norm(c.setter_email)) || insideNames.has(_norm(c.setter));
     for (const c of cands) {
@@ -5347,7 +5349,7 @@ async function checkDocDeals() {
     for (const u of (await listUsers().catch(() => []))) if (u.email) nameByEmail[String(u.email).toLowerCase()] = u.name || "";
     try {
       for (const it of (await listInterns().catch(() => []))) { if (it.name) insideNames.add(_norm(it.name)); if (it.email) insideEmails.add(_norm(it.email)); }
-      for (const m of (await listMembers().catch(() => []))) { if (Array.isArray(m.roles) && m.roles.includes("inside")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
+      for (const m of (await listMembers().catch(() => []))) { if (memberHasRole(m, "inside", "DOC")) { if (m.name) insideNames.add(_norm(m.name)); if (m.email) insideEmails.add(_norm(m.email)); } }
     } catch {}
     const isInside = (c) => insideEmails.has(_norm(c.setter_email)) || insideNames.has(_norm(c.setter));
     let notified = 0;
@@ -6927,7 +6929,7 @@ async function insideMembersForDistribute() {
   const list = await listMembers().catch(() => []);
   const interns = await listInterns().catch(() => []);
   const internSet = new Set((interns || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
-  const isInside = (m) => (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase());
+  const isInside = (m) => memberHasRole(m, "inside", "DOC") || internSet.has(String(m.email || "").toLowerCase());
   const out = [];
   for (const m of (list || [])) {
     if (m.active === false) continue;
@@ -10124,7 +10126,7 @@ async function insideEmailSet() {
   for (const m of members || []) {
     const em = String(m.email || "").toLowerCase();
     if (!em) continue;
-    if ((Array.isArray(m.roles) && m.roles.includes("inside")) || iset.has(em)) s.add(em);
+    if (memberHasRole(m, "inside", "DOC") || iset.has(em)) s.add(em);
   }
   return s;
 }
@@ -10141,7 +10143,7 @@ async function reassignCloserLeadsToProxy(sfUser, leadIds, { dryRun = false } = 
   }
   const members = await listMembers().catch(() => []);
   const closerEmails = new Set(
-    (members || []).filter((m) => Array.isArray(m.roles) && m.roles.includes("closer"))
+    (members || []).filter((m) => memberHasRole(m, "closer", "DOC"))
       .map((m) => String(m.email || "").toLowerCase()).filter(Boolean));
   if (!closerEmails.size) return out;   // クローザーがいなければ何もしない
 
@@ -20930,7 +20932,7 @@ app.get("/api/calls/analysis", async (req, res) => {
     const internsList = await listInterns().catch(() => []);
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     const inside = (members || []).filter((mm) =>
-      (Array.isArray(mm.roles) && mm.roles.includes("inside")) || internSet.has(String(mm.email || "").toLowerCase()));
+      memberHasRole(mm, "inside", "DOC") || internSet.has(String(mm.email || "").toLowerCase()));
     const nameOf = new Map(inside.map((mm) => [String(mm.email || "").toLowerCase(), mm.name || mm.email]));
 
     const rows = await callAnalysis(from, to);
@@ -21118,9 +21120,9 @@ async function computeStatsGrid(periodIn, spanIn, opts = {}) {
       const nm = mm.name || mm.email || "";
       if (_nameHas(nm, _excludeNames)) return "";        // 実績・ダッシュボードから外す
       if (_nameHas(nm, _salesNames)) return "sales";     // 田中欽也はセールス
-      const roles = Array.isArray(mm.roles) ? mm.roles : [];
-      if (roles.includes("closer")) return "sales";
-      if (roles.includes("inside") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
+      // DOC の役割で見る（MOCHICA のセールスを DOC の実績に入れない）（2026-11-19）
+      if (memberHasRole(mm, "closer", "DOC")) return "sales";
+      if (memberHasRole(mm, "inside", "DOC") || internSet.has(String(mm.email || "").toLowerCase())) return "inside";
       return "";
     };
     const people = (members || []).map((mm) => ({ email: String(mm.email || "").toLowerCase(), name: mm.name || mm.email, role: roleOf(mm) }))
@@ -22593,7 +22595,7 @@ app.get("/api/calls/process", async (req, res) => {
     const 対象タイトル = (t) => { const s = String(t || ""); return /【\s*初回\s*】/.test(s) || /【\s*新\s*[\/／]\s*ヒ\s*】/.test(s) || /メルマガ/.test(s); };
     const members = await listMembers().catch(() => []);
     const closers = new Map();
-    for (const mm of members) { const em = String(mm.email || "").toLowerCase(); if ((Array.isArray(mm.roles) && mm.roles.includes("closer")) && em) closers.set(em, mm.name || mm.email); }
+    for (const mm of members) { const em = String(mm.email || "").toLowerCase(); if (memberHasRole(mm, "closer", "DOC") && em) closers.set(em, mm.name || mm.email); }
 
     // 記録あり商談（実施の突合用）：初回タイトルの録音あり商談を 会社名|商談日 の集合にする。
     const buildDone = async (from, to) => {
@@ -23726,7 +23728,7 @@ app.get("/api/calls/stats", async (req, res) => {
     const internsList = await listInterns().catch(() => []);
     const internSet = new Set((internsList || []).map((x) => String(x.email || "").toLowerCase()).filter(Boolean));
     const inside = (members || []).filter((m) =>
-      (Array.isArray(m.roles) && m.roles.includes("inside")) || internSet.has(String(m.email || "").toLowerCase()));
+      memberHasRole(m, "inside", "DOC") || internSet.has(String(m.email || "").toLowerCase()));
     const insideSet = new Set(inside.map((m) => String(m.email || "").toLowerCase()).filter(Boolean));
     const nameOf = new Map(inside.map((m) => [String(m.email || "").toLowerCase(), m.name || m.email]));
 
@@ -33747,8 +33749,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-19a 全ブランチを統合（架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11・kinXs のタスク修正）";
+const BUILD_TAG = "2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
 const BUILD_FEATURES = [
+  "メンバー：役割（クローザー・インサイド・予備・CS）を DOC と MOCHICA で別々に持つ。DOC の報告・集計は DOC の役割だけ",
   "for MOCHICA の架電：リードの重複を作らない（会社名＋電話・メール・Web・法人番号の鍵・過去も含めて1件）",
   "for MOCHICA の架電：一覧（検索・絞り込み・並べ替え）・トークスクリプト・会社情報の編集と複数番号・レポート（期間・人・リスト・日ごと）",
   "for MOCHICA の架電：資料送付は doc-room のルームを作ってその URL を送る（管理キーは DOC_ROOM_KEY）",

@@ -1456,6 +1456,10 @@ export async function initDb() {
   // 署名・Zoom情報など、人によって変わる項目。
   // メールの差し込みタグ（{{担当者電話}} など）から使う。
   await sq(`ALTER TABLE members ADD COLUMN IF NOT EXISTS profile JSONB NOT NULL DEFAULT '{}'::jsonb;`);
+  // 事業ごとの役割（{"DOC":["closer"],"MOCHICA":["inside"]}）。
+  // roles だけだと DOC と MOCHICA の役割が混ざり、DOC の毎日の報告に MOCHICA のセールスが入ってしまった（2026-11-19 田中さん）。
+  // 空（{}）の人は、これまでの roles を「入っている事業の役割」として読む（memberRolesFor）。
+  await sq(`ALTER TABLE members ADD COLUMN IF NOT EXISTS biz_roles JSONB NOT NULL DEFAULT '{}'::jsonb;`);
   await sq(`CREATE INDEX IF NOT EXISTS ix_members_order ON members(sort_order);`);
 
   // 提案資料テーブル
@@ -8622,6 +8626,35 @@ function normBusinesses(v) {
   return MEMBER_BUSINESSES.filter((b) => a.includes(b));
 }
 
+// 事業ごとに分ける役割（kincallだけ は事業に関係ないので roles のまま持つ）
+const BIZ_ROLE_KEYS = ["closer", "inside", "fallback", "cs"];
+function normBizRoles(v, businesses) {
+  const src = (v && typeof v === "object" && !Array.isArray(v)) ? v : {};
+  const out = {};
+  for (const b of businesses) {
+    if (!Array.isArray(src[b])) continue;
+    out[b] = BIZ_ROLE_KEYS.filter((r) => src[b].includes(r));
+  }
+  return out;
+}
+
+// その人の「ある事業での役割」を返す。
+//   ・その事業に入っていない人 … 役割なし（MOCHICA だけの人を DOC の報告に入れないため）
+//   ・事業ごとの役割を保存してある人 … それを使う
+//   ・まだ分けて保存していない人 … これまでの roles をそのまま使う（今までと同じ動き）
+//   ・事業が未設定の人 … これまでどおり、どの事業でも roles を使う
+export function memberRolesFor(m, biz) {
+  if (!m) return [];
+  const b = Array.isArray(m.businesses) ? m.businesses : [];
+  if (b.length && !b.includes(biz)) return [];
+  const br = (m.biz_roles && typeof m.biz_roles === "object") ? m.biz_roles : {};
+  if (Array.isArray(br[biz])) return br[biz];
+  return (Array.isArray(m.roles) ? m.roles : []).filter((r) => BIZ_ROLE_KEYS.includes(r));
+}
+export function memberHasRole(m, role, biz) {
+  return memberRolesFor(m, biz).includes(role);
+}
+
 // 署名・Zoom情報として保存する項目。想定外のキーは捨てる。
 // 姓は名前から自動で判定する。自動判定が合わないときだけ shortName で上書きする。
 // Zoomの情報は「設定 → 登録リンク」（myZoomLink）から取るので持たない。
@@ -8664,7 +8697,12 @@ export async function listMembers() {
       businesses: Array.isArray(r.businesses) ? r.businesses : [],
       roles: Array.isArray(r.roles) ? r.roles : [],
       profile: (r.profile && typeof r.profile === "object") ? r.profile : {},
-    }));
+    })).map((m) => {
+      // 画面で事業ごとに見せるため、入っている事業の役割をいつも埋めて返す（保存前の人も、今の roles から）
+      const br = {};
+      for (const b of m.businesses) br[b] = memberRolesFor(m, b);
+      return { ...m, biz_roles: br };
+    });
   } catch { return []; }
 }
 
@@ -8682,17 +8720,27 @@ export async function saveMembers(list) {
       const email = String(m.email || "").trim().toLowerCase();
       if (!email) continue;
       const cap = Number.isFinite(+m.daily_cap) && +m.daily_cap > 0 ? +m.daily_cap : null;
+      const biz = normBusinesses(m.businesses);
+      const br = normBizRoles(m.biz_roles, biz);
+      // roles は「どこかの事業での役割」をまとめたもの（権限の判定など、事業を問わない所が使う）。
+      // 事業ごとの役割が来たときは、そこから作り直す。来なければ今までどおり roles をそのまま保存する。
+      let roles = normRoles(m.roles);
+      if (biz.length && Object.keys(br).length) {
+        const keep = roles.filter((r) => !BIZ_ROLE_KEYS.includes(r));   // kincallだけ など
+        const fromBiz = biz.flatMap((b) => Array.isArray(br[b]) ? br[b] : memberRolesFor({ ...m, biz_roles: {} }, b));
+        roles = normRoles([...keep, ...fromBiz]);
+      }
       await client.query(
-        `INSERT INTO members (email, name, businesses, team, roles, active, daily_cap, sort_order, note, profile)
-         VALUES ($1,$2,$3::jsonb,$4,$5::jsonb,$6,$7,$8,$9,$10::jsonb)
+        `INSERT INTO members (email, name, businesses, team, roles, active, daily_cap, sort_order, note, profile, biz_roles)
+         VALUES ($1,$2,$3::jsonb,$4,$5::jsonb,$6,$7,$8,$9,$10::jsonb,$11::jsonb)
          ON CONFLICT (email) DO UPDATE
            SET name=$2, businesses=$3::jsonb, team=$4, roles=$5::jsonb,
-               active=$6, daily_cap=$7, sort_order=$8, note=$9, profile=$10::jsonb, updated_at=now()`,
+               active=$6, daily_cap=$7, sort_order=$8, note=$9, profile=$10::jsonb, biz_roles=$11::jsonb, updated_at=now()`,
         [email, String(m.name || "").trim() || email,
-         JSON.stringify(normBusinesses(m.businesses)), String(m.team || "").trim() || null,
-         JSON.stringify(normRoles(m.roles)), m.active !== false, cap, i + 1,
+         JSON.stringify(biz), String(m.team || "").trim() || null,
+         JSON.stringify(roles), m.active !== false, cap, i + 1,
          String(m.note || "").slice(0, 300) || null,
-         JSON.stringify(normProfile(m.profile))]
+         JSON.stringify(normProfile(m.profile)), JSON.stringify(br)]
       );
     }
     await client.query("COMMIT");
@@ -8731,10 +8779,12 @@ export async function syncMembersToLegacy() {
     // MOCHICA は kinbot for MOCHICA の別の箱で扱う。DOC が付いている人と、事業が未設定の人（今までどおり）だけを入れる。
     const forDocApo = (m) => { const b = Array.isArray(m.businesses) ? m.businesses : []; return !b.length || b.includes("DOC"); };
     const skipped = members.filter((m) => !forDocApo(m) && (m.roles.includes("closer") || m.roles.includes("fallback") || m.roles.includes("inside")));
+    // DOC の役割だけで見る（MOCHICA でクローザーの人を DOC の順番に入れない）（2026-11-19）
+    const docHas = (m, r) => memberHasRole(m, r, "DOC");
     if (skipped.length) console.log(`[members] MOCHICA だけの人はアポ振り分けに入れません：${skipped.map((m) => m.name || m.email).join("・")}`);
 
     // --- クローザー（closer / fallback） ---
-    const closers = members.filter((m) => forDocApo(m) && (m.roles.includes("closer") || m.roles.includes("fallback")));
+    const closers = members.filter((m) => forDocApo(m) && (docHas(m, "closer") || docHas(m, "fallback")));
     for (let i = 0; i < closers.length; i++) {
       const m = closers[i];
       await pool.query(
@@ -8743,7 +8793,7 @@ export async function syncMembersToLegacy() {
          ON CONFLICT (email) DO UPDATE
            SET name=$2, active=$4, daily_cap=$5, team=$6, fallback=$7, businesses=$8::jsonb, updated_at=now()`,
         [m.email, m.name, i + 1, m.active !== false, m.daily_cap,
-         m.team || null, m.roles.includes("fallback"), JSON.stringify(m.businesses || [])]
+         m.team || null, docHas(m, "fallback"), JSON.stringify(m.businesses || [])]
       );
     }
     const cEmails = closers.map((m) => m.email);
@@ -8752,7 +8802,7 @@ export async function syncMembersToLegacy() {
     out.closers = closers.length;
 
     // --- インサイド（アポ獲得者） ---
-    const insides = members.filter((m) => forDocApo(m) && m.roles.includes("inside"));
+    const insides = members.filter((m) => forDocApo(m) && docHas(m, "inside"));
     for (const m of insides) {
       await pool.query(
         `INSERT INTO interns (email, name) VALUES ($1,$2)

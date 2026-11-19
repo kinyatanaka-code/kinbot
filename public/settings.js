@@ -1089,6 +1089,7 @@ async function loadMembers() {
       ...m,
       businesses: Array.isArray(m.businesses) ? m.businesses : [],
       roles: Array.isArray(m.roles) ? m.roles : [],
+      biz_roles: (m.biz_roles && typeof m.biz_roles === "object") ? JSON.parse(JSON.stringify(m.biz_roles)) : {},
       profile: (m.profile && typeof m.profile === "object") ? { ...m.profile } : {},
     }));
     mbState.candidates = d.candidates || [];
@@ -1103,6 +1104,25 @@ async function loadMembers() {
   } catch (e) {
     box.innerHTML = `<p class="note cc-warn">読み込めませんでした：${mbEsc(e.message)}</p>`;
   }
+}
+
+// 役割は事業ごとに持つ（DOC と MOCHICA を一緒にしない）（2026-11-19 田中さん）
+//   kincallだけ は事業に関係ないので roles のまま。
+const BIZ_ROLE_KEYS = ["closer", "inside", "fallback", "cs"];
+const GK_BIZ = { doc: "DOC", mochica: "MOCHICA" };
+// その人の、ある事業での役割。事業に入っていなければ空。「その他」の人はこれまでの roles。
+function mbRolesFor(m, biz) {
+  if (!biz) return m.roles.filter((r) => BIZ_ROLE_KEYS.includes(r));
+  if (!m.businesses.includes(biz)) return [];
+  const br = m.biz_roles || {};
+  return Array.isArray(br[biz]) ? br[biz] : m.roles.filter((r) => BIZ_ROLE_KEYS.includes(r));
+}
+// 事業ごとの役割から、まとめの roles を作り直す（権限など事業を問わない所が使う）
+function mbSyncRoles(m) {
+  if (!m.businesses.length) return;
+  const keep = m.roles.filter((r) => !BIZ_ROLE_KEYS.includes(r));
+  const all = m.businesses.flatMap((b) => mbRolesFor(m, b));
+  m.roles = [...new Set([...keep, ...all])];
 }
 
 function mbEsc(v) {
@@ -1143,8 +1163,9 @@ function mbRender() {
          <div class="mb-tags">
            <span class="mb-tag-label">事業</span>
            ${BIZ.map((b) => `<label class="mb-chk"><input type="checkbox" class="mb-biz" data-v="${b}" ${m.businesses.includes(b) ? "checked" : ""} /> ${b}</label>`).join("")}
-           <span class="mb-tag-label">役割</span>
-           ${Object.keys(ROLE_LABEL).map((r) => `<label class="mb-chk mb-chk-${r}"><input type="checkbox" class="mb-role" data-v="${r}" ${m.roles.includes(r) ? "checked" : ""} /> ${ROLE_LABEL[r]}</label>`).join("")}
+           ${(m.businesses.length ? m.businesses : [""]).map((b) => `<span class="mb-tag-label">${b ? b + " の役割" : "役割"}</span>
+           ${BIZ_ROLE_KEYS.map((r) => `<label class="mb-chk mb-chk-${r}"><input type="checkbox" class="mb-role" data-b="${b}" data-v="${r}" ${mbRolesFor(m, b).includes(r) ? "checked" : ""} /> ${ROLE_LABEL[r]}</label>`).join("")}`).join("")}
+           <label class="mb-chk mb-chk-kincall"><input type="checkbox" class="mb-role" data-b="" data-v="kincall" ${m.roles.includes("kincall") ? "checked" : ""} /> ${ROLE_LABEL.kincall}</label>
            <label class="mb-chk">1日上限 <input type="number" class="mb-cap" min="1" max="20" placeholder="なし" value="${m.daily_cap || ""}" /> 件</label>
            <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
            <button type="button" class="btn ghost mb-sig">署名</button>
@@ -1200,12 +1221,26 @@ function mbRender() {
       q(".mb-active").addEventListener("change", (e) => { m.active = e.target.checked; mbRender(); });
       row.querySelectorAll(".mb-biz").forEach((c) => c.addEventListener("change", (e) => {
         const v = e.target.dataset.v;
+        // 先に今の役割を事業ごとに固めてから、事業を足し引きする（足した事業は役割なしから始める）
+        m.biz_roles = m.biz_roles || {};
+        for (const b of m.businesses) m.biz_roles[b] = mbRolesFor(m, b);
         m.businesses = e.target.checked ? [...new Set([...m.businesses, v])] : m.businesses.filter((x) => x !== v);
+        if (e.target.checked) m.biz_roles[v] = []; else delete m.biz_roles[v];
+        mbSyncRoles(m);
         mbRender();   // 事業を変えたら、そのグループのカードへ移す
       }));
       row.querySelectorAll(".mb-role").forEach((c) => c.addEventListener("change", (e) => {
-        const v = e.target.dataset.v;
-        m.roles = e.target.checked ? [...new Set([...m.roles, v])] : m.roles.filter((x) => x !== v);
+        const v = e.target.dataset.v, b = e.target.dataset.b;
+        if (b && BIZ_ROLE_KEYS.includes(v)) {
+          // その事業の役割だけを変える
+          m.biz_roles = m.biz_roles || {};
+          for (const x of m.businesses) m.biz_roles[x] = mbRolesFor(m, x);
+          const cur = m.biz_roles[b] || [];
+          m.biz_roles[b] = e.target.checked ? [...new Set([...cur, v])] : cur.filter((x) => x !== v);
+          mbSyncRoles(m);
+        } else {
+          m.roles = e.target.checked ? [...new Set([...m.roles, v])] : m.roles.filter((x) => x !== v);
+        }
         mbRender();
       }));
       q(".mb-del").addEventListener("click", () => {
@@ -1241,7 +1276,7 @@ function mbRender() {
       for (const g of GROUPS) {
         const list = mbState.members.filter((m) => g.has(m));
         const on = list.filter((m) => m.active !== false).length;
-        const rc = (r) => list.filter((m) => m.active !== false && m.roles.includes(r)).length;
+        const rc = (r) => list.filter((m) => m.active !== false && mbRolesFor(m, GK_BIZ[g.k]).includes(r)).length;
         const t = document.createElement("button");
         t.type = "button";
         t.className = "mb-tile mb-grp-" + g.k;
@@ -1285,13 +1320,14 @@ function mbRender() {
         const c = document.createElement("button");
         c.type = "button";
         c.className = "mb-card" + (m.active === false ? " mb-off" : "");
-        const roles = Object.keys(ROLE_LABEL).filter((r) => m.roles.includes(r));
+        const gr = mbRolesFor(m, GK_BIZ[g.k]);
+        const roles = Object.keys(ROLE_LABEL).filter((r) => r === "kincall" ? m.roles.includes(r) : gr.includes(r));
         const both = m.businesses.includes("DOC") && m.businesses.includes("MOCHICA");
         c.innerHTML = `<span class="mb-card-top"><span class="mb-av">${mbEsc(String(m.name || m.email || "?").trim().charAt(0))}</span>
             <span class="mb-card-nm"><b>${mbEsc(m.name || "(名前なし)")}</b><small>${mbEsc(m.team || "チームなし")}</small></span>
             ${m.active === false ? '<span class="mb-card-off">休み</span>' : ""}</span>
           <span class="mb-card-mail">${mbEsc(m.email)}</span>
-          <span class="mb-card-roles">${roles.length ? roles.map((r) => `<span class="mb-rc mb-rc-${r}">${mbEsc(ROLE_LABEL[r])}</span>`).join("") : '<span class="mb-rc mb-rc-none">役割なし</span>'}${both ? `<span class="mb-rc mb-rc-both">${g.k === "doc" ? "MOCHICA も" : "DOC も"}</span>` : ""}</span>`;
+          <span class="mb-card-roles">${roles.length ? roles.map((r) => `<span class="mb-rc mb-rc-${r}">${mbEsc(ROLE_LABEL[r])}</span>`).join("") : '<span class="mb-rc mb-rc-none">役割なし</span>'}${both ? (() => { const ob = g.k === "doc" ? "MOCHICA" : "DOC"; const orr = mbRolesFor(m, ob); return `<span class="mb-rc mb-rc-both">${ob}：${orr.length ? orr.map((r) => mbEsc(ROLE_LABEL[r])).join("・") : "役割なし"}</span>`; })() : ""}</span>`;
         c.addEventListener("click", () => { mbState.editObj = m; mbRender(); });
         body.appendChild(c);
       }
@@ -1331,7 +1367,7 @@ function mbAddMember(name, email) {
   mbState.members.push({
     email: e, name: String(name || "").trim() || e,
     businesses: mbState.view === "doc" ? ["DOC"] : mbState.view === "mochica" ? ["MOCHICA"] : [],
-    team: "", roles: [], active: true, daily_cap: null, profile: {},
+    team: "", roles: [], biz_roles: {}, active: true, daily_cap: null, profile: {},
   });
   // グループを開いているときは、足した人をそのまま開いて役割を選んでもらう
   if (mbState.view) mbState.editObj = mbState.members[mbState.members.length - 1];

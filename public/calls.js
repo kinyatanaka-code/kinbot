@@ -7617,7 +7617,14 @@ async function nmFetchClSummary() {
 }
 function nmMemberName(email) { if (email === "__other__") return "未割り当て"; const m = _nmMemByEmail.get(String(email || "").toLowerCase()); return (m && (m.name || m.email)) || email || "?"; }
 const NM_SALES_FORCE = ["kinya.tanaka@neo-career.co.jp"];   // 役割に関わらずセールス扱いにする人
-function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = (m && Array.isArray(m.roles) && m.roles) || []; if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
+// DOC での役割だけを見る（MOCHICA のセールスを kincall の集計に入れない）（2026-11-19 田中さん）
+function nmDocRoles(m) {
+  if (!m) return [];
+  if (m.biz_roles && Array.isArray(m.biz_roles.DOC)) return m.biz_roles.DOC;
+  if (Array.isArray(m.businesses) && m.businesses.length && !m.businesses.includes("DOC")) return [];
+  return Array.isArray(m.roles) ? m.roles : [];
+}
+function nmTeamOf(email) { const e = String(email || "").toLowerCase(); if (NM_SALES_FORCE.includes(e)) return "sales"; const m = _nmMemByEmail.get(e); const roles = nmDocRoles(m); if (roles.includes("closer")) return "sales"; if (roles.includes("inside")) return "inside"; return "other"; }
 function nmBar(zan, all) { const pct = all ? Math.round(zan / all * 100) : 0; const col = (all && zan / all >= 0.6) ? "#1d9e75" : (all && zan / all >= 0.25) ? "#f0b429" : "#e06b5e"; return `<div class="org-bar"><div style="width:${Math.max(4, pct)}%;background:${col}"></div></div>`; }
 async function nmFetch() {
   const [d, _grpLoaded, mm, sg, clm] = await Promise.all([
