@@ -14683,6 +14683,7 @@ async function kinxsBuild() {
       archived: !!r.archived, snsPhase: r.sns_phase || "計上", schedule: r.doc_schedule || null, schedLate,
       // 掲載先（どこに掲載しているか）（2026-11-17 久野さんの要望：直販が見やすい一覧にも出す）
       places: Array.isArray((r.info || {}).places) ? r.info.places : [],
+      noPlace: !!(r.info || {}).no_place,   // 掲載先一覧で「未掲載」と決めた会社（2026-11-19 久野さん）
       actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", ksMonth: oldDeal ? "" : ksMonthEff, kenshuOn, kenshuSt: kenshu, delivered, endOn: ymd0(r.end_on),
       // 前月比のための日付（2026-11-04）：納品した日（検収書の回収日 → 10月より前の受注は受注日 → 自動で回収済みにしたものは受注日＋90日）・DOCを最初に受注した日
       deliveredOn: delivered ? (kenshuOn || (oldDeal ? bookedYmd0 : "") || (bookedYmd0 ? new Date(Date.parse(bookedYmd0 + "T00:00:00+09:00") + 90 * 86400000 + 9 * 3600000).toISOString().slice(0, 10) : "")) : "",
@@ -16456,6 +16457,7 @@ const KX_IMPORT_GUESS = {
   name: /企業名|会社名|取引先|顧客名|法人名/, renew: /^更新月$|更新月(?![②2])/, renew2: /更新月[②2]/, rank: /確度|更新ラベル|更新確度|ランク/, cs: /CS担当|CS|担当CS/,
   product: /商品|プラン|契約内容/, start: /契約開始|開始日|利用開始/, end: /契約終了|終了日|満了|利用終了/, memo: /メモ|備考|特記/,
   prod: /本番サイト|本番URL|本番環境/,
+  delivered: /納品(?!メール)/,
 };
 function kxParseCsv(text) {
   const rows = []; let row = [], cur = "", q = false;
@@ -16525,6 +16527,44 @@ app.post("/api/kinxs/import/apply", async (req, res) => {
     const byKey = new Map(); for (const a of accs) { const k = csCoKey(a.name || ""); if (k && !byKey.has(k)) byKey.set(k, a); }
     const cell = (r, k) => (map[k] == null || map[k] === "" ? "" : String((r || [])[Number(map[k])] ?? "").trim());
     const out = { matched: 0, created: 0, skipped: 0, items: [] };
+    // 納品済みの取り込み（2026-11-19 久野さん「納品されているかどうかの判別をこのシートから行う。2026年9月までに納品済みの企業は、キックオフ・納品メール送付済みのステータスに」）。
+    //   ほかの列（更新月・CS担当など）は触らない。会社を新しく足すこともしない（納品の印を付けるだけなので）
+    if (b.mode === "delivered") {
+      if (map.delivered == null || map.delivered === "") return res.status(400).json({ error: "納品の列を選んでください" });
+      const by = /^20\d{2}-\d{2}$/.test(String(b.deliveredBy || "")) ? String(b.deliveredBy) : "2026-09";
+      // キックオフ日がもう分かっている会社（手で入れた・CS連携・議事録）は、その日のまま。分からない会社だけ納品日を入れる
+      const { items: built } = await kinxsBuild().catch(() => ({ items: [] }));
+      const koOf = new Map(built.map((x) => [x.id, x.kickoffOn || ""]));
+      const mailOf = new Map(built.map((x) => [x.id, String(x.mail || "")]));
+      const md = (t) => t ? `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}` : "";
+      const seen = new Set();
+      for (const r of rows) {
+        const name = cell(r, "name"); if (!name) { out.skipped++; continue; }
+        const acc = byKey.get(csCoKey(name)) || null;
+        const raw = cell(r, "delivered");
+        // 納品の欄：日付（2026/9/12）→ その日。年月だけ（2026年9月）→ その月の1日。日付なし（済・完了・✓）→ 日付なしの納品済み
+        const day = kxYmd(raw), ym = day ? day.slice(0, 7) : kxRenewMonth(raw);
+        const doneMark = !ym && /済|完了|納品|✓|✔|〇|○|^true$|^yes$/i.test(String(raw).normalize("NFKC"));
+        const item = { name, match: acc ? acc.name : "", delivered: day || (ym ? ym : doneMark ? "済（日付なし）" : raw) };
+        if (!acc) { item.status = "見つからない（スキップ）"; out.skipped++; out.items.push(item); continue; }
+        if (!ym && !doneMark) { item.status = raw ? "納品の日付が読めない（スキップ）" : "納品の記入なし（スキップ）"; out.skipped++; out.items.push(item); continue; }
+        if (ym && ym > by) { item.status = `${Number(by.slice(5))}月より後の納品（スキップ）`; out.skipped++; out.items.push(item); continue; }
+        if (seen.has(acc.account_id)) { item.status = "同じ会社がシートに2回（スキップ）"; out.skipped++; out.items.push(item); continue; }
+        seen.add(acc.account_id);
+        const patch = {}; const did = [];
+        const ko = koOf.get(acc.account_id) || "";
+        if (ko) did.push(`キックオフ ${md(ko)}（そのまま）`);
+        else if (day || ym) { patch.kickoff_on = day || `${ym}-01`; did.push(`キックオフ ${md(patch.kickoff_on)}（納品日を入れる）`); }
+        else did.push("キックオフ日は分からないので入れない");
+        if (acc.mail_done === true || /^送付済み$/.test(mailOf.get(acc.account_id) || "")) did.push("納品メールはもう送付済み");
+        else { patch.mail_done = true; did.push("納品メールを送付済みに"); }
+        item.status = Object.keys(patch).length ? "一致" : "一致（もう反映済み）"; item.change = did.join("・");
+        out.items.push(item); out.matched++;
+        if (!dry && Object.keys(patch).length) await kinxsUpdate(acc.account_id, patch, req.user);
+      }
+      if (!dry) console.log(`[kinxs] 納品済みを取り込み（${by}まで）：一致 ${out.matched}・スキップ ${out.skipped} by ${req.user}`);
+      return res.json({ ok: true, mode: "delivered", ...out, items: out.items.slice(0, 1000) });
+    }
     for (const r of rows) {
       const name = cell(r, "name"); if (!name) { out.skipped++; continue; }
       const key = csCoKey(name);
@@ -18002,6 +18042,8 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
       const cur = { ...(r1.info || {}) };
       for (const k2 of ["website", "address", "phone", "vr_url", "ai_url", "site_url", "prod_url"]) if (k2 in b.info) cur[k2] = String(b.info[k2] || "").slice(0, 500);
       // 掲載先：どこ（採用サイト・マイナビなど）・URL・メモ を何件でも（20件まで）。URL は http(s) のものだけ（2026-11-17 久野さん）
+      // 未掲載（掲載済みの扱いだが、まだどこにも載せていない会社）。掲載先一覧の「掲載済みで未記入」から外す（2026-11-19 久野さん）
+      if ("no_place" in b.info) cur.no_place = !!b.info.no_place;
       if (Array.isArray(b.info.places)) cur.places = b.info.places.slice(0, 20).map((p) => ({ where: String((p && p.where) || "").trim().slice(0, 60), url: /^https?:\/\//i.test(String((p && p.url) || "").trim()) ? String(p.url).trim().slice(0, 500) : "", memo: String((p && p.memo) || "").trim().slice(0, 200) })).filter((p) => p.where || p.url);
       // sf_id：この人が SF のどの取引先責任者か。名前やメールを直しても同じ人を直せるように持っておく（2026-11-17）
       if (Array.isArray(b.info.contacts)) { kxOldCts = Array.isArray(cur.contacts) ? cur.contacts : []; cur.contacts = b.info.contacts.slice(0, 10).map((c) => ({ name: String(c.name || "").slice(0, 60), title: String(c.title || "").slice(0, 60), phone: String(c.phone || "").slice(0, 40), email: String(c.email || "").slice(0, 120), ...(/^003[0-9a-zA-Z]{12,15}$/.test(String(c.sf_id || "")) ? { sf_id: String(c.sf_id) } : {}) })).filter((c) => c.name || c.email || c.phone); }

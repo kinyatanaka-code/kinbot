@@ -1124,6 +1124,22 @@ function openAddUser() {
 document.querySelectorAll(".kx-add-user").forEach((b) => b.addEventListener("click", openAddUser));
 // ===== CS管理ボードから取り込む =====
 const IM_FIELDS = [["name", "企業名（必須）"], ["renew", "更新月"], ["renew2", "更新月②（2回目の更新月）"], ["rank", "確度（S/A/B/C/Z/F）"], ["cs", "CS担当"], ["prod", "本番サイト（aticotiならVR、ほかはAI）"], ["product", "契約商品"], ["start", "契約開始日"], ["end", "契約終了日"], ["memo", "メモ"]];
+// 納品済みの取り込み（2026-11-19 久野さん）：企業名と納品の列だけを使う
+const IM_FIELDS_DEL = [["name", "企業名（必須）"], ["delivered", "納品日（納品した日・月、または済）"]];
+let imMode = new URLSearchParams(location.search).get("mode") === "delivered" ? "delivered" : "board";
+function imSetMode(m) {
+  imMode = m;
+  document.querySelectorAll("[data-im-mode]").forEach((b) => b.classList.toggle("on", b.dataset.imMode === m));
+  if ($("imDelBox")) $("imDelBox").hidden = m !== "delivered";
+  if ($("imCreateL")) $("imCreateL").hidden = m === "delivered";
+  if ($("imBoardNote")) $("imBoardNote").hidden = m === "delivered";
+  if (imData) imDrawMap();
+  if ($("imPrevBox")) $("imPrevBox").style.display = "none"; if ($("imApply")) $("imApply").disabled = true; if ($("imSt2")) $("imSt2").textContent = "";
+}
+function imDrawMap() {
+  const fields = imMode === "delivered" ? IM_FIELDS_DEL : IM_FIELDS;
+  $("imMap").innerHTML = fields.map(([k, l]) => `<label class="kx-note" style="display:flex;flex-direction:column;gap:4px">${esc(l)}<select class="kx-in" data-map="${k}"><option value="">（使わない）</option>${imData.headers.map((h, i) => `<option value="${i}" ${imData.guess[k] === i ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></label>`).join("");
+}
 let imData = null;
 async function imLoad(sheet) {
   const st = $("imSt"); st.textContent = "読み込んでいます…";
@@ -1133,7 +1149,7 @@ async function imLoad(sheet) {
     st.textContent = `${imData.book ? `「${imData.book}」の` : ""}${imData.sheet ? `「${imData.sheet}」` : ""} ${imData.rows.length}行を読みました（見出しは${imData.headerRow}行目）`;
     const tab = $("imTab");
     if (imData.tabs && imData.tabs.length > 1) { tab.hidden = false; tab.innerHTML = imData.tabs.map((t) => `<option ${t === imData.sheet ? "selected" : ""}>${esc(t)}</option>`).join(""); } else tab.hidden = true;
-    $("imMap").innerHTML = IM_FIELDS.map(([k, l]) => `<label class="kx-note" style="display:flex;flex-direction:column;gap:4px">${esc(l)}<select class="kx-in" data-map="${k}"><option value="">（使わない）</option>${imData.headers.map((h, i) => `<option value="${i}" ${imData.guess[k] === i ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></label>`).join("");
+    imDrawMap();
     $("imMapBox").style.display = "flex"; $("imApply").disabled = true; $("imPrevBox").style.display = "none";
   } catch (e) { st.textContent = "読み込めませんでした：" + e.message; }
 }
@@ -1141,6 +1157,7 @@ function imMapping() { const m = {}; document.querySelectorAll("[data-map]").for
 async function imRun(dryRun) {
   const st = $("imSt2"); const mapping = imMapping();
   if (mapping.name === "") { st.textContent = "企業名の列を選んでください"; return; }
+  if (imMode === "delivered") return imRunDelivered(dryRun, mapping);
   if (!dryRun && !confirm("この内容で反映します。よろしいですか？")) return;
   st.textContent = dryRun ? "照らし合わせています…" : "反映しています…";
   try {
@@ -1153,6 +1170,25 @@ async function imRun(dryRun) {
     if (!dryRun) $("imApply").disabled = true;
   } catch (e) { st.textContent = "できませんでした：" + e.message; }
 }
+async function imRunDelivered(dryRun, mapping) {
+  const st = $("imSt2");
+  if (mapping.delivered === "" || mapping.delivered == null) { st.textContent = "納品の列を選んでください"; return; }
+  const by = ($("imDelBy") && $("imDelBy").value) || "2026-09";
+  if (!dryRun && !confirm(`${by.replace("-", "年")}月までに納品した会社を、キックオフ済み・納品メール送付済みにします。よろしいですか？`)) return;
+  st.textContent = dryRun ? "照らし合わせています…" : "反映しています…";
+  try {
+    const r = await api("/api/kinxs/import/apply", { method: "POST", body: JSON.stringify({ rows: imData.rows, mapping, mode: "delivered", deliveredBy: by, dryRun }) });
+    st.textContent = `${dryRun ? "プレビュー：" : "反映しました："}対象 ${r.matched}社・スキップ ${r.skipped}件`;
+    $("imPrevBox").style.display = "block";
+    // 対象を上に、スキップを下に並べる（何が変わるかを先に見られるように）
+    const items = [...r.items].sort((a, b) => (a.status.startsWith("一致") ? 0 : 1) - (b.status.startsWith("一致") ? 0 : 1));
+    $("imPrev").innerHTML = `<div class="ls-grid" style="grid-template-columns:minmax(200px,1.5fr) minmax(200px,1.5fr) 120px minmax(160px,1fr) minmax(240px,2fr);min-width:960px">${["シートの企業名", "kinXsの会社", "納品", "結果", "変えること"].map((h) => `<div class="ls-h">${h}</div>`).join("")}` +
+      items.map((x) => `<div class="ls-r" style="cursor:default">${esc(x.name)}</div><div class="ls-r" style="cursor:default">${esc(x.match || "—")}</div><div class="ls-r" style="cursor:default">${esc(String(x.delivered || "—").replace(/-/g, "/"))}</div><div class="ls-r ${x.status.startsWith("一致") ? "ok-t" : "ng-t"}" style="cursor:default">${esc(x.status)}</div><div class="ls-r" style="cursor:default">${esc(x.change || "")}</div>`).join("") + "</div>";
+    $("imApply").disabled = !dryRun;
+  } catch (e) { st.textContent = "できませんでした：" + e.message; }
+}
+document.querySelectorAll("[data-im-mode]").forEach((b) => b.addEventListener("click", () => imSetMode(b.dataset.imMode)));
+if ($("imMode")) imSetMode(imMode);
 if ($("imLoad")) {
   $("imLoad").addEventListener("click", () => imLoad());
   $("imTab").addEventListener("change", (e) => imLoad(e.target.value));
@@ -2308,7 +2344,7 @@ function kxPlaceChip(p, withMemo) {
 }
 // 掲載先一覧はカードで並べる（2026-11-17 田中さん「掲載一覧を仕上げたい」→「見た目をカード型に」）。
 //   1社1枚。上に会社（ロゴ・名前・掲載日）、まん中に掲載先（どこ・ページのドメイン・メモ）、下に販売区分・受注者・CS担当
-function kxPubCard(x) {
+function kxPubCard(x, tab) {
   const ini = String(x.name || "？").replace(/^(株式会社|有限会社|合同会社|社会福祉法人|医療法人社団|医療法人|一般社団法人|一般財団法人|学校法人|公益社団法人|公益財団法人)\s*/, "").slice(0, 1) || "？";
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
   const pls = x.places || [];
@@ -2326,7 +2362,7 @@ function kxPubCard(x) {
       ${pub ? `<span class="pl-pub" title="掲載日 ${esc(x.publishedOn)}">掲載 ${esc(pub)}</span>` : ""}
       <button type="button" class="pl-edb" data-ped="${esc(x.id)}" title="掲載先を直す・足す" aria-label="掲載先を直す・足す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button></div>
     <div class="pl-body" data-pbody="${esc(x.id)}">${plHtml}</div>
-    <div class="pl-cf">${x.channel ? `<span class="pl-tag">${esc(x.channel)}</span>` : ""}<span>受注 ${esc(x.fs || "—")}</span><span>CS ${esc(x.cs || "—")}</span>${pls.length ? `<span class="pl-n">${pls.length}か所</span>` : ""}</div>
+    <div class="pl-cf">${x.channel ? `<span class="pl-tag">${esc(x.channel)}</span>` : ""}<span>受注 ${esc(x.fs || "—")}</span><span>CS ${esc(x.cs || "—")}</span>${pls.length ? `<span class="pl-n">${pls.length}か所</span>` : ""}${tab === "none" ? `<button type="button" class="pl-nob" data-pnone="${esc(x.id)}" title="まだどこにも載せていない会社として、この一覧から外します">未掲載にする</button>` : tab === "nopl" ? `<button type="button" class="pl-nob back" data-pnone-off="${esc(x.id)}" title="未掲載の印を外して「掲載済みで未記入」に戻します">未掲載を外す</button>` : ""}</div>
   </article>`;
 }
 // 掲載先一覧のカードの所の高さ：画面の下まで（スマホはページごとスクロールのまま）
@@ -2353,27 +2389,42 @@ async function renderPub() {
   const draw = () => {
     const q = st.q.trim().toLowerCase();
     const base = all.filter((x) => (!st.ch || x.channel === st.ch) && (!q || [x.name, x.cs, x.fs, ...(x.places || []).map((p) => `${p.where} ${p.url} ${p.memo}`)].join(" ").toLowerCase().includes(q)));
-    const has = base.filter((x) => (x.places || []).length), none = base.filter((x) => !(x.places || []).length && (x.publishedOn || x.label === "利用中"));
+    // 未掲載と決めた会社は「掲載済みで未記入」から外して、別のタブに置く（2026-11-19 久野さん「未掲載を選べるようにする」）
+    const has = base.filter((x) => (x.places || []).length), none = base.filter((x) => !(x.places || []).length && !x.noPlace && (x.publishedOn || x.label === "利用中"));
+    const nopl = base.filter((x) => !(x.places || []).length && x.noPlace);
     // 掲載先ごとの社数（2026-11-17 田中さん「掲載先ごとの社数もだしたい」）。1社が同じ掲載先を2行入れても1社と数える。
     //   押すとその掲載先の会社だけにしぼる（もう一度押すと戻る）
     const cnt = new Map(); for (const x of base) for (const k of new Set((x.places || []).map((p) => plKey(p.where)))) cnt.set(k, (cnt.get(k) || 0) + 1);
     const cntList = [...cnt.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ja"));
     if (st.pl && !cnt.has(st.pl)) st.pl = "";
-    let list = st.tab === "has" ? has : st.tab === "none" ? none : base;
+    let list = st.tab === "has" ? has : st.tab === "none" ? none : st.tab === "nopl" ? nopl : base;
+    // 掲載先ありは、まず掲載先ごとの社数をカードで出す（2026-11-19 久野さん「掲載先ごとの社数をメインの画面にする」）。
+    //   カードを押すと、その掲載先に載せている会社のカードになる。会社名で探しているときは、すぐ会社のカードを出す
+    const tilesMode = st.tab === "has" && !st.pl && !q && cntList.length > 0;
+    const PIN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/></svg>';
+    const tilesHtml = () => { const max = cntList[0] ? cntList[0][1] : 1;
+      return `<div class="pl-cards pl-tiles">${cntList.map(([k, n]) => { const cos = has.filter((x) => (x.places || []).some((p) => plKey(p.where) === k)).map((x) => x.name);
+        return `<button type="button" class="pl-tile" data-psel="${esc(k)}" title="${esc(k)} に載せている会社を見る"><span class="pl-tile-h"><span class="pl-tile-ic">${PIN}</span><span>${esc(k)}</span></span><span class="pl-tile-n">${n}<small>社</small></span><span class="pl-tile-bar"><i style="width:${Math.max(4, Math.round(n / max * 100))}%"></i></span><span class="pl-tile-co">${esc(cos.slice(0, 3).join("・"))}${cos.length > 3 ? ` ほか${cos.length - 3}社` : ""}</span></button>`; }).join("")}</div>`; };
     if (st.pl) list = list.filter((x) => (x.places || []).some((p) => plKey(p.where) === st.pl));
     list.sort((a, b) => String(b.publishedOn || "").localeCompare(String(a.publishedOn || "")) || String(a.name).localeCompare(String(b.name), "ja"));
     const chs = [...new Set(all.map((x) => x.channel).filter(Boolean))];
-    box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["has", `掲載先あり（${has.length}）`], ["none", `掲載済みで未記入（${none.length}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-pt="${k}">${l}</button>`).join("")}</div>
+    box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["has", `掲載先あり（${has.length}）`], ["none", `掲載済みで未記入（${none.length}）`], ["nopl", `未掲載（${nopl.length}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-pt="${k}">${l}</button>`).join("")}</div>
       ${chs.length ? `<select class="kx-in" data-pch style="width:auto"><option value="">販売区分：すべて</option>${chs.map((c) => `<option ${st.ch === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>` : ""}
       <label class="pl-q" title="会社名・掲載先・担当で探す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input data-pq placeholder="会社名・掲載先・担当" value="${esc(st.q)}" aria-label="会社名・掲載先・担当で探す" /></label></div>
-      ${cntList.length ? `<div class="pl-stat"><span class="pl-stat-h">掲載先ごとの社数</span>${cntList.map(([k, n]) => `<button type="button" class="pl-sc ${st.pl === k ? "on" : ""}" data-psel="${esc(k)}" title="${esc(k)} に載せている会社だけを出す"><span>${esc(k)}</span><b>${n}</b>社</button>`).join("")}${st.pl ? `<button type="button" class="pl-sc-clr" data-psel="">しぼりこみを外す</button>` : ""}</div>` : ""}
-      <div class="pl-cards">${list.length ? list.map(kxPubCard).join("") : `<div class="kx-empty" style="grid-column:1/-1">${st.tab === "has" ? "まだ掲載先が入っている会社はありません。会社の詳しい画面の「掲載先」で入れてください" : "当てはまる会社はありません"}</div>`}</div>`;
-    box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; st.top = 0; draw(); }));
+      ${tilesMode ? tilesHtml() : st.tab === "has" && st.pl ? `<div class="pl-back"><button type="button" data-psel="">← 掲載先ごとに戻る</button><b>${esc(st.pl)}</b><span>${list.length}社</span></div>` : cntList.length && st.tab === "all" ? `<div class="pl-stat"><span class="pl-stat-h">掲載先ごとの社数</span>${cntList.map(([k, n]) => `<button type="button" class="pl-sc ${st.pl === k ? "on" : ""}" data-psel="${esc(k)}" title="${esc(k)} に載せている会社だけを出す"><span>${esc(k)}</span><b>${n}</b>社</button>`).join("")}${st.pl ? `<button type="button" class="pl-sc-clr" data-psel="">しぼりこみを外す</button>` : ""}</div>` : ""}
+      ${tilesMode ? "" : `<div class="pl-cards">${list.length ? list.map((x) => kxPubCard(x, st.tab)).join("") : `<div class="kx-empty" style="grid-column:1/-1">${st.tab === "has" ? "まだ掲載先が入っている会社はありません。会社の詳しい画面の「掲載先」で入れてください" : st.tab === "nopl" ? "未掲載にした会社はありません。「掲載済みで未記入」のカードの［未掲載にする］で入ります" : "当てはまる会社はありません"}</div>`}</div>`}`;
+    box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; st.pl = ""; st.top = 0; draw(); }));
     const ch = box.querySelector("[data-pch]"); if (ch) ch.addEventListener("change", () => { st.ch = ch.value; st.top = 0; draw(); });
     const qi = box.querySelector("[data-pq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; st.top = 0; draw(); const n = box.querySelector("[data-pq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
     box.querySelectorAll("[data-pco]").forEach((b) => b.addEventListener("click", () => openDetail(b.dataset.pco)));
     box.querySelectorAll("[data-psel]").forEach((b) => b.addEventListener("click", () => { st.pl = st.pl === b.dataset.psel ? "" : b.dataset.psel; st.top = 0; draw(); }));
     box.querySelectorAll("[data-ped]").forEach((b) => b.addEventListener("click", () => editCard(b.dataset.ped)));
+    // 未掲載にする／外す：その会社の info.no_place だけを書きかえる
+    const setNo = async (id, on, btn) => { const x = all.find((y) => y.id === id); if (!x) return; btn.disabled = true;
+      try { await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { no_place: on } }) }); x.noPlace = on; if (window.kbToast) window.kbToast(`${x.name} を${on ? "未掲載にしました" : "未掲載から外しました"}`); draw(); }
+      catch (e) { btn.disabled = false; alert(`保存できませんでした：${e.message}`); } };
+    box.querySelectorAll("[data-pnone]").forEach((b) => b.addEventListener("click", () => setNo(b.dataset.pnone, true, b)));
+    box.querySelectorAll("[data-pnone-off]").forEach((b) => b.addEventListener("click", () => setNo(b.dataset.pnoneOff, false, b)));
     // 画面は固定して、カードの所だけスクロール（2026-11-17 田中さん「画面固定でスクロールできるようにしたい」）。
     //   描き直しても見ていた位置に戻す（先に高さを決めてから位置を戻す。逆だと一番上に戻ってしまう）
     const cards = box.querySelector(".pl-cards");
@@ -2400,8 +2451,8 @@ async function renderPub() {
       const bad = rows.find((p) => p.url && !/^https?:\/\//i.test(p.url)); if (bad) { alert(`URL は https:// から入れてください（${bad.url}）`); return; }
       const btn = ev.currentTarget; btn.disabled = true; btn.textContent = "保存中…";
       try {
-        await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { places: rows } }) });
-        x.places = rows; if (window.kbToast) window.kbToast(`${x.name} の掲載先を保存しました`);
+        await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { places: rows, ...(rows.length && x.noPlace ? { no_place: false } : {}) } }) });
+        x.places = rows; if (rows.length) x.noPlace = false; if (window.kbToast) window.kbToast(`${x.name} の掲載先を保存しました`);
         draw();
       } catch (e) { btn.disabled = false; btn.textContent = "保存"; alert(`保存できませんでした：${e.message}`); }
     });
