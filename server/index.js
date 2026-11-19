@@ -15684,7 +15684,27 @@ const KINXS_TOOLS = [
   { name: "list_tasks", description: "kinXsのホームのタスク一覧（自動のやること＋手で足したタスク）。それぞれに状態（未着手・進行中・完了）・期日・会社・出どころ（kinXs・メール・チャット・手入力・Claude）と、直すときに使う key・id が付く。status で絞れる。", inputSchema: { type: "object", properties: { status: { type: "string", description: "未着手・進行中・完了（省略で完了以外）" }, user: { type: "string", description: "だれのタスクか（管理者だけ。省略でつないでいる人）" } } } },
   { name: "add_task", description: "kinXsのホームにタスクを足す（書き込み）。会社名を入れると、その会社に結びつける。assignee に名前かメールを入れると、その人に託す（その人のタスクになる）。", inputSchema: { type: "object", properties: { title: { type: "string", description: "タスクの内容" }, assignee: { type: "string", description: "託す人の名前かメール（任意。省略で自分）" }, company: { type: "string", description: "会社名（一部でよい・任意）" }, due: { type: "string", description: "期日 YYYY-MM-DD（任意）" }, status: { type: "string", description: "未着手・進行中・完了（省略で未着手）" }, note: { type: "string", description: "メモ（任意）" } }, required: ["title"] } },
   { name: "update_task", description: "kinXsのタスクの状態・期日・内容を変える、または消す（書き込み）。list_tasks で得た key（自動のやることも可）か id を使う。", inputSchema: { type: "object", properties: { key: { type: "string" }, id: { type: "number" }, status: { type: "string", description: "未着手・進行中・完了" }, due: { type: "string", description: "期日 YYYY-MM-DD" }, title: { type: "string" }, delete: { type: "boolean", description: "消す" } } } },
-  { name: "update_user", description: "kinXsの1社を直す（書き込み）。CS担当・利用目的・活用・次回アクション（内容・種別・日時）・メモ・更新確度・フェーズを変えられる。CS担当と利用目的はCS連携にも入る。", inputSchema: { type: "object", properties: { company: { type: "string", description: "会社名（一部でよい）か ID" }, cs_name: { type: "string" }, purpose: { type: "string", description: "利用目的" }, usage_status: { type: "string", description: "活用（活用：公開掲載／活用：限定公開／活用予定／活用検討中／不明／発生済み未納品／解約企業）" }, na_text: { type: "string", description: "次回アクションの内容" }, na_type: { type: "string", description: "電話・メール・MTG・資料送付・その他" }, na_at: { type: "string", description: "次回アクションの日時 YYYY-MM-DDTHH:MM" }, memo: { type: "string" }, rank: { type: "string", description: "S/A/B/C/Z/F" }, phase: { type: "string", description: "フェーズ（手で決める）" } }, required: ["company"] } },
+  { name: "update_user", description: "kinXsの1社を直す（書き込み）。画面で直せる項目は全部直せる。まず list_fields で項目と入れてよい値を見る。company 以外は、直したい項目だけ入れる（入れなかった項目は変わらない）。CS担当・利用目的・先方の担当者はCS連携・SFにも入り、HP・電話・住所はSFの取引先にも書く。", inputSchema: { type: "object", properties: {
+    company: { type: "string", description: "会社名（一部でよい）か ID" },
+    cs_name: { type: "string", description: "CS担当" }, purpose: { type: "string", description: "利用目的" }, usage_status: { type: "string", description: "活用（list_fields の値）" },
+    phase: { type: "string", description: "フェーズ（メインラベル。list_fields の値。空で自動に戻す）" }, rank: { type: "string", description: "更新確度 S/A/B/C/Z/F" },
+    na_text: { type: "string", description: "次回アクションの内容（空にすると済み）" }, na_type: { type: "string", description: "次回アクションの種別（list_fields の値）" }, na_at: { type: "string", description: "次回アクションの日時 YYYY-MM-DDTHH:MM（日本時間）" }, na_owner: { type: "string", description: "次回アクションを託す人（名前かメール。空でCS担当に戻す）" },
+    memo: { type: "string", description: "メモ" }, renew_month: { type: "string", description: "更新月 YYYY-MM（手で決める）" }, renew_auto: { type: "boolean", description: "true で更新月を契約終了日からの自動に戻す" },
+    prod_labels: { type: "array", items: { type: "string" }, description: "商品のラベル（list_fields の値）" }, sns_phase: { type: "string", description: "SNSのフェーズ（list_fields の値）" },
+    published_on: { type: "string", description: "掲載日 YYYY-MM-DD" }, kickoff_on: { type: "string", description: "キックオフ実施日 YYYY-MM-DD" }, kenshu_month: { type: "string", description: "検収書の回収予定月 YYYY-MM" }, kenshu_on: { type: "string", description: "検収書の回収日 YYYY-MM-DD" },
+    kenshu_done: { type: "boolean", description: "検収書を回収済み" }, kenshu_na: { type: "boolean", description: "検収書の対象外" }, mail_done: { type: "boolean", description: "納品メールを送付済み" }, published: { type: "boolean", description: "掲載済み" },
+    invoice_need: { type: "boolean", description: "請求が要る" }, invoice_state: { type: "string", description: "請求の状態：発行済み／未発行" }, invoice_date: { type: "string", description: "請求の予定日 YYYY-MM-DD" },
+    archived: { type: "boolean", description: "アーカイブ（一覧から外す）" }, label_locked: { type: "boolean", description: "フェーズを手で決めたまま固定する" },
+    info: { type: "object", description: "企業情報。直したいものだけ：website・address・phone・vr_url・ai_url・site_url・prod_url（文字）、places（掲載先の配列 [{where,url,memo}]）、no_place（未掲載 true/false）、contacts（先方の担当者の配列 [{name,title,phone,email}]。入れると全員が置きかわる）" },
+    contact: { type: "object", description: "接触の記録を1件足す {type:電話/メール/MTG など, text, at}" },
+  }, required: ["company"] } },
+  { name: "list_fields", description: "kinXs の項目の一覧（読み取り）。export_users で読める項目と意味、update_user で直せる項目と入れてよい値（フェーズ・活用・確度・次回アクションの種別・SNSのフェーズ・商品のラベル）を返す。", inputSchema: { type: "object", properties: {} } },
+  { name: "export_users", description: "kinXs の会社を、全部の項目つきでまとめて読む（読み取り・分析用）。一覧・カードに出ている計算した値（フェーズ・確度・更新月・残り日数・要注意・接触・検収書・掲載・請求・次回アクション など）に加えて、企業情報（HP・住所・電話・先方の担当者・掲載先・各URL）と接触の記録も付く。多いときは offset・limit で分けて読む。fields で項目をしぼれる。", inputSchema: { type: "object", properties: {
+    q: { type: "string", description: "会社名の一部（任意）" }, cs: { type: "string", description: "CS担当（苗字でよい・任意）" }, phase: { type: "string", description: "フェーズ（任意）" },
+    includeArchived: { type: "boolean", description: "アーカイブした会社も入れる" }, fields: { type: "array", items: { type: "string" }, description: "返す項目の名前（list_fields の export の名前。省略で全部）" },
+    offset: { type: "number", description: "何社目から（0から）" }, limit: { type: "number", description: "何社まで（既定100・最大300）" },
+  } } },
+  { name: "bulk_update_users", description: "kinXs の会社をまとめて直す（書き込み・50社まで）。items に update_user と同じ形のもの（company と直したい項目）を並べる。1社ずつ直し、できた・できなかったを返す。", inputSchema: { type: "object", properties: { items: { type: "array", items: { type: "object" }, description: "[{company, …直したい項目}]" } }, required: ["items"] } },
 ];
 async function kxSelf(method, path, req, body) {
   // 同じサーバーの kinXs の API を、つないでいる人のまま呼ぶ（トークンではなく、サーバーの中だけの合言葉＋つないでいる人の名前で）
@@ -15703,6 +15723,37 @@ async function kxFindId(company) {
   if (!hit) throw new Error(`「${q}」に当たる会社がkinXsにありません`);
   return hit;
 }
+// update_user・bulk_update_users の中身：渡された項目だけを、画面と同じ窓口で直す
+const KX_MCP_PASS = ["cs_name", "purpose", "usage_status", "na_text", "na_type", "na_at", "na_owner", "memo", "renew_month", "renew_auto", "prod_labels", "sns_phase",
+  "published_on", "kickoff_on", "kenshu_month", "kenshu_on", "kenshu_done", "kenshu_na", "mail_done", "published", "invoice_need", "invoice_state", "invoice_date", "archived", "label_locked", "info", "contact"];
+async function kxMcpUpdateOne(a, req) {
+  const x = await kxFindId(a.company);
+  const body = {}; for (const k of KX_MCP_PASS) if (a[k] !== undefined) body[k] = a[k];
+  if (a.phase !== undefined) body.main_label = a.phase;
+  if (body.info && typeof body.info !== "object") throw new Error("info は {website, address, …} の形で入れてください");
+  const done = [];
+  if (Object.keys(body).length) { await kxSelf("PUT", `/api/kinxs/accounts/${encodeURIComponent(x.id)}`, req, body); done.push(...Object.keys(body).map((k) => (k === "main_label" ? "phase" : k === "info" ? `info(${Object.keys(body.info).join("・")})` : k))); }
+  if (a.rank) { await kxSelf("PUT", `/api/kinxs/accounts/${encodeURIComponent(x.id)}/rank`, req, { rank: String(a.rank).toUpperCase() }); done.push("rank"); }
+  if (!done.length) throw new Error("直す項目が入っていません（list_fields で項目を見られます）");
+  return { ok: true, company: x.name, id: x.id, updated: done };
+}
+// 項目の説明（Claude が読み取り・分析・書き換えをするときの地図）
+const KX_MCP_FIELDS = () => ({
+  values: { phase: KX_LABELS, usage_status: KX_USAGE, rank: ["S", "A", "B", "C", "Z", "F"], na_type: KX_NA_TYPES, sns_phase: KX_SNS_PHASES, prod_labels: [...KX_PROD_LABELS.DOC, ...KX_PROD_LABELS.SNS], invoice_state: ["発行済み", "未発行"] },
+  export: {
+    id: "kinXs の ID（SF の取引先ID）", name: "会社名", formerNames: "旧社名", products: "契約商品", productItems: "商品ごとの受注日・ステージ・商談名", prodLabels: "商品のラベル",
+    label: "フェーズ（今の値）", autoLabel: "自動で決めたフェーズ", locked: "フェーズを手で固定しているか", rank: "更新確度", renew: "更新月", renew2: "2つ目の更新月", left: "更新月までの日数", endOn: "契約終了日", estimated: "更新月が推定か", renewLocked: "更新月を手で決めたか",
+    cs: "CS担当", fs: "FS（受注者）", usage: "活用", purpose: "利用目的", memo: "メモ",
+    na: "次回アクション", naType: "種別", naAt: "日時", naDue: "期日", naOwner: "託した人", naSource: "どこから入ったか", naSuggest: "提案中の次回アクション", naDone: "済みにした次回アクション（新しい順）", naDetail: "次回アクションの中身",
+    lastTouch: "最後の接触", sinceTouch: "最後の接触からの日数", alerts: "要注意", score: "要注意の重さ", meetings: "議事録の数", mtgSummary: "議事録のまとめ", contactLog: "接触の記録（新しい20件）",
+    kickoffOn: "キックオフ日", kickoffManual: "キックオフ日を手で入れたか", publishedOn: "掲載日", published: "掲載済み", places: "掲載先", noPlace: "未掲載",
+    kenshuSt: "検収書の状態", kenshuMonth: "検収書の回収予定月", kenshuOn: "検収書の回収日", kenshuDone: "検収書を回収済み", kenshuNa: "検収書の対象外", mail: "納品メールの状態", mailDone: "納品メールを送付済み",
+    delivered: "納品済み", deliveredOn: "納品日", deliveryMonth: "納品月", docBooked: "DOCを最初に受注した日", lastBooked: "最後の受注日", initFee: "初期費用あり", channel: "販売区分（直販・社内代理店）",
+    invoiceNeed: "請求が要る", invoiceState: "請求の状態", invoiceDate: "請求の予定日", snsPhase: "SNSのフェーズ", schedule: "DOCの制作スケジュール", schedLate: "スケジュール遅れ",
+    archived: "アーカイブ", manual: "手で足した会社", sfLinked: "SFとつながっている", info: "企業情報（website・address・phone・各URL・contacts＝先方の担当者・places・no_place）",
+  },
+  update: "update_user の項目：" + [...KX_MCP_PASS, "phase", "rank"].join("・") + "。日付は YYYY-MM-DD、月は YYYY-MM、次回アクションの日時は YYYY-MM-DDTHH:MM。",
+});
 async function kinxsMcpCall(name, args, req) {
   if (!(await canCs(req))) throw new Error("CS・FS・管理者だけが使えます");
   const a = args || {};
@@ -15744,14 +15795,33 @@ async function kinxsMcpCall(name, args, req) {
     const r = await kxTaskUpdate(req.user, id, patch);
     return { ok: !!r, id, status: r && r.status, deleted: !!(r && r.deleted) };
   }
-  if (name === "update_user") {
-    const x = await kxFindId(a.company);
-    const body = {}; for (const k of ["cs_name", "purpose", "usage_status", "na_text", "na_type", "na_at", "memo"]) if (a[k] !== undefined) body[k] = a[k];
-    if (a.phase !== undefined) body.main_label = a.phase;
-    const done = [];
-    if (Object.keys(body).length) { await kxSelf("PUT", `/api/kinxs/accounts/${encodeURIComponent(x.id)}`, req, body); done.push(...Object.keys(body)); }
-    if (a.rank) { await kxSelf("PUT", `/api/kinxs/accounts/${encodeURIComponent(x.id)}/rank`, req, { rank: String(a.rank).toUpperCase() }); done.push("rank"); }
-    return { ok: true, company: x.name, updated: done };
+  // 1社を直す（2026-11-20 田中さん「kinXsの全部の項目の情報をクロードで読み取り、分析、書き換えができるようにしたい」）。
+  //   画面と同じ窓口（PUT /api/kinxs/accounts/:id）に渡すので、値の確かめ・SF への書き込み・変更の履歴も画面と同じになる
+  if (name === "update_user") return await kxMcpUpdateOne(a, req);
+  if (name === "bulk_update_users") {
+    const list = Array.isArray(a.items) ? a.items.slice(0, 50) : []; if (!list.length) throw new Error("items に直す会社を入れてください");
+    const out = [];
+    for (const it of list) { try { out.push(await kxMcpUpdateOne(it || {}, req)); } catch (e) { out.push({ ok: false, company: (it && it.company) || "", error: e.message }); } }
+    return { ok: out.every((x) => x.ok), done: out.filter((x) => x.ok).length, failed: out.filter((x) => !x.ok).length, results: out };
+  }
+  if (name === "list_fields") return KX_MCP_FIELDS();
+  if (name === "export_users") {
+    const { items } = await kinxsBuild();
+    const rows = await kinxsList().catch(() => []); const rowBy = new Map(rows.map((r0) => [r0.account_id, r0]));
+    const sur = (n) => String(n || "").normalize("NFKC").trim().split(/[\s　]+/)[0];
+    const hit = items.filter((x) => (a.includeArchived || !x.archived) && (!a.cs || sur(x.cs) === sur(a.cs)) && (!a.phase || x.label === a.phase) && (!a.q || `${x.name} ${(x.formerNames || []).join(" ")}`.includes(a.q)));
+    const off = Math.max(0, Number(a.offset) || 0), lim = Math.min(300, Math.max(1, Number(a.limit) || 100));
+    const want = Array.isArray(a.fields) && a.fields.length ? new Set(a.fields) : null;
+    const users = hit.slice(off, off + lim).map((x) => {
+      const r0 = rowBy.get(x.id) || {}; const inf = r0.info || {};
+      // 画面の部品だけのもの（ロゴの画像・押したときの動き）は外す。ほかは全部そのまま
+      const { logo, actions, ...rest } = x;
+      const full = { ...rest, purpose: r0.purpose || "", info: { website: inf.website || "", address: inf.address || "", phone: inf.phone || "", vr_url: inf.vr_url || "", ai_url: inf.ai_url || "", site_url: inf.site_url || "", prod_url: inf.prod_url || "", contacts: Array.isArray(inf.contacts) ? inf.contacts : [], places: Array.isArray(inf.places) ? inf.places : [], no_place: !!inf.no_place, sf_account_id: inf.sf_account_id || "" },
+        contactLog: (Array.isArray(r0.contacts) ? r0.contacts : []).slice(-20), naDone: String(r0.na_done || "").split("\n").filter(Boolean) };
+      if (!want) return full;
+      const o = { id: x.id, name: x.name }; for (const k of want) if (k in full) o[k] = full[k]; return o;
+    });
+    return { total: hit.length, offset: off, count: users.length, next: off + users.length < hit.length ? off + users.length : null, users };
   }
   throw new Error(`知らない道具です：${name}`);
 }
@@ -33840,8 +33910,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20b アポ一覧：MOCHICA のアポは DOC の kinbot のアポ一覧（全体・DOC）に出さない。上の「MOCHICA」を選んだときだけ出す。／2026-11-20a MOCHICALL：リード管理タブ（kincall 準拠。メンバー別＝人ごとの担当件数・今かける・種類の内訳、種類別＝取り込み元×リードソースごとの件数・保管・未架電・配れる数・担当別・月ごとのアポ率）と「種類を選んで配る・足す」（配分を見てから配る。保管のリストからは入れるリストへ移して配る）。前：2026-11-19t SHOBO：リードを SF・BALES・SHOBO から足す（SF のリードを条件で取り込み・SHOBO のほかのリストから条件で移す）／BALES のリストをすべて SHOBO の保管のリストへ移す（デプロイ後に自動で1回）。前：19r SHOBO：架電リストを条件で割り振る。／2026-11-19a MOCHICA の商談と SF の照合（版12）：リードが無くても商談が立ち上がっている会社は、商談名・商談の取引先名で探して取引先に結びつける（ヨシケイこうべ・奈良スバル自動車）。取引先名も前後だけ違う1社なら採る。60日より前の会議も7日ごとに試し直す。／2026-11-19r 設定：「現在のパスワードが分からないとき」に Google で本人確認して作り直すボタン（ログイン画面の「ログインできない場合」と同じ流れ）。／2026-11-19q MOCHICA：MiiTel の過去の会議をすべて読む（上限3650日・既定2020-01-01・一覧20000件・拡張機能2.2.29）。前：19p 設定：パスワード・トークンの欄に目のボタン（押すと入れた文字が見える・もう一度で隠す）。保存してあるパスワードは元に戻せない形なので見られない。／2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
+const BUILD_TAG = "2026-11-20c kinXs のコネクタ：全部の項目を読む export_users（企業情報・先方の担当者・掲載先・接触の記録まで）・項目の地図 list_fields・update_user で画面で直せる項目を全部直せる・bulk_update_users（50社まで）。／2026-11-20b アポ一覧：MOCHICA のアポは DOC の kinbot のアポ一覧（全体・DOC）に出さない。上の「MOCHICA」を選んだときだけ出す。／2026-11-20a MOCHICALL：リード管理タブ（kincall 準拠。メンバー別＝人ごとの担当件数・今かける・種類の内訳、種類別＝取り込み元×リードソースごとの件数・保管・未架電・配れる数・担当別・月ごとのアポ率）と「種類を選んで配る・足す」（配分を見てから配る。保管のリストからは入れるリストへ移して配る）。前：2026-11-19t SHOBO：リードを SF・BALES・SHOBO から足す（SF のリードを条件で取り込み・SHOBO のほかのリストから条件で移す）／BALES のリストをすべて SHOBO の保管のリストへ移す（デプロイ後に自動で1回）。前：19r SHOBO：架電リストを条件で割り振る。／2026-11-19a MOCHICA の商談と SF の照合（版12）：リードが無くても商談が立ち上がっている会社は、商談名・商談の取引先名で探して取引先に結びつける（ヨシケイこうべ・奈良スバル自動車）。取引先名も前後だけ違う1社なら採る。60日より前の会議も7日ごとに試し直す。／2026-11-19r 設定：「現在のパスワードが分からないとき」に Google で本人確認して作り直すボタン（ログイン画面の「ログインできない場合」と同じ流れ）。／2026-11-19q MOCHICA：MiiTel の過去の会議をすべて読む（上限3650日・既定2020-01-01・一覧20000件・拡張機能2.2.29）。前：19p 設定：パスワード・トークンの欄に目のボタン（押すと入れた文字が見える・もう一度で隠す）。保存してあるパスワードは元に戻せない形なので見られない。／2026-11-19o 正式名称を SHOBO（旧 kinbot for MOCHICA）に、架電画面を MOCHICALL に。ロボ画像 shobo.svg・Drive の録画フォルダも SHOBO 録画へ移す";
 const BUILD_FEATURES = [
+  "kinXs のコネクタ：Claude から全部の項目を読み取り・分析・書き換え（export_users・list_fields・update_user・bulk_update_users）",
   "MOCHICALL：リード管理（種類ごとの件数・だれに何件割り振っているか・アポ率）と、種類を選んで配る・リストに足す（kincall のソースから配ると同じ流れ）",
   "SHOBO：リードを SF・BALES・SHOBO から足す（取り込み元で絞り込み）。BALES のリストは SHOBO の保管のリストへすべて移す",
   "SHOBO：架電リストを条件で割り振る（リードソース・都道府県・業界・業種・最終架電・前回の結果・ホット度・ホットの条件・SF の過去失注）",
