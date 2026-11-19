@@ -2488,6 +2488,17 @@ function initSmartLinks() {
     finally { saveName.disabled = false; }
   });
 
+  // 現在のパスワードが分からない人は、ログイン画面の「ログインできない場合」と同じく Google で本人確認してから作り直す
+  //   （2026-11-19 田中さん「現在のパスワードが違うから、再発行できるようにしたい」）。確かめるのは今ログインしている本人のメール
+  const pwReset = document.getElementById("accPwReset");
+  if (pwReset) pwReset.addEventListener("click", async () => {
+    let email = "";
+    try { const me = await (await fetch("/api/me")).json(); email = me.username || me.email || ""; } catch {}
+    if (!email) { const el = document.getElementById("accEmail"); email = el ? (el.value || el.textContent || "").trim() : ""; }
+    if (!email) return kbNotify("ログインしているメールアドレスが分かりませんでした。ログインし直してください");
+    if (!confirm(`${email} の Google で本人確認をして、新しいパスワードを決めます。よろしいですか？`)) return;
+    location.href = "/auth/pwreset/start?email=" + encodeURIComponent(email);
+  });
   const savePw = document.getElementById("accSavePw");
   const pwSaved = document.getElementById("accPwSaved");
   if (savePw) savePw.addEventListener("click", async () => {
