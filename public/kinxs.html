@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261118p" />
+    <link rel="stylesheet" href="style.css?v=20261119b" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1007,7 +1007,8 @@
   #kh2 .h2-hero .h2-leg{width:100%;margin-top:2px;}
   #kh2 .h2-hero::after{width:96px;height:96px;right:-24px;top:-24px;}
   #kh2 .h2-card{flex-direction:row;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:9px 14px;border-radius:14px;}
-  #kh2 .h2-card .l{font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  /* 名前は1行目にまるごと出す（数字と同じ行だと「稼…」「先月…」と切れていた・2026-11-18） */
+  #kh2 .h2-card .l{font-size:12px;flex:1 1 calc(100% - 20px);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   #kh2 .h2-card .v{font-size:26px;order:3;}
   #kh2 .h2-card .v small{font-size:12px;}
   #kh2 .h2-card .h2-d{order:4;}
@@ -1199,6 +1200,8 @@
   .dq-rank .tx{flex:1;min-width:0;font-size:13px;color:#1f2d29;line-height:1.45}
   .dq-rank .tx i{display:block;height:3px;border-radius:2px;background:#5DCAA5;margin-top:4px;opacity:.6}
   .dq-rank .ct{font-size:11.5px;color:#5b6b66;white-space:nowrap}
+  .dq-scroll{overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+  .dq-cos.dq-scroll{align-content:start}
   .dq-empty{background:#fff;border:1px dashed #cfe6dc;border-radius:14px;padding:18px;color:#5b6b66;font-size:13px}
 </style>
 </head>
@@ -1206,12 +1209,13 @@
     <div class="kx-app">
       <nav class="kx-side" aria-label="kinXsのメニュー">
         <a class="kx-brand" href="/kinxs?p=home"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
-        <!-- メニューは親子でまとめる（2026-11-17 田中さん「メニューの項目が多くなってきたからまとめたい」）。
+        <!-- メニューは親子でまとめる（2026-11-17 田中さん「メニューの項目が多くなってきたからまとめたい」。2026-11-18：ユーザー・フォローを親にして、ユーザー一覧・年間施策も子に）。
              子は、親か子のページにいるときと、右の矢印で開いたときだけ出す -->
         <a class="kx-nav" data-view="home" href="/kinxs?p=home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>ホーム</a>
         <div class="kx-grp" data-grp="list">
-          <div class="kx-grp-h"><a class="kx-nav" data-view="list" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h7A1.5 1.5 0 0 1 14 5.5V21"/><path d="M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21"/><path d="M2.5 21h19"/><path d="M7.5 8h3M7.5 11.5h3M7.5 15h3M16.5 14h1M16.5 17h1"/></svg>ユーザー一覧</a><button type="button" class="kx-grp-tg" aria-label="下の項目を開く・閉じる" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+          <div class="kx-grp-h"><a class="kx-nav kx-grp-only" href="/kinxs?p=list"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h7A1.5 1.5 0 0 1 14 5.5V21"/><path d="M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21"/><path d="M2.5 21h19"/><path d="M7.5 8h3M7.5 11.5h3M7.5 15h3M16.5 14h1M16.5 17h1"/></svg>ユーザー</a><button type="button" class="kx-grp-tg" aria-label="下の項目を開く・閉じる" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
           <div class="kx-sub">
+            <a class="kx-nav kx-subnav" data-view="list" href="/kinxs?p=list">ユーザー一覧</a>
             <a class="kx-nav kx-subnav" data-view="pub" href="/kinxs?p=pub">掲載先一覧</a>
             <a class="kx-nav kx-subnav" data-view="board" href="/kinxs?p=board">フェーズ別</a>
             <a class="kx-nav kx-subnav" data-view="trend" href="/kinxs?p=trend">傾向分析</a>
@@ -1225,8 +1229,9 @@
           </div>
         </div>
         <div class="kx-grp" data-grp="plan">
-          <div class="kx-grp-h"><a class="kx-nav" data-view="plan" href="/kinxs?p=plan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 14h3M13 14h3M8 17h3"/></svg>年間施策</a><button type="button" class="kx-grp-tg" aria-label="下の項目を開く・閉じる" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
+          <div class="kx-grp-h"><a class="kx-nav kx-grp-only" href="/kinxs?p=plan"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 10h17M8 14h3M13 14h3M8 17h3"/></svg>フォロー</a><button type="button" class="kx-grp-tg" aria-label="下の項目を開く・閉じる" aria-expanded="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button></div>
           <div class="kx-sub">
+            <a class="kx-nav kx-subnav" data-view="plan" href="/kinxs?p=plan">年間施策</a>
             <a class="kx-nav kx-subnav" data-view="call" href="/kinxs?p=call">電話フォロー</a>
           </div>
         </div>
@@ -1239,7 +1244,7 @@
             <a class="kx-nav kx-subnav" data-view="voice" href="/kinxs?p=voice">要望・問い合わせ</a>
           </div>
         </div>
-        <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携（回収MTG）</a>
+        <a class="kx-nav" data-view="cs" href="/kinxs?p=cs"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/><path d="M8 10h8M8 13h5"/></svg>CS連携</a>
         <a class="kx-nav" data-view="mail" href="/kinxs?p=mail" hidden style="display:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6 8.5-6"/></svg>メール配信</a>
         <a class="kx-nav kx-back" href="/home.html"><img src="/kinbot.svg" alt="" width="18" height="18" style="border-radius:5px" />kinbot<span class="kx-back-tag">戻る</span></a>
         <div class="kx-stools" aria-label="ほかのツール">
@@ -1353,7 +1358,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261118p" defer></script>
-    <script src="kinxs.js?v=20261118p"></script>
+    <script src="kbchat.js?v=20261119b" defer></script>
+    <script src="kinxs.js?v=20261119b"></script>
   </body>
 </html>

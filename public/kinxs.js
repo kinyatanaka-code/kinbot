@@ -279,7 +279,7 @@ if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
-$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "年間更新", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携（回収MTG）", access: "アクセス分析", docai: "候補者の質問", voice: "要望・問い合わせ" })[VIEW] || "DOC更新管理";
+$("kxPageName").textContent = ({ settings: "設定", board: "フェーズ別", renew: "年間更新", list: "ユーザー一覧", import: "CS管理ボードから取り込む", cs: "CS連携", access: "アクセス分析", docai: "候補者の質問", voice: "要望・問い合わせ" })[VIEW] || "DOC更新管理";
 document.querySelectorAll("[data-top-act]").forEach((b) => { b.hidden = !["renew", "list", "board"].includes(VIEW); });
 if ($("kxSyncTop")) $("kxSyncTop").hidden = !["renew", "list"].includes(VIEW);
 if ($("kxSyncTop")) $("kxSyncTop").addEventListener("click", () => $("kxSync").click());
@@ -1587,7 +1587,9 @@ async function kh2LoadTasks(who0) {
   if (my !== kh2LoadTasks.seq) return;
   // kinXs のお知らせ（期日が過ぎています・接触途絶など）は要アクション・会社のカードと重なるので、タスクには出さない（次回アクションそのものは出す）
   const items = (d.items || []).filter((t0) => t0.kind === "次回アクション" || !/^kinXs$/.test(String(t0.src || "")));
-  kh2.tkN = items.length; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = items.length;
+  // 数は本当の数（全員のときは 200 件までしか並べないので、並べた数だと毎日 200 のままに見えていた・2026-11-19）
+  const hidden0 = Math.max(0, (Number(d.total) || items.length) - (d.items || []).length);
+  kh2.tkN = items.length + hidden0; const nb = document.querySelector("[data-tk-n]"); if (nb) nb.textContent = kh2.tkN;
   // 期限を過ぎているタスクの数（2026-11-13 田中さん）
   { const td0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); kh2.tkOver = items.filter((t0) => t0.due && t0.due < td0).length; kh2.tkOverSet = new Set(items.filter((t0) => t0.due && t0.due < td0)); kxTkOverPaint(); }
   const box = $("kh2Tasks"); if (!box) return;
@@ -2563,7 +2565,11 @@ async function renderDocAiAll() {
         <div class="dq-rank">${top.slice(0, 30).map((t, i) => `<div class="r"><span class="no">${i + 1}</span><div class="tx"><span>${esc(t.q)}</span><i style="width:${Math.round((t.n / max) * 100)}%"></i></div><span class="ct">${t.n}回${t.companies > 1 ? `・${t.companies}社` : ""}</span></div>`).join("") || '<div class="dq-empty">合う質問がありません</div>'}</div></aside>
     </div>`;
     $("dqBody").querySelectorAll("[data-dq-id]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.dqId, { tab: "docai" })));
+    dqFit();
   };
+  // 画面は止めたまま、会社のカードとよく聞かれることの中だけを動かす（2026-11-19 田中さん「ここも画面固定でスクロールできるように」）
+  const dqFit = () => { kxFitScroll(document.querySelector("#dqBody .dq-cos"), "dq-scroll"); kxFitScroll(document.querySelector("#dqBody .dq-rank"), "dq-scroll"); };
+  if (!window.__dqFitOn) { window.__dqFitOn = true; window.addEventListener("resize", () => { if (VIEW === "docai") dqFit(); }); }
   box.innerHTML = `<div class="dq-top">${kpi("co", "会社", d.companies.length)}${kpi("chat", "チャット", d.chats)}${kpi("q", "質問", qTotal)}
       <label class="dq-q"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></svg><input data-dq-q placeholder="会社名・質問で絞りこむ" value="${esc(kxDqQ)}" /></label></div>
     <div id="dqBody"></div>`;
