@@ -259,6 +259,8 @@
       <p style="margin-top:12px"><a class="mc-btn" style="display:inline-flex;align-items:center;text-decoration:none" href="/history.html" target="_blank" rel="noopener">DOC の商談履歴を開く ↗</a></p></div></section>
     <section data-pane="settings" hidden>
       <!-- 設定は kinbot と同じ画面を使う（2026-11-14 田中さん：設定画面は1つにする）。MiiTel・Bales は「外部連携」にある -->
+      <!-- 監査ログ（管理者だけに出す）。設定画面は DOC と共通なので、中ではなく上に入口を置く（2026-11-19） -->
+      <p id="mcAuditLink" hidden style="margin:0 0 8px;text-align:right"><a href="/mcaudit.html" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;color:#0d5b47;text-decoration:none;font-size:13px;border:1px solid #5DCAA5;border-radius:999px;padding:4px 12px;background:#fff"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1d9e75" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>監査ログ（いつ・だれが・何を）</a></p>
       <iframe id="mcSetFrame" title="設定" data-src="/settings.html?embed=1&amp;app=mochica&amp;tab=integrations" style="width:100%;height:calc(100vh - 96px);min-height:560px;border:0;background:transparent;display:block"></iframe>
     </section>
       </div>
@@ -269,7 +271,7 @@
   <script src="/caseshare.js?v=20261116c"></script>
   <!-- kinbot のロボ（左上の顔を押すと相談できる窓）を MOCHICA にも（2026-11-16 田中さん） -->
   <script src="/kbchat.js?v=20261116q" defer></script>
-  <script src="/mccall.js?v=20261119a"></script>
-  <script src="/mochica.js?v=20261118a"></script>
+  <script src="/mccall.js?v=20261119b"></script>
+  <script src="/mochica.js?v=20261119a"></script>
 </body>
 </html>

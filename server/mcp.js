@@ -29,6 +29,7 @@ import { sfQuery, sfUpdateRecord, sfCreateRecord, isConnected as sfIsConnected }
 import { registerUser } from "./auth.js";
 import { mcMiitelList, mcMiitelGet, updateMeetingMeta, mcBalesLists, mcBalesRows, mcBalesRow } from "./db.js";
 // index.js から MOCHICA の道具（文字起こしの読み方・SF の項目の中身など）を受け取る（2026-11-14）
+import { auditMcpCall } from "./mcaudit.js";
 export const mcpHooks = {};
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
@@ -692,10 +693,13 @@ async function handleRpc(body, req, opts = {}) {
     if (method === "tools/call") {
       const name = params && params.name;
       const args = (params && params.arguments) || {};
+      const t0 = Date.now();
       try {
         const data = await (opts.call ? opts.call(name, args, req) : callTool(name, args, req));
+        auditMcpCall(name, args, req, { ok: true, ms: Date.now() - t0 });   // MOCHICA の監査ログ（書き込みツールだけ残る）
         return ok({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
       } catch (e) {
+        auditMcpCall(name, args, req, { ok: false, error: e.message, ms: Date.now() - t0 });
         // ツール実行エラーはプロトコルエラーではなく、isError付きの結果として返すのがMCP流
         return ok({ content: [{ type: "text", text: `エラー: ${e.message}` }], isError: true });
       }

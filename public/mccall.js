@@ -698,13 +698,42 @@
       <label class="mcc-field" style="margin-top:8px">件数（最大 5000）<input id="mccBn" type="number" min="1" max="5000" value="300" /></label>`
       : '<p class="mcc-note" style="margin-top:12px">Bales のリストがまだありません。「リスト（Bales Cloud）」で取り込んでください。</p>');
   }
-  // CSV から足す（2026-11-18）。ファイルはブラウザで読み、見出しの名前で列を見分けて送る。
-  // Excel で保存した CSV は Shift_JIS のことが多いので、UTF-8 で読めない文字があれば読み直す。
-  const CSV_COLS = {
-    company: /^(会社名|企業名|社名|法人名|会社|company|companyname|account)$/i,
-    phone: /^(電話番号|電話|代表電話|代表番号|tel|phone|電話番号1|companytel1)$/i,
-    person: /^(担当者名|担当者|氏名|名前|person|name|contact|targetname)$/i,
-    sfLeadId: /^(リードid|sfリードid|salesforceid|leadid|sfid|id)$/i,
+  // CSV から足す（2026-11-18、2026-11-19 福井さん：形式がそろっていない CSV も自動で整えて取り込む）。
+  // 列は「見出しの名前」→「中身の形（電話番号らしい・リードIDらしい…）」の順で見分ける。
+  // どの列を何として読むか・どう整えるかは取り込む前の画面で変えられ、変えた対応はこのパソコンに覚えて次から自動で当てる。
+  const CSV_FIELDS = [
+    { k: "company", label: "会社名", re: /^(会社名|企業名|社名|法人名|会社|取引先名|取引先|顧客名|company|companyname|account|accountname)$/i,
+      loose: /会社|企業|社名|法人|取引先|顧客|店舗|施設|company|account/i, fmts: [["corp", "（株）㈱ などを「株式会社」にそろえる"], ["raw", "そのまま"]] },
+    { k: "phone", label: "電話番号", re: /^(電話番号|電話|代表電話|代表番号|tel|phone|電話番号1|companytel1|phonenumber|連絡先)$/i,
+      loose: /電話|tel|phone/i, fmts: [["digits", "数字だけにする（消えた先頭の 0 も補う）"], ["half", "半角にするだけ（ハイフンは残す）"]] },
+    { k: "person", label: "担当者名", re: /^(担当者名|担当者|氏名|名前|person|name|contact|targetname|取引先責任者|責任者)$/i,
+      loose: /担当|氏名|名前|責任者|contact/i, fmts: [["space", "空白をそろえる"], ["raw", "そのまま"]] },
+    { k: "sfLeadId", label: "リードID", re: /^(リードid|sfリードid|salesforceid|leadid|sfid|id)$/i,
+      loose: /リードid|leadid/i, fmts: [["raw", "そのまま"]] },
+  ];
+  // 中身の形で見分けるための目印（見出しが無い・名前が違う CSV のため）
+  const CSV_LOOKS = {
+    phone: (v) => /^[\d\-‐ー－()（）+\s]+$/.test(v) && /^\d{9,11}$/.test(v.normalize("NFKC").replace(/\D/g, "").replace(/^81/, "0")),
+    sfLeadId: (v) => /^00Q[0-9A-Za-z]{12,15}$/.test(v),
+    company: (v) => /株式会社|有限会社|合同会社|合資会社|\(株\)|（株）|㈱|\(有\)|（有）|㈲|法人|組合|協会/.test(v),
+  };
+  const CSV_STORE = "mccCsvMap";
+  const csvNorm = (h) => String(h || "").normalize("NFKC").replace(/[\s_\-()（）・]/g, "").toLowerCase();
+  function csvMem() { try { return JSON.parse(localStorage.getItem(CSV_STORE) || "{}") || {}; } catch { return {}; } }
+  function csvMemSave(m) { try { localStorage.setItem(CSV_STORE, JSON.stringify(m)); } catch {} }
+  // 値の整え方。ここを変えれば整え方の種類を増やせる
+  const CSV_FMT = {
+    raw: (v) => v.trim(),
+    half: (v) => v.normalize("NFKC").trim(),
+    space: (v) => v.normalize("NFKC").replace(/\s+/g, " ").trim(),
+    corp: (v) => v.normalize("NFKC").replace(/\s+/g, " ").trim()
+      .replace(/\(株\)/g, "株式会社").replace(/\(有\)/g, "有限会社").replace(/\(合\)/g, "合同会社").replace(/\(社\)/g, "社団法人").replace(/\(財\)/g, "財団法人"),
+    digits: (v) => {
+      let d = v.normalize("NFKC").replace(/\D/g, "");
+      if (/^81\d{9,10}$/.test(d)) d = "0" + d.slice(2);   // +81 で始まる国際表記
+      if (/^[1-9]\d{8,9}$/.test(d)) d = "0" + d;          // Excel で先頭の 0 が消えたもの
+      return d;
+    },
   };
   function parseCsv(text) {
     const sep = (text.split(/\r?\n/, 1)[0] || "").includes("\t") ? "\t" : ",";
@@ -722,41 +751,118 @@
   }
   async function readCsvFile(file) {
     const buf = await file.arrayBuffer();
-    let t = new TextDecoder("utf-8").decode(buf);
-    if (t.includes("�")) { try { t = new TextDecoder("shift_jis").decode(buf); } catch {} }
-    return t.replace(/^﻿/, "");
+    // UTF-8 として正しく読めなければ Shift_JIS（Excel の既定）で読み直す
+    try { return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^﻿/, ""); }
+    catch { try { return new TextDecoder("shift_jis").decode(buf); } catch { return new TextDecoder().decode(buf); } }
   }
-  function csvToLeads(table) {
-    const head = table[0].map((h) => h.normalize("NFKC").replace(/[\s_]/g, ""));
-    const idx = {}; for (const [k, re] of Object.entries(CSV_COLS)) { const i = head.findIndex((h) => re.test(h)); if (i >= 0) idx[k] = i; }
-    // 見出しが無い CSV は、kincall と同じ「会社名・担当者名・電話番号」の順とみなす
-    const hasHead = idx.company != null || idx.phone != null;
-    const map = hasHead ? idx : { company: 0, person: 1, phone: 2 };
-    const used = new Set(Object.values(map));
-    const body = hasHead ? table.slice(1) : table;
-    const leads = body.map((r) => {
-      const extra = {}; if (hasHead) table[0].forEach((h, i) => { if (!used.has(i) && h && r[i]) extra[h] = r[i]; });
-      return { company: r[map.company] || "", phone: r[map.phone] || "", person: map.person != null ? r[map.person] || "" : "", sfLeadId: map.sfLeadId != null ? r[map.sfLeadId] || "" : "", extra };
+  // 自動の見当：見出しの名前（覚えた名前 → 決まった名前）→ 中身の形
+  function csvGuess(table) {
+    const mem = csvMem(); const alias = mem.alias || {};
+    const head = table[0].map(csvNorm);
+    const map = {}; const used = new Set();
+    for (const f of CSV_FIELDS) {
+      const mine = (alias[f.k] || []);
+      let i = head.findIndex((h, j) => !used.has(j) && h && mine.includes(h));
+      if (i < 0) i = head.findIndex((h, j) => !used.has(j) && f.re.test(h));
+      if (i >= 0) { map[f.k] = i; used.add(i); }
+    }
+    // 1行目そのものが電話番号・リードID・会社名に見えるなら、見出しの無い CSV とみなす（見出しで当てた分は捨てる）
+    const hasHead = !table[0].some((c) => CSV_LOOKS.phone(c) || CSV_LOOKS.sfLeadId(c) || CSV_LOOKS.company(c));
+    if (!hasHead) { for (const k of Object.keys(map)) delete map[k]; used.clear(); }
+    // 名前が完全には一致しないとき（「顧客名称」「ご担当者」など）は、名前の一部で当てる。メール・FAX の列は電話や担当者に当てない
+    for (const f of CSV_FIELDS) {
+      if (!hasHead || map[f.k] != null) continue;
+      const i = head.findIndex((h, j) => !used.has(j) && h && f.loose.test(h) && !/mail|メール|fax|ファックス|かな|カナ|ふりがな|フリガナ|部署|役職/i.test(h));
+      if (i >= 0) { map[f.k] = i; used.add(i); }
+    }
+    const sample = (hasHead ? table.slice(1) : table).slice(0, 50);
+    for (const k of ["sfLeadId", "phone", "company"]) {
+      if (map[k] != null) continue;
+      let best = -1, bestR = 0;
+      for (let j = 0; j < table[0].length; j++) {
+        if (used.has(j)) continue;
+        const vals = sample.map((r) => r[j] || "").filter(Boolean); if (!vals.length) continue;
+        const r = vals.filter(CSV_LOOKS[k]).length / vals.length;
+        if (r > bestR) { bestR = r; best = j; }
+      }
+      if (best >= 0 && bestR >= 0.6) { map[k] = best; used.add(best); }
+    }
+    // 見出しが無く、会社名も形で見分けられないときは kincall と同じ「会社名・担当者名・電話番号」の順とみなす
+    if (!hasHead && map.company == null && !used.has(0)) { map.company = 0; used.add(0); }
+    if (!hasHead && map.person == null && !used.has(1) && table[0].length > 1) map.person = 1;
+    const fmt = {}; for (const f of CSV_FIELDS) fmt[f.k] = (mem.fmt && f.fmts.some(([v]) => v === mem.fmt[f.k])) ? mem.fmt[f.k] : f.fmts[0][0];
+    return { map, hasHead, fmt };
+  }
+  function csvToLeads(table, st) {
+    const body = st.hasHead ? table.slice(1) : table;
+    const used = new Set(Object.values(st.map).filter((i) => i != null));
+    const get = (r, k) => st.map[k] != null ? CSV_FMT[st.fmt[k]](String(r[st.map[k]] || "")) : "";
+    return body.map((r) => {
+      const extra = {}; if (st.hasHead) table[0].forEach((h, i) => { if (!used.has(i) && h && r[i]) extra[h] = r[i]; });
+      return { company: get(r, "company"), phone: get(r, "phone"), person: get(r, "person"), sfLeadId: get(r, "sfLeadId"), extra };
     }).filter((x) => x.company || x.phone);
-    return { leads, hasHead, found: Object.keys(idx) };
+  }
+  // 取り込んだときの対応を覚える：見出しの名前をその項目の呼び名として足し、整え方も次の既定にする
+  function csvRemember(table, st) {
+    const mem = csvMem(); mem.alias = mem.alias || {}; mem.fmt = { ...st.fmt };
+    if (st.hasHead) for (const f of CSV_FIELDS) {
+      const i = st.map[f.k]; if (i == null) continue;
+      const h = csvNorm(table[0][i]); if (!h || f.re.test(h)) continue;   // 決まった名前は覚えなくても当たる
+      for (const k of Object.keys(mem.alias)) mem.alias[k] = mem.alias[k].filter((x) => x !== h);
+      mem.alias[f.k] = [...(mem.alias[f.k] || []), h].slice(-30);
+    }
+    csvMemSave(mem);
   }
   function csvDialog(listId) {
-    let parsed = null;
-    const w = dialog("CSV から足す", "1行1社。見出しに「会社名」「電話番号」「担当者名」「リードID」があれば自動で見分けます（見出しが無ければ 会社名・担当者名・電話番号 の順）。ほかの列は詳細に残ります。ほかの開いている MOCHICA のリストにある番号と、アプローチ禁止の会社は足しません。", "足す", async () => {
-      if (!parsed || !parsed.leads.length) throw new Error("CSV ファイルを選んでください（読める行がありません）");
-      if (parsed.leads.length > 5000) throw new Error(`一度に足せるのは 5000件までです（${parsed.leads.length}件あります）。分けて読み込んでください`);
-      const r = await post(`/api/mccall/lists/${listId}/from-csv`, { rows: parsed.leads });
+    let table = null, st = null;
+    const w = dialog("CSV から足す", "1行1社。列の並びや見出しの名前、電話番号の書き方がそろっていなくても、自動で見分けて整えます。読み方は下で変えられ、変えた対応はこのパソコンが覚えて次から自動で当てます。使わない列は詳細に残ります。ほかの開いている MOCHICA のリストにある番号と、アプローチ禁止の会社は足しません。", "足す", async () => {
+      if (!table || !st) throw new Error("CSV ファイルを選んでください");
+      if (st.map.company == null && st.map.phone == null) throw new Error("「会社名」か「電話番号」に使う列を選んでください");
+      const leads = csvToLeads(table, st);
+      if (!leads.length) throw new Error("読める行がありません（会社名も電話番号も空です）");
+      if (leads.length > 5000) throw new Error(`一度に足せるのは 5000件までです（${leads.length}件あります）。分けて読み込んでください`);
+      const r = await post(`/api/mccall/lists/${listId}/from-csv`, { rows: leads });
+      csvRemember(table, st);
       importDone(`${r.added}件 足しました${r.banned ? `・アプローチ禁止 ${r.banned}件は外しました` : ""}${r.bad ? `・会社名も電話番号も無い ${r.bad}件は読めませんでした` : ""}${r.nolead ? `。うち ${r.nolead}件は SF のリードIDが無いため、架電結果は SF に書かれません` : ""}`, r);
       drawLists();
-    }, `<label class="mcc-field" style="margin-top:12px">CSV ファイル<input type="file" id="mccCsvF" accept=".csv,.tsv,.txt,text/csv" /></label><p class="mcc-note" id="mccCsvP" style="margin-top:6px"></p>`);
+    }, `<label class="mcc-field" style="margin-top:12px">CSV ファイル<input type="file" id="mccCsvF" accept=".csv,.tsv,.txt,text/csv" /></label><div id="mccCsvM"></div><p class="mcc-note" id="mccCsvP" style="margin-top:6px"></p>`);
+    const box = w.querySelector("#mccCsvM"), p = w.querySelector("#mccCsvP");
+    const colName = (i) => st.hasHead ? (table[0][i] || `${i + 1}列目`) : `${i + 1}列目`;
+    const firstVal = (i) => { const r = (st.hasHead ? table[1] : table[0]) || []; return r[i] || ""; };
+    function preview() {
+      const leads = csvToLeads(table, st);
+      const miss = st.map.phone == null ? "。電話番号の列が選ばれていません" : "";
+      const ex = leads.slice(0, 3);
+      p.innerHTML = `${leads.length}件 読めます${esc(miss)}${ex.length ? `<table class="mcc-tbl" style="margin-top:6px"><thead><tr>${CSV_FIELDS.map((f) => `<th>${esc(f.label)}</th>`).join("")}</tr></thead><tbody>${ex.map((x) => `<tr>${CSV_FIELDS.map((f) => `<td>${esc(x[f.k] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table>` : ""}`;
+    }
+    function draw() {
+      const n = Math.max(...table.slice(0, 20).map((r) => r.length));
+      box.innerHTML = `<div class="mcc-field" style="margin-top:10px">読み方（取り込み元の列 → 取り込み先の項目・整え方）</div>
+        <label class="mcc-note" style="display:flex;gap:6px;align-items:center;margin:4px 0"><input type="checkbox" id="mccCsvH" ${st.hasHead ? "checked" : ""} />1行目は見出し</label>
+        <table class="mcc-tbl"><thead><tr><th>取り込み先</th><th>取り込み元の列</th><th>整え方</th></tr></thead><tbody>
+        ${CSV_FIELDS.map((f) => `<tr><td>${esc(f.label)}</td>
+          <td><select class="mcc-sel" data-cm="${f.k}" style="max-width:none"><option value="">（使わない）</option>${Array.from({ length: n }, (_, i) => `<option value="${i}" ${st.map[f.k] === i ? "selected" : ""}>${esc(colName(i))}${firstVal(i) ? `（例：${esc(String(firstVal(i)).slice(0, 20))}）` : ""}</option>`).join("")}</select></td>
+          <td>${f.fmts.length > 1 ? `<select class="mcc-sel" data-cf="${f.k}" style="max-width:none">${f.fmts.map(([v, l]) => `<option value="${v}" ${st.fmt[f.k] === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : `<span class="mcc-note">${esc(f.fmts[0][1])}</span>`}</td></tr>`).join("")}
+        </tbody></table>
+        <button type="button" class="mcc-btn" id="mccCsvReset" style="margin-top:6px">覚えた読み方を消す</button>`;
+      box.querySelector("#mccCsvH").addEventListener("change", (e) => { st.hasHead = e.target.checked; draw(); });
+      box.querySelectorAll("[data-cm]").forEach((s) => s.addEventListener("change", () => {
+        const k = s.dataset.cm, v = s.value === "" ? null : +s.value;
+        // 同じ列を2つの項目に当てないよう、ほかの項目から外す
+        if (v != null) for (const kk of Object.keys(st.map)) if (kk !== k && st.map[kk] === v) delete st.map[kk];
+        if (v == null) delete st.map[k]; else st.map[k] = v;
+        draw();
+      }));
+      box.querySelectorAll("[data-cf]").forEach((s) => s.addEventListener("change", () => { st.fmt[s.dataset.cf] = s.value; preview(); }));
+      box.querySelector("#mccCsvReset").addEventListener("click", () => { csvMemSave({}); st = csvGuess(table); draw(); toast("覚えた読み方を消しました"); });
+      preview();
+    }
     w.querySelector("#mccCsvF").addEventListener("change", async (e) => {
-      const p = w.querySelector("#mccCsvP"); const f = e.target.files[0]; parsed = null; if (!f) { p.textContent = ""; return; }
+      const f = e.target.files[0]; table = null; st = null; box.innerHTML = ""; p.textContent = ""; if (!f) return;
       try {
-        const table = parseCsv(await readCsvFile(f));
-        if (!table.length) { p.textContent = "中身が空です"; return; }
-        parsed = csvToLeads(table);
-        const ex = parsed.leads[0];
-        p.textContent = `${parsed.leads.length}件 読めました${parsed.hasHead ? "" : "（見出しなしとして読みました）"}${parsed.hasHead && !parsed.found.includes("phone") ? "。電話番号の列が見つかりません" : ""}${ex ? `。1件目：${ex.company || "会社名なし"} / ${ex.phone || "電話番号なし"}${ex.person ? ` / ${ex.person}` : ""}` : ""}`;
+        table = parseCsv(await readCsvFile(f));
+        if (!table.length) { table = null; p.textContent = "中身が空です"; return; }
+        st = csvGuess(table); draw();
       } catch (err) { p.textContent = `読めませんでした：${err.message}`; }
     });
   }

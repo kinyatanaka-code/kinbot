@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MOCHICA 監査ログ</title>
+<link rel="icon" href="/favicon-mochica-32.png">
+<!-- MOCHICA の書き込み操作を「いつ・だれが・何を」見る画面（管理者だけ）（2026-11-19 福井さん） -->
+<style>
+  body{margin:0;font-family:"Noto Sans JP",system-ui,sans-serif;background:#f4f8f6;color:#1f2d28;font-size:13px}
+  header{display:flex;align-items:center;gap:10px;padding:14px 20px;background:#fff;border-bottom:1px solid #dde8e3}
+  header h1{font-size:16px;margin:0;color:#0d5b47}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 20px}
+  .bar input{border:1px solid #cfded7;border-radius:8px;padding:6px 10px;font:inherit}
+  .bar label{display:flex;gap:4px;align-items:center}
+  .btn{border:0;border-radius:8px;padding:7px 14px;background:#1d9e75;color:#fff;font:inherit;cursor:pointer}
+  .btn.sub{background:#fff;color:#0d5b47;border:1px solid #5DCAA5}
+  .wrap{padding:0 20px 24px}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(13,91,71,.08)}
+  th,td{padding:8px 10px;border-bottom:1px solid #edf3f0;text-align:left;vertical-align:top}
+  th{background:#eaf5f0;color:#0d5b47;font-weight:600;white-space:nowrap}
+  td.at{white-space:nowrap;color:#4b5f57}
+  .ng{color:#c0392b;font-weight:600} .ok{color:#1d9e75}
+  .imp{display:inline-block;margin-left:4px;padding:0 6px;border-radius:999px;background:#fff3d6;color:#8a5a00;font-size:11px}
+  .src{display:inline-block;padding:0 6px;border-radius:999px;background:#eaf5f0;color:#0d5b47;font-size:11px}
+  details summary{cursor:pointer;color:#0d5b47}
+  pre{white-space:pre-wrap;word-break:break-all;max-width:520px;margin:4px 0 0;font-size:11px;background:#f7faf9;padding:6px;border-radius:6px}
+  .msg{padding:16px 20px;color:#4b5f57}
+</style>
+</head>
+<body>
+<header><h1>MOCHICA 監査ログ</h1><span style="color:#4b5f57">MOCHICA の画面・API・Claude（MCP）から行った変更をすべて残しています</span></header>
+<div class="bar">
+  <label>期間 <input type="date" id="from"> 〜 <input type="date" id="to"></label>
+  <input id="user" placeholder="だれ（メールの一部）" size="18">
+  <input id="q" placeholder="何を（操作名・ID）" size="18">
+  <label><input type="checkbox" id="failed"> 失敗だけ</label>
+  <button class="btn" id="go">表示</button>
+  <button class="btn sub" id="csv">CSVで保存</button>
+</div>
+<div class="wrap"><div id="out" class="msg">読み込み中…</div></div>
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmt = (s) => new Date(s).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const SRC = { web: "画面", mcp: "Claude", system: "自動処理", external: "外部連携" };
+  let rows = [];
+  async function load() {
+    const p = new URLSearchParams({ limit: "1000" });
+    if ($("from").value) p.set("from", $("from").value + "T00:00:00+09:00");
+    if ($("to").value) { const d = new Date($("to").value + "T00:00:00+09:00"); d.setDate(d.getDate() + 1); p.set("to", d.toISOString()); }
+    if ($("user").value.trim()) p.set("user", $("user").value.trim());
+    if ($("q").value.trim()) p.set("q", $("q").value.trim());
+    if ($("failed").checked) p.set("failed", "1");
+    $("out").className = "msg"; $("out").textContent = "読み込み中…";
+    try {
+      const r = await fetch("/api/mochica/audit?" + p, { credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "読み込めませんでした（" + r.status + "）");
+      rows = j.items || [];
+      if (!rows.length) { $("out").textContent = "この条件に当てはまる記録はありません。"; return; }
+      $("out").className = "";
+      $("out").innerHTML = `<table><thead><tr><th>いつ</th><th>だれ</th><th>何を</th><th>対象</th><th>結果</th><th>送った内容</th></tr></thead><tbody>${rows.map((x) => `
+        <tr><td class="at">${esc(fmt(x.at))}</td>
+        <td>${esc(x.actor)}${x.as_user && x.as_user !== x.actor ? `<span class="imp">${esc(x.as_user)} として</span>` : ""}<br><span class="src">${esc(SRC[x.source] || x.source)}</span></td>
+        <td>${esc(x.action)}<br><small style="color:#7a8b84">${esc(x.method)} ${esc(x.path)}</small></td>
+        <td>${esc(x.target || "")}</td>
+        <td>${x.ok ? '<span class="ok">成功</span>' : `<span class="ng">失敗</span><br><small>${esc(x.error || "")}</small>`}</td>
+        <td>${x.params ? `<details><summary>見る</summary><pre>${esc(JSON.stringify(x.params, null, 2))}</pre></details>` : ""}</td></tr>`).join("")}</tbody></table>`;
+    } catch (e) { $("out").className = "msg ng"; $("out").textContent = e.message + "（管理者でログインしているか確かめてください）"; }
+  }
+  function csv() {
+    if (!rows.length) return;
+    const q = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
+    const head = ["いつ", "だれ", "だれとして", "経路", "何を", "メソッド", "パス", "対象", "結果", "失敗理由", "送った内容"];
+    const body = rows.map((x) => [fmt(x.at), x.actor, x.as_user, SRC[x.source] || x.source, x.action, x.method, x.path, x.target, x.ok ? "成功" : "失敗", x.error, x.params ? JSON.stringify(x.params) : ""].map(q).join(","));
+    const blob = new Blob(["﻿" + [head.map(q).join(","), ...body].join("\r\n")], { type: "text/csv" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "mochica-audit.csv"; a.click();
+  }
+  $("go").addEventListener("click", load); $("csv").addEventListener("click", csv);
+  [$("user"), $("q")].forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") load(); }));
+  load();
+})();
+</script>
+</body>
+</html>

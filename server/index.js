@@ -33,6 +33,7 @@ import { note as devNote, errKey, buildMorningSummary, NOTE_KINDS, dropSimilar }
 import { askBot } from "./askbot.js";
 import { registerMcCall } from "./mccall.js";
 import { registerMcDash, MCDASH_ROSTER } from "./mcdash.js";   // kinbot for MOCHICA のダッシュボード（SF・Zoom Phone・シフト表を毎回読む）（2026-11-17）   // kinbot for MOCHICA の架電（DOC の kincall とは別の表）（2026-11-16）
+import { mcAuditMiddleware, registerMcAudit } from "./mcaudit.js";   // MOCHICA の書き込み操作を「いつ・だれが・何を」DBに残す（2026-11-19 福井さん）
 import { registerTeleapoScience } from "./teleapo_routes.js";   // テレアポ科学モデル v1：文字起こし→問題の場所の診断（2026-11-16）
 import { newJobId, getJob, cancelJob, runBulk, tableFromFile, tableFromText, rowsFromTable } from "./bulklinks.js";
 import { buildSlots, stillFree } from "./booking.js";
@@ -1474,6 +1475,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// MOCHICA の書き込み操作（/api/mochica・/api/mccall・/api/teleapo）は、代理ログインかどうかに関係なくすべて DB に残す。
+app.use(mcAuditMiddleware);
 
 // ===== アプローチ禁止企業：架電の記録・次回予約・復活・資料送付をサーバー側で必ず止める（2026-11-16）=====
 //   一覧から外していても、開きっぱなしの画面や古い画面から送られてくることがあるため、受け口でもう一度確かめる。
@@ -29255,6 +29259,7 @@ app.use("/api/mccall", async (req, res, next) => {
 registerMcCall(app, { isAdmin: (req) => isAiOwner(req) || !!req.mcCallAdmin, adminNames: async () => [...(await mcCallAdmins()).values()], sfActor, mochicaSet: mcCallMembers, isMcIntern: async (e) => !!(await internAccess(e).catch(() => ({}))).mc });
 registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, readSheet, mochicaSet: mcMochicaSet, isAdmin: isAiOwner });
 registerTeleapoScience(app);
+registerMcAudit(app, { isAdmin: isAiOwner });
 app.post("/api/mochica/miitel/meetings/:id/rep", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const id = String(req.params.id || ""); if (!(await mcMiitelGet(id))) return res.status(404).json({ error: "見つかりません" });
@@ -33749,7 +33754,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-19f 全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
+const BUILD_TAG = "2026-11-19h MOCHICAの全書き込み操作を監査ログ（mc_audit_log）に記録・MOCHICA架電のCSV取り込みを自動整形＋読み方の編集に対応・全ブランチを統合（メンバーの役割を DOC／MOCHICA で分ける・架電のおすすめ日時をクローザーの空きで判定・テレアポ科学モデル v1・商談照合 版11）";
 const BUILD_FEATURES = [
   "メンバー：役割（クローザー・インサイド・予備・CS）を DOC と MOCHICA で別々に持つ。DOC の報告・集計は DOC の役割だけ",
   "for MOCHICA の架電：リードの重複を作らない（会社名＋電話・メール・Web・法人番号の鍵・過去も含めて1件）",

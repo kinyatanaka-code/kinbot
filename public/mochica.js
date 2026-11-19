@@ -633,6 +633,7 @@
     // kincall だけのアカウント（インターン）は、ほかの MOCHICA の画面を開けないので架電だけを出す（2026-11-16）
     // インターン生（kincall だけ・MOCHICA のインサイド8名）は架電と設定だけを出す（2026-11-16・11-18）。設定は Google・Zoom の連携に使う
     if (me && (me.kincallOnly || me.mcIntern)) { window.__mcCallOnly = true; document.querySelectorAll(".side-item[data-go]").forEach((a) => { if (a.dataset.go !== "call") a.hidden = true; }); go("call"); }
+    if (me && me.admin && $("mcAuditLink")) $("mcAuditLink").hidden = false;   // 監査ログは管理者だけ（2026-11-19）
     const who = $("who"); if (!who || !me) return; const name = me.name || me.username || "";
     who.textContent = name ? name + (me.admin ? "（管理者）" : "") : ""; who.title = me.username || "";
     const foot = who.parentElement;
