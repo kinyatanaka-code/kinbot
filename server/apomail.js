@@ -5,6 +5,7 @@
 // いずれも「担当セールス本人のGmailアカウント」から送信する（gmailSend）。
 // scope は gmail.compose に送信権限が含まれるため、追加の再連携は不要。
 // ───────────────────────────────────────────────────────────
+import { isNoMeetingTitle, isReschedResetTitle } from "./apotitle.js";
 import { gmailSend, gmailCreateDraft } from "./google.js";
 import {
   getSettings,
@@ -562,7 +563,7 @@ export async function listTomorrowReminders(dateJst = "") {
     let 状態 = "送ります";
     if (r.reminded) 状態 = "送信済み";
     else if (r.no_reminder) 状態 = "送らない";
-    else if (/リスケ|キャンセル/.test(String(r.label || ""))) 状態 = "送らない（リスケ・キャンセル）";
+    else if (isNoMeetingTitle(r.label)) 状態 = "送らない（リスケ・キャンセル）";
     // 確定メールを送ったばかりなら、続けてリマインドを出さない
     else if (r.just_confirmed) 状態 = "案内したばかり";
     else if (!r.client_email) 状態 = "宛先がありません";
@@ -606,7 +607,7 @@ export async function runReminderSweep({ joinUrl, repNameOf, liveCheck } = {}) {
       break;
     }
     // 予定名に「リスケ」「キャンセル」が入っているアポにはリマインドを送らない
-    if (/リスケ|キャンセル/.test(String(link.label || ""))) {
+    if (isNoMeetingTitle(link.label)) {
       results.push({ slug: link.slug, ok: false, skipped: true, reason: "リスケ・キャンセルのため送信しません" });
       continue;
     }

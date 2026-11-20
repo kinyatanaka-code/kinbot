@@ -2486,8 +2486,11 @@ async function renderPub() {
       const bad = rows.find((p) => p.url && !/^https?:\/\//i.test(p.url)); if (bad) { alert(`URL は https:// から入れてください（${bad.url}）`); return; }
       const btn = ev.currentTarget; btn.disabled = true; btn.textContent = "保存中…";
       try {
-        await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { places: rows, ...(rows.length && x.noPlace ? { no_place: false } : {}) } }) });
-        x.places = rows; if (rows.length) x.noPlace = false; if (window.kbToast) window.kbToast(`${x.name} の掲載先を保存しました`);
+        const rs = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { places: rows, ...(rows.length && x.noPlace ? { no_place: false } : {}) } }) });
+        // 掲載先を初めて入れたら、サーバーが手前の段（キックオフ・検収書・納品メール）も済みにする。そのことを知らせる（2026-11-20）
+        const adv = (rs && rs.advanced) || [];
+        x.places = rows; if (rows.length) x.noPlace = false; if (adv.length) { x.published = true; if (!x.publishedOn) x.publishedOn = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
+        if (window.kbToast) window.kbToast(adv.length ? (adv.some((k) => k !== "掲載") ? `${x.name} を掲載済みにして、${adv.filter((k) => k !== "掲載").join("・")}も済みにしました` : `${x.name} を掲載済みにしました`) : `${x.name} の掲載先を保存しました`);
         draw();
       } catch (e) { btn.disabled = false; btn.textContent = "保存"; alert(`保存できませんでした：${e.message}`); }
     });
@@ -3357,21 +3360,25 @@ function kxNowCard(d) {
   if (!kenOk) todo.push({ lv: cur === 2 ? 1 : 2, t: String(x.kenshu || "").startsWith("依頼済み") ? "検収書の回収を待つ（依頼済み）" : "検収書を回収する", s: since != null ? `受注から${since}日` : "", tag: "納品", act: "ken", sub: "回収できたらPDFを入れると、相澤さん・幸地さんにチャットで知らせます" });
   if (x.na) { const l = x.naDue ? daysTo(x.naDue) : null; const when = x.naAt ? new Date(x.naAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" }) : x.naDue ? md(x.naDue) : "日時未定";
     const n = ((x.naDetail || {}).agenda || []).length;
-    todo.push({ lv: l != null && l < 0 ? 1 : l != null && l <= 7 ? 2 : 3, t: `${x.na}（${when}）の準備`, s: `${x.naType || "次回アクション"}${n ? `　確認すること${n}つ` : ""}`, right: l == null ? "" : l < 0 ? `${-l}日過ぎ` : `あと${l}日`, tag: "次回アクション", act: "na" }); }
+    todo.push({ lv: l != null && l < 0 ? 1 : l != null && l <= 7 ? 2 : 3, t: `${x.na}（${when}）の準備`, s: `${x.naType || "次回アクション"}${n ? `　確認すること${n}つ` : ""}`, right: l == null ? "" : l < 0 ? `${-l}日過ぎ` : `あと${l}日`, tag: "次回アクション", act: "nax" }); }
   else todo.push({ lv: 2, t: "次回アクションを決める", s: "議事録・メールから読み取れます", tag: "次回アクション", act: "read" });
   const nd = x.naDetail || {}; const sm = x.mtgSummary || {};
-  for (const h of (Array.isArray(nd.homework) ? nd.homework : (sm.homework || [])).filter((h) => h && h.state !== "完了" && (h.task || h.t)).slice(0, 6)) {
+  // 宿題：済み・消すをその場で（2026-11-20 田中さん「この辺が手で直しにくい」）。元の並び（hwAll の番号）を持っておき、押したらそこだけ変える
+  const hwAll = Array.isArray(nd.homework) ? nd.homework : (sm.homework || []);
+  window.__kxNow = { id: x.id, nd, hwAll, kickoffManual: !!x.kickoffManual };
+  hwAll.forEach((h, hi) => { if (!h || h.state === "完了" || !(h.task || h.t) || todo.filter((t0) => t0.tag === "宿題").length >= 6) return;
     const l = h.due ? daysTo(h.due) : null;
-    todo.push({ lv: l != null && l < 0 ? 1 : 3, t: h.task || h.t, s: `${h.who || ""}の宿題${h.due ? `　${md(h.due)}まで` : ""}`, right: l != null && l < 0 ? `${-l}日過ぎ` : "", tag: "宿題", act: "na" }); }
+    todo.push({ lv: l != null && l < 0 ? 1 : 3, t: h.task || h.t, s: `${h.who || ""}の宿題${h.due ? `　${md(h.due)}まで` : ""}`, right: l != null && l < 0 ? `${-l}日過ぎ` : "", tag: "宿題", act: "hw", hw: hi }); });
   if (!mailOk) todo.push({ lv: 3, t: "納品メールを送る", s: kenOk ? "" : "検収書のあと", tag: "納品", act: "mail" });
   if (!pubOk && kenOk) todo.push({ lv: 3, t: "掲載を確認する", s: "", tag: "納品", act: "pub" });
   if (!(x.alerts || []).some((a) => a.rule === "更新月接近") && ["Z", ""].includes(x.rank || "")) todo.push({ lv: 4, t: "更新確度を決める", s: `いま ${x.rank || "Z"}（未判定）`, right: x.renew ? `${x.renew.replace("-", "/")}まで` : "", tag: "更新", act: "renew" });
   todo.sort((a, b) => a.lv - b.lv);
   const top = todo[0];
-  const btn = (act, pri) => ({
+  const btn = (act, pri, hwIdx = null) => ({
     ken: [["ken-pdf", "PDFを入れる"], ["ken-done", "回収済みにする"], ["ken-na", "対象外"]], mail: [["mail-done", "送付済みにする"]], pub: [["pub-done", "掲載を確認した"]],
-    na: [["na-open", "中身を開く"]], read: [["read", "議事録・メールから読み取る"]], renew: [["renew", "確度を決める"]],
-  }[act] || []).map(([a, l], i) => `<button type="button" class="${pri && i === 0 ? "kx-a-pri" : "kx-a-sec"}" data-now="${a}">${esc(l)}</button>`).join("");
+    na: [["na-open", "中身を開く"]], nax: [["na-open", "中身を開く"], ["na-done", "済み"]], hw: [["na-open", "中身を開く"], ["hw-done", "済み"], ["hw-del", "消す"]],
+    read: [["read", "議事録・メールから読み取る"]], renew: [["renew", "確度を決める"]],
+  }[act] || []).map(([a, l], i) => `<button type="button" class="${pri && i === 0 ? "kx-a-pri" : "kx-a-sec"}${/done$/.test(a) ? " kx-a-ok" : /del$/.test(a) ? " kx-a-del" : ""}" data-now="${a}"${hwIdx != null ? ` data-hw="${hwIdx}"` : ""}>${esc(l)}</button>`).join("");
   const chk = (t) => ({ ken: "ken-done", mail: "mail-done", pub: "pub-done" })[t.act];
   const touchTxt = x.lastTouch ? `${x.sinceTouch}日前` : "—";
   return `<section class="kx-a-where">
@@ -3379,17 +3386,19 @@ function kxNowCard(d) {
       <div class="kx-a-steps">${steps.map((s0, i) => { const key = { 検収書: "kenshu_done", 納品メール: "mail_done", 掲載: "published" }[s0.k]; const cls = `kx-a-st ${s0.ok ? "ok" : i === cur ? "now" : ""}`; const inner = `<i></i><b>${esc(s0.k)}</b><small>${i === cur ? "いまここ" : esc(s0.sub)}</small>`;
         const skip = !s0.ok && i < cur && i < 6;   // 先の段は済んでいるのに、記録がない段
         const cls2 = skip ? `${cls} skip` : cls; const inner2 = skip ? `<i></i><b>${esc(s0.k)}</b><small>未記録</small>` : inner;
-        if (s0.k === "キックオフ" && !s0.ok) return `<button type="button" class="${cls2} kx-a-stb" data-step-ko="1" title="押すとキックオフを実施済みにします（実施日＝今日）">${inner2}</button>`;
-        return key && !(s0.k === "検収書" && x.kenshuNa) ? `<button type="button" class="${cls2} kx-a-stb" data-step="${key}" data-ok="${s0.ok ? 1 : 0}" title="${s0.ok ? "押すと未完了に戻します" : "押すと済みにします"}">${inner2}</button>` : `<div class="${cls2}">${inner2}</div>`; }).join("")}</div>
-      <div class="kx-note" style="margin-top:-6px">検収書・納品メール・掲載は、道のりを押すと済みにできます</div>
+        // どの段も押すと、下に直す欄が開く（日付・済み／戻す）。受注は SF から入るので直さない（2026-11-20 田中さん「手で直しにくい」）
+        if (s0.k === "受注") return `<div class="${cls2}" title="受注日は SF から入ります">${inner2}</div>`;
+        return `<button type="button" class="${cls2} kx-a-stb" data-step-ed="${esc(s0.k)}" aria-expanded="false" title="押すと、${esc(s0.k)}を直す欄が開きます">${inner2}</button>`; }).join("")}</div>
+      <div class="kx-a-ed" data-step-box hidden></div>
+      <div class="kx-note" style="margin-top:-6px">道のりの段を押すと、日付や済み／戻すを直せます</div>
     </section>
-    ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true)}</div></section>` : ""}
+    ${top ? `<section class="kx-a-next"><div class="kx-a-nt"><small>次にやること</small><b>${esc(top.t)}</b>${top.sub || top.s ? `<span>${esc(top.sub || top.s)}</span>` : ""}</div><div class="kx-a-nb">${btn(top.act, true, top.hw)}</div></section>` : ""}
     ${cur === 2 && !x.kenshuNa ? `<section class="kx-sec" data-ken-sec-st><div class="lb">検収書を入れる<span class="kx-note" style="margin-left:8px">PDFを残して、回収をチャットで知らせます</span></div><div data-ken-list data-ken-mode="full" class="kx-note">読み込んでいます…</div></section>` : ""}
     <section class="kx-a-todo"><div class="kx-a-th"><b>対応事項</b><small>${todo.length}件</small></div>
       ${todo.map((t) => `<div class="kx-a-it ${t.lv === 1 ? "hi" : ""}">${chk(t) ? `<input type="checkbox" aria-label="${esc(t.t)}を済みにする" data-now="${chk(t)}">` : `<span class="kx-a-dot" aria-hidden="true"></span>`}
         <div class="kx-a-tx"><b>${esc(t.t)}</b><small>${t.tag ? `<em>${esc(t.tag)}</em>` : ""}${esc(t.s || "")}</small></div>
         ${t.right ? `<span class="kx-a-r ${t.lv === 1 ? "hi" : ""}">${esc(t.right)}</span>` : t.lv === 1 ? '<span class="kx-a-r hi">急ぎ</span>' : ""}
-        ${!chk(t) && t.act ? `<span class="kx-a-ib">${btn(t.act, false).replace(/<button[^>]*data-now="(ken-pdf)"[^>]*>[^<]*<\/button>/, "")}</span>` : ""}</div>`).join("") || '<div class="kx-note">いまの対応事項はありません</div>'}
+        ${!chk(t) && t.act ? `<span class="kx-a-ib">${btn(t.act, false, t.hw).replace(/<button[^>]*data-now="(ken-pdf)"[^>]*>[^<]*<\/button>/, "")}</span>` : ""}</div>`).join("") || '<div class="kx-note">いまの対応事項はありません</div>'}
     </section>
     <section class="kx-a-cards">
       <div><small>活用</small><b>${esc(usage ? usage.replace(/^活用：/, "") : "未入力")}</b></div>
@@ -3405,15 +3414,53 @@ function kxNowMount(bg) {
   const tog = (key, v) => { const b = bg.querySelector(`[data-tog="${key}"] button[data-v="${v}"]`); if (b) b.click(); };
   const ob = bg.querySelector("[data-rank-open]"), pop = bg.querySelector("[data-rank-pop]");
   if (ob && pop && !ob.dataset.wired) { ob.dataset.wired = "1"; ob.addEventListener("click", () => { pop.hidden = !pop.hidden; ob.setAttribute("aria-expanded", String(!pop.hidden)); }); }
-  pane.querySelectorAll("[data-step-ko]").forEach((b) => b.addEventListener("click", async () => {
-    if (!confirm("キックオフを実施済みにしますか？（実施日は今日で入れます。あとで企業情報から直せます）")) return;
-    const id0 = (bg.querySelector("[data-na-box]") || {}).dataset?.naBox || bg.dataset.kxId;
-    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify({ kickoff_on: new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10) }) }); openDetail(id0, { bg, tab: "info" }); } catch (e) { alert(e.message); }
+  // 道のりの段を押すと、その段を直す欄を開く（2026-11-20 田中さん「この辺が手で直しにくい」）
+  const now0 = window.__kxNow || {}; const id0 = now0.id || (bg.querySelector("[data-na-box]") || {}).dataset?.naBox || bg.dataset.kxId;
+  const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+  const put = async (body, msg) => { try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}`, { method: "PUT", body: JSON.stringify(body) }); lsData = null; if (window.kbToast && msg) window.kbToast(msg); openDetail(id0, { bg, tab: "info" }); } catch (e) { alert(`保存できませんでした：${e.message}`); } };
+  const edBox = pane.querySelector("[data-step-box]");
+  const USAGES = ["活用：公開掲載", "活用：限定公開", "活用予定", "活用検討中", "不明", "発生済み未納品", "解約企業"];
+  const edOf = (k, sub) => {
+    const row = (inner) => `<div class="kx-a-edh"><b>${esc(k)}を直す</b><button type="button" class="kx-a-sec" data-ed-x>閉じる</button></div><div class="kx-a-edr">${inner}</div>`;
+    if (k === "キックオフ") return row(`<label>実施日 <input type="date" class="kx-in" data-ed-d value="${esc((sub.match(/^\d/) ? "" : ""))}"></label><button type="button" class="kx-a-pri" data-ed-a="ko">この日で実施済みにする</button>${now0.kickoffManual ? '<button type="button" class="kx-a-sec kx-a-del" data-ed-a="ko-clear">手で入れた日を消す</button>' : ""}<small>議事録・CS連携から読んだ日より、手で入れた日を使います</small>`);
+    if (k === "検収書") return row(`<label>回収日 <input type="date" class="kx-in" data-ed-d value="${today}"></label><button type="button" class="kx-a-pri" data-ed-a="ken-on">この日で回収済みにする</button><button type="button" class="kx-a-sec" data-ed-a="ken-na">対象外にする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="ken-undo">未回収に戻す</button>`);
+    if (k === "納品メール") return row(`<button type="button" class="kx-a-pri" data-ed-a="mail-done">送付済みにする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="mail-undo">未送付に戻す</button>`);
+    if (k === "掲載") return row(`<label>掲載日 <input type="date" class="kx-in" data-ed-d value="${today}"></label><button type="button" class="kx-a-pri" data-ed-a="pub-on">この日で掲載済みにする</button><button type="button" class="kx-a-sec kx-a-del" data-ed-a="pub-undo">未掲載に戻す</button>`);
+    if (k === "活用") return row(`<select class="kx-in" data-ed-u>${USAGES.map((u) => `<option ${sub && u.replace(/^活用：/, "") === sub ? "selected" : ""}>${esc(u)}</option>`).join("")}</select><button type="button" class="kx-a-pri" data-ed-a="usage">保存</button>`);
+    if (k === "更新") return row(`<label>更新月 <input type="month" class="kx-in" data-ed-m value="${esc(/^\d{4}\/\d{2}$/.test(sub) ? sub.replace("/", "-") : "")}"></label><button type="button" class="kx-a-pri" data-ed-a="renew-m">更新月を保存</button><button type="button" class="kx-a-sec" data-ed-a="renew-rank">確度を決める</button>`);
+    return "";
+  };
+  pane.querySelectorAll("[data-step-ed]").forEach((b) => b.addEventListener("click", () => {
+    if (!edBox) return; const k = b.dataset.stepEd; const open = !edBox.hidden && edBox.dataset.k === k;
+    pane.querySelectorAll("[data-step-ed]").forEach((o) => o.setAttribute("aria-expanded", "false"));
+    if (open) { edBox.hidden = true; return; }
+    edBox.dataset.k = k; edBox.innerHTML = edOf(k, (b.querySelector("small") || {}).textContent || ""); edBox.hidden = false; b.setAttribute("aria-expanded", "true");
+    const dIn = edBox.querySelector("[data-ed-d]"); if (dIn && !dIn.value) dIn.value = today;
+    edBox.querySelector("[data-ed-x]").addEventListener("click", () => { edBox.hidden = true; b.setAttribute("aria-expanded", "false"); });
+    edBox.querySelectorAll("[data-ed-a]").forEach((e1) => e1.addEventListener("click", async () => {
+      const a = e1.dataset.edA; const dv = (edBox.querySelector("[data-ed-d]") || {}).value || "";
+      if (a === "ko") { if (!dv) return alert("実施日を入れてください"); return put({ kickoff_on: dv }, "キックオフの実施日を入れました"); }
+      if (a === "ko-clear") { if (confirm("手で入れたキックオフの日を消しますか？（議事録・CS連携から読んだ日があれば、それに戻ります）")) return put({ kickoff_on: "" }, "キックオフの日を消しました"); return; }
+      if (a === "ken-on") return dv ? put({ kenshu_on: dv, kenshu_na: false }, "検収書を回収済みにしました") : tog("kenshu_done", "true");
+      if (a === "ken-na") { if (confirm("この会社は検収書を回収しない（対象外）にしますか？")) tog("kenshu_done", "na"); return; }
+      if (a === "ken-undo") { if (confirm("検収書を未回収に戻しますか？")) return put({ kenshu_done: null, kenshu_on: "", kenshu_na: false }, "検収書を未回収に戻しました"); return; }
+      if (a === "mail-done") return put({ mail_done: true }, "納品メールを送付済みにしました");
+      if (a === "mail-undo") { if (confirm("納品メールを未送付に戻しますか？")) return put({ mail_done: false }, "納品メールを未送付に戻しました"); return; }
+      if (a === "pub-on") { if (!dv) return alert("掲載日を入れてください"); return put({ published_on: dv }, "掲載済みにしました"); }
+      if (a === "pub-undo") { if (confirm("掲載を未掲載に戻しますか？（掲載日も消します）")) return put({ published: false, published_on: "" }, "未掲載に戻しました"); return; }
+      if (a === "usage") return put({ usage_status: (edBox.querySelector("[data-ed-u]") || {}).value || "" }, "活用を保存しました");
+      if (a === "renew-m") { const m = (edBox.querySelector("[data-ed-m]") || {}).value || ""; if (!/^\d{4}-\d{2}$/.test(m)) return alert("更新月を選んでください"); return put({ renew_month: m }, "更新月を保存しました"); }
+      if (a === "renew-rank") { const ob2 = bg.querySelector("[data-rank-open]"); if (ob2) { ob2.scrollIntoView({ behavior: "smooth", block: "center" }); const pop2 = bg.querySelector("[data-rank-pop]"); if (pop2 && pop2.hidden) ob2.click(); } }
+    }));
   }));
-  pane.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => {
-    const ok = b.dataset.ok === "1"; const name = b.querySelector("b").textContent;
-    if (ok) { if (confirm(`「${name}」を未完了に戻しますか？`)) tog(b.dataset.step, "false"); } else tog(b.dataset.step, "true");
-  }));
+  // 宿題を済み・消す：その宿題だけ変えて、次回アクションの中身に保存する（ほかの中身はそのまま）
+  const saveHw = async (idx, del) => {
+    const nd = now0.nd || {}; const list = (now0.hwAll || []).map((h) => ({ who: h.who === "当社" ? "当社" : "先方", task: h.task || h.t || "", due: h.due || "", state: h.state || "未着手" }));
+    if (!list[idx]) return; if (del) list.splice(idx, 1); else list[idx].state = "完了";
+    try { await api(`/api/kinxs/accounts/${encodeURIComponent(id0)}/na-detail`, { method: "PUT", body: JSON.stringify({ title: nd.title || "", place: nd.place || "", participants: nd.participants || "", purpose: nd.purpose || "", agenda: nd.agenda || [], homework: list, source: nd.source || "" }) });
+      lsData = null; if (window.kbToast) window.kbToast(del ? "宿題を消しました" : "宿題を済みにしました"); openDetail(id0, { bg, tab: "info" }); }
+    catch (e) { alert(`保存できませんでした：${e.message}`); }
+  };
   const openNa = () => { const tb = bg.querySelector('[data-tab="task"]'); if (tb) tb.click(); const dt = bg.querySelector("details[data-na-more]"); if (dt) { dt.open = true; setTimeout(() => dt.scrollIntoView({ behavior: "smooth", block: "start" }), 60); } };
   pane.querySelectorAll("[data-now]").forEach((el) => el.addEventListener(el.tagName === "INPUT" ? "change" : "click", () => {
     const a = el.dataset.now;
@@ -3422,6 +3469,9 @@ function kxNowMount(bg) {
     if (a === "mail-done") return tog("mail_done", "true");
     if (a === "pub-done") return tog("published", "true");
     if (a === "na-open") return openNa();
+    if (a === "hw-done") return saveHw(Number(el.dataset.hw), false);
+    if (a === "hw-del") { if (confirm("この宿題を消しますか？")) saveHw(Number(el.dataset.hw), true); return; }
+    if (a === "na-done") { if (confirm("次回アクションを済みにしますか？（議事録・メールから次の次回アクションを読み直します）")) put({ na_text: "", na_at: "" }, "次回アクションを済みにしました"); return; }
     if (a === "read") { const r = bg.querySelector("[data-read-all]"); if (r) { const dt = r.closest("details"); if (dt) dt.open = true; r.scrollIntoView({ behavior: "smooth", block: "center" }); r.click(); } return; }
     if (a === "renew") { const ob = bg.querySelector("[data-rank-open]"); if (ob) { ob.scrollIntoView({ behavior: "smooth", block: "center" }); const pop = bg.querySelector("[data-rank-pop]"); if (pop && pop.hidden) ob.click(); } return; }
     if (a === "ken-pdf") { const here = bg.querySelector("[data-ken-sec-st]"); if (here) { here.scrollIntoView({ behavior: "smooth", block: "start" }); const f = here.querySelector("[data-ken-file]"); if (f) setTimeout(() => f.click(), 350); return; }

@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261120d" />
+    <link rel="stylesheet" href="style.css?v=20261120g" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -918,6 +918,13 @@
   .h2-del{width:28px;height:28px;border-radius:8px;border:1px solid #E3ECE7;background:#fff;color:#8FA39A;cursor:pointer;padding:0;display:inline-flex;align-items:center;justify-content:center;margin-left:4px;vertical-align:middle;} .h2-del:hover{color:#C43D3D;border-color:#F0C9C4;background:#FFF5F4;}
   .kx-tm-empty{padding:18px 12px;font-size:13px;color:#6A7A72;}
   .ar-st.ok{background:#E3F4EC;color:#0d5b47;} .ar-st.wait{background:#E8EEF7;color:#3B5B85;} .ar-next{color:#B4441F;background:#FDECE6;border-radius:6px;padding:1px 7px;font-size:12px;}
+  /* 道のりの段を直す欄・済み／消すボタン（2026-11-20） */
+  .kx-a-stb{border:0;background:none;padding:4px 2px;margin:-4px -2px;border-radius:10px;text-align:left;font:inherit;cursor:pointer;} .kx-a-stb:hover{background:#F2FAF6;} .kx-a-stb[aria-expanded="true"]{background:#E1F5EE;}
+  .kx-a-ed{margin:4px 0 10px;padding:10px 12px;border:1px solid #CFE6DC;border-radius:12px;background:#F7FBF9;}
+  .kx-a-edh{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;} .kx-a-edh b{font-size:13px;color:#0d5b47;}
+  .kx-a-edr{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12.5px;} .kx-a-edr label{display:inline-flex;align-items:center;gap:6px;font-weight:700;color:#33463D;} .kx-a-edr .kx-in{width:auto;} .kx-a-edr small{flex-basis:100%;color:#6B7D75;}
+  .kx-a-ed .kx-a-pri,.kx-a-ed .kx-a-sec{height:32px;padding:0 12px;border-radius:9px;font:inherit;font-size:12px;font-weight:700;cursor:pointer;} .kx-a-ed .kx-a-pri{border:0;background:#0d5b47;color:#fff;} .kx-a-ed .kx-a-sec{border:1px solid #DCE7E1;background:#fff;color:#33463D;}
+  .kx-a-ib .kx-a-ok{color:#0d5b47;border-color:#9FD9C2;} .kx-a-ib .kx-a-del,.kx-a-ed .kx-a-del{color:#B4441F;border-color:#F0C9C4;}
   .kx-a-st.skip i{background:repeating-linear-gradient(90deg,#E7C8B5 0 6px,#F6E6DB 6px 12px);} .kx-a-st.skip b,.kx-a-st.skip small{color:#A2480C;}
   .h2-list .h2-li{grid-template-columns:148px minmax(0,1.3fr) minmax(0,1.4fr) 56px auto;}
   .h2-due{position:relative;display:inline-flex;align-items:center;gap:5px;justify-self:start;font-size:12px;font-weight:700;color:#33463D;border:1px solid #E1E9E5;border-radius:9px;padding:4px 9px;background:#fff;white-space:nowrap;}
@@ -1377,7 +1384,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261120d" defer></script>
-    <script src="kinxs.js?v=20261120d"></script>
+    <script src="kbchat.js?v=20261120g" defer></script>
+    <script src="kinxs.js?v=20261120g"></script>
   </body>
 </html>

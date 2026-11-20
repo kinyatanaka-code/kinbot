@@ -16,6 +16,7 @@
 //      所属チームのアポ累計が少ない側を先に試す。
 //   6. 全員埋まっていたら未割り当てのまま残す（画面で手動対応）
 // ───────────────────────────────────────────────────────────
+import { isNoMeetingTitle, isReschedResetTitle } from "./apotitle.js";
 import { freeBusy, isSlotFree, listCalendarEvents } from "./google.js";
 import {
   getSettings, saveSettings,
@@ -288,7 +289,7 @@ export async function pickCloser(link, { inviteOwner, closers = null, cfg = null
     const arr = [];
     for (const e of evs || []) {
       if (e.allDay || e.selfResponse === "declined") continue;
-      if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;   // リスケ・キャンセルは空き
+      if (isNoMeetingTitle(e.title)) continue;   // リスケ・キャンセルは空き（リスケ再設定は商談あり）
       const s = Date.parse(e.start), en = Date.parse(e.end);
       if (!isNaN(s) && !isNaN(en) && en > s) arr.push([s, en]);
     }
@@ -385,7 +386,7 @@ export async function isPersonFree(inviteOwner, email, startISO, endISO, bufferM
   const s = Date.parse(startISO) - buf, e = Date.parse(eISO) + buf;
   for (const ev of evs || []) {
     if (ev.allDay || ev.selfResponse === "declined") continue;
-    if (/リスケ|キャンセル/.test(String(ev.title || ""))) continue;
+    if (isNoMeetingTitle(ev.title)) continue;
     const bs = Date.parse(ev.start), be = Date.parse(ev.end);
     if (!isNaN(bs) && !isNaN(be) && bs < e && be > s) return { free: false, reason: "この時間帯に別の予定が入っています" };
   }

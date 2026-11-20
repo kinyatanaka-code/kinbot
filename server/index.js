@@ -1,4 +1,5 @@
 // server/index.js
+import { isNoMeetingTitle, isReschedResetTitle } from "./apotitle.js";
 import "dotenv/config";
 import { geminiFailoverStatus, setTextViaGroq, groqRouteStats, geminiBusyStats, geminiUsageDrain, shoboContextMiddleware, shoboSpendLoad, shoboSpendSnapshot, shoboGeminiStatus } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
 import path from "node:path";
@@ -523,6 +524,7 @@ import {
   suspendedNow,
   listMembers,
   memberHasRole,
+  memberProfiles,
   saveMembers,
   deleteMember,
   syncMembersToLegacy,
@@ -4395,7 +4397,7 @@ async function salesCallHours(gcalOwner, email, dayStr, tanakaRule) {
     if (e.allDay) continue;
     if (e.selfResponse === "declined") continue; // 参加拒否は空き扱い
     const t = String(e.title || "");
-    if (/リスケ|キャンセル/.test(t)) continue;    // リスケ・キャンセルは空き扱い
+    if (isNoMeetingTitle(t)) continue;    // リスケ・キャンセルは空き扱い（リスケ再設定は商談あり）
     if (!isBlockTitle(t)) continue;
     const s = Date.parse(e.start), en = Date.parse(e.end);
     if (isNaN(s) || isNaN(en)) continue;
@@ -8522,7 +8524,7 @@ async function busyOf(owner, days) {
     return (evs || [])
       .filter((e) => !e.allDay && e.start && e.end)
       .filter((e) => e.selfResponse !== "declined")                     // 参加拒否は空き
-      .filter((e) => !/リスケ|キャンセル/.test(String(e.title || "")))   // リスケ・キャンセルは空き
+      .filter((e) => !isNoMeetingTitle(e.title))   // リスケ・キャンセルは空き（リスケ再設定は商談あり）
       .map((e) => ({ start: e.start, end: e.end }));
   } catch (e) {
     console.warn(`[日程調整] カレンダーを読めません（${owner}）：${e.message}`);
@@ -12414,13 +12416,16 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
     const url = `${base}/d/${link.slug}`;
 
     const 差出人 = await displayNameOf(req.user).catch(() => "");
-    // 差し込み：{担当者}{会社名}{差出人}{資料名}{URL}
+    // 署名：アポ確定メールと同じ中身（設定 → メンバー管理 → 署名）を、送る本人の分で作る（2026-11-20 上野さん「キンコールから資料送付するときに署名が入るようにしたい」）
+    const 署名 = await docSendSignature(req.user, 差出人).catch(() => "");
+    // 差し込み：{担当者}{会社名}{差出人}{資料名}{URL}{署名}
     const fill = (s) => String(s || "")
       .replace(/\{担当者\}/g, person || "ご担当者")
       .replace(/\{会社名\}/g, company)
       .replace(/\{差出人\}/g, 差出人)
       .replace(/\{資料名\}/g, docName || "ご案内資料")
-      .replace(/\{URL\}/g, url);
+      .replace(/\{URL\}/g, url)
+      .replace(/\{署名\}/g, 署名);
     const 既定件名 = "資料のご送付（{資料名}）";
     const 既定本文 =
       "{担当者}様\n\n" +
@@ -12431,7 +12436,9 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
       "ご不明な点がございましたら、お気軽にご連絡ください。\n" +
       "何卒よろしくお願いいたします。";
     const subject = fill(String(st.docSendSubject || 既定件名));
-    const body = fill(String(st.docSendBody || 既定本文));
+    // テンプレに {署名} が無ければ、本文の最後に署名を付ける（今までのテンプレのままでも署名が入るように）
+    const tpl = String(st.docSendBody || 既定本文);
+    const body = fill(tpl) + (!/\{署名\}/.test(tpl) && 署名 ? `\n\n${署名}` : "");
 
     res.json({
       ok: true, to, cc: await docSendCcFor(req.user), company, person, subject, body, url, docName,
@@ -12440,6 +12447,28 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 資料送付の署名：アポ確定メールの署名と同じ形（会社名・部署・ユニット・名前／ローマ字・電話・メール・本社）。
+//   中身は 設定 → メンバー管理 → 署名（送る本人の分）。空の行は出さない
+async function docSendSignature(user, displayName) {
+  const em = String(user || "").toLowerCase();
+  const profs = await memberProfiles().catch(() => ({}));
+  const p = profs[em] || Object.entries(profs).find(([k]) => String(k).toLowerCase() === em)?.[1] || {};
+  const st = await getSettings().catch(() => ({}));
+  const co = String(st.apoMailCompanyName || "").trim() || "株式会社ネオキャリア";
+  const name = String(p.name || displayName || "").trim();
+  const roman = String(p.nameRoman || "").trim();
+  const lines = [
+    "■━━━━━━━━━━━━━━━━━━━━━━━━━■",
+    `◇${co}（http://www.neo-career.co.jp/）`,
+    String(p.dept || "").trim(), String(p.unit || "").trim(),
+    name ? `${name}${roman ? `　/　${roman}` : ""}` : "",
+    String(p.phone || "").trim() ? `Phone：${String(p.phone).trim()}` : "",
+    `Mail：${String(p.mail || p.email || "").trim() || em}`,
+    "◇本社 〒160-0023", "東京都新宿区西新宿1-22-2 新宿サンエービル4階", "TEL：03-6756-0421　 FAX：03-5908-8385",
+    "■━━━━━━━━━━━━━━━━━━━━━━━━━■",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
 // 資料送付の設定（テンプレの件名・本文、既定の資料、トラッキングの有無）を読む
 app.get("/api/calls/doc-settings", async (req, res) => {
   try {
@@ -12684,7 +12713,7 @@ async function csFindConfirmMtg({ company, fsEmail, afterIso, members }) {
     if (!reader) continue;
     try {
       for (const e of await listCalendarEvents(reader, cal, { timeMin, timeMax })) {
-        if (e.allDay || /キックオフ|リスケ|キャンセル/.test(e.title || "")) continue;
+        if (e.allDay || /キックオフ/.test(e.title || "") || isNoMeetingTitle(e.title)) continue;
         if (csCoKey(e.title) !== key && !String(e.title || "").normalize("NFKC").includes(String(company).normalize("NFKC").replace(/株式会社|\s/g, ""))) continue;
         const csHit = members.find((x) => x.email === cal || (e.attendees || []).some((a) => String(a.email || "").toLowerCase() === x.email));
         hits.push({ start: e.start, end: e.end, title: e.title, cs: csHit || null, confirmLike: /確認|MTG|打ち?合わせ|お打合せ|定例/.test(e.title || "") });
@@ -13108,7 +13137,7 @@ async function csCheckUnrecordedKickoffs() {
     let evs = [];
     try { evs = await listCalendarEvents(reader, em, { timeMin, timeMax: new Date().toISOString() }); } catch { continue; }
     for (const e of evs) {
-      if (!/キックオフ/.test(e.title || "") || /キャンセル|リスケ/.test(e.title || "")) continue;
+      if (!/キックオフ/.test(e.title || "") || isNoMeetingTitle(e.title)) continue;
       if (!e.end || Date.parse(e.end) > Date.parse(timeMax)) continue;
       const key = `${em}|${e.id}`;
       if (done.has(key)) continue;
@@ -18239,8 +18268,30 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
       const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id) || {};
       patch.contacts = [...(Array.isArray(r.contacts) ? r.contacts : []), { at: b.contact.at || new Date().toISOString(), type: String(b.contact.type || "電話").slice(0, 20), text: String(b.contact.text).slice(0, 2000), by: req.user }].slice(-200);
     }
+    // 掲載済みになったら、その手前の段（キックオフ・検収書・納品メール）も一気に済みにする（2026-11-20 田中さん「掲載一覧で、掲載済みになったら一気に掲載済みまでステージを進めてほしい」）。
+    //   「掲載済みになった」＝掲載先を初めて入れた・掲載済みの印を付けた・掲載日を入れた。もう済んでいる段・検収書の対象外はそのまま。
+    //   キックオフの日が何も分からない会社だけ、掲載日（無ければ今日）を実施日として入れる
+    let advanced = [];
+    try {
+      const prev = (await kinxsList()).find((y) => y.account_id === req.params.id) || {};
+      const prevPlaces = Array.isArray((prev.info || {}).places) ? prev.info.places.filter((p0) => p0 && (p0.where || p0.url)).length : 0;
+      const newPlaces = patch.info && Array.isArray(patch.info.places) ? patch.info.places.filter((p0) => p0 && (p0.where || p0.url)).length : prevPlaces;
+      const becomes = !prev.published && (patch.published === true || (newPlaces > 0 && prevPlaces === 0));
+      if (becomes) {
+        const day = patch.published_on || (prev.published_on ? null : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10));
+        if (patch.published !== true) { patch.published = true; advanced.push("掲載"); }
+        if (day && !patch.published_on && !prev.published_on) patch.published_on = day;
+        if (prev.mail_done !== true && patch.mail_done === undefined) { patch.mail_done = true; advanced.push("納品メール"); }
+        if (prev.kenshu_done !== true && !prev.kenshu_na && patch.kenshu_done === undefined && patch.kenshu_na === undefined) { patch.kenshu_done = true; advanced.push("検収書"); }
+        if (!prev.kickoff_on && patch.kickoff_on === undefined) {
+          const it = ((await kinxsBuild().catch(() => ({ items: [] }))).items || []).find((y) => y.id === req.params.id);
+          if (!(it && it.kickoffOn)) { patch.kickoff_on = patch.published_on || prev.published_on || day; advanced.push("キックオフ"); }
+        }
+      }
+    } catch (e) { console.warn("[kinXs] 掲載済みで段を進められませんでした", e.message); }
     const r = await kinxsUpdate(req.params.id, patch, req.user);
     if (!r) return res.status(404).json({ error: "見つかりません" });
+    if (advanced.length) await kinxsLogAuto(req.params.id, "stage", "", `掲載済みになったので ${advanced.join("・")} を済みにしました（${req.user}）`).catch(() => {});
     if ("cs_name" in b || "purpose" in b || (b.info && Array.isArray(b.info.contacts))) kxToKickoff(req.params.id, b, req.user).catch(() => {});
     let logoRefetched = false;
     if (b.info && typeof b.info === "object" && "website" in b.info && String(b.info.website || "").trim() && !r.logo_manual) {
@@ -18317,7 +18368,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
         _kxSfInfoCache.delete(id0); _kxMissing = { at: 0, data: null };
       }
     }
-    res.json({ ok: true, sfWrote, sfContacts, logoRefetched });
+    res.json({ ok: true, sfWrote, sfContacts, logoRefetched, advanced });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
@@ -19856,7 +19907,7 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
         const arr = [];
         for (const e of evs || []) {
           if (e.allDay || e.selfResponse === "declined") continue;
-          if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;   // リスケ・キャンセルは空き
+          if (isNoMeetingTitle(e.title)) continue;   // リスケ・キャンセルは空き（リスケ再設定は商談あり）
           const s = Date.parse(e.start), en = Date.parse(e.end);
           if (!isNaN(s) && !isNaN(en) && en > s) arr.push([s, en]);
         }
@@ -19963,7 +20014,7 @@ app.get("/api/calls/slot-day", async (req, res) => {
         const arr = [];
         for (const e of evs || []) {
           if (e.allDay || e.selfResponse === "declined") continue;
-          if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;
+          if (isNoMeetingTitle(e.title)) continue;
           const s0 = Date.parse(e.start), e0 = Date.parse(e.end);
           if (!isNaN(s0) && !isNaN(e0) && e0 > s0) arr.push([s0, e0]);
         }
@@ -34054,8 +34105,10 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "kincall の資料送付メールに署名（メンバー管理の署名）",
+  "kinXs：会社の道のり・宿題・次回アクションをその場で直せる",
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",
   "MOCHICALL：結果に「問い合わせフォームへ」。会社の Web ページから問い合わせページを探し、見えないブラウザで入力・送信（ロボット確認・分からない必須欄は送らず理由を出す。30日以内の2回目は確認。SF の活動にも残す）",
   "MOCHICALL の「これまで」：リードの由来（CSV・SF・BALES・DOC）に関係なく、すべての電話番号と会社名で BALES の行・SF のリード／取引先の活動・予定・商談・Zoom Phone の通話（過去180日を DB に写す）・DOC と MOCHICA の別リストの架電を集める。読めなかった元データは画面に出す",
@@ -36800,6 +36853,8 @@ function apoHeadState(title) {
   if (打ち消し.test(t)) return "";
   // キャンセル系を先に見る（「キャンセル→リスケ」のような書き方では、無くなった事実を優先）
   if (/(キャンセル|ｷｬﾝｾﾙ|cancel|中止|取消|取り消し|取りやめ|取り止め|見送り|流れ|ドタキャン|noshow|ノーショー)/i.test(t)) return "キャンセル";
+  // 「リスケ再設定」は、決め直した新しい日程の商談（2026-11-20 田中さん「商談があると判断してほしい」）
+  if (isReschedResetTitle(t)) return "";
   if (/(リスケ|ﾘｽｹ|resche|再調整|日程変更|日程再調整|日程調整中|延期|時間変更|振替|振り替え)/i.test(t)) return "リスケ";
   return "";
 }
@@ -40619,6 +40674,12 @@ server.listen(PORT, async () => {
   // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
   // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
   linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  // 「リスケ再設定」の予定は商談あり（2026-11-20 田中さん）。前に「リスケ」として数から外してしまったものを、1回だけ戻す
+  (async () => { try { const st0 = await getSettings().catch(() => ({})); if (st0.apoResetFix) return;
+    const { rows } = await pool.query(`UPDATE smart_links SET excluded = false, excluded_reason = NULL, updated_at = now() WHERE excluded AND excluded_reason = 'リスケ' AND label LIKE '%再設定%' AND label NOT LIKE '%キャンセル%' RETURNING label`);
+    await saveSettings({ apoResetFix: new Date().toISOString() });
+    if (rows.length) console.log(`[apo] 「リスケ再設定」のアポ ${rows.length}件を、数から外したのを戻しました：${rows.map((r0) => r0.label).slice(0, 5).join("／")}`);
+  } catch (e) { console.warn("[apo] リスケ再設定を戻せませんでした", e.message); } })();
   // 2026-10-20 田中さん：MO失注のリストの名前を一括で変える（「 - 担当者名」から後ろはそのまま。1回だけ）
   setTimeout(async () => {
     try {
