@@ -12876,6 +12876,15 @@ export async function mcMiitelTodo(limit = 10, { days = 60, novideo = false, ski
   return rows;
 }
 
+// 文字起こしがまだの会議の「試した回数」を0に戻す（2026-11-20：餌取さんの会議を、見る権限のない MiiTel のアカウントで2回開いて
+//   あきらめ扱いになっていた。権限のあるアカウントでもう一度読めるように）。戻した件数を返す
+export async function mcMiitelResetTries() {
+  if (!pool) return 0; await ensureMcMiitel();
+  const r = await pool.query(`UPDATE mochica_miitel_events SET payload = COALESCE(payload,'{}'::jsonb) - 'mt_tr_try' - 'mt_grab_fail'
+    WHERE COALESCE(transcript_len,0)=0 AND NOT (COALESCE(payload,'{}'::jsonb) ? 'mt_phrases') AND (payload ? 'mt_tr_try' OR payload ? 'mt_grab_fail')`).catch(() => ({ rowCount: 0 }));
+  return r.rowCount || 0;
+}
+
 // kinXs 企業の詳細「採用状況」（議事録から読み取ったもの）（2026-11-13）
 let _kxHiringInit = false;
 async function kxHiringEnsure() { if (!pool || _kxHiringInit) return; _kxHiringInit = true; await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_hiring (account_id TEXT PRIMARY KEY, data JSONB, sources JSONB, updated_at TIMESTAMPTZ DEFAULT now(), updated_by TEXT)`).catch(() => {}); }
