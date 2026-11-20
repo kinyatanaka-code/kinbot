@@ -2848,3 +2848,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-20 田中さん「迫間と蘒原（萩原）と加藤はいらない」：シフトの名前の一覧から外す（settings.shiftHidden・POST /api/shift/hidden {names, hide}）。kincall の役割はそのまま。
 - 2026-11-20 田中さん「餌取さんの会議が読まれない／②で2件しか読まれない」：文字起こしの読み取りは1会議2回まで（mt_tr_try）で、見る権限のない MiiTel のアカウントで開いた会議があきらめ扱いになっていた。文字起こしがまだの会議の mt_tr_try・mt_grab_fail を一度だけ0に戻す（起動時1回・settings.mcTrTryReset、POST /api/mochica/miitel/reset-tries でもう一度）。
 - 2026-11-20 田中さん「餌取さんの会議を全部読みたい」：MiiTel の新しい会議履歴一覧（/api/video/v2/videos/search）は duration が小数（1660.97）で、INT の duration_sec に入らず mcMiitelSave が黙って失敗していた。①で2402件・958件読んでも kinbot に入っていなかった原因。長さを整数にして保存、保存できた数だけ数える。餌取さんの会議（2025-10〜958件）を入れ直した。
+- 2026-11-21 田中さん「knowkinにkinbot,kincall,kinXsの情報を全部入れたい」：knowkin が1時間ごとに続きから取りに来る読み取り専用の入口 GET /api/knowkin/feed（server/knowkin_feed.js）。商談の要約・商談の動き・架電（1社1日にまとめる）・kinXs の契約企業と変更・お客様の声・候補者の質問・資料の閲覧。文字起こし全文やファイルは渡さない。管理者のトークンだけ。
