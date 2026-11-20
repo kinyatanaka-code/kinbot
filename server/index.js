@@ -15100,22 +15100,52 @@ async function kinxsTasksMerged(user, { fresh = false } = {}) {
   const own = await kxTaskList(user).catch(() => []);
   const byKey = new Map(own.map((r) => [r.key, r]));
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-  const out = [];
+  const out = []; const gone = [];   // gone：消したもの（同じ内容のタスクをまとめるときに使う）
   for (const t of h.tasks || []) {
     const key = t.key || kxTaskKey(t); const o = byKey.get(key) || (!t.key ? byKey.get(kxTaskKeyOld(t)) : null);
-    if (o && o.deleted) continue;
+    if (o && o.deleted) { gone.push({ ...t, key }); continue; }
     out.push({ ...t, key, id: o ? o.id : null, status: (o && o.status) || "未着手", due: (o && o.due) || t.due || "", auto: true });
   }
   const seenKeys = new Set(out.map((t) => t.key));
   for (const o of own) {
     // 手で足したもの（m:）と、議事録・メール・メールワイズから自動で作ったもの（auto:mail: など、題名があるもの）を出す
-    if (o.deleted || seenKeys.has(o.key)) continue;
+    if (seenKeys.has(o.key)) continue;
     if (!String(o.key).startsWith("m:") && !(String(o.key).startsWith("auto:") && o.title && /（自動）|Claude/.test(String(o.src || "")))) continue;
     const t = { src: o.src || "手入力", kind: "タスク", title: o.title || "", account: o.account_name || "", accountId: o.account_id || "", due: o.due || "", note: o.note || "" };
+    if (o.deleted) { gone.push({ ...t, key: o.key }); continue; }
     out.push({ ...t, key: o.key, id: o.id, status: o.status || "未着手", auto: false, createdAt: o.created_at, bucket: kxBucket(t, today) });
   }
   for (const t of out) t.bucket = t.status === "完了" ? "完了" : kxBucket(t, today);
-  return { ...h, tasks: out };
+  return { ...h, tasks: kxMergeDupTasks(out, gone) };
+}
+// 同じ会社の、ほぼ同じ内容のタスクを1つにまとめる（2026-11-20 田中さん「重複してるから同じような内容はまとめて一つにしてよ」）。
+//   例：「岡様に連絡する（Gmail）」と「岡様へ連絡をする（Gmail（自動））」、次回アクションと議事録から作ったタスクの同じ提案。
+//   同じとみなす：同じ会社・題が似ている（2文字ずつの重なりが半分以上。【MTG】などの頭は見ない）・期日が同じか片方が空。
+//   残すのは：次回アクション → 手で足したもの → 進んでいるもの → 期日があるもの → 題がくわしいもの の順。ほかは隠して dups に入れる。
+//   まとめた中に、消したものがあれば全部消えた扱い、済みにしたものがあれば全部済み扱い（片方だけ済ませても、もう片方が残らないように）
+function kxMergeDupTasks(list, gone = []) {
+  const accOf = (t) => String(t.accountId || "") || (t.account ? `n:${csCoKey(t.account)}` : "");
+  const dueOk = (a, b) => !a.due || !b.due || String(a.due).slice(0, 10) === String(b.due).slice(0, 10);
+  // 済み・消したものとまとめるときは、もっと厳しく（同じ期日・ほぼ同じ題）。前に済ませた似たタスクに、新しいタスクが吸われないように
+  const strict = (a, b) => String(a.due || "").slice(0, 10) === String(b.due || "").slice(0, 10) && kxTitleSim(a.title, b.title) >= 0.8;
+  // 短い題（「資料を送る」と「資料を確認する」など）は、少しの重なりで似て見えるので、もっと似ていないとまとめない
+  const nlen = (t0) => String(t0 || "").normalize("NFKC").replace(/^【[^】]{0,8}】/, "").replace(/[\s、。・（）()「」【】]/g, "").length;
+  const sim = (a, b) => kxTitleSim(a.title, b.title) >= (Math.min(nlen(a.title), nlen(b.title)) < 7 ? 0.75 : 0.5);
+  const same = (a, b) => accOf(a) && accOf(a) === accOf(b) && (a.status === "完了" || b.status === "完了" || a._gone || b._gone ? strict(a, b) : dueOk(a, b) && sim(a, b));
+  const rank = (t) => (t.kind === "次回アクション" ? 0 : 10) + (String(t.key || "").startsWith("m:") ? 0 : 5) + (t.status === "進行中" ? 0 : 2) + (t.due ? 0 : 1);
+  const used = new Set(); const out = [];
+  for (let i = 0; i < list.length; i++) {
+    if (used.has(i)) continue;
+    const grp = [list[i]]; used.add(i);
+    for (let j = i + 1; j < list.length; j++) if (!used.has(j) && grp.some((g) => same(g, list[j]))) { grp.push(list[j]); used.add(j); }
+    if (gone.some((g) => grp.some((t) => same(t, { ...g, _gone: true })))) continue;   // どれかを消していたら、まとめて消えた扱い
+    const done = grp.find((t) => t.status === "完了");
+    const keep = done || [...grp].sort((a, b) => rank(a) - rank(b) || String(b.title || "").length - String(a.title || "").length)[0];
+    // まとめた側がもう前にまとめたもの（dups）を持っていたら、それも引き継ぐ（会社の画面では2回まとめるため）
+    const dups = grp.filter((t) => t !== keep).flatMap((t) => [{ key: t.key, id: t.id || null, title: t.title, src: t.src }, ...(t.dups || [])]);
+    out.push(grp.length > 1 ? { ...keep, dups: [...(keep.dups || []), ...dups] } : keep);
+  }
+  return out;
 }
 async function kxTaskResolveAccount(user, company) {
   if (!company) return { id: "", name: "" };
@@ -15410,10 +15440,12 @@ app.get("/api/kinxs/accounts/:id/tasks", async (req, res) => {
       for (const t of (m.tasks || [])) {
         if (String(t.accountId || "") !== id || out.has(t.key)) continue;
         if (t.kind === "次回アクション" || /^次回アクション/.test(String(t.kind || ""))) continue;   // 次回アクションは上の枠に出すので重ねない
-        out.set(t.key, { key: t.key, id: t.id, title: t.title || t.kind || "", src: t.src || "kinXs", kind: t.kind || "", due: t.due || "", status: t.status || "未着手", owner: u, ownerName: pn.get(u) || u, auto: true, link: t.link || "", detail: t.detail || "" });
+        out.set(t.key, { key: t.key, id: t.id, dups: t.dups, title: t.title || t.kind || "", src: t.src || "kinXs", kind: t.kind || "", due: t.due || "", status: t.status || "未着手", owner: u, ownerName: pn.get(u) || u, auto: true, link: t.link || "", detail: t.detail || "" });
       }
     }
-    const list = [...out.values()].sort((a, b) => (a.status === "完了") - (b.status === "完了") || String(a.due || "9999").localeCompare(String(b.due || "9999")));
+    // 会社の画面でも、同じような内容のタスクは1つにまとめて見せる（2026-11-20 田中さん「重複してるから同じような内容はまとめて一つに」）
+    const list = kxMergeDupTasks([...out.values()].map((t) => ({ ...t, accountId: id })))
+      .sort((a, b) => (a.status === "完了") - (b.status === "完了") || String(a.due || "9999").localeCompare(String(b.due || "9999")));
     res.json({ ok: true, items: list, cs: x.cs || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -15428,6 +15460,7 @@ app.put("/api/kinxs/accounts/:id/tasks/:tid", async (req, res) => {
     if (b.title !== undefined) patch.title = String(b.title || "").slice(0, 200);
     if (b.assignee !== undefined) { const who = await kxAssigneeEmail(b.assignee); if (!who) return res.status(400).json({ error: "託す人が見つかりません" }); patch.owner = who; }
     const r = await kxTaskUpdateAny(req.params.tid, patch); if (!r) return res.status(404).json({ error: "見つかりません" });
+    await kxApplyDups(req.user, b.dups, { status: patch.status === "完了" ? "完了" : "", deleted: patch.deleted === true });
     for (const k of [..._kxInbox.keys()]) _kxInbox.delete(k);
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -15473,6 +15506,19 @@ app.post("/api/kinxs/accounts/:id/guide/read", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 自動のやること（kinXs・メール・チャット）の状態を変える・消す：その時点の中身ごと覚える
+// まとめて1つに見せていたタスク（dups）も、同じように済み・消すにする（2026-11-20：片方だけ済ませると、もう片方がまた出てくるため）
+async function kxApplyDups(user, dups, { status, deleted }) {
+  if (!Array.isArray(dups) || !dups.length || !(status === "完了" || deleted)) return;
+  for (const d of dups.slice(0, 10)) {
+    try {
+      const k = String((d && d.key) || "");
+      if (d && d.id && !k.startsWith("auto:")) { await kxTaskUpdateAny(d.id, { ...(deleted ? { deleted: true } : {}), ...(status ? { status } : {}) }); continue; }
+      if (!/^(auto|m):/.test(k)) continue;
+      const r0 = await kxTaskAdd(user, { key: k, title: String(d.title || "").slice(0, 200) || null, status: status || "未着手", src: d.src || "kinXs" });
+      if (r0 && r0.id) await kxTaskUpdate(user, r0.id, { ...(deleted ? { deleted: true } : {}), status: status || "未着手" });
+    } catch (e) { console.warn("[kinXs] まとめたタスクを直せませんでした", e.message); }
+  }
+}
 app.post("/api/kinxs/tasks/state", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -15481,6 +15527,7 @@ app.post("/api/kinxs/tasks/state", async (req, res) => {
     const del = b.deleted === true;
     const st0 = KX_TASK_STATUS.includes(b.status) ? b.status : "未着手";
     let r = await kxTaskAdd(req.user, { key, title: String(b.title || "").slice(0, 200) || null, account_id: b.accountId || null, account_name: b.account || null, due: b.due || null, status: st0, src: b.src || "kinXs" });
+    await kxApplyDups(req.user, b.dups, { status: st0 === "完了" ? "完了" : "", deleted: del });
     if (del || st0 === "完了" || b.due !== undefined) r = await kxTaskUpdate(req.user, r.id, { ...(del ? { deleted: true } : {}), status: st0, ...(b.due !== undefined ? { due: /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null } : {}) });
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -15509,6 +15556,7 @@ app.put("/api/kinxs/tasks/:id", async (req, res) => {
     if (b.status !== undefined) { if (!KX_TASK_STATUS.includes(b.status)) return res.status(400).json({ error: "状態が正しくありません" }); patch.status = b.status; }
     if (b.deleted !== undefined) patch.deleted = b.deleted === true;
     if (b.note !== undefined) patch.note = String(b.note || "").slice(0, 1000);
+    await kxApplyDups(req.user, b.dups, { status: patch.status === "完了" ? "完了" : "", deleted: patch.deleted === true });
     // 託す（担当を変える）：ホームのタスクから（2026-11-12 田中さん）
     if (b.assignee) {
       const who = await kxAssigneeEmail(b.assignee).catch(() => ""); if (!who) return res.status(400).json({ error: "託す人が見つかりません" });
@@ -34105,8 +34153,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "kinXs：同じような内容のタスクを1つにまとめる",
   "kincall の資料送付メールに署名（メンバー管理の署名）",
   "kinXs：会社の道のり・宿題・次回アクションをその場で直せる",
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",

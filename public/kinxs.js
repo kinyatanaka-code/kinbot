@@ -1362,8 +1362,8 @@ function renderHome() {
   const findT = (el) => all.find((t) => t.key === el.closest("[data-kh-key]").dataset.khKey);
   const setState = async (t, patch) => {
     try {
-      if (t.id && !String(t.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t.id}`, { method: "PUT", body: JSON.stringify(patch) });
-      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t.key, title: t.title, accountId: t.accountId, account: t.account, src: t.src, status: patch.status || t.status, ...(patch.due !== undefined ? { due: patch.due } : {}), ...(patch.deleted ? { deleted: true } : {}) }) });
+      if (t.id && !String(t.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t.id}`, { method: "PUT", body: JSON.stringify({ ...patch, dups: t.dups }) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ dups: t.dups, key: t.key, title: t.title, accountId: t.accountId, account: t.account, src: t.src, status: patch.status || t.status, ...(patch.due !== undefined ? { due: patch.due } : {}), ...(patch.deleted ? { deleted: true } : {}) }) });
       _khOwn = await api("/api/kinxs/tasks").then((r) => r.items || []).catch(() => _khOwn); renderHome();
     } catch (e) { alert(e.message); }
   };
@@ -1674,8 +1674,8 @@ async function kh2LoadTasks(who0) {
     setTimeout(() => { li.style.display = "none"; }, 260);
     try {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_text: "" }) });
-      else if (t0.id && !String(t0.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ status: "完了" }) });
-      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: "完了" }) });
+      else if (t0.id && !String(t0.key).startsWith("auto:")) await api(`/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ status: "完了", dups: t0.dups }) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ dups: t0.dups, key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: "完了" }) });
       if (typeof kxDoneToast === "function") kxDoneToast("済みにしました");
     } catch (err) { li.classList.remove("gone"); li.style.display = ""; b.classList.remove("on"); kh2.tkN += 1; if (nb) nb.textContent = kh2.tkN; alert(err.message); }
   }));
@@ -1693,8 +1693,8 @@ function kh2WireDel(box, items) {
     try {
       if (t0.kind === "次回アクション" && t0.accountId) await api(`/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}`, { method: "PUT", body: JSON.stringify({ na_text: "", na_at: "" }) });
       // ほかの人のタスク（全員の一覧）も消せるように、会社のタスクは会社の窓口から消す（担当に関係なく消せる）
-      else if (t0.id && !String(t0.key || "").startsWith("auto:")) await api(t0.accountId ? `/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}/tasks/${t0.id}` : `/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ deleted: true }) });
-      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: t0.status || "未着手", deleted: true }) });
+      else if (t0.id && !String(t0.key || "").startsWith("auto:")) await api(t0.accountId ? `/api/kinxs/accounts/${encodeURIComponent(t0.accountId)}/tasks/${t0.id}` : `/api/kinxs/tasks/${t0.id}`, { method: "PUT", body: JSON.stringify({ deleted: true, dups: t0.dups }) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ dups: t0.dups, key: t0.key, title: t0.title, accountId: t0.accountId, account: t0.account, src: t0.src, status: t0.status || "未着手", deleted: true }) });
       if (typeof kxDoneToast === "function") kxDoneToast("消しました");
     } catch (err) { li.classList.remove("gone"); li.style.display = ""; kh2.tkN += 1; if (nb) nb.textContent = kh2.tkN; alert("消せませんでした：" + err.message); }
   }));
@@ -3555,8 +3555,8 @@ async function kxCTaskMount(bg, x) {
         x.na = body.status === "完了" ? "" : x.na; if (body.due !== undefined) { x.naDue = body.due; x.naAt = body.due ? new Date(`${body.due}T${t.time || "10:00"}:00+09:00`).toISOString() : ""; }
         return;
       }
-      if (t.id) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks/${t.id}`, { method: "PUT", body: JSON.stringify(body) });
-      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ key: t.key, title: t.title, accountId: x.id, account: x.name, src: t.src, status: body.status || t.status, ...(body.deleted ? { deleted: true } : {}), ...(body.due !== undefined ? { due: body.due } : {}) }) });
+      if (t.id) await api(`/api/kinxs/accounts/${encodeURIComponent(x.id)}/tasks/${t.id}`, { method: "PUT", body: JSON.stringify({ ...body, dups: t.dups }) });
+      else await api("/api/kinxs/tasks/state", { method: "POST", body: JSON.stringify({ dups: t.dups, key: t.key, title: t.title, accountId: x.id, account: x.name, src: t.src, status: body.status || t.status, ...(body.deleted ? { deleted: true } : {}), ...(body.due !== undefined ? { due: body.due } : {}) }) });
     };
     box.querySelectorAll("[data-tm-done]").forEach((b) => b.addEventListener("click", async () => { const t = list[Number(b.dataset.tmDone)];
       if (t.na && !confirm("次回アクションを済みにしますか？（次回アクションが空になります）")) return;
