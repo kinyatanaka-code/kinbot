@@ -14619,8 +14619,47 @@ function kxDeliveryMonth(k) {
 const KX_LABELS = ["計上予定", "フォローMTG設定済", "検収書回収待ち", "オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定", "解約済み", "エラー"];   // 「キャンセル」はやめた（2026-11-04）
 // 今日（日本時間）から、その日まであと何日か（今日＝0、昨日＝-1）。前は時刻で割って切り上げていたため、前日が「今日」・今日が「あと1日」になっていた（2026-11-11）
 function kxDaysLeft(ymd) { const t = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); return Math.round((Date.parse(String(ymd).slice(0, 10) + "T00:00:00Z") - Date.parse(t + "T00:00:00Z")) / 86400000); }
+// ===== キックオフの予定（FS のカレンダー）（2026-11-20 久野さん「キックオフ予定されてない・実施していない企業を拾いたい」）=====
+//   FS（クローザー）のカレンダーで、予定名に「キックオフ」がある予定（前14日〜先90日）を1時間ごとに読んでおく。
+//   kinXs の会社と予定名の会社名で照らして「予定あり（まだ実施していない）」「予定日を過ぎた」「まだ予定がない」を分ける。
+//   読むのは Google カレンダーだけ（お金はかからない）。待たせないよう、前に読んだものを使い、古ければ裏で読み直す
+const _kxKo = { at: 0, list: [], busy: false };
+async function kxKickoffPlansScan() {
+  if (_kxKo.busy) return; _kxKo.busy = true;
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const ops = [st.apoScanOwner, st.apoInviteOwner, st.apoCalendarOwner].map((x) => String(x || "").trim()).find(Boolean) || "";
+    const closers = await listClosers({ activeOnly: true }).catch(() => []);
+    const timeMin = new Date(Date.now() - 14 * 86400000).toISOString(), timeMax = new Date(Date.now() + 90 * 86400000).toISOString();
+    const list = [];
+    for (const c of closers) {
+      const em = String(c.email || "").toLowerCase(); if (!em) continue;
+      const reader = (await gcalConnected(em).catch(() => false)) ? em : ops; if (!reader) continue;
+      let evs = []; try { evs = await listCalendarEvents(reader, em, { timeMin, timeMax }); } catch { continue; }
+      for (const e of evs) {
+        if (!/キックオフ|kick ?off/i.test(e.title || "") || isNoMeetingTitle(e.title) || !e.start) continue;
+        const key = csCoKey(e.title);   // 予定名から会社名だけを取る（「【キックオフ】〇〇株式会社 △△様」→ 〇〇） if (!key || key.length < 2) continue;
+        list.push({ key, start: e.start, fs: c.name || em });
+      }
+    }
+    _kxKo.list = list; _kxKo.at = Date.now();
+  } catch (e) { console.warn("[kinXs] キックオフの予定を読めませんでした", e.message); }
+  finally { _kxKo.busy = false; }
+}
+function kxKickoffPlans() {
+  if (Date.now() - _kxKo.at > 60 * 60000) kxKickoffPlansScan().catch(() => {});
+  return _kxKo.list;
+}
+setTimeout(() => { kxKickoffPlansScan().catch(() => {}); }, 90000);
+// 会社のキー（今の名前・旧社名）に合うキックオフの予定。いちばん新しい予定（予定を引き直したとき、新しいほうを使う）
+function kxKickoffPlanFor(keys, plans) {
+  const ks = keys.filter((k) => k && k.length >= 2);
+  const hit = plans.filter((p) => ks.some((k) => p.key === k || (k.length >= 4 && p.key.includes(k))));
+  return hit.sort((a, b) => String(b.start).localeCompare(String(a.start)))[0] || null;
+}
 async function kinxsBuild() {
   await kinxsInit();
+  const koPlans = kxKickoffPlans();
   const st = await getSettings().catch(() => ({}));
   const rules = { renewDays: 90, contactDays: 30, staleDays: 90, ...(st.kinxsRules || {}) };
   const rowsAll = await kinxsList();
@@ -14698,14 +14737,22 @@ async function kinxsBuild() {
     const label = label0 === "キャンセル" ? "解約済み" : label0;
     // 要アクション（事前アラート）（2026-11-04 久野さんの要望書 4-3。ホームとフェーズ別で共通）
     const actions = [];
+    const koPlanOf = kickOn ? null : kxKickoffPlanFor([key, ...fkeys], koPlans);
     const PRE = ["計上予定", "フォローMTG設定済", "検収書回収待ち"], POST = ["オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定"];
     const bookedYmd = ymd0(r.first_booked_on || r.booked_on);
     // 検収書の回収予定月（空なら受注月の翌月）。ホームの「その月の検収書回収」にも使う（2026-11-16）
     const ksMonthEff = r.kenshu_month || (bookedYmd ? (() => { const d = new Date(Date.parse(bookedYmd.slice(0, 7) + "-01T00:00:00Z")); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); })() : "");
     if (!r.archived && PRE.includes(label)) {
+      // キックオフ（FS）がまだの会社は、受注（計上）したらすぐ出す（2026-11-20 久野さん：前は受注から14日たってから）。
+      //   受注→キックオフ（FS）→フォローMTG（CS）→フォロー の順。予定が無い＝「未設定」、予定がある＝「予定 ○/○（未実施）」、予定日を過ぎても記録が無い＝「予定日過ぎ」
       if (!kickOn && bookedYmd) {
-        const d = Math.floor((now - Date.parse(bookedYmd + "T00:00:00+09:00")) / 86400000);
-        if (d >= 14) actions.push({ group: "納品前", kind: "キックオフ未実施", detail: `キックオフ未実施（受注から${d}日）`, due: new Date(Date.parse(bookedYmd + "T00:00:00+09:00") + 14 * 86400000 + 9 * 3600000).toISOString().slice(0, 10), left: 14 - d });
+        const d = Math.max(0, Math.floor((now - Date.parse(bookedYmd + "T00:00:00+09:00")) / 86400000));
+        const pl = koPlanOf; const md = (iso) => { const t = new Date(Date.parse(iso) + 9 * 3600000).toISOString(); return `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}`; };
+        if (pl && Date.parse(pl.start) > now) { const due = new Date(Date.parse(pl.start) + 9 * 3600000).toISOString().slice(0, 10);
+          actions.push({ group: "納品前", kind: "キックオフ未実施", ko: "予定あり", detail: `キックオフ予定 ${md(pl.start)}（まだ実施していません）`, due, left: kxDaysLeft(due) }); }
+        else if (pl) { const due = new Date(Date.parse(pl.start) + 9 * 3600000).toISOString().slice(0, 10);
+          actions.push({ group: "納品前", kind: "キックオフ未実施", ko: "予定日過ぎ", detail: `キックオフ予定日 ${md(pl.start)} を過ぎましたが、実施の記録がありません`, due, left: kxDaysLeft(due) }); }
+        else actions.push({ group: "納品前", kind: "キックオフ未実施", ko: "未設定", detail: `キックオフ未設定（受注から${d}日・予定がありません）`, due: bookedYmd, left: -d });
       }
       // 回収予定月が空の会社も数える：受注月の翌月を予定月とみなす（2026-11-16 田中さん「検収書未回収が0になっているけど結構あるんじゃない？」
       //   予定月が入っている会社しか数えておらず、ほとんど空だった）。アラートは予定月の2週間前から（同日「1週間前だとワークフローが漏れる」）
@@ -14765,7 +14812,7 @@ async function kinxsBuild() {
       // 掲載先（どこに掲載しているか）（2026-11-17 久野さんの要望：直販が見やすい一覧にも出す）
       places: Array.isArray((r.info || {}).places) ? r.info.places : [],
       noPlace: !!(r.info || {}).no_place,   // 掲載先一覧で「未掲載」と決めた会社（2026-11-19 久野さん）
-      actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", ksMonth: oldDeal ? "" : ksMonthEff, kenshuOn, kenshuSt: kenshu, delivered, endOn: ymd0(r.end_on),
+      actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, kickoffPlan: koPlanOf ? new Date(Date.parse(koPlanOf.start) + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "", publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", ksMonth: oldDeal ? "" : ksMonthEff, kenshuOn, kenshuSt: kenshu, delivered, endOn: ymd0(r.end_on),
       // 前月比のための日付（2026-11-04）：納品した日（検収書の回収日 → 10月より前の受注は受注日 → 自動で回収済みにしたものは受注日＋90日）・DOCを最初に受注した日
       deliveredOn: delivered ? (kenshuOn || (oldDeal ? bookedYmd0 : "") || (bookedYmd0 ? new Date(Date.parse(bookedYmd0 + "T00:00:00+09:00") + 90 * 86400000 + 9 * 3600000).toISOString().slice(0, 10) : "")) : "",
       docBooked: (r.products || []).filter((p0) => p0 && typeof p0 === "object" && p0.booked && ["空間", "AI"].includes(kxClassOf(p0.name))).map((p0) => String(p0.booked).slice(0, 10)).sort()[0] || "",
@@ -34183,8 +34230,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "kinXs：キックオフ未設定・未実施を受注後すぐ出す／担当企業の画面",
   "企業カードから NeoSTAGE に入れる（kinbot-ext 2.2.30）",
   "インターン生もシフト提出ページに入力できる",
   "kincall：資料送付設定で自分の署名を直せる",

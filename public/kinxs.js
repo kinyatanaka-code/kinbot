@@ -256,7 +256,7 @@ $("kxSync").addEventListener("click", async () => {
 // テスト用の会社を出すか（このブラウザだけ。DOC自動更新の上の「🧪 テスト」で切りかえ）（2026-11-10）
 const KX_TEST = (() => { try { return localStorage.getItem("kxTest") === "1"; } catch { return false; } })();
 const kxUsersUrl = () => `/api/kinxs/users${KX_TEST ? "?test=1" : ""}`;
-const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub", voice: "voice", access: "access", docai: "docai" })[new URLSearchParams(location.search).get("p")] || "home";
+const VIEW = ({ mail: "mail", ar: "ar", missing: "missing", home: "home", renew: "renew", list: "list", import: "import", cs: "cs", board: "board", settings: "settings", plan: "plan", trend: "trend", call: "call", pub: "pub", mine: "mine", voice: "voice", access: "access", docai: "docai" })[new URLSearchParams(location.search).get("p")] || "home";
 document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach((a) => a.classList.toggle("on", a.dataset.view === VIEW));
 // メニューの親子：いまのページがある組は開いておく。矢印で開け閉めしたら、このブラウザで覚えておく（2026-11-17）
 (function kxNavGroups() {
@@ -275,7 +275,7 @@ document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach
     if (window.matchMedia && window.matchMedia("(hover: hover)").matches) g.querySelector(".kx-grp-h").addEventListener("mouseenter", () => { if (!g.classList.contains("open")) setOpen(true); });
   });
 })();
-if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vAccess")) $("vAccess").hidden = VIEW !== "access"; if ($("vDocAi")) $("vDocAi").hidden = VIEW !== "docai"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
+if ($("vAr")) $("vAr").hidden = VIEW !== "ar"; if ($("vMail")) $("vMail").hidden = VIEW !== "mail"; $("vList").hidden = VIEW !== "list"; if ($("vHome")) $("vHome").hidden = VIEW !== "home"; if ($("vMissing")) $("vMissing").hidden = VIEW !== "missing"; $("vRenew").hidden = VIEW !== "renew"; $("vImport").hidden = VIEW !== "import"; $("vCs").hidden = VIEW !== "cs"; $("vBoard").hidden = VIEW !== "board"; $("vSet").hidden = VIEW !== "settings"; if ($("vPlan")) $("vPlan").hidden = VIEW !== "plan"; if ($("vTrend")) $("vTrend").hidden = VIEW !== "trend"; if ($("vAccess")) $("vAccess").hidden = VIEW !== "access"; if ($("vDocAi")) $("vDocAi").hidden = VIEW !== "docai"; if ($("vCall")) $("vCall").hidden = VIEW !== "call"; if ($("vPub")) $("vPub").hidden = VIEW !== "pub"; if ($("vMine")) $("vMine").hidden = VIEW !== "mine"; if ($("vVoice")) $("vVoice").hidden = VIEW !== "voice";
 // ブラウザのタブは、どの画面でも「kinXs」だけ
 document.title = window.KX_COPY ? "kincs" : "kinXs";   // コピー（kincs）ではタブの題名も kincs（2026-11-07）
 // ヘッダー：今の画面の名前、画面に合わせたボタン、ログインしている人
@@ -1735,7 +1735,7 @@ function renderHomeV2() {
   // 検収書は「今月が回収月の会社」を出す（2026-11-16 田中さん「その月の検収書回収企業を出してもらったほうがいい」）：
   //   未回収は要アクションの行、回収済み（今月回収した・回収済みにした）は下に「済み」として並べる。数は「未回収／今月の回収社数」
   const ksDoneRows = items.filter((x) => kxHasDoc(x) && x.ksMonth === kxThisYm && !x.archived && (String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外" || String(x.kenshuOn || "").slice(0, 7) === kxThisYm) && kxMineCo2(x));
-  const kinds = [["ko", "キックオフ未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", `${Number(kxThisYm.slice(5))}月の検収書回収・未回収`, (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
+  const kinds = [["ko", "キックオフ未設定・未実施", (a) => a.kind === "キックオフ未実施", "#E0A100"], ["ks", `${Number(kxThisYm.slice(5))}月の検収書回収・未回収`, (a) => a.kind === "検収書 未回収", "#C43D3D"], ["tk", "タスク", () => false, "#3F72C9"]];
   const kf = kh2.kf || ""; const shown = kf === "tk" ? [] : actRows.filter((r) => !kf || kinds.find((k) => k[0] === kf)[2](r.a));
   // 「自分」のときは、自分がCS担当の会社だけ（これからの更新・情報不足も）（2026-11-12 田中さん）
   const kxMineCo = (x) => !kxCsF || !x || (kxSurname(x.cs) || "") === kxCsF;
@@ -1762,10 +1762,11 @@ function renderHomeV2() {
         const k0 = a.kind === "キックオフ未実施" ? "ko" : a.kind === "検収書 未回収" ? "ks" : a.measure ? "me" : a.na ? "na" : "";
         const due = a.due || ""; const tm = a.na && x.naAt ? new Date(new Date(x.naAt).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "";
         const lbl = due ? `${Number(due.slice(5, 7))}/${Number(due.slice(8, 10))}${tm ? ` ${tm}` : ""}` : "期日なし";
-        const em = a.left == null ? "" : a.left < 0 ? `<em class="over">${-a.left}日過ぎ</em>` : a.left === 0 ? '<em class="soon">今日</em>' : `<em class="${a.left <= 3 ? "soon" : ""}">あと${a.left}日</em>`;
+        // キックオフ未設定は、受注日と「受注から何日」を出す（期日ではないので「過ぎ」と言わない）（2026-11-20）
+        const em = a.ko === "未設定" ? `<em class="${a.left <= -7 ? "over" : "soon"}">受注から${-a.left}日</em>` : a.left == null ? "" : a.left < 0 ? `<em class="over">${-a.left}日過ぎ</em>` : a.left === 0 ? '<em class="soon">今日</em>' : `<em class="${a.left <= 3 ? "soon" : ""}">あと${a.left}日</em>`;
         const cls = `h2-due ${a.left != null && a.left < 0 ? "over" : a.left != null && a.left <= 3 ? "soon" : ""}`;
         if (k0 === "na" || k0 === "me") return `<label class="${cls} edit" data-noopen title="押すと日付${k0 === "na" ? "と時間" : ""}を変えられます">${lbl}${em}<input type="${k0 === "na" ? "datetime-local" : "date"}" data-ha="${k0}" data-id="${esc(x.id)}" data-mkey="${esc(a.measure || "")}" data-ym="${esc(a.ym || "")}" data-at="${esc(x.naAt || "")}" data-do="date" value="${esc(k0 === "na" && due ? `${due}T${x.naAt ? new Date(new Date(x.naAt).getTime() + 9 * 3600000).toISOString().slice(11, 16) : "10:00"}` : due)}"></label>`;
-        return `<span class="${cls}" title="${k0 === "ko" ? "受注から14日（キックオフの目安）" : "期日"}">${lbl}${em}</span>`; })()}<span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}${a.kind === "キックオフ未実施" && x.fs ? `<small class="h2-fs" title="受注した人（${esc(x.channel || "直販")}）">${esc(x.channel === "PS" ? "PS" : "直販")}：${esc(kxSurname(x.fs) || x.fs)}</small>` : ""}</span>${(() => { const ppl = window.__kxPeople || []; const csEm = (ppl.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || "";
+        return `<span class="${cls}" title="${k0 === "ko" ? (a.ko === "未設定" ? "受注日（キックオフの予定がまだありません）" : "キックオフの予定日（FS のカレンダー）") : "期日"}">${lbl}${em}</span>`; })()}<span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">${esc(a.detail.replace(/（[^）]*日[^）]*）$/, ""))}${a.kind === "キックオフ未実施" && x.fs ? `<small class="h2-fs" title="受注した人（${esc(x.channel || "直販")}）">${esc(x.channel === "PS" ? "PS" : "直販")}：${esc(kxSurname(x.fs) || x.fs)}</small>` : ""}</span>${(() => { const ppl = window.__kxPeople || []; const csEm = (ppl.find((p0) => kxSurname(p0.name) === kxSurname(x.cs || "")) || {}).email || "";
         const nm = a.na && x.naOwner ? (kxSurname((ppl.find((p0) => p0.email === x.naOwner) || {}).name || "") || x.naOwner.split("@")[0]) : (kxSurname(x.cs) || "CS未定");
         // キックオフ未実施・検収書も、担当を押すとほかの人に割り振れる（2026-11-13 田中さん）
         if ((a.kind === "キックオフ未実施" || a.kind === "検収書 未回収") && ppl.length && !window.KX_COPY) {
@@ -2498,6 +2499,60 @@ async function renderPub() {
   draw();
 }
 if (VIEW === "pub") renderPub();
+if (VIEW === "mine") renderMine();
+// ===== 担当企業（2026-11-20 久野さん「自分のもってる企業って何社か、どのような状況か、ぱっとみれるようにしたい」）=====
+//   CS 担当で絞った会社を、キックオフ・検収書・納品メール・掲載の状況で数えて、押すとその会社を並べる。タスクはホームのタスクと同じもの
+async function renderMine() {
+  const box = $("vMineBody"); if (!box) return;
+  if ($("kxPageName")) $("kxPageName").textContent = "担当企業";
+  box.innerHTML = '<div class="kx-empty">読み込み中…</div>';
+  let d; try { d = await api(kxUsersUrl()); } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; }
+  const all = (d.items || []).filter((x) => !x.archived && kxHasDoc(x) && x.label !== "解約済み");
+  const st = window.__mine || (window.__mine = { who: "", k: "all" });
+  if (!st.who) { const me0 = kxSurname(window.__kxMe || ""); st.who = me0 || ""; }
+  const names = [...new Set(all.map((x) => kxSurname(x.cs) || "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+  if (st.who && !names.includes(st.who)) names.unshift(st.who);
+  const pubd = (x) => !!(x.published || x.publishedOn || (x.places || []).length);
+  // 数え方：キックオフは要アクションと同じ（受注して、キックオフがまだ）。検収書・納品メールは納品前でまだのもの。掲載は納品したあと
+  const KS = [
+    ["all", "担当ユーザー数", "#0d5b47", () => true, (x) => x.label],
+    ["ko", "キックオフ未実施", "#E0A100", (x) => (x.actions || []).some((a) => a.kind === "キックオフ未実施"), (x) => ((x.actions || []).find((a) => a.kind === "キックオフ未実施") || {}).detail || ""],
+    ["ks", "検収書の回収が必要", "#C43D3D", (x) => !x.delivered && !(String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外"), (x) => `検収書：${x.kenshuSt || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`],
+    ["ml", "納品メールの対応が必要", "#3F72C9", (x) => !String(x.mail || "").startsWith("送付済み"), (x) => `納品メール：${x.mail || "未送付"}`],
+    ["np", "納品済み・未掲載", "#8A4B00", (x) => x.delivered && !pubd(x), (x) => `納品 ${x.deliveredOn || "—"}${x.noPlace ? "・未掲載と決めた会社" : ""}`],
+    ["pb", "納品済み・掲載中", "#1d9e75", (x) => x.delivered && pubd(x), (x) => `掲載 ${x.publishedOn || "日付なし"}${(x.places || []).length ? `・${x.places.map((p) => p.where).filter(Boolean).slice(0, 2).join("・")}` : ""}`],
+  ];
+  const draw = () => {
+    const mine = all.filter((x) => !st.who || (kxSurname(x.cs) || "") === st.who);
+    const cur = KS.find((k) => k[0] === st.k);
+    const list = cur ? mine.filter(cur[3]).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))) : [];
+    box.innerHTML = `<div class="mi-tools"><label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div>
+      <div class="mi-kpis">${KS.map(([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`).join("")}
+        <button type="button" class="mi-kpi ${st.k === "tk" ? "on" : ""}" style="--c:#6B4FB8" data-mk="tk"><span class="l"><i></i>タスク</span><span class="v" data-mtk-n>…<small>件</small></span></button></div>
+      ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
+        : `<div class="mi-h">${esc(cur ? cur[1] : "")}<span class="kx-note">${list.length}社</span></div><div class="mi-list">${list.length ? list.map((x) => `<div class="mi-co" role="button" tabindex="0" data-mopen="${esc(x.id)}">${kxLogoMini(x)}<span class="t"><b>${esc(x.name)}</b><small>${esc(cur[4](x) || "")}</small></span><span class="lb">${esc(x.label)}</span></div>`).join("") : '<div class="kx-empty" style="grid-column:1/-1">ありません</div>'}</div>`}`;
+    box.querySelector("[data-mwho]").addEventListener("change", (e) => { st.who = e.target.value; draw(); });
+    box.querySelectorAll("[data-mk]").forEach((b) => b.addEventListener("click", () => { st.k = b.dataset.mk; draw(); }));
+    box.querySelectorAll("[data-mopen]").forEach((el) => { const go = () => openDetail(el.dataset.mopen); el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
+    loadTasks();
+  };
+  // タスク：ホームのタスクと同じ（その人のもの）。数は先に出し、タスクを選んだら並べる
+  const loadTasks = async () => {
+    const my = (loadTasks.seq = (loadTasks.seq || 0) + 1);
+    // 同じ人のタスクは覚えておく（数を押すたびに読み直すと遅いので）
+    const ck = st.who || "all"; st.tk = st.tk || {};
+    let t; try { t = st.tk[ck] || (st.tk[ck] = await api(`/api/kinxs/home/tasks?who=${encodeURIComponent(ck)}`)); } catch (e) { const el = box.querySelector("[data-mtk]"); if (el) el.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; }
+    if (my !== loadTasks.seq) return;
+    const items = (t.items || []).filter((t0) => t0.kind === "次回アクション" || !/^kinXs$/.test(String(t0.src || "")));
+    const n = box.querySelector("[data-mtk-n]"); if (n) n.innerHTML = `${Math.max(items.length, Number(t.total) || 0)}<small>件</small>`;
+    const el = box.querySelector("[data-mtk]"); if (!el) return;
+    const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
+    el.innerHTML = items.length ? items.map((t0) => `<div class="mi-tk" ${t0.accountId ? `data-mopen="${esc(t0.accountId)}"` : ""} role="button" tabindex="0"><span class="d ${t0.due && t0.due < today ? "over" : ""}">${t0.due ? `${Number(t0.due.slice(5, 7))}/${Number(t0.due.slice(8, 10))}` : "期日なし"}</span><span class="t">${esc(t0.title || t0.kind || "")}<small>${esc(t0.account || "")}${t0.ownerName ? `・${esc(t0.ownerName)}` : ""}</small></span></div>`).join("") + '<div class="kx-note" style="margin-top:6px">済みにする・消すは、ホームのタスクか、会社の詳しい画面のタスクで</div>'
+      : '<div class="kx-empty">タスクはありません</div>';
+    el.querySelectorAll("[data-mopen]").forEach((r) => r.addEventListener("click", () => openDetail(r.dataset.mopen)));
+  };
+  draw();
+}
 // ===== 要望・問い合わせ（2026-11-17 久野さん「その企業からもらっている開発要望や問い合わせ事項について議事録からまとまって入る欄・解決したら消せるチェック・まとめた表」）=====
 // 1件の行（2026-11-17 田中さん「要望をもっと見やすく」）：左に種類の印（要望＝電球・問い合わせ＝はてな）、まん中に題と中身（2行まで）、
 //   右に優先度と「解決」。先方の言葉と出どころは「根拠」を開いたときだけ出す
