@@ -2847,3 +2847,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-20 田中さん「インターン生だれでも入れて、名前タブで選ぶ感じでいい」（なりすましのおそれは伝えたうえで「べつに大丈夫」）：/shift.html と /api/shift/people・load・save をログインなしで通す。名前の一覧はメンバー管理で kincall かつ在籍の人。メールは出さず、名前と印（SESSION_SECRET から作った shiftKey）だけ渡す。選んだ名前はブラウザに覚える。提出した月は変えられないのは同じ。
 - 2026-11-20 田中さん「迫間と蘒原（萩原）と加藤はいらない」：シフトの名前の一覧から外す（settings.shiftHidden・POST /api/shift/hidden {names, hide}）。kincall の役割はそのまま。
 - 2026-11-20 田中さん「餌取さんの会議が読まれない／②で2件しか読まれない」：文字起こしの読み取りは1会議2回まで（mt_tr_try）で、見る権限のない MiiTel のアカウントで開いた会議があきらめ扱いになっていた。文字起こしがまだの会議の mt_tr_try・mt_grab_fail を一度だけ0に戻す（起動時1回・settings.mcTrTryReset、POST /api/mochica/miitel/reset-tries でもう一度）。
+- 2026-11-20 田中さん「餌取さんの会議を全部読みたい」：MiiTel の新しい会議履歴一覧（/api/video/v2/videos/search）は duration が小数（1660.97）で、INT の duration_sec に入らず mcMiitelSave が黙って失敗していた。①で2402件・958件読んでも kinbot に入っていなかった原因。長さを整数にして保存、保存できた数だけ数える。餌取さんの会議（2025-10〜958件）を入れ直した。

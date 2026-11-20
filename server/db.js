@@ -12823,6 +12823,7 @@ async function ensureMcMiitel() {
     id TEXT PRIMARY KEY, received_at TIMESTAMPTZ DEFAULT now(), kind TEXT, title TEXT, started_at TIMESTAMPTZ, host TEXT, participants TEXT,
     duration_sec INT, transcript_len INT DEFAULT 0, url TEXT, payload JSONB)`).catch(() => {});
 }
+// 長さ（秒）は整数で入れる（2026-11-20：新しい会議履歴一覧は 1660.97 のような小数で、INT の列に入らず黙って保存されていなかった）
 export async function mcMiitelSave(ev) {
   if (!pool) return null; await ensureMcMiitel();
   const r = await pool.query(`INSERT INTO mochica_miitel_events (id, kind, title, started_at, host, participants, duration_sec, transcript_len, url, payload)
@@ -12831,7 +12832,7 @@ export async function mcMiitelSave(ev) {
       started_at=COALESCE(EXCLUDED.started_at, mochica_miitel_events.started_at), host=COALESCE(NULLIF(EXCLUDED.host,''), mochica_miitel_events.host), participants=COALESCE(NULLIF(EXCLUDED.participants,''), mochica_miitel_events.participants),
       duration_sec=COALESCE(EXCLUDED.duration_sec, mochica_miitel_events.duration_sec), transcript_len=GREATEST(EXCLUDED.transcript_len, mochica_miitel_events.transcript_len), url=COALESCE(NULLIF(EXCLUDED.url,''), mochica_miitel_events.url),
       payload = mochica_miitel_events.payload || EXCLUDED.payload
-    RETURNING id`, [ev.id, ev.kind || null, ev.title || "", ev.startedAt || null, ev.host || "", ev.participants || "", ev.durationSec ?? null, ev.transcriptLen || 0, ev.url || "", JSON.stringify(ev.payload || {})]).catch((e) => { console.warn("[MiiTel] 保存できませんでした", e.message); return null; });
+    RETURNING id`, [ev.id, ev.kind || null, ev.title || "", ev.startedAt || null, ev.host || "", ev.participants || "", (ev.durationSec == null || isNaN(Number(ev.durationSec))) ? null : Math.round(Number(ev.durationSec)), Math.round(Number(ev.transcriptLen) || 0), ev.url || "", JSON.stringify(ev.payload || {})]).catch((e) => { console.warn("[MiiTel] 保存できませんでした", e.message); return null; });
   return r && r.rows[0] ? r.rows[0].id : null;
 }
 export async function mcMiitelList(limit = 100) {
