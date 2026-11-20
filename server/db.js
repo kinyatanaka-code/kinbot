@@ -8668,15 +8668,28 @@ export const MEMBER_PROFILE_FIELDS = [
   "phone",       // 電話番号
   "dept",        // 部署（例：事業統括本部 事業開発部）
   "unit",        // ユニット・グループ（例：DOCユニット FSグループ）
+  "docSignature", // 資料送付メールの署名（本人が手で書いたもの。空ならメンバー管理の項目から作る）（2026-11-20 田中さん）
 ];
 function normProfile(v) {
   const src = (v && typeof v === "object") ? v : {};
   const out = {};
   for (const k of MEMBER_PROFILE_FIELDS) {
     const val = String(src[k] == null ? "" : src[k]).trim();
-    if (val) out[k] = val.slice(0, 300);
+    // 署名は何行にもなるので長めに持つ
+    if (val) out[k] = val.slice(0, k === "docSignature" ? 2000 : 300);
   }
   return out;
+}
+
+// 本人が自分の資料送付の署名だけを書きかえる（メンバー管理のほかの項目にはさわらない）。空なら消す＝自動の署名に戻す
+export async function setMemberDocSignature(email, text) {
+  if (!pool || !email) return false;
+  const v = String(text || "").replace(/\r\n/g, "\n").trim().slice(0, 2000);
+  const { rowCount } = await pool.query(
+    v ? `UPDATE members SET profile = COALESCE(profile, '{}'::jsonb) || jsonb_build_object('docSignature', $2::text), updated_at = now() WHERE lower(email) = lower($1)`
+      : `UPDATE members SET profile = COALESCE(profile, '{}'::jsonb) - 'docSignature', updated_at = now() WHERE lower(email) = lower($1)`,
+    v ? [email, v] : [email]);
+  return rowCount > 0;
 }
 
 // メールの差し込みに使うため、メールアドレス → プロフィール の対応を返す
