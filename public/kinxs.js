@@ -2707,7 +2707,7 @@ async function renderDocAiAll() {
           <ol>${c.top.map((t) => `<li><span>${esc(t.q)}</span>${t.n > 1 ? `<em>${t.n}</em>` : ""}</li>`).join("") || '<li class="none">質問はまだありません</li>'}</ol>
         </article>`).join("") || '<div class="dq-empty">合う会社がありません</div>'}</div></section>
       <aside><div class="dq-h">よく聞かれること<span>全社</span></div>
-        <div class="dq-rank">${top.slice(0, 30).map((t, i) => `<div class="r"><span class="no">${i + 1}</span><div class="tx"><span>${esc(t.q)}</span><i style="width:${Math.round((t.n / max) * 100)}%"></i></div><span class="ct">${t.n}回${t.companies > 1 ? `・${t.companies}社` : ""}</span></div>`).join("") || '<div class="dq-empty">合う質問がありません</div>'}</div></aside>
+        <div class="dq-rank">${top.slice(0, 50).map((t, i) => `<div class="r"><span class="no">${i + 1}</span><div class="tx"><span>${esc(t.q)}</span><i style="width:${Math.round((t.n / max) * 100)}%"></i></div><span class="ct">${t.n}回${t.companies > 1 ? `・${t.companies}社` : ""}</span></div>`).join("") || '<div class="dq-empty">合う質問がありません</div>'}</div></aside>
     </div>`;
     $("dqBody").querySelectorAll("[data-dq-id]").forEach((el) => el.addEventListener("click", () => openDetail(el.dataset.dqId, { tab: "docai" })));
     dqFit();
