@@ -14,6 +14,9 @@ const digits = (v) => String(v || "").normalize("NFKC").replace(/[^0-9]/g, "");
 const telKey = (v) => { let d = digits(v); if (/^81\d{9,10}$/.test(d)) d = "0" + d.slice(2); return d.length >= 9 ? d : ""; };
 const clip = (v, n = 400) => String(v ?? "").replace(/<[^>]*>/g, "").trim().slice(0, n);
 const SFID = /^[0-9A-Za-z]{15,18}$/;
+const LEAD_ID = /^00Q(?:[0-9A-Za-z]{12}|[0-9A-Za-z]{15})$/, ACC_ID = /^001(?:[0-9A-Za-z]{12}|[0-9A-Za-z]{15})$/;
+// SF のエラーは問い合わせ文を先に繰り返すので、理由の行（ERROR at Row の次の行）だけを画面に出す
+const sfErrText = (m) => { const s = String(m || ""); const i = s.search(/ERROR at Row/); return i >= 0 ? s.slice(i).split(/\\n|\n/).slice(1).join(" ").trim() || s.slice(i) : s; };
 const jstDay = (t = Date.now()) => new Date(t + 9 * 3600e3).toISOString().slice(0, 10);
 
 // ---- Zoom Phone の通話を DB に写しておく ----
@@ -48,7 +51,14 @@ async function syncDay(day) {
   let token = "", n = 0;
   for (let page = 0; page < 60; page++) {
     const { d, key } = await zoomPage(day, token);
-    const rows = (d[key] || d.call_history || d.call_logs || []).map(normZoomCall).filter((c) => c.id && c.at);
+    // 同じ通話が1ページに2回入ることがある（転送・グループ着信で区間が分かれるとき）。1回の INSERT に同じ ID が2つあると
+    //   PostgreSQL が「同じ行を2度更新できない」と断るので、ID ごとに1件（いちばん長く話した区間）にまとめる
+    const byId = new Map();
+    for (const c of (d[key] || d.call_history || d.call_logs || []).map(normZoomCall)) {
+      if (!c.id || !c.at) continue; const o = byId.get(c.id);
+      if (!o || (c.duration || 0) > (o.duration || 0)) byId.set(c.id, o && !c.ownerName ? { ...c, ownerName: o.ownerName } : c);
+    }
+    const rows = [...byId.values()];
     if (rows.length) {
       await P().query(`INSERT INTO mc_zoom_calls (id, at, direction, peer, my_number, owner_email, owner_name, result, duration)
         SELECT * FROM unnest($1::text[], $2::timestamptz[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::int[])
@@ -74,12 +84,15 @@ export async function zoomSyncTick() {
     // さかのぼり：まだ読んでいない日をすべて、新しい日から順に（2026-11-20「全件反映完了させて」）。
     //   1日ずつ間をあけて読むので数分かかるが、その間も画面は開ける（読み終わった日の分から出る）
     const done = new Set((await P().query(`SELECT to_char(day,'YYYY-MM-DD') AS d FROM mc_zoom_sync WHERE day >= $1::date`, [jstDay(Date.now() - BACKFILL_DAYS * 86400e3)])).rows.map((r) => r.d));
-    let k = 0;
+    // 1日分が失敗しても残りの日は続ける（失敗した日は印を付けないので、次の見回りで読み直す）
+    let k = 0; const ng = [];
     for (let i = 2; i <= BACKFILL_DAYS; i++) {
       const d = jstDay(Date.now() - i * 86400e3); if (done.has(d)) continue;
-      await syncDay(d); k++; await new Promise((ok) => setTimeout(ok, 500));
+      try { await syncDay(d); k++; } catch (e) { ng.push(`${d}：${String(e.message || e).slice(0, 80)}`); }
+      await new Promise((ok) => setTimeout(ok, 500));
     }
     if (k) console.log(`[mchist] Zoom Phone の過去の通話を ${k} 日分写しました`);
+    if (ng.length) throw new Error(`${ng.length}日分を読めませんでした（${ng[0]}）`);
     ZS.oldest = (await P().query(`SELECT to_char(min(day),'YYYY-MM-DD') AS d FROM mc_zoom_sync`)).rows[0]?.d || null;
     ZS.at = new Date(); ZS.err = "";
   } catch (e) {
@@ -208,14 +221,23 @@ export async function pastApproach(ctx) {
         else if (t === "Contact" && r.AccountId) accts.add(r.AccountId);
       }
     });
-    const L = [...sfLeads].filter((x) => SFID.test(x)).slice(0, 20);
+    // ID は種類の頭（リード 00Q・取引先 001）と長さ（15 か 18）で確かめる。形の違う値が1つでも混ざると SF は問い合わせごと断るため
+    const L = [...sfLeads].filter((x) => LEAD_ID.test(x)).slice(0, 10);
     if (L.length) for (const r of ((await sfQuery(owner, `SELECT ConvertedAccountId FROM Lead WHERE Id IN ('${L.join("','")}') AND ConvertedAccountId != null`)).records || [])) accts.add(r.ConvertedAccountId);
-    const A = [...accts].filter((x) => SFID.test(x)).slice(0, 10);
+    const A = [...accts].filter((x) => ACC_ID.test(x)).slice(0, 5);
     if (!L.length && !A.length) return { items: [], n: 0 };
-    const who = [L.length ? `WhoId IN ('${L.join("','")}')` : "", A.length ? `AccountId IN ('${A.join("','")}')` : ""].filter(Boolean).join(" OR ");
+    // 活動（Task・Event）は「WhoId IN (…) OR AccountId IN (…)」だと SF に断られた（2026-11-20 本番で 400）。
+    //   前から動いていた「1つの ID で絞る」読み方を ID ごとに並べて行い、あとで1つにまとめる
+    const conds = [...L.map((x) => `WhoId='${x}'`), ...A.map((x) => `AccountId='${x}'`)];
+    const per = async (q) => {
+      const rs = await Promise.allSettled(conds.map((c) => sfQuery(owner, q(c)).then((d) => d.records || [])));
+      const ok = rs.filter((r) => r.status === "fulfilled");
+      if (!ok.length) throw rs[0].reason;   // 全部だめなときだけ失敗として出す
+      const seen = new Set(); return ok.flatMap((r) => r.value).filter((r) => !seen.has(r.Id) && seen.add(r.Id));
+    };
     const [tasks, events, opps] = await Promise.all([
-      sfQuery(owner, `SELECT Id, Subject, Description, ActivityDate, CreatedDate, Type, Owner.Name FROM Task WHERE ${who} ORDER BY CreatedDate DESC LIMIT 60`).then((d) => d.records || []),
-      sfQuery(owner, `SELECT Id, Subject, Description, StartDateTime, Owner.Name FROM Event WHERE ${who} ORDER BY StartDateTime DESC LIMIT 20`).then((d) => d.records || []).catch(() => []),
+      per((c) => `SELECT Id, Subject, Description, ActivityDate, CreatedDate, Type, Owner.Name FROM Task WHERE ${c} ORDER BY CreatedDate DESC LIMIT 30`),
+      per((c) => `SELECT Id, Subject, Description, StartDateTime, Owner.Name FROM Event WHERE ${c} ORDER BY StartDateTime DESC LIMIT 10`).catch(() => []),
       A.length ? sfQuery(owner, `SELECT Id, Name, StageName, CreatedDate, appointment__c, Owner.Name FROM Opportunity WHERE AccountId IN ('${A.join("','")}') ORDER BY CreatedDate DESC LIMIT 10`).then((d) => d.records || [])
         .catch(() => sfQuery(owner, `SELECT Id, Name, StageName, CreatedDate, Owner.Name FROM Opportunity WHERE AccountId IN ('${A.join("','")}') ORDER BY CreatedDate DESC LIMIT 10`).then((d) => d.records || [])) : [],
     ]);
@@ -227,7 +249,7 @@ export async function pastApproach(ctx) {
     return { items: out, n: out.length };
   })();
   const sfRes = await Promise.race([sfRun.catch((e) => ({ err: e.message })), new Promise((ok) => setTimeout(() => ok({ err: "SF の返事が遅いため途中で打ち切りました" }), 6000))]);
-  if (sfRes.err) { status.sf = { ok: false, err: clip(sfRes.err, 120) }; console.error("[mchist] SF の過去の活動を読めませんでした", sfRes.err); }
+  if (sfRes.err) { status.sf = { ok: false, err: clip(sfErrText(sfRes.err), 160) }; console.error("[mchist] SF の過去の活動を読めませんでした", sfRes.err); }
   else { items.push(...sfRes.items); status.sf = { ok: true, n: sfRes.n }; }
 
   return { items, status };
