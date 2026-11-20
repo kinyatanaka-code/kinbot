@@ -2,6 +2,7 @@
 // GEMINI_API_KEY（いつものキー）で、支払いの停止・キーの無効・使いすぎ（403 / 400 のキー無効 / 429）が返ってきたら、
 // GEMINI_API_KEY_BACKUP（予備のキー）に差し替えてもう一度送る。切り替えたら30分は予備のキーを使い続ける。
 // どの機能も URL の ?key= で Gemini を呼んでいるので、fetch の手前でまとめて差し替える（各機能のコードは触らない）。
+import { AsyncLocalStorage } from "node:async_hooks";
 const HOST = "generativelanguage.googleapis.com";
 const HOLD_MS = 30 * 60 * 1000;
 let useBackupUntil = 0;
@@ -189,9 +190,105 @@ function trackResponse(meta, res) {
   } catch {}
 }
 
+// ───── SHOBO（kinbot for MOCHICA）の Gemini は専用キー・専用モデル・月の上限つき（2026-11-20）─────
+//   SHOBO の呼び出し＝①SHOBO の画面・API（/mochica・/api/mochica・/api/mccall・/api/mcdash・/api/mcaudit）から来たもの
+//   ②呼び出しの道すじに server/mc*.js があるもの（裏の見回りなど）。index.js の裏処理は runAsShobo(fn) で包む。
+//   専用キー SHOBO_GEMINI_API_KEY に差し替え、モデルを SHOBO_GEMINI_MODEL（既定 gemini-3.5-flash）に揃える。
+//   使った額（円）を月ごとに数え、SHOBO_GEMINI_MONTHLY_LIMIT_JPY（既定 5000）に達したら Gemini に送らず 429 を返す（黙って止めない）。
+const shoboAls = new AsyncLocalStorage();
+const SHOBO_PATH = /^\/(mochica|api\/mochica|api\/mccall|api\/mcdash|api\/mcaudit)(\/|$|\?)/;
+export function shoboContextMiddleware(req, _res, next) {
+  if (SHOBO_PATH.test(req.path || req.url || "")) return shoboAls.run({ shobo: true }, next);
+  next();
+}
+export function runAsShobo(fn) { return shoboAls.run({ shobo: true }, fn); }
+function shoboCfg() {
+  const env = process.env;
+  const price = String(env.SHOBO_GEMINI_PRICE || "0.50,1.00,3.00").split(",").map(Number);   // 1M トークンあたり USD [入力, 音声入力, 出力(思考込み)]
+  return {
+    key: String(env.SHOBO_GEMINI_API_KEY || "").trim(),
+    model: String(env.SHOBO_GEMINI_MODEL || "gemini-3.5-flash").trim(),
+    limitJpy: Number(env.SHOBO_GEMINI_MONTHLY_LIMIT_JPY || 5000),
+    usdJpy: Number(env.AI_USD_JPY || 150),
+    searchUsd: Number(env.SHOBO_GEMINI_SEARCH_USD || 0.014),   // Google 検索つき1回あたり
+    price: price.length === 3 && price.every((n) => n >= 0) ? price : [0.5, 1, 3],
+  };
+}
+function isShoboCall() {
+  if (shoboAls.getStore()?.shobo) return true;
+  const lim = Error.stackTraceLimit; Error.stackTraceLimit = 40; const st = String(new Error().stack || ""); Error.stackTraceLimit = lim;
+  return /\/server\/mc[a-z]+\.js:\d+/.test(st);
+}
+const jstMonth = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7);
+let shoboSpend = { month: jstMonth(), jpy: 0, calls: 0, blocked: 0 };
+let shoboDirty = false, shoboWarned = "";
+function shoboRoll() { const m = jstMonth(); if (shoboSpend.month !== m) { shoboSpend = { month: m, jpy: 0, calls: 0, blocked: 0 }; shoboDirty = true; } }
+// index.js が起動時に DB の値を戻し、数分ごとに保存する
+export function shoboSpendLoad(s) { shoboRoll(); if (s && s.month === shoboSpend.month) { shoboSpend.jpy += Number(s.jpy) || 0; shoboSpend.calls += Number(s.calls) || 0; shoboSpend.blocked += Number(s.blocked) || 0; shoboDirty = true; } }   // 起動直後に数えた分も足して残す
+export function shoboSpendSnapshot() { shoboRoll(); const d = shoboDirty; shoboDirty = false; return d ? { ...shoboSpend } : null; }
+export function shoboGeminiStatus() {
+  shoboRoll(); const c = shoboCfg();
+  return { configured: !!c.key, keyLast4: c.key ? c.key.slice(-4) : "", model: c.model, month: shoboSpend.month, spentJpy: Math.round(shoboSpend.jpy), limitJpy: c.limitJpy, calls: shoboSpend.calls, blocked: shoboSpend.blocked, stopped: shoboSpend.jpy >= c.limitJpy };
+}
+function shoboAddCost(um, search) {
+  const c = shoboCfg(); shoboRoll();
+  let usd = search ? c.searchUsd : 0;
+  if (um) {
+    const det = Array.isArray(um.promptTokensDetails) ? um.promptTokensDetails : [];
+    const audio = det.filter((d) => String(d.modality || "").toUpperCase() === "AUDIO").reduce((s, d) => s + (Number(d.tokenCount) || 0), 0);
+    const inAll = Number(um.promptTokenCount) || 0;
+    usd += ((inAll - audio) * c.price[0] + audio * c.price[1] + ((Number(um.candidatesTokenCount) || 0) + (Number(um.thoughtsTokenCount) || 0)) * c.price[2]) / 1e6;
+  }
+  shoboSpend.jpy += usd * c.usdJpy; shoboSpend.calls++; shoboDirty = true;
+}
+function shoboTrack(res, url, search) {
+  if (!res || !res.ok) return;
+  try {
+    const c = res.clone();
+    if (/alt=sse/.test(url)) c.text().then((t) => { let um = null; for (const line of t.split("\n")) { const m = line.match(/^data:\s*(\{.*\})\s*$/); if (!m) continue; try { const j = JSON.parse(m[1]); if (j.usageMetadata) um = j.usageMetadata; } catch {} } shoboAddCost(um, search); }).catch(() => {});
+    else c.json().then((j) => shoboAddCost(j && j.usageMetadata, search)).catch(() => {});
+  } catch {}
+}
+function shoboRewriteUrl(url, key, model) {
+  let u = url.replace(/([?&])key=[^&]*/, `$1key=${encodeURIComponent(key)}`);
+  if (!/[?&]key=/.test(u)) u += (u.includes("?") ? "&" : "?") + `key=${encodeURIComponent(key)}`;
+  // 文章を作る呼び出しだけモデルを揃える（読み上げ・ベクトル化は専用モデルなのでそのまま）
+  const cur = (u.match(/\/models\/([^:\/?]+):/) || [])[1] || "";
+  if (/:(generateContent|streamGenerateContent)\b/.test(u) && !/tts|embedding|image/i.test(cur)) u = u.replace(/\/models\/[^:\/?]+:/, `/models/${model}:`);
+  return u;
+}
+function shoboStoppedResponse(c) {
+  const msg = `SHOBO の Gemini 利用額が今月の上限（${c.limitJpy.toLocaleString()}円）に達したため、AI 処理を止めています（${shoboSpend.month}・使用 ${Math.round(shoboSpend.jpy).toLocaleString()}円）。来月1日に自動で再開します。急ぎの場合は管理者が SHOBO_GEMINI_MONTHLY_LIMIT_JPY を見直してください。`;
+  return new Response(JSON.stringify({ error: { code: 429, status: "RESOURCE_EXHAUSTED", message: msg } }), { status: 429, headers: { "content-type": "application/json" } });
+}
+async function shoboFetch(input, init) {
+  const c = shoboCfg();
+  const url = typeof input === "string" ? input : (input && input.url) || "";
+  if (!c.key) { console.error("[SHOBO Gemini] SHOBO_GEMINI_API_KEY が未設定のため送れません"); return new Response(JSON.stringify({ error: { code: 503, message: "SHOBO 用の Gemini キー（SHOBO_GEMINI_API_KEY）が未設定です。管理者に連絡してください。" } }), { status: 503, headers: { "content-type": "application/json" } }); }
+  shoboRoll();
+  const counted = /:(generateContent|streamGenerateContent|embedContent|batchEmbedContents)\b/.test(url);
+  if (counted && shoboSpend.jpy >= c.limitJpy) {
+    shoboSpend.blocked++; shoboDirty = true;
+    if (shoboWarned !== shoboSpend.month) { shoboWarned = shoboSpend.month; console.error(`[SHOBO Gemini] 今月の上限 ${c.limitJpy}円 に達したので止めました（${Math.round(shoboSpend.jpy)}円）`); }
+    return shoboStoppedResponse(c);
+  }
+  const u = shoboRewriteUrl(url, c.key, c.model);
+  const body = init && init.body;
+  const search = typeof body === "string" && /google_?[sS]earch/.test(body);
+  const send = typeof input === "string" ? u : new Request(u, input);
+  const res = typeof send === "string" ? await sendWithBusyRetry(send, init) : await _fetch(send, init);
+  if (counted) {
+    const meta = { ...featureFromStack(), url: u, model: (u.match(/\/models\/([^:\/?]+):/) || [])[1] || "", search };
+    meta.feature = `SHOBO:${meta.feature}`;
+    trackResponse(meta, res); shoboTrack(res, u, search);
+  }
+  return res;
+}
+
 globalThis.fetch = async function (input, init) {
   const url = typeof input === "string" ? input : (input && input.url) || "";
   if (!url.includes(HOST)) return _fetch(input, init);
+  if (isShoboCall()) return shoboFetch(input, init);
   // 数えるのは、文章・音声を作らせる呼び出しと、ベクトル化（埋め込み）
   if (!/:(generateContent|streamGenerateContent|embedContent|batchEmbedContents)\b/.test(url)) return routed(input, init);
   const body = init && init.body;

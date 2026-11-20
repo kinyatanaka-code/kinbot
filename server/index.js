@@ -1,6 +1,6 @@
 // server/index.js
 import "dotenv/config";
-import { geminiFailoverStatus, setTextViaGroq, groqRouteStats, geminiBusyStats, geminiUsageDrain } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
+import { geminiFailoverStatus, setTextViaGroq, groqRouteStats, geminiBusyStats, geminiUsageDrain, shoboContextMiddleware, shoboSpendLoad, shoboSpendSnapshot, shoboGeminiStatus } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
 import path from "node:path";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -1238,6 +1238,8 @@ app.use("/api/kinxs/accounts", express.json({ limit: "25mb" }));   // 検収書�
 app.use("/mcp", express.json({ limit: "40mb" }));   // MiiTel の会議を文字起こしごと取り込む（2026-11-12）
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true })); // OAuth承認画面の<form>送信（application/x-www-form-urlencoded）用
+// SHOBO の画面・API から来た Gemini 呼び出しに印を付ける（専用キー・月の上限）。本文の読み取りのあとに置かないと、印が途中で消える
+app.use(shoboContextMiddleware);
 
 // kinbot OAuthサーバー（Claude.aiのカスタムコネクタが自動で試すOAuthフローに対応）
 mountOauthServer(app);
@@ -24470,6 +24472,9 @@ app.post("/api/ai/chat", async (req, res) => {
 
 // ===== AI（Gemini）の使用量：機能ごと（2026-11-18 田中さん「機能ごとの使用量数えて欲しい」）=====
 //   gemini_failover.js が呼ぶたびに数えたものを、2分ごとに DB（ai_usage）へ移す。金額は Google の公開の値段からの目安
+// SHOBO の Gemini 利用額（月ごと）を DB に残す：再起動で 0 に戻ると上限が効かなくなるため
+getSettings().then((s) => shoboSpendLoad(s && s.shoboGeminiSpend)).catch((e) => console.warn("[SHOBO Gemini] 利用額の読み込みに失敗:", e.message));
+setInterval(() => { const snap = shoboSpendSnapshot(); if (snap) saveSettings({ shoboGeminiSpend: snap }).catch((e) => console.warn("[SHOBO Gemini] 利用額の保存に失敗:", e.message)); }, 60 * 1000).unref?.();
 setInterval(() => { const rows = geminiUsageDrain(); if (rows.length) aiUsageAdd(rows).catch((e) => console.warn("[AI使用量]", e.message)); }, 2 * 60 * 1000).unref?.();
 // 1M トークンあたりの値段（USD・2026-11 の Google の値段表）。[入力（文字・画像）, 入力（音声）, 出力（思考を含む）]
 const AI_PRICE = [
@@ -33000,7 +33005,7 @@ app.put("/api/settings", async (req, res) => {
 });
 
 // Geminiのキーの状態（予備に切り替わっているか）
-app.get("/api/gemini-key-status", (req, res) => res.json({ ok: true, ...geminiFailoverStatus(), groq: groqRouteStats(), busy: geminiBusyStats() }));
+app.get("/api/gemini-key-status", (req, res) => res.json({ ok: true, ...geminiFailoverStatus(), groq: groqRouteStats(), busy: geminiBusyStats(), shobo: shoboGeminiStatus() }));
 // 文章だけのAI処理をGroqで動かすか（一時的な切り替え。既定ON）。設定 aiTextViaGroq に保存。
 app.get("/api/ai-text-groq", (req, res) => res.json({ ok: true, ...groqRouteStats() }));
 app.put("/api/ai-text-groq", async (req, res) => {
@@ -34049,7 +34054,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",
   "MOCHICALL：結果に「問い合わせフォームへ」。会社の Web ページから問い合わせページを探し、見えないブラウザで入力・送信（ロボット確認・分からない必須欄は送らず理由を出す。30日以内の2回目は確認。SF の活動にも残す）",

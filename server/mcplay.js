@@ -13,7 +13,8 @@
 //      トーク実施率（決めたトークのうち実際に話せた割合）を読む。
 //   4. 折り返しの着信（mc_inbound）：Zoom Phone の着信の知らせを受け、その会社の架電画面を着信した人の画面に出す。
 import { dbPool } from "./db.js";
-import { researchMcLead, analyzeMcCallRecording } from "./analyzer.js";
+import { analyzeMcCallRecording } from "./analyzer.js";
+import { researchMcLeadFree } from "./mcresearch.js";   // 企業調査は AI を使わず Web 検索・gBizINFO で（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
 import { zoomPhoneConfigured, zoomPhoneRecordings, zoomDownload, zoomPhoneUsers } from "./zoomphone.js";
 
@@ -145,7 +146,7 @@ async function researchOne(id) {
   try {
     const site = siteOf(lead); const url = site && !/^https?:\/\//.test(site) ? `https://${site}` : site;
     const siteText = url ? await fetchPageText(url).catch(() => "") : "";
-    r = await researchMcLead({ company: lead.company, website: url, siteText, hint: hintOf(lead) });
+    r = await researchMcLeadFree({ company: lead.company, website: url, siteText, hint: hintOf(lead) });
   } catch (e) { r = { status: "error", error: String(e.message || e).slice(0, 200) }; }
   await P().query(`UPDATE mc_call_leads SET research=$2, research_at=now() WHERE id=$1`, [id, { ...r, at: new Date().toISOString() }]);
 }

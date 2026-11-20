@@ -19,7 +19,7 @@ import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
-import { lookupMynavi } from "./analyzer.js";
+import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
@@ -324,8 +324,8 @@ const MYNAVI_TTL = { listed: 30 * 86400e3, notfound: 14 * 86400e3, error: 3600e3
 const _mnQueue = new Map(); let _mnRunning = 0;
 async function mynaviCheck(ckey, company) {
   try {
-    if (!process.env.BRAVE_API_KEY) throw new Error("Web検索の鍵（BRAVE_API_KEY）が設定されていません");
-    const d = await lookupMynavi(company, fetchPageText);
+    const d = await lookupMynaviFree(company);
+    if (d.status === "error") throw new Error(d.error || "Web 検索が使えませんでした");
     await P().query(`INSERT INTO mc_mynavi (ckey, company, data, at) VALUES ($1,$2,$3,now()) ON CONFLICT (ckey) DO UPDATE SET company=$2, data=$3, at=now()`, [ckey, company, d]);
   } catch (e) {
     console.error("[mccall] マイナビを調べられませんでした", company, e.message);
