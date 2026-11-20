@@ -25,6 +25,7 @@ import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
+import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
 export { hiresBucket };
 
 const BIZ = "MOCHICA";
@@ -32,9 +33,11 @@ const BIZ = "MOCHICA";
 // 到達の段階と、その中身。key は画面とサーバーで同じものを使う
 export const REACH = {
   none: { label: "つながらない", outcomes: { no_answer: "応答なし", busy: "話し中", voicemail: "留守電", invalid: "現アナ（番号が使えない）" } },
-  gate: { label: "受付まで", outcomes: { absent: "担当者が不在", blocked: "受付で断られた", callback_req: "掛け直しを指定された" } },
-  person: { label: "担当者と話せた", outcomes: { apo: "アポ獲得", doc_send: "資料を送る", follow: "また話す（フォロー）", reject: "断られた" } },
+  // inquiry＝「HP の問い合わせフォームから送って」と言われた（受付でも担当者でも言われるので両方に置く。key と名前は同じにする）（2026-11-20 福井さん）
+  gate: { label: "受付まで", outcomes: { absent: "担当者が不在", blocked: "受付で断られた", callback_req: "掛け直しを指定された", inquiry: "問い合わせフォームへ" } },
+  person: { label: "担当者と話せた", outcomes: { apo: "アポ獲得", doc_send: "資料を送る", follow: "また話す（フォロー）", reject: "断られた", inquiry: "問い合わせフォームへ" } },
 };
+const FORM_ST = { sent: "送信しました", unsure: "送信を押しましたが、届いたか分かりません", failed: "送れませんでした" };
 export const REJECT_REASONS = ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"];
 // 自動で掛け直す結果（つながらなかった・担当者がいなかった）。届かなかった回数 miss_streak もこの結果だけを数える
 const AUTO_RETRY = new Set(["no_answer", "busy", "voicemail", "absent"]);
@@ -115,6 +118,10 @@ async function ensure() {
     // 資料送付の記録。架電の記録（mc_call_logs）に入れるとコール数に数えてしまうので別にする（2026-11-17）
     await q(`CREATE TABLE IF NOT EXISTS mc_doc_sends (
       id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, to_addr TEXT, cc TEXT, subject TEXT, url TEXT, doc_name TEXT,
+      sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
+    // 問い合わせフォームの送信の記録（2026-11-20）。送れなかった・送れたか分からないものも残す（黙って失敗しない）
+    await q(`CREATE TABLE IF NOT EXISTS mc_form_sends (
+      id SERIAL PRIMARY KEY, lead_id INT, sender TEXT, url TEXT, status TEXT, note TEXT, subject TEXT, body TEXT,
       sf_task_id TEXT, sf_err TEXT, created_at TIMESTAMPTZ DEFAULT now())`);
     // BALES CLOUD でできたことをMOCHICALL でも（2026-11-18 福井さん）：
     //   架電者が直した会社の情報（追加の番号・複数の担当者・メール）。元のデータ（Bales/CSV/DOC）は変えず、ここに重ねる
@@ -1371,11 +1378,15 @@ export function registerMcCall(app, deps) {
     const sends = (await P().query(`SELECT * FROM mc_doc_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
     for (const s of sends) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "資料送付",
       text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, s.doc_name ? `資料：${s.doc_name}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
+    // 問い合わせフォームの送信も同じ時系列に（送れなかったものも、なぜかが分かるように出す）
+    const forms = (await P().query(`SELECT * FROM mc_form_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
+    for (const s of forms) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "問い合わせフォーム",
+      text: [FORM_ST[s.status] || s.status, s.url, s.note, s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
     // ほかの元データ（MOCHICA の別リスト・DOC・BALES の別の行・Zoom Phone・SF）を、由来に関係なく電話番号と会社名で集める（mchist.js）。
     //   SHOBO から書いた SF の活動は kinbot の記録と同じものなので、二重に出さないよう外す
     const past = await pastApproach({ lead: { ...lead, sf_lead_id: lead.sf_lead_id || (sf && sf.lead && sf.lead.id) || null }, phones: phones.map((p) => p.digits), names,
       sfOwner: () => sfActor(req), coKey: companyKey, outcomeLabel, ownBalesKey: lead.src === "bales" ? String(lead.src_key) : "",
-      skipTaskIds: [...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id)].filter(Boolean) });
+      skipTaskIds: [...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id), ...forms.map((s) => s.sf_task_id)].filter(Boolean) });
     tl.push(...past.items);
     tl.sort((a, b) => new Date(b.at) - new Date(a.at));
     const tlAll = dedupeTimeline(tl); tl.length = 0; tl.push(...tlAll);
@@ -1545,7 +1556,8 @@ export function registerMcCall(app, deps) {
       if (r.parked) { streak = 0; parkedAt = now; }   // 上限まで届かなかった会社は一度休ませ、次の周回を0から数える
     }
     if (outcome === "callback_req" && !nextAt) return res.status(400).json({ error: "掛け直す時刻を選んでください" });
-    const done = FINAL.has(outcome) || (outcome === "doc_send" && !nextAt);
+    // 資料送付・問い合わせフォームは「送って終わり」。掛け直しの時刻を選んだときだけ残す
+    const done = FINAL.has(outcome) || ((outcome === "doc_send" || outcome === "inquiry") && !nextAt);
     const prev = { next_at: lead.next_at, next_why: lead.next_why, last_at: lead.last_at, last_outcome: lead.last_outcome, attempts: lead.attempts, done: lead.done, gate: lead.gate, hearing: lead.hearing, miss_streak: lead.miss_streak || 0, parked_at: lead.parked_at || null };
     // ヒアリングは担当者と話せたときだけ記録に付ける（受付・不在で前の値が SF に二重に書かれないように）
     const hNew = reach === "person" ? cleanHearing(b.hearing || {}) : null;
@@ -1776,6 +1788,90 @@ export function registerMcCall(app, deps) {
         } catch (e) { sfNote = "メールは送りましたが、SF の活動には書けませんでした"; await P().query(`UPDATE mc_doc_sends SET sf_err=$2 WHERE id=$1`, [row.id, String(e.message).slice(0, 300)]).catch(() => {}); }
       } else sfNote = "SF のリードと結びついていないので、SF には残していません（kinbot にだけ残ります）";
       res.json({ ok: true, to, sf: sfNote });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+
+  // ===== 問い合わせフォームの送信（2026-11-20 福井さん）=====
+  //   受付・担当者に「HP のフォームから」と言われた会社へ、見えないブラウザで入力して送る（server/mcform.js）。
+  //   差出人の会社名・電話などは MOCHICA 共通のひな形（管理者が入れる）、名前とメールは送る本人のもの。
+  //   流れ：preview（探して当てはめるだけ・送らない）→ 人が中身を確かめる → send（入力して送る）
+  const MC_FORM_SUBJECT = "新卒採用のご支援についてのご案内";
+  const MC_FORM_BODY = "{会社名}\n{担当者}様\n\n突然のご連絡失礼いたします。{差出人の会社名}の{差出人}と申します。\n先ほどお電話にてご案内した件で、こちらのフォームよりご連絡いたしました。\n\n新卒採用の母集団づくりや選考の歩留まりの改善にお役立ていただける「MOCHICA」をご案内しております。\nご興味がございましたら、オンラインで15分ほどご説明の機会をいただけますと幸いです。\n\nご連絡先：{電話}／{メール}\n何卒よろしくお願いいたします。";
+  async function formSettings() {
+    const st = await getSettings().catch(() => ({}));
+    return { subject: st.mcFormSubject || MC_FORM_SUBJECT, body: st.mcFormBody || MC_FORM_BODY, company: st.mcFormCompany || "", companyKana: st.mcFormCompanyKana || "",
+      dept: st.mcFormDept || "", tel: st.mcFormTel || "", zip: st.mcFormZip || "", addr: st.mcFormAddr || "", site: st.mcFormSite || "", kana: st.mcFormKana || {} };
+  }
+  app.get("/api/mccall/form-settings", guard(async (req, res) => {
+    const c = await formSettings(); res.json({ ok: true, ...c, kana: undefined, myKana: c.kana[me(req)] || "", admin: isAdmin(req) });
+  }));
+  app.put("/api/mccall/form-settings", adminOnly(async (req, res) => {
+    const b = req.body || {}; const patch = {};
+    const map = { subject: "mcFormSubject", company: "mcFormCompany", companyKana: "mcFormCompanyKana", dept: "mcFormDept", tel: "mcFormTel", zip: "mcFormZip", addr: "mcFormAddr", site: "mcFormSite" };
+    for (const [k, sk] of Object.entries(map)) if (b[k] !== undefined) patch[sk] = clip(b[k], 300);
+    if (b.body !== undefined) patch.mcFormBody = String(b.body || "").slice(0, 4000);
+    await saveSettings(patch); res.json({ ok: true });
+  }));
+  // 送る本人の情報と本文（差し込み済み）。本文・件名は画面で直したものを優先する
+  async function formProfile(req, lead, b = {}) {
+    const c = await formSettings(); const u = me(req);
+    const sender = (await nameMap()).get(u) || "";
+    const company = String(lead.company || "").trim(); const person = String((lead.gate && lead.gate.name) || lead.person || "").trim();
+    const fill = (t) => String(t || "").replace(/\{担当者\}/g, person || "ご担当者").replace(/\{会社名\}/g, company).replace(/\{差出人の会社名\}/g, c.company)
+      .replace(/\{差出人\}/g, sender).replace(/\{電話\}/g, c.tel).replace(/\{メール\}/g, u);
+    const kana = b.kana != null ? clip(b.kana, 60) : (c.kana[u] || "");
+    return { c, sender, P: { company: c.company, companyKana: c.companyKana, dept: c.dept, name: sender, kana, email: u, tel: c.tel, zip: c.zip, addr: c.addr, site: c.site,
+      subject: b.subject != null ? clip(b.subject, 300) : fill(c.subject), body: b.body != null ? String(b.body).slice(0, 4000) : fill(c.body) } };
+  }
+  const formStart = (lead, b) => { const inf = lead.info || {}; return String((b && b.url) || inf.web || "").trim(); };
+  async function formGuard(req, res, lead) {
+    const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
+    if (ban) { res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、問い合わせフォームからも送れません` }); return false; }
+    return true;
+  }
+  app.post("/api/mccall/leads/:id/form/preview", guard(async (req, res) => {
+    try {
+      const { lead, data } = await leadFor(req, parseInt(req.params.id, 10)); const b = req.body || {};
+      if (!(await formGuard(req, res, lead))) return;
+      const { c, P: prof } = await formProfile(req, lead, b);
+      const web = formStart(lead, b) || fieldsIn(data, WEB_FIELD).find((w) => webKey(w)) || "";
+      const last = (await P().query(`SELECT status, created_at FROM mc_form_sends WHERE lead_id=$1 AND status IN ('sent','unsure') ORDER BY created_at DESC LIMIT 1`, [lead.id])).rows[0] || null;
+      const base = { company: lead.company, subject: prof.subject, body: prof.body, kana: prof.kana, ready: !!(c.company && c.tel), last };
+      if (b.scan === false) return res.json({ ok: true, ...base, url: web });   // 本文だけ先に見せる（フォームを調べるのは時間がかかるので別に呼ぶ）
+      const r = await formRun({ web, mode: "inspect", P: prof });
+      res.json({ ...base, ...r, ok: true, found: r.ok, url: r.url || web });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
+  }));
+  app.post("/api/mccall/leads/:id/form/send", guard(async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10); const { lead, data } = await leadFor(req, id); const b = req.body || {}; const u = me(req);
+      if (!(await formGuard(req, res, lead))) return;
+      const { c, sender, P: prof } = await formProfile(req, lead, b);
+      if (!c.company || !c.tel) return res.status(400).json({ error: "差出人の会社名と電話番号がひな形に入っていません。管理者が「リスト」タブの「問い合わせフォームのひな形」で入れてください" });
+      if (!prof.body.trim()) return res.status(400).json({ error: "本文を入れてください" });
+      const url = formStart(lead, b) || fieldsIn(data, WEB_FIELD).find((w) => webKey(w)) || "";
+      // 同じ会社に30日のうちに2回送らない（相手に迷惑をかけないため。もう一度送るときは画面で「それでも送る」を押す）
+      const dup = (await P().query(`SELECT created_at FROM mc_form_sends WHERE lead_id=$1 AND status IN ('sent','unsure') AND created_at > now() - interval '30 days' ORDER BY created_at DESC LIMIT 1`, [id])).rows[0];
+      if (dup && !b.again) return res.status(409).json({ error: `この会社には ${new Date(dup.created_at).toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })} に問い合わせフォームから送っています`, dup: true });
+      // ふりがなは本人ごとに覚えておく（次から入れなくてよいように）
+      if (b.kana != null && prof.kana !== (c.kana[u] || "")) await saveSettings({ mcFormKana: { ...c.kana, [u]: prof.kana } }).catch(() => {});
+      const r = await formRun({ web: url, url, mode: "send", P: prof });
+      const status = r.status || "failed";
+      const row = (await P().query(`INSERT INTO mc_form_sends (lead_id, sender, url, status, note, subject, body) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+        [id, u, clip(r.url || url, 300), status, clip(r.error || r.note || "", 500), prof.subject, prof.body])).rows[0];
+      if (status === "failed") return res.status(422).json({ error: r.error || "送れませんでした", log: r.log || [] });
+      // SF のリードに活動を残す。書けなかったら sf_err に残して画面にも返す（黙って失敗しない）
+      let sfNote = "";
+      if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) {
+        try {
+          const t = await createTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 問い合わせフォーム送信", Status: "完了",
+            ActivityDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
+            Description: [`送った人：${sender || u}（SHOBO）`, `フォーム：${r.url || url}`, FORM_ST[status], r.note || "", `件名：${prof.subject}`, "", prof.body].filter((x) => x != null).join("\n").slice(0, 30000) });
+          if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
+          await P().query(`UPDATE mc_form_sends SET sf_task_id=$2 WHERE id=$1`, [row.id, t.id]);
+        } catch (e) { sfNote = "SF の活動には書けませんでした"; await P().query(`UPDATE mc_form_sends SET sf_err=$2 WHERE id=$1`, [row.id, String(e.message).slice(0, 300)]).catch(() => {}); }
+      } else sfNote = "SF のリードと結びついていないので、SF には残していません（kinbot にだけ残ります）";
+      res.json({ ok: true, status, note: r.note || "", url: r.url || url, sf: sfNote });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   }));
 
