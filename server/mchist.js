@@ -235,22 +235,30 @@ export async function pastApproach(ctx) {
       if (!ok.length) throw rs[0].reason;   // 全部だめなときだけ失敗として出す
       const seen = new Set(); return ok.flatMap((r) => r.value).filter((r) => !seen.has(r.Id) && seen.add(r.Id));
     };
-    const [tasks, events, opps] = await Promise.all([
-      per((c) => `SELECT Id, Subject, Description, ActivityDate, CreatedDate, Type, Owner.Name FROM Task WHERE ${c} ORDER BY CreatedDate DESC LIMIT 30`),
-      per((c) => `SELECT Id, Subject, Description, StartDateTime, Owner.Name FROM Event WHERE ${c} ORDER BY StartDateTime DESC LIMIT 10`).catch(() => []),
-      A.length ? sfQuery(owner, `SELECT Id, Name, StageName, CreatedDate, appointment__c, Owner.Name FROM Opportunity WHERE AccountId IN ('${A.join("','")}') ORDER BY CreatedDate DESC LIMIT 10`).then((d) => d.records || [])
-        .catch(() => sfQuery(owner, `SELECT Id, Name, StageName, CreatedDate, Owner.Name FROM Opportunity WHERE AccountId IN ('${A.join("','")}') ORDER BY CreatedDate DESC LIMIT 10`).then((d) => d.records || [])) : [],
+    const warn = [];
+    const part = (name, pr) => pr.catch((e) => { warn.push(`${name}：${sfErrText(e.message)}`); console.error(`[mchist] SF の${name}を読めませんでした`, e.message); return null; });
+    const [tasks0, events0, opps0] = await Promise.all([
+      // この組織の Task には Type 列が無い（見えない）ので読まない（2026-11-20 本番で「No such column 'Type'」）。
+      //   架電かどうかは標準の TaskSubtype（Call）か件名で見分ける。TaskSubtype も読めない組織なら外して読み直す
+      part("活動", per((c) => `SELECT Id, Subject, Description, ActivityDate, CreatedDate, TaskSubtype, Owner.Name FROM Task WHERE ${c} ORDER BY CreatedDate DESC LIMIT 30`)
+        .catch((e) => { if (!/No such column/i.test(e.message)) throw e; return per((c) => `SELECT Id, Subject, Description, ActivityDate, CreatedDate, Owner.Name FROM Task WHERE ${c} ORDER BY CreatedDate DESC LIMIT 30`); })),
+      part("予定", per((c) => `SELECT Id, Subject, Description, StartDateTime, Owner.Name FROM Event WHERE ${c} ORDER BY StartDateTime DESC LIMIT 10`)),
+      A.length ? part("商談", sfQuery(owner, `SELECT Id, Name, StageName, CreatedDate, appointment__c, Owner.Name FROM Opportunity WHERE AccountId IN ('${A.join("','")}') ORDER BY CreatedDate DESC LIMIT 10`).then((d) => d.records || [])
+        .catch(() => sfQuery(owner, `SELECT Id, Name, StageName, CreatedDate, Owner.Name FROM Opportunity WHERE AccountId IN ('${A.join("','")}') ORDER BY CreatedDate DESC LIMIT 10`).then((d) => d.records || []))) : Promise.resolve([]),
     ]);
+    // 全部読めなかったときだけ失敗。どれかが読めれば読めた分を出し、読めなかったものは名前付きで画面に出す（黙って0件にしない）
+    if (tasks0 === null && events0 === null && (opps0 === null || !A.length)) throw new Error(warn.join("／"));
+    const tasks = tasks0 || [], events = events0 || [], opps = opps0 || [];
     const out = [];
     for (const t of tasks) if (!skip.has(t.Id)) out.push({ at: t.CreatedDate || t.ActivityDate, src: "SF", who: clip((t.Owner && t.Owner.Name) || "", 40),
-      title: clip(`${t.Type === "Call" ? "架電" : t.Type || "活動"}：${t.Subject || ""}`, 80), text: clip(t.Description || "", 600) });
+      title: clip(`${t.TaskSubtype === "Call" || /架電|コール|電話|call/i.test(t.Subject || "") ? "架電" : t.TaskSubtype === "Email" || /メール|mail/i.test(t.Subject || "") ? "メール" : "活動"}：${t.Subject || ""}`, 80), text: clip(t.Description || "", 600) });
     for (const ev of events) out.push({ at: ev.StartDateTime, src: "SF", who: clip((ev.Owner && ev.Owner.Name) || "", 40), title: clip(`予定：${ev.Subject || ""}`, 80), text: clip(ev.Description || "", 600) });
     for (const o of opps) out.push({ at: o.appointment__c || o.CreatedDate, src: "SF", who: clip((o.Owner && o.Owner.Name) || "", 40), title: clip(`商談：${o.StageName || ""}`, 80), text: clip(o.Name, 200) });
-    return { items: out, n: out.length };
+    return { items: out, n: out.length, warn };
   })();
   const sfRes = await Promise.race([sfRun.catch((e) => ({ err: e.message })), new Promise((ok) => setTimeout(() => ok({ err: "SF の返事が遅いため途中で打ち切りました" }), 6000))]);
   if (sfRes.err) { status.sf = { ok: false, err: clip(sfErrText(sfRes.err), 160) }; console.error("[mchist] SF の過去の活動を読めませんでした", sfRes.err); }
-  else { items.push(...sfRes.items); status.sf = { ok: true, n: sfRes.n }; }
+  else { items.push(...sfRes.items); status.sf = { ok: true, n: sfRes.n, err: sfRes.warn && sfRes.warn.length ? clip(`一部を読めませんでした（${sfRes.warn.join("／")}）`, 200) : "" }; }
 
   return { items, status };
 }
