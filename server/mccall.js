@@ -1060,22 +1060,87 @@ export function registerMcCall(app, deps) {
     const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 5000);
     if (!rows.length) return res.status(400).json({ error: "CSV に読める行がありません" });
     await loadApproachBans().catch(() => {});
-    let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0, nokey = 0; const companies = []; const ex = dupSamples();
+    const fill = await csvFillFromSf(req, rows);
+    let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0, nokey = 0, nophone = 0; const companies = []; const ex = dupSamples();
     for (const r of rows) {
       const company = clip(r.company, 200), phone = clip(r.phone, 40), person = clip(r.person, 100);
       const ph = digits(phone), ck = companyKey(company);
       if (!company && ph.length < 9) { bad++; continue; }
+      if (r._sfBan) { banned++; continue; }
       const lid = /^00Q[0-9A-Za-z]{12,15}$/.test(String(r.sfLeadId || "").trim()) ? String(r.sfLeadId).trim() : null;
       if (approachBanHitSync({ company, phone, leadId: lid })) { banned++; continue; }
       const extra = {}; if (r.extra && typeof r.extra === "object") for (const [k, v] of Object.entries(r.extra).slice(0, 60)) { const kk = clip(k, 60), vv = clip(v, 1000); if (kk && vv) extra[kk] = vv; }
       const x = await addLeadUnique({ list_id: id, src: "csv", src_key: ph.length >= 9 ? ph : `co:${ck}`, company, phone, person, sf_lead_id: lid, data: extra }, { data: extra });
       if (x.bad) { bad++; continue; }
       if (!x.added) { dup++; ex.push(company, x.dup); continue; }
-      added++; if (!lid) nolead++; if (x.nokey) nokey++; companies.push(company);
+      added++; if (!lid) nolead++; if (x.nokey) nokey++; if (ph.length < 9) nophone++; companies.push(company);
     }
     mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
-    res.json({ ok: true, added, banned, dup, bad, nolead, nokey, examples: ex.list });
+    console.log(`[mccall] CSV から リスト${id} へ ${added}件（SFで電話を補った${fill.phone}・リードIDを補った${fill.lead}・電話なし${nophone}${fill.error ? `・SFエラー ${fill.error}` : ""}）by ${me(req)}`);
+    res.json({ ok: true, added, banned, dup, bad, nolead, nokey, nophone, sfPhone: fill.phone, sfLead: fill.lead, sfError: fill.error || null, examples: ex.list });
   }));
+
+  // CSV の電話番号が空の行は SF から補う（2026-11-20 福井さん「電話番号の無いリードリストを MOCHICALL で架けられるように」）。
+  //   リードID（列、または詳細に入っている SF の URL の 00Q…）→ Lead.Phone。無ければ商談ID（006…）→ 取引先の電話。
+  //   それも無ければ会社名が完全に同じ SF のリード（MOCHICA のものを優先）→ 取引先 の順で探す。
+  //   MOCHICA のリードが会社名で1件だけ当たったら、そのリードIDも入れる（架電結果を SF に書けるように）。
+  //   SF は読むだけ。SF に届かなかったときは error を返して画面で知らせる（ルール5）
+  async function csvFillFromSf(req, rows) {
+    const out = { phone: 0, lead: 0, error: "" };
+    const idIn = (s, re) => { const m = String(s || "").match(re); return m ? m[0].slice(0, 18) : null; };
+    const need = [];
+    for (const r of rows) {
+      if (digits(r.phone).length >= 9) continue;
+      const ex = r.extra && typeof r.extra === "object" ? Object.values(r.extra).join(" ") : "";
+      if (!/^00Q[0-9A-Za-z]{12,15}$/.test(String(r.sfLeadId || "").trim())) { const l = idIn(ex, /00Q[0-9A-Za-z]{12,15}/); if (l) { r.sfLeadId = l; out.lead++; } }
+      r._opp = idIn(ex, /006[0-9A-Za-z]{12,15}/);
+      need.push(r);
+    }
+    if (!need.length) return out;
+    const q = (v) => `'${String(v).slice(0, 200).replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
+    const chunks = (a, n = 100) => { const o = []; for (let i = 0; i < a.length; i += n) o.push(a.slice(i, i + n)); return o; };
+    const coVariants = (c) => { const s = String(c || "").trim(); const t = s.replace(/[（(][^）)]*[）)]/g, "").trim(); return [...new Set([s, t].filter(Boolean))]; };
+    try {
+      const owner = await sfActor(req);
+      const all = async (soql) => (await sfQueryAll(owner, soql, 2000)) || [];
+      // 1) リードID
+      const lids = [...new Set(need.map((r) => r.sfLeadId).filter(Boolean))];
+      const byLead = new Map();
+      for (const c of chunks(lids)) for (const l of await all(`SELECT Id, Phone, MobilePhone, Ban_Type__c FROM Lead WHERE Id IN (${c.map(q).join(",")})`)) byLead.set(String(l.Id).slice(0, 15), l);
+      // 2) 商談ID → 取引先
+      const opps = [...new Set(need.map((r) => r._opp).filter(Boolean))];
+      const byOpp = new Map();
+      for (const c of chunks(opps)) for (const o of await all(`SELECT Id, Account.Phone FROM Opportunity WHERE Id IN (${c.map(q).join(",")})`)) byOpp.set(String(o.Id).slice(0, 15), o.Account && o.Account.Phone);
+      // 3) 会社名（完全一致）
+      const names = [...new Set(need.flatMap((r) => coVariants(r.company)))];
+      const leadByCo = new Map(), accByCo = new Map();
+      for (const c of chunks(names)) {
+        for (const l of await all(`SELECT Id, Company, Phone, MobilePhone, IsConverted, RecordType.Name, Ban_Type__c FROM Lead WHERE Company IN (${c.map(q).join(",")}) AND (Phone != null OR MobilePhone != null) ORDER BY LastActivityDate DESC NULLS LAST`)) {
+          const k = String(l.Company).trim(); if (!leadByCo.has(k)) leadByCo.set(k, []); leadByCo.get(k).push(l);
+        }
+        for (const a of await all(`SELECT Name, Phone FROM Account WHERE Name IN (${c.map(q).join(",")}) AND Phone != null`)) { const k = String(a.Name).trim(); if (!accByCo.has(k)) accByCo.set(k, a.Phone); }
+      }
+      for (const r of need) {
+        const L = r.sfLeadId && byLead.get(String(r.sfLeadId).slice(0, 15));
+        if (L && L.Ban_Type__c) { r._sfBan = true; continue; }
+        let ph = L ? (L.Phone || L.MobilePhone) : "";
+        if (!ph && r._opp) ph = byOpp.get(r._opp.slice(0, 15)) || "";
+        if (!ph) for (const v of coVariants(r.company)) {
+          const ls = leadByCo.get(v) || [];
+          const mc = ls.filter((l) => l.RecordType && l.RecordType.Name === "Mochica（リード）" && !l.IsConverted);
+          if (mc.some((l) => l.Ban_Type__c)) { r._sfBan = true; break; }
+          const pick = mc[0] || ls[0];
+          if (pick) { ph = pick.Phone || pick.MobilePhone; if (!r.sfLeadId && mc.length === 1) { r.sfLeadId = String(mc[0].Id).slice(0, 18); out.lead++; } break; }
+          if (accByCo.get(v)) { ph = accByCo.get(v); break; }
+        }
+        if (ph) { r.phone = String(ph).slice(0, 40); out.phone++; r.extra = { ...(r.extra || {}), 電話の出どころ: "SF から補った" }; }
+      }
+    } catch (e) {
+      out.error = String(e && e.message || e).slice(0, 200);
+      console.error("[mccall] CSV の電話を SF から補えませんでした", out.error);
+    }
+    return out;
+  }
 
   // ---- SF から足す（2026-11-19 福井さん「リードソースに SF も。SF・BALES・SHOBO からリードを追加できる形式」） ----
   //   SF の MOCHICA のリード（コンバート前）を、ステータス・リードソース・失注の有無・最後の活動からの日数・会社名で絞って足す。

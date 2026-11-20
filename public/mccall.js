@@ -945,7 +945,7 @@
       if (leads.length > 5000) throw new Error(`一度に足せるのは 5000件までです（${leads.length}件あります）。分けて読み込んでください`);
       const r = await post(`/api/mccall/lists/${listId}/from-csv`, { rows: leads });
       csvRemember(table, st);
-      importDone(`${r.added}件 足しました${r.banned ? `・アプローチ禁止 ${r.banned}件は外しました` : ""}${r.bad ? `・会社名も電話番号も無い ${r.bad}件は読めませんでした` : ""}${r.nolead ? `。うち ${r.nolead}件は SF のリードIDが無いため、架電結果は SF に書かれません` : ""}`, r);
+      importDone(`${r.added}件 足しました${r.banned ? `・アプローチ禁止 ${r.banned}件は外しました` : ""}${r.bad ? `・会社名も電話番号も無い ${r.bad}件は読めませんでした` : ""}${r.nolead ? `。うち ${r.nolead}件は SF のリードIDが無いため、架電結果は SF に書かれません` : ""}${r.sfPhone ? `。電話番号の無い行のうち ${r.sfPhone}件は SF から番号を補いました` : ""}${r.nophone ? `。${r.nophone}件は電話番号が見つからないまま入れました（架電画面の「直す」で入れてください）` : ""}${r.sfError ? `。SF に届かず電話番号を補えませんでした（${r.sfError}）` : ""}`, r);
       drawLists();
     }, `<label class="mcc-field" style="margin-top:12px">CSV ファイル<input type="file" id="mccCsvF" accept=".csv,.tsv,.txt,text/csv" /></label><div id="mccCsvM"></div><p class="mcc-note" id="mccCsvP" style="margin-top:6px"></p>`);
     const box = w.querySelector("#mccCsvM"), p = w.querySelector("#mccCsvP");
