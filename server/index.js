@@ -716,7 +716,7 @@ import {
   gmailCreateDraft, gmailDraftExists, chatMySpaces, chatRecentMessages, sheetTabs,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
+  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, updateSheetRanges, diagnoseSheet,
   writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser, gmailFindSentRequests, gmailFindLoginCode } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
@@ -21881,6 +21881,71 @@ async function nbSheetWriter(extra = []) {
   for (const ow of owners) if (await gcalConnected(ow).catch(() => false)) return ow;
   return "";
 }
+// ===== OEM（NB）の「【OEM】消化企業一覧」を kinXs の納品で自動で動かす（2026-11-20 久野さん・田中さん「右から左へ移す」）=====
+//   シートの形：4行目が見出し。左（A NO・B 商品名・C 企業名・D 受注日・E 納品確定月）＝納品済み、右（I 商品名・J 企業名・K 受注日・L 納品予定月）＝受注済み未消化。
+//   右にある会社が kinXs で納品済みになったら、右から消して、左の空いている行（C が空の一番上）に足す。納品確定月＝kinXs の検収書の回収日の月。
+//   納品済みとみなすのは「検収書の回収日が入っている」か「検収書を手で回収済みにした」会社だけ（自動の回収済み・10月より前の受注の決まりでは動かさない）。
+//   右は残った会社を上につめて書き直し、余った行は空にする。A 列の NO・F〜H 列・見出し・数の式にはさわらない
+const NB_OEM_TAB = "【OEM】消化企業一覧";
+async function nbOemSync({ dry = false } = {}) {
+  const writer = await nbSheetWriter([]);
+  if (!writer) return { ok: false, error: "シートに書ける人（Google 連携）が見つかりません" };
+  const vals = await readSheet(writer, NB_SHEET_ID, `'${NB_OEM_TAB}'!A1:L400`);
+  const hi = vals.findIndex((r) => (r || []).some((c) => /受注済み未消化/.test(String(c || ""))) && (r || []).some((c) => /^商品名$/.test(String(c || "").trim())));
+  if (hi < 0) return { ok: false, error: "見出しの行（商品名・受注済み未消化一覧）が見つかりません。シートの形が変わったかもしれません" };
+  const hdr = (vals[hi] || []).map((c) => String(c || "").trim());
+  // 列の場所を見出しで確かめる（違ったら書かない）
+  if (hdr[1] !== "商品名" || hdr[2] !== "企業名" || hdr[8] !== "商品名" || !/受注済み未消化/.test(hdr[9] || "")) return { ok: false, error: `見出しの並びが思っていた形と違うので、書きませんでした（${hdr.slice(0, 12).join("／")}）` };
+  const first = hi + 1;   // 0 始まりの行番号（シートの行＝+1）
+  const data = vals.slice(first);
+  const cell = (r, i) => String(((r || [])[i]) ?? "").trim();
+  const left = [], right = [];
+  data.forEach((r, i) => { if (cell(r, 2)) left.push({ row: first + i + 1, no: cell(r, 0), prod: cell(r, 1), co: cell(r, 2) }); if (cell(r, 9)) right.push({ row: first + i + 1, prod: cell(r, 8), co: cell(r, 9), booked: cell(r, 10), plan: cell(r, 11) }); });
+  // kinXs で本当に納品した会社（検収書の回収日あり・手で回収済み）
+  const { items } = await kinxsBuild();
+  const doneBy = new Map();
+  for (const x of items) {
+    const real = !!x.kenshuOn || x.kenshuSt === "回収済み";
+    if (!real) continue;
+    for (const nm of [x.name, ...(x.formerNames || [])]) { const k = csCoKey(nm); if (k && k.length >= 2) doneBy.set(k, x); }
+  }
+  const moving = right.filter((r) => doneBy.has(csCoKey(r.co)));
+  if (!moving.length) return { ok: true, moved: [], note: "移す会社はありません" };
+  const ymOf = (x) => { const d = String(x.kenshuOn || "").slice(0, 7) || new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7); return `${d.replace("-", "/")}/01`; };
+  const leftKeys = new Set(left.map((l) => `${csCoKey(l.co)}|${l.prod}`));
+  // 左の空いている行：最後に会社が入っている行の次から（間の空き行には入れない）
+  const lastLeftIdx = left.length ? left[left.length - 1].row - 1 - first : -1;
+  const writes = [];
+  let at = lastLeftIdx + 1; let lastNo = Number(left.length ? left[left.length - 1].no : 0) || left.length;
+  const moved = [];
+  for (const r of moving) {
+    const x = doneBy.get(csCoKey(r.co));
+    moved.push({ co: r.co, prod: r.prod, ym: ymOf(x).slice(0, 7), dup: leftKeys.has(`${csCoKey(r.co)}|${r.prod}`) });
+    if (leftKeys.has(`${csCoKey(r.co)}|${r.prod}`)) continue;   // もう左にある（同じ会社・同じ商品）なら、右から消すだけ
+    const sr = first + at + 1; lastNo += 1;
+    const noNow = cell(data[at], 0);
+    writes.push({ range: noNow ? `B${sr}:E${sr}` : `A${sr}:E${sr}`, values: [noNow ? [r.prod, r.co, r.booked, ymOf(x)] : [String(lastNo), r.prod, r.co, r.booked, ymOf(x)]] });
+    at += 1;
+  }
+  // 右：残る会社を上につめて書き直す。もとの右の行数ぶんだけ書く（はみ出さない）
+  const keep = right.filter((r) => !moving.includes(r));
+  const rStart = right[0].row, rEnd = right[right.length - 1].row;
+  const rows = []; for (let rr = rStart; rr <= rEnd; rr++) { const k = keep[rr - rStart]; rows.push(k ? [k.prod, k.co, k.booked, k.plan] : ["", "", "", ""]); }
+  writes.push({ range: `I${rStart}:L${rEnd}`, values: rows });
+  if (dry) return { ok: true, dry: true, moved, writes: writes.map((w) => w.range) };
+  await updateSheetRanges(writer, NB_SHEET_ID, `'${NB_OEM_TAB}'`, writes);
+  await nbSheetLog({ kind: "OEM消化", moved: moved.map((m) => `${m.co}（${m.prod}・${m.ym}）`) }).catch(() => {});
+  console.log(`[nb-oem] 未消化から納品済みへ ${moved.length}件：${moved.map((m) => m.co).join("・")}`);
+  return { ok: true, moved };
+}
+// 1時間ごと。最初は止めておき、試しの結果を見てから POST {on:true} で動かす（settings.nbOemSync）
+setTimeout(() => { const run = async () => { const st = await getSettings().catch(() => ({})); if (st.nbOemSync !== true || !authEnabled()) return; await nbOemSync().catch((e) => console.warn("[nb-oem]", e.message)); }; run(); setInterval(run, 60 * 60000); }, 6 * 60000);
+// 試す・すぐ動かす（管理者）：GET は書かずに、移す会社だけを返す。POST で書く
+app.get("/api/kinxs/oem-sync", async (req, res) => { try { if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが使えます" }); res.json(await nbOemSync({ dry: true })); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.post("/api/kinxs/oem-sync", async (req, res) => { try { if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが使えます" });
+  const b = req.body || {}; if (b.on === true || b.on === false) await saveSettings({ nbOemSync: b.on });
+  if (b.on === false) return res.json({ ok: true, off: true });
+  res.json(await nbOemSync()); } catch (e) { res.status(500).json({ error: e.message }); } });
 async function nbSheetLog(entry) {
   const st = await getSettings().catch(() => ({}));
   const log = [{ at: new Date().toISOString(), ...entry }, ...(Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [])].slice(0, 40);
@@ -34230,8 +34295,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "OEM 消化企業一覧を kinXs の納品で自動で動かす",
   "kinXs：キックオフ未設定・未実施を受注後すぐ出す／担当企業の画面",
   "企業カードから NeoSTAGE に入れる（kinbot-ext 2.2.30）",
   "インターン生もシフト提出ページに入力できる",
