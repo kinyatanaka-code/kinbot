@@ -2486,8 +2486,11 @@ async function renderPub() {
       const bad = rows.find((p) => p.url && !/^https?:\/\//i.test(p.url)); if (bad) { alert(`URL は https:// から入れてください（${bad.url}）`); return; }
       const btn = ev.currentTarget; btn.disabled = true; btn.textContent = "保存中…";
       try {
-        await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { places: rows, ...(rows.length && x.noPlace ? { no_place: false } : {}) } }) });
-        x.places = rows; if (rows.length) x.noPlace = false; if (window.kbToast) window.kbToast(`${x.name} の掲載先を保存しました`);
+        const rs = await api(`/api/kinxs/accounts/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ info: { places: rows, ...(rows.length && x.noPlace ? { no_place: false } : {}) } }) });
+        // 掲載先を初めて入れたら、サーバーが手前の段（キックオフ・検収書・納品メール）も済みにする。そのことを知らせる（2026-11-20）
+        const adv = (rs && rs.advanced) || [];
+        x.places = rows; if (rows.length) x.noPlace = false; if (adv.length) { x.published = true; if (!x.publishedOn) x.publishedOn = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); }
+        if (window.kbToast) window.kbToast(adv.length ? (adv.some((k) => k !== "掲載") ? `${x.name} を掲載済みにして、${adv.filter((k) => k !== "掲載").join("・")}も済みにしました` : `${x.name} を掲載済みにしました`) : `${x.name} の掲載先を保存しました`);
         draw();
       } catch (e) { btn.disabled = false; btn.textContent = "保存"; alert(`保存できませんでした：${e.message}`); }
     });

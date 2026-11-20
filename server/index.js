@@ -18237,8 +18237,30 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
       const rows = await kinxsList(); const r = rows.find((y) => y.account_id === req.params.id) || {};
       patch.contacts = [...(Array.isArray(r.contacts) ? r.contacts : []), { at: b.contact.at || new Date().toISOString(), type: String(b.contact.type || "電話").slice(0, 20), text: String(b.contact.text).slice(0, 2000), by: req.user }].slice(-200);
     }
+    // 掲載済みになったら、その手前の段（キックオフ・検収書・納品メール）も一気に済みにする（2026-11-20 田中さん「掲載一覧で、掲載済みになったら一気に掲載済みまでステージを進めてほしい」）。
+    //   「掲載済みになった」＝掲載先を初めて入れた・掲載済みの印を付けた・掲載日を入れた。もう済んでいる段・検収書の対象外はそのまま。
+    //   キックオフの日が何も分からない会社だけ、掲載日（無ければ今日）を実施日として入れる
+    let advanced = [];
+    try {
+      const prev = (await kinxsList()).find((y) => y.account_id === req.params.id) || {};
+      const prevPlaces = Array.isArray((prev.info || {}).places) ? prev.info.places.filter((p0) => p0 && (p0.where || p0.url)).length : 0;
+      const newPlaces = patch.info && Array.isArray(patch.info.places) ? patch.info.places.filter((p0) => p0 && (p0.where || p0.url)).length : prevPlaces;
+      const becomes = !prev.published && (patch.published === true || (newPlaces > 0 && prevPlaces === 0));
+      if (becomes) {
+        const day = patch.published_on || (prev.published_on ? null : new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10));
+        if (patch.published !== true) { patch.published = true; advanced.push("掲載"); }
+        if (day && !patch.published_on && !prev.published_on) patch.published_on = day;
+        if (prev.mail_done !== true && patch.mail_done === undefined) { patch.mail_done = true; advanced.push("納品メール"); }
+        if (prev.kenshu_done !== true && !prev.kenshu_na && patch.kenshu_done === undefined && patch.kenshu_na === undefined) { patch.kenshu_done = true; advanced.push("検収書"); }
+        if (!prev.kickoff_on && patch.kickoff_on === undefined) {
+          const it = ((await kinxsBuild().catch(() => ({ items: [] }))).items || []).find((y) => y.id === req.params.id);
+          if (!(it && it.kickoffOn)) { patch.kickoff_on = patch.published_on || prev.published_on || day; advanced.push("キックオフ"); }
+        }
+      }
+    } catch (e) { console.warn("[kinXs] 掲載済みで段を進められませんでした", e.message); }
     const r = await kinxsUpdate(req.params.id, patch, req.user);
     if (!r) return res.status(404).json({ error: "見つかりません" });
+    if (advanced.length) await kinxsLogAuto(req.params.id, "stage", "", `掲載済みになったので ${advanced.join("・")} を済みにしました（${req.user}）`).catch(() => {});
     if ("cs_name" in b || "purpose" in b || (b.info && Array.isArray(b.info.contacts))) kxToKickoff(req.params.id, b, req.user).catch(() => {});
     let logoRefetched = false;
     if (b.info && typeof b.info === "object" && "website" in b.info && String(b.info.website || "").trim() && !r.logo_manual) {
@@ -18315,7 +18337,7 @@ app.put("/api/kinxs/accounts/:id", async (req, res) => {
         _kxSfInfoCache.delete(id0); _kxMissing = { at: 0, data: null };
       }
     }
-    res.json({ ok: true, sfWrote, sfContacts, logoRefetched });
+    res.json({ ok: true, sfWrote, sfContacts, logoRefetched, advanced });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.put("/api/kinxs/accounts/:id/rank", async (req, res) => {
@@ -34049,7 +34071,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
   "kinXs：会社の道のり・宿題・次回アクションをその場で直せる",
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",
