@@ -13,6 +13,7 @@
 // ───────────────────────────────────────────────────────────
 
 // 集計する項目。シートのB列の文言と対応させる。
+import { isReschedResetTitle } from "./apotitle.js";
 export const METRICS = ["コール", "接触", "アポ（期内）", "アポ（期外）"];
 
 // 担当者名ではない、項目の行に出てくる言葉。
@@ -282,7 +283,7 @@ export function callHours(events, dateJst, { startH = 10, endH = 18 } = {}) {
 
   const isMeeting = (title) => {
     const t = String(title || "");
-    if (/リスケ/.test(t)) return false;               // リスケは架電時間
+    if (/リスケ/.test(t) && !isReschedResetTitle(t)) return false;               // リスケは架電時間（リスケ再設定は商談）
     return /[【】]/.test(t) || /株式会社/.test(t) || /様/.test(t);
   };
 

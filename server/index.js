@@ -1,4 +1,5 @@
 // server/index.js
+import { isNoMeetingTitle, isReschedResetTitle } from "./apotitle.js";
 import "dotenv/config";
 import { geminiFailoverStatus, setTextViaGroq, groqRouteStats, geminiBusyStats, geminiUsageDrain } from "./gemini_failover.js";   // Geminiのキーが止まったら予備のキーへ（いちばん先に読み込む）
 import path from "node:path";
@@ -4393,7 +4394,7 @@ async function salesCallHours(gcalOwner, email, dayStr, tanakaRule) {
     if (e.allDay) continue;
     if (e.selfResponse === "declined") continue; // 参加拒否は空き扱い
     const t = String(e.title || "");
-    if (/リスケ|キャンセル/.test(t)) continue;    // リスケ・キャンセルは空き扱い
+    if (isNoMeetingTitle(t)) continue;    // リスケ・キャンセルは空き扱い（リスケ再設定は商談あり）
     if (!isBlockTitle(t)) continue;
     const s = Date.parse(e.start), en = Date.parse(e.end);
     if (isNaN(s) || isNaN(en)) continue;
@@ -8520,7 +8521,7 @@ async function busyOf(owner, days) {
     return (evs || [])
       .filter((e) => !e.allDay && e.start && e.end)
       .filter((e) => e.selfResponse !== "declined")                     // 参加拒否は空き
-      .filter((e) => !/リスケ|キャンセル/.test(String(e.title || "")))   // リスケ・キャンセルは空き
+      .filter((e) => !isNoMeetingTitle(e.title))   // リスケ・キャンセルは空き（リスケ再設定は商談あり）
       .map((e) => ({ start: e.start, end: e.end }));
   } catch (e) {
     console.warn(`[日程調整] カレンダーを読めません（${owner}）：${e.message}`);
@@ -12682,7 +12683,7 @@ async function csFindConfirmMtg({ company, fsEmail, afterIso, members }) {
     if (!reader) continue;
     try {
       for (const e of await listCalendarEvents(reader, cal, { timeMin, timeMax })) {
-        if (e.allDay || /キックオフ|リスケ|キャンセル/.test(e.title || "")) continue;
+        if (e.allDay || /キックオフ/.test(e.title || "") || isNoMeetingTitle(e.title)) continue;
         if (csCoKey(e.title) !== key && !String(e.title || "").normalize("NFKC").includes(String(company).normalize("NFKC").replace(/株式会社|\s/g, ""))) continue;
         const csHit = members.find((x) => x.email === cal || (e.attendees || []).some((a) => String(a.email || "").toLowerCase() === x.email));
         hits.push({ start: e.start, end: e.end, title: e.title, cs: csHit || null, confirmLike: /確認|MTG|打ち?合わせ|お打合せ|定例/.test(e.title || "") });
@@ -13106,7 +13107,7 @@ async function csCheckUnrecordedKickoffs() {
     let evs = [];
     try { evs = await listCalendarEvents(reader, em, { timeMin, timeMax: new Date().toISOString() }); } catch { continue; }
     for (const e of evs) {
-      if (!/キックオフ/.test(e.title || "") || /キャンセル|リスケ/.test(e.title || "")) continue;
+      if (!/キックオフ/.test(e.title || "") || isNoMeetingTitle(e.title)) continue;
       if (!e.end || Date.parse(e.end) > Date.parse(timeMax)) continue;
       const key = `${em}|${e.id}`;
       if (done.has(key)) continue;
@@ -19876,7 +19877,7 @@ app.get("/api/calls/slot-suggest", async (req, res) => {
         const arr = [];
         for (const e of evs || []) {
           if (e.allDay || e.selfResponse === "declined") continue;
-          if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;   // リスケ・キャンセルは空き
+          if (isNoMeetingTitle(e.title)) continue;   // リスケ・キャンセルは空き（リスケ再設定は商談あり）
           const s = Date.parse(e.start), en = Date.parse(e.end);
           if (!isNaN(s) && !isNaN(en) && en > s) arr.push([s, en]);
         }
@@ -19983,7 +19984,7 @@ app.get("/api/calls/slot-day", async (req, res) => {
         const arr = [];
         for (const e of evs || []) {
           if (e.allDay || e.selfResponse === "declined") continue;
-          if (/リスケ|キャンセル/.test(String(e.title || ""))) continue;
+          if (isNoMeetingTitle(e.title)) continue;
           const s0 = Date.parse(e.start), e0 = Date.parse(e.end);
           if (!isNaN(s0) && !isNaN(e0) && e0 > s0) arr.push([s0, e0]);
         }
@@ -34071,7 +34072,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
   "kinXs：会社の道のり・宿題・次回アクションをその場で直せる",
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",
@@ -36818,6 +36819,8 @@ function apoHeadState(title) {
   if (打ち消し.test(t)) return "";
   // キャンセル系を先に見る（「キャンセル→リスケ」のような書き方では、無くなった事実を優先）
   if (/(キャンセル|ｷｬﾝｾﾙ|cancel|中止|取消|取り消し|取りやめ|取り止め|見送り|流れ|ドタキャン|noshow|ノーショー)/i.test(t)) return "キャンセル";
+  // 「リスケ再設定」は、決め直した新しい日程の商談（2026-11-20 田中さん「商談があると判断してほしい」）
+  if (isReschedResetTitle(t)) return "";
   if (/(リスケ|ﾘｽｹ|resche|再調整|日程変更|日程再調整|日程調整中|延期|時間変更|振替|振り替え)/i.test(t)) return "リスケ";
   return "";
 }
@@ -40637,6 +40640,12 @@ server.listen(PORT, async () => {
   // 2026-10-12 決まり：リスケ・キャンセルになったアポも取った月の実績に残す。
   // リスケで作り直したアポは元のアポにつないで二重に数えない（起動時と10分ごとに確認）
   linkReschedPairs().then((r) => { if (r && r.linked) console.log(`[apo] リスケの作り直し ${r.linked}件をつなぎました`); }).catch(() => {});
+  // 「リスケ再設定」の予定は商談あり（2026-11-20 田中さん）。前に「リスケ」として数から外してしまったものを、1回だけ戻す
+  (async () => { try { const st0 = await getSettings().catch(() => ({})); if (st0.apoResetFix) return;
+    const { rows } = await pool.query(`UPDATE smart_links SET excluded = false, excluded_reason = NULL, updated_at = now() WHERE excluded AND excluded_reason = 'リスケ' AND label LIKE '%再設定%' AND label NOT LIKE '%キャンセル%' RETURNING label`);
+    await saveSettings({ apoResetFix: new Date().toISOString() });
+    if (rows.length) console.log(`[apo] 「リスケ再設定」のアポ ${rows.length}件を、数から外したのを戻しました：${rows.map((r0) => r0.label).slice(0, 5).join("／")}`);
+  } catch (e) { console.warn("[apo] リスケ再設定を戻せませんでした", e.message); } })();
   // 2026-10-20 田中さん：MO失注のリストの名前を一括で変える（「 - 担当者名」から後ろはそのまま。1回だけ）
   setTimeout(async () => {
     try {
