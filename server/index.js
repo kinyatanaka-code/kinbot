@@ -524,6 +524,7 @@ import {
   suspendedNow,
   listMembers,
   memberHasRole,
+  memberProfiles,
   saveMembers,
   deleteMember,
   syncMembersToLegacy,
@@ -12413,13 +12414,16 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
     const url = `${base}/d/${link.slug}`;
 
     const 差出人 = await displayNameOf(req.user).catch(() => "");
-    // 差し込み：{担当者}{会社名}{差出人}{資料名}{URL}
+    // 署名：アポ確定メールと同じ中身（設定 → メンバー管理 → 署名）を、送る本人の分で作る（2026-11-20 上野さん「キンコールから資料送付するときに署名が入るようにしたい」）
+    const 署名 = await docSendSignature(req.user, 差出人).catch(() => "");
+    // 差し込み：{担当者}{会社名}{差出人}{資料名}{URL}{署名}
     const fill = (s) => String(s || "")
       .replace(/\{担当者\}/g, person || "ご担当者")
       .replace(/\{会社名\}/g, company)
       .replace(/\{差出人\}/g, 差出人)
       .replace(/\{資料名\}/g, docName || "ご案内資料")
-      .replace(/\{URL\}/g, url);
+      .replace(/\{URL\}/g, url)
+      .replace(/\{署名\}/g, 署名);
     const 既定件名 = "資料のご送付（{資料名}）";
     const 既定本文 =
       "{担当者}様\n\n" +
@@ -12430,7 +12434,9 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
       "ご不明な点がございましたら、お気軽にご連絡ください。\n" +
       "何卒よろしくお願いいたします。";
     const subject = fill(String(st.docSendSubject || 既定件名));
-    const body = fill(String(st.docSendBody || 既定本文));
+    // テンプレに {署名} が無ければ、本文の最後に署名を付ける（今までのテンプレのままでも署名が入るように）
+    const tpl = String(st.docSendBody || 既定本文);
+    const body = fill(tpl) + (!/\{署名\}/.test(tpl) && 署名 ? `\n\n${署名}` : "");
 
     res.json({
       ok: true, to, cc: await docSendCcFor(req.user), company, person, subject, body, url, docName,
@@ -12439,6 +12445,28 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// 資料送付の署名：アポ確定メールの署名と同じ形（会社名・部署・ユニット・名前／ローマ字・電話・メール・本社）。
+//   中身は 設定 → メンバー管理 → 署名（送る本人の分）。空の行は出さない
+async function docSendSignature(user, displayName) {
+  const em = String(user || "").toLowerCase();
+  const profs = await memberProfiles().catch(() => ({}));
+  const p = profs[em] || Object.entries(profs).find(([k]) => String(k).toLowerCase() === em)?.[1] || {};
+  const st = await getSettings().catch(() => ({}));
+  const co = String(st.apoMailCompanyName || "").trim() || "株式会社ネオキャリア";
+  const name = String(p.name || displayName || "").trim();
+  const roman = String(p.nameRoman || "").trim();
+  const lines = [
+    "■━━━━━━━━━━━━━━━━━━━━━━━━━■",
+    `◇${co}（http://www.neo-career.co.jp/）`,
+    String(p.dept || "").trim(), String(p.unit || "").trim(),
+    name ? `${name}${roman ? `　/　${roman}` : ""}` : "",
+    String(p.phone || "").trim() ? `Phone：${String(p.phone).trim()}` : "",
+    `Mail：${String(p.mail || p.email || "").trim() || em}`,
+    "◇本社 〒160-0023", "東京都新宿区西新宿1-22-2 新宿サンエービル4階", "TEL：03-6756-0421　 FAX：03-5908-8385",
+    "■━━━━━━━━━━━━━━━━━━━━━━━━━■",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
 // 資料送付の設定（テンプレの件名・本文、既定の資料、トラッキングの有無）を読む
 app.get("/api/calls/doc-settings", async (req, res) => {
   try {
@@ -34072,8 +34100,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "kincall の資料送付メールに署名（メンバー管理の署名）",
   "kinXs：会社の道のり・宿題・次回アクションをその場で直せる",
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",
   "MOCHICALL：結果に「問い合わせフォームへ」。会社の Web ページから問い合わせページを探し、見えないブラウザで入力・送信（ロボット確認・分からない必須欄は送らず理由を出す。30日以内の2回目は確認。SF の活動にも残す）",

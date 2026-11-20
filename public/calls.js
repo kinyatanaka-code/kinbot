@@ -4082,7 +4082,8 @@ async function openDocSettings() {
         <input type="text" class="kc-input" id="kcDsSub" />
         <div class="kc-lb">メールの本文（テンプレ）</div>
         <textarea class="kc-input" id="kcDsBody" rows="10"></textarea>
-        <div class="note">差し込みできる目印：{担当者}／{会社名}／{差出人}／{資料名}／{URL}（資料のトラッキングURL）</div>
+        <div class="note">差し込みできる目印：{担当者}／{会社名}／{差出人}／{資料名}／{URL}（資料のトラッキングURL）／{署名}（送る人の署名）<br>
+          {署名} を書かなければ、本文の最後に自動で署名が付きます。署名の中身（部署・ユニット・ローマ字・電話・メール）は、設定 → メンバー管理 → 各メンバーの「署名」で入れます（アポ確定メールと同じ）。</div>
         <div class="kc-modal-foot">
           <button type="button" class="btn" id="kcDsSave">保存する</button>
           <span class="rev-status" id="kcDsSt"></span>
