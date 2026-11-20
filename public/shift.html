@@ -61,6 +61,12 @@
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;background:var(--acc2);color:#fff;padding:12px 18px;border-radius:12px;font-weight:700;font-size:14px;opacity:0;transition:.2s;box-shadow:0 14px 30px -12px rgba(0,0,0,.5);z-index:40}
   .toast.show{opacity:1}
   .center{text-align:center;padding:40px 16px;color:var(--dim)}
+  /* 名前のタブ（ログインなしで、自分の名前を選んでから入れる）（2026-11-20 田中さん） */
+  .ppl{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .ppl button{border:1px solid var(--line);background:#fff;color:var(--acc2);font:inherit;font-size:13px;font-weight:700;padding:7px 12px;border-radius:999px;cursor:pointer}
+  .ppl button:hover{border-color:var(--acc3)}
+  .ppl button.on{background:linear-gradient(180deg,#22b587,#0d5b47);color:#fff;border-color:transparent}
+  .ppl-lb{font-size:12px;color:var(--dim);font-weight:700;margin-top:12px}
   /* パソコン（横に広い画面）：カレンダーを大きく左に、時間・数・ボタンを右に並べる（2026-11-20 田中さん「PCでも見やすいように」）。
      スマホはこれまでどおり縦に1列 */
   @media (min-width: 900px){
@@ -91,6 +97,8 @@
   <div class="top">
     <div class="hi" id="hi">シフト提出</div>
     <div class="h2">シフト提出カレンダー</div>
+    <div class="ppl-lb" id="pplLb">あなたの名前を選んでください</div>
+    <div class="ppl" id="ppl"></div>
   </div>
   <div class="banner" id="banner">✅ この月は提出済みです（修正できません）。変更は管理者に連絡してください。</div>
 
@@ -130,21 +138,40 @@
   const isLocked = () => !!submittedMonths[ymStr()];
   function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1800); }
 
+  // ログインなし：名前のタブから自分を選ぶ。選んだ名前はこのブラウザに覚えておく（次に開いたとき、選び直さなくてよいように）
+  let people = [], who = '';
+  const esc = (t) => String(t||'').replace(/[&<>"]/g, (c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function drawPeople(){
+    $('ppl').innerHTML = people.map(p=>`<button type="button" data-k="${esc(p.key)}" class="${p.key===who?'on':''}">${esc(p.name)}</button>`).join('') || '<span class="ppl-lb" style="margin:0">名前が見つかりません（管理者に、メンバー管理で kincall の人として登録してもらってください）</span>';
+    $('ppl').querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>pick(b.dataset.k));
+    const me = people.find(p=>p.key===who);
+    $('hi').innerHTML = me ? `こんにちは、<b>${esc(me.name)}</b> さん` : 'シフト提出';
+    $('pplLb').textContent = me ? '名前（ちがうときは選び直す）' : 'あなたの名前を選んでください';
+  }
+  async function pick(k){
+    if(k===who) return;
+    who = k; try{ localStorage.setItem('kbShiftWho', k); }catch(e){}
+    Object.keys(shifts).forEach(x=>delete shifts[x]); Object.keys(submittedMonths).forEach(x=>delete submittedMonths[x]);
+    drawPeople();
+    $('pane-load').style.display='none'; $('pane-cal').style.display='';
+    await loadMonth();
+  }
   async function init(){
     try{
-      const r = await fetch('/api/shift/me', { cache:'no-store' });
-      if(r.status===401){ location.href='/login.html'; return; }
+      const r = await fetch('/api/shift/people', { cache:'no-store' });
       const d = await r.json();
       if(!r.ok || !d.ok) throw new Error(d.error||'');
-      $('hi').innerHTML = `こんにちは、<b>${(d.name||'').replace(/</g,'&lt;')}</b> さん`;
-      $('pane-load').style.display='none'; $('pane-cal').style.display='';
-      await loadMonth();
-    }catch(e){ $('loading').textContent = '読み込めませんでした。ログインし直してください。'; }
+      people = d.people||[];
+      let saved=''; try{ saved = localStorage.getItem('kbShiftWho')||''; }catch(e){}
+      drawPeople();
+      if(saved && people.some(p=>p.key===saved)) await pick(saved);
+      else $('loading').textContent = '上の名前のなかから、あなたの名前を選んでください。';
+    }catch(e){ $('loading').textContent = '読み込めませんでした。少しおいて、開き直してください。'; }
   }
   async function loadMonth(){
     const my = ymStr();
     try{
-      const r = await fetch(`/api/shift/load?ym=${my}`, { cache:'no-store' });
+      const r = await fetch(`/api/shift/load?ym=${my}&k=${encodeURIComponent(who)}`, { cache:'no-store' });
       const d = await r.json();
       if(r.ok && d.ok){
         Object.keys(shifts).forEach(k=>{ if(k.startsWith(my)) delete shifts[k]; });
@@ -188,12 +215,14 @@
   $('scrim').addEventListener('click',e=>{ if(e.target===$('scrim')) $('scrim').classList.remove('show'); });
 
   async function post(submit){
-    if(busy || isLocked()) return; busy=true;
+    if(busy || isLocked()) return;
+    if(!who){ toast('先に名前を選んでください'); return; }
+    busy=true;
     const my=ymStr();
     const list = Object.keys(shifts).filter(k=>k.startsWith(my)).map(k=>({day:k,t1:shifts[k].t1,t2:shifts[k].t2}));
     try{
       const r = await fetch('/api/shift/save',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({ym:my,shifts:list,submit})});
+        body:JSON.stringify({ym:my,shifts:list,submit,k:who})});
       const d = await r.json();
       if(!r.ok || !d.ok) throw new Error(d.error||'');
       if(submit){ submittedMonths[my]=true; toast('提出しました'); render(); }

@@ -1125,6 +1125,9 @@ app.use(async (req, res, next) => {
       return res.status(401).json({ error: "認証に失敗しました（トークンが無効です）" });
     }
   }
+  // シフト提出は、ログインなしで開けるようにする（2026-11-20 田中さん「インターン生だれでも入れて、名前を選ぶ感じでいい」）。
+  //   書けるのはインターン生（メンバー管理で kincall の人）の分だけ。提出した月はこれまでどおり変えられない
+  if (req.path === "/shift.html" || req.path === "/api/shift/people" || req.path === "/api/shift/load" || req.path === "/api/shift/save") return next();
   if (
     req.path === "/login.html" ||
     req.path === "/register.html" ||
@@ -4588,7 +4591,27 @@ async function shiftUserName(email) {
 }
 const H2M = (s) => { const m = String(s || "").match(/^(\d{1,2}):(\d{2})$/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
 const M2H = (n) => (n == null ? "" : `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`);
+// シフトを出す人の一覧：メンバー管理で kincall（インターン生）の、いま在籍している人。
+//   ログインなしのページに出すので、メールアドレスは出さず、名前と合言葉（メールから作った印）だけを渡す
+const shiftKey = (email) => crypto.createHash("sha256").update(String(process.env.SESSION_SECRET || "kinbot") + "|shift|" + String(email || "").toLowerCase()).digest("hex").slice(0, 16);
+async function shiftPeople() {
+  const [members, users] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]);
+  const uname = new Map((users || []).map((u) => [String(u.email || "").toLowerCase(), u.name]));
+  return (members || []).filter((m) => m.active !== false && Array.isArray(m.roles) && m.roles.includes("kincall") && m.email)
+    .map((m) => { const em = String(m.email).toLowerCase(); return { email: em, name: uname.get(em) || m.name || em, key: shiftKey(em) }; })
+    .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+}
+// だれの分か：名前を選んだ印（k）があればその人（インターン生の中から）。無ければログインしている本人
+async function shiftWho(req, k) {
+  const key = String(k || "").trim();
+  if (key) { const p = (await shiftPeople()).find((x) => x.key === key); return p ? p.email : ""; }
+  return String(req.user || "").trim().toLowerCase();
+}
 const shiftPerson = (req) => String(req.user || "").trim().toLowerCase();
+app.get("/api/shift/people", async (req, res) => {
+  try { res.json({ ok: true, people: (await shiftPeople()).map((p) => ({ key: p.key, name: p.name })) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ログイン本人の表示名（あいさつ用）
 app.get("/api/shift/me", async (req, res) => {
@@ -4598,7 +4621,7 @@ app.get("/api/shift/me", async (req, res) => {
 // 読み込み：本人・その月のシフト＋提出済みか
 app.get("/api/shift/load", async (req, res) => {
   try {
-    const person = shiftPerson(req); if (!person) return res.status(401).json({ error: "ログインが必要です" });
+    const person = await shiftWho(req, req.query.k); if (!person) return res.status(400).json({ error: "名前を選んでください" });
     const ym = String(req.query.ym || "").trim(); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月を指定してください" });
     const rows = await listMonthShifts(person, ym);
     res.json({ ok: true, submitted: await isShiftSubmitted(person, ym), shifts: rows.map((r) => ({ day: r.day, t1: M2H(r.start_min), t2: M2H(r.end_min) })) });
@@ -4607,7 +4630,7 @@ app.get("/api/shift/load", async (req, res) => {
 // 保存（下書き）／提出（submit=true でロック）。本人のみ。
 app.post("/api/shift/save", async (req, res) => {
   try {
-    const person = shiftPerson(req); if (!person) return res.status(401).json({ error: "ログインが必要です" });
+    const person = await shiftWho(req, req.body?.k); if (!person) return res.status(400).json({ error: "名前を選んでください" });
     const ym = String(req.body?.ym || "").trim(); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月を指定してください" });
     if (await isShiftSubmitted(person, ym)) return res.status(409).json({ error: "この月は提出済みで、修正できません（管理者に連絡してください）" });
     const name = await shiftUserName(person);
@@ -34297,8 +34320,9 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "シフト提出：ログインなし・名前を選んで入れる",
   "OEM 消化企業一覧を kinXs の納品で自動で動かす",
   "kinXs：キックオフ未設定・未実施を受注後すぐ出す／担当企業の画面",
   "企業カードから NeoSTAGE に入れる（kinbot-ext 2.2.30）",
