@@ -4083,10 +4083,19 @@ async function openDocSettings() {
         <div class="kc-lb">メールの本文（テンプレ）</div>
         <textarea class="kc-input" id="kcDsBody" rows="10"></textarea>
         <div class="note">差し込みできる目印：{担当者}／{会社名}／{差出人}／{資料名}／{URL}（資料のトラッキングURL）／{署名}（送る人の署名）<br>
-          {署名} を書かなければ、本文の最後に自動で署名が付きます。署名の中身（部署・ユニット・ローマ字・電話・メール）は、設定 → メンバー管理 → 各メンバーの「署名」で入れます（アポ確定メールと同じ）。</div>
-        <div class="kc-modal-foot">
-          <button type="button" class="btn" id="kcDsSave">保存する</button>
+          {署名} を書かなければ、本文の最後に自動で署名が付きます。</div>
+        <div class="kc-modal-foot" id="kcDsTplFoot">
+          <button type="button" class="btn" id="kcDsSave">テンプレを保存する</button>
           <span class="rev-status" id="kcDsSt"></span>
+        </div>
+        <!-- 署名は人ごと。テンプレを直せない人も、自分の署名はここで直せる（2026-11-20 田中さん） -->
+        <div class="kc-lb" style="margin-top:18px">あなたの署名（資料送付メールの最後に付くもの）</div>
+        <textarea class="kc-input" id="kcDsSig" rows="9" style="font-size:12.5px"></textarea>
+        <div class="note" id="kcDsSigNote">ここで書きかえた署名は、あなたが送る資料送付メールだけに使います（ほかの人には効きません）。</div>
+        <div class="kc-modal-foot">
+          <button type="button" class="btn" id="kcDsSigSave">署名を保存する</button>
+          <button type="button" class="btn ghost" id="kcDsSigReset" title="メンバー管理の部署・ユニット・ローマ字・電話から作る署名に戻します">自動の署名に戻す</button>
+          <span class="rev-status" id="kcDsSigSt"></span>
         </div>
       </div>
     </div>`, { wide: true });
@@ -4101,7 +4110,33 @@ async function openDocSettings() {
       (d.docs || []).map((x) => `<option value="${x.id}"${String(d.defaultDocId) === String(x.id) ? " selected" : ""}>${esc(x.name)}</option>`).join("");
     m.el.querySelector("#kcDsSub").value = d.subject || "";
     m.el.querySelector("#kcDsBody").value = d.body || "";
+    // テンプレはクローザー・管理者だけが直せるので、ほかの人には読むだけにする（保存して断られるより先に分かるように）
+    if (d.canEditTemplate === false) {
+      ["#kcDsDoc", "#kcDsSub", "#kcDsBody"].forEach((q) => { m.el.querySelector(q).disabled = true; });
+      m.el.querySelector("#kcDsTplFoot").innerHTML = '<span class="note">テンプレ（資料・件名・本文）はクローザー・管理者だけが直せます。署名は下で直せます。</span>';
+    }
+    m.el.querySelector("#kcDsSig").value = d.signature || "";
+    m.el.querySelector("#kcDsSig").dataset.auto = d.signatureAuto || "";
+    if (d.signatureCanSave === false) {
+      m.el.querySelector("#kcDsSig").disabled = true;
+      m.el.querySelector("#kcDsSigSave").disabled = true; m.el.querySelector("#kcDsSigReset").disabled = true;
+      m.el.querySelector("#kcDsSigNote").textContent = "メンバー管理にあなたが登録されていないため、署名を保存できません。管理者に、設定 → メンバー管理 への登録を頼んでください。";
+    }
   } catch (e) { m.el.querySelector("#kcDsLoad").textContent = "読み込めませんでした：" + e.message; return; }
+
+  const saveSig = async (text) => {
+    const st = m.el.querySelector("#kcDsSigSt");
+    st.textContent = "保存しています…";
+    try {
+      const r = await fetch("/api/calls/doc-signature", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ signature: text }) });
+      const dd = await r.json();
+      if (!r.ok) throw new Error(dd.error || "保存できませんでした");
+      m.el.querySelector("#kcDsSig").value = dd.signature || "";
+      st.textContent = dd.custom ? "署名を保存しました" : "自動の署名を使います";
+    } catch (e) { st.textContent = "失敗：" + e.message; }
+  };
+  m.el.querySelector("#kcDsSigSave").addEventListener("click", () => saveSig(m.el.querySelector("#kcDsSig").value));
+  m.el.querySelector("#kcDsSigReset").addEventListener("click", () => saveSig(""));
 
   m.el.querySelector("#kcDsSave").addEventListener("click", async () => {
     const st = m.el.querySelector("#kcDsSt");

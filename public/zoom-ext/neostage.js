@@ -24,7 +24,12 @@
     const tr = el.closest("tr");
     if (tr) { const cells = [...tr.children]; const i = cells.findIndex((c) => c.contains(el)); for (let k = i - 1; k >= 0; k--) { const t = clean(cells[k].innerText); if (t) return t; } }
     let p = el.previousElementSibling; while (p) { if (/^(LABEL|SPAN|DT|TH|B)$/.test(p.tagName)) { const t = clean(p.innerText); if (t) return t; } p = p.previousElementSibling; }
-    const lb = el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`); return lb ? clean(lb.innerText) : "";
+    const lb = el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (lb) return clean(lb.innerText);
+    // Bootstrap の並べ方（<label class="control-label">社名</label><div class="col-sm-5"><input></div>）。
+    //   企業検索の画面はこの形で、見出しが input の親の前にあるため、0項目になっていた（2026-11-20）
+    let q = el.parentElement && el.parentElement.previousElementSibling;
+    while (q) { if (q.tagName === "LABEL" || /control-label/.test(q.className || "")) { const t = clean(q.innerText); if (t) return t; } if (q.querySelector && q.querySelector("input,select,textarea")) break; q = q.previousElementSibling; }
+    return "";
   }
   // 「取引先担当者1」などの小見出し。同じ見出し（氏名・メール）が3回出てくるので、どの担当者の欄かを分けるため
   function ctxMap() {
@@ -109,7 +114,7 @@
       <div id="kbNeoMsg" style="margin-top:8px;font-size:12px;line-height:1.55;color:#4F6158"></div>
       <div style="margin-top:6px;font-size:11px;color:#8FA39A">入れた欄は緑の枠になります。「申請」は内容を確かめてから自分で押してください。</div>
     </div>`;
-  const mount = () => { if (!document.body || document.getElementById("kbNeoBox")) return; document.body.appendChild(box); wire(); };
+  const mount = () => { if (!document.body || document.getElementById("kbNeoBox")) return; document.body.appendChild(box); wire(); wantStart(); };
   const $ = (id) => box.querySelector("#" + id);
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function wire() {
@@ -119,10 +124,10 @@
       $("kbNeoQ").focus(); sendSchema(null); };
     $("kbNeoOpen").onclick = open;
     $("kbNeoX").onclick = () => { $("kbNeoPanel").hidden = true; $("kbNeoOpen").hidden = false; };
-    $("kbNeoGo").onclick = find;
+    $("kbNeoGo").onclick = () => find();
     $("kbNeoQ").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); find(); } });
   }
-  async function find() {
+  async function find(opt = {}) {
     const q = $("kbNeoQ").value.trim(); if (q.length < 2) { $("kbNeoMsg").textContent = "会社名を2文字以上入れてください"; return; }
     $("kbNeoMsg").textContent = "SF を探しています…"; $("kbNeoList").innerHTML = "";
     const r = await api(`find?q=${encodeURIComponent(q)}`);
@@ -132,8 +137,42 @@
     $("kbNeoList").innerHTML = items.map((a) => `<button type="button" data-id="${esc(a.id)}" style="display:block;width:100%;text-align:left;border:1px solid #e1ebe6;background:#fff;border-radius:10px;padding:7px 9px;margin-bottom:5px;cursor:pointer">
       <b style="font-size:13px">${esc(a.name)}</b>${a.type ? ` <span style="font-size:10.5px;color:#0F6E56;background:#e1f5ee;border-radius:99px;padding:1px 6px">${esc(a.type)}</span>` : ""}<br><span style="font-size:11px;color:#7d8f87">${esc([a.tel, a.addr].filter(Boolean).join("・") || "電話・住所なし")}</span></button>`).join("");
     $("kbNeoList").querySelectorAll("[data-id]").forEach((b) => b.onclick = () => pick(b.dataset.id));
+    // 企業カードから社名で来て、SF に1社だけ見つかったら、そのまま入れる
+    if (opt.auto && items.length === 1) pick(items[0].id);
+  }
+  // ===== kinbot・kinXs の企業カードから来たとき（https://neo-crm.net/corp_search#kbsf=<SFの取引先ID> または #kbq=<社名>）（2026-11-20 田中さん）=====
+  //   どの会社かをこのタブに覚えておき、企業検索ではすぐ入れて検索する。事業所新規・部署新規へ進んだら、パネルに「〇〇の値を入れる」を出す（押したら入れる）。
+  //   覚えるのはこのタブだけ（sessionStorage）・2時間まで。申請・一時保存はこれまでどおり押さない
+  const WKEY = "kbNeoWant";
+  const want = (() => {
+    try {
+      const h = new URLSearchParams(String(location.hash || "").replace(/^#/, ""));
+      const id = String(h.get("kbsf") || ""), q = String(h.get("kbq") || "").slice(0, 80);
+      if (/^001[A-Za-z0-9]{12,15}$/.test(id) || q) {
+        const w = { id: /^001/.test(id) ? id : "", q, name: String(h.get("kbname") || q || "").slice(0, 80), at: Date.now() };
+        sessionStorage.setItem(WKEY, JSON.stringify(w));
+        history.replaceState(null, "", location.pathname + location.search);   // 印は消しておく（NeoSTAGE の画面の動きにさわらないように）
+        return { ...w, fresh: true };
+      }
+      const w = JSON.parse(sessionStorage.getItem(WKEY) || "null");
+      return w && Date.now() - (w.at || 0) < 2 * 3600000 ? w : null;
+    } catch { return null; }
+  })();
+  function wantStart() {
+    if (!want) return;
+    $("kbNeoPanel").hidden = false; $("kbNeoOpen").hidden = true;
+    const kind = pageKind();
+    if (want.id && (kind === "corp_search" && want.fresh)) { pick(want.id); return; }
+    if (want.id) {
+      $("kbNeoList").innerHTML = `<button type="button" data-want style="display:block;width:100%;text-align:left;border:1.5px solid #5DCAA5;background:#e1f5ee;border-radius:10px;padding:8px 10px;cursor:pointer;color:${G};font-weight:800">${esc(want.name || "kinbot で選んだ会社")} の値を入れる</button>`;
+      $("kbNeoList").querySelector("[data-want]").onclick = () => pick(want.id);
+      $("kbNeoMsg").textContent = "kinbot・kinXs で選んだ会社です。押すと、この画面の欄に入れます";
+      return;
+    }
+    $("kbNeoQ").value = want.q; find({ auto: kind === "corp_search" && want.fresh });
   }
   async function pick(id) {
+    try { const w = JSON.parse(sessionStorage.getItem(WKEY) || "null"); if (w && !w.id) { w.id = id; sessionStorage.setItem(WKEY, JSON.stringify(w)); } } catch {}
     $("kbNeoMsg").textContent = "SF と gBizINFO から値を作っています…";
     const r = await api(`prefill?id=${encodeURIComponent(id)}`);
     if (!r.ok) { $("kbNeoMsg").textContent = r.error || "値を作れませんでした"; return; }

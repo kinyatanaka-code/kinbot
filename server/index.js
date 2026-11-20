@@ -284,7 +284,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -524,7 +524,7 @@ import {
   suspendedNow,
   listMembers,
   memberHasRole,
-  memberProfiles,
+  memberProfiles, setMemberDocSignature,
   saveMembers,
   deleteMember,
   syncMembersToLegacy,
@@ -716,7 +716,7 @@ import {
   gmailCreateDraft, gmailDraftExists, chatMySpaces, chatRecentMessages, sheetTabs,
   gmailDeleteDraft,
   parseEmailAddr, driveEnsureFolder, driveUploadFromUrl, driveShareDomain, driveStream, driveUploadFile, driveFindCompanyFiles, driveShareAnyone, driveEnsurePath, driveMoveFile, driveListChildren, driveTrash,
-  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, diagnoseSheet,
+  appendSheetRow, writeSheetNewTab, checkSheet, readSheet, updateSheetCells, updateSheetRanges, diagnoseSheet,
   writeViaAppsScript, tokenScopes, getCalendarEvent, getCalendarEventState, freeBusy, isSlotFree, patchCalendarEvent , driveUploadBuffer, driveEnsureFolderId, driveSyncConverted, driveShareUser, gmailFindSentRequests, gmailFindLoginCode } from "./google.js";
 import { startScheduler } from "./scheduler.js";
 import { muxConfigured, startVodUpload, waitVodPlayback, muxStorageSummary, listAssets, deleteAsset, findAssetByPlaybackId, enableMp4, mp4Url, readyMp4Name, getAsset } from "./mux.js";
@@ -966,7 +966,9 @@ function isKincallSelfSettingPath(p) {
     // Zoomアカウントの貸し出し（借りる・返す・ログインの確かめ・パスワード）と、ログインの引き継ぎ（2026-11-09：インターン生が「この操作はできません」になっていた）
     p === "/api/zoom-share" || p.startsWith("/api/zoom-share/") || p === "/api/auth/handoff" ||
     // 案件共有の窓（記録の窓の「🤝 案件共有」：下書きを埋める・共有先を探す・送信の設定）（2026-11-09：インターン生には動いていなかった）
-    p.startsWith("/api/case-share/");
+    p.startsWith("/api/case-share/") ||
+    // シフトの提出（本人の分だけ読み書きする）。インターン生に送るページなのに開けず、kincall に戻されていた（2026-11-20 田中さん）
+    p === "/shift.html" || p === "/api/shift/me" || p === "/api/shift/load" || p === "/api/shift/save";
 }
 
 const OPEN_PATHS = new Set([
@@ -1123,6 +1125,9 @@ app.use(async (req, res, next) => {
       return res.status(401).json({ error: "認証に失敗しました（トークンが無効です）" });
     }
   }
+  // シフト提出は、ログインなしで開けるようにする（2026-11-20 田中さん「インターン生だれでも入れて、名前を選ぶ感じでいい」）。
+  //   書けるのはインターン生（メンバー管理で kincall の人）の分だけ。提出した月はこれまでどおり変えられない
+  if (req.path === "/shift.html" || req.path === "/api/shift/people" || req.path === "/api/shift/load" || req.path === "/api/shift/save") return next();
   if (
     req.path === "/login.html" ||
     req.path === "/register.html" ||
@@ -1209,6 +1214,8 @@ app.use(async (req, res, next) => {
   // Gemini のリンク（/gem?t=…）から来た人は、ログインのあと同じ依頼に戻す
   //   （ログイン画面は next を2回ほどくので、2回かけておく。1回だと %0A が本物の改行になって依頼がこわれる）
   if (req.path === "/gem") return res.redirect(`/login.html?next=${encodeURIComponent(encodeURIComponent(req.originalUrl))}`);
+  // シフト提出のリンクから来た人も、ログインのあとシフトのページに戻す（2026-11-20：インターン生に送るリンク）
+  if (req.path === "/shift.html") return res.redirect(`/login.html?next=${encodeURIComponent(encodeURIComponent("/shift.html"))}`);
   return res.redirect("/login.html");
 });
 
@@ -4596,7 +4603,44 @@ async function shiftUserName(email) {
 }
 const H2M = (s) => { const m = String(s || "").match(/^(\d{1,2}):(\d{2})$/); return m ? (+m[1]) * 60 + (+m[2]) : null; };
 const M2H = (n) => (n == null ? "" : `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`);
+// シフトを出す人の一覧：メンバー管理で kincall（インターン生）の、いま在籍している人。
+//   ログインなしのページに出すので、メールアドレスは出さず、名前と合言葉（メールから作った印）だけを渡す
+const shiftKey = (email) => crypto.createHash("sha256").update(String(process.env.SESSION_SECRET || "kinbot") + "|shift|" + String(email || "").toLowerCase()).digest("hex").slice(0, 16);
+async function shiftPeople() {
+  const [members, users, st] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => []), getSettings().catch(() => ({}))]);
+  const uname = new Map((users || []).map((u) => [String(u.email || "").toLowerCase(), u.name]));
+  // シフトを出さない人（settings.shiftHidden にメール）。kincall の役割はそのまま、シフトの名前の一覧からだけ外す（2026-11-20 田中さん）
+  const hidden = new Set((Array.isArray(st.shiftHidden) ? st.shiftHidden : []).map((x) => String(x).toLowerCase()));
+  return (members || []).filter((m) => m.active !== false && Array.isArray(m.roles) && m.roles.includes("kincall") && m.email && !hidden.has(String(m.email).toLowerCase()))
+    .map((m) => { const em = String(m.email).toLowerCase(); return { email: em, name: uname.get(em) || m.name || em, key: shiftKey(em) }; })
+    .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+}
+// だれの分か：名前を選んだ印（k）があればその人（インターン生の中から）。無ければログインしている本人
+async function shiftWho(req, k) {
+  const key = String(k || "").trim();
+  if (key) { const p = (await shiftPeople()).find((x) => x.key === key); return p ? p.email : ""; }
+  return String(req.user || "").trim().toLowerCase();
+}
 const shiftPerson = (req) => String(req.user || "").trim().toLowerCase();
+// シフトの名前の一覧から外す人を決める（管理者・クローザー）。names に名前（姓だけでもよい）を入れる。hide:false で戻す
+app.post("/api/shift/hidden", async (req, res) => {
+  try {
+    if (!(await canEditShifts(req))) return res.status(403).json({ error: "管理者・セールスだけが使えます" });
+    const names = (Array.isArray(req.body?.names) ? req.body.names : []).map((x) => String(x || "").replace(/[\s　]/g, "")).filter(Boolean);
+    const [members, users, st] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => []), getSettings().catch(() => ({}))]);
+    const nmOf = (em) => String(((users || []).find((u) => String(u.email || "").toLowerCase() === em) || {}).name || ((members || []).find((m) => String(m.email || "").toLowerCase() === em) || {}).name || "").replace(/[\s　]/g, "");
+    const cand = (members || []).filter((m) => Array.isArray(m.roles) && m.roles.includes("kincall")).map((m) => String(m.email || "").toLowerCase());
+    const hits = cand.filter((em) => names.some((n) => nmOf(em).startsWith(n) || nmOf(em) === n));
+    const cur = new Set((Array.isArray(st.shiftHidden) ? st.shiftHidden : []).map((x) => String(x).toLowerCase()));
+    for (const em of hits) { if (req.body?.hide === false) cur.delete(em); else cur.add(em); }
+    await saveSettings({ shiftHidden: [...cur] });
+    res.json({ ok: true, changed: hits.map(nmOf), hidden: [...cur].map(nmOf) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/shift/people", async (req, res) => {
+  try { res.json({ ok: true, people: (await shiftPeople()).map((p) => ({ key: p.key, name: p.name })) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ログイン本人の表示名（あいさつ用）
 app.get("/api/shift/me", async (req, res) => {
@@ -4606,7 +4650,7 @@ app.get("/api/shift/me", async (req, res) => {
 // 読み込み：本人・その月のシフト＋提出済みか
 app.get("/api/shift/load", async (req, res) => {
   try {
-    const person = shiftPerson(req); if (!person) return res.status(401).json({ error: "ログインが必要です" });
+    const person = await shiftWho(req, req.query.k); if (!person) return res.status(400).json({ error: "名前を選んでください" });
     const ym = String(req.query.ym || "").trim(); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月を指定してください" });
     const rows = await listMonthShifts(person, ym);
     res.json({ ok: true, submitted: await isShiftSubmitted(person, ym), shifts: rows.map((r) => ({ day: r.day, t1: M2H(r.start_min), t2: M2H(r.end_min) })) });
@@ -4615,7 +4659,7 @@ app.get("/api/shift/load", async (req, res) => {
 // 保存（下書き）／提出（submit=true でロック）。本人のみ。
 app.post("/api/shift/save", async (req, res) => {
   try {
-    const person = shiftPerson(req); if (!person) return res.status(401).json({ error: "ログインが必要です" });
+    const person = await shiftWho(req, req.body?.k); if (!person) return res.status(400).json({ error: "名前を選んでください" });
     const ym = String(req.body?.ym || "").trim(); if (!/^\d{4}-\d{2}$/.test(ym)) return res.status(400).json({ error: "月を指定してください" });
     if (await isShiftSubmitted(person, ym)) return res.status(409).json({ error: "この月は提出済みで、修正できません（管理者に連絡してください）" });
     const name = await shiftUserName(person);
@@ -12461,10 +12505,12 @@ app.post("/api/calls/targets/:id/doc/preview", async (req, res) => {
 
 // 資料送付の署名：アポ確定メールの署名と同じ形（会社名・部署・ユニット・名前／ローマ字・電話・メール・本社）。
 //   中身は 設定 → メンバー管理 → 署名（送る本人の分）。空の行は出さない
-async function docSendSignature(user, displayName) {
+async function docSendSignature(user, displayName, { auto = false } = {}) {
   const em = String(user || "").toLowerCase();
   const profs = await memberProfiles().catch(() => ({}));
   const p = profs[em] || Object.entries(profs).find(([k]) => String(k).toLowerCase() === em)?.[1] || {};
+  // 本人が資料送付設定で書きかえた署名があれば、それをそのまま使う（2026-11-20 田中さん「ここで署名とかを変更できるように」）
+  if (!auto && String(p.docSignature || "").trim()) return String(p.docSignature).trim();
   const st = await getSettings().catch(() => ({}));
   const co = String(st.apoMailCompanyName || "").trim() || "株式会社ネオキャリア";
   const name = String(p.name || displayName || "").trim();
@@ -12493,6 +12539,15 @@ app.get("/api/calls/doc-settings", async (req, res) => {
         "{担当者}様\n\nお世話になっております。\n先ほどお電話にてご案内した資料をお送りいたします。\n下記のURLよりご確認ください。\n\n{URL}\n\nご不明な点がございましたら、お気軽にご連絡ください。\n何卒よろしくお願いいたします。",
       defaultDocId: st.docDefaultId || "",
       docs: (docs || []).map((d) => ({ id: d.id, name: fixMojibake(d.name || "") })),
+      // 送る本人の署名（いま使われるもの）と、メンバー管理の項目から作った自動の署名（元に戻すとき用）
+      ...(await (async () => {
+        const me = String(req.user || "").toLowerCase();
+        const profs = await memberProfiles().catch(() => ({}));
+        const inMembers = Object.keys(profs).some((k) => String(k).toLowerCase() === me);
+        const nm = await displayNameOf(req.user).catch(() => "");
+        return { signature: await docSendSignature(req.user, nm).catch(() => ""), signatureAuto: await docSendSignature(req.user, nm, { auto: true }).catch(() => ""), signatureCanSave: inMembers };
+      })()),
+      canEditTemplate: !!(req.isAdmin || req.actingCloser || (await isCloserUser(req.user).catch(() => false))),
     });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -12508,6 +12563,21 @@ app.put("/api/calls/doc-settings", async (req, res) => {
     if (b.defaultDocId !== undefined) patch.docDefaultId = String(b.defaultDocId || "");
     await saveSettings(patch);
     res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 資料送付メールの署名を、本人が自分の分だけ書きかえる（テンプレとちがい、だれでも自分の署名は直せる）
+app.put("/api/calls/doc-signature", async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: "ログインし直してください" });
+    const text = String((req.body || {}).signature || "");
+    // 自動の署名と同じなら、書きかえなかったことにする（あとでメンバー管理を直したとき、そちらが効くように）
+    const nm = await displayNameOf(req.user).catch(() => "");
+    const auto = await docSendSignature(req.user, nm, { auto: true }).catch(() => "");
+    const same = text.replace(/\r\n/g, "\n").trim() === String(auto).trim();
+    const ok = await setMemberDocSignature(req.user, same ? "" : text);
+    if (!ok) return res.status(404).json({ error: "メンバー管理にあなたが登録されていないため、署名を保存できません。管理者に、設定 → メンバー管理 への登録を頼んでください" });
+    res.json({ ok: true, signature: await docSendSignature(req.user, nm).catch(() => ""), custom: !same && !!text.trim() });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -14601,8 +14671,47 @@ function kxDeliveryMonth(k) {
 const KX_LABELS = ["計上予定", "フォローMTG設定済", "検収書回収待ち", "オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定", "解約済み", "エラー"];   // 「キャンセル」はやめた（2026-11-04）
 // 今日（日本時間）から、その日まであと何日か（今日＝0、昨日＝-1）。前は時刻で割って切り上げていたため、前日が「今日」・今日が「あと1日」になっていた（2026-11-11）
 function kxDaysLeft(ymd) { const t = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); return Math.round((Date.parse(String(ymd).slice(0, 10) + "T00:00:00Z") - Date.parse(t + "T00:00:00Z")) / 86400000); }
+// ===== キックオフの予定（FS のカレンダー）（2026-11-20 久野さん「キックオフ予定されてない・実施していない企業を拾いたい」）=====
+//   FS（クローザー）のカレンダーで、予定名に「キックオフ」がある予定（前14日〜先90日）を1時間ごとに読んでおく。
+//   kinXs の会社と予定名の会社名で照らして「予定あり（まだ実施していない）」「予定日を過ぎた」「まだ予定がない」を分ける。
+//   読むのは Google カレンダーだけ（お金はかからない）。待たせないよう、前に読んだものを使い、古ければ裏で読み直す
+const _kxKo = { at: 0, list: [], busy: false };
+async function kxKickoffPlansScan() {
+  if (_kxKo.busy) return; _kxKo.busy = true;
+  try {
+    const st = await getSettings().catch(() => ({}));
+    const ops = [st.apoScanOwner, st.apoInviteOwner, st.apoCalendarOwner].map((x) => String(x || "").trim()).find(Boolean) || "";
+    const closers = await listClosers({ activeOnly: true }).catch(() => []);
+    const timeMin = new Date(Date.now() - 14 * 86400000).toISOString(), timeMax = new Date(Date.now() + 90 * 86400000).toISOString();
+    const list = [];
+    for (const c of closers) {
+      const em = String(c.email || "").toLowerCase(); if (!em) continue;
+      const reader = (await gcalConnected(em).catch(() => false)) ? em : ops; if (!reader) continue;
+      let evs = []; try { evs = await listCalendarEvents(reader, em, { timeMin, timeMax }); } catch { continue; }
+      for (const e of evs) {
+        if (!/キックオフ|kick ?off/i.test(e.title || "") || isNoMeetingTitle(e.title) || !e.start) continue;
+        const key = csCoKey(e.title);   // 予定名から会社名だけを取る（「【キックオフ】〇〇株式会社 △△様」→ 〇〇） if (!key || key.length < 2) continue;
+        list.push({ key, start: e.start, fs: c.name || em });
+      }
+    }
+    _kxKo.list = list; _kxKo.at = Date.now();
+  } catch (e) { console.warn("[kinXs] キックオフの予定を読めませんでした", e.message); }
+  finally { _kxKo.busy = false; }
+}
+function kxKickoffPlans() {
+  if (Date.now() - _kxKo.at > 60 * 60000) kxKickoffPlansScan().catch(() => {});
+  return _kxKo.list;
+}
+setTimeout(() => { kxKickoffPlansScan().catch(() => {}); }, 90000);
+// 会社のキー（今の名前・旧社名）に合うキックオフの予定。いちばん新しい予定（予定を引き直したとき、新しいほうを使う）
+function kxKickoffPlanFor(keys, plans) {
+  const ks = keys.filter((k) => k && k.length >= 2);
+  const hit = plans.filter((p) => ks.some((k) => p.key === k || (k.length >= 4 && p.key.includes(k))));
+  return hit.sort((a, b) => String(b.start).localeCompare(String(a.start)))[0] || null;
+}
 async function kinxsBuild() {
   await kinxsInit();
+  const koPlans = kxKickoffPlans();
   const st = await getSettings().catch(() => ({}));
   const rules = { renewDays: 90, contactDays: 30, staleDays: 90, ...(st.kinxsRules || {}) };
   const rowsAll = await kinxsList();
@@ -14680,14 +14789,22 @@ async function kinxsBuild() {
     const label = label0 === "キャンセル" ? "解約済み" : label0;
     // 要アクション（事前アラート）（2026-11-04 久野さんの要望書 4-3。ホームとフェーズ別で共通）
     const actions = [];
+    const koPlanOf = kickOn ? null : kxKickoffPlanFor([key, ...fkeys], koPlans);
     const PRE = ["計上予定", "フォローMTG設定済", "検収書回収待ち"], POST = ["オンボーディング中", "掲載・活用開始", "利用中", "更新検討時期", "解約予定"];
     const bookedYmd = ymd0(r.first_booked_on || r.booked_on);
     // 検収書の回収予定月（空なら受注月の翌月）。ホームの「その月の検収書回収」にも使う（2026-11-16）
     const ksMonthEff = r.kenshu_month || (bookedYmd ? (() => { const d = new Date(Date.parse(bookedYmd.slice(0, 7) + "-01T00:00:00Z")); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); })() : "");
     if (!r.archived && PRE.includes(label)) {
+      // キックオフ（FS）がまだの会社は、受注（計上）したらすぐ出す（2026-11-20 久野さん：前は受注から14日たってから）。
+      //   受注→キックオフ（FS）→フォローMTG（CS）→フォロー の順。予定が無い＝「未設定」、予定がある＝「予定 ○/○（未実施）」、予定日を過ぎても記録が無い＝「予定日過ぎ」
       if (!kickOn && bookedYmd) {
-        const d = Math.floor((now - Date.parse(bookedYmd + "T00:00:00+09:00")) / 86400000);
-        if (d >= 14) actions.push({ group: "納品前", kind: "キックオフ未実施", detail: `キックオフ未実施（受注から${d}日）`, due: new Date(Date.parse(bookedYmd + "T00:00:00+09:00") + 14 * 86400000 + 9 * 3600000).toISOString().slice(0, 10), left: 14 - d });
+        const d = Math.max(0, Math.floor((now - Date.parse(bookedYmd + "T00:00:00+09:00")) / 86400000));
+        const pl = koPlanOf; const md = (iso) => { const t = new Date(Date.parse(iso) + 9 * 3600000).toISOString(); return `${Number(t.slice(5, 7))}/${Number(t.slice(8, 10))}`; };
+        if (pl && Date.parse(pl.start) > now) { const due = new Date(Date.parse(pl.start) + 9 * 3600000).toISOString().slice(0, 10);
+          actions.push({ group: "納品前", kind: "キックオフ未実施", ko: "予定あり", detail: `キックオフ予定 ${md(pl.start)}（まだ実施していません）`, due, left: kxDaysLeft(due) }); }
+        else if (pl) { const due = new Date(Date.parse(pl.start) + 9 * 3600000).toISOString().slice(0, 10);
+          actions.push({ group: "納品前", kind: "キックオフ未実施", ko: "予定日過ぎ", detail: `キックオフ予定日 ${md(pl.start)} を過ぎましたが、実施の記録がありません`, due, left: kxDaysLeft(due) }); }
+        else actions.push({ group: "納品前", kind: "キックオフ未実施", ko: "未設定", detail: `キックオフ未設定（受注から${d}日・予定がありません）`, due: bookedYmd, left: -d });
       }
       // 回収予定月が空の会社も数える：受注月の翌月を予定月とみなす（2026-11-16 田中さん「検収書未回収が0になっているけど結構あるんじゃない？」
       //   予定月が入っている会社しか数えておらず、ほとんど空だった）。アラートは予定月の2週間前から（同日「1週間前だとワークフローが漏れる」）
@@ -14747,7 +14864,7 @@ async function kinxsBuild() {
       // 掲載先（どこに掲載しているか）（2026-11-17 久野さんの要望：直販が見やすい一覧にも出す）
       places: Array.isArray((r.info || {}).places) ? r.info.places : [],
       noPlace: !!(r.info || {}).no_place,   // 掲載先一覧で「未掲載」と決めた会社（2026-11-19 久野さん）
-      actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", ksMonth: oldDeal ? "" : ksMonthEff, kenshuOn, kenshuSt: kenshu, delivered, endOn: ymd0(r.end_on),
+      actions, kickoffOn: kickOn, kickoffManual: !!r.kickoff_on, kickoffPlan: koPlanOf ? new Date(Date.parse(koPlanOf.start) + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : "", publishedOn: pubOn, kenshuMonth: r.kenshu_month || "", ksMonth: oldDeal ? "" : ksMonthEff, kenshuOn, kenshuSt: kenshu, delivered, endOn: ymd0(r.end_on),
       // 前月比のための日付（2026-11-04）：納品した日（検収書の回収日 → 10月より前の受注は受注日 → 自動で回収済みにしたものは受注日＋90日）・DOCを最初に受注した日
       deliveredOn: delivered ? (kenshuOn || (oldDeal ? bookedYmd0 : "") || (bookedYmd0 ? new Date(Date.parse(bookedYmd0 + "T00:00:00+09:00") + 90 * 86400000 + 9 * 3600000).toISOString().slice(0, 10) : "")) : "",
       docBooked: (r.products || []).filter((p0) => p0 && typeof p0 === "object" && p0.booked && ["空間", "AI"].includes(kxClassOf(p0.name))).map((p0) => String(p0.booked).slice(0, 10)).sort()[0] || "",
@@ -15112,22 +15229,52 @@ async function kinxsTasksMerged(user, { fresh = false } = {}) {
   const own = await kxTaskList(user).catch(() => []);
   const byKey = new Map(own.map((r) => [r.key, r]));
   const today = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
-  const out = [];
+  const out = []; const gone = [];   // gone：消したもの（同じ内容のタスクをまとめるときに使う）
   for (const t of h.tasks || []) {
     const key = t.key || kxTaskKey(t); const o = byKey.get(key) || (!t.key ? byKey.get(kxTaskKeyOld(t)) : null);
-    if (o && o.deleted) continue;
+    if (o && o.deleted) { gone.push({ ...t, key }); continue; }
     out.push({ ...t, key, id: o ? o.id : null, status: (o && o.status) || "未着手", due: (o && o.due) || t.due || "", auto: true });
   }
   const seenKeys = new Set(out.map((t) => t.key));
   for (const o of own) {
     // 手で足したもの（m:）と、議事録・メール・メールワイズから自動で作ったもの（auto:mail: など、題名があるもの）を出す
-    if (o.deleted || seenKeys.has(o.key)) continue;
+    if (seenKeys.has(o.key)) continue;
     if (!String(o.key).startsWith("m:") && !(String(o.key).startsWith("auto:") && o.title && /（自動）|Claude/.test(String(o.src || "")))) continue;
     const t = { src: o.src || "手入力", kind: "タスク", title: o.title || "", account: o.account_name || "", accountId: o.account_id || "", due: o.due || "", note: o.note || "" };
+    if (o.deleted) { gone.push({ ...t, key: o.key }); continue; }
     out.push({ ...t, key: o.key, id: o.id, status: o.status || "未着手", auto: false, createdAt: o.created_at, bucket: kxBucket(t, today) });
   }
   for (const t of out) t.bucket = t.status === "完了" ? "完了" : kxBucket(t, today);
-  return { ...h, tasks: out };
+  return { ...h, tasks: kxMergeDupTasks(out, gone) };
+}
+// 同じ会社の、ほぼ同じ内容のタスクを1つにまとめる（2026-11-20 田中さん「重複してるから同じような内容はまとめて一つにしてよ」）。
+//   例：「岡様に連絡する（Gmail）」と「岡様へ連絡をする（Gmail（自動））」、次回アクションと議事録から作ったタスクの同じ提案。
+//   同じとみなす：同じ会社・題が似ている（2文字ずつの重なりが半分以上。【MTG】などの頭は見ない）・期日が同じか片方が空。
+//   残すのは：次回アクション → 手で足したもの → 進んでいるもの → 期日があるもの → 題がくわしいもの の順。ほかは隠して dups に入れる。
+//   まとめた中に、消したものがあれば全部消えた扱い、済みにしたものがあれば全部済み扱い（片方だけ済ませても、もう片方が残らないように）
+function kxMergeDupTasks(list, gone = []) {
+  const accOf = (t) => String(t.accountId || "") || (t.account ? `n:${csCoKey(t.account)}` : "");
+  const dueOk = (a, b) => !a.due || !b.due || String(a.due).slice(0, 10) === String(b.due).slice(0, 10);
+  // 済み・消したものとまとめるときは、もっと厳しく（同じ期日・ほぼ同じ題）。前に済ませた似たタスクに、新しいタスクが吸われないように
+  const strict = (a, b) => String(a.due || "").slice(0, 10) === String(b.due || "").slice(0, 10) && kxTitleSim(a.title, b.title) >= 0.8;
+  // 短い題（「資料を送る」と「資料を確認する」など）は、少しの重なりで似て見えるので、もっと似ていないとまとめない
+  const nlen = (t0) => String(t0 || "").normalize("NFKC").replace(/^【[^】]{0,8}】/, "").replace(/[\s、。・（）()「」【】]/g, "").length;
+  const sim = (a, b) => kxTitleSim(a.title, b.title) >= (Math.min(nlen(a.title), nlen(b.title)) < 7 ? 0.75 : 0.5);
+  const same = (a, b) => accOf(a) && accOf(a) === accOf(b) && (a.status === "完了" || b.status === "完了" || a._gone || b._gone ? strict(a, b) : dueOk(a, b) && sim(a, b));
+  const rank = (t) => (t.kind === "次回アクション" ? 0 : 10) + (String(t.key || "").startsWith("m:") ? 0 : 5) + (t.status === "進行中" ? 0 : 2) + (t.due ? 0 : 1);
+  const used = new Set(); const out = [];
+  for (let i = 0; i < list.length; i++) {
+    if (used.has(i)) continue;
+    const grp = [list[i]]; used.add(i);
+    for (let j = i + 1; j < list.length; j++) if (!used.has(j) && grp.some((g) => same(g, list[j]))) { grp.push(list[j]); used.add(j); }
+    if (gone.some((g) => grp.some((t) => same(t, { ...g, _gone: true })))) continue;   // どれかを消していたら、まとめて消えた扱い
+    const done = grp.find((t) => t.status === "完了");
+    const keep = done || [...grp].sort((a, b) => rank(a) - rank(b) || String(b.title || "").length - String(a.title || "").length)[0];
+    // まとめた側がもう前にまとめたもの（dups）を持っていたら、それも引き継ぐ（会社の画面では2回まとめるため）
+    const dups = grp.filter((t) => t !== keep).flatMap((t) => [{ key: t.key, id: t.id || null, title: t.title, src: t.src }, ...(t.dups || [])]);
+    out.push(grp.length > 1 ? { ...keep, dups: [...(keep.dups || []), ...dups] } : keep);
+  }
+  return out;
 }
 async function kxTaskResolveAccount(user, company) {
   if (!company) return { id: "", name: "" };
@@ -15422,10 +15569,12 @@ app.get("/api/kinxs/accounts/:id/tasks", async (req, res) => {
       for (const t of (m.tasks || [])) {
         if (String(t.accountId || "") !== id || out.has(t.key)) continue;
         if (t.kind === "次回アクション" || /^次回アクション/.test(String(t.kind || ""))) continue;   // 次回アクションは上の枠に出すので重ねない
-        out.set(t.key, { key: t.key, id: t.id, title: t.title || t.kind || "", src: t.src || "kinXs", kind: t.kind || "", due: t.due || "", status: t.status || "未着手", owner: u, ownerName: pn.get(u) || u, auto: true, link: t.link || "", detail: t.detail || "" });
+        out.set(t.key, { key: t.key, id: t.id, dups: t.dups, title: t.title || t.kind || "", src: t.src || "kinXs", kind: t.kind || "", due: t.due || "", status: t.status || "未着手", owner: u, ownerName: pn.get(u) || u, auto: true, link: t.link || "", detail: t.detail || "" });
       }
     }
-    const list = [...out.values()].sort((a, b) => (a.status === "完了") - (b.status === "完了") || String(a.due || "9999").localeCompare(String(b.due || "9999")));
+    // 会社の画面でも、同じような内容のタスクは1つにまとめて見せる（2026-11-20 田中さん「重複してるから同じような内容はまとめて一つに」）
+    const list = kxMergeDupTasks([...out.values()].map((t) => ({ ...t, accountId: id })))
+      .sort((a, b) => (a.status === "完了") - (b.status === "完了") || String(a.due || "9999").localeCompare(String(b.due || "9999")));
     res.json({ ok: true, items: list, cs: x.cs || "" });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -15440,6 +15589,7 @@ app.put("/api/kinxs/accounts/:id/tasks/:tid", async (req, res) => {
     if (b.title !== undefined) patch.title = String(b.title || "").slice(0, 200);
     if (b.assignee !== undefined) { const who = await kxAssigneeEmail(b.assignee); if (!who) return res.status(400).json({ error: "託す人が見つかりません" }); patch.owner = who; }
     const r = await kxTaskUpdateAny(req.params.tid, patch); if (!r) return res.status(404).json({ error: "見つかりません" });
+    await kxApplyDups(req.user, b.dups, { status: patch.status === "完了" ? "完了" : "", deleted: patch.deleted === true });
     for (const k of [..._kxInbox.keys()]) _kxInbox.delete(k);
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -15485,6 +15635,19 @@ app.post("/api/kinxs/accounts/:id/guide/read", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 // 自動のやること（kinXs・メール・チャット）の状態を変える・消す：その時点の中身ごと覚える
+// まとめて1つに見せていたタスク（dups）も、同じように済み・消すにする（2026-11-20：片方だけ済ませると、もう片方がまた出てくるため）
+async function kxApplyDups(user, dups, { status, deleted }) {
+  if (!Array.isArray(dups) || !dups.length || !(status === "完了" || deleted)) return;
+  for (const d of dups.slice(0, 10)) {
+    try {
+      const k = String((d && d.key) || "");
+      if (d && d.id && !k.startsWith("auto:")) { await kxTaskUpdateAny(d.id, { ...(deleted ? { deleted: true } : {}), ...(status ? { status } : {}) }); continue; }
+      if (!/^(auto|m):/.test(k)) continue;
+      const r0 = await kxTaskAdd(user, { key: k, title: String(d.title || "").slice(0, 200) || null, status: status || "未着手", src: d.src || "kinXs" });
+      if (r0 && r0.id) await kxTaskUpdate(user, r0.id, { ...(deleted ? { deleted: true } : {}), status: status || "未着手" });
+    } catch (e) { console.warn("[kinXs] まとめたタスクを直せませんでした", e.message); }
+  }
+}
 app.post("/api/kinxs/tasks/state", async (req, res) => {
   try {
     if (!(await canKinxs(req))) return res.status(403).json({ error: "権限がありません" });
@@ -15493,6 +15656,7 @@ app.post("/api/kinxs/tasks/state", async (req, res) => {
     const del = b.deleted === true;
     const st0 = KX_TASK_STATUS.includes(b.status) ? b.status : "未着手";
     let r = await kxTaskAdd(req.user, { key, title: String(b.title || "").slice(0, 200) || null, account_id: b.accountId || null, account_name: b.account || null, due: b.due || null, status: st0, src: b.src || "kinXs" });
+    await kxApplyDups(req.user, b.dups, { status: st0 === "完了" ? "完了" : "", deleted: del });
     if (del || st0 === "完了" || b.due !== undefined) r = await kxTaskUpdate(req.user, r.id, { ...(del ? { deleted: true } : {}), status: st0, ...(b.due !== undefined ? { due: /^\d{4}-\d{2}-\d{2}$/.test(String(b.due || "")) ? b.due : null } : {}) });
     res.json({ ok: true, item: r });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -15521,6 +15685,7 @@ app.put("/api/kinxs/tasks/:id", async (req, res) => {
     if (b.status !== undefined) { if (!KX_TASK_STATUS.includes(b.status)) return res.status(400).json({ error: "状態が正しくありません" }); patch.status = b.status; }
     if (b.deleted !== undefined) patch.deleted = b.deleted === true;
     if (b.note !== undefined) patch.note = String(b.note || "").slice(0, 1000);
+    await kxApplyDups(req.user, b.dups, { status: patch.status === "完了" ? "完了" : "", deleted: patch.deleted === true });
     // 託す（担当を変える）：ホームのタスクから（2026-11-12 田中さん）
     if (b.assignee) {
       const who = await kxAssigneeEmail(b.assignee).catch(() => ""); if (!who) return res.status(400).json({ error: "託す人が見つかりません" });
@@ -21768,6 +21933,73 @@ async function nbSheetWriter(extra = []) {
   for (const ow of owners) if (await gcalConnected(ow).catch(() => false)) return ow;
   return "";
 }
+// ===== OEM（NB）の「【OEM】消化企業一覧」を kinXs の納品で自動で動かす（2026-11-20 久野さん・田中さん「右から左へ移す」）=====
+//   シートの形：4行目が見出し。左（A NO・B 商品名・C 企業名・D 受注日・E 納品確定月）＝納品済み、右（I 商品名・J 企業名・K 受注日・L 納品予定月）＝受注済み未消化。
+//   右にある会社が kinXs で納品済みになったら、右から消して、左の空いている行（C が空の一番上）に足す。納品確定月＝kinXs の検収書の回収日の月。
+//   納品済みとみなすのは「検収書の回収日が入っている」か「検収書を手で回収済みにした」会社だけ（自動の回収済み・10月より前の受注の決まりでは動かさない）。
+//   右は残った会社を上につめて書き直し、余った行は空にする。A 列の NO・F〜H 列・見出し・数の式にはさわらない
+const NB_OEM_TAB = "【OEM】消化企業一覧";
+async function nbOemSync({ dry = false } = {}) {
+  const writer = await nbSheetWriter([]);
+  if (!writer) return { ok: false, error: "シートに書ける人（Google 連携）が見つかりません" };
+  const vals = await readSheet(writer, NB_SHEET_ID, `'${NB_OEM_TAB}'!A1:L400`);
+  const hi = vals.findIndex((r) => (r || []).some((c) => /受注済み未消化/.test(String(c || ""))) && (r || []).some((c) => /^商品名$/.test(String(c || "").trim())));
+  if (hi < 0) return { ok: false, error: "見出しの行（商品名・受注済み未消化一覧）が見つかりません。シートの形が変わったかもしれません" };
+  const hdr = (vals[hi] || []).map((c) => String(c || "").trim());
+  // 列の場所を見出しで確かめる（違ったら書かない）
+  if (hdr[1] !== "商品名" || hdr[2] !== "企業名" || hdr[8] !== "商品名" || !/受注済み未消化/.test(hdr[9] || "")) return { ok: false, error: `見出しの並びが思っていた形と違うので、書きませんでした（${hdr.slice(0, 12).join("／")}）` };
+  const first = hi + 1;   // 0 始まりの行番号（シートの行＝+1）
+  const data = vals.slice(first);
+  const cell = (r, i) => String(((r || [])[i]) ?? "").trim();
+  const left = [], right = [];
+  data.forEach((r, i) => { if (cell(r, 2)) left.push({ row: first + i + 1, no: cell(r, 0), prod: cell(r, 1), co: cell(r, 2) }); if (cell(r, 9)) right.push({ row: first + i + 1, prod: cell(r, 8), co: cell(r, 9), booked: cell(r, 10), plan: cell(r, 11) }); });
+  // kinXs で本当に納品した会社（検収書の回収日あり・手で回収済み）
+  const { items } = await kinxsBuild();
+  const doneBy = new Map();
+  for (const x of items) {
+    const real = !!x.kenshuOn || x.kenshuSt === "回収済み";
+    if (!real) continue;
+    for (const nm of [x.name, ...(x.formerNames || [])]) { const k = csCoKey(nm); if (k && k.length >= 2) doneBy.set(k, x); }
+  }
+  const moving = right.filter((r) => doneBy.has(csCoKey(r.co)));
+  if (!moving.length) return { ok: true, moved: [], note: "移す会社はありません" };
+  const ymOf = (x) => { const d = String(x.kenshuOn || "").slice(0, 7) || new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 7); return `${d.replace("-", "/")}/01`; };
+  const leftKeys = new Set(left.map((l) => `${csCoKey(l.co)}|${l.prod}`));
+  // 左の空いている行：最後に会社が入っている行の次から（間の空き行には入れない）
+  const lastLeftIdx = left.length ? left[left.length - 1].row - 1 - first : -1;
+  const writes = [];
+  let at = lastLeftIdx + 1; let lastNo = Number(left.length ? left[left.length - 1].no : 0) || left.length;
+  const moved = [];
+  for (const r of moving) {
+    const x = doneBy.get(csCoKey(r.co));
+    moved.push({ co: r.co, prod: r.prod, ym: ymOf(x).slice(0, 7), dup: leftKeys.has(`${csCoKey(r.co)}|${r.prod}`) });
+    if (leftKeys.has(`${csCoKey(r.co)}|${r.prod}`)) continue;   // もう左にある（同じ会社・同じ商品）なら、右から消すだけ
+    const sr = first + at + 1; lastNo += 1;
+    const noNow = cell(data[at], 0);
+    writes.push({ range: noNow ? `B${sr}:E${sr}` : `A${sr}:E${sr}`, values: [noNow ? [r.prod, r.co, r.booked, ymOf(x)] : [String(lastNo), r.prod, r.co, r.booked, ymOf(x)]] });
+    at += 1;
+  }
+  // 右：残る会社を上につめて書き直す。もとの右の行数ぶんだけ書く（はみ出さない）
+  const keep = right.filter((r) => !moving.includes(r));
+  const rStart = right[0].row, rEnd = right[right.length - 1].row;
+  const rows = []; for (let rr = rStart; rr <= rEnd; rr++) { const k = keep[rr - rStart]; rows.push(k ? [k.prod, k.co, k.booked, k.plan] : ["", "", "", ""]); }
+  writes.push({ range: `I${rStart}:L${rEnd}`, values: rows });
+  if (dry) return { ok: true, dry: true, moved, writes: writes.map((w) => w.range) };
+  await updateSheetRanges(writer, NB_SHEET_ID, `'${NB_OEM_TAB}'`, writes);
+  await nbSheetLog({ kind: "OEM消化", moved: moved.map((m) => `${m.co}（${m.prod}・${m.ym}）`) }).catch(() => {});
+  console.log(`[nb-oem] 未消化から納品済みへ ${moved.length}件：${moved.map((m) => m.co).join("・")}`);
+  return { ok: true, moved };
+}
+// 1時間ごと。最初は止めておき、試しの結果を見てから POST {on:true} で動かす（settings.nbOemSync）
+setTimeout(() => { const run = async () => { const st = await getSettings().catch(() => ({})); if (st.nbOemSync !== true || !authEnabled()) return; await nbOemSync().catch((e) => console.warn("[nb-oem]", e.message)); }; run(); setInterval(run, 60 * 60000); }, 6 * 60000);
+// 試す・すぐ動かす（管理者）：GET は書かずに、移す会社だけを返す。POST で書く
+// シートを書くので、管理者とクローザー（田中さんなど）だけ
+async function nbOemCan(req) { return !!(req.isAdmin || isAlwaysCloser(req.user) || (await isCloserUser(req.user).catch(() => false))); }
+app.get("/api/kinxs/oem-sync", async (req, res) => { try { if (!(await nbOemCan(req))) return res.status(403).json({ error: "管理者・クローザーだけが使えます" }); res.json(await nbOemSync({ dry: true })); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.post("/api/kinxs/oem-sync", async (req, res) => { try { if (!(await nbOemCan(req))) return res.status(403).json({ error: "管理者・クローザーだけが使えます" });
+  const b = req.body || {}; if (b.on === true || b.on === false) await saveSettings({ nbOemSync: b.on });
+  if (b.on === false) return res.json({ ok: true, off: true });
+  res.json(await nbOemSync()); } catch (e) { res.status(500).json({ error: e.message }); } });
 async function nbSheetLog(entry) {
   const st = await getSettings().catch(() => ({}));
   const log = [{ at: new Date().toISOString(), ...entry }, ...(Array.isArray(st.nbSheetLog) ? st.nbSheetLog : [])].slice(0, 40);
@@ -28556,6 +28788,11 @@ app.get("/api/mochica/miitel/ext/todo", async (req, res) => {
     res.json({ ok: true, urls, left });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+// 文字起こしがまだの会議の「試した回数」を戻す（見る権限のない MiiTel のアカウントで開いて、あきらめ扱いになった会議を読み直すため）（2026-11-20）
+//   起動したとき1回だけ（settings.mcTrTryReset）。あとから戻したいときは POST /api/mochica/miitel/reset-tries
+setTimeout(async () => { try { const st = await getSettings().catch(() => ({})); if (st.mcTrTryReset === "2026-11-20") return;
+  const n = await mcMiitelResetTries(); await saveSettings({ mcTrTryReset: "2026-11-20" }); console.log(`[miitel] 試した回数を戻しました：${n}件`); } catch (e) { console.warn("[miitel] 試した回数を戻せませんでした", e.message); } }, 20000);
+app.post("/api/mochica/miitel/reset-tries", async (req, res) => { try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, reset: await mcMiitelResetTries() }); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get("/api/mochica/miitel/ext-token", async (req, res) => { try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, token: await mcExtToken(req.user) }); } catch (e) { res.status(500).json({ error: e.message }); } });
 // MiiTel の画面（mochica.app.miitel.com）から直接送れるように（CORS）
 app.use("/api/mochica/miitel/ext/", (req, res, next) => {
@@ -34117,11 +34354,18 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20u MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20zi MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20zh MiiTel：権限のないアカウントで2回開いてあきらめ扱いになった会議（餌取さんの会議など）を、もう一度読めるように戻す。／2026-11-20zg シフトの名前の一覧から外す人を決められる（settings.shiftHidden）。／2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
   "MOCHICALL：リストの条件に 募集職種・市区町村・事前調査・電話番号・競合・次アクション期限・追いかけ・採用人数・断り理由・採用区分・採用課題・検討時期・更新時期・リスト・自社担当 を追加。キーワード・すべて／どれか・架電回数と採用人数の範囲・アプローチ禁止／接触履歴／SF 他者接触を隠す・並べ替え・CSV",
   "MOCHICA：コンバート済みリードへの記録はコンバート先（取引先責任者・商談）に書く",
   "テレアポ：商談が立ち上がっている会社（全事業・進行中＋受注）を SF から名簿に入れて、kincall・MOCHICALL の取り込み・一覧・記録ではじく",
+  "シフト提出：ログインなし・名前を選んで入れる",
+  "OEM 消化企業一覧を kinXs の納品で自動で動かす",
+  "kinXs：キックオフ未設定・未実施を受注後すぐ出す／担当企業の画面",
+  "企業カードから NeoSTAGE に入れる（kinbot-ext 2.2.30）",
+  "インターン生もシフト提出ページに入力できる",
+  "kincall：資料送付設定で自分の署名を直せる",
+  "kinXs：同じような内容のタスクを1つにまとめる",
   "kincall の資料送付メールに署名（メンバー管理の署名）",
   "kinXs：会社の道のり・宿題・次回アクションをその場で直せる",
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",

@@ -8668,15 +8668,28 @@ export const MEMBER_PROFILE_FIELDS = [
   "phone",       // 電話番号
   "dept",        // 部署（例：事業統括本部 事業開発部）
   "unit",        // ユニット・グループ（例：DOCユニット FSグループ）
+  "docSignature", // 資料送付メールの署名（本人が手で書いたもの。空ならメンバー管理の項目から作る）（2026-11-20 田中さん）
 ];
 function normProfile(v) {
   const src = (v && typeof v === "object") ? v : {};
   const out = {};
   for (const k of MEMBER_PROFILE_FIELDS) {
     const val = String(src[k] == null ? "" : src[k]).trim();
-    if (val) out[k] = val.slice(0, 300);
+    // 署名は何行にもなるので長めに持つ
+    if (val) out[k] = val.slice(0, k === "docSignature" ? 2000 : 300);
   }
   return out;
+}
+
+// 本人が自分の資料送付の署名だけを書きかえる（メンバー管理のほかの項目にはさわらない）。空なら消す＝自動の署名に戻す
+export async function setMemberDocSignature(email, text) {
+  if (!pool || !email) return false;
+  const v = String(text || "").replace(/\r\n/g, "\n").trim().slice(0, 2000);
+  const { rowCount } = await pool.query(
+    v ? `UPDATE members SET profile = COALESCE(profile, '{}'::jsonb) || jsonb_build_object('docSignature', $2::text), updated_at = now() WHERE lower(email) = lower($1)`
+      : `UPDATE members SET profile = COALESCE(profile, '{}'::jsonb) - 'docSignature', updated_at = now() WHERE lower(email) = lower($1)`,
+    v ? [email, v] : [email]);
+  return rowCount > 0;
 }
 
 // メールの差し込みに使うため、メールアドレス → プロフィール の対応を返す
@@ -12861,6 +12874,15 @@ export async function mcMiitelTodo(limit = 10, { days = 60, novideo = false, ski
     ORDER BY COALESCE(started_at, received_at) DESC LIMIT $1`, [limit, Math.max(1, Math.min(3650, Number(days) || 60)), skip]).catch(() => ({ rows: [] }))).rows;
   if (novideo && rows.length) await pool.query(`UPDATE mochica_miitel_events SET payload = jsonb_set(COALESCE(payload,'{}'::jsonb), '{mt_tr_try}', to_jsonb(COALESCE((payload->>'mt_tr_try')::int, 0) + 1)) WHERE id = ANY($1::text[])`, [rows.map((r) => r.id)]).catch(() => {});
   return rows;
+}
+
+// 文字起こしがまだの会議の「試した回数」を0に戻す（2026-11-20：餌取さんの会議を、見る権限のない MiiTel のアカウントで2回開いて
+//   あきらめ扱いになっていた。権限のあるアカウントでもう一度読めるように）。戻した件数を返す
+export async function mcMiitelResetTries() {
+  if (!pool) return 0; await ensureMcMiitel();
+  const r = await pool.query(`UPDATE mochica_miitel_events SET payload = COALESCE(payload,'{}'::jsonb) - 'mt_tr_try' - 'mt_grab_fail'
+    WHERE COALESCE(transcript_len,0)=0 AND NOT (COALESCE(payload,'{}'::jsonb) ? 'mt_phrases') AND (payload ? 'mt_tr_try' OR payload ? 'mt_grab_fail')`).catch(() => ({ rowCount: 0 }));
+  return r.rowCount || 0;
 }
 
 // kinXs 企業の詳細「採用状況」（議事録から読み取ったもの）（2026-11-13）

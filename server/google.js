@@ -1434,6 +1434,19 @@ export async function readSheet(owner, spreadsheetId, range) {
   return d.values || [];
 }
 
+// 決まった範囲（例 "I5:L5"）に、行と列の値をまとめて書く。1行ずつ書くより呼ぶ回数が少ない（2026-11-20 OEM の消化企業一覧）
+export async function updateSheetRanges(owner, spreadsheetId, sheetName, ranges) {
+  if (!ranges.length) return { updated: 0 };
+  const token = await accessToken(owner);
+  const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values:batchUpdate`, {
+    method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: ranges.map((r) => ({ range: `${sheetName}!${r.range}`, values: r.values })) }),
+  });
+  if (!res.ok) { const t = await res.text(); const e = new Error(`シートへの書き込み ${res.status}: ${t.slice(0, 300)}`); if (res.status === 403 && /insufficient|scope/i.test(t)) e.needScope = true; throw e; }
+  const d = await res.json();
+  return { updated: d.totalUpdatedCells || 0 };
+}
+
 // 決まった場所だけを、まとめて書き換える（他のセルには触れない）
 export async function updateSheetCells(owner, spreadsheetId, sheetName, cells) {
   if (!cells.length) return { updated: 0 };
