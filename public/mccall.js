@@ -1120,43 +1120,140 @@
     });
   }
   // 条件の選び方（2026-11-19 福井さん「SHOBO のリスト管理を kinbot 準拠で」）。「条件で割り振る」と「SHOBO から足す」で同じものを使う。
-  //   取り込み元（SF・BALES・SHOBO）・リードソース・ステージ・都道府県・業界・業種・最終架電・前回の結果・ホット度・ホットの条件・SF の過去失注。
-  //   選ぶたびにその場で数え直す。同じ項目の中は「どれか」、項目どうしは「すべて」に当てはまるもの。
+  //   2026-11-20 福井さん：ASUMO /teleapo の絞り込み条件にそろえた（キーワード・すべて／どれか・架電回数と採用人数の範囲・隠す・並べ替え・CSV）。
+  //   選ぶたびにその場で数え直す。同じ項目の中は「どれか」、項目どうしは「すべて」（切り替えで「どれか」）に当てはまるもの。
+  //   選んだ条件はこの端末に残す（開き直しても同じ条件から始められるように。「クリア」で既定に戻す）
   //   o.url：数える API、o.body()：数えるときに一緒に送るもの、o.after(s)：数え終わったあとの処理（試算など）
+  const SEG_KEY = "shobo_seg_filters";
+  const SEG_ORDER = ["origin", "list", "source", "stage", "gyokai", "category", "gyoshu", "roles", "pref", "city", "owner", "research", "phone", "competitor", "due", "followup",
+    "hireSource", "lastResult", "decline", "last", "hot", "conds", "segments", "pains", "budget", "renewal", "lost"];
+  const SEG_SCALAR = ["q", "mode", "callsMin", "callsMax", "hireMin", "hireMax", "hideDnc", "hideTouched", "hideSfTouched", "sort", "dir"];
   function segPicker(w, o) {
-    const f = { conds: [] }; let seq = 0, timer = 0;
-    const ORDER = ["origin", "source", "stage", "pref", "gyokai", "gyoshu", "last", "lastResult", "hot", "lost"];
+    let saved = {}; try { saved = JSON.parse(localStorage.getItem(SEG_KEY) || "{}") || {}; } catch {}
+    const f = { conds: [] };
+    for (const k of [...SEG_ORDER, ...SEG_SCALAR]) if (saved[k] != null) f[k] = saved[k];
+    if (!Array.isArray(f.conds)) f.conds = [];
+    let seq = 0, timer = 0, last = null;
     const openSet = new Set(["origin", "source"]);   // 開いている項目は、数え直したあとも開いたままにする
+    const save = () => { try { localStorage.setItem(SEG_KEY, JSON.stringify(f)); } catch {} };
+    const ctl = w.querySelector("#mcsCtl");
+    const num = (id, ph) => `<input type="number" id="${id}" min="0" max="99999" placeholder="${ph}" style="width:64px" />`;
+    ctl.innerHTML = `
+      <input class="mcc-sel" id="mcsQ" style="max-width:none;width:100%" autocomplete="off" placeholder="会社名・担当者・電話・業種・所在地・企業調査・架電メモで探す" />
+      <div style="display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <label class="mcc-note" style="margin:0">項目どうしは <select class="mcc-sel" id="mcsMode" style="height:30px"><option value="all">すべてに当てはまる</option><option value="any">どれかに当てはまる</option></select></label>
+        <label class="mcc-note" style="margin:0">架電回数 ${num("mcsCMin", "下限")} 〜 ${num("mcsCMax", "上限")} 回</label>
+        <label class="mcc-note" style="margin:0">採用人数 ${num("mcsHMin", "下限")} 〜 ${num("mcsHMax", "上限")} 名</label>
+        <span class="mcc-chips" id="mcsHPre">${[["〜5名", "", 5], ["6名以上", 6, ""], ["11名以上", 11, ""], ["31名以上", 31, ""]].map(([t, a, b]) => `<button type="button" class="mcc-chip" data-hmin="${a}" data-hmax="${b}" style="height:26px">${t}</button>`).join("")}</span>
+      </div>
+      <div style="display:flex;gap:6px 14px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <label class="mcc-note" style="margin:0"><input type="checkbox" id="mcsDnc" /> アプローチ禁止を隠す</label>
+        <label class="mcc-note" style="margin:0"><input type="checkbox" id="mcsTouched" /> 接触履歴ありを隠す</label>
+        <label class="mcc-note" style="margin:0"><input type="checkbox" id="mcsSf" /> 直近14日に SF で他の人が接触した会社を隠す</label>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <label class="mcc-note" style="margin:0">並べ替え <select class="mcc-sel" id="mcsSort" style="height:30px"><option value="default">既定（ホット → 最後にかけた日が古い順）</option></select></label>
+        <button type="button" class="mcc-btn" id="mcsDir" style="height:30px" title="昇順・降順を切り替える"></button>
+        <button type="button" class="mcc-btn" id="mcsCsv" style="height:30px" title="いまの条件と並び順のまま、合うリードを CSV に書き出す">CSV</button>
+        <button type="button" class="mcc-btn" id="mcsClr" style="height:30px" title="条件と並び順を既定に戻す">クリア</button>
+      </div>
+      <div class="mcc-chips" id="mcsAct" style="margin-top:8px"></div>`;
+    const $c = (s) => ctl.querySelector(s);
+    const NUMS = [["#mcsCMin", "callsMin"], ["#mcsCMax", "callsMax"], ["#mcsHMin", "hireMin"], ["#mcsHMax", "hireMax"]];
+    const CHECKS = [["#mcsDnc", "hideDnc"], ["#mcsTouched", "hideTouched"], ["#mcsSf", "hideSfTouched"]];
+    function fillCtl() {
+      $c("#mcsQ").value = f.q || ""; $c("#mcsMode").value = f.mode === "any" ? "any" : "all";
+      for (const [s, k] of NUMS) $c(s).value = f[k] ?? "";
+      for (const [s, k] of CHECKS) $c(s).checked = !!f[k];
+      $c("#mcsSort").value = f.sort || "default";
+      const dflt = !f.sort || f.sort === "default"; $c("#mcsDir").disabled = dflt;
+      $c("#mcsDir").textContent = dflt ? "順：既定" : f.dir === "desc" ? "降順" : f.dir === "asc" ? "昇順" : "順：おすすめ";
+    }
+    $c("#mcsQ").addEventListener("input", (e) => { f.q = e.target.value; later(); });
+    $c("#mcsMode").addEventListener("change", (e) => { f.mode = e.target.value; later(); });
+    for (const [s, k] of NUMS) $c(s).addEventListener("input", (e) => { f[k] = e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value, 10) || 0); later(); });
+    for (const [s, k] of CHECKS) $c(s).addEventListener("change", (e) => { f[k] = e.target.checked; later(); });
+    $c("#mcsHPre").addEventListener("click", (e) => { const b = e.target.closest("[data-hmin]"); if (!b) return;
+      f.hireMin = b.dataset.hmin === "" ? "" : +b.dataset.hmin; f.hireMax = b.dataset.hmax === "" ? "" : +b.dataset.hmax; fillCtl(); later(); });
+    $c("#mcsSort").addEventListener("change", (e) => { f.sort = e.target.value; f.dir = ""; fillCtl(); later(); });
+    $c("#mcsDir").addEventListener("click", () => { f.dir = f.dir === "asc" ? "desc" : "asc"; fillCtl(); later(); });
+    $c("#mcsClr").addEventListener("click", () => { for (const k of Object.keys(f)) delete f[k]; f.conds = []; fillCtl(); later(); });
+    $c("#mcsCsv").addEventListener("click", async (e) => {
+      const b = e.currentTarget; b.disabled = true; b.textContent = "書き出しています…";
+      try {
+        const r = await post(o.url, { ...(o.body ? o.body() : {}), filters: f, csv: true });
+        const head = ["会社名", "担当者", "電話", "架電回数", "次アクション期限", "最終架電", ...Object.values(r.labels)];
+        const keys = Object.keys(r.labels);
+        const cell = (v) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const lines = [head, ...r.rows.map((x) => [x.company, x.person, x.phone, x.attempts, x.next_at ? tm(x.next_at) : "", x.last_ts ? tm(x.last_ts) : "", ...keys.map((k) => x[k])])].map((a) => a.map(cell).join(","));
+        const url = URL.createObjectURL(new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" }));
+        const a = document.createElement("a"); a.href = url; a.download = `SHOBO_条件に合うリード_${new Date().toISOString().slice(0, 10)}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 2000);
+        toast(`${r.rows.length.toLocaleString()}件を書き出しました${r.rows.length >= 20000 ? "（2万件で打ち切りました。条件を絞ってください）" : ""}`);
+      } catch (err) { toast(`書き出せませんでした：${err.message}`); }
+      finally { b.disabled = false; b.textContent = "CSV"; }
+    });
+    // 選んでいる条件をチップで並べる（畳んだ項目の中で何を選んでいるか見えるように）。押すとその条件だけ外す
+    function drawActive(s) {
+      const items = [];
+      const lbl = (k) => (k === "conds" ? "ホットの条件" : (s.dims[k] && s.dims[k].label) || k);
+      for (const k of SEG_ORDER) for (const v of (Array.isArray(f[k]) ? f[k] : [])) {
+        const it = k === "conds" ? (s.conds || []).find((c) => c.k === v) : ((s.dims[k] || {}).items || []).find((x) => x.v === v);
+        items.push([`a:${k}:${v}`, `${lbl(k)}：${(it && it.label) || v}`]);
+      }
+      if (f.q) items.push(["s:q", `キーワード：${f.q}`]);
+      const rng = (a, b, u) => `${a !== "" && a != null ? a : ""}〜${b !== "" && b != null ? b : ""}${u}`;
+      if ((f.callsMin ?? "") !== "" || (f.callsMax ?? "") !== "") items.push(["r:calls", `架電回数：${rng(f.callsMin, f.callsMax, "回")}`]);
+      if ((f.hireMin ?? "") !== "" || (f.hireMax ?? "") !== "") items.push(["r:hire", `採用人数：${rng(f.hireMin, f.hireMax, "名")}`]);
+      if (f.hideDnc) items.push(["s:hideDnc", `アプローチ禁止を隠す${s.banned != null ? `（${s.banned}件）` : ""}`]);
+      if (f.hideTouched) items.push(["s:hideTouched", "接触履歴ありを隠す"]);
+      if (f.hideSfTouched) items.push(["s:hideSfTouched", "SF で他の人が接触した会社を隠す"]);
+      $c("#mcsAct").innerHTML = items.length ? `<span class="mcc-note" style="margin:0;align-self:center">かけている条件 ${items.length}つ${f.mode === "any" ? "（どれかに当てはまる）" : ""}</span>` +
+        items.map(([id, t]) => `<button type="button" class="mcc-chip" aria-pressed="true" data-off="${esc(id)}" style="height:26px" title="この条件を外す">${esc(t)} ×</button>`).join("") : "";
+      $c("#mcsAct").querySelectorAll("[data-off]").forEach((b) => b.addEventListener("click", () => {
+        const [t, k, ...rest] = b.dataset.off.split(":"); const v = rest.join(":");
+        if (t === "a") { f[k] = (f[k] || []).filter((x) => x !== v); if (k === "pref") dropCities(); }
+        else if (t === "r") { f[`${k}Min`] = ""; f[`${k}Max`] = ""; } else f[k] = k === "q" ? "" : false;
+        fillCtl(); later();
+      }));
+    }
+    // 都道府県を外したら、その県の市区町村の選択も外す
+    const dropCities = () => { const ps = f.pref || []; f.city = (f.city || []).filter((c) => ps.some((p) => c.startsWith(p))); };
     async function refresh() {
-      const my = ++seq;
+      const my = ++seq; save();
       try {
         const s = await post(o.url, { ...(o.body ? o.body() : {}), filters: f });
         if (my !== seq || !w.isConnected) return;
-        w.querySelector("#mcsSum").textContent = `条件に合うリード ${s.matched}件（まだ割り振っていない ${s.free}件）${s.prefByTel ? `　※都道府県のうち ${s.prefByTel}件は住所が無いため電話番号の市外局番から推定` : ""}`;
+        last = s;
+        const sel = $c("#mcsSort"); if (s.sorts && sel.options.length <= 1) { sel.innerHTML = s.sorts.map((x) => `<option value="${esc(x.k)}">${esc(x.label)}</option>`).join(""); fillCtl(); }
+        w.querySelector("#mcsSum").textContent = `条件に合うリード ${s.matched}件（まだ割り振っていない ${s.free}件）${s.prefByTel ? `　※都道府県のうち ${s.prefByTel}件は住所が無いため電話番号の市外局番から推し量っています` : ""}`;
         const chip = (k, v, n, on, label = v) => `<button class="mcc-chip" data-k="${k}" data-v="${esc(v)}" aria-pressed="${on}">${esc(label)} <small style="opacity:.75">${n}</small></button>`;
         const sec = (k, label, inner, cnt) => `<details data-sec="${k}" ${openSet.has(k) ? "open" : ""} style="border-top:1px solid var(--c-line);padding:8px 0"><summary style="cursor:pointer;font-weight:700;font-size:13px">${esc(label)}${cnt ? `<span class="mcc-badge" style="margin-left:6px">${cnt}つ選択</span>` : ""}</summary><div class="mcc-chips" style="margin-top:8px;max-height:180px;overflow:auto">${inner}</div></details>`;
         let html = "";
-        for (const k of ORDER) {
-          const d = s.dims[k]; if (!d) continue; const sel = f[k] || [];
+        for (const k of SEG_ORDER) {
+          if (k === "conds") { html += sec("conds", "ホットの条件（そろっているもの）", s.conds.map((c) => chip("conds", c.k, c.n, f.conds.includes(c.k), c.label)).join(""), f.conds.length); continue; }
+          const d = s.dims[k]; if (!d) continue; const sl = f[k] || [];
+          if (d.needs && !(f[d.needs] || []).length) continue;   // 市区町村は、都道府県を選んだときだけ出す
           // 選んだのに件数が0になった値も、外せるように残す
-          const items = [...d.items, ...sel.filter((v) => !d.items.some((x) => x.v === v)).map((v) => ({ v, n: 0 }))];
-          html += sec(k, d.label, items.length ? items.map((x) => chip(k, x.v, x.n, sel.includes(x.v))).join("") : '<span class="mcc-note">ありません</span>', sel.length);
-          if (k === "hot") html += sec("conds", "ホットの条件（そろっているもの）", s.conds.map((c) => chip("conds", c.k, c.n, f.conds.includes(c.k), c.label)).join(""), f.conds.length);
+          const items = [...d.items, ...sl.filter((v) => !d.items.some((x) => x.v === v)).map((v) => ({ v, n: 0 }))];
+          html += sec(k, d.label, items.length ? items.map((x) => chip(k, x.v, x.n, sl.includes(x.v), x.label || x.v)).join("") : '<span class="mcc-note">ありません</span>', sl.length);
         }
         const box = w.querySelector("#mcsDims"); box.innerHTML = html;
         box.querySelectorAll("details").forEach((d) => d.addEventListener("toggle", () => { d.open ? openSet.add(d.dataset.sec) : openSet.delete(d.dataset.sec); }));
         box.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
           const k = b.dataset.k, v = b.dataset.v; const a = f[k] || (f[k] = []);
-          const i = a.indexOf(v); i >= 0 ? a.splice(i, 1) : a.push(v); b.setAttribute("aria-pressed", i >= 0 ? "false" : "true"); later();
+          const i = a.indexOf(v); i >= 0 ? a.splice(i, 1) : a.push(v); b.setAttribute("aria-pressed", i >= 0 ? "false" : "true");
+          if (k === "pref") { dropCities(); if (f.pref.length) openSet.add("city"); }
+          later();
         }));
+        drawActive(s);
         if (o.after) await o.after(s);
       } catch (e) { if (my === seq && w.isConnected) w.querySelector("#mcsSum").textContent = `数えられませんでした：${e.message}`; }
     }
     const later = () => { clearTimeout(timer); timer = setTimeout(refresh, 250); };
-    refresh();
+    fillCtl(); refresh();
     return { filters: f, later };
   }
-  const SEG_HTML = `<p class="mcc-note" id="mcsSum" style="font-weight:700;color:var(--c-deep)">数えています…</p><div id="mcsDims"></div>`;
+  const SEG_HTML = `<div id="mcsCtl" style="margin-top:10px"></div><p class="mcc-note" id="mcsSum" style="font-weight:700;color:var(--c-deep);margin-top:8px">数えています…</p><div id="mcsDims"></div>`;
 
   // 条件で割り振る：絞ったリードを、選んだ人に 1人 N件ずつ（ホット → 最後にかけた日が古い順に交互に）配る。
   //   まだ割り振っていないものだけを配るのが既定（今の担当を上書きしないため）。配る前に「だれに何件」を見せる

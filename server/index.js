@@ -1538,10 +1538,22 @@ async function syncSfApproachBans(why = "定期") {
         rows.push({ sfId: a.Id, leadId: a.Id, company: a.Name || "", phone: a.Phone || "", reason: `SF取引先：${v}` }); accN++;
       }
     } catch {}
+    // アポが取れて商談が立ち上がっている会社も、テレアポでかけないように名簿に入れる（2026-11-20 福井さん）
+    //   全事業（DOC・MOCHICA・クロス）の商談で、進行中（未完了）か受注のもの。失注した会社は、また架電できるように外す。
+    //   同じ取引先に商談がいくつあっても1社1行（いちばん新しい商談のフェーズを理由に出す）。
+    let oppN = 0;
+    const oppRows = await sfQueryAll(owner, "SELECT AccountId, Account.Name, Account.Phone, StageName, IsWon FROM Opportunity WHERE AccountId != null AND (IsClosed = false OR IsWon = true) ORDER BY CreatedDate DESC", 200000);
+    const seenAcc = new Set();
+    for (const o of oppRows) {
+      const a = o.Account || {};
+      if (seenAcc.has(o.AccountId) || !a.Name) continue;
+      seenAcc.add(o.AccountId);
+      rows.push({ sfId: o.AccountId, leadId: o.AccountId, company: a.Name, phone: a.Phone || "", reason: `SF商談あり（${o.IsWon ? "受注" : "進行中"}：${o.StageName || ""}）` }); oppN++;
+    }
     const r = await replaceSfApproachBans(rows);
     const ap = await applyApproachBansToTargets().catch((e) => ({ error: e.message }));
     _banSync.at = Date.now();
-    _banSync.last = { ok: true, at: _banSync.at, リード: leads.length, 取引先: accN, 名簿: rows.length, 入れ替えた: r.replaced, 架電先に印: ap };
+    _banSync.last = { ok: true, at: _banSync.at, リード: leads.length, 取引先: accN, 商談のある会社: oppN, 名簿: rows.length, 入れ替えた: r.replaced, 架電先に印: ap };
     console.log(`[アプローチ禁止] SF から名簿を更新（${why}）：${rows.length}件／架電先の印 +${ap.marked || 0} -${ap.cleared || 0}`);
     return _banSync.last;
   } catch (e) {
@@ -34105,8 +34117,11 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20u MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "MOCHICALL：リストの条件に 募集職種・市区町村・事前調査・電話番号・競合・次アクション期限・追いかけ・採用人数・断り理由・採用区分・採用課題・検討時期・更新時期・リスト・自社担当 を追加。キーワード・すべて／どれか・架電回数と採用人数の範囲・アプローチ禁止／接触履歴／SF 他者接触を隠す・並べ替え・CSV",
+  "MOCHICA：コンバート済みリードへの記録はコンバート先（取引先責任者・商談）に書く",
+  "テレアポ：商談が立ち上がっている会社（全事業・進行中＋受注）を SF から名簿に入れて、kincall・MOCHICALL の取り込み・一覧・記録ではじく",
   "kincall の資料送付メールに署名（メンバー管理の署名）",
   "kinXs：会社の道のり・宿題・次回アクションをその場で直せる",
   "kincall のコネクタ：週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）",

@@ -7,7 +7,8 @@
 // DB も通信も使わない純粋な関数だけにして、node で直接試せるようにしている。
 
 // 2：ステージと、SF から足したリードを足した（2026-11-19）
-export const SEG_V = 2;
+// 3：ASUMO /teleapo と同じ絞り込み（2026-11-20）。社名の鍵（マイナビと結ぶ）・市区町村・検討時期・更新月・利用中の競合・SF の課題感・SF の最終活動日
+export const SEG_V = 3;
 
 const nk = (s) => String(s ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
 
@@ -82,6 +83,27 @@ export function gyokaiOf(gyoshu, company) {
   return "";
 }
 
+// 住所から市区町村（「都道府県＋市区町村」で持つ）。政令市は区まで分けず市にする。郡は町村まで
+export function cityFromAddress(t, pref) {
+  const s = nk(t).replace(/\s+/g, ""); if (!s || !pref) return "";
+  const i = s.indexOf(pref); const rest = i >= 0 ? s.slice(i + pref.length) : s.startsWith(pref.slice(0, -1)) ? s.slice(pref.length - 1) : "";
+  const m = rest.match(/^(.{1,6}?郡.{1,6}?[町村]|.{1,8}?[市区町村])/);
+  return m ? pref + m[1] : "";
+}
+// 年月を「YYYY-MM」に（「2027/03」「2027-03-01」「2027年3月」）。月だけ（「3月」）は「3」。分からなければ ""
+export function ymOf(v) {
+  const s = nk(v); if (!s) return "";
+  let m = s.match(/(20\d{2})\s*[-/年.]\s*(\d{1,2})/); if (m && +m[2] >= 1 && +m[2] <= 12) return `${m[1]}-${String(+m[2]).padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})\s*月/); if (m && +m[1] >= 1 && +m[1] <= 12) return String(+m[1]);
+  return "";
+}
+// 会社名を比べるための形（server/mccall.js の companyKey と同じ。マイナビの調べ mc_mynavi.ckey と結ぶ）
+export function ckeyOf(name) {
+  return String(name || "").normalize("NFKC").toLowerCase()
+    .replace(/株式会社|有限会社|合同会社|合資会社|合名会社|\(株\)|\(有\)|\(同\)|㈱|㈲/g, "")
+    .replace(/[\s・,.、。'"「」()（）\-ー‐]/g, "");
+}
+
 // 元のデータから、名前の合う項目の値を1つ取る（Bales は英語の名前、CSV は見出しのまま、DOC は extra）
 function pick(d, re) {
   for (const [k, v] of Object.entries(d || {})) if (v != null && typeof v !== "object" && re.test(k) && nk(v)) return nk(v);
@@ -131,7 +153,17 @@ export function segOf({ src, data, company, phone, person, sfLead, hotD, hearing
     ? { reason: nk(L.Lostopp_reason1__c).slice(0, 60) || "理由なし", reason2: nk(L.Lostopp_reason2__c).slice(0, 60), stage: nk(L.Lostopp_beforeCloseStage__c).slice(0, 40),
         rival: nk(L.Losing_batting__c).slice(0, 60), date: nk(L.LostOpp_lostdate__c).slice(0, 10) }
     : null;
-  return { v: SEG_V, source, stage, pref, prefBy, gyoshu, gyokai, extLast, extResult, conds: condsOf(hotD, hearing, person), lost };
+  // 市区町村（住所から分かったときだけ。電話番号からは分からない）
+  const city = prefBy === "住所" ? cityFromAddress(addr, pref) : "";
+  // 検討時期・更新月・利用中の競合（ATS）・課題感：SF のリード（API 名）→ SF から足した行（日本語の見出し）→ CSV の列
+  const whenYm = ymOf(L.Start_Considering_Date__c || d["検討開始時期"] || pick(d, /^(検討時期|検討開始時期)$/));
+  const renewYm = ymOf(L.update_month__c || d["現利用サービス更新予定月"] || pick(d, /^(更新月|更新時期|契約更新月)$/));
+  const ats = nk(L.ATS__c || d["利用中ATS"] || pick(d, /^(利用中ATS|ATS|利用中のサービス|競合)$/i)).slice(0, 60);
+  const issue = nk(L.Client_Issue__c || d["顧客の課題感"] || pick(d, /^(課題|課題感|採用課題)$/)).slice(0, 300);
+  // SF の最終活動日（電話に限らない）。「直近14日に SF で他の人が接触」を見るため
+  const sfAct = isTs(L.LastActivityDate) || isTs(d["最終活動日"]) || "";
+  return { v: SEG_V, source, stage, pref, prefBy, city, gyoshu, gyokai, extLast, extResult, conds: condsOf(hotD, hearing, person), lost,
+    ckey: ckeyOf(company), whenYm, renewYm, ats, issue, sfAct };
 }
 
 // ---- SF のリード（API の1件）→ SHOBO のリードの形（2026-11-19 福井さん「SF からもリードを足せるように」） ----

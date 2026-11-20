@@ -397,7 +397,8 @@ export async function refreshSeg(listId, { budgetMs = 0 } = {}) {
         (SELECT max(l.at) FROM call_logs l WHERE c.src='doc' AND l.target_id = t.id) AS t_last
       FROM mc_call_leads c
       LEFT JOIN mochica_bales_rows b ON c.src='bales' AND b.list_key = regexp_replace(c.src_key, '[|][^|]*$', '') AND b.row_key = regexp_replace(c.src_key, '^.*[|]', '')
-      LEFT JOIN call_targets t ON c.src='doc' AND t.id = (CASE WHEN c.src_key ~ '^[0-9]+$' THEN c.src_key::int END)
+      LEFT JOIN call_targets t ON c.src='doc' AND t.id = (CASE WHEN c.src_key ~ '^[0-9]{1,9}$' THEN c.src_key::int END)
+      -- 9桁までに絞る：DOC 以外（BALES など）の12桁の番号も CASE は全行で評価されるため、int に入りきらず全体が止まった（2026-11-20）
       WHERE c.list_id = ANY($1::int[]) AND (c.seg IS NULL OR COALESCE((c.seg->>'v')::int,0) < $2) ORDER BY c.id LIMIT 1000`, [ids, SEG_V])).rows;
     if (!rows.length) break;
     // Bales のリードは中身を mc_call_leads に持たず、取り込んだ行（mochica_bales_rows）を読む（架電画面と同じ）
@@ -409,39 +410,155 @@ export async function refreshSeg(listId, { budgetMs = 0 } = {}) {
   }
   return n;
 }
-// 絞り込みの軸。値は SQL で出す（最終架電は日がたつと変わるので、保存せずにその場で数える）
+// 絞り込みの軸。値は SQL で出す（最終架電・期限・検討時期は日がたつと変わるので、保存せずにその場で数える）
+//   2026-11-20 福井さん：ASUMO /teleapo の絞り込み条件にそろえた。ICP スコア・インテント・検証済み・タグ・メールのクリック・採用構成・
+//   条件1〜3 は SHOBO に判定の元データが無いので、決め方を合意してから足す（第2段）
 const LAST_TS = `GREATEST(c.last_at, NULLIF(c.seg->>'extLast','')::timestamptz)`;
 const OUTCOME_SQL = `CASE c.last_outcome ${Object.values(REACH).flatMap((r) => Object.entries(r.outcomes)).map(([k, v]) => `WHEN '${k}' THEN '${v}'`).join(" ")} ELSE c.last_outcome END`;
+const sqlLit = (s) => `'${String(s).replace(/'/g, "''")}'`;
+const JST = `(now() AT TIME ZONE 'Asia/Tokyo')`;
+const JST_TODAY = `(date_trunc('day', ${JST}) AT TIME ZONE 'Asia/Tokyo')`;
+// マイナビの調べ（会社ごと。リードの seg.ckey で結ぶ）
+const MN = `(SELECT m.data FROM mc_mynavi m WHERE m.ckey = c.seg->>'ckey')`;
+// 全角の数字もそろえて、文の中の最初の数を取る（「6~10名」は 6＝下限で見る）
+const firstNum = (x) => `NULLIF(substring(translate(COALESCE(${x},''), '０１２３４５６７８９', '0123456789') from '([0-9]+)'), '')::int`;
+// 採用人数：架電で聞いた採用目標人数 → 企業調査の採用人数 → マイナビの採用予定人数
+const HIRE_HEARD = `CASE WHEN COALESCE(c.hearing->>'target','') ~ '^[0-9]+$' THEN (c.hearing->>'target')::int END`;
+const HIRE_EST = `COALESCE(${firstNum(`c.research->>'headcount'`)}, ${firstNum(`${MN}->>'plannedHires'`)})`;
+const HIRE = `COALESCE(${HIRE_HEARD}, ${HIRE_EST})`;
+// 年月（YYYY-MM）または月だけ（M）→ 今月から何か月先か（月だけのときは次に来るその月。過ぎたことにはしない）
+const monthsAhead = (x) => `(CASE WHEN ${x} ~ '^[0-9]{4}-[0-9]{2}$' THEN (substr(${x},1,4)::int*12 + substr(${x},6,2)::int) - (EXTRACT(YEAR FROM ${JST})::int*12 + EXTRACT(MONTH FROM ${JST})::int)
+  WHEN ${x} ~ '^[0-9]{1,2}$' THEN ((${x}::int - EXTRACT(MONTH FROM ${JST})::int + 12) % 12) END)`;
+// 検討時期：架電で聞いた月（新しい）→ SF の検討開始時期
+const WHEN_SRC = `COALESCE(CASE WHEN COALESCE(c.hearing->>'when','') ~ '^[0-9]{1,2}月$' THEN regexp_replace(c.hearing->>'when','月$','') END, NULLIF(c.seg->>'whenYm',''))`;
+const WHEN_M = monthsAhead(WHEN_SRC);
+const RENEW_M = monthsAhead(`NULLIF(c.seg->>'renewYm','')`);
+// 最後に断られた理由（SHOBO で記録したもの）
+const LAST_REJECT = `(SELECT l.reason FROM mc_call_logs l WHERE l.lead_id = c.id AND l.outcome = 'reject' AND NOT l.undone ORDER BY l.created_at DESC LIMIT 1)`;
+const DIGITS = `regexp_replace(translate(COALESCE(c.phone,''), '０１２３４５６７８９', '0123456789'), '[^0-9]', '', 'g')`;
+// 採用区分・採用課題を読む文（企業調査・SF の課題感・架電で聞いたニーズ）
+const HIRING_TXT = `concat_ws(' ', c.research->>'hiring', c.research->>'roles', c.research->>'media')`;
+const PAIN_TXT = `concat_ws(' ', c.research->>'issue', c.seg->>'issue', c.hearing->>'need')`;
+const arrOf = (cases) => `array_remove(ARRAY[${cases.map(([v, cond]) => `CASE WHEN ${cond} THEN ${sqlLit(v)} END`).join(", ")}]::text[], NULL)`;
+export const PAINS = [
+  ["母集団形成", "母集団|応募が(少|来)|応募者?が(少|集ま)|集まらな|人が来な|知名度|認知"],
+  ["選考の歩留まり", "歩留|選考.{0,6}(離脱|落ち|来な)|面接に来な|説明会.{0,6}(来な|少な)"],
+  ["内定辞退", "内定.{0,4}辞退|辞退"],
+  ["工数・人手不足", "工数|手が回ら|マンパワー|人手|負担|時間が(ない|無い|足り)|兼任|ひとりで|1人で"],
+  ["採用単価が高い", "単価|費用が|コストが|高い|高額"],
+  ["応募者の質・ミスマッチ", "ミスマッチ|質が|定着|早期離職|すぐ辞め|合わない"],
+  ["採用担当の不在・交代", "担当者?(が)?(不在|いない|居ない|交代|変わ)|採用担当.{0,4}(退職|異動)"],
+];
+// multi：1社に値が複数ある軸（text[] を返す）。「どれか」が一致すれば残す。needs：その軸を選んでいるときだけ画面に出す
 export const SEG_DIMS = {
   // どこから足したリードか（2026-11-19 福井さん「SF・BALES・SHOBO から」）。SHOBO＝CSV で SHOBO に直接入れたもの
   origin: { label: "取り込み元", sql: `CASE c.src WHEN 'sf' THEN 'SF' WHEN 'bales' THEN 'BALES' WHEN 'csv' THEN 'SHOBO（CSV）' WHEN 'doc' THEN 'DOC' ELSE c.src END`, order: ["SF", "BALES", "SHOBO（CSV）", "DOC"] },
-  source: { label: "リードソース", sql: `COALESCE(NULLIF(c.seg->>'source',''),'不明')` },
+  list: { label: "リスト", sql: `COALESCE((SELECT x.name FROM mc_call_lists x WHERE x.id = c.list_id), '（不明）')`, poolOnly: true },
+  source: { label: "リード元", sql: `COALESCE(NULLIF(c.seg->>'source',''),'（未記録）')` },
   stage: { label: "ステージ（BALES・SF・DOC）", sql: `COALESCE(NULLIF(c.seg->>'stage',''),'なし')` },
-  pref: { label: "都道府県", sql: `COALESCE(NULLIF(c.seg->>'pref',''),'不明')` },
-  gyokai: { label: "業界", sql: `COALESCE(NULLIF(c.seg->>'gyokai',''),'不明')` },
+  gyokai: { label: "業界（大分類）", sql: `COALESCE(NULLIF(c.seg->>'gyokai',''),'不明')` },
+  category: { label: "カテゴリ（マイナビの業種）", sql: `COALESCE(NULLIF(${MN}->>'industry',''), CASE WHEN ${MN}->>'status' = 'listed' THEN '業種の記載なし' ELSE 'マイナビ掲載なし・未確認' END)` },
   gyoshu: { label: "業種", sql: `COALESCE(NULLIF(c.seg->>'gyoshu',''),'不明')` },
+  roles: { label: "募集職種", multi: true, none: "（未取得）", sql: `ARRAY(SELECT DISTINCT left(btrim(x), 30) FROM unnest(regexp_split_to_array(COALESCE(c.research->>'roles',''), '[、,，・/／]+')
+      || ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(${MN}->'jobs') = 'array' THEN ${MN}->'jobs' ELSE '[]'::jsonb END))) AS x WHERE btrim(x) <> '')` },
+  pref: { label: "所在地（都道府県）", sql: `COALESCE(NULLIF(c.seg->>'pref',''),'（未登録）')` },
+  city: { label: "市区町村", sql: `COALESCE(NULLIF(c.seg->>'city',''),'（未登録）')`, needs: "pref" },
+  owner: { label: "自社担当", sql: `COALESCE(c.assigned_to,'（担当なし）')`, names: true },
+  research: { label: "事前調査", sql: `CASE WHEN c.research_at IS NULL THEN '未調査' WHEN c.research->>'status' = 'error' THEN '調べられなかった' ELSE '調査済み' END`, order: ["調査済み", "調べられなかった", "未調査"] },
+  phone: { label: "電話番号", sql: `CASE WHEN ${DIGITS} ~ '^0[0-9]{9,10}$' THEN '発信できる' WHEN ${DIGITS} = '' THEN '未登録' ELSE '番号の形が正しくない' END`, order: ["発信できる", "番号の形が正しくない", "未登録"] },
+  competitor: { label: "競合バッティング", sql: `CASE WHEN COALESCE(c.seg->'lost'->>'rival','') <> '' THEN '競合に負けた（SF の失注）'
+      WHEN COALESCE(c.seg->>'ats','') <> '' OR (c.last_outcome = 'reject' AND ${LAST_REJECT} = '他社を使っている') THEN '競合を利用中' ELSE '競合の印なし' END`, order: ["競合に負けた（SF の失注）", "競合を利用中", "競合の印なし"] },
+  due: { label: "次アクション期限", sql: `CASE WHEN c.next_at IS NULL THEN '期限なし' WHEN c.next_at < ${JST_TODAY} THEN '期限切れ' WHEN c.next_at < ${JST_TODAY} + interval '1 day' THEN '本日' ELSE '明日以降' END`,
+    order: ["期限切れ", "本日", "明日以降", "期限なし"] },
+  followup: { label: "追いかけ", sql: `CASE WHEN c.next_why = ${sqlLit(WHY_HUMAN)} AND c.next_at <= now() THEN '予約の時刻が来た' WHEN c.next_why = ${sqlLit(WHY_HUMAN)} THEN '予約あり（まだ）'
+      WHEN c.next_at IS NOT NULL THEN '自動の掛け直し' ELSE 'なし' END`, order: ["予約の時刻が来た", "予約あり（まだ）", "自動の掛け直し", "なし"] },
+  hireSource: { label: "採用人数の確度", sql: `CASE WHEN ${HIRE_HEARD} IS NOT NULL THEN '確認済み（架電で聞いた）' WHEN ${HIRE_EST} IS NOT NULL THEN '推定（企業調査・マイナビ）' ELSE '不明' END`,
+    order: ["確認済み（架電で聞いた）", "推定（企業調査・マイナビ）", "不明"] },
+  lastResult: { label: "架電ステータス（前回の結果）", sql: `CASE WHEN c.last_at IS NOT NULL AND (NULLIF(c.seg->>'extLast','') IS NULL OR c.last_at >= (c.seg->>'extLast')::timestamptz) THEN ${OUTCOME_SQL}
+    ELSE COALESCE(NULLIF(c.seg->>'extResult',''),'未架電') END` },
+  decline: { label: "断り理由", sql: `CASE WHEN c.last_outcome = 'reject' THEN COALESCE(NULLIF(${LAST_REJECT},''),'理由なし') ELSE '断られていない' END`,
+    order: [...REJECT_REASONS, "理由なし", "断られていない"] },
   last: { label: "最終架電", sql: `CASE WHEN ${LAST_TS} IS NULL THEN '未架電' WHEN ${LAST_TS} > now() - interval '7 days' THEN '7日以内'
     WHEN ${LAST_TS} > now() - interval '30 days' THEN '8〜30日前' WHEN ${LAST_TS} > now() - interval '90 days' THEN '31〜90日前' ELSE '91日以上前' END`, order: ["未架電", "91日以上前", "31〜90日前", "8〜30日前", "7日以内"] },
-  lastResult: { label: "前回の結果", sql: `CASE WHEN c.last_at IS NOT NULL AND (NULLIF(c.seg->>'extLast','') IS NULL OR c.last_at >= (c.seg->>'extLast')::timestamptz) THEN ${OUTCOME_SQL}
-    ELSE COALESCE(NULLIF(c.seg->>'extResult',''),'未架電') END` },
   hot: { label: "ホット度", sql: `CASE WHEN COALESCE(c.hot,0) >= 3 THEN 'ホット' WHEN COALESCE(c.hot,0) = 2 THEN 'ウォーム' ELSE 'コールド' END`, order: ["ホット", "ウォーム", "コールド"] },
+  segments: { label: "採用区分", multi: true, none: "不明", sql: arrOf([["新卒", `(${HIRING_TXT} ~ '新卒|大卒|大学|卒業予定|[0-9]{2}卒' OR ${MN}->>'status' = 'listed')`],
+    ["高卒", `${HIRING_TXT} ~ '高卒|高校'`], ["中途", `${HIRING_TXT} ~ '中途|経験者|キャリア|転職'`], ["パート・アルバイト", `${HIRING_TXT} ~ 'パート|アルバイト'`]]), order: ["新卒", "高卒", "中途", "パート・アルバイト", "不明"] },
+  pains: { label: "採用課題", multi: true, none: "分からない", sql: arrOf(PAINS.map(([v, re]) => [v, `${PAIN_TXT} ~ ${sqlLit(re)}`])), order: [...PAINS.map((x) => x[0]), "分からない"] },
+  budget: { label: "検討時期", sql: `CASE WHEN ${WHEN_M} < 0 THEN '時期が過ぎた' WHEN ${WHEN_M} = 0 THEN '今月' WHEN ${WHEN_M} <= 3 THEN '3か月以内' WHEN ${WHEN_M} IS NOT NULL THEN '4か月以上先'
+      WHEN c.hearing->>'when' = '未定' THEN '未定と言われた' ELSE '分からない' END`, order: ["今月", "3か月以内", "4か月以上先", "時期が過ぎた", "未定と言われた", "分からない"] },
+  renewal: { label: "更新時期", sql: `CASE WHEN ${RENEW_M} < 0 THEN '更新月が過ぎた' WHEN ${RENEW_M} = 0 THEN '今月更新' WHEN ${RENEW_M} = 1 THEN '来月更新' WHEN ${RENEW_M} <= 3 THEN '3か月以内'
+      WHEN ${RENEW_M} <= 6 THEN '6か月以内' WHEN ${RENEW_M} IS NOT NULL THEN '7か月以上先' WHEN COALESCE(c.seg->>'ats','') <> '' THEN '競合利用中で更新月が未確認' ELSE '分からない' END`,
+    order: ["今月更新", "来月更新", "3か月以内", "6か月以内", "7か月以上先", "更新月が過ぎた", "競合利用中で更新月が未確認", "分からない"] },
   lost: { label: "過去失注（SF の失注理由）", sql: `CASE WHEN jsonb_typeof(c.seg->'lost') = 'object' THEN COALESCE(NULLIF(c.seg->'lost'->>'reason',''),'理由なし') ELSE '失注なし' END` },
 };
 // ホットの条件（そろっているものだけに絞る）。SHOBO で聞いたこと（hearing）はその場で見る
 export const SEG_CONDS = {
-  name: { label: "担当者名が分かる", sql: `(c.seg->'conds' ? 'name')` },
+  name: { label: "採用担当者名が分かる", sql: `(c.seg->'conds' ? 'name')` },
   need: { label: "ニーズを聞けた", sql: `(c.seg->'conds' ? 'need' OR COALESCE(c.hearing->>'need','') <> '')` },
   when: { label: "検討時期を聞けた", sql: `(c.seg->'conds' ? 'when' OR COALESCE(c.hearing->>'when','') NOT IN ('','未定'))` },
 };
-// filters：{ source:[…], pref:[…], …, conds:["name",…] } → WHERE の部分。同じ軸の中は「どれか」、軸どうしは「すべて」
+// 並べ替え（ASUMO /teleapo の並べ替えに合わせる。ICP スコアの代わりはホット度）。default は今までどおり ホット → 最後にかけた日が古い順
+export const SEG_SORTS = {
+  default: { label: "既定（ホット → 最後にかけた日が古い順）" },
+  hot: { label: "ホット度", sql: [`COALESCE(c.hot,0)`], dir: "desc" },
+  company: { label: "会社名", sql: [`c.company`] },
+  gyokai: { label: "業界 → 業種", sql: [`c.seg->>'gyokai'`, `c.seg->>'gyoshu'`] },
+  gyoshu: { label: "業種", sql: [`c.seg->>'gyoshu'`] },
+  owner: { label: "自社担当", sql: [`c.assigned_to`] },
+  calls: { label: "架電回数", sql: [`c.attempts`] },
+  updated: { label: "最終架電日時", sql: [LAST_TS], dir: "desc" },
+  due: { label: "次アクション期限", sql: [`c.next_at`] },
+  followup: { label: "追いかけ時刻", sql: [`CASE WHEN c.next_why = ${sqlLit(WHY_HUMAN)} THEN c.next_at END`] },
+  renewal: { label: "更新時期が近い順", sql: [RENEW_M] },
+  hire: { label: "採用人数", sql: [HIRE], dir: "desc" },
+};
+// 並び順の ORDER BY。どの並びでも、同じ値の中は ホット → 最後にかけた日が古い順
+export function segOrder(filters = {}) {
+  const tail = `COALESCE(c.hot,0) DESC, ${LAST_TS} ASC NULLS FIRST, c.id`;
+  const s = filters.sort && filters.sort !== "default" ? SEG_SORTS[filters.sort] : null;
+  if (!s) return tail;
+  const dir = filters.dir === "asc" || filters.dir === "desc" ? filters.dir : (s.dir || "asc");
+  return `${s.sql.map((x) => `${x} ${dir.toUpperCase()} NULLS LAST`).join(", ")}, ${tail}`;
+}
+const arrParam = (v) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 80)).filter(Boolean).slice(0, 200) : []);
+const numOrNull = (v) => { if (v === "" || v == null) return null; const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 && n < 1e6 ? n : null; };
+// filters：{ source:[…], pref:[…], …, conds:["name",…], mode:"all"|"any", q, callsMin, callsMax, hireMin, hireMax, hideDnc, hideTouched, hideSfTouched }
+//   → WHERE の部分。同じ軸の中はいつも「どれか」。軸どうしは mode="all"（既定）なら「すべて」、"any" なら「どれか」。
+//   キーワードと「隠す」は mode によらずいつもかける。hideDnc は呼ぶ側が withBans で _banned（禁止に当たるリードの id）を入れておく
 export function segWhere(filters, p) {
-  const w = [];
+  const f = filters || {}; const w = []; const dim = [];
   for (const [k, d] of Object.entries(SEG_DIMS)) {
-    const v = Array.isArray(filters && filters[k]) ? filters[k].map((x) => String(x).slice(0, 80)).filter(Boolean).slice(0, 200) : [];
-    if (v.length) { p.push(v); w.push(`(${d.sql}) = ANY($${p.length}::text[])`); }
+    const v = arrParam(f[k]); if (!v.length) continue;
+    p.push(v);
+    dim.push(d.multi ? `(COALESCE(NULLIF(${d.sql}, '{}'), ARRAY[${sqlLit(d.none || "不明")}]) && $${p.length}::text[])` : `(${d.sql}) = ANY($${p.length}::text[])`);
   }
-  for (const c of Array.isArray(filters && filters.conds) ? filters.conds : []) if (SEG_CONDS[c]) w.push(SEG_CONDS[c].sql);
+  for (const c of arrParam(f.conds)) if (SEG_CONDS[c]) dim.push(SEG_CONDS[c].sql);
+  const range = (expr, lo, hi) => { const a = numOrNull(lo), b = numOrNull(hi); if (a == null && b == null) return;
+    const o = [`${expr} IS NOT NULL`]; if (a != null) { p.push(a); o.push(`${expr} >= $${p.length}`); } if (b != null) { p.push(b); o.push(`${expr} <= $${p.length}`); } dim.push(`(${o.join(" AND ")})`); };
+  range("c.attempts", f.callsMin, f.callsMax);
+  range(HIRE, f.hireMin, f.hireMax);
+  if (dim.length) w.push(f.mode === "any" ? `(${dim.join(" OR ")})` : dim.join(" AND "));
+  // キーワード：会社名・担当者・電話・メール（直した情報）・業種・所在地・リード元・企業調査・聞いたこと・担当・元のデータ・架電メモ・断り理由
+  const q = String(f.q || "").trim().slice(0, 60).replace(/[\\%_]/g, (m) => `\\${m}`);
+  if (q) { p.push(`%${q}%`); const i = p.length;
+    w.push(`(concat_ws(' ', c.company, c.person, c.phone, c.info::text, c.seg->>'gyoshu', c.seg->>'gyokai', c.seg->>'pref', c.seg->>'city', c.seg->>'source', c.seg->>'issue', c.seg->>'ats',
+      c.research::text, c.hearing::text, c.assigned_to, c.data::text) ILIKE $${i}
+      OR EXISTS (SELECT 1 FROM mc_call_logs l WHERE l.lead_id = c.id AND NOT l.undone AND concat_ws(' ', l.memo, l.reason) ILIKE $${i}))`); }
+  if (f.hideDnc && Array.isArray(f._banned) && f._banned.length) { p.push(f._banned); w.push(`NOT (c.id = ANY($${p.length}::int[]))`); }
+  if (f.hideTouched) w.push(`(COALESCE(c.attempts,0) = 0 AND c.last_at IS NULL AND NULLIF(c.seg->>'extLast','') IS NULL)`);
+  // 直近14日に SF で活動があり、それが SHOBO でかけた日より新しい（＝SHOBO 以外のだれかが触った）
+  if (f.hideSfTouched) w.push(`NOT (NULLIF(c.seg->>'sfAct','') IS NOT NULL AND (c.seg->>'sfAct')::timestamptz > now() - interval '14 days'
+      AND (c.last_at IS NULL OR (c.last_at AT TIME ZONE 'Asia/Tokyo')::date < ((c.seg->>'sfAct')::timestamptz AT TIME ZONE 'Asia/Tokyo')::date))`);
   return w;
+}
+// アプローチ禁止（DNC）は名簿をメモリで照らすので SQL では書けない。隠すときだけ、対象のリードを読んで当たるものの id を入れる
+export async function withBans(filters, listIds) {
+  const f = { ...(filters || {}) }; delete f._banned;
+  if (!f.hideDnc) return f;
+  await loadApproachBans();
+  const rows = (await P().query(`SELECT id, company, phone, info, sf_lead_id FROM mc_call_leads WHERE list_id = ANY($1::int[]) AND NOT done`, [listIds])).rows;
+  f._banned = rows.filter((r) => approachBanHitLeadSync(r)).map((r) => r.id);
+  return f;
 }
 
 export function registerMcCall(app, deps) {
@@ -458,6 +575,22 @@ export function registerMcCall(app, deps) {
   // 1件の記録を SF の活動（Task）に書く。結果は mc_call_logs の sf_task_id / sf_err に残す。
   //   SF のリードと結びついていない会社は書けないので「nolead」と残す（黙って書かないままにしない＝ルール5）。
   //   書き直し（/api/mccall/sf-retry）でも同じものを使う
+  // リードに活動（Task）を書く。コンバート済みのリードには SF が活動を付けさせない（CANNOT_UPDATE_CONVERTED_LEAD）。
+  //   断られたときだけコンバート先（取引先責任者＋商談か取引先）に付け替えて書き直す。
+  //   毎回先に調べると SF の呼び出しが増えるので、断られたときだけ調べる（2026-11-20）
+  async function leadTask(owner, data) {
+    try { return await createTask(owner, data); }
+    catch (e) {
+      if (!/CANNOT_UPDATE_CONVERTED_LEAD/.test(String(e.message)) || !/^00Q/.test(String(data.WhoId || ""))) throw e;
+      const l = ((await sfQuery(owner, `SELECT ConvertedContactId, ConvertedAccountId, ConvertedOpportunityId FROM Lead WHERE Id='${data.WhoId}'`)).records || [])[0];
+      if (!l || (!l.ConvertedContactId && !l.ConvertedAccountId)) throw new Error("コンバート済みのリードで、コンバート先が SF で見つかりません。SF で取引先を確かめてください");
+      const next = { ...data, WhoId: l.ConvertedContactId || undefined };
+      if (!next.WhoId) delete next.WhoId;
+      if (!next.WhatId) next.WhatId = l.ConvertedOpportunityId || l.ConvertedAccountId || undefined;
+      if (!next.WhatId) delete next.WhatId;
+      return createTask(owner, next);
+    }
+  }
   async function sfWrite(req, logId) {
     const g = (await P().query(`SELECT g.*, c.sf_lead_id FROM mc_call_logs g JOIN mc_call_leads c ON c.id=g.lead_id WHERE g.id=$1`, [logId])).rows[0];
     if (!g || g.undone || (g.sf_task_id && g.sf_fill_done)) return;
@@ -472,7 +605,7 @@ export function registerMcCall(app, deps) {
     if (!g.sf_task_id) try {
       const names = await nameMap();
       const gt = g.gate || {}; const who = String(g.caller || "").toLowerCase();
-      const t = await createTask(owner, {
+      const t = await leadTask(owner, {
         WhoId: g.sf_lead_id, Subject: `[MOCHICA 架電] ${outcomeLabel(g.outcome)}`, Type: "Call", Status: "完了", ActivityDate: d,
         Description: [`記録した人：${names.get(who) || who}（SHOBO）`, `到達：${(REACH[g.reach] || {}).label || g.reach}`, `結果：${outcomeLabel(g.outcome)}${g.reason ? `（${g.reason}）` : ""}`,
           gt.name || gt.hours || gt.direct ? `受付で聞けたこと：${[gt.name && `担当 ${gt.name}`, gt.hours && `在席 ${gt.hours}`, gt.direct && `直通 ${gt.direct}`].filter(Boolean).join("・")}` : "",
@@ -721,7 +854,7 @@ export function registerMcCall(app, deps) {
     // 条件で割り振る（filters）：kincall の「ソースから配る」「グループから配る」と同じく、条件に合うリードだけを、1人 per 件まで配る。
     //   onlyFree…まだだれにも割り振っていないものだけ。dryRun…配らずに件数だけ返す（画面の「試算」）。
     //   並びは ホット → 最後にかけた日が古い（かけていないものが先）→ 取り込んだ順。kincall の distributeGroupLeads と同じ「古いものから」
-    const filters = b.filters && typeof b.filters === "object" ? b.filters : null;
+    const filters = b.filters && typeof b.filters === "object" ? await withBans(b.filters, [id]) : null;
     const per = Math.max(0, Math.min(5000, parseInt(b.per, 10) || 0));
     if (filters) await refreshSeg(id);
     const p = [id]; const w = ["c.list_id=$1", "NOT c.done", "c.dup_of IS NULL"];
@@ -729,7 +862,7 @@ export function registerMcCall(app, deps) {
     if (filters) w.push(...segWhere(filters, p));
     if (b.onlyFree) w.push("c.assigned_to IS NULL");
     const rows = (await P().query(`SELECT c.id FROM mc_call_leads c WHERE ${w.join(" AND ")}
-      ORDER BY COALESCE(c.hot,0) DESC, ${LAST_TS} NULLS FIRST, c.id`, p)).rows;
+      ORDER BY ${segOrder(filters || {})}`, p)).rows;
     if (!rows.length) {
       if (b.dryRun) return res.json({ ok: true, dryRun: true, matched: 0, assigned: 0, per: [] });
       return res.status(400).json({ error: filters ? "条件に合うリードがありません。条件をゆるめてください" : "分けるリードがありません（終わったリードは分けません）" });
@@ -756,24 +889,42 @@ export function registerMcCall(app, deps) {
     // pool：このリストではなく、SHOBO のほかのリスト（保管も含む）を数える＝「SHOBO から足す」の候補（2026-11-19）
     const scope = b.pool ? await poolIds(id, b.from) : [id];
     const filled = await refreshSeg(scope);
-    const filters = b.filters && typeof b.filters === "object" ? b.filters : {};
+    const filters = await withBans(b.filters && typeof b.filters === "object" ? b.filters : {}, scope);
     const base = poolBase(!!b.pool);
-    // 軸ごとに「その軸以外の条件」で数える（同じ軸の中で選び足せるように。EC サイトの絞り込みと同じ考え方）
-    const dims = {};
-    for (const [k, d] of Object.entries(SEG_DIMS)) {
-      const p = [scope]; const w = [...base, ...segWhere({ ...filters, [k]: [] }, p)];
-      const rows = (await P().query(`SELECT ${d.sql} AS v, count(*) AS n, count(*) FILTER (WHERE c.assigned_to IS NULL) AS free
-        FROM mc_call_leads c WHERE ${w.join(" AND ")} GROUP BY 1 ORDER BY 2 DESC LIMIT 120`, p)).rows.map((r) => ({ v: r.v, n: +r.n, free: +r.free }));
-      if (d.order) rows.sort((a, c) => d.order.indexOf(a.v) - d.order.indexOf(c.v));
-      dims[k] = { label: d.label, items: rows };
+    // CSV（2026-11-20）：いまの条件と並び順のまま、合うリードを全部（2万件まで）返す。画面で CSV にする
+    if (b.csv) {
+      const p = [scope]; const w = [...base, ...segWhere(filters, p)];
+      const cols = ["origin", "list", "source", "stage", "gyokai", "gyoshu", "pref", "city", "owner", "research", "phone", "competitor", "due", "followup", "lastResult", "decline", "last", "hot", "budget", "renewal", "lost"];
+      const rows = (await P().query(`SELECT c.id, c.company, c.person, c.phone, c.attempts, c.next_at, ${LAST_TS} AS last_ts, ${cols.map((k) => `${SEG_DIMS[k].sql} AS "${k}"`).join(", ")},
+          array_to_string(${SEG_DIMS.roles.sql}, '・') AS roles, array_to_string(${SEG_DIMS.pains.sql}, '・') AS pains, array_to_string(${SEG_DIMS.segments.sql}, '・') AS segments
+        FROM mc_call_leads c WHERE ${w.join(" AND ")} ORDER BY ${segOrder(filters)} LIMIT 20000`, p)).rows;
+      const names = await nameMap();
+      for (const r of rows) if (r.owner && names.has(r.owner)) r.owner = names.get(r.owner);
+      return res.json({ ok: true, rows, labels: Object.fromEntries([...cols, "roles", "pains", "segments"].map((k) => [k, SEG_DIMS[k].label])) });
     }
-    const p = [scope]; const w = [...base, ...segWhere({ ...filters, conds: [] }, p)];
+    // 軸ごとに「その軸以外の条件」で数える（同じ軸の中で選び足せるように。EC サイトの絞り込みと同じ考え方）。
+    //   「どれか」（mode=any）のときは、ほかの軸を足すほど増える向きなので、キーワードと「隠す」だけをかけて数える
+    const only = (k) => (filters.mode === "any" ? { q: filters.q, hideDnc: filters.hideDnc, _banned: filters._banned, hideTouched: filters.hideTouched, hideSfTouched: filters.hideSfTouched } : { ...filters, [k]: [] });
+    const names = await nameMap();
+    const dims = {};
+    await Promise.all(Object.entries(SEG_DIMS).map(async ([k, d]) => {
+      if (d.poolOnly && !b.pool) return;
+      const p = [scope]; const w = [...base, ...segWhere(only(k), p)];
+      const vx = d.multi ? `v` : d.sql;
+      const from = d.multi ? `mc_call_leads c, LATERAL unnest(COALESCE(NULLIF(${d.sql}, '{}'), ARRAY[${sqlLit(d.none || "不明")}])) AS v` : `mc_call_leads c`;
+      const rows = (await P().query(`SELECT ${vx} AS v, count(*) AS n, count(*) FILTER (WHERE c.assigned_to IS NULL) AS free
+        FROM ${from} WHERE ${w.join(" AND ")} GROUP BY 1 ORDER BY 2 DESC LIMIT 120`, p)).rows.map((r) => ({ v: r.v, n: +r.n, free: +r.free, ...(d.names && names.has(r.v) ? { label: names.get(r.v) } : {}) }));
+      if (d.order) rows.sort((a, c) => (d.order.indexOf(a.v) + 1 || 99) - (d.order.indexOf(c.v) + 1 || 99));
+      dims[k] = { label: d.label, items: rows, ...(d.needs ? { needs: d.needs } : {}) };
+    }));
+    const p = [scope]; const w = [...base, ...segWhere(only("conds"), p)];
     const cr = (await P().query(`SELECT ${Object.entries(SEG_CONDS).map(([k, c]) => `count(*) FILTER (WHERE ${c.sql}) AS ${k}`).join(", ")} FROM mc_call_leads c WHERE ${w.join(" AND ")}`, p)).rows[0];
     const conds = Object.entries(SEG_CONDS).map(([k, c]) => ({ k, label: c.label, n: +cr[k] }));
     const p2 = [scope]; const w2 = [...base, ...segWhere(filters, p2)];
     const t = (await P().query(`SELECT count(*) AS n, count(*) FILTER (WHERE c.assigned_to IS NULL) AS free,
         count(*) FILTER (WHERE c.seg->>'prefBy' = '電話') AS pref_tel FROM mc_call_leads c WHERE ${w2.join(" AND ")}`, p2)).rows[0];
-    res.json({ ok: true, filled, matched: +t.n, free: +t.free, prefByTel: +t.pref_tel, dims, conds });
+    res.json({ ok: true, filled, matched: +t.n, free: +t.free, prefByTel: +t.pref_tel, banned: filters.hideDnc ? (filters._banned || []).length : null, dims, conds,
+      sorts: Object.entries(SEG_SORTS).map(([k, s]) => ({ k, label: s.label })) });
   }));
   // 「SHOBO から足す」の元：このリスト以外の、閉じていない MOCHICA のリスト（保管も含む）。from で絞れる
   async function poolIds(id, from) {
@@ -795,7 +946,8 @@ export function registerMcCall(app, deps) {
     if (!scope.length) return res.status(400).json({ error: "持ってくる元のリストがありません" });
     await refreshSeg(scope);
     const lim = Math.max(1, Math.min(20000, parseInt(b.limit, 10) || 300));
-    const p = [scope]; const w = [...poolBase(true), ...segWhere(b.filters && typeof b.filters === "object" ? b.filters : {}, p)];
+    const filters = await withBans(b.filters && typeof b.filters === "object" ? b.filters : {}, scope);
+    const p = [scope]; const w = [...poolBase(true), ...segWhere(filters, p)];
     if (b.onlyFree) w.push("c.assigned_to IS NULL");
     const where = w.join(" AND ");
     const matched = +(await P().query(`SELECT count(*) FROM mc_call_leads c WHERE ${where}`, p)).rows[0].count;
@@ -805,7 +957,7 @@ export function registerMcCall(app, deps) {
     const x = await P().query(`UPDATE mc_call_leads SET list_id=$${to}, assigned_to=NULL, locked_by=NULL, locked_at=NULL WHERE id IN (
         SELECT c.id FROM mc_call_leads c WHERE ${where}
           AND NOT EXISTS (SELECT 1 FROM mc_call_leads d WHERE d.list_id=$${to} AND d.src=c.src AND d.src_key=c.src_key)
-        ORDER BY COALESCE(c.hot,0) DESC, ${LAST_TS} NULLS FIRST, c.id LIMIT $${L})`, p);
+        ORDER BY ${segOrder(filters)} LIMIT $${L})`, p);
     console.log(`[mccall] SHOBO のほかのリストから リスト${id} へ ${x.rowCount}件（条件に合う${matched}件）条件=${JSON.stringify(b.filters || {}).slice(0, 300)} by ${me(req)}`);
     res.json({ ok: true, matched, moved: x.rowCount });
   }));
@@ -1780,7 +1932,7 @@ export function registerMcCall(app, deps) {
       let sfNote = "";
       if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) {
         try {
-          const t = await createTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 資料送付", Type: "Email", Status: "完了",
+          const t = await leadTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 資料送付", Type: "Email", Status: "完了",
             ActivityDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
             Description: [`送った人：${(await nameMap()).get(u) || u}（SHOBO）`, `宛先：${to}`, cc ? `CC：${cc}` : "", `件名：${subject}`, `資料：${docName}（doc-room）${url}`].filter(Boolean).join("\n") });
           if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
@@ -1864,7 +2016,7 @@ export function registerMcCall(app, deps) {
       let sfNote = "";
       if (lead.sf_lead_id && /^00Q[0-9A-Za-z]{12,15}$/.test(lead.sf_lead_id)) {
         try {
-          const t = await createTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 問い合わせフォーム送信", Status: "完了",
+          const t = await leadTask(await sfActor(req), { WhoId: lead.sf_lead_id, Subject: "[MOCHICA] 問い合わせフォーム送信", Status: "完了",
             ActivityDate: new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10),
             Description: [`送った人：${sender || u}（SHOBO）`, `フォーム：${r.url || url}`, FORM_ST[status], r.note || "", `件名：${prof.subject}`, "", prof.body].filter((x) => x != null).join("\n").slice(0, 30000) });
           if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
