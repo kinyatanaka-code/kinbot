@@ -2513,12 +2513,13 @@ async function renderMine() {
   const names = [...new Set(all.map((x) => kxSurname(x.cs) || "").filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
   if (st.who && !names.includes(st.who)) names.unshift(st.who);
   const pubd = (x) => !!(x.published || x.publishedOn || (x.places || []).length);
-  // 数え方：キックオフは要アクションと同じ（受注して、キックオフがまだ）。検収書・納品メールは納品前でまだのもの。掲載は納品したあと
+  // 数え方：キックオフは要アクションと同じ（受注して、キックオフがまだ）。検収書・納品メールは納品前でまだのもの。掲載は納品したあと。
+  //   2026年10月より前に受注した会社（納品後とみなす決まり・ksMonth が空）は、納品メールの対応が必要には数えない（前のものまで出てしまうため）
   const KS = [
     ["all", "担当ユーザー数", "#0d5b47", () => true, (x) => x.label],
     ["ko", "キックオフ未実施", "#E0A100", (x) => (x.actions || []).some((a) => a.kind === "キックオフ未実施"), (x) => ((x.actions || []).find((a) => a.kind === "キックオフ未実施") || {}).detail || ""],
     ["ks", "検収書の回収が必要", "#C43D3D", (x) => !x.delivered && !(String(x.kenshuSt || "").startsWith("回収済み") || x.kenshuSt === "対象外"), (x) => `検収書：${x.kenshuSt || "未回収"}${x.ksMonth ? `・回収予定 ${Number(x.ksMonth.slice(5))}月` : ""}`],
-    ["ml", "納品メールの対応が必要", "#3F72C9", (x) => !String(x.mail || "").startsWith("送付済み"), (x) => `納品メール：${x.mail || "未送付"}`],
+    ["ml", "納品メールの対応が必要", "#3F72C9", (x) => !String(x.mail || "").startsWith("送付済み") && (!x.delivered || !!x.ksMonth), (x) => `納品メール：${x.mail || "未送付"}`],
     ["np", "納品済み・未掲載", "#8A4B00", (x) => x.delivered && !pubd(x), (x) => `納品 ${x.deliveredOn || "—"}${x.noPlace ? "・未掲載と決めた会社" : ""}`],
     ["pb", "納品済み・掲載中", "#1d9e75", (x) => x.delivered && pubd(x), (x) => `掲載 ${x.publishedOn || "日付なし"}${(x.places || []).length ? `・${x.places.map((p) => p.where).filter(Boolean).slice(0, 2).join("・")}` : ""}`],
   ];
