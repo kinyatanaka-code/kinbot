@@ -13,9 +13,10 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected } from "./google.js";
 import { fixMojibake } from "./docs.js";
+import { pastApproach, balesItems, dedupeTimeline, startZoomSync } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
 import { lookupMynavi } from "./analyzer.js";
@@ -236,7 +237,16 @@ export function dupSamples() { const a = []; return { push(company, h) { if (a.l
 export function dupText(h) { return h ? `${KEY_LABEL[h.kind] || h.kind}が「${h.company || "（名前なし）"}」${h.list ? `（リスト「${h.list}」）` : ""}と同じ` : ""; }
 // リードを1件入れる。鍵の確かめ・リードの追加・鍵の登録を1つのまとまり（トランザクション）で行うので、
 // 同時に2人が取り込んでも二重には入らない（2人目は主キーで断られて、まるごと取り消される）
+// アプローチ禁止の名簿を読む。読めないときは取り込みを止める（読めないまま入れると禁止の会社が混ざるため。2026-11-20）
+async function banListOrStop() {
+  try { await loadApproachBans(); }
+  catch (e) { console.error("[mccall] アプローチ禁止の名簿が読めないため止めました", e.message); throw new Error("アプローチ禁止の名簿を確認できなかったため、念のため1件も入れていません。少し待ってからやり直してください"); }
+}
 export async function addLeadUnique(cols, ctx = {}) {
+  // どの取り込みから呼ばれても、最後にここで必ずアプローチ禁止をはじく（呼ぶ側の確かめ忘れがあっても入らないように）。
+  //   電話は代表・追加・担当者の番号すべてと、元のデータの電話らしい項目も見る
+  const dataPhones = Object.entries(ctx.data || {}).filter(([k, v]) => /電話|tel|phone|携帯|mobile/i.test(k) && (typeof v === "string" || typeof v === "number")).map(([, v]) => String(v));
+  if (await approachBanHitLead({ company: cols.company, phone: cols.phone, info: cols.info, sf_lead_id: cols.sf_lead_id }, dataPhones)) return { added: false, banned: true };
   let keys = leadKeys({ company: cols.company, phone: cols.phone, info: cols.info, data: ctx.data });
   const c = await P().connect();
   try {
@@ -430,6 +440,7 @@ export function segWhere(filters, p) {
 export function registerMcCall(app, deps) {
   const { isAdmin, sfActor, mochicaSet } = deps;
   startPlayPumps();
+  startZoomSync();   // Zoom Phone の通話を DB に写して、番号で過去の通話を引けるようにする
   const isMcIntern = deps.isMcIntern || (async () => false);
   const me = (req) => String(req.user || "").toLowerCase();
   const guard = (fn) => async (req, res) => {
@@ -437,20 +448,6 @@ export function registerMcCall(app, deps) {
     catch (e) { console.error("[mccall]", req.path, e.message); res.status(500).json({ error: `うまくいきませんでした：${e.message}` }); }
   };
   // SF の活動（Task）をタイムラインの形で返す。読めなくても空で返す（架電の邪魔をしない）
-  async function sfTasks(req, leadId, skipIds) {
-    if (!leadId || !/^00Q[0-9A-Za-z]{12,15}$/.test(String(leadId))) return [];
-    const run = (async () => {
-      const owner = await sfActor(req);
-      const l = ((await sfQuery(owner, `SELECT ConvertedAccountId FROM Lead WHERE Id='${leadId}'`)).records || [])[0] || {};
-      const acc = l.ConvertedAccountId && /^001[0-9A-Za-z]{12,15}$/.test(l.ConvertedAccountId) ? ` OR AccountId='${l.ConvertedAccountId}'` : "";
-      const rs = (await sfQuery(owner, `SELECT Id, Subject, Description, ActivityDate, CreatedDate, Type, Status, Owner.Name FROM Task
-        WHERE WhoId='${leadId}'${acc} ORDER BY CreatedDate DESC LIMIT 50`)).records || [];
-      return rs.filter((t) => !skipIds.has(t.Id)).map((t) => ({ at: t.CreatedDate || t.ActivityDate, src: "SF", who: clip((t.Owner && t.Owner.Name) || "", 40),
-        title: clip(`${t.Type === "Call" ? "架電" : t.Type || "活動"}：${t.Subject || ""}`, 80), text: clip(t.Description || "", 600) }));
-    })().catch((e) => { console.error("[mccall] SF の活動を読めませんでした", e.message); return null; });   // 時間切れのあとで失敗しても落ちないように先に受け止める
-    const to = new Promise((ok) => setTimeout(() => ok(null), 5000));
-    return (await Promise.race([run, to])) || [];
-  }
   // 1件の記録を SF の活動（Task）に書く。結果は mc_call_logs の sf_task_id / sf_err に残す。
   //   SF のリードと結びついていない会社は書けないので「nolead」と残す（黙って書かないままにしない＝ルール5）。
   //   書き直し（/api/mccall/sf-retry）でも同じものを使う
@@ -1037,13 +1034,13 @@ export function registerMcCall(app, deps) {
     const rows = (await P().query(`SELECT row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 ${HW[b.hot] || ""}
       AND NOT EXISTS (SELECT 1 FROM mc_call_leads c JOIN mc_call_lists x ON x.id=c.list_id WHERE NOT x.closed AND NOT c.done AND c.src='bales' AND c.src_key = $1::text || '|' || mochica_bales_rows.row_key)
       ORDER BY COALESCE(hot,0) DESC, seq LIMIT $3`, [key, l.run_at, lim])).rows;
-    await loadApproachBans().catch(() => {});
+    await banListOrStop();
     let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples();
     for (const r of rows) {
       const f = fromBales(r.data || {});
       if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { banned++; continue; }
       const x = await addLeadUnique({ list_id: id, src: "bales", src_key: `${key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot }, { data: r.data });
-      if (x.added) { added++; if (x.nokey) nokey++; } else if (x.bad) bad++; else { dup++; ex.push(f.company, x.dup); }
+      if (x.added) { added++; if (x.nokey) nokey++; } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(f.company, x.dup); }
     }
     mynaviEnqueue(rows.map((r) => fromBales(r.data || {}).company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     res.json({ ok: true, added, banned, dup, bad, nokey, skipped: dup, examples: ex.list });
@@ -1059,7 +1056,7 @@ export function registerMcCall(app, deps) {
     if (!l || l.closed) return res.status(404).json({ error: "リストが見つからないか、閉じています" });
     const rows = (Array.isArray(b.rows) ? b.rows : []).slice(0, 5000);
     if (!rows.length) return res.status(400).json({ error: "CSV に読める行がありません" });
-    await loadApproachBans().catch(() => {});
+    await banListOrStop();
     const fill = await csvFillFromSf(req, rows);
     let added = 0, banned = 0, dup = 0, bad = 0, nolead = 0, nokey = 0, nophone = 0; const companies = []; const ex = dupSamples();
     for (const r of rows) {
@@ -1071,6 +1068,7 @@ export function registerMcCall(app, deps) {
       if (approachBanHitSync({ company, phone, leadId: lid })) { banned++; continue; }
       const extra = {}; if (r.extra && typeof r.extra === "object") for (const [k, v] of Object.entries(r.extra).slice(0, 60)) { const kk = clip(k, 60), vv = clip(v, 1000); if (kk && vv) extra[kk] = vv; }
       const x = await addLeadUnique({ list_id: id, src: "csv", src_key: ph.length >= 9 ? ph : `co:${ck}`, company, phone, person, sf_lead_id: lid, data: extra }, { data: extra });
+      if (x.banned) { banned++; continue; }
       if (x.bad) { bad++; continue; }
       if (!x.added) { dup++; ex.push(company, x.dup); continue; }
       added++; if (!lid) nolead++; if (x.nokey) nokey++; if (ph.length < 9) nophone++; companies.push(company);
@@ -1166,14 +1164,14 @@ export function registerMcCall(app, deps) {
     if (!total) return res.status(400).json({ error: "条件に合う SF のリードがありません。条件をゆるめてください" });
     // 最後の活動が古いものから（kincall の「最後にかけた日が古い順」と同じ考え方）
     const recs = await sfQueryAll(owner, `SELECT ${SF_LEAD_FIELDS.join(", ")} FROM Lead WHERE ${where} ORDER BY LastActivityDate ASC NULLS FIRST, CreatedDate DESC LIMIT ${lim}`, lim);
-    await loadApproachBans().catch(() => {});
+    await banListOrStop();
     let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples(); const companies = [];
     for (const rec of recs) {
       const r = sfLeadRow(rec, judgeHot);
       if (r.ban || approachBanHitSync({ company: r.company, phone: r.phone, leadId: r.sf_lead_id })) { banned++; continue; }
       if (!r.company && digits(r.phone).length < 9) { bad++; continue; }
       const x = await addLeadUnique({ list_id: id, src: "sf", src_key: String(rec.Id).slice(0, 18), company: r.company, phone: r.phone, person: r.person, sf_lead_id: r.sf_lead_id, hot: r.hot, data: r.data }, { data: r.data });
-      if (x.added) { added++; if (x.nokey) nokey++; companies.push(r.company); } else if (x.bad) bad++; else { dup++; ex.push(r.company, x.dup); }
+      if (x.added) { added++; if (x.nokey) nokey++; companies.push(r.company); } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(r.company, x.dup); }
     }
     mynaviEnqueue(companies).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
     console.log(`[mccall] SF から リスト${id} へ ${added}件（読んだ${recs.length}・重複${dup}・禁止${banned}）条件=${JSON.stringify(b.filters || {}).slice(0, 300)} by ${me(req)}`);
@@ -1199,7 +1197,7 @@ export function registerMcCall(app, deps) {
       let dst = (await P().query(`SELECT id FROM mc_call_lists WHERE bales_key=$1 ORDER BY id LIMIT 1`, [bl.list_key])).rows[0];
       if (!dst) dst = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by, stock, bales_key) VALUES ($1,$2,'{}',$3,true,$4) RETURNING id`,
         [name, "BALES から移したリスト（保管）。「SHOBO から足す」で条件を付けて今のリストへ持ってくる", by, bl.list_key])).rows[0];
-      await loadApproachBans().catch(() => {});
+      await banListOrStop();
       let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0, after = 0;
       for (;;) {
         const rows = (await P().query(`SELECT seq, row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND seq > $3 ORDER BY seq LIMIT 500`, [bl.list_key, bl.run_at, after])).rows;
@@ -1210,7 +1208,7 @@ export function registerMcCall(app, deps) {
           const c = balesCarry(d);
           const x = await addLeadUnique({ list_id: dst.id, src: "bales", src_key: `${bl.list_key}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person,
             sf_lead_id: r.lid || null, hot: r.hot, next_at: c.next_at, next_why: c.next_at ? "BALES で入れていた次のコールの予定" : null, attempts: c.attempts }, { data: d });
-          if (x.added) { added++; if (x.nokey) nokey++; } else if (x.bad) bad++; else dup++;
+          if (x.added) { added++; if (x.nokey) nokey++; } else if (x.banned) banned++; else if (x.bad) bad++; else dup++;
         }
       }
       out.push({ list: name, listId: dst.id, rows: bl.n, added, dup, banned, bad, nokey });
@@ -1259,14 +1257,14 @@ export function registerMcCall(app, deps) {
     if (!reason) return res.status(400).json({ error: "部署をまたぐ理由を入れてください（あとで一覧に残ります）" });
     const dl = (await P().query(`SELECT id, name FROM call_lists WHERE id=$1`, [docId])).rows[0]; if (!dl) return res.status(404).json({ error: "DOC のリストが見つかりません" });
     const ts = (await P().query(`SELECT id, company, person, phone, email, lead_id FROM call_targets WHERE list_id=$1 AND NOT done ORDER BY sort_order, id LIMIT 5000`, [docId])).rows;
-    await loadApproachBans().catch(() => {});
+    await banListOrStop();
     const mv = (await P().query(`INSERT INTO mc_cross_moves (from_biz, to_biz, from_ref, from_name, to_list_id, count, reason, by_user) VALUES ('DOC',$1,$2,$3,$4,0,$5,$6) RETURNING id`,
       [BIZ, String(docId), dl.name, id, reason, me(req)])).rows[0];
     let added = 0, banned = 0, dup = 0, bad = 0, nokey = 0; const ex = dupSamples();
     for (const t of ts) {
       if (approachBanHitSync({ company: t.company, phone: t.phone, leadId: t.lead_id })) { banned++; continue; }
       const x = await addLeadUnique({ list_id: id, src: "doc", src_key: String(t.id), company: t.company, phone: t.phone, person: t.person, sf_lead_id: t.lead_id || null, cross_from: "DOC", cross_id: mv.id }, { data: { email: t.email } });
-      if (x.added) { added++; if (x.nokey) nokey++; } else if (x.bad) bad++; else { dup++; ex.push(t.company, x.dup); }
+      if (x.added) { added++; if (x.nokey) nokey++; } else if (x.banned) banned++; else if (x.bad) bad++; else { dup++; ex.push(t.company, x.dup); }
     }
     await P().query(`UPDATE mc_cross_moves SET count=$2 WHERE id=$1`, [mv.id, added]);
     mynaviEnqueue(ts.map((t) => t.company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
@@ -1304,10 +1302,13 @@ export function registerMcCall(app, deps) {
     const rankOrder = `(next_at IS NOT NULL) DESC, COALESCE(next_why = $3, false) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 企業調査が終わった会社だけを出す（架電者が調べなくてよいように）。まだの会社は先に調べるよう頼んでおく
     const gate = researchGate();
-    const cand = (await P().query(`SELECT id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate FROM mc_call_leads
+    const cand0 = (await P().query(`SELECT id, company, person, hot, attempts, next_at, next_why, last_outcome, cross_from, miss_streak, hearing, gate, phone, info, sf_lead_id FROM mc_call_leads
       WHERE ${base}${gate ? " AND research_at IS NOT NULL" : ""} ORDER BY ${rankOrder} LIMIT 300`, [use, u, WHY_HUMAN])).rows;
+    // アプローチ禁止の会社は順番に出さない（取り込んだあとで禁止になった会社も、ここで毎回はじく。名簿が読めなければ順番ごと出さない）
+    await banListOrStop();
+    const cand = cand0.filter((r) => !approachBanHitLeadSync(r));
     // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
-    const items = rankQueue(cand).slice(0, 60).map(({ hearing, gate: _g, ...x }) => x);
+    const items = rankQueue(cand).slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, ...x }) => x);
     let researching = 0;
     if (gate) {
       const wait = (await P().query(`SELECT id FROM mc_call_leads WHERE ${base} AND research_at IS NULL ORDER BY ${order} LIMIT 12`, [use, u])).rows.map((r) => r.id);
@@ -1341,7 +1342,7 @@ export function registerMcCall(app, deps) {
       // SF から足したリードは、足したときの SF の中身を data に持っている（_ で始まる中の項目は画面に出さない）
       data = Object.fromEntries(Object.entries(lead.data || {}).filter(([k]) => !k.startsWith("_")));
     }
-    const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
+    const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
     const logs = (await P().query(`SELECT * FROM mc_call_logs WHERE lead_id=$1 AND NOT undone ORDER BY created_at DESC LIMIT 50`, [id])).rows;
     // 番号ごとの「つながった実績」（MOCHICA の記録すべてから。リードが変わっても番号で数える）
     const phones = phonesOf(lead, data);
@@ -1364,26 +1365,20 @@ export function registerMcCall(app, deps) {
     const tl = logs.map((g) => ({ at: g.created_at, src: "kinbot", who: names.get(String(g.caller || "").toLowerCase()) || g.caller, title: outcomeLabel(g.outcome) + (g.reason ? `（${g.reason}）` : ""),
       text: [g.memo, g.gate && (g.gate.name || g.gate.hours || g.gate.direct) ? `受付で聞けたこと：${[g.gate.name && `担当 ${g.gate.name}`, g.gate.hours && `在席 ${g.gate.hours}`, g.gate.direct && `直通 ${g.gate.direct}`].filter(Boolean).join("・")}` : "", g.next_at ? `次回 ${jstText(g.next_at)}` : "", g.apo_at ? `アポ ${jstText(g.apo_at)}${g.apo_who ? `（空いていたクローザー：${g.apo_who}）` : ""}` : ""].filter(Boolean).join("\n"),
       memo: g.memo || "", reach: g.reach, cross: !!g.cross_from, logId: g.id, mine: String(g.caller || "").toLowerCase() === u && Date.now() - new Date(g.created_at).getTime() < 15 * 60e3 }));
-    const dateOf = (o) => { for (const v of Object.values(o || {})) if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v; return null; };
-    const textOf = (o) => { for (const [k, v] of Object.entries(o || {})) if (/comment|memo|content|note|body|text/i.test(k) && typeof v === "string" && v.trim()) return v; return ""; };
-    const typeOf = (o) => { for (const [k, v] of Object.entries(o || {})) if (/(type|result|status).*(text|name)|actiontype/i.test(k) && typeof v === "string") return v; return ""; };
-    if (detail && typeof detail === "object") {
-      for (const v of Object.values(detail)) if (Array.isArray(v)) for (const o of v.slice(0, 30)) {
-        if (!o || typeof o !== "object") continue; const at = dateOf(o); if (!at) continue;
-        tl.push({ at, src: "Bales", who: clip(o.userName || (o.user && o.user.name) || o.operatorName || "", 40), title: clip(typeOf(o) || "活動", 60), text: clip(textOf(o), 600) });
-      }
-    }
-    if (!tl.some((x) => x.src === "Bales") && (data.lastActivityAt || data.last_activity_at)) tl.push({ at: data.lastActivityAt || data.last_activity_at, src: "Bales", who: clip(data.operatorName || "", 40), title: clip(data.lastActivityTypeText || "最終活動", 60), text: clip(data.lastActivityComment || "", 600) });
-    if (sf && Array.isArray(sf.opps)) for (const o of sf.opps.slice(0, 10)) if (o.date) tl.push({ at: o.date, src: "SF", who: o.owner || "", title: `商談：${o.stage || ""}`, text: clip(o.name, 200) });
-    // SF の活動（DOC やほかの人の架電・メモ）も同じ時系列に。リードがコンバート済みなら取引先側の活動も読む。
-    // SHOBO から書いた Task は上の kinbot の記録と同じものなので、二重に出さないよう外す。
-    // SF が遅い・落ちているときでも画面は開けるように、待つのは数秒だけにする
+    // このリード自身の BALES の行（BALES から入れたリードだけ）
+    tl.push(...balesItems(detail, data, sf));
     // 資料送付も同じ時系列に出す（SF に書いた活動は下の SF の読み込みで二重にならないよう外す）
     const sends = (await P().query(`SELECT * FROM mc_doc_sends WHERE lead_id=$1 ORDER BY created_at DESC LIMIT 20`, [id]).catch(() => ({ rows: [] }))).rows;
     for (const s of sends) tl.push({ at: s.created_at, src: "kinbot", who: names.get(String(s.sender || "").toLowerCase()) || s.sender, title: "資料送付",
       text: [`${s.to_addr} に送付${s.cc ? `（CC ${s.cc}）` : ""}`, s.doc_name ? `資料：${s.doc_name}` : "", s.sf_err ? "SF の活動には書けませんでした" : ""].filter(Boolean).join("\n") });
-    for (const t of await sfTasks(req, lead.sf_lead_id || (sf && sf.lead && sf.lead.id), new Set([...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id)].filter(Boolean)))) tl.push(t);
+    // ほかの元データ（MOCHICA の別リスト・DOC・BALES の別の行・Zoom Phone・SF）を、由来に関係なく電話番号と会社名で集める（mchist.js）。
+    //   SHOBO から書いた SF の活動は kinbot の記録と同じものなので、二重に出さないよう外す
+    const past = await pastApproach({ lead: { ...lead, sf_lead_id: lead.sf_lead_id || (sf && sf.lead && sf.lead.id) || null }, phones: phones.map((p) => p.digits), names,
+      sfOwner: () => sfActor(req), coKey: companyKey, outcomeLabel, ownBalesKey: lead.src === "bales" ? String(lead.src_key) : "",
+      skipTaskIds: [...logs.map((g) => g.sf_task_id), ...sends.map((s) => s.sf_task_id)].filter(Boolean) });
+    tl.push(...past.items);
     tl.sort((a, b) => new Date(b.at) - new Date(a.at));
+    const tlAll = dedupeTimeline(tl); tl.length = 0; tl.push(...tlAll);
     // ひと目で（2026-11-18 福井さん「検討時期・採用ニーズ・過去架電内容が架電時に調べなくても一目でわかるように」）
     //   SF の決まった項目はそのまま出し、言葉は新しい記録から順に読んで最初に当たった1文を出す（いちばん新しい状況を見せるため）。
     //   kinbot の記録は自動で足した「次回 〇/〇」などで時期と取り違えないよう、メモだけを読む
@@ -1408,7 +1403,7 @@ export function registerMcCall(app, deps) {
     // 掛け直しの型：何回続けて届かなかったか／次に不在だった場合にいつ掛け直しになるか（記録の前に画面で見せる）
     const streak = lead.miss_streak || 0;
     const cadence = { streak, max: CADENCE.maxMiss, parked: !!lead.parked_at, next: nextMissAt({ streak: streak + 1, gateHours: (lead.gate || {}).hours, rates: await ratesNow() }) };
-    res.json({ ok: true, lead: { ...lead, data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 80), summary: oneLine(logs[0], lead.gate, names),
+    res.json({ ok: true, lead: { ...lead, data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 120), hist: past.status, summary: oneLine(logs[0], lead.gate, names),
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す
@@ -1528,7 +1523,7 @@ export function registerMcCall(app, deps) {
     if (!lead) return res.status(404).json({ error: "このリードは見つかりません" });
     if (!(await inboundAllows(u, id, b.inbound).catch(() => false)) && !(await myListIds(req)).includes(lead.list_id)) return res.status(403).json({ error: "このリストはあなたの担当ではありません" });
     if (lead.dup_of) return res.status(403).json({ error: "重複で止めたリードなので記録できません（ほかのリードと会社名が同じで、電話・メール・Web ページ・法人番号のどれかも同じ）。管理者に知らせてください" });
-    const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
+    const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
     if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため記録できません（理由：${ban.reason || "アプローチ禁止"}）` });
     const reach = String(b.reach || ""); const outcome = String(b.outcome || "");
     if (!REACH[reach] || !REACH[reach].outcomes[outcome]) return res.status(400).json({ error: "結果を選んでください" });
@@ -1722,7 +1717,7 @@ export function registerMcCall(app, deps) {
   app.post("/api/mccall/leads/:id/doc/preview", guard(async (req, res) => {
     try {
       const { lead, data, sf } = await leadFor(req, parseInt(req.params.id, 10));
-      const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
+      const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
       if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、資料は送れません` });
       const docs = await roomDocs();
       if (!docs.length) return res.status(400).json({ error: "送れる資料がまだ doc-room に登録されていません。doc-room の管理画面（/console/）で資料を登録してください" });
@@ -1744,7 +1739,7 @@ export function registerMcCall(app, deps) {
     try {
       const id = parseInt(req.params.id, 10); const { lead } = await leadFor(req, id); const b = req.body || {}; const u = me(req);
       const to = String(b.to || "").trim(); const subject = clip(b.subject, 300); let body = String(b.body || "").slice(0, 8000);
-      const ban = await approachBanHit({ company: lead.company, phone: lead.phone, leadId: lead.sf_lead_id }).catch(() => null);
+      const ban = await approachBanHitLead(lead).catch(() => ({ reason: "アプローチ禁止の名簿を確認できなかったため、念のため止めています" }));
       if (ban) return res.status(403).json({ error: `「${lead.company}」はアプローチ禁止のため、資料は送れません` });
       if (!isMail(to)) return res.status(400).json({ error: "宛先のメールアドレスを正しく入れてください" });
       if (!subject || !body) return res.status(400).json({ error: "件名と本文を入れてください" });

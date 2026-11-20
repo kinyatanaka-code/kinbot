@@ -188,11 +188,20 @@
       const body = [x.kb && x.kb.length ? `<div><small>架電で聞いた${x.by ? ` ${esc(day(x.by.at))} ${esc(x.by.who)}` : ""}</small>${x.kb.map(([k, v]) => k === "採用ニーズ" || k === "検討時期" ? esc(v) : `${esc(k.replace("説明会・面接の参加人数", "説明会・面接の参加"))} ${esc(v)}`).join("／")}</div>` : "", ...(x.sf || []).map(([k, v]) => `<div><small>SF ${esc(k)}</small>${esc(v)}</div>`),
         h ? `<div><small>${esc(h.src)}${h.at ? ` ${esc(day(h.at))}` : ""}${h.who ? ` ${esc(h.who)}` : ""}${h.st === "なし" ? "（無いと言われた）" : ""}</small>「${esc(h.why)}」</div>` : ""].join("");
       return `<div class="mcc-gl-row ${st}"><b>${lbl}</b><div>${body || `<span class="mcc-gl-yet">まだ聞けていません。${ask}</span>`}</div></div>`; };
-    const calls = (d.timeline || []).filter((t) => (t.src === "kinbot" && t.title !== "資料送付") || t.src === "Bales" || (t.src === "SF" && /^架電/.test(t.title))).slice(0, 3);
+    // 内容の分かる架電（kinbot・DOC・BALES・SF の架電）を3件。Zoom の通話は回数だけを1行で（内容が無く、3件の枠を埋めてしまうため）
+    const calls = (d.timeline || []).filter((t) => (t.src === "kinbot" && t.title !== "資料送付") || t.src === "DOC" || t.src === "Bales" || (t.src === "SF" && /^架電/.test(t.title))).slice(0, 3);
+    const zs = d.hist && d.hist.zoom && d.hist.zoom.sum;
+    const zline = zs ? `<div><small>Zoom Phone</small><span class="r">通話 ${zs.n}回（30秒以上 ${zs.talked}回）</span><span class="m">最後 ${esc(tm(zs.lastAt))} ${esc(zs.lastWho || "")}</span></div>` : "";
     return `<div class="mcc-glance"><h3>ひと目で</h3>
       ${row("採用ニーズ", g.need, "採用で困っていること・人数を聞く")}${row("検討時期", g.when, "いつ頃から考えるか・更新月を聞く")}
       ${mynaviHtml(d.mynavi)}
-      <div class="mcc-gl-row calls"><b>前回までの架電</b><div>${calls.length ? calls.map((t) => `<div><small>${esc(t.src === "SF" ? day(t.at) : tm(t.at))} ${esc(t.who || "")}</small><span class="r">${esc(t.title)}</span>${t.text ? `<span class="m">${esc(t.text)}</span>` : ""}</div>`).join("") : '<span class="mcc-gl-yet">まだかけていません</span>'}</div></div></div>`;
+      <div class="mcc-gl-row calls"><b>前回までの架電</b><div>${zline}${calls.length ? calls.map((t) => `<div><small>${esc(t.src === "SF" ? day(t.at) : tm(t.at))} ${esc(t.src === "DOC" ? "DOC " : "")}${esc(t.who || "")}</small><span class="r">${esc(t.title)}</span>${t.text ? `<span class="m">${esc(t.text)}</span>` : ""}</div>`).join("") : zline ? "" : '<span class="mcc-gl-yet">まだかけていません</span>'}${histNote(d)}</div></div></div>`;
+  }
+  // どの元データが読めなかったか（読めなかったのに「記録なし」に見せないため）
+  function histNote(d) {
+    const h = d.hist || {}; const NAME = { sf: "SF", zoom: "Zoom Phone", bales: "BALES", doc: "DOC", kinbot: "MOCHICA の別リスト" };
+    const ng = Object.entries(h).filter(([, v]) => v && (!v.ok || v.err)).map(([k, v]) => `${NAME[k] || k}：${v.err || "読めませんでした"}`);
+    return ng.length ? `<div class="mcc-gl-warn">${ng.map(esc).join("<br>")}</div>` : "";
   }
   // マイナビ（新卒）の掲載（2026-11-18 福井さん）。取込時に Web 検索で調べた結果。
   //   「見つからない」は掲載なしと言い切らない（検索で漏れることがある）。調べられなかったときは理由を出す（黙らない）

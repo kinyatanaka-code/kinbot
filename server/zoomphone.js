@@ -60,6 +60,25 @@ export async function zoomPhoneUsers() {
   return out;
 }
 
+// Zoom Phone の通話1件を、使う項目だけの形にそろえる（call_history／call_logs のどちらの形でも読む）。
+//   リードの過去の通話を集める処理（mchist.js）でも同じ読み方をするので、ここにまとめる
+export function normZoomCall(c = {}) {
+  const direction = c.direction || c.call_direction || "";
+  const inb = direction === "inbound" || direction === "incoming";
+  // 相手の番号（発信なら callee、着信なら caller）
+  const number = String(inb
+    ? (c.caller_number || c.caller_did_number || (c.caller && c.caller.phone_number) || "")
+    : (c.callee_number || c.callee_did_number || (c.callee && c.callee.phone_number) || c.destination || "")) || String(c.phone_number || "");
+  // 新しい call_history では owner が無く、caller_email／callee_email に入っている（2026-11-07）
+  const ownerEmail = String((c.owner && c.owner.email) || c.user_email || c.email || (inb ? c.callee_email : c.caller_email) || (c.caller && c.caller.email) || "").toLowerCase();
+  const ownerId = String((c.owner && c.owner.id) || c.user_id || (inb ? c.callee_ext_id : c.caller_ext_id) || "");
+  const ownerName = String((c.owner && c.owner.name) || (inb ? c.callee_name : c.caller_name) || "");
+  const myNumber = String(inb ? (c.callee_did_number || c.callee_number || "") : (c.caller_did_number || c.caller_number || ""));
+  const result = String(c.result || c.call_result || c.status || "").toLowerCase();
+  return { id: String(c.id || c.call_id || c.call_log_id || c.uuid || ""), direction, number, result, duration: Number(c.duration || 0),
+    at: c.date_time || c.start_time || c.created_time || null, ownerEmail, ownerId, ownerName, myNumber };
+}
+
 // 通話履歴を取る。from/to は YYYY-MM-DD（最大1か月幅）。account全体。
 // 返り値：正規化した配列 [{ id, direction, number, result, duration, at, ownerEmail }]
 export async function zoomPhoneCallHistory({ from, to, max = 300 } = {}) {
@@ -72,26 +91,7 @@ export async function zoomPhoneCallHistory({ from, to, max = 300 } = {}) {
     if (!d) break;
     const list = d.call_history || d.call_logs || d.calls || [];
     for (const c of list) {
-      const direction = c.direction || c.call_direction || "";
-      // 相手の番号（発信なら callee、着信なら caller）
-      const number = String(direction === "inbound" || direction === "incoming"
-        ? (c.caller_number || c.caller_did_number || (c.caller && c.caller.phone_number) || "")
-        : (c.callee_number || c.callee_did_number || (c.callee && c.callee.phone_number) || c.destination || "")) || String(c.phone_number || "");
-      const inb = direction === "inbound" || direction === "incoming";
-      // 新しい call_history では owner が無く、caller_email／callee_email に入っている（2026-11-07）
-      const ownerEmail = String((c.owner && c.owner.email) || c.user_email || c.email || (inb ? c.callee_email : c.caller_email) || (c.caller && c.caller.email) || "").toLowerCase();
-      const ownerId = String((c.owner && c.owner.id) || c.user_id || (inb ? c.callee_ext_id : c.caller_ext_id) || "");
-      const myNumber = String(inb ? (c.callee_did_number || c.callee_number || "") : (c.caller_did_number || c.caller_number || ""));
-      const result = String(c.result || c.call_result || c.status || "").toLowerCase();
-      items.push({
-        id: String(c.id || c.call_id || c.call_log_id || c.uuid || ""),
-        direction,
-        number,
-        result,
-        duration: Number(c.duration || 0),
-        at: c.date_time || c.start_time || c.created_time || null,
-        ownerEmail, ownerId, myNumber,
-      });
+      items.push(normZoomCall(c));
       if (items.length >= max) break;
     }
     token = d.next_page_token || "";

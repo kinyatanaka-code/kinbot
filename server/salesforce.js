@@ -360,6 +360,20 @@ export async function sfQuery(owner, soql) {
   return res.json();
 }
 
+// SOSL 検索。電話番号は書き方（ハイフンの有無など）が違っても PHONE FIELDS で当たるので、
+//   SF のリードID を持たない会社の過去の活動を探すときに使う（2026-11-20）
+export async function sfSearch(owner, sosl) {
+  const acc = await getAccess(owner);
+  if (!acc) throw new Error("Salesforce未連携です");
+  const res = await fetch(
+    `${acc.instanceUrl}/services/data/${API_VERSION}/search?q=${encodeURIComponent(sosl)}`,
+    { headers: { Authorization: `Bearer ${acc.token}` } }
+  );
+  if (!res.ok) throw new Error(`SF search ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const d = await res.json();
+  return Array.isArray(d) ? d : (d.searchRecords || []);
+}
+
 // 商談の価格表（Pricebook）を確保し、選べる商品（PricebookEntry）を返す
 export async function getOpportunityProducts(owner, opportunityId) {
   const clean = (s) => String(s || "").replace(/[^a-zA-Z0-9]/g, "");

@@ -13175,10 +13175,21 @@ async function ensureApproachBans() {
 }
 // 会社名だけで止めると「不明」「個人」のような埋め草で大量に止まってしまうので、それは鍵にしない
 const BAN_JUNK_CO = new Set(["不明", "なし", "無し", "個人", "test", "テスト", "-", "ー", "未設定", "担当者"]);
+// 名簿と架電先で書き方がずれても一致させるための、ゆるい会社名（法人格・記号・「様」・空白をすべて外す）
+//   例：「（株）ABC・ホールディングス 様」と「ABCホールディングス株式会社」を同じにする（2026-11-20 取りこぼしゼロのため）
+function banLooseCo(company) {
+  return String(company || "").normalize("NFKC").toLowerCase()
+    .replace(/株式会社|有限会社|合同会社|合資会社|合名会社|一般社団法人|一般財団法人|公益社団法人|公益財団法人|社会福祉法人|医療法人(社団|財団)?|学校法人|特定非営利活動法人|npo法人|\(株\)|\(有\)|\(同\)|\(社\)|\(医\)|㈱|㈲/g, "")
+    .replace(/[\s・,.、。'"「」『』()（）［］\[\]\-ー‐－―~〜&＆]/g, "")
+    .replace(/様$/u, "");
+}
 function banKeys(leadId, phone, company) {
   const co = String(company || "").normalize("NFKC");
-  return callDedupeKeys(leadId, phone, co).filter((k) => {
-    if (!k.startsWith("co:")) return true;
+  const keys = callDedupeKeys(leadId, phone, co);
+  const loose = banLooseCo(co);
+  if (loose) keys.push("cl:" + loose);
+  return keys.filter((k) => {
+    if (!k.startsWith("co:") && !k.startsWith("cl:")) return true;
     const v = k.slice(3);
     return v.length >= 2 && !BAN_JUNK_CO.has(v);
   });
@@ -13207,6 +13218,20 @@ export function approachBanHitSync(x = {}) {
   return null;
 }
 export async function approachBanHit(x = {}) { await loadApproachBans(); return approachBanHitSync(x); }
+// 1つのリードが持つ電話番号すべて（代表・追加の番号・担当者の番号）で確かめる。
+//   代表番号だけ見ると、禁止の会社の別の番号から入ったリードを取りこぼすため（2026-11-20）
+export function approachBanHitLeadSync(lead = {}, extraPhones = []) {
+  const I = (lead && lead.info) || {};
+  const phones = [lead.phone, ...(I.phones || []).map((p) => p && p.number), ...(I.contacts || []).map((p) => p && p.phone), ...extraPhones].filter(Boolean);
+  const leadId = lead.sf_lead_id || lead.leadId || lead.lead_id;
+  for (const ph of phones.length ? phones : [""]) {
+    const h = approachBanHitSync({ company: lead.company, phone: ph, leadId });
+    if (h) return h;
+  }
+  return null;
+}
+// 名簿が読めないときは throw する（呼ぶ側は「禁止かもしれない」として止める。読めないまま通すと禁止の会社にかけてしまう）
+export async function approachBanHitLead(lead = {}, extraPhones = []) { await loadApproachBans(); return approachBanHitLeadSync(lead, extraPhones); }
 // 一覧などの行の配列から、禁止の会社を取り除く
 export async function dropApproachBanned(rows) {
   if (!Array.isArray(rows) || !rows.length) return rows;
