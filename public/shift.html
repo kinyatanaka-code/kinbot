@@ -14,7 +14,9 @@
   *{box-sizing:inherit} html,body{margin:0}
   body{font-family:'Noto Sans JP','Inter',system-ui,sans-serif;color:var(--text);
     background:radial-gradient(700px 400px at 50% -5%,rgba(93,202,165,.2),transparent 60%),linear-gradient(160deg,#0d5b47,#0a3f31);
-    min-height:100vh;display:grid;place-items:start center;padding:18px 10px 48px}
+    min-height:100vh;display:grid;place-items:start center;padding:18px 10px 48px;
+    /* 列の幅を画面に合わせる（指定が無いと、中身の 430px に合わせて広がり、スマホで右がはみ出していた） */
+    grid-template-columns:minmax(0,1fr)}
   .app{width:430px;max-width:100%;background:linear-gradient(180deg,#f6fbf9,#eef7f3);border-radius:26px;overflow:hidden;box-shadow:0 30px 70px -20px rgba(0,0,0,.5);position:relative}
   .top{background:linear-gradient(180deg,#fff,#f3faf7);padding:18px;border-bottom:1px solid var(--line)}
   .hi{font-size:13px;color:var(--dim)} .hi b{color:var(--acc2)}
@@ -59,6 +61,29 @@
   .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;background:var(--acc2);color:#fff;padding:12px 18px;border-radius:12px;font-weight:700;font-size:14px;opacity:0;transition:.2s;box-shadow:0 14px 30px -12px rgba(0,0,0,.5);z-index:40}
   .toast.show{opacity:1}
   .center{text-align:center;padding:40px 16px;color:var(--dim)}
+  /* パソコン（横に広い画面）：カレンダーを大きく左に、時間・数・ボタンを右に並べる（2026-11-20 田中さん「PCでも見やすいように」）。
+     スマホはこれまでどおり縦に1列 */
+  @media (min-width: 900px){
+    body{place-items:center;padding:32px 24px}
+    .app{width:min(1080px,100%)}
+    .top{padding:22px 28px} .h2{font-size:22px}
+    #pane-cal{display:grid;grid-template-columns:minmax(0,1fr) 300px;column-gap:28px;padding:22px 28px 26px;
+      grid-template-areas:"mnav timebar" "wk timebar" "cal foot" "cal note";grid-template-rows:auto auto auto 1fr;align-items:start}
+    .mnav{grid-area:mnav;margin-bottom:12px} .mnav b{font-size:20px}
+    .timebar{grid-area:timebar;flex-wrap:wrap;margin-bottom:12px} .timebar .sp{display:none} .timebar .lb{flex-basis:100%}
+    .timebar input{flex:1}
+    .wk{grid-area:wk;gap:8px} .wk div{font-size:13px}
+    .cal{grid-area:cal;gap:8px}
+    .cell{aspect-ratio:auto;height:84px;border-radius:14px;justify-content:flex-start;padding-top:10px;cursor:pointer}
+    .cell:hover:not(.empty){border-color:var(--acc3)}
+    .cell .d{font-size:17px} .cell .t{font-size:12px} .cell .plus{font-size:11.5px;bottom:8px}
+    .foot{grid-area:foot;margin-top:0;flex-direction:column;align-items:stretch;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}
+    .cnt{flex-basis:auto} .cnt b{font-size:24px}
+    .foot .btn{width:100%;flex:none}
+    .note{grid-area:note;text-align:left;margin-top:12px}
+    /* 1日の時間を変える窓は、下から出すのではなく、画面のまん中に */
+    .scrim{align-items:center} .sheet{border-radius:22px;padding:18px 22px 22px} .grip{display:none}
+  }
 </style>
 </head>
 <body>
@@ -112,7 +137,7 @@
       const d = await r.json();
       if(!r.ok || !d.ok) throw new Error(d.error||'');
       $('hi').innerHTML = `こんにちは、<b>${(d.name||'').replace(/</g,'&lt;')}</b> さん`;
-      $('pane-load').style.display='none'; $('pane-cal').style.display='block';
+      $('pane-load').style.display='none'; $('pane-cal').style.display='';
       await loadMonth();
     }catch(e){ $('loading').textContent = '読み込めませんでした。ログインし直してください。'; }
   }
