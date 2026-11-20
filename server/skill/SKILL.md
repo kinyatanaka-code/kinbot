@@ -27,6 +27,19 @@ description: ネオキャリアの営業支援 kinbot・kincall・kinXs と Sale
 
 どれを使えばよいか迷ったら、先に `tools` で一覧を見てから選びます。
 
+## よく聞かれることと、使う道具
+
+| 聞かれること | 使う道具 |
+|---|---|
+| インターン生などの稼働時間・シフト（週ごとの予定と実績） | `kincall list_work_hours`（予定＝kinbot の出勤管理、実績＝架電から推定）。Drive の「インターン生シフトGS」は古いので使わない |
+| 架電の数・アポ率（人ごと・日ごと） | `kincall list_call_stats` |
+| 架電の中身（1件ずつ） | `kincall list_call_logs` |
+| 取ったアポ | `kincall list_apo_appointments` |
+| 導入企業（kinXs）の全項目 | `kinxs export_users`（項目の意味は `kinxs list_fields`） |
+| 候補者が DOC の AI に聞いた質問 | `kinxs ai_question_summary`・`kinxs list_ai_questions` |
+
+例：`python3 scripts/kinbot.py call kincall list_work_hours '{"from": "2026-11-01", "to": "2026-11-30"}'`
+
 ## 守ること
 
 - **書きかえる道具（Salesforce の更新・作成 `sf_update` `sf_create`、kinXs の `update_user` `update_task` `add_task`、議事録の題の変更など）は、呼ぶ前に必ず中身をユーザーに見せて「この内容で更新してよいか」を聞き、はっきり「はい」と言われてから呼ぶ。**
