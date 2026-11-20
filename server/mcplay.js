@@ -160,7 +160,14 @@ async function researchPick(n) {
 }
 async function researchPump() {
   if (!P()) return;
-  if (_rDay !== jstDay()) { _rDay = jstDay(); _rCount = 0; }
+  // 1日の数は、サーバーの中の数ではなく、データベースの「今日調べた数」から数える（2026-11-20 田中さん「連続でGoogleのAPIがかかってる」）。
+  //   サーバーの中だけで数えていたので、デプロイで再起動するたびに 0 に戻り、上限（1,200件）を何回も超えて調べていた
+  //   （11/19〜20 に 7,000件・Web 検索の無料枠を超えて約 $66）。日が変わったとき・起動したときに数え直す
+  if (_rDay !== jstDay()) {
+    _rDay = jstDay(); _rCount = R_DAILY;   // 数え終わるまでは止めておく
+    try { const { rows } = await P().query(`SELECT count(*)::int AS n FROM mc_call_leads WHERE research_at >= ((now() AT TIME ZONE 'Asia/Tokyo')::date::timestamp AT TIME ZONE 'Asia/Tokyo')`); _rCount = Number(rows[0] && rows[0].n) || 0; }
+    catch (e) { console.error("[mcplay] 今日の企業調査の数を数えられませんでした（今日はもう調べません）", e.message); return; }
+  }
   while (_rRunning < R_CONC && _rCount < R_DAILY) {
     const [id] = await researchPick(1).catch(() => []);
     if (!id || _rBusy.has(id)) return;

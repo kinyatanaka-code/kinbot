@@ -24,6 +24,8 @@ import {
   aposTakenInRange,
   callListOverview,
   listInterns,
+  listInsideShifts,
+  callSpansByDay,
 } from "./db.js";
 import { sfQuery, sfUpdateRecord, sfCreateRecord, isConnected as sfIsConnected } from "./salesforce.js";
 import { registerUser } from "./auth.js";
@@ -242,6 +244,20 @@ const CALL_TOOLS = [
     },
   },
   {
+    name: "list_work_hours",
+    description: "インターン生などの稼働時間を、週ごと（月曜はじまり）・人ごとに返す（読み取り）。予定＝kinbot の出勤管理（シフト）の予定時間と日数、実績＝その日の最初と最後の架電から出した実働時間（30分に丸め・12〜13時の休憩を引く。出勤管理の『実働時間』と同じ計算。架電以外の作業は入らない）。days:true で日ごとの中身も付く。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "開始日 YYYY-MM-DD（任意・省略で今月1日）" },
+        to: { type: "string", description: "終了日 YYYY-MM-DD（任意・省略で今月の末日。予定は先の日も出る）" },
+        who: { type: "string", description: "名前の一部かメールでしぼる（任意）" },
+        interns: { type: "boolean", description: "true でインターン生（インサイド）だけ（既定 true）" },
+        days: { type: "boolean", description: "日ごとの予定・実績も付ける" },
+      },
+    },
+  },
+  {
     name: "list_call_lists_overview",
     description: "kincallの全リスト（架電リスト）の現状をまとめて取得する。リストごとに、件数・架電済み・未架電・進捗率・アポ獲得数・お断り/不在の件数・アーカイブ/リサイクル件数・担当人数、さらに担当別の件数と架電済み数、ステージ内訳を返す。どのリストが進んでいないか、どのリストがアポにつながっているか、担当ごとの偏りなど『リストの現状分析』に使う。",
     inputSchema: {
@@ -439,6 +455,60 @@ export async function callTool(name, args, req) {
       const rows = await callStatsByDay((args && args.from) || mFrom, (args && args.to) || mTo);
       const nameMap = await buildNameMap();
       return rows.map((r) => ({ 日: r["日"], かけた人: resolveDisplayName(r.caller, nameMap), 結果: r.result, 件数: r.n }));
+    }
+    case "list_work_hours": {
+      // 週ごとの稼働時間（予定＝出勤管理・実績＝架電から推定）（2026-11-20 浦林さん「インターン生の週ごとの稼働時間（実績および予定）を見たい」）。
+      //   Drive の「インターン生シフトGS」は 10/30 で止まっていたので、kinbot の中の出勤管理と架電記録から出す
+      const a = args || {};
+      const now = new Date(Date.now() + 9 * 3600 * 1000); const y = now.getUTCFullYear(), m = now.getUTCMonth() + 1; const p2 = (n) => String(n).padStart(2, "0");
+      const from = /^\d{4}-\d{2}-\d{2}$/.test(String(a.from || "")) ? a.from : `${y}-${p2(m)}-01`;
+      const to = /^\d{4}-\d{2}-\d{2}$/.test(String(a.to || "")) ? a.to : `${y}-${p2(m)}-${p2(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+      const nameMap = await buildNameMap();
+      const interns = await listInterns().catch(() => []);
+      const internSet = new Set((interns || []).map((i) => String(i.email || i || "").toLowerCase()).filter(Boolean));
+      const norm = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "");
+      // 実働時間：出勤管理の「実働時間（架電記録から推定）」と同じ計算
+      const workH = (st, en) => { if (st == null || en == null || en <= st) return 0; const lunch = Math.max(0, Math.min(en, 780) - Math.max(st, 720)); const h = (en - st - lunch) / 60; return h < 1 ? 0 : Math.round(h * 100) / 100; };
+      const hm2m = (v) => { const mm = /^(\d{1,2}):(\d{2})$/.exec(String(v || "")); return mm ? Number(mm[1]) * 60 + Number(mm[2]) : null; };
+      const r30 = (x) => Math.round(x / 30) * 30;
+      const weekOf = (day) => { const d = new Date(`${day}T00:00:00Z`); const w = (d.getUTCDay() + 6) % 7; d.setUTCDate(d.getUTCDate() - w); return d.toISOString().slice(0, 10); };
+      // 人の鍵：メールが分かればメール、分からなければ空白を抜いた名前。名前は表示名にそろえる
+      const people = new Map();   // key → { name, email, days: Map(day → {plan, planSpan, absent, actual, first, last, calls}) }
+      const keyOf = (email, name) => { const em = String(email || "").toLowerCase(); if (em && em.includes("@")) return em; const n = norm(name); for (const [k, v] of people) if (n && (norm(v.name) === n || norm(v.name).startsWith(n) || n.startsWith(norm(v.name)))) return k; return `name:${n}`; };
+      const get = (k, name, email) => { if (!people.has(k)) people.set(k, { name, email, days: new Map() }); const p = people.get(k); if (!p.name && name) p.name = name; return p; };
+      const dayOf = (p, day) => { if (!p.days.has(day)) p.days.set(day, { plan: 0, planSpan: "", absent: false, actual: 0, first: "", last: "", calls: 0 }); return p.days.get(day); };
+      for (const c of await callSpansByDay(from, to).catch(() => [])) {
+        const em = String(c.caller || "").toLowerCase(); const nm = resolveDisplayName(em, nameMap);
+        const p = get(keyOf(em, nm), nm, em); const d = dayOf(p, c.day);
+        const fm = hm2m(c.first_hm), lm = hm2m(c.last_hm);
+        d.actual = fm == null || lm == null ? 0 : workH(Math.max(0, r30(fm)), Math.min(1440, r30(lm))); d.first = c.first_hm; d.last = c.last_hm; d.calls = c.cnt;
+      }
+      for (const sft of await listInsideShifts(from, to).catch(() => [])) {
+        const em = /@/.test(String(sft.email || "")) ? String(sft.email).toLowerCase() : "";
+        const nm = em ? resolveDisplayName(em, nameMap) : String(sft.name || "");
+        const p = get(keyOf(em, nm || sft.name), nm || sft.name, em); const d = dayOf(p, sft.day);
+        if (sft.absent) { d.absent = true; continue; }
+        if (sft.start_min != null && sft.end_min != null) { d.plan = workH(Number(sft.start_min), Number(sft.end_min)); d.planSpan = `${p2(Math.floor(sft.start_min / 60))}:${p2(sft.start_min % 60)}〜${p2(Math.floor(sft.end_min / 60))}:${p2(sft.end_min % 60)}`; }
+      }
+      const onlyInterns = a.interns !== false;
+      const who = String(a.who || "").trim();
+      const out = [];
+      for (const [k, p] of people) {
+        if (onlyInterns && internSet.size && !(p.email && internSet.has(p.email)) && !k.startsWith("name:")) continue;
+        if (who && !(`${p.name} ${p.email}`.includes(who) || norm(p.name).includes(norm(who)))) continue;
+        const weeks = new Map();
+        for (const [day, d] of [...p.days.entries()].sort()) {
+          const w = weeks.get(weekOf(day)) || { 週: weekOf(day), 予定時間: 0, 予定日数: 0, 休み: 0, 実績時間: 0, 実績日数: 0, コール数: 0, 日ごと: [] };
+          w.予定時間 += d.plan; if (d.plan > 0) w.予定日数++; if (d.absent) w.休み++;
+          w.実績時間 += d.actual; if (d.actual > 0) w.実績日数++; w.コール数 += d.calls;
+          if (a.days) w.日ごと.push({ 日: day, 予定: d.absent ? "休み" : d.planSpan, 予定時間: d.plan, 実績: d.first ? `${d.first}〜${d.last}` : "", 実績時間: d.actual, コール数: d.calls });
+          weeks.set(w.週, w);
+        }
+        const ws = [...weeks.values()].map((w) => ({ ...w, 予定時間: Math.round(w.予定時間 * 10) / 10, 実績時間: Math.round(w.実績時間 * 10) / 10, ...(a.days ? {} : { 日ごと: undefined }) }));
+        out.push({ 人: p.name || k, メール: p.email || "", 予定時間の合計: Math.round(ws.reduce((x, w) => x + w.予定時間, 0) * 10) / 10, 実績時間の合計: Math.round(ws.reduce((x, w) => x + w.実績時間, 0) * 10) / 10, 週ごと: ws });
+      }
+      out.sort((x, y2) => String(x.人).localeCompare(String(y2.人), "ja"));
+      return { 期間: `${from}〜${to}`, 予定の出どころ: "kinbot の出勤管理（シフト）", 実績の出どころ: "kincall の架電記録（その日の最初〜最後の架電。架電以外の作業は入らない）", 人: out };
     }
     case "list_call_lists_overview": {
       const rows = await callListOverview({ limit: (args && args.limit) || 60 });
