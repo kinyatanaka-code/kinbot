@@ -2050,7 +2050,8 @@ async function kpLoad(quiet) {
 function kpCsv(name, header, rows) {
   const q = (v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
   const blob = new Blob(["\ufeff" + [header, ...rows].map((r) => r.map(q).join(",")).join("\r\n")], { type: "text/csv" });
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  // 画面に置いてから押す（置かずに押すと、ファイル名が付かずに「download」になるブラウザがあるため）
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; a.style.display = "none"; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 // 施策ごとのステータス（お手紙だけ「未対応・送付待ち・送付済み・架電済み（不在）・対応完了」）（2026-11-12 久野さんの要望）
 function kxMeSt(me) { return (me.statuses || ["未対応", "架電済み（不在）", "対応中", "完了", "対象外"]).filter((s) => s !== "対象外"); }
@@ -2429,11 +2430,26 @@ async function renderPub() {
     const chs = [...new Set(all.map((x) => x.channel).filter(Boolean))];
     box.innerHTML = `<div class="pl-tools"><div class="kx-seg">${[["has", `掲載先あり（${has.length}）`], ["none", `掲載済みで未記入（${none.length}）`], ["nopl", `未掲載（${nopl.length}）`], ["all", `すべて（${base.length}）`]].map(([k, l]) => `<button type="button" class="${st.tab === k ? "on" : ""}" data-pt="${k}">${l}</button>`).join("")}</div>
       ${chs.length ? `<select class="kx-in" data-pch style="width:auto"><option value="">販売区分：すべて</option>${chs.map((c) => `<option ${st.ch === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>` : ""}
-      <label class="pl-q" title="会社名・掲載先・担当で探す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input data-pq placeholder="会社名・掲載先・担当" value="${esc(st.q)}" aria-label="会社名・掲載先・担当で探す" /></label></div>
+      <label class="pl-q" title="会社名・掲載先・担当で探す"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg><input data-pq placeholder="会社名・掲載先・担当" value="${esc(st.q)}" aria-label="会社名・掲載先・担当で探す" /></label><button type="button" class="pl-xl" data-pxl title="いま出している会社を、Excel で開ける表（CSV）で書き出します"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/></svg>Excel で書き出す</button></div>
       ${tilesMode ? tilesHtml() : st.tab === "has" && st.pl ? `<div class="pl-back"><button type="button" data-psel="">← 掲載先ごとに戻る</button><b>${esc(st.pl)}</b><span>${list.length}社</span></div>` : cntList.length && st.tab === "all" ? `<div class="pl-stat"><span class="pl-stat-h">掲載先ごとの社数</span>${cntList.map(([k, n]) => `<button type="button" class="pl-sc ${st.pl === k ? "on" : ""}" data-psel="${esc(k)}" title="${esc(k)} に載せている会社だけを出す"><span>${esc(k)}</span><b>${n}</b>社</button>`).join("")}${st.pl ? `<button type="button" class="pl-sc-clr" data-psel="">しぼりこみを外す</button>` : ""}</div>` : ""}
       ${tilesMode ? "" : `<div class="pl-cards">${list.length ? list.map((x) => kxPubCard(x, st.tab)).join("") : `<div class="kx-empty" style="grid-column:1/-1">${st.tab === "has" ? "まだ掲載先が入っている会社はありません。会社の詳しい画面の「掲載先」で入れてください" : st.tab === "nopl" ? "未掲載にした会社はありません。「掲載済みで未記入」のカードの［未掲載にする］で入ります" : "当てはまる会社はありません"}</div>`}</div>`}`;
     box.querySelectorAll("[data-pt]").forEach((b) => b.addEventListener("click", () => { st.tab = b.dataset.pt; st.pl = ""; st.top = 0; draw(); }));
     const ch = box.querySelector("[data-pch]"); if (ch) ch.addEventListener("change", () => { st.ch = ch.value; st.top = 0; draw(); });
+    // Excel で書き出す（2026-11-20 皆葉さん「掲載先一覧の掲載企業を一覧でエクセルで書き出したい」）。
+    //   いま出しているタブ・しぼりこみのままの会社を、掲載先1か所ずつ1行で（掲載先が無い会社も1行）。Excel でそのまま開ける CSV（BOM 付き）
+    box.querySelector("[data-pxl]").addEventListener("click", () => {
+      const rows = [];
+      for (const x of list) {
+        const pls = (x.places || []).filter((p) => !st.pl || plKey(p.where) === st.pl);
+        const head = [x.name, x.channel || "", x.fs || "", x.cs || "", x.label || "", x.publishedOn || "", x.noPlace ? "未掲載" : (x.places || []).length ? "掲載先あり" : "未記入"];
+        if (!pls.length) rows.push([...head, "", "", ""]);
+        for (const p of pls) rows.push([...head, p.where || "", p.url || "", p.memo || ""]);
+      }
+      const tabName = { has: "掲載先あり", none: "掲載済みで未記入", nopl: "未掲載", all: "すべて" }[st.tab] || "";
+      const d0 = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10).replace(/-/g, "");
+      kpCsv(`掲載先一覧_${tabName}${st.pl ? `_${st.pl}` : ""}_${d0}.csv`, ["会社名", "販売区分", "受注者", "CS担当", "フェーズ", "掲載日", "掲載の状態", "掲載先", "URL", "メモ"], rows);
+      if (window.kbToast) window.kbToast(`${list.length}社を書き出しました`);
+    });
     const qi = box.querySelector("[data-pq]"); let t = null; qi.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { st.q = qi.value; st.top = 0; draw(); const n = box.querySelector("[data-pq]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
     box.querySelectorAll("[data-pco]").forEach((b) => b.addEventListener("click", () => openDetail(b.dataset.pco)));
     box.querySelectorAll("[data-psel]").forEach((b) => b.addEventListener("click", () => { st.pl = st.pl === b.dataset.psel ? "" : b.dataset.psel; st.top = 0; draw(); }));

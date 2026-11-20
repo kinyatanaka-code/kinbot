@@ -886,6 +886,10 @@ export async function initDb() {
     );
   `);
   await sq(`CREATE INDEX IF NOT EXISTS ix_dev_notes_status ON dev_notes(status, last_at DESC);`);
+  // チャットに知らせた時刻（2026-11-20 田中さん「皆葉の開発メモがチャットで連携こない」）。
+  //   ロボからの要望は3分待ってから知らせるが、その間にサーバーが入れ替わる（デプロイ）と知らせが消えていた。
+  //   知らせたら印を付け、印の無いものはあとから見回りで知らせる
+  await sq(`ALTER TABLE dev_notes ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;`);
 
   // 見送った案の題名だけを覚えておく。
   // 一覧からは消すが、同じ案がまた出てくるのを防ぐために使う。

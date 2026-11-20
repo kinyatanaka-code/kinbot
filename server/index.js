@@ -24009,7 +24009,7 @@ app.post("/api/ask-bot", async (req, res) => {
         const add = `${message}${attach.length ? `\n【添えられたファイル】${attach.map((a) => a.name).join("・")}` : ""}`;
         const detail = `${recent.detail || ""}\n＋ ${add}`.slice(0, 6000);
         saved = await updateDevNote(recent.id, { detail, kind, ...(vague ? {} : { title: r.note.title }) }).catch(() => null) || recent;
-        await pool.query(`UPDATE dev_notes SET last_at = now() WHERE id = $1`, [recent.id]).catch(() => {});
+        await pool.query(`UPDATE dev_notes SET last_at = now(), notified_at = NULL WHERE id = $1`, [recent.id]).catch(() => {});   // 中身が増えたので、もう一度知らせる
         botNoteNotifyLater(saved);
         console.log(`[ロボ] 続けて送られた要望なので、前のメモ（#${recent.id}）にまとめました：${r.note.title}`);
       } else {
@@ -24059,11 +24059,29 @@ function botNoteNotifyLater(note) {
     notifyNewDevNote(cur).catch(() => {});
   }, 3 * 60 * 1000));
 }
+// 見回り：知らせていない開発メモ（最後に書かれてから3分たったもの・2日以内）を知らせる。
+//   3分待ちの間にサーバーが入れ替わって消えた知らせを、ここで拾う（2026-11-20 皆葉さんの要望が Chat に来なかった）
+setTimeout(async () => {
+  try {
+    // 初めての1回だけ：今までのメモは「知らせ済み」にする（昔のメモをまとめて送らないため。今まで送ったものに印が無いので）
+    const st = await getSettings().catch(() => ({}));
+    if (!st.devNoteNotifiedInit) { await pool.query(`UPDATE dev_notes SET notified_at = COALESCE(last_at, now()) WHERE notified_at IS NULL`); await saveSettings({ devNoteNotifiedInit: new Date().toISOString() }); }
+  } catch (e) { console.warn("[開発メモ] 知らせの印の初期化に失敗", e.message); }
+  const sweep = async () => {
+    try {
+      const { rows } = await pool.query(`SELECT * FROM dev_notes WHERE notified_at IS NULL AND hits <= 1 AND last_at < now() - interval '3 minutes' AND last_at > now() - interval '2 days' ORDER BY id LIMIT 10`);
+      for (const n of rows) { if (_botNoteTimers.has(String(n.id))) continue; await notifyNewDevNote(n); }
+    } catch (e) { console.warn("[開発メモ] 見回りの知らせに失敗", e.message); }
+  };
+  sweep(); setInterval(sweep, 2 * 60 * 1000);
+}, 90 * 1000);
 // 新しい要望が1件追加されたら、その内容をGoogle Chatに送る。
 // hits が1のときだけ＝本当に新規のときだけ通知する（重複追加では送らない）。
 async function notifyNewDevNote(note) {
   try {
     if (!note || Number(note.hits) > 1) return;
+    // まだ知らせていないものだけ、先に「知らせた」の印を取ってから送る（3分待ちと見回りが同時に送って二重にならないように）
+    if (note.id) { const { rows: got } = await pool.query(`UPDATE dev_notes SET notified_at = now() WHERE id = $1 AND notified_at IS NULL RETURNING id`, [note.id]).catch(() => ({ rows: [{ id: note.id }] })); if (!got.length) return; }
     const kindLabel = { request: "要望", bug: "不具合", idea: "アイデア" }[note.kind] || note.kind || "メモ";
     const who = note.created_by ? `（${note.created_by}）` : "";
     const detail = note.detail ? `\n${String(note.detail).slice(0, 300)}` : "";
@@ -34031,8 +34049,10 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
+  "開発メモの Chat への知らせが、デプロイの再起動で消えないように",
+  "kinXs：掲載先一覧を Excel で書き出す",
   "MOCHICALL：CSV の取り込みで電話番号が空の行は SF（リードID→商談の取引先→同じ会社名のリード・取引先）から補う。見つからない件数は画面に出す",
   "MOCHICALL：架電の内容（ヒアリング・受付・断り理由・メモ）から SF のリードの項目を自動で埋め、人ごとの埋めた数をレポートに",
   "SHOBO のダッシュボード：インターン生のコール数・平均通話時間（実通話）・コール間隔（Zoom Phone の通話記録）",
