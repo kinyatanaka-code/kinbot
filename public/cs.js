@@ -186,6 +186,8 @@ function render() {
           <button type="button" class="cd-act" data-act="redo">${ci("redo", 18)}<span>議事録から<br>読み取り直す</span></button>
           <a class="cd-act" href="${esc(k.meeting_url)}" target="_blank" rel="noopener">${ci("mic", 18)}<span>議事録を<br>開く</span></a>
           ${k.sf_url ? `<a class="cd-act" href="${esc(k.sf_url)}" target="_blank" rel="noopener">${ci("sf", 18)}<span>SFの商談を<br>開く</span></a>` : ""}
+          <!-- NeoSTAGE（取引申請）の企業検索を開き、kinbot-ext がこの会社を SF から探して入れる（2026-11-20 田中さん「企業カードから入れたい」） -->
+          <a class="cd-act" href="https://neo-crm.net/corp_search#kbq=${encodeURIComponent(coName(k) || "")}" target="_blank" rel="noopener" title="NeoSTAGE の企業検索を開いて、この会社を入れます（拡張機能 kinbot-ext が要ります）">${ci("co", 18)}<span>NeoSTAGEに<br>入れる</span></a>
         </div>
       </div>
     </div>`;

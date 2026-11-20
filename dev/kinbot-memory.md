@@ -2834,3 +2834,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-20 田中さん：kinXs のタスクで、同じ会社・似た題・同じ期日（片方が空でも）のものを1つにまとめて見せる（kxMergeDupTasks）。残すのは 次回アクション→手入力→進行中→期日あり→詳しい題 の順。済み・消すは、まとめたもの（dups）全部に効かせる（kxApplyDups）。短い題は、より似ていないとまとめない。
 - 2026-11-20 田中さん：kincall の資料送付設定に「あなたの署名」を足した。本人が自分の分だけ書きかえられる（members.profile.docSignature、PUT /api/calls/doc-signature）。空・自動と同じなら、メンバー管理の項目から作る自動の署名を使う。テンプレはクローザー・管理者だけなので、ほかの人には読むだけで見せる。
 - 2026-11-20 田中さん：インターン生（kincallだけ・MOCHICAのインターン）が /shift.html を開くと kincall に戻され、シフトを入力できなかった。isKincallSelfSettingPath に /shift.html と /api/shift/me・load・save を足した（本人の分だけ読み書きする道なので開けてよい）。
+- 2026-11-20 田中さん「ネオステいれるのは kinbot・kinXs の企業カードからできるようにしたい」：kinXs の会社の窓（社名の横）に「NeoSTAGEに入れる」（corp_search#kbsf=取引先ID&kbname=）、kinbot の企業カード（CS）に「NeoSTAGEに入れる」（#kbq=社名）。kinbot-ext 2.2.30 の neostage.js が印を読んでタブに2時間覚え、企業検索ではすぐ入れて検索・事業所新規などでは「〇〇の値を入れる」ボタンを出す。あわせて、企業検索の画面（Bootstrap の label.control-label の形）で見出しが取れず0項目になっていたのを直した。
