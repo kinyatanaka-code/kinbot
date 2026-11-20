@@ -13,8 +13,9 @@ import { fetchPageText, extractEmployeesRegex, employeesFromSite } from "./compa
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 function withTimeout(url, opts = {}, ms = 12000) {
-  const c = new AbortController(); const t = setTimeout(() => c.abort(), ms);
-  return fetch(url, { ...opts, signal: c.signal }).finally(() => clearTimeout(t));
+  // 時間切れは本文を読み終えるまで効かせる（ヘッダーが届いた時点で止めると、遅いサイトで調査が固まり、3枠が埋まって調査全体が止まった。2026-11-20）
+  const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); if (t.unref) t.unref();
+  return fetch(url, { ...opts, signal: c.signal });
 }
 const unHtml = (s) => String(s || "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
 
@@ -137,7 +138,7 @@ function grab(text, labelRe, max = 60) {
 // サイトのトップを1回だけ読み、本文と「説明文」（meta description）を取る。説明文は会社が自分で書いた事業の一文なので、事業概要に使う
 async function readSite(url) {
   try {
-    const r = await withTimeout(url, { headers: { "user-agent": UA, "accept-language": "ja" } }, 12000);
+    const r = await withTimeout(url, { headers: { "user-agent": UA, "accept-language": "ja" } }, SITE_MS);
     if (!r.ok) return { text: "", desc: "" };
     const html = (await r.text()).slice(0, 600000);
     const d = html.match(/<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]*content=["']([^"']{10,300})["']/i)
@@ -146,6 +147,7 @@ async function readSite(url) {
     return { text, desc: d ? unHtml(d[1]) : "" };
   } catch { return { text: "", desc: "" }; }
 }
+const SITE_MS = 6000;   // 会社のサイトを1ページ読むのを待つ時間
 const HEADCOUNT_RE = /(?:採用予定人数|採用予定数|募集人数|採用人数)\s*[:：]?\s*([0-9０-９]{1,4}\s*(?:[～〜~\-－]\s*[0-9０-９]{1,4})?\s*名(?:程度|以上)?)/;
 
 // ───── 本体：researchMcLead と同じ形で返す ─────
@@ -153,11 +155,11 @@ export async function researchMcLeadFree({ company = "", website = "", siteText 
   const name = String(company || "").trim();
   if (!name) return { status: "error", error: "会社名がありません" };
   const sources = [];
-  const g = await gbizFor(name).catch(() => null);
+  // gBizINFO と Web 検索は同時に始める（順番に待つと1社あたり数秒のむだ）
+  const [g, rCorp, rHire] = await Promise.all([gbizFor(name).catch(() => null), freeWebSearch(`${qName(name)} 会社概要`, 8), freeWebSearch(`${qName(name)} 採用 募集`, 10)]);
   if (g && g.corporate_number) sources.push(`https://info.gbiz.go.jp/hojin/ichiran?hojinBango=${g.corporate_number}`);
 
   // 公式サイト：元データ → gBizINFO → 検索
-  const [rCorp, rHire] = await Promise.all([freeWebSearch(`${qName(name)} 会社概要`, 8), freeWebSearch(`${qName(name)} 採用 募集`, 10)]);
   let site = String(website || "") || (g && g.company_url) || "";
   if (!site) { const off = pickOfficial(rCorp, name); if (off) site = off.url.replace(/^(https?:\/\/[^/]+).*$/, "$1"); }
   if (site && !/^https?:\/\//.test(site)) site = `https://${site}`;
@@ -173,8 +175,8 @@ export async function researchMcLeadFree({ company = "", website = "", siteText 
   const media = mediaOf([...rCorp, ...rHire], name);
   for (const r of rHire) if (media.length && MEDIA.some(([re]) => re.test(r.url)) && sources.length < 5 && !sources.includes(r.url)) sources.push(r.url);
 
-  // 従業員数：gBizINFO → トップ本文 → 会社概要らしいページを順に読む（どれも AI なし） → 検索の説明文
-  const employees = (g && g.employees) || extractEmployeesRegex(text) || (site ? await employeesFromSite(name, site).catch(() => "") : "") || extractEmployeesRegex(snippets);
+  // 従業員数：gBizINFO → トップ本文 → 検索の説明文（その会社の名前が出ている結果だけ） → 会社概要らしいページを読む（いちばん重いので最後。どれも AI なし）
+  const employees = (g && g.employees) || extractEmployeesRegex(text) || extractEmployeesRegex(snippets) || (site ? await employeesFromSite(name, site, { max: 6, ms: SITE_MS }).catch(() => "") : "");
   const hc = both.match(HEADCOUNT_RE);
   const headcount = hc ? hc[1].normalize("NFKC").replace(/\s+/g, "") : "";
   const roles = grab(both, "募集職種|募集中の職種|職種", 50);

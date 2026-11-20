@@ -6,10 +6,11 @@ import { callLLMPublic } from "./analyzer.js";
 const BRAVE_KEY = () => process.env.BRAVE_API_KEY || "";
 export function webSearchConfigured() { return !!BRAVE_KEY(); }
 
+// 時間切れは本文を読み終えるまで効かせる（ヘッダーが届いた時点で止めると、本文を少しずつ返すサイトで固まる。2026-11-20）
 function withTimeout(url, opts = {}, ms = 12000) {
   const c = new AbortController();
-  const t = setTimeout(() => c.abort(), ms);
-  return fetch(url, { ...opts, signal: c.signal }).finally(() => clearTimeout(t));
+  const t = setTimeout(() => c.abort(), ms); if (t.unref) t.unref();
+  return fetch(url, { ...opts, signal: c.signal });
 }
 
 // Braveで会社名を検索して、上位の結果（URL・タイトル・説明）を返す
@@ -38,9 +39,9 @@ function pickOfficial(results, company) {
 }
 
 // ページ本文をざっくり取得（HTMLタグを落として先頭を返す）
-export async function fetchPageText(url) {
+export async function fetchPageText(url, ms = 12000) {
   try {
-    const r = await withTimeout(url, { headers: { "User-Agent": "Mozilla/5.0 kinbot" } }, 12000);
+    const r = await withTimeout(url, { headers: { "User-Agent": "Mozilla/5.0 kinbot" } }, ms);
     if (!r.ok) return "";
     const html = await r.text();
     const text = String(html)
@@ -111,9 +112,9 @@ export function extractEmployeesRegex(text) {
   return "";
 }
 // トップページのHTMLから「会社概要」系ページのURL候補を拾う
-async function aboutLinksFrom(url) {
+async function aboutLinksFrom(url, ms = 10000) {
   try {
-    const r = await withTimeout(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; kincall/1.0)" } }, 10000);
+    const r = await withTimeout(url, { headers: { "user-agent": "Mozilla/5.0 (compatible; kincall/1.0)" } }, ms);
     if (!r.ok) return [];
     const html = (await r.text()).slice(0, 400000);
     const base = new URL(url);
@@ -129,7 +130,8 @@ async function aboutLinksFrom(url) {
     return [...out];
   } catch { return []; }
 }
-export async function employeesFromSite(company, website) {
+// max・ms：読むページ数と1ページの待ち時間（MOCHICALL の企業調査は 6ページ・6秒で速く回す）
+export async function employeesFromSite(company, website, { max = 14, ms = 12000 } = {}) {
   const site = String(website || "").trim();
   if (!site) return "";
   const base = site.replace(/\/+$/, "");
@@ -137,9 +139,11 @@ export async function employeesFromSite(company, website) {
   const paths = ["", "/company/", "/about/", "/company/outline/", "/corporate/", "/profile/", "/company/profile/", "/outline/", "/company/about/", "/recruit/", "/ir/", "/info/"];
   const commonUrls = [...new Set(paths.map((p) => (/^https?:/i.test(p) ? p : base + p)))];
   // トップページのHTMLから「会社概要」ページのURLも自動で見つける（独自パス対策）
-  const discovered = await aboutLinksFrom(base + "/").catch(() => []);
-  const urls = [...new Set([...commonUrls, ...discovered])].slice(0, 14);
-  const texts = await Promise.all(urls.map((u) => fetchPageText(u).then((t) => ({ u, t })).catch(() => ({ u, t: "" }))));
+  const discovered = await aboutLinksFrom(base + "/", ms).catch(() => []);
+  const all = [...new Set([...commonUrls, ...discovered])];
+  // 数を絞るときは、トップと見つけた会社概要ページを先に残す
+  const urls = all.length > max ? [...new Set([commonUrls[0], ...discovered, ...commonUrls])].slice(0, max) : all;
+  const texts = await Promise.all(urls.map((u) => fetchPageText(u, ms).then((t) => ({ u, t })).catch(() => ({ u, t: "" }))));
   // 正規表現で従業員数を抽出（無料）。取れたら即返す。まず「従業員」語のあるページを優先。
   const withLabel = texts.filter((x) => x.t && /従業員|社員数|従業員数|Employees|スタッフ|人員/i.test(x.t));
   for (const x of withLabel) { const e = extractEmployeesRegex(x.t); if (e) return e; }

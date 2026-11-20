@@ -15,7 +15,6 @@
 import { dbPool } from "./db.js";
 import { analyzeMcCallRecording } from "./analyzer.js";
 import { researchMcLeadFree } from "./mcresearch.js";   // 企業調査は AI を使わず Web 検索・gBizINFO で（2026-11-20 福井さん）
-import { fetchPageText } from "./companyenrich.js";
 import { zoomPhoneConfigured, zoomPhoneRecordings, zoomDownload, zoomPhoneUsers } from "./zoomphone.js";
 
 const P = () => dbPool();
@@ -117,6 +116,8 @@ export async function measures({ from, to, caller = null }) {
 //   1日の上限（MCCALL_RESEARCH_DAILY・既定1200件）は Web 検索の無料枠（1日1,500件）の内側にする。
 //   失敗した会社も「調べられなかった」と残して「かける」に出す（調べが止まって架電まで止まらないように）
 const R_CONC = Math.max(1, parseInt(process.env.MCCALL_RESEARCH_CONC || "3", 10) || 3);
+const R_HOT = 2;          // 架電者の「かける」の先頭にある会社だけが使える、追加の枠
+const R_MAX_MS = 45000;   // 1社にかける時間の上限
 const R_DAILY = Math.max(0, parseInt(process.env.MCCALL_RESEARCH_DAILY || "1200", 10) || 0);
 // 調べ終わったものだけを「かける」に出すか（調べが追いつかないときに、環境変数 MCCALL_RESEARCH_GATE=0 で一時的に外せる）
 //   1日の上限まで調べきったら、その日は調べ終わる前の会社も出す（上限で架電が止まらないように）
@@ -145,8 +146,10 @@ async function researchOne(id) {
   let r;
   try {
     const site = siteOf(lead); const url = site && !/^https?:\/\//.test(site) ? `https://${site}` : site;
-    const siteText = url ? await fetchPageText(url).catch(() => "") : "";
-    r = await researchMcLeadFree({ company: lead.company, website: url, siteText, hint: hintOf(lead) });
+    // トップページは researchMcLeadFree の中で1回だけ読む（ここでも読んでいて2回になっていた）。
+    //   1社にかける時間に上限をつける（R_MAX_MS）。超えたら「調べられなかった」として「かける」に出す
+    let tm; const cap = new Promise((_, no) => { tm = setTimeout(() => no(new Error(`調べるのに${Math.round(R_MAX_MS / 1000)}秒を超えたので打ち切りました`)), R_MAX_MS); });
+    r = await Promise.race([researchMcLeadFree({ company: lead.company, website: url, hint: hintOf(lead) }), cap]).finally(() => clearTimeout(tm));
   } catch (e) { r = { status: "error", error: String(e.message || e).slice(0, 200) }; }
   await P().query(`UPDATE mc_call_leads SET research=$2, research_at=now() WHERE id=$1`, [id, { ...r, at: new Date().toISOString() }]);
 }
@@ -169,8 +172,13 @@ async function researchPump() {
     try { const { rows } = await P().query(`SELECT count(*)::int AS n FROM mc_call_leads WHERE research_at >= ((now() AT TIME ZONE 'Asia/Tokyo')::date::timestamp AT TIME ZONE 'Asia/Tokyo')`); _rCount = Number(rows[0] && rows[0].n) || 0; }
     catch (e) { console.error("[mcplay] 今日の企業調査の数を数えられませんでした（今日はもう調べません）", e.message); return; }
   }
-  while (_rRunning < R_CONC && _rCount < R_DAILY) {
-    const [id] = await researchPick(1).catch(() => []);
+  while (_rCount < R_DAILY) {
+    // ふだんの枠（R_CONC）が埋まっていても、架電者が待っている会社は追加の枠（R_HOT）で先に調べる
+    const extra = _rRunning >= R_CONC;
+    if (extra && _rRunning >= R_CONC + R_HOT) return;
+    let id;
+    if (extra) { id = [..._rHot].find((x) => !_rBusy.has(x)); if (!id) return; _rHot.delete(id); }
+    else [id] = await researchPick(1).catch(() => []);
     if (!id || _rBusy.has(id)) return;
     _rBusy.add(id); _rRunning++; _rCount++;
     researchOne(id).catch((e) => console.error("[mcplay] 企業調査", id, e.message)).finally(() => { _rBusy.delete(id); _rRunning--; setTimeout(() => researchPump().catch(() => {}), 200); });

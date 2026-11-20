@@ -111,7 +111,7 @@
       : S.researching ? `企業調査が終わった会社から順に出ます（いま ${S.researching}件 を調べています）。<br>少しすると自動で次の会社が出ます。`
       : `今かける企業はありません。${S.later ? `<br>今日このあと掛け直す企業が <b>${S.later}件</b> あります（時刻が来たら先頭に並びます）。` : ""}<br><button class="mcc-btn" id="mccReload" style="margin-top:12px">もう一度読む</button>`}</div>`;
     const g = $("mccGoLists"); if (g) g.addEventListener("click", () => setTab("lists"));
-    clearTimeout(S.waitT); if (S.researching) S.waitT = setTimeout(() => { if (!S.d && S.tab === "call") loadQueue(true); }, 20000);
+    clearTimeout(S.waitT); if (S.researching) S.waitT = setTimeout(() => { if (!S.d && S.tab === "call") loadQueue(true); }, 8000);
     const r = $("mccReload"); if (r) r.addEventListener("click", () => loadQueue(true));
     setNotice([]);
   }
