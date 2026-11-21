@@ -2857,3 +2857,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-22 田中さん「失注か進行中かの判定はいらない。SFのステージのタグだけでいい」（案件画面・SHOWIN・コネクタの全部）：案件画面のカードと会社の見出しは、判定の印・切り替え・新プロセスの印・AI判定の失注理由を外し、「SF: ステージ」の札だけ（/api/apo/cross-status。立ち上げていない会社もいちばん新しい商談のステージ lastStage を出す）。コネクタの list_deals・get_deal_detail・get_account_detail は status 等を外して sf_stage・sf_opportunity を返す（crossStatusFor を関数に分け mcpHooks.sfStages）。SHOWIN は前から SF の札だけ。get_deal_events（判定のイベントの記録）はそのまま。
 - 2026-11-22 田中さん：コネクタの list_meetings に from・to・owner・q・limit（全件だと40万字を超えるため）
 - 2026-11-22 田中さん：Gemini のリンクの画面（/gem）で JSON の依頼（requests）を受け、SF のどの項目でも・kinXs の会社やタスクも、いま→変えたあとを見せて本人が押したときだけ書きかえる（書きかえの道具だけに限定）
+- 2026-11-22 田中さん：knowkin への書き出しに transcripts（商談の文字起こし全文）を足した（読み取りだけ・AI を使わない）

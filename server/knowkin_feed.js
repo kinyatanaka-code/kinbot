@@ -47,6 +47,26 @@ const KINDS = {
     return { items, next: last ? `${last.cur}|${last.bot_id}` : after, done: rows.length < limit };
   },
 
+  // 商談の文字起こし全文（2026-11-22 田中さん「商談の文字起こしも knowkin に残った方がいい」）。
+  //   1件が数万字あるので、knowkin は少しずつ（1回20件ほど）取りに来る。knowkin では要約とは別の箱に入れる
+  async transcripts(pool, after, limit) {
+    const [t, id] = splitCursor(after);
+    const n = Math.min(limit, 30);
+    const { rows } = await pool.query(
+      `SELECT m.bot_id, m.title, m.account, m.owner, m.rep_name, m.transcript, a.official_name, m.updated_at::text AS cur, ${JST("m.created_at")} AS at
+       FROM meetings m LEFT JOIN accounts a ON a.key = m.account
+       WHERE (m.updated_at, m.bot_id) > ($1::timestamptz, $2) AND jsonb_typeof(m.transcript) = 'array' AND jsonb_array_length(m.transcript) > 0
+       ORDER BY m.updated_at, m.bot_id LIMIT $3`, [t, id, n]);
+    const items = rows.map((r) => {
+      // 話者：発言 の形にする（analyzer.js の transcriptToText と同じ形）
+      const body = (Array.isArray(r.transcript) ? r.transcript : []).map((u) => `${(u && u.speaker && u.speaker.name) || (u && u.speaker_name) || "話者"}: ${(u && u.text) || ""}`).join("\n").replace(/\u0000/g, "").slice(0, 400000);
+      return { ref: `kinbot:transcript:${r.bot_id}`, kind: "文字起こし", bot_id: r.bot_id, company: clip(r.official_name || r.account || "", 80), title: clip(r.title || "商談", 160),
+        body, people: [r.owner, r.rep_name].filter(Boolean).map((x) => clip(x, 60)), at: r.at };
+    });
+    const last = rows[rows.length - 1];
+    return { items, next: last ? `${last.cur}|${last.bot_id}` : after, done: rows.length < n };
+  },
+
   // 商談の動き（フェーズ判定・結果・次回）
   async deal_events(pool, after, limit) {
     const { rows } = await pool.query(
