@@ -130,10 +130,16 @@ const TOOLS = [
   },
   {
     name: "list_meetings",
-    description: "kinbotに記録された商談（Recall.aiで録音・文字起こしされた商談）の一覧を取得する。要約・分析結果を含む。文字起こし全文は含まない（長すぎるため）。",
+    description: "kinbotに記録された商談（Recall.aiで録音・文字起こしされた商談）の一覧を取得する。要約・分析結果を含む。文字起こし全文は含まない（長すぎるため）。全件はとても長いので、from・to（記録した日）や owner・q でしぼって呼ぶ。",
     inputSchema: {
       type: "object",
-      properties: {},
+      properties: {
+        from: { type: "string", description: "記録した日の開始 YYYY-MM-DD（日本時間・任意）" },
+        to: { type: "string", description: "記録した日の終了 YYYY-MM-DD（日本時間・任意）" },
+        owner: { type: "string", description: "担当者のメールアドレス（一部でもよい・任意）" },
+        q: { type: "string", description: "題名（会社名など）の一部（任意）" },
+        limit: { type: "number", description: "何件まで（任意。新しい順）" },
+      },
     },
   },
   {
@@ -385,7 +391,14 @@ export async function callTool(name, args, req) {
     }
     case "list_meetings": {
       // UIの商談履歴と同じく全件を対象にする（画面で見える商談はMCPでも見える）
-      const rows = await listMeetings({ isAdmin: true });
+      let rows = await listMeetings({ isAdmin: true });
+      // 全件だと40万字を超えてAIが読み切れないので、期間・担当・題名でしぼれるようにした（2026-11-22 田中さん。何も渡さなければ今までどおり全件）
+      const jd = (t) => new Date(new Date(t).getTime() + 9 * 3600000).toISOString().slice(0, 10);
+      if (args && args.from) rows = rows.filter((m) => m.created_at && jd(m.created_at) >= String(args.from));
+      if (args && args.to) rows = rows.filter((m) => m.created_at && jd(m.created_at) <= String(args.to));
+      if (args && args.owner) { const o = String(args.owner).toLowerCase(); rows = rows.filter((m) => String(m.owner || "").toLowerCase().includes(o)); }
+      if (args && args.q) { const q = String(args.q); rows = rows.filter((m) => String(m.title || "").includes(q)); }
+      if (args && Number(args.limit) > 0) rows = [...rows].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, Number(args.limit));
       // 文字起こし全文は除外（軽量化）。要約・分析は残す。
       return rows.map((m) => ({ ...m, transcript: undefined }));
     }

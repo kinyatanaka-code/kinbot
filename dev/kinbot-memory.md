@@ -2855,3 +2855,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-22 田中さん：API トークンの管理者判定をログインと同じ isAdmin にそろえた（knowkin 経由でも全員分の商談イベントが見えるように）
 - 2026-11-22 田中さん：コネクタの get_deal_events を管理者でなくても全員分見られるように（list_deals 等とそろえた）
 - 2026-11-22 田中さん「失注か進行中かの判定はいらない。SFのステージのタグだけでいい」（案件画面・SHOWIN・コネクタの全部）：案件画面のカードと会社の見出しは、判定の印・切り替え・新プロセスの印・AI判定の失注理由を外し、「SF: ステージ」の札だけ（/api/apo/cross-status。立ち上げていない会社もいちばん新しい商談のステージ lastStage を出す）。コネクタの list_deals・get_deal_detail・get_account_detail は status 等を外して sf_stage・sf_opportunity を返す（crossStatusFor を関数に分け mcpHooks.sfStages）。SHOWIN は前から SF の札だけ。get_deal_events（判定のイベントの記録）はそのまま。
+- 2026-11-22 田中さん：コネクタの list_meetings に from・to・owner・q・limit（全件だと40万字を超えるため）
