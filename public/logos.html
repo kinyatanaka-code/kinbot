@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ロゴのダウンロード</title>
+<link rel="icon" href="/favicon-32.png" />
+<style>
+  /* kinbot・kincall・kinXs のロゴを、資料やチャットのアイコンに使えるよう配る（2026-11-21 田中さん「ロゴをダウンロードできるように」）。
+     SVG（拡大してもきれい）と PNG（512・1024）を選べる。PNG はこの画面で SVG から作るので、ロゴを直せば自動で新しくなる */
+  :root{--g1:#0d5b47;--g2:#1d9e75;--g3:#5DCAA5;--line:#d7e8e0;--dim:#5b6b66;--bg:#f3f8f6}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:#173a30;font-family:"Hiragino Sans","Noto Sans JP",system-ui,sans-serif}
+  .wrap{max-width:1040px;margin:0 auto;padding:28px 16px 56px}
+  h1{font-size:22px;margin:0 0 4px;color:var(--g1)}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px}
+  .pic{height:150px;border-radius:14px;display:flex;align-items:center;justify-content:center;
+    background:repeating-conic-gradient(#eef5f2 0% 25%,#fff 0% 50%) 50%/18px 18px}
+  .pic img{max-width:120px;max-height:120px}
+  .nm{font-weight:800;font-size:15px}
+  .nm small{display:block;font-weight:600;font-size:11.5px;color:var(--dim);margin-top:2px}
+  .btns{display:flex;flex-wrap:wrap;gap:6px}
+  .btns button{flex:1;min-width:0;white-space:nowrap;border:1px solid var(--line);background:#fff;color:var(--g1);font:inherit;font-size:12.5px;font-weight:700;
+    padding:8px 8px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+  .btns button:hover{border-color:var(--g3);background:#f0faf6}
+  .btns button.main{background:linear-gradient(180deg,#22b587,var(--g1));color:#fff;border-color:transparent}
+  .btns svg{width:13px;height:13px}
+  .note{font-size:12px;color:var(--dim);margin-top:18px;line-height:1.7}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--g1);color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ロゴのダウンロード</h1>
+  <p class="sub">kinbot・kincall・kinXs のロゴです。資料・チャットのアイコン・名刺などに使えます。</p>
+  <div class="grid" id="grid"></div>
+  <p class="note">
+    SVG は拡大してもぼやけません（スライド・資料向け）。PNG は背景が透明のまま、512px と 1024px で保存できます（チャットのアイコンなど）。<br>
+    模様の背景は「透明」のしるしです（ロゴには入りません）。
+  </p>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+  // 配るロゴ：ファイル名は保存したときの名前
+  const LOGOS = [
+    { src: "/kinbot.svg", name: "kinbot", sub: "キャラクター（背景なし）", file: "kinbot" },
+    { src: "/icon.svg", name: "kinbot", sub: "アプリのアイコン（緑の角丸）", file: "kinbot-icon" },
+    { src: "/kincall.svg", name: "kincall", sub: "アイコン", file: "kincall" },
+    { src: "/kinxs.svg", name: "kinXs", sub: "アイコン", file: "kinxs" },
+  ];
+  const DL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 10.5l5 5 5-5"/><path d="M5 19.5h14"/></svg>';
+  const $ = (id) => document.getElementById(id);
+  const toast = (m) => { const t = $("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 1800); };
+  const save = (blob, name) => { const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); };
+
+  async function svgText(src) { const r = await fetch(src, { cache: "no-store" }); if (!r.ok) throw new Error("ロゴを読み込めませんでした"); return r.text(); }
+  // PNG：SVG を正方形の透明なキャンバスに、縦横の比を保って描く
+  async function toPng(src, size) {
+    let txt = await svgText(src);
+    // 大きさの指定が無い SVG も、指定した大きさで描けるように width・height を付け直す
+    txt = txt.replace(/<svg\b([^>]*)>/, (m, a) => `<svg${a.replace(/\s(width|height)="[^"]*"/g, "")} width="${size}" height="${size}">`);
+    const url = URL.createObjectURL(new Blob([txt], { type: "image/svg+xml" }));
+    try {
+      const img = await new Promise((ok, ng) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ng(new Error("画像にできませんでした")); i.src = url; });
+      const c = document.createElement("canvas"); c.width = size; c.height = size;
+      c.getContext("2d").drawImage(img, 0, 0, size, size);
+      return await new Promise((ok) => c.toBlob(ok, "image/png"));
+    } finally { URL.revokeObjectURL(url); }
+  }
+  $("grid").innerHTML = LOGOS.map((l, i) => `<div class="card">
+      <div class="pic"><img src="${l.src}" alt="${l.name}"></div>
+      <div class="nm">${l.name}<small>${l.sub}</small></div>
+      <div class="btns">
+        <button class="main" data-i="${i}" data-k="svg">${DL}SVG</button>
+        <button data-i="${i}" data-k="512">${DL}PNG 512</button>
+        <button data-i="${i}" data-k="1024">${DL}PNG 1024</button>
+      </div></div>`).join("");
+  $("grid").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-k]"); if (!b) return;
+    const l = LOGOS[Number(b.dataset.i)], k = b.dataset.k;
+    try {
+      if (k === "svg") save(new Blob([await svgText(l.src)], { type: "image/svg+xml" }), `${l.file}.svg`);
+      else save(await toPng(l.src, Number(k)), `${l.file}-${k}.png`);
+      toast("保存しました");
+    } catch (err) { toast(`保存できませんでした：${err.message}`); }
+  });
+</script>
+</body>
+</html>
