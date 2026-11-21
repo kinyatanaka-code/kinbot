@@ -8,7 +8,8 @@
 //   種類：meetings（商談）/ deal_events（商談の動き）/ calls（架電・会社と日ごと）/ kinxs_accounts（DOCの契約企業）
 //         / kinxs_history（契約企業の変更）/ kinxs_voices（お客様の声）/ docai（DOCのAIへの候補者の質問）/ doc_views（資料の閲覧）
 //
-// 会社の商談・架電のデータがまとめて出ていくので、管理者（ADMIN_EMAILS）のトークン・ログインだけに絞る。
+// kinbot にログインできる人（API_TOKENS のトークン・ログイン中の画面・コネクタ）ならだれでも使える（2026-11-21 田中さん「誰でもできるようにして」）。
+// 商談・架電の一覧は kinbot の画面でもだれでも見られるので、それと同じ範囲にした。
 import { dbPool } from "./db.js";
 
 const clip = (v, n) => String(v === null || v === undefined ? "" : v).replace(/\u0000/g, "").trim().slice(0, n);
@@ -178,7 +179,6 @@ export function registerKnowkinFeed(app) {
   app.get("/api/knowkin/feed", async (req, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-      if (!req.isAdmin) return res.status(403).json({ error: "knowkinへの書き出しは管理者（ADMIN_EMAILS）のトークンだけが使えます。API_TOKENS のトークンを管理者のメールに紐づけてください" });
       const pool = dbPool();
       if (!pool) return res.status(503).json({ error: "データベースにつながっていません" });
       const kind = String(req.query.kind || "");
