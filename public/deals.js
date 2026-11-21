@@ -1045,6 +1045,35 @@ function repInfo(a) {
   return { key: email || name || "未設定", name: name || "未設定" };
 }
 
+// ===== SF の商談のステージの札（会社ごと）。カードがそろったら、まとめて SF に聞く（2分は覚えておく）=====
+const _dealSf = new Map(); let _dealSfQ = new Set(); let _dealSfT = null;
+function dealSfTagHtml(co) {
+  const v = _dealSf.get(co);
+  if (v && Date.now() - v.at < 120000) return dealSfTagFill(v.d);
+  _dealSfQ.add(co); clearTimeout(_dealSfT); _dealSfT = setTimeout(dealSfFetch, 80);
+  return `<span class="acard-sf acard-sf-load" data-dsf="${esc(co)}">SF…</span>`;
+}
+// 札の中身：いま動いている商談のステージ。無ければいちばん新しい商談のステージ（失注も SF のステージのまま出す）。商談が無ければ「SF未紐付け」
+function dealSfTagFill(v) {
+  const st = v && (v.stage || v.lastStage);
+  return st
+    ? `<span class="acard-sf acard-sf-on" title="${esc((v.name || "") + (v.linked ? "（結びつけた商談）" : "（会社名で見つけた商談）"))}">SF: ${esc(String(st).replace(/^\s*\d+\s*[:：.、)]\s*/, ""))}</span>`
+    : `<span class="acard-sf acard-sf-off" title="SF に、この会社の商談が見つかりませんでした">SF未紐付け</span>`;
+}
+async function dealSfFetch() {
+  const cos = [..._dealSfQ].slice(0, 200); _dealSfQ = new Set([..._dealSfQ].slice(200));
+  if (!cos.length) return;
+  let by = {};
+  try { const r = await fetch("/api/apo/cross-status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ companies: cos }) }); const d = await r.json(); by = (d && d.byCompany) || {}; } catch {}
+  // byCompany は会社名をそろえたキーなので、会社名（返ってきた company）で引き直す
+  const byCo = {}; for (const v of Object.values(by)) if (v && v.company) byCo[v.company] = v;
+  for (const co of cos) {
+    const v = byCo[co] || null; _dealSf.set(co, { at: Date.now(), d: v });
+    document.querySelectorAll(`[data-dsf]`).forEach((el) => { if (el.dataset.dsf === co) el.outerHTML = dealSfTagFill(v); });
+  }
+  if (_dealSfQ.size) dealSfFetch();
+}
+
 function accountCardEl(a) {
   const ms = groups[a];
   const last = ms[ms.length - 1];
@@ -1067,9 +1096,11 @@ function accountCardEl(a) {
   card.className = "deal-card" + (a === current ? " active" : "") + (npSelectMode ? " selectable" : "") + (checked ? " selected" : "");
   card.innerHTML =
     (npSelectMode ? `<span class="np-check">${checked ? "✓" : ""}</span>` : "") +
-    `<div class="deal-name">${esc(displayName(a))} ${kindBadge}${gbizPick}<span class="status-badge st-${st}">${st}</span></div>` +
+    // 失注・進行中の判定は出さず、SF の商談のステージだけを出す（2026-11-22 田中さん「SFのステージのタグだけでいい」）
+    `<div class="deal-name">${esc(displayName(a))} ${kindBadge}${gbizPick}${dealSfTagHtml(displayName(a))}</div>` +
     `<div class="deal-meta"><span>${ms.length}件</span><span>${esc(last.owner_name || last.owner || "")}</span></div>` +
-    `<div class="deal-sub"><span class="np-card-label">新プロセス:</span> ${npBadge} ・ 最終 ${fmtDate(last.created_at)}</div>`;
+    `<div class="deal-sub">最終 ${fmtDate(last.created_at)}</div>`;
+  void st; void npBadge;
   card.addEventListener("click", () => {
     if (npSelectMode) {
       if (npSelected.has(a)) npSelected.delete(a); else npSelected.add(a);
@@ -1262,12 +1293,10 @@ async function selectDeal(account) {
       ? `<h2 id="dealTitleH2">${esc(displayName(account))}<button type="button" class="deal-name-edit" id="dealNameEditBtn" title="会社名を編集">✎</button></h2>`
       : `<h2>${esc(displayName(account))}</h2>`) +
     (dealKindOf(account) ? `<span class="kind-badge ${{"過去失注":"kind-lost","コールド":"kind-cold","ユーザーフォロー":"kind-follow","社内MTG":"kind-internal"}[dealKindOf(account)] || "kind-normal"}">${dealKindOf(account)}</span>` : "") +
-    `<div class="deal-status-pick"><span class="status-badge st-${statusOf(account)}" id="dealStBadge">${statusOf(account)}</span>` +
-    `<select id="dealStSel">${STATUS_LIST.map((s) => `<option value="${s}" ${statusOf(account) === s ? "selected" : ""}>${s}</option>`).join("")}<option value="__auto">AIに任せる</option></select></div></div>` +
+    // 失注・進行中の判定（と、その切り替え）は出さず、SF の商談のステージだけを出す（2026-11-22 田中さん）
+    `<div class="deal-status-pick">${dealSfTagHtml(displayName(account))}</div></div>` +
     `<div class="deal-head-meta"><span id="dealOwnerWrap" class="deal-owner-wrap"></span> ・ ${ms.length}回の商談` +
-    (dealStatuses[pk] && dealStatuses[pk].manual ? ' ・ <span class="st-manual">手動設定</span>' : ' ・ <span class="st-auto">AI自動</span>') +
     `</div>` +
-    (statusOf(account) === "失注" && lastLostReason(ms) ? `<div class="lost-reason">AI判定の失注理由: ${esc(lastLostReason(ms))}</div>` : "") +
     `</div>` +
     // ▼ カード一覧（ホーム画面）
     `<div class="dc-home" id="dcHome">` +
@@ -1497,7 +1526,7 @@ async function selectDeal(account) {
   // Salesforceタブの初期化
   initSfTab(account);
 
-  const stSel = $("dealStSel");
+  const stSel = $("dealStSel") || document.createElement("select");   // 判定の切り替えは画面から外した（下の処理はそのまま動くように空の箱）
   if (!isStatusApprover()) {
     stSel.disabled = true;
     stSel.title = "案件のステータス変更は、中澤さん・浦林さんのみ可能です";

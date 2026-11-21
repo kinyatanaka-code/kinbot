@@ -33,6 +33,19 @@ import { mcMiitelList, mcMiitelGet, updateMeetingMeta, mcBalesLists, mcBalesRows
 // index.js から MOCHICA の道具（文字起こしの読み方・SF の項目の中身など）を受け取る（2026-11-14）
 import { auditMcpCall } from "./mcaudit.js";
 export const mcpHooks = {};
+// 案件の状況は、kinbot の判定（進行中／失注）ではなく、SF の商談のステージで返す（2026-11-22 田中さん「失注か進行中かの判定はいらない。SFのステージのタグだけでいい」）。
+//   会社名から SF のクロスの商談を探す（案件画面の札と同じ道具）。40社ずつ聞く
+async function sfStagesFor(user, names) {
+  const H = mcpHooks.sfStages; const out = new Map(); if (!H) return out;
+  const list = [...new Set((names || []).filter(Boolean))].slice(0, 400);
+  for (let i = 0; i < list.length; i += 40) {
+    const by = await H(user, list.slice(i, i + 40)).catch(() => ({}));
+    for (const v of Object.values(by || {})) if (v && v.company) out.set(v.company, { sf_stage: v.stage || v.lastStage || "", sf_opportunity: v.name || "" });
+  }
+  return out;
+}
+const DEAL_JUDGE_KEYS = ["status", "auto_lose_deadline", "manual_progress"];
+const stripJudge = (d) => { const o = { ...d }; for (const k of DEAL_JUDGE_KEYS) delete o[k]; return o; };
 
 const SERVER_INFO = { name: "kinbot", version: "1.0.0" };
 const PROTOCOL_VERSION = "2025-03-26";
@@ -80,13 +93,13 @@ async function filterByTeam(events, team) {
 const TOOLS = [
   {
     name: "list_deals",
-    description: "kinbotの案件一覧を取得する。会社名・担当者・チーム・ステータス（進行中/失注(未定)/失注(その他)/受注 等）・初回商談日を返す。各案件には会社プロフィール（company_profile：業界・従業員数(employees)・事業内容など。取得済みの会社のみ）も付与する。",
+    description: "kinbotの案件一覧を取得する。会社名・担当者・チーム・SF の商談のステージ（sf_stage）・初回商談日を返す。各案件には会社プロフィール（company_profile：業界・従業員数(employees)・事業内容など。取得済みの会社のみ）も付与する。",
     inputSchema: {
       type: "object",
       properties: {
         owner: { type: "string", description: "担当者のメールアドレスで絞り込み（任意）" },
         team: { type: "string", description: "チーム名で絞り込み（任意）" },
-        status: { type: "string", description: "ステータスで絞り込み（任意）例: 進行中, 失注(未定), 受注" },
+        sf_stage: { type: "string", description: "SF の商談のステージの一部で絞り込み（任意）例: 03, 担当者合意, 受注, 失注" },
         from: { type: "string", description: "初回商談日の開始日 YYYY-MM-DD（任意）" },
         to: { type: "string", description: "初回商談日の終了日 YYYY-MM-DD（任意）" },
       },
@@ -134,7 +147,7 @@ const TOOLS = [
   },
   {
     name: "get_account_detail",
-    description: "1つの会社（案件画面の「案件」タブに相当）について、会社プロフィール（業界・従業員数・事業内容など）、ネクストアクション（やることリスト）、相手の懸念（過去の商談から集約）、手動設定されたステータス（進行中/失注/受注/保留）をまとめて取得する。会社名で指定する（部分一致でも検索する）。",
+    description: "1つの会社（案件画面の「案件」タブに相当）について、会社プロフィール（業界・従業員数・事業内容など）、ネクストアクション（やることリスト）、相手の懸念（過去の商談から集約）、SF の商談のステージ（sf_stage）をまとめて取得する。会社名で指定する（部分一致でも検索する）。",
     inputSchema: {
       type: "object",
       properties: {
@@ -336,13 +349,15 @@ export async function callTool(name, args, req) {
       const rows = await listDeals({
         owner: (args && args.owner) || undefined,
         team: args && args.team,
-        status: args && args.status,
         from: args && args.from,
         to: args && args.to,
       });
-      // 会社プロフィール（業界・従業員数・事業内容など）を各案件に付与
+      // 会社プロフィール（業界・従業員数・事業内容など）を各案件に付与。判定（進行中／失注）は外し、SF のステージを付ける
       const pmap = await buildProfileMap();
-      return rows.map((d) => ({ ...d, company_profile: profileFromMap(pmap, d.company_name) }));
+      const st = await sfStagesFor(req.user, rows.map((d) => d.company_name));
+      let out = rows.map((d) => ({ ...stripJudge(d), ...(st.get(d.company_name) || { sf_stage: "", sf_opportunity: "" }), company_profile: profileFromMap(pmap, d.company_name) }));
+      if (args && args.sf_stage) { const q = String(args.sf_stage); out = out.filter((d) => String(d.sf_stage || "").includes(q)); }
+      return out;
     }
     case "get_deal_events": {
       // 管理者でなくても、だれでも全員分を見られる（owner を渡したときだけその人に絞る）。
@@ -365,7 +380,8 @@ export async function callTool(name, args, req) {
       // 案件詳細に会社プロフィール（業界・従業員数・事業内容など）を付与
       const pmap = await buildProfileMap();
       d.company_profile = profileFromMap(pmap, d.company_name);
-      return d;
+      const st = (await sfStagesFor(req.user, [d.company_name])).get(d.company_name) || { sf_stage: "", sf_opportunity: "" };
+      return { ...stripJudge(d), ...st };
     }
     case "list_meetings": {
       // UIの商談履歴と同じく全件を対象にする（画面で見える商談はMCPでも見える）
@@ -419,14 +435,13 @@ export async function callTool(name, args, req) {
         }
       }
 
-      // 手動設定されたステータス（進行中/失注/受注/保留）
-      const statuses = await listDealStatuses().catch(() => ({}));
-      const dealStatus = statuses[accountName] || (deal && deal.status) || null;
+      // 状況は SF の商談のステージで返す（kinbot の判定は返さない）
+      const sfSt = (await sfStagesFor(req.user, [accountName])).get(accountName) || { sf_stage: "", sf_opportunity: "" };
 
       return {
         company_name: accountName,
         meeting_count: matched.length,
-        deal_status: dealStatus,
+        ...sfSt,
         profile: profile || null,
         next_actions: actionItems.map((a) => ({ text: a.text, done: a.done, due_date: a.due_date })),
         customer_concerns: concerns,
