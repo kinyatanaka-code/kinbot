@@ -94,11 +94,11 @@ const TOOLS = [
   },
   {
     name: "get_deal_events",
-    description: "kinbotの新営業プロセスの抽出イベントログを取得する（初回商談の判定結果・再商談の実施結果など）。実績集計の元データ。担当者ごとの比較分析（商談数、初回/再商談比率、次回商談設定率、confidence傾向、失注パターン、deal_kind別の進み方など）に使う。管理者トークンで接続している場合はownerを省略すると全担当者分が返る。",
+    description: "kinbotの新営業プロセスの抽出イベントログを取得する（初回商談の判定結果・再商談の実施結果など）。実績集計の元データ。担当者ごとの比較分析（商談数、初回/再商談比率、次回商談設定率、confidence傾向、失注パターン、deal_kind別の進み方など）に使う。ownerを省略すると全担当者分が返る（だれが接続していても）。",
     inputSchema: {
       type: "object",
       properties: {
-        owner: { type: "string", description: "担当者のメールアドレスで絞り込み（任意・管理者のみ有効。省略すると全担当者分）" },
+        owner: { type: "string", description: "担当者のメールアドレスで絞り込み（任意。省略すると全担当者分）" },
         team: { type: "string", description: "チーム名で絞り込み（任意）" },
         from: { type: "string", description: "イベント日の開始日 YYYY-MM-DD（任意）" },
         to: { type: "string", description: "イベント日の終了日 YYYY-MM-DD（任意）" },
@@ -345,8 +345,11 @@ export async function callTool(name, args, req) {
       return rows.map((d) => ({ ...d, company_profile: profileFromMap(pmap, d.company_name) }));
     }
     case "get_deal_events": {
+      // 管理者でなくても、だれでも全員分を見られる（owner を渡したときだけその人に絞る）。
+      //   list_deals・list_meetings はもとから全員分なのに、ここだけ自分の分しか出ず、
+      //   チームの商談を分析できなかったため（2026-11-22 田中さん「管理者じゃなくってもだれでも見れるようにしてほしい」）
       let rows = await listDealEvents({
-        owner: owner || undefined,
+        owner: (args && args.owner) || undefined,
         from: args && args.from,
         to: args && args.to,
         kind: args && args.kind,
