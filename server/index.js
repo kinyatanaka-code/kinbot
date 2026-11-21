@@ -285,7 +285,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -15154,15 +15154,14 @@ async function kinxsHomeInboxRead(user) {
   await Promise.all([mailJob, chatJob]);
   const raw = tasks.filter((t) => t.body).slice(0, 25);
   if (raw.length) {
-    try {
-      const names = mine.map((x) => x.name).slice(0, 80).join("、");
-      const sys = "あなたはカスタマーサクセスの担当者のアシスタントです。メールやチャットを読み、この担当者がやるべきことを1行にします。必ずJSONだけを返します。";
-      const userP = `担当している会社：${names}\n今日：${today}\n\n${raw.map((t, i) => `#${i} [${t.src}] 送った人：${t.from || ""}\n${t.body}`).join("\n\n")}\n\n次の形のJSONの配列を返してください：[{"i":番号,"task":"やることを40字以内（不要なら空）","due":"YYYY-MM-DD（書いてあれば）","company":"本文・送った人に、担当している会社の名前（か、その会社の人の名前）がはっきり書かれているときだけ、その会社名。書かれていなければ必ず空"}]。お礼や連絡だけで、やることが無いものは task を空にします。社内の話（kinbotの仕様・アポの数え方など）は会社を空にします。`;
-      const out = JSON.parse(String(await callLLMPublic(sys, userP, 1500, { json: true })).replace(/```json|```/g, "").trim());
-      const arr = Array.isArray(out) ? out : (out.items || out.tasks || []);
-      for (const o of arr) {
-        const t = raw[Number(o.i)]; if (!t) continue;
-        if (!String(o.task || "").trim()) { t.drop = true; continue; }
+    // 同じメール・チャットは2回 AI に読ませない（2026-11-21 田中さん：前は10分ごとに同じメールを毎回読み直していて、AI のお金の多くがここだった）。
+    //   前に読んだ結果（やること・期日・会社）を覚えておき、新しく来たものだけを AI に渡す
+    const kOf = (t) => crypto.createHash("sha1").update([me, t.src, t.from || "", String(t.body || "").slice(0, 6000)].join("|")).digest("hex");
+    raw.forEach((t) => { t._k = kOf(t); });
+    const memo = await kxInboxAiGet(raw.map((t) => t._k)).catch(() => new Map());
+    const apply = (t, o) => {
+        if (o.keep) return;   // AI が何も言わなかったもの：前と同じく、そのまま（件名のタスク）出す
+        if (!String(o.task || "").trim()) { t.drop = true; return; }
         t.title = String(o.task).slice(0, 80); if (/^\d{4}-\d{2}-\d{2}$/.test(String(o.due || ""))) t.due = o.due;
         if (!t.account && o.company) {
           // AIが会社を当てても、本文・送った人・件名にその会社の名前（短い名前・旧社名）が本当に出てくるときだけ付ける
@@ -15174,13 +15173,34 @@ async function kinxsHomeInboxRead(user) {
             if (ok) { t.account = x.name; t.accountId = x.id; }
           }
         }
+    };
+    const fresh = [];
+    for (const t of raw) { const o = memo.get(t._k); if (o) apply(t, o); else fresh.push(t); }
+    if (fresh.length) {
+    try {
+      const names = mine.map((x) => x.name).slice(0, 80).join("、");
+      const sys = "あなたはカスタマーサクセスの担当者のアシスタントです。メールやチャットを読み、この担当者がやるべきことを1行にします。必ずJSONだけを返します。";
+      const userP = `担当している会社：${names}\n今日：${today}\n\n${fresh.map((t, i) => `#${i} [${t.src}] 送った人：${t.from || ""}\n${t.body}`).join("\n\n")}\n\n次の形のJSONの配列を返してください：[{"i":番号,"task":"やることを40字以内（不要なら空）","due":"YYYY-MM-DD（書いてあれば）","company":"本文・送った人に、担当している会社の名前（か、その会社の人の名前）がはっきり書かれているときだけ、その会社名。書かれていなければ必ず空"}]。お礼や連絡だけで、やることが無いものは task を空にします。社内の話（kinbotの仕様・アポの数え方など）は会社を空にします。`;
+      const out = JSON.parse(String(await callLLMPublic(sys, userP, 1500, { json: true })).replace(/```json|```/g, "").trim());
+      const arr = Array.isArray(out) ? out : (out.items || out.tasks || []);
+      const keep = [];
+      for (const o of arr) {
+        const t = fresh[Number(o.i)]; if (!t) continue;
+        apply(t, o); keep.push([t._k, { task: String(o.task || ""), due: String(o.due || ""), company: String(o.company || "") }]);
       }
+      // AI が何も返さなかったものは「そのまま出す」として覚える（次に同じものを読まないように）
+      for (const t of fresh) if (!keep.some(([k]) => k === t._k)) keep.push([t._k, { keep: true }]);
+      await kxInboxAiPut(keep).catch(() => {});
     } catch (e) { notes.push(`AIでの読み取りに失敗：${e.message}`); }
+    }
   }
-  const list = tasks.filter((t) => !t.drop).map(({ body, ...t }) => ({ ...t, bucket: kxBucket(t, today), key: kxTaskKey(t) }));
+  const list = tasks.filter((t) => !t.drop).map(({ body, _k, ...t }) => ({ ...t, bucket: kxBucket(t, today), key: kxTaskKey(t) }));
   return { ok: true, at: new Date().toISOString(), tasks: list, chatNeed, notes };
 }
 const _kxInbox = new Map();   // user → { at, data, p }
+// 自動で読み直すのは平日の勤務時間（8〜20時）だけ（2026-11-21 田中さん：夜・土日も3分ごとに読み直していた）。
+//   「読み直す」を押したとき・はじめて開いたときは、時間にかかわらず読む
+const kxWorkNow = () => { const h = new Date(Date.now() + 9 * 3600000); const hr = h.getUTCHours(), dow = h.getUTCDay(); return dow >= 1 && dow <= 5 && hr >= 8 && hr < 20; };
 // デプロイ（再起動）で消えないように、読んだ結果をDBにも残し、起動したら読み戻す
 async function kxInboxSave() { try { const o = {}; for (const [k, v] of _kxInbox) if (v.data) o[k] = { at: v.at, data: v.data }; await saveSettings({ kxInboxCache: o }); } catch {} }
 setTimeout(async () => { try { const st = await getSettings(); if ((st.kxInboxCacheV || 0) < 2) { await saveSettings({ kxInboxCache: {}, kxInboxCacheV: 2 }); return; } for (const [k, v] of Object.entries(st.kxInboxCache || {})) if (v && v.data && !_kxInbox.has(k)) _kxInbox.set(k, { at: v.at || 0, data: v.data }); } catch {} }, 5000).unref?.();
@@ -15189,7 +15209,7 @@ async function kinxsHomeInbox(user, { fresh = false, wait = false } = {}) {
   const c = _kxInbox.get(me) || {};
   const start = () => { if (!c.p) { c.p = kinxsHomeInboxRead(user).then((d) => { d.tasks = (d.tasks || []).map((t) => (t.key ? t : { ...t, key: kxTaskKey(t) })); c.data = d; c.at = Date.now(); kxInboxSave(); return d; }).finally(() => { c.p = null; }); _kxInbox.set(me, c); } return c.p; };
   if (fresh || !c.data) return start();
-  if (Date.now() - (c.at || 0) > 10 * 60 * 1000) { start().catch(() => {}); if (wait) return c.p || c.data; }
+  if (Date.now() - (c.at || 0) > 10 * 60 * 1000 && kxWorkNow()) { start().catch(() => {}); if (wait) return c.p || c.data; }
   const d0 = c.data || {};
   return { ...d0, tasks: (d0.tasks || []).map((t) => (t.key ? t : { ...t, key: kxTaskKey(t) })), stale: Date.now() - (c.at || 0) > 10 * 60 * 1000 };
 }
@@ -15207,7 +15227,7 @@ setInterval(async () => {
   if (_kxPrewarm) return; _kxPrewarm = true;
   try {
     const h = new Date(Date.now() + 9 * 3600000); const hr = h.getUTCHours(); const dow = h.getUTCDay();
-    if (dow === 0 || dow === 6 || hr < 8 || hr >= 20) return;
+    if (dow === 0 || dow === 6 || hr < 8 || hr >= 20 || !kxWorkNow()) return;
     const cfg = await csSettings().catch(() => ({ members: [] }));
     const list = [...new Set([...(cfg.members || []).map((m) => String(m.email || "").toLowerCase()), ...[..._kxInbox.keys()]].filter(Boolean))];
     for (const em of list) { const c = _kxInbox.get(em); if (c && (c.p || (c.at && Date.now() - c.at < 8 * 60 * 1000))) continue; await kinxsHomeInbox(em, { fresh: true }).catch(() => {}); }
@@ -15215,7 +15235,7 @@ setInterval(async () => {
 }, 9 * 60 * 1000).unref?.();
 // ログインしたら（ホームを開く前から）、メール・チャットを裏で読み始めておく
 setInterval(async () => {
-  try { for (const me of [..._kxInbox.keys()]) { const c = _kxInbox.get(me); if (c && c.at && Date.now() - c.at > 9 * 60 * 1000 && !c.p) kinxsHomeInbox(me).catch(() => {}); } } catch {}
+  try { if (!kxWorkNow()) return; for (const me of [..._kxInbox.keys()]) { const c = _kxInbox.get(me); if (c && c.at && Date.now() - c.at > 9 * 60 * 1000 && !c.p) kinxsHomeInbox(me).catch(() => {}); } } catch {}
 }, 3 * 60 * 1000).unref?.();
 // ===== kinXs のタスク管理（ホームのやること）：状態（未着手・進行中・完了）・削除・手で足す・Claudeのコネクタから作る（2026-10-27）=====
 const KX_TASK_STATUS = ["未着手", "進行中", "完了"];
@@ -34355,7 +34375,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-21c ロゴのダウンロードの画面（/logos.html・設定の右上から）：kinbot・kincall・kinXs を SVG と PNG（512・1024）で。／2026-11-21b knowkin への書き出し（/api/knowkin/feed）を管理者以外のトークンでも使えるように。／2026-11-21a knowkin に商談・架電・kinXs の記録を渡す読み取り専用の入口（/api/knowkin/feed・管理者のトークンだけ）。／2026-11-20zj MiiTel の会議の一覧が kinbot に入っていなかったのを直した（長さが小数で保存に失敗していた）。／2026-11-20zi MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20zh MiiTel：権限のないアカウントで2回開いてあきらめ扱いになった会議（餌取さんの会議など）を、もう一度読めるように戻す。／2026-11-20zg シフトの名前の一覧から外す人を決められる（settings.shiftHidden）。／2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-21d kinXs の受信メール・チャットの読み取り：同じメールは2回 AI に読ませない・自動で読み直すのは平日8〜20時だけ（AI のお金を減らす）。／2026-11-21c ロゴのダウンロードの画面（/logos.html・設定の右上から）：kinbot・kincall・kinXs を SVG と PNG（512・1024）で。／2026-11-21b knowkin への書き出し（/api/knowkin/feed）を管理者以外のトークンでも使えるように。／2026-11-21a knowkin に商談・架電・kinXs の記録を渡す読み取り専用の入口（/api/knowkin/feed・管理者のトークンだけ）。／2026-11-20zj MiiTel の会議の一覧が kinbot に入っていなかったのを直した（長さが小数で保存に失敗していた）。／2026-11-20zi MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20zh MiiTel：権限のないアカウントで2回開いてあきらめ扱いになった会議（餌取さんの会議など）を、もう一度読めるように戻す。／2026-11-20zg シフトの名前の一覧から外す人を決められる（settings.shiftHidden）。／2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
   "ロゴのダウンロード（/logos.html）",
   "MOCHICALL：リストの条件に 募集職種・市区町村・事前調査・電話番号・競合・次アクション期限・追いかけ・採用人数・断り理由・採用区分・採用課題・検討時期・更新時期・リスト・自社担当 を追加。キーワード・すべて／どれか・架電回数と採用人数の範囲・アプローチ禁止／接触履歴／SF 他者接触を隠す・並べ替え・CSV",

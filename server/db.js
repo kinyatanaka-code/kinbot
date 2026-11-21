@@ -12877,6 +12877,22 @@ export async function mcMiitelTodo(limit = 10, { days = 60, novideo = false, ski
   return rows;
 }
 
+// kinXs：受信メール・チャットを AI で読んだ結果を、メールごとに覚えておく（2026-11-21 田中さん「同じメールは2回読まない」）。
+//   キーは「だれの・どのメール（送った人と本文）」の印。30日たったものは消す（このための置き場なので、ほかのデータには触れない）
+let _kxIaInit = false;
+async function kxIaEnsure() { if (!pool || _kxIaInit) return; _kxIaInit = true; await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_inbox_ai (k TEXT PRIMARY KEY, result JSONB, at TIMESTAMPTZ DEFAULT now())`).catch(() => {}); }
+export async function kxInboxAiGet(keys) {
+  const m = new Map(); if (!pool || !keys || !keys.length) return m; await kxIaEnsure();
+  const { rows } = await pool.query(`SELECT k, result FROM kinxs_inbox_ai WHERE k = ANY($1::text[])`, [keys]).catch(() => ({ rows: [] }));
+  for (const r of rows) m.set(r.k, r.result || {});
+  return m;
+}
+export async function kxInboxAiPut(pairs) {
+  if (!pool || !pairs || !pairs.length) return; await kxIaEnsure();
+  for (const [k, v] of pairs) await pool.query(`INSERT INTO kinxs_inbox_ai (k, result) VALUES ($1, $2) ON CONFLICT (k) DO UPDATE SET result = EXCLUDED.result, at = now()`, [k, JSON.stringify(v || {})]).catch(() => {});
+  await pool.query(`DELETE FROM kinxs_inbox_ai WHERE at < now() - interval '30 days'`).catch(() => {});
+}
+
 // 文字起こしがまだの会議の「試した回数」を0に戻す（2026-11-20：餌取さんの会議を、見る権限のない MiiTel のアカウントで2回開いて
 //   あきらめ扱いになっていた。権限のあるアカウントでもう一度読めるように）。戻した件数を返す
 export async function mcMiitelResetTries() {
