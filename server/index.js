@@ -16416,12 +16416,62 @@ async function gemFindOpps(email, company) {
 // リンクで頼む（2026-11-18 田中さん：会社の設定で Gemini はメールの送信も下書きも PERMISSION_DENIED だった）。
 //   Gemini は文字のリンクなら出せるので、/gem?t=（依頼の本文）のリンクを出してもらう。押すと kinbot の画面で
 //   「いま → 変えたあと」を見せ、本人が「更新する」を押したときだけ、その人の権限で Salesforce を更新する（リンクを開いただけでは変わらない）
+// Gemini から書きかえてよい道具（どれも「いま → 変えたあと」を見せて、本人が押したときだけ動く）
+const GEM_WRITE_TOOLS = { sf_update: "Salesforce を直す", sf_create: "Salesforce に作る", update_user: "kinXs の会社を直す", update_task: "kinXs のタスクを直す", add_task: "kinXs にタスクを足す", set_meeting_title: "議事録の題名を変える" };
+const GEM_NAME_FIELD = { Opportunity: "Name", Account: "Name", Lead: "Company", Contact: "Name", Campaign: "Name", Case: "Subject", Task: "Subject", Event: "Subject", OpportunityLineItem: "Name" };
+async function gemJsonRequests(email, reqs, run) {
+  const tm = await gemToolMap(email);
+  const items = [];
+  for (const r of reqs) {
+    if (!GEM_WRITE_TOOLS[r.tool]) throw new Error(`「${r.tool}」は、ここからは動かせません（書きかえの道具だけ：${Object.keys(GEM_WRITE_TOOLS).join("・")}）`);
+    const hit = tm.get(r.tool); if (!hit) throw new Error(`「${r.tool}」を使う権限がありません`);
+    const props = (hit.tool.inputSchema && hit.tool.inputSchema.properties) || {};
+    const lab = (k) => String((props[k] && props[k].description) || k).split(/[（(。]/)[0].slice(0, 30) || k;
+    const show = (v) => (v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+    const it = { tool: r.tool, title: GEM_WRITE_TOOLS[r.tool], target: "", rows: [] };
+    if (r.tool === "sf_update" || r.tool === "sf_create") {
+      const so = String(r.args.sobject || "").replace(/[^A-Za-z0-9_]/g, ""); const fields = r.args.fields && typeof r.args.fields === "object" ? r.args.fields : {};
+      if (!so || !Object.keys(fields).length) throw new Error(`${r.tool} には sobject と fields が要ります`);
+      const sfU = await pickSfUser(email).catch(() => ""); if (!sfU) throw new Error("Salesforce につながる人がいません（設定で Salesforce 連携をしてください）");
+      let labels = {}; try { labels = Object.fromEntries(((await describeObject(sfU, so)).fields || []).map((f) => [f.name, f.label])); } catch {}
+      const keys = Object.keys(fields).filter((k) => /^[A-Za-z0-9_]+$/.test(k));
+      let cur = {};
+      if (r.tool === "sf_update") {
+        const id = String(r.args.id || "").replace(/[^A-Za-z0-9]/g, ""); if (!/^[A-Za-z0-9]{15,18}$/.test(id)) throw new Error("sf_update には id（Salesforce のレコードID）が要ります");
+        const nf = GEM_NAME_FIELD[so];
+        const rs = await sfQuery(sfU, `SELECT Id${nf && !keys.includes(nf) ? `, ${nf}` : ""}${keys.length ? `, ${keys.join(", ")}` : ""} FROM ${so} WHERE Id = '${id}'`);
+        cur = (rs && rs.records && rs.records[0]) || null; if (!cur) throw new Error(`その id（${id}）の ${so} が見つかりません`);
+        it.target = `${(nf && cur[nf]) || ""}（${so}・${id}）`;
+      } else it.target = `新しい ${so}`;
+      it.rows = keys.map((k) => ({ field: k, label: labels[k] || k, before: r.tool === "sf_update" ? show(cur[k]) : "", after: show(fields[k]) }));
+    } else {
+      for (const [k, v] of Object.entries(r.args || {})) {
+        if (["company", "key", "id", "bot_id"].includes(k)) { it.target += `${it.target ? "・" : ""}${show(v)}`; continue; }
+        it.rows.push({ field: k, label: lab(k), before: "", after: show(v) });
+      }
+    }
+    items.push({ ...it, args: r.args });
+  }
+  if (!run) return { ok: true, items: items.map(({ args, ...x }) => x) };
+  const results = [];
+  for (const it of items) {
+    try { const t = await gemCall(it.tool, it.args, email, tm); results.push({ tool: it.tool, target: it.target, ok: true, text: t.slice(0, 1500) }); }
+    catch (e) { results.push({ tool: it.tool, target: it.target, ok: false, text: e.message }); }
+  }
+  const { cfg } = await gemCfg(); const log = Array.isArray(cfg.issueLog) ? cfg.issueLog : [];
+  log.unshift({ n: "link", at: new Date().toISOString(), who: email, ok: results.every((x) => x.ok), msg: items.map((x) => x.tool).join("・") }); await gemSaveCfg({ issueLog: log.slice(0, 30) });
+  console.log(`[gemini] リンクの依頼（JSON）を実行しました（${email}）：${items.map((x) => x.tool).join("・")}`);
+  return { ok: true, done: true, results };
+}
 app.get("/gem", (req, res) => res.sendFile(path.join(__dirname, "..", "public", "gemreq.html")));
 app.post("/api/gemini-bridge/request", async (req, res) => {
   try {
     if (req.viaToken) return res.status(403).json({ error: "kinbot の画面から使ってください" });
     const email = String(req.user || "").toLowerCase();
-    const text = String((req.body && req.body.text) || "").replace(/[“”]/g, '"').slice(0, 4000);
+    const text = String((req.body && req.body.text) || "").replace(/[“”]/g, '"').slice(0, 20000);
+    // JSON で書いた依頼（{"requests":[{"tool":…,"args":{…}}]}）：Salesforce のどの項目でも・kinXs も直せる（2026-11-22 田中さん「Gemini でも書き換えができるようにしたい」）
+    const jreqs = /"requests"|"tool"\s*:/.test(text) ? gemParseReq(text) : null;
+    if (jreqs && jreqs.length) return res.json(await gemJsonRequests(email, jreqs, !!(req.body && req.body.run)));
     let reqs = gemParseLines(text);
     // 英数字だけのリンク（/gem?id=006…&s=99&r=Rxxxxx）：コードを、ドライブの「更新するときに選ぶ値」と同じ値にもどす
     const b = req.body || {}; const id0 = String(b.id || "").match(/^006[A-Za-z0-9]{12}(?:[A-Za-z0-9]{3})?$/) ? String(b.id) : "";
@@ -34386,7 +34436,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-22c コネクタの list_meetings を期間（from・to）・担当（owner）・題名（q）・件数（limit）でしぼれるように（全件だと長すぎてAIが読み切れない）。／2026-11-22c 案件画面とコネクタで、失注・進行中の判定を出さず、SF の商談のステージだけを出す。／2026-11-22b コネクタの get_deal_events を、管理者でなくてもだれでも全員分見られるように（owner を渡したときだけ絞る）。／2026-11-22a API トークン（knowkin など）の管理者の判定を、ログインと同じ決め方にそろえた（ログインで管理者の人はトークンでも全員分が見える）。／2026-11-21d kinXs の受信メール・チャットの読み取り：同じメールは2回 AI に読ませない・自動で読み直すのは平日8〜20時だけ（AI のお金を減らす）。／2026-11-21c ロゴのダウンロードの画面（/logos.html・設定の右上から）：kinbot・kincall・kinXs を SVG と PNG（512・1024）で。／2026-11-21b knowkin への書き出し（/api/knowkin/feed）を管理者以外のトークンでも使えるように。／2026-11-21a knowkin に商談・架電・kinXs の記録を渡す読み取り専用の入口（/api/knowkin/feed・管理者のトークンだけ）。／2026-11-20zj MiiTel の会議の一覧が kinbot に入っていなかったのを直した（長さが小数で保存に失敗していた）。／2026-11-20zi MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20zh MiiTel：権限のないアカウントで2回開いてあきらめ扱いになった会議（餌取さんの会議など）を、もう一度読めるように戻す。／2026-11-20zg シフトの名前の一覧から外す人を決められる（settings.shiftHidden）。／2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-22d Gemini のリンクの画面（/gem）で、JSON の依頼（{\"requests\":[…]}）なら Salesforce のどの項目でも・kinXs の会社やタスクも、「いま → 変えたあと」を見せてから書きかえられるように。／2026-11-22c コネクタの list_meetings を期間（from・to）・担当（owner）・題名（q）・件数（limit）でしぼれるように（全件だと長すぎてAIが読み切れない）。／2026-11-22c 案件画面とコネクタで、失注・進行中の判定を出さず、SF の商談のステージだけを出す。／2026-11-22b コネクタの get_deal_events を、管理者でなくてもだれでも全員分見られるように（owner を渡したときだけ絞る）。／2026-11-22a API トークン（knowkin など）の管理者の判定を、ログインと同じ決め方にそろえた（ログインで管理者の人はトークンでも全員分が見える）。／2026-11-21d kinXs の受信メール・チャットの読み取り：同じメールは2回 AI に読ませない・自動で読み直すのは平日8〜20時だけ（AI のお金を減らす）。／2026-11-21c ロゴのダウンロードの画面（/logos.html・設定の右上から）：kinbot・kincall・kinXs を SVG と PNG（512・1024）で。／2026-11-21b knowkin への書き出し（/api/knowkin/feed）を管理者以外のトークンでも使えるように。／2026-11-21a knowkin に商談・架電・kinXs の記録を渡す読み取り専用の入口（/api/knowkin/feed・管理者のトークンだけ）。／2026-11-20zj MiiTel の会議の一覧が kinbot に入っていなかったのを直した（長さが小数で保存に失敗していた）。／2026-11-20zi MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20zh MiiTel：権限のないアカウントで2回開いてあきらめ扱いになった会議（餌取さんの会議など）を、もう一度読めるように戻す。／2026-11-20zg シフトの名前の一覧から外す人を決められる（settings.shiftHidden）。／2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
   "案件の状況は SF のステージだけ（判定は出さない）",
   "ロゴのダウンロード（/logos.html）",

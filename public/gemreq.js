@@ -31,6 +31,7 @@
       return; }
     let j; try { j = await call(false); } catch (e) { $("gqBody").textContent = ""; msg(e.message, "err"); $("gqRaw").open = true; return; }
     if (!j) return;
+    if (j.items) return showItems(j.items);
     if (j.choose) {
       // 同じ会社に進行中の商談がいくつかあるとき：選んでもらう
       $("gqBody").innerHTML = `<p class="gq-sub">進行中の商談が${j.choose.length}件あります。更新するものを選んでください。</p><ul class="gq-choose">${j.choose.map((o) => `<li data-id="${esc(o.id)}"><b>${esc(o.account)}</b>　${esc(o.stage)}　${esc(o.owner)}<br>${esc(o.name)}</li>`).join("")}</ul>`;
@@ -50,9 +51,28 @@
       catch (e) { msg(`更新できませんでした：${e.message}`, "err"); $("gqRun").disabled = false; }
     });
   }
+  // JSON の依頼（いくつでも・SF のどの項目でも・kinXs も）：1件ずつカードで「いま → 変えたあと」を見せ、まとめて1回押す（2026-11-22）
+  function showItems(items) {
+    $("gqBody").innerHTML = items.map((it) => `<div class="gq-opp"><b>${esc(it.title)}</b>${it.target ? `<br>${esc(it.target)}` : ""}</div>
+      <table class="gq-tbl"><thead><tr><th>項目</th><th>いま</th><th>変えたあと</th></tr></thead><tbody>${it.rows.map((r) => `<tr><td>${esc(r.label)}<br><span style="color:#8a9893;font-size:11px">${esc(r.field)}</span></td><td class="gq-before">${esc(r.before) || (it.tool === "sf_update" ? "（空）" : "—")}</td><td class="gq-after">${esc(r.after) || "（空にする）"}</td></tr>`).join("")}</tbody></table>`).join("")
+      + `<div class="gq-btns"><button class="gq-btn" id="gqRun" type="button">${items.length > 1 ? `この${items.length}件をまとめて書きかえる` : "この内容で書きかえる"}</button></div>`;
+    $("gqRun").addEventListener("click", async () => {
+      $("gqRun").disabled = true; msg("書きかえています…");
+      try {
+        const d = await call(true);
+        if (d && d.results) {
+          const ng = d.results.filter((x) => !x.ok);
+          msg(d.results.map((x) => `${x.ok ? "できました" : "できませんでした"}：${x.target || x.tool}${x.ok ? "" : `\n  ${x.text}`}`).join("\n"), ng.length ? "err" : "ok");
+          $("gqRun").textContent = ng.length ? "一部できませんでした" : "書きかえました";
+        }
+      } catch (e) { msg(`書きかえられませんでした：${e.message}`, "err"); $("gqRun").disabled = false; }
+    });
+  }
   // Gemini の答えを丸ごとコピーして貼ってもよい。中にリンク（/gem?id=…）があればそれを使い、無ければ「会社：」などの行を読む
   //   （2026-11-18：Gemini はリンクを押すと Google 検索に飛ばすので、リンクは押さずにコピーして持ってくる形にした）
   function useText(t) {
+    // JSON の依頼が入っていれば、それを優先する（リンクより中身が多いため）
+    if (/"requests"|"tool"\s*:/.test(String(t || ""))) { codes = {}; text = t; $("gqText").value = t; return load(); }
     const m = String(t || "").match(/\/gem\?([^\s）)】」"'<>]+)/);
     if (m) {
       const p = new URLSearchParams(m[1]); const c = {}; for (const k of ["id", "s", "r", "cd", "od", "nd"]) if (p.get(k)) c[k] = p.get(k);
