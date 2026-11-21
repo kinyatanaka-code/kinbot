@@ -32,6 +32,7 @@ import { registerUser } from "./auth.js";
 import { mcMiitelList, mcMiitelGet, updateMeetingMeta, mcBalesLists, mcBalesRows, mcBalesRow } from "./db.js";
 // index.js から MOCHICA の道具（文字起こしの読み方・SF の項目の中身など）を受け取る（2026-11-14）
 import { auditMcpCall } from "./mcaudit.js";
+import { getProposalLibrary } from "./proposal_library.js";
 export const mcpHooks = {};
 // 案件の状況は、kinbot の判定（進行中／失注）ではなく、SF の商談のステージで返す（2026-11-22 田中さん「失注か進行中かの判定はいらない。SFのステージのタグだけでいい」）。
 //   会社名から SF のクロスの商談を探す（案件画面の札と同じ道具）。40社ずつ聞く
@@ -127,6 +128,11 @@ const TOOLS = [
       properties: { deal_id: { type: "string", description: "案件ID（list_dealsやget_deal_eventsのdeal_idから取得）" } },
       required: ["deal_id"],
     },
+  },
+  {
+    name: "get_proposal_library",
+    description: "提案資料のライブラリ（読み取り）。商談に登録した Google スライドの提案資料（本文・会社・業界・規模・結果）と、お客様に送った PDF の提案資料（ページごとの本文と、お客様が各ページを見た秒数の合計・閲覧回数）を新しい順に返す。新しい提案資料を作るときのベース（よく使われるページの流れ・よく読まれるページ）を作るのに使う。q で会社名・業界・本文をしぼれる。",
+    inputSchema: { type: "object", properties: { q: { type: "string", description: "会社名・業界・本文の一部（任意）" }, limit: { type: "number", description: "それぞれ何件まで（既定30・最大60）" } } },
   },
   {
     name: "list_meetings",
@@ -388,6 +394,9 @@ export async function callTool(name, args, req) {
       d.company_profile = profileFromMap(pmap, d.company_name);
       const st = (await sfStagesFor(req.user, [d.company_name])).get(d.company_name) || { sf_stage: "", sf_opportunity: "" };
       return { ...stripJudge(d), ...st };
+    }
+    case "get_proposal_library": {
+      return await getProposalLibrary({ q: args && args.q, limit: args && args.limit });
     }
     case "list_meetings": {
       // UIの商談履歴と同じく全件を対象にする（画面で見える商談はMCPでも見える）
