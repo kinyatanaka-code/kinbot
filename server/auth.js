@@ -95,6 +95,8 @@ function readCookie(req, name) {
 export function getUser(req) {
   const id = verifyToken(readCookie(req, COOKIE_NAME));
   if (!id || id.includes("|")) return null;   // 用途つきトークン（連携リンク等）はログインに使わせない
+  // 招待リンク（kincs-join）と SF 連携の state（{ で始まる JSON）も同じ鍵で署名している。Cookie に入れるとログインできてしまっていた（2026-11-22 福井さん）
+  if (id === "kincs-join" || id.startsWith("{")) return null;
   return { username: id, admin: isAdmin(id) };
 }
 

@@ -43,7 +43,11 @@
             throw new Error(d.error || "ログインに失敗しました");
           }
           const next = new URLSearchParams(location.search).get("next");
-          location.href = next ? decodeURIComponent(next) : "/";
+          // 行き先は kinbot の中のページ（/ で始まる）だけ。javascript: や外のサイトを入れたリンクを踏ませる手口を防ぐ
+          let to = "/";
+          try { to = next ? decodeURIComponent(next) : "/"; } catch {}
+          if (!/^\/(?![\/\\])/.test(to)) to = "/";
+          location.href = to;
         } catch (e) {
           $("err").textContent = e.message;
           $("err").hidden = false;

@@ -94,6 +94,8 @@ export function mountOauthServer(app) {
 
   // ---- 3. 認可エンドポイント（ブラウザで開かれる） ----
   app.get("/oauth/authorize", async (req, res) => {
+    // 許可の画面を、ほかのサイトの中（iframe）にはめこんで押させる手口を防ぐ（2026-11-22 福井さん）
+    res.setHeader("x-frame-options", "DENY");
     try {
       const { client_id, redirect_uri, state, code_challenge, code_challenge_method } = req.query;
       if (!client_id || !redirect_uri) return res.status(400).send("client_idとredirect_uriが必要です");

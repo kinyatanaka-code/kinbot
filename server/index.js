@@ -924,7 +924,8 @@ async function mcCallAdmins() {
 function isMcInternPath(p) {
   return p === "/mochica" || p === "/mochica.html" || p.startsWith("/api/mccall/") ||
     p === "/api/me" || p === "/api/logout" || p === "/logout" ||
-    /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p) || p.startsWith("/zoom-ext/");
+    // API は拡張子では通さない（「/api/〜.js」と末尾に付けるだけで制限を抜けられたため・2026-11-22 福井さん）
+    (!p.startsWith("/api/") && /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p)) || p.startsWith("/zoom-ext/");
 }
 
 // その人が「kincallだけ」の役割かどうか
@@ -952,7 +953,8 @@ function isKincallPath(p) {
     p.startsWith("/api/calls/") || p === "/api/calls" ||
     // MOCHICA の架電（/mochica・/api/mccall/）はここに入れない。MOCHICA のインターンかどうかで別に判定する（internAccess・2026-11-18）
     // 画面で読むファイル（.js：案件共有など）・Zoomの拡張機能の zip も（2026-11-09：インターン生がダウンロードすると HTML になっていた）
-    /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p) || p.startsWith("/zoom-ext/");
+    // API は拡張子では通さない（「/api/〜.js」と末尾に付けるだけで制限を抜けられたため・2026-11-22 福井さん）
+    (!p.startsWith("/api/") && /\.(css|svg|png|jpg|ico|webmanifest|js|zip|woff2?)$/.test(p)) || p.startsWith("/zoom-ext/");
 }
 
 // kincallのみの人でも、自分の設定（Google連携・アカウント・登録リンク）は開けるようにする。
@@ -1086,7 +1088,8 @@ app.use(async (req, res, next) => {
   if (/^\/b\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
   // 転送URL（お客様が踏むので認証なし）
   if (/^\/g\/[A-Za-z0-9_-]+$/.test(req.path)) return next();
-  if (/^\/api\/booking\/[A-Za-z0-9_-]+(\/book)?$/.test(req.path)) return next();
+  //   ただし /api/booking/pages（全員の日程調整ページの一覧・作成）は社内向け。お客様用の例外に巻きこまれて、ログインなしで読めていた（2026-11-22 福井さん）
+  if (req.path !== "/api/booking/pages" && /^\/api\/booking\/[A-Za-z0-9_-]+(\/book)?$/.test(req.path)) return next();
   // 送った資料まわりは、受け取った相手が認証なしで開く
   //   /d/xxx  … 資料のビューアー
   //   /px/xxx … 開封計測の画像
@@ -1135,7 +1138,9 @@ app.use(async (req, res, next) => {
   if (
     req.path === "/login.html" ||
     req.path === "/register.html" ||
-    /\.(css|js|png|jpe?g|svg|ico|webp|woff2?)$/i.test(req.path)
+    // 画面の部品（CSS・JS・画像）を読むときだけ、ログインなしで通す。API と、読む以外（POST・PUT・DELETE）は通さない。
+    //   前は「/api/docs/12.png」のように末尾に .png を付けるだけで、ログインなしで消す・書きかえる API まで通っていた（2026-11-22 福井さん）
+    ((req.method === "GET" || req.method === "HEAD") && !req.path.startsWith("/api/") && /\.(css|js|png|jpe?g|svg|ico|webp|woff2?)$/i.test(req.path))
   ) {
     return next();
   }
@@ -1178,7 +1183,7 @@ app.use(async (req, res, next) => {
         || p === "/auth/google" || p === "/auth/google/callback" || p === "/api/calendar/status" || p === "/api/calendar/disconnect"
         || p === "/auth/salesforce" || p === "/auth/salesforce/callback" || p === "/api/salesforce/status" || p === "/api/salesforce/disconnect"
         || p === "/api/zoom-phone/status"   // kincs の画面から Zoom Phone でかける（2026-11-09）
-        || /\.(js|css|svg|png|jpg|ico|woff2?|webmanifest)$/.test(p) || p.startsWith("/api/kincs/");
+        || (!p.startsWith("/api/") && /\.(js|css|svg|png|jpg|ico|woff2?|webmanifest)$/.test(p)) || p.startsWith("/api/kincs/");
       if (!ok) { if (p.startsWith("/api/")) return res.status(403).json({ error: "kincs だけを使うアカウントです" }); return res.redirect(/settings/.test(p) ? "/kincs/settings" : "/kincs"); }   // 連携のあと設定に戻るときは kincs の設定へ
       return next();
     }
@@ -6722,11 +6727,17 @@ app.get("/api/doc/:slug/file", async (req, res) => {
     const slug = String(req.params.slug || "");
     const link = await getDocLink(slug);
     if (!link) return res.status(404).send("見つかりません");
+    // 期限は「開く」のときだけ確かめていたので、ファイルのURLを直接たたくと期限切れの資料も取れていた（2026-11-22 福井さん）
+    if (link.expires_at && new Date(link.expires_at).getTime() < Date.now()) {
+      return res.status(410).send("この資料は公開期間が終了しました。お手数ですが、送り主にご連絡ください。");
+    }
     const f = await getDocBytes(link.doc_id);
     if (!f || !f.bytes) return res.status(404).send("資料がありません");
     const isDl = String(req.query.dl || "") === "1";
     if (isDl) { try { await recordDownload(slug, req); } catch {} }
-    res.setHeader("content-type", f.mime || "application/pdf");
+    // ここはログインなしで開ける場所。PDF 以外（HTML・SVG など）を kinbot の画面として開かせない
+    res.setHeader("x-content-type-options", "nosniff");
+    res.setHeader("content-type", /html|svg|xml|javascript/i.test(String(f.mime || "")) ? "application/octet-stream" : (f.mime || "application/pdf"));
     res.setHeader("cache-control", "private, max-age=600");
     res.setHeader("content-disposition",
       `${isDl ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(fixMojibake(f.filename) || "document.pdf")}`);
@@ -7181,6 +7192,8 @@ app.post("/api/docs", docUpload.single("file"), async (req, res) => {
     }
     const mime = req.file.mimetype || "application/pdf";
     if (!/pdf/i.test(mime)) return res.status(400).json({ error: "PDFを選んでください" });
+    // 種類の名前（mime）は送る側が好きに書けるので、中身の先頭が本当に PDF かも確かめる（2026-11-22 福井さん）
+    if (!req.file.buffer || req.file.buffer.subarray(0, 1024).indexOf("%PDF-") === -1) return res.status(400).json({ error: "PDFとして読めませんでした。PDFで保存し直してからお試しください。" });
     const row = await addDocFile({
       // ファイル名はlatin1として届くので、UTF-8に直してから保存する
       name: fixMojibake(String(req.body?.name || "").trim()) || fixMojibake(req.file.originalname),
@@ -14154,7 +14167,8 @@ app.post("/api/kinxs/accounts/:id/files", express.json({ limit: "25mb" }), async
     if (!data.length) return res.status(400).json({ error: "ファイルが空です" });
     if (data.length > 15 * 1024 * 1024) return res.status(400).json({ error: "15MBまでのファイルにしてください" });
     const name = String(b.name || "検収書.pdf").slice(0, 120), mime = String(b.mime || "application/pdf");
-    if (!/pdf|image\//.test(mime)) return res.status(400).json({ error: "PDFか画像を選んでください" });
+    // SVG・HTML は中にプログラムを書けるので受けない（開いた人の画面で動いてしまう・2026-11-22 福井さん）
+    if (!/pdf|image\//.test(mime) || /svg|html|xml/i.test(mime)) return res.status(400).json({ error: "PDFか画像（PNG・JPEG）を選んでください" });
     const { items } = await kinxsBuildMemo(); const x = (items || []).find((i) => String(i.id) === String(req.params.id)) || {};
     const by = await displayNameOf(req.user).catch(() => req.user);
     const f = await kxFileAdd({ accountId: req.params.id, kind: b.kind || "検収書", name, mime, data, by, circusNo: String(b.circusNo || "").trim() });
@@ -14182,7 +14196,9 @@ app.post("/api/kinxs/accounts/:id/files", express.json({ limit: "25mb" }), async
 app.get("/api/kinxs/files/:fid", async (req, res) => {
   try { if (!(await canKinxs(req))) return res.status(403).send("見られません（kinXs にログインしてください）");
     const f = await kxFileGet(req.params.fid); if (!f) return res.status(404).send("ファイルがありません");
-    res.set("content-type", f.mime || "application/pdf"); res.set("content-disposition", `inline; filename*=UTF-8''${encodeURIComponent(f.name || "file.pdf")}`); res.send(f.data); }
+    const kxBad = /svg|html|xml|javascript/i.test(String(f.mime || ""));   // 前に入った SVG・HTML は、画面として開かずダウンロードにする
+    res.set("x-content-type-options", "nosniff");
+    res.set("content-type", kxBad ? "application/octet-stream" : (f.mime || "application/pdf")); res.set("content-disposition", `${kxBad ? "attachment" : "inline"}; filename*=UTF-8''${encodeURIComponent(f.name || "file.pdf")}`); res.send(f.data); }
   catch (e) { res.status(500).send(e.message); }
 });
 app.delete("/api/kinxs/files/:fid", async (req, res) => {
@@ -27459,7 +27475,10 @@ app.put("/api/chat-config", async (req, res) => {
 
 app.post("/api/chat-config/test", async (req, res) => {
   try {
-    const url = String(req.body?.url || "").trim() || (await chatWebhookUrl());
+    const given = String(req.body?.url || "").trim();
+    // 保存のときと同じ決まり。好きな URL を入れて、サーバーから社内の別の場所へ送らせる道に使われないように（2026-11-22 福井さん）
+    if (given && !/^https:\/\/chat\.googleapis\.com\/v1\/spaces\//.test(given)) return res.status(400).json({ error: "Google Chat の Webhook URL（https://chat.googleapis.com/v1/spaces/ で始まるもの）を入れてください" });
+    const url = given || (await chatWebhookUrl());
     const space = String(req.body?.spaceId || "").trim();
     const r = await notifyChat(
       "🤖 *kinbotからのテスト通知です*\nこのメッセージが見えていれば、通知の設定は完了しています。",
@@ -34436,7 +34455,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-22f コネクタに get_proposal_library（提案資料のライブラリ：登録した Google スライドの本文・結果と、送った PDF のページごとの本文・見られた秒数。AI は使わない）。doc_files に page_texts 列を足した。／2026-11-22e knowkin への書き出し（/api/knowkin/feed）に transcripts（商談の文字起こし全文・1回30件まで）を足した。／2026-11-22d Gemini のリンクの画面（/gem）で、JSON の依頼（{\"requests\":[…]}）なら Salesforce のどの項目でも・kinXs の会社やタスクも、「いま → 変えたあと」を見せてから書きかえられるように。／2026-11-22c コネクタの list_meetings を期間（from・to）・担当（owner）・題名（q）・件数（limit）でしぼれるように（全件だと長すぎてAIが読み切れない）。／2026-11-22c 案件画面とコネクタで、失注・進行中の判定を出さず、SF の商談のステージだけを出す。／2026-11-22b コネクタの get_deal_events を、管理者でなくてもだれでも全員分見られるように（owner を渡したときだけ絞る）。／2026-11-22a API トークン（knowkin など）の管理者の判定を、ログインと同じ決め方にそろえた（ログインで管理者の人はトークンでも全員分が見える）。／2026-11-21d kinXs の受信メール・チャットの読み取り：同じメールは2回 AI に読ませない・自動で読み直すのは平日8〜20時だけ（AI のお金を減らす）。／2026-11-21c ロゴのダウンロードの画面（/logos.html・設定の右上から）：kinbot・kincall・kinXs を SVG と PNG（512・1024）で。／2026-11-21b knowkin への書き出し（/api/knowkin/feed）を管理者以外のトークンでも使えるように。／2026-11-21a knowkin に商談・架電・kinXs の記録を渡す読み取り専用の入口（/api/knowkin/feed・管理者のトークンだけ）。／2026-11-20zj MiiTel の会議の一覧が kinbot に入っていなかったのを直した（長さが小数で保存に失敗していた）。／2026-11-20zi MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20zh MiiTel：権限のないアカウントで2回開いてあきらめ扱いになった会議（餌取さんの会議など）を、もう一度読めるように戻す。／2026-11-20zg シフトの名前の一覧から外す人を決められる（settings.shiftHidden）。／2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
+const BUILD_TAG = "2026-11-22g セキュリティの直し（福井）：末尾に .png などを付けるとログインなしで API を通れた穴をふさいだ／日程調整ページの一覧がログインなしで読めたのを直した／招待リンク・SF連携の署名でログインできたのを止めた／ログイン後の行き先・SF連携の戻り先は kinbot の中だけ／資料は期限切れを出さない・PDF の中身を確かめる／kinXs の添付は SVG・HTML を受けない／通知テストは Google Chat の URL だけ／OAuth の許可画面のはめこみ禁止。／2026-11-22f コネクタに get_proposal_library（提案資料のライブラリ：登録した Google スライドの本文・結果と、送った PDF のページごとの本文・見られた秒数。AI は使わない）。doc_files に page_texts 列を足した。／2026-11-22e knowkin への書き出し（/api/knowkin/feed）に transcripts（商談の文字起こし全文・1回30件まで）を足した。／2026-11-22d Gemini のリンクの画面（/gem）で、JSON の依頼（{\"requests\":[…]}）なら Salesforce のどの項目でも・kinXs の会社やタスクも、「いま → 変えたあと」を見せてから書きかえられるように。／2026-11-22c コネクタの list_meetings を期間（from・to）・担当（owner）・題名（q）・件数（limit）でしぼれるように（全件だと長すぎてAIが読み切れない）。／2026-11-22c 案件画面とコネクタで、失注・進行中の判定を出さず、SF の商談のステージだけを出す。／2026-11-22b コネクタの get_deal_events を、管理者でなくてもだれでも全員分見られるように（owner を渡したときだけ絞る）。／2026-11-22a API トークン（knowkin など）の管理者の判定を、ログインと同じ決め方にそろえた（ログインで管理者の人はトークンでも全員分が見える）。／2026-11-21d kinXs の受信メール・チャットの読み取り：同じメールは2回 AI に読ませない・自動で読み直すのは平日8〜20時だけ（AI のお金を減らす）。／2026-11-21c ロゴのダウンロードの画面（/logos.html・設定の右上から）：kinbot・kincall・kinXs を SVG と PNG（512・1024）で。／2026-11-21b knowkin への書き出し（/api/knowkin/feed）を管理者以外のトークンでも使えるように。／2026-11-21a knowkin に商談・架電・kinXs の記録を渡す読み取り専用の入口（/api/knowkin/feed・管理者のトークンだけ）。／2026-11-20zj MiiTel の会議の一覧が kinbot に入っていなかったのを直した（長さが小数で保存に失敗していた）。／2026-11-20zi MOCHICALL：リストの条件（条件で割り振る・SHOBO から足す）を ASUMO /teleapo の絞り込みにそろえた（キーワード・すべて／どれか・範囲・隠す・並べ替え・CSV）。MOCHICA：コンバート済みリードへの架電記録が SF に書けない不具合を修正（コンバート先に付け替えて書く）。テレアポで商談が立ち上がっている会社もはじく。リード管理が12桁の番号で開けない不具合を修正／2026-11-20zh MiiTel：権限のないアカウントで2回開いてあきらめ扱いになった会議（餌取さんの会議など）を、もう一度読めるように戻す。／2026-11-20zg シフトの名前の一覧から外す人を決められる（settings.shiftHidden）。／2026-11-20zf シフト提出はログインなしで開ける。上の名前のタブから自分を選んで入れる（インターン生＝メンバー管理で kincall の人）。／2026-11-20ze 候補者の質問の画面を横に広く（順位をもっと大きく見せる）。／2026-11-20zd 候補者の質問：会社のカードを左に1列、よく聞かれることの順位を右に大きく（50位まで）。／2026-11-20zc OEM 消化企業一覧の試し・動かすを、クローザーも使えるように。／2026-11-20zb OEM の「消化企業一覧」：kinXs で納品した会社を、未消化（右）から納品済み（左）へ1時間ごとに移す（試してから動かす）。／2026-11-20za シフト提出のページをパソコンでも見やすく（カレンダーを大きく左・時間とボタンを右）。スマホで右がはみ出していたのも直した。／2026-11-20y 担当企業の「納品メールの対応が必要」に、2026年10月より前に受注した会社（納品後とみなす）を数えない。／2026-11-20x kinXs：キックオフ未設定・未実施を受注したらすぐホームの要アクションに出す（FS のカレンダーのキックオフ予定で「未設定／予定あり／予定日過ぎ」を分ける）。「担当企業」の画面を足した（担当数・キックオフ未実施・検収書・納品メール・未掲載・掲載中・タスク）。／2026-11-20w kinXs・kinbot の企業カードに「NeoSTAGEに入れる」。NeoSTAGE の企業検索を開いて、その会社を入れて検索する（kinbot-ext 2.2.30）。企業検索で0項目になっていたのも直した。／2026-11-20v インターン生もシフト提出のページ（/shift.html）を開いて入力できるように（kincall に戻されていた）。／2026-11-20u kincall の資料送付設定で、自分の署名をその場で書きかえられるように（だれでも自分の分だけ。自動の署名に戻すこともできる）。／2026-11-20t kinXs のタスクで、同じ会社・似た内容・同じ期日のものを1つにまとめて見せる（済み・消すはまとめたもの全部に効く）。／2026-11-20q MOCHICALL の企業調査とマイナビの調べを、AI（Gemini＋Google 検索）・有料の検索を使わず、Yahoo! JAPAN などの Web 検索・gBizINFO・会社のサイトの本文から決まった形で抜き出す形に（server/mcresearch.js）。／2026-11-20p SHOBO の Gemini を専用キー（SHOBO_GEMINI_API_KEY）・専用モデル（SHOBO_GEMINI_MODEL）に分け、月の上限（SHOBO_GEMINI_MONTHLY_LIMIT_JPY・既定5,000円）で止める。利用額は /api/gemini-key-status の shobo に。／2026-11-20s kincall の資料送付：送る人の署名（アポ確定メールと同じ。設定 → メンバー管理 → 署名）を本文の最後に付ける。テンプレに {署名} を書けばその場所に入る。／2026-11-20r 予定名に「リスケ再設定」（再設定）とあるものは商談ありにする（空き・割り振り・アポの数・確定メール・キックオフ・プロセスシート）。キャンセルと書いてあるものは今までどおり。前に外したリスケ再設定のアポは1回だけ戻す。／2026-11-20q kinXs：掲載済みになったら（掲載先を初めて入れた・掲載済みにした・掲載日を入れた）、手前の段（キックオフ・検収書・納品メール）も一気に済みにする。キックオフの日が分からない会社は掲載日を入れる。変更の履歴に残す。／2026-11-20p kinXs の会社の画面（活動記録）：道のりの段（キックオフ・検収書・納品メール・掲載・活用・更新）を押すと直す欄が開き、日付を入れて済みにする・戻すができる。対応事項の宿題に［済み］［消す］、次回アクションに［済み］。／2026-11-20o MOCHICALL の企業調査（Gemini＋Google 検索）：1日の上限（1,200件）をサーバーの中だけで数えていて、デプロイの再起動のたびに 0 に戻り何回も上限を超えていた（11/19〜20 に 7,000件・検索で約 $66）→ 今日調べた数をデータベースから数えるように。／2026-11-20m MOCHICALL：テレアポの結果に「問い合わせフォームへ」（受付・担当者の両方）と、会社の HP の問い合わせフォームへの自動送信／2026-11-20n Claude のスキル（kinbot-skill）の説明に「よく聞かれることと使う道具」の表（稼働時間は kincall list_work_hours・Drive のシフトGS は使わない など）。スキルを入れ直すと効く。／2026-11-20m kincall のコネクタに list_work_hours：インターン生などの稼働時間を週ごと・人ごとに（予定＝出勤管理のシフト・実績＝架電の最初〜最後から出した実働時間）。／2026-11-20l MOCHICALL：すべてのリードの「これまで」に BALES・SF・Zoom Phone・DOC の過去アプローチを電話番号と会社名で反映／2026-11-20k 開発メモの Chat への知らせ：ロボからの要望は3分待って知らせるが、その間にデプロイで再起動すると消えていた → 知らせた印（notified_at）を付け、印の無いものは2分ごとの見回りで送る。kinXs の掲載先一覧に「Excel で書き出す」（いまのタブ・しぼりこみのまま、掲載先1か所ずつ1行）。／2026-11-20j MOCHICALL：CSV の取り込みで電話番号が空の行を SF から補う（リードID・商談ID・会社名）";
 const BUILD_FEATURES = [
   "案件の状況は SF のステージだけ（判定は出さない）",
   "ロゴのダウンロード（/logos.html）",
@@ -34658,7 +34677,9 @@ app.get("/auth/salesforce", (req, res) => {
   if (!salesforceConfigured()) return res.status(500).send("SF_CLIENT_ID/SECRET が未設定です（後日の連携作業で設定します）");
   if (!PUBLIC_URL) return res.status(500).send("PUBLIC_URL が未設定です");
   // returnクエリパラメータで認証後の戻り先を指定可能
-  const returnUrl = req.query.return || "/settings.html";
+  // 戻り先は kinbot の中のページ（/ で始まる）だけ。外のサイトを入れて、そこへ飛ばす道に使われないように（2026-11-22 福井さん）
+  const ret0 = String(req.query.return || "");
+  const returnUrl = /^\/(?![\/\\])/.test(ret0) ? ret0 : "/settings.html";
   const state = makeToken(JSON.stringify({ owner: req.user || "", returnUrl }));
   // 接続アプリで「PKCEの要求」がONでも通るように、毎回PKCEを付ける
   const { verifier, challenge } = sfCreatePkce();

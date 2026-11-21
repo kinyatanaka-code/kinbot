@@ -2,6 +2,12 @@ node_modules/
 .DS_Store
 *.log
 .env
+.env.*
+*.pem
+*.key
+*.p12
+credentials*.json
+service-account*.json
 
 # 自動改善の途中で作られるファイル。
 # リポジトリに入れてしまうと、PRに関係ないファイルが混ざって中身が読みにくくなる。
