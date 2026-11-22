@@ -192,23 +192,33 @@
     if ($("blMain") !== box) return;
     // 最終架電結果・所有者・SF の絞り込みは、表の列の見出しのボタンから選ぶ（上の行が選択欄だらけで見づらかったため）
     const FIL = {
-      cr: { on: crF, opts: [["", "すべて"], ...["アポ獲得", "再コール", "担当者不在", "断り", "不在", "NG", "その他", "未架電"].map((k) => [k, k])], set: (v) => { crF = v; } },
-      own: { on: ownF, opts: [["", "すべて"], ...ownList.map((v) => [v.v, `${v.v}（${Number(v.n).toLocaleString()}）`])], set: (v) => { ownF = v; } },
-      sf: { on: sfF, opts: [["", "すべて"], ...sfList.map(([v, lb, n]) => [v, `${lb}（${Number(n).toLocaleString()}）`])], set: (v) => { sfF = v; } },
+      cr: { on: crF, opts: ["アポ獲得", "再コール", "担当者不在", "断り", "不在", "NG", "その他", "未架電"].map((k) => [k, k]), set: (v) => { crF = v; } },
+      own: { on: ownF, opts: ownList.map((v) => [v.v, `${v.v}（${Number(v.n).toLocaleString()}）`]), set: (v) => { ownF = v; } },
+      sf: { on: sfF, opts: sfList.map(([v, lb, n]) => [v, `${lb}（${Number(n).toLocaleString()}）`]), set: (v) => { sfF = v; } },
     };
+    // 選んだものは「|」でつないで持つ（サーバーも同じ形で受ける）。複数選べる（2026-11-22 田中さん「複数選択できるように」）
+    const picked = (k) => (FIL[k].on ? FIL[k].on.split("|") : []);
     const thf = (c) => { const k = c.key === "__cr" ? "cr" : c.key === "__sf" ? "sf" : (!memberF && oc && c.key === oc) ? "own" : ""; if (!k) return "";
-      return `<button type="button" class="bl-thf${FIL[k].on ? " on" : ""}" data-thf="${k}" title="${FIL[k].on ? `絞り込み中：${esc(FIL[k].on)}` : "絞り込む"}"><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13l-2.8 1.4V8.4z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>`; };
+      return `<button type="button" class="bl-thf${FIL[k].on ? " on" : ""}" data-thf="${k}" title="${FIL[k].on ? `絞り込み中：${esc(picked(k).map((v) => ((FIL[k].opts.find(([x]) => x === v) || [])[1] || v).replace(/（[\d,]+）$/, "")).join("・"))}` : "絞り込む"}"><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13l-2.8 1.4V8.4z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>`; };
     const thPop = (btn, k) => {
       document.querySelectorAll(".bl-thpop").forEach((x) => x.remove());
       const pop = document.createElement("div"); pop.className = "bl-thpop";
-      pop.innerHTML = FIL[k].opts.map(([v, lb]) => `<button type="button" data-v="${esc(v)}" class="${FIL[k].on === v ? "on" : ""}">${esc(lb)}</button>`).join("");
+      const sel = new Set(picked(k));
+      pop.innerHTML = `<div class="bl-thpop-l">${FIL[k].opts.map(([v, lb]) => `<label><input type="checkbox" value="${esc(v)}" ${sel.has(v) ? "checked" : ""}><span>${esc(lb)}</span></label>`).join("") || '<div class="mc-note">選べるものがありません</div>'}</div>
+        <div class="bl-thpop-f"><button type="button" data-clr>すべて外す</button><button type="button" class="ok" data-ok>絞り込む</button></div>`;
       document.body.appendChild(pop);
       const r = btn.getBoundingClientRect();
       pop.style.top = `${window.scrollY + r.bottom + 6}px`;
       pop.style.left = `${Math.max(8, Math.min(window.scrollX + r.left - 10, window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 8))}px`;
-      pop.querySelectorAll("[data-v]").forEach((o) => o.addEventListener("click", () => { FIL[k].set(o.dataset.v); pop.remove(); page = 0; detail(); }));
-      // 外を押したら閉じる
-      setTimeout(() => document.addEventListener("click", function off(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("click", off); } }), 0);
+      // チェックを付け外ししてから「絞り込む」で反映。外を押して閉じたときも、変えていれば反映する（押し忘れで効かないのを防ぐ）
+      let done = false;
+      const apply = () => { if (done) return; done = true; document.removeEventListener("click", off); pop.remove();
+        const v = [...pop.querySelectorAll("input:checked")].map((x) => x.value).join("|");
+        if (v !== (FIL[k].on || "")) { FIL[k].set(v); page = 0; detail(); } };
+      const off = (e) => { if (!pop.contains(e.target)) apply(); };
+      pop.querySelector("[data-clr]").addEventListener("click", () => pop.querySelectorAll("input").forEach((x) => { x.checked = false; }));
+      pop.querySelector("[data-ok]").addEventListener("click", apply);
+      setTimeout(() => document.addEventListener("click", off), 0);
     };
     // 表の列の並び（2026-11-22 田中さん）：会社名・電話番号・担当者名・最終活動日・最終架電結果・最終活動コメント・所有者・SF。
     //   「表示項目」で自分で選んだ列があるときは、その並びのあとに（最終活動日の右に）最終架電結果を入れる
@@ -232,11 +242,8 @@
     // 商談ありの数は、今の絞り込みの全件で数える（会社名だけ読む）
     (async () => { const el = box.querySelector("[data-mtn]"); if (!el || !coCol || !mtCos) return; try { let n = 0; for (let off = 0; ; off += 5000) { const a = await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/rows?offset=${off}&limit=5000`); n += a.rows.filter((d) => mtCos.get(coNorm(valOf(d, coCol.key)))).length; if (a.rows.length < 5000) break; } el.textContent = n.toLocaleString(); } catch { el.textContent = "—"; } })();
     headActs(l, csvQ);
-    const crs = box.querySelector("[data-cr]"); if (crs) crs.addEventListener("change", () => { crF = crs.value; page = 0; detail(); });
     // 列の見出しの絞り込み：押すと選択肢が出る（2026-11-22 田中さん「列のところに絞り込みのボタンを」）
     box.querySelectorAll("[data-thf]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); thPop(b, b.dataset.thf); }));
-    const ows = box.querySelector("[data-own]"); if (ows) ows.addEventListener("change", () => { ownF = ows.value; page = 0; detail(); });
-    const sfs = box.querySelector("[data-sff]"); if (sfs) sfs.addEventListener("change", () => { sfF = sfs.value; page = 0; detail(); });
     const hb2 = box.querySelector("[data-home2]"); if (hb2) hb2.addEventListener("click", () => goHome());
     const hs = box.querySelector("[data-hot]"); if (hs) hs.addEventListener("change", () => { hotF = hs.value; page = 0; detail(); });
     const hso = box.querySelector("[data-hsort]"); if (hso) hso.addEventListener("change", () => { hotSort = hso.checked; page = 0; detail(); });

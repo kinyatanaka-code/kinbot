@@ -13076,21 +13076,32 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
   // 2つめの項目で絞る（所有者など）（2026-11-22 田中さん「所有者で絞り込みたい」）
-  if (col2) { p.push(String(col2).slice(0, 80)); p.push(String(val2)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
+  //   架電結果・所有者・SF は「|」でつないで複数選べる（どれかに当たれば出す）（2026-11-22 田中さん「複数選択できるように」）
+  const many = (v) => [...new Set(String(v || "").split("|").map((x) => x.trim()).filter(Boolean))].slice(0, 60);
+  if (col2 && many(val2).length) { p.push(String(col2).slice(0, 80)); p.push(many(val2)); w.push(`COALESCE(data->>$${p.length - 1},'') = ANY($${p.length}::text[])`); }
   // SF で絞る：none＝SF に無い／won・lost・open＝商談あり（受注・失注・進行中）／lead:〇〇＝商談の無いリードの状況（2026-11-22）
   const sn = `COALESCE((sf->'sum'->>'n')::int,0)`;
-  if (sf === "none") w.push(`(${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = '')`);
-  else if (sf === "won") w.push(`${sn} > 0 AND COALESCE(sf->'sum'->>'won','') = 'true'`);
-  else if (sf === "lost") w.push(`${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') = 'true'`);
-  else if (sf === "open") w.push(`${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') <> 'true'`);
-  else if (String(sf).startsWith("lead:")) { p.push(String(sf).slice(5, 80)); w.push(`${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = $${p.length}`); }
+  const sfCond = (v) => {
+    if (v === "none") return `(${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = '')`;
+    if (v === "won") return `(${sn} > 0 AND COALESCE(sf->'sum'->>'won','') = 'true')`;
+    if (v === "lost") return `(${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') = 'true')`;
+    if (v === "open") return `(${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') <> 'true')`;
+    if (v.startsWith("lead:")) { p.push(v.slice(5, 80)); return `(${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = $${p.length})`; }
+    return "";
+  };
+  const sfW = many(sf).map(sfCond).filter(Boolean); if (sfW.length) w.push(`(${sfW.join(" OR ")})`);
   // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
   const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
   // 架電結果（kincall の6つ）で絞る。前の結果に当たるものは外す（上から順に当てはめるのと同じにする）。「未架電」は結果が空のもの
-  if (cr === "未架電") w.push(`COALESCE(data->>'callResult','') = ''`);
-  else if (cr) { const i = BALES_CR.findIndex(([k]) => k === cr);
-    if (i >= 0) { p.push(BALES_CR[i][1]); w.push(`COALESCE(data->>'callResult','') ~ $${p.length}`); for (const [, re] of BALES_CR.slice(0, i)) { p.push(re); w.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } }
-    else if (cr === "その他") { w.push(`COALESCE(data->>'callResult','') <> ''`); for (const [, re] of BALES_CR) { p.push(re); w.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } } }
+  const crCond = (v) => {
+    const cw = [];
+    if (v === "未架電") return `COALESCE(data->>'callResult','') = ''`;
+    const i = BALES_CR.findIndex(([k]) => k === v);
+    if (i >= 0) { p.push(BALES_CR[i][1]); cw.push(`COALESCE(data->>'callResult','') ~ $${p.length}`); for (const [, re] of BALES_CR.slice(0, i)) { p.push(re); cw.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } }
+    else if (v === "その他") { cw.push(`COALESCE(data->>'callResult','') <> ''`); for (const [, re] of BALES_CR) { p.push(re); cw.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } }
+    return cw.length ? `(${cw.join(" AND ")})` : "";
+  };
+  const crW = many(cr).map(crCond).filter(Boolean); if (crW.length) w.push(`(${crW.join(" OR ")})`);
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
   const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
