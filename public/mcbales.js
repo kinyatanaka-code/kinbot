@@ -72,8 +72,8 @@
     root.innerHTML = `<div class="bl-home">
       <div class="bl-home-h"><h2>リスト管理</h2><button type="button" class="bl-add" data-addlist>${PLUS}リスト追加</button></div>
       ${run.map((l) => `<div class="bl-run"><b>取り込み中</b><small>${esc(l.name)} ・ ${Number(l.got || 0).toLocaleString()}${l.total ? ` / ${Number(l.total).toLocaleString()}` : ""}件</small><div class="bl-bar"><i style="width:${l.total ? Math.min(100, Math.round(l.got / l.total * 100)) : 30}%"></i></div></div>`).join("")}
-      <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number(l.count || 0).toLocaleString()}<small>社</small></span>${hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}</div>
-      <div class="bl-home-h sub"><h3>メンバー別</h3><button type="button" class="bl-add" data-addmem ${oc ? "" : "disabled"}>${PLUS}リスト追加</button></div>
+      <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number(l.count || 0).toLocaleString()}<small>件</small></span>${hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}</div>
+      <div class="bl-home-h sub"><h3>メンバー別</h3><button type="button" class="bl-add" data-addmem ${oc ? "" : "disabled"}>${PLUS}メンバー追加</button></div>
       <div class="bl-lgrid" data-mems>${oc ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="mc-note">リストに「所有者」の列が無いので、メンバー別に分けられません。</div>'}</div>
       ${feeds.length ? `<div class="bl-home-h sub"><h3>見張り（架電の記録）</h3></div><div class="bl-lgrid">${feeds.map((f) => `<button type="button" class="bl-lc" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><span class="n">${Number(f.total || 0).toLocaleString()}<small>件</small></span><small>${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("")}</div>` : ""}
       ${lists.length ? "" : diagHtml()}</div>`;
@@ -87,17 +87,17 @@
     if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
     const box = root.querySelector("[data-mems]"); if (!box || !root.isConnected) return;
     const shown = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
-    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="n">${Number(v.n || 0).toLocaleString()}<small>社</small></span><small>${esc(m0.name || "")} から</small>${Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
+    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="n">${Number(v.n || 0).toLocaleString()}<small>件</small></span><small>${esc(m0.name || "")} から</small>${Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
       : '<div class="mc-note">所有者の入ったリードがありません。</div>';
     box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { cur = m0.list_key; mode = "list"; memberF = el.dataset.mem; fcol = oc; fval = memberF; q = ""; page = 0; draw(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     box.querySelectorAll("[data-mx]").forEach((b) => b.addEventListener("click", async (e) => { e.stopPropagation(); members = (members || []).filter((x) => x !== b.dataset.mx); try { await api("/api/mochica/bales/members", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); } catch {} home(root); }));
-    // メンバーの「リスト追加」：所有者のなかから、カードにする人を選ぶ
+    // 「メンバー追加」：所有者のなかから、カードにする人を選ぶ（2026-11-22 田中さん「メンバー追加にしてほしい」）
     const am = root.querySelector("[data-addmem]");
     if (am) am.onclick = () => {
       const cur0 = new Set(Array.isArray(members) && members.length ? members : vals.map((v) => v.v));
-      const sh = sheet(`<h3 class="bl-sh-t">メンバー別のリストを追加する</h3>
+      const sh = sheet(`<h3 class="bl-sh-t">メンバーを追加する</h3>
         <p class="mc-note">カードにする人を選んでください（その人が所有者のリードを、「${esc(m0.name || "")}」から出します）。</p>
-        <div class="bl-mpick">${vals.map((v) => `<label><input type="checkbox" value="${esc(v.v)}" ${cur0.has(v.v) ? "checked" : ""}><span>${esc(v.v)}</span><small>${Number(v.n).toLocaleString()}社</small></label>`).join("")}</div>
+        <div class="bl-mpick">${vals.map((v) => `<label><input type="checkbox" value="${esc(v.v)}" ${cur0.has(v.v) ? "checked" : ""}><span>${esc(v.v)}</span><small>${Number(v.n).toLocaleString()}件</small></label>`).join("")}</div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button type="button" class="mt-btn" data-msave>保存する</button></div>`);
       {
         sh.querySelector("[data-msave]").addEventListener("click", async () => { members = [...sh.querySelectorAll(".bl-mpick input:checked")].map((x) => x.value);
