@@ -2122,7 +2122,9 @@ function renderPlanV2() {
   const tabBody = kp.tab === "prep"
     ? `<div data-prep>${(d.prep || []).map((p0) => `<label class="v2-ag"><input type="checkbox" ${p0.done ? "checked" : ""} /><input class="kx-in" value="${esc(p0.t)}" /></label>`).join("")}<label class="v2-ag"><input type="checkbox" /><input class="kx-in" placeholder="＋ 準備することを足す（例：1月ウェビナーのテーマを決める）" /></label></div><button type="button" class="kx-btn kx-pri" data-prep-save style="margin-top:8px">準備を保存</button>`
     : kp.tab === "acc"
-      ? `<div class="kx-note">レイヤー（A：5件以上／B：0〜4件）と0件の判定に使います</div><textarea class="kx-in" data-acc rows="8" placeholder="会社名,月（2026-10）,アクセス数　を1行ずつ（CSVを貼り付け）" style="width:100%;margin-top:6px"></textarea><button type="button" class="kx-btn kx-pri" data-acc-save style="margin-top:8px">取り込む</button><span class="kx-note" data-acc-st></span>`
+      ? `<div class="kx-note">レイヤー（A：5件以上／B：0〜4件）と0件の判定に使います</div>
+        <div class="kx-bv" data-bv><div class="kx-note">アクセス分析ダッシュボードから読み込んでいます…</div></div>
+        <div class="kx-note" style="margin-top:10px">手で入れるとき（CSV）</div><textarea class="kx-in" data-acc rows="8" placeholder="会社名,月（2026-10）,アクセス数　を1行ずつ（CSVを貼り付け）" style="width:100%;margin-top:6px"></textarea><button type="button" class="kx-btn kx-pri" data-acc-save style="margin-top:8px">取り込む</button><span class="kx-note" data-acc-st></span>`
       : `<div class="kx-note">① 施策を選ぶ</div><div class="v2-pick">${d.measures.filter((x) => x.rows.length).map((x) => `<button type="button" class="${kp.sel === x.key ? "on" : ""}" data-pick="${esc(x.key)}"><b>${esc(x.name)}</b><small>${esc(x.kind === "tech" ? "テック" : "ロー")}・${esc(x.ch)}・対象${x.rows.length}社</small></button>`).join("") || '<span class="kx-note">今月、対象のある施策はありません</span>'}</div>${selMe ? kpTargetsHtml(selMe) : ""}`;
   box.innerHTML = `<div class="p3">
     <div class="p3-top">
@@ -2146,6 +2148,8 @@ function renderPlanV2() {
   });
   box.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => { kp.sel = kp.sel === b.dataset.pick ? "" : b.dataset.pick; kp.chk.clear(); renderPlanV2(); }));
   if (selMe && kp.tab === "send") kpWireTargets(box, selMe);
+  // アクセス分析ダッシュボード（GA4）から自動で入れる（2026-11-22 田中さん「全部 kinXs のアクセス数に」）。毎朝6時に kinbot が入れ直す。ここではいつでも入れ直せる
+  const bv = box.querySelector("[data-bv]"); if (bv) bvDraw(bv);
   const as = box.querySelector("[data-acc-save]"); if (as) as.addEventListener("click", async () => {
     const rows = box.querySelector("[data-acc]").value.split(/\r?\n/).map((l) => l.split(/[,\t]/).map((c) => c.trim().replace(/^"|"$/g, ""))).filter((c) => c.length >= 3 && /\d/.test(c[2])).map((c) => ({ name: c[0], ym: c[1], count: c[2] }));
     const st = box.querySelector("[data-acc-st]");
@@ -3751,3 +3755,21 @@ async function kxDocAiLoad(bg, d) {
 
 // タスクのカードの「期限切れ ○」の札を描く（2026-11-13）
 function kxTkOverPaint() { const el = document.querySelector("[data-tk-over]"); if (!el) return; const n = (typeof kh2 !== "undefined" && kh2.tkOver) || 0; el.textContent = `期限切れ ${n}`; el.hidden = !n; }
+
+// アクセス分析ダッシュボードからの取り込みの窓：最後に入れた結果・入れ直すボタン・当たらなかった会社
+async function bvDraw(el) {
+  let d; try { d = await api("/api/kinxs/bvdash/status"); } catch (e) { el.innerHTML = `<div class="kx-note">読み込めませんでした：${esc(e.message)}</div>`; return; }
+  const L = d.last; const t = (x) => { try { return new Date(x).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+  el.innerHTML = `<div class="kx-bv-h"><b>アクセス分析ダッシュボードから</b><span class="kx-note">毎朝6時に自動で入れ直します（月のセッション数＝基本サイト＋AI面談）</span></div>
+    ${!d.configured ? '<div class="kx-note">ダッシュボードの ID・パスワード（BV_DASH_USER・BV_DASH_PASS）が Railway にまだ入っていません。</div>' : ""}
+    ${d.running ? `<div class="kx-note">取り込み中… ${d.running.done} / ${d.running.total}</div>` : L ? `<div class="kx-bv-r">最後：${esc(t(L.at))}　${L.matched}/${L.companies}社・${L.months}社月　入れた <b>${L.saved}</b>${L.kept ? `・手で入れた月を残した ${L.kept}` : ""}${L.errors && L.errors.length ? `・<span style="color:#b42318">読めなかった ${L.errors.length}</span>` : ""}</div>` : '<div class="kx-note">まだ取り込んでいません。</div>'}
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px"><button type="button" class="kx-btn kx-pri" data-bv-go ${d.running || !d.configured ? "disabled" : ""}>いま取り込む</button><label class="kx-note"><input type="checkbox" data-bv-ow> 手で入れた月も上書きする</label></div>
+    ${L && L.unmatched && L.unmatched.length ? `<details style="margin-top:6px"><summary class="kx-note">kinXs に会社が見つからない ${L.unmatched.length}社（会社名か前の名前をそろえると入ります）</summary><div class="kx-note" style="line-height:1.8">${L.unmatched.map(esc).join("・")}</div></details>` : ""}
+    ${L && L.errors && L.errors.length ? `<details style="margin-top:4px"><summary class="kx-note">読めなかったもの</summary><div class="kx-note" style="line-height:1.8">${L.errors.map(esc).join("<br>")}</div></details>` : ""}`;
+  const go = el.querySelector("[data-bv-go]"); if (go) go.addEventListener("click", async () => {
+    go.disabled = true; try { await api("/api/kinxs/bvdash/sync", { method: "POST", body: JSON.stringify({ overwrite: el.querySelector("[data-bv-ow]").checked }) }); } catch (e) { alertBox(el, e.message); }
+    bvWait(el); });
+  if (d.running) bvWait(el);
+}
+function bvWait(el) { clearTimeout(el._bvT); el._bvT = setTimeout(async () => { if (!el.isConnected) return; await bvDraw(el); }, 3000); }
+function alertBox(el, m) { const n = document.createElement("div"); n.className = "kx-note"; n.style.color = "#b42318"; n.textContent = m; el.appendChild(n); }

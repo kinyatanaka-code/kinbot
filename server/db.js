@@ -12053,6 +12053,12 @@ async function ensureKxActions() {
     owner TEXT, done_on DATE, updated_by TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (account_id, mkey, ym))`);
   await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_access (account_id TEXT NOT NULL, ym TEXT NOT NULL, count INT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (account_id, ym))`);
+  // どこから入れた数か（csv＝手で貼った／ga＝アクセス分析ダッシュボードから自動）。前からある行は手入力として扱い、自動では上書きしない（2026-11-22）
+  await pool.query(`ALTER TABLE kinxs_access ADD COLUMN IF NOT EXISTS src TEXT`);
+  // ダッシュボード（GA4）の月ごとの中身：基本のサイト（basic）と AI面談（ai）を分けて、セッション・ユーザー・PV などを全部持つ
+  await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_access_ga (account_id TEXT NOT NULL, ym TEXT NOT NULL, kind TEXT NOT NULL,
+    sessions INT, users INT, new_users INT, pv INT, key_events INT, engaged INT, duration_sec BIGINT, events INT, sites TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (account_id, ym, kind))`);
   _kxActReady = true;
 }
 export async function kxActionsList({ yms = [] } = {}) {
@@ -12077,14 +12083,35 @@ export async function kxActionUpsert(accountId, mkey, ym, patch = {}, by = "") {
 export async function kxAccessList() {
   if (!pool) return [];
   await ensureKxActions();
-  const { rows } = await pool.query(`SELECT account_id, ym, count FROM kinxs_access`);
+  const { rows } = await pool.query(`SELECT account_id, ym, count, src FROM kinxs_access`);
   return rows;
+}
+// ダッシュボードから入れる：手で入れた行（src が ga 以外）は overwrite のときだけ上書きする
+export async function kxAccessSetGa(rows = [], { overwrite = false } = {}) {
+  if (!pool || !rows.length) return { saved: 0, kept: 0 };
+  await ensureKxActions();
+  let saved = 0, kept = 0;
+  for (const r of rows) {
+    const q = await pool.query(`INSERT INTO kinxs_access (account_id, ym, count, src) VALUES ($1,$2,$3,'ga')
+      ON CONFLICT (account_id, ym) DO UPDATE SET count = $3, src = 'ga', updated_at = now() WHERE kinxs_access.src = 'ga' OR $4::boolean`, [r.account_id, r.ym, r.count, !!overwrite]);
+    if (q.rowCount) saved++; else kept++;
+  }
+  return { saved, kept };
+}
+export async function kxAccessGaSet(rows = []) {
+  if (!pool || !rows.length) return 0;
+  await ensureKxActions();
+  for (const r of rows) await pool.query(`INSERT INTO kinxs_access_ga (account_id, ym, kind, sessions, users, new_users, pv, key_events, engaged, duration_sec, events, sites)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+    ON CONFLICT (account_id, ym, kind) DO UPDATE SET sessions=$4, users=$5, new_users=$6, pv=$7, key_events=$8, engaged=$9, duration_sec=$10, events=$11, sites=$12, updated_at=now()`,
+    [r.account_id, r.ym, r.kind, r.sessions, r.users, r.new_users, r.pv, r.key_events, r.engaged, r.duration_sec, r.events, r.sites]);
+  return rows.length;
 }
 export async function kxAccessSet(rows = []) {
   if (!pool || !rows.length) return 0;
   await ensureKxActions();
   let n = 0;
-  for (const r of rows) { await pool.query(`INSERT INTO kinxs_access (account_id, ym, count) VALUES ($1,$2,$3) ON CONFLICT (account_id, ym) DO UPDATE SET count = $3, updated_at = now()`, [r.account_id, r.ym, r.count]); n++; }
+  for (const r of rows) { await pool.query(`INSERT INTO kinxs_access (account_id, ym, count, src) VALUES ($1,$2,$3,'csv') ON CONFLICT (account_id, ym) DO UPDATE SET count = $3, src = 'csv', updated_at = now()`, [r.account_id, r.ym, r.count]); n++; }
   return n;
 }
 
