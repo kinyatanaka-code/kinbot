@@ -2748,10 +2748,15 @@ const BA_WIN = [["channels", "流入元（チャネル）"], ["sources", "参照
 function baGaBody(g, tot) {
   if (!g) return '<div class="ba-empty">この期間の取り込みがまだです。毎朝6時に取り込みます（上の「いま取り込む」でもすぐ入ります）。</div>';
   if (g.state && g.state !== "ready" && !g.available) return `<div class="ba-empty">ダッシュボードでもこの会社の数が出ていません（${esc(g.state)}）。</div>`;
-  const c = tot && tot.cur && Object.keys(tot.cur).length ? tot.cur : baSum(g.currentDaily), p = tot && tot.prev && Object.keys(tot.prev).length ? tot.prev : baSum(g.previousDaily);
+  // まとめの合計が 0 でも日ごとの数があるときは、日ごとの合計を使う（ダッシュボードのまとめが 0 で返る会社がある：2026-11-23）
+  const dc = baSum(g.currentDaily || g.daily), dp = baSum(g.previousDaily);
+  const useT = tot && tot.cur && (tot.cur.sessions > 0 || !(dc.sessions > 0));
+  const c = useT ? tot.cur : dc, p = useT && tot.prev && (tot.prev.sessions > 0 || !(dp.sessions > 0)) ? tot.prev : dp;
+  const approx = !useT || (tot && tot.approx);
   const rt = (tot && tot.realtime) || g.realtime;
   const w = (g.windows && (g.windows[ba.period] || Object.values(g.windows)[0])) || {};
   return `${baGaKpis(c, p)}
+    ${approx ? '<div class="kx-note" style="margin-top:6px">この会社はダッシュボードのまとめが 0 のため、日ごとの数を足して出しています（ユーザー数は日をまたいだ重なりを含みます）。</div>' : ""}
     ${rt ? `<div class="kx-note" style="margin-top:6px">いまサイトを見ている人：<b>${baN(rt.activeUsers || 0)}</b>人（直近30分）</div>` : ""}
     <div class="ba-sec"><h3>アクセスの推移<small>${ba.period === "d" ? "日ごと" : ba.period === "w" ? "週ごと" : "月ごと"}・セッション／ユーザー</small></h3>${baChart(baBucket(g.currentDaily || g.daily, ["sessions", "totalUsers"]), "sessions", "セッション", "totalUsers", "ユーザー")}</div>
     <div class="ba-grid2 ba-sec">${BA_WIN.filter(([k]) => Array.isArray(w[k])).map(([k, l]) => `<div class="ba-card"><h3 style="font-size:13px;margin:0 0 6px;color:#0d5b47">${l}</h3>${baTable(w[k])}</div>`).join("") || ""}</div>`;
