@@ -61,6 +61,24 @@
     const c = ((l && l.cols) || []).find((x) => /(^|\.)owner(\.name|Name|\.fullName)?$/i.test(x.key)); return c ? c.key : ""; };
   const mainList = () => lists.find((l) => l.status !== "running") || lists[0] || null;
   const PLUS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+  // ===== ページの上の帯（ヘッダー）に、会社名で探す・取り込み直す・CSV・SF と結び直す を出す（2026-11-22 田中さん「ヘッダーに移して」）=====
+  //   表を描き直しても、探す欄はそのまま（打っている途中で消えない）。一覧（カード）に戻ったら消す
+  function headActs(l, csvQ) {
+    const h = $("mcHeadList"); if (!h) return;
+    if (!l) { h.hidden = true; h.innerHTML = ""; h.dataset.k = ""; return; }
+    h.hidden = false;
+    if (h.dataset.k !== l.list_key) {
+      h.dataset.k = l.list_key;
+      h.innerHTML = `<label class="mt-find bl-hfind"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.5 13.5 17 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><input type="search" data-hq placeholder="会社名・名前・電話番号で探す" value="${esc(q)}"></label>
+        <a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">取り込み直す ↗</a><a class="mt-btn ghost" data-hcsv href="#">CSV</a><button type="button" class="mt-btn" data-sf></button>`;
+      let tm = null; const qi = h.querySelector("[data-hq]");
+      qi.addEventListener("input", () => { clearTimeout(tm); tm = setTimeout(() => { q = qi.value.trim(); page = 0; detail(); }, 400); });
+      h.querySelector("[data-sf]").addEventListener("click", async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = "結びつけています…";
+        try { await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/sf-link`, { method: "POST" }); sfPoll(cur); } catch (er) { b.disabled = false; b.textContent = "SF と結び直す"; alert("始められませんでした：" + er.message); } });
+    }
+    h.querySelector("[data-hcsv]").setAttribute("href", `/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/csv?${csvQ}`);
+    const sb = h.querySelector("[data-sf]"); if (sb && !sb.disabled) sb.textContent = l.sf_info ? "SF と結び直す" : "SF と結びつける";
+  }
   // 一覧へ戻る。ブラウザの「戻る」でも戻れるよう、リストを開くときに履歴を1つ足しておく（2026-11-22 田中さん「戻れるように」）
   function goHome(fromPop) { if (!fromPop && history.state && history.state.blList) { history.back(); return; } mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; page = 0; draw(); window.scrollTo(0, 0); }
   function openList() { try { history.pushState({ blList: 1 }, "", location.href); } catch {} draw(); window.scrollTo(0, 0); }
@@ -76,6 +94,7 @@
     home(root);
   }
   async function home(root) {
+    headActs(null);
     const run = lists.filter((l) => l.status === "running");
     const m0 = mainList(); const oc = ownerCol(m0);
     const hotTxt = (l) => { const h = l.hot_n || {}; return (h.hot || h.warm) ? `<span class="bl-lc-hot"><i class="hot"></i>ホット ${Number(h.hot || 0).toLocaleString()}<i class="warm"></i>ウォーム ${Number(h.warm || 0).toLocaleString()}</span>` : ""; };
@@ -165,16 +184,9 @@
     const csvQ = `q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}&hot=${encodeURIComponent(hotF)}&sort=${hotSort ? "hot" : ""}&cr=${encodeURIComponent(crF)}`;
     const hn = l.hot_n || {};
     box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
-        <div class="bl-acts"><a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">取り込み直す ↗</a><a class="mt-btn ghost" href="/api/mochica/bales/lists/${encodeURIComponent(cur)}/csv?${csvQ}">CSV</a><button type="button" class="mt-btn" data-sf>${l.sf_info ? "SF と結び直す" : "SF と結びつける"}</button><button type="button" class="mt-btn ghost bl-del" data-del>消す</button></div></div>
-      <details class="bl-more"><summary>くわしい数字（SF との結びつき・ホット度）</summary>
-      <div class="bl-sfst" data-sfst>${l.sf_info ? `SF：${l.sf_info.byName != null ? `SalesforceID で ${Number(l.sf_info.byId || 0).toLocaleString()}件・会社名で ${Number(l.sf_info.byName || 0).toLocaleString()}件` : `SalesforceID あり ${Number(l.sf_info.withId || 0).toLocaleString()}件`} → SF で見つかった ${Number(l.sf_info.linked || 0).toLocaleString()}件・過去の商談あり ${Number(l.sf_info.withOpps || 0).toLocaleString()}件（${esc(dt(l.sf_info.at))}）` : ""}</div>
-      ${l.w_n ? `<div class="bl-sfst">Bales に書き込んだ（SF の失注情報など）：${Number(l.w_n).toLocaleString()}件</div>` : ""}
-      ${wdiag && !wdiag.ok ? `<details class="bl-diag" style="margin-top:6px"><summary>Bales への書き込み方を覚えられませんでした（${esc(dt(wdiag.at))}）</summary>${esc(wdiag.reason)}<div class="bl-dl">${esc(wdiag.method)} ${esc(wdiag.url)}<br>${esc(wdiag.shape)}</div></details>` : ""}
-      <div class="bl-mets"><div><small>会社</small><b>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}</b></div><div><small>MOCHICA の商談あり</small><b data-mtn>—</b></div><div><small>前回から</small><b>${diff == null ? "—" : (diff >= 0 ? "+" : "") + diff.toLocaleString()}</b></div><div><small>詳しい中身（架電履歴など）</small><b>${Number(l.detail_n || 0).toLocaleString()}</b></div><div><small>SF と結びついた</small><b>${Number(l.sf_n || 0).toLocaleString()}</b></div></div>
-      <div class="bl-hotbar"><button type="button" class="bl-hb hot ${hotF === "hot" ? "on" : ""}" data-hf="hot"><small>ホット（3つそろい）</small><b>${Number(hn.hot || 0).toLocaleString()}</b></button><button type="button" class="bl-hb warm ${hotF === "warm" ? "on" : ""}" data-hf="warm"><small>ウォーム（2つ）</small><b>${Number(hn.warm || 0).toLocaleString()}</b></button><button type="button" class="bl-hb cold ${hotF === "cold" ? "on" : ""}" data-hf="cold"><small>コールド（1つ以下）</small><b>${Number(hn.cold || 0).toLocaleString()}</b></button>
-        <div class="bl-hb-sub">担当者名が取れた <b>${Number(hn.name || 0).toLocaleString()}</b> ・ ニーズを聞けた <b>${Number(hn.need || 0).toLocaleString()}</b> ・ 検討時期を聞けた <b>${Number(hn.when || 0).toLocaleString()}</b>${hn.yet ? ` ・ 判定待ち ${Number(hn.yet).toLocaleString()}` : ""}</div></div>
-      </details>
-      <div class="bl-find"><input type="search" data-q value="${esc(q)}" placeholder="会社名・名前・電話番号で探す"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><select data-cr><option value="">架電結果：すべて</option>${["アポ獲得", "再コール", "担当者不在", "断り", "不在", "NG", "その他", "未架電"].map((k) => `<option ${crF === k ? "selected" : ""}>${k}</option>`).join("")}</select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
+        </div>
+      <div class="bl-sfst" data-sfst></div>
+      <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><select data-cr><option value="">架電結果：すべて</option>${["アポ獲得", "再コール", "担当者不在", "断り", "不在", "NG", "その他", "未架電"].map((k) => `<option ${crF === k ? "selected" : ""}>${k}</option>`).join("")}</select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
       ${cols.length ? `<div class="bl-tbl"><table><thead><tr><th>ホット度</th><th>最終架電結果</th>${cols.map((c) => `<th>${esc(c.label)}</th>`).join("")}<th>SF</th></tr></thead><tbody>
         ${r.rows.map((d) => `<tr class="bl-row" data-row="${esc(d.__k)}"><td class="bl-hotc">${hotCell(d.__hot)}</td><td>${crCell(d)}</td>${cols.map((c, i) => `<td title="${esc(valOf(d, c.key))}">${i === 0 && hasMt(d) ? `<button type="button" class="bl-mt" data-co="${esc(hasMt(d))}" title="MOCHICA の会社カードへ"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="3" fill="#1d9e75"/><rect x="5" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="9" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="5" y="10" width="6" height="2" rx=".6" fill="#fff"/></svg></button>` : ""}${/^https?:\/\//.test(valOf(d, c.key) || "") ? `<a href="${esc(valOf(d, c.key))}" target="_blank" rel="noopener">${esc(valOf(d, c.key))}</a>` : esc(fmt(valOf(d, c.key)))}</td>`).join("")}<td>${sfChip(d.__sf)}</td></tr>`).join("") || `<tr><td colspan="${cols.length + 2}" class="mc-note">当てはまる会社がありません。</td></tr>`}
         </tbody></table></div>` : '<div class="mc-note">まだ行がありません。</div>'}
@@ -183,7 +195,7 @@
       <p class="mc-note" style="margin-top:4px">ホット度：「担当者名・ニーズ・検討時期」の3つがそろえばホット、2つでウォーム。ニーズと検討時期は、架電のコメントやカスタム情報の文章（SF と結びついた行は SF の課題感・検討開始時期も）から言葉で読んでいます。丸の上に指を置くと根拠が出ます。</p>`;
     // 商談ありの数は、今の絞り込みの全件で数える（会社名だけ読む）
     (async () => { const el = box.querySelector("[data-mtn]"); if (!el || !coCol || !mtCos) return; try { let n = 0; for (let off = 0; ; off += 5000) { const a = await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/rows?offset=${off}&limit=5000`); n += a.rows.filter((d) => mtCos.get(coNorm(valOf(d, coCol.key)))).length; if (a.rows.length < 5000) break; } el.textContent = n.toLocaleString(); } catch { el.textContent = "—"; } })();
-    let tm = null; const qi = box.querySelector("[data-q]"); qi.addEventListener("input", () => { clearTimeout(tm); tm = setTimeout(() => { q = qi.value.trim(); page = 0; detail().then(() => { const n = $("blMain").querySelector("[data-q]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 400); });
+    headActs(l, csvQ);
     const crs = box.querySelector("[data-cr]"); if (crs) crs.addEventListener("change", () => { crF = crs.value; page = 0; detail(); });
     const hb2 = box.querySelector("[data-home2]"); if (hb2) hb2.addEventListener("click", () => goHome());
     const hs = box.querySelector("[data-hot]"); if (hs) hs.addEventListener("change", () => { hotF = hs.value; page = 0; detail(); });
@@ -195,12 +207,7 @@
     box.querySelectorAll("[data-row]").forEach((tr) => tr.addEventListener("click", () => leadSheet(l, tr.dataset.row, r.rows.find((d) => d.__k === tr.dataset.row))));
     box.querySelector("[data-colsel]").addEventListener("click", () => colSheet(l));
     // SF と結びつける：サーバーで読んで書く（2万件で数分）。進み具合を見せて、終わったら読み直す
-    box.querySelector("[data-sf]").addEventListener("click", async (e) => { const b = e.currentTarget; b.disabled = true; b.textContent = "結びつけています…";
-      try { await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/sf-link`, { method: "POST" }); sfPoll(cur); } catch (er) { b.disabled = false; b.textContent = "SF と結びつける"; alert("始められませんでした：" + er.message); } });
     if (sfPolling !== cur) { api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/sf-link`).then((j) => { if (j.job && j.job.running) sfPoll(cur); }).catch(() => {}); }
-    // 消す：kinbot に取り込んだ分だけ消す（Bales の中身は変わらない）
-    box.querySelector("[data-del]").addEventListener("click", async () => { if (!confirm(`「${l.name || l.list_key}」を kinbot から消しますか？（${Number(l.count || l.got || 0).toLocaleString()}件。Bales の中身は変わりません。元に戻せません）`)) return;
-      try { await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}`, { method: "DELETE" }); cur = null; load(); } catch (e) { alert("消せませんでした：" + e.message); } });
   }
   // SF の結びつきの小さな印（商談の数・いちばん新しい段階。受注は緑、失注は黄色）
   const sfChip = (x) => { if (!x) return ""; if (!x.n) return x.status ? `<span class="bl-sfc">リード：${esc(x.status)}</span>` : ""; return `<span class="bl-sfc ${x.won ? "won" : x.lost ? "lost" : ""}" title="${esc(x.last)}（${esc(x.lastDate)}）">商談${x.n}・${esc(String(x.last).replace(/^\d+\s*[:：]\s*/, "").slice(0, 8))}</span>`; };
