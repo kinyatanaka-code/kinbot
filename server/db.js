@@ -13069,12 +13069,21 @@ export const BALES_CR = [
   ["再コール", "再コール|再架電|折り返し|資料|検討|接触|日程|後日"],
 ];
 export function balesCr(v) { const t = String(v || ""); if (!t) return ""; for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "その他"; }
-export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "" } = {}) {
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
+  // 2つめの項目で絞る（所有者など）（2026-11-22 田中さん「所有者で絞り込みたい」）
+  if (col2) { p.push(String(col2).slice(0, 80)); p.push(String(val2)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
+  // SF で絞る：none＝SF に無い／won・lost・open＝商談あり（受注・失注・進行中）／lead:〇〇＝商談の無いリードの状況（2026-11-22）
+  const sn = `COALESCE((sf->'sum'->>'n')::int,0)`;
+  if (sf === "none") w.push(`(${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = '')`);
+  else if (sf === "won") w.push(`${sn} > 0 AND COALESCE(sf->'sum'->>'won','') = 'true'`);
+  else if (sf === "lost") w.push(`${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') = 'true'`);
+  else if (sf === "open") w.push(`${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') <> 'true'`);
+  else if (String(sf).startsWith("lead:")) { p.push(String(sf).slice(5, 80)); w.push(`${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = $${p.length}`); }
   // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
   const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
   // 架電結果（kincall の6つ）で絞る。前の結果に当たるものは外す（上から順に当てはめるのと同じにする）。「未架電」は結果が空のもの
@@ -13087,6 +13096,20 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
   const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
   return { total, rows };
+}
+// SF の絞り込みの選択肢：商談の無いリードの状況ごとの件数と、商談あり（受注・失注・進行中）・SF に無いの件数（2026-11-22）
+export async function mcBalesSfValues(listKey) {
+  if (!pool) return { leads: [], won: 0, lost: 0, open: 0, none: 0 }; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { leads: [], won: 0, lost: 0, open: 0, none: 0 };
+  const sn = `COALESCE((sf->'sum'->>'n')::int,0)`;
+  const leads = (await pool.query(`SELECT sf->'sum'->>'status' AS v, count(*) AS n FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND ${sn} = 0 AND COALESCE(sf->'sum'->>'status','') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 40`, [listKey, l.run_at])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+  const c = (await pool.query(`SELECT
+      count(*) FILTER (WHERE ${sn} > 0 AND COALESCE(sf->'sum'->>'won','') = 'true') AS won,
+      count(*) FILTER (WHERE ${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') = 'true') AS lost,
+      count(*) FILTER (WHERE ${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') <> 'true') AS open,
+      count(*) FILTER (WHERE ${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = '') AS none
+    FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0] || {};
+  return { leads, won: Number(c.won || 0), lost: Number(c.lost || 0), open: Number(c.open || 0), none: Number(c.none || 0) };
 }
 export async function mcBalesValues(listKey, col) {
   if (!pool) return []; await ensureMcBales();
