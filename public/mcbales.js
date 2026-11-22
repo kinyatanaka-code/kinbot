@@ -190,6 +190,26 @@
     const ownList = await ownOpts; const sv = await sfOpts;
     const sfList = sv ? [["open", "商談あり：進行中", sv.open], ["won", "商談あり：受注", sv.won], ["lost", "商談あり：失注", sv.lost], ...(sv.leads || []).map((x) => [`lead:${x.v}`, `リード：${x.v}`, x.n]), ["none", "SF に無い", sv.none]].filter((x) => x[2] > 0 || x[0] === sfF) : [];
     if ($("blMain") !== box) return;
+    // 最終架電結果・所有者・SF の絞り込みは、表の列の見出しのボタンから選ぶ（上の行が選択欄だらけで見づらかったため）
+    const FIL = {
+      cr: { on: crF, opts: [["", "すべて"], ...["アポ獲得", "再コール", "担当者不在", "断り", "不在", "NG", "その他", "未架電"].map((k) => [k, k])], set: (v) => { crF = v; } },
+      own: { on: ownF, opts: [["", "すべて"], ...ownList.map((v) => [v.v, `${v.v}（${Number(v.n).toLocaleString()}）`])], set: (v) => { ownF = v; } },
+      sf: { on: sfF, opts: [["", "すべて"], ...sfList.map(([v, lb, n]) => [v, `${lb}（${Number(n).toLocaleString()}）`])], set: (v) => { sfF = v; } },
+    };
+    const thf = (c) => { const k = c.key === "__cr" ? "cr" : c.key === "__sf" ? "sf" : (!memberF && oc && c.key === oc) ? "own" : ""; if (!k) return "";
+      return `<button type="button" class="bl-thf${FIL[k].on ? " on" : ""}" data-thf="${k}" title="${FIL[k].on ? `絞り込み中：${esc(FIL[k].on)}` : "絞り込む"}"><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13l-2.8 1.4V8.4z" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/></svg></button>`; };
+    const thPop = (btn, k) => {
+      document.querySelectorAll(".bl-thpop").forEach((x) => x.remove());
+      const pop = document.createElement("div"); pop.className = "bl-thpop";
+      pop.innerHTML = FIL[k].opts.map(([v, lb]) => `<button type="button" data-v="${esc(v)}" class="${FIL[k].on === v ? "on" : ""}">${esc(lb)}</button>`).join("");
+      document.body.appendChild(pop);
+      const r = btn.getBoundingClientRect();
+      pop.style.top = `${window.scrollY + r.bottom + 6}px`;
+      pop.style.left = `${Math.max(8, Math.min(window.scrollX + r.left - 10, window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 8))}px`;
+      pop.querySelectorAll("[data-v]").forEach((o) => o.addEventListener("click", () => { FIL[k].set(o.dataset.v); pop.remove(); page = 0; detail(); }));
+      // 外を押したら閉じる
+      setTimeout(() => document.addEventListener("click", function off(e) { if (!pop.contains(e.target)) { pop.remove(); document.removeEventListener("click", off); } }), 0);
+    };
     // 表の列の並び（2026-11-22 田中さん）：会社名・電話番号・担当者名・最終活動日・最終架電結果・最終活動コメント・所有者・SF。
     //   「表示項目」で自分で選んだ列があるときは、その並びのあとに（最終活動日の右に）最終架電結果を入れる
     const CR_COL = { key: "__cr", label: "最終架電結果" };
@@ -202,8 +222,8 @@
     box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         </div>
       <div class="bl-sfst" data-sfst></div>
-      <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><select data-cr><option value="">架電結果：すべて</option>${["アポ獲得", "再コール", "担当者不在", "断り", "不在", "NG", "その他", "未架電"].map((k) => `<option ${crF === k ? "selected" : ""}>${k}</option>`).join("")}</select>${!memberF && oc ? `<select data-own><option value="">所有者：すべて</option>${ownList.map((v) => `<option value="${esc(v.v)}" ${ownF === v.v ? "selected" : ""}>${esc(v.v)}（${Number(v.n).toLocaleString()}）</option>`).join("")}</select>` : ""}<select data-sff><option value="">SF：すべて</option>${sfList.map(([v, lb, n]) => `<option value="${esc(v)}" ${sfF === v ? "selected" : ""}>${esc(lb)}（${Number(n).toLocaleString()}）</option>`).join("")}</select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
-      ${tcols.length ? `<div class="bl-tbl"><table><thead><tr>${tcols.map((c) => `<th>${esc(c.label)}</th>`).join("")}<th>SF</th></tr></thead><tbody>
+      <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
+      ${tcols.length ? `<div class="bl-tbl"><table><thead><tr>${tcols.map((c) => `<th>${esc(c.label)}${thf(c)}</th>`).join("")}<th>SF${thf({ key: "__sf" })}</th></tr></thead><tbody>
         ${r.rows.map((d) => `<tr class="bl-row" data-row="${esc(d.__k)}">${tcols.map((c, i) => c.key === "__cr" ? `<td>${crCell(d)}</td>` : `<td title="${esc(valOf(d, c.key))}">${(c.label === "会社名" || (i === 0 && !coCol)) && hasMt(d) ? `<button type="button" class="bl-mt" data-co="${esc(hasMt(d))}" title="MOCHICA の会社カードへ"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="3" fill="#1d9e75"/><rect x="5" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="9" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="5" y="10" width="6" height="2" rx=".6" fill="#fff"/></svg></button>` : ""}${/^https?:\/\//.test(valOf(d, c.key) || "") ? `<a href="${esc(valOf(d, c.key))}" target="_blank" rel="noopener">${esc(valOf(d, c.key))}</a>` : esc(fmt(valOf(d, c.key)))}</td>`).join("")}<td>${sfChip(d.__sf)}</td></tr>`).join("") || `<tr><td colspan="${tcols.length + 1}" class="mc-note">当てはまる会社がありません。</td></tr>`}
         </tbody></table></div>` : '<div class="mc-note">まだ行がありません。</div>'}
       <div class="bl-pg"><span>${r.total ? `${(page * PER + 1).toLocaleString()}〜${Math.min(r.total, (page + 1) * PER).toLocaleString()} / ${r.total.toLocaleString()}件` : ""}</span>${page > 0 ? '<button type="button" class="mt-btn ghost" data-pg="-1">前へ</button>' : ""}${(page + 1) * PER < r.total ? '<button type="button" class="mt-btn ghost" data-pg="1">次へ</button>' : ""}</div>
@@ -213,6 +233,8 @@
     (async () => { const el = box.querySelector("[data-mtn]"); if (!el || !coCol || !mtCos) return; try { let n = 0; for (let off = 0; ; off += 5000) { const a = await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/rows?offset=${off}&limit=5000`); n += a.rows.filter((d) => mtCos.get(coNorm(valOf(d, coCol.key)))).length; if (a.rows.length < 5000) break; } el.textContent = n.toLocaleString(); } catch { el.textContent = "—"; } })();
     headActs(l, csvQ);
     const crs = box.querySelector("[data-cr]"); if (crs) crs.addEventListener("change", () => { crF = crs.value; page = 0; detail(); });
+    // 列の見出しの絞り込み：押すと選択肢が出る（2026-11-22 田中さん「列のところに絞り込みのボタンを」）
+    box.querySelectorAll("[data-thf]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); thPop(b, b.dataset.thf); }));
     const ows = box.querySelector("[data-own]"); if (ows) ows.addEventListener("change", () => { ownF = ows.value; page = 0; detail(); });
     const sfs = box.querySelector("[data-sff]"); if (sfs) sfs.addEventListener("change", () => { sfF = sfs.value; page = 0; detail(); });
     const hb2 = box.querySelector("[data-home2]"); if (hb2) hb2.addEventListener("click", () => goHome());
