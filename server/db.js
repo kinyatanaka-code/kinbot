@@ -13058,7 +13058,18 @@ export async function mcBalesLists() {
        FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at) AS hot_n
     FROM mochica_bales_lists l ORDER BY l.run_at DESC NULLS LAST`)).rows;
 }
-export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "" } = {}) {
+// Bales の架電結果（callResult）を、kincall と同じ6つの結果に読みかえる（2026-11-22 田中さん「kincall と同じ架電結果の選択肢に」）。
+//   上から順に当てはめる（「担当者不在」を「不在」より先に・「お断り」を「再コール」より先に）。どれにも当たらなければ「その他」
+export const BALES_CR = [
+  ["アポ獲得", "アポ"],
+  ["NG", "NG|今後|架電不可|番号|使われて|廃業|移転|重複|対象外"],
+  ["断り", "断り|拒否|ブロック"],
+  ["担当者不在", "担当者不在|担当不在"],
+  ["不在", "不在|不通|話し中|留守|つながら|繋がら|出ない"],
+  ["再コール", "再コール|再架電|折り返し|資料|検討|接触|日程|後日"],
+];
+export function balesCr(v) { const t = String(v || ""); if (!t) return ""; for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "その他"; }
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
@@ -13066,6 +13077,11 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
   // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
   const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
+  // 架電結果（kincall の6つ）で絞る。前の結果に当たるものは外す（上から順に当てはめるのと同じにする）。「未架電」は結果が空のもの
+  if (cr === "未架電") w.push(`COALESCE(data->>'callResult','') = ''`);
+  else if (cr) { const i = BALES_CR.findIndex(([k]) => k === cr);
+    if (i >= 0) { p.push(BALES_CR[i][1]); w.push(`COALESCE(data->>'callResult','') ~ $${p.length}`); for (const [, re] of BALES_CR.slice(0, i)) { p.push(re); w.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } }
+    else if (cr === "その他") { w.push(`COALESCE(data->>'callResult','') <> ''`); for (const [, re] of BALES_CR) { p.push(re); w.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } } }
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
   const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
