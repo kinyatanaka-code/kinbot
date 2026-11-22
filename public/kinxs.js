@@ -2688,7 +2688,8 @@ let kxAccQ = "";
 
 // ===== アクセス分析（2026-11-23 田中さん）：左に企業カード、右に選んだ会社の「基本データ・空間内解析・AI面談解析」を日次・週次・月次・年次で =====
 //   中身はアクセス分析ダッシュボード（brainverse）を kinbot が毎朝取り込んだもの。ダッシュボードの画面と同じ数字の出し方にそろえる
-const ba = { period: "m", tab: "site", co: "", site: "", q: "", sort: "sessions", table: false, list: null, det: null };
+const ba = { period: "m", tab: "site", co: "", site: "", q: "", sort: "sessions",   // 並びはセッションの多い順だけ（並べ替えのボタンは要らない：2026-11-23 田中さん）
+  table: false, list: null, det: null };
 const BA_P = [["d", "日次"], ["w", "週次"], ["m", "月次"], ["y", "年次"]];
 const baN = (v) => (v == null || !isFinite(v) ? "—" : Number(v).toLocaleString("ja-JP", { maximumFractionDigits: 1 }));
 const baPct = (v) => (v == null || !isFinite(v) ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -2802,14 +2803,13 @@ async function renderAccess() {
       <span class="kx-note">${st && st.running ? `取り込み中 <b>${st.running.done}</b> / ${st.running.total}` : L.at ? `取り込み ${esc(at(L.at))}` : "まだ取り込んでいません"}</span>
       <button type="button" class="ba-link" data-ba-sync ${st && st.running ? "disabled" : ""}>いま取り込む</button><button type="button" class="ba-link" data-ba-table>月ごとの表</button></div>
     ${L.empty ? '<div class="ba-empty">まだダッシュボードを取り込んでいません。「いま取り込む」を押してください（全社分で十数分かかります）。</div>' : `<div class="ba">
-      <aside class="ba-side"><input class="kx-in" data-ba-q placeholder="会社名で探す" value="${esc(ba.q)}"><div class="ba-seg" style="align-self:flex-start">${[["sessions", "セッション順"], ["totalUsers", "ユーザー順"], ["name", "名前順"]].map(([k, l]) => `<button type="button" class="${ba.sort === k ? "on" : ""}" data-ba-s="${k}">${l}</button>`).join("")}</div>
+      <aside class="ba-side"><input class="kx-in" data-ba-q placeholder="会社名で探す" value="${esc(ba.q)}">
         <div class="kx-note">${cos.length}社</div>
         <div class="ba-cos">${cos.map((c) => `<article class="ba-co ${c.company === ba.co ? "on" : ""}" data-ba-co="${esc(c.company)}"><div class="nm">${esc(c.company)}</div>
           <div class="st"><span>セッション <b>${baN(c.cur.sessions || 0)}</b> ${baDiff(c.cur.sessions || 0, c.prev.sessions || 0)}</span><span>ユーザー ${baN(c.cur.totalUsers || 0)}</span></div>
           <div class="tg">${c.hasProperty ? '<span class="ba-tag">基本GA</span>' : '<span class="ba-tag off">基本GAなし</span>'}${c.hasAi ? '<span class="ba-tag ai">AI面談</span>' : ""}${c.sites.length > 1 ? `<span class="ba-tag">${c.sites.length}サイト</span>` : ""}${c.account ? "" : '<span class="ba-tag warn">kinXs 未連携</span>'}</div></article>`).join("") || '<div class="ba-empty">合う会社がありません</div>'}</div></aside>
       <section class="ba-main" data-ba-main><div class="ba-empty">読み込んでいます…</div></section></div>`}`;
   box.querySelectorAll("[data-ba-p]").forEach((b) => b.addEventListener("click", () => { ba.period = b.dataset.baP; ba.det = null; renderAccess(); }));
-  box.querySelectorAll("[data-ba-s]").forEach((b) => b.addEventListener("click", () => { ba.sort = b.dataset.baS; renderAccess(); }));
   box.querySelector("[data-ba-table]").addEventListener("click", () => { ba.table = true; renderAccessTable(); });
   const sy = box.querySelector("[data-ba-sync]"); sy.addEventListener("click", async () => { sy.disabled = true; try { await api("/api/kinxs/bvdash/sync", { method: "POST", body: "{}" }); } catch {} baPoll(); });
   if (st && st.running) baPoll();

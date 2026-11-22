@@ -2876,3 +2876,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-22 田中さん：brainverse のアクセス分析ダッシュボード（bv-ga4-dashboard-1tb.pages.dev・ベーシック認証）を kinXs のアクセス数へ入れる準備。ID/パスは Railway の環境変数 BV_DASH_USER/BV_DASH_PASS だけに置く（田中さんが入れる）。まず /api/kinxs/bvdash/probe（管理者のみ）でデータの置き場所を確かめる。
 - 2026-11-22 田中さん：kinXs のアクセス数を brainverse のアクセス分析ダッシュボードから自動で入れる（bvDashSync）。/api/config の全サイト（モック除く）について /api/site・/api/ai の period=y の日ごとの数を月に足し、category（会社名）で kinXs の会社に当てる。アクセス数＝月のセッション（基本＋AI面談）、中身は kinxs_access_ga。毎朝6時に入れ直し、手で入れた月（src が ga 以外）は上書きしない（画面のチェックで上書き可）。
 - 2026-11-23 田中さん：kinXs のアクセス分析を作り直し。左に企業カード（期間の合計・前期間比）、右に選んだ会社の 基本データ・空間内解析・AI面談解析 を 日次/週次/月次/年次 で。ダッシュボードの /api/config・/api/summary・/api/site・/api/spatial・/api/ai・/api/ai-report を全社×4期間ぶん毎朝取り込み、kinxs_bvdash に最新を持つ。前の「会社×月の表」は「月ごとの表」ボタンで残した。
+- 2026-11-23 田中さん：アクセス分析の並べ替えボタン（セッション順・ユーザー順・名前順）は要らない → 外してセッションの多い順だけに。
