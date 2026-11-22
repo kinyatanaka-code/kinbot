@@ -32,6 +32,9 @@
   };
   const coNorm = (s) => String(s || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|一般財団法人|社会福祉法人|医療法人|学校法人|\(株\)|㈱|（株）|\s/g, "").toLowerCase();
   let feeds = [], fday = "", wdiag = null, diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
+  // 画面の形：「リスト管理」の一覧（カード）→ 押すとそのリストの表（2026-11-22 田中さん：ホワイトボードの絵のとおり）
+  //   home＝全てのリード・メンバー別・見張りのカード／list＝1つのリスト（メンバーのカードは、そのリストを所有者で絞ったもの）
+  let mode = "home", memberF = "", members = null, memPick = null;
   let hotF = "", hotSort = false;   // ホット度の絞り込み（hot/warm/cold/warm+）と、ホット順に並べるか（2026-11-16）
   const PER = 100;
   // ホット度の印：3つ（担当者名・ニーズ・検討時期）のそろい具合。丸の色で、聞けた（緑）・聞けたが無い（灰）・まだ（白）
@@ -47,18 +50,61 @@
     draw();
     clearTimeout(poll); if (lists.some((l) => l.status === "running") && !$("mcBalesView").closest("[hidden]")) poll = setTimeout(load, 3000);
   }
+  // 所有者（kinbot・Bales で、そのリードを持っている人）の列。メンバー別のカードはこの列で絞る
+  const ownerCol = (l) => { const v = (l && l.view) || []; const a = v.find((x) => /所有者|オーナー/.test(x.label)); if (a) return a.key;
+    const c = ((l && l.cols) || []).find((x) => /(^|\.)owner(\.name|Name|\.fullName)?$/i.test(x.key)); return c ? c.key : ""; };
+  const mainList = () => lists.find((l) => l.status !== "running") || lists[0] || null;
+  const PLUS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
   function draw() {
     const root = $("mcBalesView"); if (!root) return;
+    if (mode === "list" && cur && (lists.some((l) => l.list_key === cur) || feeds.some((f) => f.feed === cur))) {
+      root.innerHTML = `<div class="bl-one"><button type="button" class="bl-back" data-home>‹ リスト管理</button><div class="bl-main" id="blMain"><div class="mc-note">読み込んでいます…</div></div></div>`;
+      root.querySelector("[data-home]").addEventListener("click", () => { mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; page = 0; draw(); });
+      if (feeds.some((f) => f.feed === cur)) feedDetail(); else detail();
+      return;
+    }
+    home(root);
+  }
+  async function home(root) {
     const run = lists.filter((l) => l.status === "running");
-    root.innerHTML = `<div class="bl-wrap"><aside class="bl-side"><div class="bl-side-h"><b>Bales のリスト</b><span>${lists.length}リスト</span></div>
+    const m0 = mainList(); const oc = ownerCol(m0);
+    const hotTxt = (l) => { const h = l.hot_n || {}; return (h.hot || h.warm) ? `<span class="bl-lc-hot"><i class="hot"></i>ホット ${Number(h.hot || 0).toLocaleString()}<i class="warm"></i>ウォーム ${Number(h.warm || 0).toLocaleString()}</span>` : ""; };
+    root.innerHTML = `<div class="bl-home">
+      <div class="bl-home-h"><h2>リスト管理</h2><button type="button" class="bl-add" data-addlist>${PLUS}リスト追加</button></div>
       ${run.map((l) => `<div class="bl-run"><b>取り込み中</b><small>${esc(l.name)} ・ ${Number(l.got || 0).toLocaleString()}${l.total ? ` / ${Number(l.total).toLocaleString()}` : ""}件</small><div class="bl-bar"><i style="width:${l.total ? Math.min(100, Math.round(l.got / l.total * 100)) : 30}%"></i></div></div>`).join("")}
-      ${lists.map((l) => `<button type="button" class="bl-card${l.list_key === cur ? " on" : ""}" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><small>${Number(l.status === "running" ? l.got : l.count || 0).toLocaleString()}社 ・ ${l.status === "running" ? "取り込み中" : dt(l.done_at || l.run_at)}</small>${l.status === "error" ? `<span class="bl-tag w">途中で止まりました</span>` : ""}</button>`).join("")}
-      <div class="bl-side-h" style="margin-top:6px"><b>見張り（架電の記録など）</b><span>${feeds.length}</span></div>
-      ${feeds.map((f) => `<button type="button" class="bl-card${f.feed === cur ? " on" : ""}" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><small>${Number(f.total || 0).toLocaleString()}件 ・ ${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("") || '<div class="bl-how" style="border:0;padding:0">Bales の架電の記録などの画面で、右下の「kinbot に取り込む」→「この画面の一覧を見張る」で登録すると、ここに出ます。</div>'}
-      <div class="bl-how"><b>取り込み方</b>Bales のリスト（<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>）を開き、右下の「kinbot に取り込む」→「全部取り込む」。拡張機能 kinbot-ext（2.2.3 以上）が要ります。</div>
-      </aside><div class="bl-main" id="blMain">${cur ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="bl-empty">まだ取り込んだリストがありません。左の「取り込み方」から Bales のリストを取り込むと、ここに出ます。</div>' + diagHtml()}</div></div>`;
-    root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; q = ""; fcol = ""; fval = ""; page = 0; draw(); }));
-    if (cur && feeds.some((f) => f.feed === cur)) feedDetail(); else if (cur) detail();
+      <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number(l.count || 0).toLocaleString()}<small>社</small></span>${hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}</div>
+      <div class="bl-home-h sub"><h3>メンバー別</h3><button type="button" class="bl-add" data-addmem ${oc ? "" : "disabled"}>${PLUS}リスト追加</button></div>
+      <div class="bl-lgrid" data-mems>${oc ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="mc-note">リストに「所有者」の列が無いので、メンバー別に分けられません。</div>'}</div>
+      ${feeds.length ? `<div class="bl-home-h sub"><h3>見張り（架電の記録）</h3></div><div class="bl-lgrid">${feeds.map((f) => `<button type="button" class="bl-lc" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><span class="n">${Number(f.total || 0).toLocaleString()}<small>件</small></span><small>${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("")}</div>` : ""}
+      ${lists.length ? "" : diagHtml()}</div>`;
+    root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; mode = "list"; memberF = ""; q = ""; fcol = ""; fval = ""; page = 0; draw(); }));
+    root.querySelector("[data-addlist]").addEventListener("click", () => sheet(`<h3 class="bl-sh-t">リストを追加する</h3>
+      <p class="mc-note" style="line-height:1.8">1. Bales の<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>を開き、取り込みたいリスト（絞り込み）にします。<br>2. 右下の「kinbot に取り込む」→「全部取り込む」を押します。<br>3. 取り込みが終わると、この画面にカードが増えます。</p>
+      <p class="mc-note">拡張機能 kinbot-ext（2.2.3 以上）が要ります。</p>`));
+    if (!oc || !m0) return;
+    // メンバー別：所有者ごとの件数。表示するメンバーは「リスト追加」で選んだ人（まだ選んでいなければ全員）
+    let vals = []; try { vals = (await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}`)).items || []; } catch {}
+    if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
+    const box = root.querySelector("[data-mems]"); if (!box || !root.isConnected) return;
+    const shown = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
+    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="n">${Number(v.n || 0).toLocaleString()}<small>社</small></span><small>${esc(m0.name || "")} から</small>${Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
+      : '<div class="mc-note">所有者の入ったリードがありません。</div>';
+    box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { cur = m0.list_key; mode = "list"; memberF = el.dataset.mem; fcol = oc; fval = memberF; q = ""; page = 0; draw(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
+    box.querySelectorAll("[data-mx]").forEach((b) => b.addEventListener("click", async (e) => { e.stopPropagation(); members = (members || []).filter((x) => x !== b.dataset.mx); try { await api("/api/mochica/bales/members", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); } catch {} home(root); }));
+    // メンバーの「リスト追加」：所有者のなかから、カードにする人を選ぶ
+    const am = root.querySelector("[data-addmem]");
+    if (am) am.onclick = () => {
+      const cur0 = new Set(Array.isArray(members) && members.length ? members : vals.map((v) => v.v));
+      const sh = sheet(`<h3 class="bl-sh-t">メンバー別のリストを追加する</h3>
+        <p class="mc-note">カードにする人を選んでください（その人が所有者のリードを、「${esc(m0.name || "")}」から出します）。</p>
+        <div class="bl-mpick">${vals.map((v) => `<label><input type="checkbox" value="${esc(v.v)}" ${cur0.has(v.v) ? "checked" : ""}><span>${esc(v.v)}</span><small>${Number(v.n).toLocaleString()}社</small></label>`).join("")}</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button type="button" class="mt-btn" data-msave>保存する</button></div>`);
+      {
+        sh.querySelector("[data-msave]").addEventListener("click", async () => { members = [...sh.querySelectorAll(".bl-mpick input:checked")].map((x) => x.value);
+          try { await api("/api/mochica/bales/members", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); } catch (er) { alert("保存できませんでした：" + er.message); return; }
+          closeSheet(); home(root); });
+      }
+    };
   }
   // ===== 見張りの1日分：誰が・どこに・何件・どんな結果だったか（2026-11-15 田中さん「インターン生の架電を分析したい」）=====
   const jstDay = (t = Date.now()) => new Date(t + 9 * 3600000).toISOString().slice(0, 10);
@@ -100,7 +146,7 @@
   }
   async function detail() {
     const box = $("blMain"); const l = lists.find((x) => x.list_key === cur); if (!box || !l) return;
-    const cols = pickCols(l.cols, cur, l.view); const coCol = cols.find((c) => c.label === "会社名"); const stCol = cols.find((c) => /ステータス|ステージ/.test(c.label) && !c.key.includes("[]"));
+    const cols = pickCols(l.cols, cur, l.view); const coCol = cols.find((c) => c.label === "会社名"); const stCol = memberF ? null : cols.find((c) => /ステータス|ステージ/.test(c.label) && !c.key.includes("[]"));   // メンバーで絞っているときは、所有者の絞り込みと重ならないよう出さない
     let r; try { r = await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/rows?q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}&offset=${page * PER}&limit=${PER}&hot=${encodeURIComponent(hotF)}&sort=${hotSort ? "hot" : ""}`); } catch (e) { box.innerHTML = `<div class="mc-note">読めませんでした：${esc(e.message)}</div>`; return; }
     if ($("blMain") !== box) return;
     let vals = []; if (stCol) { try { vals = (await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/values?col=${encodeURIComponent(stCol.key)}`)).items || []; } catch {} }
@@ -108,7 +154,7 @@
     const hasMt = (d) => coCol && mtCos && mtCos.get(coNorm(valOf(d, coCol.key)));
     const csvQ = `q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}&hot=${encodeURIComponent(hotF)}&sort=${hotSort ? "hot" : ""}`;
     const hn = l.hot_n || {};
-    box.innerHTML = `<div class="bl-head"><div><h3>${esc(l.name || l.list_key)}</h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
+    box.innerHTML = `<div class="bl-head"><div><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)}</h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         <div class="bl-acts"><a class="mt-btn ghost" href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">取り込み直す ↗</a><a class="mt-btn ghost" href="/api/mochica/bales/lists/${encodeURIComponent(cur)}/csv?${csvQ}">CSV</a><button type="button" class="mt-btn" data-sf>${l.sf_info ? "SF と結び直す" : "SF と結びつける"}</button><button type="button" class="mt-btn ghost bl-del" data-del>消す</button></div></div>
       <div class="bl-sfst" data-sfst>${l.sf_info ? `SF：${l.sf_info.byName != null ? `SalesforceID で ${Number(l.sf_info.byId || 0).toLocaleString()}件・会社名で ${Number(l.sf_info.byName || 0).toLocaleString()}件` : `SalesforceID あり ${Number(l.sf_info.withId || 0).toLocaleString()}件`} → SF で見つかった ${Number(l.sf_info.linked || 0).toLocaleString()}件・過去の商談あり ${Number(l.sf_info.withOpps || 0).toLocaleString()}件（${esc(dt(l.sf_info.at))}）` : ""}</div>
       ${l.w_n ? `<div class="bl-sfst">Bales に書き込んだ（SF の失注情報など）：${Number(l.w_n).toLocaleString()}件</div>` : ""}

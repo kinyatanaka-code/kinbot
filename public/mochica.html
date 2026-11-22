@@ -112,6 +112,22 @@
   .mt-sf-linked > div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;} .mt-sf-linked b a{color:#0B6E78;text-decoration:none;font-size:14px;} .mt-sf-linked small{font-size:11.5px;color:#5C7377;}
   .mt-sf-unlink{border:1px solid #CFE6E9;background:#fff;color:#5C7377;border-radius:8px;font:inherit;font-size:11.5px;padding:3px 10px;cursor:pointer;}
   .mt-cosf-up{margin-top:12px;display:flex;flex-direction:column;gap:10px;} .mt-sf-base{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;color:#5C7377;} .mt-sf-base select{flex:1;min-width:0;border:1px solid #CFE6EA;border-radius:10px;padding:7px 9px;font:inherit;font-size:13px;color:#0F3D44;background:#fff;}
+  /* リスト管理の一覧（カード）（2026-11-22 田中さん） */
+  .bl-home{display:flex;flex-direction:column;gap:12px;}
+  .bl-home-h{display:flex;align-items:center;justify-content:space-between;gap:10px;} .bl-home-h h2{margin:0;font-size:20px;color:#0F3D44;} .bl-home-h h3{margin:0;font-size:15px;color:#0F3D44;} .bl-home-h.sub{margin-top:10px;padding-top:12px;border-top:1px solid #DDEFF2;}
+  .bl-add{display:inline-flex;align-items:center;gap:5px;border:1px solid #9FD9DF;background:#fff;color:#0B6E78;font:inherit;font-size:12.5px;font-weight:800;padding:7px 14px;border-radius:999px;cursor:pointer;} .bl-add:hover{background:#F2FAFB;} .bl-add:disabled{opacity:.45;cursor:default;}
+  .bl-lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;align-items:start;align-content:start;}
+  .bl-lc{flex:none;height:auto;max-height:none;align-self:start;position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;background:#fff;border:1px solid #DDEFF2;border-radius:16px;padding:14px 16px;cursor:pointer;font:inherit;color:#0F3D44;min-height:110px;transition:border-color .15s,box-shadow .15s;}
+  .bl-lc:hover{border-color:#0E9AA7;box-shadow:0 4px 14px rgba(14,154,167,.12);}
+  .bl-lc.main{background:linear-gradient(160deg,#F2FAFB,#fff);border-color:#9FD9DF;}
+  .bl-lc b{font-size:14px;} .bl-lc .n{font-size:26px;font-weight:800;color:#0B6E78;line-height:1.1;} .bl-lc .n small{font-size:12px;margin-left:2px;color:#5C7377;font-weight:700;} .bl-lc > small{font-size:11px;color:#5C7377;}
+  .bl-lc .av{width:30px;height:30px;border-radius:50%;background:#DDF5F7;color:#0B6E78;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:13px;}
+  .bl-lc-hot{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;color:#5C7377;font-weight:700;} .bl-lc-hot i{width:8px;height:8px;border-radius:50%;display:inline-block;} .bl-lc-hot i.hot{background:#E2574C;} .bl-lc-hot i.warm{background:#E0A100;margin-left:6px;}
+  .bl-lc-x{position:absolute;top:8px;right:8px;border:0;background:transparent;color:#9AB0B3;font-size:16px;cursor:pointer;width:24px;height:24px;border-radius:50%;} .bl-lc-x:hover{background:#F2FAFB;color:#C43D3D;}
+  .bl-back{align-self:flex-start;border:0;background:transparent;color:#0B6E78;font:inherit;font-size:13px;font-weight:800;cursor:pointer;padding:4px 0;margin-bottom:8px;}
+  .bl-one{display:flex;flex-direction:column;}
+  .bl-sh-t{margin:0 0 10px;font-size:16px;color:#0F3D44;}
+  .bl-mpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;max-height:50vh;overflow:auto;} .bl-mpick label{display:flex;align-items:center;gap:8px;border:1px solid #DDEFF2;border-radius:10px;padding:8px 10px;font-size:13px;cursor:pointer;} .bl-mpick small{margin-left:auto;color:#5C7377;font-size:11px;}
   .bl-wrap{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;align-items:start;}
   .bl-side{background:#F2FAFB;border:1px solid #DDEFF2;border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:8px;}
   .bl-side-h{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#0F3D44;} .bl-side-h span{font-size:11px;color:#5C7377;}
@@ -201,7 +217,7 @@
     <div class="side-brand"><span class="brand-mark"></span><span>SHOBO</span></div>
     <!-- ホームは一旦しまう（2026-11-15 田中さん「ホームは一旦消して」）。開いたときは商談から -->
     <a class="side-item active" data-go="mtg"><span class="side-ico ico-rec"></span><span class="side-label">商談（MiiTel）</span></a>
-    <a class="side-item" data-go="list"><span class="side-ico ico-assign"></span><span class="side-label">リスト（Bales Cloud）</span></a>
+    <a class="side-item" data-go="list"><span class="side-ico ico-assign"></span><span class="side-label">リスト管理</span></a>
     <a class="side-item" data-go="call"><span class="side-ico ico-phone"></span><span class="side-label">MOCHICALL</span></a>
     <a class="side-item" data-go="apo"><span class="side-ico ico-apo"></span><span class="side-label">アポイント</span></a>
     <!-- ダッシュボード：商談プロセスの計画と実績のずれ。開くたびに SF・Zoom Phone・シフト表を読む（2026-11-17 福井） -->
