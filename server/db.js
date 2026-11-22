@@ -12086,6 +12086,16 @@ export async function kxAccessList() {
   const { rows } = await pool.query(`SELECT account_id, ym, count, src FROM kinxs_access`);
   return rows;
 }
+// アクセス分析ダッシュボードの中身をそのまま持つ（2026-11-23 田中さん「全社全情報を読み込む」）。
+//   k は「config」「summary:期間」「site:サイト:期間」「spatial:…」「ai:…」「report:…」。毎朝入れ直すので、最新の1つだけ持つ
+let _bvdReady = false;
+async function ensureBvd() { if (_bvdReady) return; await pool.query(`CREATE TABLE IF NOT EXISTS kinxs_bvdash (k TEXT PRIMARY KEY, data JSONB, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`); _bvdReady = true; }
+export async function bvdPut(k, data) { if (!pool) return; await ensureBvd(); await pool.query(`INSERT INTO kinxs_bvdash (k, data) VALUES ($1,$2) ON CONFLICT (k) DO UPDATE SET data=$2, updated_at=now()`, [k, JSON.stringify(data)]); }
+export async function bvdGet(keys = []) {
+  if (!pool || !keys.length) return {}; await ensureBvd();
+  const { rows } = await pool.query(`SELECT k, data, updated_at FROM kinxs_bvdash WHERE k = ANY($1::text[])`, [keys]);
+  return Object.fromEntries(rows.map((r) => [r.k, { data: r.data, at: r.updated_at }]));
+}
 // ダッシュボードから入れる：手で入れた行（src が ga 以外）は overwrite のときだけ上書きする
 export async function kxAccessSetGa(rows = [], { overwrite = false } = {}) {
   if (!pool || !rows.length) return { saved: 0, kept: 0 };

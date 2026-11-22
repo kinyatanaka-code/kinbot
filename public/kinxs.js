@@ -2664,11 +2664,11 @@ function kxFitScroll(el, cls) {
 }
 const KX_VC_KINDS = ["要望", "問い合わせ"];
 if (VIEW === "voice") renderVoices();
-if (VIEW === "access") renderAccess();
+if (VIEW === "access") setTimeout(renderAccess, 0);   // 下で決める ba（画面の状態）を使うので、ファイルを読み終えてから動かす
 if (VIEW === "docai") renderDocAiAll();
 // ===== DOC連携「アクセス分析」：会社×月のアクセス数（2026-11-18 田中さん）=====
 //   0件は赤、5件以上（レイヤーA）は緑。会社の行を押すと、その会社の詳細を開く
-async function renderAccess() {
+async function renderAccessTable() {
   const box = $("vAccessBody"); if (!box) return;
   box.innerHTML = '<div class="kx-note">読み込んでいます…</div>';
   let d; try { d = await api("/api/kinxs/access/summary"); } catch (e) { box.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; }
@@ -2677,13 +2677,167 @@ async function renderAccess() {
   const q = (kxAccQ || "").trim();
   const rows = d.rows.filter((r) => !q || r.name.includes(q));
   const zero = d.rows.filter((r) => (r.counts[last] || 0) === 0).length; const a5 = d.rows.filter((r) => (r.counts[last] || 0) >= 5).length;
-  box.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span class="kx-note">${esc(last)}：${d.rows.length}社　｜　5件以上 <b style="color:#0d5b47">${a5}</b>社　｜　0件 <b style="color:#c0583a">${zero}</b>社</span><input class="kx-in" data-acc-q placeholder="会社名で探す" value="${esc(q)}" style="margin-left:auto;width:220px" /></div>
+  box.innerHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><button type="button" class="ba-link" data-ba-back>‹ 企業カードに戻る</button><span class="kx-note">${esc(last)}：${d.rows.length}社　｜　5件以上 <b style="color:#0d5b47">${a5}</b>社　｜　0件 <b style="color:#c0583a">${zero}</b>社</span><input class="kx-in" data-acc-q placeholder="会社名で探す" value="${esc(q)}" style="margin-left:auto;width:220px" /></div>
     <div class="kx-acc-wrap"><table class="kx-acc"><thead><tr><th>会社</th>${ms.map((m) => `<th>${esc(m.slice(2).replace("-", "/"))}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr data-acc-id="${esc(r.id)}"><td>${esc(r.name)}</td>${ms.map((m) => { const v = r.counts[m]; return v === undefined ? "<td>—</td>" : `<td class="${v === 0 ? "z" : v >= 5 ? "a" : ""}">${v}</td>`; }).join("")}</tr>`).join("")}</tbody></table></div>`;
-  const qi = box.querySelector("[data-acc-q]"); qi.addEventListener("input", () => { kxAccQ = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { renderAccess().then(() => { const n = box.querySelector("[data-acc-q]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 300); });
+  box.querySelector("[data-ba-back]").addEventListener("click", () => { ba.table = false; renderAccess(); });
+  const qi = box.querySelector("[data-acc-q]"); qi.addEventListener("input", () => { kxAccQ = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { renderAccessTable().then(() => { const n = box.querySelector("[data-acc-q]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }); }, 300); });
   box.querySelectorAll("tr[data-acc-id]").forEach((tr) => tr.addEventListener("click", () => openDetail(tr.dataset.accId)));
 }
 let kxAccQ = "";
+
+// ===== アクセス分析（2026-11-23 田中さん）：左に企業カード、右に選んだ会社の「基本データ・空間内解析・AI面談解析」を日次・週次・月次・年次で =====
+//   中身はアクセス分析ダッシュボード（brainverse）を kinbot が毎朝取り込んだもの。ダッシュボードの画面と同じ数字の出し方にそろえる
+const ba = { period: "m", tab: "site", co: "", site: "", q: "", sort: "sessions", table: false, list: null, det: null };
+const BA_P = [["d", "日次"], ["w", "週次"], ["m", "月次"], ["y", "年次"]];
+const baN = (v) => (v == null || !isFinite(v) ? "—" : Number(v).toLocaleString("ja-JP", { maximumFractionDigits: 1 }));
+const baPct = (v) => (v == null || !isFinite(v) ? "—" : `${(v * 100).toFixed(1)}%`);
+const baDur = (sec) => { if (!isFinite(sec) || sec == null) return "—"; sec = Math.round(sec); const m = Math.floor(sec / 60), x = sec % 60; return m ? `${m}分${x}秒` : `${x}秒`; };
+const baSum = (arr) => { const o = {}; for (const r of arr || []) for (const [k, v] of Object.entries(r)) if (typeof v === "number") o[k] = (o[k] || 0) + v; return o; };
+// 前の期間との比べ：率は「pt」、数は「%」
+const baDiff = (c, p, rate) => { if (c == null || p == null || !isFinite(c) || !isFinite(p)) return ""; if (rate) { const d = (c - p) * 100; return `<span class="${d >= 0 ? "ba-up" : "ba-dn"}">${d >= 0 ? "▲" : "▼"}${Math.abs(d).toFixed(1)}pt</span>`; }
+  if (!p) return c ? '<span class="ba-up">▲新規</span>' : ""; const d = (c - p) / p * 100; return `<span class="${d >= 0 ? "ba-up" : "ba-dn"}">${d >= 0 ? "▲" : "▼"}${Math.abs(d).toFixed(1)}%</span>`; };
+const baKpi = (l, v, unit, diff, sub) => `<div class="ba-kpi"><div class="l">${esc(l)}</div><div class="v">${v}${unit ? `<small>${esc(unit)}</small>` : ""}</div><div class="d">${diff ? `前期間比 ${diff}` : ""}${sub ? `${diff ? "　" : ""}${sub}` : ""}</div></div>`;
+// GA の数（基本データ・AI面談のアクセス）の8つのカード
+function baGaKpis(c, p) {
+  const er = (x) => (x.sessions ? (x.engagedSessions || 0) / x.sessions : null), pps = (x) => (x.sessions ? (x.screenPageViews || 0) / x.sessions : null), dur = (x) => (x.totalUsers ? (x.userEngagementDuration || 0) / x.totalUsers : null);
+  return `<div class="ba-kpis">${[
+    baKpi("ユーザー", baN(c.totalUsers), "人", baDiff(c.totalUsers, p.totalUsers), `うち新規 ${baN(c.newUsers)}人`),
+    baKpi("セッション", baN(c.sessions), "回", baDiff(c.sessions, p.sessions)),
+    baKpi("リード", baN(c.keyEvents), "件", baDiff(c.keyEvents, p.keyEvents), c.keyEvents ? "" : "未計測または0件"),
+    baKpi("エンゲージ率", baPct(er(c)), "", baDiff(er(c), er(p), true)),
+    baKpi("新規ユーザー", baN(c.newUsers), "人", baDiff(c.newUsers, p.newUsers)),
+    baKpi("ページビュー", baN(c.screenPageViews), "回", baDiff(c.screenPageViews, p.screenPageViews)),
+    baKpi("ページ/セッション", pps(c) == null ? "—" : pps(c).toFixed(2), "", baDiff(pps(c), pps(p))),
+    baKpi("平均エンゲージ時間", baDur(dur(c)), "", baDiff(dur(c), dur(p))),
+  ].join("")}</div>`;
+}
+// 日ごとの数を、期間に合わせて日・週・月にまとめる
+function baBucket(daily, keys) {
+  const per = ba.period; const m = new Map();
+  for (const r of daily || []) { const s0 = String(r.date || r.bucket || ""); const ds = s0.length === 8 ? `${s0.slice(0, 4)}-${s0.slice(4, 6)}-${s0.slice(6, 8)}` : s0.slice(0, 10); if (!ds) continue;
+    let k = ds; if (per === "w") { const t = new Date(ds + "T00:00:00Z"); const wd = (t.getUTCDay() + 6) % 7; t.setUTCDate(t.getUTCDate() - wd); k = t.toISOString().slice(0, 10); } else if (per === "m" || per === "y") k = ds.slice(0, 7);
+    const v = m.get(k) || {}; for (const kk of keys) v[kk] = (v[kk] || 0) + (+r[kk] || 0); m.set(k, v); }
+  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+// 棒（1つめの数）と線（2つめの数）のグラフ
+function baChart(rows, k1, l1, k2, l2) {
+  if (!rows.length) return '<div class="ba-empty">この期間の数はありません</div>';
+  const W = 760, H = 190, pl = 34, pb = 22, pt = 10; const n = rows.length; const mx = Math.max(1, ...rows.map(([, v]) => Math.max(v[k1] || 0, k2 ? v[k2] || 0 : 0)));
+  const bw = (W - pl - 8) / n; const y = (v) => pt + (H - pt - pb) * (1 - v / mx);
+  const lab = (k) => (ba.period === "m" || ba.period === "y" ? k.slice(2).replace("-", "/") : k.slice(5).replace("-", "/"));
+  const step = Math.max(1, Math.ceil(n / 12));
+  const rw = Math.min(bw * 0.7, 46);   // 本数が少ないときに太くなりすぎないように
+  const bars = rows.map(([k, v], i) => `<rect x="${(pl + i * bw + (bw - rw) / 2).toFixed(1)}" y="${y(v[k1] || 0).toFixed(1)}" width="${rw.toFixed(1)}" height="${(H - pb - y(v[k1] || 0)).toFixed(1)}" rx="3" fill="#5DCAA5"><title>${esc(k)}　${l1} ${baN(v[k1])}${k2 ? `　${l2} ${baN(v[k2])}` : ""}</title></rect>${i % step === 0 ? `<text x="${(pl + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" font-size="10" text-anchor="middle" fill="#4F6158">${esc(lab(k))}</text>` : ""}`).join("");
+  const line = k2 ? `<polyline fill="none" stroke="#0d5b47" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="${rows.map(([, v], i) => `${(pl + i * bw + bw / 2).toFixed(1)},${y(v[k2] || 0).toFixed(1)}`).join(" ")}"/>` : "";
+  const grid = [0, 0.5, 1].map((f) => `<line x1="${pl}" x2="${W - 4}" y1="${y(mx * f).toFixed(1)}" y2="${y(mx * f).toFixed(1)}" stroke="#E3EFE8"/><text x="${pl - 4}" y="${(y(mx * f) + 3).toFixed(1)}" font-size="10" text-anchor="end" fill="#4F6158">${baN(Math.round(mx * f))}</text>`).join("");
+  return `<div class="ba-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(l1)}の推移">${grid}${bars}${line}</svg><div class="kx-note"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#5DCAA5;vertical-align:-1px"></span> ${esc(l1)}${k2 ? `　<span style="display:inline-block;width:12px;height:2px;background:#0d5b47;vertical-align:3px"></span> ${esc(l2)}` : ""}</div></div>`;
+}
+// 一覧の表（ダッシュボードの表の形のまま：文字の列＋数の列）。ID の列は出さない
+const BA_COL = { sessionDefaultChannelGroup: "チャネル", sessionSourceMedium: "参照元/メディア", pagePath: "ページ", pageTitle: "ページ名", landingPage: "ランディングページ", landingPagePlusQueryString: "ランディングページ", deviceCategory: "端末", country: "国", region: "地域", city: "市区町村", newVsReturning: "新規/リピート", sessionCampaignName: "キャンペーン", sessionSource: "参照元", sessionMedium: "メディア", sessions: "セッション", totalUsers: "ユーザー", newUsers: "新規", keyEvents: "リード", screenPageViews: "PV", engagedSessions: "エンゲージ", activeUsers: "ユーザー", eventCount: "イベント", name: "名前", fromName: "どこから", toName: "どこへ", sceneName: "シーン", url: "リンク先", count: "回数", views: "表示", initialViews: "最初に表示", moveViews: "移動で表示", avgDwellMs: "平均滞在", avgMoveCount: "移動回数", openModalName: "開いていたもの", option: "答え", job_type: "職種" };
+function baTable(rows, max = 12) {
+  if (!Array.isArray(rows) || !rows.length) return '<div class="ba-empty">まだ数がありません</div>';
+  const ks = Object.keys(rows[0]).filter((k) => !/(^|_)id$|ID$/.test(k) && k !== "sceneID" && k !== "fromID" && k !== "toID");
+  const txt = ks.filter((k) => typeof rows[0][k] !== "number"), num = ks.filter((k) => typeof rows[0][k] === "number");
+  const fmt = (k, v) => (/Ms$/.test(k) ? baDur((+v || 0) / 1000) : typeof v === "number" ? baN(v) : esc(String(v ?? "")));
+  return `<table class="ba-tb"><thead><tr>${txt.map((k) => `<th>${esc(BA_COL[k] || k)}</th>`).join("")}${num.map((k) => `<th class="n">${esc(BA_COL[k] || k)}</th>`).join("")}</tr></thead><tbody>${rows.slice(0, max).map((r) => `<tr>${txt.map((k) => `<td class="t" title="${esc(String(r[k] ?? ""))}">${esc(String(r[k] ?? "")) || "（なし）"}</td>`).join("")}${num.map((k) => `<td class="n">${fmt(k, r[k])}</td>`).join("")}</tr>`).join("")}</tbody></table>${rows.length > max ? `<div class="kx-note">ほか ${rows.length - max}件</div>` : ""}`;
+}
+const baBars = (items, lk, vk) => { const mx = Math.max(1, ...items.map((x) => +x[vk] || 0)); return `<div class="ba-bars">${items.map((x) => `<div class="r"><span title="${esc(x[lk])}">${esc(x[lk])}</span><span class="b"><i style="width:${((+x[vk] || 0) / mx * 100).toFixed(0)}%"></i></span><em>${baN(x[vk])}</em></div>`).join("")}</div>`; };
+const BA_WIN = [["channels", "流入元（チャネル）"], ["sources", "参照元/メディア"], ["pages", "よく見られたページ"], ["landing", "最初に開いたページ"], ["devices", "端末"], ["countries", "国・地域"], ["new_returning", "新規・リピート"], ["utm_traffic", "UTM の流入"]];
+function baGaBody(g, tot) {
+  if (!g) return '<div class="ba-empty">この期間の取り込みがまだです。毎朝6時に取り込みます（上の「いま取り込む」でもすぐ入ります）。</div>';
+  if (g.state && g.state !== "ready" && !g.available) return `<div class="ba-empty">ダッシュボードでもこの会社の数が出ていません（${esc(g.state)}）。</div>`;
+  const c = tot && tot.cur && Object.keys(tot.cur).length ? tot.cur : baSum(g.currentDaily), p = tot && tot.prev && Object.keys(tot.prev).length ? tot.prev : baSum(g.previousDaily);
+  const rt = (tot && tot.realtime) || g.realtime;
+  const w = (g.windows && (g.windows[ba.period] || Object.values(g.windows)[0])) || {};
+  return `${baGaKpis(c, p)}
+    ${rt ? `<div class="kx-note" style="margin-top:6px">いまサイトを見ている人：<b>${baN(rt.activeUsers || 0)}</b>人（直近30分）</div>` : ""}
+    <div class="ba-sec"><h3>アクセスの推移<small>${ba.period === "d" ? "日ごと" : ba.period === "w" ? "週ごと" : "月ごと"}・セッション／ユーザー</small></h3>${baChart(baBucket(g.currentDaily || g.daily, ["sessions", "totalUsers"]), "sessions", "セッション", "totalUsers", "ユーザー")}</div>
+    <div class="ba-grid2 ba-sec">${BA_WIN.filter(([k]) => Array.isArray(w[k])).map(([k, l]) => `<div class="ba-card"><h3 style="font-size:13px;margin:0 0 6px;color:#0d5b47">${l}</h3>${baTable(w[k])}</div>`).join("") || ""}</div>`;
+}
+const BA_SPK = [["starts", "空間を開いた", "回"], ["moves", "移動", "回"], ["sceneChanges", "シーンの切り替え", "回"], ["modalOpens", "詳しく見る（開いた）", "回"], ["linkClicks", "リンクを押した", "回"], ["exits", "離脱", "回"], ["avgDwellMs", "平均滞在", ""], ["avgMovesAtExit", "離脱までの移動", "回"], ["linkRate", "リンクを押した率", ""]];
+function baSpatialBody(sp) {
+  if (!sp) return '<div class="ba-empty">この期間の取り込みがまだです。</div>';
+  if (sp.state && sp.state !== "ready") return `<div class="ba-empty">空間内解析の数がまだありません（${esc(sp.state)}）。</div>`;
+  const k = sp.kpis || {};
+  return `<div class="ba-kpis">${BA_SPK.map(([key, l, u]) => baKpi(l, key === "avgDwellMs" ? baDur((+k[key] || 0) / 1000) : key === "linkRate" ? baPct(k[key]) : baN(k[key]), u)).join("")}</div>
+    <div class="ba-sec"><h3>空間の使われ方の推移<small>開いた回数／移動</small></h3>${baChart(baBucket(sp.daily, ["starts", "moves", "modalOpens", "linkClicks", "exits"]), "starts", "開いた", "moves", "移動")}</div>
+    <div class="ba-grid2 ba-sec">${[["scenes", "シーンごと"], ["transitions", "シーンの移り方"], ["modals", "よく開かれた中身"], ["links", "押されたリンク"], ["exits", "離脱したシーン"]].filter(([kk]) => Array.isArray(sp[kk])).map(([kk, l]) => `<div class="ba-card"><h3 style="font-size:13px;margin:0 0 6px;color:#0d5b47">${l}</h3>${baTable(sp[kk])}</div>`).join("")}</div>`;
+}
+const BA_OUT = { apply_interested: "応募したい", casual_interview_interested: "カジュアル面談したい", not_interested: "興味なし", in_progress: "途中" };
+function baAiBody(ai, rp) {
+  const r = rp && rp.available !== false ? rp.report : null;
+  let h = "";
+  if (r) { const sm = r.summary || {};
+    h += `<div class="ba-sec" style="margin-top:0"><h3>AI面談のまとめ<small>${esc(rp.range_label || (r.range ? `${r.range.from}〜${r.range.to}` : ""))}</small></h3><div class="ba-kpis">${[
+      baKpi("面談の開始", baN(sm.sessions_started), "件"), baKpi("最後まで", baN(sm.sessions_completed), "件", "", `完了率 ${baPct(sm.completion_rate)}`),
+      baKpi("平均時間", baN(sm.avg_duration_minutes), "分"), baKpi("興味あり", baN(sm.interested_candidates), "人", "", `興味率 ${baPct(sm.interest_rate)}`),
+      baKpi("質問", baN(sm.questions_asked), "件", "", `1面談 ${baN(sm.questions_per_session)}件`),
+      r.qa ? baKpi("FAQ で答えた率", baPct(r.qa.faq_answer_rate), "", "", `良い ${baN(r.qa.rated_good)}・悪い ${baN(r.qa.rated_bad)}`) : "",
+    ].join("")}</div></div>`;
+    if (r.funnel && Array.isArray(r.funnel.stages)) h += `<div class="ba-sec"><h3>どこまで進んだか</h3>${baBars(r.funnel.stages.map((x) => ({ l: `${x.stage}（${baPct(x.rate_from_start)}）`, v: x.reached })), "l", "v")}</div>`;
+    if (r.outcomes) h += `<div class="ba-sec"><h3>面談のあと</h3>${baBars(Object.entries(r.outcomes).map(([k, v]) => ({ l: `${BA_OUT[k] || k}（${baPct(v.rate)}）`, v: v.count })), "l", "v")}</div>`;
+    if (r.timeseries && Array.isArray(r.timeseries.rows) && r.timeseries.rows.length) h += `<div class="ba-sec"><h3>面談の推移<small>開始／最後まで</small></h3>${baChart(r.timeseries.rows.map((x) => [String(x.bucket), x]), "sessions_started", "開始", "sessions_completed", "最後まで")}</div>`;
+    const cp = r.candidate_profile || {};
+    if (Array.isArray(cp.job_types) && cp.job_types.length) h += `<div class="ba-sec"><h3>職種</h3>${baBars(cp.job_types, "job_type", "count")}</div>`;
+    if (Array.isArray(cp.hearing_answers) && cp.hearing_answers.length) h += `<div class="ba-sec"><h3>ヒアリングの答え<small>${cp.hearing_answers.length}項目</small></h3><div class="ba-grid2">${cp.hearing_answers.map((q) => `<div class="ba-card"><div style="font-weight:800;font-size:12.5px;margin-bottom:4px">${esc(q.label || q.field)}<span class="kx-note">　${baN(q.respondents)}人</span></div>${baBars(q.answers || [], "option", "count")}</div>`).join("")}</div></div>`;
+    if (r.survey && Array.isArray(r.survey.questions) && r.survey.questions.length) h += `<div class="ba-sec"><h3>アンケート<small>${baN(r.survey.respondents)}人</small></h3><div class="ba-grid2">${r.survey.questions.map((q) => `<div class="ba-card"><div style="font-weight:800;font-size:12.5px;margin-bottom:4px">${esc(q.label || q.field)}</div>${baBars(q.answers || [], "option", "count")}</div>`).join("")}</div></div>`;
+    const hm = r.usage_heatmap; if (hm && Array.isArray(hm.values)) { const mx = Math.max(1, ...hm.values.flat()); h += `<div class="ba-sec"><h3>使われた時間帯<small>曜日×時</small></h3><div class="ba-heat"><span></span>${hm.columns.map((c) => `<span style="text-align:center">${c % 3 === 0 ? c : ""}</span>`).join("")}${hm.values.map((row, i) => `<span>${esc(hm.rows[i])}</span>${row.map((v) => `<i title="${esc(hm.rows[i])} ${v}" style="background:${v ? `rgba(29,158,117,${(0.15 + 0.85 * v / mx).toFixed(2)})` : "#F1F6F3"}"></i>`).join("")}`).join("")}</div></div>`; }
+  } else h += `<div class="ba-empty" style="padding-top:0">AI面談の分析はまだありません。</div>`;
+  if (ai) h += `<div class="ba-sec"><h3>AI面談ページのアクセス（GA）</h3>${baGaBody(ai, null)}</div>`;
+  return h;
+}
+async function renderAccess() {
+  const box = $("vAccessBody"); if (!box) return;
+  if (ba.table) return renderAccessTable();
+  if (!ba.list || ba.list.period !== ba.period) { box.innerHTML = '<div class="kx-note">読み込んでいます…</div>';
+    try { ba.list = await api(`/api/kinxs/bvdash/companies?period=${ba.period}`); } catch (e) { box.innerHTML = `<div class="kx-note">読めませんでした：${esc(e.message)}</div>`; return; } }
+  const L = ba.list; let st = null; try { st = await api("/api/kinxs/bvdash/status"); } catch {}
+  const cos = (L.companies || []).filter((c) => !ba.q || c.company.includes(ba.q) || (c.account && c.account.name.includes(ba.q)))
+    .sort((a, b) => ba.sort === "name" ? a.company.localeCompare(b.company, "ja") : ((b.cur[ba.sort] || 0) - (a.cur[ba.sort] || 0)) || a.company.localeCompare(b.company, "ja"));
+  if (!ba.co && cos.length) ba.co = cos[0].company;
+  const at = (x) => { try { return new Date(x).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+  box.innerHTML = `<div class="ba-bar"><div class="ba-seg">${BA_P.map(([k, l]) => `<button type="button" class="${ba.period === k ? "on" : ""}" data-ba-p="${k}">${l}</button>`).join("")}</div>
+      <span class="kx-note">${esc(L.scope || "")}${L.scope ? "　" : ""}前期間比＝直前の同じ長さとの比べ</span><span class="sp"></span>
+      <span class="kx-note">${st && st.running ? `取り込み中 <b>${st.running.done}</b> / ${st.running.total}` : L.at ? `取り込み ${esc(at(L.at))}` : "まだ取り込んでいません"}</span>
+      <button type="button" class="ba-link" data-ba-sync ${st && st.running ? "disabled" : ""}>いま取り込む</button><button type="button" class="ba-link" data-ba-table>月ごとの表</button></div>
+    ${L.empty ? '<div class="ba-empty">まだダッシュボードを取り込んでいません。「いま取り込む」を押してください（全社分で十数分かかります）。</div>' : `<div class="ba">
+      <aside class="ba-side"><input class="kx-in" data-ba-q placeholder="会社名で探す" value="${esc(ba.q)}"><div class="ba-seg" style="align-self:flex-start">${[["sessions", "セッション順"], ["totalUsers", "ユーザー順"], ["name", "名前順"]].map(([k, l]) => `<button type="button" class="${ba.sort === k ? "on" : ""}" data-ba-s="${k}">${l}</button>`).join("")}</div>
+        <div class="kx-note">${cos.length}社</div>
+        <div class="ba-cos">${cos.map((c) => `<article class="ba-co ${c.company === ba.co ? "on" : ""}" data-ba-co="${esc(c.company)}"><div class="nm">${esc(c.company)}</div>
+          <div class="st"><span>セッション <b>${baN(c.cur.sessions || 0)}</b> ${baDiff(c.cur.sessions || 0, c.prev.sessions || 0)}</span><span>ユーザー ${baN(c.cur.totalUsers || 0)}</span></div>
+          <div class="tg">${c.hasProperty ? '<span class="ba-tag">基本GA</span>' : '<span class="ba-tag off">基本GAなし</span>'}${c.hasAi ? '<span class="ba-tag ai">AI面談</span>' : ""}${c.sites.length > 1 ? `<span class="ba-tag">${c.sites.length}サイト</span>` : ""}${c.account ? "" : '<span class="ba-tag warn">kinXs 未連携</span>'}</div></article>`).join("") || '<div class="ba-empty">合う会社がありません</div>'}</div></aside>
+      <section class="ba-main" data-ba-main><div class="ba-empty">読み込んでいます…</div></section></div>`}`;
+  box.querySelectorAll("[data-ba-p]").forEach((b) => b.addEventListener("click", () => { ba.period = b.dataset.baP; ba.det = null; renderAccess(); }));
+  box.querySelectorAll("[data-ba-s]").forEach((b) => b.addEventListener("click", () => { ba.sort = b.dataset.baS; renderAccess(); }));
+  box.querySelector("[data-ba-table]").addEventListener("click", () => { ba.table = true; renderAccessTable(); });
+  const sy = box.querySelector("[data-ba-sync]"); sy.addEventListener("click", async () => { sy.disabled = true; try { await api("/api/kinxs/bvdash/sync", { method: "POST", body: "{}" }); } catch {} baPoll(); });
+  if (st && st.running) baPoll();
+  const qi = box.querySelector("[data-ba-q]"); if (qi) qi.addEventListener("input", () => { ba.q = qi.value.trim(); clearTimeout(qi._t); qi._t = setTimeout(() => renderAccess().then(() => { const n = box.querySelector("[data-ba-q]"); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }), 250); });
+  box.querySelectorAll("[data-ba-co]").forEach((el) => el.addEventListener("click", () => { ba.co = el.dataset.baCo; ba.site = ""; ba.det = null; box.querySelectorAll("[data-ba-co]").forEach((x) => x.classList.toggle("on", x === el)); baDetail(); }));
+  if (!L.empty) baDetail();
+}
+// 取り込み中は、進み具合だけ見て、終わったら一覧を読み直す
+function baPoll() { clearTimeout(baPoll._t); baPoll._t = setTimeout(async () => { if (VIEW !== "access" || ba.table) return; let st; try { st = await api("/api/kinxs/bvdash/status"); } catch { return; }
+  if (st.running) { const n = document.querySelector("[data-ba-sync]"); if (n && n.previousElementSibling) n.previousElementSibling.innerHTML = `取り込み中 <b>${st.running.done}</b> / ${st.running.total}`; baPoll(); } else { ba.list = null; ba.det = null; renderAccess(); } }, 4000); }
+async function baDetail() {
+  const main = document.querySelector("[data-ba-main]"); if (!main || !ba.co) return;
+  const c = (ba.list.companies || []).find((x) => x.company === ba.co); if (!c) { main.innerHTML = '<div class="ba-empty">左の企業カードを選んでください</div>'; return; }
+  if (!ba.det || ba.det.company !== ba.co || ba.det.period !== ba.period) { main.innerHTML = '<div class="ba-empty">読み込んでいます…</div>';
+    try { ba.det = await api(`/api/kinxs/bvdash/detail?company=${encodeURIComponent(ba.co)}&period=${ba.period}`); } catch (e) { main.innerHTML = `<div class="ba-empty">読めませんでした：${esc(e.message)}</div>`; return; }
+    if (ba.det.company !== ba.co) return; }
+  const D = ba.det; const s = D.sites.find((x) => x.key === ba.site) || D.sites.find((x) => x.hasProperty) || D.sites[0]; if (!s) { main.innerHTML = '<div class="ba-empty">サイトがありません</div>'; return; }
+  const tabs = [["site", "基本データ", s.hasProperty], ["spatial", "空間内解析", s.hasProperty], ["ai", "AI面談解析", s.hasAi]];
+  if (!tabs.find(([k, , ok]) => k === ba.tab && ok)) { const f = tabs.find(([, , ok]) => ok); if (f) ba.tab = f[0]; }
+  main.innerHTML = `<div class="ba-h"><div><h2>${esc(c.company)}</h2><div class="lk">${s.url ? `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.name || "サイト")}を開く ↗</a>` : ""}${s.aiUrl ? `<a href="${esc(s.aiUrl)}" target="_blank" rel="noopener">AI面談を開く ↗</a>` : ""}${c.account ? `<button type="button" class="ba-link" data-ba-acc="${esc(c.account.id)}">kinXs の会社カード</button>` : ""}</div></div>
+      <div class="kx-note">${s.site && s.site.propertyId ? `GA4 ${esc(s.site.propertyId)}` : ""}${s.at ? `　取り込み ${esc(new Date(s.at).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }))}` : ""}</div></div>
+    ${D.sites.length > 1 ? `<div class="ba-sites" style="margin-top:10px">${D.sites.map((x) => `<button type="button" class="${x.key === s.key ? "on" : ""}" data-ba-site="${esc(x.key)}">${esc(x.name || x.key)}</button>`).join("")}</div>` : ""}
+    <div class="ba-tabs">${tabs.map(([k, l, ok]) => `<button type="button" class="${ba.tab === k ? "on" : ""}" data-ba-t="${k}" ${ok ? "" : "disabled"}>${l}</button>`).join("")}</div>
+    <div>${!s.hasProperty && !s.hasAi ? '<div class="ba-empty">この会社は、ダッシュボードに GA がまだつながっていません。</div>' : ba.tab === "spatial" ? baSpatialBody(s.spatial) : ba.tab === "ai" ? baAiBody(s.ai, s.report) : baGaBody(s.site, s.total)}</div>`;
+  main.querySelectorAll("[data-ba-t]").forEach((b) => b.addEventListener("click", () => { ba.tab = b.dataset.baT; baDetail(); }));
+  main.querySelectorAll("[data-ba-site]").forEach((b) => b.addEventListener("click", () => { ba.site = b.dataset.baSite; baDetail(); }));
+  const ac = main.querySelector("[data-ba-acc]"); if (ac) ac.addEventListener("click", () => openDetail(ac.dataset.baAcc));
+}
 // ===== DOC連携「候補者の質問」：全部の会社のまとめ（2026-11-18 田中さん）=====
 async function renderDocAiAll() {
   // 見やすく作り直し（2026-11-18 田中さん「デザインきもい・もっと見やすく」）：
