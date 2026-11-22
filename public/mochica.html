@@ -126,6 +126,12 @@
   .bl-lc-x{position:absolute;top:8px;right:8px;border:0;background:transparent;color:#9AB0B3;font-size:16px;cursor:pointer;width:24px;height:24px;border-radius:50%;} .bl-lc-x:hover{background:#F2FAFB;color:#C43D3D;}
   .bl-back{align-self:flex-start;border:0;background:transparent;color:#0B6E78;font:inherit;font-size:13px;font-weight:800;cursor:pointer;padding:4px 0;margin-bottom:8px;}
   .bl-one{display:flex;flex-direction:column;}
+  /* リードの一覧を見やすく（2026-11-22）：数字はたたむ・表の行を広く・見出しを上に止める */
+  .bl-cnt{font-size:13px;font-weight:700;color:#0B6E78;background:#DDF5F7;border-radius:99px;padding:2px 10px;margin-left:6px;vertical-align:middle;}
+  .bl-more{margin:8px 0 4px;border:1px solid #DDEFF2;border-radius:12px;padding:6px 12px;background:#FAFDFD;} .bl-more summary{cursor:pointer;font-size:12px;font-weight:800;color:#0B6E78;} .bl-more[open]{padding-bottom:10px;}
+  #blMain .bl-tbl{max-height:calc(100vh - 230px);overflow:auto;border:1px solid #E6F1F3;border-radius:12px;}
+  #blMain .bl-tbl table{font-size:13px;} #blMain .bl-tbl thead th{position:sticky;top:0;z-index:1;background:#F2FAFB;font-size:12px;color:#3E5A5E;padding:10px 12px;border-bottom:1px solid #DDEFF2;}
+  #blMain .bl-tbl tbody td{padding:11px 12px;border-bottom:1px solid #F0F6F7;} #blMain .bl-tbl tbody tr:nth-child(even) td{background:#FBFDFD;} #blMain .bl-tbl tbody tr:hover td{background:#EEF8F9;}
   /* 架電結果の札（kincall と同じ6つ）（2026-11-22） */
   .bl-cr{display:inline-block;font-size:11px;font-weight:800;border-radius:99px;padding:2px 9px;white-space:nowrap;background:#EEF3F3;color:#5C7377;}
   .bl-cr.apo{background:#DDF5E8;color:#0F6E46;} .bl-cr.re{background:#DDF0FB;color:#1F5F8B;} .bl-cr.ab{background:#FDF0D8;color:#8A5A00;} .bl-cr.ng{background:#FBE3E1;color:#A8322A;} .bl-cr.no{background:#EEF3F3;color:#5C7377;} .bl-cr.ng2{background:#3C4A4C;color:#fff;}
