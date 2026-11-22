@@ -17898,7 +17898,7 @@ async function bvDashGet(path) {
 }
 app.get("/api/kinxs/bvdash/probe", async (req, res) => {
   try {
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけ使えます" });
+    if (!isAiOwner(req)) return res.status(403).json({ error: "オーナー（田中さん）・管理者だけ使えます" });
     const g = await bvDashGet(String(req.query.path || "/"));
     const max = Math.min(Number(req.query.max) || 200000, 3000000);
     res.json({ ok: true, status: g.status, type: g.type, url: g.url, size: g.text.length, text: g.text.slice(Number(req.query.from) || 0, (Number(req.query.from) || 0) + max) });
