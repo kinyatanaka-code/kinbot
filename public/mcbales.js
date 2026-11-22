@@ -37,11 +37,12 @@
   //   home＝全てのリード・メンバー別・見張りのカード／list＝1つのリスト（メンバーのカードは、そのリストを所有者で絞ったもの）
   let mode = "home", memberF = "", members = null, memPick = null;
   let hotF = "", hotSort = false, crF = "", ownF = "", sfF = "";   // 所有者・SF の絞り込み（2026-11-22）
-  // 架電結果：Bales の結果を kincall と同じ6つに読みかえる（サーバーの BALES_CR と同じ並び・同じ言葉）（2026-11-22 田中さん）
-  const CR = [["アポ獲得", /アポ/], ["NG", /NG|今後|架電不可|番号|使われて|廃業|移転|重複|対象外/], ["断り", /断り|拒否|ブロック/], ["担当者不在", /担当者不在|担当不在/], ["不在", /不在|不通|話し中|留守|つながら|繋がら|出ない/], ["再コール", /再コール|再架電|折り返し|資料|検討|接触|日程|後日/]];
-  const crOf = (v) => { const t = String(v || ""); if (!t) return ""; for (const [k, re] of CR) if (re.test(t)) return k; return "その他"; };
-  const CR_CLS = { "アポ獲得": "apo", "再コール": "re", "担当者不在": "ab", "断り": "ng", "不在": "no", "NG": "ng2", "その他": "etc" };
-  const crCell = (d) => { const raw = d.callResult || ""; const k = crOf(raw); return k ? `<span class="bl-cr ${CR_CLS[k] || "etc"}" title="${esc(raw + (d.lastCalledAt ? `（${fmt(d.lastCalledAt)}）` : ""))}">${esc(k)}</span>` : '<span class="mc-note">未架電</span>'; };   // ホット度の絞り込み（hot/warm/cold/warm+）と、ホット順に並べるか（2026-11-16）
+  // 架電結果：MOCHICALL（SF）と同じ8つにそろえる（サーバーの BALES_CR と同じ）（2026-11-22 田中さん）。
+  //   担当者接触ニーズなし→お断り、資料送付→営業フォロー。空・どれにも当たらないものは「-」（当たらない結果は最終活動コメントの頭に出す）
+  const CR = [["受付ブロック", /^\s*受付ブロック\s*$/], ["担当者不在", /^\s*担当者不在\s*$/], ["担当者接触：お断り", /^\s*(担当者接触[:：]?\s*お断り|担当者接触[:：]?\s*ニーズなし)\s*$/], ["担当者接触：アポ獲得", /^\s*担当者接触[:：]?\s*アポ獲得\s*$/], ["担当者接触：営業フォロー", /^\s*(担当者接触[:：]?\s*営業フォロー|資料送付)\s*$/], ["現在使われていない", /^\s*現在使われていない\s*$/], ["コールのみ", /^\s*コールのみ\s*$/], ["問い合わせ", /^\s*問い合わせ\s*$/]];
+  const crOf = (v) => { const t = String(v || ""); for (const [k, re] of CR) if (re.test(t)) return k; return "-"; };
+  const CR_CLS = { "担当者接触：アポ獲得": "apo", "担当者接触：営業フォロー": "re", "担当者不在": "ab", "担当者接触：お断り": "ng", "受付ブロック": "ng2", "現在使われていない": "ng2", "コールのみ": "no", "問い合わせ": "etc" };
+  const crCell = (d) => { const raw = d.callResult || ""; const k = crOf(raw); return k !== "-" ? `<span class="bl-cr ${CR_CLS[k] || "etc"}" title="${esc(raw + (d.lastCalledAt ? `（${fmt(d.lastCalledAt)}）` : ""))}">${esc(k)}</span>` : '<span class="mc-note">-</span>'; };   // ホット度の絞り込み（hot/warm/cold/warm+）と、ホット順に並べるか（2026-11-16）
   const PER = 100;
   // ホット度の印：3つ（担当者名・ニーズ・検討時期）のそろい具合。丸の色で、聞けた（緑）・聞けたが無い（灰）・まだ（白）
   const HOT_TXT = { 3: "ホット", 2: "ウォーム" };
@@ -190,9 +191,12 @@
     const ownList = await ownOpts; const sv = await sfOpts;
     const sfList = sv ? [["open", "商談あり：進行中", sv.open], ["won", "商談あり：受注", sv.won], ["lost", "商談あり：失注", sv.lost], ...(sv.leads || []).map((x) => [`lead:${x.v}`, `リード：${x.v}`, x.n]), ["none", "SF に無い", sv.none]].filter((x) => x[2] > 0 || x[0] === sfF) : [];
     if ($("blMain") !== box) return;
+    // 8つに当たらない Bales の結果は「-」にして、最終活動コメントの頭に【結果】で残す（2026-11-22 田中さん）。データは変えず、出すときだけ
+    const withCm = (d) => { const raw = String(d.callResult || "").trim(); const cm = (cols.find((c) => c.label === "最終活動コメント") || {}).key;
+      if (!raw || crOf(raw) !== "-" || !cm || cm.includes(".")) return d; return { ...d, [cm]: `【${raw}】${d[cm] ? ` ${d[cm]}` : ""}` }; };
     // 最終架電結果・所有者・SF の絞り込みは、表の列の見出しのボタンから選ぶ（上の行が選択欄だらけで見づらかったため）
     const FIL = {
-      cr: { on: crF, opts: ["アポ獲得", "再コール", "担当者不在", "断り", "不在", "NG", "その他", "未架電"].map((k) => [k, k]), set: (v) => { crF = v; } },
+      cr: { on: crF, opts: [...CR.map(([k]) => [k, k]), ["-", "-（未架電・ほかの結果）"]], set: (v) => { crF = v; } },
       own: { on: ownF, opts: ownList.map((v) => [v.v, `${v.v}（${Number(v.n).toLocaleString()}）`]), set: (v) => { ownF = v; } },
       sf: { on: sfF, opts: sfList.map(([v, lb, n]) => [v, `${lb}（${Number(n).toLocaleString()}）`]), set: (v) => { sfF = v; } },
     };
@@ -234,7 +238,7 @@
       <div class="bl-sfst" data-sfst></div>
       <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
       ${tcols.length ? `<div class="bl-tbl"><table><thead><tr><th>SF${thf({ key: "__sf" })}</th>${tcols.map((c) => `<th>${esc(c.label)}${thf(c)}</th>`).join("")}</tr></thead><tbody>
-        ${r.rows.map((d) => `<tr class="bl-row" data-row="${esc(d.__k)}"><td>${sfChip(d.__sf)}</td>${tcols.map((c, i) => c.key === "__cr" ? `<td>${crCell(d)}</td>` : `<td title="${esc(valOf(d, c.key))}">${(c.label === "会社名" || (i === 0 && !coCol)) && hasMt(d) ? `<button type="button" class="bl-mt" data-co="${esc(hasMt(d))}" title="MOCHICA の会社カードへ"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="3" fill="#1d9e75"/><rect x="5" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="9" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="5" y="10" width="6" height="2" rx=".6" fill="#fff"/></svg></button>` : ""}${/^https?:\/\//.test(valOf(d, c.key) || "") ? `<a href="${esc(valOf(d, c.key))}" target="_blank" rel="noopener">${esc(valOf(d, c.key))}</a>` : esc(fmt(valOf(d, c.key)))}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${tcols.length + 1}" class="mc-note">当てはまる会社がありません。</td></tr>`}
+        ${r.rows.map(withCm).map((d) => `<tr class="bl-row" data-row="${esc(d.__k)}"><td>${sfChip(d.__sf)}</td>${tcols.map((c, i) => c.key === "__cr" ? `<td>${crCell(d)}</td>` : `<td title="${esc(valOf(d, c.key))}">${(c.label === "会社名" || (i === 0 && !coCol)) && hasMt(d) ? `<button type="button" class="bl-mt" data-co="${esc(hasMt(d))}" title="MOCHICA の会社カードへ"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="3" fill="#1d9e75"/><rect x="5" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="9" y="6" width="2" height="2" rx=".6" fill="#fff"/><rect x="5" y="10" width="6" height="2" rx=".6" fill="#fff"/></svg></button>` : ""}${/^https?:\/\//.test(valOf(d, c.key) || "") ? `<a href="${esc(valOf(d, c.key))}" target="_blank" rel="noopener">${esc(valOf(d, c.key))}</a>` : esc(fmt(valOf(d, c.key)))}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${tcols.length + 1}" class="mc-note">当てはまる会社がありません。</td></tr>`}
         </tbody></table></div>` : '<div class="mc-note">まだ行がありません。</div>'}
       <div class="bl-pg"><span>${r.total ? `${(page * PER + 1).toLocaleString()}〜${Math.min(r.total, (page + 1) * PER).toLocaleString()} / ${r.total.toLocaleString()}件` : ""}</span>${page > 0 ? '<button type="button" class="mt-btn ghost" data-pg="-1">前へ</button>' : ""}${(page + 1) * PER < r.total ? '<button type="button" class="mt-btn ghost" data-pg="1">次へ</button>' : ""}</div>
       ${coCol ? '<p class="mc-note" style="margin-top:6px">緑の印＝MOCHICA に商談がある会社。押すとその会社カードへ。</p>' : ""}

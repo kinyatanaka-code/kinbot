@@ -13060,15 +13060,19 @@ export async function mcBalesLists() {
 }
 // Bales の架電結果（callResult）を、kincall と同じ6つの結果に読みかえる（2026-11-22 田中さん「kincall と同じ架電結果の選択肢に」）。
 //   上から順に当てはめる（「担当者不在」を「不在」より先に・「お断り」を「再コール」より先に）。どれにも当たらなければ「その他」
+// 架電結果：MOCHICALL（SF）と同じ8つの選択肢にそろえる（2026-11-22 田中さん）。Bales の結果は SF と同じ言葉で入っているので、言葉どおりに当てる。
+//   「担当者接触ニーズなし」はお断り、「資料送付」は営業フォローに入れる（田中さん）。どれにも当たらないもの・空のものは「-」
 export const BALES_CR = [
-  ["アポ獲得", "アポ"],
-  ["NG", "NG|今後|架電不可|番号|使われて|廃業|移転|重複|対象外"],
-  ["断り", "断り|拒否|ブロック"],
-  ["担当者不在", "担当者不在|担当不在"],
-  ["不在", "不在|不通|話し中|留守|つながら|繋がら|出ない"],
-  ["再コール", "再コール|再架電|折り返し|資料|検討|接触|日程|後日"],
+  ["受付ブロック", "^\\s*受付ブロック\\s*$"],
+  ["担当者不在", "^\\s*担当者不在\\s*$"],
+  ["担当者接触：お断り", "^\\s*(担当者接触[:：]?\\s*お断り|担当者接触[:：]?\\s*ニーズなし)\\s*$"],
+  ["担当者接触：アポ獲得", "^\\s*担当者接触[:：]?\\s*アポ獲得\\s*$"],
+  ["担当者接触：営業フォロー", "^\\s*(担当者接触[:：]?\\s*営業フォロー|資料送付)\\s*$"],
+  ["現在使われていない", "^\\s*現在使われていない\\s*$"],
+  ["コールのみ", "^\\s*コールのみ\\s*$"],
+  ["問い合わせ", "^\\s*問い合わせ\\s*$"],
 ];
-export function balesCr(v) { const t = String(v || ""); if (!t) return ""; for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "その他"; }
+export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
@@ -13093,13 +13097,12 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   // ホット度で絞る：hot（3つそろい）／warm（2つ）／cold（1つ以下）／warm+（2つ以上）
   const HW = { hot: "hot >= 3", warm: "hot = 2", cold: "COALESCE(hot,0) <= 1", "warm+": "hot >= 2" }; if (HW[hot]) w.push(HW[hot]);
   // 架電結果（kincall の6つ）で絞る。前の結果に当たるものは外す（上から順に当てはめるのと同じにする）。「未架電」は結果が空のもの
+  // 8つは重ならないので、そのまま当てる。「-」は空・どれにも当たらないもの
   const crCond = (v) => {
-    const cw = [];
-    if (v === "未架電") return `COALESCE(data->>'callResult','') = ''`;
-    const i = BALES_CR.findIndex(([k]) => k === v);
-    if (i >= 0) { p.push(BALES_CR[i][1]); cw.push(`COALESCE(data->>'callResult','') ~ $${p.length}`); for (const [, re] of BALES_CR.slice(0, i)) { p.push(re); cw.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } }
-    else if (v === "その他") { cw.push(`COALESCE(data->>'callResult','') <> ''`); for (const [, re] of BALES_CR) { p.push(re); cw.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } }
-    return cw.length ? `(${cw.join(" AND ")})` : "";
+    const x = BALES_CR.find(([k]) => k === v);
+    if (x) { p.push(x[1]); return `COALESCE(data->>'callResult','') ~ $${p.length}`; }
+    if (v === "-") { const cw = []; for (const [, re] of BALES_CR) { p.push(re); cw.push(`COALESCE(data->>'callResult','') !~ $${p.length}`); } return `(${cw.join(" AND ")})`; }
+    return "";
   };
   const crW = many(cr).map(crCond).filter(Boolean); if (crW.length) w.push(`(${crW.join(" OR ")})`);
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
