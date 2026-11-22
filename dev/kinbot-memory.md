@@ -2860,3 +2860,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-22 田中さん：knowkin への書き出しに transcripts（商談の文字起こし全文）を足した（読み取りだけ・AI を使わない）
 - 2026-11-22 田中さん：コネクタに get_proposal_library（提案資料のライブラリ。登録した Google スライドと送った PDF のページごとの本文・見られた秒数。AI なし）。doc_files.page_texts 列を足した
 - 2026-11-22 福井さん：セキュリティの点検（20項目）で見つかった穴のうち、使い勝手を変えずに直せるものだけ直した。①認証の例外：末尾が .png・.js などのパスは API でも・消す操作でもログインなしで通っていた → 画面の部品を読む（GET・/api/ 以外）ときだけ通す（インターン・kincs の例外も同じ）②/api/booking/pages がお客様用の例外に巻きこまれてログインなしで読めた → 外した ③getUser：招待リンク（kincs-join）と SF 連携の state の署名を Cookie に入れるとログインできた → 止めた ④login・register の next と /auth/salesforce の return は / で始まる行き先だけ ⑤/api/doc/:slug/file でも期限を見る・nosniff・アップロードは先頭が %PDF- か確かめる ⑥kinXs の添付は SVG・HTML を受けない ⑦/api/chat-config/test は Google Chat の URL だけ ⑧/oauth/authorize に x-frame-options: DENY ⑨.gitignore に鍵ファイルの型を足した。残り（田中さんの判断が要るもの）は、このリポジトリがだれでも読める設定なのでここには書かず、福井さんから田中さんへ直接伝える
+- 2026-11-22 田中さん：knowkin が提案資料のページ画像・デザインのデータを作るため、/api/knowkin/doc-file（PDF を読み取りだけで渡す。共有か自分の資料だけ）

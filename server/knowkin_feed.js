@@ -196,6 +196,24 @@ const KINDS = {
 };
 
 export function registerKnowkinFeed(app) {
+  // 送った提案資料の PDF そのもの（knowkin がページの画像とデザインのデータを作るため。読み取りだけ）。
+  //   見せてよいのは、共有の資料か、自分が入れた資料だけ（2026-11-22 田中さん「資料のデザインの感じもデータで渡せるように」）
+  app.get("/api/knowkin/doc-file", async (req, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+      const pool = dbPool();
+      if (!pool) return res.status(503).json({ error: "データベースにつながっていません" });
+      const id = parseInt(req.query.id, 10);
+      if (!id) return res.status(400).json({ error: "id を入れてください" });
+      const { rows } = await pool.query(`SELECT name, mime, bytes, shared, uploaded_by FROM doc_files WHERE id = $1 AND active`, [id]);
+      const f = rows[0];
+      if (!f || !f.bytes) return res.status(404).json({ error: "見つかりません" });
+      if (!f.shared && String(f.uploaded_by || "").toLowerCase() !== String(req.user || "").toLowerCase() && !req.isAdmin) return res.status(403).json({ error: "見られない資料です" });
+      res.set("Content-Type", f.mime || "application/pdf");
+      res.send(f.bytes);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get("/api/knowkin/feed", async (req, res) => {
     try {
       if (!req.user) return res.status(401).json({ error: "ログインしてください" });
