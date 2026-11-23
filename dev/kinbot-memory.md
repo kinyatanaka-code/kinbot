@@ -2993,3 +2993,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-24 田中さん「これからの更新と情報不足を下に、担当企業を右側に」：#kh2 .h2-row を2×2（act mine / ren miss）に。.h2-left/.h2-side は display:contents。
 - 2026-11-24 田中さん「更新と情報不足をもう少し細く、上を広く」：#kh2 .h2-ren を3か月横並びの小さな箱に、情報不足も詰めた。担当企業の7つの数字は「名前…数」の行を2列に。
 - 2026-11-24dt 田中さん（11/20 の打ち合わせ「納品一覧を、今月納品待ちがわかる形に」→ 担当企業に足す・ホームにも）：renderMine の KS に dw「今月納品待ち」・dn「来月納品待ち」。未納品（!delivered）を予定の月＝kenshuMonth → deliveryMonth（回収MTGの納品月）→ ksMonth（受注の翌月）で分け、今月は今月以前（遅れ含む）、来月は翌月。並びは予定の月→社名。ホームは同じ renderMine なので一緒に出る。
+- 2026-11-24du 田中さん「スマホからもkinXs見れるようにして」（スマホの kinbot メニューのスクショに kinXs が無い）：nav.js のスマホメニュー（kb-menu）に kincall の下で kinXs（/kinxs、kinxs-ico.svg）。kinxs.html：860px 以下は .kx-side を上の帯（sticky）にたたみ、#kxMTog（右上・三本線⇔×）で .open。開くと項目を縦に、リンクを押すと閉じる。.kx-back は隠し、下の kx-stools（kinbot・kincall）と名前・設定を出す。iPhone 13 の幅で横はみ出しなしを確認。

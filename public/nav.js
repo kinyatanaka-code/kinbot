@@ -38,7 +38,7 @@ window.addEventListener("error", (e) => {
 (function () {
   if (!document.querySelector('script[src$="kbchat.js"]')) {
     const sc = document.createElement("script");
-    sc.src = "kbchat.js?v=20261124p";
+    sc.src = "kbchat.js?v=20261124q";
     sc.defer = true;
     document.head.appendChild(sc);
   }
@@ -467,6 +467,8 @@ window.kbSheet = function (html) {
     }
     // kinbotの機能とは別に、kincall・Salesforce・AI社員を下に置く（サイドバーの並びに合わせる）
     items.push({ href: "/kincall", label: "kincall", ico: "ico-phone" });
+    // kinXs もスマホから開けるように（2026-11-24 田中さん「スマホからもkinXs見れるようにして」）。前はパソコンのサイドバーにしか入口がなかった
+    items.push({ href: "/kinxs", label: "kinXs", svg: '<img src="/kinxs-ico.svg" alt="" width="19" height="19" style="border-radius:5px" />' });
     items.push({ href: "sf-launch.html", label: "Salesforce", ico: "ico-sf" });
     if (kbAiAllowed()) items.push({ href: "ai.html", label: "AI社員", ico: "ico-ai" });
     // AI社員の下に「ツール」（分析・営業スタイル分析・天気予報・開発メモ）

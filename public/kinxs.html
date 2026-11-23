@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261124p" />
+    <link rel="stylesheet" href="style.css?v=20261124q" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1378,12 +1378,30 @@
   .h2-card .v small{font-size:11px !important;}
   .h2-card .s{font-size:10px !important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
   @media (prefers-reduced-motion: reduce){ .kx-side .kx-grp .kx-sub{transition:opacity .1s ease !important;transform:none !important;} }
+  /* スマホ：メニューを上の細い帯にたたむ（2026-11-24 田中さん「スマホからもkinXs見れるようにして」）。
+     前はメニューが全部ひらいたまま上に並び、最初の1画面がメニューで埋まっていた。右上のボタンで開け閉めする */
+  .kx-mtog{display:none;}
+  @media (max-width:860px){
+    .kx-side{position:sticky !important;top:0;z-index:60;flex-direction:column !important;flex-wrap:nowrap !important;align-items:stretch !important;padding:8px 12px !important;gap:2px !important;max-height:100dvh;box-sizing:border-box;}
+    .kx-side .kx-brand{padding:2px 4px !important;margin:0 !important;}
+    .kx-side .kx-brand img{width:32px;height:32px;}
+    .kx-mtog{display:grid;place-items:center;position:absolute;right:12px;top:8px;width:40px;height:40px;border:0;border-radius:12px;background:rgba(255,255,255,.1);color:#fff;cursor:pointer;}
+    .kx-mtog svg{width:22px;height:22px;}
+    .kx-side:not(.open) > *:not(.kx-brand):not(.kx-mtog){display:none !important;}
+    .kx-side.open{overflow-y:auto;padding-bottom:16px !important;box-shadow:0 10px 30px rgba(0,0,0,.25);}
+    .kx-side.open > .kx-nav:not([hidden]){display:flex !important;}
+    .kx-side.open > .kx-nav.kx-back{display:none !important;}
+    .kx-side.open .kx-stools{display:flex !important;gap:8px;margin-top:8px;}
+    .kx-side.open .kx-side-foot{display:flex !important;margin-top:8px;}
+    .kx-main{padding:14px 12px 30px !important;}
+  }
 </style>
 </head>
   <body>
     <div class="kx-app">
       <nav class="kx-side" aria-label="kinXsのメニュー">
         <a class="kx-brand" href="/kinxs?p=home"><img src="/kinxs.svg" alt="" width="40" height="40" /><span>kinXs</span></a>
+        <button type="button" class="kx-mtog" id="kxMTog" aria-label="メニューを開く" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
         <!-- メニューは親子でまとめる（2026-11-17 田中さん「メニューの項目が多くなってきたからまとめたい」。2026-11-18：ユーザー・フォローを親にして、ユーザー一覧・年間施策も子に）。
              子は、親か子のページにいるときと、右の矢印で開いたときだけ出す -->
         <a class="kx-nav" data-view="home" href="/kinxs?p=home"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>ホーム</a>
@@ -1537,7 +1555,17 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124p" defer></script>
-    <script src="kinxs.js?v=20261124p"></script>
-  </body>
+    <script src="kbchat.js?v=20261124q" defer></script>
+    <script src="kinxs.js?v=20261124q"></script>
+  <script>
+  // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
+  (function () {
+    const side = document.querySelector(".kx-side"), tog = document.getElementById("kxMTog"); if (!side || !tog) return;
+    const MENU = '<path d="M4 7h16M4 12h16M4 17h16"/>', CLOSE = '<path d="M6 6l12 12M18 6 6 18"/>';
+    const set = (on) => { side.classList.toggle("open", on); tog.setAttribute("aria-expanded", on ? "true" : "false"); tog.setAttribute("aria-label", on ? "メニューを閉じる" : "メニューを開く"); tog.querySelector("svg").innerHTML = on ? CLOSE : MENU; };
+    tog.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); set(!side.classList.contains("open")); });
+    side.addEventListener("click", (e) => { if (e.target.closest("a[href]")) set(false); });
+  })();
+</script>
+</body>
 </html>
