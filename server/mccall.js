@@ -21,7 +21,7 @@ import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, connectionInfo as sfConnInfo, describeObject } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
-import { lookupMynaviFree } from "./mcresearch.js";
+import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { showableResearch, CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は今の募集と確かめた採用情報だけを画面に出す（2026-11-23）   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
