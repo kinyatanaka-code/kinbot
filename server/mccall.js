@@ -18,7 +18,7 @@ import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEven
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
-import { pastApproach, balesItems, dedupeTimeline, startZoomSync } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
+import { pastApproach, balesItems, dedupeTimeline, startZoomSync, spokenText, spokenData } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, connectionInfo as sfConnInfo, describeObject } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
@@ -1836,13 +1836,15 @@ export function registerMcCall(app, deps) {
     const tlAll = dedupeTimeline(tl); tl.length = 0; tl.push(...tlAll);
     // ひと目で（2026-11-18 福井さん「検討時期・採用ニーズ・過去架電内容が架電時に調べなくても一目でわかるように」）
     //   SF の決まった項目はそのまま出し、言葉は新しい記録から順に読んで最初に当たった1文を出す（いちばん新しい状況を見せるため）。
-    //   kinbot の記録は自動で足した「次回 〇/〇」などで時期と取り違えないよう、メモだけを読む
+    //   kinbot の記録は自動で足した「次回 〇/〇」などで時期と取り違えないよう、メモだけを読む。
+    //   根拠は相手の発言（架電の記録）だけ。送ったメール・MA の文面は読まない（2026-11-23 福井さん。mchist.js の spokenText）
     const glance = (() => {
       const L = (sf && sf.lead) || {};
       const sfv = (labels) => labels.map((k) => [k, String(L[k] ?? "").trim()]).filter(([, v]) => v);
       const hit = (key) => {
-        for (const t of tl) { const s = t.src === "kinbot" ? t.memo : t.text; if (!s) continue; const j = judgeHot({ comment: s }, null)[key]; if (j.st) return { st: j.st, why: j.why, at: t.at, src: t.src, who: t.who || "" }; }
-        const j = judgeHot(data, null)[key]; return j.st ? { st: j.st, why: j.why, at: null, src: lead.src === "doc" ? "DOC" : "Bales", who: "" } : null;
+        for (const t of tl) { const s = spokenText(t); if (!s) continue; const j = judgeHot({ comment: s }, null)[key]; if (j.st) return { st: j.st, why: j.why, at: t.at, src: t.src, who: t.who || "" }; }
+        const d0 = spokenData(lead.src, data); if (!d0) return null;
+        const j = judgeHot(d0, null)[key]; return j.st ? { st: j.st, why: j.why, at: null, src: lead.src === "doc" ? "DOC" : "Bales", who: "" } : null;
       };
       // 架電で聞いたヒアリングをいちばん上に（いちばん新しく、本人から聞いた値なので）
       const H = lead.hearing || {}; const kv = (arr) => arr.filter(([, v]) => v != null && v !== "").map(([k, v]) => [k, String(v)]);

@@ -106,6 +106,27 @@ export function startZoomSync() {
   setTimeout(zoomSyncTick, 30e3); setInterval(zoomSyncTick, 10 * 60e3);
 }
 
+// ---- 「ひと目で」の採用ニーズ・検討時期の根拠に使ってよい文（2026-11-23 福井さん「根拠は相手発言のみ。送付メールの文面を含めない」） ----
+//   架電の記録（MOCHICALL・DOC のメモ、BALES の電話の活動、SF の架電の活動）だけを返す。
+//   メール・MA 連携（SF の「日付__Integration B2BMA」の活動）・資料送付・予定・商談・Zoom は空にする
+const NOT_SPOKEN = /メール|mail|送信|送付|フォーム|DM|FAX|B2BMA|Integration/i;
+// 本文がメールの形（BALES→SF のメール記録の TO/FROM/件名、MA の配信停止の案内）なら、どこから来ても読まない
+const MAIL_BODY = /配信停止|%%unsubscribe%%|^\s*(件名|本文|TO|FROM)\s*[:：]/mi;
+export function spokenText(t) {
+  if (!t) return "";
+  let s = "";
+  if (t.src === "kinbot" || t.src === "DOC") s = t.memo || "";
+  else if (t.src === "SF") s = /^架電：/.test(t.title || "") && !NOT_SPOKEN.test(`${t.title || ""} ${t.who || ""}`) ? t.text || "" : "";
+  else if (t.src === "Bales") s = NOT_SPOKEN.test(`${t.title || ""} ${t.who || ""}`) ? "" : t.text || "";
+  return s && !MAIL_BODY.test(s) ? s : "";
+}
+// 元データ（行そのもの）を根拠に読んでよいか。DOC のメモと BALES の最終活動（電話のとき）だけ。SF・CSV から足したリードの中身は読まない
+export function spokenData(src, data) {
+  if (src === "doc") return data || null;
+  if (src === "bales" && data && !NOT_SPOKEN.test(`${data.lastActivityTypeText || ""} ${data.operatorName || ""}`) && !MAIL_BODY.test(String(data.lastActivityComment || ""))) return data;
+  return null;
+}
+
 // ---- BALES の行から時系列の項目を作る（BALES から入れたリードと、番号・会社名で見つけた別の BALES の行の両方で使う） ----
 const dateOf = (o) => { for (const v of Object.values(o || {})) if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v)) return v; return null; };
 const textOf = (o) => { for (const [k, v] of Object.entries(o || {})) if (/comment|memo|content|note|body|text/i.test(k) && typeof v === "string" && v.trim()) return v; return ""; };
