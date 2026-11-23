@@ -3,7 +3,7 @@
 // なぜ作ったか：
 //   商談プロセス（インサイドのコール〜セールスの受注）を、月・週・日で計画と実績のずれまで一目で見たい。
 //   手元で作った HTML はデータを手で集めていたので古くなる。そこで、開くたびに正本（SF・Zoom Phone・シフト表）を
-//   サーバーが直接読んで返す。kinbot は読むだけ（正本を増やさない）。
+//   サーバーが直接読んで返す。インサイド画面で使う Zoom の発信履歴は、概要とは別に読む。
 //
 // 返す形は public/mcdash.html がそのまま使う DATA（手元の dashboard/build.py と同じ形）。
 //   sf.deals（今月に関係する新規商談＋ステージ履歴）、detail.deals（直近6か月の新規商談の項目）、
@@ -108,11 +108,17 @@ async function loadSf(sfQueryAll, owner, asOf) {
 // 1日ごとに生の行（担当・相手番号・秒・応答）を持つ。過ぎた日は取り直さない。今日は5分ごと。
 const _zoomDays = new Map();   // day -> { at, rows: [{o, n, s, a}] }
 let _zoomNames = { at: 0, map: new Map() };   // email -> 表示名（空白なし）
+let _zoomNamesPending = null;
 async function zoomNameMap() {
   if (Date.now() - _zoomNames.at < 6 * 3600000 && _zoomNames.map.size) return _zoomNames.map;
-  const us = await zoomPhoneUsers();
-  _zoomNames = { at: Date.now(), map: new Map(Object.entries(us).map(([e, u]) => [e, nz(u.name)])) };
-  return _zoomNames.map;
+  // 架電記録の名寄せと通話の集計で、同じユーザー一覧を重ねて取りに行かない。
+  if (!_zoomNamesPending) {
+    _zoomNamesPending = zoomPhoneUsers().then(us => {
+      _zoomNames = { at: Date.now(), map: new Map(Object.entries(us).map(([e, u]) => [e, nz(u.name)])) };
+      return _zoomNames.map;
+    }).finally(() => { _zoomNamesPending = null; });
+  }
+  return _zoomNamesPending;
 }
 async function zoomFetchRange(from, to) {
   const names = await zoomNameMap().catch(() => new Map());
@@ -187,8 +193,9 @@ async function loadCallLogs(from, to) {
 async function emailNames() {
   const m = new Map();
   const add = (e, n) => { const k = String(e || "").toLowerCase(); if (!k || !n) return; const a = m.get(k) || []; if (!a.includes(n)) a.push(n); m.set(k, a); };
-  for (const u of await listUsers().catch(() => [])) add(u && u.email, u && u.name);
-  for (const [e, n] of (await zoomNameMap().catch(() => new Map()))) add(e, n);
+  const [users, zoomNames] = await Promise.all([listUsers().catch(() => []), zoomNameMap().catch(() => new Map())]);
+  for (const u of users) add(u && u.email, u && u.name);
+  for (const [e, n] of zoomNames) add(e, n);
   return m;
 }
 
@@ -223,19 +230,9 @@ async function loadShifts(readSheet, asOf) {
 }
 
 // ───────────── まとめ ─────────────
-const _cache = { at: 0, data: null, building: null };
-async function build(deps) {
-  const asOf = todayJst(), mStart = monthStart(asOf), pmStart = addMonths(mStart, -1);
-  const sources = {}, notes = [];
-  const t0 = Date.now();
-  const owner = await deps.sfOwner();
-  // SF（必須）
-  let sfPart;
-  try {
-    sfPart = await loadSf(deps.sfQueryAll, owner, asOf);
-    sources.SF = { status: sfPart.n ? "ok" : "ng", at: new Date().toISOString(), note: sfPart.n ? `新規商談 ${sfPart.n}件・ステージ履歴 ${sfPart.nHist}件` : "新規商談が0件でした（取り方を確認してください）" };
-  } catch (e) { sources.SF = { status: "ng", at: new Date().toISOString(), note: "SF を読めませんでした：" + e.message }; throw Object.assign(new Error("SF を読めませんでした：" + e.message), { sources }); }
-  // Zoom Phone
+async function buildZoom(asOf, roster) {
+  const mStart = monthStart(asOf), pmStart = addMonths(mStart, -1);
+  const sources = {};
   let calls = null, callsPrev = null, pace = null;
   if (!zoomPhoneConfigured()) sources["Zoom Phone"] = { status: "ng", at: "", note: "Zoom Phone の接続設定がありません" };
   else {
@@ -244,22 +241,25 @@ async function build(deps) {
       calls = aggregateCalls(cur, mStart.slice(0, 7)); callsPrev = aggregateCalls(prev, pmStart.slice(0, 7));
       // 実通話時間とコール間隔（前月と今月を1つにまとめる。画面が期間で切り出す）
       pace = { ...paceRows([...prev, ...cur]), source: "zoom_phone", period: `${pmStart.slice(0, 7)}〜${mStart.slice(0, 7)}`, breakMin: BREAK_MIN, rePressSec: RE_PRESS_SEC };
-      const isN = deps.roster.is.reduce((a, p) => a + Object.values(calls.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);
+      const isN = roster.is.reduce((a, p) => a + Object.values(calls.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);
       sources["Zoom Phone"] = { status: isN ? "ok" : "ng", at: new Date().toISOString(), note: isN ? `今月の発信 ${cur.length}件（インサイド8名 ${isN}件）・前月 ${prev.length}件` : `インサイド8名の発信が0件でした（全体 ${cur.length}件）。名前の対応を確認してください` };
     } catch (e) { sources["Zoom Phone"] = { status: "ng", at: new Date().toISOString(), note: "Zoom Phone を読めませんでした：" + e.message }; }
   }
+  return { asOf, calls, callsPrev, pace, sources };
+}
+
+async function buildLog(pmStart, asOf, roster, sources) {
   // 架電の記録（インサイドの数字の正本）。読めなかったときは sources に残し、Zoom の推定で黙って埋めない
   let log = null;
   try {
     const { empty, rows } = await loadCallLogs(pmStart, asOf);
     if (empty) sources["架電記録"] = { status: "ng", at: new Date().toISOString(), note: "MOCHICA の架電画面の記録の表がまだありません（1件も記録されていません）" };
     else {
-      const names = await emailNames();
-      const people = await loadPeople().catch(() => new Map());   // 名簿にメールで登録された人は、名前を見ずに結びつける（2026-11-23）
-      const tagged = rows.map((r) => ({ day: r.day, caller: (names.get(String(r.caller || "").toLowerCase()) || [])[0] || r.caller, who: whoOf(r.caller, deps.roster.is, names, people),
+      const [names, people] = await Promise.all([emailNames(), loadPeople().catch(() => new Map())]);
+      const tagged = rows.map((r) => ({ day: r.day, caller: (names.get(String(r.caller || "").toLowerCase()) || [])[0] || r.caller, who: whoOf(r.caller, roster.is, names, people),
         leadId: r.lead_id, reach: r.reach, outcome: r.outcome, hearing: r.hearing }));
       log = aggregateLogs(tagged, `${pmStart.slice(0, 7)}〜${asOf.slice(0, 7)}`);
-      const isN = deps.roster.is.reduce((a, p) => a + Object.values(log.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);
+      const isN = roster.is.reduce((a, p) => a + Object.values(log.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);
       const un = Object.entries(log.unmatched).sort((x, y) => y[1] - x[1]);
       const unN = un.reduce((a, [, n]) => a + n, 0);
       sources["架電記録"] = { status: isN ? "ok" : "ng", at: new Date().toISOString(),
@@ -267,41 +267,92 @@ async function build(deps) {
           + (unN ? `。名簿にない人の記録 ${unN}件は数えていません（${un.slice(0, 4).map(([k, n]) => `${k} ${n}件`).join("・")}${un.length > 4 ? "…" : ""}）` : "") };
     }
   } catch (e) { sources["架電記録"] = { status: "ng", at: new Date().toISOString(), note: "架電の記録を読めませんでした：" + e.message }; }
-  // シフト
-  let shifts = null;
+  return log;
+}
+
+async function buildShifts(readSheet, asOf, sources) {
   try {
-    shifts = await loadShifts(deps.readSheet, asOf);
+    const shifts = await loadShifts(readSheet, asOf);
     const n = Object.values(shifts.shifts).reduce((a, s) => a + Object.keys(s).length, 0);
     sources["シフト"] = { status: n ? "ok" : "ng", at: new Date().toISOString(), note: n ? `今月のシフト ${n}件（${Object.keys(shifts.shifts).length}名）` : "今月のシフトが0件でした" };
-  } catch (e) { sources["シフト"] = { status: "ng", at: new Date().toISOString(), note: "シフト表を読めませんでした（福井さんの Google 連携）：" + e.message }; }
+    return shifts;
+  } catch (e) { sources["シフト"] = { status: "ng", at: new Date().toISOString(), note: "シフト表を読めませんでした（福井さんの Google 連携）：" + e.message }; return null; }
+}
+
+async function buildSummary(asOf, deps, sfOwner) {
+  const mStart = monthStart(asOf), pmStart = addMonths(mStart, -1);
+  const sources = { SF: null, "架電記録": null, "シフト": null }, notes = [];
+  const t0 = Date.now();
+  // 別のデータ源の応答を待ってから読み始めると、そのぶん表示が遅れる。
+  const [sfResult, log, shifts] = await Promise.all([
+    (async () => {
+      try {
+        const owner = await sfOwner();
+        const part = await loadSf(deps.sfQueryAll, owner, asOf);
+        sources.SF = { status: part.n ? "ok" : "ng", at: new Date().toISOString(), note: part.n ? `新規商談 ${part.n}件・ステージ履歴 ${part.nHist}件` : "新規商談が0件でした（取り方を確認してください）" };
+        return { owner, part };
+      } catch (e) {
+        const note = "SF を読めませんでした：" + e.message;
+        sources.SF = { status: "ng", at: new Date().toISOString(), note };
+        throw Object.assign(new Error(note), { sources: { SF: sources.SF } });
+      }
+    })(),
+    buildLog(pmStart, asOf, deps.roster, sources),
+    buildShifts(deps.readSheet, asOf, sources),
+  ]);
+  const { owner, part: sfPart } = sfResult;
   let sfBase = ""; try { sfBase = String((await deps.sfInfo(owner))?.instanceUrl || "").replace(/\/+$/, ""); } catch {}
   notes.push("※ インサイドのコール・接続・担当者到達・アポ（記録）・ホットは、架電画面に記録した結果を数えています（元に戻した記録は除く。Zoom の通話秒数からの推定はやめました）。");
   notes.push("※ ICP・MQL・ホットリスト・SQL は【デモ定義】。SFで定義が確定したら差し替える。商談設定・商談実施は SF の商談日（appointment__c）で判定。");
   notes.push("※ インサイドの計画はシフト表の勤務時間 × 1時間あたりの目標。アポは設定シートの「アポ目標時間」。");
   notes.push("※ インサイドのアポ数は SF の「アポ獲得者」（Internship_apo__c）が入力された案件のみ。入力率が低いと実態より少なく出ます。");
   return { asOf, fetchedAt: new Date().toISOString(), buildMs: Date.now() - t0, holidays: HOLIDAYS, staleBefore: addMonths(mStart, -3), roster: deps.roster,
-    sf: sfPart.sf, detail: sfPart.detail, calls, callsPrev, pace, log, shifts, sources, notes, sfBase };
+    sf: sfPart.sf, detail: sfPart.detail, log, shifts, sources, notes, sfBase };
+}
+
+function cachedData(cache, asOf, refresh, build) {
+  if (cache.asOf !== asOf) Object.assign(cache, { asOf, at: 0, data: null, building: null });
+  if (cache.building) return cache.building;
+  const age = Date.now() - cache.at;
+  // 更新ボタンでも短時間に同じ集計が重ならないようにする。
+  if (cache.data && age <= (refresh ? 30000 : 5 * 60000)) return cache.data;
+  const pending = build().then(data => {
+    const at = Date.now();
+    const result = { ...data, cachedAt: new Date(at).toISOString() };
+    // 日付をまたいで完了した集計で、新しい日付のキャッシュを上書きしない。
+    if (cache.building === pending) Object.assign(cache, { at, data: result });
+    return result;
+  }).finally(() => { if (cache.building === pending) cache.building = null; });
+  cache.building = pending;
+  return pending;
 }
 
 export function registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, readSheet, mochicaSet, isAdmin }) {
   const deps = { sfQueryAll, readSheet, sfInfo, roster: MCDASH_ROSTER };
+  const summaryCache = {}, zoomCache = {};
   const allowed = async (req) => !!req.user && (isAdmin(req) || (await mochicaSet().catch(() => new Set())).has(String(req.user).toLowerCase()));
-  app.get("/api/mcdash/data", async (req, res) => {
+  async function serveData(req, res, zoomOnly = false) {
     try {
       if (!req.user) return res.status(401).json({ error: "ログインしてください" });
       if (!(await allowed(req))) return res.status(403).json({ error: "MOCHICA のメンバーだけが見られます" });
-      deps.sfOwner = async () => (await sfOperator().catch(() => "")) || (await sfActor(req));
-      const fresh = req.query.refresh === "1" && Date.now() - _cache.at > 30000;   // 「更新」は30秒に1回まで
-      if (!_cache.data || fresh || Date.now() - _cache.at > 5 * 60000 || _cache.data.asOf !== todayJst()) {
-        if (!_cache.building) _cache.building = build(deps).then((d) => { _cache.data = d; _cache.at = Date.now(); return d; }).finally(() => { _cache.building = null; });
-        await _cache.building;
-      }
-      res.set("cache-control", "no-store").json({ ...(_cache.data || {}), cachedAt: new Date(_cache.at).toISOString() });
+      const asOf = todayJst(), refresh = req.query.refresh === "1";
+      const zoom = () => cachedData(zoomCache, asOf, refresh, () => buildZoom(asOf, deps.roster));
+      res.set("cache-control", "no-store");
+      if (zoomOnly) return res.json(await zoom());
+      const sfOwner = async () => (await sfOperator().catch(() => "")) || (await sfActor(req));
+      const summary = cachedData(summaryCache, asOf, refresh, () => buildSummary(asOf, deps, sfOwner));
+      // 既存の画面・呼び出し元が使う全項目付きの応答も返せるようにする。
+      if (req.query.includeZoom === "0") return res.json(await summary);
+      const [data, zoomData] = await Promise.all([summary, zoom()]);
+      const { calls, callsPrev, pace, sources: zoomSources } = zoomData;
+      return res.json({ ...data, calls, callsPrev, pace, sources: { ...data.sources, ...zoomSources } });
     } catch (e) {
       console.error("[mcdash]", e);
       res.status(502).json({ error: e.message || "ダッシュボードのデータを作れませんでした", sources: e.sources || null });
     }
-  });
+  }
+  app.get("/api/mcdash/data", (req, res) => serveData(req, res));
+  app.get("/api/mcdash/zoom", (req, res) => serveData(req, res, true));
   // 架電分析（2026-11-23 福井さん）：Zoom Phone の発信×架電メモ。SF の Task を数千件読むので、同じ期間は10分ためる
   const anaCache = new Map();   // "from|to" -> { at, data, building }
   app.get("/api/mcdash/callana", async (req, res) => {

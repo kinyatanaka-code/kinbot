@@ -178,6 +178,8 @@ tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5
 </div></header>
 
 <main>
+<div class="panel pad" id="mcLoading" role="status">データを読んでいます（SF・架電の記録・シフト表）…</div>
+<div class="panel pad" id="sourceWarning" style="border-left:4px solid var(--bad);margin-bottom:16px;font-size:13px" hidden></div>
 <!-- ============ 事業 ============ -->
 <div class="view" id="v-biz">
   <div class="subtabs" id="bizTabs"><a href="#biz" data-t="sum">サマリー</a><a href="#biz-total" data-t="total">全体の数字</a><a href="#biz-contrib" data-t="contrib">個人の貢献</a><a href="#biz-quality" data-t="quality">データの抜け</a></div>
@@ -339,7 +341,7 @@ let DATA = /*__DATA__*/null;
 </script>
 <script>
 // 画面の本体。DATA（サーバーの /api/mcdash/data か、手元の build.py が埋め込んだもの）がそろってから動かす
-function __main(){
+function __main(loadZoom){
 /* ================= 基本 ================= */
 const AS_OF=DATA.asOf, [AY,AM]=AS_OF.split('-').map(Number), MONTH=AS_OF.slice(0,7), M_START=`${MONTH}-01`;
 const M_END=(()=>{const d=new Date(AY,AM,0);return `${MONTH}-${String(d.getDate()).padStart(2,'0')}`;})();
@@ -404,8 +406,7 @@ function avgToWon(c){let s=0;for(let k=SF_ORDER.indexOf(c);k<SF_ORDER.length-1;k
 const pWin=c=>H.reached[c]?H.reached['08']/H.reached[c]:0;
 
 /* 架電 */
-/* インサイドの数字は、架電画面に記録した結果（DATA.log）を数える。Zoom Phone（CALLS）は通話秒数の参考と、記録もれの確認だけに使う */
-const CALLS=DATA.calls?.byOwnerDay||{};
+/* インサイドの数字は、架電画面に記録した結果（DATA.log）を数える。Zoom Phone は通話秒数の参考と、記録もれの確認だけに使う */
 const LOG=DATA.log?.byOwnerDay||{};
 const LI=Object.fromEntries((DATA.log?.cols||[]).map((c,i)=>[c,i]));   // 列の名前→位置（サーバーの LOG_COLS と同じ）
 const LOGN=(DATA.log?.cols||[]).length;
@@ -841,7 +842,7 @@ const FACT=[{k:'dpd',l:'架電/日',f:v=>fmt1(v)},{k:'answer',l:'つながった
 /* prev=true は前月と比べる基準の集計（シフトが無いので稼働日数は「記録のある日」を数える） */
 function isStats(people,from,to,prev){const o={dials:0,ans:0,per:0,appo:0,appoSf:0,zoomDials:0,hours:0,sdays:0};const active=new Set();
   people.forEach(p=>{const days=LOG[p.zoom]||{};Object.entries(days).forEach(([d,v])=>{if(d>=from&&d<=to){o.dials+=lg(v,'calls');o.ans+=lg(v,'reached');o.per+=lg(v,'person');o.appo+=lg(v,'apo');if(lg(v,'calls')>0)active.add(p.zoom+d);}});
-    Object.entries(CALLS[p.zoom]||{}).forEach(([d,v])=>{if(d>=from&&d<=to)o.zoomDials+=v[0]||0;});
+    Object.entries(DATA.calls?.byOwnerDay?.[p.zoom]||{}).forEach(([d,v])=>{if(d>=from&&d<=to)o.zoomDials+=v[0]||0;});
     if(!prev)WORKDAYS.filter(d=>d>=from&&d<=to&&d<=AS_OF).forEach(d=>{o.hours+=shiftH(p,d);});
     o.appoSf+=(prev?histDeals:deals).filter(x=>x.apo===p.sf&&(prev?x.created:x.reach['01'])>=from&&(prev?x.created:x.reach['01'])<=to).length;});
   o.sdays=active.size;
@@ -857,19 +858,19 @@ function isRange(){if(state.isPer==='bw'){const b=BW[state.isBw];return [b.start
    集計の元は server/mcdashpace.js（同じ式。テストで画面の数字とサーバーの計算が一致することを確かめている）。
    - 実通話時間＝応答があった通話の秒数（呼び出し音は含めない）。平均は応答した通話1本あたり
    - コール間隔＝前の通話が終わってから次の発信まで。中央値が主役。30分より空いたものは休憩として平均・中央値から外す */
-const PACE=DATA.pace?.byOwnerDay||null;
-const PACE_BREAK=(DATA.pace?.breakMin||30)*60;
+const paceBreak=()=>(DATA.pace?.breakMin||30)*60;
 const fmtDur=s=>{if(s==null||!isFinite(s))return '—';s=Math.round(s);if(s<60)return `${s}秒`;const m=Math.floor(s/60),r=s%60;if(m<60)return `${m}分${String(r).padStart(2,'0')}秒`;return `${Math.floor(m/60)}時間${String(m%60).padStart(2,'0')}分`;};
 function paceSummary(names,from,to){const o={calls:0,answered:0,talkSec:0,rePress:0,eg:[],sg:[]};
-  names.forEach(n=>Object.entries((PACE||{})[n]||{}).forEach(([d,v])=>{if(d<from||d>to)return;o.calls+=v.calls;o.answered+=v.answered;o.talkSec+=v.talkSec;o.rePress+=v.rePress;o.eg.push(...v.endGaps);o.sg.push(...v.startGaps);}));
-  const work=a=>a.filter(x=>x<=PACE_BREAK),mean=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:null;
+  names.forEach(n=>Object.entries(DATA.pace?.byOwnerDay?.[n]||{}).forEach(([d,v])=>{if(d<from||d>to)return;o.calls+=v.calls;o.answered+=v.answered;o.talkSec+=v.talkSec;o.rePress+=v.rePress;o.eg.push(...v.endGaps);o.sg.push(...v.startGaps);}));
+  const limit=paceBreak(),work=a=>a.filter(x=>x<=limit),mean=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:null;
   const median=a=>{if(!a.length)return null;const s=[...a].sort((x,y)=>x-y),m=s.length>>1;return s.length%2?s[m]:(s[m-1]+s[m])/2;};
   const ew=work(o.eg),sw=work(o.sg);
   return {calls:o.calls,answered:o.answered,talkSec:o.talkSec,rePress:o.rePress,avgTalk:o.answered?o.talkSec/o.answered:null,talkPerCall:o.calls?o.talkSec/o.calls:null,
     endMedian:median(ew),endMean:mean(ew),startMedian:median(sw),startMean:mean(sw),gaps:ew.length,breaks:o.eg.length-ew.length};}
 function renderPace(people,from,to,plabel){
   const names=ps=>ps.map(p=>p.zoom);
-  if(!PACE){$('paceSub').textContent='';$('paceNote').textContent='Zoom Phone の通話を読めなかったため、実通話時間とコール間隔は出せません（上のデータ源を確認してください）。';$('paceKpis').innerHTML='';$('isPace').innerHTML='';return;}
+  if(!DATA.pace){$('paceSub').textContent='';$('paceNote').textContent=zoomPending?'Zoom Phone の通話履歴を読み込んでいます…':'Zoom Phone の通話を読めなかったため、実通話時間とコール間隔は出せません（上のデータ源を確認してください）。';$('paceKpis').innerHTML='';$('isPace').innerHTML='';return;}
+  const PACE_BREAK=paceBreak();
   const sel=paceSummary(names(people),from,to);
   const pm=addMonths(M_START,-1),pe=addMonths(M_START,0).replace(/-01$/,'-00');const pv=paceSummary(names(people),pm,pe);
   $('paceSub').textContent=`${people.length===1?people[0].name:'インサイド全体'}｜${plabel}｜Zoom Phone の通話記録より`;
@@ -914,7 +915,7 @@ function renderIs(){
     kpi('担当者と話せた',`${o.per.toLocaleString()}<small> 件</small>`,`架電の ${pctS(o.per/Math.max(1,o.dials))}（前月 ${pctS(P.per/Math.max(1,P.dials))}）`)+
     kpi('アポ（記録） / シフト計画',`${o.appo}<small> / ${fmt1(gA)}</small>`,`${j(o.appo/gA)} ${S.apoHours}時間に1件が目標`,bar(o.appo,0,gA,1))+
     kpi('アポ：記録 → SF の商談',`${o.appo}<small> → ${o.appoSf}</small>`,`記録したアポ ${o.appo}件のうち、SF にアポ獲得者つきの新規商談が立っているのは ${o.appoSf}件。差は商談の作り忘れ・獲得者の入力漏れ（入力率 ${pctS(filled/Math.max(1,apoAll.length))}）`)+
-    kpi('架電の記録率（Zoom 発信に対して）',`${o.zoomDials?pctS(o.dials/o.zoomDials):'—'}`,`Zoom Phone の発信 ${o.zoomDials.toLocaleString()}件のうち、結果を記録した ${o.dials.toLocaleString()}件。低いほど数字が実態より少ない`);
+    kpi('架電の記録率（Zoom 発信に対して）',o.zoomDials?pctS(o.dials/o.zoomDials):'—',zoomPending?'Zoom Phone の通話履歴を読み込んでいます…':!DATA.calls?'Zoom Phone の通話履歴を確認できませんでした。':`Zoom Phone の発信 ${o.zoomDials.toLocaleString()}件のうち、結果を記録した ${o.dials.toLocaleString()}件。低いほど数字が実態より少ない`);
   // チーム全体と個人
   const rowsP=[{name:'チーム全体',ps:IS,team:1},...IS.map(p=>({name:p.name,ps:[p],sf:p.sf}))];
   $('isPeople').innerHTML=`<thead><tr><th>担当</th><th class="r">シフト</th><th class="r">架電</th><th class="r">架電/時間</th>${FACT.slice(1).map(f=>`<th class="c">${f.l}</th>`).join('')}<th class="r">担当者</th><th class="r">アポ</th><th class="c">アポ計画比</th><th>いちばん効いている段</th></tr></thead><tbody>`+
@@ -1039,15 +1040,42 @@ function render(){
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+state.view));
   document.querySelectorAll('#views a').forEach(a=>a.classList.toggle('on',a.dataset.v===state.view));
   renderPersonSel();
-  if(state.view==='biz')renderBiz();else if(state.view==='sales')renderSales();else if(state.view==='call')renderCall();else renderIs();
+  if(state.view==='biz')renderBiz();else if(state.view==='sales')renderSales();else if(state.view==='call')renderCall();else {
+    if (loadZoom) {
+      loadInsideZoom(loadZoom);
+      loadZoom = null;
+    }
+    renderIs();
+  }
 }
 function fromHash(){const h=location.hash.slice(1);let m=h.match(/^biz-(total|contrib|quality)$/);if(m){state.view='biz';state.bizTab=m[1];return;}m=h.match(/^sales-(total|contrib|ana)$/);if(m){state.view='sales';state.salesTab=m[1];return;}state.view=['biz','sales','is','call'].includes(h)?h:'biz';if(state.view==='biz')state.bizTab='sum';if(state.view==='sales')state.salesTab='sum';}
 
 $('brandSub').textContent=`${AY}年${AM}月／データ基準日 ${md(AS_OF)}（${dow(AS_OF)}）`;
 {const t=DATA.fetchedAt?new Date(DATA.fetchedAt):null;$('fetchedAt').textContent=t?`取得 ${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`:'';}
-$('mcRefresh').onclick=()=>{location.href=location.pathname+'?refresh=1'+location.hash;};
-{const ng=Object.entries(DATA.sources||{}).filter(([k,v])=>v.status!=='ok');if(ng.length){const b=document.createElement('div');b.className='panel pad';b.style.cssText='border-left:4px solid var(--bad);margin-bottom:16px;font-size:13px';b.innerHTML='<b>読めていないデータがあります</b><br>'+ng.map(([k,v])=>esc(k)+'：'+esc(v.note||'')).join('<br>');document.querySelector('main').prepend(b);}}
-$('srcChips').innerHTML=Object.entries(DATA.sources||{}).map(([k,v])=>`<span class="chip ${v.status}" title="${esc(v.note||'')}">${esc(k)}${v.status==='ok'?'':' 未取得'}</span>`).join('');
+let zoomPending = false;
+async function loadInsideZoom(load) {
+  zoomPending = true;
+  try {
+    const zoom = await load();
+    if (zoom.asOf !== AS_OF) throw new Error('日付が変わりました。「更新」を押してください。');
+    Object.assign(DATA, { calls: zoom.calls, callsPrev: zoom.callsPrev, pace: zoom.pace });
+    DATA.sources = { ...DATA.sources, ...zoom.sources };
+  } catch (e) {
+    DATA.sources = { ...DATA.sources, 'Zoom Phone': { status: 'ng', note: e.message } };
+  }
+  zoomPending = false;
+  renderSources();
+  if (state.view === 'is') renderIs();
+}
+function renderSources() {
+  const sources = Object.entries(DATA.sources || {});
+  const ng = sources.filter(([,v]) => v.status !== 'ok');
+  const warning = $('sourceWarning');
+  warning.hidden = !ng.length;
+  warning.innerHTML = ng.length ? '<b>読めていないデータがあります</b><br>' + ng.map(([k,v]) => esc(k) + '：' + esc(v.note || '')).join('<br>') : '';
+  $('srcChips').innerHTML = sources.map(([k,v]) => `<span class="chip ${v.status}" title="${esc(v.note||'')}">${esc(k)}${v.status==='ok'?'':' 未取得'}</span>`).join('');
+}
+renderSources();
 $('footNote').innerHTML=(DATA.notes||[]).map(esc).join('<br>');
 $('dStage').innerHTML+=SF_ORDER.map(c=>`<option value="${c}">${c} ${SF_NAME[c]}</option>`).join('');
 renderSettings();fromHash();render();
@@ -1081,26 +1109,40 @@ drawer.addEventListener('change',e=>{const t=e.target;
   if(t.dataset.c)S.closerTargets[t.dataset.c]=Math.max(0,+t.value||0);saveS();render();});
 drawer.addEventListener('click',e=>{if(e.target.id==='resetS'){try{localStorage.removeItem('spd4-'+MONTH);}catch(_){}location.reload();}});
 }
+async function fetchDashboard(path) {
+  const r = await fetch(path, { credentials: 'include' });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.error) throw new Error(data.error || ('読み込みに失敗しました（' + r.status + '）'));
+  return data;
+}
 (async () => {
+  const loading = document.getElementById('mcLoading');
+  document.getElementById('mcRefresh').onclick = () => {
+    const url = new URL(location.href);
+    url.searchParams.set('refresh', '1');
+    if (url.href === location.href) location.reload();
+    else location.href = url.href;
+  };
+  let loadZoom;
   if (!DATA) {
-    const box = document.querySelector('main');
-    const keep = box.innerHTML;
-    box.innerHTML = '<div class="panel pad" id="mcLoading">データを読んでいます（SF・Zoom Phone・架電の記録・シフト表）… 初回は1分ほどかかることがあります。</div>';
     try {
-      const q = new URLSearchParams(location.search);
-      const r = await fetch('/api/mcdash/data' + (q.get('refresh') ? '?refresh=1' : ''), { credentials: 'include' });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || j.error) throw Object.assign(new Error(j.error || ('読み込みに失敗しました（' + r.status + '）')), { sources: j.sources });
-      DATA = j;
-      if (q.get('refresh')) history.replaceState(null, '', location.pathname + location.hash);
-      box.innerHTML = keep;
+      const url = new URL(location.href);
+      const refresh = url.searchParams.has('refresh');
+      DATA = await fetchDashboard('/api/mcdash/data?includeZoom=0' + (refresh ? '&refresh=1' : ''));
+      loadZoom = () => fetchDashboard('/api/mcdash/zoom' + (refresh ? '?refresh=1' : ''));
+      if (refresh) {
+        url.searchParams.delete('refresh');
+        history.replaceState(null, '', url);
+      }
     } catch (e) {
-      box.innerHTML = '<div class="panel pad" style="border-left:4px solid var(--bad)"><b>ダッシュボードのデータを読めませんでした</b><br>' + String(e.message).replace(/[<>&]/g, '') +
-        '<br><span class="muted">時間をおいて「更新」を押してください。続くときは福井さんに連絡してください。</span></div>';
+      loading.style.borderLeft = '4px solid var(--bad)';
+      loading.innerHTML = '<b>ダッシュボードのデータを読めませんでした</b><br>' + String(e.message).replace(/[<>&]/g, '') +
+        '<br><span class="muted">時間をおいて「更新」を押してください。続くときは福井さんに連絡してください。</span>';
       return;
     }
   }
-  __main();
+  loading.hidden = true;
+  __main(loadZoom);
 })();
 </script>
 </body>
