@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261123zf" />
+    <link rel="stylesheet" href="style.css?v=20261123zg" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1295,6 +1295,10 @@
      左メニューは中を巻き取れる（overflow）ので、子は画面に対して置く（position:fixed）。置く場所は kinxs.js が合わせる。スマホは今まで通り全部並べる */
   @media (min-width:861px){
     .kx-side{z-index:400;}   /* 右に出した子が、右側の画面のカードの下に隠れないように */
+    /* 親だけ並ぶようになったので、ボタンを大きく押しやすく（2026-11-23 田中さん「メニューボタンをもう少し大きく」） */
+    .kx-side > .kx-nav, .kx-side .kx-grp-h > .kx-nav{padding:12px 14px !important;font-size:15px !important;gap:12px !important;margin:0 0 3px !important;border-radius:12px;}
+    .kx-side > .kx-nav svg, .kx-side .kx-grp-h > .kx-nav svg{width:21px !important;height:21px !important;}
+    .kx-side .kx-grp .kx-sub .kx-nav.kx-subnav{padding:12px 16px !important;font-size:14px !important;}
     .kx-side .kx-grp-tg{display:none !important;}
     .kx-side .kx-grp-h > .kx-nav{padding-right:14px !important;}
     .kx-side .kx-grp-h > .kx-nav::after{content:"›";margin-left:auto;opacity:.5;font-size:16px;line-height:1;}
@@ -1469,7 +1473,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261123zf" defer></script>
-    <script src="kinxs.js?v=20261123zf"></script>
+    <script src="kbchat.js?v=20261123zg" defer></script>
+    <script src="kinxs.js?v=20261123zg"></script>
   </body>
 </html>
