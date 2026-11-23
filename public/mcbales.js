@@ -237,8 +237,11 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
         tb.querySelector(".n").innerHTML = `${Number(t.n || 0).toLocaleString()}<small>件</small>`;
         tb.querySelector("[data-tst]")?.remove();
         // 内訳（2026-11-23 田中さん「リストの内訳も小さく」）：足すと件数になる4つ。予定＝次回アクション日が今日以前
-        const bd = [["予定のナーチャリング", t.due_nurture], ["予定のそのほか", t.due_other], ["過去失注", t.pastlost], ["新規", t.newlist]];
-        tb.insertAdjacentHTML("beforeend", `<span class="bl-apo" title="これまでのアポ率（リードソース・過去失注かどうか・ホット度ごと）から出した見込み">見込みアポ率 <b>${(Number(t.exp || 0) * 100).toFixed(1)}%</b><small>今日かけた ${Number(t.called_today || 0).toLocaleString()}</small></span><span class="bl-tdbd" title="予定＝次回アクション日が今日以前">${bd.map(([a, n]) => `<i>${a}<em>${Number(n || 0).toLocaleString()}</em></i>`).join("")}</span><span class="bl-tdht">${HOTS.map(([k, l2]) => `<i><b class="bl-hdot ${k}"></b>${l2}<em>${Number((t.hot || {})[k] || 0).toLocaleString()}</em></i>`).join("")}</span>`); };
+        // 内訳は1行に1つ（ラベル左・件数右）、ホット度は3つの小さな箱に（2026-11-23 田中さん「この辺も見づらい」：2列に詰めると件数と次のラベルがくっついて読みにくかった）
+        const bd = [["予定（ナーチャリング）", t.due_nurture], ["予定（そのほか）", t.due_other], ["過去失注", t.pastlost], ["新規", t.newlist]];
+        tb.insertAdjacentHTML("beforeend", `<span class="bl-apo" title="これまでのアポ率（リードソース・過去失注かどうか・ホット度ごと）から出した見込み">見込みアポ率 <b>${(Number(t.exp || 0) * 100).toFixed(1)}%</b><small>今日かけた ${Number(t.called_today || 0).toLocaleString()}</small></span>`
+          + `<span class="bl-tdbd" title="予定＝次回アクション日が今日以前">${bd.map(([a, n]) => `<i class="${Number(n || 0) ? "" : "z"}"><span>${a}</span><em>${Number(n || 0).toLocaleString()}</em></i>`).join("")}</span>`
+          + `<span class="bl-tdht">${HOTS.map(([k, l2]) => `<i class="${k}"><span><b class="bl-hdot ${k}"></b>${l2}</span><em>${Number((t.hot || {})[k] || 0).toLocaleString()}</em></i>`).join("")}</span>`); };
       api(tq).then(showToday).catch(() => { if (tb && tb.isConnected) { tb.querySelector(".n").textContent = "-"; const x = tb.querySelector("[data-tst]"); if (x) x.textContent = "作れませんでした。もう一度開いてください"; } });
       tb?.querySelector("[data-rb]")?.addEventListener("click", (e) => { e.stopPropagation(); if (!confirm("今日かけるリストを、今のデータで作り直しますか？（今日の中身が入れ替わります）")) return;
         tb.querySelector(".n").textContent = "…"; tb.querySelectorAll(".bl-apo, .bl-tdbd, .bl-tdht, [data-tst]").forEach((x) => x.remove()); tb.insertAdjacentHTML("beforeend", "<small data-tst>作っています…</small>");
