@@ -13,7 +13,7 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
@@ -30,7 +30,7 @@ import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, s
 import { FILL_APIS, FILL_SOQL_FIELDS, readMemo, readInputs, planFills, pickedFields, hiresBucket } from "./mcsffill.js";
 import { formRun } from "./mcform.js";   // 問い合わせフォームの自動送信（2026-11-20）
 import { MCDASH_ROSTER } from "./mcdash.js";   // インサイド8名の名簿（「かける」の状態を管理者に見せるため）
-import { rosterHit, startsWithSurname } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
+import { rosterHit, startsWithSurname, rosterForms, foldPersonName } from "./mcname.js";   // 名前の照合（異体字・姓名の順などをそろえる）
 import { loadPeople, emailOf as rosterEmailOf, setPerson, rosterRows, PEOPLE_KINDS } from "./mcpeople.js";   // 名簿の人をメールで結びつける（2026-11-23）
 import { HEAR_ITEMS, cleanHearing, mergeHearing, hearingLines as hearLines, apoCheck, valueText, mailDefaults, MAIL_ITEMS, HEAR_MAIL_SUBJECT, hearMailBody, realName } from "./mchearing.js";   // アポの必須ヒアリングとヒアリングのメール（2026-11-23）   // 問い合わせフォームの自動送信（2026-11-20）
 export { hiresBucket };
@@ -162,6 +162,10 @@ async function ensure() {
     //   ここから条件で今のリストへ持ってくる（SHOBO から足す）か、「かける対象にする」で出す。bales_key は移した元の BALES のリスト
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS stock BOOLEAN NOT NULL DEFAULT false`);
     await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS bales_key TEXT`);
+    // リスト管理の「今日かけるリスト」から「かける」を出す（2026-11-23 福井さん）。today_src＝その入れ先のリスト（1本だけ。閉じると今までの出し方に戻る）、
+    //   today_day＝そのリードがだれかの今日かけるリストに入った日（日本時間の YYYY-MM-DD）
+    await q(`ALTER TABLE mc_call_lists ADD COLUMN IF NOT EXISTS today_src BOOLEAN NOT NULL DEFAULT false`);
+    await q(`ALTER TABLE mc_call_leads ADD COLUMN IF NOT EXISTS today_day TEXT`);
     await backfillLeadKeys();
     await q(`CREATE TABLE IF NOT EXISTS mc_cross_moves (
       id SERIAL PRIMARY KEY, from_biz TEXT, to_biz TEXT, from_ref TEXT, from_name TEXT, to_list_id INT,
@@ -1506,24 +1510,124 @@ export function registerMcCall(app, deps) {
 
   // ---- かける順番 ----
   // 掛け直しの時刻が来たもの → まだかけていないホットな順 → 回数の少ない順。ほかの人が開いている（10分以内）ものは飛ばす
+  // ===== 「かける」はリスト管理の今日かけるリストから（2026-11-23 福井さん「架電先リストはリスト管理の今日架けるリストからかけるように」）=====
+  //   リスト管理（SHOWIN の Bales のリスト）で、その人が所有者のリードから毎日作る150件（db.js mcBalesToday）を、
+  //   MOCHICALL のリスト「今日かけるリスト（リスト管理）」（today_src）に担当付きで入れ、「かける」はそれ（＋本人の掛け直し）だけにする。
+  //   ・所有者に名前が当たらない人（管理者など）は今までどおり（担当のリストすべて）
+  //   ・入れ先のリストを管理者が閉じると、全員が今までの出し方に戻る（止めたいときの切り替え）
+  //   ・すでに MOCHICALL にあるリード（保管の BALES のリストなど）は移して担当を付け替える。無いものは重複・アプローチ禁止を確かめてから入れる
+  const TODAY_LIST_NAME = "今日かけるリスト（リスト管理）";
+  const todayDay = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+  // リスト管理で使っている Bales のリスト（画面の mainList と同じ：取り込み中でない、いちばん新しいもの）と、所有者の列（画面の ownerCol と同じ）
+  async function balesMain() {
+    const ls = (await P().query(`SELECT list_key, status, cols, view FROM mochica_bales_lists ORDER BY run_at DESC NULLS LAST`).catch(() => ({ rows: [] }))).rows;
+    const l = ls.find((x) => x.status !== "running") || ls[0]; if (!l) return null;
+    const keys = new Set((Array.isArray(l.cols) ? l.cols : []).map((c) => c && c.key));
+    if (keys.has("companyName") || keys.has("company_name") || String(l.list_key).startsWith("bales:")) return { listKey: l.list_key, col: !keys.has("operatorName") && keys.has("operator_name") ? "operator_name" : "operatorName" };
+    const v = (Array.isArray(l.view) ? l.view : []).find((x) => /所有者|オーナー/.test(String((x && x.label) || "")));
+    const c = v ? v.key : ((Array.isArray(l.cols) ? l.cols : []).find((x) => /(^|\.)owner(\.name|Name|\.fullName)?$/i.test(String((x && x.key) || ""))) || {}).key;
+    return c ? { listKey: l.list_key, col: c } : null;
+  }
+  // その人が、リスト管理のどの所有者か（名簿にメールで登録されていれば名簿の SF 氏名・Zoom 名、無ければ kinbot の名前で照らす）。10分覚える
+  const _ownerMemo = new Map();
+  async function todayOwnerOf(u, bm) {
+    const ck = `${u}|${bm.listKey}|${bm.col}`, c = _ownerMemo.get(ck); if (c && Date.now() - c.at < 10 * 60 * 1000) return c.v;
+    const forms = new Set();
+    const kname = (await nameMap()).get(u) || "";
+    const reg = await loadPeople().catch(() => new Map());
+    for (const p of MCDASH_ROSTER.is) if (rosterEmailOf(reg, "is", p.sf) === u || (kname && rosterHit(kname, [p]))) for (const f of rosterForms(p)) forms.add(f);
+    if (foldPersonName(kname)) forms.add(foldPersonName(kname));
+    const vals = forms.size ? await mcBalesValues(bm.listKey, bm.col).catch(() => []) : [];
+    const v = (vals.find((x) => forms.has(foldPersonName(x.v))) || {}).v || "";
+    _ownerMemo.set(ck, { at: Date.now(), v }); return v;
+  }
+  // 入れ先のリスト（無ければ作る。作るときは、いま使っているリストのトークを写す＝初日から「トークが無い」で止めないため）。閉じていれば null
+  let _todayListP = null;
+  async function todayList() {
+    const r = (await P().query(`SELECT id, closed FROM mc_call_lists WHERE today_src AND biz=$1 ORDER BY id LIMIT 1`, [BIZ])).rows[0];
+    if (r) return r.closed ? null : r.id;
+    if (!_todayListP) _todayListP = (async () => {
+      const id = (await P().query(`INSERT INTO mc_call_lists (name, note, members, created_by, today_src) VALUES ($1,$2,'{}',$3,true) RETURNING id`,
+        [TODAY_LIST_NAME, "リスト管理の今日かけるリストを、所有者ごとに毎日入れます（自動）。閉じると「かける」は今までの出し方に戻ります", "自動（今日かけるリスト）"])).rows[0].id;
+      const src = (await P().query(`SELECT t.list_id FROM mc_call_talks t JOIN mc_call_lists l ON l.id=t.list_id WHERE t.active AND NOT l.closed AND NOT l.stock AND l.biz=$1 AND l.id <> $2 GROUP BY t.list_id ORDER BY max(t.created_at) DESC LIMIT 1`, [BIZ, id])).rows[0];
+      if (src) await saveTalks(id, (await activeTalks(src.list_id)).map((t) => ({ label: t.label, body: t.body })), "自動（今日かけるリスト）");
+      console.log(`[mccall] 「${TODAY_LIST_NAME}」を作りました（id ${id}${src ? `・トークはリスト ${src.list_id} から写した` : "・トークなし"}）`);
+      return id;
+    })().finally(() => { _todayListP = null; });
+    return _todayListP;
+  }
+  // その人の今日の分を MOCHICALL に入れる（担当を付け、today_day に今日の日付）。同じ日の同じ中身なら10分に1回だけ（ほかの人が開いていて移せなかった分を拾い直す）
+  const _todaySync = new Map();
+  async function syncToday(u, owner, bm, tid) {
+    const day = todayDay();
+    const t = await mcBalesToday(bm.listKey, { col: bm.col, val: owner }); if (!t) return null;
+    const ck = `${day}|${bm.listKey}|${owner}|${tid}|${t.made_at ? new Date(t.made_at).getTime() : ""}`, prev = _todaySync.get(u);
+    if (prev && prev.ck === ck && Date.now() - prev.at < 10 * 60 * 1000) return prev.res;
+    const sks = (t.keys || []).map((k) => `${bm.listKey}|${k}`);
+    const ex = sks.length ? (await P().query(`SELECT id, src_key, dup_of FROM mc_call_leads WHERE src='bales' AND src_key = ANY($1) ORDER BY (dup_of IS NULL) DESC, id`, [sks])).rows : [];
+    const found = new Map(); for (const r of ex) if (!found.has(r.src_key)) found.set(r.src_key, r.dup_of || r.id);
+    const ids = [...found.values()]; let added = 0, banned = 0;
+    const miss = (t.keys || []).filter((k) => !found.has(`${bm.listKey}|${k}`));
+    if (miss.length) {
+      await banListOrStop();
+      const rows = (await P().query(`SELECT row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows WHERE list_key=$1 AND row_key = ANY($2::text[])`, [bm.listKey, miss])).rows;
+      for (const r of rows) {
+        const f = fromBales(r.data || {});
+        const x = await addLeadUnique({ list_id: tid, src: "bales", src_key: `${bm.listKey}|${r.row_key}`, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: u }, { data: r.data });
+        if (x.added) { added++; ids.push(x.id); } else if (x.banned) banned++;
+        else if (x.dup && x.dup.lead_id) { const d = (await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE id=$1`, [x.dup.lead_id])).rows[0]; if (d) ids.push(d.id); }   // 別の取り込みで入っている同じ会社
+      }
+      if (added) mynaviEnqueue(rows.map((r) => fromBales(r.data || {}).company)).catch((e) => console.error("[mccall] マイナビの調べを始められませんでした", e.message));
+    }
+    // 今日の分を作り直した（リスト管理の作り直し・担当の付け替え）ときは、外れたリードの今日の印を外す（前の中身が「かける」に残らないように）
+    await P().query(`UPDATE mc_call_leads SET today_day=NULL WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT (id = ANY($4::int[]))`, [tid, u, day, [...new Set(ids)]]);
+    // 終わったリード（アポ・NG など）と、ほかの人が今開いているリードは動かさない。トークはリストごとなので、移したリードは選び直す
+    const mv = ids.length ? await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, today_day=$4
+      WHERE id = ANY($1::int[]) AND NOT done AND dup_of IS NULL AND (locked_by IS NULL OR locked_by=$3 OR locked_at < now() - interval '10 minutes')`, [[...new Set(ids)], tid, u, day]) : { rowCount: 0 };
+    const res = { owner, n: (t.keys || []).length, ready: mv.rowCount, added, banned, exp: t.exp || 0, due_nurture: t.due_nurture || 0, due_other: t.due_other || 0, pastlost: t.pastlost || 0, newlist: t.newlist || 0, made_at: t.made_at };
+    if (added || mv.rowCount < res.n) console.log(`[mccall] 今日かけるリスト ${u}（${owner}）：${res.n}件中 ${mv.rowCount}件を「かける」へ（新しく入れた ${added}・禁止 ${banned}）`);
+    _todaySync.set(u, { ck, at: Date.now(), res }); return res;
+  }
+  // 「かける」を今日かけるリストから出す人なら { tid, day, info }。そうでなければ null（今までどおり）
+  const _todayFlight = new Map();
+  async function todayModeFor(u) {
+    const bm = await balesMain(); if (!bm) return null;
+    const owner = await todayOwnerOf(u, bm); if (!owner) return null;
+    const tid = await todayList(); if (!tid) return null;
+    if (!_todayFlight.has(u)) _todayFlight.set(u, syncToday(u, owner, bm, tid).finally(() => _todayFlight.delete(u)));   // 同じ人の読み込みが重なっても1回だけ作る
+    const info = await _todayFlight.get(u); if (!info) return null;
+    return { tid, day: todayDay(), info };
+  }
+
   app.get("/api/mccall/queue", guard(async (req, res) => {
     const ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
     const u = me(req);
+    // 今日かけるリストの人は、入れ先のリスト（と本人の掛け直しのあるリスト）だけ。画面のリストの選び方は使わない（2026-11-23 福井さん）
+    let tm = null;
+    try { tm = await todayModeFor(u); }
+    catch (e) { if (/禁止/.test(String(e && e.message))) return res.json({ ok: true, items: [], later: 0, noTalk: [], researching: 0, stop: "ban" }); console.error("[mccall] 今日かけるリストを読めませんでした（今までの出し方で出します）", e.message); }
+    if (tm && !ids.includes(tm.tid)) ids.push(tm.tid);
     // 担当のリストが1本も無いときは、なぜかを返す（インターンと判定されていない／リストのメンバーに入っていない／リストが無い）。
     //   画面に「何をすればよいか」まで出して、本人も管理者も迷わないようにする（2026-11-23 福井さん「初週を止めずに回す」）
     if (!ids.length) return res.json({ ok: true, items: [], later: 0, noTalk: [], researching: 0, why: await whyNoList(req) });
-    const asked = listId ? ids.filter((x) => x === listId) : ids;
+    const asked = tm ? ids : listId ? ids.filter((x) => x === listId) : ids;
     // 売り先（リスト）と売り方（トーク）はセット。トークの無いリストは「かける」に出さない（2026-11-20 福井さん）
     const withTalk = await listsWithTalk(asked);
     const use = asked.filter((x) => withTalk.has(x));
-    const noTalk = asked.length > use.length ? (await P().query(`SELECT name FROM mc_call_lists WHERE id = ANY($1) AND NOT closed AND NOT stock`, [asked.filter((x) => !withTalk.has(x))])).rows.map((r) => r.name) : [];
-    if (!use.length) return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0 });
+    const noTalk = tm ? (withTalk.has(tm.tid) ? [] : [TODAY_LIST_NAME])   // 今日かけるリストの人は、入れ先のリストのトークだけが要る
+      : asked.length > use.length ? (await P().query(`SELECT name FROM mc_call_lists WHERE id = ANY($1) AND NOT closed AND NOT stock`, [asked.filter((x) => !withTalk.has(x))])).rows.map((r) => r.name) : [];
+    const today = tm ? { ...tm.info, list: tm.tid } : null;
+    if (!use.length) return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0, today });
     // アプローチ禁止の名簿が読めないときは順番を出さない（禁止の会社に架けないための安全側）。
     //   ただし「エラー」ではなく、なぜ止まっているか・どうすればよいかを画面に出し、画面は少しずつ読み直す
     try { await banListOrStop(); }
-    catch { return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0, stop: "ban" }); }
+    catch { return res.json({ ok: true, items: [], later: 0, noTalk, researching: 0, stop: "ban", today }); }
+    // 今日かけるリストの人：今日の分（入れ先のリストで本人の担当・today_day が今日）＋時刻が来た本人の掛け直し（担当が本人か、担当なしで最後にかけたのが本人）。
+    //   tid は数・day は日付の形なので、そのまま SQL に書く（ほかの問い合わせと $ の数を変えないため）
+    const todayW = tm && /^\d{4}-\d{2}-\d{2}$/.test(tm.day) ? ` AND ((list_id = ${Number(tm.tid)} AND assigned_to = $2 AND today_day = '${tm.day}')
+        OR (next_at IS NOT NULL AND (assigned_to = $2 OR (assigned_to IS NULL AND (SELECT g.caller FROM mc_call_logs g WHERE g.lead_id = mc_call_leads.id AND NOT g.undone ORDER BY g.created_at DESC LIMIT 1) = $2))))` : "";
     const base = `list_id = ANY($1) AND NOT done AND dup_of IS NULL AND (next_at IS NULL OR next_at <= now())
-        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')`;
+        AND (assigned_to IS NULL OR assigned_to=$2) AND (locked_by IS NULL OR locked_by=$2 OR locked_at < now() - interval '10 minutes')${todayW}`;
     const order = `(next_at IS NOT NULL) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
     // 順番は mccadence.js の rankQueue で決める（約束の掛け直し → 時刻が来た掛け直し → ホット度・検討時期・在席時間の順）。SQL では候補を多め（300件）に絞るだけ
     const rankOrder = `(next_at IS NOT NULL) DESC, COALESCE(next_why = $3, false) DESC, next_at, COALESCE(hot,0) DESC, attempts, id`;
@@ -1550,7 +1654,7 @@ export function registerMcCall(app, deps) {
     const front = (r) => r.tier < 2 || r.researched;
     // 画面に渡すのは必要な項目だけ（受付で聞いた直通などを、順番の一覧に載せない）
     const items = [...ranked.filter(front), ...ranked.filter((r) => !front(r))].slice(0, 60).map(({ hearing, gate: _g, phone: _p, info: _i, sf_lead_id: _s, ...x }) => x);
-    const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2`, [use, jstAt(new Date(), 23, 59)])).rows[0].count;
+    const later = (await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL AND next_at > now() AND next_at < $2${tm ? " AND assigned_to = $3" : ""}`, [use, jstAt(new Date(), 23, 59), ...(tm ? [u] : [])])).rows[0].count;
     // 出せる会社が無いときは、残りがどこにあるか（ほかの人の担当・ほかの人が開いている）を返す
     let why = null;
     if (!items.length) {
@@ -1560,7 +1664,9 @@ export function registerMcCall(app, deps) {
         FROM mc_call_leads WHERE list_id = ANY($1) AND NOT done AND dup_of IS NULL`, [use, u])).rows[0];
       why = { others: +r.others, locked: +r.locked, waiting: +r.waiting };
     }
-    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching, why });
+    // 今日かけるリストの人は、今日の分のうち残り（まだ終わっていない・今かけられる）も返す
+    if (today) today.left = +(await P().query(`SELECT count(*) FROM mc_call_leads WHERE list_id=$1 AND assigned_to=$2 AND today_day=$3 AND NOT done AND dup_of IS NULL`, [tm.tid, u, tm.day])).rows[0].count;
+    res.json({ ok: true, items: items.map((x) => ({ ...x, outcome: outcomeLabel(x.last_outcome), streak: x.miss_streak || 0, why: x.reasons })), later: +later, noTalk, researching, why, today });
   }));
   // ---- 管理者：インサイドの「かける」の状態（2026-11-23 福井さん「初週を止めずに回す」）----
   //   ダッシュボードの名簿のインサイド8名と、MOCHICA のインターンと判定された人について、

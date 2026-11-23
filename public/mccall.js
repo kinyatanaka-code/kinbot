@@ -121,7 +121,15 @@
   async function loadLists() {
     const j = await api("/api/mccall/lists"); S.lists = j.items || [];
     if (S.listId && !S.lists.some((l) => l.id === S.listId)) S.listId = 0;
-    $("mccList").innerHTML = `<option value="0">担当のリストすべて</option>` + S.lists.map((l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}）</option>`).join("");
+    drawListSel();
+  }
+  // 今日かけるリストの人は、リストを選ばずリスト管理の今日かけるリストからかける（2026-11-23 福井さん）。そのときは選ぶ欄に今日の分の残りを出すだけ
+  function drawListSel() {
+    const sel = $("mccList"), t = S.today;
+    if (t) { sel.innerHTML = `<option>今日かけるリスト 残り ${Number(t.left ?? t.ready ?? 0)}件／${Number(t.n || 0)}件（見込みアポ率 ${(Number(t.exp || 0) * 100).toFixed(1)}%）</option>`; sel.disabled = true;
+      sel.title = `リスト管理の今日かけるリスト（所有者：${t.owner || ""}）。予定のナーチャリング ${Number(t.due_nurture || 0)}・予定のそのほか ${Number(t.due_other || 0)}・過去失注 ${Number(t.pastlost || 0)}・新規 ${Number(t.newlist || 0)}。時刻が来た掛け直しも先に出ます`; return; }
+    sel.disabled = false; sel.title = "";
+    sel.innerHTML = `<option value="0">担当のリストすべて</option>` + S.lists.map((l) => `<option value="${l.id}" ${l.id === S.listId ? "selected" : ""}>${esc(l.name)}（今かける ${l.now}）</option>`).join("");
   }
   async function loadStats() {
     try { const j = await api("/api/mccall/stats"); const m = j.me;
@@ -133,6 +141,7 @@
   async function loadQueue(openFirst) {
     try {
       const j = await api(`/api/mccall/queue${S.listId ? `?list=${S.listId}` : ""}`); S.queue = j.items || []; S.later = j.later || 0; S.noTalk = j.noTalk || []; S.researching = j.researching || 0; S.why = j.why || null; S.stop = j.stop || "";
+      { const had = !!S.today; S.today = j.today || null; if (had || S.today) drawListSel(); }
       if (openFirst || !S.d) { const f = S.queue.find((x) => !S.d || x.id !== S.d.lead.id); if (f) await open(f.id); else empty(); }
     } catch (e) { setNotice([{ kind: "danger", text: `かける順番を読めませんでした：${e.message}` }]); }
   }
