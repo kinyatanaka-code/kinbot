@@ -24,6 +24,7 @@ import { judgeHot } from "./mchot.js";
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { showableResearch, CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は今の募集と確かめた採用情報だけを画面に出す（2026-11-23）   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
+import { pickLeadStages, stageOf } from "./mcstage.js";   // リードの状況は基本の7つだけ出す（2026-11-24）
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
 import { CADENCE, BENCH, WHY_HUMAN, jstDayStart, jstAt, nextMissAt, hourRates, slotNow, rankQueue } from "./mccadence.js";
@@ -1982,7 +1983,9 @@ export function registerMcCall(app, deps) {
   async function statusPicklist(owner) {
     if (_stPick && Date.now() - _stPick.at < 30 * 60e3) return _stPick.v;
     const f = ((await describeObject(owner, "Lead")).fields || []).find((x) => x.name === "Status");
-    const v = ((f && f.picklistValues) || []).filter((x) => x.active).map((x) => ({ value: x.value, label: x.label || x.value }));
+    const all = ((f && f.picklistValues) || []).filter((x) => x.active).map((x) => ({ value: x.value, label: x.label || x.value }));
+    // 基本の7つ（01〜05・89・99）だけに絞る（2026-11-24 福井さん）。番号付きの値が1つも無い組織では、元どおり全部出す
+    const picked = pickLeadStages(all); const v = picked.length ? picked : all;
     _stPick = { at: Date.now(), v }; return v;
   }
   async function statusLead(req, id) {
@@ -1997,7 +2000,9 @@ export function registerMcCall(app, deps) {
     if (r.error) return res.status(r.code).json({ error: r.error }); if (r.none) return res.json({ ok: true, options: [], note: r.none });
     const owner = await sfActor(req);
     const [options, cur] = await Promise.all([statusPicklist(owner), sfCurrent(owner, r.lead.sf_lead_id)]);
-    res.json({ ok: true, options, current: cur.Status || "", converted: !!cur.IsConverted });
+    // 今の値が7つ以外の古い名前（「NEW」「LS:89　リサイクル」など）なら、どの段階にあたるかも返す（画面で「旧の値」と分かるように）
+    const st = stageOf(cur.Status); const inList = options.some((o) => o.value === cur.Status);
+    res.json({ ok: true, options, current: cur.Status || "", converted: !!cur.IsConverted, legacy: cur.Status && !inList ? { label: st ? `${st.code}：${st.name}` : "", desc: st ? st.desc : "" } : null });
   }));
   app.post("/api/mccall/leads/:id/sf-status", guard(async (req, res) => {
     const r = await statusLead(req, parseInt(req.params.id, 10));
@@ -2006,7 +2011,10 @@ export function registerMcCall(app, deps) {
     if (!(await statusPicklist(owner)).some((x) => x.value === st)) return res.status(400).json({ error: "SF のリードの状況にない値です。選び直してください" });
     const cur = await sfCurrent(owner, r.lead.sf_lead_id, true);
     if (cur.IsConverted) return res.status(400).json({ error: "このリードは SF でコンバート済みなので、リードの状況は変えられません" });
-    await sfUpdateRecord(owner, "Lead", r.lead.sf_lead_id, { Status: st }); _sfCur.delete(r.lead.sf_lead_id);
+    // 05：コンバートが SF で「取引の開始で付く値」になっていると、直接は書けずに断られる。そのときは理由が分かる言い方で返す
+    try { await sfUpdateRecord(owner, "Lead", r.lead.sf_lead_id, { Status: st }); }
+    catch (e) { if (stageOf(st)?.code === "05") return res.status(400).json({ error: `SF が「${st}」への変更を受け付けませんでした。コンバートは SF の「取引の開始」で行ってください（${String(e.message).slice(0, 80)}）` }); throw e; }
+    _sfCur.delete(r.lead.sf_lead_id);
     console.log(`[mccall] リードの状況を変えた lead=${parseInt(req.params.id, 10)} ${cur.Status || "（空）"}→${st} by ${me(req)}`);
     res.json({ ok: true, current: st, prev: cur.Status || "" });
   }));

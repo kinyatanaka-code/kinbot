@@ -328,12 +328,16 @@
     if (!T) return `<div class="mcc-lst"><span>リードの状況</span><small>読み込んでいます…</small></div>`;
     if (T.err) return `<div class="mcc-lst"><span>リードの状況</span><small class="err">SF から読めませんでした（${esc(T.err)}）</small></div>`;
     if (!T.options.length) return T.note ? `<div class="mcc-lst"><span>リードの状況</span><small>${esc(T.note)}</small></div>` : "";
-    const opts = T.options.some((o) => o.value === T.current) || !T.current ? T.options : [{ value: T.current, label: T.current }, ...T.options];
-    return `<label class="mcc-lst"><span>リードの状況</span><select class="mcc-sel" id="mccLst" ${T.converted || T.busy ? "disabled" : ""} title="${T.converted ? "コンバート済みのリードなので変えられません" : "選ぶと、すぐ SF のリードの状況が変わります"}">
-      ${T.current ? "" : '<option value="" selected>（空）</option>'}${opts.map((o) => `<option value="${esc(o.value)}" ${o.value === T.current ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select></label>`;
+    // 選べるのは基本の7つ（01〜05・89・99）だけ。今の値が古い名前（「NEW」など）なら「旧」と付けて先頭に出し、どの段階にあたるかを添える（2026-11-24 福井さん）
+    const cur = T.options.find((o) => o.value === T.current);
+    const opts = cur || !T.current ? T.options : [{ value: T.current, label: `旧：${T.current}` }, ...T.options];
+    const lg = !cur && T.current ? T.legacy : null;
+    const note = cur ? cur.desc : lg ? (lg.label ? `古い名前の値です（${lg.label} にあたる）。選び直すと基本の7つの名前で入ります` : "基本の7つにない古い値です。選び直すと基本の7つの名前で入ります") : "";
+    return `<label class="mcc-lst"><span>リードの状況</span><select class="mcc-sel" id="mccLst" ${T.converted || T.busy ? "disabled" : ""} title="${T.converted ? "コンバート済みのリードなので変えられません" : esc(T.options.map((o) => `${o.label}：${o.desc || ""}`).join("\n"))}">
+      ${T.current ? "" : '<option value="" selected>（空）</option>'}${opts.map((o) => `<option value="${esc(o.value)}" ${o.value === T.current ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select>${note ? `<small class="mcc-lst-d">${esc(note)}</small>` : ""}</label>`;
   }
   async function loadStatus(id) {
-    try { const j = await api(`/api/mccall/leads/${id}/sf-status${isInbound(id) ? `?inbound=${S.inbound.id}` : ""}`); S.lst = { leadId: id, options: j.options || [], current: j.current || "", note: j.note || "", converted: !!j.converted }; }
+    try { const j = await api(`/api/mccall/leads/${id}/sf-status${isInbound(id) ? `?inbound=${S.inbound.id}` : ""}`); S.lst = { leadId: id, options: j.options || [], current: j.current || "", note: j.note || "", converted: !!j.converted, legacy: j.legacy || null }; }
     catch (e) { S.lst = { leadId: id, options: [], err: String(e.message).slice(0, 60) }; }
     if (S.d && S.d.lead.id === id) drawLeft();
   }

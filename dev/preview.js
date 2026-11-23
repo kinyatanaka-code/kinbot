@@ -725,6 +725,11 @@ const MC_LEADS = [
 function mccallMock(p, query) {
   if (p === "/api/mccall/meta") return { ok: true, reach: MC_REACH, rejectReasons: ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"], admin: !process.env.MCC_PREVIEW_INTERN, me: "kinya.tanaka@neo-career.co.jp" };
   if (p === "/api/mccall/inbound") return { ok: true, item: null };
+  // リードの状況（基本の7つ）。1件目のリードは古い名前「NEW」のままのものとして出す
+  if (/^\/api\/mccall\/leads\/\d+\/sf-status$/.test(p)) {
+    const opts = [["01：新規", "リストに入ったまま、まだ一度もかけていない"], ["02：担当者未接触", "かけたが、採用の担当者とは話せていない（受付で止まった・不在・つながらない）"], ["03：コネクト情報獲得", "担当者と話せて、採用の状況など次につながる情報を聞けた（アポ・見送りはまだ決まっていない）"], ["04：ジャッジ", "担当者が今回は見送りと判断した"], ["05：コンバート", "アポが取れて商談になった"], ["89：リサイクル", "時期を空けてまたかける"], ["99：アーカイブ", "今後かけない"]].map(([v, d]) => ({ value: v, label: v, desc: d }));
+    return /\/leads\/1\//.test(p) ? { ok: true, options: opts, current: "NEW", legacy: { label: "01：新規", desc: opts[0].desc } } : { ok: true, options: opts, current: "02：担当者未接触" };
+  }
   // アポの日程の候補（おすすめ／他の日程）のダミー（2026-11-23）
   if (p === "/api/mccall/slots" || p === "/api/mccall/slots/day") {
     const day = p.endsWith("/day"), names = ["餌取", "斎藤", "森"], out = [];

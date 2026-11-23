@@ -467,6 +467,7 @@
 .mcc-lst{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;font-weight:800;color:var(--c-muted);}
 .mcc-lst .mcc-sel{height:30px;font-size:12.5px;flex:1;min-width:0;max-width:none;}
 .mcc-lst small{font-weight:600;} .mcc-lst small.err{color:var(--c-danger);}
+.mcc-lst{flex-wrap:wrap;} .mcc-lst small.mcc-lst-d{flex-basis:100%;font-weight:600;line-height:1.5;color:var(--c-muted);}
 /* トークの段階（架電→受付／受付→採用担当者／採用担当者→アポ）。書いていない段階は薄く */
 .mcc-stg{display:flex;gap:4px;padding:0 12px 8px;flex-wrap:wrap;}
 .mcc-stg button{border:1px solid #B7E2CF;background:#fff;border-radius:99px;padding:3px 10px;font:inherit;font-size:11.5px;font-weight:800;color:#0d5b47;cursor:pointer;}
