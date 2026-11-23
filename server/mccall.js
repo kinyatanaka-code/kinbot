@@ -14,10 +14,12 @@
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
 import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings } from "./db.js";
-import { freeBusy, gmailSend, isConnected as googleConnected } from "./google.js";
+import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent } from "./google.js";
+import { notifyPerson } from "./chat.js";
+import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
 import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
-import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord } from "./salesforce.js";
+import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, connectionInfo as sfConnInfo } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
 import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
@@ -115,6 +117,8 @@ async function ensure() {
     await q(`CREATE INDEX IF NOT EXISTS ix_mc_sf_fills_day ON mc_sf_fills(created_at)`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_pick JSONB`);
     await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS sf_fill_done BOOLEAN NOT NULL DEFAULT false`);
+    // アポのあとの流れ（担当 FS・カレンダーの予定・FS への知らせ）の結果（2026-11-23）。取り消したときに予定を消すのにも使う
+    await q(`ALTER TABLE mc_call_logs ADD COLUMN IF NOT EXISTS apo_flow JSONB`);
     // マイナビ（新卒）の掲載の有無と中身。会社ごとに1回だけ調べて持っておく（同じ会社を何度も検索しないため）
     await q(`CREATE TABLE IF NOT EXISTS mc_mynavi (ckey TEXT PRIMARY KEY, company TEXT, data JSONB, at TIMESTAMPTZ DEFAULT now())`);
     // 資料送付の記録。架電の記録（mc_call_logs）に入れるとコール数に数えてしまうので別にする（2026-11-17）
@@ -612,7 +616,8 @@ export function registerMcCall(app, deps) {
         Description: [`記録した人：${names.get(who) || who}（SHOBO）`, `到達：${(REACH[g.reach] || {}).label || g.reach}`, `結果：${outcomeLabel(g.outcome)}${g.reason ? `（${g.reason}）` : ""}`,
           gt.name || gt.hours || gt.direct ? `受付で聞けたこと：${[gt.name && `担当 ${gt.name}`, gt.hours && `在席 ${gt.hours}`, gt.direct && `直通 ${gt.direct}`].filter(Boolean).join("・")}` : "",
           ...hearingLines(g.hearing),
-          g.apo_at ? `アポ：${jstText(g.apo_at)}${g.apo_who ? `（その時間に空いていたクローザー：${g.apo_who}）` : ""}` : "", g.next_at ? `次回：${jstText(g.next_at)}` : "", g.memo ? `メモ：${g.memo}` : "",
+          g.apo_at ? `アポ：${jstText(g.apo_at)}${g.apo_flow ? `（担当 FS：${g.apo_who || "未定"}）` : g.apo_who ? `（その時間に空いていたクローザー：${g.apo_who}）` : ""}` : "", g.next_at ? `次回：${jstText(g.next_at)}` : "", g.memo ? `メモ：${g.memo}` : "",
+          g.apo_at && recLink(g.id) ? `通話の録音：${recLink(g.id)}` : "",
           g.cross_from ? `部署をまたいだ架電（${g.cross_from} のリード）` : ""].filter(Boolean).join("\n"),
       });
       if (!t || !t.id) throw new Error("SF から活動の番号が返ってきませんでした");
@@ -1859,7 +1864,10 @@ export function registerMcCall(app, deps) {
     if (Object.keys(pick).length) await P().query(`UPDATE mc_call_logs SET sf_pick=$2 WHERE id=$1`, [log.id, pick]);
     await P().query(`UPDATE mc_call_leads SET last_at=now(), last_outcome=$2, attempts=attempts+1, next_at=$3, next_why=$4, done=$5, gate=COALESCE($6, gate), hearing=COALESCE($7, hearing), miss_streak=$8, parked_at=$9, locked_by=NULL WHERE id=$1`,
       [id, outcome, nextAt, why, done, gate, hearing, streak, parkedAt]);
-    res.json({ ok: true, logId: log.id, nextAt, why, done, parked: !!parkedAt });
+    // アポなら、担当 FS・予定・知らせまで済ませてから返す（kincall と同じく、画面にその結果を出す）。失敗しても記録は残す
+    let apo = null;
+    if (outcome === "apo") { try { apo = await afterApo(req, log.id); } catch (e) { console.error("[mccall] アポのあとの流れ", log.id, e.message); apo = { warn: [`担当 FS・予定・知らせの途中で止まりました（${String(e.message).slice(0, 120)}）。管理者に伝えてください`] }; } }
+    res.json({ ok: true, logId: log.id, nextAt, why, done, parked: !!parkedAt, apo });
     // SF の活動（リードに付ける）。代理アカウントでも書ける。失敗しても架電の記録は残り、画面の知らせから書き直せる
     sfWrite(req, log.id).catch(() => {});
   }));
@@ -1886,6 +1894,8 @@ export function registerMcCall(app, deps) {
         sf += `${sf ? "。" : ""}SF のリードの項目 ${Object.keys(back).length} 件を前の値に戻しました`;
       } catch (e) { sf += `${sf ? "。" : ""}SF のリードの項目は戻せませんでした（${String(e.message).slice(0, 80)}）`; }
     }
+    // アポの取り消し：ここで作った予定を消し、FS に知らせる
+    if (g.outcome === "apo" && g.apo_flow) { const u2 = await undoApo(g).catch((e) => `予定の片付けが途中で止まりました（${String(e.message).slice(0, 80)}）`); if (u2) sf += `${sf ? "。" : ""}${u2}`; }
     res.json({ ok: true, leadId: g.lead_id, sf });
   }));
 
@@ -2163,10 +2173,17 @@ export function registerMcCall(app, deps) {
   //   MOCHICA のクローザー（メンバー管理で事業が MOCHICA・役割がクローザー）のカレンダーの空きから選ぶ。
   //   DOC の kincall の候補日（DOC のクローザー）は使わない（DOC の人が出ないように）。
   //   空きの見方は DOC とそろえる：終日・参加しない予定・「リスケ」「キャンセル」は空きとみなす。
+  //   チーム制（2026-11-23 福井さん）：同じチームの IS が取ったアポは同じチームの FS へ。FS にもチームを付けて返す（server/mcteam.js）
   async function mcClosers() {
     const ms = await listMembers().catch(() => []);
     return ms.filter((m) => m.email && m.active !== false && (m.businesses || []).includes("MOCHICA") && (m.roles || []).includes("closer"))
-      .map((m) => ({ email: String(m.email).toLowerCase(), name: m.name || m.email }));
+      .map((m) => ({ email: String(m.email).toLowerCase(), name: m.name || m.email, team: teamOf(m, ms) }));
+  }
+  // 架電している人（IS）のチーム。分からない人は ""（今までどおり FS 全員から選ぶ）
+  async function myTeamOf(req) {
+    const [ms, us] = await Promise.all([listMembers().catch(() => []), listUsers().catch(() => [])]);
+    const u = (us || []).find((x) => String(x.email || "").toLowerCase() === me(req));
+    return teamOf({ email: me(req), name: (u && u.name) || "" }, ms);
   }
   // クローザーの Google カレンダーの「埋まっている時間」を読む（2026-11-18 福井さん「クローザーのグーグルカレンダーの空き日程に」）
   //   1) クローザー本人が Google 連携していれば、本人の権限で本人のカレンダーを読む（非公開の予定も漏れない）
@@ -2192,43 +2209,175 @@ export function registerMcCall(app, deps) {
     for (const m of rest) busy.set(m.email, null);
     return members.some((m) => Array.isArray(busy.get(m.email))) ? busy : null;
   }
-  const freeAt = (busy, members, t, mins) => members.filter((m) => { const b = busy.get(m.email); return Array.isArray(b) && !b.some(([bs, be]) => bs < t + mins * 60e3 && be > t); }).map((m) => m.name);
-  const slotOut = (t, free, total) => { const j = new Date(t + 9 * 3600e3); return { at: new Date(t).toISOString(), md: `${j.getUTCMonth() + 1}/${j.getUTCDate()}`, dow: "日月火水木金土"[j.getUTCDay()], time: `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`, band: j.getUTCHours() < 12 ? "午前" : "午後", free, freeN: free.length, total }; };
+  const freeAt = (busy, members, t, mins) => members.filter((m) => { const b = busy.get(m.email); return Array.isArray(b) && !b.some(([bs, be]) => bs < t + mins * 60e3 && be > t); });
+  // 枠に出す「空いている FS」：自分のチームの FS を出し、自分のチームがだれも空いていないときだけ他チームを otherTeam の印つきで出す
+  const slotOut = (t, free0, total, team) => { const j = new Date(t + 9 * 3600e3); const sp = splitFree(free0, team); const free = (sp.useOther ? sp.other : sp.mine).map((m) => m.name);
+    return { at: new Date(t).toISOString(), md: `${j.getUTCMonth() + 1}/${j.getUTCDate()}`, dow: "日月火水木金土"[j.getUTCDay()], time: `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`, band: j.getUTCHours() < 12 ? "午前" : "午後", free, freeN: free.length, total, otherTeam: sp.useOther }; };
+  // 画面の「対象」に出すもの：自分のチームと、そのチームの FS（チームが分からない人は FS 全員）
+  const teamInfo = (members, team) => ({ team: teamLabel(team), members: (team && members.some((m) => m.team === team) ? members.filter((m) => m.team === team) : members).map((m) => m.name) });
   // おすすめ：翌営業日から2週間、平日 10〜18時の1時間枠。空いている人の多い日を週ごとに3日、その日の午前・午後で一番空いている枠を1つずつ
   app.get("/api/mccall/slots", guard(async (req, res) => {
-    const members = await mcClosers();
+    const [members, team] = await Promise.all([mcClosers(), myTeamOf(req)]);
     if (!members.length) return res.json({ ok: true, slots: [], members: [], reason: "MOCHICA のクローザーが決まっていません。設定 → メンバー管理で、事業 MOCHICA・役割 クローザーを付けてください" });
     const now = Date.now(); const busy = await busyOf(req, members, new Date(now).toISOString(), new Date(now + 16 * 86400e3).toISOString());
-    if (!busy) return res.json({ ok: true, slots: [], members: members.map((m) => m.name), reason: "カレンダーの空きを読めませんでした。自分かクローザーの Google 連携を確かめてください" });
+    if (!busy) return res.json({ ok: true, slots: [], ...teamInfo(members, team), reason: "カレンダーの空きを読めませんでした。自分かクローザーの Google 連携を確かめてください" });
     const today = jstDayStart(new Date(now)).getTime(); const days = [];
     for (let d = 1; d <= 15; d++) {
       const day = today + d * 86400e3; const wd = new Date(day + 9 * 3600e3).getUTCDay(); if (wd === 0 || wd === 6) continue;
       const slots = []; for (let h = 10; h < 18; h++) { const t = day + h * 3600e3; slots.push({ t, h, free: freeAt(busy, members, t, 60) }); }
-      days.push({ day, week: d <= 7 ? 1 : 2, best: Math.max(...slots.map((s) => s.free.length)), slots });
+      days.push({ day, week: d <= 7 ? 1 : 2, best: Math.max(...slots.map((s) => slotScore(s.free, team))), slots });   // 自分のチームの FS が空いている日を先に
     }
     const pick = (w) => days.filter((x) => x.week === w && x.best > 0).sort((a, b) => (b.best - a.best) || (a.day - b.day)).slice(0, 3);
     const out = [];
     for (const d of [...pick(1), ...pick(2)]) for (const cond of [(h) => h < 12, (h) => h >= 13]) {
-      const s = d.slots.filter((x) => cond(x.h) && x.free.length).sort((a, b) => (b.free.length - a.free.length) || (a.h - b.h))[0];
-      if (s) out.push({ ...slotOut(s.t, s.free, members.length), week: d.week });   // 画面で「1週目・2週目」に分けて出すため
+      const s = d.slots.filter((x) => cond(x.h) && x.free.length).sort((a, b) => (slotScore(b.free, team) - slotScore(a.free, team)) || (a.h - b.h))[0];
+      if (s) out.push({ ...slotOut(s.t, s.free, members.length, team), week: d.week });   // 画面で「1週目・2週目」に分けて出すため
     }
     out.sort((a, b) => new Date(a.at) - new Date(b.at));
-    res.json({ ok: true, slots: out.slice(0, 12), members: members.map((m) => m.name), unread: members.filter((m) => busy.get(m.email) === null).map((m) => m.name) });
+    res.json({ ok: true, slots: out.slice(0, 12), ...teamInfo(members, team), unread: members.filter((m) => busy.get(m.email) === null).map((m) => m.name) });
   }));
   // 選んだ1日の空き（30分きざみ・9〜19時・商談の長さ分まるごと空いている人）
   app.get("/api/mccall/slots/day", guard(async (req, res) => {
     const date = String(req.query.date || ""); if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "日付が正しくありません" });
     const mins = Math.max(15, Math.min(240, parseInt(req.query.minutes, 10) || 60));
-    const members = await mcClosers();
+    const [members, team] = await Promise.all([mcClosers(), myTeamOf(req)]);
     if (!members.length) return res.json({ ok: true, slots: [], reason: "MOCHICA のクローザーが決まっていません" });
     const day = Date.parse(`${date}T00:00:00+09:00`);
     const busy = await busyOf(req, members, new Date(day).toISOString(), new Date(day + 86400e3).toISOString());
     if (!busy) return res.json({ ok: true, slots: [], reason: "カレンダーの空きを読めませんでした" });
     const out = [];
     for (let t = day + 9 * 3600e3; t + mins * 60e3 <= day + 19 * 3600e3; t += 30 * 60e3) {
-      if (t < Date.now() + 30 * 60e3) continue; const free = freeAt(busy, members, t, mins); if (free.length) out.push(slotOut(t, free, members.length));
+      if (t < Date.now() + 30 * 60e3) continue; const free = freeAt(busy, members, t, mins); if (free.length) out.push(slotOut(t, free, members.length, team));
     }
-    res.json({ ok: true, slots: out, members: members.map((m) => m.name), unread: members.filter((m) => busy.get(m.email) === null).map((m) => m.name) });
+    res.json({ ok: true, slots: out, ...teamInfo(members, team), unread: members.filter((m) => busy.get(m.email) === null).map((m) => m.name) });
+  }));
+  // ===== アポ獲得のあとの流れ（2026-11-23 福井さん「kincall のアポ後の流れを MOCHICALL にも・チーム制で FS に渡す」）=====
+  //   kincall（server/index.js の createApoFromKincall → autoAssignOne → createApoInvite）と同じ順で、MOCHICA の表と人だけで回す：
+  //     1) 担当の FS を決める：同じチームで空いている FS → いなければ他チームで空いている FS（「他チーム」と明示）
+  //        → だれも空いていない・読めないときは自分のチームの FS を担当にして「予定が重なる」と知らせる（アポを落とさない）
+  //     2) 獲得した IS のカレンダーに【初回】会社名/○○様 の予定（kincall と同じ。本人の Google → 無ければ予定作成の運用者が IS のカレンダーに書く）
+  //     3) FS のカレンダーに商談予定（kincall の createApoInvite と同じ。FS 本人の Google ならゲストなし・通知なしで本人の予定に、
+  //        無ければ運用者の予定に FS をゲストで招待）。FS が自分で取ったアポは 2) が本人の予定なので作らない（kincall と同じ）
+  //     4) FS に Google Chat で1対1の知らせ（kincall の notifyPerson と同じ仕組み）
+  //     SF の活動（Task）は記録のあとの sfWrite で、担当 FS と録音の場所も入れて書く。
+  //   入れないもの：DOC の割り振り（closer_rotation・smart_links・アポの自動スキャン）。MOCHICA の人を DOC のアポ振り分けに入れない決まり（2026-11-14）。
+  //     先方への確定メールと SF の商談の立ち上げ（コンバート）は、MOCHICA の文面・商談の形が決まっていないのでまだしない（判断待ち・kinbot-memory 参照）。
+  //   先方（お客様）には何も送らない。どこかで失敗しても記録は止めない。結果は mc_call_logs.apo_flow に残して画面に出す（黙って失敗しない）
+  const pickCol = (o, re) => { for (const [k, v] of Object.entries((o && typeof o === "object") ? o : {})) if (re.test(k) && v != null && typeof v !== "object" && String(v).trim()) return clip(v, 200); return ""; };
+  const pubBase = () => String(process.env.PUBLIC_URL || "").replace(/\/+$/, "");
+  const recLink = (logId) => (pubBase() ? `${pubBase()}/api/mccall/logs/${logId}/rec` : "");
+  // カレンダーに予定を作る。上から順に試し、作れたところで止める（kincall の createApoFromKincall と同じ考え方）
+  async function calPut(tries, ev) {
+    let err = "";
+    for (const t of tries.filter(Boolean)) {
+      try {
+        if (!(await googleConnected(t.owner).catch(() => false))) { err = err || `${t.owner} の Google 連携がありません`; continue; }
+        const guests = t.guests || [];
+        const r = await createCalendarEvent(t.owner, { ...ev, calendarId: t.cal, guests, guestsCanModify: true, sendUpdates: guests.length ? "all" : "none" });
+        if (r && r.id) return { ok: true, id: r.id, owner: t.owner, cal: t.cal, guest: guests.length > 0 };
+      } catch (e) { err = String(e.message || e).slice(0, 160); }
+    }
+    return { ok: false, err: err || "Google 連携がありません" };
+  }
+  const hhmm = (d) => { const j = new Date(new Date(d).getTime() + 9 * 3600e3); return `${String(j.getUTCHours()).padStart(2, "0")}:${String(j.getUTCMinutes()).padStart(2, "0")}`; };
+  const dayText = (d) => { const j = new Date(new Date(d).getTime() + 9 * 3600e3); return `${j.getUTCMonth() + 1}/${j.getUTCDate()}（${"日月火水木金土"[j.getUTCDay()]}）${hhmm(d)}`; };
+  async function afterApo(req, logId) {
+    const g = (await P().query(`SELECT g.*, c.company, c.person, c.phone AS lead_phone, c.sf_lead_id, c.data, c.gate AS lead_gate, c.hearing AS lead_hearing, l.name AS list_name
+      FROM mc_call_logs g JOIN mc_call_leads c ON c.id=g.lead_id LEFT JOIN mc_call_lists l ON l.id=g.list_id WHERE g.id=$1`, [logId])).rows[0];
+    if (!g || !g.apo_at || g.outcome !== "apo") return null;
+    const setter = String(g.caller || "").toLowerCase();
+    const start = new Date(g.apo_at), end = new Date(start.getTime() + 60 * 60e3);   // MOCHICALL の候補は1時間枠（/api/mccall/slots と同じ）
+    const [names, closers, myTeam, st] = await Promise.all([nameMap(), mcClosers(), myTeamOf(req), getSettings().catch(() => ({}))]);
+    const setterName = names.get(setter) || setter;
+    const flow = { at: new Date().toISOString(), team: teamLabel(myTeam), warn: [] };
+    // 1) 担当の FS
+    let busy = null; try { busy = closers.length ? await busyOf(req, closers, start.toISOString(), end.toISOString()) : null; } catch {}
+    const okMap = new Map(closers.map((c) => { const b = busy && busy.get(c.email); return [c.email, Array.isArray(b) ? !b.some(([bs, be]) => bs < end.getTime() && be > start.getTime()) : null]; }));
+    const fs = pickFs(closers, okMap, myTeam);
+    if (fs) flow.fs = { email: fs.email, name: fs.name, team: teamLabel(fs.team), other: !!fs.other, conflict: !!fs.conflict };
+    else flow.warn.push(closers.length ? "担当の FS を決められませんでした（あなたのチームが決まっておらず、この時間に空いている FS もいません）。管理者に伝えてください"
+      : "MOCHICA の FS（クローザー）が決まっていません。設定 → メンバー管理で、事業 MOCHICA・役割 クローザーを付けてください");
+    if (fs && fs.other) flow.warn.push(`あなたのチームの FS がこの時間に空いていないため、他チームの ${fs.name}さんにお願いしました`);
+    if (fs && fs.conflict) flow.warn.push(`${fs.name}さんはこの時間に予定があります（またはカレンダーを読めませんでした）。${fs.name}さんに日程の調整を頼んでください`);
+    // 予定と SF に載せる中身（FS が予定を開いただけで、だれに・何を話すか分かるように）
+    const person = clip((g.gate && g.gate.name) || (g.lead_gate && g.lead_gate.name) || g.person || "", 40).replace(/\s*様$/, "");
+    const email = pickCol(g.data, /メール|e-?mail/i), web = pickCol(g.data, /^(web|url|hp|ホームページ|サイト|会社url|webサイト)/i);
+    const hearing = hearingLines(g.hearing || g.lead_hearing);
+    const gt = g.gate || g.lead_gate || {};
+    let sfUrl = "";
+    if (g.sf_lead_id) try { const info = await sfConnInfo(await sfActor(req)); if (info && info.instanceUrl) sfUrl = `${String(info.instanceUrl).replace(/\/+$/, "")}/lightning/r/Lead/${g.sf_lead_id}/view`; } catch {}
+    const rec = recLink(logId);
+    const label = `【初回】${g.company || "会社名なし"}${person ? `/${person}様` : ""}`;
+    // 先頭の目印は server/index.js の KINBOT_INVITE_MARK と同じ文。DOC のアポの自動スキャン（collectApoAppointments）は
+    //   この目印のある予定を「kinbot が作った予定」として拾わない。FS や運用者が DOC のクローザーにも入っているとき、
+    //   この予定が DOC のアポとして取り込まれ、DOC の割り振り・SF の立ち上げが走るのを防ぐ
+    const desc = [
+      "kinbotが自動作成した商談予定です（SHOWIN の MOCHICALL のアポ獲得から）", "",
+      g.list_name ? `【リスト】${g.list_name}` : "",
+      "【先方】", `会社：${g.company || "（なし）"}`, person ? `担当：${person}様` : "", `電話：${clip(g.phone || g.lead_phone, 40) || "（未登録）"}`, email ? `メール：${email}` : "", web ? `Web：${web}` : "",
+      "", `【アポ獲得】${setterName}${flow.team ? `（${flow.team}）` : ""}`,
+      flow.fs ? `【担当 FS】${flow.fs.name}${flow.fs.team ? `（${flow.fs.team}）` : ""}${flow.fs.other ? "　※ 他チーム（アポ獲得者のチームの FS が空いていなかったため）" : ""}` : "【担当 FS】未定",
+      hearing.length ? `\n【ヒアリング】\n${hearing.join("\n")}` : "",
+      gt.name || gt.hours || gt.direct ? `\n【受付で聞けたこと】${[gt.name && `担当 ${gt.name}`, gt.hours && `在席 ${gt.hours}`, gt.direct && `直通 ${gt.direct}`].filter(Boolean).join("・")}` : "",
+      g.memo ? `\n【メモ】\n${g.memo}` : "",
+      rec ? `\n【通話の録音】${rec}\n（記録してから5分ほどで聞けるようになります。kinbot にログインして開きます）` : "",
+      sfUrl ? `【SF のリード】${sfUrl}` : "",
+    ].filter(Boolean).join("\n");
+    const ev = { summary: label, description: desc.slice(0, 7000), start: start.toISOString(), end: end.toISOString() };
+    const ops = String(st.apoScanOwner || st.apoInviteOwner || "").trim().toLowerCase();
+    const inviteOps = String(st.apoInviteOwner || st.apoScanOwner || "").trim().toLowerCase();
+    // 2) IS のカレンダー
+    flow.isEv = await calPut([{ owner: setter, cal: "primary" }, ops && ops !== setter ? { owner: ops, cal: setter } : null], ev);
+    if (!flow.isEv.ok) flow.warn.push(`あなたのカレンダーに予定を作れませんでした（${flow.isEv.err}）`);
+    // 3) FS のカレンダー（FS が自分で取ったアポは 2) が本人の予定なので作らない）
+    if (fs && fs.email !== setter) {
+      flow.fsEv = await calPut([{ owner: fs.email, cal: "primary" }, inviteOps && inviteOps !== fs.email ? { owner: inviteOps, cal: String(st.apoInviteCalendarId || "").trim() || "primary", guests: [fs.email] } : null], ev);
+      if (!flow.fsEv.ok) flow.warn.push(`${fs.name}さんのカレンダーに予定を作れませんでした（${flow.fsEv.err}）。${fs.name}さんに直接伝えてください`);
+      // 4) FS への知らせ
+      const text = [
+        "📅 *アポが入りました（MOCHICALL）*", `　${label}`, `🕐 ${dayText(start)}〜${hhmm(end)}`,
+        `🙋 アポ獲得：${setterName}${flow.team ? `（${flow.team}）` : ""}`,
+        fs.other ? `※ ${flow.team || "アポ獲得者のチーム"}の FS がこの時間に空いていなかったため、他チームのアポとしてお願いします` : "",
+        fs.conflict ? "⚠️ この時間はあなたのカレンダーに予定があります（または読めませんでした）。日程の調整をお願いします" : "",
+        person ? `担当：${person}様　電話：${clip(g.phone || g.lead_phone, 40) || "（未登録）"}` : "",
+        hearing.length ? `ヒアリング：${hearing.join("／")}` : "", g.memo ? `メモ：${clip(g.memo, 300)}` : "",
+        rec ? `🎧 通話の録音：${rec}` : "", sfUrl ? `SF：${sfUrl}` : "",
+        flow.fsEv.ok ? "カレンダーに商談予定を入れました。" : "カレンダーには入れられませんでした。予定を手で入れてください。",
+      ].filter(Boolean).join("\n");
+      const n = await notifyPerson(fs.email, text).catch((e) => ({ ok: false, reason: e.message }));
+      flow.notify = { ok: !!(n && n.ok), reason: (n && (n.hint || n.reason)) || "" };
+      if (!flow.notify.ok) flow.warn.push(`${fs.name}さんに Chat で知らせられませんでした（${flow.notify.reason || "理由不明"}）。直接伝えてください`);
+    }
+    await P().query(`UPDATE mc_call_logs SET apo_flow=$2, apo_who=COALESCE($3, apo_who) WHERE id=$1`, [logId, flow, flow.fs ? `${flow.fs.name}${flow.fs.team ? `（${flow.fs.team}）` : ""}${flow.fs.other ? "・他チーム" : ""}` : null]).catch(() => {});
+    console.log(`[mccall] アポのあと：${label} ${dayText(start)} 獲得 ${setterName}${flow.team ? `（${flow.team}）` : ""} → FS ${flow.fs ? flow.fs.name : "未定"}${flow.fs && flow.fs.other ? "（他チーム）" : ""}` +
+      ` 予定 IS:${flow.isEv.ok ? "○" : "×"} FS:${flow.fsEv ? (flow.fsEv.ok ? "○" : "×") : "-"} 知らせ:${flow.notify ? (flow.notify.ok ? "○" : "×") : "-"}`);
+    return { fs: flow.fs ? { name: flow.fs.name, team: flow.fs.team, other: flow.fs.other, conflict: flow.fs.conflict } : null, team: flow.team,
+      isCal: flow.isEv.ok, fsCal: flow.fsEv ? flow.fsEv.ok : null, notified: flow.notify ? flow.notify.ok : null, warn: flow.warn };
+  }
+  // アポを取り消したら、作った予定を消して FS に知らせる（ここで作った予定だけ。ほかの予定には触らない）
+  async function undoApo(g) {
+    const f = g.apo_flow; if (!f) return "";
+    const out = [];
+    for (const k of ["isEv", "fsEv"]) {
+      const e = f[k]; if (!e || !e.ok || !e.id) continue;
+      const who = k === "isEv" ? "あなた" : `${(f.fs && f.fs.name) || "FS"}さん`;
+      const ok = await deleteCalendarEvent(e.owner, e.id, e.cal).catch(() => false);
+      out.push(ok ? `${who}の予定を消しました` : `${who}の予定は消せませんでした（カレンダーで消してください）`);
+    }
+    if (f.fs && f.fs.email && f.notify && f.notify.ok) {
+      const lead = (await P().query(`SELECT company FROM mc_call_leads WHERE id=$1`, [g.lead_id])).rows[0] || {};
+      await notifyPerson(f.fs.email, `↩️ *アポが取り消されました（MOCHICALL）*\n　${lead.company || ""}　${g.apo_at ? dayText(g.apo_at) : ""}\n記録の間違いで取り消されました。カレンダーの予定も消しています。`).catch(() => {});
+      out.push(`${f.fs.name}さんに取り消しを知らせました`);
+    }
+    return out.join("。");
+  }
+  // 通話の録音（予定・SF・知らせに載せるリンク）。録音は記録の数分後に結びつくので、リンクは記録の番号で作っておき、開いたときに探す
+  app.get("/api/mccall/logs/:id/rec", guard(async (req, res) => {
+    const g = (await P().query(`SELECT rec FROM mc_call_logs WHERE id=$1 AND NOT undone`, [parseInt(req.params.id, 10)])).rows[0];
+    const recId = g && g.rec && g.rec.recId;
+    if (recId) return res.redirect(`/api/calls/zoom-rec/${encodeURIComponent(recId)}/audio`);
+    const why = !g ? "この記録は見つからないか、取り消されています" : g.rec && g.rec.status === "none" ? "この通話の録音は見つかりませんでした（Zoom Phone の録音が無い通話です）" : "録音はまだ結びついていません。記録してから5分ほどで聞けるようになります。少し待ってから開き直してください";
+    res.status(404).type("html").send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>通話の録音</title><body style="font:15px/1.7 system-ui,sans-serif;margin:24px;color:#1f2d28"><h1 style="font-size:18px;color:#0d5b47">通話の録音</h1><p>${why}</p></body>`);
   }));
   app.get("/api/mccall/meta", guard(async (req, res) => {
     // 管理者の画面には、いま管理者として扱っている人の名前も返す（苗字で照合しているので、漏れや取り違えを見えるように）

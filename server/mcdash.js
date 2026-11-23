@@ -21,17 +21,19 @@ import { paceRows, BREAK_MIN, RE_PRESS_SEC } from "./mcdashpace.js";
 import { loadCallAna } from "./mccallana.js";
 
 // 対象メンバー（2026-11-16 福井さん指定）。key/sf は SF の氏名（空白なし）、zoom は Zoom の表示名（空白なし）
+// team は IS と FS の組の既定（2026-11-23 福井さん：餌取チーム＝森・趙・重永・内藤／斎藤チーム＝小賀坂・大沢・岩浪・足立）。
+//   設定 → メンバー管理の「チーム」を入れた人は、そちらが優先（server/mcteam.js）
 export const MCDASH_ROSTER = {
-  sales: [{ key: "齊藤玲耶", name: "齊藤" }, { key: "餌取鴻志", name: "餌取" }, { key: "本炭更紗", name: "本炭" }],
+  sales: [{ key: "齊藤玲耶", name: "齊藤", team: "斎藤" }, { key: "餌取鴻志", name: "餌取", team: "餌取" }, { key: "本炭更紗", name: "本炭" }],
   is: [
-    { name: "趙", sf: "趙彩娟", zoom: "彩娟趙" },
-    { name: "岩浪", sf: "岩浪大己", zoom: "岩浪大己" },
-    { name: "大沢", sf: "大沢瑛太", zoom: "大沢瑛太" },
-    { name: "森", sf: "森康晴", zoom: "森康晴" },
-    { name: "足立", sf: "足立瞬弥", zoom: "足立瞬弥" },
-    { name: "内藤", sf: "内藤賴郁亜", zoom: "らいあないとう" },
-    { name: "小賀坂", sf: "小賀坂和也", zoom: "小賀坂和也" },
-    { name: "重永", sf: "重永浩汰", zoom: "浩汰重永" },
+    { name: "趙", sf: "趙彩娟", zoom: "彩娟趙", team: "餌取" },
+    { name: "岩浪", sf: "岩浪大己", zoom: "岩浪大己", team: "斎藤" },
+    { name: "大沢", sf: "大沢瑛太", zoom: "大沢瑛太", team: "斎藤" },
+    { name: "森", sf: "森康晴", zoom: "森康晴", team: "餌取" },
+    { name: "足立", sf: "足立瞬弥", zoom: "足立瞬弥", team: "斎藤" },
+    { name: "内藤", sf: "内藤賴郁亜", zoom: "らいあないとう", team: "餌取" },
+    { name: "小賀坂", sf: "小賀坂和也", zoom: "小賀坂和也", team: "斎藤" },
+    { name: "重永", sf: "重永浩汰", zoom: "浩汰重永", team: "餌取" },
   ],
 };
 // インターンのシフト（Google スプレッドシート「MOCHICAインターン用シフト データ」）。読むのは福井さんの Google 連携（2026-11-17 了承）

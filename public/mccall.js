@@ -396,7 +396,7 @@
       ${!canPick ? `<div class="mcc-empty" style="padding:24px 12px">まず発信してください（<b>C</b> か「にかける」を押す）。<br>発信すると結果を選べます。かけない会社は「飛ばす」（<b>S</b>）。</div>` : `<div class="mcc-step">${f.step === "reach" ? "どこまで届きましたか" : `<button class="mcc-btn" id="mccBack" style="height:28px;padding:0 8px" aria-keyshortcuts="Backspace">${ICO.back}戻る</button><span class="crumb">${esc(crumb())}</span>`}</div>
       ${cs.length ? `<div class="mcc-choices ${cs.length > 4 ? "two" : ""}">${cs.map((c, i) => `<button class="mcc-choice ${c.cls || ""}" data-c="${esc(c.k)}" data-l="${esc(c.label)}" aria-keyshortcuts="${i + 1}"><span class="mcc-key">${i + 1}</span><span>${esc(c.label)}${c.sub ? `<small>${esc(c.sub)}</small>` : ""}</span></button>`).join("")}</div>` : ""}`}
       ${f.step === "when" ? whenManualHtml(f) : ""}
-      ${f.step === "apo" ? slotsHtml() + `<label class="mcc-field" style="margin-top:8px">アポの日時（必須。おすすめを押すと入ります）<input type="datetime-local" id="mccApo" value="${esc(f.apoAt)}" /></label>${f.apoWho ? `<p class="mcc-note">この時間に空いているクローザー：${esc(f.apoWho)}</p>` : ""}` : ""}
+      ${f.step === "apo" ? slotsHtml() + `<label class="mcc-field" style="margin-top:8px">アポの日時（必須。おすすめを押すと入ります）<input type="datetime-local" id="mccApo" value="${esc(f.apoAt)}" /></label>${f.apoWho ? `<p class="mcc-note${f.apoOther ? " mcc-warn-tx" : ""}">担当になる FS：${esc(String(f.apoWho).split("・")[0])}${f.apoOther ? "（他チーム。あなたのチームの FS はこの時間に空いていません）" : ""}。記録すると、予定を入れて知らせます</p>` : ""}` : ""}
       ${f.outcome === "doc_send" ? `<div class="mcc-next">資料はまだ送っていません。<button class="mcc-chip" id="mccDocNow">資料を送る</button></div>` : ""}
       ${f.outcome === "inquiry" ? `<div class="mcc-next">${f.formSent ? `問い合わせフォームから<b>${esc(f.formSent)}</b>。記録して次へ進んでください。` : "問い合わせフォームからは、まだ送っていません。"}<button class="mcc-chip" id="mccFormNow">${f.formSent ? "もう一度開く" : "フォームから送る"}</button></div>` : ""}
       ${f.step === "ready" || f.step === "apo" ? `<div class="mcc-next" id="mccNextTx">${nextText()}${AUTO.has(f.outcome) && !f.noRetry && !f.nextAt ? ` <button class="mcc-chip" id="mccNoRetry">自動の掛け直しをやめる</button>` : ""}</div>
@@ -417,14 +417,14 @@
     $("mccDoc").addEventListener("click", sendDoc);
     const dn = $("mccDocNow"); if (dn) dn.addEventListener("click", sendDoc);
     const fn = $("mccFormNow"); if (fn) fn.addEventListener("click", sendForm);
-    c.querySelectorAll("[data-slot]").forEach((b) => b.addEventListener("click", () => { S.f.apoAt = toLocalInput(b.dataset.slot); S.f.apoWho = b.dataset.who || ""; drawCenter(); }));
+    c.querySelectorAll("[data-slot]").forEach((b) => b.addEventListener("click", () => { S.f.apoAt = toLocalInput(b.dataset.slot); S.f.apoWho = b.dataset.who || ""; S.f.apoOther = !!b.dataset.other; drawCenter(); }));
     c.querySelectorAll("[data-stab]").forEach((b) => b.addEventListener("click", () => { S.f.slotTab = b.dataset.stab; drawCenter(); }));
     c.querySelectorAll("[data-calmv]").forEach((b) => b.addEventListener("click", () => { S.calM += Number(b.dataset.calmv); if (S.calM < 1) { S.calM = 12; S.calY--; } else if (S.calM > 12) { S.calM = 1; S.calY++; } drawCenter(); }));
     c.querySelectorAll("[data-calday]").forEach((b) => b.addEventListener("click", () => { S.f.slotDay = b.dataset.calday; loadSlotDay(S.f.slotDay); }));
     if (S.f.step === "apo" && !S.slots) loadSlots();
     $("mccRec").addEventListener("click", record);
     const dial = $("mccDial"); if (dial) dial.addEventListener("click", () => { S.f.phone = ph; if (!S.f.dialed) { S.f.dialed = true; setTimeout(drawCenter, 0); } });
-    const apo = $("mccApo"); if (apo) { apo.addEventListener("input", () => { S.f.apoAt = apo.value; S.f.apoWho = ""; refreshFoot(); }); apo.addEventListener("keydown", (e) => { if (e.key === "Enter" && ready()) { e.preventDefault(); record(); } }); setTimeout(() => apo.focus(), 0); }
+    const apo = $("mccApo"); if (apo) { apo.addEventListener("input", () => { S.f.apoAt = apo.value; S.f.apoWho = ""; S.f.apoOther = false; refreshFoot(); }); apo.addEventListener("keydown", (e) => { if (e.key === "Enter" && ready()) { e.preventDefault(); record(); } }); setTimeout(() => apo.focus(), 0); }
     const na = $("mccNextAt"); if (na) { na.addEventListener("input", () => pickManual(na.value)); na.addEventListener("keydown", (e) => { if (e.key === "Enter" && S.f.nextAt && ready()) { e.preventDefault(); record(); } }); }
     const nr = $("mccNoRetry"); if (nr) nr.addEventListener("click", () => { S.f.noRetry = true; drawCenter(); });
     c.querySelectorAll("[data-later]").forEach((b) => b.addEventListener("click", () => { S.f.nextAt = b.dataset.later; S.f.nextLabel = b.dataset.ll || ""; S.f.noRetry = !b.dataset.later ? S.f.noRetry : false; drawCenter(); }));
@@ -563,9 +563,11 @@
   //   kincall の記録の窓の右パネルと同じ形：「おすすめ」（既定）＝2週間から週ごとに空きの多い日の午前・午後、
   //   「他の日程」＝月のカレンダーで日を選ぶと、その日の空き時間（30分きざみ）がすべて出る。
   //   どちらも押すとアポの日時に入る。だれが空いているかも出す（だれの商談になりそうか、架電中に分かるように）
-  const slotItem = (x, opt = {}) => `<button type="button" class="mcc-slot${S.f.apoAt === toLocalInput(x.at) ? " on" : ""}${opt.best ? " best" : ""}" data-slot="${esc(x.at)}" data-who="${esc((x.free || []).join("・"))}">
-      <span class="mcc-slot-when">${opt.day ? "" : `${esc(x.md)}（${esc(x.dow)}） `}<small>${esc(x.band || "")}</small> ${esc(x.time)}${opt.best ? '<span class="mcc-slot-badge">おすすめ</span>' : ""}</span>
-      <span class="mcc-slot-free">${x.freeN}/${x.total}人 空き${x.free && x.free.length ? `：${esc(x.free.join("・"))}` : ""}</span></button>`;
+  //   チーム制（2026-11-23）：自分のチームの FS が空いている枠を出し、空いていない時間だけ他チームの FS を「他チーム」の印つきで出す
+  const slotItem = (x, opt = {}) => `<button type="button" class="mcc-slot${S.f.apoAt === toLocalInput(x.at) ? " on" : ""}${opt.best ? " best" : ""}${x.otherTeam ? " other" : ""}" data-slot="${esc(x.at)}" data-who="${esc((x.free || []).join("・"))}" data-other="${x.otherTeam ? "1" : ""}">
+      <span class="mcc-slot-when">${opt.day ? "" : `${esc(x.md)}（${esc(x.dow)}） `}<small>${esc(x.band || "")}</small> ${esc(x.time)}${opt.best ? '<span class="mcc-slot-badge">おすすめ</span>' : ""}${x.otherTeam ? '<span class="mcc-slot-badge other">他チーム</span>' : ""}</span>
+      <span class="mcc-slot-free">${slotTeam() ? "" : `${x.freeN}/${x.total}人 `}空き${x.free && x.free.length ? `：${esc(x.free.join("・"))}` : ""}</span></button>`;
+  const slotTeam = () => (S.slots && S.slots.team) || "";
   const WD = ["日", "月", "火", "水", "木", "金", "土"];
   const p2 = (n) => String(n).padStart(2, "0");
   const ymdLocal = (d) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
@@ -574,8 +576,11 @@
     if (!o || o.loading) return '<p class="mcc-note">クローザーの空きを読んでいます…</p>';
     if (o.error) return `<p class="mcc-note" style="color:var(--c-danger)">空きを読めませんでした：${esc(o.error)}</p>`;
     if (!o.slots.length) return `<p class="mcc-note">${esc(o.reason || "2週間のうちに空いている枠がありません")}</p><p class="mcc-note">「他の日程」から、日を選んで探せます。</p>`;
-    let h = o.members && o.members.length ? `<p class="mcc-note">対象：${esc(o.members.join("・"))}</p>` : "", wk = 0;
-    o.slots.forEach((x, i) => { if (x.week && x.week !== wk) { wk = x.week; h += `<div class="mcc-slot-wk">${wk === 1 ? "1週目" : "2週目"}</div>`; } h += slotItem(x, { best: i === 0 }); });
+    let h = o.team ? `<p class="mcc-note">${esc(o.team)}の FS（${esc((o.members || []).join("・"))}）の空き。空いていない時間だけ、他チームの FS を出します</p>`
+      : o.members && o.members.length ? `<p class="mcc-note">対象：${esc(o.members.join("・"))}</p>` : "", wk = 0;
+    // 「おすすめ」の印は、自分のチームの FS が空いているいちばん早い枠に付ける（他チームの枠に付けると、そちらを選びがちになるため）
+    const bi = Math.max(0, o.slots.findIndex((x) => !x.otherTeam));
+    o.slots.forEach((x, i) => { if (x.week && x.week !== wk) { wk = x.week; h += `<div class="mcc-slot-wk">${wk === 1 ? "1週目" : "2週目"}</div>`; } h += slotItem(x, { best: i === bi }); });
     if (o.unread && o.unread.length) h += `<p class="mcc-note">カレンダーを読めなかった人：${esc(o.unread.join("・"))}（空きに数えていません）</p>`;
     return h + '<p class="mcc-note">ここにない日は「他の日程」から選べます。</p>';
   }
@@ -700,7 +705,9 @@
       const j = await post(`/api/mccall/leads/${L.id}/log`, body);
       const what = crumb();
       S.queue = S.queue.filter((x) => x.id !== L.id); if (isInbound(L.id)) S.inbound = null;
-      toast(`記録しました：${company} ${what}${j.nextAt ? ` → ${tm(j.nextAt)} に掛け直し` : ""}`, { undo: j.logId });
+      const ap = j.apo, apoTx = ap && ap.fs ? ` → ${ap.fs.name}さん${ap.fs.other ? "（他チーム）" : ""}に渡しました${ap.fsCal && ap.notified ? "（予定・知らせ済み）" : ""}` : "";
+      toast(`記録しました：${company} ${what}${apoTx}${j.nextAt ? ` → ${tm(j.nextAt)} に掛け直し` : ""}`, { undo: j.logId });
+      if (ap && ap.warn && ap.warn.length) setNotice(ap.warn.map((t) => ({ kind: "warn", text: `${company}のアポ：${t}` })));
       loadStats(); S.busy = false;
       setTimeout(loadStats, 8000);   // SF への書き込みは記録のあとで行うので、少し待って書けたかを確かめ直す
       const n = nextItem(); if (n) await open(n.id); else { S.d = null; await loadQueue(true); }

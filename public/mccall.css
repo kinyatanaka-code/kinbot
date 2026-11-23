@@ -323,6 +323,10 @@
 .mcc-slot-badge{font-size:10.5px;font-weight:800;background:var(--c-accent);color:#fff;border-radius:99px;padding:1px 8px;margin-left:4px;}
 .mcc-slot-free{font-size:11.5px;color:var(--c-muted);}
 .mcc-slot.on .mcc-slot-free{color:#fff;opacity:.85;}
+/* チーム制（2026-11-23）：他チームの FS の枠は、自分のチームの枠と見分けがつくように橙の印 */
+.mcc-slot-badge.other{background:var(--c-warn-soft);color:var(--c-warn);border:1px solid #F6D7BC;}
+.mcc-slot.other{border-style:dashed;}
+.mcc-warn-tx{color:var(--c-warn);font-weight:700;}
 .mcc-cal{border:1px solid var(--c-line);border-radius:12px;padding:8px;background:#fff;max-width:340px;}
 .mcc-cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:13px;}
 .mcc-cal-mv{border:0;background:none;font:inherit;font-size:18px;width:32px;height:28px;border-radius:8px;color:var(--c-deep);cursor:pointer;}
