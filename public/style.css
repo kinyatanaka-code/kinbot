@@ -7490,3 +7490,9 @@ a.pre-chip:hover { background: #1d9e75; border-color: #1d9e75; color: #fff; }
 .pre-who { margin-left: auto; }
 .pre-call-m { font-size: 12.5px; color: #14312A; margin-top: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pre-long { white-space: pre-wrap; max-height: 160px; overflow-y: auto; font-size: 12.5px; }
+/* 事前情報の下のメモ（2026-11-24） */
+.pre-note { margin: 12px 2px 0; }
+.pre-note h3 small { font-size: 11px; font-weight: 600; color: #6B7C80; }
+.pre-note .note-saved { margin-left: auto; font-size: 11px; font-weight: 600; color: #1d9e75; }
+.pre-note .live-note { width: 100%; height: auto; min-height: 180px; box-sizing: border-box; border: 1px solid #DDEFE8; border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 13.5px; resize: vertical; background: #FBFDFC; }
+.pre-note .live-note:focus { outline: none; border-color: #1d9e75; box-shadow: 0 0 0 3px rgba(29,158,117,.15); }

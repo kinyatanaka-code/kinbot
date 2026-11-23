@@ -10,7 +10,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261124d" />
+    <link rel="stylesheet" href="style.css?v=20261124e" />
   </head>
   <body>
     <div class="app">
@@ -117,7 +117,7 @@
 
         <!-- ステップ2：ライブ文字起こし・要約・次の一手 -->
         <div class="live-view" id="viewLive" data-mrec="live" hidden>
-          <div class="kinbot-bar" id="kinbotBar">
+          <div class="kinbot-bar" id="kinbotBar" hidden style="display:none"><!-- 「商談を見守っています」の帯は出さない（2026-11-24 田中さん「いらない」） -->
             <svg class="kinbot-av" id="kinbotAv" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
               <defs>
                 <linearGradient id="kbavHead" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9ee8d2"/><stop offset="1" stop-color="#5fc9a9"/></linearGradient>
@@ -152,13 +152,16 @@
             <button class="live-tab" data-pane="video" hidden>ライブ映像</button>
             <!-- 事前情報・メモ・文字起こしの3つ（2026-11-24 田中さん）。AI のタブは出さない（AI の気づきは右下の通知から開ける） -->
             <button class="live-tab active" data-pane="pre">事前情報</button>
-            <button class="live-tab" data-pane="note">メモ</button>
+            <button class="live-tab" data-pane="note" hidden>メモ</button>
             <button class="live-tab" data-pane="transcript">文字起こし</button>
             <button class="live-tab" data-pane="ai" hidden>AI</button>
           </div>
 
           <div class="live-pane live-pane-scroll" data-pane="pre">
             <div class="pre-wrap" id="preBrief"><div class="empty-state">事前情報を読み込んでいます…</div></div>
+            <!-- メモは事前情報の下に（メモのタブはやめた）（2026-11-24 田中さん「下にメモ欄つけて欲しい・メモタブいらない」） -->
+            <section class="pre-card pre-note"><h3><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5z"/><path d="M9 12h6M9 16h4"/></svg>メモ<small>自動で保存されます</small><span class="note-saved" id="noteSaved"></span></h3>
+              <textarea id="liveNote" class="live-note" placeholder="商談中のメモ（自動保存されます）"></textarea></section>
           </div>
 
           <div class="live-pane" data-pane="video" hidden>
@@ -204,10 +207,7 @@
             </div>
           </div>
 
-          <div class="live-pane live-pane-scroll" data-pane="note" hidden>
-            <textarea id="liveNote" class="live-note" placeholder="商談中のメモ（自動保存されます）"></textarea>
-            <div class="note-saved" id="noteSaved"></div>
-          </div>
+          <div class="live-pane live-pane-scroll" data-pane="note" hidden></div>
 
           <div class="live-pane live-pane-scroll" data-pane="kasasagi" hidden>
             <div class="ks-body ks-live">
@@ -289,7 +289,7 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
-    <script src="app.js?v=20261124d"></script>
+    <script src="app.js?v=20261124e"></script>
     <script>
       (function () {
         const tabs = document.getElementById("recTabs");
@@ -311,7 +311,7 @@
         }
       })();
     </script>
-    <script src="nav.js?v=20261124d"></script>
+    <script src="nav.js?v=20261124e"></script>
     <script src="/cmdk.js?v=20260827a"></script>
 </body>
 </html>
