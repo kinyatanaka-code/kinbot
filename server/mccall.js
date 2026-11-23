@@ -21,7 +21,8 @@ import { fixMojibake } from "./docs.js";
 import { pastApproach, balesItems, dedupeTimeline, startZoomSync } from "./mchist.js";   // リードの過去アプローチを BALES・SF・Zoom Phone・DOC から集める（2026-11-20）
 import { createTask, deleteTask, sfQuery, sfQueryAll, sfUpdateRecord, connectionInfo as sfConnInfo, describeObject } from "./salesforce.js";
 import { judgeHot } from "./mchot.js";
-import { lookupMynaviFree } from "./mcresearch.js";   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
+import { lookupMynaviFree } from "./mcresearch.js";
+import { showableResearch, CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は今の募集と確かめた採用情報だけを画面に出す（2026-11-23）   // マイナビの調べも AI・有料の検索を使わない（2026-11-20 福井さん）
 import { fetchPageText } from "./companyenrich.js";
 import { segOf, SEG_V, SF_LEAD_FIELDS, sfLeadRow, balesCarry, sfLeadWhere } from "./mcseg.js";
 import { ensurePlay, talkForLead, activeTalks, saveTalks, listsWithTalk, measures, researchGate, researchSoon, researchState, inboundFor, inboundAllows, startPlayPumps, TALK_LABELS } from "./mcplay.js";
@@ -425,10 +426,13 @@ const JST_TODAY = `(date_trunc('day', ${JST}) AT TIME ZONE 'Asia/Tokyo')`;
 // マイナビの調べ（会社ごと。リードの seg.ckey で結ぶ）
 const MN = `(SELECT m.data FROM mc_mynavi m WHERE m.ckey = c.seg->>'ckey')`;
 // 全角の数字もそろえて、文の中の最初の数を取る（「6~10名」は 6＝下限で見る）
+// 企業調査の採用の項目は、今の募集と確かめたもの（mcfresh.js の CHECK_V で確かめ、STALE_DAYS 以内）だけを使う（2026-11-23 福井さん）。
+//   画面の showableResearch と同じ決まり。確かめる前の古い結果は、調べ直すまで「未取得」と同じに扱う
+const RX = (k) => `(CASE WHEN c.research->'check'->>'v' = '${CHECK_V}' AND (c.research->'check'->>'at')::timestamptz > now() - interval '${STALE_DAYS} days' THEN c.research->>'${k}' END)`;
 const firstNum = (x) => `NULLIF(substring(translate(COALESCE(${x},''), '０１２３４５６７８９', '0123456789') from '([0-9]+)'), '')::int`;
 // 採用人数：架電で聞いた採用目標人数 → 企業調査の採用人数 → マイナビの採用予定人数
 const HIRE_HEARD = `CASE WHEN COALESCE(c.hearing->>'target','') ~ '^[0-9]+$' THEN (c.hearing->>'target')::int END`;
-const HIRE_EST = `COALESCE(${firstNum(`c.research->>'headcount'`)}, ${firstNum(`${MN}->>'plannedHires'`)})`;
+const HIRE_EST = `COALESCE(${firstNum(RX("headcount"))}, ${firstNum(`${MN}->>'plannedHires'`)})`;
 const HIRE = `COALESCE(${HIRE_HEARD}, ${HIRE_EST})`;
 // 年月（YYYY-MM）または月だけ（M）→ 今月から何か月先か（月だけのときは次に来るその月。過ぎたことにはしない）
 const monthsAhead = (x) => `(CASE WHEN ${x} ~ '^[0-9]{4}-[0-9]{2}$' THEN (substr(${x},1,4)::int*12 + substr(${x},6,2)::int) - (EXTRACT(YEAR FROM ${JST})::int*12 + EXTRACT(MONTH FROM ${JST})::int)
@@ -441,8 +445,8 @@ const RENEW_M = monthsAhead(`NULLIF(c.seg->>'renewYm','')`);
 const LAST_REJECT = `(SELECT l.reason FROM mc_call_logs l WHERE l.lead_id = c.id AND l.outcome = 'reject' AND NOT l.undone ORDER BY l.created_at DESC LIMIT 1)`;
 const DIGITS = `regexp_replace(translate(COALESCE(c.phone,''), '０１２３４５６７８９', '0123456789'), '[^0-9]', '', 'g')`;
 // 採用区分・採用課題を読む文（企業調査・SF の課題感・架電で聞いたニーズ）
-const HIRING_TXT = `concat_ws(' ', c.research->>'hiring', c.research->>'roles', c.research->>'media')`;
-const PAIN_TXT = `concat_ws(' ', c.research->>'issue', c.seg->>'issue', c.hearing->>'need')`;
+const HIRING_TXT = `concat_ws(' ', ${RX("hiring")}, ${RX("roles")}, ${RX("media")})`;
+const PAIN_TXT = `concat_ws(' ', ${RX("issue")}, c.seg->>'issue', c.hearing->>'need')`;
 const arrOf = (cases) => `array_remove(ARRAY[${cases.map(([v, cond]) => `CASE WHEN ${cond} THEN ${sqlLit(v)} END`).join(", ")}]::text[], NULL)`;
 export const PAINS = [
   ["母集団形成", "母集団|応募が(少|来)|応募者?が(少|集ま)|集まらな|人が来な|知名度|認知"],
@@ -467,7 +471,7 @@ export const SEG_DIMS = {
   gyokai: { label: "業界（大分類）", sql: `COALESCE(NULLIF(c.seg->>'gyokai',''),'不明')` },
   category: { label: "カテゴリ（マイナビの業種）", sql: `COALESCE(NULLIF(${MN}->>'industry',''), CASE WHEN ${MN}->>'status' = 'listed' THEN '業種の記載なし' ELSE 'マイナビ掲載なし・未確認' END)` },
   gyoshu: { label: "業種", sql: `COALESCE(NULLIF(c.seg->>'gyoshu',''),'不明')` },
-  roles: { label: "募集職種", multi: true, none: "（未取得）", sql: `ARRAY(SELECT DISTINCT left(btrim(x), 30) FROM unnest(regexp_split_to_array(COALESCE(c.research->>'roles',''), '[、,，・/／]+')
+  roles: { label: "募集職種", multi: true, none: "（未取得）", sql: `ARRAY(SELECT DISTINCT left(btrim(x), 30) FROM unnest(regexp_split_to_array(COALESCE(${RX("roles")},''), '[、,，・/／]+')
       || ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(${MN}->'jobs') = 'array' THEN ${MN}->'jobs' ELSE '[]'::jsonb END))) AS x WHERE btrim(x) <> '')` },
   pref: { label: "所在地（都道府県）", sql: `COALESCE(NULLIF(c.seg->>'pref',''),'（未登録）')` },
   city: { label: "市区町村", sql: `COALESCE(NULLIF(c.seg->>'city',''),'（未登録）')`, needs: "pref" },
@@ -1748,7 +1752,7 @@ export function registerMcCall(app, deps) {
     // 掛け直しの型：何回続けて届かなかったか／次に不在だった場合にいつ掛け直しになるか（記録の前に画面で見せる）
     const streak = lead.miss_streak || 0;
     const cadence = { streak, max: CADENCE.maxMiss, parked: !!lead.parked_at, next: nextMissAt({ streak: streak + 1, gateHours: (lead.gate || {}).hours, rates: await ratesNow() }) };
-    res.json({ ok: true, lead: { ...lead, data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 120), hist: past.status, summary: oneLine(logs[0], lead.gate, names),
+    res.json({ ok: true, lead: { ...lead, research: showableResearch(lead.research), data }, script, talk, ban, phones, docAlso, glance, mynavi, cadence, timeline: tl.slice(0, 120), hist: past.status, summary: oneLine(logs[0], lead.gate, names),
       sf: sf && sf.lead ? { lead: sf.lead, sum: sf.sum || null } : null, cross: lead.cross_id ? (await P().query(`SELECT from_name, reason, at FROM mc_cross_moves WHERE id=$1`, [lead.cross_id])).rows[0] || null : null });
   }));
   // 開いたまま次へ行かなかったときに順番へ戻す

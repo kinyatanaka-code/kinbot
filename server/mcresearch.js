@@ -10,6 +10,7 @@
 //   「推定採用課題」「話の切り口」は、見つかった事実から決まった形で組み立てる（AI の文章ではないので、根拠が無ければ空）
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { fetchPageText, extractEmployeesRegex, employeesFromSite } from "./companyenrich.js";
+import { CHECK_V, recruitClock, freshness, valueFreshness, gradYears, isClosed } from "./mcfresh.js";
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 function withTimeout(url, opts = {}, ms = 12000) {
@@ -150,10 +151,148 @@ async function readSite(url) {
 const SITE_MS = 6000;   // 会社のサイトを1ページ読むのを待つ時間
 const HEADCOUNT_RE = /(?:採用予定人数|採用予定数|募集人数|採用人数)\s*[:：]?\s*([0-9０-９]{1,4}\s*(?:[～〜~\-－]\s*[0-9０-９]{1,4})?\s*名(?:程度|以上)?)/;
 
+// ───── 今の募集かを確かめる（2026-11-23 福井さん「過去の掲載・過去の採用ではなく今の採用情報だけを出す」） ─────
+//   判定は mcfresh.js（通信しない）。ここでは根拠（検索結果・求人ページ・公式サイトの文）を集めて当てる
+// 新卒サイトの URL に入っている卒年（job.mynavi.jp/26/… は 26卒＝終わった募集のページ）
+export function urlGradYear(url) {
+  const u = String(url || "");
+  const m = u.match(/job\.mynavi\.jp\/(\d\d)\//) || u.match(/job\.rikunabi\.com\/20(\d\d)\//) || u.match(/career-tasu\.jp\/20(\d\d)\//) || u.match(/gakujo\.ne\.jp\/(?:campus\/)?20(\d\d)\//);
+  return m ? 2000 + +m[1] : 0;
+}
+// 検索結果1件が今の募集か（終わった印 → URL の卒年 → 文の日付・卒年 の順）
+export function judgeResult(r, clock = recruitClock()) {
+  const txt = `${r.title || ""} ${r.desc || ""}`;
+  if (isClosed(txt)) return freshness(txt, clock);
+  const g = urlGradYear(r.url);
+  if (g) return g >= clock.gradMin ? { verdict: "current", why: `${g % 100}卒のページ`, byUrl: true } : { verdict: "past", why: `${g % 100}卒のページ（終わった募集）` };
+  return freshness(txt, clock);
+}
+// 求人ページを1枚読む（中身の判定は jobPageVerdict。試験・精度調査で同じ判定を通信なしで回せるように分けている）
+export async function fetchJobPage(url) {
+  try {
+    const r = await withTimeout(url, { headers: { "user-agent": UA, "accept-language": "ja" }, redirect: "follow" }, SITE_MS);
+    const html = r.ok ? (await r.text()).slice(0, 600000) : "";
+    const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim().slice(0, 20000);
+    return { url, status: r.status, finalUrl: String(r.url || url), text };
+  } catch { return { url, status: 0, finalUrl: url, text: "" }; }
+}
+// 読んだ求人ページが今の募集か。会社名が載っていないページは根拠にしない。
+//   newgrad：新卒の求人ページか（新卒のページは卒年でも決める。転職サイトはメニューの「マイナビ2028」などを拾わないよう日付だけ）
+export function jobPageVerdict(pg, name, clock = recruitClock(), { newgrad = false } = {}) {
+  const ck = corpKey(name); const url = String(pg.url || "");
+  if (pg.status === 404 || pg.status === 410) return { verdict: "past", why: `求人ページが無い（${pg.status}）`, text: "" };
+  if (!pg.status) return { verdict: "unknown", why: "求人ページを読めない（時間切れ）", text: "" };
+  if (pg.status < 200 || pg.status >= 300) return { verdict: "unknown", why: `求人ページを読めない（${pg.status}）`, text: "" };
+  const fin = String(pg.finalUrl || url);
+  if (fin.split("#")[0] !== url.split("#")[0]) {
+    let p = "/"; try { p = new URL(fin).pathname; } catch {}
+    if (p === "/" || /search|list|error|notfound|not_found|expired|closed|finish/i.test(fin.replace(url, ""))) return { verdict: "past", why: "求人ページが別のページに飛ばされた（掲載が終わった）", text: "" };
+  }
+  const text = String(pg.text || "");
+  if (ck && !corpKey(text.slice(0, 10000)).includes(ck)) return { verdict: "unknown", why: "求人ページに会社名が無い", text: "" };
+  const f = freshness(text, clock, { scope: "page", newgrad });
+  return { ...f, text: f.verdict === "current" ? text : "" };
+}
+// 長い文（公式サイトの本文）から、言葉の前後だけを切り出して、今の募集と言える部分だけを返す
+export function freshChunks(text, re, clock = recruitClock()) {
+  const t = String(text || "").normalize("NFKC"); const out = [];
+  for (const m of t.matchAll(new RegExp(re.source, "g"))) {
+    const c = t.slice(Math.max(0, m.index - 60), m.index + m[0].length + 60);
+    if (freshness(c, clock).verdict === "current") out.push(c);
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+const NEWGRAD_MEDIA = /新卒|OfferBox|ONE CAREER|キャリアチケット/;
+const MID_MEDIA = /転職|doda|NEXT|engage|Indeed|Airワーク|ビズリーチ|Green|type|エン転職|ハローワーク|バイトル|タウンワーク|求人ボックス/;
+
+// 集めた根拠（検索結果・公式サイトの本文・読んだ求人ページ）から、採用の項目を確かめて組み立てる（通信しない。試験から直接呼べる）
+//   pageOf(url, {newgrad})：求人ページを読んで jobPageVerdict の答えを返す関数（本番は fetchJobPage＋jobPageVerdict。試験・精度調査では保存したページで答える）
+export async function recruitFacts({ name, results = [], siteText = "", site = "", employees = "", clock = recruitClock(), pageOf = null }) {
+  const ck = corpKey(name);
+  const mine = results.filter((r) => ck && corpKey(`${r.title} ${r.desc}`).includes(ck)).map((r) => ({ ...r, f: judgeResult(r, clock) }));
+  const snippets = mine.map((r) => `${r.title} ${r.desc}`).join("\n");
+  const text = String(siteText || "");
+  const dropped = [];
+  const drop = (field, value, why, url = "") => { if (value && dropped.length < 12) dropped.push({ field, value: String(value).slice(0, 60), why, url: url || "" }); };
+
+  // ① 求人媒体：載り先ごとに、今の募集と言える検索結果があれば残す。決め手が無ければ求人ページを読んで確かめる（1社4枚まで）
+  const byLabel = new Map();
+  for (const r of mine) for (const [re, label] of MEDIA) if (re.test(r.url)) { if (!byLabel.has(label)) byLabel.set(label, []); byLabel.get(label).push(r); }
+  let pages = 4; const media = []; const mediaCheck = []; const pageTexts = [];
+  await Promise.all([...byLabel].map(async ([label, rs]) => {
+    const newgrad = NEWGRAD_MEDIA.test(label);
+    // 検索結果の文に今の募集の印（日付・卒年）があればそれで決める。URL の卒年だけで今と言えるもの（マイナビ 27卒のページなど）は、
+    //   その卒年の受付をもう終えている会社もあるので、読めればページの「終わった印」も見る（読めなければ URL の卒年を信じる）
+    const hit = rs.find((r) => r.f.verdict === "current" && !r.f.byUrl) || rs.find((r) => r.f.verdict === "current");
+    let res = null;
+    if (hit && hit.f.byUrl && pageOf && pages > 0) {
+      pages--; const p = await pageOf(hit.url, { newgrad });
+      res = p.verdict === "past" ? { verdict: "past", why: p.why, url: hit.url, by: "求人ページ" } : { verdict: "current", why: hit.f.why, url: hit.url, by: "検索結果" };
+      if (p.text) pageTexts.push(p.text);
+    } else if (hit) res = { verdict: "current", why: hit.f.why, url: hit.url, by: "検索結果" };
+    if (!res) {
+      const u = rs.find((r) => r.f.verdict === "unknown");
+      if (u && pageOf && pages > 0) { pages--; const p = await pageOf(u.url, { newgrad }); res = { verdict: p.verdict, why: p.why, url: u.url, by: "求人ページ" }; if (p.text) pageTexts.push(p.text); }
+      else { const r0 = rs.find((r) => r.f.verdict === "past") || rs[0]; res = { verdict: r0.f.verdict, why: r0.f.why, url: r0.url, by: "検索結果" }; }
+    }
+    mediaCheck.push({ label, ...res });
+    if (res.verdict === "current") media.push(label); else drop("media", label, res.why, res.url);
+  }));
+  const order = (l) => MEDIA.findIndex(([, x]) => x === l);
+  media.sort((a, b) => order(a) - order(b)); mediaCheck.sort((a, b) => order(a.label) - order(b.label));
+
+  // 今の募集と言える文（検索結果・確かめた求人ページ・公式サイトの該当部分）。職種・人数はここからだけ取る
+  const freshSnips = mine.filter((r) => r.f.verdict === "current").map((r) => `${r.title} ${r.desc}`);
+  const siteFresh = freshChunks(text, /募集|採用|エントリー|卒/, clock);
+  const freshText = [...freshSnips, ...pageTexts, ...siteFresh].join("\n");
+
+  // ② 採用の実態：新卒・中途それぞれ、今の募集の根拠があるときだけ
+  const nowGrad = (s) => gradYears(s).some((y) => y >= clock.gradMin && y <= clock.gradMax);
+  const newGrad = media.some((m) => NEWGRAD_MEDIA.test(m)) || freshSnips.some((s) => /新卒|卒|インターン|エントリー/.test(s) && nowGrad(s)) || siteFresh.some(nowGrad);
+  const midRe = /中途|キャリア採用|経験者採用|転職/;
+  const midCareer = media.some((m) => MID_MEDIA.test(m)) || freshSnips.some((s) => midRe.test(s)) || freshChunks(text, midRe, clock).length > 0;
+  const whyOf = (re) => { const r = mine.find((x) => re.test(`${x.title} ${x.desc}`)); return r ? [r.f.verdict === "unknown" ? "今の募集と確かめられない（日付・卒年が無い）" : r.f.why, r.url] : ["今の募集と確かめられない", ""]; };
+  if (!newGrad && /新卒|\d\d卒|インターン/.test(snippets)) drop("hiring", "新卒採用の情報", ...whyOf(/新卒|\d\d卒|インターン/));
+  if (!midCareer && midRe.test(snippets)) drop("hiring", "中途採用の情報", ...whyOf(midRe));
+  const hiring = [newGrad ? "新卒採用の情報あり" : "", midCareer ? "中途採用の情報あり" : ""].filter(Boolean).join("・");
+
+  // ③ 採用人数：値の前後に「実績」「前年」や過去の卒年が無く、今の募集と言えるものだけ
+  let headcount = "";
+  const hcSources = [...mine.map((r) => ({ t: `${r.title} ${r.desc}`, cur: r.f.verdict === "current", url: r.url })), ...pageTexts.map((t) => ({ t, cur: true, url: "" })), { t: text, cur: false, url: site }];
+  for (const s of hcSources) {
+    const t = String(s.t || "").normalize("NFKC");
+    for (const m of t.matchAll(new RegExp(HEADCOUNT_RE.source, "g"))) {
+      const v = m[1].replace(/\s+/g, "");
+      const f = valueFreshness(t, m.index, m[0].length, { clock, pageCurrent: s.cur });
+      if (f.verdict === "current") { if (!headcount) headcount = v; }
+      else if (v !== headcount) drop("headcount", v, f.verdict === "unknown" ? "今の募集の人数と確かめられない" : f.why, s.url);
+    }
+  }
+  // ④ 募集職種：今の募集と言える文からだけ
+  //   求人ページの本文は改行が無く「介護職 採用予定人数：5名 …」と次の項目まで続くので、次の「見出し：」の手前で切る
+  const cutNext = (v) => String(v || "").replace(/\s*[^\s:：]{2,12}\s*[:：].*$/, "").trim();
+  const roles = cutNext(grab(freshText, "募集職種|募集中の職種|職種", 50));
+  const rolesAny = cutNext(grab(`${text}\n${snippets}`, "募集職種|募集中の職種|職種", 50));
+  if (rolesAny && rolesAny !== roles) drop("roles", rolesAny, "今の募集と言える文の中に無い");
+
+  // 推定採用課題・話の切り口：確かめた事実からだけ組み立てる（根拠が無ければ空）
+  const empN = parseInt(String(employees).replace(/[^\d]/g, ""), 10) || 0;
+  const issue = media.length >= 3 ? `複数の媒体（${media.slice(0, 3).join("・")}）に載せており、応募の管理が分散しているかもしれない（推定）`
+    : (newGrad && empN && empN < 300) ? "中小規模で新卒採用をしており、母集団づくりや選考の手間に課題があるかもしれない（推定）" : "";
+  const hook = media.length ? `${media[0]}で募集を拝見してお電話しました`
+    : newGrad ? "新卒採用のご状況について伺いたくお電話しました" : midCareer ? "中途採用のご状況について伺いたくお電話しました" : "";
+  return { hiring, roles, headcount, media: media.join("・"), issue, hook, mediaCheck, dropped, snippets, mediaUrls: mediaCheck.filter((c) => c.verdict === "current").map((c) => c.url) };
+}
+
 // ───── 本体：researchMcLead と同じ形で返す ─────
-export async function researchMcLeadFree({ company = "", website = "", siteText = "", hint = "" } = {}) {
+//   採用の項目（hiring・roles・headcount・media と、そこから組み立てる issue・hook）は、今の募集と確かめた根拠があるものだけを入れる。
+//   出さなかった候補とその理由は check.dropped に残す（精度の調べ直しと、「なぜ出ないか」の説明に使う）
+export async function researchMcLeadFree({ company = "", website = "", siteText = "", hint = "", now = null } = {}) {
   const name = String(company || "").trim();
   if (!name) return { status: "error", error: "会社名がありません" };
+  const at = now ? new Date(now) : new Date();
+  const clock = recruitClock(at);
   const sources = [];
   // gBizINFO と Web 検索は同時に始める（順番に待つと1社あたり数秒のむだ）
   const [g, rCorp, rHire] = await Promise.all([gbizFor(name).catch(() => null), freeWebSearch(`${qName(name)} 会社概要`, 8), freeWebSearch(`${qName(name)} 採用 募集`, 10)]);
@@ -167,34 +306,19 @@ export async function researchMcLeadFree({ company = "", website = "", siteText 
   if (site) { const r = await readSite(site); if (!text) text = r.text; siteDesc = r.desc; }
   if (site) sources.push(site);
 
-  // 検索の説明文は、その会社の名前が出ている結果だけを使う（名前の似た別の会社の従業員数・職種を拾わない）
-  const ck = corpKey(name);
-  const mine = [...rCorp, ...rHire].filter((r) => ck && corpKey(`${r.title} ${r.desc}`).includes(ck));
-  const snippets = mine.map((r) => `${r.title} ${r.desc}`).join("\n");
-  const both = `${text}\n${snippets}`;
-  const media = mediaOf([...rCorp, ...rHire], name);
-  for (const r of rHire) if (media.length && MEDIA.some(([re]) => re.test(r.url)) && sources.length < 5 && !sources.includes(r.url)) sources.push(r.url);
-
   // 従業員数：gBizINFO → トップ本文 → 検索の説明文（その会社の名前が出ている結果だけ） → 会社概要らしいページを読む（いちばん重いので最後。どれも AI なし）
+  const ck = corpKey(name);
+  const snippets = [...rCorp, ...rHire].filter((r) => ck && corpKey(`${r.title} ${r.desc}`).includes(ck)).map((r) => `${r.title} ${r.desc}`).join("\n");
   const employees = (g && g.employees) || extractEmployeesRegex(text) || extractEmployeesRegex(snippets) || (site ? await employeesFromSite(name, site, { max: 6, ms: SITE_MS }).catch(() => "") : "");
-  const hc = both.match(HEADCOUNT_RE);
-  const headcount = hc ? hc[1].normalize("NFKC").replace(/\s+/g, "") : "";
-  const roles = grab(both, "募集職種|募集中の職種|職種", 50);
-  const newGrad = /新卒|新卒採用|27卒|28卒|2027年卒|2028年卒|インターン/.test(snippets) || media.some((m) => /新卒|OfferBox|ONE CAREER|キャリアチケット/.test(m));
-  const midCareer = /中途|キャリア採用|転職/.test(snippets) || media.some((m) => /転職|doda|NEXT|engage|Indeed|Airワーク|ビズリーチ|Green|type|エン転職|ハローワーク/.test(m));
-  const hiring = [newGrad ? "新卒採用の情報あり" : "", midCareer ? "中途採用の情報あり" : ""].filter(Boolean).join("・");
   const biz = String((g && g.business) || grab(text, "事業内容|事業概要|業務内容", 60) || siteDesc || (g && g.industry) || "").slice(0, 80);
 
-  // 推定採用課題・話の切り口・確かめたいこと：見つかった事実からだけ組み立てる（根拠が無ければ空）
-  const empN = parseInt(String(employees).replace(/[^\d]/g, ""), 10) || 0;
-  const issue = media.length >= 3 ? `複数の媒体（${media.slice(0, 3).join("・")}）に載せており、応募の管理が分散しているかもしれない（推定）`
-    : (newGrad && empN && empN < 300) ? "中小規模で新卒採用をしており、母集団づくりや選考の手間に課題があるかもしれない（推定）" : "";
-  const hook = media.length ? `${media[0]}で募集を拝見してお電話しました`
-    : newGrad ? "新卒採用のご状況について伺いたくお電話しました" : midCareer ? "中途採用のご状況について伺いたくお電話しました" : "";
-  const confirm = [!hiring && "採用の予定（新卒・中途）", !headcount && "採用人数", !media.length && "使っている求人媒体", "採用のご担当者"].filter(Boolean).join("・");
+  const R = await recruitFacts({ name, results: [...rCorp, ...rHire], siteText: text, site, employees, clock, pageOf: async (u, o) => jobPageVerdict(await fetchJobPage(u), name, clock, o) });
+  for (const u of R.mediaUrls) if (sources.length < 5 && !sources.includes(u)) sources.push(u);
+  const confirm = [!R.hiring && "採用の予定（新卒・中途）", !R.headcount && "採用人数", !R.media && "使っている求人媒体", "採用のご担当者"].filter(Boolean).join("・");
 
-  const out = { biz, employees, location: (g && g.location) || "", founded: (g && g.founded) || "", hiring, roles, headcount,
-    media: media.join("・"), issue, hook, confirm, sources: [...new Set(sources)].slice(0, 5), how: "free" };
+  const out = { biz, employees, location: (g && g.location) || "", founded: (g && g.founded) || "", hiring: R.hiring, roles: R.roles, headcount: R.headcount,
+    media: R.media, issue: R.issue, hook: R.hook, confirm, sources: [...new Set(sources)].slice(0, 5), how: "free",
+    check: { v: CHECK_V, at: at.toISOString(), gradMin: clock.gradMin, media: R.mediaCheck.slice(0, 8), dropped: R.dropped } };
   const filled = ["biz", "employees", "hiring", "roles", "headcount", "media"].filter((k) => out[k]).length;
   return { status: filled ? "ok" : "thin", web: rCorp.length + rHire.length > 0, gbiz: !!g, ...out };
 }

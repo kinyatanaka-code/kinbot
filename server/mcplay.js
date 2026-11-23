@@ -14,7 +14,8 @@
 //   4. 折り返しの着信（mc_inbound）：Zoom Phone の着信の知らせを受け、その会社の架電画面を着信した人の画面に出す。
 import { dbPool } from "./db.js";
 import { analyzeMcCallRecording } from "./analyzer.js";
-import { researchMcLeadFree } from "./mcresearch.js";   // 企業調査は AI を使わず Web 検索・gBizINFO で（2026-11-20 福井さん）
+import { researchMcLeadFree } from "./mcresearch.js";
+import { CHECK_V, STALE_DAYS } from "./mcfresh.js";   // 企業調査は AI を使わず Web 検索・gBizINFO で（2026-11-20 福井さん）
 import { zoomPhoneConfigured, zoomPhoneRecordings, zoomDownload, zoomPhoneUsers } from "./zoomphone.js";
 
 const P = () => dbPool();
@@ -122,6 +123,8 @@ const R_DAILY = Math.max(0, parseInt(process.env.MCCALL_RESEARCH_DAILY || "1200"
 // 調べ終わったものだけを「かける」に出すか（調べが追いつかないときに、環境変数 MCCALL_RESEARCH_GATE=0 で一時的に外せる）
 //   1日の上限まで調べきったら、その日は調べ終わる前の会社も出す（上限で架電が止まらないように）
 let _rRunning = 0; let _rDay = ""; let _rCount = 0;
+const R_RECHECK = Math.max(0, parseInt(process.env.MCCALL_RECHECK_DAILY || "400", 10) || 0);   // 調べ直しの1日の上限（1日の上限 R_DAILY の内数）
+let _reDay = ""; let _reCount = 0;
 export const researchGate = () => process.env.MCCALL_RESEARCH_GATE !== "0" && !(_rDay === jstDay() && _rCount >= R_DAILY);
 const _rHot = new Set(); const _rBusy = new Set();
 const jstDay = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
@@ -160,7 +163,21 @@ async function researchPick(n) {
   const rows = (await P().query(`SELECT c.id FROM mc_call_leads c JOIN mc_call_lists l ON l.id=c.list_id
     WHERE NOT l.closed AND NOT l.stock AND NOT c.done AND c.dup_of IS NULL AND c.research_at IS NULL AND COALESCE(c.company,'') <> ''
     ORDER BY (c.next_at IS NOT NULL AND c.next_at <= now() + interval '1 hour') DESC, COALESCE(c.hot,0) DESC, c.attempts, c.id LIMIT ${n + _rBusy.size}`)).rows.map((r) => r.id);
-  return [...hot, ...rows.filter((x) => !_rBusy.has(x) && !hot.includes(x))].slice(0, n);
+  let out = [...hot, ...rows.filter((x) => !_rBusy.has(x) && !hot.includes(x))].slice(0, n);
+  // まだ調べていない会社が無いときだけ、採用の情報を今の募集か確かめずに調べた会社・調べてから日が経った会社を調べ直す（2026-11-23）。
+  //   確かめていない採用の情報は画面に出さない（mcfresh.js の showableResearch）ので、そのままだと採用の欄が空のままになるため。
+  //   新しい会社の調べを遅らせないよう、空いているときだけ・1日 R_RECHECK 件まで
+  if (out.length < n && _reDay === jstDay() && _reCount < R_RECHECK) {
+    const more = (await P().query(`SELECT c.id FROM mc_call_leads c JOIN mc_call_lists l ON l.id=c.list_id
+      WHERE NOT l.closed AND NOT l.stock AND NOT c.done AND c.dup_of IS NULL AND c.research_at IS NOT NULL AND COALESCE(c.company,'') <> ''
+        AND COALESCE(c.research->>'status','') <> 'error'
+        AND (COALESCE(c.research->'check'->>'v','') <> '${CHECK_V}' OR (c.research->'check'->>'at')::timestamptz < now() - interval '${STALE_DAYS} days'
+          OR (c.research->>'web' = 'false' AND c.research_at < now() - interval '1 day'))   -- 検索先に止められて何も調べられなかった会社も、日を改めて調べ直す
+      ORDER BY (c.next_at IS NOT NULL AND c.next_at <= now() + interval '1 day') DESC, COALESCE(c.hot,0) DESC, c.attempts, c.id LIMIT ${n + _rBusy.size}`)).rows.map((r) => r.id);
+    const add = more.filter((x) => !_rBusy.has(x) && !out.includes(x)).slice(0, n - out.length);
+    _reCount += add.length; out = [...out, ...add];
+  }
+  return out;
 }
 async function researchPump() {
   if (!P()) return;
@@ -169,6 +186,7 @@ async function researchPump() {
   //   （11/19〜20 に 7,000件・Web 検索の無料枠を超えて約 $66）。日が変わったとき・起動したときに数え直す
   if (_rDay !== jstDay()) {
     _rDay = jstDay(); _rCount = R_DAILY;   // 数え終わるまでは止めておく
+    if (_reDay !== _rDay) { _reDay = _rDay; _reCount = 0; }
     try { const { rows } = await P().query(`SELECT count(*)::int AS n FROM mc_call_leads WHERE research_at >= ((now() AT TIME ZONE 'Asia/Tokyo')::date::timestamp AT TIME ZONE 'Asia/Tokyo')`); _rCount = Number(rows[0] && rows[0].n) || 0; }
     catch (e) { console.error("[mcplay] 今日の企業調査の数を数えられませんでした（今日はもう調べません）", e.message); return; }
   }

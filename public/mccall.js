@@ -245,8 +245,9 @@
     const rows = [["採用の実態", r.hiring], ["募集職種", r.roles], ["推定採用課題", r.issue]].filter(([, v]) => v);
     const more = [["事業", r.biz], ["求人媒体", r.media], ["従業員", r.employees], ["所在地", r.location], ["設立", r.founded]].filter(([, v]) => v);
     const src = (r.sources || []).slice(0, 3).map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">出典${i + 1}</a>`).join(" ");
-    return `<div class="mcc-research"><h3>企業調査<small>AI が Web から調べた参考情報（${esc(day(r.at))}）</small></h3>
+    return `<div class="mcc-research"><h3>企業調査<small>Web から調べた参考情報（${esc(day(r.at))}）。採用の情報は今の募集と確かめられたものだけ</small></h3>
       ${r.hook ? `<div class="mcc-hook"><small>話の切り口</small>${esc(r.hook)}</div>` : ""}
+      ${r.recruitHidden ? `<p class="mcc-note">採用の情報（媒体・職種・人数）は、${r.recruitHidden === "stale" ? "調べてから日が経ったので" : "今の募集か確かめる前の調べなので"}出していません。調べ直しが済むと出ます。</p>` : ""}
       ${rows.length ? kvs(rows) : r.hook || more.length ? "" : '<p class="mcc-note">Web で分かることはほとんどありませんでした。</p>'}
       ${more.length || src ? `<details class="mcc-more"><summary>事業・従業員・所在地・設立${src ? "・出典" : ""}</summary>${more.length ? kvs(more) : ""}${src ? `<p class="mcc-note">${src}</p>` : ""}</details>` : ""}</div>`;
   }
