@@ -224,16 +224,18 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
       const card = ([k, l, dsc]) => `<button type="button" class="bl-lc stg ${k}" data-mst="${k}"><b>${l}</b><span class="n">${Number(d[k] || 0).toLocaleString()}<small>件</small></span>${apoTxt(d[`${k}_apo`], d[`${k}_called`])}<small>${dsc}</small></button>`;
       const S = Object.fromEntries(STG.map((x) => [x[0], x]));
       // かけるリストの左隣に「今日かけるリスト」（2026-11-23 田中さん）。中身は別に読む（初めて開いた日は作るので少し待つ）
-      sb.innerHTML = `<button type="button" class="bl-lc stg today" data-mst="today"><b>今日かけるリスト<span class="bl-rb" data-rb title="今のデータで作り直す"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg></span></b><span class="n">…</span><small>作っています…</small></button>` + [S.call, S.nurture].map(card).join("");
+      sb.innerHTML = `<button type="button" class="bl-lc stg today" data-mst="today"><b>今日かけるリスト<span class="bl-rb" data-rb title="今のデータで作り直す"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg></span></b><span class="n">…</span><small data-tst>作っています…</small></button>` + [S.call, S.nurture].map(card).join("");
       const tq = `/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/today?col=${encodeURIComponent(oc)}&${mh.blank ? "blank=1" : `val=${encodeURIComponent(mh.name)}`}`;
       const tb = sb.querySelector('[data-mst="today"]');
       const showToday = (t) => { if (!tb || !tb.isConnected) return;
         tb.querySelector(".n").innerHTML = `${Number(t.n || 0).toLocaleString()}<small>件</small>`;
-        tb.querySelector("small:last-child").remove();
-        tb.insertAdjacentHTML("beforeend", `<span class="bl-apo" title="これまでのアポ率（リードソース・過去失注かどうか・ホット度ごと）から出した見込み">見込みアポ率 <b>${(Number(t.exp || 0) * 100).toFixed(1)}%</b><small>今日かけた ${Number(t.called_today || 0).toLocaleString()}</small></span><small>予定のナーチャリング ${Number(t.due_nurture || 0)}・予定あり ${Number(t.due_other || 0)}・過去失注 ${Number(t.pastlost || 0)}・新規 ${Number(t.newlist || 0)}</small>`); };
-      api(tq).then(showToday).catch(() => { if (tb && tb.isConnected) { tb.querySelector(".n").textContent = "-"; tb.querySelector("small:last-child").textContent = "作れませんでした。もう一度開いてください"; } });
+        tb.querySelector("[data-tst]")?.remove();
+        // 内訳（2026-11-23 田中さん「リストの内訳も小さく」）：足すと件数になる4つ。予定＝次回アクション日が今日以前
+        const bd = [["予定のナーチャリング", t.due_nurture], ["予定のそのほか", t.due_other], ["過去失注", t.pastlost], ["新規", t.newlist]];
+        tb.insertAdjacentHTML("beforeend", `<span class="bl-apo" title="これまでのアポ率（リードソース・過去失注かどうか・ホット度ごと）から出した見込み">見込みアポ率 <b>${(Number(t.exp || 0) * 100).toFixed(1)}%</b><small>今日かけた ${Number(t.called_today || 0).toLocaleString()}</small></span><span class="bl-tdbd" title="予定＝次回アクション日が今日以前">${bd.map(([a, n]) => `<i>${a}<em>${Number(n || 0).toLocaleString()}</em></i>`).join("")}</span>`); };
+      api(tq).then(showToday).catch(() => { if (tb && tb.isConnected) { tb.querySelector(".n").textContent = "-"; const x = tb.querySelector("[data-tst]"); if (x) x.textContent = "作れませんでした。もう一度開いてください"; } });
       tb?.querySelector("[data-rb]")?.addEventListener("click", (e) => { e.stopPropagation(); if (!confirm("今日かけるリストを、今のデータで作り直しますか？（今日の中身が入れ替わります）")) return;
-        tb.querySelector(".n").textContent = "…"; tb.querySelectorAll(".bl-apo, small").forEach((x) => x.remove()); tb.insertAdjacentHTML("beforeend", "<small>作っています…</small>");
+        tb.querySelector(".n").textContent = "…"; tb.querySelectorAll(".bl-apo, .bl-tdbd, [data-tst]").forEach((x) => x.remove()); tb.insertAdjacentHTML("beforeend", "<small data-tst>作っています…</small>");
         api(tq + "&rebuild=1").then(showToday).catch(() => {}); });
       const sb2 = root.querySelector("[data-mstg2]");
       if (sb2) sb2.innerHTML = `<div class="bl-mgrp"><span class="bl-mgrp-h">かけるリストの内訳</span><div class="bl-mgrp-in">${[["newlist", "新規リスト", "SF に「新規」の商談が無い会社"], ["pastlost", "過去失注リスト", "SF に「新規」の商談がある会社"]].map(card).join("")}</div></div>${[S.recycle, S.archive].map(card).join("")}`;

@@ -13314,11 +13314,13 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 // 選んだリードをホットな順に並べる（割り振りで偏らないように）
 // ===== 今日かけるリスト（2026-11-23 田中さん「かけるリストの左隣に今日かけるリスト。ナーチャリングで次かける日が今日のものを優先、アポ率が3%になる150件を自動で」）=====
 //   1人1日1つ作って保存する（その日のうちに中身が入れ替わると、かけている途中で表が変わって困るため）。リサイクル・アーカイブは入れない
-//   ① ナーチャリングで次にかける日（Bales の次のアクションの終わっていない予定）が今日 → ② それ以外で次にかける日が今日 → ③ 残りの枠
+//   ① ナーチャリングで次回アクション日（Bales の次のアクションの終わっていない予定）が今日以前 → ② それ以外で次回アクション日が今日以前 → ③ 残りの枠
+//   （2026-11-23 田中さん「予定は次回アクション日が、その日以前で設定されているリード」。①②の中は予定日の新しい順）
 //   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、
 //   150件の平均がちょうど3%に届くように、取れそうなものと、まだ取れそうな率が低いもの（新規など・長く触っていない順）を混ぜる。
 //   取れそうなものだけで埋めると、良いリードを数日で使い切ってしまうため。3%に届かないときは取れそうな順に埋める
 export const BALES_TODAY_N = 150, BALES_TODAY_RATE = 0.03;
+const BALES_TODAY_V = 2;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 let _mcTodayInit = false;
 async function ensureMcToday() {
@@ -13346,9 +13348,10 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
     FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${BALES_STG.call.replace(/data->>/g, "r.data->>")} AND NOT ${BAPO}${ow}`, p)).rows;
   const nextDay = (na) => { let t = null; for (let i = 0; i < 50; i++) { if (!na || na[`nextActions.${i}.id`] == null && na[`nextActions.${i}.reservedAt`] == null) break;
     if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
-  const L = cand.map((c) => ({ k: c.row_key, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, due: nextDay(c.na) === day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }));
+  const L = cand.map((c) => { const nd = nextDay(c.na); return { k: c.row_key, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, nd, due: !!nd && nd <= day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }; });
   const N = BALES_TODAY_N, T = BALES_TODAY_RATE;
-  const pri = [...L.filter((x) => x.nur && x.due).sort((a, b) => b.p - a.p), ...L.filter((x) => !x.nur && x.due).sort((a, b) => b.p - a.p)].slice(0, N);
+  const byDue = (a, b) => b.nd.localeCompare(a.nd) || b.p - a.p;
+  const pri = [...L.filter((x) => x.nur && x.due).sort(byDue), ...L.filter((x) => !x.nur && x.due).sort(byDue)].slice(0, N);
   const used = new Set(pri.map((x) => x.k)); const rest = L.filter((x) => !used.has(x.k)); const need = N - pri.length;
   let pick = [];
   if (need > 0 && rest.length) {
@@ -13367,7 +13370,7 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
   }
   const out = [...pri, ...pick];
   const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, due_nurture: pri.filter((x) => x.nur).length, due_other: pri.filter((x) => !x.nur).length,
-    pastlost: out.filter((x) => x.pl).length, newlist: out.filter((x) => !x.pl).length, pool: L.length };
+    pastlost: pick.filter((x) => x.pl).length, newlist: pick.filter((x) => !x.pl).length, pool: L.length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける
   return { keys: out.map((x) => x.k), info };
 }
 // その人の今日のリスト（無ければ作る。rebuild で作り直す）
@@ -13376,7 +13379,7 @@ export async function mcBalesToday(listKey, { col = "", val = "", rebuild = fals
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return null;
   const day = jstDay(), ok = `${String(col).slice(0, 80)}|${String(val).slice(0, 200)}`;
   let t = rebuild ? null : (await pool.query(`SELECT keys, info, made_at FROM mochica_bales_today WHERE list_key=$1 AND owner_key=$2 AND day=$3`, [listKey, ok, day])).rows[0];
-  if (!t) {
+  if (!t || Number((t.info || {}).v || 1) < BALES_TODAY_V) {
     const b = await mcTodayBuild(listKey, l.run_at, col, val, day);
     t = (await pool.query(`INSERT INTO mochica_bales_today (list_key, owner_key, day, keys, info) VALUES ($1,$2,$3,$4,$5)
       ON CONFLICT (list_key, owner_key, day) DO UPDATE SET keys=EXCLUDED.keys, info=EXCLUDED.info, made_at=now() RETURNING keys, info, made_at`, [listKey, ok, day, JSON.stringify(b.keys), JSON.stringify(b.info)])).rows[0];
