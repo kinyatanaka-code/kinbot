@@ -57,7 +57,10 @@
     window.addEventListener("beforeunload", () => { if (S.d) navigator.sendBeacon && navigator.sendBeacon(`/api/mccall/leads/${S.d.lead.id}/release`); });
   }
   function drawTabs() {
-    const tabs = [["call", "かける"], ["report", "レポート"], ["insight", "数字"]].concat(S.admin ? [["measures", "施策"], ["leads", "リード管理"], ["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]] : []);
+    // 「リード管理」「リストの管理」のタブは一旦しまう（2026-11-23 田中さん「ここ消して」。割り振りは SHOWIN のリスト管理から）。
+    //   中身（drawHub・drawLists）は消していないので、hideTab から外せばすぐ戻せる
+    const hideTab = new Set(["leads", "lists"]);
+    const tabs = [["call", "かける"], ["report", "レポート"], ["insight", "数字"]].concat(S.admin ? [["measures", "施策"], ["leads", "リード管理"], ["lists", "リストの管理"], ["cross", "部署をまたいだ記録"]].filter(([k]) => !hideTab.has(k)) : []);
     $("mccTabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" data-t="${k}">${l}</button>`).join("");
     $("mccTabs").querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => setTab(b.dataset.t)));
     if (tabs.length === 1) $("mccTabs").hidden = true;

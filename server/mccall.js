@@ -1210,6 +1210,41 @@ export function registerMcCall(app, deps) {
     res.json({ ok: true, added, banned, dup, bad, nokey, skipped: dup, examples: ex.list });
   }));
 
+  // ===== SHOWIN のリスト管理から、選んだリードをメンバーに割り振る（2026-11-23 田中さん「各メンバーに割り振る機能を kincall みたいに」）=====
+  //   割り振り先は MOCHICALL のかけるリスト（その人がかける）。すでにどこかの開いているリストにあるリードは、そのまま担当だけ付け替える。
+  //   入れる・付け替えるときもアプローチ禁止は必ずはじく（addLeadUnique）。入れる候補：開いている（保管でない）リストと、そのメンバー
+  app.get("/api/mccall/assign-targets", adminOnly(async (req, res) => {
+    const names = await nameMap(); const users = await listUsers().catch(() => []);
+    const intern = new Set(users.filter((u) => u && (u.mcIntern || u.mc_intern)).map((u) => String(u.email).toLowerCase()));
+    const ls = (await P().query(`SELECT id, name, members FROM mc_call_lists WHERE NOT closed AND NOT COALESCE(stock,false) ORDER BY created_at DESC`)).rows;
+    res.json({ ok: true, lists: ls.map((l) => ({ id: l.id, name: l.name, members: (l.members || []).map((e) => ({ email: e, name: names.get(String(e).toLowerCase()) || e, intern: intern.has(String(e).toLowerCase()) })) })) });
+  }));
+  app.post("/api/mccall/from-bales-assign", adminOnly(async (req, res) => {
+    const b = req.body || {}; const id = parseInt(b.listId, 10); const key = String(b.listKey || "");
+    const members = (Array.isArray(b.members) ? b.members : []).map((x) => String(x).toLowerCase()).filter(Boolean).slice(0, 50);
+    const rowKeys = (Array.isArray(b.rowKeys) ? b.rowKeys : []).map(String).slice(0, 5000);
+    if (!id || !key || !rowKeys.length || !members.length) return res.status(400).json({ error: "リード・入れるリスト・割り振る人を選んでください" });
+    const lst = (await P().query(`SELECT id, name FROM mc_call_lists WHERE id=$1 AND NOT closed`, [id])).rows[0]; if (!lst) return res.status(404).json({ error: "入れるリストが見つかりません（閉じている・消えた）" });
+    const l = (await P().query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [key])).rows[0]; if (!l) return res.status(404).json({ error: "SHOWIN のリストが見つかりません" });
+    // ホットな順に1件ずつ交互に配る（偏らないように。MOCHICALL の「複数人に分ける」と同じ配り方）
+    const rows = (await P().query(`SELECT row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND row_key = ANY($3::text[]) ORDER BY COALESCE(hot,0) DESC, seq`, [key, l.run_at, rowKeys])).rows;
+    await banListOrStop();
+    const names = await nameMap(); const per = new Map(members.map((m) => [m, 0])); const done = [];
+    let added = 0, moved = 0, banned = 0, dup = 0, bad = 0, i = 0;
+    for (const r of rows) {
+      const who = members[i % members.length]; const f = fromBales(r.data || {}); const sk = `${key}|${r.row_key}`;
+      if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { banned++; continue; }
+      // すでに開いているリストにあれば担当だけ付け替える（かけている最中のものは動かさない）
+      const up = await P().query(`UPDATE mc_call_leads c SET assigned_to=$2 FROM mc_call_lists x WHERE x.id=c.list_id AND NOT x.closed AND c.src='bales' AND c.src_key=$1 AND NOT c.done AND c.dup_of IS NULL
+        AND (c.locked_by IS NULL OR c.locked_at < now() - interval '10 minutes')`, [sk, who]);
+      if (up.rowCount) { moved++; per.set(who, per.get(who) + 1); done.push({ k: r.row_key, who }); i++; continue; }
+      const x = await addLeadUnique({ list_id: id, src: "bales", src_key: sk, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: who }, { data: r.data });
+      if (x.added) { added++; per.set(who, per.get(who) + 1); done.push({ k: r.row_key, who }); i++; } else if (x.banned) banned++; else if (x.bad) bad++; else dup++;
+    }
+    console.log(`[mccall] SHOWIN から割り振り：${added + moved}件（新しく入れた ${added}・付け替え ${moved}・禁止 ${banned}・重複 ${dup}）→「${lst.name}」`);
+    res.json({ ok: true, list: lst.name, added, moved, banned, dup, bad, per: members.map((m) => ({ email: m, name: names.get(m) || m, n: per.get(m) })), done: done.map((d) => ({ ...d, name: names.get(d.who) || d.who })) });
+  }));
+
   // CSV から足す（2026-11-18 福井さん「架電リストをcsvからアップロードできるように」）。
   //   CSV はブラウザで読んで、行ごとに { company, phone, person, sfLeadId, extra } にして送ってくる。
   //   同じ電話番号（無ければ会社名）が、ほかの開いている MOCHICA のリストでまだ終わっていなければ入れない＝二重にかけない。
