@@ -544,7 +544,9 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     // kinbot のアカウントと名前で結びつける（空白・異体字の違いはそろえて比べる）
     let users = []; try { users = (await api("/api/mochica/reps")).items || []; } catch {}
     const uOf = new Map(users.map((u) => [nmKey(u.name), u]));
-    const ppl = names.map((nm) => { const u = uOf.get(nmKey(nm)); return { name: nm, email: u ? String(u.email).toLowerCase() : "" }; });
+    // 名前がそのまま合わなければ、苗字だけ（「福井」→「福井聖」）で1人に決まるときだけ結びつける
+    const byPrefix = (k) => { const hits = k.length >= 2 ? users.filter((u) => nmKey(u.name).startsWith(k)) : []; return hits.length === 1 ? hits[0] : null; };
+    const ppl = names.map((nm) => { const u = uOf.get(nmKey(nm)) || byPrefix(nmKey(nm)); return { name: nm, email: u ? String(u.email).toLowerCase() : "" }; });
     let tg = { lists: [] }; if (ppl.some((p) => p.email)) { try { tg = await api("/api/mccall/assign-targets"); } catch {} }
     const lists0 = tg.lists || [];
     const n = selRows.size || total;
