@@ -707,7 +707,8 @@
       S.queue = S.queue.filter((x) => x.id !== L.id); if (isInbound(L.id)) S.inbound = null;
       const ap = j.apo, apoTx = ap && ap.fs ? ` → ${ap.fs.name}さん${ap.fs.other ? "（他チーム）" : ""}に渡しました${ap.fsCal && ap.notified ? "（予定・知らせ済み）" : ""}` : "";
       toast(`記録しました：${company} ${what}${apoTx}${j.nextAt ? ` → ${tm(j.nextAt)} に掛け直し` : ""}`, { undo: j.logId });
-      if (ap && ap.warn && ap.warn.length) setNotice(ap.warn.map((t) => ({ kind: "warn", text: `${company}のアポ：${t}` })));
+      // アポの警告（FS に知らせが届かない など）は、次の会社を開いても消えないように持っておく（drawNotices で上に出す）
+      if (ap && ap.warn && ap.warn.length) { S.apoWarn = { at: Date.now(), items: ap.warn.map((t) => `${company}のアポ：${t}`) }; drawNotices(); }
       loadStats(); S.busy = false;
       setTimeout(loadStats, 8000);   // SF への書き込みは記録のあとで行うので、少し待って書けたかを確かめ直す
       const n = nextItem(); if (n) await open(n.id); else { S.d = null; await loadQueue(true); }
@@ -764,6 +765,8 @@
     if (d && !(d.lead.sf_lead_id || (d.sf && d.sf.lead && d.sf.lead.id))) ns.push({ kind: "info", text: "この会社は SF のリードと結びついていないので、記録は kinbot にだけ残ります（SF の活動には出ません）" });
     const due = S.queue.filter((x) => x.next_at).length;
     if (due > 1) ns.push({ kind: "info", text: `掛け直しの時刻が来た会社が ${due}件あります（先に並べています）` });
+    // アポのあとの警告は30分、または「確認した」を押すまで、いちばん上に出す
+    if (S.apoWarn && Date.now() - S.apoWarn.at < 30 * 60e3) ns.unshift(...S.apoWarn.items.map((text) => ({ kind: "warn", text, act: { label: "確認した", fn: async () => { S.apoWarn = null; drawNotices(); } } })));
     setNotice(ns);
   }
   function setNotice(ns) {

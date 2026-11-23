@@ -2345,7 +2345,7 @@ export function registerMcCall(app, deps) {
         flow.fsEv.ok ? "カレンダーに商談予定を入れました。" : "カレンダーには入れられませんでした。予定を手で入れてください。",
       ].filter(Boolean).join("\n");
       const n = await notifyPerson(fs.email, text).catch((e) => ({ ok: false, reason: e.message }));
-      flow.notify = { ok: !!(n && n.ok), reason: (n && (n.hint || n.reason)) || "" };
+      flow.notify = { ok: !!(n && n.ok), reason: n ? [n.reason, n.hint].filter(Boolean).join("。") : "" };
       if (!flow.notify.ok) flow.warn.push(`${fs.name}さんに Chat で知らせられませんでした（${flow.notify.reason || "理由不明"}）。直接伝えてください`);
     }
     await P().query(`UPDATE mc_call_logs SET apo_flow=$2, apo_who=COALESCE($3, apo_who) WHERE id=$1`, [logId, flow, flow.fs ? `${flow.fs.name}${flow.fs.team ? `（${flow.fs.team}）` : ""}${flow.fs.other ? "・他チーム" : ""}` : null]).catch(() => {});

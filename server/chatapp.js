@@ -144,7 +144,9 @@ export async function findDirectMessage(email) {
   const key = String(email || "").trim().toLowerCase();
   if (!key) return "";
   const hit = _dmCache.get(key);
-  if (hit && Date.now() - hit.at < 6 * 3600 * 1000) return hit.space;
+  // 「まだ話しかけていない（スペースが無い）」は5分だけ覚える。6時間覚えると、本人が kinbot に話しかけたあとも
+  //   しばらく知らせが届かなかった（2026-11-23 MOCHICALL のアポの知らせ：FS があいさつする前に一度送ると、その日の知らせが止まる）
+  if (hit && Date.now() - hit.at < (hit.space ? 6 * 3600 * 1000 : 5 * 60 * 1000)) return hit.space;
   const token = await accessToken();
   const res = await fetch(
     `https://chat.googleapis.com/v1/spaces:findDirectMessage?name=${encodeURIComponent("users/" + key)}`,
