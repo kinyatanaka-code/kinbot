@@ -6,6 +6,8 @@ const SHOW_FEEDS = false;
 // リストアポ率の小さな表示（アポ ÷ 架電したリード）（2026-11-23 田中さん「それぞれのリストのアポ率も」→「リストアポ率に名前変えて」）
 const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called || 0); return `<span class="bl-apo" title="アポ（最終架電結果がアポ獲得）${apo.toLocaleString()}件 ÷ 架電したリード ${called.toLocaleString()}件">リストアポ率 <b>${called ? (apo / called * 100).toFixed(1) : "0.0"}%</b><small>${apo.toLocaleString()}/${called.toLocaleString()}</small></span>`; };
 // ステージ別の箱（サーバーの BALES_STG と同じ印）
+// ホット度のカード（すべてのリードの隣）（2026-11-23 田中さん）
+const HOTS = [["hot", "ホット", "担当者名・ニーズ・検討時期の3つ"], ["warm", "ウォーム", "3つのうち2つ"], ["cold", "コールド", "1つ以下・まだ判定していない"]];
 const STG = [["call", "かけるリスト", "リサイクル・アーカイブ以外（ナーチャリングも含む）"], ["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -91,7 +93,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     // ステージ別のメンバーの画面から表を開いていたら、そこへ戻る
     if (mode === "list" && retMem) { mode = "member"; memHome = retMem; retMem = null; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
     if (mode === "list" && retStage) { mode = "stage"; stgHome = retStage; retStage = ""; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
-    stgHome = ""; retStage = ""; memHome = null; retMem = null; mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
+    stgHome = ""; retStage = ""; memHome = null; retMem = null; hotF = ""; mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
   function openList() { try { history.pushState({ blList: 1 }, "", location.href); } catch {} draw(); window.scrollTo(0, 0); }
   window.addEventListener("popstate", () => { if (mode === "list" || mode === "stage" || mode === "member") goHome(true); });
   function draw() {
@@ -114,7 +116,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     root.innerHTML = `<div class="bl-home">
       <div class="bl-home-h"><h2>リスト管理</h2><button type="button" class="bl-add" data-addlist>${PLUS}リスト追加</button></div>
       ${run.map((l) => `<div class="bl-run"><b>取り込み中</b><small>${esc(l.name)} ・ ${Number(l.got || 0).toLocaleString()}${l.total ? ` / ${Number(l.total).toLocaleString()}` : ""}件</small><div class="bl-bar"><i style="width:${l.total ? Math.min(100, Math.round(l.got / l.total * 100)) : 30}%"></i></div></div>`).join("")}
-      <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number((l.count || 0) - (l.dup_hidden || 0)).toLocaleString()}<small>件</small></span>${l.dup_hidden ? `<small>重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめた</small>` : ""}<span data-apo-l="${esc(l.list_key)}"></span>${hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}</div>
+      <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number((l.count || 0) - (l.dup_hidden || 0)).toLocaleString()}<small>件</small></span>${l.dup_hidden ? `<small>重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめた</small>` : ""}<span data-apo-l="${esc(l.list_key)}"></span>${l === m0 ? "" : hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}${m0 ? HOTS.map(([k, l, d]) => `<button type="button" class="bl-lc hotc ${k}" data-hc="${k}"><b><i class="bl-hdot ${k}"></i>${l}</b><span class="n" data-hc-n="${k}">…<small>件</small></span><span data-hc-a="${k}"></span><small>${d}</small></button>`).join("") : ""}</div>
       <div class="bl-lgrid" data-srcs style="margin-top:10px"></div>
       <div class="bl-home-h sub"><h3>ステージ別</h3></div>
       <div class="bl-lgrid" data-stgs>${STG.filter(([k]) => k !== "call").map(([k, l, d]) => `<button type="button" class="bl-lc stg ${k}" data-stg="${k}"><b>${l}</b><span class="n" data-stg-n="${k}">…<small>件</small></span><span data-stg-a="${k}"></span><small>${d}</small></button>`).join("")}</div>
@@ -130,7 +132,9 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     // 押すと、そのステージをメンバーごとに分けた画面（2026-11-23 田中さん「カードを押すと各メンバーカードが出て、そのステージの件数」）
     root.querySelectorAll("[data-stg]").forEach((b) => b.addEventListener("click", () => { if (!m0) return; mode = "stage"; stgHome = b.dataset.stg; openList(); }));
     if (m0) api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/stages`).then((d) => { for (const [k] of STG.filter(([x]) => x !== "call")) { const el = root.querySelector(`[data-stg-n="${k}"]`); if (el) el.innerHTML = `${Number(d[k] || 0).toLocaleString()}<small>件</small>`; const ea = root.querySelector(`[data-stg-a="${k}"]`); if (ea) ea.innerHTML = apoTxt(d[`${k}_apo`], d[`${k}_called`]); }
-      const em = root.querySelector(`[data-apo-l="${CSS.escape(m0.list_key)}"]`); if (em) em.innerHTML = apoTxt(d.total_apo, d.total_called); }).catch(() => {});
+      const em = root.querySelector(`[data-apo-l="${CSS.escape(m0.list_key)}"]`); if (em) em.innerHTML = apoTxt(d.total_apo, d.total_called);
+      for (const [k] of HOTS) { const en = root.querySelector(`[data-hc-n="${k}"]`); if (en) en.innerHTML = `${Number(d[`h_${k}`] || 0).toLocaleString()}<small>件</small>`; const ea = root.querySelector(`[data-hc-a="${k}"]`); if (ea) ea.innerHTML = apoTxt(d[`h_${k}_apo`], d[`h_${k}_called`]); } }).catch(() => {});
+    root.querySelectorAll("[data-hc]").forEach((b) => b.addEventListener("click", () => { if (!m0) return; cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; hotF = b.dataset.hc; page = 0; openList(); }));
     // リードの出どころごとのリスト（「すべてのリード」の隣に並べる）（2026-11-23 田中さん「リードのでどころでリスト作って」）
     if (m0) api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/sources`).then((d) => {
       const sb = root.querySelector("[data-srcs]"); if (!sb || !root.isConnected) return; const it = d.items || []; if (!it.length) { sb.remove(); return; }
