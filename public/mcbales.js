@@ -9,7 +9,8 @@ const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called
 // ステージ別の箱（サーバーの BALES_STG と同じ印）
 // ホット度のカード（すべてのリードの隣）（2026-11-23 田中さん）
 // ホット・ウォーム・コールドの件数を1行で（メンバー別のカード用）（2026-11-23 田中さん「各メンバーごとにもホット・ウォーム・コールドを」）
-const hotLine = (h) => (h ? `<span class="bl-lc-hot"><i class="hot"></i>ホット ${Number(h.hot || 0).toLocaleString()}<i class="warm"></i>ウォーム ${Number(h.warm || 0).toLocaleString()}<i class="cold"></i>コールド ${Number(h.cold || 0).toLocaleString()}</span>` : "");
+//   カードの幅に収まるよう、言葉は「ホ・ウ・コ」の頭文字だけにして、くわしくはマウスを乗せると出す（2026-11-23 田中さん「はみ出さないように」）
+const hotLine = (h) => (h ? `<span class="bl-lc-hot mini" title="ホット ${Number(h.hot || 0).toLocaleString()}・ウォーム ${Number(h.warm || 0).toLocaleString()}・コールド ${Number(h.cold || 0).toLocaleString()}"><i class="hot"></i>ホ ${Number(h.hot || 0).toLocaleString()}<i class="warm"></i>ウ ${Number(h.warm || 0).toLocaleString()}<i class="cold"></i>コ ${Number(h.cold || 0).toLocaleString()}</span>` : "");
 const HOTS = [["hot", "ホット", "担当者名・ニーズ・検討時期の3つ"], ["warm", "ウォーム", "3つのうち2つ"], ["cold", "コールド", "1つ以下・まだ判定していない"]];
 // stg=mcuser（MOCHICA ユーザー）の表の見出し用。STG の箱には出さない
 const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止" };
