@@ -2078,7 +2078,7 @@ export function registerMcCall(app, deps) {
     const out = [];
     for (const d of [...pick(1), ...pick(2)]) for (const cond of [(h) => h < 12, (h) => h >= 13]) {
       const s = d.slots.filter((x) => cond(x.h) && x.free.length).sort((a, b) => (b.free.length - a.free.length) || (a.h - b.h))[0];
-      if (s) out.push(slotOut(s.t, s.free, members.length));
+      if (s) out.push({ ...slotOut(s.t, s.free, members.length), week: d.week });   // 画面で「1週目・2週目」に分けて出すため
     }
     out.sort((a, b) => new Date(a.at) - new Date(b.at));
     res.json({ ok: true, slots: out.slice(0, 12), members: members.map((m) => m.name), unread: members.filter((m) => busy.get(m.email) === null).map((m) => m.name) });
@@ -2096,7 +2096,7 @@ export function registerMcCall(app, deps) {
     for (let t = day + 9 * 3600e3; t + mins * 60e3 <= day + 19 * 3600e3; t += 30 * 60e3) {
       if (t < Date.now() + 30 * 60e3) continue; const free = freeAt(busy, members, t, mins); if (free.length) out.push(slotOut(t, free, members.length));
     }
-    res.json({ ok: true, slots: out, members: members.map((m) => m.name) });
+    res.json({ ok: true, slots: out, members: members.map((m) => m.name), unread: members.filter((m) => busy.get(m.email) === null).map((m) => m.name) });
   }));
   app.get("/api/mccall/meta", guard(async (req, res) => {
     // 管理者の画面には、いま管理者として扱っている人の名前も返す（苗字で照合しているので、漏れや取り違えを見えるように）

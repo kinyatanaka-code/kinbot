@@ -725,6 +725,16 @@ const MC_LEADS = [
 function mccallMock(p) {
   if (p === "/api/mccall/meta") return { ok: true, reach: MC_REACH, rejectReasons: ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"], admin: true, me: "kinya.tanaka@neo-career.co.jp" };
   if (p === "/api/mccall/inbound") return { ok: true, item: null };
+  // アポの日程の候補（おすすめ／他の日程）のダミー（2026-11-23）
+  if (p === "/api/mccall/slots" || p === "/api/mccall/slots/day") {
+    const day = p.endsWith("/day"), names = ["餌取", "斎藤", "森"], out = [];
+    const base = new Date(); base.setHours(0, 0, 0, 0);
+    const mk = (d, h, m, n, week) => { const t = new Date(base.getTime() + d * 864e5 + (h * 60 + m) * 6e4); const free = names.slice(0, n);
+      return { at: t.toISOString(), md: `${t.getMonth() + 1}/${t.getDate()}`, dow: "日月火水木金土"[t.getDay()], time: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`, band: h < 12 ? "午前" : "午後", free, freeN: n, total: 3, week }; };
+    if (day) { for (let h = 9; h < 18; h++) for (const m of [0, 30]) if ((h + m) % 3) out.push(mk(3, h, m, 1 + ((h + m) % 3), 1)); return { ok: true, slots: out, members: names, unread: [] }; }
+    [[1, 10, 3], [1, 14, 2], [2, 11, 2], [3, 15, 3], [8, 10, 3], [8, 13, 2], [9, 16, 1], [10, 10, 2]].forEach(([d, h, n]) => out.push(mk(d, h, 0, n, d <= 7 ? 1 : 2)));
+    return { ok: true, slots: out, members: names, unread: ["重永"] };
+  }
   if (p === "/api/mccall/measures") return { ok: true, research: { today: 312, daily: 1200, gate: true }, items: [
     { id: 1, name: "11月 ホット企業", total: 120, touched: 86, researched: 118, talks: [
       { talkId: 11, label: "A", ver: 2, active: true, calls: 84, reached: 50, person: 22, apo: 5, reject: 9, leads: 60, adherence: 78, adhN: 18 },
