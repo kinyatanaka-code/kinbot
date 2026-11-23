@@ -117,9 +117,12 @@ const SHOW_FEEDS = false;
     // リードの出どころごとのリスト（「すべてのリード」の隣に並べる）（2026-11-23 田中さん「リードのでどころでリスト作って」）
     if (m0) api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/sources`).then((d) => {
       const sb = root.querySelector("[data-srcs]"); if (!sb || !root.isConnected) return; const it = d.items || []; if (!it.length) { sb.remove(); return; }
-      // 出どころのカードを、「すべてのリード」のカードの並び（同じ行）に足す
+      // 出どころは1枚の「SFリードソース」カードにまとめ、中に出どころと件数を並べる（2026-11-23 田中さん「SFリードソースカードにまとめて」）。押すとその出どころの表
       const grid = root.querySelector(".bl-lgrid"); const host = grid && grid !== sb ? grid : sb;
-      host.insertAdjacentHTML("beforeend", it.map((v) => `<button type="button" class="bl-lc src" data-src="${esc(v.v)}"><span class="bl-lc-k">出どころ</span><b>${esc(v.v === "-" ? "出どころなし" : v.v)}</b><span class="n">${Number(v.n || 0).toLocaleString()}<small>件</small></span><small>${esc(m0.name || "")} から</small></button>`).join(""));
+      const named = it.filter((v) => v.v !== "-").length;
+      host.insertAdjacentHTML("beforeend", `<div class="bl-lc srcs"><div class="bl-srcs-h"><b>SFリードソース</b><small>${named}種類</small></div>
+        <div class="bl-srcs-l">${it.map((v) => `<button type="button" data-src="${esc(v.v)}"><span>${esc(v.v === "-" ? "リードソースなし" : v.v)}</span><em>${Number(v.n || 0).toLocaleString()}</em></button>`).join("")}</div>
+        <small>${esc(m0.name || "")} から・押すとそのリードの表</small></div>`);
       if (host !== sb) sb.remove();
       host.querySelectorAll("[data-src]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = b.dataset.src; page = 0; openList(); }));
     }).catch(() => {});
@@ -245,7 +248,7 @@ const SHOW_FEEDS = false;
       tcols = ORDER.map((lb) => (lb === "__cr" ? CR_COL : cols.find((c) => c.label === lb))).filter(Boolean);
       if (tcols.length <= 1) tcols = [...cols, CR_COL];   // Bales の見出しが違う形のときは、今までの列のまま
     } else { const i = cols.findIndex((c) => c.label === "最終活動日"); tcols = i >= 0 ? [...cols.slice(0, i + 1), CR_COL, ...cols.slice(i + 1)] : [...cols, CR_COL]; }
-    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "出どころなし" : srcF)} <small style="font-size:12px;font-weight:600">（出どころ・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
+    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)} <small style="font-size:12px;font-weight:600">（SFリードソース・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         </div>
       <div class="bl-sfst" data-sfst></div>
       <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
