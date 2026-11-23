@@ -196,8 +196,8 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     const m0 = mainList(); const oc = ownerCol(m0); const mh = memHome; const label = mh.blank ? "未割り振り" : mh.name;
     root.innerHTML = `<div class="bl-home"><button type="button" class="bl-back" data-mback>‹ リスト管理に戻る</button>
       <div class="bl-home-h"><h2>${esc(label)}<small style="font-size:12px;font-weight:600;color:#5C7377;margin-left:8px">リードソース別</small></h2></div>
-      <div class="bl-lgrid" data-mhot style="margin-bottom:10px"></div>
       <div class="bl-lgrid" data-mstg style="margin-bottom:10px"></div>
+      <div class="bl-lgrid" data-mhot style="margin-bottom:10px"></div>
       <div class="bl-lgrid" data-msrc><div class="mc-note">読み込んでいます…</div></div></div>`;   // かける・ナーチャリング・リサイクル・アーカイブは SFリードソースの上（2026-11-23 田中さん「下じゃなくて上に」）
     root.querySelector("[data-mback]").addEventListener("click", () => goHome());
     if (!m0 || !oc) return;
