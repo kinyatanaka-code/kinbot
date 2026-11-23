@@ -262,8 +262,9 @@ async function buildLog(pmStart, asOf, roster, sources) {
       const isN = roster.is.reduce((a, p) => a + Object.values(log.byOwnerDay[p.zoom] || {}).reduce((s, v) => s + v[0], 0), 0);
       const un = Object.entries(log.unmatched).sort((x, y) => y[1] - x[1]);
       const unN = un.reduce((a, [, n]) => a + n, 0);
-      sources["架電記録"] = { status: isN ? "ok" : "ng", at: new Date().toISOString(),
-        note: (isN ? `前月〜今日の記録 ${log.total}件（インサイド8名 ${isN}件）` : `インサイド8名の記録が0件でした（全体 ${log.total}件）。名前の対応を確認してください`)
+      // 記録が0件でも「読めなかった」わけではない。画面は記録の無い人・日を Zoom Phone からの推定で出すので、赤い帯にはせず注記で伝える（2026-11-23）
+      sources["架電記録"] = { status: "ok", at: new Date().toISOString(),
+        note: (isN ? `前月〜今日の記録 ${log.total}件（インサイド8名 ${isN}件）` : `インサイド8名の記録は0件でした（全体 ${log.total}件）。記録の無い人・日は Zoom Phone の通話からの推定で出しています`)
           + (unN ? `。名簿にない人の記録 ${unN}件は数えていません（${un.slice(0, 4).map(([k, n]) => `${k} ${n}件`).join("・")}${un.length > 4 ? "…" : ""}）` : "") };
     }
   } catch (e) { sources["架電記録"] = { status: "ng", at: new Date().toISOString(), note: "架電の記録を読めませんでした：" + e.message }; }
@@ -302,7 +303,7 @@ async function buildSummary(asOf, deps, sfOwner) {
   ]);
   const { owner, part: sfPart } = sfResult;
   let sfBase = ""; try { sfBase = String((await deps.sfInfo(owner))?.instanceUrl || "").replace(/\/+$/, ""); } catch {}
-  notes.push("※ インサイドのコール・接続・担当者到達・アポ（記録）・ホットは、架電画面に記録した結果を数えています（元に戻した記録は除く。Zoom の通話秒数からの推定はやめました）。");
+  notes.push("※ インサイドのコール・接続・担当者到達・アポ（記録）・ホットは、架電画面に記録した結果を数えています（元に戻した記録は除く）。記録の無い人・日だけ、Zoom Phone の通話からの推定（つながった＝10秒以上、担当者＝30秒以上、アポ＝SF のアポ獲得者）で埋め、インサイドの画面に「推定」と出します。");
   notes.push("※ ICP・MQL・ホットリスト・SQL は【デモ定義】。SFで定義が確定したら差し替える。商談設定・商談実施は SF の商談日（appointment__c）で判定。");
   notes.push("※ インサイドの計画はシフト表の勤務時間 × 1時間あたりの目標。アポは設定シートの「アポ目標時間」。");
   notes.push("※ インサイドのアポ数は SF の「アポ獲得者」（Internship_apo__c）が入力された案件のみ。入力率が低いと実態より少なく出ます。");

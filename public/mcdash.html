@@ -178,7 +178,7 @@ tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5
 </div></header>
 
 <main>
-<div class="panel pad" id="mcLoading" role="status">データを読んでいます（SF・架電の記録・シフト表）…</div>
+<div class="panel pad" id="mcLoading" role="status">データを読んでいます（SF・Zoom Phone・架電の記録・シフト表）… 初回は1分ほどかかることがあります。</div>
 <div class="panel pad" id="sourceWarning" style="border-left:4px solid var(--bad);margin-bottom:16px;font-size:13px" hidden></div>
 <!-- ============ 事業 ============ -->
 <div class="view" id="v-biz">
@@ -303,7 +303,7 @@ tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5
     <div class="notice" id="paceNote"></div>
     <div class="kpis" id="paceKpis" style="margin-top:12px"></div>
     <div class="panel scroll" style="margin-top:12px"><table class="bwm" id="isPace"></table></div></section>
-  <section><div class="sec-h"><h2>日次の推移</h2><span class="sub">セル = 架電数（架電画面の記録・色はシフト時間×1時間あたり目標との比較。「休」はシフトなし）</span></div><div class="panel pad scroll"><div class="heat" id="isHeat"></div></div></section>
+  <section><div class="sec-h"><h2>日次の推移</h2><span class="sub">セル = 架電数（架電画面の記録。記録の無い日は Zoom Phone の発信数・色はシフト時間×1時間あたり目標との比較。「休」はシフトなし）</span></div><div class="panel pad scroll"><div class="heat" id="isHeat"></div></div></section>
   <section><div class="sec-h"><h2>分かれ道（層C）と標準手順の指標 K1〜K6</h2><span class="sub">通話の文字起こしを読み取ると計測できる。いまは基準と目標のみ</span></div><div class="panel scroll"><table id="isK"></table></div></section>
   <section><div class="sec-h"><h2>アポの質と ICP（直近6か月）</h2><span class="sub" id="icpSub"></span></div><div class="panel scroll"><table id="isQuality"></table></div></section>
 </div>
@@ -407,10 +407,30 @@ const pWin=c=>H.reached[c]?H.reached['08']/H.reached[c]:0;
 
 /* 架電 */
 /* インサイドの数字は、架電画面に記録した結果（DATA.log）を数える。Zoom Phone は通話秒数の参考と、記録もれの確認だけに使う */
-const LOG=DATA.log?.byOwnerDay||{};
-const LI=Object.fromEntries((DATA.log?.cols||[]).map((c,i)=>[c,i]));   // 列の名前→位置（サーバーの LOG_COLS と同じ）
-const LOGN=(DATA.log?.cols||[]).length;
+const REC=DATA.log?.byOwnerDay||{};      // 架電画面に記録した結果（人×日）
+const LCOLS=DATA.log?.cols?.length?DATA.log.cols:['calls','reached','person','apo','uniq','uniqReached','uniqHot','gate','none'];
+const LI=Object.fromEntries(LCOLS.map((c,i)=>[c,i]));   // 列の名前→位置（サーバーの LOG_COLS と同じ）
+const LOGN=LCOLS.length;
 const lg=(v,k)=>(v&&v[LI[k]])||0;
+/* 記録が無い人×日は、Zoom Phone の通話からの推定で埋める（2026-11-23 福井さん決定）。
+   なぜ：インサイド8名はまだ架電画面にも Bales にも結果を残しておらず（SF で確認）、記録だけを数えると全部 0 になるため。
+   推定の数え方（11/19 より前と同じ考え方）：つながった＝10秒以上の通話、担当者＝30秒以上の通話、
+   企業の数＝その月はじめての発信／10秒以上／180秒以上、アポ＝SF の「アポ獲得者」つきの新規商談（商談設定日。前月は作成日）。
+   記録が1件でもある人×日は記録をそのまま使う（推定と混ぜない）。推定で埋めた人×日は EST に残し、画面に「推定」と出す */
+const EST=new Set();                      // 推定で埋めた「zoom名|日」
+const LOG=(()=>{const out={};
+  const apoDay={};const addApo=(sf,d)=>{if(sf&&d)apoDay[sf+'|'+d]=(apoDay[sf+'|'+d]||0)+1;};
+  // 今月は商談設定日、前月より前は作成日（下の isStats の「SF の商談」と同じ分け方。同じ商談を2回数えないため月で分ける）
+  deals.forEach(x=>{if(x.reach['01']>=M_START)addApo(x.apo,x.reach['01']);});histDeals.forEach(x=>{if(x.created<M_START)addApo(x.apo,x.created);});
+  IS.forEach(p=>{const rec=REC[p.zoom]||{},o={...rec};
+    [DATA.callsPrev,DATA.calls].forEach(src=>Object.entries(src?.byOwnerDay?.[p.zoom]||{}).forEach(([d,v])=>{
+      if(lg(rec[d],'calls')>0||!(v[0]>0))return;
+      const r=new Array(LOGN).fill(0),set=(k,x)=>{if(LI[k]!=null)r[LI[k]]=Math.max(0,x||0);};
+      set('calls',v[0]);set('reached',v[1]);set('person',v[2]);set('gate',(v[1]||0)-(v[2]||0));set('none',(v[0]||0)-(v[1]||0));
+      set('uniq',v[5]);set('uniqReached',v[6]);set('uniqHot',v[7]);set('apo',apoDay[p.sf+'|'+d]);
+      o[d]=r;EST.add(p.zoom+'|'+d);}));
+    out[p.zoom]=o;});
+  return out;})();
 
 /* ================= 設定 ================= */
 const histMonthlyWon=H.reached['08']/6;
@@ -423,8 +443,8 @@ const saveS=()=>{try{localStorage.setItem('spd4-'+MONTH,JSON.stringify(S));}catc
 const STEPS=[
  {k:'icp',no:'—',name:'ICP（アプローチ企業）',src:'【デモ定義】今月はじめて架電した企業数（架電画面の記録・リード単位）',up:1,demo:1},
  {k:'mql',no:'—',name:'MQL',src:'【デモ定義】ICPのうち、受付か担当者までつながった企業数（架電画面の記録）',up:1,demo:1},
- {k:'call',no:'—',name:'コール数',src:'架電画面に記録した架電数（インサイド8名・元に戻した記録は除く）',up:1},
- {k:'conn',no:'—',name:'接続数',src:'担当者と話せた記録の数（架電画面の結果が「担当者と話せた」）',up:1},
+ {k:'call',no:'—',name:'コール数',src:'架電画面に記録した架電数（インサイド8名・元に戻した記録は除く）。記録の無い人・日は Zoom Phone の発信数',up:1},
+ {k:'conn',no:'—',name:'接続数',src:'担当者と話せた記録の数（架電画面の結果が「担当者と話せた」）。記録の無い人・日は Zoom Phone の30秒以上の通話',up:1},
  {k:'hot',no:'—',name:'ホットリスト',src:'【デモ定義】担当者と話せて、検討時期（月）と採用ニーズを聞けた企業数（架電画面のヒアリング）',up:1,demo:1},
  {k:'appo',no:'—',name:'アポ獲得',src:'SF 新規商談の作成（01到達）',up:1,sf:'01'},
  {k:'sql',no:'—',name:'SQL（ICP適合アポ）',src:'品質の指標。【デモ定義】アポのうちICPに合うもの（採用人数（目標）6名以上・接触50人以上・従業員100名以上・新卒・IT/官公庁除外）',up:1,demo:1},
@@ -840,8 +860,8 @@ const TSM={version:'1.0',base:{dpd:80.3,answer:.787,person:.569,over2m:.483,ask:
    つながった＝受付か担当者まで届いた記録、担当者＝担当者と話せた記録、アポ＝アポ獲得の記録 */
 const FACT=[{k:'dpd',l:'架電/日',f:v=>fmt1(v)},{k:'answer',l:'つながった率',f:pctS},{k:'person',l:'担当者到達率',f:pctS},{k:'conv',l:'担当者→アポ',f:v=>(v*100).toFixed(1)+'%'}];
 /* prev=true は前月と比べる基準の集計（シフトが無いので稼働日数は「記録のある日」を数える） */
-function isStats(people,from,to,prev){const o={dials:0,ans:0,per:0,appo:0,appoSf:0,zoomDials:0,hours:0,sdays:0};const active=new Set();
-  people.forEach(p=>{const days=LOG[p.zoom]||{};Object.entries(days).forEach(([d,v])=>{if(d>=from&&d<=to){o.dials+=lg(v,'calls');o.ans+=lg(v,'reached');o.per+=lg(v,'person');o.appo+=lg(v,'apo');if(lg(v,'calls')>0)active.add(p.zoom+d);}});
+function isStats(people,from,to,prev){const o={dials:0,ans:0,per:0,appo:0,appoSf:0,zoomDials:0,hours:0,sdays:0,recDials:0,estDays:0,recDays:0};const active=new Set();
+  people.forEach(p=>{const days=LOG[p.zoom]||{};Object.entries(days).forEach(([d,v])=>{if(d>=from&&d<=to){o.dials+=lg(v,'calls');o.ans+=lg(v,'reached');o.per+=lg(v,'person');o.appo+=lg(v,'apo');if(lg(v,'calls')>0){active.add(p.zoom+d);if(EST.has(p.zoom+'|'+d))o.estDays++;else{o.recDays++;o.recDials+=lg(v,'calls');}}}});
     Object.entries(DATA.calls?.byOwnerDay?.[p.zoom]||{}).forEach(([d,v])=>{if(d>=from&&d<=to)o.zoomDials+=v[0]||0;});
     if(!prev)WORKDAYS.filter(d=>d>=from&&d<=to&&d<=AS_OF).forEach(d=>{o.hours+=shiftH(p,d);});
     o.appoSf+=(prev?histDeals:deals).filter(x=>x.apo===p.sf&&(prev?x.created:x.reach['01'])>=from&&(prev?x.created:x.reach['01'])<=to).length;});
@@ -910,12 +930,15 @@ function renderIs(){
   </div>
   <div class="basis" style="margin-top:12px">${top&&top.gain>0.05?`<b>いちばん効いている段：${top.f.l}</b>（前月比 ${pctS(top.ratio)}）。この段が前月並みなら、この期間のアポは約 <b>+${fmt1(top.gain)}件</b>。次点：${L.slice(1,3).filter(x=>x.gain>0.05).map(x=>`${x.f.l} +${fmt1(x.gain)}件`).join('、')||'なし'}`:'どの段も前月並み以上です。'}</div>`;
   const gD=o.hours*S.callsPerHour,gA=o.hours/S.apoHours;const j=r=>{const [c,l]=judge(r);return pill(c,l);};
+  const srcL=o.estDays?(o.recDays?'記録＋Zoom 推定':'Zoom 推定'):'記録';
+  if(o.estDays)$('isNote').innerHTML=`<div style="border-left:4px solid var(--warn);padding:6px 10px;margin-bottom:8px;background:var(--warn-soft);border-radius:6px"><b>この期間の数字は、${o.recDays?`${o.estDays}人日ぶんが`:'すべて'} Zoom Phone の通話からの推定です</b>（架電画面に結果の記録が無い人・日${o.recDays?`。記録のある ${o.recDays}人日は記録の数`:''}）。
+    推定の数え方：つながった＝10秒以上の通話、担当者＝30秒以上の通話、アポ＝SF の「アポ獲得者」が入った新規商談。実際に話した相手や結果は分からないので、目安として見てください。架電画面（MOCHICALL）で結果を記録した人・日は、自動で記録の数に切り替わります。</div>`+$('isNote').innerHTML;
   const apoAll=deals.filter(d=>d.reach['01']>=from&&d.reach['01']<=to);const filled=apoAll.filter(d=>d.apo).length;
-  $('isKpis').innerHTML=kpi('架電数（記録） / シフト計画',`${o.dials.toLocaleString()}<small> / ${Math.round(gD).toLocaleString()}</small>`,`${j(o.dials/gD)} 1時間あたり ${fmt1(o.dials/Math.max(1,o.hours))}件（目標 ${S.callsPerHour}）`,bar(o.dials,0,gD,1))+
+  $('isKpis').innerHTML=kpi(`架電数（${srcL}） / シフト計画`,`${o.dials.toLocaleString()}<small> / ${Math.round(gD).toLocaleString()}</small>`,`${j(o.dials/gD)} 1時間あたり ${fmt1(o.dials/Math.max(1,o.hours))}件（目標 ${S.callsPerHour}）`,bar(o.dials,0,gD,1))+
     kpi('担当者と話せた',`${o.per.toLocaleString()}<small> 件</small>`,`架電の ${pctS(o.per/Math.max(1,o.dials))}（前月 ${pctS(P.per/Math.max(1,P.dials))}）`)+
-    kpi('アポ（記録） / シフト計画',`${o.appo}<small> / ${fmt1(gA)}</small>`,`${j(o.appo/gA)} ${S.apoHours}時間に1件が目標`,bar(o.appo,0,gA,1))+
-    kpi('アポ：記録 → SF の商談',`${o.appo}<small> → ${o.appoSf}</small>`,`記録したアポ ${o.appo}件のうち、SF にアポ獲得者つきの新規商談が立っているのは ${o.appoSf}件。差は商談の作り忘れ・獲得者の入力漏れ（入力率 ${pctS(filled/Math.max(1,apoAll.length))}）`)+
-    kpi('架電の記録率（Zoom 発信に対して）',o.zoomDials?pctS(o.dials/o.zoomDials):'—',zoomPending?'Zoom Phone の通話履歴を読み込んでいます…':!DATA.calls?'Zoom Phone の通話履歴を確認できませんでした。':`Zoom Phone の発信 ${o.zoomDials.toLocaleString()}件のうち、結果を記録した ${o.dials.toLocaleString()}件。低いほど数字が実態より少ない`);
+    kpi(`アポ（${srcL}） / シフト計画`,`${o.appo}<small> / ${fmt1(gA)}</small>`,`${j(o.appo/gA)} ${S.apoHours}時間に1件が目標`,bar(o.appo,0,gA,1))+
+    kpi(`アポ：${srcL} → SF の商談`,`${o.appo}<small> → ${o.appoSf}</small>`,o.estDays&&!o.recDays?`推定の人・日のアポは SF の「アポ獲得者」つきの新規商談から数えています（Zoom の発信がある日のぶん ${o.appo}件／期間の合計 ${o.appoSf}件）。入力率 ${pctS(filled/Math.max(1,apoAll.length))}`:`記録したアポ ${o.appo}件のうち、SF にアポ獲得者つきの新規商談が立っているのは ${o.appoSf}件。差は商談の作り忘れ・獲得者の入力漏れ（入力率 ${pctS(filled/Math.max(1,apoAll.length))}）`)+
+    kpi('架電の記録率（Zoom 発信に対して）',o.zoomDials?pctS(o.recDials/o.zoomDials):'—',zoomPending?'Zoom Phone の通話履歴を読み込んでいます…':!DATA.calls?'Zoom Phone の通話履歴を確認できませんでした。':`Zoom Phone の発信 ${o.zoomDials.toLocaleString()}件のうち、結果を記録した ${o.recDials.toLocaleString()}件。${o.estDays?'記録の無い人・日は Zoom からの推定で出しています':'低いほど数字が実態より少ない'}`);
   // チーム全体と個人
   const rowsP=[{name:'チーム全体',ps:IS,team:1},...IS.map(p=>({name:p.name,ps:[p],sf:p.sf}))];
   $('isPeople').innerHTML=`<thead><tr><th>担当</th><th class="r">シフト</th><th class="r">架電</th><th class="r">架電/時間</th>${FACT.slice(1).map(f=>`<th class="c">${f.l}</th>`).join('')}<th class="r">担当者</th><th class="r">アポ</th><th class="c">アポ計画比</th><th>いちばん効いている段</th></tr></thead><tbody>`+
@@ -1128,8 +1151,8 @@ async function fetchDashboard(path) {
     try {
       const url = new URL(location.href);
       const refresh = url.searchParams.has('refresh');
-      DATA = await fetchDashboard('/api/mcdash/data?includeZoom=0' + (refresh ? '&refresh=1' : ''));
-      loadZoom = () => fetchDashboard('/api/mcdash/zoom' + (refresh ? '?refresh=1' : ''));
+      // Zoom Phone の通話も最初に一緒に読む。記録の無い人・日の数字を Zoom から出すので、あとから読むとインサイドが 0 のまま出てしまう（2026-11-23）
+      DATA = await fetchDashboard('/api/mcdash/data' + (refresh ? '?refresh=1' : ''));
       if (refresh) {
         url.searchParams.delete('refresh');
         history.replaceState(null, '', url);
