@@ -2881,3 +2881,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-23：アクセス分析の取り込みで AI面談解析（/api/ai-report）を /api/report と読んでいて 404 → 直した。朝6時の自動取り込みは「今日の6時より前の取り込みしか無ければ」動く形に（夜中に手で入れた日も動く）。
 - 2026-11-23 田中さん：kinXs のコネクタに list_access・get_access_detail（アクセス分析の中身を読む）。取り込みの途中でデプロイされても、起動2分後にやり直す（settings.bvDashRunning）。
 - 2026-11-23 田中さん：kinXs のコネクタに list_voices（要望・問い合わせ）を足した。候補者の質問は前から list_ai_questions・ai_question_summary で読める。
+- 2026-11-23 田中さん：SHOWIN（mochica）の左メニューを 商談 → MOCHICALL → リスト管理 → アポイント → ダッシュボード の順に。「商談（MiiTel）」は「商談」に。

@@ -3,7 +3,7 @@
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const api = async (u, o = {}) => { const r = await fetch(u, { credentials: "include", headers: { "content-type": "application/json" }, ...o }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || r.status); return j; };
-  const TITLES = { home: "ホーム", mtg: "商談（MiiTel）", list: "リスト管理", call: "MOCHICALL", apo: "アポ（カレンダー）", dash: "ダッシュボード", doc: "DOC の議事録", settings: "設定" };
+  const TITLES = { home: "ホーム", mtg: "商談", list: "リスト管理", call: "MOCHICALL", apo: "アポ（カレンダー）", dash: "ダッシュボード", doc: "DOC の議事録", settings: "設定" };
   const go = (k) => {
     if (!TITLES[k] || k === "home") k = "mtg";   // ホームは一旦しまっている（2026-11-15）
     if (window.__mcCallOnly && k !== "settings") k = "call";   // インターンは架電（と自分の設定）だけ（2026-11-16・11-18）
