@@ -13073,6 +13073,75 @@ export async function mcBalesHotFill(listKey) {
   }
   return done;
 }
+async function mcBalesRegisteredIds(client) {
+  const ids = new Set();
+  const rows = await client.query(`SELECT DISTINCT left(id,15) AS id
+    FROM mochica_bales_rows r JOIN mochica_bales_lists l USING (list_key,run_at)
+    CROSS JOIN LATERAL unnest(ARRAY[r.sf->'lead'->>'id',r.data->>'システム管理情報：Salesforce：リードID',
+      (regexp_match(r.data::text, '"(00Q[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?)"'))[1],
+      (regexp_match(r.raw::text, '"(00Q[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?)"'))[1],
+      (regexp_match(r.detail::text, '"(00Q[0-9A-Za-z]{12}(?:[0-9A-Za-z]{3})?)"'))[1]]) AS ids(id)
+    WHERE id IS NOT NULL`);
+  for (const row of rows.rows) ids.add(row.id);
+  const calls = await client.query("SELECT to_regclass('mc_call_leads') AS t");
+  if (calls.rows[0].t) {
+    const registered = await client.query("SELECT DISTINCT left(sf_lead_id,15) AS id FROM mc_call_leads WHERE sf_lead_id IS NOT NULL");
+    for (const row of registered.rows) ids.add(row.id);
+  }
+  return ids;
+}
+export async function mcBalesImportList(listKey, name, source, records) {
+  if (!pool) throw new Error("データベースに接続できません");
+  await ensureMcBales();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Serialize list imports so two SF requests compare against the same committed lists.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('mochica-bales-import'))");
+    const known = source === "sf" ? await mcBalesRegisteredIds(client) : null;
+    const created = await client.query(`INSERT INTO mochica_bales_lists (list_key,name,src,run_at,status)
+      VALUES ($1,$2,$3,date_trunc('milliseconds',now()),'running') ON CONFLICT DO NOTHING RETURNING list_key`, [listKey, name, source]);
+    if (!created.rowCount) {
+      const prior = await client.query("SELECT count FROM mochica_bales_lists WHERE list_key=$1", [listKey]);
+      await client.query("COMMIT");
+      return prior.rows[0].count;
+    }
+    let count = 0, columns;
+    const batch = [];
+    async function flush() {
+      await client.query(`INSERT INTO mochica_bales_rows (list_key,row_key,data,sf,run_at)
+        SELECT $1,k,d,sf,date_trunc('milliseconds',now()) FROM jsonb_to_recordset($2::jsonb) AS x(k text,d jsonb,sf jsonb)`, [listKey, JSON.stringify(batch)]);
+      batch.length = 0;
+    }
+    for await (const record of records) {
+      if (record.header) { columns = [...new Set(['companyName', ...record.header])].map(key => ({ key, n: 0 })); continue; }
+      if (known) {
+        const id = record.k.slice(0, 15);
+        if (known.has(id)) continue;
+        known.add(id);
+      }
+      for (const column of columns) {
+        const value = record.d[column.key];
+        if (value != null && value !== "") column.n++;
+      }
+      batch.push(record);
+      count++;
+      if (batch.length >= 100) await flush();
+    }
+    if (!count) {
+      await client.query("ROLLBACK");
+      return 0;
+    }
+    if (batch.length) await flush();
+    await client.query(`UPDATE mochica_bales_lists SET status='done', total=$2, got=$2, count=$2,
+      cols=$3, done_at=now() WHERE list_key=$1`, [listKey, count, JSON.stringify(columns)]);
+    await client.query("COMMIT");
+    return count;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally { client.release(); }
+}
 export async function mcBalesStart({ listKey, name, src, total, view = null }) {
   if (!pool) return null; await ensureMcBales();
   const r = await pool.query(`INSERT INTO mochica_bales_lists (list_key, name, src, status, total, got, run_at, error)

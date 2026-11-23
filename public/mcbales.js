@@ -75,7 +75,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
   // 所有者（kinbot・Bales で、そのリードを持っている人）の列。メンバー別のカードはこの列で絞る
   const ownerCol = (l) => { const v = (l && l.view) || []; const a = v.find((x) => /所有者|オーナー/.test(x.label)); if (a) return a.key;
     const c = ((l && l.cols) || []).find((x) => /(^|\.)owner(\.name|Name|\.fullName)?$/i.test(x.key)); return c ? c.key : ""; };
-  const mainList = () => lists.find((l) => l.status !== "running") || lists[0] || null;
+  const mainList = () => lists.find((l) => l.src !== "csv" && l.src !== "sf" && l.status !== "running") || lists.find((l) => l.status !== "running") || lists[0] || null;
   const PLUS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
   // ===== ページの上の帯（ヘッダー）に、会社名で探す・取り込み直す・CSV・SF と結び直す を出す（2026-11-22 田中さん「ヘッダーに移して」）=====
   //   表を描き直しても、探す欄はそのまま（打っている途中で消えない）。一覧（カード）に戻ったら消す
@@ -132,9 +132,54 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
       ${SHOW_FEEDS && feeds.length ? `<div class="bl-home-h sub"><h3>見張り（架電の記録）</h3></div><div class="bl-lgrid">${feeds.map((f) => `<button type="button" class="bl-lc" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><span class="n">${Number(f.total || 0).toLocaleString()}<small>件</small></span><small>${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("")}</div>` : ""}
       ${lists.length ? "" : diagHtml()}</div>`;
     root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; mode = "list"; memberF = ""; q = ""; fcol = ""; fval = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; openList(); }));
-    root.querySelector("[data-addlist]").addEventListener("click", () => sheet(`<h3 class="bl-sh-t">リストを追加する</h3>
+    root.querySelector("[data-addlist]").addEventListener("click", () => {
+      const panel = sheet(`<h3 class="bl-sh-t">リストを追加する</h3>
+      <form data-csv-form>
+        <h4>BALES標準CSVから追加</h4>
+        <p><label>CSVファイル <input required type="file" accept=".csv,text/csv" name="csv"></label></p>
+        <p><label>リスト名 <input required maxlength="120" name="listName"></label></p>
+        <button type="submit" class="mt-btn">CSVを取り込む</button>
+        <p class="mc-note" role="status"></p>
+      </form>
+      <h4>Salesforceから追加</h4>
+      <p class="mc-note">接続先のSFリードを全件照合し、未登録のリードを追加します。</p>
+      <button type="button" class="mt-btn" data-sf-import>SFの未登録リードを取り込む</button>
+      <p class="mc-note" role="status" data-sf-result></p>
+      <h4>Balesの画面から追加</h4>
       <p class="mc-note" style="line-height:1.8">1. Bales の<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>を開き、取り込みたいリスト（絞り込み）にします。<br>2. 右下の「kinbot に取り込む」→「全部取り込む」を押します。<br>3. 取り込みが終わると、この画面にカードが増えます。</p>
-      <p class="mc-note">拡張機能 kinbot-ext（2.2.3 以上）が要ります。</p>`));
+      <p class="mc-note">拡張機能 kinbot-ext（2.2.3 以上）が要ります。</p>`);
+      const sfButton = panel.querySelector("[data-sf-import]");
+      sfButton.onclick = async () => {
+        sfButton.disabled = true;
+        const result = panel.querySelector("[data-sf-result]");
+        result.textContent = "Salesforceのリードを照合中…";
+        try {
+          const { checked, count } = await api("/api/mochica/bales/lists/from-sf", { method: "POST" });
+          result.textContent = checked.toLocaleString() + "件を照合し、未登録の" + count.toLocaleString() + "件を追加しました。";
+          await load();
+        } catch (error) { result.textContent = "取り込めませんでした：" + error.message; }
+        finally { sfButton.disabled = false; }
+      };
+      const form = panel.querySelector("form");
+      const { csv, listName } = form.elements;
+      const status = form.querySelector("[role=status]");
+      csv.onchange = () => { listName.value = (csv.files[0]?.name || "").replace(/\.csv$/i, "").slice(0,120); };
+      form.onsubmit = async (event) => {
+        event.preventDefault();
+        const button = form.querySelector("button");
+        if (button.disabled) return;
+        button.disabled = true;
+        status.textContent = "取り込み中…";
+        try {
+          const result = await api("/api/mochica/bales/lists/csv?name=" + encodeURIComponent(listName.value.trim()), {
+            method: "POST", headers: { "Content-Type": "text/csv" }, body: csv.files[0]
+          });
+          status.textContent = result.count.toLocaleString() + "件を取り込みました。";
+          await load();
+        } catch (error) { status.textContent = "取り込めませんでした：" + error.message; }
+        finally { button.disabled = false; }
+      };
+    });
     // ステージ別の件数と、押したときの表（2026-11-23 田中さん「ナーチャリング、リサイクル、アーカイブの箱を」）
     // 押すと、そのステージをメンバーごとに分けた画面（2026-11-23 田中さん「カードを押すと各メンバーカードが出て、そのステージの件数」）
     root.querySelectorAll("[data-stg]").forEach((b) => b.addEventListener("click", () => { if (!m0) return; mode = "stage"; stgHome = b.dataset.stg; openList(); }));
