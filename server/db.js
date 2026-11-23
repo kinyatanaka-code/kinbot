@@ -13001,6 +13001,10 @@ async function ensureMcBales() {
     seq BIGSERIAL, list_key TEXT, row_key TEXT, data JSONB, run_at TIMESTAMPTZ, PRIMARY KEY (list_key, row_key))`).catch(() => {});
   // 元の形のまま（raw）と、リード1件ずつの詳しい中身（架電履歴・カスタム情報など：detail）も持つ（2026-11-15 田中さん「全部取り込みたい」）
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS raw JSONB`).catch(() => {});
+  // 重複のまとめ（kinbot の画面だけ・Bales は変えない）（2026-11-23 田中さん）：dup_of＝まとめた先（残すリード）の印。dup_note＝残すリードに足した古い架電の記録、dup_n＝まとめた件数
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS dup_of TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS dup_note TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS dup_n INT`).catch(() => {});
   // Bales の一覧の見出しと、データの項目の結びつき（[{label, key}]。拡張機能が画面の表から見つける）
   await pool.query(`ALTER TABLE mochica_bales_lists ADD COLUMN IF NOT EXISTS view JSONB`).catch(() => {});
   // SF との結びつき（リード・取引先・過去の商談）（2026-11-15 田中さん「2万件のリードを SF と紐付けて過去商談履歴を見たい」）
@@ -13092,7 +13096,8 @@ export async function mcBalesLists() {
     (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.w_at IS NOT NULL AND r.w_err IS NULL) AS w_n,
     (SELECT json_build_object('hot', count(*) FILTER (WHERE hot >= 3), 'warm', count(*) FILTER (WHERE hot = 2), 'cold', count(*) FILTER (WHERE hot <= 1), 'yet', count(*) FILTER (WHERE hot IS NULL),
        'name', count(*) FILTER (WHERE hot_d->'name'->>'st' = 'あり'), 'need', count(*) FILTER (WHERE hot_d->'need'->>'st' = 'あり'), 'when', count(*) FILTER (WHERE hot_d->'when'->>'st' = 'あり'))
-       FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at) AS hot_n
+       FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.dup_of IS NULL) AS hot_n,
+    (SELECT count(*)::int FROM mochica_bales_rows r WHERE r.list_key=l.list_key AND r.run_at=l.run_at AND r.dup_of IS NOT NULL) AS dup_hidden
     FROM mochica_bales_lists l ORDER BY l.run_at DESC NULLS LAST`)).rows;
 }
 // Bales の架電結果（callResult）を、kincall と同じ6つの結果に読みかえる（2026-11-22 田中さん「kincall と同じ架電結果の選択肢に」）。
@@ -13125,7 +13130,7 @@ export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BA
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
-  const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
+  const w = [`list_key=$1`, `run_at=$2`, `dup_of IS NULL`]; const p = [listKey, l.run_at];   // まとめた重複は出さない
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
   // 2つめの項目で絞る（所有者など）（2026-11-22 田中さん「所有者で絞り込みたい」）
@@ -13163,7 +13168,7 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
   const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
-  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
+  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d, dup_note, dup_n FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __dupNote: r.dup_note || "", __dupN: r.dup_n || 0, __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
   return { total, rows };
 }
 // SF の絞り込みの選択肢：商談の無いリードの状況ごとの件数と、商談あり（受注・失注・進行中）・SF に無いの件数（2026-11-22）
@@ -13171,19 +13176,19 @@ export async function mcBalesSfValues(listKey) {
   if (!pool) return { leads: [], won: 0, lost: 0, open: 0, none: 0 }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { leads: [], won: 0, lost: 0, open: 0, none: 0 };
   const sn = `COALESCE((sf->'sum'->>'n')::int,0)`;
-  const leads = (await pool.query(`SELECT sf->'sum'->>'status' AS v, count(*) AS n FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND ${sn} = 0 AND COALESCE(sf->'sum'->>'status','') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 40`, [listKey, l.run_at])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+  const leads = (await pool.query(`SELECT sf->'sum'->>'status' AS v, count(*) AS n FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND dup_of IS NULL AND ${sn} = 0 AND COALESCE(sf->'sum'->>'status','') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 40`, [listKey, l.run_at])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
   const c = (await pool.query(`SELECT
       count(*) FILTER (WHERE ${sn} > 0 AND COALESCE(sf->'sum'->>'won','') = 'true') AS won,
       count(*) FILTER (WHERE ${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') = 'true') AS lost,
       count(*) FILTER (WHERE ${sn} > 0 AND COALESCE(sf->'sum'->>'won','') <> 'true' AND COALESCE(sf->'sum'->>'lost','') <> 'true') AS open,
       count(*) FILTER (WHERE ${sn} = 0 AND COALESCE(sf->'sum'->>'status','') = '') AS none
-    FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows[0] || {};
+    FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND dup_of IS NULL`, [listKey, l.run_at])).rows[0] || {};
   return { leads, won: Number(c.won || 0), lost: Number(c.lost || 0), open: Number(c.open || 0), none: Number(c.none || 0) };
 }
 // リードの出どころごとの件数（リスト管理の「出どころ」のカード）。出どころの無いリードは「-」
 export async function mcBalesSources(listKey) {
   if (!pool) return []; await ensureMcBales();
-  const base = `FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1`;
+  const base = `FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL`;
   const named = (await pool.query(`SELECT v, count(*) AS n ${base.replace("WHERE", ", LATERAL (SELECT DISTINCT x AS v FROM unnest(ARRAY[" + BALES_SRC_COLS.replace(/data->>/g, "r.data->>") + "]) x WHERE COALESCE(x,'') <> '') s WHERE")} GROUP BY v ORDER BY 2 DESC LIMIT 200`, [listKey])).rows.map((x) => ({ v: x.v, n: Number(x.n) }));
   const none = Number((await pool.query(`SELECT count(*) AS n ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, [listKey])).rows[0].n);
   return none ? [...named, { v: "-", n: none }] : named;
@@ -13193,13 +13198,13 @@ export async function mcBalesValues(listKey, col, { stg = "" } = {}) {
   // stg（ステージ別）を付けると、その分だけ数える（メンバー別の「残りの架け先」＝active）
   const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
   return (await pool.query(`SELECT r.data->>$2 AS v, count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
-    WHERE r.list_key=$1 AND COALESCE(r.data->>$2,'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+    WHERE r.list_key=$1 AND r.dup_of IS NULL AND COALESCE(r.data->>$2,'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
 }
 // ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）
 export async function mcBalesStages(listKey) {
   if (!pool) return {}; await ensureMcBales();
   const sel = Object.entries(BALES_STG).map(([k, c]) => `count(*) FILTER (WHERE ${c.replace(/data->>/g, "r.data->>")}) AS ${k}`).join(", ");
-  const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1`, [listKey])).rows[0] || {};
+  const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL`, [listKey])).rows[0] || {};
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
 }
 // Bales のリストを消す（画面の「消す」から。リストと、その行を全部）（2026-11-15 田中さん「消せるように」）
@@ -13241,6 +13246,21 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 }
 
 // SF と結びつける：今の取り込みの行（row_key と data）を渡す／結果を書く／進み具合を残す
+// 重複のまとめを付ける・外す。groups＝[{ keep, note, n, merge:[印…] }]。毎回いったん全部外してから付け直す（取り込み直すたびに作り直す印で、手入力ではない）
+export async function mcBalesDupSet(listKey, groups = []) {
+  if (!pool) return 0; await ensureMcBales();
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query(`UPDATE mochica_bales_rows SET dup_of=NULL, dup_note=NULL, dup_n=NULL WHERE list_key=$1 AND (dup_of IS NOT NULL OR dup_note IS NOT NULL OR dup_n IS NOT NULL)`, [listKey]);
+    if (groups.length) {
+      await c.query(`UPDATE mochica_bales_rows r SET dup_note=x.note, dup_n=x.n FROM jsonb_to_recordset($2::jsonb) AS x(k text, note text, n int) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(groups.map((g) => ({ k: g.keep, note: g.note, n: g.n })))]);
+      await c.query(`UPDATE mochica_bales_rows r SET dup_of=x.o FROM jsonb_to_recordset($2::jsonb) AS x(k text, o text) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(groups.flatMap((g) => g.merge.map((k) => ({ k, o: g.keep }))))]);
+    }
+    await c.query("COMMIT");
+  } catch (e) { await c.query("ROLLBACK").catch(() => {}); throw e; } finally { c.release(); }
+  return groups.reduce((t, g) => t + g.merge.length, 0);
+}
 // 重複のまとめの下見用：重複を見分けて、残す1件を選ぶのに要る項目だけを全行ぶん（2026-11-23 田中さん「重複が多すぎる」）
 export async function mcBalesDupRows(listKey) {
   if (!pool) return []; await ensureMcBales();

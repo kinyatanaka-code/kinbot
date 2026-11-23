@@ -285,7 +285,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesDupRows, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesDupRows, mcBalesDupSet, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -29430,7 +29430,9 @@ app.post("/api/mochica/bales/ext/rows", express.json({ limit: "30mb" }), async (
       for (const r0 of b.rows.slice(0, 5000)) { if (!r0 || typeof r0 !== "object") continue; const d = mcBalesFlat(r0); const k = mcBalesRowKey(d); if (seen.has(k)) continue; seen.add(k); const rs = JSON.stringify(r0); rows.push({ k, d, r: rs.length < 300000 ? r0 : null }); }
       n = await mcBalesAddRows(listKey, rows, total);
     }
-    let count = null; if (b.done) count = await mcBalesFinish(listKey, b.error || "");
+    let count = null; if (b.done) { count = await mcBalesFinish(listKey, b.error || "");
+      // 重複をまとめているリストは、取り込み直したらまとめも作り直す
+      getSettings().then((st) => { if (st && st.mcBalesDedupe && st.mcBalesDedupe[listKey]) return mcBalesDedupeApply(listKey).then((n) => console.log(`[Bales] ${listKey} 重複をまとめた：${n}件`)); }).catch((e) => console.warn("[Bales] 重複のまとめに失敗:", e.message)); }
     res.json({ ok: true, n, count });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -29716,6 +29718,18 @@ function mcBalesDupGroups(rows) {
   out.sort((a, b) => b.n - a.n); out.review = review.sort((a, b) => b.companies.length - a.companies.length);
   return out;
 }
+// まとめる（kinbot の画面だけ。Bales のリードは変えない）／外す。まとめたリストは、取り込み直すたびに自動で作り直す（settings.mcBalesDedupe）
+async function mcBalesDedupeApply(listKey) {
+  const gs = mcBalesDupGroups(await mcBalesDupRows(listKey));
+  return mcBalesDupSet(listKey, gs.map((g) => ({ keep: g.keep.k, note: g.mergedComment, n: g.n - 1, merge: g.merge.map((m) => m.k) })));
+}
+app.post("/api/mochica/bales/lists/:key/dups/apply", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); const key = String(req.params.key); const off = !!(req.body && req.body.off);
+    const st = await getSettings().catch(() => ({})); await saveSettings({ mcBalesDedupe: { ...(st.mcBalesDedupe || {}), [key]: !off } });
+    const n = off ? await mcBalesDupSet(key, []) : await mcBalesDedupeApply(key);
+    res.json({ ok: true, off, hidden: off ? 0 : n }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/mochica/bales/lists/:key/dups", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const rows = await mcBalesDupRows(String(req.params.key)); const gs = mcBalesDupGroups(rows);
@@ -34735,7 +34749,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-23m 重複まとめの下見：電話番号が同じでも会社名が違うものは「要確認」に分け、下見の CSV を出せるように。／2026-11-23l MOCHICALL の SF 項目の補完：取り違えを減らす（1文字の姓・別人の名・丁寧語の否定・ATS と同名の別製品・不在の人数・説明会の月）";
+const BUILD_TAG = "2026-11-23n SHOWIN のリスト管理：重複をまとめた（kinbot の画面だけ・Bales は変えない）。架電がいちばん新しいリードを残し、古い架電の記録は活動コメントに。取り込み直すたびに作り直す。元に戻すボタンあり。／2026-11-23m 重複まとめの下見：電話番号が同じでも会社名が違うものは「要確認」に分け、下見の CSV を出せるように。／2026-11-23l MOCHICALL の SF 項目の補完：取り違えを減らす（1文字の姓・別人の名・丁寧語の否定・ATS と同名の別製品・不在の人数・説明会の月）";
 const BUILD_FEATURES = [
   "MOCHICALL：SF 項目の補完で、メモから読んだ電話・人数・採用種別は空でも人がチェックしたときだけ入れる",
   "kinXs：アクセス数をアクセス分析ダッシュボード（GA4）から自動で",
