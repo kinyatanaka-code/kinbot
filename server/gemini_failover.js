@@ -202,11 +202,18 @@ export function shoboContextMiddleware(req, _res, next) {
   next();
 }
 export function runAsShobo(fn) { return shoboAls.run({ shobo: true }, fn); }
+// 専用キーの名前は SHOBO_GEMINI_API_KEY が正。ただし Railway に MOCHICA の名前で入れられることがあるので（2026-11-23 福井さん）、
+// その名前でも読む。名前違いで「未設定」になり、SHOBO の AI が全部止まるのを防ぐため。
+const SHOBO_KEY_NAMES = ["SHOBO_GEMINI_API_KEY", "MOCHICA_GEMINI_API_KEY", "MOCHCA_GEMINI_API_KEY"];
+function shoboKey(env) {
+  for (const name of SHOBO_KEY_NAMES) { const v = String(env[name] || "").trim(); if (v) return { key: v, keyName: name }; }
+  return { key: "", keyName: "" };
+}
 function shoboCfg() {
   const env = process.env;
   const price = String(env.SHOBO_GEMINI_PRICE || "0.50,1.00,3.00").split(",").map(Number);   // 1M トークンあたり USD [入力, 音声入力, 出力(思考込み)]
   return {
-    key: String(env.SHOBO_GEMINI_API_KEY || "").trim(),
+    ...shoboKey(env),
     model: String(env.SHOBO_GEMINI_MODEL || "gemini-3.5-flash").trim(),
     limitJpy: Number(env.SHOBO_GEMINI_MONTHLY_LIMIT_JPY || 5000),
     usdJpy: Number(env.AI_USD_JPY || 150),
@@ -228,7 +235,7 @@ export function shoboSpendLoad(s) { shoboRoll(); if (s && s.month === shoboSpend
 export function shoboSpendSnapshot() { shoboRoll(); const d = shoboDirty; shoboDirty = false; return d ? { ...shoboSpend } : null; }
 export function shoboGeminiStatus() {
   shoboRoll(); const c = shoboCfg();
-  return { configured: !!c.key, keyLast4: c.key ? c.key.slice(-4) : "", model: c.model, month: shoboSpend.month, spentJpy: Math.round(shoboSpend.jpy), limitJpy: c.limitJpy, calls: shoboSpend.calls, blocked: shoboSpend.blocked, stopped: shoboSpend.jpy >= c.limitJpy };
+  return { configured: !!c.key, keyName: c.keyName, keyLast4: c.key ? c.key.slice(-4) : "", model: c.model, month: shoboSpend.month, spentJpy: Math.round(shoboSpend.jpy), limitJpy: c.limitJpy, calls: shoboSpend.calls, blocked: shoboSpend.blocked, stopped: shoboSpend.jpy >= c.limitJpy };
 }
 function shoboAddCost(um, search) {
   const c = shoboCfg(); shoboRoll();
