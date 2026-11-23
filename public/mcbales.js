@@ -193,9 +193,9 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
     // 1枚の「SFリードソース」カードにまとめ、1行ずつ：リードソース・残りの架け先・ナーチャリング・リストアポ率（2026-11-23 田中さん「1枚目みたいにまとめて、ナーチャリングの数は出して」）
     const pct = (v) => (v.called ? (v.apo / v.called * 100).toFixed(1) : "0.0");
     box.innerHTML = it.length ? `<div class="bl-lc srcs msrc"><div class="bl-srcs-h"><b>SFリードソース</b><small>${it.filter((v) => v.v !== "-").length}種類</small></div>
-      <div class="bl-msrc-hw">${'<div class="bl-msrc-hd"><span>リードソース</span><span>残りの架け先</span><span>ナーチャリング</span><span>リストアポ率</span></div>'.repeat(2)}</div>
-      <div class="bl-msrc-l">${it.map((v) => `<button type="button" data-ms="${esc(v.v)}" title="全 ${Number(v.n || 0).toLocaleString()}件・アポ ${Number(v.apo || 0).toLocaleString()} ÷ 架電 ${Number(v.called || 0).toLocaleString()}"><span>${esc(v.v === "-" ? "リードソースなし" : v.v)}</span><em>${Number(v.active || 0).toLocaleString()}</em><em class="nur">${Number(v.nurture || 0).toLocaleString()}</em><i>${pct(v)}%</i></button>`).join("")}</div>
-      <small>押すとその人のそのリードソースの表・マウスを乗せると全件数</small></div>` : '<div class="mc-note">この人のリードがありません。</div>';
+      <div class="bl-msrc-hw">${'<div class="bl-msrc-hd"><span>リードソース</span><span>全件数</span><span>残りの架け先</span><span>ナーチャリング</span><span>リストアポ率</span></div>'.repeat(2)}</div>
+      <div class="bl-msrc-l">${it.map((v) => `<button type="button" data-ms="${esc(v.v)}" title="アポ ${Number(v.apo || 0).toLocaleString()} ÷ 架電 ${Number(v.called || 0).toLocaleString()}"><span>${esc(v.v === "-" ? "リードソースなし" : v.v)}</span><em class="all">${Number(v.n || 0).toLocaleString()}</em><em>${Number(v.active || 0).toLocaleString()}</em><em class="nur">${Number(v.nurture || 0).toLocaleString()}</em><i>${pct(v)}%</i></button>`).join("")}</div>
+      <small>押すとその人のそのリードソースの表・リストアポ率にマウスを乗せるとアポ／架電の件数</small></div>` : '<div class="mc-note">この人のリードがありません。</div>';
     box.querySelectorAll("[data-ms]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; stgF = ""; srcF = b.dataset.ms; retMem = mh; page = 0; openList(); }));
   }
   // ステージ別 → メンバーごとの件数。メンバーを押すと、その人のそのステージのリードの表
