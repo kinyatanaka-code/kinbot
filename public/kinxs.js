@@ -153,6 +153,9 @@ function render() {
   const f = d.fields || {};
   $("kxFoot").textContent = `全${d.items.length}社。契約終了日は${f.end ? `SFの「${f.end}」から取っています。` : "SFの商談に値の入った項目が見つからないので、計上日から1年で推定しています（カードに「終了日は推定」と出ます）。"}${d.sync ? `　最後に取り込んだ時刻：${new Date(d.sync.at).toLocaleString("ja-JP")}` : ""}`;
 }
+// スマホでは「画面を止めて中だけスクロール」をしない（2026-11-24 田中さん「スクロールできない」）。
+//   パソコン用に html の overflow を hidden にしていたため、スマホではホームなどが下へ動かせなかった。スマホはページごとふつうにスクロールする
+const kxPhone = () => window.matchMedia("(max-width:860px)").matches;
 // フェーズ別：画面は止めて、列ごとに縦スクロール（列の並びは横スクロール）。ユーザー一覧の担当別と同じ動き
 function kxFitBoard() {
   const wrap = document.querySelector("#vBoard .kx-board-wrap");
@@ -177,7 +180,7 @@ window.addEventListener("resize", () => kxFitBoard());
 // 更新管理：画面は止めて、月ごとの行（会社のチップ）のところだけをスクロールする
 function kxFitRows() {
   const el = document.querySelector("#kxTable .kx-mrows");
-  if (!el || VIEW !== "renew") return;
+  if (!el || VIEW !== "renew" || kxPhone()) return;
   const top = el.getBoundingClientRect().top;
   el.style.maxHeight = `${Math.max(220, window.innerHeight - top - 18)}px`;
   el.style.overflowY = "auto";
@@ -186,7 +189,7 @@ function kxFitRows() {
 // ユーザー一覧：画面は止めて、カードのところだけスクロールする
 function kxFitCards() {
   const el = $("lsTable");
-  if (!el || VIEW !== "list") return;
+  if (!el || VIEW !== "list" || kxPhone()) return;
   const top = el.getBoundingClientRect().top;
   el.style.maxHeight = `${Math.max(220, window.innerHeight - top - 16)}px`;
   el.style.overflowY = "auto";
@@ -1322,7 +1325,7 @@ async function loadHome(fresh) {
 }
 // ホーム：画面全体は止めて、「やること」と「自分の担当ユーザー」をそれぞれスクロールする
 function kxFitHome() {
-  if (VIEW !== "home") return;
+  if (VIEW !== "home" || kxPhone()) return;
   document.documentElement.style.overflow = "hidden";
   for (const id of ["khTasks", "khMine"]) {
     const el = $(id); if (!el) continue;
@@ -1420,7 +1423,7 @@ async function loadMissing(fresh) {
 }
 // 情報不足：画面全体は止めて、会社の表のところだけスクロールする（2026-10-28）
 function kxFitMissing() {
-  if (VIEW !== "missing") return;
+  if (VIEW !== "missing" || kxPhone()) return;
   const el = $("msList"); if (!el) return;
   document.documentElement.style.overflow = "hidden";
   el.style.maxHeight = `${Math.max(220, window.innerHeight - el.getBoundingClientRect().top - 16)}px`;
@@ -1590,7 +1593,7 @@ function kxDocCounts(items, ym) {
 }
 // ホームは1画面に収める（ページ全体はスクロールせず、要アクションの一覧だけが中で動く）（2026-11-04）
 function kxFitHome2() {
-  const box = $("kh2"); if (!box || VIEW !== "home") return;
+  const box = $("kh2"); if (!box || VIEW !== "home" || kxPhone()) return;
   document.documentElement.style.overflow = "hidden";
   box.style.height = `${Math.max(480, window.innerHeight - box.getBoundingClientRect().top - 14)}px`;
 }
@@ -2166,7 +2169,7 @@ function renderPlanV2() {
     try { const r = await api("/api/kinxs/access", { method: "POST", body: JSON.stringify({ rows }) }); st.textContent = `　${r.saved}件を取り込みました${r.unmatchedCount ? `（会社が見つからない ${r.unmatchedCount}件：${r.unmatched.slice(0, 5).join("・")}…）` : ""}`; kpLoad(true); } catch (e) { st.textContent = "　" + e.message; }
   });
   // 1画面に収める（それぞれの列の中だけスクロール）
-  const p3 = box.querySelector(".p3"); if (p3) { document.documentElement.style.overflow = "hidden"; p3.style.height = `${Math.max(480, window.innerHeight - p3.getBoundingClientRect().top - 14)}px`; }
+  const p3 = box.querySelector(".p3"); if (p3 && !kxPhone()) { document.documentElement.style.overflow = "hidden"; p3.style.height = `${Math.max(480, window.innerHeight - p3.getBoundingClientRect().top - 14)}px`; }
   if (kp.animYm !== kp.ym) { kp.animYm = kp.ym; kxCountUp(box); }
   if (!kp.timer) kp.timer = setInterval(() => { const ae = document.activeElement; if (!document.querySelector(".v2-pop-bg") && !(ae && ae.closest && ae.closest("#vPlanBody") && /INPUT|SELECT|TEXTAREA/.test(ae.tagName))) kpLoad(true); }, 30000);
 }

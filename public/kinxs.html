@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261124q" />
+    <link rel="stylesheet" href="style.css?v=20261124r" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1394,6 +1394,8 @@
     .kx-side.open .kx-stools{display:flex !important;gap:8px;margin-top:8px;}
     .kx-side.open .kx-side-foot{display:flex !important;margin-top:8px;}
     .kx-main{padding:14px 12px 30px !important;}
+    /* パソコン用の「画面を止める」（JS が html に overflow:hidden を付ける）を、スマホでは効かせない */
+    html{overflow:auto !important;}
   }
 </style>
 </head>
@@ -1555,8 +1557,8 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124q" defer></script>
-    <script src="kinxs.js?v=20261124q"></script>
+    <script src="kbchat.js?v=20261124r" defer></script>
+    <script src="kinxs.js?v=20261124r"></script>
   <script>
   // スマホのメニューの開け閉め。項目を押したら閉じる（2026-11-24）
   (function () {
