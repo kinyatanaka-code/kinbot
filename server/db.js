@@ -13324,7 +13324,7 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 //   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、高い順に埋める
 //   （はじめは3%に寄せて混ぜていたが、2026-11-23 田中さん「150件の中で MAX のアポ率に」で高い順に変えた）
 export const BALES_TODAY_N = 150, BALES_TODAY_MIN = 100;   // 多くて150件・少なくとも100件
-const BALES_TODAY_V = 5;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
+const BALES_TODAY_V = 6;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 let _mcTodayInit = false;
 async function ensureMcToday() {
@@ -13348,12 +13348,14 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
   const sm = (x, prior) => (x ? (x[0] + K * prior) / (x[1] + K) : prior);
   const rate = (s, pl, h) => { const pm = sm(mid.get(`${pl}|${h}`), base); return sm(fine.get(`${s}|${pl}|${h}`), pm); };
   // その人のかけるリスト（アポ獲得済みは外す）
+  //   SF のリードの状況がアーカイブ・リサイクルのもの、最終架電結果がお断りのものも外す（2026-11-23 田中さん：Bales のステージはかけるリストのままでも、今日かける先ではないため）
   const p = [listKey, run_at]; let ow = "";
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); ow = ` AND COALESCE(${colX(col, `$3`, "r.")},'') = $4`; }
   const cand = (await pool.query(`SELECT r.row_key, COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h,
       (${BALES_STG.nurture.replace(/data->>/g, "r.data->>")}) AS nur, r.data->>'lastCalledAt' AS lc,
       (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(r.data) e WHERE e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS na
-    FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${BALES_STG.call.replace(/data->>/g, "r.data->>")} AND NOT ${BAPO}${ow}`, p)).rows;
+    FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${BALES_STG.call.replace(/data->>/g, "r.data->>")} AND NOT ${BAPO}
+      AND COALESCE(r.sf->'sum'->>'status','') !~ '(アーカイブ|リサイクル)' AND COALESCE(r.data->>'callResult','') !~ 'お断り'${ow}`, p)).rows;
   const nextDay = (na) => { let t = null; for (let i = 0; i < 50; i++) { if (!na || na[`nextActions.${i}.id`] == null && na[`nextActions.${i}.reservedAt`] == null) break;
     if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
   const L = cand.map((c) => { const nd = nextDay(c.na); return { k: c.row_key, h: Number(c.h) || 1, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, nd, due: !!nd && nd <= day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }; });
