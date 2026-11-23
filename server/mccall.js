@@ -1655,7 +1655,7 @@ export function registerMcCall(app, deps) {
     const id = parseInt(req.params.id, 10);
     const r = (await P().query(`SELECT list_id, research, research_at FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
     if (!r || !(await myListIds(req)).includes(r.list_id)) return res.status(404).json({ error: "このリードは見つかりません" });
-    res.json({ ok: true, research: r.research_at ? r.research : null });
+    res.json({ ok: true, research: r.research_at ? showableResearch(r.research) : null });
   }));
   // ---- 1社の中身（開くとほかの人の順番から外す） ----
   app.get("/api/mccall/leads/:id", guard(async (req, res) => {

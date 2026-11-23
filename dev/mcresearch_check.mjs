@@ -177,6 +177,8 @@ await t("画面：確かめた採用の情報は出し、「確かめたもの�
 await t("サーバー：リードを返すときに関所を通している（画面に出る道は lead.research だけ）", () => {
   const s = fs.readFileSync(new URL("../server/mccall.js", import.meta.url), "utf8");
   assert.ok(s.includes("research: showableResearch(lead.research)"));
+  assert.ok(s.includes("research: r.research_at ? showableResearch(r.research) : null"), "調査中の画面が待って読む口も関所を通す");
+  assert.ok(!/research: r\.research_at \? r\.research/.test(s));
   assert.ok(!/c\.research->>'(?:hiring|roles|headcount|media|issue|hook)'/.test(s.replace(/RX = \(k\)[^\n]*/, "")), "採用の項目を関所を通さずに読む SQL がある");
 });
 console.log(`\n${n}件 すべて通りました`);
