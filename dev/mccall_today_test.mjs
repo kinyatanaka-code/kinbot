@@ -231,6 +231,60 @@ await t("過去失注：入れ先のリストを開け直すと、森さんの�
   assert.ok(!all.includes("u1"), "過去失注でない未割り振りが出ている");
 });
 
+// ---------- Bales の営業フォローを所有者のまま引き継ぐ（2026-11-24 福井さん） ----------
+const FOL = { lastLeadStageName: "03：コネクト情報獲得", callResult: "担当者接触：営業フォロー" };
+const FUT = new Date(Date.now() + 5 * 86400e3).toISOString();
+const HROWS = [
+  ["h1", "森 康晴", { ...FOL, "nextActions.0.id": "1", "nextActions.0.isDone": "false", "nextActions.0.reservedAt": FUT }],   // 先の予定 → その日時で
+  ["h2", "内藤 賴郁亜", { ...FOL, lastLeadStageName: "04：ジャッジ" }],                                                         // 予定なし → 今
+  ["h3", "森 康晴", { ...FOL, lastLeadStageName: "89：リサイクル" }],                                                            // リサイクルは入らない
+  ["h4", "福井 聖", FOL],                                                                                                       // インターンでない所有者
+  ["h5", "", FOL],                                                                                                              // 所有者なし
+  ["h6", "森 康晴", { ...FOL, callResult: "担当者接触：お断り" }],                                                               // 営業フォローでない
+  ["h7", "森 康晴", { ...FOL, lastLeadStageName: "ジャッジ", "nextActions.0.id": "2", "nextActions.0.isDone": "false", "nextActions.0.reservedAt": "2026-01-01T10:00:00+09:00" }],   // 過ぎた予定 → 今
+  ["h8", "森 康晴", FOL],                                                                                                       // MOCHICALL の既存リストにもうある → 移す
+];
+for (const [k, owner, extra] of HROWS) await q(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at, hot, assign_name) VALUES ($1,$2,$3,$4,2,$5)`,
+  [LK, k, JSON.stringify({ companyName: `株式会社 フォロー${k}`, companyTel1: `03-3333-0${k.charCodeAt(0)}${k.slice(1)}`, operatorName: owner, ...extra }), run, k === "h7" ? "__none__" : null]);
+const H8 = (await q(`INSERT INTO mc_call_leads (list_id, src, src_key, company, phone, assigned_to) VALUES ($1,'bales',$2,'株式会社 フォローh8','03-3333-0104' || '8',$3) RETURNING id`, [L1, `${LK}|h8`, NAITO])).rows[0].id;
+const hk = async (k) => (await q(`SELECT list_id, assigned_to, next_at FROM mc_call_leads WHERE src_key=$1 AND dup_of IS NULL`, [`${LK}|${k}`])).rows;
+await t("引き継ぎ：管理者でないと使えない", async () => {
+  await assert.rejects(() => call(MORI, "POST", "/api/mccall/bales-handover"), /403/);
+});
+await t("引き継ぎの下見：対象は h1・h2・h4・h5・h7・h8、森さん3・内藤さん1、福井さんと所有者なしは渡さない。中身は変えない", async () => {
+  const j = await call(A, "POST", "/api/mccall/bales-handover");
+  assert.equal(j.run, false); assert.equal(j.target, 6, JSON.stringify(j).slice(0, 400));
+  const per = Object.fromEntries(j.per.map((x) => [x.email, x.n]));
+  assert.equal(per[MORI], 3); assert.equal(per[NAITO], 1);
+  assert.equal(j.skip.noOwner, 1); assert.deepEqual(j.skip.notIntern.map((x) => x.owner), ["福井 聖"]);
+  assert.equal(j.added, 3); assert.equal(j.moved, 1);
+  assert.equal((await hk("h1")).length, 0, "下見なのに入っている");
+  assert.equal((await hk("h8"))[0].list_id, L1, "下見なのに動いている");
+});
+await t("引き継ぎ：入れると、本人の担当・Bales の予定の日時（無い・過ぎていれば今）で今日かけるリストに入る", async () => {
+  const j = await call(A, "POST", "/api/mccall/bales-handover?run=1");
+  assert.equal(j.added, 3, JSON.stringify(j).slice(0, 400)); assert.equal(j.moved, 1);
+  const [h1] = await hk("h1"), [h2] = await hk("h2"), [h7] = await hk("h7"), [h8] = await hk("h8");
+  assert.equal(h1.assigned_to, MORI); assert.equal(h1.list_id, TID); assert.equal(new Date(h1.next_at).toISOString(), FUT);
+  assert.equal(h2.assigned_to, NAITO); assert.ok(Date.now() - new Date(h2.next_at).getTime() < 120e3);
+  assert.equal(h7.assigned_to, MORI, "kinbot で未割り振りにしてあっても Bales の所有者に渡す"); assert.ok(new Date(h7.next_at).getTime() <= Date.now());
+  assert.equal(h8.assigned_to, MORI); assert.equal(h8.list_id, TID);
+  for (const k of ["h3", "h4", "h5", "h6"]) assert.equal((await hk(k)).length, 0, `${k} が入っている`);
+});
+await t("引き継ぎ：森さんの「かける」に時刻が来た h7・h8 が出る（先の予定の h1 はまだ出ない）。内藤さんには h2", async () => {
+  await q(`UPDATE mc_call_leads SET research='{"status":"ok"}', research_at=now() WHERE src_key LIKE $1`, [`${LK}|h%`]);
+  const m = await keysOf((await call(MORI, "GET", "/api/mccall/queue")).items.map((x) => x.id));
+  assert.ok(m.includes("h7") && m.includes("h8"), JSON.stringify(m)); assert.ok(!m.includes("h1") && !m.includes("h2"), JSON.stringify(m));
+  const nn = await keysOf((await call(NAITO, "GET", "/api/mccall/queue")).items.map((x) => x.id));
+  assert.ok(nn.includes("h2"), JSON.stringify(nn)); assert.ok(!nn.includes("h8"), "内藤さんに森さんの分が出ている");
+});
+await t("引き継ぎ：もう一度入れても増えない（全部「移す」になる）", async () => {
+  const j = await call(A, "POST", "/api/mccall/bales-handover?run=1");
+  assert.equal(j.added, 0); assert.equal(j.moved, 4);
+  assert.equal(+(await q(`SELECT count(*) FROM mc_call_leads WHERE src_key LIKE $1`, [`${LK}|h%`])).rows[0].count, 4);
+  assert.equal(new Date((await hk("h1"))[0].next_at).toISOString(), FUT, "予定の日時が変わった");
+});
+
 console.log(`\n${n} ok / ${failed} NG`);
 await pool.end().catch(() => {});
 process.exit(failed ? 1 : 0);

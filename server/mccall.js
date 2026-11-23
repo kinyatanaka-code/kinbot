@@ -13,7 +13,7 @@
 // 画面の考え方（ASUMO のレビューと kincall の評価から）：
 //   結果は「どこまで届いたか → 中身」の2段。不在でも受付で聞けたこと（担当者名・在席時間・直通）を残す。
 //   担当者に届かなかった不在は、1〜2営業日あけて前回と違う時間帯に自動で掛け直しに回し、8回続いたら一度休ませる（mccadence.js。解除できる）。記録の取り消しは「元に戻す」で行う。
-import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues } from "./db.js";
+import { dbPool, listUsers, approachBanHit, approachBanHitSync, approachBanHitLead, approachBanHitLeadSync, loadApproachBans, listMembers, getSettings, saveSettings, mcBalesToday, mcBalesValues, BALES_MCU } from "./db.js";
 import { freeBusy, gmailSend, isConnected as googleConnected, createCalendarEvent, deleteCalendarEvent } from "./google.js";
 import { notifyPerson } from "./chat.js";
 import { teamOf, teamLabel, splitFree, slotScore, pickFs } from "./mcteam.js";   // IS と FS のチーム（2026-11-23）
@@ -1598,6 +1598,80 @@ export function registerMcCall(app, deps) {
     const info = await _todayFlight.get(u); if (!info) return null;
     return { tid, day: todayDay(), info };
   }
+
+  // Bales の追いかけ中のリードを、Bales の今の所有者のまま MOCHICALL の本人へ引き継ぐ（2026-11-24 福井さん
+  //   「リードステージがコネクト情報やジャッジでリサイクルではない、かつ最終架電が営業フォローのリストを、そのまま MOCHICALL のインターン生個人リードに追加して引き継ぐ」）。
+  //   対象＝主リストの、ステージにコネクト情報かジャッジ（リサイクル・アーカイブは除く）で、最終架電結果が営業フォローのもの（MOCHICA ユーザー・まとめた重複は除く）。
+  //   所有者は Bales の所有者の列そのもの（kinbot の中の割り振り・未割り振りは見ない）。所有者の名前が当たる MOCHICA のインターンだけに渡す。
+  //   入れ先は今日かけるリスト（today_src）で、担当＝本人・掛け直し＝Bales の次の予定（無い・過ぎていれば今）。今日かけるリストの人の「かける」は
+  //   今日の分＋本人の掛け直しだけなので、掛け直しの時刻を付けないと出ない。すでに MOCHICALL にあるリードは移して担当と時刻だけ付ける（終わったもの・開いているものは動かさない）。
+  //   既定は下見（件数と中身だけ）。?run=1 で入れる。何度呼んでも同じリードは増えない
+  app.post("/api/mccall/bales-handover", adminOnly(async (req, res) => {
+    const run = req.query.run === "1";
+    const bm = await balesMain(); if (!bm) return res.status(404).json({ error: "Bales の主リストがありません" });
+    const tid = await todayList(); if (!tid) return res.status(409).json({ error: `「${TODAY_LIST_NAME}」が閉じています` });
+    const lst = (await P().query(`SELECT run_at, name FROM mochica_bales_lists WHERE list_key=$1`, [bm.listKey])).rows[0];
+    const rows = (await P().query(`SELECT row_key, data, hot, sf->'lead'->>'id' AS lid, data->>$3 AS owner FROM mochica_bales_rows
+      WHERE list_key=$1 AND run_at=$2 AND dup_of IS NULL AND NOT ${BALES_MCU}
+        AND COALESCE(data->>'lastLeadStageName','') ~ '(コネクト情報|ジャッジ)' AND COALESCE(data->>'lastLeadStageName','') !~ '(リサイクル|アーカイブ)'
+        AND COALESCE(data->>'callResult','') ~ '営業フォロー' ORDER BY COALESCE(hot,0) DESC, row_key`, [bm.listKey, lst.run_at, bm.col])).rows;
+    // MOCHICA のインターン（名簿のインサイドと、インターンと判定された kinbot の人）→ Bales の所有者の書き方
+    const users = (await listUsers().catch(() => [])).filter((x) => x && x.email);
+    const reg = await loadPeople(true).catch(() => new Map());
+    const cand = new Set();
+    for (const p of MCDASH_ROSTER.is) { const e = rosterEmailOf(reg, "is", p.sf); if (e) cand.add(String(e).toLowerCase()); }
+    for (const x of users) cand.add(String(x.email).toLowerCase());
+    const byOwner = new Map();   // 所有者（そろえた名前）→ [メール]
+    for (const e of cand) {
+      if (!(await isMcIntern(e).catch(() => false))) continue;
+      const v = foldPersonName(await todayOwnerOf(e, bm)); if (!v) continue;
+      byOwner.set(v, [...(byOwner.get(v) || []), e]);
+    }
+    const names = await nameMap();
+    const now = Date.now();
+    const nextOf = (d) => { let t = null; for (let i = 0; i < 50; i++) { if (d[`nextActions.${i}.id`] == null && d[`nextActions.${i}.reservedAt`] == null) break;
+      if (String(d[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(d[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; }
+      return t != null && t > now ? new Date(t) : new Date(now); };
+    if (run) await banListOrStop();
+    const per = new Map(), skip = { noOwner: [], notIntern: new Map(), twoPeople: new Map(), banned: [], done: [], busy: [] }, items = [];
+    let added = 0, moved = 0;
+    for (const r of rows) {
+      const d = r.data || {}, f = fromBales(d), o = String(r.owner || "").trim();
+      const it = { company: f.company, owner: o, stage: d.lastLeadStageName || "", lastCalled: String(d.lastCalledAt || "").slice(0, 10), comment: String(d.lastCalledComment || d.lastActivityComment || "").slice(0, 80) };
+      if (!o) { skip.noOwner.push(it.company); continue; }
+      const who = byOwner.get(foldPersonName(o)) || [];
+      if (!who.length) { skip.notIntern.set(o, (skip.notIntern.get(o) || 0) + 1); continue; }
+      if (who.length > 1) { skip.twoPeople.set(o, who); continue; }
+      const u = who[0], next = nextOf(d), sk = `${bm.listKey}|${r.row_key}`;
+      it.to = names.get(u) || u; it.next = next.toISOString();
+      if (approachBanHitSync({ company: f.company, phone: f.phone, leadId: r.lid })) { skip.banned.push(it.company); continue; }
+      // すでに MOCHICALL にある（同じ行から入れた・同じ会社の別の取り込み）なら、それを本人の掛け直しにする
+      let id = ((await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE src='bales' AND src_key=$1 ORDER BY (dup_of IS NULL) DESC, id LIMIT 1`, [sk])).rows[0] || {}).id || null;
+      if (!id && run) {
+        const x = await addLeadUnique({ list_id: tid, src: "bales", src_key: sk, company: f.company, phone: f.phone, person: f.person, sf_lead_id: r.lid || null, hot: r.hot, assigned_to: u, next_at: next }, { data: d });
+        if (x.added) { added++; per.set(u, (per.get(u) || 0) + 1); it.how = "新しく入れた"; items.push(it); continue; }
+        if (x.banned) { skip.banned.push(it.company); continue; }
+        if (x.dup && x.dup.lead_id) id = ((await P().query(`SELECT COALESCE(dup_of, id) AS id FROM mc_call_leads WHERE id=$1`, [x.dup.lead_id])).rows[0] || {}).id || null;
+        if (!id) { skip.done.push(`${it.company}（入れられない：${(x.dup && x.dup.kind) || "形"}）`); continue; }
+      }
+      if (!id) { per.set(u, (per.get(u) || 0) + 1); it.how = "新しく入れる"; items.push(it); added++; continue; }   // 下見
+      const cur = (await P().query(`SELECT done, locked_by, locked_at, assigned_to, next_at FROM mc_call_leads WHERE id=$1`, [id])).rows[0];
+      if (!cur || cur.done) { skip.done.push(it.company); continue; }
+      if (cur.locked_by && cur.locked_by !== u && Date.parse(cur.locked_at) > now - 10 * 60e3) { skip.busy.push(it.company); continue; }
+      // MOCHICALL でもう掛け直しの時刻が決まっていれば、そちらを使う（本人が決めた約束を上書きしない）
+      if (cur.next_at) it.next = new Date(cur.next_at).toISOString();
+      if (run) await P().query(`UPDATE mc_call_leads SET talk_label = CASE WHEN list_id = $2 THEN talk_label ELSE NULL END, list_id=$2, assigned_to=$3, next_at=COALESCE(next_at, $4)
+        WHERE id=$1 AND NOT done`, [id, tid, u, next]);
+      moved++; per.set(u, (per.get(u) || 0) + 1); it.how = run ? "移して担当にした" : "移して担当にする"; items.push(it);
+    }
+    const out = { ok: true, run, list: { key: bm.listKey, name: lst.name, at: lst.run_at }, into: TODAY_LIST_NAME, target: rows.length, added, moved,
+      per: [...per.entries()].map(([e, n]) => ({ email: e, name: names.get(e) || e, n })).sort((a, b) => b.n - a.n),
+      skip: { noOwner: skip.noOwner.length, notIntern: [...skip.notIntern.entries()].map(([o, n]) => ({ owner: o, n })).sort((a, b) => b.n - a.n),
+        twoPeople: [...skip.twoPeople.entries()].map(([o, e]) => ({ owner: o, emails: e })), banned: skip.banned.length, done: skip.done, busy: skip.busy },
+      owners: [...byOwner.entries()].map(([o, e]) => ({ owner: o, emails: e })), items };
+    if (run) console.log(`[mccall] Bales の営業フォローを引き継いだ：${added + moved}件（新しく ${added}・移した ${moved}）by ${me(req)}`);
+    res.json(out);
+  }));
 
   app.get("/api/mccall/queue", guard(async (req, res) => {
     const ids = await myListIds(req); const listId = parseInt(req.query.list, 10);
