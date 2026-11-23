@@ -171,7 +171,7 @@ tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5
 <body>
 <header class="top"><div class="top-inner">
   <div class="brand">商談プロセスダッシュボード<small id="brandSub"></small></div>
-  <nav class="views" id="views"><a href="#biz" data-v="biz">事業</a><a href="#sales" data-v="sales">セールス</a><a href="#is" data-v="is">インサイド</a></nav>
+  <nav class="views" id="views"><a href="#biz" data-v="biz">事業</a><a href="#sales" data-v="sales">セールス</a><a href="#is" data-v="is">インサイド</a><a href="#call" data-v="call">架電分析</a></nav>
   <div class="top-meta" id="srcChips"></div>
   <select id="personSel" title="表示対象"></select>
   <span class="chip" id="fetchedAt"></span><button class="btn" id="mcRefresh" title="SF・Zoom Phone・シフト表を読み直す">更新</button><button class="btn" id="openSettings">計画設定</button>
@@ -304,6 +304,29 @@ tr.grp td{background:#1b2430;color:#fff;font-weight:700;font-size:12px;padding:5
   <section><div class="sec-h"><h2>日次の推移</h2><span class="sub">セル = 架電数（架電画面の記録・色はシフト時間×1時間あたり目標との比較。「休」はシフトなし）</span></div><div class="panel pad scroll"><div class="heat" id="isHeat"></div></div></section>
   <section><div class="sec-h"><h2>分かれ道（層C）と標準手順の指標 K1〜K6</h2><span class="sub">通話の文字起こしを読み取ると計測できる。いまは基準と目標のみ</span></div><div class="panel scroll"><table id="isK"></table></div></section>
   <section><div class="sec-h"><h2>アポの質と ICP（直近6か月）</h2><span class="sub" id="icpSub"></span></div><div class="panel scroll"><table id="isQuality"></table></div></section>
+</div>
+
+<!-- ============ 架電分析（Zoom Phone の発信 × 架電メモ） ============ -->
+<div class="view" id="v-call">
+  <section><div class="sec-h"><h2>架電分析（Zoom Phone の発信 × 架電メモ）</h2>
+    <div class="right"><label class="muted" style="font-size:12px">期間 <input type="date" id="caFrom" value="2026-09-01"> 〜 <input type="date" id="caTo"></label>
+      <select id="caPerson"><option value="all">全員</option></select><button class="btn" id="caLoad">集計</button></div></div>
+    <div class="notice" id="caNote">読み込んでいます…</div></section>
+  <div id="caBody" hidden>
+    <section><div class="sec-h"><h2 id="caTitle"></h2><span class="sub" id="caSub"></span></div><div class="kpis" id="caKpis"></div></section>
+    <section><div class="sec-h"><h2>流れ（発信 → 担当者接続 → 2分以上・ヒアリング・日程打診）</h2><span class="sub">率は1つ前の段に対して。下の3段は担当者接続に対して</span></div>
+      <div class="panel scroll"><table class="bwm" id="caFunnel"></table></div></section>
+    <section><div class="sec-h"><h2>通話の長さ別（担当者接続のうち）</h2><span class="sub">2分以上話せた電話と、2分未満で終わった電話で、ヒアリング・日程打診の割合を比べる</span></div>
+      <div class="two"><div class="panel scroll"><table class="bwm" id="caLen"></table></div><div class="panel scroll"><table class="bwm" id="caBins"></table></div></div></section>
+    <section><div class="sec-h"><h2>人別</h2><span class="sub">行を押すとその人だけの数字に切り替え。メモ一致率が低い人は、担当者接続が実際より少なく出ます</span></div>
+      <div class="panel scroll"><table class="bwm" id="caPeople"></table></div></section>
+    <section><div class="sec-h"><h2>月別</h2><span class="sub" id="caMonthSub"></span></div><div class="panel scroll"><table class="bwm" id="caMonths"></table></div></section>
+    <section><div class="two">
+      <div><div class="sec-h"><h2>ヒアリング項目ごとの取得率</h2><span class="sub">担当者接続に対して</span></div><div class="panel scroll"><table class="bwm" id="caDims"></table></div></div>
+      <div><div class="sec-h"><h2>断り理由</h2><span class="sub">断られた電話に対して（1件に複数つくことがあります）</span></div><div class="panel scroll"><table class="bwm" id="caReasons"></table></div></div>
+    </div></section>
+    <section><div class="sec-h"><h2>メモから見た接続の様子</h2><span class="sub">メモと結び付いた発信の内訳</span></div><div class="panel scroll"><table class="bwm" id="caStatus"></table></div></section>
+  </div>
 </div>
 <p class="note" id="footNote" style="max-width:1400px;margin:0 auto;padding:0 20px 30px"></p>
 </main>
@@ -947,9 +970,68 @@ function renderSettings(){
    <div class="fh">予測</div><div class="frow"><span>長期放置（最終更新 ${md(STALE_BEFORE)} より前）</span><select data-s="excludeStale"><option value="1" ${S.excludeStale?'selected':''}>除外</option><option value="0" ${!S.excludeStale?'selected':''}>含める</option></select></div>
    <div style="margin-top:16px"><button class="btn" id="resetS">初期値に戻す</button></div>`;
 }
+// ───── 架電分析（2026-11-23 福井さん）：Zoom Phone の発信と架電メモを突き合わせた数字。開いたときだけ /api/mcdash/callana を読む
+const CA={data:null,loading:false,person:'all',err:''};
+const caPct=(a,b)=>b?Math.round(a/b*100)+'%':'—';
+async function loadCall(refresh){
+  if(CA.loading)return;CA.loading=true;CA.err='';$('caNote').textContent='読み込んでいます（Zoom Phone の発信・SF の架電メモ・MOCHICALL の記録）… 初回は1分ほどかかることがあります。';
+  try{
+    const q=new URLSearchParams({from:$('caFrom').value||'2026-09-01',to:$('caTo').value||AS_OF});if(refresh)q.set('refresh','1');
+    const r=await fetch('/api/mcdash/callana?'+q,{credentials:'include'});const j=await r.json().catch(()=>({}));
+    if(!r.ok||j.error)throw new Error(j.error||('読み込みに失敗しました（'+r.status+'）'));
+    CA.data=j;
+  }catch(e){CA.err=e.message;CA.data=null;}
+  CA.loading=false;renderCall();
+}
+function caRowCells(a){
+  const R=a.reached;
+  return `<td class="r num">${a.calls.toLocaleString()}</td><td class="r num">${caPct(a.ok,a.calls)}</td><td class="r num">${caPct(a.matched,a.calls)}</td>
+    <td class="r num">${R.toLocaleString()}<small class="muted"> ${caPct(R,a.calls)}</small></td>
+    <td class="cell"><b>${caPct(a.r2min,R)}</b><small>${a.r2min}件</small></td><td class="cell"><b>${caPct(a.rHear,R)}</b><small>${a.rHear}件</small></td>
+    <td class="cell">${caPct(a.rDeep,R)}<small>${a.rDeep}件</small></td><td class="cell"><b>${caPct(a.rSched,R)}</b><small>${a.rSched}件</small></td>
+    <td class="cell">${caPct(a.reasons['理由の記載なし']||0,a.refusals)}<small>${a.refusals}件中</small></td>`;
+}
+const CA_HEAD=`<th class="r">発信</th><th class="r">通話成立</th><th class="r">メモ一致</th><th class="r">担当者接続</th><th class="c">2分以上</th><th class="c">ヒアリング</th><th class="c">深い（3項目〜）</th><th class="c">日程打診</th><th class="c">断りで理由なし</th>`;
+function renderCall(){
+  const D=CA.data;
+  if(!$('caTo').value)$('caTo').value=AS_OF;
+  if(!D){$('caBody').hidden=true;$('caNote').innerHTML=CA.err?`<b>架電分析を読めませんでした</b>：${esc(CA.err)}<br><span class="muted">時間をおいて「集計」を押してください。</span>`:'読み込んでいます…';if(!CA.err&&!CA.loading)loadCall();return;}
+  $('caBody').hidden=false;
+  const ppl=Object.entries(D.byPerson).sort((x,y)=>y[1].calls-x[1].calls);
+  const sel=$('caPerson');sel.innerHTML='<option value="all">全員</option>'+ppl.map(([k])=>`<option value="${esc(k)}">${esc(k)}</option>`).join('');sel.value=D.byPerson[CA.person]?CA.person:'all';
+  const who=sel.value,a=who==='all'?D.total:D.byPerson[who],R=a.reached;
+  const ng=Object.entries(D.sources||{}).filter(([,v])=>v.status!=='ok');
+  $('caNote').innerHTML=(ng.length?`<b style="color:var(--bad)">読めていないデータがあります</b>：${ng.map(([k,v])=>esc(k)+'：'+esc(v.note||'')).join('／')}<br>`:'')+
+    Object.entries(D.sources||{}).filter(([,v])=>v.status==='ok').map(([k,v])=>esc(k)+'：'+esc(v.note||'')).join('<br>')+'<br>'+(D.notes||[]).map(esc).join('<br>')+
+    `<br><span class="muted">集計 ${esc(String(D.cachedAt||D.builtAt).slice(0,16).replace('T',' '))}（10分ためています）</span>`;
+  $('caTitle').textContent=`${who==='all'?'全員':who}｜${md(D.from)}〜${md(D.to)}`;
+  $('caSub').textContent=`発信 ${a.calls.toLocaleString()}件・メモと結び付いた ${a.matched.toLocaleString()}件（Bales ${a.src.bales||0}・MOCHICALL ${a.src.mochicall||0}）`;
+  $('caKpis').innerHTML=kpi('担当者接続',`${R.toLocaleString()}<small> 件</small>`,`発信の ${caPct(R,a.calls)}／メモと結び付いた発信の ${caPct(R,a.matched)}`)+
+    kpi('接続後 2分以上話せた',caPct(a.r2min,R),`${a.r2min}件／${R}件。平均通話 ${fmtDur(R?a.talkSec/R:null)}`)+
+    kpi('接続後 ヒアリングできた',caPct(a.rHear,R),`${a.rHear}件（採用の中身を1つ以上）。3項目以上は ${caPct(a.rDeep,R)}`)+
+    kpi('接続後 日程を打診できた',caPct(a.rSched,R),`${a.rSched}件。ヒアリングしたうえで打診 ${a.rHearSched}件`)+
+    kpi('メモ一致率',caPct(a.matched,a.calls),`発信のうちメモと結び付いた割合。低いと上の数字が少なく出ます`);
+  const st=[['発信',a.calls,null],['通話成立',a.ok,a.calls],['メモと結び付いた',a.matched,a.ok],['担当者接続',R,a.matched],['└ 2分以上',a.r2min,R],['└ ヒアリング',a.rHear,R],['└ 日程打診',a.rSched,R]];
+  $('caFunnel').innerHTML='<thead><tr><th>段</th><th class="r">件数</th><th class="r">率</th></tr></thead><tbody>'+st.map(([l,n,b])=>`<tr><td>${l}</td><td class="r num">${n.toLocaleString()}</td><td class="r num">${b==null?'':caPct(n,b)}</td></tr>`).join('')+'</tbody>';
+  const L=[['2分以上',a.r2min,a.r2Hear,a.r2Sched],['2分未満',a.rU2,a.rU2Hear,a.rU2Sched]];
+  $('caLen').innerHTML='<thead><tr><th>通話の長さ</th><th class="r">担当者接続</th><th class="c">ヒアリング</th><th class="c">日程打診</th></tr></thead><tbody>'+L.map(([l,n,h,s])=>`<tr><td>${l}</td><td class="r num">${n}</td><td class="cell"><b>${caPct(h,n)}</b><small>${h}件</small></td><td class="cell"><b>${caPct(s,n)}</b><small>${s}件</small></td></tr>`).join('')+'</tbody>';
+  const BL=['〜1分','1〜2分','2〜3分','3〜5分','5分〜'];
+  $('caBins').innerHTML='<thead><tr><th>担当者接続の通話の長さ</th><th class="r">件数</th><th class="r">割合</th></tr></thead><tbody>'+BL.map((l,i)=>`<tr><td>${l}</td><td class="r num">${a.durBins[i]}</td><td class="r num">${caPct(a.durBins[i],R)}</td></tr>`).join('')+'</tbody>';
+  $('caPeople').innerHTML=`<thead><tr><th>担当</th>${CA_HEAD}</tr></thead><tbody><tr class="total" data-ca="all" style="cursor:pointer"><td>全員</td>${caRowCells(D.total)}</tr>`+
+    ppl.map(([k,v])=>`<tr data-ca="${esc(k)}" style="cursor:pointer${who===k?';background:#f2f6ff':''}"><td>${esc(k)}</td>${caRowCells(v)}</tr>`).join('')+'</tbody>';
+  const months=who==='all'?D.byMonth:(D.byPersonMonth[who]||{});
+  $('caMonthSub').textContent=who==='all'?'全員':who;
+  $('caMonths').innerHTML=`<thead><tr><th>月</th>${CA_HEAD}</tr></thead><tbody>`+Object.keys(months).sort().map(m=>`<tr><td>${esc(m)}</td>${caRowCells(months[m])}</tr>`).join('')+'</tbody>';
+  const dims=Object.entries(a.dims).sort((x,y)=>y[1]-x[1]);
+  $('caDims').innerHTML='<thead><tr><th>項目</th><th class="r">件数</th><th class="r">取得率</th></tr></thead><tbody>'+(dims.map(([k,n])=>`<tr><td>${esc(k)}</td><td class="r num">${n}</td><td class="r num">${caPct(n,R)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">まだありません</td></tr>')+'</tbody>';
+  const rs=Object.entries(a.reasons).sort((x,y)=>y[1]-x[1]);
+  $('caReasons').innerHTML='<thead><tr><th>理由</th><th class="r">件数</th><th class="r">割合</th></tr></thead><tbody>'+(rs.map(([k,n])=>`<tr><td>${esc(k)}</td><td class="r num">${n}</td><td class="r num">${caPct(n,a.refusals)}</td></tr>`).join('')||'<tr><td colspan="3" class="muted">まだありません</td></tr>')+'</tbody>';
+  const ss=Object.entries(a.status).sort((x,y)=>y[1]-x[1]);
+  $('caStatus').innerHTML='<thead><tr><th>メモの内容</th><th class="r">件数</th><th class="r">割合</th></tr></thead><tbody>'+ss.map(([k,n])=>`<tr><td>${esc(k)}</td><td class="r num">${n}</td><td class="r num">${caPct(n,a.matched)}</td></tr>`).join('')+'</tbody>';
+}
 function renderPersonSel(){
   const sel=$('personSel');
-  if(state.view==='biz'){sel.style.display='none';return;}sel.style.display='';
+  if(state.view==='biz'||state.view==='call'){sel.style.display='none';return;}sel.style.display='';
   if(state.view==='sales'){sel.innerHTML=`<option value="all">セールス全体</option>`+SALES.map(p=>`<option value="${esc(p.key)}">${esc(p.name)}</option>`).join('');sel.value=state.sales;}
   else{sel.innerHTML=`<option value="all">インサイド全体</option>`+IS.map(p=>`<option value="${esc(p.sf)}">${esc(p.name)}</option>`).join('');sel.value=state.is;}
 }
@@ -957,9 +1039,9 @@ function render(){
   document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+state.view));
   document.querySelectorAll('#views a').forEach(a=>a.classList.toggle('on',a.dataset.v===state.view));
   renderPersonSel();
-  if(state.view==='biz')renderBiz();else if(state.view==='sales')renderSales();else renderIs();
+  if(state.view==='biz')renderBiz();else if(state.view==='sales')renderSales();else if(state.view==='call')renderCall();else renderIs();
 }
-function fromHash(){const h=location.hash.slice(1);let m=h.match(/^biz-(total|contrib|quality)$/);if(m){state.view='biz';state.bizTab=m[1];return;}m=h.match(/^sales-(total|contrib|ana)$/);if(m){state.view='sales';state.salesTab=m[1];return;}state.view=['biz','sales','is'].includes(h)?h:'biz';if(state.view==='biz')state.bizTab='sum';if(state.view==='sales')state.salesTab='sum';}
+function fromHash(){const h=location.hash.slice(1);let m=h.match(/^biz-(total|contrib|quality)$/);if(m){state.view='biz';state.bizTab=m[1];return;}m=h.match(/^sales-(total|contrib|ana)$/);if(m){state.view='sales';state.salesTab=m[1];return;}state.view=['biz','sales','is','call'].includes(h)?h:'biz';if(state.view==='biz')state.bizTab='sum';if(state.view==='sales')state.salesTab='sum';}
 
 $('brandSub').textContent=`${AY}年${AM}月／データ基準日 ${md(AS_OF)}（${dow(AS_OF)}）`;
 {const t=DATA.fetchedAt?new Date(DATA.fetchedAt):null;$('fetchedAt').textContent=t?`取得 ${t.getMonth()+1}/${t.getDate()} ${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}`:'';}
@@ -971,6 +1053,9 @@ $('dStage').innerHTML+=SF_ORDER.map(c=>`<option value="${c}">${c} ${SF_NAME[c]}<
 renderSettings();fromHash();render();
 window.addEventListener('hashchange',()=>{fromHash();render();window.scrollTo(0,0);});
 $('personSel').onchange=e=>{state[state.view]=e.target.value;render();};
+$('caLoad').onclick=()=>loadCall(true);
+$('caPerson').onchange=e=>{CA.person=e.target.value;renderCall();};
+$('caPeople').onclick=e=>{const tr=e.target.closest('tr[data-ca]');if(!tr)return;CA.person=tr.dataset.ca;renderCall();};
 document.body.addEventListener('click',e=>{
   const tr=e.target.closest('tr[data-sc]');if(tr){const [t,k]=tr.dataset.sc.split('|');if(t==='sales'){state.sales=k;location.hash='sales';render();}else{state.is=k;location.hash='is';render();}return;}
   const st=e.target.closest('a[data-stay]');if(st){state.dFlag='stay';state.dStatus='open';$('dFlag').value='stay';$('dStatus').value='open';setTimeout(()=>$('dealTable').scrollIntoView({behavior:'smooth'}),50);}

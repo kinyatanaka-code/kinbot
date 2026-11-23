@@ -18,6 +18,7 @@ import { zoomPhoneConfigured, zoomPhoneUsers, zoomGet } from "./zoomphone.js";
 import { dbPool, listUsers } from "./db.js";
 import { aggregateLogs, whoOf } from "./mcdashlog.js";
 import { paceRows, BREAK_MIN, RE_PRESS_SEC } from "./mcdashpace.js";
+import { loadCallAna } from "./mccallana.js";
 
 // 対象メンバー（2026-11-16 福井さん指定）。key/sf は SF の氏名（空白なし）、zoom は Zoom の表示名（空白なし）
 export const MCDASH_ROSTER = {
@@ -295,6 +296,31 @@ export function registerMcDash(app, { sfQueryAll, sfOperator, sfActor, sfInfo, r
     } catch (e) {
       console.error("[mcdash]", e);
       res.status(502).json({ error: e.message || "ダッシュボードのデータを作れませんでした", sources: e.sources || null });
+    }
+  });
+  // 架電分析（2026-11-23 福井さん）：Zoom Phone の発信×架電メモ。SF の Task を数千件読むので、同じ期間は10分ためる
+  const anaCache = new Map();   // "from|to" -> { at, data, building }
+  app.get("/api/mcdash/callana", async (req, res) => {
+    try {
+      if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+      if (!(await allowed(req))) return res.status(403).json({ error: "MOCHICA のメンバーだけが見られます" });
+      const day = (v, d) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || "")) ? String(v) : d);
+      const from = day(req.query.from, "2026-09-01"), to = day(req.query.to, todayJst());
+      if (from > to) return res.status(400).json({ error: "期間の始まりが終わりより後になっています" });
+      const key = from + "|" + to;
+      if (!anaCache.has(key) && anaCache.size >= 20) anaCache.delete(anaCache.keys().next().value);   // 期間を変えるたびに増え続けないように
+      const c = anaCache.get(key) || {}; anaCache.set(key, c);
+      const fresh = req.query.refresh === "1" && Date.now() - (c.at || 0) > 30000;
+      if (!c.data || fresh || Date.now() - c.at > 10 * 60000) {
+        if (!c.building) c.building = loadCallAna({ db: dbPool(), sfQueryAll, roster: [...MCDASH_ROSTER.is, ...MCDASH_ROSTER.sales.map((p) => ({ name: p.name, zoom: p.key }))],
+          members: await mochicaSet().catch(() => new Set()), sfOwner: async () => (await sfOperator().catch(() => "")) || (await sfActor(req)) }, { from, to })
+          .then((d) => { c.data = d; c.at = Date.now(); return d; }).finally(() => { c.building = null; });
+        await c.building;
+      }
+      res.set("cache-control", "no-store").json({ ...c.data, cachedAt: new Date(c.at).toISOString() });
+    } catch (e) {
+      console.error("[mcdash] 架電分析", e);
+      res.status(502).json({ error: "架電分析を作れませんでした：" + (e.message || e) });
     }
   });
 }
