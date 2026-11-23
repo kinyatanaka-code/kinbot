@@ -135,6 +135,12 @@
   .bl-lc.mem.none{border-style:dashed;} .bl-lc.mem.none .av{background:#F1F4F4;color:#6B7C80;}
   .bl-apo{font-size:11.5px;font-weight:700;color:#5C7377;display:inline-flex;gap:4px;align-items:baseline;} .bl-apo b{font-size:13.5px;color:#C2410C;} .bl-apo small{font-size:10.5px;color:#8AA0A3;font-weight:600;}
   .bl-srcs-l button i{font-style:normal;font-size:11px;font-weight:800;color:#C2410C;min-width:40px;text-align:right;}
+  .bl-lc.msrc{grid-column:1/-1;} .bl-msrc-hd,.bl-msrc-l button{display:grid;grid-template-columns:minmax(0,1fr) 90px 90px 80px;gap:8px;align-items:center;}
+  .bl-msrc-hw{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;} .bl-msrc-hd{font-size:11px;font-weight:700;color:#5C7377;padding:2px 8px;border-bottom:1px solid #E3F0F2;} .bl-msrc-hd span:not(:first-child){text-align:right;}
+  .bl-msrc-l{width:100%;max-height:420px;overflow:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;}
+  @media (max-width:900px){.bl-msrc-hw,.bl-msrc-l{grid-template-columns:1fr;} .bl-msrc-hw .bl-msrc-hd:nth-child(2){display:none;}}
+  .bl-msrc-l button{border:0;border-bottom:1px solid #F1F6F7;background:transparent;font:inherit;font-size:12.5px;color:#0F3D44;padding:5px 8px;border-radius:6px;cursor:pointer;text-align:left;} .bl-msrc-l button:hover{background:#DDF5F7;}
+  .bl-msrc-l button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .bl-msrc-l button em{font-style:normal;font-weight:800;color:#0B6E78;text-align:right;} .bl-msrc-l button em.nur{color:#1d9e75;} .bl-msrc-l button i{font-style:normal;font-weight:800;color:#C2410C;text-align:right;}
   .bl-lc-k{font-size:10.5px;font-weight:800;color:#0B6E78;background:#DDF5F7;border-radius:999px;padding:1px 8px;} .bl-lc.src{border-color:#CFE6EA;}
   .bl-thf{border:0;background:transparent;color:#9AB0B3;cursor:pointer;margin-left:4px;padding:3px;border-radius:6px;vertical-align:middle;line-height:0;} .bl-thf:hover{background:#DDF5F7;color:#0B6E78;} .bl-thf.on{background:#0E9AA7;color:#fff;}
   .bl-thpop{position:absolute;z-index:60;min-width:200px;background:#fff;border:1px solid #CFE6EA;border-radius:12px;box-shadow:0 10px 28px rgba(15,61,68,.16);padding:6px;display:flex;flex-direction:column;}
