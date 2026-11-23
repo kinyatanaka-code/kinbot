@@ -13124,6 +13124,8 @@ export const BALES_STG = {
   recycle: `(${BST} ~ 'リサイクル' AND ${BST} !~ 'アーカイブ')`,
   nurture: `(${BST} !~ '(アーカイブ|リサイクル)' AND (${BST} ~ 'ジャッジ' OR ${BCR} ~ '(営業フォロー|資料送付)'))`,
   active: `${BST} !~ '(アーカイブ|リサイクル)'`,
+  // かけるリスト：残りの架け先のうちナーチャリング以外（かける・ナーチャリング・リサイクル・アーカイブで全部になる）（2026-11-23 田中さん）
+  call: `(${BST} !~ '(アーカイブ|リサイクル)' AND NOT (${BST} ~ 'ジャッジ' OR ${BCR} ~ '(営業フォロー|資料送付)'))`,
 };
 // アポ率（2026-11-23 田中さん「それぞれのリストのアポ率も」）：アポ＝最終架電結果がアポ獲得のリードだけ（立ち上げ済み＝コンバートは数えない：2026-11-23 田中さん）。
 //   分母＝架電したリード（最終架電結果があるもの）。未架電は入れない
@@ -13220,10 +13222,10 @@ export async function mcBalesBlankCount(listKey, col, { stg = "", full = false }
   return full ? { n: Number(x.n), ...apoOf(x) } : Number(x.n);
 }
 // ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）
-export async function mcBalesStages(listKey) {
+export async function mcBalesStages(listKey, { col = "", val = null } = {}) {
   if (!pool) return {}; await ensureMcBales();
   const sel = Object.entries(BALES_STG).map(([k, c]) => { const cc = c.replace(/data->>/g, "r.data->>"); return `count(*) FILTER (WHERE ${cc}) AS ${k}, count(*) FILTER (WHERE ${cc} AND ${BAPO}) AS ${k}_apo, count(*) FILTER (WHERE ${cc} AND ${BCALLED}) AS ${k}_called`; }).join(", ") + `, count(*) FILTER (WHERE ${BAPO}) AS total_apo, count(*) FILTER (WHERE ${BCALLED}) AS total_called`;
-  const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL`, [listKey])).rows[0] || {};
+  const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL${col && val != null ? ` AND COALESCE(r.data->>$2,'') = $3` : ""}`, col && val != null ? [listKey, String(col).slice(0, 80), String(val)] : [listKey])).rows[0] || {};
   return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
 }
 // Bales のリストを消す（画面の「消す」から。リストと、その行を全部）（2026-11-15 田中さん「消せるように」）
