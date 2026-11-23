@@ -1055,7 +1055,7 @@ async function loadRecallStatus() {
 // ===== メンバー管理 =====
 // ここが唯一の登録元。保存すると closer_rotation / interns / rep_team_mapping へ同期される。
 const ROLE_LABEL = { closer: "クローザー", inside: "インサイド", fallback: "予備", cs: "CS",
-  kincall: "kincallだけ" };
+  kincall: "kincallだけ（DOC）", mochicall: "MOCHICALLだけ" };   // MOCHICA のインターンは MOCHICALL だけ（2026-11-23 田中さん「kincall は DOC だけ」）
 // 姓の自動判定（サーバー側と同じ規則）。表示用。
 const THREE_CHAR_SURNAMES = ["佐々木","長谷川","小野寺","久保田","佐久間","五十嵐","小早川","大河原",
   "宇佐美","小笠原","阿久津","長谷部","八木橋","宇都宮","喜多村","小田切","西園寺","早乙女"];
@@ -1166,6 +1166,7 @@ function mbRender() {
            ${(m.businesses.length ? m.businesses : [""]).map((b) => `<span class="mb-tag-label">${b ? b + " の役割" : "役割"}</span>
            ${BIZ_ROLE_KEYS.map((r) => `<label class="mb-chk mb-chk-${r}"><input type="checkbox" class="mb-role" data-b="${b}" data-v="${r}" ${mbRolesFor(m, b).includes(r) ? "checked" : ""} /> ${ROLE_LABEL[r]}</label>`).join("")}`).join("")}
            <label class="mb-chk mb-chk-kincall"><input type="checkbox" class="mb-role" data-b="" data-v="kincall" ${m.roles.includes("kincall") ? "checked" : ""} /> ${ROLE_LABEL.kincall}</label>
+           <label class="mb-chk mb-chk-mochicall"><input type="checkbox" class="mb-role" data-b="" data-v="mochicall" ${m.roles.includes("mochicall") ? "checked" : ""} /> ${ROLE_LABEL.mochicall}</label>
            <label class="mb-chk">1日上限 <input type="number" class="mb-cap" min="1" max="20" placeholder="なし" value="${m.daily_cap || ""}" /> 件</label>
            <label class="mb-chk"><input type="checkbox" class="mb-active" ${m.active === false ? "" : "checked"} /> 在籍中</label>
            <button type="button" class="btn ghost mb-sig">署名</button>
@@ -1321,7 +1322,7 @@ function mbRender() {
         c.type = "button";
         c.className = "mb-card" + (m.active === false ? " mb-off" : "");
         const gr = mbRolesFor(m, GK_BIZ[g.k]);
-        const roles = Object.keys(ROLE_LABEL).filter((r) => r === "kincall" ? m.roles.includes(r) : gr.includes(r));
+        const roles = Object.keys(ROLE_LABEL).filter((r) => r === "kincall" || r === "mochicall" ? m.roles.includes(r) : gr.includes(r));
         const both = m.businesses.includes("DOC") && m.businesses.includes("MOCHICA");
         c.innerHTML = `<span class="mb-card-top"><span class="mb-av">${mbEsc(String(m.name || m.email || "?").trim().charAt(0))}</span>
             <span class="mb-card-nm"><b>${mbEsc(m.name || "(名前なし)")}</b><small>${mbEsc(m.team || "チームなし")}</small></span>

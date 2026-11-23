@@ -906,6 +906,7 @@ label.iv-row { cursor: pointer; }
 .mb-rc-inside { background: #FBF1DC; color: #8A6A1F; }
 .mb-rc-fallback { background: #E6EDF8; color: #3A5C9A; }
 .mb-rc-cs { background: #F5E6F1; color: #8A3A7A; }
+.mb-rc-mochicall { background: #DDF2F4; color: #0B6E78; }
 .mb-rc-both { background: #fff; border: 1px dashed var(--gl); color: var(--muted); }
 .mb-rc-none { background: #FFF1E6; color: #A2480C; }
 .mb-grp-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; }

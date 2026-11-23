@@ -8616,9 +8616,10 @@ export async function knowledgeForKasasagi(limit = 40) {
 
 // ===== メンバー管理 =====
 // 役割: closer（クローザー）／inside（インサイド＝アポ獲得）／fallback（予備）／cs（CS＝カスタマーサクセス）
-// kincall だけ … kincall以外の画面に入れない人（インターン生など）
+// kincall だけ … kincall以外の画面に入れない人（DOC のインターン生など）
+// mochicall … MOCHICALL（SHOBO の架電）だけを使う人（MOCHICA のインターン生）（2026-11-23 田中さん「kincall は DOC だけだから、MOCHICALL だけを入れて」）
 // cs … CS連携（回収MTG）の担当になれる人。割り振り・均等化には入らない
-export const MEMBER_ROLES = ["closer", "inside", "fallback", "cs", "kincall"];
+export const MEMBER_ROLES = ["closer", "inside", "fallback", "cs", "kincall", "mochicall"];
 export const MEMBER_BUSINESSES = ["DOC", "MOCHICA"];
 
 function normRoles(v) {
