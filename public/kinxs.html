@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261124k" />
+    <link rel="stylesheet" href="style.css?v=20261124l" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1322,6 +1322,13 @@
      画面の高さに収めるので、要アクションは中身の高さまで、担当企業は残り（少なくとも260px）。それぞれの中は巻き取れる */
   /*   要アクションでタスクなどを開いても担当企業が隠れないよう、要アクションは高くても左の列の半分ほどまで（2026-11-24 田中さん「開くと下が見えなくなる」）。中身はカードの中で巻き取る */
   .h2-left{display:grid;grid-template-rows:fit-content(52%) minmax(0,1fr);gap:12px;min-height:0;min-width:0;}
+  /* 並び（2026-11-24 田中さん「これからの更新と情報不足を下に、担当企業を右側に」）：
+     上の段＝要アクション｜担当企業、下の段＝これからの更新｜情報不足。左右の列の囲いはほどいて、4枚を2×2に置く */
+  #kh2 .h2-row{grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;grid-template-areas:"act mine" "ren miss";}
+  #kh2 .h2-left,#kh2 .h2-side{display:contents;}
+  #kh2 .h2-act{grid-area:act;} #kh2 .h2-mine{grid-area:mine;} #kh2 .h2-ren{grid-area:ren;} #kh2 .h2-miss{grid-area:miss;}
+  #kh2 .h2-ren,#kh2 .h2-miss{max-height:34vh;overflow:auto;}
+  @media (max-width:1100px){ #kh2 .h2-row{grid-template-columns:1fr;grid-template-rows:none;grid-template-areas:"act" "mine" "ren" "miss";} }
   .h2-left > .h2-act{overflow:hidden;}
   .h2-left > .h2-act > .h2-list,.h2-left > .h2-act > .h2-tk{flex:1;min-height:0;overflow-y:auto;}
   .h2-mine{display:flex;flex-direction:column;min-height:0;overflow:hidden;}
@@ -1509,7 +1516,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124k" defer></script>
-    <script src="kinxs.js?v=20261124k"></script>
+    <script src="kbchat.js?v=20261124l" defer></script>
+    <script src="kinxs.js?v=20261124l"></script>
   </body>
 </html>
