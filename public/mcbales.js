@@ -3,6 +3,8 @@
 //   左：リストのカード（名前・件数・取り込んだ日時・取り込み中の進み具合）／右：選んだリストの会社の表（検索・絞り込み・CSV）
 // 「見張り（架電の記録）」のカードは一旦出さない（2026-11-23 田中さん「一旦非表示で」）。取り込み自体は止めていない。また出すときは true に
 const SHOW_FEEDS = false;
+// ステージ別の箱（サーバーの BALES_STG と同じ印）
+const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
 (function () {
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -37,7 +39,7 @@ const SHOW_FEEDS = false;
   let feeds = [], fday = "", wdiag = null, diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
   // 画面の形：「リスト管理」の一覧（カード）→ 押すとそのリストの表（2026-11-22 田中さん：ホワイトボードの絵のとおり）
   //   home＝全てのリード・メンバー別・見張りのカード／list＝1つのリスト（メンバーのカードは、そのリストを所有者で絞ったもの）
-  let mode = "home", memberF = "", members = null, memPick = null, srcF = "";   // srcF：リードの出どころで絞ったリスト（2026-11-23）
+  let mode = "home", memberF = "", members = null, memPick = null, srcF = "", stgF = "";   // stgF：ステージ別（nurture・recycle・archive）   // srcF：リードの出どころで絞ったリスト（2026-11-23）
   let hotF = "", hotSort = false, crF = "", ownF = "", sfF = "";   // 所有者・SF の絞り込み（2026-11-22）
   // 架電結果：MOCHICALL（SF）と同じ8つにそろえる（サーバーの BALES_CR と同じ）（2026-11-22 田中さん）。
   //   担当者接触ニーズなし→お断り、資料送付→営業フォロー。空・どれにも当たらないものは「-」（当たらない結果は最終活動コメントの頭に出す）
@@ -83,7 +85,7 @@ const SHOW_FEEDS = false;
     const sb = h.querySelector("[data-sf]"); if (sb && !sb.disabled) sb.textContent = l.sf_info ? "SF と結び直す" : "SF と結びつける";
   }
   // 一覧へ戻る。ブラウザの「戻る」でも戻れるよう、リストを開くときに履歴を1つ足しておく（2026-11-22 田中さん「戻れるように」）
-  function goHome(fromPop) { if (!fromPop && history.state && history.state.blList) { history.back(); return; } mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; page = 0; draw(); window.scrollTo(0, 0); }
+  function goHome(fromPop) { if (!fromPop && history.state && history.state.blList) { history.back(); return; } mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
   function openList() { try { history.pushState({ blList: 1 }, "", location.href); } catch {} draw(); window.scrollTo(0, 0); }
   window.addEventListener("popstate", () => { if (mode === "list") goHome(true); });
   function draw() {
@@ -106,14 +108,19 @@ const SHOW_FEEDS = false;
       ${run.map((l) => `<div class="bl-run"><b>取り込み中</b><small>${esc(l.name)} ・ ${Number(l.got || 0).toLocaleString()}${l.total ? ` / ${Number(l.total).toLocaleString()}` : ""}件</small><div class="bl-bar"><i style="width:${l.total ? Math.min(100, Math.round(l.got / l.total * 100)) : 30}%"></i></div></div>`).join("")}
       <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number(l.count || 0).toLocaleString()}<small>件</small></span>${hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}</div>
       <div class="bl-lgrid" data-srcs style="margin-top:10px"></div>
+      <div class="bl-home-h sub"><h3>ステージ別</h3></div>
+      <div class="bl-lgrid" data-stgs>${STG.map(([k, l, d]) => `<button type="button" class="bl-lc stg ${k}" data-stg="${k}"><b>${l}</b><span class="n" data-stg-n="${k}">…<small>件</small></span><small>${d}</small></button>`).join("")}</div>
       <div class="bl-home-h sub"><h3>メンバー別</h3><button type="button" class="bl-add" data-addmem ${oc ? "" : "disabled"}>${PLUS}メンバー追加</button></div>
       <div class="bl-lgrid" data-mems>${oc ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="mc-note">リストに「所有者」の列が無いので、メンバー別に分けられません。</div>'}</div>
       ${SHOW_FEEDS && feeds.length ? `<div class="bl-home-h sub"><h3>見張り（架電の記録）</h3></div><div class="bl-lgrid">${feeds.map((f) => `<button type="button" class="bl-lc" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><span class="n">${Number(f.total || 0).toLocaleString()}<small>件</small></span><small>${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("")}</div>` : ""}
       ${lists.length ? "" : diagHtml()}</div>`;
-    root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; mode = "list"; memberF = ""; q = ""; fcol = ""; fval = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; page = 0; openList(); }));
+    root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; mode = "list"; memberF = ""; q = ""; fcol = ""; fval = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; openList(); }));
     root.querySelector("[data-addlist]").addEventListener("click", () => sheet(`<h3 class="bl-sh-t">リストを追加する</h3>
       <p class="mc-note" style="line-height:1.8">1. Bales の<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>を開き、取り込みたいリスト（絞り込み）にします。<br>2. 右下の「kinbot に取り込む」→「全部取り込む」を押します。<br>3. 取り込みが終わると、この画面にカードが増えます。</p>
       <p class="mc-note">拡張機能 kinbot-ext（2.2.3 以上）が要ります。</p>`));
+    // ステージ別の件数と、押したときの表（2026-11-23 田中さん「ナーチャリング、リサイクル、アーカイブの箱を」）
+    root.querySelectorAll("[data-stg]").forEach((b) => b.addEventListener("click", () => { if (!m0) return; cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = b.dataset.stg; page = 0; openList(); }));
+    if (m0) api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/stages`).then((d) => { for (const [k] of STG) { const el = root.querySelector(`[data-stg-n="${k}"]`); if (el) el.innerHTML = `${Number(d[k] || 0).toLocaleString()}<small>件</small>`; } }).catch(() => {});
     // リードの出どころごとのリスト（「すべてのリード」の隣に並べる）（2026-11-23 田中さん「リードのでどころでリスト作って」）
     if (m0) api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/sources`).then((d) => {
       const sb = root.querySelector("[data-srcs]"); if (!sb || !root.isConnected) return; const it = d.items || []; if (!it.length) { sb.remove(); return; }
@@ -124,17 +131,19 @@ const SHOW_FEEDS = false;
         <div class="bl-srcs-l">${it.map((v) => `<button type="button" data-src="${esc(v.v)}"><span>${esc(v.v === "-" ? "リードソースなし" : v.v)}</span><em>${Number(v.n || 0).toLocaleString()}</em></button>`).join("")}</div>
         <small>${esc(m0.name || "")} から・押すとそのリードの表</small></div>`);
       if (host !== sb) sb.remove();
-      host.querySelectorAll("[data-src]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = b.dataset.src; page = 0; openList(); }));
+      host.querySelectorAll("[data-src]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; stgF = ""; srcF = b.dataset.src; page = 0; openList(); }));
     }).catch(() => {});
     if (!oc || !m0) return;
     // メンバー別：所有者ごとの件数。表示するメンバーは「リスト追加」で選んだ人（まだ選んでいなければ全員）
     let vals = []; try { vals = (await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}`)).items || []; } catch {}
+    // 残りの架け先：リサイクル・アーカイブにしていない件数（2026-11-23 田中さん）
+    let act = new Map(); try { act = new Map(((await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&stg=active`)).items || []).map((v) => [v.v, v.n])); } catch {}
     if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
     const box = root.querySelector("[data-mems]"); if (!box || !root.isConnected) return;
     const shown = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
-    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="n">${Number(v.n || 0).toLocaleString()}<small>件</small></span><small>${esc(m0.name || "")} から</small>${Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
+    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span><small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
       : '<div class="mc-note">所有者の入ったリードがありません。</div>';
-    box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { cur = m0.list_key; mode = "list"; memberF = el.dataset.mem; fcol = oc; fval = memberF; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; page = 0; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
+    box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { cur = m0.list_key; mode = "list"; memberF = el.dataset.mem; fcol = oc; fval = memberF; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     box.querySelectorAll("[data-mx]").forEach((b) => b.addEventListener("click", async (e) => { e.stopPropagation(); members = (members || []).filter((x) => x !== b.dataset.mx); try { await api("/api/mochica/bales/members", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); } catch {} home(root); }));
     // 「メンバー追加」：所有者のなかから、カードにする人を選ぶ（2026-11-22 田中さん「メンバー追加にしてほしい」）
     const am = root.querySelector("[data-addmem]");
@@ -196,12 +205,12 @@ const SHOW_FEEDS = false;
     const ownOpts = !memberF && oc ? api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/values?col=${encodeURIComponent(oc)}`).then((d) => d.items || []).catch(() => []) : Promise.resolve([]);
     const sfOpts = api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/sf-values`).catch(() => null);
     const cols = pickCols(l.cols, cur, l.view); const coCol = cols.find((c) => c.label === "会社名"); const stCol = memberF ? null : cols.find((c) => /ステータス|ステージ/.test(c.label) && !c.key.includes("[]"));   // メンバーで絞っているときは、所有者の絞り込みと重ならないよう出さない
-    let r; try { r = await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/rows?q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}&offset=${page * PER}&limit=${PER}&hot=${encodeURIComponent(hotF)}&sort=${hotSort ? "hot" : ""}&cr=${encodeURIComponent(crF)}${ownQ}&sf=${encodeURIComponent(sfF)}&src=${encodeURIComponent(srcF)}`); } catch (e) { box.innerHTML = `<div class="mc-note">読めませんでした：${esc(e.message)}</div>`; return; }
+    let r; try { r = await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/rows?q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}&offset=${page * PER}&limit=${PER}&hot=${encodeURIComponent(hotF)}&sort=${hotSort ? "hot" : ""}&cr=${encodeURIComponent(crF)}${ownQ}&sf=${encodeURIComponent(sfF)}&src=${encodeURIComponent(srcF)}&stg=${encodeURIComponent(stgF)}`); } catch (e) { box.innerHTML = `<div class="mc-note">読めませんでした：${esc(e.message)}</div>`; return; }
     if ($("blMain") !== box) return;
     let vals = []; if (stCol) { try { vals = (await api(`/api/mochica/bales/lists/${encodeURIComponent(cur)}/values?col=${encodeURIComponent(stCol.key)}`)).items || []; } catch {} }
     const diff = l.prev_count != null && l.status !== "running" ? l.count - l.prev_count : null;
     const hasMt = (d) => coCol && mtCos && mtCos.get(coNorm(valOf(d, coCol.key)));
-    const csvQ = `q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}&hot=${encodeURIComponent(hotF)}&sort=${hotSort ? "hot" : ""}&cr=${encodeURIComponent(crF)}${ownQ}&sf=${encodeURIComponent(sfF)}&src=${encodeURIComponent(srcF)}`;
+    const csvQ = `q=${encodeURIComponent(q)}&col=${encodeURIComponent(fcol)}&val=${encodeURIComponent(fval)}&hot=${encodeURIComponent(hotF)}&sort=${hotSort ? "hot" : ""}&cr=${encodeURIComponent(crF)}${ownQ}&sf=${encodeURIComponent(sfF)}&src=${encodeURIComponent(srcF)}&stg=${encodeURIComponent(stgF)}`;
     const hn = l.hot_n || {}; void hn; void diff;
     const ownList = await ownOpts; const sv = await sfOpts;
     const sfList = sv ? [["open", "商談あり：進行中", sv.open], ["won", "商談あり：受注", sv.won], ["lost", "商談あり：失注", sv.lost], ...(sv.leads || []).map((x) => [`lead:${x.v}`, `リード：${x.v}`, x.n]), ["none", "SF に無い", sv.none]].filter((x) => x[2] > 0 || x[0] === sfF) : [];
@@ -248,7 +257,7 @@ const SHOW_FEEDS = false;
       tcols = ORDER.map((lb) => (lb === "__cr" ? CR_COL : cols.find((c) => c.label === lb))).filter(Boolean);
       if (tcols.length <= 1) tcols = [...cols, CR_COL];   // Bales の見出しが違う形のときは、今までの列のまま
     } else { const i = cols.findIndex((c) => c.label === "最終活動日"); tcols = i >= 0 ? [...cols.slice(0, i + 1), CR_COL, ...cols.slice(i + 1)] : [...cols, CR_COL]; }
-    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)} <small style="font-size:12px;font-weight:600">（SFリードソース・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
+    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])} <small style="font-size:12px;font-weight:600">（ステージ別・${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)} <small style="font-size:12px;font-weight:600">（SFリードソース・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         </div>
       <div class="bl-sfst" data-sfst></div>
       <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>

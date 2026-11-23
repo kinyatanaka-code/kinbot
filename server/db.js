@@ -13109,9 +13109,20 @@ export const BALES_CR = [
   ["コールのみ", "^\\s*コールのみ\\s*$"],
   ["問い合わせ", "^\\s*問い合わせ\\s*$"],
 ];
+// ステージ別（2026-11-23 田中さん）：Bales のリードステージ（lastLeadStageName）と最終架電結果から3つに分ける。
+//   アーカイブ＝ステージに「アーカイブ」、リサイクル＝ステージに「リサイクル」、
+//   ナーチャリング＝その2つ以外で、ステージが「ジャッジ」か、最終架電結果が営業フォロー・資料送付（「ジャッジや営業フォロー、資料送付などはナーチャリング」）
+//   残りの架け先（active）＝リサイクルにもアーカイブにもしていないもの
+const BST = `COALESCE(data->>'lastLeadStageName','')`, BCR = `COALESCE(data->>'callResult','')`;
+export const BALES_STG = {
+  archive: `${BST} ~ 'アーカイブ'`,
+  recycle: `(${BST} ~ 'リサイクル' AND ${BST} !~ 'アーカイブ')`,
+  nurture: `(${BST} !~ '(アーカイブ|リサイクル)' AND (${BST} ~ 'ジャッジ' OR ${BCR} ~ '(営業フォロー|資料送付)'))`,
+  active: `${BST} !~ '(アーカイブ|リサイクル)'`,
+};
 export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");
 export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
-export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "" } = {}) {
+export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   const w = [`list_key=$1`, `run_at=$2`]; const p = [listKey, l.run_at];
@@ -13133,6 +13144,7 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   };
   const sfW = many(sf).map(sfCond).filter(Boolean); if (sfW.length) w.push(`(${sfW.join(" OR ")})`);
   //   リードの出どころ（Bales の leadSources。1件に複数あり、平らにして leadSources.0.name〜4.name に入っている）（2026-11-23 田中さん「リードのでどころでリスト作って」）
+  if (Object.hasOwn(BALES_STG, stg)) w.push(BALES_STG[stg]);
   const srcs = many(src); if (srcs.length) { const sw = []; const names = srcs.filter((x) => x !== "-");
     if (names.length) { p.push(names); sw.push(`ARRAY[${BALES_SRC_COLS}] && $${p.length}::text[]`); }
     if (srcs.includes("-")) sw.push(`COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS}], ''), '') = ''`);
@@ -13176,10 +13188,19 @@ export async function mcBalesSources(listKey) {
   const none = Number((await pool.query(`SELECT count(*) AS n ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, [listKey])).rows[0].n);
   return none ? [...named, { v: "-", n: none }] : named;
 }
-export async function mcBalesValues(listKey, col) {
+export async function mcBalesValues(listKey, col, { stg = "" } = {}) {
   if (!pool) return []; await ensureMcBales();
+  // stg（ステージ別）を付けると、その分だけ数える（メンバー別の「残りの架け先」＝active）
+  const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
   return (await pool.query(`SELECT r.data->>$2 AS v, count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
-    WHERE r.list_key=$1 AND COALESCE(r.data->>$2,'') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+    WHERE r.list_key=$1 AND COALESCE(r.data->>$2,'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+}
+// ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）
+export async function mcBalesStages(listKey) {
+  if (!pool) return {}; await ensureMcBales();
+  const sel = Object.entries(BALES_STG).map(([k, c]) => `count(*) FILTER (WHERE ${c.replace(/data->>/g, "r.data->>")}) AS ${k}`).join(", ");
+  const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1`, [listKey])).rows[0] || {};
+  return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
 }
 // Bales のリストを消す（画面の「消す」から。リストと、その行を全部）（2026-11-15 田中さん「消せるように」）
 export async function mcBalesDelete(listKey) {
