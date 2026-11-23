@@ -243,7 +243,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
         tb.insertAdjacentHTML("beforeend", `<span class="bl-apo" title="これまでのアポ率（リードソース・過去失注かどうか・ホット度ごと）から出した見込み">見込みアポ率 <b>${(Number(t.exp || 0) * 100).toFixed(1)}%</b><small>今日かけた ${Number(t.called_today || 0).toLocaleString()}</small></span>`
           + `<span class="bl-tdbd" title="予定＝次回アクション日が今日以前">${bd.map(([a, n]) => `<i class="${Number(n || 0) ? "" : "z"}"><span>${a}</span><em>${Number(n || 0).toLocaleString()}</em></i>`).join("")}</span>`
           + `<span class="bl-tdht">${HOTS.map(([k, l2]) => `<i class="${k}"><span><b class="bl-hdot ${k}"></b>${l2}</span><em>${Number((t.hot || {})[k] || 0).toLocaleString()}</em></i>`).join("")}</span>`
-          + (t.cold_left ? `<small class="bl-tdnote">ホット・ウォームで埋め、コールド ${Number(t.cold_left).toLocaleString()}件は入れていません（予定のナーチャリングは入れます）</small>` : "")); };
+          + (t.cold_left ? `<small class="bl-tdnote">ホット・ウォームを先に入れ、コールドは100件に届かない分だけ足しています（入れていないコールド ${Number(t.cold_left).toLocaleString()}件）</small>` : "")); };
       api(tq).then(showToday).catch(() => { if (tb && tb.isConnected) { tb.querySelector(".n").textContent = "-"; const x = tb.querySelector("[data-tst]"); if (x) x.textContent = "作れませんでした。もう一度開いてください"; } });
       tb?.querySelector("[data-rb]")?.addEventListener("click", (e) => { e.stopPropagation(); if (!confirm("今日かけるリストを、今のデータで作り直しますか？（今日の中身が入れ替わります）")) return;
         tb.querySelector(".n").textContent = "…"; tb.querySelectorAll(".bl-apo, .bl-tdbd, .bl-tdht, .bl-tdnote, [data-tst]").forEach((x) => x.remove()); tb.insertAdjacentHTML("beforeend", "<small data-tst>作っています…</small>");

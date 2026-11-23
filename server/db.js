@@ -13323,8 +13323,8 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 //   （2026-11-23 田中さん「予定は次回アクション日が、その日以前で設定されているリード」。①②の中は予定日の新しい順）
 //   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、高い順に埋める
 //   （はじめは3%に寄せて混ぜていたが、2026-11-23 田中さん「150件の中で MAX のアポ率に」で高い順に変えた）
-export const BALES_TODAY_N = 150;
-const BALES_TODAY_V = 4;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
+export const BALES_TODAY_N = 150, BALES_TODAY_MIN = 100;   // 多くて150件・少なくとも100件
+const BALES_TODAY_V = 5;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 let _mcTodayInit = false;
 async function ensureMcToday() {
@@ -13361,15 +13361,18 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
   // 並べ方（2026-11-23 田中さん「コールドは無理に入れなくて良い。基本ホット→ウォーム→コールドの順で」）：
   //   ① ナーチャリングで次回アクション日が今日以前 … ホット度に関係なく入れる（約束した掛け直しのため）。ホット→ウォーム→コールドの順
   //   ② 残りの枠はホット→ウォームだけ。同じホット度の中は「次回アクション日が今日以前」→ 見込みアポ率の高い順
-  //   コールド（判定前も含む）は②に入れない。足りなければ150件に満たなくてよい
+  //   コールド（判定前も含む）は②に入れない。足りなければ150件に満たなくてよい（ただし③で100件までは埋める）
   const byDue = (a, b) => b.h - a.h || b.nd.localeCompare(a.nd) || b.p - a.p;
   const pri = L.filter((x) => x.nur && x.due).sort(byDue).slice(0, N);
   const used = new Set(pri.map((x) => x.k)); const need = N - pri.length;
-  const pick = need > 0 ? L.filter((x) => !used.has(x.k) && x.h >= 2).sort((a, b) => b.h - a.h || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.p - a.p || a.lc - b.lc).slice(0, need) : [];
+  const ord = (a, b) => b.h - a.h || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.p - a.p || a.lc - b.lc;
+  const pick = need > 0 ? L.filter((x) => !used.has(x.k) && x.h >= 2).sort(ord).slice(0, need) : [];
+  //   ③ それでも100件に届かなければ、コールドを「予定あり→見込みアポ率の高い順」で100件まで足す（2026-11-23 田中さん「最低でも100件は入っていてほしい」）
+  if (pri.length + pick.length < BALES_TODAY_MIN) { const u2 = new Set([...used, ...pick.map((x) => x.k)]); pick.push(...L.filter((x) => !u2.has(x.k)).sort(ord).slice(0, BALES_TODAY_MIN - pri.length - pick.length)); }
   const out = [...pri, ...pick];
   const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, due_nurture: pri.length, due_other: pick.filter((x) => x.due).length,
     pastlost: pick.filter((x) => !x.due && x.pl).length, newlist: pick.filter((x) => !x.due && !x.pl).length, pool: L.length,
-    cold_left: L.filter((x) => !used.has(x.k) && x.h < 2).length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける。cold_left＝入れなかったコールド
+    cold_left: L.filter((x) => !used.has(x.k) && x.h < 2).length - pick.filter((x) => x.h < 2).length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける。cold_left＝入れなかったコールド
   return { keys: out.map((x) => x.k), info };
 }
 // その人の今日のリスト（無ければ作る。rebuild で作り直す）
