@@ -1628,7 +1628,19 @@ export function registerMcCall(app, deps) {
       const v = foldPersonName(await todayOwnerOf(e, bm)); if (!v) continue;
       byOwner.set(v, [...(byOwner.get(v) || []), e]);
     }
+    // まだ kinbot にログインしていないインターン（2026-11-24 朝の時点で8名とも未ログイン・名簿のメール未登録）にも渡せるよう、
+    //   Bales の行にある所有者本人のメール（次の予定の担当者の欄）でも引く。名簿のインサイドに名前が当たる所有者だけ。
+    //   本人がそのメールでログインすれば、担当が本人のまま「かける」に出る
+    const mailCnt = new Map();
+    for (const x of (await P().query(`SELECT d->>('nextActions.' || i || '.owner.name') AS n, lower(d->>('nextActions.' || i || '.owner.email')) AS e, count(*)::int AS c
+        FROM (SELECT data AS d FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2) t, generate_series(0, 9) i
+        WHERE d->>('nextActions.' || i || '.owner.email') LIKE '%@%' GROUP BY 1, 2`, [bm.listKey, lst.run_at])).rows) {
+      const k = foldPersonName(x.n); if (!k || !rosterHit(x.n, MCDASH_ROSTER.is)) continue;
+      const m = mailCnt.get(k) || new Map(); m.set(x.e, (m.get(x.e) || 0) + x.c); mailCnt.set(k, m);
+    }
+    for (const [k, m] of mailCnt) if (!byOwner.has(k)) byOwner.set(k, [...m.keys()]);
     const names = await nameMap();
+    for (const [k, m] of mailCnt) for (const e of m.keys()) if (!names.has(e)) names.set(e, `${[...MCDASH_ROSTER.is].find((p) => foldPersonName(p.sf) === k)?.sf || k}（未ログイン）`);
     const now = Date.now();
     const nextOf = (d) => { let t = null; for (let i = 0; i < 50; i++) { if (d[`nextActions.${i}.id`] == null && d[`nextActions.${i}.reservedAt`] == null) break;
       if (String(d[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(d[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; }
