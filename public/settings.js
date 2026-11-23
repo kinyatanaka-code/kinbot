@@ -1137,7 +1137,10 @@ function mbRender() {
   // チーム名の候補
   let dl = document.getElementById("mbTeamList");
   if (!dl) { dl = document.createElement("datalist"); dl.id = "mbTeamList"; document.body.appendChild(dl); }
-  const teamNames = [...new Set(mbState.members.map((m) => (m.team || "").trim()).filter(Boolean))];
+  // MOCHICA は IS と FS の組（餌取チーム・齊藤チーム）で動く。まだだれにも入れていなくても選べるよう、先に出しておく
+  //   （server/mcteam.js は「チーム」の有無や齊／斎の違いをそろえて同じチームとして扱う）（2026-11-23 福井さん）
+  const MOCHICA_TEAMS = ["餌取チーム", "齊藤チーム"];
+  const teamNames = [...new Set([...MOCHICA_TEAMS, ...mbState.members.map((m) => (m.team || "").trim()).filter(Boolean)])];
   dl.innerHTML = teamNames.map((t) => `<option value="${mbEsc(t)}"></option>`).join("");
 
   // 未登録の候補をメールの入力補完に出す

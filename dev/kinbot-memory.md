@@ -2955,3 +2955,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-23 田中さん「この辺も見づらい」：今日かけるリストのカードの内訳を1行1つ（右に件数・0は薄く）、ホット度を3つの箱に。
 - 2026-11-23 BUILD_TAG=2026-11-23noimp 福井さん「他メンバーとして操作をSHOBOでは廃止」。mochica.js の mcImpSetup からサイドバーの切りかえボタン（#mcImpBtn）と選ぶ窓（#mcImpPicker）を消した。kinbot（DOC）の nav.js・kinXs・/api/impersonate はそのまま。kinbot で切りかえたまま SHOBO を開くと戻れなくなるので、切りかえ中の帯（#mcImpBar）と「元のアカウントに戻る」は残した。
 - 2026-11-23 田中さん「これはいらない」：割り振りの画面の「MOCHICALL の入れるリスト」欄を外した（割り振りは kinbot の中の担当だけ。from-bales-assign は呼ばれなくなる）。
+- 2026-11-23 BUILD_TAG=2026-11-23tp 福井さん「SHOBO のメンバー管理のチームで餌取と齊藤を選べるように」：public/settings.js の mbTeamList に「餌取チーム」「齊藤チーム」を常に出す（server/mcteam.js の teamKey が「チーム」の有無と齊／斎をそろえるので、MOCHICALL のチーム制の FS 振り分けにそのまま効く）。
