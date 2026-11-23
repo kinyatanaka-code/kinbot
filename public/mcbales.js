@@ -3,8 +3,8 @@
 //   左：リストのカード（名前・件数・取り込んだ日時・取り込み中の進み具合）／右：選んだリストの会社の表（検索・絞り込み・CSV）
 // 「見張り（架電の記録）」のカードは一旦出さない（2026-11-23 田中さん「一旦非表示で」）。取り込み自体は止めていない。また出すときは true に
 const SHOW_FEEDS = false;
-// アポ率の小さな表示（アポ ÷ 架電したリード）（2026-11-23 田中さん「それぞれのリストのアポ率も」）
-const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called || 0); return `<span class="bl-apo" title="アポ（最終架電結果がアポ獲得）${apo.toLocaleString()}件 ÷ 架電したリード ${called.toLocaleString()}件">アポ率 <b>${called ? (apo / called * 100).toFixed(1) : "0.0"}%</b><small>${apo.toLocaleString()}/${called.toLocaleString()}</small></span>`; };
+// リストアポ率の小さな表示（アポ ÷ 架電したリード）（2026-11-23 田中さん「それぞれのリストのアポ率も」→「リストアポ率に名前変えて」）
+const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called || 0); return `<span class="bl-apo" title="アポ（最終架電結果がアポ獲得）${apo.toLocaleString()}件 ÷ 架電したリード ${called.toLocaleString()}件">リストアポ率 <b>${called ? (apo / called * 100).toFixed(1) : "0.0"}%</b><small>${apo.toLocaleString()}/${called.toLocaleString()}</small></span>`; };
 // ステージ別の箱（サーバーの BALES_STG と同じ印）
 const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
 (function () {
@@ -135,7 +135,7 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
       // 出どころは1枚の「SFリードソース」カードにまとめ、中に出どころと件数を並べる（2026-11-23 田中さん「SFリードソースカードにまとめて」）。押すとその出どころの表
       const grid = root.querySelector(".bl-lgrid"); const host = grid && grid !== sb ? grid : sb;
       const named = it.filter((v) => v.v !== "-").length;
-      host.insertAdjacentHTML("beforeend", `<div class="bl-lc srcs"><div class="bl-srcs-h"><b>SFリードソース</b><small>${named}種類・件数／アポ率</small></div>
+      host.insertAdjacentHTML("beforeend", `<div class="bl-lc srcs"><div class="bl-srcs-h"><b>SFリードソース</b><small>${named}種類・件数／リストアポ率</small></div>
         <div class="bl-srcs-l">${it.map((v) => `<button type="button" data-src="${esc(v.v)}" title="アポ ${Number(v.apo || 0).toLocaleString()} ÷ 架電 ${Number(v.called || 0).toLocaleString()}"><span>${esc(v.v === "-" ? "リードソースなし" : v.v)}</span><em>${Number(v.n || 0).toLocaleString()}</em><i>${v.called ? (v.apo / v.called * 100).toFixed(1) : "0.0"}%</i></button>`).join("")}</div>
         <small>${esc(m0.name || "")} から・押すとそのリードの表</small></div>`);
       if (host !== sb) sb.remove();
