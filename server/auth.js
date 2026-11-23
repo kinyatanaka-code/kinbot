@@ -30,12 +30,22 @@ function parseLegacyUsers() {
   return map;
 }
 const LEGACY = parseLegacyUsers();
+// 開発者（2026-11-24 福井さん）：メンバー設定・名簿（インサイド登録・役割「MOCHICALLだけ」など）でどう登録されても、
+//   いつでも管理者のまま、インターンの制限（MOCHICALL だけ・kincall だけ）を受けない。
+//   画面の設定はだれでも書き換えられるので、開発者が締め出されて直せなくなることがないよう、コードで固定する。
+const DEVELOPER_EMAILS = [
+  "sho.fukui@neo-career.co.jp",   // 福井聖（名簿の登録で MOCHICALL だけになり、アカウントを直せなくなったため）
+];
+export function isDeveloper(id) {
+  return DEVELOPER_EMAILS.includes(String(id || "").trim().toLowerCase());
+}
 const ADMINS = new Set(
   [
     ...(process.env.ADMIN_EMAILS || "").split(","),
     ...(process.env.ADMIN_USERS || "").split(","),
     // コードで直接管理者にする人（ADMIN_EMAILS に足すのと同じ扱い）
     "ryota.nakazawa@neo-career.co.jp",   // 中澤良太（田中欽也と同じ権限）
+    ...DEVELOPER_EMAILS,
   ]
     .map((s) => s.trim())
     .filter(Boolean)
