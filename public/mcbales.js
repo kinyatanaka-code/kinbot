@@ -383,7 +383,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     box.querySelectorAll("[data-sel]").forEach((c) => { c.addEventListener("click", (e) => e.stopPropagation()); c.addEventListener("change", () => { c.checked ? selRows.add(c.dataset.sel) : selRows.delete(c.dataset.sel); selc(); }); });
     box.querySelectorAll("td.bl-ck").forEach((td) => td.addEventListener("click", (e) => e.stopPropagation()));
     const sa = box.querySelector("[data-selall]"); if (sa) sa.addEventListener("change", () => { box.querySelectorAll("[data-sel]").forEach((c) => { c.checked = sa.checked; sa.checked ? selRows.add(c.dataset.sel) : selRows.delete(c.dataset.sel); }); selc(); });
-    const ab = box.querySelector("[data-asg]"); if (ab) ab.addEventListener("click", () => assignSheet(l, r.total, csvQ));
+    const ab = box.querySelector("[data-asg]"); if (ab) ab.addEventListener("click", () => assignSheet(l, r.total, csvQ, ownList));
     box.querySelectorAll("[data-row]").forEach((tr) => tr.addEventListener("click", () => leadSheet(l, tr.dataset.row, r.rows.find((d) => d.__k === tr.dataset.row))));
     box.querySelector("[data-colsel]").addEventListener("click", () => colSheet(l));
     // SF と結びつける：サーバーで読んで書く（2万件で数分）。進み具合を見せて、終わったら読み直す
@@ -522,7 +522,10 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
   function sheet(html) { closeSheet(); sheetEl = document.createElement("div"); sheetEl.className = "bl-sheet-bg"; sheetEl.innerHTML = `<div class="bl-sheet"><button type="button" class="bl-x" aria-label="閉じる">×</button><div class="bl-sheet-in">${html}</div></div>`;
     sheetEl.addEventListener("click", (e) => { if (e.target === sheetEl) closeSheet(); }); sheetEl.querySelector(".bl-x").addEventListener("click", closeSheet); document.body.appendChild(sheetEl); return sheetEl.querySelector(".bl-sheet-in"); }
   // 割り振る：選んだリード（選ばなければ、いまの表の条件に合う全部）を、MOCHICALL のかけるリストに入れて、選んだ人で交互に分ける
-  async function assignSheet(l, total, csvQ) {
+  async function assignSheet(l, total, csvQ, owners = []) {
+    // 分ける人：MOCHICA のメンバー全員（リストのメンバーでなくても選べる。割り振るとリストのメンバーに足す）
+    let reps = []; try { reps = ((await api("/api/mochica/reps")).items || []).filter((x) => x.mochica); } catch {}
+    if (!owners.length && ownerCol(l)) { try { owners = (await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/values?col=${encodeURIComponent(ownerCol(l))}`)).items || []; } catch {} }
     let tg; try { tg = await api("/api/mccall/assign-targets"); } catch (e) { alert(`割り振り先を読めませんでした：${e.message}（MOCHICALL の管理者だけが使えます）`); return; }
     const lists0 = tg.lists || []; if (!lists0.length) { alert("MOCHICALL に開いているかけるリストがありません。先に MOCHICALL の「リストの管理」でリストを作ってください。"); return; }
     const n = selRows.size || total;
@@ -532,7 +535,8 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
       <label class="mc-note" style="display:block;margin:12px 0 4px;font-weight:800">分ける人</label><div class="bl-mpick" data-am></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button type="button" class="mt-btn" data-ago>割り振る</button></div>`);
     const drawM = () => { const L = lists0.find((x) => String(x.id) === sh.querySelector("[data-al]").value) || lists0[0];
-      sh.querySelector("[data-am]").innerHTML = L.members.length ? L.members.map((m) => `<label><input type="checkbox" value="${esc(m.email)}" data-nm="${esc(m.name)}"><span>${esc(m.name)}${m.intern ? "（インターン）" : ""}</span></label>`).join("") : '<div class="mc-note">このリストにメンバーがいません。MOCHICALL の「リストの管理」→「メンバー」で選んでください。</div>'; };
+      const ppl = new Map(); for (const m of L.members) ppl.set(String(m.email).toLowerCase(), { email: m.email, name: m.name, inList: true }); for (const r0 of reps) { const k = String(r0.email).toLowerCase(); if (!ppl.has(k)) ppl.set(k, { email: r0.email, name: r0.name, inList: false }); }
+      sh.querySelector("[data-am]").innerHTML = ppl.size ? [...ppl.values()].map((m) => `<label><input type="checkbox" value="${esc(m.email)}"><span>${esc(m.name)}</span>${m.inList ? "" : '<small>リストに足す</small>'}</label>`).join("") : '<div class="mc-note">分けられる人がいません。</div>'; };
     drawM(); sh.querySelector("[data-al]").addEventListener("change", drawM);
     sh.querySelector("[data-ago]").addEventListener("click", async (e) => {
       const btn = e.currentTarget; const members = [...sh.querySelectorAll("[data-am] input:checked")].map((x) => x.value);
@@ -544,6 +548,9 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
         if (!keys.length) for (let off = 0; ; off += 5000) { const a = await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/rows?${csvQ}&offset=${off}&limit=5000`); keys.push(...a.rows.map((d) => d.__k)); if (a.rows.length < 5000 || keys.length >= 5000) break; }
         keys = keys.slice(0, 5000);
         const r = await api("/api/mccall/from-bales-assign", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listKey: l.list_key, rowKeys: keys, listId: Number(sh.querySelector("[data-al]").value), members }) });
+        // 担当の名前は、Bales の所有者の書き方（「山田光治」「岩浪 大己」など）に合わせる。合わせないとメンバー別のカードが2つに分かれる
+        const sp = (x) => String(x || "").replace(/[\s　]/g, ""); const ownName = new Map(owners.map((o) => [sp(o.v), o.v]));
+        if (r.done) r.done = r.done.map((d) => ({ ...d, name: ownName.get(sp(d.name)) || d.name }));
         if (r.done && r.done.length) await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/assign-local`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: r.done }) });
         closeSheet(); selRows.clear();
         alert(`「${r.list}」に割り振りました：${r.per.map((p) => `${p.name} ${p.n}件`).join("・")}\n（新しく入れた ${r.added}件・付け替え ${r.moved}件${r.banned ? `・アプローチ禁止で入れなかった ${r.banned}件` : ""}${r.dup ? `・ほかのリードと重なって入れなかった ${r.dup}件` : ""}）`);

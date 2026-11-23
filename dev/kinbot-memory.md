@@ -2916,3 +2916,4 @@ kincall（架電リスト）という別ツールも同じ画面群の中にあ�
 - 2026-11-23 田中さん：MOCHICALL の今日の数字（コール・担当者と話せた・アポ・SF項目・いまの時間帯）とキー操作は、上のヘッダー（#mcHeadCall）に置く。福井さんの範囲（MOCHICALL）だが田中さんの依頼。
 - 2026-11-23 田中さん「各メンバーに割り振る機能を kincall みたいに」→ 割り振り先は「MOCHICALL のかけるリスト」と「kinbot の中の担当」の両方（1と3）：リスト管理の表にチェック＋「割り振る」。MOCHICALL の /api/mccall/assign-targets・/api/mccall/from-bales-assign（server/mccall.js・福井さんの範囲に足した）でリストに入れて交互に担当を付け（既にほかの開いているリストにあれば担当だけ付け替え・アプローチ禁止は入れない）、/assign-local で mochica_bales_rows.assign_email/assign_name。所有者の列（operator/owner/所有/担当）で数える・絞るときは assign_name を先に見る。
 - 2026-11-23 田中さん「ここ消して」：MOCHICALL の「リード管理」「リストの管理」タブを一旦しまった（mccall.js の hideTab。中身は残っている）。
+- 2026-11-23：割り振りの「分ける人」は MOCHICA のメンバー全員（/api/mochica/reps の mochica）。リストのメンバーでなければ割り振るときに足す。kinbot の担当名は Bales の所有者の書き方（空白の有無）に合わせる。

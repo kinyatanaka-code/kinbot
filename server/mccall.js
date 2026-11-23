@@ -1224,7 +1224,10 @@ export function registerMcCall(app, deps) {
     const members = (Array.isArray(b.members) ? b.members : []).map((x) => String(x).toLowerCase()).filter(Boolean).slice(0, 50);
     const rowKeys = (Array.isArray(b.rowKeys) ? b.rowKeys : []).map(String).slice(0, 5000);
     if (!id || !key || !rowKeys.length || !members.length) return res.status(400).json({ error: "リード・入れるリスト・割り振る人を選んでください" });
-    const lst = (await P().query(`SELECT id, name FROM mc_call_lists WHERE id=$1 AND NOT closed`, [id])).rows[0]; if (!lst) return res.status(404).json({ error: "入れるリストが見つかりません（閉じている・消えた）" });
+    const lst = (await P().query(`SELECT id, name, members FROM mc_call_lists WHERE id=$1 AND NOT closed`, [id])).rows[0]; if (!lst) return res.status(404).json({ error: "入れるリストが見つかりません（閉じている・消えた）" });
+    // 割り振った人がリストのメンバーでなければ足す（メンバーでないと、その人の「かける」にリストが出ないため）
+    { const cur = (lst.members || []).map((x) => String(x).toLowerCase()); const add = members.filter((m) => !cur.includes(m));
+      if (add.length) await P().query(`UPDATE mc_call_lists SET members=$2 WHERE id=$1`, [id, [...cur, ...add].slice(0, 200)]); }
     const l = (await P().query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [key])).rows[0]; if (!l) return res.status(404).json({ error: "SHOWIN のリストが見つかりません" });
     // ホットな順に1件ずつ交互に配る（偏らないように。MOCHICALL の「複数人に分ける」と同じ配り方）
     const rows = (await P().query(`SELECT row_key, data, hot, sf->'lead'->>'id' AS lid FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2 AND row_key = ANY($3::text[]) ORDER BY COALESCE(hot,0) DESC, seq`, [key, l.run_at, rowKeys])).rows;
