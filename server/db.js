@@ -13142,7 +13142,8 @@ export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BA
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
-  const w = [`list_key=$1`, `run_at=$2`, `dup_of IS NULL AND NOT ${BALES_MCU}`]; const p = [listKey, l.run_at];   // まとめた重複は出さない
+  // まとめた重複は出さない。MOCHICA ユーザーもふだんは出さず、stg=mcuser のときだけ MOCHICA ユーザーを出す（アーカイブの中のカード：2026-11-23 田中さん）
+  const w = [`list_key=$1`, `run_at=$2`, stg === "mcuser" ? `dup_of IS NULL AND ${BALES_MCU}` : `dup_of IS NULL AND NOT ${BALES_MCU}`]; const p = [listKey, l.run_at];
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(data->>$${p.length - 1},'') = $${p.length}`); }
   // 2つめの項目で絞る（所有者など）（2026-11-22 田中さん「所有者で絞り込みたい」）
