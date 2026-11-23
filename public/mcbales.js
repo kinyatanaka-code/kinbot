@@ -39,7 +39,7 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
   let feeds = [], fday = "", wdiag = null, diag = null, lists = [], cur = null, q = "", fcol = "", fval = "", page = 0, poll = null, mtCos = null;
   // 画面の形：「リスト管理」の一覧（カード）→ 押すとそのリストの表（2026-11-22 田中さん：ホワイトボードの絵のとおり）
   //   home＝全てのリード・メンバー別・見張りのカード／list＝1つのリスト（メンバーのカードは、そのリストを所有者で絞ったもの）
-  let mode = "home", memberF = "", members = null, memPick = null, srcF = "", stgF = "";   // stgF：ステージ別（nurture・recycle・archive）   // srcF：リードの出どころで絞ったリスト（2026-11-23）
+  let mode = "home", memberF = "", members = null, memPick = null, srcF = "", stgF = "", stgHome = "", retStage = "";   // stgHome：ステージ別の箱を押して開いた「メンバーごと」の画面。retStage：そこから表を開いたときの戻り先   // stgF：ステージ別（nurture・recycle・archive）   // srcF：リードの出どころで絞ったリスト（2026-11-23）
   let hotF = "", hotSort = false, crF = "", ownF = "", sfF = "";   // 所有者・SF の絞り込み（2026-11-22）
   // 架電結果：MOCHICALL（SF）と同じ8つにそろえる（サーバーの BALES_CR と同じ）（2026-11-22 田中さん）。
   //   担当者接触ニーズなし→お断り、資料送付→営業フォロー。空・どれにも当たらないものは「-」（当たらない結果は最終活動コメントの頭に出す）
@@ -85,9 +85,12 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
     const sb = h.querySelector("[data-sf]"); if (sb && !sb.disabled) sb.textContent = l.sf_info ? "SF と結び直す" : "SF と結びつける";
   }
   // 一覧へ戻る。ブラウザの「戻る」でも戻れるよう、リストを開くときに履歴を1つ足しておく（2026-11-22 田中さん「戻れるように」）
-  function goHome(fromPop) { if (!fromPop && history.state && history.state.blList) { history.back(); return; } mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
+  function goHome(fromPop) { if (!fromPop && history.state && history.state.blList) { history.back(); return; }
+    // ステージ別のメンバーの画面から表を開いていたら、そこへ戻る
+    if (mode === "list" && retStage) { mode = "stage"; stgHome = retStage; retStage = ""; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
+    stgHome = ""; retStage = ""; mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
   function openList() { try { history.pushState({ blList: 1 }, "", location.href); } catch {} draw(); window.scrollTo(0, 0); }
-  window.addEventListener("popstate", () => { if (mode === "list") goHome(true); });
+  window.addEventListener("popstate", () => { if (mode === "list" || mode === "stage") goHome(true); });
   function draw() {
     const root = $("mcBalesView"); if (!root) return;
     if (mode === "list" && cur && (lists.some((l) => l.list_key === cur) || feeds.some((f) => f.feed === cur))) {
@@ -96,6 +99,7 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
       if (feeds.some((f) => f.feed === cur)) feedDetail(); else detail();
       return;
     }
+    if (mode === "stage" && stgHome) return stageView(root);
     home(root);
   }
   async function home(root) {
@@ -119,7 +123,8 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
       <p class="mc-note" style="line-height:1.8">1. Bales の<a href="https://mochica.balescloud.jp/app/lead-list" target="_blank" rel="noopener">リード一覧</a>を開き、取り込みたいリスト（絞り込み）にします。<br>2. 右下の「kinbot に取り込む」→「全部取り込む」を押します。<br>3. 取り込みが終わると、この画面にカードが増えます。</p>
       <p class="mc-note">拡張機能 kinbot-ext（2.2.3 以上）が要ります。</p>`));
     // ステージ別の件数と、押したときの表（2026-11-23 田中さん「ナーチャリング、リサイクル、アーカイブの箱を」）
-    root.querySelectorAll("[data-stg]").forEach((b) => b.addEventListener("click", () => { if (!m0) return; cur = m0.list_key; mode = "list"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = b.dataset.stg; page = 0; openList(); }));
+    // 押すと、そのステージをメンバーごとに分けた画面（2026-11-23 田中さん「カードを押すと各メンバーカードが出て、そのステージの件数」）
+    root.querySelectorAll("[data-stg]").forEach((b) => b.addEventListener("click", () => { if (!m0) return; mode = "stage"; stgHome = b.dataset.stg; openList(); }));
     if (m0) api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/stages`).then((d) => { for (const [k] of STG) { const el = root.querySelector(`[data-stg-n="${k}"]`); if (el) el.innerHTML = `${Number(d[k] || 0).toLocaleString()}<small>件</small>`; } }).catch(() => {});
     // リードの出どころごとのリスト（「すべてのリード」の隣に並べる）（2026-11-23 田中さん「リードのでどころでリスト作って」）
     if (m0) api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/sources`).then((d) => {
@@ -161,6 +166,30 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
           closeSheet(); home(root); });
       }
     };
+  }
+  // ステージ別 → メンバーごとの件数。メンバーを押すと、その人のそのステージのリードの表
+  async function stageView(root) {
+    headActs(null);
+    const m0 = mainList(); const oc = ownerCol(m0); const st = STG.find(([k]) => k === stgHome) || [stgHome, stgHome, ""];
+    root.innerHTML = `<div class="bl-home"><button type="button" class="bl-back" data-sback>‹ リスト管理に戻る</button>
+      <div class="bl-home-h"><h2>${esc(st[1])}<small style="font-size:12px;font-weight:600;color:#5C7377;margin-left:8px">メンバー別・${esc(st[2])}</small></h2></div>
+      <div class="bl-lgrid" data-stmem><div class="mc-note">読み込んでいます…</div></div></div>`;
+    root.querySelector("[data-sback]").addEventListener("click", () => goHome());
+    if (!m0) return;
+    const k = encodeURIComponent(m0.list_key);
+    let tot = 0, vals = [];
+    try { tot = Number((await api(`/api/mochica/bales/lists/${k}/stages`))[stgHome] || 0); } catch {}
+    try { vals = oc ? (await api(`/api/mochica/bales/lists/${k}/values?col=${encodeURIComponent(oc)}&stg=${encodeURIComponent(stgHome)}`)).items || [] : []; } catch {}
+    if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
+    const box = root.querySelector("[data-stmem]"); if (!box || !root.isConnected || mode !== "stage") return;
+    // メンバー別で選んだ人がいればその人たち（0件でも出す）、いなければ件数のある人全員
+    const shown = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
+    box.innerHTML = `<button type="button" class="bl-lc main stg ${esc(stgHome)}" data-stall><b>全員</b><span class="n">${tot.toLocaleString()}<small>件</small></span><small>${esc(m0.name || "")} から</small></button>`
+      + (shown.length ? shown.map((v) => `<button type="button" class="bl-lc mem stg ${esc(stgHome)}" data-stm="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="n">${Number(v.n || 0).toLocaleString()}<small>件</small></span><small>${esc(st[1])}</small></button>`).join("")
+        : `<div class="mc-note">${oc ? "このステージのリードを持っているメンバーがいません。" : "リストに「所有者」の列が無いので、メンバーに分けられません。"}</div>`);
+    const open = (who) => { cur = m0.list_key; mode = "list"; memberF = who; fcol = who ? oc : ""; fval = who; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = stgHome; retStage = stgHome; page = 0; openList(); };
+    box.querySelector("[data-stall]").addEventListener("click", () => open(""));
+    box.querySelectorAll("[data-stm]").forEach((b) => b.addEventListener("click", () => open(b.dataset.stm)));
   }
   // ===== 見張りの1日分：誰が・どこに・何件・どんな結果だったか（2026-11-15 田中さん「インターン生の架電を分析したい」）=====
   const jstDay = (t = Date.now()) => new Date(t + 9 * 3600000).toISOString().slice(0, 10);
@@ -261,7 +290,7 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
       tcols = ORDER.map((lb) => (lb === "__cr" ? CR_COL : cols.find((c) => c.label === lb))).filter(Boolean);
       if (tcols.length <= 1) tcols = [...cols, CR_COL];   // Bales の見出しが違う形のときは、今までの列のまま
     } else { const i = cols.findIndex((c) => c.label === "最終活動日"); tcols = i >= 0 ? [...cols.slice(0, i + 1), CR_COL, ...cols.slice(i + 1)] : [...cols, CR_COL]; }
-    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${esc(l.name || l.list_key)} から）</small>` : stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])} <small style="font-size:12px;font-weight:600">（ステージ別・${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)} <small style="font-size:12px;font-weight:600">（SFリードソース・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>${l.dup_hidden ? `重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめて表示中（Bales はそのまま）<button type="button" class="bl-duplk" data-dup="off">元に戻す</button>　` : l.status === "done" && !memberF && !srcF && !stgF ? `<button type="button" class="bl-duplk" data-dup="on">重複をまとめる</button>　` : ""}最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
+    box.innerHTML = `<div class="bl-head"><div><button type="button" class="bl-back" data-home2>‹ リスト管理に戻る</button><h3>${memberF ? `${esc(memberF)} のリード <small style="font-size:12px;font-weight:600">（${stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])}・` : ""}${esc(l.name || l.list_key)} から）</small>` : stgF ? `${esc((STG.find(([k]) => k === stgF) || [, stgF])[1])} <small style="font-size:12px;font-weight:600">（ステージ別・${esc(l.name || l.list_key)} から）</small>` : srcF ? `${esc(srcF === "-" ? "リードソースなし" : srcF)} <small style="font-size:12px;font-weight:600">（SFリードソース・${esc(l.name || l.list_key)} から）</small>` : esc(l.name || l.list_key)} <span class="bl-cnt">${Number(r.total || 0).toLocaleString()}件</span></h3><small>${l.dup_hidden ? `重複 ${Number(l.dup_hidden).toLocaleString()}件をまとめて表示中（Bales はそのまま）<button type="button" class="bl-duplk" data-dup="off">元に戻す</button>　` : l.status === "done" && !memberF && !srcF && !stgF ? `<button type="button" class="bl-duplk" data-dup="on">重複をまとめる</button>　` : ""}最後に取り込んだ日時：${l.status === "running" ? "取り込み中" : esc(dt(l.done_at || l.run_at))}${l.error ? ` ・ ${esc(l.error)}` : ""}</small></div>
         </div>
       <div class="bl-sfst" data-sfst></div>
       <div class="bl-find"><button type="button" class="mt-btn ghost" data-colsel>表示項目</button><select data-hot><option value="">ホット度：すべて</option><option value="hot" ${hotF === "hot" ? "selected" : ""}>ホットだけ</option><option value="warm+" ${hotF === "warm+" ? "selected" : ""}>ウォーム以上</option><option value="warm" ${hotF === "warm" ? "selected" : ""}>ウォームだけ</option><option value="cold" ${hotF === "cold" ? "selected" : ""}>コールドだけ</option></select><label class="bl-hsort"><input type="checkbox" data-hsort ${hotSort ? "checked" : ""}>ホット順</label>${stCol ? `<select data-f><option value="">${esc(stCol.label)}：すべて</option>${vals.map((v) => `<option value="${esc(v.v)}" ${fcol === stCol.key && fval === v.v ? "selected" : ""}>${esc(v.v)}（${v.n}）</option>`).join("")}</select>` : ""}</div>
