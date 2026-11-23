@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261124l" />
+    <link rel="stylesheet" href="style.css?v=20261124m" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1329,6 +1329,13 @@
   #kh2 .h2-act{grid-area:act;} #kh2 .h2-mine{grid-area:mine;} #kh2 .h2-ren{grid-area:ren;} #kh2 .h2-miss{grid-area:miss;}
   #kh2 .h2-ren,#kh2 .h2-miss{max-height:34vh;overflow:auto;}
   @media (max-width:1100px){ #kh2 .h2-row{grid-template-columns:1fr;grid-template-rows:none;grid-template-areas:"act" "mine" "ren" "miss";} }
+  /* 右に置いた担当企業は幅が狭いので、7つの数字は「名前 … 数」の横長の行を2列に（縦長のタイルだと名前が折れて潰れた） */
+  #kh2 .h2-mine .mi-kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+  #kh2 .h2-mine .mi-kpi{flex-direction:row;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;}
+  #kh2 .h2-mine .mi-kpi .l{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;align-items:center;font-size:12px;}
+  #kh2 .h2-mine .mi-kpi .l i{margin-top:0;}
+  #kh2 .h2-mine .mi-kpi .v{font-size:20px;flex:none;}
+  #kh2 .h2-mine .mi-list{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
   .h2-left > .h2-act{overflow:hidden;}
   .h2-left > .h2-act > .h2-list,.h2-left > .h2-act > .h2-tk{flex:1;min-height:0;overflow-y:auto;}
   .h2-mine{display:flex;flex-direction:column;min-height:0;overflow:hidden;}
@@ -1516,7 +1523,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124l" defer></script>
-    <script src="kinxs.js?v=20261124l"></script>
+    <script src="kbchat.js?v=20261124m" defer></script>
+    <script src="kinxs.js?v=20261124m"></script>
   </body>
 </html>
