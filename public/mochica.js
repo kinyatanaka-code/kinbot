@@ -148,9 +148,13 @@
     const make = async (force) => {
       wrap.innerHTML = '<div class="ch-loading">商談の段階に分けています…</div>';
       try { const r = await fetch(`/api/mochica/miitel/meetings/${encodeURIComponent(id)}/chapters`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ tr, rep, force: !!force }) });
-        const d = await r.json(); if (!r.ok) throw new Error(d.error || "作れませんでした"); chapters = d.chapters || [];
+        const d = await r.json().catch(() => ({})); if (!r.ok) { const er = new Error(d.error || "段階に分けられませんでした。もう一度お試しください。"); er.detail = d.detail || ""; throw er; } chapters = d.chapters || [];
         if (!chapters.length) { wrap.innerHTML = d.reason ? `<div class="mc-note" style="font-size:12px">${esc(d.reason)}</div>` : ""; return; } draw();
-      } catch (e) { wrap.innerHTML = `<button type="button" class="mt-btn ghost" data-chredo>段階を作り直す（${esc(e.message)}）</button>`; const b = wrap.querySelector("[data-chredo]"); if (b) b.addEventListener("click", () => make(true)); }
+      } catch (e) {
+        // ボタンの中に長いエラーを入れない（2026-11-23 福井さん）。理由は短い1行で、くわしい中身はマウスを乗せたときだけ
+        wrap.innerHTML = `<div class="mc-note" style="font-size:12px;margin-bottom:6px"${e.detail ? ` title="${esc(e.detail)}"` : ""}>${esc(e.message)}</div><button type="button" class="mt-btn ghost" data-chredo>段階を作り直す</button>`;
+        const b = wrap.querySelector("[data-chredo]"); if (b) b.addEventListener("click", () => make(true));
+      }
     };
     const draw = () => {
       if (!chapters.length) { make(false); return; }
