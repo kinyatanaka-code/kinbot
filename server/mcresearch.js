@@ -263,7 +263,8 @@ export async function recruitFacts({ name, results = [], siteText = "", site = "
   for (const s of hcSources) {
     const t = String(s.t || "").normalize("NFKC");
     for (const m of t.matchAll(new RegExp(HEADCOUNT_RE.source, "g"))) {
-      const v = m[1].replace(/\s+/g, "");
+      // マイナビの「残り採用予定人数 1名」は募集人数ではなく残りの枠なので、「残り1名」と分かるように出す
+      const v = `${/残り\s*$/.test(t.slice(Math.max(0, m.index - 4), m.index)) ? "残り" : ""}${m[1].replace(/\s+/g, "")}`;
       const f = valueFreshness(t, m.index, m[0].length, { clock, pageCurrent: s.cur });
       if (f.verdict === "current") { if (!headcount) headcount = v; }
       else if (v !== headcount) drop("headcount", v, f.verdict === "unknown" ? "今の募集の人数と確かめられない" : f.why, s.url);

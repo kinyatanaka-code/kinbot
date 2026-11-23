@@ -119,6 +119,16 @@ await t("今の募集が確かめられた媒体だけを出し、切り口も�
   assert.ok(R.dropped.some((d) => d.value === "マイナビ転職"));
   assert.ok(R.dropped.some((d) => d.value === "engage"));
 });
+await t("マイナビの「残り採用予定人数」は「残り○名」と出す（募集人数と取り違えない）", async () => {
+  const R = await recruitFacts({ name: "成和リニューアルワークス株式会社", clock: C,
+    results: [{ url: "https://job.mynavi.jp/27/pc/search/corp110239/outline.html", title: "成和リニューアルワークス株式会社 マイナビ2027", desc: "" }],
+    pageOf: async () => ({ verdict: "unknown", why: "ページに掲載・更新の日付が無い", text: "" }) });   // jobPageVerdict は今と確かめたページの本文しか返さない
+  assert.equal(R.headcount, ""); assert.equal(R.media, "マイナビ（新卒）");          // 媒体は URL の卒年で出すが、人数は確かめた本文が無いので出さない
+  const R2 = await recruitFacts({ name: "成和リニューアルワークス株式会社", clock: C,
+    results: [{ url: "https://job.mynavi.jp/27/pc/search/corp110239/outline.html", title: "成和リニューアルワークス株式会社 マイナビ2027", desc: "" }],
+    pageOf: async () => ({ verdict: "current", why: "27卒の募集", text: "成和リニューアルワークス株式会社 募集人数 若干名 残り採用予定人数 1 名 エントリー" }) });
+  assert.equal(R2.headcount, "残り1名");
+});
 await t("マイナビ 27卒のページでも、ページに「受付を終了」とあれば出さない", async () => {
   const R = await recruitFacts({ name: "株式会社かめや", clock: C,
     results: [{ url: "https://job.mynavi.jp/27/pc/search/corp89236/outline.html", title: "株式会社かめや マイナビ2027", desc: "" }],

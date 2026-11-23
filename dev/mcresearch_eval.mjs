@@ -48,6 +48,7 @@ if (mode === "fetch") {
     for (const x of R.dropped.filter((x) => x.field === "headcount" || x.field === "roles")) rows.push({ company: d.company, field: x.field, value: x.value, url: x.url, shown: false, why: x.why });
     if (R.roles) rows.push({ company: d.company, field: "roles", value: R.roles, shown: true });
   }
+  if (process.env.EVAL_ROWS) fs.writeFileSync(process.env.EVAL_ROWS, JSON.stringify(rows, null, 1));   // 正解を付けてもらう一覧に使う
   const pad = (s, n) => String(s).padEnd(n);
   for (const r of rows) {
     const t = truth && truth[`${r.company}|${r.field}|${r.value}`];
