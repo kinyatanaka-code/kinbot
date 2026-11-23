@@ -276,7 +276,7 @@ document.querySelectorAll(".kx-nav[data-view], .kx-side-set[data-view]").forEach
       g.classList.add("fly");
       // 画面の下からはみ出すときは上にずらす
       const hh = sub.offsetHeight; if (r.top - 12 + hh > window.innerHeight - 8) sub.style.top = `${Math.max(8, Math.round(window.innerHeight - hh - 8))}px`; };
-    const hide = () => { clearTimeout(tm); tm = setTimeout(() => g.classList.remove("fly"), 120); };   // 親から子へ移る間に消えないよう少し待つ
+    const hide = () => { clearTimeout(tm); tm = setTimeout(() => g.classList.remove("fly"), 250); };   // 親から子へ移る間に消えないよう少し待つ（ゆっくり動かしても消えないよう 0.25秒）
     g.addEventListener("mouseenter", show); g.addEventListener("mouseleave", hide);
     g.addEventListener("focusin", show); g.addEventListener("focusout", () => setTimeout(() => { if (!g.contains(document.activeElement)) g.classList.remove("fly"); }, 0));
   });
