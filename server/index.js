@@ -34704,7 +34704,9 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
     const corp = { name: t.company || (acc && acc.official_name) || ap.label || company, url: url && /^https?:/i.test(url) ? url : (url ? `https://${url.replace(/^\/+/, "")}` : ""), industry: t.industry || pv("industry", "業種", "業界"),
       employees: t.employees != null ? String(t.employees) : (t.emp_size != null ? String(t.emp_size) : pv("employees", "従業員数").replace(/[^\d]/g, "")), phone: t.phone || ap.client_phone || "", person: t.person || ap.client_name || "",
       email: t.email || ap.client_email || m.client_email || "", media };
-    const is = { apoAt: ap.apo_at || ap.created_at || null, setter: who(ap.setter || ap.setter_email || m.apo_setter || ""),
+    // アポ獲得者：アポの記録 → 商談の記録 → 架電の記録で「アポ獲得」を付けた人
+    const apoCall = (L.calls || []).find((c) => /アポ獲得/.test(String(c.result || "")));
+    const is = { apoAt: ap.apo_at || ap.created_at || (apoCall && apoCall.at) || null, setter: who(ap.setter || ap.setter_email || m.apo_setter || (apoCall && apoCall.caller) || ""),
       people: (L.people || []).map((p) => ({ name: p.contact_name, gender: p.gender === "male" ? "男性" : p.gender === "female" ? "女性" : "", age: p.age_band || "", tags: p.impressions || [] })),
       calls: (L.calls || []).map((c) => ({ at: c.at, result: c.result || "", memo: String(c.memo || "").slice(0, 600), caller: who(c.caller) })) };
     // SF：会社名で商談を探し、クロスと MOCHICA の直近を出す（つながっていなければ空のまま）
@@ -34713,7 +34715,7 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
       const owner = await pickSfUser(req.user, req);
       if (salesforceConfigured() && (await sfConnected(owner).catch(() => false))) {
         const f = await prebriefOppFields(owner);
-        if (req.query.fields === "1" && req.isAdmin) { const dd = await describeOpportunity(owner); return res.json({ dateFields: (dd.fields || []).filter((x) => /date/i.test(x.type)).map((x) => `${x.name}:${x.label}`) }); }
+        if (req.query.fields === "1" && (req.isAdmin || isAiOwner(req))) { const dd = await describeOpportunity(owner); return res.json({ dateFields: (dd.fields || []).filter((x) => /date/i.test(x.type)).map((x) => `${x.name}:${x.label}`) }); }
         const core = company.normalize("NFKC").replace(/(株式会社|有限会社|合同会社|㈱|\(株\)|（株）)/g, "").replace(/[\s　'\\%_]/g, "").slice(0, 40);
         if (core.length >= 2) {
           const cols = [...new Set(["Id", "Name", "StageName", "CloseDate", "CreatedDate", "IsClosed", "IsWon", "RecordType.Name", "Account.Name", f.memo, f.hires, f.date, f.lossReason, f.lossDetail].filter(Boolean))];
