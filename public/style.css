@@ -7510,3 +7510,4 @@ a.pre-chip:hover { background: #1d9e75; border-color: #1d9e75; color: #fff; }
   .pre-layout > .pre-note { position: static; height: auto; }
   .pre-layout > .pre-note .live-note { min-height: 200px; }
 }
+.pre-chip.ats { background: #E9F0FB; border-color: #C9D9F2; color: #2B5A9A; }

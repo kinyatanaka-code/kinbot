@@ -28,6 +28,28 @@ async function braveSearch(query, count = 6) {
   } catch { return []; }
 }
 
+// ===== 採用媒体を、検索（Brave）でリンク付きで探す（2026-11-24 田中さん「採用媒体だけは API でリンク付きで調べて出して」）=====
+//   AI は使わない：検索結果の URL が求人サイトのもので、題名か説明に会社名が入っているものだけ拾う（媒体ごとに1つ）
+const JOB_MEDIA_URL = [
+  [/job\.mynavi\.jp/, "マイナビ（新卒）"], [/tenshoku\.mynavi\.jp/, "マイナビ転職"], [/job\.rikunabi\.com/, "リクナビ（新卒）"], [/next\.rikunabi\.com/, "リクナビNEXT"],
+  [/doda\.jp/, "doda"], [/indeed\.com/, "Indeed"], [/en-gage\.net/, "engage"], [/employment\.en-japan\.com|en-japan\.com\/(desc|company)/, "エン転職"], [/wantedly\.com/, "Wantedly"],
+  [/airwork\.net|arwrk\.net/, "Airワーク"], [/offerbox\.jp/, "OfferBox"], [/onecareer\.jp/, "ONE CAREER"], [/careerticket\.jp/, "キャリアチケット"], [/bizreach\.jp/, "ビズリーチ"],
+  [/green-japan\.com/, "Green"], [/type\.jp/, "type"], [/hellowork|kensaku\.hellowork/, "ハローワーク"], [/baitoru\.com/, "バイトル"], [/townwork\.net/, "タウンワーク"], [/kyujinbox\.com/, "求人ボックス"],
+  [/career-tasu\.jp/, "キャリタス就活"], [/asagaku\.com/, "あさがくナビ"], [/shukatsu\.jp/, "ダイヤモンド就活ナビ"], [/directscout\.recruit\.co\.jp/, "リクルートダイレクトスカウト"],
+];
+export async function findJobMediaLinks(company) {
+  const name = String(company || "").trim(); if (!name || !BRAVE_KEY()) return { ok: !!BRAVE_KEY(), items: [] };
+  const ck = (v) => String(v || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|社会福祉法人|医療法人(社団|財団)?|学校法人|一般社団法人|\(株\)|㈱|[\s・.,、。]/g, "").toLowerCase();
+  const k = ck(name); if (k.length < 2) return { ok: true, items: [] };
+  const [a, b] = await Promise.all([braveSearch(`${name} 求人`, 10), braveSearch(`${name} 新卒採用`, 10)]);
+  const seen = new Map();
+  for (const r of [...a, ...b]) {
+    if (!ck(`${r.title} ${r.desc}`).includes(k)) continue;
+    for (const [re, label] of JOB_MEDIA_URL) if (re.test(r.url) && !seen.has(label)) seen.set(label, { name: label, url: r.url, title: String(r.title || "").slice(0, 80) });
+  }
+  return { ok: true, items: [...seen.values()] };
+}
+
 // 検索結果から「その会社の公式サイトらしいURL」を選ぶ
 function pickOfficial(results, company) {
   const bad = /(wikipedia|facebook|twitter|x\.com|instagram|linkedin|youtube|note\.com|prtimes|indeed|en-gage|mynavi|rikunabi|baseconnect|houjin\.jp|alarmbox|salesnow|musubu|ycard|nikkei|itmedia|google\.|amazon\.|rakuten\.)/i;

@@ -12992,6 +12992,16 @@ export async function prebriefLocal(company) {
   return { key, apo, target, calls, people };
 }
 
+// 採用媒体の検索結果を会社ごとに1週間覚える（同じ会社を何度も検索しないため）
+let _pbMediaInit = false;
+export async function prebriefMediaCache(key, items) {
+  if (!pool || !key) return null;
+  if (!_pbMediaInit) { _pbMediaInit = true; await pool.query(`CREATE TABLE IF NOT EXISTS prebrief_media (key TEXT PRIMARY KEY, items JSONB, at TIMESTAMPTZ DEFAULT now())`).catch(() => {}); }
+  if (items) { await pool.query(`INSERT INTO prebrief_media (key, items, at) VALUES ($1,$2,now()) ON CONFLICT (key) DO UPDATE SET items=EXCLUDED.items, at=now()`, [key, JSON.stringify(items)]).catch(() => {}); return items; }
+  const r = (await pool.query(`SELECT items, at FROM prebrief_media WHERE key=$1 AND at > now() - interval '7 days'`, [key]).catch(() => ({ rows: [] }))).rows[0];
+  return r ? { items: r.items || [], at: r.at } : null;
+}
+
 // SF の立ち上げ：kincall の架電先から、会社の従業員数・業種を探す（2026-11-13 田中さん「従業員数は基本 kincall の情報から」）
 export async function findCallTargetCompanyInfo({ company = "", email = "", phone = "", leadId = "" } = {}) {
   if (!pool) return null;

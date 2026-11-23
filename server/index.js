@@ -289,7 +289,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesToday, prebriefLocal, mcBalesUnassignPastlost, mcBalesDupRows, mcBalesDupSet, mcBalesBlankCount, mcBalesNgSet, mcBalesAssignSet, mcBalesHotOrder, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesToday, prebriefLocal, prebriefMediaCache, mcBalesUnassignPastlost, mcBalesDupRows, mcBalesDupSet, mcBalesBlankCount, mcBalesNgSet, mcBalesAssignSet, mcBalesHotOrder, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -679,7 +679,7 @@ import { buildKinbotSkillZip } from "./skillzip.js";
 import { callLLMPublic, analyzerInfo, resolveGroqModel, clearGroqModelCache, analyzeMeeting, analyzeDeep, freeAnalyze, chatWithData, enrichCompany, lookupEmployeeCount, lookupJobMedia, lookupHiringCount, lookupBusinessHours, transcribeAudio, summarizeCallRecording, guessCallResult, guessCallReason, guessKana, extractJobTypes, cleanCallSummary, lookupCompanyBasics, generateThanks, generateThanksMail, judgeThanksType, THANKS_PROMPT, THANKS_MAIL_PROMPT, getCheckItems, getSummaryPrompt, getCustomPrompt, runCustomAnalysis, analyzeWinPatterns, classifyMeetingKind, extractFirstMeeting, extractReMeeting, buildBrief, extractFeatureCTags, enrichCompanyAttributes, generateFeatureCInsights, extractQaPairs, splitPhases, extractKickoff , lookupIndustryPick } from "./analyzer.js";
 import { searchCompanies, getCompanyDetail, gbizConfigured } from "./gbizinfo.js";
 import { splitCorpName, toHalfKana, toFullKana, stripCorpKana, splitAddress, telHyphen, isMobile } from "./neostage.js";
-import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave, lookupIndustry } from "./companyenrich.js";
+import { enrichCompanyFromWeb, webSearchConfigured, fetchPageText, employeesFromSite, employeesViaBrave, lookupIndustry, findJobMediaLinks } from "./companyenrich.js";
 import { searchCompanyInfo, webLookupAvailable } from "./websearch.js";
 import { readLayout, readGoals, tally, buildUpdates, buildClearUpdates, applyApoCounts, parseZeroDates, callHours, buildHoursUpdates, isoForMD, sameName as psSameName, METRICS } from "./processsheet.js";
 import {
@@ -34715,10 +34715,23 @@ async function prebriefOppFields(owner) {
     hires: find(/^採用人数\(?MO\)?$/i, /^採用人数$/, /採用人数/),
     // 商談日：SF に「商談日」は無く、初回の商談の日は「初回アポ設定日」に入っている（2026-11-24 項目を確かめた）
     date: find(/^初回アポ設定日$/, /^商談日$/, /^初回商談日$/, /商談実施日/), nextOpp: find(/^次回商談日$/),
+    ats: find(/^利用中ATS$/i, /^ATS利用状況$/i, /^利用ATS$/i),
     lossReason: lost.lossReason || find(/受失注理由大項目/, /失注理由大/), lossDetail: lost.lossReasonDetail || find(/受失注理由詳細/, /失注理由詳細/),
   };
   return _pbOppF;
 }
+// 採用媒体（リンク付き）：検索で探す。会社ごとに1週間覚える（2026-11-24 田中さん「採用媒体だけは API でリンク付きで」）
+app.get("/api/prebrief/media", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const company = String(req.query.company || "").trim().slice(0, 80); const key = normCompanyKey(company);
+    if (!key) return res.json({ ok: true, items: [] });
+    if (req.query.fresh !== "1") { const c = await prebriefMediaCache(key); if (c) return res.json({ ok: true, items: c.items, at: c.at, cached: true }); }
+    const r = await findJobMediaLinks(company);
+    if (!r.ok) return res.json({ ok: false, items: [], error: "検索の設定がないため、採用媒体を調べられません" });
+    await prebriefMediaCache(key, r.items);
+    res.json({ ok: true, items: r.items, at: new Date().toISOString() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 app.get("/api/meetings/:id/prebrief", async (req, res) => {
   try {
     const m = await getMeeting(req.params.id);
@@ -34757,7 +34770,7 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
         if (req.query.fields === "1" && (req.isAdmin || isAiOwner(req))) { const dd = await describeOpportunity(owner); return res.json({ dateFields: (dd.fields || []).filter((x) => /date/i.test(x.type)).map((x) => `${x.name}:${x.label}`) }); }
         const core = company.normalize("NFKC").replace(/(株式会社|有限会社|合同会社|㈱|\(株\)|（株）)/g, "").replace(/[\s　'\\%_]/g, "").slice(0, 40);
         if (core.length >= 2) {
-          const cols = [...new Set(["Id", "Name", "StageName", "CloseDate", "CreatedDate", "IsClosed", "IsWon", "RecordType.Name", "Account.Name", "AccountId", f.memo, f.hires, f.date, f.nextOpp, f.lossReason, f.lossDetail].filter(Boolean))];
+          const cols = [...new Set(["Id", "Name", "StageName", "CloseDate", "CreatedDate", "IsClosed", "IsWon", "RecordType.Name", "Account.Name", "AccountId", f.memo, f.hires, f.date, f.nextOpp, f.ats, f.lossReason, f.lossDetail].filter(Boolean))];
           const d = await sfQuery(owner, `SELECT ${cols.join(", ")} FROM Opportunity WHERE Account.Name LIKE '%${core}%' ORDER BY CreatedDate DESC LIMIT 40`);
           const key = normCompanyKey(company);
           const recs = (d.records || []).filter((o) => { const kk = normCompanyKey((o.Account && o.Account.Name) || ""); return kk && (kk === key || kk.includes(key) || key.includes(kk)); });
@@ -34790,6 +34803,11 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
             if (l1) { fill("url", l1.Website, "SFリード"); fill("industry", l1.Industry, "SFリード"); fill("employees", l1.NumberOfEmployees, "SFリード"); fill("phone", l1.Phone, "SFリード"); fill("person", l1.Name, "SFリード"); fill("email", l1.Email, "SFリード"); }
           } catch {}
           if (corp.url && !/^https?:/i.test(corp.url)) corp.url = `https://${corp.url.replace(/^\/+/, "")}`;
+          // 利用中の ATS（2026-11-24 田中さん「利用 ATS がある企業は採用媒体のところに ATS の名前」）：商談 → リードの「利用中ATS」
+          const atsBad = (v) => !v || /^(なし|無し|無|未|不明|-|ー|利用なし|使っていない)$/.test(String(v).trim());
+          let ats = f.ats ? recs.map((o) => o[f.ats]).find((v) => !atsBad(v)) : "";
+          if (!ats) { try { const la = await sfQuery(owner, `SELECT ATS__c FROM Lead WHERE Company LIKE '%${core}%' AND ATS__c != null ORDER BY LastModifiedDate DESC LIMIT 5`); ats = (la.records || []).map((o) => o.ATS__c).find((v) => !atsBad(v)) || ""; } catch {} }
+          if (ats) corp.ats = String(ats).trim().slice(0, 60);
         }
       } else sf.note = "Salesforce につながっていないため、SF の情報は出せません";
     } catch (e) { sf.note = `SF の情報を読めませんでした（${String(e.message || e).slice(0, 80)}）`; }
@@ -35009,7 +35027,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-24hq 引き継ぎ：未ログインのインターンにも Bales の所有者のメールで渡す。／2026-11-24dj レコーディングの事前情報の並び：左＝企業情報・IS情報、中央＝SF情報、右＝メモ（縦いっぱい）。／2026-11-24lst MOCHICALL：リードの状況の選択肢を SF の基本の7つ（01：新規・02：担当者未接触・03：コネクト情報獲得・04：ジャッジ・05：コンバート・89：リサイクル・99：アーカイブ）だけに。番号ごとに1つ（「01：」の形を優先）、選んだ段階の意味を下に出す。今の値が古い名前（NEW・LS:89 など）なら「旧」と付けて出す。／2026-11-24hp 引き継ぎの管理者画面 /mchandover.html を足した。Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
+const BUILD_TAG = "2026-11-24dk 事前情報の採用媒体：検索（Brave）で媒体のページをリンク付きで探す（会社ごとに1週間覚える・AI は使わない）。SF に利用中の ATS があれば先頭に出す。／2026-11-24hq 引き継ぎ：未ログインのインターンにも Bales の所有者のメールで渡す。／2026-11-24dj レコーディングの事前情報の並び：左＝企業情報・IS情報、中央＝SF情報、右＝メモ（縦いっぱい）。／2026-11-24lst MOCHICALL：リードの状況の選択肢を SF の基本の7つ（01：新規・02：担当者未接触・03：コネクト情報獲得・04：ジャッジ・05：コンバート・89：リサイクル・99：アーカイブ）だけに。番号ごとに1つ（「01：」の形を優先）、選んだ段階の意味を下に出す。今の値が古い名前（NEW・LS:89 など）なら「旧」と付けて出す。／2026-11-24hp 引き継ぎの管理者画面 /mchandover.html を足した。Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
 const BUILD_FEATURES = [
   "MOCHICALL：Bales で追いかけ中（コネクト情報獲得・ジャッジ×最終架電が営業フォロー）のリードを、Bales の所有者のインターンの掛け直しへ引き継ぐ",
   "リスト管理：BALES標準CSVとSalesforceの未登録リードをリスト追加から取り込める",

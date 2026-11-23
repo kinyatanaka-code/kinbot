@@ -506,6 +506,18 @@ async function loadPreBrief(id, tries = 0) {
   if (_preFor !== id) return;
   renderPreBrief(box, d);
 }
+// 採用媒体を検索で探す（会社ごとに1週間覚える）。見つかったものはその媒体のページへのリンク
+async function loadPreMedia(company, box) {
+  const el = () => box.querySelector("[data-pre-media]");
+  if (!company) { if (el()) el().innerHTML = '<span class="pre-none">—</span>'; return; }
+  try {
+    const r = await fetch(`/api/prebrief/media?company=${encodeURIComponent(company)}`).then((x) => x.json());
+    const it = (r && r.items) || [];
+    if (!el()) return;
+    el().innerHTML = it.length ? it.map((m) => `<a class="pre-chip" href="${escPre(m.url)}" target="_blank" rel="noopener" title="${escPre(m.title || m.name)}">${escPre(m.name)}</a>`).join("")
+      : `<span class="pre-none">${r && r.error ? escPre(r.error) : "見つかりませんでした"}</span>`;
+  } catch { if (el()) el().innerHTML = '<span class="pre-none">調べられませんでした</span>'; }
+}
 function escPre(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
 function renderPreBrief(box, d) {
   const e = escPre, dash = '<span class="pre-none">—</span>';
@@ -517,7 +529,8 @@ function renderPreBrief(box, d) {
   const link = (u, t) => (u ? `<a href="${e(u)}" target="_blank" rel="noopener">${e(t || u)}</a>` : dash);
   const mail = c.email ? `<a href="mailto:${e(c.email)}">${e(c.email)}</a>` : dash;
   const tel = c.phone ? `<a href="tel:${e(String(c.phone).replace(/[^0-9+]/g, ""))}">${e(c.phone)}</a>` : dash;
-  const media = (c.media || []).length ? c.media.map((m) => `<a class="pre-chip" href="${e(m.url)}" target="_blank" rel="noopener" title="${e(m.name)} でこの会社の求人を探す">${e(m.name)}</a>`).join("") : dash;
+  // 採用媒体：利用中の ATS を先頭に。媒体はこのあと検索で探して入れる（リンク付き）
+  const media = `${c.ats ? `<span class="pre-chip ats" title="SF の利用中ATS">利用ATS：${e(c.ats)}</span>` : ""}<span data-pre-media class="pre-chips"><span class="pre-none">調べています…</span></span>`;
   const people = (is.people || []).length ? is.people.map((p) => `<div class="pre-person"><b>${e(p.name || "担当者")}</b>${p.gender ? `<span class="pre-tag">${e(p.gender)}</span>` : ""}${p.age ? `<span class="pre-tag">${e(p.age)}</span>` : ""}${(p.tags || []).map((t) => `<span class="pre-tag soft">${e(t)}</span>`).join("")}</div>`).join("") : dash;
   const calls = (is.calls || []).length ? `<div class="pre-calls">${is.calls.map((x) => `<div class="pre-call"><div class="pre-call-h"><span>${e(ymdh(x.at))}</span><span class="pre-res">${e(x.result)}</span><span class="pre-who">${e(x.caller)}</span></div>${x.memo ? `<div class="pre-call-m">${e(x.memo)}</div>` : ""}</div>`).join("")}</div>` : dash;
   const lt = sf.latest;
@@ -527,6 +540,7 @@ function renderPreBrief(box, d) {
   const ic = (p) => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
   // 会社名の行は上に1本（メモと高さをそろえるため、カードの外に出す）
   const hd = $("preHead"); if (hd) hd.innerHTML = `<b>${e(c.name || d.company || "会社名がわかりません")}</b>${!d.found || (!d.found.kincall && !d.found.apo) ? '<span class="pre-warn">kincall・アポの記録が見つかりませんでした（会社名で探しています）</span>' : ""}`;
+  setTimeout(() => loadPreMedia(c.name || d.company, box), 0);
   box.innerHTML = `
     <div class="pre-grid">
       <div class="pre-col"><section class="pre-card"><h3>${ic('<path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h7A1.5 1.5 0 0 1 14 5.5V21"/><path d="M14 10h4.5a1.5 1.5 0 0 1 1.5 1.5V21"/><path d="M2.5 21h19"/>')}企業情報</h3>
