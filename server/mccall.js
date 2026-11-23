@@ -2195,7 +2195,8 @@ export function registerMcCall(app, deps) {
   app.get("/api/mccall/meta", guard(async (req, res) => {
     // 管理者の画面には、いま管理者として扱っている人の名前も返す（苗字で照合しているので、漏れや取り違えを見えるように）
     // 管理者の名前はインターンにも返す（「かける」が止まったときに、だれに知らせればよいかを画面に出すため）
-    const admins = deps.adminNames ? await deps.adminNames().catch(() => []) : [];
+    //   環境変数で足した管理者は名前が分からずメールアドレスのままなので、管理者以外には出さない
+    const admins = (deps.adminNames ? await deps.adminNames().catch(() => []) : []).filter((x) => isAdmin(req) || !String(x).includes("@"));
     res.json({ ok: true, reach: REACH, rejectReasons: REJECT_REASONS, admin: isAdmin(req), admins, me: me(req) });
   }));
 }
