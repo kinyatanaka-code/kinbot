@@ -70,8 +70,9 @@ async function jobMediaByGemini(name) {
   const d = await r.json().catch(() => null); const c = d && d.candidates && d.candidates[0]; if (!c) return null;
   const text = ((c.content && c.content.parts) || []).map((p) => p.text || "").join("\n");
   const seen = new Map();
-  // ① 答えの文に書かれた URL（本物の URL）② 検索の根拠のリンク（題名が媒体のドメインのもの。押すとその媒体のページへ飛ぶ）
-  for (const u of text.match(/https?:\/\/[^\s)」）\]]+/g) || []) for (const [re, label] of JOB_MEDIA_URL) if (re.test(u) && !seen.has(label)) seen.set(label, { name: label, url: u.replace(/[。、,.]+$/, ""), title: "" });
+  // 検索の根拠のリンクだけを使う（題名が媒体のドメインのもの。押すとその媒体のページへ飛ぶ）。
+  //   答えの文に書かれた URL は AI が作った偽物のことがある（doda の番号が 1000…0 など。2026-11-24 確かめた）ので使わない
+  void text;
   for (const ch of ((c.groundingMetadata && c.groundingMetadata.groundingChunks) || [])) { const w = ch.web || {}; for (const [re, label] of JOB_MEDIA_URL) if ((re.test(String(w.title || "")) || re.test(String(w.uri || ""))) && !seen.has(label) && w.uri) seen.set(label, { name: label, url: w.uri, title: String(w.title || "") }); }
   return [...seen.values()];
 }
