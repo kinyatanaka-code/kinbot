@@ -13193,12 +13193,19 @@ export async function mcBalesSources(listKey) {
   const none = Number((await pool.query(`SELECT count(*) AS n ${base} AND COALESCE(array_to_string(ARRAY[${BALES_SRC_COLS.replace(/data->>/g, "r.data->>")}], ''), '') = ''`, [listKey])).rows[0].n);
   return none ? [...named, { v: "-", n: none }] : named;
 }
-export async function mcBalesValues(listKey, col, { stg = "" } = {}) {
+export async function mcBalesValues(listKey, col, { stg = "", blank = false } = {}) {
   if (!pool) return []; await ensureMcBales();
   // stg（ステージ別）を付けると、その分だけ数える（メンバー別の「残りの架け先」＝active）
   const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
   return (await pool.query(`SELECT r.data->>$2 AS v, count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
     WHERE r.list_key=$1 AND r.dup_of IS NULL AND COALESCE(r.data->>$2,'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n) }));
+}
+// その項目が空のもの（所有者がいない＝未割り振り）の件数（2026-11-23 田中さん「未割り振りのカードを」）
+export async function mcBalesBlankCount(listKey, col, { stg = "" } = {}) {
+  if (!pool) return 0; await ensureMcBales();
+  const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
+  return Number((await pool.query(`SELECT count(*) AS n FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
+    WHERE r.list_key=$1 AND r.dup_of IS NULL AND COALESCE(r.data->>$2,'') = ''${extra}`, [listKey, String(col).slice(0, 80)])).rows[0].n);
 }
 // ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）
 export async function mcBalesStages(listKey) {

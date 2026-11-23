@@ -140,17 +140,20 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
     }).catch(() => {});
     if (!oc || !m0) return;
     // メンバー別：所有者ごとの件数。表示するメンバーは「リスト追加」で選んだ人（まだ選んでいなければ全員）
-    let vals = []; try { vals = (await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}`)).items || []; } catch {}
+    // 未割り振り（所有者がいない）も数える（2026-11-23 田中さん「誰にも割り振られていないものは未割り振りのカードを」）
+    const bl = { all: 0, active: 0, nurture: 0 };
+    let vals = []; try { const d = await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&blank=1`); vals = d.items || []; bl.all = d.blank || 0; } catch {}
     // 残りの架け先：リサイクル・アーカイブにしていない件数（2026-11-23 田中さん）
-    let act = new Map(); try { act = new Map(((await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&stg=active`)).items || []).map((v) => [v.v, v.n])); } catch {}
+    let act = new Map(); try { const d = await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&stg=active&blank=1`); act = new Map((d.items || []).map((v) => [v.v, v.n])); act.set("", d.blank || 0); } catch {}
     // ナーチャリングの件数も出す（2026-11-23 田中さん）
-    let nur = new Map(); try { nur = new Map(((await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&stg=nurture`)).items || []).map((v) => [v.v, v.n])); } catch {}
+    let nur = new Map(); try { const d = await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&stg=nurture&blank=1`); nur = new Map((d.items || []).map((v) => [v.v, v.n])); nur.set("", d.blank || 0); } catch {}
     if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
     const box = root.querySelector("[data-mems]"); if (!box || !root.isConnected) return;
-    const shown = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
-    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span><span class="bl-lc-nur">ナーチャリング <b>${Number(nur.get(v.v) || 0).toLocaleString()}</b>件</span><small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
+    const shown0 = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
+    const shown = bl.all ? [...shown0, { v: "", n: bl.all }] : shown0;   // 最後に「未割り振り」（v が空）
+    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem${v.v ? "" : " none"}" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${v.v ? esc(String(v.v).replace(/\s/g, "").slice(0, 1)) : "−"}</span><b>${v.v ? esc(v.v) : "未割り振り"}</b><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span><span class="bl-lc-nur">ナーチャリング <b>${Number(nur.get(v.v) || 0).toLocaleString()}</b>件</span><small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${v.v && Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
       : '<div class="mc-note">所有者の入ったリードがありません。</div>';
-    box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { cur = m0.list_key; mode = "list"; memberF = el.dataset.mem; fcol = oc; fval = memberF; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
+    box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { cur = m0.list_key; mode = "list"; memberF = el.dataset.mem || "未割り振り"; fcol = oc; fval = el.dataset.mem; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
     box.querySelectorAll("[data-mx]").forEach((b) => b.addEventListener("click", async (e) => { e.stopPropagation(); members = (members || []).filter((x) => x !== b.dataset.mx); try { await api("/api/mochica/bales/members", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ members }) }); } catch {} home(root); }));
     // 「メンバー追加」：所有者のなかから、カードにする人を選ぶ（2026-11-22 田中さん「メンバー追加にしてほしい」）
     const am = root.querySelector("[data-addmem]");
@@ -179,17 +182,19 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
     const k = encodeURIComponent(m0.list_key);
     let tot = 0, vals = [];
     try { tot = Number((await api(`/api/mochica/bales/lists/${k}/stages`))[stgHome] || 0); } catch {}
-    try { vals = oc ? (await api(`/api/mochica/bales/lists/${k}/values?col=${encodeURIComponent(oc)}&stg=${encodeURIComponent(stgHome)}`)).items || [] : []; } catch {}
+    let blank = 0; try { if (oc) { const d = await api(`/api/mochica/bales/lists/${k}/values?col=${encodeURIComponent(oc)}&stg=${encodeURIComponent(stgHome)}&blank=1`); vals = d.items || []; blank = d.blank || 0; } } catch {}
     if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
     const box = root.querySelector("[data-stmem]"); if (!box || !root.isConnected || mode !== "stage") return;
     // メンバー別で選んだ人がいればその人たち（0件でも出す）、いなければ件数のある人全員
     const shown = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
     box.innerHTML = `<button type="button" class="bl-lc main stg ${esc(stgHome)}" data-stall><b>全員</b><span class="n">${tot.toLocaleString()}<small>件</small></span><small>${esc(m0.name || "")} から</small></button>`
       + (shown.length ? shown.map((v) => `<button type="button" class="bl-lc mem stg ${esc(stgHome)}" data-stm="${esc(v.v)}"><span class="av">${esc(String(v.v).replace(/\s/g, "").slice(0, 1))}</span><b>${esc(v.v)}</b><span class="n">${Number(v.n || 0).toLocaleString()}<small>件</small></span><small>${esc(st[1])}</small></button>`).join("")
-        : `<div class="mc-note">${oc ? "このステージのリードを持っているメンバーがいません。" : "リストに「所有者」の列が無いので、メンバーに分けられません。"}</div>`);
-    const open = (who) => { cur = m0.list_key; mode = "list"; memberF = who; fcol = who ? oc : ""; fval = who; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = stgHome; retStage = stgHome; page = 0; openList(); };
+        : `<div class="mc-note">${oc ? "このステージのリードを持っているメンバーがいません。" : "リストに「所有者」の列が無いので、メンバーに分けられません。"}</div>`)
+      + (oc && blank ? `<button type="button" class="bl-lc mem none stg ${esc(stgHome)}" data-stnone><span class="av">−</span><b>未割り振り</b><span class="n">${blank.toLocaleString()}<small>件</small></span><small>${esc(st[1])}・所有者なし</small></button>` : "");
+    const open = (who, none) => { cur = m0.list_key; mode = "list"; memberF = none ? "未割り振り" : who; fcol = who || none ? oc : ""; fval = none ? "" : who; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = stgHome; retStage = stgHome; page = 0; openList(); };
     box.querySelector("[data-stall]").addEventListener("click", () => open(""));
     box.querySelectorAll("[data-stm]").forEach((b) => b.addEventListener("click", () => open(b.dataset.stm)));
+    const nb = box.querySelector("[data-stnone]"); if (nb) nb.addEventListener("click", () => open("", true));
   }
   // ===== 見張りの1日分：誰が・どこに・何件・どんな結果だったか（2026-11-15 田中さん「インターン生の架電を分析したい」）=====
   const jstDay = (t = Date.now()) => new Date(t + 9 * 3600000).toISOString().slice(0, 10);
