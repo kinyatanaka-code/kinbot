@@ -13125,10 +13125,10 @@ export const BALES_STG = {
   nurture: `(${BST} !~ '(アーカイブ|リサイクル)' AND (${BST} ~ 'ジャッジ' OR ${BCR} ~ '(営業フォロー|資料送付)'))`,
   active: `${BST} !~ '(アーカイブ|リサイクル)'`,
 };
-// アポ率（2026-11-23 田中さん「それぞれのリストのアポ率も」）：アポ＝最終架電結果がアポ獲得か、ステージがコンバート（立ち上げ済み）のリード。
-//   分母＝架電したリード（最終架電結果がある、またはコンバート済み）。未架電は入れない
-const BAPO = `(COALESCE(r.data->>'callResult','') ~ 'アポ獲得' OR COALESCE(r.data->>'lastLeadStageName','') ~ 'コンバート')`;
-const BCALLED = `(COALESCE(r.data->>'callResult','') <> '' OR COALESCE(r.data->>'lastLeadStageName','') ~ 'コンバート')`;
+// アポ率（2026-11-23 田中さん「それぞれのリストのアポ率も」）：アポ＝最終架電結果がアポ獲得のリードだけ（立ち上げ済み＝コンバートは数えない：2026-11-23 田中さん）。
+//   分母＝架電したリード（最終架電結果があるもの）。未架電は入れない
+const BAPO = `(COALESCE(r.data->>'callResult','') ~ 'アポ獲得')`;
+const BCALLED = `(COALESCE(r.data->>'callResult','') <> '')`;
 const BAPO_SEL = `count(*) FILTER (WHERE ${BAPO}) AS apo, count(*) FILTER (WHERE ${BCALLED}) AS called`;
 const apoOf = (x) => ({ apo: Number(x.apo || 0), called: Number(x.called || 0) });
 export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");

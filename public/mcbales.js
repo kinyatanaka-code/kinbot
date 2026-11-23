@@ -4,7 +4,7 @@
 // 「見張り（架電の記録）」のカードは一旦出さない（2026-11-23 田中さん「一旦非表示で」）。取り込み自体は止めていない。また出すときは true に
 const SHOW_FEEDS = false;
 // アポ率の小さな表示（アポ ÷ 架電したリード）（2026-11-23 田中さん「それぞれのリストのアポ率も」）
-const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called || 0); return `<span class="bl-apo" title="アポ（アポ獲得・コンバート済み）${apo.toLocaleString()}件 ÷ 架電したリード ${called.toLocaleString()}件">アポ率 <b>${called ? (apo / called * 100).toFixed(1) : "0.0"}%</b><small>${apo.toLocaleString()}/${called.toLocaleString()}</small></span>`; };
+const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called || 0); return `<span class="bl-apo" title="アポ（最終架電結果がアポ獲得）${apo.toLocaleString()}件 ÷ 架電したリード ${called.toLocaleString()}件">アポ率 <b>${called ? (apo / called * 100).toFixed(1) : "0.0"}%</b><small>${apo.toLocaleString()}/${called.toLocaleString()}</small></span>`; };
 // ステージ別の箱（サーバーの BALES_STG と同じ印）
 const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォロー・資料送付"], ["recycle", "リサイクル", "ステージがリサイクル"], ["archive", "アーカイブ", "ステージがアーカイブ"]];
 (function () {
