@@ -36,6 +36,7 @@ await t("終わった・過去の文（出してはいけない）", () => {
   assert.equal(V("この求人の掲載は終了しています"), "past");
   assert.equal(V("広島ガスプロパン株式会社 現在募集を行っていません"), "past");
   assert.equal(V("エントリー受付を終了しました"), "past");
+  assert.equal(V("現在、応募受付を停止しています", { scope: "page", newgrad: true }), "past");   // マイナビ2027 のページ（精度調査で見落としていた）
   assert.equal(V("株式会社かめや 2025卒 新卒採用情報"), "past");
   assert.equal(V("2024年度採用 募集要項"), "past");
   assert.equal(V("更新日：2023年4月1日 求人情報"), "past");
@@ -49,10 +50,12 @@ await t("「終わった」と取り違えない言い回し（精度調査で�
   assert.equal(V("株式会社つばさ福祉サービス 支援員の求人"), "unknown");         // 日付も卒年も無い → 出さない側
 });
 await t("求人ページ全体は「終わった印」と「掲載・更新の日付」だけで決める（前年度の実績やメニューの卒年に引っぱられない）", () => {
-  assert.equal(V("前年度の採用実績 15名 / 2023年度入社 … 更新日：2026年11月1日 営業職", { scope: "page" }), "current");
+  assert.equal(V("前年度の採用実績 15名 / 2023年度入社 … 更新日：2026年11月1日 営業職 応募する", { scope: "page" }), "current");
+  assert.equal(V("株式会社オンテックスの採用・求人情報 最終更新日: 2026年09月11日 MESSAGE 私たちの想い", { scope: "page" }), "unknown");   // engage の会社ページ：更新日はあるが求人が無い（精度調査の外れ）
   assert.equal(V("マイナビ2028 新卒向けはこちら 中途採用 営業職", { scope: "page", newgrad: false }), "unknown");
   assert.equal(V("リクナビ2028 株式会社スズカ未来 会社概要", { scope: "page", newgrad: true }), "current");
   assert.equal(V("掲載期間 2023/05/01～2023/06/30 施工管理", { scope: "page" }), "past");
+  assert.equal(V("名古屋製綱株式会社 求人詳細を見る 情報更新日: 2026/07/17 掲載終了予定日: 2027/01/07", { scope: "page", newgrad: false }), "current");   // マイナビ転職の求人一覧（掲載終了予定日は終わった印ではない）
 });
 await t("採用人数：値の前後で判定する（実績・前年度・過去の卒年の人数は使わない）", () => {
   const f = (s, o) => { const i = s.indexOf("採用"); return valueFreshness(s, i, 10, { clock: C, ...o }).verdict; };
@@ -76,7 +79,7 @@ await t("求人ページ：無い・トップに飛ばされた・会社名が�
   assert.equal(jobPageVerdict({ url: u, status: 200, finalUrl: "https://doda.jp/", text: "doda" }, "株式会社イナハラ", C).verdict, "past");
   assert.equal(jobPageVerdict({ url: u, status: 200, finalUrl: u, text: "別の会社 更新日：2026年11月1日" }, "株式会社イナハラ", C).verdict, "unknown");
   assert.equal(jobPageVerdict({ url: u, status: 403 }, "株式会社イナハラ", C).verdict, "unknown");
-  assert.equal(jobPageVerdict({ url: u, status: 200, finalUrl: u, text: "株式会社イナハラ 営業 更新日：2026年11月1日" }, "株式会社イナハラ", C).verdict, "current");
+  assert.equal(jobPageVerdict({ url: u, status: 200, finalUrl: u, text: "株式会社イナハラ 営業 更新日：2026年11月1日 この求人に応募" }, "株式会社イナハラ", C).verdict, "current");
 });
 
 // 画面の例（株式会社つばさ福祉サービス）と同じ形：日付の無い検索結果・終わったハローワーク・過去の年度の人数 → 採用の項目は何も出さない

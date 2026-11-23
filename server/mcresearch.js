@@ -216,10 +216,10 @@ export async function recruitFacts({ name, results = [], siteText = "", site = "
   const dropped = [];
   const drop = (field, value, why, url = "") => { if (value && dropped.length < 12) dropped.push({ field, value: String(value).slice(0, 60), why, url: url || "" }); };
 
-  // ① 求人媒体：載り先ごとに、今の募集と言える検索結果があれば残す。決め手が無ければ求人ページを読んで確かめる（1社4枚まで）
+  // ① 求人媒体：載り先ごとに、今の募集と言える検索結果があれば残す。決め手が無ければ求人ページを読んで確かめる（1社5枚まで）
   const byLabel = new Map();
   for (const r of mine) for (const [re, label] of MEDIA) if (re.test(r.url)) { if (!byLabel.has(label)) byLabel.set(label, []); byLabel.get(label).push(r); }
-  let pages = 4; const media = []; const mediaCheck = []; const pageTexts = [];
+  let pages = 5; const media = []; const mediaCheck = []; const pageTexts = [];
   await Promise.all([...byLabel].map(async ([label, rs]) => {
     const newgrad = NEWGRAD_MEDIA.test(label);
     // 検索結果の文に今の募集の印（日付・卒年）があればそれで決める。URL の卒年だけで今と言えるもの（マイナビ 27卒のページなど）は、
@@ -232,9 +232,14 @@ export async function recruitFacts({ name, results = [], siteText = "", site = "
       if (p.text) pageTexts.push(p.text);
     } else if (hit) res = { verdict: "current", why: hit.f.why, url: hit.url, by: "検索結果" };
     if (!res) {
-      const u = rs.find((r) => r.f.verdict === "unknown");
-      if (u && pageOf && pages > 0) { pages--; const p = await pageOf(u.url, { newgrad }); res = { verdict: p.verdict, why: p.why, url: u.url, by: "求人ページ" }; if (p.text) pageTexts.push(p.text); }
-      else { const r0 = rs.find((r) => r.f.verdict === "past") || rs[0]; res = { verdict: r0.f.verdict, why: r0.f.why, url: r0.url, by: "検索結果" }; }
+      // 同じ媒体に別のページ（会社ページが2つある engage など）があれば、1枚目で決まらなかったときに2枚目も読む
+      for (const u of rs.filter((r) => r.f.verdict === "unknown").slice(0, 2)) {
+        if (!pageOf || pages <= 0 || (res && res.verdict === "current")) break;
+        pages--; const p = await pageOf(u.url, { newgrad });
+        if (!res || p.verdict === "current" || (p.verdict === "past" && res.verdict === "unknown")) res = { verdict: p.verdict, why: p.why, url: u.url, by: "求人ページ" };
+        if (p.text) pageTexts.push(p.text);
+      }
+      if (!res) { const r0 = rs.find((r) => r.f.verdict === "past") || rs[0]; res = { verdict: r0.f.verdict, why: r0.f.why, url: r0.url, by: "検索結果" }; }
     }
     mediaCheck.push({ label, ...res });
     if (res.verdict === "current") media.push(label); else drop("media", label, res.why, res.url);
