@@ -269,6 +269,8 @@
       <div class="mc-head-r" id="mcHeadR" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px"><!-- 探す欄はヘッダーに（2026-11-14 田中さん） --><label class="mt-find"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="9" cy="9" r="5.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13.2 13.2 17 17" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><input id="mtQ" class="mt-q" type="search" name="mc-mt-find" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="会社・会議名・担当で探す" /></label><span id="mtAutoSt" class="mc-note" style="margin:0;font-size:12px"></span><div class="mt-diag-w"><button type="button" class="mt-btn ghost" id="mtDiagBtn" aria-expanded="false">拡張機能の様子 ▾</button><div class="mt-diag-pop" id="mtDiagPop" hidden><div id="mtDiagBody" style="line-height:1.6;word-break:break-all">—</div></div></div><button type="button" id="mtRead" class="mt-btn">MiiTel から今すぐ読む</button></div>
       <!-- リスト管理の表を開いているときだけ：探す欄と取り込み直す・CSV・SF と結び直す（中身は mcbales.js が入れる）（2026-11-22） -->
       <div id="mcHeadList" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
+      <!-- MOCHICALL を開いているときだけ：今日の自分の数字・いまの時間帯・キー操作（中身は mccall.js が移す）（2026-11-23 田中さん「ヘッダーに」） -->
+      <div id="mcHeadCall" class="mcc-head" hidden style="margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>
     </header>
     <div class="mc-main">
 <section data-pane="home">

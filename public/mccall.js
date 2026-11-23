@@ -49,6 +49,8 @@
       </div>
       <div class="mcc-admin" id="mccAdmin" hidden></div>
     </div>`;
+    // 今日の自分の数字（コール・担当者と話せた・アポ・SF 項目・いまの時間帯）とキー操作は、上のヘッダーに移す（2026-11-23 田中さん「ヘッダーに」）
+    { const hd = document.getElementById("mcHeadCall"); if (hd) { const st = $("mccStats"), hb = $("mccHelpBtn"); if (st) hd.appendChild(st); if (hb) hd.appendChild(hb); } }
     $("mccHelpBtn").addEventListener("click", help);
     document.addEventListener("keydown", onKey);
     $("mccList").addEventListener("change", () => { S.listId = parseInt($("mccList").value, 10) || 0; ls.set("mcc_list", String(S.listId)); release(); S.d = null; loadQueue(true); });

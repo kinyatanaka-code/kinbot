@@ -2,7 +2,7 @@
    決まり：ボタンの種類は3つだけ（.mcc-btn／.mcc-choice／.mcc-chip）。余白は 4 の倍数。色はここの変数だけを使う。
    上の知らせ欄は高さを固定して、知らせが増えても下の部品がずれないようにしている（押そうとした瞬間にボタンが動かない）。 */
 /* 色は確認ダイアログ（body 直下に出る .mcc-dlg）にも渡す。渡さないと実行ボタンが白文字・背景なしで見えなかった（2026-11-18） */
-.mcc,.mcc-dlg{--c-accent:#0E9AA7;--c-deep:#0B6E78;--c-soft:#E6F6F8;--c-ink:#12292C;--c-muted:#5C7377;--c-line:#D9ECEE;--c-bg:#F2F9FA;
+.mcc,.mcc-dlg,.mcc-head{--c-accent:#0E9AA7;--c-deep:#0B6E78;--c-soft:#E6F6F8;--c-ink:#12292C;--c-muted:#5C7377;--c-line:#D9ECEE;--c-bg:#F2F9FA;
   --c-doc:#1d9e75;--c-doc-soft:#E3F4EC;--c-danger:#B4441F;--c-danger-soft:#FDECE6;--c-warn:#A2480C;--c-warn-soft:#FFF1E6;--c-sf:#2563A8;--c-sf-soft:#E8F0FA;}
 .mcc{display:flex;flex-direction:column;gap:8px;height:calc(100vh - 116px);min-height:560px;color:var(--c-ink);font-size:13.5px;}
 .mcc *{box-sizing:border-box;}
@@ -338,3 +338,6 @@
 .mcc-cal-d.today{font-weight:800;box-shadow:inset 0 0 0 1px var(--c-accent);}
 .mcc-cal-d.on,.mcc-cal-d.on:hover:not([disabled]){background:var(--c-deep);color:#fff;}
 .mcc-slot-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;}
+
+/* ヘッダーに移した今日の数字（2026-11-23）：ヘッダーの高さに合わせて小さめに */
+.mcc-head .mcc-stats{padding:4px 12px;gap:12px;} .mcc-head .mcc-stats b{font-size:16px;}
