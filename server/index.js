@@ -29758,10 +29758,12 @@ app.post("/api/mochica/bales/lists/:key/assign-local", async (req, res) => {
     res.json({ ok: true, n: await mcBalesAssignSet(String(req.params.key), items) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
-// 担当のいる過去失注リストを未割り振りへ（kinbot の中だけ・元に戻せる）（2026-11-23 田中さん）。dry=1 で件数だけ、undo=1 で戻す。管理者だけ
+// 担当のいる過去失注リストを未割り振りへ（kinbot の中だけ・元に戻せる）（2026-11-23 田中さん）。dry=1 で件数だけ、undo=1 で戻す。MOCHICALL の管理者だけ
 app.post("/api/mochica/bales/lists/:key/unassign-pastlost", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
-    if (!req.isAdmin) return res.status(403).json({ error: "管理者だけが使えます" });
+    // MOCHICALL の管理者と同じ人（田中さん・MOCHICA の架電の管理者）だけ
+    const okAdmin = req.isAdmin || isAiOwner(req) || (await mcCallAdmins().catch(() => new Map())).has(String(req.user).toLowerCase());
+    if (!okAdmin) return res.status(403).json({ error: "管理者だけが使えます" });
     const col = String((req.body && req.body.col) || req.query.col || "operatorName");
     const r = await mcBalesUnassignPastlost(String(req.params.key), col, { dry: req.query.dry === "1", undo: req.query.undo === "1" });
     console.log(`[bales] 過去失注を未割り振りへ ${req.query.dry === "1" ? "（下見）" : req.query.undo === "1" ? "（元に戻す）" : ""}${r.n}件 by ${req.user}`);
