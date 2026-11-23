@@ -239,12 +239,14 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
         // 内訳（2026-11-23 田中さん「リストの内訳も小さく」）：足すと件数になる4つ。予定＝次回アクション日が今日以前
         // 内訳は1行に1つ（ラベル左・件数右）、ホット度は3つの小さな箱に（2026-11-23 田中さん「この辺も見づらい」：2列に詰めると件数と次のラベルがくっついて読みにくかった）
         const bd = [["予定（ナーチャリング）", t.due_nurture], ["予定（そのほか）", t.due_other], ["過去失注", t.pastlost], ["新規", t.newlist]];
+        //   コールドは入れていない（2026-11-23 田中さん）ので、入れなかった件数を小さく添える
         tb.insertAdjacentHTML("beforeend", `<span class="bl-apo" title="これまでのアポ率（リードソース・過去失注かどうか・ホット度ごと）から出した見込み">見込みアポ率 <b>${(Number(t.exp || 0) * 100).toFixed(1)}%</b><small>今日かけた ${Number(t.called_today || 0).toLocaleString()}</small></span>`
           + `<span class="bl-tdbd" title="予定＝次回アクション日が今日以前">${bd.map(([a, n]) => `<i class="${Number(n || 0) ? "" : "z"}"><span>${a}</span><em>${Number(n || 0).toLocaleString()}</em></i>`).join("")}</span>`
-          + `<span class="bl-tdht">${HOTS.map(([k, l2]) => `<i class="${k}"><span><b class="bl-hdot ${k}"></b>${l2}</span><em>${Number((t.hot || {})[k] || 0).toLocaleString()}</em></i>`).join("")}</span>`); };
+          + `<span class="bl-tdht">${HOTS.map(([k, l2]) => `<i class="${k}"><span><b class="bl-hdot ${k}"></b>${l2}</span><em>${Number((t.hot || {})[k] || 0).toLocaleString()}</em></i>`).join("")}</span>`
+          + (t.cold_left ? `<small class="bl-tdnote">ホット・ウォームで埋め、コールド ${Number(t.cold_left).toLocaleString()}件は入れていません（予定のナーチャリングは入れます）</small>` : "")); };
       api(tq).then(showToday).catch(() => { if (tb && tb.isConnected) { tb.querySelector(".n").textContent = "-"; const x = tb.querySelector("[data-tst]"); if (x) x.textContent = "作れませんでした。もう一度開いてください"; } });
       tb?.querySelector("[data-rb]")?.addEventListener("click", (e) => { e.stopPropagation(); if (!confirm("今日かけるリストを、今のデータで作り直しますか？（今日の中身が入れ替わります）")) return;
-        tb.querySelector(".n").textContent = "…"; tb.querySelectorAll(".bl-apo, .bl-tdbd, .bl-tdht, [data-tst]").forEach((x) => x.remove()); tb.insertAdjacentHTML("beforeend", "<small data-tst>作っています…</small>");
+        tb.querySelector(".n").textContent = "…"; tb.querySelectorAll(".bl-apo, .bl-tdbd, .bl-tdht, .bl-tdnote, [data-tst]").forEach((x) => x.remove()); tb.insertAdjacentHTML("beforeend", "<small data-tst>作っています…</small>");
         api(tq + "&rebuild=1").then(showToday).catch(() => {}); });
       const sb2 = root.querySelector("[data-mstg2]");
       if (sb2) sb2.innerHTML = `<div class="bl-mgrp"><span class="bl-mgrp-h">かけるリストの内訳</span><div class="bl-mgrp-in">${[["newlist", "新規リスト", "SF に「新規」の商談が無い会社"], ["pastlost", "過去失注リスト", "SF に「新規」の商談がある会社"]].map(card).join("")}</div></div>${[S.recycle, S.archive].map(card).join("")}`;

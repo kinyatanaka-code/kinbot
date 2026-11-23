@@ -13324,7 +13324,7 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 //   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、高い順に埋める
 //   （はじめは3%に寄せて混ぜていたが、2026-11-23 田中さん「150件の中で MAX のアポ率に」で高い順に変えた）
 export const BALES_TODAY_N = 150;
-const BALES_TODAY_V = 3;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
+const BALES_TODAY_V = 4;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 let _mcTodayInit = false;
 async function ensureMcToday() {
@@ -13356,16 +13356,20 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
     FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${BALES_STG.call.replace(/data->>/g, "r.data->>")} AND NOT ${BAPO}${ow}`, p)).rows;
   const nextDay = (na) => { let t = null; for (let i = 0; i < 50; i++) { if (!na || na[`nextActions.${i}.id`] == null && na[`nextActions.${i}.reservedAt`] == null) break;
     if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
-  const L = cand.map((c) => { const nd = nextDay(c.na); return { k: c.row_key, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, nd, due: !!nd && nd <= day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }; });
+  const L = cand.map((c) => { const nd = nextDay(c.na); return { k: c.row_key, h: Number(c.h) || 1, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, nd, due: !!nd && nd <= day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }; });
   const N = BALES_TODAY_N;
-  const byDue = (a, b) => b.nd.localeCompare(a.nd) || b.p - a.p;
-  const pri = [...L.filter((x) => x.nur && x.due).sort(byDue), ...L.filter((x) => !x.nur && x.due).sort(byDue)].slice(0, N);
-  const used = new Set(pri.map((x) => x.k)); const rest = L.filter((x) => !used.has(x.k)); const need = N - pri.length;
-  // 残りの枠は、取れそうな率の高い順に埋める（2026-11-23 田中さん「3%ではなく、150件の中で MAX のアポ率になるように」）
-  const pick = need > 0 ? [...rest].sort((a, b) => b.p - a.p || a.lc - b.lc).slice(0, need) : [];
+  // 並べ方（2026-11-23 田中さん「コールドは無理に入れなくて良い。基本ホット→ウォーム→コールドの順で」）：
+  //   ① ナーチャリングで次回アクション日が今日以前 … ホット度に関係なく入れる（約束した掛け直しのため）。ホット→ウォーム→コールドの順
+  //   ② 残りの枠はホット→ウォームだけ。同じホット度の中は「次回アクション日が今日以前」→ 見込みアポ率の高い順
+  //   コールド（判定前も含む）は②に入れない。足りなければ150件に満たなくてよい
+  const byDue = (a, b) => b.h - a.h || b.nd.localeCompare(a.nd) || b.p - a.p;
+  const pri = L.filter((x) => x.nur && x.due).sort(byDue).slice(0, N);
+  const used = new Set(pri.map((x) => x.k)); const need = N - pri.length;
+  const pick = need > 0 ? L.filter((x) => !used.has(x.k) && x.h >= 2).sort((a, b) => b.h - a.h || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.p - a.p || a.lc - b.lc).slice(0, need) : [];
   const out = [...pri, ...pick];
-  const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, due_nurture: pri.filter((x) => x.nur).length, due_other: pri.filter((x) => !x.nur).length,
-    pastlost: pick.filter((x) => x.pl).length, newlist: pick.filter((x) => !x.pl).length, pool: L.length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける
+  const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, due_nurture: pri.length, due_other: pick.filter((x) => x.due).length,
+    pastlost: pick.filter((x) => !x.due && x.pl).length, newlist: pick.filter((x) => !x.due && !x.pl).length, pool: L.length,
+    cold_left: L.filter((x) => !used.has(x.k) && x.h < 2).length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける。cold_left＝入れなかったコールド
   return { keys: out.map((x) => x.k), info };
 }
 // その人の今日のリスト（無ければ作る。rebuild で作り直す）
