@@ -13165,13 +13165,18 @@ const BTAGS = `concat_ws(' ', data->>'freeTags.0.text', data->>'freeTags.1.text'
 export const BALES_OUT = `(CASE WHEN ${BEMP} ~ '^[0-9]+$' THEN (${BEMP})::bigint <= 99
   WHEN ${BEMP} ~ '人' THEN ${BEMP} ~ '^([0-9]*～)?(1|5|10|20|30|50|100)人未満$'
   ELSE translate(${BTAGS}, '〜~', '～～') ~ '従業員数】([0-9]*～)?(5|10|20|30|50|100)人未満' END)`;
+// アーカイブの中のカード（MOCHICAユーザー・アプローチ禁止・対象外）に入ったリードは、kinbot の中ではステージをアーカイブとして扱う
+//   （2026-11-23 田中さん「アーカイブのカードに入ったものは全部ステージアーカイブに」→ kinbot の中だけ。Bales のステージは変えない）
+//   ステージ別のアーカイブの件数・メンバーごとの件数・表に入れ、表のステージの列も「アーカイブ」と出す
+export const BALES_HID = `(${BALES_MCU} OR ng IS TRUE OR ${BALES_OUT})`;
+const stgVis = (stg) => (stg === "archive" ? `(${BALES_HID} OR ${BALES_STG.archive.replace(/data->>/g, "r.data->>")})` : `NOT ${BALES_HID}${Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : ""}`);
 export const BALES_SRC_COLS = [0, 1, 2, 3, 4].map((i) => `data->>'leadSources.${i}.name'`).join(",");
 export function balesCr(v) { const t = String(v || ""); for (const [k, re] of BALES_CR) if (new RegExp(re).test(t)) return k; return "-"; }
 export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset = 0, limit = 100, hot = "", sort = "", cr = "", col2 = "", val2 = "", sf = "", src = "", stg = "" } = {}) {
   if (!pool) return { total: 0, rows: [] }; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { total: 0, rows: [] };
   // まとめた重複は出さない。MOCHICA ユーザーもふだんは出さず、stg=mcuser のときだけ MOCHICA ユーザーを出す（アーカイブの中のカード：2026-11-23 田中さん）
-  const w = [`list_key=$1`, `run_at=$2`, stg === "mcuser" ? `dup_of IS NULL AND ${BALES_MCU}` : stg === "ng" ? `dup_of IS NULL AND ng IS TRUE AND NOT ${BALES_MCU}` : stg === "out" ? `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND ${BALES_OUT}` : `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`]; const p = [listKey, l.run_at];
+  const w = [`list_key=$1`, `run_at=$2`, stg === "mcuser" ? `dup_of IS NULL AND ${BALES_MCU}` : stg === "ng" ? `dup_of IS NULL AND ng IS TRUE AND NOT ${BALES_MCU}` : stg === "out" ? `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND ${BALES_OUT}` : stg === "archive" ? `dup_of IS NULL AND (${BALES_HID} OR ${BALES_STG.archive})` : `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`]; const p = [listKey, l.run_at];
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
   if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(${colX(col, `$${p.length - 1}`)},'') = $${p.length}`); }
   // 2つめの項目で絞る（所有者など）（2026-11-22 田中さん「所有者で絞り込みたい」）
@@ -13190,7 +13195,7 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   };
   const sfW = many(sf).map(sfCond).filter(Boolean); if (sfW.length) w.push(`(${sfW.join(" OR ")})`);
   //   リードの出どころ（Bales の leadSources。1件に複数あり、平らにして leadSources.0.name〜4.name に入っている）（2026-11-23 田中さん「リードのでどころでリスト作って」）
-  if (Object.hasOwn(BALES_STG, stg)) w.push(BALES_STG[stg]);
+  if (Object.hasOwn(BALES_STG, stg) && stg !== "archive") w.push(BALES_STG[stg]);   // アーカイブは上で（カードの分も含めて）
   // 今日かけるリスト：その人（col/val）の今日の分の行だけ
   if (stg === "today") { const t = await mcBalesToday(listKey, { col, val }); p.push(t ? t.keys : []); w.push(`row_key = ANY($${p.length}::text[])`); }
   const srcs = many(src); if (srcs.length) { const sw = []; const names = srcs.filter((x) => x !== "-");
@@ -13211,7 +13216,7 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
   const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
-  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d, dup_note, dup_n, assign_name FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, __k: r.row_key, __d: r.hd, __dupNote: r.dup_note || "", __dupN: r.dup_n || 0, __as: r.assign_name || "", __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
+  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d, dup_note, dup_n, assign_name, (${BALES_HID}) AS hid FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, ...(r.hid ? { lastLeadStageName: "アーカイブ", __balesStage: r.data?.lastLeadStageName || "" } : {}), __k: r.row_key, __d: r.hd, __dupNote: r.dup_note || "", __dupN: r.dup_n || 0, __as: r.assign_name || "", __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
   return { total, rows };
 }
 // SF の絞り込みの選択肢：商談の無いリードの状況ごとの件数と、商談あり（受注・失注・進行中）・SF に無いの件数（2026-11-22）
@@ -13244,16 +13249,14 @@ export async function mcBalesSources(listKey, { col = "", val = null } = {}) {
 export async function mcBalesValues(listKey, col, { stg = "", blank = false } = {}) {
   if (!pool) return []; await ensureMcBales();
   // stg（ステージ別）を付けると、その分だけ数える（メンバー別の「残りの架け先」＝active）
-  const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
   return (await pool.query(`SELECT ${colX(col, "$2", "r.")} AS v, count(*) AS n, ${BAPO_SEL}, ${BHOT_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
-    WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT} AND COALESCE(${colX(col, "$2", "r.")},'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n), ...apoOf(r), ...hotOf(r) }));
+    WHERE r.list_key=$1 AND r.dup_of IS NULL AND ${stgVis(stg)} AND COALESCE(${colX(col, "$2", "r.")},'') <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n), ...apoOf(r), ...hotOf(r) }));
 }
 // その項目が空のもの（所有者がいない＝未割り振り）の件数（2026-11-23 田中さん「未割り振りのカードを」）
 export async function mcBalesBlankCount(listKey, col, { stg = "", full = false } = {}) {
   if (!pool) return 0; await ensureMcBales();
-  const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
   const x = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL}, ${BHOT_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
-    WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT} AND COALESCE(${colX(col, "$2", "r.")},'') = ''${extra}`, [listKey, String(col).slice(0, 80)])).rows[0];
+    WHERE r.list_key=$1 AND r.dup_of IS NULL AND ${stgVis(stg)} AND COALESCE(${colX(col, "$2", "r.")},'') = ''`, [listKey, String(col).slice(0, 80)])).rows[0];
   return full ? { n: Number(x.n), ...apoOf(x), ...hotOf(x) } : Number(x.n);
 }
 // ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）
@@ -13263,7 +13266,11 @@ export async function mcBalesStages(listKey, { col = "", val = null } = {}) {
     // ホット度ごと（すべてのリードの隣のカード）（2026-11-23 田中さん）。コールドは判定前も含む（表の「コールドだけ」と同じ）
     + Object.entries({ hot: "r.hot >= 3", warm: "r.hot = 2", cold: "COALESCE(r.hot,0) <= 1" }).map(([k, c]) => `, count(*) FILTER (WHERE ${c}) AS h_${k}, count(*) FILTER (WHERE ${c} AND ${BAPO}) AS h_${k}_apo, count(*) FILTER (WHERE ${c} AND ${BCALLED}) AS h_${k}_called`).join("");
   const r = (await pool.query(`SELECT ${sel}, count(*) AS total FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}${col && val != null ? ` AND COALESCE(${colX(col, "$2", "r.")},'') = $3` : ""}`, col && val != null ? [listKey, String(col).slice(0, 80), String(val)] : [listKey])).rows[0] || {};
-  return Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
+  const o = Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]));
+  // アーカイブの中のカードの分も、アーカイブの件数に足す（kinbot の中ではアーカイブ扱い）
+  const h = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.dup_of IS NULL AND ${BALES_HID}${col && val != null ? ` AND COALESCE(${colX(col, "$2", "r.")},'') = $3` : ""}`, col && val != null ? [listKey, String(col).slice(0, 80), String(val)] : [listKey]).catch(() => ({ rows: [{}] }))).rows[0] || {};
+  o.archive = (o.archive || 0) + Number(h.n || 0); o.archive_apo = (o.archive_apo || 0) + Number(h.apo || 0); o.archive_called = (o.archive_called || 0) + Number(h.called || 0);
+  return o;
 }
 // Bales のリストを消す（画面の「消す」から。リストと、その行を全部）（2026-11-15 田中さん「消せるように」）
 export async function mcBalesDelete(listKey) {
