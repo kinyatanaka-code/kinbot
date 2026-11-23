@@ -285,7 +285,7 @@ import {
   renameListPrefixes,
   docViewSummary,
   docViewCheck,
-  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
+  kxMailLog, kxMailLogList, setApoDeleted, listApoDeletedSlugs, deleteMiitelMeetings, mcMiitelDeleteImported, mcMiitelCleanJunk, mcMiitelTodo, mcMiitelResetTries, mcBalesSfValues, kxInboxAiGet, kxInboxAiPut, mcBalesStart, mcBalesHotFill, mcFeedUpsert, mcFeedSynced, mcFeedList, mcFeedRange, mcFeedDelete, mcBalesDelete, mcBalesWriteTodo, mcBalesWritten, mcBalesRowsForSf, mcBalesSetSf, mcBalesSfInfo, mcBalesTodo, mcBalesSetDetail, mcBalesRow, mcCompanyCalls, mcBalesAddRows, mcBalesFinish, mcBalesCarryOver, mcBalesLists, mcBalesRows, mcBalesValues, mcBalesSources, mcBalesStages, mcBalesDupRows, mcMiitelTodoCount, mcMiitelNeedCal, mcMiitelBrokenParts, mcMiitelManualNoSf, fixPersonOwnerSwap, findCallTargetCompanyInfo, mcMiitelFixTrLen, kxHiringGetDb, kxHiringSaveDb, mcMiitelSave, mcMiitelList, mcMiitelGet, kxMwAdd, kxMwRecent, kxMwStatus, kxMwForRematch, kxMwSetAccount, kxMwDelete, kxAutoSeen, kxAutoMark, kxTaskKeyExists, kxTaskRecentTitles, listRecentSummarizedMeetings, listEmptyImportedMeetings, listEmptyTranscriptMeetings, bumpRetransTry, isShinsotsuList, kxTaskListByAccount, kxTaskUpdateAny, kinxsAddTest, kinxsDeleteTest, arShiftCancelMonthsOnce, arInboxForAccount, kinxsTestRows, kinxsTestSet, arNoUsedByReal, arSyncSetCs, kxFileAdd, kxFileList, kxFileGet, kxFileDelete, kxFileChat, kxFileDrive,
   kinxsInit, kinxsUpsertFromSf, kinxsList, kinxsSetRank, kinxsHistory, kinxsUpdate, kinxsLogAuto, kxTaskList, kxTaskListAllOpen, kxTaskAdd, kxTaskUpdate, kinxsSetLogoManual, kinxsRename, kinxsSetFormer, kinxsAddManual, kinxsDeleteManual, kinxsPruneSf, kinxsSetLogo,
   csTrackInit, csTrackLink, csTrackGet, csTrackHit, csTrackSummary, deleteTestCsKickoff,
   listApoForCallConversation,
@@ -29681,6 +29681,41 @@ app.put("/api/mochica/bales/members", async (req, res) => {
 });
 app.get("/api/mochica/bales/lists/:key/sf-values", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" }); res.json({ ok: true, ...(await mcBalesSfValues(String(req.params.key))) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// 重複のまとめ：同じ電話番号（無ければ同じ会社名）のリードを1つにまとめる（2026-11-23 田中さん「重複が多すぎる」）。
+//   残すのは架電の記録がいちばん新しいリード。ほかのリードの架電の記録は、残すリードの活動コメントにまとめる。
+//   まずは下見だけ（データは変えない）。「まとめる前に見せて」
+const mcTelKey = (t) => { const d = String(t || "").normalize("NFKC").replace(/\D/g, ""); return d.length >= 9 ? d : ""; };
+const mcCoKey = (c) => String(c || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|\(株\)|（株）|[\s　・,.，．()（）「」]/g, "").toLowerCase();
+const mcAt = (r) => Date.parse(r.called || "") || 0;
+function mcBalesDupGroups(rows) {
+  // 電話番号が同じものをまとめる。電話番号の無いものは、会社名が同じものどうし
+  const g = new Map();
+  for (const r of rows) { const t = mcTelKey(r.tel); const c = mcCoKey(r.co); const key = t ? `t:${t}` : c ? `c:${c}` : ""; if (!key) continue; (g.get(key) || g.set(key, []).get(key)).push(r); }
+  const out = [];
+  for (const [key, rs] of g) { if (rs.length < 2) continue;
+    // 残す1件：最終架電日時がいちばん新しいもの（同じなら最終活動日時→作った日時が新しいもの）
+    rs.sort((a, b) => (mcAt(b) - mcAt(a)) || ((Date.parse(b.act || "") || 0) - (Date.parse(a.act || "") || 0)) || ((Date.parse(b.created || "") || 0) - (Date.parse(a.created || "") || 0)));
+    const keep = rs[0], rest = rs.slice(1);
+    const fmt = (x) => { const t = Date.parse(x || ""); if (!t) return ""; const d = new Date(t + 9 * 3600000); return `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+    // 古い架電の記録：「【日付 結果】コメント（担当者）」の形で、新しい順に足す
+    const olds = rest.filter((r) => r.called || r.cr || r.cc || r.ac).map((r) => `【${[fmt(r.called) || "日付なし", r.cr || "結果なし"].join(" ")}】${String(r.cc || r.ac || "").replace(/\s+/g, " ").trim()}${r.tn && !/unknown/i.test(r.tn) ? `（${r.tn}）` : ""}`);
+    const base = String(keep.cc || keep.ac || "").replace(/\s+/g, " ").trim();
+    out.push({ key, by: key.startsWith("t:") ? "電話番号" : "会社名", company: keep.co || rest.map((r) => r.co).find(Boolean) || "", tel: keep.tel || "", n: rs.length,
+      keep: { k: keep.k, co: keep.co, tn: keep.tn, called: keep.called, cr: keep.cr, stage: keep.stage, op: keep.op, comment: base },
+      merge: rest.map((r) => ({ k: r.k, co: r.co, tn: r.tn, called: r.called, cr: r.cr, stage: r.stage, op: r.op, comment: String(r.cc || r.ac || "").replace(/\s+/g, " ").trim() })),
+      mergedComment: [base, ...olds].filter(Boolean).join(" ／ ").slice(0, 3000) });
+  }
+  return out.sort((a, b) => b.n - a.n);
+}
+app.get("/api/mochica/bales/lists/:key/dups", async (req, res) => {
+  try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
+    const rows = await mcBalesDupRows(String(req.params.key)); const gs = mcBalesDupGroups(rows);
+    const byTel = gs.filter((x) => x.by === "電話番号").length;
+    res.json({ ok: true, rows: rows.length, groups: gs.length, byTel, byCo: gs.length - byTel, removed: gs.reduce((t, x) => t + x.n - 1, 0), after: rows.length - gs.reduce((t, x) => t + x.n - 1, 0),
+      sizes: Object.entries(gs.reduce((o, x) => { const k = x.n >= 5 ? "5件以上" : `${x.n}件`; o[k] = (o[k] || 0) + 1; return o; }, {})),
+      items: req.query.all === "1" ? gs : gs.slice(0, Math.min(Number(req.query.limit) || 50, 500)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 // ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）（2026-11-23 田中さん）

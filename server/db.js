@@ -13241,6 +13241,14 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 }
 
 // SF と結びつける：今の取り込みの行（row_key と data）を渡す／結果を書く／進み具合を残す
+// 重複のまとめの下見用：重複を見分けて、残す1件を選ぶのに要る項目だけを全行ぶん（2026-11-23 田中さん「重複が多すぎる」）
+export async function mcBalesDupRows(listKey) {
+  if (!pool) return []; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return [];
+  return (await pool.query(`SELECT row_key AS k, data->>'companyName' AS co, data->>'companyTel1' AS tel, data->>'targetName' AS tn, data->>'callResult' AS cr, data->>'lastCalledAt' AS called,
+      data->>'lastCalledComment' AS cc, data->>'lastActivityComment' AS ac, data->>'lastActivityAt' AS act, data->>'createdAt' AS created, data->>'lastLeadStageName' AS stage, data->>'operatorName' AS op
+    FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2`, [listKey, l.run_at])).rows;
+}
 export async function mcBalesRowsForSf(listKey) {
   if (!pool) return []; await ensureMcBales();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return [];
