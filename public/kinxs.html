@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261124j" />
+    <link rel="stylesheet" href="style.css?v=20261124k" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1320,7 +1320,10 @@
   @media (max-width:860px){ .kx-sub-head{display:none;} .kx-sd{display:none;} }
   /* ホーム：左の列は「要アクション → 担当企業」（2026-11-24 田中さん「要アクションが上、担当企業が下」）。
      画面の高さに収めるので、要アクションは中身の高さまで、担当企業は残り（少なくとも260px）。それぞれの中は巻き取れる */
-  .h2-left{display:grid;grid-template-rows:minmax(0,auto) minmax(260px,1fr);gap:12px;min-height:0;min-width:0;}
+  /*   要アクションでタスクなどを開いても担当企業が隠れないよう、要アクションは高くても左の列の半分ほどまで（2026-11-24 田中さん「開くと下が見えなくなる」）。中身はカードの中で巻き取る */
+  .h2-left{display:grid;grid-template-rows:fit-content(52%) minmax(0,1fr);gap:12px;min-height:0;min-width:0;}
+  .h2-left > .h2-act{overflow:hidden;}
+  .h2-left > .h2-act > .h2-list,.h2-left > .h2-act > .h2-tk{flex:1;min-height:0;overflow-y:auto;}
   .h2-mine{display:flex;flex-direction:column;min-height:0;overflow:hidden;}
   .h2-mine .h2-h{flex-wrap:wrap;gap:8px;}
   .h2-mine .h2-h select{font-size:12px;padding:3px 8px;}
@@ -1506,7 +1509,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261124j" defer></script>
-    <script src="kinxs.js?v=20261124j"></script>
+    <script src="kbchat.js?v=20261124k" defer></script>
+    <script src="kinxs.js?v=20261124k"></script>
   </body>
 </html>
