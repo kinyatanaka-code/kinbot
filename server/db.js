@@ -13381,7 +13381,8 @@ export async function mcBalesToday(listKey, { col = "", val = "", rebuild = fals
   }
   const keys = Array.isArray(t.keys) ? t.keys : [];
   // 今日もうかけた件数（取り込み直すと Bales の最後の架電日時が入る）・その中のアポ
-  const c = keys.length ? (await pool.query(`SELECT count(*) FILTER (WHERE r.data->>'lastCalledAt' IS NOT NULL AND to_char((r.data->>'lastCalledAt')::timestamptz AT TIME ZONE 'Asia/Tokyo','YYYY-MM-DD') = $3)::int AS called_today,
+  //   Bales の日時は「2026-11-06T16:29:40+09:00」と日本時間で入っているので頭の10文字で見る（日時に直すと、形の違う値が1つあるだけで全部0になっていた）
+  const c = keys.length ? (await pool.query(`SELECT count(*) FILTER (WHERE left(COALESCE(r.data->>'lastCalledAt',''), 10) = $3)::int AS called_today,
       count(*) FILTER (WHERE ${BAPO})::int AS apo, ${BHOT_SEL} FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.row_key = ANY($2::text[])`, [listKey, keys, day]).catch(() => ({ rows: [{}] }))).rows[0] : {};
   // ホット・ウォーム・コールドの内訳（2026-11-23 田中さん「今日かけるにホット・ウォーム・コールドの内訳も」）。ホット度は後から変わるので毎回数える
   return { day, keys, ...(t.info || {}), made_at: t.made_at, called_today: c.called_today || 0, apo_today: c.apo || 0, hot: { hot: Number(c.h_hot || 0), warm: Number(c.h_warm || 0), cold: Number(c.h_cold || 0) } };
