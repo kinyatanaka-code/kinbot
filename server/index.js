@@ -29687,14 +29687,20 @@ app.get("/api/mochica/bales/lists/:key/sf-values", async (req, res) => {
 //   残すのは架電の記録がいちばん新しいリード。ほかのリードの架電の記録は、残すリードの活動コメントにまとめる。
 //   まずは下見だけ（データは変えない）。「まとめる前に見せて」
 const mcTelKey = (t) => { const d = String(t || "").normalize("NFKC").replace(/\D/g, ""); return d.length >= 9 ? d : ""; };
-const mcCoKey = (c) => String(c || "").normalize("NFKC").replace(/株式会社|有限会社|合同会社|一般社団法人|社会福祉法人|医療法人|\(株\)|（株）|[\s　・,.，．()（）「」]/g, "").toLowerCase();
+const mcCoKey = (c) => String(c || "").normalize("NFKC").replace(/【[^】]*】|\[[^\]]*\]|\(旧[^)]*\)/g, "").replace(/株式会社|有限会社|合同会社|一般社団法人|一般財団法人|社会福祉法人|医療法人|\(株\)|（株）|[\s　・,.，．()（）「」]/g, "").toLowerCase();
+// 会社名が「同じ」とみなす：かっこ書きを除いて同じか、片方がもう片方を含む（「株式会社三和【スーパーsanwa】」と「株式会社三和」）
+const mcCoSame = (a, b) => !!a && !!b && (a === b || (Math.min(a.length, b.length) >= 3 && (a.includes(b) || b.includes(a))));
 const mcAt = (r) => Date.parse(r.called || "") || 0;
 function mcBalesDupGroups(rows) {
   // 電話番号が同じものをまとめる。電話番号の無いものは、会社名が同じものどうし
   const g = new Map();
   for (const r of rows) { const t = mcTelKey(r.tel); const c = mcCoKey(r.co); const key = t ? `t:${t}` : c ? `c:${c}` : ""; if (!key) continue; (g.get(key) || g.set(key, []).get(key)).push(r); }
-  const out = [];
-  for (const [key, rs] of g) { if (rs.length < 2) continue;
+  const out = [], review = [];
+  for (const [key0, rs0] of g) { if (rs0.length < 2) continue;
+    // 電話番号が同じでも会社名が違うもの（ビルの代表番号・グループ会社・番号の入れ間違い）は、勝手にまとめず「要確認」にする（2026-11-23：下見で 618 組あった）
+    const cls = []; for (const r of rs0) { const c = mcCoKey(r.co); const hit = cls.find((x) => x.keys.some((k) => mcCoSame(k, c)) || (!c && x.keys.length)); if (hit) { hit.rs.push(r); if (c) hit.keys.push(c); } else cls.push({ keys: c ? [c] : [], rs: [r] }); }
+    if (cls.length > 1) review.push({ key: key0, tel: rs0[0].tel || "", companies: cls.map((x) => ({ co: x.rs[0].co, n: x.rs.length })) });
+    for (const [ci, cl] of cls.entries()) { const rs = cl.rs; const key = cls.length > 1 ? `${key0}#${ci}` : key0; if (rs.length < 2) continue;
     // 残す1件：最終架電日時がいちばん新しいもの（同じなら最終活動日時→作った日時が新しいもの）
     rs.sort((a, b) => (mcAt(b) - mcAt(a)) || ((Date.parse(b.act || "") || 0) - (Date.parse(a.act || "") || 0)) || ((Date.parse(b.created || "") || 0) - (Date.parse(a.created || "") || 0)));
     const keep = rs[0], rest = rs.slice(1);
@@ -29706,14 +29712,24 @@ function mcBalesDupGroups(rows) {
       keep: { k: keep.k, co: keep.co, tn: keep.tn, called: keep.called, cr: keep.cr, stage: keep.stage, op: keep.op, comment: base },
       merge: rest.map((r) => ({ k: r.k, co: r.co, tn: r.tn, called: r.called, cr: r.cr, stage: r.stage, op: r.op, comment: String(r.cc || r.ac || "").replace(/\s+/g, " ").trim() })),
       mergedComment: [base, ...olds].filter(Boolean).join(" ／ ").slice(0, 3000) });
-  }
-  return out.sort((a, b) => b.n - a.n);
+  } }
+  out.sort((a, b) => b.n - a.n); out.review = review.sort((a, b) => b.companies.length - a.companies.length);
+  return out;
 }
 app.get("/api/mochica/bales/lists/:key/dups", async (req, res) => {
   try { if (!req.user) return res.status(401).json({ error: "ログインしてください" });
     const rows = await mcBalesDupRows(String(req.params.key)); const gs = mcBalesDupGroups(rows);
     const byTel = gs.filter((x) => x.by === "電話番号").length;
-    res.json({ ok: true, rows: rows.length, groups: gs.length, byTel, byCo: gs.length - byTel, removed: gs.reduce((t, x) => t + x.n - 1, 0), after: rows.length - gs.reduce((t, x) => t + x.n - 1, 0),
+    if (req.query.format === "csv") {
+      // 下見の CSV（Excel で開ける）：まとめる組ごとに「残す」1行＋「まとめる」行。要確認（電話番号が同じで会社名が違う）は別の CSV
+      const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`; const dt = (x) => { const t = Date.parse(x || ""); return t ? new Date(t + 9 * 3600000).toISOString().slice(0, 16).replace("T", " ") : ""; };
+      const lines = req.query.review === "1"
+        ? [["電話番号", "会社名", "件数"].map(q).join(","), ...gs.review.flatMap((r) => r.companies.map((c) => [r.tel, c.co, c.n].map(q).join(",")))]
+        : [["組", "どうする", "会社名", "電話番号", "担当者名", "最終架電日時", "最終架電結果", "リードステージ", "所有者", "活動コメント", "まとめた後の活動コメント"].map(q).join(","),
+          ...gs.flatMap((x, i) => [[i + 1, "残す", x.keep.co, x.tel, x.keep.tn, dt(x.keep.called), x.keep.cr, x.keep.stage, x.keep.op, x.keep.comment, x.mergedComment], ...x.merge.map((y) => [i + 1, "まとめる", y.co, x.tel, y.tn, dt(y.called), y.cr, y.stage, y.op, y.comment, ""])].map((r) => r.map(q).join(",")))];
+      res.setHeader("Content-Type", "text/csv; charset=utf-8"); res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(req.query.review === "1" ? "重複_要確認.csv" : "重複まとめ_下見.csv")}`);
+      return res.send("\uFEFF" + lines.join("\r\n")); }
+    res.json({ ok: true, rows: rows.length, groups: gs.length, review: gs.review.length, reviewItems: gs.review.slice(0, 50), byTel, byCo: gs.length - byTel, removed: gs.reduce((t, x) => t + x.n - 1, 0), after: rows.length - gs.reduce((t, x) => t + x.n - 1, 0),
       sizes: Object.entries(gs.reduce((o, x) => { const k = x.n >= 5 ? "5件以上" : `${x.n}件`; o[k] = (o[k] || 0) + 1; return o; }, {})),
       items: req.query.all === "1" ? gs : gs.slice(0, Math.min(Number(req.query.limit) || 50, 500)) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -34719,7 +34735,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-23l MOCHICALL の SF 項目の補完：取り違えを減らす（1文字の姓・別人の名・丁寧語の否定・ATS と同名の別製品・不在の人数・説明会の月）";
+const BUILD_TAG = "2026-11-23m 重複まとめの下見：電話番号が同じでも会社名が違うものは「要確認」に分け、下見の CSV を出せるように。／2026-11-23l MOCHICALL の SF 項目の補完：取り違えを減らす（1文字の姓・別人の名・丁寧語の否定・ATS と同名の別製品・不在の人数・説明会の月）";
 const BUILD_FEATURES = [
   "MOCHICALL：SF 項目の補完で、メモから読んだ電話・人数・採用種別は空でも人がチェックしたときだけ入れる",
   "kinXs：アクセス数をアクセス分析ダッシュボード（GA4）から自動で",
