@@ -822,6 +822,10 @@ export function registerMcCall(app, deps) {
     const num = (r) => { const o = {}; for (const k of ["calls", "reached", "person", "apo", "doc", "follow", "reject", "cross", "leads"]) o[k] = +r[k]; return o; };
     const rows = (await P().query(`SELECT ${key} AS k, ${cols} FROM mc_call_logs g WHERE ${w} GROUP BY 1 ORDER BY 1`, p)).rows;
     const tot = (await P().query(`SELECT ${cols} FROM mc_call_logs g WHERE ${w}`, p)).rows[0];
+    // 前の同じ長さの期間（2026-11-23 福井さん：レポートは「ふり返る」画面なので、良くなったか悪くなったかが分かるように）。
+    //   絞り込み（人・リスト）は同じで、日付の2つだけを入れ替える
+    const span = to - from;
+    const prev = (await P().query(`SELECT ${cols} FROM mc_call_logs g WHERE ${w}`, [new Date(from.getTime() - span), from, ...p.slice(2)])).rows[0];
     const reasons = (await P().query(`SELECT g.reason AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='reject' GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k || "（理由なし）", n: +r.n }));
     // 受付で断られた文句（担当者の断り理由と同じ形で数える）
     const gateReasons = (await P().query(`SELECT g.reason AS k, count(*) AS n FROM mc_call_logs g WHERE ${w} AND g.outcome='blocked' GROUP BY 1 ORDER BY 2 DESC`, p)).rows.map((r) => ({ k: r.k || "（文句なし）", n: +r.n }));
@@ -840,7 +844,7 @@ export function registerMcCall(app, deps) {
     const names = await nameMap();
     const lists = by === "list" ? new Map((await P().query(`SELECT id::text AS id, name FROM mc_call_lists`)).rows.map((r) => [r.id, r.name])) : null;
     const label = (k) => by === "user" ? names.get(String(k || "").toLowerCase()) || k : by === "list" ? lists.get(k) || `リスト ${k}` : k;
-    res.json({ ok: true, by, from, to, all: isAdmin(req), total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0) }, reasons, gateReasons, fields,
+    res.json({ ok: true, by, from, to, all: isAdmin(req), days: Math.round(span / 86400e3), prev: num(prev), total: { ...num(tot), ...ftot, invalid: [...inv.values()].reduce((a, b) => a + b, 0) }, reasons, gateReasons, fields,
       rows: rows.map((r) => ({ key: r.k, label: label(r.k), ...num(r), ...fx(r.k) })).sort((a, b) => by === "day" ? 0 : b.calls - a.calls) });
   }));
 

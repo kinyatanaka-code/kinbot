@@ -360,3 +360,52 @@
 .mcc-ti .h .who{color:var(--c-ink);}
 .mcc-ti .h .src{margin-left:auto;}
 .mcc-ti.kinbot .t{background:var(--c-doc-soft);border-radius:8px;padding:6px 10px;}
+/* レポート・数字の作り替え（2026-11-23 福井さん「だれが・どんな意図で見るものかを明確に」）
+   レポート＝結果をふり返る／数字＝次のかけ方を決める根拠。どちらも、いちばん上に「だれが何を決める画面か」を1行で出す */
+.mcc-purpose{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:-4px 0 12px;font-size:12.5px;color:var(--c-muted);line-height:1.7;}
+.mcc-purpose .mcc-chip{height:28px;margin-left:auto;color:var(--c-deep);}
+.mcc-stack{display:flex;flex-direction:column;gap:12px;}
+.mcc-stack:empty{display:none;}
+.mcc-chead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+.mcc-chead h2{margin:0;} .mcc-chead .mcc-sp{flex:1;} .mcc-chead .mcc-chip{height:28px;}
+/* どの段階で止まっているか（コール → つながった → 担当者と話せた → アポ）。線の長さは「1つ前の段階のうち」の割合 */
+.mcc-fn{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:8px;}
+.mcc-fn > div{position:relative;display:flex;flex-direction:column;gap:4px;border:1px solid var(--c-line);border-radius:12px;padding:8px 12px;min-width:0;}
+.mcc-fn > div + div::before{content:"";position:absolute;left:-10px;top:50%;width:6px;height:6px;border-top:2px solid var(--c-muted);border-right:2px solid var(--c-muted);transform:translateY(-50%) rotate(45deg);opacity:.6;}
+.mcc-fn small{font-size:11.5px;font-weight:800;color:var(--c-muted);}
+.mcc-fn b{font-size:22px;line-height:1.2;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.mcc-fn b em{font-style:normal;font-size:12px;font-weight:800;color:var(--c-deep);margin-left:8px;}
+.mcc-fn i{display:block;height:6px;border-radius:99px;background:var(--c-soft);overflow:hidden;}
+.mcc-fn i u{display:block;height:100%;border-radius:99px;background:var(--c-accent);}
+.mcc-fn .apo b,.mcc-fn .apo b em{color:#0d5b47;} .mcc-fn .apo i{background:var(--c-doc-soft);} .mcc-fn .apo i u{background:var(--c-doc);}
+.mcc-fn .dl{font-size:11.5px;color:var(--c-muted);font-variant-numeric:tabular-nums;}
+.mcc-fn .dl.up{color:#0d5b47;font-weight:800;} .mcc-fn .dl.dn{color:var(--c-warn);font-weight:800;}
+/* 表：合計はいちばん上（スクロールせずに見えるように）。コールの数は細い線でも比べられる */
+.mcc-tbl tr.sum.top td{border-top:0;border-bottom:2px solid var(--c-line);background:var(--c-bg);}
+.mcc-tbl td.bar{position:relative;}
+.mcc-tbl td.bar i{position:absolute;right:8px;bottom:3px;height:3px;border-radius:99px;background:var(--c-accent);opacity:.5;}
+/* 断られた理由・聞けた項目は、多い順の横棒で（チップの羅列だと、どれが多いか読めなかった） */
+.mcc-ranks{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px 24px;align-items:start;}
+.mcc-ranks h3{font-size:12.5px;margin:0 0 4px;color:var(--c-muted);}
+.mcc-rk{display:grid;grid-template-columns:minmax(0,1fr) 96px 32px;gap:8px;align-items:center;font-size:12.5px;padding:2px 0;}
+.mcc-rk span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mcc-rk i{display:block;height:8px;border-radius:99px;background:var(--c-soft);overflow:hidden;}
+.mcc-rk i u{display:block;height:100%;border-radius:99px;background:var(--c-accent);}
+.mcc-rk b{text-align:right;font-variant-numeric:tabular-nums;}
+/* 数字：3つの答えを先に、元の数字は同じ番号のカードに。2列に並べてスクロールを減らす */
+.mcc-ans{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.mcc-ans > div{display:flex;flex-direction:column;gap:4px;border:1px solid var(--c-line);border-left:4px solid var(--c-accent);border-radius:12px;padding:8px 12px;min-width:0;}
+.mcc-ans > div.good{border-left-color:var(--c-doc);} .mcc-ans > div.low{border-left-color:var(--c-warn);}
+.mcc-ans small{font-size:11.5px;font-weight:800;color:var(--c-muted);}
+.mcc-ans b{font-size:16px;line-height:1.5;}
+.mcc-ans p{margin:0;font-size:12px;color:var(--c-muted);line-height:1.7;} .mcc-ans p b{font-size:inherit;color:var(--c-ink);}
+.mcc-ins{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;}
+.mcc-ins > .mcc-stack{min-width:0;}
+.mcc-ins .mcc-tbl td,.mcc-ins .mcc-tbl th{padding:5px 8px;}
+.mcc-ins .mcc-tbl td:first-child,.mcc-ins .mcc-tag{white-space:nowrap;}
+.mcc-ins .mcc-hours{height:128px;margin:8px 0;}
+.mcc-ins .mcc-hr i{flex:none;}
+.mcc-hr em{font-style:normal;font-size:10.5px;font-weight:800;color:#fff;background:var(--c-deep);border-radius:99px;padding:0 6px;}
+.mcc-hr.now span{color:var(--c-deep);font-weight:800;}
+.mcc-ins .mcc-rules{margin-bottom:8px;line-height:1.8;}
+@media (max-width:1000px){.mcc-fn{grid-template-columns:repeat(2,minmax(0,1fr));}.mcc-fn > div + div::before{display:none;}.mcc-ans,.mcc-ins{grid-template-columns:1fr;}}

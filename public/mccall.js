@@ -1088,39 +1088,90 @@
   }
 
   // ---- レポート（2026-11-18 福井さん。期間・人・リスト・日ごと）----
-  const RP = { by: "user", from: "", to: "", list: "" };
+  //   2026-11-23 福井さん「だれが・どんな意図で見るものかを明確にして再デザイン」
+  //   レポート＝やった結果をふり返る画面（期間を選べる）。
+  //     かける人：自分がどの段階で止まっているかを確かめて、次のかけ方を決める → 自分の「日ごと」から始める
+  //     管理者　：人・リストを比べて、だれに声をかけるか・どのリストを先にかけるかを決める → 「人ごと」から始める
+  //   「いつ・何回かけるとよいか」の根拠は「数字」のタブに分けた（同じ中身を2つのタブに出さない）
+  const RP = { by: "", from: "", to: "", list: "", view: "result", j: null };
   const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const pc = (a, b) => (b ? `${(a / b * 100).toFixed(1)}%` : "—");
+  // 役割の印と、この画面で何を決めるかの1行。もう片方のタブへの行き先も添える（どちらを見ればよいか迷わないように）
+  const purpose = (text, go, goLabel) => `<p class="mcc-purpose"><span class="mcc-tag ok">${S.admin ? "管理者" : "かける人"}</span><span>${text}</span><button class="mcc-chip" data-go="${go}">${goLabel}</button></p>`;
   async function drawReport() {
     const box = $("mccAdmin");
     if (!RP.from) { const n = new Date(); RP.to = ymd(n); RP.from = ymd(new Date(n.getTime() - 6 * 86400e3)); }
+    // 自分の分しか出ない人に「人ごと」を出しても1行だけで比べるものが無いので、日ごとから始めて選択肢からも外す
+    const bys = S.admin ? [["user", "人ごと"], ["list", "リストごと"], ["day", "日ごと"]] : [["day", "日ごと"], ["list", "リストごと"]];
+    if (!bys.some(([v]) => v === RP.by)) RP.by = bys[0][0];
     const pre = (l, days) => { const n = new Date(); const f = days === "month" ? new Date(n.getFullYear(), n.getMonth(), 1) : days === "lastmonth" ? new Date(n.getFullYear(), n.getMonth() - 1, 1) : new Date(n.getTime() - days * 86400e3);
       const t = days === "lastmonth" ? new Date(n.getFullYear(), n.getMonth(), 0) : n; return `<button class="mcc-chip" data-pre="${ymd(f)}|${ymd(t)}" aria-pressed="${RP.from === ymd(f) && RP.to === ymd(t)}">${l}</button>`; };
     box.innerHTML = `<div class="mcc-card"><h2>レポート${S.admin ? "（全員）" : "（自分）"}</h2>
+      ${purpose(S.admin ? "メンバーとリストの結果を比べて、だれに声をかけるか・どのリストを先にかけるかを決めます。" : "自分の架電の結果をふり返って、どの段階で止まっているかを確かめます。", "insight", "いつ・何回かけるとよいかは「数字」")}
       <div class="mcc-filters">
-        <input type="date" class="mcc-sel" id="mccRf" value="${RP.from}" /><span>〜</span><input type="date" class="mcc-sel" id="mccRt" value="${RP.to}" />
+        <input type="date" class="mcc-sel" id="mccRf" value="${RP.from}" aria-label="いつから" /><span>〜</span><input type="date" class="mcc-sel" id="mccRt" value="${RP.to}" aria-label="いつまで" />
         <div class="mcc-chips">${pre("今日", 0)}${pre("7日", 6)}${pre("30日", 29)}${pre("今月", "month")}${pre("先月", "lastmonth")}</div>
-        <select class="mcc-sel" id="mccRby">${[["user", "人ごと"], ["list", "リストごと"], ["day", "日ごと"]].map(([v, l]) => `<option value="${v}" ${RP.by === v ? "selected" : ""}>${l}</option>`).join("")}</select>
-        <select class="mcc-sel" id="mccRl"><option value="">リスト：すべて</option>${S.lists.map((l) => `<option value="${l.id}" ${String(RP.list) === String(l.id) ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select>
-      </div><div id="mccRres"><p class="mcc-note">読み込んでいます…</p></div></div>`;
-    const go = () => { RP.from = $("mccRf").value; RP.to = $("mccRt").value; RP.by = $("mccRby").value; RP.list = $("mccRl").value; drawReport(); };
-    ["mccRf", "mccRt", "mccRby", "mccRl"].forEach((id) => $(id).addEventListener("change", go));
+        <select class="mcc-sel" id="mccRl" aria-label="リスト"><option value="">リスト：すべて</option>${S.lists.map((l) => `<option value="${l.id}" ${String(RP.list) === String(l.id) ? "selected" : ""}>${esc(l.name)}</option>`).join("")}</select>
+      </div><div id="mccRfn"><p class="mcc-note">読み込んでいます…</p></div></div>
+      <div id="mccRres" class="mcc-stack"></div>`;
+    const go = () => { RP.from = $("mccRf").value; RP.to = $("mccRt").value; RP.list = $("mccRl").value; drawReport(); };
+    ["mccRf", "mccRt", "mccRl"].forEach((id) => $(id).addEventListener("change", go));
     box.querySelectorAll("[data-pre]").forEach((b) => b.addEventListener("click", () => { [RP.from, RP.to] = b.dataset.pre.split("|"); drawReport(); }));
+    box.querySelector("[data-go]").addEventListener("click", () => setTab("insight"));
     let j; try { j = await api(`/api/mccall/report?${new URLSearchParams({ from: RP.from, to: RP.to, by: RP.by, list: RP.list })}`); }
-    catch (e) { $("mccRres").innerHTML = `<p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
-    const pct = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : "—");
-    const row = (lbl, r, cls = "") => `<tr class="${cls}"><td>${esc(lbl)}</td><td class="num">${r.calls}</td><td class="num">${r.leads}</td><td class="num">${r.reached}<small> ${pct(r.reached, r.calls)}</small></td><td class="num">${r.person}<small> ${pct(r.person, r.calls)}</small></td>
-      <td class="num apo">${r.apo}<small> ${pct(r.apo, r.calls)}</small></td><td class="num">${pct(r.apo, r.person)}</td><td class="num">${r.doc}</td><td class="num">${r.follow}</td><td class="num">${r.reject}</td><td class="num">${r.cross || ""}</td>
-      <td class="num fill">${r.fill || 0}<small> ${r.calls ? (r.fill / r.calls).toFixed(2) : "—"}/コール</small></td><td class="num">${r.fillNew || 0}</td><td class="num">${r.fillFix || 0}</td><td class="num">${r.fillLeads || 0}</td><td class="num">${r.fillNoApo || 0}</td><td class="num">${r.invalid || 0}</td></tr>`;
-    const T = j.total;
-    $("mccRres").innerHTML = `<div class="mcc-kpis"><div><small>コール</small><b>${T.calls}</b></div><div><small>つながった率</small><b>${pct(T.reached, T.calls)}</b></div><div><small>担当者と話せた率</small><b>${pct(T.person, T.calls)}</b></div><div class="apo"><small>アポ</small><b>${T.apo}</b></div><div class="apo"><small>アポ率（コールあたり）</small><b>${pct(T.apo, T.calls)}</b></div><div><small>担当者と話せたうちのアポ</small><b>${pct(T.apo, T.person)}</b></div>
-        <div class="fill" title="架電の内容から SF のリードの項目を埋めた・直した数"><small>SF 項目を埋めた</small><b>${T.fill || 0}</b></div><div class="fill"><small>うちアポ以外の架電で</small><b>${T.fillNoApo || 0}</b></div><div class="fill"><small>項目が埋まった会社</small><b>${T.fillLeads || 0}</b></div><div class="fill"><small>使えない番号を見つけた</small><b>${T.invalid || 0}</b></div></div>
-      ${j.rows.length ? `<div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th>${{ user: "名前", list: "リスト", day: "日" }[j.by]}</th><th class="num">コール</th><th class="num">会社数</th><th class="num">つながった</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th><th class="num">部署をまたぐ</th><th class="num fill" title="架電の内容から SF のリードの項目を埋めた・直した数（1項目＝1）">SF 項目</th><th class="num" title="空だった項目を埋めた">うち新規</th><th class="num" title="古い値を直した・課題感などに足した">うち更新</th><th class="num" title="項目を1つでも埋めた会社の数">会社</th><th class="num" title="アポにならなかった架電で埋めた数">アポ以外</th><th class="num" title="「番号が使えない」と記録した数">使えない番号</th></tr></thead>
-        <tbody>${j.rows.map((r) => row(r.label, r)).join("")}${j.rows.length > 1 ? row("合計", T, "sum") : ""}</tbody></table></div>` : '<p class="mcc-note">この期間の記録はありません。</p>'}
-      ${j.gateReasons && j.gateReasons.length ? `<h3 style="margin-top:16px">受付で断られた文句</h3><div class="mcc-chips">${j.gateReasons.map((r) => `<span class="mcc-chip" style="cursor:default">${esc(r.k)} ${r.n}</span>`).join("")}</div>` : ""}
-      ${j.reasons.length ? `<h3 style="margin-top:16px">断られた理由</h3><div class="mcc-chips">${j.reasons.map((r) => `<span class="mcc-chip" style="cursor:default">${esc(r.k)} ${r.n}</span>`).join("")}</div>` : ""}
-      ${j.fields && j.fields.length ? `<h3 style="margin-top:16px">埋めた SF の項目</h3><div class="mcc-chips">${j.fields.map((r) => `<span class="mcc-chip" style="cursor:default">${esc(r.k)} ${r.n}</span>`).join("")}</div>` : ""}
-      <p class="mcc-note" style="margin-top:12px">SF 項目：架電の内容（ヒアリング・受付で聞けたこと・断り理由・メモ）から SF のリードに入れた項目の数です。空を埋めた・古い値を直した・課題感などに足したものを1項目1つで数え、SF と同じ値の確認は数えません。取り消した記録の分は外します。</p>
-      <p class="mcc-note" style="margin-top:12px">数えているのは MOCHICALL で記録したものだけです（Bales で記録した過去の架電は入りません）。取り消した記録は数えません。</p>`;
+    catch (e) { if ($("mccRfn")) $("mccRfn").innerHTML = `<p class="mcc-note">読めませんでした：${esc(e.message)}</p>`; return; }
+    RP.j = j; renderReport();
+  }
+  // 読んだ中身を描く。表の見方（結果／貢献）を切り替えるだけのときは、読み直さずにここだけ呼ぶ
+  function renderReport() {
+    const j = RP.j; if (!j || !$("mccRfn") || S.tab !== "report") return;   // 読んでいる間に別のタブへ移っていたら描かない
+    const T = j.total, P = j.prev && j.days ? j.prev : null;
+    const prevLbl = j.days === 1 ? "前の日" : `前の${j.days}日間`;
+    const rt = (a, b) => (b ? a / b : null);
+    // 前の同じ長さの期間との差。割合はポイントの差、件数は増えた・減った数で出す
+    const delta = (now, was, isRate) => { const x = isRate ? (now - was) * 100 : now - was; const s = isRate ? `${x > 0 ? "+" : ""}${x.toFixed(1)}pt` : `${x > 0 ? "+" : ""}${x}`;
+      return `<span class="dl ${x > 0 ? "up" : x < 0 ? "dn" : ""}">${prevLbl} ${isRate ? `${(was * 100).toFixed(1)}%` : was}（${s}）</span>`; };
+    // 1つ前の段階から、どれだけ次へ進めたか。止まっている段階が分かるように、割合は「コールのうち」ではなく「1つ前のうち」で出す
+    const stage = (cls, lbl, of, n, base, pn, pbase) => { const r = rt(n, base), pr = P ? rt(pn, pbase) : null;
+      return `<div class="${cls}"><small>${lbl}</small><b>${n}<em>${of} ${r == null ? "—" : `${(r * 100).toFixed(1)}%`}</em></b><i><u style="width:${Math.round((r || 0) * 100)}%"></u></i>${r != null && pr != null ? delta(r, pr, true) : P ? `<span class="dl">${prevLbl}は記録なし</span>` : ""}</div>`; };
+    $("mccRfn").innerHTML = T.calls ? `<div class="mcc-fn">
+        <div><small>コール</small><b>${T.calls}<em>${T.leads}社</em></b><i><u style="width:100%"></u></i>${P ? (P.calls ? delta(T.calls, P.calls, false) : `<span class="dl">${prevLbl}は記録なし</span>`) : ""}</div>
+        ${stage("", "つながった", "コールのうち", T.reached, T.calls, P && P.reached, P && P.calls)}
+        ${stage("", "担当者と話せた", "つながったうち", T.person, T.reached, P && P.person, P && P.reached)}
+        ${stage("apo", "アポ", "話せたうち", T.apo, T.person, P && P.apo, P && P.person)}
+      </div>
+      <p class="mcc-note">コールからアポまで通すと <b>${pc(T.apo, T.calls)}</b>${P && P.calls ? `（${prevLbl}は ${pc(P.apo, P.calls)}）` : ""}。割合がいちばん小さい段階、前より下がった段階が、次に直すところです。</p>`
+      : '<p class="mcc-note">この期間の記録はありません。</p>';
+    const res = $("mccRres"); if (!T.calls) { res.innerHTML = ""; return; }
+    const dayLbl = (k) => { const x = new Date(`${k}T00:00:00`); return isNaN(x) ? k : `${x.getMonth() + 1}/${x.getDate()}（${"日月火水木金土"[x.getDay()]}）`; };
+    const lbl = (r) => (j.by === "day" ? dayLbl(r.label) : r.label);
+    const maxCalls = Math.max(...j.rows.map((r) => r.calls), 1);
+    // コールの数は細い線でも出す（人・日を上から下へ見比べやすいように）。合計の行には引かない
+    const callTd = (r, sum) => `<td class="num bar">${sum ? "" : `<i style="width:calc((100% - 16px) * ${(r.calls / maxCalls).toFixed(3)})"></i>`}${r.calls}</td>`;
+    const rowA = (l, r, sum) => `<tr class="${sum ? "sum top" : ""}"><td>${esc(l)}</td>${callTd(r, sum)}<td class="num">${r.leads}</td><td class="num">${r.reached}<small> ${pc(r.reached, r.calls)}</small></td><td class="num">${r.person}<small> ${pc(r.person, r.calls)}</small></td>
+      <td class="num apo">${r.apo}<small> ${pc(r.apo, r.calls)}</small></td><td class="num">${pc(r.apo, r.person)}</td><td class="num">${r.doc}</td><td class="num">${r.follow}</td><td class="num">${r.reject}</td></tr>`;
+    const rowB = (l, r, sum) => `<tr class="${sum ? "sum top" : ""}"><td>${esc(l)}</td>${callTd(r, sum)}<td class="num fill">${r.fill || 0}<small> ${r.calls ? ((r.fill || 0) / r.calls).toFixed(2) : "—"}/コール</small></td><td class="num">${r.fillNew || 0}</td><td class="num">${r.fillFix || 0}</td><td class="num">${r.fillLeads || 0}</td><td class="num">${r.fillNoApo || 0}</td><td class="num">${r.invalid || 0}</td></tr>`;
+    const fill = RP.view === "fill", row = fill ? rowB : rowA;
+    const head = { user: "名前", list: "リスト", day: "日" }[j.by];
+    const bys = S.admin ? [["user", "人ごと"], ["list", "リストごと"], ["day", "日ごと"]] : [["day", "日ごと"], ["list", "リストごと"]];
+    const thead = fill
+      ? `<th>${head}</th><th class="num">コール</th><th class="num fill" title="架電の内容から SF のリードの項目を埋めた・直した数（1項目＝1）">SF 項目</th><th class="num" title="空だった項目を埋めた">うち新規</th><th class="num" title="古い値を直した・課題感などに足した">うち更新</th><th class="num" title="項目を1つでも埋めた会社の数">埋まった会社</th><th class="num" title="アポにならなかった架電で埋めた数">アポ以外の架電で</th><th class="num" title="「番号が使えない」と記録した数">使えない番号</th>`
+      : `<th>${head}</th><th class="num">コール</th><th class="num">会社数</th><th class="num" title="小さい字はコールのうちの割合">つながった</th><th class="num" title="小さい字はコールのうちの割合">担当者と話せた</th><th class="num" title="小さい字はコールのうちの割合">アポ</th><th class="num">話せたうちアポ</th><th class="num">資料</th><th class="num">フォロー</th><th class="num">断り</th>`;
+    const rank = (title, arr) => { if (!arr || !arr.length) return ""; const mx = Math.max(...arr.map((r) => r.n), 1);
+      return `<div><h3>${title}</h3>${arr.map((r) => `<div class="mcc-rk"><span title="${esc(r.k)}">${esc(r.k)}</span><i><u style="width:${Math.round(r.n / mx * 100)}%"></u></i><b>${r.n}</b></div>`).join("")}</div>`; };
+    const ranks = rank("受付で断られた文句", j.gateReasons) + rank("担当者に断られた理由", j.reasons) + rank("聞けて SF に入れた項目", j.fields);
+    res.innerHTML = `${j.rows.length ? `<div class="mcc-card">
+        <div class="mcc-chead"><h2>内訳</h2>
+          <div class="mcc-chips" role="group" aria-label="分け方">${bys.map(([v, l]) => `<button class="mcc-chip" data-by="${v}" aria-pressed="${RP.by === v}">${l}</button>`).join("")}</div>
+          <span class="mcc-sp"></span>
+          <div class="mcc-chips" role="group" aria-label="表に出す中身">${[["result", "架電の結果"], ["fill", "リストへの貢献"]].map(([v, l]) => `<button class="mcc-chip" data-view="${v}" aria-pressed="${RP.view === v}">${l}</button>`).join("")}</div></div>
+        <div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr>${thead}</tr></thead>
+        <tbody>${j.rows.length > 1 ? row("合計", T, true) : ""}${j.rows.map((r) => row(lbl(r), r, false)).join("")}</tbody></table></div>
+        ${fill ? '<p class="mcc-note" style="margin-top:8px">アポが取れなくても、聞けたことで SF のリードを埋めた・使えない番号を見つけた数です。空を埋めた・古い値を直した・課題感などに足したものを1項目1つで数え、SF と同じ値の確認は数えません。</p>' : ""}</div>` : ""}
+      ${ranks ? `<div class="mcc-card"><h2>なぜ取れなかったか・何を聞けたか</h2><div class="mcc-ranks">${ranks}</div></div>` : ""}
+      <p class="mcc-note">数えているのは MOCHICALL で記録したものだけです（Bales で記録した過去の架電は入りません）。取り消した記録は数えません。</p>`;
+    res.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => { RP.view = b.dataset.view; renderReport(); }));
+    res.querySelectorAll("[data-by]").forEach((b) => b.addEventListener("click", () => { RP.by = b.dataset.by; drawReport(); }));
   }
   async function listDialog(l) {
     let reps = []; try { reps = (await api("/api/mochica/reps")).items || []; } catch {}
@@ -1946,36 +1997,64 @@
 
   // ---- 数字：科学的に確かめる画面（時間帯・目安との比較・何回目でアポが取れたか） ----
   //   目安の数字は資料（B2B のコールドコール）のもの。MOCHICA の数字がこれと違うのは異常ではなく、自分たちの数字で判断するための基準線
-  const pc = (a, b) => (b ? `${(a / b * 100).toFixed(1)}%` : "—");
+  //   2026-11-23 福井さん「だれが・どんな意図で見るものかを明確にして再デザイン」
+  //   数字＝次のかけ方を決める根拠の画面（期間は固定。全員の記録から出す）。
+  //     かける人：「いま、かけどきか」「何回目までかけるか」「自分の率は目安と比べてどうか」の3つの答えを先に読む
+  //     管理者　：掛け直しのきまり（回数・間隔・時間帯）を変える根拠を、下の表で確かめる
+  //   期間を選んで結果をふり返るのは「レポート」
   async function drawInsight() {
     const box = $("mccAdmin"); box.innerHTML = `<div class="mcc-card">読み込んでいます…</div>`;
-    try { renderInsight(box, await api("/api/mccall/insight")); } catch (e) { box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; }   // 中身が足りない応答でも「読み込んでいます」のまま止まらないように
+    try { const j = await api("/api/mccall/insight"); if (S.tab === "insight") renderInsight(box, j); } catch (e) { if (S.tab === "insight") box.innerHTML = `<div class="mcc-card">読めませんでした：${esc(e.message)}</div>`; }   // 中身が足りない応答でも「読み込んでいます」のまま止まらないように
   }
   function renderInsight(box, j) {
-    const row = (lbl, r) => { const ar = r.calls ? r.apo / r.calls : 0; const tag = !r.calls ? "" : ar >= j.bench.top ? '<span class="mcc-tag good">上位の水準</span>' : ar >= j.bench.avg[0] ? '<span class="mcc-tag ok">平均の水準</span>' : '<span class="mcc-tag low">平均より下</span>';
-      return `<tr><td>${esc(lbl)}</td><td class="num">${r.calls}</td><td class="num">${pc(r.person, r.calls)}</td><td class="num">${r.apo}</td><td class="num">${pc(r.apo, r.calls)}</td><td class="num">${pc(r.apo, r.person)}</td><td>${tag}</td></tr>`; };
+    const B = j.bench;
+    const tier = (r) => (!r.calls ? "" : r.apo / r.calls >= B.top ? "good" : r.apo / r.calls >= B.avg[0] ? "ok" : "low");
+    const tag = (r) => { const t = tier(r); return t ? `<span class="mcc-tag ${t}">${{ good: "上位の水準", ok: "平均の水準", low: "平均より下" }[t]}</span>` : ""; };
+    const row = (lbl, r) => `<tr><td>${esc(lbl)}</td><td class="num">${r.calls}</td><td class="num">${pc(r.person, r.calls)}</td><td class="num">${r.apo}</td><td class="num">${pc(r.apo, r.calls)}</td><td class="num">${pc(r.apo, r.person)}</td><td>${tag(r)}</td></tr>`;
     j.hours = j.hours || [];
     const maxRate = Math.max(...j.hours.map((h) => h.rate), 0.01);
     const bestH = j.hours.slice().sort((a, b) => b.rate - a.rate)[0];
     const att = j.byAttempt || []; const late = att.filter((a) => a.n >= 6).reduce((x, a) => x + a.apo, 0); const all = att.reduce((x, a) => x + a.apo, 0);
-    box.innerHTML = `
-      <div class="mcc-card"><h2>直近14日と、資料の目安</h2>
-        <table class="mcc-tbl"><thead><tr><th></th><th class="num">コール</th><th class="num">担当者と話せた率</th><th class="num">アポ</th><th class="num">コール→アポ</th><th class="num">担当者と話せた→アポ</th><th>目安との比較</th></tr></thead><tbody>
-          ${row("あなた", j.me)}${j.team ? row("MOCHICA 全体", j.team) : ""}${(j.people || []).map((p) => row(p.name, p)).join("")}</tbody></table>
-        <p class="mcc-note">目安（資料：B2B のコールドコール→商談化）：平均 ${Math.round(j.bench.avg[0] * 100)}〜${Math.round(j.bench.avg[1] * 100)}%、上位 ${Math.round(j.bench.top * 100)}%以上。数字は日によって大きくぶれるので、日ごとではなく14日のかたまりで見てください。</p></div>
-      <div class="mcc-card"><h2>つながりやすい時間帯（日本時間・担当者と話せた割合）</h2>
-        <div class="mcc-hours">${j.hours.map((h) => `<div class="mcc-hr ${bestH && h.hour === bestH.hour ? "best" : ""}" title="${h.hour}時台：${h.calls}件中 ${h.person}件 担当者と話せた${h.prior ? "（資料の目安で補正）" : ""}"><i style="height:${Math.round(h.rate / maxRate * 100)}%"></i><b>${Math.round(h.rate * 100)}%</b><span>${h.hour}時</span><small>${h.calls}件</small></div>`).join("")}</div>
-        <p class="mcc-note">直近90日の記録（${j.baseCalls}件）から出しています。記録が少ない時間帯は、資料の目安（始業直後と終業前が平均より約47%つながりやすい）を「事前の見立て」として足して、極端な数字に振れないようにしています。記録が増えるほど、自分たちの実測が優先されます。掛け直しの時刻は、前回と違う時間帯のうち、ここでいちばん高い時間に自動で入ります。</p></div>
-      <div class="mcc-card"><h2>何回目の架電で、担当者と話せた・アポが取れたか（直近90日）</h2>
-        ${att.length ? `<table class="mcc-tbl"><thead><tr><th>その会社への</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">アポ率</th></tr></thead><tbody>
-          ${att.map((a) => `<tr><td>${a.n}回目${a.n >= 10 ? "以降" : ""}</td><td class="num">${a.calls}</td><td class="num">${a.person}（${pc(a.person, a.calls)}）</td><td class="num">${a.apo}</td><td class="num">${pc(a.apo, a.calls)}</td></tr>`).join("")}</tbody></table>
-        <p class="mcc-note">アポのうち <b>${all ? Math.round(late / all * 100) : 0}%</b> が6回目以降の架電で取れています（資料では93%）。6回目以降も取れているなら、1〜2回で諦めない掛け直しに価値があります。逆に、6回目以降がほとんど取れないなら、上限（いま ${j.cadence.max}回）を減らす根拠になります。</p>` : '<p class="mcc-note">まだ記録がありません。</p>'}</div>
-      <div class="mcc-card"><h2>いまの掛け直しのきまり</h2>
+    const maxAtt = Math.max(...att.map((a) => (a.calls ? a.apo / a.calls : 0)), 0.0001);
+    const benchTxt = `平均 ${Math.round(B.avg[0] * 100)}〜${Math.round(B.avg[1] * 100)}%、上位 ${Math.round(B.top * 100)}%以上`;
+    // 3つの答え（問い → 答え → その元）。くわしい元の数字は、同じ番号の下のカードにある
+    const sl = j.slot; const slOk = sl && sl.tier !== "off" && typeof sl.rate === "number" && typeof sl.lift === "number";
+    const bestTxt = bestH ? `いちばん話せるのは <b>${bestH.hour}時台</b>（${Math.round(bestH.rate * 100)}%）。` : "";
+    const a1 = slOk ? { cls: sl.tier === "good" ? "good" : sl.tier === "low" ? "low" : "", t: { good: "つながりやすい時間帯です", normal: "ふつうの時間帯です", low: "つながりにくい時間帯です" }[sl.tier], s: `${sl.hour}時台に担当者と話せる割合は ${Math.round(sl.rate * 100)}%（平均の${sl.lift.toFixed(2)}倍）。${bestTxt}` }
+      : { cls: "", t: "いまは時間外です", s: `${bestTxt}掛ける時間帯は 9〜18時です。` };
+    const a2 = all ? { t: `アポの ${Math.round(late / all * 100)}% が6回目以降`, s: `1〜5回目で ${all - late}件、6回目以降で ${late}件のアポ（直近90日）。届かないまま <b>${j.cadence.max}回</b> 続いたら休ませるきまりです（資料では93%が6回目以降）。` }
+      : { t: "まだアポの記録が足りません", s: `資料では、アポの93%が6回目以降の架電で取れています。いまは届かないまま <b>${j.cadence.max}回</b> 続いたら休ませます。` };
+    // かけていない管理者には自分の率が無いので、MOCHICA 全体で出す
+    const [who, mine] = !j.me.calls && j.team ? ["MOCHICA 全体", j.team] : ["あなた", j.me];
+    const a3 = mine.calls ? { cls: { good: "good", low: "low" }[tier(mine)] || "", t: `コール→アポ ${pc(mine.apo, mine.calls)} ${tag(mine)}`, s: `${who}の直近14日（${mine.calls}コール・アポ ${mine.apo}）。担当者と話せた率 ${pc(mine.person, mine.calls)}、話せたうちアポ ${pc(mine.apo, mine.person)}。目安は${benchTxt}。` }
+      : { cls: "", t: "直近14日の記録がありません", s: `目安は${benchTxt}。` };
+    const ans = (n, q, a) => `<div class="${a.cls || ""}"><small>${n} ${q}</small><b>${a.t}</b><p>${a.s}</p></div>`;
+    const bench = j.team ? `<div class="mcc-card"><h2>③ 直近14日と、資料の目安</h2>
+        <div class="mcc-tblwrap"><table class="mcc-tbl"><thead><tr><th></th><th class="num">コール</th><th class="num" title="コールのうち、担当者と話せた割合">話せた率</th><th class="num">アポ</th><th class="num">コール→アポ</th><th class="num">話せた→アポ</th><th>目安と比べて</th></tr></thead><tbody>
+          ${row("MOCHICA 全体", j.team)}${(j.people || []).map((p) => row(p.name, p)).join("")}</tbody></table></div>
+        <p class="mcc-note">目安（資料：B2B のコールドコール→商談化）：${benchTxt}。日ごとに大きくぶれるので、14日のかたまりで見ます。</p></div>` : "";
+    const rules = `<div class="mcc-card"><h2>いまの掛け直しのきまり</h2>
         <ul class="mcc-rules"><li>担当者に届かなかったら、<b>${j.cadence.gapDays[0]}営業日後</b>（6回目以降は${j.cadence.gapDays[j.cadence.gapDays.length - 1]}営業日後）に、<b>前回と違う時間帯</b>のうち、つながりやすい時間に自動で掛け直します。</li>
           <li>受付で「いる時間」を聞けたときは、その時間を優先します。</li>
           <li>届かないまま <b>${j.cadence.max}回</b> 続いたら、いったん休ませて <b>${j.cadence.parkDays}日後</b>に再開します（時期が動くのを待つため。「終わり」にはしません）。</li>
           <li>担当者と話せたら、数え直しになります。「自動の掛け直しをやめる」で、会社ごとに止めることもできます。</li></ul>
         <p class="mcc-note">いま、休ませている会社：<b>${j.parked}</b>件／3回以上続けて届いていない会社：<b>${j.streak3}</b>件（あなたがかけられるリストの中）</p></div>`;
+    box.innerHTML = `
+      <div class="mcc-card"><h2>数字</h2>
+        ${purpose(S.admin ? "掛け直しのきまり（回数・間隔・時間帯）を決める根拠を確かめます。全員の記録から出しています。" : "いつ・何回かけるとアポが取れるかを確かめて、自分のかけ方を決めます。全員の記録から出しています。", "report", S.admin ? "人・リストごとの結果は「レポート」" : "自分の結果のふり返りは「レポート」")}
+        <div class="mcc-ans">${ans("①", "いま、かけどきか", a1)}${ans("②", "何回目までかける価値があるか", a2)}${ans("③", `${who === "あなた" ? "自分" : "チーム"}の率は目安と比べてどうか`, a3)}</div></div>
+      <div class="mcc-ins"><div class="mcc-stack">
+      <div class="mcc-card"><h2>① つながりやすい時間帯（日本時間・担当者と話せた割合）</h2>
+        <div class="mcc-hours">${j.hours.map((h) => `<div class="mcc-hr ${bestH && h.hour === bestH.hour ? "best" : ""} ${slOk && h.hour === sl.hour ? "now" : ""}" title="${h.hour}時台：${h.calls}件中 ${h.person}件 担当者と話せた${h.prior ? "（資料の目安で補正）" : ""}">${slOk && h.hour === sl.hour ? "<em>いま</em>" : ""}<i style="height:${Math.max(4, Math.round(h.rate / maxRate * 64))}px"></i><b>${Math.round(h.rate * 100)}%</b><span>${h.hour}時</span><small>${h.calls}件</small></div>`).join("")}</div>
+        <p class="mcc-note" title="記録が少ない時間帯は、資料の目安（始業直後と終業前が平均より約47%つながりやすい）を「事前の見立て」として足して、極端な数字に振れないようにしています。記録が増えるほど、自分たちの実測が優先されます">直近90日の記録（${j.baseCalls}件）から。掛け直しは、前回と違う時間帯のうち、ここでいちばん高い時間に自動で入ります。</p></div>
+      ${j.team ? bench : rules}</div><div class="mcc-stack">
+      <div class="mcc-card"><h2>② 何回目の架電で、担当者と話せた・アポが取れたか（直近90日）</h2>
+        ${att.length ? `<table class="mcc-tbl"><thead><tr><th>その会社への</th><th class="num">コール</th><th class="num">担当者と話せた</th><th class="num">アポ</th><th class="num">アポ率</th></tr></thead><tbody>
+          ${att.map((a) => `<tr><td>${a.n}回目${a.n >= 10 ? "以降" : ""}</td><td class="num">${a.calls}</td><td class="num">${a.person}<small> ${pc(a.person, a.calls)}</small></td><td class="num">${a.apo}</td><td class="num bar"><i style="width:calc((100% - 16px) * ${((a.calls ? a.apo / a.calls : 0) / maxAtt).toFixed(3)})"></i>${pc(a.apo, a.calls)}</td></tr>`).join("")}</tbody></table>
+        <p class="mcc-note">6回目以降も取れているなら、掛け直しを続ける根拠になります。ほとんど取れないなら、上限（いま ${j.cadence.max}回）を減らす根拠になります。</p>` : '<p class="mcc-note">まだ記録がありません。</p>'}</div>
+      ${j.team ? rules : ""}</div>
+      </div>`;
+    box.querySelector("[data-go]").addEventListener("click", () => setTab("report"));
   }
 
   window.mcCallView = start;

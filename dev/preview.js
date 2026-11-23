@@ -663,7 +663,7 @@ function apiResponse(pathname, query) {
   if (pathname.indexOf("/api/smart-links/") === 0 && pathname.endsWith("/mail")) return { ok: true, draft: true, to: "x@y.jp" };
   if (pathname.startsWith("/api/smart-links/")) return { ok: true, link: {}, mail: { ok: true } };
   // SHOBO の架電（mccall.js）の見た目を確かめるためのダミー（2026-11-16）。/mochica.html#call で開く
-  if (pathname.startsWith("/api/mccall/")) return mccallMock(pathname);
+  if (pathname.startsWith("/api/mccall/")) return mccallMock(pathname, query);
   // ダッシュボードは本物の SF・Zoom Phone・シフト表を読むので、プレビューでは「読めなかった」画面を確かめる（2026-11-17）
   if (pathname === "/api/mcdash/data") return { error: "プレビューでは SF などを読みません（本番で確かめてください）" };
   if (pathname === "/api/mochica/reps") return { ok: true, items: REPS.map((r) => ({ email: r.email, name: r.name, mochica: r.businesses.includes("MOCHICA") })) };
@@ -722,8 +722,8 @@ const MC_LEADS = [
   { id: 2, company: "合同会社サンライズ", person: "人事部 ご担当者", hot: 1, attempts: 0, phone: "06-9876-5432", cross_from: "DOC", cross_id: 1, gate: null },
   { id: 3, company: "株式会社コロンバン", person: "宮村", hot: 2, attempts: 1, phone: "045-111-2222", cross_from: null, gate: null },
 ];
-function mccallMock(p) {
-  if (p === "/api/mccall/meta") return { ok: true, reach: MC_REACH, rejectReasons: ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"], admin: true, me: "kinya.tanaka@neo-career.co.jp" };
+function mccallMock(p, query) {
+  if (p === "/api/mccall/meta") return { ok: true, reach: MC_REACH, rejectReasons: ["今は必要ない", "他社を使っている", "時期が合わない", "予算が無い", "採用の予定が無い", "その他"], admin: !process.env.MCC_PREVIEW_INTERN, me: "kinya.tanaka@neo-career.co.jp" };
   if (p === "/api/mccall/inbound") return { ok: true, item: null };
   // アポの日程の候補（おすすめ／他の日程）のダミー（2026-11-23）
   if (p === "/api/mccall/slots" || p === "/api/mccall/slots/day") {
@@ -748,9 +748,27 @@ function mccallMock(p) {
   if (p === "/api/mccall/doc/lists") return { ok: true, items: [{ id: 11, name: "DOC 9月 失注", open: 112 }, { id: 12, name: "doda 掲載中", open: 840 }] };
   // 一覧・レポート・スクリプトの見た目確認用（2026-11-18）
   if (p === "/api/mccall/browse") return { ok: true, total: MC_LEADS.length, page: 0, items: MC_LEADS.map((l) => ({ id: l.id, list: "11月 ホット企業", company: l.company, person: l.person, hot: l.hot, attempts: l.attempts, outcome: l.attempts ? "担当者が不在" : "", last_at: l.attempts ? "2026-11-14T06:30:00Z" : null, next_at: l.next_at || null, done: false, cross_from: l.cross_from, gate_name: l.gate && l.gate.name, assigned: l.id === 2 ? "江田 直人" : "", busy: l.id === 3 })) };
-  if (p === "/api/mccall/report") { const r = (label, calls, reached, person, apo) => ({ key: label, label, calls, leads: Math.round(calls * 0.8), reached, person, apo, doc: 2, follow: 3, reject: 4, cross: 1 });
-    const rows = [r("田中欽也", 210, 96, 41, 6), r("江田 直人", 180, 70, 30, 3)];
-    return { ok: true, by: "user", all: true, rows, total: rows.reduce((a, x) => { for (const k of ["calls", "leads", "reached", "person", "apo", "doc", "follow", "reject", "cross"]) a[k] = (a[k] || 0) + x[k]; return a; }, {}), reasons: [{ k: "今は必要ない", n: 5 }, { k: "他社を使っている", n: 3 }] }; }
+  // レポート・数字の見た目確認用（2026-11-23 作り替え）。かける人の見え方は MCC_PREVIEW_INTERN=1 で起動して確かめる
+  if (p === "/api/mccall/report") { const by = ["user", "list", "day"].includes(query && query.get("by")) ? query.get("by") : "user";
+    const r = (label, calls, reached, person, apo) => ({ key: label, label, calls, leads: Math.round(calls * 0.8), reached, person, apo, doc: Math.round(person * 0.1), follow: Math.round(person * 0.15), reject: Math.round(person * 0.3), cross: 0,
+      fill: Math.round(person * 1.4), fillNew: Math.round(person * 0.9), fillFix: Math.round(person * 0.5), fillLeads: Math.round(person * 0.7), fillNoApo: Math.round(person * 1.1), invalid: Math.round(calls * 0.02) });
+    const rows = by === "user" ? [r("大沢 瑛太", 212, 96, 41, 6), r("森 康晴", 184, 70, 30, 3), r("小賀坂 蓮", 156, 71, 22, 1), r("趙 美咲", 98, 40, 19, 2)]
+      : by === "list" ? [r("11月 ホット企業", 320, 150, 62, 8), r("マイナビ掲載中 27卒", 240, 96, 38, 3), r("DOC 失注から MOCHICA 提案", 90, 31, 12, 1)]
+      : [r("2026-11-17", 82, 35, 14, 2), r("2026-11-18", 96, 44, 19, 1), r("2026-11-19", 71, 28, 11, 0), r("2026-11-20", 104, 49, 22, 3), r("2026-11-23", 88, 40, 17, 2)];
+    const sum = (xs) => xs.reduce((a, x) => { for (const k of Object.keys(x)) if (typeof x[k] === "number") a[k] = (a[k] || 0) + x[k]; return a; }, {});
+    const total = sum(rows);
+    return { ok: true, by, all: !process.env.MCC_PREVIEW_INTERN, days: 7, prev: { calls: Math.round(total.calls * 0.9), leads: Math.round(total.leads * 0.9), reached: Math.round(total.reached * 0.95), person: Math.round(total.person * 0.8), apo: Math.round(total.apo * 1.2), doc: 4, follow: 6, reject: 20, cross: 0 }, rows, total,
+      gateReasons: [{ k: "営業電話はお断り", n: 31 }, { k: "担当者名が分からないとつなげない", n: 18 }, { k: "資料をメールで送って", n: 9 }],
+      reasons: [{ k: "今は必要ない", n: 15 }, { k: "他社を使っている", n: 9 }, { k: "時期が合わない", n: 6 }, { k: "予算が無い", n: 2 }],
+      fields: [{ k: "利用ATS", n: 44 }, { k: "採用人数", n: 31 }, { k: "課題感", n: 27 }, { k: "検討時期", n: 12 }, { k: "担当者名", n: 8 }] }; }
+  if (p === "/api/mccall/insight") { const rates = [0.36, 0.31, 0.27, 0.18, 0.24, 0.29, 0.33, 0.38, 0.3, 0.22]; const base = 0.29;
+    const hours = rates.map((rate, i) => ({ hour: 9 + i, calls: [140, 210, 190, 60, 150, 220, 200, 180, 120, 40][i], person: Math.round(rate * 100), rate, lift: rate / base, prior: i === 0 || i === 7 }));
+    const me = { calls: 412, person: 96, apo: 9 }; const admin = !process.env.MCC_PREVIEW_INTERN;
+    return { ok: true, slot: { hour: 14, tier: "normal", lift: hours[5].lift, rate: hours[5].rate }, hours, base, baseCalls: 1510, me,
+      team: admin ? { calls: 2380, person: 590, apo: 61 } : null,
+      people: admin ? [{ name: "大沢 瑛太", calls: 620, person: 170, apo: 33 }, { name: "森 康晴", calls: 540, person: 120, apo: 14 }, { name: "小賀坂 蓮", calls: 480, person: 110, apo: 8 }, { name: "趙 美咲", calls: 412, person: 96, apo: 5 }] : null,
+      byAttempt: [[1, 620, 120, 9], [2, 410, 96, 8], [3, 260, 70, 7], [4, 150, 41, 4], [5, 90, 22, 3], [6, 60, 15, 3], [7, 30, 8, 1], [8, 12, 3, 1]].map(([n, calls, person, apo]) => ({ n, calls, person, apo })),
+      parked: 37, streak3: 112, cadence: { max: 8, gapDays: [2, 2, 3, 3, 3, 5], parkDays: 30 }, bench: { avg: [0.02, 0.03], top: 0.05 } }; }
   const SCRIPT = "【受付】\n株式会社ネオキャリアの〇〇です。{会社名}の新卒採用のご担当者様はいらっしゃいますか。\n\n【担当者】\n{担当者}様、突然のお電話失礼いたします。27卒の採用で、説明会の参加人数についてお伺いしたく…";
   if (/^\/api\/mccall\/lists\/\d+\/talks$/.test(p)) return { ok: true, labels: ["A", "B", "C"], talks: [{ id: 11, label: "A", ver: 2, body: SCRIPT }, { id: 12, label: "B", ver: 1, body: "（B）{担当者}様、27卒の説明会の歩留まりについて…" }],
     history: [{ label: "A", ver: 2, active: true, calls: 84 }, { label: "A", ver: 1, active: false, calls: 120 }, { label: "B", ver: 1, active: true, calls: 79 }] };
