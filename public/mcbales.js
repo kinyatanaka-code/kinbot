@@ -142,11 +142,13 @@ const STG = [["nurture", "ナーチャリング", "ジャッジ・営業フォ�
     // メンバー別：所有者ごとの件数。表示するメンバーは「リスト追加」で選んだ人（まだ選んでいなければ全員）
     // 未割り振り（所有者がいない）も数える（2026-11-23 田中さん「誰にも割り振られていないものは未割り振りのカードを」）
     const bl = { all: 0, active: 0, nurture: 0 };
-    let vals = []; try { const d = await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&blank=1`); vals = d.items || []; bl.all = d.blank || 0; } catch {}
-    // 残りの架け先：リサイクル・アーカイブにしていない件数（2026-11-23 田中さん）
-    let act = new Map(); try { const d = await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&stg=active&blank=1`); act = new Map((d.items || []).map((v) => [v.v, v.n])); act.set("", d.blank || 0); } catch {}
-    // ナーチャリングの件数も出す（2026-11-23 田中さん）
-    let nur = new Map(); try { const d = await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}&stg=nurture&blank=1`); nur = new Map((d.items || []).map((v) => [v.v, v.n])); nur.set("", d.blank || 0); } catch {}
+    // 3つ（全部・残りの架け先・ナーチャリング）は同時に読む（順に読むと10秒ほど待たせていた）
+    const vq = (st) => api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}${st ? `&stg=${st}` : ""}&blank=1`).catch(() => ({ items: [], blank: 0 }));
+    const [d0, d1, d2] = await Promise.all([vq(""), vq("active"), vq("nurture")]);
+    const vals = d0.items || []; bl.all = d0.blank || 0;
+    // 残りの架け先：リサイクル・アーカイブにしていない件数／ナーチャリングの件数（2026-11-23 田中さん）
+    const act = new Map((d1.items || []).map((v) => [v.v, v.n])); act.set("", d1.blank || 0);
+    const nur = new Map((d2.items || []).map((v) => [v.v, v.n])); nur.set("", d2.blank || 0);
     if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
     const box = root.querySelector("[data-mems]"); if (!box || !root.isConnected) return;
     const shown0 = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
