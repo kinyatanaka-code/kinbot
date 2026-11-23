@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261123zi" />
+    <link rel="stylesheet" href="style.css?v=20261124a" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1318,6 +1318,20 @@
     .kx-side .kx-grp-h .ar-badge-nav{margin-left:6px;}
   }
   @media (max-width:860px){ .kx-sub-head{display:none;} .kx-sd{display:none;} }
+  /* ホームの上の数字のカードを薄く（2026-11-24 田中さん「これもう少し薄くしようか」）：余白と数字を小さくし、大きいカードは名前と数字を1行に */
+  .h2-kpi{gap:8px !important;}
+  .h2-hero{padding:7px 14px 7px !important;gap:0 8px !important;align-items:center !important;border-radius:14px !important;}
+  .h2-hero .l{width:auto !important;font-size:11.5px !important;margin-right:2px;}
+  .h2-hero .v{font-size:26px !important;line-height:1.1 !important;}
+  .h2-hero .v small{font-size:12px !important;}
+  .h2-hero .h2-mix{height:6px !important;margin-top:3px !important;}
+  .h2-hero .h2-leg{font-size:10.5px !important;gap:10px !important;margin-top:2px !important;}
+  .h2-hero::after{width:70px !important;height:70px !important;right:-20px !important;top:-20px !important;}
+  .h2-card{padding:6px 14px !important;gap:0 8px !important;border-radius:12px !important;}
+  .h2-card .l{font-size:11.5px !important;}
+  .h2-card .v{font-size:22px !important;line-height:1.1 !important;}
+  .h2-card .v small{font-size:11px !important;}
+  .h2-card .s{font-size:10px !important;}
   @media (prefers-reduced-motion: reduce){ .kx-side .kx-grp .kx-sub{transition:opacity .1s ease !important;transform:none !important;} }
 </style>
 </head>
@@ -1478,7 +1492,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261123zi" defer></script>
-    <script src="kinxs.js?v=20261123zi"></script>
+    <script src="kbchat.js?v=20261124a" defer></script>
+    <script src="kinxs.js?v=20261124a"></script>
   </body>
 </html>
