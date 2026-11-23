@@ -1763,7 +1763,7 @@ function renderHomeV2() {
     ${[["ka", "稼働社数（積み上げ）", "その月末までに納品した会社", c.ka, p.ka, "ka"], ["mo", "先月お申込者数", `${Number(kxYmAdd(ym, -1).slice(5))}月に受注した会社`, c.mo, p.mo, "mo"], ["kai", "解約社数", "アチコチバースの解約（アーカイブも含む）", c.kai, p.kai, "kai"]].map(([k, l, s, cur, prev, cls]) => `<button type="button" class="h2-card ${cls}" data-kpi="${k}"><span class="dot"></span><span class="l">${l}</span><span class="v" data-cu="${cur.length}">${cur.length}<small>社</small></span><span class="s">${s}</span>${dl(cur.length, prev.length)}</button>`).join("")}
   </div>
   <div class="h2-row">
-    ${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><span class="h2-scope" role="tablist"><button type="button" class="${kxScope !== "all" ? "on" : ""}" data-home-scope="me">自分</button><button type="button" class="${kxScope === "all" ? "on" : ""}" data-home-scope="all">全員</button></span>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : ""}</div>
+    <div class="h2-left">${window.__kxActBig ? '<div class="h2-act-bd" data-act-close></div>' : ""}<section class="h2-box h2-act${window.__kxActBig ? " big" : ""}"><div class="h2-h"><h2 class="h2-act-open" data-act-big title="押すと大きく表示">要アクション</h2><span class="h2-big h2-act-open" data-act-big data-cu="${actCos}">${actCos}<small>社</small></span><span class="h2-sub">事前アラート</span><span class="h2-scope" role="tablist"><button type="button" class="${kxScope !== "all" ? "on" : ""}" data-home-scope="me">自分</button><button type="button" class="${kxScope === "all" ? "on" : ""}" data-home-scope="all">全員</button></span>${window.__kxActBig ? '<button type="button" class="h2-act-x" data-act-close title="閉じる">✕ 閉じる</button>' : ""}</div>
       <div class="h2-tiles">${kinds.map(([k, l, f, col]) => `<button type="button" class="${kf === k ? "on" : ""}" data-kf="${k}" style="--c:${col}"><b ${k === "tk" ? 'data-tk-n' : ""}>${k === "tk" ? (kh2.tkN != null ? kh2.tkN : "…") : actRows.filter((r) => f(r.a)).length}${k === "ks" ? `<small class="h2-ks-of">／${actRows.filter((r) => f(r.a)).length + ksDoneRows.length}社</small>` : ""}</b><span>${l}${k === "tk" ? `<em class="tk-over" data-tk-over ${kh2.tkOver ? "" : "hidden"}>期限切れ ${kh2.tkOver || 0}</em>` : ""}</span></button>`).join("")}</div>
       ${kf === "tk" ? '<div class="h2-tk" id="kh2Tasks"><div class="kx-note" style="padding:10px 4px">読み込み中…</div></div>' : ""}<div class="h2-list"${kf === "tk" ? " hidden" : ""}>${shown.map(({ x, a }) => `<div class="h2-li" data-open="${esc(x.id)}" role="button" tabindex="0">${(() => {
         // 期日の札（タスクのタブと同じ形）：日付・時刻＋「n日過ぎ／あとn日」。次回アクション・施策は押すと日付を変えられる（2026-11-11 田中さん）
@@ -1789,6 +1789,7 @@ function renderHomeV2() {
         // ボタンの言葉は「✓ 済み」にそろえる（2026-11-11 田中さん：実施済み／済みが分かりにくい）。何が起きるかは、指を置くと出る説明に
         return `<button type="button" class="h2-op done" ${dat} data-do="done" title="${k === "ko" ? "キックオフMTGをやったことにします（実施日＝今日）" : k === "ks" ? "検収書を回収したことにします（回収日＝今日）" : "この次回アクションを終えたことにします"}">✓ 済み</button>`; })()}</span></div>`).join("") || (kf === "ks" && ksDoneRows.length ? "" : '<div class="kx-empty">ありません 🎉</div>')}${kf === "ks" && ksDoneRows.length ? `<div class="h2-ks-done-h">${Number(kxThisYm.slice(5))}月の検収書 回収済み ${ksDoneRows.length}社</div>${ksDoneRows.map((x) => `<div class="h2-li h2-ks-done" data-open="${esc(x.id)}" role="button" tabindex="0"><span class="h2-due">${x.kenshuOn ? `${Number(String(x.kenshuOn).slice(5, 7))}/${Number(String(x.kenshuOn).slice(8, 10))}` : "済み"}</span><span class="co">${kxLogoMini(x)}<b>${esc(x.name)}</b></span><span class="what">検収書 ${esc(x.kenshuSt === "対象外" ? "対象外" : "回収済み")}</span><span class="who">${esc(kxSurname(x.cs) || "CS未定")}</span></div>`).join("")}` : ""}</div>
       </section>
+      ${/* 担当企業を要アクションの下に（2026-11-24 田中さん「要アクションが上、担当企業が下」）。中身は担当企業の画面と同じ */ ""}<section class="h2-box h2-mine" id="kh2Mine"></section></div>
     <div class="h2-side"><section class="h2-box h2-ren"><div class="h2-h"><h2>これからの更新</h2><button type="button" class="h2-link" data-rt-modal>更新表を見る ›</button></div>
       ${renewMonths.map((r, i) => `<button type="button" class="h2-rm" data-rm="${r.m}"><span class="m"><b>${Number(r.m.slice(5))}月</b><small>${["今月", "来月", "再来月"][i]}</small></span><span class="st" data-grow>${r.by.map(([rk, n]) => `<i style="flex:${n};background:${KX_RC2[rk]}" title="${rk} ${n}社"></i>`).join("")}${r.l.length ? "" : '<em>なし</em>'}</span><span class="rk">${r.by.filter(([, n]) => n).map(([rk, n]) => `<span>${kxRankBadge(rk)}${n}</span>`).join("")}</span><span class="n">${r.l.length}<small>社</small></span></button>`).join("")}
       </section>
@@ -1796,6 +1797,7 @@ function renderHomeV2() {
     ${ms ? `<div class="h2-bars">${reqN.filter(([, n]) => n).map(([r, n]) => `<button type="button" class="h2-bar" data-miss="${esc(r.key)}"><span class="k">${esc(r.short || r.name)}</span><span class="b" data-grow><i style="width:${(n / maxReq) * 100}%"></i></span><span class="n">${n}</span></button>`).join("") || '<div class="h2-note">足りない情報はありません</div>'}</div>` : '<div class="h2-note">SFを読んでいます…</div>'}</section></div>
   </div>`;
   kxFitHome2();
+  if ($("kh2Mine")) renderMine($("kh2Mine"), { home: true, items: lsData.items || [] });
   // 動きは1回だけ：月を開いた（変えた）ときに全体を1回。情報不足は、あとから読めたときにその枠だけ1回（2026-11-04 「2回読み込まれるのやめてほしい」）
   if (kh2.animKey !== ym) { kh2.animKey = ym; kh2.missAnim = !!ms; kxCountUp(box); }
   else if (ms && !kh2.missAnim) { kh2.missAnim = true; kxCountUp(box.querySelector(".h2-miss")); }
@@ -2514,11 +2516,14 @@ if (VIEW === "pub") renderPub();
 if (VIEW === "mine") renderMine();
 // ===== 担当企業（2026-11-20 久野さん「自分のもってる企業って何社か、どのような状況か、ぱっとみれるようにしたい」）=====
 //   CS 担当で絞った会社を、キックオフ・検収書・納品メール・掲載の状況で数えて、押すとその会社を並べる。タスクはホームのタスクと同じもの
-async function renderMine() {
-  const box = $("vMineBody"); if (!box) return;
-  if ($("kxPageName")) $("kxPageName").textContent = "担当企業";
-  box.innerHTML = '<div class="kx-empty">読み込み中…</div>';
-  let d; try { d = await api(kxUsersUrl()); } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; }
+//   ホームでは要アクションの下にも同じものを出す（opts.home。会社の一覧はホームがもう読んでいるものを使う）（2026-11-24 田中さん）
+async function renderMine(boxArg, opts = {}) {
+  const box = boxArg || $("vMineBody"); if (!box) return;
+  const home = !!opts.home;
+  if (!home && $("kxPageName")) $("kxPageName").textContent = "担当企業";
+  let d;
+  if (opts.items) d = { items: opts.items };
+  else { box.innerHTML = '<div class="kx-empty">読み込み中…</div>'; try { d = await api(kxUsersUrl()); } catch (e) { box.innerHTML = `<div class="kx-empty">読めませんでした：${esc(e.message)}</div>`; return; } }
   const all = (d.items || []).filter((x) => !x.archived && kxHasDoc(x) && x.label !== "解約済み");
   const st = window.__mine || (window.__mine = { who: "", k: "all" });
   if (!st.who) { const me0 = kxSurname(window.__kxMe || ""); st.who = me0 || ""; }
@@ -2539,7 +2544,8 @@ async function renderMine() {
     const mine = all.filter((x) => !st.who || (kxSurname(x.cs) || "") === st.who);
     const cur = KS.find((k) => k[0] === st.k);
     const list = cur ? mine.filter(cur[3]).sort((a, b) => String(b.booked || "").localeCompare(String(a.booked || ""))) : [];
-    box.innerHTML = `<div class="mi-tools"><label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label></div>
+    const whoSel = `<label class="kx-note" style="display:flex;align-items:center;gap:6px">CS 担当<select class="kx-in" data-mwho style="width:auto"><option value="">全員</option>${names.map((n) => `<option ${n === st.who ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></label>`;
+    box.innerHTML = `${home ? `<div class="h2-h"><h2>担当企業</h2><span class="h2-big">${mine.length}<small>社</small></span><span style="margin-left:auto">${whoSel}</span><a class="h2-link" href="/kinxs?p=mine">担当企業へ ›</a></div>` : `<div class="mi-tools">${whoSel}</div>`}
       <div class="mi-kpis">${KS.map(([k, l, c, f]) => `<button type="button" class="mi-kpi ${st.k === k ? "on" : ""}" style="--c:${c}" data-mk="${k}"><span class="l"><i></i>${esc(l)}</span><span class="v">${mine.filter(f).length}<small>社</small></span></button>`).join("")}
         <button type="button" class="mi-kpi ${st.k === "tk" ? "on" : ""}" style="--c:#6B4FB8" data-mk="tk"><span class="l"><i></i>タスク</span><span class="v" data-mtk-n>…<small>件</small></span></button></div>
       ${st.k === "tk" ? `<div class="mi-h">タスク（ホームと同じもの・期日の近い順）</div><div data-mtk><div class="kx-note">読み込み中…</div></div>`
