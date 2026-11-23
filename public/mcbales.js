@@ -1,6 +1,8 @@
 // SHOBO：Bales のリスト（拡張機能が Bales の画面から取り込んだもの）を見る（2026-11-15 田中さん）
 //   2026-11-22 田中さん「もっと見やすく、まずリードの一覧だけ」：表の上の数字（SF・ホット度）は「くわしい数字」にたたむ
 //   左：リストのカード（名前・件数・取り込んだ日時・取り込み中の進み具合）／右：選んだリストの会社の表（検索・絞り込み・CSV）
+// 「見張り（架電の記録）」のカードは一旦出さない（2026-11-23 田中さん「一旦非表示で」）。取り込み自体は止めていない。また出すときは true に
+const SHOW_FEEDS = false;
 (function () {
   const $ = (id) => document.getElementById(id);
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -105,7 +107,7 @@
       <div class="bl-lgrid">${lists.filter((l) => l.status !== "running").map((l) => `<button type="button" class="bl-lc main" data-l="${esc(l.list_key)}"><b>${esc(l.name || l.list_key)}</b><span class="n">${Number(l.count || 0).toLocaleString()}<small>件</small></span>${hotTxt(l)}<small>${esc(dt(l.done_at || l.run_at))} に取り込み</small></button>`).join("") || '<div class="bl-empty">まだ取り込んだリストがありません。右上の「リスト追加」から、Bales のリストを取り込んでください。</div>'}</div>
       <div class="bl-home-h sub"><h3>メンバー別</h3><button type="button" class="bl-add" data-addmem ${oc ? "" : "disabled"}>${PLUS}メンバー追加</button></div>
       <div class="bl-lgrid" data-mems>${oc ? '<div class="mc-note">読み込んでいます…</div>' : '<div class="mc-note">リストに「所有者」の列が無いので、メンバー別に分けられません。</div>'}</div>
-      ${feeds.length ? `<div class="bl-home-h sub"><h3>見張り（架電の記録）</h3></div><div class="bl-lgrid">${feeds.map((f) => `<button type="button" class="bl-lc" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><span class="n">${Number(f.total || 0).toLocaleString()}<small>件</small></span><small>${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("")}</div>` : ""}
+      ${SHOW_FEEDS && feeds.length ? `<div class="bl-home-h sub"><h3>見張り（架電の記録）</h3></div><div class="bl-lgrid">${feeds.map((f) => `<button type="button" class="bl-lc" data-l="${esc(f.feed)}"><b>${esc(f.name || f.feed)}</b><span class="n">${Number(f.total || 0).toLocaleString()}<small>件</small></span><small>${f.last_sync ? `${esc(dt(f.last_sync))} に読んだ（新しい ${f.last_new || 0}件）` : "まだ読んでいません"}</small></button>`).join("")}</div>` : ""}
       ${lists.length ? "" : diagHtml()}</div>`;
     root.querySelectorAll("[data-l]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.l; mode = "list"; memberF = ""; q = ""; fcol = ""; fval = ""; crF = ""; ownF = ""; sfF = ""; page = 0; openList(); }));
     root.querySelector("[data-addlist]").addEventListener("click", () => sheet(`<h3 class="bl-sh-t">リストを追加する</h3>
