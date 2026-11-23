@@ -13011,6 +13011,8 @@ async function ensureMcBales() {
   // kinbot の中の担当（SHOWIN のリスト管理で割り振った人）（2026-11-23 田中さん）。メンバー別などでは Bales の所有者より先に見る
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS assign_email TEXT`).catch(() => {});
   await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS assign_name TEXT`).catch(() => {});
+  // 未割り振りに移す前の担当（元に戻すための控え）（2026-11-23 過去失注を未割り振りへ）
+  await pool.query(`ALTER TABLE mochica_bales_rows ADD COLUMN IF NOT EXISTS assign_prev JSONB`).catch(() => {});
   // Bales の一覧の見出しと、データの項目の結びつき（[{label, key}]。拡張機能が画面の表から見つける）
   await pool.query(`ALTER TABLE mochica_bales_lists ADD COLUMN IF NOT EXISTS view JSONB`).catch(() => {});
   // SF との結びつき（リード・取引先・過去の商談）（2026-11-15 田中さん「2万件のリードを SF と紐付けて過去商談履歴を見たい」）
@@ -13150,7 +13152,9 @@ const apoOf = (x) => ({ apo: Number(x.apo || 0), called: Number(x.called || 0) }
 export const BALES_MCU = `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(sf->'opps') = 'array' THEN sf->'opps' ELSE '[]'::jsonb END) mo WHERE mo->>'name' LIKE '%新規%' AND mo->>'stage' LIKE '%受注処理完了%')`;
 // 所有者の列で数える・絞るときは、kinbot で割り振った担当（assign_name）を先に見る（無ければ Bales の所有者）
 const isOwnCol = (col) => /operator|owner|所有|担当/i.test(String(col || ""));
-const colX = (col, ref, a = "") => (isOwnCol(col) ? `COALESCE(NULLIF(${a}assign_name,''), ${a}data->>${ref})` : `${a}data->>${ref}`);
+// assign_name が「__none__」＝kinbot の中で未割り振りにしたもの（Bales の所有者が入っていても、だれの担当でもない扱い）（2026-11-23 田中さん「過去失注を未割り振りへ」）
+export const BALES_NONE = "__none__";
+const colX = (col, ref, a = "") => (isOwnCol(col) ? `CASE WHEN ${a}assign_name = '${BALES_NONE}' THEN '' ELSE COALESCE(NULLIF(${a}assign_name,''), ${a}data->>${ref}) END` : `${a}data->>${ref}`);
 // 過去失注リスト（2026-11-23 田中さん）：SF と結びついた取引先に、商談名に「新規」が付いた商談が1つでもあるリード
 //   （受注処理完了まで行った MOCHICA ユーザーは、ふだんの表からもう省いているので、残るのは新規商談をして取れなかった会社）
 export const BALES_PL = `EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(sf->'opps') = 'array' THEN sf->'opps' ELSE '[]'::jsonb END) po WHERE po->>'name' LIKE '%新規%')`;
@@ -13217,7 +13221,7 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   const total = Number((await pool.query(`SELECT count(*) FROM mochica_bales_rows WHERE ${w.join(" AND ")}`, p)).rows[0].count);
   p.push(Math.min(Math.max(Number(limit) || 100, 1), 5000)); p.push(Math.max(Number(offset) || 0, 0));
   const ord = sort === "hot" ? "COALESCE(hot,0) DESC, seq" : "seq";
-  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d, dup_note, dup_n, assign_name, (${BALES_HID}) AS hid FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, ...(r.hid ? { lastLeadStageName: "アーカイブ", __balesStage: r.data?.lastLeadStageName || "" } : {}), __k: r.row_key, __d: r.hd, __dupNote: r.dup_note || "", __dupN: r.dup_n || 0, __as: r.assign_name || "", __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
+  const rows = (await pool.query(`SELECT row_key, data, detail_at IS NOT NULL AS hd, sf->'sum' AS sfs, hot, hot_d, dup_note, dup_n, assign_name, (${BALES_HID}) AS hid FROM mochica_bales_rows WHERE ${w.join(" AND ")} ORDER BY ${ord} LIMIT $${p.length - 1} OFFSET $${p.length}`, p)).rows.map((r) => ({ ...r.data, ...(r.hid ? { lastLeadStageName: "アーカイブ", __balesStage: r.data?.lastLeadStageName || "" } : {}), __k: r.row_key, __d: r.hd, __dupNote: r.dup_note || "", __dupN: r.dup_n || 0, __as: r.assign_name === BALES_NONE ? "（未割り振り）" : r.assign_name || "", __sf: r.sfs || null, __hot: r.hot == null ? null : { n: r.hot, ...(r.hot_d || {}) } }));
   return { total, rows };
 }
 // SF の絞り込みの選択肢：商談の無いリードの状況ごとの件数と、商談あり（受注・失注・進行中）・SF に無いの件数（2026-11-22）
@@ -13392,6 +13396,29 @@ export async function mcBalesAssignSet(listKey, items = []) {
   const r = await pool.query(`UPDATE mochica_bales_rows r SET assign_email=x.e, assign_name=x.n FROM jsonb_to_recordset($2::jsonb) AS x(k text, e text, n text) WHERE r.list_key=$1 AND r.row_key=x.k`, [listKey, JSON.stringify(items.map((x) => ({ k: x.k, e: x.email, n: x.name })))]);
   return r.rowCount;
 }
+// 担当のいる過去失注リストを、kinbot の中で未割り振りに移す（2026-11-23 田中さん「各メンバーの過去失注リストは全部、未割り振りの過去失注リストに」）
+//   Bales の所有者は変えない。元の担当は assign_prev に控え、undo で戻せる。dry＝件数だけ（担当ごと）
+export async function mcBalesUnassignPastlost(listKey, col, { dry = false, undo = false } = {}) {
+  if (!pool || !col) return { n: 0 }; await ensureMcBales();
+  const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return { n: 0 };
+  if (undo) {
+    const r = await pool.query(`UPDATE mochica_bales_rows SET assign_email = NULLIF(assign_prev->>'e',''), assign_name = NULLIF(assign_prev->>'n',''), assign_prev = NULL
+      WHERE list_key=$1 AND assign_name = '${BALES_NONE}' AND assign_prev IS NOT NULL`, [listKey]);
+    await mcTodayReset(listKey);
+    return { n: r.rowCount, undo: true };
+  }
+  const own = colX(col, "$3");
+  const where = `list_key=$1 AND run_at=$2 AND dup_of IS NULL AND NOT ${BALES_HID} AND ${BALES_STG.pastlost} AND COALESCE(${own},'') <> ''`;
+  const by = (await pool.query(`SELECT ${own} AS v, count(*)::int AS n FROM mochica_bales_rows WHERE ${where} GROUP BY 1 ORDER BY 2 DESC`, [listKey, l.run_at, String(col).slice(0, 80)])).rows;
+  const n = by.reduce((t, x) => t + x.n, 0);
+  if (dry) return { n, by, dry: true };
+  const r = await pool.query(`UPDATE mochica_bales_rows SET assign_prev = COALESCE(assign_prev, jsonb_build_object('e', COALESCE(assign_email,''), 'n', COALESCE(assign_name,''), 'at', now())),
+      assign_email = NULL, assign_name = '${BALES_NONE}' WHERE ${where}`, [listKey, l.run_at, String(col).slice(0, 80)]);
+  await mcTodayReset(listKey);
+  return { n: r.rowCount, by };
+}
+// 担当が変わったら、今日かけるリストを作り直す（保存してある今日の分は担当が変わる前の中身のため。作り直せるのでこれは消してよい）
+async function mcTodayReset(listKey) { await ensureMcToday(); await pool.query(`DELETE FROM mochica_bales_today WHERE list_key=$1 AND day=$2`, [listKey, jstDay()]).catch(() => {}); }
 // アプローチ禁止の印を付け直す（keys＝当たった行の印）。いったん全部外してから付ける
 export async function mcBalesNgSet(listKey, keys = []) {
   if (!pool) return 0; await ensureMcBales();
