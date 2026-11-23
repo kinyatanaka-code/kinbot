@@ -206,6 +206,31 @@ await t("入れ先のリストを閉じると、今までどおり（today な�
   assert.equal(+(await q(`SELECT count(*) FROM mc_call_lists WHERE today_src`)).rows[0].count, 1, "閉じたのに新しく作り直している");
 });
 
+// 過去失注（2026-11-24 福井さん「架けるリストには過去失注も含めるように」）：11/23 に過去失注は全部「未割り振り」へ移したので、
+//   未割り振りの過去失注からも今日の分に入れる。同じ日のほかの人とは重ならない。過去失注でない未割り振りは入れない
+const PL = JSON.stringify({ opps: [{ name: "【新規】試験の商談", stage: "失注" }] });
+for (const [k, owner, assign] of [["p1", "福井 聖", "__none__"], ["p2", "福井 聖", "__none__"], ["p3", "", null], ["u1", "", null]])
+  await q(`INSERT INTO mochica_bales_rows (list_key, row_key, data, run_at, hot, assign_name, sf) VALUES ($1,$2,$3,$4,1,$5,$6)`,
+    [LK, k, JSON.stringify({ companyName: `株式会社 バレス${k}`, companyTel1: `03-2222-0${k.charCodeAt(0)}${k.slice(1)}`, operatorName: owner }), run, assign, k === "u1" ? null : PL]);
+const todayOf = (name, rb) => call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/today?col=operatorName&val=${encodeURIComponent(name)}${rb ? "&rebuild=1" : ""}`);
+const rowsOf = async (name) => (await call(A, "GET", `/api/mochica/bales/lists/${encodeURIComponent(LK)}/rows?col=operatorName&val=${encodeURIComponent(name)}&stg=today&limit=50`)).total;
+await t("過去失注：森さんの今日かけるリストに未割り振りの過去失注（p1〜p3・コールドでも）が入る。過去失注でない未割り振り（u1）は入らない", async () => {
+  const j = await todayOf("森 康晴", true);
+  assert.equal(j.pastlost, 3, JSON.stringify(j)); assert.equal(j.pl_free, 3); assert.equal(j.n, 5);
+  assert.equal(await rowsOf("森 康晴"), 5, "リスト管理の今日かけるリストの表に、未割り振りから入れた過去失注が出ない");
+});
+await t("過去失注：あとで作った内藤さんには、森さんが今日持っている過去失注は入らない（重ならない）", async () => {
+  const j = await todayOf("内藤 賴郁亜", true);
+  assert.equal(j.pl_free, 0, JSON.stringify(j)); assert.equal(j.n, 2);
+});
+await t("過去失注：入れ先のリストを開け直すと、森さんの「かける」に過去失注の会社が出る", async () => {
+  await call(A, "PATCH", `/api/mccall/lists/${TID}`, { closed: false });
+  const j = await call(MORI, "GET", "/api/mccall/queue");
+  const all = await keysOf(j.items.map((x) => x.id));
+  for (const k of ["p1", "p2", "p3"]) assert.ok(all.includes(k), `${k} が出ない：${JSON.stringify(all)}`);
+  assert.ok(!all.includes("u1"), "過去失注でない未割り振りが出ている");
+});
+
 console.log(`\n${n} ok / ${failed} NG`);
 await pool.end().catch(() => {});
 process.exit(failed ? 1 : 0);

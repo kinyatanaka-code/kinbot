@@ -13278,7 +13278,8 @@ export async function mcBalesRows(listKey, { q = "", col = "", val = "", offset 
   // まとめた重複は出さない。MOCHICA ユーザーもふだんは出さず、stg=mcuser のときだけ MOCHICA ユーザーを出す（アーカイブの中のカード：2026-11-23 田中さん）
   const w = [`list_key=$1`, `run_at=$2`, stg === "mcuser" ? `dup_of IS NULL AND ${BALES_MCU}` : stg === "ng" ? `dup_of IS NULL AND ng IS TRUE AND NOT ${BALES_MCU}` : stg === "out" ? `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND ${BALES_OUT}` : stg === "archive" ? `dup_of IS NULL AND (${BALES_HID} OR ${BALES_STG.archive})` : `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`]; const p = [listKey, l.run_at];
   if (q) { p.push(`%${String(q).slice(0, 80)}%`); w.push(`EXISTS (SELECT 1 FROM jsonb_each_text(data) e WHERE e.value ILIKE $${p.length})`); }   // 項目の名前ではなく中身だけで探す
-  if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(${colX(col, `$${p.length - 1}`)},'') = $${p.length}`); }
+  //   今日かけるリストは下で今日の分の行だけにする（未割り振りから入れた過去失注もあるので、所有者では絞らない）
+  if (col && stg !== "today") { p.push(String(col).slice(0, 80)); p.push(String(val)); w.push(`COALESCE(${colX(col, `$${p.length - 1}`)},'') = $${p.length}`); }
   // 2つめの項目で絞る（所有者など）（2026-11-22 田中さん「所有者で絞り込みたい」）
   //   架電結果・所有者・SF は「|」でつないで複数選べる（どれかに当たれば出す）（2026-11-22 田中さん「複数選択できるように」）
   const many = (v) => [...new Set(String(v || "").split("|").map((x) => x.trim()).filter(Boolean))].slice(0, 60);
@@ -13419,7 +13420,11 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 //   ③は「取れそうな率」（リードソース・過去失注かどうか・ホット度ごとの、これまでのアポ÷架電）を1件ずつ出し、高い順に埋める
 //   （はじめは3%に寄せて混ぜていたが、2026-11-23 田中さん「150件の中で MAX のアポ率に」で高い順に変えた）
 export const BALES_TODAY_N = 150, BALES_TODAY_MIN = 100;   // 多くて150件・少なくとも100件
-const BALES_TODAY_V = 6;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
+// 過去失注の枠（2026-11-24 福井さん「架けるリストには過去失注も含めるように」）：過去失注は 11/23 に全部「未割り振り」へ移したので、
+//   本人のリードだけで作ると1件も入らなくなっていた。本人の過去失注＋未割り振りの過去失注から、1人1日この件数まで先に入れる。
+//   未割り振りの分は同じ日のほかの人の今日の分と重ならないように配る（1人がこの件数より多く取らない＝みんなに行き渡る）
+export const BALES_TODAY_PL = 50;
+const BALES_TODAY_V = 7;   // 作り方を変えたら上げる（その日の保存が古い作り方なら作り直す）
 const jstDay = (t = Date.now()) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 let _mcTodayInit = false;
 async function ensureMcToday() {
@@ -13428,7 +13433,7 @@ async function ensureMcToday() {
 }
 const VIS = `dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND NOT ${BALES_OUT}`;
 const _mcSegCache = new Map();
-async function mcTodayBuild(listKey, run_at, col, val, day) {
+async function mcTodayBuild(listKey, run_at, col, val, day, ok = "") {
   // これまでのアポ率をかたまりごとに（リスト全体・見えているリード全部で数える。1人分だと件数が少なくぶれるため）
   //   メンバー別のカードで全員分を続けて作るので、15分は覚えておく（毎回リスト全体を数え直さないため）
   const ck = `${listKey}|${new Date(run_at).getTime()}`, cc = _mcSegCache.get(ck);
@@ -13444,45 +13449,65 @@ async function mcTodayBuild(listKey, run_at, col, val, day) {
   const rate = (s, pl, h) => { const pm = sm(mid.get(`${pl}|${h}`), base); return sm(fine.get(`${s}|${pl}|${h}`), pm); };
   // その人のかけるリスト（アポ獲得済みは外す）
   //   SF のリードの状況がアーカイブ・リサイクルのもの、最終架電結果がお断りのものも外す（2026-11-23 田中さん：Bales のステージはかけるリストのままでも、今日かける先ではないため）
-  const p = [listKey, run_at]; let ow = "";
-  if (col) { p.push(String(col).slice(0, 80)); p.push(String(val)); ow = ` AND COALESCE(${colX(col, `$3`, "r.")},'') = $4`; }
-  const cand = (await pool.query(`SELECT r.row_key, COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h,
+  //   所有者で作る人（名前のある人）は、未割り振りの過去失注も候補に入れる（free＝未割り振りから。ほかの人が今日もう持っている分は外す）
+  const p = [listKey, run_at]; let ow = "", freeSel = "false", taken0 = new Set();
+  if (col) {
+    p.push(String(col).slice(0, 80)); p.push(String(val)); const own = `COALESCE(${colX(col, `$3`, "r.")},'')`;
+    if (isOwnCol(col) && String(val) !== "") {
+      freeSel = `(${own} = '')`; ow = ` AND (${own} = $4 OR (${own} = '' AND ${BALES_PL}))`;
+      //   未割り振りの人の今日の分（名前が空＝owner_key が「|」で終わる）は人ではないので数えない
+      for (const o of (await pool.query(`SELECT keys FROM mochica_bales_today WHERE list_key=$1 AND day=$2 AND owner_key <> $3 AND right(owner_key, 1) <> '|'`, [listKey, day, ok])).rows)
+        for (const k of Array.isArray(o.keys) ? o.keys : []) taken0.add(k);
+    } else ow = ` AND ${own} = $4`;
+  }
+  const cand = (await pool.query(`SELECT r.row_key, COALESCE(NULLIF(r.data->>'leadSources.0.name',''),'-') AS s, (${BALES_PL}) AS pl, LEAST(GREATEST(COALESCE(r.hot,0),1),3) AS h, ${freeSel} AS free,
       (${BALES_STG.nurture.replace(/data->>/g, "r.data->>")}) AS nur, r.data->>'lastCalledAt' AS lc,
       (SELECT jsonb_object_agg(e.key, e.value) FROM jsonb_each(r.data) e WHERE e.key ~ '^nextActions\\.[0-9]+\\.(reservedAt|isDone|id)$') AS na
     FROM mochica_bales_rows r WHERE r.list_key=$1 AND r.run_at=$2 AND ${VIS} AND ${BALES_STG.call.replace(/data->>/g, "r.data->>")} AND NOT ${BAPO}
       AND COALESCE(r.sf->'sum'->>'status','') !~ '(アーカイブ|リサイクル)' AND COALESCE(r.data->>'callResult','') !~ 'お断り'${ow}`, p)).rows;
   const nextDay = (na) => { let t = null; for (let i = 0; i < 50; i++) { if (!na || na[`nextActions.${i}.id`] == null && na[`nextActions.${i}.reservedAt`] == null) break;
     if (String(na[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(na[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; } return t == null ? "" : jstDay(t); };
-  const L = cand.map((c) => { const nd = nextDay(c.na); return { k: c.row_key, h: Number(c.h) || 1, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, nd, due: !!nd && nd <= day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }; });
-  const N = BALES_TODAY_N;
+  const L = cand.filter((c) => !(c.free && taken0.has(c.row_key))).map((c) => { const nd = nextDay(c.na); return { k: c.row_key, h: Number(c.h) || 1, p: rate(c.s, c.pl, c.h), nur: c.nur, pl: c.pl, free: !!c.free, nd, due: !!nd && nd <= day, lc: c.lc ? Date.parse(c.lc) || 0 : 0 }; });
+  const N = BALES_TODAY_N, PLQ = BALES_TODAY_PL;
+  //   並べた順に n 件まで取る。未割り振りの過去失注は1人 PLQ 件まで（全部の段を通して）
+  const taken = new Set(); let freeN = 0;
+  const fill = (arr, n) => { const r = []; for (const x of arr) { if (r.length >= n) break; if (taken.has(x.k) || (x.free && freeN >= PLQ)) continue; if (x.free) freeN++; taken.add(x.k); r.push(x); } return r; };
   // 並べ方（2026-11-23 田中さん「コールドは無理に入れなくて良い。基本ホット→ウォーム→コールドの順で」）：
   //   ① ナーチャリングで次回アクション日が今日以前 … ホット度に関係なく入れる（約束した掛け直しのため）。ホット→ウォーム→コールドの順
   //   ② 残りの枠はホット→ウォームだけ。同じホット度の中は「次回アクション日が今日以前」→ 見込みアポ率の高い順
   //   コールド（判定前も含む）は②に入れない。足りなければ150件に満たなくてよい（ただし③で100件までは埋める）
   const byDue = (a, b) => b.h - a.h || b.nd.localeCompare(a.nd) || b.p - a.p;
-  const pri = L.filter((x) => x.nur && x.due).sort(byDue).slice(0, N);
-  const used = new Set(pri.map((x) => x.k)); const need = N - pri.length;
+  const pri = fill(L.filter((x) => x.nur && x.due).sort(byDue), N);
   const ord = (a, b) => b.h - a.h || (b.due ? 1 : 0) - (a.due ? 1 : 0) || b.p - a.p || a.lc - b.lc;
-  const pick = need > 0 ? L.filter((x) => !used.has(x.k) && x.h >= 2).sort(ord).slice(0, need) : [];
+  //   ②の前に過去失注の枠（2026-11-24 福井さん）：①に入った過去失注と合わせて PLQ 件まで、ホット→ウォーム→コールドの順で入れる
+  //   （コールドの過去失注もここでは入れる。一度は新規の商談まで進んだ会社で、入れないと過去失注がほとんど入らないため）
+  const plp = fill(L.filter((x) => x.pl).sort(ord), Math.min(N - pri.length, Math.max(0, PLQ - pri.filter((x) => x.pl).length)));
+  const pick = [...plp, ...fill(L.filter((x) => x.h >= 2).sort(ord), N - pri.length - plp.length)].sort(ord);
   //   ③ それでも100件に届かなければ、コールドを「予定あり→見込みアポ率の高い順」で100件まで足す（2026-11-23 田中さん「最低でも100件は入っていてほしい」）
-  if (pri.length + pick.length < BALES_TODAY_MIN) { const u2 = new Set([...used, ...pick.map((x) => x.k)]); pick.push(...L.filter((x) => !u2.has(x.k)).sort(ord).slice(0, BALES_TODAY_MIN - pri.length - pick.length)); }
+  if (pri.length + pick.length < BALES_TODAY_MIN) pick.push(...fill([...L].sort(ord), BALES_TODAY_MIN - pri.length - pick.length));
   const out = [...pri, ...pick];
   const info = { n: out.length, exp: out.length ? out.reduce((t, x) => t + x.p, 0) / out.length : 0, due_nurture: pri.length, due_other: pick.filter((x) => x.due).length,
-    pastlost: pick.filter((x) => !x.due && x.pl).length, newlist: pick.filter((x) => !x.due && !x.pl).length, pool: L.length,
-    cold_left: L.filter((x) => !used.has(x.k) && x.h < 2).length - pick.filter((x) => x.h < 2).length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける。cold_left＝入れなかったコールド
+    pastlost: pick.filter((x) => !x.due && x.pl).length, newlist: pick.filter((x) => !x.due && !x.pl).length, pl_free: out.filter((x) => x.free).length, pool: L.filter((x) => !x.free).length,
+    cold_left: L.filter((x) => !x.free && !taken.has(x.k) && x.h < 2).length, v: BALES_TODAY_V };   // 内訳は足すと件数になるよう、予定の分を除いて過去失注・新規に分ける。pl_free＝未割り振りから入れた過去失注。cold_left＝入れなかった本人のコールド
   return { keys: out.map((x) => x.k), info };
 }
+let _mcTodayQ = Promise.resolve();
+const mcTodayLocked = (fn) => { const r = _mcTodayQ.then(fn, fn); _mcTodayQ = r.catch(() => {}); return r; };
 // その人の今日のリスト（無ければ作る。rebuild で作り直す）
 export async function mcBalesToday(listKey, { col = "", val = "", rebuild = false } = {}) {
   if (!pool) return null; await ensureMcBales(); await ensureMcToday();
   const l = (await pool.query(`SELECT run_at FROM mochica_bales_lists WHERE list_key=$1`, [listKey])).rows[0]; if (!l) return null;
   const day = jstDay(), ok = `${String(col).slice(0, 80)}|${String(val).slice(0, 200)}`;
-  let t = rebuild ? null : (await pool.query(`SELECT keys, info, made_at FROM mochica_bales_today WHERE list_key=$1 AND owner_key=$2 AND day=$3`, [listKey, ok, day])).rows[0];
-  if (!t || Number((t.info || {}).v || 1) < BALES_TODAY_V) {
-    const b = await mcTodayBuild(listKey, l.run_at, col, val, day);
-    t = (await pool.query(`INSERT INTO mochica_bales_today (list_key, owner_key, day, keys, info) VALUES ($1,$2,$3,$4,$5)
+  const load = async () => (await pool.query(`SELECT keys, info, made_at FROM mochica_bales_today WHERE list_key=$1 AND owner_key=$2 AND day=$3`, [listKey, ok, day])).rows[0];
+  const stale = (x) => !x || Number((x.info || {}).v || 1) < BALES_TODAY_V;
+  let t = rebuild ? null : await load();
+  //   作るのは1つずつ（未割り振りの過去失注を2人に同時に配って重ならないように）。順番を待つ間にほかで作られていたらそれを使う
+  if (rebuild || stale(t)) t = await mcTodayLocked(async () => {
+    if (!rebuild) { const x = await load(); if (!stale(x)) return x; }
+    const b = await mcTodayBuild(listKey, l.run_at, col, val, day, ok);
+    return (await pool.query(`INSERT INTO mochica_bales_today (list_key, owner_key, day, keys, info) VALUES ($1,$2,$3,$4,$5)
       ON CONFLICT (list_key, owner_key, day) DO UPDATE SET keys=EXCLUDED.keys, info=EXCLUDED.info, made_at=now() RETURNING keys, info, made_at`, [listKey, ok, day, JSON.stringify(b.keys), JSON.stringify(b.info)])).rows[0];
-  }
+  });
   const keys = Array.isArray(t.keys) ? t.keys : [];
   // 今日もうかけた件数（取り込み直すと Bales の最後の架電日時が入る）・その中のアポ
   //   Bales の日時は「2026-11-06T16:29:40+09:00」と日本時間で入っているので頭の10文字で見る（日時に直すと、形の違う値が1つあるだけで全部0になっていた）
