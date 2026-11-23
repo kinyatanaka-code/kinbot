@@ -34688,12 +34688,16 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
     const who = (v) => resolveDisplayName(v, nm) || String(v || "");
     const t = L.target || {}; const ap = L.apo || {}; const ex = t.extra && typeof t.extra === "object" ? t.extra : {};
     const exv = (re) => { for (const [kk, vv] of Object.entries(ex)) if (re.test(kk) && String(vv || "").trim()) return String(vv).trim(); return ""; };
-    const url = exv(/URL|ＵＲＬ|ホームページ|HP|Web|ウェブ|サイト/i);
+    // 案件（会社）の情報：ホームページ・業種・従業員数を kincall に無いときの補いに使う
+    let acc = null; try { const key0 = normCompanyKey(company); acc = (await listAccounts()).find((a) => { const kk = normCompanyKey(a.key || a.official_name || ""); return kk && (kk === key0 || (key0.length >= 3 && (kk.includes(key0) || key0.includes(kk)))); }) || null; } catch {}
+    const ap0 = (acc && acc.profile && typeof acc.profile === "object") ? acc.profile : {};
+    const pv = (...ks) => { for (const k2 of ks) { const v2 = ap0[k2]; if (v2 != null && String(v2).trim()) return String(v2).trim(); } return ""; };
+    const url = exv(/URL|ＵＲＬ|ホームページ|HP|Web|ウェブ|サイト/i) || (acc && acc.site_url) || pv("url", "site", "website", "homepage");
     // 採用媒体：kincall の媒体掲載（タグ）。リンクは、その媒体で会社名を探す検索（掲載ページのURLは持っていないため）
     const media = [...new Set(String([t.media_tags, t.posted_media].filter(Boolean).join(",")).split(/[,、，\/／]/).map((x) => x.trim()).filter(Boolean))].slice(0, 10)
       .map((n) => ({ name: n, url: `https://www.google.com/search?q=${encodeURIComponent(`${company} ${n} 求人`)}` }));
-    const corp = { name: t.company || ap.label || company, url: url && /^https?:/i.test(url) ? url : (url ? `https://${url.replace(/^\/+/, "")}` : ""), industry: t.industry || "",
-      employees: t.employees != null ? String(t.employees) : (t.emp_size != null ? String(t.emp_size) : ""), phone: t.phone || ap.client_phone || "", person: t.person || ap.client_name || "",
+    const corp = { name: t.company || (acc && acc.official_name) || ap.label || company, url: url && /^https?:/i.test(url) ? url : (url ? `https://${url.replace(/^\/+/, "")}` : ""), industry: t.industry || pv("industry", "業種", "業界"),
+      employees: t.employees != null ? String(t.employees) : (t.emp_size != null ? String(t.emp_size) : pv("employees", "従業員数").replace(/[^\d]/g, "")), phone: t.phone || ap.client_phone || "", person: t.person || ap.client_name || "",
       email: t.email || ap.client_email || m.client_email || "", media };
     const is = { apoAt: ap.apo_at || ap.created_at || null, setter: who(ap.setter || ap.setter_email || m.apo_setter || ""),
       people: (L.people || []).map((p) => ({ name: p.contact_name, gender: p.gender === "male" ? "男性" : p.gender === "female" ? "女性" : "", age: p.age_band || "", tags: p.impressions || [] })),
@@ -34704,6 +34708,7 @@ app.get("/api/meetings/:id/prebrief", async (req, res) => {
       const owner = await pickSfUser(req.user, req);
       if (salesforceConfigured() && (await sfConnected(owner).catch(() => false))) {
         const f = await prebriefOppFields(owner);
+        if (req.query.fields === "1" && req.isAdmin) { const dd = await describeOpportunity(owner); return res.json({ dateFields: (dd.fields || []).filter((x) => /date/i.test(x.type)).map((x) => `${x.name}:${x.label}`) }); }
         const core = company.normalize("NFKC").replace(/(株式会社|有限会社|合同会社|㈱|\(株\)|（株）)/g, "").replace(/[\s　'\\%_]/g, "").slice(0, 40);
         if (core.length >= 2) {
           const cols = [...new Set(["Id", "Name", "StageName", "CloseDate", "CreatedDate", "IsClosed", "IsWon", "RecordType.Name", "Account.Name", f.memo, f.hires, f.date, f.lossReason, f.lossDetail].filter(Boolean))];
