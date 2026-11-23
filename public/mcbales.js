@@ -8,6 +8,8 @@ const ASG_ICO = '<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="tr
 const apoTxt = (apo, called) => { apo = Number(apo || 0); called = Number(called || 0); return `<span class="bl-apo" title="アポ（最終架電結果がアポ獲得）${apo.toLocaleString()}件 ÷ 架電したリード ${called.toLocaleString()}件">リストアポ率 <b>${called ? (apo / called * 100).toFixed(1) : "0.0"}%</b><small>${apo.toLocaleString()}/${called.toLocaleString()}</small></span>`; };
 // ステージ別の箱（サーバーの BALES_STG と同じ印）
 // ホット度のカード（すべてのリードの隣）（2026-11-23 田中さん）
+// ホット・ウォーム・コールドの件数を1行で（メンバー別のカード用）（2026-11-23 田中さん「各メンバーごとにもホット・ウォーム・コールドを」）
+const hotLine = (h) => (h ? `<span class="bl-lc-hot"><i class="hot"></i>ホット ${Number(h.hot || 0).toLocaleString()}<i class="warm"></i>ウォーム ${Number(h.warm || 0).toLocaleString()}<i class="cold"></i>コールド ${Number(h.cold || 0).toLocaleString()}</span>` : "");
 const HOTS = [["hot", "ホット", "担当者名・ニーズ・検討時期の3つ"], ["warm", "ウォーム", "3つのうち2つ"], ["cold", "コールド", "1つ以下・まだ判定していない"]];
 // stg=mcuser（MOCHICA ユーザー）の表の見出し用。STG の箱には出さない
 const STG_EXTRA = { mcuser: "MOCHICAユーザー", ng: "アプローチ禁止" };
@@ -95,8 +97,8 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
   // 一覧へ戻る。ブラウザの「戻る」でも戻れるよう、リストを開くときに履歴を1つ足しておく（2026-11-22 田中さん「戻れるように」）
   function goHome(fromPop) { if (!fromPop && history.state && history.state.blList) { history.back(); return; }
     // ステージ別のメンバーの画面から表を開いていたら、そこへ戻る
-    if (mode === "list" && retMem) { mode = "member"; memHome = retMem; retMem = null; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
-    if (mode === "list" && retStage) { mode = "stage"; stgHome = retStage; retStage = ""; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
+    if (mode === "list" && retMem) { mode = "member"; memHome = retMem; retMem = null; hotF = ""; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
+    if (mode === "list" && retStage) { mode = "stage"; stgHome = retStage; retStage = ""; hotF = ""; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); return; }
     stgHome = ""; retStage = ""; memHome = null; retMem = null; hotF = ""; mode = "home"; memberF = ""; fcol = ""; fval = ""; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; page = 0; draw(); window.scrollTo(0, 0); }
   function openList() { selRows.clear(); try { history.pushState({ blList: 1 }, "", location.href); } catch {} draw(); window.scrollTo(0, 0); }
   window.addEventListener("popstate", () => { if (mode === "list" || mode === "stage" || mode === "member") goHome(true); });
@@ -159,6 +161,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     const vq = (st) => api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/values?col=${encodeURIComponent(oc)}${st ? `&stg=${st}` : ""}&blank=1`).catch(() => ({ items: [], blank: 0 }));
     const [d0, d1, d2] = await Promise.all([vq(""), vq("active"), vq("nurture")]);
     const vals = d0.items || []; bl.all = d0.blank || 0; const apoM = new Map(vals.map((v) => [v.v, [v.apo, v.called]])); apoM.set("", [d0.blankApo, d0.blankCalled]);
+    const hotM = new Map(vals.map((v) => [v.v, { hot: v.hot, warm: v.warm, cold: v.cold }])); hotM.set("", d0.blankHot || null);
     // 残りの架け先：リサイクル・アーカイブにしていない件数／ナーチャリングの件数（2026-11-23 田中さん）
     const act = new Map((d1.items || []).map((v) => [v.v, v.n])); act.set("", d1.blank || 0);
     const nur = new Map((d2.items || []).map((v) => [v.v, v.n])); nur.set("", d2.blank || 0);
@@ -166,7 +169,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     const box = root.querySelector("[data-mems]"); if (!box || !root.isConnected) return;
     const shown0 = Array.isArray(members) && members.length ? members.map((nm) => vals.find((v) => v.v === nm) || { v: nm, n: 0 }) : vals;
     const shown = bl.all ? [...shown0, { v: "", n: bl.all }] : shown0;   // 最後に「未割り振り」（v が空）
-    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem${v.v ? "" : " none"}" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${v.v ? esc(String(v.v).replace(/\s/g, "").slice(0, 1)) : "−"}</span><b>${v.v ? esc(v.v) : "未割り振り"}</b><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span><span class="bl-lc-nur">ナーチャリング <b>${Number(nur.get(v.v) || 0).toLocaleString()}</b>件</span>${apoTxt(...(apoM.get(v.v) || [0, 0]))}<small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${v.v && Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
+    box.innerHTML = shown.length ? shown.map((v) => `<div class="bl-lc mem${v.v ? "" : " none"}" role="button" tabindex="0" data-mem="${esc(v.v)}"><span class="av">${v.v ? esc(String(v.v).replace(/\s/g, "").slice(0, 1)) : "−"}</span><b>${v.v ? esc(v.v) : "未割り振り"}</b><span class="bl-lc-k">残りの架け先</span><span class="n">${Number(act.get(v.v) || 0).toLocaleString()}<small>件</small></span><span class="bl-lc-nur">ナーチャリング <b>${Number(nur.get(v.v) || 0).toLocaleString()}</b>件</span>${apoTxt(...(apoM.get(v.v) || [0, 0]))}${hotLine(hotM.get(v.v))}<small>全 ${Number(v.n || 0).toLocaleString()}件（${esc(m0.name || "")} から）</small>${v.v && Array.isArray(members) && members.length ? `<button type="button" class="bl-lc-x" data-mx="${esc(v.v)}" title="メンバー別から外す">×</button>` : ""}</div>`).join("")
       : '<div class="mc-note">所有者の入ったリードがありません。</div>';
     // メンバーのカードを押すと、その人のリードソース別のカード（2026-11-23 田中さん）
     box.querySelectorAll("[data-mem]").forEach((el) => { const go = () => { mode = "member"; memHome = { name: el.dataset.mem, blank: !el.dataset.mem }; openList(); }; el.addEventListener("click", go); el.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }); });
@@ -192,6 +195,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     const m0 = mainList(); const oc = ownerCol(m0); const mh = memHome; const label = mh.blank ? "未割り振り" : mh.name;
     root.innerHTML = `<div class="bl-home"><button type="button" class="bl-back" data-mback>‹ リスト管理に戻る</button>
       <div class="bl-home-h"><h2>${esc(label)}<small style="font-size:12px;font-weight:600;color:#5C7377;margin-left:8px">リードソース別</small></h2></div>
+      <div class="bl-lgrid" data-mhot style="margin-bottom:10px"></div>
       <div class="bl-lgrid" data-mstg style="margin-bottom:10px"></div>
       <div class="bl-lgrid" data-msrc><div class="mc-note">読み込んでいます…</div></div></div>`;   // かける・ナーチャリング・リサイクル・アーカイブは SFリードソースの上（2026-11-23 田中さん「下じゃなくて上に」）
     root.querySelector("[data-mback]").addEventListener("click", () => goHome());
@@ -209,6 +213,10 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     const sb = root.querySelector("[data-mstg]");
     api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/stages?col=${encodeURIComponent(oc)}&${mh.blank ? "blank=1" : `val=${encodeURIComponent(mh.name)}`}`).then((d) => {
       if (!sb || !root.isConnected || mode !== "member") return;
+      // ホット・ウォーム・コールドのカード（その人のリードで）。押すとその人のそのホット度の表
+      const hb = root.querySelector("[data-mhot]");
+      if (hb) { hb.innerHTML = HOTS.map(([k, l2, dsc]) => `<button type="button" class="bl-lc hotc ${k}" data-mhc="${k}"><b><i class="bl-hdot ${k}"></i>${l2}</b><span class="n">${Number(d[`h_${k}`] || 0).toLocaleString()}<small>件</small></span>${apoTxt(d[`h_${k}_apo`], d[`h_${k}_called`])}<small>${dsc}</small></button>`).join("");
+        hb.querySelectorAll("[data-mhc]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = ""; hotF = b.dataset.mhc; retMem = mh; page = 0; openList(); })); }
       sb.innerHTML = STG.map(([k, l, dsc]) => `<button type="button" class="bl-lc stg ${k}" data-mst="${k}"><b>${l}</b><span class="n">${Number(d[k] || 0).toLocaleString()}<small>件</small></span>${apoTxt(d[`${k}_apo`], d[`${k}_called`])}<small>${dsc}</small></button>`).join("");
       sb.querySelectorAll("[data-mst]").forEach((b) => b.addEventListener("click", () => { cur = m0.list_key; mode = "list"; memberF = label; fcol = oc; fval = mh.blank ? "" : mh.name; q = ""; crF = ""; ownF = ""; sfF = ""; srcF = ""; stgF = b.dataset.mst; retMem = mh; page = 0; openList(); }));
     }).catch(() => {});

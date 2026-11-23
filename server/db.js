@@ -13139,6 +13139,9 @@ export const BALES_STG = {
 const BAPO = `(COALESCE(r.data->>'callResult','') ~ 'アポ獲得')`;
 const BCALLED = `(COALESCE(r.data->>'callResult','') <> '')`;
 const BAPO_SEL = `count(*) FILTER (WHERE ${BAPO}) AS apo, count(*) FILTER (WHERE ${BCALLED}) AS called`;
+// ホット度ごとの件数（メンバー別のカードにも出す：2026-11-23 田中さん）。コールドは判定前も含む
+const BHOT_SEL = `count(*) FILTER (WHERE r.hot >= 3) AS h_hot, count(*) FILTER (WHERE r.hot = 2) AS h_warm, count(*) FILTER (WHERE COALESCE(r.hot,0) <= 1) AS h_cold`;
+const hotOf = (x) => ({ hot: Number(x.h_hot || 0), warm: Number(x.h_warm || 0), cold: Number(x.h_cold || 0) });
 const apoOf = (x) => ({ apo: Number(x.apo || 0), called: Number(x.called || 0) });
 // MOCHICA ユーザーは省く（2026-11-23 田中さん「MOCHICAユーザーを省きたい」）：SF と結びついた取引先に、商談名に「新規」が付いていて
 //   フェーズが「08：受注処理完了」の商談があるリード（レコードタイプではなく商談名で見る：2026-11-23 田中さん）。表・件数・絞り込みの数から外す（データは消さない）
@@ -13224,16 +13227,16 @@ export async function mcBalesValues(listKey, col, { stg = "", blank = false } = 
   if (!pool) return []; await ensureMcBales();
   // stg（ステージ別）を付けると、その分だけ数える（メンバー別の「残りの架け先」＝active）
   const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
-  return (await pool.query(`SELECT ${colX(col, "$2", "r.")} AS v, count(*) AS n, ${BAPO_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
-    WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND COALESCE(${colX(col, "$2", "r.")},'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n), ...apoOf(r) }));
+  return (await pool.query(`SELECT ${colX(col, "$2", "r.")} AS v, count(*) AS n, ${BAPO_SEL}, ${BHOT_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
+    WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND COALESCE(${colX(col, "$2", "r.")},'') <> ''${extra} GROUP BY 1 ORDER BY 2 DESC LIMIT 60`, [listKey, String(col).slice(0, 80)])).rows.map((r) => ({ v: r.v, n: Number(r.n), ...apoOf(r), ...hotOf(r) }));
 }
 // その項目が空のもの（所有者がいない＝未割り振り）の件数（2026-11-23 田中さん「未割り振りのカードを」）
 export async function mcBalesBlankCount(listKey, col, { stg = "", full = false } = {}) {
   if (!pool) return 0; await ensureMcBales();
   const extra = Object.hasOwn(BALES_STG, stg) ? ` AND ${BALES_STG[stg].replace(/data->>/g, "r.data->>")}` : "";
-  const x = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
+  const x = (await pool.query(`SELECT count(*) AS n, ${BAPO_SEL}, ${BHOT_SEL} FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at
     WHERE r.list_key=$1 AND r.dup_of IS NULL AND NOT ${BALES_MCU} AND ng IS NOT TRUE AND COALESCE(${colX(col, "$2", "r.")},'') = ''${extra}`, [listKey, String(col).slice(0, 80)])).rows[0];
-  return full ? { n: Number(x.n), ...apoOf(x) } : Number(x.n);
+  return full ? { n: Number(x.n), ...apoOf(x), ...hotOf(x) } : Number(x.n);
 }
 // ステージ別の件数（ナーチャリング・リサイクル・アーカイブ・残りの架け先）
 export async function mcBalesStages(listKey, { col = "", val = null } = {}) {
