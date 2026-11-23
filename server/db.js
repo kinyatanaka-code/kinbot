@@ -13286,6 +13286,11 @@ export async function mcCompanyCalls(srcKey, sfLeadIds = [], company = "") {
 }
 
 // SF と結びつける：今の取り込みの行（row_key と data）を渡す／結果を書く／進み具合を残す
+// 選んだリードをホットな順に並べる（割り振りで偏らないように）
+export async function mcBalesHotOrder(listKey, keys = []) {
+  if (!pool || !keys.length) return []; await ensureMcBales();
+  return (await pool.query(`SELECT r.row_key FROM mochica_bales_rows r JOIN mochica_bales_lists l ON l.list_key=r.list_key AND l.run_at=r.run_at WHERE r.list_key=$1 AND r.row_key = ANY($2::text[]) ORDER BY COALESCE(r.hot,0) DESC, r.seq`, [listKey, keys])).rows;
+}
 // kinbot の中の担当を付ける（items＝[{ k, email, name }]）
 export async function mcBalesAssignSet(listKey, items = []) {
   if (!pool || !items.length) return 0; await ensureMcBales();

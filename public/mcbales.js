@@ -531,38 +531,44 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
   function sheet(html) { closeSheet(); sheetEl = document.createElement("div"); sheetEl.className = "bl-sheet-bg"; sheetEl.innerHTML = `<div class="bl-sheet"><button type="button" class="bl-x" aria-label="閉じる">×</button><div class="bl-sheet-in">${html}</div></div>`;
     sheetEl.addEventListener("click", (e) => { if (e.target === sheetEl) closeSheet(); }); sheetEl.querySelector(".bl-x").addEventListener("click", closeSheet); document.body.appendChild(sheetEl); return sheetEl.querySelector(".bl-sheet-in"); }
   // 割り振る：選んだリード（選ばなければ、いまの表の条件に合う全部）を、MOCHICALL のかけるリストに入れて、選んだ人で交互に分ける
+  // 割り振る：選んだリード（選ばなければ、いまの表の条件に合う全部）を、リスト管理の「メンバー別」にいる人へ交互に分ける（2026-11-23 田中さん）。
+  //   kinbot の中の担当にする（メンバー別のカード・所有者の列に出る）。kinbot のアカウントがある人の分は、MOCHICALL のかけるリストにも入れる
+  const nmKey = (x) => String(x || "").normalize("NFKC").replace(/[\s　]/g, "").replace(/賴/g, "頼").replace(/[齊齋斎]/g, "斉").replace(/邊|邉/g, "辺").replace(/髙/g, "高").replace(/﨑/g, "崎");
   async function assignSheet(l, total, csvQ, owners = []) {
-    // 分ける人：MOCHICA のメンバー全員（リストのメンバーでなくても選べる。割り振るとリストのメンバーに足す）
-    let reps = []; try { reps = ((await api("/api/mochica/reps")).items || []).filter((x) => x.mochica); } catch {}
-    if (!owners.length && ownerCol(l)) { try { owners = (await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/values?col=${encodeURIComponent(ownerCol(l))}`)).items || []; } catch {} }
-    let tg; try { tg = await api("/api/mccall/assign-targets"); } catch (e) { alert(`割り振り先を読めませんでした：${e.message}（MOCHICALL の管理者だけが使えます）`); return; }
-    const lists0 = tg.lists || []; if (!lists0.length) { alert("MOCHICALL に開いているかけるリストがありません。先に MOCHICALL の「リストの管理」でリストを作ってください。"); return; }
+    const oc = ownerCol(l);
+    if (!owners.length && oc) { try { owners = (await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/values?col=${encodeURIComponent(oc)}`)).items || []; } catch {} }
+    if (members == null) { try { members = (await api("/api/mochica/bales/members")).members; } catch { members = null; } }
+    // メンバー別に出している人（「メンバー追加」で選んだ人。選んでいなければ所有者の全員）
+    const names = Array.isArray(members) && members.length ? members : owners.map((o) => o.v);
+    if (!names.length) { alert("メンバー別にメンバーがいません。リスト管理の「メンバー追加」で選んでください。"); return; }
+    // kinbot のアカウントと名前で結びつける（空白・異体字の違いはそろえて比べる）
+    let users = []; try { users = (await api("/api/mochica/reps")).items || []; } catch {}
+    const uOf = new Map(users.map((u) => [nmKey(u.name), u]));
+    const ppl = names.map((nm) => { const u = uOf.get(nmKey(nm)); return { name: nm, email: u ? String(u.email).toLowerCase() : "" }; });
+    let tg = { lists: [] }; if (ppl.some((p) => p.email)) { try { tg = await api("/api/mccall/assign-targets"); } catch {} }
+    const lists0 = tg.lists || [];
     const n = selRows.size || total;
     const sh = sheet(`<h3 class="bl-sh-t">割り振る</h3>
-      <p class="mc-note" style="line-height:1.8">${selRows.size ? `選んだ <b>${n.toLocaleString()}件</b>` : `いまの表の条件に合う <b>${n.toLocaleString()}件</b>（選んでいないので全部）`}を、選んだ人で交互に分けます（ホットなリードから順に配るので偏りません）。<br>入れた先の MOCHICALL のリストで、その人がかけます。もうほかのリストに入っているリードは、担当だけ付け替えます。アプローチ禁止は入れません。</p>
-      <label class="mc-note" style="display:block;margin:10px 0 4px;font-weight:800">入れるリスト</label><select class="kx-in" data-al style="width:100%">${lists0.map((x) => `<option value="${x.id}">${esc(x.name)}（メンバー ${x.members.length}人）</option>`).join("")}</select>
-      <label class="mc-note" style="display:block;margin:12px 0 4px;font-weight:800">分ける人</label><div class="bl-mpick" data-am></div>
+      <p class="mc-note" style="line-height:1.8">${selRows.size ? `選んだ <b>${n.toLocaleString()}件</b>` : `いまの表の条件に合う <b>${n.toLocaleString()}件</b>（選んでいないので全部）`}を、選んだ人で交互に分けます（ホットなリードから順に配るので偏りません）。<br>分けたリードは、その人の担当になります（メンバー別のカード・所有者の列に出ます）。</p>
+      <label class="mc-note" style="display:block;margin:12px 0 4px;font-weight:800">分ける人（リスト管理のメンバー別）</label><div class="bl-mpick" data-am>${ppl.map((p, i) => `<label><input type="checkbox" value="${i}"><span>${esc(p.name)}</span>${p.email ? "<small>MOCHICALL にも入る</small>" : ""}</label>`).join("")}</div>
+      ${ppl.some((p) => p.email) ? `<label class="mc-note" style="display:block;margin:12px 0 4px;font-weight:800">MOCHICALL の入れるリスト<small style="font-weight:600;margin-left:6px">（kinbot のアカウントがある人の分だけ入れます）</small></label>
+        <select class="kx-in" data-al style="width:100%"><option value="">MOCHICALL には入れない</option>${lists0.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>` : ""}
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px"><button type="button" class="mt-btn" data-ago>割り振る</button></div>`);
-    const drawM = () => { const L = lists0.find((x) => String(x.id) === sh.querySelector("[data-al]").value) || lists0[0];
-      const ppl = new Map(); for (const m of L.members) ppl.set(String(m.email).toLowerCase(), { email: m.email, name: m.name, inList: true }); for (const r0 of reps) { const k = String(r0.email).toLowerCase(); if (!ppl.has(k)) ppl.set(k, { email: r0.email, name: r0.name, inList: false }); }
-      sh.querySelector("[data-am]").innerHTML = ppl.size ? [...ppl.values()].map((m) => `<label><input type="checkbox" value="${esc(m.email)}"><span>${esc(m.name)}</span>${m.inList ? "" : '<small>リストに足す</small>'}</label>`).join("") : '<div class="mc-note">分けられる人がいません。</div>'; };
-    drawM(); sh.querySelector("[data-al]").addEventListener("change", drawM);
     sh.querySelector("[data-ago]").addEventListener("click", async (e) => {
-      const btn = e.currentTarget; const members = [...sh.querySelectorAll("[data-am] input:checked")].map((x) => x.value);
-      if (!members.length) { alert("分ける人を選んでください"); return; }
+      const btn = e.currentTarget; const pick = [...sh.querySelectorAll("[data-am] input:checked")].map((x) => ppl[Number(x.value)]);
+      if (!pick.length) { alert("分ける人を選んでください"); return; }
       btn.disabled = true; btn.textContent = "割り振っています…";
       try {
         // 選んでいなければ、いまの表の条件に合う全部の印を集める
         let keys = [...selRows];
         if (!keys.length) for (let off = 0; ; off += 5000) { const a = await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/rows?${csvQ}&offset=${off}&limit=5000`); keys.push(...a.rows.map((d) => d.__k)); if (a.rows.length < 5000 || keys.length >= 5000) break; }
         keys = keys.slice(0, 5000);
-        const r = await api("/api/mccall/from-bales-assign", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listKey: l.list_key, rowKeys: keys, listId: Number(sh.querySelector("[data-al]").value), members }) });
-        // 担当の名前は、Bales の所有者の書き方（「山田光治」「岩浪 大己」など）に合わせる。合わせないとメンバー別のカードが2つに分かれる
-        const sp = (x) => String(x || "").replace(/[\s　]/g, ""); const ownName = new Map(owners.map((o) => [sp(o.v), o.v]));
-        if (r.done) r.done = r.done.map((d) => ({ ...d, name: ownName.get(sp(d.name)) || d.name }));
-        if (r.done && r.done.length) await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/assign-local`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: r.done }) });
+        const r = await api(`/api/mochica/bales/lists/${encodeURIComponent(l.list_key)}/assign-plan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rowKeys: keys, people: pick }) });
+        // kinbot のアカウントがある人の分は、MOCHICALL のリストにも入れる（その人がかける）
+        const listId = Number((sh.querySelector("[data-al]") || {}).value || 0); let mc = { added: 0, moved: 0, banned: 0, dup: 0 };
+        if (listId) for (const [email, ks] of Object.entries(r.plan || {})) { const x = await api("/api/mccall/from-bales-assign", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ listKey: l.list_key, rowKeys: ks, listId, members: [email] }) }); for (const k of Object.keys(mc)) mc[k] += x[k] || 0; }
         closeSheet(); selRows.clear();
-        alert(`「${r.list}」に割り振りました：${r.per.map((p) => `${p.name} ${p.n}件`).join("・")}\n（新しく入れた ${r.added}件・付け替え ${r.moved}件${r.banned ? `・アプローチ禁止で入れなかった ${r.banned}件` : ""}${r.dup ? `・ほかのリードと重なって入れなかった ${r.dup}件` : ""}）`);
+        alert(`割り振りました：${r.per.map((p) => `${p.name} ${p.n}件`).join("・")}${listId ? `\nMOCHICALL：新しく入れた ${mc.added}件・付け替え ${mc.moved}件${mc.banned ? `・アプローチ禁止で入れなかった ${mc.banned}件` : ""}${mc.dup ? `・ほかと重なって入れなかった ${mc.dup}件` : ""}` : ""}`);
         detail();
       } catch (er) { alert(`割り振れませんでした：${er.message}`); btn.disabled = false; btn.textContent = "割り振る"; }
     });
