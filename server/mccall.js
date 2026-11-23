@@ -1631,16 +1631,19 @@ export function registerMcCall(app, deps) {
     // まだ kinbot にログインしていないインターン（2026-11-24 朝の時点で8名とも未ログイン・名簿のメール未登録）にも渡せるよう、
     //   Bales の行にある所有者本人のメール（次の予定の担当者の欄）でも引く。名簿のインサイドに名前が当たる所有者だけ。
     //   本人がそのメールでログインすれば、担当が本人のまま「かける」に出る
-    const mailCnt = new Map();
+    const mailCnt = new Map(), mailWho = new Map();
+    // Bales の名前が名字だけの人（足立・趙・小賀坂）は、名簿の名字と1人だけ当たればその人にする
+    const rosterOf = (n) => { const full = MCDASH_ROSTER.is.filter((p) => rosterHit(n, [p])); if (full.length === 1) return full[0];
+      const sur = MCDASH_ROSTER.is.filter((p) => foldPersonName(p.name) === foldPersonName(n)); return sur.length === 1 ? sur[0] : null; };
     for (const x of (await P().query(`SELECT d->>('nextActions.' || i || '.owner.name') AS n, lower(d->>('nextActions.' || i || '.owner.email')) AS e, count(*)::int AS c
         FROM (SELECT data AS d FROM mochica_bales_rows WHERE list_key=$1 AND run_at=$2) t, generate_series(0, 9) i
         WHERE d->>('nextActions.' || i || '.owner.email') LIKE '%@%' GROUP BY 1, 2`, [bm.listKey, lst.run_at])).rows) {
-      const k = foldPersonName(x.n); if (!k || !rosterHit(x.n, MCDASH_ROSTER.is)) continue;
-      const m = mailCnt.get(k) || new Map(); m.set(x.e, (m.get(x.e) || 0) + x.c); mailCnt.set(k, m);
+      const k = foldPersonName(x.n), p = rosterOf(x.n); if (!k || !p) continue;
+      const m = mailCnt.get(k) || new Map(); m.set(x.e, (m.get(x.e) || 0) + x.c); mailCnt.set(k, m); mailWho.set(k, p.sf);
     }
     for (const [k, m] of mailCnt) if (!byOwner.has(k)) byOwner.set(k, [...m.keys()]);
     const names = await nameMap();
-    for (const [k, m] of mailCnt) for (const e of m.keys()) if (!names.has(e)) names.set(e, `${[...MCDASH_ROSTER.is].find((p) => foldPersonName(p.sf) === k)?.sf || k}（未ログイン）`);
+    for (const [k, m] of mailCnt) for (const e of m.keys()) if (!names.has(e)) names.set(e, `${mailWho.get(k) || k}（未ログイン）`);
     const now = Date.now();
     const nextOf = (d) => { let t = null; for (let i = 0; i < 50; i++) { if (d[`nextActions.${i}.id`] == null && d[`nextActions.${i}.reservedAt`] == null) break;
       if (String(d[`nextActions.${i}.isDone`]) === "true") continue; const x = Date.parse(d[`nextActions.${i}.reservedAt`]); if (Number.isFinite(x) && (t == null || x < t)) t = x; }
