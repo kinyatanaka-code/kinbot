@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>営業フォローの引き継ぎ</title>
+<!-- Bales で追いかけ中のリードを、Bales の所有者のインターンの「かける」（掛け直し）へ引き継ぐ管理者の画面（2026-11-24 福井さん）。
+     開くと下見だけを読み、「引き継ぐ」を押したときだけ入れる。何度押しても同じリードは増えない -->
+<style>
+  body { margin: 0; background: #f6f8f7; color: #1f2a27; font: 14px/1.6 system-ui, "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 18px; color: #0d5b47; margin: 4px 0 12px; }
+  .card { background: #fff; border: 1px solid #dfe8e4; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .kpi { background: #eef7f3; border-radius: 10px; padding: 6px 12px; } .kpi b { font-size: 18px; color: #0d5b47; }
+  button { background: #1d9e75; color: #fff; border: 0; border-radius: 10px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
+  button:disabled { background: #9bb8ad; cursor: default; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; } th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #eef2f0; vertical-align: top; }
+  th { color: #5b6b66; font-weight: 600; } .note { color: #5b6b66; font-size: 12px; } .err { color: #b42318; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Bales の営業フォローを MOCHICALL へ引き継ぐ</h1>
+  <div class="card note">対象：Bales の主リストで、リードステージがコネクト情報獲得かジャッジ（リサイクル・アーカイブは除く）で、最終架電結果が営業フォローのリード。
+    Bales の所有者のインターンの「かける」に、掛け直し（Bales の次の予定。無い・過ぎていれば今）として入ります。</div>
+  <div class="card"><div class="row" id="kpi">読み込み中…</div>
+    <p><button id="go" disabled>引き継ぐ</button> <span id="msg" class="note" role="status"></span></p></div>
+  <div class="card" id="skip"></div>
+  <div class="card"><table><thead><tr><th>渡す人</th><th>Bales の所有者</th><th>会社</th><th>ステージ</th><th>最終架電</th><th>掛け直し</th><th>どうするか</th></tr></thead><tbody id="tb"></tbody></table></div>
+</main>
+<script>
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const jst = (iso) => { if (!iso) return ""; const d = new Date(new Date(iso).getTime() + 9 * 3600e3); return `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`; };
+function draw(j) {
+  document.title = j.run ? "引き継ぎ済み" : "引き継ぎの下見";
+  const at = j.list && j.list.at ? new Date(j.list.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) : "";
+  document.getElementById("kpi").innerHTML = [
+    ["取り込み", `${esc(j.list && j.list.name)}（${esc(at)}）`], ["対象", j.target], [j.run ? "新しく入れた" : "新しく入れる", j.added], [j.run ? "移して担当にした" : "移して担当にする", j.moved],
+  ].map(([k, v]) => `<div class="kpi">${k} <b>${esc(v)}</b></div>`).join("") +
+    j.per.map((p) => `<div class="kpi">${esc(p.name)} <b>${p.n}</b></div>`).join("");
+  const s = j.skip || {};
+  document.getElementById("skip").innerHTML = `<div class="note">渡さないもの：所有者なし ${s.noOwner || 0}件／アプローチ禁止 ${s.banned || 0}件／MOCHICALL で終わっている ${(s.done || []).length}件／ほかの人が開いている ${(s.busy || []).length}件</div>
+    <div class="note">インターンに当たらない所有者：${(s.notIntern || []).map((x) => `${esc(x.owner)} ${x.n}件`).join("、") || "なし"}</div>
+    <div class="note">同じ名前のインターンが2人いて決められない：${(s.twoPeople || []).map((x) => `${esc(x.owner)}（${esc(x.emails.join("・"))}）`).join("、") || "なし"}</div>
+    <div class="note">名前が当たったインターン：${(j.owners || []).map((x) => `${esc(x.owner)}→${esc(x.emails.join("・"))}`).join("、") || "なし"}</div>`;
+  document.getElementById("tb").innerHTML = (j.items || []).map((x) => `<tr><td>${esc(x.to)}</td><td>${esc(x.owner)}</td><td>${esc(x.company)}</td><td>${esc(x.stage)}</td><td>${esc(x.lastCalled)}</td><td>${esc(jst(x.next))}</td><td>${esc(x.how)}</td></tr>`).join("");
+}
+async function call(run) {
+  const r = await fetch(`/api/mccall/bales-handover${run ? "?run=1" : ""}`, { method: "POST" });
+  const j = await r.json().catch(() => ({ error: `読めませんでした（${r.status}）` }));
+  if (!r.ok || j.error) throw new Error(j.error || `失敗しました（${r.status}）`);
+  return j;
+}
+const go = document.getElementById("go"), msg = document.getElementById("msg");
+call(false).then((j) => { draw(j); go.disabled = !(j.added + j.moved); msg.textContent = "下見です。まだ何も入れていません"; })
+  .catch((e) => { document.title = "引き継ぎの下見：失敗"; document.getElementById("kpi").innerHTML = `<span class="err">${esc(e.message)}</span>`; });
+go.onclick = async () => {
+  go.disabled = true; msg.textContent = "引き継いでいます…";
+  try { const j = await call(true); draw(j); msg.textContent = `引き継ぎました（新しく ${j.added}件・移した ${j.moved}件）`; }
+  catch (e) { document.title = "引き継ぎ：失敗"; msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; go.disabled = false; }
+};
+</script>
+</body>
+</html>

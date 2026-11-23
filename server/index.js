@@ -35009,7 +35009,7 @@ app.get("/api/gmail/actions", async (req, res) => {
 // このコードがどのビルドかを示す印。ログと画面の両方で確認できる。
 // 新機能を足したらここを更新する。
 const START_TIME = new Date().toISOString();
-const BUILD_TAG = "2026-11-24ho Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
+const BUILD_TAG = "2026-11-24hp 引き継ぎの管理者画面 /mchandover.html を足した。Bales の営業フォロー（コネクト情報獲得・ジャッジ）を所有者のまま MOCHICALL の本人の掛け直しへ引き継ぐ（POST /api/mccall/bales-handover、管理者だけ・既定は下見）";
 const BUILD_FEATURES = [
   "MOCHICALL：Bales で追いかけ中（コネクト情報獲得・ジャッジ×最終架電が営業フォロー）のリードを、Bales の所有者のインターンの掛け直しへ引き継ぐ",
   "リスト管理：BALES標準CSVとSalesforceの未登録リードをリスト追加から取り込める",
