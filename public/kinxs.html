@@ -9,7 +9,7 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#0d5b47" />
     <meta name="apple-mobile-web-app-title" content="kinbot" />
-    <link rel="stylesheet" href="style.css?v=20261123zd" />
+    <link rel="stylesheet" href="style.css?v=20261123ze" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css" />
     
 <style>
@@ -1294,6 +1294,7 @@
   /* 左メニューの子は、カーソルを合わせると右に出す（2026-11-23 田中さん「kinXs のメニューが増えて見づらい。kinbot みたいにサブメニューはカーソルを合わせたら横に」）。
      左メニューは中を巻き取れる（overflow）ので、子は画面に対して置く（position:fixed）。置く場所は kinxs.js が合わせる。スマホは今まで通り全部並べる */
   @media (min-width:861px){
+    .kx-side{z-index:400;}   /* 右に出した子が、右側の画面のカードの下に隠れないように */
     .kx-side .kx-grp-tg{display:none !important;}
     .kx-side .kx-grp-h > .kx-nav{padding-right:14px !important;}
     .kx-side .kx-grp-h > .kx-nav::after{content:"›";margin-left:auto;opacity:.5;font-size:16px;line-height:1;}
@@ -1468,7 +1469,7 @@
         </div>
       </div>
     </div>
-    <script src="kbchat.js?v=20261123zd" defer></script>
-    <script src="kinxs.js?v=20261123zd"></script>
+    <script src="kbchat.js?v=20261123ze" defer></script>
+    <script src="kinxs.js?v=20261123ze"></script>
   </body>
 </html>
