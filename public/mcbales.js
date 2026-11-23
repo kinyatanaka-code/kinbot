@@ -184,8 +184,8 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
     const m0 = mainList(); const oc = ownerCol(m0); const mh = memHome; const label = mh.blank ? "未割り振り" : mh.name;
     root.innerHTML = `<div class="bl-home"><button type="button" class="bl-back" data-mback>‹ リスト管理に戻る</button>
       <div class="bl-home-h"><h2>${esc(label)}<small style="font-size:12px;font-weight:600;color:#5C7377;margin-left:8px">リードソース別</small></h2></div>
-      <div class="bl-lgrid" data-msrc><div class="mc-note">読み込んでいます…</div></div>
-      <div class="bl-lgrid" data-mstg style="margin-top:10px"></div></div>`;
+      <div class="bl-lgrid" data-mstg style="margin-bottom:10px"></div>
+      <div class="bl-lgrid" data-msrc><div class="mc-note">読み込んでいます…</div></div></div>`;   // かける・ナーチャリング・リサイクル・アーカイブは SFリードソースの上（2026-11-23 田中さん「下じゃなくて上に」）
     root.querySelector("[data-mback]").addEventListener("click", () => goHome());
     if (!m0 || !oc) return;
     let it = []; try { it = (await api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/sources?col=${encodeURIComponent(oc)}&${mh.blank ? "blank=1" : `val=${encodeURIComponent(mh.name)}`}`)).items || []; } catch {}
@@ -197,7 +197,7 @@ const STG = [["call", "かけるリスト", "リサイクル・アーカイブ�
       <div class="bl-msrc-hw">${'<div class="bl-msrc-hd"><span>リードソース</span><span>全件数</span><span>残りの架け先</span><span>ナーチャリング</span><span>リストアポ率</span></div>'.repeat(2)}</div>
       <div class="bl-msrc-l">${it.map((v) => `<button type="button" data-ms="${esc(v.v)}" title="アポ ${Number(v.apo || 0).toLocaleString()} ÷ 架電 ${Number(v.called || 0).toLocaleString()}"><span>${esc(v.v === "-" ? "リードソースなし" : v.v)}</span><em class="all">${Number(v.n || 0).toLocaleString()}</em><em>${Number(v.active || 0).toLocaleString()}</em><em class="nur">${Number(v.nurture || 0).toLocaleString()}</em><i>${pct(v)}%</i></button>`).join("")}</div>
       <small>押すとその人のそのリードソースの表・リストアポ率にマウスを乗せるとアポ／架電の件数</small></div>` : '<div class="mc-note">この人のリードがありません。</div>';
-    // 下に「かけるリスト・ナーチャリング・リサイクル・アーカイブ」のカード（その人のリードで）（2026-11-23 田中さん）。押すとその表
+    // 上に「かけるリスト・ナーチャリング・リサイクル・アーカイブ」のカード（その人のリードで）（2026-11-23 田中さん）。押すとその表
     const sb = root.querySelector("[data-mstg]");
     api(`/api/mochica/bales/lists/${encodeURIComponent(m0.list_key)}/stages?col=${encodeURIComponent(oc)}&${mh.blank ? "blank=1" : `val=${encodeURIComponent(mh.name)}`}`).then((d) => {
       if (!sb || !root.isConnected || mode !== "member") return;
